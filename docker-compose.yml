@@ -72,13 +72,10 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      # hapiproject/hapi:v7.4.0 é distroless (sem /bin/sh) — CMD-SHELL não funciona.
-      # Usamos java -version como healthcheck mínimo (valida que a JVM está viva).
-      # A disponibilidade HTTP é monitorada pelo otel-collector (profile observability).
-      test: ["CMD", "java", "-version"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/fhir/metadata || exit 1"]
       interval: 20s
       timeout: 10s
-      retries: 5
+      retries: 10
       start_period: 90s
 
   kafka:
