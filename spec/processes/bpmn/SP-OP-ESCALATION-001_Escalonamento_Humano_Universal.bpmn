@@ -91,6 +91,14 @@ SAIDA: resultado in {resolvido_humano, devolvido_agente, emergencia_acionada}, n
     <!-- Notificar o time humano de plantao -->
     <bpmn:serviceTask id="ST_NotificarTime" name="Notificar time humano"
                       camunda:type="external" camunda:topic="operadora.escalation.notify_team">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="grupo_atendimento">${roteamento.grupo_atendimento}</camunda:inputParameter>
+          <camunda:inputParameter name="prioridade">${roteamento.prioridade}</camunda:inputParameter>
+          <camunda:inputParameter name="sla_ack">${roteamento.sla_ack}</camunda:inputParameter>
+          <camunda:inputParameter name="sla_resolucao">${roteamento.sla_resolucao}</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
       <bpmn:incoming>Flow_Rotear_Notificar</bpmn:incoming>
       <bpmn:outgoing>Flow_Notificar_UT</bpmn:outgoing>
     </bpmn:serviceTask>
@@ -102,6 +110,13 @@ SAIDA: resultado in {resolvido_humano, devolvido_agente, emergencia_acionada}, n
     </bpmn:boundaryEvent>
     <bpmn:serviceTask id="ST_NotificarFallback" name="Notificar supervisor (fallback de canal)"
                       camunda:type="external" camunda:topic="operadora.escalation.notify_supervisor">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="grupo_atendimento">${roteamento.grupo_atendimento}</camunda:inputParameter>
+          <camunda:inputParameter name="prioridade">${roteamento.prioridade}</camunda:inputParameter>
+          <camunda:inputParameter name="motivo_fallback">notificacao_primaria_falhou</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
       <bpmn:incoming>Flow_Falha_Fallback</bpmn:incoming>
       <bpmn:outgoing>Flow_Fallback_UT</bpmn:outgoing>
     </bpmn:serviceTask>
@@ -186,6 +201,13 @@ Valores clinicos dos SLAs: DRAFT — validar com gestao assistencial (docs/revie
 
     <bpmn:serviceTask id="ST_NotificarSupervisor" name="Notificar supervisor de atendimento"
                       camunda:type="external" camunda:topic="operadora.escalation.notify_supervisor">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="grupo_atendimento">${roteamento.grupo_atendimento}</camunda:inputParameter>
+          <camunda:inputParameter name="prioridade">${roteamento.prioridade}</camunda:inputParameter>
+          <camunda:inputParameter name="motivo">sla_ack_breached</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
       <bpmn:incoming>Flow_PubBreach_NotifSup</bpmn:incoming>
       <bpmn:incoming>Flow_BEPubAckBreach_NotifSup</bpmn:incoming>
       <bpmn:outgoing>Flow_NotifSup_End</bpmn:outgoing>

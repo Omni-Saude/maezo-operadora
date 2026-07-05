@@ -19,6 +19,10 @@
        + capturado por boundary event em ST_EnviarNegativaFormal (abaixo). O guard do worker PERMANECE
        o mecanismo de enforcement (ADR-0018) — este catch NAO o enfraquece. -->
   <bpmn:error id="Error_AuthDenialIncompleta" name="Negativa formal com fundamentacao incompleta (guard L0)" errorCode="ERR_AUTH_DENIAL_INCOMPLETE"/>
+  <!-- GAP-AUTH-3 (fail-safe, M2a): GW_DecisaoAuditor default roteava para APROVAR — decisao_auditor
+       ausente/corrompida aprovaria por omissao. Agora default vai para terminal de erro
+       ERR_AUTH_DECISION_INVALID (fail-closed, espelha padrao LGPD-DSR End_ErrDecisaoInvalida). -->
+  <bpmn:error id="Error_AuthDecisaoInvalida" name="Decisao do auditor ausente ou desconhecida" errorCode="ERR_AUTH_DECISION_INVALID"/>
 
   <bpmn:process id="SP-OP-AUTH-001" name="SP-OP-AUTH-001 Autorizacao Previa"
                 isExecutable="true" camunda:historyTimeToLive="1825">
@@ -316,11 +320,46 @@ A decisao sai em nome do medico auditor (assignee registrado na trilha de audito
     <bpmn:userTask id="UT_CoordenacaoAssume" name="Coordenacao de auditoria medica assume"
                    camunda:candidateGroups="coordenacao-auditoria-medica">
       <bpmn:documentation>Escalation path do SLA: caso reatribuido. Mesmas saidas e mesmos campos obrigatorios da analise do auditor (continua decisao medica humana).</bpmn:documentation>
+      <!-- GAP-AUTH-3 (M2a): formData estrutural identico ao de UT_AnaliseMedicoAuditor —
+           coordenacao produz as mesmas saidas contratuais (decisao_auditor, justificativa_clinica,
+           cid10_referencia, fundamentacao_dut). Enforcement real no guard do worker (ADR-0018). -->
+      <bpmn:extensionElements>
+        <camunda:formData>
+          <camunda:formField id="decisao_auditor" label="Decisao do auditor" type="enum">
+            <camunda:value id="APROVAR" name="Aprovar autorizacao"/>
+            <camunda:value id="NEGAR" name="Negar (exige fundamentacao clinica completa)"/>
+            <camunda:value id="SOLICITAR_INFO" name="Solicitar informacao/documentacao"/>
+            <camunda:value id="JUNTA_MEDICA" name="Encaminhar a junta medica (RN 424)"/>
+            <camunda:validation>
+              <camunda:constraint name="required"/>
+            </camunda:validation>
+          </camunda:formField>
+          <camunda:formField id="justificativa_clinica" label="Justificativa clinica (obrigatoria se NEGAR)" type="string">
+            <camunda:properties>
+              <camunda:property name="requiredIf" value="decisao_auditor == NEGAR"/>
+              <camunda:property name="enforcedBy" value="worker send_denial_notice guard ERR_AUTH_DENIAL_INCOMPLETE"/>
+              <camunda:property name="zona" value="PHI — texto livre clinico (nao difundir na Zona Geral, ADR-0006)"/>
+            </camunda:properties>
+          </camunda:formField>
+          <camunda:formField id="cid10_referencia" label="CID-10 de referencia (obrigatorio se NEGAR)" type="string">
+            <camunda:properties>
+              <camunda:property name="requiredIf" value="decisao_auditor == NEGAR"/>
+              <camunda:property name="enforcedBy" value="worker send_denial_notice guard ERR_AUTH_DENIAL_INCOMPLETE"/>
+            </camunda:properties>
+          </camunda:formField>
+          <camunda:formField id="fundamentacao_dut" label="Fundamentacao na DUT/ROL (obrigatoria se NEGAR)" type="string">
+            <camunda:properties>
+              <camunda:property name="requiredIf" value="decisao_auditor == NEGAR"/>
+              <camunda:property name="enforcedBy" value="worker send_denial_notice guard ERR_AUTH_DENIAL_INCOMPLETE"/>
+            </camunda:properties>
+          </camunda:formField>
+        </camunda:formData>
+      </bpmn:extensionElements>
       <bpmn:incoming>Flow_PubBreach_UTCoord</bpmn:incoming>
       <bpmn:outgoing>Flow_UTCoord_GW</bpmn:outgoing>
     </bpmn:userTask>
 
-    <bpmn:exclusiveGateway id="GW_DecisaoAuditor" name="Decisao do auditor" default="Flow_GWDec_Aprovar">
+    <bpmn:exclusiveGateway id="GW_DecisaoAuditor" name="Decisao do auditor" default="Flow_GWDec_Invalida">
       <bpmn:incoming>Flow_UTAuditor_GW</bpmn:incoming>
       <bpmn:incoming>Flow_UTCoord_GW</bpmn:incoming>
       <bpmn:incoming>Flow_Junta_GWDec</bpmn:incoming>
@@ -328,6 +367,7 @@ A decisao sai em nome do medico auditor (assignee registrado na trilha de audito
       <bpmn:outgoing>Flow_GWDec_Negar</bpmn:outgoing>
       <bpmn:outgoing>Flow_GWDec_SolicitarInfo</bpmn:outgoing>
       <bpmn:outgoing>Flow_GWDec_Junta</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWDec_Invalida</bpmn:outgoing>
     </bpmn:exclusiveGateway>
 
     <!-- Aprovada pelo auditor -->
@@ -411,9 +451,52 @@ A decisao sai em nome do medico auditor (assignee registrado na trilha de audito
     <bpmn:userTask id="UT_RegistrarParecerJunta" name="Registrar parecer da junta medica"
                    camunda:candidateGroups="junta-medica">
       <bpmn:documentation>DRAFT — fluxo de junta simplificado; detalhar com juridico/regulatorio (prazos e desempate RN 424). Saida: decisao_auditor in {APROVAR, NEGAR} (parecer vinculante).</bpmn:documentation>
+      <!-- GAP-AUTH-3 (M2a): formData estrutural para junta medica. decisao_auditor restrito a
+           {APROVAR, NEGAR} (parecer vinculante, sem SOLICITAR_INFO nem JUNTA_MEDICA recursiva).
+           Se NEGAR, exige justificativa_clinica, cid10_referencia e fundamentacao_dut. -->
+      <bpmn:extensionElements>
+        <camunda:formData>
+          <camunda:formField id="decisao_auditor" label="Parecer da junta medica" type="enum">
+            <camunda:value id="APROVAR" name="Aprovar autorizacao (parecer vinculante)"/>
+            <camunda:value id="NEGAR" name="Negar (exige fundamentacao clinica completa)"/>
+            <camunda:validation>
+              <camunda:constraint name="required"/>
+            </camunda:validation>
+          </camunda:formField>
+          <camunda:formField id="justificativa_clinica" label="Justificativa clinica (obrigatoria se NEGAR)" type="string">
+            <camunda:properties>
+              <camunda:property name="requiredIf" value="decisao_auditor == NEGAR"/>
+              <camunda:property name="enforcedBy" value="worker send_denial_notice guard ERR_AUTH_DENIAL_INCOMPLETE"/>
+              <camunda:property name="zona" value="PHI — texto livre clinico (nao difundir na Zona Geral, ADR-0006)"/>
+            </camunda:properties>
+          </camunda:formField>
+          <camunda:formField id="cid10_referencia" label="CID-10 de referencia (obrigatorio se NEGAR)" type="string">
+            <camunda:properties>
+              <camunda:property name="requiredIf" value="decisao_auditor == NEGAR"/>
+              <camunda:property name="enforcedBy" value="worker send_denial_notice guard ERR_AUTH_DENIAL_INCOMPLETE"/>
+            </camunda:properties>
+          </camunda:formField>
+          <camunda:formField id="fundamentacao_dut" label="Fundamentacao na DUT/ROL (obrigatoria se NEGAR)" type="string">
+            <camunda:properties>
+              <camunda:property name="requiredIf" value="decisao_auditor == NEGAR"/>
+              <camunda:property name="enforcedBy" value="worker send_denial_notice guard ERR_AUTH_DENIAL_INCOMPLETE"/>
+            </camunda:properties>
+          </camunda:formField>
+        </camunda:formData>
+      </bpmn:extensionElements>
       <bpmn:incoming>Flow_Convocar_UTJunta</bpmn:incoming>
       <bpmn:outgoing>Flow_Junta_GWDec</bpmn:outgoing>
     </bpmn:userTask>
+
+    <!-- GAP-AUTH-3 (fail-safe, M2a): GW_DecisaoAuditor default roteado para terminal de erro.
+         Se decisao_auditor chegar ausente/corrompida (nao bate nenhum dos 4 valores explicitos:
+         APROVAR, NEGAR, SOLICITAR_INFO, JUNTA_MEDICA), o processo termina em incidente tecnico
+         (ERR_AUTH_DECISION_INVALID) — NUNCA aprova por omissao. Espelha padrao fail-closed
+         LGPD-DSR End_ErrDecisaoInvalida (GAP-LGPD-4). -->
+    <bpmn:endEvent id="End_ErrDecisaoInvalida" name="Erro: decisao do auditor ausente ou desconhecida (ERR_AUTH_DECISION_INVALID)">
+      <bpmn:documentation>Fail-closed (GAP-AUTH-3, ADR-0005): decisao_auditor fora de {APROVAR, NEGAR, SOLICITAR_INFO, JUNTA_MEDICA} (incluindo ausente/em branco) NUNCA aprova por omissao — incidente tecnico/operacional que exige correcao humana. Nenhuma autorizacao foi emitida; nenhuma negativa foi enviada.</bpmn:documentation>
+      <bpmn:errorEventDefinition id="EED_AuthDecisaoInvalida" errorRef="Error_AuthDecisaoInvalida"/>
+    </bpmn:endEvent>
 
     <!-- FLOWS -->
     <bpmn:sequenceFlow id="Flow_Start_PubReceived" sourceRef="Start_SolicitacaoRecebida" targetRef="ST_PublishReceived"/>
@@ -456,7 +539,7 @@ A decisao sai em nome do medico auditor (assignee registrado na trilha de audito
     <bpmn:sequenceFlow id="Flow_PubBreach_UTCoord" sourceRef="ST_PublishSlaBreach" targetRef="UT_CoordenacaoAssume"/>
     <bpmn:sequenceFlow id="Flow_UTAuditor_GW" sourceRef="UT_AnaliseMedicoAuditor" targetRef="GW_DecisaoAuditor"/>
     <bpmn:sequenceFlow id="Flow_UTCoord_GW" sourceRef="UT_CoordenacaoAssume" targetRef="GW_DecisaoAuditor"/>
-    <bpmn:sequenceFlow id="Flow_GWDec_Aprovar" name="APROVAR (default)" sourceRef="GW_DecisaoAuditor" targetRef="ST_EmitirAutorizacaoAuditor"/>
+    <bpmn:sequenceFlow id="Flow_GWDec_Aprovar" name="APROVAR" sourceRef="GW_DecisaoAuditor" targetRef="ST_EmitirAutorizacaoAuditor"/>
     <bpmn:sequenceFlow id="Flow_GWDec_Negar" name="NEGAR (somente humano)" sourceRef="GW_DecisaoAuditor" targetRef="ST_EnviarNegativaFormal">
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_auditor == 'NEGAR'}</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
@@ -473,6 +556,8 @@ A decisao sai em nome do medico auditor (assignee registrado na trilha de audito
     <bpmn:sequenceFlow id="Flow_PubNegada_End" sourceRef="ST_PublishNegada" targetRef="End_NegadaAuditor"/>
     <bpmn:sequenceFlow id="Flow_Convocar_UTJunta" sourceRef="ST_ConvocarJunta" targetRef="UT_RegistrarParecerJunta"/>
     <bpmn:sequenceFlow id="Flow_Junta_GWDec" sourceRef="UT_RegistrarParecerJunta" targetRef="GW_DecisaoAuditor"/>
+    <!-- GAP-AUTH-3 (M2a): default do GW_DecisaoAuditor — decisao_auditor invalida/ausente → terminal de erro -->
+    <bpmn:sequenceFlow id="Flow_GWDec_Invalida" name="invalida/ausente (default → ERR_AUTH_DECISION_INVALID)" sourceRef="GW_DecisaoAuditor" targetRef="End_ErrDecisaoInvalida"/>
   </bpmn:process>
 
   <bpmndi:BPMNDiagram id="Diagram_SP-OP-AUTH-001">
@@ -593,6 +678,10 @@ A decisao sai em nome do medico auditor (assignee registrado na trilha de audito
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_UT_RegistrarParecerJunta" bpmnElement="UT_RegistrarParecerJunta">
         <dc:Bounds x="2606" y="568" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <!-- GAP-AUTH-3 (M2a): DI para o terminal de erro fail-safe -->
+      <bpmndi:BPMNShape id="Shape_End_ErrDecisaoInvalida" bpmnElement="End_ErrDecisaoInvalida">
+        <dc:Bounds x="2786" y="644" width="36" height="36"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNEdge id="Edge_Flow_Start_PubReceived" bpmnElement="Flow_Start_PubReceived">
         <di:waypoint x="108" y="80"/>
@@ -785,6 +874,12 @@ A decisao sai em nome do medico auditor (assignee registrado na trilha de audito
         <di:waypoint x="2656" y="708"/>
         <di:waypoint x="2296" y="708"/>
         <di:waypoint x="2296" y="332"/>
+      </bpmndi:BPMNEdge>
+      <!-- GAP-AUTH-3 (M2a): DI edge para o terminal de erro fail-safe -->
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Invalida" bpmnElement="Flow_GWDec_Invalida">
+        <di:waypoint x="2321" y="357"/>
+        <di:waypoint x="2321" y="662"/>
+        <di:waypoint x="2786" y="662"/>
       </bpmndi:BPMNEdge>
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>

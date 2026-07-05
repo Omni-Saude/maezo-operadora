@@ -288,6 +288,11 @@ continua humana; o guard so impede a AUSENCIA da fundamentacao exigida por lei.
       <bpmn:extensionElements>
         <camunda:inputOutput>
           <camunda:inputParameter name="event_topic">agents.events.lgpd_dsr.completed</camunda:inputParameter>
+          <!-- GAP-LGPD-7 (M2a): event_desfecho agora computado in-engine via JUEL.
+               APROVAR_ENVIO/EXECUTAR_E_ENVIAR → atendida; NEGAR_FUNDAMENTADO → negada_fundamentada.
+               Os outros dois desfechos (expirada_identidade, identidade_inverificavel) sao
+               emitidos por ST_PublishExpirada e ST_PublishIdentidadeInverificavel respectivamente. -->
+          <camunda:inputParameter name="event_desfecho">${decisao_dsr == 'NEGAR_FUNDAMENTADO' ? 'negada_fundamentada' : 'atendida'}</camunda:inputParameter>
           <camunda:inputParameter name="event_payload_vars">tenant_id,titular_pseudo_id,tipo_requisicao,decisao_dsr</camunda:inputParameter>
         </camunda:inputOutput>
       </bpmn:extensionElements>
