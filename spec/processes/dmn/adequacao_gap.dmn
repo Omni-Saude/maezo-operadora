@@ -3,194 +3,129 @@
              xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
              xmlns:camunda="http://camunda.org/schema/1.0/dmn"
              id="defs_adequacao_gap"
-             name="Adequacao geografica de rede — medida de gap + roteamento de remediacao"
+             name="Medicao de gap de adequacao geografica de rede (RN 259)"
              namespace="http://maezo.health/dmn/operadora">
   <description>
-    adequacao_gap v0.1.0 — status: DRAFT (conteudo requer SME regulatorio/rede + compliance;
-    RN 259/2011 tempos/distancias maximos de acesso e RN 566 dimensionamento DRAFT/verify;
-    docs/review-queue.md). Consumida por SP-OP-ADEQUACAO-001 e mcp-dmn.
+    adequacao_gap v0.1.0 — status: DRAFT — TODOS os thresholds de tempo/distancia marcados
+    DRAFT/verify: confirmar texto vigente com regulatorio (RN 259/2011 garantia de atendimento
+    com tempos e distancias maximas de acesso; RN 566 dimensionamento/regras de rede;
+    consolidacoes ANS; docs/review-queue.md). Consumida por SP-OP-ADEQUACAO-001 e mcp-dmn.
 
-    Este arquivo carrega DUAS decisoes que APENAS MEDEM e ROTEIAM — nenhuma firma/autoriza
-    compromisso financeiro (ADR-0018 parte 1 e 2):
+    INVARIANTE (ADR-0018): esta tabela APENAS MEDE a severidade do gap de adequacao geografica.
+    NAO possui saida que firme/autorize compromisso financeiro — o dominio de `gap_adequacao` e
+    um CLOSED-allowlist NEUTRO {CONFORME, GAP_LEVE, GAP_MODERADO, GAP_CRITICO}. O compromisso
+    financeiro de fallback (COMPROMISSO_FALLBACK) SO nasce na User Task humana UT_DecisaoFallback,
+    materializado pelo worker gated operadora.adequacao.register_fallback_commitment
+    (ERR_FALLBACK_COMMITMENT_NOT_HUMAN).
 
-      1) `adequacao_gap` — mede a SEVERIDADE do gap de adequacao (gap_adequacao in
-         {CONFORME, GAP_LEVE, GAP_MODERADO, GAP_CRITICO}) comparando tempo/distancia/contagem
-         apurados contra os thresholds RN 259/566 por tipo_carater (eletivo vs urgencia). Catch-all
-         (dados insuficientes / combinacao nao coberta) -> GAP_CRITICO (conservador -> humano a
-         jusante). NUNCA produz COMPROMETER / GARANTIR_REEMBOLSO / CONTRATAR.
-      2) `adequacao_remediation_routing` — roteia a remediacao (roteamento_remediacao in
-         {MONITORAR, ENCAMINHAR_CREDENCIAMENTO, ANALISE_HUMANA}). CONFORME/GAP_LEVE -> MONITORAR
-         (L3, sem User Task); GAP_MODERADO -> ENCAMINHAR_CREDENCIAMENTO (handoff CRED, L3 — credenciar
-         NAO e adverso); GAP_CRITICO / dados_geo_completos=false -> ANALISE_HUMANA (humano decide a
-         remediacao, incluindo o eventual compromisso de fallback). Catch-all -> ANALISE_HUMANA. Por
-         design NAO existe saida COMPROMETER/GARANTIR/CONTRATAR — o compromisso financeiro de fallback
-         (efeito adverso) so nasce na User Task humana (decisao_remediacao=COMPROMISSO_FALLBACK),
-         materializado pelo worker gated operadora.adequacao.register_fallback_commitment
-         (ERR_FALLBACK_COMMITMENT_NOT_HUMAN). Espelha glosa_triage / cancel_admissibility.
+    Thresholds de tempo/distancia maximos por tipo_carater (eletivo vs urgencia_emergencia) sao
+    DRAFT/verify contra RN 259 vigente. Catch-all FAIL-SAFE (dados insuficientes/combinacao
+    nao coberta): GAP_CRITICO (conservador → humano a jusante no adequacao_remediation_routing).
 
-    Inputs apurados pre-resolvidos por worker deterministico (operadora.adequacao.measure_coverage /
-    calculate_gap) — geoanalise/aritmetica, nunca decisao adversa. Numeros NUNCA "number":
-    tempo/contagem -> integer; distancia -> double (ADR-0018 parte 2; allowlist de shape DMN).
-    Geografia em granularidade de regiao/municipio (IBGE) — NUNCA endereco cru de beneficiario
-    (ADR-0006).
-    NOTA hitPolicy: FIRST (catch-all conservador como ultima row) — uma row catch-all (`-`) sob
-    UNIQUE colidiria com qualquer row especifica no engine (violacao em runtime); FIRST preserva o
-    catch-all conservador mantendo a tabela ENGINE-DEPLOYAVEL.
+    Numeros nunca como `number` (ADR-0018 parte 2): tempo_acesso_apurado_min / prestadores_disponiveis
+    = integer; distancia_apurada_km = double.
+
+    hitPolicy FIRST (catch-all conservador como ultima row; rows ordenadas da condicao mais
+    critica para a menos critica).
   </description>
-
-  <decision id="adequacao_gap" name="Medida de gap de adequacao geografica" camunda:historyTimeToLive="P180D">
+  <decision id="adequacao_gap" name="Medicao de gap de adequacao geografica" camunda:historyTimeToLive="P180D">
     <decisionTable id="dt_adequacao_gap" hitPolicy="FIRST">
       <input id="in_tipo_carater" label="Tipo de carater (tipo_carater)">
         <inputExpression id="ie_tipo_carater" typeRef="string"><text>tipo_carater</text></inputExpression>
       </input>
-      <input id="in_cobertura_geo" label="Cobertura geografica suficiente (cobertura_geo_suficiente)">
-        <inputExpression id="ie_cobertura_geo" typeRef="boolean"><text>cobertura_geo_suficiente</text></inputExpression>
-      </input>
-      <input id="in_prestadores" label="Prestadores disponiveis (prestadores_disponiveis)">
-        <inputExpression id="ie_prestadores" typeRef="integer"><text>prestadores_disponiveis</text></inputExpression>
-      </input>
-      <input id="in_tempo" label="Tempo de acesso apurado em minutos (tempo_acesso_apurado_min)">
-        <inputExpression id="ie_tempo" typeRef="integer"><text>tempo_acesso_apurado_min</text></inputExpression>
+      <input id="in_tempo_acesso" label="Tempo de acesso apurado em minutos (tempo_acesso_apurado_min)">
+        <inputExpression id="ie_tempo_acesso" typeRef="integer"><text>tempo_acesso_apurado_min</text></inputExpression>
       </input>
       <input id="in_distancia" label="Distancia apurada em km (distancia_apurada_km)">
         <inputExpression id="ie_distancia" typeRef="double"><text>distancia_apurada_km</text></inputExpression>
       </input>
-      <output id="out_gap_adequacao" label="gap_adequacao" name="gap_adequacao" typeRef="string"/>
+      <input id="in_prestadores" label="Prestadores disponiveis (prestadores_disponiveis)">
+        <inputExpression id="ie_prestadores" typeRef="integer"><text>prestadores_disponiveis</text></inputExpression>
+      </input>
+      <input id="in_cobertura_geo" label="Cobertura geografica suficiente (cobertura_geo_suficiente)">
+        <inputExpression id="ie_cobertura_geo" typeRef="boolean"><text>cobertura_geo_suficiente</text></inputExpression>
+      </input>
+      <output id="out_gap" label="gap_adequacao" name="gap_adequacao" typeRef="string"/>
       <output id="out_motivo" label="motivo" name="motivo" typeRef="string"/>
-      <rule id="r_sem_prestador">
-        <description>Nenhum prestador da especialidade na regiao -> gap critico (rede ausente)</description>
-        <inputEntry id="r_sem_prestador_i1"><text>-</text></inputEntry>
-        <inputEntry id="r_sem_prestador_i2"><text>-</text></inputEntry>
-        <inputEntry id="r_sem_prestador_i3"><text>&lt;= 0</text></inputEntry>
-        <inputEntry id="r_sem_prestador_i4"><text>-</text></inputEntry>
-        <inputEntry id="r_sem_prestador_i5"><text>-</text></inputEntry>
-        <outputEntry id="r_sem_prestador_o1"><text>"GAP_CRITICO"</text></outputEntry>
-        <outputEntry id="r_sem_prestador_o2"><text>"Nenhum prestador ativo da especialidade na regiao — rede ausente (gap critico; RN 259/566 DRAFT/verify)"</text></outputEntry>
-      </rule>
-      <rule id="r_urgencia_conforme">
-        <description>Urgencia/emergencia dentro dos tempos/distancias maximos RN 259 (mais restritivos)</description>
-        <inputEntry id="r_urgencia_conforme_i1"><text>"urgencia_emergencia"</text></inputEntry>
-        <inputEntry id="r_urgencia_conforme_i2"><text>true</text></inputEntry>
-        <inputEntry id="r_urgencia_conforme_i3"><text>&gt; 0</text></inputEntry>
-        <inputEntry id="r_urgencia_conforme_i4"><text>&lt;= 30</text></inputEntry>
-        <inputEntry id="r_urgencia_conforme_i5"><text>&lt;= 15.0</text></inputEntry>
-        <outputEntry id="r_urgencia_conforme_o1"><text>"CONFORME"</text></outputEntry>
-        <outputEntry id="r_urgencia_conforme_o2"><text>"Urgencia/emergencia dentro dos tempos/distancias maximos de acesso (RN 259 — DRAFT/verify)"</text></outputEntry>
-      </rule>
       <rule id="r_urgencia_critico">
-        <description>Urgencia/emergencia muito acima dos tempos/distancias -> gap critico</description>
+        <description>Urgencia/emergencia com acesso acima de threshold (tempo > 30min ou distancia > 30km) -> GAP_CRITICO (conservador; humano decide remediacao)</description>
         <inputEntry id="r_urgencia_critico_i1"><text>"urgencia_emergencia"</text></inputEntry>
-        <inputEntry id="r_urgencia_critico_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_urgencia_critico_i2"><text>&gt; 30</text></inputEntry>
         <inputEntry id="r_urgencia_critico_i3"><text>-</text></inputEntry>
-        <inputEntry id="r_urgencia_critico_i4"><text>&gt; 60</text></inputEntry>
+        <inputEntry id="r_urgencia_critico_i4"><text>-</text></inputEntry>
         <inputEntry id="r_urgencia_critico_i5"><text>-</text></inputEntry>
         <outputEntry id="r_urgencia_critico_o1"><text>"GAP_CRITICO"</text></outputEntry>
-        <outputEntry id="r_urgencia_critico_o2"><text>"Urgencia/emergencia muito acima do tempo maximo de acesso (RN 259 — DRAFT/verify); gap critico"</text></outputEntry>
+        <outputEntry id="r_urgencia_critico_o2"><text>"Urgencia/emergencia com tempo de acesso acima do threshold RN 259 — gap critico; humano decide remediacao; DRAFT/verify"</text></outputEntry>
       </rule>
-      <rule id="r_urgencia_moderado">
-        <description>Urgencia/emergencia acima do limiar mas nao critico -> gap moderado</description>
-        <inputEntry id="r_urgencia_moderado_i1"><text>"urgencia_emergencia"</text></inputEntry>
-        <inputEntry id="r_urgencia_moderado_i2"><text>-</text></inputEntry>
-        <inputEntry id="r_urgencia_moderado_i3"><text>&gt; 0</text></inputEntry>
-        <inputEntry id="r_urgencia_moderado_i4"><text>[31..60]</text></inputEntry>
-        <inputEntry id="r_urgencia_moderado_i5"><text>-</text></inputEntry>
-        <outputEntry id="r_urgencia_moderado_o1"><text>"GAP_MODERADO"</text></outputEntry>
-        <outputEntry id="r_urgencia_moderado_o2"><text>"Urgencia/emergencia acima do tempo maximo de acesso — gap moderado (encaminhar credenciamento; RN 259 DRAFT/verify)"</text></outputEntry>
+      <rule id="r_urgencia_distancia_critico">
+        <description>Urgencia/emergencia com distancia acima do threshold (> 30km) -> GAP_CRITICO</description>
+        <inputEntry id="r_urgencia_distancia_critico_i1"><text>"urgencia_emergencia"</text></inputEntry>
+        <inputEntry id="r_urgencia_distancia_critico_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_urgencia_distancia_critico_i3"><text>&gt; 30.0</text></inputEntry>
+        <inputEntry id="r_urgencia_distancia_critico_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_urgencia_distancia_critico_i5"><text>-</text></inputEntry>
+        <outputEntry id="r_urgencia_distancia_critico_o1"><text>"GAP_CRITICO"</text></outputEntry>
+        <outputEntry id="r_urgencia_distancia_critico_o2"><text>"Urgencia/emergencia com distancia acima do threshold RN 259 — gap critico; DRAFT/verify"</text></outputEntry>
       </rule>
-      <rule id="r_eletivo_conforme">
-        <description>Eletivo dentro dos tempos/distancias maximos de acesso RN 259</description>
-        <inputEntry id="r_eletivo_conforme_i1"><text>"eletivo"</text></inputEntry>
-        <inputEntry id="r_eletivo_conforme_i2"><text>true</text></inputEntry>
-        <inputEntry id="r_eletivo_conforme_i3"><text>&gt; 0</text></inputEntry>
-        <inputEntry id="r_eletivo_conforme_i4"><text>&lt;= 60</text></inputEntry>
-        <inputEntry id="r_eletivo_conforme_i5"><text>&lt;= 30.0</text></inputEntry>
-        <outputEntry id="r_eletivo_conforme_o1"><text>"CONFORME"</text></outputEntry>
-        <outputEntry id="r_eletivo_conforme_o2"><text>"Eletivo dentro dos tempos/distancias maximos de acesso (RN 259 — DRAFT/verify)"</text></outputEntry>
+      <rule id="r_zero_prestadores_critico">
+        <description>Zero prestadores disponiveis -> GAP_CRITICO independente de tipo (falha total de cobertura)</description>
+        <inputEntry id="r_zero_prestadores_critico_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_zero_prestadores_critico_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_zero_prestadores_critico_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_zero_prestadores_critico_i4"><text>0</text></inputEntry>
+        <inputEntry id="r_zero_prestadores_critico_i5"><text>-</text></inputEntry>
+        <outputEntry id="r_zero_prestadores_critico_o1"><text>"GAP_CRITICO"</text></outputEntry>
+        <outputEntry id="r_zero_prestadores_critico_o2"><text>"Zero prestadores disponiveis na celula — gap critico (falha total de cobertura); DRAFT/verify RN 566"</text></outputEntry>
+      </rule>
+      <rule id="r_cobertura_insuficiente">
+        <description>Cobertura geografica insuficiente -> GAP_MODERADO (dimensionamento RN 566 insuficiente)</description>
+        <inputEntry id="r_cobertura_insuficiente_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_cobertura_insuficiente_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_cobertura_insuficiente_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_cobertura_insuficiente_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_cobertura_insuficiente_i5"><text>false</text></inputEntry>
+        <outputEntry id="r_cobertura_insuficiente_o1"><text>"GAP_MODERADO"</text></outputEntry>
+        <outputEntry id="r_cobertura_insuficiente_o2"><text>"Cobertura geografica insuficiente (dimensionamento RN 566) — gap moderado; DRAFT/verify"</text></outputEntry>
       </rule>
       <rule id="r_eletivo_leve">
-        <description>Eletivo levemente acima do limiar de tempo -> gap leve (acompanhamento)</description>
+        <description>Eletivo com tempo ate 60min e distancia ate 50km e ao menos 1 prestador -> GAP_LEVE (monitorar)</description>
         <inputEntry id="r_eletivo_leve_i1"><text>"eletivo"</text></inputEntry>
-        <inputEntry id="r_eletivo_leve_i2"><text>-</text></inputEntry>
-        <inputEntry id="r_eletivo_leve_i3"><text>&gt; 0</text></inputEntry>
-        <inputEntry id="r_eletivo_leve_i4"><text>[61..90]</text></inputEntry>
-        <inputEntry id="r_eletivo_leve_i5"><text>-</text></inputEntry>
+        <inputEntry id="r_eletivo_leve_i2"><text>&lt;= 60</text></inputEntry>
+        <inputEntry id="r_eletivo_leve_i3"><text>&lt;= 50.0</text></inputEntry>
+        <inputEntry id="r_eletivo_leve_i4"><text>&gt; 0</text></inputEntry>
+        <inputEntry id="r_eletivo_leve_i5"><text>true</text></inputEntry>
         <outputEntry id="r_eletivo_leve_o1"><text>"GAP_LEVE"</text></outputEntry>
-        <outputEntry id="r_eletivo_leve_o2"><text>"Eletivo levemente acima do tempo maximo — gap leve sob acompanhamento (RN 259 DRAFT/verify)"</text></outputEntry>
+        <outputEntry id="r_eletivo_leve_o2"><text>"Eletivo com acesso dentro de thresholds estendidos — gap leve; monitorar (L3); DRAFT/verify RN 259"</text></outputEntry>
       </rule>
-      <rule id="r_eletivo_moderado">
-        <description>Eletivo bem acima do limiar de tempo -> gap moderado (encaminhar credenciamento)</description>
-        <inputEntry id="r_eletivo_moderado_i1"><text>"eletivo"</text></inputEntry>
-        <inputEntry id="r_eletivo_moderado_i2"><text>-</text></inputEntry>
-        <inputEntry id="r_eletivo_moderado_i3"><text>&gt; 0</text></inputEntry>
-        <inputEntry id="r_eletivo_moderado_i4"><text>[91..150]</text></inputEntry>
-        <inputEntry id="r_eletivo_moderado_i5"><text>-</text></inputEntry>
-        <outputEntry id="r_eletivo_moderado_o1"><text>"GAP_MODERADO"</text></outputEntry>
-        <outputEntry id="r_eletivo_moderado_o2"><text>"Eletivo bem acima do tempo maximo — gap moderado (encaminhar credenciamento; RN 259 DRAFT/verify)"</text></outputEntry>
+      <rule id="r_urgencia_leve">
+        <description>Urgencia/emergencia com acesso dentro dos thresholds (<= 30min, <= 30km) e cobertura ok -> GAP_LEVE (monitorar)</description>
+        <inputEntry id="r_urgencia_leve_i1"><text>"urgencia_emergencia"</text></inputEntry>
+        <inputEntry id="r_urgencia_leve_i2"><text>&lt;= 30</text></inputEntry>
+        <inputEntry id="r_urgencia_leve_i3"><text>&lt;= 30.0</text></inputEntry>
+        <inputEntry id="r_urgencia_leve_i4"><text>&gt; 0</text></inputEntry>
+        <inputEntry id="r_urgencia_leve_i5"><text>true</text></inputEntry>
+        <outputEntry id="r_urgencia_leve_o1"><text>"GAP_LEVE"</text></outputEntry>
+        <outputEntry id="r_urgencia_leve_o2"><text>"Urgencia/emergencia com acesso dentro dos thresholds RN 259 — gap leve; monitorar; DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r_conforme">
+        <description>Celula plenamente coberta: ao menos 1 prestador, cobertura geografica ok, dentro dos thresholds -> CONFORME</description>
+        <inputEntry id="r_conforme_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_conforme_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_conforme_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_conforme_i4"><text>&gt; 0</text></inputEntry>
+        <inputEntry id="r_conforme_i5"><text>true</text></inputEntry>
+        <outputEntry id="r_conforme_o1"><text>"CONFORME"</text></outputEntry>
+        <outputEntry id="r_conforme_o2"><text>"Celula plenamente coberta (prestadores disponiveis + cobertura geografica suficiente) — conforme RN 259/566; DRAFT/verify"</text></outputEntry>
       </rule>
       <rule id="r_catchall">
-        <description>Catch-all FAIL-SAFE: dados insuficientes / combinacao nao coberta -> gap critico (conservador -> humano a jusante). NUNCA firma compromisso.</description>
+        <description>Catch-all FAIL-SAFE: dados insuficientes, combinacao nao coberta ou ambiguidade -> GAP_CRITICO (conservador -> humano a jusante; nunca compromisso automatico)</description>
         <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
         <inputEntry id="r_catchall_i2"><text>-</text></inputEntry>
         <inputEntry id="r_catchall_i3"><text>-</text></inputEntry>
         <inputEntry id="r_catchall_i4"><text>-</text></inputEntry>
         <inputEntry id="r_catchall_i5"><text>-</text></inputEntry>
         <outputEntry id="r_catchall_o1"><text>"GAP_CRITICO"</text></outputEntry>
-        <outputEntry id="r_catchall_o2"><text>"Dados insuficientes / combinacao nao coberta — gap critico conservador (roteia a analise humana; nunca firma compromisso de fallback automaticamente)"</text></outputEntry>
-      </rule>
-    </decisionTable>
-  </decision>
-
-  <decision id="adequacao_remediation_routing" name="Roteamento de remediacao de adequacao" camunda:historyTimeToLive="P180D">
-    <decisionTable id="dt_adequacao_remediation_routing" hitPolicy="FIRST">
-      <input id="in_gap_adequacao" label="Severidade do gap (gap_adequacao)">
-        <inputExpression id="ie_gap_adequacao" typeRef="string"><text>gap_adequacao</text></inputExpression>
-      </input>
-      <input id="in_dados_geo_completos" label="Dados de geolocalizacao completos (dados_geo_completos)">
-        <inputExpression id="ie_dados_geo_completos" typeRef="boolean"><text>dados_geo_completos</text></inputExpression>
-      </input>
-      <output id="out_roteamento" label="roteamento_remediacao" name="roteamento_remediacao" typeRef="string"/>
-      <output id="out_motivo_rot" label="motivo" name="motivo" typeRef="string"/>
-      <rule id="r_dados_incompletos">
-        <description>Dados de geolocalizacao incompletos -> analise humana (NUNCA decide com dados incompletos)</description>
-        <inputEntry id="r_dados_incompletos_i1"><text>-</text></inputEntry>
-        <inputEntry id="r_dados_incompletos_i2"><text>false</text></inputEntry>
-        <outputEntry id="r_dados_incompletos_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
-        <outputEntry id="r_dados_incompletos_o2"><text>"Dados de geolocalizacao/rede incompletos — analise humana por seguranca (nunca decide remediacao com dados incompletos)"</text></outputEntry>
-      </rule>
-      <rule id="r_conforme">
-        <description>CONFORME -> apenas monitorar (rede dentro dos tempos/distancias RN 259; L3)</description>
-        <inputEntry id="r_conforme_i1"><text>"CONFORME"</text></inputEntry>
-        <inputEntry id="r_conforme_i2"><text>-</text></inputEntry>
-        <outputEntry id="r_conforme_o1"><text>"MONITORAR"</text></outputEntry>
-        <outputEntry id="r_conforme_o2"><text>"Rede dentro dos tempos/distancias RN 259 — apenas monitorar (L3, sem User Task)"</text></outputEntry>
-      </rule>
-      <rule id="r_leve">
-        <description>GAP_LEVE -> monitorar (acompanhamento; L3, sem User Task)</description>
-        <inputEntry id="r_leve_i1"><text>"GAP_LEVE"</text></inputEntry>
-        <inputEntry id="r_leve_i2"><text>-</text></inputEntry>
-        <outputEntry id="r_leve_o1"><text>"MONITORAR"</text></outputEntry>
-        <outputEntry id="r_leve_o2"><text>"Gap leve — atualizar plano de monitoramento e seguir observando (L3, sem User Task)"</text></outputEntry>
-      </rule>
-      <rule id="r_moderado">
-        <description>GAP_MODERADO -> encaminhar credenciamento (handoff CRED; L3 — credenciar NAO e adverso)</description>
-        <inputEntry id="r_moderado_i1"><text>"GAP_MODERADO"</text></inputEntry>
-        <inputEntry id="r_moderado_i2"><text>-</text></inputEntry>
-        <outputEntry id="r_moderado_o1"><text>"ENCAMINHAR_CREDENCIAMENTO"</text></outputEntry>
-        <outputEntry id="r_moderado_o2"><text>"Gap moderado — disparar busca de prestador para credenciamento (handoff SP-OP-CRED-001; L3, sem compromisso de caixa)"</text></outputEntry>
-      </rule>
-      <rule id="r_critico">
-        <description>GAP_CRITICO -> analise humana (humano decide remediacao, incl. eventual compromisso de fallback)</description>
-        <inputEntry id="r_critico_i1"><text>"GAP_CRITICO"</text></inputEntry>
-        <inputEntry id="r_critico_i2"><text>-</text></inputEntry>
-        <outputEntry id="r_critico_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
-        <outputEntry id="r_critico_o2"><text>"Gap critico — analise humana (gestao-rede decide remediacao; o eventual compromisso de fallback NUNCA nasce por automacao)"</text></outputEntry>
-      </rule>
-      <rule id="r_rot_catchall">
-        <description>Catch-all FAIL-SAFE: combinacao nao mapeada -> analise humana. SEM saida COMPROMETER/GARANTIR/CONTRATAR por design (ADR-0018).</description>
-        <inputEntry id="r_rot_catchall_i1"><text>-</text></inputEntry>
-        <inputEntry id="r_rot_catchall_i2"><text>-</text></inputEntry>
-        <outputEntry id="r_rot_catchall_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
-        <outputEntry id="r_rot_catchall_o2"><text>"Combinacao nao mapeada — analise humana por seguranca (nunca firma compromisso de fallback automaticamente; ADR-0018)"</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>"Combinacao nao mapeada / dados geo insuficientes — gap critico por seguranca (conservador -> humano decide; nunca compromisso automatico); DRAFT/verify"</text></outputEntry>
       </rule>
     </decisionTable>
   </decision>

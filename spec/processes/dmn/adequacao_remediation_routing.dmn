@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_adequacao_remediation_routing"
+             name="Roteamento de remediacao de adequacao geografica"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    adequacao_remediation_routing v0.1.0 — status: DRAFT (roteamento requer SME gestao-rede +
+    regulatorio/compliance; docs/review-queue.md). Consumida por SP-OP-ADEQUACAO-001 e mcp-dmn.
+
+    INVARIANTE (ADR-0018): esta tabela APENAS roteia o gap medido para o caminho de remediacao
+    correto. NAO possui saida que firme/autorize compromisso financeiro (COMPROMETER/GARANTIR/
+    CONTRATAR). O dominio de `roteamento_remediacao` e um CLOSED-allowlist NEUTRO
+    {MONITORAR, ENCAMINHAR_CREDENCIAMENTO, ANALISE_HUMANA}. O compromisso financeiro de fallback
+    SO nasce na User Task humana UT_DecisaoFallback com decisao_remediacao=COMPROMISSO_FALLBACK.
+
+    Regras (DRAFT — confirmar com regulatorio/juridico):
+    - CONFORME → MONITORAR (L3, sem User Task; acompanhamento/observacao).
+    - GAP_LEVE → MONITORAR (L3; plano de monitoramento atualizado, alerta a area de rede).
+    - GAP_MODERADO → ENCAMINHAR_CREDENCIAMENTO (L3; handoff a SP-OP-CRED-001 para buscar
+      prestador na celula — credenciar nao e adverso).
+    - GAP_CRITICO → ANALISE_HUMANA (humano decide remediacao, incl. eventual compromisso
+      financeiro de fallback).
+    - dados_geo_completos=false → ANALISE_HUMANA (nunca decide compromisso com dados incompletos).
+
+    Catch-all FAIL-SAFE (ultima row): qualquer combinacao nao coberta → ANALISE_HUMANA.
+    NUNCA COMPROMETER/GARANTIR por design.
+
+    hitPolicy FIRST (catch-all conservador como ultima row).
+  </description>
+  <decision id="adequacao_remediation_routing" name="Roteamento de remediacao geografica" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_adequacao_remediation_routing" hitPolicy="FIRST">
+      <input id="in_gap_adequacao" label="Severidade do gap (gap_adequacao)">
+        <inputExpression id="ie_gap_adequacao" typeRef="string"><text>gap_adequacao</text></inputExpression>
+      </input>
+      <input id="in_dados_geo_completos" label="Dados geograficos completos (dados_geo_completos)">
+        <inputExpression id="ie_dados_geo_completos" typeRef="boolean"><text>dados_geo_completos</text></inputExpression>
+      </input>
+      <output id="out_roteamento" label="roteamento_remediacao" name="roteamento_remediacao" typeRef="string"/>
+      <output id="out_motivo" label="motivo" name="motivo" typeRef="string"/>
+      <rule id="r_dados_incompletos_humano">
+        <description>Dados geograficos incompletos -> ANALISE_HUMANA (nunca decide remediacao/compromisso com dados incompletos); PRECEDE as demais (FIRST)</description>
+        <inputEntry id="r_dados_incompletos_humano_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_dados_incompletos_humano_i2"><text>false</text></inputEntry>
+        <outputEntry id="r_dados_incompletos_humano_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r_dados_incompletos_humano_o2"><text>"Dados geograficos incompletos/insuficientes — analise humana obrigatoria (nunca decide compromisso com dados incompletos); DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r_conforme_monitorar">
+        <description>CONFORME -> MONITORAR (L3, sem User Task; acompanhamento periodico da celula)</description>
+        <inputEntry id="r_conforme_monitorar_i1"><text>"CONFORME"</text></inputEntry>
+        <inputEntry id="r_conforme_monitorar_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_conforme_monitorar_o1"><text>"MONITORAR"</text></outputEntry>
+        <outputEntry id="r_conforme_monitorar_o2"><text>"Celula conforme — monitoramento L3 (sem User Task; plano de monitoramento atualizado); DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r_leve_monitorar">
+        <description>GAP_LEVE -> MONITORAR (L3; acompanhamento com alerta a area de rede)</description>
+        <inputEntry id="r_leve_monitorar_i1"><text>"GAP_LEVE"</text></inputEntry>
+        <inputEntry id="r_leve_monitorar_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_leve_monitorar_o1"><text>"MONITORAR"</text></outputEntry>
+        <outputEntry id="r_leve_monitorar_o2"><text>"Gap leve — monitoramento L3 com alerta a area de rede (gestao-rede); DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r_moderado_encaminhar">
+        <description>GAP_MODERADO -> ENCAMINHAR_CREDENCIAMENTO (L3; handoff a SP-OP-CRED-001 para buscar prestador; credenciar nao e adverso)</description>
+        <inputEntry id="r_moderado_encaminhar_i1"><text>"GAP_MODERADO"</text></inputEntry>
+        <inputEntry id="r_moderado_encaminhar_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_moderado_encaminhar_o1"><text>"ENCAMINHAR_CREDENCIAMENTO"</text></outputEntry>
+        <outputEntry id="r_moderado_encaminhar_o2"><text>"Gap moderado — encaminhar credenciamento na celula (handoff L3 a SP-OP-CRED-001; credenciar nao e adverso); DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r_critico_humano">
+        <description>GAP_CRITICO -> ANALISE_HUMANA (humano decide remediacao, incl. eventual compromisso financeiro de fallback)</description>
+        <inputEntry id="r_critico_humano_i1"><text>"GAP_CRITICO"</text></inputEntry>
+        <inputEntry id="r_critico_humano_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_critico_humano_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r_critico_humano_o2"><text>"Gap critico — analise humana obrigatoria (humano decide MONITORAR_OK/ENCAMINHAR_CRED/COMPROMISSO_FALLBACK; compromisso financeiro SO na User Task); DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r_catchall">
+        <description>Catch-all FAIL-SAFE: gap nao mapeado / ambiguidade -> ANALISE_HUMANA (conservador; nunca compromisso automatico)</description>
+        <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>"Gap nao classificado / ambiguidade — analise humana por seguranca (L0 hard; nunca compromisso/fallback automatico); DRAFT/verify"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>
