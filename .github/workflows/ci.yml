@@ -51,7 +51,7 @@ jobs:
 
       - name: Upload unit test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: unit-test-results
           path: |
@@ -242,7 +242,7 @@ jobs:
 
       - name: Upload integration test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: integration-test-results-${{ github.sha }}
           path: .pytest_cache/
@@ -254,7 +254,7 @@ jobs:
 
       - name: Upload failure logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: docker-compose-failure-logs-${{ github.sha }}
           path: docker-compose-failure.log
@@ -316,7 +316,7 @@ jobs:
 
       - name: Upload simulator failure logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: simulator-failure-logs-${{ github.sha }}
           path: simulator-failure.log
@@ -377,7 +377,7 @@ jobs:
 
       - name: Upload eval results
         if: always() && steps.agent_changes.outputs.agents == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: eval-results-${{ github.sha }}
           path: .pytest_cache/
@@ -417,7 +417,7 @@ jobs:
 
       - name: Upload nightly eval results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: nightly-eval-results-${{ github.sha }}
           path: .pytest_cache/
