@@ -1,0 +1,371 @@
+"""Unit tests for maezo.tools.workers.reembolso — SP-OP-REEMBOLSO-001.
+
+TDD London School: tests exercise the external task contracts.
+"""
+
+import pytest
+
+from maezo.tools.workers.reembolso import (
+    ReembolsoDenialInput,
+    ReembolsoDenialNotHumanError,
+    ReembolsoInput,
+    ReembolsoProtocoloInvalidoError,
+    auto_approve_or_route,
+    calculate_value,
+    check_coverage,
+    notify_beneficiario,
+    process_payment,
+    publish_completed,
+    send_reembolso_denial,
+    validate_reembolso,
+)
+
+# ---------------------------------------------------------------------------
+# validate_reembolso
+# ---------------------------------------------------------------------------
+
+
+def test_validate_reembolso_valid() -> None:
+    """validate_reembolso accepts a valid reembolso."""
+    inp = ReembolsoInput(
+        tenant_id="amh",
+        protocolo_reembolso="REEMB-001",
+        codigo_procedimento_tuss="10101012",
+        valor_solicitado_cents=35000,
+        cobertura_prevista=True,
+        documentacao_completa=True,
+        dentro_prazo=True,
+        beneficiario_ativo=True,
+        carencia_cumprida=True,
+    )
+    result = validate_reembolso(inp)
+    assert result.valid is True
+    assert result.errors == []
+
+
+def test_validate_reembolso_missing_protocolo() -> None:
+    """validate_reembolso raises ERR_REEMBOLSO_INVALID_PROTOCOLO on missing protocolo."""
+    inp = ReembolsoInput(
+        tenant_id="amh",
+        protocolo_reembolso="",
+        codigo_procedimento_tuss="10101012",
+    )
+    with pytest.raises(ReembolsoProtocoloInvalidoError):
+        validate_reembolso(inp)
+
+
+def test_validate_reembolso_missing_procedimento() -> None:
+    """validate_reembolso flags missing codigo_procedimento_tuss."""
+    inp = ReembolsoInput(
+        tenant_id="amh",
+        protocolo_reembolso="REEMB-002",
+        codigo_procedimento_tuss="",
+        valor_solicitado_cents=10000,
+    )
+    result = validate_reembolso(inp)
+    assert any("procedimento" in e.lower() or "tuss" in e.lower() for e in result.errors)
+
+
+def test_validate_reembolso_zero_value() -> None:
+    """validate_reembolso flags valor_solicitado_cents <= 0."""
+    inp = ReembolsoInput(
+        tenant_id="amh",
+        protocolo_reembolso="REEMB-003",
+        codigo_procedimento_tuss="10101012",
+        valor_solicitado_cents=0,
+    )
+    result = validate_reembolso(inp)
+    assert any("valor" in e.lower() for e in result.errors)
+
+
+# ---------------------------------------------------------------------------
+# check_coverage
+# ---------------------------------------------------------------------------
+
+
+def test_check_coverage_prevista() -> None:
+    """check_coverage returns cobertura_prevista flag."""
+    inp = ReembolsoInput(
+        tenant_id="amh",
+        codigo_procedimento_tuss="10101012",
+        tipo_reembolso="livre_escolha",
+        cobertura_prevista=True,
+    )
+    result = check_coverage(inp)
+    assert result["cobertura_prevista"] is True
+
+
+def test_check_coverage_nao_prevista() -> None:
+    """check_coverage returns False for uncovered procedures."""
+    inp = ReembolsoInput(
+        tenant_id="amh",
+        codigo_procedimento_tuss="99999999",
+        tipo_reembolso="livre_escolha",
+        cobertura_prevista=False,
+    )
+    result = check_coverage(inp)
+    assert result["cobertura_prevista"] is False
+
+
+# ---------------------------------------------------------------------------
+# calculate_value
+# ---------------------------------------------------------------------------
+
+
+def test_calculate_value_consulta() -> None:
+    """calculate_value computes table value for consulta."""
+    inp = ReembolsoInput(
+        tenant_id="amh",
+        protocolo_reembolso="REEMB-004",
+        codigo_procedimento_tuss="10101012",
+        categoria_procedimento="consulta",
+        tipo_reembolso="livre_escolha",
+        valor_solicitado_cents=35000,
+    )
+    result = calculate_value(inp)
+    assert result.valor_calculado_tabela_cents > 0
+    # Consulta table value should be around R$350
+    assert result.valor_calculado_tabela_cents == 35000
+
+
+def test_calculate_value_dentro_tabela() -> None:
+    """Valor dentro da tabela -> dentro_tabela=True."""
+    inp = ReembolsoInput(
+        tenant_id="amh",
+        protocolo_reembolso="REEMB-005",
+        codigo_procedimento_tuss="10101012",
+        categoria_procedimento="consulta",
+        tipo_reembolso="livre_escolha",
+        valor_solicitado_cents=30000,  # Below table value
+    )
+    result = calculate_value(inp)
+    assert result.dentro_tabela is True
+
+
+def test_calculate_value_fora_tabela() -> None:
+    """Valor acima da tabela -> dentro_tabela=False."""
+    inp = ReembolsoInput(
+        tenant_id="amh",
+        protocolo_reembolso="REEMB-006",
+        codigo_procedimento_tuss="10101012",
+        categoria_procedimento="consulta",
+        tipo_reembolso="livre_escolha",
+        valor_solicitado_cents=50000,  # Above table value
+    )
+    result = calculate_value(inp)
+    assert result.dentro_tabela is False
+
+
+def test_calculate_value_urgencia_multiplier() -> None:
+    """Urgencia/emergencia applies 1.5x multiplier."""
+    inp = ReembolsoInput(
+        tenant_id="amh",
+        protocolo_reembolso="REEMB-007",
+        codigo_procedimento_tuss="10101012",
+        categoria_procedimento="consulta",
+        tipo_reembolso="urgencia_emergencia",
+        valor_solicitado_cents=50000,
+    )
+    result = calculate_value(inp)
+    # Table base 35000 * 1.5 = 52500
+    assert result.valor_calculado_tabela_cents == 52500
+
+
+# ---------------------------------------------------------------------------
+# auto_approve_or_route
+# ---------------------------------------------------------------------------
+
+
+def test_auto_approve_or_route_approve() -> None:
+    """All conditions met -> AUTO_APROVAR."""
+    from maezo.tools.workers.reembolso import ReembolsoCalculoResult
+
+    calculo = ReembolsoCalculoResult(
+        valor_calculado_tabela_cents=35000,
+        valor_solicitado_cents=35000,
+        dentro_tabela=True,
+        dentro_teto_l2=True,
+    )
+    result = auto_approve_or_route(calculo, requer_avaliacao_clinica=False)
+    assert result.recomendacao == "AUTO_APROVAR"
+
+
+def test_auto_approve_or_route_clinica() -> None:
+    """Requer avaliacao clinica -> ANALISE_HUMANA."""
+    from maezo.tools.workers.reembolso import ReembolsoCalculoResult
+
+    calculo = ReembolsoCalculoResult(
+        valor_calculado_tabela_cents=35000,
+        valor_solicitado_cents=35000,
+        dentro_tabela=True,
+        dentro_teto_l2=True,
+    )
+    result = auto_approve_or_route(calculo, requer_avaliacao_clinica=True)
+    assert result.recomendacao == "ANALISE_HUMANA"
+
+
+def test_auto_approve_or_route_fora_tabela() -> None:
+    """Above table -> ANALISE_HUMANA."""
+    from maezo.tools.workers.reembolso import ReembolsoCalculoResult
+
+    calculo = ReembolsoCalculoResult(
+        valor_calculado_tabela_cents=35000,
+        valor_solicitado_cents=50000,
+        dentro_tabela=False,
+        dentro_teto_l2=False,
+    )
+    result = auto_approve_or_route(calculo, requer_avaliacao_clinica=False)
+    assert result.recomendacao == "ANALISE_HUMANA"
+
+
+# ---------------------------------------------------------------------------
+# notify_beneficiario
+# ---------------------------------------------------------------------------
+
+
+def test_notify_beneficiario_reembolso() -> None:
+    """notify_beneficiario sends status notification."""
+    result = notify_beneficiario("BEN-PSEUDO-001", "REEMB-008", "aprovado")
+    assert result["notified"] is True
+
+
+# ---------------------------------------------------------------------------
+# process_payment
+# ---------------------------------------------------------------------------
+
+
+def test_process_payment() -> None:
+    """process_payment issues payment and returns comprovante."""
+    result = process_payment("REEMB-009", 35000, "BEN-PSEUDO-002")
+    assert result["payment_issued"] is True
+    assert result["comprovante_pagamento_ref"].startswith("PAY-")
+    assert result["valor_cents"] == 35000
+
+
+# ---------------------------------------------------------------------------
+# send_reembolso_denial — GUARD tests
+# ---------------------------------------------------------------------------
+
+
+def test_send_denial_guard_not_adverse() -> None:
+    """send_reembolso_denial raises if decisao not in {NEGAR, APROVAR_PARCIAL}."""
+    inp = ReembolsoDenialInput(
+        decisao_reembolso="APROVAR",
+        justificativa="test",
+        fundamentacao_contratual="clausula",
+        analista_id="analista-1",
+    )
+    with pytest.raises(ReembolsoDenialNotHumanError) as exc:
+        send_reembolso_denial(inp)
+    assert "decisao_reembolso" in str(exc.value)
+
+
+def test_send_denial_guard_missing_justificativa() -> None:
+    """send_reembolso_denial raises if justificativa is empty."""
+    inp = ReembolsoDenialInput(
+        decisao_reembolso="NEGAR",
+        justificativa="",
+        fundamentacao_contratual="clausula",
+        analista_id="analista-1",
+    )
+    with pytest.raises(ReembolsoDenialNotHumanError) as exc:
+        send_reembolso_denial(inp)
+    assert "justificativa" in str(exc.value)
+
+
+def test_send_denial_guard_missing_fundamentacao() -> None:
+    """send_reembolso_denial raises if fundamentacao_contratual is empty."""
+    inp = ReembolsoDenialInput(
+        decisao_reembolso="NEGAR",
+        justificativa="Motivo",
+        fundamentacao_contratual="",
+        analista_id="analista-1",
+    )
+    with pytest.raises(ReembolsoDenialNotHumanError) as exc:
+        send_reembolso_denial(inp)
+    assert "fundamentacao_contratual" in str(exc.value)
+
+
+def test_send_denial_guard_missing_human() -> None:
+    """send_reembolso_denial raises if no human identifier."""
+    inp = ReembolsoDenialInput(
+        decisao_reembolso="NEGAR",
+        justificativa="Motivo",
+        fundamentacao_contratual="clausula",
+        analista_id="",
+        auditor_id="",
+    )
+    with pytest.raises(ReembolsoDenialNotHumanError) as exc:
+        send_reembolso_denial(inp)
+    assert "analista_id" in str(exc.value) or "auditor_id" in str(exc.value)
+
+
+def test_send_denial_parcial_guard_invalid_reduction() -> None:
+    """APROVAR_PARCIAL with approved >= solicited raises."""
+    inp = ReembolsoDenialInput(
+        decisao_reembolso="APROVAR_PARCIAL",
+        justificativa="Reducao indevida",
+        fundamentacao_contratual="clausula",
+        valor_reembolso_aprovado_cents=10000,
+        valor_solicitado_cents=5000,  # Approved > solicited
+        analista_id="analista-1",
+    )
+    with pytest.raises(ReembolsoDenialNotHumanError) as exc:
+        send_reembolso_denial(inp)
+    assert "reducao" in str(exc.value).lower() or "aprovado" in str(exc.value).lower()
+
+
+def test_send_denial_success_negar() -> None:
+    """send_reembolso_denial succeeds for NEGAR with all fields."""
+    inp = ReembolsoDenialInput(
+        decisao_reembolso="NEGAR",
+        justificativa="Procedimento nao coberto pela segmentacao",
+        fundamentacao_contratual="Clausula 5.2",
+        valor_solicitado_cents=50000,
+        analista_id="analista-789",
+    )
+    result = send_reembolso_denial(inp)
+    assert result["denial_sent"] is True
+    assert result["decisao_reembolso"] == "NEGAR"
+
+
+def test_send_denial_success_aprovado_parcial() -> None:
+    """send_reembolso_denial succeeds for APROVAR_PARCIAL with auditor."""
+    inp = ReembolsoDenialInput(
+        decisao_reembolso="APROVAR_PARCIAL",
+        justificativa="Valor reduzido conforme tabela",
+        fundamentacao_contratual="Clausula 8.1",
+        valor_reembolso_aprovado_cents=30000,
+        valor_solicitado_cents=50000,
+        auditor_id="auditor-001",
+        parecer_auditor="Parecer tecnico favoravel a reducao",
+    )
+    result = send_reembolso_denial(inp)
+    assert result["denial_sent"] is True
+
+
+# ---------------------------------------------------------------------------
+# publish_completed
+# ---------------------------------------------------------------------------
+
+
+def test_publish_completed_reembolso() -> None:
+    """publish_completed emits domain event."""
+    result = publish_completed(desfecho="aprovado_automatico")
+    assert result["published"] is True
+    assert result["payload"]["desfecho"] == "aprovado_automatico"
+
+
+# ---------------------------------------------------------------------------
+# Error types
+# ---------------------------------------------------------------------------
+
+
+def test_reembolso_denial_not_human_is_permission_error() -> None:
+    """ReembolsoDenialNotHumanError must be a subclass of PermissionError."""
+    assert issubclass(ReembolsoDenialNotHumanError, PermissionError)
+
+
+def test_reembolso_protocolo_invalido_is_value_error() -> None:
+    """ReembolsoProtocoloInvalidoError must be a subclass of ValueError."""
+    assert issubclass(ReembolsoProtocoloInvalidoError, ValueError)

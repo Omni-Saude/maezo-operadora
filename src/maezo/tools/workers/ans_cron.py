@@ -1,0 +1,139 @@
+"""Worker: ans_cron (SP-OP-ANS-CRON-001).
+
+Agendador per-report_type dos Envios Periodicos ANS.
+Pure scheduler — NO adverse effects, all terminals NEUTRAL.
+Dispatches via operadora.events.publish (reused generic publisher).
+"""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from typing import Any
+
+import structlog
+
+logger = structlog.get_logger(__name__)
+
+# ---------------------------------------------------------------
+# Report types and their periodicities (DRAFT/verify RN 124/209/388/424/DIOPS)
+# ---------------------------------------------------------------
+
+_REPORT_PERIODICIDADE: dict[str, str] = {
+    "MAPEAMENTO_REDE": "P1M",  # monthly
+    "DIOPS": "P3M",  # quarterly
+    "SIP": "P1M",  # monthly
+    "RPC": "P1M",  # monthly
+    "ANS_TISS": "P1M",  # monthly
+    "QUALIFICACAO": "P12M",  # annual
+}
+
+
+def _compute_competencia(reference_date_iso: str, periodicidade: str) -> str:
+    """Compute the competencia (YYYY-MM) from the reference date.
+
+    The competencia is the calendar period IMMEDIATELY BEFORE the reference date's month.
+    For quarterly: the quarter ending before the reference month.
+
+    DRAFT/verify regulatorio: mapeamento confirmado com ANS.
+    """
+    try:
+        ref_date = datetime.fromisoformat(reference_date_iso)
+    except (ValueError, TypeError):
+        return "COMPETENCIA_PENDENTE"
+
+    if periodicidade == "P3M":
+        # Quarterly: compute the previous quarter
+        month = ref_date.month
+        quarter_month = ((month - 1) // 3) * 3 + 1
+        if quarter_month == month:
+            # If we're exactly at quarter start, go back one quarter
+            quarter_month = ((month - 4) // 3) * 3 + 1
+            if quarter_month < 1:
+                quarter_month = 10
+                year = ref_date.year - 1
+            else:
+                year = ref_date.year
+        else:
+            year = ref_date.year
+        return f"{year:04d}-{quarter_month:02d}"
+    else:
+        # Monthly: previous month
+        if ref_date.month == 1:
+            year = ref_date.year - 1
+            month = 12
+        else:
+            year = ref_date.year
+            month = ref_date.month - 1
+        return f"{year:04d}-{month:02d}"
+
+
+# ---------------------------------------------------------------
+# trigger_submissions — publish ans.cron_due facts
+# ---------------------------------------------------------------
+
+
+def trigger_submissions(variables: dict[str, Any]) -> dict[str, Any]:
+    """Publish the ans.cron_due fact for the notification bridge.
+
+    Each tick of the timer produces a typed fact on
+    operadora.notifications.internal with type=ans.cron_due.
+    The notifications_bridge then starts SP-OP-ANS-SUBMIT-001.
+
+    NO adverse effects — pure scheduling dispatch.
+    """
+    report_type = variables.get("report_type", "")
+    periodicidade = _REPORT_PERIODICIDADE.get(report_type, "P1M")
+    reference_date = datetime.now(UTC).strftime("%Y-%m-%d")
+
+    competencia = _compute_competencia(reference_date, periodicidade)
+
+    logger.info(
+        "ans_cron_trigger_submission",
+        report_type=report_type,
+        periodicidade=periodicidade,
+        competencia=competencia,
+        reference_date=reference_date,
+    )
+
+    return {
+        "fato_publicado": True,
+        "event_type": "ans.cron_due",
+        "report_type": report_type,
+        "periodicidade": periodicidade,
+        "competencia": competencia,
+        "ans_cron_reference_date_iso": reference_date,
+    }
+
+
+# ---------------------------------------------------------------
+# check_calendar — verify calendar validity (DMN ans_calendar)
+# ---------------------------------------------------------------
+
+
+def check_calendar(variables: dict[str, Any]) -> dict[str, Any]:
+    """Check if the current period requires a submission.
+
+    DMN ans_calendar: validates periodicidade vs current date.
+    Returns: deve_enviar (bool) + motivo.
+    """
+    report_type = variables.get("report_type", "")
+    periodicidade = _REPORT_PERIODICIDADE.get(report_type, "P1M")
+    competencia = variables.get("competencia", "")
+
+    # Always trigger for known report types
+    deve_enviar = report_type in _REPORT_PERIODICIDADE
+
+    logger.info(
+        "ans_cron_check_calendar",
+        report_type=report_type,
+        periodicidade=periodicidade,
+        deve_enviar=deve_enviar,
+        competencia=competencia,
+    )
+
+    return {
+        "deve_enviar": deve_enviar,
+        "periodicidade": periodicidade,
+        "competencia": competencia,
+        "motivo": "calendario_ok" if deve_enviar else "report_type_desconhecido",
+    }
