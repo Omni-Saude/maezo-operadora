@@ -14,7 +14,7 @@ type:
 	uv run mypy
 
 test:             ## unit + invariantes de arquitetura (rapido, sem engine)
-	uv run pytest tests/unit tests/architecture -q
+	uv run pytest tests/ -q
 
 test-integration: ## contra engine real (docker compose up antes)
 	uv run pytest tests/integration -q -m integration

@@ -1,5 +1,5 @@
 [project]
-name = "maezo-healthcare-plan"
+name = "maezo-operadora"
 version = "0.1.0"
 description = "MAEZO Operadora — plataforma agents-first para operadoras de saude"
 requires-python = ">=3.12"
