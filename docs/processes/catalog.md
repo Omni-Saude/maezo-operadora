@@ -12,7 +12,7 @@ de agente (AGJ-*), documentada no `agent.yaml` de cada agente.
 | SP-OP-CONTAS-001 | Processamento contas/glosa | Contratos; auditabilidade | 2 | modelado (suite integracao real-engine) |
 | SP-OP-RECURSO-001 | Recurso de glosa | Prazos contratuais | 2 | modelado (suite integracao real-engine) |
 | SP-OP-NIP-001 | Resposta a NIP | Prazos ANS | 2 | modelado (suite integracao real-engine) |
-| SP-OP-ANS-SUBMIT-001 | Envios periodicos ANS | Calendario regulatorio | 2 | modelado (suite integracao real-engine) |
+| SP-OP-ANS-SUBMIT-001 | Envios periodicos ANS | Calendario regulatorio | 2 | modelado (suite integracao real-engine; DMN ans_sla adicionado ao contrato) |
 | SP-OP-CANCEL-001 | Cancelamento de contrato | RN 412 | 2 | modelado (suite integracao real-engine) |
 | SP-OP-REEMBOLSO-001 | Reembolso | RN 259 | 2 | modelado (suite integracao real-engine) |
 | SP-OP-INADIMPLENCIA-001 | Suspensao/rescisao | RN 593 | 3 | modelado (suite integracao real-engine) |

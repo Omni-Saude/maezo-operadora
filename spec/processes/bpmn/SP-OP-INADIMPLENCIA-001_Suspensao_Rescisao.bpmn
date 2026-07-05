@@ -298,6 +298,26 @@ pela User Task humana propria de CANCEL-001 (anti-dupla-rescisao). MANTER => vin
       <bpmn:incoming>Flow_GWDec_Suspender</bpmn:incoming>
       <bpmn:outgoing>Flow_Suspensao_Pub</bpmn:outgoing>
     </bpmn:serviceTask>
+
+    <!-- Boundary error (guard L0 hard contract_termination — GAP-INAD-7): se register_contract_suspension
+         RECUSAR (decisao_inadimplencia != SUSPENDER humano, campos obrigatorios ausentes OU
+         ja_em_rescisao_cancel=true) lanca ERR_CONTRACT_SUSPENSION_NOT_HUMAN. O guard CONTINUA sendo o
+         mecanismo de enforcement (ADR-0018) — este catch NAO o enfraquece: apenas evita o incidente
+         travado. Terminal de incidente NEUTRO (o efeito adverso NAO ocorreu; nada foi suspenso).
+         So alcancavel APOS UT_AnaliseInadimplencia/UT_CoordenacaoCobranca (humano); nao abre caminho
+         automatico de suspensao. Espelha BE_DecredNaoHumano (SP-OP-CRED-001) /
+         BE_CredDenialNaoHumano. Adicionado em GAP-INAD-7: antes deste fix, Error_ContractSuspensionNotHuman
+         era declarado mas NAO wireado a nenhum boundary — o lancamento do guard causava incidente
+         nao-tratado no engine real. -->
+    <bpmn:boundaryEvent id="BE_SuspensaoNaoHumano" name="Suspensao barrada sem decisao humana (ERR_CONTRACT_SUSPENSION_NOT_HUMAN)" attachedToRef="ST_RegisterSuspension">
+      <bpmn:outgoing>Flow_SuspensaoNaoHumano_End</bpmn:outgoing>
+      <bpmn:errorEventDefinition id="EED_SuspensaoNaoHumano" errorRef="Error_ContractSuspensionNotHuman"/>
+    </bpmn:boundaryEvent>
+    <bpmn:endEvent id="End_SuspensaoBloqueadaNaoHumano" name="Incidente: registro de suspensao barrado pelo guard (sem decisao humana) — NADA suspenso">
+      <bpmn:documentation>Incidente NEUTRO (guard L0 hard, contract_termination): o worker register_contract_suspension RECUSOU registrar por faltar decisao humana SUSPENDER, campos obrigatorios ausentes OU ja_em_rescisao_cancel=true (ERR_CONTRACT_SUSPENSION_NOT_HUMAN). NENHUM efeito adverso ocorreu — o contrato NAO foi suspenso. O guard permanece o mecanismo de enforcement (ADR-0018); este terminal apenas encerra a instancia de forma limpa (em vez de incidente travado). Espelha End_DecredBloqueadoNaoHumano (SP-OP-CRED-001). Adicionado em GAP-INAD-7.</bpmn:documentation>
+      <bpmn:incoming>Flow_SuspensaoNaoHumano_End</bpmn:incoming>
+    </bpmn:endEvent>
+
     <bpmn:serviceTask id="ST_PublishSuspenso" name="Publicar evento: inadimplencia.completed (suspenso)"
                       camunda:type="external" camunda:topic="operadora.events.publish">
       <bpmn:extensionElements>
@@ -407,6 +427,7 @@ pela User Task humana propria de CANCEL-001 (anti-dupla-rescisao). MANTER => vin
     <bpmn:sequenceFlow id="Flow_GWDec_Mantido" name="MANTER (default)" sourceRef="GW_Decisao" targetRef="ST_PublishMantido"/>
     <bpmn:sequenceFlow id="Flow_InfoCatch_UTAnalise" sourceRef="ICE_AguardarInfo" targetRef="UT_AnaliseInadimplencia"/>
     <bpmn:sequenceFlow id="Flow_Suspensao_Pub" sourceRef="ST_RegisterSuspension" targetRef="ST_PublishSuspenso"/>
+    <bpmn:sequenceFlow id="Flow_SuspensaoNaoHumano_End" sourceRef="BE_SuspensaoNaoHumano" targetRef="End_SuspensaoBloqueadaNaoHumano"/>
     <bpmn:sequenceFlow id="Flow_PubSuspenso_End" sourceRef="ST_PublishSuspenso" targetRef="End_ContratoSuspenso_Inad"/>
     <bpmn:sequenceFlow id="Flow_Handoff_Pub" sourceRef="ST_HandoffRescisao" targetRef="ST_PublishRescisaoHandoff"/>
     <bpmn:sequenceFlow id="Flow_PubHandoff_End" sourceRef="ST_PublishRescisaoHandoff" targetRef="End_RescisaoHandoffCancel"/>

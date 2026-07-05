@@ -83,6 +83,7 @@ external-task topics para cada service task. **Todos a registrar em `config/topi
 
 | Tipo | Topico | Sentido | Quando |
 |---|---|---|---|
+| Kafka | `agents.events.anssubmit.received` | produz | apos start (instancia de envio aberta — cron, nip_filing ou retransmissao) |
 | Kafka | `agents.events.anssubmit.generated` | produz | dataset montado+validado (apos `assemble`/`validate`) |
 | Kafka | `agents.events.anssubmit.submitted` | produz | envio transmitido a ANS (apos User Task + `submit`) |
 | Kafka | `agents.events.anssubmit.acked` | produz | ACK da ANS correlacionado (payload.protocolo_ans) |
@@ -118,6 +119,23 @@ processo).**
 
 Catch-all (report_type/competencia desconhecidos) → `due_date`/`sla_alerta` conservadores +
 `fonte_regulatoria="REVISAO_HUMANA"` (roteia a humano via admissibilidade; nunca prazo "infinito").
+
+### `ans_sla` (hit policy FIRST — DRAFT; todos os prazos DRAFT/verify)
+
+DMN que computa as DURACOES relativas (ISO 8601) dos timers de boundary das User Tasks.
+Separada de `ans_calendar` (que resolve datas absolutas de calendario/competencia): esta DMN
+produz duracoes para `timeDuration`, enquanto `ans_calendar` produz datas para dossie/eventos.
+
+| Direcao | Campo | typeRef | Dominio |
+|---|---|---|---|
+| in | `report_type` | string | ver variaveis de entrada |
+| in | `origem_envio` | string | `calendario` \| `nip_filing` \| `retransmissao_manual` |
+| out | `sla_analise` | string (ISO 8601 duration) | duracao do prazo de revisao (ex.: `P5D`), consumida via `${sla.sla_analise}` pelos timers `timeDuration` interruptivos (`BT_DueDate` / `BT_DueDateJuridico` / `BT_DueDatePendencia`) — **DRAFT/verify** |
+| out | `sla_alerta` | string (ISO 8601 duration) | duracao do alerta de deadline-risk (~50-70% do SLA, ex.: `P3D`), consumida via `${sla.sla_alerta}` pelos timers `timeDuration` nao-interruptivos (`BT_DeadlineRisk` / `BT_DeadlineRiskJuridico` / `BT_DeadlineRiskPendencia`) — **DRAFT/verify** |
+| out | `fonte_regulatoria` | string | RN/IN vigente que ancora o prazo — **DRAFT/verify** |
+
+Catch-all (report_type/origem_envio desconhecidos) → `sla_analise`/`sla_alerta` conservadores
+(janela curta; nunca prazo infinito). **Sem saida adversa** — so produz duracoes de SLA.
 
 ### `ans_submission_admissibility` (hit policy FIRST — DRAFT)
 | Direcao | Campo | typeRef | Dominio |

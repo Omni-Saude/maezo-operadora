@@ -67,6 +67,7 @@ BUSINESS KEY (idempotente por competencia): "ANSSUB-{tenant_id}-{report_type}-{c
   re-tick/reentrega Kafka reconverge para a instancia ativa (idempotencia preservada).
 
 EVENTOS DE DOMINIO (worker operadora.events.publish):
+  inicio -> agents.events.anssubmit.received
   dataset montado+validado -> agents.events.anssubmit.generated
   envio transmitido (apos UT humana + submit) -> agents.events.anssubmit.submitted
   ACK correlacionado -> agents.events.anssubmit.acked
@@ -107,7 +108,7 @@ docs/processes/contracts/SP-OP-ANS-SUBMIT-001.md.
                       camunda:type="external" camunda:topic="operadora.events.publish">
       <bpmn:extensionElements>
         <camunda:inputOutput>
-          <camunda:inputParameter name="event_topic">agents.events.anssubmit.generated</camunda:inputParameter>
+          <camunda:inputParameter name="event_topic">agents.events.anssubmit.received</camunda:inputParameter>
           <camunda:inputParameter name="event_payload_vars">tenant_id,report_type,competencia,periodicidade,origem_envio</camunda:inputParameter>
         </camunda:inputOutput>
       </bpmn:extensionElements>
@@ -151,9 +152,22 @@ docs/processes/contracts/SP-OP-ANS-SUBMIT-001.md.
     <!-- Valida schema XSD/TISS do dataset montado -->
     <bpmn:serviceTask id="ST_ValidateSchema" name="Validar schema XSD/TISS do dataset"
                       camunda:type="external" camunda:topic="regulatorio.anssubmit.validate">
-      <bpmn:documentation>Worker valida o schema do dataset; ecoa schema_valid (boolean pre-resolvido). Publica anssubmit.generated quando dataset montado+validado. NAO decide envio.</bpmn:documentation>
+      <bpmn:documentation>Worker valida o schema do dataset; ecoa schema_valid (boolean pre-resolvido). NAO decide envio.</bpmn:documentation>
       <bpmn:incoming>Flow_Assemble_Validate</bpmn:incoming>
-      <bpmn:outgoing>Flow_Validate_Admiss</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Validate_Generated</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- Publica evento generated apos dataset montado+validado (contrato §Topicos) -->
+    <bpmn:serviceTask id="ST_PublishGenerated" name="Publicar evento: anssubmit.generated (dataset montado+validado)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.anssubmit.generated</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,report_type,competencia,dataset_ref,dataset_complete,schema_valid,lgpd_anonimizado</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Validate_Generated</bpmn:incoming>
+      <bpmn:outgoing>Flow_Generated_Admiss</bpmn:outgoing>
     </bpmn:serviceTask>
 
     <!-- DMN: admissibilidade (nunca rejeita, nunca transmite — apenas roteia) -->
@@ -162,7 +176,7 @@ docs/processes/contracts/SP-OP-ANS-SUBMIT-001.md.
                            camunda:mapDecisionResult="singleResult"
                            camunda:resultVariable="admissibilidade">
       <bpmn:documentation>Saidas: roteamento in {SEGUE_ENVIO, PENDENTE, REVISAO_HUMANA}. Por design NAO existe saida reject/deny (nao-negativa). Mesmo SEGUE_ENVIO so HABILITA a User Task de aprovacao — a DMN nunca transmite. Catch-all -> REVISAO_HUMANA.</bpmn:documentation>
-      <bpmn:incoming>Flow_Validate_Admiss</bpmn:incoming>
+      <bpmn:incoming>Flow_Generated_Admiss</bpmn:incoming>
       <bpmn:outgoing>Flow_Admiss_GW</bpmn:outgoing>
     </bpmn:businessRuleTask>
 
@@ -572,7 +586,8 @@ em nome do revisor (assignee na trilha de auditoria, ADR-0007).
     <bpmn:sequenceFlow id="Flow_Calendar_Sla" sourceRef="BRT_Calendario" targetRef="BRT_AnsSla"/>
     <bpmn:sequenceFlow id="Flow_Sla_Assemble" sourceRef="BRT_AnsSla" targetRef="ST_AssembleDataset"/>
     <bpmn:sequenceFlow id="Flow_Assemble_Validate" sourceRef="ST_AssembleDataset" targetRef="ST_ValidateSchema"/>
-    <bpmn:sequenceFlow id="Flow_Validate_Admiss" sourceRef="ST_ValidateSchema" targetRef="BRT_Admissibilidade"/>
+    <bpmn:sequenceFlow id="Flow_Validate_Generated" sourceRef="ST_ValidateSchema" targetRef="ST_PublishGenerated"/>
+    <bpmn:sequenceFlow id="Flow_Generated_Admiss" sourceRef="ST_PublishGenerated" targetRef="BRT_Admissibilidade"/>
     <bpmn:sequenceFlow id="Flow_Admiss_GW" sourceRef="BRT_Admissibilidade" targetRef="GW_Admissibilidade"/>
     <bpmn:sequenceFlow id="Flow_GW_Pendente" name="PENDENTE" sourceRef="GW_Admissibilidade" targetRef="UT_CorrigirPendenciaEnvio">
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${admissibilidade.roteamento == 'PENDENTE'}</bpmn:conditionExpression>
@@ -643,8 +658,11 @@ em nome do revisor (assignee na trilha de auditoria, ADR-0007).
       <bpmndi:BPMNShape id="Shape_ST_ValidateSchema" bpmnElement="ST_ValidateSchema">
         <dc:Bounds x="1672" y="52" width="100" height="80"/>
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_BRT_Admissibilidade" bpmnElement="BRT_Admissibilidade">
+      <bpmndi:BPMNShape id="Shape_ST_PublishGenerated" bpmnElement="ST_PublishGenerated">
         <dc:Bounds x="1852" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_Admissibilidade" bpmnElement="BRT_Admissibilidade">
+        <dc:Bounds x="2032" y="52" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_GW_Admissibilidade" bpmnElement="GW_Admissibilidade" isMarkerVisible="true">
         <dc:Bounds x="2032" y="67" width="50" height="50"/>
@@ -836,13 +854,19 @@ em nome do revisor (assignee na trilha de auditoria, ADR-0007).
         <di:waypoint x="1592" y="92"/>
         <di:waypoint x="1672" y="92"/>
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_Validate_Admiss" bpmnElement="Flow_Validate_Admiss">
+      <bpmndi:BPMNEdge id="Edge_Flow_Validate_Generated" bpmnElement="Flow_Validate_Generated">
         <di:waypoint x="1772" y="92"/>
         <di:waypoint x="1852" y="92"/>
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_Admiss_GW" bpmnElement="Flow_Admiss_GW">
+      <bpmndi:BPMNEdge id="Edge_Flow_Generated_Admiss" bpmnElement="Flow_Generated_Admiss">
         <di:waypoint x="1952" y="92"/>
         <di:waypoint x="2032" y="92"/>
+      </bpmndi:BPMNEdge>
+      <!-- NOTE: GW_Admissibilidade and downstream DI elements need re-layout due to
+           ST_PublishGenerated insertion. DI sera refinado na promocao a FINAL. -->
+      <bpmndi:BPMNEdge id="Edge_Flow_Admiss_GW" bpmnElement="Flow_Admiss_GW">
+        <di:waypoint x="2132" y="92"/>
+        <di:waypoint x="2212" y="92"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_GW_Pendente" bpmnElement="Flow_GW_Pendente">
         <di:waypoint x="2082" y="92"/>
