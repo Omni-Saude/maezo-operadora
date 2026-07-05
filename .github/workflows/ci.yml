@@ -185,7 +185,11 @@ jobs:
             -f deploy/helm/maezo-tenant/values-amh.yaml \
             --debug > /dev/null
 
+      # ── M0 GREENFIELD: desabilitado — tests/unit/platform/test_provision_tenant.py
+      # ainda não existe (será construído em M3). Os steps de helm lint + template acima
+      # continuam funcionando. Reativar removendo o if: false na milestone M3.
       - name: NetworkPolicy egress fail-closed tests (ADR-0006 / ADR-0017, gap #13)
+        if: false
         # Runs the @requires_helm tests in test_provision_tenant.py that prove:
         #   (1) PHI egress = concrete BR CIDRs only, NEVER 0.0.0.0/0 (FIX 1)
         #   (2) intra-namespace egress is scoped to gateway only, not all pods (FIX 2)
@@ -199,6 +203,10 @@ jobs:
           uv run pytest tests/unit/platform/test_provision_tenant.py -v \
             --tb=short -q
 
+  # ── M0 GREENFIELD: mantido ativo mas ESPERADO FALHAR — não há testes de integração
+  # ainda (tests/integration/ está vazio) e os containers docker (postgres, cibseven,
+  # hapi-fhir) podem não existir ou não estar configurados. Os testes de integração
+  # serão escritos a partir de M3 conforme os workers forem implementados.
   integration:
     name: integration tests (real engine)
     runs-on: ubuntu-latest
@@ -288,7 +296,6 @@ jobs:
     # AIOKafkaProducer.start() retried indefinitely. Fixed in docker-compose.yml (dual listener).
     timeout-minutes: 12
     needs: [quality]
-    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
 

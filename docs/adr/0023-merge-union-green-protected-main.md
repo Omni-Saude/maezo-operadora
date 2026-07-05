@@ -1,6 +1,6 @@
 # ADR-0023: Politica de merge — main protegido com required status checks + strict up-to-date; NAO merge queue
 
-**Status:** Proposed · **Data:** 2026-07-04 · **Area:** DevOps / CI / Governanca de merge
+**Status:** Accepted (2026-07-05) · **Data:** 2026-07-04 · **Area:** DevOps / CI / Governanca de merge
 
 ## Contexto
 

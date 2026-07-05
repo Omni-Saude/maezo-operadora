@@ -1,6 +1,6 @@
 # ADR-0009: Portfolio de modelos com abstracao de provider + eval gates
 
-**Status:** Proposed · **Data:** 2026-06-12 · **Area:** Inteligencia
+**Status:** Accepted (2026-07-05) · **Data:** 2026-06-12 · **Area:** Inteligencia
 
 ## Contexto
 Modelos evoluem em ciclos de meses; precos variam 10x; PHI restringe onde cada chamada roda.

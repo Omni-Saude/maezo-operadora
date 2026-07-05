@@ -1,6 +1,6 @@
 # ADR-0020: Chain-of-custody tamper-evidente como PROJECAO sobre a cadeia de auditoria ADR-0007 (nao fork da cadeia)
 
-**Status:** Proposed
+**Status:** Accepted (2026-07-05)
 **Data:** 2026-06-13
 **Area:** Auditoria / Seguranca / Compliance
 **Regulado:** parcial — o periodo de retencao regulatoria (5+ anos), a interacao retencao-vs-erasure

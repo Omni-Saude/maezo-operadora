@@ -1,6 +1,6 @@
 # ADR-0012: DMN como ferramenta deterministica unica
 
-**Status:** Proposed · **Data:** 2026-06-12 · **Area:** Regras de negocio
+**Status:** Accepted (2026-07-05) · **Data:** 2026-06-12 · **Area:** Regras de negocio
 
 ## Contexto
 O repo hospitalar provou que ~80% das regras vivem bem em DMN (federada, versionada, testavel).

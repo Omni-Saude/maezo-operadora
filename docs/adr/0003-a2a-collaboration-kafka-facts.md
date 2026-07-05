@@ -1,6 +1,6 @@
 # ADR-0003: A2A v1.0 para colaboracao; Kafka para fatos
 
-**Status:** Proposed · **Data:** 2026-06-12 · **Area:** Comunicacao
+**Status:** Accepted (2026-07-05) · **Data:** 2026-06-12 · **Area:** Comunicacao
 
 ## Contexto
 Agentes delegam tarefas entre si (Helena->Rafael) e reagem a eventos (CDC -> Beatriz).
@@ -19,3 +19,6 @@ RPC-sobre-Kafka e anti-padrao; HTTP ad-hoc nao da identidade nem lifecycle.
 
 ## Supersedes
 —
+
+## Nota
+ADR-0015 refina as decisoes de runtime (Agent Card registry, envelope e anti-loop estrutural); este ADR permanece autoridade para a escolha de protocolo A2A v1.0 + Kafka.

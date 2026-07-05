@@ -1,6 +1,6 @@
 # ADR-0006: PHI em duas zonas; pseudonimizacao no gateway
 
-**Status:** Proposed · **Data:** 2026-06-12 · **Area:** LGPD/Seguranca
+**Status:** Accepted (2026-07-05) · **Data:** 2026-06-12 · **Area:** LGPD/Seguranca
 
 ## Contexto
 LGPD exige minimizacao; PHI em APIs externas de LLM cria risco. Mas agentes de back-office

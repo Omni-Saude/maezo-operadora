@@ -1,6 +1,6 @@
 # ADR-0024: Idempotencia DURAVEL dos drivers inbound/resume reusa o PADRAO Postgres (schema-por-tenant), nao Redis
 
-**Status:** Proposed · **Data:** 2026-07-04 · **Area:** Orquestracao / Runtime
+**Status:** Accepted (2026-07-05) · **Data:** 2026-07-04 · **Area:** Orquestracao / Runtime
 
 ## Contexto
 

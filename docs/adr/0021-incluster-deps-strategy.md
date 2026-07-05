@@ -1,6 +1,6 @@
 # ADR-0021: Dependencias in-cluster (CIB Seven, HAPI-FHIR) via StatefulSet — NAO operator; MSK continua amh-owned
 
-**Status:** Proposed
+**Status:** Accepted (2026-07-05)
 **Data:** 2026-06-14
 **Area:** Infra / Deploy / Seguranca
 

@@ -1,6 +1,6 @@
 # ADR-0007: Identidade de agente, auditoria e nao-repudio
 
-**Status:** Proposed · **Data:** 2026-06-12 · **Area:** Auditoria
+**Status:** Accepted (2026-07-05) · **Data:** 2026-06-12 · **Area:** Auditoria
 
 ## Contexto
 "O modelo respondeu X" nao e resposta aceitavel para ANS/justica. Toda decisao precisa de

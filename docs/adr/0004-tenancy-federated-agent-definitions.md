@@ -1,6 +1,6 @@
 # ADR-0004: Instancia por tenant + Agent Definitions federadas L0-L3
 
-**Status:** Proposed · **Data:** 2026-06-12 · **Area:** Tenancy
+**Status:** Accepted (2026-07-05) · **Data:** 2026-06-12 · **Area:** Tenancy
 
 ## Contexto
 Multi-tenant e requisito duro. Agentes adicionam estado conversacional, memoria, prompts e

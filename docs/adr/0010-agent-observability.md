@@ -1,6 +1,6 @@
 # ADR-0010: Observabilidade de agentes
 
-**Status:** Proposed · **Data:** 2026-06-12 · **Area:** Operacoes
+**Status:** Accepted (2026-07-05) · **Data:** 2026-06-12 · **Area:** Operacoes
 
 ## Contexto
 Historico BPMN cobre processos; nao cobre raciocinio, custo de tokens, qualidade de conversa,

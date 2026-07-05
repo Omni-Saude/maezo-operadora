@@ -1,6 +1,6 @@
 # ADR-0005: HITL como garantia arquitetural (nao prompt)
 
-**Status:** Proposed · **Data:** 2026-06-12 · **Area:** Seguranca/Compliance
+**Status:** Accepted (2026-07-05) · **Data:** 2026-06-12 · **Area:** Seguranca/Compliance
 
 ## Contexto
 RN 259 proibe negativa de cobertura sem medico auditor. Prompt nao e mecanismo de enforcement.

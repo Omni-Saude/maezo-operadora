@@ -1,6 +1,6 @@
 # ADR-0008: Niveis de autonomia L0-L3 por acao
 
-**Status:** Proposed · **Data:** 2026-06-12 · **Area:** Governanca
+**Status:** Accepted (2026-07-05) · **Data:** 2026-06-12 · **Area:** Governanca
 
 ## Contexto
 "Quanto o agente faz sozinho" deve ser politica explicita, versionada, auditavel e diferente por

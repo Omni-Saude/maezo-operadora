@@ -1,6 +1,6 @@
 # ADR-0001: CIB Seven como backbone de governanca; LangGraph como runtime de agentes
 
-**Status:** Proposed · **Data:** 2026-06-12 · **Area:** Orquestracao
+**Status:** Accepted (2026-07-05) · **Data:** 2026-06-12 · **Area:** Orquestracao
 
 ## Contexto
 Agents-first exige loops de raciocinio, conversas multi-dia e colaboracao dinamica — que BPMN

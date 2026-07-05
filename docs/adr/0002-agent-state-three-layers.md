@@ -1,6 +1,6 @@
 # ADR-0002: Estado de agentes em 3 camadas
 
-**Status:** Proposed · **Data:** 2026-06-12 · **Area:** Dados
+**Status:** Accepted (2026-07-05) · **Data:** 2026-06-12 · **Area:** Dados
 
 ## Contexto
 Agentes precisam de memoria de trabalho, episodica e semantica — LGPD-erasavel, isolada por

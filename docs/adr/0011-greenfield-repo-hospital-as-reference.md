@@ -1,6 +1,6 @@
 # ADR-0011: Repo greenfield; hospitalar como referencia; licoes estruturais
 
-**Status:** Proposed · **Data:** 2026-06-12 · **Area:** Produto/Engenharia
+**Status:** Accepted (2026-07-05) · **Data:** 2026-06-12 · **Area:** Produto/Engenharia
 
 ## Contexto
 `Omni-Saude/Maezo` e hospital-first, BPM-first, e carrega dividas estruturais (arvore duplicada

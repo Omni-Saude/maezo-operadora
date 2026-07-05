@@ -10,7 +10,7 @@ Regras:
 
 | ADR | Titulo | Status |
 |---|---|---|
-| 0001 | CIB Seven como backbone de governanca; LangGraph como runtime de agentes | Proposed |
+|| 0001 | CIB Seven como backbone de governanca; LangGraph como runtime de agentes | Accepted |
 | 0002 | Estado de agentes em 3 camadas (working/episodica/semantica) | Proposed |
 | 0003 | A2A v1.0 para colaboracao; Kafka para fatos | Proposed |
 | 0004 | Instancia por tenant + Agent Definitions federadas L0-L3 | Proposed |

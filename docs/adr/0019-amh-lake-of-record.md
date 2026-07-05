@@ -1,6 +1,6 @@
 # ADR-0019: amh-data-platform como lake-of-record analitico; Maezo consome agregados pseudonimizados, nunca duplica fact tables clinicas
 
-**Status:** Proposed
+**Status:** Accepted (2026-07-05)
 **Data:** 2026-06-13
 **Area:** Dados / LGPD / Analytics
 **Regulado:** parcial — parametros de supressao (k-anonymity/small-cell), escopo de consent e os
