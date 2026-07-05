@@ -363,7 +363,7 @@ jobs:
 
       - name: Check if agent-touching files changed
         id: agent_changes
-        uses: dorny/paths-filter@v3
+        uses: dorny/paths-filter@v4
         with:
           filters: |
             agents:
