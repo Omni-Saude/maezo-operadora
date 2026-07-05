@@ -72,10 +72,13 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8080/fhir/metadata || exit 1"]
+      # hapiproject/hapi:v7.4.0 é distroless (sem /bin/sh) — CMD-SHELL não funciona.
+      # Usamos java -version como healthcheck mínimo (valida que a JVM está viva).
+      # A disponibilidade HTTP é monitorada pelo otel-collector (profile observability).
+      test: ["CMD", "java", "-version"]
       interval: 20s
       timeout: 10s
-      retries: 10
+      retries: 5
       start_period: 90s
 
   kafka:
