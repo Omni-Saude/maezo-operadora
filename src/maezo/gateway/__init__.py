@@ -15,6 +15,7 @@ from maezo.gateway.credential_vault import (
     HumanCredentialPartition,
 )
 from maezo.gateway.custody import CustodyBundle
+from maezo.gateway.log_scrubber import LogScrubber
 from maezo.gateway.pep import PEP, Decision
 from maezo.gateway.pseudonymizer import PHI_FIELDS, Pseudonymizer
 
@@ -23,6 +24,7 @@ __all__ = [
     "Decision",
     "Pseudonymizer",
     "PHI_FIELDS",
+    "LogScrubber",
     "AuditRecord",
     "AuditSink",
     "CredentialVault",

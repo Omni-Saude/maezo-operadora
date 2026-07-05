@@ -1,0 +1,61 @@
+# Prometheus scrape configuration for Maezo Operadora (ADR-0010, ADR-0014)
+#
+# Dev local: Prometheus in docker-compose scrapes the app metrics endpoint.
+# Staging/Prod: Same config logic; remote-write to AMP via OTel Collector.
+#
+# Rules: alert-rules.yml loaded via rule_files.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  scrape_timeout: 10s
+
+# Alert rules file (shared between dev and prod; ADR-0014)
+rule_files:
+  - "alert-rules.yml"
+
+# Scrape configurations
+scrape_configs:
+  # Maezo application metrics (Prometheus client library endpoint)
+  - job_name: "maezo-app"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets:
+          - "maezo-app:8000"
+        labels:
+          service: "maezo-operadora"
+          component: "app"
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        regex: "([^:]+):\\d+"
+        replacement: "${1}"
+
+  # Maezo workers metrics endpoint
+  - job_name: "maezo-workers"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets:
+          - "maezo-workers:8001"
+        labels:
+          service: "maezo-operadora"
+          component: "workers"
+
+  # OTel Collector self-metrics
+  - job_name: "otel-collector"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets:
+          - "otel-collector:8888"
+        labels:
+          service: "maezo-operadora"
+          component: "otel-collector"
+
+  # Prometheus self-monitoring
+  - job_name: "prometheus"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets:
+          - "localhost:9090"
+        labels:
+          service: "prometheus"

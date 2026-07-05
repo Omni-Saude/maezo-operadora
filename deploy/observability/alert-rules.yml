@@ -1,0 +1,151 @@
+# Alert rules for Maezo Operadora (ADR-0010, ADR-0014)
+#
+# Shared between dev (Prometheus rule_files) and prod (AMP Rules API via Terraform).
+# ADR-0014: same YAML, different destination — no bifurcation.
+#
+# Categories:
+#   1. SLA breach — agent/worker latency or error rate exceeds thresholds
+#   2. Crash-loop — frequent worker/agent restarts
+#   3. Dead-letter — unprocessed messages accumulating in DLQ
+
+groups:
+  # ---------------------------------------------------------------------------
+  # SLA Breach Alerts
+  # ---------------------------------------------------------------------------
+  - name: maezo_sla
+    rules:
+      # Worker latency SLA: p95 > 5s for 5 minutes
+      - alert: MaezoSLAWorkerLatencyHigh
+        expr: |
+          histogram_quantile(0.95,
+            rate(maezo_worker_execution_time_seconds_bucket[5m])
+          ) > 5
+        for: 5m
+        labels:
+          severity: warning
+          category: sla
+          component: workers
+        annotations:
+          summary: "Worker execution latency P95 exceeds 5s (SLA breach)"
+          description: >
+            Worker {{ $labels.worker }} on topic {{ $labels.topic }}
+            has P95 latency of {{ $value }}s over the last 5 minutes.
+            SLA threshold: 5s. Investigate upstream dependency or resource contention.
+
+      # Agent error rate SLA: > 1% error rate sustained for 5 minutes
+      - alert: MaezoSLAAgentErrorRateHigh
+        expr: |
+          (
+            rate(maezo_agent_errors_total[5m])
+            /
+            rate(maezo_tool_calls_total[5m])
+          ) > 0.01
+        for: 5m
+        labels:
+          severity: critical
+          category: sla
+          component: agents
+        annotations:
+          summary: "Agent error rate exceeds 1% (SLA breach)"
+          description: >
+            Agent error rate is {{ $value | humanizePercentage }}
+            over the last 5 minutes. SLA threshold: 1%.
+            Check agent logs and LLM provider health.
+
+      # Worker error rate SLA: > 5% error rate sustained for 5 minutes
+      - alert: MaezoSLAWorkerErrorRateHigh
+        expr: |
+          (
+            rate(maezo_worker_error_count_total[5m])
+            /
+            rate(maezo_worker_execution_time_seconds_count[5m])
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          category: sla
+          component: workers
+        annotations:
+          summary: "Worker error rate exceeds 5% (SLA breach)"
+          description: >
+            Worker {{ $labels.worker }} on topic {{ $labels.topic }}
+            has error rate of {{ $value | humanizePercentage }} over last 5m.
+            Error type: {{ $labels.error_type }}. Check worker logs.
+
+  # ---------------------------------------------------------------------------
+  # Crash-Loop Alerts
+  # ---------------------------------------------------------------------------
+  - name: maezo_crash_loop
+    rules:
+      # Worker crash-loop: > 3 restarts in 5 minutes
+      - alert: MaezoWorkerCrashLoop
+        expr: |
+          rate(maezo_worker_error_count_total[5m]) > 0.01
+        for: 5m
+        labels:
+          severity: critical
+          category: crash_loop
+          component: workers
+        annotations:
+          summary: "Worker crash-loop detected: {{ $labels.worker }}"
+          description: >
+            Worker {{ $labels.worker }} on topic {{ $labels.topic }}
+            is experiencing sustained error rate of {{ $value }} errors/s
+            (error type: {{ $labels.error_type }}).
+            This may indicate a crash-loop. Check worker health and recent deployments.
+
+      # Agent restart loop: errors > 0 within 1 minute, sustained for 2 minutes
+      - alert: MaezoAgentCrashLoop
+        expr: |
+          rate(maezo_agent_errors_total[1m]) > 0
+        for: 2m
+        labels:
+          severity: critical
+          category: crash_loop
+          component: agents
+        annotations:
+          summary: "Agent crash-loop detected"
+          description: >
+            Agent errors detected at rate {{ $value }}/s sustained for 2 minutes.
+            Possible crash-loop or persistent upstream failure.
+            Check agent health endpoint and restart policy.
+
+  # ---------------------------------------------------------------------------
+  # Dead-Letter Queue Alerts
+  # ---------------------------------------------------------------------------
+  - name: maezo_dead_letter
+    rules:
+      # Dead-letter backlog: messages in DLQ > 0 for 10 minutes
+      # Note: Uses a synthetic metric — replace with actual Kafka DLQ metric
+      # from the OTel Collector's JMX exporter or Kafka Exporter when available.
+      - alert: MaezoDeadLetterBacklog
+        expr: |
+          maezo_dead_letter_queue_size > 0
+        for: 10m
+        labels:
+          severity: warning
+          category: dead_letter
+          component: messaging
+        annotations:
+          summary: "Dead-letter queue backlog detected"
+          description: >
+            Dead-letter queue has {{ $value }} unprocessed messages
+            for more than 10 minutes.
+            Investigate message payloads and consumer health.
+            Topics affected may need manual replay or purge.
+
+      # Dead-letter growth rate: > 5 messages per minute growth
+      - alert: MaezoDeadLetterGrowth
+        expr: |
+          rate(maezo_dead_letter_queue_size[5m]) > 5
+        for: 5m
+        labels:
+          severity: critical
+          category: dead_letter
+          component: messaging
+        annotations:
+          summary: "Dead-letter queue growing rapidly"
+          description: >
+            Dead-letter queue is growing at {{ $value }}/s.
+            This indicates a systemic consumer failure.
+            Pause producer if necessary and investigate root cause immediately.

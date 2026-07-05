@@ -115,8 +115,14 @@ class WorkerBase(ABC):
 
         Raises:
             Exception: If all retry attempts fail.
+
+        M11: Emits worker_execution_time_seconds on success and
+        worker_error_count_total on failure via the observability layer.
         """
+        import time as time_module
+
         last_error: Exception | None = None
+        start_time = time_module.monotonic()
 
         for attempt in range(1, self.max_retries + 1):
             try:
@@ -131,6 +137,20 @@ class WorkerBase(ABC):
                     topic=self._topic,
                     attempt=attempt,
                 )
+
+                # M11: Record successful execution time
+                duration = time_module.monotonic() - start_time
+                try:
+                    from maezo.platform.observability import record_worker_execution
+
+                    record_worker_execution(
+                        worker_name=type(self).__name__,
+                        topic=self._topic,
+                        duration_seconds=duration,
+                    )
+                except Exception:
+                    pass  # Metrics are best-effort; never break worker execution
+
                 return result
             except Exception as e:
                 last_error = e
@@ -141,6 +161,19 @@ class WorkerBase(ABC):
                     max_retries=self.max_retries,
                     error=str(e),
                 )
+
+                # M11: Record error count on each failure
+                try:
+                    from maezo.platform.observability import record_worker_error
+
+                    record_worker_error(
+                        worker_name=type(self).__name__,
+                        topic=self._topic,
+                        error_type=type(e).__name__,
+                    )
+                except Exception:
+                    pass  # Metrics are best-effort
+
                 if attempt < self.max_retries:
                     time.sleep(self.retry_backoff * attempt)
 

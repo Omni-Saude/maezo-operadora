@@ -1,9 +1,13 @@
-"""Prometheus metrics for agent runtime (ADR-0010).
+"""Prometheus metrics for agent runtime (ADR-0010, M11).
 
-Exposes three core metrics via prometheus_client:
+Exposes core metrics via prometheus_client:
 - maezo_agent_latency_seconds (Histogram) — latency of agent interactions
 - maezo_tool_calls_total (Counter) — total tool call invocations
 - maezo_agent_errors_total (Counter) — total agent errors
+
+M11 worker metrics:
+- maezo_worker_execution_time_seconds (Histogram) — worker execution duration
+- maezo_worker_error_count_total (Counter) — worker error count by type
 """
 
 from __future__ import annotations
@@ -20,6 +24,9 @@ class MetricsCollector:
     Implements ADR-0010 observability requirements.
     Creates a dedicated CollectorRegistry so metrics don't collide
     with the default PROCESS_COLLECTOR or other libraries.
+
+    M11: adds worker_execution_time and worker_error_count metrics
+    with labels for worker name, topic, and error type.
     """
 
     def __init__(self) -> None:
@@ -44,6 +51,21 @@ class MetricsCollector:
             registry=self._registry,
         )
 
+        # M11: Worker metrics
+        self._worker_execution_time = Histogram(
+            "maezo_worker_execution_time_seconds",
+            "Worker execution time in seconds",
+            labelnames=["worker", "topic"],
+            registry=self._registry,
+        )
+
+        self._worker_error_count = Counter(
+            "maezo_worker_error_count_total",
+            "Worker error count by error type",
+            labelnames=["worker", "topic", "error_type"],
+            registry=self._registry,
+        )
+
         logger.info("metrics_collector_initialized")
 
     @property
@@ -65,3 +87,20 @@ class MetricsCollector:
     def errors(self) -> Counter:
         """Counter for agent errors."""
         return self._errors
+
+    @property
+    def worker_execution_time(self) -> Histogram:
+        """Histogram for worker execution time (M11).
+
+        Labels: worker (class name), topic (external task topic).
+        """
+        return self._worker_execution_time
+
+    @property
+    def worker_error_count(self) -> Counter:
+        """Counter for worker errors by type (M11).
+
+        Labels: worker (class name), topic (external task topic),
+        error_type (Exception class name).
+        """
+        return self._worker_error_count
