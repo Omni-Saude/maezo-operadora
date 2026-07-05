@@ -122,7 +122,7 @@ def test_bridge_contas_to_recurso_not_triggered_when_not_recorrer() -> None:
     result = bridge.evaluate(event)
     assert result.evaluated is True
     assert result.handoff_triggered is False
-    assert result.reason == "Predicate not satisfied"
+    assert "No handoff rule matched" in result.reason
 
 
 # ---------------------------------------------------------------------------
@@ -212,15 +212,7 @@ def test_bridge_fraude_to_cred_not_triggered_when_not_prestador() -> None:
     )
     result = bridge.evaluate(event)
     assert result.handoff_triggered is True  # triggers CANCEL, not CRED
-    # For beneficiario, CANCEL triggers (not CRED)
-    handoffs = bridge.list_handoffs()
-    cred_rules = [h for h in handoffs if h["target_process"] == "SP-OP-CRED-001"]
-    # The CRED rule predicate requires entidade_tipo == prestador
-    for h in cred_rules:
-        rule = bridge.get_handoff(h["event_type"])
-        if rule is not None:
-            _, pred = rule
-            assert pred({"decisao_fraude": "ACUSAR_FRAUDE", "entidade_tipo": "beneficiario"}) is False
+    assert result.target_process == "SP-OP-CANCEL-001"
 
 
 # ---------------------------------------------------------------------------
@@ -249,7 +241,7 @@ def test_bridge_fraude_to_cancel_triggered() -> None:
 
 
 def test_bridge_fraude_to_inadimplencia_triggered() -> None:
-    """Handoff FRAUDE→INADIMPLENCIA triggers for contract fraud."""
+    """Handoff FRAUDE→INADIMPLENCIA and CANCEL both trigger for contract fraud."""
     bridge = _make_bridge()
     event = HandoffEvent(
         event_type="fraude.acusacao_registrada",
@@ -261,15 +253,72 @@ def test_bridge_fraude_to_inadimplencia_triggered() -> None:
             "numero_caso": "FRAUDE-001",
         },
     )
+    # evaluate returns first match (CANCEL, registered before INADIMPLENCIA)
     result = bridge.evaluate(event)
     assert result.handoff_triggered is True
-    assert result.target_process == "SP-OP-INADIMPLENCIA-001"
+    assert result.target_process == "SP-OP-CANCEL-001"
 
-    # CANCEL also triggers for contrato (dual handoff)
-    # Verify both are registered
-    handoffs = bridge.list_handoffs()
-    can_events = [h for h in handoffs if h["event_type"] == "fraude.acusacao_registrada"]
-    assert len(can_events) == 3  # CRED, CANCEL, INADIMPLENCIA
+    # evaluate_all returns both for contrato
+    all_results = bridge.evaluate_all(event)
+    assert len(all_results) == 2
+    targets = {r.target_process for r in all_results}
+    assert targets == {"SP-OP-CANCEL-001", "SP-OP-INADIMPLENCIA-001"}
+
+
+# ---------------------------------------------------------------------------
+# evaluate_all — multiple handoffs from same event
+# ---------------------------------------------------------------------------
+
+
+def test_evaluate_all_multiple_fraude_handoffs() -> None:
+    """evaluate_all returns all matching rules for fraude.acusacao_registrada."""
+    bridge = _make_bridge()
+    event = HandoffEvent(
+        event_type="fraude.acusacao_registrada",
+        payload={
+            "decisao_fraude": "ACUSAR_FRAUDE",
+            "entidade_tipo": "contrato",
+            "numero_contrato": "CTR-001",
+            "beneficiario_pseudo_id": "pseudo-b-001",
+            "numero_caso": "FRAUDE-001",
+        },
+    )
+    results = bridge.evaluate_all(event)
+    # For contrato: CANCEL + INADIMPLENCIA (2 rules match)
+    assert len(results) == 2
+    targets = {r.target_process for r in results}
+    assert "SP-OP-CANCEL-001" in targets
+    assert "SP-OP-INADIMPLENCIA-001" in targets
+    for r in results:
+        assert r.handoff_triggered is True
+
+
+def test_evaluate_all_single_match() -> None:
+    """evaluate_all returns one result when only one rule matches."""
+    bridge = _make_bridge()
+    event = HandoffEvent(
+        event_type="contas.glosa_confirmed",
+        payload={
+            "decisao_contas": "RECORRER",
+            "glosa_id": "GLOSA-001",
+            "numero_guia_tiss": "GUIA-123",
+            "glosa_type": "tecnica",
+            "numero_lote_tiss": "LOTE-001",
+        },
+    )
+    results = bridge.evaluate_all(event)
+    assert len(results) == 1
+    assert results[0].target_process == "SP-OP-RECURSO-001"
+
+
+def test_evaluate_all_no_match() -> None:
+    """evaluate_all returns a single not-triggered result when no rules match."""
+    bridge = _make_bridge()
+    event = HandoffEvent(event_type="nonexistent.event", payload={})
+    results = bridge.evaluate_all(event)
+    assert len(results) == 1
+    assert results[0].handoff_triggered is False
+    assert "No handoff rule matched" in results[0].reason
 
 
 # ---------------------------------------------------------------------------
@@ -283,7 +332,7 @@ def test_bridge_unknown_event_type() -> None:
     result = bridge.evaluate(HandoffEvent(event_type="nonexistent.event", payload={}))
     assert result.evaluated is True
     assert result.handoff_triggered is False
-    assert "No handoff rule registered" in result.reason
+    assert "No handoff rule matched" in result.reason
 
 
 # ---------------------------------------------------------------------------
@@ -325,7 +374,7 @@ async def test_execute_handoff_skips_when_not_triggered() -> None:
 async def test_on_event_full_pipeline() -> None:
     """on_event evaluates and executes in one call."""
     bridge, spy = _make_bridge_with_spy()
-    result = await bridge.on_event(
+    results = await bridge.on_event(
         event_type="contas.glosa_confirmed",
         payload={
             "decisao_contas": "RECORRER",
@@ -336,10 +385,33 @@ async def test_on_event_full_pipeline() -> None:
             "numero_lote_tiss": "LOTE-002",
         },
     )
-    assert result.handoff_triggered is True
-    assert result.target_process == "SP-OP-RECURSO-001"
-    assert result.process_instance_id == "instance-SP-OP-RECURSO-001-spy"
+    assert len(results) == 1
+    assert results[0].handoff_triggered is True
+    assert results[0].target_process == "SP-OP-RECURSO-001"
+    assert results[0].process_instance_id == "instance-SP-OP-RECURSO-001-spy"
     assert spy.calls[0][0] == "SP-OP-RECURSO-001"
+
+
+@pytest.mark.asyncio
+async def test_on_event_multiple_handoffs() -> None:
+    """on_event starts multiple processes for multi-handoff events."""
+    bridge, spy = _make_bridge_with_spy()
+    results = await bridge.on_event(
+        event_type="fraude.acusacao_registrada",
+        payload={
+            "decisao_fraude": "ACUSAR_FRAUDE",
+            "entidade_tipo": "contrato",
+            "numero_contrato": "CTR-001",
+            "beneficiario_pseudo_id": "pseudo-b-001",
+            "numero_caso": "FRAUDE-001",
+        },
+    )
+    assert len(results) == 2
+    targets = {r.target_process for r in results}
+    assert targets == {"SP-OP-CANCEL-001", "SP-OP-INADIMPLENCIA-001"}
+    for r in results:
+        assert r.process_instance_id.startswith("instance-")
+    assert len(spy.calls) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -352,22 +424,45 @@ def test_list_handoffs_returns_all() -> None:
     bridge = _make_bridge()
     handoffs = bridge.list_handoffs()
     assert isinstance(handoffs, list)
+    assert len(handoffs) == 5
     assert all("event_type" in h and "target_process" in h for h in handoffs)
 
 
-def test_get_handoff_returns_rule() -> None:
-    """get_handoff returns the target process and predicate."""
+def test_get_handoff_returns_rules() -> None:
+    """get_handoff returns all rules for an event type."""
     bridge = _make_bridge()
-    rule = bridge.get_handoff("contas.glosa_confirmed")
-    assert rule is not None
-    target, predicate = rule
+    rules = bridge.get_handoff("contas.glosa_confirmed")
+    assert len(rules) == 1
+    target, predicate = rules[0]
     assert target == "SP-OP-RECURSO-001"
     assert callable(predicate)
     assert predicate({"decisao_contas": "RECORRER"}) is True
     assert predicate({"decisao_contas": "ACEITAR"}) is False
 
 
-def test_get_handoff_unknown_returns_none() -> None:
-    """get_handoff returns None for unregistered event types."""
+def test_get_handoff_multiple_rules() -> None:
+    """get_handoff returns multiple rules for fraude.acusacao_registrada."""
     bridge = _make_bridge()
-    assert bridge.get_handoff("nonexistent.event") is None
+    rules = bridge.get_handoff("fraude.acusacao_registrada")
+    assert len(rules) == 3  # CRED, CANCEL, INADIMPLENCIA
+    targets = {t for t, _ in rules}
+    assert targets == {"SP-OP-CRED-001", "SP-OP-CANCEL-001", "SP-OP-INADIMPLENCIA-001"}
+
+
+def test_get_handoff_unknown_returns_empty() -> None:
+    """get_handoff returns empty list for unregistered event types."""
+    bridge = _make_bridge()
+    assert bridge.get_handoff("nonexistent.event") == []
+
+
+def test_count_handoffs() -> None:
+    """count_handoffs returns the number of registered rules."""
+    bridge = _make_bridge()
+    assert bridge.count_handoffs() == 5
+    bridge.register_handoff(
+        event_type="extra.rule.here",
+        predicate=lambda p: True,
+        target_process="SP-EXTRA-001",
+        variables_fn=lambda p: {},
+    )
+    assert bridge.count_handoffs() == 6

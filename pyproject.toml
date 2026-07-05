@@ -1,9 +1,15 @@
 [project]
 name = "maezo-operadora"
-version = "0.1.0"
+version = "1.0.0"
 description = "MAEZO Operadora — plataforma agents-first para operadoras de saude"
 requires-python = ">=3.12"
 license = { text = "Proprietary" }
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Healthcare Industry",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 
 dependencies = [
     # --- Agent runtime (cidadaos de primeira classe desde o commit 1) ---
