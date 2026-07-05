@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_recurso_admissibility"
+             name="Admissibilidade do recurso de glosa (roteamento)"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    recurso_admissibility v0.1.0 — status: DRAFT (conteudo requer SME faturamento/auditoria de
+    recurso + juridico/regulatorio; prazos RN 424/2017 DRAFT/verify; docs/review-queue.md).
+    Consumida por SP-OP-RECURSO-001 e mcp-dmn. Coracao negativa-like (admissibilidade do recurso).
+    INVARIANTE L0 HARD (nao negociavel): o dominio de `roteamento` e EXATAMENTE
+    {SEGUE_ANALISE, PENDENTE_DOCUMENTACAO, ANALISE_HUMANA}. NAO existe — por design — saida
+    NEGAR/DESISTIR/INADMISSIVEL. Nenhuma combinacao de input produz desistencia/manutencao de
+    glosa: a desistencia (nao interpor) SO nasce na User Task humana UT_AnaliseRecursoAnalista
+    (decisao_recurso=NAO_RECORRER), materializada pelo worker gated
+    operadora.recurso.register_desistencia (ERR_DESISTENCIA_NOT_HUMAN), e o terminal humano-gated
+    End_RecursoInadmissivel exige decisao humana.
+    Inadmissibilidade procedural aparente (dentro_prazo_recurso=false), glosa inexistente
+    (glosa_existe=false), e qualquer ambiguidade -> ANALISE_HUMANA (fail-safe, R5: inadmissibilidade
+    por prazo procedural duro e decidida por humano; auto-route de prazo-expirado puro so com
+    sign-off do juridico, ausente no fluxo DRAFT). A row catch-all (ultima) -> ANALISE_HUMANA.
+    Inputs booleanos pre-resolvidos por worker deterministico (calculo de prazo / conferencia de
+    anexos) — nunca por LLM, nunca decisao adversa.
+    hitPolicy FIRST (catch-all conservador como ultima row).
+  </description>
+  <decision id="recurso_admissibility" name="Admissibilidade do recurso de glosa" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_recurso_admissibility" hitPolicy="FIRST">
+      <input id="in_glosa_existe" label="Glosa confirmada/ativa em CONTAS (glosa_existe)">
+        <inputExpression id="ie_glosa_existe" typeRef="boolean"><text>glosa_existe</text></inputExpression>
+      </input>
+      <input id="in_dentro_prazo" label="Dentro do prazo recursal (dentro_prazo_recurso)">
+        <inputExpression id="ie_dentro_prazo" typeRef="boolean"><text>dentro_prazo_recurso</text></inputExpression>
+      </input>
+      <input id="in_docs" label="Documentacao minima do recurso presente (documentacao_recurso_completa)">
+        <inputExpression id="ie_docs" typeRef="boolean"><text>documentacao_recurso_completa</text></inputExpression>
+      </input>
+      <output id="out_roteamento" label="roteamento" name="roteamento" typeRef="string"/>
+      <output id="out_motivo" label="motivo" name="motivo" typeRef="string"/>
+      <rule id="r_glosa_inexistente_humano">
+        <description>Glosa nao confirmada/ativa em CONTAS -> analise humana (inadmissibilidade aparente; nunca auto-desiste)</description>
+        <inputEntry id="r_glosa_inexistente_humano_i1"><text>false</text></inputEntry>
+        <inputEntry id="r_glosa_inexistente_humano_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_glosa_inexistente_humano_i3"><text>-</text></inputEntry>
+        <outputEntry id="r_glosa_inexistente_humano_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r_glosa_inexistente_humano_o2"><text>"Glosa referida nao confirmada/ativa em CONTAS — analise humana obrigatoria (R5; nunca auto-desistencia)"</text></outputEntry>
+      </rule>
+      <rule id="r_fora_prazo_humano">
+        <description>Inadmissibilidade procedural aparente (fora do prazo) -> analise humana (R5; nunca auto-desiste)</description>
+        <inputEntry id="r_fora_prazo_humano_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_fora_prazo_humano_i2"><text>false</text></inputEntry>
+        <inputEntry id="r_fora_prazo_humano_i3"><text>-</text></inputEntry>
+        <outputEntry id="r_fora_prazo_humano_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r_fora_prazo_humano_o2"><text>"Inadmissibilidade procedural aparente (fora do prazo recursal) — decisao humana obrigatoria (R5; auto-route so com sign-off juridico, ausente no DRAFT)"</text></outputEntry>
+      </rule>
+      <rule id="r_pendente_docs">
+        <description>Glosa ativa, dentro do prazo, mas sem anexos minimos -> pendencia de documentacao</description>
+        <inputEntry id="r_pendente_docs_i1"><text>true</text></inputEntry>
+        <inputEntry id="r_pendente_docs_i2"><text>true</text></inputEntry>
+        <inputEntry id="r_pendente_docs_i3"><text>false</text></inputEntry>
+        <outputEntry id="r_pendente_docs_o1"><text>"PENDENTE_DOCUMENTACAO"</text></outputEntry>
+        <outputEntry id="r_pendente_docs_o2"><text>"Anexos minimos do recurso ausentes — abrir pendencia de documentacao ao prestador (suspensao de prazo: regra RN DRAFT/verify)"</text></outputEntry>
+      </rule>
+      <rule id="r_segue_analise">
+        <description>Glosa ativa, dentro do prazo e com documentacao -> segue para analise do recurso</description>
+        <inputEntry id="r_segue_analise_i1"><text>true</text></inputEntry>
+        <inputEntry id="r_segue_analise_i2"><text>true</text></inputEntry>
+        <inputEntry id="r_segue_analise_i3"><text>true</text></inputEntry>
+        <outputEntry id="r_segue_analise_o1"><text>"SEGUE_ANALISE"</text></outputEntry>
+        <outputEntry id="r_segue_analise_o2"><text>"Recurso admissivel aparente (glosa ativa, dentro do prazo, documentado) — segue para analise (decisao final na UT humana)"</text></outputEntry>
+      </rule>
+      <rule id="r_catchall">
+        <description>Catch-all FAIL-SAFE: qualquer ambiguidade/combinacao nao mapeada -> analise humana. NUNCA inadmissibilidade automatica.</description>
+        <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i3"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>"Combinacao nao mapeada / admissibilidade ambigua — analise humana por seguranca (L0 hard; nunca inadmissibilidade automatica)"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

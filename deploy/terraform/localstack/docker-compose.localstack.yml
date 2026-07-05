@@ -1,0 +1,80 @@
+# LocalStack stack for terraform smoke-testing (data-source resolution + plan-ability).
+#
+# This is an AUTHOR-ONLY scaffold. It is NOT part of the dev stack
+# (docker-compose.yml at repo root) and is wired only into the CI-only
+# `make tf-smoke` target. Running it requires Docker + terraform; terraform is
+# NOT installed locally — CI (or a developer with terraform on PATH) runs it.
+#
+# What it proves:
+#   - the staging env's `data` sources (VPC, subnets, EKS cluster, OIDC
+#     provider, MSK bootstrap secret) RESOLVE against seeded stubs;
+#   - the module + env graph is internally consistent enough to `terraform plan`.
+#
+# What it does NOT prove (see README.md — "Honest limitations"):
+#   - real EKS/MSK provisioning (LocalStack does not faithfully emulate either);
+#   - that an `apply` against real AWS succeeds (that is S1 / stop-condition #16).
+#
+# The seed (seed.sh) pre-creates the amh-data-platform substrate stubs with
+# tags/names that MATCH the data-source filters in
+#   deploy/terraform/envs/staging-sa-east-1/main.tf
+# and modules/secrets/main.tf, so the env's data lookups succeed.
+
+services:
+  # ---------------------------------------------------------------------------
+  # LocalStack — AWS service emulation.
+  # Community edition covers the services the staging-sa-east-1 data sources
+  # touch (EC2/VPC, IAM/OIDC, Secrets Manager, S3, DynamoDB, ECR, RDS, EKS).
+  # EKS/MSK are mocked at the API surface only (enough for data-source reads
+  # and plan; NOT real clusters). Region pinned to sa-east-1 to match the env.
+  # ---------------------------------------------------------------------------
+  localstack:
+    image: localstack/localstack:3.5.0
+    environment:
+      # Services exercised by the staging env data sources + backend.
+      SERVICES: ec2,iam,sts,secretsmanager,s3,dynamodb,ecr,rds,eks,kms
+      DEFAULT_REGION: sa-east-1
+      AWS_DEFAULT_REGION: sa-east-1
+      # Deterministic dummy creds — terraform + awslocal both read these.
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      DEBUG: "0"
+      # Persist nothing — every CI run starts from a clean substrate.
+      PERSISTENCE: "0"
+    ports:
+      - "4566:4566"    # LocalStack edge (all services multiplexed here)
+    volumes:
+      # Docker socket: LocalStack spins helper containers for some services.
+      - "/var/run/docker.sock:/var/run/docker.sock"
+    healthcheck:
+      # `localstack` health endpoint reports per-service readiness.
+      test: ["CMD-SHELL", "curl -sf http://localhost:4566/_localstack/health | grep -q '\"s3\": \"available\"' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  # ---------------------------------------------------------------------------
+  # Seed — pre-creates the amh-data-platform substrate stubs with MATCHING
+  # tags/names so the staging env data sources resolve. One-shot; exits 0.
+  # Uses the localstack/localstack image (ships awslocal). restart: "no".
+  # ---------------------------------------------------------------------------
+  seed:
+    image: localstack/localstack:3.5.0
+    entrypoint: ["/bin/bash", "/seed/seed.sh"]
+    environment:
+      AWS_DEFAULT_REGION: sa-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      LOCALSTACK_ENDPOINT: http://localstack:4566
+      # Must match deploy/terraform/envs/staging-sa-east-1 defaults + backend.
+      SHARED_VPC_NAME: amh-data-platform-vpc-staging
+      EKS_CLUSTER_NAME: amh-data-platform-eks-staging
+      MSK_SECRET_NAME: debezium/msk-bootstrap-servers
+      TF_STATE_BUCKET: amh-terraform-state-sa-east-1
+      TF_LOCK_TABLE: amh-terraform-locks
+    volumes:
+      - "./seed.sh:/seed/seed.sh:ro"
+    depends_on:
+      localstack:
+        condition: service_healthy
+    restart: "no"

@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_glosa_classification"
+             name="Classificacao de glosa"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    glosa_classification v0.1.0 — status: DRAFT (criterios de tipo/extensao requerem SME
+    faturamento/auditoria de contas; docs/review-queue.md). Consumida por SP-OP-CONTAS-001 e
+    mcp-dmn.
+    INVARIANTE L0 HARD: esta tabela APENAS classifica a glosa candidata (tipo e extensao).
+    NAO possui saida que confirme/aceite/negue a glosa — nenhuma decisao adversa nasce aqui.
+    `denial_ratio` (fracao do item glosada, 0..1) e PRE-COMPUTADO por worker deterministico
+    (operadora.contas.calculate_impact) — aritmetica pura, nunca decide aceite (typeRef double,
+    nunca "number"). Catch-all FAIL-SAFE: combinacao nao mapeada -> tipo "outro"/extensao
+    "linha" (conservador; a triagem a jusante roteia a humano).
+    NOTA hitPolicy: FIRST (catch-all conservador) — espelha auth_admissibility.
+  </description>
+  <decision id="glosa_classification" name="Classificacao da glosa candidata" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_glosa_classification" hitPolicy="FIRST">
+      <input id="in_categoria" label="Categoria normalizada (categoria_normalizada)">
+        <inputExpression id="ie_categoria" typeRef="string"><text>categoria_normalizada</text></inputExpression>
+      </input>
+      <input id="in_denial_ratio" label="Fracao do item glosada 0..1 (denial_ratio)">
+        <inputExpression id="ie_denial_ratio" typeRef="double"><text>denial_ratio</text></inputExpression>
+      </input>
+      <output id="out_glosa_type" label="glosa_type" name="glosa_type" typeRef="string"/>
+      <output id="out_glosa_extent" label="glosa_extent" name="glosa_extent" typeRef="string"/>
+      <rule id="r_valor">
+        <description>Categoria valor -> glosa de valor (extensao linha)</description>
+        <inputEntry id="r_valor_i1"><text>"valor"</text></inputEntry>
+        <inputEntry id="r_valor_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_valor_o1"><text>"valor"</text></outputEntry>
+        <outputEntry id="r_valor_o2"><text>"linha"</text></outputEntry>
+      </rule>
+      <rule id="r_tecnica">
+        <description>Categoria tecnica -> glosa tecnica (extensao linha)</description>
+        <inputEntry id="r_tecnica_i1"><text>"tecnica"</text></inputEntry>
+        <inputEntry id="r_tecnica_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_tecnica_o1"><text>"tecnica"</text></outputEntry>
+        <outputEntry id="r_tecnica_o2"><text>"linha"</text></outputEntry>
+      </rule>
+      <rule id="r_total">
+        <description>Item integralmente glosado (denial_ratio >= 1.0) -> glosa total da conta</description>
+        <inputEntry id="r_total_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_total_i2"><text>&gt;= 1.0</text></inputEntry>
+        <outputEntry id="r_total_o1"><text>"total"</text></outputEntry>
+        <outputEntry id="r_total_o2"><text>"conta"</text></outputEntry>
+      </rule>
+      <rule id="r_parcial">
+        <description>Item parcialmente glosado (0 &lt; denial_ratio &lt; 1) -> glosa parcial da linha</description>
+        <inputEntry id="r_parcial_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_parcial_i2"><text>(0.0..1.0)</text></inputEntry>
+        <outputEntry id="r_parcial_o1"><text>"parcial"</text></outputEntry>
+        <outputEntry id="r_parcial_o2"><text>"linha"</text></outputEntry>
+      </rule>
+      <rule id="r_catchall">
+        <description>Catch-all FAIL-SAFE: combinacao nao mapeada -> outro/linha (rota a humano)</description>
+        <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>"outro"</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>"linha"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

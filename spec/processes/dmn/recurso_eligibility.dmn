@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_recurso_eligibility"
+             name="Elegibilidade do recurso de glosa (revisor)"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    recurso_eligibility v0.1.0 — status: DRAFT (criterios de elegibilidade/grupo revisor requerem
+    SME faturamento/auditoria + medico auditor; docs/review-queue.md). Consumida por
+    SP-OP-RECURSO-001 e mcp-dmn.
+    INVARIANTE L0 HARD: esta tabela APENAS roteia o recurso ao revisor humano competente.
+    NAO possui saida NAO_RECORRIVEL/NEGAR/DESISTIR — nenhuma decisao adversa nasce aqui. O dominio
+    de `roteamento` e EXATAMENTE {RECORRIVEL, ANALISE_HUMANA}; `grupo_revisor` in
+    {analista-recurso-glosa, medico-auditor}. Glosa tecnica/clinica roteia para medico-auditor
+    (humano decide o merito — espelha JUNTA_MEDICA de AUTH); o auditor decide
+    decisao_auditor_recurso in {MANTER_RECURSO, ACEITAR_GLOSA, RECURSO_PARCIAL}. `valor_glosado_brl`
+    em double (BRL — NUNCA "number"). Catch-all FAIL-SAFE: combinacao nao mapeada -> ANALISE_HUMANA
+    / analista-recurso-glosa (conservador; a decisao final do merito e sempre humana).
+    hitPolicy FIRST (catch-all conservador como ultima row).
+  </description>
+  <decision id="recurso_eligibility" name="Elegibilidade/roteamento do recurso de glosa" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_recurso_eligibility" hitPolicy="FIRST">
+      <input id="in_glosa_type" label="Tipo de glosa (glosa_type)">
+        <inputExpression id="ie_glosa_type" typeRef="string"><text>glosa_type</text></inputExpression>
+      </input>
+      <input id="in_reason_code" label="Codigo TISS normalizado de motivo (glosa_reason_code)">
+        <inputExpression id="ie_reason_code" typeRef="string"><text>glosa_reason_code</text></inputExpression>
+      </input>
+      <input id="in_valor" label="Valor glosado BRL (valor_glosado_brl)">
+        <inputExpression id="ie_valor" typeRef="double"><text>valor_glosado_brl</text></inputExpression>
+      </input>
+      <output id="out_roteamento" label="roteamento" name="roteamento" typeRef="string"/>
+      <output id="out_grupo_revisor" label="grupo_revisor" name="grupo_revisor" typeRef="string"/>
+      <output id="out_motivo" label="motivo" name="motivo" typeRef="string"/>
+      <rule id="r_tecnica_clinica_auditor">
+        <description>Glosa tecnica/clinica -> medico-auditor decide o merito (humano; espelha JUNTA_MEDICA de AUTH)</description>
+        <inputEntry id="r_tecnica_clinica_auditor_i1"><text>"tecnica","clinica"</text></inputEntry>
+        <inputEntry id="r_tecnica_clinica_auditor_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_tecnica_clinica_auditor_i3"><text>-</text></inputEntry>
+        <outputEntry id="r_tecnica_clinica_auditor_o1"><text>"RECORRIVEL"</text></outputEntry>
+        <outputEntry id="r_tecnica_clinica_auditor_o2"><text>"medico-auditor"</text></outputEntry>
+        <outputEntry id="r_tecnica_clinica_auditor_o3"><text>"Glosa tecnico-clinica — merito decidido pelo medico auditor (L0 hard; nunca NAO_RECORRIVEL automatico)"</text></outputEntry>
+      </rule>
+      <rule id="r_administrativa_recorrivel">
+        <description>Glosa administrativa/formatacao/linha duplicada -> recorrivel pelo analista de recurso (decisao final humana na UT)</description>
+        <inputEntry id="r_administrativa_recorrivel_i1"><text>"administrativa","formatacao","linha_duplicada"</text></inputEntry>
+        <inputEntry id="r_administrativa_recorrivel_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_administrativa_recorrivel_i3"><text>-</text></inputEntry>
+        <outputEntry id="r_administrativa_recorrivel_o1"><text>"RECORRIVEL"</text></outputEntry>
+        <outputEntry id="r_administrativa_recorrivel_o2"><text>"analista-recurso-glosa"</text></outputEntry>
+        <outputEntry id="r_administrativa_recorrivel_o3"><text>"Glosa administrativa/formatacao/linha duplicada — candidata a recurso pelo analista (decisao final na UT humana)"</text></outputEntry>
+      </rule>
+      <rule id="r_catchall">
+        <description>Catch-all FAIL-SAFE: tipo de glosa desconhecido/ambiguo -> analise humana pelo analista de recurso. NUNCA NAO_RECORRIVEL.</description>
+        <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i3"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>"analista-recurso-glosa"</text></outputEntry>
+        <outputEntry id="r_catchall_o3"><text>"Tipo de glosa nao mapeado / elegibilidade ambigua — analise humana por seguranca (L0 hard; nunca NAO_RECORRIVEL automatico)"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_auth_auto_approval"
+             name="Aprovacao automatica de autorizacao (L2)"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    auth_auto_approval v0.1.0 — status: DRAFT (criterios DUT/teto requerem SME medico
+    auditor + compliance; docs/review-queue.md). Consumida por SP-OP-AUTH-001 e mcp-dmn.
+    Implementa ADR-0008 authorization_approval (L2: requires dmn_favorable, teto por
+    tenant). INVARIANTE: saidas possiveis sao APENAS {AUTO_APROVAR, ANALISE_HUMANA} —
+    negativa nao e saida desta tabela (L0 hard). Catch-all = ANALISE_HUMANA (fail-safe:
+    nunca auto-aprovar por omissao).
+    dut_atendida e dentro_teto_l2 sao pre-computados por worker deterministico
+    (avaliacao DUT/ROL + teto do tenant em tenants-amh.yaml) — nunca por LLM.
+  </description>
+  <decision id="auth_auto_approval" name="Aprovacao automatica (L2)" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_auth_auto_approval" hitPolicy="FIRST">
+      <input id="in_dut" label="DUT/ROL atendida (dut_atendida)">
+        <inputExpression id="ie_dut" typeRef="boolean"><text>dut_atendida</text></inputExpression>
+      </input>
+      <input id="in_teto" label="Dentro do teto L2 do tenant (dentro_teto_l2)">
+        <inputExpression id="ie_teto" typeRef="boolean"><text>dentro_teto_l2</text></inputExpression>
+      </input>
+      <input id="in_rede" label="Prestador da rede credenciada (rede_credenciada)">
+        <inputExpression id="ie_rede" typeRef="boolean"><text>rede_credenciada</text></inputExpression>
+      </input>
+      <input id="in_carater" label="Carater de atendimento (carater_atendimento)">
+        <inputExpression id="ie_carater" typeRef="string"><text>carater_atendimento</text></inputExpression>
+      </input>
+      <output id="out_recomendacao" label="recomendacao" name="recomendacao" typeRef="string"/>
+      <output id="out_motivo" label="motivo" name="motivo" typeRef="string"/>
+      <rule id="r1">
+        <description>Exemplo sintetico: exame eletivo do Paciente Teste 001, DUT ok, R$ 180 (abaixo do teto), rede propria</description>
+        <inputEntry id="r1i1"><text>true</text></inputEntry>
+        <inputEntry id="r1i2"><text>true</text></inputEntry>
+        <inputEntry id="r1i3"><text>true</text></inputEntry>
+        <inputEntry id="r1i4"><text>-</text></inputEntry>
+        <outputEntry id="r1o1"><text>"AUTO_APROVAR"</text></outputEntry>
+        <outputEntry id="r1o2"><text>"DMN favoravel: DUT atendida, dentro do teto L2, rede credenciada"</text></outputEntry>
+      </rule>
+      <rule id="r2">
+        <description>DUT nao atendida -> medico auditor (nunca negativa automatica)</description>
+        <inputEntry id="r2i1"><text>false</text></inputEntry>
+        <inputEntry id="r2i2"><text>-</text></inputEntry>
+        <inputEntry id="r2i3"><text>-</text></inputEntry>
+        <inputEntry id="r2i4"><text>-</text></inputEntry>
+        <outputEntry id="r2o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r2o2"><text>"DUT/ROL nao atendida — requer medico auditor (L0 hard)"</text></outputEntry>
+      </rule>
+      <rule id="r3">
+        <description>Acima do teto L2 do tenant -> medico auditor</description>
+        <inputEntry id="r3i1"><text>true</text></inputEntry>
+        <inputEntry id="r3i2"><text>false</text></inputEntry>
+        <inputEntry id="r3i3"><text>-</text></inputEntry>
+        <inputEntry id="r3i4"><text>-</text></inputEntry>
+        <outputEntry id="r3o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r3o2"><text>"Valor acima do teto L2 do tenant"</text></outputEntry>
+      </rule>
+      <rule id="r4">
+        <description>Fora da rede credenciada (reembolso/excecao) -> medico auditor</description>
+        <inputEntry id="r4i1"><text>true</text></inputEntry>
+        <inputEntry id="r4i2"><text>true</text></inputEntry>
+        <inputEntry id="r4i3"><text>false</text></inputEntry>
+        <inputEntry id="r4i4"><text>-</text></inputEntry>
+        <outputEntry id="r4o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r4o2"><text>"Prestador fora da rede credenciada"</text></outputEntry>
+      </rule>
+      <rule id="r5">
+        <description>Catch-all FAIL-SAFE: nunca auto-aprovar por omissao</description>
+        <inputEntry id="r5i1"><text>-</text></inputEntry>
+        <inputEntry id="r5i2"><text>-</text></inputEntry>
+        <inputEntry id="r5i3"><text>-</text></inputEntry>
+        <inputEntry id="r5i4"><text>-</text></inputEntry>
+        <outputEntry id="r5o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r5o2"><text>"Combinacao nao mapeada — analise humana por seguranca"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

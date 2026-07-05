@@ -1,0 +1,9 @@
+{{- if .Values.namespace.create }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ include "maezo-tenant.namespace" . }}
+  labels:
+    {{- toYaml .Values.namespace.labels | nindent 4 }}
+    {{- include "maezo-tenant.labels" . | nindent 4 }}
+{{- end }}

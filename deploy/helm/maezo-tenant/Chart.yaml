@@ -1,0 +1,17 @@
+apiVersion: v2
+name: maezo-tenant
+description: >
+  Per-tenant Helm chart for the Maezo Healthcare Plan agent platform.
+  Provisions a complete tenant namespace: agent-runtime, tool-gateway, webhook-receiver,
+  fhir-sync; NetworkPolicies for ADR-0006 PHI two-zone model; IRSA ServiceAccounts.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - healthcare
+  - agents
+  - maezo
+  - langgraph
+maintainers:
+  - name: Maezo Platform Team
+    email: platform@example.com

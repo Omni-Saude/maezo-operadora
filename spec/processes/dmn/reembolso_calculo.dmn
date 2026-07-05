@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_reembolso_calculo"
+             name="Calculo do valor de reembolso devido (tabela de referencia)"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    reembolso_calculo v0.1.0 — status: DRAFT (multiplo/limite por categoria/segmentacao
+    requer sign-off de regulatorio + atuarial; tabela de referencia DRAFT/verify;
+    docs/review-queue.md). Consumida por SP-OP-REEMBOLSO-001 e mcp-dmn. ESTA E A DMN QUE
+    CALCULA O VALOR.
+    INVARIANTE L0 HARD (nao negociavel): esta tabela CALCULA quanto seria devido segundo a
+    tabela de referencia / limite contratual — NAO decide pagar/negar e NAO reduz o pedido.
+    Apenas expressa o valor de referencia (valor_calculado_tabela_cents). A comparacao
+    valor_solicitado_cents vs valor_calculado_tabela_cents alimenta `dentro_tabela`, mas a
+    eventual reducao (APROVAR_PARCIAL) e decisao HUMANA na User Task UT_AnaliseReembolso/
+    UT_RevisaoAuditorMedico — nunca automatica.
+    DINHEIRO BRL em INTEIRO-CENTAVOS (typeRef integer) — "number" e proibido pelo engine
+    (consistente com as variaveis *_cents do contrato). multiplo_tabela_aplicado e double.
+    Catch-all FAIL-SAFE: procedimento sem tabela -> valor_calculado_tabela_cents=0 +
+    fonte_tabela="SEM_TABELA", o que forca dentro_tabela=false a jusante -> ANALISE_HUMANA
+    (NUNCA auto-aprova fora de tabela). Nenhuma saida de decisao (sem APROVAR/NEGAR/REDUZIR).
+    hitPolicy FIRST (catch-all conservador como ultima row; sob UNIQUE a row catch-all '-'
+    colidiria com uma row especifica em runtime — espelha glosa_triage/auth_admissibility).
+    Valores de tabela abaixo sao SINTETICOS/representativos (centavos BRL) — DRAFT/verify
+    contra a tabela de reembolso vigente antes de qualquer deploy.
+  </description>
+  <decision id="reembolso_calculo" name="Calculo do valor de reembolso devido" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_reembolso_calculo" hitPolicy="FIRST">
+      <input id="in_tipo" label="Tipo de reembolso (tipo_reembolso)">
+        <inputExpression id="ie_tipo" typeRef="string"><text>tipo_reembolso</text></inputExpression>
+      </input>
+      <input id="in_categoria" label="Categoria do procedimento (categoria_procedimento)">
+        <inputExpression id="ie_categoria" typeRef="string"><text>categoria_procedimento</text></inputExpression>
+      </input>
+      <output id="out_valor" label="valor_calculado_tabela_cents" name="valor_calculado_tabela_cents" typeRef="integer"/>
+      <output id="out_multiplo" label="multiplo_tabela_aplicado" name="multiplo_tabela_aplicado" typeRef="double"/>
+      <output id="out_fonte" label="fonte_tabela" name="fonte_tabela" typeRef="string"/>
+      <rule id="r_consulta">
+        <description>Consulta — valor de referencia da tabela (sintetico R$ 120,00)</description>
+        <inputEntry id="r_consulta_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_consulta_i2"><text>"consulta"</text></inputEntry>
+        <outputEntry id="r_consulta_o1"><text>12000</text></outputEntry>
+        <outputEntry id="r_consulta_o2"><text>1.0</text></outputEntry>
+        <outputEntry id="r_consulta_o3"><text>"TABELA_REFERENCIA_CONSULTA"</text></outputEntry>
+      </rule>
+      <rule id="r_exame_simples">
+        <description>Exame simples — valor de referencia da tabela (sintetico R$ 80,00)</description>
+        <inputEntry id="r_exame_simples_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_exame_simples_i2"><text>"exame_simples"</text></inputEntry>
+        <outputEntry id="r_exame_simples_o1"><text>8000</text></outputEntry>
+        <outputEntry id="r_exame_simples_o2"><text>1.0</text></outputEntry>
+        <outputEntry id="r_exame_simples_o3"><text>"TABELA_REFERENCIA_EXAME"</text></outputEntry>
+      </rule>
+      <rule id="r_exame_especial">
+        <description>Exame especial — valor de referencia da tabela (sintetico R$ 250,00)</description>
+        <inputEntry id="r_exame_especial_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_exame_especial_i2"><text>"exame_especial"</text></inputEntry>
+        <outputEntry id="r_exame_especial_o1"><text>25000</text></outputEntry>
+        <outputEntry id="r_exame_especial_o2"><text>1.0</text></outputEntry>
+        <outputEntry id="r_exame_especial_o3"><text>"TABELA_REFERENCIA_EXAME"</text></outputEntry>
+      </rule>
+      <rule id="r_terapia">
+        <description>Terapia — valor de referencia da tabela (sintetico R$ 150,00 por sessao)</description>
+        <inputEntry id="r_terapia_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_terapia_i2"><text>"terapia"</text></inputEntry>
+        <outputEntry id="r_terapia_o1"><text>15000</text></outputEntry>
+        <outputEntry id="r_terapia_o2"><text>1.0</text></outputEntry>
+        <outputEntry id="r_terapia_o3"><text>"TABELA_REFERENCIA_TERAPIA"</text></outputEntry>
+      </rule>
+      <rule id="r_catchall">
+        <description>Catch-all FAIL-SAFE: categoria sem tabela de referencia -> valor 0 + SEM_TABELA (forca dentro_tabela=false -> ANALISE_HUMANA; nunca auto-aprova)</description>
+        <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>0</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>0.0</text></outputEntry>
+        <outputEntry id="r_catchall_o3"><text>"SEM_TABELA"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_triage_redflag_adult"
+             name="Red flags de triagem — adulto"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    triage_redflag_adult v0.1.0 — status: SHAPE FINAL; CONTEUDO CLINICO: DRAFT — requer
+    validacao de medico (diretriz de triagem) antes de qualquer deploy
+    (docs/review-queue.md). Consumida por Helena via mcp-dmn.evaluate (ADR-0012):
+    o LLM NUNCA decide red flag; classifica sintomas em codigos normalizados e esta
+    tabela decide. red_flag=true dispara SP-OP-ESCALATION-001 imediatamente
+    (motivo_categoria=red_flag_clinico; severidade derivada de prioridade P1->grave,
+    P2->moderada).
+    SCHEMA COMUM a todas as triage_redflag_*: inputs {sintoma_codigo: string,
+    intensidade: string [leve|moderada|grave|desconhecida]} (+ campo populacional);
+    outputs {red_flag: boolean, prioridade: string [P1|P2|-], conduta: string
+    [ESCALATE_EMERGENCY|ESCALATE_NURSE|CONTINUE], motivo: string}.
+    Fail-safe: intensidade "grave" de QUALQUER sintoma nao mapeado escala para enfermagem.
+    Exemplos sinteticos: "Paciente Teste 001".
+  </description>
+  <decision id="triage_redflag_adult" name="Red flags adulto" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_triage_redflag_adult" hitPolicy="FIRST">
+      <input id="in_sintoma" label="Sintoma normalizado (sintoma_codigo)">
+        <inputExpression id="ie_sintoma" typeRef="string"><text>sintoma_codigo</text></inputExpression>
+      </input>
+      <input id="in_intensidade" label="Intensidade relatada (intensidade)">
+        <inputExpression id="ie_intensidade" typeRef="string"><text>intensidade</text></inputExpression>
+      </input>
+      <input id="in_idade" label="Idade em anos (idade_anos)">
+        <inputExpression id="ie_idade" typeRef="integer"><text>idade_anos</text></inputExpression>
+      </input>
+      <output id="out_redflag" label="red_flag" name="red_flag" typeRef="boolean"/>
+      <output id="out_prioridade" label="prioridade" name="prioridade" typeRef="string"/>
+      <output id="out_conduta" label="conduta" name="conduta" typeRef="string"/>
+      <output id="out_motivo" label="motivo" name="motivo" typeRef="string"/>
+      <rule id="r1">
+        <description>DRAFT clinico — ex. sintetico: Paciente Teste 001, 54 anos, dor no peito</description>
+        <inputEntry id="r1i1"><text>"dor_toracica"</text></inputEntry>
+        <inputEntry id="r1i2"><text>-</text></inputEntry>
+        <inputEntry id="r1i3"><text>-</text></inputEntry>
+        <outputEntry id="r1o1"><text>true</text></outputEntry>
+        <outputEntry id="r1o2"><text>"P1"</text></outputEntry>
+        <outputEntry id="r1o3"><text>"ESCALATE_EMERGENCY"</text></outputEntry>
+        <outputEntry id="r1o4"><text>"Dor toracica: possivel sindrome coronariana aguda"</text></outputEntry>
+      </rule>
+      <rule id="r2">
+        <inputEntry id="r2i1"><text>"dispneia"</text></inputEntry>
+        <inputEntry id="r2i2"><text>"grave","moderada"</text></inputEntry>
+        <inputEntry id="r2i3"><text>-</text></inputEntry>
+        <outputEntry id="r2o1"><text>true</text></outputEntry>
+        <outputEntry id="r2o2"><text>"P1"</text></outputEntry>
+        <outputEntry id="r2o3"><text>"ESCALATE_EMERGENCY"</text></outputEntry>
+        <outputEntry id="r2o4"><text>"Dificuldade respiratoria significativa"</text></outputEntry>
+      </rule>
+      <rule id="r3">
+        <description>Sinais focais: face caida, fraqueza unilateral, fala alterada (suspeita de AVC)</description>
+        <inputEntry id="r3i1"><text>"deficit_neurologico"</text></inputEntry>
+        <inputEntry id="r3i2"><text>-</text></inputEntry>
+        <inputEntry id="r3i3"><text>-</text></inputEntry>
+        <outputEntry id="r3o1"><text>true</text></outputEntry>
+        <outputEntry id="r3o2"><text>"P1"</text></outputEntry>
+        <outputEntry id="r3o3"><text>"ESCALATE_EMERGENCY"</text></outputEntry>
+        <outputEntry id="r3o4"><text>"Deficit neurologico agudo: suspeita de AVC (tempo-dependente)"</text></outputEntry>
+      </rule>
+      <rule id="r4">
+        <inputEntry id="r4i1"><text>"cefaleia_subita_intensa"</text></inputEntry>
+        <inputEntry id="r4i2"><text>-</text></inputEntry>
+        <inputEntry id="r4i3"><text>-</text></inputEntry>
+        <outputEntry id="r4o1"><text>true</text></outputEntry>
+        <outputEntry id="r4o2"><text>"P1"</text></outputEntry>
+        <outputEntry id="r4o3"><text>"ESCALATE_EMERGENCY"</text></outputEntry>
+        <outputEntry id="r4o4"><text>"Cefaleia subita 'pior da vida': suspeita de hemorragia subaracnoide"</text></outputEntry>
+      </rule>
+      <rule id="r5">
+        <inputEntry id="r5i1"><text>"sangramento_ativo"</text></inputEntry>
+        <inputEntry id="r5i2"><text>"grave","moderada"</text></inputEntry>
+        <inputEntry id="r5i3"><text>-</text></inputEntry>
+        <outputEntry id="r5o1"><text>true</text></outputEntry>
+        <outputEntry id="r5o2"><text>"P1"</text></outputEntry>
+        <outputEntry id="r5o3"><text>"ESCALATE_EMERGENCY"</text></outputEntry>
+        <outputEntry id="r5o4"><text>"Sangramento ativo significativo"</text></outputEntry>
+      </rule>
+      <rule id="r6">
+        <inputEntry id="r6i1"><text>"reacao_alergica"</text></inputEntry>
+        <inputEntry id="r6i2"><text>"grave"</text></inputEntry>
+        <inputEntry id="r6i3"><text>-</text></inputEntry>
+        <outputEntry id="r6o1"><text>true</text></outputEntry>
+        <outputEntry id="r6o2"><text>"P1"</text></outputEntry>
+        <outputEntry id="r6o3"><text>"ESCALATE_EMERGENCY"</text></outputEntry>
+        <outputEntry id="r6o4"><text>"Suspeita de anafilaxia"</text></outputEntry>
+      </rule>
+      <rule id="r7">
+        <inputEntry id="r7i1"><text>"sincope"</text></inputEntry>
+        <inputEntry id="r7i2"><text>-</text></inputEntry>
+        <inputEntry id="r7i3"><text>-</text></inputEntry>
+        <outputEntry id="r7o1"><text>true</text></outputEntry>
+        <outputEntry id="r7o2"><text>"P2"</text></outputEntry>
+        <outputEntry id="r7o3"><text>"ESCALATE_NURSE"</text></outputEntry>
+        <outputEntry id="r7o4"><text>"Sincope/desmaio: avaliacao de enfermagem imediata"</text></outputEntry>
+      </rule>
+      <rule id="r8">
+        <description>Idoso com febre: limiar mais baixo (DRAFT clinico)</description>
+        <inputEntry id="r8i1"><text>"febre"</text></inputEntry>
+        <inputEntry id="r8i2"><text>"grave","moderada"</text></inputEntry>
+        <inputEntry id="r8i3"><text>&gt;= 65</text></inputEntry>
+        <outputEntry id="r8o1"><text>true</text></outputEntry>
+        <outputEntry id="r8o2"><text>"P2"</text></outputEntry>
+        <outputEntry id="r8o3"><text>"ESCALATE_NURSE"</text></outputEntry>
+        <outputEntry id="r8o4"><text>"Febre em idoso: risco de sepse — avaliacao de enfermagem"</text></outputEntry>
+      </rule>
+      <rule id="r9">
+        <inputEntry id="r9i1"><text>"dor_abdominal"</text></inputEntry>
+        <inputEntry id="r9i2"><text>"grave"</text></inputEntry>
+        <inputEntry id="r9i3"><text>-</text></inputEntry>
+        <outputEntry id="r9o1"><text>true</text></outputEntry>
+        <outputEntry id="r9o2"><text>"P2"</text></outputEntry>
+        <outputEntry id="r9o3"><text>"ESCALATE_NURSE"</text></outputEntry>
+        <outputEntry id="r9o4"><text>"Dor abdominal intensa: avaliacao de enfermagem"</text></outputEntry>
+      </rule>
+      <rule id="r10">
+        <description>Fail-safe: qualquer sintoma nao mapeado relatado como grave escala</description>
+        <inputEntry id="r10i1"><text>-</text></inputEntry>
+        <inputEntry id="r10i2"><text>"grave"</text></inputEntry>
+        <inputEntry id="r10i3"><text>-</text></inputEntry>
+        <outputEntry id="r10o1"><text>true</text></outputEntry>
+        <outputEntry id="r10o2"><text>"P2"</text></outputEntry>
+        <outputEntry id="r10o3"><text>"ESCALATE_NURSE"</text></outputEntry>
+        <outputEntry id="r10o4"><text>"Sintoma nao mapeado com intensidade grave — fail-safe"</text></outputEntry>
+      </rule>
+      <rule id="r11">
+        <description>Catch-all: sem red flag, jornada AGJ-HELENA-TRIAGE continua</description>
+        <inputEntry id="r11i1"><text>-</text></inputEntry>
+        <inputEntry id="r11i2"><text>-</text></inputEntry>
+        <inputEntry id="r11i3"><text>-</text></inputEntry>
+        <outputEntry id="r11o1"><text>false</text></outputEntry>
+        <outputEntry id="r11o2"><text>"-"</text></outputEntry>
+        <outputEntry id="r11o3"><text>"CONTINUE"</text></outputEntry>
+        <outputEntry id="r11o4"><text>"Sem criterio de red flag adulto"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

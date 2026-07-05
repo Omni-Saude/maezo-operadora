@@ -1,0 +1,246 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_carencia_check"
+             name="Verificacao de carencia contratual"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    carencia_check v0.1.0 — status: DRAFT — prazos de carencia SINTETICOS.
+    REQUER revisao humana antes de qualquer deploy (docs/review-queue.md):
+    revisor: juridico/regulatorio + medico auditor.
+
+    INVARIANTE L0 HARD: carencia_cumprida=false NAO nega automaticamente.
+    O resultado alimenta o fluxo SP-OP-AUTH-001 para analise do medico auditor
+    — nunca nega automaticamente (ADR-0005/0008).
+
+    Prazos legais de carencia (DRAFT/verify — confirmar contra RN 195/2009,
+    RN 259/2011, RN 465/2021 e texto vigente Lei 9.656/1998 art. 12 II):
+      - Urgencia/emergencia: 24 horas — DRAFT/verify (Lei 9.656/1998 art. 35-C;
+          RN 259/2011 art. 7; verificar consolidacoes ANS vigentes)
+      - Parto: 300 dias — DRAFT/verify (Lei 9.656/1998 art. 12 II "a")
+      - Demais procedimentos eletivos: 180 dias — DRAFT/verify (RN 195/2009
+          + RN 259/2011; verificar se houve atualizacao regulatoria pos-2021)
+      - CPT (Cobertura Parcial Temporaria) para doenca pre-existente: 24 meses —
+          DRAFT/verify (Lei 9.656/1998 art. 11; RN 162/2007; verificar vigencia)
+    TODOS OS VALORES ACIMA SAO SINTETICOS/DRAFT — verificar com juridico antes
+    de qualquer uso em producao.
+
+    Inputs (pre-computados por worker deterministico, nunca por LLM):
+      - tipo_procedimento: string — "urgencia_emergencia"|"parto"|
+          "eletivo"|"alta_complexidade"|"outros" — categoria do procedimento
+          que determina o prazo de carencia aplicavel (DRAFT/verify mapeamento
+          de categorias para prazos conforme contrato/regulacao ANS)
+      - dias_desde_adesao: integer — numero de dias desde a data de adesao ao
+          plano (calculado deterministicamente sobre data_inicio_vigencia do
+          contrato FHIR/prontuario — DRAFT/verify tratamento de portabilidade
+          e migracao de plano)
+      - cpt_declarada: boolean — Cobertura Parcial Temporaria declarada para
+          a condicao/procedimento solicitado (DRAFT/verify processo de
+          identificacao de DPS — Declaracao Pessoal de Saude)
+
+    Outputs:
+      - carencia_cumprida: boolean — true = carencia aparentemente cumprida;
+          false = carencia NAO cumprida -> analise humana obrigatoria
+          (medico auditor decide; nunca negativa automatica L0 hard)
+      - prazo_restante_dias: integer — dias restantes para cumprir carencia
+          (0 quando carencia_cumprida=true; estimativa quando false) — SINTETICO
+      - fonte: string — referencia regulatoria DRAFT/verify para o prazo aplicado
+
+    NOTA sobre portabilidade: portabilidade de carencia entre planos pode reduzir
+    ou zerar periodos de carencia — este calculo NAO esta implementado nesta tabela
+    DRAFT; casos com portabilidade devem ser encaminhados ao medico auditor.
+    (DRAFT/verify — RN 186/2009 e emendas; necessita SME juridico para implementar)
+  </description>
+
+  <decision id="carencia_check"
+            name="Verificacao de carencia contratual"
+            camunda:historyTimeToLive="P365D">
+    <decisionTable id="dt_carencia_check" hitPolicy="FIRST">
+
+      <input id="in_tipo_proc" label="Tipo de procedimento (tipo_procedimento)">
+        <inputExpression id="ie_tipo_proc" typeRef="string">
+          <text>tipo_procedimento</text>
+        </inputExpression>
+      </input>
+
+      <input id="in_dias_adesao" label="Dias desde adesao ao plano (dias_desde_adesao)">
+        <inputExpression id="ie_dias_adesao" typeRef="integer">
+          <text>dias_desde_adesao</text>
+        </inputExpression>
+      </input>
+
+      <input id="in_cpt" label="CPT declarada para esta condicao (cpt_declarada)">
+        <inputExpression id="ie_cpt" typeRef="boolean">
+          <text>cpt_declarada</text>
+        </inputExpression>
+      </input>
+
+      <output id="out_carencia_cumprida"   label="carencia_cumprida"   name="carencia_cumprida"   typeRef="boolean"/>
+      <output id="out_prazo_restante_dias" label="prazo_restante_dias" name="prazo_restante_dias" typeRef="integer"/>
+      <output id="out_fonte"              label="fonte"               name="fonte"               typeRef="string"/>
+
+      <!-- =================================================================
+           BLOCO CPT: CPT declarada — 24 meses (730 dias SINTETICO/verify)
+           CPT tem precedencia sobre qualquer outro prazo de carencia ordinario.
+           ================================================================= -->
+
+      <!-- CPT-1: CPT declarada, menos de 730 dias (24m SINTETICO) -> auditor -->
+      <rule id="r01">
+        <description>SINTETICO — CPT declarada, prazo de 24 meses (730 dias SINTETICO/verify) ainda nao cumprido: carencia nao cumprida; medico auditor avalia. Nunca negativa automatica.</description>
+        <inputEntry id="r01i1"><text>-</text></inputEntry>
+        <inputEntry id="r01i2"><text>&lt; 730</text></inputEntry>
+        <inputEntry id="r01i3"><text>true</text></inputEntry>
+        <outputEntry id="r01o1"><text>false</text></outputEntry>
+        <outputEntry id="r01o2"><text>730 - dias_desde_adesao</text></outputEntry>
+        <outputEntry id="r01o3"><text>"DRAFT — CPT declarada: prazo de 24 meses (730 dias SINTETICO) ainda nao cumprido. Encaminhar medico auditor para avaliacao de urgencia clinica ou verificacao de CPT. Nunca negativa automatica. DRAFT/verify Lei 9.656/1998 art. 11 + RN 162/2007."</text></outputEntry>
+      </rule>
+
+      <!-- CPT-2: CPT declarada, 730 dias ou mais cumpridos -> carencia CPT cumprida -->
+      <rule id="r02">
+        <description>SINTETICO — CPT declarada, prazo de 24 meses (730 dias SINTETICO/verify) cumprido: carencia CPT aparentemente cumprida. DRAFT/verify.</description>
+        <inputEntry id="r02i1"><text>-</text></inputEntry>
+        <inputEntry id="r02i2"><text>&gt;= 730</text></inputEntry>
+        <inputEntry id="r02i3"><text>true</text></inputEntry>
+        <outputEntry id="r02o1"><text>true</text></outputEntry>
+        <outputEntry id="r02o2"><text>0</text></outputEntry>
+        <outputEntry id="r02o3"><text>"DRAFT — CPT: prazo de 24 meses (730 dias SINTETICO) aparentemente cumprido. DRAFT/verify Lei 9.656/1998 art. 11 + RN 162/2007; confirmar com juridico e medico auditor."</text></outputEntry>
+      </rule>
+
+      <!-- =================================================================
+           BLOCO URGENCIA/EMERGENCIA: carencia 24 horas (1 dia SINTETICO/verify)
+           ================================================================= -->
+
+      <!-- URG-1: urgencia/emergencia, menos de 1 dia desde adesao -> auditor -->
+      <rule id="r03">
+        <description>SINTETICO — Urgencia/emergencia, adesao ha menos de 1 dia (SINTETICO/verify 24h): carencia nao cumprida; medico auditor avalia urgencia. Nunca negativa automatica.</description>
+        <inputEntry id="r03i1"><text>"urgencia_emergencia"</text></inputEntry>
+        <inputEntry id="r03i2"><text>&lt; 1</text></inputEntry>
+        <inputEntry id="r03i3"><text>false</text></inputEntry>
+        <outputEntry id="r03o1"><text>false</text></outputEntry>
+        <outputEntry id="r03o2"><text>1</text></outputEntry>
+        <outputEntry id="r03o3"><text>"DRAFT — Urgencia/emergencia: prazo de 24h (1 dia SINTETICO) ainda nao cumprido. Encaminhar medico auditor — urgencia real pode dispensar carencia (Lei 9.656/1998 art. 35-C; RN 259/2011 art. 7). Nunca negativa automatica. DRAFT/verify."</text></outputEntry>
+      </rule>
+
+      <!-- URG-2: urgencia/emergencia, 1 dia ou mais -> carencia cumprida -->
+      <rule id="r04">
+        <description>SINTETICO — Urgencia/emergencia, carencia de 24h (1 dia SINTETICO) cumprida: aparentemente sem restricao de carencia. DRAFT/verify.</description>
+        <inputEntry id="r04i1"><text>"urgencia_emergencia"</text></inputEntry>
+        <inputEntry id="r04i2"><text>&gt;= 1</text></inputEntry>
+        <inputEntry id="r04i3"><text>false</text></inputEntry>
+        <outputEntry id="r04o1"><text>true</text></outputEntry>
+        <outputEntry id="r04o2"><text>0</text></outputEntry>
+        <outputEntry id="r04o3"><text>"DRAFT — Urgencia/emergencia: carencia de 24h aparentemente cumprida. DRAFT/verify Lei 9.656/1998 art. 35-C + RN 259/2011 + consolidacoes ANS vigentes."</text></outputEntry>
+      </rule>
+
+      <!-- =================================================================
+           BLOCO PARTO: carencia 300 dias (SINTETICO/verify)
+           ================================================================= -->
+
+      <!-- PARTO-1: parto, menos de 300 dias -> auditor -->
+      <rule id="r05">
+        <description>SINTETICO — Parto, prazo de 300 dias (SINTETICO/verify) ainda nao cumprido: carencia nao cumprida; medico auditor avalia. Nunca negativa automatica.</description>
+        <inputEntry id="r05i1"><text>"parto"</text></inputEntry>
+        <inputEntry id="r05i2"><text>&lt; 300</text></inputEntry>
+        <inputEntry id="r05i3"><text>false</text></inputEntry>
+        <outputEntry id="r05o1"><text>false</text></outputEntry>
+        <outputEntry id="r05o2"><text>300 - dias_desde_adesao</text></outputEntry>
+        <outputEntry id="r05o3"><text>"DRAFT — Parto: prazo de 300 dias (SINTETICO) ainda nao cumprido. Encaminhar medico auditor para avaliacao de urgencia obstetrica ou portabilidade. Nunca negativa automatica. DRAFT/verify Lei 9.656/1998 art. 12 II a."</text></outputEntry>
+      </rule>
+
+      <!-- PARTO-2: parto, 300 dias ou mais -> carencia cumprida -->
+      <rule id="r06">
+        <description>SINTETICO — Parto, prazo de 300 dias (SINTETICO/verify) cumprido: carencia aparentemente cumprida. DRAFT/verify.</description>
+        <inputEntry id="r06i1"><text>"parto"</text></inputEntry>
+        <inputEntry id="r06i2"><text>&gt;= 300</text></inputEntry>
+        <inputEntry id="r06i3"><text>false</text></inputEntry>
+        <outputEntry id="r06o1"><text>true</text></outputEntry>
+        <outputEntry id="r06o2"><text>0</text></outputEntry>
+        <outputEntry id="r06o3"><text>"DRAFT — Parto: carencia de 300 dias aparentemente cumprida. DRAFT/verify Lei 9.656/1998 art. 12 II a + texto vigente ANS."</text></outputEntry>
+      </rule>
+
+      <!-- =================================================================
+           BLOCO ELETIVO: carencia 180 dias (SINTETICO/verify)
+           ================================================================= -->
+
+      <!-- ELET-1: eletivo, menos de 180 dias -> auditor -->
+      <rule id="r07">
+        <description>SINTETICO — Procedimento eletivo, prazo de 180 dias (SINTETICO/verify) ainda nao cumprido: carencia nao cumprida; medico auditor avalia. Nunca negativa automatica.</description>
+        <inputEntry id="r07i1"><text>"eletivo"</text></inputEntry>
+        <inputEntry id="r07i2"><text>&lt; 180</text></inputEntry>
+        <inputEntry id="r07i3"><text>false</text></inputEntry>
+        <outputEntry id="r07o1"><text>false</text></outputEntry>
+        <outputEntry id="r07o2"><text>180 - dias_desde_adesao</text></outputEntry>
+        <outputEntry id="r07o3"><text>"DRAFT — Eletivo: prazo de 180 dias (SINTETICO) ainda nao cumprido. Encaminhar medico auditor para avaliacao de urgencia ou portabilidade. Nunca negativa automatica. DRAFT/verify RN 195/2009 + RN 259/2011 + consolidacoes."</text></outputEntry>
+      </rule>
+
+      <!-- ELET-2: eletivo, 180 dias ou mais -> carencia cumprida -->
+      <rule id="r08">
+        <description>SINTETICO — Procedimento eletivo, prazo de 180 dias (SINTETICO/verify) cumprido: carencia aparentemente cumprida. DRAFT/verify.</description>
+        <inputEntry id="r08i1"><text>"eletivo"</text></inputEntry>
+        <inputEntry id="r08i2"><text>&gt;= 180</text></inputEntry>
+        <inputEntry id="r08i3"><text>false</text></inputEntry>
+        <outputEntry id="r08o1"><text>true</text></outputEntry>
+        <outputEntry id="r08o2"><text>0</text></outputEntry>
+        <outputEntry id="r08o3"><text>"DRAFT — Eletivo: carencia de 180 dias aparentemente cumprida. DRAFT/verify RN 195/2009 + RN 259/2011 + texto vigente ANS."</text></outputEntry>
+      </rule>
+
+      <!-- =================================================================
+           BLOCO ALTA COMPLEXIDADE: carencia 180 dias (idem eletivo SINTETICO/verify)
+           DRAFT/verify — alta complexidade pode ter prazo diferente de eletivo
+           simples; necessita verificacao com juridico
+           ================================================================= -->
+
+      <!-- AC-1: alta_complexidade, menos de 180 dias -> auditor -->
+      <rule id="r09">
+        <description>SINTETICO — Alta complexidade, prazo de 180 dias (SINTETICO/verify — pode diferir; verificar juridico) ainda nao cumprido: carencia nao cumprida; auditor avalia. Nunca negativa automatica.</description>
+        <inputEntry id="r09i1"><text>"alta_complexidade"</text></inputEntry>
+        <inputEntry id="r09i2"><text>&lt; 180</text></inputEntry>
+        <inputEntry id="r09i3"><text>false</text></inputEntry>
+        <outputEntry id="r09o1"><text>false</text></outputEntry>
+        <outputEntry id="r09o2"><text>180 - dias_desde_adesao</text></outputEntry>
+        <outputEntry id="r09o3"><text>"DRAFT — Alta complexidade: prazo de 180 dias (SINTETICO/verify — verificar se prazo especifico aplica) ainda nao cumprido. Encaminhar medico auditor. Nunca negativa automatica. DRAFT/verify RN 195/2009 + RN 465/2021."</text></outputEntry>
+      </rule>
+
+      <!-- AC-2: alta_complexidade, 180 dias ou mais -> carencia cumprida -->
+      <rule id="r10">
+        <description>SINTETICO — Alta complexidade, prazo de 180 dias (SINTETICO/verify) cumprido: carencia aparentemente cumprida. DRAFT/verify.</description>
+        <inputEntry id="r10i1"><text>"alta_complexidade"</text></inputEntry>
+        <inputEntry id="r10i2"><text>&gt;= 180</text></inputEntry>
+        <inputEntry id="r10i3"><text>false</text></inputEntry>
+        <outputEntry id="r10o1"><text>true</text></outputEntry>
+        <outputEntry id="r10o2"><text>0</text></outputEntry>
+        <outputEntry id="r10o3"><text>"DRAFT — Alta complexidade: carencia de 180 dias aparentemente cumprida. DRAFT/verify prazo especifico com juridico; confirmar contra RN 465/2021 + contrato."</text></outputEntry>
+      </rule>
+
+      <!-- =================================================================
+           BLOCO OUTROS: tipo nao mapeado -> auditor (prazo desconhecido)
+           ================================================================= -->
+      <rule id="r11">
+        <description>SINTETICO — Tipo de procedimento nao mapeado nos prazos de carencia desta tabela DRAFT: encaminhar medico auditor para avaliacao manual de carencia. Nunca negativa automatica.</description>
+        <inputEntry id="r11i1"><text>"outros"</text></inputEntry>
+        <inputEntry id="r11i2"><text>-</text></inputEntry>
+        <inputEntry id="r11i3"><text>false</text></inputEntry>
+        <outputEntry id="r11o1"><text>false</text></outputEntry>
+        <outputEntry id="r11o2"><text>-1</text></outputEntry>
+        <outputEntry id="r11o3"><text>"DRAFT — Tipo de procedimento nao mapeado nesta tabela: prazo de carencia desconhecido (-1 indica indeterminado). Encaminhar medico auditor e juridico para avaliacao manual de carencia aplicavel. Nunca negativa automatica."</text></outputEntry>
+      </rule>
+
+      <!-- =================================================================
+           CATCH-ALL FAIL-SAFE (r99) — OBRIGATORIO L0 HARD
+           Combinacao nao mapeada ou dados ausentes -> analise humana obrigatoria.
+           NUNCA nega automaticamente.
+           ================================================================= -->
+      <rule id="r99">
+        <description>CATCH-ALL FAIL-SAFE: combinacao nao mapeada nesta tabela DRAFT (portabilidade, migracao, tipo desconhecido, dados ausentes) — encaminhar medico auditor e juridico obrigatoriamente. Nunca negativa automatica (L0 hard / ADR-0005).</description>
+        <inputEntry id="r99i1"><text>-</text></inputEntry>
+        <inputEntry id="r99i2"><text>-</text></inputEntry>
+        <inputEntry id="r99i3"><text>-</text></inputEntry>
+        <outputEntry id="r99o1"><text>false</text></outputEntry>
+        <outputEntry id="r99o2"><text>-1</text></outputEntry>
+        <outputEntry id="r99o3"><text>"CATCH-ALL FAIL-SAFE — combinacao nao mapeada nesta tabela DRAFT (pode incluir portabilidade, migracao de plano, tipo especial): encaminhar medico auditor + juridico para avaliacao manual de carencia. Nunca negativa automatica (L0 hard)."</text></outputEntry>
+      </rule>
+
+    </decisionTable>
+  </decision>
+</definitions>

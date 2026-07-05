@@ -1,0 +1,1077 @@
+[
+ {
+  "dim": "bpmn-dmn",
+  "id": "auth-denial-not-human-undeclared-error",
+  "severity": "post-deploy",
+  "claim": "SP-OP-AUTH-001's `send_denial_notice` worker throws BPMN error code ERR_AUTH_DENIAL_NOT_HUMAN, but no `<bpmn:error errorCode=\"ERR_AUTH_DENIAL_NOT_HUMAN\">` element exists anywhere in the file at all (only ERR_AUTH_INVALID_GUIA and ERR_AUTH_DENIAL_INCOMPLETE are declared) \u2014 a worse case than a missing boundary catch: the error isn't even modeled in the process.",
+  "evidence": "src/maezo/tools/workers/auth.py:76 `_ERR_DENIAL_NOT_HUMAN = \"ERR_AUTH_DENIAL_NOT_HUMAN\"`, raised at auth.py:327-328 inside make_send_denial_notice_handler, wired to camunda:topic=\"operadora.auth.send_denial_notice\" at src/maezo/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn:357. `grep -n 'bpmn:error ' SP-OP-AUTH-001_Autorizacao_Previa.bpmn` shows only lines 14 and 21, neither declares errorCode=ERR_AUTH_DENIAL_NOT_HUMAN.",
+  "fix_sketch": "Add `<bpmn:error id=\"Error_AuthDenialNotHuman\" errorCode=\"ERR_AUTH_DENIAL_NOT_HUMAN\"/>` to the definitions and a boundary catch on ST_EnviarNegativaFormal.",
+  "v1_reasoning": "Verified the core technical claim independently: `grep -n \"bpmn:error \"` on src/maezo/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn shows exactly two declarations (line 14 `Error_AuthGuiaInvalida`/`ERR_AUTH_INVALID_GUIA`, line 21 `Error_AuthDenialIncompleta`/`ERR_AUTH_DENIAL_INCOMPLETE`) \u2014 no `errorCode=\"ERR_AUTH_DENIAL_NOT_HUMAN\"` anywhere. `send_denial_notice` (auth.py:271-332, topic `operadora.auth.send_denial_notice`, wired at BPMN line 357 to `ST_EnviarNegativaFormal`) raises `WorkerBpmnError(_ERR_DENIAL_NOT_HUMAN, ...)` = `ERR_AUTH_DENIAL_NOT_HUMAN` at auth.py:327-328 whenever `d"
+ },
+ {
+  "dim": "bpmn-dmn",
+  "id": "cancel-brtcancelsla-dangling-outgoing-idref",
+  "severity": "post-deploy",
+  "claim": "In SP-OP-CANCEL-001, node BRT_CancelSla declares `<bpmn:outgoing>Flow_Sla_Dossie</bpmn:outgoing>`, but no `<bpmn:sequenceFlow id=\"Flow_Sla_Dossie\">` exists anywhere in the file \u2014 the node's real outgoing flow is `Flow_Sla_Classificacao`, so the `<outgoing>` element is a stale/renamed dangling IDREF (dimension-b incoming/outgoing declaration completeness, which the repo validator does not check).",
+  "evidence": "src/maezo/processes/bpmn/SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn:199 `<bpmn:outgoing>Flow_Sla_Dossie</bpmn:outgoing>` under `<bpmn:businessRuleTask id=\"BRT_CancelSla\">` (L191). The only sequenceFlow with sourceRef=BRT_CancelSla in the whole file is `Flow_Sla_Classificacao` at L481, and its target BRT_Classificacao correctly declares `<bpmn:incoming>Flow_Sla_Classificacao</bpmn:incoming>` at L235. Grep confirms 'Flow_Sla_Dossie' appears exactly once in the file (only the dangling reference; n",
+  "fix_sketch": "Change the `<outgoing>` element at line 199 to `Flow_Sla_Classificacao` to match the real graph (Camunda derives actual execution flow from sequenceFlow sourceRef/targetRef so this does not break runtime, but it corrupts round-tripping through a BPMN visual editor and violates the BPMN 2.0 IDREF contract).",
+  "v1_reasoning": "The dangling IDREF is real and verified: BRT_CancelSla (bpmn L191-199) declares <bpmn:outgoing>Flow_Sla_Dossie</bpmn:outgoing> but no sequenceFlow with id=Flow_Sla_Dossie exists anywhere in the file (grep confirms exactly one occurrence \u2014 the dangling reference itself). The task's actual outgoing flow is Flow_Sla_Classificacao (L481, sourceRef=BRT_CancelSla, targetRef=BRT_Classificacao), whose target correctly declares the matching <bpmn:incoming> at L235, and which has a valid BPMNEdge (L712). This is a stale/renamed leftover IDREF, not a bug in actual process routing, since BPMN engines rout"
+ },
+ {
+  "dim": "bpmn-dmn",
+  "id": "cred-business-key-missing-collision-fallback",
+  "severity": "post-deploy",
+  "claim": "notifications_bridge/consumer.py's cred_business_key(), contratual_target(), and rescisao_cancel_business_key() build SP-OP-CRED-001/CANCEL-001/INADIMPLENCIA-001 business keys directly from `_ident(env, 'prestador_id'/'numero_contrato')` with no non-empty validation and no digest fallback (unlike sibling recurso_business_key/ans_submit_business_key in the same file, which fall back to a `_digest8` hash when the natural id is missing) \u2014 if the identity field is empty on a handoff envelope, two distinct real-world cases collide onto the identical business key, and because `start_process` treats an existing businessKey as `already_existed` (silent no-op), the second case's descredenciamento/rescisao/suspens\u00e3o is silently dropped instead of processed.",
+  "evidence": "src/maezo/platform/integrations/notifications_bridge/consumer.py:590-597 `cred_business_key` = `f\"CRED-{_ident(env,'tenant_id')}-{_ident(env,'prestador_id')}\"`, :618-624 `rescisao_cancel_business_key`, :600-615 `contratual_target` \u2014 all three call `_ident()` (consumer.py:255-257, returns \"\" on missing key) with no emptiness guard, in contrast to `recurso_business_key` (consumer.py:325-335) which falls back to `f\"GLOSA-{_digest8(...)}\"` when the natural id is absent. Upstream producer src/maezo/t",
+  "fix_sketch": "Add a digest fallback (mirroring recurso_business_key's _digest8 pattern) keyed on numero_caso/task.business_key when prestador_id or numero_contrato is empty, and/or reject the handoff (WorkerFailure) rather than silently producing a degenerate business key.",
+  "v1_reasoning": "Re-derived directly from the repo. `cred_business_key` (consumer.py:590-597), `contratual_target` (:600-615), and `rescisao_cancel_business_key` (:618-624) all build business keys purely from `_ident(env, ...)` (:255-257, which returns `\"\"` on a missing/blank key) with zero emptiness guard or hash fallback. This is a real asymmetry versus siblings in the same file: `recurso_business_key` (:325-335) falls back to `GLOSA-{_digest8(...)}` and `ans_submit_business_key` (:369-391) falls back to `NIPSUB-{_digest8(...)}` when their natural id is absent \u2014 the CRED/CANCEL/INADIMPLENCIA starters got no "
+ },
+ {
+  "dim": "bpmn-dmn",
+  "id": "publish-missing-topic-guard-unreachable-in-current-deployment",
+  "severity": "cosmetic",
+  "claim": "phase0.py's shared operadora.events.publish handler raises ERR_PUBLISH_MISSING_TOPIC when the event_topic input variable is empty, but this code is undeclared in every process's bpmn:error catalog and, in the current deployment, event_topic is always a hardcoded literal camunda:inputParameter string on every ST_Publish* service task across all 16 process files (never a JUEL expression that could resolve empty) \u2014 so the guard is presently dead code, not a live runtime hazard, but a future refactor that parameterizes event_topic would silently reintroduce an uncatchable crash on every publish task in the system.",
+  "evidence": "src/maezo/tools/workers/phase0.py:249-254 ('if not event_topic: raise WorkerBpmnError(\"ERR_PUBLISH_MISSING_TOPIC\", ...)'); sampled inputParameter mappings, e.g. SP-OP-ESCALATION-001_Escalonamento_Humano_Universal.bpmn:65 '<camunda:inputParameter name=\"event_topic\">agents.events.escalation.requested</camunda:inputParameter>' \u2014 a literal string, not ${...}. grep across all 16 bpmn files found zero <bpmn:error> declaration and zero errorRef for this code.",
+  "fix_sketch": "Either declare+catch ERR_PUBLISH_MISSING_TOPIC defensively now (cheap, future-proofs the shared publish worker), or remove the guard/replace with an assertion documented as deploy-time-only.",
+  "v1_reasoning": "Re-derived the claim from scratch and it holds exactly as stated.\n\n1. src/maezo/tools/workers/phase0.py:249-256 (line numbers match the finding precisely): the shared `operadora.events.publish` handler reads `event_topic = task.variables.get(\"event_topic\")` and raises `WorkerBpmnError(\"ERR_PUBLISH_MISSING_TOPIC\", ...)` if it's falsy.\n\n2. Across all 16 BPMN process files that contain an `operadora.events.publish` service task (17 total files minus README.md), every single `<camunda:inputParameter name=\"event_topic\">` occurrence (106 occurrences counted) is a hardcoded literal string (e.g. `agen"
+ },
+ {
+  "dim": "bpmn-dmn",
+  "id": "residue-ledger-false-merge-claim",
+  "severity": "KILLED",
+  "claim": "killed by verifier-1: The finding's git analysis was run against the wrong ref. The local checkout's \"main\" (260cb1d) is not the canonical branch \u2014 `git branch -vv` shows `main [origin/main: ahead 3, behind 5]`, i.e. it has diverged. Tracing it: `git ls-remote origin | grep 260cb1d` shows 260cb1d is actually the tip of r"
+ },
+ {
+  "dim": "bpmn-dmn",
+  "id": "doc-juel-itertext-fix-not-on-main",
+  "severity": "KILLED",
+  "claim": "killed by verifier-1: The finding's core claim \u2014 \"PR #173 (f3f517a) exists in history but is not an ancestor of HEAD, i.e., the doc-JUEL itertext fix never actually merged\" \u2014 is refuted by direct inspection of the real GitHub main branch.\n\n`gh pr view 173` shows: state=MERGED, baseRefName=main, mergedAt=2026-07-04T04:03:"
+ },
+ {
+  "dim": "bpmn-dmn",
+  "id": "dangling-not-human-guard-errors-no-boundary-catch",
+  "severity": "KILLED",
+  "claim": "killed by refuter-2: The factual claim is accurate (these declared errors have no boundary catch), but the deploy-blocking severity does not hold. (1) Per binding ADR-0018, the ERR_*_NOT_HUMAN worker guard IS the enforcement layer (\"defesa em profundidade: mesmo se o BPMN regredisse, a inst\u00e2ncia n\u00e3o atinge o terminal ad"
+ },
+ {
+  "dim": "bpmn-dmn",
+  "id": "fraude-phi-custody-guard-uncaught",
+  "severity": "KILLED",
+  "claim": "killed by refuter-2: The FACTUAL half of the finding is correct and I confirm it: the four worker-thrown codes (ERR_PHI_IN_CUSTODY, ERR_CUSTODY_NOT_SEALED at seal_custody_bundle; ERR_FRAUD_ACCUSATION_NOT_HUMAN, ERR_CUSTODY_NOT_SEALED at register_fraud_accusation) have no boundaryEvent/errorEventDefinition attached to ST"
+ },
+ {
+  "dim": "bpmn-dmn",
+  "id": "fraude-scoring-dmn-ungoverned-by-signoff-gate",
+  "severity": "KILLED",
+  "claim": "killed by refuter-2: The technical claim is real: the 7 fraude_scoring/*.dmn tables escape the content-signoff gate for both stated reasons \u2014 signoff.py:171 dmn_dir.glob(\"*.dmn\") is non-recursive (subdir never indexed), and their runtime consumer is a worker (fraude.py:341 dmn.evaluate over _SCORING_DECISIONS literals, "
+ },
+ {
+  "dim": "bpmn-dmn",
+  "id": "nip-protocolo-invalido-dead-declaration",
+  "severity": "KILLED",
+  "claim": "killed by verifier-1: The claim (dead/unused error declaration, never raised) is false as of current main. GAP-NIP-6, tracked in docs/reports/business-logic-audit-improvement-plan.md and closed via docs/handoffs/HANDOFF-wave3.yaml (PR #171, squash @ 3cf828c), implemented exactly this guard. src/maezo/tools/workers/nip.py"
+ },
+ {
+  "dim": "bpmn-dmn",
+  "id": "intake-guard-errors-declared-but-never-caught",
+  "severity": "KILLED",
+  "claim": "killed by refuter-2: The finding's structural facts are accurate: 8 intake-guard error codes are declared and thrown but never boundary-caught (grep confirms none of the 8 error IDs appear in any errorRef= across the 16 BPMN, while sibling guards ARE caught). However, the deploy-blocking severity does not survive skepti"
+ },
+ {
+  "dim": "bpmn-dmn",
+  "id": "auth-analyze-invalid-input-undeclared-error-code",
+  "severity": "KILLED",
+  "claim": "killed by refuter-2: The finding's raw technical claims are true (ERR_AUTH_ANALYZE_INVALID_INPUT is undeclared and uncaught), but the deploy-blocking severity does not hold for the amh-overlay production deployment for three decisive reasons. (1) Effective unreachability for real guias: ST_PrepararDossie is reached only"
+ },
+ {
+  "dim": "no-denial-autonomy",
+  "id": "lucas-cancel-start-overclaim",
+  "severity": "post-deploy",
+  "claim": "Lucas's system prompt claims he opens/starts SP-OP-CANCEL-001 directly, but his own agent.yaml and graph.py restrict his start_compliance_process capability to SP-OP-ESCALATION-001 only \u2014 the same 'agent claims an action beyond its autonomy_actions' defect class PR #174 just fixed for Carolina/Rafael, here unfixed on a different agent.",
+  "evidence": "src/maezo/agents/lucas/prompts/system-v1.md:18 \u2014 \"...quando cabivel, abre SP-OP-CANCEL-001 onde o **humano** decide.\" vs src/maezo/agents/lucas/agent.yaml:34 \u2014 \"- start_compliance_process # SOMENTE SP-OP-ESCALATION-001 (mcp-cibseven.start_process) \u2014 L2\" and agent.yaml:48 \u2014 \"secondary_process: SP-OP-CANCEL-001 # 2a rota humana ... humano decide\". Confirmed structurally in src/maezo/agents/lucas/graph.py:151-152 \u2014 \"So a ESCALACAO universal e iniciada por Lucas (CANCEL/REEMBOLSO so por escalacao hu",
+  "fix_sketch": "Reword system-v1.md:18 to mirror Fernando's correct phrasing for the analogous CANCEL handoff (\"e SEMPRE encaminhada (handoff) a SP-OP-CANCEL-001, que detem o terminal\") instead of \"abre SP-OP-CANCEL-001\" \u2014 Lucas escalates/hands off, he does not start the process himself.",
+  "v1_reasoning": "Verified by direct inspection: src/maezo/agents/lucas/prompts/system-v1.md:18 reads \"...quando cabivel, abre SP-OP-CANCEL-001 onde o humano decide\" \u2014 grammatical subject \"voce\" (Lucas) is the one who \"abre\" (opens) SP-OP-CANCEL-001. But agent.yaml:34 scopes Lucas's only start-process capability to \"start_compliance_process # SOMENTE SP-OP-ESCALATION-001 (mcp-cibseven.start_process) \u2014 L2\", and agent.yaml:48 frames SP-OP-CANCEL-001 only as a \"secondary_process ... 2a rota humana ... humano decide\" (a downstream human route, not an agent-exercised action). Structurally confirmed in graph.py: PROC"
+ },
+ {
+  "dim": "no-denial-autonomy",
+  "id": "lgpd-negar-fundamentado-classified-neutral",
+  "severity": "post-deploy",
+  "claim": "The no-denial suite classifies SP-OP-LGPD-DSR-001's End_RequisicaoConcluida as NEUTRAL, but that single terminal is also the exit for the human's NEGAR_FUNDAMENTADO decision (a substantive denial of the data subject's LGPD rights request) \u2014 merging an adverse-in-substance outcome into the non-adverse bucket exempts it, permanently, from the suite's own central structural proof (test_todo_terminal_adverso_e_human_gated), which only ever examines _ADVERSE_ENDS.",
+  "evidence": "src/maezo/processes/bpmn/SP-OP-LGPD-DSR-001_Direitos_do_Titular.bpmn:286 \u2014 `<bpmn:endEvent id=\"End_RequisicaoConcluida\" name=\"Requisicao concluida (atendida ou negada fundamentada)\">`. tests/integration/processes/test_no_denial_consolidated.py:326 lists it only under _NEUTRAL_ENDS with rationale \"direito do titular atendido (favoravel)\" \u2014 silent about the NEGAR_FUNDAMENTADO branch that shares the same terminal. tests/integration/processes/test_sp_op_lgpd_dsr_001.py:411 explicitly asserts \"NEGAR_",
+  "fix_sketch": "Either give NEGAR_FUNDAMENTADO its own distinct end-event id (e.g. End_RequisicaoNegadaFundamentada) and move it to _ADVERSE_ENDS so the human-gate reachability proof actually covers it, or explicitly document in the registry rationale why merging it into NEUTRAL is acceptable despite it being a rights-denial outcome (current rationale text only mentions the favorable branch).",
+  "v1_reasoning": "Re-derived from source, the claim is factually accurate on every point checked:\n\n1. `src/maezo/processes/bpmn/SP-OP-LGPD-DSR-001_Direitos_do_Titular.bpmn:286` \u2014 `End_RequisicaoConcluida` is the single shared terminal for all three `GW_DecisaoDsr` outcomes: it has three incoming flows (`Flow_GWDec_Enviar` from APROVAR_ENVIO, `Flow_GWFund_Ok` from NEGAR_FUNDAMENTADO-with-fundamenta\u00e7\u00e3o, `Flow_Executar_Enviar` from EXECUTAR_E_ENVIAR), all merging at `ST_EnviarResposta` -> `ST_PublishCompleted` -> `End_RequisicaoConcluida`.\n2. `tests/integration/processes/test_no_denial_consolidated.py:325-326` cla"
+ },
+ {
+  "dim": "no-denial-autonomy",
+  "id": "helena-autonomy-actions-incomplete-triage-scheduling",
+  "severity": "post-deploy",
+  "claim": "Helena's agent.yaml autonomy_actions declares only 6 tool-level actions and omits `triage_and_routing`, `scheduling`, and `informational_response` \u2014 three L3 actions from the canonical L0-core.yaml matrix that Helena's own journey documentation, graph.py, and system prompt all say she performs, so the declarative 'REAL actions exercised by this journey' registry is materially incomplete.",
+  "evidence": "src/maezo/agents/helena/agent.yaml:25-31 autonomy_actions list = [query_decision_engine, start_compliance_process, query_process_status, read_phi_data, send_beneficiary_message, read_write_memory] only. Contrast: src/maezo/agents/helena/agent.yaml:4 role = 'Health Navigator \u2014 triagem, roteamento e agendamento via WhatsApp'. docs/processes/journeys/AGJ-HELENA-TRIAGE.md:6 states verbatim 'autonomia L3 `triage_and_routing`/`scheduling`/`informational_response` (ADR-0008)' and line 16 'Agenda/encami",
+  "fix_sketch": "Add `triage_and_routing`, `scheduling`, and `informational_response` to Helena's agent.yaml autonomy_actions list to match what AGJ-HELENA-TRIAGE.md and her system prompt already describe her doing, restoring the ADR-0008 'auditable autonomy evolution' guarantee for the one non-BPMN agent journey in the program.",
+  "v1_reasoning": "Verified directly against the repo, not just the finding's quotes.\n\n1. src/maezo/agents/helena/agent.yaml:25-31 autonomy_actions is exactly the 6 tool-bound actions claimed: query_decision_engine, start_compliance_process, query_process_status, read_phi_data, send_beneficiary_message, read_write_memory. No triage_and_routing/scheduling/informational_response.\n\n2. src/maezo/policies/autonomy/L0-core.yaml:30-32 defines triage_and_routing, scheduling, informational_response as distinct L3 actions \u2014 separate entries from the tool-bound ones (query_decision_engine et al. are listed separately furth"
+ },
+ {
+  "dim": "no-denial-autonomy",
+  "id": "no-denial-heuristic-blind-to-genuine-adverse-terms",
+  "severity": "cosmetic",
+  "claim": "_ADVERSE_LOOKING_PATTERN in test_no_denial_consolidated.py is documented as 'PT + EN' defense-in-depth broad enough to catch a misclassified adverse end hiding among the neutrals, but it does not match several already-registered genuinely-adverse end-event names at all (no PT/EN token for 'confirmada', 'encaminhado', 'desligamento', 'compromisso', 'liberado'), and its ostensibly-PT/EN token pairs are asymmetric (EN 'revok'/'reject' have no matching PT 'revog'/'rejeit' counterpart, common Portuguese adverse terms), so the heuristic would give zero warning if any of these currently-correct ADVERSE_ENDS entries were ever mistakenly moved to NEUTRAL_ENDS.",
+  "evidence": "tests/integration/processes/test_no_denial_consolidated.py:402-407 pattern = r'(negad|negativ|mantid|indeferid|inadmiss|rescindid|suspens|aceit|recusad|cancelad|parcial|interpost|reprovad|expirad|glosamantida|denied|denial|reject|refus|decline|revok)'. Docstring lines 49-51 claims this is 'ampliado com tokens PT+EN' as a safety net independent of the exhaustive-bucket test. Verified programmatically that none of these currently-registered _ADVERSE_ENDS ids match the pattern: End_FraudeConfirmada",
+  "fix_sketch": "Either broaden the regex with PT-native tokens for the currently-blind adverse vocabulary (confirmad, encaminhad, desligament, compromisso, liberad, revog, rejeit) or drop the 'PT+EN broad coverage' claim from the docstring, since today's real protection against unnamed adverse escapes comes entirely from the exhaustive-classification test (test_classificacao_exaustiva_de_todo_end_event), not from",
+  "v1_reasoning": "Re-derived the claim directly against the repo.\n\n1. Confirmed pattern text at tests/integration/processes/test_no_denial_consolidated.py:402-407:\n   `r\"(negad|negativ|mantid|indeferid|inadmiss|rescindid|suspens|aceit|recusad|cancelad|parcial|interpost|reprovad|expirad|glosamantida|denied|denial|reject|refus|decline|revok)\"`\n\n2. Confirmed via direct regex execution that this pattern does NOT match several currently-registered `_ADVERSE_ENDS` entries (dict at lines ~117-166): `End_FraudeConfirmadaHumano`, `End_EncaminhadoJuridico`, `End_EncaminhadoCredenciamento`, `End_EncaminhadoContratual`, `E"
+ },
+ {
+  "dim": "no-denial-autonomy",
+  "id": "no-denial-boundary-escape-reachability-blindspot",
+  "severity": "post-deploy",
+  "claim": "The no-denial suite's human-gate reachability proof (_Bpmn.reachable_without_human_completion) never traverses sequence-flow edges sourced from boundary events attached to non-userTask activities (serviceTask/subProcess), so for 24 such boundary-event escapes across 12 of the 16 BPMN bodies the algorithm never actually verifies safety there -- it silently never visits them, meaning a future automated boundary escape from a service task routed straight to an ADVERSE_END would NOT be caught by test_todo_terminal_adverso_e_human_gated, contradicting the docstring's claim that the gate proof is exact over the BPMN graph.",
+  "evidence": "tests/integration/processes/test_no_denial_consolidated.py:464-484 reachable_without_human_completion(): only expands stack.extend(self.boundary_of.get(node, [])) when node in self.human_user_tasks (line 479-481); for every other node type it only does stack.extend(self.flows.get(node, [])) (line 483) -- the boundary-event id attached to a non-human node is never pushed onto the BFS stack by any code path. Verified empirically by instrumenting the test's own _Bpmn class: for boundary events atta",
+  "fix_sketch": "Push every activity's attached boundary-event ids onto the traversal stack unconditionally (not only for human_user_tasks) so automated-escape edges are explored and any reaching an ADVERSE_END are caught; keep the no-normal-flow restriction only for human_user_tasks.",
+  "v1_reasoning": "Re-derived the claim directly against the repo.\n\n1. Code confirms the mechanism exactly as described. `_Bpmn.reachable_without_human_completion` (tests/integration/processes/test_no_denial_consolidated.py:464-484):\n```\n479\t            if node in self.human_user_tasks:\n480\t                # so escapa por boundary (sem conclusao humana)\n481\t                stack.extend(self.boundary_of.get(node, []))\n482\t            else:\n483\t                stack.extend(self.flows.get(node, []))\n```\nOnly when the popped node is a human userTask does the BFS push `boundary_of[node]`. For every other node type (s"
+ },
+ {
+  "dim": "no-denial-autonomy",
+  "id": "autonomy-actions-declared-but-never-exercised",
+  "severity": "cosmetic",
+  "claim": "Helena's and Rafael's agent.yaml declare query_process_status (Gustavo's additionally declares correlate_process_message) under autonomy_actions -- labeled 'acoes REAIS da matriz L0-core exercidas' -- with the backing MCP tool listed in tools: and an ACTION_/TOOL_ constant defined in graph.py, yet no node in any of these three agents' graphs ever calls it; this violates the project's own documented discipline of stripping unused actions, already applied identically in Carolina's and Marina's agent.yaml for these exact two actions.",
+  "evidence": "src/maezo/agents/helena/agent.yaml:21,28 declares mcp-cibseven.get_process_status / query_process_status; src/maezo/agents/rafael/agent.yaml:19,26 same; src/maezo/agents/gustavo/agent.yaml:17-18,30-31 declares both query_process_status and correlate_process_message. rafael/graph.py defines TOOL_CIBSEVEN_STATUS/ACTION_CIBSEVEN_STATUS (lines 115,125) and gustavo/graph.py defines the same plus TOOL_CIBSEVEN_CORRELATE/ACTION_CIBSEVEN_CORRELATE (113,123,114,124), but grep of every .call( site in rafa",
+  "fix_sketch": "Remove query_process_status (Helena, Rafael) and correlate_process_message (Gustavo) plus the corresponding mcp-cibseven.* tool entries and ACTION_/TOOL_ constants until an actual node exercises them, mirroring Carolina's/Marina's agent.yaml; or wire a real status-check node if the capability is genuinely needed.",
+  "v1_reasoning": "Re-derived the claim directly from source and it holds exactly as stated.\n\n1. helena/agent.yaml:21 declares tool `mcp-cibseven.get_process_status`; helena/agent.yaml:28 declares autonomy_action `query_process_status`. `grep -n \"status\" src/maezo/agents/helena/graph.py` shows helena/graph.py never even defines a `TOOL_CIBSEVEN_STATUS`/`ACTION_CIBSEVEN_STATUS` constant (only TOOL_WHATSAPP, TOOL_FHIR, TOOL_DMN, TOOL_CIBSEVEN_START, TOOL_MEMORY exist, lines 70-84, each with a corresponding `.call(...)` site at 224-225/355-356/416-417/445-446/588-589) \u2014 the declared status action has zero backing c"
+ },
+ {
+  "dim": "phi-perimeter",
+  "id": "gateway-deployment-crashloop-no-main",
+  "severity": "deploy-blocking",
+  "claim": "The gateway Deployment (enabled by default and NOT overridden off in the AMH overlay) runs `python -m maezo.gateway`, but `src/maezo/gateway/` has no `__main__.py`, so the pod CrashLoopBackOffs on every start in production.",
+  "evidence": "deploy/helm/maezo-tenant/templates/deployment-gateway.yaml:34 `command: [\"python\", \"-m\", \"maezo.gateway\"]`; values.yaml:113-114 `gateway:\\n  enabled: true`; values-amh.yaml sets only `gateway:\\n  replicaCount: 3` (no `enabled:` override) so the default `true` is inherited and the Deployment renders in prod. `ls src/maezo/gateway/__main__.py` -> No such file; `runpy.run_module('maezo.gateway','__main__')` -> `ImportError: No module named maezo.gateway.__main__; 'maezo.gateway' is a package and ca",
+  "fix_sketch": "Either set `gateway.enabled: false` in values-amh.yaml (and default) until a real gateway entrypoint exists, or add `src/maezo/gateway/__main__.py` that calls `configure_logging()` and serves the intended PEP/healthz app on port 8000. Given pep.py is in-process and the webhook edge is a separate deployment, disabling the orphaned gateway Deployment is the correct near-term fix.",
+  "v1_reasoning": "The mechanical defect is real and reproduces exactly as claimed. The gateway Deployment renders in the AMH production overlay and runs an entrypoint that cannot start.\n\nCONFIRMED facts:\n1. deployment-gateway.yaml:1 gates render on `{{- if .Values.gateway.enabled }}` and line 34 runs `command: [\"python\", \"-m\", \"maezo.gateway\"]`.\n2. values.yaml:113-114 default `gateway:\\n  enabled: true`. values-amh.yaml:86-87 sets only `gateway:\\n  replicaCount: 3` with NO `enabled:` override, so the default `true` is inherited (the `enabled:` lines at values-amh.yaml:30/44/58/72/79 belong to unrelated fhir/cib"
+ },
+ {
+  "dim": "phi-perimeter",
+  "id": "matricula-raw-to-general-zone-notifications-topic",
+  "severity": "post-deploy",
+  "claim": "`inadimplencia.py` and `cancel.py` publish `matricula_beneficiario` (a declared direct-identifier PHI_PROCESS_VAR) raw into notification envelopes on `operadora.notifications.internal` without passing them through `scrub_phi_vars`, bypassing the layer-2 egress backstop on a topic the code itself declares must never carry raw PHI.",
+  "evidence": "phi_vars.py:52-63 lists `matricula_beneficiario` in `PHI_PROCESS_VARS`; phi_vars.py:5-8 docstring: an event published to `agents.events.*`/`operadora.notifications.internal` (Zona Geral, ADR-0006) NUNCA pode carregar PHI cru; SP-OP-CANCEL-001 BPMN:140-146 declares `matricula_beneficiario` an `identificador direto do beneficiario, Zona PHI` and REMOVES it from `event_payload_vars`. Yet inadimplencia.py:429,502,689,760 and cancel.py:221,340,388,488 build notification dicts with `\"matricula_benefic",
+  "fix_sketch": "Route these notification publishes through `scrub_phi_vars(notification, tenant=..., pseudonymizer=...)` (as phase0/auth do), or carry only `beneficiario_pseudo_id` + business_key on `operadora.notifications.internal` and resolve the raw matricula in a PHI-zone store (mirroring the a2a/facts.py and the BPMN event_payload_vars fix). Note: `pseudonymize_text` only tokenizes CPF/CNS/phone/name patter",
+  "v1_reasoning": "MATRICULA FINDING (id: matricula-raw-to-general-zone-notifications-topic) \u2014 CONFIRMED, post-deploy.\n\nCode facts all verified at claimed lines. matricula_beneficiario IS a declared PHI direct-identifier: phi_vars.py:52-63 lists it in PHI_PROCESS_VARS and its docstring (lines 5-8) states an event on operadora.notifications.internal \"NUNCA pode carregar PHI cru\"; SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn:140-146 declares it \"identificador direto do beneficiario, Zona PHI\" and REMOVES it from event_payload_vars. inadimplencia.py (429,502,689,760) and cancel.py (221,340,388,488) build notificatio"
+ },
+ {
+  "dim": "phi-perimeter",
+  "id": "console-ingress-dangling-service-latent",
+  "severity": "cosmetic",
+  "claim": "ingress.yaml references a `console` Service/backend that has no Deployment or Service in the chart, and platform/console/app.py has no `__main__`/configure_logging entrypoint \u2014 a latent landmine that is inert only because the AMH overlay leaves ingress disabled.",
+  "evidence": "ingress.yaml:62-73 emits a backend `service:\\n name: console` under `{{- with .Values.ingress.consoleHost }}`; values.yaml:174 `ingress:\\n  enabled: false`; values-amh.yaml has NO `ingress:` block, so both `ingress.enabled` (false) and `consoleHost` ('') stay at defaults and neither the ingress nor the console rule renders in the prod overlay. No deployment-console.yaml/service-console.yaml exists (ls templates/ shows none), and src/maezo/platform/console/app.py exposes only `create_app()`/FastA",
+  "fix_sketch": "If the console is intended to ship, add deployment-console.yaml (+ Service) whose command runs a console entrypoint that calls configure_logging, and gate the ingress console rule on that service existing; otherwise drop the dangling console backend from ingress.yaml to prevent a future operator enabling ingress.consoleHost from creating a broken ALB target.",
+  "v1_reasoning": "CONSOLE FINDING (console-ingress-dangling-service-latent) \u2014 CONFIRMED, severity cosmetic (as configured in amh overlay).\n\nEvery structural claim re-derived and holds at HEAD 260cb1d:\n1. ingress.yaml lines 63-74 emit a `backend.service.name: console` rule, gated on `{{- with .Values.ingress.consoleHost }}`. The ENTIRE template is additionally gated on `{{- if .Values.ingress.enabled }}` (line 19).\n2. values.yaml:174 `ingress.enabled: false`; values.yaml:182 `consoleHost: \"\"` (default). Both are the disabling defaults.\n3. values-amh.yaml (the CI validate-helm production overlay per .github/workf"
+ },
+ {
+  "dim": "phi-perimeter",
+  "id": "phone-hash-keyless-brute-forceable-reidentification",
+  "severity": "post-deploy",
+  "claim": "phone_number_hash published to the General Zone Kafka bus is a keyless SHA-256 of tenant:phone (tenant is public, phone is low-entropy), so any General-Zone consumer or bus/DLQ reader can brute-force the exact beneficiary phone number offline \u2014 defeating the ADR-0006 guarantee (and the code's own repeated claim) that the General Zone carries no reversible PHI.",
+  "evidence": "src/maezo/platform/webhooks/whatsapp/security.py:45-46 `raw = f\"{tenant}:{phone}\"` then `return hashlib.sha256(raw.encode(\"utf-8\")).hexdigest()` \u2014 NO secret key; docstring at security.py:44 falsely asserts \"N\u00e3o revers\u00edvel fora do gateway\" and \"sal \u00e9 segredo do gateway\". The hash is set into the event at src/maezo/platform/webhooks/whatsapp/app.py:157 (`phone_number_hash=phone_hash`) and :192, and published unmodified to General-Zone topics `agents.events.whatsapp.message-received`/`.status` (app",
+  "fix_sketch": "Replace the keyless SHA-256 in hash_phone with HMAC-SHA256 keyed by the same vault PHI_HMAC_KEY the Pseudonymizer uses (wire PHI_HMAC_KEY into WhatsAppWebhookSettings). A ~10^10 phone-number keyspace is trivially enumerable against an unkeyed digest; only a secret key makes the pseudonym non-reversible.",
+  "v1_reasoning": "The technical defect is real: security.py:45-46 hashes the phone with plain keyless SHA-256 of `f\"{tenant}:{phone}\"` (tenant is public, phone is low-entropy ~10^9-10^10), so a holder of the hash can brute-force the exact number offline \u2014 and the docstring at security.py:43 (\"sal \u00e9 segredo do gateway\") is factually false since there is no secret salt. This asymmetry with the HMAC-keyed runtime Pseudonymizer (pseudonymizer.py:379 hmac.new) is genuine. HOWEVER the finding overstates severity by claiming it defeats ADR-0006's General-Zone/external-LLM guarantee. It does not: inbound_driver.py:187 "
+ },
+ {
+  "dim": "phi-perimeter",
+  "id": "redact-payload-force-key-gap-operator-named-flow-fields",
+  "severity": "post-deploy",
+  "claim": "redact_payload only tokenizes structured-payload leaves whose KEY is in a small fixed force-list or whose VALUE matches a free-text regex; a WhatsApp Flow nfm_reply.response_json (or interactive payload) with operator/screen-scoped field names (not in the list) carrying a bare full name or a street address passes through RAW to the General Zone, contradicting the schema's \"NUNCA cont\u00e9m PHI estruturado cru\" claim.",
+  "evidence": "src/maezo/gateway/pseudonymizer.py:337 forces tokenization only when `key_lower in _PAYLOAD_FORCE_KEYS and isinstance(value, str)`; _PAYLOAD_FORCE_KEYS (pseudonymizer.py:248-250) is a small fixed set (address,email,cep,nome,nome_completo,telefone,data_nascimento,dob,cpf,cns,name,phone,phone_number,endereco,birthdate). Any other key falls to pseudonymizer.py:339 `return redact_payload(value)` \u2192 for a str, redact_free_text, whose passes only catch CPF/CNS/phone and titled names: _NAME_RE (pseudony",
+  "fix_sketch": "Do not rely on an allow-list of field keys for a beneficiary-controlled Flow form. Either token the ENTIRE response_json leaves conservatively (redact every string leaf) or add address/bare-name detection; at minimum treat unknown-key string leaves inside response_json as PHI.",
+  "v1_reasoning": "The defect exists exactly as claimed. redact_payload uses a key-name allowlist: _redact_payload_field (src/maezo/gateway/pseudonymizer.py:337) force-tokenizes only when `key_lower in _PAYLOAD_FORCE_KEYS and isinstance(value, str) and value`; every other key falls to line 339 `return redact_payload(value)`, and for a str that reaches redact_free_text (line 316-317), whose _FREE_TEXT_PASSES catch only CPF/CNS/phone plus TITLE-prefixed names \u2014 _NAME_RE (155-158) requires Sr|Sra|Dr|Dra|Senhor|Senhora, so a bare \"Joao Silva\" is not matched \u2014 and there is NO address pattern (the code admits this in "
+ },
+ {
+  "dim": "phi-perimeter",
+  "id": "audit-chain-from-rows-ts-reorder-verify-flap",
+  "severity": "post-deploy",
+  "claim": "The durable audit-chain reconstruction helper `chain_from_rows` re-orders rows by wall-clock `ts` before `verify_chain`, re-introducing exactly the clock-skew fragility that `recover_head` was deliberately fixed to avoid \u2014 under multi-writer/failover skew a valid ADR-0007 chain can be mis-ordered and fail verification (false tamper alarm), i.e. verification can flap.",
+  "evidence": "src/maezo/gateway/audit_postgres.py:197 `ordered = sorted(rows, key=lambda r: (r[\"ts\"], r[\"record_hash\"]))` feeding AuditRecord reconstruction 'para verify_chain'. The same file, lines 65-75, explicitly rejects ts ordering for head recovery: 'RECOVER_HEAD ... `ORDER BY ts` e fragil \u2014 `ts` e wall-clock TEXT e, sob skew de relogio entre replicas/failover, nao identifica de forma robusta o ultimo elo' and uses the structural tail query instead. `verify_chain` (src/maezo/gateway/audit.py:287-299) re",
+  "fix_sketch": "Reconstruct chain order structurally from the prev_record_hash linkage (walk from GENESIS_PREV_HASH / from the recover_head tail) instead of sorting by ts; keep ts only for display. Then verify_chain never flaps on skew.",
+  "v1_reasoning": "The code-level defect is real and correctly described. `chain_from_rows` (src/maezo/gateway/audit_postgres.py:197) sorts durable rows by wall-clock `ts` before feeding them to `verify_chain`, which requires true prev_record_hash linkage order (src/maezo/gateway/audit.py:287-299). `ts` is plain wall-clock (`_utcnow_iso`) with no cross-replica/failover monotonicity guarantee \u2014 `emit`'s per-tenant advisory lock (audit_postgres.py:153-156) serializes appends but does not order or make `ts` monotonic \u2014 so under skew two adjacent links can carry ts_2 < ts_1 and the sort flips them, producing a false"
+ },
+ {
+  "dim": "phi-perimeter",
+  "id": "redact-payload-geo-coordinate-string-bypasses-rounding",
+  "severity": "post-deploy",
+  "claim": "redact_payload only rounds latitude/longitude when they arrive as int/float; a coordinate delivered as a JSON string bypasses the geo-rounding rule and the value passes through redact_free_text unchanged, publishing a precise residential quasi-identifier pin to the General Zone.",
+  "evidence": "pseudonymizer.py:324 `if key_lower in _GEO_COORDINATE_KEYS and isinstance(value, int | float) and not isinstance(value, bool): return _round_coordinate(...)` \u2014 a string value like \"-23.5505199\" fails the isinstance check, is not in _JSON_STRING_KEYS or _PAYLOAD_FORCE_KEYS, so falls to line 339 redact_payload -> str branch (line 316-317) redact_free_text, where no CPF/CNS/phone/name pattern matches a decimal coordinate, so it is returned verbatim. The rounding rationale (lines 253-263) treats pre",
+  "fix_sketch": "In _redact_payload_field, coerce numeric-looking string coordinates: if key in _GEO_COORDINATE_KEYS and value is str, attempt float(value) and round, else drop the field. Lower confidence: Meta Graph API normally sends location.latitude/longitude as JSON numbers, so the string path may not occur in practice.",
+  "v1_reasoning": "The code path exists exactly as claimed. In src/maezo/gateway/pseudonymizer.py:324, the geo-rounding rule is gated by `isinstance(value, int | float) and not isinstance(value, bool)`. A coordinate arriving as a JSON string (e.g. \"-23.5505199\") fails that isinstance test, is not in _JSON_STRING_KEYS (line 269 = {\"response_json\"}) nor _PAYLOAD_FORCE_KEYS (lines 248-250, which do NOT contain \"latitude\"/\"longitude\"), so it falls to line 339 `return redact_payload(value, ...)` -> str branch (lines 316-317) -> redact_free_text. A bare signed decimal matches none of the CPF/CNS/phone/name passes, so "
+ },
+ {
+  "dim": "phi-perimeter",
+  "id": "verify-chain-no-reanchor-after-retention",
+  "severity": "KILLED",
+  "claim": "killed by verifier-1: PRIMARY FINDING (verify-chain-no-reanchor-after-retention): REFUTED as a production defect; severity n/a (no runtime impact in amh-overlay as configured). The claimed consequence \u2014 custody-bundle / full-chain verification failing on a legitimately-retained chain \u2014 cannot occur because verify_chain i"
+ },
+ {
+  "dim": "phi-perimeter",
+  "id": "phi-hmac-secret-provisioned-but-never-injected-as-env",
+  "severity": "KILLED",
+  "claim": "killed by refuter-2: The mechanical defect is real and confirmed at HEAD f9246e8: the maezo-phi-hmac ExternalSecret (externalsecret.yaml:126,139,142) is created but consumed by no deployment (no PHI_HMAC_KEY/maezo-phi-hmac secretKeyRef in deployment-worker-daemon.yaml env 48-76 or deployment-agent-runtime.yaml env 68-11"
+ },
+ {
+  "dim": "infra-deploy",
+  "id": "networkpolicy-otel-cross-namespace-egress-missing",
+  "severity": "post-deploy",
+  "claim": "Every pod that includes the maezo-tenant.otelEnv helper (agent-runtime for all agents, gateway, all three bridge daemons, worker-daemon, cronjob-lifecycle jobs) sets OTEL_EXPORTER_OTLP_ENDPOINT to a Service in a DIFFERENT namespace (observability), but no NetworkPolicy egress rule in the chart permits cross-namespace (or even same-namespace-scoped, since it isn't in the gateway allowlist) traffic to it, so telemetry export is silently blocked cluster-wide under the fail-closed default-deny-egress posture.",
+  "evidence": "values.yaml:352-353 sets observability.otel.endpoint: \"http://otel-collector.observability.svc.cluster.local:4317\" (unchanged by values-amh.yaml:117-119). templates/_helpers.tpl:169-178 (maezo-tenant.otelEnv) injects OTEL_EXPORTER_OTLP_ENDPOINT into every workload that includes it. templates/networkpolicy.yaml has no rule referencing the observability namespace or an otel-collector CIDR/podSelector anywhere in its 268 lines; allow-intra-namespace (networkpolicy.yaml:78-105) only opens egress wit",
+  "fix_sketch": "",
+  "v1_reasoning": "Re-derived independently from the repo and it holds exactly as claimed.\n\n1. deploy/helm/maezo-tenant/values.yaml:352-353 sets `observability.otel.endpoint: \"http://otel-collector.observability.svc.cluster.local:4317\"`, unchanged by values-amh.yaml:118-119 (the amh-overlay production values file).\n2. templates/_helpers.tpl:169-178 (`maezo-tenant.otelEnv`) injects `OTEL_EXPORTER_OTLP_ENDPOINT` from that value into every workload that includes the helper. `helm template maezo-amh deploy/helm/maezo-tenant/ -f deploy/helm/maezo-tenant/values-amh.yaml --debug` (the exact CI validate-helm command) co"
+ },
+ {
+  "dim": "infra-deploy",
+  "id": "webhook-receiver-missing-required-app-secret-verify-token-crashloop",
+  "severity": "deploy-blocking",
+  "claim": "The webhook-receiver Deployment never injects WHATSAPP_APP_SECRET or WHATSAPP_VERIFY_TOKEN (required, no-default pydantic-settings fields), so the pod's ASGI app fails to construct on every startup and the component CrashLoopBackOffs in the amh-overlay production render.",
+  "evidence": "deploy/helm/maezo-tenant/templates/deployment-webhook-receiver.yaml:35-43 injects only TENANT_ID, WHATSAPP_TOKEN (secretKeyRef maezo-whatsapp-config/waba-token) and otelEnv \u2014 no WHATSAPP_APP_SECRET, no WHATSAPP_VERIFY_TOKEN. src/maezo/platform/webhooks/whatsapp/settings.py:18-25 declares `app_secret: SecretStr = Field(..., ...)` and `verify_token: SecretStr = Field(..., ...)` (both required, env_prefix='WHATSAPP_', no default). src/maezo/platform/webhooks/__main__.py:34 calls `create_app()` with",
+  "fix_sketch": "Add `app_secret`/`verify_token` data entries to the whatsapp-config ExternalSecret (new Secrets Manager properties), inject WHATSAPP_APP_SECRET and WHATSAPP_VERIFY_TOKEN as secretKeyRef env vars on deployment-webhook-receiver.yaml, and move/rename the existing WHATSAPP_TOKEN wiring to wherever the agent-runtime's outbound WABA credential is actually consumed.",
+  "v1_reasoning": "Re-derived end to end:\n\n1. deploy/helm/maezo-tenant/templates/deployment-webhook-receiver.yaml:35-43 injects only TENANT_ID and WHATSAPP_TOKEN (secretKeyRef maezo-whatsapp-config/waba-token) plus otelEnv \u2014 verified verbatim, no WHATSAPP_APP_SECRET or WHATSAPP_VERIFY_TOKEN env entries exist anywhere in the file.\n\n2. src/maezo/platform/webhooks/whatsapp/settings.py:19,22 declares `app_secret: SecretStr = Field(..., ...)` and `verify_token: SecretStr = Field(..., ...)` \u2014 both required (`...`), env_prefix=\"WHATSAPP_\", no defaults.\n\n3. src/maezo/platform/webhooks/__main__.py:39 calls `create_app()`"
+ },
+ {
+  "dim": "infra-deploy",
+  "id": "webhook-receiver-missing-kafka-bootstrap-and-egress",
+  "severity": "deploy-blocking",
+  "claim": "webhook-receiver never gets KAFKA_BOOTSTRAP_SERVERS injected and is not a member of any NetworkPolicy's Kafka-egress selector, so even once the crash-on-start defect above is fixed, the pod can never publish inbound WhatsApp events to Kafka.",
+  "evidence": "deploy/helm/maezo-tenant/templates/deployment-webhook-receiver.yaml:35-43 has no KAFKA_BOOTSTRAP_SERVERS env var (contrast with deployment-agent-runtime.yaml:85-89, deployment-worker-daemon.yaml:58-62, deployment-bridge*.yaml which all inject it via secretKeyRef maezo-kafka-config/bootstrap-servers). src/maezo/platform/webhooks/whatsapp/settings.py:25 defaults `kafka_bootstrap_servers` to `\"localhost:9092\"` when the env var is absent, and app.py:206-212 constructs `AIOKafkaProducer(bootstrap_ser",
+  "fix_sketch": "Inject KAFKA_BOOTSTRAP_SERVERS (secretKeyRef maezo-kafka-config/bootstrap-servers) into deployment-webhook-receiver.yaml, and add webhook-receiver's component to a Kafka-egress NetworkPolicy (either extend wr2-daemon-egress's selector list or add a dedicated rule) pinned to a concrete MSK CIDR.",
+  "v1_reasoning": "Verified against the actual CI amh-overlay render (`helm template maezo-amh deploy/helm/maezo-tenant/ -f deploy/helm/maezo-tenant/values-amh.yaml`, the exact command in .github/workflows/ci.yml's validate-helm job). The rendered webhook-receiver Deployment container env block contains only TENANT_ID, WHATSAPP_TOKEN, and OTel vars \u2014 no KAFKA_BOOTSTRAP_SERVERS \u2014 while sibling deployments (agent-runtime, worker-daemon) do inject it via secretKeyRef to maezo-kafka-config/bootstrap-servers. src/maezo/platform/webhooks/whatsapp/settings.py:25 confirms the field defaults to `localhost:9092` via `alia"
+ },
+ {
+  "dim": "infra-deploy",
+  "id": "networkpolicy-ingress-policytype-blocks-all-cross-namespace-external-traffic",
+  "severity": "post-deploy",
+  "claim": "The only NetworkPolicy in the chart that sets policyTypes:[Ingress,...] (`allow-intra-namespace`) selects every pod (podSelector:{}) and allows ingress only `from: podSelector:{}` (same-namespace pods) \u2014 this silently blocks all traffic originating outside the namespace, defeating both the ALB->webhook-receiver/console public edge (when ingress.enabled=true) and any cross-namespace Prometheus-operator PodMonitor scrape (when observability.podMonitor.enabled=true), neither of which is compensated for anywhere else in the chart.",
+  "evidence": "deploy/helm/maezo-tenant/templates/networkpolicy.yaml:78-105 `allow-intra-namespace`: `podSelector: {}`, `policyTypes: [Ingress, Egress]`, `ingress: - from: - podSelector: {}` (no namespaceSelector -> same-namespace peers only; this is the ONLY Ingress-type NetworkPolicy in the whole chart, confirmed by grep across templates/). templates/ingress.yaml:1-75 fronts webhook-receiver (and optionally console) via an ALB with `target-type: ip` (annotation at line 31), i.e. the ALB's ENIs, not any in-na",
+  "fix_sketch": "When ingress.enabled=true, render a NetworkPolicy ingress rule scoped to the webhook-receiver/console pods that allows traffic from the ALB (e.g. an ipBlock for the VPC CIDR, since ALB target-type=ip traffic arrives with a VPC-internal source) instead of relying on the same-namespace-only allow-intra-namespace rule; similarly, when observability.podMonitor.enabled=true, add an ingress rule (namesp",
+  "v1_reasoning": "Re-derived directly from the chart. deploy/helm/maezo-tenant/templates/networkpolicy.yaml (rendered lines ~81-92 in the committed template, block titled \"3. Allow agent -> gateway (and shared infra) egress\") defines the `allow-intra-namespace` NetworkPolicy with `podSelector: {}` (matches every pod in the namespace) and `policyTypes: [Ingress, Egress]`, `ingress: - from: - podSelector: {}` (no namespaceSelector, so per k8s NetworkPolicy semantics this peer selector resolves to same-namespace pods only). Grep confirms it is the only NetworkPolicy in the chart with `Ingress` in policyTypes (all "
+ },
+ {
+  "dim": "infra-deploy",
+  "id": "networkpolicy-agent-runtime-no-db-engine-fhir-egress",
+  "severity": "KILLED",
+  "claim": "killed by refuter-2: The finding's Helm-render facts are correct: amh-overlay renders default-deny-egress (values.yaml:292 defaultDenyEgress: true, not overridden in values-amh.yaml) with no egress rule permitting Aurora/CIBSEVEN/FHIR, while agent-runtime (deployment-agent-runtime.yaml:80-93), the migrations pre-install"
+ },
+ {
+  "dim": "infra-deploy",
+  "id": "networkpolicy-bridges-excluded-from-daemon-egress-selector",
+  "severity": "KILLED",
+  "claim": "killed by refuter-2: The structural fact in the finding is TRUE but its DEPLOY-BLOCKING attribution to the amh-overlay as configured is refuted by a decisive gating fact the prior verifiers missed: in the amh render the wr2-daemon-egress NetworkPolicy has an EMPTY egress list, so the selector omission causes no differen"
+ },
+ {
+  "dim": "infra-deploy",
+  "id": "networkpolicy-daemon-egress-endpoints-empty-in-amh-values",
+  "severity": "KILLED",
+  "claim": "killed by refuter-2: The mechanical facts reproduce (empty wr2-daemon-egress in the amh render at render.yaml:276; values-amh.yaml never sets networkPolicy.daemonEgress; provision_tenant.py render_values emits only tenant/namespace/agents and does not populate it), but the deploy-blocking conclusion is not decisive. Dec"
+ },
+ {
+  "dim": "runtime-seams",
+  "id": "recurso-marina-a2a-decorative",
+  "severity": "post-deploy",
+  "claim": "RECURSO's operadora.recurso.analyze_request worker is wired on paper to delegate recurso.analyze to Marina but has zero delegation code \u2014 it only publishes an internal echo notification, so Marina enrichment never fires in production (the pre-#176 PAGTO-class defect, still unfixed for RECURSO).",
+  "evidence": "src/maezo/tools/workers/recurso.py:295 docstring asserts 'Convoca Marina via A2A (delegacao recurso.analyze) para montar o dossie' but the handler body (recurso.py:328-345) only calls kafka.publish(_NOTIFICATIONS_TOPIC=...'operadora.notifications.internal' at recurso.py:127). `grep DelegationEnvelope|dispatcher|delegate recurso.py` => 0 hits (vs contas.py = 2 DelegationEnvelope + `_delegate_to_marina` at contas.py:521). register_recurso_workers(harness, kafka) has NO dispatcher kwarg (recurso.py",
+  "fix_sketch": "Mirror contas.py: add `_delegate_to_marina` + `dispatcher: DelegationDispatcher | None` kwarg to register_recurso_workers/make_analyze_request_handler, and pass `dispatcher=dispatcher` from _register_all_workers (marina is already a daemon _A2A_TARGET, so no assembly change). Fail-safe fallback to the existing echo when dispatcher is None.",
+  "v1_reasoning": "The RECURSO analyze_request worker claims A2A delegation to Marina but has zero delegation code \u2014 it only publishes an internal echo notification, so Marina's recurso.analyze enrichment never fires in production. This is a genuine #176/PAGTO-class runtime seam (wired on paper, unreachable at runtime). It is NOT deploy-blocking because the A2A dossier is architecturally fail-safe and purely advisory: the human User Task opens and the auditor decides regardless, regulatory SLA anchors are seeded independently, and there is no crash / PHI exposure / compliance breach. It degrades the richness of "
+ },
+ {
+  "dim": "runtime-seams",
+  "id": "inad-fernando-a2a-unreachable",
+  "severity": "post-deploy",
+  "claim": "INAD builds a real arrears.followup DelegationEnvelope to Fernando, but the worker-daemon (the only place INAD runs) never activates it: service.py never passes the dispatcher to register_inadimplencia_workers AND fernando is excluded from a2a_assembly._A2A_TARGETS, so the delegation is structurally unreachable and always degrades to the fail-safe echo.",
+  "evidence": "inadimplencia.py:283 `async def _delegate_to_fernando(...)` and register_inadimplencia_workers accepts `dispatcher: DelegationDispatcher | None = None` (inadimplencia.py:858). But origin/main service.py:326-330 registers INAD only as `_register_inad(harness, kafka, engine=engine)` / `_register_inad(harness, kafka)` \u2014 never `dispatcher=`. a2a_assembly.py:77 `_A2A_TARGETS = ('marina', 'valentina', 'andre')` omits fernando, and its docstring (a2a_assembly.py:27-28) falsely states 'O daemon NAO orig",
+  "fix_sketch": "Add 'fernando' to a2a_assembly._A2A_TARGETS (build_agent_cards + make_fernando_handler) and pass `dispatcher=dispatcher` to register_inadimplencia_workers in _register_all_workers; keep the existing fail-safe fallback.",
+  "v1_reasoning": "The finding survives adversarial refutation on current main (HEAD 260cb1d, post-#176). All four structural claims verified: (1) register_inadimplencia_workers is registered ONLY in worker_runtime/service.py (no agent-runtime site), so the worker-daemon is the only place INAD runs; (2) service.py:323-327 registers INAD without dispatcher \u2014 `_register_inad(harness, kafka, engine=engine)` / `_register_inad(harness, kafka)` \u2014 while every sibling (CONTAS:286, REEMBOLSO:298, ADEQUACAO:318, PROGRAMA:339) passes dispatcher=dispatcher; (3) a2a_assembly.py:77 `_A2A_TARGETS = (\"marina\",\"valentina\",\"andre"
+ },
+ {
+  "dim": "runtime-seams",
+  "id": "reembolso-stale-marina-card-comment",
+  "severity": "cosmetic",
+  "claim": "reembolso.py docstring asserts Marina's Agent Card does NOT list reembolso.analyze and delegation is rejected, but Marina's card DOES accept it \u2014 the delegation actually succeeds, so the comment inverts reality and could mislead a maintainer into 'fixing' a working path.",
+  "evidence": "reembolso.py:68-70 'NOTA: o Agent Card da Marina (agents/marina/agent.yaml) ainda NAO lista reembolso.analyze em accepted_task_types'; but agents/marina/agent.yaml:83 `- reembolso.analyze  # REEMBOLSO delega a analise do pedido de reembolso` (added via res-marina-reembolso-card, per marina/agent.yaml:67-68). service.py passes dispatcher= to register_reembolso_workers (origin/main service.py:301), so reembolso->marina genuinely delegates.",
+  "fix_sketch": "Update the reembolso.py docstring to reflect that Marina's card now accepts reembolso.analyze and the delegation is live.",
+  "v1_reasoning": "The reembolso.py module docstring (lines 68-73) asserts \"o Agent Card da Marina (agents/marina/agent.yaml) ainda NAO lista reembolso.analyze em accepted_task_types\" and frames the A2A delegation as landing in the echo fallback because the card rejects the task type. This is factually inverted: agents/marina/agent.yaml line 83 DOES list \"- reembolso.analyze\" under accepted_task_types (line 80). The yaml's own comment (lines 67-69) confirms the card was intentionally updated via res-marina-reembolso-card: \"ATE res-marina-reembolso-card, reembolso.analyze NAO estava listado aqui ... Esta entrada "
+ },
+ {
+  "dim": "runtime-seams",
+  "id": "inad-cancel-matricula-phi-egress-unscrubbed",
+  "severity": "post-deploy",
+  "claim": "The inadimplencia and cancel worker families publish `matricula_beneficiario` (a key the codebase's canonical PHI egress deny-list phi_vars.PHI_PROCESS_VARS classifies as PHI-must-scrub) raw to the Zona Geral bus topic operadora.notifications.internal, without the GAP-XPHI-1 scrub_phi_vars/pseudonymizer fail-closed backstop that peer families phase0/auth are wired with \u2014 a per-family wiring-parity gap (the two families' register functions don't even accept a pseudonymizer param).",
+  "evidence": "src/maezo/tools/workers/phi_vars.py:52-63 lists `matricula_beneficiario` in `PHI_PROCESS_VARS` ('NUNCA pode sair de um worker para o Kafka sem passar por scrub_phi_vars'); log_phi.py:130,135 folds PHI_PROCESS_VARS into PHI_FORBIDDEN_KEYS (dropped from logs as PHI). inadimplencia.py:429 builds `\"matricula_beneficiario\": vars_.get(\"matricula_beneficiario\", \"\")` and :446 `await kafka.publish(_NOTIFICATIONS_TOPIC, notification, ...)` where :140 `_NOTIFICATIONS_TOPIC = \"operadora.notifications.intern",
+  "fix_sketch": "Either (a) thread a pseudonymizer into register_inadimplencia_workers/register_cancel_workers and run scrub_phi_vars over each notification payload before kafka.publish (defense-in-depth parity with phase0/auth); or (b) if matricula_beneficiario is genuinely always a pre-tokenized Zona Geral pseudo-id, remove it from phi_vars.PHI_PROCESS_VARS so the single-source-of-truth deny-list stops contradic",
+  "v1_reasoning": "The defect exists exactly as described. `matricula_beneficiario` is a canonical PHI-egress deny-list member (phi_vars.py:52-63, with the module-level rule at :49-51 that it \"NUNCA pode sair de um worker para o Kafka sem passar por scrub_phi_vars\"). cancel.py and inadimplencia.py both build it into notification dicts and call kafka.publish(_NOTIFICATIONS_TOPIC=...operadora.notifications.internal...) with no scrub_phi_vars anywhere (grep empty), and their register_cancel_workers/register_inadimplencia_workers accept no pseudonymizer param \u2014 unlike register_phase0_workers/register_auth_workers wh"
+ },
+ {
+  "dim": "runtime-seams",
+  "id": "helena-a2a-delegation-helpers-uncalled",
+  "severity": "KILLED",
+  "claim": "killed by verifier-1: The finding's raw observation is factually correct \u2014 Helena's `delegate_auth_analysis`/`build_auth_analysis_envelope` (src/maezo/agents/helena/delegation.py:105/:53) and Gustavo's `delegate_nip_instruct`/`build_nip_instruct_envelope` are called only from tests (tests/unit/agents/test_rafael_a2a_dele"
+ },
+ {
+  "dim": "observability",
+  "id": "kafka-lag-alert-topic-label-never-matches",
+  "severity": "post-deploy",
+  "claim": "MaezoKafkaConsumerLagHigh (and the corresponding engine.json dashboard panel) filter on the exact topic label `topic=\"agents.events\"`, but no Kafka topic with that exact name exists \u2014 only `agents.events.*` subtopics are ever produced \u2014 so the alert/panel can never match any series regardless of the ingestion-pipeline issue above.",
+  "evidence": "deploy/observability/alert-rules.yaml:28 `expr: kafka_consumer_group_lag{topic=\"agents.events\"} > 1000`; deploy/observability/dashboards/engine.json:146 `\"expr\": \"kafka_consumer_group_lag{topic=\\\"agents.events\\\",tenant=\\\"$tenant\\\"}\"`. config/topic_registry.yaml only defines topics like `agents.events.process_completed`, `agents.events.proactive`, `agents.events.escalation.requested`, `agents.events.escalation.sla_breached`, `agents.events.auth.received`, etc. \u2014 a bare `agents.events` topic is ne",
+  "fix_sketch": "Change the label matcher to a regex/prefix or `sum` over the actual subtopics, e.g. `sum by (tenant) (rate(kafka_consumer_group_lag{topic=~\"agents\\\\.events\\\\..*\"}[5m]))`, or pick the specific subtopic(s) the alert is meant to protect.",
+  "v1_reasoning": "Re-derived independently. deploy/observability/alert-rules.yaml:28 has `expr: kafka_consumer_group_lag{topic=\"agents.events\"} > 1000` and deploy/observability/dashboards/engine.json:146 has the identical exact-match filter `kafka_consumer_group_lag{topic=\\\"agents.events\\\",tenant=\\\"$tenant\\\"}`. Checked config/topic_registry.yaml \u2014 every declared topic is a dotted subtopic (agents.events.process_completed, agents.events.auth.pended, agents.events.pagto.completed, etc.); there is no bare `agents.events` topic. Confirmed at the producer level too: grep of src/ shows every `_..._TOPIC` constant use"
+ },
+ {
+  "dim": "observability",
+  "id": "phantom-metrics-escalation-latency-evalscore",
+  "severity": "post-deploy",
+  "claim": "Three metrics that back live alerts/dashboard panels \u2014 maezo_escalation_total, maezo_response_duration_seconds, and maezo_eval_score_latest \u2014 are defined in metrics.py with documented 'Emitted by ...' call sites, but those call sites do not exist anywhere in application or CI code (the helper functions are exercised only by the metrics module's own unit test), so the alerts/panels can never show real data.",
+  "evidence": "record_escalation (metrics.py:694-702, doc: 'Emitted by agent-runtime when mcp-cibseven.start_process is called') has zero call sites in src/ (only tests/unit/runtime/test_metrics.py:464) \u2014 feeds MaezoEscalationRateHigh (alert-rules.yaml:94-111) and the helena-employee.json resolution_rate/escalation_rate KPI panels (lines 44-86). record_response_duration (metrics.py:705-710, doc: 'Called by agent-runtime after the first reply is sent') has zero call sites anywhere outside tests/unit/runtime/tes",
+  "fix_sketch": "Wire record_escalation into the SP-OP-ESCALATION-001 start_process call path (mcp_cibseven/server.py / harness.py), record_response_duration at the point the agent's first reply is sent, and record_eval_score at the end of the evals pytest run (e.g. a session-finish hook that computes and calls it, or a small post-processing step in the CI job that pushes the score).",
+  "v1_reasoning": "Re-derived independently: grep across src/ (agent_runtime/service.py, resume_driver.py, inbound_driver.py, harness.py, mcp_cibseven/server.py) and tests/evals/* for record_escalation, record_response_duration, record_eval_score, and their backing Counter/Histogram/Gauge objects (ESCALATION_TOTAL, RESPONSE_DURATION_SECONDS, EVAL_SCORE_LATEST) turns up zero call sites outside metrics.py's own definitions and tests/unit/runtime/test_metrics.py's unit tests (lines 464, 474, 481). This contrasts with sibling helpers record_conversation and record_hitl_presented in the same file, which ARE genuinely"
+ },
+ {
+  "dim": "observability",
+  "id": "runbook-url-misrouted-and-missing",
+  "severity": "post-deploy",
+  "claim": "MaezoAuditLagHigh (critical, ADR-0007 non-repudiation compliance alert) and MaezoEscalationRateHigh both point runbook_url at `#pep-deny-spike` \u2014 an anchor that resolves (so it wouldn't be caught by an anchor-existence check alone) but whose content is entirely about PEP deny-spike remediation (revert autonomy policy, rate-limit webhook) with no guidance relevant to audit lag or escalation rate, because no dedicated 'Audit lag' or 'Escalation rate' section exists in the runbook. Separately, MaezoAgentRuntimeDown has no runbook_url annotation at all, unlike every other alert in the file.",
+  "evidence": "deploy/observability/alert-rules.yaml:73 (MaezoAuditLagHigh) and :111 (MaezoEscalationRateHigh) both set `runbook_url: \".../devops-stack.md#pep-deny-spike\"`. docs/runbooks/devops-stack.md headings (grep '^#') list only 12 alert-runbook sections (dlq-alert, kafka-lag, pep-deny-spike, sla-breach, eval-score-drop, a2a-budget, hitl-approval-drop, hitl-pending, llm-cost-spike, trace-sampler-stalled, collector-drop-rate, pgvector-scale) \u2014 no 'audit lag' or 'escalation' heading exists anywhere in the f",
+  "fix_sketch": "Add dedicated '### Audit lag' and '### Escalation rate' sections to docs/runbooks/devops-stack.md and repoint the two runbook_urls; add a runbook_url (and a short '### Agent runtime down' section, even if brief) for MaezoAgentRuntimeDown.",
+  "v1_reasoning": "Re-derived every claim directly from the repo:\n\n1. deploy/observability/alert-rules.yaml:73 \u2014 MaezoAuditLagHigh sets `runbook_url: \".../devops-stack.md#pep-deny-spike\"`.\n2. deploy/observability/alert-rules.yaml:111 \u2014 MaezoEscalationRateHigh sets the identical `runbook_url: \".../devops-stack.md#pep-deny-spike\"`.\n3. `grep -n '^#' docs/runbooks/devops-stack.md` shows the runbook's \"6. Alert runbooks\" subsections are exactly: dlq-alert, kafka-lag, pep-deny-spike, sla-breach, eval-score-drop, a2a-budget, hitl-approval-drop, hitl-pending, llm-cost-spike, trace-sampler-stalled, collector-drop-rate, p"
+ },
+ {
+  "dim": "observability",
+  "id": "podmonitor-joblabel-misuse",
+  "severity": "cosmetic",
+  "claim": "deploy/helm/maezo-tenant/templates/podmonitor.yaml sets `spec.jobLabel: maezo-agent-runtime` (and `maezo-fhir-sync` for the second PodMonitor), apparently intending that literal string to become the scraped targets' `job` label \u2014 but the PodMonitor CRD's `jobLabel` field names a POD LABEL KEY to copy the job value from, not a literal job value. Since no pod carries a label literally keyed `maezo-agent-runtime`, the operator would fall back to its default job-labeling behavior instead of the intended value, so `up{job=\"maezo-agent-runtime\"}` (used by MaezoAgentRuntimeDown) would still never match even if this PodMonitor path were enabled.",
+  "evidence": "deploy/helm/maezo-tenant/templates/podmonitor.yaml:37-38 `# Correlates to config/prometheus.yml job_name: maezo-agent-runtime` then `jobLabel: maezo-agent-runtime`; same pattern at line 75 (`jobLabel: maezo-fhir-sync`). Currently dormant/non-exercised because `observability.podMonitor.enabled` defaults to false (values.yaml:380-381) and is not overridden in values-amh.yaml, so this bug has no live production impact today but would silently persist the same 'MaezoAgentRuntimeDown never fires' pro",
+  "fix_sketch": "Remove the jobLabel field (letting the operator default apply) and instead pin the job via a `relabelings`/`podTargetLabels` + metric_relabel_configs approach, or add a literal pod label (e.g. `maezo.io/scrape-job: maezo-agent-runtime`) and set `jobLabel: maezo.io/scrape-job`.",
+  "v1_reasoning": "Re-derived independently: deploy/helm/maezo-tenant/templates/podmonitor.yaml:38 sets `jobLabel: maezo-agent-runtime` and line 75 sets `jobLabel: maezo-fhir-sync`. Prometheus-operator's PodMonitor.spec.jobLabel field names a POD LABEL KEY whose value is copied into the target's `job` label \u2014 it is not a literal job-name string (contrast with Prometheus's own `scrape_configs[].job_name`, which config/prometheus.yml:27 correctly uses as a literal, e.g. `job_name: maezo-agent-runtime`). No pod in this chart carries a label literally keyed `maezo-agent-runtime` (checked templates/deployment*, selec"
+ },
+ {
+  "dim": "observability",
+  "id": "hitl-approved-total-never-emitted-alert-permanent-false-signal",
+  "severity": "post-deploy",
+  "claim": "MaezoHITLApprovalRateDrop and the Helena dashboard Human Approval Rate panel divide by maezo_hitl_approved_total, but no production code path anywhere in src/ increments that counter, so the ratio is permanently 0 whenever there is real HITL traffic - a guaranteed-firing alert and permanently-0 percent dashboard panel, distinct from the already-fixed synthetic-agent-id bug.",
+  "evidence": "deploy/observability/alert-rules.yaml lines 205-228 (MaezoHITLApprovalRateDrop expr divides rate(maezo_hitl_approved_total[10m]) by rate(maezo_hitl_presented_total[10m]), fires when ratio < 0.50 and presented rate > 0.1/min). deploy/observability/dashboards/helena-employee.json panel Human Approval Rate uses the same ratio. record_hitl_approved (src/maezo/runtime/metrics.py lines 730-735) has zero call sites in src/ outside its own definition. src/maezo/runtime/harness.py lines 416-418 documents",
+  "fix_sketch": "Either wire a real record_hitl_approved call at the point where a human's L1 approval actually completes (the blocked/manual_step item harness.py references), or remove/replace MaezoHITLApprovalRateDrop and the dashboard panel with a metric that is actually populated (e.g. maezo_bpmn_usertask_decision_total APROVAR decisao, correctly scoped).",
+  "v1_reasoning": "Core claim re-derived and verified: grep across src/ shows record_hitl_approved (src/maezo/runtime/metrics.py:730-735) has zero production call sites \u2014 only src/maezo/runtime/metrics.py's own definition and tests/unit/runtime/test_metrics.py reference it. src/maezo/platform/console/app.py explicitly stopped calling it (lines 489-503, comment at 492-497) as the GAP-XOBS-5 fix for the synthetic-agent-id mismatch, and src/maezo/runtime/harness.py:416-418 documents in a comment that the real agent-mediated approval wiring \"chega fora-de-banda ... wiring desse lado fica em `blocked` (manual_step)\" "
+ },
+ {
+  "dim": "observability",
+  "id": "phase2-worker-calendar-metrics-unalerted-undashboarded",
+  "severity": "post-deploy",
+  "claim": "Six emitted Prometheus instruments (maezo_worker_task_total, maezo_worker_task_duration_seconds, maezo_ans_submission_outcome_total, maezo_nip_deadline_risk_total, maezo_calendar_job_runs_total, maezo_calendar_job_last_success_unixtime) have zero alert rules and zero dashboard panels anywhere in the repo, despite metrics.py explicitly documenting a required alert pattern for one of them and these covering regulatory-compliance-relevant events (ANS periodic-submission outcomes, NIP deadline-risk countdowns, external-task dispatch failures including no-denial-guard firings).",
+  "evidence": "Searching all yaml/yml/json under the repo for these six metric names returns zero matches (checked deploy/observability/alert-rules.yaml and all 3 dashboards/*.json and deploy/terraform). All six are confirmed emitted in production code: src/maezo/tools/workers/harness.py line 351 (record_worker_task_outcome on every WorkerHarness._handle terminal branch, completed/bpmn_error/failed across roughly 30 topics), src/maezo/tools/workers/ans_submit.py lines 162/172/173 (inc_ans_submission_outcome, i",
+  "fix_sketch": "Add alert rules and a dashboard panel for: (1) a spike/nonzero rate of maezo_worker_task_total with outcome bpmn_error or failed per topic, surfacing no-denial-guard firings and dispatch failures; (2) time() - maezo_calendar_job_last_success_unixtime > expected_period per job, the missed-regulatory-cycle detector the metric docstring calls for; (3) rate/increase of maezo_ans_submission_outcome_tot",
+  "v1_reasoning": "Re-derived independently: repo-wide grep for all six metric names (maezo_worker_task_total, maezo_worker_task_duration_seconds, maezo_ans_submission_outcome_total, maezo_nip_deadline_risk_total, maezo_calendar_job_runs_total, maezo_calendar_job_last_success_unixtime) across every *.yaml/*.yml/*.json in the repo returns zero matches \u2014 confirmed against deploy/observability/alert-rules.yaml (18 alert rules total, none referencing these metrics) and all three dashboards (deploy/observability/dashboards/{engine,gateway,helena-employee}.json \u2014 engine.json only uses cibseven_* metrics, gateway.json "
+ },
+ {
+  "dim": "observability",
+  "id": "lgpd-notify-sla-risk-never-emits-breach-metric",
+  "severity": "post-deploy",
+  "claim": "SP-OP-LGPD-DSR-001's notify_sla_risk handler \u2014 the sole handler serving BOTH the P7D internal-alert timer (ST_NotificarRiscoSla) and the P15D legal-deadline event-subprocess (ST_NotificarJuridicoBreach, LGPD art. 19 II) \u2014 never calls emit_user_task_sla_breach, unlike every other SP-OP module's equivalent handler, so the compliance counter cibseven_user_task_sla_breach_total (and the immediate-fire MaezoUserTaskSLABreach alert) can never fire for LGPD data-subject-request deadline breaches.",
+  "evidence": "src/maezo/tools/workers/lgpd.py:737-777 `make_notify_sla_risk_handler` publishes only a Kafka notification (`await kafka.publish(_NOTIFICATIONS_TOPIC, notification, ...)`) and returns `{\"sla_risk_notified\": True}` \u2014 no import of `maezo.runtime.metrics` or `maezo.tools.workers.sla_metrics` anywhere in lgpd.py. Contrast: `grep -rln emit_user_task_sla_breach src/` returns adequacao.py, ans_submit.py, auth.py, cancel.py, contas.py, cred.py, fraude.py, inadimplencia.py, nip.py, pagto.py, phase0.py, p",
+  "fix_sketch": "In lgpd.py's make_notify_sla_risk_handler, call sla_metrics.emit_user_task_sla_breach with breach_phase='ack' for the ST_NotificarRiscoSla branch and breach_phase='resolution' for ST_NotificarJuridicoBreach (distinguish via a variable/flag on the two service tasks), mirroring the pattern already used in auth.py/cancel.py/etc.",
+  "v1_reasoning": "Re-derived directly from the repo. src/maezo/tools/workers/lgpd.py has no import of maezo.tools.workers.sla_metrics or maezo.runtime.metrics anywhere in the file (confirmed via import block inspection and grep). make_notify_sla_risk_handler (lines ~737-777) only builds a notification dict and calls `await kafka.publish(_NOTIFICATIONS_TOPIC, notification, ...)`, returning `{\"sla_risk_notified\": True}` \u2014 no metric emission on any path (success or failure). This is the sole handler for BOTH BPMN timer/event-subprocess routes per the BPMN itself: ST_NotificarRiscoSla (line ~217, topic operadora.lg"
+ },
+ {
+  "dim": "observability",
+  "id": "ans-cron-process-keys-missing-from-engine-poller",
+  "severity": "post-deploy",
+  "claim": "EngineMetricsPoller.DEFAULT_PROCESS_KEYS omits all 5 process definition keys deployed by SP-OP-ANS-CRON-001, so cibseven_process_instance_active_total and cibseven_process_instance_completed_total (and the engine.json 'Active instances per process_key' dashboard panel) are permanently blank for that entire regulatory-scheduler module.",
+  "evidence": "src/maezo/runtime/worker_runtime/engine_metrics.py:48-64 DEFAULT_PROCESS_KEYS lists exactly 15 keys. `grep -oE '<bpmn:process id=\"[^\"]*\"' src/maezo/processes/bpmn/*.bpmn` shows SP-OP-ANS-CRON-001_Agendador_Envios_ANS.bpmn deploys 5 distinct process ids: SP-OP-ANS-CRON-001-RN124SIP, -RN209, -RN388, -RN424TISS, -DIOPS (each with its own bpmn:timerEventDefinition, e.g. line 54-56 TD_CronRn124Sip) \u2014 none appear in DEFAULT_PROCESS_KEYS. poll_once() (engine_metrics.py:167-179) iterates only self._proc",
+  "fix_sketch": "Add the 5 SP-OP-ANS-CRON-001-* process ids to DEFAULT_PROCESS_KEYS, or derive the key set from the BPMN files the same way candidate_groups.py derives candidate groups so new cron sub-processes are picked up automatically.",
+  "v1_reasoning": "Verified directly against source. src/maezo/runtime/worker_runtime/engine_metrics.py:48-64 DEFAULT_PROCESS_KEYS contains exactly the 15 top-level `bpmn:process id` values found across src/maezo/processes/bpmn/*.bpmn (confirmed by diffing the full sorted set of ids in the bpmn directory against the list) \u2014 but the 5 process ids emitted by SP-OP-ANS-CRON-001_Agendador_Envios_ANS.bpmn (SP-OP-ANS-CRON-001-RN124SIP, -RN209, -RN388, -RN424TISS, -DIOPS) are entirely absent from both sets. This isn't a stale-line issue: engine_metrics.py was last touched in commit 72b91c9 (PR #144), which lands *after"
+ },
+ {
+  "dim": "observability",
+  "id": "worker-task-outcome-metric-unalerted-undashboarded",
+  "severity": "post-deploy",
+  "claim": "maezo_worker_task_total and maezo_worker_task_duration_seconds (GAP-XOBS-4) \u2014 emitted by WorkerHarness._handle on every external-task dispatch outcome across all worker modules/topics, with outcome='bpmn_error' explicitly covering ERR_*_NOT_HUMAN no-denial-guard firings per the metric's own docstring \u2014 have zero alert rules and zero dashboard panels anywhere in deploy/observability/.",
+  "evidence": "src/maezo/runtime/metrics.py:594-646 documents the instruments and states \"a no-denial-guard firing ... produced a WARNING that was not queryable as a metric. These instruments make each dispatch outcome an alertable time series\" \u2014 but `grep -n \"worker_task\" deploy/observability/alert-rules.yaml deploy/observability/dashboards/*.json` returns nothing; `ls deploy/observability/dashboards/` shows only engine.json, gateway.json, helena-employee.json \u2014 none reference the metric. The emission call si",
+  "fix_sketch": "Add an alert (e.g. rate of outcome='bpmn_error' or 'failed' per topic/tenant over N minutes) and a dashboard panel/row for maezo_worker_task_total and _duration_seconds so the harness's dispatch-outcome telemetry \u2014 including denial-guard firings \u2014 is actionable, not just scraped.",
+  "v1_reasoning": "Re-derived independently and the claim holds exactly as stated.\n\n1. Metric definitions confirmed live at src/maezo/runtime/metrics.py:594-646 (WORKER_TASK_TOTAL / WORKER_TASK_DURATION_SECONDS, GAP-XOBS-4), with the docstring language quoted in the finding verified verbatim (\"a no-denial-guard firing ... produced a WARNING that was not queryable as a metric. These instruments make each dispatch outcome an alertable time series\").\n2. Emission call site confirmed live: src/maezo/tools/workers/harness.py:351 calls record_worker_task_outcome(...) inside _emit_worker_task_outcome, which is invoked f"
+ },
+ {
+  "dim": "observability",
+  "id": "kafka-consumer-lag-metric-has-no-exporter-anywhere",
+  "severity": "post-deploy",
+  "claim": "Both Kafka-group alerts (MaezoDLQRateHigh, MaezoKafkaConsumerLagHigh) key off kafka_consumer_group_lag, but no kafka-exporter/JMX-exporter service, Prometheus scrape job, or PodMonitor exists anywhere in the dev docker-compose stack, the dev Prometheus config, or the prod Helm chart \u2014 the metric is never produced at all, so both alerts are permanent no-data.",
+  "evidence": "config/prometheus.yml:16-51 lists exactly 5 scrape jobs (prometheus, otel-collector, maezo-agent-runtime, maezo-gateway, maezo-webhook, maezo-fhir-sync) \u2014 none is a kafka-exporter. docker-compose.yml's kafka: service (lines 76-101) has no exporter sidecar and exposes only broker ports (9092/29092/29093), no JMX/metrics port. deploy/helm/maezo-tenant/templates/podmonitor.yaml defines exactly two PodMonitors (agent-runtime, fhir-sync) \u2014 no kafka-exporter PodMonitor. deploy/helm/maezo-tenant/values",
+  "fix_sketch": "Deploy a kafka-exporter (or Burrow/kminion) against the MSK Serverless bootstrap, add a Prometheus/AMP scrape job or PodMonitor for it, and confirm the exported label set actually includes `tenant` before relying on the existing sum-by(topic, tenant) grouping.",
+  "v1_reasoning": "Re-derived independently: config/prometheus.yml (dev) defines exactly 5 scrape jobs (prometheus, otel-collector, maezo-agent-runtime, maezo-gateway, maezo-webhook, maezo-fhir-sync) \u2014 none is a kafka-exporter or JMX-exporter. docker-compose.yml's kafka service (lines ~76-101) exposes only broker ports 9092/29092/29093 with no exporter sidecar or metrics port. deploy/helm/maezo-tenant/templates/podmonitor.yaml defines only two gated PodMonitors (agent-runtime, fhir-sync) \u2014 no kafka-exporter PodMonitor. deploy/helm/maezo-tenant/values.yaml:330 and deploy/terraform/modules/secrets/main.tf confirm "
+ },
+ {
+  "dim": "observability",
+  "id": "gateway-service-command-has-no-main-module",
+  "severity": "deploy-blocking",
+  "claim": "The gateway Kubernetes Deployment in the amh-overlay production Helm release runs python -m maezo.gateway, but src/maezo/gateway/ has no __main__.py (it is a pure library package), so every gateway pod crash-loops immediately on start and never emits any maezo_gateway_* metric, explaining why the entire gateway.json dashboard and the MaezoPEPDenySpike/MaezoAuditLagHigh alerts are permanently dark in production.",
+  "evidence": "deploy/helm/maezo-tenant/templates/deployment-gateway.yaml:34 sets command: [python, -m, maezo.gateway]. Listing src/maezo/gateway/ shows only pep.py, audit.py, pseudonymizer.py, custody.py etc: no __main__.py (contrast with every other Deployment target, e.g. src/maezo/runtime/worker_runtime/__main__.py, src/maezo/platform/webhooks/__main__.py, src/maezo/platform/integrations/fhir_sync/__main__.py, all of which exist). Reproduced directly: running uv run python -m maezo.gateway fails with No mo",
+  "fix_sketch": "Add src/maezo/gateway/__main__.py that boots a FastAPI/uvicorn app wiring PEP + audit + pseudonymizer routes and mounts /metrics plus /healthz and /readyz via maezo.platform.health.server.create_health_app (mirroring the pattern already used by worker_runtime/agent_runtime), or change the Deployment command to point at whatever entrypoint the gateway is actually meant to run as.",
+  "v1_reasoning": "Every factual element re-derives cleanly: deployment-gateway.yaml:34 runs `python -m maezo.gateway`; src/maezo/gateway/ has no __main__.py (confirmed by directory listing and by actually running `uv run python -m maezo.gateway`, which fails with \"No module named maezo.gateway.__main__; 'maezo.gateway' is a package and cannot be directly executed\"); gateway.enabled defaults to true (values.yaml:113-114) and the amh-overlay prod values (values-amh.yaml:86-87) only set replicaCount: 3 without disabling it \u2014 so this command runs unmodified in the exact overlay CI validates (.github/workflows/ci.ym"
+ },
+ {
+  "dim": "observability",
+  "id": "otel-collector-no-app-metrics-receiver",
+  "severity": "KILLED",
+  "claim": "killed by refuter-2: The finding's metrics-plumbing facts re-derive, but its \"production misbehaves\" conclusion rests on treating config/otel-collector.prod.yaml as the authoritative prod pipeline. It is not. In the amh overlay the actual OTel collector is out-of-repo: values.yaml:359-360 states the collector Deployment"
+ },
+ {
+  "dim": "observability",
+  "id": "observability-terraform-module-never-invoked-by-any-env",
+  "severity": "KILLED",
+  "claim": "killed by refuter-2: refuter died"
+ },
+ {
+  "dim": "docs-runbooks",
+  "id": "auditor-console-deployment-not-found",
+  "severity": "post-deploy",
+  "claim": "The auditor-console Kubernetes deployment referenced in runbook does not exist in the Helm chart.",
+  "evidence": "devops-stack.md:372,376,377,380,381 reference `kubectl get deployment auditor-console`, `kubectl rollout restart deployment auditor-console`, and `kubectl scale deployment auditor-console`, but no such deployment exists in /Users/familia/code/Maezo-Healthcare-Plan/deploy/helm/maezo-tenant/templates/ directory. The directory only contains deployment-gateway.yaml, deployment-agent-runtime.yaml, deployment-fhir-sync.yaml, deployment-webhook-receiver.yaml, deployment-worker-daemon.yaml, and three br",
+  "fix_sketch": "",
+  "v1_reasoning": "Verified directly: `find deploy/helm/maezo-tenant/templates -type f` lists all templates and there is no `auditor-console` resource of any kind (no deployment, statefulset, or service) \u2014 only deployment-{agent-runtime,bridge,bridge-consent-revocation,bridge-netchange,fhir-sync,gateway,webhook-receiver,worker-daemon}.yaml and statefulset-{cibseven,hapi-fhir}.yaml exist. `grep -rn \"auditor\" deploy/helm/maezo-tenant/` returns only one unrelated hit (an audit-retention code comment in values.yaml, not \"auditor-console\"). Yet docs/runbooks/devops-stack.md references `kubectl get deployment auditor-"
+ },
+ {
+  "dim": "docs-runbooks",
+  "id": "otel-collector-wrong-namespace",
+  "severity": "post-deploy",
+  "claim": "Runbook references otel-collector with incorrect Kubernetes namespace.",
+  "evidence": "devops-stack.md:436,441,448,453,456 use commands like `kubectl logs -n maezo-{tenant} deploy/otel-collector`, but the helm chart values define otel endpoint as `http://otel-collector.observability.svc.cluster.local:4317`, indicating otel-collector is in the 'observability' namespace. Lines reference: 436 'kubectl get deployment otel-collector', 441 'kubectl logs', 448 'kubectl get configmap otel-collector-config', 453 'kubectl exec'.",
+  "fix_sketch": "",
+  "v1_reasoning": "The defect is real. docs/runbooks/devops-stack.md repeatedly issues kubectl commands against otel-collector using `-n maezo-{tenant}` (lines 436, 438, 441, 446, 448, 453, 456, 457, 470-472), e.g. `kubectl get deployment otel-collector -n maezo-{tenant}`, `kubectl logs -n maezo-{tenant} deploy/otel-collector`, `kubectl get configmap otel-collector-config -n maezo-{tenant}`, `kubectl exec -n maezo-{tenant} deploy/otel-collector`.\n\nCross-checking the Helm chart and Terraform confirms the collector does NOT run in the tenant namespace:\n- deploy/helm/maezo-tenant/values.yaml:353 and values-amh.yaml"
+ },
+ {
+  "dim": "docs-runbooks",
+  "id": "pseudonymizer-secret-wrong-env-var",
+  "severity": "post-deploy",
+  "claim": "Runbook specifies wrong environment variable name for pseudonymizer secret injection.",
+  "evidence": "gateway.md:124 states env var name as PSEUDONYMIZER_SECRET, but the actual implementation in hmac_key_provider.py line 23 defines PHI_HMAC_KEY_ENV = \"PHI_HMAC_KEY\". The pseudonymizer reads from environment variable PHI_HMAC_KEY.",
+  "fix_sketch": "",
+  "v1_reasoning": "Re-derived independently: the runbook docs/runbooks/gateway.md, in the \"Key management\" section immediately following \"The pseudonymizer secret is injected at container startup...\", gives a Kubernetes injection example:\n\n```\nenv:\n  - name: PSEUDONYMIZER_SECRET\n    valueFrom:\n      secretKeyRef:\n        name: maezo-gateway-secrets\n        key: pseudonymizer-key\n```\n\nThe actual code, `src/maezo/gateway/hmac_key_provider.py:30`, defines `PHI_HMAC_KEY_ENV = \"PHI_HMAC_KEY\"`, and `VaultHmacKeyProvider.resolve()` (line 55) reads via `os.environ.get(self.env_name)` i.e. `os.environ.get(\"PHI_HMAC_KEY\")"
+ },
+ {
+  "dim": "docs-runbooks",
+  "id": "helena-alert-name-mismatch",
+  "severity": "post-deploy",
+  "claim": "Runbook references non-existent alert name for Helena escalation rate.",
+  "evidence": "helena.md:207 references 'MaezoHelenaEscalationRateAnomaly', but the actual alert in deploy/observability/alert-rules.yaml is 'MaezoEscalationRateHigh'.",
+  "fix_sketch": "",
+  "v1_reasoning": "Re-derived independently: docs/runbooks/helena.md:207 and :254 both reference an alert named `MaezoHelenaEscalationRateAnomaly`. Searching deploy/observability/alert-rules.yaml (the actual Prometheus rules used in production) shows no such alert exists \u2014 the closest/actual rule is `MaezoEscalationRateHigh` at deploy/observability/alert-rules.yaml:94, which fires on `sum by (agent, tenant) (rate(maezo_escalation_total[1h])) / sum by (agent, tenant) (rate(maezo_conversation_total[1h])) > 0.30` for 15m (single high-side threshold only). The runbook's described behavior (\">0.5 or <0.10 for 5 min\","
+ },
+ {
+  "dim": "docs-runbooks",
+  "id": "whatsapp-invalid-signature-alert-missing",
+  "severity": "post-deploy",
+  "claim": "WhatsAppInvalidSignatureSpike alert referenced in runbook does not exist.",
+  "evidence": "whatsapp-webhook.md:261 documents alert 'WhatsAppInvalidSignatureSpike', which is not defined in deploy/observability/alert-rules.yaml. All 18 defined alerts checked; this name not found.",
+  "fix_sketch": "",
+  "v1_reasoning": "Verified directly: `deploy/observability/alert-rules.yaml` defines exactly 18 alerts (grep for `alert:` lists MaezoDLQRateHigh, MaezoKafkaConsumerLagHigh, MaezoPEPDenySpike, MaezoAuditLagHigh, MaezoAgentRuntimeDown, MaezoEscalationRateHigh, MaezoUserTaskSLABreach, MaezoEvalScoreDrop, MaezoA2ATaskBudgetExceeded, MaezoHITLApprovalRateDrop, MaezoHITLPendingTooLong, MaezoBpmnUserTaskDecisionStalled, MaezoLLMCostSpike, MaezoLLMTokenRateHigh, MaezoTraceSamplerStalled, MaezoCollectorDropRateHigh, MaezoMemoryRowcountApproachingCeiling, MaezoMemoryRowcountCritical). A case-insensitive grep for \"whatsap"
+ },
+ {
+  "dim": "docs-runbooks",
+  "id": "whatsapp-kafka-publish-alert-missing",
+  "severity": "post-deploy",
+  "claim": "WhatsAppKafkaPublishFailure alert referenced in runbook does not exist.",
+  "evidence": "whatsapp-webhook.md:262 documents alert 'WhatsAppKafkaPublishFailure', which is not defined in deploy/observability/alert-rules.yaml.",
+  "fix_sketch": "",
+  "v1_reasoning": "Verified independently. docs/runbooks/whatsapp-webhook.md:262 lists an \"Alerts\" section naming two Prometheus alerts: `WhatsAppInvalidSignatureSpike` and `WhatsAppKafkaPublishFailure`. Cross-checked against the canonical alert-rules source: deploy/observability/alert-rules.yaml (config/alert-rules.yaml explicitly states it is a stub/redirect to deploy/observability/alert-rules.yaml, confirmed by header comment at config/alert-rules.yaml:1-17). `grep -n -i \"whatsapp\" deploy/observability/alert-rules.yaml` returns zero matches. Listing every `- alert:` name in that file (lines 13-425) shows only"
+ },
+ {
+  "dim": "docs-runbooks",
+  "id": "gateway-audit-verify-missing",
+  "severity": "post-deploy",
+  "claim": "gateway.md references non-existent Python module for audit verification",
+  "evidence": "gateway.md:217 instructs `python -m maezo.gateway.audit_verify /mnt/audit/gateway-20260612.jsonl` but no audit_verify.py exists in src/maezo/gateway/ (only audit.py and audit_postgres.py found)",
+  "fix_sketch": "Either create audit_verify.py with a main block that implements chain verification, or update gateway.md to reference an existing verification pattern (e.g., a utility function or CLI command that actually exists)",
+  "v1_reasoning": "docs/runbooks/gateway.md:217 instructs the operator to run `python -m maezo.gateway.audit_verify /mnt/audit/gateway-20260612.jsonl` to verify audit-chain integrity. No such module exists: `ls src/maezo/gateway/` shows only audit.py and audit_postgres.py, and a repo-wide grep for \"audit_verify\" across *.py/*.md/*.toml/*.cfg finds only the runbook line itself \u2014 no module, no console-script entry point, no __main__ block in audit.py. The actual verification logic exists as library functions `verify_chain()` (audit.py:287) and `parse_jsonl()` (audit.py:302-313), but these are not exposed as a runn"
+ },
+ {
+  "dim": "docs-runbooks",
+  "id": "phase0-demo-webhook-service-missing",
+  "severity": "post-deploy",
+  "claim": "phase0-demo.md prerequisite stack lacks webhook-receiver service needed for Step 1",
+  "evidence": "phase0-demo.md line 18 runs 'docker compose --profile core --profile simulator up -d', but docker-compose.yml contains no webhook-receiver service in any profile. Line 58 then instructs curl POST to http://localhost:8082/webhook, but no service is listening.",
+  "fix_sketch": "",
+  "v1_reasoning": "Verified directly against the repo. docker-compose.yml (root) defines exactly 8 services across profiles core/simulator/observability: postgres, cibseven, hapi-fhir, kafka (core+simulator), otel-collector, prometheus, grafana (observability), tasy-simulator (simulator) \u2014 grep of `profiles:` blocks confirms this exhaustively. None of these is a webhook-receiver / whatsapp-webhook service, and no service in the file exposes port 8082.\n\nphase0-demo.md line 18 brings up only `--profile core --profile simulator`, and line 58 then does `curl -sf -X POST http://localhost:8082/webhook ...`. Nothing in"
+ },
+ {
+  "dim": "docs-runbooks",
+  "id": "devops-stack-agent-runtime-name-wrong",
+  "severity": "post-deploy",
+  "claim": "devops-stack.md uses incorrect deployment name agent-runtime instead of agent-{agent_name}",
+  "evidence": "devops-stack.md lines 159, 269, 270, 312, 316, 320, 509, 510 reference 'deployment/agent-runtime' or 'deploy/agent-runtime'. Per deploy/helm/maezo-tenant/templates/deployment-agent-runtime.yaml line 24, actual deployment names are agent-{{ $agent.name }} (e.g., agent-helena, agent-rafael). Helena.md lines 220, 244 have the same error. These commands will fail with 'deployment not found'.",
+  "fix_sketch": "",
+  "v1_reasoning": "Verified against the actual Helm chart: deploy/helm/maezo-tenant/templates/deployment-agent-runtime.yaml:24 sets `name: agent-{{ $agent.name }}`, and the `maezo-tenant.agentComponent` helper (_helpers.tpl:55-57) emits `agent-{{ .name }}` for the `app.kubernetes.io/component` label too. values.yaml:75-103 lists the real agents: helena, rafael, marina, gustavo, lucas \u2014 so the only real resources are `agent-helena`, `agent-rafael`, `agent-marina`, `agent-gustavo`, `agent-lucas` (Deployments, Services, ServiceAccounts, ConfigMaps). There is no `agentRuntime`/`agent-runtime` singular resource anywh"
+ },
+ {
+  "dim": "docs-runbooks",
+  "id": "gateway-policies-path-hard-frozen",
+  "severity": "cosmetic",
+  "claim": "gateway.md references incorrect file path for hard-frozen policies: uses deploy/policies instead of src/maezo/policies",
+  "evidence": "docs/runbooks/gateway.md:247 states '`deploy/policies/autonomy/_hard_frozen.yaml` documents which actions are hard' but actual file is at src/maezo/policies/autonomy/_hard_frozen.yaml",
+  "fix_sketch": "",
+  "v1_reasoning": "Verified docs/runbooks/gateway.md:247 states the source file is at `deploy/policies/autonomy/_hard_frozen.yaml`. A repo-wide search (`find . -iname \"_hard_frozen.yaml\"`) shows the only such file lives at `src/maezo/policies/autonomy/_hard_frozen.yaml`; no `deploy/policies` directory or file exists anywhere in the repo. This is not gated by config/values, not test-only code, and there is no ADR/decisions-log entry documenting `deploy/policies` as an intentional alias or historical path. It is a genuine stale/incorrect path reference in the runbook \u2014 exactly the orphaned-reference class this dim"
+ },
+ {
+  "dim": "docs-runbooks",
+  "id": "gateway-policies-path-tenant-overlay",
+  "severity": "post-deploy",
+  "claim": "gateway.md references incorrect file path and name for tenant autonomy overlay",
+  "evidence": "docs/runbooks/gateway.md:260 shows example path '# deploy/policies/autonomy/overlays/amh-override.yaml' but actual file is at src/maezo/policies/autonomy/tenants-amh.yaml (no overlays subdirectory)",
+  "fix_sketch": "",
+  "v1_reasoning": "Re-derived independently: grep across the whole repo shows every real reference to the autonomy tenant-overlay file (src/maezo/runtime/agent_runtime/settings.py:57, src/maezo/runtime/worker_runtime/settings.py:89, src/maezo/tools/workers/ceilings.py:42, the integration bridges' AUTONOMY_CORE_PATH defaults, all agent.yaml `autonomy_policy` fields, and gateway.md's own line 321 `git log ... src/maezo/policies/autonomy/`) consistently points to `src/maezo/policies/autonomy/`. `ls src/maezo/policies/autonomy/` confirms the real files: `L0-core.yaml`, `_hard_frozen.yaml`, `tenants-amh.yaml` \u2014 no `o"
+ },
+ {
+  "dim": "docs-runbooks",
+  "id": "gateway-audit-verify-command-missing",
+  "severity": "post-deploy",
+  "claim": "gateway.md references non-existent audit verification command",
+  "evidence": "docs/runbooks/gateway.md:217-218 instructs to run 'python -m maezo.gateway.audit_verify' but this module/command does not exist; audit.py has verify_chain() function but no __main__ entry point",
+  "fix_sketch": "",
+  "v1_reasoning": "Verified by direct inspection: src/maezo/gateway/audit.py contains verify_chain() (line 287) and parse_jsonl() (line 302) but no __main__ entry point, and a repo-wide grep for \"audit_verify\" finds it only in docs/runbooks/gateway.md:217, nowhere as an actual module/package/script. Running `python -m maezo.gateway.audit_verify /mnt/audit/gateway-20260612.jsonl` as instructed would raise ModuleNotFoundError. The claim is accurate and not a stale-line-number or already-fixed false positive (checked current file, current runbook). This is a runbook-accuracy defect affecting an operational/complian"
+ },
+ {
+  "dim": "docs-runbooks",
+  "id": "gateway-metrics-names-incorrect",
+  "severity": "post-deploy",
+  "claim": "gateway.md references incorrect Prometheus metric names for PEP decision tracking",
+  "evidence": "docs/runbooks/gateway.md:359-361 references 'maezo_pep_decision_total', 'maezo_pep_deny_total', 'maezo_pep_require_human_total' but actual metrics in src/maezo/runtime/metrics.py are 'maezo_gateway_pep_decision_total' and 'maezo_gateway_pep_l2_review_sampled_total'",
+  "fix_sketch": "",
+  "v1_reasoning": "Verified against source of truth. src/maezo/runtime/metrics.py:358-375 defines exactly two PEP-related Prometheus metrics: PEP_DECISION_TOTAL (name=\"maezo_gateway_pep_decision_total\", labeled by action/tenant/decision where decision \u2208 {allow, deny, require_human}) and PEP_L2_REVIEW_SAMPLED_TOTAL (name=\"maezo_gateway_pep_l2_review_sampled_total\"). There is no separate deny-counter or require_human-counter metric \u2014 those are label values on the single decision-total counter, not distinct metric names. docs/runbooks/gateway.md:358-361 nonetheless presents three distinct queries: `rate(maezo_pep_d"
+ },
+ {
+  "dim": "docs-runbooks",
+  "id": "whatsapp-alerts-not-implemented",
+  "severity": "post-deploy",
+  "claim": "whatsapp-webhook.md references alert names that are not defined in alert-rules.yaml",
+  "evidence": "docs/runbooks/whatsapp-webhook.md:261-262 lists alerts 'WhatsAppInvalidSignatureSpike' and 'WhatsAppKafkaPublishFailure' but neither alert is defined in deploy/observability/alert-rules.yaml",
+  "fix_sketch": "",
+  "v1_reasoning": "Re-derived independently: docs/runbooks/whatsapp-webhook.md:261-262 reads exactly:\n- `WhatsAppInvalidSignatureSpike` \u2014 auth attack or misconfiguration\n- `WhatsAppKafkaPublishFailure` \u2014 downstream Kafka issue\n\ngrep across deploy/observability/alert-rules.yaml for every `alert:` name found 16 alerts (MaezoDLQRateHigh, MaezoKafkaConsumerLagHigh, MaezoPEPDenySpike, MaezoAuditLagHigh, MaezoAgentRuntimeDown, MaezoEscalationRateHigh, MaezoUserTaskSLABreach, MaezoEvalScoreDrop, MaezoA2ATaskBudgetExceeded, MaezoHITLApprovalRateDrop, MaezoHITLPendingTooLong, MaezoBpmnUserTaskDecisionStalled, MaezoLLMCos"
+ },
+ {
+  "dim": "docs-runbooks",
+  "id": "whatsapp-metrics-not-implemented",
+  "severity": "post-deploy",
+  "claim": "whatsapp-webhook.md references Prometheus metrics that are not emitted by the application",
+  "evidence": "docs/runbooks/whatsapp-webhook.md:253-256 lists metrics 'whatsapp_webhook_messages_received_total', 'whatsapp_webhook_invalid_signature_total', 'whatsapp_kafka_publish_failed_total', 'whatsapp_webhook_latency_ms_bucket' but grep of src shows only log entries, no metrics exported",
+  "fix_sketch": "",
+  "v1_reasoning": "The runbook's \"Monitoring\" section (docs/runbooks/whatsapp-webhook.md:249-256) documents four PromQL queries against metric names `whatsapp_webhook_messages_received_total`, `whatsapp_webhook_invalid_signature_total`, `whatsapp_kafka_publish_failed_total`, and `whatsapp_webhook_latency_ms_bucket`. None of these names exist anywhere in the codebase.\n\nThe application does emit Prometheus instrumentation (src/maezo/platform/webhooks/whatsapp/app.py:51-70), so the original evidence phrase \"grep of src shows only log entries, no metrics exported\" is not quite precise \u2014 Counter/Histogram objects are"
+ },
+ {
+  "dim": "docs-runbooks",
+  "id": "devops-stack-auditor-console-not-found",
+  "severity": "post-deploy",
+  "claim": "devops-stack.md references 'auditor-console' deployment that does not exist in Helm templates",
+  "evidence": "docs/runbooks/devops-stack.md:372,376,377,380,381 instruct operators to 'kubectl get deployment auditor-console', 'kubectl rollout restart deployment auditor-console', and 'kubectl logs deploy/auditor-console' but no such deployment exists in deploy/helm/maezo-tenant/templates/",
+  "fix_sketch": "",
+  "v1_reasoning": "The claim is accurate and survives adversarial re-derivation. docs/runbooks/devops-stack.md:372,376,377,380,381 instruct operators to run `kubectl get deployment auditor-console`, `kubectl rollout restart deployment auditor-console`, `kubectl scale deployment auditor-console`, `kubectl logs deploy/auditor-console`, and `kubectl exec ... deploy/auditor-console` \u2014 but grepping every template in deploy/helm/maezo-tenant/templates/ (the full list: _helpers.tpl, configmap-agent-definition.yaml, configmap-otel-collector.yaml, cronjob-lifecycle.yaml, deployment-agent-runtime.yaml, deployment-bridge-c"
+ },
+ {
+  "dim": "docs-runbooks",
+  "id": "devops-stack-maezo-console-unclear",
+  "severity": "cosmetic",
+  "claim": "devops-stack.md references 'maezo-console' which may be external application or CIB Seven Tasklist, not a Maezo deployment",
+  "evidence": "docs/runbooks/devops-stack.md:340 states 'check the HITL console (`maezo-console`)' but no Maezo deployment named maezo-console exists; likely refers to CIB Seven Tasklist UI which is external",
+  "fix_sketch": "",
+  "v1_reasoning": "The core defect survives: no resource named literally \"maezo-console\" exists anywhere in the repo (k8s, helm, docker-compose), so the runbook's parenthetical is an inaccurate/orphaned identifier. It refers to a real Maezo component (the console m\u00e9dico-auditor FastAPI app), whose actual chart-level name is \"console\" \u2014 itself only partially wired (ingress backend with no corresponding Deployment/Service template). The finding's alternate hypothesis that it might be \"CIB Seven Tasklist\" is refuted by alert-rules.yaml, which treats them as distinct. Since the hypothesis was hedged/speculative and "
+ },
+ {
+  "dim": "docs-runbooks",
+  "id": "engine-processes-compliance-events-yaml-missing",
+  "severity": "post-deploy",
+  "claim": "engine-processes.md references COMPLIANCE_EVENTS.yaml file that does not exist in repository",
+  "evidence": "docs/runbooks/engine-processes.md:4 instructs 'Add entry to `COMPLIANCE_EVENTS.yaml` with resolution' but no file named COMPLIANCE_EVENTS.yaml or similar exists anywhere in the repository (grep found only runbook references)",
+  "fix_sketch": "",
+  "v1_reasoning": "docs/runbooks/engine-processes.md instructs on-call/compliance staff (step 4 of the SLA-breach response, line 290) to 'Add entry to `COMPLIANCE_EVENTS.yaml` with resolution', and repeats it as a worked example at line 295 (`# COMPLIANCE_EVENTS.yaml` followed by a sample entry). A repo-wide search (`find -iname '*compliance_events*'`, plus broader `*compliance*` search) finds no such file anywhere \u2014 only unrelated `config/analytics_compliance.yaml` and `src/maezo/platform/analytics/compliance.py`, which are different artifacts for a different purpose (analytics compliance config, not an SLA-bre"
+ },
+ {
+  "dim": "docs-runbooks",
+  "id": "grafana-dashboard-provisioning-path-mismatch",
+  "severity": "post-deploy",
+  "claim": "Runbook states dashboards are provisioned from `deploy/observability/dashboards/` but Grafana provisioning config points to `deploy/observability/grafana-provisioning/dashboards/` which is empty.",
+  "evidence": "devops-stack.md line 54: 'Dashboards are provisioned automatically from `deploy/observability/dashboards/`.'; docker-compose.yml mounts `./deploy/observability/grafana-provisioning:/etc/grafana/provisioning`; `deploy/observability/grafana-provisioning/dashboards/dashboards.yaml` specifies `path: /etc/grafana/provisioning/dashboards`; actual dashboard files are in `deploy/observability/dashboards/*.json`",
+  "fix_sketch": "Either symlink/copy dashboard JSON files from `deploy/observability/dashboards/` into `deploy/observability/grafana-provisioning/dashboards/`, OR update the docker-compose volume mount to include the dashboards directory directly.",
+  "v1_reasoning": "Re-derived independently: docker-compose.yml:161 mounts only ./deploy/observability/grafana-provisioning -> /etc/grafana/provisioning:ro. deploy/observability/grafana-provisioning/dashboards/dashboards.yaml:11 sets the file provider's `path: /etc/grafana/provisioning/dashboards`, which maps back to deploy/observability/grafana-provisioning/dashboards/ on the host \u2014 a directory that contains only dashboards.yaml, no dashboard JSON. The real dashboard files (engine.json, gateway.json, helena-employee.json) sit in deploy/observability/dashboards/, which is not referenced by any volume mount in do"
+ },
+ {
+  "dim": "docs-runbooks",
+  "id": "phase0-demo-webhook-receiver-missing-docker-compose",
+  "severity": "post-deploy",
+  "claim": "Phase0 demo runbook assumes webhook-receiver runs on port 8082 locally but docker-compose.yml has no webhook-receiver service; users cannot follow the runbook without additional setup.",
+  "evidence": "phase0-demo.md lines 58-61 show curl to `http://localhost:8082/webhook`; docker-compose.yml has no service named webhook-receiver or any service on port 8082; Kubernetes deployment-webhook-receiver.yaml shows containerPort 8080, not 8082.",
+  "fix_sketch": "Either add webhook-receiver service to docker-compose.yml (using `python -m maezo.platform.webhooks` with environment config), or update phase0-demo.md to explain how to run webhook separately and use the correct port 8080.",
+  "v1_reasoning": "Verified by direct inspection: docker-compose.yml (repo root) defines only postgres, cibseven, hapi-fhir, kafka, otel-collector, prometheus, grafana, tasy-simulator services under profiles core/simulator/observability \u2014 no webhook-receiver service and no reference to port 8082 anywhere in the file. phase0-demo.md line 57-58 tells the reader to curl http://localhost:8082/webhook with the comment \"ajuste conforme o deployment-webhook-receiver\" (adjust per the deployment-webhook-receiver manifest), but that manifest (deploy/helm/maezo-tenant/templates/deployment-webhook-receiver.yaml, containerPo"
+ },
+ {
+  "dim": "docs-runbooks",
+  "id": "gateway-audit-verify-module-missing",
+  "severity": "post-deploy",
+  "claim": "Gateway runbook references `python -m maezo.gateway.audit_verify` command to verify audit trail integrity, but this module does not exist in the codebase.",
+  "evidence": "gateway.md line 217-218: `python -m maezo.gateway.audit_verify /mnt/audit/gateway-20260612.jsonl`; find search returns no `audit_verify.py` file in `src/maezo/gateway/`; only `audit.py`, `audit_postgres.py`, `pep.py`, `pseudonymizer.py` exist.",
+  "fix_sketch": "Either create the audit_verify module with chain-validation logic, or update the runbook with the correct audit verification method if it exists elsewhere (e.g., a function within audit.py rather than a standalone CLI module).",
+  "v1_reasoning": "Re-derived independently: docs/runbooks/gateway.md lines 216-218 instruct operators to run `python -m maezo.gateway.audit_verify /mnt/audit/gateway-20260612.jsonl` to verify audit-chain integrity. A repo-wide search (`find`/`grep -rln audit_verify .`) shows the only occurrence of the string \"audit_verify\" anywhere in the repository is in this runbook itself \u2014 there is no `audit_verify.py` file, no `__main__` block in `src/maezo/gateway/audit.py`, and no CLI entry point registered anywhere. The chain-verification logic does exist as a library function `verify_chain()` (and `parse_jsonl()`) in s"
+ },
+ {
+  "dim": "docs-runbooks",
+  "id": "helena-escalation-alert-name-mismatch",
+  "severity": "post-deploy",
+  "claim": "Helena runbook references alert name `MaezoHelenaEscalationRateAnomaly` which does not exist; actual alert is `MaezoEscalationRateHigh` with different threshold.",
+  "evidence": "helena.md line 207: 'Alert: `MaezoHelenaEscalationRateAnomaly` \u2014 escalation_rate > 0.5 or < 0.10'; deploy/observability/alert-rules.yaml defines only `MaezoEscalationRateHigh` with expr `> 0.30` threshold (not dual threshold); alert applies to all agents, not Helena-specific.",
+  "fix_sketch": "Update helena.md to reference the correct alert name `MaezoEscalationRateHigh` and document the actual condition (escalation_rate > 0.30 for 15 minutes, not the OR/AND logic described).",
+  "v1_reasoning": "Verified by direct repo inspection: docs/runbooks/helena.md:207 and :254 reference alert `MaezoHelenaEscalationRateAnomaly`, which does not exist anywhere in the repo. grep across the whole tree (deploy/observability/alert-rules.yaml, config/alert-rules.yaml, and everywhere else) finds zero definitions of that name. The only escalation-rate alert that exists is `MaezoEscalationRateHigh` (deploy/observability/alert-rules.yaml:94-106), defined as `sum by (agent, tenant) (rate(maezo_escalation_total[1h])) / sum by (agent, tenant) (rate(maezo_conversation_total[1h])) > 0.30` with `for: 15m` \u2014 a si"
+ },
+ {
+  "dim": "docs-runbooks",
+  "id": "gateway-autonomy-policy-file-paths-wrong",
+  "severity": "post-deploy",
+  "claim": "Gateway runbook references autonomy policy files at `deploy/policies/autonomy/` but files are actually in `src/maezo/policies/autonomy/`.",
+  "evidence": "gateway.md line 247: 'Source file: `deploy/policies/autonomy/_hard_frozen.yaml`'; actual file at `src/maezo/policies/autonomy/_hard_frozen.yaml`; gateway.md lines 260-268 show example path `deploy/policies/autonomy/overlays/amh-override.yaml` but actual file is `src/maezo/policies/autonomy/tenants-amh.yaml`.",
+  "fix_sketch": "Update all references in gateway.md from `deploy/policies/autonomy/` to `src/maezo/policies/autonomy/` and from `overlays/amh-override.yaml` to `tenants-amh.yaml`.",
+  "v1_reasoning": "Re-derived independently: `find . -iname \"*_hard_frozen*\"` and `find . -type d -iname \"policies\"` show the only policies directory in the repo is `src/maezo/policies/` (containing `autonomy/L0-core.yaml`, `autonomy/_hard_frozen.yaml`, `autonomy/tenants-amh.yaml`, `process_allowlist.yaml`). No `deploy/policies/` directory exists anywhere in the repo.\n\ngateway.md:247 states 'Source file: `deploy/policies/autonomy/_hard_frozen.yaml`' \u2014 wrong path (file is at `src/maezo/policies/autonomy/_hard_frozen.yaml`).\ngateway.md:260 shows an example path comment `# deploy/policies/autonomy/overlays/amh-over"
+ },
+ {
+  "dim": "docs-runbooks",
+  "id": "gateway-audit-lag-metric-name-wrong",
+  "severity": "post-deploy",
+  "claim": "Gateway runbook lists incorrect metric name `maezo_audit_write_latency_ms_bucket` for monitoring audit trail lag; actual metric is `maezo_gateway_audit_lag_seconds`.",
+  "evidence": "gateway.md line 362 (Monitoring & dashboards table): '`histogram_quantile(0.95, maezo_audit_write_latency_ms_bucket)`'; deploy/observability/alert-rules.yaml line for MaezoAuditLagHigh references `maezo_gateway_audit_lag_seconds`; src/maezo/runtime/metrics.py defines `maezo_gateway_audit_lag_seconds` gauge, not histogram.",
+  "fix_sketch": "Update gateway.md table to use correct metric name `maezo_gateway_audit_lag_seconds` (a gauge, not a histogram, so no `histogram_quantile()` needed; use direct value or aggregation like `max` instead).",
+  "v1_reasoning": "The runbook's monitoring query is verifiably wrong and would return empty results if used, but this is a documentation-only defect with no runtime/production impact \u2014 the actual alert rule and metric code are correct and independent of the runbook prose."
+ },
+ {
+  "dim": "docs-runbooks",
+  "id": "phase0-demo-wrong-deployment-endpoint",
+  "severity": "KILLED",
+  "claim": "killed by verifier-1: The finding asserts phase0-demo.md's `deployment/create` endpoint is wrong and that engine-processes.md's `deployment` (no `/create`) is the \"correct\" reference. Cross-checking against the only ground truth available in this repo \u2014 the working integration/e2e test suites that actually deploy BPMN/DM"
+ },
+ {
+  "dim": "docs-runbooks",
+  "id": "devops-stack-sla-breach-metric-name-wrong",
+  "severity": "KILLED",
+  "claim": "killed by verifier-1: The claim asserts docs/runbooks/devops-stack.md:281 contains a line \"**Metric:** `maezo_process_sla_breach_total{process=SP-OP-ESCALATION-001}`\". This text does not exist anywhere in the file \u2014 a repo-wide grep for both `maezo_process_sla_breach_total` and `SP-OP-ESCALATION-001` in devops-stack.md r"
+ },
+ {
+  "dim": "no-denial-autonomy",
+  "id": "fraude-beatriz-a2a-origination-never-wired",
+  "severity": "post-deploy",
+  "claim": "SP-OP-FRAUDE-001's `operadora.fraude.gather_evidence` and `operadora.fraude.assemble_dossier` workers are documented as 'Beatriz A2A (human-gated)' delegations, and Beatriz's whole agent design (system prompt + agent.yaml `autonomy_actions`: read_phi_data/read_write_memory, DMN-informed dossier assembly, hard no-auto-accusation rules) exists specifically to be invoked here \u2014 but the production code for these two workers never builds or dispatches a `DelegationEnvelope` to Beatriz's handler. They only re-publish a bare Kafka notification and return `None`/no dossier content. `make_beatriz_handler` is wired as a dispatch TARGET in `agent_runtime/service.py::a2a_target_factories()`, but nothing in `fraude.py` (or anywhere else in src/) ever calls `dispatcher.delegate(...)` for `fraude.investigate`; `beatriz/delegation.py` has no origin-side `delegate_*`/`build_*_envelope` function at all (unlike marina/valentina/andre's equivalents), and there is no `test_fraude_a2a.py` counterpart to the existing `test_contas_a2a.py`/`test_programa_a2a.py`/`test_adequacao_a2a.py`/`test_reembolso_a2a.py`/`test_pagto_a2a.py`. So the investigator's dossier at `UT_DecisaoInvestigador` is actually assembled by generic pass-through worker stubs, not by Beatriz's reasoning graph, contradicting the docstrings, agent.yaml, and the ADR-0003/no-denial narrative that Beatriz 'instructs' every fraud case.",
+  "evidence": "src/maezo/tools/workers/fraude.py:421-456 `make_gather_evidence_handler(kafka: KafkaPublisher)` docstring says 'Beatriz A2A (delegacao `fraude.investigate`...)' but body only does `await kafka.publish(_NOTIFICATIONS_TOPIC, notification, ...)` and returns None (no dispatcher param, no DelegationEnvelope). Same at fraude.py:549-583 `make_assemble_dossier_handler` ('Beatriz A2A: monta o dossie...') \u2014 body again only publishes a bare Kafka notification and returns None. `grep -n \"DelegationDispatche",
+  "fix_sketch": "Add an optional `dispatcher: DelegationDispatcher | None` parameter to `register_fraude_workers`/`make_gather_evidence_handler`/`make_assemble_dossier_handler` (mirroring contas.py's `_delegate_to_marina` pattern), add an origin-side `build_fraude_investigate_envelope`/`delegate_fraude_investigate` in beatriz/delegation.py, wire it into `worker_runtime/a2a_assembly.py`'s `_A2A_TARGETS`/factories, ",
+  "phase": "continuation"
+ },
+ {
+  "dim": "no-denial-autonomy",
+  "id": "nip-gustavo-a2a-origination-never-wired",
+  "severity": "post-deploy",
+  "claim": "SP-OP-NIP-001's `operadora.nip.instruct_dossier` worker is documented as convoking Gustavo via A2A (`nip.instruct`) to produce the DMN-classified instruction dossier that the human reviews at `UT_RevisaoJuridicaNip`/`UT_CoordenacaoNip` \u2014 but the actual handler never builds or dispatches a `DelegationEnvelope`. It only republishes a subset of process variables to Kafka plus a hardcoded `dossier_instructed: True` fact and the normalized prazo anchor. `gustavo/delegation.py` DOES define an origin-side `build_nip_instruct_envelope`/`delegate_nip_instruct` (unlike Beatriz's package), but these functions are never called anywhere in production code (src/) \u2014 only from unit tests. `register_nip_workers(harness, kafka)` (worker_runtime/service.py) takes no dispatcher parameter at all, so even if the intent was for Helena/intake to originate the delegation from within this worker, no wiring exists to do so.",
+  "evidence": "src/maezo/tools/workers/nip.py:255-327 `make_instruct_dossier_handler(kafka: KafkaPublisher)` docstring: 'Convoca Gustavo via A2A (delegacao nip.instruct) para montar o dossie de instrucao' \u2014 body only does `await kafka.publish(_NOTIFICATIONS_TOPIC, notification, ...)` and returns a fixed `{\"dossier_instructed\": True, \"numero_nip_ans\": ..., \"data_recebimento_nip_iso\": anchor_iso}` \u2014 no call into Gustavo's graph or DMN reasoning. `grep -rn \"delegate_nip_instruct|build_nip_instruct_envelope\" src` ",
+  "fix_sketch": "Add `dispatcher: DelegationDispatcher | None` to `register_nip_workers`/`make_instruct_dossier_handler`, call `delegate_nip_instruct(dispatcher, ...)` from the handler (falling back to the current stub notification when dispatcher is None, mirroring contas.py's fail-safe DI pattern), and wire gustavo into `worker_runtime/a2a_assembly.py`'s daemon-side dispatcher targets alongside marina/valentina/",
+  "phase": "continuation"
+ },
+ {
+  "dim": "no-denial-autonomy",
+  "id": "recurso-marina-a2a-delegation-never-implemented",
+  "severity": "post-deploy",
+  "claim": "SP-OP-RECURSO-001's `operadora.recurso.analyze_request` worker is documented everywhere (its own docstring, `marina/delegation.py`, `marina/graph.py`, and `marina/agent.yaml`) as delegating to Marina via real A2A (`recurso.analyze`), but the actual handler contains zero A2A/DelegationDispatcher machinery -- it only fires a generic internal Kafka notification and fabricates the dossier output itself. Unlike CONTAS/PROGRAMA/ADEQUACAO/PAGTO/REEMBOLSO (all of which have `_A2A_TARGET`, a `dispatcher: DelegationDispatcher | None` parameter, and a documented `dispatcher=None -> fallback` residue state), RECURSO's registration function doesn't even accept a dispatcher parameter, so there is no path -- present or future-wired -- by which Marina's LLM/graph ever actually authors the recurso analyst dossier.",
+  "evidence": "src/maezo/tools/workers/recurso.py:5 module docstring: 'operadora.recurso.analyze_request \u2014 convoca Marina via A2A (recurso.analyze) p/ montar o dossie do analista de recurso'; recurso.py:295 handler docstring repeats 'Convoca Marina via A2A (delegacao recurso.analyze)'. Actual handler body (recurso.py:311-360) only does `await kafka.publish(_NOTIFICATIONS_TOPIC, notification, ...)` with `notification={'type': 'recurso.analyze_request', ...}` (note: not even the task_type string 'recurso.analyze",
+  "fix_sketch": "Add `_A2A_ORIGIN`/`_A2A_TARGET` constants + a `dispatcher: DelegationDispatcher | None = None` parameter to `make_analyze_request_handler`/`register_recurso_workers`, mirroring contas.py's `prepare_triage_dossier`, and wire it into `worker_runtime/a2a_assembly.py`'s `_A2A_TARGETS` set (or explicitly document/track this as an open residue item like the other GAP-*-a2a-envelope entries) rather than ",
+  "phase": "continuation"
+ },
+ {
+  "dim": "no-denial-autonomy",
+  "id": "gustavo-autonomy-actions-includes-never-exercised-L1-actions",
+  "severity": "cosmetic",
+  "claim": "Gustavo's agent.yaml is the sole Phase-1/3 agent that lists its own L1 (require_human, never-autonomous) actions directly inside `autonomy_actions:` -- a field explicitly documented as 'acoes REAIS da matriz L0-core exercidas por este fluxo' (real actions actually exercised by this flow) -- even though Gustavo's graph never invokes them. Every other reviewed Phase-3 agent (andre, carolina, beatriz, fernando, marina, rafael, valentina) deliberately EXCLUDES its own analogous L1/hard action from the list with a 'NAO exerce' note, exactly because it is never exercised by agent code.",
+  "evidence": "src/maezo/agents/gustavo/agent.yaml:27-38 lists under `autonomy_actions:` (commented '# acoes REAIS da matriz L0-core exercidas por este fluxo'): line 34 `- ans_official_submission # L1 (require_human): humano assina o envio vinculante \u2014 NUNCA autonomo` and line 35 `- nip_response # L1 (require_human): ... humano autora/aprova; NUNCA autonomo`. `grep -n \"\\.call(\" src/maezo/agents/gustavo/graph.py` shows only 4 tool calls, using action ids `ACTION_FHIR_READ`, `ACTION_CIBSEVEN_START`, `ACTION_MEMO",
+  "fix_sketch": "Remove `ans_official_submission` and `nip_response` from gustavo/agent.yaml's `autonomy_actions:` list (they are never invoked by graph.py) and move the explanation into a 'NOTA L1 (intencional)' comment matching the andre/carolina pattern, so the field accurately reflects only actions the flow actually exercises.",
+  "phase": "continuation"
+ },
+ {
+  "dim": "no-denial-autonomy",
+  "id": "inadimplencia-fernando-dispatcher-never-threaded",
+  "severity": "post-deploy",
+  "claim": "The worker-daemon's real DelegationDispatcher is built and threaded into every sibling GAP-*-N registration site (CONTAS\u2192marina, REEMBOLSO\u2192marina, ADEQUACAO\u2192andre, PAGTO\u2192andre, PROGRAMA\u2192valentina) except INADIMPLENCIA\u2192fernando, whose registration call omits the `dispatcher=` kwarg entirely \u2014 so GAP-INAD-6's documented 'real A2A delegation to Fernando' never fires in any production deployment, always silently falling back to the echo/instructive-less path, regardless of Postgres reachability. Compounding this, `_A2A_TARGETS` in a2a_assembly.py doesn't even include \"fernando\", so the dispatcher's registered handlers/cards never cover Fernando anyway.",
+  "evidence": "src/maezo/runtime/worker_runtime/service.py:326-330: `_register_inad: Callable[..., None] = register_inadimplencia_workers` then either `_register_inad(harness, kafka, engine=engine)` or `_register_inad(harness, kafka)` \u2014 no `dispatcher=` kwarg in either branch, unlike every sibling call in the same function: line 289 `register_contas_workers(harness, kafka, dispatcher=dispatcher)`, line 301 `register_reembolso_workers(harness, kafka, dispatcher=dispatcher)`, line 321 `register_adequacao_workers",
+  "fix_sketch": "Pass `dispatcher=dispatcher` through both branches of the INADIMPLENCIA registration call in service.py (mirroring the other 5 sites), and add \"fernando\" to `_A2A_TARGETS` in a2a_assembly.py with a corresponding `make_fernando_handler` entry in the `factories` dict of `_build_delegation_dispatcher`, then extend the parity test in test_worker_runtime.py to capture/assert `inadimplencia_dispatcher` ",
+  "phase": "continuation"
+ },
+ {
+  "dim": "no-denial-autonomy",
+  "id": "cdc-proactive-consumer-documented-but-nonexistent",
+  "severity": "cosmetic",
+  "claim": "andre/delegation.py and valentina/delegation.py docstrings assert that a CDC-proactive consumer on the `agents.events.proactive` topic actively originates `analytics.*`/`care.*` A2A delegations to Andre/Valentina (and, per the library's own docstring, Beatriz) today, but no such consumer \u2014 nor any code that turns a `ProactiveTrigger` into a `DelegationEnvelope` and calls `dispatcher.delegate(...)` \u2014 exists anywhere in the codebase. Only a producer-side trigger-builder library exists, explicitly documented as not wired to any transport/consumer.",
+  "evidence": "src/maezo/agents/andre/delegation.py:6 states 'CDC-proativo tambem pode originar `analytics.*` via o consumer `agents.events.proactive`'; src/maezo/agents/valentina/delegation.py:10-11 states 'Tambem pode ser convocada por Helena/Rafael (care.*) e pelo consumer CDC-proativo (`agents.events.proactive`)'. Searching the entire src/maezo/runtime tree for `ProactiveTrigger`/`TOPIC_PROACTIVE`/`agents.events.proactive` finds zero occurrences (only src/maezo/platform/analytics/proactive_trigger.py and i",
+  "fix_sketch": "Either implement the R17 producer/consumer wiring (publish `ProactiveTrigger`s to Kafka and consume them into real `DelegationEnvelope`s targeting andre/valentina/beatriz), or correct the andre/valentina delegation.py docstrings to state the CDC-proactive channel is not yet wired (forward-looking), matching the honesty already used elsewhere (e.g. fernando/delegation.py's explicit 'NOTA (forward-l",
+  "phase": "continuation"
+ },
+ {
+  "dim": "no-denial-autonomy",
+  "id": "cred-carolina-a2a-origination-never-wired",
+  "severity": "post-deploy",
+  "claim": "SP-OP-CRED-001's `operadora.cred.prepare_dossier` worker (both descredenciamento and credenciamento directions) claims throughout its docstrings to 'convoke Carolina via delegacao credentialing.analyze' to build the analysis dossier that the human User Tasks (UT_AnaliseDescredenciamento / UT_AnaliseCredenciamento) rely on, but the actual handler never constructs a DelegationEnvelope or calls a DelegationDispatcher \u2014 it only publishes a bare Kafka notification event with 4 raw fields (tenant_id, prestador_id, direcao, tipo_prestador). No real dossier content, DMN references, or evidence pointers are ever produced. `register_cred_workers(harness, kafka)` (cred.py:786) doesn't even accept a `dispatcher` parameter, unlike the sibling CONTAS/REEMBOLSO/PROGRAMA workers which all take `dispatcher: DelegationDispatcher | None = None` and call `dispatcher.delegate(envelope)`. Carolina's inbound handler IS registered as a valid A2A target (agent_runtime/service.py `a2a_target_factories()` includes `\"carolina\": make_carolina_handler`), and her agent.yaml accepted_task_types lists `credentialing.analyze` \u2014 but nothing in the codebase ever originates that task_type. `grep -rln \"credentialing.analyze\" src/` only finds the BPMN documentation string, carolina's own agent.yaml/delegation.py/graph.py, and cred.py's docstrings \u2014 never an actual call site.",
+  "evidence": "src/maezo/tools/workers/cred.py:405-440 `make_prepare_dossier_handler` \u2014 handler body only does `notification = {...}; await kafka.publish(_NOTIFICATIONS_TOPIC, notification, ...)`, no DelegationDispatcher/DelegationEnvelope import or use anywhere in the file (`grep -n \"DelegationDispatcher\\|dispatcher\\.delegate\" cred.py` returns nothing). cred.py:786 `def register_cred_workers(harness: WorkerHarness, kafka: KafkaPublisher) -> None:` has no dispatcher param, contrasted with contas.py:1085/1097, ",
+  "fix_sketch": "Add a `dispatcher: DelegationDispatcher | None = None` param to `register_cred_workers`/`make_prepare_dossier_handler`, build a `DelegationEnvelope(task_type=\"credentialing.analyze\", origin=\"cred\", target=\"carolina\", ...)` with the case facts as payload_meta, and call `dispatcher.delegate(envelope)` before/in place of the bare Kafka notify \u2014 mirroring the GAP-CONTAS-1/GAP-REEMBOLSO-4/GAP-PROG-1 pa",
+  "phase": "continuation"
+ },
+ {
+  "dim": "no-denial-autonomy",
+  "id": "lucas-marina-glosa-a2a-origination-never-wired",
+  "severity": "post-deploy",
+  "claim": "`src/maezo/agents/lucas/delegation.py` fully implements the Lucas->Marina `glosa.analyze` origination path (`build_glosa_analyze_envelope`, `delegate_glosa_analyze`, idempotent `glosa_task_id`, anti-loop budget) and its docstring explicitly says it is 'auto-contido... qualquer chamador \u2014 um no/uma jornada de atendimento \u2014 importa daqui' (self-contained, any caller/journey node imports from here). However, nothing in the codebase actually imports or calls `delegate_glosa_analyze`/`build_glosa_analyze_envelope` \u2014 Lucas's own graph/nodes never reference the module at all, so a provider-side glosa dispute surfaced during a billing conversation with Lucas can never actually reach Marina via this path; it is dead code.",
+  "evidence": "`grep -rln \"delegate_glosa_analyze\\|build_glosa_analyze_envelope\\|from maezo\\.agents\\.lucas\" src/` (excluding the module itself) returns nothing \u2014 no caller anywhere. `find src/maezo/agents/lucas -name '*.py' | xargs grep -ln 'glosa|dispatcher|delegat'` only matches `delegation.py` itself, confirming Lucas's graph/nodes never touch it. src/maezo/agents/lucas/delegation.py:110-120 self-describes as importable 'from any caller \u2014 a node/an attendance journey', i.e. intentionally designed for wiring",
+  "fix_sketch": "Wire a node in Lucas's graph (or the relevant billing-dispute worker) to call `delegate_glosa_analyze` when a provider-side glosa dispute is detected during a billing conversation, matching Marina's already-accepted `accepted_task_types: [glosa.analyze, ...]` contract.",
+  "phase": "continuation"
+ },
+ {
+  "dim": "phi-perimeter",
+  "id": "resume-driver-error-dlq-paths-unredacted-phi-echo-inbound-sibling-hardened",
+  "severity": "post-deploy",
+  "claim": "The resume driver (agents.events.process_completed consumer) logs and dead-letters raw exception strings and republishes the raw fact payload with no PHI redaction, whereas its structurally-identical sibling inbound_driver was explicitly hardened (GAP-XPHI-3) against exactly these three vectors. PHI echoed by a resume-graph exception therefore lands unredacted in stdlib logs and the General-Zone DLQ topic.",
+  "evidence": "src/maezo/runtime/resume_driver.py:488-490 catches any Exception from drive_resume()->graph.ainvoke() and does `logger.error(\"resume_drive_failed_dlq\", extra={..., \"error\": str(exc)})` then `_to_dlq(..., error=str(exc))` with NO redaction. The sibling path in src/maezo/runtime/inbound_driver.py:334-341 wraps the identical graph.ainvoke exception in `redact_free_text(str(exc), tenant=...)` with the comment (l.335-336) \"superficie NAO-bounded \u2014 qualquer excecao do graph.ainvoke pode ecoar um CPF/t",
+  "fix_sketch": "Mirror inbound_driver's GAP-XPHI-3 hardening in resume_driver: import redact_free_text and wrap the `error=str(exc)` at lines 461/462, 482/483, 489/490 (and the l.442 kafka log); replace the parse-error `str(exc)` with a `_safe_validation_error`-style (loc,type)-only summary; and drop the raw `\"value\": msg.value` at line 509 in favor of correlation fields + a redacted body, matching _to_dlq in inb",
+  "phase": "continuation"
+ },
+ {
+  "dim": "phi-perimeter",
+  "id": "fhir-sync-validation-error-logs-raw-pydantic-input-value-phi",
+  "severity": "deploy-blocking",
+  "claim": "The fhir-sync CDC consumer logs `str(exc)` of a Pydantic v2 ValidationError on the inbound Tasy CDC envelope; Pydantic v2 embeds the full raw input record (`input_value=...`) in that string, so a malformed/schema-drifted CDC message causes the complete raw Tasy patient row (NR_CPF, DT_NASCIMENTO, patient name) to be written to stdout -> central log zone in cleartext, bypassing the PHI scrub.",
+  "evidence": "src/maezo/platform/integrations/fhir_sync/consumer.py:282-286 \u2014 `except ValidationError as exc:` then `logger.error(\"fhir_sync_validation_error_sending_to_dlq\", extra={\"topic\": topic, \"error\": str(exc)})`. The scrub (src/maezo/runtime/log_phi.py:230-241) only redacts values whose KEY is in PHI_FORBIDDEN_KEYS; `\"error\"` is NOT in that set (log_phi.py:83-135), so Layer 1 does not touch it. Layer 2 (free-text pseudonymize) is inert because `set_pseudonymizer` has zero runtime callers (see finding b",
+  "fix_sketch": "Replace `str(exc)` in both the log `extra` and the `send_to_dlq(error=...)` call with a PHI-safe summary mirroring inbound_driver._safe_validation_error (join only `(loc, type)` per `exc.errors()`, never `input_value`). Apply to both the validation-error path (consumer.py:283-297) and, defensively, the upsert-error path (consumer.py:328-338).",
+  "phase": "continuation"
+ },
+ {
+  "dim": "phi-perimeter",
+  "id": "set-pseudonymizer-never-wired-layer2-freetext-log-scrub-inert-all-runtimes",
+  "severity": "post-deploy",
+  "claim": "The PHI log-scrub's Layer-2 best-effort free-text pass is dead code at runtime: `set_pseudonymizer()` is never called by any entrypoint (worker_runtime, agent_runtime, webhooks, fhir_sync), so the module-global `_pseudonymizer` stays None in every process. Consequently the ONLY protection for logs is the Layer-1 deny-list keyed on attribute NAME; any PHI that appears as free text inside a non-denylisted-key string value (rendered `event` message, `error`, etc.) is emitted to the log sink in cleartext across all services.",
+  "evidence": "src/maezo/runtime/log_phi.py:159 `_pseudonymizer: SupportsPseudonymizeText | None = None`; scrub gates Layer 2 on `if pseudonymizer is not None` (log_phi.py:236). `grep -rln set_pseudonymizer src/` returns only its own definition file (log_phi.py) \u2014 zero call sites in any `__main__`/service bootstrap. The module docstring and log_phi.py:14-19 present Layer 2 as an active defense (\"Remaining string values are run through the gateway pseudonymizer's pseudonymize_text when one has been installed\") ",
+  "fix_sketch": "In each runtime entrypoint, after the vault-backed Pseudonymizer is constructed, call `maezo.runtime.log_phi.set_pseudonymizer(pseudonymizer)` so Layer 2 actually runs; alternatively, if Layer 2 is intentionally optional, stop treating free-text log messages as scrubbed and pre-redact all exception/message strings at the call site (as inbound_driver already does with redact_free_text).",
+  "phase": "continuation"
+ },
+ {
+  "dim": "infra-deploy",
+  "id": "helm-externalsecrets-irsarolearn-dead-config",
+  "severity": "cosmetic",
+  "claim": "values-amh.yaml configures a dedicated least-privilege IRSA role for External-Secrets-Operator (externalSecrets.irsaRoleArn = arn:aws:iam::123456789012:role/maezo-eso-irsa-amh), but no template in the chart ever reads .Values.externalSecrets.irsaRoleArn \u2014 the rendered SecretStore instead authenticates via the SHARED maezo-agent ServiceAccount, which is annotated with the unrelated agent-runtime role (serviceAccount.annotations.eks.amazonaws.com/role-arn = maezo-agent-irsa-amh).",
+  "evidence": "deploy/helm/maezo-tenant/values-amh.yaml:92-94 sets `externalSecrets: { secretPathPrefix: \"maezo/prod-amh\", irsaRoleArn: \"arn:aws:iam::123456789012:role/maezo-eso-irsa-amh\" }`. `grep -rn irsaRoleArn deploy/helm/maezo-tenant/templates/` finds zero matches in externalsecret.yaml (only per-agent and shared-serviceAccount usages exist elsewhere). templates/externalsecret.yaml:16-18 SecretStore uses `serviceAccountRef: name: {{ include \"maezo-tenant.serviceAccountName\" . }}` which resolves to the sha",
+  "fix_sketch": "Either (a) remove externalSecrets.irsaRoleArn from values.yaml/values-amh.yaml as vestigial, or (b) actually wire it: render a dedicated ESO ServiceAccount annotated with .Values.externalSecrets.irsaRoleArn and point the SecretStore's serviceAccountRef at it instead of the shared maezo-agent SA, matching the least-privilege pattern already used for per-agent SAs.",
+  "phase": "continuation"
+ },
+ {
+  "dim": "infra-deploy",
+  "id": "helm-no-hpa-pdb-anywhere-in-chart",
+  "severity": "post-deploy",
+  "claim": "The maezo-tenant chart has zero PodDisruptionBudget or HorizontalPodAutoscaler resources anywhere, despite several components being deliberately scaled to replicaCount>1 for availability (gateway=3, agent-helena=3, agent-rafael=3, agent-marina=2, webhook-receiver=2 in the amh overlay). A voluntary disruption (node drain, cluster upgrade, cluster-autoscaler scale-down) can evict all replicas of any of these components simultaneously since nothing constrains min-available.",
+  "evidence": "`grep -c 'kind: PodDisruptionBudget\\|kind: HorizontalPodAutoscaler' deploy/helm/maezo-tenant/templates/*.yaml` returns no matches in any template file. values-amh.yaml:87,90 (and helena/rafael/marina replicaCount 3/3/2 at lines 32,46,60) set multi-replica counts for these components with no corresponding PDB to protect the replica count during node maintenance.",
+  "fix_sketch": "Add a PodDisruptionBudget template (parameterized minAvailable, e.g. 1 or N-1) selecting each multi-replica component's labels, gated per-component the same way replicaCount is; optionally add HPA templates for gateway/webhook-receiver if load-based scaling is desired.",
+  "phase": "continuation"
+ },
+ {
+  "dim": "infra-deploy",
+  "id": "ingress-console-backend-service-never-defined",
+  "severity": "cosmetic",
+  "claim": "ingress.yaml routes `ingress.consoleHost` traffic to a Service literally named `console`, but no template in the chart ever creates a Service (or Deployment) named `console` -- the backend is permanently dangling if an operator ever sets consoleHost.",
+  "evidence": "deploy/helm/maezo-tenant/templates/ingress.yaml:63-74: `{{- with .Values.ingress.consoleHost }}\\n    - host: {{ . | quote }}\\n      http:\\n        paths:\\n          - path: /\\n            pathType: Prefix\\n            backend:\\n              service:\\n                name: console\\n                port:\\n                  number: {{ $.Values.ingress.consolePort | default 80 }}`. `ls deploy/helm/maezo-tenant/templates/` and a repo-wide search show no `service-console.yaml`, `deployment-console.ya",
+  "fix_sketch": "Either add a console Deployment+Service to the chart, or remove the dead consoleHost/console backend branch from ingress.yaml until a console component actually exists.",
+  "phase": "continuation"
+ },
+ {
+  "dim": "infra-deploy",
+  "id": "helm-cibseven-externalurl-dead-config",
+  "severity": "cosmetic",
+  "claim": "`cibseven.externalUrl` in values.yaml is a documented-looking configuration knob (\"set if using an external CIB Seven instance\") that is never read by any template, script, or code path in the repo \u2014 setting it has zero effect, and the agent-runtime/worker-daemon/fhir-sync/all three Kafka bridges always hardcode the literal `http://cibseven:8080/engine-rest` regardless of this value.",
+  "evidence": "deploy/helm/maezo-tenant/values.yaml:395 `externalUrl: \"\"   # set if using an external CIB Seven instance` \u2014 a repo-wide grep for `externalUrl` (`grep -rn \"externalUrl\" --include=\"*.yaml\" --include=\"*.tpl\" --include=\"*.py\" .`) returns only this single declaration line; no template interpolates `.Values.cibseven.externalUrl`. Meanwhile deploy/helm/maezo-tenant/templates/deployment-agent-runtime.yaml:90-91 hardcodes `CIBSEVEN_BASE_URL` to `\"http://cibseven:8080/engine-rest\"` unconditionally (same ",
+  "fix_sketch": "Either wire `cibseven.externalUrl` into the `CIBSEVEN_BASE_URL` env value with a sensible default fallback (`{{ .Values.cibseven.externalUrl | default \"http://cibseven:8080/engine-rest\" }}`) across all five consuming Deployments, or delete the dead field/comment from values.yaml so it stops implying non-existent functionality.",
+  "phase": "continuation"
+ },
+ {
+  "dim": "infra-deploy",
+  "id": "terraform-aurora-sg-ingress-not-wired-to-eks-nodes",
+  "severity": "post-deploy",
+  "claim": "In both the prod-amh and staging Terraform envs, the Aurora security-group ingress rule (`security_groups = var.allowed_security_group_ids`) is fed from a variable (`eks_node_security_group_ids`) that defaults to `[]` and is never wired to any output of the `eks-cluster` module \u2014 and that module doesn't even expose a node/cluster security-group ID as an output for an operator to supply manually. On a from-scratch apply of prod-amh (where `create_eks_cluster` defaults to `true`), this leaves the Aurora security group's only ingress rule with zero allowed sources, making the DB unreachable from every EKS pod (agent-runtime, worker-daemon, migrations Job, lifecycle CronJobs, fhir-sync) unless an operator manually discovers and back-fills the SG id out-of-band.",
+  "evidence": "deploy/terraform/envs/prod-amh-sa-east-1/main.tf:86: `allowed_security_group_ids = var.eks_node_security_group_ids`; deploy/terraform/envs/prod-amh-sa-east-1/variables.tf:55-59: `variable \"eks_node_security_group_ids\" { ... default = [] }` \u2014 never set from `module.eks.*` anywhere in main.tf. deploy/terraform/modules/eks-cluster/outputs.tf has no security-group output at all (only cluster_name/endpoint/ca_data/token/oidc_*). deploy/terraform/modules/aurora-postgres/main.tf:88: `security_groups = ",
+  "fix_sketch": "Add a `node_security_group_id` (or `cluster_security_group_id`) output to the eks-cluster module (from `aws_eks_cluster.this[0].vpc_config[0].cluster_security_group_id` and/or the managed node group's ENI SG) and wire it into `module.aurora.allowed_security_group_ids` in both env main.tf files instead of relying on an operator-supplied, always-empty-by-default variable.",
+  "phase": "continuation"
+ },
+ {
+  "dim": "infra-deploy",
+  "id": "bridges-missing-readinessprobe-kafka-consumer-rollout-gap",
+  "severity": "post-deploy",
+  "claim": "notifications-bridge, network-change-bridge, and consent-revocation-bridge (the three Kafka-consumer sibling Deployments) each define only an `exec pgrep` livenessProbe and no readinessProbe at all. Kubernetes therefore marks a new pod Ready as soon as the container process starts, before its Kafka consumer has actually connected/subscribed/rebalanced. During a rolling update the old (still-connected) replica can be torn down while the new replica is marked Ready but not yet actively consuming, opening a processing gap for LGPD consent-revocation correlation and ANS-submission/recurso process starts.",
+  "evidence": "deploy/helm/maezo-tenant/templates/deployment-bridge.yaml, deployment-bridge-netchange.yaml, and deployment-bridge-consent-revocation.yaml each contain only a livenessProbe (`exec: command: [sh, -c, \"pgrep -f maezo.platform.integrations.<bridge> > /dev/null\"]`, initialDelaySeconds: 20, periodSeconds: 30) with no readinessProbe block anywhere in any of the three files \u2014 contrast with agent-runtime/worker-daemon/gateway/webhook-receiver/fhir-sync, which all pair a liveness probe with an explicit /",
+  "fix_sketch": "Add a lightweight readiness signal for each bridge (e.g. a small health file/socket the consumer loop touches once subscribed+ready, checked via an exec readinessProbe) so rolling updates gate traffic-cutover on actual Kafka-consumer readiness, not just process liveness.",
+  "phase": "continuation"
+ },
+ {
+  "dim": "infra-deploy",
+  "id": "podmonitor-agent-runtime-missing-named-metrics-port",
+  "severity": "KILLED",
+  "claim": "killed by verifier-1: The underlying code defect is real as described (podmonitor.yaml:51-54 sets `port: metrics` against a container with no named port, plus a `targetPort: 8000` in the same podMetricsEndpoint) but it is fully gated off in the production target the task specifies.\n\ndeploy/helm/maezo-tenant/values.yaml:3",
+  "phase": "continuation"
+ },
+ {
+  "dim": "observability",
+  "id": "no-availability-alert-for-gateway-webhook-fhirsync",
+  "severity": "post-deploy",
+  "claim": "Only agent-runtime has an 'is the service up' alert. gateway, webhook-receiver, and fhir-sync have zero alert coverage of any kind (no up{} alert and no metric-based alert references them at all), so a full crash-loop/outage of those three services pages nobody.",
+  "evidence": "deploy/observability/alert-rules.yaml has exactly one `up{job=...}` alert in the whole 18-rule file: `expr: up{job=\"maezo-agent-runtime\"} == 0` (alert MaezoAgentRuntimeDown, lines 81-91). `grep -in \"fhir\\|webhook\\|gateway\" deploy/observability/alert-rules.yaml` returns only the gateway/PEP group (lines 41-63), which alerts on maezo_gateway_pep_decision_total deny-rate and maezo_gateway_audit_lag_seconds \u2014 both require the gateway process to be UP and actively emitting metrics to fire; a hard cra",
+  "fix_sketch": "Add `up{job=\"maezo-gateway\"} == 0`, `up{job=\"maezo-webhook\"} == 0`, and `up{job=\"maezo-fhir-sync\"} == 0` critical alerts (mirroring MaezoAgentRuntimeDown) to deploy/observability/alert-rules.yaml, or a single parametrized rule over `up{job=~\"maezo-.*\"}`.",
+  "phase": "continuation"
+ },
+ {
+  "dim": "observability",
+  "id": "podmonitor-agent-runtime-named-port-never-declared",
+  "severity": "post-deploy",
+  "claim": "The agent-runtime PodMonitor selects the metrics endpoint by named container port `metrics`, but the agent-runtime container spec declares no container ports at all (unlike fhir-sync, which does declare a named `metrics` port) \u2014 so the PodMonitor produces zero scrape targets for agent-runtime whenever the operator-native path is enabled.",
+  "evidence": "deploy/helm/maezo-tenant/templates/podmonitor.yaml:50-54 sets `port: metrics` with a comment acknowledging \"Agent pods expose metrics on 8000 but the container has no NAMED port, so target by number as well\" and adds `targetPort: 8000`. But `grep -n \"ports:|containerPort\" deployment-agent-runtime.yaml` returns nothing \u2014 the container block (lines 63-142) has no `ports:` array whatsoever, so no `__meta_kubernetes_pod_container_port_name` value of `metrics` (or any name) is ever emitted for these ",
+  "fix_sketch": "Add a named `metrics` containerPort: 8000 to the agent-runtime container spec in deployment-agent-runtime.yaml (mirroring fhir-sync), then the existing `port: metrics` selector in podmonitor.yaml will resolve correctly.",
+  "phase": "continuation"
+ },
+ {
+  "dim": "observability",
+  "id": "worker-daemon-metrics-endpoint-never-scraped-anywhere",
+  "severity": "post-deploy",
+  "claim": "worker-daemon serves a real /metrics endpoint (via the shared health/metrics ASGI app) emitting the GAP-XOBS-4 instrumentation (maezo_worker_task_total, maezo_worker_task_duration_seconds), but no Service, PodMonitor entry, prometheus.io/scrape annotation, or static scrape job anywhere in the repo (dev or prod) ever points at it \u2014 the metrics are structurally unreachable by any scraper, independent of alert/dashboard wiring.",
+  "evidence": "src/maezo/runtime/worker_runtime/service.py:53,611-617 wires `create_health_app`/`build_health_server` from src/maezo/platform/health/server.py, which serves `/metrics` via `generate_latest(REGISTRY)` on `settings.health_port` (default 8000, worker_runtime/settings.py:101) \u2014 confirming the endpoint exists and is live. Yet: (1) deploy/helm/maezo-tenant/templates/podmonitor.yaml only defines PodMonitors named `agent-runtime` and `fhir-sync` \u2014 no worker-daemon entry; (2) `find .../templates -iname ",
+  "fix_sketch": "Add a worker-daemon Service (ClusterIP, headless, named `metrics` port 8000, prometheus.io/scrape annotations) mirroring service-agent-runtime.yaml, and add a corresponding PodMonitor entry / dev prometheus.yml scrape job.",
+  "phase": "continuation"
+ },
+ {
+  "dim": "observability",
+  "id": "grafana-dashboard-json-files-never-mounted-wrong-directory",
+  "severity": "post-deploy",
+  "claim": "The three authored Grafana dashboards (engine.json, gateway.json, helena-employee.json) can never load in the dev observability stack: they live in deploy/observability/dashboards/, a directory that is a SIBLING of grafana-provisioning/ (not nested inside it), but docker-compose only bind-mounts grafana-provisioning/ into the Grafana container, so the file-provider's configured path never contains any dashboard JSON.",
+  "evidence": "docker-compose.yml:161 mounts only `./deploy/observability/grafana-provisioning:/etc/grafana/provisioning:ro`. deploy/observability/grafana-provisioning/dashboards/dashboards.yaml:11 sets the file provider `path: /etc/grafana/provisioning/dashboards`, which (given the mount) resolves to host directory `deploy/observability/grafana-provisioning/dashboards/` \u2014 a directory that contains only `dashboards.yaml` itself. The real dashboard JSON files are at `deploy/observability/dashboards/engine.json|",
+  "fix_sketch": "Either move the dashboard JSON files under deploy/observability/grafana-provisioning/dashboards/, or add a second docker-compose bind mount `./deploy/observability/dashboards:/etc/grafana/provisioning/dashboards/json:ro` (and point the provider path there), or change docker-compose to mount the parent `deploy/observability` directory instead of `grafana-provisioning`.",
+  "phase": "continuation"
+ },
+ {
+  "dim": "observability",
+  "id": "gateway-webhook-services-no-scrape-discovery-wiring",
+  "severity": "post-deploy",
+  "claim": "The gateway and webhook-receiver Services (unlike agent-runtime and fhir-sync) have neither prometheus.io/scrape annotations nor any PodMonitor selector matching them, so their /metrics endpoints have zero discovery path in the Helm chart, independent of the OTel-collector receiver gap.",
+  "evidence": "deploy/helm/maezo-tenant/templates/deployment-gateway.yaml:71-88 defines the gateway Service with only ports:/selector: \u2014 no metadata.annotations block (contrast with deploy/helm/maezo-tenant/templates/service-agent-runtime.yaml:29-32 and service-fhir-sync.yaml, which both carry prometheus.io/scrape: \"true\", prometheus.io/port: \"8000\", prometheus.io/path: \"/metrics\"). deploy/helm/maezo-tenant/templates/deployment-webhook-receiver.yaml:74-92 shows the same bare Service for webhook-receiver. deplo",
+  "fix_sketch": "Add prometheus.io/scrape / prometheus.io/port / prometheus.io/path annotations to the gateway and webhook-receiver Service metadata (mirroring service-agent-runtime.yaml), and/or add PodMonitor entries in podmonitor.yaml selecting app.kubernetes.io/component: gateway and webhook-receiver on their container ports (named http, 8000/8080).",
+  "phase": "continuation"
+ },
+ {
+  "dim": "observability",
+  "id": "no-crash-loop-detection-path-anywhere-in-platform",
+  "severity": "post-deploy",
+  "claim": "No alerting mechanism of any kind (metric-based restart-count, or log-based) exists anywhere in the platform for a pod stuck in CrashLoopBackOff / a fail-closed startup error (e.g. HmacKeyNotConfiguredError, a pydantic ValidationError at boot) \u2014 no kube-state-metrics deployment/alert exists, and no log-aggregation/log-alerting component (Loki, Fluent Bit, CloudWatch Logs alarms) is wired anywhere in deploy/ or config/.",
+  "evidence": "grep -rn 'kube_pod_container_status_restarts|CrashLoopBackOff|kube-state-metrics' over deploy/config/src returns zero infra hits (only test/code comments describing the fail-closed behavior itself, e.g. tests/unit/gateway/test_hmac_vault_injection.py, src/maezo/gateway/hmac_key_provider.py:19-57). grep -rln 'loki|promtail|fluentbit|fluent-bit|LogQL' over deploy/ and config/ returns no results \u2014 no log-based alerting stack exists in this repo. The only availability signal anywhere is the single u",
+  "fix_sketch": "Deploy kube-state-metrics and add a kube_pod_container_status_restarts_total rate-based alert (standard KubePodCrashLooping-style rule), or wire a log-based alert (CloudWatch Logs metric filter / Loki ruler) on fail-closed exception class names surfaced in structured logs.",
+  "phase": "continuation"
+ },
+ {
+  "dim": "observability",
+  "id": "no-alertmanager-or-notification-routing-anywhere",
+  "severity": "post-deploy",
+  "claim": "None of the 18 Prometheus alert rules in deploy/observability/alert-rules.yaml (mounted verbatim as the canonical rule set for both dev docker-compose Prometheus and prod AMP) can ever notify a human: there is no Alertmanager service in docker-compose.yml, no `--alertmanager.url` flag on the dev Prometheus command, and the prod Terraform module (deploy/terraform/modules/observability/main.tf) only defines `aws_prometheus_rule_group_namespace` (rule upload) \u2014 it never defines an `aws_prometheus_alert_manager_definition` resource, nor any SNS/PagerDuty/Slack receiver. `aws_grafana_workspace.maezo` also sets `notification_destinations = []`. So every alert, including MaezoUserTaskSLABreach (annotated 'This is a COMPLIANCE EVENT. Notify the medical audit team immediately') and MaezoAgentRuntimeDown ('All agent conversations will fail. Immediate action required'), only ever populates the ALERTS{} time series in Prometheus/AMP \u2014 nobody is paged, emailed, or Slacked, in dev or in prod as configured. The runbook (docs/runbooks/devops-stack.md) even instructs on-call actions ('Alert the on-call manager immediately', 'Configure Slack alerts for P1 queue backlog') as if a notification channel exists, but no such wiring exists in any config file in the repo.",
+  "evidence": "docker-compose.yml prometheus service command: only `--config.file=/etc/prometheus/prometheus.yml`, `--storage.tsdb.path=/prometheus`, `--web.enable-lifecycle` \u2014 no alertmanager.url flag, and no `alertmanager:` service defined anywhere in docker-compose.yml. deploy/terraform/modules/observability/main.tf defines only `aws_prometheus_workspace`, `aws_prometheus_rule_group_namespace.maezo_alerts` (rules upload), IRSA role, Secrets Manager shell, and `aws_grafana_workspace` with `notification_desti",
+  "fix_sketch": "Add an Alertmanager service to docker-compose.yml (with --alertmanager flag wired into the prometheus command) for dev, and add an `aws_prometheus_alert_manager_definition` resource to deploy/terraform/modules/observability/main.tf wired to an SNS topic / PagerDuty / Slack webhook for prod, so severity:critical alerts actually page someone instead of only populating a time series nobody is watchin",
+  "phase": "continuation"
+ },
+ {
+  "dim": "docs-runbooks",
+  "id": "fhir-sync-missing-kafka-bootstrap-servers-env",
+  "severity": "deploy-blocking",
+  "claim": "fhir-sync deployment is missing KAFKA_BOOTSTRAP_SERVERS environment variable configuration",
+  "evidence": "deployment-fhir-sync.yaml (line 36-45) defines only TENANT_ID, FHIR_BASE_URL, and TASY_ORACLE_DSN env vars; missing KAFKA_BOOTSTRAP_SERVERS. Source code (src/maezo/platform/integrations/fhir_sync/consumer.py) shows it defaults to 'localhost:9092' when KAFKA_BOOTSTRAP_SERVERS is unset, which fails in Kubernetes where bootstrap servers are stored in maezo-kafka-config secret (per deploy/helm/maezo-tenant/templates/externalsecret.yaml line 116).",
+  "fix_sketch": "Add KAFKA_BOOTSTRAP_SERVERS env var to deployment-fhir-sync.yaml container env section, sourcing from maezo-kafka-config secret (key: bootstrap-servers), matching the pattern used in deployment-bridge.yaml lines 56-60 and deployment-agent-runtime.yaml lines 85-89.",
+  "phase": "continuation"
+ },
+ {
+  "dim": "docs-runbooks",
+  "id": "helena-agent-deployment-reference-wrong",
+  "severity": "post-deploy",
+  "claim": "helena.md troubleshooting runbook references non-existent deployment 'agent-runtime' instead of actual agent deployment names like 'agent-helena'",
+  "evidence": "helena.md line 220 shows: '| FHIR lookup failures | `kubectl logs deploy/agent-runtime \\| grep mcp-fhir.error`' and line 244 repeats 'kubectl logs deploy/agent-runtime -n maezo-amh'. However, deployment-agent-runtime.yaml line 24 creates deployments named 'agent-{{ $agent.name }}', so actual deployment names are 'agent-helena', 'agent-rafael', 'agent-marina', etc. Commands using 'deploy/agent-runtime' will fail with 'no deployment found'.",
+  "fix_sketch": "Correct helena.md lines 220 and 244 to reference 'deploy/agent-helena' instead of 'deploy/agent-runtime' (or use label selector '-l app.kubernetes.io/component=agent-helena').",
+  "phase": "continuation"
+ },
+ {
+  "dim": "docs-runbooks",
+  "id": "cd-rollback-prod-cluster-name-mismatch",
+  "severity": "post-deploy",
+  "claim": "cd-rollback.md lists production EKS cluster as 'maezo-prod' but terraform EKS module creates 'maezo-eks-prod-amh'",
+  "evidence": "File: /Users/familia/code/Maezo-Healthcare-Plan/docs/runbooks/cd-rollback.md, line 30: '| production  | `maezo-amh`     | `maezo-amh`     | `deploy/helm/maezo-tenant/values-amh.yaml`       | `maezo-prod`    |'. Terraform: /Users/familia/code/Maezo-Healthcare-Plan/deploy/terraform/modules/eks-cluster/main.tf, line 13: 'cluster_name = var.create_cluster ? \"${var.name_prefix}-eks-${var.environment}\" : var.existing_cluster_name' with name_prefix='maezo' and environment='prod-amh' yields 'maezo-eks-p",
+  "fix_sketch": "Update cd-rollback.md line 30 to list the actual cluster name as 'maezo-eks-prod-amh' or verify with ops if GitHub CI variable vars.EKS_CLUSTER_PROD is set to override the fallback.",
+  "phase": "continuation"
+ },
+ {
+  "dim": "docs-runbooks",
+  "id": "fhir-sync-kafka-bootstrap-servers-port-wrong-docker",
+  "severity": "post-deploy",
+  "claim": "fhir-sync.md line 113 specifies 'kafka:9092' but docker-compose uses internal listener 'kafka:29092' for container-to-container communication",
+  "evidence": "File: /Users/familia/code/Maezo-Healthcare-Plan/docs/runbooks/fhir-sync.md, line 113: '--bootstrap-servers kafka:9092'. File: /Users/familia/code/Maezo-Healthcare-Plan/docker-compose.yml, lines 80-81, 88, 92-94: EXTERNAL listener advertises localhost:9092 (host only); INTERNAL listener advertises kafka:29092 (container-to-container). Line 184 (tasy-simulator correctly uses): 'KAFKA_BOOTSTRAP_SERVERS: kafka:29092'.",
+  "fix_sketch": "Update fhir-sync.md line 113 to use 'kafka:29092' if command is meant for local docker-compose, or document that production command requires MSK bootstrap servers from the secret.",
+  "phase": "continuation"
+ },
+ {
+  "dim": "docs-runbooks",
+  "id": "fhir-sync-kafka-bootstrap-servers-port-wrong-prod",
+  "severity": "post-deploy",
+  "claim": "fhir-sync.md line 113 kubectl exec command uses 'kafka:9092' which is invalid in production Kubernetes (no local kafka service; should use MSK Serverless endpoint)",
+  "evidence": "File: /Users/familia/code/Maezo-Healthcare-Plan/docs/runbooks/fhir-sync.md, lines 111-114: 'kubectl exec -it deploy/fhir-sync -n maezo-amh -- kafka-console-consumer --bootstrap-servers kafka:9092'. File: /Users/familia/code/Maezo-Healthcare-Plan/deploy/helm/maezo-tenant/templates/deployment-fhir-sync.yaml, lines 36-46: fhir-sync does NOT set KAFKA_BOOTSTRAP_SERVERS env var (missing). File: /Users/familia/code/Maezo-Healthcare-Plan/deploy/helm/maezo-tenant/templates/externalsecret.yaml, lines 96-",
+  "fix_sketch": "Update fhir-sync.md line 113 to either: (1) read KAFKA_BOOTSTRAP_SERVERS from the pod env, or (2) document that in production the command must fetch servers from 'kubectl get secret maezo-kafka-config -n maezo-amh -o jsonpath={.data.bootstrap-servers}'.",
+  "phase": "continuation"
+ },
+ {
+  "dim": "docs-runbooks",
+  "id": "fhir-sync-kafka-bootstrap-health-check-wrong-port",
+  "severity": "post-deploy",
+  "claim": "fhir-sync.md line 278 (health check command) also specifies 'kafka:9092' with same port issue",
+  "evidence": "File: /Users/familia/code/Maezo-Healthcare-Plan/docs/runbooks/fhir-sync.md, line 278: 'kafka-consumer-groups --bootstrap-servers kafka:9092'. Same underlying issue as line 113.",
+  "fix_sketch": "Update fhir-sync.md line 278 to use correct bootstrap server (kafka:29092 for docker-compose or MSK for production).",
+  "phase": "continuation"
+ },
+ {
+  "dim": "docs-runbooks",
+  "id": "fhir-sync-kafka-bootstrap-servers-docker-compose-incorrect",
+  "severity": "post-deploy",
+  "claim": "fhir-sync.md runbook recommends incorrect Kafka bootstrap server address for docker-compose environment",
+  "evidence": "fhir-sync.md line 192 shows: 'KAFKA_BOOTSTRAP_SERVERS: kafka:9092' but docker-compose.yml lines 80-93 define dual-listener setup with INTERNAL listener at kafka:29092 (for container-to-container). Line 184 of docker-compose.yml confirms tasy-simulator uses 'KAFKA_BOOTSTRAP_SERVERS: kafka:29092', not kafka:9092",
+  "fix_sketch": "Update fhir-sync.md line 192 to use 'KAFKA_BOOTSTRAP_SERVERS: kafka:29092' (matching the INTERNAL listener defined in docker-compose.yml)",
+  "phase": "continuation"
+ },
+ {
+  "dim": "docs-runbooks",
+  "id": "fhir-sync-k8s-deployment-missing-kafka-env-var",
+  "severity": "deploy-blocking",
+  "claim": "fhir-sync Kubernetes deployment does not inject KAFKA_BOOTSTRAP_SERVERS environment variable from maezo-kafka-config secret, causing pod to fail with incorrect default 'localhost:9092'",
+  "evidence": "deployment-fhir-sync.yaml (rendered via helm template) shows env vars: TENANT_ID, FHIR_BASE_URL, TASY_ORACLE_DSN, OTEL_* but NO KAFKA_BOOTSTRAP_SERVERS. Compare to deployment-agent-runtime.yaml lines 85-89 which correctly injects: 'valueFrom: secretKeyRef: name: maezo-kafka-config, key: bootstrap-servers'. consumer.py line 218 defaults to 'localhost:9092' when env var is unset, which fails in Kubernetes cluster networking",
+  "fix_sketch": "Add KAFKA_BOOTSTRAP_SERVERS env var to deployment-fhir-sync.yaml container spec: '- name: KAFKA_BOOTSTRAP_SERVERS\\n  valueFrom:\\n    secretKeyRef:\\n      name: maezo-kafka-config\\n      key: bootstrap-servers' (same pattern as deployment-agent-runtime.yaml)",
+  "phase": "continuation"
+ },
+ {
+  "dim": "docs-runbooks",
+  "id": "fhir-sync-runbook-production-kafka-config-not-documented",
+  "severity": "post-deploy",
+  "claim": "fhir-sync.md runbook does not document that production Kubernetes deployments get KAFKA_BOOTSTRAP_SERVERS from ExternalSecret/maezo-kafka-config, not docker-compose environment vars",
+  "evidence": "fhir-sync.md lines 113, 192, 278 provide docker-compose and kubectl examples using hardcoded bootstrap servers, but never mention that production Kubernetes should source this from the maezo-kafka-config Secret (externalsecret.yaml lines 96-117). The runbook creates confusion about where the address comes from in production vs development",
+  "fix_sketch": "Add a section to fhir-sync.md clarifying: (1) docker-compose uses kafka:29092 (INTERNAL listener), (2) Kubernetes production gets KAFKA_BOOTSTRAP_SERVERS from the maezo-kafka-config Secret injected by ExternalSecret, (3) the pod defaults to localhost:9092 if env var is missing (which will fail)",
+  "phase": "continuation"
+ },
+ {
+  "dim": "docs-runbooks",
+  "id": "cd-rollback-production-cluster-name-mismatch",
+  "severity": "post-deploy",
+  "claim": "cd-rollback.md states production cluster name is 'maezo-prod' but terraform eks-cluster module constructs name as 'maezo-eks-{environment}' = 'maezo-eks-prod-amh' for production",
+  "evidence": "cd-rollback.md line 30 Conventions table shows: 'production | maezo-amh | maezo-amh | ... | maezo-prod'. But deploy/terraform/modules/eks-cluster/main.tf line 13 shows: 'cluster_name = var.create_cluster ? \"${var.name_prefix}-eks-${var.environment}\" : var.existing_cluster_name'. For production (deploy/terraform/envs/prod-amh-sa-east-1/main.tf), create_cluster=true, name_prefix='maezo', environment='prod-amh', yielding 'maezo-eks-prod-amh'. cd.yml line 269 also shows 'vars.EKS_CLUSTER_PROD || mae",
+  "fix_sketch": "Either: (1) verify actual production cluster name and update cd-rollback.md line 30 to match it, OR (2) if terraform creates maezo-eks-prod-amh but the default should remain maezo-prod, document that the prod cluster name diverges from terraform naming convention. Add note explaining vars.EKS_CLUSTER_PROD override mechanism",
+  "phase": "continuation"
+ },
+ {
+  "dim": "docs-runbooks",
+  "id": "fhir-sync-deployment-missing-kafka-env-var",
+  "severity": "deploy-blocking",
+  "claim": "The Helm deployment template for fhir-sync does not inject KAFKA_BOOTSTRAP_SERVERS environment variable, causing the fhir-sync consumer to fail or default to unreachable localhost:9092 in production",
+  "evidence": "File: /Users/familia/code/Maezo-Healthcare-Plan/deploy/helm/maezo-tenant/templates/deployment-fhir-sync.yaml (lines 36-46) \u2014 the container spec lacks KAFKA_BOOTSTRAP_SERVERS env var injection. Contrast with deployment-bridge.yaml (lines 56-60) which correctly injects it from maezo-kafka-config secret. Consumer code at /Users/familia/code/Maezo-Healthcare-Plan/src/maezo/platform/integrations/fhir_sync/consumer.py line ~67 states: 'servers = bootstrap_servers or os.environ.get(\"KAFKA_BOOTSTRAP_SER",
+  "fix_sketch": "",
+  "phase": "continuation"
+ },
+ {
+  "dim": "docs-runbooks",
+  "id": "fhir-sync-runbook-kafka-console-consumer-unavailable",
+  "severity": "cosmetic",
+  "claim": "fhir-sync.md runbook line 114 instructs running kafka-console-consumer inside the fhir-sync pod, but kafka-console-consumer is not installed in the fhir-sync container image",
+  "evidence": "File: /Users/familia/code/Maezo-Healthcare-Plan/docs/runbooks/fhir-sync.md lines 111-118 shows: 'kubectl exec -it deploy/fhir-sync -n maezo-amh -- kafka-console-consumer --bootstrap-servers kafka:9092'. But /Users/familia/code/Maezo-Healthcare-Plan/deploy/Dockerfile (runtime stage, lines 40-84) only installs Python 3.12-slim with libpq5; no Java/Kafka tools.",
+  "fix_sketch": "",
+  "phase": "continuation"
+ },
+ {
+  "dim": "docs-runbooks",
+  "id": "fhir-sync-runbook-wrong-bootstrap-servers-address",
+  "severity": "post-deploy",
+  "claim": "fhir-sync.md runbook line 114 uses kafka:9092 as bootstrap-servers, which does not match production Kubernetes MSK endpoints (should use env var or MSK broker addresses like b-1.maezo-msk.sa-east-1.amazonaws.com:9098)",
+  "evidence": "File: /Users/familia/code/Maezo-Healthcare-Plan/docs/runbooks/fhir-sync.md line 114: '--bootstrap-servers kafka:9092'. Production config at /Users/familia/code/Maezo-Healthcare-Plan/deploy/helm/maezo-tenant/values-amh.yaml lines 105-108 shows MSK endpoint is 'b-1.maezo-msk.sa-east-1.amazonaws.com' port 9098. ExternalSecret at templates/externalsecret.yaml line 116 mounts 'debezium/msk-bootstrap-servers' secret.",
+  "fix_sketch": "",
+  "phase": "continuation"
+ },
+ {
+  "dim": "docs-runbooks",
+  "id": "cd-rollback-runbook-hardcoded-staging-values",
+  "severity": "post-deploy",
+  "claim": "cd-rollback.md section 4 (line 123) hardcodes values-staging.yaml in the helm upgrade example, causing operators doing production rollback to use wrong values file",
+  "evidence": "File: /Users/familia/code/Maezo-Healthcare-Plan/docs/runbooks/cd-rollback.md lines 120-126: 'helm upgrade --install \"$REL\" deploy/helm/maezo-tenant/ ... -f deploy/helm/maezo-tenant/values-staging.yaml'. This section describes 'Roll forward (pin a known-good image tag)' which applies to both staging AND production. Conventions at lines 28-30 show production uses values-amh.yaml, staging uses values-staging.yaml.",
+  "fix_sketch": "",
+  "phase": "continuation"
+ },
+ {
+  "dim": "docs-runbooks",
+  "id": "cd-rollback-prod-cluster-name-wrong",
+  "severity": "KILLED",
+  "claim": "killed by verifier-1: The finding misattributes a Terraform default value. deploy/terraform/envs/prod-amh-sa-east-1/variables.tf:49-53 defines `eks_cluster_name` with default `\"\"` (empty string), used \"only when create_eks_cluster=false\". The value \"maezo-prod-amh\" the finding cites actually belongs to a *different* vari",
+  "phase": "continuation"
+ },
+ {
+  "dim": "docs-runbooks",
+  "id": "fhir-sync-kafka-bootstrap-servers-docker-compose-port-wrong",
+  "severity": "KILLED",
+  "claim": "killed by verifier-1: The finding conflates two unrelated environments: it cites Kubernetes `kubectl exec deploy/fhir-sync -n maezo-amh` commands (lines 111-119, 277-283) and labels them \"Docker Compose internal container communication,\" then contrasts them against docker-compose.yml's dual-listener setup (kafka:9092 ext",
+  "phase": "continuation"
+ },
+ {
+  "dim": "docs-runbooks",
+  "id": "fhir-sync-kafka-kubectl-exec-wrong-address",
+  "severity": "KILLED",
+  "claim": "killed by verifier-1: The line-113/280 (claim said 278, the exec command starts there, the flag is on 280) `kafka:9092` text is real, but the finding's causal chain \u2014 \"should be kafka:29092 because that's the docker-compose INTERNAL listener\" \u2014 is a wrong-environment conflation, not an applicable fix.\n\n1. The kubectl-exe",
+  "phase": "continuation"
+ },
+ {
+  "dim": "infra-deploy",
+  "id": "helm-hook-migrations-before-externalsecret-race",
+  "severity": "deploy-blocking",
+  "claim": "The migrations Job is a Helm pre-install/pre-upgrade hook that mounts a Secret produced by a plain (non-hook) ExternalSecret template; on a genuine first install of a tenant (e.g. maezo-amh), Helm's hook contract guarantees the pre-install hook runs BEFORE any normal chart resource \u2014 including the ExternalSecret/SecretStore that create+sync the `aurora-master-credentials` Secret the Job's env depends on \u2014 so the migrations Job is guaranteed to fail (Secret does not exist at all, not just 'not yet synced') and, run with `--atomic`, aborts the whole tenant install.",
+  "evidence": "deploy/helm/maezo-tenant/templates/job-migrations.yaml:28-30 marks the Job `helm.sh/hook: pre-install,pre-upgrade` (weight -5); its container at job-migrations.yaml:61-68 mounts `DATABASE_URL` via `secretKeyRef: name: {{ .Values.aurora.secretName }}` (= `aurora-master-credentials`, values.yaml:462). That Secret is only created by the ExternalSecret in deploy/helm/maezo-tenant/templates/externalsecret.yaml:20-40 (`target.name: {{ .Values.aurora.secretName }}`), which carries NO hook annotation (g",
+  "fix_sketch": "Either (a) add `helm.sh/hook: pre-install,pre-upgrade` with a MORE negative weight (e.g. -10) to the SecretStore+ExternalSecret in externalsecret.yaml so they are created and can start syncing before the migrations hook weight -5 runs (still needs a wait/poll for ESO sync, e.g. an initContainer or `kubectl wait` step), or (b) split aurora's ExternalSecret out of the shared externalsecret.yaml into its own always-normal-priority pre-step documented/scripted in the runbook and CD workflow before `",
+  "phase": "convergence"
+ },
+ {
+  "dim": "observability",
+  "id": "otel-logs-pipeline-empty-exporters",
+  "severity": "KILLED",
+  "claim": "killed by verifier-1: The claim is accurate as a description of the YAML content (both config/otel-collector.prod.yaml:131-135 and deploy/helm/maezo-tenant/templates/configmap-otel-collector.yaml:115-118 do declare a `logs` pipeline with `exporters: []`, in contrast to th",
+  "phase": "convergence"
+ },
+ {
+  "dim": "docs-runbooks",
+  "id": "runbook-chaos-staging-labeled-prod-namespace-hardcoded",
+  "severity": "post-deploy",
+  "claim": "docs/runbooks/phase0-demo.md's \"Chaos (variante de staging \u2014 kubectl)\" section is explicitly labeled as the STAGING chaos variant, but the only kubectl command in it hardcodes the PRODUCTION namespace `maezo-amh` with a force, zero-grace-period pod delete \u2014 and the file never switches kubeconfig/cluster context anywhere, so an operator following this runbook literally (e.g. with a kubeconfig already pointed at prod, as the companion cd-rollback.md runbook instructs setting up) force-kills live `agent-runtime` pods in production while believing they are running a safe staging chaos drill.",
+  "evidence": "docs/runbooks/phase0-demo.md:145: `kubectl -n maezo-amh delete pod -l app=agent-runtime --grace-period=0 --force`, under heading `## Chaos (variante de staging \u2014 kubectl)` (~line 133). Per docs/runbooks/cd-rollback.md's conventions table (~lines 26-29) and .github/workflows/cd.yml (STAGING_NAMESPACE=\"maezo-staging\" at line 55 vs `--namespace maezo-amh` at line 280), `maezo-amh` is exclusively the PRODUCTION namespace/release; staging's namespace is `maezo-staging`. phase0-demo.md contains zero u",
+  "fix_sketch": "Either (a) parameterize the namespace with an explicit `export NS=maezo-staging` (and require `aws eks update-kubeconfig --name maezo-staging` first) matching the section's stated intent, or (b) rename the section/warn loudly that it targets production and gate it behind an explicit confirmation, so the label and the command target agree.",
+  "phase": "convergence"
+ },
+ {
+  "dim": "docs-runbooks",
+  "id": "dim7-phase0demo-chaos-prod-namespace",
+  "severity": "KILLED",
+  "claim": "killed by refuter-2: The finding's load-bearing claim is that the chaos command \"succeeds and causes a real production outage\" by force-killing every agent-runtime pod \u2014 explicitly distinguishing itself from the known stale-name class on the grounds that \"this command is",
+  "phase": "convergence"
+ },
+ {
+  "dim": "infra-deploy",
+  "id": "netpol-no-aurora-db-egress",
+  "severity": "KILLED",
+  "claim": "killed: The finding's structural observation is correct: networkpolicy.yaml opens egress holes only for DNS (l.56-61), intra-ns\u2192gateway (l.96-104), per-agent LLM/MSK (l.150-210), and W-R2 daemons CIB Seven+Ka",
+  "phase": "final-dry"
+ },
+ {
+  "dim": "observability",
+  "id": "grafana-dashboard-json-never-provisioned",
+  "severity": "post-deploy",
+  "claim": "The three Grafana dashboard JSON definitions (engine.json, gateway.json, helena-employee.json) are never actually delivered into any running Grafana instance, dev or prod \u2014 a structural provisioning-wiring gap that is independent of (and precedes) the already-known 'dashboard references phantom/mismatched metric' content bugs. Grafana boots with a configured datasource but zero dashboards, in every environment this repo can currently stand one up in.",
+  "evidence": "deploy/observability/grafana-provisioning/dashboards/dashboards.yaml:9-11 sets the file-provider `path: /etc/grafana/provisioning/dashboards`. docker-compose.yml:161 mounts only `./deploy/observability/grafana-provisioning:/etc/grafana/provisioning:ro` \u2014 i.e. exactly the tree containing `dashboards.yaml` itself (verified: `deploy/observability/grafana-provisioning/dashboards/` contains only `dashb",
+  "fix_sketch": "Either mount `./deploy/observability/dashboards:/etc/grafana/provisioning/dashboards/maezo:ro` (in addition to the existing grafana-provisioning mount) in docker-compose.yml, or move the JSON files under deploy/observability/grafana-provisioning/dashboards/ so the existing single mount covers them; for the AMG/prod path, add an aws_grafana_workspace dashboard resource (or a documented manual-impor",
+  "phase": "final-dry"
+ },
+ {
+  "dim": "docs-runbooks",
+  "id": "F1-cd-rollback-hardcoded-staging-values",
+  "severity": "post-deploy",
+  "claim": "docs/runbooks/cd-rollback.md Section 4 (\"Roll forward\") hardcodes `-f deploy/helm/maezo-tenant/values-staging.yaml` regardless of environment, even though the runbook explicitly \"Applies to: staging & production\" and its own conventions table (lines 28-30) instructs operators to set `REL`/`NS` to `maezo-amh` for production. An on-call engineer following this exact runbook during a production incident (the doc's stated use case: roll forward a known-good image tag) would run `helm upgrade --install $REL ... -f deploy/helm/maezo-tenant/values-staging.yaml --set image.tag=<sha> --atomic` with `REL=maezo-amh NS=maezo-amh`, deploying production with staging's values file.",
+  "evidence": "docs/runbooks/cd-rollback.md:29-30 conventions table maps production to `values-amh.yaml`; lines 35-36 show `export REL=maezo-staging` / `export NS=maezo-staging` with the comment \"swap for prod\" (i.e. only REL/NS/CLUSTER are meant to change); line 123 in Section 4 literally hardcodes `-f deploy/helm/maezo-tenant/values-staging.yaml` with no environment-driven parametrization. Diff of the two valu",
+  "fix_sketch": "Parametrize Section 4's `-f` flag off the same environment convention as the rest of the runbook (e.g. an `export ENV=staging|amh` alongside REL/NS/CLUSTER, then `-f deploy/helm/maezo-tenant/values-${ENV}.yaml`), or explicitly instruct the operator to substitute the values file matching the target environment per the Section 0 conventions table.",
+  "phase": "final-dry"
+ }
+]

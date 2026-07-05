@@ -1,0 +1,88 @@
+{{- /*
+Consent-revocation bridge daemon (GAP-PROG-4) — Kafka -> BPMN message correlation.
+
+Sibling do notifications-bridge/network-change-bridge e do worker-daemon: mesma imagem, command
+`python -m maezo.platform.integrations.consent_revocation_bridge`. Consome o topico Kafka de
+EVENTO DE DOMINIO `agents.events.lgpd_dsr.completed` (fato publicado por SP-OP-LGPD-DSR-001) e,
+quando `tipo_requisicao=revogacao_consentimento` E `decisao_dsr=EXECUTAR_E_ENVIAR`, CORRELACIONA
+`msg.programa.consent_revoked` em SP-OP-PROGRAMA-001 via mcp-cibseven.correlate_message
+(correlation_keys tenant_id+beneficiario_pseudo_id, all_matching=True — fan-out ao ENGINE a
+TODAS as instancias ativas do titular, uma por programa x ciclo). Identidade = principal de
+SERVICO DEDICADA `consent-revocation-bridge` (allowlist MINIMA: so correlate_message —
+DISTINTA de `notifications-bridge`, que so exerce start_process; least-privilege por ponte).
+
+PROBE (seam): o daemon da ponte NAO sobe um servidor de health (o `main.py` so roda o loop do
+consumer). Liveness `exec` (processo vivo) em vez de httpGet /healthz — espelha as demais pontes.
+*/ -}}
+{{- if .Values.consentRevocationBridge.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: consent-revocation-bridge
+  namespace: {{ include "maezo-tenant.namespace" . }}
+  labels:
+    {{- include "maezo-tenant.labels" . | nindent 4 }}
+    app.kubernetes.io/component: consent-revocation-bridge
+spec:
+  replicas: {{ .Values.consentRevocationBridge.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "maezo-tenant.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: consent-revocation-bridge
+  template:
+    metadata:
+      labels:
+        {{- include "maezo-tenant.labels" . | nindent 8 }}
+        app.kubernetes.io/component: consent-revocation-bridge
+        # A ponte so carrega pseudo_ids/refs de processo (tenant_id/beneficiario_pseudo_id/
+        # consent_event_ref — ADR-0006), nunca PHI clinico cru.
+        maezo.io/phi-zone: "false"
+    spec:
+      serviceAccountName: {{ include "maezo-tenant.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: consent-revocation-bridge
+          image: {{ include "maezo-tenant.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["python", "-m", "maezo.platform.integrations.consent_revocation_bridge"]
+          env:
+            - name: TENANT_ID
+              value: {{ .Values.tenant.id | quote }}
+            - name: CIBSEVEN_BASE_URL
+              value: "http://cibseven:8080/engine-rest"
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                secretKeyRef:
+                  name: maezo-kafka-config
+                  key: bootstrap-servers
+            - name: AUDIT_DIR
+              value: "/tmp/maezo-audit"
+            {{- include "maezo-tenant.otelEnv" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.consentRevocationBridge.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          # SEAM: a ponte nao expoe /healthz (sem app de health). Liveness por processo vivo.
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "pgrep -f maezo.platform.integrations.consent_revocation_bridge > /dev/null"
+            initialDelaySeconds: 20
+            periodSeconds: 30
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

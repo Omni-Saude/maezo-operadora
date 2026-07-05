@@ -1,0 +1,201 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_dut_criteria_bariatrica"
+             name="DUT — Criterios clinicos cirurgia bariatrica"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    dut_criteria_bariatrica v0.1.0 — status: DRAFT — conteudo clinico SINTETICO.
+    REQUER revisao humana antes de qualquer deploy (docs/review-queue.md):
+    revisor: medico auditor + cirurgiao bariatrico + juridico/regulatorio.
+
+    INVARIANTE L0 HARD: esta tabela NAO possui saida de negativa automatica.
+    dut_atendida=false encaminha para analise do medico auditor — nunca nega
+    automaticamente (ADR-0005/0008). Somente o medico auditor pode negar.
+
+    Criterios baseados na DUT ANS cirurgia bariatrica (DRAFT/verify — confirmar
+    contra DUT vigente publicada no portal ANS e CFM Resolucao 2.131/2015 e
+    atualizacoes; valores numericos abaixo sao SINTETICOS representativos).
+
+    Inputs clinicos (pre-resolvidos por worker deterministico com base em dados
+    FHIR/prontuario — nunca por LLM):
+      - imc: integer — IMC do paciente em kg/m2
+      - imc_acima_35_com_comorbidade: boolean — IMC >= 35 + comorbidade associada
+          (DM2, HAS, apneia obstrutiva, dislipidemia) — DRAFT/verify definicao
+      - imc_acima_40: boolean — IMC >= 40 (obesidade grau III) — DRAFT/verify
+      - tentativas_previas_tratamento_clinico: integer — numero de tentativas
+          documentadas de tratamento clinico supervisionado (minimo 2 anos) —
+          DRAFT/verify periodo e documentacao exigida
+      - sem_contraindicacao_cirurgica: boolean — ausencia de contraindicacoes
+          (instabilidade cardiaca, psicose ativa, hepatopatia descompensada etc.)
+          — DRAFT/verify lista completa de contraindicacoes
+      - avaliacao_multidisciplinar_completa: boolean — equipe multidisciplinar
+          presente (nutricao, psicologia, cardiologia, endocrinologia) — DRAFT/verify
+
+    Outputs:
+      - dut_atendida: boolean — true = criterios DUT aparentemente atendidos;
+          false = criterios NAO atendidos ou incompletos -> analise humana
+      - motivo: string — justificativa para dossie do medico auditor
+
+    IMPORTANTE: dut_atendida=true NAO significa aprovacao automatica. O resultado
+    alimenta auth_auto_approval (L2) que tem sua propria logica de aprovacao.
+    A negativa NUNCA nasce aqui — sempre na User Task do medico auditor.
+  </description>
+
+  <decision id="dut_criteria_bariatrica"
+            name="DUT — Criterios clinicos cirurgia bariatrica"
+            camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_dut_criteria_bariatrica" hitPolicy="FIRST">
+
+      <input id="in_imc" label="IMC em kg/m2 (imc)">
+        <inputExpression id="ie_imc" typeRef="integer">
+          <text>imc</text>
+        </inputExpression>
+      </input>
+
+      <input id="in_imc35_comorbidade" label="IMC>=35 com comorbidade (imc_acima_35_com_comorbidade)">
+        <inputExpression id="ie_imc35c" typeRef="boolean">
+          <text>imc_acima_35_com_comorbidade</text>
+        </inputExpression>
+      </input>
+
+      <input id="in_imc40" label="IMC>=40 (imc_acima_40)">
+        <inputExpression id="ie_imc40" typeRef="boolean">
+          <text>imc_acima_40</text>
+        </inputExpression>
+      </input>
+
+      <input id="in_tentativas" label="Tentativas previas tto clinico (tentativas_previas_tratamento_clinico)">
+        <inputExpression id="ie_tentativas" typeRef="integer">
+          <text>tentativas_previas_tratamento_clinico</text>
+        </inputExpression>
+      </input>
+
+      <input id="in_sem_ci" label="Sem contraindicacao cirurgica (sem_contraindicacao_cirurgica)">
+        <inputExpression id="ie_sem_ci" typeRef="boolean">
+          <text>sem_contraindicacao_cirurgica</text>
+        </inputExpression>
+      </input>
+
+      <input id="in_avaliacao" label="Avaliacao multidisciplinar completa (avaliacao_multidisciplinar_completa)">
+        <inputExpression id="ie_avaliacao" typeRef="boolean">
+          <text>avaliacao_multidisciplinar_completa</text>
+        </inputExpression>
+      </input>
+
+      <output id="out_dut_atendida" label="dut_atendida" name="dut_atendida" typeRef="boolean"/>
+      <output id="out_motivo"       label="motivo"       name="motivo"       typeRef="string"/>
+
+      <!-- =================================================================
+           REGRA B1: Contraindicacao cirurgica presente — nao atendida -> auditor
+           ================================================================= -->
+      <rule id="r01">
+        <description>SINTETICO — Contraindicacao cirurgica presente: DUT nao atendida; medico auditor decide. Nunca negativa automatica (L0 hard).</description>
+        <inputEntry id="r01i1"><text>-</text></inputEntry>
+        <inputEntry id="r01i2"><text>-</text></inputEntry>
+        <inputEntry id="r01i3"><text>-</text></inputEntry>
+        <inputEntry id="r01i4"><text>-</text></inputEntry>
+        <inputEntry id="r01i5"><text>false</text></inputEntry>
+        <inputEntry id="r01i6"><text>-</text></inputEntry>
+        <outputEntry id="r01o1"><text>false</text></outputEntry>
+        <outputEntry id="r01o2"><text>"DRAFT — Contraindicacao cirurgica presente (per DUT bariatrica); encaminhar medico auditor para avaliacao clinica individualizada. Nunca negativa automatica."</text></outputEntry>
+      </rule>
+
+      <!-- =================================================================
+           REGRA B2: Avaliacao multidisciplinar incompleta — nao atendida -> auditor
+           ================================================================= -->
+      <rule id="r02">
+        <description>SINTETICO — Avaliacao multidisciplinar incompleta: DUT nao atendida; medico auditor decide.</description>
+        <inputEntry id="r02i1"><text>-</text></inputEntry>
+        <inputEntry id="r02i2"><text>-</text></inputEntry>
+        <inputEntry id="r02i3"><text>-</text></inputEntry>
+        <inputEntry id="r02i4"><text>-</text></inputEntry>
+        <inputEntry id="r02i5"><text>-</text></inputEntry>
+        <inputEntry id="r02i6"><text>false</text></inputEntry>
+        <outputEntry id="r02o1"><text>false</text></outputEntry>
+        <outputEntry id="r02o2"><text>"DRAFT — Avaliacao multidisciplinar incompleta (nutricao/psicologia/cardiologia/endocrinologia); encaminhar medico auditor. Nunca negativa automatica."</text></outputEntry>
+      </rule>
+
+      <!-- =================================================================
+           REGRA P1: IMC>=40, sem CI, avaliacao ok, ao menos 1 tentativa previa
+           — criterio principal (obesidade grau III) DRAFT/verify
+           ================================================================= -->
+      <rule id="r03">
+        <description>SINTETICO — IMC>=40 (obesidade grau III), sem CI, avaliacao multidisciplinar completa, ao menos 1 tentativa clinica previa: criterios DUT aparentemente atendidos. DRAFT/verify.</description>
+        <inputEntry id="r03i1"><text>-</text></inputEntry>
+        <inputEntry id="r03i2"><text>-</text></inputEntry>
+        <inputEntry id="r03i3"><text>true</text></inputEntry>
+        <inputEntry id="r03i4"><text>>= 1</text></inputEntry>
+        <inputEntry id="r03i5"><text>true</text></inputEntry>
+        <inputEntry id="r03i6"><text>true</text></inputEntry>
+        <outputEntry id="r03o1"><text>true</text></outputEntry>
+        <outputEntry id="r03o2"><text>"DRAFT — IMC>=40 + sem contraindicacao + avaliacao multidisciplinar completa + tratamento clinico previo: criterios DUT bariatrica aparentemente atendidos. Verificar documentacao completa com medico auditor."</text></outputEntry>
+      </rule>
+
+      <!-- =================================================================
+           REGRA P2: IMC>=35 com comorbidade, sem CI, avaliacao ok, ao menos 1 tentativa
+           — criterio por comorbidade DRAFT/verify
+           ================================================================= -->
+      <rule id="r04">
+        <description>SINTETICO — IMC>=35 com comorbidade, sem CI, avaliacao multidisciplinar ok, ao menos 1 tentativa clinica: DUT aparentemente atendida. DRAFT/verify.</description>
+        <inputEntry id="r04i1"><text>-</text></inputEntry>
+        <inputEntry id="r04i2"><text>true</text></inputEntry>
+        <inputEntry id="r04i3"><text>-</text></inputEntry>
+        <inputEntry id="r04i4"><text>>= 1</text></inputEntry>
+        <inputEntry id="r04i5"><text>true</text></inputEntry>
+        <inputEntry id="r04i6"><text>true</text></inputEntry>
+        <outputEntry id="r04o1"><text>true</text></outputEntry>
+        <outputEntry id="r04o2"><text>"DRAFT — IMC>=35 com comorbidade documentada + sem contraindicacao + avaliacao multidisciplinar + tratamento clinico previo: criterios DUT bariatrica aparentemente atendidos. DRAFT/verify comorbidade elegivel."</text></outputEntry>
+      </rule>
+
+      <!-- =================================================================
+           REGRA N1: IMC < 35 sem comorbidade qualificante — nao atendida -> auditor
+           ================================================================= -->
+      <rule id="r05">
+        <description>SINTETICO — IMC abaixo de 35 e sem comorbidade qualificante: DUT nao atendida; encaminhar medico auditor. Nunca negativa automatica.</description>
+        <inputEntry id="r05i1"><text>&lt; 35</text></inputEntry>
+        <inputEntry id="r05i2"><text>false</text></inputEntry>
+        <inputEntry id="r05i3"><text>false</text></inputEntry>
+        <inputEntry id="r05i4"><text>-</text></inputEntry>
+        <inputEntry id="r05i5"><text>-</text></inputEntry>
+        <inputEntry id="r05i6"><text>-</text></inputEntry>
+        <outputEntry id="r05o1"><text>false</text></outputEntry>
+        <outputEntry id="r05o2"><text>"DRAFT — IMC abaixo de 35 sem comorbidade qualificante: criterio de IMC DUT nao atendido. Encaminhar medico auditor para avaliacao de excecoes (indicacao metabolica etc). Nunca negativa automatica."</text></outputEntry>
+      </rule>
+
+      <!-- =================================================================
+           REGRA N2: Sem tentativas previas de tratamento clinico — nao atendida -> auditor
+           ================================================================= -->
+      <rule id="r06">
+        <description>SINTETICO — Sem tentativas documentadas de tratamento clinico previo: DUT nao atendida; medico auditor avalia excecoes. Nunca negativa automatica.</description>
+        <inputEntry id="r06i1"><text>-</text></inputEntry>
+        <inputEntry id="r06i2"><text>-</text></inputEntry>
+        <inputEntry id="r06i3"><text>-</text></inputEntry>
+        <inputEntry id="r06i4"><text>&lt;= 0</text></inputEntry>
+        <inputEntry id="r06i5"><text>-</text></inputEntry>
+        <inputEntry id="r06i6"><text>-</text></inputEntry>
+        <outputEntry id="r06o1"><text>false</text></outputEntry>
+        <outputEntry id="r06o2"><text>"DRAFT — Ausencia de tentativas documentadas de tratamento clinico supervisionado: criterio DUT nao atendido. Encaminhar medico auditor para avaliacao de urgencia clinica ou excecoes. Nunca negativa automatica."</text></outputEntry>
+      </rule>
+
+      <!-- =================================================================
+           CATCH-ALL FAIL-SAFE (r99) — OBRIGATORIO L0 HARD
+           Combinacao nao mapeada ou dados ausentes -> analise humana obrigatoria.
+           NUNCA nega automaticamente.
+           ================================================================= -->
+      <rule id="r99">
+        <description>CATCH-ALL FAIL-SAFE: combinacao de criterios nao mapeada nesta tabela DRAFT, ou dados ausentes — encaminhar medico auditor obrigatoriamente. Nunca negativa automatica (L0 hard / ADR-0005).</description>
+        <inputEntry id="r99i1"><text>-</text></inputEntry>
+        <inputEntry id="r99i2"><text>-</text></inputEntry>
+        <inputEntry id="r99i3"><text>-</text></inputEntry>
+        <inputEntry id="r99i4"><text>-</text></inputEntry>
+        <inputEntry id="r99i5"><text>-</text></inputEntry>
+        <inputEntry id="r99i6"><text>-</text></inputEntry>
+        <outputEntry id="r99o1"><text>false</text></outputEntry>
+        <outputEntry id="r99o2"><text>"CATCH-ALL FAIL-SAFE — combinacao de criterios DUT bariatrica nao mapeada nesta tabela DRAFT: encaminhar obrigatoriamente ao medico auditor. Nunca negativa automatica (L0 hard)."</text></outputEntry>
+      </rule>
+
+    </decisionTable>
+  </decision>
+</definitions>

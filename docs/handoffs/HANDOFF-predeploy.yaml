@@ -1,0 +1,208 @@
+# State file of orchestrator-predeploy (pre-deployment hardening & final audit).
+# NEVER edit HANDOFF.yaml or HANDOFF-wave3.yaml from this program.
+program: pre-deployment-hardening-final-audit
+state: SESSION-CLOSED-ALL-PRS-MERGED   # 2026-07-04 ~19:55Z FINAL. ALL 15 program PRs MERGED (#178-#192): user merged 178-181+183+189+190+191+192; orchestrator watcher merged 182/184/185/186/187/188 on full-green checks. ZERO open PRs. VERIFICATION DEBT for next coordinator (ESC-001 precedent — post-merge verify): #191 a2a (T3/opus: human-gates, per-phase task_ids, fail-on-main claims) + #192 port (T2: ci.yml pin byte-parity) + #189 runbooks (its T2 verifier was still running at session close — if its output is gone, respawn as post-merge audit). Remaining work: resume_plan step_1b (DB-8/DB-9 fix lanes) + step_4 leftovers (DL rows prepend + ADR README index + staged-file deletion — handoff/evidence/ADRs ALREADY pushed 1f4bb42+cfa311f) + step_5 close-out (report placeholders, final union-green assert on the CURRENT tip's push run, DoD script-verify, PREDEPLOY-COMPLETE flip). Branch protection: orchestrator application DENIED by permission classifier (repo-admin boundary stands) — the USER must run the ADR-0023 appendix PUT (commands delivered in the session-close message); next coordinator: VERIFY (gh api /branches/main/protection) before assuming docs-as-PRs is enforced. Stale wave containers cleaned (user-authorized). NEW at close: user-side security bundle committed (cfa311f — CodeQL/dep-review/gitleaks workflow may need GHAS on private repo; its checks are NOT in the ADR-0023 required contexts). Entry point: docs/handoffs/PROMPT-next-coordinator.md.
+coordinator: orchestrator-predeploy
+pr_marker: "Coordinated-by: orchestrator-predeploy"
+plan: "~/.claude/plans/pre-deployment-hardening-serialized-badger.md (user-approved; premise-verified + red-teamed)"
+
+# ============================================================
+# WHAT WAS ACCOMPLISHED (session 2026-07-04, ~04:30Z–18:00Z)
+# ============================================================
+accomplished:
+  step0: "PR #175 (wave-3 close docs) merged f9246e8 union-green run-ID-pinned (CI 28696025891 / CD 28696025894); PR #176 merged externally by user, T3-verified post-merge PASS; PR #177 phi-hmac merged c8aed3f (tip run false-red = billing artifact; rerun pending). Local main reconciled; 2 obsolete doc deletions staged."
+  ws1: "ADR-0023 ACCEPTED (docs/adr/0023-*.md): required-checks + strict + enforce_admins via classic protection; merge queue VERIFIED unavailable (private repo, org plan=team); red-main-alarm complement. PR #183 (fhir-sync name quote + red-main-alarm.yml) DRAFT stacked on #179, T3-VERIFIED (10/10 jq matrix, two-sided live-fire)."
+  ws2: "16 Dependabot alerts dispositioned: 9 close via PR #180 (pydantic-settings 2.14.2 + langsmith 0.8.18 exact-floor; T3-VERIFIED) + PR #178 (cryptography >=48.0.1,<49; T3-VERIFIED; crypto-is-PHI premise REFUTED — stdlib hmac); 6 langgraph + 1 pytest risk-accepted w/ DL rows (see predeploy-dl-rows-STAGED.md)."
+  ws3: "PR #179 (Makefile+CI→uv --locked, byte-identical check names; T3-VERIFIED w/ live proof) + PR #182 (Docker images lock-based, prod −18%/sim −36%, drift proven; T3-VERIFIED local — CI states billing-red)."
+  ws4: "PR #177 merged (phi-hmac env, zone adjudicated REQUIRED-for-general). ADR-0024 ACCEPTED → PR #181 (PostgresDedupeStore + migration 0008 + wiring; T3-VERIFIED w/ mutation-tested #55 guard). LGPD reid = documented deferral. res-pagto-a2a closed via #176."
+  ws5_audit: "COMPLETE to genuine exhaustion (4 workflow passes: 127+69+16+6 agents, ~14.7M subagent tokens). 82 confirmed findings (7 unique deploy-blocking / 79 post-deploy / 14 cosmetic per-record; cross-dim dupes consolidated in report), 25 killed by adversarial verify. Evidence: docs/reports/predeploy-findings.json (127 records incl. killed) + predeploy-sweep-escalations.json. Report draft: docs/reports/predeploy-audit-report.md (13 {{PLACEHOLDERS}} for close)."
+  deploy_blocking_fixes:  # ALL 7 built; would each have broken the first production deploy
+    - {db: DB-1, pr: 184, what: "gateway Deployment crash-loop (no __main__) → disabled orphan; metrics emit in-process", verify: T3-PASS}
+    - {db: DB-2/3, pr: 185, what: "webhook-receiver missing WHATSAPP_APP_SECRET/VERIFY_TOKEN + KAFKA env + egress → helm+terraform slice incl. phi/hmac-key parity shell", verify: T3-PASS}
+    - {db: DB-4, pr: 186, what: "aurora database_url ES unsyncable (migrations pre-install hook would abort release) → rotation-safe ESO-template composition", verify: "T3-PASS (mechanism) + reland e2fdc8e re-verified (E501 + tf-output names)"}
+    - {db: DB-5/6, pr: 187, what: "fhir-sync no KAFKA env + ValidationError logged raw Tasy PHI → env+egress+redaction (+ HAPI-URL identifier sibling leak 1b2e6ef)", verify: "T3-PASS core; sibling-commit verify IN FLIGHT"}
+    - {db: DB-7, pr: 188, what: "Helm hook race (migrations hook before non-hook ExternalSecret) → TWO-PHASE deploy + optional-volume init wait (sanctioned pivot: hook-annotation would cascade-delete Secret)", verify: "T3-PASS (all gates green, footprint exact 5 files, bare-default render byte-identical to base; ESC-012 non-blocking upgrade-ordering nuance)"}
+  post_deploy_batches_in_flight:
+    - {lane: a2a-origination, what: "6 decorative delegation seams (fraude→beatriz, nip→gustavo, recurso→marina, cred→carolina, lucas-glosa, inad→fernando dispatcher)", state: "builder RESUMED mid-build (worktree ../maezo-pd-a2a has WIP)"}
+    - {lane: observability-wiring, what: "dashboards provisioning, podmonitor ports, worker-daemon scrape, crash-loop+availability alerts, + 9 ADJUDICATED metric directions (see resume_plan.adjudications)", state: "builder RESUMED (worktree ../maezo-pd-obs has WIP incl. new service-worker-daemon.yaml)"}
+    - {lane: runbook-accuracy, what: "~40 doc corrections across 8 runbooks (incl. cd-rollback staging-values-in-prod hazard)", state: "builder RESUMED (worktree ../maezo-pd-runbooks has WIP)"}
+
+merge_ledger:  # merged this session, all run-ID-pinned
+  - {pr: 175, sha: f9246e8, runs: "CI 28696025891 / CD 28696025894 both success"}
+  - {pr: 176, sha: 1ddf827, merged_by: user, verify: post-merge-T3-PASS}
+  - {pr: 177, sha: c8aed3f, note: "tip run false-red (billing wall hit mid-run); rerun 28697052544 restarted post-billing then CANCELLED by #179 merge push (superseded — tip green proof moves to later tips)"}
+  - {pr: 178, merged_by: user, at: "18:25:38Z", note: "MERGED BEFORE #180 without rebase+re-lock (planned order inverted; uv.lock 3-way merged textually clean — semantic consistency validated by tip run, see ESC-016)"}
+  - {pr: 179, sha: 931629d, merged_by: user, at: "18:26:40Z", note: "its main CI run cancelled by #180 push 40s later (cancel-in-progress)"}
+  - {pr: 180, sha: 4d36a9e, merged_by: user, at: "18:27:21Z", note: "cd run success; ci run cancelled by #181 push"}
+  - {pr: 181, sha: 3520440, merged_by: user, at: "18:27:47Z", note: "tip run 28715614780 = UNION GATE for the 4-PR pile (incl. uv sync --locked consistency of #178+#180 composite lock)"}
+
+# ============================================================
+# BLOCKER + escalation register
+# ============================================================
+stop_the_line:
+  status: "RESOLVED 2026-07-04 ~18:19Z — user RAISED the spending limit; probe rerun 28697052544 executed real jobs (lint/type/unit 11 steps success). 8 PR CI reruns kicked at 18:19Z all accepted+running."
+  root_cause: "GitHub Actions org spending limit exhausted (July: 8,006 Linux min, net cap $30.00)"
+  user_action: "DONE (limit raised by user 2026-07-04)"
+ws6_decisions_by_user:  # 2026-07-04 ~18:2xZ, verbatim adjudications of the WS-6 package
+  - {item: billing, decision: "RAISED — merge train unblocked"}
+  - {item: branch_protection, decision: "docs-as-PRs chosen (Opção 1); apply protection AFTER #183 merges via ADR-0023 appendix commands — user-authorized; DL-0003 docs-direct-push becomes SUPERSEDED at application"}
+  - {item: port_5432, decision: "change OURS (never touch intensicare) → lane fix/predeploy-local-pg-port spawned: compose host binding → 5433 (verified free), env-overridable"}
+  - {item: stale_wave_containers, decision: "orchestrator cleanup attempt DENIED by permission classifier (ESC-015) → commands remain hand-to-user (see predeploy-ws6-package-STAGED.md §6.1); NOTE maezo-w2-cancel trio also holds host 8080+9092/29092 → collides with fresh compose up"}
+  - {item: merge_authorization, decision: "user 18:2xZ: '12 PRs open at the moment, merge after CI/CD green' — then began merging manually himself (see merge_ledger)"}
+escalation_register:  # ESC-001..008 as before + new
+  - {id: ESC-001, summary: "#176 merged externally pre-verify; verifier PASSed post-merge", disposition: DL-0026}
+  - {id: ESC-002, summary: "PostgresIdempotencyStore protocol-incompatible; sibling PostgresDedupeStore built instead", disposition: DL-0028}
+  - {id: ESC-003, summary: "crypto-is-PHI-layer premise refuted (stdlib hmac)", disposition: DL-0026}
+  - {id: ESC-004, summary: "agent misfires ×3 (0-tool boilerplate returns) — respawned same-tier", disposition: escalations-file}
+  - {id: ESC-005, summary: "uv lock overshoot langsmith 0.9.7+distro rejected → exact-floor pin", disposition: DL-0026}
+  - {id: ESC-006, summary: "inert fork-marker lock churn accepted", disposition: DL-0026}
+  - {id: ESC-007, summary: "PR #181 footprint 4→6 files (mechanical consequences) accepted", disposition: DL-0028}
+  - {id: ESC-008, summary: "port-5432 honored do-not-touch; throwaway pg on :15432/:15433", disposition: ws6-package}
+  - {id: ESC-009, summary: "PR #186 first verify FAIL on PR-introduced E501 (builder ran format-check not full make lint) — relanded e2fdc8e, re-verified PASS. LESSON: gate = FULL `uv run make lint` after the LAST edit", disposition: DL-0026}
+  - {id: ESC-010, summary: "DB-7 sanctioned pivot: hook-annotating ExternalSecret unsafe (creationPolicy:Owner + before-hook-creation cascade-delete) → two-phase deploy; cd.yml deploy-process CHANGE → ws6 awareness item", disposition: DL-0030}
+  - {id: ESC-011, summary: "session-limit deaths ×2 waves (workflow finders r3-r5; 5 agents at 17:0xZ) — dead finders had counted as dry rounds (fixed by continuation passes); builders resumed from preserved worktrees", disposition: DL-0031}
+  - {id: ESC-012, summary: "#188 verifier PASS w/ non-blocking upgrade-ordering nuance: two-phase applies to UPGRADES too — phase 1 sets new image.tag and starts rolling BEFORE phase 2 migrates (relaxes migrate-before-deploy on upgrades; benign under expand/contract discipline zero-downtime already requires). Cheap hardening ledgered: set image.tag ONLY in phase 2. Also verified: kubelet DOES back-fill optional secret volumes (RequiresRemount + atomic-writer), so init poll is a genuine ESO-sync-lag barrier, not phase-ordering-dependent", disposition: ledgered_brief (cd-two-phase-image-tag-phase2-only)}
+  - {id: ESC-013, summary: "NEW DEPLOY-BLOCKING (DB-8, found by runbooks lane): deployment-webhook-receiver.yaml declares liveness/readiness probes on /healthz + /readyz but whatsapp/app.py serves ONLY GET/POST /webhook — pods can NEVER pass readiness in a real cluster. NOT fixed by #185 (diff checked: no health routes). Fix lane NOT initiated (wind-down) → resume step_1b", disposition: resume step_1b + DL-0030 amendment}
+  - {id: ESC-014, summary: "NEW DEPLOY-BLOCKING-CLASS (DB-9, found by runbooks lane): cd.yml:203-215 staging rollout+smoke still gates on deployment/gateway + http://gateway:8000 — breaks the deploy pipeline once #184 (gateway.enabled=false) merges AND AWS_ENABLED=true (latent today, fatal at first staging deploy). #184's no-dangling-refs sweep missed cd.yml. Fix lane NOT initiated → resume step_1b, must land BEFORE first staging deploy", disposition: resume step_1b + DL-0030 amendment}
+  - {id: ESC-015, summary: "stale-wave container cleanup (13 Created + w2-cancel trio Up-39h holding 8080/9092/29092) DENIED by permission classifier (containers from other waves = workloads not created this session) — commands hand-to-user in WS-6 §6.1", disposition: ws6_decisions_by_user}
+  - {id: ESC-016, summary: "USER BULK-MERGE deviation: #178→#179→#180→#181 merged manually in 2m09s, checks still pending, planned order inverted (#178 BEFORE #180 without rebase+re-lock — uv.lock 3-way merged textually clean; semantic lock⇄pyproject consistency delegated to tip run 28715614780 uv sync --locked). Intermediate main CI runs cancelled by successive pushes (cancel-in-progress) — acceptable: TIP run is the union gate. Protocol adaptation: orchestrator now pre-rebases stacked/conflicting PRs and holds unverified ones (#189/#190/a2a/port) behind verifier PASS", disposition: this row + merge_ledger}
+  - {id: ESC-017, summary: "#191 seam-6 lucas→marina glosa STOPPED, premise broken: delegate_glosa_analyze/build_glosa_analyze_envelope have ZERO callers; LucasGraph takes no dispatcher and has no glosa node; wiring = NEW graph node + dispatcher DI + trigger semantics (when does member journey become provider glosa dispute?) = DESIGN decision not mechanical wire. Same class: helena delegate_auth_analysis also uncalled", disposition: ledgered_brief (lucas-glosa-emitter-design)}
+  - {id: ESC-018, summary: "shared local dev-engine has residual ACTIVE instances on fixed idempotency business keys (5×NIP-TESTE-IDEM-001, 252 FRAUDE-amh, 555 RECURSO-amh actives) → 4 integration idempotency tests fail PRE-EXISTING (proven identical on origin/main). Builder's surgical DELETE was classifier-DENIED (bulk delete on shared engine) → cleanup is a hand-to-user/next-session action or run suites on a fresh dev stack", disposition: ws6 §6.1-class + resume step_1}
+
+# ============================================================
+# RESUME PLAN — for the next coordinator session (execute in order; details below)
+# ============================================================
+resume_plan:
+  coordination_contract: |
+    You are orchestrator-predeploy resuming. DELEGATE everything (never code directly); T1=haiku
+    (inventory/docs), T2=sonnet (builds/standard verify), T3=opus (adversarial verify of prod paths,
+    root-cause, takeovers). MAX PARALLELISM: everything without a data dependency fans out together;
+    serialize ONLY same-file footprints (first-merged-wins), merge order, uv.lock rebases. Verifier
+    ≥ author tier, always independent. Zero silent corrections: deviations → escalations + DL row.
+    NEVER trust agent self-reports: re-derive from git/gh state (diff branches yourself, re-run the
+    decisive gate, pin CI to run IDs). Technical excellence: root-cause fixes only, no workarounds;
+    every fix is a vertical slice with tests; full gate suite per PR via `uv run`
+    (make lint/type/test + validation CLI ×2 + ruff format --check + no-denial suite; purge
+    __pycache__/.mypy_cache/.ruff_cache first). Escalate one tier on failure; on agent death inspect
+    the worktree FIRST (finished-but-unpushed work is completed mechanically, not redone).
+  ci_semantics: |
+    (a) push-serialization: NO push to main while the tip's push-run is in flight (ci.yml concurrency
+    cancel-in-progress). (b) Union-green asserts = run-ID-pinned PUSH-event suites via
+    `gh run list --commit <sha> --event push` — NEVER per-SHA check-runs (06:00Z cron rewrites them).
+    (c) 06:00Z cron is a fuse: a push whose run spans 06:00 gets cancelled → gh run rerun.
+    (d) skipped-by-design on push: evals ×2 + promote-production. (e) If the two-party classifier
+    blocks a merge: park in ready_to_merge_queue, continue, surface to user.
+  step_1_finish_in_flight: |
+    DONE before pause: T3 verify of #188 = PASS (ESC-012); #187 sibling 1b2e6ef = PASS;
+    runbooks builder DONE → PR #189 (footprint orchestrator-confirmed; T2/sonnet verify still needed).
+    Check these first (may have completed after the pause): two resumed builders → their PRs:
+    a2a-origination (../maezo-pd-a2a), observability (../maezo-pd-obs).
+    For each builder PR when it opens: orchestrator sanity (diff non-empty, footprint matches, marker)
+    → spawn independent verifier (a2a + obs at opus — they touch runtime seams/BPMN; #189 runbooks at
+    sonnet — check its 27 corrections against chart/code, spot-execute the gateway.md snippets).
+    If a builder died again: inspect worktree, resume via its transcript or take over.
+  step_1b_new_deploy_blocking: |
+    TWO new deploy-blocking-class defects found by the runbooks lane AFTER the audit closed
+    (ESC-013/ESC-014) — fix lanes NOT initiated (wind-down). Spawn both in parallel with step_1
+    verifies (T2 build + T3 verify each, standard protocol, worktrees ../maezo-pd-db8 / ../maezo-pd-db9):
+    DB-8 webhook-receiver probes: deployment-webhook-receiver.yaml probes /healthz + /readyz but
+      whatsapp/app.py has no such routes. Root-cause choice for the builder: add real /healthz +
+      /readyz routes to app.py (readiness SHOULD reflect kafka producer state — mirror how other
+      services do it) — NOT probe-on-/webhook (that endpoint 403s and semantically isn't a health check).
+      Rebase note: runbooks PR #189 documents the 403-handshake workaround; after DB-8 lands, update
+      those runbook lines to the real /healthz (small follow-up commit on #189 or post-merge touch-up).
+    DB-9 cd.yml stale gateway smoke: cd.yml:203-215 (staging) gates rollout+smoke on deployment/gateway
+      + http://gateway:8000 — dead once #184 merges (gateway.enabled=false). Replace with rollout waits
+      on real workloads (agent-{helena,rafael,marina}, webhook-receiver) + a smoke that matches DB-8's
+      outcome (webhook-receiver /healthz once it exists). Check the production job for the same pattern.
+      MERGE-TRAIN COUPLING: DB-9 must merge BEFORE any real staging deploy; safe to merge after #184
+      in the train (latent while AWS_ENABLED unset) but do NOT let a first deploy run between them.
+  step_2_billing_gate: |
+    DONE 2026-07-04 ~18:19Z — user raised the limit; probe run executed real jobs. No action at resume.
+  step_3_merge_train: |
+    STATUS AT 19:00Z 2026-07-04 (user merged some manually, orchestrator merging the rest as checks green):
+    MERGED: #178, #179, #180, #181 (user, see merge_ledger) — plus whatever ready_to_merge_queue
+    rows above say MERGED (queue is the live truth; re-derive with `gh pr list --state open`).
+    REMAINING mechanics, in order:
+    a) #182/#184/#185/#187: auto-merge watcher was merging these as their single pending
+       integration check finished — re-derive state; merge any stragglers (squash --delete-branch).
+    b) #186 (aurora): CI rerun kicked 18:52Z; after #185+#187 are in, recheck `gh pr view 186
+       --json mergeable` — if CONFLICTING, mechanic-rebase (expected trivial: externalsecret.yaml
+       regions disjoint); merge when green.
+    c) #188 (draft, stacked on #186's branch): after #186 merges its diff collapses to the 5
+       two-phase-deploy files → `gh pr ready 188` → merge when its checks green.
+    d) #183 (rebased+undrafted 18:47Z, diff = ci.yml quote + red-main-alarm.yml only): merge when
+       its fresh CI (triggered by the force-push) is green. THEN apply branch protection
+       (user-authorized, docs-as-PRs mode): exact commands in docs/adr/0023-*.md Apêndice.
+       After protection: docs pushes become PRs; DL-0003 SUPERSEDED (note in DL row).
+    e) #189 (runbooks) + #190 (observability): merge ONLY after their independent verifiers PASS
+       (T2/T3 spawned 18:32Z — check task outputs first at resume; if verifiers died, respawn:
+       #189 sonnet-tier, #190 opus-tier). If PASS with notes, apply notes as follow-up commits.
+    f) #191 (a2a, 5/6 seams): NEEDS T3/opus adversarial verify (builder self-report only) —
+       verify then merge. Focus: human-gates preserved (handlers return None), per-phase task_ids
+       (fraude), _A2A_TARGETS additions, fail-on-main proof claims.
+    g) port-5433 PR (fix/predeploy-local-pg-port): builder was in flight 19:00Z — orchestrator
+       sanity + T2 verify + merge LAST (compose/runbooks overlap with #189/#190 → rebase if needed).
+    Per merge: checks green, DL-0023 fresh-main check for same-file overlaps, squash
+    --delete-branch, worktree removal (`git worktree remove ../maezo-pd-<slug>`); intermediate
+    tip-run cancels by rapid merges are ACCEPTED (ESC-016) — the FINAL tip run must be union-green.
+  step_4_docs_bundle: |
+    After (or interleaved with) merges, direct-push to main in a push-serialization window:
+    (a) `git rm` the 2 staged obsolete docs (already staged in main worktree);
+    (b) add docs/adr/0023 + 0024 (already written, untracked);
+    (c) add ADR README index rows (see docs/handoffs/predeploy-dl-rows-STAGED.md bottom — also add
+        the missing 0021 row);
+    (d) prepend DL-0026..0031 from predeploy-dl-rows-STAGED.md into docs/decisions-log.md
+        (fetch-rebase-retry; fill {{PR_A2A}}/{{PR_OBS}}/{{PR_RUNBOOKS}} numbers; renumber if rows
+        landed meanwhile);
+    (e) add docs/reports/predeploy-findings.json + predeploy-sweep-escalations.json (audit evidence);
+    (f) add THIS handoff file;
+    (g) delete the two *-STAGED.md files once their content lands (they are staging vehicles only).
+  step_5_close_out: |
+    (a) Spawn a T2 report-finalizer: fill the 13 {{PLACEHOLDERS}} in docs/reports/predeploy-audit-report.md
+        (final merge SHAs from the ledger, continuation results [+40 findings, 2 new DB fixed],
+        terraform-module verdict CONFIRMED-post-deploy, GO/NO-GO: recommend GO gated on the WS-6
+        prerequisites — billing already paid by then, §6.2 secret population, ESO IRSA rds! grant,
+        two-phase first deploy per #188, branch protection applied post-#183) + fold in the
+        obs/runbooks/a2a batch outcomes; commit in the docs bundle or a follow-up docs push.
+    (b) FINAL union-green assert: run-ID-pinned push suites on the LAST merge commit; record run IDs here.
+    (c) Definition-of-done script-verify (never hand-count): dependabot open==7 all-risk-accepted;
+        `gh pr list --state open` empty of predeploy PRs; marker grep across merged PRs; deliverables ls;
+        every escalation_register row has disposition.
+    (d) User-decision package: deliver docs/handoffs/predeploy-ws6-package-STAGED.md content in the
+        final message (billing, branch protection cmds from ADR-0023 appendix, port 5432, worktrees
+        maezo-p3/p3-we disposition, §6.2 secrets incl. ESO IRSA rds! ARN grant + two-phase deploy,
+        product-judgment: phone-hash reidentification + matricula CDC-origin confirmation).
+    (e) Flip this file to PREDEPLOY-COMPLETE with per-WS ledger; update auto-memory (durable lessons).
+  adjudications:  # decisions already made — do NOT re-litigate
+    obs_metric_directions: "9 items adjudicated (evidence in the obs builder thread): fix-alert kafka-lag regex agents\\.events\\..*; emit-code escalation+response_duration; REMOVE hitl-approved alert+panel (GAP-XOBS-5 deliberate); one alert-set for worker_task (+bpmn_error outcome) + ans_submission; LGPD sla via nip.py inputParameter pattern (BPMN edit); +5 ANS-CRON DEFAULT_PROCESS_KEYS; LEDGER eval_score/Pushgateway + kafka-exporter infra + Alertmanager routing (platform scope)"
+    matricula: "post-deploy (pseudonymized at intake; contract-not-mechanism) → structural brief + WS-6 CDC-owner confirmation"
+    dlq_raw_retention: "fhir-sync DLQ raw envelope = designed containment (same PHI namespace, produce-only)"
+    ws2_deferrals: "langgraph family (6 alerts) + pytest (1) risk-accepted; briefs in report §8"
+  ledgered_briefs_for_later: |
+    res-fhirsync-hapi-egress (when HAPI enabled); matricula structural removal (GAP-XPHI-1 pattern);
+    resume-driver DLQ unredacted sibling; Layer-2 log-scrub set_pseudonymizer wiring; phone-hash HMAC
+    (product); langgraph 0.6→1.2 migration; pytest-9 test-infra; kafka-exporter infra; Alertmanager
+    routing; eval_score Pushgateway; calendar-staleness thresholds (product); observability terraform
+    module never invoked; HPA/PDB absence; bridge readinessProbes; aurora SG ingress wiring;
+    cd-two-phase-image-tag-phase2-only (ESC-012: set image.tag only in phase 2 to restore
+    migrate-before-roll on upgrades; confirm migrations are expand/contract-safe);
+    no-denial suite blind spots (boundary-escape reachability, LGPD NEGAR_FUNDAMENTADO neutral);
+    helena autonomy_actions omissions; full list w/ evidence in predeploy-findings.json.
+
+ready_to_merge_queue:  # live view 18:35Z — user merging manually; REMAINING order below
+  - {pr: 178, MERGED-BY-USER: "18:25:38Z (order deviation, see ESC-016)"}
+  - {pr: 179, MERGED-BY-USER: "18:26:40Z", sha: 931629d}
+  - {pr: 180, MERGED-BY-USER: "18:27:21Z", sha: 4d36a9e}
+  - {pr: 181, MERGED-BY-USER: "18:27:47Z", sha: 3520440}
+  - {pr: 182, order: next, verified: T3-PASS, note: "mergeable anytime (Dockerfiles only)"}
+  - {pr: 184, order: next, verified: T3-PASS, note: "mergeable anytime (helm values)"}
+  - {pr: 185, order: "before 187/186", verified: T3-PASS, note: "externalsecret.yaml overlap class"}
+  - {pr: 187, order: "after 185", verified: "T3-PASS FULL (core + sibling 1b2e6ef independently sentinel-proven)"}
+  - {pr: 186, order: "after 185+187", verified: "T3-PASS + reland re-verified", note: "recheck mergeable after those land; trivial rebase expected"}
+  - {pr: 188, order: "after 186", verified: "T3-PASS (ESC-012 nuance ledgered)", note: "DRAFT stacked on 186's branch — diff collapses when 186 merges; then undraft"}
+  - {pr: 183, order: "after rebase", verified: T3-PASS, note: "mechanic rebasing+undrafting NOW (post-#179 squash)"}
+  - {pr: 189, lane: runbooks, order: "after verifier PASS", verified: "builder self-PASS; independent T2 verify IN FLIGHT"}
+  - {pr: 190, lane: observability, order: "merge on green (T3-VERIFIED)", verified: "T3-PASS FULL 19:1xZ: 17 gates re-run green; label-parity of all new alerts re-derived from harness.py/ans_submit.py source; record_escalation negative-case asserted; LGPD sla_metrics correctly extends NIP (phase discriminator); ans-cron coverage test now DERIVES from bpmn dir (drift class non-recurring); bare-default byte-identical", note: "LATENT-until-infra: MaezoPodCrashLooping needs kube-state-metrics, kafka alerts need exporter (ledgered). CONFLICT-EXPECTED with #189 on devops-stack.md — second-to-land rebases"}
+  - {pr: 191, lane: a2a, order: "after T3 verify (NEXT SESSION — do not merge on self-report)", verified: "builder self-PASS: 5/6 seams (fraude→beatriz, nip→gustavo, recurso→marina, cred→carolina, inad→fernando) w/ fail-on-main proof tests, 2848 unit + DI 100% + no-denial green; real-engine 139/143 (4 fails = PRE-EXISTING shared-engine residue, proven identical on origin/main via stash-roundtrip)", note: "seam 6 lucas-glosa BLOCKED by design (ESC-017); human gates preserved by construction (handlers return None / non-routing outputs)"}
+  - {pr: 192, lane: port-5433, order: "last, after T2 verify (NEXT SESSION)", verified: "builder self-PASS (compose ${MAEZO_PG_HOST_PORT:-5433}:5432 + ci.yml integration pin =5432 keeps CI byte-identical; local defaults→5433; survivors documented); gates all 0", note: "user decision 3 implemented; verify focus: ci.yml pin actually preserves CI behavior + no missed local-dev 5432 ref"}

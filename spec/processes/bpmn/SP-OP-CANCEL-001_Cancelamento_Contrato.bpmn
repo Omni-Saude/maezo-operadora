@@ -1,0 +1,842 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+                  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+                  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+                  xmlns:camunda="http://camunda.org/schema/1.0/bpmn"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  id="Definitions_SP_OP_CANCEL_001"
+                  targetNamespace="http://maezo.health/operadora/cancel"
+                  exporter="Maezo W5-PROC"
+                  exporterVersion="0.1.0-draft">
+
+  <bpmn:message id="Msg_CancelNotificationAck" name="msg.cancel.notification_ack"/>
+  <bpmn:message id="Msg_CancelInfoReceived" name="msg.cancel.info_received"/>
+  <bpmn:error id="Error_CancelContratoInvalido" name="Contrato inconsistente na origem" errorCode="ERR_CANCEL_INVALID_CONTRATO"/>
+  <bpmn:error id="Error_CancellationNotHuman" name="Rescisao/suspensao sem decisao humana" errorCode="ERR_CANCELLATION_NOT_HUMAN"/>
+  <bpmn:error id="Error_CancelManterNotHuman" name="Manter (vinculo/negativa do pedido) sem decisao humana" errorCode="ERR_CANCEL_MANTER_NOT_HUMAN"/>
+
+  <bpmn:process id="SP-OP-CANCEL-001" name="SP-OP-CANCEL-001 Cancelamento / Rescisao Contratual"
+                isExecutable="true" camunda:historyTimeToLive="1825">
+    <bpmn:documentation><![CDATA[
+SP-OP-CANCEL-001 — Cancelamento / Rescisao Contratual. Status: DRAFT (v0.1.0) — Phase 2, Wave WC.1.
+DI (diagrama) sera adicionado na promocao a FINAL. Requer revisao humana (juridico/contratos +
+regulatorio) antes de qualquer deploy — ver docs/review-queue.md.
+
+GATILHO REGULATORIO: RN 593/2023 (cancelamento/rescisao e suspensao por inadimplencia — DRAFT/verify),
+RN 412/2016 (cancelamento a pedido do beneficiario — DRAFT/verify), Lei 9.656/1998 art. 13 (rescisao
+unilateral / rol taxativo). TODAS as citacoes e prazos sao DRAFT/verify com regulatorio/juridico antes
+de qualquer timer em producao.
+
+INVARIANTE L0 HARD (contract_termination, _hard_frozen.yaml, CI-enforced): NENHUM caminho automatizado
+rescinde o contrato pela operadora (for-cause / unilateral / por inadimplencia) NEM nega/retem o pedido
+de cancelamento do beneficiario. A rescisao/suspensao/negativa pela operadora SO nasce na User Task
+humana UT_AnaliseRescisao (ou UT_CoordenacaoCancelamento no estouro de SLA), via
+decisao_cancelamento in {RESCINDIR, SUSPENDER, MANTER} setado por humano do grupo juridico-contratos.
+NENHUMA DMN deste processo possui saida de rescisao, negativa de cancelamento ou retencao: cancel_admissibility
+so produz {EFETIVAR_PEDIDO, SEGUE_ANALISE, PENDENTE_NOTIFICACAO, ANALISE_HUMANA}; catch-all -> ANALISE_HUMANA.
+Inadimplencia/inelegibilidade/prazo aparentes roteiam para analise humana (catch-all conservador). No
+estouro de SLA a coordenacao humana assume — NUNCA auto-rescinde por timeout. O event gateway de
+notificacao previa INVERTE o anti-pattern de "auto-rescindir-no-timeout": a expiracao do prazo roteia
+para a User Task humana, nunca para um terminal adverso automatico. O efeito adverso (notificacao formal
+de rescisao/suspensao) e materializado SO pelo worker operadora.cancel.send_cancellation_notice, guardado
+por ERR_CANCELLATION_NOT_HUMAN. GW_DecisaoCancelamento tem "MANTER (default)" como flow default — logo
+o ramo MANTER (manutencao do vinculo / negativa do pedido) e igualmente guardado por um worker dedicado,
+operadora.cancel.confirm_maintained_decision (ERR_CANCEL_MANTER_NOT_HUMAN, GAP-CANCEL-3): exige
+decisao_cancelamento=="MANTER" (nao apenas "default da gateway") e fundamentacao_contratual presente
+antes de GW_Manter bifurcar entre pedido_negado e mantido. Diferente dos irmaos declared-uncaught,
+ERR_CANCEL_MANTER_NOT_HUMAN e CAPTURADO (BE_ManterNaoConfirmado -> End_ManterNaoConfirmado, terminal
+NEUTRO): o task esta no caminho principal do ramo MANTER e um erro nao-capturado encerraria o escopo
+silenciosamente. Os tres terminais ADVERSOS
+(End_ContratoRescindido, End_ContratoSuspenso, End_PedidoCancelamentoNegado) so sao alcancaveis apos UT
+humana concluida.
+
+EXCECAO L2 (direito clerical do titular): o cancelamento A PEDIDO do beneficiario (RN 412 — direito
+potestativo do titular, planos individual/familiar com titularidade confirmada) pode efetivar-se sem User
+Task adversa — nao e decisao adversa contra o beneficiario. A efetivacao passa por DMN clerical
+(cancel_admissibility -> EFETIVAR_PEDIDO) e nunca produz, por automacao, negativa do pedido nem rescisao
+pela operadora. Qualquer ambiguidade (titularidade, notificacao previa pendente, vinculo coletivo,
+retencao) -> ANALISE_HUMANA.
+
+FRAUDE: tipo_solicitacao=fraude_referida -> ANALISE_HUMANA (NUNCA auto-flag; fraud_accusation L0 hard;
+alimenta SP-OP-FRAUDE-001 em Phase 3).
+
+BUSINESS KEY (idempotente): "CANCEL-{tenant_id}-{numero_contrato}" (variante por matricula_beneficiario
+para planos individuais/familiares). Uma instancia ativa por contrato/beneficiario; reenvio retorna a
+instancia ativa (mcp-cibseven.start_process consulta business key antes de iniciar).
+
+EVENTOS DE DOMINIO (worker operadora.events.publish):
+  inicio -> agents.events.cancel.received
+  pendencia -> agents.events.cancel.pended
+  breach -> agents.events.cancel.sla_breached
+  fim -> agents.events.cancel.completed (payload.desfecho = rescindido_operadora | cancelado_beneficiario |
+         mantido | suspenso | pedido_negado)
+
+VARIAVEIS DE ENTRADA: tenant_id, numero_contrato, matricula_beneficiario, tipo_solicitacao
+(pedido_beneficiario | inadimplencia | for_cause_operadora | fraude_referida), origem_solicitacao,
+tipo_plano (individual | familiar | coletivo_empresarial | coletivo_adesao), motivo_informado (opc),
+dentro_prazo (bool, pre-resolvido), notificacao_previa_feita (bool, pre-resolvido), titularidade_confirmada
+(bool, pre-resolvido), vinculo_ativo (bool, pre-resolvido), meses_inadimplencia (integer, opc),
+data_solicitacao_iso, documentos_refs (json). Contrato completo: docs/processes/contracts/SP-OP-CANCEL-001.md.
+]]></bpmn:documentation>
+
+    <bpmn:startEvent id="Start_SolicitacaoCancelamento" name="Solicitacao de cancelamento/rescisao recebida">
+      <bpmn:outgoing>Flow_Start_PubReceived</bpmn:outgoing>
+    </bpmn:startEvent>
+
+    <bpmn:serviceTask id="ST_PublishReceived" name="Publicar evento: cancel.received"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.cancel.received</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_contrato,tipo_solicitacao,origem_solicitacao,tipo_plano</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Start_PubReceived</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubReceived_ResolveFacts</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- Pre-resolve fatos clericais (prazo, notificacao previa, titularidade, vinculo, inadimplencia) -->
+    <bpmn:serviceTask id="ST_ResolveFacts" name="Pre-resolver fatos clericais (sem decidir)"
+                      camunda:type="external" camunda:topic="operadora.cancel.resolve_facts">
+      <bpmn:documentation>Worker resolve/ecoa fatos (dentro_prazo, notificacao_previa_feita, titularidade_confirmada, vinculo_ativo, meses_inadimplencia). FATOS, nunca decisao. TASY write DROP (ADR-0013).</bpmn:documentation>
+      <bpmn:incoming>Flow_PubReceived_ResolveFacts</bpmn:incoming>
+      <bpmn:incoming>Flow_NotifAck_ResolveFacts</bpmn:incoming>
+      <bpmn:outgoing>Flow_ResolveFacts_Admiss</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- DMN: admissibilidade clerical (nunca rescinde/nega/retem — apenas roteia) -->
+    <bpmn:businessRuleTask id="BRT_Admissibilidade" name="Avaliar admissibilidade (DMN cancel_admissibility)"
+                           camunda:decisionRef="cancel_admissibility"
+                           camunda:mapDecisionResult="singleResult"
+                           camunda:resultVariable="admissibilidade">
+      <bpmn:documentation>Saidas possiveis: EFETIVAR_PEDIDO (L2 clerical, direito do titular) | SEGUE_ANALISE | PENDENTE_NOTIFICACAO | ANALISE_HUMANA. Por design NAO existe saida RESCINDIR/NEGAR/RETER (L0 hard). Catch-all -> ANALISE_HUMANA.</bpmn:documentation>
+      <bpmn:incoming>Flow_ResolveFacts_Admiss</bpmn:incoming>
+      <bpmn:outgoing>Flow_Admiss_GW</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+
+    <bpmn:exclusiveGateway id="GW_Admissibilidade" name="Resultado admissibilidade" default="Flow_GW_AnaliseHumana">
+      <bpmn:incoming>Flow_Admiss_GW</bpmn:incoming>
+      <bpmn:outgoing>Flow_GW_EfetivarPedido</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GW_PendenteNotificacao</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GW_SegueAnalise</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GW_AnaliseHumana</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <!-- Ramo L2 clerical: cancelamento A PEDIDO do beneficiario (direito do titular) -->
+    <bpmn:serviceTask id="ST_EffectuateMemberRequest" name="Efetivar cancelamento a pedido (direito do titular)"
+                      camunda:type="external" camunda:topic="operadora.cancel.effectuate_member_request">
+      <bpmn:documentation>Efetiva o cancelamento A PEDIDO do beneficiario (RN 412, L2 clerical). NAO rescinde for-cause; NAO produz negativa. So alcancado quando cancel_admissibility=EFETIVAR_PEDIDO (titularidade confirmada, vinculo ativo, dentro do prazo, plano individual/familiar) OU por decisao humana EFETIVAR_PEDIDO com tipo_solicitacao=pedido_beneficiario (GAP-CANCEL-7: Flow_GWDec_EfetivarPedido restrito — inadimplencia/for_cause_operadora/fraude_referida NUNCA chegam aqui via decisao humana, mirror do gate de tipo_solicitacao em GW_Manter).</bpmn:documentation>
+      <bpmn:incoming>Flow_GW_EfetivarPedido</bpmn:incoming>
+      <bpmn:incoming>Flow_GWDec_EfetivarPedido</bpmn:incoming>
+      <bpmn:outgoing>Flow_Effectuate_Pub</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="ST_PublishCanceladoBeneficiario" name="Publicar evento: cancel.completed (cancelado_beneficiario)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.cancel.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">cancelado_beneficiario</camunda:inputParameter>
+          <!-- GAP-XPHI-1 (ADR-0006/ADR-0016): `matricula_beneficiario` (identificador direto do
+               beneficiario, Zona PHI) REMOVIDA de event_payload_vars — o fato `cancel.completed`
+               (Zona Geral) NUNCA carrega PHI cru. Correlacao pelo `_business_key`
+               (CANCEL-{tenant_id}-{numero_contrato}, injetado incondicionalmente pelo worker) +
+               `numero_contrato`; um consumidor da Zona PHI resolve a matricula por ref no
+               engine/store (espelha a2a/facts.py). -->
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_contrato</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Effectuate_Pub</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubCancelado_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_CanceladoBeneficiario" name="Cancelado a pedido do beneficiario (direito do titular)">
+      <bpmn:incoming>Flow_PubCancelado_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Ramo: pendencia de notificacao previa (inadimplencia/for-cause sem notificacao feita) -->
+    <bpmn:serviceTask id="ST_RequestNotification" name="Solicitar/registrar notificacao previa (RN 593)"
+                      camunda:type="external" camunda:topic="operadora.cancel.request_notification">
+      <bpmn:documentation>Dispara/registra a notificacao previa ao beneficiario (RN 593 — DRAFT/verify). Tambem publica agents.events.cancel.pended (pendencia aberta). NAO rescinde.</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic_pended">agents.events.cancel.pended</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_SlaPreNotif_Request</bpmn:incoming>
+      <bpmn:outgoing>Flow_Request_WaitNotif</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- Corrida: ack da notificacao previa chega OU prazo expira. AMBOS -> analise humana (INVERTE auto-rescisao). -->
+    <bpmn:eventBasedGateway id="GW_AguardarNotificacao" name="Aguardar notificacao previa">
+      <bpmn:incoming>Flow_Request_WaitNotif</bpmn:incoming>
+      <bpmn:outgoing>Flow_Wait_NotifAck</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Wait_PrazoNotif</bpmn:outgoing>
+    </bpmn:eventBasedGateway>
+    <bpmn:intermediateCatchEvent id="ICE_NotificacaoAck" name="Recebimento da notificacao previa confirmado">
+      <bpmn:incoming>Flow_Wait_NotifAck</bpmn:incoming>
+      <bpmn:outgoing>Flow_NotifAck_ResolveFacts</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="MED_NotificacaoAck" messageRef="Msg_CancelNotificationAck"/>
+    </bpmn:intermediateCatchEvent>
+    <!-- Timer: prazo de notificacao previa expira SEM ack -> analise HUMANA (NUNCA auto-rescinde) -->
+    <bpmn:intermediateCatchEvent id="ICE_PrazoNotificacao" name="Prazo de notificacao previa (RN 593 — DRAFT/verify)">
+      <bpmn:incoming>Flow_Wait_PrazoNotif</bpmn:incoming>
+      <bpmn:outgoing>Flow_PrazoNotif_Sla</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TD_PrazoNotificacao">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${sla.prazo_notificacao_previa}</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:intermediateCatchEvent>
+
+    <!-- DMN: SLA de analise (prazos + fonte regulatoria). Resolve antes do gateway de notificacao
+         (necessario para ${sla.prazo_notificacao_previa}) e antes da analise humana. -->
+    <bpmn:businessRuleTask id="BRT_CancelSla" name="Determinar SLA de analise (DMN cancel_sla)"
+                           camunda:decisionRef="cancel_sla"
+                           camunda:mapDecisionResult="singleResult"
+                           camunda:resultVariable="sla">
+      <bpmn:documentation>Saidas: sla_analise, sla_alerta, prazo_notificacao_previa (todos string ISO 8601), fonte_regulatoria. Sem saida adversa. Catch-all conservador. Prazos DRAFT/verify RN 593.</bpmn:documentation>
+      <bpmn:incoming>Flow_GW_SegueAnalise</bpmn:incoming>
+      <bpmn:incoming>Flow_GW_AnaliseHumana</bpmn:incoming>
+      <bpmn:incoming>Flow_PrazoNotif_Sla</bpmn:incoming>
+      <bpmn:outgoing>Flow_Sla_Dossie</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+
+    <!-- Wait-for-notification reusa o SLA: precisa de ${sla.prazo_notificacao_previa}. A DMN cancel_sla
+         e resolvida no ramo PENDENTE_NOTIFICACAO antes de entrar no event gateway. -->
+    <bpmn:businessRuleTask id="BRT_CancelSlaPreNotif" name="Determinar SLA (pre-notificacao, DMN cancel_sla)"
+                           camunda:decisionRef="cancel_sla"
+                           camunda:mapDecisionResult="singleResult"
+                           camunda:resultVariable="sla">
+      <bpmn:documentation>Resolve cancel_sla antes do gateway de notificacao previa (fornece `sla.prazo_notificacao_previa` ao timer). Mesma DMN; sem saida adversa.</bpmn:documentation>
+      <bpmn:incoming>Flow_GW_PendenteNotificacao</bpmn:incoming>
+      <bpmn:outgoing>Flow_SlaPreNotif_Request</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+
+    <!-- DMN: classificacao/encaminhamento (rotulos neutros para o dossie humano; GAP-CANCEL-5).
+         cancel_routing NAO decide nem gata nenhum gateway — so enriquece o dossie que instrui
+         UT_AnaliseRescisao com natureza_caso/grupo_sugerido (closed-allowlist neutro, sem saida
+         adversa; ver cancel_routing.dmn). -->
+    <bpmn:businessRuleTask id="BRT_Classificacao" name="Classificar natureza do caso (DMN cancel_routing)"
+                           camunda:decisionRef="cancel_routing"
+                           camunda:mapDecisionResult="singleResult"
+                           camunda:resultVariable="classificacao">
+      <bpmn:documentation>Saidas: natureza_caso (pedido_titular | inadimplencia | for_cause | fraude_referida | indeterminado) e grupo_sugerido (sempre um grupo HUMANO), promovidas a variaveis de processo flat via outputParameter (ENGINE-16004 avoidance). Rotulos NEUTROS de triagem/auditoria — NAO decide, NAO gata gateway algum. Alimenta ST_PrepareDossier (GAP-CANCEL-5: antes orfa, sem consumidor).</bpmn:documentation>
+      <bpmn:extensionElements>
+        <!-- ENGINE-16004 avoidance (mesmo padrao de GAP-FRAUDE-1/intensidade_investigacao): o
+             resultVariable de uma DMN (`classificacao`, tipo Object/HashMap) chega ao engine real
+             como blob Java-serializado (nao JSON) quando lido via fetchAndLock do external-task —
+             so eh deserializado nas expressoes AVALIADAS PELO ENGINE (JUEL, ex.: conditionExpression,
+             outputParameter). Promove natureza_caso/grupo_sugerido a variaveis de processo FLAT
+             (String) aqui, no proprio businessRuleTask, para que ST_PrepareDossier (worker externo)
+             as leia diretamente — nunca tente ler `classificacao` pelo external task. -->
+        <camunda:inputOutput>
+          <camunda:outputParameter name="natureza_caso">${classificacao.natureza_caso}</camunda:outputParameter>
+          <camunda:outputParameter name="grupo_sugerido">${classificacao.grupo_sugerido}</camunda:outputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Sla_Classificacao</bpmn:incoming>
+      <bpmn:outgoing>Flow_Classificacao_Dossie</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+
+    <!-- Analise humana: dossie de analise + juridico/contratos -->
+    <bpmn:serviceTask id="ST_PrepareDossier" name="Preparar dossie de analise (agente futuro)"
+                      camunda:type="external" camunda:topic="operadora.cancel.prepare_dossier">
+      <bpmn:documentation>Monta o dossie de analise (narrativa/montagem + evidencias + regras DMN avaliadas, incl. natureza_caso/grupo_sugerido de BRT_Classificacao — GAP-CANCEL-5). O dossie INSTRUI a decisao humana, nunca a substitui (principio Rafael, ADR-0005). Alvo de delegacao a agente futuro.</bpmn:documentation>
+      <bpmn:incoming>Flow_Classificacao_Dossie</bpmn:incoming>
+      <bpmn:outgoing>Flow_Dossie_UTAnalise</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:userTask id="UT_AnaliseRescisao" name="Analise de rescisao/cancelamento (juridico/contratos)"
+                   camunda:candidateGroups="juridico-contratos,gestao-contratos">
+      <bpmn:documentation><![CDATA[
+HITL L0 hard (contract_termination, ADR-0005): UNICO ponto onde rescisao/suspensao/negativa do pedido
+pode nascer. Saidas: decisao_cancelamento in {RESCINDIR, SUSPENDER, MANTER, EFETIVAR_PEDIDO, SOLICITAR_INFO}.
+RESCINDIR e SUSPENDER exigem fundamentacao_contratual, referencia_regulatoria, comprovacao_notificacao_previa
+e responsavel_id (campos obrigatorios — validacao de formulario + guard do worker send_cancellation_notice).
+MANTER (negativa do pedido / vinculo mantido) exige fundamentacao_contratual (campo obrigatorio —
+validacao de formulario + guard do worker confirm_maintained_decision, ERR_CANCEL_MANTER_NOT_HUMAN,
+GAP-CANCEL-3). SLA: `sla.sla_analise` (DMN
+cancel_sla; RN 593 — valores DRAFT/verify). A decisao sai em nome do humano (assignee na trilha de
+auditoria, ADR-0007). A negativa do pedido (End_PedidoCancelamentoNegado) so existe via MANTER quando
+tipo_solicitacao=pedido_beneficiario. Simetricamente (GAP-CANCEL-7), EFETIVAR_PEDIDO (Flow_GWDec_EfetivarPedido)
+so roteia para ST_EffectuateMemberRequest quando tipo_solicitacao=pedido_beneficiario — o humano NAO pode
+efetivar via caminho clerical L2 um caso de inadimplencia/for_cause_operadora/fraude_referida; fora de
+pedido_beneficiario cai no flow default (MANTER) e o guard confirm_maintained_decision recusa (fail-closed,
+ERR_CANCEL_MANTER_NOT_HUMAN).
+]]></bpmn:documentation>
+      <bpmn:incoming>Flow_Dossie_UTAnalise</bpmn:incoming>
+      <bpmn:incoming>Flow_InfoReceived_UTAnalise</bpmn:incoming>
+      <bpmn:incoming>Flow_InfoCatch_UTAnalise</bpmn:incoming>
+      <bpmn:outgoing>Flow_UTAnalise_GW</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <!-- Timer nao-interruptivo: alerta de risco de SLA -> coordenacao -->
+    <bpmn:boundaryEvent id="BT_AlertaSla" name="Alerta de risco de SLA" cancelActivity="false" attachedToRef="UT_AnaliseRescisao">
+      <bpmn:outgoing>Flow_Alerta_Notify</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TD_AlertaSla">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${sla.sla_alerta}</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="ST_NotificarRiscoSla" name="Notificar risco de SLA (coordenacao-contratos)"
+                      camunda:type="external" camunda:topic="operadora.cancel.notify_sla_risk">
+      <bpmn:incoming>Flow_Alerta_Notify</bpmn:incoming>
+      <bpmn:outgoing>Flow_Notify_EndAlerta</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_RiscoSlaNotificado" name="Risco de SLA notificado (analise segue)">
+      <bpmn:incoming>Flow_Notify_EndAlerta</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Timer interruptivo: SLA estourado -> coordenacao humana assume (NUNCA auto-rescinde por timeout) -->
+    <bpmn:boundaryEvent id="BT_SlaAnalise" name="SLA de analise (RN 593 — DRAFT/verify)" cancelActivity="true" attachedToRef="UT_AnaliseRescisao">
+      <bpmn:outgoing>Flow_SlaEstourado_Pub</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TD_SlaAnalise">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${sla.sla_analise}</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="ST_PublishSlaBreach" name="Publicar evento: cancel.sla_breached"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.cancel.sla_breached</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_contrato,tipo_solicitacao</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_SlaEstourado_Pub</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubBreach_UTCoord</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:userTask id="UT_CoordenacaoCancelamento" name="Coordenacao de contratos assume a analise"
+                   camunda:candidateGroups="coordenacao-contratos">
+      <bpmn:documentation>Escalation path do SLA: caso reatribuido a coordenacao. Mesmas saidas e mesmos campos obrigatorios de UT_AnaliseRescisao (a decisao adversa continua HUMANA — nunca auto-rescinde por timeout). A natureza da decisao nao muda por estouro de SLA.</bpmn:documentation>
+      <bpmn:incoming>Flow_PubBreach_UTCoord</bpmn:incoming>
+      <bpmn:outgoing>Flow_UTCoord_GW</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <!-- Mensagem: info/documentacao solicitada pelo humano chegou -> reabre analise (interruptivo) -->
+    <bpmn:boundaryEvent id="BME_InfoRecebida" name="Info solicitada recebida" cancelActivity="true" attachedToRef="UT_AnaliseRescisao">
+      <bpmn:outgoing>Flow_InfoReceived_UTAnalise</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="MED_InfoRecebida" messageRef="Msg_CancelInfoReceived"/>
+    </bpmn:boundaryEvent>
+
+    <bpmn:exclusiveGateway id="GW_DecisaoCancelamento" name="Decisao do juridico/contratos" default="Flow_GWDec_Mantido">
+      <bpmn:incoming>Flow_UTAnalise_GW</bpmn:incoming>
+      <bpmn:incoming>Flow_UTCoord_GW</bpmn:incoming>
+      <bpmn:outgoing>Flow_GWDec_Rescindir</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWDec_Suspender</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWDec_EfetivarPedido</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWDec_SolicitarInfo</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWDec_Mantido</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <!-- Ramo RESCINDIR: efeito adverso gated por worker (ERR_CANCELLATION_NOT_HUMAN) -->
+    <bpmn:serviceTask id="ST_SendCancellationNoticeRescisao" name="Emitir notificacao formal de rescisao (efeito adverso gated)"
+                      camunda:type="external" camunda:topic="operadora.cancel.send_cancellation_notice">
+      <bpmn:documentation>HARD GUARDRAIL (L0 hard, contract_termination): o worker RECUSA emitir a notificacao se decisao_cancelamento not in {RESCINDIR, SUSPENDER} setado por humano, ou se faltar responsavel_id/fundamentacao_contratual/referencia_regulatoria/comprovacao_notificacao_previa (lanca ERR_CANCELLATION_NOT_HUMAN). Carrega responsavel_id na trilha de auditoria (ADR-0007). Este worker NUNCA decide; so emite a decisao ja tomada na UT humana.</bpmn:documentation>
+      <bpmn:incoming>Flow_GWDec_Rescindir</bpmn:incoming>
+      <bpmn:outgoing>Flow_Rescisao_Pub</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="ST_PublishRescindido" name="Publicar evento: cancel.completed (rescindido_operadora)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.cancel.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">rescindido_operadora</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_contrato,responsavel_id</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Rescisao_Pub</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubRescindido_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_ContratoRescindido" name="Contrato rescindido pela operadora (L0 — humano)">
+      <bpmn:incoming>Flow_PubRescindido_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Ramo SUSPENDER: efeito adverso gated por worker (ERR_CANCELLATION_NOT_HUMAN) -->
+    <bpmn:serviceTask id="ST_SendCancellationNoticeSuspensao" name="Emitir notificacao formal de suspensao (efeito adverso gated)"
+                      camunda:type="external" camunda:topic="operadora.cancel.send_cancellation_notice">
+      <bpmn:documentation>HARD GUARDRAIL (L0 hard, RN 593): o worker RECUSA emitir a notificacao de suspensao sem decisao_cancelamento=SUSPENDER setado por humano e sem responsavel_id/fundamentacao/referencia/comprovacao (ERR_CANCELLATION_NOT_HUMAN). So emite a decisao ja tomada na UT humana.</bpmn:documentation>
+      <bpmn:incoming>Flow_GWDec_Suspender</bpmn:incoming>
+      <bpmn:outgoing>Flow_Suspensao_Pub</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="ST_PublishSuspenso" name="Publicar evento: cancel.completed (suspenso)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.cancel.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">suspenso</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_contrato,responsavel_id</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Suspensao_Pub</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubSuspenso_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_ContratoSuspenso" name="Contrato suspenso por inadimplencia (L0 — humano)">
+      <bpmn:incoming>Flow_PubSuspenso_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Ramo SOLICITAR_INFO: aguarda info/documentacao (msg) -> reabre analise (sem efeito adverso) -->
+    <bpmn:intermediateCatchEvent id="ICE_AguardarInfo" name="Aguardar info/documentacao solicitada">
+      <bpmn:incoming>Flow_GWDec_SolicitarInfo</bpmn:incoming>
+      <bpmn:outgoing>Flow_InfoCatch_UTAnalise</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="MED_AguardarInfo" messageRef="Msg_CancelInfoReceived"/>
+    </bpmn:intermediateCatchEvent>
+
+    <!-- Ramo MANTER: efeito MANTER gated por worker (ERR_CANCEL_MANTER_NOT_HUMAN, GAP-CANCEL-3).
+         GW_DecisaoCancelamento roteia aqui via flow DEFAULT (Flow_GWDec_Mantido) — dispara para
+         QUALQUER decisao_cancelamento nao reconhecida, inclusive ausente. Este worker e a defesa em
+         profundidade que faltava nesse ramo: confirma decisao_cancelamento=="MANTER" +
+         fundamentacao_contratual ANTES de GW_Manter bifurcar entre pedido_negado e mantido. -->
+    <bpmn:serviceTask id="ST_ConfirmMaintainedDecision" name="Confirmar decisao MANTER (efeito gated)"
+                      camunda:type="external" camunda:topic="operadora.cancel.confirm_maintained_decision">
+      <bpmn:documentation>HARD GUARDRAIL (L0 hard, contract_termination, GAP-CANCEL-3): o worker RECUSA confirmar se decisao_cancelamento != "MANTER" setado por humano (inclui o flow default da gateway acima, que dispara sem decisao_cancelamento reconhecida) ou se faltar fundamentacao_contratual (ERR_CANCEL_MANTER_NOT_HUMAN). Carrega responsavel_id na trilha de auditoria quando presente (ADR-0007). Este worker NUNCA decide se o vinculo e mantido ou o pedido negado (GW_Manter roteia por tipo_solicitacao, fato de entrada) — so confirma a decisao MANTER ja tomada na UT humana. O erro e CAPTURADO por BE_ManterNaoConfirmado: este task esta no CAMINHO PRINCIPAL do ramo MANTER — diferente dos irmaos declared-uncaught (ERR_CANCELLATION_NOT_HUMAN, onde nao-avancar = efeito adverso bloqueado), aqui um guard-fire nao-capturado encerraria SILENCIOSAMENTE um caso vivo de cancelamento.</bpmn:documentation>
+      <bpmn:incoming>Flow_GWDec_Mantido</bpmn:incoming>
+      <bpmn:outgoing>Flow_ConfirmManutencao_GWManter</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- GAP-CANCEL-3 (espelha GAP-AUTH-2 / BE_NegativaIncompleta): boundary error na confirmacao
+         MANTER. Se confirm_maintained_decision recusar (decisao_cancelamento != MANTER explicito,
+         ou fundamentacao_contratual ausente — guard L0 cancel.py), lanca ERR_CANCEL_MANTER_NOT_HUMAN.
+         Sem catch, o BPMN error nao-tratado encerraria o escopo SILENCIOSAMENTE (sem end event, sem
+         incidente) — inaceitavel no caminho PRINCIPAL do ramo MANTER. Com o catch: captura ->
+         End_ManterNaoConfirmado. Terminal NEUTRO: NADA foi registrado (nem vinculo mantido nem
+         negativa do pedido); o caso volta ao humano recompor a decisao/fundamentacao. So alcancavel
+         apos UT humana; nao abre caminho automatico de desfecho. O guard do worker PERMANECE o
+         enforcement (ADR-0018); este catch so torna o guard-fire VISIVEL e nao-adverso. -->
+    <bpmn:boundaryEvent id="BE_ManterNaoConfirmado" name="Confirmacao MANTER barrada pelo guard (ERR_CANCEL_MANTER_NOT_HUMAN)" attachedToRef="ST_ConfirmMaintainedDecision">
+      <bpmn:outgoing>Flow_ManterNaoConfirmado_End</bpmn:outgoing>
+      <bpmn:errorEventDefinition id="EED_ManterNaoConfirmado" errorRef="Error_CancelManterNotHuman"/>
+    </bpmn:boundaryEvent>
+    <bpmn:endEvent id="End_ManterNaoConfirmado" name="Confirmacao MANTER barrada pelo guard (L0) — nada registrado">
+      <bpmn:documentation>Terminal NEUTRO (guard L0, contract_termination, GAP-CANCEL-3): o worker confirm_maintained_decision RECUSOU confirmar a manutencao — decisao_cancelamento nao era "MANTER" explicito (ex.: flow default da gateway disparado sem decisao reconhecida) ou fundamentacao_contratual ausente (ERR_CANCEL_MANTER_NOT_HUMAN). NENHUM desfecho ocorreu: nem vinculo mantido nem negativa do pedido foram registrados/publicados. So alcancavel APOS uma User Task humana (UT_AnaliseRescisao / UT_CoordenacaoCancelamento) concluida — nao ha caminho automatizado. O guard do worker permanece o mecanismo de enforcement (ADR-0018); este terminal apenas encerra a instancia de forma limpa e VISIVEL (em vez de morte silenciosa de escopo por erro nao-capturado) para o humano recompor a decisao com fundamentacao completa.</bpmn:documentation>
+      <bpmn:incoming>Flow_ManterNaoConfirmado_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Ramo MANTER: separa negativa-do-pedido (pedido_beneficiario) de vinculo-mantido -->
+    <bpmn:exclusiveGateway id="GW_Manter" name="Manter: negativa do pedido ou vinculo mantido?" default="Flow_GWManter_Mantido">
+      <bpmn:incoming>Flow_ConfirmManutencao_GWManter</bpmn:incoming>
+      <bpmn:outgoing>Flow_GWManter_PedidoNegado</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWManter_Mantido</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <bpmn:serviceTask id="ST_PublishPedidoNegado" name="Publicar evento: cancel.completed (pedido_negado)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.cancel.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">pedido_negado</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_contrato,responsavel_id</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_GWManter_PedidoNegado</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubPedidoNegado_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_PedidoCancelamentoNegado" name="Pedido de cancelamento negado (L0 — humano)">
+      <bpmn:incoming>Flow_PubPedidoNegado_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- GAP-CANCEL-6 (ADR-0007 provenance parity): event_payload_vars carrega responsavel_id,
+         espelhando os irmaos no mesmo ramo humano MANTER (ST_PublishPedidoNegado, linha acima) e no
+         ramo adverso (ST_PublishRescindido/ST_PublishSuspenso). responsavel_id chega garantido
+         (default-init "" quando ausente) via ST_ConfirmMaintainedDecision — o predecessor imediato de
+         GW_Manter, cujo output var `responsavel_id` e' sempre retornado
+         (cancel.py::make_confirm_maintained_decision_handler), mesmo quando a UT humana nao preencheu
+         o campo (MANTER, ao contrario de RESCINDIR/SUSPENDER, nao exige responsavel_id no formulario).
+         Nao-PHI (id de operador) — passa o lint de event_payload_vars (phi_vars.PHI_PROCESS_VARS). -->
+    <bpmn:serviceTask id="ST_PublishMantido" name="Publicar evento: cancel.completed (mantido)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.cancel.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">mantido</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_contrato,responsavel_id</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_GWManter_Mantido</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubMantido_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_ContratoMantido" name="Vinculo mantido (decisao humana)">
+      <bpmn:incoming>Flow_PubMantido_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- FLOWS -->
+    <bpmn:sequenceFlow id="Flow_Start_PubReceived" sourceRef="Start_SolicitacaoCancelamento" targetRef="ST_PublishReceived"/>
+    <bpmn:sequenceFlow id="Flow_PubReceived_ResolveFacts" sourceRef="ST_PublishReceived" targetRef="ST_ResolveFacts"/>
+    <bpmn:sequenceFlow id="Flow_ResolveFacts_Admiss" sourceRef="ST_ResolveFacts" targetRef="BRT_Admissibilidade"/>
+    <bpmn:sequenceFlow id="Flow_Admiss_GW" sourceRef="BRT_Admissibilidade" targetRef="GW_Admissibilidade"/>
+    <bpmn:sequenceFlow id="Flow_GW_EfetivarPedido" name="EFETIVAR_PEDIDO (L2 clerical)" sourceRef="GW_Admissibilidade" targetRef="ST_EffectuateMemberRequest">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${admissibilidade.roteamento == 'EFETIVAR_PEDIDO'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GW_PendenteNotificacao" name="PENDENTE_NOTIFICACAO" sourceRef="GW_Admissibilidade" targetRef="BRT_CancelSlaPreNotif">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${admissibilidade.roteamento == 'PENDENTE_NOTIFICACAO'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GW_SegueAnalise" name="SEGUE_ANALISE" sourceRef="GW_Admissibilidade" targetRef="BRT_CancelSla">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${admissibilidade.roteamento == 'SEGUE_ANALISE'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GW_AnaliseHumana" name="ANALISE_HUMANA (default — sempre humano)" sourceRef="GW_Admissibilidade" targetRef="BRT_CancelSla"/>
+    <bpmn:sequenceFlow id="Flow_Effectuate_Pub" sourceRef="ST_EffectuateMemberRequest" targetRef="ST_PublishCanceladoBeneficiario"/>
+    <bpmn:sequenceFlow id="Flow_PubCancelado_End" sourceRef="ST_PublishCanceladoBeneficiario" targetRef="End_CanceladoBeneficiario"/>
+    <bpmn:sequenceFlow id="Flow_SlaPreNotif_Request" sourceRef="BRT_CancelSlaPreNotif" targetRef="ST_RequestNotification"/>
+    <bpmn:sequenceFlow id="Flow_Request_WaitNotif" sourceRef="ST_RequestNotification" targetRef="GW_AguardarNotificacao"/>
+    <bpmn:sequenceFlow id="Flow_Wait_NotifAck" sourceRef="GW_AguardarNotificacao" targetRef="ICE_NotificacaoAck"/>
+    <bpmn:sequenceFlow id="Flow_Wait_PrazoNotif" sourceRef="GW_AguardarNotificacao" targetRef="ICE_PrazoNotificacao"/>
+    <bpmn:sequenceFlow id="Flow_NotifAck_ResolveFacts" sourceRef="ICE_NotificacaoAck" targetRef="ST_ResolveFacts"/>
+    <bpmn:sequenceFlow id="Flow_PrazoNotif_Sla" sourceRef="ICE_PrazoNotificacao" targetRef="BRT_CancelSla"/>
+    <bpmn:sequenceFlow id="Flow_Sla_Classificacao" sourceRef="BRT_CancelSla" targetRef="BRT_Classificacao"/>
+    <bpmn:sequenceFlow id="Flow_Classificacao_Dossie" sourceRef="BRT_Classificacao" targetRef="ST_PrepareDossier"/>
+    <bpmn:sequenceFlow id="Flow_Dossie_UTAnalise" sourceRef="ST_PrepareDossier" targetRef="UT_AnaliseRescisao"/>
+    <bpmn:sequenceFlow id="Flow_Alerta_Notify" sourceRef="BT_AlertaSla" targetRef="ST_NotificarRiscoSla"/>
+    <bpmn:sequenceFlow id="Flow_Notify_EndAlerta" sourceRef="ST_NotificarRiscoSla" targetRef="End_RiscoSlaNotificado"/>
+    <bpmn:sequenceFlow id="Flow_SlaEstourado_Pub" sourceRef="BT_SlaAnalise" targetRef="ST_PublishSlaBreach"/>
+    <bpmn:sequenceFlow id="Flow_PubBreach_UTCoord" sourceRef="ST_PublishSlaBreach" targetRef="UT_CoordenacaoCancelamento"/>
+    <bpmn:sequenceFlow id="Flow_InfoReceived_UTAnalise" sourceRef="BME_InfoRecebida" targetRef="UT_AnaliseRescisao"/>
+    <bpmn:sequenceFlow id="Flow_UTAnalise_GW" sourceRef="UT_AnaliseRescisao" targetRef="GW_DecisaoCancelamento"/>
+    <bpmn:sequenceFlow id="Flow_UTCoord_GW" sourceRef="UT_CoordenacaoCancelamento" targetRef="GW_DecisaoCancelamento"/>
+    <bpmn:sequenceFlow id="Flow_GWDec_Rescindir" name="RESCINDIR (somente humano)" sourceRef="GW_DecisaoCancelamento" targetRef="ST_SendCancellationNoticeRescisao">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_cancelamento == 'RESCINDIR'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWDec_Suspender" name="SUSPENDER (somente humano)" sourceRef="GW_DecisaoCancelamento" targetRef="ST_SendCancellationNoticeSuspensao">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_cancelamento == 'SUSPENDER'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWDec_EfetivarPedido" name="EFETIVAR_PEDIDO (humano confirma pedido do titular)" sourceRef="GW_DecisaoCancelamento" targetRef="ST_EffectuateMemberRequest">
+      <bpmn:documentation>GAP-CANCEL-7: restrito a tipo_solicitacao=pedido_beneficiario (mirror de GW_Manter/Flow_GWManter_PedidoNegado, que ja bifurca por tipo_solicitacao). EFETIVAR_PEDIDO e o caminho L2 clerical do direito do titular (RN 412) — nunca se aplica a inadimplencia/for_cause_operadora/fraude_referida, mesmo que um humano selecione essa opcao por engano/bug de UI. Um decisao_cancelamento=EFETIVAR_PEDIDO fora de pedido_beneficiario cai no flow DEFAULT (Flow_GWDec_Mantido) — o guard de ST_ConfirmMaintainedDecision (ERR_CANCEL_MANTER_NOT_HUMAN, GAP-CANCEL-3) exige decisao_cancelamento=="MANTER" por igualdade estrita, entao recusa e o boundary BE_ManterNaoConfirmado captura -> End_ManterNaoConfirmado (terminal NEUTRO, nada registrado) — fail-closed, nunca um caminho adverso nem uma efetivacao indevida.</bpmn:documentation>
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_cancelamento == 'EFETIVAR_PEDIDO' &amp;&amp; tipo_solicitacao == 'pedido_beneficiario'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWDec_SolicitarInfo" name="SOLICITAR_INFO" sourceRef="GW_DecisaoCancelamento" targetRef="ICE_AguardarInfo">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_cancelamento == 'SOLICITAR_INFO'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWDec_Mantido" name="MANTER (default)" sourceRef="GW_DecisaoCancelamento" targetRef="ST_ConfirmMaintainedDecision"/>
+    <bpmn:sequenceFlow id="Flow_ConfirmManutencao_GWManter" sourceRef="ST_ConfirmMaintainedDecision" targetRef="GW_Manter"/>
+    <bpmn:sequenceFlow id="Flow_ManterNaoConfirmado_End" sourceRef="BE_ManterNaoConfirmado" targetRef="End_ManterNaoConfirmado"/>
+    <bpmn:sequenceFlow id="Flow_InfoCatch_UTAnalise" sourceRef="ICE_AguardarInfo" targetRef="UT_AnaliseRescisao"/>
+    <bpmn:sequenceFlow id="Flow_Rescisao_Pub" sourceRef="ST_SendCancellationNoticeRescisao" targetRef="ST_PublishRescindido"/>
+    <bpmn:sequenceFlow id="Flow_PubRescindido_End" sourceRef="ST_PublishRescindido" targetRef="End_ContratoRescindido"/>
+    <bpmn:sequenceFlow id="Flow_Suspensao_Pub" sourceRef="ST_SendCancellationNoticeSuspensao" targetRef="ST_PublishSuspenso"/>
+    <bpmn:sequenceFlow id="Flow_PubSuspenso_End" sourceRef="ST_PublishSuspenso" targetRef="End_ContratoSuspenso"/>
+    <bpmn:sequenceFlow id="Flow_GWManter_PedidoNegado" name="negativa do pedido (pedido_beneficiario)" sourceRef="GW_Manter" targetRef="ST_PublishPedidoNegado">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${tipo_solicitacao == 'pedido_beneficiario'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWManter_Mantido" name="vinculo mantido (default)" sourceRef="GW_Manter" targetRef="ST_PublishMantido"/>
+    <bpmn:sequenceFlow id="Flow_PubPedidoNegado_End" sourceRef="ST_PublishPedidoNegado" targetRef="End_PedidoCancelamentoNegado"/>
+    <bpmn:sequenceFlow id="Flow_PubMantido_End" sourceRef="ST_PublishMantido" targetRef="End_ContratoMantido"/>
+  </bpmn:process>
+
+  <bpmndi:BPMNDiagram id="Diagram_SP-OP-CANCEL-001">
+    <bpmndi:BPMNPlane id="Plane_SP-OP-CANCEL-001" bpmnElement="SP-OP-CANCEL-001">
+      <bpmndi:BPMNShape id="Shape_Start_SolicitacaoCancelamento" bpmnElement="Start_SolicitacaoCancelamento">
+        <dc:Bounds x="72" y="74" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishReceived" bpmnElement="ST_PublishReceived">
+        <dc:Bounds x="220" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_ResolveFacts" bpmnElement="ST_ResolveFacts">
+        <dc:Bounds x="400" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_Admissibilidade" bpmnElement="BRT_Admissibilidade">
+        <dc:Bounds x="580" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_Admissibilidade" bpmnElement="GW_Admissibilidade" isMarkerVisible="true">
+        <dc:Bounds x="760" y="67" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_EffectuateMemberRequest" bpmnElement="ST_EffectuateMemberRequest">
+        <dc:Bounds x="2346" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishCanceladoBeneficiario" bpmnElement="ST_PublishCanceladoBeneficiario">
+        <dc:Bounds x="2526" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_CanceladoBeneficiario" bpmnElement="End_CanceladoBeneficiario">
+        <dc:Bounds x="2738" y="74" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_RequestNotification" bpmnElement="ST_RequestNotification">
+        <dc:Bounds x="1070" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_AguardarNotificacao" bpmnElement="GW_AguardarNotificacao" isMarkerVisible="true">
+        <dc:Bounds x="1250" y="67" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ICE_NotificacaoAck" bpmnElement="ICE_NotificacaoAck">
+        <dc:Bounds x="1380" y="74" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ICE_PrazoNotificacao" bpmnElement="ICE_PrazoNotificacao">
+        <dc:Bounds x="1380" y="206" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_CancelSla" bpmnElement="BRT_CancelSla">
+        <dc:Bounds x="1496" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_CancelSlaPreNotif" bpmnElement="BRT_CancelSlaPreNotif">
+        <dc:Bounds x="890" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_Classificacao" bpmnElement="BRT_Classificacao">
+        <dc:Bounds x="1676" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PrepareDossier" bpmnElement="ST_PrepareDossier">
+        <dc:Bounds x="1856" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT_AnaliseRescisao" bpmnElement="UT_AnaliseRescisao">
+        <dc:Bounds x="2036" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_AlertaSla" bpmnElement="BT_AlertaSla">
+        <dc:Bounds x="2043" y="114" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_NotificarRiscoSla" bpmnElement="ST_NotificarRiscoSla">
+        <dc:Bounds x="40" y="184" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_RiscoSlaNotificado" bpmnElement="End_RiscoSlaNotificado">
+        <dc:Bounds x="252" y="206" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_SlaAnalise" bpmnElement="BT_SlaAnalise">
+        <dc:Bounds x="2068" y="114" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishSlaBreach" bpmnElement="ST_PublishSlaBreach">
+        <dc:Bounds x="40" y="304" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT_CoordenacaoCancelamento" bpmnElement="UT_CoordenacaoCancelamento">
+        <dc:Bounds x="220" y="304" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BME_InfoRecebida" bpmnElement="BME_InfoRecebida">
+        <dc:Bounds x="2093" y="114" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_DecisaoCancelamento" bpmnElement="GW_DecisaoCancelamento" isMarkerVisible="true">
+        <dc:Bounds x="2216" y="199" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_SendCancellationNoticeRescisao" bpmnElement="ST_SendCancellationNoticeRescisao">
+        <dc:Bounds x="2346" y="184" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishRescindido" bpmnElement="ST_PublishRescindido">
+        <dc:Bounds x="2526" y="184" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_ContratoRescindido" bpmnElement="End_ContratoRescindido">
+        <dc:Bounds x="2738" y="206" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_SendCancellationNoticeSuspensao" bpmnElement="ST_SendCancellationNoticeSuspensao">
+        <dc:Bounds x="2346" y="304" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishSuspenso" bpmnElement="ST_PublishSuspenso">
+        <dc:Bounds x="2526" y="304" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_ContratoSuspenso" bpmnElement="End_ContratoSuspenso">
+        <dc:Bounds x="2738" y="326" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ICE_AguardarInfo" bpmnElement="ICE_AguardarInfo">
+        <dc:Bounds x="2378" y="424" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_ConfirmMaintainedDecision" bpmnElement="ST_ConfirmMaintainedDecision">
+        <dc:Bounds x="2346" y="512" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BE_ManterNaoConfirmado" bpmnElement="BE_ManterNaoConfirmado">
+        <dc:Bounds x="2378" y="574" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_ManterNaoConfirmado" bpmnElement="End_ManterNaoConfirmado">
+        <dc:Bounds x="72" y="424" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_Manter" bpmnElement="GW_Manter" isMarkerVisible="true">
+        <dc:Bounds x="2551" y="527" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishPedidoNegado" bpmnElement="ST_PublishPedidoNegado">
+        <dc:Bounds x="2706" y="512" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_PedidoCancelamentoNegado" bpmnElement="End_PedidoCancelamentoNegado">
+        <dc:Bounds x="2886" y="534" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishMantido" bpmnElement="ST_PublishMantido">
+        <dc:Bounds x="2706" y="644" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_ContratoMantido" bpmnElement="End_ContratoMantido">
+        <dc:Bounds x="2886" y="666" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_Flow_Start_PubReceived" bpmnElement="Flow_Start_PubReceived">
+        <di:waypoint x="108" y="92"/>
+        <di:waypoint x="220" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubReceived_ResolveFacts" bpmnElement="Flow_PubReceived_ResolveFacts">
+        <di:waypoint x="320" y="92"/>
+        <di:waypoint x="400" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_ResolveFacts_Admiss" bpmnElement="Flow_ResolveFacts_Admiss">
+        <di:waypoint x="500" y="92"/>
+        <di:waypoint x="580" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Admiss_GW" bpmnElement="Flow_Admiss_GW">
+        <di:waypoint x="680" y="92"/>
+        <di:waypoint x="760" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GW_EfetivarPedido" bpmnElement="Flow_GW_EfetivarPedido">
+        <di:waypoint x="810" y="92"/>
+        <di:waypoint x="2346" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GW_PendenteNotificacao" bpmnElement="Flow_GW_PendenteNotificacao">
+        <di:waypoint x="810" y="92"/>
+        <di:waypoint x="890" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GW_SegueAnalise" bpmnElement="Flow_GW_SegueAnalise">
+        <di:waypoint x="810" y="92"/>
+        <di:waypoint x="1496" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GW_AnaliseHumana" bpmnElement="Flow_GW_AnaliseHumana">
+        <di:waypoint x="810" y="92"/>
+        <di:waypoint x="1496" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Effectuate_Pub" bpmnElement="Flow_Effectuate_Pub">
+        <di:waypoint x="2446" y="92"/>
+        <di:waypoint x="2526" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubCancelado_End" bpmnElement="Flow_PubCancelado_End">
+        <di:waypoint x="2626" y="92"/>
+        <di:waypoint x="2738" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_SlaPreNotif_Request" bpmnElement="Flow_SlaPreNotif_Request">
+        <di:waypoint x="990" y="92"/>
+        <di:waypoint x="1070" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Request_WaitNotif" bpmnElement="Flow_Request_WaitNotif">
+        <di:waypoint x="1170" y="92"/>
+        <di:waypoint x="1250" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Wait_NotifAck" bpmnElement="Flow_Wait_NotifAck">
+        <di:waypoint x="1300" y="92"/>
+        <di:waypoint x="1380" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Wait_PrazoNotif" bpmnElement="Flow_Wait_PrazoNotif">
+        <di:waypoint x="1300" y="92"/>
+        <di:waypoint x="1340" y="92"/>
+        <di:waypoint x="1340" y="224"/>
+        <di:waypoint x="1380" y="224"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_NotifAck_ResolveFacts" bpmnElement="Flow_NotifAck_ResolveFacts">
+        <di:waypoint x="1398" y="110"/>
+        <di:waypoint x="1398" y="81"/>
+        <di:waypoint x="450" y="81"/>
+        <di:waypoint x="450" y="52"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PrazoNotif_Sla" bpmnElement="Flow_PrazoNotif_Sla">
+        <di:waypoint x="1416" y="224"/>
+        <di:waypoint x="1456" y="224"/>
+        <di:waypoint x="1456" y="92"/>
+        <di:waypoint x="1496" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Sla_Classificacao" bpmnElement="Flow_Sla_Classificacao">
+        <di:waypoint x="1596" y="92"/>
+        <di:waypoint x="1676" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Classificacao_Dossie" bpmnElement="Flow_Classificacao_Dossie">
+        <di:waypoint x="1776" y="92"/>
+        <di:waypoint x="1856" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Dossie_UTAnalise" bpmnElement="Flow_Dossie_UTAnalise">
+        <di:waypoint x="1956" y="92"/>
+        <di:waypoint x="2036" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Alerta_Notify" bpmnElement="Flow_Alerta_Notify">
+        <di:waypoint x="2061" y="150"/>
+        <di:waypoint x="2061" y="167"/>
+        <di:waypoint x="90" y="167"/>
+        <di:waypoint x="90" y="184"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Notify_EndAlerta" bpmnElement="Flow_Notify_EndAlerta">
+        <di:waypoint x="140" y="224"/>
+        <di:waypoint x="252" y="224"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_SlaEstourado_Pub" bpmnElement="Flow_SlaEstourado_Pub">
+        <di:waypoint x="2086" y="150"/>
+        <di:waypoint x="2086" y="227"/>
+        <di:waypoint x="90" y="227"/>
+        <di:waypoint x="90" y="304"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubBreach_UTCoord" bpmnElement="Flow_PubBreach_UTCoord">
+        <di:waypoint x="140" y="344"/>
+        <di:waypoint x="220" y="344"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_InfoReceived_UTAnalise" bpmnElement="Flow_InfoReceived_UTAnalise">
+        <di:waypoint x="2111" y="150"/>
+        <di:waypoint x="2111" y="210"/>
+        <di:waypoint x="2036" y="210"/>
+        <di:waypoint x="2036" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_UTAnalise_GW" bpmnElement="Flow_UTAnalise_GW">
+        <di:waypoint x="2136" y="92"/>
+        <di:waypoint x="2176" y="92"/>
+        <di:waypoint x="2176" y="224"/>
+        <di:waypoint x="2216" y="224"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_UTCoord_GW" bpmnElement="Flow_UTCoord_GW">
+        <di:waypoint x="320" y="344"/>
+        <di:waypoint x="1268" y="344"/>
+        <di:waypoint x="1268" y="224"/>
+        <di:waypoint x="2216" y="224"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Rescindir" bpmnElement="Flow_GWDec_Rescindir">
+        <di:waypoint x="2266" y="224"/>
+        <di:waypoint x="2346" y="224"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Suspender" bpmnElement="Flow_GWDec_Suspender">
+        <di:waypoint x="2266" y="224"/>
+        <di:waypoint x="2306" y="224"/>
+        <di:waypoint x="2306" y="344"/>
+        <di:waypoint x="2346" y="344"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_EfetivarPedido" bpmnElement="Flow_GWDec_EfetivarPedido">
+        <di:waypoint x="2266" y="224"/>
+        <di:waypoint x="2306" y="224"/>
+        <di:waypoint x="2306" y="92"/>
+        <di:waypoint x="2346" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_SolicitarInfo" bpmnElement="Flow_GWDec_SolicitarInfo">
+        <di:waypoint x="2266" y="224"/>
+        <di:waypoint x="2322" y="224"/>
+        <di:waypoint x="2322" y="442"/>
+        <di:waypoint x="2378" y="442"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Mantido" bpmnElement="Flow_GWDec_Mantido">
+        <di:waypoint x="2266" y="224"/>
+        <di:waypoint x="2306" y="224"/>
+        <di:waypoint x="2306" y="552"/>
+        <di:waypoint x="2346" y="552"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_ConfirmManutencao_GWManter" bpmnElement="Flow_ConfirmManutencao_GWManter">
+        <di:waypoint x="2446" y="552"/>
+        <di:waypoint x="2551" y="552"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_ManterNaoConfirmado_End" bpmnElement="Flow_ManterNaoConfirmado_End">
+        <di:waypoint x="2396" y="610"/>
+        <di:waypoint x="2396" y="670"/>
+        <di:waypoint x="72" y="670"/>
+        <di:waypoint x="72" y="442"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_InfoCatch_UTAnalise" bpmnElement="Flow_InfoCatch_UTAnalise">
+        <di:waypoint x="2396" y="460"/>
+        <di:waypoint x="2396" y="520"/>
+        <di:waypoint x="2036" y="520"/>
+        <di:waypoint x="2036" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Rescisao_Pub" bpmnElement="Flow_Rescisao_Pub">
+        <di:waypoint x="2446" y="224"/>
+        <di:waypoint x="2526" y="224"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubRescindido_End" bpmnElement="Flow_PubRescindido_End">
+        <di:waypoint x="2626" y="224"/>
+        <di:waypoint x="2738" y="224"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Suspensao_Pub" bpmnElement="Flow_Suspensao_Pub">
+        <di:waypoint x="2446" y="344"/>
+        <di:waypoint x="2526" y="344"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubSuspenso_End" bpmnElement="Flow_PubSuspenso_End">
+        <di:waypoint x="2626" y="344"/>
+        <di:waypoint x="2738" y="344"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWManter_PedidoNegado" bpmnElement="Flow_GWManter_PedidoNegado">
+        <di:waypoint x="2601" y="552"/>
+        <di:waypoint x="2706" y="552"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWManter_Mantido" bpmnElement="Flow_GWManter_Mantido">
+        <di:waypoint x="2601" y="552"/>
+        <di:waypoint x="2653" y="552"/>
+        <di:waypoint x="2653" y="684"/>
+        <di:waypoint x="2706" y="684"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubPedidoNegado_End" bpmnElement="Flow_PubPedidoNegado_End">
+        <di:waypoint x="2806" y="552"/>
+        <di:waypoint x="2886" y="552"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubMantido_End" bpmnElement="Flow_PubMantido_End">
+        <di:waypoint x="2806" y="684"/>
+        <di:waypoint x="2886" y="684"/>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

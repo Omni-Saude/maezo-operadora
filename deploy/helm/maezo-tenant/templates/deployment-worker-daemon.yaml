@@ -1,0 +1,120 @@
+{{- /*
+Worker daemon (W-R2 / R7) — external-task worker harness (CIB Seven fetch-and-lock).
+
+Sibling do fhir-sync e do agent-runtime: mesma imagem, command
+`python -m maezo.runtime.worker_runtime`. Supervisiona o loop fetch-and-lock do
+WorkerHarness e publica eventos/notificacoes de dominio no Kafka via KafkaEventProducer.
+
+WORKER_ID vem do metadata.name do pod (Downward API) — DISTINTO por replica: o engine usa
+o worker_id como dono do lock da external task; duas replicas com o mesmo id brigariam pelo
+mesmo lock. Health-first (mesma keystone do agent-runtime): /healthz 200 imediato, /readyz
+reflete kafka/engine/workers/harness.
+*/ -}}
+{{- if .Values.workerDaemon.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker-daemon
+  namespace: {{ include "maezo-tenant.namespace" . }}
+  labels:
+    {{- include "maezo-tenant.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker-daemon
+spec:
+  replicas: {{ .Values.workerDaemon.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "maezo-tenant.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: worker-daemon
+  template:
+    metadata:
+      labels:
+        {{- include "maezo-tenant.labels" . | nindent 8 }}
+        app.kubernetes.io/component: worker-daemon
+        # O daemon NAO processa PHI cru (so identificadores/refs de processo); zona general.
+        maezo.io/phi-zone: "false"
+        # PodMonitor jobLabel target (podmonitor.yaml): jobLabel names a POD LABEL KEY
+        # to copy from, not a literal job value — this is that key.
+        maezo.io/scrape-job: "maezo-worker-daemon"
+    spec:
+      serviceAccountName: {{ include "maezo-tenant.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: worker-daemon
+          image: {{ include "maezo-tenant.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["python", "-m", "maezo.runtime.worker_runtime"]
+          env:
+            - name: TENANT_ID
+              value: {{ .Values.tenant.id | quote }}
+            # WORKER_ID DISTINTO por replica (Downward API) — dono do lock de external task.
+            - name: WORKER_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: CIBSEVEN_BASE_URL
+              value: "http://cibseven:8080/engine-rest"
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                secretKeyRef:
+                  name: maezo-kafka-config
+                  key: bootstrap-servers
+            {{- if .Values.externalSecrets.enabled }}
+            # PHI pseudonymizer HMAC key (ADR-0006, res-phi-hmac-env-injection). Same gate as the
+            # phi-hmac-key ExternalSecret (externalsecret.yaml: `.Values.externalSecrets.enabled`)
+            # so we never reference a Secret that ESO wasn't asked to create.
+            - name: PHI_HMAC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: maezo-phi-hmac
+                  key: phi-hmac-key
+            {{- end }}
+            # Token de servico do worker p/ o engine (BLOQUEADO/seam: ausente => sem auth header).
+            {{- if .Values.workerDaemon.cibsevenAuthTokenSecret }}
+            - name: CIBSEVEN_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.workerDaemon.cibsevenAuthTokenSecret }}
+                  key: cibseven-auth-token
+            {{- end }}
+            # lock_duration >= pior latencia de handler (auth_analyze/RafaelGraph e lento).
+            - name: WORKER_LOCK_DURATION_MS
+              value: {{ .Values.workerDaemon.lockDurationMs | quote }}
+            - name: WORKER_POLL_INTERVAL_MS
+              value: {{ .Values.workerDaemon.pollIntervalMs | quote }}
+            {{- include "maezo-tenant.otelEnv" . | nindent 12 }}
+          ports:
+            # Metrics + health endpoint (scraped by worker-daemon-metrics Service / PodMonitor).
+            - name: metrics
+              containerPort: 8000
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.workerDaemon.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 20
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

@@ -1,0 +1,803 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+                  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+                  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+                  xmlns:camunda="http://camunda.org/schema/1.0/bpmn"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  id="Definitions_SP_OP_PAGTO_001"
+                  targetNamespace="http://maezo.health/operadora/pagto"
+                  exporter="Maezo W5-PROC"
+                  exporterVersion="0.1.0-draft">
+
+  <bpmn:message id="Msg_PagtoDadosCorrigidos" name="msg.pagto.dados_corrigidos"/>
+  <bpmn:error id="Error_PaymentReleaseNotHuman" name="Liberacao de pagamento de alto valor sem decisao humana / sem tier-match" errorCode="ERR_PAYMENT_RELEASE_NOT_HUMAN"/>
+  <bpmn:error id="Error_PagtoOrdemInvalida" name="Ordem de pagamento inconsistente/sem lastro na origem" errorCode="ERR_PAGTO_ORDEM_INVALIDA"/>
+
+  <bpmn:process id="SP-OP-PAGTO-001" name="SP-OP-PAGTO-001 Pagamentos de Alcada"
+                isExecutable="true" camunda:historyTimeToLive="1825">
+    <bpmn:documentation><![CDATA[
+SP-OP-PAGTO-001 — Pagamentos de Alcada. Status: DRAFT (v0.1.0) — Phase 3, Wave W-B. DI (diagrama)
+sera adicionado na promocao a FINAL. Requer revisao humana (financas/PO/regulatorio/juridico) antes
+de qualquer deploy — ver docs/review-queue.md.
+
+GATILHO REGULATORIO: politica financeira interna da operadora (escada de alcada / segregacao de
+funcoes / SOX-like controls — DRAFT/verify financas). NAO ha RN ANS especifica que defina o teto.
+Interage com Lei 9.656/1998 (pagamento a prestador) e com SP-OP-CONTAS-001 (a conta adjudicada
+gera a obrigacao de pagamento) — DRAFT/verify.
+
+INVARIANTE L1 (no-adverse, high_value_payment, ADR-0008 "agente propoe, humano aprova"): a
+LIBERACAO de pagamento de alto valor (efeito adverso de risco financeiro) SO nasce numa User Task
+humana de aprovacao (UT_AprovacaoAlcada / UT_CoordenacaoAlcada) com decisao_pagamento=APROVAR
+setado por um humano cujo tier de alcada e >= a faixa do valor. NENHUMA DMN deste processo possui
+saida que libere/autorize/pague: pagto_alcada apenas CLASSIFICA o valor numa faixa e roteia para o
+grupo aprovador correto (NUNCA LIBERAR/AUTORIZAR/PAGAR). Faixa ambigua, valor acima de qualquer
+tier configurado, dentro_teto_l2 inconsistente, DMN indisponivel e estouro de SLA TODOS fail-safe
+para o tier humano mais alto (catch-all -> grupo_aprovador=comite-financeiro / faixa ANALISE_HUMANA).
+O efeito adverso e materializado APENAS pelo worker operadora.pagto.release_high_value_payment,
+guardado por ERR_PAYMENT_RELEASE_NOT_HUMAN + tier-match (recusa se aprovador_tier < faixa do valor).
+NAO existe auto-liberacao acima de alcada — nem por DMN, nem por timeout (inversao do anti-pattern
+Task_AutoApprove/timeout do reference; risco #5 do phase3-plan).
+
+CANDIDATE GROUPS VALUE-DRIVEN (unico na plataforma): a DMN pagto_alcada emite grupo_aprovador
+(conjunto fechado: aprovacao-financeira-l1/l2/l3, comite-financeiro); a User Task UT_AprovacaoAlcada
+o consome via camunda:candidateGroups="`pagto_alcada.grupo_aprovador`" (binding dinamico, sempre
+presente, sempre de um conjunto fechado de grupos validos; faixa nao mapeada -> comite-financeiro).
+
+EXCECAO L2 (caminho clerical abaixo do teto): pagamento DENTRO_TETO_L2 (valor <= teto L2 de
+auto-liberacao do tenant E dentro_teto_l2=true) pode ser liberado pelo caminho clerical L2
+(operadora.pagto.release_low_value_payment) — analogo a auth_auto_approval. NAO e efeito adverso de
+alcada. Qualquer coisa acima do teto L2 exige aprovador humano de tier adequado.
+
+BUSINESS KEY (idempotente): "PAGTO-{tenant_id}-{ordem_pagamento_id}" (variante
+PAGTO-{tenant_id}-{numero_lote_tiss}-{prestador_id} quando o pagamento decorre de conta adjudicada
+CONTAS-001). Uma instancia ativa por ordem de pagamento; reenvio retorna a instancia ativa
+(mcp-cibseven.start_process consulta a business key antes de iniciar — EVITA liberacao duplicada de
+pagamento, risco financeiro direto).
+
+EVENTOS DE DOMINIO (worker operadora.events.publish):
+  inicio -> agents.events.pagto.received
+  roteamento -> agents.events.pagto.routed (faixa_valor + grupo_aprovador; valor pode ser
+                omitido/bandado em Zona Geral — sem PHI/dados bancarios crus)
+  breach -> agents.events.pagto.sla_breached
+  fim -> agents.events.pagto.completed (payload.desfecho = liberado_automatico | liberado_humano |
+         recusado_humano | cancelado)
+
+VARIAVEIS DE ENTRADA: tenant_id, ordem_pagamento_id, numero_lote_tiss (opc), prestador_id,
+tipo_pagamento, valor_pagamento_cents (long/int64 — centavos BRL; centavos de alto valor excedem o
+int32 do Java, NUNCA number/Integer), moeda, competencia,
+data_vencimento, conta_origem_ref (token), instrumento_pagamento, dados_pagamento_validos (bool,
+pre-resolvido), lastro_confirmado (bool, pre-resolvido), dentro_teto_l2 (bool, pre-resolvido),
+duplicidade_suspeita (bool, informativo). Contrato completo: docs/processes/contracts/SP-OP-PAGTO-001.md.
+]]></bpmn:documentation>
+
+    <bpmn:startEvent id="Start_OrdemPagamentoRecebida" name="Ordem de pagamento recebida">
+      <bpmn:outgoing>Flow_Start_PubReceived</bpmn:outgoing>
+    </bpmn:startEvent>
+
+    <bpmn:serviceTask id="ST_PublishReceived" name="Publicar evento: pagto.received"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.pagto.received</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,ordem_pagamento_id,prestador_id,tipo_pagamento,instrumento_pagamento</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Start_PubReceived</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubReceived_ValidateData</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- Worker de fatos: valida credor/instrumento/lastro/duplicidade. FATOS, nunca libera. -->
+    <bpmn:serviceTask id="ST_ValidatePaymentData" name="Validar dados de pagamento (sem liberar)"
+                      camunda:type="external" camunda:topic="operadora.pagto.validate_payment_data">
+      <bpmn:documentation>Worker valida/ecoa credor, instrumento, lastro e duplicidade_suspeita (FATOS, nunca decisao de liberacao). Ordem inconsistente/sem lastro -> ERR_PAGTO_ORDEM_INVALIDA (pagto.py). TASY write DROP (ADR-0013). Capturado pelo boundary BE_PagtoOrdemInvalida, abaixo.</bpmn:documentation>
+      <bpmn:incoming>Flow_PubReceived_ValidateData</bpmn:incoming>
+      <bpmn:incoming>Flow_DadosCorrigidos_ValidateData</bpmn:incoming>
+      <bpmn:outgoing>Flow_ValidateData_CalculateFacts</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- Boundary error (validacao de origem, GAP-PAGTO-4): ordem_pagamento_id ausente/inconsistente lanca
+         ERR_PAGTO_ORDEM_INVALIDA no worker validate_payment_data. Antes: sem captura, o incidente travava
+         a mainline no primeiro service task (instancia stuck). Agora: captura -> End_PagtoOrdemInvalida
+         (fail-safe NAO adverso; o worker NUNCA decide liberar/negar — so sinaliza dado de origem
+         inconsistente). Mirror de BE_PrestadorInvalido (SP-OP-CRED-001) / BE_ReembolsoProtocoloInvalido
+         (SP-OP-REEMBOLSO-001). -->
+    <bpmn:boundaryEvent id="BE_PagtoOrdemInvalida" name="Ordem de pagamento inconsistente/sem lastro na origem (ERR_PAGTO_ORDEM_INVALIDA)" attachedToRef="ST_ValidatePaymentData">
+      <bpmn:outgoing>Flow_PagtoOrdemInvalida_End</bpmn:outgoing>
+      <bpmn:errorEventDefinition id="EED_PagtoOrdemInvalida" errorRef="Error_PagtoOrdemInvalida"/>
+    </bpmn:boundaryEvent>
+    <bpmn:endEvent id="End_PagtoOrdemInvalida" name="Ordem de pagamento inconsistente na origem — validacao barrou (fail-safe, nao adverso)">
+      <bpmn:documentation>Fail-safe de validacao (NAO adverso): a ordem chegou com dado de origem inconsistente (ex.: ordem_pagamento_id ausente). O worker validate_payment_data NUNCA decide liberar/negar; apenas sinaliza a inconsistencia (ERR_PAGTO_ORDEM_INVALIDA). Terminal tecnico limpo — evita incidente travado na mainline. Nenhum efeito adverso automatico (ADR-0018).</bpmn:documentation>
+      <bpmn:incoming>Flow_PagtoOrdemInvalida_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Worker de aritmetica pura: normaliza centavos, compara com teto L2 (dinheiro inteiro-cents/double; nunca number). -->
+    <bpmn:serviceTask id="ST_CalculateFacts" name="Calcular fatos aritmeticos (normaliza centavos, teto L2)"
+                      camunda:type="external" camunda:topic="operadora.pagto.calculate_facts">
+      <bpmn:documentation>Aritmetica pura: ecoa valor_pagamento_cents (long/int64 — centavos de BRL de alto valor excedem o int32 do Java) e dentro_teto_l2 (bool, valor &lt;= teto L2 do tenant). Tambem ECOA os 3 fatos booleanos que a DMN pagto_admissibility le (dados_pagamento_validos/lastro_confirmado/duplicidade_suspeita) com defaults FAIL-CLOSED quando ausentes (false/false/true) — plumbing de variavel, NAO decisao de liberacao; garante que o gate de admissibilidade tem os 3 inputs em TODO caminho e que fato faltante NUNCA auto-libera. SEM decisao de liberacao. BRL em inteiro-centavos/double — nunca number.</bpmn:documentation>
+      <bpmn:incoming>Flow_ValidateData_CalculateFacts</bpmn:incoming>
+      <bpmn:outgoing>Flow_CalculateFacts_Admissibility</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- DMN: admissibilidade da ordem (gate FAIL-SAFE ANTES da alcada — NUNCA libera) -->
+    <!-- BRT_PagtoAdmissibility roda ANTES de GW_Admissibilidade (que le sua saida promovida) e
+         ANTES de BRT_AlcadaRouting (ADR-0012; ordem businessRuleTask-antes-do-gateway; ENGINE-16004). -->
+    <bpmn:businessRuleTask id="BRT_PagtoAdmissibility" name="Avaliar admissibilidade da ordem (DMN pagto_admissibility)"
+                           camunda:decisionRef="pagto_admissibility"
+                           camunda:mapDecisionResult="singleResult"
+                           camunda:resultVariable="pagto_admissibility">
+      <bpmn:documentation>Saidas: roteamento (SEGUE_ROTEAMENTO | PENDENTE_DADOS | ANALISE_HUMANA) + motivo. Por design NAO existe saida LIBERAR/AUTORIZAR/PAGAR (L1 hard). duplicidade_suspeita=true ou lastro_confirmado=false -> ANALISE_HUMANA (humano confirma; nunca auto-libera). Catch-all conservador -> ANALISE_HUMANA.</bpmn:documentation>
+      <!-- Promove `roteamento` para uma variavel de processo top-level (`admissibilidade_roteamento`)
+           APOS a DMN resolver, para o gateway GW_Admissibilidade le-la como var PLANA (sem isto, ler
+           a saida aninhada num gateway cai na classe ENGINE-16004). NAO existe saida adversa: so
+           re-expoe o roteamento ja classificado pela DMN. -->
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:outputParameter name="admissibilidade_roteamento">${pagto_admissibility.roteamento}</camunda:outputParameter>
+          <camunda:outputParameter name="admissibilidade_motivo">${pagto_admissibility.motivo}</camunda:outputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_CalculateFacts_Admissibility</bpmn:incoming>
+      <bpmn:outgoing>Flow_Admissibility_GW</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+
+    <!-- Gateway de admissibilidade: so SEGUE_ROTEAMENTO alcanca a escada de alcada; tudo o mais
+         (PENDENTE_DADOS / ANALISE_HUMANA / ambiguo) cai no caminho humano (default, conservador). -->
+    <bpmn:exclusiveGateway id="GW_Admissibilidade" name="Admissivel?" default="Flow_GWAdmiss_Humana">
+      <bpmn:incoming>Flow_Admissibility_GW</bpmn:incoming>
+      <bpmn:outgoing>Flow_GWAdmiss_Segue</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWAdmiss_Humana</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <!-- Caminho humano de admissibilidade: analise de dados/lastro/duplicidade antes de qualquer
+         roteamento. Nunca auto-libera; o humano decide PROSSEGUIR (segue para a alcada) ou DEVOLVER
+         (devolucao para revisao). Fail-safe: default = DEVOLVER (nao segue roteamento sem decisao). -->
+    <bpmn:userTask id="UT_AnaliseAdmissibilidade" name="Analisar admissibilidade da ordem (dados/lastro/duplicidade)"
+                   camunda:candidateGroups="coordenacao-financeira">
+      <bpmn:documentation><![CDATA[
+HITL de admissibilidade (L1 hard, high_value_payment): ponto humano que resolve uma ordem de
+pagamento nao-admissivel (dados invalidos, lastro nao confirmado ou suspeita de duplicidade) ANTES
+de qualquer roteamento de alcada. NUNCA auto-libera. Saidas: decisao_admissibilidade in
+{PROSSEGUIR, DEVOLVER}. PROSSEGUIR exige que o humano tenha confirmado o lastro / descartado a
+duplicidade / validado os dados (a ordem segue entao para a escada de alcada pagto_alcada, que por
+sua vez ainda exige aprovacao humana de tier para alto valor). DEVOLVER (default conservador) exige
+justificativa_recusa + aprovador_id e devolve a ordem para revisao (nao libera; NAO e glosa). O
+grupo coordenacao-financeira e DRAFT/verify (taxonomia organizacional — docs/review-queue.md).
+]]></bpmn:documentation>
+      <bpmn:incoming>Flow_GWAdmiss_Humana</bpmn:incoming>
+      <bpmn:outgoing>Flow_AnaliseAdmiss_GW</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <!-- Resolucao humana da admissibilidade: PROSSEGUIR reentra na escada de alcada; DEVOLVER
+         (default) devolve para revisao. NUNCA auto-libera (a decisao e sempre humana). -->
+    <bpmn:exclusiveGateway id="GW_ResolucaoAdmissibilidade" name="Resolucao da admissibilidade" default="Flow_GWResol_Devolver">
+      <bpmn:incoming>Flow_AnaliseAdmiss_GW</bpmn:incoming>
+      <bpmn:outgoing>Flow_GWResol_Prossegue</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWResol_Devolver</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <!-- DMN: escada de alcada value-driven (classifica/roteia — NUNCA libera) -->
+    <bpmn:businessRuleTask id="BRT_AlcadaRouting" name="Classificar faixa + grupo aprovador (DMN pagto_alcada)"
+                           camunda:decisionRef="pagto_alcada"
+                           camunda:mapDecisionResult="singleResult"
+                           camunda:resultVariable="pagto_alcada">
+      <bpmn:documentation>Saidas: faixa_valor (DENTRO_TETO_L2 | ALCADA_L1 | ALCADA_L2 | ALCADA_L3 | ANALISE_HUMANA) + grupo_aprovador (conjunto fechado; faixa nao mapeada -> comite-financeiro). Por design NAO existe saida LIBERAR/AUTORIZAR/PAGAR (L1 no-adverse). Catch-all conservador -> tier mais alto.</bpmn:documentation>
+      <!-- mapDecisionResult=singleResult armazena UM mapa `pagto_alcada` (acessivel como
+           ${pagto_alcada.faixa_valor}); o engine NAO achata as saidas em variaveis de processo
+           top-level. O gateway e o candidateGroups value-driven usam a forma aninhada (correto), mas
+           os workers/eventos de dominio (release_high_value_payment / generic publish / dossie / SLA /
+           breach) leem `faixa_valor`, `grupo_aprovador` e `tier_minimo` como variaveis FLAT. Estes
+           outputParameter achatam as saidas necessarias para o escopo do processo APOS a DMN resolver
+           (sem isso, o tier-match cai no tier conservador 4 e pagto.routed omite faixa/grupo). GAP-PAGTO-3:
+           `tier_minimo` (a escada faixa->tier, movida do dict Python para a DMN, ADR-0012) e achatado aqui
+           para o GUARD (3) TIER-MATCH de release_high_value_payment le-lo. NAO existe saida adversa: so
+           re-expoe a classificacao/roteamento ja produzido pela DMN. -->
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:outputParameter name="faixa_valor">${pagto_alcada.faixa_valor}</camunda:outputParameter>
+          <camunda:outputParameter name="grupo_aprovador">${pagto_alcada.grupo_aprovador}</camunda:outputParameter>
+          <camunda:outputParameter name="tier_minimo">${pagto_alcada.tier_minimo}</camunda:outputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_GWAdmiss_Segue</bpmn:incoming>
+      <bpmn:incoming>Flow_GWResol_Prossegue</bpmn:incoming>
+      <bpmn:outgoing>Flow_Alcada_PubRouted</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+
+    <bpmn:serviceTask id="ST_PublishRouted" name="Publicar evento: pagto.routed"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:documentation>Payload carrega faixa_valor + grupo_aprovador; o valor cru pode ser omitido/bandado em Zona Geral (sem dados bancarios crus — ADR-0006).</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.pagto.routed</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,ordem_pagamento_id,faixa_valor,grupo_aprovador</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Alcada_PubRouted</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubRouted_GW</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:exclusiveGateway id="GW_Faixa" name="Faixa de valor?" default="Flow_GW_AlcadaHumana">
+      <bpmn:incoming>Flow_PubRouted_GW</bpmn:incoming>
+      <bpmn:outgoing>Flow_GW_DentroTeto</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GW_AlcadaHumana</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <!-- Ramo clerical L2 (abaixo do teto): libera baixo valor — neutro, sem efeito adverso de alcada -->
+    <bpmn:serviceTask id="ST_ReleaseLowValue" name="Liberar pagamento abaixo do teto L2 (clerical)"
+                      camunda:type="external" camunda:topic="operadora.pagto.release_low_value_payment">
+      <bpmn:documentation>Libera pagamento DENTRO_TETO_L2 (caminho clerical L2; analogo a auth_auto_approval). NAO e efeito adverso de alcada: so alcancado quando pagto_alcada=DENTRO_TETO_L2 (valor &lt;= teto L2 E dentro_teto_l2=true). TASY write DROP (ADR-0013); a liberacao de caixa e sistema de tesouraria externo.</bpmn:documentation>
+      <bpmn:incoming>Flow_GW_DentroTeto</bpmn:incoming>
+      <bpmn:outgoing>Flow_ReleaseLow_Pub</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="ST_PublishLiberadoAutomatico" name="Publicar evento: pagto.completed (liberado_automatico)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.pagto.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">liberado_automatico</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,ordem_pagamento_id,faixa_valor</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_ReleaseLow_Pub</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubLiberadoAuto_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_PagamentoLiberadoAutomatico" name="Pagamento liberado automaticamente (abaixo do teto L2)">
+      <bpmn:incoming>Flow_PubLiberadoAuto_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Ramo alcada humana (acima do teto): SLA -> dossie -> User Task com candidateGroups value-driven -->
+    <!-- BRT_PagtoSla resolve `sla` no ponto de CONVERGENCIA antes da User Task (ENGINE-16004: a var
+         que os timers referenciam — ${sla.sla_aprovacao}/${sla.sla_alerta} — e setada em TODO
+         caminho que chega a UT). -->
+    <bpmn:businessRuleTask id="BRT_PagtoSla" name="Determinar SLA de aprovacao (DMN pagto_sla)"
+                           camunda:decisionRef="pagto_sla"
+                           camunda:mapDecisionResult="singleResult"
+                           camunda:resultVariable="sla">
+      <bpmn:documentation>Saidas: sla_aprovacao, sla_alerta (string ISO 8601), fonte. Sem saida adversa. Tiers mais altos -> SLA maior. Catch-all conservador (maior SLA). Prazos DRAFT/verify financas (politica interna; sem RN ANS).</bpmn:documentation>
+      <bpmn:incoming>Flow_GW_AlcadaHumana</bpmn:incoming>
+      <bpmn:outgoing>Flow_Sla_Dossie</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+
+    <bpmn:serviceTask id="ST_PrepareApprovalDossier" name="Preparar dossie de aprovacao (agente Andre — instrui, nao decide)"
+                      camunda:type="external" camunda:topic="operadora.pagto.prepare_approval_dossier">
+      <bpmn:documentation>Convoca Andre (A2A analytics.actuarial/analytics.population, ADR-0005): enriquece o dossie de aprovacao (narrativa/risco). INSTRUI a decisao humana, nunca a substitui — o aprovador humano de tier adequado decide na User Task. KPI de Andre false_pricing_decision_rate==0. Tambem reentrada pelo ramo seguir_analise de GW_DecisaoCoordenacao (GAP-PAGTO-5): o dossie e refeito antes de reabrir UT_AprovacaoAlcada apos a coordenacao decidir continuar a analise (mirror de ST_PrepareRemediationDossier/GAP-ADEQ-3).</bpmn:documentation>
+      <bpmn:incoming>Flow_Sla_Dossie</bpmn:incoming>
+      <bpmn:incoming>Flow_GWCoord_SeguirAnalise</bpmn:incoming>
+      <bpmn:outgoing>Flow_Dossie_UTAprovacao</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- User Task value-driven: candidateGroups vem da saida da DMN pagto_alcada (binding dinamico) -->
+    <bpmn:userTask id="UT_AprovacaoAlcada" name="Aprovacao de pagamento de alcada (grupo dirigido por valor)"
+                   camunda:candidateGroups="${pagto_alcada.grupo_aprovador}">
+      <bpmn:documentation><![CDATA[
+HITL L1 hard (high_value_payment, ADR-0005/0008): UNICO ponto onde a liberacao de pagamento de alto
+valor pode nascer. candidateGroups e VALUE-DRIVEN: `pagto_alcada.grupo_aprovador` (conjunto fechado
+aprovacao-financeira-l1/l2/l3; faixa ambigua/acima do maior tier -> comite-financeiro). Saidas:
+decisao_pagamento in {APROVAR, RECUSAR, SOLICITAR_INFO, CANCELAR}. APROVAR exige justificativa_aprovacao,
+valor_aprovado_cents, aprovador_id e aprovador_tier compativel com faixa_valor (tier-match — validacao
+de formulario + guard do worker release_high_value_payment). RECUSAR exige justificativa_recusa. CANCELAR
+(GAP-PAGTO-2, contrato §Terminais End_PagamentoCancelado) exige justificativa_recusa — ordem
+cancelada/duplicada/sem lastro descoberta na revisao de alcada (sem liberacao; NAO e uma recusa de
+merito, e a ordem em si que e invalida). SLA: `sla.sla_aprovacao` (DMN pagto_sla; politica interna —
+DRAFT/verify financas). A decisao sai em nome do aprovador humano (assignee na trilha de auditoria,
+ADR-0007). Tambem reentrada pelo ramo prorrogar_prazo de GW_DecisaoCoordenacao (GAP-PAGTO-5): a
+coordenacao financeira estende o prazo em vez de decidir agora, reabrindo esta UT com os boundary
+timers (BT_AlertaSlaPagto/BT_SlaAprovacao) rearmados.
+]]></bpmn:documentation>
+      <bpmn:incoming>Flow_Dossie_UTAprovacao</bpmn:incoming>
+      <bpmn:incoming>Flow_GWCoord_Prorrogar</bpmn:incoming>
+      <bpmn:outgoing>Flow_UTAprovacao_GW</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <!-- Timer nao-interruptivo: alerta de risco de SLA -> coordenacao financeira -->
+    <bpmn:boundaryEvent id="BT_AlertaSlaPagto" name="Alerta de risco de SLA" cancelActivity="false" attachedToRef="UT_AprovacaoAlcada">
+      <bpmn:outgoing>Flow_Alerta_Notify</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TD_AlertaSlaPagto">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${sla.sla_alerta}</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="ST_NotificarRiscoSla" name="Notificar risco de SLA (coordenacao-financeira)"
+                      camunda:type="external" camunda:topic="operadora.pagto.notify_sla_risk">
+      <bpmn:incoming>Flow_Alerta_Notify</bpmn:incoming>
+      <bpmn:outgoing>Flow_Notify_EndAlerta</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_RiscoSlaNotificado" name="Risco de SLA notificado (aprovacao segue)">
+      <bpmn:incoming>Flow_Notify_EndAlerta</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Timer interruptivo: SLA estourado -> coordenacao financeira humana assume (NUNCA auto-libera por timeout) -->
+    <bpmn:boundaryEvent id="BT_SlaAprovacao" name="SLA de aprovacao (politica interna — DRAFT/verify financas)" cancelActivity="true" attachedToRef="UT_AprovacaoAlcada">
+      <bpmn:outgoing>Flow_SlaEstourado_Pub</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TD_SlaAprovacao">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${sla.sla_aprovacao}</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="ST_PublishSlaBreach" name="Publicar evento: pagto.sla_breached"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:documentation>Publica pagto.sla_breached e, no MESMO passo, default-inicializa
+decisao_coordenacao=`""` (GAP-PAGTO-5 / ENGINE-16004): este e o UNICO task que precede
+UT_CoordenacaoAlcada no caminho de estouro de SLA, entao ao chegar em GW_DecisaoCoordenacao a
+variavel existe SEMPRE — mesmo que o humano complete UT_CoordenacaoAlcada SEM decisao_coordenacao, o
+gateway avalia contra "" (nunca "Unknown property"/500) e cai no default conservador (seguir_analise).
+O default-init fica AQUI (task externo que antecede a UT), NAO como outputParameter da propria
+UT_CoordenacaoAlcada: output mappings de User Task avaliam tambem em saidas por interrupcao, o que
+reintroduziria o risco (mirror de ST_PublishSlaBreach/GAP-ADEQ-3 em SP-OP-ADEQUACAO-001). A UT
+continua livre para sobrescrever decisao_coordenacao.</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.pagto.sla_breached</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,ordem_pagamento_id,faixa_valor</camunda:inputParameter>
+          <camunda:outputParameter name="decisao_coordenacao">${""}</camunda:outputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_SlaEstourado_Pub</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubBreach_UTCoord</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:userTask id="UT_CoordenacaoAlcada" name="Coordenacao financeira assume a aprovacao (tier >= faixa)"
+                   camunda:candidateGroups="coordenacao-financeira">
+      <bpmn:documentation><![CDATA[
+Escalation path do SLA: caso reatribuido a coordenacao financeira. A aprovacao continua HUMANA e
+tier-adequada (o worker release_high_value_payment re-exige tier-match) — NUNCA auto-libera por
+timeout. GAP-PAGTO-5: decide `decisao_coordenacao` (campo DISTINTO de `decisao_pagamento`, contrato
+§Variaveis de saida), roteado por GW_DecisaoCoordenacao logo a seguir: `assumir_aprovacao`
+(coordenacao toma a decisao de aprovacao AGORA, preenchendo os mesmos campos obrigatorios de
+UT_AprovacaoAlcada — decisao_pagamento/justificativa_aprovacao/valor_aprovado_cents/aprovador_id/
+aprovador_tier) -> GW_DecisaoPagamento (decisao_pagamento roteia normalmente, incl. tier-match; a
+liberacao adversa continua HUMANA, NUNCA muda de natureza por estouro de SLA); `prorrogar_prazo`
+(estende o prazo em vez de decidir agora) -> volta a UT_AprovacaoAlcada (reabre com os boundary
+timers BT_AlertaSlaPagto/BT_SlaAprovacao rearmados); `seguir_analise` (default/catch-all
+conservador — inclui "" e qualquer valor nao mapeado) -> volta a ST_PrepareApprovalDossier (dossie
+refeito por Andre antes de reabrir UT_AprovacaoAlcada). ANTES desta fix, UT_CoordenacaoAlcada
+reusava o MESMO campo/gateway de UT_AprovacaoAlcada (decisao_pagamento/GW_DecisaoPagamento), sem
+nenhuma forma de a coordenacao prorrogar o prazo ou devolver a analise — so podia decidir o merito
+diretamente, contradizendo o contrato (que ja declarava `decisao_coordenacao` distinto).
+]]></bpmn:documentation>
+      <bpmn:incoming>Flow_PubBreach_UTCoord</bpmn:incoming>
+      <bpmn:outgoing>Flow_UTCoord_GW</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:exclusiveGateway id="GW_DecisaoCoordenacao" name="Decisao da coordenacao financeira (estouro de SLA)" default="Flow_GWCoord_SeguirAnalise">
+      <bpmn:documentation>GAP-PAGTO-5: roteia decisao_coordenacao (saida de UT_CoordenacaoAlcada, so setada no caminho de estouro de SLA — a propria estrutura do grafo garante que este gateway so e alcancado apos UT_CoordenacaoAlcada completar, logo o identificador esta sempre SET aqui — ENGINE-16004). Hardening: ST_PublishSlaBreach (unico task predecessor da UT) default-inicializa decisao_coordenacao=`""`, entao ate uma completude da UT que OMITA decisao_coordenacao avalia contra "" e cai no default (seguir_analise) — nunca "Unknown property"/500. assumir_aprovacao -> GW_DecisaoPagamento (decisao_pagamento, ja preenchida na mesma UT, roteia como se fosse UT_AprovacaoAlcada). prorrogar_prazo -> UT_AprovacaoAlcada (reabre com prazo estendido). seguir_analise (default, inclui "" e qualquer outro valor) -> ST_PrepareApprovalDossier (dossie refeito antes de reabrir a decisao).</bpmn:documentation>
+      <bpmn:incoming>Flow_UTCoord_GW</bpmn:incoming>
+      <bpmn:outgoing>Flow_GWCoord_Assumir</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWCoord_Prorrogar</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWCoord_SeguirAnalise</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <!-- Ramo SOLICITAR_INFO: aguarda correcao de dados (msg) -> revalida dados (sem efeito adverso) -->
+    <bpmn:intermediateCatchEvent id="ICE_AguardarDadosCorrigidos" name="Aguardar correcao de dados de pagamento">
+      <bpmn:incoming>Flow_GWDec_SolicitarInfo</bpmn:incoming>
+      <bpmn:outgoing>Flow_DadosCorrigidos_ValidateData</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="MED_DadosCorrigidos" messageRef="Msg_PagtoDadosCorrigidos"/>
+    </bpmn:intermediateCatchEvent>
+
+    <bpmn:exclusiveGateway id="GW_DecisaoPagamento" name="Decisao de pagamento" default="Flow_GWDec_Recusar">
+      <bpmn:incoming>Flow_UTAprovacao_GW</bpmn:incoming>
+      <bpmn:incoming>Flow_GWCoord_Assumir</bpmn:incoming>
+      <bpmn:outgoing>Flow_GWDec_Aprovar</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWDec_SolicitarInfo</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWDec_Recusar</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWDec_Cancelar</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <!-- Ramo APROVAR: efeito adverso gated por worker (ERR_PAYMENT_RELEASE_NOT_HUMAN + tier-match) -->
+    <bpmn:serviceTask id="ST_ReleaseHighValue" name="Liberar pagamento de alto valor (efeito adverso gated)"
+                      camunda:type="external" camunda:topic="operadora.pagto.release_high_value_payment">
+      <bpmn:documentation>HARD GUARDRAIL (L1 hard, high_value_payment): o worker RECUSA liberar se decisao_pagamento != APROVAR setado por humano, se faltar aprovador_id/justificativa_aprovacao/valor_aprovado_cents/aprovador_tier, OU se o TIER-MATCH falhar (aprovador_tier insuficiente para faixa_valor) — lanca ERR_PAYMENT_RELEASE_NOT_HUMAN. Carrega aprovador_id + aprovador_tier na trilha de auditoria (ADR-0007). Este worker NUNCA decide; so libera a decisao ja tomada na UT humana com tier compativel.</bpmn:documentation>
+      <bpmn:incoming>Flow_GWDec_Aprovar</bpmn:incoming>
+      <bpmn:outgoing>Flow_ReleaseHigh_Pub</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="ST_PublishLiberadoHumano" name="Publicar evento: pagto.completed (liberado_humano)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.pagto.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">liberado_humano</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,ordem_pagamento_id,faixa_valor,aprovador_id,aprovador_tier</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_ReleaseHigh_Pub</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubLiberadoHumano_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_PagamentoLiberadoHumano" name="Pagamento de alto valor liberado (L1 — humano + tier-match)">
+      <bpmn:incoming>Flow_PubLiberadoHumano_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Ramo RECUSAR: registra recusa/devolucao para revisao (NAO e glosa; sem liberar) -->
+    <bpmn:serviceTask id="ST_RegisterPaymentRefusal" name="Registrar recusa/devolucao do pagamento (decisao humana)"
+                      camunda:type="external" camunda:topic="operadora.pagto.register_payment_refusal">
+      <bpmn:documentation>Registra a recusa/devolucao do pagamento para revisao quando decisao_pagamento=RECUSAR (decisao de alcada) OU quando a admissibilidade e devolvida por humano (decisao_admissibilidade=DEVOLVER) — ambos registram justificativa_recusa + responsavel humano. NAO e glosa (glosa nasce em CONTAS-001); NAO libera. Carrega aprovador_id na trilha de auditoria (ADR-0007).</bpmn:documentation>
+      <bpmn:incoming>Flow_GWDec_Recusar</bpmn:incoming>
+      <bpmn:incoming>Flow_GWResol_Devolver</bpmn:incoming>
+      <bpmn:outgoing>Flow_Recusa_Pub</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="ST_PublishRecusadoHumano" name="Publicar evento: pagto.completed (recusado_humano)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.pagto.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">recusado_humano</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,ordem_pagamento_id,aprovador_id</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Recusa_Pub</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubRecusado_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_PagamentoRecusadoHumano" name="Pagamento recusado/devolvido para revisao (decisao humana)">
+      <bpmn:incoming>Flow_PubRecusado_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Ramo CANCELAR (GAP-PAGTO-2, contrato §Terminais End_PagamentoCancelado): a alcada humana
+         identifica que a ordem esta cancelada/duplicada/sem lastro (distinto de RECUSAR, que e uma
+         recusa de merito da liberacao) — nunca libera. Espelha o padrao neutro de
+         SP-OP-REEMBOLSO End_ReembolsoCancelado (publish direto, sem worker de efeito adverso: nao ha
+         efeito adverso a materializar, apenas o registro do desfecho). -->
+    <bpmn:serviceTask id="ST_PublishCancelado" name="Publicar evento: pagto.completed (cancelado)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:documentation>Ordem cancelada/duplicada/sem lastro identificada na alcada humana (decisao_pagamento=CANCELAR) — sem liberacao, sem efeito adverso (contrato §Terminais End_PagamentoCancelado: "neutro — solicitacao cancelada/duplicada/sem lastro").</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.pagto.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">cancelado</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,ordem_pagamento_id,aprovador_id,justificativa_recusa</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_GWDec_Cancelar</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubCancelado_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_PagamentoCancelado" name="Ordem de pagamento cancelada/duplicada/sem lastro (neutro — sem liberacao)">
+      <bpmn:incoming>Flow_PubCancelado_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- FLOWS -->
+    <bpmn:sequenceFlow id="Flow_Start_PubReceived" sourceRef="Start_OrdemPagamentoRecebida" targetRef="ST_PublishReceived"/>
+    <bpmn:sequenceFlow id="Flow_PubReceived_ValidateData" sourceRef="ST_PublishReceived" targetRef="ST_ValidatePaymentData"/>
+    <bpmn:sequenceFlow id="Flow_ValidateData_CalculateFacts" sourceRef="ST_ValidatePaymentData" targetRef="ST_CalculateFacts"/>
+    <bpmn:sequenceFlow id="Flow_PagtoOrdemInvalida_End" sourceRef="BE_PagtoOrdemInvalida" targetRef="End_PagtoOrdemInvalida"/>
+    <bpmn:sequenceFlow id="Flow_CalculateFacts_Admissibility" sourceRef="ST_CalculateFacts" targetRef="BRT_PagtoAdmissibility"/>
+    <bpmn:sequenceFlow id="Flow_Admissibility_GW" sourceRef="BRT_PagtoAdmissibility" targetRef="GW_Admissibilidade"/>
+    <bpmn:sequenceFlow id="Flow_GWAdmiss_Segue" name="SEGUE_ROTEAMENTO (admissivel)" sourceRef="GW_Admissibilidade" targetRef="BRT_AlcadaRouting">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${admissibilidade_roteamento == 'SEGUE_ROTEAMENTO'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWAdmiss_Humana" name="nao admissivel -> analise humana (default)" sourceRef="GW_Admissibilidade" targetRef="UT_AnaliseAdmissibilidade"/>
+    <bpmn:sequenceFlow id="Flow_AnaliseAdmiss_GW" sourceRef="UT_AnaliseAdmissibilidade" targetRef="GW_ResolucaoAdmissibilidade"/>
+    <bpmn:sequenceFlow id="Flow_GWResol_Prossegue" name="PROSSEGUIR (humano confirmou)" sourceRef="GW_ResolucaoAdmissibilidade" targetRef="BRT_AlcadaRouting">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_admissibilidade == 'PROSSEGUIR'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWResol_Devolver" name="DEVOLVER (default)" sourceRef="GW_ResolucaoAdmissibilidade" targetRef="ST_RegisterPaymentRefusal"/>
+    <bpmn:sequenceFlow id="Flow_Alcada_PubRouted" sourceRef="BRT_AlcadaRouting" targetRef="ST_PublishRouted"/>
+    <bpmn:sequenceFlow id="Flow_PubRouted_GW" sourceRef="ST_PublishRouted" targetRef="GW_Faixa"/>
+    <bpmn:sequenceFlow id="Flow_GW_DentroTeto" name="DENTRO_TETO_L2 (clerical L2)" sourceRef="GW_Faixa" targetRef="ST_ReleaseLowValue">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${pagto_alcada.faixa_valor == 'DENTRO_TETO_L2'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GW_AlcadaHumana" name="acima do teto -> alcada humana (default)" sourceRef="GW_Faixa" targetRef="BRT_PagtoSla"/>
+    <bpmn:sequenceFlow id="Flow_ReleaseLow_Pub" sourceRef="ST_ReleaseLowValue" targetRef="ST_PublishLiberadoAutomatico"/>
+    <bpmn:sequenceFlow id="Flow_PubLiberadoAuto_End" sourceRef="ST_PublishLiberadoAutomatico" targetRef="End_PagamentoLiberadoAutomatico"/>
+    <bpmn:sequenceFlow id="Flow_Sla_Dossie" sourceRef="BRT_PagtoSla" targetRef="ST_PrepareApprovalDossier"/>
+    <bpmn:sequenceFlow id="Flow_Dossie_UTAprovacao" sourceRef="ST_PrepareApprovalDossier" targetRef="UT_AprovacaoAlcada"/>
+    <bpmn:sequenceFlow id="Flow_Alerta_Notify" sourceRef="BT_AlertaSlaPagto" targetRef="ST_NotificarRiscoSla"/>
+    <bpmn:sequenceFlow id="Flow_Notify_EndAlerta" sourceRef="ST_NotificarRiscoSla" targetRef="End_RiscoSlaNotificado"/>
+    <bpmn:sequenceFlow id="Flow_SlaEstourado_Pub" sourceRef="BT_SlaAprovacao" targetRef="ST_PublishSlaBreach"/>
+    <bpmn:sequenceFlow id="Flow_PubBreach_UTCoord" sourceRef="ST_PublishSlaBreach" targetRef="UT_CoordenacaoAlcada"/>
+    <bpmn:sequenceFlow id="Flow_UTAprovacao_GW" sourceRef="UT_AprovacaoAlcada" targetRef="GW_DecisaoPagamento"/>
+    <bpmn:sequenceFlow id="Flow_UTCoord_GW" sourceRef="UT_CoordenacaoAlcada" targetRef="GW_DecisaoCoordenacao"/>
+    <!-- GAP-PAGTO-5: GW_DecisaoCoordenacao roteia decisao_coordenacao (saida de UT_CoordenacaoAlcada,
+         so setada no caminho de estouro de SLA -> este gateway so e alcancavel apos
+         UT_CoordenacaoAlcada completar, logo o identificador esta sempre SET aqui, ENGINE-16004). -->
+    <bpmn:sequenceFlow id="Flow_GWCoord_Assumir" name="assumir_aprovacao" sourceRef="GW_DecisaoCoordenacao" targetRef="GW_DecisaoPagamento">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_coordenacao == 'assumir_aprovacao'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWCoord_Prorrogar" name="prorrogar_prazo" sourceRef="GW_DecisaoCoordenacao" targetRef="UT_AprovacaoAlcada">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_coordenacao == 'prorrogar_prazo'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWCoord_SeguirAnalise" name="seguir_analise (default)" sourceRef="GW_DecisaoCoordenacao" targetRef="ST_PrepareApprovalDossier"/>
+    <bpmn:sequenceFlow id="Flow_GWDec_Aprovar" name="APROVAR (somente humano + tier-match)" sourceRef="GW_DecisaoPagamento" targetRef="ST_ReleaseHighValue">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_pagamento == 'APROVAR'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWDec_SolicitarInfo" name="SOLICITAR_INFO" sourceRef="GW_DecisaoPagamento" targetRef="ICE_AguardarDadosCorrigidos">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_pagamento == 'SOLICITAR_INFO'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWDec_Recusar" name="RECUSAR (default)" sourceRef="GW_DecisaoPagamento" targetRef="ST_RegisterPaymentRefusal"/>
+    <bpmn:sequenceFlow id="Flow_GWDec_Cancelar" name="CANCELAR (cancelada/duplicada/sem lastro)" sourceRef="GW_DecisaoPagamento" targetRef="ST_PublishCancelado">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_pagamento == 'CANCELAR'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_DadosCorrigidos_ValidateData" sourceRef="ICE_AguardarDadosCorrigidos" targetRef="ST_ValidatePaymentData"/>
+    <bpmn:sequenceFlow id="Flow_ReleaseHigh_Pub" sourceRef="ST_ReleaseHighValue" targetRef="ST_PublishLiberadoHumano"/>
+    <bpmn:sequenceFlow id="Flow_PubLiberadoHumano_End" sourceRef="ST_PublishLiberadoHumano" targetRef="End_PagamentoLiberadoHumano"/>
+    <bpmn:sequenceFlow id="Flow_Recusa_Pub" sourceRef="ST_RegisterPaymentRefusal" targetRef="ST_PublishRecusadoHumano"/>
+    <bpmn:sequenceFlow id="Flow_PubRecusado_End" sourceRef="ST_PublishRecusadoHumano" targetRef="End_PagamentoRecusadoHumano"/>
+    <bpmn:sequenceFlow id="Flow_PubCancelado_End" sourceRef="ST_PublishCancelado" targetRef="End_PagamentoCancelado"/>
+  </bpmn:process>
+
+  <bpmndi:BPMNDiagram id="Diagram_SP-OP-PAGTO-001">
+    <bpmndi:BPMNPlane id="Plane_SP-OP-PAGTO-001" bpmnElement="SP-OP-PAGTO-001">
+      <bpmndi:BPMNShape id="Shape_Start_OrdemPagamentoRecebida" bpmnElement="Start_OrdemPagamentoRecebida">
+        <dc:Bounds x="72" y="74" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishReceived" bpmnElement="ST_PublishReceived">
+        <dc:Bounds x="220" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_ValidatePaymentData" bpmnElement="ST_ValidatePaymentData">
+        <dc:Bounds x="400" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BE_PagtoOrdemInvalida" bpmnElement="BE_PagtoOrdemInvalida">
+        <dc:Bounds x="432" y="114" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_PagtoOrdemInvalida" bpmnElement="End_PagtoOrdemInvalida">
+        <dc:Bounds x="72" y="206" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_CalculateFacts" bpmnElement="ST_CalculateFacts">
+        <dc:Bounds x="580" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_PagtoAdmissibility" bpmnElement="BRT_PagtoAdmissibility">
+        <dc:Bounds x="760" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_Admissibilidade" bpmnElement="GW_Admissibilidade" isMarkerVisible="true">
+        <dc:Bounds x="940" y="67" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT_AnaliseAdmissibilidade" bpmnElement="UT_AnaliseAdmissibilidade">
+        <dc:Bounds x="1070" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_ResolucaoAdmissibilidade" bpmnElement="GW_ResolucaoAdmissibilidade" isMarkerVisible="true">
+        <dc:Bounds x="1250" y="67" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_AlcadaRouting" bpmnElement="BRT_AlcadaRouting">
+        <dc:Bounds x="1380" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishRouted" bpmnElement="ST_PublishRouted">
+        <dc:Bounds x="1560" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_Faixa" bpmnElement="GW_Faixa" isMarkerVisible="true">
+        <dc:Bounds x="1740" y="67" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_ReleaseLowValue" bpmnElement="ST_ReleaseLowValue">
+        <dc:Bounds x="1870" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishLiberadoAutomatico" bpmnElement="ST_PublishLiberadoAutomatico">
+        <dc:Bounds x="2050" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_PagamentoLiberadoAutomatico" bpmnElement="End_PagamentoLiberadoAutomatico">
+        <dc:Bounds x="2262" y="74" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_PagtoSla" bpmnElement="BRT_PagtoSla">
+        <dc:Bounds x="1870" y="184" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PrepareApprovalDossier" bpmnElement="ST_PrepareApprovalDossier">
+        <dc:Bounds x="2050" y="316" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT_AprovacaoAlcada" bpmnElement="UT_AprovacaoAlcada">
+        <dc:Bounds x="2230" y="316" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_AlertaSlaPagto" bpmnElement="BT_AlertaSlaPagto">
+        <dc:Bounds x="2245" y="378" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_NotificarRiscoSla" bpmnElement="ST_NotificarRiscoSla">
+        <dc:Bounds x="40" y="316" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_RiscoSlaNotificado" bpmnElement="End_RiscoSlaNotificado">
+        <dc:Bounds x="252" y="338" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_SlaAprovacao" bpmnElement="BT_SlaAprovacao">
+        <dc:Bounds x="2278" y="378" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishSlaBreach" bpmnElement="ST_PublishSlaBreach">
+        <dc:Bounds x="40" y="448" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT_CoordenacaoAlcada" bpmnElement="UT_CoordenacaoAlcada">
+        <dc:Bounds x="220" y="448" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_DecisaoCoordenacao" bpmnElement="GW_DecisaoCoordenacao" isMarkerVisible="true">
+        <dc:Bounds x="425" y="463" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ICE_AguardarDadosCorrigidos" bpmnElement="ICE_AguardarDadosCorrigidos">
+        <dc:Bounds x="2572" y="338" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_DecisaoPagamento" bpmnElement="GW_DecisaoPagamento" isMarkerVisible="true">
+        <dc:Bounds x="2410" y="331" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_ReleaseHighValue" bpmnElement="ST_ReleaseHighValue">
+        <dc:Bounds x="2540" y="448" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishLiberadoHumano" bpmnElement="ST_PublishLiberadoHumano">
+        <dc:Bounds x="2720" y="448" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_PagamentoLiberadoHumano" bpmnElement="End_PagamentoLiberadoHumano">
+        <dc:Bounds x="2900" y="470" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_RegisterPaymentRefusal" bpmnElement="ST_RegisterPaymentRefusal">
+        <dc:Bounds x="2540" y="184" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishRecusadoHumano" bpmnElement="ST_PublishRecusadoHumano">
+        <dc:Bounds x="2720" y="184" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_PagamentoRecusadoHumano" bpmnElement="End_PagamentoRecusadoHumano">
+        <dc:Bounds x="2900" y="206" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishCancelado" bpmnElement="ST_PublishCancelado">
+        <dc:Bounds x="2540" y="568" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_PagamentoCancelado" bpmnElement="End_PagamentoCancelado">
+        <dc:Bounds x="2752" y="590" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_Flow_Start_PubReceived" bpmnElement="Flow_Start_PubReceived">
+        <di:waypoint x="108" y="92"/>
+        <di:waypoint x="220" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubReceived_ValidateData" bpmnElement="Flow_PubReceived_ValidateData">
+        <di:waypoint x="320" y="92"/>
+        <di:waypoint x="400" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_ValidateData_CalculateFacts" bpmnElement="Flow_ValidateData_CalculateFacts">
+        <di:waypoint x="500" y="92"/>
+        <di:waypoint x="580" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PagtoOrdemInvalida_End" bpmnElement="Flow_PagtoOrdemInvalida_End">
+        <di:waypoint x="450" y="150"/>
+        <di:waypoint x="450" y="178"/>
+        <di:waypoint x="90" y="178"/>
+        <di:waypoint x="90" y="206"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_CalculateFacts_Admissibility" bpmnElement="Flow_CalculateFacts_Admissibility">
+        <di:waypoint x="680" y="92"/>
+        <di:waypoint x="760" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Admissibility_GW" bpmnElement="Flow_Admissibility_GW">
+        <di:waypoint x="860" y="92"/>
+        <di:waypoint x="940" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWAdmiss_Segue" bpmnElement="Flow_GWAdmiss_Segue">
+        <di:waypoint x="990" y="92"/>
+        <di:waypoint x="1380" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWAdmiss_Humana" bpmnElement="Flow_GWAdmiss_Humana">
+        <di:waypoint x="990" y="92"/>
+        <di:waypoint x="1070" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_AnaliseAdmiss_GW" bpmnElement="Flow_AnaliseAdmiss_GW">
+        <di:waypoint x="1170" y="92"/>
+        <di:waypoint x="1250" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWResol_Prossegue" bpmnElement="Flow_GWResol_Prossegue">
+        <di:waypoint x="1300" y="92"/>
+        <di:waypoint x="1380" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWResol_Devolver" bpmnElement="Flow_GWResol_Devolver">
+        <di:waypoint x="1300" y="92"/>
+        <di:waypoint x="1920" y="92"/>
+        <di:waypoint x="1920" y="224"/>
+        <di:waypoint x="2540" y="224"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Alcada_PubRouted" bpmnElement="Flow_Alcada_PubRouted">
+        <di:waypoint x="1480" y="92"/>
+        <di:waypoint x="1560" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubRouted_GW" bpmnElement="Flow_PubRouted_GW">
+        <di:waypoint x="1660" y="92"/>
+        <di:waypoint x="1740" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GW_DentroTeto" bpmnElement="Flow_GW_DentroTeto">
+        <di:waypoint x="1790" y="92"/>
+        <di:waypoint x="1870" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GW_AlcadaHumana" bpmnElement="Flow_GW_AlcadaHumana">
+        <di:waypoint x="1790" y="92"/>
+        <di:waypoint x="1830" y="92"/>
+        <di:waypoint x="1830" y="224"/>
+        <di:waypoint x="1870" y="224"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_ReleaseLow_Pub" bpmnElement="Flow_ReleaseLow_Pub">
+        <di:waypoint x="1970" y="92"/>
+        <di:waypoint x="2050" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubLiberadoAuto_End" bpmnElement="Flow_PubLiberadoAuto_End">
+        <di:waypoint x="2150" y="92"/>
+        <di:waypoint x="2262" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Sla_Dossie" bpmnElement="Flow_Sla_Dossie">
+        <di:waypoint x="1970" y="224"/>
+        <di:waypoint x="2010" y="224"/>
+        <di:waypoint x="2010" y="356"/>
+        <di:waypoint x="2050" y="356"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Dossie_UTAprovacao" bpmnElement="Flow_Dossie_UTAprovacao">
+        <di:waypoint x="2150" y="356"/>
+        <di:waypoint x="2230" y="356"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Alerta_Notify" bpmnElement="Flow_Alerta_Notify">
+        <di:waypoint x="2263" y="414"/>
+        <di:waypoint x="2263" y="474"/>
+        <di:waypoint x="40" y="474"/>
+        <di:waypoint x="40" y="356"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Notify_EndAlerta" bpmnElement="Flow_Notify_EndAlerta">
+        <di:waypoint x="140" y="356"/>
+        <di:waypoint x="252" y="356"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_SlaEstourado_Pub" bpmnElement="Flow_SlaEstourado_Pub">
+        <di:waypoint x="2296" y="414"/>
+        <di:waypoint x="2296" y="431"/>
+        <di:waypoint x="90" y="431"/>
+        <di:waypoint x="90" y="448"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubBreach_UTCoord" bpmnElement="Flow_PubBreach_UTCoord">
+        <di:waypoint x="140" y="488"/>
+        <di:waypoint x="220" y="488"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_UTAprovacao_GW" bpmnElement="Flow_UTAprovacao_GW">
+        <di:waypoint x="2330" y="356"/>
+        <di:waypoint x="2410" y="356"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_UTCoord_GW" bpmnElement="Flow_UTCoord_GW">
+        <di:waypoint x="320" y="488"/>
+        <di:waypoint x="425" y="488"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWCoord_Assumir" bpmnElement="Flow_GWCoord_Assumir">
+        <di:waypoint x="475" y="488"/>
+        <di:waypoint x="1442" y="488"/>
+        <di:waypoint x="1442" y="356"/>
+        <di:waypoint x="2410" y="356"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWCoord_Prorrogar" bpmnElement="Flow_GWCoord_Prorrogar">
+        <di:waypoint x="475" y="488"/>
+        <di:waypoint x="1352" y="488"/>
+        <di:waypoint x="1352" y="356"/>
+        <di:waypoint x="2230" y="356"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWCoord_SeguirAnalise" bpmnElement="Flow_GWCoord_SeguirAnalise">
+        <di:waypoint x="475" y="488"/>
+        <di:waypoint x="1262" y="488"/>
+        <di:waypoint x="1262" y="356"/>
+        <di:waypoint x="2050" y="356"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Aprovar" bpmnElement="Flow_GWDec_Aprovar">
+        <di:waypoint x="2460" y="356"/>
+        <di:waypoint x="2500" y="356"/>
+        <di:waypoint x="2500" y="488"/>
+        <di:waypoint x="2540" y="488"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_SolicitarInfo" bpmnElement="Flow_GWDec_SolicitarInfo">
+        <di:waypoint x="2460" y="356"/>
+        <di:waypoint x="2572" y="356"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Recusar" bpmnElement="Flow_GWDec_Recusar">
+        <di:waypoint x="2460" y="356"/>
+        <di:waypoint x="2500" y="356"/>
+        <di:waypoint x="2500" y="224"/>
+        <di:waypoint x="2540" y="224"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Cancelar" bpmnElement="Flow_GWDec_Cancelar">
+        <di:waypoint x="2460" y="356"/>
+        <di:waypoint x="2500" y="356"/>
+        <di:waypoint x="2500" y="608"/>
+        <di:waypoint x="2540" y="608"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_DadosCorrigidos_ValidateData" bpmnElement="Flow_DadosCorrigidos_ValidateData">
+        <di:waypoint x="2590" y="374"/>
+        <di:waypoint x="2590" y="434"/>
+        <di:waypoint x="400" y="434"/>
+        <di:waypoint x="400" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_ReleaseHigh_Pub" bpmnElement="Flow_ReleaseHigh_Pub">
+        <di:waypoint x="2640" y="488"/>
+        <di:waypoint x="2720" y="488"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubLiberadoHumano_End" bpmnElement="Flow_PubLiberadoHumano_End">
+        <di:waypoint x="2820" y="488"/>
+        <di:waypoint x="2900" y="488"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Recusa_Pub" bpmnElement="Flow_Recusa_Pub">
+        <di:waypoint x="2640" y="224"/>
+        <di:waypoint x="2720" y="224"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubRecusado_End" bpmnElement="Flow_PubRecusado_End">
+        <di:waypoint x="2820" y="224"/>
+        <di:waypoint x="2900" y="224"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubCancelado_End" bpmnElement="Flow_PubCancelado_End">
+        <di:waypoint x="2640" y="608"/>
+        <di:waypoint x="2752" y="608"/>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

@@ -1,0 +1,541 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+                  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+                  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+                  xmlns:camunda="http://camunda.org/schema/1.0/bpmn"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  id="Definitions_SP_OP_ESCALATION_001"
+                  targetNamespace="http://maezo.health/operadora/escalation"
+                  exporter="Maezo W5-PROC"
+                  exporterVersion="1.0.0">
+
+  <bpmn:error id="Error_EscNotifyFailed" name="Falha na notificacao do time humano" errorCode="ERR_ESC_NOTIFY_FAILED"/>
+  <!-- GAP-ESC-5: publish de evento de dominio falhou (ver phase0.make_publish_event_handler,
+       bpmn_error_topics — SOMENTE os 4 topicos de dominio de ESCALATION-001 optam nesta familia
+       de erro). Catchada por boundaryEvent nos 5 serviceTasks ST_Publish* — nenhum deles fica
+       preso por um glitch de Kafka (mainline guard: a User Task/fim ja e alcancavel independente
+       do publish ter tido sucesso; o publish e trilha/registro, nunca decisao). -->
+  <bpmn:error id="Error_EscPublishFailed" name="Falha ao publicar evento de dominio" errorCode="ERR_EVENT_PUBLISH_FAILED"/>
+
+  <bpmn:process id="SP-OP-ESCALATION-001" name="SP-OP-ESCALATION-001 Escalonamento Humano Universal"
+                isExecutable="true" camunda:historyTimeToLive="1825">
+    <bpmn:documentation><![CDATA[
+SP-OP-ESCALATION-001 — Escalonamento humano universal. Status: FINAL (v1.0.0).
+
+PROPOSITO: caminho unico pelo qual QUALQUER agente entrega uma conversa/caso a um humano
+dentro de SLA. Phase 0: disparado por Helena (red flag clinico via triage_redflag_*,
+intencao clinica, pedido explicito de humano, risco psicossocial, falha tecnica).
+
+GATILHO REGULATORIO: seguranca assistencial — urgencia/emergencia exige atendimento
+imediato (Lei 9.656/1998 art. 35-C; RN 259/2011 — prazos de garantia de atendimento,
+consolidacao posterior pela ANS: DRAFT/verify). Decisao clinica por agente e proibida
+(ADR-0005, ADR-0008: clinical_decision = L0 hard) — todo red flag converge para humano.
+
+BUSINESS KEY (idempotente): "ESC-{tenant_id}-{conversation_id}"
+  — no maximo UMA instancia ativa de escalonamento por conversa. O chamador
+  (mcp-cibseven.start_process) DEVE consultar instancia ativa com a mesma business key
+  antes de iniciar; se existir, retorna a instancia existente (start idempotente).
+
+EVENTOS DE DOMINIO (via worker generico operadora.events.publish):
+  inicio  -> agents.events.escalation.requested
+  breach  -> agents.events.escalation.sla_breached (payload.fase = "ack" | "resolucao")
+  fim     -> agents.events.escalation.resolved (payload.resultado)
+  fim (devolvido_agente) -> adicionalmente agents.events.process_completed (retoma conversa)
+
+VARIAVEIS DE ENTRADA (contrato completo: docs/processes/contracts/SP-OP-ESCALATION-001.md):
+  tenant_id, source_agent_id, source_agent_version, conversation_id,
+  beneficiario_pseudo_id (Zona Geral — SEMPRE pseudonimizado, ADR-0006), canal,
+  motivo_categoria, severidade, resumo_contexto, dmn_decision_ref (opcional).
+
+SAIDA: resultado in {resolvido_humano, devolvido_agente, emergencia_acionada}, notas_resolucao.
+]]></bpmn:documentation>
+
+    <!-- ============ INICIO ============ -->
+    <bpmn:startEvent id="Start_EscalonamentoSolicitado" name="Escalonamento solicitado">
+      <bpmn:documentation>Iniciado via REST (mcp-cibseven.start_process) pelo agente de origem.</bpmn:documentation>
+      <bpmn:outgoing>Flow_Start_PubReq</bpmn:outgoing>
+    </bpmn:startEvent>
+
+    <!-- Evento de dominio: escalonamento solicitado -->
+    <bpmn:serviceTask id="ST_PublishRequested" name="Publicar evento: escalation.requested"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.escalation.requested</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,source_agent_id,conversation_id,motivo_categoria,severidade,canal</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Start_PubReq</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubReq_Rotear</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- GAP-ESC-5: falha ao publicar escalation.requested NUNCA bloqueia o roteamento/atendimento
+         humano — continua para BRT_RotearEscalonamento (mesmo alvo do caminho feliz). -->
+    <bpmn:boundaryEvent id="BE_PubReqFailed" name="ERR_EVENT_PUBLISH_FAILED" attachedToRef="ST_PublishRequested">
+      <bpmn:outgoing>Flow_BEPubReq_Rotear</bpmn:outgoing>
+      <bpmn:errorEventDefinition id="ED_PubReqFailed" errorRef="Error_EscPublishFailed"/>
+    </bpmn:boundaryEvent>
+
+    <!-- DMN: prioridade, grupo humano e SLAs -->
+    <bpmn:businessRuleTask id="BRT_RotearEscalonamento" name="Rotear escalonamento (DMN escalation_routing)"
+                           camunda:decisionRef="escalation_routing"
+                           camunda:mapDecisionResult="singleResult"
+                           camunda:resultVariable="roteamento">
+      <bpmn:documentation>DMN escalation_routing: (motivo_categoria, severidade) -> {prioridade, grupo_atendimento, sla_ack, sla_resolucao}. Regra deterministica fora do LLM (ADR-0012).</bpmn:documentation>
+      <bpmn:incoming>Flow_PubReq_Rotear</bpmn:incoming>
+      <bpmn:incoming>Flow_BEPubReq_Rotear</bpmn:incoming>
+      <bpmn:outgoing>Flow_Rotear_Notificar</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+
+    <!-- Notificar o time humano de plantao -->
+    <bpmn:serviceTask id="ST_NotificarTime" name="Notificar time humano"
+                      camunda:type="external" camunda:topic="operadora.escalation.notify_team">
+      <bpmn:incoming>Flow_Rotear_Notificar</bpmn:incoming>
+      <bpmn:outgoing>Flow_Notificar_UT</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- Fallback: canal primario de notificacao falhou -->
+    <bpmn:boundaryEvent id="BE_FalhaNotificacao" name="ERR_ESC_NOTIFY_FAILED" attachedToRef="ST_NotificarTime">
+      <bpmn:outgoing>Flow_Falha_Fallback</bpmn:outgoing>
+      <bpmn:errorEventDefinition id="ED_FalhaNotificacao" errorRef="Error_EscNotifyFailed"/>
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="ST_NotificarFallback" name="Notificar supervisor (fallback de canal)"
+                      camunda:type="external" camunda:topic="operadora.escalation.notify_supervisor">
+      <bpmn:incoming>Flow_Falha_Fallback</bpmn:incoming>
+      <bpmn:outgoing>Flow_Fallback_UT</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- GAP-ESC-5: se ATE o fallback de canal falhar, ainda assim a User Task ja existe/e
+         alcancavel via tasklist — continua para UT_TratarEscalonamento (mesmo alvo do caminho
+         feliz). Notificacao e trilha; nunca bloqueia o HITL obrigatorio. -->
+    <bpmn:boundaryEvent id="BE_NotifFallbackFailed" name="ERR_ESC_NOTIFY_FAILED" attachedToRef="ST_NotificarFallback">
+      <bpmn:outgoing>Flow_BENotifFallback_UT</bpmn:outgoing>
+      <bpmn:errorEventDefinition id="ED_NotifFallbackFailed" errorRef="Error_EscNotifyFailed"/>
+    </bpmn:boundaryEvent>
+
+    <!-- ============ HITL: humano assume o caso ============ -->
+    <bpmn:userTask id="UT_TratarEscalonamento" name="Assumir e tratar escalonamento"
+                   camunda:candidateGroups="${roteamento.grupo_atendimento}">
+      <bpmn:documentation><![CDATA[
+HITL obrigatorio (ADR-0005). Humano do grupo definido pela DMN assume a conversa.
+Saidas obrigatorias ao completar: resultado in {resolvido_humano, devolvido_agente,
+emergencia_acionada}; notas_resolucao (texto livre, pseudonimizado).
+SLA de ciencia (ack) e de resolucao vem da DMN escalation_routing — fonte: politica
+assistencial Maezo ancorada em Lei 9.656/1998 art. 35-C (urgencia = imediato).
+Valores clinicos dos SLAs: DRAFT — validar com gestao assistencial (docs/review-queue.md).
+]]></bpmn:documentation>
+      <!-- GAP-ESC-4: `resultado` enum estruturalmente enforced via formData (a Tasklist so
+           apresenta os 3 valores contratuais; nenhum outro texto completa a task). `notas_resolucao`
+           e texto livre PHI (GAP-ESC-3/ADR-0006) — sem enum, so validation de presenca. O
+           ENFORCEMENT real do conjunto fechado {resolvido_humano, devolvido_agente,
+           emergencia_acionada} permanece TAMBEM no consumidor de GW_Resultado (defesa em
+           profundidade); este formData e UX-level, nao substitui validacao downstream. -->
+      <bpmn:extensionElements>
+        <camunda:formData>
+          <camunda:formField id="resultado" label="Resultado do escalonamento" type="enum">
+            <camunda:value id="resolvido_humano" name="Resolvido por humano"/>
+            <camunda:value id="devolvido_agente" name="Devolvido ao agente (retomar conversa)"/>
+            <camunda:value id="emergencia_acionada" name="Emergencia acionada"/>
+            <camunda:validation>
+              <camunda:constraint name="required"/>
+            </camunda:validation>
+          </camunda:formField>
+          <camunda:formField id="notas_resolucao" label="Notas de resolucao" type="string">
+            <camunda:validation>
+              <camunda:constraint name="required"/>
+            </camunda:validation>
+            <camunda:properties>
+              <camunda:property name="zona" value="PHI — texto livre humano (nao difundir na Zona Geral, ADR-0006/GAP-ESC-3)"/>
+            </camunda:properties>
+          </camunda:formField>
+        </camunda:formData>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Notificar_UT</bpmn:incoming>
+      <bpmn:incoming>Flow_Fallback_UT</bpmn:incoming>
+      <bpmn:incoming>Flow_BENotifFallback_UT</bpmn:incoming>
+      <bpmn:outgoing>Flow_UT_PubResolved</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <!-- Timer 1 (nao-interruptivo): SLA de ciencia estourado -> alerta supervisor -->
+    <bpmn:boundaryEvent id="BT_SlaAck" name="SLA de ciencia (ack)" cancelActivity="false" attachedToRef="UT_TratarEscalonamento">
+      <bpmn:outgoing>Flow_Ack_PubBreach</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TD_SlaAck">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${roteamento.sla_ack}</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="ST_PublishAckBreach" name="Publicar evento: sla_breached (fase ack)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.escalation.sla_breached</camunda:inputParameter>
+          <camunda:inputParameter name="event_fase">ack</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,conversation_id,motivo_categoria,severidade</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Ack_PubBreach</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubBreach_NotifSup</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- GAP-ESC-5: falha ao publicar sla_breached(ack) nao impede o alerta REAL ao supervisor —
+         continua para ST_NotificarSupervisor (mesmo alvo do caminho feliz). -->
+    <bpmn:boundaryEvent id="BE_PubAckBreachFailed" name="ERR_EVENT_PUBLISH_FAILED" attachedToRef="ST_PublishAckBreach">
+      <bpmn:outgoing>Flow_BEPubAckBreach_NotifSup</bpmn:outgoing>
+      <bpmn:errorEventDefinition id="ED_PubAckBreachFailed" errorRef="Error_EscPublishFailed"/>
+    </bpmn:boundaryEvent>
+
+    <bpmn:serviceTask id="ST_NotificarSupervisor" name="Notificar supervisor de atendimento"
+                      camunda:type="external" camunda:topic="operadora.escalation.notify_supervisor">
+      <bpmn:incoming>Flow_PubBreach_NotifSup</bpmn:incoming>
+      <bpmn:incoming>Flow_BEPubAckBreach_NotifSup</bpmn:incoming>
+      <bpmn:outgoing>Flow_NotifSup_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- GAP-ESC-5: se a notificacao ao supervisor tambem falhar, o ramo nao-interruptivo ainda
+         encerra (o caso principal segue aberto em UT_TratarEscalonamento, inalterado) — continua
+         para End_SupervisorAlertado (mesmo alvo do caminho feliz). -->
+    <bpmn:boundaryEvent id="BE_NotifSupervisorFailed" name="ERR_ESC_NOTIFY_FAILED" attachedToRef="ST_NotificarSupervisor">
+      <bpmn:outgoing>Flow_BENotifSupervisor_End</bpmn:outgoing>
+      <bpmn:errorEventDefinition id="ED_NotifSupervisorFailed" errorRef="Error_EscNotifyFailed"/>
+    </bpmn:boundaryEvent>
+
+    <bpmn:endEvent id="End_SupervisorAlertado" name="Supervisor alertado (caso segue aberto)">
+      <bpmn:documentation>Fim do ramo nao-interruptivo; evento de dominio sla_breached(ack) ja publicado no ramo.</bpmn:documentation>
+      <bpmn:incoming>Flow_NotifSup_End</bpmn:incoming>
+      <bpmn:incoming>Flow_BENotifSupervisor_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Timer 2 (interruptivo): SLA de resolucao estourado -> supervisor assume -->
+    <bpmn:boundaryEvent id="BT_SlaResolucao" name="SLA de resolucao" cancelActivity="true" attachedToRef="UT_TratarEscalonamento">
+      <bpmn:outgoing>Flow_Resol_PubBreach</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TD_SlaResolucao">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${roteamento.sla_resolucao}</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="ST_PublishResolBreach" name="Publicar evento: sla_breached (fase resolucao)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.escalation.sla_breached</camunda:inputParameter>
+          <camunda:inputParameter name="event_fase">resolucao</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,conversation_id,motivo_categoria,severidade</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Resol_PubBreach</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubResol_UTSup</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- GAP-ESC-5: falha ao publicar sla_breached(resolucao) NUNCA impede o supervisor de assumir
+         a ultima linha humana — continua para UT_SupervisorAssume (mesmo alvo do caminho feliz). -->
+    <bpmn:boundaryEvent id="BE_PubResolBreachFailed" name="ERR_EVENT_PUBLISH_FAILED" attachedToRef="ST_PublishResolBreach">
+      <bpmn:outgoing>Flow_BEPubResolBreach_UTSup</bpmn:outgoing>
+      <bpmn:errorEventDefinition id="ED_PubResolBreachFailed" errorRef="Error_EscPublishFailed"/>
+    </bpmn:boundaryEvent>
+
+    <bpmn:userTask id="UT_SupervisorAssume" name="Supervisor assume e resolve (ultima linha)"
+                   camunda:candidateGroups="supervisao-atendimento">
+      <bpmn:documentation>Escalation path do SLA: caso interrompido e reatribuido a supervisao-atendimento. Mesmas saidas obrigatorias (resultado, notas_resolucao). Sem timer adicional: ultima linha humana; monitoramento via evento sla_breached.</bpmn:documentation>
+      <!-- GAP-ESC-4: mesmo enforcement estrutural de `resultado` de UT_TratarEscalonamento
+           (ultima linha humana carrega o MESMO conjunto fechado de saidas). -->
+      <bpmn:extensionElements>
+        <camunda:formData>
+          <camunda:formField id="resultado" label="Resultado do escalonamento" type="enum">
+            <camunda:value id="resolvido_humano" name="Resolvido por humano"/>
+            <camunda:value id="devolvido_agente" name="Devolvido ao agente (retomar conversa)"/>
+            <camunda:value id="emergencia_acionada" name="Emergencia acionada"/>
+            <camunda:validation>
+              <camunda:constraint name="required"/>
+            </camunda:validation>
+          </camunda:formField>
+          <camunda:formField id="notas_resolucao" label="Notas de resolucao" type="string">
+            <camunda:validation>
+              <camunda:constraint name="required"/>
+            </camunda:validation>
+            <camunda:properties>
+              <camunda:property name="zona" value="PHI — texto livre humano (nao difundir na Zona Geral, ADR-0006/GAP-ESC-3)"/>
+            </camunda:properties>
+          </camunda:formField>
+        </camunda:formData>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_PubResol_UTSup</bpmn:incoming>
+      <bpmn:incoming>Flow_BEPubResolBreach_UTSup</bpmn:incoming>
+      <bpmn:outgoing>Flow_UTSup_PubResolved</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <!-- ============ ENCERRAMENTO ============ -->
+    <bpmn:serviceTask id="ST_PublishResolved" name="Publicar evento: escalation.resolved"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.escalation.resolved</camunda:inputParameter>
+          <!-- GAP-ESC-3 (depende de GAP-XPHI-1): `notas_resolucao` (texto livre humano, Zona PHI)
+               REMOVIDA de event_payload_vars — o fato `escalation.resolved` (Zona Geral) NUNCA
+               carrega PHI cru (ADR-0006/ADR-0016). O `_business_key` (ESC-{tenant_id}-
+               {conversation_id}), injetado incondicionalmente pelo worker operadora.events.publish,
+               e' o payload_ref pelo qual um consumidor da Zona PHI resolve as notas no engine/store
+               (espelha a2a/facts.py: "o fato NUNCA carrega PHI"). Backstop de runtime: o
+               pseudonimizador de worker (phi_vars.scrub_phi_vars) tokeniza/derruba qualquer valor
+               de nome-PHI que ainda alcance o publish. -->
+          <camunda:inputParameter name="event_payload_vars">tenant_id,conversation_id,resultado</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_UT_PubResolved</bpmn:incoming>
+      <bpmn:incoming>Flow_UTSup_PubResolved</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubResolved_GW</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- GAP-ESC-5: falha ao publicar escalation.resolved NUNCA impede o roteamento final (o caso
+         JA foi resolvido pelo humano) — continua para GW_Resultado (mesmo alvo do caminho feliz).
+         `resultado` ja esta setado (saida da User Task, upstream), entao a condicao do gateway
+         resolve normalmente mesmo por este ramo. -->
+    <bpmn:boundaryEvent id="BE_PubResolvedFailed" name="ERR_EVENT_PUBLISH_FAILED" attachedToRef="ST_PublishResolved">
+      <bpmn:outgoing>Flow_BEPubResolved_GW</bpmn:outgoing>
+      <bpmn:errorEventDefinition id="ED_PubResolvedFailed" errorRef="Error_EscPublishFailed"/>
+    </bpmn:boundaryEvent>
+
+    <bpmn:exclusiveGateway id="GW_Resultado" name="Devolver ao agente?" default="Flow_GW_EndHumano">
+      <bpmn:incoming>Flow_PubResolved_GW</bpmn:incoming>
+      <bpmn:incoming>Flow_BEPubResolved_GW</bpmn:incoming>
+      <bpmn:outgoing>Flow_GW_PubResume</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GW_EndHumano</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <bpmn:serviceTask id="ST_PublishProcessCompleted" name="Publicar evento: process_completed (retomar agente)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.process_completed</camunda:inputParameter>
+          <!-- GAP-ESC-1: chaves de correlacao para o consumidor universal de retomada
+               (GAP-XHITL-4). `agent_id` e' um alias local do processo (${source_agent_id}) —
+               agents.events.process_completed e' o leg de retomada humano->agente para TODOS
+               os agentes (nao so Helena), e o consumidor roteia pelo nome `agent_id`.
+               `notas_resolucao` (texto livre humano, Zona PHI) foi removida do payload: o fato
+               NUNCA carrega PHI (ADR-0006/ADR-0016). O `_business_key`
+               (ESC-{tenant_id}-{conversation_id}), injetado incondicionalmente pelo worker
+               operadora.events.publish, e' o payload_ref pelo qual um consumidor da Zona PHI
+               resolve as notas no engine/store — espelha a2a/facts.py ("O fato NUNCA carrega
+               PHI"). Scrub sistemico via phi_vars.py e' GAP-XPHI-1/GAP-ESC-3 (Wave 1/2); esta
+               e' a correcao pontual do publish-side (GAP-ESC-1). -->
+          <camunda:inputParameter name="agent_id">${source_agent_id}</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,agent_id,conversation_id,resultado</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_GW_PubResume</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubResume_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- GAP-ESC-5: falha ao publicar process_completed NUNCA impede o fim do escalonamento (o
+         humano ja completou a User Task) — continua para End_DevolvidoAoAgente (mesmo alvo do
+         caminho feliz). NOTA: sem a publicacao real, o consumidor de retomada (GAP-XHITL-4) nao
+         recebe o sinal — risco residual conhecido/aceito (mesma classe do glitch de qualquer
+         publish fire-and-forget; retry fica a cargo do handle_failure em caso de topico
+         nao-opt-in, mas este topico E opt-in — ver phase0.py). -->
+    <bpmn:boundaryEvent id="BE_PubProcessCompletedFailed" name="ERR_EVENT_PUBLISH_FAILED" attachedToRef="ST_PublishProcessCompleted">
+      <bpmn:outgoing>Flow_BEPubProcessCompleted_End</bpmn:outgoing>
+      <bpmn:errorEventDefinition id="ED_PubProcessCompletedFailed" errorRef="Error_EscPublishFailed"/>
+    </bpmn:boundaryEvent>
+
+    <bpmn:endEvent id="End_DevolvidoAoAgente" name="Devolvido ao agente">
+      <bpmn:documentation>Eventos de dominio escalation.resolved + process_completed publicados antes deste fim.</bpmn:documentation>
+      <bpmn:incoming>Flow_PubResume_End</bpmn:incoming>
+      <bpmn:incoming>Flow_BEPubProcessCompleted_End</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:endEvent id="End_ResolvidoPorHumano" name="Resolvido por humano">
+      <bpmn:documentation>Evento de dominio escalation.resolved publicado antes deste fim (inclui emergencia_acionada).</bpmn:documentation>
+      <bpmn:incoming>Flow_GW_EndHumano</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- ============ FLOWS ============ -->
+    <bpmn:sequenceFlow id="Flow_Start_PubReq" sourceRef="Start_EscalonamentoSolicitado" targetRef="ST_PublishRequested"/>
+    <bpmn:sequenceFlow id="Flow_PubReq_Rotear" sourceRef="ST_PublishRequested" targetRef="BRT_RotearEscalonamento"/>
+    <bpmn:sequenceFlow id="Flow_Rotear_Notificar" sourceRef="BRT_RotearEscalonamento" targetRef="ST_NotificarTime"/>
+    <bpmn:sequenceFlow id="Flow_Notificar_UT" sourceRef="ST_NotificarTime" targetRef="UT_TratarEscalonamento"/>
+    <bpmn:sequenceFlow id="Flow_Falha_Fallback" sourceRef="BE_FalhaNotificacao" targetRef="ST_NotificarFallback"/>
+    <bpmn:sequenceFlow id="Flow_Fallback_UT" sourceRef="ST_NotificarFallback" targetRef="UT_TratarEscalonamento"/>
+    <bpmn:sequenceFlow id="Flow_Ack_PubBreach" sourceRef="BT_SlaAck" targetRef="ST_PublishAckBreach"/>
+    <bpmn:sequenceFlow id="Flow_PubBreach_NotifSup" sourceRef="ST_PublishAckBreach" targetRef="ST_NotificarSupervisor"/>
+    <bpmn:sequenceFlow id="Flow_NotifSup_End" sourceRef="ST_NotificarSupervisor" targetRef="End_SupervisorAlertado"/>
+    <bpmn:sequenceFlow id="Flow_Resol_PubBreach" sourceRef="BT_SlaResolucao" targetRef="ST_PublishResolBreach"/>
+    <bpmn:sequenceFlow id="Flow_PubResol_UTSup" sourceRef="ST_PublishResolBreach" targetRef="UT_SupervisorAssume"/>
+    <bpmn:sequenceFlow id="Flow_UT_PubResolved" sourceRef="UT_TratarEscalonamento" targetRef="ST_PublishResolved"/>
+    <bpmn:sequenceFlow id="Flow_UTSup_PubResolved" sourceRef="UT_SupervisorAssume" targetRef="ST_PublishResolved"/>
+    <bpmn:sequenceFlow id="Flow_PubResolved_GW" sourceRef="ST_PublishResolved" targetRef="GW_Resultado"/>
+    <bpmn:sequenceFlow id="Flow_GW_PubResume" name="resultado = devolvido_agente" sourceRef="GW_Resultado" targetRef="ST_PublishProcessCompleted">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${resultado == 'devolvido_agente'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GW_EndHumano" name="resolvido_humano | emergencia_acionada" sourceRef="GW_Resultado" targetRef="End_ResolvidoPorHumano"/>
+    <bpmn:sequenceFlow id="Flow_PubResume_End" sourceRef="ST_PublishProcessCompleted" targetRef="End_DevolvidoAoAgente"/>
+
+    <!-- GAP-ESC-5: flows de continuacao fail-safe dos boundaryEvents de publish/notify (cada um
+         converge para o MESMO alvo do caminho feliz da respectiva serviceTask — swallow-and-
+         continue; o publish/notify e trilha/registro, nunca bloqueia a mainline HITL). -->
+    <bpmn:sequenceFlow id="Flow_BEPubReq_Rotear" sourceRef="BE_PubReqFailed" targetRef="BRT_RotearEscalonamento"/>
+    <bpmn:sequenceFlow id="Flow_BENotifFallback_UT" sourceRef="BE_NotifFallbackFailed" targetRef="UT_TratarEscalonamento"/>
+    <bpmn:sequenceFlow id="Flow_BEPubAckBreach_NotifSup" sourceRef="BE_PubAckBreachFailed" targetRef="ST_NotificarSupervisor"/>
+    <bpmn:sequenceFlow id="Flow_BENotifSupervisor_End" sourceRef="BE_NotifSupervisorFailed" targetRef="End_SupervisorAlertado"/>
+    <bpmn:sequenceFlow id="Flow_BEPubResolBreach_UTSup" sourceRef="BE_PubResolBreachFailed" targetRef="UT_SupervisorAssume"/>
+    <bpmn:sequenceFlow id="Flow_BEPubResolved_GW" sourceRef="BE_PubResolvedFailed" targetRef="GW_Resultado"/>
+    <bpmn:sequenceFlow id="Flow_BEPubProcessCompleted_End" sourceRef="BE_PubProcessCompletedFailed" targetRef="End_DevolvidoAoAgente"/>
+  </bpmn:process>
+
+  <!-- ============ DIAGRAMA ============ -->
+  <bpmndi:BPMNDiagram id="Diagram_SP_OP_ESCALATION_001">
+    <bpmndi:BPMNPlane id="Plane_SP_OP_ESCALATION_001" bpmnElement="SP-OP-ESCALATION-001">
+      <bpmndi:BPMNShape id="Shape_Start" bpmnElement="Start_EscalonamentoSolicitado">
+        <dc:Bounds x="152" y="262" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_PubReq" bpmnElement="ST_PublishRequested">
+        <dc:Bounds x="240" y="240" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Rotear" bpmnElement="BRT_RotearEscalonamento">
+        <dc:Bounds x="390" y="240" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Notificar" bpmnElement="ST_NotificarTime">
+        <dc:Bounds x="540" y="240" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BE_Falha" bpmnElement="BE_FalhaNotificacao">
+        <dc:Bounds x="572" y="302" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Fallback" bpmnElement="ST_NotificarFallback">
+        <dc:Bounds x="540" y="400" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT" bpmnElement="UT_TratarEscalonamento">
+        <dc:Bounds x="700" y="240" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_Ack" bpmnElement="BT_SlaAck">
+        <dc:Bounds x="732" y="302" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_Resol" bpmnElement="BT_SlaResolucao">
+        <dc:Bounds x="732" y="222" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_PubAckBreach" bpmnElement="ST_PublishAckBreach">
+        <dc:Bounds x="700" y="520" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_NotifSup" bpmnElement="ST_NotificarSupervisor">
+        <dc:Bounds x="850" y="520" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_SupAlert" bpmnElement="End_SupervisorAlertado">
+        <dc:Bounds x="1002" y="542" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_PubResolBreach" bpmnElement="ST_PublishResolBreach">
+        <dc:Bounds x="700" y="80" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UTSup" bpmnElement="UT_SupervisorAssume">
+        <dc:Bounds x="850" y="80" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_PubResolved" bpmnElement="ST_PublishResolved">
+        <dc:Bounds x="860" y="240" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW" bpmnElement="GW_Resultado" isMarkerVisible="true">
+        <dc:Bounds x="1015" y="255" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_PubResume" bpmnElement="ST_PublishProcessCompleted">
+        <dc:Bounds x="1120" y="380" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_Devolvido" bpmnElement="End_DevolvidoAoAgente">
+        <dc:Bounds x="1272" y="402" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_Humano" bpmnElement="End_ResolvidoPorHumano">
+        <dc:Bounds x="1152" y="262" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNEdge id="Edge_Start_PubReq" bpmnElement="Flow_Start_PubReq">
+        <di:waypoint x="188" y="280"/><di:waypoint x="240" y="280"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_PubReq_Rotear" bpmnElement="Flow_PubReq_Rotear">
+        <di:waypoint x="340" y="280"/><di:waypoint x="390" y="280"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Rotear_Notificar" bpmnElement="Flow_Rotear_Notificar">
+        <di:waypoint x="490" y="280"/><di:waypoint x="540" y="280"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Notificar_UT" bpmnElement="Flow_Notificar_UT">
+        <di:waypoint x="640" y="280"/><di:waypoint x="700" y="280"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Falha_Fallback" bpmnElement="Flow_Falha_Fallback">
+        <di:waypoint x="590" y="338"/><di:waypoint x="590" y="400"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Fallback_UT" bpmnElement="Flow_Fallback_UT">
+        <di:waypoint x="640" y="440"/><di:waypoint x="750" y="440"/><di:waypoint x="750" y="320"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Ack_PubBreach" bpmnElement="Flow_Ack_PubBreach">
+        <di:waypoint x="750" y="338"/><di:waypoint x="750" y="520"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_PubBreach_NotifSup" bpmnElement="Flow_PubBreach_NotifSup">
+        <di:waypoint x="800" y="560"/><di:waypoint x="850" y="560"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_NotifSup_End" bpmnElement="Flow_NotifSup_End">
+        <di:waypoint x="950" y="560"/><di:waypoint x="1002" y="560"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Resol_PubBreach" bpmnElement="Flow_Resol_PubBreach">
+        <di:waypoint x="750" y="222"/><di:waypoint x="750" y="160"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_PubResol_UTSup" bpmnElement="Flow_PubResol_UTSup">
+        <di:waypoint x="800" y="120"/><di:waypoint x="850" y="120"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_UT_PubResolved" bpmnElement="Flow_UT_PubResolved">
+        <di:waypoint x="800" y="280"/><di:waypoint x="860" y="280"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_UTSup_PubResolved" bpmnElement="Flow_UTSup_PubResolved">
+        <di:waypoint x="910" y="160"/><di:waypoint x="910" y="240"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_PubResolved_GW" bpmnElement="Flow_PubResolved_GW">
+        <di:waypoint x="960" y="280"/><di:waypoint x="1015" y="280"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_GW_PubResume" bpmnElement="Flow_GW_PubResume">
+        <di:waypoint x="1040" y="305"/><di:waypoint x="1040" y="420"/><di:waypoint x="1120" y="420"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_GW_EndHumano" bpmnElement="Flow_GW_EndHumano">
+        <di:waypoint x="1065" y="280"/><di:waypoint x="1152" y="280"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_PubResume_End" bpmnElement="Flow_PubResume_End">
+        <di:waypoint x="1220" y="420"/><di:waypoint x="1272" y="420"/>
+      </bpmndi:BPMNEdge>
+
+      <!-- GAP-ESC-5: DI hand-authored (ADDITIVE ONLY — pre-existing DI above untouched) for the
+           7 new boundaryEvents + their fail-safe continuation edges. -->
+      <bpmndi:BPMNShape id="Shape_BE_PubReqFailed" bpmnElement="BE_PubReqFailed">
+        <dc:Bounds x="272" y="302" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BE_NotifFallbackFailed" bpmnElement="BE_NotifFallbackFailed">
+        <dc:Bounds x="572" y="462" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BE_PubAckBreachFailed" bpmnElement="BE_PubAckBreachFailed">
+        <dc:Bounds x="732" y="582" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BE_NotifSupervisorFailed" bpmnElement="BE_NotifSupervisorFailed">
+        <dc:Bounds x="882" y="582" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BE_PubResolBreachFailed" bpmnElement="BE_PubResolBreachFailed">
+        <dc:Bounds x="732" y="142" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BE_PubResolvedFailed" bpmnElement="BE_PubResolvedFailed">
+        <dc:Bounds x="892" y="302" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BE_PubProcessCompletedFailed" bpmnElement="BE_PubProcessCompletedFailed">
+        <dc:Bounds x="1152" y="442" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNEdge id="Edge_BEPubReq_Rotear" bpmnElement="Flow_BEPubReq_Rotear">
+        <di:waypoint x="290" y="338"/><di:waypoint x="290" y="360"/><di:waypoint x="440" y="360"/><di:waypoint x="440" y="320"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_BENotifFallback_UT" bpmnElement="Flow_BENotifFallback_UT">
+        <di:waypoint x="590" y="498"/><di:waypoint x="590" y="530"/><di:waypoint x="660" y="530"/><di:waypoint x="660" y="320"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_BEPubAckBreach_NotifSup" bpmnElement="Flow_BEPubAckBreach_NotifSup">
+        <di:waypoint x="750" y="618"/><di:waypoint x="750" y="640"/><di:waypoint x="900" y="640"/><di:waypoint x="900" y="600"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_BENotifSupervisor_End" bpmnElement="Flow_BENotifSupervisor_End">
+        <di:waypoint x="900" y="618"/><di:waypoint x="900" y="650"/><di:waypoint x="1020" y="650"/><di:waypoint x="1020" y="578"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_BEPubResolBreach_UTSup" bpmnElement="Flow_BEPubResolBreach_UTSup">
+        <di:waypoint x="750" y="178"/><di:waypoint x="750" y="200"/><di:waypoint x="900" y="200"/><di:waypoint x="900" y="160"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_BEPubResolved_GW" bpmnElement="Flow_BEPubResolved_GW">
+        <di:waypoint x="910" y="338"/><di:waypoint x="910" y="360"/><di:waypoint x="1040" y="360"/><di:waypoint x="1040" y="305"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_BEPubProcessCompleted_End" bpmnElement="Flow_BEPubProcessCompleted_End">
+        <di:waypoint x="1170" y="478"/><di:waypoint x="1170" y="500"/><di:waypoint x="1290" y="500"/><di:waypoint x="1290" y="438"/>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

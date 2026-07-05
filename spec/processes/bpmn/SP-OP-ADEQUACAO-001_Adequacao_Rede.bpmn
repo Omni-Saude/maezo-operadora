@@ -1,0 +1,713 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+                  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+                  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+                  xmlns:camunda="http://camunda.org/schema/1.0/bpmn"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  id="Definitions_SP_OP_ADEQUACAO_001"
+                  targetNamespace="http://maezo.health/operadora/adequacao"
+                  exporter="Maezo W5-PROC"
+                  exporterVersion="0.1.0-draft">
+
+  <bpmn:message id="Msg_AdequacaoRedeAtualizada" name="msg.adequacao.rede_atualizada"/>
+  <bpmn:error id="Error_AdequacaoCelulaInvalida" name="Celula (regiao x especialidade) inconsistente na origem" errorCode="ERR_ADEQUACAO_CELULA_INVALIDA"/>
+  <bpmn:error id="Error_FallbackCommitmentNotHuman" name="Compromisso de fallback sem decisao humana" errorCode="ERR_FALLBACK_COMMITMENT_NOT_HUMAN"/>
+
+  <bpmn:process id="SP-OP-ADEQUACAO-001" name="SP-OP-ADEQUACAO-001 Adequacao Geografica de Rede"
+                isExecutable="true" camunda:historyTimeToLive="1825">
+    <bpmn:documentation><![CDATA[
+SP-OP-ADEQUACAO-001 — Adequacao Geografica de Rede (RN 259). Status: DRAFT (v0.1.0) — Phase 3, Wave WC.
+DI (diagrama) sera adicionado na promocao a FINAL. Requer revisao humana (medico-auditor/juridico/DPO/
+regulatorio/financas/PO) antes de qualquer deploy — ver docs/review-queue.md.
+
+GATILHO REGULATORIO: RN 259/2011 (garantia de atendimento — tempos e distancias maximas de acesso a
+rede assistencial; DRAFT/verify — pode ter sido consolidada/atualizada), RN 566 (dimensionamento de
+rede — DRAFT/verify), Lei 9.656/1998. Disponibilidade de rede adequada e obrigacao da operadora; a
+falha de adequacao dispara remediacao e, no limite, compromisso financeiro de fallback (livre
+escolha / reembolso garantido / contratacao ad-hoc).
+
+PROCESSO MAJORITARIAMENTE L3 (monitoramento autonomo com telemetria — ADR-0008), com UM efeito adverso
+human-gated. INVARIANTE no-adverse (ADR-0018, mesmo num processo L3): o registro de um compromisso
+financeiro de fallback (register_fallback_commitment — garantir livre escolha / reembolso garantido /
+contratacao ad-hoc com custo para a operadora) SO nasce na User Task humana UT_DecisaoFallback (ou
+UT_CoordenacaoRede no estouro de SLA), via decisao_remediacao==COMPROMISSO_FALLBACK setado por humano
+do grupo gestao-rede (ou coordenacao-rede). NENHUMA DMN deste processo tem coluna de saida que
+firme/autorize o compromisso: adequacao_gap apenas MEDE o gap e classifica severidade
+(gap_adequacao in {CONFORME, GAP_LEVE, GAP_MODERADO, GAP_CRITICO}); adequacao_remediation_routing
+apenas ROTEIA (roteamento_remediacao in {MONITORAR, ENCAMINHAR_CREDENCIAMENTO, ANALISE_HUMANA}).
+Catch-all de ambas -> conservador (GAP_CRITICO -> ANALISE_HUMANA). Gap ambiguo, severidade alta,
+geolocalizacao insuficiente, indisponibilidade da DMN e estouro de SLA TODOS fail-safe para a User
+Task humana. O efeito adverso (custo) e materializado SO pelo worker
+operadora.adequacao.register_fallback_commitment, guardado por ERR_FALLBACK_COMMITMENT_NOT_HUMAN. O
+terminal End_CompromissoFallbackHumano so e alcancavel apos a User Task humana concluida.
+
+CAMINHOS L3 (autonomos, sem User Task; nenhum onera caixa nem nega atendimento): medir cobertura
+geografica, detectar gap, abrir/atualizar plano de monitoramento, notificar a area de rede, disparar
+busca de prestador para credenciamento (handoff a SP-OP-CRED-001), publicar metrica de adequacao.
+Handoff a SP-OP-CRED-001 NAO e adverso (busca de prestador); a direcao adversa do credenciamento
+(descredenciar / negar credenciamento) pertence a CRED-001 e e human-gated LA, nunca aqui.
+
+CONSUMO DO FATO DE MUDANCA DE REDE (HARMONIZADO — GAP-XPROC-2): consome
+agents.events.cred.network_changed (produzido por SP-OP-CRED-001 — (des)credenciamento; payload
+tenant_id, tipo_mudanca, prestador_id, tipo_prestador, regiao_saude, especialidade,
+data_efeito_iso). O consumo NAO e um message-start no BPMN: a ponte de runtime
+network_change_bridge (src/maezo/platform/integrations/network_change_bridge/) consome o topico e
+INICIA este processo via mcp-cibseven.start_process, correlacionando por
+tenant_id+regiao_saude+especialidade (bk ADEQ-{tenant}-{regiao}-{especialidade}-{ciclo};
+ciclo_avaliacao = trimestre de data_efeito_iso, deterministico — a reentrega do mesmo fato
+reconverge para a mesma instancia, sem duplo start). Start_AvaliacaoAdequacao permanece um
+none-start (nascido pela ponte).
+
+BUSINESS KEY (idempotente): "ADEQ-{tenant_id}-{regiao_saude}-{especialidade}-{ciclo_avaliacao}".
+Uma instancia ativa por celula (regiao x especialidade x ciclo); re-disparo retorna/atualiza a
+instancia ativa (mcp-cibseven.start_process consulta a business key antes de iniciar).
+
+EVENTOS DE DOMINIO (worker operadora.events.publish):
+  inicio -> agents.events.adequacao.received
+  gap detectado -> agents.events.adequacao.gap_detected (payload gap_adequacao, regiao_saude,
+                   especialidade; SEM PHI)
+  breach -> agents.events.adequacao.sla_breached
+  fim -> agents.events.adequacao.completed (payload.desfecho = conforme | monitoramento_atualizado |
+         encaminhada_credenciamento | compromisso_fallback_humano)
+
+VARIAVEIS DE ENTRADA: tenant_id, regiao_saude, especialidade, ciclo_avaliacao, gatilho
+(mudanca_rede | monitoramento_periodico | reclamacao_beneficiario | auditoria_ans), network_change_ref
+(opc; preenchida pela network_change_bridge com a bk da instancia CRED de origem),
+tempo_acesso_apurado_min (integer), distancia_apurada_km (double),
+prestadores_disponiveis (integer), cobertura_geo_suficiente (bool), dados_geo_completos (bool),
+tipo_carater (eletivo | urgencia_emergencia). Geografia em granularidade de regiao/municipio (IBGE) —
+NUNCA endereco cru de beneficiario (ADR-0006). TASY write DROP em todo worker (ADR-0013).
+Contrato completo: docs/processes/contracts/SP-OP-ADEQUACAO-001.md.
+]]></bpmn:documentation>
+
+    <!-- Start: none-start NASCIDO PELA network_change_bridge (fato cred.network_changed — GAP-XPROC-2)
+         OU por monitoramento periodico / reclamacao / auditoria (gatilho discrimina a origem). -->
+    <bpmn:startEvent id="Start_AvaliacaoAdequacao" name="Avaliacao de adequacao iniciada (mudanca de rede / monitoramento)">
+      <bpmn:outgoing>Flow_Start_PubReceived</bpmn:outgoing>
+    </bpmn:startEvent>
+
+    <bpmn:serviceTask id="ST_PublishReceived" name="Publicar evento: adequacao.received"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.adequacao.received</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,regiao_saude,especialidade,ciclo_avaliacao,gatilho</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Start_PubReceived</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubReceived_Measure</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- Geoanalise: apura tempo/distancia/contagem de prestadores (fatos; sem decisao). TASY write DROP. -->
+    <bpmn:serviceTask id="ST_MeasureCoverage" name="Medir cobertura geografica (geoanalise; fatos)"
+                      camunda:type="external" camunda:topic="operadora.adequacao.measure_coverage">
+      <bpmn:documentation>Worker apura/ecoa tempo_acesso_apurado_min, distancia_apurada_km, prestadores_disponiveis, cobertura_geo_suficiente, dados_geo_completos. FATOS (geoanalise/contagem), nunca decisao. Geografia em granularidade de regiao/municipio (IBGE) — nunca endereco cru de beneficiario (ADR-0006). TASY write DROP (so consome o CDC, ADR-0013).</bpmn:documentation>
+      <bpmn:incoming>Flow_PubReceived_Measure</bpmn:incoming>
+      <bpmn:incoming>Flow_RedeAtualizada_Measure</bpmn:incoming>
+      <bpmn:outgoing>Flow_Measure_BrtGap</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- Publica gap_detected APOS a classificacao da DMN (BRT_AdequacaoGap ja setou gap_adequacao).
+         A aritmetica de comparacao (apurado vs thresholds RN 259/566; inteiros/double — nunca number)
+         vive na DMN adequacao_gap; este worker ecoa o gap classificado e publica o evento de dominio
+         agents.events.adequacao.gap_detected SOMENTE quando ha gap (CONFORME nao publica). Roda DEPOIS
+         de BRT_AdequacaoGap — antes, gap_adequacao ainda nao existe e o publish carregaria None. -->
+    <bpmn:serviceTask id="ST_CalculateGap" name="Publicar gap detectado (gap_detected; pos-classificacao)"
+                      camunda:type="external" camunda:topic="operadora.adequacao.calculate_gap">
+      <bpmn:documentation>Worker ecoa gap_adequacao (ja classificado pela DMN adequacao_gap em BRT_AdequacaoGap, comparando o apurado vs thresholds RN 259/566; inteiros/double — NUNCA number) e publica agents.events.adequacao.gap_detected quando ha gap (payload gap_adequacao, regiao_saude, especialidade; SEM PHI). Nunca decide compromisso. ORDEM (engine-correct): roda DEPOIS de BRT_AdequacaoGap — gap_adequacao e saida da DMN, entao publicar antes carregaria gap_adequacao=None (o evento gap_detected perderia a severidade).</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic_gap_detected">agents.events.adequacao.gap_detected</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_BrtGap_CalcGap</bpmn:incoming>
+      <bpmn:outgoing>Flow_CalcGap_BrtRouting</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- DMN: mede a severidade do gap (sem saida que comprometa caixa). mapDecisionResult=singleResult
+         guarda o objeto-resultado em gap_adequacao_dmn; os outputParameters abaixo PROMOVEM as colunas
+         (gap_adequacao, motivo) a variaveis de processo BARE de topo, para que as DMN a jusante
+         (routing/sla, que leem `gap_adequacao` como inputExpression), o gateway GW_Roteamento
+         (${gap_adequacao}) e os publish (event_payload_vars) resolvam o identificador. -->
+    <bpmn:businessRuleTask id="BRT_AdequacaoGap" name="Medir gap de adequacao (DMN adequacao_gap)"
+                           camunda:decisionRef="adequacao_gap"
+                           camunda:mapDecisionResult="singleResult"
+                           camunda:resultVariable="gap_adequacao_dmn">
+      <bpmn:documentation>Saida: gap_adequacao in {CONFORME, GAP_LEVE, GAP_MODERADO, GAP_CRITICO} + motivo. APENAS mede a severidade — sem saida que comprometa caixa (COMPROMETER/GARANTIR/CONTRATAR nao existem por design). Catch-all -> GAP_CRITICO (conservador -> humano a jusante).
+PROMOCAO DE SAIDAS (engine-correct): mapDecisionResult=singleResult guarda o objeto-resultado em gap_adequacao_dmn; os outputParameters abaixo promovem gap_adequacao/motivo a VARIAVEIS DE PROCESSO de topo, para que adequacao_remediation_routing/adequacao_sla (que leem `gap_adequacao` como inputExpression), o gateway GW_Roteamento (condicoes `gap_adequacao ...`) e os publish (event_payload_vars) resolvam o identificador. Sem isso, CIB Seven lanca ENGINE-16004 "Cannot resolve identifier 'gap_adequacao'" em BRT_RemediationRouting — antes de BRT_AdequacaoSla setar `sla` — e os timers `sla.*` nunca sao criados (espelha o idioma de NIP/AUTH/CONTAS, onde toda inputExpression de DMN le uma variavel ja existente).</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:outputParameter name="gap_adequacao">${gap_adequacao_dmn.gap_adequacao}</camunda:outputParameter>
+          <camunda:outputParameter name="motivo">${gap_adequacao_dmn.motivo}</camunda:outputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Measure_BrtGap</bpmn:incoming>
+      <bpmn:outgoing>Flow_BrtGap_CalcGap</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+
+    <!-- DMN: roteamento de remediacao (apenas roteia; SO {MONITORAR, ENCAMINHAR_CREDENCIAMENTO,
+         ANALISE_HUMANA}). Le gap_adequacao (variavel de processo injetada pela DMN adequacao_gap). -->
+    <bpmn:businessRuleTask id="BRT_RemediationRouting" name="Rotear remediacao (DMN adequacao_remediation_routing)"
+                           camunda:decisionRef="adequacao_remediation_routing"
+                           camunda:mapDecisionResult="singleResult"
+                           camunda:resultVariable="routing">
+      <bpmn:documentation>Dominio de roteamento EXATAMENTE {MONITORAR, ENCAMINHAR_CREDENCIAMENTO, ANALISE_HUMANA}. Por design NAO existe saida COMPROMETER/GARANTIR/CONTRATAR (ADR-0018). dados_geo_completos=false / GAP_CRITICO -> ANALISE_HUMANA. Catch-all -> ANALISE_HUMANA. resultVariable singleResult: o gateway le `routing.roteamento_remediacao`.</bpmn:documentation>
+      <bpmn:incoming>Flow_CalcGap_BrtRouting</bpmn:incoming>
+      <bpmn:outgoing>Flow_BrtRouting_BrtSla</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+
+    <!-- DMN: SLA de remediacao — resolvida na CONVERGENCIA, ANTES de qualquer User Task/timer
+         (ENGINE-16004: ${sla.sla_remediacao}/${sla.sla_alerta} devem estar setados em TODOS os caminhos). -->
+    <bpmn:businessRuleTask id="BRT_AdequacaoSla" name="Determinar SLA de remediacao (DMN adequacao_sla)"
+                           camunda:decisionRef="adequacao_sla"
+                           camunda:mapDecisionResult="singleResult"
+                           camunda:resultVariable="sla">
+      <bpmn:documentation>Saidas: sla_remediacao, sla_alerta (string ISO 8601), fonte_regulatoria. Sem saida adversa. Gap critico/urgencia tem SLA mais curto. Catch-all conservador. Prazos DRAFT/verify RN 259. Resolvida ANTES do gateway de roteamento para que `sla.*` esteja setado em todos os ramos (inclusive ANALISE_HUMANA, que entra na User Task com timers).</bpmn:documentation>
+      <bpmn:incoming>Flow_BrtRouting_BrtSla</bpmn:incoming>
+      <bpmn:outgoing>Flow_BrtSla_GWRouting</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+
+    <bpmn:exclusiveGateway id="GW_Roteamento" name="Resultado do roteamento de remediacao" default="Flow_GW_AnaliseHumana">
+      <bpmn:incoming>Flow_BrtSla_GWRouting</bpmn:incoming>
+      <bpmn:outgoing>Flow_GW_Conforme</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GW_Monitorar</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GW_EncaminharCred</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GW_AnaliseHumana</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <!-- Ramo L3 CONFORME: rede dentro dos tempos/distancias RN 259 — fim neutro -->
+    <bpmn:serviceTask id="ST_PublishConforme" name="Publicar evento: adequacao.completed (conforme)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.adequacao.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">conforme</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,regiao_saude,especialidade,ciclo_avaliacao</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_GW_Conforme</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubConforme_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_AdequacaoConforme" name="Adequacao conforme (rede dentro dos tempos/distancias RN 259)">
+      <bpmn:incoming>Flow_PubConforme_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Ramo L3 MONITORAR: gap leve sob acompanhamento — atualiza plano + notifica rede (autonomo) -->
+    <bpmn:serviceTask id="ST_UpdateMonitoringPlanL3" name="Atualizar plano de monitoramento (L3)"
+                      camunda:type="external" camunda:topic="operadora.adequacao.update_monitoring_plan">
+      <bpmn:documentation>Abre/atualiza o plano de monitoramento da celula (regiao x especialidade). Monitoramento/alerta — NAO compromete caixa nem nega atendimento. TASY write DROP.</bpmn:documentation>
+      <bpmn:incoming>Flow_GW_Monitorar</bpmn:incoming>
+      <bpmn:incoming>Flow_GWDec_MonitorarOk</bpmn:incoming>
+      <bpmn:outgoing>Flow_UpdateMon_Notify</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="ST_NotifyRedeL3" name="Notificar a area de rede (L3)"
+                      camunda:type="external" camunda:topic="operadora.adequacao.notify_rede">
+      <bpmn:documentation>Alerta a area de rede (gestao-rede) sobre o gap sob acompanhamento. Notificacao informativa — sem efeito adverso.</bpmn:documentation>
+      <bpmn:incoming>Flow_UpdateMon_Notify</bpmn:incoming>
+      <bpmn:outgoing>Flow_Notify_PubMon</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="ST_PublishMonitoramentoAtualizado" name="Publicar evento: adequacao.completed (monitoramento_atualizado)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.adequacao.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">monitoramento_atualizado</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,regiao_saude,especialidade,gap_adequacao</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Notify_PubMon</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubMon_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_MonitoramentoAtualizado" name="Plano de monitoramento atualizado (segue observando)">
+      <bpmn:incoming>Flow_PubMon_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Ramo L3 ENCAMINHAR_CREDENCIAMENTO: handoff a SP-OP-CRED-001 (busca de prestador; NAO adverso) -->
+    <bpmn:serviceTask id="ST_StartCredenciamentoL3" name="Disparar credenciamento (handoff SP-OP-CRED-001)"
+                      camunda:type="external" camunda:topic="operadora.adequacao.start_credenciamento">
+      <bpmn:documentation>Handoff NEUTRO: dispara SP-OP-CRED-001 para credenciar prestador na celula (fechar o gap). Sem compromisso de caixa. A direcao adversa do credenciamento pertence a CRED-001 e e human-gated LA.</bpmn:documentation>
+      <bpmn:incoming>Flow_GW_EncaminharCred</bpmn:incoming>
+      <bpmn:incoming>Flow_GWDec_EncaminharCred</bpmn:incoming>
+      <bpmn:outgoing>Flow_StartCred_Pub</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="ST_PublishEncaminhada" name="Publicar evento: adequacao.completed (encaminhada_credenciamento)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.adequacao.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">encaminhada_credenciamento</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,regiao_saude,especialidade,gap_adequacao</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_StartCred_Pub</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubEncaminhada_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_RemediacaoEncaminhada" name="Remediacao encaminhada a credenciamento (sem compromisso de caixa)">
+      <bpmn:incoming>Flow_PubEncaminhada_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Ramo ANALISE_HUMANA: dossie de remediacao (Andre, A2A) + User Task gestao-rede -->
+    <bpmn:serviceTask id="ST_PrepareRemediationDossier" name="Preparar dossie de remediacao (agente Andre)"
+                      camunda:type="external" camunda:topic="operadora.adequacao.prepare_remediation_dossier">
+      <bpmn:documentation>Convoca Andre (Zona PHI/Financeira/Populacional) via A2A (analytics.population): monta o dossie de remediacao (impacto, alternativas, gap apurado, RN 259). O dossie INSTRUI a decisao humana, nunca a substitui (principio Rafael, ADR-0005). NAO seta decisao_remediacao. Tambem reentrada pelo ramo seguir_analise de GW_DecisaoCoordenacao (GAP-ADEQ-3): o dossie e refeito antes de reabrir UT_DecisaoFallback apos a coordenacao decidir continuar a analise.</bpmn:documentation>
+      <bpmn:incoming>Flow_GW_AnaliseHumana</bpmn:incoming>
+      <bpmn:incoming>Flow_GWCoord_SeguirAnalise</bpmn:incoming>
+      <bpmn:outgoing>Flow_Dossie_UTDecisao</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:userTask id="UT_DecisaoFallback" name="Decisao de remediacao (gestao de rede)"
+                   camunda:candidateGroups="gestao-rede,coordenacao-rede">
+      <bpmn:documentation><![CDATA[
+HITL no-adverse (ADR-0018, mesmo num processo L3): UNICO ponto onde o compromisso financeiro de
+fallback pode nascer. Saidas: decisao_remediacao in {MONITORAR_OK, ENCAMINHAR_CRED,
+COMPROMISSO_FALLBACK, SOLICITAR_INFO}. COMPROMISSO_FALLBACK exige tipo_fallback
+(livre_escolha | reembolso_garantido | contratacao_ad_hoc), justificativa_fallback,
+referencia_regulatoria e responsavel_id (campos obrigatorios — validacao de formulario + guard do
+worker register_fallback_commitment). SLA: `sla.sla_remediacao` (DMN adequacao_sla; RN 259 —
+valores DRAFT/verify). A decisao sai em nome do humano (assignee na trilha de auditoria, ADR-0007).
+O compromisso de fallback (End_CompromissoFallbackHumano) so existe via COMPROMISSO_FALLBACK.
+Tambem reentrada pelo ramo prorrogar_prazo de GW_DecisaoCoordenacao (GAP-ADEQ-3): a coordenacao
+estende o prazo em vez de decidir agora, reabrindo esta UT com os boundary timers/mensagem
+(BT_AlertaSlaAdequacao/BT_SlaRemediacao/BME_RedeAtualizada) rearmados.
+]]></bpmn:documentation>
+      <bpmn:incoming>Flow_Dossie_UTDecisao</bpmn:incoming>
+      <bpmn:incoming>Flow_InfoCatch_UTDecisao</bpmn:incoming>
+      <bpmn:incoming>Flow_GWCoord_Prorrogar</bpmn:incoming>
+      <bpmn:outgoing>Flow_UTDecisao_GW</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <!-- Timer nao-interruptivo: alerta de risco de SLA -> coordenacao -->
+    <bpmn:boundaryEvent id="BT_AlertaSlaAdequacao" name="Alerta de risco de SLA" cancelActivity="false" attachedToRef="UT_DecisaoFallback">
+      <bpmn:outgoing>Flow_Alerta_Notify</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TD_AlertaSlaAdequacao">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${sla.sla_alerta}</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="ST_NotificarRiscoSla" name="Notificar risco de SLA (coordenacao-rede)"
+                      camunda:type="external" camunda:topic="operadora.adequacao.notify_sla_risk">
+      <bpmn:incoming>Flow_Alerta_Notify</bpmn:incoming>
+      <bpmn:outgoing>Flow_Notify_EndAlerta</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_RiscoSlaNotificado" name="Risco de SLA notificado (analise segue)">
+      <bpmn:incoming>Flow_Notify_EndAlerta</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Timer interruptivo: SLA de remediacao estourado -> coordenacao humana assume
+         (NUNCA auto-compromisso por timeout — o compromisso financeiro nunca nasce de um timer) -->
+    <bpmn:boundaryEvent id="BT_SlaRemediacao" name="SLA de remediacao (RN 259 — DRAFT/verify)" cancelActivity="true" attachedToRef="UT_DecisaoFallback">
+      <bpmn:outgoing>Flow_SlaEstourado_Pub</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TD_SlaRemediacao">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${sla.sla_remediacao}</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="ST_PublishSlaBreach" name="Publicar evento: adequacao.sla_breached"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:documentation>Publica adequacao.sla_breached e, no MESMO passo, default-inicializa
+decisao_coordenacao=`""` (GAP-ADEQ-3 / ENGINE-16004): este e o UNICO task que precede
+UT_CoordenacaoRede no caminho de estouro de SLA, entao ao chegar em GW_DecisaoCoordenacao a variavel
+existe SEMPRE — mesmo que o humano complete UT_CoordenacaoRede SEM decisao_coordenacao, o gateway
+avalia contra "" (nunca "Unknown property"/500) e cai no default conservador (seguir_analise). O
+default-init fica AQUI (task externo que antecede a UT), NAO como outputParameter da propria
+UT_CoordenacaoRede: output mappings de User Task avaliam tambem em saidas por interrupcao (licao
+#112), o que reintroduziria o risco. A UT continua livre para sobrescrever decisao_coordenacao.</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.adequacao.sla_breached</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,regiao_saude,especialidade,gap_adequacao</camunda:inputParameter>
+          <camunda:outputParameter name="decisao_coordenacao">${""}</camunda:outputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_SlaEstourado_Pub</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubBreach_UTCoord</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:userTask id="UT_CoordenacaoRede" name="Coordenacao de rede assume a decisao"
+                   camunda:candidateGroups="coordenacao-rede">
+      <bpmn:documentation>Escalation path do SLA: caso reatribuido a coordenacao de rede. Decide
+decisao_coordenacao (assumir_decisao | prorrogar_prazo | seguir_analise) — roteado por
+GW_DecisaoCoordenacao logo a seguir (GAP-ADEQ-3): assumir_decisao (coordenador toma a decisao agora,
+preenchendo os mesmos campos obrigatorios de UT_DecisaoFallback) -> GW_DecisaoRemediacao
+(decisao_remediacao roteia normalmente, incl. eventual COMPROMISSO_FALLBACK — a decisao adversa
+continua HUMANA, NUNCA muda de natureza por estouro de SLA); prorrogar_prazo -> volta a
+UT_DecisaoFallback (reabre a decisao com prazo estendido, rearmando os boundary timers/mensagem de
+SLA-alerta/SLA-remediacao/rede-atualizada); seguir_analise (default, conservador) -> volta a
+ST_PrepareRemediationDossier (dossie e refeito por Andre antes de reabrir UT_DecisaoFallback).</bpmn:documentation>
+      <bpmn:incoming>Flow_PubBreach_UTCoord</bpmn:incoming>
+      <bpmn:outgoing>Flow_UTCoord_GW</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:exclusiveGateway id="GW_DecisaoCoordenacao" name="Decisao da coordenacao de rede (estouro de SLA)" default="Flow_GWCoord_SeguirAnalise">
+      <bpmn:documentation>GAP-ADEQ-3: roteia decisao_coordenacao (saida de UT_CoordenacaoRede, so setada no caminho de estouro de SLA — a propria estrutura do grafo garante que este gateway so e alcancado apos UT_CoordenacaoRede completar, logo o identificador esta sempre SET aqui — ENGINE-16004). Hardening: ST_PublishSlaBreach (unico task predecessor da UT) default-inicializa decisao_coordenacao=`""`, entao ate uma completude da UT que OMITA decisao_coordenacao avalia contra "" e cai no default (seguir_analise) — nunca "Unknown property"/500 (foi essa a colisao com o teste do #108 que derrubou o main; ver #120). assumir_decisao -> GW_DecisaoRemediacao (decisao_remediacao, ja preenchida na mesma UT, roteia como se fosse UT_DecisaoFallback). prorrogar_prazo -> UT_DecisaoFallback (reabre com prazo estendido). seguir_analise (default, inclui "" e qualquer outro valor) -> ST_PrepareRemediationDossier (dossie refeito antes de reabrir a decisao).</bpmn:documentation>
+      <bpmn:incoming>Flow_UTCoord_GW</bpmn:incoming>
+      <bpmn:outgoing>Flow_GWCoord_Assumir</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWCoord_Prorrogar</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWCoord_SeguirAnalise</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <!-- Mensagem: nova mudanca de rede / credenciamento concluido chegou -> reavalia (interruptivo) -->
+    <bpmn:boundaryEvent id="BME_RedeAtualizada" name="Mudanca de rede / credenciamento concluido recebido" cancelActivity="true" attachedToRef="UT_DecisaoFallback">
+      <bpmn:outgoing>Flow_RedeAtualizada_Measure</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="MED_RedeAtualizada" messageRef="Msg_AdequacaoRedeAtualizada"/>
+    </bpmn:boundaryEvent>
+
+    <bpmn:exclusiveGateway id="GW_DecisaoRemediacao" name="Decisao da gestao de rede" default="Flow_GWDec_MonitorarOk">
+      <bpmn:incoming>Flow_UTDecisao_GW</bpmn:incoming>
+      <bpmn:incoming>Flow_GWCoord_Assumir</bpmn:incoming>
+      <bpmn:outgoing>Flow_GWDec_Compromisso</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWDec_EncaminharCred</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWDec_SolicitarInfo</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWDec_MonitorarOk</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <!-- Ramo COMPROMISSO_FALLBACK: UNICO efeito adverso, gated por worker (ERR_FALLBACK_COMMITMENT_NOT_HUMAN) -->
+    <bpmn:serviceTask id="ST_RegisterFallbackCommitment" name="Registrar compromisso de fallback (efeito adverso gated)"
+                      camunda:type="external" camunda:topic="operadora.adequacao.register_fallback_commitment">
+      <bpmn:documentation>HARD GUARDRAIL (no-adverse, ADR-0018): o worker RECUSA registrar o compromisso se decisao_remediacao != COMPROMISSO_FALLBACK setado por humano, ou se faltarem tipo_fallback/justificativa_fallback/referencia_regulatoria/responsavel_id (lanca ERR_FALLBACK_COMMITMENT_NOT_HUMAN). Carrega responsavel_id + tier na trilha de auditoria (ADR-0007). Este worker NUNCA decide; so registra o compromisso ja decidido na UT humana. O compromisso financeiro (livre escolha / reembolso garantido / contratacao ad-hoc) onera a operadora — por isso e human-gated mesmo num processo L3.</bpmn:documentation>
+      <bpmn:incoming>Flow_GWDec_Compromisso</bpmn:incoming>
+      <bpmn:outgoing>Flow_Compromisso_Pub</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="ST_PublishCompromisso" name="Publicar evento: adequacao.completed (compromisso_fallback_humano)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.adequacao.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">compromisso_fallback_humano</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,regiao_saude,especialidade,tipo_fallback,responsavel_id</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Compromisso_Pub</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubCompromisso_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_CompromissoFallbackHumano" name="Compromisso de fallback firmado (no-adverse — humano)">
+      <bpmn:incoming>Flow_PubCompromisso_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Ramo SOLICITAR_INFO: aguarda info/credenciamento concluido (msg) -> reabre decisao (sem efeito adverso) -->
+    <bpmn:intermediateCatchEvent id="ICE_AguardarInfo" name="Aguardar info / credenciamento concluido">
+      <bpmn:incoming>Flow_GWDec_SolicitarInfo</bpmn:incoming>
+      <bpmn:outgoing>Flow_InfoCatch_UTDecisao</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="MED_AguardarInfo" messageRef="Msg_AdequacaoRedeAtualizada"/>
+    </bpmn:intermediateCatchEvent>
+
+    <!-- FLOWS -->
+    <bpmn:sequenceFlow id="Flow_Start_PubReceived" sourceRef="Start_AvaliacaoAdequacao" targetRef="ST_PublishReceived"/>
+    <bpmn:sequenceFlow id="Flow_PubReceived_Measure" sourceRef="ST_PublishReceived" targetRef="ST_MeasureCoverage"/>
+    <bpmn:sequenceFlow id="Flow_Measure_BrtGap" sourceRef="ST_MeasureCoverage" targetRef="BRT_AdequacaoGap"/>
+    <bpmn:sequenceFlow id="Flow_BrtGap_CalcGap" sourceRef="BRT_AdequacaoGap" targetRef="ST_CalculateGap"/>
+    <bpmn:sequenceFlow id="Flow_CalcGap_BrtRouting" sourceRef="ST_CalculateGap" targetRef="BRT_RemediationRouting"/>
+    <bpmn:sequenceFlow id="Flow_BrtRouting_BrtSla" sourceRef="BRT_RemediationRouting" targetRef="BRT_AdequacaoSla"/>
+    <bpmn:sequenceFlow id="Flow_BrtSla_GWRouting" sourceRef="BRT_AdequacaoSla" targetRef="GW_Roteamento"/>
+    <bpmn:sequenceFlow id="Flow_GW_Conforme" name="MONITORAR + CONFORME" sourceRef="GW_Roteamento" targetRef="ST_PublishConforme">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${routing.roteamento_remediacao == 'MONITORAR' &amp;&amp; gap_adequacao == 'CONFORME'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GW_Monitorar" name="MONITORAR (gap leve)" sourceRef="GW_Roteamento" targetRef="ST_UpdateMonitoringPlanL3">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${routing.roteamento_remediacao == 'MONITORAR' &amp;&amp; gap_adequacao != 'CONFORME'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GW_EncaminharCred" name="ENCAMINHAR_CREDENCIAMENTO" sourceRef="GW_Roteamento" targetRef="ST_StartCredenciamentoL3">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${routing.roteamento_remediacao == 'ENCAMINHAR_CREDENCIAMENTO'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GW_AnaliseHumana" name="ANALISE_HUMANA (default — sempre humano)" sourceRef="GW_Roteamento" targetRef="ST_PrepareRemediationDossier"/>
+    <bpmn:sequenceFlow id="Flow_PubConforme_End" sourceRef="ST_PublishConforme" targetRef="End_AdequacaoConforme"/>
+    <bpmn:sequenceFlow id="Flow_UpdateMon_Notify" sourceRef="ST_UpdateMonitoringPlanL3" targetRef="ST_NotifyRedeL3"/>
+    <bpmn:sequenceFlow id="Flow_Notify_PubMon" sourceRef="ST_NotifyRedeL3" targetRef="ST_PublishMonitoramentoAtualizado"/>
+    <bpmn:sequenceFlow id="Flow_PubMon_End" sourceRef="ST_PublishMonitoramentoAtualizado" targetRef="End_MonitoramentoAtualizado"/>
+    <bpmn:sequenceFlow id="Flow_StartCred_Pub" sourceRef="ST_StartCredenciamentoL3" targetRef="ST_PublishEncaminhada"/>
+    <bpmn:sequenceFlow id="Flow_PubEncaminhada_End" sourceRef="ST_PublishEncaminhada" targetRef="End_RemediacaoEncaminhada"/>
+    <bpmn:sequenceFlow id="Flow_Dossie_UTDecisao" sourceRef="ST_PrepareRemediationDossier" targetRef="UT_DecisaoFallback"/>
+    <bpmn:sequenceFlow id="Flow_Alerta_Notify" sourceRef="BT_AlertaSlaAdequacao" targetRef="ST_NotificarRiscoSla"/>
+    <bpmn:sequenceFlow id="Flow_Notify_EndAlerta" sourceRef="ST_NotificarRiscoSla" targetRef="End_RiscoSlaNotificado"/>
+    <bpmn:sequenceFlow id="Flow_SlaEstourado_Pub" sourceRef="BT_SlaRemediacao" targetRef="ST_PublishSlaBreach"/>
+    <bpmn:sequenceFlow id="Flow_PubBreach_UTCoord" sourceRef="ST_PublishSlaBreach" targetRef="UT_CoordenacaoRede"/>
+    <bpmn:sequenceFlow id="Flow_RedeAtualizada_Measure" sourceRef="BME_RedeAtualizada" targetRef="ST_MeasureCoverage"/>
+    <bpmn:sequenceFlow id="Flow_UTDecisao_GW" sourceRef="UT_DecisaoFallback" targetRef="GW_DecisaoRemediacao"/>
+    <bpmn:sequenceFlow id="Flow_UTCoord_GW" sourceRef="UT_CoordenacaoRede" targetRef="GW_DecisaoCoordenacao"/>
+    <!-- GAP-ADEQ-3: GW_DecisaoCoordenacao roteia decisao_coordenacao (saida de UT_CoordenacaoRede, so
+         setada no caminho de estouro de SLA -> este gateway so e alcancavel apos UT_CoordenacaoRede
+         completar, logo o identificador esta sempre SET aqui, ENGINE-16004). -->
+    <bpmn:sequenceFlow id="Flow_GWCoord_Assumir" name="assumir_decisao" sourceRef="GW_DecisaoCoordenacao" targetRef="GW_DecisaoRemediacao">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_coordenacao == 'assumir_decisao'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWCoord_Prorrogar" name="prorrogar_prazo" sourceRef="GW_DecisaoCoordenacao" targetRef="UT_DecisaoFallback">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_coordenacao == 'prorrogar_prazo'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWCoord_SeguirAnalise" name="seguir_analise (default)" sourceRef="GW_DecisaoCoordenacao" targetRef="ST_PrepareRemediationDossier"/>
+    <bpmn:sequenceFlow id="Flow_GWDec_Compromisso" name="COMPROMISSO_FALLBACK (somente humano)" sourceRef="GW_DecisaoRemediacao" targetRef="ST_RegisterFallbackCommitment">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_remediacao == 'COMPROMISSO_FALLBACK'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWDec_EncaminharCred" name="ENCAMINHAR_CRED" sourceRef="GW_DecisaoRemediacao" targetRef="ST_StartCredenciamentoL3">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_remediacao == 'ENCAMINHAR_CRED'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWDec_SolicitarInfo" name="SOLICITAR_INFO" sourceRef="GW_DecisaoRemediacao" targetRef="ICE_AguardarInfo">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_remediacao == 'SOLICITAR_INFO'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWDec_MonitorarOk" name="MONITORAR_OK (default)" sourceRef="GW_DecisaoRemediacao" targetRef="ST_UpdateMonitoringPlanL3"/>
+    <bpmn:sequenceFlow id="Flow_InfoCatch_UTDecisao" sourceRef="ICE_AguardarInfo" targetRef="UT_DecisaoFallback"/>
+    <bpmn:sequenceFlow id="Flow_Compromisso_Pub" sourceRef="ST_RegisterFallbackCommitment" targetRef="ST_PublishCompromisso"/>
+    <bpmn:sequenceFlow id="Flow_PubCompromisso_End" sourceRef="ST_PublishCompromisso" targetRef="End_CompromissoFallbackHumano"/>
+  </bpmn:process>
+
+  <bpmndi:BPMNDiagram id="Diagram_SP-OP-ADEQUACAO-001">
+    <bpmndi:BPMNPlane id="Plane_SP-OP-ADEQUACAO-001" bpmnElement="SP-OP-ADEQUACAO-001">
+      <bpmndi:BPMNShape id="Shape_Start_AvaliacaoAdequacao" bpmnElement="Start_AvaliacaoAdequacao">
+        <dc:Bounds x="72" y="62" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishReceived" bpmnElement="ST_PublishReceived">
+        <dc:Bounds x="220" y="40" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_MeasureCoverage" bpmnElement="ST_MeasureCoverage">
+        <dc:Bounds x="400" y="40" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_CalculateGap" bpmnElement="ST_CalculateGap">
+        <dc:Bounds x="760" y="40" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_AdequacaoGap" bpmnElement="BRT_AdequacaoGap">
+        <dc:Bounds x="580" y="40" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_RemediationRouting" bpmnElement="BRT_RemediationRouting">
+        <dc:Bounds x="940" y="40" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_AdequacaoSla" bpmnElement="BRT_AdequacaoSla">
+        <dc:Bounds x="1120" y="40" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_Roteamento" bpmnElement="GW_Roteamento" isMarkerVisible="true">
+        <dc:Bounds x="1300" y="55" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishConforme" bpmnElement="ST_PublishConforme">
+        <dc:Bounds x="1430" y="40" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_AdequacaoConforme" bpmnElement="End_AdequacaoConforme">
+        <dc:Bounds x="1642" y="62" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_UpdateMonitoringPlanL3" bpmnElement="ST_UpdateMonitoringPlanL3">
+        <dc:Bounds x="1920" y="160" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_NotifyRedeL3" bpmnElement="ST_NotifyRedeL3">
+        <dc:Bounds x="2100" y="160" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishMonitoramentoAtualizado" bpmnElement="ST_PublishMonitoramentoAtualizado">
+        <dc:Bounds x="2280" y="160" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_MonitoramentoAtualizado" bpmnElement="End_MonitoramentoAtualizado">
+        <dc:Bounds x="2460" y="182" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_StartCredenciamentoL3" bpmnElement="ST_StartCredenciamentoL3">
+        <dc:Bounds x="1920" y="292" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishEncaminhada" bpmnElement="ST_PublishEncaminhada">
+        <dc:Bounds x="2100" y="292" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_RemediacaoEncaminhada" bpmnElement="End_RemediacaoEncaminhada">
+        <dc:Bounds x="2312" y="314" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PrepareRemediationDossier" bpmnElement="ST_PrepareRemediationDossier">
+        <dc:Bounds x="1430" y="160" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT_DecisaoFallback" bpmnElement="UT_DecisaoFallback">
+        <dc:Bounds x="1610" y="292" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_AlertaSlaAdequacao" bpmnElement="BT_AlertaSlaAdequacao">
+        <dc:Bounds x="1617" y="354" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_NotificarRiscoSla" bpmnElement="ST_NotificarRiscoSla">
+        <dc:Bounds x="40" y="160" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_RiscoSlaNotificado" bpmnElement="End_RiscoSlaNotificado">
+        <dc:Bounds x="252" y="182" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_SlaRemediacao" bpmnElement="BT_SlaRemediacao">
+        <dc:Bounds x="1642" y="354" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishSlaBreach" bpmnElement="ST_PublishSlaBreach">
+        <dc:Bounds x="40" y="292" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT_CoordenacaoRede" bpmnElement="UT_CoordenacaoRede">
+        <dc:Bounds x="220" y="292" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_DecisaoCoordenacao" bpmnElement="GW_DecisaoCoordenacao" isMarkerVisible="true">
+        <dc:Bounds x="425" y="307" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BME_RedeAtualizada" bpmnElement="BME_RedeAtualizada">
+        <dc:Bounds x="1667" y="354" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_DecisaoRemediacao" bpmnElement="GW_DecisaoRemediacao" isMarkerVisible="true">
+        <dc:Bounds x="1790" y="307" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_RegisterFallbackCommitment" bpmnElement="ST_RegisterFallbackCommitment">
+        <dc:Bounds x="1920" y="424" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishCompromisso" bpmnElement="ST_PublishCompromisso">
+        <dc:Bounds x="2100" y="424" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_CompromissoFallbackHumano" bpmnElement="End_CompromissoFallbackHumano">
+        <dc:Bounds x="2312" y="446" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ICE_AguardarInfo" bpmnElement="ICE_AguardarInfo">
+        <dc:Bounds x="1952" y="544" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_Flow_Start_PubReceived" bpmnElement="Flow_Start_PubReceived">
+        <di:waypoint x="108" y="80"/>
+        <di:waypoint x="220" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubReceived_Measure" bpmnElement="Flow_PubReceived_Measure">
+        <di:waypoint x="320" y="80"/>
+        <di:waypoint x="400" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Measure_BrtGap" bpmnElement="Flow_Measure_BrtGap">
+        <di:waypoint x="500" y="80"/>
+        <di:waypoint x="580" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_BrtGap_CalcGap" bpmnElement="Flow_BrtGap_CalcGap">
+        <di:waypoint x="680" y="80"/>
+        <di:waypoint x="760" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_CalcGap_BrtRouting" bpmnElement="Flow_CalcGap_BrtRouting">
+        <di:waypoint x="860" y="80"/>
+        <di:waypoint x="940" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_BrtRouting_BrtSla" bpmnElement="Flow_BrtRouting_BrtSla">
+        <di:waypoint x="1040" y="80"/>
+        <di:waypoint x="1120" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_BrtSla_GWRouting" bpmnElement="Flow_BrtSla_GWRouting">
+        <di:waypoint x="1220" y="80"/>
+        <di:waypoint x="1300" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GW_Conforme" bpmnElement="Flow_GW_Conforme">
+        <di:waypoint x="1350" y="80"/>
+        <di:waypoint x="1430" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GW_Monitorar" bpmnElement="Flow_GW_Monitorar">
+        <di:waypoint x="1350" y="80"/>
+        <di:waypoint x="1635" y="80"/>
+        <di:waypoint x="1635" y="200"/>
+        <di:waypoint x="1920" y="200"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GW_EncaminharCred" bpmnElement="Flow_GW_EncaminharCred">
+        <di:waypoint x="1350" y="80"/>
+        <di:waypoint x="1635" y="80"/>
+        <di:waypoint x="1635" y="332"/>
+        <di:waypoint x="1920" y="332"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GW_AnaliseHumana" bpmnElement="Flow_GW_AnaliseHumana">
+        <di:waypoint x="1350" y="80"/>
+        <di:waypoint x="1390" y="80"/>
+        <di:waypoint x="1390" y="200"/>
+        <di:waypoint x="1430" y="200"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubConforme_End" bpmnElement="Flow_PubConforme_End">
+        <di:waypoint x="1530" y="80"/>
+        <di:waypoint x="1642" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_UpdateMon_Notify" bpmnElement="Flow_UpdateMon_Notify">
+        <di:waypoint x="2020" y="200"/>
+        <di:waypoint x="2100" y="200"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Notify_PubMon" bpmnElement="Flow_Notify_PubMon">
+        <di:waypoint x="2200" y="200"/>
+        <di:waypoint x="2280" y="200"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubMon_End" bpmnElement="Flow_PubMon_End">
+        <di:waypoint x="2380" y="200"/>
+        <di:waypoint x="2460" y="200"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_StartCred_Pub" bpmnElement="Flow_StartCred_Pub">
+        <di:waypoint x="2020" y="332"/>
+        <di:waypoint x="2100" y="332"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubEncaminhada_End" bpmnElement="Flow_PubEncaminhada_End">
+        <di:waypoint x="2200" y="332"/>
+        <di:waypoint x="2312" y="332"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Dossie_UTDecisao" bpmnElement="Flow_Dossie_UTDecisao">
+        <di:waypoint x="1530" y="200"/>
+        <di:waypoint x="1570" y="200"/>
+        <di:waypoint x="1570" y="332"/>
+        <di:waypoint x="1610" y="332"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Alerta_Notify" bpmnElement="Flow_Alerta_Notify">
+        <di:waypoint x="1635" y="390"/>
+        <di:waypoint x="1635" y="450"/>
+        <di:waypoint x="40" y="450"/>
+        <di:waypoint x="40" y="200"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Notify_EndAlerta" bpmnElement="Flow_Notify_EndAlerta">
+        <di:waypoint x="140" y="200"/>
+        <di:waypoint x="252" y="200"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_SlaEstourado_Pub" bpmnElement="Flow_SlaEstourado_Pub">
+        <di:waypoint x="1660" y="390"/>
+        <di:waypoint x="1660" y="450"/>
+        <di:waypoint x="40" y="450"/>
+        <di:waypoint x="40" y="332"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubBreach_UTCoord" bpmnElement="Flow_PubBreach_UTCoord">
+        <di:waypoint x="140" y="332"/>
+        <di:waypoint x="220" y="332"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_RedeAtualizada_Measure" bpmnElement="Flow_RedeAtualizada_Measure">
+        <di:waypoint x="1685" y="390"/>
+        <di:waypoint x="1685" y="450"/>
+        <di:waypoint x="400" y="450"/>
+        <di:waypoint x="400" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_UTDecisao_GW" bpmnElement="Flow_UTDecisao_GW">
+        <di:waypoint x="1710" y="332"/>
+        <di:waypoint x="1790" y="332"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_UTCoord_GW" bpmnElement="Flow_UTCoord_GW">
+        <di:waypoint x="320" y="332"/>
+        <di:waypoint x="425" y="332"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWCoord_Assumir" bpmnElement="Flow_GWCoord_Assumir">
+        <di:waypoint x="475" y="332"/>
+        <di:waypoint x="1790" y="332"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWCoord_Prorrogar" bpmnElement="Flow_GWCoord_Prorrogar">
+        <di:waypoint x="475" y="332"/>
+        <di:waypoint x="1610" y="332"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWCoord_SeguirAnalise" bpmnElement="Flow_GWCoord_SeguirAnalise">
+        <di:waypoint x="475" y="332"/>
+        <di:waypoint x="952" y="332"/>
+        <di:waypoint x="952" y="200"/>
+        <di:waypoint x="1430" y="200"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Compromisso" bpmnElement="Flow_GWDec_Compromisso">
+        <di:waypoint x="1840" y="332"/>
+        <di:waypoint x="1880" y="332"/>
+        <di:waypoint x="1880" y="464"/>
+        <di:waypoint x="1920" y="464"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_EncaminharCred" bpmnElement="Flow_GWDec_EncaminharCred">
+        <di:waypoint x="1840" y="332"/>
+        <di:waypoint x="1920" y="332"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_SolicitarInfo" bpmnElement="Flow_GWDec_SolicitarInfo">
+        <di:waypoint x="1840" y="332"/>
+        <di:waypoint x="1896" y="332"/>
+        <di:waypoint x="1896" y="562"/>
+        <di:waypoint x="1952" y="562"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_MonitorarOk" bpmnElement="Flow_GWDec_MonitorarOk">
+        <di:waypoint x="1840" y="332"/>
+        <di:waypoint x="1880" y="332"/>
+        <di:waypoint x="1880" y="200"/>
+        <di:waypoint x="1920" y="200"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_InfoCatch_UTDecisao" bpmnElement="Flow_InfoCatch_UTDecisao">
+        <di:waypoint x="1970" y="580"/>
+        <di:waypoint x="1970" y="640"/>
+        <di:waypoint x="1610" y="640"/>
+        <di:waypoint x="1610" y="332"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Compromisso_Pub" bpmnElement="Flow_Compromisso_Pub">
+        <di:waypoint x="2020" y="464"/>
+        <di:waypoint x="2100" y="464"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubCompromisso_End" bpmnElement="Flow_PubCompromisso_End">
+        <di:waypoint x="2200" y="464"/>
+        <di:waypoint x="2312" y="464"/>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

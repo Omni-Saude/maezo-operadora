@@ -1,0 +1,855 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+                  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+                  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+                  xmlns:camunda="http://camunda.org/schema/1.0/bpmn"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  id="Definitions_SP_OP_FRAUDE_001"
+                  targetNamespace="http://maezo.health/operadora/fraude"
+                  exporter="Maezo W5-PROC"
+                  exporterVersion="0.1.0-draft">
+
+  <bpmn:message id="Msg_FraudeEvidenciaAnexada" name="msg.fraude.evidencia_anexada"/>
+  <bpmn:message id="Msg_FraudeDiligenciaConcluida" name="msg.fraude.diligencia_concluida"/>
+  <bpmn:error id="Error_FraudAccusationNotHuman" name="Acusacao de fraude sem decisao humana" errorCode="ERR_FRAUD_ACCUSATION_NOT_HUMAN"/>
+  <bpmn:error id="Error_CustodyNotSealed" name="Decisao sem bundle_root selado na cadeia" errorCode="ERR_CUSTODY_NOT_SEALED"/>
+  <bpmn:error id="Error_PhiInCustody" name="PHI bruto na custodia de evidencia" errorCode="ERR_PHI_IN_CUSTODY"/>
+  <bpmn:error id="Error_FraudeCasoInvalido" name="Caso de investigacao inconsistente na origem" errorCode="ERR_FRAUDE_CASO_INVALIDO"/>
+
+  <bpmn:process id="SP-OP-FRAUDE-001" name="SP-OP-FRAUDE-001 Investigacao de Fraude (Cadeia de Custodia)"
+                isExecutable="true" camunda:historyTimeToLive="1825">
+    <bpmn:documentation><![CDATA[
+SP-OP-FRAUDE-001 — Investigacao de Fraude / Cadeia de Custodia. Status: DRAFT (v0.1.0) — Phase 3
+(PATHFINDER), Wave W-A. DI (diagrama) sera adicionado na promocao a FINAL. Requer revisao humana
+(medico-auditor/juridico/DPO/regulatorio/financas/PO) antes de qualquer deploy — ver docs/review-queue.md.
+
+GATILHO REGULATORIO: investigacao de indicio de fraude/abuso com possivel referral a ANS, esfera civel
+e/ou penal. RN 593/2023 (rescisao quando ha fraude), RN 567/2018 (descredenciamento quando referencia
+prestador), Lei 9.656/1998 art. 13 (fraude como hipotese de rescisao), LGPD (tratamento + retencao
+probatoria), Codigo Penal / Codigo de Processo Civil (cadeia de custodia probatoria). TODAS as citacoes
+de RN/Lei e prazos sao DRAFT/verify com regulatorio+juridico antes de qualquer timer/efeito em producao.
+
+INVARIANTE L0 HARD (fraud_accusation, _hard_frozen.yaml, CI-enforced; ADR-0008/0018): NENHUM caminho
+automatizado acusa fraude, constitui dolo, descredencia prestador, rescinde contrato por fraude, refere a
+ANS/civel/penal nem produz qualquer efeito adverso decorrente de fraude. O score de fraude e FATO DE
+ROTEAMENTO, NUNCA veredito: nenhuma DMN deste processo tem coluna de saida que acuse/confirme/bloqueie.
+Indicio ambiguo, score alto, indicador presente, DMN indisponivel, snapshot ausente e estouro de SLA TODOS
+fail-safe para a User Task humana (catch-all -> INVESTIGACAO_HUMANA). A acusacao SO nasce na User Task
+humana UT_DecisaoInvestigador (grupo investigacao-fraude), via decisao_fraude=ACUSAR_FRAUDE, e SO depois
+que o bundle_root do dossie ja foi selado na hash-chain ADR-0007 (decisao sobre corpus verificavel). O
+efeito adverso e materializado apenas pelo worker operadora.fraude.register_fraud_accusation, guardado por
+ERR_FRAUD_ACCUSATION_NOT_HUMAN (recusa se decisao_fraude != ACUSAR_FRAUDE setado por humano, ou se faltar
+investigator_id/tier/fundamentacao/indicadores/referencia/destino) e por ERR_CUSTODY_NOT_SEALED (GAP-FRAUDE-4:
+recusa se o bundle_root selado nao verificar/nao estiver selado — codigo distinto por natureza da falha).
+Os quatro terminais ADVERSOS (End_FraudeConfirmadaHumano, End_EncaminhadoJuridico, End_EncaminhadoCredenciamento,
+End_EncaminhadoContratual) so sao alcancaveis apos UT humana concluida sobre dossie selado.
+
+CADEIA DE CUSTODIA (classe nova — selagem ANTES da decisao): bundle_root (raiz Merkle sobre os
+record_hashes ordenados do dossie) gravado na hash-chain ADR-0007 ANTES de UT_DecisaoInvestigador (porta
+src/maezo/gateway/custody.py — projecao sobre ADR-0007, NAO fork). GW_CustodiaSelada impede a UT sem
+selagem (ERR_CUSTODY_NOT_SEALED). seal_custody_bundle recusa selar item com PHI bruto (ERR_PHI_IN_CUSTODY —
+ADR-0006; so ponteiros pseudonimizados + hashes, nunca PHI). register_fraud_accusation re-verifica o root
+antes do efeito (tamper-evidence: alteracao/reordenacao muda o root). Sequencia: assemble_dossier ->
+seal_custody_bundle (escreve bundle_root) -> publish custody_sealed -> GW_CustodiaSelada -> UT.
+
+INVERSAO DO ANTI-PADRAO (detect_fraud_worker_v2 + fraud_scoring/* + fraud_detection.dmn + fraud_clearance.dmn):
+no reference o worker soma scores de 7 DMNs e, com recommendation="flag", lanca FRAUD_DETECTED (veredito
+automatico por score). Em Maezo: (1) score e integer (FATO DE ROTEAMENTO; inverte score:number), alimenta
+fraude_indicadores -> intensidade_investigacao; (2) NAO existe FRAUD_DETECTED nem coluna ACUSAR/BLOQUEAR/
+CONFIRMAR; (3) as 7 DMNs portadas (fraude_scoring/*) so montam indicadores_presentes para o dossie (rodadas
+pelo worker score_indicators, NAO como businessRuleTasks); (4) a acusacao e materializada so pelo worker
+gated register_fraud_accusation sobre decisao humana + dossie selado. O estouro de SLA leva a coordenacao
+humana assumir (UT_CoordenacaoInvestigacao); NUNCA ha auto-acusacao nem auto-arquivamento por timeout. A
+expiracao do prazo de diligencia reabre a UT humana, nunca alcanca um terminal automaticamente.
+
+SINK CONVERGENTE (Phase 2): FRAUDE-001 e o destino unico dos handoffs encaminhar_fraude (CONTAS/RECURSO/
+REEMBOLSO/CANCEL/NIP, onde um HUMANO setou encaminhar_fraude). FRAUDE NUNCA le de volta / bloqueia / pre-empta
+glosa/recurso/reembolso/cancelamento: e estritamente downstream. operadora.fraude.intake registra
+encaminhado_por_id (o humano de origem) na cadeia de auditoria. Consolidacao: multiplos encaminhamentos sobre
+o mesmo caso convergem na MESMA instancia (business key idempotente) e anexam evidencia (msg.fraude.evidencia_anexada),
+re-selando o bundle_root enquanto nao houver decisao.
+
+BUSINESS KEY (idempotente): "FRAUDE-{tenant_id}-{numero_caso}". Uma instancia ativa por caso; reenvio do
+mesmo caso retorna a instancia ativa (mcp-cibseven.start_process consulta business key antes de iniciar).
+
+EVENTOS DE DOMINIO (worker operadora.events.publish):
+  inicio -> agents.events.fraude.intake_received
+  selagem -> agents.events.fraude.custody_sealed (payload: bundle_root, record_count; SEM PHI)
+  breach -> agents.events.fraude.sla_breached
+  fim -> agents.events.fraude.completed (payload.desfecho = fraude_confirmada_humano | arquivado_sem_indicio |
+         monitorar | encaminhado_juridico | encaminhado_credenciamento | encaminhado_contratual; adversos
+         carregam investigator_id+tier)
+
+VARIAVEIS DE ENTRADA: tenant_id, numero_caso, origem_encaminhamento (contas|recurso|reembolso|cancel|nip|
+cdc_proativo|denuncia|auditoria), entidade_tipo (prestador|beneficiario|contrato|rede), entidade_pseudo_id
+(ADR-0006 — NUNCA CPF/CNPJ/nome real), prestador_id (opc), beneficiario_pseudo_id (opc), numero_contrato (opc),
+encaminhado_por_id (o HUMANO de Phase 2 — nunca um worker), competencia (opc), evidencia_refs (json — ponteiros
+pseudonimizados; NUNCA PHI bruto), feature_snapshot_ref (opc), indicadores_presentes (json — montagem, nunca
+veredito), score_indicadores (integer — FATO DE ROTEAMENTO; NUNCA number/double), indicio_fraude_sinalizado
+(bool, informativo, NUNCA decide). Contrato completo: docs/processes/contracts/SP-OP-FRAUDE-001.md.
+]]></bpmn:documentation>
+
+    <!-- ============================ START (neutro) ============================ -->
+    <bpmn:startEvent id="Start_CasoFraudeRecebido" name="Caso de investigacao de fraude recebido">
+      <bpmn:outgoing>Flow_Start_Intake</bpmn:outgoing>
+    </bpmn:startEvent>
+
+    <!-- Intake neutro: registra o caso + procedencia (encaminhado_por_id humano). Sem efeito adverso. -->
+    <bpmn:serviceTask id="ST_Intake" name="Registrar intake neutro / procedencia do encaminhamento"
+                      camunda:type="external" camunda:topic="operadora.fraude.intake">
+      <bpmn:documentation>Start neutro — registra o caso na cadeia de auditoria (encaminhado_por_id = o HUMANO de Phase 2 que setou encaminhar_fraude; nunca um worker). Lanca ERR_FRAUDE_CASO_INVALIDO se o caso for inconsistente na origem. Sem efeito adverso. TASY write DROP (ADR-0013).</bpmn:documentation>
+      <bpmn:incoming>Flow_Start_Intake</bpmn:incoming>
+      <bpmn:outgoing>Flow_Intake_PubReceived</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:serviceTask id="ST_PublishIntakeReceived" name="Publicar evento: fraude.intake_received"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.fraude.intake_received</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_caso,origem_encaminhamento,entidade_tipo,encaminhado_por_id</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Intake_PubReceived</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubReceived_Gather</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- Coleta de evidencia (Beatriz, A2A human-gated). Instrui, nao decide. Ponteiros pseudonimizados. -->
+    <bpmn:serviceTask id="ST_GatherEvidence" name="Coletar/normalizar evidencia (Beatriz, human-gated)"
+                      camunda:type="external" camunda:topic="operadora.fraude.gather_evidence">
+      <bpmn:documentation>Convoca Beatriz (delegacao A2A fraude.investigate, human-gated): coleta/normaliza evidencia (CDC/TISS/feature store) como ponteiros pseudonimizados em evidencia_refs (NUNCA PHI bruto — ADR-0006). Instrui, nao decide; NAO seta decisao_fraude. TASY write DROP (ADR-0013).</bpmn:documentation>
+      <bpmn:incoming>Flow_PubReceived_Gather</bpmn:incoming>
+      <bpmn:outgoing>Flow_Gather_Score</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- Score de indicadores: porta INVERTIDA do detect_fraud + 7 DMNs fraude_scoring/*. FATO DE MONTAGEM. -->
+    <bpmn:serviceTask id="ST_ScoreIndicators" name="Montar indicadores + score (porta INVERTIDA do detect_fraud)"
+                      camunda:type="external" camunda:topic="operadora.fraude.score_indicators">
+      <bpmn:documentation>Porta INVERTIDA do detect_fraud v2 + 7 DMNs fraude_scoring/* (rodadas pelo WORKER, NAO como businessRuleTasks). Soma indicador_score -> score_indicadores (integer) e coleta indicador_label -> indicadores_presentes (json). FATO DE MONTAGEM, NUNCA veredito: NAO existe FRAUD_DETECTED nem coluna de acusacao/bloqueio. Score alto -> mais investigacao (PRIORITARIA), nunca acusacao. TASY write DROP (ADR-0013).</bpmn:documentation>
+      <bpmn:incoming>Flow_Gather_Score</bpmn:incoming>
+      <bpmn:outgoing>Flow_Score_Indicadores</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- DMN: intensidade de investigacao (monta indicadores, NAO acusa). Sem saida adversa. -->
+    <bpmn:businessRuleTask id="BRT_Indicadores" name="Montar indicadores (DMN fraude_indicadores)"
+                           camunda:decisionRef="fraude_indicadores"
+                           camunda:mapDecisionResult="singleResult"
+                           camunda:resultVariable="indicadores">
+      <bpmn:documentation>Saidas: intensidade_investigacao in {LEVE, APROFUNDADA, PRIORITARIA}, motivo. Por design NAO existe saida ACUSAR/FRAUD_DETECTED/BLOQUEAR (L0 hard). Define apenas a intensidade da montagem/investigacao; score alto -> PRIORITARIA (investiga mais), nunca acusacao. Catch-all -> PRIORITARIA (conservador: na duvida, investiga mais e leva a humano).</bpmn:documentation>
+      <!-- GAP-FRAUDE-1 (ENGINE-16004 avoidance): promove `intensidade_investigacao` para uma variavel
+           de processo top-level APOS a DMN resolver. mapDecisionResult=singleResult armazena o
+           resultado aninhado em `indicadores` (${indicadores.intensidade_investigacao}); fraude_routing
+           e fraude_sla (BRT_Routing / BRT_FraudeSla, a jusante) leem `intensidade_investigacao` como
+           variavel FLAT (nome do input FEEL da DMN) — sem esta promocao o valor nunca chega ao escopo
+           do processo como var top-level e as duas DMNs resolvem contra null. Espelha o padrao
+           BRT_PagtoAdmissibility/BRT_AlcadaRouting (SP-OP-PAGTO-001). NAO existe saida adversa: so
+           re-expoe a classificacao ja produzida pela DMN. -->
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:outputParameter name="intensidade_investigacao">${indicadores.intensidade_investigacao}</camunda:outputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Score_Indicadores</bpmn:incoming>
+      <bpmn:outgoing>Flow_Indicadores_Routing</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+
+    <!-- DMN: roteamento ao investigador. roteamento == {INVESTIGACAO_HUMANA} sempre. Sem variante adversa. -->
+    <bpmn:businessRuleTask id="BRT_Routing" name="Rotear ao investigador (DMN fraude_routing)"
+                           camunda:decisionRef="fraude_routing"
+                           camunda:mapDecisionResult="singleResult"
+                           camunda:resultVariable="routing">
+      <bpmn:documentation>Saidas: roteamento (dominio EXATAMENTE {INVESTIGACAO_HUMANA} — toda instancia roteia para o humano), grupo_investigador in {investigacao-fraude, coordenacao-investigacao, juridico-fraude}, motivo. Sem rota automatizada de acusacao nem de "encerrar sem humano". Catch-all -> INVESTIGACAO_HUMANA + grupo mais senior (conservador).</bpmn:documentation>
+      <bpmn:incoming>Flow_Indicadores_Routing</bpmn:incoming>
+      <bpmn:outgoing>Flow_Routing_Assemble</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+
+    <!-- Montagem do dossie (Beatriz). Instrui, nao decide. Tambem alvo do loop de re-selagem. -->
+    <bpmn:serviceTask id="ST_AssembleDossier" name="Montar dossie de investigacao (Beatriz; instrui, nao decide)"
+                      camunda:type="external" camunda:topic="operadora.fraude.assemble_dossier">
+      <bpmn:documentation>Beatriz monta o dossie de investigacao (narrativa/montagem a partir de evidencia_refs + indicadores_presentes). INSTRUI, nao decide (principio Rafael/Beatriz instruct_investigation; zero_auto_accusation). NAO seta decisao_fraude. Re-entrada por BME_EvidenciaAnexada (nova evidencia -> re-montar -> re-selar).</bpmn:documentation>
+      <bpmn:incoming>Flow_Routing_Assemble</bpmn:incoming>
+      <bpmn:incoming>Flow_EvidenciaAnexada_Assemble</bpmn:incoming>
+      <bpmn:outgoing>Flow_Assemble_Seal</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- SELAGEM DE CUSTODIA (classe nova): grava bundle_root na hash-chain ADR-0007 ANTES da UT. -->
+    <bpmn:serviceTask id="ST_SealCustodyBundle" name="Selar custodia: gravar bundle_root na cadeia (ANTES da UT)"
+                      camunda:type="external" camunda:topic="operadora.fraude.seal_custody_bundle">
+      <bpmn:documentation>Cadeia de custodia (porta de custody.py — projecao sobre ADR-0007, NAO fork): calcula bundle_root (raiz Merkle sobre os record_hashes ORDENADOS do dossie) e grava na hash-chain ANTES de criar a UT, setando bundle_root + record_count. GUARD ERR_PHI_IN_CUSTODY: recusa selar bundle cujo item carregue PHI bruto (so ponteiros pseudonimizados + hashes — ADR-0006). Tamper-evidence: qualquer alteracao/reordenacao muda o bundle_root; o registro selado nao bate.</bpmn:documentation>
+      <bpmn:incoming>Flow_Assemble_Seal</bpmn:incoming>
+      <bpmn:outgoing>Flow_Seal_PubCustody</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:serviceTask id="ST_PublishCustodySealed" name="Publicar evento: fraude.custody_sealed"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.fraude.custody_sealed</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_caso,bundle_root,record_count</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Seal_PubCustody</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubCustody_GWCustodia</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- GATE de custodia: recusa criar a UT sem bundle_root selado (ERR_CUSTODY_NOT_SEALED). -->
+    <bpmn:exclusiveGateway id="GW_CustodiaSelada" name="Custodia selada antes da decisao?" default="Flow_GWCustodia_NaoSelada">
+      <bpmn:incoming>Flow_PubCustody_GWCustodia</bpmn:incoming>
+      <bpmn:outgoing>Flow_GWCustodia_Selada</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWCustodia_NaoSelada</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <!-- Ramo NAO-SELADA (default): lanca ERR_CUSTODY_NOT_SEALED — a UT NUNCA e criada sem selagem. -->
+    <bpmn:endEvent id="End_CustodiaNaoSelada" name="Erro: custodia nao selada antes da decisao (ERR_CUSTODY_NOT_SEALED)">
+      <bpmn:incoming>Flow_GWCustodia_NaoSelada</bpmn:incoming>
+      <bpmn:errorEventDefinition id="EED_CustodiaNaoSelada" errorRef="Error_CustodyNotSealed"/>
+    </bpmn:endEvent>
+
+    <!-- DMN: SLA de investigacao (resultVariable "sla") no ponto de CONVERGENCIA ANTES da UT — ENGINE-16004.
+         Fornece sla.sla_investigacao / sla.sla_alerta / sla.sla_diligencia aos timers de borda e ao
+         event gateway de diligencia. Todo caminho ate a UT cruza este BRT. -->
+    <bpmn:businessRuleTask id="BRT_FraudeSla" name="Determinar SLA de investigacao (DMN fraude_sla)"
+                           camunda:decisionRef="fraude_sla"
+                           camunda:mapDecisionResult="singleResult"
+                           camunda:resultVariable="sla">
+      <bpmn:documentation>Saidas: sla_investigacao, sla_alerta, sla_diligencia (todos string ISO 8601), fonte_regulatoria. Resolvida na convergencia ANTES de UT_DecisaoInvestigador para que os boundary timers (`sla.sla_investigacao`, `sla.sla_alerta`) e o timer de diligencia (`sla.sla_diligencia`) sempre resolvam (ENGINE-16004). Sem saida adversa. Catch-all conservador. Prazos DRAFT/verify juridico+compliance.</bpmn:documentation>
+      <bpmn:incoming>Flow_GWCustodia_Selada</bpmn:incoming>
+      <bpmn:outgoing>Flow_Sla_UTDecisao</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+
+    <!-- DECISAO HUMANA: unico ponto onde a acusacao pode nascer. Sobre bundle_root selado. -->
+    <bpmn:userTask id="UT_DecisaoInvestigador" name="Decisao do investigador (acusacao SO aqui)"
+                   camunda:candidateGroups="investigacao-fraude">
+      <bpmn:documentation><![CDATA[
+HITL L0 hard (fraud_accusation, ADR-0005/0008/0018): UNICO ponto onde a acusacao de fraude pode nascer, e
+SO sobre um bundle_root ja selado na hash-chain (decisao sobre corpus verificavel). Saidas: decisao_fraude in
+{ACUSAR_FRAUDE, ARQUIVAR, MONITORAR, SOLICITAR_DILIGENCIA}. ACUSAR_FRAUDE exige fundamentacao_investigacao,
+indicadores_fundamentantes, referencia_normativa, destino_referral (json), investigator_id e tier (campos
+obrigatorios — validacao de formulario + guard do worker register_fraud_accusation). O humano tambem seta as
+flags planas de gateway destino_referral_cred / destino_referral_contratual (espelha o idioma encaminhar_fraude
+do CONTAS). A decisao sai em nome do humano (assignee na trilha de auditoria, ADR-0007). SLA: `sla.sla_investigacao`
+(DMN fraude_sla — DRAFT/verify). Score alto NUNCA gera acusacao: so a decisao humana aqui o faz.
+]]></bpmn:documentation>
+      <bpmn:incoming>Flow_Sla_UTDecisao</bpmn:incoming>
+      <bpmn:incoming>Flow_DiligenciaConcluida_UTDecisao</bpmn:incoming>
+      <bpmn:incoming>Flow_PrazoDiligencia_UTDecisao</bpmn:incoming>
+      <bpmn:outgoing>Flow_UTDecisao_GW</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <!-- Timer nao-interruptivo: alerta de risco de SLA -> coordenacao (investigacao segue). -->
+    <bpmn:boundaryEvent id="BT_AlertaSlaFraude" name="Alerta de risco de SLA (nao-interruptivo)" cancelActivity="false" attachedToRef="UT_DecisaoInvestigador">
+      <bpmn:outgoing>Flow_AlertaSla_Notify</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TED_AlertaSlaFraude">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${sla.sla_alerta}</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="ST_NotifySlaRisk" name="Notificar risco de SLA (coordenacao-investigacao)"
+                      camunda:type="external" camunda:topic="operadora.fraude.notify_sla_risk">
+      <bpmn:incoming>Flow_AlertaSla_Notify</bpmn:incoming>
+      <bpmn:outgoing>Flow_Notify_EndAlerta</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_RiscoSlaNotificado" name="Risco de SLA notificado (investigacao segue)">
+      <bpmn:incoming>Flow_Notify_EndAlerta</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Timer interruptivo: SLA estourado -> coordenacao humana assume (NUNCA auto-acusa por timeout). -->
+    <bpmn:boundaryEvent id="BT_SlaInvestigacao" name="SLA de investigacao (interruptivo — DRAFT/verify)" cancelActivity="true" attachedToRef="UT_DecisaoInvestigador">
+      <bpmn:outgoing>Flow_SlaEstourado_Pub</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TED_SlaInvestigacao">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${sla.sla_investigacao}</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="ST_PublishSlaBreached" name="Publicar evento: fraude.sla_breached"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.fraude.sla_breached</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_caso,entidade_tipo</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_SlaEstourado_Pub</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubBreach_UTCoord</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:userTask id="UT_CoordenacaoInvestigacao" name="Coordenacao de investigacao assume (SLA estourado)"
+                   camunda:candidateGroups="coordenacao-investigacao">
+      <bpmn:documentation>Escalation path do SLA: caso reatribuido a coordenacao. Mesmas saidas e mesmos campos obrigatorios de UT_DecisaoInvestigador, e o MESMO requisito de bundle_root selado (a decisao adversa continua HUMANA — nunca auto-acusa por timeout). A natureza da decisao nao muda por estouro de SLA.</bpmn:documentation>
+      <bpmn:incoming>Flow_PubBreach_UTCoord</bpmn:incoming>
+      <bpmn:outgoing>Flow_UTCoord_GW</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <!-- Mensagem (interruptivo): nova evidencia anexada enquanto indeciso -> re-montar -> re-selar. -->
+    <bpmn:boundaryEvent id="BME_EvidenciaAnexada" name="Nova evidencia anexada (re-selar)" cancelActivity="true" attachedToRef="UT_DecisaoInvestigador">
+      <bpmn:outgoing>Flow_EvidenciaAnexada_Assemble</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="MED_EvidenciaAnexada" messageRef="Msg_FraudeEvidenciaAnexada"/>
+    </bpmn:boundaryEvent>
+
+    <!-- DECISAO: ramos por decisao_fraude (setado SO pelo humano). -->
+    <bpmn:exclusiveGateway id="GW_DecisaoFraude" name="Decisao do investigador" default="Flow_GWDec_Monitorar">
+      <bpmn:incoming>Flow_UTDecisao_GW</bpmn:incoming>
+      <bpmn:incoming>Flow_UTCoord_GW</bpmn:incoming>
+      <bpmn:outgoing>Flow_GWDec_Acusar</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWDec_Arquivar</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWDec_Diligencia</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWDec_Monitorar</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <!-- =================== RAMO ACUSAR_FRAUDE (adverso, gated) =================== -->
+    <bpmn:serviceTask id="ST_RegisterFraudAccusation" name="Registrar acusacao (efeito adverso gated)"
+                      camunda:type="external" camunda:topic="operadora.fraude.register_fraud_accusation">
+      <bpmn:documentation>HARD GUARDRAIL (L0 hard, fraud_accusation): o worker RECUSA registrar a acusacao. GAP-FRAUDE-4 (codigo por natureza da falha): lanca ERR_FRAUD_ACCUSATION_NOT_HUMAN se decisao_fraude != ACUSAR_FRAUDE setado por humano, ou se faltar investigator_id/tier/fundamentacao_investigacao/indicadores_fundamentantes/referencia_normativa/destino_referral (decisao humana ausente/invalida); lanca ERR_CUSTODY_NOT_SEALED se o bundle nao estiver selado, for incoerente, ou o bundle_root selado nao re-verificar na hash-chain (re-verifica via custody.py — tamper/reorder). Ambos BPMN error, nao retry. Carrega investigator_id+tier na trilha de auditoria (ADR-0007). NUNCA decide; so registra a decisao ja tomada na UT humana. NAO existe FRAUD_DETECTED.</bpmn:documentation>
+      <bpmn:incoming>Flow_GWDec_Acusar</bpmn:incoming>
+      <bpmn:outgoing>Flow_Register_UTRevisao</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- Segundo gate humano: revisao/aprovacao do referral (juridico/compliance). Gateia os handoffs. -->
+    <bpmn:userTask id="UT_RevisaoReferral" name="Revisao/aprovacao do referral (juridico/compliance)"
+                   camunda:candidateGroups="juridico-fraude">
+      <bpmn:documentation>Segundo gate humano (apos a acusacao ja constituida em UT_DecisaoInvestigador): juridico/compliance revisa/aprova os destinos do referral (ANS/civel/penal/cred/contratual) antes do fan-out. Confirma destino_referral_cred / destino_referral_contratual. Nao e um terminal adverso por si (a acusacao ja ocorreu); gateia apenas os handoffs downstream, cada um com sua propria UT adversa (CRED/CANCEL/INADIMPLENCIA).</bpmn:documentation>
+      <bpmn:incoming>Flow_Register_UTRevisao</bpmn:incoming>
+      <bpmn:outgoing>Flow_UTRevisao_GWReferral</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:exclusiveGateway id="GW_DestinoReferral" name="Destinos do referral (juridico/cred/contratual)" default="Flow_GWReferral_Confirmado">
+      <bpmn:incoming>Flow_UTRevisao_GWReferral</bpmn:incoming>
+      <bpmn:outgoing>Flow_GWReferral_Cred</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWReferral_Contratual</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWReferral_Juridico</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWReferral_Confirmado</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <!-- Terminal base da acusacao (default): fraude confirmada por humano sobre dossie selado, sem
+         handoff downstream automatico (referral tratado na revisao juridica). L0 — humano. -->
+    <bpmn:serviceTask id="ST_PublishFraudeConfirmada" name="Publicar evento: fraude.completed (fraude_confirmada_humano)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.fraude.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">fraude_confirmada_humano</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_caso,investigator_id,tier</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_GWReferral_Confirmado</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubConfirmada_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_FraudeConfirmadaHumano" name="Fraude confirmada (humano sobre dossie selado) — L0">
+      <bpmn:incoming>Flow_PubConfirmada_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Handoff a SP-OP-CRED-001 (descredenciamento) — prestador. CRED tem UT adversa propria. -->
+    <bpmn:serviceTask id="ST_StartCredenciamento" name="Handoff a SP-OP-CRED-001 (descredenciamento)"
+                      camunda:type="external" camunda:topic="operadora.fraude.start_credenciamento">
+      <bpmn:documentation>Handoff downstream (so a jusante de acusacao humana + bundle selado): inicia SP-OP-CRED-001 (descredenciamento) quando entidade_tipo=prestador. CRED-001 tem sua PROPRIA UT adversa — FRAUDE NUNCA auto-descredencia.</bpmn:documentation>
+      <bpmn:incoming>Flow_GWReferral_Cred</bpmn:incoming>
+      <bpmn:outgoing>Flow_Cred_Pub</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="ST_PublishEncaminhadoCredenciamento" name="Publicar evento: fraude.completed (encaminhado_credenciamento)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.fraude.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">encaminhado_credenciamento</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_caso,investigator_id,tier</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Cred_Pub</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubCred_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_EncaminhadoCredenciamento" name="Encaminhado a SP-OP-CRED-001 (descredenciamento)">
+      <bpmn:incoming>Flow_PubCred_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Handoff a SP-OP-CANCEL-001/INADIMPLENCIA-001 (rescisao por fraude) — beneficiario/contrato. -->
+    <bpmn:serviceTask id="ST_StartContratual" name="Handoff a SP-OP-CANCEL-001/INADIMPLENCIA-001"
+                      camunda:type="external" camunda:topic="operadora.fraude.start_contratual">
+      <bpmn:documentation>Handoff downstream (so a jusante de acusacao humana + bundle selado): inicia SP-OP-CANCEL-001/INADIMPLENCIA-001 (rescisao por fraude) quando entidade_tipo in {beneficiario, contrato}. CANCEL/INADIMPLENCIA tem sua PROPRIA UT adversa — FRAUDE NUNCA auto-rescinde.</bpmn:documentation>
+      <bpmn:incoming>Flow_GWReferral_Contratual</bpmn:incoming>
+      <bpmn:outgoing>Flow_Contratual_Pub</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="ST_PublishEncaminhadoContratual" name="Publicar evento: fraude.completed (encaminhado_contratual)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.fraude.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">encaminhado_contratual</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_caso,investigator_id,tier</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Contratual_Pub</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubContratual_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_EncaminhadoContratual" name="Encaminhado a SP-OP-CANCEL/INADIMPLENCIA (rescisao por fraude)">
+      <bpmn:incoming>Flow_PubContratual_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Handoff a juridico/ANS/civel/penal (default do fan-out). -->
+    <bpmn:serviceTask id="ST_ReferToLegal" name="Referral a juridico/ANS/civel/penal"
+                      camunda:type="external" camunda:topic="operadora.fraude.refer_to_legal">
+      <bpmn:documentation>Handoff downstream (so a jusante de acusacao humana + bundle selado + UT_RevisaoReferral): referral a juridico/ANS/esfera civel/penal. Obrigacoes de referral (prazo/forma/autoridade) DRAFT/verify juridico+compliance.</bpmn:documentation>
+      <bpmn:incoming>Flow_GWReferral_Juridico</bpmn:incoming>
+      <bpmn:outgoing>Flow_Legal_Pub</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="ST_PublishEncaminhadoJuridico" name="Publicar evento: fraude.completed (encaminhado_juridico)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.fraude.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">encaminhado_juridico</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_caso,investigator_id,tier</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Legal_Pub</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubLegal_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_EncaminhadoJuridico" name="Encaminhado a juridico/ANS/civel/penal (downstream)">
+      <bpmn:incoming>Flow_PubLegal_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- =================== RAMO ARQUIVAR (neutro, humano) =================== -->
+    <bpmn:serviceTask id="ST_PublishArquivado" name="Publicar evento: fraude.completed (arquivado_sem_indicio)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.fraude.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">arquivado_sem_indicio</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_caso</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_GWDec_Arquivar</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubArquivado_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_ArquivadoSemIndicio" name="Arquivado sem indicio (decisao humana)">
+      <bpmn:incoming>Flow_PubArquivado_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- =================== RAMO MONITORAR (neutro, humano — default) =================== -->
+    <bpmn:serviceTask id="ST_PublishMonitorar" name="Publicar evento: fraude.completed (monitorar)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.fraude.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">monitorar</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_caso</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_GWDec_Monitorar</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubMonitorar_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_MonitorarSemAcao" name="Manter sob monitoramento (decisao humana)">
+      <bpmn:incoming>Flow_PubMonitorar_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- =================== RAMO SOLICITAR_DILIGENCIA (event gateway — INVERTE auto-acao por timeout) ===== -->
+    <bpmn:eventBasedGateway id="GW_AguardarDiligencia" name="Aguardar diligencia (correlacao vs prazo)">
+      <bpmn:incoming>Flow_GWDec_Diligencia</bpmn:incoming>
+      <bpmn:outgoing>Flow_Diligencia_Concluida</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Diligencia_Prazo</bpmn:outgoing>
+    </bpmn:eventBasedGateway>
+    <bpmn:intermediateCatchEvent id="ICE_DiligenciaConcluida" name="Diligencia concluida recebida">
+      <bpmn:incoming>Flow_Diligencia_Concluida</bpmn:incoming>
+      <bpmn:outgoing>Flow_DiligenciaConcluida_UTDecisao</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="MED_DiligenciaConcluida" messageRef="Msg_FraudeDiligenciaConcluida"/>
+    </bpmn:intermediateCatchEvent>
+    <!-- Timer: prazo de diligencia expira SEM correlacao -> reabre a UT HUMANA (NUNCA auto-acusa/auto-arquiva) -->
+    <bpmn:intermediateCatchEvent id="ICE_PrazoDiligencia" name="Prazo de diligencia (DRAFT/verify)">
+      <bpmn:incoming>Flow_Diligencia_Prazo</bpmn:incoming>
+      <bpmn:outgoing>Flow_PrazoDiligencia_UTDecisao</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TED_PrazoDiligencia">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${sla.sla_diligencia}</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:intermediateCatchEvent>
+
+    <!-- ============================ SEQUENCE FLOWS ============================ -->
+    <bpmn:sequenceFlow id="Flow_Start_Intake" sourceRef="Start_CasoFraudeRecebido" targetRef="ST_Intake"/>
+    <bpmn:sequenceFlow id="Flow_Intake_PubReceived" sourceRef="ST_Intake" targetRef="ST_PublishIntakeReceived"/>
+    <bpmn:sequenceFlow id="Flow_PubReceived_Gather" sourceRef="ST_PublishIntakeReceived" targetRef="ST_GatherEvidence"/>
+    <bpmn:sequenceFlow id="Flow_Gather_Score" sourceRef="ST_GatherEvidence" targetRef="ST_ScoreIndicators"/>
+    <bpmn:sequenceFlow id="Flow_Score_Indicadores" sourceRef="ST_ScoreIndicators" targetRef="BRT_Indicadores"/>
+    <bpmn:sequenceFlow id="Flow_Indicadores_Routing" sourceRef="BRT_Indicadores" targetRef="BRT_Routing"/>
+    <bpmn:sequenceFlow id="Flow_Routing_Assemble" sourceRef="BRT_Routing" targetRef="ST_AssembleDossier"/>
+    <bpmn:sequenceFlow id="Flow_Assemble_Seal" sourceRef="ST_AssembleDossier" targetRef="ST_SealCustodyBundle"/>
+    <bpmn:sequenceFlow id="Flow_Seal_PubCustody" sourceRef="ST_SealCustodyBundle" targetRef="ST_PublishCustodySealed"/>
+    <bpmn:sequenceFlow id="Flow_PubCustody_GWCustodia" sourceRef="ST_PublishCustodySealed" targetRef="GW_CustodiaSelada"/>
+    <bpmn:sequenceFlow id="Flow_GWCustodia_Selada" name="selada (${bundle_root != null})" sourceRef="GW_CustodiaSelada" targetRef="BRT_FraudeSla">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${bundle_root != null}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWCustodia_NaoSelada" name="nao selada (default -> ERR_CUSTODY_NOT_SEALED)" sourceRef="GW_CustodiaSelada" targetRef="End_CustodiaNaoSelada"/>
+    <bpmn:sequenceFlow id="Flow_Sla_UTDecisao" sourceRef="BRT_FraudeSla" targetRef="UT_DecisaoInvestigador"/>
+    <bpmn:sequenceFlow id="Flow_AlertaSla_Notify" sourceRef="BT_AlertaSlaFraude" targetRef="ST_NotifySlaRisk"/>
+    <bpmn:sequenceFlow id="Flow_Notify_EndAlerta" sourceRef="ST_NotifySlaRisk" targetRef="End_RiscoSlaNotificado"/>
+    <bpmn:sequenceFlow id="Flow_SlaEstourado_Pub" sourceRef="BT_SlaInvestigacao" targetRef="ST_PublishSlaBreached"/>
+    <bpmn:sequenceFlow id="Flow_PubBreach_UTCoord" sourceRef="ST_PublishSlaBreached" targetRef="UT_CoordenacaoInvestigacao"/>
+    <bpmn:sequenceFlow id="Flow_EvidenciaAnexada_Assemble" sourceRef="BME_EvidenciaAnexada" targetRef="ST_AssembleDossier"/>
+    <bpmn:sequenceFlow id="Flow_UTDecisao_GW" sourceRef="UT_DecisaoInvestigador" targetRef="GW_DecisaoFraude"/>
+    <bpmn:sequenceFlow id="Flow_UTCoord_GW" sourceRef="UT_CoordenacaoInvestigacao" targetRef="GW_DecisaoFraude"/>
+    <bpmn:sequenceFlow id="Flow_GWDec_Acusar" name="ACUSAR_FRAUDE (somente humano)" sourceRef="GW_DecisaoFraude" targetRef="ST_RegisterFraudAccusation">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_fraude == 'ACUSAR_FRAUDE'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWDec_Arquivar" name="ARQUIVAR (humano)" sourceRef="GW_DecisaoFraude" targetRef="ST_PublishArquivado">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_fraude == 'ARQUIVAR'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWDec_Diligencia" name="SOLICITAR_DILIGENCIA (humano)" sourceRef="GW_DecisaoFraude" targetRef="GW_AguardarDiligencia">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_fraude == 'SOLICITAR_DILIGENCIA'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWDec_Monitorar" name="MONITORAR (default)" sourceRef="GW_DecisaoFraude" targetRef="ST_PublishMonitorar"/>
+    <bpmn:sequenceFlow id="Flow_Register_UTRevisao" sourceRef="ST_RegisterFraudAccusation" targetRef="UT_RevisaoReferral"/>
+    <bpmn:sequenceFlow id="Flow_UTRevisao_GWReferral" sourceRef="UT_RevisaoReferral" targetRef="GW_DestinoReferral"/>
+    <bpmn:sequenceFlow id="Flow_GWReferral_Cred" name="prestador + cred" sourceRef="GW_DestinoReferral" targetRef="ST_StartCredenciamento">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${entidade_tipo == 'prestador' &amp;&amp; destino_referral_cred == true}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWReferral_Contratual" name="beneficiario/contrato + contratual" sourceRef="GW_DestinoReferral" targetRef="ST_StartContratual">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${(entidade_tipo == 'beneficiario' || entidade_tipo == 'contrato') &amp;&amp; destino_referral_contratual == true}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWReferral_Juridico" name="juridico/ANS/civel/penal" sourceRef="GW_DestinoReferral" targetRef="ST_ReferToLegal">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${destino_referral_juridico == true || destino_referral_ans == true}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWReferral_Confirmado" name="confirmada sem handoff automatico (default)" sourceRef="GW_DestinoReferral" targetRef="ST_PublishFraudeConfirmada"/>
+    <bpmn:sequenceFlow id="Flow_PubConfirmada_End" sourceRef="ST_PublishFraudeConfirmada" targetRef="End_FraudeConfirmadaHumano"/>
+    <bpmn:sequenceFlow id="Flow_Cred_Pub" sourceRef="ST_StartCredenciamento" targetRef="ST_PublishEncaminhadoCredenciamento"/>
+    <bpmn:sequenceFlow id="Flow_PubCred_End" sourceRef="ST_PublishEncaminhadoCredenciamento" targetRef="End_EncaminhadoCredenciamento"/>
+    <bpmn:sequenceFlow id="Flow_Contratual_Pub" sourceRef="ST_StartContratual" targetRef="ST_PublishEncaminhadoContratual"/>
+    <bpmn:sequenceFlow id="Flow_PubContratual_End" sourceRef="ST_PublishEncaminhadoContratual" targetRef="End_EncaminhadoContratual"/>
+    <bpmn:sequenceFlow id="Flow_Legal_Pub" sourceRef="ST_ReferToLegal" targetRef="ST_PublishEncaminhadoJuridico"/>
+    <bpmn:sequenceFlow id="Flow_PubLegal_End" sourceRef="ST_PublishEncaminhadoJuridico" targetRef="End_EncaminhadoJuridico"/>
+    <bpmn:sequenceFlow id="Flow_PubArquivado_End" sourceRef="ST_PublishArquivado" targetRef="End_ArquivadoSemIndicio"/>
+    <bpmn:sequenceFlow id="Flow_PubMonitorar_End" sourceRef="ST_PublishMonitorar" targetRef="End_MonitorarSemAcao"/>
+    <bpmn:sequenceFlow id="Flow_Diligencia_Concluida" sourceRef="GW_AguardarDiligencia" targetRef="ICE_DiligenciaConcluida"/>
+    <bpmn:sequenceFlow id="Flow_Diligencia_Prazo" sourceRef="GW_AguardarDiligencia" targetRef="ICE_PrazoDiligencia"/>
+    <bpmn:sequenceFlow id="Flow_DiligenciaConcluida_UTDecisao" sourceRef="ICE_DiligenciaConcluida" targetRef="UT_DecisaoInvestigador"/>
+    <bpmn:sequenceFlow id="Flow_PrazoDiligencia_UTDecisao" sourceRef="ICE_PrazoDiligencia" targetRef="UT_DecisaoInvestigador"/>
+  </bpmn:process>
+
+  <bpmndi:BPMNDiagram id="Diagram_SP-OP-FRAUDE-001">
+    <bpmndi:BPMNPlane id="Plane_SP-OP-FRAUDE-001" bpmnElement="SP-OP-FRAUDE-001">
+      <bpmndi:BPMNShape id="Shape_Start_CasoFraudeRecebido" bpmnElement="Start_CasoFraudeRecebido">
+        <dc:Bounds x="72" y="62" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_Intake" bpmnElement="ST_Intake">
+        <dc:Bounds x="220" y="40" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishIntakeReceived" bpmnElement="ST_PublishIntakeReceived">
+        <dc:Bounds x="400" y="40" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_GatherEvidence" bpmnElement="ST_GatherEvidence">
+        <dc:Bounds x="580" y="40" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_ScoreIndicators" bpmnElement="ST_ScoreIndicators">
+        <dc:Bounds x="760" y="40" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_Indicadores" bpmnElement="BRT_Indicadores">
+        <dc:Bounds x="940" y="40" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_Routing" bpmnElement="BRT_Routing">
+        <dc:Bounds x="1120" y="40" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_AssembleDossier" bpmnElement="ST_AssembleDossier">
+        <dc:Bounds x="1300" y="40" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_SealCustodyBundle" bpmnElement="ST_SealCustodyBundle">
+        <dc:Bounds x="1480" y="40" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishCustodySealed" bpmnElement="ST_PublishCustodySealed">
+        <dc:Bounds x="1660" y="40" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_CustodiaSelada" bpmnElement="GW_CustodiaSelada" isMarkerVisible="true">
+        <dc:Bounds x="1840" y="55" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_CustodiaNaoSelada" bpmnElement="End_CustodiaNaoSelada">
+        <dc:Bounds x="2002" y="62" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_FraudeSla" bpmnElement="BRT_FraudeSla">
+        <dc:Bounds x="1970" y="172" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT_DecisaoInvestigador" bpmnElement="UT_DecisaoInvestigador">
+        <dc:Bounds x="2150" y="172" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_AlertaSlaFraude" bpmnElement="BT_AlertaSlaFraude">
+        <dc:Bounds x="2157" y="234" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_NotifySlaRisk" bpmnElement="ST_NotifySlaRisk">
+        <dc:Bounds x="40" y="172" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_RiscoSlaNotificado" bpmnElement="End_RiscoSlaNotificado">
+        <dc:Bounds x="252" y="194" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_SlaInvestigacao" bpmnElement="BT_SlaInvestigacao">
+        <dc:Bounds x="2182" y="234" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishSlaBreached" bpmnElement="ST_PublishSlaBreached">
+        <dc:Bounds x="40" y="304" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT_CoordenacaoInvestigacao" bpmnElement="UT_CoordenacaoInvestigacao">
+        <dc:Bounds x="220" y="304" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BME_EvidenciaAnexada" bpmnElement="BME_EvidenciaAnexada">
+        <dc:Bounds x="2207" y="234" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_DecisaoFraude" bpmnElement="GW_DecisaoFraude" isMarkerVisible="true">
+        <dc:Bounds x="2330" y="319" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_RegisterFraudAccusation" bpmnElement="ST_RegisterFraudAccusation">
+        <dc:Bounds x="2460" y="304" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT_RevisaoReferral" bpmnElement="UT_RevisaoReferral">
+        <dc:Bounds x="2640" y="304" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_DestinoReferral" bpmnElement="GW_DestinoReferral" isMarkerVisible="true">
+        <dc:Bounds x="2820" y="319" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishFraudeConfirmada" bpmnElement="ST_PublishFraudeConfirmada">
+        <dc:Bounds x="2950" y="304" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_FraudeConfirmadaHumano" bpmnElement="End_FraudeConfirmadaHumano">
+        <dc:Bounds x="3162" y="326" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_StartCredenciamento" bpmnElement="ST_StartCredenciamento">
+        <dc:Bounds x="2950" y="424" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishEncaminhadoCredenciamento" bpmnElement="ST_PublishEncaminhadoCredenciamento">
+        <dc:Bounds x="3130" y="424" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_EncaminhadoCredenciamento" bpmnElement="End_EncaminhadoCredenciamento">
+        <dc:Bounds x="3310" y="446" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_StartContratual" bpmnElement="ST_StartContratual">
+        <dc:Bounds x="2950" y="544" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishEncaminhadoContratual" bpmnElement="ST_PublishEncaminhadoContratual">
+        <dc:Bounds x="3130" y="544" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_EncaminhadoContratual" bpmnElement="End_EncaminhadoContratual">
+        <dc:Bounds x="3310" y="566" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_ReferToLegal" bpmnElement="ST_ReferToLegal">
+        <dc:Bounds x="2950" y="664" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishEncaminhadoJuridico" bpmnElement="ST_PublishEncaminhadoJuridico">
+        <dc:Bounds x="3130" y="664" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_EncaminhadoJuridico" bpmnElement="End_EncaminhadoJuridico">
+        <dc:Bounds x="3310" y="686" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishArquivado" bpmnElement="ST_PublishArquivado">
+        <dc:Bounds x="2460" y="424" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_ArquivadoSemIndicio" bpmnElement="End_ArquivadoSemIndicio">
+        <dc:Bounds x="2672" y="446" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishMonitorar" bpmnElement="ST_PublishMonitorar">
+        <dc:Bounds x="2460" y="544" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_MonitorarSemAcao" bpmnElement="End_MonitorarSemAcao">
+        <dc:Bounds x="2672" y="566" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_AguardarDiligencia" bpmnElement="GW_AguardarDiligencia" isMarkerVisible="true">
+        <dc:Bounds x="2485" y="679" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ICE_DiligenciaConcluida" bpmnElement="ICE_DiligenciaConcluida">
+        <dc:Bounds x="2672" y="686" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ICE_PrazoDiligencia" bpmnElement="ICE_PrazoDiligencia">
+        <dc:Bounds x="2672" y="784" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_Flow_Start_Intake" bpmnElement="Flow_Start_Intake">
+        <di:waypoint x="108" y="80"/>
+        <di:waypoint x="220" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Intake_PubReceived" bpmnElement="Flow_Intake_PubReceived">
+        <di:waypoint x="320" y="80"/>
+        <di:waypoint x="400" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubReceived_Gather" bpmnElement="Flow_PubReceived_Gather">
+        <di:waypoint x="500" y="80"/>
+        <di:waypoint x="580" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Gather_Score" bpmnElement="Flow_Gather_Score">
+        <di:waypoint x="680" y="80"/>
+        <di:waypoint x="760" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Score_Indicadores" bpmnElement="Flow_Score_Indicadores">
+        <di:waypoint x="860" y="80"/>
+        <di:waypoint x="940" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Indicadores_Routing" bpmnElement="Flow_Indicadores_Routing">
+        <di:waypoint x="1040" y="80"/>
+        <di:waypoint x="1120" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Routing_Assemble" bpmnElement="Flow_Routing_Assemble">
+        <di:waypoint x="1220" y="80"/>
+        <di:waypoint x="1300" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Assemble_Seal" bpmnElement="Flow_Assemble_Seal">
+        <di:waypoint x="1400" y="80"/>
+        <di:waypoint x="1480" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Seal_PubCustody" bpmnElement="Flow_Seal_PubCustody">
+        <di:waypoint x="1580" y="80"/>
+        <di:waypoint x="1660" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubCustody_GWCustodia" bpmnElement="Flow_PubCustody_GWCustodia">
+        <di:waypoint x="1760" y="80"/>
+        <di:waypoint x="1840" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWCustodia_Selada" bpmnElement="Flow_GWCustodia_Selada">
+        <di:waypoint x="1890" y="80"/>
+        <di:waypoint x="1930" y="80"/>
+        <di:waypoint x="1930" y="212"/>
+        <di:waypoint x="1970" y="212"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWCustodia_NaoSelada" bpmnElement="Flow_GWCustodia_NaoSelada">
+        <di:waypoint x="1890" y="80"/>
+        <di:waypoint x="2002" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Sla_UTDecisao" bpmnElement="Flow_Sla_UTDecisao">
+        <di:waypoint x="2070" y="212"/>
+        <di:waypoint x="2150" y="212"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_AlertaSla_Notify" bpmnElement="Flow_AlertaSla_Notify">
+        <di:waypoint x="2175" y="270"/>
+        <di:waypoint x="2175" y="330"/>
+        <di:waypoint x="40" y="330"/>
+        <di:waypoint x="40" y="212"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Notify_EndAlerta" bpmnElement="Flow_Notify_EndAlerta">
+        <di:waypoint x="140" y="212"/>
+        <di:waypoint x="252" y="212"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_SlaEstourado_Pub" bpmnElement="Flow_SlaEstourado_Pub">
+        <di:waypoint x="2200" y="270"/>
+        <di:waypoint x="2200" y="287"/>
+        <di:waypoint x="90" y="287"/>
+        <di:waypoint x="90" y="304"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubBreach_UTCoord" bpmnElement="Flow_PubBreach_UTCoord">
+        <di:waypoint x="140" y="344"/>
+        <di:waypoint x="220" y="344"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_EvidenciaAnexada_Assemble" bpmnElement="Flow_EvidenciaAnexada_Assemble">
+        <di:waypoint x="2225" y="270"/>
+        <di:waypoint x="2225" y="330"/>
+        <di:waypoint x="1300" y="330"/>
+        <di:waypoint x="1300" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_UTDecisao_GW" bpmnElement="Flow_UTDecisao_GW">
+        <di:waypoint x="2250" y="212"/>
+        <di:waypoint x="2290" y="212"/>
+        <di:waypoint x="2290" y="344"/>
+        <di:waypoint x="2330" y="344"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_UTCoord_GW" bpmnElement="Flow_UTCoord_GW">
+        <di:waypoint x="320" y="344"/>
+        <di:waypoint x="2330" y="344"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Acusar" bpmnElement="Flow_GWDec_Acusar">
+        <di:waypoint x="2380" y="344"/>
+        <di:waypoint x="2460" y="344"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Arquivar" bpmnElement="Flow_GWDec_Arquivar">
+        <di:waypoint x="2380" y="344"/>
+        <di:waypoint x="2420" y="344"/>
+        <di:waypoint x="2420" y="464"/>
+        <di:waypoint x="2460" y="464"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Diligencia" bpmnElement="Flow_GWDec_Diligencia">
+        <di:waypoint x="2380" y="344"/>
+        <di:waypoint x="2432" y="344"/>
+        <di:waypoint x="2432" y="704"/>
+        <di:waypoint x="2485" y="704"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Monitorar" bpmnElement="Flow_GWDec_Monitorar">
+        <di:waypoint x="2380" y="344"/>
+        <di:waypoint x="2420" y="344"/>
+        <di:waypoint x="2420" y="584"/>
+        <di:waypoint x="2460" y="584"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Register_UTRevisao" bpmnElement="Flow_Register_UTRevisao">
+        <di:waypoint x="2560" y="344"/>
+        <di:waypoint x="2640" y="344"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_UTRevisao_GWReferral" bpmnElement="Flow_UTRevisao_GWReferral">
+        <di:waypoint x="2740" y="344"/>
+        <di:waypoint x="2820" y="344"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWReferral_Cred" bpmnElement="Flow_GWReferral_Cred">
+        <di:waypoint x="2870" y="344"/>
+        <di:waypoint x="2910" y="344"/>
+        <di:waypoint x="2910" y="464"/>
+        <di:waypoint x="2950" y="464"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWReferral_Contratual" bpmnElement="Flow_GWReferral_Contratual">
+        <di:waypoint x="2870" y="344"/>
+        <di:waypoint x="2910" y="344"/>
+        <di:waypoint x="2910" y="584"/>
+        <di:waypoint x="2950" y="584"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWReferral_Juridico" bpmnElement="Flow_GWReferral_Juridico">
+        <di:waypoint x="2870" y="344"/>
+        <di:waypoint x="2910" y="344"/>
+        <di:waypoint x="2910" y="704"/>
+        <di:waypoint x="2950" y="704"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWReferral_Confirmado" bpmnElement="Flow_GWReferral_Confirmado">
+        <di:waypoint x="2870" y="344"/>
+        <di:waypoint x="2950" y="344"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubConfirmada_End" bpmnElement="Flow_PubConfirmada_End">
+        <di:waypoint x="3050" y="344"/>
+        <di:waypoint x="3162" y="344"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Cred_Pub" bpmnElement="Flow_Cred_Pub">
+        <di:waypoint x="3050" y="464"/>
+        <di:waypoint x="3130" y="464"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubCred_End" bpmnElement="Flow_PubCred_End">
+        <di:waypoint x="3230" y="464"/>
+        <di:waypoint x="3310" y="464"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Contratual_Pub" bpmnElement="Flow_Contratual_Pub">
+        <di:waypoint x="3050" y="584"/>
+        <di:waypoint x="3130" y="584"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubContratual_End" bpmnElement="Flow_PubContratual_End">
+        <di:waypoint x="3230" y="584"/>
+        <di:waypoint x="3310" y="584"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Legal_Pub" bpmnElement="Flow_Legal_Pub">
+        <di:waypoint x="3050" y="704"/>
+        <di:waypoint x="3130" y="704"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubLegal_End" bpmnElement="Flow_PubLegal_End">
+        <di:waypoint x="3230" y="704"/>
+        <di:waypoint x="3310" y="704"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubArquivado_End" bpmnElement="Flow_PubArquivado_End">
+        <di:waypoint x="2560" y="464"/>
+        <di:waypoint x="2672" y="464"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubMonitorar_End" bpmnElement="Flow_PubMonitorar_End">
+        <di:waypoint x="2560" y="584"/>
+        <di:waypoint x="2672" y="584"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Diligencia_Concluida" bpmnElement="Flow_Diligencia_Concluida">
+        <di:waypoint x="2535" y="704"/>
+        <di:waypoint x="2672" y="704"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Diligencia_Prazo" bpmnElement="Flow_Diligencia_Prazo">
+        <di:waypoint x="2535" y="704"/>
+        <di:waypoint x="2603" y="704"/>
+        <di:waypoint x="2603" y="802"/>
+        <di:waypoint x="2672" y="802"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_DiligenciaConcluida_UTDecisao" bpmnElement="Flow_DiligenciaConcluida_UTDecisao">
+        <di:waypoint x="2690" y="722"/>
+        <di:waypoint x="2690" y="782"/>
+        <di:waypoint x="2150" y="782"/>
+        <di:waypoint x="2150" y="212"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PrazoDiligencia_UTDecisao" bpmnElement="Flow_PrazoDiligencia_UTDecisao">
+        <di:waypoint x="2690" y="820"/>
+        <di:waypoint x="2690" y="880"/>
+        <di:waypoint x="2150" y="880"/>
+        <di:waypoint x="2150" y="212"/>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

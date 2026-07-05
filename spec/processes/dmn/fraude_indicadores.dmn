@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_fraude_indicadores"
+             name="Indicadores de fraude (intensidade de investigacao)"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    fraude_indicadores v0.1.0 — status: DRAFT (SP-OP-FRAUDE-001; conteudo requer SME
+    medico-auditor/juridico/compliance; docs/review-queue.md). Consumida por SP-OP-FRAUDE-001
+    (BRT_Indicadores, resultVariable `indicadores`) e mcp-dmn.
+    INVARIANTE L0 HARD (fraud_accusation, nao negociavel): esta tabela MONTA indicadores e define
+    a INTENSIDADE da investigacao/montagem de dossie — NUNCA acusa fraude. O dominio de
+    `intensidade_investigacao` e EXATAMENTE {LEVE, APROFUNDADA, PRIORITARIA}. NAO existe — por
+    design — saida ACUSAR/FRAUD_DETECTED/BLOQUEAR/CONFIRMAR. O `score_indicadores` (integer) e um
+    FATO DE ROTEAMENTO, NUNCA um veredito: score alto -> PRIORITARIA (investiga mais, leva a humano),
+    NUNCA acusacao. A acusacao SO nasce na User Task humana UT_DecisaoInvestigador (Phase 3),
+    materializada pelo worker gated operadora.fraude.register_fraud_accusation
+    (ERR_FRAUD_ACCUSATION_NOT_HUMAN) sobre dossie selado. Inverte o anti-pattern do reference
+    (detect_fraud_worker_v2 + fraud_scoring/* somam score e lancam FRAUD_DETECTED).
+    NOTA typeRef: `score_indicadores` e integer (inverte o `score: number` do reference — `number`
+    invalido). NOTA hitPolicy: FIRST (catch-all conservador como ultima row); rows ordenadas
+    mais-intensas-primeiro; o contrato marcava COLLECT (DRAFT) mas COLLECT colide com
+    mapDecisionResult="singleResult"+resultVariable no engine — rebaixada a FIRST para
+    engine-deployabilidade (landmine 7) preservando a semantica de escalonamento conservador.
+  </description>
+  <decision id="fraude_indicadores" name="Indicadores de fraude (intensidade de investigacao)" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_fraude_indicadores" hitPolicy="FIRST">
+      <input id="in_indicadores_presentes" label="Indicadores presentes (indicadores_presentes)">
+        <inputExpression id="ie_indicadores_presentes" typeRef="string"><text>indicadores_presentes</text></inputExpression>
+      </input>
+      <input id="in_score_indicadores" label="Score agregado de indicadores (score_indicadores)">
+        <inputExpression id="ie_score_indicadores" typeRef="integer"><text>score_indicadores</text></inputExpression>
+      </input>
+      <input id="in_entidade_tipo" label="Tipo de entidade investigada (entidade_tipo)">
+        <inputExpression id="ie_entidade_tipo" typeRef="string"><text>entidade_tipo</text></inputExpression>
+      </input>
+      <output id="out_intensidade_investigacao" label="intensidade_investigacao" name="intensidade_investigacao" typeRef="string"/>
+      <output id="out_motivo" label="motivo" name="motivo" typeRef="string"/>
+      <rule id="r_score_alto_prioritaria">
+        <description>Score agregado alto (&gt;= 50) -> investigacao PRIORITARIA (investiga MAIS, leva a humano; NUNCA acusacao — inverte FRAUD_DETECTED do reference)</description>
+        <inputEntry id="r_score_alto_prioritaria_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_score_alto_prioritaria_i2"><text>&gt;= 50</text></inputEntry>
+        <inputEntry id="r_score_alto_prioritaria_i3"><text>-</text></inputEntry>
+        <outputEntry id="r_score_alto_prioritaria_o1"><text>"PRIORITARIA"</text></outputEntry>
+        <outputEntry id="r_score_alto_prioritaria_o2"><text>"Score agregado de indicadores alto (&gt;= 50) — investigacao prioritaria (FATO DE ROTEAMENTO; investiga mais e leva a humano; NUNCA acusacao automatica)"</text></outputEntry>
+      </rule>
+      <rule id="r_score_medio_aprofundada">
+        <description>Score agregado medio (&gt;= 20) -> investigacao APROFUNDADA (mais evidencia a coletar; decisao final humana)</description>
+        <inputEntry id="r_score_medio_aprofundada_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_score_medio_aprofundada_i2"><text>&gt;= 20</text></inputEntry>
+        <inputEntry id="r_score_medio_aprofundada_i3"><text>-</text></inputEntry>
+        <outputEntry id="r_score_medio_aprofundada_o1"><text>"APROFUNDADA"</text></outputEntry>
+        <outputEntry id="r_score_medio_aprofundada_o2"><text>"Score agregado de indicadores medio (&gt;= 20) — investigacao aprofundada (mais evidencia a coletar; decisao final humana)"</text></outputEntry>
+      </rule>
+      <rule id="r_prestador_prioritaria">
+        <description>Entidade prestador com qualquer score -> intensidade ao menos APROFUNDADA (impacto sistemico potencial; humano decide)</description>
+        <inputEntry id="r_prestador_prioritaria_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_prestador_prioritaria_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_prestador_prioritaria_i3"><text>"prestador"</text></inputEntry>
+        <outputEntry id="r_prestador_prioritaria_o1"><text>"APROFUNDADA"</text></outputEntry>
+        <outputEntry id="r_prestador_prioritaria_o2"><text>"Entidade prestador — investigacao aprofundada por potencial impacto sistemico (montagem de dossie; NUNCA acusacao; humano decide)"</text></outputEntry>
+      </rule>
+      <rule id="r_score_baixo_leve">
+        <description>Score agregado baixo (&lt; 20) -> investigacao LEVE (montagem minima; decisao final humana)</description>
+        <inputEntry id="r_score_baixo_leve_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_score_baixo_leve_i2"><text>&lt; 20</text></inputEntry>
+        <inputEntry id="r_score_baixo_leve_i3"><text>-</text></inputEntry>
+        <outputEntry id="r_score_baixo_leve_o1"><text>"LEVE"</text></outputEntry>
+        <outputEntry id="r_score_baixo_leve_o2"><text>"Score agregado de indicadores baixo (&lt; 20) — investigacao leve (montagem minima; decisao final humana; NUNCA arquivamento automatico)"</text></outputEntry>
+      </rule>
+      <rule id="r_catchall">
+        <description>Catch-all FAIL-SAFE: qualquer ambiguidade / score ausente / indicadores nao mapeados -> PRIORITARIA (conservador: na duvida investiga mais e leva a humano). NUNCA acusacao.</description>
+        <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i3"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>"PRIORITARIA"</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>"Combinacao nao mapeada / score ausente / indicadores ambiguos — investigacao prioritaria por seguranca (conservador: na duvida investiga mais e leva a humano; NUNCA acusacao automatica)"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

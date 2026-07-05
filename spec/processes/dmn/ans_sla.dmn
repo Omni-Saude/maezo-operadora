@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_ans_sla"
+             name="SLA de revisao de envio ANS (duracoes relativas por report_type)"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    ans_sla v0.1.0 — status: DRAFT — TODAS as duracoes marcadas DRAFT/verify: confirmar contra
+    politica interna ancorada na RN vigente antes de qualquer envio. Consumida por
+    SP-OP-ANS-SUBMIT-001 e mcp-dmn.
+
+    POR QUE EXISTE (separada de ans_calendar): os timers de boundary da User Task humana de revisao
+    (UT_RevisarEnvio) precisam de DURACOES ISO 8601 RELATIVAS (P.../PT...) — nao de datas absolutas.
+    Um boundary timer com timeDate de data fixa de competencia (ex.: 2026-01-31) ja PASSADA quando o
+    ciclo roda dispara o job imediatamente: o timer interruptivo de prazo cancelaria a User Task no
+    instante em que ela e criada (a UT "nunca aparece"). ans_calendar resolve as DATAS de competencia
+    (due_date/sla_alerta, ISO YYYY-MM-DD — usadas no dossie/eventos); ans_sla resolve as DURACOES
+    relativas a criacao da User Task que alimentam os timers (timeDuration). Espelha contas_sla /
+    cancel_sla (BRT_*Sla -> resultVariable="sla" antes da User Task; timers usam ${sla.sla_alerta} /
+    ${sla.sla_analise} com timeDuration).
+
+    NAO negativa-like: este processo e operadora -> regulador; NAO existe saida adversa contra
+    beneficiario/prestador. Esta tabela apenas resolve a janela de revisao humana (sla_analise) e o
+    alerta de deadline-risk (sla_alerta) como DURACOES — nunca decide envio nem rejeita.
+
+    Saidas sao ISO 8601 DURATION (P.../PT...) — typeRef string (NUNCA "number" nem date).
+    Catch-all FAIL-SAFE (report_type desconhecido como ultima row): janela conservadora curta
+    (revisao humana rapida; nunca prazo "infinito"). hitPolicy FIRST (catch-all "-" como ultima row —
+    sob UNIQUE colidiria com qualquer row especifica em runtime; espelha contas_sla / cancel_sla).
+  </description>
+  <decision id="ans_sla" name="SLA de revisao de envio ANS" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_ans_sla" hitPolicy="FIRST">
+      <input id="in_report_type" label="Tipo de relatorio (report_type)">
+        <inputExpression id="ie_report_type" typeRef="string"><text>report_type</text></inputExpression>
+      </input>
+      <output id="out_sla_analise" label="sla_analise" name="sla_analise" typeRef="string"/>
+      <output id="out_sla_alerta" label="sla_alerta" name="sla_alerta" typeRef="string"/>
+      <rule id="r_rn124_sip">
+        <description>RN 124/2006 — SIP, periodicidade mensal: janela de revisao P5D, alerta P3D — DRAFT/verify</description>
+        <inputEntry id="r_rn124_sip_i"><text>"RN_124_SIP"</text></inputEntry>
+        <outputEntry id="r_rn124_sip_o1"><text>"P5D"</text></outputEntry>
+        <outputEntry id="r_rn124_sip_o2"><text>"P3D"</text></outputEntry>
+      </rule>
+      <rule id="r_rn209_utilizacao">
+        <description>RN 209/2009 — utilizacao de servicos, mensal: revisao P5D, alerta P3D — DRAFT/verify</description>
+        <inputEntry id="r_rn209_utilizacao_i"><text>"RN_209_UTILIZACAO"</text></inputEntry>
+        <outputEntry id="r_rn209_utilizacao_o1"><text>"P5D"</text></outputEntry>
+        <outputEntry id="r_rn209_utilizacao_o2"><text>"P3D"</text></outputEntry>
+      </rule>
+      <rule id="r_rn388_qualidade">
+        <description>RN 388/2015 — indicadores de qualidade, anual: janela de revisao maior P10D, alerta P5D — DRAFT/verify</description>
+        <inputEntry id="r_rn388_qualidade_i"><text>"RN_388_QUALIDADE"</text></inputEntry>
+        <outputEntry id="r_rn388_qualidade_o1"><text>"P10D"</text></outputEntry>
+        <outputEntry id="r_rn388_qualidade_o2"><text>"P5D"</text></outputEntry>
+      </rule>
+      <rule id="r_rn424_tiss">
+        <description>RN 424/2017 — padrao TISS / monitoramento, mensal: revisao P5D, alerta P3D — DRAFT/verify</description>
+        <inputEntry id="r_rn424_tiss_i"><text>"RN_424_TISS_MONITORAMENTO"</text></inputEntry>
+        <outputEntry id="r_rn424_tiss_o1"><text>"P5D"</text></outputEntry>
+        <outputEntry id="r_rn424_tiss_o2"><text>"P3D"</text></outputEntry>
+      </rule>
+      <rule id="r_diops_trimestral">
+        <description>DIOPS — economico-financeiro, trimestral: janela de revisao maior P7D, alerta P5D — DRAFT/verify</description>
+        <inputEntry id="r_diops_trimestral_i"><text>"DIOPS_TRIMESTRAL"</text></inputEntry>
+        <outputEntry id="r_diops_trimestral_o1"><text>"P7D"</text></outputEntry>
+        <outputEntry id="r_diops_trimestral_o2"><text>"P5D"</text></outputEntry>
+      </rule>
+      <rule id="r_catchall">
+        <description>Catch-all FAIL-SAFE: report_type desconhecido -> janela conservadora curta (revisao humana rapida; nunca prazo infinito nem envio automatico de tipo desconhecido)</description>
+        <inputEntry id="r_catchall_i"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>"P3D"</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>"P1D"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

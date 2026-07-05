@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_cancel_routing"
+             name="Classificacao/encaminhamento de cancelamento"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    cancel_routing v0.1.0 — status: DRAFT (criterios de natureza/encaminhamento requerem SME
+    juridico/contratos + compliance; docs/review-queue.md). Consumida por SP-OP-CANCEL-001 e
+    mcp-dmn.
+    INVARIANTE L0 HARD (contract_termination): esta tabela APENAS classifica a natureza da
+    solicitacao e o grupo humano de encaminhamento sugerido (rotulo neutro para dossie/auditoria).
+    NAO possui saida que rescinda/suspenda/negue/retenha — nenhuma decisao adversa nasce aqui.
+    O dominio de `natureza_caso` e um CLOSED-allowlist de rotulos NEUTROS
+    {pedido_titular, inadimplencia, for_cause, fraude_referida, indeterminado}; o `grupo_sugerido`
+    e sempre um grupo HUMANO (juridico-contratos / gestao-contratos / coordenacao-contratos).
+    Catch-all FAIL-SAFE: combinacao nao mapeada -> natureza "indeterminado" + grupo
+    "juridico-contratos" (conservador; a analise humana decide). Espelha glosa_classification.
+    NOTA hitPolicy: FIRST (catch-all conservador como ultima row).
+    GAP-CANCEL-5 (docs/reports/business-logic-audit-improvement-plan.md): esta DMN afirmava
+    "Consumida por SP-OP-CANCEL-001" mas nao alcancava nenhum businessRuleTask (orfa — nenhum
+    consumidor real). Corrigido: wireada via `BRT_Classificacao` (entre `BRT_CancelSla` e
+    `ST_PrepareDossier` no BPMN), que alimenta o dossie humano com os rotulos neutros
+    natureza_caso/grupo_sugerido. Continua APENAS informativa — nenhum gateway le a saida desta
+    DMN, e o dominio permanece o mesmo closed-allowlist neutro (sem saida adversa).
+  </description>
+  <decision id="cancel_routing" name="Classificacao/encaminhamento da solicitacao" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_cancel_routing" hitPolicy="FIRST">
+      <input id="in_tipo_solicitacao" label="Tipo da solicitacao (tipo_solicitacao)">
+        <inputExpression id="ie_tipo_solicitacao" typeRef="string"><text>tipo_solicitacao</text></inputExpression>
+      </input>
+      <input id="in_tipo_plano" label="Tipo do plano (tipo_plano)">
+        <inputExpression id="ie_tipo_plano" typeRef="string"><text>tipo_plano</text></inputExpression>
+      </input>
+      <output id="out_natureza" label="natureza_caso" name="natureza_caso" typeRef="string"/>
+      <output id="out_grupo" label="grupo_sugerido" name="grupo_sugerido" typeRef="string"/>
+      <rule id="r_pedido_titular">
+        <description>Pedido do beneficiario -> natureza pedido_titular (clerical revisado por gestao-contratos)</description>
+        <inputEntry id="r_pedido_titular_i1"><text>"pedido_beneficiario"</text></inputEntry>
+        <inputEntry id="r_pedido_titular_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_pedido_titular_o1"><text>"pedido_titular"</text></outputEntry>
+        <outputEntry id="r_pedido_titular_o2"><text>"gestao-contratos"</text></outputEntry>
+      </rule>
+      <rule id="r_inadimplencia">
+        <description>Inadimplencia -> natureza inadimplencia (juridico-contratos)</description>
+        <inputEntry id="r_inadimplencia_i1"><text>"inadimplencia"</text></inputEntry>
+        <inputEntry id="r_inadimplencia_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_inadimplencia_o1"><text>"inadimplencia"</text></outputEntry>
+        <outputEntry id="r_inadimplencia_o2"><text>"juridico-contratos"</text></outputEntry>
+      </rule>
+      <rule id="r_for_cause">
+        <description>Rescisao for-cause pela operadora -> natureza for_cause (juridico-contratos)</description>
+        <inputEntry id="r_for_cause_i1"><text>"for_cause_operadora"</text></inputEntry>
+        <inputEntry id="r_for_cause_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_for_cause_o1"><text>"for_cause"</text></outputEntry>
+        <outputEntry id="r_for_cause_o2"><text>"juridico-contratos"</text></outputEntry>
+      </rule>
+      <rule id="r_fraude">
+        <description>Fraude referida -> natureza fraude_referida (juridico-contratos; NUNCA auto-flag, fraud_accusation L0 hard)</description>
+        <inputEntry id="r_fraude_i1"><text>"fraude_referida"</text></inputEntry>
+        <inputEntry id="r_fraude_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_fraude_o1"><text>"fraude_referida"</text></outputEntry>
+        <outputEntry id="r_fraude_o2"><text>"juridico-contratos"</text></outputEntry>
+      </rule>
+      <rule id="r_catchall">
+        <description>Catch-all FAIL-SAFE: tipo nao mapeado -> indeterminado, juridico-contratos (conservador; analise humana decide)</description>
+        <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>"indeterminado"</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>"juridico-contratos"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

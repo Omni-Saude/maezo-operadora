@@ -1,0 +1,424 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 6 * * *"   # 03:00 BRT (UTC-3) — nightly eval run
+
+permissions:
+  contents: read
+
+# Cancel in-progress runs for the same branch/PR on new pushes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+  UV_VERSION: "0.11.26"
+
+jobs:
+  quality:
+    name: lint / type / unit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install dependencies
+        run: uv sync --locked --extra dev
+
+      - name: Lint
+        run: make lint
+
+      - name: Type check
+        run: make type
+
+      - name: Unit tests
+        run: make test
+
+      - name: Upload unit test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-results
+          path: |
+            .pytest_cache/
+            htmlcov/
+          retention-days: 7
+
+  artifact-validation:
+    name: validate-artifacts
+    # Licao do repo hospitalar (ADR-019 la / ADR-0011 aqui):
+    # artefatos BPMN/DMN/policy validados como BLOCKER desde o commit 1.
+    # NOTE: expected to be red until W1 merges the validation implementation.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install dependencies
+        run: uv sync --locked --extra dev
+
+      - name: Validate BPMN / DMN / policies / agent definitions
+        run: make validate-artifacts
+
+  content-signoff-gate:
+    name: content-signoff-gate
+    # Track C2: "CI verde != deployavel" estrutural. validate-artifacts checa SHAPE; este job
+    # bloqueia a PROMOCAO de artefato promovivel (BPMN known-key + fecho decisionRef -> DMN) cujo
+    # conteudo ainda tenha marcadores de rascunho ou nao tenha sign-off humano registrado no
+    # manifesto config/artifact_signoff.yaml. Rascunhos intencionais (Phase 0/1/2) sao WARNING.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install dependencies
+        run: uv sync --locked --extra dev
+
+      - name: Content sign-off gate (promotable artifacts require human sign-off)
+        run: make validate-signoff
+
+  validate-terraform:
+    name: terraform validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.0"
+
+      - name: Terraform validate — modules
+        run: |
+          for dir in deploy/terraform/modules/*/; do
+            echo "Validating $dir"
+            cd "$dir"
+            terraform init -backend=false -input=false
+            terraform validate
+            cd - > /dev/null
+          done
+        working-directory: ${{ github.workspace }}
+
+      - name: Terraform validate — envs
+        run: |
+          for dir in deploy/terraform/envs/*/; do
+            echo "Validating $dir"
+            cd "$dir"
+            terraform init -backend=false -input=false
+            terraform validate
+            cd - > /dev/null
+          done
+        working-directory: ${{ github.workspace }}
+
+  validate-helm:
+    name: helm lint + egress NetworkPolicy CI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: "3.15.0"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install dependencies
+        run: uv sync --locked --extra dev
+
+      - name: Helm lint — maezo-tenant
+        run: |
+          helm lint deploy/helm/maezo-tenant/ --strict
+          helm lint deploy/helm/maezo-tenant/ --strict \
+            -f deploy/helm/maezo-tenant/values-amh.yaml
+
+      - name: Helm template smoke test
+        run: |
+          helm template maezo-amh deploy/helm/maezo-tenant/ \
+            -f deploy/helm/maezo-tenant/values-amh.yaml \
+            --debug > /dev/null
+
+      - name: NetworkPolicy egress fail-closed tests (ADR-0006 / ADR-0017, gap #13)
+        # Runs the @requires_helm tests in test_provision_tenant.py that prove:
+        #   (1) PHI egress = concrete BR CIDRs only, NEVER 0.0.0.0/0 (FIX 1)
+        #   (2) intra-namespace egress is scoped to gateway only, not all pods (FIX 2)
+        #   (3) zone mismatch between values and effectiveDefinition aborts render (FIX 3)
+        #   (4) bare-default render fails closed (no concrete CIDRs = abort)
+        #   (5) default-deny-egress NetworkPolicy is present in the committed render
+        #   (6) PHI with zero brResidentEndpoints gets egress: null/[] (total deny)
+        #   (7) generalZone.enabled=false leaves per-agent egress list empty
+        # helm CLI is on PATH here so @requires_helm marks do NOT skip.
+        run: |
+          uv run pytest tests/unit/platform/test_provision_tenant.py -v \
+            --tb=short -q
+
+  integration:
+    name: integration tests (real engine)
+    runs-on: ubuntu-latest
+    # Sem "test coverage illusion": testes de integracao rodam contra engine REAL.
+    needs: [quality]
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    env:
+      # Pin the compose postgres host port explicitly (docker-compose.yml defaults to 5433 for
+      # local dev — see that file — to avoid colliding with other Postgres instances on a dev's
+      # machine). CI has no such collision and tests/integration/**/conftest.py fall back to a
+      # hardcoded localhost:5432 DSN when MAEZO_TEST_DATABASE_URL is unset (which it is here), so
+      # pinning to 5432 keeps this job's behavior byte-for-byte unchanged.
+      MAEZO_PG_HOST_PORT: "5432"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Start core stack
+        run: docker compose --profile core up -d
+
+      - name: Wait for stack to be healthy
+        run: |
+          echo "Waiting for postgres..."
+          timeout 60 bash -c 'until docker compose exec -T postgres pg_isready -U maezo -d maezo; do sleep 3; done'
+          echo "Waiting for cibseven..."
+          timeout 300 bash -c 'until curl -sf http://localhost:8080/engine-rest/version; do sleep 5; done'
+          echo "Waiting for hapi-fhir..."
+          timeout 300 bash -c 'until curl -sf http://localhost:8081/fhir/metadata; do sleep 5; done'
+          echo "All services healthy."
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install dependencies
+        run: uv sync --locked --extra dev
+
+      - name: Integration tests
+        run: make test-integration
+
+      - name: Upload integration test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-results-${{ github.sha }}
+          path: .pytest_cache/
+          retention-days: 7
+
+      - name: Collect stack logs on failure
+        if: failure()
+        run: docker compose --profile core logs --no-color > docker-compose-failure.log
+
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-compose-failure-logs-${{ github.sha }}
+          path: docker-compose-failure.log
+          retention-days: 3
+
+      - name: Tear down stack
+        if: always()
+        run: docker compose --profile core down -v
+
+  # ---------------------------------------------------------------------------
+  # Tasy simulator smoke test (ADR-0013 gap #33):
+  # Validates that the simulator profile starts and produces CDC events without
+  # error. Runs after the core integration job to reuse the already-built images.
+  # The simulator is a permanent CI deliverable (not a dev-only hack) — see ADR-0013.
+  # ---------------------------------------------------------------------------
+  fhir-sync-simulator:
+    name: "fhir-sync simulator smoke (ADR-0013 gap #33)"
+    runs-on: ubuntu-latest
+    # Hard safety net: job CANNOT hang longer than 12 minutes regardless of step timeouts.
+    # Root cause of CI run 27511267203 hang: KAFKA_ADVERTISED_LISTENERS was localhost:9092 only,
+    # so the broker told tasy-simulator to connect to 127.0.0.1:9092 (its own loopback) —
+    # AIOKafkaProducer.start() retried indefinitely. Fixed in docker-compose.yml (dual listener).
+    timeout-minutes: 12
+    needs: [quality]
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Tasy simulator image
+        # Bounded build step — prevents stalled layer pulls from eating the whole job budget.
+        run: |
+          timeout 300 docker compose --profile core --profile simulator build tasy-simulator
+          echo "Simulator image built."
+
+      - name: Start Kafka and wait for readiness
+        run: |
+          docker compose --profile core --profile simulator up -d kafka
+          echo "Waiting for Kafka to be ready (INTERNAL listener kafka:29092)..."
+          # Use the INTERNAL listener (kafka:29092) — the healthcheck runs inside the kafka
+          # container where the hostname resolves via Docker DNS.
+          timeout 90 bash -c 'until docker compose exec -T kafka kafka-broker-api-versions --bootstrap-server kafka:29092 > /dev/null 2>&1; do sleep 5; done' \
+            || { echo "ERROR: Kafka did not become ready within 90s"; exit 1; }
+          echo "Kafka ready."
+
+      - name: Run Tasy simulator (one-shot)
+        # TASY_SIM_LOOP=0 → exits after emitting all scenarios (deterministic one-shot).
+        # KAFKA_BOOTSTRAP_SERVERS=kafka:29092 → uses the cross-container INTERNAL listener.
+        # timeout 120 ensures a hung AIOKafkaProducer.start() never blocks past this step.
+        run: |
+          timeout 120 docker compose --profile core --profile simulator run --rm \
+            -e TASY_SIM_LOOP=0 \
+            -e KAFKA_BOOTSTRAP_SERVERS=kafka:29092 \
+            tasy-simulator
+          echo "Tasy simulator exited successfully (one-shot complete)."
+
+      - name: Collect simulator logs on failure
+        if: failure()
+        run: docker compose --profile core --profile simulator logs --no-color > simulator-failure.log
+
+      - name: Upload simulator failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: simulator-failure-logs-${{ github.sha }}
+          path: simulator-failure.log
+          retention-days: 3
+
+      - name: Tear down stack
+        if: always()
+        run: docker compose --profile core --profile simulator down -v
+
+  evals:
+    name: evals (agent-touching paths)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    needs: [quality]
+    # dorny/paths-filter cai no fallback da API listFiles (pulls/{n}/files) em alguns PRs; sem
+    # `pull-requests: read` o GITHUB_TOKEN (default read-only deste repo) recebe "Resource not
+    # accessible by integration" e o gate falha (falso-negativo). Concede a permissão mínima.
+    permissions:
+      contents: read
+      pull-requests: read
+    # Gate: run when agent-touching files change (ADR-0009 golden datasets).
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check if agent-touching files changed
+        id: agent_changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            agents:
+              - 'src/maezo/agents/**'
+              - 'src/maezo/runtime/**'
+              - 'src/maezo/gateway/**'
+              - 'tests/evals/**'
+
+      - uses: actions/setup-python@v5
+        if: steps.agent_changes.outputs.agents == 'true'
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        if: steps.agent_changes.outputs.agents == 'true'
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install dependencies
+        if: steps.agent_changes.outputs.agents == 'true'
+        run: uv sync --locked --extra dev
+
+      - name: Run eval gate
+        if: steps.agent_changes.outputs.agents == 'true'
+        run: make evals
+        env:
+          LLM_GENERAL_API_KEY: ${{ secrets.LLM_GENERAL_API_KEY }}
+
+      - name: Upload eval results
+        if: always() && steps.agent_changes.outputs.agents == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results-${{ github.sha }}
+          path: .pytest_cache/
+          retention-days: 30
+
+  # ---------------------------------------------------------------------------
+  # Nightly eval job — full eval suite against HEAD of main.
+  # Runs at 03:00 BRT (06:00 UTC) to catch silent prompt/model drift.
+  # Triggers on: schedule only (not on PRs to avoid API key usage in forks).
+  # ---------------------------------------------------------------------------
+  evals-nightly:
+    name: evals-nightly (full suite)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install dependencies
+        run: uv sync --locked --extra dev
+
+      - name: Full nightly eval run
+        run: make evals
+        env:
+          LLM_GENERAL_API_KEY: ${{ secrets.LLM_GENERAL_API_KEY }}
+          NIGHTLY_EVAL: "1"
+
+      - name: Upload nightly eval results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-eval-results-${{ github.sha }}
+          path: .pytest_cache/
+          retention-days: 30

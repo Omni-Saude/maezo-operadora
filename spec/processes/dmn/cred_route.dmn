@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_cred_route"
+             name="Roteamento de natureza de (des)credenciamento"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    cred_route v0.1.0 — status: DRAFT (criterios de natureza/encaminhamento requerem SME
+    gestao-rede/juridico-rede + compliance; docs/review-queue.md). Consumida por SP-OP-CRED-001 e
+    mcp-dmn. Coracao adverso-like do processo.
+    INVARIANTE L1 HARD (provider_decredentialing): esta tabela APENAS roteia a natureza para a User
+    Task humana correta (credenciamento vs descredenciamento). NAO possui saida que negue/descredencie
+    — nenhuma decisao adversa nasce aqui (nas DUAS direcoes). O dominio de `roteamento` e um
+    CLOSED-allowlist {ANALISE_CREDENCIAMENTO, ANALISE_DESCREDENCIAMENTO, ANALISE_HUMANA}; nenhuma
+    variante NEGAR/DESCREDENCIAR/AUTO_APROVAR_ADVERSO. Substitui o `Gateway_Approval` bare do reference
+    SP-PS-002 (`${credential_approved == true/false}`) — a DMN NAO emite credential_approved; ela
+    roteia para a User Task humana, unica origem das variantes adversas.
+    direcao=credenciamento -> ANALISE_CREDENCIAMENTO (humano decide aprovar/negar);
+    direcao=descredenciamento -> ANALISE_DESCREDENCIAMENTO (humano decide descredenciar/manter apos
+    cure-window); indicio_irregularidade_sinalizado=true -> ANALISE_DESCREDENCIAMENTO (humano decide
+    encaminhar a SP-OP-FRAUDE-001; NUNCA auto-acusa — fraud_accusation L0 hard). Catch-all FAIL-SAFE:
+    combinacao nao mapeada -> ANALISE_HUMANA (conservador). Espelha cancel_routing.
+    NOTA hitPolicy: FIRST (catch-all conservador como ultima row).
+  </description>
+  <decision id="cred_route" name="Roteamento de natureza de (des)credenciamento" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_cred_route" hitPolicy="FIRST">
+      <input id="in_direcao" label="Direcao (direcao)">
+        <inputExpression id="ie_direcao" typeRef="string"><text>direcao</text></inputExpression>
+      </input>
+      <input id="in_tipo_prestador" label="Tipo do prestador (tipo_prestador)">
+        <inputExpression id="ie_tipo_prestador" typeRef="string"><text>tipo_prestador</text></inputExpression>
+      </input>
+      <input id="in_origem_solicitacao" label="Origem da solicitacao (origem_solicitacao)">
+        <inputExpression id="ie_origem_solicitacao" typeRef="string"><text>origem_solicitacao</text></inputExpression>
+      </input>
+      <input id="in_indicio_irregularidade" label="Indicio de irregularidade sinalizado (indicio_irregularidade_sinalizado)">
+        <inputExpression id="ie_indicio_irregularidade" typeRef="boolean"><text>indicio_irregularidade_sinalizado</text></inputExpression>
+      </input>
+      <output id="out_roteamento" label="roteamento" name="roteamento" typeRef="string"/>
+      <output id="out_motivo" label="motivo" name="motivo" typeRef="string"/>
+      <rule id="r_indicio_descred">
+        <description>Indicio de irregularidade sinalizado -> ANALISE_DESCREDENCIAMENTO (humano decide encaminhar FRAUDE; NUNCA auto-acusa)</description>
+        <inputEntry id="r_indicio_descred_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_indicio_descred_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_indicio_descred_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_indicio_descred_i4"><text>true</text></inputEntry>
+        <outputEntry id="r_indicio_descred_o1"><text>"ANALISE_DESCREDENCIAMENTO"</text></outputEntry>
+        <outputEntry id="r_indicio_descred_o2"><text>"Indicio de irregularidade sinalizado — analise humana de descredenciamento decide encaminhar a SP-OP-FRAUDE-001 (NUNCA auto-acusa; fraud_accusation L0 hard)"</text></outputEntry>
+      </rule>
+      <rule id="r_descred">
+        <description>Descredenciamento -> ANALISE_DESCREDENCIAMENTO (humano decide descredenciar/manter)</description>
+        <inputEntry id="r_descred_i1"><text>"descredenciamento"</text></inputEntry>
+        <inputEntry id="r_descred_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_descred_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_descred_i4"><text>-</text></inputEntry>
+        <outputEntry id="r_descred_o1"><text>"ANALISE_DESCREDENCIAMENTO"</text></outputEntry>
+        <outputEntry id="r_descred_o2"><text>"Descredenciamento — analise humana (gestao-rede/juridico-rede decide DESCREDENCIAR/MANTER apos cure-window RN 567); automacao NUNCA descredencia"</text></outputEntry>
+      </rule>
+      <rule id="r_cred">
+        <description>Credenciamento -> ANALISE_CREDENCIAMENTO (humano decide aprovar/negar)</description>
+        <inputEntry id="r_cred_i1"><text>"credenciamento"</text></inputEntry>
+        <inputEntry id="r_cred_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_cred_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_cred_i4"><text>-</text></inputEntry>
+        <outputEntry id="r_cred_o1"><text>"ANALISE_CREDENCIAMENTO"</text></outputEntry>
+        <outputEntry id="r_cred_o2"><text>"Credenciamento — analise humana (gestao-rede decide APROVAR_CREDENCIAMENTO/NEGAR_CREDENCIAMENTO); automacao NUNCA nega"</text></outputEntry>
+      </rule>
+      <rule id="r_catchall">
+        <description>Catch-all FAIL-SAFE: direcao nao mapeada/ambigua -> ANALISE_HUMANA (conservador; a analise humana decide)</description>
+        <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i4"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>"Direcao nao mapeada / ambiguidade — analise humana por seguranca (L1; nunca auto-nega, nunca descredencia)"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

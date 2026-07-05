@@ -1,0 +1,147 @@
+{{- /*
+In-cluster CIB Seven governance engine (ADR-0021 in-cluster deps strategy; ADR-0001
+CIB Seven as governance backbone).
+
+GATED OFF by default (`.Values.cibseven.inCluster.enabled` = false). When OFF this whole
+template renders NOTHING and the agent-runtime keeps talking to the EXTERNAL CIB Seven via
+the unchanged `CIBSEVEN_BASE_URL=http://cibseven:8080/engine-rest` in
+deployment-agent-runtime.yaml. When ON, this StatefulSet PROVIDES that same `cibseven`
+Service in-cluster — the agent-runtime URL is untouched either way.
+
+DB: CIB Seven needs its OWN database, SEPARATE from the agent checkpointer/Aurora. We do
+NOT provision a second Postgres here — the engine is pointed at a CONFIGURABLE EXTERNAL DB
+URL (`.Values.cibseven.inCluster.db.url`, or a secret via `existingSecret`). Supplying that
+URL is an operator responsibility (out of scope: AWS apply / real creds).
+
+Renders (only when enabled):
+  - a headless Service `cibseven-headless` (stable per-pod DNS for the StatefulSet)
+  - a ClusterIP Service `cibseven` :8080 (what the agent-runtime resolves)
+  - the StatefulSet `cibseven`
+*/ -}}
+{{- if .Values.cibseven.inCluster.enabled }}
+{{- $ic := .Values.cibseven.inCluster }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: cibseven-headless
+  namespace: {{ include "maezo-tenant.namespace" . }}
+  labels:
+    {{- include "maezo-tenant.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cibseven
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "maezo-tenant.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: cibseven
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cibseven
+  namespace: {{ include "maezo-tenant.namespace" . }}
+  labels:
+    {{- include "maezo-tenant.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cibseven
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "maezo-tenant.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: cibseven
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: cibseven
+  namespace: {{ include "maezo-tenant.namespace" . }}
+  labels:
+    {{- include "maezo-tenant.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cibseven
+spec:
+  serviceName: cibseven-headless
+  replicas: {{ $ic.replicaCount | default 1 }}
+  selector:
+    matchLabels:
+      {{- include "maezo-tenant.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: cibseven
+  template:
+    metadata:
+      labels:
+        {{- include "maezo-tenant.labels" . | nindent 8 }}
+        app.kubernetes.io/component: cibseven
+        # CIB Seven is the governance engine; it sees process/governance state, not raw
+        # clinical PHI (PHI stays in the PHI-zone services — ADR-0006). General zone.
+        maezo.io/phi-zone: "general"
+    spec:
+      serviceAccountName: {{ include "maezo-tenant.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: cibseven
+          image: "{{ $ic.image.repository }}:{{ $ic.image.tag }}"
+          imagePullPolicy: {{ $ic.image.pullPolicy | default .Values.image.pullPolicy }}
+          env:
+            # CIB Seven's OWN database — a CONFIGURABLE EXTERNAL DB URL, separate from the
+            # agent checkpointer/Aurora. Prefer a secret (existingSecret); fall back to the
+            # plain `db.url` value. We do NOT provision a second Postgres in this chart.
+            {{- if $ic.db.existingSecret }}
+            - name: CIBSEVEN_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $ic.db.existingSecret | quote }}
+                  key: {{ $ic.db.existingSecretKey | default "database-url" | quote }}
+            {{- else }}
+            - name: CIBSEVEN_DATABASE_URL
+              value: {{ $ic.db.url | quote }}
+            {{- end }}
+            {{- range $k, $v := $ic.env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          resources:
+            {{- toYaml $ic.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          livenessProbe:
+            httpGet:
+              path: {{ $ic.healthPath | default "/engine-rest/engine" }}
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: {{ $ic.healthPath | default "/engine-rest/engine" }}
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 3
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

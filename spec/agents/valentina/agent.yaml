@@ -1,0 +1,78 @@
+# Valentina — Coordenadora de Programas de Cuidado (Phase 3 clone de Marina/Rafael)
+#
+# PERSONA: DRAFT (R-PERSONA-MAP — PO sign-off pendente; o par Beatriz<->Valentina e a chamada
+# fragil do mapa de personas). Nome/papel sujeitos a confirmacao do PO.
+id: valentina
+name: "Valentina"                              # DRAFT (R-PERSONA-MAP)
+role: "Coordenadora de Programas de Cuidado — instrui SP-OP-PROGRAMA-001 (estratifica risco e monta o plano de cuidado/dossie clinico); NUNCA decide alta/desligamento clinico"
+reports_to: "coordenacao-clinica@amh"          # gestor humano = coordenacao clinica (assina qualquer desligamento clinico)
+security_zone: phi                             # Zona PHI integral (ADR-0006/D10): processa PHI clinico in-zone APOS o gate de consentimento
+graph: graph.py:build
+prompt_versions:                               # versionados (ADR-0009) — gate de eval no golden
+  system: system-v1
+  stratification: stratification-v1            # dossie de estratificacao de risco (care.stratify)
+  care_plan: care-plan-v1                      # dossie de plano de cuidado (care.enroll)
+model:
+  task_default: { tier: fast }                 # gather/assess/montagem do dossie
+  reasoning:    { tier: frontier }             # casos clinicos ambiguos / risco alto / plano complexo
+tools:                                          # ids EXATOS registrados pelos mcp_* servers (W4)
+  - mcp-fhir.read_patient_summary              # resumo clinico do beneficiario (leitura in-zone, APOS consentimento)
+  - mcp-dmn.evaluate                           # programa_routing / programa_sla (estratifica/sugere — nunca desliga)
+  - mcp-cibseven.start_process                 # somente SP-OP-PROGRAMA-001 (start idempotente por business key)
+  - mcp-memory.read_write                      # memoria episodica do caso de cuidado (ADR-0002)
+  # allowlist MINIMA (TIGHT, W4): a Valentina so exerce FHIR(leitura in-zone) + DMN + start
+  # (idempotente) + memoria. `operadora.programa.check_consent`/`stop_processing`/
+  # `register_program_discharge` sao WORKERS do engine (BPMN external tasks), NAO tools do agente:
+  # o chokepoint de consentimento e a parada por revogacao vivem no processo, nao no grafo. O grafo
+  # respeita o gate lendo `consentimento_ativo`/`consent_checked` (pre-resolvidos pelo worker
+  # chokepoint) e fail-close ANTES de qualquer leitura de PHI. correlate_message/get_process_status
+  # NAO entram ate um no os exercer (allowlist tight — acao real, nao declarativa).
+autonomy_policy: ../../policies/autonomy
+autonomy_actions:                              # acoes REAIS da matriz L0-core exercidas por este fluxo (W4)
+  - read_phi_data                              # leitura FHIR resumo clinico in-zone (mcp-fhir.read_patient_summary) — L3
+  - query_decision_engine                      # DMN de estratificacao/SLA (mcp-dmn.evaluate) — L3
+  - start_compliance_process                   # SP-OP-PROGRAMA-001 (mcp-cibseven.start_process) — L2
+  - read_write_memory                          # memoria episodica (mcp-memory.read_write) — L3
+  # NOTA L0 HARD (intencional): a Valentina NAO exerce `clinical_decision` (alta/desligamento
+  # clinico do programa = decisao clinica adversa, SO da User Task humana `UT_DecisaoClinica`),
+  # NAO exerce `authorization_denial` (nao-elegibilidade ao programa NAO e negativa de cobertura),
+  # NAO exerce `fraud_accusation`. Ela estratifica risco e monta o plano de cuidado (dossie +
+  # roteamento); o clinico humano decide enrollment/manutencao/desligamento na User Task. Nenhuma
+  # DMN/branch deste fluxo desliga/dá alta/nega cuidado. O efeito adverso clinico
+  # (`register_program_discharge`) e um WORKER guardado por `ERR_PROGRAM_DISCHARGE_NOT_HUMAN` no
+  # engine — jamais acionado pelo grafo da Valentina.
+kpis:
+  - { name: care_plan_completeness, target: ">0.95" }   # dossies/planos completos (fatos + refs DMN + bandas de risco)
+  - { name: stratification_precision, target: "track" }  # estratificacao corretamente roteada (sugere, nao decide)
+  - { name: human_routing_precision, target: "track" }   # casos clinicos corretamente roteados a coordenacao-clinica
+  - { name: eval_score, target: ">0.9" }                 # golden dataset (gate de promocao, ADR-0009)
+  - { name: false_denial_rate, target: "==0" }           # INVARIANTE L0 hard: ZERO altas/desligamentos/negativas de cuidado por automacao
+escalation:
+  process: SP-OP-PROGRAMA-001                  # rota humana garantida = UT_DecisaoClinica (desligamento clinico SO aqui)
+  human_manager: coordenacao-clinica           # quem coordena; a decisao clinica substantiva e do clinico humano
+  triggers:                                    # cada gatilho -> ANALISE HUMANA (NUNCA alta/desligamento/negativa)
+    - signal: sem_consentimento                # CHOKEPOINT LGPD: sem consentimento ativo -> fail-close, nada de PHI (terminal neutro)
+    - signal: consent_revoked                  # revogacao (evento de borda interruptivo no engine) -> para o tratamento de PHI (fail-safe, neutro)
+    - dmn: programa_routing=ANALISE_HUMANA  # caso clinico ambiguo / risco alto / criterio nao avaliavel -> coordenacao-clinica
+    - signal: criterio_alta_aparente           # criterio de alta APARENTE -> humano decide (Valentina NUNCA desliga)
+    - signal: dmn_unavailable                  # DMN indisponivel -> humano (nunca desfecho adverso por omissao)
+    - signal: ambiguity                        # qualquer ambiguidade clinica -> coordenacao-clinica
+memory:
+  episodic: true
+  semantic: true                               # derivados minimizados referenciando o caso (ADR-0002)
+# A2A v1.0 — Agent Card derivado desta definicao (ADR-0003). Valentina e ALVO de delegacao:
+# SP-OP-PROGRAMA-001 delega `care.stratify` (estratificacao de risco in-zone) e `care.enroll`
+# (montagem do plano de cuidado/dossie) a ela. `accepted_task_types` declara o contrato de
+# delegacao; o inbound handler `make_valentina_handler` (delegation.py, R9) ja o consome (o
+# dispatcher valida via card.accepts() e roteia ao handler). Espelha AUTH->Rafael / CONTAS->Marina.
+a2a:
+  capabilities:
+    - care_risk_stratification                 # estratifica risco do beneficiario in-zone (instrui, nao decide)
+    - care_plan_dossier                        # monta o plano de cuidado / dossie para a User Task clinica
+  skills:
+    - programa_risk_stratification             # estratificacao de risco / SP-OP-PROGRAMA-001
+    - programa_care_plan_dossier               # montagem do plano de cuidado / dossie clinico
+  accepted_task_types:                         # consumido por make_valentina_handler (delegation.py, R9)
+    - care.stratify                            # PROGRAMA delega a estratificacao de risco (in-zone, apos consentimento)
+    - care.enroll                              # PROGRAMA delega a montagem do plano de cuidado (sem decidir alta)
+  queue_ref: agents.tasks.valentina

@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_lucas_escalation_routing"
+             name="Roteamento da escalacao ao grupo humano (Lucas)"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    lucas_escalation_routing v0.1.0 — status: DRAFT — requires human review (financeiro/PO)
+    (conteudo de negocio: mapeamento motivo/intencao -> grupo humano de atendimento;
+    docs/review-queue.md). Consumida pelo AGENTE Lucas via mcp-dmn.evaluate (agents/lucas/graph.py
+    ::_assess_escalation, decision_id="lucas_escalation_routing") — NAO por businessRuleTask.
+
+    INVARIANTE ESTRUTURAL (espelha `RoteamentoEscalacao` de agents/lucas/graph.py): o dominio de
+    `roteamento` e EXATAMENTE {ATENDIMENTO_HUMANO, COBRANCA_HUMANO, CONTRATOS_HUMANO}. NENHUM
+    destino e um desfecho adverso — TODOS sao GRUPOS HUMANOS. Esta tabela SO escolhe QUAL grupo
+    humano recebe o caso de escalacao; ela NUNCA cancela, suspende, nega nem rescinde. A decisao
+    adversa (rescindir/suspender/negar) nasce SO na User Task humana do grupo escolhido
+    (SP-OP-ESCALATION-001 -> CANCEL-001/INADIMPLENCIA-001/REEMBOLSO-001).
+
+    FAIL-SAFE FECHADO: o catch-all conservador `ATENDIMENTO_HUMANO` e a ULTIMA row — qualquer
+    motivo/combinacao nao mapeada (ambiguidade, dmn_indisponivel, falha_tecnica) roteia ao
+    atendimento humano generico. O caso NUNCA se perde; o humano sempre recebe.
+
+    Inputs: `motivo` (MotivoHumano pre-resolvido pelo grafo: inadimplencia_detectada /
+    pedido_cancelamento / contestacao_cobranca / ambiguidade / dmn_indisponivel / falha_tecnica),
+    `intencao` (jornada) e `ciclos_sem_conciliacao` (contexto; declarado por fidelidade ao contrato
+    de entrada do grafo, nao discrimina o roteamento nesta versao DRAFT).
+
+    NOTA hitPolicy: FIRST (catch-all conservador como ultima row). Espelha cancel_admissibility /
+    escalation_routing (top-level).
+  </description>
+  <decision id="lucas_escalation_routing" name="Roteamento da escalacao (Lucas)" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_lucas_escalation_routing" hitPolicy="FIRST">
+      <input id="ler_in_intencao" label="Intencao da jornada (intencao)">
+        <inputExpression id="ler_ie_intencao" typeRef="string"><text>intencao</text></inputExpression>
+      </input>
+      <input id="ler_in_motivo" label="Motivo do encaminhamento humano (motivo)">
+        <inputExpression id="ler_ie_motivo" typeRef="string"><text>motivo</text></inputExpression>
+      </input>
+      <input id="ler_in_ciclos" label="Ciclos sem conciliacao (ciclos_sem_conciliacao)">
+        <inputExpression id="ler_ie_ciclos" typeRef="integer"><text>ciclos_sem_conciliacao</text></inputExpression>
+      </input>
+      <output id="ler_out_roteamento" label="roteamento" name="roteamento" typeRef="string"/>
+      <output id="ler_out_motivo" label="motivo" name="motivo" typeRef="string"/>
+      <rule id="ler_r_pedido_cancelamento">
+        <description>Pedido/indicio de cancelamento (motivo) -> gestao de contratos (rescisao cabe ao humano; nunca auto-rescinde)</description>
+        <inputEntry id="ler_r_pedido_cancelamento_i1"><text>-</text></inputEntry>
+        <inputEntry id="ler_r_pedido_cancelamento_i2"><text>"pedido_cancelamento"</text></inputEntry>
+        <inputEntry id="ler_r_pedido_cancelamento_i3"><text>-</text></inputEntry>
+        <outputEntry id="ler_r_pedido_cancelamento_o1"><text>"CONTRATOS_HUMANO"</text></outputEntry>
+        <outputEntry id="ler_r_pedido_cancelamento_o2"><text>"Pedido/indicio de cancelamento — gestao de contratos decide (rescisao SO na User Task humana; nunca auto-rescinde) — DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="ler_r_intencao_cancelamento">
+        <description>Jornada de cancelamento (intencao) -> gestao de contratos</description>
+        <inputEntry id="ler_r_intencao_cancelamento_i1"><text>"cancelamento"</text></inputEntry>
+        <inputEntry id="ler_r_intencao_cancelamento_i2"><text>-</text></inputEntry>
+        <inputEntry id="ler_r_intencao_cancelamento_i3"><text>-</text></inputEntry>
+        <outputEntry id="ler_r_intencao_cancelamento_o1"><text>"CONTRATOS_HUMANO"</text></outputEntry>
+        <outputEntry id="ler_r_intencao_cancelamento_o2"><text>"Jornada de cancelamento — gestao de contratos decide (nunca auto-rescinde) — DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="ler_r_inadimplencia">
+        <description>Indicio de inadimplencia detectado -> cobranca humana (humano confirma e conduz; nunca auto-suspende)</description>
+        <inputEntry id="ler_r_inadimplencia_i1"><text>-</text></inputEntry>
+        <inputEntry id="ler_r_inadimplencia_i2"><text>"inadimplencia_detectada"</text></inputEntry>
+        <inputEntry id="ler_r_inadimplencia_i3"><text>-</text></inputEntry>
+        <outputEntry id="ler_r_inadimplencia_o1"><text>"COBRANCA_HUMANO"</text></outputEntry>
+        <outputEntry id="ler_r_inadimplencia_o2"><text>"Indicio de inadimplencia — cobranca humana confirma e conduz (suspensao/rescisao SO na User Task humana; nunca auto-suspende) — DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="ler_r_contestacao">
+        <description>Contestacao de cobranca -> cobranca humana (humano decide o merito)</description>
+        <inputEntry id="ler_r_contestacao_i1"><text>-</text></inputEntry>
+        <inputEntry id="ler_r_contestacao_i2"><text>"contestacao_cobranca"</text></inputEntry>
+        <inputEntry id="ler_r_contestacao_i3"><text>-</text></inputEntry>
+        <outputEntry id="ler_r_contestacao_o1"><text>"COBRANCA_HUMANO"</text></outputEntry>
+        <outputEntry id="ler_r_contestacao_o2"><text>"Contestacao de cobranca — cobranca humana decide o merito (Lucas nunca decide) — DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="ler_r_catchall">
+        <description>Catch-all FAIL-SAFE: qualquer motivo/combinacao nao mapeada (ambiguidade, dmn_indisponivel, falha_tecnica) -> atendimento humano generico. O caso nunca se perde.</description>
+        <inputEntry id="ler_r_catchall_i1"><text>-</text></inputEntry>
+        <inputEntry id="ler_r_catchall_i2"><text>-</text></inputEntry>
+        <inputEntry id="ler_r_catchall_i3"><text>-</text></inputEntry>
+        <outputEntry id="ler_r_catchall_o1"><text>"ATENDIMENTO_HUMANO"</text></outputEntry>
+        <outputEntry id="ler_r_catchall_o2"><text>"Motivo/combinacao nao mapeada (ambiguidade/dmn_indisponivel/falha_tecnica) — atendimento humano generico (catch-all conservador; o caso nunca se perde) — DRAFT/verify"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

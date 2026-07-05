@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_fraude_routing"
+             name="Roteamento de investigacao de fraude"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    fraude_routing v0.1.0 — status: DRAFT (SP-OP-FRAUDE-001; candidate groups PROPOSTOS, confirmar
+    com taxonomia organizacional; docs/review-queue.md). Consumida por SP-OP-FRAUDE-001
+    (BRT_Routing, resultVariable `routing`) e mcp-dmn. Coracao do roteamento — sem variante adversa.
+    INVARIANTE L0 HARD (fraud_accusation, nao negociavel): o dominio de `roteamento` e EXATAMENTE
+    {INVESTIGACAO_HUMANA} — um unico valor. TODA instancia roteia para o humano
+    (UT_DecisaoInvestigador); NAO existe rota automatizada de acusacao nem de "encerrar sem humano".
+    NAO existe — por design — saida ACUSAR/FRAUD_DETECTED/BLOQUEAR/CONFIRMAR/DESCREDENCIAR. A DMN
+    apenas escolhe o GRUPO/tier investigador e a prioridade da fila. A acusacao SO nasce na User
+    Task humana (decisao_fraude=ACUSAR_FRAUDE), materializada pelo worker gated
+    operadora.fraude.register_fraud_accusation (ERR_FRAUD_ACCUSATION_NOT_HUMAN). Espelha a postura
+    "tudo roteia ao humano" de glosa_triage/nip_routing, levada ao limite (fraude e 100% human-gated).
+    NOTA hitPolicy: FIRST (catch-all conservador como ultima row -> INVESTIGACAO_HUMANA + grupo mais
+    senior). EVERY row's `roteamento` is "INVESTIGACAO_HUMANA".
+  </description>
+  <decision id="fraude_routing" name="Roteamento de investigacao de fraude" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_fraude_routing" hitPolicy="FIRST">
+      <input id="in_intensidade_investigacao" label="Intensidade da investigacao (intensidade_investigacao)">
+        <inputExpression id="ie_intensidade" typeRef="string"><text>intensidade_investigacao</text></inputExpression>
+      </input>
+      <input id="in_entidade_tipo" label="Tipo de entidade investigada (entidade_tipo)">
+        <inputExpression id="ie_entidade_tipo_rt" typeRef="string"><text>entidade_tipo</text></inputExpression>
+      </input>
+      <input id="in_origem_encaminhamento" label="Origem do encaminhamento (origem_encaminhamento)">
+        <inputExpression id="ie_origem" typeRef="string"><text>origem_encaminhamento</text></inputExpression>
+      </input>
+      <output id="out_roteamento" label="roteamento" name="roteamento" typeRef="string"/>
+      <output id="out_grupo_investigador" label="grupo_investigador" name="grupo_investigador" typeRef="string"/>
+      <output id="out_motivo" label="motivo" name="motivo" typeRef="string"/>
+      <rule id="r_prioritaria_coordenacao">
+        <description>Intensidade PRIORITARIA -> investigacao humana, grupo coordenacao-investigacao (mais senior assume prioridade alta)</description>
+        <inputEntry id="r_prioritaria_coordenacao_i1"><text>"PRIORITARIA"</text></inputEntry>
+        <inputEntry id="r_prioritaria_coordenacao_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_prioritaria_coordenacao_i3"><text>-</text></inputEntry>
+        <outputEntry id="r_prioritaria_coordenacao_o1"><text>"INVESTIGACAO_HUMANA"</text></outputEntry>
+        <outputEntry id="r_prioritaria_coordenacao_o2"><text>"coordenacao-investigacao"</text></outputEntry>
+        <outputEntry id="r_prioritaria_coordenacao_o3"><text>"Intensidade prioritaria — investigacao humana pela coordenacao (grupo mais senior; decisao adversa SO na User Task; NUNCA acusacao automatica)"</text></outputEntry>
+      </rule>
+      <rule id="r_prestador_investigacao">
+        <description>Entidade prestador -> investigacao humana, grupo investigacao-fraude (auditoria especial de prestador)</description>
+        <inputEntry id="r_prestador_investigacao_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_prestador_investigacao_i2"><text>"prestador"</text></inputEntry>
+        <inputEntry id="r_prestador_investigacao_i3"><text>-</text></inputEntry>
+        <outputEntry id="r_prestador_investigacao_o1"><text>"INVESTIGACAO_HUMANA"</text></outputEntry>
+        <outputEntry id="r_prestador_investigacao_o2"><text>"investigacao-fraude"</text></outputEntry>
+        <outputEntry id="r_prestador_investigacao_o3"><text>"Entidade prestador — investigacao humana pela auditoria especial de prestador (decisao adversa SO na User Task; descredenciamento tem UT propria em SP-OP-CRED-001)"</text></outputEntry>
+      </rule>
+      <rule id="r_aprofundada_investigacao">
+        <description>Intensidade APROFUNDADA -> investigacao humana, grupo investigacao-fraude</description>
+        <inputEntry id="r_aprofundada_investigacao_i1"><text>"APROFUNDADA"</text></inputEntry>
+        <inputEntry id="r_aprofundada_investigacao_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_aprofundada_investigacao_i3"><text>-</text></inputEntry>
+        <outputEntry id="r_aprofundada_investigacao_o1"><text>"INVESTIGACAO_HUMANA"</text></outputEntry>
+        <outputEntry id="r_aprofundada_investigacao_o2"><text>"investigacao-fraude"</text></outputEntry>
+        <outputEntry id="r_aprofundada_investigacao_o3"><text>"Intensidade aprofundada — investigacao humana pelo investigador de fraude (decisao adversa SO na User Task)"</text></outputEntry>
+      </rule>
+      <rule id="r_leve_investigacao">
+        <description>Intensidade LEVE -> investigacao humana, grupo investigacao-fraude (sempre humano, mesmo na intensidade minima)</description>
+        <inputEntry id="r_leve_investigacao_i1"><text>"LEVE"</text></inputEntry>
+        <inputEntry id="r_leve_investigacao_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_leve_investigacao_i3"><text>-</text></inputEntry>
+        <outputEntry id="r_leve_investigacao_o1"><text>"INVESTIGACAO_HUMANA"</text></outputEntry>
+        <outputEntry id="r_leve_investigacao_o2"><text>"investigacao-fraude"</text></outputEntry>
+        <outputEntry id="r_leve_investigacao_o3"><text>"Intensidade leve — investigacao humana pelo investigador de fraude (sempre humano, mesmo na intensidade minima; NUNCA arquivamento automatico)"</text></outputEntry>
+      </rule>
+      <rule id="r_catchall">
+        <description>Catch-all FAIL-SAFE: qualquer ambiguidade / combinacao nao mapeada -> investigacao humana, grupo coordenacao-investigacao (mais senior, conservador). NUNCA acusacao, NUNCA encerra sem humano.</description>
+        <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i3"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>"INVESTIGACAO_HUMANA"</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>"coordenacao-investigacao"</text></outputEntry>
+        <outputEntry id="r_catchall_o3"><text>"Combinacao nao mapeada / ambiguidade — investigacao humana pela coordenacao (grupo mais senior por seguranca; L0 hard; NUNCA acusacao automatica, NUNCA encerra sem humano)"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

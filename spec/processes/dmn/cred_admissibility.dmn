@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_cred_admissibility"
+             name="Admissibilidade de (des)credenciamento (roteamento)"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    cred_admissibility v0.1.0 — status: DRAFT (conteudo requer SME gestao-rede/juridico-rede +
+    regulatorio/compliance; RN 566/567 e Lei 9.656 art. 17 DRAFT/verify; docs/review-queue.md).
+    Consumida por SP-OP-CRED-001 e mcp-dmn.
+    INVARIANTE L1 HARD (provider_decredentialing, nao negociavel; ADR-0008/0018): o dominio de
+    `roteamento` e EXATAMENTE {CLERICAL_CREDENCIAR, SEGUE_ANALISE, PENDENTE_DOCUMENTACAO,
+    ANALISE_HUMANA}. NAO existe — por design — saida NEGAR/DESCREDENCIAR (nas DUAS direcoes
+    adversas). Nenhuma combinacao de input nega um credenciamento nem descredencia um prestador:
+    negativa de credenciamento e descredenciamento SO nascem nas User Tasks humanas
+    (UT_AnaliseCredenciamento / UT_AnaliseDescredenciamento; decisao_cred in {NEGAR_CREDENCIAMENTO,
+    DESCREDENCIAR}), materializadas pelos workers gated operadora.cred.register_cred_denial
+    (ERR_CRED_DENIAL_NOT_HUMAN) e operadora.cred.register_descredenciamento (ERR_DECRED_NOT_HUMAN).
+    EXCECAO CLERICAL (direcao favoravel): CLERICAL_CREDENCIAR so para credenciamento de NOVO
+    prestador com documentacao completa, licenca valida e dentro de criterios de rede — NAO e decisao
+    adversa contra ninguem (inverte o anti-pattern do reference SP-PS-002, que tambem auto-REJEITA).
+    documentacao_completa=false -> PENDENTE_DOCUMENTACAO (NUNCA negativa). Licenca aparentemente
+    invalida / fora de criterios de rede NAO produzem negativa: roteiam para ANALISE_HUMANA (so o
+    humano nega/descredencia). Descredenciamento NUNCA e clerical: sempre SEGUE_ANALISE/ANALISE_HUMANA.
+    Inputs booleanos pre-resolvidos por workers deterministicos (operadora.cred.verify_credentials /
+    operadora.cred.check_network_criteria) — nunca por LLM, nunca decisao adversa.
+    INDICIO DE IRREGULARIDADE (indicio_irregularidade_sinalizado=true): NUNCA clerical. A primeira row
+    (r_indicio_segue, FIRST) intercepta o sinal informativo ANTES do bypass clerical e roteia a
+    SEGUE_ANALISE — o sinal segue para cred_route, que roteia a ANALISE_DESCREDENCIAMENTO (User Task
+    humana; o humano decide encaminhar a SP-OP-FRAUDE-001). Nenhuma row auto-acusa (fraud_accusation
+    L0 hard); o sinal so impede o auto-credenciamento clerical, garantindo o gating humano.
+    NOTA hitPolicy: FIRST (catch-all conservador como ultima row — uma row catch-all sob UNIQUE
+    colidiria no engine). Espelha cancel_admissibility / auth_admissibility.
+  </description>
+  <decision id="cred_admissibility" name="Admissibilidade de (des)credenciamento" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_cred_admissibility" hitPolicy="FIRST">
+      <input id="in_direcao" label="Direcao (direcao)">
+        <inputExpression id="ie_direcao" typeRef="string"><text>direcao</text></inputExpression>
+      </input>
+      <input id="in_tipo_prestador" label="Tipo do prestador (tipo_prestador)">
+        <inputExpression id="ie_tipo_prestador" typeRef="string"><text>tipo_prestador</text></inputExpression>
+      </input>
+      <input id="in_documentacao_completa" label="Documentacao completa (documentacao_completa)">
+        <inputExpression id="ie_documentacao_completa" typeRef="boolean"><text>documentacao_completa</text></inputExpression>
+      </input>
+      <input id="in_licenca_valida" label="Licenca/CNES valida (licenca_valida)">
+        <inputExpression id="ie_licenca_valida" typeRef="boolean"><text>licenca_valida</text></inputExpression>
+      </input>
+      <input id="in_dentro_criterios_rede" label="Dentro de criterios de rede (dentro_criterios_rede)">
+        <inputExpression id="ie_dentro_criterios_rede" typeRef="boolean"><text>dentro_criterios_rede</text></inputExpression>
+      </input>
+      <input id="in_indicio_irregularidade" label="Indicio de irregularidade sinalizado (indicio_irregularidade_sinalizado)">
+        <inputExpression id="ie_indicio_irregularidade" typeRef="boolean"><text>indicio_irregularidade_sinalizado</text></inputExpression>
+      </input>
+      <output id="out_roteamento" label="roteamento" name="roteamento" typeRef="string"/>
+      <output id="out_motivo" label="motivo" name="motivo" typeRef="string"/>
+      <rule id="r_indicio_segue">
+        <description>Indicio de irregularidade sinalizado -> SEGUE_ANALISE (NUNCA clerical; o sinal informativo segue para cred_route, que roteia a ANALISE_DESCREDENCIAMENTO -> User Task humana; o humano decide encaminhar FRAUDE — NUNCA auto-acusa; fraud_accusation L0 hard). PRECEDE a row clerical (FIRST) para impedir o bypass clerical de engolir o sinal.</description>
+        <inputEntry id="r_indicio_segue_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_indicio_segue_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_indicio_segue_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_indicio_segue_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_indicio_segue_i5"><text>-</text></inputEntry>
+        <inputEntry id="r_indicio_segue_i6"><text>true</text></inputEntry>
+        <outputEntry id="r_indicio_segue_o1"><text>"SEGUE_ANALISE"</text></outputEntry>
+        <outputEntry id="r_indicio_segue_o2"><text>"Indicio de irregularidade sinalizado — NUNCA clerical: segue analise (cred_route roteia a ANALISE_DESCREDENCIAMENTO; humano decide encaminhar a SP-OP-FRAUDE-001; NUNCA auto-acusa — fraud_accusation L0 hard); DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r_descred_segue">
+        <description>Descredenciamento -> SEGUE_ANALISE (NUNCA clerical; humano decide descredenciar/manter apos cure-window)</description>
+        <inputEntry id="r_descred_segue_i1"><text>"descredenciamento"</text></inputEntry>
+        <inputEntry id="r_descred_segue_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_descred_segue_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_descred_segue_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_descred_segue_i5"><text>-</text></inputEntry>
+        <inputEntry id="r_descred_segue_i6"><text>-</text></inputEntry>
+        <outputEntry id="r_descred_segue_o1"><text>"SEGUE_ANALISE"</text></outputEntry>
+        <outputEntry id="r_descred_segue_o2"><text>"Descredenciamento — segue analise humana (humano decide DESCREDENCIAR/MANTER apos cure-window RN 567; automacao NUNCA descredencia); DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r_cred_doc_pendente">
+        <description>Credenciamento com documentacao incompleta -> PENDENTE_DOCUMENTACAO (NUNCA negativa)</description>
+        <inputEntry id="r_cred_doc_pendente_i1"><text>"credenciamento"</text></inputEntry>
+        <inputEntry id="r_cred_doc_pendente_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_cred_doc_pendente_i3"><text>false</text></inputEntry>
+        <inputEntry id="r_cred_doc_pendente_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_cred_doc_pendente_i5"><text>-</text></inputEntry>
+        <inputEntry id="r_cred_doc_pendente_i6"><text>-</text></inputEntry>
+        <outputEntry id="r_cred_doc_pendente_o1"><text>"PENDENTE_DOCUMENTACAO"</text></outputEntry>
+        <outputEntry id="r_cred_doc_pendente_o2"><text>"Documentacao incompleta — pendente de documentacao (NUNCA negativa automatica; a chegada da documentacao re-avalia; so o humano nega); DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r_cred_clerical">
+        <description>Credenciamento com documentacao completa + licenca valida + dentro de criterios + SEM indicio -> CLERICAL_CREDENCIAR (direcao favoravel, neutro)</description>
+        <inputEntry id="r_cred_clerical_i1"><text>"credenciamento"</text></inputEntry>
+        <inputEntry id="r_cred_clerical_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_cred_clerical_i3"><text>true</text></inputEntry>
+        <inputEntry id="r_cred_clerical_i4"><text>true</text></inputEntry>
+        <inputEntry id="r_cred_clerical_i5"><text>true</text></inputEntry>
+        <inputEntry id="r_cred_clerical_i6"><text>-</text></inputEntry>
+        <outputEntry id="r_cred_clerical_o1"><text>"CLERICAL_CREDENCIAR"</text></outputEntry>
+        <outputEntry id="r_cred_clerical_o2"><text>"Credenciamento favoravel: documentacao completa, licenca/CNES valida, dentro de criterios de rede (RN 566), sem indicio de irregularidade — direcao favoravel, neutro (NAO adverso); DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r_cred_humano">
+        <description>Credenciamento com licenca aparentemente irregular / fora de criterios -> ANALISE_HUMANA (so humano nega)</description>
+        <inputEntry id="r_cred_humano_i1"><text>"credenciamento"</text></inputEntry>
+        <inputEntry id="r_cred_humano_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_cred_humano_i3"><text>true</text></inputEntry>
+        <inputEntry id="r_cred_humano_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_cred_humano_i5"><text>-</text></inputEntry>
+        <inputEntry id="r_cred_humano_i6"><text>-</text></inputEntry>
+        <outputEntry id="r_cred_humano_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r_cred_humano_o2"><text>"Credenciamento com licenca aparentemente irregular ou fora de criterios de rede — analise humana obrigatoria (so o humano nega; nunca auto-nega); DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r_catchall">
+        <description>Catch-all FAIL-SAFE: qualquer ambiguidade/combinacao nao mapeada -> analise humana. NUNCA nega/descredencia.</description>
+        <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i5"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i6"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>"Combinacao nao mapeada / ambiguidade (direcao, licenca, criterios) — analise humana por seguranca (L1; nunca auto-credencia adverso, nunca auto-nega, nunca descredencia)"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

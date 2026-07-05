@@ -1,0 +1,1219 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+                  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+                  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+                  xmlns:camunda="http://camunda.org/schema/1.0/bpmn"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  id="Definitions_SP_OP_CRED_001"
+                  targetNamespace="http://maezo.health/operadora/cred"
+                  exporter="Maezo W-B BUILD"
+                  exporterVersion="0.1.0-draft">
+
+  <bpmn:message id="Msg_CredNotificationAck" name="msg.cred.notification_ack"/>
+  <bpmn:message id="Msg_CredInfoReceived" name="msg.cred.info_received"/>
+  <bpmn:error id="Error_CredPrestadorInvalido" name="Prestador inconsistente na origem" errorCode="ERR_CRED_INVALID_PRESTADOR"/>
+  <bpmn:error id="Error_DecredNotHuman" name="Descredenciamento sem decisao humana" errorCode="ERR_DECRED_NOT_HUMAN"/>
+  <bpmn:error id="Error_CredDenialNotHuman" name="Negativa de credenciamento sem decisao humana" errorCode="ERR_CRED_DENIAL_NOT_HUMAN"/>
+
+  <bpmn:process id="SP-OP-CRED-001" name="SP-OP-CRED-001 (Des)credenciamento de Prestador / Rede"
+                isExecutable="true" camunda:historyTimeToLive="1825">
+    <bpmn:documentation><![CDATA[
+SP-OP-CRED-001 — (Des)credenciamento de Prestador / Rede. Status: DRAFT (v0.1.0) — Phase 3, Wave W-B.
+DI (diagrama) sera adicionado na promocao a FINAL. Requer revisao humana (gestao-rede/juridico/DPO/
+regulatorio/financas/PO) antes de qualquer deploy — ver docs/review-queue.md.
+
+GATILHO REGULATORIO: RN 567 (descredenciamento de prestador hospitalar / notificacao previa ao
+beneficiario e a ANS / substituicao equivalente — DRAFT/verify), RN 566 (garantias/dimensionamento
+de rede — DRAFT/verify), Lei 9.656/1998 art. 17 (alteracao/redimensionamento da rede assistencial —
+DRAFT/verify). TODAS as citacoes e prazos sao DRAFT/verify com regulatorio/juridico antes de
+qualquer timer em producao.
+
+INVARIANTE L1 (provider_decredentialing, _hard_frozen.yaml, CI-enforced — promocao a hard_frozen
+pendente de sign-off arquitetura+compliance): DUAS DIRECOES ADVERSAS, um processo. NENHUM caminho
+automatizado (1) DESCREDENCIA um prestador ja credenciado (direcao A) NEM (2) NEGA um pedido de
+credenciamento (direcao B). Ambas as direcoes adversas SO nascem em User Tasks humanas:
+  - Descredenciamento -> UT_AnaliseDescredenciamento (grupos gestao-rede,juridico-rede),
+    decisao_cred == DESCREDENCIAR, apos cure-window de notificacao previa (RN 567);
+  - Negativa de credenciamento -> UT_AnaliseCredenciamento (grupo gestao-rede),
+    decisao_cred == NEGAR_CREDENCIAMENTO.
+NENHUMA DMN deste processo possui saida que negue/descredencie: cred_admissibility so produz
+{SEGUE_ANALISE, PENDENTE_DOCUMENTACAO, CLERICAL_CREDENCIAR, ANALISE_HUMANA}; cred_route so produz
+{ANALISE_CREDENCIAMENTO, ANALISE_DESCREDENCIAMENTO, ANALISE_HUMANA}; catch-all -> ANALISE_HUMANA.
+Documentacao incompleta -> PENDENTE_DOCUMENTACAO (nunca negativa). Licenca aparentemente irregular /
+fora de criterios de rede / indicio de irregularidade / ambiguidade / DMN indisponivel TODOS
+fail-safe para User Task humana (catch-all conservador). No estouro de SLA a coordenacao humana
+assume — NUNCA auto-descredencia/auto-nega por timeout. O event gateway de notificacao previa INVERTE
+o anti-pattern Boundary_LicenseTimeout(P30D)->Task_ExpireRequest do reference SP-PS-002_Credentialing:
+a expiracao do prazo roteia para a User Task humana, nunca para um terminal adverso automatico.
+Os dois efeitos adversos sao materializados SO pelos workers operadora.cred.register_descredenciamento
+(ERR_DECRED_NOT_HUMAN) e operadora.cred.register_cred_denial (ERR_CRED_DENIAL_NOT_HUMAN); cada um
+carrega responsavel_id+tier na cadeia de auditoria (ADR-0007). Os dois terminais ADVERSOS
+(End_PrestadorDescredenciado, End_CredenciamentoNegado) so sao alcancaveis apos UT humana concluida.
+
+EXCECAO CLERICAL (credenciamento favoravel): credenciar um NOVO prestador (aprovar credenciamento)
+NAO e efeito adverso contra ninguem; cred_admissibility=CLERICAL_CREDENCIAR (documentacao completa +
+licenca valida + dentro de criterios de rede) pode efetivar-se sem User Task adversa via
+operadora.cred.register_credenciamento (worker neutro). Qualquer ambiguidade -> ANALISE_HUMANA.
+INVERTE o anti-pattern: o reference auto-APROVA E auto-REJEITA via Gateway_Approval bare; aqui so a
+direcao favoravel (credenciar) e clerical; toda direcao adversa e humano-gated.
+
+INDICIO DE IRREGULARIDADE/FRAUDE de credencial (fraud_accusation L0 hard) NUNCA e auto-flagueado:
+roteia para UT_AnaliseDescredenciamento, que decide encaminhar a SP-OP-FRAUDE-001
+(encaminhar_fraude=true). Nenhum branch auto-acusa.
+
+FATO DE MUDANCA DE REDE: operadora.cred.register_descredenciamento e
+operadora.cred.register_credenciamento emitem agents.events.cred.network_changed (consumido pela
+network_change_bridge, que INICIA SP-OP-ADEQUACAO-001 — adequacao geografica/dimensionamento RN
+259/566; GAP-XPROC-2). O fato carrega a IDENTIDADE DA CELULA (regiao_saude + especialidade) alem de
+tenant_id/prestador_id/tipo_prestador/data_efeito_iso: a ponte correlaciona por
+tenant_id+regiao_saude+especialidade para formar a business key ADEQ-{tenant}-{regiao}-{especialidade}-
+{ciclo}. regiao_saude/especialidade sao dado CADASTRAL/GEOGRAFICO da atuacao do prestador (Zona Geral,
+ADR-0006) — nunca PHI de beneficiario.
+
+BUSINESS KEY (idempotente): "CRED-{tenant_id}-{prestador_id}" (variante por protocolo_cred). Uma
+instancia ativa por prestador (ou por protocolo); reenvio retorna a instancia ativa
+(mcp-cibseven.start_process consulta business key antes de iniciar).
+
+EVENTOS DE DOMINIO (worker operadora.events.publish):
+  inicio -> agents.events.cred.received
+  pendencia -> agents.events.cred.pended
+  breach -> agents.events.cred.sla_breached
+  mudanca de rede -> agents.events.cred.network_changed (descredenciado | credenciado | substituicao)
+  fim -> agents.events.cred.completed (payload.desfecho = credenciado | credenciamento_negado |
+         descredenciado | vinculo_mantido | substituicao_registrada)
+
+VARIAVEIS DE ENTRADA: tenant_id, prestador_id, protocolo_cred (opc), direcao (credenciamento |
+descredenciamento), tipo_prestador (pessoa_fisica | clinica | hospital | laboratorio | sadt | opme),
+origem_solicitacao (prestador | operadora | agente_carolina | auditoria_qualidade | juridico),
+motivo_informado (opc), data_solicitacao_iso, documentos_refs (json), licenca_valida (bool,
+pre-resolvido), documentacao_completa (bool, pre-resolvido), dentro_criterios_rede (bool,
+pre-resolvido), notificacao_previa_feita (bool, pre-resolvido — so descredenciamento),
+substituto_equivalente_identificado (bool, opc), tem_beneficiarios_vinculados (bool, opc),
+indicio_irregularidade_sinalizado (bool, opc — sinal informativo, NUNCA decide), regiao_saude
+(regiao de saude/atuacao do prestador — cadastral, compoe o fato de rede), especialidade (taxonomia
+TUSS/CBO — cadastral, compoe o fato de rede). Contrato completo:
+docs/processes/contracts/SP-OP-CRED-001.md.
+]]></bpmn:documentation>
+
+    <bpmn:startEvent id="Start_SolicitacaoCred" name="Solicitacao de (des)credenciamento recebida">
+      <bpmn:outgoing>Flow_Start_PubReceived</bpmn:outgoing>
+    </bpmn:startEvent>
+
+    <bpmn:serviceTask id="ST_PublishReceived" name="Publicar evento: cred.received"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.cred.received</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,prestador_id,direcao,tipo_prestador,origem_solicitacao</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Start_PubReceived</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubReceived_VerifyCred</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- Pre-resolve fatos clericais: licenca/documentacao/criterios de rede (FATO, nunca decide) -->
+    <bpmn:serviceTask id="ST_VerifyCredentials" name="Verificar credenciais/CNES (FATO, sem decidir)"
+                      camunda:type="external" camunda:topic="operadora.cred.verify_credentials">
+      <bpmn:documentation>Worker resolve/ecoa licenca_valida e documentacao_completa (registro profissional/CNES vigente — FATO). TASY write DROP (ADR-0013; so consome o CDC do amh-data-platform, nunca escreve no Tasy). NUNCA decide negar.</bpmn:documentation>
+      <bpmn:incoming>Flow_PubReceived_VerifyCred</bpmn:incoming>
+      <bpmn:incoming>Flow_InfoReceived_VerifyCred</bpmn:incoming>
+      <bpmn:outgoing>Flow_VerifyCred_NetworkCriteria</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- Boundary error (validacao de origem): input inconsistente (ex.: prestador_id ausente) lanca
+         ERR_CRED_INVALID_PRESTADOR no worker verify_credentials. Antes: incidente NAO tratado travava
+         a mainline no primeiro service task. Agora: captura -> End_CredPrestadorInvalido (fail-safe
+         NAO adverso; o worker NUNCA decide negar — so sinaliza dado de origem inconsistente). Preserva
+         ADR-0018: nenhum efeito adverso automatico; apenas um terminal de validacao limpo. -->
+    <bpmn:boundaryEvent id="BE_PrestadorInvalido" name="Prestador inconsistente na origem (ERR_CRED_INVALID_PRESTADOR)" attachedToRef="ST_VerifyCredentials">
+      <bpmn:outgoing>Flow_PrestadorInvalido_End</bpmn:outgoing>
+      <bpmn:errorEventDefinition id="EED_PrestadorInvalido" errorRef="Error_CredPrestadorInvalido"/>
+    </bpmn:boundaryEvent>
+    <bpmn:endEvent id="End_CredPrestadorInvalido" name="Solicitacao com prestador inconsistente na origem — validacao barrou (fail-safe, nao adverso)">
+      <bpmn:documentation>Fail-safe de validacao (NAO adverso): a solicitacao chegou com dado de origem inconsistente (ex.: prestador_id ausente). O worker verify_credentials NUNCA decide negar/descredenciar; apenas sinaliza a inconsistencia (ERR_CRED_INVALID_PRESTADOR). Terminal tecnico limpo — evita incidente travado na mainline. Nenhum efeito adverso automatico (ADR-0018).</bpmn:documentation>
+      <bpmn:incoming>Flow_PrestadorInvalido_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <bpmn:serviceTask id="ST_CheckNetworkCriteria" name="Conferir criterios objetivos de rede (RN 566; FATO)"
+                      camunda:type="external" camunda:topic="operadora.cred.check_network_criteria">
+      <bpmn:documentation>Worker resolve dentro_criterios_rede (especialidade/regiao demandadas — RN 566; FATO objetivo). NUNCA decide negar. TASY write DROP.</bpmn:documentation>
+      <bpmn:incoming>Flow_VerifyCred_NetworkCriteria</bpmn:incoming>
+      <bpmn:outgoing>Flow_NetworkCriteria_Admiss</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- DMN: admissibilidade clerical (nunca nega/descredencia — apenas roteia) -->
+    <bpmn:businessRuleTask id="BRT_Admissibilidade" name="Avaliar admissibilidade (DMN cred_admissibility)"
+                           camunda:decisionRef="cred_admissibility"
+                           camunda:mapDecisionResult="singleResult"
+                           camunda:resultVariable="admissibilidade">
+      <bpmn:documentation>Saidas possiveis: CLERICAL_CREDENCIAR (favoravel, neutro) | SEGUE_ANALISE | PENDENTE_DOCUMENTACAO | ANALISE_HUMANA. Por design NAO existe saida NEGAR/DESCREDENCIAR (L1). documentacao_completa=false -> PENDENTE_DOCUMENTACAO (nunca negativa). Catch-all -> ANALISE_HUMANA.</bpmn:documentation>
+      <bpmn:incoming>Flow_NetworkCriteria_Admiss</bpmn:incoming>
+      <bpmn:outgoing>Flow_Admiss_GW</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+
+    <bpmn:exclusiveGateway id="GW_Admissibilidade" name="Resultado admissibilidade" default="Flow_GW_AnaliseHumana">
+      <bpmn:incoming>Flow_Admiss_GW</bpmn:incoming>
+      <bpmn:outgoing>Flow_GW_ClericalCredenciar</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GW_PendenteDocumentacao</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GW_SegueAnalise</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GW_AnaliseHumana</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <!-- Ramo CLERICAL: credenciamento favoravel (direcao favoravel, neutro — nao adverso) -->
+    <bpmn:serviceTask id="ST_RegisterCredenciamento" name="Registrar credenciamento aprovado (neutro)"
+                      camunda:type="external" camunda:topic="operadora.cred.register_credenciamento">
+      <bpmn:documentation>Registra o credenciamento aprovado (neutro; direcao favoravel). NAO nega nem descredencia. So alcancado quando cred_admissibility=CLERICAL_CREDENCIAR (documentacao completa + licenca valida + dentro de criterios) OU por decisao humana APROVAR_CREDENCIAMENTO. Emite agents.events.cred.network_changed (credenciado).</bpmn:documentation>
+      <bpmn:incoming>Flow_GW_ClericalCredenciar</bpmn:incoming>
+      <bpmn:incoming>Flow_GWCred_Aprovar</bpmn:incoming>
+      <bpmn:outgoing>Flow_RegCred_PubNetwork</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="ST_PublishNetworkCredenciado" name="Publicar evento: cred.network_changed (credenciado)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.cred.network_changed</camunda:inputParameter>
+          <camunda:inputParameter name="event_tipo_mudanca">prestador_credenciado</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,prestador_id,tipo_prestador,regiao_saude,especialidade,data_efeito_iso</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_RegCred_PubNetwork</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubNetwork_PubCompleted</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="ST_PublishCredenciado" name="Publicar evento: cred.completed (credenciado)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.cred.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">credenciado</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,prestador_id,tipo_prestador</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_PubNetwork_PubCompleted</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubCredenciado_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_PrestadorCredenciado" name="Prestador credenciado (neutro — direcao favoravel)">
+      <bpmn:incoming>Flow_PubCredenciado_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Ramo PENDENTE_DOCUMENTACAO: aguarda documentacao -> reavalia (nunca negativa) -->
+    <bpmn:serviceTask id="ST_NotifyDocPendente" name="Solicitar documentacao pendente (publica cred.pended)"
+                      camunda:type="external" camunda:topic="operadora.cred.notify_doc_pendente">
+      <bpmn:documentation>Solicita a documentacao faltante ao prestador e publica agents.events.cred.pended (pendencia aberta). NAO nega: a documentacao incompleta NUNCA produz negativa automatica (so o humano nega). A chegada da documentacao (msg.cred.info_received) re-dispara a verificacao de fatos.</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic_pended">agents.events.cred.pended</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_GW_PendenteDocumentacao</bpmn:incoming>
+      <bpmn:outgoing>Flow_NotifyDoc_WaitInfo</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:intermediateCatchEvent id="ICE_AguardarInfoDoc" name="Aguardar documentacao do prestador">
+      <bpmn:incoming>Flow_NotifyDoc_WaitInfo</bpmn:incoming>
+      <bpmn:outgoing>Flow_InfoReceived_VerifyCred</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="MED_AguardarInfoDoc" messageRef="Msg_CredInfoReceived"/>
+    </bpmn:intermediateCatchEvent>
+
+    <!-- DMN: roteamento de natureza adversa-like (credenciamento vs descredenciamento; nunca decide) -->
+    <bpmn:businessRuleTask id="BRT_Route" name="Rotear natureza (DMN cred_route)"
+                           camunda:decisionRef="cred_route"
+                           camunda:mapDecisionResult="singleResult"
+                           camunda:resultVariable="rota">
+      <bpmn:documentation>Coracao adverso-like (substitui o Gateway_Approval bare do reference). Saidas: ANALISE_CREDENCIAMENTO | ANALISE_DESCREDENCIAMENTO | ANALISE_HUMANA. Sem variante NEGAR/DESCREDENCIAR/AUTO_APROVAR_ADVERSO. direcao=credenciamento -> ANALISE_CREDENCIAMENTO; direcao=descredenciamento -> ANALISE_DESCREDENCIAMENTO; indicio_irregularidade_sinalizado=true -> ANALISE_DESCREDENCIAMENTO (humano decide encaminhar FRAUDE; nunca auto-acusa). Catch-all -> ANALISE_HUMANA (GW_Natureza roteia o catch-all para o ramo de co-review — ver GAP-CRED-4).</bpmn:documentation>
+      <bpmn:incoming>Flow_GW_SegueAnalise</bpmn:incoming>
+      <bpmn:incoming>Flow_GW_AnaliseHumana</bpmn:incoming>
+      <bpmn:outgoing>Flow_Route_Sla</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+
+    <!-- DMN: SLA de analise (prazos + fonte). Resolve em convergencia ANTES das User Tasks (fornece
+         ${sla.sla_analise} / ${sla.sla_alerta} a todos os caminhos que alcancam as UTs). -->
+    <bpmn:businessRuleTask id="BRT_CredSla" name="Determinar SLA de analise (DMN cred_sla)"
+                           camunda:decisionRef="cred_sla"
+                           camunda:mapDecisionResult="singleResult"
+                           camunda:resultVariable="sla">
+      <bpmn:documentation>Saidas: sla_analise, sla_alerta (string ISO 8601), fonte_regulatoria. Sem saida adversa. No estouro de SLA a coordenacao humana assume (nunca auto-descredencia/auto-nega). Prazos DRAFT/verify (RN 566/567).</bpmn:documentation>
+      <bpmn:incoming>Flow_Route_Sla</bpmn:incoming>
+      <bpmn:outgoing>Flow_Sla_GWNatureza</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+
+    <!-- GAP-CRED-4 (T2, orchestrator-wave3): default de GW_Natureza roteava o catch-all ANALISE_HUMANA
+         (rota nao mapeada/ambigua) para o ramo credenciamento-only, pulando a cure-window/notificacao
+         previa RN 567 e caindo so no candidate group gestao-rede (UT_AnaliseCredenciamento). Agora o
+         catch-all ANALISE_HUMANA roteia para o ramo de DESCREDENCIAMENTO (co-review: candidate groups
+         gestao-rede+juridico-rede em UT_AnaliseDescredenciamento, decisao_cred inclui MANTER como saida
+         neutra) — o ramo mais conservador dos dois, e o UNICO que passa pela obrigacao de notificacao
+         previa RN 567 (BRT_PriorNotice/ST_CheckPriorNotice). Ambiguidade de direcao NUNCA deve pular a
+         cure-window nem restringir a revisao a um unico grupo. -->
+    <bpmn:exclusiveGateway id="GW_Natureza" name="Natureza: credenciamento ou descredenciamento/co-review?" default="Flow_GWNat_Credenciamento">
+      <bpmn:incoming>Flow_Sla_GWNatureza</bpmn:incoming>
+      <bpmn:outgoing>Flow_GWNat_Descredenciamento</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWNat_Credenciamento</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <!-- GAP-CRED-6 (T2, orchestrator-wave3): BRT_PriorNotice ficava wired ANTES de GW_Natureza (entre
+         BRT_Route e BRT_CredSla) e rodava tambem para direcao=credenciamento, onde cred_prior_notice
+         nao tem input de direcao/relevancia (a DMN e SO descredenciamento — RN 567, ver contrato e
+         cred_prior_notice.dmn). Movido para o ramo de descredenciamento/co-review (apos GW_Natureza,
+         antes de ST_CheckPriorNotice) — so roda quando a instancia realmente segue para
+         UT_AnaliseDescredenciamento/UT_CoordenacaoRedeDescred. -->
+    <bpmn:businessRuleTask id="BRT_PriorNotice" name="Determinar notificacao previa (DMN cred_prior_notice)"
+                           camunda:decisionRef="cred_prior_notice"
+                           camunda:mapDecisionResult="singleResult"
+                           camunda:resultVariable="notice">
+      <bpmn:documentation>Saidas: exige_notificacao_previa (bool), exige_substituto_equivalente (bool), prazo_notificacao (ISO 8601), fonte_regulatoria. So determina obrigacoes regulatorias (RN 567 — antecedencia minima e substituicao por equivalente em descredenciamento hospitalar). NAO decide descredenciar. Catch-all -> exige_notificacao_previa=true (conservador). So roda para direcao=descredenciamento OU ANALISE_HUMANA (catch-all de cred_route; GAP-CRED-4/GAP-CRED-6) — NUNCA para direcao=credenciamento pura.</bpmn:documentation>
+      <bpmn:incoming>Flow_GWNat_Descredenciamento</bpmn:incoming>
+      <bpmn:outgoing>Flow_PriorNotice_CheckNotice</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+
+    <!-- ===== DIRECAO A: DESCREDENCIAMENTO (cure-window RN 567 + UT humana) ===== -->
+
+    <!-- Cure-window: registra/dispara a notificacao previa (RN 567). Publica cred.pended. -->
+    <bpmn:serviceTask id="ST_CheckPriorNotice" name="Disparar/registrar notificacao previa (RN 567)"
+                      camunda:type="external" camunda:topic="operadora.cred.check_prior_notice">
+      <bpmn:documentation>Dispara/registra a notificacao previa ao beneficiario/ANS (RN 567 — DRAFT/verify) e publica agents.events.cred.pended. NAO descredencia: a expiracao do prazo roteia para a User Task humana (INVERTE Boundary_LicenseTimeout->Task_ExpireRequest do reference).</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic_pended">agents.events.cred.pended</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_PriorNotice_CheckNotice</bpmn:incoming>
+      <bpmn:outgoing>Flow_CheckNotice_WaitNotif</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- Corrida: ack da notificacao previa chega OU prazo expira. AMBOS -> dossie+UT humana
+         (INVERTE auto-descredenciamento-no-timeout). -->
+    <bpmn:eventBasedGateway id="GW_AguardarNotificacao" name="Aguardar notificacao previa (cure-window)">
+      <bpmn:incoming>Flow_CheckNotice_WaitNotif</bpmn:incoming>
+      <bpmn:outgoing>Flow_Wait_NotifAck</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Wait_PrazoNotif</bpmn:outgoing>
+    </bpmn:eventBasedGateway>
+    <bpmn:intermediateCatchEvent id="ICE_NotificacaoAck" name="Recebimento da notificacao previa confirmado">
+      <bpmn:incoming>Flow_Wait_NotifAck</bpmn:incoming>
+      <bpmn:outgoing>Flow_NotifAck_DossieDescred</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="MED_NotificacaoAck" messageRef="Msg_CredNotificationAck"/>
+    </bpmn:intermediateCatchEvent>
+    <bpmn:intermediateCatchEvent id="ICE_PrazoNotificacao" name="Prazo de notificacao previa (RN 567 — DRAFT/verify)">
+      <bpmn:incoming>Flow_Wait_PrazoNotif</bpmn:incoming>
+      <bpmn:outgoing>Flow_PrazoNotif_DossieDescred</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TD_PrazoNotificacao">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${notice.prazo_notificacao}</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:intermediateCatchEvent>
+
+    <bpmn:serviceTask id="ST_PrepareDossierDescred" name="Preparar dossie de analise (Carolina A2A)"
+                      camunda:type="external" camunda:topic="operadora.cred.prepare_dossier">
+      <bpmn:documentation>Convoca Carolina (PHI zone; credentialing.analyze): monta o dossie de analise de descredenciamento. O dossie INSTRUI a decisao humana, nunca a substitui (principio Rafael, ADR-0005).</bpmn:documentation>
+      <bpmn:incoming>Flow_NotifAck_DossieDescred</bpmn:incoming>
+      <bpmn:incoming>Flow_PrazoNotif_DossieDescred</bpmn:incoming>
+      <bpmn:outgoing>Flow_DossieDescred_UT</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:userTask id="UT_AnaliseDescredenciamento" name="Analise de descredenciamento (gestao-rede/juridico-rede)"
+                   camunda:candidateGroups="gestao-rede,juridico-rede">
+      <bpmn:documentation><![CDATA[
+HITL L1 (provider_decredentialing, ADR-0008): UNICO ponto onde o descredenciamento (direcao A) pode
+nascer. Saidas: decisao_cred in {DESCREDENCIAR, MANTER, SOLICITAR_INFO}. DESCREDENCIAR exige
+fundamentacao + referencia_regulatoria + comprovacao_notificacao_previa + (se ha beneficiarios
+vinculados) plano_substituicao + responsavel_id (campos obrigatorios — validacao de formulario +
+guard do worker register_descredenciamento). Tambem decide encaminhar_fraude (indicio de
+irregularidade NUNCA auto-acusa; o humano decide encaminhar a SP-OP-FRAUDE-001). SLA:
+`sla.sla_analise` (DMN cred_sla; RN 566/567 — DRAFT/verify). A decisao sai em nome do humano
+(assignee na trilha de auditoria, ADR-0007).
+]]></bpmn:documentation>
+      <bpmn:incoming>Flow_DossieDescred_UT</bpmn:incoming>
+      <bpmn:incoming>Flow_InfoCatch_UTDescred</bpmn:incoming>
+      <bpmn:incoming>Flow_InfoAdicionalDescred_UT</bpmn:incoming>
+      <bpmn:outgoing>Flow_UTDescred_GW</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:boundaryEvent id="BT_AlertaSlaDescred" name="Alerta de risco de SLA (descred.)" cancelActivity="false" attachedToRef="UT_AnaliseDescredenciamento">
+      <bpmn:outgoing>Flow_AlertaDescred_Notify</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TD_AlertaSlaDescred">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${sla.sla_alerta}</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:boundaryEvent id="BT_SlaDescred" name="SLA de analise (descred. — RN 566 DRAFT/verify)" cancelActivity="true" attachedToRef="UT_AnaliseDescredenciamento">
+      <bpmn:outgoing>Flow_SlaDescred_PubBreach</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TD_SlaDescred">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${sla.sla_analise}</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:boundaryEvent id="BME_InfoDescred" name="Info solicitada recebida (descred.)" cancelActivity="true" attachedToRef="UT_AnaliseDescredenciamento">
+      <bpmn:outgoing>Flow_InfoCatch_UTDescred</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="MED_InfoDescred" messageRef="Msg_CredInfoReceived"/>
+    </bpmn:boundaryEvent>
+
+    <!-- GAP-CRED-5 (T2, orchestrator-wave3): decisao_cred=SOLICITAR_INFO nao tinha ramo dedicado e caia
+         no default (Flow_GWDescred_Manter), publicando cred.completed(desfecho=vinculo_mantido) e
+         ENCERRANDO a instancia — desfecho errado: SOLICITAR_INFO significa que o humano ainda precisa
+         de mais informacao para decidir, nao que o vinculo foi mantido. Agora tem ramo proprio:
+         aguarda msg.cred.info_received (mesma semantica do contrato — "documentacao solicitada pelo
+         humano chegou, destrava reavaliacao") e volta para UT_AnaliseDescredenciamento. -->
+    <bpmn:exclusiveGateway id="GW_DecisaoDescred" name="Decisao de descredenciamento" default="Flow_GWDescred_Manter">
+      <bpmn:incoming>Flow_UTDescred_GW</bpmn:incoming>
+      <bpmn:incoming>Flow_UTCoordDescred_GW</bpmn:incoming>
+      <bpmn:outgoing>Flow_GWDescred_Descredenciar</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWDescred_SolicitarInfo</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWDescred_Manter</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <bpmn:intermediateCatchEvent id="ICE_AguardarInfoAdicionalDescred" name="Aguardar informacao adicional solicitada (descred.)">
+      <bpmn:documentation>Ramo SOLICITAR_INFO (GAP-CRED-5): aguarda msg.cred.info_received (correlacao por business key) e retorna a UT_AnaliseDescredenciamento para reavaliacao — NAO encerra a instancia como vinculo_mantido. Espelha o boundary catch BME_InfoDescred (mesma mensagem), aqui na mainline pos-decisao explicita do humano.</bpmn:documentation>
+      <bpmn:incoming>Flow_GWDescred_SolicitarInfo</bpmn:incoming>
+      <bpmn:outgoing>Flow_InfoAdicionalDescred_UT</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="MED_InfoAdicionalDescred" messageRef="Msg_CredInfoReceived"/>
+    </bpmn:intermediateCatchEvent>
+
+    <!-- Ramo DESCREDENCIAR: efeito adverso gated por worker (ERR_DECRED_NOT_HUMAN) -->
+    <bpmn:serviceTask id="ST_RegisterDescredenciamento" name="Registrar descredenciamento (efeito adverso gated)"
+                      camunda:type="external" camunda:topic="operadora.cred.register_descredenciamento">
+      <bpmn:documentation>HARD GUARDRAIL (L1, provider_decredentialing): o worker RECUSA registrar o descredenciamento se decisao_cred != DESCREDENCIAR setado por humano, ou se faltar responsavel_id/fundamentacao/referencia_regulatoria/comprovacao_notificacao_previa (lanca ERR_DECRED_NOT_HUMAN). Carrega responsavel_id+tier na trilha de auditoria (ADR-0007). Emite agents.events.cred.network_changed (descredenciado). Este worker NUNCA decide; so registra a decisao ja tomada na UT humana.</bpmn:documentation>
+      <bpmn:incoming>Flow_GWDescred_Descredenciar</bpmn:incoming>
+      <bpmn:outgoing>Flow_RegDescred_GWSubstituicao</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- Boundary error (guard L1 provider_decredentialing): se register_descredenciamento RECUSAR
+         (decisao_cred != DESCREDENCIAR humano OU campos obrigatorios ausentes) lanca ERR_DECRED_NOT_HUMAN.
+         O guard CONTINUA sendo o mecanismo de enforcement (ADR-0018) — este catch NAO o enfraquece:
+         apenas evita o incidente travado. Terminal de incidente NEUTRO (o efeito adverso NAO ocorreu;
+         nada foi descredenciado). Este boundary so e alcancavel APOS UT_AnaliseDescredenciamento/
+         UT_CoordenacaoRedeDescred (humano), entao nao abre caminho automatico. -->
+    <bpmn:boundaryEvent id="BE_DecredNaoHumano" name="Descredenciamento barrado sem decisao humana (ERR_DECRED_NOT_HUMAN)" attachedToRef="ST_RegisterDescredenciamento">
+      <bpmn:outgoing>Flow_DecredNaoHumano_End</bpmn:outgoing>
+      <bpmn:errorEventDefinition id="EED_DecredNaoHumano" errorRef="Error_DecredNotHuman"/>
+    </bpmn:boundaryEvent>
+    <bpmn:endEvent id="End_DecredBloqueadoNaoHumano" name="Incidente: registro de descredenciamento barrado pelo guard (sem decisao humana) — NADA descredenciado">
+      <bpmn:documentation>Incidente NEUTRO (guard L1, provider_decredentialing): o worker register_descredenciamento RECUSOU registrar por faltar decisao humana DESCREDENCIAR e/ou campos obrigatorios (ERR_DECRED_NOT_HUMAN). NENHUM efeito adverso ocorreu — o prestador NAO foi descredenciado. O guard permanece o mecanismo de enforcement (ADR-0018); este terminal apenas encerra a instancia de forma limpa (em vez de incidente travado) para tratamento humano posterior.</bpmn:documentation>
+      <bpmn:incoming>Flow_DecredNaoHumano_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Apos descredenciar: substituicao registrada? (RN 567 — saida equivalente identificada).
+         Roteia por ${tem_plano_substituicao == true} — booleano FLAT ecoado pelo worker
+         register_descredenciamento (normaliza o campo OPCIONAL plano_substituicao da UT em um fato
+         de forma garantido em escopo; idioma null-safe `== true`, espelha SP-OP-FRAUDE-001). NAO
+         referenciar plano_substituicao diretamente: ausente do escopo no caminho descredenciado puro,
+         o JUEL lancaria "Cannot resolve identifier" e travaria a instancia no gateway. -->
+    <bpmn:exclusiveGateway id="GW_Substituicao" name="Plano de substituicao registrado?" default="Flow_GWSub_Descredenciado">
+      <bpmn:incoming>Flow_RegDescred_GWSubstituicao</bpmn:incoming>
+      <bpmn:outgoing>Flow_GWSub_Substituicao</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWSub_Descredenciado</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <bpmn:serviceTask id="ST_PublishNetworkDescredenciado" name="Publicar evento: cred.network_changed (descredenciado)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.cred.network_changed</camunda:inputParameter>
+          <camunda:inputParameter name="event_tipo_mudanca">prestador_descredenciado</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,prestador_id,tipo_prestador,regiao_saude,especialidade,responsavel_id,data_efeito_iso</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_GWSub_Descredenciado</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubNetDescred_PubCompleted</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="ST_PublishDescredenciado" name="Publicar evento: cred.completed (descredenciado)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.cred.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">descredenciado</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,prestador_id,responsavel_id</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_PubNetDescred_PubCompleted</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubDescred_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_PrestadorDescredenciado" name="Prestador descredenciado pela operadora (L1 — humano)">
+      <bpmn:incoming>Flow_PubDescred_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Ramo SUBSTITUICAO: descredenciamento com plano de substituicao equivalente (RN 567, neutro) -->
+    <bpmn:serviceTask id="ST_PublishNetworkSubstituicao" name="Publicar evento: cred.network_changed (substituicao)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.cred.network_changed</camunda:inputParameter>
+          <camunda:inputParameter name="event_tipo_mudanca">substituicao_registrada</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,prestador_id,tipo_prestador,regiao_saude,especialidade,responsavel_id,data_efeito_iso</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_GWSub_Substituicao</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubNetSub_PubCompleted</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="ST_PublishSubstituicao" name="Publicar evento: cred.completed (substituicao_registrada)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.cred.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">substituicao_registrada</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,prestador_id,responsavel_id</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_PubNetSub_PubCompleted</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubSub_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_SubstituicaoRegistrada" name="Substituicao/redimensionamento registrado (neutro)">
+      <bpmn:incoming>Flow_PubSub_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Ramo MANTER (descred.): vinculo mantido (decisao humana de nao prosseguir) -->
+    <bpmn:serviceTask id="ST_PublishVinculoMantidoDescred" name="Publicar evento: cred.completed (vinculo_mantido)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.cred.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">vinculo_mantido</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,prestador_id</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_GWDescred_Manter</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubVinculoDescred_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_VinculoMantido" name="Vinculo mantido (decisao humana)">
+      <bpmn:incoming>Flow_PubVinculoDescred_End</bpmn:incoming>
+      <bpmn:incoming>Flow_PubVinculoCred_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Escalation descred.: SLA estourado -> coordenacao humana assume (NUNCA auto-descredencia) -->
+    <bpmn:serviceTask id="ST_PublishSlaBreachDescred" name="Publicar evento: cred.sla_breached (descred.)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.cred.sla_breached</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,prestador_id,direcao</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_SlaDescred_PubBreach</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubBreachDescred_UTCoord</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:userTask id="UT_CoordenacaoRedeDescred" name="Coordenacao de rede assume (descred.)"
+                   camunda:candidateGroups="coordenacao-rede">
+      <bpmn:documentation>Escalation path do SLA de descredenciamento: caso reatribuido a coordenacao-rede. Mesmas saidas e mesmos campos obrigatorios de UT_AnaliseDescredenciamento (a decisao adversa continua HUMANA — nunca auto-descredencia por timeout). A natureza da decisao nao muda por estouro de SLA.</bpmn:documentation>
+      <bpmn:incoming>Flow_PubBreachDescred_UTCoord</bpmn:incoming>
+      <bpmn:outgoing>Flow_UTCoordDescred_GW</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <!-- ===== DIRECAO B: CREDENCIAMENTO (UT humana decide aprovar/negar) ===== -->
+
+    <bpmn:serviceTask id="ST_PrepareDossierCred" name="Preparar dossie de analise (Carolina A2A)"
+                      camunda:type="external" camunda:topic="operadora.cred.prepare_dossier">
+      <bpmn:documentation>Convoca Carolina (PHI zone; credentialing.analyze): monta o dossie de analise de credenciamento. O dossie INSTRUI a decisao humana, nunca a substitui (principio Rafael, ADR-0005).</bpmn:documentation>
+      <bpmn:incoming>Flow_GWNat_Credenciamento</bpmn:incoming>
+      <bpmn:outgoing>Flow_DossieCred_UT</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:userTask id="UT_AnaliseCredenciamento" name="Analise de credenciamento (gestao-rede)"
+                   camunda:candidateGroups="gestao-rede">
+      <bpmn:documentation><![CDATA[
+HITL L1 (provider_decredentialing, ADR-0008): UNICO ponto onde a negativa de credenciamento (direcao
+B) pode nascer. Saidas: decisao_cred in {APROVAR_CREDENCIAMENTO, NEGAR_CREDENCIAMENTO, SOLICITAR_INFO}.
+NEGAR_CREDENCIAMENTO exige fundamentacao + referencia_regulatoria (RN 566) + responsavel_id (campos
+obrigatorios — validacao de formulario + guard do worker register_cred_denial). APROVAR_CREDENCIAMENTO
+e neutro (direcao favoravel) e segue para o worker register_credenciamento. SLA: `sla.sla_analise`
+(DMN cred_sla; RN 566 — DRAFT/verify). A decisao sai em nome do humano (assignee na trilha de
+auditoria, ADR-0007).
+]]></bpmn:documentation>
+      <bpmn:incoming>Flow_DossieCred_UT</bpmn:incoming>
+      <bpmn:incoming>Flow_InfoCatch_UTCred</bpmn:incoming>
+      <bpmn:incoming>Flow_InfoAdicionalCred_UT</bpmn:incoming>
+      <bpmn:outgoing>Flow_UTCred_GW</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:boundaryEvent id="BT_AlertaSlaCred" name="Alerta de risco de SLA (cred.)" cancelActivity="false" attachedToRef="UT_AnaliseCredenciamento">
+      <bpmn:outgoing>Flow_AlertaCred_Notify</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TD_AlertaSlaCred">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${sla.sla_alerta}</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:boundaryEvent id="BT_SlaCred" name="SLA de analise (cred. — RN 566 DRAFT/verify)" cancelActivity="true" attachedToRef="UT_AnaliseCredenciamento">
+      <bpmn:outgoing>Flow_SlaCred_PubBreach</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TD_SlaCred">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${sla.sla_analise}</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:boundaryEvent id="BME_InfoCred" name="Info solicitada recebida (cred.)" cancelActivity="true" attachedToRef="UT_AnaliseCredenciamento">
+      <bpmn:outgoing>Flow_InfoCatch_UTCred</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="MED_InfoCred" messageRef="Msg_CredInfoReceived"/>
+    </bpmn:boundaryEvent>
+
+    <!-- GAP-CRED-5 (T2, orchestrator-wave3): decisao_cred=SOLICITAR_INFO nao tinha ramo dedicado e caia
+         no default (Flow_GWCred_VinculoMantido), publicando cred.completed(desfecho=vinculo_mantido) e
+         ENCERRANDO a instancia — desfecho errado (ver mesma nota em GW_DecisaoDescred). Ramo proprio
+         simetrico: aguarda msg.cred.info_received e volta para UT_AnaliseCredenciamento. -->
+    <bpmn:exclusiveGateway id="GW_DecisaoCred" name="Decisao de credenciamento" default="Flow_GWCred_VinculoMantido">
+      <bpmn:incoming>Flow_UTCred_GW</bpmn:incoming>
+      <bpmn:incoming>Flow_UTCoordCred_GW</bpmn:incoming>
+      <bpmn:outgoing>Flow_GWCred_Aprovar</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWCred_Negar</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWCred_SolicitarInfo</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWCred_VinculoMantido</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <bpmn:intermediateCatchEvent id="ICE_AguardarInfoAdicionalCred" name="Aguardar informacao adicional solicitada (cred.)">
+      <bpmn:documentation>Ramo SOLICITAR_INFO (GAP-CRED-5): aguarda msg.cred.info_received (correlacao por business key) e retorna a UT_AnaliseCredenciamento para reavaliacao — NAO encerra a instancia como vinculo_mantido. Espelha o boundary catch BME_InfoCred (mesma mensagem), aqui na mainline pos-decisao explicita do humano.</bpmn:documentation>
+      <bpmn:incoming>Flow_GWCred_SolicitarInfo</bpmn:incoming>
+      <bpmn:outgoing>Flow_InfoAdicionalCred_UT</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="MED_InfoAdicionalCred" messageRef="Msg_CredInfoReceived"/>
+    </bpmn:intermediateCatchEvent>
+
+    <!-- Ramo NEGAR_CREDENCIAMENTO: efeito adverso gated por worker (ERR_CRED_DENIAL_NOT_HUMAN) -->
+    <bpmn:serviceTask id="ST_RegisterCredDenial" name="Registrar negativa de credenciamento (efeito adverso gated)"
+                      camunda:type="external" camunda:topic="operadora.cred.register_cred_denial">
+      <bpmn:documentation>HARD GUARDRAIL (L1, provider_decredentialing): o worker RECUSA registrar a negativa se decisao_cred != NEGAR_CREDENCIAMENTO setado por humano, ou se faltar responsavel_id/fundamentacao/referencia_regulatoria (lanca ERR_CRED_DENIAL_NOT_HUMAN). Carrega responsavel_id+tier na trilha de auditoria (ADR-0007). Este worker NUNCA decide; so registra a decisao ja tomada na UT humana.</bpmn:documentation>
+      <bpmn:incoming>Flow_GWCred_Negar</bpmn:incoming>
+      <bpmn:outgoing>Flow_RegDenial_Pub</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- Boundary error (guard L1 provider_decredentialing): se register_cred_denial RECUSAR
+         (decisao_cred != NEGAR_CREDENCIAMENTO humano OU campos obrigatorios ausentes) lanca
+         ERR_CRED_DENIAL_NOT_HUMAN. O guard CONTINUA sendo o mecanismo de enforcement (ADR-0018) —
+         este catch NAO o enfraquece: apenas evita o incidente travado. Terminal de incidente NEUTRO
+         (a negativa NAO foi registrada). So alcancavel APOS UT_AnaliseCredenciamento/
+         UT_CoordenacaoRedeCred (humano); nao abre caminho automatico de negativa. -->
+    <bpmn:boundaryEvent id="BE_CredDenialNaoHumano" name="Negativa de credenciamento barrada sem decisao humana (ERR_CRED_DENIAL_NOT_HUMAN)" attachedToRef="ST_RegisterCredDenial">
+      <bpmn:outgoing>Flow_CredDenialNaoHumano_End</bpmn:outgoing>
+      <bpmn:errorEventDefinition id="EED_CredDenialNaoHumano" errorRef="Error_CredDenialNotHuman"/>
+    </bpmn:boundaryEvent>
+    <bpmn:endEvent id="End_CredGuardBloqueadoNaoHumano" name="Incidente: registro de negativa de credenciamento barrado pelo guard (sem decisao humana) — negativa NAO registrada">
+      <bpmn:documentation>Incidente NEUTRO (guard L1, provider_decredentialing): o worker register_cred_denial RECUSOU registrar por faltar decisao humana NEGAR_CREDENCIAMENTO e/ou campos obrigatorios (ERR_CRED_DENIAL_NOT_HUMAN). NENHUM efeito adverso ocorreu — a negativa NAO foi registrada. O guard permanece o mecanismo de enforcement (ADR-0018); este terminal apenas encerra a instancia de forma limpa (em vez de incidente travado) para tratamento humano posterior.</bpmn:documentation>
+      <bpmn:incoming>Flow_CredDenialNaoHumano_End</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:serviceTask id="ST_PublishCredNegado" name="Publicar evento: cred.completed (credenciamento_negado)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.cred.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">credenciamento_negado</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,prestador_id,responsavel_id</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_RegDenial_Pub</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubCredNegado_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_CredenciamentoNegado" name="Credenciamento negado (L1 — humano)">
+      <bpmn:incoming>Flow_PubCredNegado_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Ramo MANTER/SOLICITAR (cred. default): pedido nao prosseguiu / vinculo mantido (neutro) -->
+    <bpmn:serviceTask id="ST_PublishVinculoMantidoCred" name="Publicar evento: cred.completed (vinculo_mantido, cred.)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.cred.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">vinculo_mantido</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,prestador_id</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_GWCred_VinculoMantido</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubVinculoCred_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- Escalation cred.: SLA estourado -> coordenacao humana assume (NUNCA auto-nega) -->
+    <bpmn:serviceTask id="ST_PublishSlaBreachCred" name="Publicar evento: cred.sla_breached (cred.)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.cred.sla_breached</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,prestador_id,direcao</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_SlaCred_PubBreach</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubBreachCred_UTCoord</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:userTask id="UT_CoordenacaoRedeCred" name="Coordenacao de rede assume (cred.)"
+                   camunda:candidateGroups="coordenacao-rede">
+      <bpmn:documentation>Escalation path do SLA de credenciamento: caso reatribuido a coordenacao-rede. Mesmas saidas e mesmos campos obrigatorios de UT_AnaliseCredenciamento (a negativa continua HUMANA — nunca auto-nega por timeout). A natureza da decisao nao muda por estouro de SLA.</bpmn:documentation>
+      <bpmn:incoming>Flow_PubBreachCred_UTCoord</bpmn:incoming>
+      <bpmn:outgoing>Flow_UTCoordCred_GW</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <!-- ===== Alerta de SLA (nao-interruptivo) — compartilhado por ambas as direcoes ===== -->
+    <bpmn:serviceTask id="ST_NotifySlaRisk" name="Notificar risco de SLA (coordenacao-rede)"
+                      camunda:type="external" camunda:topic="operadora.cred.notify_sla_risk">
+      <bpmn:incoming>Flow_AlertaDescred_Notify</bpmn:incoming>
+      <bpmn:incoming>Flow_AlertaCred_Notify</bpmn:incoming>
+      <bpmn:outgoing>Flow_NotifySla_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_RiscoSlaNotificado" name="Risco de SLA notificado (analise segue)">
+      <bpmn:incoming>Flow_NotifySla_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- ===== FLOWS ===== -->
+    <bpmn:sequenceFlow id="Flow_Start_PubReceived" sourceRef="Start_SolicitacaoCred" targetRef="ST_PublishReceived"/>
+    <bpmn:sequenceFlow id="Flow_PubReceived_VerifyCred" sourceRef="ST_PublishReceived" targetRef="ST_VerifyCredentials"/>
+    <bpmn:sequenceFlow id="Flow_VerifyCred_NetworkCriteria" sourceRef="ST_VerifyCredentials" targetRef="ST_CheckNetworkCriteria"/>
+    <bpmn:sequenceFlow id="Flow_PrestadorInvalido_End" sourceRef="BE_PrestadorInvalido" targetRef="End_CredPrestadorInvalido"/>
+    <bpmn:sequenceFlow id="Flow_NetworkCriteria_Admiss" sourceRef="ST_CheckNetworkCriteria" targetRef="BRT_Admissibilidade"/>
+    <bpmn:sequenceFlow id="Flow_Admiss_GW" sourceRef="BRT_Admissibilidade" targetRef="GW_Admissibilidade"/>
+    <bpmn:sequenceFlow id="Flow_GW_ClericalCredenciar" name="CLERICAL_CREDENCIAR (favoravel, neutro)" sourceRef="GW_Admissibilidade" targetRef="ST_RegisterCredenciamento">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${admissibilidade.roteamento == 'CLERICAL_CREDENCIAR'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GW_PendenteDocumentacao" name="PENDENTE_DOCUMENTACAO" sourceRef="GW_Admissibilidade" targetRef="ST_NotifyDocPendente">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${admissibilidade.roteamento == 'PENDENTE_DOCUMENTACAO'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GW_SegueAnalise" name="SEGUE_ANALISE" sourceRef="GW_Admissibilidade" targetRef="BRT_Route">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${admissibilidade.roteamento == 'SEGUE_ANALISE'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GW_AnaliseHumana" name="ANALISE_HUMANA (default — sempre humano)" sourceRef="GW_Admissibilidade" targetRef="BRT_Route"/>
+    <bpmn:sequenceFlow id="Flow_RegCred_PubNetwork" sourceRef="ST_RegisterCredenciamento" targetRef="ST_PublishNetworkCredenciado"/>
+    <bpmn:sequenceFlow id="Flow_PubNetwork_PubCompleted" sourceRef="ST_PublishNetworkCredenciado" targetRef="ST_PublishCredenciado"/>
+    <bpmn:sequenceFlow id="Flow_PubCredenciado_End" sourceRef="ST_PublishCredenciado" targetRef="End_PrestadorCredenciado"/>
+    <bpmn:sequenceFlow id="Flow_NotifyDoc_WaitInfo" sourceRef="ST_NotifyDocPendente" targetRef="ICE_AguardarInfoDoc"/>
+    <bpmn:sequenceFlow id="Flow_InfoReceived_VerifyCred" sourceRef="ICE_AguardarInfoDoc" targetRef="ST_VerifyCredentials"/>
+    <bpmn:sequenceFlow id="Flow_Route_Sla" sourceRef="BRT_Route" targetRef="BRT_CredSla"/>
+    <bpmn:sequenceFlow id="Flow_Sla_GWNatureza" sourceRef="BRT_CredSla" targetRef="GW_Natureza"/>
+    <!-- GAP-CRED-4: catch-all ANALISE_HUMANA (rota ambigua/nao mapeada) roteia para o MESMO ramo de
+         ANALISE_DESCREDENCIAMENTO — co-review (gestao-rede+juridico-rede) + cure-window RN 567, nunca
+         o ramo credenciamento-only (single group, sem notificacao previa). -->
+    <bpmn:sequenceFlow id="Flow_GWNat_Descredenciamento" name="ANALISE_DESCREDENCIAMENTO / ANALISE_HUMANA (catch-all -> co-review)" sourceRef="GW_Natureza" targetRef="BRT_PriorNotice">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${rota.roteamento == 'ANALISE_DESCREDENCIAMENTO' or rota.roteamento == 'ANALISE_HUMANA'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWNat_Credenciamento" name="ANALISE_CREDENCIAMENTO (default)" sourceRef="GW_Natureza" targetRef="ST_PrepareDossierCred"/>
+    <bpmn:sequenceFlow id="Flow_PriorNotice_CheckNotice" sourceRef="BRT_PriorNotice" targetRef="ST_CheckPriorNotice"/>
+    <bpmn:sequenceFlow id="Flow_CheckNotice_WaitNotif" sourceRef="ST_CheckPriorNotice" targetRef="GW_AguardarNotificacao"/>
+    <bpmn:sequenceFlow id="Flow_Wait_NotifAck" sourceRef="GW_AguardarNotificacao" targetRef="ICE_NotificacaoAck"/>
+    <bpmn:sequenceFlow id="Flow_Wait_PrazoNotif" sourceRef="GW_AguardarNotificacao" targetRef="ICE_PrazoNotificacao"/>
+    <bpmn:sequenceFlow id="Flow_NotifAck_DossieDescred" sourceRef="ICE_NotificacaoAck" targetRef="ST_PrepareDossierDescred"/>
+    <bpmn:sequenceFlow id="Flow_PrazoNotif_DossieDescred" sourceRef="ICE_PrazoNotificacao" targetRef="ST_PrepareDossierDescred"/>
+    <bpmn:sequenceFlow id="Flow_DossieDescred_UT" sourceRef="ST_PrepareDossierDescred" targetRef="UT_AnaliseDescredenciamento"/>
+    <bpmn:sequenceFlow id="Flow_InfoCatch_UTDescred" sourceRef="BME_InfoDescred" targetRef="UT_AnaliseDescredenciamento"/>
+    <bpmn:sequenceFlow id="Flow_UTDescred_GW" sourceRef="UT_AnaliseDescredenciamento" targetRef="GW_DecisaoDescred"/>
+    <bpmn:sequenceFlow id="Flow_AlertaDescred_Notify" sourceRef="BT_AlertaSlaDescred" targetRef="ST_NotifySlaRisk"/>
+    <bpmn:sequenceFlow id="Flow_SlaDescred_PubBreach" sourceRef="BT_SlaDescred" targetRef="ST_PublishSlaBreachDescred"/>
+    <bpmn:sequenceFlow id="Flow_PubBreachDescred_UTCoord" sourceRef="ST_PublishSlaBreachDescred" targetRef="UT_CoordenacaoRedeDescred"/>
+    <bpmn:sequenceFlow id="Flow_UTCoordDescred_GW" sourceRef="UT_CoordenacaoRedeDescred" targetRef="GW_DecisaoDescred"/>
+    <bpmn:sequenceFlow id="Flow_GWDescred_Descredenciar" name="DESCREDENCIAR (somente humano)" sourceRef="GW_DecisaoDescred" targetRef="ST_RegisterDescredenciamento">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_cred == 'DESCREDENCIAR'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWDescred_SolicitarInfo" name="SOLICITAR_INFO (aguarda info adicional)" sourceRef="GW_DecisaoDescred" targetRef="ICE_AguardarInfoAdicionalDescred">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_cred == 'SOLICITAR_INFO'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_InfoAdicionalDescred_UT" sourceRef="ICE_AguardarInfoAdicionalDescred" targetRef="UT_AnaliseDescredenciamento"/>
+    <bpmn:sequenceFlow id="Flow_GWDescred_Manter" name="MANTER (default — neutro; fallback conservador)" sourceRef="GW_DecisaoDescred" targetRef="ST_PublishVinculoMantidoDescred"/>
+    <bpmn:sequenceFlow id="Flow_RegDescred_GWSubstituicao" sourceRef="ST_RegisterDescredenciamento" targetRef="GW_Substituicao"/>
+    <bpmn:sequenceFlow id="Flow_DecredNaoHumano_End" sourceRef="BE_DecredNaoHumano" targetRef="End_DecredBloqueadoNaoHumano"/>
+    <bpmn:sequenceFlow id="Flow_GWSub_Substituicao" name="plano de substituicao registrado (RN 567)" sourceRef="GW_Substituicao" targetRef="ST_PublishNetworkSubstituicao">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${tem_plano_substituicao == true}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWSub_Descredenciado" name="descredenciado (default)" sourceRef="GW_Substituicao" targetRef="ST_PublishNetworkDescredenciado"/>
+    <bpmn:sequenceFlow id="Flow_PubNetDescred_PubCompleted" sourceRef="ST_PublishNetworkDescredenciado" targetRef="ST_PublishDescredenciado"/>
+    <bpmn:sequenceFlow id="Flow_PubDescred_End" sourceRef="ST_PublishDescredenciado" targetRef="End_PrestadorDescredenciado"/>
+    <bpmn:sequenceFlow id="Flow_PubNetSub_PubCompleted" sourceRef="ST_PublishNetworkSubstituicao" targetRef="ST_PublishSubstituicao"/>
+    <bpmn:sequenceFlow id="Flow_PubSub_End" sourceRef="ST_PublishSubstituicao" targetRef="End_SubstituicaoRegistrada"/>
+    <bpmn:sequenceFlow id="Flow_PubVinculoDescred_End" sourceRef="ST_PublishVinculoMantidoDescred" targetRef="End_VinculoMantido"/>
+    <bpmn:sequenceFlow id="Flow_DossieCred_UT" sourceRef="ST_PrepareDossierCred" targetRef="UT_AnaliseCredenciamento"/>
+    <bpmn:sequenceFlow id="Flow_InfoCatch_UTCred" sourceRef="BME_InfoCred" targetRef="UT_AnaliseCredenciamento"/>
+    <bpmn:sequenceFlow id="Flow_UTCred_GW" sourceRef="UT_AnaliseCredenciamento" targetRef="GW_DecisaoCred"/>
+    <bpmn:sequenceFlow id="Flow_AlertaCred_Notify" sourceRef="BT_AlertaSlaCred" targetRef="ST_NotifySlaRisk"/>
+    <bpmn:sequenceFlow id="Flow_SlaCred_PubBreach" sourceRef="BT_SlaCred" targetRef="ST_PublishSlaBreachCred"/>
+    <bpmn:sequenceFlow id="Flow_PubBreachCred_UTCoord" sourceRef="ST_PublishSlaBreachCred" targetRef="UT_CoordenacaoRedeCred"/>
+    <bpmn:sequenceFlow id="Flow_UTCoordCred_GW" sourceRef="UT_CoordenacaoRedeCred" targetRef="GW_DecisaoCred"/>
+    <bpmn:sequenceFlow id="Flow_GWCred_Aprovar" name="APROVAR_CREDENCIAMENTO (neutro)" sourceRef="GW_DecisaoCred" targetRef="ST_RegisterCredenciamento">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_cred == 'APROVAR_CREDENCIAMENTO'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWCred_Negar" name="NEGAR_CREDENCIAMENTO (somente humano)" sourceRef="GW_DecisaoCred" targetRef="ST_RegisterCredDenial">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_cred == 'NEGAR_CREDENCIAMENTO'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWCred_SolicitarInfo" name="SOLICITAR_INFO (aguarda info adicional)" sourceRef="GW_DecisaoCred" targetRef="ICE_AguardarInfoAdicionalCred">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_cred == 'SOLICITAR_INFO'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_InfoAdicionalCred_UT" sourceRef="ICE_AguardarInfoAdicionalCred" targetRef="UT_AnaliseCredenciamento"/>
+    <bpmn:sequenceFlow id="Flow_GWCred_VinculoMantido" name="default — fallback conservador (neutro)" sourceRef="GW_DecisaoCred" targetRef="ST_PublishVinculoMantidoCred"/>
+    <bpmn:sequenceFlow id="Flow_RegDenial_Pub" sourceRef="ST_RegisterCredDenial" targetRef="ST_PublishCredNegado"/>
+    <bpmn:sequenceFlow id="Flow_CredDenialNaoHumano_End" sourceRef="BE_CredDenialNaoHumano" targetRef="End_CredGuardBloqueadoNaoHumano"/>
+    <bpmn:sequenceFlow id="Flow_PubCredNegado_End" sourceRef="ST_PublishCredNegado" targetRef="End_CredenciamentoNegado"/>
+    <bpmn:sequenceFlow id="Flow_PubVinculoCred_End" sourceRef="ST_PublishVinculoMantidoCred" targetRef="End_VinculoMantido"/>
+    <bpmn:sequenceFlow id="Flow_NotifySla_End" sourceRef="ST_NotifySlaRisk" targetRef="End_RiscoSlaNotificado"/>
+  </bpmn:process>
+
+  <bpmndi:BPMNDiagram id="Diagram_SP-OP-CRED-001">
+    <bpmndi:BPMNPlane id="Plane_SP-OP-CRED-001" bpmnElement="SP-OP-CRED-001">
+      <bpmndi:BPMNShape id="Shape_Start_SolicitacaoCred" bpmnElement="Start_SolicitacaoCred">
+        <dc:Bounds x="72" y="74" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishReceived" bpmnElement="ST_PublishReceived">
+        <dc:Bounds x="220" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_VerifyCredentials" bpmnElement="ST_VerifyCredentials">
+        <dc:Bounds x="400" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BE_PrestadorInvalido" bpmnElement="BE_PrestadorInvalido">
+        <dc:Bounds x="432" y="114" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_CredPrestadorInvalido" bpmnElement="End_CredPrestadorInvalido">
+        <dc:Bounds x="72" y="206" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_CheckNetworkCriteria" bpmnElement="ST_CheckNetworkCriteria">
+        <dc:Bounds x="580" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_Admissibilidade" bpmnElement="BRT_Admissibilidade">
+        <dc:Bounds x="760" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_Admissibilidade" bpmnElement="GW_Admissibilidade" isMarkerVisible="true">
+        <dc:Bounds x="940" y="67" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_RegisterCredenciamento" bpmnElement="ST_RegisterCredenciamento">
+        <dc:Bounds x="2050" y="460" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishNetworkCredenciado" bpmnElement="ST_PublishNetworkCredenciado">
+        <dc:Bounds x="2230" y="460" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishCredenciado" bpmnElement="ST_PublishCredenciado">
+        <dc:Bounds x="2410" y="460" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_PrestadorCredenciado" bpmnElement="End_PrestadorCredenciado">
+        <dc:Bounds x="2597" y="482" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_NotifyDocPendente" bpmnElement="ST_NotifyDocPendente">
+        <dc:Bounds x="1070" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ICE_AguardarInfoDoc" bpmnElement="ICE_AguardarInfoDoc">
+        <dc:Bounds x="1282" y="74" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_Route" bpmnElement="BRT_Route">
+        <dc:Bounds x="1070" y="184" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_CredSla" bpmnElement="BRT_CredSla">
+        <dc:Bounds x="1250" y="184" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_Natureza" bpmnElement="GW_Natureza" isMarkerVisible="true">
+        <dc:Bounds x="1430" y="199" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_PriorNotice" bpmnElement="BRT_PriorNotice">
+        <dc:Bounds x="1560" y="184" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_CheckPriorNotice" bpmnElement="ST_CheckPriorNotice">
+        <dc:Bounds x="1740" y="184" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_AguardarNotificacao" bpmnElement="GW_AguardarNotificacao" isMarkerVisible="true">
+        <dc:Bounds x="1920" y="199" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ICE_NotificacaoAck" bpmnElement="ICE_NotificacaoAck">
+        <dc:Bounds x="2082" y="206" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ICE_PrazoNotificacao" bpmnElement="ICE_PrazoNotificacao">
+        <dc:Bounds x="2082" y="338" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PrepareDossierDescred" bpmnElement="ST_PrepareDossierDescred">
+        <dc:Bounds x="2230" y="316" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT_AnaliseDescredenciamento" bpmnElement="UT_AnaliseDescredenciamento">
+        <dc:Bounds x="2410" y="316" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_AlertaSlaDescred" bpmnElement="BT_AlertaSlaDescred">
+        <dc:Bounds x="2417" y="378" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_SlaDescred" bpmnElement="BT_SlaDescred">
+        <dc:Bounds x="2442" y="378" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BME_InfoDescred" bpmnElement="BME_InfoDescred">
+        <dc:Bounds x="2467" y="378" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_DecisaoDescred" bpmnElement="GW_DecisaoDescred" isMarkerVisible="true">
+        <dc:Bounds x="2590" y="331" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ICE_AguardarInfoAdicionalDescred" bpmnElement="ICE_AguardarInfoAdicionalDescred">
+        <dc:Bounds x="2752" y="338" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_RegisterDescredenciamento" bpmnElement="ST_RegisterDescredenciamento">
+        <dc:Bounds x="2720" y="460" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BE_DecredNaoHumano" bpmnElement="BE_DecredNaoHumano">
+        <dc:Bounds x="2752" y="522" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_DecredBloqueadoNaoHumano" bpmnElement="End_DecredBloqueadoNaoHumano">
+        <dc:Bounds x="72" y="338" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_Substituicao" bpmnElement="GW_Substituicao" isMarkerVisible="true">
+        <dc:Bounds x="2900" y="475" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishNetworkDescredenciado" bpmnElement="ST_PublishNetworkDescredenciado">
+        <dc:Bounds x="3030" y="460" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishDescredenciado" bpmnElement="ST_PublishDescredenciado">
+        <dc:Bounds x="3210" y="460" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_PrestadorDescredenciado" bpmnElement="End_PrestadorDescredenciado">
+        <dc:Bounds x="3390" y="482" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishNetworkSubstituicao" bpmnElement="ST_PublishNetworkSubstituicao">
+        <dc:Bounds x="3030" y="592" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishSubstituicao" bpmnElement="ST_PublishSubstituicao">
+        <dc:Bounds x="3210" y="592" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_SubstituicaoRegistrada" bpmnElement="End_SubstituicaoRegistrada">
+        <dc:Bounds x="3390" y="614" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishVinculoMantidoDescred" bpmnElement="ST_PublishVinculoMantidoDescred">
+        <dc:Bounds x="2720" y="592" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_VinculoMantido" bpmnElement="End_VinculoMantido">
+        <dc:Bounds x="2907" y="746" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishSlaBreachDescred" bpmnElement="ST_PublishSlaBreachDescred">
+        <dc:Bounds x="40" y="460" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT_CoordenacaoRedeDescred" bpmnElement="UT_CoordenacaoRedeDescred">
+        <dc:Bounds x="220" y="460" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PrepareDossierCred" bpmnElement="ST_PrepareDossierCred">
+        <dc:Bounds x="1560" y="316" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT_AnaliseCredenciamento" bpmnElement="UT_AnaliseCredenciamento">
+        <dc:Bounds x="1740" y="316" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_AlertaSlaCred" bpmnElement="BT_AlertaSlaCred">
+        <dc:Bounds x="1747" y="378" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_SlaCred" bpmnElement="BT_SlaCred">
+        <dc:Bounds x="1772" y="378" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BME_InfoCred" bpmnElement="BME_InfoCred">
+        <dc:Bounds x="1797" y="378" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_DecisaoCred" bpmnElement="GW_DecisaoCred" isMarkerVisible="true">
+        <dc:Bounds x="1920" y="607" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ICE_AguardarInfoAdicionalCred" bpmnElement="ICE_AguardarInfoAdicionalCred">
+        <dc:Bounds x="2082" y="614" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_RegisterCredDenial" bpmnElement="ST_RegisterCredDenial">
+        <dc:Bounds x="2050" y="724" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BE_CredDenialNaoHumano" bpmnElement="BE_CredDenialNaoHumano">
+        <dc:Bounds x="2082" y="786" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_CredGuardBloqueadoNaoHumano" bpmnElement="End_CredGuardBloqueadoNaoHumano">
+        <dc:Bounds x="72" y="614" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishCredNegado" bpmnElement="ST_PublishCredNegado">
+        <dc:Bounds x="2230" y="724" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_CredenciamentoNegado" bpmnElement="End_CredenciamentoNegado">
+        <dc:Bounds x="2442" y="746" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishVinculoMantidoCred" bpmnElement="ST_PublishVinculoMantidoCred">
+        <dc:Bounds x="2050" y="856" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishSlaBreachCred" bpmnElement="ST_PublishSlaBreachCred">
+        <dc:Bounds x="40" y="724" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT_CoordenacaoRedeCred" bpmnElement="UT_CoordenacaoRedeCred">
+        <dc:Bounds x="220" y="724" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_NotifySlaRisk" bpmnElement="ST_NotifySlaRisk">
+        <dc:Bounds x="40" y="856" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_RiscoSlaNotificado" bpmnElement="End_RiscoSlaNotificado">
+        <dc:Bounds x="252" y="878" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_Flow_Start_PubReceived" bpmnElement="Flow_Start_PubReceived">
+        <di:waypoint x="108" y="92"/>
+        <di:waypoint x="220" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubReceived_VerifyCred" bpmnElement="Flow_PubReceived_VerifyCred">
+        <di:waypoint x="320" y="92"/>
+        <di:waypoint x="400" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_VerifyCred_NetworkCriteria" bpmnElement="Flow_VerifyCred_NetworkCriteria">
+        <di:waypoint x="500" y="92"/>
+        <di:waypoint x="580" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PrestadorInvalido_End" bpmnElement="Flow_PrestadorInvalido_End">
+        <di:waypoint x="450" y="150"/>
+        <di:waypoint x="450" y="178"/>
+        <di:waypoint x="90" y="178"/>
+        <di:waypoint x="90" y="206"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_NetworkCriteria_Admiss" bpmnElement="Flow_NetworkCriteria_Admiss">
+        <di:waypoint x="680" y="92"/>
+        <di:waypoint x="760" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Admiss_GW" bpmnElement="Flow_Admiss_GW">
+        <di:waypoint x="860" y="92"/>
+        <di:waypoint x="940" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GW_ClericalCredenciar" bpmnElement="Flow_GW_ClericalCredenciar">
+        <di:waypoint x="990" y="92"/>
+        <di:waypoint x="1520" y="92"/>
+        <di:waypoint x="1520" y="500"/>
+        <di:waypoint x="2050" y="500"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GW_PendenteDocumentacao" bpmnElement="Flow_GW_PendenteDocumentacao">
+        <di:waypoint x="990" y="92"/>
+        <di:waypoint x="1070" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GW_SegueAnalise" bpmnElement="Flow_GW_SegueAnalise">
+        <di:waypoint x="990" y="92"/>
+        <di:waypoint x="1030" y="92"/>
+        <di:waypoint x="1030" y="224"/>
+        <di:waypoint x="1070" y="224"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GW_AnaliseHumana" bpmnElement="Flow_GW_AnaliseHumana">
+        <di:waypoint x="990" y="92"/>
+        <di:waypoint x="1030" y="92"/>
+        <di:waypoint x="1030" y="224"/>
+        <di:waypoint x="1070" y="224"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_RegCred_PubNetwork" bpmnElement="Flow_RegCred_PubNetwork">
+        <di:waypoint x="2150" y="500"/>
+        <di:waypoint x="2230" y="500"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubNetwork_PubCompleted" bpmnElement="Flow_PubNetwork_PubCompleted">
+        <di:waypoint x="2330" y="500"/>
+        <di:waypoint x="2410" y="500"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubCredenciado_End" bpmnElement="Flow_PubCredenciado_End">
+        <di:waypoint x="2510" y="500"/>
+        <di:waypoint x="2597" y="500"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_NotifyDoc_WaitInfo" bpmnElement="Flow_NotifyDoc_WaitInfo">
+        <di:waypoint x="1170" y="92"/>
+        <di:waypoint x="1282" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_InfoReceived_VerifyCred" bpmnElement="Flow_InfoReceived_VerifyCred">
+        <di:waypoint x="1300" y="110"/>
+        <di:waypoint x="1300" y="81"/>
+        <di:waypoint x="450" y="81"/>
+        <di:waypoint x="450" y="52"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Route_Sla" bpmnElement="Flow_Route_Sla">
+        <di:waypoint x="1170" y="224"/>
+        <di:waypoint x="1250" y="224"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Sla_GWNatureza" bpmnElement="Flow_Sla_GWNatureza">
+        <di:waypoint x="1350" y="224"/>
+        <di:waypoint x="1430" y="224"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWNat_Descredenciamento" bpmnElement="Flow_GWNat_Descredenciamento">
+        <di:waypoint x="1480" y="224"/>
+        <di:waypoint x="1560" y="224"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWNat_Credenciamento" bpmnElement="Flow_GWNat_Credenciamento">
+        <di:waypoint x="1480" y="224"/>
+        <di:waypoint x="1520" y="224"/>
+        <di:waypoint x="1520" y="356"/>
+        <di:waypoint x="1560" y="356"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PriorNotice_CheckNotice" bpmnElement="Flow_PriorNotice_CheckNotice">
+        <di:waypoint x="1660" y="224"/>
+        <di:waypoint x="1740" y="224"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_CheckNotice_WaitNotif" bpmnElement="Flow_CheckNotice_WaitNotif">
+        <di:waypoint x="1840" y="224"/>
+        <di:waypoint x="1920" y="224"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Wait_NotifAck" bpmnElement="Flow_Wait_NotifAck">
+        <di:waypoint x="1970" y="224"/>
+        <di:waypoint x="2082" y="224"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Wait_PrazoNotif" bpmnElement="Flow_Wait_PrazoNotif">
+        <di:waypoint x="1970" y="224"/>
+        <di:waypoint x="2026" y="224"/>
+        <di:waypoint x="2026" y="356"/>
+        <di:waypoint x="2082" y="356"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_NotifAck_DossieDescred" bpmnElement="Flow_NotifAck_DossieDescred">
+        <di:waypoint x="2118" y="224"/>
+        <di:waypoint x="2174" y="224"/>
+        <di:waypoint x="2174" y="356"/>
+        <di:waypoint x="2230" y="356"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PrazoNotif_DossieDescred" bpmnElement="Flow_PrazoNotif_DossieDescred">
+        <di:waypoint x="2118" y="356"/>
+        <di:waypoint x="2230" y="356"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_DossieDescred_UT" bpmnElement="Flow_DossieDescred_UT">
+        <di:waypoint x="2330" y="356"/>
+        <di:waypoint x="2410" y="356"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_InfoCatch_UTDescred" bpmnElement="Flow_InfoCatch_UTDescred">
+        <di:waypoint x="2485" y="414"/>
+        <di:waypoint x="2485" y="474"/>
+        <di:waypoint x="2410" y="474"/>
+        <di:waypoint x="2410" y="356"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_UTDescred_GW" bpmnElement="Flow_UTDescred_GW">
+        <di:waypoint x="2510" y="356"/>
+        <di:waypoint x="2590" y="356"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_AlertaDescred_Notify" bpmnElement="Flow_AlertaDescred_Notify">
+        <di:waypoint x="2435" y="414"/>
+        <di:waypoint x="2435" y="635"/>
+        <di:waypoint x="90" y="635"/>
+        <di:waypoint x="90" y="856"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_SlaDescred_PubBreach" bpmnElement="Flow_SlaDescred_PubBreach">
+        <di:waypoint x="2460" y="414"/>
+        <di:waypoint x="2460" y="437"/>
+        <di:waypoint x="90" y="437"/>
+        <di:waypoint x="90" y="460"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubBreachDescred_UTCoord" bpmnElement="Flow_PubBreachDescred_UTCoord">
+        <di:waypoint x="140" y="500"/>
+        <di:waypoint x="220" y="500"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_UTCoordDescred_GW" bpmnElement="Flow_UTCoordDescred_GW">
+        <di:waypoint x="320" y="500"/>
+        <di:waypoint x="1455" y="500"/>
+        <di:waypoint x="1455" y="356"/>
+        <di:waypoint x="2590" y="356"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDescred_Descredenciar" bpmnElement="Flow_GWDescred_Descredenciar">
+        <di:waypoint x="2640" y="356"/>
+        <di:waypoint x="2680" y="356"/>
+        <di:waypoint x="2680" y="500"/>
+        <di:waypoint x="2720" y="500"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDescred_SolicitarInfo" bpmnElement="Flow_GWDescred_SolicitarInfo">
+        <di:waypoint x="2640" y="356"/>
+        <di:waypoint x="2752" y="356"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_InfoAdicionalDescred_UT" bpmnElement="Flow_InfoAdicionalDescred_UT">
+        <di:waypoint x="2770" y="374"/>
+        <di:waypoint x="2770" y="345"/>
+        <di:waypoint x="2460" y="345"/>
+        <di:waypoint x="2460" y="316"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDescred_Manter" bpmnElement="Flow_GWDescred_Manter">
+        <di:waypoint x="2640" y="356"/>
+        <di:waypoint x="2680" y="356"/>
+        <di:waypoint x="2680" y="632"/>
+        <di:waypoint x="2720" y="632"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_RegDescred_GWSubstituicao" bpmnElement="Flow_RegDescred_GWSubstituicao">
+        <di:waypoint x="2820" y="500"/>
+        <di:waypoint x="2900" y="500"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_DecredNaoHumano_End" bpmnElement="Flow_DecredNaoHumano_End">
+        <di:waypoint x="2770" y="558"/>
+        <di:waypoint x="2770" y="618"/>
+        <di:waypoint x="72" y="618"/>
+        <di:waypoint x="72" y="356"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWSub_Substituicao" bpmnElement="Flow_GWSub_Substituicao">
+        <di:waypoint x="2950" y="500"/>
+        <di:waypoint x="2990" y="500"/>
+        <di:waypoint x="2990" y="632"/>
+        <di:waypoint x="3030" y="632"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWSub_Descredenciado" bpmnElement="Flow_GWSub_Descredenciado">
+        <di:waypoint x="2950" y="500"/>
+        <di:waypoint x="3030" y="500"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubNetDescred_PubCompleted" bpmnElement="Flow_PubNetDescred_PubCompleted">
+        <di:waypoint x="3130" y="500"/>
+        <di:waypoint x="3210" y="500"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubDescred_End" bpmnElement="Flow_PubDescred_End">
+        <di:waypoint x="3310" y="500"/>
+        <di:waypoint x="3390" y="500"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubNetSub_PubCompleted" bpmnElement="Flow_PubNetSub_PubCompleted">
+        <di:waypoint x="3130" y="632"/>
+        <di:waypoint x="3210" y="632"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubSub_End" bpmnElement="Flow_PubSub_End">
+        <di:waypoint x="3310" y="632"/>
+        <di:waypoint x="3390" y="632"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubVinculoDescred_End" bpmnElement="Flow_PubVinculoDescred_End">
+        <di:waypoint x="2820" y="632"/>
+        <di:waypoint x="2863" y="632"/>
+        <di:waypoint x="2863" y="764"/>
+        <di:waypoint x="2907" y="764"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_DossieCred_UT" bpmnElement="Flow_DossieCred_UT">
+        <di:waypoint x="1660" y="356"/>
+        <di:waypoint x="1740" y="356"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_InfoCatch_UTCred" bpmnElement="Flow_InfoCatch_UTCred">
+        <di:waypoint x="1815" y="414"/>
+        <di:waypoint x="1815" y="474"/>
+        <di:waypoint x="1740" y="474"/>
+        <di:waypoint x="1740" y="356"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_UTCred_GW" bpmnElement="Flow_UTCred_GW">
+        <di:waypoint x="1840" y="356"/>
+        <di:waypoint x="1880" y="356"/>
+        <di:waypoint x="1880" y="632"/>
+        <di:waypoint x="1920" y="632"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_AlertaCred_Notify" bpmnElement="Flow_AlertaCred_Notify">
+        <di:waypoint x="1765" y="414"/>
+        <di:waypoint x="1765" y="635"/>
+        <di:waypoint x="90" y="635"/>
+        <di:waypoint x="90" y="856"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_SlaCred_PubBreach" bpmnElement="Flow_SlaCred_PubBreach">
+        <di:waypoint x="1790" y="414"/>
+        <di:waypoint x="1790" y="569"/>
+        <di:waypoint x="90" y="569"/>
+        <di:waypoint x="90" y="724"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubBreachCred_UTCoord" bpmnElement="Flow_PubBreachCred_UTCoord">
+        <di:waypoint x="140" y="764"/>
+        <di:waypoint x="220" y="764"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_UTCoordCred_GW" bpmnElement="Flow_UTCoordCred_GW">
+        <di:waypoint x="320" y="764"/>
+        <di:waypoint x="1120" y="764"/>
+        <di:waypoint x="1120" y="632"/>
+        <di:waypoint x="1920" y="632"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWCred_Aprovar" bpmnElement="Flow_GWCred_Aprovar">
+        <di:waypoint x="1970" y="632"/>
+        <di:waypoint x="2010" y="632"/>
+        <di:waypoint x="2010" y="500"/>
+        <di:waypoint x="2050" y="500"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWCred_Negar" bpmnElement="Flow_GWCred_Negar">
+        <di:waypoint x="1970" y="632"/>
+        <di:waypoint x="2010" y="632"/>
+        <di:waypoint x="2010" y="764"/>
+        <di:waypoint x="2050" y="764"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWCred_SolicitarInfo" bpmnElement="Flow_GWCred_SolicitarInfo">
+        <di:waypoint x="1970" y="632"/>
+        <di:waypoint x="2082" y="632"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_InfoAdicionalCred_UT" bpmnElement="Flow_InfoAdicionalCred_UT">
+        <di:waypoint x="2100" y="650"/>
+        <di:waypoint x="2100" y="710"/>
+        <di:waypoint x="1740" y="710"/>
+        <di:waypoint x="1740" y="356"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWCred_VinculoMantido" bpmnElement="Flow_GWCred_VinculoMantido">
+        <di:waypoint x="1970" y="632"/>
+        <di:waypoint x="2010" y="632"/>
+        <di:waypoint x="2010" y="896"/>
+        <di:waypoint x="2050" y="896"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_RegDenial_Pub" bpmnElement="Flow_RegDenial_Pub">
+        <di:waypoint x="2150" y="764"/>
+        <di:waypoint x="2230" y="764"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_CredDenialNaoHumano_End" bpmnElement="Flow_CredDenialNaoHumano_End">
+        <di:waypoint x="2100" y="822"/>
+        <di:waypoint x="2100" y="882"/>
+        <di:waypoint x="72" y="882"/>
+        <di:waypoint x="72" y="632"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubCredNegado_End" bpmnElement="Flow_PubCredNegado_End">
+        <di:waypoint x="2330" y="764"/>
+        <di:waypoint x="2442" y="764"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubVinculoCred_End" bpmnElement="Flow_PubVinculoCred_End">
+        <di:waypoint x="2150" y="896"/>
+        <di:waypoint x="2528" y="896"/>
+        <di:waypoint x="2528" y="764"/>
+        <di:waypoint x="2907" y="764"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_NotifySla_End" bpmnElement="Flow_NotifySla_End">
+        <di:waypoint x="140" y="896"/>
+        <di:waypoint x="252" y="896"/>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

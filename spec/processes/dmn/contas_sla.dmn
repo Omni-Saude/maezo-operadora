@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_contas_sla"
+             name="SLA de triagem/analise de conta (glosa)"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    contas_sla v0.2.0 — status: DRAFT — TODOS os prazos marcados DRAFT/verify: confirmar texto
+    vigente com regulatorio (RN 424/2017 sobre analise/recurso de conta; consolidacoes ANS;
+    docs/review-queue.md). Consumida por SP-OP-CONTAS-001 e mcp-dmn.
+    NOTA: prazos regulatorios sao em dias UTEIS; ISO 8601 usa dias corridos — valores abaixo
+    sao aproximacao conservadora (menor ou igual ao prazo legal). Resolver calendario util no
+    worker. Prazo regulatorio vive AQUI (DMN) e no timer BPMN — nunca em Python (CONTRIBUTING).
+    valor_apresentado_brl em double (BRL — NUNCA "number"). Saidas de prazo sao string ISO 8601.
+    Esta tabela NAO tem saida adversa; no estouro de SLA a coordenacao humana assume (nunca
+    auto-aceite por timeout — inversao do Task_AutoApprove/48h do reference).
+    hitPolicy FIRST (catch-all conservador como ultima row).
+
+    GAP-CONTAS-4 (v0.2.0): o prazo regulatorio conta de `data_recebimento_lote` (contrato
+    SP-OP-CONTAS-001.md §"Variaveis de entrada": "Recebimento do demonstrativo (ancora dos
+    prazos)"), NUNCA da data em que a User Task UT_AnalistaContas foi criada — o BPMN so alcanca
+    a UT depois de identify/impact + 4 BusinessRuleTasks + dossie de Marina, e pode reentrar via
+    msg.contas.linhas_atualizadas, entao "ancorar no attach da UT" desalinha o prazo do contrato
+    regulatorio a cada rodada. Alem das duracoes relativas legadas (`sla_analise` / `sla_alerta`
+    — mantidas para relatorios/observabilidade e para nao quebrar leitores existentes, ex.:
+    notify_sla_risk), esta tabela agora tambem computa o DEADLINE ABSOLUTO em FEEL, somando a
+    duracao a `data_recebimento_lote` (meia-noite UTC-naive da data de recebimento — aproximacao
+    conservadora, mesmo raciocinio do restante da tabela): `sla_analise_absoluto_iso` e
+    `sla_alerta_absoluto_iso`. O BPMN anexa esses dois campos absolutos aos timers via
+    `timeDate` (nao mais `timeDuration` relativo ao attach da activity) — ver
+    SP-OP-CONTAS-001.bpmn BT_SlaTriagem/BT_AlertaSlaContas. `data_recebimento_lote` e declarado
+    como input aqui apenas para documentar a dependencia (nao participa do matching — hitPolicy
+    FIRST continua discriminando por tipo_lote/valor); a expressao FEEL do output le a variavel
+    do contexto de avaliacao normalmente (todo bpmn:businessRuleTask envia TODAS as variaveis de
+    processo correntes para a avaliacao da decisao). O worker identify_glosa (intake — primeiro
+    em TODO caminho ate BRT_ContasSla, inclusive na reentrada por msg.contas.linhas_atualizadas)
+    NORMALIZA/DEFAULTA a variavel para string ISO YYYY-MM-DD (ENGINE-16004: a ancora e setada em
+    todo caminho que alcanca os timers).
+    ENGINE-DEPLOYABILIDADE: se `data_recebimento_lote` + duracao cair no passado (lote antigo
+    sendo reprocessado), o `timeDate` resultante e um instante passado — o boundary interruptivo
+    dispara IMEDIATAMENTE ao attach (comportamento correto: o prazo de fato ja estourou; nunca
+    mascarar um estouro real; a coordenacao humana assume — nunca auto-aceite). Testes de
+    integracao usam `data_recebimento_lote` no futuro quando o cenario NAO deve estourar de
+    imediato (precedente GAP-NIP-1).
+  </description>
+  <decision id="contas_sla" name="SLA de triagem/analise de conta" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_contas_sla" hitPolicy="FIRST">
+      <input id="in_tipo_lote" label="Tipo do lote (tipo_lote)">
+        <inputExpression id="ie_tipo_lote" typeRef="string"><text>tipo_lote</text></inputExpression>
+      </input>
+      <input id="in_valor" label="Valor apresentado BRL (valor_apresentado_brl)">
+        <inputExpression id="ie_valor" typeRef="double"><text>valor_apresentado_brl</text></inputExpression>
+      </input>
+      <input id="in_data_recebimento" label="Data de recebimento do lote (ancora regulatoria do prazo)">
+        <inputExpression id="ie_data_recebimento" typeRef="string"><text>data_recebimento_lote</text></inputExpression>
+      </input>
+      <output id="out_sla_analise" label="sla_analise (duracao relativa — legado/observabilidade)" name="sla_analise" typeRef="string"/>
+      <output id="out_sla_analise_absoluto" label="sla_analise_absoluto_iso (deadline absoluto — timeDate)" name="sla_analise_absoluto_iso" typeRef="string"/>
+      <output id="out_sla_alerta" label="sla_alerta (duracao relativa — legado/observabilidade)" name="sla_alerta" typeRef="string"/>
+      <output id="out_sla_alerta_absoluto" label="sla_alerta_absoluto_iso (alerta absoluto — timeDate)" name="sla_alerta_absoluto_iso" typeRef="string"/>
+      <output id="out_fonte" label="fonte_regulatoria" name="fonte_regulatoria" typeRef="string"/>
+      <rule id="r_internacao">
+        <description>Internacao / OPME: analise mais longa (alto valor/complexidade), ancorada em data_recebimento_lote</description>
+        <inputEntry id="r_internacao_i1"><text>"internacao","opme"</text></inputEntry>
+        <inputEntry id="r_internacao_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_internacao_i3"><text>-</text></inputEntry>
+        <outputEntry id="r_internacao_o1"><text>"P30D"</text></outputEntry>
+        <outputEntry id="r_internacao_o2"><text>string(date and time(data_recebimento_lote + "T00:00:00") + duration("P30D"))</text></outputEntry>
+        <outputEntry id="r_internacao_o3"><text>"P20D"</text></outputEntry>
+        <outputEntry id="r_internacao_o4"><text>string(date and time(data_recebimento_lote + "T00:00:00") + duration("P20D"))</text></outputEntry>
+        <outputEntry id="r_internacao_o5"><text>"RN 424/2017 — analise/recurso de conta (internacao/OPME) ~30 dias: DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r_alto_valor">
+        <description>Lote de alto valor (acima de R$ 50.000) -> prazo padrao com alerta antecipado, ancorado em data_recebimento_lote</description>
+        <inputEntry id="r_alto_valor_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_alto_valor_i2"><text>&gt; 50000.0</text></inputEntry>
+        <inputEntry id="r_alto_valor_i3"><text>-</text></inputEntry>
+        <outputEntry id="r_alto_valor_o1"><text>"P30D"</text></outputEntry>
+        <outputEntry id="r_alto_valor_o2"><text>string(date and time(data_recebimento_lote + "T00:00:00") + duration("P30D"))</text></outputEntry>
+        <outputEntry id="r_alto_valor_o3"><text>"P18D"</text></outputEntry>
+        <outputEntry id="r_alto_valor_o4"><text>string(date and time(data_recebimento_lote + "T00:00:00") + duration("P18D"))</text></outputEntry>
+        <outputEntry id="r_alto_valor_o5"><text>"RN 424/2017 — alto valor, alerta antecipado: DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r_padrao">
+        <description>Consulta/SADT/honorario/misto padrao, ancorado em data_recebimento_lote</description>
+        <inputEntry id="r_padrao_i1"><text>"consulta","sadt","honorario","misto"</text></inputEntry>
+        <inputEntry id="r_padrao_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_padrao_i3"><text>-</text></inputEntry>
+        <outputEntry id="r_padrao_o1"><text>"P30D"</text></outputEntry>
+        <outputEntry id="r_padrao_o2"><text>string(date and time(data_recebimento_lote + "T00:00:00") + duration("P30D"))</text></outputEntry>
+        <outputEntry id="r_padrao_o3"><text>"P20D"</text></outputEntry>
+        <outputEntry id="r_padrao_o4"><text>string(date and time(data_recebimento_lote + "T00:00:00") + duration("P20D"))</text></outputEntry>
+        <outputEntry id="r_padrao_o5"><text>"RN 424/2017 — analise/recurso de conta padrao ~30 dias: DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r_catchall">
+        <description>Catch-all FAIL-SAFE: tipo_lote desconhecido -> prazo conservador padrao, ancorado em data_recebimento_lote</description>
+        <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i3"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>"P30D"</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>string(date and time(data_recebimento_lote + "T00:00:00") + duration("P30D"))</text></outputEntry>
+        <outputEntry id="r_catchall_o3"><text>"P20D"</text></outputEntry>
+        <outputEntry id="r_catchall_o4"><text>string(date and time(data_recebimento_lote + "T00:00:00") + duration("P20D"))</text></outputEntry>
+        <outputEntry id="r_catchall_o5"><text>"Fail-safe: prazo conservador na ausencia de classificacao — DRAFT/verify"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

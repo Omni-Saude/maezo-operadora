@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_auth_admissibility"
+             name="Admissibilidade de autorizacao previa"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    auth_admissibility v0.1.0 — status: DRAFT (conteudo requer SME medico auditor +
+    regulatorio; docs/review-queue.md). Consumida por SP-OP-AUTH-001 e mcp-dmn.
+    INVARIANTE L0 HARD: esta tabela NAO possui saida de negativa. Inelegibilidade e
+    carencia nao cumprida sao roteadas para SEGUE_ANALISE (decisao humana), nunca
+    negadas automaticamente (ADR-0005/0008; RN 259).
+    Inputs pre-resolvidos por worker deterministico (catalogo TUSS, cadastro,
+    contagem de carencia) — nunca por LLM.
+  </description>
+  <decision id="auth_admissibility" name="Admissibilidade da solicitacao" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_auth_admissibility" hitPolicy="FIRST">
+      <input id="in_requer" label="Procedimento requer autorizacao (requer_autorizacao)">
+        <inputExpression id="ie_requer" typeRef="boolean"><text>requer_autorizacao</text></inputExpression>
+      </input>
+      <input id="in_docs" label="Documentacao completa (documentacao_completa)">
+        <inputExpression id="ie_docs" typeRef="boolean"><text>documentacao_completa</text></inputExpression>
+      </input>
+      <input id="in_ativo" label="Beneficiario ativo (beneficiario_ativo)">
+        <inputExpression id="ie_ativo" typeRef="boolean"><text>beneficiario_ativo</text></inputExpression>
+      </input>
+      <input id="in_carencia" label="Carencia cumprida (carencia_cumprida)">
+        <inputExpression id="ie_carencia" typeRef="boolean"><text>carencia_cumprida</text></inputExpression>
+      </input>
+      <output id="out_resultado" label="resultado" name="resultado" typeRef="string"/>
+      <output id="out_motivo" label="motivo" name="motivo" typeRef="string"/>
+      <rule id="r1">
+        <description>Exemplo sintetico: consulta eletiva simples do Paciente Teste 001 — sem autorizacao previa</description>
+        <inputEntry id="r1i1"><text>false</text></inputEntry>
+        <inputEntry id="r1i2"><text>-</text></inputEntry>
+        <inputEntry id="r1i3"><text>-</text></inputEntry>
+        <inputEntry id="r1i4"><text>-</text></inputEntry>
+        <outputEntry id="r1o1"><text>"NAO_REQUER"</text></outputEntry>
+        <outputEntry id="r1o2"><text>"Procedimento fora do rol de autorizacao previa do tenant"</text></outputEntry>
+      </rule>
+      <rule id="r2">
+        <description>Inelegibilidade aparente NAO gera negativa automatica — humano decide</description>
+        <inputEntry id="r2i1"><text>true</text></inputEntry>
+        <inputEntry id="r2i2"><text>-</text></inputEntry>
+        <inputEntry id="r2i3"><text>false</text></inputEntry>
+        <inputEntry id="r2i4"><text>-</text></inputEntry>
+        <outputEntry id="r2o1"><text>"SEGUE_ANALISE"</text></outputEntry>
+        <outputEntry id="r2o2"><text>"Elegibilidade pendente de confirmacao — analise humana obrigatoria (L0 hard)"</text></outputEntry>
+      </rule>
+      <rule id="r3">
+        <description>Carencia aparentemente nao cumprida NAO gera negativa automatica — humano decide</description>
+        <inputEntry id="r3i1"><text>true</text></inputEntry>
+        <inputEntry id="r3i2"><text>-</text></inputEntry>
+        <inputEntry id="r3i3"><text>true</text></inputEntry>
+        <inputEntry id="r3i4"><text>false</text></inputEntry>
+        <outputEntry id="r3o1"><text>"SEGUE_ANALISE"</text></outputEntry>
+        <outputEntry id="r3o2"><text>"Carencia em apuracao — analise humana obrigatoria (L0 hard)"</text></outputEntry>
+      </rule>
+      <rule id="r4">
+        <description>Documentacao incompleta: pendencia ao prestador</description>
+        <inputEntry id="r4i1"><text>true</text></inputEntry>
+        <inputEntry id="r4i2"><text>false</text></inputEntry>
+        <inputEntry id="r4i3"><text>true</text></inputEntry>
+        <inputEntry id="r4i4"><text>true</text></inputEntry>
+        <outputEntry id="r4o1"><text>"PENDENTE_DOCUMENTACAO"</text></outputEntry>
+        <outputEntry id="r4o2"><text>"Documentacao obrigatoria ausente (anexos TISS)"</text></outputEntry>
+      </rule>
+      <rule id="r5">
+        <description>Catch-all: tudo ok ou situacao nao mapeada -> segue para analise</description>
+        <inputEntry id="r5i1"><text>-</text></inputEntry>
+        <inputEntry id="r5i2"><text>-</text></inputEntry>
+        <inputEntry id="r5i3"><text>-</text></inputEntry>
+        <inputEntry id="r5i4"><text>-</text></inputEntry>
+        <outputEntry id="r5o1"><text>"SEGUE_ANALISE"</text></outputEntry>
+        <outputEntry id="r5o2"><text>"Solicitacao admissivel — segue fluxo de analise"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

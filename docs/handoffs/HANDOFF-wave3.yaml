@@ -1,0 +1,167 @@
+# HANDOFF-wave3 — state of the SECOND orchestrator (`orchestrator-wave3`). DL-0021; precedent DL-0016.
+# Scope fence: this orchestrator owns ONLY what is listed under claimed_scope. Everything else —
+# all fix/w2-* branches/worktrees, #139/#140, the user_task_pending gauge poller, HANDOFF.yaml
+# itself — belongs to the Wave-2 coordinator. Trust git over prose. Keep <150 lines.
+orchestrator: orchestrator-wave3
+authorized_by: "user directive 2026-07-03 (Wave-3 + Wave-1 residue; DL-0022: + FULL Wave-2 takeover, prior coordinator inactive)"
+decision: DL-0021 + DL-0022 + DL-0023
+state: WAVE3-COMPLETE     # 115-gap program 115/115. W3 reconcile 22/22 (20 merged + PAGTO-6 already-fixed + LGPD-reid blocked-by-design, both DL-0024). Final gap NIP-6 = PR #171.
+updated: "2026-07-03 (wave close; union-green assert)"
+
+wave3_close:
+  reconcile: "22/22 accounted — 20 merged, 2 deferred (reconcile_w3.sh exit 0; credits branch-scoped fix/w3-*|fix/res-*)"
+  final_merge: "PR #171 (GAP-NIP-6) squash @ 3cf828c — T3 takeover of preserved snapshot a3cf157 (kept in full after hunk review); independent T3 verifier PASS on 7 gates incl. mutation-revert proof + or-chain root-cause re-derivation"
+  union_green: "main @ 3cf828c ALL 13 checks green incl. real-engine integration lane (head-sha-pinned check-runs API)"
+  post_close_residue_lanes:  # post-program work, spawned after 115/115; verify-premise-first briefs
+    - {pr: 172, brief: res-gateway-orphan-helm, state: "MERGED @ f9d7f5b — T2 verifier PASS (pivotal: code reads PHI_HMAC_KEY; orphan maezo-gateway-secrets nowhere-created; spawned res-phi-hmac-env-injection)"}
+    - {pr: 173, brief: res-doc-juel-nested-text, state: "MERGED @ f3f517a — premise CONFIRMED by repro; itertext() root-cause fix; T2 verifier PASS incl. split-token/nested-subprocess/CDATA edge cases + mutation proof"}
+    - {pr: 174, brief: res-cred-autonomy-overclaim, state: "MERGED @ ca6a7fe — real site = carolina prompt (cred.py never existed); T2 verifier FAIL→fix→PASS: false rafael-precedent rationale corrected, rafael same-class overclaim + golden README + 2 residual restrictive-context lines all swept"}
+    - {pr: 176, brief: res-pagto-andre-a2a-envelope, state: "MERGED @ 1ddf827 — T3 verifier PASS (receiver parity field-by-field vs andre/delegation.py; dispatcher reachability parity with ADEQUACAO; fail-safe honest; task_id literal pinned by test after verifier finding; stalled-agent commit recovered unpushed and completed by orchestrator)"}
+    - {brief: res-resume-idempotency-durable, state: "DEFERRED — architectural: needs redis-vs-postgres durable-store decision (ADR), not a swarm micro-brief"}
+    - {brief: res-phi-hmac-env-injection, state: "NEW (found by #172 verifier): ExternalSecret creates maezo-phi-hmac but NO deployment template injects PHI_HMAC_KEY env — in-cluster provider presumably fail-closed at startup; needs deployment-template wiring brief"}
+
+wave2_close:
+  reconcile: "41/41 merged, 0 deferred, 0 unaccounted (reconcile_w2.sh; final gap PR #136 @ 4a03d6f)"
+  main_green: "f186a26 ALL runs green (after DL-0023 hotfix removed #157's manual ${grupo_humano} entry — 2nd union defect of the session; lesson: PR CI runs on push-time merge-ref and is NOT re-run when main moves — re-validate stale-verified lanes against fresh main before merging same-file changes)"
+  residue_merged: "dispatcher-seam=141, stdlib-scrub=139+149, gauge-poller=144, lucas-XHITL-4B=145, nip-label=153-open, ans-competencia=158, anchor-parity=building, marina-card=156, memory-write-x8=157, dict-payloads=154-open, runbook-anchors=152"
+
+c0_verdicts:  # 18 premises re-verified post-W2 (workflow wf_d1d29063-9da; full evidence in session journal)
+  BUILD_16: [CANCEL-6, CONTAS-6, FRAUDE-6, NIP-6, REEMBOLSO-6, RECURSO-4, INAD-7, LGPD-5, LGPD-6, ADEQ-7, ADEQ-8, PAGTO-7, PROG-6, ANS-5, XOBS-7, ESC-2]
+  ALREADY_FIXED_1: "GAP-PAGTO-6 — clerical-pagamentos entered the candidate-groups allowlist via the #144-era expansion (contract-layer fix); counts as accounted for the W3 reconcile"
+  RESCOPE_1: "GAP-NIP-5 — direction INVERTED: #137 established BPMN's always-juridico timeout routing as L0-correct; fix = contract prose to match BPMN (folded into w3-docs-contracts)"
+
+wave3_fanout:  # 9 builders spawned in parallel off f186a26+
+  briefs:
+    - {brief: w3-docs-contracts, gaps: [CONTAS-6, FRAUDE-6, INAD-7, RECURSO-4, NIP-5-rescoped]}
+    - {brief: w3-cancel6, gaps: [CANCEL-6]}
+    - {brief: w3-lgpd, gaps: [LGPD-5, LGPD-6]}
+    - {brief: w3-adeq, gaps: [ADEQ-7, ADEQ-8]}
+    - {brief: w3-pagto7, gaps: [PAGTO-7]}
+    - {brief: w3-prog6, gaps: [PROG-6]}
+    - {brief: w3-ans5, gaps: [ANS-5]}
+    - {brief: w3-esc2, gaps: [ESC-2]}
+    - {brief: w3-xobs7, gaps: [XOBS-7], verify: T3-ADR-0007}
+  holds:
+    - {gap: NIP-6, trigger: "#153 merges (same NIP BPMN + nip.py)"}
+    - {gap: REEMBOLSO-6, trigger: "res-doc-juel-sweep PR merges (same BPMN documentation region)"}
+
+merge_queue: []           # user directive (2026-07-03, PR-list message) authorizes orchestrator merges of listed+pipeline PRs
+merged_by_this_orchestrator:
+  - {pr: 141, brief: res-dispatcher-seam, main: afeed7e, main_ci: success}
+  - {pr: 142, gap: GAP-XPROC-3, main: 5a2e74f, verifier: "PASS (MINOR: dentro_prazo_recurso day-0 tautology — absorbed into res-anchor-failsafe-parity brief)"}
+  - {pr: 133, gap: GAP-XPHI-3, main: 2173aae, verifier: "T3 PASS after F401 hygiene fix; MINOR residue: interactive/location payloads published as raw dicts (pre-existing, outside XPHI-3) — candidate future brief"}
+  - {pr: 139, brief: res-stdlib-scrub, main: f2afa06, verifier: "T3 PASS; MAJOR residue spawned as res-logbridge-2 (#149)"}
+  - {pr: 143, gaps: "CANCEL-2/4/5/7", main: 5ba9261, main_ci: success, verifier: "T2 PASS w/ live engine mutation-revert proof"}
+  - {pr: 144, gaps: "XOBS-5/6 + gauge poller residue", main: 72b91c9, verifier: "T2 PASS; 38 candidate groups independently re-derived; main run cancelled-by-supersession (not red)"}
+  - {pr: 145, brief: res-lucas-XHITL-4B, main: 2f13963, verifier: "T3 PASS; loop-safety proven even with dedup bypassed"}
+
+new_residue_discovered:      # found by builders/verifiers this session — NOT in the 115-gap ledger
+  - {id: res-agent-memory-write-kwargs, scope: "9 agents shared helena's memory-write kwargs bug", found_by: "#150 builder", state: "CLOSED — all 8 remaining agents fixed in #157"}
+  - {id: res-marina-reembolso-card, scope: "marina agent.yaml lacked reembolso.analyze card", found_by: "#150 builder", state: "CLOSED — card added in #156"}
+  - {id: res-xphi-raw-dict-payloads, scope: "webhook interactive/location payloads published as raw dicts (location.address = residual PHI)", found_by: "#133 verifier", state: "CLOSED — redact_payload fail-closed dict redaction in #154"}
+  - {id: res-runbook-anchors, scope: "alert runbook_url anchors #hitl-* missing in docs/runbooks/devops-stack.md", found_by: "#144 verifier", state: "CLOSED — anchors added in #152"}
+  - {id: res-resume-idempotency-durable, scope: "resume driver wired with InMemoryIdempotencyStore (per-process exactly-once; documented seam from helena GAP-TRIAGE-4) — needs durable store (redis/pg) for cross-restart exactly-once", found_by: "#145 verifier", state: known-seam}
+  - {id: res-doc-juel-sweep, scope: "NEW ENGINE CLASS (#137): CIB Seven evaluates bpmn:documentation as JUEL template", found_by: "#137 T3 takeover + #150 verifier", state: "CLOSED — sweep + validator rule landed in #159; follow-up gap split to res-doc-juel-nested-text"}
+  - {id: res-doc-juel-nested-text, scope: "#159's validator doc-JUEL rule checks documentation .text only — ${ inside NESTED child elements or element .tail would escape the check (engine evaluates full concatenated text)", found_by: "#159 verifier", state: pending-brief}
+  - {id: res-cred-autonomy-overclaim, scope: "src/maezo/agents/cred.py:42 twin of the fixed rafael autonomy-overclaim: prompt asserts autonomous decision authority beyond autonomy-matrix grant", found_by: "W3 premise verifier", state: pending-brief}
+  - {id: res-gateway-orphan-helm, scope: "deployment gateway doc/script references a helm command whose chart target no longer exists (orphaned after tenant-chart gating, commit 0b7380bd era)", found_by: "W3 builder", state: pending-brief}
+  - {id: res-pagto-andre-a2a-envelope, scope: "PAGTO worker hands off to Andre without building a DelegationEnvelope — pagto not among a2a_assembly targets; parity gap vs adequacao/reembolso delegation paths", found_by: "#134 finisher + #167 builder", state: pending-brief}
+
+wave2_takeover:           # DL-0022 — lane states at takeover (preservation snapshots pushed first)
+  merged_before_takeover: [GAP-NIP-3+XHITL-3 (#132), GAP-XHITL-4 (#135), GAP-ESC-3 (#115 credit), GAP-ADEQ-5 (#101 credit)]  # 5/41
+  lanes:  # post-analysis (10/10 assessed) + dispatch states
+    - {branch: fix/w2-whatsapp-phi-edge, pr: 133, gaps: [XPHI-3], state: "COMPLETE per analysis (snapshot = the required inbound_driver str(exc) redact) — T3 PHI verifier RUNNING"}
+    - {branch: fix/w2-inad-adeq, pr: 134, gaps: [INAD-6+ADEQ-6 done; INAD-4+INAD-5+ADEQ-4 MISSING], state: "FINISHER RUNNING (test-spec, contract DRAFT reconcile, REAL Andre delegation via DI-optional dispatcher + origin-keyed delegation.py; service.py injection = post-#141 follow-up)"}
+    - {branch: fix/w2-auth-recurso-contas, pr: 136, gaps: [AUTH-6+RECURSO-2+RECURSO-3 done; CONTAS-5 NOT here], state: "PR body corrected; CONTAS-5 deferred to micro-brief gated on #142 merge (contas.py hot); verify-then-queue"}
+    - {branch: fix/w2-nip-batch, pr: 137, gaps: [NIP-4 done; NIP-2 red], state: "FIXER RUNNING — root cause: candidateGroups JUEL roteamento_nip unresolved at UT instantiation (ENGINE-16004); fix = default-init on PREDECESSOR tasks every path"}
+    - {branch: fix/w2-recurso-handoff-vars, pr: 142, gaps: [XPROC-3], state: "COMPLETE — PR opened by orchestrator, CI running, watcher armed"}
+    - {branch: fix/w2-cancel-batch, pr: null, gaps: [CANCEL-2/4/5/7 ALL complete per analysis], state: "GATES-RUNNER RUNNING (gates never ran; merge-main + full gates + open PR)"}
+    - {branch: fix/w2-fraude-cred, pr: null, gaps: [FRAUDE-4/5 done; CRED-4/5/6 zero work], state: "FINISHER RUNNING (build CRED half + first-ever gates)"}
+    - {branch: fix/w2-hitl-metric-scope, pr: null, gaps: [XOBS-5/6 substantial-partial incl. engine-poller for user_task_pending gauge], state: "FINISHER RUNNING (complete delta + gates + PR)"}
+    - {branch: fix/w2-pagto-prog-ans, pr: null, gaps: [PAGTO-5, PROG-3/4/5/7, ANS-3/4], state: "T2 BUILDER RUNNING (fresh; consumer.py ANS-3 edits scoped additive)"}
+    - {branch: fix/w2-reembolso-esc-triage, pr: null, gaps: [REEMBOLSO-4/5, ESC-4/5, TRIAGE-3], state: "T2 BUILDER RUNNING (fresh; ESCALATION hand-DI preserved)"}
+    - {branch: fix/r-stdlib-log-scrub-bridge, pr: 139, gaps: [residue stdlib-scrub], state: "COMPLETE per analysis; snapshot fixed the red lint (integration now running, watcher armed); T2 verify when green"}
+    - {branch: fix/r-lucas-resume-safety, pr: "140 auto-closed (stacked on #135's deleted base; NOT a rejection)", gaps: [XHITL-4B: DMN half real; resume-safe half ZERO code], state: "T3 REBUILD RUNNING (marker + bypass node + exactly-once tests; new PR)"}
+  deferred_micro_briefs:
+    - {id: contas-5-followup, gap: GAP-CONTAS-5, trigger: "#142 MERGED", files: [workers/contas.py, CONTAS BPMN, topic_registry additive]}
+    - {id: adeq4-daemon-injection, trigger: "#141 MERGED", files: [worker_runtime/service.py one-line dispatcher= for register_adequacao_workers]}
+
+claimed_scope:
+  wave3_gaps: [GAP-CANCEL-6, GAP-CONTAS-6, GAP-FRAUDE-6, GAP-NIP-5, GAP-NIP-6, GAP-REEMBOLSO-6,
+               GAP-RECURSO-4, GAP-INAD-7, GAP-LGPD-5, GAP-LGPD-6, GAP-ADEQ-7, GAP-ADEQ-8,
+               GAP-PAGTO-6, GAP-PAGTO-7, GAP-PROG-6, GAP-ANS-5, GAP-XOBS-7, GAP-ESC-2]
+  wave3_gate: "spawn ONLY after 41/41 W2 gap ids script-reconciled vs merged PR bodies (credits:
+    GAP-ESC-3=#115, GAP-ADEQ-5=#101) AND no open/unmerged fix/w2-* AND main green incl.
+    real-engine integration lane (head-sha-pinned). User-confirmed: gate honored."
+  wave1_residue:          # NOT wave-gated — launchable when file-disjoint from in-flight diffs
+    - {id: res-dispatcher-seam, gaps: "CONTAS-1/LGPD-2-erasure/PROG-1 production seams",
+       files: [src/maezo/runtime/worker_runtime/service.py], trigger: "NOW", state: pending}
+    - {id: res-nip-task-label, files: [src/maezo/tools/workers/nip.py, SP-OP-NIP-001 BPMN],
+       trigger: "#137 MERGED", state: waiting}
+    - {id: res-anchor-failsafe-parity, files: [src/maezo/tools/workers/nip.py, src/maezo/tools/workers/contas.py],
+       trigger: "xproc3 PR MERGED AND #136 MERGED", state: waiting}
+    - {id: res-ans-competencia-sentinel, files: [src/maezo/platform/integrations/notifications_bridge/consumer.py],
+       trigger: "xproc3 PR MERGED AND pagto-prog-ans PR MERGED", state: waiting}
+
+explicitly_not_mine:
+  - "all fix/w2-* branches + maezo-w2-* worktrees (Wave-2 coordinator)"
+  - "#139 stdlib-log-scrub bridge; #140 lucas resume-safety (closed; theirs to reopen)"
+  - "user_task_pending gauge poller (claimed by w2-xobs56 agent)"
+  - "docs/handoffs/HANDOFF.yaml (never edited by this orchestrator)"
+  - "policies/autonomy/L0-core.yaml + _hard_frozen.yaml (no diff, ever, from my briefs)"
+
+file_ownership_fence:
+  claimed_now: [src/maezo/runtime/worker_runtime/service.py]   # res-dispatcher-seam, until merged
+  claimed_on_trigger:
+    - {file: src/maezo/tools/workers/nip.py, when: "after #137 / #136+xproc3 merge", briefs: [res-nip-task-label, res-anchor-failsafe-parity]}
+    - {file: src/maezo/tools/workers/contas.py, when: "after xproc3 merges", briefs: [res-anchor-failsafe-parity]}
+    - {file: src/maezo/platform/integrations/notifications_bridge/consumer.py, when: "after xproc3 + pagto-prog-ans merge", briefs: [res-ans-competencia-sentinel]}
+  hot_file_rule: "first-merged wins; second rebases; never co-edit an in-flight w2 file"
+  pr_marker: "every PR body carries: Coordinated-by: orchestrator-wave3 (docs/handoffs/HANDOFF-wave3.yaml)"
+
+premise_ledger:           # Phase-A verification COMPLETE 2026-07-03: 21/21 HOLDS (20 sonnet + PAGTO-7 opus rerun). No stale premises; no skips needed.
+  GAP-CANCEL-6: {premise: HOLDS, files: [SP-OP-CANCEL-001 bpmn], evidence: "bpmn:410 ST_PublishMantido omits responsavel_id; siblings :311/:334/:394 include it", flags: "xs one-line; no DRAFT"}
+  GAP-CONTAS-6: {premise: HOLDS, files: [contracts/SP-OP-CONTAS-001.md], evidence: "contract:109,114 say UNIQUE; glosa_reason_normalization.dmn:25 + glosa_classification.dmn:21 are FIRST (glosa_triage:119 already reconciled)", flags: "xs doc; DRAFT+queue (glosa regulatory)"}
+  GAP-FRAUDE-6: {premise: HOLDS, files: [contracts/SP-OP-FRAUDE-001.md], evidence: "contract:143 out-list omits sla_diligencia; fraude_sla.dmn:41 declares it, bpmn:457 timer consumes it", flags: "xs doc-add; DRAFT+queue"}
+  GAP-NIP-5: {premise: HOLDS, files: [SP-OP-NIP-001 bpmn, contracts/SP-OP-NIP-001.md], evidence: "bpmn:451-452 ICE_PrazoInfo routes unconditionally to UT_RevisaoJuridicaNip; contract:185 says return to elaboracao/coordenacao", flags: "s; COLLISION check fix/w2-nip-batch same file"}
+  GAP-NIP-6: {premise: HOLDS, files: [SP-OP-NIP-001 bpmn, workers/nip.py], evidence: "bpmn:15 declares Error_NipProtocoloInvalido, zero catches; nip.py never validates protocolo_ans", flags: "s; sequence w/ NIP-5 same file"}
+  GAP-REEMBOLSO-6: {premise: HOLDS, files: [SP-OP-REEMBOLSO-001 bpmn], evidence: "bpmn:329 UT doc claims decisao_coordenacao; GW_DecisaoReembolso:472-484 branches only on decisao_reembolso; contract silent", flags: "xs doc-only; DRAFT arguable; check REEMBOLSO-4/5 lines"}
+  GAP-RECURSO-4: {premise: HOLDS, files: [contracts/SP-OP-RECURSO-001.md], evidence: "output-vars table 60-72 omits resposta_operadora; GW_RecursoResolvido :393/:592/:595 branches on it", flags: "xs doc-add; DRAFT+queue; check w2-xproc3 + w2-arc overlap"}
+  GAP-INAD-7: {premise: HOLDS, files: [contracts/SP-OP-INADIMPLENCIA-001.md], evidence: "contract:105,110 say UNIQUE; inadimplencia_purga.dmn:27 + inadimplencia_sla.dmn:22 are FIRST", flags: "xs doc; DRAFT+queue (RN 593); same pattern as CONTAS-6"}
+  GAP-LGPD-5: {premise: HOLDS, files: [SP-OP-LGPD-DSR-001 bpmn, lgpd_dsr_routing.dmn], evidence: "dmn:27 sla_resposta unused; bpmn:264 ESP_SlaGlobal hardcodes literal P15D", flags: "s; DMN edit => DRAFT+queue (DPO); BPMN-only timer ref is lower-risk option"}
+  GAP-LGPD-6: {premise: HOLDS, files: [SP-OP-LGPD-DSR-001 bpmn, contracts/SP-OP-LGPD-DSR-001.md], evidence: "Error_LgpdIdentidade declared bpmn:14, only other-error catches at :207/:222; lgpd.py:320-321 throws it", flags: "s (catch or documented defer, sanctioned); already queue-registered"}
+  GAP-ADEQ-7: {premise: HOLDS, files: [workers/adequacao.py], evidence: "docstring :40-41,:524,:564,:595 claim 'nao rebaixavel'; _hard_frozen.yaml excludes it — plain L1", flags: "xs docstring-only; NEVER edit the yaml"}
+  GAP-ADEQ-8: {premise: HOLDS, files: [workers/adequacao.py, SP-OP-ADEQUACAO-001 bpmn, contracts/SP-OP-ADEQUACAO-001.md], evidence: "network_change_ref written by bridge (consumer.py:207-233, #117) but zero readers in ADEQUACAO-001", flags: "xs plumbing; no DRAFT"}
+  GAP-PAGTO-6: {premise: HOLDS, files: [pagto_alcada.dmn], evidence: "dmn:68 r_dentro_teto_l2 sets grupo_aprovador='clerical-pagamentos'; contract :161-164 allowlist says 'nenhum'", flags: "xs; DRAFT+queue (financas)"}
+  GAP-PAGTO-7: {premise: HOLDS, files: [agents/andre/graph.py, contracts/SP-OP-PAGTO-001.md], evidence: "contract:72 mandates data_vencimento|date|sim; graph.py:749-786 _contract_variables omits it + writes 8 undeclared vars (mostly ADR-0007/A2A provenance)", flags: "s; declaration reconciliation not pure removal; no collision (opus re-verified)"}
+  GAP-PROG-6: {premise: HOLDS, files: [programa_sla.dmn, contracts/SP-OP-PROGRAMA-001.md], evidence: "dmn:24-26 single input programa_id; contract:142 declares +elegivel_programa", flags: "DMN edit => DRAFT+queue; contract-only fix is xs lower-risk"}
+  GAP-ANS-5: {premise: HOLDS, files: [contracts/SP-OP-ANS-SUBMIT-001.md, workers/ans_submit.py, SP-OP-ANS-SUBMIT-001 bpmn], evidence: "contract:59 claims lgpd_anonimizado 'pre-resolvido por worker'; ans_submit.py zero matches; only consumer.py:352 seeds False fail-closed", flags: "xs (echo handler or doc fix); DRAFT+queue"}
+  GAP-XOBS-7: {premise: HOLDS, files: [gateway/audit.py, gateway/pep.py, runtime/harness.py, tools/registry.py, console/schemas.py, migration 0002 + tests], evidence: "AuditRecord.dmn_versions (audit.py:115) always {} — InvocationContext zero-arg at harness.py:423; real data in decision_basis.dmn_refs", flags: "xs/s wire-or-remove per ADR-0007; T3 verify"}
+  GAP-ESC-2: {premise: HOLDS, files: [workers/phase0.py, SP-OP-ESCALATION-001 bpmn], evidence: "phase0.py:295,297 notify_team reads flat defaults; BPMN never maps roteamento.* into flat vars; routing itself correct", flags: "xs/s; no DRAFT"}
+  RES-NIP-LABEL: {premise: HOLDS, files: [SP-OP-NIP-001 bpmn, workers/nip.py], evidence: "nip.py:100-107,360 hardcodes task_name=_UT_ELABORAR_RESPOSTA_NIP for both timers; BPMN inputParameters identical", flags: "s; metrics-only; check 3rd notify task near bpmn:381"}
+  RES-ANS-SENTINEL: {premise: HOLDS, files: [notifications_bridge/consumer.py, ANS-CRON + ANS-SUBMIT bpmn+contracts+tests], evidence: "consumer.py:308,328,346 seed competencia=COMPETENCIA_PENDENTE fail-closed by design (#129); ans_calendar.dmn consumes but never computes it", flags: "M FEATURE GAP (compute real competencia), not cleanup; sequence after w2-xproc3 (same file, no line overlap confirmed)"}
+  RES-ANCHOR-PARITY: {premise: HOLDS, files: [workers/recurso.py, notifications_bridge/consumer.py, agents/marina/graph.py], evidence: "nip.py/contas.py have _normalize_prazo_anchor failsafe; recurso.py has ZERO anchor-handling code", flags: "s; mirror nip/contas failsafe+warning metric; recurso.py in #136 footprint — trigger already gates on it"}
+
+briefs:                   # id -> {branch, worktree, pr, tier, state, verifier_verdict}
+  res-dispatcher-seam: {branch: fix/res-dispatcher-seam, worktree: ../maezo-res-dispatcher,
+                        pr: null, tier: T3, state: BUILDING, verifier_verdict: null,
+                        spawned: "2026-07-03"}
+
+operational_resume: >-
+  PHASE-A 2026-07-03: fence landed (DL-0021 + #138 comment); premise verification COMPLETE
+  21/21 HOLDS (ledger above — no stale premises, no skips); reconcile scripts authored+verified
+  in session scratchpad (reconcile_w2.sh: branch-scoped fix/w2-* credits + hard credits
+  ESC-3=#115/ADEQ-5=#101, live tally 5/41 merged; reconcile_w3.sh: fix/w3-|fix/res- scope) —
+  a successor must re-author them from the DL-0021 spec if the scratchpad is gone.
+  res-dispatcher-seam T3 builder RUNNING (worktree ../maezo-res-dispatcher). Monitoring loop
+  live (5-min cycle): Phase-B triggers (#137 -> nip-label; xproc3+#136 -> anchor-parity;
+  xproc3+ppa -> ans-sentinel), gate candidate (zero open+unmerged fix/w2-*), foreign-spawn
+  fence, footprint watch on worker_runtime/service.py. Wave-3 fan-out = 10 briefs
+  (w3-docs-contracts, w3-nip, w3-cancel, w3-lgpd, w3-adeq, w3-pagto, w3-prog, w3-ans, w3-esc,
+  w3-xobs) ONLY after gate + C0 reconciliation vs final merged W2 union footprint.
+
+verify_truth: |
+  git fetch origin -q && git log --oneline origin/main -3
+  gh pr list --state open
+  # my streams:
+  gh pr list --state all --json number,headRefName,state -q '.[]|select(.headRefName|startswith("fix/w3-") or startswith("fix/res-"))'

@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_nip_routing"
+             name="Roteamento de NIP (ANS)"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    nip_routing v0.2.0 — status: DRAFT (conteudo requer SME regulatorio-ans/juridico;
+    docs/review-queue.md). Consumida por SP-OP-NIP-001 e mcp-dmn. Coracao do roteamento humano.
+    INVARIANTE L0 HARD (nao negociavel): o dominio de `roteamento` e EXATAMENTE
+    {ELABORAR_RESPOSTA, PENDENTE_INFO, REVISAO_JURIDICA}. NAO existe — por design — saida de
+    merito (manter/conceder negativa). Nenhuma combinacao de input decide o merito: a decisao de
+    MANTER A NEGATIVA SO nasce na User Task humana UT_RevisaoJuridicaNip (decisao_nip=MANTER_NEGATIVA),
+    materializada pelo worker gated operadora.nip.submit_response (ERR_NIP_NEGATIVA_NOT_HUMAN).
+    ELABORAR_RESPOSTA sempre desemboca numa User Task de elaboracao — NUNCA em submit_response.
+    FAIL-SAFE: documentacao insuficiente, ambiguidade ou classificacao desconhecida -> a row
+    catch-all (ultima) roteia para REVISAO_JURIDICA + juridico-regulatorio (conservador).
+    NOTA hitPolicy: FIRST (catch-all conservador como ultima row) — espelha glosa_triage.
+
+    GAP-NIP-2 (resolvido; root-cause do 500/ENGINE-16004 corrigido): `grupo_humano` agora e
+    CONSUMIDO — camunda:candidateGroups="${grupo_humano}" em UT_ElaborarRespostaNip (BPMN). `grupo_humano`
+    e uma variavel FLAT promovida por outputParameter na propria businessRuleTask BRT_Roteamento a
+    partir de `roteamento_nip.grupo_humano` (mapDecisionResult=singleResult) — NAO o dot-path direto
+    no resultVariable da DMN. O dot-path direto (${roteamento_nip.grupo_humano}) espelhava o
+    precedente ${roteamento.grupo_atendimento} de escalation_routing/SP-OP-ESCALATION-001 (ADR-0012
+    DMN-decide), mas la um wait-state (external task ST_NotificarTime) intercala entre a
+    businessRuleTask e a User Task, persistindo a variavel antes do dot-path ser resolvido. Aqui NAO
+    ha wait-state entre BRT_Roteamento e UT_ElaborarRespostaNip — resolver o dot-path na mesma
+    transacao sincrona lanca ENGINE-16004 "Cannot resolve identifier" no CIB Seven 2.1.0 (confirmado
+    em CI run 28637356996). A promocao a variavel flat evita o bug (mesmo idioma do fix ja aplicado a
+    classificacao/prazo_dias/grupo_revisor em BRT_Classificacao). UT_RevisaoJuridicaNip permanece com
+    candidateGroups ESTATICO ("juridico-regulatorio,medico-auditor") por design: essa User Task tem
+    TRES incoming flows (roteamento direto REVISAO_JURIDICA/PENDENTE_INFO, encaminhamento
+    pos-elaboracao via GW_Minuta, e retomada apos ICE_PrazoInfo) — nos dois ultimos `grupo_humano`
+    ainda carregaria o valor da rodada de ELABORAR_RESPOSTA (nucleo-ans/regulatorio-ans), NAO
+    juridico-regulatorio; wireing dinamico ali quebraria o invariante L0 (revisao juridica sempre
+    juridico-regulatorio).
+    O output `sla_alerta_iso` (antes calculado aqui, nunca lido por nenhum consumidor — nem BPMN
+    nem o dossie do agente Gustavo) foi REMOVIDO: superseded por `nip_sla.sla_alerta_absoluto_iso`
+    (BRT_NipSla), que e o UNICO valor que alimenta os timers `timeDate` reais (GAP-NIP-1). Manter
+    um segundo "sla_alerta_iso" aqui, nunca consumido e com semantica distinta (relativo por
+    roteamento vs. absoluto por classificacao), era peso morto confuso — nao um contrato ativo.
+  </description>
+  <decision id="nip_routing" name="Roteamento da NIP" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_nip_routing" hitPolicy="FIRST">
+      <input id="in_classificacao" label="Classificacao (saida de nip_classification)">
+        <inputExpression id="ie_classificacao" typeRef="string"><text>classificacao</text></inputExpression>
+      </input>
+      <input id="in_documentacao_suficiente" label="Documentacao suficiente para responder (documentacao_suficiente)">
+        <inputExpression id="ie_documentacao_suficiente" typeRef="boolean"><text>documentacao_suficiente</text></inputExpression>
+      </input>
+      <output id="out_roteamento" label="roteamento" name="roteamento" typeRef="string"/>
+      <output id="out_grupo_humano" label="grupo_humano" name="grupo_humano" typeRef="string"/>
+      <rule id="r_nao_assistencial_elaborar">
+        <description>NIP nao-assistencial com documentacao suficiente -> elaborar resposta clerical (nucleo-ans); decisao final na UT humana</description>
+        <inputEntry id="r_nao_assistencial_elaborar_i1"><text>"NAO_ASSISTENCIAL"</text></inputEntry>
+        <inputEntry id="r_nao_assistencial_elaborar_i2"><text>true</text></inputEntry>
+        <outputEntry id="r_nao_assistencial_elaborar_o1"><text>"ELABORAR_RESPOSTA"</text></outputEntry>
+        <outputEntry id="r_nao_assistencial_elaborar_o2"><text>"nucleo-ans"</text></outputEntry>
+      </rule>
+      <rule id="r_assistencial_outro_elaborar">
+        <description>NIP assistencial que nao contesta negativa, com documentacao -> elaborar resposta (regulatorio-ans); decisao final na UT humana</description>
+        <inputEntry id="r_assistencial_outro_elaborar_i1"><text>"ASSISTENCIAL_OUTRO"</text></inputEntry>
+        <inputEntry id="r_assistencial_outro_elaborar_i2"><text>true</text></inputEntry>
+        <outputEntry id="r_assistencial_outro_elaborar_o1"><text>"ELABORAR_RESPOSTA"</text></outputEntry>
+        <outputEntry id="r_assistencial_outro_elaborar_o2"><text>"regulatorio-ans"</text></outputEntry>
+      </rule>
+      <rule id="r_pendente_info">
+        <description>Documentacao insuficiente -> pendente de informacao (NUNCA auto-resposta); roteia ao humano juridico-regulatorio</description>
+        <inputEntry id="r_pendente_info_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_pendente_info_i2"><text>false</text></inputEntry>
+        <outputEntry id="r_pendente_info_o1"><text>"PENDENTE_INFO"</text></outputEntry>
+        <outputEntry id="r_pendente_info_o2"><text>"juridico-regulatorio"</text></outputEntry>
+      </rule>
+      <rule id="r_assistencial_contesta_revisao">
+        <description>NIP assistencial contestando negativa -> revisao juridica obrigatoria (UNICA origem possivel de MANTER_NEGATIVA, na UT humana)</description>
+        <inputEntry id="r_assistencial_contesta_revisao_i1"><text>"ASSISTENCIAL_CONTESTA_NEGATIVA"</text></inputEntry>
+        <inputEntry id="r_assistencial_contesta_revisao_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_assistencial_contesta_revisao_o1"><text>"REVISAO_JURIDICA"</text></outputEntry>
+        <outputEntry id="r_assistencial_contesta_revisao_o2"><text>"juridico-regulatorio"</text></outputEntry>
+      </rule>
+      <rule id="r_catchall">
+        <description>Catch-all FAIL-SAFE: combinacao nao mapeada / ambigua -> revisao juridica humana (conservador). NUNCA decide merito.</description>
+        <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>"REVISAO_JURIDICA"</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>"juridico-regulatorio"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

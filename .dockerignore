@@ -1,0 +1,54 @@
+# ============================================================
+# .dockerignore — W-R0 / R2 (platform-completion-plan.md)
+# Exclui tudo que não é necessário para o build da imagem MAEZO.
+# Mantém: src/, pyproject.toml, uv.lock, config/
+# ============================================================
+
+# Ambientes virtuais locais
+.venv/
+.venv-fix/
+
+# Controle de versão
+.git/
+.github/
+
+# Caches de ferramentas Python
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# uv.lock É usado pelo build (uv sync --frozen — WS-3b predeploy): a imagem instala
+# a partir do lock, não de `pip install .`, para reprodutibilidade byte-a-byte entre
+# o lock auditado e o artefato implantado. NÃO adicionar de volta a exclusão acima.
+
+# Testes e documentação (não entram na imagem de produção)
+tests/
+docs/
+
+# Artefatos de deploy (o Dockerfile fica em deploy/ mas o contexto é a raiz)
+deploy/
+
+# Variáveis de ambiente locais (nunca empacotar segredos)
+.env
+.env.*
+*.env
+
+# Dependências Node (scripts de ferramental, se houver)
+node_modules/
+
+# Artefatos de IDE / editores
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# macOS
+.DS_Store

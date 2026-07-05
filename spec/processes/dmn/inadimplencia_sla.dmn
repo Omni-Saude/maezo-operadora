@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_inadimplencia_sla"
+             name="SLA de analise de inadimplencia"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    inadimplencia_sla v0.1.0 — status: DRAFT — TODOS os prazos marcados DRAFT/verify: confirmar
+    texto vigente com regulatorio/juridico (RN 593 / politica interna — prazo de analise; dias
+    uteis vs corridos e OQ aberta; docs/review-queue.md). Consumida por SP-OP-INADIMPLENCIA-001 e
+    mcp-dmn.
+    NOTA: prazos sao em dias UTEIS / por vezes corridos; ISO 8601 usa dias corridos — valores abaixo
+    sao aproximacao conservadora. Resolver calendario util no worker. Prazo vive AQUI (DMN) e no
+    timer BPMN — nunca em Python (CONTRIBUTING). Saidas de prazo sao string ISO 8601 (sla_analise,
+    sla_alerta); fonte_regulatoria e a fonte citada (registrada para auditoria).
+    INVARIANTE L0 HARD: esta tabela NAO tem saida adversa; no estouro de SLA a coordenacao-cobranca
+    humana assume (UT_CoordenacaoCobranca) — nunca auto-suspende/auto-rescinde por timeout.
+    NOTA hitPolicy: FIRST (catch-all conservador como ultima row). Espelha cancel_sla.
+  </description>
+  <decision id="inadimplencia_sla" name="SLA de analise de inadimplencia" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_inadimplencia_sla" hitPolicy="FIRST">
+      <input id="in_tipo_plano" label="Tipo do plano (tipo_plano)">
+        <inputExpression id="ie_tipo_plano" typeRef="string"><text>tipo_plano</text></inputExpression>
+      </input>
+      <output id="out_sla_analise" label="sla_analise" name="sla_analise" typeRef="string"/>
+      <output id="out_sla_alerta" label="sla_alerta" name="sla_alerta" typeRef="string"/>
+      <output id="out_fonte" label="fonte_regulatoria" name="fonte_regulatoria" typeRef="string"/>
+      <rule id="r_individual_familiar">
+        <description>Planos individual/familiar: SLA de analise + alerta (~60-70% do SLA)</description>
+        <inputEntry id="r_individual_familiar_i1"><text>"individual","familiar"</text></inputEntry>
+        <outputEntry id="r_individual_familiar_o1"><text>"P10D"</text></outputEntry>
+        <outputEntry id="r_individual_familiar_o2"><text>"P7D"</text></outputEntry>
+        <outputEntry id="r_individual_familiar_o3"><text>"RN 593 / politica interna — SLA de analise de inadimplencia ~10 dias: DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r_coletivo">
+        <description>Planos coletivos: SLA de analise mais longo (interface com estipulante)</description>
+        <inputEntry id="r_coletivo_i1"><text>"coletivo_empresarial","coletivo_adesao"</text></inputEntry>
+        <outputEntry id="r_coletivo_o1"><text>"P15D"</text></outputEntry>
+        <outputEntry id="r_coletivo_o2"><text>"P10D"</text></outputEntry>
+        <outputEntry id="r_coletivo_o3"><text>"RN 593 / politica interna — SLA coletivo mais longo (interface com estipulante): DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r_catchall">
+        <description>Catch-all FAIL-SAFE: tipo de plano nao mapeado -> prazo conservador padrao</description>
+        <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>"P10D"</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>"P7D"</text></outputEntry>
+        <outputEntry id="r_catchall_o3"><text>"Fail-safe: prazo conservador na ausencia de classificacao de plano — DRAFT/verify"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

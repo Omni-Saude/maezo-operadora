@@ -1,0 +1,124 @@
+{{- /*
+  ConfigMap: otel-collector-prod
+  Mounts the PROD otel-collector config (TLS + SigV4 for AMP) into the
+  observability collector pod when deployed in K8s.
+
+  This ConfigMap is controlled by .Values.observability.collector.enabled.
+  It is SEPARATE from the dev docker-compose config (config/otel-collector.yaml).
+  The prod config enforces insecure:false on ALL exporters + SigV4 auth for AMP.
+
+  The content is embedded directly (not a file include) so helm template rendering
+  and helm lint work without filesystem access to config/.
+  The canonical source is config/otel-collector.prod.yaml — keep in sync.
+*/ -}}
+{{- if .Values.observability.collector.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-config
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    app.kubernetes.io/name: otel-collector
+    app.kubernetes.io/component: observability
+    app.kubernetes.io/part-of: maezo
+    maezo.io/tenant: {{ .Values.tenant.id | quote }}
+data:
+  config.yaml: |
+    # OTel Collector PROD config — auto-generated from config/otel-collector.prod.yaml
+    # TLS enforced (insecure:false) + SigV4 for AMP. DO NOT set insecure:true here.
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:13133
+      pprof:
+        endpoint: 0.0.0.0:1777
+      sigv4auth:
+        region: "${AWS_REGION}"
+        service: aps
+
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+      prometheus/self:
+        config:
+          scrape_configs:
+            - job_name: otel-collector
+              static_configs:
+                - targets: ["localhost:8888"]
+
+    processors:
+      batch:
+        timeout: 5s
+        send_batch_size: 512
+        send_batch_max_size: 1024
+      memory_limiter:
+        check_interval: 1s
+        limit_mib: 512
+        spike_limit_mib: 128
+      resource:
+        attributes:
+          - key: service.namespace
+            value: maezo
+            action: upsert
+          - key: maezo.tenant
+            value: {{ .Values.tenant.id | quote }}
+            action: upsert
+      transform/phi_safety_net:
+        error_mode: ignore
+        trace_statements:
+          - context: span
+            statements:
+              - delete_key(attributes, "message.content")
+              - delete_key(attributes, "request.body")
+              - delete_key(attributes, "response.body")
+              - delete_key(attributes, "http.request.body")
+              - delete_key(attributes, "http.response.body")
+              - delete_key(attributes, "llm.prompt")
+              - delete_key(attributes, "llm.completion")
+              - delete_key(attributes, "input.value")
+              - delete_key(attributes, "output.value")
+              - replace_all_patterns(attributes, "value", "\\d{3}\\.\\d{3}\\.\\d{3}-\\d{2}", "[CPF-REDACTED]")
+        log_statements:
+          - context: log
+            statements:
+              - delete_key(attributes, "message.content")
+              - delete_key(attributes, "request.body")
+              - delete_key(attributes, "response.body")
+              - replace_all_patterns(attributes, "value", "\\d{3}\\.\\d{3}\\.\\d{3}-\\d{2}", "[CPF-REDACTED]")
+
+    exporters:
+      prometheusremotewrite:
+        endpoint: "${PROMETHEUS_REMOTE_WRITE_ENDPOINT}"
+        tls:
+          insecure: false
+        auth:
+          authenticator: sigv4auth
+      otlp/traces:
+        endpoint: "${OTLP_TRACES_ENDPOINT}"
+        tls:
+          insecure: false
+
+    service:
+      extensions: [health_check, pprof, sigv4auth]
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, transform/phi_safety_net, resource, batch]
+          exporters: [otlp/traces]
+        metrics:
+          receivers: [otlp, prometheus/self]
+          processors: [memory_limiter, resource, batch]
+          exporters: [prometheusremotewrite]
+        logs:
+          receivers: [otlp]
+          processors: [memory_limiter, transform/phi_safety_net, resource, batch]
+          exporters: []
+      telemetry:
+        logs:
+          level: "info"
+        metrics:
+          address: 0.0.0.0:8888
+{{- end }}

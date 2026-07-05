@@ -1,0 +1,791 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+                  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+                  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+                  xmlns:camunda="http://camunda.org/schema/1.0/bpmn"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  id="Definitions_SP_OP_AUTH_001"
+                  targetNamespace="http://maezo.health/operadora/auth"
+                  exporter="Maezo W5-PROC"
+                  exporterVersion="0.1.0-draft">
+
+  <bpmn:message id="Msg_AuthDocsRecebidos" name="msg.auth.docs_received"/>
+  <bpmn:error id="Error_AuthGuiaInvalida" name="Guia TISS invalida/incompleta na origem" errorCode="ERR_AUTH_INVALID_GUIA"/>
+  <!-- GAP-AUTH-2 (defesa-em-profundidade, NAO um bypass ativo): o worker send_denial_notice ja
+       lanca ERR_AUTH_DENIAL_INCOMPLETE (guard L0, auth.py) quando a negativa formal chega sem
+       fundamentacao completa (justificativa_clinica / cid10_referencia / fundamentacao_dut) — mas
+       o erro nao era DECLARADO nem CAPTURADO, virando incidente travado na mainline. Declarado aqui
+       + capturado por boundary event em ST_EnviarNegativaFormal (abaixo). O guard do worker PERMANECE
+       o mecanismo de enforcement (ADR-0018) — este catch NAO o enfraquece. -->
+  <bpmn:error id="Error_AuthDenialIncompleta" name="Negativa formal com fundamentacao incompleta (guard L0)" errorCode="ERR_AUTH_DENIAL_INCOMPLETE"/>
+
+  <bpmn:process id="SP-OP-AUTH-001" name="SP-OP-AUTH-001 Autorizacao Previa"
+                isExecutable="true" camunda:historyTimeToLive="1825">
+    <bpmn:documentation><![CDATA[
+SP-OP-AUTH-001 — Autorizacao previa. Status: DRAFT (v0.1.0) — Phase 1, modelado uma fase
+a frente. DI (diagrama) sera adicionado na promocao a FINAL. Requer revisao humana
+(medico auditor + regulatorio) antes de qualquer deploy — ver docs/review-queue.md.
+
+GATILHO REGULATORIO: RN 259/2011 (garantia de atendimento; consolidacao posterior ANS —
+DRAFT/verify), RN 395/2016 (prazo de resposta a solicitacoes e negativa por escrito —
+DRAFT/verify), RN 424/2017 (junta medica em divergencia — DRAFT/verify), Lei 9.656/1998
+art. 35-C (urgencia/emergencia).
+
+INVARIANTE L0 HARD (ADR-0005/0008, L0-core.yaml: authorization_denial): NEGATIVA de
+cobertura SO existe como saida da User Task do medico auditor (UT_AnaliseMedicoAuditor /
+UT_RegistrarParecerJunta / UT_CoordenacaoAssume). NAO HA caminho automatizado que resulte
+em negativa: toda regra DMN desfavoravel, pendencia nao resolvida ou inelegibilidade
+converge para analise humana. Aprovacao automatica (L2) existe apenas sob DMN favoravel
+e teto do tenant (auth_auto_approval).
+
+BUSINESS KEY (idempotente): "AUTH-{tenant_id}-{numero_guia_tiss}"
+  — uma instancia por guia TISS. Reenvio da mesma guia NAO cria nova instancia
+  (mcp-cibseven.start_process consulta business key antes de iniciar).
+
+EVENTOS DE DOMINIO (worker operadora.events.publish):
+  inicio -> agents.events.auth.received
+  pendencia -> agents.events.auth.pended
+  breach -> agents.events.auth.sla_breached
+  fim -> agents.events.auth.completed (payload.desfecho = aprovada_automatica |
+         aprovada_auditor | negada_auditor | nao_requer_autorizacao | cancelada_pendencia)
+
+VARIAVEIS DE ENTRADA: tenant_id, numero_guia_tiss, beneficiario_pseudo_id (ADR-0006),
+prestador_id, codigo_procedimento_tuss, carater_atendimento (urgencia|eletivo),
+categoria_procedimento, valor_estimado_brl, cid10 (opcional), documentos_refs.
+Contrato completo: docs/processes/contracts/SP-OP-AUTH-001.md.
+]]></bpmn:documentation>
+
+    <bpmn:startEvent id="Start_SolicitacaoRecebida" name="Solicitacao de autorizacao recebida">
+      <bpmn:outgoing>Flow_Start_PubReceived</bpmn:outgoing>
+    </bpmn:startEvent>
+
+    <bpmn:serviceTask id="ST_PublishReceived" name="Publicar evento: auth.received"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.auth.received</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_guia_tiss,prestador_id,codigo_procedimento_tuss,carater_atendimento</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Start_PubReceived</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubReceived_Admiss</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- DMN: admissibilidade (nunca nega — apenas roteia) -->
+    <bpmn:businessRuleTask id="BRT_Admissibilidade" name="Avaliar admissibilidade (DMN auth_admissibility)"
+                           camunda:decisionRef="auth_admissibility"
+                           camunda:mapDecisionResult="singleResult"
+                           camunda:resultVariable="admissibilidade">
+      <bpmn:documentation>Saidas possiveis: NAO_REQUER | PENDENTE_DOCUMENTACAO | SEGUE_ANALISE. Por design NAO existe saida de negativa nesta DMN (L0 hard).</bpmn:documentation>
+      <bpmn:incoming>Flow_PubReceived_Admiss</bpmn:incoming>
+      <bpmn:incoming>Flow_DocsOk_Admiss</bpmn:incoming>
+      <bpmn:outgoing>Flow_Admiss_GW</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+
+    <bpmn:exclusiveGateway id="GW_Admissibilidade" name="Resultado admissibilidade" default="Flow_GW_SegueAnalise">
+      <bpmn:incoming>Flow_Admiss_GW</bpmn:incoming>
+      <bpmn:outgoing>Flow_GW_NaoRequer</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GW_Pendencia</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GW_SegueAnalise</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <!-- Ramo: procedimento nao requer autorizacao -->
+    <bpmn:serviceTask id="ST_PublishNaoRequer" name="Publicar evento: auth.completed (nao_requer)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.auth.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">nao_requer_autorizacao</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_guia_tiss</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_GW_NaoRequer</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubNaoRequer_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_NaoRequerAutorizacao" name="Nao requer autorizacao">
+      <bpmn:incoming>Flow_PubNaoRequer_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Ramo: pendencia de documentacao -->
+    <bpmn:serviceTask id="ST_SolicitarDocumentos" name="Solicitar documentacao ao prestador"
+                      camunda:type="external" camunda:topic="operadora.auth.request_documents">
+      <bpmn:documentation>Worker tambem publica agents.events.auth.pended (suspensao de prazo durante pendencia: regra RN — DRAFT/verify com regulatorio).</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic_pended">agents.events.auth.pended</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_GW_Pendencia</bpmn:incoming>
+      <bpmn:incoming>Flow_GWDec_SolicitarInfo</bpmn:incoming>
+      <bpmn:outgoing>Flow_Solicitar_WaitDocs</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- Corrida: documentacao chega OU prazo de pendencia expira -->
+    <bpmn:eventBasedGateway id="GW_AguardarDocs" name="Aguardar documentacao">
+      <bpmn:incoming>Flow_Solicitar_WaitDocs</bpmn:incoming>
+      <bpmn:outgoing>Flow_Wait_DocsMsg</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Wait_Timer</bpmn:outgoing>
+    </bpmn:eventBasedGateway>
+    <bpmn:intermediateCatchEvent id="ICE_DocsRecebidos" name="Documentacao recebida">
+      <bpmn:incoming>Flow_Wait_DocsMsg</bpmn:incoming>
+      <bpmn:outgoing>Flow_DocsOk_Admiss</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="MED_DocsRecebidos" messageRef="Msg_AuthDocsRecebidos"/>
+    </bpmn:intermediateCatchEvent>
+    <!-- Timer: prestador nao respondeu a pendencia — encerramento e decisao HUMANA -->
+    <bpmn:intermediateCatchEvent id="ICE_PrazoPendencia" name="Prazo de pendencia (P5D — DRAFT/verify)">
+      <bpmn:incoming>Flow_Wait_Timer</bpmn:incoming>
+      <bpmn:outgoing>Flow_PrazoPendencia_UT</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TD_PrazoPendencia">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">P5D</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:intermediateCatchEvent>
+    <bpmn:userTask id="UT_DecidirPendenciaExpirada" name="Decidir destino da guia com pendencia expirada"
+                   camunda:candidateGroups="medico-auditor">
+      <bpmn:documentation>Conservador (L0 hard): nem o cancelamento administrativo por pendencia e automatizado. Saidas: decisao_pendencia in {cancelar_guia, conceder_prazo_extra, seguir_analise}.</bpmn:documentation>
+      <bpmn:incoming>Flow_PrazoPendencia_UT</bpmn:incoming>
+      <bpmn:outgoing>Flow_UTPend_GW</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:exclusiveGateway id="GW_PendenciaExpirada" name="Decisao pendencia" default="Flow_GWPend_SegueAnalise">
+      <bpmn:incoming>Flow_UTPend_GW</bpmn:incoming>
+      <bpmn:outgoing>Flow_GWPend_Cancelar</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWPend_PrazoExtra</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWPend_SegueAnalise</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:serviceTask id="ST_PublishCancelada" name="Publicar evento: auth.completed (cancelada_pendencia)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.auth.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">cancelada_pendencia</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_guia_tiss,decisao_pendencia</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_GWPend_Cancelar</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubCancelada_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_CanceladaPendencia" name="Cancelada por pendencia (decisao humana)">
+      <bpmn:incoming>Flow_PubCancelada_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Ramo: segue analise -->
+    <bpmn:businessRuleTask id="BRT_SlaAnalise" name="Determinar SLA de analise (DMN auth_sla)"
+                           camunda:decisionRef="auth_sla"
+                           camunda:mapDecisionResult="singleResult"
+                           camunda:resultVariable="sla">
+      <bpmn:incoming>Flow_GW_SegueAnalise</bpmn:incoming>
+      <bpmn:incoming>Flow_GWPend_SegueAnalise</bpmn:incoming>
+      <bpmn:incoming>Flow_GWPend_PrazoExtra</bpmn:incoming>
+      <bpmn:outgoing>Flow_Sla_AutoApproval</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+
+    <bpmn:businessRuleTask id="BRT_AutoApproval" name="Avaliar aprovacao automatica (DMN auth_auto_approval)"
+                           camunda:decisionRef="auth_auto_approval"
+                           camunda:mapDecisionResult="singleResult"
+                           camunda:resultVariable="auto_aprovacao">
+      <bpmn:documentation>L2 (ADR-0008): so AUTO_APROVAR com DUT atendida + dentro do teto do tenant + rede credenciada. Catch-all da DMN = ANALISE_HUMANA (fail-safe). Negativa automatica NAO e saida possivel.</bpmn:documentation>
+      <bpmn:incoming>Flow_Sla_AutoApproval</bpmn:incoming>
+      <bpmn:outgoing>Flow_AutoApproval_GW</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+
+    <bpmn:exclusiveGateway id="GW_AutoAprovacao" name="Aprovacao automatica?" default="Flow_GW_AnaliseHumana">
+      <bpmn:incoming>Flow_AutoApproval_GW</bpmn:incoming>
+      <bpmn:outgoing>Flow_GW_AutoAprovar</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GW_AnaliseHumana</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <!-- Aprovacao automatica (L2) -->
+    <bpmn:serviceTask id="ST_EmitirAutorizacaoAuto" name="Emitir autorizacao (guia TISS)"
+                      camunda:type="external" camunda:topic="operadora.auth.issue_authorization">
+      <bpmn:incoming>Flow_GW_AutoAprovar</bpmn:incoming>
+      <bpmn:outgoing>Flow_EmitirAuto_Pub</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="ST_PublishAprovadaAuto" name="Publicar evento: auth.completed (aprovada_automatica)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.auth.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">aprovada_automatica</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_guia_tiss,codigo_procedimento_tuss,numero_autorizacao</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_EmitirAuto_Pub</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubAuto_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_AprovadaAutomatica" name="Aprovada automaticamente (L2)">
+      <bpmn:incoming>Flow_PubAuto_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Analise humana: dossie do agente + medico auditor -->
+    <bpmn:serviceTask id="ST_PrepararDossie" name="Preparar dossie de analise (agente Rafael)"
+                      camunda:type="external" camunda:topic="operadora.auth.analyze_request">
+      <bpmn:documentation>Convoca Rafael (ADR-0005): recomendacao estruturada + evidencias + regras DMN avaliadas. O dossie OTIMIZA a decisao humana, nunca a substitui.</bpmn:documentation>
+      <bpmn:incoming>Flow_GW_AnaliseHumana</bpmn:incoming>
+      <bpmn:outgoing>Flow_Dossie_UTAuditor</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:userTask id="UT_AnaliseMedicoAuditor" name="Analise do medico auditor"
+                   camunda:candidateGroups="medico-auditor">
+      <bpmn:documentation><![CDATA[
+HITL L0 hard (RN 259 / ADR-0005): UNICO ponto onde negativa pode nascer. Saidas:
+decisao_auditor in {APROVAR, NEGAR, SOLICITAR_INFO, JUNTA_MEDICA};
+NEGAR exige justificativa_clinica, cid10_referencia e fundamentacao_dut (campos obrigatorios).
+SLA: `sla.sla_analise` (DMN auth_sla; RN 259/RN 395 — valores DRAFT/verify).
+A decisao sai em nome do medico auditor (assignee registrado na trilha de auditoria, ADR-0007).
+]]></bpmn:documentation>
+      <bpmn:extensionElements>
+        <!-- GAP-AUTH-2 (defesa-em-profundidade UX, NAO enforcement): formData estrutura o formulario
+             do auditor. `decisao_auditor` e enum (as 4 saidas do contrato) + required (uma decisao
+             SEMPRE deve ser tomada). Os 3 campos de fundamentacao clinica sao declarados aqui para
+             que a Tasklist os apresente; ficam marcados required-if-NEGAR via `camunda:properties`
+             (label `requiredIf`). A requiredness CONDICIONAL-por-decisao NAO e expressavel em
+             constraints de formData do Camunda (constraint `required` seria incondicional e barraria
+             indevidamente APROVAR/SOLICITAR_INFO/JUNTA_MEDICA, que compartilham esta UT) — por isso o
+             ENFORCEMENT real permanece no guard do worker send_denial_notice (ERR_AUTH_DENIAL_INCOMPLETE,
+             capturado pelo boundary BE_NegativaIncompleta). Este formData e UX-level; NAO enfraquece o
+             guard do worker (ADR-0018). Conteudo clinico dos campos: DRAFT — ver docs/review-queue.md. -->
+        <camunda:formData>
+          <camunda:formField id="decisao_auditor" label="Decisao do auditor" type="enum">
+            <camunda:value id="APROVAR" name="Aprovar autorizacao"/>
+            <camunda:value id="NEGAR" name="Negar (exige fundamentacao clinica completa)"/>
+            <camunda:value id="SOLICITAR_INFO" name="Solicitar informacao/documentacao"/>
+            <camunda:value id="JUNTA_MEDICA" name="Encaminhar a junta medica (RN 424)"/>
+            <camunda:validation>
+              <camunda:constraint name="required"/>
+            </camunda:validation>
+          </camunda:formField>
+          <camunda:formField id="justificativa_clinica" label="Justificativa clinica (obrigatoria se NEGAR)" type="string">
+            <camunda:properties>
+              <camunda:property name="requiredIf" value="decisao_auditor == NEGAR"/>
+              <camunda:property name="enforcedBy" value="worker send_denial_notice guard ERR_AUTH_DENIAL_INCOMPLETE"/>
+              <camunda:property name="zona" value="PHI — texto livre clinico (nao difundir na Zona Geral, ADR-0006)"/>
+            </camunda:properties>
+          </camunda:formField>
+          <camunda:formField id="cid10_referencia" label="CID-10 de referencia (obrigatorio se NEGAR)" type="string">
+            <camunda:properties>
+              <camunda:property name="requiredIf" value="decisao_auditor == NEGAR"/>
+              <camunda:property name="enforcedBy" value="worker send_denial_notice guard ERR_AUTH_DENIAL_INCOMPLETE"/>
+            </camunda:properties>
+          </camunda:formField>
+          <camunda:formField id="fundamentacao_dut" label="Fundamentacao na DUT/ROL (obrigatoria se NEGAR)" type="string">
+            <camunda:properties>
+              <camunda:property name="requiredIf" value="decisao_auditor == NEGAR"/>
+              <camunda:property name="enforcedBy" value="worker send_denial_notice guard ERR_AUTH_DENIAL_INCOMPLETE"/>
+            </camunda:properties>
+          </camunda:formField>
+        </camunda:formData>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Dossie_UTAuditor</bpmn:incoming>
+      <bpmn:outgoing>Flow_UTAuditor_GW</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <!-- Timer nao-interruptivo: alerta de risco de SLA -->
+    <bpmn:boundaryEvent id="BT_AlertaSla" name="Alerta de risco de SLA" cancelActivity="false" attachedToRef="UT_AnaliseMedicoAuditor">
+      <bpmn:outgoing>Flow_Alerta_Notify</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TD_AlertaSla">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${sla.sla_alerta}</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="ST_NotificarRiscoSla" name="Notificar risco de SLA (coordenacao)"
+                      camunda:type="external" camunda:topic="operadora.auth.notify_sla_risk">
+      <bpmn:incoming>Flow_Alerta_Notify</bpmn:incoming>
+      <bpmn:outgoing>Flow_Notify_EndAlerta</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_RiscoSlaNotificado" name="Risco de SLA notificado (analise segue)">
+      <bpmn:incoming>Flow_Notify_EndAlerta</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Timer interruptivo: SLA estourado -> coordenacao de auditoria assume (continua humano) -->
+    <bpmn:boundaryEvent id="BT_SlaAnalise" name="SLA de analise (RN 259 — DRAFT/verify)" cancelActivity="true" attachedToRef="UT_AnaliseMedicoAuditor">
+      <bpmn:outgoing>Flow_SlaEstourado_Pub</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TD_SlaAnalise">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${sla.sla_analise}</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="ST_PublishSlaBreach" name="Publicar evento: auth.sla_breached"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.auth.sla_breached</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_guia_tiss,carater_atendimento</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_SlaEstourado_Pub</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubBreach_UTCoord</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:userTask id="UT_CoordenacaoAssume" name="Coordenacao de auditoria medica assume"
+                   camunda:candidateGroups="coordenacao-auditoria-medica">
+      <bpmn:documentation>Escalation path do SLA: caso reatribuido. Mesmas saidas e mesmos campos obrigatorios da analise do auditor (continua decisao medica humana).</bpmn:documentation>
+      <bpmn:incoming>Flow_PubBreach_UTCoord</bpmn:incoming>
+      <bpmn:outgoing>Flow_UTCoord_GW</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:exclusiveGateway id="GW_DecisaoAuditor" name="Decisao do auditor" default="Flow_GWDec_Aprovar">
+      <bpmn:incoming>Flow_UTAuditor_GW</bpmn:incoming>
+      <bpmn:incoming>Flow_UTCoord_GW</bpmn:incoming>
+      <bpmn:incoming>Flow_Junta_GWDec</bpmn:incoming>
+      <bpmn:outgoing>Flow_GWDec_Aprovar</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWDec_Negar</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWDec_SolicitarInfo</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWDec_Junta</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <!-- Aprovada pelo auditor -->
+    <bpmn:serviceTask id="ST_EmitirAutorizacaoAuditor" name="Emitir autorizacao (decisao do auditor)"
+                      camunda:type="external" camunda:topic="operadora.auth.issue_authorization">
+      <bpmn:incoming>Flow_GWDec_Aprovar</bpmn:incoming>
+      <bpmn:outgoing>Flow_EmitirAuditor_Pub</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="ST_PublishAprovadaAuditor" name="Publicar evento: auth.completed (aprovada_auditor)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.auth.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">aprovada_auditor</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_guia_tiss,numero_autorizacao</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_EmitirAuditor_Pub</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubAuditor_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_AprovadaAuditor" name="Aprovada pelo medico auditor">
+      <bpmn:incoming>Flow_PubAuditor_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Negada pelo auditor (UNICA origem possivel de negativa) -->
+    <bpmn:serviceTask id="ST_EnviarNegativaFormal" name="Enviar negativa formal por escrito"
+                      camunda:type="external" camunda:topic="operadora.auth.send_denial_notice">
+      <bpmn:documentation>Negativa por escrito com justificativa clinica, em nome do medico auditor (RN 395 art. 10 — prazo de 24h para negativa por escrito: DRAFT/verify). Inclui orientacao de recurso/junta (RN 424 — DRAFT/verify).</bpmn:documentation>
+      <bpmn:incoming>Flow_GWDec_Negar</bpmn:incoming>
+      <bpmn:outgoing>Flow_Negativa_Pub</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- GAP-AUTH-2 (defesa-em-profundidade): boundary error na transmissao da negativa formal.
+         Se send_denial_notice recusar por fundamentacao INCOMPLETA (guard L0 auth.py: qualquer de
+         justificativa_clinica / cid10_referencia / fundamentacao_dut ausente), lanca
+         ERR_AUTH_DENIAL_INCOMPLETE. Antes: incidente NAO tratado travava a instancia neste service
+         task. Agora: captura -> End_FundamentacaoIncompletaBloqueada. Terminal NEUTRO: a NEGATIVA
+         NAO foi transmitida (nada adverso ocorreu ao beneficiario) — apenas um bloqueio limpo que
+         exige o auditor humano completar a fundamentacao. So alcancavel APOS UT humana (medico
+         auditor / coordenacao / junta) ter decidido NEGAR; nao abre caminho automatico de negativa.
+         O guard do worker PERMANECE o enforcement (ADR-0018); este catch so evita o incidente travado. -->
+    <bpmn:boundaryEvent id="BE_NegativaIncompleta" name="Negativa barrada por fundamentacao incompleta (ERR_AUTH_DENIAL_INCOMPLETE)" attachedToRef="ST_EnviarNegativaFormal">
+      <bpmn:outgoing>Flow_NegativaIncompleta_End</bpmn:outgoing>
+      <bpmn:errorEventDefinition id="EED_NegativaIncompleta" errorRef="Error_AuthDenialIncompleta"/>
+    </bpmn:boundaryEvent>
+    <bpmn:endEvent id="End_FundamentacaoIncompletaBloqueada" name="Negativa formal barrada por fundamentacao incompleta (guard L0) — nada transmitido">
+      <bpmn:documentation>Terminal NEUTRO (guard L0, authorization_denial): o worker send_denial_notice RECUSOU transmitir a negativa formal por faltar fundamentacao obrigatoria (justificativa_clinica / cid10_referencia / fundamentacao_dut) — ERR_AUTH_DENIAL_INCOMPLETE. NENHUM efeito adverso ocorreu: a negativa NAO foi enviada ao beneficiario. So alcancavel APOS uma User Task humana (UT_AnaliseMedicoAuditor / UT_CoordenacaoAssume / UT_RegistrarParecerJunta) ter decidido NEGAR — nao ha caminho automatizado. O guard do worker permanece o mecanismo de enforcement (ADR-0018); este terminal apenas encerra a instancia de forma limpa (em vez de incidente travado) para o auditor humano recompor a fundamentacao completa.</bpmn:documentation>
+      <bpmn:incoming>Flow_NegativaIncompleta_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <bpmn:serviceTask id="ST_PublishNegada" name="Publicar evento: auth.completed (negada_auditor)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.auth.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">negada_auditor</camunda:inputParameter>
+          <!-- GAP-AUTH-1 (ADR-0006): o fato auth.completed NUNCA carrega PHI. A justificativa
+               clinica e' texto livre clinico (Zona PHI) e nao pode ser difundida na Zona Geral.
+               Carregamos apenas identificadores estruturais; o `_business_key`
+               (AUTH-{tenant_id}-{numero_guia_tiss}), injetado pelo worker operadora.events.publish,
+               e' o payload_ref pelo qual um consumidor da Zona PHI resolve o conteudo clinico no
+               engine/store. Espelha a2a/facts.py ("O fato NUNCA carrega PHI"). O caminho de
+               negativa formal (ST_EnviarNegativaFormal / send_denial_notice) permanece inalterado:
+               a justificativa clinica segue nele, dentro da Zona PHI. -->
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_guia_tiss</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Negativa_Pub</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubNegada_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_NegadaAuditor" name="Negada pelo medico auditor (L0)">
+      <bpmn:incoming>Flow_PubNegada_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Junta medica (RN 424 — DRAFT) -->
+    <bpmn:serviceTask id="ST_ConvocarJunta" name="Convocar junta medica (RN 424)"
+                      camunda:type="external" camunda:topic="operadora.auth.convene_junta">
+      <bpmn:incoming>Flow_GWDec_Junta</bpmn:incoming>
+      <bpmn:outgoing>Flow_Convocar_UTJunta</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:userTask id="UT_RegistrarParecerJunta" name="Registrar parecer da junta medica"
+                   camunda:candidateGroups="junta-medica">
+      <bpmn:documentation>DRAFT — fluxo de junta simplificado; detalhar com juridico/regulatorio (prazos e desempate RN 424). Saida: decisao_auditor in {APROVAR, NEGAR} (parecer vinculante).</bpmn:documentation>
+      <bpmn:incoming>Flow_Convocar_UTJunta</bpmn:incoming>
+      <bpmn:outgoing>Flow_Junta_GWDec</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <!-- FLOWS -->
+    <bpmn:sequenceFlow id="Flow_Start_PubReceived" sourceRef="Start_SolicitacaoRecebida" targetRef="ST_PublishReceived"/>
+    <bpmn:sequenceFlow id="Flow_PubReceived_Admiss" sourceRef="ST_PublishReceived" targetRef="BRT_Admissibilidade"/>
+    <bpmn:sequenceFlow id="Flow_Admiss_GW" sourceRef="BRT_Admissibilidade" targetRef="GW_Admissibilidade"/>
+    <bpmn:sequenceFlow id="Flow_GW_NaoRequer" name="NAO_REQUER" sourceRef="GW_Admissibilidade" targetRef="ST_PublishNaoRequer">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${admissibilidade.resultado == 'NAO_REQUER'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_PubNaoRequer_End" sourceRef="ST_PublishNaoRequer" targetRef="End_NaoRequerAutorizacao"/>
+    <bpmn:sequenceFlow id="Flow_GW_Pendencia" name="PENDENTE_DOCUMENTACAO" sourceRef="GW_Admissibilidade" targetRef="ST_SolicitarDocumentos">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${admissibilidade.resultado == 'PENDENTE_DOCUMENTACAO'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GW_SegueAnalise" name="SEGUE_ANALISE (default)" sourceRef="GW_Admissibilidade" targetRef="BRT_SlaAnalise"/>
+    <bpmn:sequenceFlow id="Flow_Solicitar_WaitDocs" sourceRef="ST_SolicitarDocumentos" targetRef="GW_AguardarDocs"/>
+    <bpmn:sequenceFlow id="Flow_Wait_DocsMsg" sourceRef="GW_AguardarDocs" targetRef="ICE_DocsRecebidos"/>
+    <bpmn:sequenceFlow id="Flow_Wait_Timer" sourceRef="GW_AguardarDocs" targetRef="ICE_PrazoPendencia"/>
+    <bpmn:sequenceFlow id="Flow_DocsOk_Admiss" sourceRef="ICE_DocsRecebidos" targetRef="BRT_Admissibilidade"/>
+    <bpmn:sequenceFlow id="Flow_PrazoPendencia_UT" sourceRef="ICE_PrazoPendencia" targetRef="UT_DecidirPendenciaExpirada"/>
+    <bpmn:sequenceFlow id="Flow_UTPend_GW" sourceRef="UT_DecidirPendenciaExpirada" targetRef="GW_PendenciaExpirada"/>
+    <bpmn:sequenceFlow id="Flow_GWPend_Cancelar" name="cancelar_guia" sourceRef="GW_PendenciaExpirada" targetRef="ST_PublishCancelada">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_pendencia == 'cancelar_guia'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWPend_PrazoExtra" name="conceder_prazo_extra" sourceRef="GW_PendenciaExpirada" targetRef="BRT_SlaAnalise">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_pendencia == 'conceder_prazo_extra'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWPend_SegueAnalise" name="seguir_analise (default)" sourceRef="GW_PendenciaExpirada" targetRef="BRT_SlaAnalise"/>
+    <bpmn:sequenceFlow id="Flow_PubCancelada_End" sourceRef="ST_PublishCancelada" targetRef="End_CanceladaPendencia"/>
+    <bpmn:sequenceFlow id="Flow_Sla_AutoApproval" sourceRef="BRT_SlaAnalise" targetRef="BRT_AutoApproval"/>
+    <bpmn:sequenceFlow id="Flow_AutoApproval_GW" sourceRef="BRT_AutoApproval" targetRef="GW_AutoAprovacao"/>
+    <bpmn:sequenceFlow id="Flow_GW_AutoAprovar" name="AUTO_APROVAR (L2)" sourceRef="GW_AutoAprovacao" targetRef="ST_EmitirAutorizacaoAuto">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${auto_aprovacao.recomendacao == 'AUTO_APROVAR'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GW_AnaliseHumana" name="ANALISE_HUMANA (default)" sourceRef="GW_AutoAprovacao" targetRef="ST_PrepararDossie"/>
+    <bpmn:sequenceFlow id="Flow_EmitirAuto_Pub" sourceRef="ST_EmitirAutorizacaoAuto" targetRef="ST_PublishAprovadaAuto"/>
+    <bpmn:sequenceFlow id="Flow_PubAuto_End" sourceRef="ST_PublishAprovadaAuto" targetRef="End_AprovadaAutomatica"/>
+    <bpmn:sequenceFlow id="Flow_Dossie_UTAuditor" sourceRef="ST_PrepararDossie" targetRef="UT_AnaliseMedicoAuditor"/>
+    <bpmn:sequenceFlow id="Flow_Alerta_Notify" sourceRef="BT_AlertaSla" targetRef="ST_NotificarRiscoSla"/>
+    <bpmn:sequenceFlow id="Flow_Notify_EndAlerta" sourceRef="ST_NotificarRiscoSla" targetRef="End_RiscoSlaNotificado"/>
+    <bpmn:sequenceFlow id="Flow_SlaEstourado_Pub" sourceRef="BT_SlaAnalise" targetRef="ST_PublishSlaBreach"/>
+    <bpmn:sequenceFlow id="Flow_PubBreach_UTCoord" sourceRef="ST_PublishSlaBreach" targetRef="UT_CoordenacaoAssume"/>
+    <bpmn:sequenceFlow id="Flow_UTAuditor_GW" sourceRef="UT_AnaliseMedicoAuditor" targetRef="GW_DecisaoAuditor"/>
+    <bpmn:sequenceFlow id="Flow_UTCoord_GW" sourceRef="UT_CoordenacaoAssume" targetRef="GW_DecisaoAuditor"/>
+    <bpmn:sequenceFlow id="Flow_GWDec_Aprovar" name="APROVAR (default)" sourceRef="GW_DecisaoAuditor" targetRef="ST_EmitirAutorizacaoAuditor"/>
+    <bpmn:sequenceFlow id="Flow_GWDec_Negar" name="NEGAR (somente humano)" sourceRef="GW_DecisaoAuditor" targetRef="ST_EnviarNegativaFormal">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_auditor == 'NEGAR'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWDec_SolicitarInfo" name="SOLICITAR_INFO" sourceRef="GW_DecisaoAuditor" targetRef="ST_SolicitarDocumentos">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_auditor == 'SOLICITAR_INFO'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWDec_Junta" name="JUNTA_MEDICA" sourceRef="GW_DecisaoAuditor" targetRef="ST_ConvocarJunta">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_auditor == 'JUNTA_MEDICA'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_EmitirAuditor_Pub" sourceRef="ST_EmitirAutorizacaoAuditor" targetRef="ST_PublishAprovadaAuditor"/>
+    <bpmn:sequenceFlow id="Flow_PubAuditor_End" sourceRef="ST_PublishAprovadaAuditor" targetRef="End_AprovadaAuditor"/>
+    <bpmn:sequenceFlow id="Flow_Negativa_Pub" sourceRef="ST_EnviarNegativaFormal" targetRef="ST_PublishNegada"/>
+    <bpmn:sequenceFlow id="Flow_NegativaIncompleta_End" sourceRef="BE_NegativaIncompleta" targetRef="End_FundamentacaoIncompletaBloqueada"/>
+    <bpmn:sequenceFlow id="Flow_PubNegada_End" sourceRef="ST_PublishNegada" targetRef="End_NegadaAuditor"/>
+    <bpmn:sequenceFlow id="Flow_Convocar_UTJunta" sourceRef="ST_ConvocarJunta" targetRef="UT_RegistrarParecerJunta"/>
+    <bpmn:sequenceFlow id="Flow_Junta_GWDec" sourceRef="UT_RegistrarParecerJunta" targetRef="GW_DecisaoAuditor"/>
+  </bpmn:process>
+
+  <bpmndi:BPMNDiagram id="Diagram_SP-OP-AUTH-001">
+    <bpmndi:BPMNPlane id="Plane_SP-OP-AUTH-001" bpmnElement="SP-OP-AUTH-001">
+      <bpmndi:BPMNShape id="Shape_Start_SolicitacaoRecebida" bpmnElement="Start_SolicitacaoRecebida">
+        <dc:Bounds x="72" y="62" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishReceived" bpmnElement="ST_PublishReceived">
+        <dc:Bounds x="220" y="40" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_Admissibilidade" bpmnElement="BRT_Admissibilidade">
+        <dc:Bounds x="400" y="40" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_Admissibilidade" bpmnElement="GW_Admissibilidade" isMarkerVisible="true">
+        <dc:Bounds x="580" y="55" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishNaoRequer" bpmnElement="ST_PublishNaoRequer">
+        <dc:Bounds x="710" y="40" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_NaoRequerAutorizacao" bpmnElement="End_NaoRequerAutorizacao">
+        <dc:Bounds x="897" y="62" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_SolicitarDocumentos" bpmnElement="ST_SolicitarDocumentos">
+        <dc:Bounds x="710" y="160" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_AguardarDocs" bpmnElement="GW_AguardarDocs" isMarkerVisible="true">
+        <dc:Bounds x="890" y="175" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ICE_DocsRecebidos" bpmnElement="ICE_DocsRecebidos">
+        <dc:Bounds x="1020" y="182" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ICE_PrazoPendencia" bpmnElement="ICE_PrazoPendencia">
+        <dc:Bounds x="1020" y="314" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT_DecidirPendenciaExpirada" bpmnElement="UT_DecidirPendenciaExpirada">
+        <dc:Bounds x="1136" y="292" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_PendenciaExpirada" bpmnElement="GW_PendenciaExpirada" isMarkerVisible="true">
+        <dc:Bounds x="1316" y="307" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishCancelada" bpmnElement="ST_PublishCancelada">
+        <dc:Bounds x="1446" y="292" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_CanceladaPendencia" bpmnElement="End_CanceladaPendencia">
+        <dc:Bounds x="1658" y="314" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_SlaAnalise" bpmnElement="BRT_SlaAnalise">
+        <dc:Bounds x="1446" y="160" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_AutoApproval" bpmnElement="BRT_AutoApproval">
+        <dc:Bounds x="1626" y="160" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_AutoAprovacao" bpmnElement="GW_AutoAprovacao" isMarkerVisible="true">
+        <dc:Bounds x="1806" y="175" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_EmitirAutorizacaoAuto" bpmnElement="ST_EmitirAutorizacaoAuto">
+        <dc:Bounds x="1936" y="160" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishAprovadaAuto" bpmnElement="ST_PublishAprovadaAuto">
+        <dc:Bounds x="2116" y="160" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_AprovadaAutomatica" bpmnElement="End_AprovadaAutomatica">
+        <dc:Bounds x="2303" y="182" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PrepararDossie" bpmnElement="ST_PrepararDossie">
+        <dc:Bounds x="1936" y="292" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT_AnaliseMedicoAuditor" bpmnElement="UT_AnaliseMedicoAuditor">
+        <dc:Bounds x="2116" y="292" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_AlertaSla" bpmnElement="BT_AlertaSla">
+        <dc:Bounds x="2131" y="354" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_NotificarRiscoSla" bpmnElement="ST_NotificarRiscoSla">
+        <dc:Bounds x="40" y="160" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_RiscoSlaNotificado" bpmnElement="End_RiscoSlaNotificado">
+        <dc:Bounds x="252" y="182" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_SlaAnalise" bpmnElement="BT_SlaAnalise">
+        <dc:Bounds x="2164" y="354" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishSlaBreach" bpmnElement="ST_PublishSlaBreach">
+        <dc:Bounds x="40" y="292" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT_CoordenacaoAssume" bpmnElement="UT_CoordenacaoAssume">
+        <dc:Bounds x="220" y="292" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_DecisaoAuditor" bpmnElement="GW_DecisaoAuditor" isMarkerVisible="true">
+        <dc:Bounds x="2296" y="307" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_EmitirAutorizacaoAuditor" bpmnElement="ST_EmitirAutorizacaoAuditor">
+        <dc:Bounds x="2426" y="292" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishAprovadaAuditor" bpmnElement="ST_PublishAprovadaAuditor">
+        <dc:Bounds x="2606" y="292" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_AprovadaAuditor" bpmnElement="End_AprovadaAuditor">
+        <dc:Bounds x="2786" y="314" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_EnviarNegativaFormal" bpmnElement="ST_EnviarNegativaFormal">
+        <dc:Bounds x="2426" y="436" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BE_NegativaIncompleta" bpmnElement="BE_NegativaIncompleta">
+        <dc:Bounds x="2458" y="498" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_FundamentacaoIncompletaBloqueada" bpmnElement="End_FundamentacaoIncompletaBloqueada">
+        <dc:Bounds x="72" y="458" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishNegada" bpmnElement="ST_PublishNegada">
+        <dc:Bounds x="2606" y="436" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_NegadaAuditor" bpmnElement="End_NegadaAuditor">
+        <dc:Bounds x="2786" y="458" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_ConvocarJunta" bpmnElement="ST_ConvocarJunta">
+        <dc:Bounds x="2426" y="568" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT_RegistrarParecerJunta" bpmnElement="UT_RegistrarParecerJunta">
+        <dc:Bounds x="2606" y="568" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_Flow_Start_PubReceived" bpmnElement="Flow_Start_PubReceived">
+        <di:waypoint x="108" y="80"/>
+        <di:waypoint x="220" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubReceived_Admiss" bpmnElement="Flow_PubReceived_Admiss">
+        <di:waypoint x="320" y="80"/>
+        <di:waypoint x="400" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Admiss_GW" bpmnElement="Flow_Admiss_GW">
+        <di:waypoint x="500" y="80"/>
+        <di:waypoint x="580" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GW_NaoRequer" bpmnElement="Flow_GW_NaoRequer">
+        <di:waypoint x="630" y="80"/>
+        <di:waypoint x="710" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubNaoRequer_End" bpmnElement="Flow_PubNaoRequer_End">
+        <di:waypoint x="810" y="80"/>
+        <di:waypoint x="897" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GW_Pendencia" bpmnElement="Flow_GW_Pendencia">
+        <di:waypoint x="630" y="80"/>
+        <di:waypoint x="670" y="80"/>
+        <di:waypoint x="670" y="200"/>
+        <di:waypoint x="710" y="200"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GW_SegueAnalise" bpmnElement="Flow_GW_SegueAnalise">
+        <di:waypoint x="630" y="80"/>
+        <di:waypoint x="1038" y="80"/>
+        <di:waypoint x="1038" y="200"/>
+        <di:waypoint x="1446" y="200"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Solicitar_WaitDocs" bpmnElement="Flow_Solicitar_WaitDocs">
+        <di:waypoint x="810" y="200"/>
+        <di:waypoint x="890" y="200"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Wait_DocsMsg" bpmnElement="Flow_Wait_DocsMsg">
+        <di:waypoint x="940" y="200"/>
+        <di:waypoint x="1020" y="200"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Wait_Timer" bpmnElement="Flow_Wait_Timer">
+        <di:waypoint x="940" y="200"/>
+        <di:waypoint x="980" y="200"/>
+        <di:waypoint x="980" y="332"/>
+        <di:waypoint x="1020" y="332"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_DocsOk_Admiss" bpmnElement="Flow_DocsOk_Admiss">
+        <di:waypoint x="1038" y="218"/>
+        <di:waypoint x="1038" y="278"/>
+        <di:waypoint x="400" y="278"/>
+        <di:waypoint x="400" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PrazoPendencia_UT" bpmnElement="Flow_PrazoPendencia_UT">
+        <di:waypoint x="1056" y="332"/>
+        <di:waypoint x="1136" y="332"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_UTPend_GW" bpmnElement="Flow_UTPend_GW">
+        <di:waypoint x="1236" y="332"/>
+        <di:waypoint x="1316" y="332"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWPend_Cancelar" bpmnElement="Flow_GWPend_Cancelar">
+        <di:waypoint x="1366" y="332"/>
+        <di:waypoint x="1446" y="332"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWPend_PrazoExtra" bpmnElement="Flow_GWPend_PrazoExtra">
+        <di:waypoint x="1366" y="332"/>
+        <di:waypoint x="1406" y="332"/>
+        <di:waypoint x="1406" y="200"/>
+        <di:waypoint x="1446" y="200"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWPend_SegueAnalise" bpmnElement="Flow_GWPend_SegueAnalise">
+        <di:waypoint x="1366" y="332"/>
+        <di:waypoint x="1406" y="332"/>
+        <di:waypoint x="1406" y="200"/>
+        <di:waypoint x="1446" y="200"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubCancelada_End" bpmnElement="Flow_PubCancelada_End">
+        <di:waypoint x="1546" y="332"/>
+        <di:waypoint x="1658" y="332"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Sla_AutoApproval" bpmnElement="Flow_Sla_AutoApproval">
+        <di:waypoint x="1546" y="200"/>
+        <di:waypoint x="1626" y="200"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_AutoApproval_GW" bpmnElement="Flow_AutoApproval_GW">
+        <di:waypoint x="1726" y="200"/>
+        <di:waypoint x="1806" y="200"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GW_AutoAprovar" bpmnElement="Flow_GW_AutoAprovar">
+        <di:waypoint x="1856" y="200"/>
+        <di:waypoint x="1936" y="200"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GW_AnaliseHumana" bpmnElement="Flow_GW_AnaliseHumana">
+        <di:waypoint x="1856" y="200"/>
+        <di:waypoint x="1896" y="200"/>
+        <di:waypoint x="1896" y="332"/>
+        <di:waypoint x="1936" y="332"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_EmitirAuto_Pub" bpmnElement="Flow_EmitirAuto_Pub">
+        <di:waypoint x="2036" y="200"/>
+        <di:waypoint x="2116" y="200"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubAuto_End" bpmnElement="Flow_PubAuto_End">
+        <di:waypoint x="2216" y="200"/>
+        <di:waypoint x="2303" y="200"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Dossie_UTAuditor" bpmnElement="Flow_Dossie_UTAuditor">
+        <di:waypoint x="2036" y="332"/>
+        <di:waypoint x="2116" y="332"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Alerta_Notify" bpmnElement="Flow_Alerta_Notify">
+        <di:waypoint x="2149" y="390"/>
+        <di:waypoint x="2149" y="450"/>
+        <di:waypoint x="40" y="450"/>
+        <di:waypoint x="40" y="200"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Notify_EndAlerta" bpmnElement="Flow_Notify_EndAlerta">
+        <di:waypoint x="140" y="200"/>
+        <di:waypoint x="252" y="200"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_SlaEstourado_Pub" bpmnElement="Flow_SlaEstourado_Pub">
+        <di:waypoint x="2182" y="390"/>
+        <di:waypoint x="2182" y="450"/>
+        <di:waypoint x="40" y="450"/>
+        <di:waypoint x="40" y="332"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubBreach_UTCoord" bpmnElement="Flow_PubBreach_UTCoord">
+        <di:waypoint x="140" y="332"/>
+        <di:waypoint x="220" y="332"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_UTAuditor_GW" bpmnElement="Flow_UTAuditor_GW">
+        <di:waypoint x="2216" y="332"/>
+        <di:waypoint x="2296" y="332"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_UTCoord_GW" bpmnElement="Flow_UTCoord_GW">
+        <di:waypoint x="320" y="332"/>
+        <di:waypoint x="2296" y="332"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Aprovar" bpmnElement="Flow_GWDec_Aprovar">
+        <di:waypoint x="2346" y="332"/>
+        <di:waypoint x="2426" y="332"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Negar" bpmnElement="Flow_GWDec_Negar">
+        <di:waypoint x="2346" y="332"/>
+        <di:waypoint x="2386" y="332"/>
+        <di:waypoint x="2386" y="476"/>
+        <di:waypoint x="2426" y="476"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_SolicitarInfo" bpmnElement="Flow_GWDec_SolicitarInfo">
+        <di:waypoint x="2321" y="357"/>
+        <di:waypoint x="2321" y="417"/>
+        <di:waypoint x="710" y="417"/>
+        <di:waypoint x="710" y="200"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Junta" bpmnElement="Flow_GWDec_Junta">
+        <di:waypoint x="2346" y="332"/>
+        <di:waypoint x="2386" y="332"/>
+        <di:waypoint x="2386" y="608"/>
+        <di:waypoint x="2426" y="608"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_EmitirAuditor_Pub" bpmnElement="Flow_EmitirAuditor_Pub">
+        <di:waypoint x="2526" y="332"/>
+        <di:waypoint x="2606" y="332"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubAuditor_End" bpmnElement="Flow_PubAuditor_End">
+        <di:waypoint x="2706" y="332"/>
+        <di:waypoint x="2786" y="332"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Negativa_Pub" bpmnElement="Flow_Negativa_Pub">
+        <di:waypoint x="2526" y="476"/>
+        <di:waypoint x="2606" y="476"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_NegativaIncompleta_End" bpmnElement="Flow_NegativaIncompleta_End">
+        <di:waypoint x="2476" y="534"/>
+        <di:waypoint x="2476" y="594"/>
+        <di:waypoint x="72" y="594"/>
+        <di:waypoint x="72" y="476"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubNegada_End" bpmnElement="Flow_PubNegada_End">
+        <di:waypoint x="2706" y="476"/>
+        <di:waypoint x="2786" y="476"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Convocar_UTJunta" bpmnElement="Flow_Convocar_UTJunta">
+        <di:waypoint x="2526" y="608"/>
+        <di:waypoint x="2606" y="608"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Junta_GWDec" bpmnElement="Flow_Junta_GWDec">
+        <di:waypoint x="2656" y="648"/>
+        <di:waypoint x="2656" y="708"/>
+        <di:waypoint x="2296" y="708"/>
+        <di:waypoint x="2296" y="332"/>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

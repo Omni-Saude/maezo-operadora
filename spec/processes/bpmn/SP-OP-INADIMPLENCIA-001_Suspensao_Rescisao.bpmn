@@ -1,0 +1,691 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+                  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+                  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+                  xmlns:camunda="http://camunda.org/schema/1.0/bpmn"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  id="Definitions_SP_OP_INADIMPLENCIA_001"
+                  targetNamespace="http://maezo.health/operadora/inadimplencia"
+                  exporter="Maezo W-B PROC"
+                  exporterVersion="0.1.0-draft">
+
+  <bpmn:message id="Msg_InadPagamentoRecebido" name="msg.inadimplencia.pagamento_recebido"/>
+  <bpmn:message id="Msg_InadNotificacaoAck" name="msg.inadimplencia.notificacao_ack"/>
+  <bpmn:message id="Msg_InadInfoRecebida" name="msg.inadimplencia.info_received"/>
+  <bpmn:error id="Error_InadContratoInvalido" name="Contrato inconsistente na origem" errorCode="ERR_INAD_INVALID_CONTRATO"/>
+  <bpmn:error id="Error_ContractSuspensionNotHuman" name="Suspensao sem decisao humana" errorCode="ERR_CONTRACT_SUSPENSION_NOT_HUMAN"/>
+
+  <bpmn:process id="SP-OP-INADIMPLENCIA-001" name="SP-OP-INADIMPLENCIA-001 Suspensao / Rescisao por Inadimplencia"
+                isExecutable="true" camunda:historyTimeToLive="1825">
+    <bpmn:documentation><![CDATA[
+SP-OP-INADIMPLENCIA-001 — Suspensao / Rescisao por Inadimplencia. Status: DRAFT (v0.1.0) — Phase 3,
+Wave W-B. DI (diagrama) sera adicionado na promocao a FINAL. Requer revisao humana (juridico/contratos
++ gestao-cobranca + regulatorio + DPO + finanças + PO) antes de qualquer deploy — docs/review-queue.md.
+
+GATILHO REGULATORIO: RN 593 (suspensao/rescisao por inadimplencia — janela de purga/cura + notificacao
+previa ate o 50o dia; possivelmente consolida/supersede RN 412/2016 — OQ aberta), Lei 9.656/1998 art. 13
+par. unico II (periodo minimo de inadimplencia + comprovacao de notificacao). TODAS as citacoes, prazos,
+escadas e candidate-groups sao DRAFT/verify com regulatorio/juridico antes de qualquer timer em producao.
+
+INVARIANTE L0 HARD (contract_termination, _hard_frozen.yaml, CI-enforced): NENHUM caminho automatizado
+suspende NEM rescinde o contrato por inadimplencia. A suspensao (efeito adverso NATIVO deste processo) SO
+nasce na User Task humana UT_AnaliseInadimplencia (ou UT_CoordenacaoCobranca no estouro de SLA), via
+decisao_inadimplencia=SUSPENDER setado por humano dos grupos juridico-contratos / gestao-cobranca.
+NENHUMA DMN deste processo possui saida que suspenda/rescinda: inadimplencia_status so produz
+{AGUARDA_PURGA, PENDENTE_NOTIFICACAO, SEGUE_ANALISE, ANALISE_HUMANA}; catch-all -> ANALISE_HUMANA. O event
+gateway de purga (RN 593) INVERTE o anti-pattern "auto-suspender/auto-rescindir no estouro do prazo de
+purga": a expiracao da janela de cura roteia para a User Task humana, NUNCA para um terminal adverso
+automatico. O efeito adverso (registro da suspensao) e materializado SO pelo worker
+operadora.inadimplencia.register_contract_suspension, guardado por ERR_CONTRACT_SUSPENSION_NOT_HUMAN. O
+unico terminal ADVERSO (End_ContratoSuspenso_Inad) so e alcancavel apos a User Task humana concluida.
+
+HARMONIZACAO CANCEL-001 (BINDING — .harmonization-decision.md, DRAFT-A adotada; sem dupla-rescisao):
+CANCEL-001 (Phase 2, em main) DETEM o terminal de RESCISAO (End_ContratoRescindido), human-gated por
+UT_AnaliseRescisao + ERR_CANCELLATION_NOT_HUMAN. INADIMPLENCIA-001 DETEM o ciclo de cobranca/purga e a
+SUSPENSAO. Quando o humano decide ENCAMINHAR_RESCISAO (RESCINDIR), INADIMPLENCIA-001 NAO rescinde: roda o
+worker de handoff operadora.inadimplencia.handoff_rescisao, que inicia/correlaciona SP-OP-CANCEL-001 (que
+detem o terminal de rescisao) e termina no terminal NEUTRO End_RescisaoHandoffCancel. INADIMPLENCIA-001
+NAO declara nenhum terminal de rescisao proprio e NAO existe register_contract_rescission wired a nenhum
+terminal — a rescisao existe em UM unico lugar: CANCEL-001 (anti-dupla-rescisao, topologia primaria).
+
+BUSINESS KEY (idempotente, prefixo DISTINTO de CANCEL para o MESMO contrato — anti-colisao de instancia):
+"INAD-{tenant_id}-{numero_contrato}" (variante "INAD-{tenant_id}-{matricula_beneficiario}" para planos
+individual/familiar). Correlacao cross-process com CANCEL na identidade bare {tenant_id}-{numero_contrato}.
+O worker adverso verifica ja_em_rescisao_cancel (read-only) antes de materializar a suspensao — defesa em
+profundidade contra dupla-terminacao (recusa com ERR_CONTRACT_SUSPENSION_NOT_HUMAN se ja_em_rescisao_cancel).
+
+EVENTOS DE DOMINIO (worker operadora.events.publish):
+  inicio -> agents.events.inadimplencia.received
+  notificacao -> agents.events.inadimplencia.notified
+  breach -> agents.events.inadimplencia.sla_breached
+  fim -> agents.events.inadimplencia.completed (payload.desfecho = suspenso | rescisao_handoff |
+         purgado | mantido)
+
+VARIAVEIS DE ENTRADA: tenant_id, numero_contrato, matricula_beneficiario, tipo_plano (individual |
+familiar | coletivo_empresarial | coletivo_adesao), origem_solicitacao (cobranca | operadora |
+agente_fernando | juridico), competencias_em_aberto (json), meses_inadimplencia (integer, pre-resolvido),
+valor_total_devido_cents (integer, pre-resolvido), dentro_periodo_minimo (bool, pre-resolvido),
+notificacao_previa_feita (bool, pre-resolvido), dentro_janela_purga (bool, pre-resolvido),
+ja_em_rescisao_cancel (bool, opc, correlacao cross-process), data_solicitacao_iso, documentos_refs (json).
+Contrato completo: docs/processes/contracts/SP-OP-INADIMPLENCIA-001.md.
+]]></bpmn:documentation>
+
+    <bpmn:startEvent id="Start_Inadimplencia" name="Inadimplencia recebida (cobranca/operadora)">
+      <bpmn:outgoing>Flow_Start_PubReceived</bpmn:outgoing>
+    </bpmn:startEvent>
+
+    <bpmn:serviceTask id="ST_PublishReceived" name="Publicar evento: inadimplencia.received"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.inadimplencia.received</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_contrato,tipo_plano,origem_solicitacao</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Start_PubReceived</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubReceived_ResolveFacts</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- Pre-resolve fatos clericais (meses, valor, periodo minimo, janela de purga, notificacao,
+         correlacao cross-process ja_em_rescisao_cancel). FATOS, nunca decisao. TASY write DROP (ADR-0013). -->
+    <bpmn:serviceTask id="ST_ResolveFacts" name="Pre-resolver fatos de inadimplencia (sem decidir)"
+                      camunda:type="external" camunda:topic="operadora.inadimplencia.resolve_facts">
+      <bpmn:documentation>Worker resolve/ecoa fatos (meses_inadimplencia, valor_total_devido_cents, dentro_periodo_minimo, dentro_janela_purga, notificacao_previa_feita, ja_em_rescisao_cancel). FATOS, nunca decisao adversa. TASY write DROP — so consome o CDC do amh-data-platform (ADR-0013).</bpmn:documentation>
+      <bpmn:incoming>Flow_PubReceived_ResolveFacts</bpmn:incoming>
+      <bpmn:incoming>Flow_NotifAck_ResolveFacts</bpmn:incoming>
+      <bpmn:outgoing>Flow_ResolveFacts_Status</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- DMN: estado de inadimplencia (nunca suspende/rescinde — apenas classifica + roteia) -->
+    <bpmn:businessRuleTask id="BRT_Status" name="Classificar estado de inadimplencia (DMN inadimplencia_status)"
+                           camunda:decisionRef="inadimplencia_status"
+                           camunda:mapDecisionResult="singleResult"
+                           camunda:resultVariable="status_inad">
+      <bpmn:documentation>Saidas possiveis: AGUARDA_PURGA (cure-window; nunca adverso) | PENDENTE_NOTIFICACAO | SEGUE_ANALISE | ANALISE_HUMANA. Por design NAO existe saida SUSPENDER/RESCINDIR (L0 hard). Catch-all -> ANALISE_HUMANA.</bpmn:documentation>
+      <bpmn:incoming>Flow_ResolveFacts_Status</bpmn:incoming>
+      <bpmn:outgoing>Flow_Status_GW</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+
+    <bpmn:exclusiveGateway id="GW_Status" name="Resultado do estado de inadimplencia" default="Flow_GW_AnaliseHumana">
+      <bpmn:incoming>Flow_Status_GW</bpmn:incoming>
+      <bpmn:outgoing>Flow_GW_AguardaPurga</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GW_PendenteNotificacao</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GW_SegueAnalise</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GW_AnaliseHumana</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <!-- DMN: prazos regulatorios (purga + notificacao previa + periodo minimo). Resolvida antes do
+         cure-window (fornece ${purga.prazo_purga} / ${purga.prazo_notificacao_previa} aos timers). -->
+    <bpmn:businessRuleTask id="BRT_PurgaPrazos" name="Determinar prazos de purga/notificacao (DMN inadimplencia_purga)"
+                           camunda:decisionRef="inadimplencia_purga"
+                           camunda:mapDecisionResult="singleResult"
+                           camunda:resultVariable="purga">
+      <bpmn:documentation>Saidas: prazo_purga, prazo_notificacao_previa, periodo_minimo (todos string ISO 8601), fonte_regulatoria. Apenas determina prazos regulatorios (RN 593 — DRAFT/verify). NAO decide suspender/rescindir. Catch-all -> prazos conservadores + fonte_regulatoria=DRAFT_DEFAULT.</bpmn:documentation>
+      <bpmn:incoming>Flow_GW_AguardaPurga</bpmn:incoming>
+      <bpmn:incoming>Flow_GW_PendenteNotificacao</bpmn:incoming>
+      <bpmn:outgoing>Flow_Purga_RequestNotif</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+
+    <!-- Dispara/registra notificacao previa ao beneficiario (RN 593) + publica inadimplencia.notified. -->
+    <bpmn:serviceTask id="ST_CheckPriorNotice" name="Disparar/registrar notificacao previa (RN 593)"
+                      camunda:type="external" camunda:topic="operadora.inadimplencia.check_prior_notice">
+      <bpmn:documentation>Dispara/registra a notificacao previa ao beneficiario (RN 593 — notificacao ate o 50o dia; DRAFT/verify). Publica agents.events.inadimplencia.notified (notificacao disparada). NAO suspende/rescinde.</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic_notified">agents.events.inadimplencia.notified</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Purga_RequestNotif</bpmn:incoming>
+      <bpmn:outgoing>Flow_RequestNotif_CureGW</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- CURE-WINDOW (event-based gateway, RN 593): corrida entre o PAGAMENTO recebido (purga) e a
+         EXPIRACAO do prazo. Pagamento dentro da janela -> End_Purgado (neutro). Expiracao -> SLA + User
+         Task humana (NUNCA terminal adverso automatico — INVERTE auto-suspender/auto-rescindir-no-timeout).
+         Ack da notificacao previa -> reavaliacao (re-resolve fatos). -->
+    <bpmn:eventBasedGateway id="GW_CureWindow" name="Cure-window de purga (RN 593)">
+      <bpmn:incoming>Flow_RequestNotif_CureGW</bpmn:incoming>
+      <bpmn:outgoing>Flow_Cure_Pagamento</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Cure_NotifAck</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Cure_PrazoPurga</bpmn:outgoing>
+    </bpmn:eventBasedGateway>
+
+    <!-- Pagamento recebido dentro da janela de purga -> purga (neutro, NUNCA adverso). -->
+    <bpmn:intermediateCatchEvent id="ICE_PagamentoRecebido" name="Pagamento recebido (purga dentro da janela)">
+      <bpmn:incoming>Flow_Cure_Pagamento</bpmn:incoming>
+      <bpmn:outgoing>Flow_Pagamento_PubPurgado</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="MED_PagamentoRecebido" messageRef="Msg_InadPagamentoRecebido"/>
+    </bpmn:intermediateCatchEvent>
+
+    <!-- Ack da notificacao previa -> re-resolve fatos e reavalia (NUNCA auto-suspende). -->
+    <bpmn:intermediateCatchEvent id="ICE_NotificacaoAck" name="Recebimento da notificacao previa confirmado">
+      <bpmn:incoming>Flow_Cure_NotifAck</bpmn:incoming>
+      <bpmn:outgoing>Flow_NotifAck_ResolveFacts</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="MED_NotificacaoAck" messageRef="Msg_InadNotificacaoAck"/>
+    </bpmn:intermediateCatchEvent>
+
+    <!-- Timer: prazo de purga/notificacao expira SEM pagamento -> analise HUMANA (NUNCA auto-suspende). -->
+    <bpmn:intermediateCatchEvent id="ICE_PrazoPurga" name="Prazo de purga/notificacao (RN 593 — DRAFT/verify)">
+      <bpmn:incoming>Flow_Cure_PrazoPurga</bpmn:incoming>
+      <bpmn:outgoing>Flow_PrazoPurga_Sla</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TD_PrazoPurga">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${purga.prazo_purga}</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:intermediateCatchEvent>
+
+    <bpmn:serviceTask id="ST_PublishPurgado" name="Publicar evento: inadimplencia.completed (purgado)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.inadimplencia.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">purgado</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_contrato</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Pagamento_PubPurgado</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubPurgado_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_Purgado" name="Inadimplencia purgada (pagamento dentro da janela)">
+      <bpmn:incoming>Flow_PubPurgado_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- DMN: SLA de analise (prazos + fonte regulatoria). Resolve a variavel `sla` na CONVERGENCIA de
+         TODOS os caminhos que levam a User Task humana, ANTES de UT_AnaliseInadimplencia: assim os
+         timers boundary ${sla.sla_alerta} / ${sla.sla_analise} estao definidos em TODAS as entradas
+         (ENGINE-16004). Os tres caminhos convergem aqui: SEGUE_ANALISE, ANALISE_HUMANA, prazo de purga. -->
+    <bpmn:businessRuleTask id="BRT_Sla" name="Determinar SLA de analise (DMN inadimplencia_sla)"
+                           camunda:decisionRef="inadimplencia_sla"
+                           camunda:mapDecisionResult="singleResult"
+                           camunda:resultVariable="sla">
+      <bpmn:documentation>Saidas: sla_analise, sla_alerta (string ISO 8601), fonte_regulatoria. Sem saida adversa. Catch-all conservador. CONVERGENCIA: resolve `sla` antes da User Task humana — todos os caminhos que chegam a UT_AnaliseInadimplencia passam por aqui, garantindo `sla.*` definido em todos eles (ENGINE-16004). Prazos DRAFT/verify RN 593.</bpmn:documentation>
+      <bpmn:incoming>Flow_GW_SegueAnalise</bpmn:incoming>
+      <bpmn:incoming>Flow_GW_AnaliseHumana</bpmn:incoming>
+      <bpmn:incoming>Flow_PrazoPurga_Sla</bpmn:incoming>
+      <bpmn:outgoing>Flow_Sla_Dossie</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+
+    <!-- Dossie de analise (Fernando-general; instrui, nao decide — principio Rafael, ADR-0005). -->
+    <bpmn:serviceTask id="ST_PrepareDossier" name="Preparar dossie de analise (Fernando — instrui, nao decide)"
+                      camunda:type="external" camunda:topic="operadora.inadimplencia.prepare_dossier">
+      <bpmn:documentation>Convoca Fernando (general) via A2A: monta o dossie de analise (narrativa/montagem + evidencias + regras DMN avaliadas). O dossie INSTRUI a decisao humana, nunca a substitui (principio Rafael, ADR-0005). NAO seta decisao_inadimplencia.</bpmn:documentation>
+      <bpmn:incoming>Flow_Sla_Dossie</bpmn:incoming>
+      <bpmn:outgoing>Flow_Dossie_UTAnalise</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:userTask id="UT_AnaliseInadimplencia" name="Analise de inadimplencia (juridico-contratos / gestao-cobranca)"
+                   camunda:candidateGroups="juridico-contratos,gestao-cobranca">
+      <bpmn:documentation><![CDATA[
+HITL L0 hard (contract_termination, ADR-0005): UNICO ponto onde a suspensao por inadimplencia pode
+nascer e a partir de onde a rescisao e encaminhada (handoff) a CANCEL-001. Saidas: decisao_inadimplencia
+in {SUSPENDER, ENCAMINHAR_RESCISAO, MANTER, SOLICITAR_INFO}. SUSPENDER e ENCAMINHAR_RESCISAO exigem
+fundamentacao_contratual, referencia_regulatoria, comprovacao_notificacao_previa, comprovacao_periodo_minimo
+e responsavel_id (campos obrigatorios — validacao de formulario + guard do worker). SUSPENDER materializa
+a suspensao (terminal adverso End_ContratoSuspenso_Inad) via register_contract_suspension (gated).
+ENCAMINHAR_RESCISAO NAO rescinde aqui: roda handoff_rescisao (inicia/correlaciona CANCEL-001, que detem o
+terminal de rescisao) e termina no terminal NEUTRO End_RescisaoHandoffCancel — a rescisao e re-confirmada
+pela User Task humana propria de CANCEL-001 (anti-dupla-rescisao). MANTER => vinculo mantido. SLA:
+`sla.sla_analise` (DMN inadimplencia_sla; RN 593 — DRAFT/verify). A decisao sai em nome do humano
+(assignee na trilha de auditoria, ADR-0007).
+]]></bpmn:documentation>
+      <bpmn:incoming>Flow_Dossie_UTAnalise</bpmn:incoming>
+      <bpmn:incoming>Flow_InfoReceived_UTAnalise</bpmn:incoming>
+      <bpmn:incoming>Flow_InfoCatch_UTAnalise</bpmn:incoming>
+      <bpmn:outgoing>Flow_UTAnalise_GW</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <!-- Timer nao-interruptivo: alerta de risco de SLA -> coordenacao-cobranca (UT segue aberta). -->
+    <bpmn:boundaryEvent id="BT_AlertaSla" name="Alerta de risco de SLA" cancelActivity="false" attachedToRef="UT_AnaliseInadimplencia">
+      <bpmn:outgoing>Flow_Alerta_Notify</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TD_AlertaSla">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${sla.sla_alerta}</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="ST_NotificarRiscoSla" name="Notificar risco de SLA (coordenacao-cobranca)"
+                      camunda:type="external" camunda:topic="operadora.inadimplencia.notify_sla_risk">
+      <bpmn:incoming>Flow_Alerta_Notify</bpmn:incoming>
+      <bpmn:outgoing>Flow_Notify_EndAlerta</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_RiscoSlaNotificado" name="Risco de SLA notificado (analise segue)">
+      <bpmn:incoming>Flow_Notify_EndAlerta</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Timer interruptivo: SLA estourado -> coordenacao humana assume (NUNCA auto-suspende por timeout). -->
+    <bpmn:boundaryEvent id="BT_SlaAnalise" name="SLA de analise (RN 593 — DRAFT/verify)" cancelActivity="true" attachedToRef="UT_AnaliseInadimplencia">
+      <bpmn:outgoing>Flow_SlaEstourado_Pub</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TD_SlaAnalise">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${sla.sla_analise}</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+
+    <!-- Mensagem: info/documentacao solicitada pelo humano chegou -> reabre analise (interruptivo). -->
+    <bpmn:boundaryEvent id="BME_InfoRecebida" name="Info solicitada recebida" cancelActivity="true" attachedToRef="UT_AnaliseInadimplencia">
+      <bpmn:outgoing>Flow_InfoReceived_UTAnalise</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="MED_InfoRecebida" messageRef="Msg_InadInfoRecebida"/>
+    </bpmn:boundaryEvent>
+
+    <bpmn:serviceTask id="ST_PublishSlaBreach" name="Publicar evento: inadimplencia.sla_breached"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.inadimplencia.sla_breached</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_contrato</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_SlaEstourado_Pub</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubBreach_UTCoord</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:userTask id="UT_CoordenacaoCobranca" name="Coordenacao de cobranca assume a analise"
+                   camunda:candidateGroups="coordenacao-cobranca">
+      <bpmn:documentation>Escalation path do SLA: caso reatribuido a coordenacao-cobranca. Mesmas saidas e mesmos campos obrigatorios de UT_AnaliseInadimplencia (a decisao adversa continua HUMANA — nunca auto-suspende por timeout). A natureza da decisao nao muda por estouro de SLA.</bpmn:documentation>
+      <bpmn:incoming>Flow_PubBreach_UTCoord</bpmn:incoming>
+      <bpmn:outgoing>Flow_UTCoord_GW</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:exclusiveGateway id="GW_Decisao" name="Decisao da analise de inadimplencia" default="Flow_GWDec_Mantido">
+      <bpmn:incoming>Flow_UTAnalise_GW</bpmn:incoming>
+      <bpmn:incoming>Flow_UTCoord_GW</bpmn:incoming>
+      <bpmn:outgoing>Flow_GWDec_Suspender</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWDec_Rescisao</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWDec_SolicitarInfo</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWDec_Mantido</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <!-- Ramo SUSPENDER: efeito adverso NATIVO, gated por worker (ERR_CONTRACT_SUSPENSION_NOT_HUMAN). -->
+    <bpmn:serviceTask id="ST_RegisterSuspension" name="Registrar suspensao por inadimplencia (efeito adverso gated)"
+                      camunda:type="external" camunda:topic="operadora.inadimplencia.register_contract_suspension">
+      <bpmn:documentation>HARD GUARDRAIL (L0 hard, contract_termination): o worker RECUSA registrar a suspensao se decisao_inadimplencia != SUSPENDER setado por humano, se faltar responsavel_id/fundamentacao_contratual/referencia_regulatoria/comprovacao_notificacao_previa/comprovacao_periodo_minimo, OU se ja_em_rescisao_cancel=true (anti-dupla-terminacao) — lanca ERR_CONTRACT_SUSPENSION_NOT_HUMAN. Carrega responsavel_id+tier na trilha de auditoria (ADR-0007). Este worker NUNCA decide; so registra a decisao ja tomada na UT humana.</bpmn:documentation>
+      <bpmn:incoming>Flow_GWDec_Suspender</bpmn:incoming>
+      <bpmn:outgoing>Flow_Suspensao_Pub</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="ST_PublishSuspenso" name="Publicar evento: inadimplencia.completed (suspenso)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.inadimplencia.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">suspenso</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_contrato,responsavel_id</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Suspensao_Pub</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubSuspenso_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_ContratoSuspenso_Inad" name="Contrato suspenso por inadimplencia (L0 — humano)">
+      <bpmn:incoming>Flow_PubSuspenso_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Ramo ENCAMINHAR_RESCISAO: HANDOFF (NEUTRO) a CANCEL-001 — INADIMPLENCIA-001 NAO rescinde aqui.
+         Nao existe terminal de rescisao neste processo (anti-dupla-rescisao; CANCEL detem o terminal). -->
+    <bpmn:serviceTask id="ST_HandoffRescisao" name="Encaminhar rescisao a CANCEL-001 (handoff — nao rescinde aqui)"
+                      camunda:type="external" camunda:topic="operadora.inadimplencia.handoff_rescisao">
+      <bpmn:documentation>HANDOFF NEUTRO (anti-dupla-rescisao, .harmonization-decision.md DRAFT-A): inicia/correlaciona SP-OP-CANCEL-001 por business key CANCEL-{tenant}-{numero_contrato} (idempotente — lookup de business key), passando tipo_solicitacao=inadimplencia + origem_solicitacao=operadora + os fatos RN-593 coletados (meses_inadimplencia, notificacao_previa_feita, comprovacao_periodo_minimo, documentos_refs, responsavel_id da inadimplencia). NAO rescinde: a rescisao (terminal End_ContratoRescindido) e produzida pela User Task humana propria de CANCEL-001. Este NAO e um worker adverso (sem guard ERR_*_NOT_HUMAN); levanta WorkerFailure em erro de transporte. Publica inadimplencia.completed{desfecho=rescisao_handoff}.</bpmn:documentation>
+      <bpmn:incoming>Flow_GWDec_Rescisao</bpmn:incoming>
+      <bpmn:outgoing>Flow_Handoff_Pub</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="ST_PublishRescisaoHandoff" name="Publicar evento: inadimplencia.completed (rescisao_handoff)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.inadimplencia.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">rescisao_handoff</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_contrato,responsavel_id</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Handoff_Pub</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubHandoff_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_RescisaoHandoffCancel" name="Rescisao encaminhada a CANCEL-001 (handoff — neutro)">
+      <bpmn:incoming>Flow_PubHandoff_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Ramo SOLICITAR_INFO: aguarda info/documentacao (msg) -> reabre analise (sem efeito adverso). -->
+    <bpmn:intermediateCatchEvent id="ICE_AguardarInfo" name="Aguardar info/documentacao solicitada">
+      <bpmn:incoming>Flow_GWDec_SolicitarInfo</bpmn:incoming>
+      <bpmn:outgoing>Flow_InfoCatch_UTAnalise</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="MED_AguardarInfo" messageRef="Msg_InadInfoRecebida"/>
+    </bpmn:intermediateCatchEvent>
+
+    <!-- Ramo MANTER (default): vinculo mantido (humano decidiu manter; ex.: purga negociada). -->
+    <bpmn:serviceTask id="ST_PublishMantido" name="Publicar evento: inadimplencia.completed (mantido)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.inadimplencia.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">mantido</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_contrato</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_GWDec_Mantido</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubMantido_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_ContratoMantido" name="Vinculo mantido (decisao humana)">
+      <bpmn:incoming>Flow_PubMantido_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- FLOWS -->
+    <bpmn:sequenceFlow id="Flow_Start_PubReceived" sourceRef="Start_Inadimplencia" targetRef="ST_PublishReceived"/>
+    <bpmn:sequenceFlow id="Flow_PubReceived_ResolveFacts" sourceRef="ST_PublishReceived" targetRef="ST_ResolveFacts"/>
+    <bpmn:sequenceFlow id="Flow_ResolveFacts_Status" sourceRef="ST_ResolveFacts" targetRef="BRT_Status"/>
+    <bpmn:sequenceFlow id="Flow_Status_GW" sourceRef="BRT_Status" targetRef="GW_Status"/>
+    <bpmn:sequenceFlow id="Flow_GW_AguardaPurga" name="AGUARDA_PURGA (cure-window)" sourceRef="GW_Status" targetRef="BRT_PurgaPrazos">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${status_inad.roteamento == 'AGUARDA_PURGA'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GW_PendenteNotificacao" name="PENDENTE_NOTIFICACAO" sourceRef="GW_Status" targetRef="BRT_PurgaPrazos">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${status_inad.roteamento == 'PENDENTE_NOTIFICACAO'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GW_SegueAnalise" name="SEGUE_ANALISE" sourceRef="GW_Status" targetRef="BRT_Sla">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${status_inad.roteamento == 'SEGUE_ANALISE'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GW_AnaliseHumana" name="ANALISE_HUMANA (default — sempre humano)" sourceRef="GW_Status" targetRef="BRT_Sla"/>
+    <bpmn:sequenceFlow id="Flow_Purga_RequestNotif" sourceRef="BRT_PurgaPrazos" targetRef="ST_CheckPriorNotice"/>
+    <bpmn:sequenceFlow id="Flow_RequestNotif_CureGW" sourceRef="ST_CheckPriorNotice" targetRef="GW_CureWindow"/>
+    <bpmn:sequenceFlow id="Flow_Cure_Pagamento" sourceRef="GW_CureWindow" targetRef="ICE_PagamentoRecebido"/>
+    <bpmn:sequenceFlow id="Flow_Cure_NotifAck" sourceRef="GW_CureWindow" targetRef="ICE_NotificacaoAck"/>
+    <bpmn:sequenceFlow id="Flow_Cure_PrazoPurga" sourceRef="GW_CureWindow" targetRef="ICE_PrazoPurga"/>
+    <bpmn:sequenceFlow id="Flow_Pagamento_PubPurgado" sourceRef="ICE_PagamentoRecebido" targetRef="ST_PublishPurgado"/>
+    <bpmn:sequenceFlow id="Flow_PubPurgado_End" sourceRef="ST_PublishPurgado" targetRef="End_Purgado"/>
+    <bpmn:sequenceFlow id="Flow_NotifAck_ResolveFacts" sourceRef="ICE_NotificacaoAck" targetRef="ST_ResolveFacts"/>
+    <bpmn:sequenceFlow id="Flow_PrazoPurga_Sla" sourceRef="ICE_PrazoPurga" targetRef="BRT_Sla"/>
+    <bpmn:sequenceFlow id="Flow_Sla_Dossie" sourceRef="BRT_Sla" targetRef="ST_PrepareDossier"/>
+    <bpmn:sequenceFlow id="Flow_Dossie_UTAnalise" sourceRef="ST_PrepareDossier" targetRef="UT_AnaliseInadimplencia"/>
+    <bpmn:sequenceFlow id="Flow_Alerta_Notify" sourceRef="BT_AlertaSla" targetRef="ST_NotificarRiscoSla"/>
+    <bpmn:sequenceFlow id="Flow_Notify_EndAlerta" sourceRef="ST_NotificarRiscoSla" targetRef="End_RiscoSlaNotificado"/>
+    <bpmn:sequenceFlow id="Flow_SlaEstourado_Pub" sourceRef="BT_SlaAnalise" targetRef="ST_PublishSlaBreach"/>
+    <bpmn:sequenceFlow id="Flow_PubBreach_UTCoord" sourceRef="ST_PublishSlaBreach" targetRef="UT_CoordenacaoCobranca"/>
+    <bpmn:sequenceFlow id="Flow_InfoReceived_UTAnalise" sourceRef="BME_InfoRecebida" targetRef="UT_AnaliseInadimplencia"/>
+    <bpmn:sequenceFlow id="Flow_UTAnalise_GW" sourceRef="UT_AnaliseInadimplencia" targetRef="GW_Decisao"/>
+    <bpmn:sequenceFlow id="Flow_UTCoord_GW" sourceRef="UT_CoordenacaoCobranca" targetRef="GW_Decisao"/>
+    <bpmn:sequenceFlow id="Flow_GWDec_Suspender" name="SUSPENDER (somente humano)" sourceRef="GW_Decisao" targetRef="ST_RegisterSuspension">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_inadimplencia == 'SUSPENDER'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWDec_Rescisao" name="ENCAMINHAR_RESCISAO (handoff a CANCEL-001 — somente humano)" sourceRef="GW_Decisao" targetRef="ST_HandoffRescisao">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_inadimplencia == 'ENCAMINHAR_RESCISAO'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWDec_SolicitarInfo" name="SOLICITAR_INFO" sourceRef="GW_Decisao" targetRef="ICE_AguardarInfo">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_inadimplencia == 'SOLICITAR_INFO'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWDec_Mantido" name="MANTER (default)" sourceRef="GW_Decisao" targetRef="ST_PublishMantido"/>
+    <bpmn:sequenceFlow id="Flow_InfoCatch_UTAnalise" sourceRef="ICE_AguardarInfo" targetRef="UT_AnaliseInadimplencia"/>
+    <bpmn:sequenceFlow id="Flow_Suspensao_Pub" sourceRef="ST_RegisterSuspension" targetRef="ST_PublishSuspenso"/>
+    <bpmn:sequenceFlow id="Flow_PubSuspenso_End" sourceRef="ST_PublishSuspenso" targetRef="End_ContratoSuspenso_Inad"/>
+    <bpmn:sequenceFlow id="Flow_Handoff_Pub" sourceRef="ST_HandoffRescisao" targetRef="ST_PublishRescisaoHandoff"/>
+    <bpmn:sequenceFlow id="Flow_PubHandoff_End" sourceRef="ST_PublishRescisaoHandoff" targetRef="End_RescisaoHandoffCancel"/>
+    <bpmn:sequenceFlow id="Flow_PubMantido_End" sourceRef="ST_PublishMantido" targetRef="End_ContratoMantido"/>
+  </bpmn:process>
+
+  <bpmndi:BPMNDiagram id="Diagram_SP-OP-INADIMPLENCIA-001">
+    <bpmndi:BPMNPlane id="Plane_SP-OP-INADIMPLENCIA-001" bpmnElement="SP-OP-INADIMPLENCIA-001">
+      <bpmndi:BPMNShape id="Shape_Start_Inadimplencia" bpmnElement="Start_Inadimplencia">
+        <dc:Bounds x="72" y="62" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishReceived" bpmnElement="ST_PublishReceived">
+        <dc:Bounds x="220" y="40" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_ResolveFacts" bpmnElement="ST_ResolveFacts">
+        <dc:Bounds x="400" y="40" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_Status" bpmnElement="BRT_Status">
+        <dc:Bounds x="580" y="40" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_Status" bpmnElement="GW_Status" isMarkerVisible="true">
+        <dc:Bounds x="760" y="55" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_PurgaPrazos" bpmnElement="BRT_PurgaPrazos">
+        <dc:Bounds x="890" y="40" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_CheckPriorNotice" bpmnElement="ST_CheckPriorNotice">
+        <dc:Bounds x="1070" y="40" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_CureWindow" bpmnElement="GW_CureWindow" isMarkerVisible="true">
+        <dc:Bounds x="1250" y="55" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ICE_PagamentoRecebido" bpmnElement="ICE_PagamentoRecebido">
+        <dc:Bounds x="1380" y="62" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ICE_NotificacaoAck" bpmnElement="ICE_NotificacaoAck">
+        <dc:Bounds x="1380" y="194" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ICE_PrazoPurga" bpmnElement="ICE_PrazoPurga">
+        <dc:Bounds x="1380" y="326" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishPurgado" bpmnElement="ST_PublishPurgado">
+        <dc:Bounds x="1496" y="40" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_Purgado" bpmnElement="End_Purgado">
+        <dc:Bounds x="1708" y="62" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_Sla" bpmnElement="BRT_Sla">
+        <dc:Bounds x="1496" y="172" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PrepareDossier" bpmnElement="ST_PrepareDossier">
+        <dc:Bounds x="1676" y="172" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT_AnaliseInadimplencia" bpmnElement="UT_AnaliseInadimplencia">
+        <dc:Bounds x="1856" y="172" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_AlertaSla" bpmnElement="BT_AlertaSla">
+        <dc:Bounds x="1863" y="234" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_NotificarRiscoSla" bpmnElement="ST_NotificarRiscoSla">
+        <dc:Bounds x="40" y="172" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_RiscoSlaNotificado" bpmnElement="End_RiscoSlaNotificado">
+        <dc:Bounds x="252" y="194" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_SlaAnalise" bpmnElement="BT_SlaAnalise">
+        <dc:Bounds x="1888" y="234" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BME_InfoRecebida" bpmnElement="BME_InfoRecebida">
+        <dc:Bounds x="1913" y="234" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishSlaBreach" bpmnElement="ST_PublishSlaBreach">
+        <dc:Bounds x="40" y="304" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT_CoordenacaoCobranca" bpmnElement="UT_CoordenacaoCobranca">
+        <dc:Bounds x="220" y="304" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_Decisao" bpmnElement="GW_Decisao" isMarkerVisible="true">
+        <dc:Bounds x="2036" y="319" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_RegisterSuspension" bpmnElement="ST_RegisterSuspension">
+        <dc:Bounds x="2166" y="304" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishSuspenso" bpmnElement="ST_PublishSuspenso">
+        <dc:Bounds x="2346" y="304" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_ContratoSuspenso_Inad" bpmnElement="End_ContratoSuspenso_Inad">
+        <dc:Bounds x="2526" y="326" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_HandoffRescisao" bpmnElement="ST_HandoffRescisao">
+        <dc:Bounds x="2166" y="424" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishRescisaoHandoff" bpmnElement="ST_PublishRescisaoHandoff">
+        <dc:Bounds x="2346" y="424" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_RescisaoHandoffCancel" bpmnElement="End_RescisaoHandoffCancel">
+        <dc:Bounds x="2526" y="446" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ICE_AguardarInfo" bpmnElement="ICE_AguardarInfo">
+        <dc:Bounds x="2198" y="544" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishMantido" bpmnElement="ST_PublishMantido">
+        <dc:Bounds x="2166" y="620" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_ContratoMantido" bpmnElement="End_ContratoMantido">
+        <dc:Bounds x="2378" y="642" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_Flow_Start_PubReceived" bpmnElement="Flow_Start_PubReceived">
+        <di:waypoint x="108" y="80"/>
+        <di:waypoint x="220" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubReceived_ResolveFacts" bpmnElement="Flow_PubReceived_ResolveFacts">
+        <di:waypoint x="320" y="80"/>
+        <di:waypoint x="400" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_ResolveFacts_Status" bpmnElement="Flow_ResolveFacts_Status">
+        <di:waypoint x="500" y="80"/>
+        <di:waypoint x="580" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Status_GW" bpmnElement="Flow_Status_GW">
+        <di:waypoint x="680" y="80"/>
+        <di:waypoint x="760" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GW_AguardaPurga" bpmnElement="Flow_GW_AguardaPurga">
+        <di:waypoint x="810" y="80"/>
+        <di:waypoint x="890" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GW_PendenteNotificacao" bpmnElement="Flow_GW_PendenteNotificacao">
+        <di:waypoint x="810" y="80"/>
+        <di:waypoint x="890" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GW_SegueAnalise" bpmnElement="Flow_GW_SegueAnalise">
+        <di:waypoint x="810" y="80"/>
+        <di:waypoint x="1153" y="80"/>
+        <di:waypoint x="1153" y="212"/>
+        <di:waypoint x="1496" y="212"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GW_AnaliseHumana" bpmnElement="Flow_GW_AnaliseHumana">
+        <di:waypoint x="810" y="80"/>
+        <di:waypoint x="1153" y="80"/>
+        <di:waypoint x="1153" y="212"/>
+        <di:waypoint x="1496" y="212"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Purga_RequestNotif" bpmnElement="Flow_Purga_RequestNotif">
+        <di:waypoint x="990" y="80"/>
+        <di:waypoint x="1070" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_RequestNotif_CureGW" bpmnElement="Flow_RequestNotif_CureGW">
+        <di:waypoint x="1170" y="80"/>
+        <di:waypoint x="1250" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Cure_Pagamento" bpmnElement="Flow_Cure_Pagamento">
+        <di:waypoint x="1300" y="80"/>
+        <di:waypoint x="1380" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Cure_NotifAck" bpmnElement="Flow_Cure_NotifAck">
+        <di:waypoint x="1300" y="80"/>
+        <di:waypoint x="1340" y="80"/>
+        <di:waypoint x="1340" y="212"/>
+        <di:waypoint x="1380" y="212"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Cure_PrazoPurga" bpmnElement="Flow_Cure_PrazoPurga">
+        <di:waypoint x="1300" y="80"/>
+        <di:waypoint x="1340" y="80"/>
+        <di:waypoint x="1340" y="344"/>
+        <di:waypoint x="1380" y="344"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Pagamento_PubPurgado" bpmnElement="Flow_Pagamento_PubPurgado">
+        <di:waypoint x="1416" y="80"/>
+        <di:waypoint x="1496" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubPurgado_End" bpmnElement="Flow_PubPurgado_End">
+        <di:waypoint x="1596" y="80"/>
+        <di:waypoint x="1708" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_NotifAck_ResolveFacts" bpmnElement="Flow_NotifAck_ResolveFacts">
+        <di:waypoint x="1398" y="230"/>
+        <di:waypoint x="1398" y="290"/>
+        <di:waypoint x="400" y="290"/>
+        <di:waypoint x="400" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PrazoPurga_Sla" bpmnElement="Flow_PrazoPurga_Sla">
+        <di:waypoint x="1416" y="344"/>
+        <di:waypoint x="1456" y="344"/>
+        <di:waypoint x="1456" y="212"/>
+        <di:waypoint x="1496" y="212"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Sla_Dossie" bpmnElement="Flow_Sla_Dossie">
+        <di:waypoint x="1596" y="212"/>
+        <di:waypoint x="1676" y="212"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Dossie_UTAnalise" bpmnElement="Flow_Dossie_UTAnalise">
+        <di:waypoint x="1776" y="212"/>
+        <di:waypoint x="1856" y="212"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Alerta_Notify" bpmnElement="Flow_Alerta_Notify">
+        <di:waypoint x="1881" y="270"/>
+        <di:waypoint x="1881" y="330"/>
+        <di:waypoint x="40" y="330"/>
+        <di:waypoint x="40" y="212"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Notify_EndAlerta" bpmnElement="Flow_Notify_EndAlerta">
+        <di:waypoint x="140" y="212"/>
+        <di:waypoint x="252" y="212"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_SlaEstourado_Pub" bpmnElement="Flow_SlaEstourado_Pub">
+        <di:waypoint x="1906" y="270"/>
+        <di:waypoint x="1906" y="287"/>
+        <di:waypoint x="90" y="287"/>
+        <di:waypoint x="90" y="304"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubBreach_UTCoord" bpmnElement="Flow_PubBreach_UTCoord">
+        <di:waypoint x="140" y="344"/>
+        <di:waypoint x="220" y="344"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_InfoReceived_UTAnalise" bpmnElement="Flow_InfoReceived_UTAnalise">
+        <di:waypoint x="1931" y="270"/>
+        <di:waypoint x="1931" y="330"/>
+        <di:waypoint x="1856" y="330"/>
+        <di:waypoint x="1856" y="212"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_UTAnalise_GW" bpmnElement="Flow_UTAnalise_GW">
+        <di:waypoint x="1956" y="212"/>
+        <di:waypoint x="1996" y="212"/>
+        <di:waypoint x="1996" y="344"/>
+        <di:waypoint x="2036" y="344"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_UTCoord_GW" bpmnElement="Flow_UTCoord_GW">
+        <di:waypoint x="320" y="344"/>
+        <di:waypoint x="2036" y="344"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Suspender" bpmnElement="Flow_GWDec_Suspender">
+        <di:waypoint x="2086" y="344"/>
+        <di:waypoint x="2166" y="344"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Rescisao" bpmnElement="Flow_GWDec_Rescisao">
+        <di:waypoint x="2086" y="344"/>
+        <di:waypoint x="2126" y="344"/>
+        <di:waypoint x="2126" y="464"/>
+        <di:waypoint x="2166" y="464"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_SolicitarInfo" bpmnElement="Flow_GWDec_SolicitarInfo">
+        <di:waypoint x="2086" y="344"/>
+        <di:waypoint x="2142" y="344"/>
+        <di:waypoint x="2142" y="562"/>
+        <di:waypoint x="2198" y="562"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Mantido" bpmnElement="Flow_GWDec_Mantido">
+        <di:waypoint x="2086" y="344"/>
+        <di:waypoint x="2126" y="344"/>
+        <di:waypoint x="2126" y="660"/>
+        <di:waypoint x="2166" y="660"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_InfoCatch_UTAnalise" bpmnElement="Flow_InfoCatch_UTAnalise">
+        <di:waypoint x="2216" y="580"/>
+        <di:waypoint x="2216" y="640"/>
+        <di:waypoint x="1856" y="640"/>
+        <di:waypoint x="1856" y="212"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Suspensao_Pub" bpmnElement="Flow_Suspensao_Pub">
+        <di:waypoint x="2266" y="344"/>
+        <di:waypoint x="2346" y="344"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubSuspenso_End" bpmnElement="Flow_PubSuspenso_End">
+        <di:waypoint x="2446" y="344"/>
+        <di:waypoint x="2526" y="344"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Handoff_Pub" bpmnElement="Flow_Handoff_Pub">
+        <di:waypoint x="2266" y="464"/>
+        <di:waypoint x="2346" y="464"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubHandoff_End" bpmnElement="Flow_PubHandoff_End">
+        <di:waypoint x="2446" y="464"/>
+        <di:waypoint x="2526" y="464"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubMantido_End" bpmnElement="Flow_PubMantido_End">
+        <di:waypoint x="2266" y="660"/>
+        <di:waypoint x="2378" y="660"/>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

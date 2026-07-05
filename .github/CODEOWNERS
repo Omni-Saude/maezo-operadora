@@ -1,0 +1,9 @@
+# Mudanca de autonomia/policy exige revisao de compliance
+/src/maezo/policies/  @rodrigotaquino
+/docs/adr/            @rodrigotaquino
+
+# Allowlist de process_key (fail-closed, ADR-0016) — qualquer alteracao requer revisao do CODEOWNER
+# de seguranca/compliance. Ampliar o universo (KNOWN_PROCESS_KEYS) e uma acao deliberada humana.
+/src/maezo/tools/process_allowlist.py  @rodrigotaquino @Omni-Saude/security
+/src/maezo/policies/process_allowlist.yaml  @rodrigotaquino @Omni-Saude/security
+/config/artifact_signoff.yaml              @rodrigotaquino @Omni-Saude/security

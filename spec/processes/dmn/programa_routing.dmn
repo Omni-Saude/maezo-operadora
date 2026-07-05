@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_programa_routing"
+             name="Estratificacao/elegibilidade de programa de cuidado"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    programa_routing v0.1.0 — status: DRAFT (criterios de estratificacao/elegibilidade requerem
+    SME medico-auditor + taxonomia de programas; docs/review-queue.md). Consumida por
+    SP-OP-PROGRAMA-001 e mcp-dmn. Roda SO APOS o chokepoint de consentimento (check_consent) e
+    in-zone (PHI — Valentina); so emite bandas/roteamento a Zona Geral.
+    INVARIANTE NO-ADVERSE (ADR-0018, L0 hard clinical_decision): esta tabela APENAS estratifica risco
+    e SUGERE elegibilidade ao programa (informativo). NAO possui saida que desligue/dê alta/negue
+    cuidado — nenhuma decisao clinica adversa nasce aqui. O dominio de `elegivel_programa` e um
+    CLOSED-allowlist NEUTRO {ELEGIVEL, NAO_ELEGIVEL, ANALISE_HUMANA}; NUNCA DESLIGAR/ALTA/NEGAR.
+    NAO_ELEGIVEL NAO e negativa de cobertura — e nao-inclusao num programa de promocao a saude
+    (o beneficiario segue com cobertura normal); por isso e neutro. Caso clinico ambiguo / risco alto /
+    criterio nao avaliavel -> ANALISE_HUMANA (conservador -> clinico humano).
+    Catch-all FAIL-SAFE: combinacao nao mapeada -> ANALISE_HUMANA (ultima row).
+    NOTA hitPolicy: FIRST (catch-all conservador como ultima row).
+  </description>
+  <decision id="programa_routing" name="Estratificacao/elegibilidade do programa" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_programa_routing" hitPolicy="FIRST">
+      <input id="in_risco" label="Banda de risco estratificada (risco_estratificado)">
+        <inputExpression id="ie_risco" typeRef="string"><text>risco_estratificado</text></inputExpression>
+      </input>
+      <input id="in_criterios" label="Criterios de elegibilidade atendidos (elegibilidade_criterios_atendidos)">
+        <inputExpression id="ie_criterios" typeRef="boolean"><text>elegibilidade_criterios_atendidos</text></inputExpression>
+      </input>
+      <output id="out_elegivel" label="elegivel_programa" name="elegivel_programa" typeRef="string"/>
+      <output id="out_motivo" label="motivo" name="motivo" typeRef="string"/>
+      <rule id="r_risco_alto">
+        <description>Risco alto -> sempre analise clinica humana (conservador; nunca auto-elegivel/auto-alta)</description>
+        <inputEntry id="r_risco_alto_i1"><text>"alto"</text></inputEntry>
+        <inputEntry id="r_risco_alto_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_risco_alto_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r_risco_alto_o2"><text>"Risco alto: estratificacao sobe ao clinico humano (conservador)"</text></outputEntry>
+      </rule>
+      <rule id="r_elegivel">
+        <description>Risco moderado + criterios atendidos -> ELEGIVEL (sugestao informativa; cuidado consentido)</description>
+        <inputEntry id="r_elegivel_i1"><text>"moderado"</text></inputEntry>
+        <inputEntry id="r_elegivel_i2"><text>true</text></inputEntry>
+        <outputEntry id="r_elegivel_o1"><text>"ELEGIVEL"</text></outputEntry>
+        <outputEntry id="r_elegivel_o2"><text>"Risco moderado e criterios do programa atendidos: elegivel (informativo)"</text></outputEntry>
+      </rule>
+      <rule id="r_nao_elegivel_baixo">
+        <description>Risco baixo + criterios nao atendidos -> NAO_ELEGIVEL (nao-inclusao; NAO e negativa de cobertura)</description>
+        <inputEntry id="r_nao_elegivel_baixo_i1"><text>"baixo"</text></inputEntry>
+        <inputEntry id="r_nao_elegivel_baixo_i2"><text>false</text></inputEntry>
+        <outputEntry id="r_nao_elegivel_baixo_o1"><text>"NAO_ELEGIVEL"</text></outputEntry>
+        <outputEntry id="r_nao_elegivel_baixo_o2"><text>"Risco baixo e criterios nao atendidos: nao-inclusao no programa (segue com cobertura normal)"</text></outputEntry>
+      </rule>
+      <rule id="r_baixo_criterios">
+        <description>Risco baixo mas criterios atendidos -> analise clinica humana (caso limitrofe)</description>
+        <inputEntry id="r_baixo_criterios_i1"><text>"baixo"</text></inputEntry>
+        <inputEntry id="r_baixo_criterios_i2"><text>true</text></inputEntry>
+        <outputEntry id="r_baixo_criterios_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r_baixo_criterios_o2"><text>"Caso limitrofe (risco baixo, criterios atendidos): clinico humano avalia"</text></outputEntry>
+      </rule>
+      <rule id="r_catchall">
+        <description>Catch-all FAIL-SAFE: combinacao nao mapeada / risco indeterminado -> ANALISE_HUMANA (conservador -> clinico humano)</description>
+        <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>"Fail-safe: estratificacao indeterminada -> clinico humano (nunca auto-elegivel/auto-alta)"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

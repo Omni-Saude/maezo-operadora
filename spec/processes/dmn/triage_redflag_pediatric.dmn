@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_triage_redflag_pediatric"
+             name="Red flags de triagem — pediatria"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    triage_redflag_pediatric v0.1.0 — status: SHAPE FINAL; CONTEUDO CLINICO: DRAFT —
+    requer validacao de pediatra antes de qualquer deploy (docs/review-queue.md).
+    Schema comum triage_redflag_* (ver triage_redflag_adult); campo populacional:
+    idade_meses (number). Aplicavel quando o caso relatado e de menor de 12 anos.
+    Consumida por Helena via mcp-dmn.evaluate; red_flag=true -> SP-OP-ESCALATION-001.
+    Exemplos sinteticos: "Paciente Teste 003 (crianca)".
+  </description>
+  <decision id="triage_redflag_pediatric" name="Red flags pediatria" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_triage_redflag_pediatric" hitPolicy="FIRST">
+      <input id="in_sintoma" label="Sintoma normalizado (sintoma_codigo)">
+        <inputExpression id="ie_sintoma" typeRef="string"><text>sintoma_codigo</text></inputExpression>
+      </input>
+      <input id="in_intensidade" label="Intensidade relatada (intensidade)">
+        <inputExpression id="ie_intensidade" typeRef="string"><text>intensidade</text></inputExpression>
+      </input>
+      <input id="in_idade_meses" label="Idade em meses (idade_meses)">
+        <inputExpression id="ie_idade_meses" typeRef="integer"><text>idade_meses</text></inputExpression>
+      </input>
+      <output id="out_redflag" label="red_flag" name="red_flag" typeRef="boolean"/>
+      <output id="out_prioridade" label="prioridade" name="prioridade" typeRef="string"/>
+      <output id="out_conduta" label="conduta" name="conduta" typeRef="string"/>
+      <output id="out_motivo" label="motivo" name="motivo" typeRef="string"/>
+      <rule id="r1">
+        <description>DRAFT clinico — ex. sintetico: Paciente Teste 003, 2 meses, febre</description>
+        <inputEntry id="r1i1"><text>"febre"</text></inputEntry>
+        <inputEntry id="r1i2"><text>-</text></inputEntry>
+        <inputEntry id="r1i3"><text>&lt; 3</text></inputEntry>
+        <outputEntry id="r1o1"><text>true</text></outputEntry>
+        <outputEntry id="r1o2"><text>"P1"</text></outputEntry>
+        <outputEntry id="r1o3"><text>"ESCALATE_EMERGENCY"</text></outputEntry>
+        <outputEntry id="r1o4"><text>"Febre em lactente menor de 3 meses: emergencia pediatrica"</text></outputEntry>
+      </rule>
+      <rule id="r2">
+        <inputEntry id="r2i1"><text>"dificuldade_respiratoria"</text></inputEntry>
+        <inputEntry id="r2i2"><text>-</text></inputEntry>
+        <inputEntry id="r2i3"><text>-</text></inputEntry>
+        <outputEntry id="r2o1"><text>true</text></outputEntry>
+        <outputEntry id="r2o2"><text>"P1"</text></outputEntry>
+        <outputEntry id="r2o3"><text>"ESCALATE_EMERGENCY"</text></outputEntry>
+        <outputEntry id="r2o4"><text>"Esforco respiratorio em crianca (tiragem, gemencia, cianose)"</text></outputEntry>
+      </rule>
+      <rule id="r3">
+        <inputEntry id="r3i1"><text>"petequias_febre"</text></inputEntry>
+        <inputEntry id="r3i2"><text>-</text></inputEntry>
+        <inputEntry id="r3i3"><text>-</text></inputEntry>
+        <outputEntry id="r3o1"><text>true</text></outputEntry>
+        <outputEntry id="r3o2"><text>"P1"</text></outputEntry>
+        <outputEntry id="r3o3"><text>"ESCALATE_EMERGENCY"</text></outputEntry>
+        <outputEntry id="r3o4"><text>"Febre com petequias: suspeita de doenca meningococica"</text></outputEntry>
+      </rule>
+      <rule id="r4">
+        <inputEntry id="r4i1"><text>"convulsao"</text></inputEntry>
+        <inputEntry id="r4i2"><text>-</text></inputEntry>
+        <inputEntry id="r4i3"><text>-</text></inputEntry>
+        <outputEntry id="r4o1"><text>true</text></outputEntry>
+        <outputEntry id="r4o2"><text>"P1"</text></outputEntry>
+        <outputEntry id="r4o3"><text>"ESCALATE_EMERGENCY"</text></outputEntry>
+        <outputEntry id="r4o4"><text>"Crise convulsiva"</text></outputEntry>
+      </rule>
+      <rule id="r5">
+        <inputEntry id="r5i1"><text>"letargia"</text></inputEntry>
+        <inputEntry id="r5i2"><text>-</text></inputEntry>
+        <inputEntry id="r5i3"><text>-</text></inputEntry>
+        <outputEntry id="r5o1"><text>true</text></outputEntry>
+        <outputEntry id="r5o2"><text>"P1"</text></outputEntry>
+        <outputEntry id="r5o3"><text>"ESCALATE_EMERGENCY"</text></outputEntry>
+        <outputEntry id="r5o4"><text>"Crianca letargica/irresponsiva"</text></outputEntry>
+      </rule>
+      <rule id="r6">
+        <inputEntry id="r6i1"><text>"sinais_desidratacao"</text></inputEntry>
+        <inputEntry id="r6i2"><text>"grave","moderada"</text></inputEntry>
+        <inputEntry id="r6i3"><text>-</text></inputEntry>
+        <outputEntry id="r6o1"><text>true</text></outputEntry>
+        <outputEntry id="r6o2"><text>"P2"</text></outputEntry>
+        <outputEntry id="r6o3"><text>"ESCALATE_NURSE"</text></outputEntry>
+        <outputEntry id="r6o4"><text>"Sinais de desidratacao (vomitos/diarreia, diurese reduzida)"</text></outputEntry>
+      </rule>
+      <rule id="r7">
+        <description>Fail-safe pediatrico: qualquer sintoma grave escala</description>
+        <inputEntry id="r7i1"><text>-</text></inputEntry>
+        <inputEntry id="r7i2"><text>"grave"</text></inputEntry>
+        <inputEntry id="r7i3"><text>-</text></inputEntry>
+        <outputEntry id="r7o1"><text>true</text></outputEntry>
+        <outputEntry id="r7o2"><text>"P2"</text></outputEntry>
+        <outputEntry id="r7o3"><text>"ESCALATE_NURSE"</text></outputEntry>
+        <outputEntry id="r7o4"><text>"Sintoma pediatrico nao mapeado com intensidade grave — fail-safe"</text></outputEntry>
+      </rule>
+      <rule id="r8">
+        <inputEntry id="r8i1"><text>-</text></inputEntry>
+        <inputEntry id="r8i2"><text>-</text></inputEntry>
+        <inputEntry id="r8i3"><text>-</text></inputEntry>
+        <outputEntry id="r8o1"><text>false</text></outputEntry>
+        <outputEntry id="r8o2"><text>"-"</text></outputEntry>
+        <outputEntry id="r8o3"><text>"CONTINUE"</text></outputEntry>
+        <outputEntry id="r8o4"><text>"Sem criterio de red flag pediatrico"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

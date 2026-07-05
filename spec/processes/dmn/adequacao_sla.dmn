@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_adequacao_sla"
+             name="SLA de remediacao de adequacao de rede"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    adequacao_sla v0.1.0 — status: DRAFT — TODOS os prazos marcados DRAFT/verify: confirmar texto
+    vigente com regulatorio (RN 259/2011 garantia de atendimento — tempos/distancias maximos e
+    prazos de remediacao; consolidacoes ANS; docs/review-queue.md). Consumida por
+    SP-OP-ADEQUACAO-001 e mcp-dmn.
+    NOTA: prazos regulatorios podem ser em dias UTEIS; ISO 8601 usa dias corridos — valores abaixo
+    sao aproximacao conservadora. Resolver calendario util no worker. Prazo regulatorio vive AQUI
+    (DMN) e no timer BPMN — nunca em Python (CONTRIBUTING). Saidas de prazo sao string ISO 8601
+    (sla_remediacao, sla_alerta); fonte_regulatoria e a RN citada (registrada para auditoria).
+    Gap critico / urgencia tem SLA mais curto.
+    INVARIANTE L0/L1: esta tabela NAO tem saida adversa; no estouro de SLA a coordenacao humana
+    assume (nunca auto-compromisso de fallback por timeout — o compromisso financeiro NUNCA nasce
+    de um timer).
+    NOTA hitPolicy: o contrato indica UNIQUE; usamos FIRST com catch-all conservador como ultima
+    row. Uma row catch-all (`-`) sob UNIQUE colidiria com qualquer row especifica no engine
+    (violacao em runtime) e deixaria `sla` sem valor numa combinacao nao mapeada, travando o timer
+    `${sla.sla_remediacao}` (ENGINE-16004). FIRST garante que `sla` e SEMPRE setado em todos os
+    caminhos antes de qualquer User Task/timer. Espelha cancel_sla / contas_sla.
+  </description>
+  <decision id="adequacao_sla" name="SLA de remediacao de adequacao" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_adequacao_sla" hitPolicy="FIRST">
+      <input id="in_gap_adequacao" label="Severidade do gap (gap_adequacao)">
+        <inputExpression id="ie_gap_adequacao" typeRef="string"><text>gap_adequacao</text></inputExpression>
+      </input>
+      <input id="in_tipo_carater" label="Tipo de carater (tipo_carater)">
+        <inputExpression id="ie_tipo_carater" typeRef="string"><text>tipo_carater</text></inputExpression>
+      </input>
+      <output id="out_sla_remediacao" label="sla_remediacao" name="sla_remediacao" typeRef="string"/>
+      <output id="out_sla_alerta" label="sla_alerta" name="sla_alerta" typeRef="string"/>
+      <output id="out_fonte" label="fonte_regulatoria" name="fonte_regulatoria" typeRef="string"/>
+      <rule id="r_critico_urgencia">
+        <description>Gap critico em urgencia/emergencia: prazo de remediacao mais curto</description>
+        <inputEntry id="r_critico_urgencia_i1"><text>"GAP_CRITICO"</text></inputEntry>
+        <inputEntry id="r_critico_urgencia_i2"><text>"urgencia_emergencia"</text></inputEntry>
+        <outputEntry id="r_critico_urgencia_o1"><text>"P7D"</text></outputEntry>
+        <outputEntry id="r_critico_urgencia_o2"><text>"P3D"</text></outputEntry>
+        <outputEntry id="r_critico_urgencia_o3"><text>"RN 259/2011 — garantia de atendimento urgencia/emergencia (gap critico) ~7 dias: DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r_critico">
+        <description>Gap critico eletivo: prazo de remediacao curto</description>
+        <inputEntry id="r_critico_i1"><text>"GAP_CRITICO"</text></inputEntry>
+        <inputEntry id="r_critico_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_critico_o1"><text>"P15D"</text></outputEntry>
+        <outputEntry id="r_critico_o2"><text>"P9D"</text></outputEntry>
+        <outputEntry id="r_critico_o3"><text>"RN 259/2011 — garantia de atendimento (gap critico eletivo) ~15 dias: DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r_moderado">
+        <description>Gap moderado: prazo padrao de remediacao (encaminhamento a credenciamento)</description>
+        <inputEntry id="r_moderado_i1"><text>"GAP_MODERADO"</text></inputEntry>
+        <inputEntry id="r_moderado_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_moderado_o1"><text>"P30D"</text></outputEntry>
+        <outputEntry id="r_moderado_o2"><text>"P20D"</text></outputEntry>
+        <outputEntry id="r_moderado_o3"><text>"RN 259/2011 — garantia de atendimento (gap moderado) ~30 dias: DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r_leve">
+        <description>Gap leve: prazo de acompanhamento mais longo (apenas monitoramento)</description>
+        <inputEntry id="r_leve_i1"><text>"GAP_LEVE"</text></inputEntry>
+        <inputEntry id="r_leve_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_leve_o1"><text>"P60D"</text></outputEntry>
+        <outputEntry id="r_leve_o2"><text>"P40D"</text></outputEntry>
+        <outputEntry id="r_leve_o3"><text>"RN 259/2011 — acompanhamento de gap leve ~60 dias: DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r_conforme">
+        <description>Conforme: ciclo de reavaliacao periodica (sem remediacao pendente)</description>
+        <inputEntry id="r_conforme_i1"><text>"CONFORME"</text></inputEntry>
+        <inputEntry id="r_conforme_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_conforme_o1"><text>"P90D"</text></outputEntry>
+        <outputEntry id="r_conforme_o2"><text>"P60D"</text></outputEntry>
+        <outputEntry id="r_conforme_o3"><text>"RN 259/2011 — ciclo de reavaliacao periodica (conforme): DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r_catchall">
+        <description>Catch-all FAIL-SAFE: severidade nao mapeada -> prazo conservador curto (roteia a humano a jusante)</description>
+        <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>"P15D"</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>"P9D"</text></outputEntry>
+        <outputEntry id="r_catchall_o3"><text>"Fail-safe: prazo conservador na ausencia de classificacao de severidade — DRAFT/verify"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

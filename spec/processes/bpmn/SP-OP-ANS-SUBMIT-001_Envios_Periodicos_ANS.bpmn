@@ -1,0 +1,1025 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+                  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+                  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+                  xmlns:camunda="http://camunda.org/schema/1.0/bpmn"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  id="Definitions_SP_OP_ANS_SUBMIT_001"
+                  targetNamespace="http://maezo.health/operadora/anssubmit"
+                  exporter="Maezo W5-PROC"
+                  exporterVersion="0.1.0-draft">
+
+  <bpmn:message id="Msg_AnsAckReceived" name="msg.anssubmit.ack_received"/>
+  <bpmn:error id="Error_AnsSubmitNotHuman" name="Envio ANS sem aprovacao humana" errorCode="ERR_ANS_SUBMIT_NOT_HUMAN"/>
+  <bpmn:error id="Error_AnsDatasetIncompleto" name="Dataset regulatorio incompleto na origem" errorCode="ERR_ANS_DATASET_INCOMPLETO"/>
+  <bpmn:error id="Error_AnsProtocoloNack" name="ANS retornou NACK do protocolo" errorCode="ERR_ANS_PROTOCOLO_NACK"/>
+  <bpmn:error id="Error_AnsRetryEsgotado" name="Retry de retransmissao ANS esgotado" errorCode="ERR_ANS_RETRY_ESGOTADO"/>
+
+  <bpmn:process id="SP-OP-ANS-SUBMIT-001" name="SP-OP-ANS-SUBMIT-001 Envios Periodicos ANS"
+                isExecutable="true" camunda:historyTimeToLive="1825">
+    <bpmn:documentation><![CDATA[
+SP-OP-ANS-SUBMIT-001 — Envios Periodicos ANS (calendar-driven). Status: DRAFT (v0.1.0) — Phase 2,
+Wave B (canal regulatorio ANS). DI (diagrama) sera adicionado na promocao a FINAL. Requer revisao
+humana (regulatorio + juridico) antes de qualquer deploy — ver docs/review-queue.md.
+
+GATILHO REGULATORIO (todos DRAFT/verify regulatorio+juridico): RN 124/2006 (SIP), RN 209/2009
+(utilizacao de servicos), RN 388/2015 (indicadores/transparencia), RN 424/2017 (padrao TISS /
+monitoramento), DIOPS (informacoes economico-financeiras, trimestral). TODAS as citacoes de RN,
+periodicidades, datas de competencia e fontes do calendario sao DRAFT — confirmar contra texto
+vigente ANS antes de qualquer envio.
+
+INVARIANTE (NAO negativa-like — sem padrao no-denial): este processo e operadora -> regulador;
+NENHUMA decisao adversa contra beneficiario/prestador. NAO recebe o padrao no-denial de cinco
+partes (nada a inverter). A salvaguarda equivalente, EXIGIDA, e o HITL PRE-FILING (nao-repudio,
+ADR-0007): o envio oficial e legalmente vinculante e SO e transmitido apos UT_RevisarEnvio
+concluida por humano do grupo regulatorio-ans com decisao_envio=APROVAR_ENVIO + revisor_id.
+NENHUM caminho automatizado transmite a ANS — o worker regulatorio.anssubmit.submit RECUSA
+transmitir sem decisao_envio=APROVAR_ENVIO setado por humano (guard ERR_ANS_SUBMIT_NOT_HUMAN).
+O terminal End_EnviadoAck / End_EnviadoPendenteAck so e alcancavel apos UT_RevisarEnvio (ou a
+revisao juridica UT_RevisarEnvioJuridico para nip_filing) concluida por humano. Dado faltante
+(dataset incompleto / schema invalido / nao-anonimizado) NUNCA rejeita por design: roteia a humano
+(UT_CorrigirPendenciaEnvio / UT_RevisarEnvio). Espelha o gate "agente instrui, humano assina" de
+Rafael/Gustavo, aplicado ao ato regulatorio vinculante em vez de a uma negativa.
+
+GATILHO (GAP-ANS-1, re-modelado): o start deste processo e um NONE start (Start_DespachoEnvio)
+que exige as variaveis JA seedadas. O cron per-report_type vive em SP-OP-ANS-CRON-001
+(src/maezo/processes/bpmn/SP-OP-ANS-CRON-001_Agendador_Envios_ANS.bpmn): um process definition
+por report_type, cada um com seu proprio TimerStartEvent (periodicidade propria — R/P1M mensal,
+R/P3M trimestral, R/P1Y anual; DRAFT/verify) que publica o FATO TIPADO `ans.cron_due` em
+`operadora.notifications.internal` (event-choreographed, ADR-0003 — ZERO call-activity no repo,
+docs/audits/bpmn-process-completeness.md §4). O `notifications_bridge` consome o fato e inicia
+ESTE processo (plan_start/ans_cron_variables) seedando report_type/periodicidade/
+origem_envio=calendario + competencia=COMPETENCIA_PENDENTE (sentinela) + fatos de
+admissibilidade FAIL-CLOSED (false) => a DMN ans_calendar resolve o calendario CONSERVADOR do
+tipo (row de fallback por report_type) e a admissibilidade roteia PENDENTE ->
+UT_CorrigirPendenciaEnvio: o humano resolve a competencia real + fatos e o fluxo REAVALIA o
+calendario (Flow_Corrigir_Calendar) — fail-closed, nunca auto-transmite, nunca ENGINE-16004.
+(Racional de engine no comentario do Start_DespachoEnvio.)
+
+BUSINESS KEY (idempotente por competencia): "ANSSUB-{tenant_id}-{report_type}-{competencia}"
+  — uma instancia por {report_type, competencia} (competencia YYYY-MM mensal ou YYYY-Qn
+  trimestral). Re-disparo do cron para a mesma competencia retorna a instancia ativa
+  (mcp-cibseven.start_process consulta a business key antes de iniciar) — nunca duplica filing.
+  NOTA (caminho cron): a ponte deriva a bk DETERMINISTICA do fato
+  (ANSSUB-{tenant}-{report_type}-COMPETENCIA_PENDENTE ate um scheduler computar a competencia
+  real) — no maximo UMA instancia pendente-de-competencia ativa por report_type por tenant;
+  re-tick/reentrega Kafka reconverge para a instancia ativa (idempotencia preservada).
+
+EVENTOS DE DOMINIO (worker operadora.events.publish):
+  dataset montado+validado -> agents.events.anssubmit.generated
+  envio transmitido (apos UT humana + submit) -> agents.events.anssubmit.submitted
+  ACK correlacionado -> agents.events.anssubmit.acked
+  risco de prazo de calendario -> agents.events.anssubmit.deadline_risk
+  NACK/erro definitivo apos retry -> agents.events.anssubmit.failed
+  fim -> agents.events.anssubmit.completed (payload.desfecho = enviado_ack | enviado_pendente_ack |
+         adiado_humano | falha_retransmissao)
+
+VARIAVEIS DE ENTRADA: tenant_id, report_type, competencia, periodicidade, origem_envio
+(calendario|nip_filing|retransmissao_manual), nip_protocolo_origem (opc; obrig. se nip_filing),
+dataset_complete*, schema_valid*, lgpd_anonimizado*, dataset_ref. (* pre-resolvidos por worker
+antes de BRT_Admissibilidade.) O dataset e agregado/anonimizado (Zona Geral, ADR-0006) — nenhuma
+variavel carrega PHI direto; apenas dataset_ref (ponteiro) + flags. Contrato completo:
+docs/processes/contracts/SP-OP-ANS-SUBMIT-001.md.
+]]></bpmn:documentation>
+
+    <!-- Start UNICO (none): despacho de envio com variaveis JA seedadas (GAP-ANS-1).
+         Quem inicia (SEMPRE via mcp-cibseven.start_process, idempotente por business key):
+         (a) o notifications_bridge ao consumir o fato `ans.cron_due` publicado pelo agendador
+         per-report_type SP-OP-ANS-CRON-001 (cada report_type tem seu proprio TimerStartEvent/
+         periodicidade la; bk deterministica ANSSUB-{tenant}-{report_type}-{competencia});
+         (b) o notifications_bridge no handoff nip_filing (`nip.handoff_ans_submit`);
+         (c) retransmissao_manual / scheduler futuro.
+         POR QUE nao ha TimerStartEvent AQUI: o CIB Seven 2.1.0 rejeita no deploy tanto
+         camunda:inputOutput em startEvent ("camunda:inputOutput mapping unsupported for element
+         type 'startEvent'") quanto multiplos none/timer start events por process definition
+         ("multiple none start events or timer start events not supported") — verificado
+         empiricamente contra o engine real (ENGINE-09005). O timer start unico sem seeding
+         (modelo anterior, R/P1M) iniciava instancia SEM report_type/competencia =>
+         ENGINE-16004 na primeira DMN. O cron per-tipo vive em SP-OP-ANS-CRON-001 (um process
+         definition por report_type, cada um com um unico TimerStartEvent proprio — shape que o
+         engine aceita), choreografado por FATO (ADR-0003; nunca call-activity). -->
+    <bpmn:startEvent id="Start_DespachoEnvio" name="Despacho de envio (fato ans.cron_due via bridge | nip_filing | scheduler)">
+      <bpmn:outgoing>Flow_Start_PubReceived</bpmn:outgoing>
+    </bpmn:startEvent>
+
+    <bpmn:serviceTask id="ST_PublishReceived" name="Publicar evento de inicio do ciclo de envio"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.anssubmit.generated</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,report_type,competencia,periodicidade,origem_envio</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Start_PubReceived</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubReceived_Calendar</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- DMN: calendario regulatorio (resolve due_date/sla_alerta/periodicidade/fonte) -->
+    <bpmn:businessRuleTask id="BRT_Calendario" name="Resolver calendario regulatorio (DMN ans_calendar)"
+                           camunda:decisionRef="ans_calendar"
+                           camunda:mapDecisionResult="singleResult"
+                           camunda:resultVariable="calendario">
+      <bpmn:documentation>Saidas: due_date, sla_alerta (ISO 8601 DATA YYYY-MM-DD), periodicidade, fonte_regulatoria. Datas de competencia para dossie/eventos. Catch-all -> fonte_regulatoria=REVISAO_HUMANA com prazos conservadores (nunca prazo infinito). NAO ha saida adversa. As DURACOES relativas dos timers de boundary da User Task vivem em ans_sla (BRT_AnsSla), nao aqui.</bpmn:documentation>
+      <bpmn:incoming>Flow_PubReceived_Calendar</bpmn:incoming>
+      <bpmn:incoming>Flow_Corrigir_Calendar</bpmn:incoming>
+      <bpmn:outgoing>Flow_Calendar_Sla</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+
+    <!-- DMN: SLA de revisao (DURACOES relativas P.../PT... para os timers de boundary da User Task).
+         Espelha BRT_ContasSla / BRT_CancelSla: resultVariable="sla" resolvido em TODA path que
+         alcanca UT_RevisarEnvio, ANTES da User Task, para que ${sla.sla_alerta}/${sla.sla_analise}
+         resolvam e os timeDuration agendem RELATIVO a criacao da UT (nunca data fixa ja passada que
+         cancelaria a UT no instante em que ela e criada). -->
+    <bpmn:businessRuleTask id="BRT_AnsSla" name="Determinar SLA de revisao do envio (DMN ans_sla)"
+                           camunda:decisionRef="ans_sla"
+                           camunda:mapDecisionResult="singleResult"
+                           camunda:resultVariable="sla">
+      <bpmn:documentation>Saidas: sla_analise, sla_alerta (ISO 8601 DURATION P.../PT... — duracoes relativas). Alimentam os timers timeDuration de BT_DeadlineRisk (`sla.sla_alerta`, nao-interruptivo) e BT_DueDate (`sla.sla_analise`, interruptivo) na User Task UT_RevisarEnvio. Sem saida adversa. Catch-all conservador (janela curta; nunca prazo infinito). Duracoes DRAFT/verify.</bpmn:documentation>
+      <bpmn:incoming>Flow_Calendar_Sla</bpmn:incoming>
+      <bpmn:outgoing>Flow_Sla_Assemble</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+
+    <!-- Monta o dataset regulatorio anonimizado (port generate_regulatory_reports; AWS-blocked #16) -->
+    <bpmn:serviceTask id="ST_AssembleDataset" name="Montar dataset regulatorio anonimizado"
+                      camunda:type="external" camunda:topic="regulatorio.anssubmit.assemble">
+      <bpmn:documentation>Worker monta o dataset agregado/anonimizado (Zona Geral, ADR-0006). Pode lancar ERR_ANS_DATASET_INCOMPLETO se a montagem falhar na origem (roteia a humano, nunca auto-rejeita). Ecoa dataset_complete e lgpd_anonimizado (fatos pre-resolvidos, fail-closed false quando ausentes — GAP-ANS-5; NAO calcula anonimizacao real, mcp-regdata AWS-blocked). Conectividade real AWS-blocked (issue #16).</bpmn:documentation>
+      <bpmn:incoming>Flow_Sla_Assemble</bpmn:incoming>
+      <bpmn:outgoing>Flow_Assemble_Validate</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- Valida schema XSD/TISS do dataset montado -->
+    <bpmn:serviceTask id="ST_ValidateSchema" name="Validar schema XSD/TISS do dataset"
+                      camunda:type="external" camunda:topic="regulatorio.anssubmit.validate">
+      <bpmn:documentation>Worker valida o schema do dataset; ecoa schema_valid (boolean pre-resolvido). Publica anssubmit.generated quando dataset montado+validado. NAO decide envio.</bpmn:documentation>
+      <bpmn:incoming>Flow_Assemble_Validate</bpmn:incoming>
+      <bpmn:outgoing>Flow_Validate_Admiss</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- DMN: admissibilidade (nunca rejeita, nunca transmite — apenas roteia) -->
+    <bpmn:businessRuleTask id="BRT_Admissibilidade" name="Avaliar admissibilidade do envio (DMN ans_submission_admissibility)"
+                           camunda:decisionRef="ans_submission_admissibility"
+                           camunda:mapDecisionResult="singleResult"
+                           camunda:resultVariable="admissibilidade">
+      <bpmn:documentation>Saidas: roteamento in {SEGUE_ENVIO, PENDENTE, REVISAO_HUMANA}. Por design NAO existe saida reject/deny (nao-negativa). Mesmo SEGUE_ENVIO so HABILITA a User Task de aprovacao — a DMN nunca transmite. Catch-all -> REVISAO_HUMANA.</bpmn:documentation>
+      <bpmn:incoming>Flow_Validate_Admiss</bpmn:incoming>
+      <bpmn:outgoing>Flow_Admiss_GW</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+
+    <bpmn:exclusiveGateway id="GW_Admissibilidade" name="Resultado admissibilidade" default="Flow_GW_Revisao">
+      <bpmn:incoming>Flow_Admiss_GW</bpmn:incoming>
+      <bpmn:outgoing>Flow_GW_Pendente</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GW_NipFiling</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GW_Revisao</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <!-- Ramo PENDENTE: dado faltante -> humano corrige (NUNCA auto-rejeita) -->
+    <bpmn:userTask id="UT_CorrigirPendenciaEnvio" name="Corrigir pendencia do dataset de envio"
+                   camunda:candidateGroups="regulatorio-ans">
+      <bpmn:documentation>Dataset incompleto / schema invalido -> pendencia (PENDENTE da DMN, via Flow_GW_Pendente); o humano corrige e marca dataset_complete/schema_valid=true. Tambem alcancada via Flow_GWDec_Corrigir quando um humano em UT_RevisarEnvio/UT_RevisarEnvioJuridico completa com decisao_envio=CORRIGIR_PENDENCIA — inclusive no caso de dataset nao confirmado anonimizado (lgpd_anonimizado=false roteia PRIMEIRO a REVISAO_HUMANA/UT_RevisarEnvio, NAO diretamente aqui, pois e um julgamento de revisao e nao um erro de pipeline — ver GW_Admissibilidade/ans_submission_admissibility rule r_revisao_lgpd); se for esse o motivo da correcao, o humano SO marca lgpd_anonimizado=true apos confirmar que o dataset referenciado por dataset_ref esta de fato agregado/anonimizado (ADR-0006) — GAP-ANS-5: nenhum worker calcula isto automaticamente (mcp-regdata, a fonte de um atestado real, esta AWS-blocked, issue #16; regulatorio.anssubmit.assemble apenas ecoa o fato fail-closed, preservando a correcao humana no loop de reavaliacao). O fluxo reavalia o calendario e a admissibilidade. Inelegibilidade de dados roteia a humano, NUNCA auto-rejeita o envio. GAP-ANS-4: guardada pelos MESMOS boundary timers de UT_RevisarEnvio (BT_DeadlineRiskPendencia/BT_DueDatePendencia, `sla.sla_alerta`/`sla.sla_analise` ja resolvidos por BRT_AnsSla ANTES de GW_Admissibilidade) — sem eles, um dataset nunca corrigido travava a instancia indefinidamente no prazo de calendario (nenhum timer, nenhuma escalada).</bpmn:documentation>
+      <bpmn:incoming>Flow_GW_Pendente</bpmn:incoming>
+      <bpmn:incoming>Flow_GWDec_Corrigir</bpmn:incoming>
+      <bpmn:outgoing>Flow_Corrigir_Calendar</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <!-- Timer nao-interruptivo (GAP-ANS-4): alerta de deadline-risk tambem em UT_CorrigirPendenciaEnvio.
+         Reusa o MESMO service task de notificacao/publicacao de UT_RevisarEnvio (Flow_Deadline_Notify ja
+         existente -> ST_NotificarDeadlineRisk -> ST_PublishDeadlineRisk -> End_DeadlineRiskNotificado). -->
+    <bpmn:boundaryEvent id="BT_DeadlineRiskPendencia" name="Alerta de risco de prazo (sla_alerta)" cancelActivity="false" attachedToRef="UT_CorrigirPendenciaEnvio">
+      <bpmn:outgoing>Flow_DeadlinePendencia_Notify</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TD_DeadlineRiskPendencia">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${sla.sla_alerta}</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+
+    <!-- Timer interruptivo (GAP-ANS-4): prazo de calendario estourado em UT_CorrigirPendenciaEnvio ->
+         coordenacao assume (NUNCA auto-transmite/auto-corrige por timeout). Reusa a MESMA escalation UT
+         de UT_RevisarEnvio (UT_CoordenacaoEnvioAssume) — contrato §candidate-groups declara
+         coordenacao-regulatorio como o UNICO ponto de escalada de "SLA de calendario estourado", nao
+         restrito a uma origem especifica. -->
+    <bpmn:boundaryEvent id="BT_DueDatePendencia" name="Prazo de calendario (sla_analise — DRAFT/verify)" cancelActivity="true" attachedToRef="UT_CorrigirPendenciaEnvio">
+      <bpmn:outgoing>Flow_DueDatePendencia_UTCoord</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TD_DueDatePendencia">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${sla.sla_analise}</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+
+    <!-- Ramo nip_filing: revisao JURIDICA obrigatoria (texto legal sempre humano) -->
+    <bpmn:userTask id="UT_RevisarEnvioJuridico" name="Revisar envio (filing de resposta NIP — juridico)"
+                   camunda:candidateGroups="juridico-regulatorio">
+      <bpmn:documentation><![CDATA[
+HITL pre-filing (nao-repudio, ADR-0007) para origem_envio=nip_filing: o filing de resposta a NIP
+contem texto legal e SEMPRE passa por revisao juridica humana (juridico-regulatorio). Saidas
+identicas a UT_RevisarEnvio: decisao_envio in {APROVAR_ENVIO, CORRIGIR_PENDENCIA, ADIAR_ENVIO};
+APROVAR_ENVIO exige revisor_id (validacao de formulario + guard do worker submit). submit so apos
+esta User Task concluida com APROVAR_ENVIO. Correlaciona nip_protocolo_origem (handoff SP-OP-NIP-001).
+SLA (GAP-ANS-4): `sla.sla_analise` (timer interruptivo BT_DueDateJuridico -> UT_CoordenacaoEnvioAssume,
+mesma escalation de UT_RevisarEnvio) com alerta `sla.sla_alerta` (nao-interruptivo
+BT_DeadlineRiskJuridico) — antes desta fix, um filing de resposta NIP sem revisao juridica travava a
+instancia indefinidamente (nenhum boundary, nenhuma escalada de prazo).
+]]></bpmn:documentation>
+      <bpmn:incoming>Flow_GW_NipFiling</bpmn:incoming>
+      <bpmn:outgoing>Flow_UTJuridico_GW</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <!-- Timer nao-interruptivo (GAP-ANS-4): alerta de deadline-risk tambem em UT_RevisarEnvioJuridico. -->
+    <bpmn:boundaryEvent id="BT_DeadlineRiskJuridico" name="Alerta de risco de prazo (sla_alerta)" cancelActivity="false" attachedToRef="UT_RevisarEnvioJuridico">
+      <bpmn:outgoing>Flow_DeadlineJuridico_Notify</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TD_DeadlineRiskJuridico">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${sla.sla_alerta}</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+
+    <!-- Timer interruptivo (GAP-ANS-4): prazo de calendario estourado em UT_RevisarEnvioJuridico ->
+         coordenacao assume (a revisao continua HUMANA e a exigencia juridica nao muda de natureza por
+         estouro de SLA; a coordenacao decide APROVAR_ENVIO/ADIAR_ENVIO como em qualquer outra escalada). -->
+    <bpmn:boundaryEvent id="BT_DueDateJuridico" name="Prazo de calendario (sla_analise — DRAFT/verify)" cancelActivity="true" attachedToRef="UT_RevisarEnvioJuridico">
+      <bpmn:outgoing>Flow_DueDateJuridico_UTCoord</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TD_DueDateJuridico">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${sla.sla_analise}</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+
+    <!-- Dossie do agente Gustavo (instrui, nao decide) -->
+    <bpmn:serviceTask id="ST_PrepararDossie" name="Preparar dossie de envio (agente Gustavo)"
+                      camunda:type="external" camunda:topic="regulatorio.anssubmit.notify_regulatorio">
+      <bpmn:documentation>Convoca Gustavo: dossie de envio (resumo do dataset + regras DMN avaliadas + due_date). O dossie INSTRUI a decisao humana de aprovar o envio, nunca a substitui (principio Rafael/Gustavo). Gustavo nunca transmite autonomamente (PEP require_human, ans_official_submission L1).</bpmn:documentation>
+      <bpmn:incoming>Flow_GW_Revisao</bpmn:incoming>
+      <bpmn:outgoing>Flow_Dossie_UTRevisar</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- HITL pre-filing: UNICA origem de decisao_envio=APROVAR_ENVIO (nao-repudio) -->
+    <bpmn:userTask id="UT_RevisarEnvio" name="Revisar e assinar o envio oficial ANS"
+                   camunda:candidateGroups="regulatorio-ans">
+      <bpmn:documentation><![CDATA[
+HITL pre-filing (nao-repudio, ADR-0007): UNICO ponto onde o envio oficial vinculante e autorizado.
+O envio so e transmitido apos esta User Task concluida por humano do grupo regulatorio-ans. Saidas:
+decisao_envio in {APROVAR_ENVIO, CORRIGIR_PENDENCIA, ADIAR_ENVIO};
+- APROVAR_ENVIO exige revisor_id (id do humano que assina; campo obrigatorio — validacao de
+  formulario + guard do worker submit, ERR_ANS_SUBMIT_NOT_HUMAN). NENHUM caminho automatizado
+  transmite a ANS sem esta decisao humana.
+- CORRIGIR_PENDENCIA -> volta a UT_CorrigirPendenciaEnvio (dataset/schema a corrigir).
+- ADIAR_ENVIO exige justificativa_adiamento (registra o nao-envio no prazo como decisao humana,
+  nunca efeito automatico).
+SLA: `sla.sla_analise` (DURACAO relativa de ans_sla; timer interruptivo BT_DueDate -> coordenacao
+assume) com alerta `sla.sla_alerta` (nao-interruptivo BT_DeadlineRisk). Datas absolutas de
+competencia (calendario.due_date/sla_alerta) vivem no dossie/eventos, nao nos timers. A decisao sai
+em nome do revisor (assignee na trilha de auditoria, ADR-0007).
+]]></bpmn:documentation>
+      <bpmn:incoming>Flow_Dossie_UTRevisar</bpmn:incoming>
+      <bpmn:outgoing>Flow_UTRevisar_GW</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <!-- Timer nao-interruptivo: alerta de deadline-risk de calendario (UT segue aberta) -->
+    <bpmn:boundaryEvent id="BT_DeadlineRisk" name="Alerta de risco de prazo (sla_alerta)" cancelActivity="false" attachedToRef="UT_RevisarEnvio">
+      <bpmn:outgoing>Flow_Deadline_Notify</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TD_DeadlineRisk">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${sla.sla_alerta}</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="ST_NotificarDeadlineRisk" name="Notificar risco de prazo (regulatorio-ans)"
+                      camunda:type="external" camunda:topic="regulatorio.anssubmit.notify_regulatorio">
+      <bpmn:documentation>GAP-ANS-4: reusado pelos alertas nao-interruptivos de UT_CorrigirPendenciaEnvio (BT_DeadlineRiskPendencia) e UT_RevisarEnvioJuridico (BT_DeadlineRiskJuridico), alem do alerta original de UT_RevisarEnvio (BT_DeadlineRisk).</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic_deadline_risk">agents.events.anssubmit.deadline_risk</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Deadline_Notify</bpmn:incoming>
+      <bpmn:incoming>Flow_DeadlinePendencia_Notify</bpmn:incoming>
+      <bpmn:incoming>Flow_DeadlineJuridico_Notify</bpmn:incoming>
+      <bpmn:outgoing>Flow_Notify_PubDeadline</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="ST_PublishDeadlineRisk" name="Publicar evento: anssubmit.deadline_risk"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.anssubmit.deadline_risk</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,report_type,competencia</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Notify_PubDeadline</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubDeadline_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_DeadlineRiskNotificado" name="Risco de prazo notificado (revisao segue)">
+      <bpmn:incoming>Flow_PubDeadline_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Timer interruptivo: prazo de calendario (due_date) estourado -> coordenacao assume -->
+    <bpmn:boundaryEvent id="BT_DueDate" name="Prazo de revisao do envio (sla_analise — DRAFT/verify)" cancelActivity="true" attachedToRef="UT_RevisarEnvio">
+      <bpmn:outgoing>Flow_DueDate_UTCoord</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TD_DueDate">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${sla.sla_analise}</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:userTask id="UT_CoordenacaoEnvioAssume" name="Coordenacao regulatoria assume o envio"
+                   camunda:candidateGroups="coordenacao-regulatorio">
+      <bpmn:documentation>Escalation path do prazo de calendario estourado: caso reatribuido a coordenacao. Mesmas saidas e mesmos campos obrigatorios da revisao (decisao de envio continua HUMANA — nunca envio automatico por timeout). Saidas: decisao_envio in {APROVAR_ENVIO, ADIAR_ENVIO}; APROVAR_ENVIO exige revisor_id. GAP-ANS-4: UNICO ponto de escalada de "SLA de calendario estourado" do contrato (§candidate-groups coordenacao-regulatorio) — reusado tambem pelo estouro de BT_DueDatePendencia (UT_CorrigirPendenciaEnvio) e BT_DueDateJuridico (UT_RevisarEnvioJuridico), alem do estouro original de BT_DueDate (UT_RevisarEnvio).</bpmn:documentation>
+      <bpmn:incoming>Flow_DueDate_UTCoord</bpmn:incoming>
+      <bpmn:incoming>Flow_DueDatePendencia_UTCoord</bpmn:incoming>
+      <bpmn:incoming>Flow_DueDateJuridico_UTCoord</bpmn:incoming>
+      <bpmn:outgoing>Flow_UTCoord_GW</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:exclusiveGateway id="GW_DecisaoEnvio" name="Decisao de envio (humana)" default="Flow_GWDec_Adiar">
+      <bpmn:incoming>Flow_UTRevisar_GW</bpmn:incoming>
+      <bpmn:incoming>Flow_UTJuridico_GW</bpmn:incoming>
+      <bpmn:incoming>Flow_UTCoord_GW</bpmn:incoming>
+      <bpmn:outgoing>Flow_GWDec_Aprovar</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWDec_Corrigir</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWDec_Adiar</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <!-- Ramo APROVAR_ENVIO: ato vinculante GATED por worker (ERR_ANS_SUBMIT_NOT_HUMAN) -->
+    <bpmn:serviceTask id="ST_SubmeterEnvio" name="Transmitir envio a ANS (ato vinculante gated)"
+                      camunda:type="external" camunda:topic="regulatorio.anssubmit.submit">
+      <bpmn:documentation>HARD GUARDRAIL (nao-repudio, ADR-0007): o worker RECUSA transmitir se decisao_envio != APROVAR_ENVIO setado por humano, ou se faltar revisor_id (lanca ERR_ANS_SUBMIT_NOT_HUMAN). Carrega revisor_id + data_envio na trilha de auditoria. Este worker NUNCA decide; so transmite o envio ja aprovado na UT humana. Conectividade ANS real AWS-blocked (issue #16). Emite protocolo_ans + status_envio=enviado.</bpmn:documentation>
+      <bpmn:incoming>Flow_GWDec_Aprovar</bpmn:incoming>
+      <bpmn:outgoing>Flow_Submeter_PubSubmitted</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- Boundary error: NACK/erro de transmissao -> subprocess de retry/backoff -->
+    <bpmn:boundaryEvent id="BE_SubmitNack" name="NACK/erro de transmissao" attachedToRef="ST_SubmeterEnvio">
+      <bpmn:outgoing>Flow_SubmitNack_Retry</bpmn:outgoing>
+      <bpmn:errorEventDefinition id="EED_SubmitNack" errorRef="Error_AnsProtocoloNack"/>
+    </bpmn:boundaryEvent>
+
+    <bpmn:serviceTask id="ST_PublishSubmitted" name="Publicar evento: anssubmit.submitted"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.anssubmit.submitted</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,report_type,competencia,protocolo_ans,revisor_id</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Submeter_PubSubmitted</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubSubmitted_WaitAck</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- Corrida: ACK da ANS chega OU timer de aguardo de ACK expira -->
+    <bpmn:eventBasedGateway id="GW_AguardarAck" name="Aguardar ACK da ANS">
+      <bpmn:incoming>Flow_PubSubmitted_WaitAck</bpmn:incoming>
+      <bpmn:incoming>Flow_PubRetransmitido_WaitAck</bpmn:incoming>
+      <bpmn:outgoing>Flow_Wait_AckMsg</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Wait_AckTimer</bpmn:outgoing>
+    </bpmn:eventBasedGateway>
+    <bpmn:intermediateCatchEvent id="ICE_AckRecebido" name="ACK da ANS correlacionado">
+      <bpmn:incoming>Flow_Wait_AckMsg</bpmn:incoming>
+      <bpmn:outgoing>Flow_AckMsg_Track</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="MED_AckRecebido" messageRef="Msg_AnsAckReceived"/>
+    </bpmn:intermediateCatchEvent>
+    <bpmn:intermediateCatchEvent id="ICE_AguardarAck" name="Aguardo de ACK (P1D — DRAFT/verify)">
+      <bpmn:incoming>Flow_Wait_AckTimer</bpmn:incoming>
+      <bpmn:outgoing>Flow_AckTimer_PubPendente</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TD_AguardarAck">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">P1D</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:intermediateCatchEvent>
+
+    <!-- ACK chegou: correlaciona o protocolo e fecha como enviado_ack -->
+    <bpmn:serviceTask id="ST_TrackProtocol" name="Correlacionar status do protocolo ANS"
+                      camunda:type="external" camunda:topic="regulatorio.anssubmit.track_protocol">
+      <bpmn:documentation>Worker consulta/correlaciona o status do protocolo (mcp-ans.get_protocol). Em ACK ecoa status_envio=ack. NAO decide envio.</bpmn:documentation>
+      <bpmn:incoming>Flow_AckMsg_Track</bpmn:incoming>
+      <bpmn:outgoing>Flow_Track_PubAcked</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="ST_PublishAcked" name="Publicar evento: anssubmit.acked"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.anssubmit.acked</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,report_type,competencia,protocolo_ans</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Track_PubAcked</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubAcked_PubCompleted</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="ST_PublishCompletedAck" name="Publicar evento: anssubmit.completed (enviado_ack)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.anssubmit.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">enviado_ack</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,report_type,competencia,protocolo_ans,revisor_id</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_PubAcked_PubCompleted</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubCompletedAck_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_EnviadoAck" name="Enviado e ACK recebido (assinado por humano)">
+      <bpmn:incoming>Flow_PubCompletedAck_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- ACK nao chegou no prazo: fecha como enviado_pendente_ack (nao trava indefinidamente) -->
+    <bpmn:serviceTask id="ST_PublishCompletedPendente" name="Publicar evento: anssubmit.completed (enviado_pendente_ack)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.anssubmit.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">enviado_pendente_ack</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,report_type,competencia,protocolo_ans</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_AckTimer_PubPendente</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubPendente_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_EnviadoPendenteAck" name="Enviado, ACK pendente (nao trava)">
+      <bpmn:incoming>Flow_PubPendente_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- ===== SUBPROCESS DE RETRY/BACKOFF (transitorio): loop LIMITADO dirigido por DMN ===== -->
+    <!-- Entrada: boundary error BE_SubmitNack (ERR_ANS_PROTOCOLO_NACK) em ST_SubmeterEnvio. A
+         retransmissao REUSA a aprovacao humana ja registrada (decisao_envio=APROVAR_ENVIO + revisor_id)
+         e NUNCA re-autoriza — o guard ERR_ANS_SUBMIT_NOT_HUMAN permanece no worker de retransmissao.
+         A politica (tentativas + backoff PT5M/PT30M/PT2H) vive na DMN ans_retry_policy (ADR-0012),
+         NAO em literais de timer aqui. -->
+    <bpmn:subProcess id="SUB_RetryEnvio" name="Retry/backoff de transmissao (transitorio)">
+      <bpmn:documentation>Loop limitado de retransmissao no NACK/erro transitorio. ST_RetransmitirEnvio retransmite (topico regulatorio.anssubmit.retransmit; reusa APROVAR_ENVIO + revisor_id); se status_envio=retransmitido -> End_RetryOk (fim normal -> resume aguardo de ACK). Senao BRT_RetryPolicy (DMN ans_retry_policy, in: retry_attempt) decide backoff + continue_retry; continuar -> ICE_Backoff (timeDuration=`retry.backoff`) -> volta a retransmitir (retry_attempt incrementado pelo worker); esgotado -> End_RetryEsgotado (error end, ERR_ANS_RETRY_ESGOTADO). NUNCA encerra silenciosamente; NUNCA loop infinito (catch-all da DMN = continue_retry false).</bpmn:documentation>
+      <bpmn:incoming>Flow_SubmitNack_Retry</bpmn:incoming>
+      <bpmn:outgoing>Flow_Sub_PubRetransmitido</bpmn:outgoing>
+
+      <bpmn:startEvent id="Start_Retry" name="Entrou em retry (NACK transitorio)">
+        <bpmn:outgoing>Flow_StartRetry_Retransmitir</bpmn:outgoing>
+      </bpmn:startEvent>
+
+      <bpmn:serviceTask id="ST_RetransmitirEnvio" name="Retransmitir envio a ANS (retry — reusa aprovacao humana)"
+                        camunda:type="external" camunda:topic="regulatorio.anssubmit.retransmit">
+        <bpmn:documentation>Worker de retransmissao (regulatorio.anssubmit.retransmit). Mesmo guard nao-repudio (ERR_ANS_SUBMIT_NOT_HUMAN): a retransmissao reusa decisao_envio=APROVAR_ENVIO + revisor_id ja setados pelo humano e NUNCA re-autoriza. Incrementa retry_attempt (contador de loop) e ecoa status_envio (retransmitido em sucesso, nack se ainda falha) + nack_motivo. Conectividade ANS real AWS-blocked (issue #16). protocolo_ans determinista por business_key (idempotente — nunca duplica filing).</bpmn:documentation>
+        <bpmn:incoming>Flow_StartRetry_Retransmitir</bpmn:incoming>
+        <bpmn:incoming>Flow_Backoff_Retransmitir</bpmn:incoming>
+        <bpmn:outgoing>Flow_Retransmitir_GWOk</bpmn:outgoing>
+      </bpmn:serviceTask>
+
+      <bpmn:exclusiveGateway id="GW_RetransmissaoOk" name="Retransmissao bem-sucedida?" default="Flow_GWOk_Policy">
+        <bpmn:incoming>Flow_Retransmitir_GWOk</bpmn:incoming>
+        <bpmn:outgoing>Flow_GWOk_EndOk</bpmn:outgoing>
+        <bpmn:outgoing>Flow_GWOk_Policy</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+
+      <bpmn:endEvent id="End_RetryOk" name="Retransmissao OK (resume aguardo de ACK)">
+        <bpmn:documentation>Fim NORMAL do subprocess: a retransmissao teve sucesso (status_envio=retransmitido). O subprocess completa e o fluxo principal segue a ST_PublishRetransmitido -> re-aguardo de ACK.</bpmn:documentation>
+        <bpmn:incoming>Flow_GWOk_EndOk</bpmn:incoming>
+      </bpmn:endEvent>
+
+      <!-- DMN: politica de retry/backoff (tentativas + backoff exponencial) -->
+      <bpmn:businessRuleTask id="BRT_RetryPolicy" name="Avaliar politica de retry/backoff (DMN ans_retry_policy)"
+                             camunda:decisionRef="ans_retry_policy"
+                             camunda:mapDecisionResult="singleResult"
+                             camunda:resultVariable="retry">
+        <bpmn:documentation>Saidas: backoff (ISO 8601 DURATION P.../PT...) e continue_retry (boolean). In: retry_attempt (integer, contador de loop incrementado pelo worker). Rules 1/2/3 -> PT5M/PT30M/PT2H + continue=true; catch-all (&gt;3) -> continue=false (esgotado). Politica DRAFT/verify regulatorio. Sem saida adversa — so politica TECNICA de retransmissao.</bpmn:documentation>
+        <bpmn:incoming>Flow_GWOk_Policy</bpmn:incoming>
+        <bpmn:outgoing>Flow_Policy_GWContinuar</bpmn:outgoing>
+      </bpmn:businessRuleTask>
+
+      <bpmn:exclusiveGateway id="GW_ContinuarRetry" name="Continuar retry? (DMN continue_retry)" default="Flow_GWContinuar_Esgotado">
+        <bpmn:incoming>Flow_Policy_GWContinuar</bpmn:incoming>
+        <bpmn:outgoing>Flow_GWContinuar_Backoff</bpmn:outgoing>
+        <bpmn:outgoing>Flow_GWContinuar_Esgotado</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+
+      <!-- Timer intermediario: backoff exponencial relativo (duracao resolvida pela DMN) -->
+      <bpmn:intermediateCatchEvent id="ICE_Backoff" name="Backoff (timeDuration ${retry.backoff})">
+        <bpmn:incoming>Flow_GWContinuar_Backoff</bpmn:incoming>
+        <bpmn:outgoing>Flow_Backoff_Retransmitir</bpmn:outgoing>
+        <bpmn:timerEventDefinition id="TD_Backoff">
+          <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${retry.backoff}</bpmn:timeDuration>
+        </bpmn:timerEventDefinition>
+      </bpmn:intermediateCatchEvent>
+
+      <!-- Fim de ERRO do subprocess: retry esgotado -> propaga ERR_ANS_RETRY_ESGOTADO ao boundary -->
+      <bpmn:endEvent id="End_RetryEsgotado" name="Retry esgotado (erro -> tratamento humano)">
+        <bpmn:documentation>Fim de ERRO: a politica DMN esgotou (continue_retry=false). Lanca ERR_ANS_RETRY_ESGOTADO, capturado pelo boundary BE_RetryEsgotado do subprocess -> ST_PublishFailed -> UT_TratarNack (humano). Nunca encerra silenciosamente.</bpmn:documentation>
+        <bpmn:incoming>Flow_GWContinuar_Esgotado</bpmn:incoming>
+        <bpmn:errorEventDefinition id="EED_RetryEsgotado" errorRef="Error_AnsRetryEsgotado"/>
+      </bpmn:endEvent>
+
+      <!-- FLOWS internos do subprocess -->
+      <bpmn:sequenceFlow id="Flow_StartRetry_Retransmitir" sourceRef="Start_Retry" targetRef="ST_RetransmitirEnvio"/>
+      <bpmn:sequenceFlow id="Flow_Retransmitir_GWOk" sourceRef="ST_RetransmitirEnvio" targetRef="GW_RetransmissaoOk"/>
+      <bpmn:sequenceFlow id="Flow_GWOk_EndOk" name="retransmitido" sourceRef="GW_RetransmissaoOk" targetRef="End_RetryOk">
+        <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${status_envio == 'retransmitido'}</bpmn:conditionExpression>
+      </bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_GWOk_Policy" name="nack (avaliar politica — default)" sourceRef="GW_RetransmissaoOk" targetRef="BRT_RetryPolicy"/>
+      <bpmn:sequenceFlow id="Flow_Policy_GWContinuar" sourceRef="BRT_RetryPolicy" targetRef="GW_ContinuarRetry"/>
+      <bpmn:sequenceFlow id="Flow_GWContinuar_Backoff" name="continuar (backoff)" sourceRef="GW_ContinuarRetry" targetRef="ICE_Backoff">
+        <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${retry.continue_retry == true}</bpmn:conditionExpression>
+      </bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_Backoff_Retransmitir" sourceRef="ICE_Backoff" targetRef="ST_RetransmitirEnvio"/>
+      <bpmn:sequenceFlow id="Flow_GWContinuar_Esgotado" name="esgotado (default)" sourceRef="GW_ContinuarRetry" targetRef="End_RetryEsgotado"/>
+    </bpmn:subProcess>
+
+    <!-- Boundary error do subprocess: retry esgotado -> humano trata o NACK (nunca encerra silenciosamente) -->
+    <bpmn:boundaryEvent id="BE_RetryEsgotado" name="Retry esgotado (ERR_ANS_RETRY_ESGOTADO)" attachedToRef="SUB_RetryEnvio">
+      <bpmn:outgoing>Flow_RetryEsgotado_PubFailed</bpmn:outgoing>
+      <bpmn:errorEventDefinition id="EED_RetryEsgotadoBoundary" errorRef="Error_AnsRetryEsgotado"/>
+    </bpmn:boundaryEvent>
+
+    <!-- Retransmissao OK -> volta ao aguardo de ACK -->
+    <bpmn:serviceTask id="ST_PublishRetransmitido" name="Publicar evento: anssubmit.submitted (retransmitido)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.anssubmit.submitted</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,report_type,competencia,protocolo_ans,revisor_id</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Sub_PubRetransmitido</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubRetransmitido_WaitAck</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- Retry esgotado -> humano trata o NACK + evento failed -->
+    <bpmn:serviceTask id="ST_PublishFailed" name="Publicar evento: anssubmit.failed (falha_retransmissao)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.anssubmit.failed</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,report_type,competencia,nack_motivo</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_RetryEsgotado_PubFailed</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubFailed_UTNack</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:userTask id="UT_TratarNack" name="Tratar NACK da ANS (humano)"
+                   camunda:candidateGroups="regulatorio-ans">
+      <bpmn:documentation>Retry esgotado: o humano do grupo regulatorio-ans trata o NACK (corrige e retransmite, ou registra falha). Nunca encerra silenciosamente. Saida: decisao_nack in {retransmitir_manual, registrar_falha}.</bpmn:documentation>
+      <bpmn:incoming>Flow_PubFailed_UTNack</bpmn:incoming>
+      <bpmn:outgoing>Flow_UTNack_End</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:endEvent id="End_FalhaRetransmissao" name="Falha de retransmissao (tratada por humano)">
+      <bpmn:incoming>Flow_UTNack_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Ramo ADIAR_ENVIO: nao-envio no prazo como decisao humana registrada (nunca automatico) -->
+    <bpmn:serviceTask id="ST_PublishAdiado" name="Publicar evento: anssubmit.completed (adiado_humano)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.anssubmit.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">adiado_humano</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,report_type,competencia,justificativa_adiamento,revisor_id</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_GWDec_Adiar</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubAdiado_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_AdiadoHumano" name="Envio adiado (decisao humana registrada)">
+      <bpmn:incoming>Flow_PubAdiado_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- FLOWS -->
+    <bpmn:sequenceFlow id="Flow_Start_PubReceived" sourceRef="Start_DespachoEnvio" targetRef="ST_PublishReceived"/>
+    <bpmn:sequenceFlow id="Flow_PubReceived_Calendar" sourceRef="ST_PublishReceived" targetRef="BRT_Calendario"/>
+    <bpmn:sequenceFlow id="Flow_Calendar_Sla" sourceRef="BRT_Calendario" targetRef="BRT_AnsSla"/>
+    <bpmn:sequenceFlow id="Flow_Sla_Assemble" sourceRef="BRT_AnsSla" targetRef="ST_AssembleDataset"/>
+    <bpmn:sequenceFlow id="Flow_Assemble_Validate" sourceRef="ST_AssembleDataset" targetRef="ST_ValidateSchema"/>
+    <bpmn:sequenceFlow id="Flow_Validate_Admiss" sourceRef="ST_ValidateSchema" targetRef="BRT_Admissibilidade"/>
+    <bpmn:sequenceFlow id="Flow_Admiss_GW" sourceRef="BRT_Admissibilidade" targetRef="GW_Admissibilidade"/>
+    <bpmn:sequenceFlow id="Flow_GW_Pendente" name="PENDENTE" sourceRef="GW_Admissibilidade" targetRef="UT_CorrigirPendenciaEnvio">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${admissibilidade.roteamento == 'PENDENTE'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GW_NipFiling" name="nip_filing (revisao juridica)" sourceRef="GW_Admissibilidade" targetRef="UT_RevisarEnvioJuridico">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${origem_envio == 'nip_filing'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GW_Revisao" name="SEGUE_ENVIO | REVISAO_HUMANA (default — sempre humano)" sourceRef="GW_Admissibilidade" targetRef="ST_PrepararDossie"/>
+    <bpmn:sequenceFlow id="Flow_Corrigir_Calendar" sourceRef="UT_CorrigirPendenciaEnvio" targetRef="BRT_Calendario"/>
+    <bpmn:sequenceFlow id="Flow_Dossie_UTRevisar" sourceRef="ST_PrepararDossie" targetRef="UT_RevisarEnvio"/>
+    <bpmn:sequenceFlow id="Flow_UTRevisar_GW" sourceRef="UT_RevisarEnvio" targetRef="GW_DecisaoEnvio"/>
+    <bpmn:sequenceFlow id="Flow_UTJuridico_GW" sourceRef="UT_RevisarEnvioJuridico" targetRef="GW_DecisaoEnvio"/>
+    <bpmn:sequenceFlow id="Flow_Deadline_Notify" sourceRef="BT_DeadlineRisk" targetRef="ST_NotificarDeadlineRisk"/>
+    <bpmn:sequenceFlow id="Flow_Notify_PubDeadline" sourceRef="ST_NotificarDeadlineRisk" targetRef="ST_PublishDeadlineRisk"/>
+    <bpmn:sequenceFlow id="Flow_PubDeadline_End" sourceRef="ST_PublishDeadlineRisk" targetRef="End_DeadlineRiskNotificado"/>
+    <bpmn:sequenceFlow id="Flow_DueDate_UTCoord" sourceRef="BT_DueDate" targetRef="UT_CoordenacaoEnvioAssume"/>
+    <!-- GAP-ANS-4: UT_CorrigirPendenciaEnvio/UT_RevisarEnvioJuridico ganham os MESMOS boundary
+         timers de UT_RevisarEnvio, convergindo nos MESMOS nos de notificacao/escalada (sem
+         duplicar a service task de notificacao nem a UT de coordenacao). -->
+    <bpmn:sequenceFlow id="Flow_DeadlinePendencia_Notify" sourceRef="BT_DeadlineRiskPendencia" targetRef="ST_NotificarDeadlineRisk"/>
+    <bpmn:sequenceFlow id="Flow_DueDatePendencia_UTCoord" sourceRef="BT_DueDatePendencia" targetRef="UT_CoordenacaoEnvioAssume"/>
+    <bpmn:sequenceFlow id="Flow_DeadlineJuridico_Notify" sourceRef="BT_DeadlineRiskJuridico" targetRef="ST_NotificarDeadlineRisk"/>
+    <bpmn:sequenceFlow id="Flow_DueDateJuridico_UTCoord" sourceRef="BT_DueDateJuridico" targetRef="UT_CoordenacaoEnvioAssume"/>
+    <bpmn:sequenceFlow id="Flow_UTCoord_GW" sourceRef="UT_CoordenacaoEnvioAssume" targetRef="GW_DecisaoEnvio"/>
+    <bpmn:sequenceFlow id="Flow_GWDec_Aprovar" name="APROVAR_ENVIO (somente humano)" sourceRef="GW_DecisaoEnvio" targetRef="ST_SubmeterEnvio">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_envio == 'APROVAR_ENVIO'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWDec_Corrigir" name="CORRIGIR_PENDENCIA" sourceRef="GW_DecisaoEnvio" targetRef="UT_CorrigirPendenciaEnvio">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_envio == 'CORRIGIR_PENDENCIA'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWDec_Adiar" name="ADIAR_ENVIO (default — nao-envio humano)" sourceRef="GW_DecisaoEnvio" targetRef="ST_PublishAdiado"/>
+    <bpmn:sequenceFlow id="Flow_Submeter_PubSubmitted" sourceRef="ST_SubmeterEnvio" targetRef="ST_PublishSubmitted"/>
+    <bpmn:sequenceFlow id="Flow_SubmitNack_Retry" sourceRef="BE_SubmitNack" targetRef="SUB_RetryEnvio"/>
+    <bpmn:sequenceFlow id="Flow_PubSubmitted_WaitAck" sourceRef="ST_PublishSubmitted" targetRef="GW_AguardarAck"/>
+    <bpmn:sequenceFlow id="Flow_Wait_AckMsg" sourceRef="GW_AguardarAck" targetRef="ICE_AckRecebido"/>
+    <bpmn:sequenceFlow id="Flow_Wait_AckTimer" sourceRef="GW_AguardarAck" targetRef="ICE_AguardarAck"/>
+    <bpmn:sequenceFlow id="Flow_AckMsg_Track" sourceRef="ICE_AckRecebido" targetRef="ST_TrackProtocol"/>
+    <bpmn:sequenceFlow id="Flow_AckTimer_PubPendente" sourceRef="ICE_AguardarAck" targetRef="ST_PublishCompletedPendente"/>
+    <bpmn:sequenceFlow id="Flow_Track_PubAcked" sourceRef="ST_TrackProtocol" targetRef="ST_PublishAcked"/>
+    <bpmn:sequenceFlow id="Flow_PubAcked_PubCompleted" sourceRef="ST_PublishAcked" targetRef="ST_PublishCompletedAck"/>
+    <bpmn:sequenceFlow id="Flow_PubCompletedAck_End" sourceRef="ST_PublishCompletedAck" targetRef="End_EnviadoAck"/>
+    <bpmn:sequenceFlow id="Flow_PubPendente_End" sourceRef="ST_PublishCompletedPendente" targetRef="End_EnviadoPendenteAck"/>
+    <bpmn:sequenceFlow id="Flow_Sub_PubRetransmitido" sourceRef="SUB_RetryEnvio" targetRef="ST_PublishRetransmitido"/>
+    <bpmn:sequenceFlow id="Flow_RetryEsgotado_PubFailed" sourceRef="BE_RetryEsgotado" targetRef="ST_PublishFailed"/>
+    <bpmn:sequenceFlow id="Flow_PubRetransmitido_WaitAck" sourceRef="ST_PublishRetransmitido" targetRef="GW_AguardarAck"/>
+    <bpmn:sequenceFlow id="Flow_PubFailed_UTNack" sourceRef="ST_PublishFailed" targetRef="UT_TratarNack"/>
+    <bpmn:sequenceFlow id="Flow_UTNack_End" sourceRef="UT_TratarNack" targetRef="End_FalhaRetransmissao"/>
+    <bpmn:sequenceFlow id="Flow_PubAdiado_End" sourceRef="ST_PublishAdiado" targetRef="End_AdiadoHumano"/>
+  </bpmn:process>
+
+  <bpmndi:BPMNDiagram id="Diagram_SP-OP-ANS-SUBMIT-001">
+    <bpmndi:BPMNPlane id="Plane_SP-OP-ANS-SUBMIT-001" bpmnElement="SP-OP-ANS-SUBMIT-001">
+      <bpmndi:BPMNShape id="Shape_Start_DespachoEnvio" bpmnElement="Start_DespachoEnvio">
+        <dc:Bounds x="438" y="74" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishReceived" bpmnElement="ST_PublishReceived">
+        <dc:Bounds x="952" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_Calendario" bpmnElement="BRT_Calendario">
+        <dc:Bounds x="1132" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_AnsSla" bpmnElement="BRT_AnsSla">
+        <dc:Bounds x="1312" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_AssembleDataset" bpmnElement="ST_AssembleDataset">
+        <dc:Bounds x="1492" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_ValidateSchema" bpmnElement="ST_ValidateSchema">
+        <dc:Bounds x="1672" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_Admissibilidade" bpmnElement="BRT_Admissibilidade">
+        <dc:Bounds x="1852" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_Admissibilidade" bpmnElement="GW_Admissibilidade" isMarkerVisible="true">
+        <dc:Bounds x="2032" y="67" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT_CorrigirPendenciaEnvio" bpmnElement="UT_CorrigirPendenciaEnvio">
+        <dc:Bounds x="2652" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_DeadlineRiskPendencia" bpmnElement="BT_DeadlineRiskPendencia">
+        <dc:Bounds x="2667" y="114" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_DueDatePendencia" bpmnElement="BT_DueDatePendencia">
+        <dc:Bounds x="2700" y="114" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT_RevisarEnvioJuridico" bpmnElement="UT_RevisarEnvioJuridico">
+        <dc:Bounds x="2162" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_DeadlineRiskJuridico" bpmnElement="BT_DeadlineRiskJuridico">
+        <dc:Bounds x="2177" y="114" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_DueDateJuridico" bpmnElement="BT_DueDateJuridico">
+        <dc:Bounds x="2210" y="114" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PrepararDossie" bpmnElement="ST_PrepararDossie">
+        <dc:Bounds x="2162" y="196" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT_RevisarEnvio" bpmnElement="UT_RevisarEnvio">
+        <dc:Bounds x="2342" y="196" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_DeadlineRisk" bpmnElement="BT_DeadlineRisk">
+        <dc:Bounds x="2357" y="258" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_NotificarDeadlineRisk" bpmnElement="ST_NotificarDeadlineRisk">
+        <dc:Bounds x="406" y="196" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishDeadlineRisk" bpmnElement="ST_PublishDeadlineRisk">
+        <dc:Bounds x="952" y="196" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_DeadlineRiskNotificado" bpmnElement="End_DeadlineRiskNotificado">
+        <dc:Bounds x="1164" y="218" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_DueDate" bpmnElement="BT_DueDate">
+        <dc:Bounds x="2390" y="258" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT_CoordenacaoEnvioAssume" bpmnElement="UT_CoordenacaoEnvioAssume">
+        <dc:Bounds x="406" y="328" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_DecisaoEnvio" bpmnElement="GW_DecisaoEnvio" isMarkerVisible="true">
+        <dc:Bounds x="2522" y="211" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_SubmeterEnvio" bpmnElement="ST_SubmeterEnvio">
+        <dc:Bounds x="2652" y="196" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BE_SubmitNack" bpmnElement="BE_SubmitNack">
+        <dc:Bounds x="2684" y="258" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishSubmitted" bpmnElement="ST_PublishSubmitted">
+        <dc:Bounds x="2832" y="196" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_AguardarAck" bpmnElement="GW_AguardarAck" isMarkerVisible="true">
+        <dc:Bounds x="3012" y="343" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ICE_AckRecebido" bpmnElement="ICE_AckRecebido">
+        <dc:Bounds x="3142" y="350" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ICE_AguardarAck" bpmnElement="ICE_AguardarAck">
+        <dc:Bounds x="3142" y="615" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_TrackProtocol" bpmnElement="ST_TrackProtocol">
+        <dc:Bounds x="3258" y="328" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishAcked" bpmnElement="ST_PublishAcked">
+        <dc:Bounds x="3438" y="328" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishCompletedAck" bpmnElement="ST_PublishCompletedAck">
+        <dc:Bounds x="3618" y="328" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_EnviadoAck" bpmnElement="End_EnviadoAck">
+        <dc:Bounds x="3798" y="350" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishCompletedPendente" bpmnElement="ST_PublishCompletedPendente">
+        <dc:Bounds x="3258" y="593" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_EnviadoPendenteAck" bpmnElement="End_EnviadoPendenteAck">
+        <dc:Bounds x="3470" y="615" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SUB_RetryEnvio" bpmnElement="SUB_RetryEnvio" isExpanded="true">
+        <dc:Bounds x="40" y="460" width="832" height="346"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Start_Retry" bpmnElement="Start_Retry">
+        <dc:Bounds x="70" y="522" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_RetransmitirEnvio" bpmnElement="ST_RetransmitirEnvio">
+        <dc:Bounds x="186" y="500" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_RetransmissaoOk" bpmnElement="GW_RetransmissaoOk" isMarkerVisible="true">
+        <dc:Bounds x="366" y="515" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_RetryOk" bpmnElement="End_RetryOk">
+        <dc:Bounds x="528" y="522" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_RetryPolicy" bpmnElement="BRT_RetryPolicy">
+        <dc:Bounds x="496" y="620" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_ContinuarRetry" bpmnElement="GW_ContinuarRetry" isMarkerVisible="true">
+        <dc:Bounds x="676" y="635" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ICE_Backoff" bpmnElement="ICE_Backoff">
+        <dc:Bounds x="806" y="642" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_RetryEsgotado" bpmnElement="End_RetryEsgotado">
+        <dc:Bounds x="806" y="740" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BE_RetryEsgotado" bpmnElement="BE_RetryEsgotado">
+        <dc:Bounds x="438" y="788" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishRetransmitido" bpmnElement="ST_PublishRetransmitido">
+        <dc:Bounds x="952" y="593" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishFailed" bpmnElement="ST_PublishFailed">
+        <dc:Bounds x="406" y="858" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT_TratarNack" bpmnElement="UT_TratarNack">
+        <dc:Bounds x="952" y="858" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_FalhaRetransmissao" bpmnElement="End_FalhaRetransmissao">
+        <dc:Bounds x="1164" y="880" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishAdiado" bpmnElement="ST_PublishAdiado">
+        <dc:Bounds x="2652" y="328" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_AdiadoHumano" bpmnElement="End_AdiadoHumano">
+        <dc:Bounds x="2864" y="350" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_Flow_StartRetry_Retransmitir" bpmnElement="Flow_StartRetry_Retransmitir">
+        <di:waypoint x="106" y="540"/>
+        <di:waypoint x="186" y="540"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Retransmitir_GWOk" bpmnElement="Flow_Retransmitir_GWOk">
+        <di:waypoint x="286" y="540"/>
+        <di:waypoint x="366" y="540"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWOk_EndOk" bpmnElement="Flow_GWOk_EndOk">
+        <di:waypoint x="416" y="540"/>
+        <di:waypoint x="528" y="540"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWOk_Policy" bpmnElement="Flow_GWOk_Policy">
+        <di:waypoint x="416" y="540"/>
+        <di:waypoint x="456" y="540"/>
+        <di:waypoint x="456" y="660"/>
+        <di:waypoint x="496" y="660"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Policy_GWContinuar" bpmnElement="Flow_Policy_GWContinuar">
+        <di:waypoint x="596" y="660"/>
+        <di:waypoint x="676" y="660"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWContinuar_Backoff" bpmnElement="Flow_GWContinuar_Backoff">
+        <di:waypoint x="726" y="660"/>
+        <di:waypoint x="806" y="660"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Backoff_Retransmitir" bpmnElement="Flow_Backoff_Retransmitir">
+        <di:waypoint x="824" y="678"/>
+        <di:waypoint x="824" y="738"/>
+        <di:waypoint x="186" y="738"/>
+        <di:waypoint x="186" y="540"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWContinuar_Esgotado" bpmnElement="Flow_GWContinuar_Esgotado">
+        <di:waypoint x="726" y="660"/>
+        <di:waypoint x="766" y="660"/>
+        <di:waypoint x="766" y="758"/>
+        <di:waypoint x="806" y="758"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Start_PubReceived" bpmnElement="Flow_Start_PubReceived">
+        <di:waypoint x="474" y="92"/>
+        <di:waypoint x="952" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubReceived_Calendar" bpmnElement="Flow_PubReceived_Calendar">
+        <di:waypoint x="1052" y="92"/>
+        <di:waypoint x="1132" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Calendar_Sla" bpmnElement="Flow_Calendar_Sla">
+        <di:waypoint x="1232" y="92"/>
+        <di:waypoint x="1312" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Sla_Assemble" bpmnElement="Flow_Sla_Assemble">
+        <di:waypoint x="1412" y="92"/>
+        <di:waypoint x="1492" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Assemble_Validate" bpmnElement="Flow_Assemble_Validate">
+        <di:waypoint x="1592" y="92"/>
+        <di:waypoint x="1672" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Validate_Admiss" bpmnElement="Flow_Validate_Admiss">
+        <di:waypoint x="1772" y="92"/>
+        <di:waypoint x="1852" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Admiss_GW" bpmnElement="Flow_Admiss_GW">
+        <di:waypoint x="1952" y="92"/>
+        <di:waypoint x="2032" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GW_Pendente" bpmnElement="Flow_GW_Pendente">
+        <di:waypoint x="2082" y="92"/>
+        <di:waypoint x="2652" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GW_NipFiling" bpmnElement="Flow_GW_NipFiling">
+        <di:waypoint x="2082" y="92"/>
+        <di:waypoint x="2162" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GW_Revisao" bpmnElement="Flow_GW_Revisao">
+        <di:waypoint x="2082" y="92"/>
+        <di:waypoint x="2122" y="92"/>
+        <di:waypoint x="2122" y="236"/>
+        <di:waypoint x="2162" y="236"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Corrigir_Calendar" bpmnElement="Flow_Corrigir_Calendar">
+        <di:waypoint x="2702" y="132"/>
+        <di:waypoint x="2702" y="92"/>
+        <di:waypoint x="1182" y="92"/>
+        <di:waypoint x="1182" y="52"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Dossie_UTRevisar" bpmnElement="Flow_Dossie_UTRevisar">
+        <di:waypoint x="2262" y="236"/>
+        <di:waypoint x="2342" y="236"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_UTRevisar_GW" bpmnElement="Flow_UTRevisar_GW">
+        <di:waypoint x="2442" y="236"/>
+        <di:waypoint x="2522" y="236"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_UTJuridico_GW" bpmnElement="Flow_UTJuridico_GW">
+        <di:waypoint x="2262" y="92"/>
+        <di:waypoint x="2392" y="92"/>
+        <di:waypoint x="2392" y="236"/>
+        <di:waypoint x="2522" y="236"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Deadline_Notify" bpmnElement="Flow_Deadline_Notify">
+        <di:waypoint x="2375" y="294"/>
+        <di:waypoint x="2375" y="354"/>
+        <di:waypoint x="406" y="354"/>
+        <di:waypoint x="406" y="236"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Notify_PubDeadline" bpmnElement="Flow_Notify_PubDeadline">
+        <di:waypoint x="506" y="236"/>
+        <di:waypoint x="952" y="236"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubDeadline_End" bpmnElement="Flow_PubDeadline_End">
+        <di:waypoint x="1052" y="236"/>
+        <di:waypoint x="1164" y="236"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_DueDate_UTCoord" bpmnElement="Flow_DueDate_UTCoord">
+        <di:waypoint x="2408" y="294"/>
+        <di:waypoint x="2408" y="311"/>
+        <di:waypoint x="456" y="311"/>
+        <di:waypoint x="456" y="328"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_DeadlinePendencia_Notify" bpmnElement="Flow_DeadlinePendencia_Notify">
+        <di:waypoint x="2685" y="150"/>
+        <di:waypoint x="2685" y="173"/>
+        <di:waypoint x="456" y="173"/>
+        <di:waypoint x="456" y="196"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_DueDatePendencia_UTCoord" bpmnElement="Flow_DueDatePendencia_UTCoord">
+        <di:waypoint x="2718" y="150"/>
+        <di:waypoint x="2718" y="239"/>
+        <di:waypoint x="456" y="239"/>
+        <di:waypoint x="456" y="328"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_DeadlineJuridico_Notify" bpmnElement="Flow_DeadlineJuridico_Notify">
+        <di:waypoint x="2195" y="150"/>
+        <di:waypoint x="2195" y="173"/>
+        <di:waypoint x="456" y="173"/>
+        <di:waypoint x="456" y="196"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_DueDateJuridico_UTCoord" bpmnElement="Flow_DueDateJuridico_UTCoord">
+        <di:waypoint x="2228" y="150"/>
+        <di:waypoint x="2228" y="239"/>
+        <di:waypoint x="456" y="239"/>
+        <di:waypoint x="456" y="328"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_UTCoord_GW" bpmnElement="Flow_UTCoord_GW">
+        <di:waypoint x="506" y="368"/>
+        <di:waypoint x="1514" y="368"/>
+        <di:waypoint x="1514" y="236"/>
+        <di:waypoint x="2522" y="236"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Aprovar" bpmnElement="Flow_GWDec_Aprovar">
+        <di:waypoint x="2572" y="236"/>
+        <di:waypoint x="2652" y="236"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Corrigir" bpmnElement="Flow_GWDec_Corrigir">
+        <di:waypoint x="2572" y="236"/>
+        <di:waypoint x="2612" y="236"/>
+        <di:waypoint x="2612" y="92"/>
+        <di:waypoint x="2652" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Adiar" bpmnElement="Flow_GWDec_Adiar">
+        <di:waypoint x="2572" y="236"/>
+        <di:waypoint x="2612" y="236"/>
+        <di:waypoint x="2612" y="368"/>
+        <di:waypoint x="2652" y="368"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Submeter_PubSubmitted" bpmnElement="Flow_Submeter_PubSubmitted">
+        <di:waypoint x="2752" y="236"/>
+        <di:waypoint x="2832" y="236"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_SubmitNack_Retry" bpmnElement="Flow_SubmitNack_Retry">
+        <di:waypoint x="2702" y="294"/>
+        <di:waypoint x="2702" y="377"/>
+        <di:waypoint x="456" y="377"/>
+        <di:waypoint x="456" y="460"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubSubmitted_WaitAck" bpmnElement="Flow_PubSubmitted_WaitAck">
+        <di:waypoint x="2932" y="236"/>
+        <di:waypoint x="2972" y="236"/>
+        <di:waypoint x="2972" y="368"/>
+        <di:waypoint x="3012" y="368"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Wait_AckMsg" bpmnElement="Flow_Wait_AckMsg">
+        <di:waypoint x="3062" y="368"/>
+        <di:waypoint x="3142" y="368"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Wait_AckTimer" bpmnElement="Flow_Wait_AckTimer">
+        <di:waypoint x="3062" y="368"/>
+        <di:waypoint x="3102" y="368"/>
+        <di:waypoint x="3102" y="633"/>
+        <di:waypoint x="3142" y="633"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_AckMsg_Track" bpmnElement="Flow_AckMsg_Track">
+        <di:waypoint x="3178" y="368"/>
+        <di:waypoint x="3258" y="368"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_AckTimer_PubPendente" bpmnElement="Flow_AckTimer_PubPendente">
+        <di:waypoint x="3178" y="633"/>
+        <di:waypoint x="3258" y="633"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Track_PubAcked" bpmnElement="Flow_Track_PubAcked">
+        <di:waypoint x="3358" y="368"/>
+        <di:waypoint x="3438" y="368"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubAcked_PubCompleted" bpmnElement="Flow_PubAcked_PubCompleted">
+        <di:waypoint x="3538" y="368"/>
+        <di:waypoint x="3618" y="368"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubCompletedAck_End" bpmnElement="Flow_PubCompletedAck_End">
+        <di:waypoint x="3718" y="368"/>
+        <di:waypoint x="3798" y="368"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubPendente_End" bpmnElement="Flow_PubPendente_End">
+        <di:waypoint x="3358" y="633"/>
+        <di:waypoint x="3470" y="633"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Sub_PubRetransmitido" bpmnElement="Flow_Sub_PubRetransmitido">
+        <di:waypoint x="872" y="633"/>
+        <di:waypoint x="952" y="633"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_RetryEsgotado_PubFailed" bpmnElement="Flow_RetryEsgotado_PubFailed">
+        <di:waypoint x="456" y="824"/>
+        <di:waypoint x="456" y="858"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubRetransmitido_WaitAck" bpmnElement="Flow_PubRetransmitido_WaitAck">
+        <di:waypoint x="1052" y="633"/>
+        <di:waypoint x="2032" y="633"/>
+        <di:waypoint x="2032" y="368"/>
+        <di:waypoint x="3012" y="368"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubFailed_UTNack" bpmnElement="Flow_PubFailed_UTNack">
+        <di:waypoint x="506" y="898"/>
+        <di:waypoint x="952" y="898"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_UTNack_End" bpmnElement="Flow_UTNack_End">
+        <di:waypoint x="1052" y="898"/>
+        <di:waypoint x="1164" y="898"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubAdiado_End" bpmnElement="Flow_PubAdiado_End">
+        <di:waypoint x="2752" y="368"/>
+        <di:waypoint x="2864" y="368"/>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

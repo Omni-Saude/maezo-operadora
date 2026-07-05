@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_triage_redflag_gestante"
+             name="Red flags de triagem — gestante"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    triage_redflag_gestante v0.1.0 — status: SHAPE FINAL; CONTEUDO CLINICO: DRAFT —
+    requer validacao de obstetra antes de qualquer deploy (docs/review-queue.md).
+    Schema comum triage_redflag_* (ver triage_redflag_adult); campo populacional:
+    idade_gestacional_semanas (number). Aplicavel quando ha gestacao declarada.
+    Consumida por Helena via mcp-dmn.evaluate; red_flag=true -> SP-OP-ESCALATION-001.
+    Exemplos sinteticos: "Paciente Teste 004 (gestante)".
+  </description>
+  <decision id="triage_redflag_gestante" name="Red flags gestante" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_triage_redflag_gestante" hitPolicy="FIRST">
+      <input id="in_sintoma" label="Sintoma normalizado (sintoma_codigo)">
+        <inputExpression id="ie_sintoma" typeRef="string"><text>sintoma_codigo</text></inputExpression>
+      </input>
+      <input id="in_intensidade" label="Intensidade relatada (intensidade)">
+        <inputExpression id="ie_intensidade" typeRef="string"><text>intensidade</text></inputExpression>
+      </input>
+      <input id="in_ig" label="Idade gestacional em semanas (idade_gestacional_semanas)">
+        <inputExpression id="ie_ig" typeRef="integer"><text>idade_gestacional_semanas</text></inputExpression>
+      </input>
+      <output id="out_redflag" label="red_flag" name="red_flag" typeRef="boolean"/>
+      <output id="out_prioridade" label="prioridade" name="prioridade" typeRef="string"/>
+      <output id="out_conduta" label="conduta" name="conduta" typeRef="string"/>
+      <output id="out_motivo" label="motivo" name="motivo" typeRef="string"/>
+      <rule id="r1">
+        <description>DRAFT clinico — ex. sintetico: Paciente Teste 004, 32 semanas, sangramento</description>
+        <inputEntry id="r1i1"><text>"sangramento_vaginal"</text></inputEntry>
+        <inputEntry id="r1i2"><text>-</text></inputEntry>
+        <inputEntry id="r1i3"><text>-</text></inputEntry>
+        <outputEntry id="r1o1"><text>true</text></outputEntry>
+        <outputEntry id="r1o2"><text>"P1"</text></outputEntry>
+        <outputEntry id="r1o3"><text>"ESCALATE_EMERGENCY"</text></outputEntry>
+        <outputEntry id="r1o4"><text>"Sangramento vaginal na gestacao"</text></outputEntry>
+      </rule>
+      <rule id="r2">
+        <description>Cefaleia + alteracao visual apos 20 semanas: suspeita de pre-eclampsia</description>
+        <inputEntry id="r2i1"><text>"cefaleia_alteracao_visual"</text></inputEntry>
+        <inputEntry id="r2i2"><text>-</text></inputEntry>
+        <inputEntry id="r2i3"><text>&gt;= 20</text></inputEntry>
+        <outputEntry id="r2o1"><text>true</text></outputEntry>
+        <outputEntry id="r2o2"><text>"P1"</text></outputEntry>
+        <outputEntry id="r2o3"><text>"ESCALATE_EMERGENCY"</text></outputEntry>
+        <outputEntry id="r2o4"><text>"Suspeita de pre-eclampsia (cefaleia + escotomas/visao turva)"</text></outputEntry>
+      </rule>
+      <rule id="r3">
+        <inputEntry id="r3i1"><text>"movimentos_fetais_reduzidos"</text></inputEntry>
+        <inputEntry id="r3i2"><text>-</text></inputEntry>
+        <inputEntry id="r3i3"><text>&gt;= 26</text></inputEntry>
+        <outputEntry id="r3o1"><text>true</text></outputEntry>
+        <outputEntry id="r3o2"><text>"P1"</text></outputEntry>
+        <outputEntry id="r3o3"><text>"ESCALATE_EMERGENCY"</text></outputEntry>
+        <outputEntry id="r3o4"><text>"Reducao de movimentos fetais no 3o trimestre"</text></outputEntry>
+      </rule>
+      <rule id="r4">
+        <inputEntry id="r4i1"><text>"perda_liquido"</text></inputEntry>
+        <inputEntry id="r4i2"><text>-</text></inputEntry>
+        <inputEntry id="r4i3"><text>&lt; 37</text></inputEntry>
+        <outputEntry id="r4o1"><text>true</text></outputEntry>
+        <outputEntry id="r4o2"><text>"P1"</text></outputEntry>
+        <outputEntry id="r4o3"><text>"ESCALATE_EMERGENCY"</text></outputEntry>
+        <outputEntry id="r4o4"><text>"Suspeita de rotura prematura de membranas pre-termo"</text></outputEntry>
+      </rule>
+      <rule id="r5">
+        <inputEntry id="r5i1"><text>"contracoes_regulares"</text></inputEntry>
+        <inputEntry id="r5i2"><text>-</text></inputEntry>
+        <inputEntry id="r5i3"><text>&lt; 37</text></inputEntry>
+        <outputEntry id="r5o1"><text>true</text></outputEntry>
+        <outputEntry id="r5o2"><text>"P1"</text></outputEntry>
+        <outputEntry id="r5o3"><text>"ESCALATE_EMERGENCY"</text></outputEntry>
+        <outputEntry id="r5o4"><text>"Trabalho de parto pre-termo"</text></outputEntry>
+      </rule>
+      <rule id="r6">
+        <inputEntry id="r6i1"><text>"febre"</text></inputEntry>
+        <inputEntry id="r6i2"><text>"grave","moderada"</text></inputEntry>
+        <inputEntry id="r6i3"><text>-</text></inputEntry>
+        <outputEntry id="r6o1"><text>true</text></outputEntry>
+        <outputEntry id="r6o2"><text>"P2"</text></outputEntry>
+        <outputEntry id="r6o3"><text>"ESCALATE_NURSE"</text></outputEntry>
+        <outputEntry id="r6o4"><text>"Febre na gestacao: avaliacao de enfermagem"</text></outputEntry>
+      </rule>
+      <rule id="r7">
+        <description>Fail-safe obstetrico: qualquer sintoma grave escala</description>
+        <inputEntry id="r7i1"><text>-</text></inputEntry>
+        <inputEntry id="r7i2"><text>"grave"</text></inputEntry>
+        <inputEntry id="r7i3"><text>-</text></inputEntry>
+        <outputEntry id="r7o1"><text>true</text></outputEntry>
+        <outputEntry id="r7o2"><text>"P2"</text></outputEntry>
+        <outputEntry id="r7o3"><text>"ESCALATE_NURSE"</text></outputEntry>
+        <outputEntry id="r7o4"><text>"Sintoma gestacional nao mapeado com intensidade grave — fail-safe"</text></outputEntry>
+      </rule>
+      <rule id="r8">
+        <inputEntry id="r8i1"><text>-</text></inputEntry>
+        <inputEntry id="r8i2"><text>-</text></inputEntry>
+        <inputEntry id="r8i3"><text>-</text></inputEntry>
+        <outputEntry id="r8o1"><text>false</text></outputEntry>
+        <outputEntry id="r8o2"><text>"-"</text></outputEntry>
+        <outputEntry id="r8o3"><text>"CONTINUE"</text></outputEntry>
+        <outputEntry id="r8o4"><text>"Sem criterio de red flag gestacional"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

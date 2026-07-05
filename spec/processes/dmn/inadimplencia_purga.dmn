@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_inadimplencia_purga"
+             name="Prazos de purga/notificacao de inadimplencia (RN 593)"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    inadimplencia_purga v0.1.0 — status: DRAFT — TODOS os prazos marcados DRAFT/verify: confirmar
+    texto vigente com regulatorio/juridico (RN 593 — janela de purga/cura, prazo de notificacao
+    previa ate o 50o dia, periodo minimo de inadimplencia; Lei 9.656 art. 13; consolidacao de
+    RN 412/2016 — OQ aberta; docs/review-queue.md). Consumida por SP-OP-INADIMPLENCIA-001 e mcp-dmn.
+    NOTA: prazos regulatorios sao em dias UTEIS / por vezes corridos; ISO 8601 usa dias corridos —
+    valores abaixo sao aproximacao conservadora. Resolver calendario util no worker. Prazo
+    regulatorio vive AQUI (DMN) e no timer BPMN — nunca em Python (CONTRIBUTING). Saidas de prazo
+    sao string ISO 8601 (prazo_purga, prazo_notificacao_previa, periodo_minimo); fonte_regulatoria
+    e a RN citada (registrada para auditoria).
+    INVARIANTE L0 HARD: esta tabela APENAS determina prazos regulatorios (janela de purga/cura +
+    notificacao previa + periodo minimo). NAO decide suspender/rescindir — nao ha saida adversa. O
+    cure-window (event gateway) e dirigido por prazo_purga; a expiracao roteia a User Task humana
+    (INVERTE o anti-pattern de auto-suspender/auto-rescindir-no-timeout).
+    NOTA hitPolicy: FIRST (catch-all conservador como ultima row) — uma row catch-all (`-`) sob
+    UNIQUE colidiria com qualquer row especifica no engine (violacao em runtime); FIRST preserva o
+    catch-all conservador (prazos maiores) mantendo a tabela ENGINE-DEPLOYAVEL. Espelha cancel_sla.
+  </description>
+  <decision id="inadimplencia_purga" name="Prazos de purga/notificacao de inadimplencia" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_inadimplencia_purga" hitPolicy="FIRST">
+      <input id="in_tipo_plano" label="Tipo do plano (tipo_plano)">
+        <inputExpression id="ie_tipo_plano" typeRef="string"><text>tipo_plano</text></inputExpression>
+      </input>
+      <output id="out_prazo_purga" label="prazo_purga" name="prazo_purga" typeRef="string"/>
+      <output id="out_prazo_notif" label="prazo_notificacao_previa" name="prazo_notificacao_previa" typeRef="string"/>
+      <output id="out_periodo_minimo" label="periodo_minimo" name="periodo_minimo" typeRef="string"/>
+      <output id="out_fonte" label="fonte_regulatoria" name="fonte_regulatoria" typeRef="string"/>
+      <rule id="r_individual_familiar">
+        <description>Planos individual/familiar: janela de purga + notificacao previa + periodo minimo (RN 593 / Lei 9.656 art. 13)</description>
+        <inputEntry id="r_individual_familiar_i1"><text>"individual","familiar"</text></inputEntry>
+        <outputEntry id="r_individual_familiar_o1"><text>"P10D"</text></outputEntry>
+        <outputEntry id="r_individual_familiar_o2"><text>"P10D"</text></outputEntry>
+        <outputEntry id="r_individual_familiar_o3"><text>"P60D"</text></outputEntry>
+        <outputEntry id="r_individual_familiar_o4"><text>"RN 593 / Lei 9.656/1998 art. 13 par. unico II — purga ~10d apos notificacao, notificacao previa ate o 50o dia, periodo minimo ~60d: DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r_coletivo">
+        <description>Planos coletivos: prazos conservadores (regras do estipulante; sempre analise humana)</description>
+        <inputEntry id="r_coletivo_i1"><text>"coletivo_empresarial","coletivo_adesao"</text></inputEntry>
+        <outputEntry id="r_coletivo_o1"><text>"P15D"</text></outputEntry>
+        <outputEntry id="r_coletivo_o2"><text>"P15D"</text></outputEntry>
+        <outputEntry id="r_coletivo_o3"><text>"P60D"</text></outputEntry>
+        <outputEntry id="r_coletivo_o4"><text>"RN 593 — planos coletivos seguem regras do estipulante; prazos conservadores: DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r_catchall">
+        <description>Catch-all FAIL-SAFE: tipo de plano nao mapeado -> prazos conservadores (maiores) + fonte DRAFT_DEFAULT</description>
+        <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>"P15D"</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>"P15D"</text></outputEntry>
+        <outputEntry id="r_catchall_o3"><text>"P60D"</text></outputEntry>
+        <outputEntry id="r_catchall_o4"><text>"DRAFT_DEFAULT — prazos conservadores na ausencia de classificacao de plano: DRAFT/verify"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

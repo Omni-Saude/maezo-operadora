@@ -1,0 +1,88 @@
+# Test spec — SP-OP-AUTH-001 (DRAFT — acompanha o processo)
+
+Stubs de integracao (pytest, marker `integration`) contra CIB Seven real. Arquivo alvo:
+`tests/integration/processes/test_sp_op_auth_001.py`. Dados sinteticos: guia
+`GUIA-TESTE-0001`, `Paciente Teste 001`, tenant `amh`. Business key `AUTH-amh-GUIA-TESTE-0001`.
+
+## Invariante L0 (testes de seguranca — prioritarios)
+
+### test_nenhum_caminho_automatizado_produz_negativa
+- **Given** todas as combinacoes de DMN: `requer_autorizacao/documentacao_completa/beneficiario_ativo/carencia_cumprida/dut_atendida/dentro_teto_l2/rede_credenciada` em {true,false}
+- **When** instancia percorre ate estabilizar
+- **Then** NUNCA atinge `End_NegadaAuditor` sem `UT_AnaliseMedicoAuditor`/`UT_CoordenacaoAssume`/`UT_RegistrarParecerJunta` completada por humano com `decisao_auditor=NEGAR`
+
+### test_negar_exige_campos_obrigatorios
+- **Given** `UT_AnaliseMedicoAuditor` aberta
+- **When** complete com `decisao_auditor=NEGAR` sem `justificativa_clinica`/`cid10_referencia`/`fundamentacao_dut`
+- **Then** task NAO completa (validacao de formulario/listener) — negativa sem fundamentacao e impossivel
+
+### test_inelegibilidade_roteia_para_humano_nao_nega
+- **Given** start com `beneficiario_ativo=false`
+- **Then** DMN `auth_admissibility` retorna `SEGUE_ANALISE`; fluxo chega a `UT_AnaliseMedicoAuditor` (nao a um fim de negativa)
+
+## Happy paths
+
+### test_happy_path_aprovacao_automatica_l2
+- **Given** `dut_atendida=true, dentro_teto_l2=true, rede_credenciada=true`, eletivo
+- **When** instancia percorre
+- **Then** `operadora.auth.issue_authorization` executado; `auth.completed` com `desfecho=aprovada_automatica`; fim `End_AprovadaAutomatica`; NENHUMA User Task criada
+
+### test_happy_path_aprovada_pelo_auditor
+- **Given** `dut_atendida=false` (vai a analise); dossie preparado (worker `operadora.auth.analyze_request` completa)
+- **When** medico auditor completa com `decisao_auditor=APROVAR`
+- **Then** autorizacao emitida; `auth.completed` `desfecho=aprovada_auditor`
+
+### test_happy_path_negada_pelo_auditor
+- **Given** analise humana aberta
+- **When** auditor completa NEGAR com campos obrigatorios
+- **Then** `operadora.auth.send_denial_notice` executado; `auth.completed` `desfecho=negada_auditor`; fim `End_NegadaAuditor`
+
+### test_nao_requer_autorizacao
+- **Given** `requer_autorizacao=false`
+- **Then** `auth.completed` `desfecho=nao_requer_autorizacao`; fim imediato sem User Task
+
+## Pendencia de documentacao
+
+### test_pendencia_docs_recebidos_reavalia
+- **Given** `documentacao_completa=false` -> `auth.pended` publicado, aguardando em `GW_AguardarDocs`
+- **When** message `msg.auth.docs_received` correlacionada (business key) com `documentacao_completa=true`
+- **Then** `BRT_Admissibilidade` reavaliada; fluxo segue para analise
+
+### test_pendencia_expira_decisao_humana
+- **Given** aguardando docs
+- **When** job do timer `ICE_PrazoPendencia` (P5D) executado
+- **Then** `UT_DecidirPendenciaExpirada` criada para `medico-auditor`; com `decisao_pendencia=cancelar_guia` -> `auth.completed` `desfecho=cancelada_pendencia`; com `conceder_prazo_extra`/`seguir_analise` -> volta ao fluxo de analise
+
+## Timers de SLA
+
+### test_timer_alerta_sla_nao_interruptivo
+- **Given** `UT_AnaliseMedicoAuditor` aberta (urgencia: `sla.sla_alerta=PT1H`)
+- **When** job do timer `BT_AlertaSla` executado
+- **Then** `operadora.auth.notify_sla_risk` recebeu task; User Task segue aberta
+
+### test_timer_sla_estourado_coordenacao_assume
+- **Given** analise aberta alem de `sla.sla_analise`
+- **When** job do timer `BT_SlaAnalise` executado
+- **Then** `auth.sla_breached` publicado; `UT_AnaliseMedicoAuditor` cancelada; `UT_CoordenacaoAssume` criada (`coordenacao-auditoria-medica`) — decisao continua humana
+
+### test_dmn_auth_sla_urgencia
+- **Given/When** start com `carater_atendimento=urgencia`
+- **Then** `sla.sla_analise == "PT2H"` (fonte registrada na variavel `fonte_regulatoria`)
+
+## Junta medica (DRAFT)
+
+### test_junta_medica_parecer_aprova
+- **Given** auditor completa com `decisao_auditor=JUNTA_MEDICA`
+- **When** `operadora.auth.convene_junta` completa; `UT_RegistrarParecerJunta` completada com `decisao_auditor=APROVAR`
+- **Then** autorizacao emitida via caminho normal (`End_AprovadaAuditor`)
+
+### test_solicitar_info_volta_para_pendencia
+- **Given** auditor completa com `decisao_auditor=SOLICITAR_INFO`
+- **Then** `operadora.auth.request_documents` reexecutado; instancia aguarda em `GW_AguardarDocs`
+
+## Idempotencia
+
+### test_business_key_uma_instancia_por_guia
+- **Given** instancia ativa `AUTH-amh-GUIA-TESTE-0001`
+- **When** reenvio da mesma guia
+- **Then** sem segunda instancia ativa

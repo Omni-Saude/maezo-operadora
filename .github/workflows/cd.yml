@@ -1,0 +1,340 @@
+name: CD
+
+# ---------------------------------------------------------------------------
+# Continuous Delivery — build & push the app image, deploy to staging, smoke
+# test, and (manually) promote to production.
+#
+# STRUCTURAL SAFETY ("CI verde != deploy aconteceu" — Track C2 / stop #16):
+#   EVERY AWS-touching job and step is guarded by `if: vars.AWS_ENABLED == 'true'`.
+#   With AWS_ENABLED unset (the default), a CD run is a NO-OP: it checks out,
+#   lints the chart locally, and renders values-staging.yaml so the pipeline is
+#   exercised — but it NEVER assumes a role, pushes an image, or touches a
+#   cluster. A green CD run therefore does NOT imply a real deploy happened.
+#
+#   To actually deploy you must (a) set repo/environment var AWS_ENABLED=true and
+#   (b) provide AWS_DEPLOY_ROLE_ARN (the deploy role from
+#   deploy/terraform/modules/github-oidc). Both are intentionally absent here.
+#
+# Prod promotion is `workflow_dispatch` + `environment: production`, so it gates
+# on GitHub's manual-approval reviewers before any prod step can run.
+# ---------------------------------------------------------------------------
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      promote_to_production:
+        description: "Promote the already-staged image tag to PRODUCTION (requires environment approval)."
+        type: boolean
+        default: false
+      image_tag:
+        description: "Image tag to promote to production (defaults to the triggering commit SHA)."
+        type: string
+        required: false
+        default: ""
+
+# Never run two deploys to the same environment concurrently.
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: false
+
+# OIDC: id-token:write is required for aws-actions/configure-aws-credentials.
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: "sa-east-1"
+  ECR_REPOSITORY: "maezo-agent"
+  HELM_VERSION: "3.15.0"
+  CHART_PATH: "deploy/helm/maezo-tenant"
+  STAGING_VALUES: "deploy/helm/maezo-tenant/values-staging.yaml"
+  STAGING_RELEASE: "maezo-staging"
+  STAGING_NAMESPACE: "maezo-staging"
+  EKS_CLUSTER: "maezo-staging"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1) Build + push the application image (deploy/Dockerfile) to ECR.
+  #    No-op unless AWS_ENABLED == 'true'. We still expose the resolved image tag
+  #    (the commit SHA) as an output so downstream jobs are wired even when the
+  #    push step is skipped.
+  # ---------------------------------------------------------------------------
+  build-and-push:
+    name: build & push image
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve image tag (commit SHA)
+        id: meta
+        run: echo "image_tag=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+
+      # ---- AWS-touching steps below: guarded, NO-OP by default ----
+      - name: Configure AWS credentials (OIDC)
+        if: vars.AWS_ENABLED == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        if: vars.AWS_ENABLED == 'true'
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        if: vars.AWS_ENABLED == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image
+        if: vars.AWS_ENABLED == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ steps.meta.outputs.image_tag }}
+            ${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:staging
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: No-op notice (AWS disabled)
+        if: vars.AWS_ENABLED != 'true'
+        run: |
+          echo "::notice title=CD no-op::AWS_ENABLED!='true' — image build/push SKIPPED."
+          echo "Resolved (but unpushed) tag: ${{ steps.meta.outputs.image_tag }}"
+
+  # ---------------------------------------------------------------------------
+  # 2) Deploy to staging via helm upgrade --install against the REAL chart.
+  #    Always lints + renders the chart locally (cheap structural check that runs
+  #    even when AWS is disabled). The cluster-touching helm upgrade is guarded.
+  # ---------------------------------------------------------------------------
+  deploy-staging:
+    name: deploy → staging
+    runs-on: ubuntu-latest
+    needs: [build-and-push]
+    # Staging deploys only from main (and from workflow_dispatch that is NOT a
+    # prod-promotion run).
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      !(github.event_name == 'workflow_dispatch' && inputs.promote_to_production)
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      # Local, no-credentials structural validation — runs unconditionally so a
+      # default CD run still proves the chart + staging values render.
+      - name: Helm lint + template (staging values, local)
+        run: |
+          helm lint "${CHART_PATH}/" --strict -f "${STAGING_VALUES}"
+          helm template "${STAGING_RELEASE}" "${CHART_PATH}/" \
+            -f "${STAGING_VALUES}" \
+            --set image.tag="${{ needs.build-and-push.outputs.image_tag }}" \
+            --debug > /dev/null
+
+      # ---- AWS-touching steps below: guarded, NO-OP by default ----
+      - name: Configure AWS credentials (OIDC)
+        if: vars.AWS_ENABLED == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update kubeconfig for staging EKS
+        if: vars.AWS_ENABLED == 'true'
+        run: aws eks update-kubeconfig --name "${EKS_CLUSTER}" --region "${AWS_REGION}"
+
+      - name: Login to Amazon ECR
+        if: vars.AWS_ENABLED == 'true'
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Helm upgrade --install (staging)
+        if: vars.AWS_ENABLED == 'true'
+        env:
+          IMAGE_REPO: "${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}"
+          IMAGE_TAG: "${{ needs.build-and-push.outputs.image_tag }}"
+        run: |
+          set -euo pipefail
+          # --- DB-7: TWO-PHASE deploy — the ESO-synced Aurora Secret MUST exist before the
+          # migrations pre-install/pre-upgrade hook mounts it via secretKeyRef. The Aurora
+          # ExternalSecret is a NORMAL (post-hook) resource, so on a genuine first install it is
+          # applied AFTER all pre-install hooks — the migrations hook pod would then hit
+          # CreateContainerConfigError, never reach Running, and time out on activeDeadlineSeconds,
+          # tripping `--atomic` into a full-release rollback. We therefore install the release with
+          # the migrations hook DISABLED first, block on ESO composing + syncing the Secret, then
+          # run the full atomic release whose hook now finds it. (ESO running cluster-wide is a
+          # §6.2 deploy-day prerequisite — see docs/runbooks/devops-stack.md §3.) -----------------
+          # Phase 1 — bootstrap secret plumbing (SecretStore + ExternalSecrets). No --wait: any
+          # runtime pods here crash-loop harmlessly (no schema yet) and recover in Phase 2; there
+          # is no live traffic on a first install / DR reinstall.
+          helm upgrade --install "${STAGING_RELEASE}" "${CHART_PATH}/" \
+            --namespace "${STAGING_NAMESPACE}" --create-namespace \
+            -f "${STAGING_VALUES}" \
+            --set image.repository="${IMAGE_REPO}" \
+            --set image.tag="${IMAGE_TAG}" \
+            --set migrations.enabled=false
+          # Block until ESO reports the Aurora ExternalSecret Ready (condition Ready, reason
+          # SecretSynced). The ExternalSecret object is always named aurora-master-credentials
+          # (its TARGET Secret name is what varies per tenant), so this is tenant-agnostic.
+          kubectl wait --for=condition=Ready \
+            externalsecret/aurora-master-credentials \
+            -n "${STAGING_NAMESPACE}" --timeout=180s
+          # Phase 2 — full atomic release; the migrations hook now mounts the synced Secret on the
+          # first poll of its await-db-secret init container.
+          helm upgrade --install "${STAGING_RELEASE}" "${CHART_PATH}/" \
+            --namespace "${STAGING_NAMESPACE}" \
+            -f "${STAGING_VALUES}" \
+            --set image.repository="${IMAGE_REPO}" \
+            --set image.tag="${IMAGE_TAG}" \
+            --atomic --timeout 5m --wait
+
+      - name: No-op notice (AWS disabled)
+        if: vars.AWS_ENABLED != 'true'
+        run: echo "::notice title=CD no-op::AWS_ENABLED!='true' — helm upgrade to staging SKIPPED (chart lint+template ran locally)."
+
+  # ---------------------------------------------------------------------------
+  # 3) Smoke tests against staging — verify the gateway is live/ready.
+  #    Guarded: a real smoke test needs the cluster. When AWS is disabled this is
+  #    a no-op so the job stays green without implying staging was hit.
+  # ---------------------------------------------------------------------------
+  smoke-staging:
+    name: smoke tests → staging
+    runs-on: ubuntu-latest
+    needs: [deploy-staging]
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      !(github.event_name == 'workflow_dispatch' && inputs.promote_to_production)
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        if: vars.AWS_ENABLED == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update kubeconfig for staging EKS
+        if: vars.AWS_ENABLED == 'true'
+        run: aws eks update-kubeconfig --name "${EKS_CLUSTER}" --region "${AWS_REGION}"
+
+      - name: Wait for staging rollout
+        if: vars.AWS_ENABLED == 'true'
+        run: |
+          kubectl rollout status deployment/gateway \
+            -n "${STAGING_NAMESPACE}" --timeout=180s
+
+      - name: Smoke — gateway /healthz and /readyz
+        if: vars.AWS_ENABLED == 'true'
+        run: |
+          set -euo pipefail
+          # gateway Service listens on 8000 with /healthz + /readyz
+          # (deploy/helm/maezo-tenant/templates/deployment-gateway.yaml).
+          kubectl run cd-smoke --rm -i --restart=Never \
+            -n "${STAGING_NAMESPACE}" \
+            --image=curlimages/curl:8.8.0 --quiet -- \
+            sh -c 'curl -fsS http://gateway:8000/healthz && echo OK-health && curl -fsS http://gateway:8000/readyz && echo OK-ready'
+
+      - name: No-op notice (AWS disabled)
+        if: vars.AWS_ENABLED != 'true'
+        run: echo "::notice title=CD no-op::AWS_ENABLED!='true' — staging smoke tests SKIPPED."
+
+  # ---------------------------------------------------------------------------
+  # 4) Production promotion — workflow_dispatch ONLY, gated by GitHub's
+  #    `environment: production` manual-approval reviewers. Even past the gate,
+  #    every AWS step is guarded by AWS_ENABLED so an approved run with AWS off
+  #    is still a no-op.
+  # ---------------------------------------------------------------------------
+  promote-production:
+    name: promote → production (manual approval)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && inputs.promote_to_production
+    # GitHub manual-approval gate: configure required reviewers on the
+    # `production` environment in repo Settings → Environments.
+    environment:
+      name: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Resolve promotion image tag
+        id: meta
+        run: |
+          TAG="${{ inputs.image_tag }}"
+          if [ -z "${TAG}" ]; then TAG="${GITHUB_SHA::12}"; fi
+          echo "image_tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Promoting image tag: ${TAG}"
+
+      # Local structural validation against the AMH (prod) overlay — always runs.
+      - name: Helm lint + template (prod values, local)
+        run: |
+          helm lint "${CHART_PATH}/" --strict -f "${CHART_PATH}/values-amh.yaml"
+          helm template maezo-amh "${CHART_PATH}/" \
+            -f "${CHART_PATH}/values-amh.yaml" \
+            --set image.tag="${{ steps.meta.outputs.image_tag }}" \
+            --debug > /dev/null
+
+      # ---- AWS-touching steps below: guarded, NO-OP by default ----
+      - name: Configure AWS credentials (OIDC)
+        if: vars.AWS_ENABLED == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update kubeconfig for production EKS
+        if: vars.AWS_ENABLED == 'true'
+        run: aws eks update-kubeconfig --name "${{ vars.EKS_CLUSTER_PROD || 'maezo-prod' }}" --region "${AWS_REGION}"
+
+      - name: Login to Amazon ECR
+        if: vars.AWS_ENABLED == 'true'
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Helm upgrade --install (production / AMH)
+        if: vars.AWS_ENABLED == 'true'
+        env:
+          IMAGE_REPO: "${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}"
+          IMAGE_TAG: "${{ steps.meta.outputs.image_tag }}"
+        run: |
+          set -euo pipefail
+          # --- DB-7: TWO-PHASE deploy (see the staging step for the full rationale). The Aurora
+          # Secret must be ESO-synced BEFORE the migrations pre-install/pre-upgrade hook mounts it,
+          # else a first install / DR reinstall dead-locks on CreateContainerConfigError and
+          # `--atomic` rolls the whole tenant back. On a routine UPGRADE the Secret already exists,
+          # so Phase 1 is a no-op re-apply and `kubectl wait` returns immediately. ESO running
+          # cluster-wide is a §6.2 prerequisite (docs/runbooks/devops-stack.md §3). -----------------
+          # Phase 1 — bootstrap secret plumbing with the migrations hook disabled.
+          helm upgrade --install maezo-amh "${CHART_PATH}/" \
+            --namespace maezo-amh --create-namespace \
+            -f "${CHART_PATH}/values-amh.yaml" \
+            --set image.repository="${IMAGE_REPO}" \
+            --set image.tag="${IMAGE_TAG}" \
+            --set migrations.enabled=false
+          # Block until ESO composes + syncs the Aurora DSN Secret (tenant-agnostic object name).
+          kubectl wait --for=condition=Ready \
+            externalsecret/aurora-master-credentials \
+            -n maezo-amh --timeout=180s
+          # Phase 2 — full atomic release; migrations hook now finds the synced Secret.
+          helm upgrade --install maezo-amh "${CHART_PATH}/" \
+            --namespace maezo-amh \
+            -f "${CHART_PATH}/values-amh.yaml" \
+            --set image.repository="${IMAGE_REPO}" \
+            --set image.tag="${IMAGE_TAG}" \
+            --atomic --timeout 10m --wait
+
+      - name: No-op notice (AWS disabled)
+        if: vars.AWS_ENABLED != 'true'
+        run: echo "::notice title=CD no-op::AWS_ENABLED!='true' — production promotion SKIPPED (passed the approval gate, but no deploy performed)."

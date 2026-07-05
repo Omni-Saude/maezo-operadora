@@ -1,0 +1,150 @@
+{{- /*
+In-cluster HAPI-FHIR R4 server (ADR-0021 in-cluster deps strategy; ADR-0006 PHI two-zones).
+
+GATED OFF by default (`.Values.fhir.inCluster.enabled` = false). When OFF this whole template
+renders NOTHING and the agent-runtime / fhir-sync keep talking to the EXTERNAL HAPI-FHIR via
+the unchanged `FHIR_BASE_URL=http://hapi-fhir:8080/fhir` in deployment-agent-runtime.yaml
+(and deployment-fhir-sync.yaml). When ON, this StatefulSet PROVIDES that same `hapi-fhir`
+Service in-cluster — those URLs are untouched either way.
+
+PHI: HAPI-FHIR holds RAW clinical PHI (FHIR resources). By ADR-0006 it is therefore a
+PHI-ZONE workload (`maezo.io/phi-zone: "phi"`), mirroring fhir-sync. The per-agent
+NetworkPolicies already isolate PHI egress; placing the FHIR store in the PHI zone keeps
+raw PHI inside that boundary.
+
+DB: HAPI-FHIR needs its OWN database, SEPARATE from the agent checkpointer/Aurora. We do
+NOT provision a second Postgres here — the server is pointed at a CONFIGURABLE EXTERNAL DB
+URL (`.Values.fhir.inCluster.db.url`, or a secret via `existingSecret`). Supplying that URL
+is an operator responsibility (out of scope: AWS apply / real creds).
+
+Renders (only when enabled):
+  - a headless Service `hapi-fhir-headless` (stable per-pod DNS for the StatefulSet)
+  - a ClusterIP Service `hapi-fhir` :8080 (what the agent-runtime / fhir-sync resolve)
+  - the StatefulSet `hapi-fhir`
+*/ -}}
+{{- if .Values.fhir.inCluster.enabled }}
+{{- $ic := .Values.fhir.inCluster }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: hapi-fhir-headless
+  namespace: {{ include "maezo-tenant.namespace" . }}
+  labels:
+    {{- include "maezo-tenant.labels" . | nindent 4 }}
+    app.kubernetes.io/component: hapi-fhir
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "maezo-tenant.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: hapi-fhir
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hapi-fhir
+  namespace: {{ include "maezo-tenant.namespace" . }}
+  labels:
+    {{- include "maezo-tenant.labels" . | nindent 4 }}
+    app.kubernetes.io/component: hapi-fhir
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "maezo-tenant.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: hapi-fhir
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: hapi-fhir
+  namespace: {{ include "maezo-tenant.namespace" . }}
+  labels:
+    {{- include "maezo-tenant.labels" . | nindent 4 }}
+    app.kubernetes.io/component: hapi-fhir
+spec:
+  serviceName: hapi-fhir-headless
+  replicas: {{ $ic.replicaCount | default 1 }}
+  selector:
+    matchLabels:
+      {{- include "maezo-tenant.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: hapi-fhir
+  template:
+    metadata:
+      labels:
+        {{- include "maezo-tenant.labels" . | nindent 8 }}
+        app.kubernetes.io/component: hapi-fhir
+        # HAPI-FHIR holds RAW clinical PHI -> PHI zone (ADR-0006), mirroring fhir-sync.
+        maezo.io/phi-zone: "phi"
+    spec:
+      serviceAccountName: {{ include "maezo-tenant.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: hapi-fhir
+          image: "{{ $ic.image.repository }}:{{ $ic.image.tag }}"
+          imagePullPolicy: {{ $ic.image.pullPolicy | default .Values.image.pullPolicy }}
+          env:
+            # HAPI-FHIR's OWN database — a CONFIGURABLE EXTERNAL DB URL, separate from the
+            # agent checkpointer/Aurora. Prefer a secret (existingSecret); fall back to the
+            # plain `db.url` value. We do NOT provision a second Postgres in this chart.
+            {{- if $ic.db.existingSecret }}
+            - name: SPRING_DATASOURCE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $ic.db.existingSecret | quote }}
+                  key: {{ $ic.db.existingSecretKey | default "database-url" | quote }}
+            {{- else }}
+            - name: SPRING_DATASOURCE_URL
+              value: {{ $ic.db.url | quote }}
+            {{- end }}
+            {{- range $k, $v := $ic.env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          resources:
+            {{- toYaml $ic.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          livenessProbe:
+            httpGet:
+              path: {{ $ic.healthPath | default "/fhir/metadata" }}
+              port: http
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: {{ $ic.healthPath | default "/fhir/metadata" }}
+              port: http
+            initialDelaySeconds: 45
+            periodSeconds: 10
+            failureThreshold: 3
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

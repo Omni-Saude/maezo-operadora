@@ -1,0 +1,854 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+                  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+                  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+                  xmlns:camunda="http://camunda.org/schema/1.0/bpmn"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  id="Definitions_SP_OP_REEMBOLSO_001"
+                  targetNamespace="http://maezo.health/operadora/reembolso"
+                  exporter="Maezo W5-PROC"
+                  exporterVersion="0.1.0-draft">
+
+  <bpmn:message id="Msg_ReembolsoDocsRecebidos" name="msg.reembolso.docs_received"/>
+  <bpmn:error id="Error_ReembolsoProtocoloInvalido" name="Protocolo/guia de reembolso inconsistente na origem" errorCode="ERR_REEMBOLSO_INVALID_PROTOCOLO"/>
+  <bpmn:error id="Error_ReembolsoDenialNotHuman" name="Negativa/reducao de reembolso sem decisao humana" errorCode="ERR_REEMBOLSO_DENIAL_NOT_HUMAN"/>
+
+  <bpmn:process id="SP-OP-REEMBOLSO-001" name="SP-OP-REEMBOLSO-001 Reembolso ao Beneficiario"
+                isExecutable="true" camunda:historyTimeToLive="1825">
+    <bpmn:documentation><![CDATA[
+SP-OP-REEMBOLSO-001 — Reembolso ao Beneficiario. Status: DRAFT (v0.1.0) — Phase 2, Wave WC.2.
+DI (diagrama) sera adicionado na promocao a FINAL. Requer revisao humana (regulatorio/juridico +
+atuarial + analista de reembolso) antes de qualquer deploy — ver docs/review-queue.md.
+
+GATILHO REGULATORIO: RN 259/2011 (garantia de atendimento / prazos — consolidacoes posteriores
+ANS: DRAFT/verify); Lei 9.656/1998 art. 12 (reembolso na livre escolha / fora da rede /
+urgencia-emergencia: DRAFT/verify); prazo de reembolso ~30 dias (RN vigente — DRAFT/verify).
+Negar/reduzir reembolso = authorization_denial-class, L0 hard.
+
+INVARIANTE L0 HARD (ADR-0005/0008): a NEGATIVA ou REDUCAO de reembolso ao beneficiario SO
+nasce nas User Tasks humanas UT_AnaliseReembolso (analise-reembolso), UT_RevisaoAuditorMedico
+(medico-auditor, merito clinico) e UT_CoordenacaoReembolso (coordenacao-reembolso, breach de SLA),
+via decisao_reembolso in {NEGAR, APROVAR_PARCIAL}. O DMN reembolso_calculo CALCULA o valor de
+reembolso devido (multiplo da tabela / teto contratual) mas NUNCA decide pagar/negar/reduzir —
+quem decide e o humano. NENHUMA DMN deste processo tem saida de negativa/reducao: cobertura
+ausente, documentacao incompleta, prazo expirado, carencia ou inelegibilidade aparente roteiam
+para ANALISE_HUMANA (linha catch-all conservadora). Aprovacao automatica (L2) existe apenas com
+DMN de admissibilidade favoravel E valor dentro da tabela E dentro do teto do tenant — e mesmo
+assim o caminho automatico produz SOMENTE APROVACAO INTEGRAL, jamais aprovacao parcial nem
+reducao (reducao = adverso = humano). Fora de tabela (SEM_TABELA -> dentro_tabela=false) nunca
+auto-aprova. No estouro do SLA a coordenacao humana assume — NUNCA auto-nega por timeout
+(inversao do anti-pattern auto-aplicado do reference). O efeito adverso e materializado SO pelo
+worker operadora.reembolso.send_reembolso_denial, guardado por ERR_REEMBOLSO_DENIAL_NOT_HUMAN.
+Os terminais End_ReembolsoNegado e End_ReembolsoParcial so sao alcancaveis apos User Task humana
+concluida com decisao_reembolso in {NEGAR, APROVAR_PARCIAL}. A expiracao da pendencia de
+documentacao NUNCA auto-nega (humano decide o destino em UT_DecidirPendenciaExpirada).
+
+BUSINESS KEY (idempotente): "REEMB-{tenant_id}-{protocolo_reembolso}"
+  — uma instancia por solicitacao de reembolso. Reenvio da mesma solicitacao NAO cria nova
+  instancia (mcp-cibseven.start_process consulta a business key antes de iniciar).
+
+EVENTOS DE DOMINIO (worker operadora.events.publish):
+  inicio -> agents.events.reembolso.received
+  pendencia -> agents.events.reembolso.pended
+  breach -> agents.events.reembolso.sla_breached
+  fim -> agents.events.reembolso.completed (payload.desfecho = aprovado_automatico |
+         aprovado_analista | negado_analista | aprovado_parcial | cancelado_pendencia)
+
+VARIAVEIS DE ENTRADA: tenant_id, protocolo_reembolso, numero_guia_tiss (opc),
+beneficiario_pseudo_id (ADR-0006), matricula_beneficiario, tipo_reembolso,
+codigo_procedimento_tuss, categoria_procedimento, valor_solicitado_cents (integer),
+data_atendimento, data_solicitacao, cid10 (opc), documentos_refs (json), cobertura_prevista*,
+documentacao_completa*, dentro_prazo*, beneficiario_ativo*, carencia_cumprida*, dentro_tabela*,
+dentro_teto_l2*, requer_avaliacao_clinica*. (* pre-resolvidos por worker.) Contrato completo:
+docs/processes/contracts/SP-OP-REEMBOLSO-001.md.
+]]></bpmn:documentation>
+
+    <bpmn:startEvent id="Start_SolicitacaoReembolso" name="Solicitacao de reembolso recebida">
+      <bpmn:outgoing>Flow_Start_PubReceived</bpmn:outgoing>
+    </bpmn:startEvent>
+
+    <bpmn:serviceTask id="ST_PublishReceived" name="Publicar evento: reembolso.received"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.reembolso.received</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,protocolo_reembolso,beneficiario_pseudo_id,tipo_reembolso,categoria_procedimento</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Start_PubReceived</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubReceived_Coverage</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- Worker: resolve cobertura_prevista (contrato/segmentacao). TASY write DROP (ADR-0013). -->
+    <bpmn:serviceTask id="ST_CheckCoverage" name="Conferir cobertura prevista"
+                      camunda:type="external" camunda:topic="operadora.reembolso.check_coverage">
+      <bpmn:documentation>Worker resolve cobertura_prevista (boolean). NAO decide pagar/negar — apenas sinaliza fato. Cobertura ausente roteia a humano, nunca nega. protocolo_reembolso inconsistente na origem lanca ERR_REEMBOLSO_INVALID_PROTOCOLO (reembolso.py:152-155) — capturado pelo boundary BE_ReembolsoProtocoloInvalido, abaixo.</bpmn:documentation>
+      <bpmn:incoming>Flow_PubReceived_Coverage</bpmn:incoming>
+      <bpmn:outgoing>Flow_Coverage_Prazo</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- Boundary error (validacao de origem, GAP-REEMBOLSO-2): protocolo_reembolso ausente/inconsistente
+         lanca ERR_REEMBOLSO_INVALID_PROTOCOLO no worker check_coverage. Antes: sem captura, o incidente
+         travava a mainline no primeiro service task (instancia stuck). Agora: captura ->
+         End_ReembolsoProtocoloInvalido (fail-safe NAO adverso; o worker NUNCA decide pagar/negar — so
+         sinaliza dado de origem inconsistente). Mirror de BE_PrestadorInvalido (SP-OP-CRED-001). -->
+    <bpmn:boundaryEvent id="BE_ReembolsoProtocoloInvalido" name="Protocolo/guia inconsistente na origem (ERR_REEMBOLSO_INVALID_PROTOCOLO)" attachedToRef="ST_CheckCoverage">
+      <bpmn:outgoing>Flow_ProtocoloInvalido_End</bpmn:outgoing>
+      <bpmn:errorEventDefinition id="EED_ReembolsoProtocoloInvalido" errorRef="Error_ReembolsoProtocoloInvalido"/>
+    </bpmn:boundaryEvent>
+    <bpmn:endEvent id="End_ReembolsoProtocoloInvalido" name="Solicitacao com protocolo/guia inconsistente na origem — validacao barrou (fail-safe, nao adverso)">
+      <bpmn:documentation>Fail-safe de validacao (NAO adverso): a solicitacao chegou com dado de origem inconsistente (ex.: protocolo_reembolso ausente). O worker check_coverage NUNCA decide pagar/negar/reduzir; apenas sinaliza a inconsistencia (ERR_REEMBOLSO_INVALID_PROTOCOLO). Terminal tecnico limpo — evita incidente travado na mainline. Nenhum efeito adverso automatico (ADR-0018).</bpmn:documentation>
+      <bpmn:incoming>Flow_ProtocoloInvalido_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Worker: resolve dentro_prazo (calendario util -> ISO conservador) -->
+    <bpmn:serviceTask id="ST_CheckPrazo" name="Conferir prazo da solicitacao"
+                      camunda:type="external" camunda:topic="operadora.reembolso.check_prazo">
+      <bpmn:documentation>Worker resolve dentro_prazo (boolean), convertendo dias uteis -> ISO conservador. NAO decide; fora de prazo aparente roteia a humano, nunca nega.</bpmn:documentation>
+      <bpmn:incoming>Flow_Coverage_Prazo</bpmn:incoming>
+      <bpmn:outgoing>Flow_Prazo_Admiss</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- DMN: admissibilidade (nunca nega — apenas roteia) -->
+    <bpmn:businessRuleTask id="BRT_Admissibilidade" name="Avaliar admissibilidade (DMN reembolso_admissibility)"
+                           camunda:decisionRef="reembolso_admissibility"
+                           camunda:mapDecisionResult="singleResult"
+                           camunda:resultVariable="admissibilidade">
+      <bpmn:documentation>Saidas: SEGUE_ANALISE | PENDENTE_DOCUMENTACAO | ANALISE_HUMANA. Por design NAO existe saida de negativa/reducao (L0 hard). Catch-all -> ANALISE_HUMANA.</bpmn:documentation>
+      <bpmn:incoming>Flow_Prazo_Admiss</bpmn:incoming>
+      <bpmn:incoming>Flow_DocsOk_Admiss</bpmn:incoming>
+      <bpmn:outgoing>Flow_Admiss_GW</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+
+    <bpmn:exclusiveGateway id="GW_Admissibilidade" name="Resultado admissibilidade" default="Flow_GW_SegueAnalise">
+      <bpmn:incoming>Flow_Admiss_GW</bpmn:incoming>
+      <bpmn:outgoing>Flow_GW_Pendencia</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GW_AnaliseHumanaDireta</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GW_SegueAnalise</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <!-- Ramo: pendencia de documentacao (sub-fluxo portado estruturalmente do AUTH-001) -->
+    <bpmn:serviceTask id="ST_SolicitarDocumentos" name="Solicitar documentacao ao beneficiario"
+                      camunda:type="external" camunda:topic="operadora.reembolso.request_documents">
+      <bpmn:documentation>Worker abre a pendencia e publica agents.events.reembolso.pended (suspensao de prazo durante pendencia: regra RN — DRAFT/verify).</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic_pended">agents.events.reembolso.pended</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_GW_Pendencia</bpmn:incoming>
+      <bpmn:incoming>Flow_GWDec_SolicitarInfo</bpmn:incoming>
+      <bpmn:outgoing>Flow_Solicitar_WaitDocs</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- Corrida: documentacao chega OU prazo de pendencia expira -->
+    <bpmn:eventBasedGateway id="GW_AguardarDocs" name="Aguardar documentacao">
+      <bpmn:incoming>Flow_Solicitar_WaitDocs</bpmn:incoming>
+      <bpmn:outgoing>Flow_Wait_DocsMsg</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Wait_Timer</bpmn:outgoing>
+    </bpmn:eventBasedGateway>
+    <bpmn:intermediateCatchEvent id="ICE_DocsRecebidos" name="Documentacao recebida">
+      <bpmn:incoming>Flow_Wait_DocsMsg</bpmn:incoming>
+      <bpmn:outgoing>Flow_DocsOk_Admiss</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="MED_DocsRecebidos" messageRef="Msg_ReembolsoDocsRecebidos"/>
+    </bpmn:intermediateCatchEvent>
+    <!-- Timer: beneficiario nao respondeu a pendencia — encerramento e decisao HUMANA (nunca auto-nega) -->
+    <bpmn:intermediateCatchEvent id="ICE_PrazoPendencia" name="Prazo de pendencia (P5D — DRAFT/verify)">
+      <bpmn:incoming>Flow_Wait_Timer</bpmn:incoming>
+      <bpmn:outgoing>Flow_PrazoPendencia_UT</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TD_PrazoPendencia">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">P5D</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:intermediateCatchEvent>
+    <bpmn:userTask id="UT_DecidirPendenciaExpirada" name="Decidir destino da solicitacao com pendencia expirada"
+                   camunda:candidateGroups="analise-reembolso">
+      <bpmn:documentation>Conservador (L0 hard): nem o cancelamento por inacao do beneficiario e automatizado. Saidas: decisao_pendencia in {cancelar_solicitacao, conceder_prazo_extra, seguir_analise}. A expiracao NUNCA auto-nega (espelha AUTH-001).</bpmn:documentation>
+      <bpmn:incoming>Flow_PrazoPendencia_UT</bpmn:incoming>
+      <bpmn:outgoing>Flow_UTPend_GW</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:exclusiveGateway id="GW_PendenciaExpirada" name="Decisao pendencia" default="Flow_GWPend_SegueAnalise">
+      <bpmn:incoming>Flow_UTPend_GW</bpmn:incoming>
+      <bpmn:outgoing>Flow_GWPend_Cancelar</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWPend_PrazoExtra</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWPend_SegueAnalise</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:serviceTask id="ST_PublishCancelada" name="Publicar evento: reembolso.completed (cancelado_pendencia)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:documentation>Cancelamento por inacao do beneficiario — NAO e negativa de cobertura (desfecho neutro, sem efeito adverso).</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.reembolso.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">cancelado_pendencia</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,protocolo_reembolso,decisao_pendencia</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_GWPend_Cancelar</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubCancelada_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_ReembolsoCancelado" name="Cancelado por pendencia (decisao humana — nao adverso)">
+      <bpmn:incoming>Flow_PubCancelada_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Ramo: segue analise -> DMN calcula o valor de referencia PRIMEIRO (GAP-REEMBOLSO-5: BRT_Calculo
+         roda ANTES do worker, para que valor_calculado_tabela_cents ja exista quando o worker o le) ->
+         worker resolve dentro_tabela/dentro_teto_l2 -> gate de auto-aprovacao -->
+    <bpmn:businessRuleTask id="BRT_Calculo" name="Calcular valor devido (DMN reembolso_calculo)"
+                           camunda:decisionRef="reembolso_calculo"
+                           camunda:mapDecisionResult="singleResult"
+                           camunda:resultVariable="calculo">
+      <bpmn:documentation>Saida: valor_calculado_tabela_cents (integer-centavos), multiplo_tabela_aplicado (double), fonte_tabela. CALCULA o valor; NAO decide pagar/negar/reduzir (L0 hard). GAP-REEMBOLSO-5: roda ANTES de ST_CalculateAmount — o worker le calculo.valor_calculado_tabela_cents para computar dentro_tabela/dentro_teto_l2 (DMN outputs consumidos so APOS o businessRuleTask rodar).</bpmn:documentation>
+      <bpmn:incoming>Flow_GW_SegueAnalise</bpmn:incoming>
+      <bpmn:incoming>Flow_GWPend_SegueAnalise</bpmn:incoming>
+      <bpmn:incoming>Flow_GWPend_PrazoExtra</bpmn:incoming>
+      <bpmn:outgoing>Flow_BRTCalc_Calc</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+
+    <bpmn:serviceTask id="ST_CalculateAmount" name="Calcular valor de reembolso (worker + DMN reembolso_calculo)"
+                      camunda:type="external" camunda:topic="operadora.reembolso.calculate_amount">
+      <bpmn:documentation>Aritmetica pura: COMPUTA dentro_tabela (solicitado &lt;= calculo.valor_calculado_tabela_cents, GAP-REEMBOLSO-5) e dentro_teto_l2 (comparando o mesmo valor de referencia vs teto do tenant). NUNCA decide pagar/negar/reduzir; fora de tabela (SEM_TABELA) -> dentro_tabela=false -> analise humana.</bpmn:documentation>
+      <bpmn:incoming>Flow_BRTCalc_Calc</bpmn:incoming>
+      <bpmn:outgoing>Flow_Calc_AutoApproval</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:businessRuleTask id="BRT_AutoApproval" name="Avaliar auto-aprovacao (DMN reembolso_auto_approval)"
+                           camunda:decisionRef="reembolso_auto_approval"
+                           camunda:mapDecisionResult="singleResult"
+                           camunda:resultVariable="auto_aprovacao">
+      <bpmn:documentation>L2 (ADR-0008): so AUTO_APROVAR com dentro_tabela=true E dentro_teto_l2=true E requer_avaliacao_clinica=false. Catch-all = ANALISE_HUMANA (fail-safe). Negativa/reducao NAO e saida possivel; o caminho automatico produz somente aprovacao integral.</bpmn:documentation>
+      <bpmn:incoming>Flow_Calc_AutoApproval</bpmn:incoming>
+      <bpmn:outgoing>Flow_AutoApproval_GW</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+
+    <bpmn:exclusiveGateway id="GW_AutoAprovacao" name="Auto-aprovacao?" default="Flow_GW_AnaliseHumana">
+      <bpmn:incoming>Flow_AutoApproval_GW</bpmn:incoming>
+      <bpmn:outgoing>Flow_GW_AutoAprovar</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GW_AnaliseHumana</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <!-- Auto-aprovacao integral (L2): paga o valor calculado (= solicitado, por construcao do gate) -->
+    <bpmn:serviceTask id="ST_IssuePaymentAuto" name="Emitir pagamento do reembolso (auto-aprovacao integral)"
+                      camunda:type="external" camunda:topic="operadora.reembolso.issue_payment">
+      <bpmn:documentation>Caminho automatico: paga valor_reembolso_aprovado_cents = valor_calculado_tabela_cents (= valor_solicitado_cents por construcao do gate dentro_tabela). Aprovacao INTEGRAL — jamais parcial.</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="valor_reembolso_aprovado_cents">${calculo.valor_calculado_tabela_cents}</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_GW_AutoAprovar</bpmn:incoming>
+      <bpmn:outgoing>Flow_IssueAuto_Pub</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="ST_PublishAprovadoAuto" name="Publicar evento: reembolso.completed (aprovado_automatico)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.reembolso.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">aprovado_automatico</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,protocolo_reembolso,codigo_procedimento_tuss</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_IssueAuto_Pub</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubAuto_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_ReembolsoAprovadoAutomatico" name="Reembolso aprovado automaticamente (L2 — integral)">
+      <bpmn:incoming>Flow_PubAuto_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- DMN SLA de analise: convergencia de TODOS os caminhos humanos (admissibilidade-direta E
+         auto-aprovacao-recusada) ANTES da UT humana, para que ${sla.sla_alerta}/${sla.sla_analise}
+         dos boundary timers de UT_AnaliseReembolso sempre resolvam (espelha BRT_ContasSla do
+         SP-OP-CONTAS-001: o SLA DMN roda em TODA rota que alcanca a User Task). -->
+    <bpmn:businessRuleTask id="BRT_SlaAnalise" name="Determinar SLA de analise (DMN reembolso_sla)"
+                           camunda:decisionRef="reembolso_sla"
+                           camunda:mapDecisionResult="singleResult"
+                           camunda:resultVariable="sla">
+      <bpmn:incoming>Flow_GW_AnaliseHumana</bpmn:incoming>
+      <bpmn:incoming>Flow_GW_AnaliseHumanaDireta</bpmn:incoming>
+      <bpmn:outgoing>Flow_Sla_Dossie</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+
+    <!-- Analise humana: dossie do agente (Marina-classe) + analista de reembolso -->
+    <bpmn:serviceTask id="ST_PrepararDossie" name="Preparar dossie de analise (agente analista)"
+                      camunda:type="external" camunda:topic="operadora.reembolso.analyze_request">
+      <bpmn:documentation>Convoca o agente analista (Marina-classe) via A2A: recomendacao estruturada + evidencias + regras DMN avaliadas + valor calculado. O dossie INSTRUI a decisao humana, nunca a substitui (principio Rafael, ADR-0005).</bpmn:documentation>
+      <bpmn:incoming>Flow_Sla_Dossie</bpmn:incoming>
+      <bpmn:outgoing>Flow_Dossie_UTAnalista</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:userTask id="UT_AnaliseReembolso" name="Analise do analista de reembolso"
+                   camunda:candidateGroups="analise-reembolso">
+      <bpmn:documentation><![CDATA[
+HITL L0 hard (ADR-0005): UNICO ponto (junto a UT_RevisaoAuditorMedico / UT_CoordenacaoReembolso)
+onde a negativa/reducao pode nascer. Saidas: decisao_reembolso in {APROVAR, NEGAR,
+APROVAR_PARCIAL, SOLICITAR_INFO, SOLICITAR_AUDITOR}.
+NEGAR exige justificativa + fundamentacao_contratual (e, no merito clinico, cid10_referencia/
+parecer_auditor) + analista_id — campos obrigatorios (validacao de formulario + guard do worker
+send_reembolso_denial). APROVAR_PARCIAL exige justificativa + fundamentacao_contratual +
+valor_reembolso_aprovado_cents (< valor_solicitado_cents) + analista_id. O DMN reembolso_calculo
+CALCULA o valor; o humano decide pagar/negar/reduzir. SLA: `sla.sla_analise` (DMN reembolso_sla;
+prazos DRAFT/verify). A decisao sai em nome do analista (assignee na trilha de auditoria, ADR-0007).
+]]></bpmn:documentation>
+      <bpmn:incoming>Flow_Dossie_UTAnalista</bpmn:incoming>
+      <bpmn:outgoing>Flow_UTAnalista_GW</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <!-- Timer nao-interruptivo: alerta de risco de SLA -> coordenacao -->
+    <bpmn:boundaryEvent id="BT_AlertaSla" name="Alerta de risco de SLA" cancelActivity="false" attachedToRef="UT_AnaliseReembolso">
+      <bpmn:outgoing>Flow_Alerta_Notify</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TD_AlertaSla">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${sla.sla_alerta}</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="ST_NotificarRiscoSla" name="Notificar risco de SLA (coordenacao-reembolso)"
+                      camunda:type="external" camunda:topic="operadora.reembolso.notify_sla_risk">
+      <bpmn:incoming>Flow_Alerta_Notify</bpmn:incoming>
+      <bpmn:outgoing>Flow_Notify_EndAlerta</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_RiscoSlaNotificado" name="Risco de SLA notificado (analise segue)">
+      <bpmn:incoming>Flow_Notify_EndAlerta</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Timer interruptivo: SLA estourado -> coordenacao humana assume (NUNCA auto-nega) -->
+    <bpmn:boundaryEvent id="BT_SlaAnalise" name="SLA de analise (RN 259 / Lei 9.656 — DRAFT/verify)" cancelActivity="true" attachedToRef="UT_AnaliseReembolso">
+      <bpmn:outgoing>Flow_SlaEstourado_Pub</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TD_SlaAnalise">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${sla.sla_analise}</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="ST_PublishSlaBreach" name="Publicar evento: reembolso.sla_breached"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.reembolso.sla_breached</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,protocolo_reembolso,tipo_reembolso</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_SlaEstourado_Pub</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubBreach_UTCoord</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:userTask id="UT_CoordenacaoReembolso" name="Coordenacao de reembolso assume a analise"
+                   camunda:candidateGroups="coordenacao-reembolso">
+      <bpmn:documentation>Escalation path do SLA: caso reatribuido a coordenacao. Mesmas saidas e mesmos campos obrigatorios da analise do analista: decisao_reembolso in {APROVAR, NEGAR, APROVAR_PARCIAL, SOLICITAR_INFO, SOLICITAR_AUDITOR} (decisao continua HUMANA — nunca auto-nega por timeout). NEGAR/APROVAR_PARCIAL exigem justificativa + fundamentacao_contratual (e cid10_referencia/parecer_auditor no merito clinico) + analista_id, iguais a UT_AnaliseReembolso. GW_DecisaoReembolso roteia so por decisao_reembolso; este contrato nao declara decisao_coordenacao (diferente de PAGTO-001/ADEQUACAO-001, onde e campo real e roteado).</bpmn:documentation>
+      <bpmn:incoming>Flow_PubBreach_UTCoord</bpmn:incoming>
+      <bpmn:outgoing>Flow_UTCoord_GW</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:exclusiveGateway id="GW_DecisaoReembolso" name="Decisao do analista de reembolso" default="Flow_GWDec_Aprovar">
+      <bpmn:incoming>Flow_UTAnalista_GW</bpmn:incoming>
+      <bpmn:incoming>Flow_UTCoord_GW</bpmn:incoming>
+      <bpmn:incoming>Flow_UTAuditor_GW</bpmn:incoming>
+      <bpmn:outgoing>Flow_GWDec_Aprovar</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWDec_Negar</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWDec_Parcial</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWDec_SolicitarInfo</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWDec_Auditor</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <!-- Merito clinico: medico auditor (requer_avaliacao_clinica=true ou SOLICITAR_AUDITOR) -->
+    <bpmn:userTask id="UT_RevisaoAuditorMedico" name="Revisao do medico auditor (merito clinico)"
+                   camunda:candidateGroups="medico-auditor">
+      <bpmn:documentation>Merito clinico (RN 424 / ADR-0005): o auditor decide o merito (APROVAR/NEGAR/APROVAR_PARCIAL). Negativa/reducao por merito clinico exige parecer_auditor + cid10_referencia + auditor_id. O DMN calcula o valor; o humano decide pagar/negar/reduzir. Saida: decisao_reembolso in {APROVAR, NEGAR, APROVAR_PARCIAL}.</bpmn:documentation>
+      <bpmn:incoming>Flow_GWDec_Auditor</bpmn:incoming>
+      <bpmn:outgoing>Flow_UTAuditor_GW</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <!-- Aprovado (integral) pelo analista/auditor -->
+    <bpmn:serviceTask id="ST_IssuePaymentAnalista" name="Emitir pagamento do reembolso (decisao humana)"
+                      camunda:type="external" camunda:topic="operadora.reembolso.issue_payment">
+      <bpmn:incoming>Flow_GWDec_Aprovar</bpmn:incoming>
+      <bpmn:outgoing>Flow_IssueAnalista_Pub</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="ST_PublishAprovadoAnalista" name="Publicar evento: reembolso.completed (aprovado_analista)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.reembolso.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">aprovado_analista</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,protocolo_reembolso,analista_id</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_IssueAnalista_Pub</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubAnalista_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_ReembolsoAprovadoAnalista" name="Reembolso aprovado pelo analista/auditor">
+      <bpmn:incoming>Flow_PubAnalista_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- NEGADO (UNICA origem possivel de negativa — efeito adverso gated por worker) -->
+    <bpmn:serviceTask id="ST_EnviarNegativa" name="Comunicar negativa de reembolso (efeito adverso gated)"
+                      camunda:type="external" camunda:topic="operadora.reembolso.send_reembolso_denial">
+      <bpmn:documentation>HARD GUARDRAIL (L0 hard, ADR-0005): o worker RECUSA comunicar negativa se decisao_reembolso not in {NEGAR, APROVAR_PARCIAL} setado por humano, ou se faltar justificativa/fundamentacao_contratual/analista_id|auditor_id (lanca ERR_REEMBOLSO_DENIAL_NOT_HUMAN). Carrega analista_id/auditor_id na trilha de auditoria (ADR-0007). Negativa por escrito com fundamentacao contratual/clinica.</bpmn:documentation>
+      <bpmn:incoming>Flow_GWDec_Negar</bpmn:incoming>
+      <bpmn:outgoing>Flow_Negativa_Pub</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="ST_PublishNegado" name="Publicar evento: reembolso.completed (negado_analista)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.reembolso.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">negado_analista</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,protocolo_reembolso,analista_id</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Negativa_Pub</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubNegado_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_ReembolsoNegado" name="Reembolso negado (L0 — humano-gated)">
+      <bpmn:incoming>Flow_PubNegado_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- APROVADO PARCIAL (reducao = adverso; gated por worker; depois paga o valor reduzido) -->
+    <bpmn:serviceTask id="ST_ComunicarReducao" name="Comunicar reducao do reembolso (efeito adverso gated)"
+                      camunda:type="external" camunda:topic="operadora.reembolso.send_reembolso_denial">
+      <bpmn:documentation>HARD GUARDRAIL (L0 hard): reembolso parcial paga menos que o solicitado (reducao = adverso). O worker RECUSA sem decisao_reembolso=APROVAR_PARCIAL setado por humano + justificativa + fundamentacao_contratual + analista_id|auditor_id (ERR_REEMBOLSO_DENIAL_NOT_HUMAN). Comunica a reducao em nome do analista/auditor.</bpmn:documentation>
+      <bpmn:incoming>Flow_GWDec_Parcial</bpmn:incoming>
+      <bpmn:outgoing>Flow_Reducao_IssuePay</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="ST_IssuePaymentParcial" name="Emitir pagamento do reembolso parcial (valor reduzido aprovado)"
+                      camunda:type="external" camunda:topic="operadora.reembolso.issue_payment">
+      <bpmn:documentation>Paga valor_reembolso_aprovado_cents (menor que valor_solicitado_cents), definido pelo humano na User Task.</bpmn:documentation>
+      <bpmn:incoming>Flow_Reducao_IssuePay</bpmn:incoming>
+      <bpmn:outgoing>Flow_IssueParcial_Pub</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="ST_PublishParcial" name="Publicar evento: reembolso.completed (aprovado_parcial)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.reembolso.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">aprovado_parcial</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,protocolo_reembolso,analista_id</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_IssueParcial_Pub</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubParcial_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_ReembolsoParcial" name="Reembolso aprovado parcial (L0 — humano-gated, reducao adversa)">
+      <bpmn:incoming>Flow_PubParcial_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- FLOWS -->
+    <bpmn:sequenceFlow id="Flow_Start_PubReceived" sourceRef="Start_SolicitacaoReembolso" targetRef="ST_PublishReceived"/>
+    <bpmn:sequenceFlow id="Flow_PubReceived_Coverage" sourceRef="ST_PublishReceived" targetRef="ST_CheckCoverage"/>
+    <bpmn:sequenceFlow id="Flow_Coverage_Prazo" sourceRef="ST_CheckCoverage" targetRef="ST_CheckPrazo"/>
+    <bpmn:sequenceFlow id="Flow_ProtocoloInvalido_End" sourceRef="BE_ReembolsoProtocoloInvalido" targetRef="End_ReembolsoProtocoloInvalido"/>
+    <bpmn:sequenceFlow id="Flow_Prazo_Admiss" sourceRef="ST_CheckPrazo" targetRef="BRT_Admissibilidade"/>
+    <bpmn:sequenceFlow id="Flow_Admiss_GW" sourceRef="BRT_Admissibilidade" targetRef="GW_Admissibilidade"/>
+    <bpmn:sequenceFlow id="Flow_GW_Pendencia" name="PENDENTE_DOCUMENTACAO" sourceRef="GW_Admissibilidade" targetRef="ST_SolicitarDocumentos">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${admissibilidade.roteamento == 'PENDENTE_DOCUMENTACAO'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GW_AnaliseHumanaDireta" name="ANALISE_HUMANA" sourceRef="GW_Admissibilidade" targetRef="BRT_SlaAnalise">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${admissibilidade.roteamento == 'ANALISE_HUMANA'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GW_SegueAnalise" name="SEGUE_ANALISE (default)" sourceRef="GW_Admissibilidade" targetRef="BRT_Calculo"/>
+    <bpmn:sequenceFlow id="Flow_Solicitar_WaitDocs" sourceRef="ST_SolicitarDocumentos" targetRef="GW_AguardarDocs"/>
+    <bpmn:sequenceFlow id="Flow_Wait_DocsMsg" sourceRef="GW_AguardarDocs" targetRef="ICE_DocsRecebidos"/>
+    <bpmn:sequenceFlow id="Flow_Wait_Timer" sourceRef="GW_AguardarDocs" targetRef="ICE_PrazoPendencia"/>
+    <bpmn:sequenceFlow id="Flow_DocsOk_Admiss" sourceRef="ICE_DocsRecebidos" targetRef="BRT_Admissibilidade"/>
+    <bpmn:sequenceFlow id="Flow_PrazoPendencia_UT" sourceRef="ICE_PrazoPendencia" targetRef="UT_DecidirPendenciaExpirada"/>
+    <bpmn:sequenceFlow id="Flow_UTPend_GW" sourceRef="UT_DecidirPendenciaExpirada" targetRef="GW_PendenciaExpirada"/>
+    <bpmn:sequenceFlow id="Flow_GWPend_Cancelar" name="cancelar_solicitacao" sourceRef="GW_PendenciaExpirada" targetRef="ST_PublishCancelada">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_pendencia == 'cancelar_solicitacao'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWPend_PrazoExtra" name="conceder_prazo_extra" sourceRef="GW_PendenciaExpirada" targetRef="BRT_Calculo">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_pendencia == 'conceder_prazo_extra'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWPend_SegueAnalise" name="seguir_analise (default)" sourceRef="GW_PendenciaExpirada" targetRef="BRT_Calculo"/>
+    <bpmn:sequenceFlow id="Flow_PubCancelada_End" sourceRef="ST_PublishCancelada" targetRef="End_ReembolsoCancelado"/>
+    <!-- GAP-REEMBOLSO-5: BRT_Calculo (DMN reembolso_calculo) roda ANTES de ST_CalculateAmount, para
+         que o worker leia calculo.valor_calculado_tabela_cents ja resolvido (DMN outputs consumidos
+         so APOS o businessRuleTask rodar — engine catechism). -->
+    <bpmn:sequenceFlow id="Flow_BRTCalc_Calc" sourceRef="BRT_Calculo" targetRef="ST_CalculateAmount"/>
+    <bpmn:sequenceFlow id="Flow_Calc_AutoApproval" sourceRef="ST_CalculateAmount" targetRef="BRT_AutoApproval"/>
+    <bpmn:sequenceFlow id="Flow_AutoApproval_GW" sourceRef="BRT_AutoApproval" targetRef="GW_AutoAprovacao"/>
+    <bpmn:sequenceFlow id="Flow_GW_AutoAprovar" name="AUTO_APROVAR (L2 — integral)" sourceRef="GW_AutoAprovacao" targetRef="ST_IssuePaymentAuto">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${auto_aprovacao.recomendacao == 'AUTO_APROVAR'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GW_AnaliseHumana" name="ANALISE_HUMANA (default)" sourceRef="GW_AutoAprovacao" targetRef="BRT_SlaAnalise"/>
+    <bpmn:sequenceFlow id="Flow_IssueAuto_Pub" sourceRef="ST_IssuePaymentAuto" targetRef="ST_PublishAprovadoAuto"/>
+    <bpmn:sequenceFlow id="Flow_PubAuto_End" sourceRef="ST_PublishAprovadoAuto" targetRef="End_ReembolsoAprovadoAutomatico"/>
+    <bpmn:sequenceFlow id="Flow_Sla_Dossie" sourceRef="BRT_SlaAnalise" targetRef="ST_PrepararDossie"/>
+    <bpmn:sequenceFlow id="Flow_Dossie_UTAnalista" sourceRef="ST_PrepararDossie" targetRef="UT_AnaliseReembolso"/>
+    <bpmn:sequenceFlow id="Flow_Alerta_Notify" sourceRef="BT_AlertaSla" targetRef="ST_NotificarRiscoSla"/>
+    <bpmn:sequenceFlow id="Flow_Notify_EndAlerta" sourceRef="ST_NotificarRiscoSla" targetRef="End_RiscoSlaNotificado"/>
+    <bpmn:sequenceFlow id="Flow_SlaEstourado_Pub" sourceRef="BT_SlaAnalise" targetRef="ST_PublishSlaBreach"/>
+    <bpmn:sequenceFlow id="Flow_PubBreach_UTCoord" sourceRef="ST_PublishSlaBreach" targetRef="UT_CoordenacaoReembolso"/>
+    <bpmn:sequenceFlow id="Flow_UTAnalista_GW" sourceRef="UT_AnaliseReembolso" targetRef="GW_DecisaoReembolso"/>
+    <bpmn:sequenceFlow id="Flow_UTCoord_GW" sourceRef="UT_CoordenacaoReembolso" targetRef="GW_DecisaoReembolso"/>
+    <bpmn:sequenceFlow id="Flow_UTAuditor_GW" sourceRef="UT_RevisaoAuditorMedico" targetRef="GW_DecisaoReembolso"/>
+    <bpmn:sequenceFlow id="Flow_GWDec_Aprovar" name="APROVAR (default)" sourceRef="GW_DecisaoReembolso" targetRef="ST_IssuePaymentAnalista"/>
+    <bpmn:sequenceFlow id="Flow_GWDec_Negar" name="NEGAR (somente humano)" sourceRef="GW_DecisaoReembolso" targetRef="ST_EnviarNegativa">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_reembolso == 'NEGAR'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWDec_Parcial" name="APROVAR_PARCIAL (somente humano — reducao adversa)" sourceRef="GW_DecisaoReembolso" targetRef="ST_ComunicarReducao">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_reembolso == 'APROVAR_PARCIAL'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWDec_SolicitarInfo" name="SOLICITAR_INFO" sourceRef="GW_DecisaoReembolso" targetRef="ST_SolicitarDocumentos">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_reembolso == 'SOLICITAR_INFO'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWDec_Auditor" name="SOLICITAR_AUDITOR (merito clinico)" sourceRef="GW_DecisaoReembolso" targetRef="UT_RevisaoAuditorMedico">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_reembolso == 'SOLICITAR_AUDITOR'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_IssueAnalista_Pub" sourceRef="ST_IssuePaymentAnalista" targetRef="ST_PublishAprovadoAnalista"/>
+    <bpmn:sequenceFlow id="Flow_PubAnalista_End" sourceRef="ST_PublishAprovadoAnalista" targetRef="End_ReembolsoAprovadoAnalista"/>
+    <bpmn:sequenceFlow id="Flow_Negativa_Pub" sourceRef="ST_EnviarNegativa" targetRef="ST_PublishNegado"/>
+    <bpmn:sequenceFlow id="Flow_PubNegado_End" sourceRef="ST_PublishNegado" targetRef="End_ReembolsoNegado"/>
+    <bpmn:sequenceFlow id="Flow_Reducao_IssuePay" sourceRef="ST_ComunicarReducao" targetRef="ST_IssuePaymentParcial"/>
+    <bpmn:sequenceFlow id="Flow_IssueParcial_Pub" sourceRef="ST_IssuePaymentParcial" targetRef="ST_PublishParcial"/>
+    <bpmn:sequenceFlow id="Flow_PubParcial_End" sourceRef="ST_PublishParcial" targetRef="End_ReembolsoParcial"/>
+  </bpmn:process>
+
+  <bpmndi:BPMNDiagram id="Diagram_SP-OP-REEMBOLSO-001">
+    <bpmndi:BPMNPlane id="Plane_SP-OP-REEMBOLSO-001" bpmnElement="SP-OP-REEMBOLSO-001">
+      <bpmndi:BPMNShape id="Shape_Start_SolicitacaoReembolso" bpmnElement="Start_SolicitacaoReembolso">
+        <dc:Bounds x="72" y="74" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishReceived" bpmnElement="ST_PublishReceived">
+        <dc:Bounds x="220" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_CheckCoverage" bpmnElement="ST_CheckCoverage">
+        <dc:Bounds x="400" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BE_ReembolsoProtocoloInvalido" bpmnElement="BE_ReembolsoProtocoloInvalido">
+        <dc:Bounds x="432" y="114" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_ReembolsoProtocoloInvalido" bpmnElement="End_ReembolsoProtocoloInvalido">
+        <dc:Bounds x="72" y="206" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_CheckPrazo" bpmnElement="ST_CheckPrazo">
+        <dc:Bounds x="580" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_Admissibilidade" bpmnElement="BRT_Admissibilidade">
+        <dc:Bounds x="760" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_Admissibilidade" bpmnElement="GW_Admissibilidade" isMarkerVisible="true">
+        <dc:Bounds x="940" y="67" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_SolicitarDocumentos" bpmnElement="ST_SolicitarDocumentos">
+        <dc:Bounds x="1070" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_AguardarDocs" bpmnElement="GW_AguardarDocs" isMarkerVisible="true">
+        <dc:Bounds x="1250" y="67" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ICE_DocsRecebidos" bpmnElement="ICE_DocsRecebidos">
+        <dc:Bounds x="1380" y="74" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ICE_PrazoPendencia" bpmnElement="ICE_PrazoPendencia">
+        <dc:Bounds x="1380" y="206" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT_DecidirPendenciaExpirada" bpmnElement="UT_DecidirPendenciaExpirada">
+        <dc:Bounds x="1496" y="184" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_PendenciaExpirada" bpmnElement="GW_PendenciaExpirada" isMarkerVisible="true">
+        <dc:Bounds x="1676" y="199" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishCancelada" bpmnElement="ST_PublishCancelada">
+        <dc:Bounds x="1806" y="304" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_ReembolsoCancelado" bpmnElement="End_ReembolsoCancelado">
+        <dc:Bounds x="2018" y="326" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_Calculo" bpmnElement="BRT_Calculo">
+        <dc:Bounds x="1806" y="184" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_CalculateAmount" bpmnElement="ST_CalculateAmount">
+        <dc:Bounds x="1986" y="184" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_AutoApproval" bpmnElement="BRT_AutoApproval">
+        <dc:Bounds x="2166" y="184" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_AutoAprovacao" bpmnElement="GW_AutoAprovacao" isMarkerVisible="true">
+        <dc:Bounds x="2346" y="199" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_IssuePaymentAuto" bpmnElement="ST_IssuePaymentAuto">
+        <dc:Bounds x="2476" y="184" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishAprovadoAuto" bpmnElement="ST_PublishAprovadoAuto">
+        <dc:Bounds x="2656" y="184" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_ReembolsoAprovadoAutomatico" bpmnElement="End_ReembolsoAprovadoAutomatico">
+        <dc:Bounds x="2868" y="206" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_SlaAnalise" bpmnElement="BRT_SlaAnalise">
+        <dc:Bounds x="2476" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PrepararDossie" bpmnElement="ST_PrepararDossie">
+        <dc:Bounds x="2656" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT_AnaliseReembolso" bpmnElement="UT_AnaliseReembolso">
+        <dc:Bounds x="2836" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_AlertaSla" bpmnElement="BT_AlertaSla">
+        <dc:Bounds x="2851" y="114" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_NotificarRiscoSla" bpmnElement="ST_NotificarRiscoSla">
+        <dc:Bounds x="40" y="304" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_RiscoSlaNotificado" bpmnElement="End_RiscoSlaNotificado">
+        <dc:Bounds x="252" y="326" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_SlaAnalise" bpmnElement="BT_SlaAnalise">
+        <dc:Bounds x="2884" y="114" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishSlaBreach" bpmnElement="ST_PublishSlaBreach">
+        <dc:Bounds x="40" y="424" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT_CoordenacaoReembolso" bpmnElement="UT_CoordenacaoReembolso">
+        <dc:Bounds x="220" y="424" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_DecisaoReembolso" bpmnElement="GW_DecisaoReembolso" isMarkerVisible="true">
+        <dc:Bounds x="3016" y="319" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT_RevisaoAuditorMedico" bpmnElement="UT_RevisaoAuditorMedico">
+        <dc:Bounds x="3146" y="304" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_IssuePaymentAnalista" bpmnElement="ST_IssuePaymentAnalista">
+        <dc:Bounds x="3146" y="424" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishAprovadoAnalista" bpmnElement="ST_PublishAprovadoAnalista">
+        <dc:Bounds x="3326" y="424" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_ReembolsoAprovadoAnalista" bpmnElement="End_ReembolsoAprovadoAnalista">
+        <dc:Bounds x="3538" y="446" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_EnviarNegativa" bpmnElement="ST_EnviarNegativa">
+        <dc:Bounds x="3146" y="544" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishNegado" bpmnElement="ST_PublishNegado">
+        <dc:Bounds x="3326" y="544" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_ReembolsoNegado" bpmnElement="End_ReembolsoNegado">
+        <dc:Bounds x="3538" y="566" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_ComunicarReducao" bpmnElement="ST_ComunicarReducao">
+        <dc:Bounds x="3146" y="664" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_IssuePaymentParcial" bpmnElement="ST_IssuePaymentParcial">
+        <dc:Bounds x="3326" y="664" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishParcial" bpmnElement="ST_PublishParcial">
+        <dc:Bounds x="3506" y="664" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_ReembolsoParcial" bpmnElement="End_ReembolsoParcial">
+        <dc:Bounds x="3686" y="686" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_Flow_Start_PubReceived" bpmnElement="Flow_Start_PubReceived">
+        <di:waypoint x="108" y="92"/>
+        <di:waypoint x="220" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubReceived_Coverage" bpmnElement="Flow_PubReceived_Coverage">
+        <di:waypoint x="320" y="92"/>
+        <di:waypoint x="400" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Coverage_Prazo" bpmnElement="Flow_Coverage_Prazo">
+        <di:waypoint x="500" y="92"/>
+        <di:waypoint x="580" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_ProtocoloInvalido_End" bpmnElement="Flow_ProtocoloInvalido_End">
+        <di:waypoint x="450" y="150"/>
+        <di:waypoint x="450" y="178"/>
+        <di:waypoint x="90" y="178"/>
+        <di:waypoint x="90" y="206"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Prazo_Admiss" bpmnElement="Flow_Prazo_Admiss">
+        <di:waypoint x="680" y="92"/>
+        <di:waypoint x="760" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Admiss_GW" bpmnElement="Flow_Admiss_GW">
+        <di:waypoint x="860" y="92"/>
+        <di:waypoint x="940" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GW_Pendencia" bpmnElement="Flow_GW_Pendencia">
+        <di:waypoint x="990" y="92"/>
+        <di:waypoint x="1070" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GW_AnaliseHumanaDireta" bpmnElement="Flow_GW_AnaliseHumanaDireta">
+        <di:waypoint x="990" y="92"/>
+        <di:waypoint x="2476" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GW_SegueAnalise" bpmnElement="Flow_GW_SegueAnalise">
+        <di:waypoint x="990" y="92"/>
+        <di:waypoint x="1398" y="92"/>
+        <di:waypoint x="1398" y="224"/>
+        <di:waypoint x="1806" y="224"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Solicitar_WaitDocs" bpmnElement="Flow_Solicitar_WaitDocs">
+        <di:waypoint x="1170" y="92"/>
+        <di:waypoint x="1250" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Wait_DocsMsg" bpmnElement="Flow_Wait_DocsMsg">
+        <di:waypoint x="1300" y="92"/>
+        <di:waypoint x="1380" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Wait_Timer" bpmnElement="Flow_Wait_Timer">
+        <di:waypoint x="1300" y="92"/>
+        <di:waypoint x="1340" y="92"/>
+        <di:waypoint x="1340" y="224"/>
+        <di:waypoint x="1380" y="224"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_DocsOk_Admiss" bpmnElement="Flow_DocsOk_Admiss">
+        <di:waypoint x="1398" y="110"/>
+        <di:waypoint x="1398" y="81"/>
+        <di:waypoint x="810" y="81"/>
+        <di:waypoint x="810" y="52"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PrazoPendencia_UT" bpmnElement="Flow_PrazoPendencia_UT">
+        <di:waypoint x="1416" y="224"/>
+        <di:waypoint x="1496" y="224"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_UTPend_GW" bpmnElement="Flow_UTPend_GW">
+        <di:waypoint x="1596" y="224"/>
+        <di:waypoint x="1676" y="224"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWPend_Cancelar" bpmnElement="Flow_GWPend_Cancelar">
+        <di:waypoint x="1726" y="224"/>
+        <di:waypoint x="1766" y="224"/>
+        <di:waypoint x="1766" y="344"/>
+        <di:waypoint x="1806" y="344"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWPend_PrazoExtra" bpmnElement="Flow_GWPend_PrazoExtra">
+        <di:waypoint x="1726" y="224"/>
+        <di:waypoint x="1806" y="224"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWPend_SegueAnalise" bpmnElement="Flow_GWPend_SegueAnalise">
+        <di:waypoint x="1726" y="224"/>
+        <di:waypoint x="1806" y="224"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubCancelada_End" bpmnElement="Flow_PubCancelada_End">
+        <di:waypoint x="1906" y="344"/>
+        <di:waypoint x="2018" y="344"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_BRTCalc_Calc" bpmnElement="Flow_BRTCalc_Calc">
+        <di:waypoint x="1906" y="224"/>
+        <di:waypoint x="1986" y="224"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Calc_AutoApproval" bpmnElement="Flow_Calc_AutoApproval">
+        <di:waypoint x="2086" y="224"/>
+        <di:waypoint x="2166" y="224"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_AutoApproval_GW" bpmnElement="Flow_AutoApproval_GW">
+        <di:waypoint x="2266" y="224"/>
+        <di:waypoint x="2346" y="224"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GW_AutoAprovar" bpmnElement="Flow_GW_AutoAprovar">
+        <di:waypoint x="2396" y="224"/>
+        <di:waypoint x="2476" y="224"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GW_AnaliseHumana" bpmnElement="Flow_GW_AnaliseHumana">
+        <di:waypoint x="2396" y="224"/>
+        <di:waypoint x="2436" y="224"/>
+        <di:waypoint x="2436" y="92"/>
+        <di:waypoint x="2476" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_IssueAuto_Pub" bpmnElement="Flow_IssueAuto_Pub">
+        <di:waypoint x="2576" y="224"/>
+        <di:waypoint x="2656" y="224"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubAuto_End" bpmnElement="Flow_PubAuto_End">
+        <di:waypoint x="2756" y="224"/>
+        <di:waypoint x="2868" y="224"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Sla_Dossie" bpmnElement="Flow_Sla_Dossie">
+        <di:waypoint x="2576" y="92"/>
+        <di:waypoint x="2656" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Dossie_UTAnalista" bpmnElement="Flow_Dossie_UTAnalista">
+        <di:waypoint x="2756" y="92"/>
+        <di:waypoint x="2836" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Alerta_Notify" bpmnElement="Flow_Alerta_Notify">
+        <di:waypoint x="2869" y="150"/>
+        <di:waypoint x="2869" y="227"/>
+        <di:waypoint x="90" y="227"/>
+        <di:waypoint x="90" y="304"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Notify_EndAlerta" bpmnElement="Flow_Notify_EndAlerta">
+        <di:waypoint x="140" y="344"/>
+        <di:waypoint x="252" y="344"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_SlaEstourado_Pub" bpmnElement="Flow_SlaEstourado_Pub">
+        <di:waypoint x="2902" y="150"/>
+        <di:waypoint x="2902" y="287"/>
+        <di:waypoint x="90" y="287"/>
+        <di:waypoint x="90" y="424"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubBreach_UTCoord" bpmnElement="Flow_PubBreach_UTCoord">
+        <di:waypoint x="140" y="464"/>
+        <di:waypoint x="220" y="464"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_UTAnalista_GW" bpmnElement="Flow_UTAnalista_GW">
+        <di:waypoint x="2936" y="92"/>
+        <di:waypoint x="2976" y="92"/>
+        <di:waypoint x="2976" y="344"/>
+        <di:waypoint x="3016" y="344"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_UTCoord_GW" bpmnElement="Flow_UTCoord_GW">
+        <di:waypoint x="320" y="464"/>
+        <di:waypoint x="1668" y="464"/>
+        <di:waypoint x="1668" y="344"/>
+        <di:waypoint x="3016" y="344"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_UTAuditor_GW" bpmnElement="Flow_UTAuditor_GW">
+        <di:waypoint x="3196" y="384"/>
+        <di:waypoint x="3196" y="351"/>
+        <di:waypoint x="3041" y="351"/>
+        <di:waypoint x="3041" y="319"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Aprovar" bpmnElement="Flow_GWDec_Aprovar">
+        <di:waypoint x="3066" y="344"/>
+        <di:waypoint x="3106" y="344"/>
+        <di:waypoint x="3106" y="464"/>
+        <di:waypoint x="3146" y="464"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Negar" bpmnElement="Flow_GWDec_Negar">
+        <di:waypoint x="3066" y="344"/>
+        <di:waypoint x="3106" y="344"/>
+        <di:waypoint x="3106" y="584"/>
+        <di:waypoint x="3146" y="584"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Parcial" bpmnElement="Flow_GWDec_Parcial">
+        <di:waypoint x="3066" y="344"/>
+        <di:waypoint x="3106" y="344"/>
+        <di:waypoint x="3106" y="704"/>
+        <di:waypoint x="3146" y="704"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_SolicitarInfo" bpmnElement="Flow_GWDec_SolicitarInfo">
+        <di:waypoint x="3041" y="369"/>
+        <di:waypoint x="3041" y="429"/>
+        <di:waypoint x="1070" y="429"/>
+        <di:waypoint x="1070" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Auditor" bpmnElement="Flow_GWDec_Auditor">
+        <di:waypoint x="3066" y="344"/>
+        <di:waypoint x="3146" y="344"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_IssueAnalista_Pub" bpmnElement="Flow_IssueAnalista_Pub">
+        <di:waypoint x="3246" y="464"/>
+        <di:waypoint x="3326" y="464"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubAnalista_End" bpmnElement="Flow_PubAnalista_End">
+        <di:waypoint x="3426" y="464"/>
+        <di:waypoint x="3538" y="464"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Negativa_Pub" bpmnElement="Flow_Negativa_Pub">
+        <di:waypoint x="3246" y="584"/>
+        <di:waypoint x="3326" y="584"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubNegado_End" bpmnElement="Flow_PubNegado_End">
+        <di:waypoint x="3426" y="584"/>
+        <di:waypoint x="3538" y="584"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Reducao_IssuePay" bpmnElement="Flow_Reducao_IssuePay">
+        <di:waypoint x="3246" y="704"/>
+        <di:waypoint x="3326" y="704"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_IssueParcial_Pub" bpmnElement="Flow_IssueParcial_Pub">
+        <di:waypoint x="3426" y="704"/>
+        <di:waypoint x="3506" y="704"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubParcial_End" bpmnElement="Flow_PubParcial_End">
+        <di:waypoint x="3606" y="704"/>
+        <di:waypoint x="3686" y="704"/>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

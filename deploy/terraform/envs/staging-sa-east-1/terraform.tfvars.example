@@ -1,0 +1,13 @@
+# Example tfvars for staging-sa-east-1.
+# Copy to terraform.tfvars (gitignored) and fill in real values.
+# NEVER commit real account IDs or emails.
+
+aws_account_id = "123456789012"     # replace with real account ID
+owner_email    = "platform@example.com"
+cost_center    = "maezo-staging"
+
+eks_cluster_name = "amh-data-platform-eks-staging"   # existing cluster name
+
+# EKS node SG + role ARNs — obtain from amh-data-platform tfstate outputs
+eks_node_security_group_ids = ["sg-0000000000000000"]
+eks_node_role_arns          = ["arn:aws:iam::123456789012:role/amh-eks-node-role-staging"]

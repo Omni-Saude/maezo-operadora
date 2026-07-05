@@ -1,0 +1,271 @@
+# HANDOFF — single source of swarm state. Keep <200 lines; prune history.
+# Discipline: update the `state_of_truth` block below at EVERY milestone (PR opened, CI green,
+# merged) AND reconcile it against git at session start — not only "after a merge". The owner
+# merges PRs MID-SESSION, so prose here goes stale fast.
+#
+# ┌─ STATE OF TRUTH — read FIRST; trust git over any prose (including this file). ──────────────┐
+# │ Any external handoff that says "Phase 2 complete / everything on main / next action = W-R0" │
+# │ is STALE the instant it contradicts the git reality below. Re-derive with `verify_truth`,   │
+# │ then rewrite this block. Do NOT act on a stale "next action".                                │
+# └─────────────────────────────────────────────────────────────────────────────────────────────┘
+state_of_truth:
+  as_of: "2026-07-03 (WAVE-2 MID-FLIGHT handoff snapshot: W0+W1 COMPLETE; W2 12 briefs spawned, 0 merged yet)"
+  current_branch: >-
+    main GREEN. Wave 0 DONE (13/13, #92-#104 + 100%-BPMN-DI gate #102/DL-0020). Wave 1 DONE (43/43,
+    #106-#130; close-out #131). WAVE 2 IN FLIGHT (41 medium; GAP-ESC-3 pre-landed in #115; GAP-ADEQ-5
+    verification-only, done in #101): 12 briefs spawned in parallel worktrees. STATE AT SNAPSHOT:
+    VERIFIED awaiting CI lane = #132 (NIP autonomy parity, adversarially verified additive-only) and
+    #135 (XHITL-4 universal-resume completion; inventory: only helena resumable today, lucas excluded
+    — loop-prone, see residue). #133 (WhatsApp PHI edge) verified with ONE-LINE fix in flight (redact
+    str(exc) at inbound_driver log sites ~:322/:329). DRAFTS mid-build: #134 (INAD/ADEQ batch), #136
+    (AUTH/RECURSO/CONTAS batch), #137 (NIP batch). STILL BUILDING (worktrees): maezo-w2-cancel
+    (CANCEL-2/4/5/7), maezo-w2-xproc3 (XPROC-3 recurso handoff vars), maezo-w2-xobs56 (XOBS-5/6 +
+    pending-gauge poller, respawned once), maezo-w2-fc (FRAUDE-4/5 + CRED-4/5/6), maezo-w2-ppa
+    (PAGTO-5, PROG-3/4/5/7, ANS-3/4), maezo-w2-ret (REEMBOLSO-4/5, ESC-4/5, TRIAGE-3). THEN Wave 3
+    (18 low, single T1 fan-out) + discovered-residue briefs.
+  orchestrator_role: >-
+    HIVE-MIND / ORCHESTRATOR ONLY — the coordinator NEVER implements product code or analysis
+    directly. It: (1) SPAWNS worktree-isolated specialist agents with SELF-CONTAINED briefs (plan
+    SS4.4 text + operational rules + engine lessons + acceptance criteria; model-routed T1 haiku /
+    T2 sonnet / T3 opus); (2) SPAWNS INDEPENDENT VERIFIER agents per delivered PR (never trusts
+    completion reports; verifiers re-run gates with real exit codes, XML-parse BPMN claims,
+    adversarially probe governance changes); (3) merges ONLY verified+lane-green PRs (squash;
+    serialize hot files; explicit --subject when branch history has preservation snapshots);
+    (4) script-reconciles the gap ledger at each wave close (NEVER hand-counts — caught
+    GAP-CANCEL-3 mis-filed by the plan itself); (5) recovers dead agents via preservation
+    snapshot-commit+push then fresh takeover briefs with kept-vs-redone critical review.
+    ALLOWED direct actions (coordination only): trivial merge-conflict union resolution,
+    branch/worktree hygiene, HANDOFF/memory/docs updates, reverts to restore green main.
+    Red CI root-causes flow BACK to the owning agent with the fingerprint + diagnosis; agents
+    instrument on a real engine before theorizing.
+  wave2_next_actions: >-
+    (1) Merge #132/#135 when integration lane == pass (assert with non-watch gh pr checks; never
+    trust skipping). (2) #133: verify the one-line log-redact fix landed, then lane-merge.
+    (3) As each building agent reports: spawn a VERIFIER agent (sonnet; opus for governance),
+    then lane-merge. Hot-file serialization this wave: policies/autonomy ONLY #132;
+    notifications_bridge/consumer.py = #137(NIP-4?) + maezo-w2-xproc3 + maezo-w2-ppa (ANS-3) —
+    re-merge main between them; engine_metrics.py = maezo-w2-xobs56 only. (4) On red lanes: pull
+    the CI fingerprint, resume the owning agent with diagnosis (known classes: stale/hardcoded
+    anchors insta-fire absolute timeDate timers — use dynamic future anchors at EVERY start site;
+    probe drain-list drift; ENGINE-13031 unique business keys; unset JUEL identifiers incl. UT
+    output mappings evaluating on interruption exits). (5) Wave-2 close: script-reconcile the 41
+    canonical W2 gap ids vs merged PR bodies (ESC-3 credit=#115, ADEQ-5 credit=#101), HANDOFF +
+    memory update, THEN spawn Wave 3. (6) Wave 3: 18 low gaps single T1 batch fan-out + NEW
+    residue briefs: GAP-XHITL-4B (lucas resume-safe node + lucas_billing_admissibility/
+    lucas_escalation_routing DMNs exist only as test fakes — orphaned layer) + stdlib-logging
+    scrub bypass (no stdlib->structlog bridge repo-wide; inbound_driver/webhook loggers outside
+    scrub_phi_processor). (7) PENDING USER DECISION: host port 5432 (austa-postgres detached,
+    intensicare-postgres holds the port; austa-network restored, austa-redis reconnected stopped).
+  origin_main_head: >-
+    7af9f7f GREEN (full CI incl. real-engine lane). WAVE-0 MERGED: TRIAGE-1/2 (#92/#93 helena payloads),
+    ADEQ-1 (#94), AUTH-1 (#95 PHI fact strip), CRED-1 (#96 boundaries), REEMBOLSO-1 (#97 signoff index),
+    PAGTO-1 (#98 admissibility DMN), LGPD-1 (#99 lgpd.py workers), INAD-1 (#100 real anti-double-termination
+    query), XOBS-1 (#101 15/15 worker modules + AuditLog + strict readiness), XPROC-1+INAD-2 (#103 bridge
+    4 handoff fan-outs), XOBS-2 (#104 RN259 SLA-breach counter + engine poller), PLUS owner directive:
+    100% BPMN DI on all 15 files + ENFORCE_DI_COVERAGE CI gate (#102, DL-0020 — regenerate via `cli di
+    --write` after ANY structural BPMN edit). Wave-1 residue handoffs: XOBS-3 standardizes ~12 remaining
+    notify_sla_risk handlers on sla_metrics.emit_user_task_sla_breach; user_task_pending gauge unwired;
+    bridge entidade_tipo routing split is DRAFT (review-queue row); ENGINE-13031 lesson = unique business
+    key per engine-test instance.
+  open_prs: >-
+    RUNTIME LANE FULLY RECOVERED. MERGED to main (37ccbaa): W-R0/W-R1 (#47/#48), #55 lane fix, W-R2 (#60,
+    R6-R9 + durable A2A idempotency), Track-S (#59, S4/S5/S6/S12 + localstack). OPEN: #61 W-R3 (R13 overlays /
+    R14 MCP-boot ADR-0022 / R15 worker output-vars) — integration CI running -> merge --squash --delete-branch
+    when green (remove worktree maezo-wr3 FIRST). Phase-3 train EXECUTING (their HANDOFF-phase3.yaml): #51/#56/#58
+    merged; #53/#54/#57 landing. #55 DURABLE LESSON (kept): asyncpg pools run RESET ALL on connection RELEASE,
+    wiping session `SET search_path` — use `setup=` (per-acquire) NOT `init=` for per-acquire session state; was
+    a REAL PRODUCTION BUG fixed in BOTH PostgresAuditSink (#55) AND PostgresIdempotencyStore (#60); audited all
+    asyncpg pools (memory store + recover_head already correct). INSTRUMENT real-engine-only bugs (3 migration
+    theories were wrong; the migration was fine). pgvector `vector` type/operator live in `public` (DB-global).
+  in_flight: >-
+    (1) #61 W-R3 (wave/w-r3-runtime-wiring @ 9b24768; R13/R14/R15) — integration CI running; verify + adversarial
+    review PASSED (no-denial preserved, RESTRICT-only overlay, register_tools intact); MERGE when green (remove
+    worktree maezo-wr3 before --delete-branch). NEXT runtime wave off main (W-R2 #60 merged unblocks it): R16
+    graceful-shutdown (SIGTERM drain of worker_runtime/inbound_driver/notifications_bridge/fhir_sync +
+    agent_runtime; Helm preStop + terminationGracePeriodSeconds on EVERY Deployment incl. Track-S's new ones;
+    real-engine test: locked external task released on drain) + R17 proactive channel (PHI-min producers + in-zone
+    consumer enforcing consent_checked; mirror notifications_bridge; COORDINATE the trigger schema w/ Phase-3
+    platform/analytics #56 + autonomy L0 gating — announce in handoff before touching topic_registry/autonomy).
+    Also: Track-C remainder (C4 LGPD erasure cascade / C6 ANS competencia dates / C8 docs) = independent worktree;
+    W-R2 review nits (R6 inbound atomic-claim dedup; dispatcher _delegate_durable orphan pending-row; inbound
+    _to_dlq raw-PHI posture) = small follow-up PRs; R13 CI pipeline-step (provision in validate-helm) = deferred.
+  branch_caveat: >-
+    Squash-merge rewrites history: each wave landed onto its squashed parent via `git reset --soft` (trees
+    identical) -> clean single commit per PR. wave/w-r2 is on d088637 (pre-#48-merge); after #48 merges,
+    rebase wave/w-r2 onto the squashed main (W-R1 commit drops as empty). Worktrees off main have their OWN
+    index (invisible to main-tree git status). HANDOFF/decisions-log go by DIRECT PUSH to main (DL-0003).
+  operational_resume:  # precise in-flight state NOT visible in git (for a post-compaction me / fresh orchestrator)
+    runtime_orchestrator_next: >-
+      (1) MERGE #61 W-R3 when integration==pass (remove worktree maezo-wr3 first; gh pr merge 61 --squash
+      --delete-branch). (2) Launch the R16+R17 wave off main in a FRESH worktree+venv (R16 graceful shutdown —
+      now buildable, W-R2 files on main; R17 proactive — coordinate trigger schema w/ Phase-3 analytics + autonomy
+      before touching shared files). (3) Track-C remainder (C4/C6/C8) as an independent worktree. (4) W-R2 review
+      nits + R13 CI-step as small follow-up PRs. Watcher bvxkh4qag (#61). Cleaned worktrees: maezo-wr2,
+      maezo-tracks, maezo-hotfix. KEEP maezo-wr3 until #61 merges. Next alembic rev = 0005 (0004_a2a landed in
+      #60). Next ADR = 0023 (0021 Track-S landed, 0022 W-R3-R14 landing in #61). Next DL = 0018. AWS = #16.
+    background_tasks: "Watcher bvxkh4qag (#61 integration). Worktree maezo-wr3 holds #61's branch (remove after merge). CLEANED: maezo-wr2, maezo-tracks, maezo-hotfix, maezo-trackc. LEAVE Phase-3's maezo-p3*. The UI 'Em execucao' chips are STALE (dead watcher loops from the outages) — IGNORE them; trust git + gh. Throwaway docs worktrees /tmp/maezo-doc* are transient (remove after each push)."
+    landmines_open: "main GREEN. asyncpg pools RESET session SET on connection release -> use setup= not init= for per-acquire search_path (BUG class fixed in audit-sink #55 + a2a-store #60; ALL pools audited clean). Phase-3 engine-bug patterns to AVOID in R16/R17 + process clones: (A) gateway on OPTIONAL UT var absent on a path -> ENGINE-16004 (worker echoes a FLAT always-set bool; gateway ${flag==true}); (B) money-cents int32 overflow -> Camunda Long (harness.py); (C) DMN FIRST hitPolicy clerical rule before the signal column. INADIMPLENCIA<->CANCEL double-rescission (Phase-3 W-E). R17 proactive: enforce consent_checked BEFORE contact (LGPD); PHI-minimize at the producer."
+  verify_truth: |
+    git fetch origin -q
+    git log --oneline origin/main -3        # what is REALLY on main (owner merges mid-session)
+    gh pr list --state open                 # open PRs
+    git rev-parse --abbrev-ref HEAD         # current branch
+    git status --short                      # uncommitted in-flight work
+    # Workflow liveness — subagent writes are NOT OS processes; check file mtime, not `ps`:
+    #   find <session-dir>/subagents/workflows/<run-id>/ -type f -mmin -3   # >0 = alive
+
+phase: 2
+phase_name: "Operadora decide pelo humano onde nega (ciclo de receita + calendario ANS)"
+phase_status: >-
+  Phase 2 COMPLETA (main 56d1138). As 6 quadruplas SP-OP estao em main e PROVADAS no engine
+  CIB Seven real; agentes Marina/Gustavo/Lucas; plataforma Wave D; ADR-0017/0018; e o CLOSEOUT
+  FECHADO: D9 merge-engine fiado no harness+hash (#42), D10 catalogo metrics estendido + emissao
+  (#43), Wave E teste cross-process seam + sweep no-denial consolidado fail-closed (#44) — todos
+  verdes vs engine real. DoD D1-D10 MET — incl. D6: #32 MERGED pelo owner (KNOWN_PROCESS_KEYS agora
+  tem os 6 keys Phase 2; os 6 processos sao start-enabled no allowlist; Phase 3 +6 ficam p/ PRs humanos
+  futuros). Plano Phase 3 em main (docs/reports/phase3-plan.md).
+  PROXIMO: Track R (Runtime Wiring) EM ANDAMENTO. W-R0 MERGED em main (PR #47 -> b41413e, squash):
+  app Dockerfile + health server (/healthz+/readyz+/metrics) + entrypoint agent-runtime
+  (maezo.runtime.agent_runtime; Helm command trocado de maezo.runtime.harness) + Kafka producer
+  concreto; TODO o CI verde incl. integration tests (real engine). W-R1 EM ANDAMENTO na branch
+  wave/w-r1-runtime-wiring (NAO mergeado): R4 tool bindings (RegistryToolInvoker no build_agent) +
+  R10 cred-view + R11 audit head duravel (PostgresAuditSink+recover_head) + R12 pgvector memory;
+  Build+Integrate aterrissados (uncommitted), Verify/Review rodando. DEPOIS de W-R1: lancar W-R2 (R6
+  inbound driver, R7 worker daemon, R8 process-start bridge, R9 A2A assembly — specs prontas) e Track C
+  (C2 content-gate, C3 dias-uteis calendar — specs prontas) em PARALELO (W-R2 sobre o tip W-R1; Track C
+  off main em worktree; file-disjoint).
+last_green_commit: "b41413e"  # main: W-R0 runtime wiring MERGED (#47), CI verde incl. integration real-engine
+updated: "2026-06-13T21:42-03:00"
+
+phase2_merged:  # docs/reports/phase2-plan.md — tudo abaixo em main @1bd2e9a
+  - {pr: 28, scope: "6 contract sheets + test-specs + topic registry (Wave 0)"}
+  - {pr: 29, scope: "ports CNAB 240/400 + glosa enums (D7)"}
+  - {pr: 30, scope: "SP-OP-CONTAS-001 quadruple (Wave A pathfinder, engine-real verde)"}
+  - {pr: 31, scope: "merge-engine L0-L3 overlay skeleton (ADR-0004, D9-parcial)"}
+  - {pr: 33, scope: "agente Marina (Contas/Glosa, PHI, no-denial estrutural, D4)"}
+  - {pr: 34, scope: "validator: child-ordering XSD completo + DI"}
+  - {pr: 35, scope: "Helm tenant factory + provision script (D8, PHI-isolated NetworkPolicy)"}
+  - {pr: 36, scope: "cofre de credenciais fiado no console.create_app (ADR-0005, RESOLVE followup)"}
+  - {pr: 37, scope: "worker operadora.auth.analyze_request REAL + WorkerHarness output-vars (RESOLVE gap de producao)"}
+  - {pr: 39, scope: "agentes Gustavo (ANS calendar) + Lucas (atendimento/cobranca) (D4)"}
+  - {pr: 40, scope: "validator: IDs XML duplicados (classe ENGINE-22004)"}
+  - {pr: 41, scope: "ADR-0017 (PHI egress) + ADR-0018 (no-denial replication) + phase2-report.md"}
+  - {pr: 38, scope: "5 SP-OP bodies RECURSO/NIP/ANS-SUBMIT/CANCEL/REEMBOLSO + 4 runtime-fixes ENGINE-16004 (verde engine real)"}
+
+phase2_dod_status:  # D1-D8 MET; ver phase2-plan.md §1
+  D1_6quadruples: MET  # validate-artifacts verde
+  D2_no_denial_invariant: MET  # 7 testes engine-history (AUTH+6) + sweep CONSOLIDADO fail-closed exaustivo 3-bucket (#44)
+  D3_err_not_human_guards: MET  # ERR_*_NOT_HUMAN nos 7 workers adversos
+  D4_3_agentes: MET  # Marina/Gustavo/Lucas
+  D5_delegacoes_a2a: MET  # maquinaria A2A + 4 pares wired+unit-tested; 1 e2e (Helena->Rafael) + seam cross-process (#44)
+  D6_allowlist: MET  # #32 MERGED pelo owner — KNOWN_PROCESS_KEYS agora tem os 6 keys Phase 2 (process_allowlist.py:33-45); Phase 3 +6 ficam p/ PRs humanos futuros
+  D7_ports_cnab: MET
+  D8_provisionamento: MET  # render/dry-run
+  D9_merge_engine: MET  # fiado no harness + hash da versao efetiva (#42); restrict-not-weaken no boundary
+  D10_observabilidade: MET  # catalogo metrics estendido (ANS outcome, NIP deadline-risk, calendar job) + emissao defensiva (#43)
+  AWS_blocked: "issue #16 — staging apply, ANS/banco real, LLM PHI-zone BR, grants IAM/Lake-Formation"
+
+phase2_closeout_done:  # FECHADO — todos verdes vs engine real
+  - {id: WS-E1, pr: 44, scope: "Wave E cross-process seam (CONTAS->RECURSO, NIP->ANS-SUBMIT) + sweep no-denial consolidado fail-closed (3-bucket exaustivo)", status: MERGED}
+  - {id: WS-E2, pr: 42, scope: "D9 merge-engine fiado no harness + effective-version hash", status: MERGED}
+  - {id: WS-E3, pr: 43, scope: "D10 catalogo metrics Phase 2 + emissao defensiva nos workers ANS/NIP", status: MERGED}
+  - {id: DOC, scope: "phase2-report.md + HANDOFF reconciliados p/ HEAD", status: DONE}
+
+phase2_known_runtime_gaps:  # NAO sao DoD Phase 2; muito e runtime/deploy (overlap AWS-blocked). Endereçar no plano de plataforma.
+  - "Handoff cross-process e fire-and-forget: workers publicam em operadora.notifications.internal SEM consumidor — nada converte a notificacao em start do processo downstream. Wave E (#44) testa o contrato; o bridge Kafka->process-start de producao fica p/ runtime-wiring."
+  - "DelegationDispatcher A2A montado com handlers reais SO em testes — sem assembly de producao sob src/. Runtime-wiring."
+  - "NIP->ANS-SUBMIT drift de nome de campo: o handler publica protocolo_ans/numero_nip_ans, mas o caminho nip_filing do ANS-SUBMIT referencia nip_protocolo_origem. Seam (#44) faz o map in-test; alinhar a chave do produtor OU fazer o mapeamento um helper de producao testado."
+  - "FQDN egress: NetworkPolicy nao faz FQDN; ADR-0017 usa CIDR IP-pinado fail-closed. Egress-proxy/Cilium e futuro."
+
+platform_completion:  # docs/reports/platform-completion-plan.md — forense de tudo que falta p/ producao
+  plan: "docs/reports/platform-completion-plan.md"
+  tese: "biblioteca-com-testes, nao roda como servico — runtime-wiring e a chave"
+  tracks: "R Runtime-wiring (keystone, sem AWS) · C Compliance/conteudo (gate de go-live) · 3 Phase 3 · S Staging (AWS #16) · P Prod-hardening"
+  caminho_critico: "R1+R2+R3+R5 (entrypoints+Dockerfile+health+Kafka producer) -> runtime PROVADO -> Phase 3 + Staging"
+  landmines: "audit hash-chain em memoria (forка no restart, quebra ADR-0007); idempotencia A2A em memoria; console/denial inerte (sem deploy/OIDC); stub-implica-efeito (ANS/reembolso/CNAB = echo+SHA); dupla-rescisao L0; sem Dockerfile de app"
+  gaps_consolidados: "~57 (de ~107 raw em 6 dominios)"
+
+track_r:  # Runtime Wiring (keystone, sem AWS) — docs/reports/platform-completion-plan.md §3
+  W-R0:
+    status: "MERGED em main via PR #47 (squash -> b41413e); CI verde incl. integration real-engine"
+    commit: "b41413e (squash de 044db9a feat + e3dcc2a handoff)"
+    deliverables:
+      - "R5 maezo.platform.messaging.KafkaEventProducer — 1 producer p/ os 3 seams (audit.send bytes / a2a.KafkaLike / workers.publish dict); lazy start (aiokafka captura loop no __init__); _producer_factory p/ teste sem broker"
+      - "R3 maezo.platform.health — /healthz + /readyz + /metrics ASGI GENERICO; readiness checks INJETADAS (sem import de engine/runtime); cada check isolada por timeout"
+      - "R1 maezo.runtime.agent_runtime — entrypoint: health-first (liveness 200 ja), bring-up bounded NAO-fatal, readiness le RuntimeState (kafka/checkpointer_db/pep_matrix/agent_built/inference_route/phi_sentinel), SIGTERM gracioso (dono do sinal: desabilita capture_signals do uvicorn), bind-fail fail-fast; Helm command -> maezo.runtime.agent_runtime"
+      - "R2 deploy/Dockerfile + .dockerignore — multi-stage py3.12-slim, non-root uid1000, read-only-rootfs (escreve so /tmp), libpq5 (psycopg pure-python dlopen no import)"
+    verified: "ruff+format+mypy(129 files)+pytest(962, +27 novos) verdes; helm lint --strict + template (3 Deployments agent -> agent_runtime); smoke docker-free: /healthz 200 + /readyz 503 named-checks + /metrics 200 sob deps mortas, ALIVE; SIGTERM (idle e mid-bringup) -> exit 0 gracioso; 2a instancia na mesma porta -> fail-fast exit 1"
+    review: "3-lente adversarial (correctness/protocol · sec-PHI-scope · ops/Docker/Helm); blockers corrigidos (libpq5 no runtime image, posse deterministica de sinal, bind-fail fail-fast, db-ping sem exc_info, chave PHI fora do slot cloud); PHI fail-closed + scope-fence confirmados limpos"
+    scope_deferred: "R4 tool bindings / R6 inbound Kafka->graph driver / R7 worker daemon / R9 A2A assembly / R11 audit head duravel Postgres / R12 pgvector memory — W-R1/W-R2 (seams marcados no codigo; audit head EM MEMORIA forka no restart por ora)"
+  W-R1:
+    status: "PR #48 OPEN (commit d088637 on b41413e; adversarial re-review PASS; CI running). Awaiting CI + owner merge."
+    base_caveat: "LANDED onto origin/main b41413e via `git reset --soft` (trees identical post-squash) -> #48 is a clean single W-R1 commit. 6 review findings fixed (PHI gateway wiring blocker + consumer-zone + recover_head structural tail + sink-order + checkpointer-decouple + public accessor)."
+    deliverables:
+      - "R4 tool bindings: NEW src/maezo/runtime/tool_wiring.py (ToolRegistry + register MCP servers + RegistryToolInvoker); build_agent ESTENDIDO c/ param tool_invoker (harness.py). Grafos usam config['tools'].call(tool,action,payload) — GatewayToolExecutor do W-R0 nao tinha .call (gap latente fechado)"
+      - "R10 cred-view: CredentialVault.agent_view(tenant) entregue ao contexto de tools (so service creds; NUNCA a particao humana)"
+      - "R11 durable audit head: NEW src/maezo/gateway/audit_postgres.py (PostgresAuditSink + recover_head + multi-writer fork guard) + migration 0002_audit_chain; AuditLog seeded c/ last_hash=recover_head (substitui o fork-GENESIS em memoria — landmine ADR-0007)"
+      - "R12 pgvector memory: PostgresMemoryStore real (asyncpg+pgvector vector(1536) ivfflat) em mcp_memory/server.py + DeterministicEmbeddingProvider + migration 0003_agent_memory"
+    verify_when_lands: "cold-cache ruff+mypy+pytest; alembic 0001->0002->0003 offline-SQL; smoke docker-free (service Ready + nao-fatal sob Postgres morto); REVISAR: double-PEP/audit (1 PEP + 1 AuditLog/tenant), fork-GENESIS (reusar head do recover_head), pgvector correctness; rebase sobre b41413e antes do PR"
+  next: >-
+    Depois de W-R1 mergeado: rodar em PARALELO (file-disjoint) — W-R2 (R6 inbound Kafka->graph driver /
+    R7 worker daemon / R8 process-start bridge, incl. fix drift NIP->ANS via helper nip_protocolo_origem /
+    R9 A2A production assembly + idempotencia duravel task_id-PK migration 0004) sobre o tip W-R1; + Track C
+    (C2 content-promotion gate = manifest config/artifact_signoff.yaml + marker-scan escopado a
+    KNOWN_PROCESS_KEYS / C3 dias-uteis calendar = NEW src/maezo/domain/calendar.py + signed holidays_br.yaml)
+    off main em worktree. Discovery/contracts ja levantados nesta sessao (swarm read-only). Track C e
+    INDEPENDENTE do runtime; C1/C5/C6 sao human-paced (sign-off). Watch landmine: helena/graph.py respond
+    chama mcp-whatsapp.send_message c/ args errados sob contextlib.suppress -> reply no-op silencioso (fix no R6)
+
+track_c:  # Compliance/content gates (runtime-INDEPENDENT; buildable now) — plan §4
+  status: "EM ANDAMENTO em worktree isolado ../maezo-trackc (branch feat/track-c-content-calendar, own venv); PR pendente"
+  C2: "content-promotion CI gate: NEW platform/validation/signoff.py + config/artifact_signoff.yaml (manifest) + cli.py/Makefile/ci.yml additive; scan DRAFT markers escopado a KNOWN_PROCESS_KEYS+decisionRef closure; existing DRAFTs em intentional_draft (nao quebra PRs). Mirror autonomy.reconcile_frozen."
+  C3: "dias-uteis calendar: NEW domain/calendar.py (CalendarType NATIONAL/ANS, is_business_day/add_business_days/roll_to_business_day/deadline_from/iso_business_to_deadline, tz America/Sao_Paulo) + signed domain/data/holidays_br.yaml. Pure, 100% unit-testable. Consumption (DMN P5D->prazo_dias, BPMN timeDate) = follow-up sign-off-gated."
+  pending: "C1 (24 DRAFT sign-offs), C4 (LGPD erasure cascade end-to-end), C5 (catalog completeness), C6 (ANS competencia real dates), C7 (allowlist start-enable), C8 (docs drift) — C1/C5/C6 human-paced."
+
+track_3:  # Phase 3 domain (FRAUDE/CRED/INADIMPLENCIA/PAGTO/ADEQUACAO/PROGRAMA + 5 agents + lake) — docs/reports/phase3-plan.md
+  decision: "DL-0015 — NOT delegated to a parallel orchestrator (single-orchestrator invariants: 1 HANDOFF/truth, 1 file-owner authority, 1 merge queue; A2A is a hard dep — Phase 3 agents build on W-R2/R9 assembly; runtime-first DL-0014). Handled by THIS orchestrator, sequenced after Track R, with disjoint-foundation overlap."
+  foundations: "EM ANDAMENTO em worktree ../maezo-p3 (feat/phase3-foundations): 6 SP-OP contract sheets (DRAFT) + ADR-0019 (amh lake-of-record) + ADR-0020 (custody chain) + review-queue registration. One-phase-ahead (5-bis)."
+  critical_path: "W0(custody.py) -> FRAUDE-001 (pathfinder, custody seal-before-decision) -> Beatriz -> W-E (harmonize INADIMPLENCIA<->CANCEL double-rescission RN 593). Agents (W-D) gate on W-R2/R9 A2A assembly."
+  landmines: "double-rescission (CANCEL ja detem terminais de rescisao); R-PERSONA-MAP DRAFT (PO confirm Beatriz<->Valentina); custody seal-before-decision load-bearing; Andre lake PHI egress = chokepoint estrutural nao convencao."
+
+phase3:  # docs/reports/phase3-plan.md (em main)
+  plan: "docs/reports/phase3-plan.md"
+  escopo: "6 SP-OP (FRAUDE pathfinder + CRED/INADIMPLENCIA/PAGTO/ADEQUACAO/PROGRAMA) + 5 agentes (Carolina/Fernando/Valentina/Beatriz/Andre) + lago populacional (consome amh)"
+  pathfinder: "SP-OP-FRAUDE-001 — cadeia de custodia / selagem de evidencia (custody.py = projecao sobre hash-chain ADR-0007); fraud_accusation L0-hard"
+  adrs_propostos: "ADR-0019 (amh lago-of-record) + ADR-0020 (cadeia de custodia)"
+  caminho_critico: "W0(custody.py) -> FRAUDE-001 -> Beatriz -> W-E (harmonizar INADIMPLENCIA<->CANCEL business-keys, risco dupla-rescisao RN 593)"
+  persona_map: "DRAFT — Carolina/Fernando/Valentina/Beatriz/Andre->dominio inferido, exige confirmacao PO (R-PERSONA-MAP)"
+
+references:
+  workspace: /Users/familia/code/Maezo-Healthcare-Plan (origin = Omni-Saude/Maezo-Healthcare-Plan)
+  amh_data_platform: ../amh-data-platform (read-only, data-layer precedence, §2-bis)
+  maezo_reference: ../maezo-reference (read-only, ideas only, ADR-0011)
+  playbook: docs/swarm-execution-prompt-v2.md
+
+phase01_done: |
+  Phase 0 (main 8241335, 24 PRs): Helena + gateway PEP/pseudonymizer/hash-chain audit + runtime +
+  Tasy CDC sim + FHIR sync + WhatsApp webhook + 5 MCP servers/ToolRegistry + validation CLI + terraform/helm/CI.
+  Phase 1: A2A v1.0 + anti-loop (ADR-0003/0015); SP-OP-AUTH-001 engine-deployable (invariante zero-negativa);
+  DUT/ROL/carencia DMN drafts; console medico-auditor (humano-only); Rafael graph + Helena->Rafael delegacao;
+  SEC hardening (fechou vazamento PHI latente); observabilidade catalogo+emissao.
+  Wave C (#26/#27): Rafael real-engine integ + e2e journey + cofre de credenciais (3 majors fechados, mutation-proven).
+
+blocked:
+  - {id: "BLK-1..5", what: "AWS staging access, Tasy Oracle creds, WABA token, LLM keys, PHI-zone endpoint (D-06)", where: "issue #16", raised: 2026-06-12}
+
+review_queue_pending: "~24"  # docs/review-queue.md: Phase 0/1 (16) + Phase 2 Wave 0 (6 contracts + glosa + CNAB) + W4's 9 autonomy actions; Phase 3 DRAFT regulatorios (RN 593/567/259/566, alcada, persona-map) a adicionar
+
+ci_notes: |
+  cibseven 2.1.0 (DL-0006) + DB_DRIVER=org.postgresql.Driver; hapi precisa driverClassName+dialect.
+  LINT = `ruff check src tests && ruff format --check src tests` — rodar AMBOS local (so `ruff check` deixa passar
+  falha de format que gateia o job de integracao). model:'fable' (T4) INACESSIVEL — usar Opus default.
+  Sem Docker local: debugar integracao via log de CI (container cibseven carrega o trace ENGINE-####).
+  ENGINE-16004 'Cannot resolve identifier': todo identificador JUEL que um boundary-timer/gateway referencia
+  precisa estar SETADO em todo caminho que chega nele — rodar a DMN de SLA como businessRuleTask
+  resultVariable='sla' no no de convergencia ANTES da User Task humana (template CONTAS/CANCEL); timeDuration
+  (nao timeDate de data passada); promover output de DMN-consumida-por-DMN via camunda:inputOutput;
+  inicializar var de gateway/loop via outputParameter no 1o task de cada caminho (engine lanca ate dentro de ==null/ternario).
+  `gh pr checks --watch` exit-0 e enganado por 'skipping' (falha de lint faz integration 'skip', nao 'fail') —
+  pollar non-watch (exit 8=pending) e exigir a linha de integration == 'pass', nao ausente/skipped, antes de mergear.
+  Squash-merge reescreve historia: merge main na branch antes de mergear PRs empilhados.
+  Verificar SEMPRE que um arquivo alegado por um agente existe em disco (ls) — agentes hallucinam 'escrevi X'.

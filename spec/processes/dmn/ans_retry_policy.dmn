@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_ans_retry_policy"
+             name="Politica de retry/backoff de retransmissao ANS (tentativas + backoff)"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    ans_retry_policy v0.1.0 — status: DRAFT — A contagem de tentativas (3) e as DURACOES de backoff
+    (PT5M/PT30M/PT2H) sao POLITICA OPERACIONAL DRAFT: confirmar com regulatorio antes de qualquer
+    envio (o contrato diz "ex.:"). Consumida por SP-OP-ANS-SUBMIT-001 (subprocess SUB_RetryEnvio,
+    businessRuleTask BRT_RetryPolicy) e mcp-dmn.
+
+    POR QUE EXISTE (ADR-0012 — DMN e a fonte de regra): o subprocess de retry/backoff de transmissao
+    (SUB_RetryEnvio) e um LOOP LIMITADO. A politica de retry — quantas retransmissoes e com que
+    backoff exponencial — e uma REGRA AJUSTAVEL, logo vive numa tabela DMN, NUNCA hardcoded em
+    literais de timer no BPMN. O worker regulatorio.anssubmit.retransmit incrementa `retry_attempt`
+    (contador tecnico de loop, NAO um limiar de dominio); esta DMN decide, por tentativa, o `backoff`
+    (duracao ISO 8601 do timer ICE_Backoff) e o `continue_retry` (continuar o loop ou esgotar). O
+    BPMN consome `${retry.backoff}` no timer e `${retry.continue_retry == true}` no gateway
+    GW_ContinuarRetry. Mudar a politica e uma alteracao de uma celula aqui — sem re-deploy do modelo.
+
+    NAO negativa-like: este processo e operadora -> regulador; NAO existe saida adversa contra
+    beneficiario/prestador. Esta tabela so resolve a politica TECNICA de retransmissao transitoria;
+    a aprovacao humana do envio (nao-repudio, ADR-0007) ja foi dada na User Task e e REUSADA pela
+    retransmissao — o worker NUNCA re-autoriza (guard ERR_ANS_SUBMIT_NOT_HUMAN permanece).
+
+    Saidas: `backoff` (ISO 8601 DURATION P.../PT... — typeRef string, NUNCA "number" nem date) e
+    `continue_retry` (boolean). `retry_attempt` e integer (contador de loop). hitPolicy FIRST
+    (catch-all "-" como ultima row -> continue_retry=false = retry ESGOTADO; fail-safe -> humano
+    UT_TratarNack via End_RetryEsgotado/ERR_ANS_RETRY_ESGOTADO; nunca loop infinito). Espelha o
+    estilo de ans_sla / ans_calendar.
+  </description>
+  <decision id="ans_retry_policy" name="Politica de retry/backoff de retransmissao ANS" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_ans_retry_policy" hitPolicy="FIRST">
+      <input id="in_retry_attempt" label="Numero da tentativa de retransmissao (retry_attempt)">
+        <inputExpression id="ie_retry_attempt" typeRef="integer"><text>retry_attempt</text></inputExpression>
+      </input>
+      <output id="out_backoff" label="backoff" name="backoff" typeRef="string"/>
+      <output id="out_continue_retry" label="continue_retry" name="continue_retry" typeRef="boolean"/>
+      <rule id="r_attempt_1">
+        <description>1a retransmissao: backoff curto PT5M, continua o retry — DRAFT/verify</description>
+        <inputEntry id="r_attempt_1_i"><text>1</text></inputEntry>
+        <outputEntry id="r_attempt_1_backoff"><text>"PT5M"</text></outputEntry>
+        <outputEntry id="r_attempt_1_continue"><text>true</text></outputEntry>
+      </rule>
+      <rule id="r_attempt_2">
+        <description>2a retransmissao: backoff PT30M, continua o retry — DRAFT/verify</description>
+        <inputEntry id="r_attempt_2_i"><text>2</text></inputEntry>
+        <outputEntry id="r_attempt_2_backoff"><text>"PT30M"</text></outputEntry>
+        <outputEntry id="r_attempt_2_continue"><text>true</text></outputEntry>
+      </rule>
+      <rule id="r_attempt_3">
+        <description>3a retransmissao: backoff PT2H, continua o retry — DRAFT/verify</description>
+        <inputEntry id="r_attempt_3_i"><text>3</text></inputEntry>
+        <outputEntry id="r_attempt_3_backoff"><text>"PT2H"</text></outputEntry>
+        <outputEntry id="r_attempt_3_continue"><text>true</text></outputEntry>
+      </rule>
+      <rule id="r_esgotado">
+        <description>Catch-all FAIL-SAFE: tentativas alem da politica (&gt; 3) -> retry ESGOTADO (continue_retry=false). Sem backoff (nao se usa); o subprocess emite ERR_ANS_RETRY_ESGOTADO e roteia a humano (UT_TratarNack); NUNCA loop infinito nem envio automatico.</description>
+        <inputEntry id="r_esgotado_i"><text>-</text></inputEntry>
+        <outputEntry id="r_esgotado_backoff"><text>""</text></outputEntry>
+        <outputEntry id="r_esgotado_continue"><text>false</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

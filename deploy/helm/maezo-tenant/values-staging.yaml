@@ -1,0 +1,115 @@
+# values-staging.yaml — staging tenant override (CD target).
+#
+# Apply with (see .github/workflows/cd.yml — guarded by vars.AWS_ENABLED):
+#   helm upgrade --install maezo-staging ./deploy/helm/maezo-tenant \
+#     -f deploy/helm/maezo-tenant/values-staging.yaml \
+#     --set image.tag=$IMAGE_TAG
+#
+# Staging mirrors the AMH prod overlay SHAPE but with smaller replica counts and
+# the staging ESO secret prefix / namespace. Real values (ECR account, IRSA ARNs,
+# CIDRs) are placeholders here exactly as in values-amh.yaml — they are pinned per
+# environment at apply time and the actual cloud apply is OUT OF SCOPE (no-op by default).
+
+tenant:
+  id: "staging"
+  name: "Maezo Staging"
+
+namespace:
+  name: "maezo-staging"
+  labels:
+    maezo.io/tenant: "staging"
+    maezo.io/environment: "staging"
+
+image:
+  repository: "123456789012.dkr.ecr.sa-east-1.amazonaws.com/maezo-agent"
+  # Overridden by CD via --set image.tag=<git-sha>; `latest` is the safe default.
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+serviceAccount:
+  annotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::123456789012:role/maezo-agent-irsa-staging"
+
+# Smaller per-agent footprint than prod. helena=general, rafael+marina=phi (ADR-0006).
+agents:
+  - name: helena
+    enabled: true
+    securityZone: general
+    replicaCount: 1
+    irsaRoleArn: "arn:aws:iam::123456789012:role/maezo-agent-helena-irsa-staging"
+    env:
+      ENVIRONMENT: "staging"
+  - name: rafael
+    enabled: true
+    securityZone: phi
+    replicaCount: 1
+    irsaRoleArn: "arn:aws:iam::123456789012:role/maezo-agent-rafael-irsa-staging"
+    env:
+      ENVIRONMENT: "staging"
+  - name: marina
+    enabled: true
+    securityZone: phi
+    replicaCount: 1
+    irsaRoleArn: "arn:aws:iam::123456789012:role/maezo-agent-marina-irsa-staging"
+    env:
+      ENVIRONMENT: "staging"
+  - name: gustavo
+    enabled: false
+    securityZone: general
+    replicaCount: 1
+    irsaRoleArn: "arn:aws:iam::123456789012:role/maezo-agent-gustavo-irsa-staging"
+    env:
+      ENVIRONMENT: "staging"
+  - name: lucas
+    enabled: false
+    securityZone: general
+    replicaCount: 1
+    irsaRoleArn: "arn:aws:iam::123456789012:role/maezo-agent-lucas-irsa-staging"
+    env:
+      ENVIRONMENT: "staging"
+
+# gateway: DISABLED platform-wide (gateway.enabled=false in values.yaml) — orphaned
+# Deployment with no runnable module (library-only per ADR-0006; predeploy DB-1,
+# finding gateway-deployment-crashloop-no-main). No replicaCount override here: it
+# would set a replica count for a Deployment that never renders.
+# Restore this block when a real gateway entrypoint exists and the flag is re-enabled.
+
+webhookReceiver:
+  replicaCount: 1
+
+externalSecrets:
+  secretPathPrefix: "maezo/staging"
+  irsaRoleArn: "arn:aws:iam::123456789012:role/maezo-eso-irsa-staging"
+
+networkPolicy:
+  generalZone:
+    llmEndpoints:
+      # FIX 1: concrete CIDR pinned (NetworkPolicy ipBlock is IP-based, not FQDN-based).
+      - host: "api.anthropic.com"
+        port: 443
+        cidr: "160.79.104.0/23"   # Anthropic API published egress range (pin per env).
+    mskEndpoint:
+      host: "b-1.maezo-msk-staging.sa-east-1.amazonaws.com"
+      port: 9098
+      cidr: "10.50.0.0/16"        # MSK Serverless ENI subnet CIDR (staging VPC).
+
+  phiZone:
+    brResidentEndpoints:
+      # FIX 1: concrete BR-resident CIDR is MANDATORY — without it rendering aborts.
+      - host: "llm-phi.staging.internal.maezo.com.br"
+        port: 443
+        cidr: "10.51.10.0/24"     # BR-resident PHI LLM endpoint NLB CIDR (staging).
+
+observability:
+  otel:
+    endpoint: "http://otel-collector.observability.svc.cluster.local:4317"
+
+aurora:
+  secretName: "aurora-master-credentials-staging"
+  # database_url is COMPOSED at ESO sync from the AWS-managed RDS master secret (predeploy DB-4).
+  # PLACEHOLDERS — replace each with the matching env-root `terraform output`
+  # (deploy/terraform/envs/staging-sa-east-1) BEFORE helm upgrade. See docs/Tarefas_Pendentes.md §1.1.
+  masterSecretArn: "arn:aws:secretsmanager:sa-east-1:123456789012:secret:rds!cluster-REPLACE-WITH-terraform-output-aurora_master_user_secret_arn"
+  endpoint: "REPLACE-WITH-terraform-output-aurora_writer_endpoint.cluster-xxxx.sa-east-1.rds.amazonaws.com"
+  port: 5432        # terraform output aurora_port
+  database: "maezo" # terraform output aurora_database_name

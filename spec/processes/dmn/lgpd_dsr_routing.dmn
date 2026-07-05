@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_lgpd_dsr_routing"
+             name="Roteamento de requisicao de titular (LGPD)"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    lgpd_dsr_routing v0.1.0 — status: DRAFT (revisao DPO/juridico obrigatoria —
+    docs/review-queue.md). Consumida por SP-OP-LGPD-DSR-001 e mcp-dmn.
+    Base legal: LGPD art. 18 (direitos), art. 19, II (15 dias para declaracao completa).
+    Prazos sem fixacao legal expressa (correcao, portabilidade, eliminacao) seguem
+    politica interna de 15 dias por paridade — DRAFT/verify com juridico.
+    Dados de saude (art. 11): qualquer requisicao envolvendo dados sensiveis sobe o
+    revisor para juridico-privacidade.
+
+    GAP-LGPD-5 (docs/review-queue.md §Wave-3): `sla_resposta` e IDENTICO (P15D) em TODA
+    regra desta tabela por design — replica DELIBERADAMENTE o teto legal global do BPMN
+    (`ESP_SlaGlobal`/`Start_SlaGlobal`, P15D contado do INICIO da instancia, LGPD art. 19,
+    II; contrato SP-OP-LGPD-DSR-001.md §Invariantes: "conta do INICIO da instancia, nao da
+    tarefa"). NAO pode ser consumido pelo timer de `Start_SlaGlobal`: esse e um START event
+    de EVENT SUBPROCESS no escopo do processo-raiz, cuja assinatura (job de timer) e
+    resolvida NA INSTANCIACAO — antes de QUALQUER no do fluxo principal rodar, inclusive
+    `BRT_RotearDsr` (que so avalia esta DMN DEPOIS da verificacao de identidade, a qual pode
+    aguardar ate P10D por prova adicional). `roteamento_dsr` nunca existe no instante em que
+    o timer seria assinado, em NENHUM caminho — ao contrario de `BT_AlertaDpo` (boundary
+    event JA downstream de `BRT_RotearDsr`, onde a expressao JUEL sobre roteamento_dsr.sla_alerta
+    resolve sem problema). Wiring genuinamente inseguro nesse escopo; drift-guard mecanico
+    (`tests/architecture/test_lgpd_sla_dmn_bpmn_parity.py`) falha se este valor divergir do
+    literal `P15D` fixo no BPMN.
+  </description>
+  <decision id="lgpd_dsr_routing" name="Roteamento de requisicao do titular" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_lgpd_dsr_routing" hitPolicy="FIRST">
+      <input id="in_tipo" label="Tipo de requisicao (tipo_requisicao)">
+        <inputExpression id="ie_tipo" typeRef="string"><text>tipo_requisicao</text></inputExpression>
+      </input>
+      <input id="in_saude" label="Envolve dados de saude (envolve_dados_saude)">
+        <inputExpression id="ie_saude" typeRef="boolean"><text>envolve_dados_saude</text></inputExpression>
+      </input>
+      <output id="out_fluxo" label="fluxo" name="fluxo" typeRef="string"/>
+      <output id="out_grupo" label="grupo_revisor" name="grupo_revisor" typeRef="string"/>
+      <output id="out_sla" label="sla_resposta" name="sla_resposta" typeRef="string"/>
+      <output id="out_alerta" label="sla_alerta" name="sla_alerta" typeRef="string"/>
+      <rule id="r1">
+        <description>Exemplo sintetico: Paciente Teste 001 pede copia dos seus dados (acesso) incluindo historico de saude</description>
+        <inputEntry id="r1i1"><text>"confirmacao_acesso"</text></inputEntry>
+        <inputEntry id="r1i2"><text>true</text></inputEntry>
+        <outputEntry id="r1o1"><text>"EXPORTACAO"</text></outputEntry>
+        <outputEntry id="r1o2"><text>"juridico-privacidade"</text></outputEntry>
+        <outputEntry id="r1o3"><text>"P15D"</text></outputEntry>
+        <outputEntry id="r1o4"><text>"P7D"</text></outputEntry>
+      </rule>
+      <rule id="r2">
+        <description>Acesso sem dados de saude (cadastro/financeiro)</description>
+        <inputEntry id="r2i1"><text>"confirmacao_acesso","portabilidade"</text></inputEntry>
+        <inputEntry id="r2i2"><text>false</text></inputEntry>
+        <outputEntry id="r2o1"><text>"EXPORTACAO"</text></outputEntry>
+        <outputEntry id="r2o2"><text>"dpo"</text></outputEntry>
+        <outputEntry id="r2o3"><text>"P15D"</text></outputEntry>
+        <outputEntry id="r2o4"><text>"P7D"</text></outputEntry>
+      </rule>
+      <rule id="r3">
+        <description>Portabilidade com dados de saude</description>
+        <inputEntry id="r3i1"><text>"portabilidade"</text></inputEntry>
+        <inputEntry id="r3i2"><text>true</text></inputEntry>
+        <outputEntry id="r3o1"><text>"EXPORTACAO"</text></outputEntry>
+        <outputEntry id="r3o2"><text>"juridico-privacidade"</text></outputEntry>
+        <outputEntry id="r3o3"><text>"P15D"</text></outputEntry>
+        <outputEntry id="r3o4"><text>"P7D"</text></outputEntry>
+      </rule>
+      <rule id="r4">
+        <description>Correcao de dados (exemplo sintetico: Paciente Teste 002 corrige endereco)</description>
+        <inputEntry id="r4i1"><text>"correcao"</text></inputEntry>
+        <inputEntry id="r4i2"><text>-</text></inputEntry>
+        <outputEntry id="r4o1"><text>"RETIFICACAO"</text></outputEntry>
+        <outputEntry id="r4o2"><text>"dpo"</text></outputEntry>
+        <outputEntry id="r4o3"><text>"P15D"</text></outputEntry>
+        <outputEntry id="r4o4"><text>"P7D"</text></outputEntry>
+      </rule>
+      <rule id="r5">
+        <description>Eliminacao/anonimizacao/bloqueio: conflito com retencao legal (prontuario, ANS) — sempre juridico</description>
+        <inputEntry id="r5i1"><text>"eliminacao"</text></inputEntry>
+        <inputEntry id="r5i2"><text>-</text></inputEntry>
+        <outputEntry id="r5o1"><text>"ELIMINACAO_AVALIACAO"</text></outputEntry>
+        <outputEntry id="r5o2"><text>"juridico-privacidade"</text></outputEntry>
+        <outputEntry id="r5o3"><text>"P15D"</text></outputEntry>
+        <outputEntry id="r5o4"><text>"P7D"</text></outputEntry>
+      </rule>
+      <rule id="r6">
+        <description>Informacao de compartilhamento / revogacao de consentimento</description>
+        <inputEntry id="r6i1"><text>"info_compartilhamento","revogacao_consentimento"</text></inputEntry>
+        <inputEntry id="r6i2"><text>-</text></inputEntry>
+        <outputEntry id="r6o1"><text>"INFORMATIVO"</text></outputEntry>
+        <outputEntry id="r6o2"><text>"dpo"</text></outputEntry>
+        <outputEntry id="r6o3"><text>"P15D"</text></outputEntry>
+        <outputEntry id="r6o4"><text>"P7D"</text></outputEntry>
+      </rule>
+      <rule id="r7">
+        <description>Catch-all FAIL-SAFE: tipo desconhecido vai para juridico</description>
+        <inputEntry id="r7i1"><text>-</text></inputEntry>
+        <inputEntry id="r7i2"><text>-</text></inputEntry>
+        <outputEntry id="r7o1"><text>"INFORMATIVO"</text></outputEntry>
+        <outputEntry id="r7o2"><text>"juridico-privacidade"</text></outputEntry>
+        <outputEntry id="r7o3"><text>"P15D"</text></outputEntry>
+        <outputEntry id="r7o4"><text>"P7D"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

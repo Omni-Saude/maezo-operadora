@@ -1,0 +1,244 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_dut_criteria_terapias_especiais"
+             name="DUT — Criterios clinicos terapias especiais (TEA e neurodesenvolvimento)"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    dut_criteria_terapias_especiais v0.1.0 — status: DRAFT — conteudo clinico SINTETICO.
+    REQUER revisao humana antes de qualquer deploy (docs/review-queue.md):
+    revisor: medico auditor + neuropediatra/psiquiatra infantil + juridico/regulatorio.
+
+    INVARIANTE L0 HARD: esta tabela NAO possui saida de negativa automatica.
+    dut_atendida=false encaminha para analise do medico auditor — nunca nega
+    automaticamente (ADR-0005/0008). Somente o medico auditor pode negar.
+
+    Escopo: terapias especiais com DUT ANS para Transtorno do Espectro Autista (TEA)
+    e condicoes de neurodesenvolvimento (terapia ABA, fonoaudiologia especializada,
+    terapia ocupacional com integracao sensorial, psicoterapia especializada).
+    DRAFT/verify — confirmar contra DUT ANS terapias especiais (RN 465/2021 + emendas
+    RN 473/2021, RN 643/2025; Lei 12.764/2012 — Lei Berenice Piana; Lei 14.254/2021;
+    Resolucao CFM 2.294/2021 e atualizacoes). Valores de sessoes sao SINTETICOS.
+
+    Inputs clinicos (pre-resolvidos por worker deterministico com base em dados
+    FHIR/prontuario — nunca por LLM):
+      - diagnostico_tea_ou_neurodesenvolvimento: boolean — diagnostico de TEA (F84.0
+          CID-10) ou outra condicao de neurodesenvolvimento elegivel (F80-F89, F90-F98
+          parcialmente) confirmado por profissional habilitado — DRAFT/verify CIDs
+          aceitos e especialidade solicitante habilitada pela DUT
+      - tipo_terapia: string — "aba"|"fonoaudiologia_especializada"|
+          "terapia_ocupacional_sensorial"|"psicoterapia_especializada"|"outras"
+          DRAFT/verify lista completa de terapias cobertas pela DUT ANS
+      - avaliacao_multidisciplinar_completa: boolean — avaliacao por equipe
+          multidisciplinar habilitada (neuropediatra/psiquiatra + psicologia +
+          fonoaudiologia) — DRAFT/verify composicao minima exigida
+      - solicitante_habilitado: boolean — solicitacao por medico ou profissional
+          de saude com habilitacao reconhecida pela DUT para a terapia especifica
+          — DRAFT/verify especialidades habilitadas por tipo de terapia
+      - sessoes_mensais_solicitadas: integer — numero de sessoes mensais solicitadas
+          — DRAFT/verify limiares ANS por modalidade (valores abaixo SINTETICOS)
+      - plano_terapeutico_documentado: boolean — plano terapeutico individualizado
+          documentado no prontuario — DRAFT/verify requisito documental DUT
+
+    Outputs:
+      - dut_atendida: boolean — true = criterios DUT aparentemente atendidos;
+          false -&gt; analise humana obrigatoria (medico auditor)
+      - motivo: string — justificativa para dossie do medico auditor
+
+    IMPORTANTE: dut_atendida=true NAO significa aprovacao automatica. O resultado
+    alimenta auth_auto_approval (L2). A negativa NUNCA nasce aqui.
+    Limites de sessoes abaixo sao SINTETICOS — verificar DUT ANS especifica por
+    modalidade com medico auditor antes de qualquer uso em producao.
+  </description>
+
+  <decision id="dut_criteria_terapias_especiais"
+            name="DUT — Criterios clinicos terapias especiais (TEA/neurodesenvolvimento)"
+            camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_dut_criteria_terapias_especiais" hitPolicy="FIRST">
+
+      <input id="in_diag_tea" label="Diagnostico TEA ou neurodesenvolvimento elegivel (diagnostico_tea_ou_neurodesenvolvimento)">
+        <inputExpression id="ie_diag_tea" typeRef="boolean">
+          <text>diagnostico_tea_ou_neurodesenvolvimento</text>
+        </inputExpression>
+      </input>
+
+      <input id="in_tipo_terapia" label="Tipo de terapia solicitada (tipo_terapia)">
+        <inputExpression id="ie_tipo_terapia" typeRef="string">
+          <text>tipo_terapia</text>
+        </inputExpression>
+      </input>
+
+      <input id="in_aval_multi" label="Avaliacao multidisciplinar completa (avaliacao_multidisciplinar_completa)">
+        <inputExpression id="ie_aval_multi" typeRef="boolean">
+          <text>avaliacao_multidisciplinar_completa</text>
+        </inputExpression>
+      </input>
+
+      <input id="in_solicitante" label="Solicitante habilitado (solicitante_habilitado)">
+        <inputExpression id="ie_solicitante" typeRef="boolean">
+          <text>solicitante_habilitado</text>
+        </inputExpression>
+      </input>
+
+      <input id="in_sessoes" label="Sessoes mensais solicitadas (sessoes_mensais_solicitadas)">
+        <inputExpression id="ie_sessoes" typeRef="integer">
+          <text>sessoes_mensais_solicitadas</text>
+        </inputExpression>
+      </input>
+
+      <input id="in_plano" label="Plano terapeutico documentado (plano_terapeutico_documentado)">
+        <inputExpression id="ie_plano" typeRef="boolean">
+          <text>plano_terapeutico_documentado</text>
+        </inputExpression>
+      </input>
+
+      <output id="out_dut_atendida" label="dut_atendida" name="dut_atendida" typeRef="boolean"/>
+      <output id="out_motivo"       label="motivo"       name="motivo"       typeRef="string"/>
+
+      <!-- REGRA B1: Diagnostico TEA/neurodesenvolvimento nao confirmado -> auditor -->
+      <rule id="r01">
+        <description>SINTETICO — Diagnostico TEA ou neurodesenvolvimento elegivel nao confirmado: DUT nao atendida; medico auditor avalia. Nunca negativa automatica.</description>
+        <inputEntry id="r01i1"><text>false</text></inputEntry>
+        <inputEntry id="r01i2"><text>-</text></inputEntry>
+        <inputEntry id="r01i3"><text>-</text></inputEntry>
+        <inputEntry id="r01i4"><text>-</text></inputEntry>
+        <inputEntry id="r01i5"><text>-</text></inputEntry>
+        <inputEntry id="r01i6"><text>-</text></inputEntry>
+        <outputEntry id="r01o1"><text>false</text></outputEntry>
+        <outputEntry id="r01o2"><text>"DRAFT — Diagnostico TEA/neurodesenvolvimento elegivel nao confirmado por profissional habilitado: criterio DUT terapias especiais nao atendido. Encaminhar medico auditor para avaliacao de elegibilidade e documentacao. Nunca negativa automatica."</text></outputEntry>
+      </rule>
+
+      <!-- REGRA B2: Solicitante nao habilitado -> auditor -->
+      <rule id="r02">
+        <description>SINTETICO — Solicitacao por profissional nao habilitado para a terapia especifica: DUT nao atendida; medico auditor decide. Nunca negativa automatica.</description>
+        <inputEntry id="r02i1"><text>true</text></inputEntry>
+        <inputEntry id="r02i2"><text>-</text></inputEntry>
+        <inputEntry id="r02i3"><text>-</text></inputEntry>
+        <inputEntry id="r02i4"><text>false</text></inputEntry>
+        <inputEntry id="r02i5"><text>-</text></inputEntry>
+        <inputEntry id="r02i6"><text>-</text></inputEntry>
+        <outputEntry id="r02o1"><text>false</text></outputEntry>
+        <outputEntry id="r02o2"><text>"DRAFT — Solicitante nao possui habilitacao reconhecida pela DUT para esta modalidade de terapia especial (DRAFT/verify especialidades habilitadas por tipo): encaminhar medico auditor. Nunca negativa automatica."</text></outputEntry>
+      </rule>
+
+      <!-- REGRA B3: Plano terapeutico nao documentado -> auditor -->
+      <rule id="r03">
+        <description>SINTETICO — Plano terapeutico individualizado ausente no prontuario: DUT nao atendida; medico auditor avalia. Nunca negativa automatica.</description>
+        <inputEntry id="r03i1"><text>true</text></inputEntry>
+        <inputEntry id="r03i2"><text>-</text></inputEntry>
+        <inputEntry id="r03i3"><text>-</text></inputEntry>
+        <inputEntry id="r03i4"><text>true</text></inputEntry>
+        <inputEntry id="r03i5"><text>-</text></inputEntry>
+        <inputEntry id="r03i6"><text>false</text></inputEntry>
+        <outputEntry id="r03o1"><text>false</text></outputEntry>
+        <outputEntry id="r03o2"><text>"DRAFT — Plano terapeutico individualizado ausente no prontuario: requisito documental DUT terapias especiais nao atendido. Encaminhar medico auditor para solicitar documentacao complementar. Nunca negativa automatica."</text></outputEntry>
+      </rule>
+
+      <!-- REGRA B4: Avaliacao multidisciplinar incompleta -> auditor -->
+      <rule id="r04">
+        <description>SINTETICO — Avaliacao multidisciplinar incompleta: DUT nao atendida; medico auditor decide. Nunca negativa automatica.</description>
+        <inputEntry id="r04i1"><text>true</text></inputEntry>
+        <inputEntry id="r04i2"><text>-</text></inputEntry>
+        <inputEntry id="r04i3"><text>false</text></inputEntry>
+        <inputEntry id="r04i4"><text>true</text></inputEntry>
+        <inputEntry id="r04i5"><text>-</text></inputEntry>
+        <inputEntry id="r04i6"><text>true</text></inputEntry>
+        <outputEntry id="r04o1"><text>false</text></outputEntry>
+        <outputEntry id="r04o2"><text>"DRAFT — Avaliacao multidisciplinar incompleta (composicao minima: neuropediatra/psiquiatra + psicologia + fonoaudiologia — DRAFT/verify): criterio DUT nao atendido. Encaminhar medico auditor. Nunca negativa automatica."</text></outputEntry>
+      </rule>
+
+      <!-- REGRA P1: ABA — criterios principais atendidos, sessoes dentro do DRAFT limite (SINTETICO <=20/mes) -->
+      <rule id="r05">
+        <description>SINTETICO — Terapia ABA: diagnostico TEA confirmado, avaliacao multidisciplinar ok, solicitante habilitado, plano documentado, sessoes dentro do limite DRAFT (=20/mes SINTETICO): DUT aparentemente atendida. DRAFT/verify limite ANS.</description>
+        <inputEntry id="r05i1"><text>true</text></inputEntry>
+        <inputEntry id="r05i2"><text>"aba"</text></inputEntry>
+        <inputEntry id="r05i3"><text>true</text></inputEntry>
+        <inputEntry id="r05i4"><text>true</text></inputEntry>
+        <inputEntry id="r05i5"><text>&lt;= 20</text></inputEntry>
+        <inputEntry id="r05i6"><text>true</text></inputEntry>
+        <outputEntry id="r05o1"><text>true</text></outputEntry>
+        <outputEntry id="r05o2"><text>"DRAFT — Terapia ABA para TEA: criterios DUT aparentemente atendidos (diagnostico + avaliacao multidisciplinar + solicitante habilitado + plano documentado + sessoes no limite DRAFT de 20/mes SINTETICO). Verificar limite real com medico auditor. DRAFT/verify DUT ANS."</text></outputEntry>
+      </rule>
+
+      <!-- REGRA P2: ABA — sessoes acima do limite DRAFT -> auditor -->
+      <rule id="r06">
+        <description>SINTETICO — Terapia ABA: sessoes acima do limite DRAFT (>20/mes SINTETICO): nao atendida automaticamente; medico auditor avalia necessidade clinica excepcional. Nunca negativa automatica.</description>
+        <inputEntry id="r06i1"><text>true</text></inputEntry>
+        <inputEntry id="r06i2"><text>"aba"</text></inputEntry>
+        <inputEntry id="r06i3"><text>true</text></inputEntry>
+        <inputEntry id="r06i4"><text>true</text></inputEntry>
+        <inputEntry id="r06i5"><text>&gt; 20</text></inputEntry>
+        <inputEntry id="r06i6"><text>true</text></inputEntry>
+        <outputEntry id="r06o1"><text>false</text></outputEntry>
+        <outputEntry id="r06o2"><text>"DRAFT — Terapia ABA: sessoes acima do limite DRAFT (&gt;20/mes SINTETICO/verify DUT ANS): encaminhar medico auditor para avaliacao de necessidade clinica excepcional e justificativa. Nunca negativa automatica."</text></outputEntry>
+      </rule>
+
+      <!-- REGRA P3: Fonoaudiologia especializada — criterios atendidos (SINTETICO <=8/mes) -->
+      <rule id="r07">
+        <description>SINTETICO — Fonoaudiologia especializada: criterios DUT aparentemente atendidos, sessoes dentro do limite DRAFT (=8/mes SINTETICO). DRAFT/verify.</description>
+        <inputEntry id="r07i1"><text>true</text></inputEntry>
+        <inputEntry id="r07i2"><text>"fonoaudiologia_especializada"</text></inputEntry>
+        <inputEntry id="r07i3"><text>true</text></inputEntry>
+        <inputEntry id="r07i4"><text>true</text></inputEntry>
+        <inputEntry id="r07i5"><text>&lt;= 8</text></inputEntry>
+        <inputEntry id="r07i6"><text>true</text></inputEntry>
+        <outputEntry id="r07o1"><text>true</text></outputEntry>
+        <outputEntry id="r07o2"><text>"DRAFT — Fonoaudiologia especializada TEA/neurodesenvolvimento: criterios DUT aparentemente atendidos (diagnostico + avaliacao + solicitante + plano + sessoes no limite DRAFT 8/mes SINTETICO). Verificar limite real com medico auditor. DRAFT/verify."</text></outputEntry>
+      </rule>
+
+      <!-- REGRA P4: Terapia Ocupacional com integracao sensorial — criterios atendidos (SINTETICO <=8/mes) -->
+      <rule id="r08">
+        <description>SINTETICO — Terapia ocupacional com integracao sensorial: criterios DUT aparentemente atendidos, sessoes dentro do limite DRAFT (=8/mes SINTETICO). DRAFT/verify.</description>
+        <inputEntry id="r08i1"><text>true</text></inputEntry>
+        <inputEntry id="r08i2"><text>"terapia_ocupacional_sensorial"</text></inputEntry>
+        <inputEntry id="r08i3"><text>true</text></inputEntry>
+        <inputEntry id="r08i4"><text>true</text></inputEntry>
+        <inputEntry id="r08i5"><text>&lt;= 8</text></inputEntry>
+        <inputEntry id="r08i6"><text>true</text></inputEntry>
+        <outputEntry id="r08o1"><text>true</text></outputEntry>
+        <outputEntry id="r08o2"><text>"DRAFT — Terapia ocupacional com integracao sensorial: criterios DUT aparentemente atendidos. Limite de 8 sessoes/mes e SINTETICO/verify DUT ANS. Verificar documentacao com medico auditor. DRAFT/verify."</text></outputEntry>
+      </rule>
+
+      <!-- REGRA P5: Psicoterapia especializada — criterios atendidos (SINTETICO <=8/mes) -->
+      <rule id="r09">
+        <description>SINTETICO — Psicoterapia especializada TEA/neurodesenvolvimento: criterios DUT aparentemente atendidos, sessoes dentro do limite DRAFT (=8/mes SINTETICO). DRAFT/verify.</description>
+        <inputEntry id="r09i1"><text>true</text></inputEntry>
+        <inputEntry id="r09i2"><text>"psicoterapia_especializada"</text></inputEntry>
+        <inputEntry id="r09i3"><text>true</text></inputEntry>
+        <inputEntry id="r09i4"><text>true</text></inputEntry>
+        <inputEntry id="r09i5"><text>&lt;= 8</text></inputEntry>
+        <inputEntry id="r09i6"><text>true</text></inputEntry>
+        <outputEntry id="r09o1"><text>true</text></outputEntry>
+        <outputEntry id="r09o2"><text>"DRAFT — Psicoterapia especializada para TEA/neurodesenvolvimento: criterios DUT aparentemente atendidos. Limite de 8 sessoes/mes SINTETICO/verify DUT ANS. Verificar com medico auditor. DRAFT/verify."</text></outputEntry>
+      </rule>
+
+      <!-- REGRA N1: Tipo de terapia "outras" — nao mapeada -> auditor -->
+      <rule id="r10">
+        <description>SINTETICO — Tipo de terapia nao mapeado nas modalidades DUT terapias especiais: encaminhar medico auditor. Nunca negativa automatica.</description>
+        <inputEntry id="r10i1"><text>true</text></inputEntry>
+        <inputEntry id="r10i2"><text>"outras"</text></inputEntry>
+        <inputEntry id="r10i3"><text>-</text></inputEntry>
+        <inputEntry id="r10i4"><text>-</text></inputEntry>
+        <inputEntry id="r10i5"><text>-</text></inputEntry>
+        <inputEntry id="r10i6"><text>-</text></inputEntry>
+        <outputEntry id="r10o1"><text>false</text></outputEntry>
+        <outputEntry id="r10o2"><text>"DRAFT — Modalidade de terapia especial nao mapeada nesta tabela (pode ser nova indicacao ou modalidade nao coberta): encaminhar medico auditor para avaliacao de elegibilidade DUT. SME adicional necessario. Nunca negativa automatica."</text></outputEntry>
+      </rule>
+
+      <!-- CATCH-ALL FAIL-SAFE (r99) — OBRIGATORIO L0 HARD -->
+      <rule id="r99">
+        <description>CATCH-ALL FAIL-SAFE: combinacao de criterios DUT terapias especiais nao mapeada nesta tabela DRAFT, ou dados ausentes — encaminhar medico auditor obrigatoriamente. Nunca negativa automatica (L0 hard / ADR-0005).</description>
+        <inputEntry id="r99i1"><text>-</text></inputEntry>
+        <inputEntry id="r99i2"><text>-</text></inputEntry>
+        <inputEntry id="r99i3"><text>-</text></inputEntry>
+        <inputEntry id="r99i4"><text>-</text></inputEntry>
+        <inputEntry id="r99i5"><text>-</text></inputEntry>
+        <inputEntry id="r99i6"><text>-</text></inputEntry>
+        <outputEntry id="r99o1"><text>false</text></outputEntry>
+        <outputEntry id="r99o2"><text>"CATCH-ALL FAIL-SAFE — combinacao de criterios DUT terapias especiais nao mapeada nesta tabela DRAFT: encaminhar obrigatoriamente ao medico auditor. Nunca negativa automatica (L0 hard)."</text></outputEntry>
+      </rule>
+
+    </decisionTable>
+  </decision>
+</definitions>

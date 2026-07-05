@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_ans_submission_admissibility"
+             name="Admissibilidade de envio ANS (roteamento)"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    ans_submission_admissibility v0.1.0 — status: DRAFT (criterios requerem SME regulatorio/ANS;
+    docs/review-queue.md). Consumida por SP-OP-ANS-SUBMIT-001 e mcp-dmn.
+    NAO negativa-like: este processo e operadora -> regulador; NAO existe decisao adversa contra
+    beneficiario/prestador. Por isso esta tabela NAO tem saida "reject"/"deny" — dado faltante
+    NUNCA rejeita por design: dataset incompleto / schema invalido / nao-anonimizado ->
+    PENDENTE (corrige a pendencia) ou REVISAO_HUMANA (humano decide). O dominio de `roteamento` e
+    EXATAMENTE {SEGUE_ENVIO, PENDENTE, REVISAO_HUMANA}.
+    INVARIANTE HITL pre-filing (nao-repudio, ADR-0007): mesmo SEGUE_ENVIO so HABILITA a User Task
+    de aprovacao UT_RevisarEnvio — a DMN NUNCA transmite a ANS. Quem libera o filing vinculante e
+    o humano do grupo regulatorio-ans (decisao_envio=APROVAR_ENVIO + revisor_id), materializado
+    pelo worker gated regulatorio.anssubmit.submit (ERR_ANS_SUBMIT_NOT_HUMAN). Nenhuma combinacao
+    de input transmite autonomamente.
+    Inputs booleanos pre-resolvidos por worker deterministico (assemble/validate/anonimizacao) —
+    nunca por LLM.
+    Catch-all FAIL-SAFE (ultima row): qualquer combinacao nao mapeada -> REVISAO_HUMANA.
+    hitPolicy FIRST (catch-all conservador como ultima row — sob UNIQUE a catch-all "-" colidiria
+    com qualquer row especifica em runtime; espelha glosa_triage / auth_admissibility).
+  </description>
+  <decision id="ans_submission_admissibility" name="Admissibilidade do envio ANS" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_ans_submission_admissibility" hitPolicy="FIRST">
+      <input id="in_dataset_complete" label="Dataset integro (dataset_complete)">
+        <inputExpression id="ie_dataset_complete" typeRef="boolean"><text>dataset_complete</text></inputExpression>
+      </input>
+      <input id="in_schema_valid" label="Schema XSD/TISS valido (schema_valid)">
+        <inputExpression id="ie_schema_valid" typeRef="boolean"><text>schema_valid</text></inputExpression>
+      </input>
+      <input id="in_lgpd_anonimizado" label="Dataset anonimizado/agregado (lgpd_anonimizado)">
+        <inputExpression id="ie_lgpd_anonimizado" typeRef="boolean"><text>lgpd_anonimizado</text></inputExpression>
+      </input>
+      <output id="out_roteamento" label="roteamento" name="roteamento" typeRef="string"/>
+      <output id="out_motivo" label="motivo" name="motivo" typeRef="string"/>
+      <rule id="r_segue_envio">
+        <description>Dataset integro, schema valido e anonimizado -> habilita a User Task de aprovacao (NAO transmite — quem libera e o humano)</description>
+        <inputEntry id="r_segue_envio_i1"><text>true</text></inputEntry>
+        <inputEntry id="r_segue_envio_i2"><text>true</text></inputEntry>
+        <inputEntry id="r_segue_envio_i3"><text>true</text></inputEntry>
+        <outputEntry id="r_segue_envio_o1"><text>"SEGUE_ENVIO"</text></outputEntry>
+        <outputEntry id="r_segue_envio_o2"><text>"Dataset integro, schema valido e anonimizado — habilita revisao humana de envio (a DMN nunca transmite)"</text></outputEntry>
+      </rule>
+      <rule id="r_pendente_dataset">
+        <description>Dataset incompleto -> PENDENTE (corrige a montagem; nunca rejeita por design)</description>
+        <inputEntry id="r_pendente_dataset_i1"><text>false</text></inputEntry>
+        <inputEntry id="r_pendente_dataset_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_pendente_dataset_i3"><text>-</text></inputEntry>
+        <outputEntry id="r_pendente_dataset_o1"><text>"PENDENTE"</text></outputEntry>
+        <outputEntry id="r_pendente_dataset_o2"><text>"Dataset incompleto — pendencia de montagem (UT_CorrigirPendenciaEnvio); nunca auto-rejeita"</text></outputEntry>
+      </rule>
+      <rule id="r_pendente_schema">
+        <description>Schema XSD/TISS invalido -> PENDENTE (corrige o schema; nunca rejeita por design)</description>
+        <inputEntry id="r_pendente_schema_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_pendente_schema_i2"><text>false</text></inputEntry>
+        <inputEntry id="r_pendente_schema_i3"><text>-</text></inputEntry>
+        <outputEntry id="r_pendente_schema_o1"><text>"PENDENTE"</text></outputEntry>
+        <outputEntry id="r_pendente_schema_o2"><text>"Schema XSD/TISS invalido — pendencia de validacao (UT_CorrigirPendenciaEnvio); nunca auto-rejeita"</text></outputEntry>
+      </rule>
+      <rule id="r_revisao_lgpd">
+        <description>Dataset nao anonimizado -> REVISAO_HUMANA (LGPD em relatorio regulatorio, ADR-0006; nunca envia)</description>
+        <inputEntry id="r_revisao_lgpd_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_revisao_lgpd_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_revisao_lgpd_i3"><text>false</text></inputEntry>
+        <outputEntry id="r_revisao_lgpd_o1"><text>"REVISAO_HUMANA"</text></outputEntry>
+        <outputEntry id="r_revisao_lgpd_o2"><text>"Dataset nao anonimizado/agregado — revisao humana obrigatoria (LGPD/ADR-0006); nunca transmite sem revisao"</text></outputEntry>
+      </rule>
+      <rule id="r_catchall">
+        <description>Catch-all FAIL-SAFE: combinacao nao mapeada -> revisao humana por seguranca. NUNCA envia, NUNCA rejeita.</description>
+        <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i3"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>"REVISAO_HUMANA"</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>"Combinacao nao mapeada — revisao humana por seguranca (nunca envia nem rejeita automaticamente)"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

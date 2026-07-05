@@ -1,0 +1,56 @@
+{{- /*
+Per-agent metrics/health Service (scraper-only).
+
+Renders ONE Service per ENABLED entry in `.Values.agents`, mirroring the per-agent
+Deployment factory (deployment-agent-runtime.yaml). Each Service:
+  - is named `agent-<name>-metrics` (unique per agent),
+  - selects pods by `maezo.io/agent: <name>` (the per-agent pod label the
+    Deployment sets) + this chart's selectorLabels + the agent component,
+  - exposes the agent-runtime container's port 8000 (metrics `/metrics`,
+    health `/healthz` `/readyz`).
+
+PHI guardrail (ADR-0006): this is a SCRAPER-ONLY ClusterIP Service. It gives the
+in-cluster Prometheus/PodMonitor a stable name to scrape; it does NOT open any new
+egress for the pod and it does NOT weaken the per-agent NetworkPolicy (egress is
+gated separately in networkpolicy.yaml). Ingress to the metrics port from the
+monitoring namespace is the only thing this enables, and only via the scrape path.
+*/ -}}
+{{- include "maezo-tenant.validateAgents" . }}
+{{- range $agent := .Values.agents }}
+{{- if $agent.enabled }}
+{{- $component := include "maezo-tenant.agentComponent" (dict "name" $agent.name) }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-{{ $agent.name }}-metrics
+  namespace: {{ include "maezo-tenant.namespace" $ }}
+  labels:
+    {{- include "maezo-tenant.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $component }}
+    maezo.io/agent: {{ $agent.name | quote }}
+    maezo.io/security-zone: {{ $agent.securityZone | quote }}
+    # Discovery label for the PodMonitor / non-operator scrape selector.
+    maezo.io/metrics: "true"
+  annotations:
+    # Non-operator fallback: clusters without prometheus-operator can scrape via
+    # these annotations on the Service's Endpoints.
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8000"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  # Headless: metrics are per-pod, scrape each replica individually (no LB across
+  # replicas — we want every pod's series).
+  clusterIP: None
+  ports:
+    - name: metrics
+      port: 8000
+      targetPort: 8000
+      protocol: TCP
+  selector:
+    {{- include "maezo-tenant.selectorLabels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $component }}
+    maezo.io/agent: {{ $agent.name | quote }}
+---
+{{- end }}
+{{- end }}

@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_inadimplencia_status"
+             name="Estado de inadimplencia (classificacao + roteamento)"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    inadimplencia_status v0.1.0 — status: DRAFT (conteudo requer SME juridico/contratos +
+    gestao-cobranca + regulatorio/compliance; RN 593 e Lei 9.656 art. 13 DRAFT/verify;
+    docs/review-queue.md). Consumida por SP-OP-INADIMPLENCIA-001 e mcp-dmn. Coracao adverso-like
+    do processo.
+    INVARIANTE L0 HARD (contract_termination, nao negociavel): o dominio de `roteamento` e
+    EXATAMENTE {AGUARDA_PURGA, PENDENTE_NOTIFICACAO, SEGUE_ANALISE, ANALISE_HUMANA}. NAO existe —
+    por design — saida SUSPENDER/RESCINDIR/NEGAR. Nenhuma combinacao de input suspende NEM rescinde
+    o contrato: suspensao e rescisao SO nascem na User Task humana UT_AnaliseInadimplencia
+    (decisao_inadimplencia in {SUSPENDER, ENCAMINHAR_RESCISAO, MANTER}), materializadas pelo worker
+    gated operadora.inadimplencia.register_contract_suspension (ERR_CONTRACT_SUSPENSION_NOT_HUMAN) —
+    e a rescisao via handoff a SP-OP-CANCEL-001 (que detem o terminal de rescisao).
+    dentro_janela_purga=true -> AGUARDA_PURGA (cure-window RN 593; NUNCA adverso — a expiracao roteia
+    a humano, nunca a um terminal adverso automatico). notificacao_previa_feita=false ->
+    PENDENTE_NOTIFICACAO. dentro_periodo_minimo=true + notificacao feita + purga decorrida ->
+    SEGUE_ANALISE (humano decide). tipo_plano coletivo -> ANALISE_HUMANA (regras do estipulante;
+    nunca auto-decide). Catch-all FAIL-SAFE -> ANALISE_HUMANA.
+    Inputs booleanos pre-resolvidos por worker deterministico (operadora.inadimplencia.resolve_facts)
+    — nunca por LLM, nunca decisao adversa. meses_inadimplencia como integer (nunca number).
+    NOTA hitPolicy: FIRST (catch-all conservador como ultima row) — espelha cancel_admissibility.
+  </description>
+  <decision id="inadimplencia_status" name="Estado de inadimplencia (roteamento)" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_inadimplencia_status" hitPolicy="FIRST">
+      <input id="in_meses_inadimplencia" label="Meses em inadimplencia (meses_inadimplencia)">
+        <inputExpression id="ie_meses_inadimplencia" typeRef="integer"><text>meses_inadimplencia</text></inputExpression>
+      </input>
+      <input id="in_dentro_periodo_minimo" label="Atingiu periodo minimo legal (dentro_periodo_minimo)">
+        <inputExpression id="ie_dentro_periodo_minimo" typeRef="boolean"><text>dentro_periodo_minimo</text></inputExpression>
+      </input>
+      <input id="in_notificacao_previa" label="Notificacao previa feita (notificacao_previa_feita)">
+        <inputExpression id="ie_notificacao_previa" typeRef="boolean"><text>notificacao_previa_feita</text></inputExpression>
+      </input>
+      <input id="in_dentro_janela_purga" label="Dentro da janela de purga/cura (dentro_janela_purga)">
+        <inputExpression id="ie_dentro_janela_purga" typeRef="boolean"><text>dentro_janela_purga</text></inputExpression>
+      </input>
+      <input id="in_tipo_plano" label="Tipo do plano (tipo_plano)">
+        <inputExpression id="ie_tipo_plano" typeRef="string"><text>tipo_plano</text></inputExpression>
+      </input>
+      <output id="out_roteamento" label="roteamento" name="roteamento" typeRef="string"/>
+      <output id="out_motivo" label="motivo" name="motivo" typeRef="string"/>
+      <rule id="r_coletivo_humano">
+        <description>Plano coletivo -> analise humana (regras do estipulante; nunca auto-decide suspensao/rescisao)</description>
+        <inputEntry id="r_coletivo_humano_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_coletivo_humano_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_coletivo_humano_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_coletivo_humano_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_coletivo_humano_i5"><text>"coletivo_empresarial","coletivo_adesao"</text></inputEntry>
+        <outputEntry id="r_coletivo_humano_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r_coletivo_humano_o2"><text>"Plano coletivo — regras do estipulante; analise humana obrigatoria (L0 hard; nunca auto-suspende nem auto-rescinde)"</text></outputEntry>
+      </rule>
+      <rule id="r_aguarda_purga">
+        <description>Dentro da janela de purga/cura -> aguarda purga (cure-window RN 593; expiracao roteia a humano, NUNCA auto-suspende)</description>
+        <inputEntry id="r_aguarda_purga_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_aguarda_purga_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_aguarda_purga_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_aguarda_purga_i4"><text>true</text></inputEntry>
+        <inputEntry id="r_aguarda_purga_i5"><text>-</text></inputEntry>
+        <outputEntry id="r_aguarda_purga_o1"><text>"AGUARDA_PURGA"</text></outputEntry>
+        <outputEntry id="r_aguarda_purga_o2"><text>"Dentro da janela de purga/cura — cure-window RN 593; a expiracao roteia a User Task humana, NUNCA auto-suspende/auto-rescinde; DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r_pendente_notificacao">
+        <description>Notificacao previa nao comprovada -> pendente de notificacao (RN 593; nunca suspende)</description>
+        <inputEntry id="r_pendente_notificacao_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_pendente_notificacao_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_pendente_notificacao_i3"><text>false</text></inputEntry>
+        <inputEntry id="r_pendente_notificacao_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_pendente_notificacao_i5"><text>-</text></inputEntry>
+        <outputEntry id="r_pendente_notificacao_o1"><text>"PENDENTE_NOTIFICACAO"</text></outputEntry>
+        <outputEntry id="r_pendente_notificacao_o2"><text>"Notificacao previa nao comprovada — pendente de notificacao (RN 593 ate o 50o dia; expiracao do prazo roteia a humano, nunca auto-suspende); DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r_segue_analise">
+        <description>Periodo minimo atingido + notificacao feita + purga decorrida -> segue analise humana (humano decide SUSPENDER/ENCAMINHAR_RESCISAO/MANTER)</description>
+        <inputEntry id="r_segue_analise_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_segue_analise_i2"><text>true</text></inputEntry>
+        <inputEntry id="r_segue_analise_i3"><text>true</text></inputEntry>
+        <inputEntry id="r_segue_analise_i4"><text>false</text></inputEntry>
+        <inputEntry id="r_segue_analise_i5"><text>"individual","familiar"</text></inputEntry>
+        <outputEntry id="r_segue_analise_o1"><text>"SEGUE_ANALISE"</text></outputEntry>
+        <outputEntry id="r_segue_analise_o2"><text>"Periodo minimo atingido, notificacao previa comprovada e janela de purga decorrida — segue analise humana (humano decide SUSPENDER/ENCAMINHAR_RESCISAO/MANTER; automacao NUNCA suspende/rescinde); DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r_catchall">
+        <description>Catch-all FAIL-SAFE: qualquer ambiguidade/combinacao nao mapeada (periodo minimo nao atingido, valores ambiguos, etc.) -> analise humana. NUNCA suspende/rescinde.</description>
+        <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i5"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>"Combinacao nao mapeada / ambiguidade (periodo minimo, valor, competencia) — analise humana por seguranca (L0 hard; nunca auto-suspende, nunca auto-rescinde)"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

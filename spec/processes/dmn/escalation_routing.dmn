@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_escalation_routing"
+             name="Roteamento de escalonamento humano"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    escalation_routing v1.0.0 — status: SHAPE FINAL; valores de SLA: DRAFT (validar com
+    gestao assistencial — docs/review-queue.md). Consumida por SP-OP-ESCALATION-001
+    (business rule task) e por mcp-dmn (simetria ADR-0012).
+    Fonte regulatoria dos SLAs: politica assistencial Maezo ancorada em Lei 9.656/1998
+    art. 35-C (urgencia = atendimento imediato). Fail-safe: categoria desconhecida
+    recebe prioridade P2 (nunca menos).
+  </description>
+  <decision id="escalation_routing" name="Roteamento de escalonamento" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_escalation_routing" hitPolicy="FIRST">
+      <input id="in_motivo" label="Motivo (motivo_categoria)">
+        <inputExpression id="ie_motivo" typeRef="string"><text>motivo_categoria</text></inputExpression>
+      </input>
+      <input id="in_severidade" label="Severidade (severidade)">
+        <inputExpression id="ie_severidade" typeRef="string"><text>severidade</text></inputExpression>
+      </input>
+      <output id="out_prioridade" label="prioridade" name="prioridade" typeRef="string"/>
+      <output id="out_grupo" label="grupo_atendimento" name="grupo_atendimento" typeRef="string"/>
+      <output id="out_sla_ack" label="sla_ack" name="sla_ack" typeRef="string"/>
+      <output id="out_sla_resolucao" label="sla_resolucao" name="sla_resolucao" typeRef="string"/>
+      <rule id="r1">
+        <description>Red flag clinico grave: emergencia assistencial</description>
+        <inputEntry id="r1i1"><text>"red_flag_clinico"</text></inputEntry>
+        <inputEntry id="r1i2"><text>"grave"</text></inputEntry>
+        <outputEntry id="r1o1"><text>"P1"</text></outputEntry>
+        <outputEntry id="r1o2"><text>"plantao-clinico"</text></outputEntry>
+        <outputEntry id="r1o3"><text>"PT5M"</text></outputEntry>
+        <outputEntry id="r1o4"><text>"PT30M"</text></outputEntry>
+      </rule>
+      <rule id="r2">
+        <description>Risco psicossocial (ideacao suicida, autolesao): sempre P1</description>
+        <inputEntry id="r2i1"><text>"risco_psicossocial"</text></inputEntry>
+        <inputEntry id="r2i2"><text>-</text></inputEntry>
+        <outputEntry id="r2o1"><text>"P1"</text></outputEntry>
+        <outputEntry id="r2o2"><text>"plantao-clinico"</text></outputEntry>
+        <outputEntry id="r2o3"><text>"PT5M"</text></outputEntry>
+        <outputEntry id="r2o4"><text>"PT30M"</text></outputEntry>
+      </rule>
+      <rule id="r3">
+        <description>Red flag clinico nao-grave: enfermagem de triagem</description>
+        <inputEntry id="r3i1"><text>"red_flag_clinico"</text></inputEntry>
+        <inputEntry id="r3i2"><text>-</text></inputEntry>
+        <outputEntry id="r3o1"><text>"P2"</text></outputEntry>
+        <outputEntry id="r3o2"><text>"enfermagem-triagem"</text></outputEntry>
+        <outputEntry id="r3o3"><text>"PT30M"</text></outputEntry>
+        <outputEntry id="r3o4"><text>"PT4H"</text></outputEntry>
+      </rule>
+      <rule id="r4">
+        <description>Pergunta clinica (agente NUNCA responde — L0 hard)</description>
+        <inputEntry id="r4i1"><text>"intencao_clinica"</text></inputEntry>
+        <inputEntry id="r4i2"><text>-</text></inputEntry>
+        <outputEntry id="r4o1"><text>"P2"</text></outputEntry>
+        <outputEntry id="r4o2"><text>"enfermagem-triagem"</text></outputEntry>
+        <outputEntry id="r4o3"><text>"PT30M"</text></outputEntry>
+        <outputEntry id="r4o4"><text>"PT4H"</text></outputEntry>
+      </rule>
+      <rule id="r5">
+        <description>Beneficiario pediu humano explicitamente</description>
+        <inputEntry id="r5i1"><text>"solicitacao_humano"</text></inputEntry>
+        <inputEntry id="r5i2"><text>-</text></inputEntry>
+        <outputEntry id="r5o1"><text>"P3"</text></outputEntry>
+        <outputEntry id="r5o2"><text>"atendimento-humano"</text></outputEntry>
+        <outputEntry id="r5o3"><text>"PT4H"</text></outputEntry>
+        <outputEntry id="r5o4"><text>"PT24H"</text></outputEntry>
+      </rule>
+      <rule id="r6">
+        <description>Falha tecnica do agente (loop, tool down)</description>
+        <inputEntry id="r6i1"><text>"falha_tecnica"</text></inputEntry>
+        <inputEntry id="r6i2"><text>-</text></inputEntry>
+        <outputEntry id="r6o1"><text>"P3"</text></outputEntry>
+        <outputEntry id="r6o2"><text>"atendimento-humano"</text></outputEntry>
+        <outputEntry id="r6o3"><text>"PT4H"</text></outputEntry>
+        <outputEntry id="r6o4"><text>"PT24H"</text></outputEntry>
+      </rule>
+      <rule id="r7">
+        <description>Catch-all FAIL-SAFE: motivo desconhecido nunca recebe prioridade baixa</description>
+        <inputEntry id="r7i1"><text>-</text></inputEntry>
+        <inputEntry id="r7i2"><text>-</text></inputEntry>
+        <outputEntry id="r7o1"><text>"P2"</text></outputEntry>
+        <outputEntry id="r7o2"><text>"atendimento-humano"</text></outputEntry>
+        <outputEntry id="r7o3"><text>"PT30M"</text></outputEntry>
+        <outputEntry id="r7o4"><text>"PT4H"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

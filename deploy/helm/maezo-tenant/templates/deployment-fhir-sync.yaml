@@ -1,0 +1,92 @@
+{{- if .Values.fhirSync.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fhir-sync
+  namespace: {{ include "maezo-tenant.namespace" . }}
+  labels:
+    {{- include "maezo-tenant.labels" . | nindent 4 }}
+    app.kubernetes.io/component: fhir-sync
+spec:
+  replicas: {{ .Values.fhirSync.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "maezo-tenant.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: fhir-sync
+  template:
+    metadata:
+      labels:
+        {{- include "maezo-tenant.labels" . | nindent 8 }}
+        app.kubernetes.io/component: fhir-sync
+        # fhir-sync touches full PHI (Tasy Oracle ↔ HAPI FHIR); PHI zone
+        maezo.io/phi-zone: "phi"
+        # PodMonitor jobLabel target (podmonitor.yaml): jobLabel names a POD LABEL KEY
+        # to copy from, not a literal job value — this is that key. Its value must stay
+        # in sync with the `job="maezo-fhir-sync"` scrape-target naming elsewhere.
+        maezo.io/scrape-job: "maezo-fhir-sync"
+    spec:
+      serviceAccountName: {{ include "maezo-tenant.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: fhir-sync
+          image: {{ include "maezo-tenant.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["python", "-m", "maezo.platform.integrations.fhir_sync"]
+          env:
+            - name: TENANT_ID
+              value: {{ .Values.tenant.id | quote }}
+            - name: FHIR_BASE_URL
+              value: "http://hapi-fhir:8080/fhir"
+            - name: TASY_ORACLE_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: maezo-tasy-config
+                  key: oracle-dsn
+            # Kafka CDC consumer target (predeploy DB-5) — fhir-sync consumes the Tasy
+            # CDC topics (cdc.amh.tasy.*) from MSK Serverless. Without this env the
+            # consumer settings default to localhost:9092 (consumer.py::run_fhir_sync)
+            # and the pod can NEVER reach MSK in production. Same secret/key every other
+            # Kafka client uses (deployment-agent-runtime.yaml, deployment-worker-daemon.yaml,
+            # deployment-webhook-receiver.yaml) — non-conditional, like agent-runtime.
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                secretKeyRef:
+                  name: maezo-kafka-config
+                  key: bootstrap-servers
+            {{- include "maezo-tenant.otelEnv" . | nindent 12 }}
+          ports:
+            # Metrics + health endpoint (scraped by the fhir-sync Service / PodMonitor).
+            - name: metrics
+              containerPort: 8000
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.fhirSync.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 20
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

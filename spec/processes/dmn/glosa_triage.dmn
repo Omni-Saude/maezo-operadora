@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_glosa_triage"
+             name="Triagem de glosa (roteamento)"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    glosa_triage v0.1.0 — status: DRAFT (conteudo requer SME faturamento/auditoria de contas +
+    compliance; docs/review-queue.md). Consumida por SP-OP-CONTAS-001 e mcp-dmn. Coracao
+    negativa-like do processo.
+    INVARIANTE L0 HARD (nao negociavel): o dominio de `roteamento` e EXATAMENTE
+    {SEM_GLOSA, RECORRER, ANALISE_HUMANA}. NAO existe — por design — saida ACEITAR/CONFIRMAR
+    de glosa. Nenhuma combinacao de input produz aceite de glosa substantiva: o aceite SO
+    nasce na User Task humana UT_AnalistaContas (decisao_contas=ACEITAR_GLOSA), materializado
+    pelo worker gated operadora.contas.register_glosa_accept (ERR_GLOSA_ACCEPT_NOT_HUMAN).
+    Glosa tecnica/clinica, indicio de fraude, inelegibilidade aparente e qualquer ambiguidade
+    -> ANALISE_HUMANA (fail-safe). A row catch-all (ultima) -> ANALISE_HUMANA.
+    Glosa puramente formatacional/tecnica NUNCA e auto-roteada a aceite (default conservador
+    R4: auto-route so com sign-off de compliance, ausente no fluxo DRAFT).
+    Inputs booleanos pre-resolvidos por worker deterministico (calculate_impact / conferencia
+    de tabela/anexos) — nunca por LLM, nunca decisao adversa.
+    hitPolicy FIRST (catch-all conservador como ultima row).
+    GAP-CONTAS-3 (docs/reports/business-logic-audit-improvement-plan.md): r_sem_glosa (row 1)
+    ignorava `categoria_normalizada` (input i2 = `-`) e, sob hitPolicy FIRST, preemptava
+    r_tecnica_humano sempre que item_conforme_tabela=true + divergencia_valor=false +
+    documentacao_anexa=true — glosa tecnica/clinica com esses tres fatos batia SEM_GLOSA antes de
+    chegar na row de analise humana. Corrigido: r_sem_glosa agora exige
+    `not("tecnica","clinica")` em categoria_normalizada (mesma sintaxe FEEL de negacao usada em
+    programa_sla.dmn); glosa tecnica/clinica cai para r_tecnica_humano (ou catch-all) mesmo com
+    os demais fatos favoraveis. NUNCA introduz saida ACEITAR/CONFIRMAR — o dominio de
+    `roteamento` permanece EXATAMENTE {SEM_GLOSA, RECORRER, ANALISE_HUMANA}.
+  </description>
+  <decision id="glosa_triage" name="Triagem de glosa (roteamento)" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_glosa_triage" hitPolicy="FIRST">
+      <input id="in_tipo_item" label="Tipo do item (tipo_item)">
+        <inputExpression id="ie_tipo_item" typeRef="string"><text>tipo_item</text></inputExpression>
+      </input>
+      <input id="in_categoria" label="Categoria normalizada (categoria_normalizada)">
+        <inputExpression id="ie_categoria" typeRef="string"><text>categoria_normalizada</text></inputExpression>
+      </input>
+      <input id="in_conforme" label="Item conforme tabela contratada/TUSS (item_conforme_tabela)">
+        <inputExpression id="ie_conforme" typeRef="boolean"><text>item_conforme_tabela</text></inputExpression>
+      </input>
+      <input id="in_divergencia" label="Divergencia de valor (divergencia_valor)">
+        <inputExpression id="ie_divergencia" typeRef="boolean"><text>divergencia_valor</text></inputExpression>
+      </input>
+      <input id="in_docs" label="Documentacao/anexos TISS presentes (documentacao_anexa)">
+        <inputExpression id="ie_docs" typeRef="boolean"><text>documentacao_anexa</text></inputExpression>
+      </input>
+      <output id="out_roteamento" label="roteamento" name="roteamento" typeRef="string"/>
+      <output id="out_motivo" label="motivo" name="motivo" typeRef="string"/>
+      <rule id="r_sem_glosa">
+        <description>Item conforme tabela, sem divergencia de valor, com documentacao e categoria NAO tecnica/clinica -> sem glosa (GAP-CONTAS-3: exclui tecnica/clinica para nao preemptar r_tecnica_humano)</description>
+        <inputEntry id="r_sem_glosa_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_sem_glosa_i2"><text>not("tecnica","clinica")</text></inputEntry>
+        <inputEntry id="r_sem_glosa_i3"><text>true</text></inputEntry>
+        <inputEntry id="r_sem_glosa_i4"><text>false</text></inputEntry>
+        <inputEntry id="r_sem_glosa_i5"><text>true</text></inputEntry>
+        <outputEntry id="r_sem_glosa_o1"><text>"SEM_GLOSA"</text></outputEntry>
+        <outputEntry id="r_sem_glosa_o2"><text>"Item conforme tabela, sem divergencia de valor, com documentacao, categoria nao tecnica/clinica — sem glosa candidata"</text></outputEntry>
+      </rule>
+      <rule id="r_tecnica_humano">
+        <description>Glosa tecnica/clinica -> analise humana (default conservador R4; nunca aceite)</description>
+        <inputEntry id="r_tecnica_humano_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_tecnica_humano_i2"><text>"tecnica","clinica"</text></inputEntry>
+        <inputEntry id="r_tecnica_humano_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_tecnica_humano_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_tecnica_humano_i5"><text>-</text></inputEntry>
+        <outputEntry id="r_tecnica_humano_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r_tecnica_humano_o2"><text>"Glosa tecnico-clinica — analise humana obrigatoria (L0 hard; sem auto-route sem sign-off de compliance)"</text></outputEntry>
+      </rule>
+      <rule id="r_documental_humano">
+        <description>Categoria documental sem anexos -> analise humana (inelegibilidade aparente, nunca aceite)</description>
+        <inputEntry id="r_documental_humano_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_documental_humano_i2"><text>"documental","administrativa"</text></inputEntry>
+        <inputEntry id="r_documental_humano_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_documental_humano_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_documental_humano_i5"><text>false</text></inputEntry>
+        <outputEntry id="r_documental_humano_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r_documental_humano_o2"><text>"Pendencia documental/administrativa (anexos ausentes) — analise humana obrigatoria (L0 hard)"</text></outputEntry>
+      </rule>
+      <rule id="r_valor_recorrer">
+        <description>Divergencia de valor com item conforme tabela e documentacao -> recorrer (glosa de valor recorrivel; decisao final humana na UT)</description>
+        <inputEntry id="r_valor_recorrer_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_valor_recorrer_i2"><text>"valor"</text></inputEntry>
+        <inputEntry id="r_valor_recorrer_i3"><text>true</text></inputEntry>
+        <inputEntry id="r_valor_recorrer_i4"><text>true</text></inputEntry>
+        <inputEntry id="r_valor_recorrer_i5"><text>true</text></inputEntry>
+        <outputEntry id="r_valor_recorrer_o1"><text>"RECORRER"</text></outputEntry>
+        <outputEntry id="r_valor_recorrer_o2"><text>"Divergencia de valor com item conforme e documentado — candidata a recurso (decisao final na UT humana)"</text></outputEntry>
+      </rule>
+      <rule id="r_catchall">
+        <description>Catch-all FAIL-SAFE: qualquer ambiguidade/inelegibilidade/categoria desconhecida -> analise humana. NUNCA aceite.</description>
+        <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i5"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>"Combinacao nao mapeada / glosa candidata ambigua — analise humana por seguranca (L0 hard)"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

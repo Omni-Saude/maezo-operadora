@@ -1,0 +1,9 @@
+# Override L3 do tenant AMH (exemplo do "dial" Copilot -> Full-stack)
+# So pode REFINAR L0-core; nunca rebaixar `hard`. Validado em CI.
+version: 1
+tenant: amh
+overrides:
+  authorization_approval:
+    params: { max_value_brl: 0 }   # D-07 em aberto: definir teto inicial com diretoria AMH
+  reembolso_auto_approval:
+    params: { max_value_brl: 0 }   # D-07 em aberto: definir teto de auto-aprovacao de reembolso (AMH)

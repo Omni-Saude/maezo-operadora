@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_pagto_admissibility"
+             name="Admissibilidade de ordem de pagamento (gate pre-alcada)"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    pagto_admissibility v0.1.0 — status: DRAFT (lastro/duplicidade encodam logica regulatoria/
+    financeira; requer sign-off humano juridico/financeiro — docs/review-queue.md). Consumida por
+    SP-OP-PAGTO-001 e mcp-dmn. Gate de admissibilidade que roda ANTES da escada de alcada
+    (BRT_AlcadaRouting): so um pagamento com dados validos, lastro confirmado e SEM suspeita de
+    duplicidade segue para o roteamento de faixa/tier; qualquer ambiguidade sobe para analise humana.
+
+    INVARIANTE L1 HARD (no-adverse, high_value_payment, ADR-0005/0008/0018): esta tabela NAO possui
+    saida que libere/autorize/pague. `roteamento` NUNCA produz LIBERAR/AUTORIZAR/PAGAR. Suspeita de
+    duplicidade (`duplicidade_suspeita=true`) sobe para ANALISE_HUMANA (o humano confirma; NUNCA
+    auto-cancela nem auto-libera). Lastro nao confirmado (`lastro_confirmado=false`) sobe para
+    ANALISE_HUMANA (jamais auto-libera pagamento sem lastro). Dados de pagamento invalidos/incompletos
+    (`dados_pagamento_validos=false`) -> PENDENTE_DADOS (aguarda correcao humana; nao segue roteamento).
+
+    Catch-all FAIL-SAFE / CONSERVADOR (ADR-0018 parte 3): input ambiguo, ausente ou nao mapeado NUNCA
+    segue para roteamento — cai em ANALISE_HUMANA (conservador). Combinado com o worker de fatos
+    (operadora.pagto.calculate_facts), que ecoa os 3 booleanos com defaults fail-closed
+    (dados_pagamento_validos=false, lastro_confirmado=false, duplicidade_suspeita=true) quando ausentes,
+    um fato faltante JAMAIS resulta em auto-liberacao.
+
+    hitPolicy=FIRST: as regras adversas/conservadoras vem PRIMEIRO (duplicidade, depois lastro, depois
+    dados); o unico caminho SEGUE_ROTEAMENTO exige os 3 booleanos explicitamente no estado seguro;
+    catch-all conservador como ultima row. typeRef in {string,boolean}. camunda:historyTimeToLive
+    namespaced (ENGINE-12018). Espelha auth_admissibility (admissibilidade sem saida de negativa).
+  </description>
+  <decision id="pagto_admissibility" name="Admissibilidade de ordem de pagamento" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_pagto_admissibility" hitPolicy="FIRST">
+      <input id="in_dados_validos" label="Dados de pagamento validos (dados_pagamento_validos)">
+        <inputExpression id="ie_dados_validos" typeRef="boolean"><text>dados_pagamento_validos</text></inputExpression>
+      </input>
+      <input id="in_lastro" label="Lastro confirmado (lastro_confirmado)">
+        <inputExpression id="ie_lastro" typeRef="boolean"><text>lastro_confirmado</text></inputExpression>
+      </input>
+      <input id="in_duplicidade" label="Suspeita de duplicidade (duplicidade_suspeita)">
+        <inputExpression id="ie_duplicidade" typeRef="boolean"><text>duplicidade_suspeita</text></inputExpression>
+      </input>
+      <output id="out_roteamento" label="roteamento" name="roteamento" typeRef="string"/>
+      <output id="out_motivo" label="motivo" name="motivo" typeRef="string"/>
+      <rule id="r_duplicidade_suspeita">
+        <description>Suspeita de duplicidade -> ANALISE_HUMANA (humano confirma; NUNCA auto-cancela nem auto-libera). Regra adversa primeiro (FIRST): vence sobre qualquer outra combinacao.</description>
+        <inputEntry id="r_duplicidade_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_duplicidade_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_duplicidade_i3"><text>true</text></inputEntry>
+        <outputEntry id="r_duplicidade_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r_duplicidade_o2"><text>"Suspeita de duplicidade de pagamento — analise humana obrigatoria (L1 hard; humano confirma, nunca auto-cancela/auto-libera)"</text></outputEntry>
+      </rule>
+      <rule id="r_sem_lastro">
+        <description>Lastro nao confirmado -> ANALISE_HUMANA (jamais auto-libera pagamento sem lastro). Conservador.</description>
+        <inputEntry id="r_sem_lastro_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_sem_lastro_i2"><text>false</text></inputEntry>
+        <inputEntry id="r_sem_lastro_i3"><text>-</text></inputEntry>
+        <outputEntry id="r_sem_lastro_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r_sem_lastro_o2"><text>"Lastro de pagamento nao confirmado — analise humana obrigatoria (L1 hard; nunca auto-libera sem lastro)"</text></outputEntry>
+      </rule>
+      <rule id="r_dados_invalidos">
+        <description>Dados de pagamento invalidos/incompletos -> PENDENTE_DADOS (aguarda correcao humana; nao segue roteamento). Nao e negativa nem liberacao.</description>
+        <inputEntry id="r_dados_invalidos_i1"><text>false</text></inputEntry>
+        <inputEntry id="r_dados_invalidos_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_dados_invalidos_i3"><text>-</text></inputEntry>
+        <outputEntry id="r_dados_invalidos_o1"><text>"PENDENTE_DADOS"</text></outputEntry>
+        <outputEntry id="r_dados_invalidos_o2"><text>"Dados de pagamento invalidos/incompletos — pendencia para correcao (nao segue roteamento; sem liberacao)"</text></outputEntry>
+      </rule>
+      <rule id="r_admissivel">
+        <description>Estado seguro EXPLICITO: dados validos E lastro confirmado E sem suspeita de duplicidade -> SEGUE_ROTEAMENTO (segue para a escada de alcada pagto_alcada). Unico caminho admissivel; exige os 3 booleanos no estado seguro.</description>
+        <inputEntry id="r_admissivel_i1"><text>true</text></inputEntry>
+        <inputEntry id="r_admissivel_i2"><text>true</text></inputEntry>
+        <inputEntry id="r_admissivel_i3"><text>false</text></inputEntry>
+        <outputEntry id="r_admissivel_o1"><text>"SEGUE_ROTEAMENTO"</text></outputEntry>
+        <outputEntry id="r_admissivel_o2"><text>"Ordem admissivel (dados validos, lastro confirmado, sem duplicidade) — segue para a escada de alcada"</text></outputEntry>
+      </rule>
+      <rule id="r_catchall">
+        <description>Catch-all CONSERVADOR (FAIL-SAFE): input ambiguo, ausente ou nao mapeado (ex.: booleano nulo) NUNCA segue para roteamento — sobe para analise humana. Combinado com os defaults fail-closed do worker de fatos, um fato faltante JAMAIS auto-libera.</description>
+        <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i3"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>"Admissibilidade ambigua / fato ausente — analise humana obrigatoria (conservador; NUNCA auto-libera) — DRAFT/verify juridico/financeiro"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

@@ -1,0 +1,37 @@
+{{- /*
+fhir-sync metrics/health Service (scraper-only).
+
+Exposes the fhir-sync container's port 8000 (metrics `/metrics`, health `/healthz`
+`/readyz`) under a stable ClusterIP name so the in-cluster Prometheus / PodMonitor
+can scrape it. Mirrors the gateway / webhook-receiver Service shape.
+
+PHI guardrail (ADR-0006): fhir-sync runs in the PHI zone (Tasy Oracle <-> HAPI FHIR).
+This Service is SCRAPER-ONLY — it does not open any new egress and does not touch the
+NetworkPolicy. It only gives the monitoring scrape path a name to hit.
+*/ -}}
+{{- if .Values.fhirSync.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: fhir-sync
+  namespace: {{ include "maezo-tenant.namespace" . }}
+  labels:
+    {{- include "maezo-tenant.labels" . | nindent 4 }}
+    app.kubernetes.io/component: fhir-sync
+    maezo.io/metrics: "true"
+  annotations:
+    # Non-operator fallback scrape annotations.
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8000"
+    prometheus.io/path: "/metrics"
+spec:
+  type: {{ .Values.fhirSync.service.type | default "ClusterIP" }}
+  ports:
+    - name: metrics
+      port: {{ .Values.fhirSync.service.port | default 8000 }}
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    {{- include "maezo-tenant.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: fhir-sync
+{{- end }}

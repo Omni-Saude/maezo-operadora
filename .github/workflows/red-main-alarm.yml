@@ -1,0 +1,108 @@
+name: red-main-alarm
+
+# ---------------------------------------------------------------------------
+# Complementary (non-blocking) main-red alarm — ADR-0023 decision 8.
+#
+# This does NOT gate merges. It PAGES when main's tip has a failing latest
+# completed push-event run, so a red main is discovered by a schedule instead
+# of by the next PR author. Contract (ADR-0023 §8, facts 1-2 of Contexto):
+#   - Fix the PUSH-EVENT run of the tip (gh run list --event push), never the
+#     per-SHA check-runs — the nightly cron (ci.yml:7-8, 06:00 UTC) re-runs on
+#     the SAME sha and REWRITES that sha's check-run verdicts.
+#   - Ignore cancelled/skipped runs — ci.yml's concurrency group cancels the
+#     in-flight run of the tip on every new push; a cancelled run must not page.
+#   - in_progress (non-"completed") is pending, not red — exit 0.
+#   - Only page when the latest COMPLETED, non-cancelled/skipped push run of
+#     the CURRENT tip concluded failure/timed_out.
+# ---------------------------------------------------------------------------
+
+on:
+  schedule:
+    - cron: "17 */2 * * *"   # every 2h; :17 offset dodges the 06:00 UTC CI nightly (ci.yml:8)
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  red-main-alarm:
+    name: red-main-alarm
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+    steps:
+      # No checkout: this is pure `gh api`/`gh run` — keep the job fast/cheap.
+      - name: Detect red main (push-event run of the current tip only)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tip_sha="$(gh api "repos/${REPO}/branches/main" --jq .commit.sha)"
+          echo "main tip: ${tip_sha}"
+
+          runs_json="$(gh run list --repo "${REPO}" --commit "${tip_sha}" --event push \
+            --json databaseId,name,status,conclusion,url)"
+          run_count="$(printf '%s' "${runs_json}" | jq 'length')"
+          echo "push-event runs found for tip: ${run_count}"
+
+          if [ "${run_count}" -eq 0 ]; then
+            echo "## red-main-alarm: no push-event run yet for tip \`${tip_sha}\` — fresh tip, run pending." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          # Latest COMPLETED run per workflow (CI, CD), dropping cancelled/skipped.
+          # status != "completed" (queued/in_progress/waiting/...) is pending, not red,
+          # so it is excluded here rather than treated as a verdict.
+          latest_json="$(printf '%s' "${runs_json}" | jq -c '
+            [ .[] | select(.status == "completed")
+                   | select(.conclusion != "cancelled" and .conclusion != "skipped") ]
+            | group_by(.name)
+            | map(max_by(.databaseId))
+          ')"
+
+          echo "latest completed, non-cancelled/skipped push run per workflow:"
+          printf '%s' "${latest_json}" | jq .
+
+          red_json="$(printf '%s' "${latest_json}" | jq -c \
+            '[ .[] | select(.conclusion == "failure" or .conclusion == "timed_out") ]')"
+          red_count="$(printf '%s' "${red_json}" | jq 'length')"
+
+          if [ "${red_count}" -eq 0 ]; then
+            {
+              echo "## red-main-alarm: main is GREEN"
+              echo ""
+              echo "Tip \`${tip_sha}\`: latest completed push-event run(s) are clean."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          {
+            echo "## red-main-alarm: main is RED"
+            echo ""
+            echo "Tip \`${tip_sha}\` has a failing latest completed push-event run:"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          printf '%s' "${red_json}" | jq -c '.[]' | while IFS= read -r run; do
+            run_id="$(printf '%s' "${run}" | jq -r '.databaseId')"
+            wf_name="$(printf '%s' "${run}" | jq -r '.name')"
+            conclusion="$(printf '%s' "${run}" | jq -r '.conclusion')"
+            run_url="$(printf '%s' "${run}" | jq -r '.url')"
+            echo "RED: ${wf_name} run ${run_id} (${conclusion})"
+
+            {
+              echo ""
+              echo "### ${wf_name} — run ${run_id} (${conclusion})"
+              echo "${run_url}"
+              echo ""
+              echo "Failed jobs:"
+            } >> "$GITHUB_STEP_SUMMARY"
+
+            gh run view "${run_id}" --repo "${REPO}" --json jobs \
+              --jq '.jobs[] | select(.conclusion == "failure" or .conclusion == "timed_out") | "- " + .name + " (" + .conclusion + ")"' \
+              >> "$GITHUB_STEP_SUMMARY"
+          done
+
+          echo "main is RED — see step summary for failing run(s)/job(s)."
+          exit 1

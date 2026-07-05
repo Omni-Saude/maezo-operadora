@@ -1,0 +1,614 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+                  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+                  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+                  xmlns:camunda="http://camunda.org/schema/1.0/bpmn"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  id="Definitions_SP_OP_CONTAS_001"
+                  targetNamespace="http://maezo.health/operadora/contas"
+                  exporter="Maezo W5-PROC"
+                  exporterVersion="0.1.0-draft">
+
+  <bpmn:message id="Msg_ContasLinhasAtualizadas" name="msg.contas.linhas_atualizadas"/>
+  <bpmn:error id="Error_ContasLoteInvalido" name="Lote/demonstrativo TISS inconsistente na origem" errorCode="ERR_CONTAS_LOTE_INVALIDO"/>
+  <bpmn:error id="Error_GlosaAcceptNotHuman" name="Aceite de glosa sem decisao humana" errorCode="ERR_GLOSA_ACCEPT_NOT_HUMAN"/>
+
+  <bpmn:process id="SP-OP-CONTAS-001" name="SP-OP-CONTAS-001 Processamento de Contas / Glosa"
+                isExecutable="true" camunda:historyTimeToLive="1825">
+    <bpmn:documentation><![CDATA[
+SP-OP-CONTAS-001 — Processamento de Contas / Glosa. Status: DRAFT (v0.1.0) — Phase 2, Wave WA.1.
+DI (diagrama) sera adicionado na promocao a FINAL. Requer revisao humana (auditoria de contas
++ regulatorio/juridico) antes de qualquer deploy — ver docs/review-queue.md.
+
+GATILHO REGULATORIO: Padrao TISS / Componente de Comunicacao (RN 305/2012 e consolidacoes —
+DRAFT/verify); prazos de analise/recurso de conta (RN 424/2017 — DRAFT/verify); Lei 9.656/1998.
+Glosa = operadora negando/reduzindo pagamento de linha de conta ao prestador (authorization_denial
+-adjacent, L0 hard).
+
+INVARIANTE L0 HARD (ADR-0005/0008): a ACEITACAO de uma glosa SUBSTANTIVA contra o prestador SO
+nasce na User Task humana UT_AnalistaContas (grupo auditoria-contas), via
+decisao_contas==ACEITAR_GLOSA. NENHUMA DMN deste processo tem coluna de saida que confirme/aceite
+glosa: glosa_triage so produz {SEM_GLOSA, RECORRER, ANALISE_HUMANA}. Catch-all da glosa_triage ->
+ANALISE_HUMANA. Glosa tecnica/clinica, indicio de fraude, inelegibilidade aparente e estouro de
+SLA TODOS fail-safe para User Task humana (no estouro de SLA a coordenacao humana assume — NUNCA
+auto-aceite por timeout; inversao do Task_AutoApprove/48h do reference glosa_management.bpmn). O
+efeito adverso e materializado SO pelo worker operadora.contas.register_glosa_accept, guardado por
+ERR_GLOSA_ACCEPT_NOT_HUMAN. O terminal End_GlosaAceitaHumano so e alcancavel apos UT_AnalistaContas
+concluida por humano. Indicio de fraude (fraud_accusation, L0 hard) NUNCA e auto-sinalizado:
+indicio_fraude_sinalizado e informativo; roteia a UT_AnalistaContas que decide encaminhar_fraude
+(handoff a SP-OP-FRAUDE-001, Phase 3). Nenhum branch auto-flagueia fraude.
+
+BUSINESS KEY (idempotente): "CONTAS-{tenant_id}-{numero_lote_tiss}"
+  — uma instancia por lote TISS (ou por conta/guia). Reenvio do mesmo lote NAO cria nova
+  instancia (mcp-cibseven.start_process consulta business key antes de iniciar).
+
+EVENTOS DE DOMINIO (worker operadora.events.publish):
+  inicio -> agents.events.contas.received
+  glosas candidatas -> agents.events.contas.glosa_identified
+  breach -> agents.events.contas.sla_breached
+  fim -> agents.events.contas.completed (payload.desfecho = sem_glosa | encaminhada_recurso |
+         glosa_aceita_humano | reenviada)
+
+VARIAVEIS DE ENTRADA: tenant_id, numero_lote_tiss, numero_guia_tiss (opc), numero_conta (opc),
+prestador_id, beneficiario_pseudo_id (ADR-0006), competencia, data_recebimento_lote,
+valor_apresentado_brl (double), tipo_lote, linhas_conta_refs (json), reason_codes_tiss (json),
+item_conforme_tabela*, documentacao_anexa*, indicio_fraude_sinalizado (opc).
+(* pre-resolvidos por worker antes de BRT_TriagemGlosa.) has_glosas, denial_ratio,
+divergencia_valor, glosa_count e total_glosado_candidato_centavos sao COMPUTADOS pelos workers
+identify_glosa/calculate_impact a partir de linhas_conta_refs/reason_codes_tiss
+(GAP-CONTAS-2 — nunca seeded/ecoados; fail-closed conservador sem detalhe de linha).
+data_recebimento_lote e a ANCORA dos prazos (GAP-CONTAS-4): normalizada pelo identify_glosa e
+consumida pela DMN contas_sla p/ computar os deadlines ABSOLUTOS dos timers timeDate
+(BT_SlaTriagem/BT_AlertaSlaContas). Contrato completo:
+docs/processes/contracts/SP-OP-CONTAS-001.md.
+]]></bpmn:documentation>
+
+    <bpmn:startEvent id="Start_LoteRecebido" name="Lote/demonstrativo TISS recebido">
+      <bpmn:outgoing>Flow_Start_PubReceived</bpmn:outgoing>
+    </bpmn:startEvent>
+
+    <bpmn:serviceTask id="ST_PublishReceived" name="Publicar evento: contas.received"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.contas.received</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_lote_tiss,prestador_id,competencia,tipo_lote</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Start_PubReceived</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubReceived_Identify</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- Identificar linhas glosadas candidatas (TASY write DROP: so consome CDC, ADR-0013) -->
+    <bpmn:serviceTask id="ST_IdentifyGlosa" name="Identificar glosas candidatas no demonstrativo"
+                      camunda:type="external" camunda:topic="operadora.contas.identify_glosa">
+      <bpmn:documentation>Worker COMPUTA has_glosas (boolean) das linhas TISS (linhas_conta_refs/reason_codes_tiss — GAP-CONTAS-2; fail-closed conservador quando o detalhe de linha falta: has_glosas=true, roteia a humano) e NORMALIZA data_recebimento_lote (string ISO YYYY-MM-DD; default fail-safe hoje/UTC — GAP-CONTAS-4/ENGINE-16004: e o intake, primeiro em TODO caminho ate BRT_ContasSla, inclusive nesta reentrada). NAO decide aceite — apenas sinaliza candidata. TASY write DROP.</bpmn:documentation>
+      <bpmn:incoming>Flow_PubReceived_Identify</bpmn:incoming>
+      <bpmn:incoming>Flow_Reavalia_Identify</bpmn:incoming>
+      <bpmn:outgoing>Flow_Identify_Impact</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- Aritmetica pura de impacto (denial_ratio, divergencia_valor; BRL double — nunca number) -->
+    <bpmn:serviceTask id="ST_CalculateImpact" name="Calcular impacto da glosa (aritmetica pura)"
+                      camunda:type="external" camunda:topic="operadora.contas.calculate_impact">
+      <bpmn:documentation>Worker COMPUTA denial_ratio (double 0..1), divergencia_valor (boolean), glosa_count e total_glosado_candidato_centavos das linhas TISS (GAP-CONTAS-2; centavos-inteiros — Long acima de R$ 21,47M; fail-closed conservador sem detalhe de linha: divergencia_valor=true/denial_ratio=1.0 — r_sem_glosa nunca casa). Aritmetica pura; nunca decide aceite. Publica contas.glosa_identified quando ha candidatas.</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic_glosa_identified">agents.events.contas.glosa_identified</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Identify_Impact</bpmn:incoming>
+      <bpmn:outgoing>Flow_Impact_GWHasGlosas</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:exclusiveGateway id="GW_HasGlosas" name="Ha glosas candidatas?" default="Flow_GWHasGlosas_Normalize">
+      <bpmn:incoming>Flow_Impact_GWHasGlosas</bpmn:incoming>
+      <bpmn:outgoing>Flow_GWHasGlosas_SemGlosa</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWHasGlosas_Normalize</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <!-- Ramo: sem glosas candidatas -> fim neutro -->
+    <bpmn:serviceTask id="ST_PublishSemGlosa" name="Publicar evento: contas.completed (sem_glosa)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.contas.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">sem_glosa</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_lote_tiss,prestador_id</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_GWHasGlosas_SemGlosa</bpmn:incoming>
+      <bpmn:incoming>Flow_GWTriagem_SemGlosa</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubSemGlosa_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_SemGlosa" name="Sem glosa (conta integral)">
+      <bpmn:incoming>Flow_PubSemGlosa_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- DMN: normalizacao do reason code (sem aceite) -->
+    <bpmn:businessRuleTask id="BRT_ReasonNormalization" name="Normalizar reason code (DMN glosa_reason_normalization)"
+                           camunda:decisionRef="glosa_reason_normalization"
+                           camunda:mapDecisionResult="singleResult"
+                           camunda:resultVariable="normalizacao">
+      <bpmn:documentation>Saida: categoria_normalizada in {tecnica, administrativa, clinica, valor, documental, desconhecida}. Sem saida de aceite/negativa (L0 hard).</bpmn:documentation>
+      <bpmn:incoming>Flow_GWHasGlosas_Normalize</bpmn:incoming>
+      <bpmn:outgoing>Flow_Normalize_Analyze</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+
+    <!-- Worker: resolve fatos do motivo de glosa (GAP-CONTAS-5). Deterministico; a narrativa
+         (LLM) do dossie e responsabilidade de Marina, a jusante em ST_PrepareTriageDossier. -->
+    <bpmn:serviceTask id="ST_AnalyzeReason" name="Resolver fatos do motivo de glosa"
+                      camunda:type="external" camunda:topic="operadora.contas.analyze_reason">
+      <bpmn:documentation>Worker deterministico (operadora.contas.analyze_reason): publica os fatos do motivo de glosa ja resolvidos por BRT_ReasonNormalization (categoria_normalizada) na trilha de auditoria/observabilidade (topico interno operadora.notifications.internal). NAO decide, NAO classifica — a classificacao substantiva e BRT_Classification (DMN glosa_classification), a jusante. A narrativa do dossie (LLM) e responsabilidade de Marina via ST_PrepareTriageDossier; este worker so resolve/publica fatos (contrato SP-OP-CONTAS-001.md §Topicos).</bpmn:documentation>
+      <bpmn:incoming>Flow_Normalize_Analyze</bpmn:incoming>
+      <bpmn:outgoing>Flow_Analyze_Classify</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- DMN: classificacao (apenas classifica) -->
+    <bpmn:businessRuleTask id="BRT_Classification" name="Classificar glosa (DMN glosa_classification)"
+                           camunda:decisionRef="glosa_classification"
+                           camunda:mapDecisionResult="singleResult"
+                           camunda:resultVariable="classificacao">
+      <bpmn:documentation>Saida: glosa_type, glosa_extent. Apenas classifica — sem saida que confirme/aceite glosa (L0 hard).</bpmn:documentation>
+      <bpmn:incoming>Flow_Analyze_Classify</bpmn:incoming>
+      <bpmn:outgoing>Flow_Classify_Triagem</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+
+    <!-- DMN: triagem (coracao negativa-like; SO {SEM_GLOSA, RECORRER, ANALISE_HUMANA}) -->
+    <bpmn:businessRuleTask id="BRT_TriagemGlosa" name="Triagem de glosa (DMN glosa_triage)"
+                           camunda:decisionRef="glosa_triage"
+                           camunda:mapDecisionResult="singleResult"
+                           camunda:resultVariable="triagem">
+      <bpmn:documentation>Dominio de roteamento EXATAMENTE {SEM_GLOSA, RECORRER, ANALISE_HUMANA}. Por design NAO existe saida ACEITAR/CONFIRMAR (L0 hard). Catch-all -> ANALISE_HUMANA.</bpmn:documentation>
+      <bpmn:incoming>Flow_Classify_Triagem</bpmn:incoming>
+      <bpmn:outgoing>Flow_Triagem_Sla</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+
+    <!-- DMN: SLA de triagem/analise -->
+    <bpmn:businessRuleTask id="BRT_ContasSla" name="Determinar SLA de analise (DMN contas_sla)"
+                           camunda:decisionRef="contas_sla"
+                           camunda:mapDecisionResult="singleResult"
+                           camunda:resultVariable="sla">
+      <bpmn:documentation>Entrada: tipo_lote + valor_apresentado_brl + data_recebimento_lote (ancora regulatoria do prazo — GAP-CONTAS-4; normalizada/defaultada pelo worker identify_glosa em TODO caminho, inclusive na reentrada por msg.contas.linhas_atualizadas — ENGINE-16004). Saidas: sla_analise/sla_alerta (string ISO — duracoes relativas, legado/observabilidade p/ notify_sla_risk), sla_analise_absoluto_iso/sla_alerta_absoluto_iso (string ISO datetime — deadline/alerta ABSOLUTOS = data_recebimento_lote + duracao; consumidos pelos timeDate de BT_SlaTriagem/BT_AlertaSlaContas), fonte_regulatoria (RN 424 — DRAFT/verify). Nenhuma saida adversa.</bpmn:documentation>
+      <bpmn:incoming>Flow_Triagem_Sla</bpmn:incoming>
+      <bpmn:outgoing>Flow_Sla_GWTriagem</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+
+    <bpmn:exclusiveGateway id="GW_Triagem" name="Resultado da triagem" default="Flow_GWTriagem_Humano">
+      <bpmn:incoming>Flow_Sla_GWTriagem</bpmn:incoming>
+      <bpmn:outgoing>Flow_GWTriagem_SemGlosa</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWTriagem_Humano</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <!-- Analise humana: dossie de Marina (A2A) + analista de contas -->
+    <bpmn:serviceTask id="ST_PrepareTriageDossier" name="Preparar dossie de triagem (agente Marina)"
+                      camunda:type="external" camunda:topic="operadora.contas.prepare_triage_dossier">
+      <bpmn:documentation>Convoca Marina via A2A REAL (GAP-CONTAS-1: DelegationDispatcher.delegate, task_type glosa.analyze): dossie de triagem (recomendacao + evidencias + regras DMN avaliadas). O dossie INSTRUI a decisao humana, nunca a substitui (principio Rafael). Fail-safe: sem dispatcher injetado (worker-daemon sem A2A wiring) ou delegacao rejeitada, o worker publica a notificacao interna sem o resultado A2A — a UT humana abre do mesmo jeito.</bpmn:documentation>
+      <bpmn:incoming>Flow_GWTriagem_Humano</bpmn:incoming>
+      <bpmn:outgoing>Flow_Dossie_UTAnalista</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:userTask id="UT_AnalistaContas" name="Analise do analista de contas"
+                   camunda:candidateGroups="auditoria-contas">
+      <bpmn:documentation><![CDATA[
+HITL L0 hard (ADR-0005): UNICO ponto onde o aceite de glosa substantiva pode nascer. Saidas:
+decisao_contas in {RECORRER, ACEITAR_GLOSA, REENVIAR};
+ACEITAR_GLOSA exige justificativa_glosa, codigo_glosa_aceito, valor_glosa_aceito_brl e
+analista_id (campos obrigatorios — validacao de formulario + guard do worker
+register_glosa_accept). O analista tambem decide encaminhar_fraude (handoff a SP-OP-FRAUDE-001)
+quando indicio_fraude_sinalizado=true. SLA: `sla.sla_analise_absoluto_iso` (deadline absoluto =
+data_recebimento_lote + prazo regulatorio; DMN contas_sla; RN 424 — valores DRAFT/verify).
+A decisao sai em nome do analista (assignee na trilha de auditoria, ADR-0007).
+]]></bpmn:documentation>
+      <bpmn:incoming>Flow_Dossie_UTAnalista</bpmn:incoming>
+      <bpmn:outgoing>Flow_UTAnalista_GW</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <!-- Timer nao-interruptivo: alerta de risco de SLA -> coordenacao -->
+    <bpmn:boundaryEvent id="BT_AlertaSlaContas" name="Alerta de risco de SLA" cancelActivity="false" attachedToRef="UT_AnalistaContas">
+      <bpmn:documentation>GAP-CONTAS-4: timeDate absoluto (nao mais timeDuration relativo ao attach da UT). `sla.sla_alerta_absoluto_iso` e computado por BRT_ContasSla (DMN contas_sla) somando a duracao de alerta a `data_recebimento_lote` — a ancora regulatoria do prazo (contrato SP-OP-CONTAS-001.md), nunca o momento em que esta User Task foi criada (que pode ser re-alcancada via msg.contas.linhas_atualizadas).</bpmn:documentation>
+      <bpmn:outgoing>Flow_Alerta_Notify</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TD_AlertaSlaContas">
+        <bpmn:timeDate xsi:type="bpmn:tFormalExpression">${sla.sla_alerta_absoluto_iso}</bpmn:timeDate>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="ST_NotificarRiscoSla" name="Notificar risco de SLA (coordenacao-contas)"
+                      camunda:type="external" camunda:topic="operadora.contas.notify_sla_risk">
+      <bpmn:incoming>Flow_Alerta_Notify</bpmn:incoming>
+      <bpmn:outgoing>Flow_Notify_EndAlerta</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_RiscoSlaNotificado" name="Risco de SLA notificado (analise segue)">
+      <bpmn:incoming>Flow_Notify_EndAlerta</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Timer interruptivo: SLA estourado -> coordenacao humana assume (NUNCA auto-aceite) -->
+    <bpmn:boundaryEvent id="BT_SlaTriagem" name="SLA de triagem/analise (RN 424 — DRAFT/verify)" cancelActivity="true" attachedToRef="UT_AnalistaContas">
+      <bpmn:documentation>GAP-CONTAS-4: timeDate absoluto. `sla.sla_analise_absoluto_iso` e computado por BRT_ContasSla somando o prazo regulatorio a `data_recebimento_lote` — a ancora do contrato (nunca o attach desta UT). Lote antigo reprocessado (ancora+prazo no passado) dispara IMEDIATAMENTE — correto: o prazo de fato ja estourou; a coordenacao humana assume (nunca auto-aceite).</bpmn:documentation>
+      <bpmn:outgoing>Flow_SlaEstourado_Pub</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TD_SlaTriagem">
+        <bpmn:timeDate xsi:type="bpmn:tFormalExpression">${sla.sla_analise_absoluto_iso}</bpmn:timeDate>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="ST_PublishSlaBreach" name="Publicar evento: contas.sla_breached"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.contas.sla_breached</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_lote_tiss,tipo_lote</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_SlaEstourado_Pub</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubBreach_UTCoord</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:userTask id="UT_CoordenacaoContasAssume" name="Coordenacao de contas assume a analise"
+                   camunda:candidateGroups="coordenacao-contas">
+      <bpmn:documentation>Escalation path do SLA: caso reatribuido a coordenacao. Mesmas saidas e mesmos campos obrigatorios da analise do analista (decisao continua HUMANA — nunca auto-aceite por timeout, inversao do Task_AutoApprove/48h do reference). Decide decisao_coordenacao tambem (assumir_analise | prorrogar_prazo | seguir_analise).</bpmn:documentation>
+      <bpmn:incoming>Flow_PubBreach_UTCoord</bpmn:incoming>
+      <bpmn:outgoing>Flow_UTCoord_GW</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <!-- Mensagem: reenvio/correcao de linhas chegou -> reavalia triagem (interruptivo) -->
+    <bpmn:boundaryEvent id="BME_LinhasAtualizadas" name="Linhas corrigidas recebidas" cancelActivity="true" attachedToRef="UT_AnalistaContas">
+      <bpmn:outgoing>Flow_Reavalia_Identify</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="MED_LinhasAtualizadas" messageRef="Msg_ContasLinhasAtualizadas"/>
+    </bpmn:boundaryEvent>
+
+    <bpmn:exclusiveGateway id="GW_DecisaoContas" name="Decisao do analista de contas" default="Flow_GWDec_Recorrer">
+      <bpmn:incoming>Flow_UTAnalista_GW</bpmn:incoming>
+      <bpmn:incoming>Flow_UTCoord_GW</bpmn:incoming>
+      <bpmn:outgoing>Flow_GWDec_Recorrer</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWDec_Aceitar</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWDec_Reenviar</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <!-- Ramo RECORRER: handoff a SP-OP-RECURSO-001 (neutro) -->
+    <bpmn:serviceTask id="ST_StartRecurso" name="Iniciar recurso de glosa (handoff SP-OP-RECURSO-001)"
+                      camunda:type="external" camunda:topic="operadora.contas.start_recurso">
+      <bpmn:documentation>Handoff neutro: inicia SP-OP-RECURSO-001 com glosa_id + numero_guia_tiss. Sem efeito adverso.</bpmn:documentation>
+      <bpmn:incoming>Flow_GWDec_Recorrer</bpmn:incoming>
+      <bpmn:outgoing>Flow_Recurso_Pub</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="ST_PublishEncaminhadaRecurso" name="Publicar evento: contas.completed (encaminhada_recurso)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.contas.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">encaminhada_recurso</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_lote_tiss,glosa_id</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Recurso_Pub</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubRecurso_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_EncaminhadaRecurso" name="Encaminhada a recurso (decisao humana)">
+      <bpmn:incoming>Flow_PubRecurso_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Ramo ACEITAR_GLOSA: UNICO efeito adverso, gated por worker (ERR_GLOSA_ACCEPT_NOT_HUMAN) -->
+    <bpmn:serviceTask id="ST_RegisterGlosaAccept" name="Registrar aceite de glosa (efeito adverso gated)"
+                      camunda:type="external" camunda:topic="operadora.contas.register_glosa_accept">
+      <bpmn:documentation>HARD GUARDRAIL (L0 hard, ADR-0005): o worker RECUSA registrar aceite se decisao_contas != ACEITAR_GLOSA setado por humano, ou se faltar justificativa_glosa/codigo_glosa_aceito/valor_glosa_aceito_brl/analista_id (lanca ERR_GLOSA_ACCEPT_NOT_HUMAN). Carrega analista_id na trilha de auditoria (ADR-0007). Este worker NUNCA decide; so registra decisao ja tomada na UT humana.</bpmn:documentation>
+      <bpmn:incoming>Flow_GWDec_Aceitar</bpmn:incoming>
+      <bpmn:outgoing>Flow_Aceite_Pub</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="ST_PublishGlosaAceita" name="Publicar evento: contas.completed (glosa_aceita_humano)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.contas.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">glosa_aceita_humano</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_lote_tiss,codigo_glosa_aceito,analista_id</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Aceite_Pub</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubAceite_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_GlosaAceitaHumano" name="Glosa aceita pelo analista (L0 — unico adverso)">
+      <bpmn:incoming>Flow_PubAceite_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Ramo REENVIAR: concilia/registra reenvio (neutro, sem efeito adverso) -->
+    <bpmn:serviceTask id="ST_ReconcilePayment" name="Conciliar/registrar reenvio (sem efeito adverso)"
+                      camunda:type="external" camunda:topic="operadora.contas.reconcile_payment">
+      <bpmn:documentation>Registra reenvio quando REENVIAR. Sem efeito adverso. TASY write DROP (consumimos CDC, nunca escrevemos no Tasy, ADR-0013).</bpmn:documentation>
+      <bpmn:incoming>Flow_GWDec_Reenviar</bpmn:incoming>
+      <bpmn:outgoing>Flow_Reenvio_Pub</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="ST_PublishReenviada" name="Publicar evento: contas.completed (reenviada)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.contas.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">reenviada</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_lote_tiss,prestador_id</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Reenvio_Pub</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubReenvio_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_Reenviada" name="Reenviada para correcao (decisao humana)">
+      <bpmn:incoming>Flow_PubReenvio_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- FLOWS -->
+    <bpmn:sequenceFlow id="Flow_Start_PubReceived" sourceRef="Start_LoteRecebido" targetRef="ST_PublishReceived"/>
+    <bpmn:sequenceFlow id="Flow_PubReceived_Identify" sourceRef="ST_PublishReceived" targetRef="ST_IdentifyGlosa"/>
+    <bpmn:sequenceFlow id="Flow_Identify_Impact" sourceRef="ST_IdentifyGlosa" targetRef="ST_CalculateImpact"/>
+    <bpmn:sequenceFlow id="Flow_Impact_GWHasGlosas" sourceRef="ST_CalculateImpact" targetRef="GW_HasGlosas"/>
+    <bpmn:sequenceFlow id="Flow_GWHasGlosas_SemGlosa" name="sem glosas" sourceRef="GW_HasGlosas" targetRef="ST_PublishSemGlosa">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${has_glosas == false}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWHasGlosas_Normalize" name="ha glosas (default)" sourceRef="GW_HasGlosas" targetRef="BRT_ReasonNormalization"/>
+    <bpmn:sequenceFlow id="Flow_PubSemGlosa_End" sourceRef="ST_PublishSemGlosa" targetRef="End_SemGlosa"/>
+    <bpmn:sequenceFlow id="Flow_Normalize_Analyze" sourceRef="BRT_ReasonNormalization" targetRef="ST_AnalyzeReason"/>
+    <bpmn:sequenceFlow id="Flow_Analyze_Classify" sourceRef="ST_AnalyzeReason" targetRef="BRT_Classification"/>
+    <bpmn:sequenceFlow id="Flow_Classify_Triagem" sourceRef="BRT_Classification" targetRef="BRT_TriagemGlosa"/>
+    <bpmn:sequenceFlow id="Flow_Triagem_Sla" sourceRef="BRT_TriagemGlosa" targetRef="BRT_ContasSla"/>
+    <bpmn:sequenceFlow id="Flow_Sla_GWTriagem" sourceRef="BRT_ContasSla" targetRef="GW_Triagem"/>
+    <bpmn:sequenceFlow id="Flow_GWTriagem_SemGlosa" name="SEM_GLOSA" sourceRef="GW_Triagem" targetRef="ST_PublishSemGlosa">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${triagem.roteamento == 'SEM_GLOSA'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWTriagem_Humano" name="RECORRER | ANALISE_HUMANA (default — sempre humano)" sourceRef="GW_Triagem" targetRef="ST_PrepareTriageDossier"/>
+    <bpmn:sequenceFlow id="Flow_Dossie_UTAnalista" sourceRef="ST_PrepareTriageDossier" targetRef="UT_AnalistaContas"/>
+    <bpmn:sequenceFlow id="Flow_Alerta_Notify" sourceRef="BT_AlertaSlaContas" targetRef="ST_NotificarRiscoSla"/>
+    <bpmn:sequenceFlow id="Flow_Notify_EndAlerta" sourceRef="ST_NotificarRiscoSla" targetRef="End_RiscoSlaNotificado"/>
+    <bpmn:sequenceFlow id="Flow_SlaEstourado_Pub" sourceRef="BT_SlaTriagem" targetRef="ST_PublishSlaBreach"/>
+    <bpmn:sequenceFlow id="Flow_PubBreach_UTCoord" sourceRef="ST_PublishSlaBreach" targetRef="UT_CoordenacaoContasAssume"/>
+    <bpmn:sequenceFlow id="Flow_Reavalia_Identify" sourceRef="BME_LinhasAtualizadas" targetRef="ST_IdentifyGlosa"/>
+    <bpmn:sequenceFlow id="Flow_UTAnalista_GW" sourceRef="UT_AnalistaContas" targetRef="GW_DecisaoContas"/>
+    <bpmn:sequenceFlow id="Flow_UTCoord_GW" sourceRef="UT_CoordenacaoContasAssume" targetRef="GW_DecisaoContas"/>
+    <bpmn:sequenceFlow id="Flow_GWDec_Recorrer" name="RECORRER (default)" sourceRef="GW_DecisaoContas" targetRef="ST_StartRecurso"/>
+    <bpmn:sequenceFlow id="Flow_GWDec_Aceitar" name="ACEITAR_GLOSA (somente humano)" sourceRef="GW_DecisaoContas" targetRef="ST_RegisterGlosaAccept">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_contas == 'ACEITAR_GLOSA'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWDec_Reenviar" name="REENVIAR" sourceRef="GW_DecisaoContas" targetRef="ST_ReconcilePayment">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_contas == 'REENVIAR'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_Recurso_Pub" sourceRef="ST_StartRecurso" targetRef="ST_PublishEncaminhadaRecurso"/>
+    <bpmn:sequenceFlow id="Flow_PubRecurso_End" sourceRef="ST_PublishEncaminhadaRecurso" targetRef="End_EncaminhadaRecurso"/>
+    <bpmn:sequenceFlow id="Flow_Aceite_Pub" sourceRef="ST_RegisterGlosaAccept" targetRef="ST_PublishGlosaAceita"/>
+    <bpmn:sequenceFlow id="Flow_PubAceite_End" sourceRef="ST_PublishGlosaAceita" targetRef="End_GlosaAceitaHumano"/>
+    <bpmn:sequenceFlow id="Flow_Reenvio_Pub" sourceRef="ST_ReconcilePayment" targetRef="ST_PublishReenviada"/>
+    <bpmn:sequenceFlow id="Flow_PubReenvio_End" sourceRef="ST_PublishReenviada" targetRef="End_Reenviada"/>
+  </bpmn:process>
+
+  <bpmndi:BPMNDiagram id="Diagram_SP-OP-CONTAS-001">
+    <bpmndi:BPMNPlane id="Plane_SP-OP-CONTAS-001" bpmnElement="SP-OP-CONTAS-001">
+      <bpmndi:BPMNShape id="Shape_Start_LoteRecebido" bpmnElement="Start_LoteRecebido">
+        <dc:Bounds x="72" y="62" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishReceived" bpmnElement="ST_PublishReceived">
+        <dc:Bounds x="220" y="40" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_IdentifyGlosa" bpmnElement="ST_IdentifyGlosa">
+        <dc:Bounds x="400" y="40" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_CalculateImpact" bpmnElement="ST_CalculateImpact">
+        <dc:Bounds x="580" y="40" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_HasGlosas" bpmnElement="GW_HasGlosas" isMarkerVisible="true">
+        <dc:Bounds x="760" y="55" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishSemGlosa" bpmnElement="ST_PublishSemGlosa">
+        <dc:Bounds x="1920" y="40" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_SemGlosa" bpmnElement="End_SemGlosa">
+        <dc:Bounds x="2132" y="62" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_ReasonNormalization" bpmnElement="BRT_ReasonNormalization">
+        <dc:Bounds x="890" y="40" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_AnalyzeReason" bpmnElement="ST_AnalyzeReason">
+        <dc:Bounds x="1070" y="40" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_Classification" bpmnElement="BRT_Classification">
+        <dc:Bounds x="1250" y="40" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_TriagemGlosa" bpmnElement="BRT_TriagemGlosa">
+        <dc:Bounds x="1430" y="40" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_ContasSla" bpmnElement="BRT_ContasSla">
+        <dc:Bounds x="1610" y="40" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_Triagem" bpmnElement="GW_Triagem" isMarkerVisible="true">
+        <dc:Bounds x="1790" y="55" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PrepareTriageDossier" bpmnElement="ST_PrepareTriageDossier">
+        <dc:Bounds x="1920" y="172" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT_AnalistaContas" bpmnElement="UT_AnalistaContas">
+        <dc:Bounds x="2100" y="172" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_AlertaSlaContas" bpmnElement="BT_AlertaSlaContas">
+        <dc:Bounds x="2107" y="234" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_NotificarRiscoSla" bpmnElement="ST_NotificarRiscoSla">
+        <dc:Bounds x="40" y="172" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_RiscoSlaNotificado" bpmnElement="End_RiscoSlaNotificado">
+        <dc:Bounds x="252" y="194" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_SlaTriagem" bpmnElement="BT_SlaTriagem">
+        <dc:Bounds x="2132" y="234" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishSlaBreach" bpmnElement="ST_PublishSlaBreach">
+        <dc:Bounds x="40" y="304" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT_CoordenacaoContasAssume" bpmnElement="UT_CoordenacaoContasAssume">
+        <dc:Bounds x="220" y="304" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BME_LinhasAtualizadas" bpmnElement="BME_LinhasAtualizadas">
+        <dc:Bounds x="2157" y="234" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_DecisaoContas" bpmnElement="GW_DecisaoContas" isMarkerVisible="true">
+        <dc:Bounds x="2280" y="319" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_StartRecurso" bpmnElement="ST_StartRecurso">
+        <dc:Bounds x="2410" y="304" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishEncaminhadaRecurso" bpmnElement="ST_PublishEncaminhadaRecurso">
+        <dc:Bounds x="2590" y="304" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_EncaminhadaRecurso" bpmnElement="End_EncaminhadaRecurso">
+        <dc:Bounds x="2770" y="326" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_RegisterGlosaAccept" bpmnElement="ST_RegisterGlosaAccept">
+        <dc:Bounds x="2410" y="424" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishGlosaAceita" bpmnElement="ST_PublishGlosaAceita">
+        <dc:Bounds x="2590" y="424" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_GlosaAceitaHumano" bpmnElement="End_GlosaAceitaHumano">
+        <dc:Bounds x="2770" y="446" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_ReconcilePayment" bpmnElement="ST_ReconcilePayment">
+        <dc:Bounds x="2410" y="544" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishReenviada" bpmnElement="ST_PublishReenviada">
+        <dc:Bounds x="2590" y="544" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_Reenviada" bpmnElement="End_Reenviada">
+        <dc:Bounds x="2770" y="566" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_Flow_Start_PubReceived" bpmnElement="Flow_Start_PubReceived">
+        <di:waypoint x="108" y="80"/>
+        <di:waypoint x="220" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubReceived_Identify" bpmnElement="Flow_PubReceived_Identify">
+        <di:waypoint x="320" y="80"/>
+        <di:waypoint x="400" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Identify_Impact" bpmnElement="Flow_Identify_Impact">
+        <di:waypoint x="500" y="80"/>
+        <di:waypoint x="580" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Impact_GWHasGlosas" bpmnElement="Flow_Impact_GWHasGlosas">
+        <di:waypoint x="680" y="80"/>
+        <di:waypoint x="760" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWHasGlosas_SemGlosa" bpmnElement="Flow_GWHasGlosas_SemGlosa">
+        <di:waypoint x="810" y="80"/>
+        <di:waypoint x="1920" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWHasGlosas_Normalize" bpmnElement="Flow_GWHasGlosas_Normalize">
+        <di:waypoint x="810" y="80"/>
+        <di:waypoint x="890" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubSemGlosa_End" bpmnElement="Flow_PubSemGlosa_End">
+        <di:waypoint x="2020" y="80"/>
+        <di:waypoint x="2132" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Normalize_Analyze" bpmnElement="Flow_Normalize_Analyze">
+        <di:waypoint x="990" y="80"/>
+        <di:waypoint x="1070" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Analyze_Classify" bpmnElement="Flow_Analyze_Classify">
+        <di:waypoint x="1170" y="80"/>
+        <di:waypoint x="1250" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Classify_Triagem" bpmnElement="Flow_Classify_Triagem">
+        <di:waypoint x="1350" y="80"/>
+        <di:waypoint x="1430" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Triagem_Sla" bpmnElement="Flow_Triagem_Sla">
+        <di:waypoint x="1530" y="80"/>
+        <di:waypoint x="1610" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Sla_GWTriagem" bpmnElement="Flow_Sla_GWTriagem">
+        <di:waypoint x="1710" y="80"/>
+        <di:waypoint x="1790" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWTriagem_SemGlosa" bpmnElement="Flow_GWTriagem_SemGlosa">
+        <di:waypoint x="1840" y="80"/>
+        <di:waypoint x="1920" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWTriagem_Humano" bpmnElement="Flow_GWTriagem_Humano">
+        <di:waypoint x="1840" y="80"/>
+        <di:waypoint x="1880" y="80"/>
+        <di:waypoint x="1880" y="212"/>
+        <di:waypoint x="1920" y="212"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Dossie_UTAnalista" bpmnElement="Flow_Dossie_UTAnalista">
+        <di:waypoint x="2020" y="212"/>
+        <di:waypoint x="2100" y="212"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Alerta_Notify" bpmnElement="Flow_Alerta_Notify">
+        <di:waypoint x="2125" y="270"/>
+        <di:waypoint x="2125" y="330"/>
+        <di:waypoint x="40" y="330"/>
+        <di:waypoint x="40" y="212"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Notify_EndAlerta" bpmnElement="Flow_Notify_EndAlerta">
+        <di:waypoint x="140" y="212"/>
+        <di:waypoint x="252" y="212"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_SlaEstourado_Pub" bpmnElement="Flow_SlaEstourado_Pub">
+        <di:waypoint x="2150" y="270"/>
+        <di:waypoint x="2150" y="287"/>
+        <di:waypoint x="90" y="287"/>
+        <di:waypoint x="90" y="304"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubBreach_UTCoord" bpmnElement="Flow_PubBreach_UTCoord">
+        <di:waypoint x="140" y="344"/>
+        <di:waypoint x="220" y="344"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Reavalia_Identify" bpmnElement="Flow_Reavalia_Identify">
+        <di:waypoint x="2175" y="270"/>
+        <di:waypoint x="2175" y="330"/>
+        <di:waypoint x="400" y="330"/>
+        <di:waypoint x="400" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_UTAnalista_GW" bpmnElement="Flow_UTAnalista_GW">
+        <di:waypoint x="2200" y="212"/>
+        <di:waypoint x="2240" y="212"/>
+        <di:waypoint x="2240" y="344"/>
+        <di:waypoint x="2280" y="344"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_UTCoord_GW" bpmnElement="Flow_UTCoord_GW">
+        <di:waypoint x="320" y="344"/>
+        <di:waypoint x="2280" y="344"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Recorrer" bpmnElement="Flow_GWDec_Recorrer">
+        <di:waypoint x="2330" y="344"/>
+        <di:waypoint x="2410" y="344"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Aceitar" bpmnElement="Flow_GWDec_Aceitar">
+        <di:waypoint x="2330" y="344"/>
+        <di:waypoint x="2370" y="344"/>
+        <di:waypoint x="2370" y="464"/>
+        <di:waypoint x="2410" y="464"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Reenviar" bpmnElement="Flow_GWDec_Reenviar">
+        <di:waypoint x="2330" y="344"/>
+        <di:waypoint x="2370" y="344"/>
+        <di:waypoint x="2370" y="584"/>
+        <di:waypoint x="2410" y="584"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Recurso_Pub" bpmnElement="Flow_Recurso_Pub">
+        <di:waypoint x="2510" y="344"/>
+        <di:waypoint x="2590" y="344"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubRecurso_End" bpmnElement="Flow_PubRecurso_End">
+        <di:waypoint x="2690" y="344"/>
+        <di:waypoint x="2770" y="344"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Aceite_Pub" bpmnElement="Flow_Aceite_Pub">
+        <di:waypoint x="2510" y="464"/>
+        <di:waypoint x="2590" y="464"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubAceite_End" bpmnElement="Flow_PubAceite_End">
+        <di:waypoint x="2690" y="464"/>
+        <di:waypoint x="2770" y="464"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Reenvio_Pub" bpmnElement="Flow_Reenvio_Pub">
+        <di:waypoint x="2510" y="584"/>
+        <di:waypoint x="2590" y="584"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubReenvio_End" bpmnElement="Flow_PubReenvio_End">
+        <di:waypoint x="2690" y="584"/>
+        <di:waypoint x="2770" y="584"/>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

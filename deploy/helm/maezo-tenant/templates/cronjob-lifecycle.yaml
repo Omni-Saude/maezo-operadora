@@ -1,0 +1,87 @@
+{{- /*
+Jobs de ciclo de vida PHI/LGPD (ADR-0002 §4, ADR-0007). Tres CronJobs STANDALONE que rodam
+`python -m maezo.platform.lifecycle <cmd>` contra o Postgres do tenant (schema-por-tenant):
+
+  - expurgo-working   (gap #3) — sweep TTL da camada working (apaga threads/checkpoints vencidos).
+  - verify-erasure    (gap #5) — verificacao mensal: zero PHI residual de pacientes apagados.
+  - audit-retention   (gap #6) — retencao 5 anos por DELETE-por-idade (apaga audit_chain.ts >5 anos).
+
+Mesma imagem dos demais runtimes; sem PHI cru no processo (so IDs internos / hashes) => zona general.
+DATABASE_URL vem do secret Aurora (ESO-synced), igual ao agent-runtime. NUNCA hardcoded.
+*/ -}}
+{{- if .Values.lifecycle.enabled }}
+{{- $root := . }}
+{{- range $job := .Values.lifecycle.jobs }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: lifecycle-{{ $job.name }}
+  namespace: {{ include "maezo-tenant.namespace" $root }}
+  labels:
+    {{- include "maezo-tenant.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: lifecycle-{{ $job.name }}
+spec:
+  schedule: {{ $job.schedule | quote }}
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: {{ $root.Values.lifecycle.activeDeadlineSeconds }}
+      template:
+        metadata:
+          labels:
+            {{- include "maezo-tenant.labels" $root | nindent 12 }}
+            app.kubernetes.io/component: lifecycle-{{ $job.name }}
+            # Os jobs operam IDs internos / hashes — sem PHI cru. Zona general.
+            maezo.io/phi-zone: "false"
+        spec:
+          restartPolicy: Never
+          serviceAccountName: {{ include "maezo-tenant.serviceAccountName" $root }}
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: lifecycle-{{ $job.name }}
+              image: {{ include "maezo-tenant.image" $root }}
+              imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+              command: ["python", "-m", "maezo.platform.lifecycle", {{ $job.command | quote }}]
+              env:
+                - name: TENANT_ID
+                  value: {{ $root.Values.tenant.id | quote }}
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ $root.Values.aurora.secretName }}
+                      key: database-url
+                {{- /* verify-erasure: lista de pacientes apagados a checar (alimentada do registro
+                       de DSRs LGPD; BLOQUEADO/seam ate o registro existir — vazio = no-op seguro). */}}
+                {{- if $job.erasedPatientIdsSecret }}
+                - name: ERASED_PATIENT_IDS
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ $job.erasedPatientIdsSecret }}
+                      key: erased-patient-ids
+                {{- end }}
+                {{- include "maezo-tenant.otelEnv" $root | nindent 16 }}
+              resources:
+                {{- toYaml $root.Values.lifecycle.resources | nindent 16 }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+                readOnlyRootFilesystem: true
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: tmp
+              emptyDir: {}
+{{- end }}
+{{- end }}

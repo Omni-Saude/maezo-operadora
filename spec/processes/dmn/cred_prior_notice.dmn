@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_cred_prior_notice"
+             name="Obrigacoes de notificacao previa (descredenciamento — RN 567)"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    cred_prior_notice v0.1.0 — status: DRAFT — TODOS os prazos/obrigacoes DRAFT/verify com
+    regulatorio/juridico (RN 567 — antecedencia minima de notificacao previa ao beneficiario/ANS em
+    descredenciamento; obrigacao de substituicao por prestador equivalente; quando aplica a hospital
+    vs demais; docs/review-queue.md). Consumida por SP-OP-CRED-001 (so direcao descredenciamento) e
+    mcp-dmn.
+    INVARIANTE L1 HARD (provider_decredentialing): esta tabela APENAS determina obrigacoes
+    regulatorias de notificacao/substituicao. NAO decide descredenciar (sem saida adversa). O
+    cure-window (event gateway BPMN) e dirigido por `prazo_notificacao`; a expiracao do prazo roteia
+    para a User Task humana (INVERTE o anti-pattern Boundary_LicenseTimeout->Task_ExpireRequest do
+    reference SP-PS-002 — NUNCA auto-descredencia/auto-expira por timeout).
+    NOTA: prazos regulatorios sao em dias UTEIS / por vezes corridos; ISO 8601 usa dias corridos —
+    valores abaixo sao aproximacao conservadora; resolver calendario util no worker. Prazo regulatorio
+    vive AQUI (DMN) e no timer BPMN — nunca em Python (CONTRIBUTING).
+    Catch-all FAIL-SAFE conservador: na duvida, exige_notificacao_previa=true (na duvida, notifica).
+    NOTA hitPolicy: FIRST (catch-all conservador como ultima row — uma row catch-all `-` sob UNIQUE
+    colidiria com qualquer row especifica no engine; FIRST preserva o catch-all conservador mantendo a
+    tabela ENGINE-DEPLOYAVEL). Espelha cancel_sla / cred_sla.
+  </description>
+  <decision id="cred_prior_notice" name="Obrigacoes de notificacao previa (descredenciamento)" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_cred_prior_notice" hitPolicy="FIRST">
+      <input id="in_tipo_prestador" label="Tipo do prestador (tipo_prestador)">
+        <inputExpression id="ie_tipo_prestador" typeRef="string"><text>tipo_prestador</text></inputExpression>
+      </input>
+      <input id="in_tem_beneficiarios" label="Tem beneficiarios vinculados (tem_beneficiarios_vinculados)">
+        <inputExpression id="ie_tem_beneficiarios" typeRef="boolean"><text>tem_beneficiarios_vinculados</text></inputExpression>
+      </input>
+      <output id="out_exige_notif" label="exige_notificacao_previa" name="exige_notificacao_previa" typeRef="boolean"/>
+      <output id="out_exige_substituto" label="exige_substituto_equivalente" name="exige_substituto_equivalente" typeRef="boolean"/>
+      <output id="out_prazo" label="prazo_notificacao" name="prazo_notificacao" typeRef="string"/>
+      <output id="out_fonte" label="fonte_regulatoria" name="fonte_regulatoria" typeRef="string"/>
+      <rule id="r_hospital">
+        <description>Hospital -> notificacao previa + substituicao por equivalente obrigatorias (RN 567 — antecedencia hospitalar)</description>
+        <inputEntry id="r_hospital_i1"><text>"hospital"</text></inputEntry>
+        <inputEntry id="r_hospital_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_hospital_o1"><text>true</text></outputEntry>
+        <outputEntry id="r_hospital_o2"><text>true</text></outputEntry>
+        <outputEntry id="r_hospital_o3"><text>"P30D"</text></outputEntry>
+        <outputEntry id="r_hospital_o4"><text>"RN 567 — descredenciamento hospitalar: notificacao previa ao beneficiario/ANS + substituicao por equivalente; antecedencia ~30 dias: DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r_com_beneficiarios">
+        <description>Demais prestadores com beneficiarios vinculados -> notificacao previa obrigatoria (RN 567)</description>
+        <inputEntry id="r_com_beneficiarios_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_com_beneficiarios_i2"><text>true</text></inputEntry>
+        <outputEntry id="r_com_beneficiarios_o1"><text>true</text></outputEntry>
+        <outputEntry id="r_com_beneficiarios_o2"><text>true</text></outputEntry>
+        <outputEntry id="r_com_beneficiarios_o3"><text>"P30D"</text></outputEntry>
+        <outputEntry id="r_com_beneficiarios_o4"><text>"RN 567 — descredenciamento de prestador com beneficiarios vinculados: notificacao previa + substituicao por equivalente; antecedencia ~30 dias: DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r_sem_beneficiarios">
+        <description>Prestador isolado sem beneficiarios vinculados -> notificacao previa conservadora, substituicao nao obrigatoria</description>
+        <inputEntry id="r_sem_beneficiarios_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_sem_beneficiarios_i2"><text>false</text></inputEntry>
+        <outputEntry id="r_sem_beneficiarios_o1"><text>true</text></outputEntry>
+        <outputEntry id="r_sem_beneficiarios_o2"><text>false</text></outputEntry>
+        <outputEntry id="r_sem_beneficiarios_o3"><text>"P15D"</text></outputEntry>
+        <outputEntry id="r_sem_beneficiarios_o4"><text>"RN 567 — descredenciamento de prestador sem beneficiarios vinculados: notificacao previa conservadora; substituicao nao obrigatoria; antecedencia ~15 dias: DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r_catchall">
+        <description>Catch-all FAIL-SAFE: na duvida, exige notificacao previa (conservador) + substituicao + prazo conservador</description>
+        <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>true</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>true</text></outputEntry>
+        <outputEntry id="r_catchall_o3"><text>"P30D"</text></outputEntry>
+        <outputEntry id="r_catchall_o4"><text>"Fail-safe conservador: na duvida exige notificacao previa + substituicao + prazo conservador — DRAFT/verify RN 567"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

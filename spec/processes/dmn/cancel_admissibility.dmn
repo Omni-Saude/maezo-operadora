@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_cancel_admissibility"
+             name="Admissibilidade de cancelamento/rescisao (roteamento)"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    cancel_admissibility v0.1.0 — status: DRAFT (conteudo requer SME juridico/contratos +
+    regulatorio/compliance; RN 593/2023 e RN 412/2016 DRAFT/verify; docs/review-queue.md).
+    Consumida por SP-OP-CANCEL-001 e mcp-dmn. Coracao negativa-like do processo.
+    INVARIANTE L0 HARD (contract_termination, nao negociavel): o dominio de `roteamento` e
+    EXATAMENTE {EFETIVAR_PEDIDO, SEGUE_ANALISE, PENDENTE_NOTIFICACAO, ANALISE_HUMANA}. NAO
+    existe — por design — saida RESCINDIR/SUSPENDER/NEGAR/RETER. Nenhuma combinacao de input
+    rescinde o contrato pela operadora nem nega/retem o pedido do beneficiario: rescisao,
+    suspensao e negativa do pedido SO nascem na User Task humana UT_AnaliseRescisao
+    (decisao_cancelamento in {RESCINDIR, SUSPENDER, MANTER}), materializadas pelo worker gated
+    operadora.cancel.send_cancellation_notice (ERR_CANCELLATION_NOT_HUMAN).
+    EXCECAO L2 (direito clerical do titular): EFETIVAR_PEDIDO so para cancelamento A PEDIDO do
+    beneficiario (RN 412) com titularidade confirmada e plano individual/familiar — NAO e decisao
+    adversa contra o beneficiario. Coletivo (rescisao cabe ao estipulante), titularidade nao
+    confirmada, inadimplencia/for-cause, fraude_referida e qualquer ambiguidade -> caminho humano
+    (ANALISE_HUMANA / SEGUE_ANALISE / PENDENTE_NOTIFICACAO). fraude_referida NUNCA auto-flag
+    (fraud_accusation L0 hard) -> ANALISE_HUMANA.
+    Inputs booleanos pre-resolvidos por worker deterministico (operadora.cancel.resolve_facts) —
+    nunca por LLM, nunca decisao adversa.
+    NOTA hitPolicy: FIRST (catch-all conservador como ultima row) — uma row catch-all (`-`) sob
+    UNIQUE colidiria com qualquer row especifica no engine (violacao em runtime); FIRST preserva
+    o catch-all conservador "ANALISE_HUMANA" mantendo a tabela ENGINE-DEPLOYAVEL. Espelha
+    auth_admissibility / glosa_triage.
+    GAP-CANCEL-1 (docs/reports/business-logic-audit-improvement-plan.md): `vinculo_ativo` e fato
+    MANDATORIO do contrato (docs/processes/contracts/SP-OP-CANCEL-001.md — "Pre-resolvido por
+    worker (cadastro/contrato vigente)") mas nao estava wireado como input desta tabela — r_pedido_l2
+    podia EFETIVAR_PEDIDO mesmo com vinculo inativo. Corrigido: `vinculo_ativo` agora e o 6o input;
+    r_pedido_l2 exige vinculo_ativo=true. Vinculo inativo (ou ausente) cai no catch-all
+    (ANALISE_HUMANA) — nenhuma outra row especifica exige tipo_solicitacao=pedido_beneficiario
+    E tipo_plano individual/familiar, entao a ausencia de match em r_pedido_l2 desce para o
+    catch-all fail-safe. `operadora.cancel.resolve_facts` (cancel.py) ja ecoa `vinculo_ativo` na
+    notificacao (mesmo padrao nao-retornado de titularidade_confirmada/dentro_prazo/
+    notificacao_previa_feita — fato seeded como variavel de processo, lido diretamente pela DMN).
+    GAP-CANCEL-2 (docs/reports/business-logic-audit-improvement-plan.md): `dentro_prazo` era
+    input MANDATORIO da tabela (5o input) mas TODA row usava `-` (efeito zero) — o fato era
+    coletado (resolve_facts) e echoed, mas nunca gatava nada. Corrigido MESMO padrao de
+    GAP-CANCEL-1: `dentro_prazo` agora gata r_pedido_l2 (exige dentro_prazo=true, ao lado de
+    titularidade_confirmada=true e vinculo_ativo=true) — o pedido do titular so segue pelo
+    caminho clerical L2 se TODOS os fatos clericais favoraveis se confirmarem; fora do prazo
+    contratual/regulatorio (ou fato ausente) cai no catch-all fail-safe (ANALISE_HUMANA), nunca
+    em negativa automatica. Nenhuma outra row usa `dentro_prazo` (inadimplencia/for_cause/fraude
+    tem semantica de prazo propria — janela de purga/notificacao previa, ja coberta por
+    notificacao_previa_feita e por `cancel_sla`; DRAFT/verify com juridico antes de estender).
+  </description>
+  <decision id="cancel_admissibility" name="Admissibilidade de cancelamento/rescisao" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_cancel_admissibility" hitPolicy="FIRST">
+      <input id="in_tipo_solicitacao" label="Tipo da solicitacao (tipo_solicitacao)">
+        <inputExpression id="ie_tipo_solicitacao" typeRef="string"><text>tipo_solicitacao</text></inputExpression>
+      </input>
+      <input id="in_tipo_plano" label="Tipo do plano (tipo_plano)">
+        <inputExpression id="ie_tipo_plano" typeRef="string"><text>tipo_plano</text></inputExpression>
+      </input>
+      <input id="in_dentro_prazo" label="Dentro do prazo contratual/regulatorio (dentro_prazo)">
+        <inputExpression id="ie_dentro_prazo" typeRef="boolean"><text>dentro_prazo</text></inputExpression>
+      </input>
+      <input id="in_notificacao_previa" label="Notificacao previa feita (notificacao_previa_feita)">
+        <inputExpression id="ie_notificacao_previa" typeRef="boolean"><text>notificacao_previa_feita</text></inputExpression>
+      </input>
+      <input id="in_titularidade" label="Titularidade confirmada (titularidade_confirmada)">
+        <inputExpression id="ie_titularidade" typeRef="boolean"><text>titularidade_confirmada</text></inputExpression>
+      </input>
+      <input id="in_vinculo_ativo" label="Vinculo ativo (vinculo_ativo)">
+        <inputExpression id="ie_vinculo_ativo" typeRef="boolean"><text>vinculo_ativo</text></inputExpression>
+      </input>
+      <output id="out_roteamento" label="roteamento" name="roteamento" typeRef="string"/>
+      <output id="out_motivo" label="motivo" name="motivo" typeRef="string"/>
+      <rule id="r_pedido_l2">
+        <description>Pedido do beneficiario titular confirmado, plano individual/familiar, dentro do prazo, vinculo ativo -> efetivar (direito do titular, L2 clerical)</description>
+        <inputEntry id="r_pedido_l2_i1"><text>"pedido_beneficiario"</text></inputEntry>
+        <inputEntry id="r_pedido_l2_i2"><text>"individual","familiar"</text></inputEntry>
+        <inputEntry id="r_pedido_l2_i3"><text>true</text></inputEntry>
+        <inputEntry id="r_pedido_l2_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_pedido_l2_i5"><text>true</text></inputEntry>
+        <inputEntry id="r_pedido_l2_i6"><text>true</text></inputEntry>
+        <outputEntry id="r_pedido_l2_o1"><text>"EFETIVAR_PEDIDO"</text></outputEntry>
+        <outputEntry id="r_pedido_l2_o2"><text>"Cancelamento a pedido do titular (plano individual/familiar, dentro do prazo contratual/regulatorio, titularidade confirmada, vinculo ativo) — direito potestativo do titular RN 412 (L2 clerical); DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r_pedido_coletivo_humano">
+        <description>Pedido em plano coletivo -> analise humana (rescisao cabe ao estipulante; nunca auto-efetiva nem auto-nega)</description>
+        <inputEntry id="r_pedido_coletivo_humano_i1"><text>"pedido_beneficiario"</text></inputEntry>
+        <inputEntry id="r_pedido_coletivo_humano_i2"><text>"coletivo_empresarial","coletivo_adesao"</text></inputEntry>
+        <inputEntry id="r_pedido_coletivo_humano_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_pedido_coletivo_humano_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_pedido_coletivo_humano_i5"><text>-</text></inputEntry>
+        <inputEntry id="r_pedido_coletivo_humano_i6"><text>-</text></inputEntry>
+        <outputEntry id="r_pedido_coletivo_humano_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r_pedido_coletivo_humano_o2"><text>"Pedido em plano coletivo — rescisao cabe ao estipulante; analise humana obrigatoria (L0 hard; nunca auto-efetiva nem auto-nega)"</text></outputEntry>
+      </rule>
+      <rule id="r_pendente_notificacao">
+        <description>Inadimplencia / for-cause sem notificacao previa feita -> pendente de notificacao (RN 593; nunca rescinde)</description>
+        <inputEntry id="r_pendente_notificacao_i1"><text>"inadimplencia","for_cause_operadora"</text></inputEntry>
+        <inputEntry id="r_pendente_notificacao_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_pendente_notificacao_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_pendente_notificacao_i4"><text>false</text></inputEntry>
+        <inputEntry id="r_pendente_notificacao_i5"><text>-</text></inputEntry>
+        <inputEntry id="r_pendente_notificacao_i6"><text>-</text></inputEntry>
+        <outputEntry id="r_pendente_notificacao_o1"><text>"PENDENTE_NOTIFICACAO"</text></outputEntry>
+        <outputEntry id="r_pendente_notificacao_o2"><text>"Inadimplencia/for-cause sem notificacao previa comprovada — pendente de notificacao (RN 593; expiracao do prazo roteia a humano, nunca auto-rescinde); DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r_segue_analise">
+        <description>Inadimplencia / for-cause com notificacao previa feita -> segue analise humana (humano decide RESCINDIR/SUSPENDER/MANTER)</description>
+        <inputEntry id="r_segue_analise_i1"><text>"inadimplencia","for_cause_operadora"</text></inputEntry>
+        <inputEntry id="r_segue_analise_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_segue_analise_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_segue_analise_i4"><text>true</text></inputEntry>
+        <inputEntry id="r_segue_analise_i5"><text>-</text></inputEntry>
+        <inputEntry id="r_segue_analise_i6"><text>-</text></inputEntry>
+        <outputEntry id="r_segue_analise_o1"><text>"SEGUE_ANALISE"</text></outputEntry>
+        <outputEntry id="r_segue_analise_o2"><text>"Inadimplencia/for-cause com notificacao previa comprovada — segue analise humana (humano decide RESCINDIR/SUSPENDER/MANTER; automacao NUNCA rescinde); DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r_fraude_humano">
+        <description>Fraude referida -> analise humana (NUNCA auto-flag; fraud_accusation L0 hard; alimenta SP-OP-FRAUDE-001 Phase 3)</description>
+        <inputEntry id="r_fraude_humano_i1"><text>"fraude_referida"</text></inputEntry>
+        <inputEntry id="r_fraude_humano_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_fraude_humano_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_fraude_humano_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_fraude_humano_i5"><text>-</text></inputEntry>
+        <inputEntry id="r_fraude_humano_i6"><text>-</text></inputEntry>
+        <outputEntry id="r_fraude_humano_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r_fraude_humano_o2"><text>"Fraude referida — NUNCA auto-flag (fraud_accusation L0 hard); analise humana decide encaminhar a SP-OP-FRAUDE-001 (Phase 3)"</text></outputEntry>
+      </rule>
+      <rule id="r_catchall">
+        <description>Catch-all FAIL-SAFE: qualquer ambiguidade/combinacao nao mapeada (titularidade nao confirmada, vinculo inativo, fora do prazo, etc.) -> analise humana. NUNCA rescinde/nega/retem.</description>
+        <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i5"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i6"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>"Combinacao nao mapeada / ambiguidade (titularidade, vinculo, prazo) — analise humana por seguranca (L0 hard; nunca auto-efetiva, nunca auto-nega, nunca rescinde)"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

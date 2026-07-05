@@ -1,0 +1,175 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_reembolso_coverage"
+             name="Admissibilidade e roteamento de reembolso (cobertura/auto-aprovacao)"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    reembolso_coverage v0.1.0 — status: DRAFT (conteudo requer SME regulatorio/juridico +
+    atuarial; docs/review-queue.md). Consumida por SP-OP-REEMBOLSO-001 e mcp-dmn. Funde a
+    admissibilidade (cobertura/documentacao/prazo/elegibilidade/carencia) com o gate de
+    auto-aprovacao L2 (analogo a auth_admissibility + auth_auto_approval do AUTH-001).
+    INVARIANTE L0 HARD (nao negociavel): NENHUMA das duas decisoes possui saida de
+    negativa/reducao. Cobertura ausente, fora de prazo, carencia nao cumprida, beneficiario
+    inativo ou documentacao incompleta NAO produzem negativa: roteiam para ANALISE_HUMANA
+    (so o humano nega na User Task UT_AnaliseReembolso). O caminho automatico (AUTO_APROVAR)
+    produz SOMENTE aprovacao integral — jamais aprovacao parcial nem reducao (reducao = adverso
+    = humano). A reducao do valor (APROVAR_PARCIAL) so nasce na User Task humana, materializada
+    pelo worker gated operadora.reembolso.send_reembolso_denial (ERR_REEMBOLSO_DENIAL_NOT_HUMAN).
+    Inputs booleanos pre-resolvidos por worker deterministico (check_coverage / check_prazo /
+    cadastro / carencia / calculate_amount) — nunca por LLM, nunca decisao adversa.
+    hitPolicy FIRST em ambas (catch-all conservador como ultima row; sob UNIQUE a row catch-all
+    '-' colidiria com uma row especifica em runtime — espelha glosa_triage/auth_admissibility).
+  </description>
+
+  <!-- Decisao 1: admissibilidade (roteamento) — NAO nega, so roteia -->
+  <decision id="reembolso_admissibility" name="Admissibilidade da solicitacao de reembolso" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_reembolso_admissibility" hitPolicy="FIRST">
+      <input id="in_cobertura" label="Cobertura prevista (cobertura_prevista)">
+        <inputExpression id="ie_cobertura" typeRef="boolean"><text>cobertura_prevista</text></inputExpression>
+      </input>
+      <input id="in_docs" label="Documentacao completa (documentacao_completa)">
+        <inputExpression id="ie_docs" typeRef="boolean"><text>documentacao_completa</text></inputExpression>
+      </input>
+      <input id="in_prazo" label="Dentro do prazo (dentro_prazo)">
+        <inputExpression id="ie_prazo" typeRef="boolean"><text>dentro_prazo</text></inputExpression>
+      </input>
+      <input id="in_ativo" label="Beneficiario ativo (beneficiario_ativo)">
+        <inputExpression id="ie_ativo" typeRef="boolean"><text>beneficiario_ativo</text></inputExpression>
+      </input>
+      <input id="in_carencia" label="Carencia cumprida (carencia_cumprida)">
+        <inputExpression id="ie_carencia" typeRef="boolean"><text>carencia_cumprida</text></inputExpression>
+      </input>
+      <output id="out_roteamento" label="roteamento" name="roteamento" typeRef="string"/>
+      <output id="out_motivo" label="motivo" name="motivo" typeRef="string"/>
+      <rule id="r_pendente_docs">
+        <description>Documentacao incompleta (demais fatos ok) -> pendencia de documentacao ao beneficiario</description>
+        <inputEntry id="r_pendente_docs_i1"><text>true</text></inputEntry>
+        <inputEntry id="r_pendente_docs_i2"><text>false</text></inputEntry>
+        <inputEntry id="r_pendente_docs_i3"><text>true</text></inputEntry>
+        <inputEntry id="r_pendente_docs_i4"><text>true</text></inputEntry>
+        <inputEntry id="r_pendente_docs_i5"><text>true</text></inputEntry>
+        <outputEntry id="r_pendente_docs_o1"><text>"PENDENTE_DOCUMENTACAO"</text></outputEntry>
+        <outputEntry id="r_pendente_docs_o2"><text>"Comprovantes minimos ausentes — abre pendencia ao beneficiario (nunca nega por documentacao)"</text></outputEntry>
+      </rule>
+      <rule id="r_cobertura_humano">
+        <description>Cobertura aparentemente ausente NAO gera negativa automatica — humano decide</description>
+        <inputEntry id="r_cobertura_humano_i1"><text>false</text></inputEntry>
+        <inputEntry id="r_cobertura_humano_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_cobertura_humano_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_cobertura_humano_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_cobertura_humano_i5"><text>-</text></inputEntry>
+        <outputEntry id="r_cobertura_humano_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r_cobertura_humano_o2"><text>"Cobertura pendente de confirmacao — analise humana obrigatoria (L0 hard; nunca negativa automatica)"</text></outputEntry>
+      </rule>
+      <rule id="r_prazo_humano">
+        <description>Fora de prazo aparente NAO gera negativa automatica — humano decide (livre escolha/urgencia podem reabrir)</description>
+        <inputEntry id="r_prazo_humano_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_prazo_humano_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_prazo_humano_i3"><text>false</text></inputEntry>
+        <inputEntry id="r_prazo_humano_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_prazo_humano_i5"><text>-</text></inputEntry>
+        <outputEntry id="r_prazo_humano_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r_prazo_humano_o2"><text>"Prazo aparentemente expirado — analise humana obrigatoria (L0 hard; nunca negativa automatica)"</text></outputEntry>
+      </rule>
+      <rule id="r_inativo_humano">
+        <description>Beneficiario aparentemente inativo NAO gera negativa automatica — humano decide</description>
+        <inputEntry id="r_inativo_humano_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_inativo_humano_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_inativo_humano_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_inativo_humano_i4"><text>false</text></inputEntry>
+        <inputEntry id="r_inativo_humano_i5"><text>-</text></inputEntry>
+        <outputEntry id="r_inativo_humano_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r_inativo_humano_o2"><text>"Vinculo do beneficiario pendente de confirmacao — analise humana obrigatoria (L0 hard)"</text></outputEntry>
+      </rule>
+      <rule id="r_carencia_humano">
+        <description>Carencia aparentemente nao cumprida NAO gera negativa automatica — humano decide</description>
+        <inputEntry id="r_carencia_humano_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_carencia_humano_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_carencia_humano_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_carencia_humano_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_carencia_humano_i5"><text>false</text></inputEntry>
+        <outputEntry id="r_carencia_humano_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r_carencia_humano_o2"><text>"Carencia em apuracao — analise humana obrigatoria (L0 hard)"</text></outputEntry>
+      </rule>
+      <rule id="r_segue">
+        <description>Cobertura, documentacao, prazo, vinculo e carencia ok -> segue para calculo/auto-aprovacao</description>
+        <inputEntry id="r_segue_i1"><text>true</text></inputEntry>
+        <inputEntry id="r_segue_i2"><text>true</text></inputEntry>
+        <inputEntry id="r_segue_i3"><text>true</text></inputEntry>
+        <inputEntry id="r_segue_i4"><text>true</text></inputEntry>
+        <inputEntry id="r_segue_i5"><text>true</text></inputEntry>
+        <outputEntry id="r_segue_o1"><text>"SEGUE_ANALISE"</text></outputEntry>
+        <outputEntry id="r_segue_o2"><text>"Solicitacao admissivel — segue para calculo e gate de auto-aprovacao"</text></outputEntry>
+      </rule>
+      <rule id="r_catchall">
+        <description>Catch-all FAIL-SAFE: qualquer combinacao nao mapeada -> analise humana. NUNCA negativa.</description>
+        <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i5"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>"Combinacao nao mapeada — analise humana por seguranca (L0 hard; nunca negativa automatica)"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+
+  <!-- Decisao 2: auto-aprovacao L2 — saidas {AUTO_APROVAR, ANALISE_HUMANA}; NUNCA negativa/reducao -->
+  <decision id="reembolso_auto_approval" name="Auto-aprovacao de reembolso (L2)" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_reembolso_auto_approval" hitPolicy="FIRST">
+      <input id="in_dentro_tabela" label="Valor solicitado dentro da tabela (dentro_tabela)">
+        <inputExpression id="ie_dentro_tabela" typeRef="boolean"><text>dentro_tabela</text></inputExpression>
+      </input>
+      <input id="in_dentro_teto" label="Valor de tabela dentro do teto L2 do tenant (dentro_teto_l2)">
+        <inputExpression id="ie_dentro_teto" typeRef="boolean"><text>dentro_teto_l2</text></inputExpression>
+      </input>
+      <input id="in_clinica" label="Requer avaliacao clinica (requer_avaliacao_clinica)">
+        <inputExpression id="ie_clinica" typeRef="boolean"><text>requer_avaliacao_clinica</text></inputExpression>
+      </input>
+      <output id="out_recomendacao" label="recomendacao" name="recomendacao" typeRef="string"/>
+      <output id="out_auto_motivo" label="motivo" name="motivo" typeRef="string"/>
+      <rule id="r_auto">
+        <description>Dentro da tabela, dentro do teto L2 e sem merito clinico -> auto-aprovacao integral</description>
+        <inputEntry id="r_auto_i1"><text>true</text></inputEntry>
+        <inputEntry id="r_auto_i2"><text>true</text></inputEntry>
+        <inputEntry id="r_auto_i3"><text>false</text></inputEntry>
+        <outputEntry id="r_auto_o1"><text>"AUTO_APROVAR"</text></outputEntry>
+        <outputEntry id="r_auto_o2"><text>"Dentro da tabela, dentro do teto L2 e sem merito clinico — aprovacao integral automatica (nunca parcial)"</text></outputEntry>
+      </rule>
+      <rule id="r_fora_tabela_humano">
+        <description>Fora da tabela (inclui SEM_TABELA) -> medico/analista (nunca auto-aprova fora de tabela)</description>
+        <inputEntry id="r_fora_tabela_humano_i1"><text>false</text></inputEntry>
+        <inputEntry id="r_fora_tabela_humano_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_fora_tabela_humano_i3"><text>-</text></inputEntry>
+        <outputEntry id="r_fora_tabela_humano_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r_fora_tabela_humano_o2"><text>"Valor solicitado fora da tabela de referencia — analise humana (nunca auto-aprova fora de tabela; nunca reduz por automacao)"</text></outputEntry>
+      </rule>
+      <rule id="r_acima_teto_humano">
+        <description>Acima do teto L2 do tenant -> analise humana</description>
+        <inputEntry id="r_acima_teto_humano_i1"><text>true</text></inputEntry>
+        <inputEntry id="r_acima_teto_humano_i2"><text>false</text></inputEntry>
+        <inputEntry id="r_acima_teto_humano_i3"><text>-</text></inputEntry>
+        <outputEntry id="r_acima_teto_humano_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r_acima_teto_humano_o2"><text>"Valor de tabela acima do teto L2 do tenant — analise humana"</text></outputEntry>
+      </rule>
+      <rule id="r_clinica_humano">
+        <description>Merito clinico (alta complexidade/OPME/CID sensivel) -> medico auditor</description>
+        <inputEntry id="r_clinica_humano_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_clinica_humano_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_clinica_humano_i3"><text>true</text></inputEntry>
+        <outputEntry id="r_clinica_humano_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r_clinica_humano_o2"><text>"Merito clinico — requer medico auditor (L0 hard)"</text></outputEntry>
+      </rule>
+      <rule id="r_auto_catchall">
+        <description>Catch-all FAIL-SAFE: nunca auto-aprovar por omissao</description>
+        <inputEntry id="r_auto_catchall_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_auto_catchall_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_auto_catchall_i3"><text>-</text></inputEntry>
+        <outputEntry id="r_auto_catchall_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r_auto_catchall_o2"><text>"Combinacao nao mapeada — analise humana por seguranca (nunca auto-aprova; nunca reduz)"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

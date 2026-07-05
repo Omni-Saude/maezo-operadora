@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_auth_sla"
+             name="SLA de analise de autorizacao previa"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    auth_sla v0.1.0 — status: DRAFT — TODOS os prazos marcados DRAFT/verify: confirmar
+    texto vigente com regulatorio (RN 259/2011 e consolidacoes posteriores da ANS;
+    RN 395/2016 sobre prazo de resposta; docs/review-queue.md).
+    NOTA: prazos regulatorios sao em dias UTEIS; ISO 8601 usa dias corridos — valores
+    abaixo sao aproximacao conservadora (menor ou igual ao prazo legal). Resolver
+    calendario util no worker quando o validador W1 suportar.
+    Prazo regulatorio vive AQUI (DMN) e no timer BPMN — nunca em Python (CONTRIBUTING).
+  </description>
+  <decision id="auth_sla" name="SLA de analise" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_auth_sla" hitPolicy="FIRST">
+      <input id="in_carater" label="Carater de atendimento (carater_atendimento)">
+        <inputExpression id="ie_carater" typeRef="string"><text>carater_atendimento</text></inputExpression>
+      </input>
+      <input id="in_categoria" label="Categoria do procedimento (categoria_procedimento)">
+        <inputExpression id="ie_categoria" typeRef="string"><text>categoria_procedimento</text></inputExpression>
+      </input>
+      <output id="out_sla_analise" label="sla_analise" name="sla_analise" typeRef="string"/>
+      <output id="out_sla_alerta" label="sla_alerta" name="sla_alerta" typeRef="string"/>
+      <output id="out_fonte" label="fonte_regulatoria" name="fonte_regulatoria" typeRef="string"/>
+      <rule id="r1">
+        <description>Urgencia/emergencia: atendimento imediato — exemplo sintetico: Paciente Teste 001 em PS</description>
+        <inputEntry id="r1i1"><text>"urgencia"</text></inputEntry>
+        <inputEntry id="r1i2"><text>-</text></inputEntry>
+        <outputEntry id="r1o1"><text>"PT2H"</text></outputEntry>
+        <outputEntry id="r1o2"><text>"PT1H"</text></outputEntry>
+        <outputEntry id="r1o3"><text>"Lei 9.656/1998 art. 35-C (imediato) — operacionalizado em 2h: DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r2">
+        <description>Eletivo de alta complexidade / OPME / internacao</description>
+        <inputEntry id="r2i1"><text>"eletivo"</text></inputEntry>
+        <inputEntry id="r2i2"><text>"alta_complexidade","opme","internacao"</text></inputEntry>
+        <outputEntry id="r2o1"><text>"P10D"</text></outputEntry>
+        <outputEntry id="r2o2"><text>"P7D"</text></outputEntry>
+        <outputEntry id="r2o3"><text>"RN 259 garantia 21 dias uteis; resposta de autorizacao em ate 10 dias: DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r3">
+        <description>Eletivo padrao (exames, terapias, consultas com autorizacao)</description>
+        <inputEntry id="r3i1"><text>"eletivo"</text></inputEntry>
+        <inputEntry id="r3i2"><text>-</text></inputEntry>
+        <outputEntry id="r3o1"><text>"P5D"</text></outputEntry>
+        <outputEntry id="r3o2"><text>"P3D"</text></outputEntry>
+        <outputEntry id="r3o3"><text>"RN 395/2016 — resposta em ate 5 dias uteis: DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r4">
+        <description>Catch-all FAIL-SAFE: carater desconhecido tratado como prazo curto</description>
+        <inputEntry id="r4i1"><text>-</text></inputEntry>
+        <inputEntry id="r4i2"><text>-</text></inputEntry>
+        <outputEntry id="r4o1"><text>"P5D"</text></outputEntry>
+        <outputEntry id="r4o2"><text>"P3D"</text></outputEntry>
+        <outputEntry id="r4o3"><text>"Fail-safe: prazo conservador na ausencia de classificacao — DRAFT/verify"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

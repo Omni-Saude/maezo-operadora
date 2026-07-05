@@ -1,0 +1,38 @@
+# LocalStack provider override (TEMPLATE — copied into an env dir by `make tf-smoke`).
+#
+# Terraform auto-merges any file named `*_override.tf` over the base config
+# (https://developer.hashicorp.com/terraform/language/files/override). The
+# smoke target copies this file into the target env directory as
+# `localstack_override.tf`, runs `terraform init -backend=false` + `plan`, then
+# REMOVES it — so it never affects a real `init`/`plan`/`apply`.
+#
+# It repoints the AWS provider at the LocalStack edge (:4566) and supplies dummy
+# credentials, so `terraform plan` reads the seeded substrate (see seed.sh)
+# instead of real AWS. Endpoints listed cover every service the staging env's
+# data sources + modules touch.
+#
+# DO NOT commit a rendered copy into an env dir. This stays under
+# deploy/terraform/localstack/ as a template only.
+
+provider "aws" {
+  region                      = "sa-east-1"
+  access_key                  = "test"
+  secret_key                  = "test"
+  s3_use_path_style           = true
+  skip_credentials_validation = true
+  skip_metadata_api_check     = true
+  skip_requesting_account_id  = true
+
+  endpoints {
+    ec2            = "http://localhost:4566"
+    iam            = "http://localhost:4566"
+    sts            = "http://localhost:4566"
+    secretsmanager = "http://localhost:4566"
+    s3             = "http://localhost:4566"
+    dynamodb       = "http://localhost:4566"
+    ecr            = "http://localhost:4566"
+    rds            = "http://localhost:4566"
+    eks            = "http://localhost:4566"
+    kms            = "http://localhost:4566"
+  }
+}

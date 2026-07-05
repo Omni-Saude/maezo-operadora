@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_fraude_sla"
+             name="SLA de investigacao de fraude"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    fraude_sla v0.1.0 — status: DRAFT — TODOS os prazos marcados DRAFT/verify: confirmar com
+    juridico/compliance/regulatorio antes de qualquer timer em producao. Obrigacoes de referral
+    (ANS/civel/penal) — prazo, forma, autoridade competente, escada de alcada — NAO estao pinadas
+    em nenhum repo (ver Pendencias do contrato; docs/review-queue.md). Consumida por SP-OP-FRAUDE-001
+    (BRT_FraudeSla, resultVariable `sla`) e mcp-dmn.
+    NOTA: prazos legais/processuais sao em dias (por vezes uteis); ISO 8601 usa dias corridos —
+    valores abaixo sao aproximacao conservadora. Resolver calendario util no worker. Saidas de prazo
+    sao string ISO 8601 (sla_investigacao, sla_alerta, sla_diligencia); fonte_regulatoria registra a
+    citacao para auditoria.
+    INVARIANTE L0 HARD: esta tabela NAO tem saida adversa; no estouro de SLA a coordenacao humana
+    assume (UT_CoordenacaoInvestigacao) — NUNCA auto-acusa nem auto-arquiva por timeout. O timer de
+    diligencia (TED_PrazoDiligencia ${sla.sla_diligencia}), ao expirar, reabre a User Task humana
+    (INVERTE o anti-pattern de auto-acao-no-timeout do reference). As tres duracoes sao resolvidas em
+    TODA row (incl. catch-all) para que os identificadores JUEL dos timers/gateway estejam sempre
+    setados (landmine 2 / ENGINE-16004).
+    NOTA hitPolicy: FIRST (catch-all conservador como ultima row). O contrato marcava UNIQUE (DRAFT)
+    mas uma row catch-all sob UNIQUE colide com qualquer row especifica no engine — rebaixada a FIRST
+    (idioma cancel_sla) para permitir o catch-all (landmine 7).
+  </description>
+  <decision id="fraude_sla" name="SLA de investigacao de fraude" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_fraude_sla" hitPolicy="FIRST">
+      <input id="in_intensidade_investigacao" label="Intensidade da investigacao (intensidade_investigacao)">
+        <inputExpression id="ie_intensidade_sla" typeRef="string"><text>intensidade_investigacao</text></inputExpression>
+      </input>
+      <input id="in_entidade_tipo" label="Tipo de entidade investigada (entidade_tipo)">
+        <inputExpression id="ie_entidade_tipo_sla" typeRef="string"><text>entidade_tipo</text></inputExpression>
+      </input>
+      <input id="in_origem_encaminhamento" label="Origem do encaminhamento (origem_encaminhamento)">
+        <inputExpression id="ie_origem_sla" typeRef="string"><text>origem_encaminhamento</text></inputExpression>
+      </input>
+      <output id="out_sla_investigacao" label="sla_investigacao" name="sla_investigacao" typeRef="string"/>
+      <output id="out_sla_alerta" label="sla_alerta" name="sla_alerta" typeRef="string"/>
+      <output id="out_sla_diligencia" label="sla_diligencia" name="sla_diligencia" typeRef="string"/>
+      <output id="out_fonte_regulatoria" label="fonte_regulatoria" name="fonte_regulatoria" typeRef="string"/>
+      <rule id="r_prioritaria">
+        <description>Investigacao PRIORITARIA -> prazos mais curtos (prioridade alta na fila; estouro -> coordenacao humana assume, NUNCA auto-acusa)</description>
+        <inputEntry id="r_prioritaria_i1"><text>"PRIORITARIA"</text></inputEntry>
+        <inputEntry id="r_prioritaria_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_prioritaria_i3"><text>-</text></inputEntry>
+        <outputEntry id="r_prioritaria_o1"><text>"P20D"</text></outputEntry>
+        <outputEntry id="r_prioritaria_o2"><text>"P12D"</text></outputEntry>
+        <outputEntry id="r_prioritaria_o3"><text>"P10D"</text></outputEntry>
+        <outputEntry id="r_prioritaria_o4"><text>"Prazo interno de investigacao prioritaria ~20 dias / obrigacao de referral (ANS/civel/penal) — DRAFT/verify juridico+compliance"</text></outputEntry>
+      </rule>
+      <rule id="r_aprofundada">
+        <description>Investigacao APROFUNDADA -> prazos intermediarios</description>
+        <inputEntry id="r_aprofundada_i1"><text>"APROFUNDADA"</text></inputEntry>
+        <inputEntry id="r_aprofundada_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_aprofundada_i3"><text>-</text></inputEntry>
+        <outputEntry id="r_aprofundada_o1"><text>"P30D"</text></outputEntry>
+        <outputEntry id="r_aprofundada_o2"><text>"P18D"</text></outputEntry>
+        <outputEntry id="r_aprofundada_o3"><text>"P15D"</text></outputEntry>
+        <outputEntry id="r_aprofundada_o4"><text>"Prazo interno de investigacao aprofundada ~30 dias — DRAFT/verify juridico+compliance"</text></outputEntry>
+      </rule>
+      <rule id="r_leve">
+        <description>Investigacao LEVE -> prazos mais folgados</description>
+        <inputEntry id="r_leve_i1"><text>"LEVE"</text></inputEntry>
+        <inputEntry id="r_leve_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_leve_i3"><text>-</text></inputEntry>
+        <outputEntry id="r_leve_o1"><text>"P45D"</text></outputEntry>
+        <outputEntry id="r_leve_o2"><text>"P27D"</text></outputEntry>
+        <outputEntry id="r_leve_o3"><text>"P20D"</text></outputEntry>
+        <outputEntry id="r_leve_o4"><text>"Prazo interno de investigacao leve ~45 dias — DRAFT/verify juridico+compliance"</text></outputEntry>
+      </rule>
+      <rule id="r_catchall">
+        <description>Catch-all FAIL-SAFE: intensidade nao mapeada / ausente -> prazo conservador padrao. Todas as tres duracoes resolvidas (landmine 2). NUNCA auto-acusa por timeout.</description>
+        <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i3"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>"P20D"</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>"P12D"</text></outputEntry>
+        <outputEntry id="r_catchall_o3"><text>"P10D"</text></outputEntry>
+        <outputEntry id="r_catchall_o4"><text>"Fail-safe: prazo conservador na ausencia de classificacao — DRAFT/verify juridico+compliance"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

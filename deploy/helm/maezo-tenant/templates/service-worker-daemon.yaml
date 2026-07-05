@@ -1,0 +1,46 @@
+{{- /*
+worker-daemon metrics/health Service (scraper-only).
+
+Exposes the worker-daemon container's port 8000 (metrics `/metrics`, health `/healthz`
+`/readyz`) under a stable ClusterIP name so the in-cluster Prometheus / PodMonitor can
+scrape it. Headless (mirrors service-agent-runtime.yaml, not service-fhir-sync.yaml):
+worker-daemon runs multiple replicas, each with its own WORKER_ID via the Downward API
+(deployment-worker-daemon.yaml) — metrics are per-pod, so we scrape every replica
+individually instead of load-balancing across them.
+
+PHI guardrail (ADR-0006): worker-daemon runs in the general zone (it handles process
+identifiers/refs, not raw PHI). This Service is SCRAPER-ONLY — it does not open any new
+egress for the pod and does not touch the NetworkPolicy (which only governs Egress;
+see networkpolicy.yaml). It only gives the monitoring scrape path a name to hit.
+*/ -}}
+{{- if .Values.workerDaemon.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: worker-daemon-metrics
+  namespace: {{ include "maezo-tenant.namespace" . }}
+  labels:
+    {{- include "maezo-tenant.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker-daemon
+    # Discovery label for the PodMonitor / non-operator scrape selector.
+    maezo.io/metrics: "true"
+  annotations:
+    # Non-operator fallback: clusters without prometheus-operator can scrape via
+    # these annotations on the Service's Endpoints.
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8000"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  # Headless: metrics are per-pod, scrape each replica individually (no LB across
+  # replicas — we want every pod's series, mirroring service-agent-runtime.yaml).
+  clusterIP: None
+  ports:
+    - name: metrics
+      port: 8000
+      targetPort: 8000
+      protocol: TCP
+  selector:
+    {{- include "maezo-tenant.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: worker-daemon
+{{- end }}

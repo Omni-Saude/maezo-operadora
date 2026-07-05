@@ -1,0 +1,48 @@
+# === Matriz de autonomia — camada L0 (core da plataforma) ===
+# AVALIADA PELO PEP EM TODO TOOL CALL (ADR-0005/0008).
+# Itens `hard: true` NAO sao rebaixaveis por nenhuma camada/tenant — o CI rejeita override.
+version: 1
+actions:
+  clinical_decision:            { level: L0, hard: true }   # diagnostico/conduta: NUNCA
+  authorization_denial:         { level: L0, hard: true }   # negativa: medico auditor (RN 259)
+  # NIP MANTER_NEGATIVA embute a negativa de cobertura (authorization_denial-class): L0 HARD, em
+  # PARIDADE com `authorization_denial` de AUTH (GAP-NIP-3/GAP-XHITL-3). Nao rebaixavel por overlay;
+  # a manutencao da negativa nasce SO na User Task humana (UT_RevisaoJuridicaNip), nunca por agente.
+  nip_manter_negativa:          { level: L0, hard: true }
+  fraud_accusation:             { level: L0, hard: true }   # "nunca acusa sozinha"
+  contract_termination:         { level: L0, hard: true }
+  ans_official_submission:      { level: L1 }
+  # nip_response cobre SO os desfechos NAO-adversos (CONCEDER / RESPONDER_NAO_ASSISTENCIAL): L1
+  # (require_human — humano autora/aprova). MANTER_NEGATIVA e classificado a parte em
+  # `nip_manter_negativa` (L0 hard, acima) — coverage-denial nao pode ser rebaixavel-L1.
+  nip_response:                 { level: L1 }
+  provider_decredentialing:     { level: L1 }
+  adequacao_fallback_commitment: { level: L1 }   # compromisso financeiro de fallback (RN 259): humano gestao-rede confirma (SP-OP-ADEQUACAO-001)
+  high_value_payment:           { level: L1, params: { threshold_brl: 100000 } }
+  authorization_approval:       { level: L2, params: { requires: dmn_favorable, max_value_brl: 0 } }
+    # max_value_brl=0 em L0-core: teto REAL e definido por tenant (ex.: tenants/amh.yaml) — D-07
+  reembolso_auto_approval:      { level: L2, params: { requires: dmn_favorable, max_value_brl: 0 } }
+    # Espelha authorization_approval para SP-OP-REEMBOLSO-001 (GAP-REEMBOLSO-3): teto de auto-aprovacao
+    # L2 do reembolso. max_value_brl=0 em L0-core: teto REAL por tenant (tenants-amh.yaml) — D-07.
+    # `operadora.reembolso.calculate_amount` compara valor_calculado_tabela_cents com este teto (via
+    # gateway.pep.load_matrix) e COMPUTA dentro_teto_l2 — nunca confia no booleano de entrada.
+  standard_glosa_processing:    { level: L2 }
+  triage_and_routing:           { level: L3 }
+  scheduling:                   { level: L3 }
+  informational_response:       { level: L3 }
+  reminders_nudges:             { level: L3 }
+  # --- Tool-level actions (adicionadas em feat/tools-mcp-phase0; compliance-review required) ---
+  # mcp_dmn: consulta deterministica de regras (ADR-0012) — sempre L3, agente raciocina sobre resultado
+  query_decision_engine:        { level: L3 }
+  # mcp_cibseven: iniciar/avançar processo SP-OP (regulatório mandatório) — L2 (efeito externo, auditado)
+  start_compliance_process:     { level: L2 }
+  correlate_process_message:    { level: L2 }
+  query_process_status:         { level: L3 }
+  # mcp_fhir: leitura de dados clínicos PHI (Zona PHI — pseudonimizado pela gateway antes da Zona Geral)
+  read_phi_data:                { level: L3 }
+  # mcp_whatsapp: envio de mensagem ao beneficiário — L3 informativo; template = L2 (efeito externo)
+  send_beneficiary_message:     { level: L3 }
+  send_beneficiary_template:    { level: L2 }
+  # mcp_memory: leitura/escrita de memória episódica/semântica (dados pseudonimizados)
+  read_write_memory:            { level: L3 }
+  erase_patient_memory:         { level: L1 }   # LGPD erasure: agente propõe, DPO/humano confirma

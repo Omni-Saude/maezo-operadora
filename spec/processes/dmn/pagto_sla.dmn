@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_pagto_sla"
+             name="SLA de aprovacao de pagamento de alcada"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    pagto_sla v0.1.0 — status: DRAFT — TODOS os prazos marcados DRAFT/verify com financas:
+    NAO ha prazo RN ANS aqui; os SLAs sao politica financeira interna (escada de alcada —
+    tiers mais altos podem ter SLA maior, mais aprovadores). docs/review-queue.md. Consumida por
+    SP-OP-PAGTO-001 e mcp-dmn.
+    NOTA: prazos como string ISO 8601 (sla_aprovacao, sla_alerta); fonte e a politica interna
+    citada (registrada para auditoria). Prazo de governanca vive AQUI (DMN) e no timer BPMN —
+    nunca em Python (CONTRIBUTING).
+    INVARIANTE L1 (no-adverse): esta tabela NAO tem saida adversa; no estouro de SLA a
+    coordenacao financeira humana (tier-adequada) assume — NUNCA auto-libera por timeout
+    (inverte o anti-pattern Task_AutoApprove/timeout; risco #5 do phase3-plan). O tier-match e
+    re-exigido na tarefa de coordenacao.
+    NOTA hitPolicy: FIRST (catch-all conservador como ultima row) — o contrato menciona UNIQUE,
+    mas uma row catch-all (`-`) sob UNIQUE colidiria com qualquer row especifica no engine
+    (violacao em runtime; mesmo racional de cancel_admissibility). FIRST preserva o catch-all
+    conservador (maior SLA) mantendo a tabela ENGINE-DEPLOYAVEL. Espelha cancel_sla / auth_sla.
+  </description>
+  <decision id="pagto_sla" name="SLA de aprovacao de pagamento de alcada" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_pagto_sla" hitPolicy="FIRST">
+      <input id="in_faixa_valor" label="Faixa de alcada (faixa_valor)">
+        <inputExpression id="ie_faixa_valor" typeRef="string"><text>faixa_valor</text></inputExpression>
+      </input>
+      <input id="in_tipo_pagamento" label="Tipo do pagamento (tipo_pagamento)">
+        <inputExpression id="ie_tipo_pagamento" typeRef="string"><text>tipo_pagamento</text></inputExpression>
+      </input>
+      <output id="out_sla_aprovacao" label="sla_aprovacao" name="sla_aprovacao" typeRef="string"/>
+      <output id="out_sla_alerta" label="sla_alerta" name="sla_alerta" typeRef="string"/>
+      <output id="out_fonte" label="fonte" name="fonte" typeRef="string"/>
+      <rule id="r_l1">
+        <description>Faixa L1: tier mais baixo, SLA mais curto (aprovador unico)</description>
+        <inputEntry id="r_l1_i1"><text>"ALCADA_L1"</text></inputEntry>
+        <inputEntry id="r_l1_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_l1_o1"><text>"P2D"</text></outputEntry>
+        <outputEntry id="r_l1_o2"><text>"P1D"</text></outputEntry>
+        <outputEntry id="r_l1_o3"><text>"Politica financeira interna — alcada L1 ~2 dias: DRAFT/verify financas"</text></outputEntry>
+      </rule>
+      <rule id="r_l2">
+        <description>Faixa L2: SLA intermediario</description>
+        <inputEntry id="r_l2_i1"><text>"ALCADA_L2"</text></inputEntry>
+        <inputEntry id="r_l2_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_l2_o1"><text>"P3D"</text></outputEntry>
+        <outputEntry id="r_l2_o2"><text>"P2D"</text></outputEntry>
+        <outputEntry id="r_l2_o3"><text>"Politica financeira interna — alcada L2 ~3 dias: DRAFT/verify financas"</text></outputEntry>
+      </rule>
+      <rule id="r_l3">
+        <description>Faixa L3: tier alto, SLA maior (mais aprovadores)</description>
+        <inputEntry id="r_l3_i1"><text>"ALCADA_L3"</text></inputEntry>
+        <inputEntry id="r_l3_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_l3_o1"><text>"P4D"</text></outputEntry>
+        <outputEntry id="r_l3_o2"><text>"P3D"</text></outputEntry>
+        <outputEntry id="r_l3_o3"><text>"Politica financeira interna — alcada L3 ~4 dias: DRAFT/verify financas"</text></outputEntry>
+      </rule>
+      <rule id="r_catchall">
+        <description>Catch-all FAIL-SAFE: ANALISE_HUMANA / comite ou faixa nao mapeada -> maior SLA (aprovacao colegiada do comite). Conservador: nunca prazo curto demais para o tier mais alto.</description>
+        <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>"P5D"</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>"P4D"</text></outputEntry>
+        <outputEntry id="r_catchall_o3"><text>"Politica financeira interna — comite/ANALISE_HUMANA (tier mais alto) ~5 dias: DRAFT/verify financas"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

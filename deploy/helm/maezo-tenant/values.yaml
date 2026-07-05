@@ -1,0 +1,541 @@
+# Default values for maezo-tenant.
+# Override with values-amh.yaml (or per-tenant values file).
+
+# ---------------------------------------------------------------------------
+# Tenant identity
+# ---------------------------------------------------------------------------
+tenant:
+  id: "default"
+  name: "Default Tenant"
+
+# ---------------------------------------------------------------------------
+# Namespace
+# ---------------------------------------------------------------------------
+namespace:
+  name: "maezo-default"
+  create: true
+  labels:
+    app.kubernetes.io/part-of: maezo
+    maezo.io/tenant: "default"
+
+# ---------------------------------------------------------------------------
+# Global image settings
+# ---------------------------------------------------------------------------
+image:
+  repository: "123456789012.dkr.ecr.sa-east-1.amazonaws.com/maezo-agent"
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+# ---------------------------------------------------------------------------
+# ServiceAccount (IRSA) — shared SA used by gateway / fhir-sync / webhook + ESO.
+# Per-AGENT ServiceAccounts (with their own IRSA roles) are derived from the
+# `agents` list below — see serviceaccount.yaml.
+# ---------------------------------------------------------------------------
+serviceAccount:
+  create: true
+  name: "maezo-agent"
+  annotations: {}
+    # eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT:role/maezo-agent-irsa-TENANT"
+
+# ---------------------------------------------------------------------------
+# Agent defaults — fallback resources for any agent that omits `resources`.
+# ---------------------------------------------------------------------------
+agentDefaults:
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
+      cpu: "1000m"
+      memory: "1Gi"
+
+# ---------------------------------------------------------------------------
+# Agents — the PER-AGENT runtime factory (ADR-0004 / ADR-0006).
+#
+# Each entry renders: a Deployment (with a `maezo.io/phi-zone: "true|false"` pod
+# label), a per-agent ServiceAccount (+ IRSA role), a per-agent NetworkPolicy
+# (PHI-zone agents get egress RESTRICTED to BR endpoints + gateway; general-zone
+# agents get the pseudonymized cloud-LLM path), and a ConfigMap carrying the
+# EFFECTIVE merged Agent Definition.
+#
+# Fields per agent:
+#   name             agent id (matches src/maezo/agents/<name>/agent.yaml)
+#   enabled          render this agent's resources (false = ready-to-enable stub)
+#   securityZone     "general" | "phi"  (ADR-0006 — drives the NetworkPolicy)
+#   replicaCount     Deployment replicas (default 2 if omitted)
+#   resources        container resources (default `agentDefaults.resources`)
+#   irsaRoleArn      IAM role for this agent's ServiceAccount (per-agent identity)
+#   env              extra env vars (map)
+#   definitionHash   ADR-0007 effective-definition hash (set by provision_tenant.py)
+#   effectiveDefinition  merged L0+overlay agent.yaml as a string (set by the script)
+#
+# This default list is the platform-wide baseline; tenant overlays (values-<tenant>.yaml)
+# override per-agent zone/replicas/resources/irsa and inject effectiveDefinition.
+# ---------------------------------------------------------------------------
+agents:
+  - name: helena
+    enabled: true
+    securityZone: general
+    replicaCount: 2
+    irsaRoleArn: ""
+    env: {}
+  - name: rafael
+    enabled: true
+    securityZone: phi
+    replicaCount: 2
+    irsaRoleArn: ""
+    env: {}
+  - name: marina
+    enabled: true
+    securityZone: phi
+    replicaCount: 2
+    irsaRoleArn: ""
+    env: {}
+  # gustavo / lucas land in a concurrent wave (Wave B). Ready-to-enable stubs:
+  # flip enabled=true (and add their effectiveDefinition via provision_tenant.py)
+  # once their agent.yaml is merged.
+  - name: gustavo
+    enabled: false
+    securityZone: general
+    replicaCount: 2
+    irsaRoleArn: ""
+    env: {}
+  - name: lucas
+    enabled: false
+    securityZone: general
+    replicaCount: 2
+    irsaRoleArn: ""
+    env: {}
+
+# ---------------------------------------------------------------------------
+# Tool Gateway (PEP + pseudonymizer + audit)
+# ---------------------------------------------------------------------------
+# DISABLED — orphaned Deployment with no runnable module. deployment-gateway.yaml
+# runs `python -m maezo.gateway`, but src/maezo/gateway/ is a LIBRARY package (no
+# __main__.py; empty __init__.py) so that command exits 1 ("No module named
+# maezo.gateway.__main__; 'maezo.gateway' is a package and cannot be directly
+# executed") → the pod CrashLoopBackOffs. The PEP / pseudonymizer / audit gateway
+# is an IN-PROCESS library imported by the general-zone runtimes (agent-runtime,
+# worker-daemon) per ADR-0006; there is no standalone gateway service. Its
+# metrics (maezo_gateway_*, runtime/metrics.py) are emitted in-process by those
+# runtime pods and scraped from their /metrics endpoints — so the gateway.json
+# dashboard and MaezoPEPDenySpike / MaezoAuditLagHigh alerts keep their data
+# source without this pod. Re-enable ONLY once a real entrypoint (a
+# maezo/gateway/__main__.py or a dedicated FastAPI service module) exists.
+# Predeploy audit finding: gateway-deployment-crashloop-no-main (DB-1).
+gateway:
+  enabled: false
+  replicaCount: 2
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+  service:
+    type: ClusterIP
+    port: 8000
+
+# ---------------------------------------------------------------------------
+# Webhook Receiver (WhatsApp Cloud API inbound)
+# ---------------------------------------------------------------------------
+webhookReceiver:
+  enabled: true
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "256Mi"
+  service:
+    type: ClusterIP
+    port: 8080
+
+# ---------------------------------------------------------------------------
+# FHIR Sync (HAPI FHIR R4 ↔ Tasy integration)
+# ---------------------------------------------------------------------------
+fhirSync:
+  enabled: true
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+  # Scraper-only metrics/health Service (ClusterIP) — see service-fhir-sync.yaml.
+  # PHI guardrail (ADR-0006): this Service is scrape-only; it opens no egress and
+  # does NOT relax the NetworkPolicy.
+  service:
+    type: ClusterIP
+    port: 8000
+
+# ---------------------------------------------------------------------------
+# Ingress (public edge) — ALB via aws-load-balancer-controller (DL-0018).
+#
+# Gated OFF by default: a default render emits NO Ingress. ALB/ACM/Route53
+# provisioning is out of scope — flip `enabled: true` and set certificateArn +
+# host per environment to opt in. Fronts the webhook-receiver (general zone,
+# ADR-0006); set consoleHost to also expose the console. NEVER front a PHI-zone
+# service from the public edge.
+# ---------------------------------------------------------------------------
+ingress:
+  enabled: false
+  # IngressClass that maps to the aws-load-balancer-controller (ALB).
+  className: "alb"
+  # Public hostname for the webhook-receiver edge (external-dns Route53 record).
+  host: ""
+  # ACM certificate ARN for ALB TLS termination (REQUIRED when enabled).
+  certificateArn: ""
+  # Optional second host for the console UI. Leave empty to skip the console rule.
+  consoleHost: ""
+  # Service port the console listens on (used only when consoleHost is set).
+  consolePort: 80
+  # Extra ALB / external-dns annotations merged onto the Ingress (optional).
+  annotations: {}
+
+# ---------------------------------------------------------------------------
+# Worker daemon (W-R2 / R7) — external-task worker harness (CIB Seven fetch-and-lock)
+#
+# Supervisiona o loop fetch-and-lock do WorkerHarness e publica eventos/notificacoes de
+# dominio no Kafka. WORKER_ID vem do metadata.name do pod (Downward API) — distinto por
+# replica (dono do lock de external task). lockDurationMs >= pior latencia de handler.
+# ---------------------------------------------------------------------------
+workerDaemon:
+  enabled: true
+  replicaCount: 2
+  # lock_duration >= pior latencia de handler (auth_analyze/RafaelGraph e lento). 30s e folgado.
+  lockDurationMs: 30000
+  pollIntervalMs: 5000
+  # Nome do secret (em namespace) com a chave `cibseven-auth-token` (BLOQUEADO/seam — vazio = sem auth).
+  cibsevenAuthTokenSecret: ""
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+# ---------------------------------------------------------------------------
+# Notifications bridge (W-R2 / R8) — Kafka -> process-start
+#
+# Consome `operadora.notifications.internal` e inicia SP-OP-RECURSO-001 / SP-OP-ANS-SUBMIT-001
+# via mcp-cibseven.start_process (idempotente). Principal de SERVICO `notifications-bridge`
+# (allowlist minima: so start_process). NAO sobe app de health (liveness por processo).
+# ---------------------------------------------------------------------------
+notificationsBridge:
+  enabled: true
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "128Mi"
+    limits:
+      cpu: "250m"
+      memory: "256Mi"
+
+# ---------------------------------------------------------------------------
+# Network-change bridge (GAP-XPROC-2) — Kafka -> process-start
+#
+# Consome `agents.events.cred.network_changed` (fato de rede de SP-OP-CRED-001) e INICIA
+# SP-OP-ADEQUACAO-001 via mcp-cibseven.start_process (idempotente; correlacao
+# tenant_id+regiao_saude+especialidade). Sibling do notifications-bridge, MESMA identidade de
+# principal de SERVICO `notifications-bridge` (allowlist minima: so start_process). NAO sobe app
+# de health (liveness por processo).
+# ---------------------------------------------------------------------------
+networkChangeBridge:
+  enabled: true
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "128Mi"
+    limits:
+      cpu: "250m"
+      memory: "256Mi"
+
+# ---------------------------------------------------------------------------
+# Consent-revocation bridge (GAP-PROG-4) — Kafka -> BPMN message correlation
+#
+# Consome `agents.events.lgpd_dsr.completed` (fato de SP-OP-LGPD-DSR-001) e CORRELACIONA
+# `msg.programa.consent_revoked` em SP-OP-PROGRAMA-001 via mcp-cibseven.correlate_message
+# (correlation_keys tenant_id+beneficiario_pseudo_id, all_matching=True — fan-out a TODAS as
+# instancias ativas do titular). Sibling do notifications-bridge/network-change-bridge, mas com
+# identidade de principal de SERVICO DEDICADA `consent-revocation-bridge` (allowlist minima: so
+# correlate_message — nunca start_process, least-privilege). NAO sobe app de health (liveness por
+# processo).
+# ---------------------------------------------------------------------------
+consentRevocationBridge:
+  enabled: true
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "128Mi"
+    limits:
+      cpu: "250m"
+      memory: "256Mi"
+
+# ---------------------------------------------------------------------------
+# External Secrets Operator — SecretStore + ExternalSecrets
+# ---------------------------------------------------------------------------
+externalSecrets:
+  enabled: true
+  # Secrets Manager secret path prefix (must match Terraform module)
+  secretPathPrefix: "maezo/staging"
+  # IAM role for ESO to assume (IRSA)
+  irsaRoleArn: ""
+
+# ---------------------------------------------------------------------------
+# NetworkPolicy (ADR-0006 PHI two-zone model)
+#
+# Egress is rendered PER AGENT (see networkpolicy.yaml): each agent gets a policy
+# selecting on maezo.io/agent=<name> + maezo.io/phi-zone. The allowlists below are
+# the per-zone egress targets those per-agent policies open:
+#   - PHI-zone agents (rafael, marina) -> phiZone.brResidentEndpoints ONLY.
+#   - general-zone agents (helena)     -> generalZone.llmEndpoints + MSK.
+# ---------------------------------------------------------------------------
+networkPolicy:
+  # Default deny all egress; allowlists below open specific holes.
+  defaultDenyEgress: true
+
+  # FIX 2 — intra-namespace egress is SCOPED to these components (by
+  # app.kubernetes.io/component), NOT to every pod. Agents may egress to the
+  # gateway (pseudonymizing PEP) + genuinely-shared infra ONLY; agent <-> peer-agent
+  # egress stays DENIED so a PHI pod can never relay through the general-zone agent's
+  # cloud-LLM egress. Do NOT add `agent-*` components here.
+  intraNamespaceEgressComponents:
+    - gateway
+
+  # General Zone: agents with PHI pseudonymized (Helena, Lucas, Fernando, Gustavo).
+  # May reach: pseudonymized LLM endpoint + intra-namespace + Kafka MSK.
+  generalZone:
+    enabled: true
+    # Named egress allowlists — configure per environment.
+    # FIX 1: each endpoint MUST carry a concrete `cidr`. NetworkPolicy ipBlock is
+    # IP-based, not hostname-based — 0.0.0.0/0 is rejected (it is not an allowlist).
+    # True FQDN allowlisting needs an egress proxy / Cilium FQDN policy.
+    llmEndpoints:
+      - host: "api.anthropic.com"
+        port: 443
+        cidr: ""   # REQUIRED — pin the cloud-LLM NLB/VIP CIDR per environment.
+    # Kafka MSK Serverless endpoint (from amh-data-platform)
+    mskEndpoint:
+      host: ""   # populated from ESO/env var at deploy time
+      port: 9098
+      cidr: ""   # REQUIRED when host is set — pin the MSK ENI/subnet CIDR.
+
+  # W-R2 daemons (worker-daemon R7 + notifications-bridge R8): general-zone NON-agents that
+  # must reach CIB Seven (fetch-and-lock / start_process) + Kafka. FIX 1: each endpoint MUST
+  # carry a concrete `cidr` (0.0.0.0/0 is rejected — not an allowlist). Empty `endpoints` =>
+  # all external egress for the daemons DENIED (fail-closed). Configure per environment.
+  daemonEgress:
+    enabled: true
+    endpoints: []
+      # - host: "cibseven"        # in-cluster engine VIP/ENI CIDR
+      #   port: 8080
+      #   cidr: "10.20.1.0/24"    # REQUIRED — pin the CIB Seven endpoint CIDR.
+      # - host: "kafka-msk"       # MSK Serverless ENI/subnet
+      #   port: 9098
+      #   cidr: "10.20.2.0/24"    # REQUIRED — pin the MSK CIDR.
+
+  # PHI Zone: agents with full PHI (Rafael, Marina, Beatriz, Valentina, Carolina, Andre).
+  # Egress ONLY to BR-resident endpoints.
+  phiZone:
+    enabled: true
+    # Only BR-resident endpoints — model as named allowlist.
+    # Empty by default; tenant must explicitly configure approved endpoints.
+    # FIX 1: each endpoint MUST carry a concrete BR-resident `cidr`. A missing or
+    # 0.0.0.0/0 cidr ABORTS rendering (fail-closed; ADR-0006) — we NEVER permit a PHI
+    # agent to egress to the whole internet.
+    brResidentEndpoints: []
+      # - host: "llm-br.internal.example.com"
+      #   port: 443
+      #   cidr: "10.20.0.0/24"   # REQUIRED — concrete BR-resident endpoint CIDR.
+
+# ---------------------------------------------------------------------------
+# Observability
+# ---------------------------------------------------------------------------
+observability:
+  otel:
+    endpoint: "http://otel-collector.observability.svc.cluster.local:4317"
+    protocol: grpc
+
+  # OTel Collector in-cluster sidecar/daemonset (PROD config).
+  # Gated OFF by default. When enabled, renders the collector ConfigMap
+  # (configmap-otel-collector.yaml) with insecure:false + SigV4 for AMP.
+  # The collector Deployment/DaemonSet is managed externally (e.g. via the
+  # opentelemetry-operator Helm chart); this chart only owns the ConfigMap.
+  # Required env vars for the collector pod:
+  #   PROMETHEUS_REMOTE_WRITE_ENDPOINT — AMP workspace remote-write URL
+  #   OTLP_TRACES_ENDPOINT             — AWS X-Ray / ADOT gRPC endpoint
+  #   AWS_REGION                       — injected automatically by EKS IRSA
+  collector:
+    enabled: false
+    # IRSA role ARN for the collector ServiceAccount (SigV4 credentials for AMP).
+    # Must be set when enabled=true. Provisioned by deploy/terraform/modules/observability/.
+    irsaRoleArn: ""
+    # AMP remote-write endpoint (injected via ESO or values override)
+    ampRemoteWriteEndpoint: ""
+    # OTLP traces endpoint (AWS X-Ray ADOT or custom)
+    otlpTracesEndpoint: ""
+
+  # Prometheus-operator PodMonitor for agent-runtime + fhir-sync (podmonitor.yaml).
+  # Gated OFF by default: a default render emits NO PodMonitor, so clusters without
+  # prometheus-operator (no monitoring.coreos.com CRD) stay a no-op. The per-agent
+  # and fhir-sync Services also carry prometheus.io/scrape annotations as a
+  # non-operator fallback. Flip enabled=true on clusters running the operator.
+  podMonitor:
+    enabled: false
+    # Scrape interval for the generated PodMonitors.
+    interval: "30s"
+    # Extra labels merged onto each PodMonitor (e.g. the operator's release selector
+    # label, commonly `release: kube-prometheus-stack`). Empty by default.
+    labels: {}
+    # Override the namespaceSelector matchName (defaults to this tenant namespace).
+    namespaceSelectorMatchName: ""
+
+# ---------------------------------------------------------------------------
+# CIB Seven (governance engine — per-tenant instance)
+# ---------------------------------------------------------------------------
+cibseven:
+  enabled: true
+  externalUrl: ""   # set if using an external CIB Seven instance
+
+  # In-cluster CIB Seven (ADR-0021). GATED OFF by default: the default chart points the
+  # agent-runtime at the EXTERNAL CIB Seven (unchanged CIBSEVEN_BASE_URL). Flip
+  # `enabled: true` to render statefulset-cibseven.yaml (StatefulSet + Service + headless
+  # Service) IN-CLUSTER under the same `cibseven` Service name. CIB Seven needs its OWN DB,
+  # separate from the agent checkpointer/Aurora — supply `db.url` (or a secret) below; this
+  # chart does NOT provision a second Postgres. Running it is OUT OF SCOPE (operator/AWS).
+  inCluster:
+    enabled: false
+    replicaCount: 1
+    image:
+      repository: "cibseven/cibseven"
+      tag: "2.0.0"
+      pullPolicy: ""   # defaults to .Values.image.pullPolicy when empty
+    # CIB Seven's OWN external database (NOT a second Postgres provisioned by this chart).
+    db:
+      url: ""                 # e.g. "jdbc:postgresql://cibseven-db.example:5432/cibseven"
+      existingSecret: ""      # preferred: secret holding the DB URL (overrides `url`)
+      existingSecretKey: "database-url"
+    healthPath: "/engine-rest/engine"
+    env: {}
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "2000m"
+        memory: "2Gi"
+
+# ---------------------------------------------------------------------------
+# FHIR (HAPI-FHIR R4 server — holds raw clinical PHI, ADR-0006 PHI zone)
+# ---------------------------------------------------------------------------
+fhir:
+  # In-cluster HAPI-FHIR (ADR-0021). GATED OFF by default: the default chart points the
+  # agent-runtime / fhir-sync at the EXTERNAL HAPI-FHIR (unchanged FHIR_BASE_URL). Flip
+  # `enabled: true` to render statefulset-hapi-fhir.yaml (StatefulSet + Service + headless
+  # Service) IN-CLUSTER under the same `hapi-fhir` Service name. HAPI-FHIR holds raw PHI ->
+  # PHI zone. It needs its OWN DB, separate from the agent checkpointer/Aurora — supply
+  # `db.url` (or a secret) below; this chart does NOT provision a second Postgres. Running
+  # it is OUT OF SCOPE (operator/AWS).
+  inCluster:
+    enabled: false
+    replicaCount: 1
+    image:
+      repository: "hapiproject/hapi"
+      tag: "v7.4.0"
+      pullPolicy: ""   # defaults to .Values.image.pullPolicy when empty
+    # HAPI-FHIR's OWN external database (NOT a second Postgres provisioned by this chart).
+    db:
+      url: ""                 # e.g. "jdbc:postgresql://hapi-fhir-db.example:5432/hapi"
+      existingSecret: ""      # preferred: secret holding the DB URL (overrides `url`)
+      existingSecretKey: "database-url"
+    healthPath: "/fhir/metadata"
+    env: {}
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "2Gi"
+      limits:
+        cpu: "2000m"
+        memory: "4Gi"
+
+# ---------------------------------------------------------------------------
+# PostgreSQL (Aurora) connection (injected via External Secrets)
+# ---------------------------------------------------------------------------
+aurora:
+  secretName: "aurora-master-credentials"   # ESO-synced secret name in namespace
+  # database_url is COMPOSED at ESO sync from the AWS-managed RDS master secret
+  # (manage_master_user_password=true) — see templates/externalsecret.yaml (predeploy DB-4).
+  # These four are PER-ENV and MUST be sourced from the env-root `terraform output`. They are
+  # left empty/defaulted here so a bare render fails CLOSED (required); env overlays carry them.
+  masterSecretArn: ""       # terraform output aurora_master_user_secret_arn — rds!cluster-… ARN (REQUIRED)
+  endpoint: ""              # terraform output aurora_writer_endpoint — Aurora writer endpoint host (REQUIRED)
+  port: 5432                # terraform output aurora_port
+  database: "maezo"         # terraform output aurora_database_name
+
+# ---------------------------------------------------------------------------
+# Migrations Job — Helm hook pre-install/pre-upgrade. Roda `alembic upgrade head`
+# contra o schema-por-tenant ANTES dos runtimes subirem (cria audit_chain, agent_memory,
+# a2a_idempotency, indice de retencao + pgvector em public). Ver templates/job-migrations.yaml.
+# Pre-requisito: o secret Aurora (ESO-synced) deve existir antes do helm upgrade.
+# ---------------------------------------------------------------------------
+migrations:
+  enabled: true
+  # backoffLimit cobre atrasos transitorios de sincronizacao do ESO (secret Aurora).
+  backoffLimit: 6
+  activeDeadlineSeconds: 600
+  # DB-7: teto (segundos) do initContainer `await-db-secret`, que ESPERA o secret Aurora
+  # (ESO-synced) aparecer ANTES do container de migracao mmontar via secretKeyRef. Poll de
+  # volume OPCIONAL (nunca secretKeyRef) => pod chega a Running e espera, em vez de
+  # CreateContainerConfigError. No deploy two-phase (cd.yml / runbook §3) o secret ja existe e
+  # isto passa no 1o poll; folga confortavel dentro de activeDeadlineSeconds (600s).
+  secretWaitSeconds: 300
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "256Mi"
+
+# ---------------------------------------------------------------------------
+# Lifecycle CronJobs — expurgo / retencao PHI-LGPD (ADR-0002 §4, ADR-0007).
+# Cada job roda `python -m maezo.platform.lifecycle <command>` contra o Postgres do tenant.
+# ---------------------------------------------------------------------------
+lifecycle:
+  enabled: true
+  # Teto de execucao por job (segundos) — bounded para nunca travar um Job.
+  activeDeadlineSeconds: 1800
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "256Mi"
+  jobs:
+    # gap #3 — sweep TTL da camada working (threads/checkpoints vencidos). Diario, madrugada.
+    - name: expurgo-working
+      command: "expurgo-working"
+      schedule: "0 3 * * *"
+    # gap #5 — verificacao MENSAL de erasure LGPD (zero PHI residual). Dia 1, 04:00.
+    # `erasedPatientIdsSecret`: secret (k8s) com a lista de fhir_patient_id ja apagados a checar
+    # (alimentada do registro de DSRs LGPD). BLOQUEADO/seam ate o registro existir — vazio = no-op.
+    - name: verify-erasure
+      command: "verify-erasure"
+      schedule: "0 4 1 * *"
+      erasedPatientIdsSecret: ""
+    # gap #6 — retencao 5 anos da auditoria por DELETE-por-idade (audit_chain.ts >5 anos).
+    # Particionamento foi rejeitado (enfraquecia a UNIQUE(prev_record_hash) DB-atomica). Mensal, dia 1, 05:00.
+    - name: audit-retention
+      command: "audit-retention"
+      schedule: "0 5 1 * *"

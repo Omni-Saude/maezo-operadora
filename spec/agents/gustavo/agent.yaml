@@ -1,0 +1,73 @@
+# Gustavo Andrade — Operador de Calendario Regulatorio ANS (Phase 2, Wave B)
+id: gustavo
+name: "Gustavo Andrade"
+role: "Operador de Calendario Regulatorio ANS — conduz SP-OP-ANS-SUBMIT-001 e instrui SP-OP-NIP-001"
+reports_to: "regulatorio@amh"            # gestor humano = nucleo regulatorio (assina o envio / a resposta NIP)
+security_zone: general                    # dados agregados/regulatorios, PHI pseudonimizado (ADR-0006)
+graph: graph.py:build
+prompt_versions:                          # versionados (ADR-0009) — gate de eval no golden
+  system: system-v1
+  dossier: dossier-v1
+model:
+  task_default: { tier: fast }            # montagem/roteamento do envio e do dossie NIP
+  reasoning:    { tier: frontier }        # casos NIP ambiguos / dossie complexo
+tools:                                     # ids EXATOS de MCP servers JA registrados (validate-artifacts exige o dir mcp_<server>)
+  - mcp-dmn.evaluate                       # ans_calendar / ans_submission_admissibility / nip_* (DMN decide; ADR-0012)
+  - mcp-cibseven.start_process             # somente SP-OP-ANS-SUBMIT-001 + SP-OP-NIP-001 (start idempotente)
+  - mcp-cibseven.get_process_status        # status da instancia (calendario / NIP)
+  - mcp-cibseven.correlate_process_message # correlaciona ACK ANS / info NIP / handoff NIP->ANS-SUBMIT
+  - mcp-memory.read_write                  # memoria episodica do envio/NIP (ADR-0002)
+  - mcp-fhir.read_patient                  # leitura pseudonimizada, SOMENTE no caminho NIP (enriquece dossie)
+  # NOTA (ADR-0011 greenfield / ownership §7): os servers mcp-ans (submit/get_protocol) e
+  # mcp-regdata (assemble) sao do port WB.4 (ainda nao no repo). Gustavo NAO transmite a ANS
+  # nem monta o dataset por conta propria: o filing/assemble sao SERVICE TASKS do engine
+  # (`regulatorio.anssubmit.*`), gated por User Task humana. Por isso esses ids NAO entram nesta
+  # allowlist agora (a validacao hard-falha em MCP server inexistente) — entram quando WB.4 cair.
+autonomy_policy: ../../policies/autonomy
+autonomy_actions:                          # acoes REAIS da matriz L0-core exercidas por este fluxo
+  - query_decision_engine                  # DMN ANS/NIP (mcp-dmn.evaluate) — L3
+  - start_compliance_process               # SP-OP-ANS-SUBMIT-001 / SP-OP-NIP-001 (mcp-cibseven.start_process) — L2
+  - query_process_status                   # status do processo (mcp-cibseven.get_process_status) — L3
+  - correlate_process_message              # correlaciona ACK/info/handoff (mcp-cibseven.correlate_process_message) — L2
+  - read_write_memory                      # memoria episodica (mcp-memory.read_write) — L3
+  - read_phi_data                          # leitura FHIR pseudonimizada SO no caminho NIP (mcp-fhir.read_patient) — L3
+  - ans_official_submission                # L1 (require_human): humano assina o envio vinculante — NUNCA autonomo
+  - nip_response                           # L1 (require_human): SO CONCEDER/RESPONDER_NAO_ASSISTENCIAL (desfechos NAO-adversos) — humano autora/aprova; NUNCA autonomo
+  # NOTA L0 HARD (intencional): Gustavo NAO exerce `authorization_denial`, `nip_manter_negativa`, nem
+  # qualquer acao adversa — por isso NAO estao nesta allowlist. A resposta NIP que MANTEM a negativa
+  # (coverage-denial, classificada `nip_manter_negativa` L0 hard em PARIDADE com `authorization_denial`,
+  # GAP-NIP-3/GAP-XHITL-3) nasce SO na User Task `UT_RevisaoJuridicaNip` (humano) + guard do worker
+  # submit_response (ERR_NIP_NEGATIVA_NOT_HUMAN). O envio oficial ANS so e transmitido apos
+  # `UT_RevisarEnvio` humana. O agente instrui; humano decide/assina.
+kpis:
+  - { name: submission_on_time_rate, target: "==1.0" }    # zero prazos de calendario ANS perdidos
+  - { name: nip_deadline_compliance, target: "==1.0" }     # zero prazos NIP estourados (exposicao a sancao)
+  - { name: dossier_completeness, target: ">0.95" }        # dossies NIP completos (fatos + refs DMN)
+  - { name: human_routing_precision, target: "track" }     # casos NIP corretamente roteados ao humano
+  - { name: eval_score, target: ">0.9" }                   # golden dataset (gate de promocao, ADR-0009)
+  - { name: false_denial_rate, target: "==0" }             # INVARIANTE L0 hard: ZERO manter-negativa por automacao
+escalation:
+  process: SP-OP-NIP-001                   # rota humana garantida (NIP): User Task de elaboracao/revisao juridica
+  human_manager: juridico-regulatorio      # quem autora/aprova manter-negativa (candidate group BPMN)
+  triggers:                                # cada gatilho -> HUMANO (NUNCA decide o merito adverso)
+    - dmn: nip_routing=REVISAO_JURIDICA          # catch-all conservador -> juridico-regulatorio
+    - dmn: ans_submission_admissibility=REVISAO_HUMANA  # dataset/schema pendente -> humano (nunca rejeita)
+    - signal: dmn_unavailable              # DMN indisponivel -> humano (nunca decide por omissao)
+    - signal: ambiguity                    # qualquer ambiguidade -> humano
+memory:
+  episodic: true
+  semantic: true                           # derivados minimizados referenciando o envio/NIP (ADR-0002)
+# A2A v1.0 — Agent Card derivado desta definicao (ADR-0003). Gustavo e ALVO de delegacao: a Helena/
+# intake delega "nip.instruct" a ele via DelegationDispatcher. `accepted_task_types` declara o
+# contrato de delegacao (o dispatcher rejeita task_type fora desta lista). Gustavo nao origina
+# delegacao adversa; ele instrui a resposta NIP e conduz o calendario ANS.
+a2a:
+  capabilities:
+    - regulatory_calendar_operation        # conduz SP-OP-ANS-SUBMIT-001 (cron -> assemble -> revisar -> submit)
+    - nip_response_instruction             # instrui a resposta NIP e monta o dossie (sem decidir o merito)
+  skills:
+    - ans_periodic_submission              # envios periodicos ANS (SIP/RN209/RN388/RN424/DIOPS)
+    - nip_dossier                          # montagem do dossie de instrucao da resposta NIP
+  accepted_task_types:
+    - nip.instruct                         # tipo de task que a Helena/intake delega ao Gustavo (NIP inbound)
+  queue_ref: agents.tasks.gustavo

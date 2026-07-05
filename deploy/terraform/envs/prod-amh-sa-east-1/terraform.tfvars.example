@@ -1,0 +1,15 @@
+# Example tfvars for prod-amh-sa-east-1.
+# NEVER commit real account IDs or emails.
+
+aws_account_id = "123456789012"
+owner_email    = "platform@example.com"
+cost_center    = "maezo-prod-amh"
+
+# Set create_eks_cluster=true to provision a dedicated cluster (ADR-0004)
+create_eks_cluster = true
+
+# When create_eks_cluster=false, reference the shared cluster:
+# eks_cluster_name = "amh-data-platform-eks-prod"
+
+eks_node_security_group_ids = []   # populated after cluster creation
+eks_node_role_arns          = []   # populated after cluster creation

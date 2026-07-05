@@ -1,0 +1,31 @@
+# === LISTA CONGELADA DE ITENS `hard` (imutavel — guardrail de compliance) ===
+#
+# Itens `hard: true` da matriz de autonomia NAO sao rebaixaveis por nenhuma camada
+# nem tenant (ADR-0008). Esta lista e a fonte da verdade verificada em CI por
+# `make validate-artifacts`: se alguem editar, remover ou rebaixar um item `hard`
+# em L0-core.yaml (ou tentar override em qualquer camada), a validacao FALHA.
+#
+# Para alterar deliberadamente um item hard: e mudanca de governanca — exige ADR
+# novo + revisao de compliance (CODEOWNERS), atualizando ESTE arquivo no mesmo PR.
+#
+# ADICOES sao ENDURECIMENTO (nunca enfraquecimento): promover um item a `hard` amplia a
+# fronteira imutavel, o que este guardrail sempre permite. Ainda assim a promocao passa por
+# CODEOWNERS (compliance/arquitetura) e e registrada em docs/review-queue.md no mesmo PR.
+#
+# Cada entrada: action == nome da acao; level == nivel congelado (sempre L0 p/ hard).
+version: 1
+hard_items:
+  - action: clinical_decision
+    level: L0
+  - action: authorization_denial
+    level: L0
+  # PROMOCAO (GAP-NIP-3/GAP-XHITL-3): NIP MANTER_NEGATIVA e uma negativa de cobertura
+  # (authorization_denial-class) — congelada L0 HARD em PARIDADE com `authorization_denial`.
+  # Endurecimento aditivo; nao supersede nem enfraquece nenhum item existente. Espelhado em
+  # pep.HARD_ACTIONS + agent_def_merge.HARD_AUTONOMY_ACTIONS. CODEOWNERS: compliance + arquitetura.
+  - action: nip_manter_negativa
+    level: L0
+  - action: fraud_accusation
+    level: L0
+  - action: contract_termination
+    level: L0

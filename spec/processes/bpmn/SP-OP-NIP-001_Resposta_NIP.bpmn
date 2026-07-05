@@ -1,0 +1,932 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+                  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+                  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+                  xmlns:camunda="http://camunda.org/schema/1.0/bpmn"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  id="Definitions_SP_OP_NIP_001"
+                  targetNamespace="http://maezo.health/operadora/nip"
+                  exporter="Maezo W5-PROC"
+                  exporterVersion="0.1.0-draft">
+
+  <bpmn:message id="Msg_NipInstruct" name="msg.nip.instruct"/>
+  <bpmn:message id="Msg_NipInfoRecebida" name="msg.nip.info_recebida"/>
+  <!-- GAP-NIP-6: guard de validacao de ORIGEM no handoff a ANS-SUBMIT — `protocolo_ans` e
+       OPCIONAL no contrato (obrigatoria=nao; correlacao com ANS-SUBMIT). AUSENTE (None) e um
+       estado legitimo (NIP ainda sem protocolo ANS conhecido) e NUNCA lanca este erro. O que e
+       INCONSISTENTE e um valor PRESENTE que reduz a vazio apos strip (ex.: "   ") — ver
+       ERR_NIP_PROTOCOLO_INVALIDO em nip.py (make_handoff_ans_submit_handler) para o racional
+       completo (quebraria o fallback `or`-chain de
+       notifications_bridge/consumer.py::_nip_protocolo_origem). Lancado pelo worker
+       `operadora.nip.handoff_ans_submit` (mesmo handler serve ST_HandoffAnsManter/Conceder/
+       NaoAssistencial); capturado por tres boundary events dedicados abaixo (mainline — erro
+       nao-capturado encerraria o escopo silenciosamente, espelha GAP-CRED-1/GAP-RECURSO-3/
+       GAP-REEMBOLSO-2). -->
+  <bpmn:error id="Error_NipProtocoloInvalido" name="Protocolo ANS inconsistente na origem (protocolo_ans presente porem vazio/em branco)" errorCode="ERR_NIP_PROTOCOLO_INVALIDO"/>
+  <bpmn:error id="Error_NipNegativaNotHuman" name="Manutencao de negativa NIP sem decisao humana" errorCode="ERR_NIP_NEGATIVA_NOT_HUMAN"/>
+
+  <bpmn:process id="SP-OP-NIP-001" name="SP-OP-NIP-001 Resposta a NIP (ANS)"
+                isExecutable="true" camunda:historyTimeToLive="1825">
+    <bpmn:documentation><![CDATA[
+SP-OP-NIP-001 — Resposta a NIP (Notificacao de Intermediacao Preliminar — ANS). Status: DRAFT
+(v0.1.0) — Phase 2, Wave WB (canal regulatorio ANS). DI (diagrama) sera adicionado na promocao
+a FINAL. Requer revisao humana (regulatorio-ans / juridico-regulatorio / medico-auditor) antes
+de qualquer deploy — ver docs/review-queue.md.
+
+GATILHO REGULATORIO: RN 388/2016 (procedimento NIP; prazos de resposta assistencial ~5 dias
+UTEIS / nao-assistencial ~10 dias UTEIS — DRAFT/verify), IN DIDES correlata (DRAFT/verify),
+Lei 9.656/1998 (cobertura). Citacoes nao confirmadas — ver phase2-plan §9 / review-queue.
+
+INVARIANTE L0 HARD (ADR-0005/0008, authorization_denial-class na branch "mantem a negativa"):
+MANTER a negativa original apos uma NIP embute authorization_denial (L0 hard). A decisao de
+MANTER A NEGATIVA SO nasce numa User Task humana UT_RevisaoJuridicaNip (juridico-regulatorio),
+com decisao_nip==MANTER_NEGATIVA + fundamentacao_regulatoria + referencia_negativa_original
+obrigatorias. NENHUMA DMN deste processo (nip_classification / nip_routing / nip_sla) tem coluna
+de saida de negativa/decisao_nip: classificam e roteiam (assistencial/nao-assistencial, prazo,
+grupo) — nunca decidem o merito. Toda linha catch-all roteia para juridico-regulatorio com o
+prazo mais curto (conservador). Tema NIP nao reconhecido NUNCA vira "nao-assistencial respondida
+automaticamente". O efeito adverso e materializado SO pelo worker operadora.nip.submit_response,
+guardado por ERR_NIP_NEGATIVA_NOT_HUMAN. O terminal End_NipNegativaMantida so e alcancavel apos
+UT_RevisaoJuridicaNip concluida por humano com MANTER_NEGATIVA + revisor_id. Mesmo a resposta
+FAVORAVEL (CONCEDER) e a nao-assistencial sao SEMPRE autoradas/revisadas por humano antes do
+filing — nenhuma DMN/agente produz texto_resposta_nip como final. O timer interruptivo de prazo
+NUNCA auto-responde/auto-mantem por estouro: escala a coordenacao humana (UT_CoordenacaoNip;
+inversao do anti-padrao de auto-resposta por timeout).
+
+BUSINESS KEY (idempotente): "NIP-{tenant_id}-{numero_nip_ans}"
+  — uma instancia por protocolo NIP. Reentrega da mesma NIP NAO cria nova instancia
+  (mcp-cibseven.start_process consulta business key antes de iniciar).
+
+EVENTOS DE DOMINIO (worker operadora.events.publish):
+  inicio -> agents.events.nip.received
+  classificacao -> agents.events.nip.classified (payload.classificacao, prazo_dias)
+  risco de prazo -> agents.events.nip.deadline_risk (timer nao-interruptivo)
+  prazo estourado -> agents.events.nip.breached (metrica de compliance — exposicao a sancao)
+  fim -> agents.events.nip.completed (payload.desfecho = resolvida_favoravel | negativa_mantida |
+         nao_assistencial_respondida)
+
+VARIAVEIS DE ENTRADA: tenant_id, numero_nip_ans, protocolo_ans (opc), beneficiario_pseudo_id
+(ADR-0006), classificacao_nip (assistencial|nao_assistencial), tema_nip, referencia_negativa_original
+(opc), data_recebimento_nip_iso, documentos_refs (json), contesta_negativa (bool), documentacao_suficiente
+(bool), origem_a2a (opc). (classificacao_nip/contesta_negativa/documentacao_suficiente pre-resolvidos
+por worker antes das DMN.) Contrato completo: docs/processes/contracts/SP-OP-NIP-001.md.
+
+GAP-NIP-1 (resolvido): `data_recebimento_nip_iso` e a ANCORA REGULATORIA do prazo (contrato
+SP-OP-NIP-001.md §"SLAs" — "o prazo conta de data_recebimento_nip_iso"). BRT_NipSla (DMN nip_sla)
+le esta variavel e computa `prazo_resposta_absoluto_iso` / `sla_alerta_absoluto_iso` (deadline/
+alerta ABSOLUTOS, ISO 8601 datetime) somando a duracao regulatoria a ela. Os cinco timers do
+processo (BT_AlertaPrazoNip, BT_PrazoNipEstourado, BT_AlertaPrazoRevisao, BT_PrazoRevisaoEstourado,
+ICE_PrazoInfo) usam `timeDate` (absoluto) sobre esses campos — nunca mais `timeDuration` relativo
+ao attach da User Task/event. Isto evita que o prazo "reinicie" a cada vez que o BPMN alcanca uma
+nova User Task (ex.: apos o dossie de Gustavo, apos SOLICITAR_INFO). `prazo_resposta_iso` /
+`sla_alerta_iso` (duracoes relativas) permanecem como saida da DMN para relatorios/observabilidade
+(nip.classified/nip.deadline_risk), mas NAO alimentam mais nenhum timerEventDefinition.
+
+GAP-NIP-2 (resolvido; root-cause do 500/ENGINE-16004 corrigido): nip_routing.grupo_humano (antes
+calculado e nunca consumido) agora DECIDE o candidateGroups de UT_ElaborarRespostaNip
+(camunda:candidateGroups="`grupo_humano`" — variavel FLAT promovida por outputParameter em
+BRT_Roteamento, NAO o dot-path direto "`roteamento_nip.grupo_humano`" no resultVariable da DMN, que
+lanca ENGINE-16004 quando nao ha wait-state entre a businessRuleTask e a User Task consumidora;
+confirmado em CI run 28637356996, ver nota completa em BRT_Roteamento). Espelha
+`roteamento.grupo_atendimento` de SP-OP-ESCALATION-001/ADR-0012 (la o wait-state ST_NotificarTime
+torna o dot-path direto seguro; aqui nao ha, entao a promocao flat e obrigatoria). UT_RevisaoJuridicaNip
+permanece candidateGroups ESTATICO (juridico-regulatorio,medico-auditor) por seguranca — tem
+multiplos incoming flows onde roteamento/grupo_humano nem sempre refletem a rodada de revisao
+juridica (ver nota em BRT_Roteamento/UT_RevisaoJuridicaNip). O output nip_routing.sla_alerta_iso
+(nunca consumido por nenhum lado — nem BPMN nem o dossie do agente Gustavo) foi REMOVIDO do DMN:
+superseded por nip_sla.sla_alerta_absoluto_iso (BRT_NipSla), unico valor que ja alimenta os timers
+reais.
+]]></bpmn:documentation>
+
+    <bpmn:startEvent id="Start_NipRecebida" name="NIP recebida">
+      <bpmn:outgoing>Flow_Start_PubReceived</bpmn:outgoing>
+    </bpmn:startEvent>
+
+    <!-- Start alternativo: delegacao A2A nip.instruct (Helena/intake -> Gustavo) -->
+    <bpmn:startEvent id="Start_NipInstruct" name="NIP por delegacao A2A (nip.instruct)">
+      <bpmn:outgoing>Flow_Instruct_PubReceived</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="MED_NipInstruct" messageRef="Msg_NipInstruct"/>
+    </bpmn:startEvent>
+
+    <bpmn:serviceTask id="ST_PublishReceived" name="Publicar evento: nip.received"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.nip.received</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_nip_ans,protocolo_ans,classificacao_nip,tema_nip</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Start_PubReceived</bpmn:incoming>
+      <bpmn:incoming>Flow_Instruct_PubReceived</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubReceived_Dossie</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- Gustavo monta o dossie de instrucao (sem decidir merito) — espelha Rafael/Marina -->
+    <bpmn:serviceTask id="ST_InstruirDossie" name="Montar dossie de instrucao (agente Gustavo)"
+                      camunda:type="external" camunda:topic="operadora.nip.instruct_dossier">
+      <bpmn:documentation>Convoca Gustavo via A2A (nip.instruct): dossie de instrucao da resposta (recomendacao + evidencias + regras DMN avaliadas). O dossie INSTRUI a decisao humana, nunca a substitui nem produz o texto final da resposta (principio Rafael, ADR-0005).</bpmn:documentation>
+      <bpmn:incoming>Flow_PubReceived_Dossie</bpmn:incoming>
+      <bpmn:incoming>Flow_InfoRecebida_Dossie</bpmn:incoming>
+      <bpmn:outgoing>Flow_Dossie_Classificar</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- DMN: classificacao (apenas classifica e roteia ao grupo; sem saida de negativa) -->
+    <bpmn:businessRuleTask id="BRT_Classificacao" name="Classificar NIP (DMN nip_classification)"
+                           camunda:decisionRef="nip_classification"
+                           camunda:mapDecisionResult="singleResult"
+                           camunda:resultVariable="classificacao_nip_dmn">
+      <bpmn:documentation>Saidas: classificacao in {ASSISTENCIAL_CONTESTA_NEGATIVA, ASSISTENCIAL_OUTRO, NAO_ASSISTENCIAL}, prazo_dias (integer, dias uteis), grupo_revisor. Catch-all (tema nao reconhecido ou contesta_negativa ambiguo) -> ASSISTENCIAL_CONTESTA_NEGATIVA + juridico-regulatorio + menor prazo. NAO produz decisao_nip (L0 hard).
+PROMOCAO DE SAIDAS (engine-correct): mapDecisionResult=singleResult guarda o objeto-resultado em classificacao_nip_dmn; os outputParameters abaixo promovem classificacao/prazo_dias/grupo_revisor a VARIAVEIS DE PROCESSO de topo, para que nip_routing/nip_sla (que leem `classificacao` como inputExpression) e o publish (event_payload_vars) resolvam o identificador. Sem isso, CIB Seven 2.1.0 lanca ENGINE-16004 "Cannot resolve identifier 'classificacao'" em BRT_Roteamento — antes de BRT_NipSla setar `sla` — e as User Tasks/timers `sla.*` nunca sao criadas (espelha o idioma de AUTH/CONTAS, onde toda inputExpression de DMN le uma variavel ja existente).</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:outputParameter name="classificacao">${classificacao_nip_dmn.classificacao}</camunda:outputParameter>
+          <camunda:outputParameter name="prazo_dias">${classificacao_nip_dmn.prazo_dias}</camunda:outputParameter>
+          <camunda:outputParameter name="grupo_revisor">${classificacao_nip_dmn.grupo_revisor}</camunda:outputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Dossie_Classificar</bpmn:incoming>
+      <bpmn:outgoing>Flow_Classificar_PubClassified</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+
+    <!-- Publica nip.classified com prazo_dias (countdown de observabilidade WD.3) -->
+    <bpmn:serviceTask id="ST_PublishClassified" name="Publicar evento: nip.classified"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.nip.classified</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_nip_ans,classificacao,prazo_dias,grupo_revisor</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Classificar_PubClassified</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubClassified_Rotear</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- DMN: roteamento (ELABORAR_RESPOSTA | PENDENTE_INFO | REVISAO_JURIDICA; sem merito) -->
+    <bpmn:businessRuleTask id="BRT_Roteamento" name="Rotear NIP (DMN nip_routing)"
+                           camunda:decisionRef="nip_routing"
+                           camunda:mapDecisionResult="singleResult"
+                           camunda:resultVariable="roteamento_nip">
+      <bpmn:documentation>Saidas: roteamento in {ELABORAR_RESPOSTA, PENDENTE_INFO, REVISAO_JURIDICA}, grupo_humano. Catch-all -> REVISAO_JURIDICA + juridico-regulatorio. Sem saida que decida o merito (manter/conceder) — apenas encaminha ao humano. ELABORAR_RESPOSTA sempre desemboca numa User Task, nunca em submit_response.
+GAP-NIP-2 (corrigido — root-cause do 500/ENGINE-16004): a promessa original de que
+mapDecisionResult=singleResult + resultVariable dariam acesso direto (`roteamento_nip.grupo_humano`)
+a QUALQUER consumidor downstream estava incompleta. Isso funciona quando ha um wait-state (external
+task) ENTRE a businessRuleTask e o consumidor — caso de escalation_routing/SP-OP-ESCALATION-001
+(`roteamento.grupo_atendimento`, ADR-0012), onde ST_NotificarTime intercala e persiste a variavel
+antes de UT_TratarEscalonamento resolver o dot-path. Aqui NAO ha wait-state entre BRT_Roteamento e
+UT_ElaborarRespostaNip (GW_Roteamento e um gateway inline) — a instanciacao da User Task e o dot-path
+em roteamento_nip.grupo_humano ocorrem na MESMA transacao sincrona que completa o external task
+predecessor (ST_PublishClassified), antes do resultado da DMN ser persistido. CIB Seven 2.1.0 lanca
+ENGINE-16004 "Cannot resolve identifier" nesse caso — confirmado em CI (run 28637356996: 500 em
+POST .../external-task/{id}/complete ao tentar completar ST_PublishClassified; "UT_ElaborarRespostaNip
+nao apareceu" nos 2 testes happy-path que atravessam o ramo ELABORAR_RESPOSTA). Fix (mesmo idioma do
+fix ja aplicado em BRT_Classificacao, que promove classificacao/prazo_dias/grupo_revisor): os
+outputParameters abaixo promovem roteamento/grupo_humano a VARIAVEIS DE PROCESSO FLAT de topo DENTRO
+desta propria businessRuleTask (onde o dot-path em roteamento_nip.* e seguro — mesmo idioma do
+BRT_Classificacao). GW_Roteamento/UT_ElaborarRespostaNip agora leem os identificadores flat
+roteamento/grupo_humano (nunca mais o dot-path em roteamento_nip), resolviveis em qualquer transacao
+subsequente sem depender de um wait-state intermediario. grupo_humano carrega um fail-safe
+conservador (juridico-regulatorio — mesmo grupo da row catch-all da DMN) caso a saida da DMN venha
+vazia/nula por qualquer motivo; roteamento nao precisa de fail-safe porque GW_Roteamento ja tem
+default="Flow_GWRotear_Juridico" (REVISAO_JURIDICA, humano) para qualquer valor que nao seja
+EXATAMENTE 'ELABORAR_RESPOSTA'. UT_RevisaoJuridicaNip permanece com candidateGroups ESTATICO
+(juridico-regulatorio,medico-auditor) por seguranca: tem TRES incoming flows e nos dois que NAO vem
+direto de GW_Roteamento (pos-elaboracao via GW_Minuta; retomada via ICE_PrazoInfo) o roteamento/
+grupo_humano flat ainda carregariam o valor da rodada ELABORAR_RESPOSTA (nucleo-ans/regulatorio-ans)
+— wiring dinamico ali violaria o invariante L0 de revisao sempre-juridica. O output sla_alerta_iso
+(antes calculado por esta DMN, nunca lido por nenhum consumidor) foi REMOVIDO do nip_routing.dmn —
+superseded por nip_sla.sla_alerta_absoluto_iso (BRT_NipSla), unico valor que alimenta os timers
+timeDate reais (GAP-NIP-1).</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:outputParameter name="roteamento">${roteamento_nip.roteamento}</camunda:outputParameter>
+          <camunda:outputParameter name="grupo_humano">${empty(roteamento_nip.grupo_humano) ? 'juridico-regulatorio' : roteamento_nip.grupo_humano}</camunda:outputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_PubClassified_Rotear</bpmn:incoming>
+      <bpmn:outgoing>Flow_Rotear_Sla</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+
+    <!-- DMN: SLA (prazo de resposta ISO; alerta nao-interruptivo; fonte regulatoria) -->
+    <bpmn:businessRuleTask id="BRT_NipSla" name="Determinar prazo de resposta (DMN nip_sla)"
+                           camunda:decisionRef="nip_sla"
+                           camunda:mapDecisionResult="singleResult"
+                           camunda:resultVariable="sla">
+      <bpmn:documentation>Entrada: `classificacao` (saida de nip_classification, ja promovida a variavel de processo) + `data_recebimento_nip_iso` (ancora regulatoria do prazo — GAP-NIP-1; lida diretamente do contexto de avaliacao, pois toda businessRuleTask envia as variaveis de processo correntes). Saidas: prazo_resposta_iso/sla_alerta_iso (string ISO — duracoes relativas, legado/observabilidade), prazo_resposta_absoluto_iso/sla_alerta_absoluto_iso (string ISO datetime — deadline/alerta ABSOLUTOS = data_recebimento_nip_iso + duracao; consumidos pelos timeDate dos boundary timers/ICE_PrazoInfo), fonte_regulatoria (RN 388 — DRAFT/verify). Prazos NIP sao os timers mais schedule-criticos da Phase 2; nenhuma saida adversa.</bpmn:documentation>
+      <bpmn:incoming>Flow_Rotear_Sla</bpmn:incoming>
+      <bpmn:outgoing>Flow_Sla_GWRotear</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+
+    <bpmn:exclusiveGateway id="GW_Roteamento" name="Resultado do roteamento" default="Flow_GWRotear_Juridico">
+      <bpmn:incoming>Flow_Sla_GWRotear</bpmn:incoming>
+      <bpmn:outgoing>Flow_GWRotear_Elaborar</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWRotear_Juridico</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <!-- Ramo ELABORAR_RESPOSTA: humano autora a minuta (regulatorio-ans / nucleo-ans, DMN-decidido) -->
+    <bpmn:userTask id="UT_ElaborarRespostaNip" name="Elaborar minuta de resposta a NIP"
+                   camunda:candidateGroups="${grupo_humano}">
+      <bpmn:documentation><![CDATA[
+HITL: ORIGEM do texto da resposta — o humano SEMPRE autora a minuta (regulatorio-ans para
+assistencial-outro, nucleo-ans para nao-assistencial/clerical). Saidas: texto_resposta_nip (minuta) +
+decisao_nip in {CONCEDER, RESPONDER_NAO_ASSISTENCIAL, ENCAMINHAR_REVISAO}. Para qualquer caminho
+que possa manter a negativa, encaminha a UT_RevisaoJuridicaNip (juridico-regulatorio). Nenhuma
+DMN/agente escreve texto_resposta_nip. A autoria sai em nome do humano (assignee na trilha de
+auditoria, ADR-0007). SLA (deadline absoluto): a variavel de processo sla.prazo_resposta_absoluto_iso
+(= data_recebimento_nip_iso + duracao regulatoria; DMN nip_sla; RN 388 — DRAFT/verify).
+
+GAP-NIP-2 (resolvido): candidateGroups e DMN-DECIDIDO — o UNICO expression-language (dollar-brace)
+desta User Task e o ATRIBUTO camunda:candidateGroups, que le a variavel FLAT grupo_humano (nao mais o
+estatico "regulatorio-ans,nucleo-ans"). grupo_humano e promovida por outputParameter em BRT_Roteamento
+a partir de roteamento_nip.grupo_humano (ver nota completa la). Seguro aqui porque este UserTask tem UM
+SO incoming flow (Flow_GWRotear_Elaborar) — so alcancado quando roteamento vale ELABORAR_RESPOSTA,
+condicao sob a qual grupo_humano e SEMPRE "nucleo-ans" (NAO_ASSISTENCIAL) ou "regulatorio-ans"
+(ASSISTENCIAL_OUTRO); nunca "juridico-regulatorio" (essas linhas da DMN produzem
+REVISAO_JURIDICA/PENDENTE_INFO, que nunca chegam por este flow). Espelha o roteamento.grupo_atendimento
+de SP-OP-ESCALATION-001 (ADR-0012).
+
+ROOT-CAUSE DO 500/ENGINE-16004 (corrigido — CI run 28660809810, instrumentado no log do cibseven):
+CIB Seven avalia a DOCUMENTACAO de uma User Task como um template JUEL na instanciacao da task. Esta
+documentacao continha antes tokens de expressao literais EM PROSA (o exemplo do dot-path
+grupo_atendimento em forma dollar-brace); o engine EXECUTAVA esses tokens ao criar a UT e, como
+roteamento e uma String (variavel flat), o acesso a propriedade grupo_atendimento lancava
+"Unknown property used in expression" (java.lang.String does not have the property 'grupo_atendimento')
+-> ENGINE-16004 -> 500 no /complete do external task PREDECESSOR (ST_PublishClassified, mesma transacao
+sincrona; sem async entre eles) -> a UT nunca aparecia. FIX: toda referencia a variavel/expressao NESTA
+documentacao passou a ser TEXTO PLANO (sem dollar-brace); o unico EL real deste elemento e o atributo
+camunda:candidateGroups. A documentacao de businessRuleTask/boundaryEvent NAO e avaliada (BRT_Roteamento,
+cuja propria doc cita o mesmo exemplo dollar-brace, completa sem erro) — apenas a de User Task e.
+]]></bpmn:documentation>
+      <bpmn:incoming>Flow_GWRotear_Elaborar</bpmn:incoming>
+      <bpmn:outgoing>Flow_UTElaborar_GWMinuta</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <!-- Timer nao-interruptivo: alerta de risco de prazo (deadline-risk) -->
+    <bpmn:boundaryEvent id="BT_AlertaPrazoNip" name="Alerta de risco de prazo NIP" cancelActivity="false" attachedToRef="UT_ElaborarRespostaNip">
+      <bpmn:documentation>GAP-NIP-1: timeDate absoluto (nao mais timeDuration relativo ao attach da UT). `sla.sla_alerta_absoluto_iso` e computado por BRT_NipSla (DMN nip_sla) somando a duracao de alerta a `data_recebimento_nip_iso` — a ancora regulatoria do prazo (contrato SP-OP-NIP-001.md), nunca o momento em que esta User Task foi criada.</bpmn:documentation>
+      <bpmn:outgoing>Flow_AlertaPrazo_Notify</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TD_AlertaPrazoNip">
+        <bpmn:timeDate xsi:type="bpmn:tFormalExpression">${sla.sla_alerta_absoluto_iso}</bpmn:timeDate>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="ST_NotificarRiscoPrazo" name="Notificar risco de prazo (regulatorio-ans/nucleo-ans)"
+                      camunda:type="external" camunda:topic="operadora.nip.notify_deadline_risk">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic_deadline_risk">agents.events.nip.deadline_risk</camunda:inputParameter>
+          <camunda:inputParameter name="sla_breach_task_name">UT_ElaborarRespostaNip</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_AlertaPrazo_Notify</bpmn:incoming>
+      <bpmn:outgoing>Flow_NotifyPrazo_EndAlerta</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_RiscoPrazoNotificado" name="Risco de prazo notificado (elaboracao segue)">
+      <bpmn:incoming>Flow_NotifyPrazo_EndAlerta</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Timer interruptivo: prazo ANS estourado -> coordenacao humana assume (NUNCA auto-responde) -->
+    <bpmn:boundaryEvent id="BT_PrazoNipEstourado" name="Prazo ANS estourado (RN 388 — DRAFT/verify)" cancelActivity="true" attachedToRef="UT_ElaborarRespostaNip">
+      <bpmn:documentation>GAP-NIP-1: timeDate absoluto. `sla.prazo_resposta_absoluto_iso` e computado por BRT_NipSla somando o prazo regulatorio a `data_recebimento_nip_iso` — a ancora do contrato (nunca o attach desta UT).</bpmn:documentation>
+      <bpmn:outgoing>Flow_PrazoEstourado_PubBreach</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TD_PrazoNipEstourado">
+        <bpmn:timeDate xsi:type="bpmn:tFormalExpression">${sla.prazo_resposta_absoluto_iso}</bpmn:timeDate>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="ST_PublishBreach" name="Publicar evento: nip.breached"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.nip.breached</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_nip_ans,classificacao</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_PrazoEstourado_PubBreach</bpmn:incoming>
+      <bpmn:incoming>Flow_PrazoRevisaoEstourado_PubBreach</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubBreach_UTCoord</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:userTask id="UT_CoordenacaoNip" name="Coordenacao regulatoria assume (prazo estourado)"
+                   camunda:candidateGroups="coordenacao-regulatorio,juridico-regulatorio">
+      <bpmn:documentation>Escalation path do prazo ANS estourado: caso reatribuido a coordenacao/juridico. A decisao continua HUMANA — NUNCA auto-resposta/auto-manutencao por timeout (inversao do anti-padrao de auto-resposta). Mesmas saidas e mesmos campos obrigatorios de UT_RevisaoJuridicaNip: decisao_nip in {MANTER_NEGATIVA, CONCEDER, RESPONDER_NAO_ASSISTENCIAL, SOLICITAR_INFO}; MANTER_NEGATIVA exige fundamentacao_regulatoria + referencia_negativa_original + revisor_id.</bpmn:documentation>
+      <bpmn:incoming>Flow_PubBreach_UTCoord</bpmn:incoming>
+      <bpmn:outgoing>Flow_UTCoord_GWDecisao</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <!-- Gateway apos a minuta: encaminhar a revisao juridica, ou seguir nao-assistencial direto -->
+    <bpmn:exclusiveGateway id="GW_Minuta" name="Destino da minuta" default="Flow_GWMinuta_Revisao">
+      <bpmn:incoming>Flow_UTElaborar_GWMinuta</bpmn:incoming>
+      <bpmn:outgoing>Flow_GWMinuta_Revisao</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <!-- Ramo REVISAO_JURIDICA / catch-all: revisao juridica humana (UNICA origem de MANTER_NEGATIVA) -->
+    <bpmn:userTask id="UT_RevisaoJuridicaNip" name="Revisao juridica da resposta a NIP"
+                   camunda:candidateGroups="juridico-regulatorio,medico-auditor">
+      <bpmn:documentation><![CDATA[
+HITL L0 hard (ADR-0005): UNICO ponto onde MANTER_NEGATIVA pode nascer. Saidas: decisao_nip in
+{MANTER_NEGATIVA, CONCEDER, RESPONDER_NAO_ASSISTENCIAL, SOLICITAR_INFO} + texto_resposta_nip +
+revisor_id. MANTER_NEGATIVA exige fundamentacao_regulatoria + referencia_negativa_original (campos
+obrigatorios — validacao de formulario + guard do worker submit_response). Quando o merito da NIP
+e clinico, o medico-auditor decide o merito (consulta dentro desta task) — nunca automacao. A
+decisao sai em nome do revisor (assignee na trilha de auditoria, ADR-0007). Manter negativa sem
+fundamentacao e impossivel.
+
+GAP-NIP-2 (avaliado, NAO wireado): candidateGroups permanece ESTATICO
+"juridico-regulatorio,medico-auditor" — DELIBERADAMENTE nao substituido pela variavel flat grupo_humano
+(promovida em BRT_Roteamento; ver nota completa la sobre o fix de ENGINE-16004). NB: sem dollar-brace de
+proposito — a documentacao de User Task e avaliada como JUEL na instanciacao; um token EL literal aqui
+seria EXECUTADO pelo engine (root-cause do 500 corrigido em UT_ElaborarRespostaNip). Esta
+User Task tem TRES incoming flows (Flow_GWRotear_Juridico direto do roteamento; Flow_GWMinuta_Revisao
+pos-elaboracao; Flow_PrazoInfo_Revisao apos SOLICITAR_INFO). Nos dois ultimos, `grupo_humano` (como
+`roteamento_nip`) ainda contem o resultado da AVALIACAO ORIGINAL
+de ELABORAR_RESPOSTA (grupo_humano=nucleo-ans/regulatorio-ans) — wiring dinamico aqui roteria a
+revisao juridica ao grupo ERRADO, violando o invariante L0 de que a revisao (unica origem possivel
+de MANTER_NEGATIVA) e SEMPRE juridico-regulatorio. Ver nota completa em BRT_Roteamento.
+]]></bpmn:documentation>
+      <bpmn:incoming>Flow_GWMinuta_Revisao</bpmn:incoming>
+      <bpmn:incoming>Flow_GWRotear_Juridico</bpmn:incoming>
+      <bpmn:incoming>Flow_PrazoInfo_Revisao</bpmn:incoming>
+      <bpmn:outgoing>Flow_UTRevisao_GWDecisao</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <!-- Timer nao-interruptivo: alerta de risco de prazo durante a revisao juridica -->
+    <bpmn:boundaryEvent id="BT_AlertaPrazoRevisao" name="Alerta de risco de prazo (revisao)" cancelActivity="false" attachedToRef="UT_RevisaoJuridicaNip">
+      <bpmn:documentation>GAP-NIP-1: timeDate absoluto. `sla.sla_alerta_absoluto_iso` e computado por BRT_NipSla somando a duracao de alerta a `data_recebimento_nip_iso` — a ancora regulatoria do prazo, nunca o attach desta UT (que pode ser reentrada via SOLICITAR_INFO/ICE_PrazoInfo, ou alcancada diretamente pela revisao juridica).</bpmn:documentation>
+      <bpmn:outgoing>Flow_AlertaRevisao_Notify</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TD_AlertaPrazoRevisao">
+        <bpmn:timeDate xsi:type="bpmn:tFormalExpression">${sla.sla_alerta_absoluto_iso}</bpmn:timeDate>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="ST_NotificarRiscoRevisao" name="Notificar risco de prazo (juridico-regulatorio)"
+                      camunda:type="external" camunda:topic="operadora.nip.notify_deadline_risk">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic_deadline_risk">agents.events.nip.deadline_risk</camunda:inputParameter>
+          <camunda:inputParameter name="sla_breach_task_name">UT_RevisaoJuridicaNip</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_AlertaRevisao_Notify</bpmn:incoming>
+      <bpmn:outgoing>Flow_NotifyRevisao_EndAlerta</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_RiscoPrazoRevisaoNotificado" name="Risco de prazo notificado (revisao segue)">
+      <bpmn:incoming>Flow_NotifyRevisao_EndAlerta</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Timer interruptivo: prazo estourado durante a revisao -> coordenacao humana assume -->
+    <bpmn:boundaryEvent id="BT_PrazoRevisaoEstourado" name="Prazo ANS estourado na revisao" cancelActivity="true" attachedToRef="UT_RevisaoJuridicaNip">
+      <bpmn:documentation>GAP-NIP-1: timeDate absoluto. `sla.prazo_resposta_absoluto_iso` e computado por BRT_NipSla somando o prazo regulatorio a `data_recebimento_nip_iso` — a ancora do contrato, nunca o attach desta UT.</bpmn:documentation>
+      <bpmn:outgoing>Flow_PrazoRevisaoEstourado_PubBreach</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TD_PrazoRevisaoEstourado">
+        <bpmn:timeDate xsi:type="bpmn:tFormalExpression">${sla.prazo_resposta_absoluto_iso}</bpmn:timeDate>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+
+    <bpmn:exclusiveGateway id="GW_DecisaoNip" name="Decisao da revisao NIP" default="Flow_GWDec_NaoAssistencial">
+      <bpmn:incoming>Flow_UTRevisao_GWDecisao</bpmn:incoming>
+      <bpmn:incoming>Flow_UTCoord_GWDecisao</bpmn:incoming>
+      <bpmn:outgoing>Flow_GWDec_Manter</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWDec_Conceder</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWDec_SolicitarInfo</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWDec_NaoAssistencial</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <!-- Ramo MANTER_NEGATIVA: UNICO efeito adverso, gated por worker (ERR_NIP_NEGATIVA_NOT_HUMAN) -->
+    <bpmn:serviceTask id="ST_SubmeterRespostaManter" name="Submeter resposta NIP (manter negativa — efeito adverso gated)"
+                      camunda:type="external" camunda:topic="operadora.nip.submit_response">
+      <bpmn:documentation>HARD GUARDRAIL (L0 hard, ADR-0005): o worker RECUSA transmitir/arquivar a resposta se decisao_nip != MANTER_NEGATIVA setado por humano, ou se faltar fundamentacao_regulatoria/referencia_negativa_original/revisor_id (lanca ERR_NIP_NEGATIVA_NOT_HUMAN). Carrega revisor_id na trilha de auditoria (ADR-0007). Este worker NUNCA decide; so registra a decisao ja tomada na UT humana. A instancia NUNCA atinge End_NipNegativaMantida sem este guard satisfeito por decisao humana.</bpmn:documentation>
+      <bpmn:incoming>Flow_GWDec_Manter</bpmn:incoming>
+      <bpmn:outgoing>Flow_SubmeterManter_Handoff</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="ST_HandoffAnsManter" name="Handoff filing formal a ANS-SUBMIT (manter)"
+                      camunda:type="external" camunda:topic="operadora.nip.handoff_ans_submit">
+      <bpmn:documentation>Handoff a SP-OP-ANS-SUBMIT-001 (HITL pre-filing, nao-repudio ADR-0007). NIP-001 nao transmite diretamente a ANS. Payload carrega protocolo_ans/numero_nip_ans + texto_resposta_nip + revisor_id.
+GAP-NIP-4 (resolvido — correcao de contrato): esta instancia TERMINA logo apos este handoff — ANTES de a ANS emitir qualquer protocolo. Por isso NAO ha `protocolo_filing` como variavel de processo de SP-OP-NIP-001 (era um output de contrato estruturalmente inalcancavel; corrigido). O protocolo de filing real e `protocolo_ans`, saida de SP-OP-ANS-SUBMIT-001, correlacionada de volta a esta NIP via `nip_protocolo_origem` (mapeado a partir de protocolo_ans/numero_nip_ans pelo notifications_bridge/consumer.py::_nip_protocolo_origem — ver docs/processes/contracts/SP-OP-NIP-001.md §"Variaveis de saida").
+GAP-NIP-6: protocolo_ans PRESENTE porem vazio/em branco (guard de origem, nao merito) lanca ERR_NIP_PROTOCOLO_INVALIDO — capturado pelo boundary BE_NipProtocoloInvalidoManter, abaixo.</bpmn:documentation>
+      <bpmn:incoming>Flow_SubmeterManter_Handoff</bpmn:incoming>
+      <bpmn:outgoing>Flow_HandoffManter_Pub</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <!-- GAP-NIP-6: boundary de validacao de origem em ST_HandoffAnsManter (ramo MANTER_NEGATIVA).
+         Mainline: erro nao-capturado encerraria o escopo silenciosamente. -->
+    <bpmn:boundaryEvent id="BE_NipProtocoloInvalidoManter" name="Protocolo ANS invalido na origem (ERR_NIP_PROTOCOLO_INVALIDO)" attachedToRef="ST_HandoffAnsManter">
+      <bpmn:outgoing>Flow_ProtocoloInvalidoManter_End</bpmn:outgoing>
+      <bpmn:errorEventDefinition id="EED_NipProtocoloInvalidoManter" errorRef="Error_NipProtocoloInvalido"/>
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="ST_PublishNegativaMantida" name="Publicar evento: nip.completed (negativa_mantida)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.nip.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">negativa_mantida</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_nip_ans,revisor_id,referencia_negativa_original</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_HandoffManter_Pub</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubManter_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_NipNegativaMantida" name="Negativa mantida (L0 — unico adverso)">
+      <bpmn:incoming>Flow_PubManter_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Ramo CONCEDER: resposta favoravel (neutro; texto revisado por humano) -->
+    <bpmn:serviceTask id="ST_SubmeterRespostaConceder" name="Submeter resposta NIP (conceder o pleito)"
+                      camunda:type="external" camunda:topic="operadora.nip.submit_response">
+      <bpmn:documentation>Resposta favoravel: concede o pleito do beneficiario. decisao_nip=CONCEDER (sem MANTER_NEGATIVA) — o guard nao bloqueia. O texto e SEMPRE autorado/revisado por humano antes do filing.</bpmn:documentation>
+      <bpmn:incoming>Flow_GWDec_Conceder</bpmn:incoming>
+      <bpmn:outgoing>Flow_SubmeterConceder_Handoff</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="ST_HandoffAnsConceder" name="Handoff filing formal a ANS-SUBMIT (conceder)"
+                      camunda:type="external" camunda:topic="operadora.nip.handoff_ans_submit">
+      <bpmn:documentation>GAP-NIP-6: protocolo_ans PRESENTE porem vazio/em branco (guard de origem, nao merito) lanca ERR_NIP_PROTOCOLO_INVALIDO — capturado pelo boundary BE_NipProtocoloInvalidoConceder, abaixo.</bpmn:documentation>
+      <bpmn:incoming>Flow_SubmeterConceder_Handoff</bpmn:incoming>
+      <bpmn:outgoing>Flow_HandoffConceder_Pub</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <!-- GAP-NIP-6: boundary de validacao de origem em ST_HandoffAnsConceder (ramo CONCEDER). -->
+    <bpmn:boundaryEvent id="BE_NipProtocoloInvalidoConceder" name="Protocolo ANS invalido na origem (ERR_NIP_PROTOCOLO_INVALIDO)" attachedToRef="ST_HandoffAnsConceder">
+      <bpmn:outgoing>Flow_ProtocoloInvalidoConceder_End</bpmn:outgoing>
+      <bpmn:errorEventDefinition id="EED_NipProtocoloInvalidoConceder" errorRef="Error_NipProtocoloInvalido"/>
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="ST_PublishResolvidaFavoravel" name="Publicar evento: nip.completed (resolvida_favoravel)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.nip.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">resolvida_favoravel</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_nip_ans,revisor_id</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_HandoffConceder_Pub</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubConceder_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_NipResolvidaFavoravel" name="NIP resolvida favoravelmente (decisao humana)">
+      <bpmn:incoming>Flow_PubConceder_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Ramo RESPONDER_NAO_ASSISTENCIAL: resposta clerical (neutro; envio confirmado por humano) -->
+    <bpmn:serviceTask id="ST_SubmeterRespostaNaoAssistencial" name="Submeter resposta NIP (nao-assistencial)"
+                      camunda:type="external" camunda:topic="operadora.nip.submit_response">
+      <bpmn:documentation>Resposta nao-assistencial (clerical): o humano (nucleo-ans) autora e confirma o envio na User Task. decisao_nip=RESPONDER_NAO_ASSISTENCIAL — o guard nao bloqueia. Mesmo no caminho clerical, o envio passa por User Task (nunca auto-submete).</bpmn:documentation>
+      <bpmn:incoming>Flow_GWDec_NaoAssistencial</bpmn:incoming>
+      <bpmn:outgoing>Flow_SubmeterNaoAssist_Handoff</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="ST_HandoffAnsNaoAssistencial" name="Handoff filing formal a ANS-SUBMIT (nao-assistencial)"
+                      camunda:type="external" camunda:topic="operadora.nip.handoff_ans_submit">
+      <bpmn:documentation>GAP-NIP-6: protocolo_ans PRESENTE porem vazio/em branco (guard de origem, nao merito) lanca ERR_NIP_PROTOCOLO_INVALIDO — capturado pelo boundary BE_NipProtocoloInvalidoNaoAssist, abaixo.</bpmn:documentation>
+      <bpmn:incoming>Flow_SubmeterNaoAssist_Handoff</bpmn:incoming>
+      <bpmn:outgoing>Flow_HandoffNaoAssist_Pub</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <!-- GAP-NIP-6: boundary de validacao de origem em ST_HandoffAnsNaoAssistencial (ramo
+         RESPONDER_NAO_ASSISTENCIAL). -->
+    <bpmn:boundaryEvent id="BE_NipProtocoloInvalidoNaoAssist" name="Protocolo ANS invalido na origem (ERR_NIP_PROTOCOLO_INVALIDO)" attachedToRef="ST_HandoffAnsNaoAssistencial">
+      <bpmn:outgoing>Flow_ProtocoloInvalidoNaoAssist_End</bpmn:outgoing>
+      <bpmn:errorEventDefinition id="EED_NipProtocoloInvalidoNaoAssist" errorRef="Error_NipProtocoloInvalido"/>
+    </bpmn:boundaryEvent>
+
+    <!-- GAP-NIP-6 (dangling-catch prevention, espelha #136/GAP-RECURSO-3/GAP-REEMBOLSO-2): terminal
+         NEUTRO compartilhado pelos TRES boundary catches de protocolo-ANS-invalido acima
+         (BE_NipProtocoloInvalidoManter/Conceder/NaoAssist — mesmo handler
+         make_handoff_ans_submit_handler serve as tres serviceTasks). O worker
+         operadora.nip.handoff_ans_submit NUNCA decide o merito da NIP — so sinaliza que
+         protocolo_ans chegou presente-porem-em-branco (defeito TECNICO de origem, distinto de
+         decisao_nip/texto_resposta_nip, ja fixados pela User Task humana ANTES deste handoff).
+         Alcancavel SOMENTE apos revisao/elaboracao humana (UT_ElaborarRespostaNip /
+         UT_RevisaoJuridicaNip / UT_CoordenacaoNip) ja ter concluido — este guard protege a etapa
+         de CORRELACAO com SP-OP-ANS-SUBMIT-001, nunca o merito da resposta. Nenhum efeito adverso
+         automatico (ADR-0018). Espelha End_RecursoGlosaInvalidaOrigem (GAP-RECURSO-3, #136) /
+         End_ReembolsoProtocoloInvalido (GAP-REEMBOLSO-2) / End_CredPrestadorInvalido (GAP-CRED-1). -->
+    <bpmn:endEvent id="End_NipProtocoloInvalido" name="Protocolo ANS inconsistente na origem — validacao barrou (fail-safe, nao adverso)">
+      <bpmn:documentation>Terminal NEUTRO (guard TECNICO, GAP-NIP-6): o worker operadora.nip.handoff_ans_submit RECUSOU prosseguir porque `protocolo_ans` chegou presente-porem-vazio/em-branco nas variaveis de processo (ERR_NIP_PROTOCOLO_INVALIDO) — defeito TECNICO de integracao/origem que quebraria a correlacao com SP-OP-ANS-SUBMIT-001 (fallback `or`-chain de notifications_bridge/consumer.py::_nip_protocolo_origem). NENHUM desfecho de merito ocorreu ou e alterado aqui: decisao_nip ja foi fixada pela User Task humana (UT_ElaborarRespostaNip/UT_RevisaoJuridicaNip/UT_CoordenacaoNip) antes deste handoff; este terminal so significa que o FILING formal a ANS-SUBMIT nao foi encaminhado por dado de correlacao invalido. Alcancavel a partir de BE_NipProtocoloInvalidoManter (ramo MANTER_NEGATIVA), BE_NipProtocoloInvalidoConceder (ramo CONCEDER) OU BE_NipProtocoloInvalidoNaoAssist (ramo RESPONDER_NAO_ASSISTENCIAL) — mesmo terminal compartilhado para a mesma classe de defeito.</bpmn:documentation>
+      <bpmn:incoming>Flow_ProtocoloInvalidoManter_End</bpmn:incoming>
+      <bpmn:incoming>Flow_ProtocoloInvalidoConceder_End</bpmn:incoming>
+      <bpmn:incoming>Flow_ProtocoloInvalidoNaoAssist_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <bpmn:serviceTask id="ST_PublishNaoAssistencialRespondida" name="Publicar evento: nip.completed (nao_assistencial_respondida)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.nip.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">nao_assistencial_respondida</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_nip_ans,revisor_id</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_HandoffNaoAssist_Pub</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubNaoAssist_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_NipNaoAssistencialRespondida" name="NIP nao-assistencial respondida (decisao humana)">
+      <bpmn:incoming>Flow_PubNaoAssist_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Ramo SOLICITAR_INFO: aguarda info adicional (event gateway: mensagem vs timer) -->
+    <bpmn:serviceTask id="ST_SolicitarInfoNip" name="Registrar solicitacao de informacao adicional"
+                      camunda:type="external" camunda:topic="operadora.nip.notify_deadline_risk">
+      <bpmn:documentation>Registra/abre a solicitacao de informacao adicional (reusa o canal de notificacao regulatoria). A info adicional destrava o fluxo via msg.nip.info_recebida; nenhum desfecho adverso enquanto a info nao chega.</bpmn:documentation>
+      <bpmn:incoming>Flow_GWDec_SolicitarInfo</bpmn:incoming>
+      <bpmn:outgoing>Flow_SolicitarInfo_GWAguardar</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:eventBasedGateway id="GW_AguardarInfo" name="Aguardar informacao adicional">
+      <bpmn:incoming>Flow_SolicitarInfo_GWAguardar</bpmn:incoming>
+      <bpmn:outgoing>Flow_Aguardar_InfoMsg</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Aguardar_Timer</bpmn:outgoing>
+    </bpmn:eventBasedGateway>
+    <bpmn:intermediateCatchEvent id="ICE_InfoRecebida" name="Informacao adicional recebida">
+      <bpmn:incoming>Flow_Aguardar_InfoMsg</bpmn:incoming>
+      <bpmn:outgoing>Flow_InfoRecebida_Dossie</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="MED_InfoRecebida" messageRef="Msg_NipInfoRecebida"/>
+    </bpmn:intermediateCatchEvent>
+    <bpmn:intermediateCatchEvent id="ICE_PrazoInfo" name="Prazo de espera de info (decisao humana)">
+      <bpmn:documentation>GAP-NIP-1: timeDate absoluto (nao mais timeDuration relativo ao attach do event-based gateway). `sla.sla_alerta_absoluto_iso` e computado por BRT_NipSla somando a duracao de alerta a `data_recebimento_nip_iso` — a ancora regulatoria do prazo original, nunca o momento em que SOLICITAR_INFO foi decidido.</bpmn:documentation>
+      <bpmn:incoming>Flow_Aguardar_Timer</bpmn:incoming>
+      <bpmn:outgoing>Flow_PrazoInfo_Revisao</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TD_PrazoInfo">
+        <bpmn:timeDate xsi:type="bpmn:tFormalExpression">${sla.sla_alerta_absoluto_iso}</bpmn:timeDate>
+      </bpmn:timerEventDefinition>
+    </bpmn:intermediateCatchEvent>
+
+    <!-- FLOWS -->
+    <bpmn:sequenceFlow id="Flow_Start_PubReceived" sourceRef="Start_NipRecebida" targetRef="ST_PublishReceived"/>
+    <bpmn:sequenceFlow id="Flow_Instruct_PubReceived" sourceRef="Start_NipInstruct" targetRef="ST_PublishReceived"/>
+    <bpmn:sequenceFlow id="Flow_PubReceived_Dossie" sourceRef="ST_PublishReceived" targetRef="ST_InstruirDossie"/>
+    <bpmn:sequenceFlow id="Flow_InfoRecebida_Dossie" sourceRef="ICE_InfoRecebida" targetRef="ST_InstruirDossie"/>
+    <bpmn:sequenceFlow id="Flow_Dossie_Classificar" sourceRef="ST_InstruirDossie" targetRef="BRT_Classificacao"/>
+    <bpmn:sequenceFlow id="Flow_Classificar_PubClassified" sourceRef="BRT_Classificacao" targetRef="ST_PublishClassified"/>
+    <bpmn:sequenceFlow id="Flow_PubClassified_Rotear" sourceRef="ST_PublishClassified" targetRef="BRT_Roteamento"/>
+    <bpmn:sequenceFlow id="Flow_Rotear_Sla" sourceRef="BRT_Roteamento" targetRef="BRT_NipSla"/>
+    <bpmn:sequenceFlow id="Flow_Sla_GWRotear" sourceRef="BRT_NipSla" targetRef="GW_Roteamento"/>
+    <bpmn:sequenceFlow id="Flow_GWRotear_Elaborar" name="ELABORAR_RESPOSTA" sourceRef="GW_Roteamento" targetRef="UT_ElaborarRespostaNip">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${roteamento == 'ELABORAR_RESPOSTA'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWRotear_Juridico" name="REVISAO_JURIDICA | PENDENTE_INFO (default — sempre humano)" sourceRef="GW_Roteamento" targetRef="UT_RevisaoJuridicaNip"/>
+    <bpmn:sequenceFlow id="Flow_UTElaborar_GWMinuta" sourceRef="UT_ElaborarRespostaNip" targetRef="GW_Minuta"/>
+    <bpmn:sequenceFlow id="Flow_GWMinuta_Revisao" name="encaminhar revisao (default)" sourceRef="GW_Minuta" targetRef="UT_RevisaoJuridicaNip"/>
+    <bpmn:sequenceFlow id="Flow_AlertaPrazo_Notify" sourceRef="BT_AlertaPrazoNip" targetRef="ST_NotificarRiscoPrazo"/>
+    <bpmn:sequenceFlow id="Flow_NotifyPrazo_EndAlerta" sourceRef="ST_NotificarRiscoPrazo" targetRef="End_RiscoPrazoNotificado"/>
+    <bpmn:sequenceFlow id="Flow_PrazoEstourado_PubBreach" sourceRef="BT_PrazoNipEstourado" targetRef="ST_PublishBreach"/>
+    <bpmn:sequenceFlow id="Flow_PubBreach_UTCoord" sourceRef="ST_PublishBreach" targetRef="UT_CoordenacaoNip"/>
+    <bpmn:sequenceFlow id="Flow_UTCoord_GWDecisao" sourceRef="UT_CoordenacaoNip" targetRef="GW_DecisaoNip"/>
+    <bpmn:sequenceFlow id="Flow_UTRevisao_GWDecisao" sourceRef="UT_RevisaoJuridicaNip" targetRef="GW_DecisaoNip"/>
+    <bpmn:sequenceFlow id="Flow_AlertaRevisao_Notify" sourceRef="BT_AlertaPrazoRevisao" targetRef="ST_NotificarRiscoRevisao"/>
+    <bpmn:sequenceFlow id="Flow_NotifyRevisao_EndAlerta" sourceRef="ST_NotificarRiscoRevisao" targetRef="End_RiscoPrazoRevisaoNotificado"/>
+    <bpmn:sequenceFlow id="Flow_PrazoRevisaoEstourado_PubBreach" sourceRef="BT_PrazoRevisaoEstourado" targetRef="ST_PublishBreach"/>
+    <bpmn:sequenceFlow id="Flow_GWDec_Manter" name="MANTER_NEGATIVA (somente humano)" sourceRef="GW_DecisaoNip" targetRef="ST_SubmeterRespostaManter">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_nip == 'MANTER_NEGATIVA'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWDec_Conceder" name="CONCEDER" sourceRef="GW_DecisaoNip" targetRef="ST_SubmeterRespostaConceder">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_nip == 'CONCEDER'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWDec_SolicitarInfo" name="SOLICITAR_INFO" sourceRef="GW_DecisaoNip" targetRef="ST_SolicitarInfoNip">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_nip == 'SOLICITAR_INFO'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_GWDec_NaoAssistencial" name="RESPONDER_NAO_ASSISTENCIAL (default)" sourceRef="GW_DecisaoNip" targetRef="ST_SubmeterRespostaNaoAssistencial"/>
+    <bpmn:sequenceFlow id="Flow_SubmeterManter_Handoff" sourceRef="ST_SubmeterRespostaManter" targetRef="ST_HandoffAnsManter"/>
+    <bpmn:sequenceFlow id="Flow_HandoffManter_Pub" sourceRef="ST_HandoffAnsManter" targetRef="ST_PublishNegativaMantida"/>
+    <bpmn:sequenceFlow id="Flow_PubManter_End" sourceRef="ST_PublishNegativaMantida" targetRef="End_NipNegativaMantida"/>
+    <bpmn:sequenceFlow id="Flow_SubmeterConceder_Handoff" sourceRef="ST_SubmeterRespostaConceder" targetRef="ST_HandoffAnsConceder"/>
+    <bpmn:sequenceFlow id="Flow_HandoffConceder_Pub" sourceRef="ST_HandoffAnsConceder" targetRef="ST_PublishResolvidaFavoravel"/>
+    <bpmn:sequenceFlow id="Flow_PubConceder_End" sourceRef="ST_PublishResolvidaFavoravel" targetRef="End_NipResolvidaFavoravel"/>
+    <bpmn:sequenceFlow id="Flow_SubmeterNaoAssist_Handoff" sourceRef="ST_SubmeterRespostaNaoAssistencial" targetRef="ST_HandoffAnsNaoAssistencial"/>
+    <bpmn:sequenceFlow id="Flow_HandoffNaoAssist_Pub" sourceRef="ST_HandoffAnsNaoAssistencial" targetRef="ST_PublishNaoAssistencialRespondida"/>
+    <bpmn:sequenceFlow id="Flow_PubNaoAssist_End" sourceRef="ST_PublishNaoAssistencialRespondida" targetRef="End_NipNaoAssistencialRespondida"/>
+    <bpmn:sequenceFlow id="Flow_SolicitarInfo_GWAguardar" sourceRef="ST_SolicitarInfoNip" targetRef="GW_AguardarInfo"/>
+    <bpmn:sequenceFlow id="Flow_Aguardar_InfoMsg" sourceRef="GW_AguardarInfo" targetRef="ICE_InfoRecebida"/>
+    <bpmn:sequenceFlow id="Flow_Aguardar_Timer" sourceRef="GW_AguardarInfo" targetRef="ICE_PrazoInfo"/>
+    <bpmn:sequenceFlow id="Flow_PrazoInfo_Revisao" sourceRef="ICE_PrazoInfo" targetRef="UT_RevisaoJuridicaNip"/>
+
+    <!-- GAP-NIP-6 (dangling-catch prevention, espelha #136): rotas dos tres boundary catches de
+         protocolo-ANS-invalido para o terminal NEUTRO compartilhado End_NipProtocoloInvalido. -->
+    <bpmn:sequenceFlow id="Flow_ProtocoloInvalidoManter_End" sourceRef="BE_NipProtocoloInvalidoManter" targetRef="End_NipProtocoloInvalido"/>
+    <bpmn:sequenceFlow id="Flow_ProtocoloInvalidoConceder_End" sourceRef="BE_NipProtocoloInvalidoConceder" targetRef="End_NipProtocoloInvalido"/>
+    <bpmn:sequenceFlow id="Flow_ProtocoloInvalidoNaoAssist_End" sourceRef="BE_NipProtocoloInvalidoNaoAssist" targetRef="End_NipProtocoloInvalido"/>
+  </bpmn:process>
+
+  <bpmndi:BPMNDiagram id="Diagram_SP-OP-NIP-001">
+    <bpmndi:BPMNPlane id="Plane_SP-OP-NIP-001" bpmnElement="SP-OP-NIP-001">
+      <bpmndi:BPMNShape id="Shape_Start_NipRecebida" bpmnElement="Start_NipRecebida">
+        <dc:Bounds x="72" y="74" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Start_NipInstruct" bpmnElement="Start_NipInstruct">
+        <dc:Bounds x="72" y="184" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishReceived" bpmnElement="ST_PublishReceived">
+        <dc:Bounds x="220" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_InstruirDossie" bpmnElement="ST_InstruirDossie">
+        <dc:Bounds x="400" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_Classificacao" bpmnElement="BRT_Classificacao">
+        <dc:Bounds x="580" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishClassified" bpmnElement="ST_PublishClassified">
+        <dc:Bounds x="760" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_Roteamento" bpmnElement="BRT_Roteamento">
+        <dc:Bounds x="940" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_NipSla" bpmnElement="BRT_NipSla">
+        <dc:Bounds x="1120" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_Roteamento" bpmnElement="GW_Roteamento" isMarkerVisible="true">
+        <dc:Bounds x="1300" y="67" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT_ElaborarRespostaNip" bpmnElement="UT_ElaborarRespostaNip">
+        <dc:Bounds x="1430" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_AlertaPrazoNip" bpmnElement="BT_AlertaPrazoNip">
+        <dc:Bounds x="1445" y="114" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_NotificarRiscoPrazo" bpmnElement="ST_NotificarRiscoPrazo">
+        <dc:Bounds x="40" y="272" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_RiscoPrazoNotificado" bpmnElement="End_RiscoPrazoNotificado">
+        <dc:Bounds x="252" y="294" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_PrazoNipEstourado" bpmnElement="BT_PrazoNipEstourado">
+        <dc:Bounds x="1478" y="114" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishBreach" bpmnElement="ST_PublishBreach">
+        <dc:Bounds x="40" y="416" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT_CoordenacaoNip" bpmnElement="UT_CoordenacaoNip">
+        <dc:Bounds x="220" y="416" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_Minuta" bpmnElement="GW_Minuta" isMarkerVisible="true">
+        <dc:Bounds x="1610" y="67" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT_RevisaoJuridicaNip" bpmnElement="UT_RevisaoJuridicaNip">
+        <dc:Bounds x="1740" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_AlertaPrazoRevisao" bpmnElement="BT_AlertaPrazoRevisao">
+        <dc:Bounds x="1755" y="114" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_NotificarRiscoRevisao" bpmnElement="ST_NotificarRiscoRevisao">
+        <dc:Bounds x="40" y="560" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_RiscoPrazoRevisaoNotificado" bpmnElement="End_RiscoPrazoRevisaoNotificado">
+        <dc:Bounds x="252" y="582" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_PrazoRevisaoEstourado" bpmnElement="BT_PrazoRevisaoEstourado">
+        <dc:Bounds x="1788" y="114" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_DecisaoNip" bpmnElement="GW_DecisaoNip" isMarkerVisible="true">
+        <dc:Bounds x="1920" y="287" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_SubmeterRespostaManter" bpmnElement="ST_SubmeterRespostaManter">
+        <dc:Bounds x="2050" y="272" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_HandoffAnsManter" bpmnElement="ST_HandoffAnsManter">
+        <dc:Bounds x="2230" y="272" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BE_NipProtocoloInvalidoManter" bpmnElement="BE_NipProtocoloInvalidoManter">
+        <dc:Bounds x="2262" y="334" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishNegativaMantida" bpmnElement="ST_PublishNegativaMantida">
+        <dc:Bounds x="2410" y="272" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_NipNegativaMantida" bpmnElement="End_NipNegativaMantida">
+        <dc:Bounds x="2590" y="294" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_SubmeterRespostaConceder" bpmnElement="ST_SubmeterRespostaConceder">
+        <dc:Bounds x="2050" y="416" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_HandoffAnsConceder" bpmnElement="ST_HandoffAnsConceder">
+        <dc:Bounds x="2230" y="416" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BE_NipProtocoloInvalidoConceder" bpmnElement="BE_NipProtocoloInvalidoConceder">
+        <dc:Bounds x="2262" y="478" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishResolvidaFavoravel" bpmnElement="ST_PublishResolvidaFavoravel">
+        <dc:Bounds x="2410" y="416" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_NipResolvidaFavoravel" bpmnElement="End_NipResolvidaFavoravel">
+        <dc:Bounds x="2590" y="438" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_SubmeterRespostaNaoAssistencial" bpmnElement="ST_SubmeterRespostaNaoAssistencial">
+        <dc:Bounds x="2050" y="560" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_HandoffAnsNaoAssistencial" bpmnElement="ST_HandoffAnsNaoAssistencial">
+        <dc:Bounds x="2230" y="560" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BE_NipProtocoloInvalidoNaoAssist" bpmnElement="BE_NipProtocoloInvalidoNaoAssist">
+        <dc:Bounds x="2262" y="622" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_NipProtocoloInvalido" bpmnElement="End_NipProtocoloInvalido">
+        <dc:Bounds x="72" y="714" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishNaoAssistencialRespondida" bpmnElement="ST_PublishNaoAssistencialRespondida">
+        <dc:Bounds x="2410" y="560" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_NipNaoAssistencialRespondida" bpmnElement="End_NipNaoAssistencialRespondida">
+        <dc:Bounds x="2590" y="582" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_SolicitarInfoNip" bpmnElement="ST_SolicitarInfoNip">
+        <dc:Bounds x="2050" y="692" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_AguardarInfo" bpmnElement="GW_AguardarInfo" isMarkerVisible="true">
+        <dc:Bounds x="2255" y="707" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ICE_InfoRecebida" bpmnElement="ICE_InfoRecebida">
+        <dc:Bounds x="2442" y="714" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ICE_PrazoInfo" bpmnElement="ICE_PrazoInfo">
+        <dc:Bounds x="2442" y="812" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_Flow_Start_PubReceived" bpmnElement="Flow_Start_PubReceived">
+        <di:waypoint x="108" y="92"/>
+        <di:waypoint x="220" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Instruct_PubReceived" bpmnElement="Flow_Instruct_PubReceived">
+        <di:waypoint x="108" y="202"/>
+        <di:waypoint x="164" y="202"/>
+        <di:waypoint x="164" y="92"/>
+        <di:waypoint x="220" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubReceived_Dossie" bpmnElement="Flow_PubReceived_Dossie">
+        <di:waypoint x="320" y="92"/>
+        <di:waypoint x="400" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_InfoRecebida_Dossie" bpmnElement="Flow_InfoRecebida_Dossie">
+        <di:waypoint x="2460" y="750"/>
+        <di:waypoint x="2460" y="810"/>
+        <di:waypoint x="400" y="810"/>
+        <di:waypoint x="400" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Dossie_Classificar" bpmnElement="Flow_Dossie_Classificar">
+        <di:waypoint x="500" y="92"/>
+        <di:waypoint x="580" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Classificar_PubClassified" bpmnElement="Flow_Classificar_PubClassified">
+        <di:waypoint x="680" y="92"/>
+        <di:waypoint x="760" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubClassified_Rotear" bpmnElement="Flow_PubClassified_Rotear">
+        <di:waypoint x="860" y="92"/>
+        <di:waypoint x="940" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Rotear_Sla" bpmnElement="Flow_Rotear_Sla">
+        <di:waypoint x="1040" y="92"/>
+        <di:waypoint x="1120" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Sla_GWRotear" bpmnElement="Flow_Sla_GWRotear">
+        <di:waypoint x="1220" y="92"/>
+        <di:waypoint x="1300" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWRotear_Elaborar" bpmnElement="Flow_GWRotear_Elaborar">
+        <di:waypoint x="1350" y="92"/>
+        <di:waypoint x="1430" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWRotear_Juridico" bpmnElement="Flow_GWRotear_Juridico">
+        <di:waypoint x="1350" y="92"/>
+        <di:waypoint x="1740" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_UTElaborar_GWMinuta" bpmnElement="Flow_UTElaborar_GWMinuta">
+        <di:waypoint x="1530" y="92"/>
+        <di:waypoint x="1610" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWMinuta_Revisao" bpmnElement="Flow_GWMinuta_Revisao">
+        <di:waypoint x="1660" y="92"/>
+        <di:waypoint x="1740" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_AlertaPrazo_Notify" bpmnElement="Flow_AlertaPrazo_Notify">
+        <di:waypoint x="1463" y="150"/>
+        <di:waypoint x="1463" y="211"/>
+        <di:waypoint x="90" y="211"/>
+        <di:waypoint x="90" y="272"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_NotifyPrazo_EndAlerta" bpmnElement="Flow_NotifyPrazo_EndAlerta">
+        <di:waypoint x="140" y="312"/>
+        <di:waypoint x="252" y="312"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PrazoEstourado_PubBreach" bpmnElement="Flow_PrazoEstourado_PubBreach">
+        <di:waypoint x="1496" y="150"/>
+        <di:waypoint x="1496" y="283"/>
+        <di:waypoint x="90" y="283"/>
+        <di:waypoint x="90" y="416"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubBreach_UTCoord" bpmnElement="Flow_PubBreach_UTCoord">
+        <di:waypoint x="140" y="456"/>
+        <di:waypoint x="220" y="456"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_UTCoord_GWDecisao" bpmnElement="Flow_UTCoord_GWDecisao">
+        <di:waypoint x="320" y="456"/>
+        <di:waypoint x="1120" y="456"/>
+        <di:waypoint x="1120" y="312"/>
+        <di:waypoint x="1920" y="312"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_UTRevisao_GWDecisao" bpmnElement="Flow_UTRevisao_GWDecisao">
+        <di:waypoint x="1840" y="92"/>
+        <di:waypoint x="1880" y="92"/>
+        <di:waypoint x="1880" y="312"/>
+        <di:waypoint x="1920" y="312"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_AlertaRevisao_Notify" bpmnElement="Flow_AlertaRevisao_Notify">
+        <di:waypoint x="1773" y="150"/>
+        <di:waypoint x="1773" y="355"/>
+        <di:waypoint x="90" y="355"/>
+        <di:waypoint x="90" y="560"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_NotifyRevisao_EndAlerta" bpmnElement="Flow_NotifyRevisao_EndAlerta">
+        <di:waypoint x="140" y="600"/>
+        <di:waypoint x="252" y="600"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PrazoRevisaoEstourado_PubBreach" bpmnElement="Flow_PrazoRevisaoEstourado_PubBreach">
+        <di:waypoint x="1806" y="150"/>
+        <di:waypoint x="1806" y="283"/>
+        <di:waypoint x="90" y="283"/>
+        <di:waypoint x="90" y="416"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Manter" bpmnElement="Flow_GWDec_Manter">
+        <di:waypoint x="1970" y="312"/>
+        <di:waypoint x="2050" y="312"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Conceder" bpmnElement="Flow_GWDec_Conceder">
+        <di:waypoint x="1970" y="312"/>
+        <di:waypoint x="2010" y="312"/>
+        <di:waypoint x="2010" y="456"/>
+        <di:waypoint x="2050" y="456"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_SolicitarInfo" bpmnElement="Flow_GWDec_SolicitarInfo">
+        <di:waypoint x="1970" y="312"/>
+        <di:waypoint x="2010" y="312"/>
+        <di:waypoint x="2010" y="732"/>
+        <di:waypoint x="2050" y="732"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_NaoAssistencial" bpmnElement="Flow_GWDec_NaoAssistencial">
+        <di:waypoint x="1970" y="312"/>
+        <di:waypoint x="2010" y="312"/>
+        <di:waypoint x="2010" y="600"/>
+        <di:waypoint x="2050" y="600"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_SubmeterManter_Handoff" bpmnElement="Flow_SubmeterManter_Handoff">
+        <di:waypoint x="2150" y="312"/>
+        <di:waypoint x="2230" y="312"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_HandoffManter_Pub" bpmnElement="Flow_HandoffManter_Pub">
+        <di:waypoint x="2330" y="312"/>
+        <di:waypoint x="2410" y="312"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubManter_End" bpmnElement="Flow_PubManter_End">
+        <di:waypoint x="2510" y="312"/>
+        <di:waypoint x="2590" y="312"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_SubmeterConceder_Handoff" bpmnElement="Flow_SubmeterConceder_Handoff">
+        <di:waypoint x="2150" y="456"/>
+        <di:waypoint x="2230" y="456"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_HandoffConceder_Pub" bpmnElement="Flow_HandoffConceder_Pub">
+        <di:waypoint x="2330" y="456"/>
+        <di:waypoint x="2410" y="456"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubConceder_End" bpmnElement="Flow_PubConceder_End">
+        <di:waypoint x="2510" y="456"/>
+        <di:waypoint x="2590" y="456"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_SubmeterNaoAssist_Handoff" bpmnElement="Flow_SubmeterNaoAssist_Handoff">
+        <di:waypoint x="2150" y="600"/>
+        <di:waypoint x="2230" y="600"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_HandoffNaoAssist_Pub" bpmnElement="Flow_HandoffNaoAssist_Pub">
+        <di:waypoint x="2330" y="600"/>
+        <di:waypoint x="2410" y="600"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubNaoAssist_End" bpmnElement="Flow_PubNaoAssist_End">
+        <di:waypoint x="2510" y="600"/>
+        <di:waypoint x="2590" y="600"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_SolicitarInfo_GWAguardar" bpmnElement="Flow_SolicitarInfo_GWAguardar">
+        <di:waypoint x="2150" y="732"/>
+        <di:waypoint x="2255" y="732"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Aguardar_InfoMsg" bpmnElement="Flow_Aguardar_InfoMsg">
+        <di:waypoint x="2305" y="732"/>
+        <di:waypoint x="2442" y="732"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Aguardar_Timer" bpmnElement="Flow_Aguardar_Timer">
+        <di:waypoint x="2305" y="732"/>
+        <di:waypoint x="2373" y="732"/>
+        <di:waypoint x="2373" y="830"/>
+        <di:waypoint x="2442" y="830"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PrazoInfo_Revisao" bpmnElement="Flow_PrazoInfo_Revisao">
+        <di:waypoint x="2460" y="848"/>
+        <di:waypoint x="2460" y="908"/>
+        <di:waypoint x="1740" y="908"/>
+        <di:waypoint x="1740" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_ProtocoloInvalidoManter_End" bpmnElement="Flow_ProtocoloInvalidoManter_End">
+        <di:waypoint x="2280" y="370"/>
+        <di:waypoint x="2280" y="542"/>
+        <di:waypoint x="90" y="542"/>
+        <di:waypoint x="90" y="714"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_ProtocoloInvalidoConceder_End" bpmnElement="Flow_ProtocoloInvalidoConceder_End">
+        <di:waypoint x="2280" y="514"/>
+        <di:waypoint x="2280" y="614"/>
+        <di:waypoint x="90" y="614"/>
+        <di:waypoint x="90" y="714"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_ProtocoloInvalidoNaoAssist_End" bpmnElement="Flow_ProtocoloInvalidoNaoAssist_End">
+        <di:waypoint x="2280" y="658"/>
+        <di:waypoint x="2280" y="686"/>
+        <di:waypoint x="90" y="686"/>
+        <di:waypoint x="90" y="714"/>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

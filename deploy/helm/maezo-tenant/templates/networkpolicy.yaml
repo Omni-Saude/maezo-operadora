@@ -1,0 +1,367 @@
+{{- /*
+NetworkPolicy — ADR-0006 PHI two-zone model, rendered PER AGENT.
+
+This is a HARD guardrail. PHI-zone agents (rafael, marina) MUST NOT reach the
+general cloud-LLM path; their egress is RESTRICTED to the approved BR-resident PHI
+endpoints + the in-namespace gateway. General-zone agents (helena) reach the gateway
++ the pseudonymized cloud-LLM path. NEVER weaken this template.
+
+Layers:
+  1. default-deny-egress    — baseline deny for every pod in the namespace.
+  2. allow-dns              — kube-dns (UDP/TCP 53) for every pod.
+  3. allow-intra-namespace  — agent -> gateway/shared-infra ONLY (SCOPED by
+                              app.kubernetes.io/component; NOT peer agents — FIX 2).
+  4. per-agent egress       — one NetworkPolicy per agent, selecting on
+                              maezo.io/agent=<name>, opening ONLY that agent's
+                              zone-appropriate external egress to CONCRETE CIDRs
+                              (never 0.0.0.0/0 — FIX 1, fail-closed).
+
+NOTE (FIX 1 — enforcement limit): plain K8s NetworkPolicy `ipBlock` is IP/CIDR-based
+and CANNOT express FQDN/hostname allowlists. A real network guarantee therefore
+requires IP-pinned CIDRs (or an egress proxy / Cilium FQDN policy). This template
+REQUIRES a concrete `cidr` per endpoint and ABORTS rendering if one is missing or is
+0.0.0.0/0 — see deploy/helm/README.md.
+*/ -}}
+{{- if .Values.networkPolicy.defaultDenyEgress }}
+# ---------------------------------------------------------------------------
+# 1. Default deny all egress from the namespace
+# ---------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-egress
+  namespace: {{ include "maezo-tenant.namespace" . }}
+  labels:
+    {{- include "maezo-tenant.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress: []
+---
+# ---------------------------------------------------------------------------
+# 2. Allow DNS for all pods (kube-dns UDP/TCP 53)
+# ---------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: {{ include "maezo-tenant.namespace" . }}
+  labels:
+    {{- include "maezo-tenant.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+---
+# ---------------------------------------------------------------------------
+# 3. Allow agent -> gateway (and shared infra) egress — SCOPED, not "all pods".
+#    FIX 2 (intra-ns relay): a blanket `egress -> podSelector: {}` would let a PHI
+#    pod reach the GENERAL-zone agent pod (which holds the cloud-LLM egress rule),
+#    creating a PHI -> general-pod -> cloud RELAY that defeats ADR-0006. We instead
+#    scope intra-namespace egress to the gateway component (the pseudonymizing PEP)
+#    + genuinely-shared infra, selected by `app.kubernetes.io/component`. Agents may
+#    reach the gateway; agent <-> peer-agent egress stays DENIED (default-deny).
+#
+#    Ingress remains open intra-namespace (NetworkPolicy ingress on the destination
+#    does not let a PHI pod EGRESS to a peer agent — egress is gated separately, and
+#    the PHI relay is an egress problem). Gateway/shared pods carry the
+#    `maezo.io/intra-ns-egress-target: "true"` selector below via their component
+#    labels.
+# ---------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-intra-namespace
+  namespace: {{ include "maezo-tenant.namespace" . }}
+  labels:
+    {{- include "maezo-tenant.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector: {}
+  egress:
+    # Egress is allowed ONLY to the gateway + shared infra components, NOT to peer
+    # agent pods. This breaks the PHI -> general-agent -> cloud-LLM relay (FIX 2).
+    - to:
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/component
+                operator: In
+                values:
+                  {{- range $.Values.networkPolicy.intraNamespaceEgressComponents }}
+                  - {{ . | quote }}
+                  {{- end }}
+{{- end }}
+
+{{- /* ------------------------------------------------------------------- */}}
+{{- /* 4. Per-agent egress NetworkPolicies                                 */}}
+{{- /* ------------------------------------------------------------------- */}}
+{{- include "maezo-tenant.validateAgents" . }}
+{{- range $agent := .Values.agents }}
+{{- if $agent.enabled }}
+---
+{{- if eq ($agent.securityZone | toString) "phi" }}
+# ===========================================================================
+# PHI-ZONE agent: {{ $agent.name }}
+# Egress RESTRICTED to approved BR-resident PHI endpoints ONLY. NO general
+# cloud-LLM egress rule. The gateway hop is covered by allow-intra-namespace.
+# If no BR endpoints are configured the egress list is EMPTY (deny) — that is
+# the correct fail-closed posture; do NOT relax it (ADR-0006).
+# ===========================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agent-{{ $agent.name }}-egress
+  namespace: {{ include "maezo-tenant.namespace" $ }}
+  labels:
+    {{- include "maezo-tenant.labels" $ | nindent 4 }}
+    maezo.io/agent: {{ $agent.name | quote }}
+    maezo.io/security-zone: "phi"
+  annotations:
+    maezo.io/adr: "ADR-0006"
+    maezo.io/zone: "phi"
+    maezo.io/note: "PHI Zone — egress ONLY to BR-resident endpoints + gateway. Adding an endpoint requires compliance review. NEVER add a general cloud-LLM rule here."
+spec:
+  podSelector:
+    matchLabels:
+      maezo.io/agent: {{ $agent.name | quote }}
+      maezo.io/phi-zone: "true"
+  policyTypes:
+    - Egress
+  egress:
+    {{- if $.Values.networkPolicy.phiZone.brResidentEndpoints }}
+    # Approved BR-resident PHI endpoints (compliance-reviewed allowlist).
+    # FIX 1: each endpoint MUST carry a concrete `cidr`. We NEVER render 0.0.0.0/0
+    # for PHI — that would permit egress to the whole internet (incl. the general
+    # cloud LLM) and is a PHI-isolation no-op. A missing/0.0.0.0/0 cidr ABORTS
+    # rendering (fail-closed) via maezo-tenant.requirePhiCidr.
+    {{- range $ep := $.Values.networkPolicy.phiZone.brResidentEndpoints }}
+    - to:
+        - ipBlock:
+            cidr: {{ include "maezo-tenant.requirePhiCidr" (dict "agent" $agent.name "endpoint" $ep) }}
+      ports:
+        - port: {{ $ep.port }}
+          protocol: TCP
+    {{- end }}
+    {{- else }}
+    # No BR-resident endpoints configured — all external egress for this PHI
+    # agent is DENIED. Set networkPolicy.phiZone.brResidentEndpoints to open it.
+    {{- end }}
+{{- else }}
+# ===========================================================================
+# GENERAL-ZONE agent: {{ $agent.name }}
+# PHI is pseudonymized at the gateway before leaving. This agent may reach the
+# pseudonymized cloud-LLM endpoints + MSK directly, in addition to the gateway
+# (allow-intra-namespace).
+# ===========================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agent-{{ $agent.name }}-egress
+  namespace: {{ include "maezo-tenant.namespace" $ }}
+  labels:
+    {{- include "maezo-tenant.labels" $ | nindent 4 }}
+    maezo.io/agent: {{ $agent.name | quote }}
+    maezo.io/security-zone: "general"
+  annotations:
+    maezo.io/adr: "ADR-0006"
+    maezo.io/zone: "general"
+    maezo.io/note: "General Zone — pseudonymized cloud-LLM path + MSK + gateway."
+spec:
+  podSelector:
+    matchLabels:
+      maezo.io/agent: {{ $agent.name | quote }}
+      maezo.io/phi-zone: "false"
+  policyTypes:
+    - Egress
+  egress:
+    {{- if $.Values.networkPolicy.generalZone.enabled }}
+    # Pseudonymized cloud-LLM endpoints (only pseudonymized PHI reaches these).
+    # FIX 1: each endpoint MUST carry a concrete `cidr`; 0.0.0.0/0 is rejected.
+    # NetworkPolicy ipBlock is IP-based — true FQDN allowlisting needs an egress
+    # proxy / Cilium FQDN policy (see deploy/helm/README.md). We at minimum stop
+    # pretending 0.0.0.0/0 is an allowlist.
+    {{- range $ep := $.Values.networkPolicy.generalZone.llmEndpoints }}
+    - to:
+        - ipBlock:
+            cidr: {{ include "maezo-tenant.requireGeneralCidr" (dict "agent" $agent.name "endpoint" $ep "kind" "cloud-LLM") }}
+      ports:
+        - port: {{ $ep.port }}
+          protocol: TCP
+    {{- end }}
+    # MSK Serverless (Kafka CDC — from amh-data-platform).
+    {{- if $.Values.networkPolicy.generalZone.mskEndpoint.host }}
+    - to:
+        - ipBlock:
+            cidr: {{ include "maezo-tenant.requireGeneralCidr" (dict "agent" $agent.name "endpoint" $.Values.networkPolicy.generalZone.mskEndpoint "kind" "MSK") }}
+      ports:
+        - port: {{ $.Values.networkPolicy.generalZone.mskEndpoint.port }}
+          protocol: TCP
+    {{- end }}
+    {{- else }}
+    # General zone disabled — no external egress (gateway hop still allowed).
+    {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{- /* ------------------------------------------------------------------- */}}
+{{- /* 4b. fhir-sync CDC-consumer Kafka egress (predeploy DB-5)             */}}
+{{- /*                                                                       */}}
+{{- /* fhir-sync is a PHI-zone NON-agent (maezo.io/phi-zone: "phi") that     */}}
+{{- /* consumes the Tasy CDC topics (cdc.amh.tasy.*) from MSK Serverless. It */}}
+{{- /* is NOT covered by the per-agent egress (§4 selects maezo.io/agent,     */}}
+{{- /* which fhir-sync lacks) nor the daemon egress (§5 selects worker-      */}}
+{{- /* daemon/notifications-bridge), and allow-intra-namespace only opens    */}}
+{{- /* the gateway — so under default-deny-egress fhir-sync currently has NO */}}
+{{- /* path to MSK. We open ONLY the concrete MSK CIDR, reusing the SAME     */}}
+{{- /* mskEndpoint variable + requireGeneralCidr guard the general-zone      */}}
+{{- /* agents' Kafka rule uses above (there is ONE shared MSK cluster). This */}}
+{{- /* preserves PHI isolation: no internet, no cloud-LLM rule — MSK carries */}}
+{{- /* the Tasy CDC PHI topics, so this egress stays inside the PHI trust    */}}
+{{- /* boundary (ADR-0006). No MSK host configured => egress list stays      */}}
+{{- /* empty (fail-closed deny). Placed here (not at EOF) to avoid a textual */}}
+{{- /* collision with PR #185's webhook-receiver-egress block, which appends */}}
+{{- /* at the end of this file.                                              */}}
+{{- /* ------------------------------------------------------------------- */}}
+{{- if .Values.fhirSync.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: fhir-sync-egress
+  namespace: {{ include "maezo-tenant.namespace" . }}
+  labels:
+    {{- include "maezo-tenant.labels" . | nindent 4 }}
+    app.kubernetes.io/component: fhir-sync
+  annotations:
+    maezo.io/adr: "ADR-0006"
+    maezo.io/zone: "phi"
+    maezo.io/note: "fhir-sync (PHI-zone CDC consumer) egress -> MSK only (Tasy CDC topics). Concrete CIDR required (FIX 1); no internet / cloud-LLM (predeploy DB-5)."
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: fhir-sync
+  policyTypes:
+    - Egress
+  egress:
+    {{- if .Values.networkPolicy.generalZone.mskEndpoint.host }}
+    # MSK Serverless (Kafka CDC source — from amh-data-platform) — same variable +
+    # guard as the general-zone agents' Kafka rule above (one shared MSK cluster).
+    - to:
+        - ipBlock:
+            cidr: {{ include "maezo-tenant.requireGeneralCidr" (dict "agent" "fhir-sync" "endpoint" .Values.networkPolicy.generalZone.mskEndpoint "kind" "MSK") }}
+      ports:
+        - port: {{ .Values.networkPolicy.generalZone.mskEndpoint.port }}
+          protocol: TCP
+    {{- else }}
+    # No MSK host configured — all external egress DENIED (fail-closed default).
+    {{- end }}
+{{- end }}
+
+{{- /* ------------------------------------------------------------------- */}}
+{{- /* 5. W-R2 daemon egress (worker-daemon R7 + notifications-bridge R8)   */}}
+{{- /*                                                                       */}}
+{{- /* Both daemons are general-zone NON-agents that must reach the CIB     */}}
+{{- /* Seven engine (fetch-and-lock / start_process) + Kafka (publish/       */}}
+{{- /* consume). They are subject to default-deny-egress, so we open ONLY    */}}
+{{- /* their two egress targets to CONCRETE CIDRs (FIX 1; 0.0.0.0/0 is NOT   */}}
+{{- /* an allowlist). If no CIDRs are configured the egress list is EMPTY    */}}
+{{- /* (deny) — the correct fail-closed posture; configure per environment.  */}}
+{{- /* These are NOT agents: no PHI-relay concern (FIX 2) — they never hold  */}}
+{{- /* a cloud-LLM egress rule.                                              */}}
+{{- /* ------------------------------------------------------------------- */}}
+{{- if .Values.networkPolicy.daemonEgress.enabled }}
+{{- $components := list }}
+{{- if .Values.workerDaemon.enabled }}{{- $components = append $components "worker-daemon" }}{{- end }}
+{{- if .Values.notificationsBridge.enabled }}{{- $components = append $components "notifications-bridge" }}{{- end }}
+{{- if $components }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: wr2-daemon-egress
+  namespace: {{ include "maezo-tenant.namespace" . }}
+  labels:
+    {{- include "maezo-tenant.labels" . | nindent 4 }}
+  annotations:
+    maezo.io/note: "W-R2 daemons (worker-daemon/notifications-bridge) egress -> CIB Seven + Kafka. Concrete CIDRs only (FIX 1)."
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values:
+          {{- range $components }}
+          - {{ . | quote }}
+          {{- end }}
+  policyTypes:
+    - Egress
+  egress:
+    {{- range $ep := .Values.networkPolicy.daemonEgress.endpoints }}
+    - to:
+        - ipBlock:
+            cidr: {{ required "networkPolicy.daemonEgress.endpoints[].cidr is REQUIRED (FIX 1 — no 0.0.0.0/0)" $ep.cidr | quote }}
+      ports:
+        - port: {{ $ep.port }}
+          protocol: TCP
+    {{- end }}
+{{- end }}
+{{- end }}
+
+{{- /* ------------------------------------------------------------------- */}}
+{{- /* 6. webhook-receiver Kafka egress (predeploy DB-3)                    */}}
+{{- /*                                                                       */}}
+{{- /* webhook-receiver is a general-zone NON-agent, like worker-daemon /    */}}
+{{- /* notifications-bridge above — but unlike them it never calls CIB      */}}
+{{- /* Seven (it only produces to Kafka), so we do NOT fold it into         */}}
+{{- /* wr2-daemon-egress: that selector's `daemonEgress.endpoints` list      */}}
+{{- /* also opens CIB Seven, which would be an unnecessary grant for this   */}}
+{{- /* component (least-privilege). Instead we reuse the SAME MSK           */}}
+{{- /* endpoint variable + requireGeneralCidr guard the general-zone         */}}
+{{- /* agents' Kafka rule uses above (FIX 1 — concrete cidr required,        */}}
+{{- /* 0.0.0.0/0 rejected; no host configured => egress stays empty/deny).   */}}
+{{- /* ------------------------------------------------------------------- */}}
+{{- if .Values.webhookReceiver.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: webhook-receiver-egress
+  namespace: {{ include "maezo-tenant.namespace" . }}
+  labels:
+    {{- include "maezo-tenant.labels" . | nindent 4 }}
+    app.kubernetes.io/component: webhook-receiver
+  annotations:
+    maezo.io/note: "webhook-receiver egress -> Kafka only (WhatsApp inbound -> Kafka producer). No CIB Seven — least-privilege (predeploy DB-3)."
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: webhook-receiver
+  policyTypes:
+    - Egress
+  egress:
+    {{- if .Values.networkPolicy.generalZone.mskEndpoint.host }}
+    # MSK Serverless (Kafka producer target) — same variable + guard as the
+    # general-zone agents' Kafka rule above.
+    - to:
+        - ipBlock:
+            cidr: {{ include "maezo-tenant.requireGeneralCidr" (dict "agent" "webhook-receiver" "endpoint" .Values.networkPolicy.generalZone.mskEndpoint "kind" "MSK") }}
+      ports:
+        - port: {{ .Values.networkPolicy.generalZone.mskEndpoint.port }}
+          protocol: TCP
+    {{- else }}
+    # No MSK host configured — all external egress DENIED (fail-closed default).
+    {{- end }}
+{{- end }}

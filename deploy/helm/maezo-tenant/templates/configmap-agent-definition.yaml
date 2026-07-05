@@ -1,0 +1,50 @@
+{{- /*
+Per-agent ConfigMap delivering the EFFECTIVE (merged L0+overlay) Agent Definition
+to the runtime (ADR-0004). `provision_tenant.py` computes each agent's effective
+definition via `maezo.platform.tenancy.agent_def_merge.merge_agent_definition` and
+writes it (as a YAML string) + its version_hash into `.Values.agents[*]`:
+
+  agents:
+    - name: rafael
+      securityZone: phi
+      definitionHash: "<sha256>"        # ADR-0007 provenance
+      effectiveDefinition: |            # canonical merged YAML
+        id: rafael
+        security_zone: phi
+        ...
+
+The agent-runtime Deployment mounts this at AGENT_DEFINITION_PATH and the harness
+loads it instead of reading a bare on-disk agent.yaml — so what runs in a tenant is
+always the merged, hash-pinned definition, not the raw L0 base.
+*/ -}}
+{{- include "maezo-tenant.validateAgents" . }}
+{{- range $agent := .Values.agents }}
+{{- if $agent.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-def-{{ $agent.name }}
+  namespace: {{ include "maezo-tenant.namespace" $ }}
+  labels:
+    {{- include "maezo-tenant.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ include "maezo-tenant.agentComponent" (dict "name" $agent.name) }}
+    maezo.io/agent: {{ $agent.name | quote }}
+    maezo.io/security-zone: {{ $agent.securityZone | quote }}
+  annotations:
+    # Provenance: the effective-definition version hash (ADR-0007). Bumping this
+    # rolls the agent Deployment (see checksum/agent-definition annotation there).
+    maezo.io/agent-definition-hash: {{ $agent.definitionHash | default "unset" | quote }}
+    maezo.io/adr: "ADR-0004"
+data:
+  effective-agent-definition.yaml: |
+    {{- if $agent.effectiveDefinition }}
+    {{- $agent.effectiveDefinition | nindent 4 }}
+    {{- else }}
+    # No effective definition rendered by provision_tenant.py for this agent.
+    # Falls back to the harness default (raw L0 agent.yaml) at runtime.
+    id: {{ $agent.name }}
+    security_zone: {{ $agent.securityZone }}
+    {{- end }}
+---
+{{- end }}
+{{- end }}

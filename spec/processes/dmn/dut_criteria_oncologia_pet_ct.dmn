@@ -1,0 +1,217 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_dut_criteria_oncologia_pet_ct"
+             name="DUT — Criterios clinicos oncologia PET-CT"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    dut_criteria_oncologia_pet_ct v0.1.0 — status: DRAFT — conteudo clinico SINTETICO.
+    REQUER revisao humana antes de qualquer deploy (docs/review-queue.md):
+    revisor: medico auditor + oncologista/nucleo-medicina + juridico/regulatorio.
+
+    INVARIANTE L0 HARD: esta tabela NAO possui saida de negativa automatica.
+    dut_atendida=false encaminha para analise do medico auditor — nunca nega
+    automaticamente (ADR-0005/0008). Somente o medico auditor pode negar.
+
+    PET-CT (Tomografia por Emissao de Positrons) esta no ROL ANS com DUT
+    para indicacoes especificas (DRAFT/verify — confirmar DUT vigente no portal ANS;
+    referencia inicial: DUT PET-CT oncologia publicada ANS circa 2014/emendas).
+
+    Este arquivo cobre APENAS a via oncologica (estadiamento, reestadimento,
+    resposta ao tratamento). Indicacoes neurologicas/cardiologicas sao escopo
+    separado que necessita SME adicional (ver review-queue.md).
+
+    Inputs clinicos (pre-resolvidos por worker deterministico com base em dados
+    FHIR/prontuario — nunca por LLM):
+      - diagnostico_oncologico_confirmado: boolean — diagnostico de neoplasia
+          maligna confirmado histologicamente (DRAFT/verify: biopsias aceitaveis)
+      - finalidade_pet_ct: string — "estadiamento"|"reestadimento"|
+          "avaliacao_resposta"|"deteccao_recorrencia"|"outras"
+      - tipo_neoplasia_elegivel: boolean — neoplasia em lista de indicacoes DUT
+          ANS (linfoma, melanoma, cancer pulm, colorretal, mama, etc.) —
+          DRAFT/verify lista completa na DUT ANS
+      - exames_convencionais_inconclusivos: boolean — TC/RM/cintilografia
+          convencionais realizados e inconclusivos para a finalidade solicitada —
+          DRAFT/verify quando exigido pela DUT
+      - solicita_oncologista_ou_nucleo: boolean — solicitacao por oncologista
+          clinico ou nuclear (DRAFT/verify especialidade habilitada pela DUT)
+
+    Outputs:
+      - dut_atendida: boolean — true = criterios DUT PET-CT aparentemente atendidos;
+          false -> analise humana obrigatoria
+      - motivo: string — justificativa para dossie do medico auditor
+
+    IMPORTANTE: dut_atendida=true NAO significa aprovacao automatica. O resultado
+    alimenta auth_auto_approval (L2). A negativa NUNCA nasce aqui.
+  </description>
+
+  <decision id="dut_criteria_oncologia_pet_ct"
+            name="DUT — Criterios clinicos oncologia PET-CT"
+            camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_dut_criteria_oncologia_pet_ct" hitPolicy="FIRST">
+
+      <input id="in_diag_onco" label="Diagnostico oncologico confirmado (diagnostico_oncologico_confirmado)">
+        <inputExpression id="ie_diag_onco" typeRef="boolean">
+          <text>diagnostico_oncologico_confirmado</text>
+        </inputExpression>
+      </input>
+
+      <input id="in_finalidade" label="Finalidade do PET-CT (finalidade_pet_ct)">
+        <inputExpression id="ie_finalidade" typeRef="string">
+          <text>finalidade_pet_ct</text>
+        </inputExpression>
+      </input>
+
+      <input id="in_neoplasia_elig" label="Tipo de neoplasia elegivel (tipo_neoplasia_elegivel)">
+        <inputExpression id="ie_neoplasia_elig" typeRef="boolean">
+          <text>tipo_neoplasia_elegivel</text>
+        </inputExpression>
+      </input>
+
+      <input id="in_conv_inconc" label="Exames convencionais inconclusivos (exames_convencionais_inconclusivos)">
+        <inputExpression id="ie_conv_inconc" typeRef="boolean">
+          <text>exames_convencionais_inconclusivos</text>
+        </inputExpression>
+      </input>
+
+      <input id="in_solicitante" label="Solicitacao por oncologista/nucleo (solicita_oncologista_ou_nucleo)">
+        <inputExpression id="ie_solicitante" typeRef="boolean">
+          <text>solicita_oncologista_ou_nucleo</text>
+        </inputExpression>
+      </input>
+
+      <output id="out_dut_atendida" label="dut_atendida" name="dut_atendida" typeRef="boolean"/>
+      <output id="out_motivo"       label="motivo"       name="motivo"       typeRef="string"/>
+
+      <!-- =================================================================
+           REGRA B1: Sem diagnostico oncologico confirmado -> auditor
+           ================================================================= -->
+      <rule id="r01">
+        <description>SINTETICO — Sem diagnostico oncologico confirmado: DUT nao atendida; medico auditor avalia. Nunca negativa automatica.</description>
+        <inputEntry id="r01i1"><text>false</text></inputEntry>
+        <inputEntry id="r01i2"><text>-</text></inputEntry>
+        <inputEntry id="r01i3"><text>-</text></inputEntry>
+        <inputEntry id="r01i4"><text>-</text></inputEntry>
+        <inputEntry id="r01i5"><text>-</text></inputEntry>
+        <outputEntry id="r01o1"><text>false</text></outputEntry>
+        <outputEntry id="r01o2"><text>"DRAFT — Diagnostico oncologico ainda nao confirmado histologicamente: criterio DUT PET-CT nao atendido. Encaminhar medico auditor para avaliacao de estadio diagnostico ou excecao. Nunca negativa automatica."</text></outputEntry>
+      </rule>
+
+      <!-- =================================================================
+           REGRA B2: Neoplasia nao elegivel pela DUT -> auditor
+           ================================================================= -->
+      <rule id="r02">
+        <description>SINTETICO — Tipo de neoplasia fora da lista de elegiveis DUT ANS: nao atendida; medico auditor decide. Nunca negativa automatica.</description>
+        <inputEntry id="r02i1"><text>true</text></inputEntry>
+        <inputEntry id="r02i2"><text>-</text></inputEntry>
+        <inputEntry id="r02i3"><text>false</text></inputEntry>
+        <inputEntry id="r02i4"><text>-</text></inputEntry>
+        <inputEntry id="r02i5"><text>-</text></inputEntry>
+        <outputEntry id="r02o1"><text>false</text></outputEntry>
+        <outputEntry id="r02o2"><text>"DRAFT — Tipo de neoplasia nao consta na lista de elegibilidade DUT PET-CT (DRAFT/verify lista ANS): encaminhar medico auditor. Nunca negativa automatica."</text></outputEntry>
+      </rule>
+
+      <!-- =================================================================
+           REGRA B3: Solicitacao por especialidade nao habilitada -> auditor
+           ================================================================= -->
+      <rule id="r03">
+        <description>SINTETICO — Solicitacao por profissional nao habilitado pela DUT: nao atendida; medico auditor decide.</description>
+        <inputEntry id="r03i1"><text>true</text></inputEntry>
+        <inputEntry id="r03i2"><text>-</text></inputEntry>
+        <inputEntry id="r03i3"><text>true</text></inputEntry>
+        <inputEntry id="r03i4"><text>-</text></inputEntry>
+        <inputEntry id="r03i5"><text>false</text></inputEntry>
+        <outputEntry id="r03o1"><text>false</text></outputEntry>
+        <outputEntry id="r03o2"><text>"DRAFT — Solicitacao por especialidade nao habilitada pela DUT PET-CT (exige oncologista clinico ou nuclear — DRAFT/verify): encaminhar medico auditor. Nunca negativa automatica."</text></outputEntry>
+      </rule>
+
+      <!-- =================================================================
+           REGRA P1: Estadiamento — diagnostico confirmado, neoplasia elegivel,
+           solicitante habilitado — exames convencionais nao necessariamente exigidos
+           para estadiamento inicial (DRAFT/verify DUT especifica)
+           ================================================================= -->
+      <rule id="r04">
+        <description>SINTETICO — Estadiamento inicial: diagnostico oncologico confirmado, neoplasia elegivel, solicitante habilitado: DUT PET-CT aparentemente atendida. DRAFT/verify.</description>
+        <inputEntry id="r04i1"><text>true</text></inputEntry>
+        <inputEntry id="r04i2"><text>"estadiamento"</text></inputEntry>
+        <inputEntry id="r04i3"><text>true</text></inputEntry>
+        <inputEntry id="r04i4"><text>-</text></inputEntry>
+        <inputEntry id="r04i5"><text>true</text></inputEntry>
+        <outputEntry id="r04o1"><text>true</text></outputEntry>
+        <outputEntry id="r04o2"><text>"DRAFT — Estadiamento oncologico inicial: diagnostico confirmado + neoplasia elegivel DUT + solicitante habilitado: criterios DUT PET-CT aparentemente atendidos. Verificar documentacao com medico auditor. DRAFT/verify."</text></outputEntry>
+      </rule>
+
+      <!-- =================================================================
+           REGRA P2: Reestadimento — idem + exames convencionais inconclusivos
+           ================================================================= -->
+      <rule id="r05">
+        <description>SINTETICO — Reestadimento: diagnostico confirmado, neoplasia elegivel, solicitante habilitado, convencionais inconclusivos: DUT PET-CT aparentemente atendida. DRAFT/verify.</description>
+        <inputEntry id="r05i1"><text>true</text></inputEntry>
+        <inputEntry id="r05i2"><text>"reestadimento"</text></inputEntry>
+        <inputEntry id="r05i3"><text>true</text></inputEntry>
+        <inputEntry id="r05i4"><text>true</text></inputEntry>
+        <inputEntry id="r05i5"><text>true</text></inputEntry>
+        <outputEntry id="r05o1"><text>true</text></outputEntry>
+        <outputEntry id="r05o2"><text>"DRAFT — Reestadimento: criterios DUT PET-CT aparentemente atendidos (diagnostico + neoplasia elegivel + convencionais inconclusivos + solicitante habilitado). Verificar com medico auditor. DRAFT/verify."</text></outputEntry>
+      </rule>
+
+      <!-- =================================================================
+           REGRA P3: Avaliacao de resposta ao tratamento — idem
+           ================================================================= -->
+      <rule id="r06">
+        <description>SINTETICO — Avaliacao de resposta ao tratamento: criterios DUT PET-CT aparentemente atendidos. DRAFT/verify.</description>
+        <inputEntry id="r06i1"><text>true</text></inputEntry>
+        <inputEntry id="r06i2"><text>"avaliacao_resposta"</text></inputEntry>
+        <inputEntry id="r06i3"><text>true</text></inputEntry>
+        <inputEntry id="r06i4"><text>-</text></inputEntry>
+        <inputEntry id="r06i5"><text>true</text></inputEntry>
+        <outputEntry id="r06o1"><text>true</text></outputEntry>
+        <outputEntry id="r06o2"><text>"DRAFT — Avaliacao de resposta ao tratamento oncologico: criterios DUT PET-CT aparentemente atendidos. Verificar com medico auditor. DRAFT/verify."</text></outputEntry>
+      </rule>
+
+      <!-- =================================================================
+           REGRA P4: Deteccao de recorrencia — idem + convencionais inconclusivos
+           ================================================================= -->
+      <rule id="r07">
+        <description>SINTETICO — Deteccao de recorrencia: diagnostico previo confirmado, elegivel, inconclusivos convencionais, solicitante habilitado: DUT PET-CT aparentemente atendida. DRAFT/verify.</description>
+        <inputEntry id="r07i1"><text>true</text></inputEntry>
+        <inputEntry id="r07i2"><text>"deteccao_recorrencia"</text></inputEntry>
+        <inputEntry id="r07i3"><text>true</text></inputEntry>
+        <inputEntry id="r07i4"><text>true</text></inputEntry>
+        <inputEntry id="r07i5"><text>true</text></inputEntry>
+        <outputEntry id="r07o1"><text>true</text></outputEntry>
+        <outputEntry id="r07o2"><text>"DRAFT — Deteccao de recorrencia: criterios DUT PET-CT aparentemente atendidos. Verificar documentacao e indicacao especifica com medico auditor. DRAFT/verify."</text></outputEntry>
+      </rule>
+
+      <!-- =================================================================
+           REGRA N1: Finalidade "outras" — nao mapeada -> auditor
+           ================================================================= -->
+      <rule id="r08">
+        <description>SINTETICO — Finalidade nao mapeada nas indicacoes DUT PET-CT: encaminhar medico auditor. Nunca negativa automatica.</description>
+        <inputEntry id="r08i1"><text>true</text></inputEntry>
+        <inputEntry id="r08i2"><text>"outras"</text></inputEntry>
+        <inputEntry id="r08i3"><text>-</text></inputEntry>
+        <inputEntry id="r08i4"><text>-</text></inputEntry>
+        <inputEntry id="r08i5"><text>-</text></inputEntry>
+        <outputEntry id="r08o1"><text>false</text></outputEntry>
+        <outputEntry id="r08o2"><text>"DRAFT — Finalidade nao listada nas indicacoes DUT PET-CT (pode ser indicacao neurologica/cardiologica — escopo separado, SME adicional necessario): encaminhar medico auditor. Nunca negativa automatica."</text></outputEntry>
+      </rule>
+
+      <!-- =================================================================
+           CATCH-ALL FAIL-SAFE (r99) — OBRIGATORIO L0 HARD
+           ================================================================= -->
+      <rule id="r99">
+        <description>CATCH-ALL FAIL-SAFE: combinacao de criterios DUT PET-CT nao mapeada nesta tabela DRAFT — encaminhar medico auditor obrigatoriamente. Nunca negativa automatica (L0 hard / ADR-0005).</description>
+        <inputEntry id="r99i1"><text>-</text></inputEntry>
+        <inputEntry id="r99i2"><text>-</text></inputEntry>
+        <inputEntry id="r99i3"><text>-</text></inputEntry>
+        <inputEntry id="r99i4"><text>-</text></inputEntry>
+        <inputEntry id="r99i5"><text>-</text></inputEntry>
+        <outputEntry id="r99o1"><text>false</text></outputEntry>
+        <outputEntry id="r99o2"><text>"CATCH-ALL FAIL-SAFE — combinacao criterios DUT PET-CT oncologia nao mapeada nesta tabela DRAFT: encaminhar obrigatoriamente ao medico auditor. Nunca negativa automatica (L0 hard)."</text></outputEntry>
+      </rule>
+
+    </decisionTable>
+  </decision>
+</definitions>

@@ -1,0 +1,178 @@
+[
+ {
+  "dim": "bpmn-dmn",
+  "esc": "r1: Business-impact severity of 'dangling-not-human-guard-errors-no-boundary-catch' depends on how the amh-overlay's actual Camunda/CIB Seven incident-retry policy is configured (does ops get paged on an unhandled incident, or does the process silently sit stalled?) \u2014 no incident-alerting infrastructure was found in this repo, so I cannot confirm whether an out-of-band operational safety net exist"
+ },
+ {
+  "dim": "bpmn-dmn",
+  "esc": "r1: Could not determine whether PR branches for #172/#173/#174/#176 still exist on the remote (only local refs checked: fix/predeploy-deps-b1, fix/predeploy-deps-b2-crypto, fix/predeploy-durable-dedupe, fix/predeploy-phi-hmac-env, fix/predeploy-uv-align, plus origin/fix/predeploy-phi-hmac-env) \u2014 recommend the parent orchestrator run `gh pr list --state all` against the actual GitHub remote to loca"
+ },
+ {
+  "dim": "bpmn-dmn",
+  "esc": "r1: Did not re-verify every one of the ~20+ individual dangling-boundary-catch occurrences folded into 'dangling-not-human-guard-errors-no-boundary-catch' with the same depth as the AUTH/FRAUDE/PAGTO cases (e.g. ERR_DSR_ERASURE_FAILED/ERR_DSR_ERASURE_NOT_HUMAN in LGPD-DSR-001 were confirmed uncaught but not re-verified line-by-line for worker reachability) \u2014 flagged via the same confirmed cross-re"
+ },
+ {
+  "dim": "bpmn-dmn",
+  "esc": "r1: ENGINE-13031 business-key sweep (dimension e) covered notifications_bridge/consumer.py's canonical builders and two inline adequacao.py/fraude.py CRED handoff builders, but did not exhaustively trace every mcp_cibseven/server.py caller or every agents/**/graph.py that might construct a businessKey directly outside the bridge \u2014 recommend a follow-up grep pass over src/maezo/agents/**/graph.py f"
+ },
+ {
+  "dim": "bpmn-dmn",
+  "esc": "r2: Census mismatch: brief specified 17 BPMN files and 55 DMN files; actual repo glob (2026-07-04, main @ HEAD) finds exactly 16 .bpmn files under src/maezo/processes/bpmn (SP-OP-ANS-CRON-001 is present as a 5-process-definition file, consistent with docs/audits/bpmn-process-completeness.md's 15+1 reconciliation) and 60 .dmn files under src/maezo/processes/dmn (53 flat + 7 under fraude_scoring/). "
+ },
+ {
+  "dim": "bpmn-dmn",
+  "esc": "r2: docs/audits/bpmn-process-completeness.md (cited in the brief for the incoming/outgoing-declaration-completeness method) does not actually contain that method \u2014 it is a process/subprocess-inventory reconciliation doc, not an incoming/outgoing checker. Built and ran a custom xml.etree-based reconciliation script instead (see coverage.incoming_outgoing_completeness_b); only the already-known canc"
+ },
+ {
+  "dim": "bpmn-dmn",
+  "esc": "r2: lxml is not installed in the project's uv environment; the doc-JUEL sweep was redone with stdlib xml.etree.ElementTree, which does not preserve line numbers (line refs reported as '?' internally, but I resolved exact line numbers separately via grep for the reported findings) and does not distinguish CDATA from ordinary text at the API level (both are merged into .text) \u2014 for the purpose of th"
+ },
+ {
+  "dim": "bpmn-dmn",
+  "esc": "round 3: finder died/skipped"
+ },
+ {
+  "dim": "bpmn-dmn",
+  "esc": "round 4: finder died/skipped"
+ },
+ {
+  "dim": "no-denial-autonomy",
+  "esc": "r1: CRITICAL ENVIRONMENT FINDING (not a code defect, but materially affects how to read this sweep): the local `main` working tree I was told to review (HEAD=260cb1d) is 5 commits BEHIND origin/main (`git log origin/main..HEAD` vs `HEAD..origin/main`; `git branch --contains ca6a7fe --all` does NOT list local main). Missing commits are exactly: 3cf828c (#171, GAP-NIP-6 \u2014 adds End_NipProtocoloInvali"
+ },
+ {
+  "dim": "no-denial-autonomy",
+  "esc": "r1: Because dimension 2c specifically asked me to verify a fix 'JUST re-fixed in PR #174 (merged 2026-07-04)', and because production is defined as 'the CI amh-overlay helm values' (i.e., whatever origin/main / the CI ref actually deploys, not this stale local branch), I did NOT rely on the literal on-disk files for the final verdict on 2a/2b/2c. Instead I created a disposable, read-only `git work"
+ },
+ {
+  "dim": "no-denial-autonomy",
+  "esc": "r1: Recommend the orchestrator/owner run `git pull` (or otherwise fast-forward) this local `main` checkout so it actually matches origin/main \u2014 right now anyone auditing or building from this literal directory (rather than from GitHub/origin) would see the pre-#171/#172/#173/#174/#176 state, which is misleading given the branch's own docs commit claims those fixes are in."
+ },
+ {
+  "dim": "no-denial-autonomy",
+  "esc": "r2: Local checked-out `main` (HEAD=260cb1d) is stale/diverged from `origin/main`: local main is MISSING the merge commits for PR #174 (ca6a7fe, the carolina/rafael autonomy-overclaim fix explicitly referenced in this brief), #173 (f3f517a), #172 (f9d7f5b), #171 (3cf828c), and #176 (1ddf827) \u2014 all present on origin/main \u2014 yet local main carries a docs commit (260cb1d) that narrates all of them as m"
+ },
+ {
+  "dim": "no-denial-autonomy",
+  "esc": "r2: The brief states 'all 17 BPMN files' \u2014 the repository only contains 16 *.bpmn files under src/maezo/processes/bpmn (confirmed via `find . -iname '*.bpmn'` on both local and origin/main, identical count). Treating this as an imprecision in the brief rather than a coverage gap; all 16 present files were fully swept."
+ },
+ {
+  "dim": "no-denial-autonomy",
+  "esc": "r4: Brief states 'every endEvent in every one of the 17 BPMN files' but the repo currently contains only 16 *.bpmn files under src/maezo/processes/bpmn/ (verified via find + the test's own glob). No 17th file was found anywhere in the repo; flagged as a discrepancy in the brief, not a code defect."
+ },
+ {
+  "dim": "no-denial-autonomy",
+  "esc": "r5: Brief says 17 BPMN files but repo has exactly 16 (confirmed via find and the test's own glob); all 16 fully audited, flagging the count discrepancy for the record only, not a code defect"
+ },
+ {
+  "dim": "no-denial-autonomy",
+  "esc": "r5: No new defects survived verification in Dimension 2a/2b or 2c; every lead investigated resolved to an already-excluded Round-5 finding (lgpd-negar-fundamentado-classified-neutral, lucas-cancel-start-overclaim, helena-autonomy-actions-incomplete-triage-scheduling, autonomy-actions-declared-but-never-exercised, no-denial-heuristic-blind-to-genuine-adverse-terms) or was confirmed correctly docume"
+ },
+ {
+  "dim": "phi-perimeter",
+  "esc": "r1: matricula finding runtime exposure not fully confirmed: I could not trace whether the AMH production entry path (Tasy CDC / WhatsApp inbound / manual API) that first starts SP-OP-CANCEL/INADIMPLENCIA populates matricula_beneficiario RAW or already as beneficiario_pseudo_id. The code path for raw matricula on operadora.notifications.internal is demonstrably reachable (bridge accepts it), but if"
+ },
+ {
+  "dim": "phi-perimeter",
+  "esc": "r1: verify_chain re-anchor gap is dormant (genesis record only ages out after 5 years given deploy date 2026-07-04), so it cannot be exercised now; severity rests on the design intent of whether ops verification is expected to pass genesis= explicitly after retention \u2014 no runbook/caller found that does."
+ },
+ {
+  "dim": "phi-perimeter",
+  "esc": "r1: F-1/F-2 assume CI validate-helm's values-amh.yaml IS the production target; if a downstream provisioning step generates values-amh-provisioned.yaml (referenced in values-amh.yaml comments) that overrides gateway.enabled or ingress, that generated file was not present in the repo to inspect."
+ },
+ {
+  "dim": "phi-perimeter",
+  "esc": "r1: sweep_complete=false"
+ },
+ {
+  "dim": "phi-perimeter",
+  "esc": "r3: Per-payload PHI-under-non-standard-key was not exhaustively audited across all ~15 worker modules: scrub_phi_vars only matches the 8 exact key names in PHI_PROCESS_VARS, so any worker that publishes free clinical text under a differently-named key (e.g. 'motivo'/'descricao') to a general-zone topic would bypass enforcement. I confirmed the 8 named vars appear only in phase0.py (scrubbed) and a"
+ },
+ {
+  "dim": "phi-perimeter",
+  "esc": "r3: Pre-seeded F-1 (gateway crash-loop / gateway-deployment-crashloop-no-main) and F-2 (console-ingress-dangling-service-latent) were root-caused and CONFIRMED but not re-listed as findings per the Round-3 do-not-re-report instruction. Root cause F-1: the #3 infra skeleton scaffolded a standalone gateway HTTP Deployment ('python -m maezo.gateway', port 8000, /healthz+/readyz probes) but src/maezo/"
+ },
+ {
+  "dim": "phi-perimeter",
+  "esc": "r3: Terraform was not validated (no change touched it in scope and it would require a temp-dir copy with -backend=false); helm was not re-rendered locally (relied on reading values files + CI validate-helm job definition)."
+ },
+ {
+  "dim": "phi-perimeter",
+  "esc": "r3: sweep_complete=false"
+ },
+ {
+  "dim": "phi-perimeter",
+  "esc": "r4: Primary finding (phi-hmac-secret-provisioned-but-never-injected-as-env) is adjacent to the already-reported 'phone-hash-keyless-brute-forceable-reidentification' but is a distinct mechanism: a helm env-injection/ExternalSecret-consumer drift affecting the Pseudonymizer HMAC across BOTH agent-runtime and worker-daemon, not the webhook hash_phone salt. Reporting as new; flagging the family relat"
+ },
+ {
+  "dim": "phi-perimeter",
+  "esc": "r4: Did not exhaustively line-read every worker notification builder in cred/fraude/adequacao (spot-checked cred denial + docstrings confirming free-text fields are deliberately excluded); the matricula exception is already a known finding."
+ },
+ {
+  "dim": "phi-perimeter",
+  "esc": "r4: Relied on the pre-verified baseline that all 8 __main__ entrypoints call configure_logging(); independently confirmed only webhooks and worker_runtime __main__."
+ },
+ {
+  "dim": "phi-perimeter",
+  "esc": "round 5: finder died/skipped"
+ },
+ {
+  "dim": "infra-deploy",
+  "esc": "round 3: finder died/skipped"
+ },
+ {
+  "dim": "infra-deploy",
+  "esc": "round 4: finder died/skipped"
+ },
+ {
+  "dim": "runtime-seams",
+  "esc": "r1: WORKSPACE/GIT-STATE DIVERGENCE (evaluated per brief against origin/main): the checked-out local `main` HEAD (260cb1d) is NOT a descendant of origin/main and is MISSING 5 merged commits that ARE in origin/main \u2014 1ddf827 (#176 pagto->Andre envelope), ca6a7fe (#174), f3f517a (#173), f9d7f5b (#172), 3cf828c (#171 nip). `git merge-base --is-ancestor 1ddf827 HEAD` => NO; `git rev-list --left-right -"
+ },
+ {
+  "dim": "runtime-seams",
+  "esc": "r1: The recurso->marina and INAD->fernando findings are both fail-safe degradations (post-deploy), not deploy-blocking: in each the instructive dossier still reaches the human User Task via the echo notification and neither agent can set a decision variable, so process flow is never blocked and no wrong auto-decision occurs \u2014 only the agent enrichment is missing."
+ },
+ {
+  "dim": "runtime-seams",
+  "esc": "r2: Only one new (cosmetic) defect surfaced; the three prior-round findings (recurso-marina-a2a-decorative, inad-fernando-a2a-unreachable, reembolso-stale-marina-card-comment) were re-confirmed as the substantive ones in this dimension and are not re-reported."
+ },
+ {
+  "dim": "runtime-seams",
+  "esc": "r2: Adjacent-but-out-of-strict-scope observation (not reported as a finding): the fraude/nip/cred worker docstrings say they 'convoca Beatriz/Gustavo/Carolina via A2A', but the handlers actually publish to operadora.notifications.internal (a Kafka notification), never building a DelegationEnvelope. This appears to be the intended human-gated notification-bridge pattern (not a dispatcher seam claim"
+ },
+ {
+  "dim": "runtime-seams",
+  "esc": "r3: Could not verify whether `matricula_beneficiario` values reaching the inadimplencia/cancel process instances are pre-tokenized at intake (as those files' ADR-0006 comments assert) or raw membership numbers. If raw, the reported finding is an active LGPD/PHI egress breach to the Zona Geral bus (deploy-blocking) rather than a defense-in-depth gap (post-deploy). Resolving this requires the SP-OP-"
+ },
+ {
+  "dim": "observability",
+  "esc": "r1: Could not verify the actual live configuration of the collector serving otel-collector.observability.svc.cluster.local:4317 (referenced by values-amh.yaml) because this repo's Helm chart contains no Deployment/StatefulSet for an OTel collector \u2014 only a gated-off ConfigMap template. The finding treats config/otel-collector.prod.yaml as canonical (it is explicitly labeled as such and is the only"
+ },
+ {
+  "dim": "observability",
+  "esc": "r1: The brief's baseline states '16 alerts' in alert-rules.yaml; the file actually contains 18 (`grep -c '- alert:'`). Not reported as a defect \u2014 likely just a stale count in the brief (two alerts, MaezoBpmnUserTaskDecisionStalled and the pgvector pair, look like recent additions) \u2014 flagging for awareness only."
+ },
+ {
+  "dim": "observability",
+  "esc": "r1: The brief mentions 17 BPMN files; only 16 exist under src/maezo/processes/bpmn/*.bpmn. Noted for awareness; does not change the candidate-group coverage conclusion (verified via live code execution + passing anti-drift test)."
+ },
+ {
+  "dim": "observability",
+  "esc": "r3: Finding 'kafka-consumer-lag-metric-has-no-exporter-anywhere' may be adjacent to the already-reported 'kafka-lag-alert-topic-label-never-matches' from a prior round \u2014 judged distinct (total absence of the exporter/scrape target vs. a label-value/topic mismatch on an existing series) and included, but flagging the overlap risk explicitly in case the orchestrator considers it a variant."
+ },
+ {
+  "dim": "observability",
+  "esc": "r3: Could not inspect the actual production Amazon Managed Prometheus (AMP) rule-load/remote-write configuration (provisioned outside this repo per amh-data-platform ownership noted in project memory) \u2014 if AMP prod scrapes a kafka exporter this repo doesn't declare, finding 4's severity should be downgraded; could not verify either way from this repo alone."
+ },
+ {
+  "dim": "observability",
+  "esc": "r4: Could not verify runtime AMP/AMG state, i.e. whether someone manually ran terraform apply against the observability module outside the checked-in env root modules (e.g. via a separate untracked workspace); only the IaC as committed in the repo was inspected, per the read-only / no-state-mutation constraint. The module's own header comment says apply is BLOCKED pending AWS credentials (issue #1"
+ },
+ {
+  "dim": "observability",
+  "esc": "r4: Did not deploy or port-forward into a live cluster to confirm the gateway crash-loop in situ (out of scope for a read-only repo sweep); the finding is based on reproducing the exact python -m maezo.gateway command locally via uv run, which fails deterministically and independent of any cluster state."
+ },
+ {
+  "dim": "observability",
+  "esc": "round 5: finder died/skipped"
+ }
+]

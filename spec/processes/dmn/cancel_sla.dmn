@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_cancel_sla"
+             name="SLA de analise de cancelamento/rescisao"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    cancel_sla v0.1.0 — status: DRAFT — TODOS os prazos marcados DRAFT/verify: confirmar texto
+    vigente com regulatorio/juridico (RN 593/2023 — prazo de notificacao previa, janela de purga
+    de inadimplencia, prazo de analise; consolidacoes ANS; docs/review-queue.md). Consumida por
+    SP-OP-CANCEL-001 e mcp-dmn.
+    NOTA: prazos regulatorios sao em dias UTEIS / por vezes corridos; ISO 8601 usa dias corridos —
+    valores abaixo sao aproximacao conservadora. Resolver calendario util no worker. Prazo
+    regulatorio vive AQUI (DMN) e no timer BPMN — nunca em Python (CONTRIBUTING). Saidas de prazo
+    sao string ISO 8601 (sla_analise, sla_alerta, prazo_notificacao_previa); fonte_regulatoria e a
+    RN citada (registrada para auditoria).
+    INVARIANTE L0 HARD: esta tabela NAO tem saida adversa; no estouro de SLA a coordenacao humana
+    assume (nunca auto-rescinde por timeout). O timer de prazo_notificacao_previa, ao expirar,
+    roteia para a User Task humana (INVERTE o anti-pattern de auto-rescindir-no-timeout).
+    NOTA hitPolicy: FIRST (catch-all conservador como ultima row).
+  </description>
+  <decision id="cancel_sla" name="SLA de analise de cancelamento/rescisao" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_cancel_sla" hitPolicy="FIRST">
+      <input id="in_tipo_solicitacao" label="Tipo da solicitacao (tipo_solicitacao)">
+        <inputExpression id="ie_tipo_solicitacao" typeRef="string"><text>tipo_solicitacao</text></inputExpression>
+      </input>
+      <input id="in_tipo_plano" label="Tipo do plano (tipo_plano)">
+        <inputExpression id="ie_tipo_plano" typeRef="string"><text>tipo_plano</text></inputExpression>
+      </input>
+      <output id="out_sla_analise" label="sla_analise" name="sla_analise" typeRef="string"/>
+      <output id="out_sla_alerta" label="sla_alerta" name="sla_alerta" typeRef="string"/>
+      <output id="out_prazo_notif" label="prazo_notificacao_previa" name="prazo_notificacao_previa" typeRef="string"/>
+      <output id="out_fonte" label="fonte_regulatoria" name="fonte_regulatoria" typeRef="string"/>
+      <rule id="r_inadimplencia">
+        <description>Inadimplencia: prazo de notificacao previa / direito de purga (RN 593)</description>
+        <inputEntry id="r_inadimplencia_i1"><text>"inadimplencia"</text></inputEntry>
+        <inputEntry id="r_inadimplencia_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_inadimplencia_o1"><text>"P10D"</text></outputEntry>
+        <outputEntry id="r_inadimplencia_o2"><text>"P7D"</text></outputEntry>
+        <outputEntry id="r_inadimplencia_o3"><text>"P10D"</text></outputEntry>
+        <outputEntry id="r_inadimplencia_o4"><text>"RN 593/2023 — notificacao previa / purga de inadimplencia ~10 dias: DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r_for_cause">
+        <description>Rescisao for-cause pela operadora: notificacao previa + analise (Lei 9.656 art. 13 / RN 593)</description>
+        <inputEntry id="r_for_cause_i1"><text>"for_cause_operadora"</text></inputEntry>
+        <inputEntry id="r_for_cause_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_for_cause_o1"><text>"P15D"</text></outputEntry>
+        <outputEntry id="r_for_cause_o2"><text>"P10D"</text></outputEntry>
+        <outputEntry id="r_for_cause_o3"><text>"P10D"</text></outputEntry>
+        <outputEntry id="r_for_cause_o4"><text>"Lei 9.656/1998 art. 13 / RN 593/2023 — rescisao unilateral com notificacao previa: DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r_pedido">
+        <description>Pedido do beneficiario: analise clerical mais curta (direito do titular RN 412)</description>
+        <inputEntry id="r_pedido_i1"><text>"pedido_beneficiario"</text></inputEntry>
+        <inputEntry id="r_pedido_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_pedido_o1"><text>"P5D"</text></outputEntry>
+        <outputEntry id="r_pedido_o2"><text>"P3D"</text></outputEntry>
+        <outputEntry id="r_pedido_o3"><text>"P5D"</text></outputEntry>
+        <outputEntry id="r_pedido_o4"><text>"RN 412/2016 — cancelamento a pedido do titular ~prazo clerical: DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r_catchall">
+        <description>Catch-all FAIL-SAFE: tipo nao mapeado (ex.: fraude_referida) -> prazo conservador padrao</description>
+        <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>"P10D"</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>"P7D"</text></outputEntry>
+        <outputEntry id="r_catchall_o3"><text>"P10D"</text></outputEntry>
+        <outputEntry id="r_catchall_o4"><text>"Fail-safe: prazo conservador na ausencia de classificacao — DRAFT/verify"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

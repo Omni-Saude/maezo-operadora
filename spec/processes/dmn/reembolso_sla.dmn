@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_reembolso_sla"
+             name="SLA de analise de reembolso"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    reembolso_sla v0.1.0 — status: DRAFT — TODOS os prazos marcados DRAFT/verify: confirmar
+    texto vigente com regulatorio/juridico (RN 259/2011 garantia de atendimento; Lei 9.656/1998
+    art. 12 reembolso na livre escolha; prazo de reembolso ~30 dias — RN vigente; consolidacoes
+    ANS; docs/review-queue.md). Consumida por SP-OP-REEMBOLSO-001 e mcp-dmn.
+    NOTA: prazos regulatorios sao em dias UTEIS; ISO 8601 usa dias corridos — valores abaixo
+    sao aproximacao conservadora (menor ou igual ao prazo legal). Resolver calendario util no
+    worker (operadora.reembolso.check_prazo). Prazo regulatorio vive AQUI (DMN) e no timer BPMN —
+    nunca em Python (CONTRIBUTING). Saidas de prazo sao string ISO 8601 (sla_analise/sla_alerta);
+    fonte_regulatoria e string.
+    Esta tabela NAO tem saida adversa; no estouro de SLA a coordenacao humana assume (nunca
+    auto-nega por timeout — invertendo o anti-pattern auto-aplicado do reference).
+    urgencia_emergencia tem prazo mais curto que o padrao P30D.
+    hitPolicy FIRST (catch-all conservador como ultima row).
+  </description>
+  <decision id="reembolso_sla" name="SLA de analise de reembolso" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_reembolso_sla" hitPolicy="FIRST">
+      <input id="in_tipo" label="Tipo de reembolso (tipo_reembolso)">
+        <inputExpression id="ie_tipo" typeRef="string"><text>tipo_reembolso</text></inputExpression>
+      </input>
+      <input id="in_categoria" label="Categoria do procedimento (categoria_procedimento)">
+        <inputExpression id="ie_categoria" typeRef="string"><text>categoria_procedimento</text></inputExpression>
+      </input>
+      <output id="out_sla_analise" label="sla_analise" name="sla_analise" typeRef="string"/>
+      <output id="out_sla_alerta" label="sla_alerta" name="sla_alerta" typeRef="string"/>
+      <output id="out_fonte" label="fonte_regulatoria" name="fonte_regulatoria" typeRef="string"/>
+      <rule id="r_urgencia">
+        <description>Urgencia/emergencia: analise mais curta (atendimento de urgencia — Lei 9.656 art. 35-C)</description>
+        <inputEntry id="r_urgencia_i1"><text>"urgencia_emergencia"</text></inputEntry>
+        <inputEntry id="r_urgencia_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_urgencia_o1"><text>"P5D"</text></outputEntry>
+        <outputEntry id="r_urgencia_o2"><text>"P3D"</text></outputEntry>
+        <outputEntry id="r_urgencia_o3"><text>"Lei 9.656/1998 art. 12/35-C — reembolso urgencia/emergencia, prazo curto: DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r_alta_complexidade">
+        <description>Alta complexidade / OPME / internacao: analise mais longa (complexidade clinica)</description>
+        <inputEntry id="r_alta_complexidade_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_alta_complexidade_i2"><text>"internacao","opme","alta_complexidade"</text></inputEntry>
+        <outputEntry id="r_alta_complexidade_o1"><text>"P30D"</text></outputEntry>
+        <outputEntry id="r_alta_complexidade_o2"><text>"P18D"</text></outputEntry>
+        <outputEntry id="r_alta_complexidade_o3"><text>"RN 259/2011 + prazo de reembolso ~30 dias (alta complexidade): DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r_padrao">
+        <description>Livre escolha / fora de rede / indisponibilidade — prazo padrao de reembolso</description>
+        <inputEntry id="r_padrao_i1"><text>"livre_escolha","fora_rede","indisponibilidade_rede"</text></inputEntry>
+        <inputEntry id="r_padrao_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_padrao_o1"><text>"P30D"</text></outputEntry>
+        <outputEntry id="r_padrao_o2"><text>"P20D"</text></outputEntry>
+        <outputEntry id="r_padrao_o3"><text>"Prazo de reembolso ~30 dias (livre escolha / fora de rede): DRAFT/verify RN vigente"</text></outputEntry>
+      </rule>
+      <rule id="r_catchall">
+        <description>Catch-all FAIL-SAFE: tipo/categoria desconhecidos -> prazo conservador padrao</description>
+        <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>"P30D"</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>"P20D"</text></outputEntry>
+        <outputEntry id="r_catchall_o3"><text>"Fail-safe: prazo conservador na ausencia de classificacao — DRAFT/verify"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_lucas_billing_admissibility"
+             name="Admissibilidade de cobranca/atendimento ao beneficiario (roteamento — Lucas)"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    lucas_billing_admissibility v0.1.0 — status: DRAFT — requires human review (financeiro/PO)
+    (conteudo de negocio: limiar de ciclos sem conciliacao, mapeamento tipo_solicitacao -> rota;
+    docs/review-queue.md). Consumida pelo AGENTE Lucas via mcp-dmn.evaluate (agents/lucas/graph.py
+    ::assess, decision_id="lucas_billing_admissibility") — NAO por businessRuleTask. ADR-0012: a DMN
+    decide o ROTEAMENTO deterministico (RESPONDER/LEMBRETE/ESCALAR_HUMANO); o LLM apenas raciocina
+    sobre o resultado (monta a mensagem informativa), NUNCA decide a regra.
+
+    INVARIANTE ESTRUTURAL (espelha o tipo `Route`/`AdmissibilidadeCobranca` de agents/lucas/graph.py,
+    §4.3 phase2-plan; CI-enforced por test_route_type_admits_no_adverse_variant): o dominio de
+    `roteamento` e EXATAMENTE {RESPONDER, LEMBRETE, ESCALAR_HUMANO}. NAO existe — por design — saida
+    COBRAR/SUSPENDER/CANCELAR/NEGAR. Nenhuma combinacao de input cobra, suspende, cancela nem nega:
+    todo desfecho adverso (suspensao/rescisao por inadimplencia) SO nasce numa User Task humana
+    (SP-OP-ESCALATION-001 -> CANCEL-001/INADIMPLENCIA-001). RESPONDER/LEMBRETE sao caminhos NEUTROS
+    (resposta/lembrete informativo ao beneficiario); ESCALAR_HUMANO encaminha o caso ao humano.
+
+    FAIL-SAFE FECHADO (nao fail-OPEN): na duvida, Lucas NUNCA cobra/escala indevidamente por
+    suposicao de inadimplencia — ele escala ao humano para confirmar antes de qualquer acao. O
+    catch-all conservador (`ANALISE_HUMANA`-like, aqui ESCALAR_HUMANO) e a ULTIMA row: qualquer
+    ambiguidade de cobranca / combinacao nao mapeada -> humano.
+
+    Inputs pre-resolvidos por worker deterministico (conciliacao CNAB) — NUNCA por LLM. Lucas LE o
+    status de conciliacao (`status_conciliado`, `ciclos_sem_conciliacao`), NUNCA o calcula nem
+    inventa (ADR-0012). `ciclos_sem_conciliacao` >= 1 (limiar DRAFT/verify — carece de sign-off
+    financeiro/PO) e o unico indicio de inadimplencia que roteia a humano; ciclos=0 nunca escala.
+
+    NOTA hitPolicy: FIRST (catch-all conservador como ultima row) — uma row catch-all (`-`) sob
+    UNIQUE colidiria com qualquer row especifica no engine (violacao em runtime); FIRST preserva o
+    catch-all ESCALAR_HUMANO mantendo a tabela ENGINE-DEPLOYAVEL. Espelha cancel_admissibility /
+    auth_admissibility / glosa_triage.
+  </description>
+  <decision id="lucas_billing_admissibility" name="Admissibilidade de cobranca/atendimento (Lucas)" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_lucas_billing_admissibility" hitPolicy="FIRST">
+      <input id="lba_in_tipo_solicitacao" label="Tipo da solicitacao (tipo_solicitacao)">
+        <inputExpression id="lba_ie_tipo_solicitacao" typeRef="string"><text>tipo_solicitacao</text></inputExpression>
+      </input>
+      <input id="lba_in_status_conciliado" label="Pagamento conciliado na CNAB (status_conciliado)">
+        <inputExpression id="lba_ie_status_conciliado" typeRef="boolean"><text>status_conciliado</text></inputExpression>
+      </input>
+      <input id="lba_in_ciclos" label="Ciclos sem conciliacao (ciclos_sem_conciliacao)">
+        <inputExpression id="lba_ie_ciclos" typeRef="integer"><text>ciclos_sem_conciliacao</text></inputExpression>
+      </input>
+      <output id="lba_out_roteamento" label="roteamento" name="roteamento" typeRef="string"/>
+      <output id="lba_out_motivo" label="motivo" name="motivo" typeRef="string"/>
+      <rule id="lba_r_atraso_escala">
+        <description>Indicio de inadimplencia: nao conciliado por >=1 ciclo -> escala ao humano (NUNCA cobra/suspende por suposicao)</description>
+        <inputEntry id="lba_r_atraso_escala_i1"><text>-</text></inputEntry>
+        <inputEntry id="lba_r_atraso_escala_i2"><text>false</text></inputEntry>
+        <inputEntry id="lba_r_atraso_escala_i3"><text>&gt;= 1</text></inputEntry>
+        <outputEntry id="lba_r_atraso_escala_o1"><text>"ESCALAR_HUMANO"</text></outputEntry>
+        <outputEntry id="lba_r_atraso_escala_o2"><text>"Indicio de inadimplencia (nao conciliado por >=1 ciclo) — humano confirma antes de qualquer acao de cobranca; NUNCA suspende/cobra por suposicao (limiar DRAFT/verify — sign-off financeiro/PO)"</text></outputEntry>
+      </rule>
+      <rule id="lba_r_vencimento">
+        <description>Duvida de vencimento sem indicio de inadimplencia -> lembrete informativo (nunca ameaca suspensao)</description>
+        <inputEntry id="lba_r_vencimento_i1"><text>"vencimento"</text></inputEntry>
+        <inputEntry id="lba_r_vencimento_i2"><text>-</text></inputEntry>
+        <inputEntry id="lba_r_vencimento_i3"><text>-</text></inputEntry>
+        <outputEntry id="lba_r_vencimento_o1"><text>"LEMBRETE"</text></outputEntry>
+        <outputEntry id="lba_r_vencimento_o2"><text>"Lembrete de vencimento (informativo; NUNCA ameaca suspensao/cancelamento) — DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="lba_r_boleto_2via">
+        <description>Duvida informacional de boleto / 2a via -> resposta informativa (caminho neutro)</description>
+        <inputEntry id="lba_r_boleto_2via_i1"><text>"boleto","2a_via"</text></inputEntry>
+        <inputEntry id="lba_r_boleto_2via_i2"><text>-</text></inputEntry>
+        <inputEntry id="lba_r_boleto_2via_i3"><text>-</text></inputEntry>
+        <outputEntry id="lba_r_boleto_2via_o1"><text>"RESPONDER"</text></outputEntry>
+        <outputEntry id="lba_r_boleto_2via_o2"><text>"Duvida informacional de boleto/2a via — resposta informativa (caminho neutro; nunca adverso) — DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="lba_r_status_conciliado">
+        <description>Confirmacao de pagamento com conciliacao PRE-RESOLVIDA (true) -> reporta status conciliado (nunca inventa)</description>
+        <inputEntry id="lba_r_status_conciliado_i1"><text>"status_pagamento"</text></inputEntry>
+        <inputEntry id="lba_r_status_conciliado_i2"><text>true</text></inputEntry>
+        <inputEntry id="lba_r_status_conciliado_i3"><text>-</text></inputEntry>
+        <outputEntry id="lba_r_status_conciliado_o1"><text>"RESPONDER"</text></outputEntry>
+        <outputEntry id="lba_r_status_conciliado_o2"><text>"Pagamento conciliado (pre-resolvido por worker CNAB) — reporta o status ao beneficiario; Lucas LE, nunca calcula/inventa (ADR-0012) — DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="lba_r_catchall">
+        <description>Catch-all FAIL-SAFE: ambiguidade de cobranca / combinacao nao mapeada (ex.: status_pagamento nao conciliado sem ciclo, cancelamento) -> humano. NUNCA cobra/suspende/nega.</description>
+        <inputEntry id="lba_r_catchall_i1"><text>-</text></inputEntry>
+        <inputEntry id="lba_r_catchall_i2"><text>-</text></inputEntry>
+        <inputEntry id="lba_r_catchall_i3"><text>-</text></inputEntry>
+        <outputEntry id="lba_r_catchall_o1"><text>"ESCALAR_HUMANO"</text></outputEntry>
+        <outputEntry id="lba_r_catchall_o2"><text>"Ambiguidade de cobranca / combinacao nao mapeada — humano confirma antes de qualquer acao (fail-safe fechado; NUNCA cobra/suspende/nega por suposicao) — DRAFT/verify"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

@@ -1,0 +1,114 @@
+{{- if .Values.webhookReceiver.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webhook-receiver
+  namespace: {{ include "maezo-tenant.namespace" . }}
+  labels:
+    {{- include "maezo-tenant.labels" . | nindent 4 }}
+    app.kubernetes.io/component: webhook-receiver
+spec:
+  replicas: {{ .Values.webhookReceiver.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "maezo-tenant.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: webhook-receiver
+  template:
+    metadata:
+      labels:
+        {{- include "maezo-tenant.labels" . | nindent 8 }}
+        app.kubernetes.io/component: webhook-receiver
+        maezo.io/phi-zone: "general"
+    spec:
+      serviceAccountName: {{ include "maezo-tenant.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: webhook-receiver
+          image: {{ include "maezo-tenant.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["python", "-m", "maezo.platform.webhooks"]
+          env:
+            - name: TENANT_ID
+              value: {{ .Values.tenant.id | quote }}
+            - name: WHATSAPP_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: maezo-whatsapp-config
+                  key: waba-token
+            # Meta App Secret (HMAC-SHA256 signature validation) + Verify Token (GET
+            # /webhook handshake) — REQUIRED, no default (WhatsAppWebhookSettings.app_secret
+            # / .verify_token). Missing either raises a pydantic ValidationError at
+            # startup -> CrashLoopBackOff (predeploy DB-2).
+            - name: WHATSAPP_APP_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: maezo-whatsapp-config
+                  key: app-secret
+            - name: WHATSAPP_VERIFY_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: maezo-whatsapp-config
+                  key: verify-token
+            # Kafka producer target (predeploy DB-3) — same secret/key the other
+            # Kafka-producing components use (deployment-agent-runtime.yaml,
+            # deployment-worker-daemon.yaml, deployment-bridge*.yaml).
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                secretKeyRef:
+                  name: maezo-kafka-config
+                  key: bootstrap-servers
+            {{- include "maezo-tenant.otelEnv" . | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.webhookReceiver.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: webhook-receiver
+  namespace: {{ include "maezo-tenant.namespace" . }}
+  labels:
+    {{- include "maezo-tenant.labels" . | nindent 4 }}
+    app.kubernetes.io/component: webhook-receiver
+spec:
+  type: {{ .Values.webhookReceiver.service.type }}
+  ports:
+    - port: {{ .Values.webhookReceiver.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "maezo-tenant.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: webhook-receiver
+{{- end }}

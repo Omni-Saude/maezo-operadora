@@ -1,0 +1,340 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_dut_rol_coverage"
+             name="Cobertura DUT/ROL por codigo TUSS"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    dut_rol_coverage v0.1.0 — status: DRAFT — conteudo sintetico/representativo.
+    REQUER revisao humana antes de qualquer deploy (docs/review-queue.md):
+    revisor: medico auditor + juridico/regulatorio.
+
+    INVARIANTE L0 HARD: esta tabela NAO possui saida de negativa automatica.
+    Procedimentos fora do ROL ou com DUT obrigatoria sao roteados para analise
+    humana (medico auditor) — nunca negados automaticamente (ADR-0005/0008).
+
+    Inputs:
+      - codigo_procedimento_tuss (string): codigo TUSS conforme guia TISS 4.0
+      - categoria_procedimento (string): consulta|exame_simples|exame_especial|
+          terapia|internacao|opme|alta_complexidade
+    Outputs:
+      - no_rol: boolean — true = procedimento esta FORA do ROL obrigatorio ANS;
+          false = esta no ROL (DRAFT/verify — RN 465/2021 + emendas RN 473/2021
+          e RN 643/2025)
+      - requer_dut: boolean — true = existe DUT ANS obrigatoria para este
+          procedimento antes da cobertura (DRAFT/verify)
+      - dut_ref: string — identificador de referencia da DUT ANS (DRAFT/verify)
+
+    NOTA DE CODIGOS: todos os codigos TUSS abaixo sao SINTETICOS e representativos
+    de categorias clinicas; nao substituem a tabela TUSS vigente publicada pela ANS.
+    Verificar contra publicacao ANS e tabela TUSS antes de qualquer uso em producao.
+
+    Fontes regulatorias (DRAFT/verify):
+      - ROL vigente: RN 465/2021 + RN 473/2021 + RN 643/2025
+      - DUTs: portal ANS — https://www.ans.gov.br
+      - TUSS: tabela publicada pela ANS (tabela_tuss_4_01)
+  </description>
+
+  <decision id="dut_rol_coverage"
+            name="Cobertura DUT/ROL — mapeamento TUSS"
+            camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_dut_rol_coverage" hitPolicy="FIRST">
+
+      <input id="in_tuss" label="Codigo TUSS do procedimento (codigo_procedimento_tuss)">
+        <inputExpression id="ie_tuss" typeRef="string">
+          <text>codigo_procedimento_tuss</text>
+        </inputExpression>
+      </input>
+
+      <input id="in_categoria" label="Categoria do procedimento (categoria_procedimento)">
+        <inputExpression id="ie_categoria" typeRef="string">
+          <text>categoria_procedimento</text>
+        </inputExpression>
+      </input>
+
+      <output id="out_no_rol"     label="no_rol"     name="no_rol"     typeRef="boolean"/>
+      <output id="out_requer_dut" label="requer_dut" name="requer_dut" typeRef="boolean"/>
+      <output id="out_dut_ref"    label="dut_ref"    name="dut_ref"    typeRef="string"/>
+
+      <!-- ===================================================================
+           CONSULTAS
+           =================================================================== -->
+
+      <!-- r01: Consulta medica em consultorio — no ROL, sem DUT -->
+      <rule id="r01">
+        <description>SINTETICO — Consulta medica consultorio (TUSS 10101012 repr.): no ROL, sem DUT.</description>
+        <inputEntry id="r01i1"><text>"10101012"</text></inputEntry>
+        <inputEntry id="r01i2"><text>-</text></inputEntry>
+        <outputEntry id="r01o1"><text>false</text></outputEntry>
+        <outputEntry id="r01o2"><text>false</text></outputEntry>
+        <outputEntry id="r01o3"><text>"NAO_APLICA"</text></outputEntry>
+      </rule>
+
+      <!-- r02: Consulta PS/urgencia — ROL obrigatorio, sem DUT -->
+      <rule id="r02">
+        <description>SINTETICO — Consulta pronto-socorro (TUSS 10101039 repr.): ROL, sem DUT.</description>
+        <inputEntry id="r02i1"><text>"10101039"</text></inputEntry>
+        <inputEntry id="r02i2"><text>-</text></inputEntry>
+        <outputEntry id="r02o1"><text>false</text></outputEntry>
+        <outputEntry id="r02o2"><text>false</text></outputEntry>
+        <outputEntry id="r02o3"><text>"NAO_APLICA"</text></outputEntry>
+      </rule>
+
+      <!-- r03: Consulta psiquiatrica — ROL, sem DUT padrao -->
+      <rule id="r03">
+        <description>SINTETICO — Consulta psiquiatrica (TUSS 10101047 repr.): ROL, sem DUT padrao.</description>
+        <inputEntry id="r03i1"><text>"10101047"</text></inputEntry>
+        <inputEntry id="r03i2"><text>-</text></inputEntry>
+        <outputEntry id="r03o1"><text>false</text></outputEntry>
+        <outputEntry id="r03o2"><text>false</text></outputEntry>
+        <outputEntry id="r03o3"><text>"NAO_APLICA"</text></outputEntry>
+      </rule>
+
+      <!-- r04: Consulta pre-natal — ROL, sem DUT -->
+      <rule id="r04">
+        <description>SINTETICO — Consulta pre-natal (TUSS 10101055 repr.): ROL, sem DUT.</description>
+        <inputEntry id="r04i1"><text>"10101055"</text></inputEntry>
+        <inputEntry id="r04i2"><text>-</text></inputEntry>
+        <outputEntry id="r04o1"><text>false</text></outputEntry>
+        <outputEntry id="r04o2"><text>false</text></outputEntry>
+        <outputEntry id="r04o3"><text>"NAO_APLICA"</text></outputEntry>
+      </rule>
+
+      <!-- ===================================================================
+           EXAMES DE IMAGEM
+           =================================================================== -->
+
+      <!-- r05: Radiografia simples (RX) — ROL, sem DUT -->
+      <rule id="r05">
+        <description>SINTETICO — Radiografia simples (TUSS 40801013 repr.): ROL exame_simples, sem DUT.</description>
+        <inputEntry id="r05i1"><text>"40801013"</text></inputEntry>
+        <inputEntry id="r05i2"><text>-</text></inputEntry>
+        <outputEntry id="r05o1"><text>false</text></outputEntry>
+        <outputEntry id="r05o2"><text>false</text></outputEntry>
+        <outputEntry id="r05o3"><text>"NAO_APLICA"</text></outputEntry>
+      </rule>
+
+      <!-- r06: Ultrassonografia abdominal — ROL, sem DUT -->
+      <rule id="r06">
+        <description>SINTETICO — Ultrassonografia abdominal (TUSS 40801021 repr.): ROL, sem DUT padrao.</description>
+        <inputEntry id="r06i1"><text>"40801021"</text></inputEntry>
+        <inputEntry id="r06i2"><text>-</text></inputEntry>
+        <outputEntry id="r06o1"><text>false</text></outputEntry>
+        <outputEntry id="r06o2"><text>false</text></outputEntry>
+        <outputEntry id="r06o3"><text>"NAO_APLICA"</text></outputEntry>
+      </rule>
+
+      <!-- r07: TC cranio sem contraste — ROL, sem DUT padrao -->
+      <rule id="r07">
+        <description>SINTETICO — TC cranio sem contraste (TUSS 40901079 repr.): ROL exame_especial, sem DUT padrao.</description>
+        <inputEntry id="r07i1"><text>"40901079"</text></inputEntry>
+        <inputEntry id="r07i2"><text>-</text></inputEntry>
+        <outputEntry id="r07o1"><text>false</text></outputEntry>
+        <outputEntry id="r07o2"><text>false</text></outputEntry>
+        <outputEntry id="r07o3"><text>"NAO_APLICA"</text></outputEntry>
+      </rule>
+
+      <!-- r08: RM encefalo — ROL, sem DUT padrao -->
+      <rule id="r08">
+        <description>SINTETICO — RM encefalo (TUSS 40901095 repr.): ROL, sem DUT padrao.</description>
+        <inputEntry id="r08i1"><text>"40901095"</text></inputEntry>
+        <inputEntry id="r08i2"><text>-</text></inputEntry>
+        <outputEntry id="r08o1"><text>false</text></outputEntry>
+        <outputEntry id="r08o2"><text>false</text></outputEntry>
+        <outputEntry id="r08o3"><text>"NAO_APLICA"</text></outputEntry>
+      </rule>
+
+      <!-- r09: PET-CT — ROL com DUT (indicacao oncologica/neurologica) DRAFT/verify -->
+      <rule id="r09">
+        <description>SINTETICO — PET-CT (TUSS 40901265 repr.): ROL com DUT ANS. DRAFT/verify DUT-PET-CT.</description>
+        <inputEntry id="r09i1"><text>"40901265"</text></inputEntry>
+        <inputEntry id="r09i2"><text>-</text></inputEntry>
+        <outputEntry id="r09o1"><text>false</text></outputEntry>
+        <outputEntry id="r09o2"><text>true</text></outputEntry>
+        <outputEntry id="r09o3"><text>"DUT-PET-CT-ONCOLOGIA-001 DRAFT/verify"</text></outputEntry>
+      </rule>
+
+      <!-- r10: Cintilografia ossea — ROL com DUT DRAFT/verify -->
+      <rule id="r10">
+        <description>SINTETICO — Cintilografia ossea (TUSS 40902150 repr.): ROL com DUT. DRAFT/verify.</description>
+        <inputEntry id="r10i1"><text>"40902150"</text></inputEntry>
+        <inputEntry id="r10i2"><text>-</text></inputEntry>
+        <outputEntry id="r10o1"><text>false</text></outputEntry>
+        <outputEntry id="r10o2"><text>true</text></outputEntry>
+        <outputEntry id="r10o3"><text>"DUT-CINTILOGRAFIA-OSSEA-001 DRAFT/verify"</text></outputEntry>
+      </rule>
+
+      <!-- ===================================================================
+           TERAPIAS
+           =================================================================== -->
+
+      <!-- r11: Fisioterapia convencional — ROL, sem DUT padrao -->
+      <rule id="r11">
+        <description>SINTETICO — Fisioterapia convencional (TUSS 50000071 repr.): ROL, sem DUT padrao.</description>
+        <inputEntry id="r11i1"><text>"50000071"</text></inputEntry>
+        <inputEntry id="r11i2"><text>-</text></inputEntry>
+        <outputEntry id="r11o1"><text>false</text></outputEntry>
+        <outputEntry id="r11o2"><text>false</text></outputEntry>
+        <outputEntry id="r11o3"><text>"NAO_APLICA"</text></outputEntry>
+      </rule>
+
+      <!-- r12: Terapia ocupacional — ROL com DUT (numero de sessoes) DRAFT/verify -->
+      <rule id="r12">
+        <description>SINTETICO — Terapia ocupacional (TUSS 50000098 repr.): ROL com DUT (sessoes). DRAFT/verify.</description>
+        <inputEntry id="r12i1"><text>"50000098"</text></inputEntry>
+        <inputEntry id="r12i2"><text>-</text></inputEntry>
+        <outputEntry id="r12o1"><text>false</text></outputEntry>
+        <outputEntry id="r12o2"><text>true</text></outputEntry>
+        <outputEntry id="r12o3"><text>"DUT-TERAPIA-OCUPACIONAL-001 DRAFT/verify"</text></outputEntry>
+      </rule>
+
+      <!-- r13: Fonoaudiologia — ROL com DUT DRAFT/verify -->
+      <rule id="r13">
+        <description>SINTETICO — Fonoaudiologia (TUSS 50000110 repr.): ROL com DUT. DRAFT/verify.</description>
+        <inputEntry id="r13i1"><text>"50000110"</text></inputEntry>
+        <inputEntry id="r13i2"><text>-</text></inputEntry>
+        <outputEntry id="r13o1"><text>false</text></outputEntry>
+        <outputEntry id="r13o2"><text>true</text></outputEntry>
+        <outputEntry id="r13o3"><text>"DUT-FONOAUDIOLOGIA-001 DRAFT/verify"</text></outputEntry>
+      </rule>
+
+      <!-- r14: Psicoterapia individual — ROL com DUT DRAFT/verify -->
+      <rule id="r14">
+        <description>SINTETICO — Psicoterapia individual (TUSS 50000136 repr.): ROL com DUT. DRAFT/verify.</description>
+        <inputEntry id="r14i1"><text>"50000136"</text></inputEntry>
+        <inputEntry id="r14i2"><text>-</text></inputEntry>
+        <outputEntry id="r14o1"><text>false</text></outputEntry>
+        <outputEntry id="r14o2"><text>true</text></outputEntry>
+        <outputEntry id="r14o3"><text>"DUT-PSICOTERAPIA-001 DRAFT/verify"</text></outputEntry>
+      </rule>
+
+      <!-- ===================================================================
+           ONCOLOGIA
+           =================================================================== -->
+
+      <!-- r15: Quimioterapia ambulatorial — ROL com DUT oncologia -->
+      <rule id="r15">
+        <description>SINTETICO — Quimioterapia ambulatorial (TUSS 30721178 repr.): ROL com DUT oncologia. DRAFT/verify.</description>
+        <inputEntry id="r15i1"><text>"30721178"</text></inputEntry>
+        <inputEntry id="r15i2"><text>-</text></inputEntry>
+        <outputEntry id="r15o1"><text>false</text></outputEntry>
+        <outputEntry id="r15o2"><text>true</text></outputEntry>
+        <outputEntry id="r15o3"><text>"DUT-ONCOLOGIA-QUIMIO-001 DRAFT/verify"</text></outputEntry>
+      </rule>
+
+      <!-- r16: Radioterapia — ROL com DUT oncologia -->
+      <rule id="r16">
+        <description>SINTETICO — Radioterapia (TUSS 31300098 repr.): ROL com DUT oncologia. DRAFT/verify.</description>
+        <inputEntry id="r16i1"><text>"31300098"</text></inputEntry>
+        <inputEntry id="r16i2"><text>-</text></inputEntry>
+        <outputEntry id="r16o1"><text>false</text></outputEntry>
+        <outputEntry id="r16o2"><text>true</text></outputEntry>
+        <outputEntry id="r16o3"><text>"DUT-ONCOLOGIA-RT-001 DRAFT/verify"</text></outputEntry>
+      </rule>
+
+      <!-- ===================================================================
+           INTERNACAO/CIRURGIA
+           =================================================================== -->
+
+      <!-- r17: Internacao clinica geral — ROL sem DUT -->
+      <rule id="r17">
+        <description>SINTETICO — Internacao clinica geral (TUSS 20101012 repr.): ROL, sem DUT padrao.</description>
+        <inputEntry id="r17i1"><text>"20101012"</text></inputEntry>
+        <inputEntry id="r17i2"><text>-</text></inputEntry>
+        <outputEntry id="r17o1"><text>false</text></outputEntry>
+        <outputEntry id="r17o2"><text>false</text></outputEntry>
+        <outputEntry id="r17o3"><text>"NAO_APLICA"</text></outputEntry>
+      </rule>
+
+      <!-- r18: Internacao UTI adulto — ROL sem DUT padrao -->
+      <rule id="r18">
+        <description>SINTETICO — Internacao UTI adulto (TUSS 20102011 repr.): ROL, sem DUT padrao.</description>
+        <inputEntry id="r18i1"><text>"20102011"</text></inputEntry>
+        <inputEntry id="r18i2"><text>-</text></inputEntry>
+        <outputEntry id="r18o1"><text>false</text></outputEntry>
+        <outputEntry id="r18o2"><text>false</text></outputEntry>
+        <outputEntry id="r18o3"><text>"NAO_APLICA"</text></outputEntry>
+      </rule>
+
+      <!-- r19: Cirurgia bariatrica/gastroplastia — ROL com DUT DRAFT/verify -->
+      <rule id="r19">
+        <description>SINTETICO — Cirurgia bariatrica gastroplastia (TUSS 31004011 repr.): ROL com DUT. DRAFT/verify.</description>
+        <inputEntry id="r19i1"><text>"31004011"</text></inputEntry>
+        <inputEntry id="r19i2"><text>-</text></inputEntry>
+        <outputEntry id="r19o1"><text>false</text></outputEntry>
+        <outputEntry id="r19o2"><text>true</text></outputEntry>
+        <outputEntry id="r19o3"><text>"DUT-BARIATRICA-001 DRAFT/verify"</text></outputEntry>
+      </rule>
+
+      <!-- ===================================================================
+           OPME — Orteses, Proteses e Materiais Especiais
+           =================================================================== -->
+
+      <!-- r20: Protese de quadril total — ROL com DUT OPME -->
+      <rule id="r20">
+        <description>SINTETICO — Protese de quadril total (TUSS 93800015 repr.): ROL com DUT OPME. DRAFT/verify.</description>
+        <inputEntry id="r20i1"><text>"93800015"</text></inputEntry>
+        <inputEntry id="r20i2"><text>-</text></inputEntry>
+        <outputEntry id="r20o1"><text>false</text></outputEntry>
+        <outputEntry id="r20o2"><text>true</text></outputEntry>
+        <outputEntry id="r20o3"><text>"DUT-OPME-PROTESE-QUADRIL-001 DRAFT/verify"</text></outputEntry>
+      </rule>
+
+      <!-- r21: Stent coronario — ROL com DUT OPME -->
+      <rule id="r21">
+        <description>SINTETICO — Stent coronario (TUSS 93600127 repr.): ROL com DUT OPME. DRAFT/verify.</description>
+        <inputEntry id="r21i1"><text>"93600127"</text></inputEntry>
+        <inputEntry id="r21i2"><text>-</text></inputEntry>
+        <outputEntry id="r21o1"><text>false</text></outputEntry>
+        <outputEntry id="r21o2"><text>true</text></outputEntry>
+        <outputEntry id="r21o3"><text>"DUT-OPME-STENT-CORONARIO-001 DRAFT/verify"</text></outputEntry>
+      </rule>
+
+      <!-- r22: Marca-passo cardiaco — ROL com DUT OPME -->
+      <rule id="r22">
+        <description>SINTETICO — Marca-passo cardiaco (TUSS 93600119 repr.): ROL com DUT OPME. DRAFT/verify.</description>
+        <inputEntry id="r22i1"><text>"93600119"</text></inputEntry>
+        <inputEntry id="r22i2"><text>-</text></inputEntry>
+        <outputEntry id="r22o1"><text>false</text></outputEntry>
+        <outputEntry id="r22o2"><text>true</text></outputEntry>
+        <outputEntry id="r22o3"><text>"DUT-OPME-MARCAPASSO-001 DRAFT/verify"</text></outputEntry>
+      </rule>
+
+      <!-- r23: OPME por categoria generica — DUT obrigatoria sempre -->
+      <rule id="r23">
+        <description>SINTETICO — OPME nao mapeado por codigo: categoria opme -> DUT obrigatoria (analise humana).</description>
+        <inputEntry id="r23i1"><text>-</text></inputEntry>
+        <inputEntry id="r23i2"><text>"opme"</text></inputEntry>
+        <outputEntry id="r23o1"><text>false</text></outputEntry>
+        <outputEntry id="r23o2"><text>true</text></outputEntry>
+        <outputEntry id="r23o3"><text>"DUT-OPME-GENERICA-ANALISE-HUMANA DRAFT/verify"</text></outputEntry>
+      </rule>
+
+      <!-- r24: Alta complexidade por categoria generica — DUT obrigatoria -->
+      <rule id="r24">
+        <description>SINTETICO — Alta complexidade nao mapeada: DUT obrigatoria, analise humana.</description>
+        <inputEntry id="r24i1"><text>-</text></inputEntry>
+        <inputEntry id="r24i2"><text>"alta_complexidade"</text></inputEntry>
+        <outputEntry id="r24o1"><text>false</text></outputEntry>
+        <outputEntry id="r24o2"><text>true</text></outputEntry>
+        <outputEntry id="r24o3"><text>"DUT-ALTA-COMPLEXIDADE-ANALISE-HUMANA DRAFT/verify"</text></outputEntry>
+      </rule>
+
+      <!-- ===================================================================
+           CATCH-ALL FAIL-SAFE (r99) — OBRIGATORIO L0 HARD
+           Procedimento nao mapeado: no_rol=false, requer_dut=true -> analise humana.
+           NUNCA nega automaticamente. Outputs alimentam dossie do medico auditor.
+           =================================================================== -->
+      <rule id="r99">
+        <description>CATCH-ALL FAIL-SAFE: codigo nao mapeado nesta tabela DRAFT — encaminha para analise humana (medico auditor). Nunca nega automaticamente (L0 hard / ADR-0005).</description>
+        <inputEntry id="r99i1"><text>-</text></inputEntry>
+        <inputEntry id="r99i2"><text>-</text></inputEntry>
+        <outputEntry id="r99o1"><text>false</text></outputEntry>
+        <outputEntry id="r99o2"><text>true</text></outputEntry>
+        <outputEntry id="r99o3"><text>"ANALISE_HUMANA_OBRIGATORIA — codigo TUSS nao mapeado nesta tabela DRAFT; encaminhar ao medico auditor"</text></outputEntry>
+      </rule>
+
+    </decisionTable>
+  </decision>
+</definitions>

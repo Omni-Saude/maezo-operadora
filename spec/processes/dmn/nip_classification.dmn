@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_nip_classification"
+             name="Classificacao de NIP (ANS)"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    nip_classification v0.1.0 — status: DRAFT (conteudo requer SME regulatorio-ans/juridico +
+    confirmacao dos prazos RN 388/2016; docs/review-queue.md). Consumida por SP-OP-NIP-001 e
+    mcp-dmn.
+    INVARIANTE L0 HARD (nao negociavel): esta tabela APENAS classifica e roteia ao grupo humano.
+    NAO possui saida de negativa/decisao_nip — nenhuma decisao de merito (manter/conceder) nasce
+    aqui. Saidas: classificacao in {ASSISTENCIAL_CONTESTA_NEGATIVA, ASSISTENCIAL_OUTRO,
+    NAO_ASSISTENCIAL}, prazo_dias (dias UTEIS — worker converte para ISO conservador, nunca a DMN),
+    grupo_revisor in {regulatorio-ans, nucleo-ans, juridico-regulatorio}.
+    FAIL-SAFE: tema NIP nao reconhecido OU contesta_negativa=true ambiguo -> a row catch-all
+    (ultima) roteia para ASSISTENCIAL_CONTESTA_NEGATIVA + juridico-regulatorio com o MENOR
+    prazo_dias (conservador — exposicao a sancao). Tema nao reconhecido NUNCA vira "nao-assistencial
+    respondida automaticamente".
+    Inputs pre-resolvidos por worker deterministico (classificacao do tema/origem) — nunca por LLM,
+    nunca decisao adversa.
+    NOTA hitPolicy: FIRST (catch-all conservador como ultima row). Um catch-all '-' sob UNIQUE
+    colide com row especifica no engine (violacao em runtime) — por isso FIRST (espelha
+    glosa_triage / auth_admissibility).
+  </description>
+  <decision id="nip_classification" name="Classificacao da NIP" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_nip_classification" hitPolicy="FIRST">
+      <input id="in_classificacao_nip" label="Classificacao da NIP (classificacao_nip)">
+        <inputExpression id="ie_classificacao_nip" typeRef="string"><text>classificacao_nip</text></inputExpression>
+      </input>
+      <input id="in_tema_nip" label="Tema/assunto da NIP (tema_nip)">
+        <inputExpression id="ie_tema_nip" typeRef="string"><text>tema_nip</text></inputExpression>
+      </input>
+      <input id="in_contesta_negativa" label="Contesta negativa previa (contesta_negativa)">
+        <inputExpression id="ie_contesta_negativa" typeRef="boolean"><text>contesta_negativa</text></inputExpression>
+      </input>
+      <output id="out_classificacao" label="classificacao" name="classificacao" typeRef="string"/>
+      <output id="out_prazo_dias" label="prazo_dias" name="prazo_dias" typeRef="integer"/>
+      <output id="out_grupo_revisor" label="grupo_revisor" name="grupo_revisor" typeRef="string"/>
+      <rule id="r_assistencial_contesta">
+        <description>NIP assistencial contestando uma negativa previa -> revisao juridica (caminho que pode levar a MANTER_NEGATIVA; prazo assistencial mais curto)</description>
+        <inputEntry id="r_assistencial_contesta_i1"><text>"assistencial"</text></inputEntry>
+        <inputEntry id="r_assistencial_contesta_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_assistencial_contesta_i3"><text>true</text></inputEntry>
+        <outputEntry id="r_assistencial_contesta_o1"><text>"ASSISTENCIAL_CONTESTA_NEGATIVA"</text></outputEntry>
+        <outputEntry id="r_assistencial_contesta_o2"><text>5</text></outputEntry>
+        <outputEntry id="r_assistencial_contesta_o3"><text>"juridico-regulatorio"</text></outputEntry>
+      </rule>
+      <rule id="r_assistencial_outro">
+        <description>NIP assistencial que nao contesta negativa (prazo/atendimento/rede) -> regulatorio-ans</description>
+        <inputEntry id="r_assistencial_outro_i1"><text>"assistencial"</text></inputEntry>
+        <inputEntry id="r_assistencial_outro_i2"><text>"prazo_atendimento","rede","reembolso"</text></inputEntry>
+        <inputEntry id="r_assistencial_outro_i3"><text>false</text></inputEntry>
+        <outputEntry id="r_assistencial_outro_o1"><text>"ASSISTENCIAL_OUTRO"</text></outputEntry>
+        <outputEntry id="r_assistencial_outro_o2"><text>5</text></outputEntry>
+        <outputEntry id="r_assistencial_outro_o3"><text>"regulatorio-ans"</text></outputEntry>
+      </rule>
+      <rule id="r_nao_assistencial">
+        <description>NIP nao-assistencial reconhecida (cobranca/cadastro) sem contestacao de negativa -> nucleo-ans (clerical; prazo mais longo)</description>
+        <inputEntry id="r_nao_assistencial_i1"><text>"nao_assistencial"</text></inputEntry>
+        <inputEntry id="r_nao_assistencial_i2"><text>"cobranca","rede","reembolso"</text></inputEntry>
+        <inputEntry id="r_nao_assistencial_i3"><text>false</text></inputEntry>
+        <outputEntry id="r_nao_assistencial_o1"><text>"NAO_ASSISTENCIAL"</text></outputEntry>
+        <outputEntry id="r_nao_assistencial_o2"><text>10</text></outputEntry>
+        <outputEntry id="r_nao_assistencial_o3"><text>"nucleo-ans"</text></outputEntry>
+      </rule>
+      <rule id="r_catchall">
+        <description>Catch-all FAIL-SAFE: tema nao reconhecido OU contesta_negativa ambiguo -> revisao juridica com o MENOR prazo (conservador). NUNCA "nao-assistencial respondida automaticamente".</description>
+        <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i3"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>"ASSISTENCIAL_CONTESTA_NEGATIVA"</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>5</text></outputEntry>
+        <outputEntry id="r_catchall_o3"><text>"juridico-regulatorio"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

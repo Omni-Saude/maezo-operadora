@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_glosa_reason_normalization"
+             name="Normalizacao de reason code de glosa (TISS)"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    glosa_reason_normalization v0.1.0 — status: DRAFT (mapa reason_code TISS -> categoria
+    requer SME faturamento/auditoria de contas + tabela TISS vigente ANS; docs/review-queue.md).
+    Consumida por SP-OP-CONTAS-001 e mcp-dmn.
+    INVARIANTE L0 HARD: esta tabela NAO possui saida de aceite/negativa de glosa. Apenas
+    normaliza o reason_code bruto TISS em uma categoria interna. Codigo desconhecido ->
+    categoria_normalizada="desconhecida" (rota conservadora a humano a jusante na
+    glosa_triage, nunca aceite automatico).
+    NOTA hitPolicy: o contrato (DRAFT) cita UNIQUE, mas uma row catch-all (`-`) sob UNIQUE
+    colide com qualquer row especifica no engine (violacao de UNIQUE em runtime). Para
+    preservar o catch-all conservador "desconhecida" mantendo a tabela ENGINE-DEPLOYAVEL,
+    usamos FIRST (a catch-all so e atingida quando nenhuma row especifica casa) — espelha o
+    padrao de auth_admissibility. Cada reason_code ainda mapeia para exatamente uma categoria.
+    Mapa SINTETICO/representativo (espelha maezo.domain.glosa.GlosaReasonCode/GlosaType) —
+    DRAFT/verify contra a tabela de motivos de glosa TISS vigente antes de qualquer deploy.
+  </description>
+  <decision id="glosa_reason_normalization" name="Normalizacao do reason code de glosa" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_glosa_reason_normalization" hitPolicy="FIRST">
+      <input id="in_reason_code" label="Reason code TISS bruto (reason_code_tiss)">
+        <inputExpression id="ie_reason_code" typeRef="string"><text>reason_code_tiss</text></inputExpression>
+      </input>
+      <output id="out_categoria" label="categoria_normalizada" name="categoria_normalizada" typeRef="string"/>
+      <output id="out_descricao" label="descricao" name="descricao" typeRef="string"/>
+      <rule id="r_admin_guia">
+        <description>Administrativa: guia/documento incompleto</description>
+        <inputEntry id="r_admin_guia_i"><text>"GUIA_INCOMPLETA","AUSENCIA_ASSINATURA","DOCUMENTO_ILEGIVEL","DIVERGENCIA_CADASTRO"</text></inputEntry>
+        <outputEntry id="r_admin_guia_o1"><text>"administrativa"</text></outputEntry>
+        <outputEntry id="r_admin_guia_o2"><text>"Glosa administrativa/documental (anexos TISS) — DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r_admin_prazo">
+        <description>Administrativa: prazo de apresentacao</description>
+        <inputEntry id="r_admin_prazo_i"><text>"PRAZO_APRESENTACAO"</text></inputEntry>
+        <outputEntry id="r_admin_prazo_o1"><text>"administrativa"</text></outputEntry>
+        <outputEntry id="r_admin_prazo_o2"><text>"Conta apresentada fora do prazo contratual/regulatorio — DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r_tecnica">
+        <description>Tecnica/clinica: inadequacao tecnico-clinica</description>
+        <inputEntry id="r_tecnica_i"><text>"PROCEDIMENTO_NAO_INDICADO","QUANTIDADE_EXCESSIVA","MATERIAL_NAO_PADRONIZADO","CID_INCOMPATIVEL","TEMPO_CIRURGICO_DIVERGENTE"</text></inputEntry>
+        <outputEntry id="r_tecnica_o1"><text>"tecnica"</text></outputEntry>
+        <outputEntry id="r_tecnica_o2"><text>"Glosa tecnico-clinica — revisao humana obrigatoria (default conservador R4)"</text></outputEntry>
+      </rule>
+      <rule id="r_valor">
+        <description>Valor/tabela: divergencia de valor de tabela</description>
+        <inputEntry id="r_valor_i"><text>"VALOR_ACIMA_TABELA","CODIGO_VALORADO_INCORRETAMENTE","ITEM_NAO_PREVISTO_CONTRATO"</text></inputEntry>
+        <outputEntry id="r_valor_o1"><text>"valor"</text></outputEntry>
+        <outputEntry id="r_valor_o2"><text>"Divergencia de valor de tabela (TUSS/CBHPM) — DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r_documental">
+        <description>Documental: autorizacao ausente/divergente (anexos)</description>
+        <inputEntry id="r_documental_i"><text>"SEM_AUTORIZACAO","AUTORIZACAO_DIVERGENTE","AUTORIZACAO_VENCIDA","CODIGO_INVALIDO","CODIGO_DESATUALIZADO"</text></inputEntry>
+        <outputEntry id="r_documental_o1"><text>"documental"</text></outputEntry>
+        <outputEntry id="r_documental_o2"><text>"Pendencia documental/autorizacao/codificacao — DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r_clinica">
+        <description>Clinica: elegibilidade/carencia (decisao humana a jusante)</description>
+        <inputEntry id="r_clinica_i"><text>"CARENCIA","EXCLUSAO_CONTRATUAL","BENEFICIARIO_INATIVO"</text></inputEntry>
+        <outputEntry id="r_clinica_o1"><text>"clinica"</text></outputEntry>
+        <outputEntry id="r_clinica_o2"><text>"Questao de elegibilidade/cobertura — analise humana obrigatoria (L0 hard)"</text></outputEntry>
+      </rule>
+      <rule id="r_catchall">
+        <description>Catch-all FAIL-SAFE: reason_code nao mapeado -> desconhecida (rota a humano)</description>
+        <inputEntry id="r_catchall_i"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>"desconhecida"</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>"Reason code nao mapeado — categoria desconhecida, rota conservadora a humano"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

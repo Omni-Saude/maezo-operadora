@@ -1,0 +1,86 @@
+{{- /*
+Notifications bridge daemon (W-R2 / R8) — Kafka -> process-start.
+
+Sibling do worker-daemon e do fhir-sync: mesma imagem, command
+`python -m maezo.platform.integrations.notifications_bridge`. Consome o UNICO topico Kafka
+`operadora.notifications.internal` e, nos `type` acionaveis (contas.start_recurso /
+nip.handoff_ans_submit), inicia SP-OP-RECURSO-001 / SP-OP-ANS-SUBMIT-001 via
+mcp-cibseven.start_process (idempotente). Identidade = principal de SERVICO
+`notifications-bridge` (allowlist MINIMA: so start_process).
+
+PROBE (seam): o daemon da ponte NAO sobe um servidor de health (o `main.py` so roda o loop do
+consumer — diferente do worker-daemon/agent-runtime). Por isso usamos uma liveness `exec`
+(processo vivo) em vez de httpGet /healthz. Seam: adicionar um app de health (mirror R7) e
+trocar por probes HTTP /healthz+/readyz quando o consumer ganhar readiness.
+*/ -}}
+{{- if .Values.notificationsBridge.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notifications-bridge
+  namespace: {{ include "maezo-tenant.namespace" . }}
+  labels:
+    {{- include "maezo-tenant.labels" . | nindent 4 }}
+    app.kubernetes.io/component: notifications-bridge
+spec:
+  replicas: {{ .Values.notificationsBridge.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "maezo-tenant.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: notifications-bridge
+  template:
+    metadata:
+      labels:
+        {{- include "maezo-tenant.labels" . | nindent 8 }}
+        app.kubernetes.io/component: notifications-bridge
+        # A ponte so carrega identificadores/refs de processo (pseudo_ids), nunca PHI cru.
+        maezo.io/phi-zone: "false"
+    spec:
+      serviceAccountName: {{ include "maezo-tenant.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: notifications-bridge
+          image: {{ include "maezo-tenant.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["python", "-m", "maezo.platform.integrations.notifications_bridge"]
+          env:
+            - name: TENANT_ID
+              value: {{ .Values.tenant.id | quote }}
+            - name: CIBSEVEN_BASE_URL
+              value: "http://cibseven:8080/engine-rest"
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                secretKeyRef:
+                  name: maezo-kafka-config
+                  key: bootstrap-servers
+            - name: AUDIT_DIR
+              value: "/tmp/maezo-audit"
+            {{- include "maezo-tenant.otelEnv" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.notificationsBridge.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          # SEAM: a ponte nao expoe /healthz (sem app de health). Liveness por processo vivo.
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "pgrep -f maezo.platform.integrations.notifications_bridge > /dev/null"
+            initialDelaySeconds: 20
+            periodSeconds: 30
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

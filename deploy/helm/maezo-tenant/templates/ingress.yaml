@@ -1,0 +1,75 @@
+{{- /*
+Ingress — ALB (aws-load-balancer-controller) for the public edge (DL-0018).
+
+Fronts the webhook-receiver (WhatsApp Cloud API inbound, port 8080) and, when a
+console host is configured, the console UI. The WHOLE template is gated on
+`.Values.ingress.enabled` (default false) so a default render emits NOTHING —
+ALB/ACM/Route53 provisioning is out of scope and stays OFF until a tenant opts in.
+
+ADR-0006 zones: the webhook-receiver is a GENERAL-zone service (it terminates the
+public WhatsApp webhook and never touches PHI directly), so exposing it at the
+public edge is zone-appropriate. NEVER add a PHI-zone agent/service backend here —
+PHI-zone workloads must not be reachable from the internet.
+
+TLS terminates at the ALB via an ACM certificate (alb.ingress.kubernetes.io/
+certificate-arn). external-dns manages the Route53 record from the host annotation.
+The `spec.tls` block carries the host so controllers/validators that key off it
+still see the intended TLS hostname (ALB terminates TLS itself; no Secret is used).
+*/ -}}
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: maezo-edge
+  namespace: {{ include "maezo-tenant.namespace" . }}
+  labels:
+    {{- include "maezo-tenant.labels" . | nindent 4 }}
+    app.kubernetes.io/component: edge
+  annotations:
+    # --- aws-load-balancer-controller (ALB) ---
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: '443'
+    alb.ingress.kubernetes.io/certificate-arn: {{ required "ingress.certificateArn is required when ingress.enabled=true (ACM cert for ALB TLS)" .Values.ingress.certificateArn | quote }}
+    alb.ingress.kubernetes.io/healthcheck-path: /healthz
+    alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
+    # --- external-dns (Route53 record from the host below) ---
+    external-dns.alpha.kubernetes.io/hostname: {{ required "ingress.host is required when ingress.enabled=true (external-dns hostname)" .Values.ingress.host | quote }}
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . | quote }}
+  {{- end }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host | quote }}
+        {{- with .Values.ingress.consoleHost }}
+        - {{ . | quote }}
+        {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: webhook-receiver
+                port:
+                  number: {{ .Values.webhookReceiver.service.port }}
+    {{- with .Values.ingress.consoleHost }}
+    - host: {{ . | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: console
+                port:
+                  number: {{ $.Values.ingress.consolePort | default 80 }}
+    {{- end }}
+{{- end }}

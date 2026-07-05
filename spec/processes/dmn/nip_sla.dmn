@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_nip_sla"
+             name="SLA / prazo de resposta a NIP (ANS)"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    nip_sla v0.2.0 — status: DRAFT — TODOS os prazos marcados DRAFT/verify: confirmar texto
+    vigente com regulatorio/juridico (RN 388/2016 — prazos de resposta NIP assistencial ~5 dias
+    UTEIS / nao-assistencial ~10 dias UTEIS; consolidacoes ANS; docs/review-queue.md). Consumida
+    por SP-OP-NIP-001 e mcp-dmn.
+    NOTA: prazos regulatorios sao em dias UTEIS; ISO 8601 usa dias corridos — os valores ISO abaixo
+    sao aproximacao CONSERVADORA (menor ou igual ao prazo legal em dias corridos). Resolver
+    calendario util no worker. Prazo regulatorio vive AQUI (DMN) e no timer BPMN — nunca em Python
+    (CONTRIBUTING). Prazos NIP sao os timers mais schedule-criticos da Phase 2 (descumprimento ->
+    sancao ANS): valores DRAFT/verify antes de qualquer timer em producao.
+    Esta tabela NAO tem saida adversa; no estouro de prazo a coordenacao humana assume (NUNCA
+    auto-resposta por timeout — inversao do anti-padrao de auto-resposta). Saidas de prazo sao
+    string ISO 8601.
+    NOTA hitPolicy: FIRST (catch-all conservador como ultima row) — espelha contas_sla.
+
+    GAP-NIP-1 (v0.2.0): o prazo regulatorio conta de `data_recebimento_nip_iso` (contrato
+    SP-OP-NIP-001.md §"SLAs"), NUNCA da data em que a User Task de elaboracao/revisao foi criada —
+    o BPMN so alcanca a UT depois do dossie de instrucao (Gustavo) + 3 BusinessRuleTasks, e pode
+    reentrar via SOLICITAR_INFO, entao "ancorar no attach da UT" desalinha o prazo do contrato
+    regulatorio a cada rodada. Alem das duracoes relativas legadas (`prazo_resposta_iso` /
+    `sla_alerta_iso` — mantidas para relatorios/observabilidade e para nao quebrar leitores
+    existentes), esta tabela agora tambem computa o DEADLINE ABSOLUTO em FEEL, somando a duracao
+    a `data_recebimento_nip_iso` (meia-noite UTC-naive da data de recebimento — aproximacao
+    conservadora, mesmo raciocinio do restante da tabela): `prazo_resposta_absoluto_iso` e
+    `sla_alerta_absoluto_iso`. O BPMN anexa esses dois campos absolutos aos timers via
+    `timeDate` (nao mais `timeDuration` relativo ao attach da activity) — ver
+    SP-OP-NIP-001.bpmn BT_AlertaPrazoNip/BT_PrazoNipEstourado/BT_AlertaPrazoRevisao/
+    BT_PrazoRevisaoEstourado/ICE_PrazoInfo. `data_recebimento_nip_iso` e declarado como input
+    aqui apenas para documentar a dependencia (nao participa do matching — hitPolicy FIRST
+    continua discriminando somente por `classificacao`); a expressao FEEL do output le a
+    variavel do contexto de avaliacao normalmente (todo bpmn:businessRuleTask envia TODAS as
+    variaveis de processo correntes para a avaliacao da decisao).
+    ENGINE-DEPLOYABILIDADE: se `data_recebimento_nip_iso` + duracao cair no passado (NIP antiga
+    sendo reprocessada), o `timeDate` resultante e um instante passado — o boundary interruptivo
+    dispara IMEDIATAMENTE ao attach (comportamento correto: o prazo de fato ja estourou; nunca
+    mascarar um estouro real). Testes de integracao usam `data_recebimento_nip_iso` no futuro
+    quando o cenario NAO deve estourar de imediato.
+  </description>
+  <decision id="nip_sla" name="Prazo de resposta a NIP" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_nip_sla" hitPolicy="FIRST">
+      <input id="in_classificacao" label="Classificacao (saida de nip_classification)">
+        <inputExpression id="ie_classificacao" typeRef="string"><text>classificacao</text></inputExpression>
+      </input>
+      <input id="in_data_recebimento" label="Data de recebimento da NIP (ancora regulatoria do prazo)">
+        <inputExpression id="ie_data_recebimento" typeRef="string"><text>data_recebimento_nip_iso</text></inputExpression>
+      </input>
+      <output id="out_prazo_resposta_iso" label="prazo_resposta_iso (duracao relativa — legado/observabilidade)" name="prazo_resposta_iso" typeRef="string"/>
+      <output id="out_prazo_resposta_absoluto_iso" label="prazo_resposta_absoluto_iso (deadline absoluto — timeDate)" name="prazo_resposta_absoluto_iso" typeRef="string"/>
+      <output id="out_sla_alerta_iso" label="sla_alerta_iso (duracao relativa — legado/observabilidade)" name="sla_alerta_iso" typeRef="string"/>
+      <output id="out_sla_alerta_absoluto_iso" label="sla_alerta_absoluto_iso (alerta absoluto — timeDate)" name="sla_alerta_absoluto_iso" typeRef="string"/>
+      <output id="out_fonte_regulatoria" label="fonte_regulatoria" name="fonte_regulatoria" typeRef="string"/>
+      <rule id="r_assistencial_contesta">
+        <description>NIP assistencial contestando negativa: prazo MAIS CURTO (~5 dias uteis; ISO conservador), ancorado em data_recebimento_nip_iso</description>
+        <inputEntry id="r_assistencial_contesta_i1"><text>"ASSISTENCIAL_CONTESTA_NEGATIVA"</text></inputEntry>
+        <inputEntry id="r_assistencial_contesta_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_assistencial_contesta_o1"><text>"P5D"</text></outputEntry>
+        <outputEntry id="r_assistencial_contesta_o2"><text>string(date and time(data_recebimento_nip_iso + "T00:00:00") + duration("P5D"))</text></outputEntry>
+        <outputEntry id="r_assistencial_contesta_o3"><text>"P3D"</text></outputEntry>
+        <outputEntry id="r_assistencial_contesta_o4"><text>string(date and time(data_recebimento_nip_iso + "T00:00:00") + duration("P3D"))</text></outputEntry>
+        <outputEntry id="r_assistencial_contesta_o5"><text>"RN 388/2016 — resposta NIP assistencial ~5 dias uteis: DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r_assistencial_outro">
+        <description>NIP assistencial (prazo/atendimento/rede): prazo assistencial (~5 dias uteis; ISO conservador), ancorado em data_recebimento_nip_iso</description>
+        <inputEntry id="r_assistencial_outro_i1"><text>"ASSISTENCIAL_OUTRO"</text></inputEntry>
+        <inputEntry id="r_assistencial_outro_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_assistencial_outro_o1"><text>"P5D"</text></outputEntry>
+        <outputEntry id="r_assistencial_outro_o2"><text>string(date and time(data_recebimento_nip_iso + "T00:00:00") + duration("P5D"))</text></outputEntry>
+        <outputEntry id="r_assistencial_outro_o3"><text>"P3D"</text></outputEntry>
+        <outputEntry id="r_assistencial_outro_o4"><text>string(date and time(data_recebimento_nip_iso + "T00:00:00") + duration("P3D"))</text></outputEntry>
+        <outputEntry id="r_assistencial_outro_o5"><text>"RN 388/2016 — resposta NIP assistencial ~5 dias uteis: DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r_nao_assistencial">
+        <description>NIP nao-assistencial: prazo mais longo (~10 dias uteis; ISO conservador), ancorado em data_recebimento_nip_iso</description>
+        <inputEntry id="r_nao_assistencial_i1"><text>"NAO_ASSISTENCIAL"</text></inputEntry>
+        <inputEntry id="r_nao_assistencial_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_nao_assistencial_o1"><text>"P10D"</text></outputEntry>
+        <outputEntry id="r_nao_assistencial_o2"><text>string(date and time(data_recebimento_nip_iso + "T00:00:00") + duration("P10D"))</text></outputEntry>
+        <outputEntry id="r_nao_assistencial_o3"><text>"P6D"</text></outputEntry>
+        <outputEntry id="r_nao_assistencial_o4"><text>string(date and time(data_recebimento_nip_iso + "T00:00:00") + duration("P6D"))</text></outputEntry>
+        <outputEntry id="r_nao_assistencial_o5"><text>"RN 388/2016 — resposta NIP nao-assistencial ~10 dias uteis: DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r_catchall">
+        <description>Catch-all FAIL-SAFE: classificacao desconhecida -> prazo MAIS CURTO conservador (exposicao a sancao), ancorado em data_recebimento_nip_iso</description>
+        <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>"P5D"</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>string(date and time(data_recebimento_nip_iso + "T00:00:00") + duration("P5D"))</text></outputEntry>
+        <outputEntry id="r_catchall_o3"><text>"P3D"</text></outputEntry>
+        <outputEntry id="r_catchall_o4"><text>string(date and time(data_recebimento_nip_iso + "T00:00:00") + duration("P3D"))</text></outputEntry>
+        <outputEntry id="r_catchall_o5"><text>"Fail-safe: prazo conservador mais curto na ausencia de classificacao — DRAFT/verify"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

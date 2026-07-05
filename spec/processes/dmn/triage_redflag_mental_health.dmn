@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_triage_redflag_mental_health"
+             name="Red flags de triagem — saude mental"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    triage_redflag_mental_health v0.1.0 — status: SHAPE FINAL; CONTEUDO CLINICO: DRAFT —
+    requer validacao de psiquiatra/psicologo antes de qualquer deploy
+    (docs/review-queue.md). Schema comum triage_redflag_* (ver triage_redflag_adult);
+    campo populacional: risco_imediato (boolean — plano/meio/tentativa em curso,
+    extraido de forma conservadora pela Helena: na duvida, true).
+    POSTURA CONSERVADORA: em saude mental quase tudo escala — agente NUNCA conduz
+    crise (L0 hard, clinical_decision). red_flag=true dispara SP-OP-ESCALATION-001
+    com motivo_categoria=risco_psicossocial (sempre P1 no escalation_routing).
+    Exemplos sinteticos: "Paciente Teste 005".
+  </description>
+  <decision id="triage_redflag_mental_health" name="Red flags saude mental" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_triage_redflag_mental_health" hitPolicy="FIRST">
+      <input id="in_sintoma" label="Sintoma normalizado (sintoma_codigo)">
+        <inputExpression id="ie_sintoma" typeRef="string"><text>sintoma_codigo</text></inputExpression>
+      </input>
+      <input id="in_intensidade" label="Intensidade relatada (intensidade)">
+        <inputExpression id="ie_intensidade" typeRef="string"><text>intensidade</text></inputExpression>
+      </input>
+      <input id="in_risco" label="Risco imediato declarado (risco_imediato)">
+        <inputExpression id="ie_risco" typeRef="boolean"><text>risco_imediato</text></inputExpression>
+      </input>
+      <output id="out_redflag" label="red_flag" name="red_flag" typeRef="boolean"/>
+      <output id="out_prioridade" label="prioridade" name="prioridade" typeRef="string"/>
+      <output id="out_conduta" label="conduta" name="conduta" typeRef="string"/>
+      <output id="out_motivo" label="motivo" name="motivo" typeRef="string"/>
+      <rule id="r1">
+        <description>DRAFT clinico — ex. sintetico: Paciente Teste 005 relata ideacao com plano</description>
+        <inputEntry id="r1i1"><text>"ideacao_suicida"</text></inputEntry>
+        <inputEntry id="r1i2"><text>-</text></inputEntry>
+        <inputEntry id="r1i3"><text>true</text></inputEntry>
+        <outputEntry id="r1o1"><text>true</text></outputEntry>
+        <outputEntry id="r1o2"><text>"P1"</text></outputEntry>
+        <outputEntry id="r1o3"><text>"ESCALATE_EMERGENCY"</text></outputEntry>
+        <outputEntry id="r1o4"><text>"Ideacao suicida com risco imediato (plano/meio)"</text></outputEntry>
+      </rule>
+      <rule id="r2">
+        <description>Ideacao sem risco imediato declarado: ainda assim P1 humano (conservador)</description>
+        <inputEntry id="r2i1"><text>"ideacao_suicida"</text></inputEntry>
+        <inputEntry id="r2i2"><text>-</text></inputEntry>
+        <inputEntry id="r2i3"><text>-</text></inputEntry>
+        <outputEntry id="r2o1"><text>true</text></outputEntry>
+        <outputEntry id="r2o2"><text>"P1"</text></outputEntry>
+        <outputEntry id="r2o3"><text>"ESCALATE_EMERGENCY"</text></outputEntry>
+        <outputEntry id="r2o4"><text>"Ideacao suicida relatada — humano imediato em qualquer cenario"</text></outputEntry>
+      </rule>
+      <rule id="r3">
+        <inputEntry id="r3i1"><text>"autolesao"</text></inputEntry>
+        <inputEntry id="r3i2"><text>-</text></inputEntry>
+        <inputEntry id="r3i3"><text>-</text></inputEntry>
+        <outputEntry id="r3o1"><text>true</text></outputEntry>
+        <outputEntry id="r3o2"><text>"P1"</text></outputEntry>
+        <outputEntry id="r3o3"><text>"ESCALATE_EMERGENCY"</text></outputEntry>
+        <outputEntry id="r3o4"><text>"Autolesao relatada"</text></outputEntry>
+      </rule>
+      <rule id="r4">
+        <inputEntry id="r4i1"><text>"agitacao_agressividade","surto_psicotico"</text></inputEntry>
+        <inputEntry id="r4i2"><text>-</text></inputEntry>
+        <inputEntry id="r4i3"><text>-</text></inputEntry>
+        <outputEntry id="r4o1"><text>true</text></outputEntry>
+        <outputEntry id="r4o2"><text>"P1"</text></outputEntry>
+        <outputEntry id="r4o3"><text>"ESCALATE_EMERGENCY"</text></outputEntry>
+        <outputEntry id="r4o4"><text>"Agitacao grave / quadro psicotico agudo"</text></outputEntry>
+      </rule>
+      <rule id="r5">
+        <inputEntry id="r5i1"><text>"crise_ansiedade","crise_panico"</text></inputEntry>
+        <inputEntry id="r5i2"><text>-</text></inputEntry>
+        <inputEntry id="r5i3"><text>-</text></inputEntry>
+        <outputEntry id="r5o1"><text>true</text></outputEntry>
+        <outputEntry id="r5o2"><text>"P2"</text></outputEntry>
+        <outputEntry id="r5o3"><text>"ESCALATE_NURSE"</text></outputEntry>
+        <outputEntry id="r5o4"><text>"Crise de ansiedade/panico — acolhimento humano"</text></outputEntry>
+      </rule>
+      <rule id="r6">
+        <description>Fail-safe saude mental: qualquer relato grave escala para humano</description>
+        <inputEntry id="r6i1"><text>-</text></inputEntry>
+        <inputEntry id="r6i2"><text>"grave"</text></inputEntry>
+        <inputEntry id="r6i3"><text>-</text></inputEntry>
+        <outputEntry id="r6o1"><text>true</text></outputEntry>
+        <outputEntry id="r6o2"><text>"P2"</text></outputEntry>
+        <outputEntry id="r6o3"><text>"ESCALATE_NURSE"</text></outputEntry>
+        <outputEntry id="r6o4"><text>"Relato de saude mental nao mapeado com intensidade grave — fail-safe"</text></outputEntry>
+      </rule>
+      <rule id="r7">
+        <inputEntry id="r7i1"><text>-</text></inputEntry>
+        <inputEntry id="r7i2"><text>-</text></inputEntry>
+        <inputEntry id="r7i3"><text>-</text></inputEntry>
+        <outputEntry id="r7o1"><text>false</text></outputEntry>
+        <outputEntry id="r7o2"><text>"-"</text></outputEntry>
+        <outputEntry id="r7o3"><text>"CONTINUE"</text></outputEntry>
+        <outputEntry id="r7o4"><text>"Sem criterio de red flag de saude mental"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

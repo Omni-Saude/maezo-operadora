@@ -1,0 +1,133 @@
+{{- /*
+Prometheus-operator PodMonitor(s) for the agent-runtime pods + fhir-sync + worker-daemon.
+
+Gated OFF by default (`.Values.observability.podMonitor.enabled=false`): a default
+render/install is a NO-OP, so clusters WITHOUT prometheus-operator (which lacks the
+monitoring.coreos.com/v1 CRD) never get a dangling CR. Tenants that run the operator
+flip `observability.podMonitor.enabled=true`.
+
+Three PodMonitors are emitted when enabled:
+  - agent-runtime: selects every per-agent pod (maezo.io/agent exists) on its
+    metrics port; scrape job correlates to config/prometheus.yml job `maezo-agent-runtime`.
+  - fhir-sync: selects the fhir-sync pods on the named `metrics` port.
+  - worker-daemon: selects the worker-daemon pods (GAP-XOBS-4 dispatch-outcome
+    instruments) on the named `metrics` port.
+
+NON-OPERATOR FALLBACK: the per-agent Service (service-agent-runtime.yaml), the
+fhir-sync Service (service-fhir-sync.yaml), and the worker-daemon Service
+(service-worker-daemon.yaml) all carry `prometheus.io/scrape` annotations, so a plain
+Prometheus (no operator) can still discover the targets via endpoints scraping. The
+PodMonitor here is purely the operator-native path.
+
+PHI guardrail (ADR-0006): a PodMonitor only configures SCRAPING. It opens no egress
+for the pods and does not touch the NetworkPolicy — metrics stay scraper-only.
+*/ -}}
+{{- if .Values.observability.podMonitor.enabled }}
+{{- $ns := .Values.observability.podMonitor.namespaceSelectorMatchName | default (include "maezo-tenant.namespace" .) }}
+{{- $interval := .Values.observability.podMonitor.interval | default "30s" }}
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: agent-runtime
+  namespace: {{ include "maezo-tenant.namespace" . }}
+  labels:
+    {{- include "maezo-tenant.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent-runtime
+    {{- with .Values.observability.podMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  # `jobLabel` names a POD LABEL KEY the operator copies the `job` target label's
+  # value FROM — it is NOT a literal job string (contrast with Prometheus's own
+  # scrape_configs[].job_name in config/prometheus.yml, which IS literal). The
+  # deployment-agent-runtime.yaml pod template sets this exact label key to the
+  # literal value "maezo-agent-runtime", which is what `up{job="maezo-agent-runtime"}`
+  # (MaezoAgentRuntimeDown, alert-rules.yaml) expects.
+  jobLabel: maezo.io/scrape-job
+  namespaceSelector:
+    matchNames:
+      - {{ $ns | quote }}
+  selector:
+    matchLabels:
+      {{- include "maezo-tenant.selectorLabels" . | nindent 6 }}
+    # Select every per-agent pod regardless of name/zone (the metrics endpoint is
+    # identical across agents); the maezo.io/agent label is set by every agent pod.
+    matchExpressions:
+      - key: maezo.io/agent
+        operator: Exists
+  podMetricsEndpoints:
+    - port: metrics
+      # Agent pods now declare a NAMED `metrics` containerPort: 8000
+      # (deployment-agent-runtime.yaml), so `port: metrics` resolves via
+      # __meta_kubernetes_pod_container_port_name. `targetPort` is kept as a
+      # belt-and-suspenders numeric fallback for operator versions/behaviors that
+      # prefer it; both should agree (8000).
+      targetPort: 8000
+      path: /metrics
+      interval: {{ $interval | quote }}
+      scheme: http
+  podTargetLabels:
+    - maezo.io/agent
+    - maezo.io/security-zone
+    - maezo.io/tenant
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: fhir-sync
+  namespace: {{ include "maezo-tenant.namespace" . }}
+  labels:
+    {{- include "maezo-tenant.labels" . | nindent 4 }}
+    app.kubernetes.io/component: fhir-sync
+    {{- with .Values.observability.podMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  # See the agent-runtime PodMonitor above: jobLabel names a POD LABEL KEY, not a
+  # literal job value. deployment-fhir-sync.yaml sets this label to "maezo-fhir-sync".
+  jobLabel: maezo.io/scrape-job
+  namespaceSelector:
+    matchNames:
+      - {{ $ns | quote }}
+  selector:
+    matchLabels:
+      {{- include "maezo-tenant.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: fhir-sync
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: {{ $interval | quote }}
+      scheme: http
+  podTargetLabels:
+    - maezo.io/tenant
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: worker-daemon
+  namespace: {{ include "maezo-tenant.namespace" . }}
+  labels:
+    {{- include "maezo-tenant.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker-daemon
+    {{- with .Values.observability.podMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  # See the agent-runtime PodMonitor above: jobLabel names a POD LABEL KEY, not a
+  # literal job value. deployment-worker-daemon.yaml sets this label to "maezo-worker-daemon".
+  jobLabel: maezo.io/scrape-job
+  namespaceSelector:
+    matchNames:
+      - {{ $ns | quote }}
+  selector:
+    matchLabels:
+      {{- include "maezo-tenant.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: worker-daemon
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: {{ $interval | quote }}
+      scheme: http
+  podTargetLabels:
+    - maezo.io/tenant
+{{- end }}

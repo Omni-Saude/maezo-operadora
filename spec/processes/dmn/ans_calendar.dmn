@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_ans_calendar"
+             name="Calendario regulatorio ANS (prazos por competencia)"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    ans_calendar v0.2.0 — status: DRAFT — TODAS as datas, periodicidades e fontes regulatorias
+    marcadas DRAFT/verify: confirmar contra texto vigente ANS antes de qualquer envio (RN 124/2006
+    SIP, RN 209/2009 utilizacao, RN 388/2015 qualidade, RN 424/2017 TISS/monitoramento, DIOPS
+    economico-financeiro). Consumida por SP-OP-ANS-SUBMIT-001 e mcp-dmn.
+    NAO negativa-like: este processo e operadora -> regulador; NAO existe saida adversa contra
+    beneficiario/prestador. Esta tabela apenas resolve o prazo de calendario (due_date), o alerta
+    de deadline-risk (sla_alerta), a periodicidade e a fonte regulatoria por
+    (report_type, competencia).
+    DOIS INPUTS (GAP-ANS-2): a data-limite de um envio periodico depende do TIPO de relatorio E da
+    COMPETENCIA — o mesmo report_type tem due_date diferente por competencia (YYYY-MM / YYYY-Qn).
+    Com report_type sozinho a tabela devolveria a MESMA data fixa para toda competencia (errado).
+    Precedencia (hitPolicy FIRST): (1) rows especificas report_type+competencia (datas EXEMPLO,
+    DRAFT/verify); (2) rows de fallback por report_type (competencia "-"): competencia ainda nao
+    enumerada resolve prazos CONSERVADORES do tipo (mantem periodicidade + fonte do tipo — cada
+    tipo com calendario distinto; nunca prazo infinito); (3) catch-all global "-","-"
+    (report_type desconhecido) -> fonte_regulatoria=REVISAO_HUMANA.
+    NOTA: prazos regulatorios sao por DIAS CORRIDOS / data fixa de competencia (diferente dos
+    prazos em dias uteis dos processos negativa-like). O worker de calendario resolve
+    feriado/fim-de-semana conservadoramente (antecipar, nunca postergar). Prazo regulatorio vive
+    AQUI (DMN) e no timer BPMN — nunca em Python (CONTRIBUTING).
+    Saidas de prazo sao string ISO 8601 (YYYY-MM-DD) — typeRef string (NUNCA "number").
+    Catch-all FAIL-SAFE (report_type desconhecido): prazos conservadores +
+    fonte_regulatoria="REVISAO_HUMANA" (roteia a humano via admissibilidade; nunca prazo
+    "infinito" nem envio automatico de tipo desconhecido).
+    hitPolicy FIRST (catch-all conservador como ultima row — sob UNIQUE a catch-all "-" colidiria
+    com qualquer row especifica em runtime; espelha glosa_reason_normalization).
+  </description>
+  <decision id="ans_calendar" name="Calendario regulatorio ANS" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_ans_calendar" hitPolicy="FIRST">
+      <input id="in_report_type" label="Tipo de relatorio (report_type)">
+        <inputExpression id="ie_report_type" typeRef="string"><text>report_type</text></inputExpression>
+      </input>
+      <input id="in_competencia" label="Competencia (YYYY-MM | YYYY-Qn)">
+        <inputExpression id="ie_competencia" typeRef="string"><text>competencia</text></inputExpression>
+      </input>
+      <output id="out_due_date" label="due_date" name="due_date" typeRef="string"/>
+      <output id="out_sla_alerta" label="sla_alerta" name="sla_alerta" typeRef="string"/>
+      <output id="out_periodicidade" label="periodicidade" name="periodicidade" typeRef="string"/>
+      <output id="out_fonte" label="fonte_regulatoria" name="fonte_regulatoria" typeRef="string"/>
+      <rule id="r_rn124_sip_2026_01">
+        <description>RN 124/2006 — SIP (Sistema de Informacoes de Produtos), competencia 2026-01, periodicidade mensal — DRAFT/verify</description>
+        <inputEntry id="r_rn124_sip_2026_01_i1"><text>"RN_124_SIP"</text></inputEntry>
+        <inputEntry id="r_rn124_sip_2026_01_i2"><text>"2026-01"</text></inputEntry>
+        <outputEntry id="r_rn124_sip_2026_01_o1"><text>"2026-02-15"</text></outputEntry>
+        <outputEntry id="r_rn124_sip_2026_01_o2"><text>"2026-02-10"</text></outputEntry>
+        <outputEntry id="r_rn124_sip_2026_01_o3"><text>"mensal"</text></outputEntry>
+        <outputEntry id="r_rn124_sip_2026_01_o4"><text>"RN_124_2006"</text></outputEntry>
+      </rule>
+      <rule id="r_rn124_sip_2026_02">
+        <description>RN 124/2006 — SIP, competencia 2026-02: o due_date DESLOCA com a competencia (prova per-competencia do GAP-ANS-2) — DRAFT/verify</description>
+        <inputEntry id="r_rn124_sip_2026_02_i1"><text>"RN_124_SIP"</text></inputEntry>
+        <inputEntry id="r_rn124_sip_2026_02_i2"><text>"2026-02"</text></inputEntry>
+        <outputEntry id="r_rn124_sip_2026_02_o1"><text>"2026-03-15"</text></outputEntry>
+        <outputEntry id="r_rn124_sip_2026_02_o2"><text>"2026-03-10"</text></outputEntry>
+        <outputEntry id="r_rn124_sip_2026_02_o3"><text>"mensal"</text></outputEntry>
+        <outputEntry id="r_rn124_sip_2026_02_o4"><text>"RN_124_2006"</text></outputEntry>
+      </rule>
+      <rule id="r_rn124_sip_fallback">
+        <description>RN 124/2006 — SIP, competencia nao enumerada: prazos CONSERVADORES do tipo (nunca prazo infinito) — DRAFT/verify</description>
+        <inputEntry id="r_rn124_sip_fallback_i1"><text>"RN_124_SIP"</text></inputEntry>
+        <inputEntry id="r_rn124_sip_fallback_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_rn124_sip_fallback_o1"><text>"2026-02-10"</text></outputEntry>
+        <outputEntry id="r_rn124_sip_fallback_o2"><text>"2026-02-05"</text></outputEntry>
+        <outputEntry id="r_rn124_sip_fallback_o3"><text>"mensal"</text></outputEntry>
+        <outputEntry id="r_rn124_sip_fallback_o4"><text>"RN_124_2006"</text></outputEntry>
+      </rule>
+      <rule id="r_rn209_utilizacao_2026_01">
+        <description>RN 209/2009 — utilizacao de servicos, competencia 2026-01, periodicidade mensal — DRAFT/verify</description>
+        <inputEntry id="r_rn209_utilizacao_2026_01_i1"><text>"RN_209_UTILIZACAO"</text></inputEntry>
+        <inputEntry id="r_rn209_utilizacao_2026_01_i2"><text>"2026-01"</text></inputEntry>
+        <outputEntry id="r_rn209_utilizacao_2026_01_o1"><text>"2026-02-20"</text></outputEntry>
+        <outputEntry id="r_rn209_utilizacao_2026_01_o2"><text>"2026-02-15"</text></outputEntry>
+        <outputEntry id="r_rn209_utilizacao_2026_01_o3"><text>"mensal"</text></outputEntry>
+        <outputEntry id="r_rn209_utilizacao_2026_01_o4"><text>"RN_209_2009"</text></outputEntry>
+      </rule>
+      <rule id="r_rn209_utilizacao_fallback">
+        <description>RN 209/2009 — utilizacao, competencia nao enumerada: prazos CONSERVADORES do tipo — DRAFT/verify</description>
+        <inputEntry id="r_rn209_utilizacao_fallback_i1"><text>"RN_209_UTILIZACAO"</text></inputEntry>
+        <inputEntry id="r_rn209_utilizacao_fallback_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_rn209_utilizacao_fallback_o1"><text>"2026-02-15"</text></outputEntry>
+        <outputEntry id="r_rn209_utilizacao_fallback_o2"><text>"2026-02-10"</text></outputEntry>
+        <outputEntry id="r_rn209_utilizacao_fallback_o3"><text>"mensal"</text></outputEntry>
+        <outputEntry id="r_rn209_utilizacao_fallback_o4"><text>"RN_209_2009"</text></outputEntry>
+      </rule>
+      <rule id="r_rn388_qualidade_2026_01">
+        <description>RN 388/2015 — indicadores de qualidade/transparencia, competencia 2026-01, periodicidade anual — DRAFT/verify</description>
+        <inputEntry id="r_rn388_qualidade_2026_01_i1"><text>"RN_388_QUALIDADE"</text></inputEntry>
+        <inputEntry id="r_rn388_qualidade_2026_01_i2"><text>"2026-01"</text></inputEntry>
+        <outputEntry id="r_rn388_qualidade_2026_01_o1"><text>"2026-03-31"</text></outputEntry>
+        <outputEntry id="r_rn388_qualidade_2026_01_o2"><text>"2026-03-21"</text></outputEntry>
+        <outputEntry id="r_rn388_qualidade_2026_01_o3"><text>"anual"</text></outputEntry>
+        <outputEntry id="r_rn388_qualidade_2026_01_o4"><text>"RN_388_2015"</text></outputEntry>
+      </rule>
+      <rule id="r_rn388_qualidade_fallback">
+        <description>RN 388/2015 — qualidade, competencia nao enumerada: prazos CONSERVADORES do tipo — DRAFT/verify</description>
+        <inputEntry id="r_rn388_qualidade_fallback_i1"><text>"RN_388_QUALIDADE"</text></inputEntry>
+        <inputEntry id="r_rn388_qualidade_fallback_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_rn388_qualidade_fallback_o1"><text>"2026-03-15"</text></outputEntry>
+        <outputEntry id="r_rn388_qualidade_fallback_o2"><text>"2026-03-05"</text></outputEntry>
+        <outputEntry id="r_rn388_qualidade_fallback_o3"><text>"anual"</text></outputEntry>
+        <outputEntry id="r_rn388_qualidade_fallback_o4"><text>"RN_388_2015"</text></outputEntry>
+      </rule>
+      <rule id="r_rn424_tiss_2026_01">
+        <description>RN 424/2017 — padrao TISS / monitoramento, competencia 2026-01, periodicidade mensal — DRAFT/verify</description>
+        <inputEntry id="r_rn424_tiss_2026_01_i1"><text>"RN_424_TISS_MONITORAMENTO"</text></inputEntry>
+        <inputEntry id="r_rn424_tiss_2026_01_i2"><text>"2026-01"</text></inputEntry>
+        <outputEntry id="r_rn424_tiss_2026_01_o1"><text>"2026-02-28"</text></outputEntry>
+        <outputEntry id="r_rn424_tiss_2026_01_o2"><text>"2026-02-23"</text></outputEntry>
+        <outputEntry id="r_rn424_tiss_2026_01_o3"><text>"mensal"</text></outputEntry>
+        <outputEntry id="r_rn424_tiss_2026_01_o4"><text>"RN_424_2017"</text></outputEntry>
+      </rule>
+      <rule id="r_rn424_tiss_fallback">
+        <description>RN 424/2017 — TISS/monitoramento, competencia nao enumerada: prazos CONSERVADORES do tipo — DRAFT/verify</description>
+        <inputEntry id="r_rn424_tiss_fallback_i1"><text>"RN_424_TISS_MONITORAMENTO"</text></inputEntry>
+        <inputEntry id="r_rn424_tiss_fallback_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_rn424_tiss_fallback_o1"><text>"2026-02-20"</text></outputEntry>
+        <outputEntry id="r_rn424_tiss_fallback_o2"><text>"2026-02-15"</text></outputEntry>
+        <outputEntry id="r_rn424_tiss_fallback_o3"><text>"mensal"</text></outputEntry>
+        <outputEntry id="r_rn424_tiss_fallback_o4"><text>"RN_424_2017"</text></outputEntry>
+      </rule>
+      <rule id="r_diops_trimestral_2026_q1">
+        <description>DIOPS — informacoes economico-financeiras, competencia 2026-Q1, periodicidade trimestral — DRAFT/verify</description>
+        <inputEntry id="r_diops_trimestral_2026_q1_i1"><text>"DIOPS_TRIMESTRAL"</text></inputEntry>
+        <inputEntry id="r_diops_trimestral_2026_q1_i2"><text>"2026-Q1"</text></inputEntry>
+        <outputEntry id="r_diops_trimestral_2026_q1_o1"><text>"2026-05-15"</text></outputEntry>
+        <outputEntry id="r_diops_trimestral_2026_q1_o2"><text>"2026-05-05"</text></outputEntry>
+        <outputEntry id="r_diops_trimestral_2026_q1_o3"><text>"trimestral"</text></outputEntry>
+        <outputEntry id="r_diops_trimestral_2026_q1_o4"><text>"DIOPS"</text></outputEntry>
+      </rule>
+      <rule id="r_diops_trimestral_2026_q2">
+        <description>DIOPS — competencia 2026-Q2: o due_date DESLOCA com a competencia (prova per-competencia do GAP-ANS-2, formato YYYY-Qn) — DRAFT/verify</description>
+        <inputEntry id="r_diops_trimestral_2026_q2_i1"><text>"DIOPS_TRIMESTRAL"</text></inputEntry>
+        <inputEntry id="r_diops_trimestral_2026_q2_i2"><text>"2026-Q2"</text></inputEntry>
+        <outputEntry id="r_diops_trimestral_2026_q2_o1"><text>"2026-08-15"</text></outputEntry>
+        <outputEntry id="r_diops_trimestral_2026_q2_o2"><text>"2026-08-05"</text></outputEntry>
+        <outputEntry id="r_diops_trimestral_2026_q2_o3"><text>"trimestral"</text></outputEntry>
+        <outputEntry id="r_diops_trimestral_2026_q2_o4"><text>"DIOPS"</text></outputEntry>
+      </rule>
+      <rule id="r_diops_trimestral_fallback">
+        <description>DIOPS — competencia nao enumerada: prazos CONSERVADORES do tipo — DRAFT/verify</description>
+        <inputEntry id="r_diops_trimestral_fallback_i1"><text>"DIOPS_TRIMESTRAL"</text></inputEntry>
+        <inputEntry id="r_diops_trimestral_fallback_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_diops_trimestral_fallback_o1"><text>"2026-04-30"</text></outputEntry>
+        <outputEntry id="r_diops_trimestral_fallback_o2"><text>"2026-04-20"</text></outputEntry>
+        <outputEntry id="r_diops_trimestral_fallback_o3"><text>"trimestral"</text></outputEntry>
+        <outputEntry id="r_diops_trimestral_fallback_o4"><text>"DIOPS"</text></outputEntry>
+      </rule>
+      <rule id="r_catchall">
+        <description>Catch-all FAIL-SAFE: report_type desconhecido (qualquer competencia) -> prazos conservadores + fonte REVISAO_HUMANA (roteia a humano; nunca prazo infinito nem envio automatico de tipo desconhecido)</description>
+        <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>"2026-01-31"</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>"2026-01-26"</text></outputEntry>
+        <outputEntry id="r_catchall_o3"><text>"mensal"</text></outputEntry>
+        <outputEntry id="r_catchall_o4"><text>"REVISAO_HUMANA"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

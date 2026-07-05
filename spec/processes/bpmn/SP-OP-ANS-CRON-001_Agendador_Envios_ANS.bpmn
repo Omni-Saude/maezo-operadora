@@ -1,0 +1,314 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+                  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+                  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+                  xmlns:camunda="http://camunda.org/schema/1.0/bpmn"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  id="Definitions_SP_OP_ANS_CRON_001"
+                  targetNamespace="http://maezo.health/operadora/anscron"
+                  exporter="Maezo W1-ANS"
+                  exporterVersion="0.2.0-draft">
+
+  <!-- =====================================================================================
+       SP-OP-ANS-CRON-001 — Agendador per-report_type dos Envios Periodicos ANS (GAP-ANS-1).
+       Status: DRAFT — todas as periodicidades (timeCycle) sao DRAFT/verify regulatorio.
+
+       POR QUE um arquivo com CINCO process definitions: o CIB Seven 2.1.0 rejeita no deploy
+       (a) multiplos none/timer start events num MESMO process definition ("multiple none start
+       events or timer start events not supported") e (b) camunda:inputOutput em startEvent
+       ("camunda:inputOutput mapping unsupported for element type 'startEvent'") — verificado
+       empiricamente contra o engine real (ENGINE-09005). Logo "um TimerStartEvent por
+       report_type" so e engine-deployavel como UM process definition por report_type, cada um
+       com um UNICO TimerStartEvent proprio (periodicidade propria).
+
+       DISPATCH POR FATO (ADR-0003 — event-choreographed, ZERO call-activity no repo, ver
+       docs/audits/bpmn-process-completeness.md §4): cada tick publica um FATO TIPADO
+       `type=ans.cron_due` no topico `operadora.notifications.internal` via o worker generico
+       `operadora.events.publish` (inputParameter literal `event_type` -> payload.type; espelha
+       event_fase/event_desfecho). O `notifications_bridge` (consumidor unico do topico) mapeia
+       `ans.cron_due` -> start de SP-OP-ANS-SUBMIT-001 com BUSINESS KEY DETERMINISTICA
+       ANSSUB-{tenant}-{report_type}-{competencia} (idempotente: find_active_instance antes do
+       start — a reentrega/re-tick reconverge para a instancia ativa; nunca duplica ciclo).
+
+       PAYLOAD (identificadores nao-PHI, literais por tipo): report_type / periodicidade /
+       origem_envio=calendario / competencia=COMPETENCIA_PENDENTE (sentinela — o calendario nao
+       e computavel em JUEL puro; a competencia REAL e resolvida pelo humano em
+       UT_CorrigirPendenciaEnvio no processo de envio; um scheduler futuro pode publicar o fato
+       com a competencia real, e a business key vira a calendar-key verdadeira). O tenant NAO
+       viaja no fato: a ponte (deployment per-tenant) injeta o SEU tenant no plano de start.
+       Os fatos de admissibilidade (dataset_complete/schema_valid/lgpd_anonimizado=false,
+       fail-closed => PENDENTE => humano; NUNCA auto-transmite) sao seedados pela PONTE no start
+       (ans_cron_variables), nao viajam no fato — ENGINE-16004-safe em todo start path.
+
+       NAO negativa-like: agendador puro (operadora -> regulador); nenhum efeito adverso; todos
+       os terminais sao NEUTROS (fato de despacho publicado). O HITL pre-filing vive no processo
+       de envio (SP-OP-ANS-SUBMIT-001) e nao e contornavel por aqui (guard no worker submit).
+       ===================================================================================== -->
+
+  <bpmn:process id="SP-OP-ANS-CRON-001-RN124SIP" name="Cron ANS RN 124 SIP (mensal)"
+                isExecutable="true" camunda:historyTimeToLive="180">
+    <bpmn:documentation>Dispara mensalmente (R/P1M — DRAFT/verify) o fato ans.cron_due do envio periodico RN 124 SIP (report_type=RN_124_SIP, periodicidade=mensal) em operadora.notifications.internal; o notifications_bridge inicia SP-OP-ANS-SUBMIT-001 (bk deterministica).</bpmn:documentation>
+    <bpmn:startEvent id="Start_CronRn124Sip" name="Cron mensal RN 124 SIP (R/P1M — DRAFT/verify)">
+      <bpmn:outgoing>Flow_Rn124_Call</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TD_CronRn124Sip">
+        <bpmn:timeCycle xsi:type="bpmn:tFormalExpression">R/P1M</bpmn:timeCycle>
+      </bpmn:timerEventDefinition>
+    </bpmn:startEvent>
+    <bpmn:serviceTask id="ST_PublishCronDueRn124Sip" name="Publicar fato: ans.cron_due (RN_124_SIP)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">operadora.notifications.internal</camunda:inputParameter>
+          <camunda:inputParameter name="event_type">ans.cron_due</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">report_type,periodicidade,origem_envio,competencia</camunda:inputParameter>
+          <camunda:inputParameter name="report_type">RN_124_SIP</camunda:inputParameter>
+          <camunda:inputParameter name="periodicidade">mensal</camunda:inputParameter>
+          <camunda:inputParameter name="origem_envio">calendario</camunda:inputParameter>
+          <camunda:inputParameter name="competencia">COMPETENCIA_PENDENTE</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Rn124_Call</bpmn:incoming>
+      <bpmn:outgoing>Flow_Rn124_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_CronRn124Sip" name="Ciclo RN 124 SIP concluido">
+      <bpmn:incoming>Flow_Rn124_End</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_Rn124_Call" sourceRef="Start_CronRn124Sip" targetRef="ST_PublishCronDueRn124Sip"/>
+    <bpmn:sequenceFlow id="Flow_Rn124_End" sourceRef="ST_PublishCronDueRn124Sip" targetRef="End_CronRn124Sip"/>
+  </bpmn:process>
+
+  <bpmn:process id="SP-OP-ANS-CRON-001-RN209" name="Cron ANS RN 209 Utilizacao (mensal)"
+                isExecutable="true" camunda:historyTimeToLive="180">
+    <bpmn:documentation>Dispara mensalmente (R/P1M — DRAFT/verify) o fato ans.cron_due do envio periodico RN 209 (utilizacao de servicos) em operadora.notifications.internal; o notifications_bridge inicia SP-OP-ANS-SUBMIT-001.</bpmn:documentation>
+    <bpmn:startEvent id="Start_CronRn209" name="Cron mensal RN 209 Utilizacao (R/P1M — DRAFT/verify)">
+      <bpmn:outgoing>Flow_Rn209_Call</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TD_CronRn209">
+        <bpmn:timeCycle xsi:type="bpmn:tFormalExpression">R/P1M</bpmn:timeCycle>
+      </bpmn:timerEventDefinition>
+    </bpmn:startEvent>
+    <bpmn:serviceTask id="ST_PublishCronDueRn209" name="Publicar fato: ans.cron_due (RN_209_UTILIZACAO)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">operadora.notifications.internal</camunda:inputParameter>
+          <camunda:inputParameter name="event_type">ans.cron_due</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">report_type,periodicidade,origem_envio,competencia</camunda:inputParameter>
+          <camunda:inputParameter name="report_type">RN_209_UTILIZACAO</camunda:inputParameter>
+          <camunda:inputParameter name="periodicidade">mensal</camunda:inputParameter>
+          <camunda:inputParameter name="origem_envio">calendario</camunda:inputParameter>
+          <camunda:inputParameter name="competencia">COMPETENCIA_PENDENTE</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Rn209_Call</bpmn:incoming>
+      <bpmn:outgoing>Flow_Rn209_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_CronRn209" name="Ciclo RN 209 concluido">
+      <bpmn:incoming>Flow_Rn209_End</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_Rn209_Call" sourceRef="Start_CronRn209" targetRef="ST_PublishCronDueRn209"/>
+    <bpmn:sequenceFlow id="Flow_Rn209_End" sourceRef="ST_PublishCronDueRn209" targetRef="End_CronRn209"/>
+  </bpmn:process>
+
+  <bpmn:process id="SP-OP-ANS-CRON-001-RN388" name="Cron ANS RN 388 Qualidade (anual)"
+                isExecutable="true" camunda:historyTimeToLive="180">
+    <bpmn:documentation>Dispara anualmente (R/P1Y — DRAFT/verify) o fato ans.cron_due do envio periodico RN 388 (indicadores de qualidade/transparencia) em operadora.notifications.internal; o notifications_bridge inicia SP-OP-ANS-SUBMIT-001.</bpmn:documentation>
+    <bpmn:startEvent id="Start_CronRn388" name="Cron anual RN 388 Qualidade (R/P1Y — DRAFT/verify)">
+      <bpmn:outgoing>Flow_Rn388_Call</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TD_CronRn388">
+        <bpmn:timeCycle xsi:type="bpmn:tFormalExpression">R/P1Y</bpmn:timeCycle>
+      </bpmn:timerEventDefinition>
+    </bpmn:startEvent>
+    <bpmn:serviceTask id="ST_PublishCronDueRn388" name="Publicar fato: ans.cron_due (RN_388_QUALIDADE)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">operadora.notifications.internal</camunda:inputParameter>
+          <camunda:inputParameter name="event_type">ans.cron_due</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">report_type,periodicidade,origem_envio,competencia</camunda:inputParameter>
+          <camunda:inputParameter name="report_type">RN_388_QUALIDADE</camunda:inputParameter>
+          <camunda:inputParameter name="periodicidade">anual</camunda:inputParameter>
+          <camunda:inputParameter name="origem_envio">calendario</camunda:inputParameter>
+          <camunda:inputParameter name="competencia">COMPETENCIA_PENDENTE</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Rn388_Call</bpmn:incoming>
+      <bpmn:outgoing>Flow_Rn388_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_CronRn388" name="Ciclo RN 388 concluido">
+      <bpmn:incoming>Flow_Rn388_End</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_Rn388_Call" sourceRef="Start_CronRn388" targetRef="ST_PublishCronDueRn388"/>
+    <bpmn:sequenceFlow id="Flow_Rn388_End" sourceRef="ST_PublishCronDueRn388" targetRef="End_CronRn388"/>
+  </bpmn:process>
+
+  <bpmn:process id="SP-OP-ANS-CRON-001-RN424TISS" name="Cron ANS RN 424 TISS Monitoramento (mensal)"
+                isExecutable="true" camunda:historyTimeToLive="180">
+    <bpmn:documentation>Dispara mensalmente (R/P1M — DRAFT/verify) o fato ans.cron_due do envio periodico RN 424 (padrao TISS / monitoramento) em operadora.notifications.internal; o notifications_bridge inicia SP-OP-ANS-SUBMIT-001.</bpmn:documentation>
+    <bpmn:startEvent id="Start_CronRn424Tiss" name="Cron mensal RN 424 TISS (R/P1M — DRAFT/verify)">
+      <bpmn:outgoing>Flow_Rn424_Call</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TD_CronRn424Tiss">
+        <bpmn:timeCycle xsi:type="bpmn:tFormalExpression">R/P1M</bpmn:timeCycle>
+      </bpmn:timerEventDefinition>
+    </bpmn:startEvent>
+    <bpmn:serviceTask id="ST_PublishCronDueRn424Tiss" name="Publicar fato: ans.cron_due (RN_424_TISS_MONITORAMENTO)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">operadora.notifications.internal</camunda:inputParameter>
+          <camunda:inputParameter name="event_type">ans.cron_due</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">report_type,periodicidade,origem_envio,competencia</camunda:inputParameter>
+          <camunda:inputParameter name="report_type">RN_424_TISS_MONITORAMENTO</camunda:inputParameter>
+          <camunda:inputParameter name="periodicidade">mensal</camunda:inputParameter>
+          <camunda:inputParameter name="origem_envio">calendario</camunda:inputParameter>
+          <camunda:inputParameter name="competencia">COMPETENCIA_PENDENTE</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Rn424_Call</bpmn:incoming>
+      <bpmn:outgoing>Flow_Rn424_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_CronRn424Tiss" name="Ciclo RN 424 concluido">
+      <bpmn:incoming>Flow_Rn424_End</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_Rn424_Call" sourceRef="Start_CronRn424Tiss" targetRef="ST_PublishCronDueRn424Tiss"/>
+    <bpmn:sequenceFlow id="Flow_Rn424_End" sourceRef="ST_PublishCronDueRn424Tiss" targetRef="End_CronRn424Tiss"/>
+  </bpmn:process>
+
+  <bpmn:process id="SP-OP-ANS-CRON-001-DIOPS" name="Cron ANS DIOPS (trimestral)"
+                isExecutable="true" camunda:historyTimeToLive="180">
+    <bpmn:documentation>Dispara trimestralmente (R/P3M — DRAFT/verify) o fato ans.cron_due do envio periodico DIOPS (informacoes economico-financeiras) em operadora.notifications.internal; o notifications_bridge inicia SP-OP-ANS-SUBMIT-001.</bpmn:documentation>
+    <bpmn:startEvent id="Start_CronDiops" name="Cron trimestral DIOPS (R/P3M — DRAFT/verify)">
+      <bpmn:outgoing>Flow_Diops_Call</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TD_CronDiops">
+        <bpmn:timeCycle xsi:type="bpmn:tFormalExpression">R/P3M</bpmn:timeCycle>
+      </bpmn:timerEventDefinition>
+    </bpmn:startEvent>
+    <bpmn:serviceTask id="ST_PublishCronDueDiops" name="Publicar fato: ans.cron_due (DIOPS_TRIMESTRAL)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">operadora.notifications.internal</camunda:inputParameter>
+          <camunda:inputParameter name="event_type">ans.cron_due</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">report_type,periodicidade,origem_envio,competencia</camunda:inputParameter>
+          <camunda:inputParameter name="report_type">DIOPS_TRIMESTRAL</camunda:inputParameter>
+          <camunda:inputParameter name="periodicidade">trimestral</camunda:inputParameter>
+          <camunda:inputParameter name="origem_envio">calendario</camunda:inputParameter>
+          <camunda:inputParameter name="competencia">COMPETENCIA_PENDENTE</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Diops_Call</bpmn:incoming>
+      <bpmn:outgoing>Flow_Diops_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_CronDiops" name="Ciclo DIOPS concluido">
+      <bpmn:incoming>Flow_Diops_End</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_Diops_Call" sourceRef="Start_CronDiops" targetRef="ST_PublishCronDueDiops"/>
+    <bpmn:sequenceFlow id="Flow_Diops_End" sourceRef="ST_PublishCronDueDiops" targetRef="End_CronDiops"/>
+  </bpmn:process>
+
+  <bpmndi:BPMNDiagram id="Diagram_SP-OP-ANS-CRON-001-RN124SIP">
+    <bpmndi:BPMNPlane id="Plane_SP-OP-ANS-CRON-001-RN124SIP" bpmnElement="SP-OP-ANS-CRON-001-RN124SIP">
+      <bpmndi:BPMNShape id="Shape_Start_CronRn124Sip" bpmnElement="Start_CronRn124Sip">
+        <dc:Bounds x="40" y="62" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishCronDueRn124Sip" bpmnElement="ST_PublishCronDueRn124Sip">
+        <dc:Bounds x="156" y="40" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_CronRn124Sip" bpmnElement="End_CronRn124Sip">
+        <dc:Bounds x="336" y="62" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_Flow_Rn124_Call" bpmnElement="Flow_Rn124_Call">
+        <di:waypoint x="76" y="80"/>
+        <di:waypoint x="156" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Rn124_End" bpmnElement="Flow_Rn124_End">
+        <di:waypoint x="256" y="80"/>
+        <di:waypoint x="336" y="80"/>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+  <bpmndi:BPMNDiagram id="Diagram_SP-OP-ANS-CRON-001-RN209">
+    <bpmndi:BPMNPlane id="Plane_SP-OP-ANS-CRON-001-RN209" bpmnElement="SP-OP-ANS-CRON-001-RN209">
+      <bpmndi:BPMNShape id="Shape_Start_CronRn209" bpmnElement="Start_CronRn209">
+        <dc:Bounds x="40" y="62" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishCronDueRn209" bpmnElement="ST_PublishCronDueRn209">
+        <dc:Bounds x="156" y="40" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_CronRn209" bpmnElement="End_CronRn209">
+        <dc:Bounds x="336" y="62" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_Flow_Rn209_Call" bpmnElement="Flow_Rn209_Call">
+        <di:waypoint x="76" y="80"/>
+        <di:waypoint x="156" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Rn209_End" bpmnElement="Flow_Rn209_End">
+        <di:waypoint x="256" y="80"/>
+        <di:waypoint x="336" y="80"/>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+  <bpmndi:BPMNDiagram id="Diagram_SP-OP-ANS-CRON-001-RN388">
+    <bpmndi:BPMNPlane id="Plane_SP-OP-ANS-CRON-001-RN388" bpmnElement="SP-OP-ANS-CRON-001-RN388">
+      <bpmndi:BPMNShape id="Shape_Start_CronRn388" bpmnElement="Start_CronRn388">
+        <dc:Bounds x="40" y="62" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishCronDueRn388" bpmnElement="ST_PublishCronDueRn388">
+        <dc:Bounds x="156" y="40" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_CronRn388" bpmnElement="End_CronRn388">
+        <dc:Bounds x="336" y="62" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_Flow_Rn388_Call" bpmnElement="Flow_Rn388_Call">
+        <di:waypoint x="76" y="80"/>
+        <di:waypoint x="156" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Rn388_End" bpmnElement="Flow_Rn388_End">
+        <di:waypoint x="256" y="80"/>
+        <di:waypoint x="336" y="80"/>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+  <bpmndi:BPMNDiagram id="Diagram_SP-OP-ANS-CRON-001-RN424TISS">
+    <bpmndi:BPMNPlane id="Plane_SP-OP-ANS-CRON-001-RN424TISS" bpmnElement="SP-OP-ANS-CRON-001-RN424TISS">
+      <bpmndi:BPMNShape id="Shape_Start_CronRn424Tiss" bpmnElement="Start_CronRn424Tiss">
+        <dc:Bounds x="40" y="62" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishCronDueRn424Tiss" bpmnElement="ST_PublishCronDueRn424Tiss">
+        <dc:Bounds x="156" y="40" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_CronRn424Tiss" bpmnElement="End_CronRn424Tiss">
+        <dc:Bounds x="336" y="62" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_Flow_Rn424_Call" bpmnElement="Flow_Rn424_Call">
+        <di:waypoint x="76" y="80"/>
+        <di:waypoint x="156" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Rn424_End" bpmnElement="Flow_Rn424_End">
+        <di:waypoint x="256" y="80"/>
+        <di:waypoint x="336" y="80"/>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+  <bpmndi:BPMNDiagram id="Diagram_SP-OP-ANS-CRON-001-DIOPS">
+    <bpmndi:BPMNPlane id="Plane_SP-OP-ANS-CRON-001-DIOPS" bpmnElement="SP-OP-ANS-CRON-001-DIOPS">
+      <bpmndi:BPMNShape id="Shape_Start_CronDiops" bpmnElement="Start_CronDiops">
+        <dc:Bounds x="40" y="62" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishCronDueDiops" bpmnElement="ST_PublishCronDueDiops">
+        <dc:Bounds x="156" y="40" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_CronDiops" bpmnElement="End_CronDiops">
+        <dc:Bounds x="336" y="62" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_Flow_Diops_Call" bpmnElement="Flow_Diops_Call">
+        <di:waypoint x="76" y="80"/>
+        <di:waypoint x="156" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Diops_End" bpmnElement="Flow_Diops_End">
+        <di:waypoint x="256" y="80"/>
+        <di:waypoint x="336" y="80"/>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

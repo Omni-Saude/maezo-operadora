@@ -1,0 +1,132 @@
+# values-amh.yaml — AMH tenant override.
+# Apply with: helm upgrade --install maezo-amh ./deploy/helm/maezo-tenant \
+#               -f deploy/helm/maezo-tenant/values-amh.yaml
+
+tenant:
+  id: "amh"
+  name: "AMH — Associação Médica Hospitalar"
+
+namespace:
+  name: "maezo-amh"
+  labels:
+    maezo.io/tenant: "amh"
+    maezo.io/environment: "prod"
+
+image:
+  repository: "123456789012.dkr.ecr.sa-east-1.amazonaws.com/maezo-agent"
+  tag: "v0.1.0"
+  pullPolicy: IfNotPresent
+
+serviceAccount:
+  annotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::123456789012:role/maezo-agent-irsa-amh"
+
+# Per-agent runtimes for AMH (ADR-0004 / ADR-0006). helena=general, rafael+marina=phi.
+# gustavo/lucas stay disabled until their agent.yaml lands (Wave B). provision_tenant.py
+# injects each agent's `definitionHash` + `effectiveDefinition` into a generated
+# values-amh-provisioned.yaml at provisioning time.
+agents:
+  - name: helena
+    enabled: true
+    securityZone: general
+    replicaCount: 3
+    irsaRoleArn: "arn:aws:iam::123456789012:role/maezo-agent-helena-irsa-amh"
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "2000m"
+        memory: "2Gi"
+    env:
+      ENVIRONMENT: "prod"
+  - name: rafael
+    enabled: true
+    securityZone: phi
+    replicaCount: 3
+    irsaRoleArn: "arn:aws:iam::123456789012:role/maezo-agent-rafael-irsa-amh"
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "2000m"
+        memory: "2Gi"
+    env:
+      ENVIRONMENT: "prod"
+  - name: marina
+    enabled: true
+    securityZone: phi
+    replicaCount: 2
+    irsaRoleArn: "arn:aws:iam::123456789012:role/maezo-agent-marina-irsa-amh"
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "2000m"
+        memory: "2Gi"
+    env:
+      ENVIRONMENT: "prod"
+  - name: gustavo
+    enabled: false
+    securityZone: general
+    replicaCount: 2
+    irsaRoleArn: "arn:aws:iam::123456789012:role/maezo-agent-gustavo-irsa-amh"
+    env:
+      ENVIRONMENT: "prod"
+  - name: lucas
+    enabled: false
+    securityZone: general
+    replicaCount: 2
+    irsaRoleArn: "arn:aws:iam::123456789012:role/maezo-agent-lucas-irsa-amh"
+    env:
+      ENVIRONMENT: "prod"
+
+# gateway: DISABLED platform-wide (gateway.enabled=false in values.yaml) — orphaned
+# Deployment with no runnable module (library-only per ADR-0006; predeploy DB-1,
+# finding gateway-deployment-crashloop-no-main). No replicaCount override here: a
+# prod count of 3 for a Deployment that never renders is a lie about the overlay.
+# Restore this block when a real gateway entrypoint exists and the flag is re-enabled.
+
+webhookReceiver:
+  replicaCount: 2
+
+externalSecrets:
+  secretPathPrefix: "maezo/prod-amh"
+  irsaRoleArn: "arn:aws:iam::123456789012:role/maezo-eso-irsa-amh"
+
+networkPolicy:
+  generalZone:
+    llmEndpoints:
+      # FIX 1: concrete CIDR pinned (NetworkPolicy ipBlock is IP-based, not FQDN-based).
+      # This is the resolved/VPC-egress CIDR for the cloud-LLM path; for genuine FQDN
+      # allowlisting front this with an egress proxy / Cilium FQDN policy (README.md).
+      - host: "api.anthropic.com"
+        port: 443
+        cidr: "160.79.104.0/23"   # Anthropic API published egress range (pin per env).
+    mskEndpoint:
+      host: "b-1.maezo-msk.sa-east-1.amazonaws.com"
+      port: 9098
+      cidr: "10.30.0.0/16"        # MSK Serverless ENI subnet CIDR (sa-east-1 VPC).
+
+  phiZone:
+    brResidentEndpoints:
+      # FIX 1: concrete BR-resident CIDR is MANDATORY — without it rendering aborts.
+      - host: "llm-phi.internal.amh.com.br"
+        port: 443
+        cidr: "10.40.10.0/24"     # BR-resident PHI LLM endpoint NLB CIDR.
+
+observability:
+  otel:
+    endpoint: "http://otel-collector.observability.svc.cluster.local:4317"
+
+aurora:
+  secretName: "aurora-master-credentials-amh"
+  # database_url is COMPOSED at ESO sync from the AWS-managed RDS master secret (predeploy DB-4).
+  # PLACEHOLDERS — replace each with the matching env-root `terraform output`
+  # (deploy/terraform/envs/prod-amh-sa-east-1) BEFORE helm upgrade. See docs/Tarefas_Pendentes.md §1.1.
+  masterSecretArn: "arn:aws:secretsmanager:sa-east-1:123456789012:secret:rds!cluster-REPLACE-WITH-terraform-output-aurora_master_user_secret_arn"
+  endpoint: "REPLACE-WITH-terraform-output-aurora_writer_endpoint.cluster-xxxx.sa-east-1.rds.amazonaws.com"
+  port: 5432        # terraform output aurora_port
+  database: "maezo" # terraform output aurora_database_name

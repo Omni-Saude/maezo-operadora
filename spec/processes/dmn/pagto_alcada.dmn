@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_pagto_alcada"
+             name="Escada de alcada de pagamento (classificacao value-driven)"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    pagto_alcada v0.1.0 — status: DRAFT (escada de alcada / threshold_brl / mapeamento
+    faixa->grupo->tier requerem sign-off de financas — segregacao de funcoes / SOX-like;
+    docs/review-queue.md). Consumida por SP-OP-PAGTO-001 e mcp-dmn. Coracao value-driven do
+    processo: e a UNICA DMN da plataforma cuja saida (`grupo_aprovador`) alimenta
+    `camunda:candidateGroups` de uma User Task (binding dinamico, conjunto fechado de grupos).
+
+    INVARIANTE L1 (no-adverse, high_value_payment, ADR-0008/0018): esta tabela APENAS classifica
+    o valor numa faixa e roteia para o grupo aprovador de tier correspondente. NAO possui saida
+    que libere/autorize/pague — `faixa_valor` NUNCA produz LIBERAR/AUTORIZAR/PAGAR. A liberacao
+    de pagamento de alto valor (efeito adverso de risco financeiro) so nasce numa User Task humana
+    de aprovacao e e materializada apenas pelo worker gated
+    operadora.pagto.release_high_value_payment (ERR_PAYMENT_RELEASE_NOT_HUMAN + tier-match).
+
+    Catch-all FAIL-SAFE / CONSERVADOR (ADR-0018 parte 3 — risco #5 do phase3-plan): valor acima do
+    maior tier configurado, faixa ambigua, dentro_teto_l2 inconsistente ou DMN indisponivel NUNCA
+    auto-liberam — sobem para o tier mais alto (`grupo_aprovador = comite-financeiro`,
+    `faixa_valor = ANALISE_HUMANA`). Conjunto fechado de grupos: faixa nao mapeada -> comite.
+
+    Dinheiro NUNCA como `number` (ADR-0018 parte 2): `valor_pagamento_cents` e `long` (int64, centavos
+    de BRL — centavos podem exceder o int32 do Java em pagamentos de alto valor: R$ 21.474.836,47 =
+    2.147.483.647 centavos e o teto do Integer; um pagamento de R$ 50MM = 5.000.000.000 centavos
+    estoura o int32 e DEVE ser long). typeRef in {string,boolean,integer,long,double,date}.
+    dentro_teto_l2 e pre-resolvido
+    por worker deterministico (operadora.pagto.calculate_facts: valor &lt;= teto L2 do tenant em
+    tenants-amh.yaml) — nunca por LLM, nunca decisao de liberacao.
+
+    Escada de alcada (DRAFT/verify — valores ilustrativos, nao reais; sign-off financas obrigatorio).
+    hitPolicy=FIRST: a primeira faixa que casa vence; ordem do menor para o maior valor; catch-all
+    conservador como ultima row. Espelha auth_auto_approval (ramo dentro-do-teto) com roteamento
+    por tier em vez de roteamento unico.
+
+    Saida `tier_minimo` (integer, GAP-PAGTO-3): a escada faixa->tier-minimo-de-aprovador vive AQUI na DMN
+    (ADR-0012 — a regra de negocio vive na DMN; antes era um dict Python `_FAIXA_TIER_MINIMO` no worker).
+    Mapeamento: DENTRO_TETO_L2->0 (clerical, sem tier adverso), ALCADA_L1->1, ALCADA_L2->2, ALCADA_L3->3,
+    catch-all (ANALISE_HUMANA)->4 (comite). A BRT_AlcadaRouting achata `tier_minimo` no escopo do processo
+    e o worker gated operadora.pagto.release_high_value_payment o LE no GUARD (3) TIER-MATCH (recusa liberar
+    se aprovador_tier &lt; tier_minimo); ausente no escopo -> fail-closed no tier mais alto (4).
+  </description>
+  <decision id="pagto_alcada" name="Escada de alcada de pagamento" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_pagto_alcada" hitPolicy="FIRST">
+      <input id="in_valor_cents" label="Valor do pagamento em centavos de BRL (valor_pagamento_cents)">
+        <inputExpression id="ie_valor_cents" typeRef="long"><text>valor_pagamento_cents</text></inputExpression>
+      </input>
+      <input id="in_dentro_teto" label="Dentro do teto L2 de auto-liberacao do tenant (dentro_teto_l2)">
+        <inputExpression id="ie_dentro_teto" typeRef="boolean"><text>dentro_teto_l2</text></inputExpression>
+      </input>
+      <input id="in_tipo_pagamento" label="Tipo do pagamento (tipo_pagamento)">
+        <inputExpression id="ie_tipo_pagamento" typeRef="string"><text>tipo_pagamento</text></inputExpression>
+      </input>
+      <output id="out_faixa_valor" label="faixa_valor" name="faixa_valor" typeRef="string"/>
+      <output id="out_grupo_aprovador" label="grupo_aprovador" name="grupo_aprovador" typeRef="string"/>
+      <output id="out_tier_minimo" label="tier_minimo" name="tier_minimo" typeRef="integer"/>
+      <output id="out_motivo" label="motivo" name="motivo" typeRef="string"/>
+      <rule id="r_dentro_teto_l2">
+        <description>Pagamento abaixo do teto L2 (R$ 100.000 DRAFT) e dentro_teto_l2 confirmado -> caminho clerical L2 (sem grupo aprovador adverso). Exemplo sintetico: pagamento de R$ 850,00 a Prestador Teste 001.</description>
+        <inputEntry id="r_dentro_teto_l2_i1"><text>&lt;= 10000000</text></inputEntry>
+        <inputEntry id="r_dentro_teto_l2_i2"><text>true</text></inputEntry>
+        <inputEntry id="r_dentro_teto_l2_i3"><text>-</text></inputEntry>
+        <outputEntry id="r_dentro_teto_l2_o1"><text>"DENTRO_TETO_L2"</text></outputEntry>
+        <outputEntry id="r_dentro_teto_l2_o2"><text>"clerical-pagamentos"</text></outputEntry>
+        <outputEntry id="r_dentro_teto_l2_o_tier"><text>0</text></outputEntry>
+        <outputEntry id="r_dentro_teto_l2_o3"><text>"Abaixo do teto L2 de auto-liberacao do tenant — caminho clerical (L2; DRAFT/verify financas)"</text></outputEntry>
+      </rule>
+      <rule id="r_alcada_l1">
+        <description>R$ 100k–500k (DRAFT) -> faixa ALCADA_L1, grupo aprovacao-financeira-l1 (tier 1)</description>
+        <inputEntry id="r_alcada_l1_i1"><text>(10000000..50000000]</text></inputEntry>
+        <inputEntry id="r_alcada_l1_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_alcada_l1_i3"><text>-</text></inputEntry>
+        <outputEntry id="r_alcada_l1_o1"><text>"ALCADA_L1"</text></outputEntry>
+        <outputEntry id="r_alcada_l1_o2"><text>"aprovacao-financeira-l1"</text></outputEntry>
+        <outputEntry id="r_alcada_l1_o_tier"><text>1</text></outputEntry>
+        <outputEntry id="r_alcada_l1_o3"><text>"Faixa de alcada L1 (acima do teto L2; aprovador humano tier 1) — DRAFT/verify financas"</text></outputEntry>
+      </rule>
+      <rule id="r_alcada_l2">
+        <description>R$ 500k–2MM (DRAFT) -> faixa ALCADA_L2, grupo aprovacao-financeira-l2 (tier 2)</description>
+        <inputEntry id="r_alcada_l2_i1"><text>(50000000..200000000]</text></inputEntry>
+        <inputEntry id="r_alcada_l2_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_alcada_l2_i3"><text>-</text></inputEntry>
+        <outputEntry id="r_alcada_l2_o1"><text>"ALCADA_L2"</text></outputEntry>
+        <outputEntry id="r_alcada_l2_o2"><text>"aprovacao-financeira-l2"</text></outputEntry>
+        <outputEntry id="r_alcada_l2_o_tier"><text>2</text></outputEntry>
+        <outputEntry id="r_alcada_l2_o3"><text>"Faixa de alcada L2 (aprovador humano tier 2) — DRAFT/verify financas"</text></outputEntry>
+      </rule>
+      <rule id="r_alcada_l3">
+        <description>R$ 2MM–10MM (DRAFT) -> faixa ALCADA_L3, grupo aprovacao-financeira-l3 (tier 3)</description>
+        <inputEntry id="r_alcada_l3_i1"><text>(200000000..1000000000]</text></inputEntry>
+        <inputEntry id="r_alcada_l3_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_alcada_l3_i3"><text>-</text></inputEntry>
+        <outputEntry id="r_alcada_l3_o1"><text>"ALCADA_L3"</text></outputEntry>
+        <outputEntry id="r_alcada_l3_o2"><text>"aprovacao-financeira-l3"</text></outputEntry>
+        <outputEntry id="r_alcada_l3_o_tier"><text>3</text></outputEntry>
+        <outputEntry id="r_alcada_l3_o3"><text>"Faixa de alcada L3 (aprovador humano tier 3) — DRAFT/verify financas"</text></outputEntry>
+      </rule>
+      <rule id="r_catchall">
+        <description>Catch-all CONSERVADOR (FAIL-SAFE): acima do maior tier, faixa ambigua, dentro_teto_l2 inconsistente ou inputs nao mapeados -> tier mais alto (comite-financeiro / ANALISE_HUMANA). NUNCA auto-libera. Cobre o caso "valor abaixo do teto MAS dentro_teto_l2=false/null" (conservador: sobe ao comite, nao auto-libera).</description>
+        <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i3"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>"comite-financeiro"</text></outputEntry>
+        <outputEntry id="r_catchall_o_tier"><text>4</text></outputEntry>
+        <outputEntry id="r_catchall_o3"><text>"Acima do maior tier / faixa ambigua / teto inconsistente — comite financeiro (tier mais alto, conservador; NUNCA auto-libera) — DRAFT/verify financas"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

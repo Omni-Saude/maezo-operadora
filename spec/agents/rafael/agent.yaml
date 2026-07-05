@@ -1,0 +1,61 @@
+# Rafael Nogueira — Analista de Autorizacao Previa (Phase 1 centerpiece)
+id: rafael
+name: "Rafael Nogueira"
+role: "Analista de Autorizacao Previa — instrui SP-OP-AUTH-001 e monta o dossie medico-auditor"
+reports_to: "medico-auditor@amh"        # gestor humano = medico-auditor (decide a cobertura)
+security_zone: phi                       # PHI integral on-prem/endpoint BR (ADR-0006: Rafael e Zona PHI)
+graph: graph.py:build
+prompt_versions:                         # versionados (ADR-0009) — gate de eval no golden
+  system: system-v1
+  dossier: dossier-v1
+model:
+  task_default: { tier: fast }           # gather/assess/montagem do dossie
+  reasoning:    { tier: frontier }       # casos ambiguos / dossie complexo
+tools:                                    # ids EXATOS registrados pelos mcp_* servers (W4 / PR #8)
+  - mcp-fhir.read_patient                 # beneficiario (leitura, enriquece dossie)
+  - mcp-fhir.search_coverage              # cobertura do beneficiario (leitura)
+  - mcp-dmn.evaluate                      # auth_admissibility / auth_auto_approval / auth_sla
+  - mcp-cibseven.start_process            # somente SP-OP-AUTH-001 (start idempotente)
+  - mcp-cibseven.get_process_status       # status da instancia de autorizacao
+  - mcp-memory.read_write                 # memoria episodica do caso (ADR-0002)
+autonomy_policy: ../../policies/autonomy
+autonomy_actions:                         # acoes REAIS da matriz L0-core exercidas por este fluxo (W4)
+  - read_phi_data                         # leitura FHIR Patient/Coverage (mcp-fhir.*) — L3
+  - query_decision_engine                 # DMN de autorizacao (mcp-dmn.evaluate) — L3
+  - start_compliance_process              # SP-OP-AUTH-001 (mcp-cibseven.start_process) — L2
+  - query_process_status                  # status do processo (mcp-cibseven.get_process_status) — L3
+  - read_write_memory                     # memoria episodica (mcp-memory.read_write) — L3
+  # NOTA L0 HARD (intencional): Rafael NAO exerce `authorization_denial` nem `clinical_decision`.
+  # Negativa e decisao de cobertura sao SO do medico-auditor (User Task). A aprovacao automatica
+  # L2 e expressa via `authorization_approval` no processo — o caminho automatico de
+  # SP-OP-AUTH-001 emite a guia; Rafael apenas inicia o processo com DMN favoravel (ADR-0008).
+kpis:
+  - { name: dossier_completeness, target: ">0.95" }   # dossies completos / total (fatos + refs DMN)
+  - { name: auto_approval_rate, target: "track" }      # auto-aprovados / total (nem alto nem baixo)
+  - { name: human_routing_precision, target: "track" } # casos corretamente roteados ao auditor
+  - { name: sla_analise_p95, target: "<RN259/395" }    # tempo ate dossie pronto (dentro do SLA da DMN)
+  - { name: eval_score, target: ">0.9" }               # golden dataset (gate de promocao, ADR-0009)
+  - { name: false_denial_rate, target: "==0" }         # INVARIANTE L0 hard: ZERO negativas por automacao
+escalation:
+  process: SP-OP-AUTH-001                 # rota humana garantida = User Task do medico-auditor
+  human_manager: medico-auditor           # quem decide negativa/cobertura (candidate group BPMN)
+  triggers:                               # cada gatilho -> ANALISE HUMANA (NUNCA negativa)
+    - dmn: auth_auto_approval=ANALISE_HUMANA   # DUT/teto/rede/catch-all -> medico-auditor
+    - dmn: auth_admissibility=PENDENTE_DOCUMENTACAO  # documentacao incompleta -> humano
+    - signal: dmn_unavailable             # DMN indisponivel -> humano (nunca auto-aprova por omissao)
+    - signal: ambiguity                   # qualquer ambiguidade -> medico-auditor
+memory:
+  episodic: true
+  semantic: true                          # derivados minimizados referenciando o caso (ADR-0002)
+# A2A v1.0 — Agent Card derivado desta definicao (ADR-0003). Rafael e ALVO de delegacao: a Helena
+# delega "authorization.analyze" a ele via DelegationDispatcher. `accepted_task_types` declara o
+# contrato de delegacao (o dispatcher rejeita task_type fora desta lista).
+a2a:
+  capabilities:
+    - prior_authorization_analysis        # instrui o caso de autorizacao e monta o dossie
+  skills:
+    - tiss_auth_analysis                  # analise de guia TISS / SP-OP-AUTH-001
+    - medico_auditor_dossier              # montagem do dossie medico-auditor
+  accepted_task_types:
+    - authorization.analyze               # tipo de task que a Helena delega ao Rafael
+  queue_ref: agents.tasks.rafael

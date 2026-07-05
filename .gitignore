@@ -1,0 +1,31 @@
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!.tfvars.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+.venv/
+uv.lock
+
+# Docker
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+
+# Runtime artifacts
+SESSION.log
+RUNBOOK.md
+CHECKPOINT.md

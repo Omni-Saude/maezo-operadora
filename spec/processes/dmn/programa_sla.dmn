@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_programa_sla"
+             name="SLA da decisao clinica de programa de cuidado"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    programa_sla v0.1.0 — status: DRAFT — TODOS os prazos marcados DRAFT/verify: confirmar com
+    regulatorio/medico (politica clinica interna; confirmar se ha RN ANS especifica de programas de
+    promocao a saude / APS — citacao hoje so LGPD). Consumida por SP-OP-PROGRAMA-001 e mcp-dmn.
+    SLA da decisao clinica (quando ha User Task UT_DecisaoClinica). Saidas de prazo sao string
+    ISO 8601 (sla_decisao, sla_alerta); fonte e a politica/RN citada (registrada para auditoria).
+    Prazo regulatorio/politico vive AQUI (DMN) e no timer BPMN — nunca em Python (CONTRIBUTING).
+    INVARIANTE NO-ADVERSE: esta tabela NAO tem saida adversa; no estouro de SLA a coordenacao clinica
+    assume (NUNCA auto-desliga por timeout). O desligamento clinico nunca nasce de timer.
+    NOTA hitPolicy: UNIQUE (linhas mutuamente exclusivas por programa_id; a ultima e o catch-all
+    conservador via FEEL `not(...)`, garantindo que NUNCA ha dois matches — engine-deployavel). Como
+    todos os prazos sao DRAFT/identicos por paridade nesta fase, a discriminacao por programa_id e um
+    PLACEHOLDER (taxonomia de programas DRAFT/verify medico) e a saida e sempre o prazo conservador.
+  </description>
+  <decision id="programa_sla" name="SLA da decisao clinica de programa" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_programa_sla" hitPolicy="UNIQUE">
+      <input id="in_programa" label="Id do programa (programa_id)">
+        <inputExpression id="ie_programa" typeRef="string"><text>programa_id</text></inputExpression>
+      </input>
+      <output id="out_sla_decisao" label="sla_decisao" name="sla_decisao" typeRef="string"/>
+      <output id="out_sla_alerta" label="sla_alerta" name="sla_alerta" typeRef="string"/>
+      <output id="out_fonte" label="fonte" name="fonte" typeRef="string"/>
+      <rule id="r_pre_natal">
+        <description>Programa pre-natal (placeholder de taxonomia DRAFT): prazo da decisao clinica</description>
+        <inputEntry id="r_pre_natal_i1"><text>"pre_natal"</text></inputEntry>
+        <outputEntry id="r_pre_natal_o1"><text>"P7D"</text></outputEntry>
+        <outputEntry id="r_pre_natal_o2"><text>"P5D"</text></outputEntry>
+        <outputEntry id="r_pre_natal_o3"><text>"Politica clinica interna — programa pre-natal ~7 dias: DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r_cronicos">
+        <description>Programa de cronicos (placeholder de taxonomia DRAFT): prazo da decisao clinica</description>
+        <inputEntry id="r_cronicos_i1"><text>"cronicos"</text></inputEntry>
+        <outputEntry id="r_cronicos_o1"><text>"P7D"</text></outputEntry>
+        <outputEntry id="r_cronicos_o2"><text>"P5D"</text></outputEntry>
+        <outputEntry id="r_cronicos_o3"><text>"Politica clinica interna — programa de cronicos ~7 dias: DRAFT/verify"</text></outputEntry>
+      </rule>
+      <rule id="r_catchall">
+        <description>Catch-all FAIL-SAFE: programa nao mapeado -> prazo conservador padrao. FEEL not(...) garante UNIQUE (nao ha dois matches).</description>
+        <inputEntry id="r_catchall_i1"><text>not("pre_natal","cronicos")</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>"P7D"</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>"P5D"</text></outputEntry>
+        <outputEntry id="r_catchall_o3"><text>"Fail-safe: prazo conservador na ausencia de classificacao de programa — DRAFT/verify"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>
