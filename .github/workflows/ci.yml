@@ -59,15 +59,11 @@ jobs:
             htmlcov/
           retention-days: 7
 
-  # ── M0 GREENFIELD: desabilitado — o módulo maezo.platform.validation.cli ainda não
-  # existe (será construído em M2). Os artefatos BPMN/DMN/policy estão em spec/processes/,
-  # spec/policies/, spec/agents/ e serão validados quando o CLI de validação for implementado.
-  # Reativar com if: true na milestone M2.
+  # ── Reativado em M13: o módulo maezo.platform.validation.cli está implementado
+  # (construído em M2/M9). Os artefatos BPMN/DMN/policy estão em spec/ e src/maezo/processes/.
   artifact-validation:
     name: validate-artifacts
-    if: false
-    # Licao do repo hospitalar (ADR-019 la / ADR-0011 aqui):
-    # artefatos BPMN/DMN/policy validados como BLOCKER desde o commit 1.
+    # Artefatos BPMN/DMN/policy validados como BLOCKER desde o commit 1.
     # NOTE: expected to be red until W1 merges the validation implementation.
     runs-on: ubuntu-latest
     steps:
@@ -90,12 +86,10 @@ jobs:
       - name: Validate BPMN / DMN / policies / agent definitions
         run: make validate-artifacts
 
-  # ── M0 GREENFIELD: desabilitado — make validate-signoff depende de
-  # maezo.platform.validation.cli que ainda não existe (será construído em M2).
-  # Reativar com if: true na milestone M2.
+  # ── Reativado em M13: o módulo maezo.platform.validation.cli está implementado
+  # (construído em M2/M9). make validate-signoff agora funciona.
   content-signoff-gate:
     name: content-signoff-gate
-    if: false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
