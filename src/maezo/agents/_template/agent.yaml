@@ -1,0 +1,43 @@
+# Agent Template — canonical contract for every Maezo agent
+# This file defines the REQUIRED fields for any agent.yaml.
+# Concrete agents (helena, rafael, etc.) extend this template.
+
+id: _template
+name: "Agent Template"
+role: "Template role — base contract for all agents"
+phase: 0
+autonomy_level: L3
+process_keys:
+  - SP-OP-TEMPLATE-001
+tools:
+  - mcp-dmn.evaluate
+  - mcp-memory.read_write
+
+# Extended fields (optional but recommended for production agents)
+reports_to: "gestor.responsavel@amh"
+security_zone: general
+graph: graph.py:build
+prompt_versions:
+  system: system-v1
+  classify: classify-v1
+model:
+  task_default: { tier: fast }
+  reasoning:    { tier: frontier }
+autonomy_policy: ../../policies/autonomy
+autonomy_actions:
+  - query_decision_engine
+  - read_write_memory
+kpis:
+  - { name: resolution_rate, target: "track" }
+escalation:
+  process: SP-OP-TEMPLATE-001
+  triggers:
+    - signal: ambiguity
+memory:
+  episodic: true
+  semantic: false
+a2a:
+  capabilities: []
+  skills: []
+  accepted_task_types: []
+  queue_ref: agents.tasks.template
