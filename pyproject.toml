@@ -34,7 +34,7 @@ dependencies = [
     "fastapi>=0.111,<1.0",
     "uvicorn[standard]>=0.29,<1.0",
     # --- Observabilidade ---
-    "structlog>=24.1,<26.0",
+    "structlog>=24.1,<27.0",
     "opentelemetry-api>=1.25,<2.0",
     "opentelemetry-sdk>=1.25,<2.0",
     "opentelemetry-exporter-otlp-proto-grpc>=1.25,<2.0",
