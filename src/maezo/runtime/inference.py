@@ -51,11 +51,40 @@ class InferenceProvider:
             provider=self._settings.provider,
             model=self._settings.model or "default",
         )
+        if self._settings.provider == "noop":
+            logger.warning(
+                "inference_provider_is_noop",
+                message=(
+                    "LLM provider is 'noop' — all inference calls will return "
+                    "deterministic mock responses. Set MAEZO_INFERENCE_PROVIDER "
+                    "to a real provider (e.g. 'openai') for production."
+                ),
+            )
 
     @property
     def provider_name(self) -> str:
         """Return the active provider name (e.g. 'noop', 'openai')."""
         return self._settings.provider
+
+    def health_check(self) -> dict[str, str]:
+        """Return provider health status.
+
+        Returns a warning if the provider is 'noop' (mock mode),
+        so operators and monitoring systems can detect misconfiguration
+        in production environments.
+
+        Returns:
+            A dict with 'status' ('ok' or 'warning') and 'message'.
+        """
+        if self._settings.provider == "noop":
+            return {
+                "status": "warning",
+                "message": (
+                    "Provider is 'noop' — all LLM calls return mock responses. "
+                    "Set MAEZO_INFERENCE_PROVIDER to a real provider for production."
+                ),
+            }
+        return {"status": "ok", "message": f"Provider '{self._settings.provider}' is configured."}
 
     async def generate(self, prompt: str) -> str:
         """Generate a response for the given prompt.
