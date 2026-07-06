@@ -81,11 +81,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      # gitleaks/gitleaks-action@v2 agora exige licença paga para orgs
+      # gitleaks/gitleaks-action@v3 agora exige licença paga para orgs
       # (Omni-Saude). Usamos o CLI open-source diretamente.
       # Ref: https://github.com/gitleaks/gitleaks-action#-announcement
       - name: Run gitleaks
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # GITLEAKS_LICENSE necessário para orgs a partir de 2026.
