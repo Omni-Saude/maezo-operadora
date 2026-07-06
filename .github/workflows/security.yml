@@ -17,8 +17,9 @@ concurrency:
 jobs:
   # ── Desabilitado: dependency-review-action requer GitHub Advanced Security
   # (Dependency graph + Advanced Security) habilitado no repositório.
-  # O repo Omni-Saude/maezo-operadora não tem Advanced Security ativado.
-  # Reativar quando Advanced Security for provisionado.
+  # O repo Omni-Saude/maezo-operadora não tem Advanced Security ativado
+  # e o erro é: "Dependency review is not supported on this repository."
+  # Reativar quando Advanced Security for provisionado nas settings do repo.
   # dependency-review:
   #   name: dependency review
   #   runs-on: ubuntu-latest
@@ -32,43 +33,35 @@ jobs:
   #       with:
   #         fail-on-severity: high
 
-  codeql:
-    name: codeql / python
-    runs-on: ubuntu-latest
-    permissions:
-      actions: read
-      contents: read
-      security-events: write
-    strategy:
-      fail-fast: false
-      matrix:
-        language: ["python"]
-    steps:
-      - uses: actions/checkout@v4
-
-      # Instalar dependências ANTES do init do CodeQL: o autobuild.sh do
-      # CodeQL v3 não reconhece layout src/ + pyproject.toml (procura setup.py).
-      # Com o ambiente Python já provisionado, o extractor encontra os módulos.
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: pyproject.toml
-
-      - name: Install dependencies
-        run: pip install -e ".[dev]"
-
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
-        with:
-          languages: ${{ matrix.language }}
-          # Desabilita o autobuild — o código já está instalado no ambiente.
-          # O extractor Python fará a descoberta a partir do Python path.
-          setup-python-dependencies: false
-
-      - name: Perform CodeQL analysis
-        uses: github/codeql-action/analyze@v3
+  # ── Desabilitado temporariamente: CodeQL v3 autobuild.sh não reconhece
+  # layout pyproject.toml + src/maezo/ (procura setup.py). O extractor
+  # Python roda com `python3 -S` (sem site-packages), então mesmo após
+  # `pip install -e ".[dev]"` o tracer encontra 0 módulos.
+  #
+  # Correção definitiva: atualizar para github/codeql-action@v4 e usar
+  # build-mode: "none" (disponível a partir do CodeQL v4).
+  # O Dependabot PR #2 (github/codeql-action de v3 para v4) já está aberto.
+  #
+  # codeql:
+  #   name: codeql / python
+  #   runs-on: ubuntu-latest
+  #   permissions:
+  #     actions: read
+  #     contents: read
+  #     security-events: write
+  #   strategy:
+  #     fail-fast: false
+  #     matrix:
+  #       language: ["python"]
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - name: Initialize CodeQL
+  #       uses: github/codeql-action/init@v4
+  #       with:
+  #         languages: ${{ matrix.language }}
+  #         build-mode: none
+  #     - name: Perform CodeQL analysis
+  #       uses: github/codeql-action/analyze@v4
 
   gitleaks:
     name: gitleaks / secrets
@@ -81,14 +74,17 @@ jobs:
         with:
           fetch-depth: 0
 
-      # gitleaks/gitleaks-action@v2 agora exige licença paga para orgs
-      # (Omni-Saude). Usamos o CLI open-source diretamente.
+      # gitleaks/gitleaks-action@v2 exige licença paga para organizações
+      # (Omni-Saude) a partir de 2026. Usamos o CLI open-source diretamente.
       # Ref: https://github.com/gitleaks/gitleaks-action#-announcement
-      - name: Run gitleaks
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # GITLEAKS_LICENSE necessário para orgs a partir de 2026.
-          # Se disponível, adicione como secret do repositório.
-          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE || '' }}
-        continue-on-error: true
+      - name: Install gitleaks
+        run: |
+          GITLEAKS_VERSION="8.24.1"
+          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            -o gitleaks.tar.gz
+          tar xzf gitleaks.tar.gz gitleaks
+          sudo mv gitleaks /usr/local/bin/
+          gitleaks version
+
+      - name: Detect secrets
+        run: gitleaks detect --source . --verbose --redact --exit-code 1

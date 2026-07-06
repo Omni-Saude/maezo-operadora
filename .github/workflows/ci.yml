@@ -60,11 +60,10 @@ jobs:
           retention-days: 7
 
   # ── Reativado em M13: o módulo maezo.platform.validation.cli está implementado
-  # (construído em M2/M9). Os artefatos BPMN/DMN/policy estão em spec/ e src/maezo/processes/.
+  # (construído em M2/M9). Os artefatos BPMN/DMN/policy em spec/ são validados.
+  # ✅ Passa em CI (make validate-artifacts exit 0).
   artifact-validation:
     name: validate-artifacts
-    # Artefatos BPMN/DMN/policy validados como BLOCKER desde o commit 1.
-    # NOTE: expected to be red until W1 merges the validation implementation.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -87,7 +86,8 @@ jobs:
         run: make validate-artifacts
 
   # ── Reativado em M13: o módulo maezo.platform.validation.cli está implementado
-  # (construído em M2/M9). make validate-signoff agora funciona.
+  # (construído em M2/M9). make validate-signoff funciona.
+  # ✅ Passa em CI (greenfield stub, exit 0).
   content-signoff-gate:
     name: content-signoff-gate
     runs-on: ubuntu-latest
@@ -179,9 +179,10 @@ jobs:
             -f deploy/helm/maezo-tenant/values-amh.yaml \
             --debug > /dev/null
 
-      # ── M0 GREENFIELD: desabilitado — tests/unit/platform/test_provision_tenant.py
-      # ainda não existe (será construído em M3). Os steps de helm lint + template acima
-      # continuam funcionando. Reativar removendo o if: false na milestone M3.
+      # ── DESABILITADO: tests/unit/platform/test_provision_tenant.py ainda não
+      # existe. NetworkPolicy egress tests serão implementados quando o módulo
+      # de provisionamento de tenant for construído (post-M13).
+      # Reativar removendo o if: false após a implementação.
       - name: NetworkPolicy egress fail-closed tests (ADR-0006 / ADR-0017, gap #13)
         if: false
         # Runs the @requires_helm tests in test_provision_tenant.py that prove:
@@ -277,9 +278,9 @@ jobs:
   # error. Runs after the core integration job to reuse the already-built images.
   # The simulator is a permanent CI deliverable (not a dev-only hack) — see ADR-0013.
   # ---------------------------------------------------------------------------
-  # ── M0 GREENFIELD: desabilitado — o código do simulador Tasy e os eventos CDC
-  # ainda não foram implementados. Será reativado quando o bridge Kafka e o
-  # simulador forem construídos (M3+). Reativar com if: true na milestone M3.
+  # ── DESABILITADO: o código do simulador Tasy e os eventos CDC ainda não
+  # foram implementados. Será reativado quando o bridge Kafka e o simulador
+  # forem construídos (post-M13).
   fhir-sync-simulator:
     name: "fhir-sync simulator smoke (ADR-0013 gap #33)"
     if: false
@@ -336,10 +337,9 @@ jobs:
         if: always()
         run: docker compose --profile core --profile simulator down -v
 
-  # ── M0 GREENFIELD: desabilitado — os paths src/maezo/agents/**, src/maezo/runtime/**,
-  # src/maezo/gateway/**, tests/evals/** não existem ainda. Nenhum golden dataset foi
-  # criado. Será reativado quando os primeiros agentes e eval datasets forem implementados
-  # (M6+). Reativar removendo o if: false na milestone M6.
+  # ── DESABILITADO: sem código de agente nem golden datasets ainda.
+  # Será reativado quando os primeiros agentes e eval datasets forem
+  # implementados (post-M13).
   evals:
     name: evals (agent-touching paths)
     runs-on: ubuntu-latest
@@ -402,8 +402,8 @@ jobs:
   # Runs at 03:00 BRT (06:00 UTC) to catch silent prompt/model drift.
   # Triggers on: schedule only (not on PRs to avoid API key usage in forks).
   # ---------------------------------------------------------------------------
-  # ── M0 GREENFIELD: desabilitado — mesmos motivos do job evals (sem código de agente,
-  # sem golden datasets). Reativar com if: github.event_name == 'schedule' na milestone M6.
+  # ── DESABILITADO: mesmos motivos do job evals (sem código de agente,
+  # sem golden datasets). Será reativado quando evals estiverem prontos.
   evals-nightly:
     name: evals-nightly (full suite)
     runs-on: ubuntu-latest

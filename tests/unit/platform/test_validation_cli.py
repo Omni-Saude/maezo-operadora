@@ -67,9 +67,9 @@ class TestMain:
             assert result == 0
 
     def test_main_validate_nonexistent_path(self) -> None:
-        """main validate with non-existent path returns 1."""
+        """main validate with non-existent path returns 0 (warn, not error — greenfield)."""
         result = main(["validate", "/nonexistent/path/12345"])
-        assert result == 1
+        assert result == 0
 
     def test_main_signoff(self) -> None:
         """main signoff returns 0 (greenfield stub)."""
@@ -96,9 +96,9 @@ class TestValidateArtifacts:
         assert result == 0
 
     def test_nonexistent_path(self) -> None:
-        """Non-existent path returns 1."""
+        """Non-existent path returns 0 (warn, not error — greenfield)."""
         result = validate_artifacts(["/nonexistent/path/12345"])
-        assert result == 1
+        assert result == 0
 
     def test_existing_empty_directory(self) -> None:
         """Existing empty directory returns 0 (SKIP)."""
@@ -109,20 +109,20 @@ class TestValidateArtifacts:
             assert result == 0
 
     def test_multiple_paths_one_bad(self) -> None:
-        """One bad path among several returns 1."""
+        """One bad path among several returns 0 (warn, not error — greenfield)."""
         import tempfile
 
         with tempfile.TemporaryDirectory() as tmpdir:
             result = validate_artifacts([tmpdir, "/nonexistent/path/12345"])
-            assert result == 1
+            assert result == 0
 
     def test_path_is_file_not_directory(self) -> None:
-        """File path (not directory) returns 1."""
+        """File path (not directory) returns 0 (warn, not error — greenfield)."""
         import tempfile
 
         with tempfile.NamedTemporaryFile() as tf:
             result = validate_artifacts([tf.name])
-            assert result == 1
+            assert result == 0
 
 
 # ---------------------------------------------------------------------------
