@@ -18,7 +18,7 @@ Her graph consists of:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from langgraph.graph import StateGraph
 
@@ -50,12 +50,12 @@ def build() -> StateGraph[AgentState]:
             Updated state dict with eligibility assessment.
         """
         messages: list[str] = list(state.get("messages", []))
-        beneficiary_id = state.get("beneficiario_pseudo_id", "")
-        consent_active = state.get("consentimento_ativo", False)
+        beneficiary_id: str = cast(str, state.get("beneficiario_pseudo_id", ""))
+        consent_active: bool = cast(bool, state.get("consentimento_ativo", False))
 
         # Consent chokepoint: fail-closed, NEVER processes PHI without consent
         if not consent_active:
-            eligibility = {
+            eligibility: dict[str, Any] = {
                 "beneficiario_pseudo_id": beneficiary_id,
                 "eligible": False,
                 "reason": "sem_consentimento_ativo",
@@ -64,8 +64,8 @@ def build() -> StateGraph[AgentState]:
             }
         else:
             # Assess clinical eligibility — NEVER denies care
-            risco = state.get("risco_estratificado", "BAIXO")
-            programa_id = state.get("programa_id", "")
+            risco: str = cast(str, state.get("risco_estratificado", "BAIXO"))
+            programa_id: str = cast(str, state.get("programa_id", ""))
 
             eligibility = {
                 "beneficiario_pseudo_id": beneficiary_id,
@@ -97,13 +97,14 @@ def build() -> StateGraph[AgentState]:
             Updated state dict with care plan design.
         """
         messages: list[str] = list(state.get("messages", []))
-        eligibility = state.get("eligibility", {})
-        beneficiary_id = eligibility.get("beneficiario_pseudo_id", "")
-        programa_id = eligibility.get("programa_id", "")
-        risco = eligibility.get("risco_estratificado", "BAIXO")
+        eligibility: dict[str, Any] = cast(dict[str, Any], state.get("eligibility", {}))
+        beneficiary_id: str = cast(str, eligibility.get("beneficiario_pseudo_id", ""))
+        programa_id: str = cast(str, eligibility.get("programa_id", ""))
+        risco: str = cast(str, eligibility.get("risco_estratificado", "BAIXO"))
+        is_eligible: bool = cast(bool, eligibility.get("eligible", False))
 
-        if not eligibility.get("eligible", False):
-            care_plan = {
+        if not is_eligible:
+            care_plan: dict[str, Any] = {
                 "beneficiario_pseudo_id": beneficiary_id,
                 "plan_created": False,
                 "reason": "not_eligible",
@@ -144,13 +145,14 @@ def build() -> StateGraph[AgentState]:
             Updated state dict with adherence monitoring results.
         """
         messages: list[str] = list(state.get("messages", []))
-        care_plan = state.get("care_plan", {})
-        eligibility = state.get("eligibility", {})
-        beneficiary_id = eligibility.get("beneficiario_pseudo_id", "")
-        risco = care_plan.get("risco_estratificado", "BAIXO")
+        care_plan: dict[str, Any] = cast(dict[str, Any], state.get("care_plan", {}))
+        eligibility: dict[str, Any] = cast(dict[str, Any], state.get("eligibility", {}))
+        beneficiary_id: str = cast(str, eligibility.get("beneficiario_pseudo_id", ""))
+        risco: str = cast(str, care_plan.get("risco_estratificado", "BAIXO"))
+        plan_created: bool = cast(bool, care_plan.get("plan_created", False))
 
-        if not care_plan.get("plan_created", False):
-            monitoring = {
+        if not plan_created:
+            monitoring: dict[str, Any] = {
                 "beneficiario_pseudo_id": beneficiary_id,
                 "monitoring_active": False,
                 "reason": "no_active_plan",
@@ -159,7 +161,8 @@ def build() -> StateGraph[AgentState]:
         else:
             # Monitor adherence — NEVER decides discharge
             # Apparent discharge criteria → escalate to human
-            criterio_alta_aparente = risco == "BAIXO" and state.get("sinal_alta_aparente", False)
+            sinal_alta: bool = cast(bool, state.get("sinal_alta_aparente", False))
+            criterio_alta_aparente: bool = risco == "BAIXO" and sinal_alta
 
             monitoring = {
                 "beneficiario_pseudo_id": beneficiary_id,

@@ -19,7 +19,7 @@ His graph consists of:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from langgraph.graph import StateGraph
 
@@ -55,14 +55,14 @@ def build() -> StateGraph[AgentState]:
             Updated state dict with population analysis results.
         """
         messages: list[str] = list(state.get("messages", []))
-        cohort = state.get("cohort_ref", "")
-        metrics = state.get("metricas_solicitadas", [])
+        cohort: str = cast(str, state.get("cohort_ref", ""))
+        metrics: list[str] = cast(list[str], state.get("metricas_solicitadas", []))
 
         if not isinstance(metrics, list):
             metrics = []
 
         # Analyze population — aggregates only, NEVER raw PHI
-        analysis = {
+        analysis: dict[str, Any] = {
             "cohort_ref": cohort,
             "population_size": 0,  # placeholder — real: k-anon aggregate query
             "metrics_computed": metrics,
@@ -92,11 +92,11 @@ def build() -> StateGraph[AgentState]:
             Updated state dict with risk cohort identification.
         """
         messages: list[str] = list(state.get("messages", []))
-        analysis = state.get("population_analysis", {})
-        cohort_ref = analysis.get("cohort_ref", "")
+        analysis: dict[str, Any] = cast(dict[str, Any], state.get("population_analysis", {}))
+        cohort_ref: str = cast(str, analysis.get("cohort_ref", ""))
 
         # Identify risk cohorts — k-anonymized aggregates only
-        cohorts = [
+        cohorts: list[dict[str, Any]] = [
             {
                 "cohort_id": "alto_risco_cronico",
                 "size": 0,  # placeholder
@@ -120,7 +120,7 @@ def build() -> StateGraph[AgentState]:
             },
         ]
 
-        risk_analysis = {
+        risk_analysis: dict[str, Any] = {
             "source_cohort": cohort_ref,
             "cohorts_identified": len(cohorts),
             "cohorts": cohorts,
@@ -153,20 +153,21 @@ def build() -> StateGraph[AgentState]:
             Updated state dict with intervention recommendations.
         """
         messages: list[str] = list(state.get("messages", []))
-        risk_cohorts = state.get("risk_cohorts", {})
-        cohorts = risk_cohorts.get("cohorts", [])
+        risk_cohorts: dict[str, Any] = cast(dict[str, Any], state.get("risk_cohorts", {}))
+        cohorts: list[dict[str, Any]] = cast(list[dict[str, Any]], risk_cohorts.get("cohorts", []))
 
         if not isinstance(cohorts, list):
             cohorts = []
 
         # Recommend population-level interventions — NEVER decides payment/pricing
-        recommendations = []
+        recommendations: list[dict[str, Any]] = []
         for cohort in cohorts:
-            risk = cohort.get("risk_level", "")
+            risk: str = cast(str, cohort.get("risk_level", ""))
+            cohort_id: str = cast(str, cohort.get("cohort_id", ""))
             if risk == "ALTO":
                 recommendations.append(
                     {
-                        "cohort_id": cohort.get("cohort_id"),
+                        "cohort_id": cohort_id,
                         "intervention": "enrollment_care_program",
                         "target_process": "SP-OP-PROGRAMA-001",
                         "urgency": "ALTA",
@@ -175,14 +176,14 @@ def build() -> StateGraph[AgentState]:
             elif risk == "MODERADO":
                 recommendations.append(
                     {
-                        "cohort_id": cohort.get("cohort_id"),
+                        "cohort_id": cohort_id,
                         "intervention": "preventive_monitoring",
                         "target_process": "SP-OP-PROGRAMA-001",
                         "urgency": "MEDIA",
                     }
                 )
 
-        intervention_plan = {
+        intervention_plan: dict[str, Any] = {
             "recommendations": recommendations,
             "total_cohorts_analyzed": len(cohorts),
             "cohorts_with_interventions": len(recommendations),

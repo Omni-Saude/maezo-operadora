@@ -17,7 +17,7 @@ Her graph consists of:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from langgraph.graph import StateGraph
 
@@ -50,14 +50,14 @@ def build() -> StateGraph[AgentState]:
             Updated state dict with indicator triage results.
         """
         messages: list[str] = list(state.get("messages", []))
-        case_id = state.get("numero_caso", "")
-        evidence_refs = state.get("evidencia_refs", [])
+        case_id: str = cast(str, state.get("numero_caso", ""))
+        evidence_refs: list[str] = cast(list[str], state.get("evidencia_refs", []))
 
         if not isinstance(evidence_refs, list):
             evidence_refs = []
 
         # Score indicators as ROUTING FACT — NEVER a verdict
-        base_score = len(evidence_refs) * 10
+        base_score: int = len(evidence_refs) * 10
 
         indicadores: list[str] = []
         if base_score > 0:
@@ -69,13 +69,13 @@ def build() -> StateGraph[AgentState]:
 
         # Investigation intensity (NEVER accusation)
         if base_score > 100:
-            intensidade = "PRIORITARIA"
+            intensidade: str = "PRIORITARIA"
         elif base_score > 50:
             intensidade = "APROFUNDADA"
         else:
             intensidade = "LEVE"
 
-        triage = {
+        triage: dict[str, Any] = {
             "numero_caso": case_id,
             "score_indicadores": base_score,
             "indicadores_presentes": indicadores,
@@ -103,14 +103,14 @@ def build() -> StateGraph[AgentState]:
             Updated state dict with investigation coordination results.
         """
         messages: list[str] = list(state.get("messages", []))
-        triage = state.get("indicator_triage", {})
-        case_id = triage.get("numero_caso", "")
-        evidence_refs = state.get("evidencia_refs", [])
+        triage: dict[str, Any] = cast(dict[str, Any], state.get("indicator_triage", {}))
+        case_id: str = cast(str, triage.get("numero_caso", ""))
+        evidence_refs: list[str] = cast(list[str], state.get("evidencia_refs", []))
         if not isinstance(evidence_refs, list):
             evidence_refs = []
 
         # Coordinate investigation — instructs, NEVER decides
-        investigation = {
+        investigation: dict[str, Any] = {
             "numero_caso": case_id,
             "evidencia_refs": evidence_refs,
             "evidencia_coletada": len(evidence_refs) > 0,
@@ -141,17 +141,17 @@ def build() -> StateGraph[AgentState]:
             Updated state dict with dossier review results.
         """
         messages: list[str] = list(state.get("messages", []))
-        investigation = state.get("investigation", {})
-        triage = state.get("indicator_triage", {})
-        case_id = investigation.get("numero_caso", "")
-        evidence_count = investigation.get("dossie_items", 0)
-        score = triage.get("score_indicadores", 0)
+        investigation: dict[str, Any] = cast(dict[str, Any], state.get("investigation", {}))
+        triage: dict[str, Any] = cast(dict[str, Any], state.get("indicator_triage", {}))
+        case_id: str = cast(str, investigation.get("numero_caso", ""))
+        evidence_count: int = cast(int, investigation.get("dossie_items", 0))
+        score: int = cast(int, triage.get("score_indicadores", 0))
 
         # Review dossier completeness — NEVER decides accusation
-        dossier_complete = evidence_count > 0
-        requires_escalation = score > 50 or not dossier_complete
+        dossier_complete: bool = evidence_count > 0
+        requires_escalation: bool = score > 50 or not dossier_complete
 
-        review = {
+        review: dict[str, Any] = {
             "numero_caso": case_id,
             "dossier_complete": dossier_complete,
             "requires_escalation": requires_escalation,

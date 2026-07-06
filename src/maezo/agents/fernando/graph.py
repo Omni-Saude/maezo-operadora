@@ -50,10 +50,10 @@ def build() -> StateGraph[AgentState]:
             Updated state dict with provider evaluation results.
         """
         messages: list[str] = list(state.get("messages", []))
-        provider_id = cast(dict[str, Any], state.get("prestador_id", ""))
+        provider_id: str = cast(str, state.get("prestador_id", ""))
 
         # Factual evaluation — NEVER produces NEGAR or DESCREDENCIAR
-        evaluation = {
+        evaluation: dict[str, Any] = {
             "licenca_valida": True,  # placeholder — real queries CRM/CNES
             "documentacao_completa": True,
             "dentro_criterios_rede": True,
@@ -79,31 +79,38 @@ def build() -> StateGraph[AgentState]:
             Updated state dict with gap measurement results.
         """
         messages: list[str] = list(state.get("messages", []))
-        region = state.get("regiao_saude", "")
-        specialty = state.get("especialidade", "")
+        region: str = cast(str, state.get("regiao_saude", ""))
+        specialty: str = cast(str, state.get("especialidade", ""))
 
         # Factual gap measurement — NEVER decides COMPROMISSO_FALLBACK
-        gap = {
-            "regiao_saude": region,
-            "especialidade": specialty,
-            "tempo_acesso_apurado_min": 45,
-            "distancia_apurada_km": 15.5,
-            "prestadores_disponiveis": 3,
-            "cobertura_geo_suficiente": True,
-            "dados_geo_completos": bool(region and specialty),
-        }
+        dados_geo_completos: bool = bool(region and specialty)
+        tempo_acesso: int = 45
+        distancia: float = 15.5
+        prestadores: int = 3
+        cobertura: bool = True
 
         # Classify gap severity (routing fact, not decision)
-        if not gap["dados_geo_completos"]:
-            gap["gap_adequacao"] = "GAP_CRITICO"
-        elif gap["cobertura_geo_suficiente"] and gap["tempo_acesso_apurado_min"] <= 30:
-            gap["gap_adequacao"] = "CONFORME"
-        elif gap["cobertura_geo_suficiente"]:
-            gap["gap_adequacao"] = "GAP_LEVE"
-        elif gap["prestadores_disponiveis"] >= 1:
-            gap["gap_adequacao"] = "GAP_MODERADO"
+        if not dados_geo_completos:
+            gap_adequacao: str = "GAP_CRITICO"
+        elif cobertura and tempo_acesso <= 30:
+            gap_adequacao = "CONFORME"
+        elif cobertura:
+            gap_adequacao = "GAP_LEVE"
+        elif prestadores >= 1:
+            gap_adequacao = "GAP_MODERADO"
         else:
-            gap["gap_adequacao"] = "GAP_CRITICO"
+            gap_adequacao = "GAP_CRITICO"
+
+        gap: dict[str, Any] = {
+            "regiao_saude": region,
+            "especialidade": specialty,
+            "tempo_acesso_apurado_min": tempo_acesso,
+            "distancia_apurada_km": distancia,
+            "prestadores_disponiveis": prestadores,
+            "cobertura_geo_suficiente": cobertura,
+            "dados_geo_completos": dados_geo_completos,
+            "gap_adequacao": gap_adequacao,
+        }
 
         return {
             "messages": messages,
@@ -125,17 +132,17 @@ def build() -> StateGraph[AgentState]:
             Updated state dict with action recommendation.
         """
         messages: list[str] = list(state.get("messages", []))
-        provider_eval = state.get("provider_evaluation", {})
-        network_gap = state.get("network_gap", {})
+        provider_eval: dict[str, Any] = cast(dict[str, Any], state.get("provider_evaluation", {}))
+        network_gap: dict[str, Any] = cast(dict[str, Any], state.get("network_gap", {}))
 
-        gap_severity = network_gap.get("gap_adequacao", "CONFORME")
-        licenca_valida = provider_eval.get("licenca_valida", True)
-        docs_complete = provider_eval.get("documentacao_completa", True)
+        gap_severity: str = cast(str, network_gap.get("gap_adequacao", "CONFORME"))
+        licenca_valida: bool = cast(bool, provider_eval.get("licenca_valida", True))
+        docs_complete: bool = cast(bool, provider_eval.get("documentacao_completa", True))
 
         # Route recommendation — NEVER produces adverse decisions
         if not licenca_valida or not docs_complete:
-            routing = "ANALISE_HUMANA"
-            reason = "requer análise humana — licença ou documentação"
+            routing: str = "ANALISE_HUMANA"
+            reason: str = "requer análise humana — licença ou documentação"
         elif gap_severity in ("GAP_CRITICO",):
             routing = "ANALISE_HUMANA"
             reason = "gap crítico — requer análise humana"
@@ -146,7 +153,7 @@ def build() -> StateGraph[AgentState]:
             routing = "MONITORAR"
             reason = "rede conforme ou gap leve — monitorar"
 
-        recommendation = {
+        recommendation: dict[str, Any] = {
             "routing": routing,
             "reason": reason,
             "requires_human": routing == "ANALISE_HUMANA",
