@@ -40,7 +40,7 @@ dependencies = [
     "opentelemetry-exporter-otlp-proto-grpc>=1.25,<2.0",
     "prometheus-client>=0.20,<1.0",
     # --- Seguranca / LGPD ---
-    "cryptography>=48.0.1,<49",
+    "cryptography>=48.0.1,<50",
 ]
 
 [project.optional-dependencies]
