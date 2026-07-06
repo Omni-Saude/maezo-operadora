@@ -1,0 +1,52 @@
+# Carolina — Analista de Revenue Cycle / Pagamentos (Phase 2)
+id: carolina
+name: "Carolina"
+role: "Analista de Revenue Cycle — instrui validacao de pagamento, roteamento por alcada e execucao L2 de pagamentos"
+phase: 2
+autonomy_level: L2
+process_keys:
+  - SP-OP-PAGTO-001
+reports_to: "financeiro@amh"
+security_zone: general
+graph: graph.py:build
+prompt_versions:
+  system: system-v1
+  dossier: dossier-v1
+model:
+  task_default: { tier: fast }
+  reasoning:    { tier: frontier }
+tools:
+  - mcp-dmn.evaluate
+  - mcp-cibseven.start_process
+  - mcp-memory.read_write
+autonomy_policy: ../../policies/autonomy
+autonomy_actions:
+  - query_decision_engine
+  - start_compliance_process
+  - read_write_memory
+kpis:
+  - { name: payment_accuracy, target: "==1.0" }
+  - { name: routing_precision, target: "track" }
+  - { name: eval_score, target: ">0.9" }
+  - { name: false_payment_rate, target: "==0" }
+escalation:
+  process: SP-OP-PAGTO-001
+  human_manager: financeiro
+  triggers:
+    - dmn: pagamento_route=APROVACAO_ALCADA_SUPERIOR
+    - signal: valor_excede_alcada
+    - signal: dmn_unavailable
+    - signal: ambiguity
+memory:
+  episodic: true
+  semantic: true
+a2a:
+  capabilities:
+    - payment_validation
+    - approval_routing
+  skills:
+    - payment_validate
+    - approval_route
+  accepted_task_types:
+    - pagamento.validate
+  queue_ref: agents.tasks.carolina

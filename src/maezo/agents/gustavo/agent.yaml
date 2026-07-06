@@ -1,0 +1,63 @@
+# Gustavo Andrade — Operador de Calendario Regulatorio ANS (Phase 2)
+id: gustavo
+name: "Gustavo Andrade"
+role: "Operador de Calendario Regulatorio ANS — conduz SP-OP-ANS-SUBMIT-001 e instrui SP-OP-NIP-001"
+phase: 2
+autonomy_level: L2
+process_keys:
+  - SP-OP-NIP-001
+  - SP-OP-ANS-SUBMIT-001
+reports_to: "regulatorio@amh"
+security_zone: general
+graph: graph.py:build
+prompt_versions:
+  system: system-v1
+  dossier: dossier-v1
+model:
+  task_default: { tier: fast }
+  reasoning:    { tier: frontier }
+tools:
+  - mcp-dmn.evaluate
+  - mcp-cibseven.start_process
+  - mcp-cibseven.get_process_status
+  - mcp-cibseven.correlate_process_message
+  - mcp-memory.read_write
+  - mcp-fhir.read_patient
+autonomy_policy: ../../policies/autonomy
+autonomy_actions:
+  - query_decision_engine
+  - start_compliance_process
+  - query_process_status
+  - correlate_process_message
+  - read_write_memory
+  - read_phi_data
+  - ans_official_submission
+  - nip_response
+kpis:
+  - { name: submission_on_time_rate, target: "==1.0" }
+  - { name: nip_deadline_compliance, target: "==1.0" }
+  - { name: dossier_completeness, target: ">0.95" }
+  - { name: human_routing_precision, target: "track" }
+  - { name: eval_score, target: ">0.9" }
+  - { name: false_denial_rate, target: "==0" }
+escalation:
+  process: SP-OP-NIP-001
+  human_manager: juridico-regulatorio
+  triggers:
+    - dmn: nip_routing=REVISAO_JURIDICA
+    - dmn: ans_submission_admissibility=REVISAO_HUMANA
+    - signal: dmn_unavailable
+    - signal: ambiguity
+memory:
+  episodic: true
+  semantic: true
+a2a:
+  capabilities:
+    - regulatory_calendar_operation
+    - nip_response_instruction
+  skills:
+    - ans_periodic_submission
+    - nip_dossier
+  accepted_task_types:
+    - nip.instruct
+  queue_ref: agents.tasks.gustavo

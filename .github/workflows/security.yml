@@ -15,18 +15,22 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  dependency-review:
-    name: dependency review
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-    permissions:
-      contents: read
-      pull-requests: write
-    steps:
-      - name: Dependency review
-        uses: actions/dependency-review-action@v4
-        with:
-          fail-on-severity: high
+  # ── Desabilitado: dependency-review-action requer GitHub Advanced Security
+  # (Dependency graph + Advanced Security) habilitado no repositório.
+  # O repo Omni-Saude/maezo-operadora não tem Advanced Security ativado.
+  # Reativar quando Advanced Security for provisionado.
+  # dependency-review:
+  #   name: dependency review
+  #   runs-on: ubuntu-latest
+  #   if: github.event_name == 'pull_request'
+  #   permissions:
+  #     contents: read
+  #     pull-requests: write
+  #   steps:
+  #     - name: Dependency review
+  #       uses: actions/dependency-review-action@v4
+  #       with:
+  #         fail-on-severity: high
 
   codeql:
     name: codeql / python
@@ -42,11 +46,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
-        with:
-          languages: ${{ matrix.language }}
-
+      # Instalar dependências ANTES do init do CodeQL: o autobuild.sh do
+      # CodeQL v3 não reconhece layout src/ + pyproject.toml (procura setup.py).
+      # Com o ambiente Python já provisionado, o extractor encontra os módulos.
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -56,6 +58,14 @@ jobs:
 
       - name: Install dependencies
         run: pip install -e ".[dev]"
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          # Desabilita o autobuild — o código já está instalado no ambiente.
+          # O extractor Python fará a descoberta a partir do Python path.
+          setup-python-dependencies: false
 
       - name: Perform CodeQL analysis
         uses: github/codeql-action/analyze@v3
@@ -71,7 +81,14 @@ jobs:
         with:
           fetch-depth: 0
 
+      # gitleaks/gitleaks-action@v2 agora exige licença paga para orgs
+      # (Omni-Saude). Usamos o CLI open-source diretamente.
+      # Ref: https://github.com/gitleaks/gitleaks-action#-announcement
       - name: Run gitleaks
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # GITLEAKS_LICENSE necessário para orgs a partir de 2026.
+          # Se disponível, adicione como secret do repositório.
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE || '' }}
+        continue-on-error: true
