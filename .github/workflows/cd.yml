@@ -67,7 +67,7 @@ jobs:
     outputs:
       image_tag: ${{ steps.meta.outputs.image_tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Resolve image tag (commit SHA)
         id: meta
@@ -124,7 +124,7 @@ jobs:
       github.ref == 'refs/heads/main' &&
       !(github.event_name == 'workflow_dispatch' && inputs.promote_to_production)
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: azure/setup-helm@v4
         with:
@@ -214,7 +214,7 @@ jobs:
       github.ref == 'refs/heads/main' &&
       !(github.event_name == 'workflow_dispatch' && inputs.promote_to_production)
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Configure AWS credentials (OIDC)
         if: vars.AWS_ENABLED == 'true'
@@ -263,7 +263,7 @@ jobs:
     environment:
       name: production
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: azure/setup-helm@v4
         with:

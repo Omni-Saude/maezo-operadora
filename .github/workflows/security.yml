@@ -44,7 +44,7 @@ jobs:
       matrix:
         language: ["python"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Instalar dependências ANTES do init do CodeQL: o autobuild.sh do
       # CodeQL v3 não reconhece layout src/ + pyproject.toml (procura setup.py).
@@ -77,7 +77,7 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 

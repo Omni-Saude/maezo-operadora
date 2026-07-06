@@ -24,7 +24,7 @@ jobs:
     name: lint / type / unit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v5
         with:
@@ -67,7 +67,7 @@ jobs:
     # NOTE: expected to be red until W1 merges the validation implementation.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v5
         with:
@@ -92,7 +92,7 @@ jobs:
     name: content-signoff-gate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v5
         with:
@@ -115,7 +115,7 @@ jobs:
     name: terraform validate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: hashicorp/setup-terraform@v3
         with:
@@ -147,7 +147,7 @@ jobs:
     name: helm lint + egress NetworkPolicy CI
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: azure/setup-helm@v4
         with:
@@ -215,7 +215,7 @@ jobs:
       # pinning to 5432 keeps this job's behavior byte-for-byte unchanged.
       MAEZO_PG_HOST_PORT: "5432"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v5
         with:
@@ -291,7 +291,7 @@ jobs:
     timeout-minutes: 12
     needs: [quality]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Build Tasy simulator image
         # Bounded build step — prevents stalled layer pulls from eating the whole job budget.
@@ -353,7 +353,7 @@ jobs:
       pull-requests: read
     # Gate: run when agent-touching files change (ADR-0009 golden datasets).
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Check if agent-touching files changed
         id: agent_changes
@@ -409,7 +409,7 @@ jobs:
     runs-on: ubuntu-latest
     if: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v5
         with:
