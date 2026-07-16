@@ -1,0 +1,53 @@
+name: Evidence Ledger Gate
+
+# ---------------------------------------------------------------------------
+# T0.5 gate: a PR whose head branch name or PR body cites a task ID
+# (`t<phase>.<n>-slug` branches / `Task[:] T<phase>.<n>` mentions) must carry
+# a matching row in docs/evidence-ledger.md at HEAD, or this check fails.
+#
+# Fail-closed by design (see scripts/ci/check_evidence_ledger.py docstring):
+# no `continue-on-error`, no `|| true`, no soft-fail step. Any input error
+# (unreadable ledger, missing required input) is a FAIL, never a skip.
+#
+# Kept independent of .github/workflows/ci.yml (own workflow file, own job,
+# no shared `needs:`) so it does not conflict with concurrent CI-surgery
+# tasks touching ci.yml.
+#
+# The script is stdlib-only — no `uv sync` / dependency install needed.
+# ---------------------------------------------------------------------------
+
+on:
+  pull_request:
+    types: [opened, synchronize, edited, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: evidence-ledger-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  evidence-ledger-check:
+    name: evidence-ledger-check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # PR_HEAD_REF / PR_BODY are attacker-controlled on a fork PR. They are passed
+      # through `env:` and read from the process environment inside the script —
+      # never interpolated into this (or any) shell command string — to avoid
+      # GitHub Actions script-injection via a crafted branch name or PR body.
+      - name: Check evidence-ledger entry for task ID
+        env:
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: python3 scripts/ci/check_evidence_ledger.py --ledger-path docs/evidence-ledger.md
