@@ -23,7 +23,7 @@ here.
 | 5 | SP-OP-CANCEL-001 | DRAFT (v0.1.0) | JU, REG, DPO, PO | prepared — awaiting roster (blocked external) | none | 0 | no |
 | 6 | SP-OP-CONTAS-001 | DRAFT (v0.1.0) | MA, JU, REG, FIN, PO | prepared — awaiting roster (blocked external) | none | 0 | no |
 | 7 | SP-OP-CRED-001 | DRAFT (v0.1.0) | MA (secondary), JU, REG, PO | prepared — awaiting roster (blocked external) | none | 0 | no |
-| 8 | SP-OP-ESCALATION-001 | **FINAL (v1.0.0)** | MA, REG (retro-verification) | prepared — awaiting roster (blocked external) | none | 0 | **NO — see flag below** |
+| 8 | SP-OP-ESCALATION-001 | **FINAL (v1.0.0)** | MA, REG, PO (retro-verification) | prepared — awaiting roster (blocked external) | none | 0 | **NO — see flag below** |
 | 9 | SP-OP-FRAUDE-001 | DRAFT (v0.1.0) | MA (secondary), JU, REG, DPO, PO | prepared — awaiting roster (blocked external) | none | 0 | no |
 | 10 | SP-OP-INADIMPLENCIA-001 | DRAFT (v0.2.0) | JU, REG, FIN, PO | prepared — awaiting roster (blocked external) | none | 0 | no |
 | 11 | SP-OP-LGPD-DSR-001 | DRAFT (v0.1.0) | DPO, JU, PO | prepared — awaiting roster (blocked external) | none | 0 | no |
