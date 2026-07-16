@@ -14,6 +14,30 @@ name: red-main-alarm
 #   - in_progress (non-"completed") is pending, not red — exit 0.
 #   - Only page when the latest COMPLETED, non-cancelled/skipped push run of
 #     the CURRENT tip concluded failure/timed_out.
+#
+# T2.3 (B9 CI surgery) recalibration note:
+#   Before T2.3, this alarm fired on (almost) every scheduled run because main's
+#   push-event CI runs were genuinely red: ci.yml's `integration` job ran
+#   `make test-integration` unconditionally against a nonexistent tests/integration/,
+#   which always failed and always failed the whole CI run's conclusion.
+#   T2.3 converted `integration`, `evals`, `evals-nightly`, and `fhir-sync-simulator`
+#   to a guard-step pattern: each checks its real precondition at runtime (collectable
+#   tests present / compose profile reintroduced) and either runs for real or emits a
+#   LOUD `::notice::` + step-summary skip and exits 0 — never a silent `if: false`,
+#   never continue-on-error, never a job that fails for a reason unrelated to the
+#   code under test. A visible skip is a successful step, so it does not fail the job,
+#   so it does not fail the workflow run, so it does NOT trip this alarm — a visible
+#   skip is deliberately indistinguishable from "nothing needed to run" as far as this
+#   alarm is concerned. The detection logic above (workflow-run granularity, ignore
+#   cancelled/skipped, only page on failure/timed_out of the latest completed
+#   push-event run) was already correct for this and needed no functional change —
+#   the fix was upstream, in ci.yml, removing the sources of genuine (or previously
+#   fake-genuine) red.
+#   Expected state after this PR merges to main: the next push-event CI run on the
+#   new tip is fully green (lint/type/unit+coverage-gate/artifact-validation/
+#   content-signoff/terraform/helm all pass for real; integration/evals/
+#   evals-nightly/fhir-sync-simulator all report a visible, loud, non-failing skip),
+#   and the next scheduled run of red-main-alarm reports "main is GREEN".
 # ---------------------------------------------------------------------------
 
 on:
