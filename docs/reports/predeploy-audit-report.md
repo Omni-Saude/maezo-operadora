@@ -221,8 +221,8 @@ This dimension never dried out (see §5) and its 24 confirmed findings collapse 
 
 | Artifact class | Briefed | Actual (verified) | Source |
 |---|---|---|---|
-| BPMN process files | 17 | **16** | `find src/maezo/processes/bpmn -name '*.bpmn'`, re-verified directly at draft time; SP-OP-ANS-CRON-001 is 1 file containing 5 process definitions (15+1 reconciliation, `docs/audits/bpmn-process-completeness.md`) |
-| DMN decision tables | 55 | **60** (53 flat + 7 under `fraude_scoring/`) | `find src/maezo/processes/dmn -name '*.dmn'`, re-verified directly at draft time — same class of brief/reality drift as the BPMN count, not previously called out |
+| BPMN process files | 17 | **16** | `find spec/processes/bpmn -name '*.bpmn'`, re-verified directly at draft time; SP-OP-ANS-CRON-001 is 1 file containing 5 process definitions (15+1 reconciliation, `docs/audits/bpmn-process-completeness.md`) |
+| DMN decision tables | 55 | **60** (53 flat + 7 under `fraude_scoring/`) | `find spec/processes/dmn -name '*.dmn'`, re-verified directly at draft time — same class of brief/reality drift as the BPMN count, not previously called out |
 | Worker "families" | 15+1 | **confirmed**: 15 SP-OP-specific modules (`adequacao`,`ans_submit`,`auth`,`auth_analyze`,`cancel`,`contas`,`cred`,`fraude`,`inadimplencia`,`lgpd`,`nip`,`pagto`,`programa`,`recurso`,`reembolso`) + 1 shared generic-publish module (`phase0.py`) | Directory listing, re-verified; `workers/` also holds 4 shared utility modules (`harness.py`,`ceilings.py`,`phi_vars.py`,`sla_metrics.py`) + `__init__.py` = 21 `.py` files total |
 | Agents | 10 | **confirmed: 10** (andre, beatriz, carolina, fernando, gustavo, helena, lucas, marina, rafael, valentina) | Directory listing (`_template/` scaffold excluded), re-verified |
 | Helm templates | ~21 | **23 files** (22 real templates + `_helpers.tpl`) | Directory listing, re-verified |
