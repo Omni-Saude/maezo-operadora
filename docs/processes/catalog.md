@@ -23,7 +23,7 @@ de agente (AGJ-*), documentada no `agent.yaml` de cada agente.
 | SP-OP-PAGTO-001 | Pagamentos de alcada | Politica financeira | 3 | modelado (suite integracao real-engine) |
 
 Quadrupla obrigatoria por processo: `.bpmn` + contrato (`docs/processes/contracts/`) +
-DMNs derivadas (`src/maezo/processes/dmn/`) + test spec (`docs/processes/test-specs/`).
+DMNs derivadas (`spec/processes/dmn/`) + test spec (`docs/processes/test-specs/`).
 Jornadas de agente (sem BPMN): `docs/processes/journeys/` (Phase 0: AGJ-HELENA-TRIAGE).
 
 > Validar prazos exatos das RNs com regulatorio antes de modelar timers.
