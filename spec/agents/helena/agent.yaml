@@ -1,7 +1,12 @@
 # Helena Moreira — Health Navigator (primeiro agente live; Phase 0)
+# Portado de spec/agents/helena/agent.yaml
 id: helena
 name: "Helena Moreira"
 role: "Health Navigator — triagem, roteamento e agendamento via WhatsApp"
+phase: 0
+autonomy_level: L3
+process_keys:
+  - SP-OP-ESCALATION-001
 reports_to: "gestor.atendimento@amh"
 security_zone: general                # PHI pseudonimizado (ADR-0006)
 graph: graph.py:build
@@ -12,7 +17,7 @@ prompt_versions:                      # versionados (ADR-0009) — gate de eval 
 model:
   task_default: { tier: fast }        # triagem/classificacao
   reasoning:    { tier: frontier }    # casos ambiguos
-tools:                               # ids EXATOS registrados pelos mcp_* servers (W4 / PR #8)
+tools:                               # ids EXATOS registrados pelos mcp_* servers
   - mcp-dmn.evaluate                  # triage_redflag_*, elegibilidade informativa
   - mcp-fhir.read_patient_summary     # Patient (leitura) — acao read_phi_data (L3)
   - mcp-fhir.read_coverage            # Coverage por id (leitura) — acao read_phi_data (L3); GAP-TRIAGE-5
@@ -22,7 +27,7 @@ tools:                               # ids EXATOS registrados pelos mcp_* server
   - mcp-whatsapp.send_message         # alias registrado de send_text (efeito L3)
   - mcp-memory.read_write             # working/episodic/semantic (ADR-0002) — alias registrado
 autonomy_policy: ../../policies/autonomy
-autonomy_actions:                     # acoes REAIS da matriz L0-core exercidas por esta jornada (W4)
+autonomy_actions:                     # acoes REAIS da matriz L0-core exercidas por esta jornada
   - query_decision_engine             # DMN de triagem (mcp-dmn.evaluate) — L3
   - start_compliance_process          # SP-OP-ESCALATION-001 (mcp-cibseven.start_process) — L2
   - query_process_status              # status do escalonamento (mcp-cibseven.get_process_status) — L3

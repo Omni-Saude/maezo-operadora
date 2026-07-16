@@ -1,7 +1,12 @@
 # Rafael Nogueira — Analista de Autorizacao Previa (Phase 1 centerpiece)
+# Portado de spec/agents/rafael/agent.yaml
 id: rafael
 name: "Rafael Nogueira"
 role: "Analista de Autorizacao Previa — instrui SP-OP-AUTH-001 e monta o dossie medico-auditor"
+phase: 1
+autonomy_level: L2
+process_keys:
+  - SP-OP-AUTH-001
 reports_to: "medico-auditor@amh"        # gestor humano = medico-auditor (decide a cobertura)
 security_zone: phi                       # PHI integral on-prem/endpoint BR (ADR-0006: Rafael e Zona PHI)
 graph: graph.py:build
@@ -11,7 +16,7 @@ prompt_versions:                         # versionados (ADR-0009) — gate de ev
 model:
   task_default: { tier: fast }           # gather/assess/montagem do dossie
   reasoning:    { tier: frontier }       # casos ambiguos / dossie complexo
-tools:                                    # ids EXATOS registrados pelos mcp_* servers (W4 / PR #8)
+tools:                                    # ids EXATOS registrados pelos mcp_* servers
   - mcp-fhir.read_patient                 # beneficiario (leitura, enriquece dossie)
   - mcp-fhir.search_coverage              # cobertura do beneficiario (leitura)
   - mcp-dmn.evaluate                      # auth_admissibility / auth_auto_approval / auth_sla
@@ -19,7 +24,7 @@ tools:                                    # ids EXATOS registrados pelos mcp_* s
   - mcp-cibseven.get_process_status       # status da instancia de autorizacao
   - mcp-memory.read_write                 # memoria episodica do caso (ADR-0002)
 autonomy_policy: ../../policies/autonomy
-autonomy_actions:                         # acoes REAIS da matriz L0-core exercidas por este fluxo (W4)
+autonomy_actions:                         # acoes REAIS da matriz L0-core exercidas por este fluxo
   - read_phi_data                         # leitura FHIR Patient/Coverage (mcp-fhir.*) — L3
   - query_decision_engine                 # DMN de autorizacao (mcp-dmn.evaluate) — L3
   - start_compliance_process              # SP-OP-AUTH-001 (mcp-cibseven.start_process) — L2
