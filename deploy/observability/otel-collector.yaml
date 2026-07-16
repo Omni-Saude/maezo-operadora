@@ -1,0 +1,79 @@
+# OTel Collector configuration — Maezo Operadora local dev stack (docker-compose,
+# profile: observability). Fixes B14 / T0.4: docker-compose.yml previously mounted a
+# nonexistent ./config/otel-collector.yaml (config/ only ever held a .gitkeep). This
+# file is the real config, now mounted from ./deploy/observability/otel-collector.yaml.
+#
+# Scope: LOCAL DEV ONLY. This is NOT the production config — prod/staging (K8s) uses
+# deploy/helm/maezo-tenant/templates/configmap-otel-collector.yaml (TLS + SigV4 to AMP,
+# X-Ray/ADOT for traces). Do not add remote-write / cloud endpoints here.
+#
+# Design constraint (no fabricated integrations): this compose file has no Jaeger/Tempo/
+# X-Ray service, so traces and logs are exported only to `debug` (stdout via
+# `docker compose logs otel-collector`) — never to an endpoint that doesn't exist in this
+# stack. Metrics are exported via the `prometheus` exporter, a pull endpoint scraped by
+# the `prometheus` service already defined in docker-compose.yml (see
+# deploy/observability/prometheus.yml, job `otel-collector-metrics`, port 8889).
+#
+# Port 8888 vs 8889: 8888 is the collector's OWN internal self-telemetry (process/pipeline
+# health — see `service.telemetry.metrics.address` below and prometheus.yml job
+# `otel-collector`); 8889 is the `prometheus` exporter, which serves metrics received
+# through the OTLP metrics pipeline below (i.e. metrics forwarded BY apps, if/when they
+# switch to metrics-via-OTLP). App metrics today are scraped by Prometheus directly from
+# maezo-app:8000 and maezo-workers:8001 (see prometheus.yml) — they do not currently
+# transit this collector.
+#
+# App traces: src/maezo/platform/observability.py reads OTEL_EXPORTER_OTLP_ENDPOINT and
+# sends spans here via OTLPSpanExporter (gRPC, insecure — dev only).
+#
+# health_check `path: /healthz` matches the docker-compose.yml healthcheck for this
+# service: `wget -qO- http://localhost:13133/healthz`.
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+    path: "/healthz"
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    timeout: 5s
+    send_batch_size: 512
+    send_batch_max_size: 1024
+
+exporters:
+  # Local debugging: dump received telemetry to stdout.
+  debug:
+    verbosity: basic
+
+  # Pull-based Prometheus exporter — scraped by the `prometheus` service (profile
+  # observability) via the `otel-collector-metrics` job in prometheus.yml.
+  prometheus:
+    endpoint: 0.0.0.0:8889
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [prometheus, debug]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug]
+  telemetry:
+    logs:
+      level: "info"
+    metrics:
+      address: 0.0.0.0:8888
