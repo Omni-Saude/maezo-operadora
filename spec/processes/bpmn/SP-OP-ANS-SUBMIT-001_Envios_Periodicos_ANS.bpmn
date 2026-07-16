@@ -44,7 +44,7 @@ Rafael/Gustavo, aplicado ao ato regulatorio vinculante em vez de a uma negativa.
 
 GATILHO (GAP-ANS-1, re-modelado): o start deste processo e um NONE start (Start_DespachoEnvio)
 que exige as variaveis JA seedadas. O cron per-report_type vive em SP-OP-ANS-CRON-001
-(src/maezo/processes/bpmn/SP-OP-ANS-CRON-001_Agendador_Envios_ANS.bpmn): um process definition
+(spec/processes/bpmn/SP-OP-ANS-CRON-001_Agendador_Envios_ANS.bpmn): um process definition
 por report_type, cada um com seu proprio TimerStartEvent (periodicidade propria — R/P1M mensal,
 R/P3M trimestral, R/P1Y anual; DRAFT/verify) que publica o FATO TIPADO `ans.cron_due` em
 `operadora.notifications.internal` (event-choreographed, ADR-0003 — ZERO call-activity no repo,
