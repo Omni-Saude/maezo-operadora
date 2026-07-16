@@ -34,6 +34,7 @@ Regras:
 | 0022 | MCP servers registram tools IN-PROCESS no boot; sem Deployments stdio/SSE out-of-process | Accepted |
 | 0023 | Politica de merge — main protegido com required status checks + strict up-to-date | Accepted |
 | 0024 | Idempotencia DURAVEL dos drivers inbound/resume reusa o padrao Postgres | Accepted |
+| 0025 | PEP ↔ Policy Unification — autonomy-matrix YAML loading + single action vocabulary (T1.8) | Proposed |
 
 Texto integral e racional estendido: `agent-platform-adrs.md` no projeto de arquitetura
 (serie AP-001..AP-012 mapeia 1:1 para 0001..0012 desta serie).
