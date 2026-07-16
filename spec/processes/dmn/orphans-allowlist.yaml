@@ -1,0 +1,64 @@
+# DMN decision ids under spec/processes/dmn/ that are not (yet) referenced by
+# any BPMN businessRuleTask camunda:decisionRef.
+#
+# `make validate-artifacts` (src/maezo/platform/validation/crossref.py) FAILS
+# CLOSED on any orphan decision id that is NOT listed here — this file is the
+# only way to keep a legitimate, reviewed orphan out of the gate. It is not a
+# way to silence a genuinely broken or dead DMN: adding an entry here is a
+# deliberate, disclosed exception (see the T2.1 PR body for the full list),
+# not a way to make a problem disappear quietly.
+#
+# Each entry needs a one-line justification. The two recurring legitimate
+# reasons observed in this tree:
+#   - "agent-consumed": the DMN is evaluated directly by an agent via
+#     mcp-dmn.evaluate (ADR-0012), not wired into a BPMN businessRuleTask.
+#   - "pending wiring": the decision table was drafted ahead of the BPMN
+#     process/branch that will eventually call it.
+#
+# format: mapping of decision id -> justification string.
+version: 1
+orphans:
+  carencia_check: >-
+    DRAFT synthetic carencia (waiting-period) rules; no SP-OP BPMN currently
+    evaluates carencia via a dedicated businessRuleTask at this granularity
+    (auth_admissibility's carencia_cumprida input is worker-precomputed) —
+    pending wiring.
+  dut_criteria_bariatrica: >-
+    Clinical DUT/ROL criteria for bariatric procedures; drafted ahead of the
+    SP-OP-AUTH-001 branch that will call it — pending wiring + medical/legal
+    review (docs/review-queue.md).
+  dut_criteria_oncologia_pet_ct: >-
+    Clinical DUT/ROL criteria for oncology PET-CT; drafted ahead of the
+    SP-OP-AUTH-001 branch that will call it — pending wiring + medical/legal
+    review (docs/review-queue.md).
+  dut_criteria_terapias_especiais: >-
+    Clinical DUT/ROL criteria for special therapies; drafted ahead of the
+    SP-OP-AUTH-001 branch that will call it — pending wiring + medical/legal
+    review (docs/review-queue.md).
+  dut_rol_coverage: >-
+    Rol-coverage lookup drafted ahead of the SP-OP-AUTH-001 branch that will
+    call it — pending wiring + medical/legal review (docs/review-queue.md).
+  lucas_billing_admissibility: >-
+    Agent-consumed: evaluated directly by the Lucas agent via
+    mcp-dmn.evaluate (agents/lucas/graph.py), not through a BPMN
+    businessRuleTask.
+  lucas_escalation_routing: >-
+    Agent-consumed: evaluated directly by the Lucas agent via
+    mcp-dmn.evaluate (agents/lucas/graph.py), not through a BPMN
+    businessRuleTask.
+  triage_redflag_adult: >-
+    Agent-consumed: evaluated directly by the Helena agent via
+    mcp-dmn.evaluate (ADR-0012) for informal triage red-flag screening, not
+    through a BPMN businessRuleTask — no SP-OP-TRIAGE-* process exists yet.
+  triage_redflag_gestante: >-
+    Agent-consumed: evaluated directly by the Helena agent via
+    mcp-dmn.evaluate (ADR-0012) for informal triage red-flag screening, not
+    through a BPMN businessRuleTask — no SP-OP-TRIAGE-* process exists yet.
+  triage_redflag_mental_health: >-
+    Agent-consumed: evaluated directly by the Helena agent via
+    mcp-dmn.evaluate (ADR-0012) for informal triage red-flag screening, not
+    through a BPMN businessRuleTask — no SP-OP-TRIAGE-* process exists yet.
+  triage_redflag_pediatric: >-
+    Agent-consumed: evaluated directly by the Helena agent via
+    mcp-dmn.evaluate (ADR-0012) for informal triage red-flag screening, not
+    through a BPMN businessRuleTask — no SP-OP-TRIAGE-* process exists yet.
