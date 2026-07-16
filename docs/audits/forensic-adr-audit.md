@@ -256,9 +256,9 @@ The per-ADR machine-readable output each verifier returned (claim → status →
         "evidence": [
           "src/maezo/tools/mcp_cibseven/server.py:28 — `NOTA: complete_user_task NÃO é exposto. User Tasks são completadas por humanos via Tasklist.`",
           "src/maezo/tools/mcp_cibseven/server.py:322 — class docstring repeats the constraint",
-          "src/maezo/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn:220-255 — `UT_AnaliseMedicoAuditor` User Task with SLA timer `BT_SlaAnalise` referencing `RN 259`",
-          "src/maezo/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn:250-254 — `bpmn:timerEventDefinition` with `sla_analise` DMN-driven duration (RN 259 regulatory SLA)",
-          "src/maezo/processes/bpmn/SP-OP-ESCALATION-001_Escalonamento_Humano_Universal.bpmn — `UT_TratarEscalonamento`, `UT_SupervisorAssume` User Tasks",
+          "spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn:220-255 — `UT_AnaliseMedicoAuditor` User Task with SLA timer `BT_SlaAnalise` referencing `RN 259`",
+          "spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn:250-254 — `bpmn:timerEventDefinition` with `sla_analise` DMN-driven duration (RN 259 regulatory SLA)",
+          "spec/processes/bpmn/SP-OP-ESCALATION-001_Escalonamento_Humano_Universal.bpmn — `UT_TratarEscalonamento`, `UT_SupervisorAssume` User Tasks",
           "src/maezo/tools/workers/auth.py:17-35 — `send_denial_notice` worker guards against denial without prior human User Task (`decisao_auditor=NEGAR`), raises `WorkerBpmnError` if absent",
           "tests/unit/runtime/test_harness.py::test_executor_deny_hard_does_not_execute_and_audits — `authorization_denial` is HARD denied, effect never executes",
           "tests/integration/test_runtime_resume.py::test_pep_deny_path_through_harness_is_audited — hard deny path verified end-to-end with audit record"
@@ -309,7 +309,7 @@ The per-ADR machine-readable output each verifier returned (claim → status →
           "src/maezo/tools/workers/harness.py:3-7 — `WorkerHarness` docstring: residual direction only; agent logic is never in the BPMN",
           "src/maezo/tools/workers/auth_analyze.py:25 — `o LLM nunca decide a regra` — comment in worker code",
           "src/maezo/agents/gustavo/graph.py:17 — `assess SEMPRE consulta as DMN deterministicas (ADR-0012). O LLM RACIOCINA sobre os resultados`",
-          "src/maezo/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn:165 — `BRT_SlaAnalise` Business Rule Task delegates SLA determination to DMN `auth_sla`, not agent"
+          "spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn:165 — `BRT_SlaAnalise` Business Rule Task delegates SLA determination to DMN `auth_sla`, not agent"
         ],
         "gap": "",
         "confidence": "verified-by-reading-code",
@@ -996,10 +996,10 @@ The per-ADR machine-readable output each verifier returned (claim → status →
         "claim": "Mechanism 2 — Mandatory human actions are implemented as BPMN User Tasks with timer+escalation; the process cannot advance to an adverse end-event without human completion",
         "status": "verified",
         "evidence": [
-          "src/maezo/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn:220-231 — UT_AnaliseMedicoAuditor User Task with candidateGroups medico-auditor; line 250-254 BT_SlaAnalise interruptive timer escalates to UT_CoordenacaoAssume",
-          "src/maezo/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn:267-272 — UT_CoordenacaoAssume User Task (escalation on SLA breach); line 335-340 UT_RegistrarParecerJunta",
-          "src/maezo/processes/bpmn/SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn:206-222 — UT_AnaliseRescisao User Task with timer escalation",
-          "src/maezo/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn:262-277 — UT_AnaliseReembolso; line 332-337 UT_RevisaoAuditorMedico",
+          "spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn:220-231 — UT_AnaliseMedicoAuditor User Task with candidateGroups medico-auditor; line 250-254 BT_SlaAnalise interruptive timer escalates to UT_CoordenacaoAssume",
+          "spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn:267-272 — UT_CoordenacaoAssume User Task (escalation on SLA breach); line 335-340 UT_RegistrarParecerJunta",
+          "spec/processes/bpmn/SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn:206-222 — UT_AnaliseRescisao User Task with timer escalation",
+          "spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn:262-277 — UT_AnaliseReembolso; line 332-337 UT_RevisaoAuditorMedico",
           "tests/integration/processes/test_no_denial_consolidated.py:456-478 — test_todo_terminal_adverso_e_human_gated() performs graph reachability analysis on all 9 BPMN bodies; proves no adverse end-event is reachable without crossing a human userTask",
           "tests/integration/processes/test_no_denial_consolidated.py:313-334 — test_registry_cobre_todo_bpmn_presente() ensures every BPMN body is registered; fail-closed",
           "tests/integration/processes/test_sp_op_auth_001.py:342-450 — test_invariant_nenhum_caminho_automatizado_produz_negativa() integration test against real CIB Seven engine proves End_NegadaAuditor never reached without UT human in history",
@@ -1019,10 +1019,10 @@ The per-ADR machine-readable output each verifier returned (claim → status →
           "src/maezo/gateway/credential_vault.py:164-192 — AgentCredentialView dataclass has no field or method referencing HumanCredentialPartition or SigningCredential; only service_credentials mapping",
           "src/maezo/gateway/credential_vault.py:343-351 — CredentialVault.agent_view() builds AgentCredentialView from service_credentials only; no reference to self._human_partition",
           "src/maezo/gateway/credential_vault.py:312-351 — CredentialVault._human_partition is private; agent_view() never passes it to returned view",
-          "tests/architecture/test_credential_separation.py:95-140 — test_s1_no_agent_module_reaches_human_partition() AST scan of all src/maezo/agents/**/*.py; fails if any imports credential_vault or references HumanCredentialPartition",
-          "tests/architecture/test_credential_separation.py:143-172 — test_s2_agent_view_type_exposes_no_human_credential_getter() introspects AgentCredentialView public members for 'signing'/'human'",
-          "tests/architecture/test_credential_separation.py:248-281 — test_s4_agent_view_factory_never_reads_human_partition() AST scan of agent_view() body",
-          "tests/architecture/test_credential_separation.py:338-361 — test_d4_agent_view_yields_no_human_credential() runtime probe via dir()/getattr/closure inspection",
+          "tests/architecture/test_credential_separation.py (pendente port — T3.x):95-140 — test_s1_no_agent_module_reaches_human_partition() AST scan of all src/maezo/agents/**/*.py; fails if any imports credential_vault or references HumanCredentialPartition",
+          "tests/architecture/test_credential_separation.py (pendente port — T3.x):143-172 — test_s2_agent_view_type_exposes_no_human_credential_getter() introspects AgentCredentialView public members for 'signing'/'human'",
+          "tests/architecture/test_credential_separation.py (pendente port — T3.x):248-281 — test_s4_agent_view_factory_never_reads_human_partition() AST scan of agent_view() body",
+          "tests/architecture/test_credential_separation.py (pendente port — T3.x):338-361 — test_d4_agent_view_yields_no_human_credential() runtime probe via dir()/getattr/closure inspection",
           "tests/unit/gateway/test_credential_vault.py:207-236 — test_agent_view_never_exposes_signing_canary_anywhere() exhaustive reachability traversal with canary handle"
         ],
         "gap": "",
@@ -1035,7 +1035,7 @@ The per-ADR machine-readable output each verifier returned (claim → status →
         "evidence": [
           "src/maezo/gateway/credential_vault.py:218-285 — HumanCredentialPartition.get_signing_credential(): guards in order: None principal (line 238-240), is_human=False (line 243-249), missing audit group (line 252-258), tenant mismatch (line 267-271), unprovisioned credential (line 274-280); return credential only at line 285 after all guards",
           "src/maezo/gateway/credential_vault.py:113-118 — AUDITOR_GROUPS frozenset: medico-auditor, coordenacao-auditoria-medica, junta-medica",
-          "tests/architecture/test_credential_separation.py:175-245 — test_s3_retrieval_is_fail_closed_deny_guards_return() AST proves raise statements precede the single return credential",
+          "tests/architecture/test_credential_separation.py (pendente port — T3.x):175-245 — test_s3_retrieval_is_fail_closed_deny_guards_return() AST proves raise statements precede the single return credential",
           "tests/unit/gateway/test_credential_vault.py:253-270 — test_agent_principal_denied_and_audited()",
           "tests/unit/gateway/test_credential_vault.py:273-305 — test_non_human_with_auditor_group_denied_by_is_human_gate() isolates is_human gate specifically",
           "tests/unit/gateway/test_credential_vault.py:308-316 — test_none_principal_default_deny_and_audited()",
@@ -1071,7 +1071,7 @@ The per-ADR machine-readable output each verifier returned (claim → status →
           "src/maezo/gateway/credential_vault.py:143-161 — SigningCredential.__repr__ redacts handle: '<redacted>'",
           "tests/unit/gateway/test_credential_vault.py:253-270 — test_agent_principal_denied_and_audited(): asserts SYNTH_SIGNING_HANDLE not in exc_info.value, not in rec.decision_basis, not in rec.input_hash",
           "tests/unit/gateway/test_credential_vault.py:406-413 — test_signing_credential_repr_is_redacted(): asserts handle not in repr(cred)",
-          "tests/architecture/test_credential_separation.py:298-316 — test_d1_agent_principal_denied_and_refusal_audited(): runtime proof of audit emission and zero material leak"
+          "tests/architecture/test_credential_separation.py (pendente port — T3.x):298-316 — test_d1_agent_principal_denied_and_refusal_audited(): runtime proof of audit emission and zero material leak"
         ],
         "gap": "",
         "confidence": "verified-by-reading-code",
@@ -1175,7 +1175,7 @@ The per-ADR machine-readable output each verifier returned (claim → status →
           "tests/integration/processes/test_no_denial_consolidated.py:1-62 — docstring explicitly states 'ENGINE-FREE (roda no lane rapido)'; uses only xml.etree.ElementTree",
           "tests/integration/processes/test_no_denial_consolidated.py:313-334 — fail-closed guard: new BPMN without registry entry turns test RED",
           "tests/integration/processes/test_no_denial_consolidated.py:400-438 — exhaustive classification: every end-event in every body must be in ADVERSE|BENIGN|NEUTRAL",
-          "src/maezo/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn — BPMN file exists with correct structure"
+          "spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn — BPMN file exists with correct structure"
         ],
         "gap": "",
         "confidence": "verified-by-reading-code",
@@ -1194,10 +1194,10 @@ The per-ADR machine-readable output each verifier returned (claim → status →
           "src/maezo/gateway/phi_zone.py:93-115 — PhiZoneGateway.scrub_result() enforces pseudonymization for consumer_zone='general'",
           "src/maezo/tools/registry.py:179-211 — ToolRegistry._apply_phi_zone() called on every handler output before return; raises RuntimeError if phi_gateway is absent when general consumer requests phi_fields (fail-closed)",
           "src/maezo/tools/registry.py:100-172 — ToolRegistry.invoke() always calls _apply_phi_zone() as the sole exit path of a tool handler",
-          "tests/architecture/test_phi_pseudonymization_invariant.py::test_d1_raw_phi_pseudonymized_for_general_consumer",
-          "tests/architecture/test_phi_pseudonymization_invariant.py::test_s1_invoke_calls_phi_zone_seam_on_handler_output — AST verifies _apply_phi_zone() is called before return",
-          "tests/architecture/test_phi_pseudonymization_invariant.py::test_s3_registry_requires_gateway_for_general_phi_consumer",
-          "tests/architecture/test_phi_pseudonymization_invariant.py::test_d4_no_gateway_general_consumer_is_fail_closed"
+          "tests/architecture/test_phi_pseudonymization_invariant.py (pendente port — T3.x)::test_d1_raw_phi_pseudonymized_for_general_consumer",
+          "tests/architecture/test_phi_pseudonymization_invariant.py (pendente port — T3.x)::test_s1_invoke_calls_phi_zone_seam_on_handler_output — AST verifies _apply_phi_zone() is called before return",
+          "tests/architecture/test_phi_pseudonymization_invariant.py (pendente port — T3.x)::test_s3_registry_requires_gateway_for_general_phi_consumer",
+          "tests/architecture/test_phi_pseudonymization_invariant.py (pendente port — T3.x)::test_d4_no_gateway_general_consumer_is_fail_closed"
         ],
         "gap": "",
         "confidence": "verified-by-reading-code",
@@ -1273,7 +1273,7 @@ The per-ADR machine-readable output each verifier returned (claim → status →
         "evidence": [
           "src/maezo/tools/mcp_memory/server.py:39 — PHI_FIELDS = [] declared at class level; fhir_patient_id noted as internal FHIR ID (not CPF)",
           "src/maezo/tools/mcp_memory/server.py:37 — 'note e assumida pseudonimizada pelo caller' (note is assumed pseudonymized by caller)",
-          "tests/architecture/test_phi_pseudonymization_invariant.py::test_d3_memory_write_routes_through_seam — proves seam applies when phi_fields declared non-empty"
+          "tests/architecture/test_phi_pseudonymization_invariant.py (pendente port — T3.x)::test_d3_memory_write_routes_through_seam — proves seam applies when phi_fields declared non-empty"
         ],
         "gap": "The ADR guarantee ('memoria semantica armazena derivados minimizados') relies on a caller convention — the `note` field must arrive pre-pseudonymized from the agent. This is a contractual claim enforced by documentation comment, not by code. PHI_FIELDS=[] means the registry will NOT scrub `note` content if a general-zone consumer passes raw PHI in the `note` argument. There is no runtime enforcement that the `note` parameter is already pseudonymized before storage. The guarantee is convention, not structural.",
         "confidence": "verified-by-reading-code",
@@ -1311,7 +1311,7 @@ The per-ADR machine-readable output each verifier returned (claim → status →
         "claim": "No module outside the gateway/registry can call PHI server read methods directly (bypassing the pseudonymization seam)",
         "status": "verified",
         "evidence": [
-          "tests/architecture/test_phi_pseudonymization_invariant.py::test_s2_no_module_calls_phi_server_read_methods_directly — AST grep over all src/maezo/*.py verifies no direct calls to read_patient, search_patient, read_coverage, search_coverage, retrieve_episodic, semantic_search outside mcp_fhir/server.py and mcp_memory/server.py"
+          "tests/architecture/test_phi_pseudonymization_invariant.py (pendente port — T3.x)::test_s2_no_module_calls_phi_server_read_methods_directly — AST grep over all src/maezo/*.py verifies no direct calls to read_patient, search_patient, read_coverage, search_coverage, retrieve_episodic, semantic_search outside mcp_fhir/server.py and mcp_memory/server.py"
         ],
         "gap": "",
         "confidence": "verified-by-reading-code",
@@ -1323,7 +1323,7 @@ The per-ADR machine-readable output each verifier returned (claim → status →
         "status": "verified",
         "evidence": [
           "src/maezo/tools/registry.py:96-101 — invoke() signature has consumer_zone defaulting to GENERAL_ZONE",
-          "tests/architecture/test_phi_pseudonymization_invariant.py::test_d2b_default_consumer_zone_is_general_fail_closed"
+          "tests/architecture/test_phi_pseudonymization_invariant.py (pendente port — T3.x)::test_d2b_default_consumer_zone_is_general_fail_closed"
         ],
         "gap": "",
         "confidence": "verified-by-reading-code",
@@ -1434,8 +1434,8 @@ The per-ADR machine-readable output each verifier returned (claim → status →
         "claim": "Compliance paths (SP-OP BPMN processes) additionally materialise a BPMN process instance in CIB Seven — second audit trail in the engine",
         "status": "partial",
         "evidence": [
-          "src/maezo/processes/bpmn/SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn:284 — worker documentation references ADR-0007 audit trail recording responsavel_id",
-          "src/maezo/processes/bpmn/SP-OP-ANS-SUBMIT-001_Envios_Periodicos_ANS.bpmn:255 — worker documentation: `carrega revisor_id + data_envio na trilha de auditoria`",
+          "spec/processes/bpmn/SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn:284 — worker documentation references ADR-0007 audit trail recording responsavel_id",
+          "spec/processes/bpmn/SP-OP-ANS-SUBMIT-001_Envios_Periodicos_ANS.bpmn:255 — worker documentation: `carrega revisor_id + data_envio na trilha de auditoria`",
           "src/maezo/tools/workers/auth_analyze.py:45 — worker operates as external service task completing BPMN process instances",
           "src/maezo/platform/console/app.py:460-470 — complete_task() calls tasklist_client.complete_task() to advance BPMN User Task in engine"
         ],
@@ -1740,7 +1740,7 @@ The per-ADR machine-readable output each verifier returned (claim → status →
           "grep of src/maezo/agents/ and src/maezo/ for 'import anthropic', 'from anthropic', 'import openai', 'langchain_anthropic' returned zero results — rule is currently satisfied",
           "tests/unit/runtime/test_inference.py covers FakeProvider, AnthropicProvider, routing isolation — but tests do NOT scan for forbidden imports"
         ],
-        "gap": "The 'no SDK imports outside inference.py' invariant is documented as policy in AGENTS.md and CONTRIBUTING.md but there is no automated AST-level enforcement test (contrast with tests/architecture/test_credential_separation.py and test_phi_pseudonymization_invariant.py which use AST scanning). Absence of current violations confirmed by grep but not enforced by CI as a structural invariant.",
+        "gap": "The 'no SDK imports outside inference.py' invariant is documented as policy in AGENTS.md and CONTRIBUTING.md but there is no automated AST-level enforcement test (contrast with tests/architecture/test_credential_separation.py (pendente port — T3.x) and test_phi_pseudonymization_invariant.py which use AST scanning). Absence of current violations confirmed by grep but not enforced by CI as a structural invariant.",
         "confidence": "verified-by-reading-code",
         "risk": "functional",
         "cross_refs": [
@@ -2205,10 +2205,10 @@ The per-ADR machine-readable output each verifier returned (claim → status →
         "status": "verified",
         "evidence": [
           "src/maezo/tools/mcp_dmn/server.py:62-118 — CibSevenDmnTransport posts to /decision-definition/key/{key}/evaluate",
-          "src/maezo/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn:69-77 — BRT_Admissibilidade with camunda:decisionRef='auth_admissibility'",
-          "src/maezo/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn:175-182 — BRT_AutoApproval with camunda:decisionRef='auth_auto_approval'",
+          "spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn:69-77 — BRT_Admissibilidade with camunda:decisionRef='auth_admissibility'",
+          "spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn:175-182 — BRT_AutoApproval with camunda:decisionRef='auth_auto_approval'",
           "src/maezo/agents/rafael/graph.py:73-80 — DMN_ADMISSIBILITY='auth_admissibility', TOOL_DMN='mcp-dmn.evaluate'",
-          "src/maezo/processes/bpmn/SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn:134-135 — camunda:decisionRef='glosa_classification'",
+          "spec/processes/bpmn/SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn:134-135 — camunda:decisionRef='glosa_classification'",
           "src/maezo/agents/marina/graph.py:92 — DMN_GLOSA_CLASSIFICATION='glosa_classification'",
           "tests/unit/tools/test_mcp_dmn.py:76-96 — test_register_tools_adds_to_registry verifies registration path"
         ],
@@ -2240,7 +2240,7 @@ The per-ADR machine-readable output each verifier returned (claim → status →
         "status": "partial",
         "evidence": [
           ".github/workflows/ci.yml:53-72 — 'artifact-validation' job runs 'make validate-artifacts' as a blocker on every PR",
-          "Makefile:22-23 — validate-artifacts: python -m maezo.platform.validation.cli src/maezo/processes src/maezo/policies src/maezo/agents",
+          "Makefile:22-23 — validate-artifacts: python -m maezo.platform.validation.cli spec/processes src/maezo/policies src/maezo/agents",
           "src/maezo/platform/validation/cli.py:52-58 — cli globs ALL *.dmn files in the dmn/ directory and calls dmn.validate_file on each",
           "src/maezo/platform/validation/dmn.py:60-178 — validates hitPolicy, typeRef, unique ids, historyTimeToLive, well-formedness",
           "tests/unit/validation/test_dmn.py:17-26 — parametrized test covers only 9 of 33 DMN files in _REPO_DMN_FILES"
@@ -2254,10 +2254,10 @@ The per-ADR machine-readable output each verifier returned (claim → status →
         "claim": "Payer-side DMN content (DUT/ROL/carencia) and ported hospital content (glosa, elegibilidade) are present in the repository",
         "status": "partial",
         "evidence": [
-          "src/maezo/processes/dmn/dut_rol_coverage.dmn — 33 DMN files total; dut_rol_coverage.dmn, carencia_check.dmn, dut_criteria_bariatrica.dmn, dut_criteria_oncologia_pet_ct.dmn, dut_criteria_terapias_especiais.dmn present",
-          "src/maezo/processes/dmn/glosa_classification.dmn, glosa_reason_normalization.dmn, glosa_triage.dmn — ported glosa content",
-          "src/maezo/processes/dmn/dut_rol_coverage.dmn:9 — 'status: DRAFT — conteudo sintetico/representativo. REQUER revisao humana antes de qualquer deploy'",
-          "src/maezo/processes/dmn/carencia_check.dmn:9 — 'status: DRAFT — prazos de carencia SINTETICOS'"
+          "spec/processes/dmn/dut_rol_coverage.dmn — 33 DMN files total; dut_rol_coverage.dmn, carencia_check.dmn, dut_criteria_bariatrica.dmn, dut_criteria_oncologia_pet_ct.dmn, dut_criteria_terapias_especiais.dmn present",
+          "spec/processes/dmn/glosa_classification.dmn, glosa_reason_normalization.dmn, glosa_triage.dmn — ported glosa content",
+          "spec/processes/dmn/dut_rol_coverage.dmn:9 — 'status: DRAFT — conteudo sintetico/representativo. REQUER revisao humana antes de qualquer deploy'",
+          "spec/processes/dmn/carencia_check.dmn:9 — 'status: DRAFT — prazos de carencia SINTETICOS'"
         ],
         "gap": "ALL 33 DMN files are marked DRAFT with synthetic content requiring SME (human expert) review before any production deploy. The payer-side tables (DUT/ROL/carencia) are not wired into any agent graph or BPMN businessRuleTask — they are orphan artifacts with no consuming code path. The ADR states this content needs 'porte com SME', which is not yet complete.",
         "confidence": "verified-by-reading-code",
@@ -2300,7 +2300,7 @@ The per-ADR machine-readable output each verifier returned (claim → status →
           "src/maezo/tools/mcp_dmn/server.py:21 — docstring 'PHI fields: nenhum — inputs sao IDs/categorias, nunca dados pessoais'",
           "src/maezo/tools/mcp_dmn/server.py:161 — PHI_FIELDS: list[str] = [] (empty, declared no PHI)",
           "src/maezo/agents/rafael/graph.py:105-108 — 'tudo aqui ja e pseudonimizado (Zona Geral, ADR-0006)'",
-          "src/maezo/processes/dmn/carencia_check.dmn:29 — 'Inputs (pre-computados por worker deterministico, nunca por LLM)'"
+          "spec/processes/dmn/carencia_check.dmn:29 — 'Inputs (pre-computados por worker deterministico, nunca por LLM)'"
         ],
         "gap": "No automated test validates that variable dicts passed to mcp-dmn.evaluate at call sites contain no PHI fields. The empty PHI_FIELDS declaration prevents pseudonymization of DMN outputs (correct) but does not enforce that callers cannot pass PHI in the variables dict. This is enforcement-by-convention only.",
         "confidence": "verified-by-reading-code",
@@ -3107,8 +3107,8 @@ The per-ADR machine-readable output each verifier returned (claim → status →
         "status": "verified",
         "evidence": [
           "src/maezo/tools/registry.py:96-172 — ToolRegistry.invoke is the only dispatcher; handlers are closures registered via register_tools, unreachable except through registry.invoke",
-          "tests/architecture/test_phi_pseudonymization_invariant.py::test_s1_invoke_calls_phi_zone_seam_on_handler_output — AST check verifies _apply_phi_zone is called inside invoke and return result comes after",
-          "tests/architecture/test_phi_pseudonymization_invariant.py::test_s2_no_module_calls_phi_server_read_methods_directly — AST grep over src/maezo confirms no module outside mcp_fhir/mcp_memory servers calls read_patient/retrieve_episodic etc. with kwargs"
+          "tests/architecture/test_phi_pseudonymization_invariant.py (pendente port — T3.x)::test_s1_invoke_calls_phi_zone_seam_on_handler_output — AST check verifies _apply_phi_zone is called inside invoke and return result comes after",
+          "tests/architecture/test_phi_pseudonymization_invariant.py (pendente port — T3.x)::test_s2_no_module_calls_phi_server_read_methods_directly — AST grep over src/maezo confirms no module outside mcp_fhir/mcp_memory servers calls read_patient/retrieve_episodic etc. with kwargs"
         ],
         "gap": "",
         "confidence": "verified-by-reading-code",
@@ -3122,8 +3122,8 @@ The per-ADR machine-readable output each verifier returned (claim → status →
           "src/maezo/tools/registry.py:149-152 — result = self._apply_phi_zone(tool_def, result, consumer_zone=consumer_zone, tenant=call.tenant)",
           "src/maezo/tools/registry.py:179-211 — _apply_phi_zone: if phi_fields and consumer_zone == GENERAL_ZONE: delegates to self._phi_gateway.scrub_result",
           "src/maezo/tools/mcp_fhir/server.py:161-162 — _PATIENT_PHI_FIELDS = ['name','birthDate','telecom','address','identifier']; passed to ToolDefinition at lines 258/267/275",
-          "tests/architecture/test_phi_pseudonymization_invariant.py::test_d1_raw_phi_pseudonymized_for_general_consumer — CPF/name/phone tokens appear as [NAME_*/[CPF_*, not raw, for general consumer",
-          "tests/architecture/test_phi_pseudonymization_invariant.py::test_d2_phi_zone_consumer_receives_raw — phi consumer gets raw values"
+          "tests/architecture/test_phi_pseudonymization_invariant.py (pendente port — T3.x)::test_d1_raw_phi_pseudonymized_for_general_consumer — CPF/name/phone tokens appear as [NAME_*/[CPF_*, not raw, for general consumer",
+          "tests/architecture/test_phi_pseudonymization_invariant.py (pendente port — T3.x)::test_d2_phi_zone_consumer_receives_raw — phi consumer gets raw values"
         ],
         "gap": "",
         "confidence": "verified-by-reading-code",
@@ -3138,7 +3138,7 @@ The per-ADR machine-readable output each verifier returned (claim → status →
         "evidence": [
           "src/maezo/tools/registry.py:102 — async def invoke(self, call: ToolCall, *, payload=None, consumer_zone: str = GENERAL_ZONE) -> Any",
           "src/maezo/gateway/phi_zone.py:60 — GENERAL_ZONE = 'general'",
-          "tests/architecture/test_phi_pseudonymization_invariant.py::test_d2b_default_consumer_zone_is_general_fail_closed — invoke without consumer_zone arg produces no raw PHI in output"
+          "tests/architecture/test_phi_pseudonymization_invariant.py (pendente port — T3.x)::test_d2b_default_consumer_zone_is_general_fail_closed — invoke without consumer_zone arg produces no raw PHI in output"
         ],
         "gap": "",
         "confidence": "verified-by-reading-code",
@@ -3149,8 +3149,8 @@ The per-ADR machine-readable output each verifier returned (claim → status →
         "status": "verified",
         "evidence": [
           "src/maezo/tools/registry.py:200-205 — if self._phi_gateway is None: raise RuntimeError(f'tool `{tool_def.name}` declara phi_fields ... fail-closed, ADR-0006')",
-          "tests/architecture/test_phi_pseudonymization_invariant.py::test_d4_no_gateway_general_consumer_is_fail_closed — pytest.raises(RuntimeError, match='phi_gateway')",
-          "tests/architecture/test_phi_pseudonymization_invariant.py::test_s3_registry_requires_gateway_for_general_phi_consumer — direct call to _apply_phi_zone without gateway raises RuntimeError(match='fail-closed')",
+          "tests/architecture/test_phi_pseudonymization_invariant.py (pendente port — T3.x)::test_d4_no_gateway_general_consumer_is_fail_closed — pytest.raises(RuntimeError, match='phi_gateway')",
+          "tests/architecture/test_phi_pseudonymization_invariant.py (pendente port — T3.x)::test_s3_registry_requires_gateway_for_general_phi_consumer — direct call to _apply_phi_zone without gateway raises RuntimeError(match='fail-closed')",
           "src/maezo/runtime/agent_runtime/service.py:464-468 — service refuses to build agent for general zone without phi_gateway (pre-checks before build_tool_invoker call)"
         ],
         "gap": "",
@@ -3391,8 +3391,8 @@ The per-ADR machine-readable output each verifier returned (claim → status →
         "claim": "Part 1 — BPMN and agent routing types contain no adverse value (deny/negar/aceitar-glosa/indeferir). Adverse effect is inexpressible through an automated path; it only exists as a value a User Task can set (e.g. decisao_auditor=NEGAR, decisao_contas=ACEITAR_GLOSA).",
         "status": "verified",
         "evidence": [
-          "src/maezo/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn — no service-task sequence flow leads to End_NegadaAuditor without passing through UT_AnaliseMedicoAuditor/UT_CoordenacaoAssume/UT_RegistrarParecerJunta (confirmed by test_no_denial_consolidated.py:reachable_without_human_completion)",
-          "src/maezo/processes/bpmn/SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn — End_GlosaAceitaHumano only reachable after UT_AnalistaContas/UT_CoordenacaoContasAssume (same proof)",
+          "spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn — no service-task sequence flow leads to End_NegadaAuditor without passing through UT_AnaliseMedicoAuditor/UT_CoordenacaoAssume/UT_RegistrarParecerJunta (confirmed by test_no_denial_consolidated.py:reachable_without_human_completion)",
+          "spec/processes/bpmn/SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn — End_GlosaAceitaHumano only reachable after UT_AnalistaContas/UT_CoordenacaoContasAssume (same proof)",
           "tests/integration/processes/test_no_denial_consolidated.py:456–478 — test_todo_terminal_adverso_e_human_gated performs exact reachability proof on all 9 BPMN bodies; any new body without a human gate fails CI",
           "tests/integration/processes/test_no_denial_consolidated.py:89–127 — _ADVERSE_ENDS registry covers all 9 bodies, including the 5 in-flight (RECURSO, NIP, CANCEL, REEMBOLSO, ANS-SUBMIT)",
           "tests/integration/processes/test_no_denial_consolidated.py:313–334 — test_registry_cobre_todo_bpmn_presente fails CI if a new BPMN body lacks classification",
@@ -3407,8 +3407,8 @@ The per-ADR machine-readable output each verifier returned (claim → status →
         "claim": "Part 2 — No DMN decisionTable for any negativa-like process has an output that confirms/accepts/denies the adverse effect. DMNs only signal candidates and route (ADR-0012). All DMN typeRefs are in {string, boolean, integer, long, double, date}; 'number' is forbidden; BRL in double; SLA in ISO 8601 string; camunda:historyTimeToLive is namespaced.",
         "status": "verified",
         "evidence": [
-          "src/maezo/processes/dmn/glosa_triage.dmn:25–96 — output domain is exactly {SEM_GLOSA, RECORRER, ANALISE_HUMANA}; no ACEITAR/CONFIRMAR output exists in any rule; all typeRefs are 'string' or 'boolean'; camunda:historyTimeToLive='P180D' present",
-          "src/maezo/processes/dmn/auth_admissibility.dmn:17–80 — output domain {NAO_REQUER, SEGUE_ANALISE, PENDENTE_DOCUMENTACAO}; comment on line 11 explicitly states 'NAO possui saida de negativa'; inelegibility and waiting-period are SEGUE_ANALISE (human); camunda:historyTimeToLive='P180D' present",
+          "spec/processes/dmn/glosa_triage.dmn:25–96 — output domain is exactly {SEM_GLOSA, RECORRER, ANALISE_HUMANA}; no ACEITAR/CONFIRMAR output exists in any rule; all typeRefs are 'string' or 'boolean'; camunda:historyTimeToLive='P180D' present",
+          "spec/processes/dmn/auth_admissibility.dmn:17–80 — output domain {NAO_REQUER, SEGUE_ANALISE, PENDENTE_DOCUMENTACAO}; comment on line 11 explicitly states 'NAO possui saida de negativa'; inelegibility and waiting-period are SEGUE_ANALISE (human); camunda:historyTimeToLive='P180D' present",
           "tests/integration/processes/test_sp_op_contas_001.py:850–882 — test_glosa_triage_sem_saida_de_aceite: static XML parse verifies output domain == {SEM_GLOSA, RECORRER, ANALISE_HUMANA} and last row (catch-all) == ANALISE_HUMANA",
           "tests/integration/processes/test_sp_op_contas_001.py:885–901 — test_dmn_typeref_allowlist: static XML parse verifies all 4 CONTAS DMNs use only allowed typeRefs and never 'number'",
           "tests/integration/processes/test_sp_op_auth_001.py:760–791 — test_dmn_auth_sla_urgencia: indirectly verifies auth DMNs resolve correctly via real engine timer jobs"
@@ -3424,8 +3424,8 @@ The per-ADR machine-readable output each verifier returned (claim → status →
         "claim": "Part 3 — Fail-safe to a human User Task (closed allowlist). All ambiguity, apparent ineligibility/waiting-period, SLA expiry, fraud signal, and DMN unavailability route to a human User Task. Each negativa-like table has a catch-all (last row) mapping to the conservative human path (ANALISE_HUMANA). No permissive default route that bypasses the human. SLA breach causes human coordination to assume — never auto-pass/auto-accept by timeout (explicit inversion of the Task_AutoApprove/48h anti-pattern).",
         "status": "verified",
         "evidence": [
-          "src/maezo/processes/dmn/glosa_triage.dmn:84–93 — rule id='r_catchall': all inputs '-' (wildcard), output 'ANALISE_HUMANA'; explicitly labeled 'Catch-all FAIL-SAFE'; it is the last rule in hitPolicy=FIRST",
-          "src/maezo/processes/dmn/auth_admissibility.dmn:69–78 — rule id='r5': catch-all outputs SEGUE_ANALISE (human analysis), is the last rule in hitPolicy=FIRST",
+          "spec/processes/dmn/glosa_triage.dmn:84–93 — rule id='r_catchall': all inputs '-' (wildcard), output 'ANALISE_HUMANA'; explicitly labeled 'Catch-all FAIL-SAFE'; it is the last rule in hitPolicy=FIRST",
+          "spec/processes/dmn/auth_admissibility.dmn:69–78 — rule id='r5': catch-all outputs SEGUE_ANALISE (human analysis), is the last rule in hitPolicy=FIRST",
           "tests/integration/processes/test_sp_op_auth_001.py:592–613 — test_inelegibilidade_roteia_para_humano_nao_nega: beneficiario_ativo=false routes to UT_AnaliseMedicoAuditor not End_NegadaAuditor (real engine)",
           "tests/integration/processes/test_sp_op_auth_001.py:730–758 — test_timer_sla_estourado_coordenacao_assume: SLA breach cancels UT_AnaliseMedicoAuditor and creates UT_CoordenacaoAssume (human coordination), NOT auto-denial (real engine)",
           "tests/integration/processes/test_sp_op_contas_001.py:756–785 — test_timer_sla_estourado_coordenacao_assume: SLA breach creates UT_CoordenacaoContasAssume, asserts End_GlosaAceitaHumano not in ended (no auto-accept by timeout)",
@@ -3513,8 +3513,8 @@ The per-ADR machine-readable output each verifier returned (claim → status →
         "evidence": [
           "src/maezo/tools/workers/auth.py:69,264–293 — ERR_AUTH_DENIAL_NOT_HUMAN guard with decisao_auditor check and mandatory fields",
           "src/maezo/tools/workers/contas.py:86,351–382 — ERR_GLOSA_ACCEPT_NOT_HUMAN guard with decisao_contas check and mandatory fields (analista_id, justificativa, codigo, valor)",
-          "src/maezo/processes/dmn/glosa_triage.dmn:44–93 — five rules, output domain {SEM_GLOSA, RECORRER, ANALISE_HUMANA}, catch-all='ANALISE_HUMANA' as last rule",
-          "src/maezo/processes/dmn/auth_admissibility.dmn:33–78 — five rules, output domain {NAO_REQUER, SEGUE_ANALISE, PENDENTE_DOCUMENTACAO}, no deny output",
+          "spec/processes/dmn/glosa_triage.dmn:44–93 — five rules, output domain {SEM_GLOSA, RECORRER, ANALISE_HUMANA}, catch-all='ANALISE_HUMANA' as last rule",
+          "spec/processes/dmn/auth_admissibility.dmn:33–78 — five rules, output domain {NAO_REQUER, SEGUE_ANALISE, PENDENTE_DOCUMENTACAO}, no deny output",
           "tests/integration/processes/test_sp_op_auth_001.py:1–993 — full suite with pytestmark=integration; invariant test covers 5 combinations against real engine",
           "tests/integration/processes/test_sp_op_contas_001.py:1–925 — full suite with pytestmark=integration; invariant sweeps 48 combinations; static DMN shape tests included"
         ],
@@ -3535,11 +3535,11 @@ The per-ADR machine-readable output each verifier returned (claim → status →
           "src/maezo/tools/workers/nip.py:83,277–298 — ERR_NIP_NEGATIVA_NOT_HUMAN guard in submit_response; guards MANTER_NEGATIVA with fundamentacao_regulatoria, referencia_negativa_original, revisor_id",
           "src/maezo/tools/workers/cancel.py:92 — ERR_CANCELLATION_NOT_HUMAN declared; guards send_cancellation_notice",
           "src/maezo/tools/workers/reembolso.py:90 — ERR_REEMBOLSO_DENIAL_NOT_HUMAN declared; guards send_reembolso_denial",
-          "src/maezo/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn — file present",
-          "src/maezo/processes/bpmn/SP-OP-NIP-001_Resposta_NIP.bpmn — file present",
-          "src/maezo/processes/bpmn/SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn — file present",
-          "src/maezo/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn — file present",
-          "src/maezo/processes/bpmn/SP-OP-ANS-SUBMIT-001_Envios_Periodicos_ANS.bpmn — file present",
+          "spec/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn — file present",
+          "spec/processes/bpmn/SP-OP-NIP-001_Resposta_NIP.bpmn — file present",
+          "spec/processes/bpmn/SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn — file present",
+          "spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn — file present",
+          "spec/processes/bpmn/SP-OP-ANS-SUBMIT-001_Envios_Periodicos_ANS.bpmn — file present",
           "tests/integration/processes/test_sp_op_recurso_001.py:345 — test_nenhum_caminho_automatizado_produz_desistencia exists with _assert_no_desistencia_without_human_task helper",
           "tests/integration/processes/test_sp_op_nip_001.py:320 — test_manter_negativa_so_via_user_task_humana exists",
           "tests/integration/processes/test_sp_op_cancel_001.py:328 — test_nenhum_caminho_automatizado_rescinde_contrato exists",

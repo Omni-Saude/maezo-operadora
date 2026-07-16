@@ -1,7 +1,7 @@
 # Contrato — SP-OP-RECURSO-001 (Recurso de Glosa)
 
 **Status:** DRAFT (v0.1.0) — `DRAFT — requires human review before any deploy` (docs/review-queue.md)
-**Fase:** 2 (Wave A, §4-bis-F sync artifact) · **BPMN:** `src/maezo/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn` (autorado em wave posterior contra este contrato)
+**Fase:** 2 (Wave A, §4-bis-F sync artifact) · **BPMN:** `spec/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn` (autorado em wave posterior contra este contrato)
 **Negativa-like:** SIM — `authorization_denial`-class L0 hard. Desistir/não-recorrer = aceitar a glosa contra o prestador. Aplica o padrão estrutural no-denial de cinco partes (§4-bis-F).
 **Gatilho regulatorio:** RN 424/2017 (recurso/junta médica — prazo recursal: **DRAFT/verify**), RN 305/2016 e RN 501/2022 (padrão TISS / fluxo de glosa e recurso: **DRAFT/verify**), Lei 9.656/1998 art. 18 (relação operadora-prestador). Todas as citações **DRAFT/verify com jurídico/regulatório** — RN podem ter sido consolidadas/substituídas (R2).
 **Consome:** uma glosa CONFIRMADA produzida por SP-OP-CONTAS-001 (handoff `operadora.contas.start_recurso` / delegação A2A a Marina). Depende do contrato de CONTAS, não do seu BPMN (§4-bis-F).

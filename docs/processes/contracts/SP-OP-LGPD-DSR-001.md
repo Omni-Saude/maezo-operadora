@@ -1,7 +1,7 @@
 # Contrato — SP-OP-LGPD-DSR-001 (Direitos do Titular — LGPD)
 
 **Status:** DRAFT (v0.1.0) — `DRAFT — requires human review before any deploy` (docs/review-queue.md)
-**Fase:** 1 · **BPMN:** `src/maezo/processes/bpmn/SP-OP-LGPD-DSR-001_Direitos_do_Titular.bpmn`
+**Fase:** 1 · **BPMN:** `spec/processes/bpmn/SP-OP-LGPD-DSR-001_Direitos_do_Titular.bpmn`
 **Gatilho regulatorio:** LGPD (Lei 13.709/2018) art. 18 (direitos do titular), art. 19, II (15 dias), art. 11 (dados de saude = sensiveis). Retencao legal de prontuario (Lei 13.787/2018/CFM — **DRAFT/verify**) pode impedir eliminacao.
 
 ## Invariantes

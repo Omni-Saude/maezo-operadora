@@ -1,7 +1,7 @@
 # BPMN Process Completeness — Verification Findings
 
 > **Scope.** Verify whether any BPMN **process or subprocess** is missing from
-> `src/maezo/processes/bpmn/`, by reconciling the actual `.bpmn` definitions against the
+> `spec/processes/bpmn/`, by reconciling the actual `.bpmn` definitions against the
 > authoritative catalog (`docs/processes/catalog.md`) and the runtime allowlist
 > (`KNOWN_PROCESS_KEYS`). Code is ground truth. Generated 2026-06-14, branch `main`.
 > Companion to `docs/audits/forensic-adr-audit.md`.
@@ -19,7 +19,7 @@
 
 ## 1. Top-level processes — 3-way reconciliation
 
-Catalog (`docs/processes/catalog.md:9-23`) ↔ BPMN files (`src/maezo/processes/bpmn/`, all
+Catalog (`docs/processes/catalog.md:9-23`) ↔ BPMN files (`spec/processes/bpmn/`, all
 `isExecutable="true"`) ↔ `KNOWN_PROCESS_KEYS` (`src/maezo/tools/process_allowlist.py:33-54`,
 `== DEFAULT_ALLOWED_PROCESS_KEYS`). All three sets contain the same 15 keys.
 
@@ -42,7 +42,7 @@ Catalog (`docs/processes/catalog.md:9-23`) ↔ BPMN files (`src/maezo/processes/
 | 15 | SP-OP-PAGTO-001 | ✅ | ✅ | ✅ | 3 |
 
 **No process appears in one set but not the others.** Confirmed by:
-`grep -l 'isExecutable="true"' src/maezo/processes/bpmn/*.bpmn | wc -l` → 15;
+`grep -l 'isExecutable="true"' spec/processes/bpmn/*.bpmn | wc -l` → 15;
 distinct `bpmn:process id="…"` → 15.
 
 ---
@@ -55,7 +55,7 @@ distinct `bpmn:process id="…"` → 15.
 | `SUB_Cuidado` | SP-OP-PROGRAMA-001 | Embedded subprocess (care container) with interrupting boundary message `BME_RevogacaoConsentimento` (consent-revocation → stop+purge) attached to it | ✅ present | `SP-OP-PROGRAMA-001_Programas_Cuidado.bpmn:138` (sub) + `:356` (boundary) |
 | `SUB_RetryEnvio` | SP-OP-ANS-SUBMIT-001 | embedded subProcess `SUB_RetryEnvio` com DMN `ans_retry_policy` (backoff PT5M/PT30M/PT2H) — built | ✅ present | `SP-OP-ANS-SUBMIT-001_Envios_Periodicos_ANS.bpmn:355` (sub) + `BRT_RetryPolicy`/`ans_retry_policy.dmn`; see §3 Resolved |
 
-Confirmed by `grep -rn 'subProcess id=' src/maezo/processes/bpmn/` → exactly `ESP_SlaGlobal`,
+Confirmed by `grep -rn 'subProcess id=' spec/processes/bpmn/` → exactly `ESP_SlaGlobal`,
 `SUB_Cuidado`, and `SUB_RetryEnvio`; no other embedded/event subprocess elements exist.
 
 ---
@@ -98,7 +98,7 @@ above is retained for context.
 ## 4. Architectural note — no `<callActivity>` (intentional, not a gap)
 
 There are **zero** `<callActivity>` elements in any of the 15 BPMN files
-(`grep -rc 'callActivity' src/maezo/processes/bpmn/` → all 0). Cross-process handoffs are
+(`grep -rc 'callActivity' spec/processes/bpmn/` → all 0). Cross-process handoffs are
 **event-choreographed**: a service task publishes a fact and the downstream process starts on
 its own trigger — consistent with ADR-0003 (A2A / Kafka facts). Observed handoffs:
 
@@ -125,8 +125,8 @@ flagged for a future catalog refresh, not fixed here.
 ## Confirmation commands
 
 ```
-grep -l 'isExecutable="true"' src/maezo/processes/bpmn/*.bpmn | wc -l   # → 15
-grep -rc 'callActivity'        src/maezo/processes/bpmn/                # → all 0
-grep -rn 'subProcess id='      src/maezo/processes/bpmn/                # → SUB_Cuidado, ESP_SlaGlobal, SUB_RetryEnvio
+grep -l 'isExecutable="true"' spec/processes/bpmn/*.bpmn | wc -l   # → 15
+grep -rc 'callActivity'        spec/processes/bpmn/                # → all 0
+grep -rn 'subProcess id='      spec/processes/bpmn/                # → SUB_Cuidado, ESP_SlaGlobal, SUB_RetryEnvio
 sed -n '33,54p' src/maezo/tools/process_allowlist.py                   # → 15 KNOWN_PROCESS_KEYS
 ```

@@ -26,7 +26,7 @@
     o timer seria assinado, em NENHUM caminho — ao contrario de `BT_AlertaDpo` (boundary
     event JA downstream de `BRT_RotearDsr`, onde a expressao JUEL sobre roteamento_dsr.sla_alerta
     resolve sem problema). Wiring genuinamente inseguro nesse escopo; drift-guard mecanico
-    (`tests/architecture/test_lgpd_sla_dmn_bpmn_parity.py`) falha se este valor divergir do
+    (`tests/architecture/test_lgpd_sla_dmn_bpmn_parity.py` — pendente port — T3.x) falha se este valor divergir do
     literal `P15D` fixo no BPMN.
   </description>
   <decision id="lgpd_dsr_routing" name="Roteamento de requisicao do titular" camunda:historyTimeToLive="P180D">

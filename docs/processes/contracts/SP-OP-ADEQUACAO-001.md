@@ -1,7 +1,7 @@
 # Contrato — SP-OP-ADEQUACAO-001 (Adequacao Geografica de Rede)
 
 **Status:** DRAFT (v0.1.0) — `DRAFT — requires human review (medico-auditor/juridico/DPO/regulatorio/financas/PO) before any deploy` (docs/review-queue.md)
-**Fase:** 3 (Wave W-C; modelado uma fase a frente — playbook 5-bis) · **BPMN (alvo, autorado em wave posterior):** `src/maezo/processes/bpmn/SP-OP-ADEQUACAO-001_Adequacao_Rede.bpmn`
+**Fase:** 3 (Wave W-C; modelado uma fase a frente — playbook 5-bis) · **BPMN (alvo, autorado em wave posterior):** `spec/processes/bpmn/SP-OP-ADEQUACAO-001_Adequacao_Rede.bpmn`
 **Gatilho regulatorio:** **RN 259/2011** (garantia de atendimento — **tempos e distancias maximas de acesso** a rede assistencial) e consolidacoes posteriores ANS (**DRAFT/verify** com regulatorio — RN 259 pode ter sido consolidada/atualizada); RN 566 (dimensionamento/regras de rede — **DRAFT/verify**); Lei 9.656/1998. Disponibilidade de rede adequada e obrigacao da operadora; a falha de adequacao dispara remediacao e, no limite, **compromisso financeiro de fallback** (livre escolha / reembolso garantido).
 
 > **Processo majoritariamente L3 (monitoramento autonomo com telemetria — ADR-0008), MAS com um

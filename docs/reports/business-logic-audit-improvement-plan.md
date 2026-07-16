@@ -236,7 +236,7 @@ Wave 0 members: GAP-TRIAGE-2 (xs), GAP-ADEQ-1 (s), GAP-REEMBOLSO-1 (s), GAP-AUTH
 
 **Agent:** fix-adequacao-fallback-tier
 **Tier:** T2 (claude-sonnet-4-6)
-**Files:** `src/maezo/tools/workers/adequacao.py`, `src/maezo/processes/bpmn/SP-OP-ADEQUACAO-001_Adequacao_Rede.bpmn`, `docs/processes/contracts/SP-OP-ADEQUACAO-001.md`
+**Files:** `src/maezo/tools/workers/adequacao.py`, `spec/processes/bpmn/SP-OP-ADEQUACAO-001_Adequacao_Rede.bpmn`, `docs/processes/contracts/SP-OP-ADEQUACAO-001.md`
 **Task:** GAP-ADEQ-1. `register_fallback_commitment` at `adequacao.py:495-518` includes `('tier', tier)` in its missing-field guard, but no DMN/gateway/UserTask ever sets `tier`; UT_DecisaoFallback (`BPMN:250-265`) only collects tipo_fallback/justificativa_fallback/referencia_regulatoria/responsavel_id, and the contract Variáveis de saída (`:110-122`) never declares `tier`. Every legitimate COMPROMISSO_FALLBACK therefore raises ERR_FALLBACK_COMMITMENT_NOT_HUMAN with no boundary catch → stuck. Remove `tier` from the guard (it is not part of this decision's collected fields); keep the existing decision + required-fields + audit-trail guards intact (ADR-0018). Do NOT add `tier` collection to the UT unless the contract is updated to declare it.
 **Acceptance criteria:** a well-formed human COMPROMISSO_FALLBACK completes register_fallback_commitment without raising; the ADR-0018 no-auto-fallback invariant still holds (adverse still requires the human UT + audit trail); real-engine test proving End_CompromissoFallbackHumano reachable only via UT (create per GAP-ADEQ-2).
 **Dependencies:** none.
@@ -250,7 +250,7 @@ Wave 0 members: GAP-TRIAGE-2 (xs), GAP-ADEQ-1 (s), GAP-REEMBOLSO-1 (s), GAP-AUTH
 
 **Agent:** patch-auth-publish-negada-phi
 **Tier:** T3 (claude-opus-4-8)
-**Files:** `src/maezo/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn`, `src/maezo/tools/workers/phase0.py`
+**Files:** `spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn`, `src/maezo/tools/workers/phase0.py`
 **Task:** GAP-AUTH-1 (scoped Wave 0 patch; GAP-XPHI-1 generalizes later). ST_PublishNegada (`BPMN:319`) sets `event_payload_vars="tenant_id,numero_guia_tiss,justificativa_clinica"` into the generic `operadora.events.publish` worker (`phase0.py:175-177`), which copies the raw process variable verbatim onto `agents.events.auth.completed` with zero pseudonymization — broadcasting free-text clinical justification (ADR-0006 PHI) to Zona Geral. Immediate fix: remove `justificativa_clinica` (and any PHI-named var) from ST_PublishNegada's `event_payload_vars`; carry only `tenant_id,numero_guia_tiss` plus a `payload_ref`/business_key so a PHI-zone consumer resolves clinical content from the engine/store (matching `a2a/facts.py` "O fato NUNCA carrega PHI"). Do not alter the denial decision path.
 **Acceptance criteria:** `agents.events.auth.completed` payload contains no `justificativa_clinica`/clinical free text; test asserts PHI-named vars absent from the published fact; denial flow otherwise unchanged.
 **Dependencies:** none. (GAP-XPHI-1 in Wave 1 introduces the reusable `phi_vars.py` seam and supersedes this patch.)
@@ -264,7 +264,7 @@ Wave 0 members: GAP-TRIAGE-2 (xs), GAP-ADEQ-1 (s), GAP-REEMBOLSO-1 (s), GAP-AUTH
 
 **Agent:** fix-cred-error-boundaries
 **Tier:** T3 (claude-opus-4-8)
-**Files:** `src/maezo/processes/bpmn/SP-OP-CRED-001_Descredenciamento.bpmn`
+**Files:** `spec/processes/bpmn/SP-OP-CRED-001_Descredenciamento.bpmn`
 **Task:** GAP-CRED-1. Three `bpmn:error` elements are declared (`Error_CredPrestadorInvalido`, `Error_DecredNotHuman`, `Error_CredDenialNotHuman`, decls `:15-17`) but the file contains zero `<errorEventDefinition>`/boundary-error events. ST_VerifyCredentials (`:109-115`) is the first business task after start and unconditionally throws Error_CredPrestadorInvalido on invalid input → stuck incident on the mainline. Add boundary error events for all three: on ST_VerifyCredentials (Error_CredPrestadorInvalido → a validation-reject end), on ST_RegisterDescredenciamento (`:320-325`, Error_DecredNotHuman) and ST_RegisterCredDenial (`:484-489`, Error_CredDenialNotHuman) → their respective human-required/incident ends. Preserve the ADR-0018 no-denial guards (the errors remain the enforcement mechanism; they simply now have catch paths).
 **Acceptance criteria:** each of the 3 declared errors has a boundary catch; an invalid credential input no longer stalls as an unhandled incident; real-engine sweep (GAP-CRED-3 test-spec) proves adverse ends unreachable without a human UT and that error paths terminate cleanly.
 **Dependencies:** none.
@@ -292,7 +292,7 @@ Wave 0 members: GAP-TRIAGE-2 (xs), GAP-ADEQ-1 (s), GAP-REEMBOLSO-1 (s), GAP-AUTH
 
 **Agent:** author-pagto-admissibility-dmn
 **Tier:** T3 (claude-opus-4-8)
-**Files:** `src/maezo/processes/dmn/pagto_admissibility.dmn` (new), `src/maezo/processes/bpmn/SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn`, `config/artifact_signoff.yaml`, `docs/review-queue.md`
+**Files:** `spec/processes/dmn/pagto_admissibility.dmn` (new), `spec/processes/bpmn/SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn`, `config/artifact_signoff.yaml`, `docs/review-queue.md`
 **Task:** GAP-PAGTO-1. The contract (`SP-OP-PAGTO-001.md:123`) declares a `pagto_admissibility` DMN gating `dados_pagamento_validos`/`lastro_confirmado`/`duplicidade_suspeita` before alçada routing, but no such file exists and GW_Faixa routes purely on `pagto_alcada.faixa_valor`. Author `pagto_admissibility.dmn` (hitPolicy FIRST, typed io, mandatory FAIL-SAFE catch-all → ANALISE_HUMANA, ADR-0012) taking those 3 boolean inputs and outputting an admissibility decision (e.g. `admissivel` / route to human on suspicion or missing lastro). Wire a businessRuleTask between ST_CalculateFacts (`BPMN:187`) and BRT_AlcadaRouting (`:108`) with `decisionRef="pagto_admissibility"`, promoting the output via `camunda:outputParameter` to a top-level var (avoid ENGINE-16004). Add to `artifact_signoff.yaml` (new DMN) and, since this encodes lastro/duplicity regulatory logic, mark `status: DRAFT — requires human review (jurídico/financeiro)` and register in `docs/review-queue.md`.
 **Acceptance criteria:** DMN deploys on the real engine; a payment with duplicidade_suspeita=true or lastro_confirmado=false routes to human, never auto-release; catch-all covers unmapped input; sign-off gate recognizes the new table; real-engine test asserts the gate precedes alçada routing.
 **Dependencies:** none.
@@ -308,7 +308,7 @@ Wave 0 members: GAP-TRIAGE-2 (xs), GAP-ADEQ-1 (s), GAP-REEMBOLSO-1 (s), GAP-AUTH
 
 **Agent:** fix-auth-denial-boundary-and-formdata
 **Tier:** T3 (claude-opus-4-8)
-**Files:** `src/maezo/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn`, `src/maezo/tools/workers/auth.py`
+**Files:** `spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn`, `src/maezo/tools/workers/auth.py`
 **Task:** GAP-AUTH-2. NOTE: console-side field enforcement already exists — the médico-auditor console rejects an incomplete NEGAR server-side (`schemas.py build_complete_variables:204-213` raises; `app.py complete_task` maps ValueError→HTTP 422 and requires a human principal + signing credential). This brief adds the missing engine-level error-boundary catches + formData as defense-in-depth for the direct-engine-REST bypass path (not a live bypass). (1) `ERR_AUTH_DENIAL_INCOMPLETE` is thrown by the worker (`auth.py:308-313`) but is undeclared in the BPMN and has no boundary catch; add the `bpmn:error` declaration and a boundaryEvent on ST_EnviarNegativaFormal (`BPMN:307-312`) routing to a corrective/incident end so an incomplete denial does not become a stuck job. (2) UT_AnaliseMedicoAuditor (`BPMN:220-231`) has no `camunda:formData` enforcing NEGAR's 3 required fields, so a médico auditor completing directly against the engine could complete NEGAR incomplete. Add `camunda:formData` with validation constraints requiring the 3 NEGAR fields (justificativa_clinica, cid10_referencia, auditor_id per contract) when the decision is NEGAR. This is HITL-structural (ADR-0005/0018); do not automate the decision. Mark form-content changes touching clinical fields DRAFT and register in `docs/review-queue.md`.
 **Acceptance criteria:** NEGAR cannot be completed with any of the 3 fields blank; ERR_AUTH_DENIAL_INCOMPLETE is caught by a boundary event (no unhandled incident); real-engine test confirms NEGAR-without-fields is rejected and no adverse end reached without a complete human UT.
 **Dependencies:** none.
@@ -329,7 +329,7 @@ Wave 0 members: GAP-TRIAGE-2 (xs), GAP-ADEQ-1 (s), GAP-REEMBOLSO-1 (s), GAP-AUTH
 
 **Agent:** enforce-financial-ceilings
 **Tier:** T3 (claude-opus-4-8)
-**Files:** `src/maezo/tools/workers/auth_analyze.py`, `src/maezo/tools/workers/reembolso.py`, `src/maezo/tools/workers/pagto.py`, `src/maezo/processes/dmn/pagto_alcada.dmn`, `src/maezo/policies/autonomy/L0-core.yaml`, `src/maezo/policies/autonomy/tenants-amh.yaml`, `docs/review-queue.md`
+**Files:** `src/maezo/tools/workers/auth_analyze.py`, `src/maezo/tools/workers/reembolso.py`, `src/maezo/tools/workers/pagto.py`, `spec/processes/dmn/pagto_alcada.dmn`, `src/maezo/policies/autonomy/L0-core.yaml`, `src/maezo/policies/autonomy/tenants-amh.yaml`, `docs/review-queue.md`
 **Task:** GAP-XHITL-2 (absorbs GAP-AUTH-4, GAP-REEMBOLSO-3, GAP-PAGTO-3). The financial autonomy ceilings are decorative: `authorization_approval.max_value_brl` (`tenants-amh.yaml:6`, currently 0 = D-07) and `high_value_payment.threshold_brl=100000` (`L0-core.yaml:14`) are read by zero Python; `dentro_teto_l2` is defaulted False and echoed from process vars in AUTH (`auth_analyze.py:96,110,171`) and REEMBOLSO (`reembolso.py:255,276`); PAGTO's escada is a hardcoded dict (`_FAIXA_TIER_MINIMO pagto.py:120-127`). Add a deterministic ceiling-resolution step that computes `dentro_teto_l2` (AUTH/REEMBOLSO) and the minimum-approver tier (PAGTO) by comparing the request value against the tenant governance ceiling loaded via `gateway.pep.load_matrix` — feed the COMPUTED boolean/tier into the auto-approval DMN as an input rather than trusting an inbound boolean. Move `_FAIXA_TIER_MINIMO` into `pagto_alcada.dmn` (ADR-0012). Add a `reembolso_auto_approval` action to `L0-core.yaml`. Until D-07 sets `max_value_brl>0`, a resolved ceiling of 0 must force `dentro_teto_l2=false` so every AUTO_APROVAR route falls through to ANALISE_HUMANA. Mark autonomy-matrix edits per `_hard_frozen.yaml` header (CODEOWNERS review) and register in `docs/review-queue.md`.
 **Acceptance criteria:** seeding `dentro_teto_l2=true` from upstream no longer bypasses the ceiling (value is recomputed); with ceiling=0 all AUTO_APROVAR routes go to human; pagto escada sourced from DMN not Python; tests cover AUTH/REEMBOLSO/PAGTO ceiling paths.
 **Dependencies:** none. (GAP-AUTH-4, GAP-REEMBOLSO-3, GAP-PAGTO-3 resolved here.)
@@ -350,7 +350,7 @@ Wave 0 members: GAP-TRIAGE-2 (xs), GAP-ADEQ-1 (s), GAP-REEMBOLSO-1 (s), GAP-AUTH
 
 **Agent:** cred-network-changed-consumer
 **Tier:** T3 (claude-opus-4-8)
-**Files:** `src/maezo/platform/integrations/network_change_bridge/consumer.py` (new) OR `src/maezo/processes/bpmn/SP-OP-ADEQUACAO-001_Adequacao_Rede.bpmn` + `docs/processes/contracts/SP-OP-ADEQUACAO-001.md` + `docs/review-queue.md`, `tests/integration/processes/`
+**Files:** `src/maezo/platform/integrations/network_change_bridge/consumer.py` (new) OR `spec/processes/bpmn/SP-OP-ADEQUACAO-001_Adequacao_Rede.bpmn` + `docs/processes/contracts/SP-OP-ADEQUACAO-001.md` + `docs/review-queue.md`, `tests/integration/processes/`
 **Task:** GAP-XPROC-2. The CRED→ADEQUACAO choreography (`agents.events.cred.network_changed`) has no consumer; Start_AvaliacaoAdequacao (`BPMN:78`) is a plain none-start (no messageEventDefinition), contradicting its doc ("consumo via start message correlacionado por tenant_id+regiao_saude+especialidade"). Either (a) build `network_change_bridge/consumer.py` (mirror notifications_bridge) subscribing to `agents.events.cred.network_changed`, calling `mcp-cibseven.start_process(process_key=SP-OP-ADEQUACAO-001, business_key=f"ADEQ-{tenant_id}-{regiao_saude}-{especialidade}-{ciclo_avaliacao}", gatilho="mudanca_rede")` (deriving regiao_saude/especialidade from prestador_id via a lookup step); or (b) if geo-derivation is not yet feasible, mark the mudanca_rede trigger DRAFT/not-yet-wired in the BPMN doc + contract and register in `docs/review-queue.md`. Either way add a real-engine seam test that drives CRED to a ST_PublishNetwork* task and asserts an ADEQUACAO-001 instance is reachable (not just payload-shape).
 **Acceptance criteria:** either an ADEQUACAO instance actually starts from a network_changed fact (option a) or the gap is explicitly marked DRAFT and queued (option b); seam test added.
 **Dependencies:** none.
@@ -364,7 +364,7 @@ Wave 0 members: GAP-TRIAGE-2 (xs), GAP-ADEQ-1 (s), GAP-REEMBOLSO-1 (s), GAP-AUTH
 
 **Agent:** lgpd-decision-fail-closed
 **Tier:** T2 (claude-sonnet-4-6)
-**Files:** `src/maezo/processes/bpmn/SP-OP-LGPD-DSR-001_Direitos_do_Titular.bpmn`
+**Files:** `spec/processes/bpmn/SP-OP-LGPD-DSR-001_Direitos_do_Titular.bpmn`
 **Task:** GAP-LGPD-4 + GAP-LGPD-3. (LGPD-4) GW_DecisaoDsr (`:165-170`) has an unconditional default `Flow_GWDec_Enviar` that sends the compiled data package for ANY value not exactly EXECUTAR_E_ENVIAR/NEGAR_FUNDAMENTADO — including missing/blank → silent release. Change to fail-closed: make the send branch conditional on `decisao_dsr == 'APROVAR_ENVIO'` and add a default branch to an error end (`ERR_DSR_DECISION_INVALID`) for any other value. (LGPD-3) `NEGAR_FUNDAMENTADO exige fundamentacao_legal` is unenforced: add `camunda:formData` to UT_RevisaoDpo (`:136-147`) requiring non-empty `fundamentacao_legal` when `decisao_dsr == 'NEGAR_FUNDAMENTADO'`, or a guard gateway before `Flow_GWDec_Negar` (`:258-260`) that rejects completion when blank. HITL-structural; mark clinical/legal form fields DRAFT and register in `docs/review-queue.md`.
 **Acceptance criteria:** an unset/blank decisao_dsr no longer releases data (incidents instead); NEGAR_FUNDAMENTADO with blank fundamentacao_legal is rejected; real-engine test covers both.
 **Dependencies:** none.
@@ -378,28 +378,28 @@ Wave 0 members: GAP-TRIAGE-2 (xs), GAP-ADEQ-1 (s), GAP-REEMBOLSO-1 (s), GAP-AUTH
 
 **Agent:** wave1-xs-batch-declared-vars
 **Tier:** T2 (claude-sonnet-4-6)
-**Files:** `src/maezo/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn`, `docs/processes/contracts/SP-OP-FRAUDE-001.md`, `docs/processes/contracts/SP-OP-CRED-001.md`, `docs/processes/contracts/SP-OP-INADIMPLENCIA-001.md`
+**Files:** `spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn`, `docs/processes/contracts/SP-OP-FRAUDE-001.md`, `docs/processes/contracts/SP-OP-CRED-001.md`, `docs/processes/contracts/SP-OP-INADIMPLENCIA-001.md`
 **Task:** Batch of xs high-severity contract/wiring fixes (independent, one PR): **GAP-AUTH-5** — add `numero_autorizacao` to ST_PublishAprovadaAuto (`:202`) and ST_PublishAprovadaAuditor (`:296`) event_payload_vars (already produced by ST_EmitirAutorizacao*). **GAP-CRED-2** — declare `tem_beneficiarios_vinculados` in the CRED contract Variáveis de entrada table (`:46-65`); it is required by `cred_prior_notice.dmn` and seeded by graph.py. **GAP-INAD-3** — remove the `tier` hard-requirement from `register_contract_suspension` OR add `tier` to the contract campos obrigatórios + UT output docs (choose remove unless tier is genuinely collected). (GAP-FRAUDE-5, the sibling `destino_referral_*` contract fix, is medium → handled in the Wave 2 batch.)
 **Acceptance criteria:** each variable-contract mismatch resolved; consumers of numero_autorizacao/destino_referral_* see the values; unit tests updated.
 **Dependencies:** none.
 
 **Agent:** wave1-s-batch-dmn-and-boundaries
 **Tier:** T2 (claude-sonnet-4-6)
-**Files:** `src/maezo/processes/dmn/cancel_admissibility.dmn`, `src/maezo/processes/dmn/glosa_triage.dmn`, `src/maezo/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn`, `src/maezo/processes/bpmn/SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn`, `src/maezo/processes/bpmn/SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn`, `src/maezo/agents/valentina/graph.py`
+**Files:** `spec/processes/dmn/cancel_admissibility.dmn`, `spec/processes/dmn/glosa_triage.dmn`, `spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn`, `spec/processes/bpmn/SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn`, `spec/processes/bpmn/SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn`, `src/maezo/agents/valentina/graph.py`
 **Task:** Batch of s high-severity fixes (independent): **GAP-CANCEL-1** — add `vinculo_ativo` as an input to `cancel_admissibility.dmn` (`:34-48`) and gate r_pedido_l2 (`:51-60`) so an inactive vínculo routes to ANALISE_HUMANA. **GAP-CONTAS-3** — add `categoria_normalizada` to r_sem_glosa (`glosa_triage.dmn:44-53`) so it no longer preempts r_tecnica_humano under hitPolicy FIRST. **GAP-REEMBOLSO-2** — add a boundary error catch on ST_CheckCoverage (`:84-89`) for `Error_ReembolsoProtocoloInvalido` (declared `:14`, thrown at `reembolso.py:152-155`). **GAP-PAGTO-4** — add a boundary catch on ST_ValidatePaymentData for `Error_PagtoOrdemInvalida` (declared line 15). **GAP-PAGTO-2** — add the contract terminal `End_PagamentoCancelado` (neutral: cancelled/duplicate/no-lastro) endEvent. **GAP-FRAUDE-1** — promote `intensidade_investigacao` to a top-level var via `camunda:outputParameter` after BRT_Indicadores (`:134-141`) so fraude_routing/fraude_sla resolve it (ENGINE-16004 avoidance). Mark any DMN clinical-content edits (cancel/glosa) DRAFT + register in `docs/review-queue.md`. (GAP-PROG-5, Valentina's `DMN_PROGRAMA_STRATIFICATION` → `programa_routing` fix, is medium → handled in the Wave 2 batch.)
 **Acceptance criteria:** each DMN/boundary behaves per fix; no stuck-instance on the two invalid-input errors; PAGTO neutral terminal reachable; real-engine tests updated.
 **Dependencies:** none.
 
 **Agent:** auth-dut-dmn-consumers
 **Tier:** T3 (claude-opus-4-8)
-**Files:** `src/maezo/agents/rafael/graph.py`, `src/maezo/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn`, `config/artifact_signoff.yaml`, `docs/review-queue.md`
+**Files:** `src/maezo/agents/rafael/graph.py`, `spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn`, `config/artifact_signoff.yaml`, `docs/review-queue.md`
 **Task:** GAP-AUTH-3. `dut_rol_coverage`, `dut_criteria_bariatrica`, `dut_criteria_oncologia_pet_ct`, `dut_criteria_terapias_especiais` and `carencia_check` are documented (README.md, review-queue.md) as "SP-OP-AUTH-001 (via mcp-dmn)" consumers, but no code path invokes them: Rafael's graph (`rafael/graph.py:76-78`) references only DMN_ADMISSIBILITY/DMN_AUTO_APPROVAL/DMN_SLA, and `artifact_signoff.yaml:54-56` flags carencia_check as orphan (dut_* not even flagged). Wire these DMNs into the admissibility/coverage evaluation: add each `dut_*` and `carencia_check` decision to the mcp-dmn evaluation path in Rafael's assess node (or a dedicated businessRuleTask before UT_AnaliseMedicoAuditor), feeding the DUT-criteria and carência outputs as inputs to the existing routing — WITHOUT allowing any adverse/coverage decision to be produced by the agent (the DMNs inform, the human decides; ADR-0005/0018). These tables encode clinical coverage criteria, so mark each `status: DRAFT — requires human review (médico auditor)` and keep/refresh their entries in `docs/review-queue.md`; add them to `artifact_signoff.yaml` as intentional_draft.
 **Acceptance criteria:** each of the 5 DMNs is invoked on the AUTH mainline (verified by a real-engine or graph test asserting the decision_ids are evaluated); no agent path produces a coverage denial; sign-off gate recognizes the tables; review-queue entries present.
 **Dependencies:** none.
 
 **Agent:** contas-real-computation-and-a2a
 **Tier:** T3 (claude-opus-4-8)
-**Files:** `src/maezo/tools/workers/contas.py`, `src/maezo/processes/bpmn/SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn`
+**Files:** `src/maezo/tools/workers/contas.py`, `spec/processes/bpmn/SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn`
 **Task:** GAP-CONTAS-1 + GAP-CONTAS-2 + GAP-CONTAS-4 (grouped, same module). (CONTAS-1) `make_prepare_triage_dossier_handler` (`:262-301`) never invokes MarinaGraph or the A2A DelegationDispatcher — only an inert Kafka notification (test asserts "TEM handler real"). Invoke Marina via the A2A dispatcher (mirror the working delegation pattern) so UT_AnalistaContas opens on a real dossier. (CONTAS-2) `make_identify_glosa_handler` (`:125-162`) and `make_calculate_impact_handler` (`:218-257`) echo has_glosas/denial_ratio/divergencia_valor; make them read `linhas_conta_refs`/`reason_codes_tiss`/`valor_apresentado_brl` and actually compute the facts. (CONTAS-4) BT_SlaTriagem/BT_AlertaSlaContas (`BPMN:208-213`) anchor to UT creation; re-anchor the SLA timers to `data_recebimento_lote` (the contract âncora, currently never read) — model as BPMN timers reading the DMN/ingress-supplied timestamp, not a Python computation.
 **Acceptance criteria:** dossier is a real Marina A2A call; glosa/impact computed from line-item inputs on an organically-started instance; SLA timers fire relative to data_recebimento_lote; integration tests cover an organic (non-echoed) instance.
 **Dependencies:** none.
@@ -413,35 +413,35 @@ Wave 0 members: GAP-TRIAGE-2 (xs), GAP-ADEQ-1 (s), GAP-REEMBOLSO-1 (s), GAP-AUTH
 
 **Agent:** nip-sla-anchor
 **Tier:** T2 (claude-sonnet-4-6)
-**Files:** `src/maezo/processes/bpmn/SP-OP-NIP-001_Resposta_NIP.bpmn`
+**Files:** `spec/processes/bpmn/SP-OP-NIP-001_Resposta_NIP.bpmn`
 **Task:** GAP-NIP-1. All NIP boundary timers (BT_AlertaPrazoNip, BT_PrazoNipEstourado, BT_AlertaPrazoRevisao, BT_PrazoRevisaoEstourado, ICE_PrazoInfo, `:172-196,241-267,380-386`) use relative timeDuration anchored to activity-attach (UT creation), but the contract mandates the prazo counts from `data_recebimento_nip_iso` (currently never read anywhere). Re-model the timers as timeDate/absolute deadlines computed from `data_recebimento_nip_iso` (a NIP `*_sla.dmn` may compute the concrete deadline ISO; attach the computed value to the boundary timers), so regulatory deadlines anchor correctly. Regulatory timers stay in BPMN (not Python).
 **Acceptance criteria:** NIP deadlines anchor to data_recebimento_nip_iso; `data_recebimento_nip_iso` is now read; real-engine test drives a timer and asserts the anchor.
 **Dependencies:** none.
 
 **Agent:** recurso-max-prazo-boundary
 **Tier:** T2 (claude-sonnet-4-6)
-**Files:** `src/maezo/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn`
+**Files:** `spec/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn`
 **Task:** GAP-RECURSO-1. BT_PrazoMaxRecurso (P30D RN424 regulatory ceiling, `:234-239`) is attached ONLY to UT_AnaliseRecursoAnalista. Once BT_SlaAnaliseRecurso cancels that task (escalating to UT_CoordenacaoRecursoAssume `:225-231`), or ESCALAR_AUDITOR routes to UT_RevisaoAuditorMedico (`:270-282`), or UT_EscalonamentoPrazo (`:251-256`) is active, the RN424 ceiling no longer applies. Attach an equivalent P30D boundary (anchored to the same regulatory start) to each of those human tasks so the regulatory ceiling holds on every human-analysis path.
 **Acceptance criteria:** the P30D ceiling is enforced regardless of which human task holds the recurso; real-engine test covers the escalation paths.
 **Dependencies:** none.
 
 **Agent:** adequacao-coordenacao-disposition
 **Tier:** T2 (claude-sonnet-4-6)
-**Files:** `src/maezo/processes/bpmn/SP-OP-ADEQUACAO-001_Adequacao_Rede.bpmn`
+**Files:** `spec/processes/bpmn/SP-OP-ADEQUACAO-001_Adequacao_Rede.bpmn`
 **Task:** GAP-ADEQ-3. The contract declares `decisao_coordenacao` (assumir_decisao|prorrogar_prazo|seguir_analise) as the SLA-breach coordinator disposition, but GW_DecisaoRemediacao (`:315-322`) reads only `decisao_remediacao`; UT_CoordenacaoRede (`:302-307`) output is never routed. Add gateway conditions reading `decisao_coordenacao` from UT_CoordenacaoRede so assumir_decisao/prorrogar_prazo/seguir_analise each route correctly (mirror the sibling coordenacao patterns).
 **Acceptance criteria:** each `decisao_coordenacao` value routes distinctly; real-engine test covers the three dispositions.
 **Dependencies:** none.
 
 **Agent:** programa-a2a-and-desfecho
 **Tier:** T2 (claude-sonnet-4-6)
-**Files:** `src/maezo/tools/workers/programa.py`, `src/maezo/processes/bpmn/SP-OP-PROGRAMA-001_Programas_Cuidado.bpmn`
+**Files:** `src/maezo/tools/workers/programa.py`, `spec/processes/bpmn/SP-OP-PROGRAMA-001_Programas_Cuidado.bpmn`
 **Task:** GAP-PROG-1 + GAP-PROG-2. (PROG-1) `ST_StratifyRisk` (`:266-292`) and `ST_BuildCarePlan` (`:295-331`) never invoke the Valentina A2A delegation (care.stratify/care.enroll) their docstrings + delegation.py document — they echo inputs. Invoke the A2A delegation for the in-zone post-consent computation. (PROG-2) ST_PublishCompleted (`BPMN:378-389`) declares no `event_desfecho` input parameter, so `agents.events.programa.completed` never carries a desfecho payload. Add `event_desfecho` as a `camunda:inputOutput` parameter sourced from the process's desfecho variable.
 **Acceptance criteria:** stratify/build_care_plan perform real A2A calls post-consent; programa.completed carries the desfecho; tests cover both.
 **Dependencies:** none.
 
 **Agent:** ans-calendar-per-type
 **Tier:** T3 (claude-opus-4-8)
-**Files:** `src/maezo/processes/bpmn/SP-OP-ANS-SUBMIT-001_Envios_Periodicos_ANS.bpmn`, `src/maezo/processes/dmn/ans_calendar.dmn`, `docs/review-queue.md`
+**Files:** `spec/processes/bpmn/SP-OP-ANS-SUBMIT-001_Envios_Periodicos_ANS.bpmn`, `spec/processes/dmn/ans_calendar.dmn`, `docs/review-queue.md`
 **Task:** GAP-ANS-1 + GAP-ANS-2. (ANS-1) Start_CalendarioRegulatorio (`:69-74`) is a single timerEventDefinition (R/P1M) with no inputOutput to set report_type/competencia/tenant_id — a single TimerStartEvent cannot deliver per-type cron for 5 report types with different periodicities. Re-model so each report type has its own scheduled trigger (separate timer start events per report_type/periodicidade, or an external scheduler emitting typed start messages) that sets report_type/competencia/tenant_id. (ANS-2) `ans_calendar.dmn` (`:28-31`) has a single input `report_type`; add `competencia` as the required second input so due_date/sla_alerta differ per competência (hitPolicy FIRST, keep catch-all). Regulatory timers stay in BPMN; regulatory dates in DMN. Mark DRAFT + register in `docs/review-queue.md`.
 **Acceptance criteria:** each report type fires on its own periodicity with report_type/competencia set; ans_calendar differentiates due_date by competência; real-engine test drives at least two report types.
 **Dependencies:** none.
@@ -455,7 +455,7 @@ Wave 0 members: GAP-TRIAGE-2 (xs), GAP-ADEQ-1 (s), GAP-REEMBOLSO-1 (s), GAP-AUTH
 
 **Agent:** escalation-resume-publish
 **Tier:** T2 (claude-sonnet-4-6)
-**Files:** `src/maezo/processes/bpmn/SP-OP-ESCALATION-001_Escalonamento_Humano_Universal.bpmn`
+**Files:** `spec/processes/bpmn/SP-OP-ESCALATION-001_Escalonamento_Humano_Universal.bpmn`
 **Task:** GAP-ESC-1. ST_PublishProcessCompleted (`:186-196`) publishes `agents.events.process_completed` on devolvido_agente to "retomar conversa do agente", but no consumer exists. This brief covers the PUBLISH side correctness only (the consumer is GAP-XHITL-4/GAP-TRIAGE-4): verify the published fact carries the correlation keys a resume consumer needs (conversation_id/business_key ESC-{tenant}-{conv}, agent_id) and that the topic is registered in `config/topic_registry.yaml`. If keys are missing, add them to event_payload_vars (non-PHI only; route PHI by ref per GAP-XPHI-1).
 **Acceptance criteria:** the process_completed fact carries conversation_id + agent_id + business_key; topic registered; no PHI in payload.
 **Dependencies:** none. (Consumer side: GAP-XHITL-4, Wave 2.)
@@ -501,7 +501,7 @@ Wave 0 members: GAP-TRIAGE-2 (xs), GAP-ADEQ-1 (s), GAP-REEMBOLSO-1 (s), GAP-AUTH
 
 **Agent:** wave2-cancel-batch
 **Tier:** T2 (claude-sonnet-4-6)
-**Files:** `src/maezo/processes/dmn/cancel_admissibility.dmn`, `src/maezo/processes/dmn/cancel_routing.dmn`, `src/maezo/processes/bpmn/SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn`, `docs/processes/contracts/SP-OP-CANCEL-001.md`, `src/maezo/tools/workers/cancel.py`
+**Files:** `spec/processes/dmn/cancel_admissibility.dmn`, `spec/processes/dmn/cancel_routing.dmn`, `spec/processes/bpmn/SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn`, `docs/processes/contracts/SP-OP-CANCEL-001.md`, `src/maezo/tools/workers/cancel.py`
 **Task:** CANCEL medium batch: **GAP-CANCEL-2** — `dentro_prazo` mandatory DMN input uses `-` in every rule (zero effect); either make it gate a rule or document/remove. **GAP-CANCEL-3** — add a worker-level guard enforcing `fundamentacao_contratual` mandatory for MANTER (mirror RESCINDIR/SUSPENDER's ERR guard; ADR-0018). **GAP-CANCEL-4** — declare the `notificacao_previa_feita=true` requirement in the contract (currently only in test scaffolding). **GAP-CANCEL-5** — either wire `cancel_routing.dmn` to a businessRuleTask/worker or remove its "Consumida por" claim (dead DMN). **GAP-CANCEL-7** — restrict Flow_GWDec_EfetivarPedido so only `pedido_beneficiario` tipo_solicitacao routes to member-request effectuation (match the DMN-gated L2 path). Mark contract/DMN content edits DRAFT where clinical/legal + register in `docs/review-queue.md`.
 **Acceptance criteria:** each sub-gap resolved; MANTER without fundamentacao rejected; cancel_routing either live or removed; tests updated.
 **Dependencies:** none.
