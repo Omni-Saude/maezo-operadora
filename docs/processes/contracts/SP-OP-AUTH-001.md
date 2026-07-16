@@ -1,7 +1,7 @@
 # Contrato — SP-OP-AUTH-001 (Autorizacao Previa)
 
 **Status:** DRAFT (v0.1.0) — `DRAFT — requires human review before any deploy` (docs/review-queue.md)
-**Fase:** 1 (modelado uma fase a frente) · **BPMN:** `src/maezo/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn`
+**Fase:** 1 (modelado uma fase a frente) · **BPMN:** `spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn`
 **Gatilho regulatorio:** RN 259/2011 (garantia de atendimento — consolidacoes posteriores ANS: **DRAFT/verify**), RN 395/2016 (resposta/negativa por escrito: **DRAFT/verify**), RN 424/2017 (junta medica: **DRAFT/verify**), Lei 9.656/1998 art. 35-C.
 
 ## Invariante L0 hard (nao negociavel)

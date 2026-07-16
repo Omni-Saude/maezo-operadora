@@ -1,6 +1,6 @@
 # Contrato — SP-OP-ESCALATION-001 (Escalonamento Humano Universal)
 
-**Status:** FINAL (v1.0.0) · **Fase:** 0 · **BPMN:** `src/maezo/processes/bpmn/SP-OP-ESCALATION-001_Escalonamento_Humano_Universal.bpmn`
+**Status:** FINAL (v1.0.0) · **Fase:** 0 · **BPMN:** `spec/processes/bpmn/SP-OP-ESCALATION-001_Escalonamento_Humano_Universal.bpmn`
 **Gatilho regulatorio:** seguranca assistencial — Lei 9.656/1998 art. 35-C (urgencia = imediato); ADR-0005/0008 (decisao clinica por agente: L0 hard).
 
 ## Business key (idempotencia)

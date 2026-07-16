@@ -1,7 +1,7 @@
 # Contrato — SP-OP-PAGTO-001 (Pagamentos de Alcada)
 
 **Status:** DRAFT (v0.1.0) — `DRAFT — requires human review (medico-auditor/juridico/DPO/regulatorio/financas/PO) before any deploy` (docs/review-queue.md)
-**Fase:** 3 (Wave W-B; modelado uma fase a frente — playbook 5-bis) · **BPMN (alvo, autorado em wave posterior):** `src/maezo/processes/bpmn/SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn`
+**Fase:** 3 (Wave W-B; modelado uma fase a frente — playbook 5-bis) · **BPMN (alvo, autorado em wave posterior):** `spec/processes/bpmn/SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn`
 **Gatilho regulatorio:** **Politica financeira interna** da operadora (escada de alcada / segregacao de funcoes / SOX-like controls — **DRAFT/verify** com financas). Nao ha RN ANS especifica que defina o teto; o teto e governanca financeira interna. Interage com Lei 9.656/1998 (pagamento a prestador) e com SP-OP-CONTAS-001 (a conta adjudicada gera a obrigacao de pagamento) — **DRAFT/verify**.
 
 > Este contrato e o ponto de sincronizacao (§4-bis-F): o BPMN/DMN/worker/agente de PAGTO derivam dele. A mecanica no-adverse de cinco partes (ADR-0018) esta materializada abaixo. **Clona o esqueleto de auto-aprovacao `dentro_teto` do SP-OP-AUTH-001** (`auth_auto_approval`), mas e o **UNICO processo da plataforma com candidate-groups dirigidos por valor**: uma DMN `pagto_alcada` emite `grupo_aprovador` que alimenta `camunda:candidateGroups` da User Task de aprovacao.
