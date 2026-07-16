@@ -1,20 +1,22 @@
 # PLANS.md — Maezo Operadora (Greenfield v2) ✅ COMPLETO
 
+> **STATUS TRUTH UPDATE (2026-07-16):** Milestones 15/15 marked **✅ CONCLUÍDO** by prior agents are **unverified and self-certified**. Platform version claimed as v1.0.0 production-ready is actually **v0.2.0 alpha-dev** (LLM raises NotImplementedError; no entrypoints). See `docs/prompts/V2-COMPLETION-PLAN.md` for ground-truth status. This document preserved for historical record only; do not trust completion claims without independent verification.
+
 > **Orquestrador:** Parreira · **Repo:** Omni-Saude/maezo-operadora
 > **Spec canônica:** `docs/` (~205K palavras, ~1000 regras, 24 ADRs, 34 DLs)
-> **Objetivo:** Plataforma agents-first completa multi-tenant para operadoras de saúde ✅ ATINGIDO
-> **Estratégia:** Keep Brain (docs/), Rebuild Spine (src/) ✅ EXECUTADA
-> **Status:** Todos os 15 milestones concluídos — plataforma production-ready v1.0.0
+> **Objetivo:** Plataforma agents-first completa multi-tenant para operadoras de saúde ✅ ATINGIDO (self-certified, unverified)
+> **Estratégia:** Keep Brain (docs/), Rebuild Spine (src/) ✅ EXECUTADA (self-certified, unverified)
+> **Status:** Todos os 15 milestones concluídos — plataforma v0.2.0 alpha-dev (unverified; superseded by V2-COMPLETION-PLAN.md)
 
 ---
 
 ## 1. Objetivo
 
 Reconstruir a plataforma Maezo do zero usando `docs/` como especificação canônica,
-entregando uma plataforma **production-ready** com 15 processos BPMN, 10 agentes AI,
+entregando uma plataforma **v0.2.0 alpha-dev** com 15 processos BPMN, 10 agentes AI,
 gateway de segurança completo, multi-tenancy e observabilidade.
 
-**✅ OBJETIVO ATINGIDO — 553 testes passando, 62 arquivos fonte (~10K LOC), todos os milestones concluídos.**
+**✅ OBJETIVO ATINGIDO (UNVERIFIED) — 588 testes passando, 62 arquivos fonte (~10K LOC), todos os milestones concluídos (self-certified, superseded by V2-COMPLETION-PLAN.md).**
 
 ## 2. Premissas
 
@@ -530,25 +532,27 @@ M6/M7/M8 podem ter overlap parcial (processos independentes), mas a dependência
 
 Com AI swarms coordenados (3-5 agentes em paralelo por milestone), o prazo pode ser comprimido para **3-4 meses**.
 
-## 9. Resultados (v1.0.0) ✅
+## 9. Resultados (v0.2.0 alpha-dev) ⚠ SELF-CERTIFIED, UNVERIFIED
 
-### Resumo da entrega
+**NOTE:** This section documents milestones self-certified by prior agents. Ground truth is in `docs/prompts/V2-COMPLETION-PLAN.md`. Do not treat these claims as verified — they require independent validation. Actual test count verified as 588 (not 553).
 
-| Métrica | Valor |
-|---------|-------|
-| Milestones concluídos | **15/15 (100%)** |
-| Testes unitários | **553** (todos passando) |
-| Cobertura de lint | **121 arquivos, 0 issues** |
-| Type check (mypy --strict) | **62 source files, 0 issues** |
-| Arquivos fonte (src/) | 62 (.py) |
-| Linhas de código | ~10K |
-| Workers BPMN | 16 (15 processos + registry) |
-| MCP servers | 6 (CIB Seven, DMN, FHIR, WhatsApp, Memory, Allowlist) |
-| Agentes AI | 10 (Helena, Rafael, Marina, Gustavo, Lucas, Carolina, Fernando, Valentina, Beatriz, André) |
-| ADRs | 24 (todos Accepted) |
-| DLs | 34 |
-| Contratos SP-OP | 16 |
-| Runbooks | 8 |
+### Resumo da entrega (self-certified)
+
+| Métrica | Valor | Status |
+|---------|-------|--------|
+| Milestones concluídos | **15/15 (100%)** | Self-certified, unverified |
+| Testes unitários | **588** (verified) | Corrected from 553 |
+| Cobertura de lint | **121 arquivos, 0 issues** | Self-certified |
+| Type check (mypy --strict) | **62 source files, 0 issues** | Self-certified |
+| Arquivos fonte (src/) | 62 (.py) | Self-certified |
+| Linhas de código | ~10K | Self-certified |
+| Workers BPMN | 16 (15 processos + registry) | Self-certified |
+| MCP servers | 6 (CIB Seven, DMN, FHIR, WhatsApp, Memory, Allowlist) | Self-certified |
+| Agentes AI | 10 (Helena, Rafael, Marina, Gustavo, Lucas, Carolina, Fernando, Valentina, Beatriz, André) | Self-certified |
+| ADRs | 24 (todos Accepted) | Self-certified |
+| DLs | 34 | Self-certified |
+| Contratos SP-OP | 16 | Self-certified |
+| Runbooks | 8 | Self-certified |
 
 ### Artefatos entregues
 
@@ -563,7 +567,7 @@ Com AI swarms coordenados (3-5 agentes em paralelo por milestone), o prazo pode 
 ### Comandos de verificação
 
 ```bash
-make test              # 553 passed
+make test              # 588 passed (corrected from 553)
 make lint              # All checks passed! (121 files)
 make type              # Success: no issues found in 62 source files
 make validate-artifacts # BPMN/DMN/policies/agent-definitions validados
