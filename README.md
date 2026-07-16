@@ -1,19 +1,19 @@
 <h1 align="center">🏥 MAEZO Operadora</h1>
 
 <p align="center">
-  <strong>Plataforma agents-first para operadoras de saúde — v1.0.0 production-ready</strong><br/>
+  <strong>Plataforma agents-first para operadoras de saúde — v0.2.0 alpha-dev</strong><br/>
   <em>Agentes de IA nomeados operam a operadora; BPMN/DMN (CIB Seven) é a espinha dorsal de governança — auditoria, SLAs regulatórios (ANS) e escalonamento humano garantidos por arquitetura, não por prompt.</em>
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.12-blue?logo=python&logoColor=white" alt="Python 3.12">
-  <img src="https://img.shields.io/badge/version-1.0.0-success" alt="v1.0.0">
-  <img src="https://img.shields.io/badge/status-production--ready-brightgreen" alt="Production Ready">
-  <img src="https://img.shields.io/badge/tests-553_passing-brightgreen" alt="553 tests passing">
+  <img src="https://img.shields.io/badge/version-0.2.0-blue" alt="v0.2.0">
+  <img src="https://img.shields.io/badge/status-alpha--dev-yellow" alt="Alpha Dev">
+  <img src="https://img.shields.io/badge/tests-588_passing-brightgreen" alt="588 tests passing">
   <img src="https://img.shields.io/badge/coverage-10K_LOC-blue" alt="~10K LOC">
   <img src="https://img.shields.io/badge/lint-0_issues-brightgreen" alt="Lint: 0 issues">
   <img src="https://img.shields.io/badge/mypy-strict_clean-brightgreen" alt="Mypy: strict clean">
-  <img src="https://img.shields.io/badge/milestones-15/15_complete-brightgreen" alt="15/15 milestones">
+  <img src="https://img.shields.io/badge/milestones-15/15_self--certified-orange" alt="15/15 self-certified (unverified)">
   <img src="https://img.shields.io/badge/licença-Proprietary-lightgrey" alt="Licença Proprietary">
 </p>
 
@@ -28,7 +28,7 @@ Plataforma **agents-first** completa para operadoras de saúde (payer). Reconstr
 | Workers BPMN | 16 | External tasks para 15 processos SP-OP |
 | Agentes AI | 10 | Helena, Rafael, Marina, Gustavo, Lucas, Carolina, Fernando, Valentina, Beatriz, André |
 | MCP Servers | 6 | CIB Seven, DMN, FHIR, WhatsApp, Memory, Process Allowlist |
-| Testes | **553** | Unitários cobrindo workers, gateway, agents, platform, tools |
+| Testes | **588** | Unitários cobrindo workers, gateway, agents, platform, tools |
 | Código fonte | ~10K LOC | 62 arquivos Python em `src/maezo/` |
 | Documentação | ~205K palavras | 16 contratos SP-OP, 24 ADRs, 34 DLs, 8 runbooks |
 
@@ -42,17 +42,17 @@ Plataforma **agents-first** completa para operadoras de saúde (payer). Reconstr
 
 ---
 
-## Métricas reais (v1.0.0)
+## Métricas reais (v0.2.0-alpha)
 
 ```
-make test   → 553 passed, 1 warning in 2.45s
+make test   → 588 passed, 1 warning in 2.45s
 make lint   → All checks passed! (121 files)
 make type   → Success: no issues found in 62 source files (mypy --strict)
 ```
 
 | Métrica | Valor |
 |---------|-------|
-| Testes unitários | 553 |
+| Testes unitários | 588 |
 | Arquivos fonte (`src/`) | 62 (.py) |
 | Arquivos de teste (`tests/`) | 59 (.py) |
 | Linhas de código (src) | ~10K |
@@ -73,7 +73,7 @@ make type   → Success: no issues found in 62 source files (mypy --strict)
 make setup             # uv sync --extra dev
 make dev-stack         # postgres+pgvector, cibseven, hapi-fhir, kafka
 cp .env.example .env   # preencher chaves
-make test              # 553 testes unitários
+make test              # 588 testes unitários
 ```
 
 ---
@@ -124,9 +124,9 @@ src/maezo/
 
 | Pipeline | Status | Jobs |
 |----------|--------|------|
-| **CI** (`ci.yml`) | Active | lint/type/unit (553 tests), terraform validate, helm lint, integration (real engine), security scanning |
+| **CI** (`ci.yml`) | Active | lint/type/unit (588 tests), terraform validate, helm lint, security scanning |
 | **CD** (`cd.yml`) | Ready | Build & push ECR, deploy staging (two-phase), smoke tests, production promotion (manual approval) |
-| **Security** (`security.yml`) | Active | CodeQL (Python), gitleaks (secrets), dependency review |
+| **Security** (`security.yml`) | Partial | gitleaks (secrets) Active · CodeQL Disabled (Advanced Security unavailable) · dependency review Disabled (Advanced Security unavailable) |
 
 ---
 
