@@ -2,8 +2,14 @@
 #
 # Profiles:
 #   core         — postgres, cibseven, hapi-fhir, kafka  (default dev stack)
-#   simulator    — stub services for offline/offline dev without external deps
 #   observability — otel-collector, prometheus, grafana
+#
+# T0.4 (defect B14): the 'simulator' profile (tasy-simulator service) was removed —
+# deploy/tasy_simulator.Dockerfile never existed and there is no simulator source
+# under src/ (ADR-0013 describes it as a planned permanent CI deliverable, not yet
+# built; see .github/workflows/ci.yml job `fhir-sync-simulator`, disabled `if: false`
+# with the same rationale). The Tasy boundary gets an explicit interface + labeled
+# mock in T2.6 — reintroduce this profile then.
 #
 # Usage:
 #   make dev-stack                          # core only
@@ -83,10 +89,12 @@ services:
 
   kafka:
     image: confluentinc/cp-kafka:7.7.0
-    profiles: ["core", "simulator"]
+    profiles: ["core"]
     ports:
       - "9092:9092"     # EXTERNAL — host access (localhost:9092); used by host-side integration tests
-      - "29092:29092"   # INTERNAL — cross-container (kafka:29092); used by tasy-simulator + fhir-sync
+      - "29092:29092"   # INTERNAL — cross-container (kafka:29092); reserved for future Tasy CDC
+                        # consumers (ADR-0013: fhir-sync, tasy-simulator) — not yet implemented,
+                        # see T2.6. Dual-listener setup kept regardless (see rationale below).
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
@@ -94,9 +102,11 @@ services:
       # Dual-listener setup (root cause fix for CI run 27511267203 hang):
       #   EXTERNAL (9092):  advertised as localhost:9092  — host machine / port-forwarded access
       #   INTERNAL (29092): advertised as kafka:29092     — Docker-network container-to-container
-      # Without INTERNAL, broker metadata told all clients "connect to localhost:9092". The
-      # tasy-simulator container received that address, tried 127.0.0.1:9092 (its own loopback),
-      # and AIOKafkaProducer.start() retried indefinitely, causing the 50-minute hang.
+      # Without INTERNAL, broker metadata told all clients "connect to localhost:9092". A
+      # future tasy-simulator container receiving that address would try 127.0.0.1:9092 (its
+      # own loopback), and AIOKafkaProducer.start() would retry indefinitely — this is what
+      # caused the 50-minute hang in CI run 27511267203. Kept even after the tasy-simulator
+      # service was removed (T0.4) so this class of bug can't resurface when it's rebuilt.
       KAFKA_LISTENERS: EXTERNAL://0.0.0.0:9092,INTERNAL://0.0.0.0:29092,CONTROLLER://0.0.0.0:29093
       KAFKA_ADVERTISED_LISTENERS: EXTERNAL://localhost:9092,INTERNAL://kafka:29092
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: EXTERNAL:PLAINTEXT,INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
@@ -120,11 +130,15 @@ services:
     profiles: ["observability"]
     command: ["--config=/etc/otel/config.yaml"]
     volumes:
-      - ./config/otel-collector.yaml:/etc/otel/config.yaml:ro
+      # T0.4 (defect B14): was ./config/otel-collector.yaml — config/ only ever
+      # held a .gitkeep, so this mount never resolved. Real file now lives at
+      # deploy/observability/otel-collector.yaml.
+      - ./deploy/observability/otel-collector.yaml:/etc/otel/config.yaml:ro
     ports:
       - "4317:4317"    # OTLP gRPC
       - "4318:4318"    # OTLP HTTP
-      - "8888:8888"    # collector metrics
+      - "8888:8888"    # collector self-telemetry (see otel-collector.yaml telemetry.metrics)
+      - "8889:8889"    # `prometheus` exporter — forwarded OTLP metrics (see otel-collector.yaml)
     depends_on:
       prometheus:
         condition: service_healthy
@@ -144,9 +158,13 @@ services:
       - "--storage.tsdb.retention.time=7d"
       - "--web.enable-lifecycle"
     volumes:
-      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      # T0.4 (defect B14): was ./config/prometheus.yml — config/ only ever held a
+      # .gitkeep, so this mount never resolved. Real file lives at
+      # deploy/observability/prometheus.yml.
+      - ./deploy/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       # ADR-0010 gap#32: mount alert rules so they are actually loaded (previously dead config)
-      - ./deploy/observability/alert-rules.yaml:/etc/prometheus/rules/alert-rules.yml:ro
+      # T0.4: fixed extension mismatch — actual file is alert-rules.yml, not alert-rules.yaml.
+      - ./deploy/observability/alert-rules.yml:/etc/prometheus/rules/alert-rules.yml:ro
       - prometheus_data:/prometheus
     ports: ["9090:9090"]
     healthcheck:
@@ -184,22 +202,25 @@ services:
       start_period: 30s
 
   # ---------------------------------------------------------------------------
-  # Tasy CDC Simulator — profile 'simulator' (ADR-0013)
-  # Produtor de eventos Debezium sintéticos enquanto acesso Oracle AMH é BLOCKED.
-  # Deliverable permanente de CI — não é hack temporário.
+  # Tasy CDC Simulator — REMOVED (T0.4, defect B14).
+  #
+  # This service previously built from deploy/tasy_simulator.Dockerfile, which
+  # never existed in this repo, and there is no simulator source under src/
+  # (no src/maezo/platform/integrations/tasy_simulator/ package; confirmed via
+  # `git log --all` — the Dockerfile path has zero history, it was never created).
+  #
+  # ADR-0013 documents the simulator as a planned *permanent* CI deliverable (the
+  # "contrato vivo" of the Debezium CDC envelope for Tasy), not a temporary hack —
+  # but it has not been built yet. .github/workflows/ci.yml already carries a
+  # `fhir-sync-simulator` job with `if: false` and an explicit comment: "o código
+  # do simulador Tasy e os eventos CDC ainda não foram implementados... post-M13".
+  #
+  # Decision: remove the dangling service + profile rather than fabricate a
+  # Dockerfile/image for code that doesn't exist. The Tasy integration boundary
+  # gets an explicit interface + labeled mock in T2.6; re-add this service (and
+  # the 'simulator' profile) then, once src/.../tasy_simulator/ and
+  # deploy/tasy_simulator.Dockerfile actually exist.
   # ---------------------------------------------------------------------------
-  tasy-simulator:
-    build:
-      context: .
-      dockerfile: deploy/tasy_simulator.Dockerfile
-    profiles: [simulator]
-    environment:
-      KAFKA_BOOTSTRAP_SERVERS: kafka:29092   # INTERNAL listener — cross-container Docker network
-      TASY_SIM_SEED: "0"
-      TASY_SIM_LOOP: "0"   # one-shot em CI; "1" para interativo
-    depends_on:
-      - kafka
-    restart: "no"
 
 volumes:
   pgdata:
