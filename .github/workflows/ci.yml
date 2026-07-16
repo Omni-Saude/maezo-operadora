@@ -252,6 +252,13 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked --extra dev
 
+      # Three-bucket guard (verification cycle 1 caught a fail-open two-bucket version
+      # that routed EVERY nonzero collect exit to the visible skip — a planted
+      # import error, pytest exit 2, read as "no tests yet" and the job went GREEN):
+      #   exit 0        -> tests collected: run the real lane
+      #   exit 4 or 5   -> dir missing / nothing collected: visible skip (greenfield)
+      #   anything else -> COLLECTION BROKEN (e.g. 2 = import/collection error):
+      #                    FAIL the job. Broken tests must never masquerade as absent.
       - name: Check for collectable integration tests
         id: guard
         run: |
@@ -259,21 +266,31 @@ jobs:
           uv run pytest tests/integration --collect-only -q
           code=$?
           set -e
-          echo "collect_exit_code=${code}"
-          if [ "${code}" -eq 0 ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "run=false" >> "$GITHUB_OUTPUT"
-          fi
+          echo "collect_code=${code}" >> "$GITHUB_OUTPUT"
+          case "${code}" in
+            0)
+              echo "collect exit ${code}: tests collected — running the real lane"
+              echo "run=true" >> "$GITHUB_OUTPUT"
+              ;;
+            4|5)
+              echo "collect exit ${code}: no tests yet (4 = dir missing, 5 = nothing collected) — visible skip"
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "::error::COLLECTION BROKEN — tests/integration exists but cannot be collected (pytest --collect-only exit ${code}; 2 = import/collection error). This is NOT 'no tests yet' — failing the job."
+              exit 1
+              ;;
+          esac
 
       - name: INTEGRATION LANE SKIPPED (visible)
         if: steps.guard.outputs.run == 'false'
         run: |
-          echo "::notice::INTEGRATION LANE SKIPPED — no tests yet; unblocks at T3.1 (V2-COMPLETION-PLAN)"
+          echo "::notice::INTEGRATION LANE SKIPPED — no tests yet (pytest --collect-only exit ${{ steps.guard.outputs.collect_code }}); unblocks at T3.1 (V2-COMPLETION-PLAN)"
           {
             echo "## integration tests (real engine): SKIPPED"
             echo ""
-            echo "No collectable tests under \`tests/integration/\`. This lane auto-activates the"
+            echo "No collectable tests under \`tests/integration/\` (pytest --collect-only exit"
+            echo "${{ steps.guard.outputs.collect_code }}). This lane auto-activates the"
             echo "moment T3.1 (V2-COMPLETION-PLAN) lands tests there — no workflow edit needed."
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -350,10 +367,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Two-phase guard (verification cycle 1 caught a fail-open version that piped
+      # `docker compose config` straight into grep with stderr discarded — a BROKEN
+      # docker-compose.yml exited nonzero, produced no profile list, and read as
+      # "profile absent" -> false visible skip). Phase 1: `docker compose config`
+      # must itself succeed, else the job FAILS loudly. Phase 2: only then is the
+      # profile list inspected for 'simulator'.
       - name: Check for reintroduced 'simulator' compose profile
         id: guard
         run: |
-          if docker compose config --profiles 2>/dev/null | grep -qx simulator; then
+          set +e
+          profiles="$(docker compose config --profiles 2>compose-config.stderr)"
+          code=$?
+          set -e
+          if [ "${code}" -ne 0 ]; then
+            echo "::error::docker compose config failed (exit ${code}) — docker-compose.yml is broken. Refusing to read a parse failure as 'simulator profile absent' — failing the job."
+            echo "--- docker compose config stderr ---"
+            cat compose-config.stderr
+            exit 1
+          fi
+          echo "compose profiles found:"
+          printf '%s\n' "${profiles}"
+          if printf '%s\n' "${profiles}" | grep -qx simulator; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
             echo "run=false" >> "$GITHUB_OUTPUT"
@@ -473,6 +508,9 @@ jobs:
         if: steps.agent_changes.outputs.agents == 'true'
         run: uv sync --locked --extra dev
 
+      # Three-bucket guard (see the `integration` job for the verification-cycle-1
+      # fail-open this replaces): 0 -> run; 4/5 -> visible skip; else -> job FAILS
+      # (broken collection must never masquerade as "no golden datasets yet").
       - name: Check for collectable eval golden datasets
         id: guard
         if: steps.agent_changes.outputs.agents == 'true'
@@ -481,23 +519,33 @@ jobs:
           uv run pytest tests/evals --collect-only -q -m eval
           code=$?
           set -e
-          echo "collect_exit_code=${code}"
-          if [ "${code}" -eq 0 ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "run=false" >> "$GITHUB_OUTPUT"
-          fi
+          echo "collect_code=${code}" >> "$GITHUB_OUTPUT"
+          case "${code}" in
+            0)
+              echo "collect exit ${code}: eval tests collected — running the real gate"
+              echo "run=true" >> "$GITHUB_OUTPUT"
+              ;;
+            4|5)
+              echo "collect exit ${code}: no golden datasets yet (4 = dir missing, 5 = nothing collected) — visible skip"
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "::error::COLLECTION BROKEN — tests/evals exists but cannot be collected (pytest --collect-only exit ${code}; 2 = import/collection error). This is NOT 'no golden datasets yet' — failing the job."
+              exit 1
+              ;;
+          esac
 
       - name: EVALS LANE SKIPPED (visible)
         if: steps.agent_changes.outputs.agents == 'true' && steps.guard.outputs.run == 'false'
         run: |
-          echo "::notice::EVALS LANE SKIPPED — no golden datasets yet; unblocks at T3.2 (V2-COMPLETION-PLAN)"
+          echo "::notice::EVALS LANE SKIPPED — no golden datasets yet (pytest --collect-only exit ${{ steps.guard.outputs.collect_code }}); unblocks at T3.2 (V2-COMPLETION-PLAN)"
           {
             echo "## evals (agent-touching paths): SKIPPED"
             echo ""
             echo "Agent-touching paths changed, but no collectable eval-marked tests exist under"
-            echo "\`tests/evals/\` yet. This lane auto-activates the moment T3.2"
-            echo "(V2-COMPLETION-PLAN) lands golden datasets there — no workflow edit needed."
+            echo "\`tests/evals/\` yet (pytest --collect-only exit ${{ steps.guard.outputs.collect_code }})."
+            echo "This lane auto-activates the moment T3.2 (V2-COMPLETION-PLAN) lands golden"
+            echo "datasets there — no workflow edit needed."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Run eval gate
@@ -549,6 +597,8 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked --extra dev
 
+      # Three-bucket guard (see the `integration` job for the verification-cycle-1
+      # fail-open this replaces): 0 -> run; 4/5 -> visible skip; else -> job FAILS.
       - name: Check for collectable eval golden datasets
         id: guard
         run: |
@@ -556,21 +606,31 @@ jobs:
           uv run pytest tests/evals --collect-only -q -m eval
           code=$?
           set -e
-          echo "collect_exit_code=${code}"
-          if [ "${code}" -eq 0 ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "run=false" >> "$GITHUB_OUTPUT"
-          fi
+          echo "collect_code=${code}" >> "$GITHUB_OUTPUT"
+          case "${code}" in
+            0)
+              echo "collect exit ${code}: eval tests collected — running the full nightly suite"
+              echo "run=true" >> "$GITHUB_OUTPUT"
+              ;;
+            4|5)
+              echo "collect exit ${code}: no golden datasets yet (4 = dir missing, 5 = nothing collected) — visible skip"
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "::error::COLLECTION BROKEN — tests/evals exists but cannot be collected (pytest --collect-only exit ${code}; 2 = import/collection error). This is NOT 'no golden datasets yet' — failing the job."
+              exit 1
+              ;;
+          esac
 
       - name: EVALS-NIGHTLY LANE SKIPPED (visible)
         if: steps.guard.outputs.run == 'false'
         run: |
-          echo "::notice::EVALS-NIGHTLY LANE SKIPPED — no golden datasets yet; unblocks at T3.2 (V2-COMPLETION-PLAN)"
+          echo "::notice::EVALS-NIGHTLY LANE SKIPPED — no golden datasets yet (pytest --collect-only exit ${{ steps.guard.outputs.collect_code }}); unblocks at T3.2 (V2-COMPLETION-PLAN)"
           {
             echo "## evals-nightly (full suite): SKIPPED"
             echo ""
-            echo "No collectable eval-marked tests exist under \`tests/evals/\` yet. This lane"
+            echo "No collectable eval-marked tests exist under \`tests/evals/\` yet (pytest"
+            echo "--collect-only exit ${{ steps.guard.outputs.collect_code }}). This lane"
             echo "auto-activates the moment T3.2 (V2-COMPLETION-PLAN) lands golden datasets"
             echo "there — no workflow edit needed."
           } >> "$GITHUB_STEP_SUMMARY"
