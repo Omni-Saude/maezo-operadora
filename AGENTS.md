@@ -20,7 +20,7 @@
 | Cobertura funcional | ~30-40% dos contratos | Alvo: 100% dos contratos |
 | Código inicial | 55K LOC Python portado | Zero — tudo reconstruído |
 | ADRs | 14/24 "Proposed" | Todos "Accepted" antes de implementar |
-| Qualidade alvo | B+ (pré-produção) | A (production-ready) |
+| Qualidade alvo | B+ (pré-produção) | A (alpha-dev, self-certified/unverified) |
 
 ## Regras duras para geração de código
 
