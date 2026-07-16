@@ -106,5 +106,10 @@ jobs:
           sudo mv gitleaks /usr/local/bin/
           gitleaks version
 
+      # T2.4: --config .gitleaks.toml estende o ruleset default com uma
+      # allowlist ESTREITA (regex ancorada em 2 shapes de identificadores
+      # BPM de docs — nao segredos; sem allowlist por path). Prova de
+      # mutacao no PR #28: segredo fake plantado continua detectado,
+      # inclusive dentro dos proprios arquivos de docs referenciados.
       - name: Detect secrets
-        run: gitleaks detect --source . --verbose --redact --exit-code 1
+        run: gitleaks detect --source . --config .gitleaks.toml --verbose --redact --exit-code 1
