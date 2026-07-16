@@ -7,11 +7,11 @@ from pathlib import Path
 
 import yaml
 
-_AGENTS_ROOT = Path(__file__).parent.parent.parent.parent / "src" / "maezo" / "agents"
+_AGENTS_ROOT = Path(__file__).parent.parent.parent.parent / "spec" / "agents"
 
 
 def test_carolina_agent_yaml_exists() -> None:
-    """Carolina's agent.yaml must exist at src/maezo/agents/carolina/agent.yaml."""
+    """Carolina's agent.yaml must exist at spec/agents/carolina/agent.yaml."""
     agent_path = _AGENTS_ROOT / "carolina" / "agent.yaml"
     assert agent_path.exists(), f"Carolina agent.yaml not found at {agent_path}"
 

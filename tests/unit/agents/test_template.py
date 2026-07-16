@@ -7,7 +7,7 @@ from pathlib import Path
 
 import yaml
 
-_AGENTS_ROOT = Path(__file__).parent.parent.parent.parent / "src" / "maezo" / "agents"
+_AGENTS_ROOT = Path(__file__).parent.parent.parent.parent / "spec" / "agents"
 
 
 def test_template_has_required_fields() -> None:

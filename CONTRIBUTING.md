@@ -10,8 +10,8 @@
 
 ## Como adicionar um agente
 
-1. Copie `src/maezo/agents/_template/` → `src/maezo/agents/<id>/`.
-2. Preencha `agent.yaml`: zona de segurança (ADR-0006), allowlist de tools, KPIs, gestor humano, rota de escalonamento. **Todo agente tem gestor humano e rota de escalonamento — sem exceção.**
+1. Copie `src/maezo/agents/_template/` → `src/maezo/agents/<id>/` (código: `graph.py` + `__init__.py`).
+2. Copie `spec/agents/_template/agent.yaml` → `spec/agents/<id>/agent.yaml` (única fonte — T0.3/B14, sem cópia em `src/`) e preencha: zona de segurança (ADR-0006), allowlist de tools, KPIs, gestor humano, rota de escalonamento. **Todo agente tem gestor humano e rota de escalonamento — sem exceção.**
 3. Implemente `graph.py:build` — nós curtos e idempotentes (checkpoint é entre nós).
 4. Adicione ações novas à matriz `policies/autonomy/` via PR separado (revisão de compliance obrigatória — CODEOWNERS).
 5. Crie golden dataset em `tests/evals/golden/<id>/` ANTES do go-live (mínimo definido por fase).

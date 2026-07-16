@@ -35,7 +35,8 @@ Beneficiário (WhatsApp/Portal)        Prestador (Portal TISS)
 | Pasta | O que é |
 |---|---|
 | `src/maezo/runtime/` | Harness LangGraph, checkpointer, abstração de inference (ADR-0009) |
-| `src/maezo/agents/<id>/` | Agent Definition (`agent.yaml`) + grafo. `_template/` é o contrato |
+| `spec/agents/<id>/` | Agent Definition (`agent.yaml`) — única fonte (T0.3/B14); `_template/` é o contrato |
+| `src/maezo/agents/<id>/` | Grafo LangGraph (`graph.py`) do agente — lê a definição em `spec/agents/<id>/agent.yaml` |
 | `src/maezo/a2a/` | Registry de Agent Cards, anti-loop (ADR-0003) |
 | `src/maezo/gateway/` | PEP, pseudonimização, auditoria, credenciais (ADR-0005/0006/0007) |
 | `src/maezo/tools/mcp_*/` | MCP servers — única via dos agentes aos sistemas |

@@ -23,7 +23,7 @@ evals:            ## golden datasets por agente (gate de promocao de prompt/mode
 	uv run pytest tests/evals -q -m eval || [ $$? -eq 5 ]  # exit 5 = nenhum eval coletado ainda (scaffold); vira erro quando o 1o golden dataset entrar
 
 validate-artifacts: ## BPMN/DMN/policies/agent-definitions (blocker de CI)
-	uv run python -m maezo.platform.validation.cli validate spec/processes spec/policies src/maezo/processes src/maezo/policies src/maezo/agents
+	uv run python -m maezo.platform.validation.cli validate spec/processes spec/policies spec/agents src/maezo/processes src/maezo/policies
 
 validate-signoff: ## gate de promocao de conteudo: artefato promovivel exige sign-off humano (Track C2)
 	uv run python -m maezo.platform.validation.cli signoff

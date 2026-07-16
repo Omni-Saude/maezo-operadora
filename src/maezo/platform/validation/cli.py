@@ -1,7 +1,8 @@
 """Validation CLI — CI gate for BPMN, DMN, policies, agent-definitions.
 
 Entry-point referenced by the Makefile:
-    uv run python -m maezo.platform.validation.cli src/maezo/processes src/maezo/policies src/maezo/agents
+    uv run python -m maezo.platform.validation.cli \
+        spec/processes spec/policies spec/agents src/maezo/processes src/maezo/policies
 
 Modes:
 - validate: Scans directories for BPMN/DMN/policies/agent-definitions and
@@ -33,7 +34,7 @@ def build_parser() -> argparse.ArgumentParser:
     val.add_argument(
         "paths",
         nargs="+",
-        help="Directories to scan (e.g., src/maezo/processes src/maezo/policies src/maezo/agents)",
+        help="Directories to scan (e.g., spec/processes spec/policies spec/agents)",
     )
 
     # signoff
