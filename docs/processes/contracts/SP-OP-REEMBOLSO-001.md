@@ -1,7 +1,7 @@
 # Contrato — SP-OP-REEMBOLSO-001 (Reembolso ao Beneficiario)
 
 **Status:** DRAFT (v0.1.0) — `DRAFT — requires human review before any deploy` (docs/review-queue.md)
-**Fase:** 2 · **Wave:** WC.2 · **BPMN (a autorar em wave posterior):** `src/maezo/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn`
+**Fase:** 2 · **Wave:** WC.2 · **BPMN (a autorar em wave posterior):** `spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn`
 **Gatilho regulatorio:** RN 259/2011 (garantia de atendimento / prazos — consolidacoes posteriores ANS: **DRAFT/verify**), Lei 9.656/1998 art. 12 (reembolso na livre escolha / fora da rede / urgencia-emergencia: **DRAFT/verify**), prazo de reembolso (~30 dias — **DRAFT/verify** RN vigente com regulatorio/juridico). **Negar/reduzir reembolso = `authorization_denial`-class, L0 hard (`_hard_frozen.yaml`).**
 
 > Este contrato e o ponto de sincronizacao (§4-bis-F): o BPMN/DMN/agente de REEMBOLSO derivam dele. Toda mecanica no-denial de cinco partes esta materializada abaixo (invariante L0, rotas sem variante negar, DMN sem coluna de negativa, catch-all conservador para humano, worker-guard `ERR_*_NOT_HUMAN`, teste de invariante consultando o history do engine). **Clona o esqueleto provado SP-OP-AUTH-001.**

@@ -1,7 +1,7 @@
 # Contrato — SP-OP-ANS-CRON-001 (Agendador per-report_type dos Envios Periodicos ANS)
 
 **Status:** DRAFT (v0.2.0) — `DRAFT — requires human review before any deploy` (docs/review-queue.md)
-**BPMN:** `src/maezo/processes/bpmn/SP-OP-ANS-CRON-001_Agendador_Envios_ANS.bpmn` (GAP-ANS-1)
+**BPMN:** `spec/processes/bpmn/SP-OP-ANS-CRON-001_Agendador_Envios_ANS.bpmn` (GAP-ANS-1)
 **Natureza:** agendador puro (operadora -> regulador). **NAO negativa-like**; nenhum efeito
 adverso; todos os terminais NEUTROS. O HITL pre-filing vive no processo de envio
 (SP-OP-ANS-SUBMIT-001) e nao e contornavel por aqui (guard `ERR_ANS_SUBMIT_NOT_HUMAN` no worker).

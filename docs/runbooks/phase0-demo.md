@@ -56,8 +56,8 @@ until curl -sf "http://localhost:8082/webhook?hub.mode=subscribe&hub.challenge=p
 curl -sf -X POST "$ENGINE/deployment/create" \
   -F "deployment-name=phase0-demo" \
   -F "enable-duplicate-filtering=true" \
-  -F "bpmn=@src/maezo/processes/bpmn/SP-OP-ESCALATION-001_Escalonamento_Humano_Universal.bpmn" \
-  -F "dmn=@src/maezo/processes/dmn/escalation_routing.dmn" | jq .id
+  -F "bpmn=@spec/processes/bpmn/SP-OP-ESCALATION-001_Escalonamento_Humano_Universal.bpmn" \
+  -F "dmn=@spec/processes/dmn/escalation_routing.dmn" | jq .id
 ```
 
 ## Passo 1 — POST no webhook WhatsApp com HMAC válido

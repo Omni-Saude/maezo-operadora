@@ -1,7 +1,7 @@
 # Contrato — SP-OP-CONTAS-001 (Processamento de Contas / Glosa)
 
 **Status:** DRAFT (v0.1.0) — `DRAFT — requires human review before any deploy` (docs/review-queue.md)
-**Fase:** 2 · **Wave:** WA.1 · **BPMN (alvo, autorado em wave posterior):** `src/maezo/processes/bpmn/SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn`
+**Fase:** 2 · **Wave:** WA.1 · **BPMN (alvo, autorado em wave posterior):** `spec/processes/bpmn/SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn`
 **Gatilho regulatorio:** Padrao TISS / Componente de Comunicacao (RN 305/2012 e consolidacoes — **DRAFT/verify**); prazos de analise/recurso de conta (RN 424/2017 — **DRAFT/verify**); Lei 9.656/1998. Glosa = operadora negando/reduzindo pagamento de linha de conta ao prestador → `authorization_denial`-adjacent, **L0 hard** (embora o envelope clerical de roteamento seja `standard_glosa_processing`, L2).
 **Inverte o anti-padrao:** `../maezo-reference/.archive/bpmn/glosa_management.bpmn` (que identifica→classifica→**auto-aplica** glosa via `Task_UpdatePaymentNotEligible`/`EndEvent_GlosaAccepted` e tem `Task_AutoApprove` no timeout de 48h). Em Maezo a DMN apenas **sinaliza candidata e roteia**; nenhum caminho automatizado **confirma** glosa substantiva. Ver §"Notas de design / inversao do reference".
 

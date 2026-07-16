@@ -28,10 +28,13 @@ When reporting, include:
 
 ## Security Automation in this Repository
 
-This repository is configured with:
+Currently active:
 
-- CodeQL static analysis (`.github/workflows/security.yml`)
 - Secret scanning with Gitleaks (`.github/workflows/security.yml`)
-- Dependency risk checks on PRs (`dependency-review-action`)
 - Weekly dependency update PRs (`.github/dependabot.yml`)
+
+Currently disabled (jobs commented out in `.github/workflows/security.yml`):
+
+- CodeQL static analysis — Disabled (CodeQL v3 autobuild incompatible with the pyproject.toml + `src/` layout) — re-enablement tracked as T2.4 in `docs/prompts/V2-COMPLETION-PLAN.md`
+- Dependency risk checks on PRs (`dependency-review-action`) — Disabled (requires GitHub Advanced Security, not provisioned on this repository) — re-enablement tracked as T2.4 in `docs/prompts/V2-COMPLETION-PLAN.md`
 

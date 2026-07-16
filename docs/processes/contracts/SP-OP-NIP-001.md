@@ -1,7 +1,7 @@
 # Contrato — SP-OP-NIP-001 (Resposta a NIP — ANS)
 
 **Status:** DRAFT (v0.1.0) — `DRAFT — requires human review before any deploy` (docs/review-queue.md)
-**Fase:** 2 (Wave B — canal regulatorio ANS) · **BPMN:** `src/maezo/processes/bpmn/SP-OP-NIP-001_Resposta_NIP.bpmn` (autoria em wave posterior)
+**Fase:** 2 (Wave B — canal regulatorio ANS) · **BPMN:** `spec/processes/bpmn/SP-OP-NIP-001_Resposta_NIP.bpmn` (autoria em wave posterior)
 **Gatilho regulatorio:** RN 388/2016 (NIP — Notificacao de Intermediacao Preliminar; prazos de resposta assistencial/nao-assistencial: **DRAFT/verify**), IN DIDES correlata (procedimento NIP: **DRAFT/verify**), Lei 9.656/1998 (cobertura). Citacoes de RN nao confirmadas — ver §9 OQ/R2 do phase2-plan e review-queue.
 
 ## Invariante L0 hard (nao negociavel)

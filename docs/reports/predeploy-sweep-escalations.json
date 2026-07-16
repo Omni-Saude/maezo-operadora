@@ -17,7 +17,7 @@
  },
  {
   "dim": "bpmn-dmn",
-  "esc": "r2: Census mismatch: brief specified 17 BPMN files and 55 DMN files; actual repo glob (2026-07-04, main @ HEAD) finds exactly 16 .bpmn files under src/maezo/processes/bpmn (SP-OP-ANS-CRON-001 is present as a 5-process-definition file, consistent with docs/audits/bpmn-process-completeness.md's 15+1 reconciliation) and 60 .dmn files under src/maezo/processes/dmn (53 flat + 7 under fraude_scoring/). "
+  "esc": "r2: Census mismatch: brief specified 17 BPMN files and 55 DMN files; actual repo glob (2026-07-04, main @ HEAD) finds exactly 16 .bpmn files under spec/processes/bpmn (SP-OP-ANS-CRON-001 is present as a 5-process-definition file, consistent with docs/audits/bpmn-process-completeness.md's 15+1 reconciliation) and 60 .dmn files under spec/processes/dmn (53 flat + 7 under fraude_scoring/). "
  },
  {
   "dim": "bpmn-dmn",
@@ -53,11 +53,11 @@
  },
  {
   "dim": "no-denial-autonomy",
-  "esc": "r2: The brief states 'all 17 BPMN files' \u2014 the repository only contains 16 *.bpmn files under src/maezo/processes/bpmn (confirmed via `find . -iname '*.bpmn'` on both local and origin/main, identical count). Treating this as an imprecision in the brief rather than a coverage gap; all 16 present files were fully swept."
+  "esc": "r2: The brief states 'all 17 BPMN files' \u2014 the repository only contains 16 *.bpmn files under spec/processes/bpmn (confirmed via `find . -iname '*.bpmn'` on both local and origin/main, identical count). Treating this as an imprecision in the brief rather than a coverage gap; all 16 present files were fully swept."
  },
  {
   "dim": "no-denial-autonomy",
-  "esc": "r4: Brief states 'every endEvent in every one of the 17 BPMN files' but the repo currently contains only 16 *.bpmn files under src/maezo/processes/bpmn/ (verified via find + the test's own glob). No 17th file was found anywhere in the repo; flagged as a discrepancy in the brief, not a code defect."
+  "esc": "r4: Brief states 'every endEvent in every one of the 17 BPMN files' but the repo currently contains only 16 *.bpmn files under spec/processes/bpmn/ (verified via find + the test's own glob). No 17th file was found anywhere in the repo; flagged as a discrepancy in the brief, not a code defect."
  },
  {
   "dim": "no-denial-autonomy",
@@ -153,7 +153,7 @@
  },
  {
   "dim": "observability",
-  "esc": "r1: The brief mentions 17 BPMN files; only 16 exist under src/maezo/processes/bpmn/*.bpmn. Noted for awareness; does not change the candidate-group coverage conclusion (verified via live code execution + passing anti-drift test)."
+  "esc": "r1: The brief mentions 17 BPMN files; only 16 exist under spec/processes/bpmn/*.bpmn. Noted for awareness; does not change the candidate-group coverage conclusion (verified via live code execution + passing anti-drift test)."
  },
  {
   "dim": "observability",

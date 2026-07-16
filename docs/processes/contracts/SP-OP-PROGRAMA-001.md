@@ -1,7 +1,7 @@
 # Contrato — SP-OP-PROGRAMA-001 (Programas de Cuidado — Consent-Gated)
 
 **Status:** DRAFT (v0.1.0) — `DRAFT — requires human review (medico-auditor/juridico/DPO/regulatorio/financas/PO) before any deploy` (docs/review-queue.md)
-**Fase:** 3 (Wave W-C; modelado uma fase a frente — playbook 5-bis) · **BPMN (alvo, autorado em wave posterior):** `src/maezo/processes/bpmn/SP-OP-PROGRAMA-001_Programas_Cuidado.bpmn`
+**Fase:** 3 (Wave W-C; modelado uma fase a frente — playbook 5-bis) · **BPMN (alvo, autorado em wave posterior):** `spec/processes/bpmn/SP-OP-PROGRAMA-001_Programas_Cuidado.bpmn`
 **Gatilho regulatorio:** **LGPD (Lei 13.709/2018)** — art. 7/art. 11 (consentimento para tratamento de **dados de saude = sensiveis**), art. 9 (transparencia), art. 8 §5 / art. 18 §2 (**revogacao do consentimento a qualquer tempo, com efeito**); eventual RN ANS de programas de promocao a saude / APS (**DRAFT/verify** com regulatorio — confirmar se ha RN especifica). **Depende de SP-OP-LGPD-DSR-001** (ja em main): a revogacao de consentimento e um `tipo_requisicao` do DSR e aqui e o gatilho de interrupcao.
 
 > **Processo L3 (autonomo com telemetria — ADR-0008: triagem/estratificacao/enrollment informativo),

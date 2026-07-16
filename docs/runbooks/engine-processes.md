@@ -19,7 +19,7 @@
 
 ## 1. Overview
 
-**Code:** `src/maezo/processes/` (BPMN + DMN files)
+**Code:** `spec/processes/` (BPMN + DMN files)
 
 Maezo uses CIB Seven (open-source Camunda) as the governance engine for compliance processes (ADR-0001). Processes enforce:
 
@@ -39,7 +39,7 @@ Maezo uses CIB Seven (open-source Camunda) as the governance engine for complian
 
 ## 2. BPMN/DMN deployment to CIB Seven
 
-**Code:** `src/maezo/processes/bpmn/`, `src/maezo/processes/dmn/`
+**Code:** `spec/processes/bpmn/`, `spec/processes/dmn/`
 
 ### CI validation
 
@@ -64,7 +64,7 @@ docker compose --profile core up -d
 
 # 2. Deploy BPMN via REST API
 curl -X POST http://localhost:8080/engine-rest/deployment \
-  -F "data=@src/maezo/processes/bpmn/SP-OP-ESCALATION-001_Escalonamento_Humano_Universal.bpmn" \
+  -F "data=@spec/processes/bpmn/SP-OP-ESCALATION-001_Escalonamento_Humano_Universal.bpmn" \
   -F "deploymentSource=helena-escalation"
 
 # 3. Verify deployment
@@ -79,7 +79,7 @@ In GitHub Actions CI pipeline:
 # .github/workflows/deploy.yml
 - name: Deploy processes to CIB Seven
   run: |
-    for bpmn in src/maezo/processes/bpmn/*.bpmn; do
+    for bpmn in spec/processes/bpmn/*.bpmn; do
       curl -X POST $CIB_SEVEN_URL/engine-rest/deployment \
         -F "data=@$bpmn" \
         -F "deploymentSource=ci"

@@ -1,7 +1,7 @@
 # Contrato — SP-OP-ANS-SUBMIT-001 (Envios Periodicos ANS — calendar-driven)
 
 **Status:** DRAFT (v0.1.0) — `DRAFT — requires human review before any deploy` (docs/review-queue.md)
-**Fase:** 2 (Wave B — canal regulatorio ANS) · **BPMN:** `src/maezo/processes/bpmn/SP-OP-ANS-SUBMIT-001_Envios_Periodicos_ANS.bpmn` (autorado em wave posterior contra este contrato)
+**Fase:** 2 (Wave B — canal regulatorio ANS) · **BPMN:** `spec/processes/bpmn/SP-OP-ANS-SUBMIT-001_Envios_Periodicos_ANS.bpmn` (autorado em wave posterior contra este contrato)
 **Classificacao de autonomia:** `ans_official_submission: L1` (require_human — humano assina o envio vinculante; nao-repudio ADR-0007).
 **Gatilho regulatorio (todos DRAFT/verify regulatorio+juridico):** RN 124/2006 (SIP — Sistema de Informacoes de Produtos: **DRAFT/verify**), RN 209/2009 (utilizacao de servicos: **DRAFT/verify**), RN 388/2015 (indicadores/transparencia: **DRAFT/verify**), RN 424/2017 (padrao TISS / monitoramento: **DRAFT/verify**), DIOPS (informacoes economico-financeiras, periodicidade trimestral: **DRAFT/verify**). **Todas as citacoes de RN, periodicidades, datas de competencia e fontes do calendario sao DRAFT — confirmar contra texto vigente ANS antes de qualquer envio.**
 

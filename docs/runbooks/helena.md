@@ -219,7 +219,7 @@ below is caught by manual review/eval trends, not an alert.
 
 | Cause | Check | Fix |
 |-------|-------|-----|
-| Red flag DMN too strict | Review recent DMN changes | Roll back rule update in `src/maezo/processes/dmn/triage_redflag_*.dmn` |
+| Red flag DMN too strict | Review recent DMN changes | Roll back rule update in `spec/processes/dmn/triage_redflag_*.dmn` |
 | Model regression | Check eval score | Roll back to last passing model config in `runtime/inference.py` |
 | Intent classification broken | Sample conversations in DLQ | Inspect failing intents; retrain if needed |
 | FHIR lookup failures | `kubectl logs deploy/agent-helena -n maezo-amh \| grep mcp-fhir.error` (Helena's Deployment is `agent-helena`; there is no `agent-runtime` resource) | Check FHIR pod health; restart if needed |

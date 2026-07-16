@@ -272,7 +272,7 @@ Reautoração obrigatória: reference é **Zeebe/Camunda 8 + FederatedDMNService
 |---|---|
 | `config/topic_registry.yaml` | **W0.2** (único editor; todos os outros só leem) |
 | `src/maezo/tools/process_allowlist.py` + `config/process_allowlist.yaml` | **W0.1** (PR humano) |
-| `src/maezo/processes/bpmn/SP-OP-CONTAS-001_*.bpmn` + `docs/processes/contracts/SP-OP-CONTAS-001.md` + `dmn/glosa_*.dmn` (reason_normalization, classification, triage, contas_sla) + `docs/processes/test-specs/SP-OP-CONTAS-001.md` + `tests/integration/processes/test_sp_op_contas_001.py` | **WA.1** |
+| `spec/processes/bpmn/SP-OP-CONTAS-001_*.bpmn` + `docs/processes/contracts/SP-OP-CONTAS-001.md` + `dmn/glosa_*.dmn` (reason_normalization, classification, triage, contas_sla) + `docs/processes/test-specs/SP-OP-CONTAS-001.md` + `tests/integration/processes/test_sp_op_contas_001.py` | **WA.1** |
 | `…RECURSO-001.*` + `dmn/recurso_*.dmn` + tests | **WA.2** |
 | `src/maezo/agents/marina/**` | **WA.3** |
 | workers `operadora.contas.*` / `operadora.recurso.*` (port glosa) | **WA.4** |

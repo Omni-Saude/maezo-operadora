@@ -1,11 +1,11 @@
 [project]
 name = "maezo-operadora"
-version = "1.0.0"
+version = "0.2.0"
 description = "MAEZO Operadora — plataforma agents-first para operadoras de saude"
 requires-python = ">=3.12"
 license = { text = "Proprietary" }
 classifiers = [
-    "Development Status :: 5 - Production/Stable",
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Healthcare Industry",
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
