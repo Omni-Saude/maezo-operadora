@@ -260,7 +260,8 @@ class TestMainEndToEnd:
         assert len(fake.deploy_calls) == 1
         _, name = fake.deploy_calls[0]
         assert name == DEFAULT_DEPLOYMENT_NAME
-        assert "16 BPMN, 54 DMN" in out
+        # 54 DMN (T1.3) + 7 ported fraude_scoring tables (T2.7 artifact phase) = 61
+        assert "16 BPMN, 61 DMN" in out
 
     def test_deploy_mode_engine_rejection_is_nonzero_exit(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
