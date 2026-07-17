@@ -1,99 +1,102 @@
-"""Unit tests for maezo.tools.mcp_dmn (ADR-0012, ADR-0022)."""
+"""Deprecation-contract tests for maezo.tools.mcp_dmn (T1.5, ADR-0028 §"Fate of mcp_dmn").
 
-import pytest
+The former behavior tests (evaluate auth_auto_approval etc.) were REMOVED with the demotion:
+the in-process XML evaluator is deprecated — it fails OPEN on no-match and cannot evaluate FEEL
+comparison/range/list tests — and runtime evaluation is engine-side only
+(`maezo.tools.workers.dmn_transport`, covered by `tests/unit/tools/workers/test_dmn_transport.py`
+and the live golden-parity suite `tests/integration/dmn/test_dmn_golden_parity.py`). Testing the
+deprecated evaluator's decision behavior would keep asserting semantics ADR-0028 explicitly
+rejects (a second, drifting FEEL engine).
 
-# ---------------------------------------------------------------------------
-# DMN Server: evaluate_decision(dmn_key, inputs) -> outputs
-# ---------------------------------------------------------------------------
+What must stay true until the module is deleted outright:
+1. importing the package emits a loud `DeprecationWarning` (no warning-free import path);
+2. no production module imports it (the deprecation is not being silently swallowed anywhere).
+"""
 
+from __future__ import annotations
 
-def test_dmn_tools_registered() -> None:
-    """DMN server should expose exactly 1 tool: evaluate_decision."""
-    from maezo.tools.mcp_dmn import DmnServer
+import importlib
+import subprocess
+import sys
+from pathlib import Path
 
-    server = DmnServer()
-
-    tools = server.list_tools()
-
-    assert len(tools) == 1, f"Expected 1 tool, got {len(tools)}: {tools}"
-    assert tools[0]["name"] == "evaluate_decision"
-
-
-def test_dmn_settings_defaults() -> None:
-    """DmnSettings should default to spec/processes/dmn/ relative to project root."""
-    from maezo.tools.mcp_dmn.server import DmnSettings
-
-    settings = DmnSettings()
-
-    assert settings.dmn_dir is not None
-    assert "spec/processes/dmn" in settings.dmn_dir
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
-def test_dmn_evaluate_auth_auto_approval() -> None:
-    """evaluate_decision with auth_auto_approval should return AUTO_APROVAR for valid inputs.
+def test_importing_mcp_dmn_emits_deprecation_warning() -> None:
+    """ADR-0028 §"Fate": the fail-open evaluator must NOT be importable without loud deprecation.
 
-    Uses the real DMN file from spec/processes/dmn/auth_auto_approval.dmn.
-    Inputs: dut_atendida=true, dentro_teto_l2=true, rede_credenciada=true, carater_atendimento='eletivo'
-    Expected: recomendacao='AUTO_APROVAR'
+    Runs the import in a FRESH interpreter (not this test process) because `warnings.warn` at
+    module scope fires only on first import — an earlier import anywhere in the test session
+    (collection, another test) would make an in-process `pytest.warns` assertion flaky.
     """
-    from maezo.tools.mcp_dmn.server import DmnServer, DmnSettings
+    code = (
+        "import warnings\n"
+        "with warnings.catch_warnings(record=True) as caught:\n"
+        "    warnings.simplefilter('always')\n"
+        "    import maezo.tools.mcp_dmn  # noqa: F401\n"
+        "deprecations = [w for w in caught if issubclass(w.category, DeprecationWarning)]\n"
+        "assert deprecations, 'no DeprecationWarning on import'\n"
+        "assert 'ADR-0028' in str(deprecations[0].message)\n"
+        "assert 'dmn_transport' in str(deprecations[0].message)\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        cwd=REPO_ROOT,
+        check=False,
+    )
+    assert result.returncode == 0, f"deprecation-warning probe failed:\n{result.stderr}"
 
-    settings = DmnSettings()
-    server = DmnServer(settings=settings)
 
-    result = server.evaluate_decision(
-        "auth_auto_approval",
-        {
-            "dut_atendida": True,
-            "dentro_teto_l2": True,
-            "rede_credenciada": True,
-            "carater_atendimento": "eletivo",
-        },
+def test_submodule_import_cannot_bypass_the_package_warning() -> None:
+    """`import maezo.tools.mcp_dmn.server` executes the package `__init__` first (Python import
+    semantics), so the direct-submodule path fires the same warning — no bypass."""
+    code = (
+        "import warnings\n"
+        "with warnings.catch_warnings(record=True) as caught:\n"
+        "    warnings.simplefilter('always')\n"
+        "    import maezo.tools.mcp_dmn.server  # noqa: F401\n"
+        "assert any(issubclass(w.category, DeprecationWarning) for w in caught)\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        cwd=REPO_ROOT,
+        check=False,
+    )
+    assert result.returncode == 0, f"submodule bypass probe failed:\n{result.stderr}"
+
+
+def test_no_production_module_imports_mcp_dmn() -> None:
+    """Import-fence: zero `src/` modules IMPORT the deprecated evaluator (its only sanctioned
+    remaining import sites are its own package files). A new production import would silently
+    resurrect the fail-open evaluator — this test makes that a red build instead. Scans actual
+    `import`/`from` statements via AST (a docstring MENTIONING mcp_dmn — e.g. dmn_transport.py's
+    own "this replaces mcp_dmn" note — is documentation, not a dependency)."""
+    import ast
+
+    offenders: list[str] = []
+    for path in (REPO_ROOT / "src").rglob("*.py"):
+        if path.parent.name == "mcp_dmn":
+            continue  # the deprecated package itself
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                if any("mcp_dmn" in alias.name for alias in node.names):
+                    offenders.append(f"{path.relative_to(REPO_ROOT)}:{node.lineno}")
+            elif isinstance(node, ast.ImportFrom) and node.module and "mcp_dmn" in node.module:
+                offenders.append(f"{path.relative_to(REPO_ROOT)}:{node.lineno}")
+    assert offenders == [], (
+        "production code IMPORTS the DEPRECATED maezo.tools.mcp_dmn evaluator "
+        f"(runtime DMN evaluation is engine-side only, ADR-0028): {offenders}"
     )
 
-    assert isinstance(result, dict), f"Expected dict, got {type(result)}: {result}"
-    assert "recomendacao" in result
-    assert result["recomendacao"] == "AUTO_APROVAR"
 
-
-def test_dmn_evaluate_auth_auto_approval_dut_false() -> None:
-    """evaluate_decision with dut_atendida=false should return ANALISE_HUMANA."""
-    from maezo.tools.mcp_dmn.server import DmnServer, DmnSettings
-
-    settings = DmnSettings()
-    server = DmnServer(settings=settings)
-
-    result = server.evaluate_decision(
-        "auth_auto_approval",
-        {
-            "dut_atendida": False,
-            "dentro_teto_l2": True,
-            "rede_credenciada": True,
-            "carater_atendimento": "eletivo",
-        },
-    )
-
-    assert result["recomendacao"] == "ANALISE_HUMANA"
-    assert "DUT/ROL nao atendida" in result["motivo"]
-
-
-def test_dmn_evaluate_decision_unknown_key() -> None:
-    """evaluate_decision with unknown dmn_key should raise FileNotFoundError."""
-    from maezo.tools.mcp_dmn.server import DmnServer, DmnSettings
-
-    settings = DmnSettings()
-    server = DmnServer(settings=settings)
-
-    with pytest.raises(FileNotFoundError):
-        server.evaluate_decision("nonexistent_dmn", {})
-
-
-def test_dmn_evaluate_decision_missing_input() -> None:
-    """evaluate_decision with missing required input should raise ValueError."""
-    from maezo.tools.mcp_dmn.server import DmnServer, DmnSettings
-
-    settings = DmnSettings()
-    server = DmnServer(settings=settings)
-
-    with pytest.raises(ValueError, match="dut_atendida"):
-        server.evaluate_decision("auth_auto_approval", {})
+def test_deprecated_server_still_importable_for_the_deprecation_cycle() -> None:
+    """The module stays importable (loudly) until removal — an out-of-tree consumer gets the
+    warning + a working import, not a bare ImportError mid-cycle."""
+    module = importlib.import_module("maezo.tools.mcp_dmn")
+    assert hasattr(module, "DmnServer")

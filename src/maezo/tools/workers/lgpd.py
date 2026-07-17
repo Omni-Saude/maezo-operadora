@@ -25,6 +25,7 @@ import uuid
 from typing import TYPE_CHECKING, Any
 
 from maezo.tools.workers.base import ERR_DENIAL_NOT_HUMAN, WorkerBase
+from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row, require_dmn
 
 if TYPE_CHECKING:
     from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
@@ -102,14 +103,25 @@ class AssessRequestWorker(WorkerBase):
     ELIMINACAO_AVALIACAO, INFORMATIVO) e o grupo revisor (dpo ou
     juridico-privacidade).
 
-    Baseado na DMN lgpd_dsr_routing:
-    - Dados de saude -> juridico-privacidade
-    - Sem dados de saude -> dpo
-    - Tipo desconhecido -> juridico-privacidade (catch-all, fail-safe)
+    Evaluates the deployed `lgpd_dsr_routing` decision table (ADR-0028/T1.5) — replaces the
+    hand-coded `fluxo_map`/`grupo_revisor` ladder that used to live here.
+
+    golden-parity divergence found + DMN wins (documented, not patched — ADR-0028 §7): the old
+    Python's `grupo_revisor` logic routed to `juridico-privacidade` only when
+    `envolve_dados_saude=true` OR `tipo_requisicao` was unmapped; the deployed table's
+    `eliminacao` rule (r5) ALWAYS routes to `juridico-privacidade`, REGARDLESS of
+    `envolve_dados_saude` (conflict with legal retention — prontuario/ANS — is always a
+    juridico matter). E.g. `tipo_requisicao="eliminacao"` + `envolve_dados_saude=False` now
+    yields `grupo_revisor="juridico-privacidade"` (was `"dpo"`). Both are PHI/LGPD-adjacent —
+    per ADR-0028 §7, policy-guardian review recommended before this cutover is considered
+    cleared. `dmn` is injected via `__init__` (class-based `WorkerBase`, not `FunctionWorker`);
+    `evaluate_sync` bridges the sync `execute()` boundary the same way `FunctionWorker`-wrapped
+    modules do (T1.1 design §7).
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, dmn: DmnTransport | None = None) -> None:
         super().__init__(topic="operadora.lgpd.assess_request")
+        self._dmn = dmn
 
     def execute(self, process_vars: dict[str, Any]) -> dict[str, Any]:
         """Assess the DSR request and determine routing.
@@ -124,20 +136,16 @@ class AssessRequestWorker(WorkerBase):
         tipo = process_vars.get("tipo_requisicao", "")
         dados_saude = process_vars.get("envolve_dados_saude", False)
 
-        # Determine fluxo based on tipo_requisicao
-        fluxo_map: dict[str, str] = {
-            "confirmacao_acesso": "EXPORTACAO",
-            "correcao": "RETIFICACAO",
-            "eliminacao": "ELIMINACAO_AVALIACAO",
-            "portabilidade": "EXPORTACAO",
-            "info_compartilhamento": "INFORMATIVO",
-            "revogacao_consentimento": "ELIMINACAO_AVALIACAO",
-        }
-
-        fluxo = fluxo_map.get(tipo, "INFORMATIVO")
-
-        # Grupo revisor: dados de saude ou tipo desconhecido -> juridico-privacidade
-        grupo_revisor = "juridico-privacidade" if dados_saude or tipo not in fluxo_map else "dpo"
+        rows, version = evaluate_sync(
+            require_dmn(self._dmn, self.topic),
+            "lgpd_dsr_routing",
+            {"tipo_requisicao": tipo, "envolve_dados_saude": bool(dados_saude)},
+        )
+        row = first_row(rows, "lgpd_dsr_routing", process_vars)
+        fluxo = str(row.get("fluxo", "INFORMATIVO"))
+        grupo_revisor = str(row.get("grupo_revisor", "juridico-privacidade"))
+        sla_resposta = row.get("sla_resposta")
+        sla_alerta = row.get("sla_alerta")
 
         self.logger.info(
             "lgpd_request_assessed",
@@ -146,6 +154,7 @@ class AssessRequestWorker(WorkerBase):
             fluxo=fluxo,
             grupo_revisor=grupo_revisor,
             dados_saude=dados_saude,
+            dmn_decision_version=version.version,
         )
 
         return {
@@ -154,6 +163,8 @@ class AssessRequestWorker(WorkerBase):
             "grupo_revisor": grupo_revisor,
             "tipo_requisicao": tipo,
             "envolve_dados_saude": dados_saude,
+            "sla_resposta": sla_resposta,
+            "sla_alerta": sla_alerta,
         }
 
 
@@ -421,14 +432,19 @@ def register_lgpd_workers(
     kafka: KafkaPublisher | None = None,
     **seams: Any,
 ) -> None:
-    """Register the 6 SP-OP-LGPD-DSR-001 `WorkerBase` workers on `harness`."""
-    del kafka, seams  # unused — no lgpd.py worker declares a Kafka/other seam dependency
+    """Register the 6 SP-OP-LGPD-DSR-001 `WorkerBase` workers on `harness`.
+
+    `dmn` (ADR-0028 §1 seam) is injected into `AssessRequestWorker` (`lgpd_dsr_routing`, T1.5
+    cutover) at construction time; the other 5 classes take no constructor args.
+    """
+    del kafka  # unused — no lgpd.py worker declares a Kafka dependency
+    dmn = seams.get("dmn")
     for worker_cls in (
         ValidateIdentityWorker,
-        AssessRequestWorker,
         ExecuteExportWorker,
         ExecuteRectificationWorker,
         ExecuteErasureWorker,
         PublishCompletedWorker,
     ):
         harness.register_worker(worker_cls())
+    harness.register_worker(AssessRequestWorker(dmn=dmn))

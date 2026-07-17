@@ -1,13 +1,21 @@
-"""MCP DMN server — DMN Decision Engine (inline, no process).
+"""DEPRECATED MCP DMN server — DO NOT use for any runtime decision (T1.5, ADR-0028).
 
-Provides evaluate_decision(dmn_key, inputs) -> outputs.
-Parses DMN 1.3 decision table XML files from spec/processes/dmn/.
+This in-process XML evaluator:
+- fails OPEN on no-match (`return {}`, see `evaluate_decision`'s tail) — a silent non-decision
+  where ADR-0028 §3 requires raise/route-to-human;
+- implements only boolean + exact-equality matching (`_match_condition`) — FEEL comparison
+  (`>=`,`<=`,`>`,`<`), ranges (`[a..b]`), lists (`"A","B"`) and `not(...)` are unsupported, so
+  13 of the 55 deployed decisions cannot be evaluated correctly here at all, and 13 more
+  list-disjunction tables silently return the wrong (catch-all) row (ADR-0028, live-verified);
+- never had a production consumer (ADR-0028 Contexto, verified).
 
-Per ADR-0012, this is the single deterministic decision tool used
-by both agents and BPMN service tasks.
+Runtime evaluation is ENGINE-SIDE ONLY via `maezo.tools.workers.dmn_transport` (ADR-0028 §1).
+Importing this module (directly or via the package) triggers the package-level
+`DeprecationWarning` in `maezo/tools/mcp_dmn/__init__.py` — Python executes the package
+`__init__` before any submodule import, so there is no warning-free import path.
 
-Tools:
-- evaluate_decision(dmn_key, inputs) -> outputs
+Kept (unchanged below this docstring) only for the deprecation cycle; scheduled for removal.
+Its unit tests were reduced to the deprecation contract (`tests/unit/tools/test_mcp_dmn.py`).
 """
 
 from __future__ import annotations

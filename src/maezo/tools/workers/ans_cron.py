@@ -120,6 +120,21 @@ def check_calendar(variables: dict[str, Any]) -> dict[str, Any]:
 
     DMN ans_calendar: validates periodicidade vs current date.
     Returns: deve_enviar (bool) + motivo.
+
+    T1.5 (ADR-0028) golden-parity finding — NOT cut over, left as pure Python (BLOCKED, not
+    silently shipped as done): the deployed `spec/processes/dmn/ans_calendar.dmn` keys
+    `report_type` on RN-citation-style literals (`RN_124_SIP`, `RN_209_UTILIZACAO`,
+    `RN_388_QUALIDADE`, `RN_424_TISS_MONITORAMENTO`, `DIOPS_TRIMESTRAL`) that have ZERO overlap
+    with the `report_type` values this module (and every test/caller of it) actually uses
+    (`MAPEAMENTO_REDE`, `DIOPS`, `SIP`, `RPC`, `ANS_TISS`, `QUALIFICACAO` — `_REPORT_PERIODICIDADE`
+    above). Evaluating the real engine with any of the 6 known report types hits the DMN's
+    catch-all (`fonte_regulatoria="REVISAO_HUMANA"`), which would flip `deve_enviar` to False
+    for every currently-recognized report type — a functional regression (the ANS regulatory
+    scheduler would stop recognizing anything), not a safe "DMN wins" relabeling. Per ADR-0028
+    §7's explicit gate ("only after 100% parity in CI: delete the Python re-implementation"),
+    parity does NOT hold here, so the Python is intentionally NOT replaced. Flagged for
+    spec-side reconciliation of the `report_type` taxonomy (out of this task's `spec/` editing
+    authority, constraint 5) — see the T1.5 PR body / evidence ledger for the parity evidence.
     """
     report_type = variables.get("report_type", "")
     periodicidade = _REPORT_PERIODICIDADE.get(report_type, "P1M")

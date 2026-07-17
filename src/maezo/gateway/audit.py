@@ -146,15 +146,27 @@ class AuditRecord:
             hashed (see `compute_input_hash`) into the `input_hash` column.
         timestamp: UTC timestamp of the event.
         dmn_versions: DMN table versions consulted for this decision.
-            TODO(T1.5): no caller populates this yet — workers still
-            re-implement DMN-like logic in Python instead of calling the
-            DMN engine, so there is no versioned DMN evaluation to cite.
-            Once T1.5 lands (workers call DMN, ADR-0012), wire the real
-            versions through here. Until then this is an explicit
-            non-null empty structure (`{}`), never a fabricated value —
-            the `dmn_versions` column is `NOT NULL DEFAULT '{}'::jsonb`
-            precisely to make "no DMN provenance yet" representable
-            without lying about it.
+            T1.5 (ADR-0028) closes the precondition this TODO used to name: the migrated
+            workers (`pagto`, `inadimplencia`, `contas`, `recurso`, `credenciamento`,
+            `adequacao`, `ans_submit`, `lgpd` — see `docs/adr/0028-dmn-evaluation-engine-side.md`
+            §"Migration plan") no longer hand-fork decision-table rules in Python; they call the
+            real engine via `maezo.tools.workers.dmn_transport.DmnTransport.evaluate(...)`,
+            which returns a `DmnVersion(key, id, version, deployment_id)` alongside the result
+            rows (fail-closed: never `"unknown"`, ADR-0028 §2). A caller building an
+            `AuditRecord` for a DMN-driven decision populates this field with
+            ``{key: dmn_version.to_audit_dict()}`` per table consulted — see
+            `DmnVersion.to_audit_dict()` (`dmn_transport.py`) for the exact
+            `{"version": ..., "id": ..., "deploymentId": ...}` shape, and
+            `tests/integration/dmn/test_dmn_golden_parity.py` /
+            `tests/unit/gateway/test_audit_dmn_versions.py` for a populated example evaluated
+            against the live engine. What remains a genuine follow-up (NOT T1.5's scope): no
+            production code path yet constructs an `AuditRecord` FROM a worker/agent decision at
+            all (`emit()` has no caller in `src/` today — grep confirms it) — that end-to-end
+            worker-to-audit-chain wiring is a separate, larger integration task. Until it lands,
+            this remains an explicit non-null empty structure (`{}`) for any `AuditRecord` that
+            doesn't yet have a real caller, never a fabricated value — the `dmn_versions` column
+            is `NOT NULL DEFAULT '{}'::jsonb` precisely to make "no DMN provenance yet"
+            representable without lying about it.
         model_id: LLM model identifier, when the action involved one.
         prompt_version: Prompt template version, when applicable.
         prev_hash: SHA-256 hash of the previous record in the chain.

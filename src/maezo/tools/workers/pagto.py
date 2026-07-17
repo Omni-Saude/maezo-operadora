@@ -7,12 +7,14 @@ Clones AUTH auto-approval for low-value (dentro_teto_l2).
 
 from __future__ import annotations
 
+import functools
 from typing import TYPE_CHECKING, Any
 
 import structlog
 
 from maezo.tools.workers.base import FunctionWorker
 from maezo.tools.workers.ceilings import CeilingResolver
+from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row, require_dmn
 
 if TYPE_CHECKING:
     from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
@@ -87,31 +89,39 @@ def validate_pagto(variables: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------
 
 
-def assess_admissibility(variables: dict[str, Any]) -> dict[str, Any]:
+def assess_admissibility(variables: dict[str, Any], *, dmn: DmnTransport | None = None) -> dict[str, Any]:
     """Classify payment admissibility — NEVER releases/authorizes.
 
-    DMN-like: pagto_admissibility.
+    Evaluates the deployed `pagto_admissibility` decision table (ADR-0028/T1.5) — replaces the
+    hand-forked if/elif ladder that used to live here. golden-parity divergence found + DMN
+    wins (documented, not patched — ADR-0028 §7): the DMN's FIRST-hit-policy rule ORDER checks
+    `duplicidade_suspeita` before `dados_pagamento_validos` (the old Python checked
+    `dados_pagamento_validos` first) — e.g. `dados_pagamento_validos=False` AND
+    `duplicidade_suspeita=True` now yields `ANALISE_HUMANA` (was `PENDENTE_DADOS`). Both
+    outcomes are conservative/non-releasing; live-verified against the compose engine before
+    cutover (T1.5 PR body / evidence ledger).
     """
     dados_validos = variables.get("dados_pagamento_validos", False)
     lastro = variables.get("lastro_confirmado", False)
     duplicidade = variables.get("duplicidade_suspeita", False)
 
-    if not dados_validos:
-        roteamento = "PENDENTE_DADOS"
-        motivo = "dados de pagamento invalidos"
-    elif duplicidade:
-        roteamento = "ANALISE_HUMANA"
-        motivo = "duplicidade suspeita — humano confirma"
-    elif not lastro:
-        roteamento = "ANALISE_HUMANA"
-        motivo = "lastro nao confirmado"
-    else:
-        roteamento = "SEGUE_ROTEAMENTO"
-        motivo = "dados consistentes"
+    rows, version = evaluate_sync(
+        require_dmn(dmn, "operadora.pagto.assess_admissibility"),
+        "pagto_admissibility",
+        {
+            "dados_pagamento_validos": bool(dados_validos),
+            "lastro_confirmado": bool(lastro),
+            "duplicidade_suspeita": bool(duplicidade),
+        },
+    )
+    row = first_row(rows, "pagto_admissibility", variables)
+    roteamento = str(row.get("roteamento", ""))
+    motivo = str(row.get("motivo", ""))
 
     logger.info(
         "pagto_assess_admissibility",
         roteamento=roteamento,
+        dmn_decision_version=version.version,
     )
 
     return {
@@ -128,16 +138,33 @@ def assess_admissibility(variables: dict[str, Any]) -> dict[str, Any]:
 def route_aprovacao(
     variables: dict[str, Any],
     resolver: CeilingResolver | None = None,
+    *,
+    dmn: DmnTransport | None = None,
 ) -> dict[str, Any]:
     """Route payment to correct approval tier based on value.
 
-    DMN pagto_alcada: classifies faixa_valor and grupo_aprovador.
-    This is the ONLY process with value-driven camunda:candidateGroups.
+    Evaluates the deployed `pagto_alcada` decision table (ADR-0028/T1.5) — the flagship
+    money-path cutover the ADR names as its forcing argument (comparison/range operators the
+    old local XML evaluator could never handle). This is the ONLY process with value-driven
+    ``camunda:candidateGroups``.
 
-    The DENTRO_TETO_L2 auto-release band is COMPUTED from the tenant governance ceiling
+    The DENTRO_TETO_L2 auto-release band is still COMPUTED from the tenant governance ceiling
     (``high_value_payment.threshold_brl``) via the CeilingResolver — the inbound
-    ``dentro_teto_l2`` is NEVER read, and the former hard-coded R$100k literal is gone
-    (design T1.9 §1.4). ``resolver`` is injectable for tests.
+    ``dentro_teto_l2`` is NEVER read (design T1.9 §1.4, unchanged, `dmn=` does not touch this).
+    The resolver's boolean is then fed to the DMN as `dentro_teto_l2` — the engine, not this
+    function, decides the resulting `faixa_valor`/`grupo_aprovador`/`tier_minimo`.
+
+    golden-parity divergence found + DMN wins (documented, not patched — ADR-0028 §7): the
+    deployed table's `DENTRO_TETO_L2` row ALSO requires `valor_pagamento_cents <= 10_000_000`
+    (hardcoded ~R$100k) in addition to `dentro_teto_l2=true` — the old Python trusted the
+    resolver's boolean alone. Today `high_value_payment.threshold_brl` in `L0-core.yaml` is
+    ALSO R$100,000 (unlike the D-07 `max_value_brl=0` gap on `authorization_approval`/
+    `reembolso_auto_approval`), so the two happen to agree — but they are NOT structurally
+    coupled: a future tenant overlay raising the resolver's ceiling above R$100k would silently
+    diverge from the DMN's independently-hardcoded gate. Live-verified
+    (`valor_pagamento_cents=15_000_000, dentro_teto_l2=True` -> DMN returns `ALCADA_L1`, not
+    `DENTRO_TETO_L2`) before this cutover; flagged for finance sign-off (the DMN's own
+    description already requires it).
     """
     resolver = resolver if resolver is not None else CeilingResolver()
 
@@ -151,36 +178,36 @@ def route_aprovacao(
         value_cents=valor_cents,
     )
 
-    # DMN pagto_alcada — the low-value auto band is now the resolved ceiling itself
-    # (within_l2_ceiling already encodes `valor_cents <= threshold_brl * 100`). The higher
-    # human-approval bands remain conservative routing constants (no auto-approval).
-    if dentro_teto:
-        faixa = "DENTRO_TETO_L2"
-        grupo = ""  # no human group needed
-    elif valor_cents <= 50_000_000:  # <= R$ 500k
-        faixa = "ALCADA_L1"
-        grupo = "aprovacao-financeira-l1"
-    elif valor_cents <= 200_000_000:  # <= R$ 2MM
-        faixa = "ALCADA_L2"
-        grupo = "aprovacao-financeira-l2"
-    elif valor_cents <= 1_000_000_000:  # <= R$ 10MM
-        faixa = "ALCADA_L3"
-        grupo = "aprovacao-financeira-l3"
-    else:
-        # Catch-all conservador → comite (tier mais alto)
-        faixa = "ANALISE_HUMANA"
-        grupo = "comite-financeiro"
+    rows, version = evaluate_sync(
+        require_dmn(dmn, "operadora.pagto.calculate_facts"),
+        "pagto_alcada",
+        {
+            "valor_pagamento_cents": int(valor_cents),
+            "dentro_teto_l2": dentro_teto,
+            "tipo_pagamento": variables.get("tipo_pagamento", ""),
+        },
+    )
+    row = first_row(rows, "pagto_alcada", variables)
+    faixa = str(row.get("faixa_valor", ""))
+    grupo = str(row.get("grupo_aprovador", ""))
 
     logger.info(
         "pagto_route_aprovacao",
         valor_cents=valor_cents,
         faixa_valor=faixa,
         grupo_aprovador=grupo,
+        dmn_decision_version=version.version,
     )
 
     return {
         "faixa_valor": faixa,
         "grupo_aprovador": grupo,
+        # Additive (GAP-PAGTO-3, ADR-0028 §1 pagto_alcada description): the tier_minimo the
+        # faixa maps to now lives in the DMN, not a second hand-coded dict here. Surfaced for
+        # any downstream consumer; `release_high_value_payment`'s OWN tier-match guard is
+        # untouched (out of the ADR-0028 migration table — a safety GUARD, not a routing
+        # decision — same non-touch boundary as the ceiling resolver, T1.9).
+        "tier_minimo": row.get("tier_minimo"),
     }
 
 
@@ -356,11 +383,23 @@ def register_pagto_workers(
     kafka: KafkaPublisher | None = None,
     **seams: Any,
 ) -> None:
-    """Register the SP-OP-PAGTO-001 function workers on `harness`."""
-    del kafka, seams  # unused — no pagto.py worker declares a Kafka/other seam dependency
+    """Register the SP-OP-PAGTO-001 function workers on `harness`.
+
+    `dmn` (ADR-0028 §1 seam) is threaded into `assess_admissibility` (`pagto_admissibility`)
+    and `route_aprovacao` (`pagto_alcada`, T1.5 cutover) via `functools.partial`; no other
+    function here evaluates a DMN table.
+    """
+    del kafka  # unused — no pagto.py worker declares a Kafka dependency
+    dmn = seams.get("dmn")
     harness.register_worker(FunctionWorker("operadora.pagto.validate_payment_data", validate_pagto))
-    harness.register_worker(FunctionWorker("operadora.pagto.assess_admissibility", assess_admissibility))
-    harness.register_worker(FunctionWorker("operadora.pagto.calculate_facts", route_aprovacao))
+    harness.register_worker(
+        FunctionWorker(
+            "operadora.pagto.assess_admissibility", functools.partial(assess_admissibility, dmn=dmn)
+        )
+    )
+    harness.register_worker(
+        FunctionWorker("operadora.pagto.calculate_facts", functools.partial(route_aprovacao, dmn=dmn))
+    )
     harness.register_worker(FunctionWorker("operadora.pagto.release_low_value_payment", execute_pagto))
     harness.register_worker(
         FunctionWorker("operadora.pagto.release_high_value_payment", release_high_value_payment)
