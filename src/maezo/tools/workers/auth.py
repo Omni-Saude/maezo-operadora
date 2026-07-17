@@ -23,6 +23,13 @@ import uuid
 from typing import Any
 
 from maezo.tools.workers.base import ERR_DENIAL_NOT_HUMAN, WorkerBase
+from maezo.tools.workers.ceilings import CeilingResolver
+
+# Governance ceiling for AUTH L2 auto-approval (design T1.9 §2.4). The teto VALUE lives in
+# the autonomy matrix (`authorization_approval.max_value_brl`, L0-core.yaml:22 +
+# tenants-amh.yaml overlay), resolved via the SAME loader the PEP uses.
+_CEILING_ACTION = "authorization_approval"
+_CEILING_PARAM = "max_value_brl"
 
 # ---------------------------------------------------------------------------
 # AnalyzeRequestWorker
@@ -44,8 +51,12 @@ class AnalyzeRequestWorker(WorkerBase):
     SEMPRE roteia para analise humana — NUNCA resulta em negativa automatica.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, resolver: CeilingResolver | None = None) -> None:
         super().__init__(topic="operadora.auth.analyze_request")
+        # Ceiling resolver (defect B3): computes `dentro_teto_l2` from the tenant governance
+        # matrix, overriding any inbound value. Injectable for tests; the default resolves
+        # from the real `spec/policies/autonomy` matrix.
+        self._resolver = resolver if resolver is not None else CeilingResolver()
 
     def execute(self, process_vars: dict[str, Any]) -> dict[str, Any]:
         """Analyze the authorization request.
@@ -63,7 +74,25 @@ class AnalyzeRequestWorker(WorkerBase):
 
         # Check L2 auto-approval conditions
         dut_ok = process_vars.get("dut_atendida", False)
-        teto_ok = process_vars.get("dentro_teto_l2", False)
+        # COMPUTE the ceiling fact from policy (design T1.9 §2.4, defect B3). NEVER read the
+        # inbound `dentro_teto_l2`. FAIL-CLOSED: a missing/None/non-numeric
+        # `valor_estimado_brl` yields teto_ok=False (route to human) — never a default 0
+        # that would read as "within ceiling" under a positive teto (fail-OPEN). This is an
+        # intentional hardening divergence from v1's `_as_float` default-0.0.
+        raw_valor = process_vars.get("valor_estimado_brl")
+        try:
+            valor_cents = round(float(raw_valor) * 100) if raw_valor is not None else None
+        except (TypeError, ValueError):
+            valor_cents = None
+        if valor_cents is None:
+            teto_ok = False
+        else:
+            teto_ok = self._resolver.within_l2_ceiling(
+                tenant=tenant_id,
+                action=_CEILING_ACTION,
+                param=_CEILING_PARAM,
+                value_cents=valor_cents,
+            )
         rede_ok = process_vars.get("rede_credenciada", False)
         beneficiario_ativo = process_vars.get("beneficiario_ativo", False)
         carencia_ok = process_vars.get("carencia_cumprida", False)
@@ -85,6 +114,9 @@ class AnalyzeRequestWorker(WorkerBase):
                 "dossier_ref": dossier_ref,
                 "assigned_to": "rafael",
                 "event": "agents.events.auth.received",
+                # Write the COMPUTED fact back so the DMN auth_auto_approval receives it —
+                # never the inbound boolean (design T1.9 §2.4).
+                "dentro_teto_l2": teto_ok,
             }
 
         # Default: route to human analysis (Rafael)
@@ -102,6 +134,7 @@ class AnalyzeRequestWorker(WorkerBase):
             "dossier_ref": dossier_ref,
             "assigned_to": "rafael",
             "event": "agents.events.auth.received",
+            "dentro_teto_l2": teto_ok,
         }
 
 
