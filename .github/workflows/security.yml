@@ -311,14 +311,27 @@ jobs:
           total = 0
 
           for run in sarif.get("runs", []):
-              driver = run.get("tool", {}).get("driver", {})
-              rules = driver.get("rules", [])
+              tool = run.get("tool", {})
+              # CodeQL (github/codeql-action v4+) publishes the actual query
+              # pack's rules under `tool.extensions[].rules` (e.g. the
+              # `codeql/python-queries` extension), NOT under
+              # `tool.driver.rules` (empty on a real scan, live-observed on
+              # this task's own PR artifact) — both are read here so rule
+              # names/levels resolve regardless of which one a given
+              # CodeQL version populates.
+              rule_sources = [tool.get("driver", {}).get("rules", [])]
+              for extension in tool.get("extensions", []) or []:
+                  rule_sources.append(extension.get("rules", []))
+
               default_level_by_id = {}
-              for rule in rules:
-                  rule_id = rule.get("id", "")
-                  default_level_by_id[rule_id] = rule.get("defaultConfiguration", {}).get("level", "warning")
-                  short_desc = rule.get("shortDescription", {}).get("text", "")
-                  rule_names[rule_id] = rule.get("name") or short_desc
+              for rules in rule_sources:
+                  for rule in rules:
+                      rule_id = rule.get("id", "")
+                      if not rule_id:
+                          continue
+                      default_level_by_id[rule_id] = rule.get("defaultConfiguration", {}).get("level", "warning")
+                      short_desc = rule.get("shortDescription", {}).get("text", "")
+                      rule_names[rule_id] = rule.get("name") or short_desc
 
               for result in run.get("results", []):
                   rule_id = result.get("ruleId", "unknown")
