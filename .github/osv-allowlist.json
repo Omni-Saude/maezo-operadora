@@ -1,0 +1,4 @@
+{
+  "policy": "T2.4 GHAS-substitute OSV dependency lane (security.yml, osv-scan job). Every entry below MUST carry a non-empty 'reason' - a genuine justification (false positive, code path unreachable, mitigated elsewhere, upstream fix tracked). The gate step parses this file and FAILS CLOSED on any malformed entry (missing id/reason) rather than silently ignoring it. Matching binds on ANY alias in an osv-scanner finding's group - GHSA/PYSEC/CVE ids that the scanner already groups as the same underlying vulnerability, so allowlisting one alias allowlists the whole group. This file starts EMPTY per the T2.4 charter: no findings are pre-approved. A red osv-scan job on a genuine CRITICAL (or higher-than-threshold) finding is the CORRECT outcome - report it for triage, do not add an entry here just to force green.",
+  "entries": []
+}
