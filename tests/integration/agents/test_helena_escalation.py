@@ -391,3 +391,70 @@ async def test_classifier_llm_exception_escalates_falha_tecnica(
     finally:
         await dmn.close()
         await cibseven.close()
+
+
+async def test_cpf_bearing_field_value_never_reaches_engine_variables_live(
+    engine_base_url: str, engine_client: httpx.AsyncClient
+) -> None:
+    """R1 cycle-2 regression (leak, the verifier's exact live probe): the LLM copies a
+    beneficiary-typed CPF into `sintoma_codigo` — schema-invalid -> escalate falha_tecnica —
+    and the REAL engine instance's process variables must contain NO fragment of the offending
+    value, only the class token. Pre-fix, `_short()`'s `repr(value)[:80]` shipped the CPF
+    verbatim into the engine var `resumo_contexto` (verifier's instance c0cbc6d2...)."""
+    leaked_value = "CPF 123.456.789-00 dor"
+    conversation_id = f"wa:amh:t111-clf-leak-{_RUN_ID}"
+    business_key = f"ESC-amh-{conversation_id}"
+
+    dmn = CibSevenDmnTransport(engine_base_url, timeout=30.0)
+    cibseven = CibSevenHttpTransport(engine_base_url, timeout=30.0)
+    whatsapp = _FakeWhatsAppSender()
+    inference = _FakeInference(
+        [
+            _classify_json(intent="symptom", population="adult", sintoma_codigo=leaked_value),
+            "Resumo tecnico: classificador produziu saida invalida; encaminhado para atendimento humano.",
+            "Tivemos um problema tecnico ao processar sua mensagem. Um atendente humano vai "
+            "continuar o atendimento.",
+        ]
+    )
+
+    graph = build({"inference": inference, "dmn": dmn, "cibseven": cibseven, "whatsapp": whatsapp})
+    compiled = graph.compile()
+
+    try:
+        result = await compiled.ainvoke(
+            {
+                "tenant_id": "amh",
+                "conversation_id": conversation_id,
+                "canal": "whatsapp",
+                "beneficiario_pseudo_id": f"pseudo-{_RUN_ID}-clf3",
+                "message_body": "qualquer coisa",
+            }
+        )
+
+        assert result["next_kind"] == "escalate"
+        assert result["escalation_motivo"] == "falha_tecnica"
+        assert result["escalation_started"] is True
+        assert "non_allowlisted_sintoma_codigo" in result["error"]
+
+        actives = await active_instances(engine_client, business_key)
+        assert actives
+        instance_id = str(actives[0]["id"])
+
+        # THE leak assertion: fetch the REAL engine process variables and prove no fragment of
+        # the offending value is present anywhere — only the class token.
+        resp = await engine_client.get(f"/process-instance/{instance_id}/variables")
+        resp.raise_for_status()
+        engine_vars: dict[str, Any] = resp.json()
+        serialized = json.dumps(engine_vars, ensure_ascii=False, default=str)
+        for fragment in ("123.456.789-00", "123.456.789", "456.789", "CPF"):
+            assert fragment not in serialized, (
+                f"ENGINE process variables leaked a fragment of the offending field value "
+                f"({fragment!r}) for instance {instance_id}: {serialized}"
+            )
+        resumo = engine_vars.get("resumo_contexto", {}).get("value", "")
+        assert "non_allowlisted_sintoma_codigo" in resumo, (
+            f"resumo_contexto must carry the class token only; got {resumo!r}"
+        )
+    finally:
+        await dmn.close()
+        await cibseven.close()

@@ -8,6 +8,7 @@ inference provider (no LLM SDK, no network). Live-engine acceptance lives in
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -54,8 +55,6 @@ def _classify_json(**overrides: Any) -> str:
         "intensidade": "desconhecida",
     }
     base.update(overrides)
-    import json
-
     return json.dumps(base)
 
 
@@ -333,7 +332,7 @@ async def test_classify_unknown_intent_enum_escalates_falha_tecnica() -> None:
 
     assert result["next_kind"] == "escalate"
     assert result["escalation_motivo"] == "falha_tecnica"
-    assert "unknown intent" in result["error"]
+    assert "invalid_intent" in result["error"]
 
 
 async def test_classify_invented_sintoma_codigo_escalates_falha_tecnica() -> None:
@@ -348,7 +347,7 @@ async def test_classify_invented_sintoma_codigo_escalates_falha_tecnica() -> Non
 
     assert result["next_kind"] == "escalate"
     assert result["escalation_motivo"] == "falha_tecnica"
-    assert "non-allow-listed sintoma_codigo" in result["error"]
+    assert "non_allowlisted_sintoma_codigo" in result["error"]
 
 
 async def test_classify_invalid_population_escalates_falha_tecnica() -> None:
@@ -359,7 +358,7 @@ async def test_classify_invalid_population_escalates_falha_tecnica() -> None:
 
     assert result["next_kind"] == "escalate"
     assert result["escalation_motivo"] == "falha_tecnica"
-    assert "invalid population" in result["error"]
+    assert "invalid_population" in result["error"]
 
 
 async def test_classify_missing_psychosocial_risk_escalates_falha_tecnica() -> None:
@@ -371,7 +370,7 @@ async def test_classify_missing_psychosocial_risk_escalates_falha_tecnica() -> N
 
     assert result["next_kind"] == "escalate"
     assert result["escalation_motivo"] == "falha_tecnica"
-    assert "psychosocial_risk" in result["error"]
+    assert "missing_or_invalid_psychosocial_risk" in result["error"]
 
 
 async def test_classify_out_of_domain_intensidade_escalates_falha_tecnica() -> None:
@@ -390,7 +389,7 @@ async def test_classify_out_of_domain_intensidade_escalates_falha_tecnica() -> N
 
     assert result["next_kind"] == "escalate"
     assert result["escalation_motivo"] == "falha_tecnica"
-    assert "invalid intensidade" in result["error"]
+    assert "invalid_intensidade" in result["error"]
 
 
 async def test_full_turn_malformed_json_reaches_escalation_never_inform() -> None:
@@ -452,6 +451,50 @@ async def test_escalate_carries_classify_failure_reason_into_resumo_contexto() -
 
     assert recording
     assert "falha tecnica: classify LLM returned unparseable JSON" in recording[0]["resumo_contexto"]
+
+
+async def test_cpf_bearing_field_value_never_reaches_engine_variables() -> None:
+    """R1 cycle-2 regression (leak, the verifier's exact probe): the LLM copies a
+    beneficiary-typed CPF into `sintoma_codigo` — schema-invalid -> escalate falha_tecnica, and
+    the ENGINE-BOUND process variables must contain NO fragment of the offending value, only
+    the class token. Pre-fix, `_short()`'s `repr(value)[:80]` shipped the CPF verbatim into
+    `resumo_contexto` (live-proven by the verifier: instance c0cbc6d2...)."""
+    leaked_value = "CPF 123.456.789-00 dor"
+    recording: list[dict[str, Any]] = []
+
+    class _RecordingCibSeven(FakeCibSevenTransport):
+        async def start_process_instance(
+            self, process_key: str, business_key: str, variables: dict[str, Any]
+        ) -> ProcessInstance:
+            recording.append(dict(variables))
+            return await super().start_process_instance(process_key, business_key, variables)
+
+    inference = _FakeInference(
+        [
+            _classify_json(intent="symptom", population="adult", sintoma_codigo=leaked_value),
+            "resumo tecnico",
+            "um humano vai continuar",
+        ]
+    )
+    sender = _FakeWhatsAppSender()
+    graph = _graph(inference=inference, cibseven=_RecordingCibSeven(), whatsapp=sender).compile_graph()
+    compiled = graph.compile()
+
+    result = await compiled.ainvoke(_base_state(message_body="qualquer coisa"))
+
+    assert result["next_kind"] == "escalate"
+    assert result["escalation_motivo"] == "falha_tecnica"
+    assert result["escalation_started"] is True
+    assert "non_allowlisted_sintoma_codigo" in result["error"]
+
+    assert recording, "the escalation must have been started"
+    serialized = json.dumps(recording[0], ensure_ascii=False, default=str)
+    for fragment in ("123.456.789-00", "123.456.789", "456.789", "CPF"):
+        assert fragment not in serialized, (
+            f"engine-bound variables leaked a fragment of the offending field value "
+            f"({fragment!r}): {serialized}"
+        )
+    assert "non_allowlisted_sintoma_codigo" in recording[0]["resumo_contexto"]
 
 
 async def test_evaluate_dmn_selects_table_by_population() -> None:

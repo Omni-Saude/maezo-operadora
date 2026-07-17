@@ -247,41 +247,44 @@ def _parse_json_object(text: str) -> dict[str, Any] | None:
 def _validate_extraction(data: dict[str, Any]) -> str | None:
     """Validate the classify LLM's parsed JSON against classify-v1's own schema.
 
-    Returns a short, bounded failure reason (NEVER echoing raw LLM output or the beneficiary's
-    message text — only the offending enum-ish value, truncated) or `None` when valid. Any
-    non-`None` return is a CLASSIFY FAILURE: the caller routes to escalation `falha_tecnica`
-    (R1 cycle-1 fix — an invalid classification must never be silently read as an
-    administrative-info turn).
+    Returns a CLASS TOKEN failure reason (e.g. `invalid_intent`,
+    `non_allowlisted_sintoma_codigo`) or `None` when valid. Any non-`None` return is a
+    CLASSIFY FAILURE: the caller routes to escalation `falha_tecnica` (R1 cycle-1 fix — an
+    invalid classification must never be silently read as an administrative-info turn).
+
+    R1 CYCLE-2 FIX (leak): the failure reason NEVER carries the offending FIELD VALUE. The
+    cycle-1 version echoed `repr(value)[:80]` — raw LLM output — into the reason, which
+    `escalate` appends to `resumo_contexto` and ships into ENGINE PROCESS VARIABLES (general
+    zone); an LLM copying a beneficiary-typed identifier (e.g. a CPF) into any field would put
+    PHI into the engine DB (live-proven by the verifier). Class tokens only — no field values,
+    no reprs, no truncation-based mitigation. The offending value is not logged anywhere either
+    (the class token alone is sufficient for triage; the beneficiary's own message reaches the
+    human attendant through the normal escalation flow).
 
     Checks (classify-v1's required fields + domains):
-    - `intent` present and in `_VALID_INTENTS` (unknown intent value -> failure);
-    - `population` present and in `_VALID_POPULATIONS`;
+    - `intent` present and in `_VALID_INTENTS` -> `invalid_intent`;
+    - `population` present and in `_VALID_POPULATIONS` -> `invalid_population`;
     - `psychosocial_risk` present and a real boolean (the always-active gatilho-5 signal must
-      never be silently absent/coerced);
+      never be silently absent/coerced) -> `missing_or_invalid_psychosocial_risk`;
     - `sintoma_codigo` either `null` or in `ALLOWED_SINTOMA_CODIGOS` (an invented code is a
       failure — the DMN tables cannot match it, which would silently bypass every symptom rule
-      and land on the no-red-flag catch-all);
+      and land on the no-red-flag catch-all) -> `non_allowlisted_sintoma_codigo`;
     - `intensidade`, when present, in `_VALID_INTENSIDADES` (an out-of-domain intensity would
-      miss the DMN's own `"grave"` fail-safe rows the same way an invented code would).
+      miss the DMN's own `"grave"` fail-safe rows the same way an invented code would) ->
+      `invalid_intensidade`.
     """
-
-    def _short(value: Any) -> str:
-        return repr(value)[:80]
-
-    intent = data.get("intent")
-    if intent not in _VALID_INTENTS:
-        return f"unknown intent value {_short(intent)}"
-    population = data.get("population")
-    if population not in _VALID_POPULATIONS:
-        return f"invalid population {_short(population)}"
+    if data.get("intent") not in _VALID_INTENTS:
+        return "invalid_intent"
+    if data.get("population") not in _VALID_POPULATIONS:
+        return "invalid_population"
     if not isinstance(data.get("psychosocial_risk"), bool):
-        return f"missing/non-boolean psychosocial_risk {_short(data.get('psychosocial_risk'))}"
+        return "missing_or_invalid_psychosocial_risk"
     codigo = data.get("sintoma_codigo")
     if codigo is not None and codigo not in ALLOWED_SINTOMA_CODIGOS:
-        return f"non-allow-listed sintoma_codigo {_short(codigo)}"
+        return "non_allowlisted_sintoma_codigo"
     intensidade = data.get("intensidade")
     if intensidade is not None and intensidade not in _VALID_INTENSIDADES:
-        return f"invalid intensidade {_short(intensidade)}"
+        return "invalid_intensidade"
     return None
 
 
@@ -562,9 +565,12 @@ class HelenaGraph:
         SP-OP-ESCALATION-001 technical-failure trigger the DMN-down path already uses, restoring
         symmetry with every other failure path in this graph.
 
-        The failure reason is short and bounded: it names the failure class and (for schema
-        violations) the offending enum-ish value only — never the raw LLM output, never the
-        beneficiary's message text.
+        The failure reason is short and bounded and names the failure CLASS only (for schema
+        violations: `_validate_extraction`'s class token, e.g. `non_allowlisted_sintoma_codigo`)
+        — never a field value, never the raw LLM output, never the beneficiary's message text
+        (R1 cycle-2 fix: the cycle-1 version echoed the offending field value, which flowed
+        into engine process variables via `resumo_contexto` — a live-proven PHI leak vector
+        when the LLM copies a beneficiary-typed identifier into a field).
         """
         prompt = f"{classify_prompt()}\n\nMensagem do beneficiario:\n{state.get('message_body', '')}"
         try:
