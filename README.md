@@ -9,7 +9,7 @@
   <img src="https://img.shields.io/badge/Python-3.12-blue?logo=python&logoColor=white" alt="Python 3.12">
   <img src="https://img.shields.io/badge/version-0.2.0-blue" alt="v0.2.0">
   <img src="https://img.shields.io/badge/status-alpha--dev-yellow" alt="Alpha Dev">
-  <img src="https://img.shields.io/badge/tests-588_passing-brightgreen" alt="588 tests passing">
+  <a href="https://github.com/Omni-Saude/maezo-operadora/actions/workflows/ci.yml"><img src="https://img.shields.io/badge/tests-passing_(CI)-brightgreen" alt="tests passing (CI)"></a>
   <img src="https://img.shields.io/badge/coverage-10K_LOC-blue" alt="~10K LOC">
   <img src="https://img.shields.io/badge/lint-0_issues-brightgreen" alt="Lint: 0 issues">
   <img src="https://img.shields.io/badge/mypy-strict_clean-brightgreen" alt="Mypy: strict clean">
@@ -28,7 +28,7 @@ Plataforma **agents-first** completa para operadoras de saúde (payer). Reconstr
 | Workers BPMN | 16 | External tasks para 15 processos SP-OP |
 | Agentes AI | 10 | Helena, Rafael, Marina, Gustavo, Lucas, Carolina, Fernando, Valentina, Beatriz, André |
 | MCP Servers | 6 | CIB Seven, DMN, FHIR, WhatsApp, Memory, Process Allowlist |
-| Testes | **588** | Unitários cobrindo workers, gateway, agents, platform, tools |
+| Testes | CI workflow | Unitários cobrindo workers, gateway, agents, platform, tools (veja CI para count atual) |
 | Código fonte | ~10K LOC | 62 arquivos Python em `src/maezo/` |
 | Documentação | ~205K palavras | 16 contratos SP-OP, 24 ADRs, 34 DLs, 8 runbooks |
 
@@ -45,14 +45,14 @@ Plataforma **agents-first** completa para operadoras de saúde (payer). Reconstr
 ## Métricas reais (v0.2.0-alpha)
 
 ```
-make test   → 588 passed, 1 warning in 2.45s
+make test   → all passed (veja CI workflow para count atual)
 make lint   → All checks passed! (121 files)
 make type   → Success: no issues found in 62 source files (mypy --strict)
 ```
 
 | Métrica | Valor |
 |---------|-------|
-| Testes unitários | 588 |
+| Testes unitários | CI workflow (dynamically updated) |
 | Arquivos fonte (`src/`) | 62 (.py) |
 | Arquivos de teste (`tests/`) | 59 (.py) |
 | Linhas de código (src) | ~10K |
@@ -73,7 +73,7 @@ make type   → Success: no issues found in 62 source files (mypy --strict)
 make setup             # uv sync --extra dev
 make dev-stack         # postgres+pgvector, cibseven, hapi-fhir, kafka
 cp .env.example .env   # preencher chaves
-make test              # 588 testes unitários
+make test              # testes unitários (veja CI para count)
 ```
 
 ---
@@ -124,7 +124,7 @@ src/maezo/
 
 | Pipeline | Status | Jobs |
 |----------|--------|------|
-| **CI** (`ci.yml`) | Active | lint/type/unit (588 tests), terraform validate, helm lint, security scanning |
+| **CI** (`ci.yml`) | Active | lint/type/unit (see CI workflow for count), terraform validate, helm lint, security scanning |
 | **CD** (`cd.yml`) | Ready | Build & push ECR, deploy staging (two-phase), smoke tests, production promotion (manual approval) |
 | **Security** (`security.yml`) | Partial | gitleaks (secrets) Active · CodeQL Disabled (Advanced Security unavailable) · dependency review Disabled (Advanced Security unavailable) |
 
