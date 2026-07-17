@@ -10,7 +10,7 @@ def test_card_serialization_to_dict() -> None:
     """AgentCard.to_dict() must produce a dict with all fields."""
     card = AgentCard(
         agent_id="helena",
-        capabilities=["triagem_whatsapp", "agendamento"],
+        capabilities=["triage_and_routing", "scheduling"],
         endpoint="https://helena.maezo.local/a2a",
         public_key="-----BEGIN PUBLIC KEY-----\nMIIB...\n-----END PUBLIC KEY-----",
     )
@@ -18,7 +18,7 @@ def test_card_serialization_to_dict() -> None:
     d = card.to_dict()
 
     assert d["agent_id"] == "helena"
-    assert d["capabilities"] == ["triagem_whatsapp", "agendamento"]
+    assert d["capabilities"] == ["triage_and_routing", "scheduling"]
     assert d["endpoint"] == "https://helena.maezo.local/a2a"
     assert d["public_key"] == "-----BEGIN PUBLIC KEY-----\nMIIB...\n-----END PUBLIC KEY-----"
 
@@ -27,7 +27,7 @@ def test_card_serialization_from_dict() -> None:
     """AgentCard.from_dict() must reconstruct the same AgentCard."""
     original = AgentCard(
         agent_id="rafael",
-        capabilities=["aprovacao_auth_dmn_favoravel", "glosa_padrao"],
+        capabilities=["authorization_approval", "standard_glosa_processing"],
         endpoint="https://rafael.maezo.local/a2a",
         public_key="pk-rafael",
     )
@@ -45,7 +45,7 @@ def test_card_roundtrip_json_like() -> None:
     """AgentCard must survive to_dict() → from_dict() roundtrip."""
     card = AgentCard(
         agent_id="beatriz",
-        capabilities=["resposta_nip", "envio_ans"],
+        capabilities=["nip_response", "ans_official_submission"],
         endpoint="https://beatriz.maezo.local/a2a",
         public_key="pk-beatriz",
     )

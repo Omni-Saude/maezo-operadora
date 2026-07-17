@@ -14,7 +14,7 @@ def test_audit_chain_integrity() -> None:
     r1_hash = sink.emit(
         AuditRecord(
             agent_id="helena",
-            action="triagem_whatsapp",
+            action="triage_and_routing",
             decision="ALLOW",
             details={"paciente": "pseudo-abc123"},
         )
@@ -23,7 +23,7 @@ def test_audit_chain_integrity() -> None:
     r2_hash = sink.emit(
         AuditRecord(
             agent_id="rafael",
-            action="aprovacao_auth_dmn_favoravel",
+            action="authorization_approval",
             decision="ALLOW",
             details={"guia": "g-001"},
         )
