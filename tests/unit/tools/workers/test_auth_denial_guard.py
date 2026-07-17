@@ -8,6 +8,8 @@ CRITICAL: Workers must NEVER make adverse decisions (negativa, acusacao).
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from maezo.tools.workers.auth import (
     AnalyzeRequestWorker,
     ConveneJuntaWorker,
@@ -17,6 +19,30 @@ from maezo.tools.workers.auth import (
     SendDenialNoticeWorker,
 )
 from maezo.tools.workers.base import ERR_DENIAL_NOT_HUMAN
+from maezo.tools.workers.ceilings import CeilingResolver
+
+# Synthetic-core helper — pins the AUTH ceiling in isolation (mirrors test_ceilings) so these
+# tests do not depend on the D-07 value (max_value_brl=0) in the real spec matrix.
+_HARD_BLOCK = """\
+  clinical_decision:      { level: L0, hard: true }
+  authorization_denial:   { level: L0, hard: true }
+  nip_manter_negativa:    { level: L0, hard: true }
+  fraud_accusation:       { level: L0, hard: true }
+  contract_termination:   { level: L0, hard: true }
+"""
+
+
+def _pin_resolver(tmp_path: Path, max_value_brl: int) -> CeilingResolver:
+    """Return a CeilingResolver pinned to a synthetic core with a given AUTH ceiling."""
+    core = tmp_path / "L0-core.yaml"
+    core.write_text(
+        "version: 1\nactions:\n"
+        f"{_HARD_BLOCK}"
+        f"  authorization_approval: {{ level: L2, params: {{ max_value_brl: {max_value_brl} }} }}\n",
+        encoding="utf-8",
+    )
+    return CeilingResolver(core_path=core)
+
 
 # ---------------------------------------------------------------------------
 # send_denial_notice — denial guard (ERR_AUTH_DENIAL_NOT_HUMAN)
@@ -126,12 +152,15 @@ def test_analyze_request_convoca_rafael() -> None:
     assert "dossier_ref" in result
 
 
-def test_analyze_request_auto_approve_eligible() -> None:
-    """analyze_request auto-approves when L2 conditions are met.
+def test_analyze_request_auto_approve_eligible(tmp_path: Path) -> None:
+    """analyze_request auto-approves when L2 conditions are met AND value is within the teto.
 
-    L2 auto-approval requires: dut_atendida + dentro_teto_l2 + rede_credenciada.
+    L2 auto-approval requires: dut_atendida + (COMPUTED) dentro_teto_l2 + rede_credenciada +
+    beneficiario_ativo + carencia_cumprida + documentacao_completa. After T1.9 the ceiling is
+    computed from policy (not the inbound flag), so this test pins a positive ceiling (R$500)
+    and supplies `valor_estimado_brl` within it. The inbound `dentro_teto_l2` is now irrelevant.
     """
-    worker = AnalyzeRequestWorker()
+    worker = AnalyzeRequestWorker(resolver=_pin_resolver(tmp_path, max_value_brl=500))
 
     process_vars = {
         "tenant_id": "amh",
@@ -141,7 +170,7 @@ def test_analyze_request_auto_approve_eligible() -> None:
         "carater_atendimento": "eletivo",
         "beneficiario_pseudo_id": "pseudo-abc",
         "dut_atendida": True,
-        "dentro_teto_l2": True,
+        "valor_estimado_brl": 100.0,  # R$100 -> 10000 cents, within the R$500 (50000 cents) teto
         "rede_credenciada": True,
         "beneficiario_ativo": True,
         "carencia_cumprida": True,
@@ -153,6 +182,75 @@ def test_analyze_request_auto_approve_eligible() -> None:
 
     assert result["status"] == "auto_approved"
     assert result["recommendation"] == "AUTO_APROVAR"
+    assert result["dentro_teto_l2"] is True  # the COMPUTED fact is written back for the DMN
+
+
+# ---------------------------------------------------------------------------
+# T1.9 ceiling enforcement (defect B3) — AUTH recomputes dentro_teto_l2 from policy
+# ---------------------------------------------------------------------------
+
+
+def test_auth_recomputes_dentro_teto_l2_ignoring_inbound(tmp_path: Path) -> None:
+    """A seeded inbound `dentro_teto_l2=True` is IGNORED — ceiling 0 (D-07) blocks auto-approval.
+
+    All other auto-approve facts are True and `valor_estimado_brl` is set, but the pinned
+    ceiling is 0, so teto_ok=False -> the request is NOT auto-approved (routes to Rafael).
+    """
+    worker = AnalyzeRequestWorker(resolver=_pin_resolver(tmp_path, max_value_brl=0))
+
+    process_vars = {
+        "tenant_id": "amh",
+        "numero_guia_tiss": "G12345",
+        "dut_atendida": True,
+        "dentro_teto_l2": True,  # attacker/upstream seed — must be ignored
+        "valor_estimado_brl": 100.0,
+        "rede_credenciada": True,
+        "beneficiario_ativo": True,
+        "carencia_cumprida": True,
+        "documentacao_completa": True,
+    }
+
+    result = worker.run(process_vars)
+
+    assert result["status"] != "auto_approved"
+    assert result["status"] == "dossier_created"
+    assert result["dentro_teto_l2"] is False
+
+
+def test_auth_absent_valor_estimado_fails_closed(tmp_path: Path) -> None:
+    """Missing / None / non-numeric `valor_estimado_brl` -> teto_ok=False under a POSITIVE ceiling.
+
+    Mandated by design Rev 4 (§2.4/§5.5a): a defaulted 0 would read as "within ceiling" under a
+    positive teto (fail-OPEN). The hardened behavior routes such requests to human review.
+    """
+    worker = AnalyzeRequestWorker(resolver=_pin_resolver(tmp_path, max_value_brl=500))
+
+    base_vars = {
+        "tenant_id": "amh",
+        "numero_guia_tiss": "G12345",
+        "dut_atendida": True,
+        "rede_credenciada": True,
+        "beneficiario_ativo": True,
+        "carencia_cumprida": True,
+        "documentacao_completa": True,
+    }
+
+    # (a) absent valor_estimado_brl
+    result_absent = worker.run(dict(base_vars))
+    assert result_absent["status"] != "auto_approved"
+    assert result_absent["dentro_teto_l2"] is False
+
+    # (b) None valor_estimado_brl
+    result_none = worker.run({**base_vars, "valor_estimado_brl": None})
+    assert result_none["status"] != "auto_approved"
+
+    # (c) non-numeric valor_estimado_brl
+    result_bad = worker.run({**base_vars, "valor_estimado_brl": "nao-e-numero"})
+    assert result_bad["status"] != "auto_approved"
+
+    # control: a numeric value WITHIN the teto DOES auto-approve (proves the ceiling is live)
+    result_ok = worker.run({**base_vars, "valor_estimado_brl": 100.0})
+    assert result_ok["status"] == "auto_approved"
 
 
 def test_analyze_request_requires_human_for_non_auto() -> None:
