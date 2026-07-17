@@ -15,53 +15,256 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # ── Desabilitado: dependency-review-action requer GitHub Advanced Security
-  # (Dependency graph + Advanced Security) habilitado no repositório.
-  # O repo Omni-Saude/maezo-operadora não tem Advanced Security ativado
-  # e o erro é: "Dependency review is not supported on this repository."
-  # Reativar quando Advanced Security for provisionado nas settings do repo.
-  # dependency-review:
-  #   name: dependency review
-  #   runs-on: ubuntu-latest
-  #   if: github.event_name == 'pull_request'
-  #   permissions:
-  #     contents: read
-  #     pull-requests: write
-  #   steps:
-  #     - name: Dependency review
-  #       uses: actions/dependency-review-action@v4
-  #       with:
-  #         fail-on-severity: high
+  # ── T2.4 (remainder): dependency-review-action requires GitHub Advanced
+  # Security on PRIVATE repositories — confirmed via an admin-scoped
+  # `gh api repos/Omni-Saude/maezo-operadora` on 2026-07-17:
+  #   security_and_analysis.code_security.status == "disabled"
+  #
+  # MECHANISM — try-and-classify (R2 verification cycle 2 fix). The first
+  # version of this guard pre-checked that status field with the workflow's
+  # own GITHUB_TOKEN, which lacks permission to see repo security settings
+  # and reads "unknown" FOREVER (verified live in jobs 87926112581/
+  # 87926112433: workflow token -> "unknown" while an admin token ->
+  # "disabled") — so its promised auto-activation was structurally false.
+  # Now this job TRIES the actual gated operation instead and classifies
+  # the failure:
+  #   - Step `probe` performs the exact API call dependency-review-action
+  #     is built on — GET /repos/{repo}/dependency-graph/compare/{basehead}
+  #     — with the workflow's own token (the same call/token/permissions
+  #     the real action would use).
+  #   - Success        -> the real, pinned action runs (fail-on-severity).
+  #   - Bare-Forbidden 403 ("gh: Forbidden (HTTP 403)", the gate's exact
+  #     live-verified shape) -> the GHAS gate; the upstream action maps
+  #     this same 403 to "Dependency review is not supported on this
+  #     repository." Emits a LOUD visible skip naming the blocker — never
+  #     `if: false` — and exits 0. NOTE (cycle-2 verifier fix): the match
+  #     is deliberately NOT any-403 — a rate-limit 403 ("API rate limit
+  #     exceeded ... (HTTP 403)") must NOT green-skip a real review
+  #     post-GHAS, so it falls through to the fail branch instead
+  #     (retry-able red).
+  #   - ANY other error -> the job FAILS (fail-closed; an unexpected
+  #     failure must never masquerade as the documented blocker).
+  # Because the probe exercises the real gated resource with the real
+  # token, auto-activation is genuine: the moment GHAS is provisioned the
+  # probe succeeds and the real scan runs — no workflow edit needed.
+  dependency-review:
+    name: dependency review
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Try the dependency-review compare API (classify the GHAS gate)
+        id: probe
+        env:
+          # SHAs from the event payload are trusted hex strings (not
+          # attacker-controlled text like branch names / PR bodies); passed
+          # via env anyway per this repo's script-injection discipline.
+          BASEHEAD: ${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          set +e
+          out="$(gh api "repos/${{ github.repository }}/dependency-graph/compare/${BASEHEAD}" 2>&1)"
+          code=$?
+          set -e
+          if [ "${code}" -eq 0 ]; then
+            echo "dependency-graph compare succeeded — GHAS gate open; running the real scan"
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          # Cycle-2 verifier fix: discriminate on the GHAS gate's exact
+          # live-verified shape — the bare-Forbidden 403 (body
+          # '{"message":"Forbidden",...}', gh error line
+          # "gh: Forbidden (HTTP 403)"). Matching '(HTTP 403)' alone was
+          # proven fail-open: a rate-limit 403 ("API rate limit exceeded ...
+          # (HTTP 403)", plausible on GITHUB_TOKEN's shared 1k/hr budget)
+          # would have green-skipped a real dependency review post-GHAS.
+          # Rate-limit (and every other) 403 shape now falls through to the
+          # else branch -> exit 1 (fail-closed, retry-able red).
+          elif printf '%s' "${out}" | grep -qF 'gh: Forbidden (HTTP 403)'; then
+            echo "compare returned the bare-Forbidden 403 — the GHAS gate (the upstream action maps this same 403 to 'Dependency review is not supported on this repository.')"
+            printf '%s\n' "${out}" > dependency-review-probe-output.txt
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::dependency-graph compare failed for a reason OTHER than the GHAS gate (exit ${code}; not the bare-Forbidden 'gh: Forbidden (HTTP 403)' shape — e.g. a rate-limit 403 lands here DELIBERATELY, as a retry-able red) — failing the job (fail-closed; an unexpected error must never masquerade as the documented blocker). Output:"
+            printf '%s\n' "${out}"
+            exit 1
+          fi
 
-  # ── Desabilitado temporariamente: CodeQL v3 autobuild.sh não reconhece
-  # layout pyproject.toml + src/maezo/ (procura setup.py). O extractor
-  # Python roda com `python3 -S` (sem site-packages), então mesmo após
-  # `pip install -e ".[dev]"` o tracer encontra 0 módulos.
+      # Pin-only note: the floating "v4" tag was DELETED upstream after
+      # actions/dependency-review-action shipped v5.0.0 — confirmed 404 via
+      # `gh api repos/actions/dependency-review-action/git/ref/tags/v4` on
+      # 2026-07-17. v4.9.0 is the last existing v4.x.y release (i.e. what
+      # "v4" resolved to immediately before removal) — pinning to it is NOT
+      # a version bump to v5.
+      - name: Dependency review
+        if: steps.probe.outputs.run == 'true'
+        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48  # v4.9.0
+        with:
+          fail-on-severity: high
+
+      - name: DEPENDENCY-REVIEW SKIPPED (visible)
+        if: steps.probe.outputs.run == 'false'
+        run: |
+          echo "::notice::DEPENDENCY-REVIEW SKIPPED — the dependency-graph compare API (the exact call dependency-review-action is built on) returned HTTP 403 with this job's own token: the GitHub Advanced Security gate ('Dependency review is not supported on this repository.'). Blocked(external: repo/org setting — GHAS not provisioned; admin-scoped check 2026-07-17 read code_security.status='disabled'). The probe exercises the real gated resource, so provisioning GHAS auto-activates the real scan — no workflow edit needed."
+          {
+            echo "## dependency review: SKIPPED (GHAS gate, classified from a real attempt)"
+            echo ""
+            echo "This job TRIED the exact API call \`dependency-review-action\` is built on"
+            echo "(\`GET /repos/.../dependency-graph/compare/{basehead}\`) with its own"
+            echo "\`GITHUB_TOKEN\` and got HTTP 403 — the GitHub Advanced Security gate."
+            echo "The upstream action maps this same 403 to:"
+            echo ""
+            echo '```'
+            echo "Dependency review is not supported on this repository."
+            echo '```'
+            echo ""
+            echo "Probe output:"
+            echo ""
+            echo '```'
+            cat dependency-review-probe-output.txt
+            echo '```'
+            echo ""
+            echo "Blocked(external: repo/org setting — GitHub Advanced Security not"
+            echo "provisioned; admin-scoped API check on 2026-07-17 read"
+            echo "\`security_and_analysis.code_security.status\` = \`disabled\`)."
+            echo "Re-enablement tracked as T2.4 in \`docs/prompts/V2-COMPLETION-PLAN.md\`."
+            echo "Any non-403 probe failure fails this job (fail-closed). Because the probe"
+            echo "hits the real gated resource with the real token, provisioning GHAS"
+            echo "(Settings -> Code security and analysis) auto-activates the real scan on"
+            echo "the next PR run — no workflow edit needed."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ── T2.4 (remainder): CodeQL re-enabled WITHOUT autobuild. The prior
+  # disablement (see git history) hit CodeQL v3's autobuild.sh, which never
+  # recognized the pyproject.toml + src/maezo/ layout (it looks for
+  # setup.py). Autobuild was the wrong tool for an interpreted language in
+  # the first place: Python needs no build step to be analyzed, so this uses
+  # `build-mode: none` (github/codeql-action v4+) via an explicit init/
+  # analyze pair — no autobuild anywhere.
   #
-  # Correção definitiva: atualizar para github/codeql-action@v4 e usar
-  # build-mode: "none" (disponível a partir do CodeQL v4).
-  # O Dependabot PR #2 (github/codeql-action de v3 para v4) já está aberto.
+  # Scan coverage: CodeQL's Python extractor walks the whole checkout and
+  # picks up every *.py file, so src/ + scripts/ (the two directories named
+  # in scope) are covered by default alongside tests/ — no `paths:`
+  # restriction is needed or applied (a narrower scan would be a silent
+  # coverage cut, not an improvement).
   #
-  # codeql:
-  #   name: codeql / python
-  #   runs-on: ubuntu-latest
-  #   permissions:
-  #     actions: read
-  #     contents: read
-  #     security-events: write
-  #   strategy:
-  #     fail-fast: false
-  #     matrix:
-  #       language: ["python"]
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - name: Initialize CodeQL
-  #       uses: github/codeql-action/init@v4
-  #       with:
-  #         languages: ${{ matrix.language }}
-  #         build-mode: none
-  #     - name: Perform CodeQL analysis
-  #       uses: github/codeql-action/analyze@v4
+  # BLOCKED(external: repo/org setting) — ONLY the SARIF upload, not the
+  # scan. Observed on this task's own PR run (29592100816 / job
+  # 87923445084, 2026-07-17), before any guard existed: init + analyze ran
+  # successfully end-to-end (CodeQL database built, all Python security
+  # queries executed, SARIF produced), and only the final SARIF-upload step
+  # failed, with this exact upstream error:
+  #
+  #   ##[error]Please verify that the necessary features are enabled: Code
+  #   Security must be enabled for this repository to use code scanning. -
+  #   https://docs.github.com/rest
+  #
+  # MECHANISM — try-and-classify (R2 verification cycle 2 fix). The first
+  # guard pre-checked `security_and_analysis.code_security.status` with the
+  # workflow's own GITHUB_TOKEN, which lacks permission to see repo
+  # security settings and reads "unknown" FOREVER (verified live in jobs
+  # 87926112581/87926112433: workflow token -> "unknown"; admin token ->
+  # "disabled") — so its promised auto-activation was structurally false,
+  # AND it skipped the scan itself, which was never blocked. Now:
+  #   - init + analyze ALWAYS run — the scan is real on every trigger, and
+  #     any genuine scan failure fails the job (fail-closed). `analyze`
+  #     runs with `upload: never` + `upload-database: false` so the only
+  #     GHAS-gated call (SARIF upload) is deferred to a step we can
+  #     classify without `continue-on-error` (which is forbidden here).
+  #   - The upload step then POSTs the produced SARIF to the real
+  #     code-scanning API (/repos/{repo}/code-scanning/sarifs) with the
+  #     workflow's own token and classifies the outcome:
+  #       success -> results live in the Security tab (fully active).
+  #       error matching "must be enabled for this repository to use code
+  #       scanning" (the exact message observed above, verified byte-equal
+  #       against a direct API call on 2026-07-17) -> LOUD visible skip
+  #       naming the blocker — never `if: false` — exit 0.
+  #       ANY other error -> the job FAILS (fail-closed).
+  # Because the upload step attempts the real gated operation with the
+  # real token, auto-activation is genuine: the moment GHAS is provisioned
+  # the POST succeeds and results appear — no workflow edit needed.
+  codeql:
+    name: codeql / python
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@7188fc363630916deb702c7fdcf4e481b751f97a  # v4.37.1
+        with:
+          languages: python
+          build-mode: none
+
+      # The scan itself needs no GHAS and always runs for real; a scan
+      # failure here is a plain red job. Upload is deferred (see above).
+      - name: Perform CodeQL analysis (scan always real; upload deferred)
+        uses: github/codeql-action/analyze@7188fc363630916deb702c7fdcf4e481b751f97a  # v4.37.1
+        with:
+          upload: never
+          upload-database: false
+          output: sarif-results
+
+      - name: Upload SARIF (try-and-classify the GHAS gate)
+        run: |
+          set -euo pipefail
+          sarif="sarif-results/python.sarif"
+          if [ ! -f "${sarif}" ]; then
+            echo "::error::expected SARIF at ${sarif} was not produced by the analyze step — failing (fail-closed; a missing scan result must never read as a successful scan)."
+            ls -la sarif-results/ 2>/dev/null || true
+            exit 1
+          fi
+          gzip -c "${sarif}" | base64 -w0 > sarif.b64
+          jq -n \
+            --arg commit_sha "${GITHUB_SHA}" \
+            --arg ref "${GITHUB_REF}" \
+            --rawfile sarif sarif.b64 \
+            '{commit_sha: $commit_sha, ref: $ref, sarif: ($sarif | rtrimstr("\n"))}' \
+            > sarif-payload.json
+          set +e
+          out="$(gh api --method POST "repos/${{ github.repository }}/code-scanning/sarifs" --input sarif-payload.json 2>&1)"
+          code=$?
+          set -e
+          if [ "${code}" -eq 0 ]; then
+            echo "SARIF uploaded — code scanning results are live in the Security tab:"
+            printf '%s\n' "${out}"
+          elif printf '%s' "${out}" | grep -qiE 'must be enabled for this repository to use code scanning'; then
+            echo "::notice::CODEQL SARIF UPLOAD SKIPPED (the SCAN itself RAN to completion in this job) — the code-scanning API rejected the upload with the GitHub Advanced Security gate: 'Code Security must be enabled for this repository to use code scanning.' Blocked(external: repo/org setting — GHAS not provisioned; admin-scoped check 2026-07-17 read code_security.status='disabled'). This step attempts the real upload every run, so provisioning GHAS auto-activates it — no workflow edit needed."
+            {
+              echo "## codeql / python: scan RAN; SARIF upload SKIPPED (GHAS gate, classified from a real attempt)"
+              echo ""
+              echo "CodeQL init + analyze completed the full Python scan in this job"
+              echo "(database build, all security queries, SARIF produced). This step then"
+              echo "TRIED the real upload (\`POST /repos/.../code-scanning/sarifs\`) with its"
+              echo "own \`GITHUB_TOKEN\` and was rejected by the GitHub Advanced Security"
+              echo "gate:"
+              echo ""
+              echo '```'
+              printf '%s\n' "${out}"
+              echo '```'
+              echo ""
+              echo "Blocked(external: repo/org setting — GitHub Advanced Security not"
+              echo "provisioned; admin-scoped API check on 2026-07-17 read"
+              echo "\`security_and_analysis.code_security.status\` = \`disabled\`)."
+              echo "Re-enablement tracked as T2.4 in \`docs/prompts/V2-COMPLETION-PLAN.md\`."
+              echo "Any upload failure NOT matching this exact gate message fails this job"
+              echo "(fail-closed). Because this step attempts the real gated operation with"
+              echo "the real token, provisioning GHAS (Settings -> Code security and"
+              echo "analysis) auto-activates live results on the next run — no workflow"
+              echo "edit needed."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::error::SARIF upload failed for a reason OTHER than the GHAS gate (gh api exit ${code}) — failing the job (fail-closed; an unexpected error must never masquerade as the documented blocker). Output:"
+            printf '%s\n' "${out}"
+            exit 1
+          fi
 
   gitleaks:
     name: gitleaks / secrets
@@ -70,7 +273,7 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
         with:
           fetch-depth: 0
 
