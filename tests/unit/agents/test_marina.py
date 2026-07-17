@@ -677,7 +677,10 @@ async def test_start_process_contas_starts_with_contract_variables() -> None:
 
     state = _contas_state(
         route="auto_route",
-        business_key="CONTAS-amh-GUIA-001-",
+        # Low-entropy SYNTHETIC key (gitleaks hygiene — fernando precedent): keep the contract
+        # format (`CONTAS-{tenant}-{lote}`) but NEVER use realistic-looking segment values in a
+        # `business_key = "..."` literal — secret scanners flag high-entropy assignments.
+        business_key="CONTAS-amh-000000001",
         dossier={"route": "auto_route"},
     )
     result = await graph.start_process(state)
@@ -688,7 +691,10 @@ async def test_start_process_contas_starts_with_contract_variables() -> None:
 
 async def test_start_process_recurso_idempotent_on_active_instance() -> None:
     cibseven = FakeCibSevenTransport()
-    business_key = "RECURSO-amh-GUIA-001-GLOSA-001"
+    # Low-entropy SYNTHETIC key (gitleaks hygiene — fernando precedent): keep the contract
+    # format (`RECURSO-{tenant}-{guia}-{glosa}`) but NEVER use realistic-looking segment values
+    # in a `business_key = "..."` literal — secret scanners flag high-entropy assignments.
+    business_key = "RECURSO-amh-000000001-000000002"
     cibseven.seed_instance(
         ProcessInstance(
             instance_id="existing-recurso-1",
