@@ -77,7 +77,14 @@ the 5-year retention floor is met, the deferred records are **reconciled** (dele
     `DELETE ... WHERE ts < cutoff` — `retention.py:143`). This is net-new work.
   - Requires a defined process for **who places/lifts a hold** and on what scope (case id, tenant,
     time-range, subject) — a DPO/jurídico governance question, not just code.
-- **Verdict:** RECOMMEND, pending DPO/jurídico ratification of the governance rules.
+- **Amendment (chain integrity, see §3-bis):** the carve-out alone is NOT sufficient — any prune (even of
+  fully-unheld, past-retention records) severs `verify_chain()`'s genesis-anchored contiguity and makes
+  the surviving chain verify as corrupted. Option C therefore additionally requires that **every prune be
+  paired with a re-anchoring / signed-checkpoint mechanism** (a checkpoint record sealed into the chain
+  whose hash commits to the pruned prefix, and verifier support for that anchor) **before deletion is
+  ever enabled** — no prune without re-anchor, fail-closed.
+- **Verdict:** RECOMMEND (with the §3-bis re-anchoring precondition), pending DPO/jurídico ratification
+  of the governance rules.
 
 ## 3. LGPD Art. 16 vs litigation-hold analysis (for DPO/jurídico ratification)
 
@@ -104,13 +111,51 @@ the 5-year retention floor is met, the deferred records are **reconciled** (dele
   which still argues for the carve-out (don't delete rows a sealed bundle under hold depends on). The raw
   PHI under S3 Object-Lock is where the titular's erasure right actually bites, and item 4/6 already route
   that to the hold.
-- **Fail-closed default (constraint 2):** until the registry + governance exist, the safe posture is that
-  the scheduled DELETE **must not run destructively on records that could be under hold**. Since no hold
-  registry exists to prove a record is *not* held, a fail-closed reading argues the unconditional DELETE
-  (`retention.py:143`) **should not be scheduled in production** until Option C is built — it cannot
-  currently distinguish held from unheld records. **DPO/orchestrator to confirm** whether the scheduled
-  DELETE is wired to any cron today (not found on `main`; `retention.py` provides the query but no
-  scheduler was located).
+- **Fail-closed default (constraint 2) — the scheduler IS wired; only the entrypoint is missing:** the
+  destructive DELETE is **scheduled-in-manifest and ratified, but unimplemented**. Precisely: the Helm
+  CronJob `lifecycle-audit-retention`
+  (`deploy/helm/maezo-tenant/templates/cronjob-lifecycle.yaml:7,54` + `values.yaml:556-559`, schedule
+  `"0 5 1 * *"` — monthly, day 1, 05:00) runs `python -m maezo.platform.lifecycle audit-retention`, and
+  DL-0018 (`docs/decisions-log.md:20`) ratifies the DELETE as *agendado*. BUT the entrypoint module
+  `maezo.platform.lifecycle` **does not exist on `main`** (importing it raises `ModuleNotFoundError`,
+  so the CronJob pod would crash at start), and `retention_query()` has **zero callers** anywhere in
+  the tree. This RAISES the urgency of the fail-closed recommendation rather than lowering it: with the
+  decision ratified and the manifest live, **the moment someone implements the missing module per
+  DL-0018, the destructive DELETE goes live monthly** — with no hold predicate (§1) and no chain
+  re-anchoring (§3-bis). The fail-closed posture is therefore: the
+  `maezo.platform.lifecycle audit-retention` entrypoint must NOT be implemented (and the CronJob must
+  not be treated as operational) until Option C's hold registry AND the §3-bis re-anchoring mechanism
+  exist — today's ModuleNotFound crash is, accidentally, the only thing keeping the destructive path
+  closed.
+
+## 3-bis. Chain-integrity gap: DELETE-by-age severs `verify_chain()` contiguity (orthogonal to legal-hold)
+
+**Verifier-found gap, independent of spoliation.** Even with zero active holds, running the routine
+DELETE-by-age would put the audit chain into a state that **fails its own integrity verification**:
+
+- Both verifiers anchor at genesis. The in-memory `AuditSink.verify_chain()` walks the chain starting
+  from `prev = GENESIS_PREV_HASH` and fails on the first record whose `prev_hash` does not match
+  (`src/maezo/gateway/audit.py:298-330` — after a prune, the oldest *surviving* record still points at
+  a deleted predecessor, so verification fails **at index 0**). The Postgres `verify_chain()` does the
+  same structurally: it seeds its walk with `by_prev.get(GENESIS_PREV_HASH)`
+  (`src/maezo/gateway/audit_postgres.py:380`) — with the genesis record deleted, the walk starts empty
+  and every surviving row is reported "unreachable from genesis" (`audit_postgres.py:396-406`),
+  i.e. the pruned chain is indistinguishable from a **gap/fork corruption**.
+- **UNIQUE-preservation ≠ chain-contiguity.** DL-0018's non-partitioned design protects the
+  `UNIQUE(prev_record_hash)` **anti-fork** guarantee (`src/maezo/platform/migrations/versions/`
+  `0002_audit_chain.py:44-50` — the rationale is explicitly about atomically preventing concurrent
+  forks). That constraint says nothing about contiguity-from-genesis after rows are deleted: a pruned
+  chain still satisfies UNIQUE while failing verification. The two properties are orthogonal, and
+  DL-0018 addressed only the first.
+- **Consequence for Option C (amendment):** a hold-aware DELETE alone is NOT sufficient. **Any prune
+  must be paired with a re-anchoring / signed-checkpoint mechanism** — e.g. before deletion, seal a
+  checkpoint record into the chain whose content commits to the pruned prefix (last pruned
+  `record_hash` and/or a Merkle root over the pruned range, mirroring the ADR-0020 `bundle_root`
+  idiom), and teach `verify_chain()` to accept an authenticated checkpoint as the walk's anchor in
+  place of `GENESIS_PREV_HASH`. **No prune without re-anchor — fail-closed:** until the checkpoint
+  mechanism exists and both verifiers understand it, deletion must not be enabled at all, because a
+  post-prune chain would (correctly) verify as corrupted, destroying the evidentiary value ADR-0020
+  exists to protect.
 
 ## 4. Recommendation
 
@@ -123,10 +168,17 @@ already commits to**. Concretely, for ratification:
    also met.
 2. Ratify that the same holds gate **both** the `audit_chain` DELETE **and** the S3 Object-Lock release,
    and the `mpi_id<->fhir_patient_id` surrogate drop (ADR-0020:93).
-3. Require a **legal-hold registry** (net-new; absent on `main`) as the precondition before the scheduled
-   `retention.py` DELETE may run in production. Until then, **do not schedule the destructive DELETE**
-   (fail-closed).
-4. Define the **governance** (DPO/jurídico): who places/lifts a hold, on what scope (case id / tenant /
+3. Require a **legal-hold registry** (net-new; absent on `main`) as a precondition before the scheduled
+   DELETE may run in production. The scheduler is already wired and the decision ratified
+   (CronJob `lifecycle-audit-retention`, `cronjob-lifecycle.yaml:7,54` + `values.yaml:556-559`;
+   DL-0018) — only the `maezo.platform.lifecycle` entrypoint is missing. Until BOTH preconditions
+   (this item and item 4) are met, **do not implement that entrypoint / do not enable the job**
+   (fail-closed — see §3 last bullet).
+4. Require a **chain re-anchoring / signed-checkpoint mechanism** (§3-bis) as the second precondition:
+   every prune must first seal a checkpoint committing to the pruned prefix, and `verify_chain()`
+   (both `audit.py` and `audit_postgres.py` variants) must accept the authenticated checkpoint as its
+   anchor. **No prune without re-anchor.**
+5. Define the **governance** (DPO/jurídico): who places/lifts a hold, on what scope (case id / tenant /
    subject / time-range), and the audit trail for hold placement/release (itself an `audit_chain` event).
 
 **Ownership / boundaries:**
@@ -141,6 +193,10 @@ already commits to**. Concretely, for ratification:
 
 - `blocked(external: DPO designation)` — no encarregado to ratify the legal analysis.
 - Retention period (5y) is DRAFT pending jurídico/regulatório sign-off (DL-0018; ADR-0020:86).
-- Whether the `retention.py` DELETE is (or will be) wired to a scheduler in production — **not found on
-  `main`**; confirm with orchestrator/infra before any go-live.
+- The DELETE scheduler is **already wired and ratified but unimplemented**: Helm CronJob
+  `lifecycle-audit-retention` (`cronjob-lifecycle.yaml:7,54`; `values.yaml:556-559`, `"0 5 1 * *"`)
+  invokes the **nonexistent** `maezo.platform.lifecycle` module (ModuleNotFound today);
+  `retention_query()` has zero callers. Orchestrator/infra must gate the module's implementation on
+  this amendment's two preconditions (hold registry §4.3 + re-anchoring §4.4) — implementing it first
+  activates the destructive monthly DELETE (see §3 last bullet, §3-bis).
 - Exact LGPD article letters (Art. 11, II alínea; Art. 16 scope) — **requires jurídico confirmation**.

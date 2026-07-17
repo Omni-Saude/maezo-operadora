@@ -101,11 +101,21 @@ The BPMN has ONE generic execute task `operadora.lgpd.execute_request`, reached 
 `ERR_DENIAL_NOT_HUMAN` + fail-closed `decisao_dsr == 'EXECUTAR_E_ENVIAR'` + `NEGAR_FUNDAMENTADO`
 handling (`lgpd.py:311-363`). Collapsing to the single BPMN topic is the correct direction (spec SoT),
 but is **load-bearing** and needs sign-off because:
-  - **Error-code divergence (secondary finding):** the BPMN declares `ERR_DSR_ERASURE_NOT_HUMAN` and
-    `ERR_DSR_ERASURE_FAILED` (GAP-LGPD-2 defence-in-depth, `bpmn:19-22`) that **no worker emits today**
-    — the code returns the generic `ERR_DENIAL_NOT_HUMAN` (`lgpd.py:319,346`). Reconciliation must map
-    the collapsed `execute_request` worker's guards to the BPMN-declared `ERR_DSR_ERASURE_*` codes, or
-    the BPMN's boundary/incident catches stay dead.
+
+  - **Error-code divergence (secondary finding):** the BPMN declares `ERR_DSR_ERASURE_FAILED` and
+    `ERR_DSR_ERASURE_NOT_HUMAN` (GAP-LGPD-2 defence-in-depth, `bpmn:19,22`) that **no worker emits
+    today** — the code returns the generic `ERR_DENIAL_NOT_HUMAN` (`lgpd.py:319,346`). Precision on
+    the BPMN side: these two error definitions are **declared but UNBOUND** — no `errorRef` /
+    boundary event anywhere in the file references them (the only error bindings are the
+    `Error_LgpdIdentidade` boundary at `bpmn:105-108` and the error END events at `bpmn:251,266`),
+    and `ST_ExecutarRequisicao` has **no boundary event at all**. So mapping the collapsed
+    `execute_request` worker's guards to the `ERR_DSR_ERASURE_*` codes requires EITHER (i) ALSO
+    adding boundary catches on `ST_ExecutarRequisicao` in the BPMN — a spec-side change needing SME
+    sign-off — OR (ii) relying on the T1.1 §9 harness behaviour: a `bpmnError` code not in the
+    harness's `bpmn_error_allowlist` is demoted to `failure(retries=0)` → immediate engine incident,
+    never silently dropped (`src/maezo/tools/workers/harness.py:44-49,132-133`). Either route is
+    fail-closed (incident, not silent scope-kill — the GAP-LGPD-6 hazard class the BPMN's own
+    comments warn about, `bpmn:15-18`); the choice between them is part of the R-D sign-off.
   - **Model mismatch (export path):** in the BPMN, the `APROVAR_ENVIO` (send-only) path goes STRAIGHT
     to `ST_EnviarResposta` with NO execute task (`bpmn:373-375`); only `EXECUTAR_E_ENVIAR` executes.
     The code's `ExecuteExportWorker` (a post-approval "compile package" task, O2) has no BPMN
