@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_phantom_no_diagnosis"
+             name="Phantom billing — sem diagnostico"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    phantom_no_diagnosis v0.1.0 — status: DRAFT (SP-OP-FRAUDE-001 §"DMN referenciadas" / "Porta
+    INVERTIDA do scoring de referencia"; conteudo requer SME medico-auditor + auditoria especial +
+    financas; docs/review-queue.md). Portada BYTE-FIEL (T2.7 artifact phase; ADR-0011 — copiar
+    +adaptar+possuir, nunca importar) de
+    ../maezo-reference/healthcare_platform/revenue_cycle/dmn/coding_audit/fraud_scoring/phantom_no_diagnosis.dmn
+    (id doador Decision_PhantomNoDiagnosis). Valores/regras preservados verbatim do v1 — NENHUMA
+    regra foi retunada; qualquer ajuste de negocio e trabalho SME (docs/review-queue.md), nao desta
+    portabilidade.
+
+    PENDENTE DE WIRING (T2.7 fase 2, apos ADR de avaliacao DMN do T1.4): esta tabela ainda NAO e
+    chamada por nenhum businessRuleTask BPMN nem pelo worker operadora.fraude.score_indicators —
+    e um ORFAO DELIBERADO (spec/processes/dmn/orphans-allowlist.yaml). Quando o worker
+    operadora.fraude.score_indicators (SP-OP-FRAUDE-001) for ligado, ele avalia esta DMN e dobra o
+    resultado em indicadores_presentes/score_indicadores — a saida desta DMN NUNCA alimenta
+    diretamente uma decisao de roteamento ou acusacao.
+
+    DIVERGENCIAS REPORTADAS (nao reconciliadas nesta portabilidade — ver PR body / SME):
+    (1) Esquema de saida: esta tabela produz `resultado`(PROSSEGUIR/BLOQUEAR/REVISAR)/`acao`(string)
+    /`risco`(CRITICO/ALTO/MEDIO/BAIXO) — o schema ORIGINAL do v1 donor, preservado byte-fiel. O
+    worker de referencia (detect_fraud_worker_v2.py) na verdade LE `alerts`/`score` da avaliacao —
+    nao `resultado` — divergencia doador-worker-vs-doador-DMN ja existente no v1 (achado desta
+    portabilidade, nao introduzido por ela).
+    (2) O valor `"BLOQUEAR"` no dominio de `resultado` — e ATINGIDO pela Rule_PhantomBilling
+    (risco CRITICO) — tensiona diretamente com o invariante L0-hard do contrato ("Nenhuma DMN tem
+    coluna de saida de acusacao/veredito/bloqueio de fraude" — SP-OP-FRAUDE-001 §"DMN
+    referenciadas"). Preservado byte-fiel (nao reconciliado silenciosamente); o worker da fase 2
+    (operadora.fraude.score_indicators) e OBRIGADO a tratar este `resultado="BLOQUEAR"` apenas
+    como fato de montagem de indicadores (nunca como bloqueio/veredito automatico) — L0-hard.
+    (3) Esquema de entrada: o worker doador `detect_fraud_worker_v2.py` chama esta tabela com
+    `{"tuss_codes": inp.validated_tuss, "cid10_codes": inp.validated_cid10}` (LISTAS brutas) —
+    esta tabela exige `has_tuss_codes`/`has_cid10_codes` (BOOLEANOS derivados). Nomes E tipos
+    divergem; quem fizer o wiring da fase 2 precisa converter (`len(lista) &gt; 0`) — nao existe
+    pronto no worker doador.
+
+    NOTA typeRef: nenhum `number` presente nesta tabela no v1 — sem correcao necessaria (inputs ja
+    eram `boolean`).
+    NOTA hitPolicy: FIRST (identico ao v1 — sem alteracao). O v1 doador ja tinha DUAS rows de
+    fallback (Rule_HighRisk + Rule_Fallback) antes do catch-all final — preservadas ambas,
+    verbatim, na mesma ordem.
+  </description>
+  <decision id="phantom_no_diagnosis" name="Phantom billing — sem diagnostico" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_phantom_no_diagnosis" hitPolicy="FIRST">
+      <input id="in_has_tuss_codes" label="Has TUSS Codes">
+        <inputExpression id="ie_has_tuss_codes" typeRef="boolean"><text>has_tuss_codes</text></inputExpression>
+      </input>
+      <input id="in_has_cid10_codes" label="Has CID-10 Codes">
+        <inputExpression id="ie_has_cid10_codes" typeRef="boolean"><text>has_cid10_codes</text></inputExpression>
+      </input>
+      <output id="out_resultado" label="Resultado" name="resultado" typeRef="string">
+        <outputValues><text>"PROSSEGUIR","BLOQUEAR","REVISAR"</text></outputValues>
+      </output>
+      <output id="out_acao" label="Acao" name="acao" typeRef="string"/>
+      <output id="out_risco" label="Risco" name="risco" typeRef="string">
+        <outputValues><text>"CRITICO","ALTO","MEDIO","BAIXO"</text></outputValues>
+      </output>
+      <rule id="r_phantom_billing">
+        <description>Procedimentos cobrados sem diagnostico documentado</description>
+        <inputEntry id="r_phantom_billing_i1"><text>true</text></inputEntry>
+        <inputEntry id="r_phantom_billing_i2"><text>false</text></inputEntry>
+        <outputEntry id="r_phantom_billing_o1"><text>"BLOQUEAR"</text></outputEntry>
+        <outputEntry id="r_phantom_billing_o2"><text>"Procedimentos cobrados sem diagnostico documentado"</text></outputEntry>
+        <outputEntry id="r_phantom_billing_o3"><text>"CRITICO"</text></outputEntry>
+      </rule>
+      <rule id="r_both_present">
+        <description>Procedimentos e diagnosticos documentados</description>
+        <inputEntry id="r_both_present_i1"><text>true</text></inputEntry>
+        <inputEntry id="r_both_present_i2"><text>true</text></inputEntry>
+        <outputEntry id="r_both_present_o1"><text>"PROSSEGUIR"</text></outputEntry>
+        <outputEntry id="r_both_present_o2"><text>"Procedimentos e diagnosticos adequadamente documentados"</text></outputEntry>
+        <outputEntry id="r_both_present_o3"><text>"BAIXO"</text></outputEntry>
+      </rule>
+      <rule id="r_no_tuss">
+        <description>Nenhum procedimento para avaliar</description>
+        <inputEntry id="r_no_tuss_i1"><text>false</text></inputEntry>
+        <inputEntry id="r_no_tuss_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_no_tuss_o1"><text>"PROSSEGUIR"</text></outputEntry>
+        <outputEntry id="r_no_tuss_o2"><text>"Nenhum procedimento TUSS presente"</text></outputEntry>
+        <outputEntry id="r_no_tuss_o3"><text>"BAIXO"</text></outputEntry>
+      </rule>
+      <rule id="r_high_risk">
+        <description>Risco alto detectado - revisao obrigatoria (fallback do v1 doador)</description>
+        <inputEntry id="r_high_risk_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_high_risk_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_high_risk_o1"><text>"REVISAR"</text></outputEntry>
+        <outputEntry id="r_high_risk_o2"><text>"Situacao de risco alto identificada - avaliacao detalhada necessaria"</text></outputEntry>
+        <outputEntry id="r_high_risk_o3"><text>"ALTO"</text></outputEntry>
+      </rule>
+      <rule id="r_fallback">
+        <description>Estado desconhecido - revisao obrigatoria (catch-all do v1 doador)</description>
+        <inputEntry id="r_fallback_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_fallback_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_fallback_o1"><text>"REVISAR"</text></outputEntry>
+        <outputEntry id="r_fallback_o2"><text>"Situacao requer avaliacao manual"</text></outputEntry>
+        <outputEntry id="r_fallback_o3"><text>"MEDIO"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

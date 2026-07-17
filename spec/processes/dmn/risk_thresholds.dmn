@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_risk_thresholds"
+             name="Limiares de pontuacao de risco"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    risk_thresholds v0.1.0 — status: DRAFT (SP-OP-FRAUDE-001 §"DMN referenciadas" / "Porta
+    INVERTIDA do scoring de referencia"; conteudo requer SME medico-auditor + auditoria especial +
+    financas; docs/review-queue.md). Portada BYTE-FIEL (T2.7 artifact phase; ADR-0011 — copiar
+    +adaptar+possuir, nunca importar) de
+    ../maezo-reference/healthcare_platform/revenue_cycle/dmn/coding_audit/fraud_scoring/risk_thresholds.dmn
+    (id doador Decision_RiskThresholds). Valores/limiares de regra preservados verbatim do v1 —
+    NENHUMA regra foi retunada; qualquer ajuste de negocio e trabalho SME (docs/review-queue.md),
+    nao desta portabilidade.
+
+    PENDENTE DE WIRING (T2.7 fase 2, apos ADR de avaliacao DMN do T1.4): esta tabela ainda NAO e
+    chamada por nenhum businessRuleTask BPMN nem pelo worker operadora.fraude.score_indicators —
+    e um ORFAO DELIBERADO (spec/processes/dmn/orphans-allowlist.yaml). Quando o worker
+    operadora.fraude.score_indicators (SP-OP-FRAUDE-001) for ligado, ele avalia esta DMN e dobra o
+    resultado em indicadores_presentes/score_indicadores — a saida desta DMN NUNCA alimenta
+    diretamente uma decisao de roteamento ou acusacao. Em particular: o comportamento do worker de
+    referencia (`if risk &gt; 80: raise BpmnErrorException(error_code="FRAUD_DETECTED", ...)`) e o
+    ANTI-PADRAO que o contrato explicitamente inverte (§"Notas de design / inversao do reference")
+    — `FRAUD_DETECTED` NAO EXISTE em Maezo; esta tabela alimenta `fraude_indicadores`/
+    `score_indicadores`, nunca um error/veredito automatico.
+
+    DIVERGENCIAS REPORTADAS (nao reconciliadas nesta portabilidade — ver PR body / SME):
+    (1) Esquema de saida vs. prosa do contrato: o contrato (SP-OP-FRAUDE-001 §"DMN referenciadas")
+    descreve "...quando o `recommendation` de `risk_thresholds` e `'flag'`..." (um output
+    `recommendation` com dominio {clear,flag}) — mas a tabela REAL do v1 doador (portada aqui
+    byte-fiel) NAO tem output `recommendation`; produz `resultado`(PROSSEGUIR/BLOQUEAR/REVISAR)/
+    `acao`(string)/`risco`(CRITICO/ALTO/MEDIO/BAIXO), o MESMO template das outras 6 tabelas
+    fraude_scoring. A prosa do contrato aparentemente descreve o comportamento do WORKER
+    `detect_fraud_worker_v2.py` (que le `thresh_res.get("recommendation", "clear")` e checa
+    `== "flag"`), nao o schema real desta DMN — outra divergencia doador-worker-vs-doador-DMN
+    (achado desta portabilidade, nao introduzido por ela; nao reconciliada silenciosamente).
+    (2) O valor `"BLOQUEAR"` no dominio de `resultado` — ATINGIDO pela Rule_RiskCritical (risk_score
+    &gt;= 80, EXATAMENTE o limiar que o worker doador usa para lancar `FRAUD_DETECTED`) — tensiona
+    diretamente com o invariante L0-hard do contrato ("Nenhuma DMN tem coluna de saida de
+    acusacao/veredito/bloqueio de fraude"). Preservado byte-fiel; o worker da fase 2
+    (operadora.fraude.score_indicators) e OBRIGADO a tratar `resultado="BLOQUEAR"` apenas como
+    fato de montagem de indicadores (jamais lancar um BPMN error tipo FRAUD_DETECTED) — L0-hard,
+    e e precisamente o ponto que o contrato descreve como "REMOVIDO" na inversao do anti-padrao.
+    (3) Esquema de entrada: este e o UNICO dos 7 cujo input BATE com a chamada do worker doador
+    (`{"risk_score": risk}` — a tabela exige exatamente `risk_score`). Sem divergencia de entrada
+    aqui.
+
+    NOTA typeRef: `risk_score` era `number` no v1 (typeRef invalido no shape engine-deployavel
+    deste contrato — §"DMN referenciadas": typeRef em {string,boolean,integer,long,double,date});
+    corrigido para `integer` na portabilidade — os limiares (&gt;=80, &gt;=50, &gt;=30, &lt;30) sao
+    todos inteiros, preservados verbatim, e o contrato explicitamente pede
+    `score_indicadores: integer` (§"Variaveis de entrada": "score interno em integer").
+    NOTA hitPolicy: FIRST (identico ao v1 — sem alteracao).
+  </description>
+  <decision id="risk_thresholds" name="Limiares de pontuacao de risco" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_risk_thresholds" hitPolicy="FIRST">
+      <input id="in_risk_score" label="Risk Score">
+        <inputExpression id="ie_risk_score" typeRef="integer"><text>risk_score</text></inputExpression>
+      </input>
+      <output id="out_resultado" label="Resultado" name="resultado" typeRef="string">
+        <outputValues><text>"PROSSEGUIR","BLOQUEAR","REVISAR"</text></outputValues>
+      </output>
+      <output id="out_acao" label="Acao" name="acao" typeRef="string"/>
+      <output id="out_risco" label="Risco" name="risco" typeRef="string">
+        <outputValues><text>"CRITICO","ALTO","MEDIO","BAIXO"</text></outputValues>
+      </output>
+      <rule id="r_risk_critical">
+        <description>Pontuacao de risco critica: &gt;= 80</description>
+        <inputEntry id="r_risk_critical_i1"><text>&gt;= 80</text></inputEntry>
+        <outputEntry id="r_risk_critical_o1"><text>"BLOQUEAR"</text></outputEntry>
+        <outputEntry id="r_risk_critical_o2"><text>"Fraude detectada: pontuacao de risco critica (&gt;= 80)"</text></outputEntry>
+        <outputEntry id="r_risk_critical_o3"><text>"CRITICO"</text></outputEntry>
+      </rule>
+      <rule id="r_risk_high">
+        <description>Pontuacao de risco alta: &gt;= 50</description>
+        <inputEntry id="r_risk_high_i1"><text>&gt;= 50</text></inputEntry>
+        <outputEntry id="r_risk_high_o1"><text>"REVISAR"</text></outputEntry>
+        <outputEntry id="r_risk_high_o2"><text>"Risco de fraude alto: revisao obrigatoria (&gt;= 50)"</text></outputEntry>
+        <outputEntry id="r_risk_high_o3"><text>"ALTO"</text></outputEntry>
+      </rule>
+      <rule id="r_risk_medium">
+        <description>Pontuacao de risco media: &gt;= 30</description>
+        <inputEntry id="r_risk_medium_i1"><text>&gt;= 30</text></inputEntry>
+        <outputEntry id="r_risk_medium_o1"><text>"REVISAR"</text></outputEntry>
+        <outputEntry id="r_risk_medium_o2"><text>"Risco de fraude medio: monitoramento recomendado (&gt;= 30)"</text></outputEntry>
+        <outputEntry id="r_risk_medium_o3"><text>"MEDIO"</text></outputEntry>
+      </rule>
+      <rule id="r_risk_low">
+        <description>Pontuacao de risco baixa: &lt; 30</description>
+        <inputEntry id="r_risk_low_i1"><text>&lt; 30</text></inputEntry>
+        <outputEntry id="r_risk_low_o1"><text>"PROSSEGUIR"</text></outputEntry>
+        <outputEntry id="r_risk_low_o2"><text>"Risco de fraude baixo: prosseguir"</text></outputEntry>
+        <outputEntry id="r_risk_low_o3"><text>"BAIXO"</text></outputEntry>
+      </rule>
+      <rule id="r_fallback">
+        <description>Pontuacao de risco desconhecida - revisao obrigatoria (catch-all do v1 doador)</description>
+        <inputEntry id="r_fallback_i1"><text>-</text></inputEntry>
+        <outputEntry id="r_fallback_o1"><text>"REVISAR"</text></outputEntry>
+        <outputEntry id="r_fallback_o2"><text>"Pontuacao de risco requer avaliacao manual"</text></outputEntry>
+        <outputEntry id="r_fallback_o3"><text>"MEDIO"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

@@ -65,12 +65,18 @@ Known cases:
 
 - **FRAUDE-001's 7 reference-scoring DMNs** (`upcoding_complexity_ceiling`,
   `unbundling_partial_bundles`, `phantom_no_diagnosis`, `phantom_suspicious_prefix`,
-  `frequency_zscore_threshold`, `provider_peer_deviation`, `risk_thresholds`) are named in the
+  `frequency_zscore_threshold`, `provider_peer_deviation`, `risk_thresholds`) were named in the
   contract's "inverte o anti-padrão" section as DMNs to be **ported** (copied, adapted, and
-  corrected from `number` to `integer` typing) from the read-only reference repo — they are not yet
-  in `spec/processes/dmn/`. Marked **não portado — pendente T2.7** in the médico-auditor and jurídico
-  packages (T2.7 per the V2 plan's own roster; this dispatch does not create or reference any ticket
-  beyond what the plan already names).
+  corrected from `number` to `integer`/`double` typing per field) from the read-only reference
+  repo. As of T2.7 (artifact phase) they now exist byte-faithful under `spec/processes/dmn/` (one
+  `.dmn` file per name above). They are **ported, wiring pending** — no longer "não portado" — in
+  the médico-auditor and jurídico packages: each is a deliberate orphan
+  (`spec/processes/dmn/orphans-allowlist.yaml`, justification "pending fraud-scoring wiring — T2.7
+  phase 2 after T1.4") until `operadora.fraude.score_indicators` is wired (T2.7 phase 2, after the
+  T1.4 DMN-evaluation ADR lands); content is unreviewed and flagged for SME
+  (médico-auditor/finanças) sign-off before that wiring — see the T2.7 PR body for reported
+  divergences between the ported tables, the contract's L0-hard no-blocking-output invariant, and
+  the v1 donor worker's actual call signatures.
 - **REEMBOLSO-001** cites DMNs `reembolso_admissibility` and `reembolso_auto_approval`; only
   `reembolso_coverage.dmn`, `reembolso_calculo.dmn`, and `reembolso_sla.dmn` exist in
   `spec/processes/dmn/`. `reembolso_coverage.dmn` is the likely renamed artifact for
