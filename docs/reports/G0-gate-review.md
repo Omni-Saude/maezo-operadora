@@ -196,3 +196,37 @@ money/L0-path weakening was found.
 *Author ≠ verifier: none of the reviewed work was authored by this reviewer; every criterion was
 reproduced at `origin/main` HEAD `579e8f9`.*
 *Date:* 2026-07-17
+
+---
+
+## Addendum (2026-07-17): conditions C1–C4 re-verified closed
+
+Conditions C1–C4 re-verified closed by regulatory/security-gatekeeper at `71f05fb`
+(branch `t0.2-g0-conditions`, PR #38, two fix cycles — cycle 1 rejected for a surviving
+C1 instance at `catalog.md:15`). **G0 remains CONDITIONAL-PASS solely on the external
+SME-dispatch-receipts criterion (human roster pending). All technical criteria: PASS.**
+
+Reproduced at `71f05fb` (gatekeeper's own greps/runs, not the fixer's claims):
+
+- **C1 closed** — `grep -c "real-engine\|integracao real" docs/processes/catalog.md` → **0**;
+  all 12 rows now read `suite de integração planejada — T3.1` ("planejada" only — no
+  scheduled/done overclaim; the ans_sla contract note is preserved truthfully).
+- **C2 closed** — `grep -c 588 README.md` → **0**; badge is non-numeric
+  (`tests-passing_(CI)`) and links to the CI workflow; the cycle-2 pass also de-numerified
+  the stale static 62/59 file counts (README no longer contains either token).
+- **C3 closed** — `PROJECT.md:43-44` → `spec/processes/` / `spec/policies/autonomy/`;
+  dead-pointer grep across the five swept files → only the truthful historical note at
+  `Makefile:38` survives.
+- **C4 closed** — `CONTRIBUTING.md:29` → `spec/processes/bpmn/`.
+- **No new untruth introduced** — the rewritten Makefile comment's claims verified
+  (`spec/processes/dmn/orphans-allowlist.yaml` exists and is consumed by
+  `validation/crossref.py:30`; fail-closed behavior was mutation-proven in Criterion 5);
+  `make validate-artifacts` at `71f05fb` → `[validate] OK — 0 errors`, exit 0.
+- **Non-blocking residue (recorded, does not gate):** `README.md:49` lint line still
+  carries a static `(121 files)` count (actual `ruff format --check` reports 164) —
+  same count-rot class, pre-existing, outside C1–C4; recommend de-numerifying in a
+  future docs-hygiene micro-pass.
+
+*Re-certified by:* **regulatory-gatekeeper + security-gatekeeper (tier R1)** — issuer of
+conditions C1–C4; the fixes were authored by docs-hygienist (R3), not by this reviewer.
+*Date:* 2026-07-17
