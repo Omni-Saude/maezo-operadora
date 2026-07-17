@@ -5,6 +5,7 @@ TDD London School: tests exercise the external task contracts.
 
 import pytest
 
+from maezo.tools.workers.dmn_transport import DmnEvaluationError, FakeDmnTransport
 from maezo.tools.workers.recurso import (
     DesistenciaNotHumanError,
     RecursoDesistenciaInput,
@@ -24,6 +25,32 @@ from maezo.tools.workers.recurso import (
     validate_recurso,
     validate_recurso_entry,
 )
+
+
+def _recurso_admissibility_fake(*, roteamento: str, motivo: str = "") -> FakeDmnTransport:
+    """Rows verified live against the compose engine (T1.5 parity run)."""
+    fake = FakeDmnTransport()
+    fake.register("recurso_admissibility", [{"roteamento": roteamento, "motivo": motivo}])
+    return fake
+
+
+def _recurso_admissibility_and_eligibility_fake(
+    *,
+    adm_roteamento: str = "SEGUE_ANALISE",
+    adm_motivo: str = "",
+    elig_roteamento: str,
+    grupo_revisor: str,
+    elig_motivo: str = "",
+) -> FakeDmnTransport:
+    """Rows verified live against the compose engine (T1.5 parity run)."""
+    fake = FakeDmnTransport()
+    fake.register("recurso_admissibility", [{"roteamento": adm_roteamento, "motivo": adm_motivo}])
+    fake.register(
+        "recurso_eligibility",
+        [{"roteamento": elig_roteamento, "grupo_revisor": grupo_revisor, "motivo": elig_motivo}],
+    )
+    return fake
+
 
 # ---------------------------------------------------------------------------
 # validate_recurso
@@ -78,7 +105,7 @@ def test_validate_recurso_fora_prazo() -> None:
 
 
 def test_assess_eligibility_glosa_nao_existe() -> None:
-    """Glosa not confirmed -> ANALISE_HUMANA, never auto-desistencia."""
+    """Glosa not confirmed -> ANALISE_HUMANA, never auto-desistencia (live-verified motivo)."""
     inp = RecursoInput(tenant_id="amh", glosa_id="GLOSA-001")
     from maezo.tools.workers.recurso import RecursoValidationResult
 
@@ -88,13 +115,31 @@ def test_assess_eligibility_glosa_nao_existe() -> None:
         dentro_prazo_recurso=True,
         documentacao_recurso_completa=True,
     )
-    result = assess_eligibility(inp, validation)
+    fake = _recurso_admissibility_fake(
+        roteamento="ANALISE_HUMANA",
+        motivo=(
+            "Glosa referida nao confirmada/ativa em CONTAS — analise humana obrigatoria "
+            "(R5; nunca auto-desistencia)"
+        ),
+    )
+    result = assess_eligibility(inp, validation, dmn=fake)
     assert result.roteamento == "ANALISE_HUMANA"
-    assert "Glosa nao confirmada" in result.motivo
+    assert "nao confirmada" in result.motivo
+    # Terminal admissibility state (not SEGUE_ANALISE) — recurso_eligibility is NOT consulted.
+    assert fake.calls == [
+        (
+            "recurso_admissibility",
+            {
+                "glosa_existe": False,
+                "dentro_prazo_recurso": True,
+                "documentacao_recurso_completa": True,
+            },
+        )
+    ]
 
 
 def test_assess_eligibility_tecnica_clinica_routes_auditor() -> None:
-    """Glosa tecnica/clinica -> grupo_revisor = medico-auditor."""
+    """Glosa tecnica/clinica -> grupo_revisor = medico-auditor (via recurso_eligibility chain)."""
     inp = RecursoInput(
         tenant_id="amh",
         glosa_id="GLOSA-001",
@@ -108,12 +153,15 @@ def test_assess_eligibility_tecnica_clinica_routes_auditor() -> None:
         dentro_prazo_recurso=True,
         documentacao_recurso_completa=True,
     )
-    result = assess_eligibility(inp, validation)
+    fake = _recurso_admissibility_and_eligibility_fake(
+        elig_roteamento="RECORRIVEL", grupo_revisor="medico-auditor"
+    )
+    result = assess_eligibility(inp, validation, dmn=fake)
     assert result.grupo_revisor == "medico-auditor"
 
 
 def test_assess_eligibility_segue_analise() -> None:
-    """All conditions met -> SEGUE_ANALISE."""
+    """All conditions met -> SEGUE_ANALISE + recorivel derived from recurso_eligibility."""
     inp = RecursoInput(
         tenant_id="amh",
         glosa_id="GLOSA-001",
@@ -127,13 +175,30 @@ def test_assess_eligibility_segue_analise() -> None:
         dentro_prazo_recurso=True,
         documentacao_recurso_completa=True,
     )
-    result = assess_eligibility(inp, validation)
+    fake = _recurso_admissibility_and_eligibility_fake(
+        elig_roteamento="RECORRIVEL", grupo_revisor="analista-recurso-glosa"
+    )
+    result = assess_eligibility(inp, validation, dmn=fake)
     assert result.roteamento == "SEGUE_ANALISE"
     assert result.recorivel is True
+    assert fake.calls == [
+        (
+            "recurso_admissibility",
+            {
+                "glosa_existe": True,
+                "dentro_prazo_recurso": True,
+                "documentacao_recurso_completa": True,
+            },
+        ),
+        (
+            "recurso_eligibility",
+            {"glosa_type": "administrativa", "glosa_reason_code": "", "valor_glosado_brl": 0.0},
+        ),
+    ]
 
 
 def test_assess_eligibility_pendente_documentacao() -> None:
-    """Missing documents -> PENDENTE_DOCUMENTACAO."""
+    """Missing documents -> PENDENTE_DOCUMENTACAO (terminal — eligibility not consulted)."""
     inp = RecursoInput(tenant_id="amh", glosa_id="GLOSA-001")
     from maezo.tools.workers.recurso import RecursoValidationResult
 
@@ -143,8 +208,41 @@ def test_assess_eligibility_pendente_documentacao() -> None:
         dentro_prazo_recurso=True,
         documentacao_recurso_completa=False,
     )
-    result = assess_eligibility(inp, validation)
+    fake = _recurso_admissibility_fake(roteamento="PENDENTE_DOCUMENTACAO")
+    result = assess_eligibility(inp, validation, dmn=fake)
     assert result.roteamento == "PENDENTE_DOCUMENTACAO"
+    assert len(fake.calls) == 1  # eligibility NOT consulted for a terminal admissibility state
+
+
+def test_assess_eligibility_unmapped_glosa_type_not_recorivel() -> None:
+    """golden-parity finding (T1.5, live-verified): recurso_eligibility's catch-all (unmapped
+    glosa_type) returns ANALISE_HUMANA, not RECORRIVEL — the old Python's hand-coded
+    tecnica/clinica-only split never modeled this third possibility (it derived `recorivel`
+    purely from admissibility, never from the real eligibility table)."""
+    inp = RecursoInput(tenant_id="amh", glosa_id="GLOSA-001", glosa_type="outra")
+    from maezo.tools.workers.recurso import RecursoValidationResult
+
+    validation = RecursoValidationResult(
+        valid=True,
+        glosa_existe=True,
+        dentro_prazo_recurso=True,
+        documentacao_recurso_completa=True,
+    )
+    fake = _recurso_admissibility_and_eligibility_fake(
+        elig_roteamento="ANALISE_HUMANA", grupo_revisor="analista-recurso-glosa"
+    )
+    result = assess_eligibility(inp, validation, dmn=fake)
+    assert result.roteamento == "SEGUE_ANALISE"  # admissibility still says proceed
+    assert result.recorivel is False  # but eligibility's own signal says not (yet) recorrivel
+
+
+def test_assess_eligibility_dmn_unwired_raises_dmn_evaluation_error() -> None:
+    from maezo.tools.workers.recurso import RecursoValidationResult
+
+    inp = RecursoInput(tenant_id="amh", glosa_id="GLOSA-001")
+    validation = RecursoValidationResult(glosa_existe=True)
+    with pytest.raises(DmnEvaluationError):
+        assess_eligibility(inp, validation, dmn=None)
 
 
 # ---------------------------------------------------------------------------

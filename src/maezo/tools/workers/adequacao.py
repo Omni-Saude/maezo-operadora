@@ -6,11 +6,13 @@ Guard: ERR_FALLBACK_COMMITMENT_NOT_HUMAN (ADR-0018).
 
 from __future__ import annotations
 
+import functools
 from typing import TYPE_CHECKING, Any
 
 import structlog
 
 from maezo.tools.workers.base import FunctionWorker
+from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row, require_dmn
 
 if TYPE_CHECKING:
     from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
@@ -72,52 +74,75 @@ def measure_gap(variables: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------
 
 
-def route_remediation(variables: dict[str, Any]) -> dict[str, Any]:
+def route_remediation(variables: dict[str, Any], *, dmn: DmnTransport | None = None) -> dict[str, Any]:
     """Classify gap severity and route remediation — NEVER commits to fallback.
 
-    DMN-like: adequacao_gap + adequacao_remediation_routing.
+    Evaluates TWO chained deployed decision tables (ADR-0028/T1.5): `adequacao_gap` (tipo_carater,
+    tempo_acesso_apurado_min, distancia_apurada_km, prestadores_disponiveis,
+    cobertura_geo_suficiente) -> `gap_adequacao` in {CONFORME, GAP_LEVE, GAP_MODERADO,
+    GAP_CRITICO}; then, UNCONDITIONALLY, `adequacao_remediation_routing` (gap_adequacao,
+    dados_geo_completos) -> `roteamento_remediacao`.
+
+    `tipo_carater` is a NEW input this function did not previously read at all (additive —
+    sourced directly from `variables`, defaulting to `""` when absent).
+
+    golden-parity divergence found + DMN wins (documented, not patched — ADR-0028 §7): the
+    deployed `adequacao_gap` table's rule ORDER makes `GAP_LEVE` win over `CONFORME` for
+    `tipo_carater="eletivo"` whenever `tempo_acesso_apurado_min<=60` and
+    `distancia_apurada_km<=50.0` (its own row precedes `CONFORME`'s in FIRST-hit-policy order) —
+    live-verified: `tempo=15, distancia=5.0, prestadores=5, cobertura=True` -> `GAP_LEVE`, not
+    `CONFORME` (the old Python's own tighter `tempo<=30`/`distancia<=20.0` gate for CONFORME).
+    `GAP_MODERADO` is also computed differently (DMN keys off `cobertura_geo_suficiente=false`;
+    old Python keyed off `prestadores>=1 and tempo<=90`). Values stay within the same neutral
+    closed set with no adverse output on either path — both `CONFORME` and `GAP_LEVE` route to
+    the SAME `MONITORAR` remediation (live-verified), so this divergence has zero effect on the
+    downstream remediation action.
     """
     tempo = variables.get("tempo_acesso_apurado_min", 0)
     distancia = variables.get("distancia_apurada_km", 0.0)
     prestadores = variables.get("prestadores_disponiveis", 0)
     cobertura = variables.get("cobertura_geo_suficiente", False)
     dados_completos = variables.get("dados_geo_completos", True)
+    tipo_carater = variables.get("tipo_carater", "")
 
-    # Determine gap severity
-    if not dados_completos:
-        gap_adequacao = "GAP_CRITICO"
-        motivo = "dados geográficos insuficientes"
-    elif cobertura and tempo <= 30 and distancia <= 20.0:
-        gap_adequacao = "CONFORME"
-        motivo = "rede dentro dos parâmetros RN 259"
-    elif cobertura and tempo <= 60:
-        gap_adequacao = "GAP_LEVE"
-        motivo = "leve desvio nos tempos de acesso"
-    elif prestadores >= 1 and tempo <= 90:
-        gap_adequacao = "GAP_MODERADO"
-        motivo = "desvio moderado — encaminhar credenciamento"
-    else:
-        gap_adequacao = "GAP_CRITICO"
-        motivo = "sem cobertura adequada na região"
+    dmn_transport = require_dmn(dmn, "operadora.adequacao.calculate_gap")
 
-    # Route based on gap
-    if gap_adequacao == "CONFORME" or gap_adequacao == "GAP_LEVE":
-        roteamento = "MONITORAR"
-    elif gap_adequacao == "GAP_MODERADO":
-        roteamento = "ENCAMINHAR_CREDENCIAMENTO"
-    else:
-        roteamento = "ANALISE_HUMANA"
+    gap_rows, gap_version = evaluate_sync(
+        dmn_transport,
+        "adequacao_gap",
+        {
+            "tipo_carater": tipo_carater,
+            "tempo_acesso_apurado_min": int(tempo),
+            "distancia_apurada_km": float(distancia),
+            "prestadores_disponiveis": int(prestadores),
+            "cobertura_geo_suficiente": bool(cobertura),
+        },
+    )
+    gap_row = first_row(gap_rows, "adequacao_gap", variables)
+    gap_adequacao = str(gap_row.get("gap_adequacao", "GAP_CRITICO"))
+    motivo = str(gap_row.get("motivo", ""))
+
+    route_rows, route_version = evaluate_sync(
+        dmn_transport,
+        "adequacao_remediation_routing",
+        {"gap_adequacao": gap_adequacao, "dados_geo_completos": bool(dados_completos)},
+    )
+    route_row = first_row(route_rows, "adequacao_remediation_routing", variables)
+    roteamento = str(route_row.get("roteamento_remediacao", "ANALISE_HUMANA"))
+    route_motivo = str(route_row.get("motivo", motivo))
 
     logger.info(
         "adequacao_route_remediation",
         gap_adequacao=gap_adequacao,
         roteamento=roteamento,
+        dmn_gap_version=gap_version.version,
+        dmn_route_version=route_version.version,
     )
 
     return {
         "gap_adequacao": gap_adequacao,
         "roteamento_remediacao": roteamento,
-        "motivo": motivo,
+        "motivo": route_motivo,
     }
 
 
@@ -248,10 +273,17 @@ def register_adequacao_workers(
     kafka: KafkaPublisher | None = None,
     **seams: Any,
 ) -> None:
-    """Register the SP-OP-ADEQUACAO-001 function workers on `harness`."""
-    del kafka, seams  # unused — no adequacao.py worker declares a Kafka/other seam dependency
+    """Register the SP-OP-ADEQUACAO-001 function workers on `harness`.
+
+    `dmn` (ADR-0028 §1 seam) is threaded into `route_remediation` (`adequacao_gap` +
+    `adequacao_remediation_routing`, T1.5 cutover) via `functools.partial`.
+    """
+    del kafka  # unused — no adequacao.py worker declares a Kafka dependency
+    dmn = seams.get("dmn")
     harness.register_worker(FunctionWorker("operadora.adequacao.measure_coverage", measure_gap))
-    harness.register_worker(FunctionWorker("operadora.adequacao.calculate_gap", route_remediation))
+    harness.register_worker(
+        FunctionWorker("operadora.adequacao.calculate_gap", functools.partial(route_remediation, dmn=dmn))
+    )
     harness.register_worker(FunctionWorker("operadora.adequacao.notify_rede", notify_coordenacao))
     harness.register_worker(FunctionWorker("operadora.adequacao.start_credenciamento", execute_remediation))
     harness.register_worker(
