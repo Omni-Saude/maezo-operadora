@@ -3,9 +3,13 @@
 TDD London School: tests exercise the external task contracts.
 """
 
+from pathlib import Path
+
 import pytest
 
+from maezo.tools.workers.ceilings import CeilingResolver
 from maezo.tools.workers.reembolso import (
+    ReembolsoCalculoResult,
     ReembolsoDenialInput,
     ReembolsoDenialNotHumanError,
     ReembolsoInput,
@@ -19,6 +23,29 @@ from maezo.tools.workers.reembolso import (
     send_reembolso_denial,
     validate_reembolso,
 )
+
+# Synthetic-core helper (mirrors test_ceilings) — pins the reembolso ceiling in isolation so
+# these tests do not depend on the D-07 value in the real spec matrix.
+_HARD_BLOCK = """\
+  clinical_decision:      { level: L0, hard: true }
+  authorization_denial:   { level: L0, hard: true }
+  nip_manter_negativa:    { level: L0, hard: true }
+  fraud_accusation:       { level: L0, hard: true }
+  contract_termination:   { level: L0, hard: true }
+"""
+
+
+def _pin_resolver(tmp_path: Path, max_value_brl: int) -> CeilingResolver:
+    """Return a CeilingResolver pinned to a synthetic core with a given reembolso ceiling."""
+    core = tmp_path / "L0-core.yaml"
+    core.write_text(
+        "version: 1\nactions:\n"
+        f"{_HARD_BLOCK}"
+        f"  reembolso_auto_approval: {{ level: L2, params: {{ max_value_brl: {max_value_brl} }} }}\n",
+        encoding="utf-8",
+    )
+    return CeilingResolver(core_path=core)
+
 
 # ---------------------------------------------------------------------------
 # validate_reembolso
@@ -172,14 +199,95 @@ def test_calculate_value_urgencia_multiplier() -> None:
 
 
 # ---------------------------------------------------------------------------
+# calculate_value — T1.9 ceiling enforcement (defect B3)
+# ---------------------------------------------------------------------------
+
+
+def test_within_table_max_value_zero_routes_analise_humana(tmp_path: Path) -> None:
+    """THE T1.9 property: a within-table request with max_value_brl=0 routes ANALISE_HUMANA.
+
+    consulta @ 30000 cents is within the 35000 reference table (dentro_tabela=True), but the
+    reembolso_auto_approval ceiling is 0 (D-07) -> dentro_teto_l2=False -> auto-approval gate
+    falls through to ANALISE_HUMANA. This is the exact acceptance criterion.
+    """
+    resolver = _pin_resolver(tmp_path, max_value_brl=0)
+    inp = ReembolsoInput(
+        tenant_id="amh",
+        protocolo_reembolso="REEMB-T19-1",
+        codigo_procedimento_tuss="10101012",
+        categoria_procedimento="consulta",
+        tipo_reembolso="livre_escolha",
+        valor_solicitado_cents=30000,
+    )
+
+    calculo = calculate_value(inp, resolver=resolver)
+    assert calculo.dentro_tabela is True
+    assert calculo.dentro_teto_l2 is False
+
+    decision = auto_approve_or_route(calculo, requer_avaliacao_clinica=False)
+    assert decision.recomendacao == "ANALISE_HUMANA"
+
+
+def test_calculate_value_ignores_inbound_dentro_teto_l2(tmp_path: Path) -> None:
+    """A seeded inbound `dentro_teto_l2=True` is IGNORED — the resolver truth (ceiling 0) wins.
+
+    Proves the echo-through at old reembolso.py:227 is dead.
+    """
+    resolver = _pin_resolver(tmp_path, max_value_brl=0)
+    inp = ReembolsoInput(
+        tenant_id="amh",
+        protocolo_reembolso="REEMB-T19-2",
+        codigo_procedimento_tuss="10101012",
+        categoria_procedimento="consulta",
+        tipo_reembolso="livre_escolha",
+        valor_solicitado_cents=30000,
+        dentro_teto_l2=True,  # attacker/upstream seed — must be ignored
+    )
+
+    calculo = calculate_value(inp, resolver=resolver)
+    assert calculo.dentro_teto_l2 is False
+
+
+def test_calculate_value_within_ceiling_when_configured(tmp_path: Path) -> None:
+    """A real positive ceiling enables auto-approval, config-driven, at the inclusive boundary.
+
+    Ceiling R$500 (50000 cents). An unknown category makes valor_calculado == valor_solicitado,
+    so the boundary can be exercised directly: 50000 -> within (True), 50001 -> above (False).
+    """
+    resolver = _pin_resolver(tmp_path, max_value_brl=500)
+
+    at_boundary = ReembolsoInput(
+        tenant_id="amh",
+        protocolo_reembolso="REEMB-T19-3a",
+        codigo_procedimento_tuss="10101012",
+        categoria_procedimento="",  # unknown -> valor_calculado == valor_solicitado
+        tipo_reembolso="livre_escolha",
+        valor_solicitado_cents=50000,
+    )
+    calculo_ok = calculate_value(at_boundary, resolver=resolver)
+    assert calculo_ok.dentro_tabela is True
+    assert calculo_ok.dentro_teto_l2 is True
+    assert auto_approve_or_route(calculo_ok, requer_avaliacao_clinica=False).recomendacao == "AUTO_APROVAR"
+
+    above = ReembolsoInput(
+        tenant_id="amh",
+        protocolo_reembolso="REEMB-T19-3b",
+        codigo_procedimento_tuss="10101012",
+        categoria_procedimento="",
+        tipo_reembolso="livre_escolha",
+        valor_solicitado_cents=50001,
+    )
+    calculo_above = calculate_value(above, resolver=resolver)
+    assert calculo_above.dentro_teto_l2 is False
+
+
+# ---------------------------------------------------------------------------
 # auto_approve_or_route
 # ---------------------------------------------------------------------------
 
 
 def test_auto_approve_or_route_approve() -> None:
     """All conditions met -> AUTO_APROVAR."""
-    from maezo.tools.workers.reembolso import ReembolsoCalculoResult
-
     calculo = ReembolsoCalculoResult(
         valor_calculado_tabela_cents=35000,
         valor_solicitado_cents=35000,
@@ -192,8 +300,6 @@ def test_auto_approve_or_route_approve() -> None:
 
 def test_auto_approve_or_route_clinica() -> None:
     """Requer avaliacao clinica -> ANALISE_HUMANA."""
-    from maezo.tools.workers.reembolso import ReembolsoCalculoResult
-
     calculo = ReembolsoCalculoResult(
         valor_calculado_tabela_cents=35000,
         valor_solicitado_cents=35000,
@@ -206,8 +312,6 @@ def test_auto_approve_or_route_clinica() -> None:
 
 def test_auto_approve_or_route_fora_tabela() -> None:
     """Above table -> ANALISE_HUMANA."""
-    from maezo.tools.workers.reembolso import ReembolsoCalculoResult
-
     calculo = ReembolsoCalculoResult(
         valor_calculado_tabela_cents=35000,
         valor_solicitado_cents=50000,
