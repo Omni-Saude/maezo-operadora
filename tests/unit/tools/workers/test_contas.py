@@ -24,6 +24,25 @@ from maezo.tools.workers.contas import (
     register_glosa_accept_entry,
     start_recurso,
 )
+from maezo.tools.workers.dmn_transport import DmnEvaluationError, FakeDmnTransport
+
+
+def _glosa_reason_normalization_fake(*, categoria_normalizada: str, descricao: str = "") -> FakeDmnTransport:
+    """Rows verified live against the compose engine (T1.5 parity run)."""
+    fake = FakeDmnTransport()
+    fake.register(
+        "glosa_reason_normalization",
+        [{"categoria_normalizada": categoria_normalizada, "descricao": descricao}],
+    )
+    return fake
+
+
+def _glosa_triage_fake(*, roteamento: str, motivo: str = "") -> FakeDmnTransport:
+    """Rows verified live against the compose engine (T1.5 parity run)."""
+    fake = FakeDmnTransport()
+    fake.register("glosa_triage", [{"roteamento": roteamento, "motivo": motivo}])
+    return fake
+
 
 # ---------------------------------------------------------------------------
 # identify_glosa
@@ -101,26 +120,56 @@ def test_identify_glosa_reason_codes_trigger_glosa() -> None:
 
 
 def test_analyze_reason_normalizes_codes() -> None:
-    """analyze_reason maps TISS codes to normalized categories."""
+    """analyze_reason maps TISS codes to normalized categories via the DMN seam."""
     inp = GlosaInput(
         tenant_id="amh",
         numero_lote_tiss="LOTE-005",
-        reason_codes_tiss=["TECNICA-001", "ADMINISTRATIVA"],
+        reason_codes_tiss=["PROCEDIMENTO_NAO_INDICADO", "GUIA_INCOMPLETA"],
     )
-    result = analyze_reason(inp)
+    fake = FakeDmnTransport()
+    fake.register(
+        "glosa_reason_normalization",
+        [{"categoria_normalizada": "tecnica", "descricao": "..."}],
+        version=1,
+    )
+    result = analyze_reason(inp, dmn=fake)
     assert "reason_map" in result
-    assert result["categoria_normalizada"] in ("tecnica", "administrativa")
+    assert result["reason_map"]["PROCEDIMENTO_NAO_INDICADO"] == "tecnica"
+    # FakeDmnTransport returns one canned response per registration — real engine parity
+    # (each code evaluated independently) is proven live (T1.5 PR body / evidence ledger).
+    assert fake.calls == [
+        ("glosa_reason_normalization", {"reason_code_tiss": "PROCEDIMENTO_NAO_INDICADO"}),
+        ("glosa_reason_normalization", {"reason_code_tiss": "GUIA_INCOMPLETA"}),
+    ]
 
 
 def test_analyze_reason_unknown_code() -> None:
-    """Unknown TISS codes map to 'desconhecida' (catch-all)."""
+    """Unknown TISS codes map to 'desconhecida' (catch-all) — live-verified."""
     inp = GlosaInput(
         tenant_id="amh",
         numero_lote_tiss="LOTE-006",
         reason_codes_tiss=["XYZ-999"],
     )
-    result = analyze_reason(inp)
+    fake = _glosa_reason_normalization_fake(categoria_normalizada="desconhecida")
+    result = analyze_reason(inp, dmn=fake)
     assert result["categoria_normalizada"] == "desconhecida"
+
+
+def test_analyze_reason_carencia_maps_to_clinica() -> None:
+    """golden-parity finding (T1.5, live-verified): the old Python substring-match mapping had
+    NO entry for CARENCIA/EXCLUSAO_CONTRATUAL/BENEFICIARIO_INATIVO (fell through to
+    'desconhecida'); the deployed DMN maps them to 'clinica'. DMN wins (documented, not
+    patched); no adverse output either way (both route conservatively via glosa_triage)."""
+    inp = GlosaInput(tenant_id="amh", numero_lote_tiss="LOTE-009", reason_codes_tiss=["CARENCIA"])
+    fake = _glosa_reason_normalization_fake(categoria_normalizada="clinica")
+    result = analyze_reason(inp, dmn=fake)
+    assert result["categoria_normalizada"] == "clinica"
+
+
+def test_analyze_reason_dmn_unwired_raises_dmn_evaluation_error() -> None:
+    inp = GlosaInput(tenant_id="amh", numero_lote_tiss="LOTE-010", reason_codes_tiss=["X"])
+    with pytest.raises(DmnEvaluationError):
+        analyze_reason(inp, dmn=None)
 
 
 # ---------------------------------------------------------------------------
@@ -150,29 +199,95 @@ def test_calculate_impact_computes_brl() -> None:
 
 
 def test_prepare_triage_dossier_routes_to_human() -> None:
-    """Triage always routes conservatively to ANALISE_HUMANA for glosas."""
+    """Glosa tecnica/clinica ALWAYS routes to ANALISE_HUMANA — never auto-accepted, regardless
+    of the other facts (live-verified: default conservador R4, no sign-off-of-compliance path)."""
     inp = GlosaInput(tenant_id="amh", numero_lote_tiss="LOTE-007")
     from maezo.tools.workers.contas import GlosaIdentified
 
     identified = GlosaIdentified(has_glosas=True, denial_ratio=0.5, divergencia_valor=True, glosa_count=1)
     reason = {"categoria_normalizada": "tecnica"}
+    fake = _glosa_triage_fake(roteamento="ANALISE_HUMANA")
 
-    result = prepare_triage_dossier(inp, identified, reason)
-    assert result.roteamento in ("ANALISE_HUMANA", "SEM_GLOSA")
-    # With glosas present, must not be SEM_GLOSA
-    assert result.roteamento != "SEM_GLOSA" or not identified.has_glosas
+    result = prepare_triage_dossier(inp, identified, reason, dmn=fake)
+    assert result.roteamento == "ANALISE_HUMANA"
 
 
 def test_prepare_triage_dossier_no_glosas() -> None:
-    """No glosas -> SEM_GLOSA."""
-    inp = GlosaInput(tenant_id="amh", numero_lote_tiss="LOTE-008")
+    """No glosas + item conforme + documentado + non-tecnica/clinica category -> SEM_GLOSA."""
+    inp = GlosaInput(
+        tenant_id="amh",
+        numero_lote_tiss="LOTE-008",
+        item_conforme_tabela=True,
+        documentacao_anexa=True,
+    )
     from maezo.tools.workers.contas import GlosaIdentified
 
     identified = GlosaIdentified(has_glosas=False, divergencia_valor=False)
     reason = {"categoria_normalizada": "administrativa"}
+    fake = _glosa_triage_fake(roteamento="SEM_GLOSA")
 
-    result = prepare_triage_dossier(inp, identified, reason)
+    result = prepare_triage_dossier(inp, identified, reason, dmn=fake)
     assert result.roteamento == "SEM_GLOSA"
+
+
+def test_prepare_triage_dossier_no_glosas_but_missing_attachments_routes_to_human() -> None:
+    """golden-parity finding (T1.5, MAJOR — live-verified): the old Python said "no glosas ->
+    SEM_GLOSA" using ONLY has_glosas/divergencia_valor. The deployed glosa_triage table ALSO
+    requires item_conforme_tabela=true AND documentacao_anexa=true for its SEM_GLOSA row — the
+    `GlosaInput` defaults (both False) that the old test relied on now correctly route to
+    ANALISE_HUMANA (pendencia documental) instead. DMN wins (fail-safe: a "no glosa" claim
+    without proof of conformidade/documentacao is NOT auto-cleared)."""
+    inp = GlosaInput(tenant_id="amh", numero_lote_tiss="LOTE-008b")
+    from maezo.tools.workers.contas import GlosaIdentified
+
+    identified = GlosaIdentified(has_glosas=False, divergencia_valor=False)
+    reason = {"categoria_normalizada": "administrativa"}
+    fake = _glosa_triage_fake(roteamento="ANALISE_HUMANA")
+
+    result = prepare_triage_dossier(inp, identified, reason, dmn=fake)
+    assert result.roteamento == "ANALISE_HUMANA"
+
+
+def test_prepare_triage_dossier_recorrer_reachable() -> None:
+    """golden-parity finding (T1.5, MAJOR — live-verified): RECORRER was structurally
+    unreachable dead code in the old Python (its own docstring: "For now, always route to
+    ANALISE_HUMANA (conservative)"). This cutover activates it: categoria "valor" + item
+    conforme + divergencia + documentado -> RECORRER."""
+    inp = GlosaInput(
+        tenant_id="amh",
+        numero_lote_tiss="LOTE-011",
+        item_conforme_tabela=True,
+        documentacao_anexa=True,
+    )
+    from maezo.tools.workers.contas import GlosaIdentified
+
+    identified = GlosaIdentified(has_glosas=True, divergencia_valor=True, glosa_count=1, denial_ratio=0.3)
+    reason = {"categoria_normalizada": "valor"}
+    fake = _glosa_triage_fake(roteamento="RECORRER")
+
+    result = prepare_triage_dossier(inp, identified, reason, dmn=fake, tipo_item="consulta")
+    assert result.roteamento == "RECORRER"
+    assert fake.calls == [
+        (
+            "glosa_triage",
+            {
+                "tipo_item": "consulta",
+                "categoria_normalizada": "valor",
+                "item_conforme_tabela": True,
+                "divergencia_valor": True,
+                "documentacao_anexa": True,
+            },
+        )
+    ]
+
+
+def test_prepare_triage_dossier_dmn_unwired_raises_dmn_evaluation_error() -> None:
+    inp = GlosaInput(tenant_id="amh", numero_lote_tiss="LOTE-012")
+    from maezo.tools.workers.contas import GlosaIdentified
+
+    identified = GlosaIdentified()
+    with pytest.raises(DmnEvaluationError):
+        prepare_triage_dossier(inp, identified, {}, dmn=None)
 
 
 # ---------------------------------------------------------------------------
@@ -333,7 +448,13 @@ def test_identify_glosa_entry_raises_on_missing_required_fields() -> None:
 
 def test_analyze_reason_entry_round_trips_analyze_reason() -> None:
     variables = {"tenant_id": "amh", "numero_lote_tiss": "LOTE-1", "reason_codes_tiss": ["TECNICA"]}
-    assert analyze_reason_entry(variables) == analyze_reason(GlosaInput(**variables))
+    direct = analyze_reason(
+        GlosaInput(**variables), dmn=_glosa_reason_normalization_fake(categoria_normalizada="tecnica")
+    )
+    result = analyze_reason_entry(
+        variables, dmn=_glosa_reason_normalization_fake(categoria_normalizada="tecnica")
+    )
+    assert result == direct
 
 
 def test_analyze_reason_entry_raises_on_missing_required_fields() -> None:

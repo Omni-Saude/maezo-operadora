@@ -5,6 +5,7 @@ TDD London School: tests verify value-driven tier routing and payment release gu
 
 import pytest
 
+from maezo.tools.workers.dmn_transport import DmnEvaluationError, FakeDmnTransport
 from maezo.tools.workers.pagto import (
     ERR_PAGTO_ORDEM_INVALIDA,
     ERR_PAYMENT_RELEASE_NOT_HUMAN,
@@ -16,6 +17,24 @@ from maezo.tools.workers.pagto import (
     route_aprovacao,
     validate_pagto,
 )
+
+
+def _pagto_admissibility_fake(*, roteamento: str, motivo: str = "") -> FakeDmnTransport:
+    """Rows verified live against the compose engine (T1.5 parity run)."""
+    fake = FakeDmnTransport()
+    fake.register("pagto_admissibility", [{"roteamento": roteamento, "motivo": motivo}])
+    return fake
+
+
+def _pagto_alcada_fake(*, faixa_valor: str, grupo_aprovador: str, tier_minimo: int = 0) -> FakeDmnTransport:
+    """Rows verified live against the compose engine (T1.5 parity run)."""
+    fake = FakeDmnTransport()
+    fake.register(
+        "pagto_alcada",
+        [{"faixa_valor": faixa_valor, "grupo_aprovador": grupo_aprovador, "tier_minimo": tier_minimo}],
+    )
+    return fake
+
 
 # ---------------------------------------------------------------
 # validate_pagto
@@ -46,25 +65,62 @@ def test_validate_pagto_ordem_invalida() -> None:
 
 
 def test_assess_admissibility_segue_roteamento() -> None:
+    fake = _pagto_admissibility_fake(roteamento="SEGUE_ROTEAMENTO")
     result = assess_admissibility(
         {
             "dados_pagamento_validos": True,
             "lastro_confirmado": True,
             "duplicidade_suspeita": False,
-        }
+        },
+        dmn=fake,
     )
     assert result["roteamento"] == "SEGUE_ROTEAMENTO"
+    assert fake.calls == [
+        (
+            "pagto_admissibility",
+            {
+                "dados_pagamento_validos": True,
+                "lastro_confirmado": True,
+                "duplicidade_suspeita": False,
+            },
+        )
+    ]
 
 
 def test_assess_admissibility_duplicidade() -> None:
+    fake = _pagto_admissibility_fake(roteamento="ANALISE_HUMANA")
     result = assess_admissibility(
         {
             "dados_pagamento_validos": True,
             "lastro_confirmado": True,
             "duplicidade_suspeita": True,
-        }
+        },
+        dmn=fake,
     )
     assert result["roteamento"] == "ANALISE_HUMANA"
+
+
+def test_assess_admissibility_order_divergence_duplicidade_wins_over_dados_invalidos() -> None:
+    """golden-parity finding (T1.5): DMN checks duplicidade_suspeita BEFORE
+    dados_pagamento_validos (FIRST hit policy) — dados_pagamento_validos=False AND
+    duplicidade_suspeita=True now yields ANALISE_HUMANA (the old Python would have said
+    PENDENTE_DADOS, since it checked dados_pagamento_validos first). Both conservative/
+    non-releasing; live-verified against the compose engine before cutover."""
+    fake = _pagto_admissibility_fake(roteamento="ANALISE_HUMANA")
+    result = assess_admissibility(
+        {
+            "dados_pagamento_validos": False,
+            "lastro_confirmado": True,
+            "duplicidade_suspeita": True,
+        },
+        dmn=fake,
+    )
+    assert result["roteamento"] == "ANALISE_HUMANA"
+
+
+def test_assess_admissibility_dmn_unwired_raises_dmn_evaluation_error() -> None:
+    with pytest.raises(DmnEvaluationError):
+        assess_admissibility({"dados_pagamento_validos": True}, dmn=None)
 
 
 # ---------------------------------------------------------------
@@ -74,23 +130,30 @@ def test_assess_admissibility_duplicidade() -> None:
 
 def test_pagto_tier_match_dentro_teto() -> None:
     """Low-value payment below threshold → auto L2 path."""
+    fake = _pagto_alcada_fake(faixa_valor="DENTRO_TETO_L2", grupo_aprovador="", tier_minimo=0)
     result = route_aprovacao(
         {
             "valor_pagamento_cents": 5_000_000,  # R$ 50k
             "dentro_teto_l2": True,
-        }
+        },
+        dmn=fake,
     )
     assert result["faixa_valor"] == "DENTRO_TETO_L2"
     assert result["grupo_aprovador"] == ""
+    assert result["tier_minimo"] == 0
 
 
 def test_pagto_tier_match_alcada_l1() -> None:
     """Payment between R$100k-500k → ALCADA_L1."""
+    fake = _pagto_alcada_fake(
+        faixa_valor="ALCADA_L1", grupo_aprovador="aprovacao-financeira-l1", tier_minimo=1
+    )
     result = route_aprovacao(
         {
             "valor_pagamento_cents": 25_000_000,  # R$ 250k
             "dentro_teto_l2": False,
-        }
+        },
+        dmn=fake,
     )
     assert result["faixa_valor"] == "ALCADA_L1"
     assert result["grupo_aprovador"] == "aprovacao-financeira-l1"
@@ -98,11 +161,15 @@ def test_pagto_tier_match_alcada_l1() -> None:
 
 def test_pagto_tier_match_alcada_l2() -> None:
     """Payment between R$500k-2MM → ALCADA_L2."""
+    fake = _pagto_alcada_fake(
+        faixa_valor="ALCADA_L2", grupo_aprovador="aprovacao-financeira-l2", tier_minimo=2
+    )
     result = route_aprovacao(
         {
             "valor_pagamento_cents": 100_000_000,  # R$ 1MM
             "dentro_teto_l2": False,
-        }
+        },
+        dmn=fake,
     )
     assert result["faixa_valor"] == "ALCADA_L2"
     assert result["grupo_aprovador"] == "aprovacao-financeira-l2"
@@ -110,11 +177,15 @@ def test_pagto_tier_match_alcada_l2() -> None:
 
 def test_pagto_tier_match_alcada_l3() -> None:
     """Payment between R$2MM-10MM → ALCADA_L3."""
+    fake = _pagto_alcada_fake(
+        faixa_valor="ALCADA_L3", grupo_aprovador="aprovacao-financeira-l3", tier_minimo=3
+    )
     result = route_aprovacao(
         {
             "valor_pagamento_cents": 500_000_000,  # R$ 5MM
             "dentro_teto_l2": False,
-        }
+        },
+        dmn=fake,
     )
     assert result["faixa_valor"] == "ALCADA_L3"
     assert result["grupo_aprovador"] == "aprovacao-financeira-l3"
@@ -122,14 +193,60 @@ def test_pagto_tier_match_alcada_l3() -> None:
 
 def test_pagto_tier_match_comite() -> None:
     """Payment above R$10MM → ANALISE_HUMANA (comite)."""
+    fake = _pagto_alcada_fake(
+        faixa_valor="ANALISE_HUMANA", grupo_aprovador="comite-financeiro", tier_minimo=4
+    )
     result = route_aprovacao(
         {
             "valor_pagamento_cents": 2_000_000_000,  # R$ 20MM
             "dentro_teto_l2": False,
-        }
+        },
+        dmn=fake,
     )
     assert result["faixa_valor"] == "ANALISE_HUMANA"
     assert result["grupo_aprovador"] == "comite-financeiro"
+
+
+class _AlwaysWithinCeilingResolver:
+    """Test double simulating a FUTURE tenant overlay whose ceiling exceeds the DMN's hardcoded
+    R$100k gate (e.g. a real teto of R$500k) — `within_l2_ceiling` returns True for a value the
+    real `CeilingResolver` (today, R$100k) would reject."""
+
+    def within_l2_ceiling(self, *, tenant: str, action: str, param: str, value_cents: int) -> bool:
+        del tenant, action, param, value_cents
+        return True
+
+
+def test_pagto_alcada_divergence_dentro_teto_but_above_dmn_hardcoded_gate() -> None:
+    """golden-parity finding (T1.5, live-verified): the deployed pagto_alcada DMN's
+    DENTRO_TETO_L2 row ALSO requires valor_pagamento_cents <= 10_000_000 (hardcoded ~R$100k) in
+    addition to dentro_teto_l2=true — the old Python trusted the resolver's boolean alone. If a
+    future tenant overlay raises the resolver's ceiling above the DMN's hardcoded R$100k gate
+    (simulated here via a resolver double, since today's L0-core.yaml ceiling is exactly R$100k
+    and would not itself exercise the gap), valor_pagamento_cents=15_000_000 with
+    dentro_teto_l2=True (from the resolver) -> ALCADA_L1, not DENTRO_TETO_L2 — live-verified
+    against the compose engine. Flagged for finance sign-off (the DMN's own description
+    already requires it)."""
+    fake = _pagto_alcada_fake(
+        faixa_valor="ALCADA_L1", grupo_aprovador="aprovacao-financeira-l1", tier_minimo=1
+    )
+    result = route_aprovacao(
+        {"valor_pagamento_cents": 15_000_000},
+        _AlwaysWithinCeilingResolver(),  # type: ignore[arg-type]
+        dmn=fake,
+    )
+    assert result["faixa_valor"] == "ALCADA_L1"
+    assert fake.calls == [
+        (
+            "pagto_alcada",
+            {"valor_pagamento_cents": 15_000_000, "dentro_teto_l2": True, "tipo_pagamento": ""},
+        )
+    ]
+
+
+def test_route_aprovacao_dmn_unwired_raises_dmn_evaluation_error() -> None:
+    with pytest.raises(DmnEvaluationError):
+        route_aprovacao({"valor_pagamento_cents": 100, "dentro_teto_l2": True}, dmn=None)
 
 
 # ---------------------------------------------------------------

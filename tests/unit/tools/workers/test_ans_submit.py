@@ -25,6 +25,16 @@ from maezo.tools.workers.ans_submit import (
     validate_data,
     validate_entry,
 )
+from maezo.tools.workers.dmn_transport import DmnEvaluationError, FakeDmnTransport
+
+
+def _ans_retry_policy_fake(*, backoff: str, continue_retry: bool) -> FakeDmnTransport:
+    """A FakeDmnTransport registered with ONE `ans_retry_policy` response — matches the real
+    deployed table row-for-row (verified against `spec/processes/dmn/ans_retry_policy.dmn`)."""
+    fake = FakeDmnTransport()
+    fake.register("ans_retry_policy", [{"backoff": backoff, "continue_retry": continue_retry}])
+    return fake
+
 
 # ---------------------------------------------------------------------------
 # prepare_submission
@@ -169,31 +179,42 @@ def test_handle_nack_non_retryable() -> None:
 
 
 def test_retry_submission_attempt_1() -> None:
-    """Retry attempt 1 -> PT5M, continue=True."""
-    result = retry_submission("ANSPROTO-1", retry_attempt=1)
+    """Retry attempt 1 -> PT5M, continue=True (via the dmn= seam, ADR-0028/T1.5)."""
+    fake = _ans_retry_policy_fake(backoff="PT5M", continue_retry=True)
+    result = retry_submission("ANSPROTO-1", retry_attempt=1, dmn=fake)
     assert result.backoff == "PT5M"
     assert result.continue_retry is True
+    assert fake.calls == [("ans_retry_policy", {"retry_attempt": 1})]
 
 
 def test_retry_submission_attempt_2() -> None:
     """Retry attempt 2 -> PT30M."""
-    result = retry_submission("ANSPROTO-1", retry_attempt=2)
+    fake = _ans_retry_policy_fake(backoff="PT30M", continue_retry=True)
+    result = retry_submission("ANSPROTO-1", retry_attempt=2, dmn=fake)
     assert result.backoff == "PT30M"
     assert result.continue_retry is True
 
 
 def test_retry_submission_attempt_3() -> None:
     """Retry attempt 3 -> PT2H."""
-    result = retry_submission("ANSPROTO-1", retry_attempt=3)
+    fake = _ans_retry_policy_fake(backoff="PT2H", continue_retry=True)
+    result = retry_submission("ANSPROTO-1", retry_attempt=3, dmn=fake)
     assert result.backoff == "PT2H"
     assert result.continue_retry is True
 
 
 def test_retry_submission_exhausted() -> None:
-    """Retry attempt > 3 -> raises ERR_ANS_RETRY_ESGOTADO."""
+    """Retry attempt > 3 -> DMN catch-all (continue_retry=false) -> raises ERR_ANS_RETRY_ESGOTADO."""
+    fake = _ans_retry_policy_fake(backoff="", continue_retry=False)
     with pytest.raises(AnsRetryEsgotadoError) as exc:
-        retry_submission("ANSPROTO-1", retry_attempt=4)
+        retry_submission("ANSPROTO-1", retry_attempt=4, dmn=fake)
     assert "exhausted" in str(exc.value).lower()
+
+
+def test_retry_submission_dmn_unwired_raises_dmn_evaluation_error() -> None:
+    """`require_dmn` fail-closed guard — an unwired seam must not silently skip the decision."""
+    with pytest.raises(DmnEvaluationError):
+        retransmit_entry({"protocolo_ans": "ANSPROTO-1", "retry_attempt": 1}, dmn=None)
 
 
 # ---------------------------------------------------------------------------
@@ -300,8 +321,10 @@ def test_retransmit_entry_raises_on_missing_protocolo() -> None:
 
 def test_retransmit_entry_happy_path_round_trips_retry_submission() -> None:
     variables = {"protocolo_ans": "ANSPROTO-1", "retry_attempt": 1}
-    direct = retry_submission("ANSPROTO-1", 1)
-    result = retransmit_entry(variables)
+    direct = retry_submission(
+        "ANSPROTO-1", 1, dmn=_ans_retry_policy_fake(backoff="PT5M", continue_retry=True)
+    )
+    result = retransmit_entry(variables, dmn=_ans_retry_policy_fake(backoff="PT5M", continue_retry=True))
     assert result["backoff"] == direct.backoff
     assert result["continue_retry"] == direct.continue_retry
 
@@ -309,8 +332,9 @@ def test_retransmit_entry_happy_path_round_trips_retry_submission() -> None:
 def test_retransmit_entry_raises_ans_retry_esgotado_when_exhausted() -> None:
     """Transient/RuntimeError-family — the harness's existing classification (T1.1 §9) computes
     an engine-side retry decrement, never a fail-closed retries=0 short-circuit."""
+    fake = _ans_retry_policy_fake(backoff="", continue_retry=False)
     with pytest.raises(AnsRetryEsgotadoError):
-        retransmit_entry({"protocolo_ans": "ANSPROTO-1", "retry_attempt": 4})
+        retransmit_entry({"protocolo_ans": "ANSPROTO-1", "retry_attempt": 4}, dmn=fake)
 
 
 def test_publish_completed_entry_round_trips_publish_completed() -> None:

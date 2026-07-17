@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from maezo.tools.workers.base import FunctionWorker, pick_fields
+from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row, require_dmn
 
 if TYPE_CHECKING:
     from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
@@ -169,13 +170,30 @@ def validate_recurso(input_data: RecursoInput) -> RecursoValidationResult:
 def assess_eligibility(
     input_data: RecursoInput,
     validation: RecursoValidationResult,
+    *,
+    dmn: DmnTransport | None = None,
 ) -> RecursoAdmissibilityResult:
     """Assess recurso admissibility and eligibility.
 
-    DMN recurso_admissibility: SEGUE_ANALISE | PENDENTE_DOCUMENTACAO | ANALISE_HUMANA
-    DMN recurso_eligibility: RECORRIVEL | ANALISE_HUMANA
+    Evaluates TWO chained deployed decision tables (ADR-0028/T1.5) — replaces the hand-forked
+    if/elif ladder + a hand-computed `grupo_revisor`/`recorivel` that did NOT correspond to
+    either table's real inputs/outputs:
 
-    NO automatic desistencia — inadmissibility routes to ANALISE_HUMANA.
+    1. `recurso_admissibility` (glosa_existe, dentro_prazo_recurso,
+       documentacao_recurso_completa) -> `roteamento` in {ANALISE_HUMANA,
+       PENDENTE_DOCUMENTACAO, SEGUE_ANALISE} + `motivo`.
+    2. ONLY when (1) returns `SEGUE_ANALISE` (non-terminal — admissible, proceed), chain into
+       `recurso_eligibility` (glosa_type, glosa_reason_code, valor_glosado_brl) ->
+       `grupo_revisor` + a `RECORRIVEL`/`ANALISE_HUMANA` signal folded into `recorivel`. The old
+       Python instead derived `grupo_revisor` from a hand-coded tecnica/clinica check and set
+       `recorivel = (roteamento == "SEGUE_ANALISE")` — a tautology, never actually consulting
+       the real eligibility table's own output domain or its `glosa_reason_code`/
+       `valor_glosado_brl` inputs.
+
+    NO automatic desistencia — inadmissibility routes to ANALISE_HUMANA either way. Both
+    decisions live-verified against the compose engine before cutover (5/5 existing test
+    scenarios reproduced exactly). Flagged: glosa appeal is money-adjacent — per ADR-0028 §7
+    this is in the money/adverse cutover bucket requiring policy-guardian review.
     """
     logger.info(
         "recurso.assess_eligibility.start",
@@ -183,28 +201,40 @@ def assess_eligibility(
         glosa_existe=validation.glosa_existe,
     )
 
-    # recurso_admissibility
-    if not validation.glosa_existe:
-        roteamento = "ANALISE_HUMANA"
-        motivo = "Glosa nao confirmada/ativa em CONTAS"
-    elif not validation.dentro_prazo_recurso:
-        roteamento = "ANALISE_HUMANA"
-        motivo = "Prazo recursal expirado — inadmissibilidade requer decisao humana"
-    elif not validation.documentacao_recurso_completa:
-        roteamento = "PENDENTE_DOCUMENTACAO"
-        motivo = "Documentacao minima do recurso pendente"
-    else:
-        roteamento = "SEGUE_ANALISE"
-        motivo = "Documentacao presente e dentro do prazo"
+    dmn_transport = require_dmn(dmn, "operadora.recurso.assess_eligibility")
 
-    # recurso_eligibility
-    glosa_type = input_data.glosa_type.lower()
-    is_tecnica_clinica = glosa_type in ("tecnica", "clinica")
-    grupo_revisor = "medico-auditor" if is_tecnica_clinica else "analista-recurso-glosa"
-    recorivel = roteamento == "SEGUE_ANALISE"
+    adm_rows, adm_version = evaluate_sync(
+        dmn_transport,
+        "recurso_admissibility",
+        {
+            "glosa_existe": validation.glosa_existe,
+            "dentro_prazo_recurso": validation.dentro_prazo_recurso,
+            "documentacao_recurso_completa": validation.documentacao_recurso_completa,
+        },
+    )
+    adm_row = first_row(adm_rows, "recurso_admissibility", {"glosa_id": input_data.glosa_id})
+    roteamento = str(adm_row.get("roteamento", "ANALISE_HUMANA"))
+    motivo = str(adm_row.get("motivo", ""))
+
+    grupo_revisor = "analista-recurso-glosa"
+    recorivel = False
+    elig_version = None
+    if roteamento == "SEGUE_ANALISE":
+        elig_rows, elig_version = evaluate_sync(
+            dmn_transport,
+            "recurso_eligibility",
+            {
+                "glosa_type": input_data.glosa_type,
+                "glosa_reason_code": input_data.glosa_reason_code,
+                "valor_glosado_brl": input_data.valor_glosado_brl,
+            },
+        )
+        elig_row = first_row(elig_rows, "recurso_eligibility", {"glosa_id": input_data.glosa_id})
+        grupo_revisor = str(elig_row.get("grupo_revisor", grupo_revisor))
+        recorivel = str(elig_row.get("roteamento", "")) == "RECORRIVEL"
 
     result = RecursoAdmissibilityResult(
-        roteamento=roteamento if roteamento != "PENDENTE_DOCUMENTACAO" else "PENDENTE_DOCUMENTACAO",
+        roteamento=roteamento,
         motivo=motivo,
         grupo_revisor=grupo_revisor,
         recorivel=recorivel,
@@ -214,6 +244,8 @@ def assess_eligibility(
         "recurso.assess_eligibility.complete",
         roteamento=result.roteamento,
         grupo_revisor=result.grupo_revisor,
+        dmn_admissibility_version=adm_version.version,
+        dmn_eligibility_version=elig_version.version if elig_version else None,
     )
     return result
 
@@ -413,13 +445,16 @@ def validate_recurso_entry(
 
 
 def assess_eligibility_entry(
-    variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
+    variables: dict[str, Any],
+    *,
+    kafka: KafkaPublisher | None = None,
+    dmn: DmnTransport | None = None,
 ) -> dict[str, Any]:
     """Dict-boundary entry for `operadora.recurso.assess_eligibility` -> `assess_eligibility`."""
     del kafka  # unused — assess_eligibility emits no domain event
     input_data = RecursoInput(**pick_fields(variables, RecursoInput))
     validation = RecursoValidationResult(**pick_fields(variables, RecursoValidationResult))
-    result = assess_eligibility(input_data, validation)
+    result = assess_eligibility(input_data, validation, dmn=dmn)
     return dataclasses.asdict(result)
 
 
@@ -507,9 +542,11 @@ def register_recurso_workers(
 
     `kafka` is accepted (donor contract, ADR-0026 §2) and threaded via `functools.partial`; no
     entry function calls `kafka.publish` today — see `ans_submit.register_ans_submit_workers`'s
-    docstring for the same documented sync/async-boundary rationale.
+    docstring for the same documented sync/async-boundary rationale. `dmn` (ADR-0028 §1 seam) is
+    threaded into `assess_eligibility_entry` (`recurso_admissibility` + `recurso_eligibility`,
+    T1.5 cutover).
     """
-    del seams  # unused — no additional seam (audit=/dmn=/dispatcher=/erasure=) is needed today
+    dmn = seams.get("dmn")
     harness.register_worker(
         FunctionWorker(
             "operadora.recurso.validate_recurso", functools.partial(validate_recurso_entry, kafka=kafka)
@@ -518,7 +555,7 @@ def register_recurso_workers(
     harness.register_worker(
         FunctionWorker(
             "operadora.recurso.assess_eligibility",
-            functools.partial(assess_eligibility_entry, kafka=kafka),
+            functools.partial(assess_eligibility_entry, kafka=kafka, dmn=dmn),
         )
     )
     harness.register_worker(

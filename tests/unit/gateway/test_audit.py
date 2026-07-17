@@ -175,9 +175,13 @@ def test_audit_record_fields() -> None:
 
 
 def test_audit_record_dmn_versions_default_non_null() -> None:
-    """TODO(T1.5): no caller can populate dmn_versions yet (workers don't call
-    the DMN engine). The field must default to a non-null empty structure —
-    never None/absent — so the DB column (NOT NULL DEFAULT '{}') is always
+    """T1.5 (ADR-0028) closed the "workers don't call the DMN engine" precondition this test's
+    docstring used to name — see `test_audit_dmn_versions.py` for a real, populated example
+    (`DmnVersion.to_audit_dict()`) evaluated against the live engine. Production worker-to-audit
+    wiring (an actual caller constructing an `AuditRecord` from a worker decision) is a separate
+    follow-up (T1.5 only closes the DMN-evaluation half) — until then, ANY `AuditRecord`
+    constructed without an explicit `dmn_versions=` must still default to a non-null empty
+    structure — never None/absent — so the DB column (NOT NULL DEFAULT '{}') is always
     satisfiable and no record is ever missing this column's provenance."""
     record = AuditRecord(
         agent_id="helena",

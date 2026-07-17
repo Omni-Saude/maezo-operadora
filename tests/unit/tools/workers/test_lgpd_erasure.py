@@ -8,7 +8,10 @@ CRITICAL: Workers must NEVER make adverse decisions (accusation of fraud, denial
 
 from __future__ import annotations
 
+import pytest
+
 from maezo.tools.workers.base import ERR_DENIAL_NOT_HUMAN, ERR_FRAUD_ACCUSATION_NOT_HUMAN
+from maezo.tools.workers.dmn_transport import DmnEvaluationError, FakeDmnTransport
 from maezo.tools.workers.lgpd import (
     AssessRequestWorker,
     ExecuteErasureWorker,
@@ -17,6 +20,26 @@ from maezo.tools.workers.lgpd import (
     PublishCompletedWorker,
     ValidateIdentityWorker,
 )
+
+
+def _lgpd_dsr_routing_fake(
+    *, fluxo: str, grupo_revisor: str, sla_resposta: str = "P15D", sla_alerta: str = "P7D"
+) -> FakeDmnTransport:
+    """Rows verified live against the compose engine (T1.5 parity run)."""
+    fake = FakeDmnTransport()
+    fake.register(
+        "lgpd_dsr_routing",
+        [
+            {
+                "fluxo": fluxo,
+                "grupo_revisor": grupo_revisor,
+                "sla_resposta": sla_resposta,
+                "sla_alerta": sla_alerta,
+            }
+        ],
+    )
+    return fake
+
 
 # ---------------------------------------------------------------------------
 # validate_identity
@@ -101,8 +124,10 @@ def test_assess_request_topic() -> None:
 
 
 def test_assess_request_routes_by_type() -> None:
-    """assess_request determines the fluxo based on tipo_requisicao."""
-    worker = AssessRequestWorker()
+    """assess_request determines the fluxo based on tipo_requisicao, via the DMN seam
+    (ADR-0028/T1.5)."""
+    fake = _lgpd_dsr_routing_fake(fluxo="EXPORTACAO", grupo_revisor="dpo")
+    worker = AssessRequestWorker(dmn=fake)
 
     result = worker.run(
         {
@@ -113,12 +138,13 @@ def test_assess_request_routes_by_type() -> None:
     )
 
     assert result["status"] == "assessed"
-    assert "fluxo" in result
+    assert result["fluxo"] == "EXPORTACAO"
 
 
 def test_assess_request_data_saude_routes_to_juridico() -> None:
     """Requests involving health data go to juridico-privacidade."""
-    worker = AssessRequestWorker()
+    fake = _lgpd_dsr_routing_fake(fluxo="ELIMINACAO_AVALIACAO", grupo_revisor="juridico-privacidade")
+    worker = AssessRequestWorker(dmn=fake)
 
     result = worker.run(
         {
@@ -133,7 +159,8 @@ def test_assess_request_data_saude_routes_to_juridico() -> None:
 
 def test_assess_request_non_saude_routes_to_dpo() -> None:
     """Requests without health data go to dpo."""
-    worker = AssessRequestWorker()
+    fake = _lgpd_dsr_routing_fake(fluxo="EXPORTACAO", grupo_revisor="dpo")
+    worker = AssessRequestWorker(dmn=fake)
 
     result = worker.run(
         {
@@ -144,6 +171,36 @@ def test_assess_request_non_saude_routes_to_dpo() -> None:
     )
 
     assert result["grupo_revisor"] == "dpo"
+
+
+def test_assess_request_eliminacao_always_juridico_regardless_of_saude() -> None:
+    """golden-parity finding (T1.5, live-verified): the deployed lgpd_dsr_routing table's
+    `eliminacao` rule (r5) ALWAYS routes to juridico-privacidade, REGARDLESS of
+    envolve_dados_saude (conflict with legal retention — prontuario/ANS — is always a juridico
+    matter). The old Python's grupo_revisor logic would have routed this exact combination
+    (eliminacao + envolve_dados_saude=False) to 'dpo' instead. DMN wins (documented, not
+    patched) — PHI/LGPD-adjacent, policy-guardian review recommended (ADR-0028 §7)."""
+    fake = _lgpd_dsr_routing_fake(fluxo="ELIMINACAO_AVALIACAO", grupo_revisor="juridico-privacidade")
+    worker = AssessRequestWorker(dmn=fake)
+
+    result = worker.run(
+        {
+            "tenant_id": "amh",
+            "tipo_requisicao": "eliminacao",
+            "envolve_dados_saude": False,
+        }
+    )
+
+    assert result["grupo_revisor"] == "juridico-privacidade"
+
+
+def test_assess_request_dmn_unwired_raises_dmn_evaluation_error() -> None:
+    """`require_dmn` fail-closed guard. Calls `execute()` directly (not `.run()`) to avoid
+    exercising `WorkerBase.run()`'s in-process retry/backoff sleep for this deterministic,
+    always-fails case — still ends up DmnEvaluationError, never a silent/degraded result."""
+    worker = AssessRequestWorker(dmn=None)
+    with pytest.raises(DmnEvaluationError):
+        worker.execute({"tenant_id": "amh", "tipo_requisicao": "confirmacao_acesso"})
 
 
 # ---------------------------------------------------------------------------

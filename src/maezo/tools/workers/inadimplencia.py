@@ -7,11 +7,13 @@ NAO ha worker de rescisao gated AQUI — rescisao e propriedade de CANCEL-001.
 
 from __future__ import annotations
 
+import functools
 from typing import TYPE_CHECKING, Any
 
 import structlog
 
 from maezo.tools.workers.base import FunctionWorker
+from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row, require_dmn
 
 if TYPE_CHECKING:
     from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
@@ -79,40 +81,48 @@ def resolve_facts(variables: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------
 
 
-def assess_status(variables: dict[str, Any]) -> dict[str, Any]:
+def assess_status(variables: dict[str, Any], *, dmn: DmnTransport | None = None) -> dict[str, Any]:
     """Classify the default status for routing — NEVER produces SUSPENDER/RESCINDIR.
 
-    DMN-like logic: classifica o roteamento. Todos os caminhos que nao sao
-    triviais falham-safe para ANALISE_HUMANA.
+    Evaluates the deployed `inadimplencia_status` decision table (ADR-0028/T1.5) — replaces
+    the hand-forked if/elif ladder that used to live here.
+
+    golden-parity divergence found + DMN wins (documented, not patched — ADR-0028 §7): rule
+    ORDER differs. The old Python checked `notificacao_previa_feita` BEFORE
+    `dentro_janela_purga`; the deployed table's FIRST-hit-policy checks `dentro_janela_purga`
+    (-> `AGUARDA_PURGA`) BEFORE `notificacao_previa_feita` (-> `PENDENTE_NOTIFICACAO`). E.g.
+    `notificacao_previa_feita=False` AND `dentro_janela_purga=True` now yields `AGUARDA_PURGA`
+    (was `PENDENTE_NOTIFICACAO`). Neither is adverse — no `SUSPENDER`/`RESCINDIR` path exists in
+    either version; live-verified against the compose engine before cutover (T1.5 PR body /
+    evidence ledger).
     """
     dentro_min = variables.get("dentro_periodo_minimo", False)
     notificacao = variables.get("notificacao_previa_feita", False)
     dentro_purga = variables.get("dentro_janela_purga", True)
     tipo_plano = variables.get("tipo_plano", "individual")
+    meses_inadimplencia = variables.get("meses_inadimplencia", 0)
 
-    # Coletivos always to human
-    if tipo_plano in ("coletivo_empresarial", "coletivo_adesao"):
-        roteamento = "ANALISE_HUMANA"
-        motivo = "contrato coletivo — regras do estipulante"
-    elif not notificacao:
-        roteamento = "PENDENTE_NOTIFICACAO"
-        motivo = "notificacao previa pendente (RN 593)"
-    elif dentro_purga:
-        roteamento = "AGUARDA_PURGA"
-        motivo = "dentro da janela de purga/cura"
-    elif dentro_min:
-        roteamento = "SEGUE_ANALISE"
-        motivo = "periodo minimo + notificacao + purga decorrida"
-    else:
-        # Catch-all conservador
-        roteamento = "ANALISE_HUMANA"
-        motivo = "status ambíguo — requer análise humana"
+    rows, version = evaluate_sync(
+        require_dmn(dmn, "operadora.inadimplencia.assess_status"),
+        "inadimplencia_status",
+        {
+            "meses_inadimplencia": int(meses_inadimplencia),
+            "dentro_periodo_minimo": bool(dentro_min),
+            "notificacao_previa_feita": bool(notificacao),
+            "dentro_janela_purga": bool(dentro_purga),
+            "tipo_plano": tipo_plano,
+        },
+    )
+    row = first_row(rows, "inadimplencia_status", variables)
+    roteamento = str(row.get("roteamento", ""))
+    motivo = str(row.get("motivo", ""))
 
     logger.info(
         "inadimplencia_assess_status",
         tipo_plano=tipo_plano,
         roteamento=roteamento,
         motivo=motivo,
+        dmn_decision_version=version.version,
     )
 
     return {
@@ -316,8 +326,9 @@ class InadimplenciaError(Exception):
 #   register_suspension (alias register_contract_suspension)
 #     -> operadora.inadimplencia.register_contract_suspension (exact spec match, GUARDED)
 #   handoff_rescisao -> operadora.inadimplencia.handoff_rescisao (exact spec match)
-# assess_status/calculate_purge have no distinct spec topic (internal
-# DMN-like classification feeding resolve_facts/check_prior_notice) —
+# assess_status/calculate_purge have no distinct spec topic (assess_status
+# evaluates the deployed `inadimplencia_status` decision table via the dmn=
+# seam since T1.5/ADR-0028; calculate_purge resolves regulatory deadlines) —
 # registered under function-derived topics for registry completeness.
 # Spec topics with NO implementing function today (gap, not fabricated here):
 # prepare_dossier, notify_sla_risk.
@@ -329,10 +340,17 @@ def register_inadimplencia_workers(
     kafka: KafkaPublisher | None = None,
     **seams: Any,
 ) -> None:
-    """Register the SP-OP-INADIMPLENCIA-001 function workers on `harness`."""
-    del kafka, seams  # unused — no inadimplencia.py worker declares a Kafka/other seam dependency
+    """Register the SP-OP-INADIMPLENCIA-001 function workers on `harness`.
+
+    `dmn` (ADR-0028 §1 seam) is threaded into `assess_status` (`inadimplencia_status`, T1.5
+    cutover) via `functools.partial`; no other function here evaluates a DMN table.
+    """
+    del kafka  # unused — no inadimplencia.py worker declares a Kafka dependency
+    dmn = seams.get("dmn")
     harness.register_worker(FunctionWorker("operadora.inadimplencia.resolve_facts", resolve_facts))
-    harness.register_worker(FunctionWorker("operadora.inadimplencia.assess_status", assess_status))
+    harness.register_worker(
+        FunctionWorker("operadora.inadimplencia.assess_status", functools.partial(assess_status, dmn=dmn))
+    )
     harness.register_worker(FunctionWorker("operadora.inadimplencia.calculate_purge", calculate_purge))
     harness.register_worker(FunctionWorker("operadora.inadimplencia.check_prior_notice", notify_beneficiario))
     harness.register_worker(

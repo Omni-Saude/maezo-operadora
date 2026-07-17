@@ -5,6 +5,7 @@ TDD London School: tests verify the guard contracts from the SP-OP contract.
 
 import pytest
 
+from maezo.tools.workers.dmn_transport import DmnEvaluationError, FakeDmnTransport
 from maezo.tools.workers.inadimplencia import (
     DECISAO_ENCAMINHAR_RESCISAO,
     DECISAO_MANTER,
@@ -19,6 +20,14 @@ from maezo.tools.workers.inadimplencia import (
     register_suspension,
     resolve_facts,
 )
+
+
+def _inadimplencia_status_fake(*, roteamento: str, motivo: str = "") -> FakeDmnTransport:
+    """Rows verified live against the compose engine (T1.5 parity run)."""
+    fake = FakeDmnTransport()
+    fake.register("inadimplencia_status", [{"roteamento": roteamento, "motivo": motivo}])
+    return fake
+
 
 # ---------------------------------------------------------------
 # resolve_facts
@@ -53,6 +62,7 @@ def test_resolve_facts_empty_competencias() -> None:
 
 
 def test_assess_status_coletivo_to_human() -> None:
+    fake = _inadimplencia_status_fake(roteamento="ANALISE_HUMANA")
     result = assess_status(
         {
             "tipo_plano": "coletivo_empresarial",
@@ -60,12 +70,14 @@ def test_assess_status_coletivo_to_human() -> None:
             "dentro_periodo_minimo": True,
             "notificacao_previa_feita": True,
             "dentro_janela_purga": False,
-        }
+        },
+        dmn=fake,
     )
     assert result["roteamento"] == "ANALISE_HUMANA"
 
 
 def test_assess_status_pendente_notificacao() -> None:
+    fake = _inadimplencia_status_fake(roteamento="PENDENTE_NOTIFICACAO")
     result = assess_status(
         {
             "tipo_plano": "individual",
@@ -73,12 +85,14 @@ def test_assess_status_pendente_notificacao() -> None:
             "dentro_periodo_minimo": True,
             "notificacao_previa_feita": False,
             "dentro_janela_purga": False,
-        }
+        },
+        dmn=fake,
     )
     assert result["roteamento"] == "PENDENTE_NOTIFICACAO"
 
 
 def test_assess_status_aguarda_purga() -> None:
+    fake = _inadimplencia_status_fake(roteamento="AGUARDA_PURGA")
     result = assess_status(
         {
             "tipo_plano": "individual",
@@ -86,12 +100,14 @@ def test_assess_status_aguarda_purga() -> None:
             "dentro_periodo_minimo": True,
             "notificacao_previa_feita": True,
             "dentro_janela_purga": True,
-        }
+        },
+        dmn=fake,
     )
     assert result["roteamento"] == "AGUARDA_PURGA"
 
 
 def test_assess_status_segue_analise() -> None:
+    fake = _inadimplencia_status_fake(roteamento="SEGUE_ANALISE")
     result = assess_status(
         {
             "tipo_plano": "individual",
@@ -99,13 +115,15 @@ def test_assess_status_segue_analise() -> None:
             "dentro_periodo_minimo": True,
             "notificacao_previa_feita": True,
             "dentro_janela_purga": False,
-        }
+        },
+        dmn=fake,
     )
     assert result["roteamento"] == "SEGUE_ANALISE"
 
 
 def test_assess_status_catch_all_to_human() -> None:
     """Catch-all conservador: tudo que nao casa cai em ANALISE_HUMANA."""
+    fake = _inadimplencia_status_fake(roteamento="ANALISE_HUMANA")
     result = assess_status(
         {
             "tipo_plano": "individual",
@@ -113,9 +131,35 @@ def test_assess_status_catch_all_to_human() -> None:
             "dentro_periodo_minimo": False,
             "notificacao_previa_feita": True,
             "dentro_janela_purga": False,
-        }
+        },
+        dmn=fake,
     )
     assert result["roteamento"] == "ANALISE_HUMANA"
+
+
+def test_assess_status_order_divergence_purga_wins_over_notificacao() -> None:
+    """golden-parity finding (T1.5, live-verified): the deployed inadimplencia_status DMN
+    checks dentro_janela_purga BEFORE notificacao_previa_feita (FIRST hit policy) — the old
+    Python checked notificacao first. notificacao_previa_feita=False AND
+    dentro_janela_purga=True now yields AGUARDA_PURGA (was PENDENTE_NOTIFICACAO). Neither is
+    adverse — no SUSPENDER/RESCINDIR path exists in either version."""
+    fake = _inadimplencia_status_fake(roteamento="AGUARDA_PURGA")
+    result = assess_status(
+        {
+            "tipo_plano": "individual",
+            "meses_inadimplencia": 3,
+            "dentro_periodo_minimo": True,
+            "notificacao_previa_feita": False,
+            "dentro_janela_purga": True,
+        },
+        dmn=fake,
+    )
+    assert result["roteamento"] == "AGUARDA_PURGA"
+
+
+def test_assess_status_dmn_unwired_raises_dmn_evaluation_error() -> None:
+    with pytest.raises(DmnEvaluationError):
+        assess_status({"tipo_plano": "individual"}, dmn=None)
 
 
 # ---------------------------------------------------------------
