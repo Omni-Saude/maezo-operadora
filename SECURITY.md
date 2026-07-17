@@ -65,11 +65,12 @@ Currently disabled (visible-skip guard job, not a silent `if: false`):
   `.github/workflows/security.yml`, `dependency-review` job) — this job runs
   on every PR and **tries the exact API call the action is built on**
   (`GET /repos/.../dependency-graph/compare/{basehead}`) with its own token,
-  then classifies the outcome: success runs the real, pinned action; an
-  HTTP 403 (which the upstream action itself maps to `"Dependency review is
-  not supported on this repository."`) is the GitHub Advanced Security gate
-  and produces a loud, visible skip; **any other error fails the job**
-  (fail-closed). GHAS is not provisioned on this (private) repository
+  then classifies the outcome: success runs the real, pinned action; the
+  GHAS gate's exact bare-Forbidden 403 shape (`gh: Forbidden (HTTP 403)`,
+  which the upstream action itself maps to `"Dependency review is not
+  supported on this repository."`) produces a loud, visible skip; **any
+  other error — deliberately including a rate-limit 403 — fails the job**
+  (fail-closed, retry-able). GHAS is not provisioned on this (private) repository
   (admin-scoped API check on 2026-07-17: `code_security.status ==
   "disabled"`). Re-enablement tracked as T2.4 in
   `docs/prompts/V2-COMPLETION-PLAN.md`; because the probe exercises the real

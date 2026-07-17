@@ -33,11 +33,15 @@ jobs:
   #     — with the workflow's own token (the same call/token/permissions
   #     the real action would use).
   #   - Success        -> the real, pinned action runs (fail-on-severity).
-  #   - HTTP 403       -> the GHAS gate. This classification mirrors the
-  #     upstream action's OWN error handling: dependency-review-action
-  #     maps any 403 from this endpoint to "Dependency review is not
-  #     supported on this repository." Emits a LOUD visible skip naming
-  #     the blocker — never `if: false` — and exits 0.
+  #   - Bare-Forbidden 403 ("gh: Forbidden (HTTP 403)", the gate's exact
+  #     live-verified shape) -> the GHAS gate; the upstream action maps
+  #     this same 403 to "Dependency review is not supported on this
+  #     repository." Emits a LOUD visible skip naming the blocker — never
+  #     `if: false` — and exits 0. NOTE (cycle-2 verifier fix): the match
+  #     is deliberately NOT any-403 — a rate-limit 403 ("API rate limit
+  #     exceeded ... (HTTP 403)") must NOT green-skip a real review
+  #     post-GHAS, so it falls through to the fail branch instead
+  #     (retry-able red).
   #   - ANY other error -> the job FAILS (fail-closed; an unexpected
   #     failure must never masquerade as the documented blocker).
   # Because the probe exercises the real gated resource with the real
@@ -69,12 +73,21 @@ jobs:
           if [ "${code}" -eq 0 ]; then
             echo "dependency-graph compare succeeded — GHAS gate open; running the real scan"
             echo "run=true" >> "$GITHUB_OUTPUT"
-          elif printf '%s' "${out}" | grep -qE '\(HTTP 403\)'; then
-            echo "compare returned HTTP 403 — the GHAS gate (the upstream action maps this same 403 to 'Dependency review is not supported on this repository.')"
+          # Cycle-2 verifier fix: discriminate on the GHAS gate's exact
+          # live-verified shape — the bare-Forbidden 403 (body
+          # '{"message":"Forbidden",...}', gh error line
+          # "gh: Forbidden (HTTP 403)"). Matching '(HTTP 403)' alone was
+          # proven fail-open: a rate-limit 403 ("API rate limit exceeded ...
+          # (HTTP 403)", plausible on GITHUB_TOKEN's shared 1k/hr budget)
+          # would have green-skipped a real dependency review post-GHAS.
+          # Rate-limit (and every other) 403 shape now falls through to the
+          # else branch -> exit 1 (fail-closed, retry-able red).
+          elif printf '%s' "${out}" | grep -qF 'gh: Forbidden (HTTP 403)'; then
+            echo "compare returned the bare-Forbidden 403 — the GHAS gate (the upstream action maps this same 403 to 'Dependency review is not supported on this repository.')"
             printf '%s\n' "${out}" > dependency-review-probe-output.txt
             echo "run=false" >> "$GITHUB_OUTPUT"
           else
-            echo "::error::dependency-graph compare failed for a reason OTHER than the GHAS gate (exit ${code}, not an HTTP 403) — failing the job (fail-closed; an unexpected error must never masquerade as the documented blocker). Output:"
+            echo "::error::dependency-graph compare failed for a reason OTHER than the GHAS gate (exit ${code}; not the bare-Forbidden 'gh: Forbidden (HTTP 403)' shape — e.g. a rate-limit 403 lands here DELIBERATELY, as a retry-able red) — failing the job (fail-closed; an unexpected error must never masquerade as the documented blocker). Output:"
             printf '%s\n' "${out}"
             exit 1
           fi
