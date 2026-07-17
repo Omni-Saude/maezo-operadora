@@ -12,6 +12,8 @@ anti-pattern this ledger exists to make structurally impossible to repeat.
 CI (`.github/workflows/evidence-ledger.yml` / `scripts/ci/check_evidence_ledger.py`)
 enforces that any PR whose branch name or body cites a task ID carries a row for it
 here at HEAD; the row is added by this table, not by the check.
+A PR body only "cites" a task ID via an explicit marker — a `Task:`/`Tasks:` line or a
+`[T<phase>.<n>]` bracket — never via a bare prose mention (T0.5 gate-precision follow-up).
 
 Test hash convention: `sha256:` of the sorted `PASSED`/`FAILED` result lines from
 `pytest <test file> -v --tb=no -p no:cacheprovider` — reproducible by anyone who

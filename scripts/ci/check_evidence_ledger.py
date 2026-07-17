@@ -18,6 +18,11 @@ The logic is a pure, dependency-free core (``detect_task_ids``,
 results. The core takes no environment or filesystem input, so it is fully
 unit-testable without mocking I/O.
 
+PR-body detection binds ONLY on an explicit closure marker — a `Task:`/`Tasks:`
+line or a `[T<phase>.<n>]` bracket — never on a bare prose mention of a
+`T<phase>.<n>`-shaped token (T0.5 gate-precision follow-up, after PR #38's
+"suite de integração planejada — T3.1" false-positived a T3.1 ledger demand).
+
 Fail-closed contract
 ---------------------
 - No task ID found in branch name or PR body  -> PASS (exit 0). Nothing to
@@ -43,7 +48,7 @@ Usage (local / tests)
 ----------------------
     python3 scripts/ci/check_evidence_ledger.py \\
         --branch t0.5-evidence-ledger \\
-        --pr-body "Task ID: T0.5" \\
+        --pr-body "Task: T0.5" \\
         --ledger-path docs/evidence-ledger.md
 """
 
@@ -64,12 +69,31 @@ from pathlib import Path
 # Task branches follow `t<phase>.<n>-slug`, e.g. `t0.1-truth-reset`, `t1.9-remove-ceiling-bypass`.
 _BRANCH_TASK_RE = re.compile(r"^\s*(t\d+\.\d+)-", re.IGNORECASE)
 
-# PR-body mentions look like "Task: T0.1", "Task T0.1", "Task ID: T0.1", or
-# "**Task ID:** T0.1" (Markdown bold) — case-insensitive. Deliberately anchored on the
-# word "task" so a stray "T0.1"-shaped token elsewhere in the body (e.g. a version string)
-# is never mistaken for a task-ID citation. Any run of non-alphanumeric filler (colons,
-# whitespace, Markdown emphasis characters) between "task[ id]" and the token is accepted.
-_BODY_TASK_RE = re.compile(r"\btask\b(?:\s*id\b)?[^a-zA-Z0-9]*(t\d+\.\d+)\b", re.IGNORECASE)
+# PR-body detection binds ONLY on an explicit task-closure marker — never on a bare
+# prose mention of a task-ID-shaped token. Two marker forms are recognized:
+#
+# (a) A "Task:"/"Tasks:" line: the marker must be the first token on its line
+#     (leading whitespace aside) — a colon is required. This is deliberately
+#     anchored to line-start so a sentence that merely *mentions* a task ID
+#     mid-line — e.g. "the porting is task T3.1, not yet done" or "suite de
+#     integração planejada — T3.1" (the exact PR #38 phrasing that previously
+#     false-positived a T3.1 ledger demand) — never binds. Everything after the
+#     colon, to end of line, is scanned for IDs, so "Task: T0.1 T0.2" binds both.
+_BODY_TASK_LINE_RE = re.compile(r"^[ \t]*Tasks?\s*:\s*(?P<ids>.+)$", re.IGNORECASE | re.MULTILINE)
+
+# (b) A "[...]" bracket marker anywhere in the body — the PR-title convention
+#     (e.g. "[T0.5]", "[T1.8][T1.9]", or a multi-ID bracket like
+#     "[T0.1 T0.2 T0.3]" as used in commit 579e8f9) carried into bodies. Every
+#     ID-shaped token found inside any bracket pair binds — a stricter
+#     single-ID-only reading would under-detect a convention already live in
+#     this repo's history, which is the wrong direction for a fail-closed gate.
+_BODY_BRACKET_TASK_RE = re.compile(r"\[([^\[\]]*)\]")
+
+# A single T<phase>.<n> token — reused to pull every ID out of a marker's payload
+# (the tail of a "Task:" line, or the inside of a "[...]" bracket) so a marker
+# carrying more than one ID (e.g. "Task: T0.1 T0.2") binds all of them, not just
+# the first — resolving that ambiguity by binding, never by silently dropping IDs.
+_TASK_ID_TOKEN_RE = re.compile(r"\b(t\d+\.\d+)\b", re.IGNORECASE)
 
 # Ledger rows look like "| T0.5 | 2026-07-16 | ... |". Matched at the start of a table row
 # (ignoring leading whitespace), case-insensitive, so header ("Task ID") and separator
@@ -89,8 +113,20 @@ def detect_task_ids_from_branch(branch: str) -> set[str]:
 
 
 def detect_task_ids_from_body(pr_body: str) -> set[str]:
-    """Detect all task IDs cited in a PR body via 'Task[:] T<phase>.<n>' style mentions."""
-    return {_normalize_task_id(m.group(1)) for m in _BODY_TASK_RE.finditer(pr_body)}
+    """Detect task IDs bound by an explicit closure marker in a PR body.
+
+    Binds ONLY on (a) a "Task:"/"Tasks:" line or (b) a "[...]" bracket marker
+    (see the module docstring and the comments above these regexes). A bare
+    prose mention of a T<phase>.<n>-shaped token never binds on its own.
+    """
+    ids: set[str] = set()
+    for line_match in _BODY_TASK_LINE_RE.finditer(pr_body):
+        tokens = _TASK_ID_TOKEN_RE.finditer(line_match.group("ids"))
+        ids.update(_normalize_task_id(m.group(1)) for m in tokens)
+    for bracket_match in _BODY_BRACKET_TASK_RE.finditer(pr_body):
+        tokens = _TASK_ID_TOKEN_RE.finditer(bracket_match.group(1))
+        ids.update(_normalize_task_id(m.group(1)) for m in tokens)
+    return ids
 
 
 def detect_task_ids(branch: str, pr_body: str) -> set[str]:
