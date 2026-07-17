@@ -15,8 +15,8 @@ from maezo.agents import (
     resolve_spec_dir,
 )
 
-#: Repo root, computed independently of maezo.agents._default_spec_dir() so
-#: these tests don't tautologically validate against the same math.
+#: Repo root, computed independently of maezo.agents._default_spec_dir_candidates()
+#: so these tests don't tautologically validate against the same math.
 _REPO_ROOT = Path(__file__).parent.parent.parent.parent
 
 
@@ -122,6 +122,64 @@ class TestResolveSpecDir:
 
         with pytest.raises(FileNotFoundError, match="agents"):
             resolve_spec_agents_dir()
+
+    def test_installed_wheel_package_adjacent_fallback(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """T1.8 REVISE-1: in an installed wheel (no repo layout), resolution falls back to
+        the package-adjacent `<site-packages>/maezo/spec` laid down by the hatch
+        force-include — without requiring MAEZO_SPEC_DIR."""
+        import maezo.agents as agents_pkg
+
+        site = tmp_path / "venv" / "lib" / "python3.12" / "site-packages"
+        fake_init = site / "maezo" / "agents" / "__init__.py"
+        fake_init.parent.mkdir(parents=True)
+        fake_init.write_text("# simulated installed module file\n")
+        pkg_spec = site / "maezo" / "spec"
+        (pkg_spec / "policies" / "autonomy").mkdir(parents=True)
+
+        monkeypatch.delenv(MAEZO_SPEC_DIR_ENV, raising=False)
+        monkeypatch.setattr(agents_pkg, "__file__", str(fake_init))
+
+        # repo-layout candidate (parents[3]/spec = .../python3.12/spec) does not
+        # exist here, so the package-adjacent fallback must win.
+        assert resolve_spec_dir() == pkg_spec
+
+    def test_repo_layout_wins_over_package_adjacent(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Candidate order is pinned: the repo checkout layout takes precedence over the
+        installed-wheel package-adjacent fallback when both exist."""
+        import maezo.agents as agents_pkg
+
+        fake_init = tmp_path / "src" / "maezo" / "agents" / "__init__.py"
+        fake_init.parent.mkdir(parents=True)
+        fake_init.write_text("# simulated checkout module file\n")
+        repo_spec = tmp_path / "spec"
+        repo_spec.mkdir()
+        pkg_spec = tmp_path / "src" / "maezo" / "spec"
+        pkg_spec.mkdir(parents=True)
+
+        monkeypatch.delenv(MAEZO_SPEC_DIR_ENV, raising=False)
+        monkeypatch.setattr(agents_pkg, "__file__", str(fake_init))
+
+        assert resolve_spec_dir() == repo_spec
+
+    def test_no_candidate_raises_fail_closed(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Fail-closed: with no env override and NO existing default candidate (neither
+        repo layout nor package-adjacent), resolution must raise — never silently
+        accept a nonexistent path."""
+        import maezo.agents as agents_pkg
+
+        fake_init = tmp_path / "a" / "b" / "c" / "d" / "__init__.py"
+        fake_init.parent.mkdir(parents=True)
+        fake_init.write_text("# simulated module file with no spec/ anywhere\n")
+
+        monkeypatch.delenv(MAEZO_SPEC_DIR_ENV, raising=False)
+        monkeypatch.setattr(agents_pkg, "__file__", str(fake_init))
+
+        with pytest.raises(FileNotFoundError, match=MAEZO_SPEC_DIR_ENV):
+            resolve_spec_dir()
 
 
 class TestAgentLoaderLoadById:

@@ -25,6 +25,10 @@ dependencies = [
     "pydantic>=2.7,<3.0",
     "pydantic-settings>=2.3,<3.0",
     "sqlalchemy>=2.0,<3.0",
+    "greenlet>=3.5.3",              # required by sqlalchemy's async engine (platform/migrations/env.py);
+                                     # without it `alembic upgrade head` fails immediately for every
+                                     # tenant/environment (T1.10 — discovered while verifying migrations
+                                     # actually run against a real Postgres for the audit-chain kill-test)
     "asyncpg>=0.29,<1.0",
     "alembic>=1.13,<2.0",
     "pgvector>=0.3,<1.0",
@@ -41,6 +45,7 @@ dependencies = [
     "prometheus-client>=0.20,<1.0",
     # --- Seguranca / LGPD ---
     "cryptography>=48.0.1,<50",
+    "greenlet>=3.5.3",
 ]
 
 [project.optional-dependencies]
@@ -60,6 +65,16 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/maezo"]
+
+# ADR-0025 D2 (Rev 1, load-bearing): the autonomy matrix lives in spec/ (single
+# source of truth, constraint 5), but the wheel otherwise ships ONLY src/maezo,
+# so a packaged deployment would have no matrix file at runtime and the fail-closed
+# PEP factory (build_pep) would refuse to start — bricking the deployment. Ship the
+# policy YAMLs inside the wheel so the file is present; discovery at runtime is via
+# the T0.3 MAEZO_SPEC_DIR mechanism (resolve_spec_dir), which a wheel deployment
+# points at the shipped maezo/spec/ tree.
+[tool.hatch.build.targets.wheel.force-include]
+"spec/policies/autonomy" = "maezo/spec/policies/autonomy"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
