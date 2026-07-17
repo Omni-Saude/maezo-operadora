@@ -1,4 +1,4 @@
-"""WhatsApp Cloud API webhook receiver — FastAPI app (T1.6, defect B1).
+"""WhatsApp Cloud API webhook receiver — FastAPI app (T1.6, defect B1; T1.11 real dispatch).
 
 Endpoint contract per `docs/runbooks/whatsapp-webhook.md` §1 (Meta's own webhook contract, not
 this build's invention):
@@ -6,19 +6,14 @@ this build's invention):
     GET  /webhook   Meta verification handshake (`hub.mode`/`hub.challenge`/`hub.verify_token`).
     POST /webhook   Event ingestion (messages + delivery status).
 
-**Capability honesty — read this before extending the POST handler (constraint 3).** The GET
-handshake and the POST signature verification below are REAL: a genuine HMAC-SHA256 check
-(`security.py`, timing-safe) against `WHATSAPP_APP_SECRET`, exactly per §2 of the runbook. What
-happens AFTER a signature verifies is deliberately NOT the full pipeline the runbook's §3/§4
-describe (idempotency store, WhatsAppMessageEvent normalization, Kafka publish to
-`agents.events.whatsapp.*`): there is no consumer of that Kafka topic yet — Helena's WhatsApp
-intake graph is T1.11's job (`docs/design/T1.1-runtime-spine.md` §17 Q-6). Publishing "real" Kafka
-events into a topic nothing reads would not be a fabrication in the technical sense (the publish
-call would genuinely succeed), but it WOULD be dead, unverifiable machinery this build cannot
-honestly claim is "the WhatsApp intake path" — so a signature-verified POST returns 501 with an
-explicit, documented reason instead of silently pretending to queue the message (charter:
-"explicitly-labeled 501/queue-less behavior documented — NO fabricated processing"). Wiring the
-Kafka publish is a small, mechanical follow-up once something consumes the topic.
+**Capability honesty (constraint 3).** The GET handshake and the POST signature verification
+below are REAL: a genuine HMAC-SHA256 check (`security.py`, timing-safe) against
+`WHATSAPP_APP_SECRET`, exactly per §2 of the runbook. T1.11 replaces the prior explicit 501 with
+REAL dispatch to Helena's graph (`dispatch.HelenaDispatcher`) — an EXPLICIT, HONEST IN-PROCESS
+call (no Kafka producer exists in this build; see `dispatch.py`'s module docstring for the
+labeled boundary and the queue-upgrade follow-up). When `dispatcher` is not injected (e.g. this
+replica's dependency bring-up failed — `service.py`'s STEP B), a signature-verified message still
+returns an explicit 501 with a documented reason, exactly as before — never a fabricated success.
 """
 
 from __future__ import annotations
@@ -35,21 +30,24 @@ from prometheus_client import Counter
 from maezo.platform.health import CheckResult, create_health_app
 from maezo.platform.observability import get_metrics_collector
 
+from .dispatch import HelenaDispatcher, extract_inbound_messages
 from .security import verify_hub_signature
 from .settings import WhatsAppWebhookSettings
 
 logger = structlog.get_logger(__name__)
 
 #: `docs/runbooks/whatsapp-webhook.md` §7 — labels `tenant`, `status`. `status` values this build
-#: actually emits: "ok" (GET handshake success), "invalid_signature", "parse_error",
-#: "not_implemented" (signature verified, but see the module docstring — queue-less by design).
-#: Module-level (not per-`create_app()` call) — `Counter()` registers into the collector's
-#: registry once at import time; redefining it per app instance would raise a duplicate-timeseries
-#: error the second time a test constructs an app. Registered on the SAME dedicated registry
-#: `MetricsCollector` owns (not the global default) — matches worker_runtime/agent_runtime/gateway
-#: (T1.1/T1.6) and `MetricsCollector`'s own docstring: "so metrics don't collide with the default
-#: PROCESS_COLLECTOR or other libraries." `create_app` below exposes this SAME registry via
-#: `/metrics`, or the counter would silently never appear there.
+#: actually emits: "ok" (GET handshake success; POST ack with 0 or more messages dispatched),
+#: "invalid_signature", "parse_error", "dispatch_failed" (every message in the batch raised),
+#: "not_implemented" (signature verified, an actual message needs dispatch, but no dispatcher is
+#: configured for this replica — see module docstring). Module-level (not per-`create_app()`
+#: call) — `Counter()` registers into the collector's registry once at import time; redefining it
+#: per app instance would raise a duplicate-timeseries error the second time a test constructs an
+#: app. Registered on the SAME dedicated registry `MetricsCollector` owns (not the global
+#: default) — matches worker_runtime/agent_runtime/gateway (T1.1/T1.6) and `MetricsCollector`'s
+#: own docstring: "so metrics don't collide with the default PROCESS_COLLECTOR or other
+#: libraries." `create_app` below exposes this SAME registry via `/metrics`, or the counter would
+#: silently never appear there.
 WEBHOOK_REQUESTS_TOTAL = Counter(
     "maezo_webhook_requests_total",
     "WhatsApp webhook requests by outcome",
@@ -58,7 +56,12 @@ WEBHOOK_REQUESTS_TOTAL = Counter(
 )
 
 
-def create_app(settings: WhatsAppWebhookSettings, *, is_live: Callable[[], bool] | None = None) -> FastAPI:
+def create_app(
+    settings: WhatsAppWebhookSettings,
+    *,
+    is_live: Callable[[], bool] | None = None,
+    dispatcher: HelenaDispatcher | None = None,
+) -> FastAPI:
     """Build the webhook-receiver FastAPI app: health endpoints (via `platform.health`) plus the
     two WhatsApp endpoints, on the SAME app instance (Helm serves both from one pod/port,
     `deployment-webhook-receiver.yaml:66-88`).
@@ -66,6 +69,11 @@ def create_app(settings: WhatsAppWebhookSettings, *, is_live: Callable[[], bool]
     `is_live` is forwarded to `create_health_app` unchanged — the caller (`service.py`) flips it
     False on SIGTERM so `/healthz` participates in the same drain semantics as the other three
     daemons (design §8: liveness leaves the load-balancing rotation before the server stops).
+
+    `dispatcher` (T1.11): when given, a signature-verified POST with at least one text message
+    runs `dispatcher.dispatch(...)` for each — real Helena turns, real DMN/engine calls. `None`
+    (e.g. this replica's STEP B dependency bring-up failed) preserves the prior explicit-501
+    behavior for any POST that actually contains a message to dispatch.
     """
 
     async def config_loaded() -> CheckResult:
@@ -97,8 +105,8 @@ def create_app(settings: WhatsAppWebhookSettings, *, is_live: Callable[[], bool]
 
     @app.post("/webhook", include_in_schema=False)
     async def receive_event(request: Request) -> JSONResponse:
-        """Event ingestion — signature-verified, then an explicit, documented 501 (see module
-        docstring: queue-less by design, no downstream consumer yet, T1.11)."""
+        """Event ingestion — signature-verified, then real dispatch to Helena (T1.11) when a
+        dispatcher is configured, else the prior explicit, documented 501 (module docstring)."""
         body = await request.body()
         signature_header = request.headers.get("X-Hub-Signature-256")
 
@@ -108,28 +116,59 @@ def create_app(settings: WhatsAppWebhookSettings, *, is_live: Callable[[], bool]
             return JSONResponse(status_code=401, content={"status": "invalid_signature"})
 
         try:
-            json.loads(body)
+            payload = json.loads(body)
         except (ValueError, UnicodeDecodeError):
             logger.warning("whatsapp_webhook_parse_error")
             WEBHOOK_REQUESTS_TOTAL.labels(tenant=settings.tenant_id, status="parse_error").inc()
             return JSONResponse(status_code=400, content={"status": "parse_error"})
 
-        logger.info(
-            "whatsapp_webhook_received_not_queued",
-            note="signature verified; message queuing pending T1.11 (Helena WhatsApp intake "
-            "graph) — no downstream consumer wired yet, see app.py module docstring",
-        )
-        WEBHOOK_REQUESTS_TOTAL.labels(tenant=settings.tenant_id, status="not_implemented").inc()
+        messages = extract_inbound_messages(payload)
+        if not messages:
+            # No actual text message to dispatch (e.g. a delivery-status callback, or a
+            # message type this build doesn't parse — `extract_inbound_messages` already logged
+            # it). Nothing fabricated: just ack.
+            WEBHOOK_REQUESTS_TOTAL.labels(tenant=settings.tenant_id, status="ok").inc()
+            return JSONResponse(status_code=200, content={"status": "ok", "dispatched": 0})
+
+        if dispatcher is None:
+            logger.warning(
+                "whatsapp_webhook_dispatcher_not_configured",
+                note="signature verified; message(s) present but no HelenaDispatcher is wired "
+                "for this replica (dependency bring-up failed or disabled) — see "
+                "service.py's STEP B / module docstring",
+            )
+            WEBHOOK_REQUESTS_TOTAL.labels(tenant=settings.tenant_id, status="not_implemented").inc()
+            return JSONResponse(
+                status_code=501,
+                content={
+                    "status": "not_implemented",
+                    "detail": (
+                        "signature verified; message present but no dispatcher is configured "
+                        "for this replica (dependency bring-up failed or disabled) — this "
+                        "receiver does not fabricate a Helena turn without one"
+                    ),
+                },
+            )
+
+        dispatched = 0
+        failed = 0
+        for message in messages:
+            try:
+                await dispatcher.dispatch(message)
+                dispatched += 1
+            except Exception:  # noqa: BLE001 — one message's failure must not drop the batch.
+                failed += 1
+                logger.error("whatsapp_dispatch_failed", message_id=message.message_id, exc_info=True)
+
+        if dispatched == 0 and failed > 0:
+            WEBHOOK_REQUESTS_TOTAL.labels(tenant=settings.tenant_id, status="dispatch_failed").inc()
+            return JSONResponse(
+                status_code=500,
+                content={"status": "dispatch_failed", "dispatched": dispatched, "failed": failed},
+            )
+        WEBHOOK_REQUESTS_TOTAL.labels(tenant=settings.tenant_id, status="ok").inc()
         return JSONResponse(
-            status_code=501,
-            content={
-                "status": "not_implemented",
-                "detail": (
-                    "signature verified; message queuing pending T1.11 (Helena WhatsApp intake "
-                    "graph) — this receiver does not yet publish to Kafka (queue-less scaffold, "
-                    "T1.6)"
-                ),
-            },
+            status_code=200, content={"status": "ok", "dispatched": dispatched, "failed": failed}
         )
 
     return app
