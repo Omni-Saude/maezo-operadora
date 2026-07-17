@@ -1,0 +1,186 @@
+# ADR-0029: Audit-Chain Pruning via Signed Checkpoint Re-Anchor [T2.8]
+
+**Status:** Proposed — requires DPO + orchestrator ratification (no self-certification)
+**Data:** 2026-07-17
+**Area:** Auditoria / Integridade da Cadeia (custody-chain)
+Owner: audit-persistence-engineer (R1). Companion to `docs/compliance/ADR-0020-amendment-draft.md`
+(legal-hold registry). Scope: the chain-integrity mechanism that would make a *lawful* prune of
+`audit_chain` possible. This ADR designs it; it does NOT implement it and does NOT enable any
+DELETE. Deliverable type: design draft for ratification.
+
+---
+
+## Contexto
+
+DL-0018 (`docs/decisions-log.md`) ratified 5-year retention of `audit_chain` as a **scheduled
+`DELETE FROM audit_chain WHERE ts < cutoff`** on a non-partitioned table. The delete is wired as a
+Helm CronJob (`deploy/helm/maezo-tenant/templates/cronjob-lifecycle.yaml` +
+`values.yaml`, `lifecycle-audit-retention`, schedule `"0 5 1 * *"`) invoking
+`python -m maezo.platform.lifecycle audit-retention`, and the query builder exists
+(`src/maezo/platform/retention.py:132-143`). Two independent problems block that delete from being
+run safely, and both must be solved before any prune is lawful:
+
+1. **Legal-hold (spoliation).** Handled by the companion `ADR-0020-amendment-draft.md`: there is no
+   legal-hold registry, so the unconditional delete would destroy evidence under an active hold.
+   Out of scope here except at the interaction points (§ *Prune eligibility*).
+
+2. **Chain-integrity (this ADR).** Even with **zero active holds**, deleting the genesis-anchored
+   prefix severs the hash chain's contiguity, and BOTH verifiers then report the *surviving* chain
+   as corrupted:
+
+   - **In-memory** `AuditSink.verify_chain()` (`src/maezo/gateway/audit.py:310-344`) seeds its walk
+     with `prev = GENESIS_PREV_HASH` (`:319`, and `GENESIS_PREV_HASH = "0"*64` at `:48`) and, for
+     each record in order, requires `record.prev_hash == prev` (`:320-329`). After a prefix prune,
+     the oldest *surviving* record still carries the `prev_hash` of a now-deleted predecessor, so
+     verification fails **at index 0**.
+   - **Postgres** `verify_chain()` (`src/maezo/gateway/audit_postgres.py:333-410`) builds a
+     `by_prev` map keyed on `prev_record_hash` (`:365-377`, which also detects forks) and seeds its
+     walk at `by_prev.get(GENESIS_PREV_HASH)` (`:380`). With the genesis row deleted, that seed is
+     `None`, the walk visits nothing, and every surviving row is reported **"unreachable from
+     genesis"** (`:396-406`) — indistinguishable from a gap/fork corruption.
+
+   - **`UNIQUE(prev_record_hash)` ≠ contiguity.** The non-partitioned schema
+     (`src/maezo/platform/migrations/versions/0002_audit_chain.py:27-51`) enforces
+     `CONSTRAINT uq_audit_chain_prev_hash UNIQUE (prev_record_hash)` (`:44-50`) purely as an
+     **anti-fork** guard (at most one successor per record). That property is **orthogonal** to
+     genesis-contiguity: a pruned chain still satisfies `UNIQUE` while failing verification. DL-0018
+     litigated only the anti-fork property, not the post-delete contiguity.
+
+The compliance analysis (`ADR-0020-amendment-draft.md` §3-bis) concludes: *a hold-aware delete alone
+is not sufficient — every prune must be paired with a re-anchoring / signed-checkpoint mechanism,
+and until it exists deletion must not be enabled at all (fail-closed).* This ADR is that mechanism.
+
+**Current fail-closed posture (this PR, T2.8):** `python -m maezo.platform.lifecycle audit-retention`
+is an intentional **refusal** entrypoint (`src/maezo/platform/lifecycle/__init__.py`) — it logs the
+precise blocker and exits non-zero (EX_CONFIG 78). `retention_query()` has zero production callers,
+locked in CI (`tests/unit/platform/test_lifecycle.py`). Nothing below is built yet.
+
+## Decisao
+
+**A prune is permitted only when it atomically writes a signed *checkpoint* record that re-anchors
+the surviving chain, and both verifiers understand the checkpoint as the walk's anchor. No prune
+without re-anchor.** The mechanism, grounded in the existing schema and verifiers:
+
+### 1. Prefix-only pruning
+
+Pruning removes a **contiguous prefix from genesis** (oldest-first) — never a middle window. The
+verifiers walk from a *single* anchor following *single-successor* links; only a prefix prune leaves
+exactly **one** seam to bridge. A hole in the middle would create a second unbridgeable seam and is
+forbidden. (Records are individually eligible by age/hold, but the *set* actually deleted in one
+cycle is always the eligible prefix up to the first non-eligible record.)
+
+### 2. The signed checkpoint record
+
+Before deletion, seal a **checkpoint** row that commits to the pruned prefix. It lives **in
+`audit_chain` itself** (not a side table) so it occupies the freed `GENESIS_PREV_HASH` slot under the
+same `UNIQUE(prev_record_hash)` constraint — a side table would let a concurrent writer insert a new
+genesis at `prev_record_hash = "0"*64` and re-fork the head. The checkpoint carries (proposed
+columns, all NULL for ordinary `event` rows):
+
+- `record_type` — `'event'` (default) | `'checkpoint'`.
+- `prev_record_hash = GENESIS_PREV_HASH` — the checkpoint **becomes the new anchor**. Valid only
+  because the old genesis row is deleted in the *same* transaction, so the `"0"*64` slot is free and
+  `UNIQUE(prev_record_hash)` still holds (exactly one row at that slot).
+- `pruned_last_record_hash` — the `record_hash` of the **last (newest) pruned** record, `H_k`. This
+  is the **bridge**: the oldest surviving record already has `prev_record_hash = H_k` (immutable —
+  it is part of that record's own hash preimage and must not be rewritten), so the checkpoint records
+  `H_k` in a *separate* column rather than as its own `prev_record_hash`. No two rows share a
+  `prev_record_hash` value (`H_k` is claimed only by the surviving head; the checkpoint claims
+  `"0"*64`), so anti-fork is preserved.
+- `pruned_count`, `pruned_ts_min`, `pruned_ts_max` — cardinality + time range of the pruned prefix.
+- `pruned_merkle_root` — Merkle root over the ordered `record_hash`es of the pruned range (mirrors
+  the ADR-0020 `bundle_root` idiom, `src/maezo/gateway/custody.py`), so anyone holding an out-of-band
+  cold archive of the pruned rows can prove they belonged to this chain at this point.
+- `prune_reason`, `authorizer` — why, and the identity/role that authorized (an accountable human,
+  not the CronJob).
+- `hold_attestation` — a snapshot proving the legal-hold registry (ADR-0020 amendment) showed **no
+  active hold** covering `[pruned_ts_min, pruned_ts_max]` at prune time.
+- `signature`, `signature_key_id` — a cryptographic signature over the checkpoint's canonical
+  content. "Signed checkpoint": a checkpoint that fails signature verification is treated as tamper.
+  Key custody / rotation is a governance item (§ *Open items*).
+
+`record_hash` for the checkpoint is computed over all of the above (extending the existing
+`_compute_hash()` preimage), so the checkpoint is itself tamper-evident like any record.
+
+### 3. Atomic write-then-delete
+
+The checkpoint insert **and** the prefix delete run in **one transaction**, under the **same
+per-tenant advisory lock** `emit()` already takes
+(`pg_advisory_xact_lock(hashtext($1))`, `src/maezo/gateway/audit_postgres.py:137`, held across the
+insert transaction at `:219`). This guarantees: (a) all-or-nothing — a failed delete rolls back the
+checkpoint and a failed checkpoint deletes nothing, so the chain is never half-pruned; (b) no
+concurrent `emit()` can append a new head between checkpoint and delete. Ordering inside the txn:
+seal checkpoint → verify the new `by_prev` walk succeeds in-txn → delete the prefix → COMMIT.
+
+### 4. Verifier support for checkpoint-anchored heads
+
+Both `verify_chain()` implementations gain a checkpoint-aware anchor step (behaviour unchanged when
+no checkpoint exists — a chain that still has its real genesis verifies exactly as today):
+
+- Identify the anchor: the row with `prev_record_hash == GENESIS_PREV_HASH`.
+- If `record_type == 'checkpoint'`: (a) verify `record_hash` matches the recomputed hash; (b) verify
+  `signature` against the trusted `signature_key_id`; (c) **bridge** — the next expected record is
+  the one whose `prev_record_hash == checkpoint.pruned_last_record_hash` (Postgres:
+  `by_prev.get(checkpoint.pruned_last_record_hash)`; in-memory: set the running `prev` to
+  `pruned_last_record_hash` for the record after the checkpoint). Then walk survivors normally.
+- Result accounting: `verified` counts the checkpoint + all survivors and must equal `total`. Empty
+  survivors (everything older than 5y was pruned) → chain is `[checkpoint]`, valid iff the checkpoint
+  verifies. A checkpoint whose `pruned_last_record_hash` has no surviving successor **while survivors
+  exist** → invalid (broken bridge). A bad/absent signature → invalid (tamper).
+
+### 5. Repeated prunes (checkpoint mini-chain)
+
+Each later prune deletes the *previous* checkpoint plus the next eligible prefix and writes a **new**
+checkpoint that (a) re-takes the `"0"*64` slot (previous checkpoint deleted in the same txn) and (b)
+commits to the previous checkpoint's `record_hash` inside its `pruned_merkle_root` preimage — so the
+checkpoints form their own verifiable chain of "what was pruned, when, by whom," and the complete
+history remains provable from cold storage even across many prune cycles.
+
+### 6. Prune eligibility (interaction with the hold registry)
+
+A record is prunable iff **all** of the following hold: `age > 5y` (DL-0018 retention floor) **AND**
+no active legal-hold covers it (ADR-0020 amendment registry) **AND** it is in the contiguous genesis
+prefix up to the first non-eligible record **AND** the checkpoint for the cut is written atomically
+before the delete (§3). If the oldest record is under an active hold, the eligible prefix
+is empty and the cycle is a no-op (deferred, per ADR-0020-amendment Option C — not retained forever;
+re-evaluated when the hold lifts).
+
+## Consequencias
+
+**Positivas:**
+- A lawful prune becomes *possible* without destroying the evidentiary property `audit_chain` exists
+  for: the surviving chain verifies from the signed checkpoint, and the pruned prefix stays provable
+  via `pruned_merkle_root` + cold archive.
+- Anti-fork (`UNIQUE(prev_record_hash)`) is preserved exactly — the checkpoint occupies the single
+  genesis slot; no row ever shares a `prev_record_hash`.
+- The block is made explicit and auditable: the checkpoint records *who* authorized *what* prune and
+  the hold-registry state at the time — a prune is itself an accountable, non-repudiable event.
+
+**Negativas (aceitas):**
+- Net-new schema (checkpoint columns + migration), verifier changes in **two** implementations, and
+  a signing-key custody story — non-trivial, and gated behind ratification.
+- Prefix-only pruning cannot reclaim space held by a young-but-cold middle range; acceptable, since
+  retention is age-based and the chain is append-only oldest-first anyway.
+- Verification now depends on trusting a signing key; key compromise is a new (governed) risk surface
+  that did not exist for the pure genesis-anchored chain.
+
+**BLOCKED — implementation precondition (fail-closed):** No code in this ADR is built, and **no
+DELETE may be enabled**, until BOTH (1) `docs/compliance/ADR-0020-amendment-draft.md` (legal-hold
+registry) AND (2) this ADR-0029 are ratified (DPO + orchestrator). Until then,
+`maezo.platform.lifecycle audit-retention` **refuses** (this PR, T2.8). Blocked ≠ done: this ADR
+makes the block explicit and designs the exit; it does not take it.
+
+## Open items blocking ratification
+
+- **Signing-key custody / rotation** for checkpoint signatures — who holds it, how it rotates, how
+  verifiers obtain the trusted public key(s). Governance + infra decision.
+- **Authorizer governance** — who may authorize a prune, and the approval trail (overlaps the
+  ADR-0020-amendment hold-governance question).
+- Confirmation of the retention floor itself (DL-0018's 5y is DRAFT pending jurídico/regulatório).
+- Ratification of the ADR-0020 amendment (legal-hold registry) — a hard precondition; this ADR's
+  §6 eligibility and §2 `hold_attestation` depend on it existing.
+
+## Supersedes
+
+None. Complements DL-0018 (adds the re-anchor precondition the DELETE always needed) and is the
+chain-integrity half of `ADR-0020-amendment-draft.md` §3-bis / §4.4. Does not amend ADR-0007.
