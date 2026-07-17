@@ -92,7 +92,7 @@ import httpx
 import pytest
 import pytest_asyncio
 
-from maezo.tools.workers.auth import register_auth_workers
+from maezo.tools.workers.auth import AUTH_BPMN_ERROR_ALLOWLIST, register_auth_workers
 from maezo.tools.workers.events import register_events_workers
 from maezo.tools.workers.harness import (
     CibSevenWorkerTransport,
@@ -302,7 +302,19 @@ async def auth_probe(engine: EngineRest) -> AsyncIterator[AuthEngineProbe]:
     """Probe que serve as external tasks com os workers reais Phase-1 de auth."""
     worker_id = f"qa-auth-worker-{uuid.uuid4().hex[:8]}"
     transport = CibSevenWorkerTransport(CIBSEVEN_BASE_URL)
-    harness = WorkerHarness(transport, worker_id=worker_id, lock_duration_ms=10_000)
+    # T3.1 (auth-denial-hardening): ERR_AUTH_DENIAL_INCOMPLETE is catchable by SP-OP-AUTH-001's own
+    # boundaryEvent (BE_NegativaIncompleta on ST_EnviarNegativaFormal, errorRef
+    # Error_AuthDenialIncompleta) ONLY when it's in the harness's allowlist (harness.py
+    # `_bpmn_error_allowlist` — the PRODUCTION default is empty pending the boundary-proof gate).
+    # This wires the ONE code SendDenialNoticeWorker raises AND the BPMN declares a matching boundary
+    # for (`auth.AUTH_BPMN_ERROR_ALLOWLIST`), mirroring the escalation suite's own
+    # ERR_EVENT_PUBLISH_FAILED wiring and what a gate-proven production allowlist for auth would hold.
+    harness = WorkerHarness(
+        transport,
+        worker_id=worker_id,
+        lock_duration_ms=10_000,
+        bpmn_error_allowlist=AUTH_BPMN_ERROR_ALLOWLIST,
+    )
     kafka = FakeKafkaPublisher()
     register_auth_workers(harness, kafka)
     # T3.1 R2: the generic operadora.events.publish worker every ST_Publish* service task in

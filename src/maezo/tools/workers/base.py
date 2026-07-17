@@ -29,6 +29,18 @@ import structlog
 ERR_DENIAL_NOT_HUMAN: str = "ERR_DENIAL_NOT_HUMAN"
 """Guard: automatic denials are FORBIDDEN. Only human auditors may deny."""
 
+ERR_AUTH_DENIAL_INCOMPLETE: str = "ERR_AUTH_DENIAL_INCOMPLETE"
+"""Guard: a formal denial notice with INCOMPLETE fundamentacao must never be transmitted.
+
+Modeled in SP-OP-AUTH-001 (`bpmn:error@errorCode="ERR_AUTH_DENIAL_INCOMPLETE"`,
+`Error_AuthDenialIncompleta`) with a matching boundary event `BE_NegativaIncompleta` on
+`ST_EnviarNegativaFormal` routing to the neutral terminal `End_FundamentacaoIncompletaBloqueada`.
+Raised (as `WorkerBpmnError`) by `SendDenialNoticeWorker` when a NEGAR decision reaches the worker
+without every ANS-required grounding field (justificativa_clinica / cid10_referencia /
+fundamentacao_dut). Because it is spec-modeled, it is registered in the auth harness's
+`bpmn_error_allowlist` (`AUTH_BPMN_ERROR_ALLOWLIST`) so the harness dispatches it as a real
+`bpmnError` instead of demoting it to a fail-closed incident (harness.py `_bpmn_error_allowlist`)."""
+
 ERR_ESCALATION_NOT_HUMAN: str = "ERR_ESCALATION_NOT_HUMAN"
 """Guard: automatic escalation closing is FORBIDDEN. Only human supervisors may resolve."""
 
