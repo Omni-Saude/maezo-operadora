@@ -3,6 +3,11 @@
 # Profiles:
 #   core         — postgres, cibseven, hapi-fhir, kafka  (default dev stack)
 #   observability — otel-collector, prometheus, grafana
+#   app          — gateway, agent-runtime, worker-runtime, webhook-receiver (T1.6, defect B1):
+#                  the four `python -m maezo.*` entrypoints Helm's Deployments run, built from
+#                  the SAME `deploy/Dockerfile` and differing only by `command:` — exactly how
+#                  the chart shares one image across components. Requires `core` (CIB Seven +
+#                  Kafka + Postgres) up first.
 #
 # T0.4 (defect B14): the 'simulator' profile (tasy-simulator service) was removed —
 # deploy/tasy_simulator.Dockerfile never existed and there is no simulator source
@@ -15,6 +20,7 @@
 #   make dev-stack                          # core only
 #   docker compose --profile observability up -d
 #   docker compose --profile core --profile observability up -d
+#   docker compose --profile core --profile app up -d --build   # + the 4 app daemons
 
 services:
   # ---------------------------------------------------------------------------
@@ -121,6 +127,141 @@ services:
       timeout: 10s
       retries: 10
       start_period: 45s
+
+  # ---------------------------------------------------------------------------
+  # App profile (T1.6, defect B1) — the four `python -m maezo.*` entrypoints Helm's
+  # Deployments run. All four build from the SAME image (deploy/Dockerfile) and differ only
+  # by `command:` — exactly how the chart shares `image.repository`/`tag` across gateway,
+  # agent-runtime, worker-runtime, webhook-receiver. `image:` is pinned to the same tag on all
+  # four so `docker compose build` builds it once (layer cache) and reuses it.
+  # ---------------------------------------------------------------------------
+  gateway:
+    image: maezo-app:dev
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+    command: ["python", "-m", "maezo.gateway"]
+    environment:
+      TENANT_ID: amh
+      GATEWAY_PORT: "8000"
+    ports: ["8000:8000"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import sys,urllib.request as u; sys.exit(0 if u.urlopen('http://localhost:8000/healthz',timeout=3).status==200 else 1)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  agent-runtime:
+    image: maezo-app:dev
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+    command: ["python", "-m", "maezo.runtime.agent_runtime"]
+    environment:
+      TENANT_ID: amh
+      AGENT_ID: helena
+      AGENT_SECURITY_ZONE: general
+      AGENT_RUNTIME_MODE: local
+      # Mirrors deployment-agent-runtime.yaml's per-agent ConfigMap mount (:82-83,160-168) —
+      # same env var, same target path, so compose exercises the identical code path as K8s
+      # (rather than the spec/agents/ fallback, which the wheel's packaging doesn't ship —
+      # see pyproject.toml's force-include note).
+      AGENT_DEFINITION_PATH: /etc/maezo/agent/effective-agent-definition.yaml
+      CIBSEVEN_BASE_URL: http://cibseven:8080/engine-rest
+      FHIR_BASE_URL: http://hapi-fhir:8080/fhir
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      HEALTH_PORT: "8000"
+    volumes:
+      - ./spec/agents/helena/agent.yaml:/etc/maezo/agent/effective-agent-definition.yaml:ro
+    ports: ["8010:8000"]
+    depends_on:
+      cibseven:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import sys,urllib.request as u; sys.exit(0 if u.urlopen('http://localhost:8000/healthz',timeout=3).status==200 else 1)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  worker-runtime:
+    image: maezo-app:dev
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+    command: ["python", "-m", "maezo.runtime.worker_runtime"]
+    environment:
+      TENANT_ID: amh
+      WORKER_ID: maezo-worker-local
+      CIBSEVEN_BASE_URL: http://cibseven:8080/engine-rest
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      HEALTH_PORT: "8000"
+    ports: ["8020:8000"]
+    depends_on:
+      cibseven:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import sys,urllib.request as u; sys.exit(0 if u.urlopen('http://localhost:8000/healthz',timeout=3).status==200 else 1)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  webhook-receiver:
+    image: maezo-app:dev
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+    command: ["python", "-m", "maezo.platform.webhooks"]
+    environment:
+      TENANT_ID: amh
+      # Dev-only dummy values — required (fail-closed, no default; see
+      # src/maezo/platform/webhooks/whatsapp/settings.py). NEVER real secrets in git.
+      WHATSAPP_APP_SECRET: dev-app-secret-not-for-prod
+      WHATSAPP_VERIFY_TOKEN: dev-verify-token-not-for-prod
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      HEALTH_PORT: "8080"
+    # Host 8030 (not 8080) — cibseven already claims host 8080:8080 in this same compose file;
+    # the container's own port stays 8080 (matches Helm's containerPort, deployment-webhook-
+    # receiver.yaml:67-69).
+    ports: ["8030:8080"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import sys,urllib.request as u; sys.exit(0 if u.urlopen('http://localhost:8080/healthz',timeout=3).status==200 else 1)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   # ---------------------------------------------------------------------------
   # Observability profile

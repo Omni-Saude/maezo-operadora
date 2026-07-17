@@ -4,6 +4,23 @@
 **Last updated:** 2026-06-12  
 **Applies to:** Maezo Healthcare Plan Phase 0+
 
+> **T1.6 implementation status (defect B1).** `deployment-webhook-receiver.yaml`'s
+> `command: ["python", "-m", "maezo.platform.webhooks"]` used to point at a module
+> that did not exist at all — with `webhookReceiver.enabled: true` already the
+> default, this was a live CrashLoopBackOff. `src/maezo/platform/webhooks/` now
+> exists and implements §1 (Meta GET-verification handshake) and §2 (real
+> HMAC-SHA256 POST signature validation, timing-safe) exactly as documented below.
+> **§3/§4 are NOT wired yet**: there is no idempotency store, no
+> `WhatsAppMessageEvent`/`WhatsAppStatusEvent` normalization, and no Kafka publish
+> in this build — a signature-verified POST returns **HTTP 501** with an explicit
+> `"message queuing pending T1.11"` detail instead of silently pretending to queue
+> the message (no downstream consumer exists yet: Helena's WhatsApp intake graph
+> is T1.11's job). §5 ("Kafka producer unavailable") and the Kafka-publish rows of
+> §7's metrics table describe **target** behavior once that wiring lands, not
+> today's. Code: `src/maezo/platform/webhooks/whatsapp/{app,security,settings}.py`
+> (not the `whatsapp/app.py`-only layout §1 implies — `security.py`/`settings.py`
+> are separate modules, `idempotency.py` does not exist yet).
+
 ---
 
 ## Table of Contents

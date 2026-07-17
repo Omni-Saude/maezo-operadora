@@ -62,3 +62,73 @@ orphans:
     Agent-consumed: evaluated directly by the Helena agent via
     mcp-dmn.evaluate (ADR-0012) for informal triage red-flag screening, not
     through a BPMN businessRuleTask — no SP-OP-TRIAGE-* process exists yet.
+  upcoding_complexity_ceiling: >-
+    Pending fraud-scoring wiring — T2.7 phase 2 after T1.4 (DMN-evaluation
+    ADR). Ported 1:1 (decision logic byte-faithful) from the v1 donor
+    Maezo-Healthcare-Plan src/maezo/processes/dmn/fraude_scoring/ (commit
+    1ba8cb8) — the donor's already-inverted table (SP-OP-FRAUDE-001 §"DMN
+    referenciadas": outputs indicador_score:integer/indicador_label/motivo,
+    no verdict column). Consumed by operadora.fraude.score_indicators once
+    that worker is wired, never by a BPMN businessRuleTask directly.
+    Synthetic scores/thresholds flagged for SME (medico-auditor/financas)
+    review — docs/review-queue.md.
+  unbundling_partial_bundles: >-
+    Pending fraud-scoring wiring — T2.7 phase 2 after T1.4 (DMN-evaluation
+    ADR). Ported 1:1 (decision logic byte-faithful) from the v1 donor
+    Maezo-Healthcare-Plan src/maezo/processes/dmn/fraude_scoring/ (commit
+    1ba8cb8) — the donor's already-inverted table (SP-OP-FRAUDE-001 §"DMN
+    referenciadas": outputs indicador_score:integer/indicador_label/motivo,
+    no verdict column). Consumed by operadora.fraude.score_indicators once
+    that worker is wired, never by a BPMN businessRuleTask directly.
+    Synthetic scores/thresholds flagged for SME (medico-auditor/financas)
+    review — docs/review-queue.md.
+  phantom_no_diagnosis: >-
+    Pending fraud-scoring wiring — T2.7 phase 2 after T1.4 (DMN-evaluation
+    ADR). Ported 1:1 (decision logic byte-faithful) from the v1 donor
+    Maezo-Healthcare-Plan src/maezo/processes/dmn/fraude_scoring/ (commit
+    1ba8cb8) — the donor's already-inverted table (SP-OP-FRAUDE-001 §"DMN
+    referenciadas": outputs indicador_score:integer/indicador_label/motivo,
+    no verdict column). Consumed by operadora.fraude.score_indicators once
+    that worker is wired, never by a BPMN businessRuleTask directly.
+    Synthetic scores/thresholds flagged for SME (medico-auditor/financas)
+    review — docs/review-queue.md.
+  phantom_suspicious_prefix: >-
+    Pending fraud-scoring wiring — T2.7 phase 2 after T1.4 (DMN-evaluation
+    ADR). Ported 1:1 (decision logic byte-faithful) from the v1 donor
+    Maezo-Healthcare-Plan src/maezo/processes/dmn/fraude_scoring/ (commit
+    1ba8cb8) — the donor's already-inverted table (SP-OP-FRAUDE-001 §"DMN
+    referenciadas": outputs indicador_score:integer/indicador_label/motivo,
+    no verdict column). Consumed by operadora.fraude.score_indicators once
+    that worker is wired, never by a BPMN businessRuleTask directly.
+    Synthetic scores/thresholds flagged for SME (medico-auditor/financas)
+    review — docs/review-queue.md.
+  frequency_zscore_threshold: >-
+    Pending fraud-scoring wiring — T2.7 phase 2 after T1.4 (DMN-evaluation
+    ADR). Ported 1:1 (decision logic byte-faithful) from the v1 donor
+    Maezo-Healthcare-Plan src/maezo/processes/dmn/fraude_scoring/ (commit
+    1ba8cb8) — the donor's already-inverted table (SP-OP-FRAUDE-001 §"DMN
+    referenciadas": outputs indicador_score:integer/indicador_label/motivo,
+    no verdict column). Consumed by operadora.fraude.score_indicators once
+    that worker is wired, never by a BPMN businessRuleTask directly.
+    Synthetic scores/thresholds flagged for SME (medico-auditor/financas)
+    review — docs/review-queue.md.
+  provider_peer_deviation: >-
+    Pending fraud-scoring wiring — T2.7 phase 2 after T1.4 (DMN-evaluation
+    ADR). Ported 1:1 (decision logic byte-faithful) from the v1 donor
+    Maezo-Healthcare-Plan src/maezo/processes/dmn/fraude_scoring/ (commit
+    1ba8cb8) — the donor's already-inverted table (SP-OP-FRAUDE-001 §"DMN
+    referenciadas": outputs indicador_score:integer/indicador_label/motivo,
+    no verdict column). Consumed by operadora.fraude.score_indicators once
+    that worker is wired, never by a BPMN businessRuleTask directly.
+    Synthetic scores/thresholds flagged for SME (medico-auditor/financas)
+    review — docs/review-queue.md.
+  risk_thresholds: >-
+    Pending fraud-scoring wiring — T2.7 phase 2 after T1.4 (DMN-evaluation
+    ADR). Ported 1:1 (decision logic byte-faithful) from the v1 donor
+    Maezo-Healthcare-Plan src/maezo/processes/dmn/fraude_scoring/ (commit
+    1ba8cb8) — the donor's already-inverted table (SP-OP-FRAUDE-001 §"DMN
+    referenciadas": outputs indicador_score:integer/indicador_label/motivo,
+    no verdict column). Consumed by operadora.fraude.score_indicators once
+    that worker is wired, never by a BPMN businessRuleTask directly.
+    Synthetic scores/thresholds flagged for SME (medico-auditor/financas)
+    review — docs/review-queue.md.

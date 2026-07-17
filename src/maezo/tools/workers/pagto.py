@@ -12,11 +12,18 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from maezo.tools.workers.base import FunctionWorker
+from maezo.tools.workers.ceilings import CeilingResolver
 
 if TYPE_CHECKING:
     from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
 
 logger = structlog.get_logger(__name__)
+
+# Governance ceiling for the PAGTO auto-release band (design T1.9 §1.4, sibling of B3). The
+# teto VALUE lives in the autonomy matrix (`high_value_payment.threshold_brl`,
+# L0-core.yaml:21), resolved via the SAME loader the PEP uses — never a hard-coded literal.
+_CEILING_ACTION = "high_value_payment"
+_CEILING_PARAM = "threshold_brl"
 
 # ---------------------------------------------------------------
 # Error codes
@@ -118,17 +125,36 @@ def assess_admissibility(variables: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------
 
 
-def route_aprovacao(variables: dict[str, Any]) -> dict[str, Any]:
+def route_aprovacao(
+    variables: dict[str, Any],
+    resolver: CeilingResolver | None = None,
+) -> dict[str, Any]:
     """Route payment to correct approval tier based on value.
 
     DMN pagto_alcada: classifies faixa_valor and grupo_aprovador.
     This is the ONLY process with value-driven camunda:candidateGroups.
-    """
-    valor_cents = variables.get("valor_pagamento_cents", 0)
-    dentro_teto = variables.get("dentro_teto_l2", False)
 
-    # DMN pagto_alcada — DRAFT thresholds
-    if valor_cents <= 10_000_000 and dentro_teto:  # <= R$ 100k
+    The DENTRO_TETO_L2 auto-release band is COMPUTED from the tenant governance ceiling
+    (``high_value_payment.threshold_brl``) via the CeilingResolver — the inbound
+    ``dentro_teto_l2`` is NEVER read, and the former hard-coded R$100k literal is gone
+    (design T1.9 §1.4). ``resolver`` is injectable for tests.
+    """
+    resolver = resolver if resolver is not None else CeilingResolver()
+
+    valor_cents = variables.get("valor_pagamento_cents", 0)
+    # COMPUTE the auto-release fact from policy: value within `high_value_payment.threshold_brl`.
+    # A config problem / unloadable matrix => False => routes to a human alcada band.
+    dentro_teto = resolver.within_l2_ceiling(
+        tenant=variables.get("tenant_id", ""),
+        action=_CEILING_ACTION,
+        param=_CEILING_PARAM,
+        value_cents=valor_cents,
+    )
+
+    # DMN pagto_alcada — the low-value auto band is now the resolved ceiling itself
+    # (within_l2_ceiling already encodes `valor_cents <= threshold_brl * 100`). The higher
+    # human-approval bands remain conservative routing constants (no auto-approval).
+    if dentro_teto:
         faixa = "DENTRO_TETO_L2"
         grupo = ""  # no human group needed
     elif valor_cents <= 50_000_000:  # <= R$ 500k
@@ -302,9 +328,11 @@ class PagtoError(Exception):
 
 # ---------------------------------------------------------------
 # Bootstrap — FunctionWorker adapter (T1.2/ADR-0026 Decisao §2a). No function
-# body below is touched — `route_aprovacao` keeps reading `dentro_teto_l2`
-# from `variables` unchanged (T1.9: propagate, never re-originate the ceiling
-# fact) — this bootstrap only adds registry/retry/metrics wiring on top.
+# body above is touched — `route_aprovacao` COMPUTES `dentro_teto_l2` via the
+# CeilingResolver (T1.9 §1.4; the resolver kwarg defaults to the real one when
+# the FunctionWorker calls `route_aprovacao(process_vars)`), never from the
+# inbound variables — this bootstrap only adds registry/retry/metrics wiring
+# on top and never re-originates the ceiling fact.
 #
 # Topic mapping vs spec/processes/bpmn/SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn
 # (excl. shared/out-of-scope `operadora.events.publish`):

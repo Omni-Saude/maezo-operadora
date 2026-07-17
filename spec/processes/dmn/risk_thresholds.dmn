@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:dc="http://www.omg.org/spec/DMN/20180521/DC/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_risk_thresholds"
+             name="Risk Score Thresholds (indicador de montagem)"
+             namespace="http://maezo.health/dmn/operadora">
+  <!-- T2.7 (artifact phase, rework cycle 2): portada 1:1 (logica de decisao byte-fiel) do v1 donor
+       Maezo-Healthcare-Plan src/maezo/processes/dmn/fraude_scoring/risk_thresholds.dmn
+       (commit 1ba8cb8). ORFAO DELIBERADO (orphans-allowlist.yaml) ate o wiring do worker
+       operadora.fraude.score_indicators — T2.7 fase 2, apos o ADR de avaliacao DMN do T1.4.
+       Conteudo (scores/limiares) SINTETICO, pendente SME (medico-auditor/financas) —
+       docs/review-queue.md. Comentario de proveniencia do donor preservado abaixo; unica adaptacao:
+       o token literal do dominio de veredito do reference foi redigido como "veredito-adverso"
+       para manter a arvore spec/ livre do token (grep-limpa). -->
+  <!-- PORTADA (copiada+adaptada+OWN — ADR-0011) de
+       ../maezo-reference/.../fraud_scoring/risk_thresholds.dmn. INVERSAO CRITICA (SP-OP-FRAUDE-001):
+       no reference, risk_score >= 80 emite resultado=veredito-adverso + acao="Fraude detectada" (veredito
+       automatico por score; o detect_fraud_worker_v2 lanca FRAUD_DETECTED a partir daqui). AQUI o
+       veredito e ELIMINADO: typeRef "number"->"integer"; coluna resultado (PROSSEGUIR/veredito-adverso/REVISAR)
+       e coluna risco REMOVIDAS; NAO ha "Fraude detectada", FRAUD_DETECTED, veredito adverso nem ACUSAR. A
+       tabela emite apenas indicador_score (integer, fato de roteamento) + indicador_label + motivo —
+       FATO DE MONTAGEM. Score alto -> indicador de score alto -> intensidade PRIORITARIA em
+       fraude_indicadores -> investigacao humana; NUNCA acusacao. A acusacao SO nasce na User Task
+       humana UT_DecisaoInvestigador. camunda:historyTimeToLive adicionado; namespace -> maezo.health. -->
+  <decision id="risk_thresholds" name="Risk Score Thresholds" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_risk_thresholds" hitPolicy="FIRST">
+      <input id="in_risk_score" label="Risk Score">
+        <inputExpression id="ie_risk_score" typeRef="integer"><text>risk_score</text></inputExpression>
+      </input>
+      <output id="out_indicador_score" label="indicador_score" name="indicador_score" typeRef="integer"/>
+      <output id="out_indicador_label" label="indicador_label" name="indicador_label" typeRef="string"/>
+      <output id="out_motivo" label="motivo" name="motivo" typeRef="string"/>
+      <rule id="r_risk_critical">
+        <description>Pontuacao de risco agregada &gt;= 80 — indicador presente de score alto (montagem; NAO e veredito — inverte o FRAUD_DETECTED/"Fraude detectada" do reference)</description>
+        <inputEntry id="r_risk_critical_i1"><text>&gt;= 80</text></inputEntry>
+        <outputEntry id="r_risk_critical_o1"><text>30</text></outputEntry>
+        <outputEntry id="r_risk_critical_o2"><text>"risk_thresholds_alto"</text></outputEntry>
+        <outputEntry id="r_risk_critical_o3"><text>"Indicador: pontuacao de risco agregada alta (&gt;= 80) — fato de roteamento/montagem que eleva a intensidade da investigacao a humano; NUNCA veredito nem acusacao automatica"</text></outputEntry>
+      </rule>
+      <rule id="r_risk_high">
+        <description>Pontuacao de risco agregada &gt;= 50 — indicador presente</description>
+        <inputEntry id="r_risk_high_i1"><text>&gt;= 50</text></inputEntry>
+        <outputEntry id="r_risk_high_o1"><text>20</text></outputEntry>
+        <outputEntry id="r_risk_high_o2"><text>"risk_thresholds_alto"</text></outputEntry>
+        <outputEntry id="r_risk_high_o3"><text>"Indicador: pontuacao de risco agregada alta (&gt;= 50) — fato de montagem de dossie; decisao final humana"</text></outputEntry>
+      </rule>
+      <rule id="r_risk_medium">
+        <description>Pontuacao de risco agregada &gt;= 30 — indicador moderado</description>
+        <inputEntry id="r_risk_medium_i1"><text>&gt;= 30</text></inputEntry>
+        <outputEntry id="r_risk_medium_o1"><text>10</text></outputEntry>
+        <outputEntry id="r_risk_medium_o2"><text>"risk_thresholds_moderado"</text></outputEntry>
+        <outputEntry id="r_risk_medium_o3"><text>"Indicador moderado: pontuacao de risco agregada media (&gt;= 30) — fato de montagem de dossie"</text></outputEntry>
+      </rule>
+      <rule id="r_risk_low">
+        <description>Pontuacao de risco agregada &lt; 30 — indicador ausente</description>
+        <inputEntry id="r_risk_low_i1"><text>&lt; 30</text></inputEntry>
+        <outputEntry id="r_risk_low_o1"><text>0</text></outputEntry>
+        <outputEntry id="r_risk_low_o2"><text>"none"</text></outputEntry>
+        <outputEntry id="r_risk_low_o3"><text>"Sem indicador agregado: pontuacao de risco agregada baixa (&lt; 30) — fato de montagem de dossie"</text></outputEntry>
+      </rule>
+      <rule id="r_catchall">
+        <description>Catch-all: pontuacao de risco desconhecida — indicador moderado (requer avaliacao na montagem). A tabela alimenta o dossie, nao decide.</description>
+        <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>10</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>"risk_thresholds_indeterminado"</text></outputEntry>
+        <outputEntry id="r_catchall_o3"><text>"Indicador moderado: pontuacao de risco agregada desconhecida — requer avaliacao na montagem do dossie"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

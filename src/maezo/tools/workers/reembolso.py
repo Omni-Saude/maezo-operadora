@@ -17,11 +17,19 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from maezo.tools.workers.base import FunctionWorker, pick_fields
+from maezo.tools.workers.ceilings import CeilingResolver
 
 if TYPE_CHECKING:
     from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
 
 logger = structlog.get_logger(__name__)
+
+# Governance ceiling for reembolso L2 auto-approval (design T1.9 §2.3). The teto VALUE
+# lives in the autonomy matrix (`reembolso_auto_approval.max_value_brl`, L0-core.yaml:24 +
+# tenants-amh.yaml overlay), resolved via the SAME loader the PEP uses. With the D-07
+# placeholder `max_value_brl: 0`, every within-table request routes to ANALISE_HUMANA.
+_CEILING_ACTION = "reembolso_auto_approval"
+_CEILING_PARAM = "max_value_brl"
 
 
 # ---------------------------------------------------------------------------
@@ -207,14 +215,25 @@ def check_coverage(input_data: ReembolsoInput) -> dict[str, Any]:
     return result
 
 
-def calculate_value(input_data: ReembolsoInput) -> ReembolsoCalculoResult:
+def calculate_value(
+    input_data: ReembolsoInput,
+    resolver: CeilingResolver | None = None,
+) -> ReembolsoCalculoResult:
     """Calculate the reimbursement value — DMN reembolso_calculo.
 
     Computes valor_calculado_tabela_cents, dentro_tabela, dentro_teto_l2.
     Pure arithmetic — NEVER decides to pay or deny.
     The DMN says how much would be due; the eventual reduction
     (APROVAR_PARCIAL) is a HUMAN decision.
+
+    ``dentro_teto_l2`` is COMPUTED from the tenant governance ceiling
+    (``reembolso_auto_approval.max_value_brl``) via the CeilingResolver — the inbound
+    ``input_data.dentro_teto_l2`` is NEVER read on this path (design T1.9 §2.3, defect B3).
+    ``resolver`` is injectable for tests; the default resolves the ceiling from the real
+    ``spec/policies/autonomy`` matrix.
     """
+    resolver = resolver if resolver is not None else CeilingResolver()
+
     logger.info(
         "reembolso.calculate_value.start",
         protocolo_reembolso=input_data.protocolo_reembolso,
@@ -231,10 +250,15 @@ def calculate_value(input_data: ReembolsoInput) -> ReembolsoCalculoResult:
     )
 
     dentro_tabela = input_data.valor_solicitado_cents <= valor_calculado
-    dentro_teto = input_data.dentro_teto_l2
-
-    if dentro_tabela and valor_calculado > 0:
-        dentro_teto = True  # Within reasonable range for L2 auto-approval
+    # COMPUTE the ceiling fact from policy — compares the reference-table value (centavos)
+    # against `reembolso_auto_approval.max_value_brl` (per L0-core.yaml:28). Ceiling 0
+    # (D-07) or any config problem => False => the request routes to ANALISE_HUMANA.
+    dentro_teto = resolver.within_l2_ceiling(
+        tenant=input_data.tenant_id,
+        action=_CEILING_ACTION,
+        param=_CEILING_PARAM,
+        value_cents=valor_calculado,
+    )
 
     result = ReembolsoCalculoResult(
         valor_calculado_tabela_cents=valor_calculado,
@@ -513,8 +537,9 @@ def calculate_amount_entry(
 ) -> dict[str, Any]:
     """Dict-boundary entry for `operadora.reembolso.calculate_amount` -> `calculate_value`.
 
-    T1.9: `calculate_value` (unchanged) computes `dentro_teto_l2` from `input_data` — this entry
-    function only marshals `variables` -> `ReembolsoInput`, it never re-derives the ceiling.
+    T1.9 (§2.3): `calculate_value` (unchanged) COMPUTES `dentro_teto_l2` via the CeilingResolver
+    (its `resolver` kwarg defaults to the real one) and never reads the inbound flag — this entry
+    function only marshals `variables` -> `ReembolsoInput`, it never derives the ceiling itself.
     """
     del kafka  # unused — calculate_value emits no domain event
     input_data = ReembolsoInput(**pick_fields(variables, ReembolsoInput))
