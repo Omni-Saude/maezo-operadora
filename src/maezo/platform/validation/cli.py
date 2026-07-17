@@ -12,8 +12,13 @@ Modes:
   un-allowlisted orphan DMN all make this exit non-zero. There is no
   "greenfield" exemption and no warn-then-pass path — spec/ is the single
   source of truth (per ADR) and this gate exists to keep it honest.
-- signoff: NOT YET IMPLEMENTED. See `validate_signoff()` docstring — tracked
-  as T2.2. A green `make validate-signoff` today proves nothing.
+- signoff: parses `**Status:**` out of every `docs/processes/contracts/*.md`
+  contract and requires a valid, current-version, human-approved
+  `docs/processes/contracts/signoffs/<ID>.signoff.yaml` for every FINAL one
+  (delegates to the sibling module `signoff.py`). FAIL-CLOSED: a missing,
+  malformed, mismatched-version, or `needs-changes` signoff each make this
+  exit non-zero — see `signoff.py` for the full rule and its one narrow,
+  visible, auditable grandfather exception.
 
 Each directory passed to `validate` is classified by its *structure*, not by
 name, so this gate does not silently go blind if a path is renamed (e.g.
@@ -31,7 +36,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from . import agent_def, bpmn, crossref, dmn, policy
+from . import agent_def, bpmn, crossref, dmn, policy, signoff
 from .result import Report
 
 
@@ -197,29 +202,49 @@ def validate_artifacts(paths: Sequence[str]) -> int:
 
 
 def validate_signoff(strict: bool = True) -> int:
-    """NOT YET IMPLEMENTED — placeholder only. Tracked as T2.2.
+    """Real, fail-closed sign-off gate for promoted (FINAL) process contracts (T2.2).
 
-    Unlike `validate_artifacts()` (this module), this function is
-    deliberately NOT a real gate: it always returns 0 regardless of the
-    actual state of the repo. A green `make validate-signoff` today proves
-    nothing about whether promoted/FINAL content actually has human
-    sign-off — do not treat it as evidence of that. T2.2 will replace this
-    with a real check of `*.signoff.yaml` metadata against promoted
-    artifacts, wired to docs/review-queue.md.
+    Replaces the pre-T2.2 stub that always returned 0 regardless of repo state
+    (defect B2/B8, signoff side). Delegates to `signoff.validate_signoffs()`,
+    which parses every contract's `**Status:**` line under
+    `docs/processes/contracts/*.md` and requires a valid, current-version,
+    human-`approved` `docs/processes/contracts/signoffs/<ID>.signoff.yaml` for
+    every FINAL one. The sole exception is the narrow, visible, auditable
+    grandfather list at
+    `docs/processes/contracts/signoffs/retro-verification-pending.yaml`,
+    cross-checked against `docs/sme-dispatch/tracker.md` on every run — see
+    `signoff.py` for the exact rules.
 
     Args:
-        strict: Accepted for CLI compatibility; has no effect yet.
+        strict: Accepted for CLI/Makefile interface compatibility. Sign-off
+            enforcement is fail-closed unconditionally — there is no
+            non-strict mode that lets a FINAL contract through without a
+            valid signoff or a checked grandfather entry, so this flag has no
+            effect on the outcome.
 
     Returns:
-        0 always (stub — see docstring above).
+        0 if every FINAL contract has a valid signoff (or a verified
+        grandfather exception), 1 otherwise.
     """
-    print(
-        "[signoff] NOT YET IMPLEMENTED (T2.2) — this call always returns 0 and validates "
-        "nothing; see validate_signoff() in src/maezo/platform/validation/cli.py before relying "
-        "on it as a real gate.",
-        file=sys.stderr,
-    )
-    return 0
+    del strict  # accepted for interface compatibility only; no lenient mode exists
+
+    repo_root = _find_repo_root(Path.cwd())
+    contracts_dir = repo_root / "docs" / "processes" / "contracts"
+    tracker_path = repo_root / "docs" / "sme-dispatch" / "tracker.md"
+
+    report = Report()
+    signoff.validate_signoffs(contracts_dir, tracker_path, report)
+
+    for notice in report.notices:
+        print(f"[signoff] {notice}")
+    for finding in report.findings:
+        print(finding.render())
+
+    if report.ok:
+        print(f"[signoff] OK — 0 errors, {len(report.notices)} notice(s).")
+        return 0
+    print(f"[signoff] FAILED — {len(report.findings)} error(s), {len(report.notices)} notice(s).")
+    return 1
 
 
 def main(argv: Sequence[str] | None = None) -> int:
