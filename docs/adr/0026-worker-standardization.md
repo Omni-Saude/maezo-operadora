@@ -25,14 +25,19 @@ to make all 16 registrable.
     subclasses + the abstract in `base.py:93`).
   - *Function-based* (13 modules): `adequacao, ans_cron, ans_submit, cancel, contas, credenciamento,
     fraude, inadimplencia, nip, pagto, programa, recurso, reembolso`. They expose **module-level free
-    functions**, **~84** of them, with a **uniform signature** `def fn(variables: dict[str, Any]) ->
-    dict[str, Any]` (e.g. `adequacao.py:31,70,124,143,165`; the signature is invariant across the corpus,
-    see the count in "Signature census" below). No topic, no registry, no `WorkerBase`.
-- **Signature census.** The only two call shapes in the corpus are `execute(self, process_vars: dict[str,
-  Any]) -> dict[str, Any]` (×16, class path) and `fn(variables: dict[str, Any]) -> dict[str, Any]` (×~84,
-  function path). The only difference is the parameter **name** (`process_vars` vs `variables`) — both are
-  the same BPMN process-variable dict. This uniformity is the central fact: **one adapter can wrap every
-  function.**
+    functions**. No topic, no registry, no `WorkerBase`.
+- **Signature census (AST-verified — corrects this ADR's first draft, which claimed "~84 uniform
+  `fn(variables: dict)` functions"; that was refuted by R1 verification and re-measured here).**
+  Across the 13 function modules there are **97 module-level `def`s**, of which only **42** take the
+  dict-first shape `fn(variables: dict[str, Any]) -> dict[str, Any]`. The dict-first modules are
+  `adequacao` (5/5), `credenciamento` (6/6), `fraude` (10/10), `inadimplencia` (7/7), `pagto` (6/6),
+  `programa` (6/6), `ans_cron` (2/3). **Six modules have ZERO dict-first functions** — `ans_submit` (0/6),
+  `cancel` (0/9), `contas` (0/12), `nip` (0/10), `recurso` (0/8), `reembolso` (0/9): they use **typed
+  dataclass I/O**, e.g. `validate_recurso(input_data: RecursoInput) -> RecursoValidationResult`
+  (`recurso.py:122`), with no existing from-dict/to-dict marshalling helpers. The class path is uniform:
+  `execute(self, process_vars: dict[str, Any]) -> dict[str, Any]` ×16 (15 subclasses + the abstract,
+  `base.py:93`). Consequence: **one adapter class can front every module, but it cannot *directly* wrap
+  the six typed-I/O modules** — those need explicit dict-boundary entry functions (Decisao §2b).
 - **Heterogeneous error classes (20 across the modules).** Guard/authorization errors subclass
   `PermissionError` (`AnsSubmitNotHumanError`, `CancellationNotHumanError`, `NipNegativaNotHumanError`,
   `ReembolsoDenialNotHumanError`, `DesistenciaNotHumanError`, `GlosaAcceptNotHumanError`,
@@ -61,33 +66,36 @@ its workers are **async closures** `async def handler(task: ExternalTask) -> Map
 `make_*_handler(...)` factories and registered by topic via `register_<name>_workers(harness, kafka)`;
 retry lived in the harness (tenacity) and metrics in the harness (`_emit_worker_task_outcome`), **not** in
 the worker (v1 `tools/workers/harness.py`, `service.py`). v2, by contrast, invented `WorkerBase` +
-`WorkerRegistry` and wrote its workers as **sync** units — 15 `WorkerBase` subclasses and ~84 sync
-`fn(variables)->dict` functions. So there are effectively **three** shapes in play (v1 async closures; v2
+`WorkerRegistry` and wrote its workers as **sync** units — 15 `WorkerBase` subclasses and 97 sync
+module-level functions (42 dict-first, the rest typed-dataclass I/O — see census). So there are
+effectively **three** shapes in play (v1 async closures; v2
 sync classes; v2 sync functions), and any decision must be honest that "port v1" and "keep v2" pull in
 different directions. This ADR decides the **v2 worker→registry** binding; the **runtime-spine** surface
 (`WorkerHarness`/`CibSevenWorkerTransport`/`register_*_workers` names) is preserved separately by the T1.1
 design §16 so T3.1 fixtures port regardless of which option below is chosen.
 
 **The tension.** We need all 16 registrable (retry/metrics, dead registry removed) **without** rewriting
-the ~84 functions and their tests, while (a) not discarding v2's 15 `WorkerBase` subclasses and their ~39
+the 97 functions and their tests, while (a) not discarding v2's 15 `WorkerBase` subclasses and their ~39
 passing `worker.run()` tests, and (b) preserving the fixture-port path for T3.1 (v1's `register_<name>_workers`
 bootstrap names — T1.1 §16).
 
 **Alternatives considered (four real options).**
 
-- **(A) Subclassing** — turn each free function into a `WorkerBase` subclass. ~84 new trivial classes
+- **(A) Subclassing** — turn each external-task-backing free function into a `WorkerBase` subclass —
+  up to ~97 new trivial classes
   (or fewer classes multiplexing several topics through one `execute`, which breaks WorkerBase's
   one-topic/one-execute contract). Deletes/duplicates the free functions → rewrites ~13 function-test
   modules that import and call them, and orphans the result dataclasses' call sites. Maximum churn on the
   money/PHI paths (R3-forbidden territory), maximum risk.
-- **(B) Adapter (RECOMMENDED)** — one `FunctionWorker(WorkerBase)` that wraps `(topic, callable)`; each
-  module gains a small `register_<domain>_workers(registry)` bootstrap. The free functions and their tests
-  are **untouched**; the 15 subclasses and their tests are **untouched**; registry/retry/metrics are added
-  *on top*.
+- **(B) Adapter (RECOMMENDED)** — one `FunctionWorker(WorkerBase)` that wraps `(topic, dict-boundary
+  callable)`; each module gains a small `register_<domain>_workers(harness, kafka)` bootstrap (donor
+  contract, see Decisao §2/§4). The 42 dict-first functions wrap directly; the six typed-I/O modules get
+  thin **dict-boundary entry functions** (Decisao §2b) so their typed internals and tests stay untouched.
+  The 15 subclasses and their tests are **untouched**; registry/retry/metrics are added *on top*.
 - **(C) Adopt v1's async-closure + `register_*` model wholesale** — rewrite all 16 v2 modules into async
   `handler(task)` closures, register via `harness.register(topic, handler)`, and get retry/metrics from the
   **harness** (as v1 does) rather than `WorkerBase`. **Maximizes T3.1 fixture fidelity at the *worker
-  internals* level**, but: (i) requires rewriting **all 16** v2 modules (the ~84 sync functions **and** the
+  internals* level**, but: (i) requires rewriting **all 16** v2 modules (the 97 sync functions **and** the
   15 subclasses) into async closures — the exact mass churn on money/PHI paths this task exists to avoid;
   (ii) **breaks** the v2 function tests (they call `fn(variables)` sync, not `await handler(task)`) **and**
   the ~39 class tests (they call `worker.run()`); (iii) discards v2's `WorkerBase`/`WorkerRegistry`
@@ -131,41 +139,78 @@ spine), while keeping v2's per-worker metric labels.
    durable retry** (T1.1 design §9); in-process retry is opt-in per worker for provably-idempotent
    transient faults only.
 
-2. **Per-module bootstrap** — each of the 13 function modules gains
-   `def register_<domain>_workers(registry: WorkerRegistry) -> None` that maps its BPMN external-task
-   topics → `FunctionWorker(topic, fn)`:
+2. **Per-module bootstrap — ONE contract, the donor's** (this reconciles the R3-flagged contradiction
+   with T1.1 §16.1; the earlier `(registry)`-only spelling is superseded):
+   ```python
+   def register_<domain>_workers(harness: WorkerHarness,
+                                 kafka: KafkaPublisher | None = None,
+                                 **seams: Any) -> None
+   ```
+   The harness **owns** a `WorkerRegistry` and exposes `register_worker(worker: WorkerBase) -> None`,
+   which delegates to `registry.register(worker.topic, worker)`; `fetchAndLock` topics =
+   `registry.list_topics()`. **Kafka wiring is explicit:** workers never reach for a global producer —
+   the bootstrap closes the `KafkaPublisher` (or `FakeKafkaPublisher` in tests) over the wrapped callable
+   at wrap time (`functools.partial(entry_fn, kafka=kafka)`); a module with no domain events ignores the
+   parameter. Other seams (`audit=`, `dmn=`, `dispatcher=`, `erasure=` — mirroring the donor's bootstrap
+   kwargs) pass the same way.
+
+   **2a. Dict-first modules (7 — 42 functions):** wrap directly.
    ```python
    # adequacao.py
-   def register_adequacao_workers(registry: WorkerRegistry) -> None:
-       registry.register("operadora.adequacao.measure_gap", FunctionWorker("operadora.adequacao.measure_gap", measure_gap))
-       registry.register("operadora.adequacao.route_remediation", FunctionWorker(..., route_remediation))
+   def register_adequacao_workers(harness: WorkerHarness, kafka: KafkaPublisher | None = None) -> None:
+       harness.register_worker(FunctionWorker("operadora.adequacao.measure_gap", measure_gap))
+       harness.register_worker(FunctionWorker("operadora.adequacao.route_remediation", route_remediation))
        ...  # register_fallback_commitment is the L0-guarded topic (adequacao.py:165-206)
    ```
+
+   **2b. Typed-I/O modules (6 — `ans_submit, cancel, contas, nip, recurso, reembolso`; zero dict-first
+   functions):** each external-task topic gets a thin, module-local **dict-boundary entry function** that
+   does the marshalling — the typed function itself is **not modified**:
+   ```python
+   # recurso.py — NEW entry fn per external-task topic (typed internals untouched)
+   def validate_recurso_entry(variables: dict[str, Any], *,
+                              kafka: KafkaPublisher | None = None) -> dict[str, Any]:
+       input_data = RecursoInput(**_pick(variables, RecursoInput))   # fail-closed: unknown/missing
+       result = validate_recurso(input_data)                          # -> RecursoValidationResult
+       return dataclasses.asdict(result)                              # dict back to process vars
+   ```
+   Marshalling rules (fail-closed): inbound `variables` → typed input dataclass with **explicit** field
+   selection; a missing/invalid required field raises the module's own `*Invalido*Error` (never a silent
+   default on a guarded path); outbound typed result → `dataclasses.asdict` (flat dicts; nested
+   dataclasses serialize to `Json` vars via the transport's `_to_camunda_var`, T1.1 §5). One entry
+   function per external-task topic in those modules — bounded by the spec topic list, not by the 54
+   internal functions. The bootstrap then wraps: `harness.register_worker(FunctionWorker(topic,
+   functools.partial(validate_recurso_entry, kafka=kafka)))`.
+
    Topics come from `spec/` (BPMN external-task `topicName`), **not** a hand-list — the registry is
    validated against the spec at readiness (T1.1 §12, fail-closed: a spec topic with no worker → not
    ready). Helper functions (non-external-task funcs) are simply not registered.
 
-3. **Class modules** register directly: `register_<domain>_workers(registry)` calls
-   `registry.register(worker.topic, worker())` for each of the 15 subclasses (they already are
-   `WorkerBase`).
+3. **Class modules** register directly: `register_<domain>_workers(harness, kafka=None)` calls
+   `harness.register_worker(worker())` for each of the 15 subclasses (they already are `WorkerBase`).
 
-4. **`register_all_workers(registry)`** composes all 16 module bootstraps (mirrors the donor's
-   `_register_all_workers`, T1.1 §16). The runtime daemon calls it in boot step B; `fetchAndLock` topics =
-   `registry.list_topics()`.
+4. **`register_all_workers(harness, kafka, **seams)`** composes all 16 module bootstraps (the donor's
+   `_register_all_workers` shape, T1.1 §16). The runtime daemon calls it in boot step B.
 
 5. **Error → engine-outcome classifier** (lives once, in the dispatcher, consumed via a small
    `classify_worker_error(exc)` helper next to `FunctionWorker`): guard errors (`ERR_*_NOT_HUMAN`
-   constants; `*NotHumanError(PermissionError)`) → **`bpmnError`, never retried** (retrying an L0 guard
-   could drive an adverse action — forbidden, ADR-0008); `ValueError`-family → `bpmnError` or
-   `failure(retries=0)` per topic (T1.1 open Q-3); transient (`RuntimeError`/IO/`*RetryEsgotado*`) →
-   `failure(retries=task.retries-1, retryTimeout=backoff)` (engine-side retry → incident at 0). This keeps
-   the mapping in **one** place instead of scattered across 13 modules.
+   constants; `*NotHumanError(PermissionError)`) → **`failure(retries=0)` → engine incident, never
+   retried** (engine-guaranteed fail-closed; retrying an L0 guard could drive an adverse action —
+   forbidden, ADR-0008). `bpmnError` is a **per-code opt-in** allowed only where the T1.1 §9
+   boundary-proof gate shows a matching error boundary in every consuming BPMN — an *unmodeled*
+   `bpmnError` silently **ends the process with no incident** (live-proven on CIB Seven 2.1.0), which is
+   exactly the silent-drop failure mode L0 forbids. `ValueError`-family → `failure(retries=0)` by
+   default, `bpmnError` only if gate-proven (T1.1 open Q-3); transient (`RuntimeError`/IO/
+   `*RetryEsgotado*`) → `failure(retries=task.retries-1, retryTimeout=backoff)` (engine-side retry →
+   incident at 0). This keeps the mapping in **one** place instead of scattered across 13 modules.
 
-**Why adapter wins (grounded):** one new class + 16 tiny bootstraps vs ~84 new subclasses; the ~84
-functions and their unit tests stay **untouched** (they keep importing and calling the function — logic
-coverage preserved) while the adapter adds registry/retry/metrics coverage on top; result dataclasses keep
-their call sites; the guard-error mapping is centralized and fail-closed; and the `register_*_workers`
-bootstrap names line up with the v1 donor so T3.1 fixtures port with adaptation only (T1.1 §16).
+**Why adapter wins (grounded):** one new class + 16 tiny bootstraps + ~a-dozen-per-module entry functions
+for the six typed-I/O modules, vs ~97 new subclasses; the 97 functions and their unit tests stay
+**untouched** (they keep importing and calling the function — logic coverage preserved) while the adapter
+adds registry/retry/metrics coverage on top; result dataclasses keep their call sites (the entry functions
+*consume* them rather than replace them); the guard-error mapping is centralized and fail-closed; and the
+`register_*_workers(harness, kafka)` bootstrap contract is the donor's own, so T3.1 fixtures port with
+adaptation only (T1.1 §16).
 
 ## Consequencias
 
@@ -195,11 +240,17 @@ bootstrap names line up with the v1 donor so T3.1 fixtures port with adaptation 
   functions directly — proves business logic, untouched by this ADR.
 - **New — adapter:** `FunctionWorker` wrapping test — assert `run()` calls the wrapped `fn`, returns its
   dict, and emits `record_worker_execution`/`record_worker_error` with the right `{worker,topic}` labels.
-- **New — registry coverage (fail-closed):** `register_all_workers(registry)` then assert
-  `registry.count()` == expected and `set(registry.list_topics())` ⊇ the spec's external-task topics; a
-  spec topic with **no** worker → test **fails** (kills "dead registry" regressions).
-- **New — error classifier:** guard error → `bpmnError` outcome, asserted **never retried**; `ValueError`
-  → configured outcome; transient → `failure` with `retries=task.retries-1`.
+- **New — dict-boundary entry functions (typed-I/O modules):** per entry fn, assert round-trip
+  `variables → typed input → typed result → dict` equals calling the typed function directly; assert a
+  missing/invalid required field raises the module's `*Invalido*Error` (fail-closed marshalling, never a
+  silent default on a guarded path).
+- **New — registry coverage (fail-closed):** `register_all_workers(harness, kafka=FakeKafkaPublisher())`
+  then assert `registry.count()` == expected and `set(registry.list_topics())` ⊇ the spec's external-task
+  topics; a spec topic with **no** worker → test **fails** (kills "dead registry" regressions).
+- **New — error classifier:** guard error → **`failure(retries=0)`** outcome (engine incident), asserted
+  **never retried** and **never** an unproven `bpmnError`; a gate-proven code → `bpmnError`; an unproven
+  `WorkerBpmnError` code demotes to `failure(retries=0)` (and fails the CI boundary-proof gate, T1.1 §9);
+  `ValueError` → configured outcome; transient → `failure` with `retries=task.retries-1`.
 - **Integration (T3.1):** one real-engine task per topic → worker executes → complete/failure/incident.
 
 ## Supersedes
