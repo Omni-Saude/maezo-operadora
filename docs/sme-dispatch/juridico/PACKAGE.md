@@ -147,12 +147,14 @@ package does not resolve that; it is T2.5's systematic sweep, and this ask compl
 - **Contract:** `docs/processes/contracts/SP-OP-FRAUDE-001.md`
 - **BPMN:** `spec/processes/bpmn/SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn`
 - **DMN:** `spec/processes/dmn/fraude_indicadores.dmn`, `fraude_routing.dmn`, `fraude_sla.dmn` (the
-  7 reference scoring DMNs are **ported, wiring pending** — T2.7 artifact phase, no longer "não
-  portado"; now real files under `spec/processes/dmn/{upcoding_complexity_ceiling,
+  7 scoring DMNs are **ported, wiring pending** — T2.7 artifact phase, no longer "não portado";
+  now real files under `spec/processes/dmn/{upcoding_complexity_ceiling,
   unbundling_partial_bundles,phantom_no_diagnosis,phantom_suspicious_prefix,
-  frequency_zscore_threshold,provider_peer_deviation,risk_thresholds}.dmn`, orphan-allowlisted
+  frequency_zscore_threshold,provider_peer_deviation,risk_thresholds}.dmn`, ported 1:1 from the
+  v1 donor `Maezo-Healthcare-Plan src/maezo/processes/dmn/fraude_scoring/` (already-inverted:
+  `indicador_score`/`indicador_label`/`motivo` outputs, no verdict column), orphan-allowlisted
   pending `operadora.fraude.score_indicators` wiring (T2.7 phase 2, after T1.4) — see
-  `../medico-auditor/PACKAGE.md` and the T2.7 PR body for the full divergence list).
+  `../medico-auditor/PACKAGE.md`).
 - **Review questions:**
   1. **Critical open question the contract itself flags:** does `decisao_fraude=ACUSAR_FRAUDE`
      (the investigator's act) constitute `fraud_accusation` by itself, or is the accusation the

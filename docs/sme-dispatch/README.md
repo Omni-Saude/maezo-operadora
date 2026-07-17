@@ -63,20 +63,21 @@ Where a contract names a DMN that has no corresponding file in `spec/processes/d
 says so explicitly (e.g. "não portado" or "build gap — no file found") instead of inventing a path.
 Known cases:
 
-- **FRAUDE-001's 7 reference-scoring DMNs** (`upcoding_complexity_ceiling`,
+- **FRAUDE-001's 7 fraud-scoring DMNs** (`upcoding_complexity_ceiling`,
   `unbundling_partial_bundles`, `phantom_no_diagnosis`, `phantom_suspicious_prefix`,
   `frequency_zscore_threshold`, `provider_peer_deviation`, `risk_thresholds`) were named in the
-  contract's "inverte o anti-padrão" section as DMNs to be **ported** (copied, adapted, and
-  corrected from `number` to `integer`/`double` typing per field) from the read-only reference
-  repo. As of T2.7 (artifact phase) they now exist byte-faithful under `spec/processes/dmn/` (one
-  `.dmn` file per name above). They are **ported, wiring pending** — no longer "não portado" — in
+  contract's "inverte o anti-padrão" section as DMNs to be **ported**. As of T2.7 (artifact
+  phase) they now exist under `spec/processes/dmn/` (one `.dmn` file per name above), ported 1:1
+  (decision logic byte-faithful) from the v1 donor
+  `Maezo-Healthcare-Plan src/maezo/processes/dmn/fraude_scoring/` (commit 1ba8cb8) — the donor's
+  already-inverted tables (outputs `indicador_score:integer`/`indicador_label`/`motivo` only, no
+  verdict/blocking column; the reference repo's verdict-output originals are the anti-pattern the
+  contract forbids porting). They are **ported, wiring pending** — no longer "não portado" — in
   the médico-auditor and jurídico packages: each is a deliberate orphan
   (`spec/processes/dmn/orphans-allowlist.yaml`, justification "pending fraud-scoring wiring — T2.7
   phase 2 after T1.4") until `operadora.fraude.score_indicators` is wired (T2.7 phase 2, after the
-  T1.4 DMN-evaluation ADR lands); content is unreviewed and flagged for SME
-  (médico-auditor/finanças) sign-off before that wiring — see the T2.7 PR body for reported
-  divergences between the ported tables, the contract's L0-hard no-blocking-output invariant, and
-  the v1 donor worker's actual call signatures.
+  T1.4 DMN-evaluation ADR lands); the synthetic scores/thresholds are unreviewed and flagged for
+  SME (médico-auditor/finanças) sign-off before that wiring.
 - **REEMBOLSO-001** cites DMNs `reembolso_admissibility` and `reembolso_auto_approval`; only
   `reembolso_coverage.dmn`, `reembolso_calculo.dmn`, and `reembolso_sla.dmn` exist in
   `spec/processes/dmn/`. `reembolso_coverage.dmn` is the likely renamed artifact for

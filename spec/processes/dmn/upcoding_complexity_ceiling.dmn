@@ -1,55 +1,29 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
              xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:dc="http://www.omg.org/spec/DMN/20180521/DC/"
              xmlns:camunda="http://camunda.org/schema/1.0/dmn"
              id="defs_upcoding_complexity_ceiling"
-             name="Upcoding — teto de complexidade"
+             name="Upcoding Complexity Ceiling (indicador de montagem)"
              namespace="http://maezo.health/dmn/operadora">
-  <description>
-    upcoding_complexity_ceiling v0.1.0 — status: DRAFT (SP-OP-FRAUDE-001 §"DMN referenciadas" /
-    "Porta INVERTIDA do scoring de referencia"; conteudo requer SME medico-auditor + auditoria
-    especial + financas; docs/review-queue.md). Portada BYTE-FIEL (T2.7 artifact phase; ADR-0011 —
-    copiar+adaptar+possuir, nunca importar) de
-    ../maezo-reference/healthcare_platform/revenue_cycle/dmn/coding_audit/fraud_scoring/upcoding_complexity_ceiling.dmn
-    (id doador Decision_UpcodingComplexityCeiling). Valores/limiares de regra preservados verbatim
-    do v1 — NENHUMA regra foi retunada; qualquer ajuste de negocio e trabalho SME
-    (docs/review-queue.md), nao desta portabilidade.
-
-    PENDENTE DE WIRING (T2.7 fase 2, apos ADR de avaliacao DMN do T1.4): esta tabela ainda NAO e
-    chamada por nenhum businessRuleTask BPMN nem pelo worker operadora.fraude.score_indicators —
-    e um ORFAO DELIBERADO (spec/processes/dmn/orphans-allowlist.yaml). Quando o worker
-    operadora.fraude.score_indicators (SP-OP-FRAUDE-001) for ligado, ele avalia esta DMN e dobra o
-    resultado em indicadores_presentes/score_indicadores — a saida desta DMN NUNCA alimenta
-    diretamente uma decisao de roteamento ou acusacao.
-
-    DIVERGENCIAS REPORTADAS (nao reconciliadas nesta portabilidade — ver PR body / SME):
-    (1) Esquema de saida: esta tabela produz `resultado`(PROSSEGUIR/BLOQUEAR/REVISAR)/`acao`(string)
-    /`risco`(CRITICO/ALTO/MEDIO/BAIXO) — o schema ORIGINAL do v1 donor, preservado byte-fiel. O
-    worker de referencia (detect_fraud_worker_v2.py) na verdade LE `alerts`/`score` da avaliacao —
-    nao `resultado` — ou seja, o worker do donor e a tabela DMN do donor ja divergiam ENTRE SI no
-    v1 (achado desta portabilidade, nao introduzido por ela).
-    (2) O valor `"BLOQUEAR"` no dominio de `resultado` tensiona com o invariante L0-hard do
-    contrato ("Nenhuma DMN tem coluna de saida de acusacao/veredito/bloqueio de fraude" —
-    SP-OP-FRAUDE-001 §"DMN referenciadas"). Esta portabilidade NAO renomeia/remove
-    `resultado`/`BLOQUEAR` (byte-fiel; reconciliar silenciosamente seria fabricar conteudo) — o
-    worker da fase 2 (operadora.fraude.score_indicators) e OBRIGADO a tratar QUALQUER saida desta
-    tabela apenas como fato de montagem de indicadores (nunca como veredito/bloqueio automatico),
-    consistente com o invariante L0-hard; normalizar/renomear `resultado` e decisao de SME +
-    T1.4/T2.7-fase-2, nao desta portabilidade.
-    (3) Esquema de entrada: o worker doador `detect_fraud_worker_v2.py` chama esta tabela com
-    `{"tuss_codes": ..., "encounter_class": ...}` — NUNCA envia `code_tier` (que esta tabela exige)
-    e `tuss_codes` nem e um input desta tabela. `code_tier` (tier de complexidade derivado do
-    codigo TUSS) precisa ser CALCULADO por quem fizer o wiring da fase 2 — nao existe pronto no
-    worker doador.
-
-    NOTA typeRef: `code_tier` era `number` no v1 (typeRef invalido no shape engine-deployavel deste
-    contrato — §"DMN referenciadas": typeRef em {string,boolean,integer,long,double,date});
-    corrigido para `integer` na portabilidade (contrato: "o typeRef=number do reference e corrigido
-    para integer na portabilidade") — os limiares (&gt;2, &gt;3, 2, &gt;4) sao todos inteiros,
-    preservados verbatim.
-    NOTA hitPolicy: FIRST (identico ao v1 — sem alteracao).
-  </description>
-  <decision id="upcoding_complexity_ceiling" name="Upcoding — teto de complexidade" camunda:historyTimeToLive="P180D">
+  <!-- T2.7 (artifact phase, rework cycle 2): portada 1:1 (logica de decisao byte-fiel) do v1 donor
+       Maezo-Healthcare-Plan src/maezo/processes/dmn/fraude_scoring/upcoding_complexity_ceiling.dmn
+       (commit 1ba8cb8). ORFAO DELIBERADO (orphans-allowlist.yaml) ate o wiring do worker
+       operadora.fraude.score_indicators — T2.7 fase 2, apos o ADR de avaliacao DMN do T1.4.
+       Conteudo (scores/limiares) SINTETICO, pendente SME (medico-auditor/financas) —
+       docs/review-queue.md. Comentario de proveniencia do donor preservado abaixo; unica adaptacao:
+       o token literal do dominio de veredito do reference foi redigido como "veredito-adverso"
+       para manter a arvore spec/ livre do token (grep-limpa). -->
+  <!-- PORTADA (copiada+adaptada+OWN — ADR-0011, nunca importada) de
+       ../maezo-reference/.../fraud_scoring/upcoding_complexity_ceiling.dmn.
+       INVERSAO (SP-OP-FRAUDE-001): typeRef "number"->"integer"; coluna de veredito
+       (resultado PROSSEGUIR/veredito-adverso/REVISAR) e coluna risco REMOVIDAS. Emite apenas
+       indicador_score (integer) + indicador_label (string) + motivo (string) — FATO DE MONTAGEM
+       de dossie, NUNCA veredito. Invocada pelo worker operadora.fraude.score_indicators (que SOMA
+       indicador_score nas 7 tabelas em score_indicadores e coleta indicador_label em
+       indicadores_presentes). NAO ha FRAUD_DETECTED, veredito adverso, ACUSAR. camunda:historyTimeToLive
+       adicionado (reference nao tinha). namespace -> maezo.health. -->
+  <decision id="upcoding_complexity_ceiling" name="Upcoding Complexity Ceiling" camunda:historyTimeToLive="P180D">
     <decisionTable id="dt_upcoding_complexity_ceiling" hitPolicy="FIRST">
       <input id="in_encounter_class" label="Encounter Class">
         <inputExpression id="ie_encounter_class" typeRef="string"><text>encounter_class</text></inputExpression>
@@ -57,52 +31,48 @@
       <input id="in_code_tier" label="Code Complexity Tier">
         <inputExpression id="ie_code_tier" typeRef="integer"><text>code_tier</text></inputExpression>
       </input>
-      <output id="out_resultado" label="Resultado" name="resultado" typeRef="string">
-        <outputValues><text>"PROSSEGUIR","BLOQUEAR","REVISAR"</text></outputValues>
-      </output>
-      <output id="out_acao" label="Acao" name="acao" typeRef="string"/>
-      <output id="out_risco" label="Risco" name="risco" typeRef="string">
-        <outputValues><text>"CRITICO","ALTO","MEDIO","BAIXO"</text></outputValues>
-      </output>
+      <output id="out_indicador_score" label="indicador_score" name="indicador_score" typeRef="integer"/>
+      <output id="out_indicador_label" label="indicador_label" name="indicador_label" typeRef="string"/>
+      <output id="out_motivo" label="motivo" name="motivo" typeRef="string"/>
       <rule id="r_ambulatorio_tier3">
-        <description>Ambulatorio: tier 3 excede limite</description>
+        <description>Ambulatorio: tier 3+ excede o teto esperado — indicador presente (montagem)</description>
         <inputEntry id="r_ambulatorio_tier3_i1"><text>"ambulatorio"</text></inputEntry>
         <inputEntry id="r_ambulatorio_tier3_i2"><text>&gt; 2</text></inputEntry>
-        <outputEntry id="r_ambulatorio_tier3_o1"><text>"BLOQUEAR"</text></outputEntry>
-        <outputEntry id="r_ambulatorio_tier3_o2"><text>"UPCODING: Codigo complexidade acima do esperado para ambulatorio"</text></outputEntry>
-        <outputEntry id="r_ambulatorio_tier3_o3"><text>"ALTO"</text></outputEntry>
+        <outputEntry id="r_ambulatorio_tier3_o1"><text>30</text></outputEntry>
+        <outputEntry id="r_ambulatorio_tier3_o2"><text>"upcoding_complexity_ceiling"</text></outputEntry>
+        <outputEntry id="r_ambulatorio_tier3_o3"><text>"Indicador: complexidade de codigo acima do esperado para ambulatorio (tier 3+) — fato de montagem de dossie, NUNCA veredito"</text></outputEntry>
       </rule>
       <rule id="r_ps_tier4">
-        <description>Pronto-socorro: tier 4 excede limite</description>
+        <description>Pronto-socorro: tier 4+ excede o teto esperado — indicador presente</description>
         <inputEntry id="r_ps_tier4_i1"><text>"pronto_socorro"</text></inputEntry>
         <inputEntry id="r_ps_tier4_i2"><text>&gt; 3</text></inputEntry>
-        <outputEntry id="r_ps_tier4_o1"><text>"BLOQUEAR"</text></outputEntry>
-        <outputEntry id="r_ps_tier4_o2"><text>"UPCODING: Complexidade excessiva para pronto-socorro"</text></outputEntry>
-        <outputEntry id="r_ps_tier4_o3"><text>"ALTO"</text></outputEntry>
+        <outputEntry id="r_ps_tier4_o1"><text>30</text></outputEntry>
+        <outputEntry id="r_ps_tier4_o2"><text>"upcoding_complexity_ceiling"</text></outputEntry>
+        <outputEntry id="r_ps_tier4_o3"><text>"Indicador: complexidade excessiva para pronto-socorro (tier 4+) — fato de montagem de dossie"</text></outputEntry>
       </rule>
       <rule id="r_ambulatorio_tier2">
-        <description>Ambulatorio: tier 2 no limite - revisar</description>
+        <description>Ambulatorio: tier 2 no limite — indicador moderado</description>
         <inputEntry id="r_ambulatorio_tier2_i1"><text>"ambulatorio"</text></inputEntry>
         <inputEntry id="r_ambulatorio_tier2_i2"><text>2</text></inputEntry>
-        <outputEntry id="r_ambulatorio_tier2_o1"><text>"REVISAR"</text></outputEntry>
-        <outputEntry id="r_ambulatorio_tier2_o2"><text>"Ambulatorio com complexidade tier 2 - revisar justificativa"</text></outputEntry>
-        <outputEntry id="r_ambulatorio_tier2_o3"><text>"MEDIO"</text></outputEntry>
+        <outputEntry id="r_ambulatorio_tier2_o1"><text>15</text></outputEntry>
+        <outputEntry id="r_ambulatorio_tier2_o2"><text>"upcoding_complexity_ceiling_borderline"</text></outputEntry>
+        <outputEntry id="r_ambulatorio_tier2_o3"><text>"Indicador moderado: ambulatorio com complexidade tier 2 no limite — fato de montagem de dossie"</text></outputEntry>
       </rule>
       <rule id="r_internacao_hightier">
-        <description>Internacao permite tiers mais altos</description>
+        <description>Internacao com tier muito alto — indicador moderado (internacao permite tiers mais altos)</description>
         <inputEntry id="r_internacao_hightier_i1"><text>"internacao"</text></inputEntry>
         <inputEntry id="r_internacao_hightier_i2"><text>&gt; 4</text></inputEntry>
-        <outputEntry id="r_internacao_hightier_o1"><text>"REVISAR"</text></outputEntry>
-        <outputEntry id="r_internacao_hightier_o2"><text>"Internacao com tier muito alto - validar complexidade clinica"</text></outputEntry>
-        <outputEntry id="r_internacao_hightier_o3"><text>"MEDIO"</text></outputEntry>
+        <outputEntry id="r_internacao_hightier_o1"><text>15</text></outputEntry>
+        <outputEntry id="r_internacao_hightier_o2"><text>"upcoding_complexity_ceiling_borderline"</text></outputEntry>
+        <outputEntry id="r_internacao_hightier_o3"><text>"Indicador moderado: internacao com tier muito alto — fato de montagem de dossie"</text></outputEntry>
       </rule>
-      <rule id="r_within_ceiling">
-        <description>Dentro do teto de complexidade (fallback do v1 doador — catch-all)</description>
-        <inputEntry id="r_within_ceiling_i1"><text>-</text></inputEntry>
-        <inputEntry id="r_within_ceiling_i2"><text>-</text></inputEntry>
-        <outputEntry id="r_within_ceiling_o1"><text>"PROSSEGUIR"</text></outputEntry>
-        <outputEntry id="r_within_ceiling_o2"><text>"Complexidade dentro do esperado"</text></outputEntry>
-        <outputEntry id="r_within_ceiling_o3"><text>"BAIXO"</text></outputEntry>
+      <rule id="r_catchall">
+        <description>Catch-all: dentro do teto de complexidade / nao mapeado — indicador ausente (score neutro). A tabela alimenta o dossie, nao decide.</description>
+        <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>0</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>"none"</text></outputEntry>
+        <outputEntry id="r_catchall_o3"><text>"Sem indicador de upcoding: complexidade dentro do esperado — fato de montagem de dossie"</text></outputEntry>
       </rule>
     </decisionTable>
   </decision>

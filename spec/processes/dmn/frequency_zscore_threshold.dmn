@@ -1,110 +1,73 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
              xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:dc="http://www.omg.org/spec/DMN/20180521/DC/"
              xmlns:camunda="http://camunda.org/schema/1.0/dmn"
              id="defs_frequency_zscore_threshold"
-             name="Frequencia — limiar de z-score"
+             name="Frequency Z-Score Threshold (indicador de montagem)"
              namespace="http://maezo.health/dmn/operadora">
-  <description>
-    frequency_zscore_threshold v0.1.0 — status: DRAFT (SP-OP-FRAUDE-001 §"DMN referenciadas" /
-    "Porta INVERTIDA do scoring de referencia"; conteudo requer SME medico-auditor + auditoria
-    especial + financas; docs/review-queue.md). Portada BYTE-FIEL (T2.7 artifact phase; ADR-0011 —
-    copiar+adaptar+possuir, nunca importar) de
-    ../maezo-reference/healthcare_platform/revenue_cycle/dmn/coding_audit/fraud_scoring/frequency_zscore_threshold.dmn
-    (id doador Decision_FrequencyZscoreThreshold). Valores/limiares de regra preservados verbatim
-    do v1 — NENHUMA regra foi retunada; qualquer ajuste de negocio e trabalho SME
-    (docs/review-queue.md), nao desta portabilidade.
-
-    PENDENTE DE WIRING (T2.7 fase 2, apos ADR de avaliacao DMN do T1.4): esta tabela ainda NAO e
-    chamada por nenhum businessRuleTask BPMN nem pelo worker operadora.fraude.score_indicators —
-    e um ORFAO DELIBERADO (spec/processes/dmn/orphans-allowlist.yaml). Quando o worker
-    operadora.fraude.score_indicators (SP-OP-FRAUDE-001) for ligado, ele avalia esta DMN e dobra o
-    resultado em indicadores_presentes/score_indicadores — a saida desta DMN NUNCA alimenta
-    diretamente uma decisao de roteamento ou acusacao.
-
-    DIVERGENCIAS REPORTADAS (nao reconciliadas nesta portabilidade — ver PR body / SME):
-    (1) Esquema de saida: esta tabela produz `resultado`(PROSSEGUIR/BLOQUEAR/REVISAR)/`acao`(string)
-    /`risco`(CRITICO/ALTO/MEDIO/BAIXO) — o schema ORIGINAL do v1 donor, preservado byte-fiel. O
-    worker de referencia (detect_fraud_worker_v2.py) na verdade LE `alerts`/`score` da avaliacao —
-    nao `resultado` — divergencia doador-worker-vs-doador-DMN ja existente no v1 (achado desta
-    portabilidade, nao introduzido por ela).
-    (2) O valor `"BLOQUEAR"` no dominio de `resultado` — ATINGIDO pela Rule_ZscoreCritical (z &gt;
-    3) — tensiona diretamente com o invariante L0-hard do contrato ("Nenhuma DMN tem coluna de
-    saida de acusacao/veredito/bloqueio de fraude" — SP-OP-FRAUDE-001 §"DMN referenciadas").
-    Preservado byte-fiel; o worker da fase 2 (operadora.fraude.score_indicators) e OBRIGADO a
-    tratar `resultado="BLOQUEAR"` apenas como fato de montagem de indicadores — L0-hard.
-    (3) Esquema de entrada: o worker doador `detect_fraud_worker_v2.py` chama esta tabela com
-    `{"tuss_count": len(inp.validated_tuss), "encounter_class": inp.encounter_class}` — esta
-    tabela exige `z_score` (um DESVIO ESTATISTICO em relacao a uma linha de base historica), que o
-    worker doador NUNCA calcula (so envia a contagem bruta `tuss_count`). Quem fizer o wiring da
-    fase 2 precisa computar `z_score` a partir de `tuss_count` vs. uma baseline (feature store —
-    `feature_snapshot_ref` do contrato SP-OP-FRAUDE-001) — nao existe pronto no worker doador.
-
-    NOTA typeRef: `z_score` era `number` no v1 (typeRef invalido no shape engine-deployavel deste
-    contrato — §"DMN referenciadas": typeRef em {string,boolean,integer,long,double,date});
-    corrigido para `double` (nao `integer`) na portabilidade, porque os limiares do v1
-    (&gt;3, &gt;2, &gt;1.5, &lt;=1.5) sao FRACIONARIOS — usar `integer` truncaria/perderia o
-    limiar 1.5 e alteraria a semantica da regra (o que violaria "byte-fiel"). `double` e o
-    substituto valido do shape que preserva os limiares verbatim; a leitura literal do contrato
-    ("...corrigido para integer...") se refere ao `score_indicadores` agregado do worker (contract
-    linha: "score interno em integer"), nao a este campo interno fracionario — divergencia
-    reportada, nao reconciliada silenciosamente (ver PR body / SME).
-    NOTA hitPolicy: FIRST (identico ao v1 — sem alteracao).
-  </description>
-  <decision id="frequency_zscore_threshold" name="Frequencia — limiar de z-score" camunda:historyTimeToLive="P180D">
+  <!-- T2.7 (artifact phase, rework cycle 2): portada 1:1 (byte-fiel) do v1 donor
+       Maezo-Healthcare-Plan src/maezo/processes/dmn/fraude_scoring/frequency_zscore_threshold.dmn
+       (commit 1ba8cb8). ORFAO DELIBERADO (orphans-allowlist.yaml) ate o wiring do worker
+       operadora.fraude.score_indicators — T2.7 fase 2, apos o ADR de avaliacao DMN do T1.4.
+       Conteudo (scores/limiares) SINTETICO, pendente SME (medico-auditor/financas) —
+       docs/review-queue.md. Comentario de proveniencia do donor preservado abaixo. -->
+  <!-- PORTADA (copiada+adaptada+OWN — ADR-0011) de
+       ../maezo-reference/.../fraud_scoring/frequency_zscore_threshold.dmn. INVERSAO
+       (SP-OP-FRAUDE-001): typeRef "number"->"double" (z-score e racional); coluna de veredito
+       (resultado) e coluna risco REMOVIDAS; emite indicador_score (integer) + indicador_label +
+       motivo — FATO DE MONTAGEM, NUNCA veredito. camunda:historyTimeToLive adicionado;
+       namespace -> maezo.health. -->
+  <decision id="frequency_zscore_threshold" name="Frequency Z-Score Threshold" camunda:historyTimeToLive="P180D">
     <decisionTable id="dt_frequency_zscore_threshold" hitPolicy="FIRST">
       <input id="in_z_score" label="Z-Score">
         <inputExpression id="ie_z_score" typeRef="double"><text>z_score</text></inputExpression>
       </input>
       <input id="in_encounter_class" label="Encounter Class">
-        <inputExpression id="ie_encounter_class" typeRef="string"><text>encounter_class</text></inputExpression>
+        <inputExpression id="ie_encounter_class_freq" typeRef="string"><text>encounter_class</text></inputExpression>
       </input>
-      <output id="out_resultado" label="Resultado" name="resultado" typeRef="string">
-        <outputValues><text>"PROSSEGUIR","BLOQUEAR","REVISAR"</text></outputValues>
-      </output>
-      <output id="out_acao" label="Acao" name="acao" typeRef="string"/>
-      <output id="out_risco" label="Risco" name="risco" typeRef="string">
-        <outputValues><text>"CRITICO","ALTO","MEDIO","BAIXO"</text></outputValues>
-      </output>
+      <output id="out_indicador_score" label="indicador_score" name="indicador_score" typeRef="integer"/>
+      <output id="out_indicador_label" label="indicador_label" name="indicador_label" typeRef="string"/>
+      <output id="out_motivo" label="motivo" name="motivo" typeRef="string"/>
       <rule id="r_zscore_critical">
-        <description>Desvio critico: z-score &gt; 3</description>
+        <description>Desvio critico: z-score &gt; 3 — indicador presente de score alto (frequencia muito acima do esperado)</description>
         <inputEntry id="r_zscore_critical_i1"><text>&gt; 3</text></inputEntry>
         <inputEntry id="r_zscore_critical_i2"><text>-</text></inputEntry>
-        <outputEntry id="r_zscore_critical_o1"><text>"BLOQUEAR"</text></outputEntry>
-        <outputEntry id="r_zscore_critical_o2"><text>"Quantidade de procedimentos muito acima do esperado (z &gt; 3)"</text></outputEntry>
-        <outputEntry id="r_zscore_critical_o3"><text>"CRITICO"</text></outputEntry>
+        <outputEntry id="r_zscore_critical_o1"><text>30</text></outputEntry>
+        <outputEntry id="r_zscore_critical_o2"><text>"frequency_zscore_threshold"</text></outputEntry>
+        <outputEntry id="r_zscore_critical_o3"><text>"Indicador: quantidade de procedimentos muito acima do esperado (z &gt; 3) — fato de montagem de dossie, NUNCA veredito"</text></outputEntry>
       </rule>
       <rule id="r_zscore_high">
-        <description>Desvio alto: z-score &gt; 2</description>
+        <description>Desvio alto: z-score &gt; 2 — indicador presente</description>
         <inputEntry id="r_zscore_high_i1"><text>&gt; 2</text></inputEntry>
         <inputEntry id="r_zscore_high_i2"><text>-</text></inputEntry>
-        <outputEntry id="r_zscore_high_o1"><text>"REVISAR"</text></outputEntry>
-        <outputEntry id="r_zscore_high_o2"><text>"Quantidade de procedimentos acima do esperado (z &gt; 2)"</text></outputEntry>
-        <outputEntry id="r_zscore_high_o3"><text>"ALTO"</text></outputEntry>
+        <outputEntry id="r_zscore_high_o1"><text>20</text></outputEntry>
+        <outputEntry id="r_zscore_high_o2"><text>"frequency_zscore_threshold"</text></outputEntry>
+        <outputEntry id="r_zscore_high_o3"><text>"Indicador: quantidade de procedimentos acima do esperado (z &gt; 2) — fato de montagem de dossie"</text></outputEntry>
       </rule>
       <rule id="r_zscore_medium">
-        <description>Desvio medio: z-score &gt; 1.5</description>
+        <description>Desvio medio: z-score &gt; 1.5 — indicador moderado</description>
         <inputEntry id="r_zscore_medium_i1"><text>&gt; 1.5</text></inputEntry>
         <inputEntry id="r_zscore_medium_i2"><text>-</text></inputEntry>
-        <outputEntry id="r_zscore_medium_o1"><text>"REVISAR"</text></outputEntry>
-        <outputEntry id="r_zscore_medium_o2"><text>"Quantidade de procedimentos ligeiramente acima do esperado (z &gt; 1.5)"</text></outputEntry>
-        <outputEntry id="r_zscore_medium_o3"><text>"MEDIO"</text></outputEntry>
+        <outputEntry id="r_zscore_medium_o1"><text>10</text></outputEntry>
+        <outputEntry id="r_zscore_medium_o2"><text>"frequency_zscore_threshold_moderado"</text></outputEntry>
+        <outputEntry id="r_zscore_medium_o3"><text>"Indicador moderado: quantidade de procedimentos ligeiramente acima do esperado (z &gt; 1.5) — fato de montagem de dossie"</text></outputEntry>
       </rule>
       <rule id="r_zscore_normal">
-        <description>Desvio normal: z-score &lt;= 1.5</description>
+        <description>Desvio normal: z-score &lt;= 1.5 — indicador ausente</description>
         <inputEntry id="r_zscore_normal_i1"><text>&lt;= 1.5</text></inputEntry>
         <inputEntry id="r_zscore_normal_i2"><text>-</text></inputEntry>
-        <outputEntry id="r_zscore_normal_o1"><text>"PROSSEGUIR"</text></outputEntry>
-        <outputEntry id="r_zscore_normal_o2"><text>"Quantidade de procedimentos dentro da faixa normal"</text></outputEntry>
-        <outputEntry id="r_zscore_normal_o3"><text>"BAIXO"</text></outputEntry>
+        <outputEntry id="r_zscore_normal_o1"><text>0</text></outputEntry>
+        <outputEntry id="r_zscore_normal_o2"><text>"none"</text></outputEntry>
+        <outputEntry id="r_zscore_normal_o3"><text>"Sem indicador de frequencia: quantidade de procedimentos dentro da faixa normal — fato de montagem de dossie"</text></outputEntry>
       </rule>
-      <rule id="r_fallback">
-        <description>Z-score desconhecido - revisao obrigatoria (catch-all do v1 doador)</description>
-        <inputEntry id="r_fallback_i1"><text>-</text></inputEntry>
-        <inputEntry id="r_fallback_i2"><text>-</text></inputEntry>
-        <outputEntry id="r_fallback_o1"><text>"REVISAR"</text></outputEntry>
-        <outputEntry id="r_fallback_o2"><text>"Z-score requer avaliacao manual"</text></outputEntry>
-        <outputEntry id="r_fallback_o3"><text>"MEDIO"</text></outputEntry>
+      <rule id="r_catchall">
+        <description>Catch-all: z-score desconhecido — indicador moderado (requer avaliacao na montagem). A tabela alimenta o dossie, nao decide.</description>
+        <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>10</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>"frequency_zscore_threshold_indeterminado"</text></outputEntry>
+        <outputEntry id="r_catchall_o3"><text>"Indicador moderado: z-score desconhecido — requer avaliacao na montagem do dossie"</text></outputEntry>
       </rule>
     </decisionTable>
   </decision>

@@ -1,106 +1,66 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
              xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:dc="http://www.omg.org/spec/DMN/20180521/DC/"
              xmlns:camunda="http://camunda.org/schema/1.0/dmn"
              id="defs_unbundling_partial_bundles"
-             name="Unbundling — pacotes parciais"
+             name="Unbundling Partial Bundles (indicador de montagem)"
              namespace="http://maezo.health/dmn/operadora">
-  <description>
-    unbundling_partial_bundles v0.1.0 — status: DRAFT (SP-OP-FRAUDE-001 §"DMN referenciadas" /
-    "Porta INVERTIDA do scoring de referencia"; conteudo requer SME medico-auditor + auditoria
-    especial + financas; docs/review-queue.md). Portada BYTE-FIEL (T2.7 artifact phase; ADR-0011 —
-    copiar+adaptar+possuir, nunca importar) de
-    ../maezo-reference/healthcare_platform/revenue_cycle/dmn/coding_audit/fraud_scoring/unbundling_partial_bundles.dmn
-    (id doador Decision_UnbundlingPartialBundles). Valores/regras preservados verbatim do v1 —
-    NENHUMA regra foi retunada; qualquer ajuste de negocio e trabalho SME
-    (docs/review-queue.md), nao desta portabilidade.
-
-    PENDENTE DE WIRING (T2.7 fase 2, apos ADR de avaliacao DMN do T1.4): esta tabela ainda NAO e
-    chamada por nenhum businessRuleTask BPMN nem pelo worker operadora.fraude.score_indicators —
-    e um ORFAO DELIBERADO (spec/processes/dmn/orphans-allowlist.yaml). Quando o worker
-    operadora.fraude.score_indicators (SP-OP-FRAUDE-001) for ligado, ele avalia esta DMN e dobra o
-    resultado em indicadores_presentes/score_indicadores — a saida desta DMN NUNCA alimenta
-    diretamente uma decisao de roteamento ou acusacao.
-
-    DIVERGENCIAS REPORTADAS (nao reconciliadas nesta portabilidade — ver PR body / SME):
-    (1) Esquema de saida: esta tabela produz `resultado`(PROSSEGUIR/BLOQUEAR/REVISAR)/`acao`(string)
-    /`risco`(CRITICO/ALTO/MEDIO/BAIXO) — o schema ORIGINAL do v1 donor, preservado byte-fiel. O
-    worker de referencia (detect_fraud_worker_v2.py) na verdade LE `alerts`/`score` da avaliacao —
-    nao `resultado` — divergencia doador-worker-vs-doador-DMN ja existente no v1 (achado desta
-    portabilidade, nao introduzido por ela).
-    (2) `resultado` inclui `"BLOQUEAR"` (nesta tabela, o v1 doador nunca a atinge de fato — nenhuma
-    rule desta tabela produz BLOQUEAR — mas o dominio declarado inclui o valor, espelhando o
-    template comum as 7 tabelas), o que tensiona com o invariante L0-hard do contrato ("Nenhuma
-    DMN tem coluna de saida de acusacao/veredito/bloqueio de fraude" — SP-OP-FRAUDE-001 §"DMN
-    referenciadas"). Preservado byte-fiel (outputValues identico ao v1); reconciliar
-    silenciosamente seria fabricar conteudo. O worker da fase 2 deve tratar qualquer saida desta
-    tabela apenas como fato de montagem de indicadores.
-    (3) Esquema de entrada: o worker doador `detect_fraud_worker_v2.py` chama esta tabela com
-    `{"tuss_codes": inp.validated_tuss}` (uma LISTA) — nunca envia `bundle_group_id` (que esta
-    tabela exige para as regras de pacote parcial/completo/nenhum funcionarem). `bundle_group_id`
-    (agrupamento de codigos TUSS em pacotes) precisa ser DERIVADO por quem fizer o wiring da fase
-    2 — nao existe pronto no worker doador; `tuss_codes`, se usado, precisaria ser serializado
-    (a tabela declara `tuss_codes` como `string`, nao lista).
-
-    NOTA typeRef: nenhum `number` presente nesta tabela no v1 — sem correcao necessaria.
-    NOTA hitPolicy: FIRST (identico ao v1 — sem alteracao). O v1 doador ja tinha DUAS rows de
-    fallback (Rule_HighRisk + Rule_Fallback) antes do catch-all final — preservadas ambas,
-    verbatim, na mesma ordem.
-  </description>
-  <decision id="unbundling_partial_bundles" name="Unbundling — pacotes parciais" camunda:historyTimeToLive="P180D">
+  <!-- T2.7 (artifact phase, rework cycle 2): portada 1:1 (byte-fiel) do v1 donor
+       Maezo-Healthcare-Plan src/maezo/processes/dmn/fraude_scoring/unbundling_partial_bundles.dmn
+       (commit 1ba8cb8). ORFAO DELIBERADO (orphans-allowlist.yaml) ate o wiring do worker
+       operadora.fraude.score_indicators — T2.7 fase 2, apos o ADR de avaliacao DMN do T1.4.
+       Conteudo (scores/limiares) SINTETICO, pendente SME (medico-auditor/financas) —
+       docs/review-queue.md. Comentario de proveniencia do donor preservado abaixo. -->
+  <!-- PORTADA (copiada+adaptada+OWN — ADR-0011) de
+       ../maezo-reference/.../fraud_scoring/unbundling_partial_bundles.dmn. INVERSAO
+       (SP-OP-FRAUDE-001): coluna de veredito (resultado) e coluna risco REMOVIDAS; emite apenas
+       indicador_score (integer) + indicador_label (string) + motivo — FATO DE MONTAGEM, NUNCA
+       veredito. As duas rows catch-all redundantes do reference (Rule_HighRisk + Rule_Fallback)
+       colapsadas em uma unica catch-all (hitPolicy FIRST). camunda:historyTimeToLive adicionado;
+       namespace -> maezo.health. -->
+  <decision id="unbundling_partial_bundles" name="Unbundling Partial Bundles" camunda:historyTimeToLive="P180D">
     <decisionTable id="dt_unbundling_partial_bundles" hitPolicy="FIRST">
-      <input id="in_tuss_codes_present" label="TUSS Codes Present">
-        <inputExpression id="ie_tuss_codes_present" typeRef="string"><text>tuss_codes</text></inputExpression>
+      <input id="in_tuss_codes" label="TUSS Codes Present">
+        <inputExpression id="ie_tuss_codes" typeRef="string"><text>tuss_codes</text></inputExpression>
       </input>
-      <input id="in_bundle_group_id" label="Bundle Group ID">
+      <input id="in_bundle_group_id" label="Bundle Group Status">
         <inputExpression id="ie_bundle_group_id" typeRef="string"><text>bundle_group_id</text></inputExpression>
       </input>
-      <output id="out_resultado" label="Resultado" name="resultado" typeRef="string">
-        <outputValues><text>"PROSSEGUIR","BLOQUEAR","REVISAR"</text></outputValues>
-      </output>
-      <output id="out_acao" label="Acao" name="acao" typeRef="string"/>
-      <output id="out_risco" label="Risco" name="risco" typeRef="string">
-        <outputValues><text>"CRITICO","ALTO","MEDIO","BAIXO"</text></outputValues>
-      </output>
+      <output id="out_indicador_score" label="indicador_score" name="indicador_score" typeRef="integer"/>
+      <output id="out_indicador_label" label="indicador_label" name="indicador_label" typeRef="string"/>
+      <output id="out_motivo" label="motivo" name="motivo" typeRef="string"/>
       <rule id="r_partial_bundle">
-        <description>Possivel desagrupamento: codigos parciais de pacote identificados</description>
+        <description>Pacote parcial: codigos parciais de pacote identificados — indicador presente (possivel desagrupamento)</description>
         <inputEntry id="r_partial_bundle_i1"><text>-</text></inputEntry>
         <inputEntry id="r_partial_bundle_i2"><text>"partial"</text></inputEntry>
-        <outputEntry id="r_partial_bundle_o1"><text>"REVISAR"</text></outputEntry>
-        <outputEntry id="r_partial_bundle_o2"><text>"Possivel desagrupamento: codigos parciais de pacote identificados"</text></outputEntry>
-        <outputEntry id="r_partial_bundle_o3"><text>"ALTO"</text></outputEntry>
+        <outputEntry id="r_partial_bundle_o1"><text>25</text></outputEntry>
+        <outputEntry id="r_partial_bundle_o2"><text>"unbundling_partial_bundles"</text></outputEntry>
+        <outputEntry id="r_partial_bundle_o3"><text>"Indicador: possivel desagrupamento — codigos parciais de pacote identificados — fato de montagem de dossie, NUNCA veredito"</text></outputEntry>
       </rule>
       <rule id="r_complete_bundle">
-        <description>Pacote completo identificado</description>
+        <description>Pacote completo identificado — indicador ausente</description>
         <inputEntry id="r_complete_bundle_i1"><text>-</text></inputEntry>
         <inputEntry id="r_complete_bundle_i2"><text>"complete"</text></inputEntry>
-        <outputEntry id="r_complete_bundle_o1"><text>"PROSSEGUIR"</text></outputEntry>
-        <outputEntry id="r_complete_bundle_o2"><text>"Pacote completo identificado"</text></outputEntry>
-        <outputEntry id="r_complete_bundle_o3"><text>"BAIXO"</text></outputEntry>
+        <outputEntry id="r_complete_bundle_o1"><text>0</text></outputEntry>
+        <outputEntry id="r_complete_bundle_o2"><text>"none"</text></outputEntry>
+        <outputEntry id="r_complete_bundle_o3"><text>"Sem indicador de desagrupamento: pacote completo identificado — fato de montagem de dossie"</text></outputEntry>
       </rule>
       <rule id="r_no_bundle">
-        <description>Nenhum codigo de pacote presente</description>
+        <description>Nenhum codigo de pacote presente — indicador ausente</description>
         <inputEntry id="r_no_bundle_i1"><text>-</text></inputEntry>
         <inputEntry id="r_no_bundle_i2"><text>"none"</text></inputEntry>
-        <outputEntry id="r_no_bundle_o1"><text>"PROSSEGUIR"</text></outputEntry>
-        <outputEntry id="r_no_bundle_o2"><text>"Nenhum codigo de pacote presente"</text></outputEntry>
-        <outputEntry id="r_no_bundle_o3"><text>"BAIXO"</text></outputEntry>
+        <outputEntry id="r_no_bundle_o1"><text>0</text></outputEntry>
+        <outputEntry id="r_no_bundle_o2"><text>"none"</text></outputEntry>
+        <outputEntry id="r_no_bundle_o3"><text>"Sem indicador de desagrupamento: nenhum codigo de pacote presente — fato de montagem de dossie"</text></outputEntry>
       </rule>
-      <rule id="r_high_risk">
-        <description>Risco alto detectado - revisao obrigatoria (fallback do v1 doador)</description>
-        <inputEntry id="r_high_risk_i1"><text>-</text></inputEntry>
-        <inputEntry id="r_high_risk_i2"><text>-</text></inputEntry>
-        <outputEntry id="r_high_risk_o1"><text>"REVISAR"</text></outputEntry>
-        <outputEntry id="r_high_risk_o2"><text>"Situacao de risco alto identificada - avaliacao detalhada necessaria"</text></outputEntry>
-        <outputEntry id="r_high_risk_o3"><text>"ALTO"</text></outputEntry>
-      </rule>
-      <rule id="r_fallback">
-        <description>Status de pacote desconhecido - revisao obrigatoria (catch-all do v1 doador)</description>
-        <inputEntry id="r_fallback_i1"><text>-</text></inputEntry>
-        <inputEntry id="r_fallback_i2"><text>-</text></inputEntry>
-        <outputEntry id="r_fallback_o1"><text>"REVISAR"</text></outputEntry>
-        <outputEntry id="r_fallback_o2"><text>"Status de pacote requer avaliacao manual"</text></outputEntry>
-        <outputEntry id="r_fallback_o3"><text>"MEDIO"</text></outputEntry>
+      <rule id="r_catchall">
+        <description>Catch-all: status de pacote desconhecido — indicador moderado (requer avaliacao na montagem). A tabela alimenta o dossie, nao decide.</description>
+        <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>10</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>"unbundling_partial_bundles_indeterminado"</text></outputEntry>
+        <outputEntry id="r_catchall_o3"><text>"Indicador moderado: status de pacote desconhecido — requer avaliacao na montagem do dossie"</text></outputEntry>
       </rule>
     </decisionTable>
   </decision>
