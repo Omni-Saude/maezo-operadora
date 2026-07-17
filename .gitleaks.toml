@@ -1,0 +1,36 @@
+# Gitleaks config — maezo-operadora
+#
+# T2.4 (2026-07-16): disposicao NARROW de 6 falsos positivos da regra
+# generic-api-key sobre identificadores BPM em documentacao (NAO segredos).
+# Politica fail-closed: estende o ruleset default (useDefault = true) e
+# permite APENAS os shapes exatos abaixo, ancorados no valor detectado
+# (regexTarget = "secret"). NAO ha allowlist por path — um segredo real
+# plantado nos mesmos arquivos de docs continua sendo detectado
+# (prova de mutacao no PR #28).
+
+[extend]
+# Mantem TODAS as regras default do gitleaks; este arquivo apenas adiciona
+# allowlists — nunca substitui ou remove regras.
+useDefault = true
+
+[[allowlists]]
+# O que casa: exatamente o process key BPM `SP-OP-INADIMPLENCIA-001`
+# (docs/processes/test-specs/SP-OP-INADIMPLENCIA-001.md:12).
+# Por que nao e segredo: e o identificador publico do processo BPMN
+# (mesmo nome do proprio arquivo de spec), nao uma credencial.
+# Data: 2026-07-16 | Task: T2.4
+description = "T2.4 2026-07-16: BPM process key SP-OP-INADIMPLENCIA-001 (identificador publico de processo, nao credencial)"
+regexTarget = "secret"
+regexes = ['''^SP-OP-INADIMPLENCIA-001$''']
+
+[[allowlists]]
+# O que casa: business keys BPM no shape exato `ESC-amh-conv-<3 digitos>`
+# (docs/runbooks/engine-processes.md:113,118,139,191,303 — todos
+# `ESC-amh-conv-001`).
+# Por que nao e segredo: e a business key sintetica de instancia de
+# processo usada nos exemplos do runbook (tenant amh + id de conversa),
+# nao uma credencial. Entropia 3.58, formato deterministico.
+# Data: 2026-07-16 | Task: T2.4
+description = "T2.4 2026-07-16: BPM business key ESC-amh-conv-NNN (identificador sintetico de instancia, nao credencial)"
+regexTarget = "secret"
+regexes = ['''^ESC-amh-conv-\d{3}$''']
