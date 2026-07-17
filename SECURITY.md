@@ -48,6 +48,49 @@ Currently active:
   error fails the job** (fail-closed). Because the real gated operation is
   attempted every run, provisioning GHAS auto-activates live results — no
   workflow edit needed.
+- **GHAS-substitute review paths (T2.4, added after the orchestrator ruling
+  downgrading GHAS from a blocker to a toggle):** the two items above are no
+  longer the only way to see findings on this private repository.
+  - **CodeQL SARIF as a workflow artifact.** The `codeql` job's `analyze`
+    step already produces a full SARIF file every run (see above); a new
+    step publishes that SARIF as a downloadable `codeql-python-sarif`
+    workflow artifact (`actions/upload-artifact`, 30-day retention) —
+    independent of whether the GHAS-gated upload above succeeds or is
+    skipped. A follow-up step parses the SARIF with the Python standard
+    library only (no new dependency) and writes a compact table — counts by
+    SARIF `level` (error/warning/note) and the highest-frequency rule IDs —
+    into the run's Step Summary, so findings are visible directly in the
+    Actions run UI without downloading anything or needing Code Scanning
+    enabled.
+  - **OSV dependency-scan lane (`osv-scan` job).** Runs
+    [osv-scanner](https://github.com/google/osv-scanner) (pinned version,
+    checksum-verified static-binary download — no floating tag, same
+    install pattern as the gitleaks job below) against the real `uv.lock` on
+    every trigger; this needs no GitHub Advanced Security entitlement at
+    all and **complements, does not replace,** the `dependency-review` job
+    above. Findings are grouped by osv-scanner's own alias grouping (a
+    GHSA/PYSEC/CVE id triple for the same vulnerability counts once) and
+    bucketed by severity (CVSS base score from the group's `max_severity`,
+    widened by any member advisory's GHSA `database_specific.severity` of
+    `CRITICAL`). **Fail-closed semantics:** a scan tool error (any
+    osv-scanner exit code other than the two documented outcomes, `0` =
+    clean and `1` = findings present) fails the job outright — no
+    `|| true`, nothing swallowed. Findings themselves are not automatically
+    fatal: only a non-allowlisted finding at or above the `CRITICAL`
+    threshold (tunable via the job's `OSV_FAIL_ON_SEVERITY` env var) fails
+    the job — **a red `osv-scan` job on a genuine critical finding is the
+    intended, correct outcome**, surfaced for human triage rather than
+    silently allowlisted away. Lower-severity findings do not fail the job
+    but are always rendered into the run's Step Summary (package, version,
+    ids, CVSS score, severity bucket, allowlist status) so they stay
+    visible without GHAS's Dependabot-alerts UI. The allowlist
+    (`.github/osv-allowlist.json`) starts **empty** and every entry must
+    carry a non-empty `reason`; a malformed entry (missing id/reason) fails
+    the job closed instead of being silently ignored. Known-exploited
+    (CISA KEV) status is **not** independently cross-referenced — osv.dev
+    data carries no KEV flag, and fabricating that signal would violate
+    this task's no-fabricated-results constraint — CRITICAL CVSS severity
+    is used as the documented, honest proxy instead.
 - All third-party GitHub Actions across every workflow are pinned to full
   commit SHAs (a trailing comment names the version tag each SHA resolves
   to) — no floating `@vN` mutable tags remain, as of T2.4 (remainder).
@@ -76,6 +119,18 @@ Currently disabled (visible-skip guard job, not a silent `if: false`):
   `docs/prompts/V2-COMPLETION-PLAN.md`; because the probe exercises the real
   gated resource with the real token, this job auto-activates the real scan
   the moment GHAS is provisioned — no workflow edit needed.
+
+**GHAS's remaining scope, after T2.4's GHAS-substitute lanes above:** with
+the SARIF artifact/summary and the `osv-scan` job in place, GitHub Advanced
+Security is no longer required to *review* CodeQL or dependency-vulnerability
+findings on this repository — it is now a pure **toggle** for two
+conveniences: (1) the native Security tab / Code Scanning dashboard as the
+CodeQL results surface, in place of the SARIF artifact + Step Summary; and
+(2) the `dependency-review-action`'s PR-diff annotations, in place of
+`osv-scan`'s Step Summary (osv-scanner also does not diff against the PR
+base — it scans the full current `uv.lock` every run). Provisioning GHAS
+still auto-activates both gated jobs with no workflow edit needed, per the
+try-and-classify mechanism described above.
 
 Restoration gap (documented, not implemented — see
 `docs/reports/T2.4-a2a-agent-card-signing-gap.md`):
