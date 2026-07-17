@@ -13,9 +13,12 @@ and notify. Escalation resolution is always a human decision.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from maezo.tools.workers.base import WorkerBase
+
+if TYPE_CHECKING:
+    from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
 
 # ---------------------------------------------------------------------------
 # Routing maps (extracted from DMN escalation_routing — contract SP-OP-ESCALATION-001)
@@ -174,3 +177,25 @@ class NotifySupervisorWorker(WorkerBase):
             "require_human_resolution": True,
             "event": "agents.events.escalation.sla_breached",
         }
+
+
+# ---------------------------------------------------------------------------
+# Bootstrap — donor contract (T1.2/ADR-0026 Decisao §3). NOTE (known drift, not
+# introduced by this change): `operadora.escalation.notify_fallback` has no
+# matching `camunda:topic` in `spec/processes/bpmn/SP-OP-ESCALATION-001_*.bpmn`
+# today (that BPMN only declares notify_team/notify_supervisor) — pre-existing
+# from T1.1, out of scope here (no business-logic/topic edits); registered
+# as-is per the charter ("keep their classes — bootstrap-wrap them
+# consistently").
+# ---------------------------------------------------------------------------
+
+
+def register_escalation_workers(
+    harness: WorkerHarness,
+    kafka: KafkaPublisher | None = None,
+    **seams: Any,
+) -> None:
+    """Register the 3 SP-OP-ESCALATION-001 `WorkerBase` workers on `harness`."""
+    del kafka, seams  # unused — no escalation.py worker declares a Kafka/other seam dependency
+    for worker_cls in (NotifyTeamWorker, NotifyFallbackWorker, NotifySupervisorWorker):
+        harness.register_worker(worker_cls())

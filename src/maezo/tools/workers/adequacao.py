@@ -6,9 +6,14 @@ Guard: ERR_FALLBACK_COMMITMENT_NOT_HUMAN (ADR-0018).
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
+
+from maezo.tools.workers.base import FunctionWorker
+
+if TYPE_CHECKING:
+    from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
 
 logger = structlog.get_logger(__name__)
 
@@ -218,3 +223,37 @@ class AdequacaoError(Exception):
         self.code = code
         self.message = message
         super().__init__(f"{code}: {message}")
+
+
+# ---------------------------------------------------------------
+# Bootstrap — FunctionWorker adapter (T1.2/ADR-0026 Decisao §2a: dict-first
+# functions wrap directly).
+#
+# Topic mapping vs spec/processes/bpmn/SP-OP-ADEQUACAO-001_Adequacao_Rede.bpmn
+# (excl. the shared/out-of-scope `operadora.events.publish` — see ADR-0026 §2b
+# note on cross-cutting event-publish topics):
+#   measure_gap    -> operadora.adequacao.measure_coverage      (spec match: geo-analysis facts)
+#   route_remediation -> operadora.adequacao.calculate_gap      (spec match: gap classification)
+#   notify_coordenacao -> operadora.adequacao.notify_rede       (spec match: network coordination)
+#   execute_remediation -> operadora.adequacao.start_credenciamento (spec match: CRED-001 handoff)
+#   register_fallback_commitment -> operadora.adequacao.register_fallback_commitment
+#     (exact spec match, GUARDED)
+# Spec topics with NO implementing function today (gap, not fabricated here):
+# update_monitoring_plan, prepare_remediation_dossier, notify_sla_risk.
+# ---------------------------------------------------------------
+
+
+def register_adequacao_workers(
+    harness: WorkerHarness,
+    kafka: KafkaPublisher | None = None,
+    **seams: Any,
+) -> None:
+    """Register the SP-OP-ADEQUACAO-001 function workers on `harness`."""
+    del kafka, seams  # unused — no adequacao.py worker declares a Kafka/other seam dependency
+    harness.register_worker(FunctionWorker("operadora.adequacao.measure_coverage", measure_gap))
+    harness.register_worker(FunctionWorker("operadora.adequacao.calculate_gap", route_remediation))
+    harness.register_worker(FunctionWorker("operadora.adequacao.notify_rede", notify_coordenacao))
+    harness.register_worker(FunctionWorker("operadora.adequacao.start_credenciamento", execute_remediation))
+    harness.register_worker(
+        FunctionWorker("operadora.adequacao.register_fallback_commitment", register_fallback_commitment)
+    )

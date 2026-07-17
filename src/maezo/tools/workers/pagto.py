@@ -7,9 +7,14 @@ Clones AUTH auto-approval for low-value (dentro_teto_l2).
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
+
+from maezo.tools.workers.base import FunctionWorker
+
+if TYPE_CHECKING:
+    from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
 
 logger = structlog.get_logger(__name__)
 
@@ -293,3 +298,43 @@ class PagtoError(Exception):
         self.code = code
         self.message = message
         super().__init__(f"{code}: {message}")
+
+
+# ---------------------------------------------------------------
+# Bootstrap — FunctionWorker adapter (T1.2/ADR-0026 Decisao §2a). No function
+# body below is touched — `route_aprovacao` keeps reading `dentro_teto_l2`
+# from `variables` unchanged (T1.9: propagate, never re-originate the ceiling
+# fact) — this bootstrap only adds registry/retry/metrics wiring on top.
+#
+# Topic mapping vs spec/processes/bpmn/SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn
+# (excl. shared/out-of-scope `operadora.events.publish`):
+#   validate_pagto    -> operadora.pagto.validate_payment_data (exact spec match)
+#   route_aprovacao   -> operadora.pagto.calculate_facts (closest spec match: value/tier
+#                        classification)
+#   execute_pagto     -> operadora.pagto.release_low_value_payment
+#     (spec match: DENTRO_TETO_L2 auto/clerical release)
+#   release_high_value_payment -> operadora.pagto.release_high_value_payment
+#     (exact spec match, GUARDED)
+# assess_admissibility has no distinct spec topic — registered under a
+# function-derived topic for registry completeness. publish_completed folds
+# into the generic events.publish task per BPMN — function-derived topic.
+# Spec topics with NO implementing function today (gap, not fabricated here):
+# prepare_approval_dossier, notify_sla_risk, register_payment_refusal.
+# ---------------------------------------------------------------
+
+
+def register_pagto_workers(
+    harness: WorkerHarness,
+    kafka: KafkaPublisher | None = None,
+    **seams: Any,
+) -> None:
+    """Register the SP-OP-PAGTO-001 function workers on `harness`."""
+    del kafka, seams  # unused — no pagto.py worker declares a Kafka/other seam dependency
+    harness.register_worker(FunctionWorker("operadora.pagto.validate_payment_data", validate_pagto))
+    harness.register_worker(FunctionWorker("operadora.pagto.assess_admissibility", assess_admissibility))
+    harness.register_worker(FunctionWorker("operadora.pagto.calculate_facts", route_aprovacao))
+    harness.register_worker(FunctionWorker("operadora.pagto.release_low_value_payment", execute_pagto))
+    harness.register_worker(
+        FunctionWorker("operadora.pagto.release_high_value_payment", release_high_value_payment)
+    )
+    harness.register_worker(FunctionWorker("operadora.pagto.publish_completed", publish_completed))

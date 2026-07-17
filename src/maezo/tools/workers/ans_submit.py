@@ -8,10 +8,17 @@ UT_RevisarEnvio with decisao_envio == APROVAR_ENVIO set by a human.
 
 from __future__ import annotations
 
+import dataclasses
+import functools
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
+
+from maezo.tools.workers.base import FunctionWorker, pick_fields
+
+if TYPE_CHECKING:
+    from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
 
 logger = structlog.get_logger(__name__)
 
@@ -327,3 +334,137 @@ def publish_completed(
         "event_type": event_type,
         "payload": _payload,
     }
+
+
+# ---------------------------------------------------------------------------
+# Dict-boundary entry functions (T1.2/ADR-0026 §2b) — one per external-task
+# topic. Explicit field selection -> typed dataclass -> the UNCHANGED typed
+# function above -> dataclasses.asdict (or pass through when already a
+# flat dict). The typed functions are byte-identical; only these NEW
+# functions marshal the BPMN dict boundary.
+#
+# Topic mapping vs spec/processes/bpmn/SP-OP-ANS-SUBMIT-001_Envios_Periodicos_ANS.bpmn
+# (excl. shared/out-of-scope `operadora.events.publish`):
+#   prepare_submission -> regulatorio.anssubmit.assemble        (exact spec match: "Montar dataset")
+#   validate_data       -> regulatorio.anssubmit.validate        (exact spec match)
+#   transmit_to_ans      -> regulatorio.anssubmit.submit          (exact spec match, GUARDED)
+#   handle_nack          -> regulatorio.anssubmit.track_protocol  (spec match: "Correlacionar
+#                            status do protocolo ANS")
+#   retry_submission      -> regulatorio.anssubmit.retransmit      (exact spec match)
+# publish_completed has no distinct spec topic (folds into the generic
+# events.publish task per BPMN) — function-derived topic.
+# Spec topic with NO implementing function today (gap, not fabricated here):
+# notify_regulatorio (shared by 2 distinct BPMN tasks: dossie prep + deadline-risk notice).
+# ---------------------------------------------------------------------------
+
+
+def assemble_entry(variables: dict[str, Any], *, kafka: KafkaPublisher | None = None) -> dict[str, Any]:
+    """Dict-boundary entry for `regulatorio.anssubmit.assemble` -> `prepare_submission`."""
+    del kafka  # unused — prepare_submission emits no domain event
+    input_data = AnsSubmitInput(**pick_fields(variables, AnsSubmitInput))
+    result = prepare_submission(input_data)
+    return dataclasses.asdict(result)
+
+
+def validate_entry(variables: dict[str, Any], *, kafka: KafkaPublisher | None = None) -> dict[str, Any]:
+    """Dict-boundary entry for `regulatorio.anssubmit.validate` -> `validate_data`."""
+    del kafka  # unused — validate_data emits no domain event
+    submission = AnsSubmissionData(**pick_fields(variables, AnsSubmissionData))
+    return validate_data(submission)
+
+
+def submit_entry(variables: dict[str, Any], *, kafka: KafkaPublisher | None = None) -> dict[str, Any]:
+    """Dict-boundary entry for `regulatorio.anssubmit.submit` -> `transmit_to_ans` (GUARDED).
+
+    Raises `AnsSubmitNotHumanError` (fail-closed, ERR_ANS_SUBMIT_NOT_HUMAN) when the human
+    review (`decisao_envio == APROVAR_ENVIO` + `revisor_id`) is missing — unchanged guard, only
+    the dict<->dataclass marshalling is new.
+    """
+    del kafka  # unused — transmit_to_ans emits no domain event itself (publish_completed does)
+    submission = AnsSubmissionData(**pick_fields(variables, AnsSubmissionData))
+    decision = AnsSubmitDecision(**pick_fields(variables, AnsSubmitDecision))
+    return transmit_to_ans(submission, decision)
+
+
+def track_protocol_entry(variables: dict[str, Any], *, kafka: KafkaPublisher | None = None) -> dict[str, Any]:
+    """Dict-boundary entry for `regulatorio.anssubmit.track_protocol` -> `handle_nack`.
+
+    Fail-closed (ADR-0026 §2b): `protocolo_ans` is required to correlate a NACK — missing/blank
+    raises `AnsDatasetIncompletoError` (this module's own `*Invalido*`-class ValueError) rather
+    than silently tracking an empty protocol.
+    """
+    del kafka  # unused — handle_nack emits no domain event
+    protocolo_ans = variables.get("protocolo_ans", "")
+    if not isinstance(protocolo_ans, str) or not protocolo_ans.strip():
+        raise AnsDatasetIncompletoError("protocolo_ans ausente/invalido para track_protocol")
+    nack_motivo = variables.get("nack_motivo", "")
+    retry_attempt = variables.get("retry_attempt", 0)
+    return handle_nack(protocolo_ans, nack_motivo, retry_attempt)
+
+
+def retransmit_entry(variables: dict[str, Any], *, kafka: KafkaPublisher | None = None) -> dict[str, Any]:
+    """Dict-boundary entry for `regulatorio.anssubmit.retransmit` -> `retry_submission`.
+
+    Fail-closed: missing/blank `protocolo_ans` raises `AnsDatasetIncompletoError`. Exhaustion
+    raises `AnsRetryEsgotadoError` (`RuntimeError` family) unchanged — the harness's existing
+    transient classification applies (engine-side retry, incident at 0).
+    """
+    del kafka  # unused — retry_submission emits no domain event
+    protocolo_ans = variables.get("protocolo_ans", "")
+    if not isinstance(protocolo_ans, str) or not protocolo_ans.strip():
+        raise AnsDatasetIncompletoError("protocolo_ans ausente/invalido para retransmit")
+    retry_attempt = variables.get("retry_attempt", 0)
+    report_type = variables.get("report_type", "")
+    competencia = variables.get("competencia", "")
+    result = retry_submission(protocolo_ans, retry_attempt, report_type, competencia)
+    return dataclasses.asdict(result)
+
+
+def publish_completed_entry(
+    variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
+) -> dict[str, Any]:
+    """Dict-boundary entry for `regulatorio.anssubmit.publish_completed` -> `publish_completed`."""
+    del kafka  # unused — see module bootstrap docstring on the Kafka seam
+    event_type = variables.get("event_type", "anssubmit.completed")
+    payload = variables.get("payload") or {}
+    desfecho = variables.get("desfecho", "")
+    return publish_completed(event_type=event_type, payload=payload, desfecho=desfecho)
+
+
+def register_ans_submit_workers(
+    harness: WorkerHarness,
+    kafka: KafkaPublisher | None = None,
+    **seams: Any,
+) -> None:
+    """Register the SP-OP-ANS-SUBMIT-001 dict-boundary entry functions on `harness`.
+
+    `kafka` is accepted (donor contract, ADR-0026 §2) and threaded to every entry function via
+    `functools.partial` for signature parity with modules that DO emit domain events; none of
+    these entry functions calls `kafka.publish` today (the typed functions only DESCRIBE the
+    event to publish — see `publish_completed_entry` — a genuine `kafka.publish` fan-out would
+    need an async seam distinct from these sync entry points; not fabricated here).
+    """
+    harness.register_worker(
+        FunctionWorker("regulatorio.anssubmit.assemble", functools.partial(assemble_entry, kafka=kafka))
+    )
+    harness.register_worker(
+        FunctionWorker("regulatorio.anssubmit.validate", functools.partial(validate_entry, kafka=kafka))
+    )
+    harness.register_worker(
+        FunctionWorker("regulatorio.anssubmit.submit", functools.partial(submit_entry, kafka=kafka))
+    )
+    harness.register_worker(
+        FunctionWorker(
+            "regulatorio.anssubmit.track_protocol", functools.partial(track_protocol_entry, kafka=kafka)
+        )
+    )
+    harness.register_worker(
+        FunctionWorker("regulatorio.anssubmit.retransmit", functools.partial(retransmit_entry, kafka=kafka))
+    )
+    harness.register_worker(
+        FunctionWorker(
+            "regulatorio.anssubmit.publish_completed",
+            functools.partial(publish_completed_entry, kafka=kafka),
+        )
+    )
+    del seams  # unused — no additional seam (audit=/dmn=/dispatcher=/erasure=) is needed today

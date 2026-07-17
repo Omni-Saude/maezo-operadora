@@ -8,9 +8,14 @@ Dispatches via operadora.events.publish (reused generic publisher).
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
+
+from maezo.tools.workers.base import FunctionWorker
+
+if TYPE_CHECKING:
+    from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
 
 logger = structlog.get_logger(__name__)
 
@@ -137,3 +142,32 @@ def check_calendar(variables: dict[str, Any]) -> dict[str, Any]:
         "competencia": competencia,
         "motivo": "calendario_ok" if deve_enviar else "report_type_desconhecido",
     }
+
+
+# ---------------------------------------------------------------
+# Bootstrap — FunctionWorker adapter (T1.2/ADR-0026 Decisao §2a). No custom
+# error class in this module (pure scheduler, all terminals NEUTRAL).
+#
+# Topic mapping: spec/processes/bpmn/SP-OP-ANS-CRON-001_Agendador_Envios_ANS.bpmn
+# declares ONLY the shared/out-of-scope `operadora.events.publish` topic for
+# every timer branch (this module's own docstring: "Dispatches via
+# operadora.events.publish (reused generic publisher)") — there is no
+# per-module BPMN topic to bind to (a single registry key can only serve one
+# handler, and `operadora.events.publish` is shared across all 16 BPMNs, out
+# of scope for T1.2 — see ADR-0026 §2b note). Both functions are registered
+# under function-derived topics so ans_cron is not the one module of 16 left
+# out of the registry; wiring the real dispatch of `operadora.events.publish`
+# is a follow-up (a generic, cross-cutting event-publish worker), not
+# fabricated here.
+# ---------------------------------------------------------------
+
+
+def register_ans_cron_workers(
+    harness: WorkerHarness,
+    kafka: KafkaPublisher | None = None,
+    **seams: Any,
+) -> None:
+    """Register the SP-OP-ANS-CRON-001 function workers on `harness`."""
+    del kafka, seams  # unused — no ans_cron.py worker declares a Kafka/other seam dependency
+    harness.register_worker(FunctionWorker("operadora.ans_cron.trigger_submissions", trigger_submissions))
+    harness.register_worker(FunctionWorker("operadora.ans_cron.check_calendar", check_calendar))

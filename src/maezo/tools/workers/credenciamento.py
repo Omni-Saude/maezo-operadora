@@ -7,9 +7,14 @@ Guards: ERR_DECRED_NOT_HUMAN, ERR_CRED_DENIAL_NOT_HUMAN (ADR-0018).
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
+
+from maezo.tools.workers.base import FunctionWorker
+
+if TYPE_CHECKING:
+    from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
 
 logger = structlog.get_logger(__name__)
 
@@ -242,3 +247,37 @@ class CredError(Exception):
         self.code = code
         self.message = message
         super().__init__(f"{code}: {message}")
+
+
+# ---------------------------------------------------------------
+# Bootstrap — FunctionWorker adapter (T1.2/ADR-0026 Decisao §2a).
+#
+# Topic mapping vs spec/processes/bpmn/SP-OP-CRED-001_Descredenciamento.bpmn
+# (excl. shared/out-of-scope `operadora.events.publish`):
+#   validate_cred        -> operadora.cred.verify_credentials     (exact spec match)
+#   assess_admissibility -> operadora.cred.check_network_criteria (spec match: RN 566 criteria
+#                           classification)
+#   notify_prestador     -> operadora.cred.check_prior_notice     (spec match: RN 567 prior-notice
+#                           dispatch)
+#   register_decred (alias register_descredenciamento)
+#     -> operadora.cred.register_descredenciamento (exact spec match, GUARDED)
+#   register_cred_denial -> operadora.cred.register_cred_denial     (exact spec match, GUARDED)
+# Spec topics with NO implementing function today (gap, not fabricated here):
+# register_credenciamento, notify_doc_pendente, prepare_dossier, notify_sla_risk.
+# ---------------------------------------------------------------
+
+
+def register_credenciamento_workers(
+    harness: WorkerHarness,
+    kafka: KafkaPublisher | None = None,
+    **seams: Any,
+) -> None:
+    """Register the SP-OP-CRED-001 function workers on `harness`."""
+    del kafka, seams  # unused — no credenciamento.py worker declares a Kafka/other seam dependency
+    harness.register_worker(FunctionWorker("operadora.cred.verify_credentials", validate_cred))
+    harness.register_worker(FunctionWorker("operadora.cred.check_network_criteria", assess_admissibility))
+    harness.register_worker(FunctionWorker("operadora.cred.check_prior_notice", notify_prestador))
+    harness.register_worker(
+        FunctionWorker("operadora.cred.register_descredenciamento", register_descredenciamento)
+    )
+    harness.register_worker(FunctionWorker("operadora.cred.register_cred_denial", register_cred_denial))

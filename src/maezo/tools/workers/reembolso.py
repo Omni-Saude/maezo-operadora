@@ -9,10 +9,17 @@ or UT_RevisaoAuditorMedico.
 
 from __future__ import annotations
 
+import dataclasses
+import functools
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
+
+from maezo.tools.workers.base import FunctionWorker, pick_fields
+
+if TYPE_CHECKING:
+    from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
 
 logger = structlog.get_logger(__name__)
 
@@ -448,3 +455,180 @@ def _compute_table_value(
     # Return max of base or solicited (for within-table check)
     # For a real implementation, this would be the exact table value
     return max(base, 0)
+
+
+# ---------------------------------------------------------------------------
+# Dict-boundary entry functions (T1.2/ADR-0026 §2b) — one per external-task
+# topic. Explicit field selection -> typed dataclass -> the UNCHANGED typed
+# function above -> dataclasses.asdict (or pass through when already a flat
+# dict). The typed functions/guards are byte-identical — in particular
+# `calculate_value`/`_compute_table_value` (T1.9: propagate, never re-originate
+# `dentro_teto_l2`) are wrapped, not modified; `tests/unit/sec/
+# test_dentro_teto_source.py` stays green.
+#
+# Topic mapping vs spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn
+# (excl. shared/out-of-scope `operadora.events.publish`):
+#   check_coverage      -> operadora.reembolso.check_coverage (exact name+spec match)
+#   validate_reembolso  -> operadora.reembolso.check_prazo (spec match: the other
+#                          fact-resolution step, incl. dentro_prazo; check_coverage already
+#                          claims its own exact-name topic)
+#   calculate_value     -> operadora.reembolso.calculate_amount
+#     (spec match: "Calcular valor de reembolso")
+#   process_payment     -> operadora.reembolso.issue_payment
+#     (spec match: "Emitir pagamento do reembolso")
+#   send_reembolso_denial -> operadora.reembolso.send_reembolso_denial (exact spec match, GUARDED)
+# auto_approve_or_route/notify_beneficiario have no distinct spec topic
+# (spec's `analyze_request` names a dossier-prep step this module does not
+# implement; spec's `notify_sla_risk` targets coordenacao-reembolso, NOT the
+# beneficiario notify_beneficiario provides — genuine audience mismatch, not
+# force-mapped) — registered under function-derived topics for registry
+# completeness. publish_completed folds into the generic events.publish task
+# per BPMN — function-derived topic.
+# Spec topics with NO implementing function today (gap, not fabricated here):
+# request_documents, analyze_request, notify_sla_risk.
+# ---------------------------------------------------------------------------
+
+
+def check_coverage_entry(variables: dict[str, Any], *, kafka: KafkaPublisher | None = None) -> dict[str, Any]:
+    """Dict-boundary entry for `operadora.reembolso.check_coverage` -> `check_coverage`."""
+    del kafka  # unused — check_coverage emits no domain event
+    input_data = ReembolsoInput(**pick_fields(variables, ReembolsoInput))
+    return check_coverage(input_data)
+
+
+def check_prazo_entry(variables: dict[str, Any], *, kafka: KafkaPublisher | None = None) -> dict[str, Any]:
+    """Dict-boundary entry for `operadora.reembolso.check_prazo` -> `validate_reembolso`.
+
+    Raises `ReembolsoProtocoloInvalidoError` (fail-closed) when `protocolo_reembolso` is blank —
+    unchanged guard, only the dict<->dataclass marshalling is new.
+    """
+    del kafka  # unused — validate_reembolso emits no domain event
+    input_data = ReembolsoInput(**pick_fields(variables, ReembolsoInput))
+    result = validate_reembolso(input_data)
+    return dataclasses.asdict(result)
+
+
+def calculate_amount_entry(
+    variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
+) -> dict[str, Any]:
+    """Dict-boundary entry for `operadora.reembolso.calculate_amount` -> `calculate_value`.
+
+    T1.9: `calculate_value` (unchanged) computes `dentro_teto_l2` from `input_data` — this entry
+    function only marshals `variables` -> `ReembolsoInput`, it never re-derives the ceiling.
+    """
+    del kafka  # unused — calculate_value emits no domain event
+    input_data = ReembolsoInput(**pick_fields(variables, ReembolsoInput))
+    result = calculate_value(input_data)
+    return dataclasses.asdict(result)
+
+
+def auto_approve_or_route_entry(
+    variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
+) -> dict[str, Any]:
+    """Dict-boundary entry for `operadora.reembolso.auto_approve_or_route` -> `auto_approve_or_route`."""
+    del kafka  # unused — auto_approve_or_route emits no domain event
+    calculo = ReembolsoCalculoResult(**pick_fields(variables, ReembolsoCalculoResult))
+    requer_avaliacao_clinica = variables.get("requer_avaliacao_clinica", False)
+    result = auto_approve_or_route(calculo, requer_avaliacao_clinica)
+    return dataclasses.asdict(result)
+
+
+def notify_beneficiario_entry(
+    variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
+) -> dict[str, Any]:
+    """Dict-boundary entry for `operadora.reembolso.notify_beneficiario` -> `notify_beneficiario`."""
+    del kafka  # unused — notify_beneficiario emits no domain event
+    beneficiario_pseudo_id = variables.get("beneficiario_pseudo_id", "")
+    protocolo_reembolso = variables.get("protocolo_reembolso", "")
+    status = variables.get("status", "")
+    return notify_beneficiario(beneficiario_pseudo_id, protocolo_reembolso, status)
+
+
+def issue_payment_entry(variables: dict[str, Any], *, kafka: KafkaPublisher | None = None) -> dict[str, Any]:
+    """Dict-boundary entry for `operadora.reembolso.issue_payment` -> `process_payment`."""
+    del kafka  # unused — process_payment emits no domain event itself
+    protocolo_reembolso = variables.get("protocolo_reembolso", "")
+    valor_cents = variables.get("valor_cents", 0)
+    beneficiario_pseudo_id = variables.get("beneficiario_pseudo_id", "")
+    return process_payment(protocolo_reembolso, valor_cents, beneficiario_pseudo_id)
+
+
+def send_reembolso_denial_entry(
+    variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
+) -> dict[str, Any]:
+    """Dict-boundary entry for `operadora.reembolso.send_reembolso_denial` -> `send_reembolso_denial`
+    (GUARDED).
+
+    Raises `ReembolsoDenialNotHumanError` (fail-closed, ERR_REEMBOLSO_DENIAL_NOT_HUMAN) when the
+    human decision (`decisao_reembolso` in {NEGAR, APROVAR_PARCIAL} + required fields) is
+    missing — unchanged guard, only the dict<->dataclass marshalling is new.
+    """
+    del kafka  # unused — send_reembolso_denial emits no domain event itself
+    denial_input = ReembolsoDenialInput(**pick_fields(variables, ReembolsoDenialInput))
+    return send_reembolso_denial(denial_input)
+
+
+def publish_completed_entry(
+    variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
+) -> dict[str, Any]:
+    """Dict-boundary entry for `operadora.reembolso.publish_completed` -> `publish_completed`."""
+    del kafka  # unused — see module bootstrap docstring on the Kafka seam
+    event_type = variables.get("event_type", "reembolso.completed")
+    payload = variables.get("payload") or {}
+    desfecho = variables.get("desfecho", "")
+    return publish_completed(event_type=event_type, payload=payload, desfecho=desfecho)
+
+
+def register_reembolso_workers(
+    harness: WorkerHarness,
+    kafka: KafkaPublisher | None = None,
+    **seams: Any,
+) -> None:
+    """Register the SP-OP-REEMBOLSO-001 dict-boundary entry functions on `harness`.
+
+    `kafka` is accepted (donor contract, ADR-0026 §2) and threaded via `functools.partial`; no
+    entry function calls `kafka.publish` today — see `ans_submit.register_ans_submit_workers`'s
+    docstring for the same documented sync/async-boundary rationale.
+    """
+    del seams  # unused — no additional seam (audit=/dmn=/dispatcher=/erasure=) is needed today
+    harness.register_worker(
+        FunctionWorker(
+            "operadora.reembolso.check_coverage", functools.partial(check_coverage_entry, kafka=kafka)
+        )
+    )
+    harness.register_worker(
+        FunctionWorker("operadora.reembolso.check_prazo", functools.partial(check_prazo_entry, kafka=kafka))
+    )
+    harness.register_worker(
+        FunctionWorker(
+            "operadora.reembolso.calculate_amount", functools.partial(calculate_amount_entry, kafka=kafka)
+        )
+    )
+    harness.register_worker(
+        FunctionWorker(
+            "operadora.reembolso.auto_approve_or_route",
+            functools.partial(auto_approve_or_route_entry, kafka=kafka),
+        )
+    )
+    harness.register_worker(
+        FunctionWorker(
+            "operadora.reembolso.notify_beneficiario",
+            functools.partial(notify_beneficiario_entry, kafka=kafka),
+        )
+    )
+    harness.register_worker(
+        FunctionWorker(
+            "operadora.reembolso.issue_payment", functools.partial(issue_payment_entry, kafka=kafka)
+        )
+    )
+    harness.register_worker(
+        FunctionWorker(
+            "operadora.reembolso.send_reembolso_denial",
+            functools.partial(send_reembolso_denial_entry, kafka=kafka),
+        )
+    )
+    harness.register_worker(
+        FunctionWorker(
+            "operadora.reembolso.publish_completed", functools.partial(publish_completed_entry, kafka=kafka)
+        )
+    )

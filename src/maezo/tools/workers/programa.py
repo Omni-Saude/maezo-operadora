@@ -7,9 +7,14 @@ Guard: ERR_PROGRAM_DISCHARGE_NOT_HUMAN (L0-hard clinical decision).
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
+
+from maezo.tools.workers.base import FunctionWorker
+
+if TYPE_CHECKING:
+    from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
 
 logger = structlog.get_logger(__name__)
 
@@ -199,3 +204,37 @@ class ProgramaError(Exception):
         self.code = code
         self.message = message
         super().__init__(f"{code}: {message}")
+
+
+# ---------------------------------------------------------------
+# Bootstrap — FunctionWorker adapter (T1.2/ADR-0026 Decisao §2a).
+#
+# Topic mapping vs spec/processes/bpmn/SP-OP-PROGRAMA-001_Programas_Cuidado.bpmn
+# (excl. shared/out-of-scope `operadora.events.publish`):
+#   check_consent    -> operadora.programa.check_consent (exact spec match, CHOKEPOINT guard)
+#   enroll_beneficiario -> operadora.programa.build_care_plan
+#     (spec match: task name says "care.enroll")
+#   register_discharge (alias register_program_discharge)
+#     -> operadora.programa.register_program_discharge (exact spec match, GUARDED)
+#   stop_processing  -> operadora.programa.stop_processing (exact spec match)
+# monitor_programa has no distinct spec topic — registered under a
+# function-derived topic for registry completeness.
+# Spec topics with NO implementing function today (gap, not fabricated here):
+# stratify_risk, proactive_contact, notify_sla_risk.
+# ---------------------------------------------------------------
+
+
+def register_programa_workers(
+    harness: WorkerHarness,
+    kafka: KafkaPublisher | None = None,
+    **seams: Any,
+) -> None:
+    """Register the SP-OP-PROGRAMA-001 function workers on `harness`."""
+    del kafka, seams  # unused — no programa.py worker declares a Kafka/other seam dependency
+    harness.register_worker(FunctionWorker("operadora.programa.check_consent", check_consent))
+    harness.register_worker(FunctionWorker("operadora.programa.build_care_plan", enroll_beneficiario))
+    harness.register_worker(FunctionWorker("operadora.programa.monitor_programa", monitor_programa))
+    harness.register_worker(
+        FunctionWorker("operadora.programa.register_program_discharge", register_program_discharge)
+    )
+    harness.register_worker(FunctionWorker("operadora.programa.stop_processing", stop_processing))

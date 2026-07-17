@@ -9,10 +9,17 @@ materialize after human decision in UT_AnaliseRescisao.
 
 from __future__ import annotations
 
+import dataclasses
+import functools
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
+
+from maezo.tools.workers.base import FunctionWorker, pick_fields
+
+if TYPE_CHECKING:
+    from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
 
 logger = structlog.get_logger(__name__)
 
@@ -395,3 +402,142 @@ def _current_date_iso() -> str:
     import time
 
     return time.strftime("%Y-%m-%d")
+
+
+# ---------------------------------------------------------------------------
+# Dict-boundary entry functions (T1.2/ADR-0026 §2b) — one per external-task
+# topic. Explicit field selection -> typed dataclass -> the UNCHANGED typed
+# function above -> dataclasses.asdict (or pass through when already a flat
+# dict). The typed functions/guards are byte-identical.
+#
+# Topic mapping vs spec/processes/bpmn/SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn
+# (excl. shared/out-of-scope `operadora.events.publish`):
+#   validate_cancel      -> operadora.cancel.resolve_facts        (spec match: "Pre-resolve
+#                           cancel/termination facts")
+#   assess_admissibility -> operadora.cancel.prepare_dossier      (spec match: routing/motivo
+#                           dossier for UT_AnaliseRescisao)
+#   notify_beneficiario  -> operadora.cancel.request_notification (spec match: prior-notice dispatch)
+#   register_contract_termination -> operadora.cancel.send_cancellation_notice (spec match, GUARDED)
+# process_cancel is an internal decision router with no single spec topic
+# (its RESCINDIR/SUSPENDER branch re-validates the SAME guard as
+# register_contract_termination; its MANTER/EFETIVAR_PEDIDO branches have no
+# dedicated gated effector in this module) — registered under a
+# function-derived topic for registry completeness, NOT as
+# confirm_maintained_decision/effectuate_member_request (that would imply
+# guard coverage this module does not independently provide for those two
+# spec topics — left unmapped rather than mis-wired).
+# Spec topics with NO implementing function today (gap, not fabricated here):
+# confirm_maintained_decision, effectuate_member_request, notify_sla_risk.
+# ---------------------------------------------------------------------------
+
+
+def resolve_facts_entry(variables: dict[str, Any], *, kafka: KafkaPublisher | None = None) -> dict[str, Any]:
+    """Dict-boundary entry for `operadora.cancel.resolve_facts` -> `validate_cancel`."""
+    del kafka  # unused — validate_cancel emits no domain event
+    input_data = CancelInput(**pick_fields(variables, CancelInput))
+    result = validate_cancel(input_data)
+    return dataclasses.asdict(result)
+
+
+def prepare_dossier_entry(
+    variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
+) -> dict[str, Any]:
+    """Dict-boundary entry for `operadora.cancel.prepare_dossier` -> `assess_admissibility`."""
+    del kafka  # unused — assess_admissibility emits no domain event
+    input_data = CancelInput(**pick_fields(variables, CancelInput))
+    validation = CancelValidationResult(**pick_fields(variables, CancelValidationResult))
+    result = assess_admissibility(input_data, validation)
+    return dataclasses.asdict(result)
+
+
+def request_notification_entry(
+    variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
+) -> dict[str, Any]:
+    """Dict-boundary entry for `operadora.cancel.request_notification` -> `notify_beneficiario`."""
+    del kafka  # unused — notify_beneficiario emits no domain event
+    matricula = variables.get("matricula_beneficiario", "")
+    numero_contrato = variables.get("numero_contrato", "")
+    message_type = variables.get("message_type", "")
+    return notify_beneficiario(matricula, numero_contrato, message_type)
+
+
+def send_cancellation_notice_entry(
+    variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
+) -> dict[str, Any]:
+    """Dict-boundary entry for `operadora.cancel.send_cancellation_notice` ->
+    `register_contract_termination` (GUARDED).
+
+    Raises `CancellationNotHumanError` (fail-closed, ERR_CANCELLATION_NOT_HUMAN) when the human
+    decision (`decisao_cancelamento` in {RESCINDIR, SUSPENDER} + required justification fields)
+    is missing — unchanged guard, only the dict<->dataclass marshalling is new.
+    """
+    del kafka  # unused — register_contract_termination emits no domain event itself
+    decision = CancelDecisionInput(**pick_fields(variables, CancelDecisionInput))
+    return register_contract_termination(decision)
+
+
+def process_cancel_entry(variables: dict[str, Any], *, kafka: KafkaPublisher | None = None) -> dict[str, Any]:
+    """Dict-boundary entry for `operadora.cancel.process_cancel` -> `process_cancel`.
+
+    `process_cancel` re-applies `_guard_cancellation`/`_guard_manter` internally for the
+    RESCINDIR/SUSPENDER/MANTER branches — unchanged guard behavior.
+    """
+    del kafka  # unused — process_cancel emits no domain event
+    input_data = CancelInput(**pick_fields(variables, CancelInput))
+    decision = CancelDecisionInput(**pick_fields(variables, CancelDecisionInput))
+    return process_cancel(input_data, decision)
+
+
+def publish_completed_entry(
+    variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
+) -> dict[str, Any]:
+    """Dict-boundary entry for `operadora.cancel.publish_completed` -> `publish_completed`."""
+    del kafka  # unused — see module bootstrap docstring on the Kafka seam
+    event_type = variables.get("event_type", "cancel.completed")
+    payload = variables.get("payload") or {}
+    desfecho = variables.get("desfecho", "")
+    return publish_completed(event_type=event_type, payload=payload, desfecho=desfecho)
+
+
+def register_cancel_workers(
+    harness: WorkerHarness,
+    kafka: KafkaPublisher | None = None,
+    **seams: Any,
+) -> None:
+    """Register the SP-OP-CANCEL-001 dict-boundary entry functions on `harness`.
+
+    `kafka` is accepted (donor contract, ADR-0026 §2) and threaded via `functools.partial`; no
+    entry function calls `kafka.publish` today — see `ans_submit.register_ans_submit_workers`'s
+    docstring for the same documented sync/async-boundary rationale.
+    """
+    del seams  # unused — no additional seam (audit=/dmn=/dispatcher=/erasure=) is needed today
+    harness.register_worker(
+        FunctionWorker("operadora.cancel.resolve_facts", functools.partial(resolve_facts_entry, kafka=kafka))
+    )
+    harness.register_worker(
+        FunctionWorker(
+            "operadora.cancel.prepare_dossier", functools.partial(prepare_dossier_entry, kafka=kafka)
+        )
+    )
+    harness.register_worker(
+        FunctionWorker(
+            "operadora.cancel.request_notification",
+            functools.partial(request_notification_entry, kafka=kafka),
+        )
+    )
+    harness.register_worker(
+        FunctionWorker(
+            "operadora.cancel.send_cancellation_notice",
+            functools.partial(send_cancellation_notice_entry, kafka=kafka),
+        )
+    )
+    harness.register_worker(
+        FunctionWorker(
+            "operadora.cancel.process_cancel", functools.partial(process_cancel_entry, kafka=kafka)
+        )
+    )
+    harness.register_worker(
+        FunctionWorker(
+            "operadora.cancel.publish_completed", functools.partial(publish_completed_entry, kafka=kafka)
+        )
+    )

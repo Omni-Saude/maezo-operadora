@@ -10,10 +10,17 @@ only materializes after human decision in UT_AnalistaContas.
 
 from __future__ import annotations
 
+import dataclasses
+import functools
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
+
+from maezo.tools.workers.base import FunctionWorker, pick_fields
+
+if TYPE_CHECKING:
+    from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
 
 logger = structlog.get_logger(__name__)
 
@@ -492,3 +499,189 @@ def _timestamp_hash() -> str:
 
     raw = f"{time.time_ns()}"
     return hashlib.sha256(raw.encode()).hexdigest()[:12].upper()
+
+
+# ---------------------------------------------------------------------------
+# Dict-boundary entry functions (T1.2/ADR-0026 §2b) — one per external-task
+# topic. Explicit field selection -> typed dataclass -> the UNCHANGED typed
+# function above -> dataclasses.asdict (or pass through when already a flat
+# dict). The typed functions/guards are byte-identical.
+#
+# Topic mapping vs spec/processes/bpmn/SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn
+# (excl. shared/out-of-scope `operadora.events.publish`) — EXACT 1:1 name
+# match for 8 of 9 functions:
+#   identify_glosa, analyze_reason, calculate_impact, prepare_triage_dossier,
+#   register_glosa_accept (GUARDED), notify_sla_risk, start_recurso, reconcile_payment.
+# `publish` has no distinct spec topic (its own docstring: "Consumed as
+# operadora.events.publish" — the shared/out-of-scope generic topic, ADR-0026
+# §2b note) — registered under a function-derived topic for registry
+# completeness.
+#
+# Fail-closed (ADR-0026 §2b): `GlosaInput.tenant_id`/`numero_lote_tiss` have
+# no dataclass default — a missing/blank value raises `TypeError` at
+# construction, translated here to this module's own `ContasLoteInvalidoError`
+# (ERR_CONTAS_LOTE_INVALIDO) rather than the harness's generic classification.
+# ---------------------------------------------------------------------------
+
+
+def _build_glosa_input(variables: dict[str, Any]) -> GlosaInput:
+    try:
+        return GlosaInput(**pick_fields(variables, GlosaInput))
+    except TypeError as exc:
+        raise ContasLoteInvalidoError(f"campos obrigatorios ausentes: {exc}") from exc
+
+
+def identify_glosa_entry(variables: dict[str, Any], *, kafka: KafkaPublisher | None = None) -> dict[str, Any]:
+    """Dict-boundary entry for `operadora.contas.identify_glosa` -> `identify_glosa`."""
+    del kafka  # unused — identify_glosa emits no domain event
+    input_data = _build_glosa_input(variables)
+    result = identify_glosa(input_data)
+    return dataclasses.asdict(result)
+
+
+def analyze_reason_entry(variables: dict[str, Any], *, kafka: KafkaPublisher | None = None) -> dict[str, Any]:
+    """Dict-boundary entry for `operadora.contas.analyze_reason` -> `analyze_reason`."""
+    del kafka  # unused — analyze_reason emits no domain event
+    input_data = _build_glosa_input(variables)
+    return analyze_reason(input_data)
+
+
+def calculate_impact_entry(
+    variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
+) -> dict[str, Any]:
+    """Dict-boundary entry for `operadora.contas.calculate_impact` -> `calculate_impact`."""
+    del kafka  # unused — calculate_impact emits no domain event
+    identified = GlosaIdentified(**pick_fields(variables, GlosaIdentified))
+    valor_apresentado_brl = variables.get("valor_apresentado_brl", 0.0)
+    return calculate_impact(identified, valor_apresentado_brl)
+
+
+def prepare_triage_dossier_entry(
+    variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
+) -> dict[str, Any]:
+    """Dict-boundary entry for `operadora.contas.prepare_triage_dossier` -> `prepare_triage_dossier`."""
+    del kafka  # unused — prepare_triage_dossier emits no domain event
+    input_data = _build_glosa_input(variables)
+    identified = GlosaIdentified(**pick_fields(variables, GlosaIdentified))
+    reason_analysis = {
+        "reason_map": variables.get("reason_map", {}),
+        "categoria_normalizada": variables.get("categoria_normalizada", "desconhecida"),
+        "categories": variables.get("categories", {}),
+    }
+    result = prepare_triage_dossier(input_data, identified, reason_analysis)
+    return dataclasses.asdict(result)
+
+
+def register_glosa_accept_entry(
+    variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
+) -> dict[str, Any]:
+    """Dict-boundary entry for `operadora.contas.register_glosa_accept` -> `register_glosa_accept`
+    (GUARDED).
+
+    Raises `GlosaAcceptNotHumanError` (fail-closed, ERR_GLOSA_ACCEPT_NOT_HUMAN) when the human
+    decision (`decisao_contas == ACEITAR_GLOSA` + required fields) is missing — unchanged guard,
+    only the dict<->dataclass marshalling is new.
+    """
+    del kafka  # unused — register_glosa_accept emits no domain event itself
+    input_data = GlosaAcceptInput(**pick_fields(variables, GlosaAcceptInput))
+    result = register_glosa_accept(input_data)
+    return dataclasses.asdict(result)
+
+
+def notify_sla_risk_entry(
+    variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
+) -> dict[str, Any]:
+    """Dict-boundary entry for `operadora.contas.notify_sla_risk` -> `notify_sla_risk`."""
+    del kafka  # unused — notify_sla_risk emits no domain event
+    tenant_id = variables.get("tenant_id", "")
+    numero_lote_tiss = variables.get("numero_lote_tiss", "")
+    sla_remaining = variables.get("sla_remaining", "")
+    grupo = variables.get("grupo", "coordenacao-contas")
+    return notify_sla_risk(tenant_id, numero_lote_tiss, sla_remaining, grupo)
+
+
+def start_recurso_entry(variables: dict[str, Any], *, kafka: KafkaPublisher | None = None) -> dict[str, Any]:
+    """Dict-boundary entry for `operadora.contas.start_recurso` -> `start_recurso`."""
+    del kafka  # unused — start_recurso emits no domain event
+    glosa_id = variables.get("glosa_id", "")
+    numero_guia_tiss = variables.get("numero_guia_tiss", "")
+    glosa_type = variables.get("glosa_type", "")
+    documentacao_anexa = variables.get("documentacao_anexa", False)
+    return start_recurso(glosa_id, numero_guia_tiss, glosa_type, documentacao_anexa)
+
+
+def reconcile_payment_entry(
+    variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
+) -> dict[str, Any]:
+    """Dict-boundary entry for `operadora.contas.reconcile_payment` -> `reconcile_payment`."""
+    del kafka  # unused — reconcile_payment emits no domain event
+    numero_lote_tiss = variables.get("numero_lote_tiss", "")
+    numero_guia_tiss = variables.get("numero_guia_tiss", "")
+    status = variables.get("status", "REENVIAR")
+    return reconcile_payment(numero_lote_tiss, numero_guia_tiss, status)
+
+
+def publish_entry(variables: dict[str, Any], *, kafka: KafkaPublisher | None = None) -> dict[str, Any]:
+    """Dict-boundary entry for `operadora.contas.publish` -> `publish`."""
+    del kafka  # unused — see module bootstrap docstring on the Kafka seam
+    event_type = variables.get("event_type", "")
+    payload = variables.get("payload") or {}
+    topic = variables.get("topic", "")
+    return publish(event_type, payload, topic)
+
+
+def register_contas_workers(
+    harness: WorkerHarness,
+    kafka: KafkaPublisher | None = None,
+    **seams: Any,
+) -> None:
+    """Register the SP-OP-CONTAS-001 dict-boundary entry functions on `harness`.
+
+    `kafka` is accepted (donor contract, ADR-0026 §2) and threaded via `functools.partial`; no
+    entry function calls `kafka.publish` today — see `ans_submit.register_ans_submit_workers`'s
+    docstring for the same documented sync/async-boundary rationale.
+    """
+    del seams  # unused — no additional seam (audit=/dmn=/dispatcher=/erasure=) is needed today
+    harness.register_worker(
+        FunctionWorker(
+            "operadora.contas.identify_glosa", functools.partial(identify_glosa_entry, kafka=kafka)
+        )
+    )
+    harness.register_worker(
+        FunctionWorker(
+            "operadora.contas.analyze_reason", functools.partial(analyze_reason_entry, kafka=kafka)
+        )
+    )
+    harness.register_worker(
+        FunctionWorker(
+            "operadora.contas.calculate_impact", functools.partial(calculate_impact_entry, kafka=kafka)
+        )
+    )
+    harness.register_worker(
+        FunctionWorker(
+            "operadora.contas.prepare_triage_dossier",
+            functools.partial(prepare_triage_dossier_entry, kafka=kafka),
+        )
+    )
+    harness.register_worker(
+        FunctionWorker(
+            "operadora.contas.register_glosa_accept",
+            functools.partial(register_glosa_accept_entry, kafka=kafka),
+        )
+    )
+    harness.register_worker(
+        FunctionWorker(
+            "operadora.contas.notify_sla_risk", functools.partial(notify_sla_risk_entry, kafka=kafka)
+        )
+    )
+    harness.register_worker(
+        FunctionWorker("operadora.contas.start_recurso", functools.partial(start_recurso_entry, kafka=kafka))
+    )
+    harness.register_worker(
+        FunctionWorker(
+            "operadora.contas.reconcile_payment", functools.partial(reconcile_payment_entry, kafka=kafka)
+        )
+    )
+    harness.register_worker(
+        FunctionWorker("operadora.contas.publish", functools.partial(publish_entry, kafka=kafka))
+    )

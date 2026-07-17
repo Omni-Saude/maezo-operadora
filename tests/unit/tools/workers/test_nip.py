@@ -12,11 +12,15 @@ from maezo.tools.workers.nip import (
     NipResponseInput,
     assemble_response,
     classify_nip,
+    classify_nip_entry,
     handoff_ans_submit,
+    handoff_ans_submit_entry,
     notify_beneficiario,
     publish_completed,
+    publish_completed_entry,
     review_juridico,
     route_nip,
+    submit_response_entry,
     submit_to_ans,
 )
 
@@ -285,3 +289,54 @@ def test_nip_negativa_not_human_is_permission_error() -> None:
 def test_nip_protocolo_invalido_is_value_error() -> None:
     """NipProtocoloInvalidoError must be a subclass of ValueError."""
     assert issubclass(NipProtocoloInvalidoError, ValueError)
+
+
+# ---------------------------------------------------------------------------
+# Dict-boundary entry functions (T1.2/ADR-0026 §2b) — round-trip vs calling the
+# typed function directly; fail-closed marshalling on invalid/missing input.
+# ---------------------------------------------------------------------------
+
+
+def test_classify_nip_entry_round_trips_classify_nip() -> None:
+    variables = {"classificacao_nip": "assistencial", "tema_nip": "reembolso", "contesta_negativa": True}
+    direct = classify_nip(NipInput(**variables))
+    result = classify_nip_entry(variables)
+    assert result["classificacao"] == direct.classificacao
+    assert result["prazo_dias"] == direct.prazo_dias
+
+
+def test_submit_response_entry_guards_missing_human_decision() -> None:
+    """submit_response_entry raises the UNCHANGED NipNegativaNotHumanError guard."""
+    with pytest.raises(NipNegativaNotHumanError):
+        submit_response_entry({"decisao_nip": "MANTER_NEGATIVA"})
+
+
+def test_submit_response_entry_happy_path() -> None:
+    variables = {
+        "decisao_nip": "MANTER_NEGATIVA",
+        "revisor_id": "revisor-1",
+        "fundamentacao_regulatoria": "RN 259",
+        "referencia_negativa_original": "NEG-1",
+        "texto_resposta_nip": "resposta final",
+    }
+    direct = submit_to_ans(NipResponseInput(**variables))
+    assert submit_response_entry(variables) == direct
+
+
+def test_handoff_ans_submit_entry_raises_on_blank_protocolo() -> None:
+    """Absent (None) protocolo_ans is legitimate; blank/empty raises NipProtocoloInvalidoError
+    (unchanged guard, GAP-NIP-6)."""
+    with pytest.raises(NipProtocoloInvalidoError):
+        handoff_ans_submit_entry({"numero_nip_ans": "NIP-1", "protocolo_ans": "  "})
+
+
+def test_handoff_ans_submit_entry_allows_absent_protocolo() -> None:
+    result = handoff_ans_submit_entry({"numero_nip_ans": "NIP-1"})
+    assert result == handoff_ans_submit("NIP-1", None, "", "")
+
+
+def test_publish_completed_entry_round_trips_publish_completed() -> None:
+    variables = {"event_type": "nip.completed", "desfecho": "resolvida_favoravel"}
+    assert publish_completed_entry(variables) == publish_completed(
+        event_type="nip.completed", payload={}, desfecho="resolvida_favoravel"
+    )

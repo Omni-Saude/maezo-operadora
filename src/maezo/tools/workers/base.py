@@ -3,6 +3,8 @@
 Provides:
 - WorkerBase: base class with structlog logger, error handling, retry
 - WorkerRegistry: registration/retrieval by external task topic
+- FunctionWorker: adapter wrapping dict-first/typed-I/O entry functions (T1.2/ADR-0026)
+- pick_fields: fail-closed explicit field selection for dict->dataclass marshalling
 - ERR_*_NOT_HUMAN: guard constants preventing automatic adverse actions
 
 Per ADR-0008 (autonomy levels): L0 hard actions (negativa, fraude accusation)
@@ -12,8 +14,10 @@ enforce this at the code level.
 
 from __future__ import annotations
 
+import dataclasses
 import time
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from typing import Any, ClassVar
 
 import structlog
@@ -204,6 +208,95 @@ class WorkerBase(ABC):
             Result dictionary.
         """
         return self.run(process_vars)
+
+
+# ---------------------------------------------------------------------------
+# FunctionWorker — adapter wrapping dict-first / typed-I/O entry functions
+# ---------------------------------------------------------------------------
+
+#: Exception types the harness (`tools/workers/harness.py:_handle`) already classifies
+#: correctly on its own: `PermissionError` family -> `failure(retries=0)` (L0 guard, never
+#: retried); `ValueError` family -> `failure(retries=0)` (bad/immutable input); the transient
+#: infra family -> engine-side computed retry. `FunctionWorker.execute` never intercepts these.
+_HARNESS_CLASSIFIED: tuple[type[Exception], ...] = (
+    PermissionError,
+    ValueError,
+    RuntimeError,
+    OSError,
+    TimeoutError,
+    ConnectionError,
+)
+
+
+class FunctionWorker(WorkerBase):
+    """Adapter wrapping a dict-first callable `fn(variables: dict) -> dict` as a `WorkerBase`.
+
+    ADR-0026 Decisao §1/§2. `fn` is either:
+    - one of the 42 dict-first module functions (`fn(variables) -> dict`), wrapped directly, or
+    - a typed-I/O module's dict-boundary **entry function** (ADR-0026 §2b) — explicit field
+      selection -> typed dataclass -> the UNCHANGED typed function -> `dataclasses.asdict`.
+
+    `max_retries` defaults to **1** (execute once) — per T1.1 design §9 the ENGINE owns durable
+    retry; `WorkerBase`'s in-process retry stays opt-in per worker for provably-idempotent
+    transient faults only (pass `max_retries>1` explicitly to opt in).
+
+    Error reclassification (ADR-0026 Decisao §5 — the `classify_worker_error` provision,
+    implemented here rather than in the harness so no harness/dispatch code changes): six of the
+    16 modules (adequacao/credenciamento/fraude/inadimplencia/pagto/programa) raise a bespoke
+    ``Exception`` subclass with a ``.code``/``.message`` pair for their GATED (human-decision or
+    custody-integrity) failures — e.g. ``AdequacaoError(ERR_FALLBACK_COMMITMENT_NOT_HUMAN, ...)``
+    — rather than subclassing ``PermissionError``/``ValueError`` (ADR-0026 census, "Heterogeneous
+    error classes"). Left alone, the harness's generic `except Exception` branch would treat
+    these as *unclassified* and apply the **transient, engine-retried** outcome — retrying an L0
+    guard could drive an adverse action (ADR-0008), so this is a fail-closed defect on the
+    registry path. `execute()` therefore re-raises any such "coded" exception (duck-typed: not
+    already one of `_HARNESS_CLASSIFIED`, but exposing string `.code` and `.message` attributes)
+    as a `ValueError`, which the harness's EXISTING classification already routes to
+    `failure(retries=0)` — an engine-guaranteed, human-visible incident, never retried. The
+    module's own exception type/tests are untouched (this only affects the FunctionWorker/harness
+    dispatch path); the metrics `error_type` label reports `ValueError` for these, a deliberate,
+    documented trade-off for correctness.
+    """
+
+    def __init__(
+        self,
+        topic: str,
+        fn: Callable[[dict[str, Any]], dict[str, Any]],
+        *,
+        max_retries: int = 1,
+        retry_backoff: float = 1.0,
+    ) -> None:
+        super().__init__(topic=topic, max_retries=max_retries, retry_backoff=retry_backoff)
+        self._fn = fn
+
+    def execute(self, process_vars: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return self._fn(process_vars)
+        except _HARNESS_CLASSIFIED:
+            raise
+        except Exception as exc:  # noqa: BLE001 — reclassified below, see class docstring.
+            code = getattr(exc, "code", None)
+            message = getattr(exc, "message", None)
+            if isinstance(code, str) and isinstance(message, str):
+                raise ValueError(f"{code}: {message}") from exc
+            raise
+
+
+def pick_fields(variables: dict[str, Any], cls: type) -> dict[str, Any]:
+    """Explicit field selection: keep only the keys `cls` (a dataclass) actually declares.
+
+    ADR-0026 §2b marshalling rule for the six typed-I/O modules — inbound `variables` (the flat
+    BPMN process-variable dict, which also carries fields unrelated to this dataclass) maps to a
+    typed input dataclass by EXPLICIT selection, never `**variables` (which would raise
+    `TypeError: unexpected keyword argument` the moment an unrelated process variable is present,
+    or silently accept extras a naive constructor tolerates). Missing keys are simply omitted —
+    the dataclass's own defaults (or absence thereof) decide whether that is fail-closed; a
+    dataclass field with NO default left unset raises `TypeError` at construction, which entry
+    functions must translate into the module's own `*Invalido*Error` (ADR-0026 §2b: "a
+    missing/invalid required field raises the module's own *Invalido*Error").
+    """
+    names = {f.name for f in dataclasses.fields(cls)}
+    return {k: v for k, v in variables.items() if k in names}
 
 
 # ---------------------------------------------------------------------------

@@ -8,11 +8,15 @@ Inverts the reference detect_fraud v2: score is routing FACT, NEVER verdict.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
 from maezo.gateway.custody import CustodyBundle
+from maezo.tools.workers.base import FunctionWorker
+
+if TYPE_CHECKING:
+    from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
 
 logger = structlog.get_logger(__name__)
 
@@ -408,3 +412,36 @@ class FraudeError(Exception):
         self.code = code
         self.message = message
         super().__init__(f"{code}: {message}")
+
+
+# ---------------------------------------------------------------
+# Bootstrap — FunctionWorker adapter (T1.2/ADR-0026 Decisao §2a).
+#
+# Topic mapping vs spec/processes/bpmn/SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn
+# (excl. shared/out-of-scope `operadora.events.publish`) — 9 of 10 functions
+# are an EXACT 1:1 name match with their spec topic; only notify_sla_risk has
+# no implementing function today (gap, not fabricated here). publish_completed
+# has no distinct spec topic (folds into the generic events.publish task per
+# BPMN) — registered under a function-derived topic for registry completeness.
+# ---------------------------------------------------------------
+
+
+def register_fraude_workers(
+    harness: WorkerHarness,
+    kafka: KafkaPublisher | None = None,
+    **seams: Any,
+) -> None:
+    """Register the SP-OP-FRAUDE-001 function workers on `harness`."""
+    del kafka, seams  # unused — no fraude.py worker declares a Kafka/other seam dependency
+    harness.register_worker(FunctionWorker("operadora.fraude.intake", intake))
+    harness.register_worker(FunctionWorker("operadora.fraude.gather_evidence", gather_evidence))
+    harness.register_worker(FunctionWorker("operadora.fraude.score_indicators", score_indicators))
+    harness.register_worker(FunctionWorker("operadora.fraude.assemble_dossier", assemble_dossier))
+    harness.register_worker(FunctionWorker("operadora.fraude.seal_custody_bundle", seal_custody_bundle))
+    harness.register_worker(
+        FunctionWorker("operadora.fraude.register_fraud_accusation", register_fraud_accusation)
+    )
+    harness.register_worker(FunctionWorker("operadora.fraude.refer_to_legal", refer_to_legal))
+    harness.register_worker(FunctionWorker("operadora.fraude.start_credenciamento", start_credenciamento))
+    harness.register_worker(FunctionWorker("operadora.fraude.start_contratual", start_contratual))
+    harness.register_worker(FunctionWorker("operadora.fraude.publish_completed", publish_completed))

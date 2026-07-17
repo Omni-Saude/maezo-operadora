@@ -7,9 +7,14 @@ NAO ha worker de rescisao gated AQUI — rescisao e propriedade de CANCEL-001.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
+
+from maezo.tools.workers.base import FunctionWorker
+
+if TYPE_CHECKING:
+    from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
 
 logger = structlog.get_logger(__name__)
 
@@ -298,3 +303,39 @@ class InadimplenciaError(Exception):
         self.code = code
         self.message = message
         super().__init__(f"{code}: {message}")
+
+
+# ---------------------------------------------------------------
+# Bootstrap — FunctionWorker adapter (T1.2/ADR-0026 Decisao §2a).
+#
+# Topic mapping vs spec/processes/bpmn/SP-OP-INADIMPLENCIA-001_Suspensao_Rescisao.bpmn
+# (excl. shared/out-of-scope `operadora.events.publish`):
+#   resolve_facts       -> operadora.inadimplencia.resolve_facts (exact spec match)
+#   notify_beneficiario -> operadora.inadimplencia.check_prior_notice
+#     (spec match: RN 593 prior-notice dispatch)
+#   register_suspension (alias register_contract_suspension)
+#     -> operadora.inadimplencia.register_contract_suspension (exact spec match, GUARDED)
+#   handoff_rescisao -> operadora.inadimplencia.handoff_rescisao (exact spec match)
+# assess_status/calculate_purge have no distinct spec topic (internal
+# DMN-like classification feeding resolve_facts/check_prior_notice) —
+# registered under function-derived topics for registry completeness.
+# Spec topics with NO implementing function today (gap, not fabricated here):
+# prepare_dossier, notify_sla_risk.
+# ---------------------------------------------------------------
+
+
+def register_inadimplencia_workers(
+    harness: WorkerHarness,
+    kafka: KafkaPublisher | None = None,
+    **seams: Any,
+) -> None:
+    """Register the SP-OP-INADIMPLENCIA-001 function workers on `harness`."""
+    del kafka, seams  # unused — no inadimplencia.py worker declares a Kafka/other seam dependency
+    harness.register_worker(FunctionWorker("operadora.inadimplencia.resolve_facts", resolve_facts))
+    harness.register_worker(FunctionWorker("operadora.inadimplencia.assess_status", assess_status))
+    harness.register_worker(FunctionWorker("operadora.inadimplencia.calculate_purge", calculate_purge))
+    harness.register_worker(FunctionWorker("operadora.inadimplencia.check_prior_notice", notify_beneficiario))
+    harness.register_worker(
+        FunctionWorker("operadora.inadimplencia.register_contract_suspension", register_contract_suspension)
+    )
+    harness.register_worker(FunctionWorker("operadora.inadimplencia.handoff_rescisao", handoff_rescisao))
