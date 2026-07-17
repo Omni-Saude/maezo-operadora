@@ -46,6 +46,8 @@ dependencies = [
     # --- Seguranca / LGPD ---
     "cryptography>=48.0.1,<50",
     "greenlet>=3.5.3",
+    # --- Inferencia LLM (ADR-0009; single import point: maezo.runtime.inference) ---
+    "anthropic>=0.40,<1.0",         # T1.7: real provider behind InferenceProvider
 ]
 
 [project.optional-dependencies]
@@ -83,6 +85,7 @@ pythonpath = ["."]
 markers = [
     "integration: exige stack docker-compose (engine real — sem mock de engine, ADR-0011)",
     "eval: avaliacao de qualidade de agente contra golden dataset (gate de CI)",
+    "llm_live: real Anthropic API call (T1.7); skipped loudly without MAEZO_ANTHROPIC_API_KEY/ANTHROPIC_API_KEY",
 ]
 
 [tool.ruff]
