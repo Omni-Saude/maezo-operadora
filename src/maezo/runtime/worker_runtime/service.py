@@ -10,11 +10,11 @@ Bring-up order (design §3/§10/§12), A -> E:
           engine is slow/unavailable. Signal ownership (SIGTERM/SIGINT) is claimed here.
   STEP B  Bring up dependencies BOUNDED and NON-FATAL: build the CIB Seven transport (pure
           construction — no network until the first fetch) and register every worker this build
-          serves — as of T1.2/ADR-0026 this is the FULL 16-module composition
-          (`bootstrap.register_all_workers`; T1.1 shipped only the 3 `WorkerBase` modules —
-          auth/escalation/lgpd — the interim-scope note this closes). Failure logs + leaves the
-          corresponding readiness check unhealthy, but NEVER brings the process down (liveness
-          stays up).
+          serves — as of T1.2/ADR-0026 (+ T3.1 R2's `events` module) this is the FULL 17-module
+          composition (`bootstrap.register_all_workers`; T1.1 shipped only the 3 `WorkerBase`
+          modules — auth/escalation/lgpd — the interim-scope note this closes). Failure logs +
+          leaves the corresponding readiness check unhealthy, but NEVER brings the process down
+          (liveness stays up).
   STEP C  Readiness checks read `WorkerState`: `engine_reachable` / `workers_registered` /
           `harness_running` (+ `kafka_ready`, currently a no-op pass — see `kafka_ready`'s
           docstring in `build_readiness_checks` below). `/readyz` only turns 200 once every
@@ -54,13 +54,14 @@ from .settings import WorkerRuntimeSettings
 
 logger = structlog.get_logger(__name__)
 
-# T1.2/ADR-0026: the daemon now registers the FULL 16-module composition
+# T1.2/ADR-0026: the daemon now registers the FULL 17-module composition (16 + T3.1 R2's
+# `events` module, closing the events.publish gap)
 # (`bootstrap.register_all_workers` — the donor's `_register_all_workers` shape, T1.1 design
 # §16), closing the T1.1 verifier's interim-scope note (T1.1 shipped only the 3 `WorkerBase`
 # modules — auth/escalation/lgpd). `register_default_workers` stays the daemon's STEP-B
 # bootstrap name/call site; it now delegates to the full composition rather than a
-# hand-maintained class tuple, so adding/removing a module (any of the 16, or a future 17th)
-# never requires a second, parallel edit here.
+# hand-maintained class tuple, so adding/removing a module never requires a second, parallel
+# edit here.
 
 
 def register_default_workers(harness: WorkerHarness, *, dmn: CibSevenDmnTransport | None = None) -> None:
@@ -210,13 +211,15 @@ def build_readiness_checks(state: WorkerState) -> list[Callable[[], Awaitable[Ch
             )
         healthy = not missing
         if healthy:
-            # T1.2/ADR-0026: the scope detail the T1.1 verifier's interim-scope note asked for —
-            # readiness now reflects the FULL 16-module composition, not just the 3 WorkerBase
-            # modules T1.1 shipped. Included on the HEALTHY path too (not just failures) so
-            # `/readyz` is self-describing about what "ready" means.
+            # T1.2/ADR-0026 (+ T3.1 R2): the scope detail the T1.1 verifier's interim-scope note
+            # asked for — readiness now reflects the FULL 17-module composition, not just the 3
+            # WorkerBase modules T1.1 shipped. Included on the HEALTHY path too (not just
+            # failures) so `/readyz` is self-describing about what "ready" means.
+            total_modules = len(ALL_WORKER_BOOTSTRAPS)
             detail = (
-                f"{len(ALL_WORKER_BOOTSTRAPS)}/16 worker modules registered "
-                f"({len(registered)} topics; scope: T1.2/ADR-0026 full composition)"
+                f"{total_modules}/{total_modules} worker modules registered "
+                f"({len(registered)} topics; scope: T1.2/ADR-0026 full composition, "
+                "T3.1 events.publish worker included)"
             )
         else:
             detail = f"missing topics ({len(missing)}/{len(expected)}): {sorted(missing)}"
