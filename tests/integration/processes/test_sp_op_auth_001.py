@@ -46,36 +46,37 @@ PORT NOTES (fixture adaptation only — port rule 1; logic/assertions verbatim f
     adapted the same way (topics wrapped in `TopicSubscription`, `async_response_timeout_ms`
     instead of `lock_duration_ms` on the call).
 
-FINDINGS (see PR body / evidence-ledger for full detail — NOT fixed here, src/** is out of
-scope for this PR):
-  0. ROOT CAUSE (repo-wide, pre-existing, self-documented): grep for `kafka.publish(` across all
-     16 `src/maezo/tools/workers/*.py` modules returns ZERO call sites — no worker/entry function
-     anywhere calls `KafkaPublisher.publish()`. v2's OWN `worker_runtime/service.py` `kafka_ready`
-     readiness check says so explicitly: "no entry function actually CALLS kafka.publish yet ...
-     a real gap". Consequence for this suite: `auth_probe.has_event(...)` /
-     `.notifications_of_type(...)` (both backed by `FakeKafkaPublisher.published`) can NEVER
-     observe anything today, independent of findings 1/2 below.
-  1. Same `operadora.events.publish` gap as escalation (no registered handler anywhere in
-     v2's `register_all_workers`) — every test below that expects the process to progress
-     past its first `ST_Publish*` node is expected to fail. Confirmed live against
-     SP-OP-ESCALATION-001; auth's BPMN declares the identical `camunda:topic=
-     "operadora.events.publish"` service tasks.
-  2. D-07 (open governance item): tenant `amh`'s `authorization_approval.max_value_brl` is `0`
-     in both `spec/policies/autonomy/L0-core.yaml` and `tenants-amh.yaml` ("teto REAL e definido
-     por tenant ... D-07 em aberto"). `CeilingResolver.within_l2_ceiling` (T1.9,
+FINDINGS (see PR body / evidence-ledger for full detail):
+  0. ROOT CAUSE, FIXED (T3.1 R2): this suite originally documented that grep for `kafka.publish(`
+     across all 16 `src/maezo/tools/workers/*.py` modules returned ZERO call sites (v2's own
+     `worker_runtime/service.py` `kafka_ready` readiness check said so explicitly). T3.1 R2 ports
+     the donor's `make_publish_event_handler` into `maezo.tools.workers.events
+     .register_events_workers` (a 17th bootstrap) — `auth_probe` now registers it too, mirroring
+     the donor's own `register_phase0_workers` composition.
+  1. `operadora.events.publish` gap, FIXED (T3.1 R2) — same fix as finding 0 (this suite
+     originally tracked it as a separate finding since it blocks EVERY test that expects the
+     process to progress past its first `ST_Publish*` node; auth's BPMN declares the identical
+     `camunda:topic="operadora.events.publish"` service tasks as escalation's). `strict-xfail`
+     markers whose documented reason was exactly this gap are REMOVED below.
+  2. D-07 (open governance item, STILL OPEN — NOT fixed here, src/** out of scope for this PR):
+     tenant `amh`'s `authorization_approval.max_value_brl` is `0` in both
+     `spec/policies/autonomy/L0-core.yaml` and `tenants-amh.yaml` ("teto REAL e definido por
+     tenant ... D-07 em aberto"). `CeilingResolver.within_l2_ceiling` (T1.9,
      `src/maezo/tools/workers/ceilings.py`) is fail-closed on a `0` ceiling: `AnalyzeRequestWorker`
      (`auth.py`) can therefore never compute `teto_ok=True` for any positive
      `valor_estimado_brl`, so `End_AprovadaAutomatica` (L2 auto-approval) is UNREACHABLE under
      the current tenant policy config — a genuine, documented v2 config gap, independent of the
-     publish-topic gap above, affecting the 2 tests that assert the auto-approval terminal.
-  3. `phi_vars.REDACTED_PHI` (the donor's PHI-egress-redaction marker) does not exist anywhere in
-     v2 (`grep -rl REDACTED_PHI src/` — zero hits); `SendDenialNoticeWorker.execute()` (`auth.py`)
-     returns `justificativa_clinica`/`cid10_referencia`/`fundamentacao_dut` as PLAIN, unredacted
-     values in its output dict. Combined with finding 0, there is currently NO enforcement point
-     in v2 for the donor's "clinical PHI never leaves raw via Kafka" invariant (GAP-XPHI-1
-     lineage, ADR-0006) — worth flagging to reviewers as a compliance-adjacent gap distinct from
-     findings 0-2. `test_happy_path_negada_pelo_auditor` documents this instead of asserting a
-     symbol that cannot resolve.
+     (now-fixed) publish-topic gap, affecting the 2 tests that assert the auto-approval terminal;
+     those keep a `_CEILING_D07_REASON` xfail.
+  3. `phi_vars.REDACTED_PHI` (the donor's PHI-egress-redaction marker, STILL OPEN — NOT fixed
+     here) does not exist anywhere in v2 (`grep -rl REDACTED_PHI src/` — zero hits);
+     `SendDenialNoticeWorker.execute()` (`auth.py`) returns
+     `justificativa_clinica`/`cid10_referencia`/`fundamentacao_dut` as PLAIN, unredacted values in
+     its output dict. There is currently NO enforcement point in v2 for the donor's "clinical PHI
+     never leaves raw via Kafka" invariant (GAP-XPHI-1 lineage, ADR-0006) — worth flagging to
+     reviewers as a compliance-adjacent gap. `test_happy_path_negada_pelo_auditor` documents this
+     instead of asserting a symbol that cannot resolve (not xfailed — the rest of that test's
+     assertions pass).
 """
 
 from __future__ import annotations
@@ -92,6 +93,7 @@ import pytest
 import pytest_asyncio
 
 from maezo.tools.workers.auth import register_auth_workers
+from maezo.tools.workers.events import register_events_workers
 from maezo.tools.workers.harness import (
     CibSevenWorkerTransport,
     FakeKafkaPublisher,
@@ -152,21 +154,73 @@ _END_FUNDAMENTACAO_INCOMPLETA = "End_FundamentacaoIncompletaBloqueada"
 
 _UT_HUMANAS_NEGATIVA = frozenset({_UT_AUDITOR, _UT_COORDENACAO, _UT_JUNTA})
 
-_PUBLISH_GAP_REASON = (
-    "v2 implementation gap (finding, T3.1 phase 1): no module registered by "
-    "`register_all_workers` (src/maezo/tools/workers/bootstrap.py) serves the generic "
-    "`operadora.events.publish` external-task topic every SP-OP-* BPMN uses to emit domain "
-    "events (live-confirmed against SP-OP-ESCALATION-001; SP-OP-AUTH-001's BPMN declares the "
-    "identical camunda:topic). Not a fixture bug; src/** fix is out of scope for this PR."
+# CORRECTION to the pre-T3.1-R2 D-07 finding (live-verified, evidence below — NOT re-asserted
+# as a live xfail cause anywhere in this file): the original finding claimed D-07's 0 ceiling
+# (ceilings.py fail-closed) blocks End_AprovadaAutomatica for `test_happy_path_aprovacao_
+# automatica_l2`/`test_pendencia_docs_recebidos_reavalia`. Live-confirmed AFTER the
+# events.publish fix (docker compose core, CIB Seven 2.1.0): both tests DO reach
+# End_AprovadaAutomatica — `AnalyzeRequestWorker` (the only caller of `CeilingResolver
+# .within_l2_ceiling`) is on the `_ANALYZE_TOPIC` (`operadora.auth.analyze_request`), which
+# `_AUTH_WORKER_TOPICS`/`auth_probe.drain()` deliberately excludes (served only by
+# `_AnalyzeRequestStub`, a donor fixture, via the SEPARATE `drain_analyze()`); these two tests
+# never call `drain_analyze()`. Their `start_auth(dentro_teto_l2=True, ...)` seed survives
+# untouched into `BRT_AutoApproval`'s DMN evaluation (`auth_auto_approval.dmn` reads the flat
+# `dentro_teto_l2` input directly) — the D-07 ceiling computation is simply never exercised by
+# either test's path. D-07 remains a genuine, OPEN config gap (0 ceiling in both
+# `spec/policies/autonomy/{L0-core,tenants-amh}.yaml`) — just not the blocker THESE 2 tests hit;
+# both are now blocked by `_ACTION_WORKER_KAFKA_GAP_REASON` below instead (see the PR body for
+# the full writeup — this correction is evidence, not fabricated).
+
+# NEW findings, live-confirmed AFTER T3.1 R2's events.publish fix (drift, NOT the publish gap —
+# these tests progress far enough now to hit a SEPARATE, pre-existing v2 gap): auth.py's action
+# WorkerBase classes (IssueAuthorizationWorker/SendDenialNoticeWorker/NotifySlaRiskWorker/
+# ConveneJuntaWorker/RequestDocumentsWorker's embedded `event_topic_pended` publish) never call
+# `kafka.publish` — mirrors the SAME systemic pattern found in escalation.py
+# (NotifyTeamWorker/NotifySupervisorWorker, see that suite's `_NOTIFY_KAFKA_GAP_REASON`).
+# Consequence: `auth_probe.notifications_of_type(...)` (backed by `FakeKafkaPublisher.published`)
+# can NEVER observe any of these workers' executions, and (separately, IssueAuthorizationWorker/
+# SendDenialNoticeWorker/ConveneJuntaWorker) their internal `human_approved` guard ALSO always
+# blocks — `human_approved` is never set anywhere (not by any BPMN inputParameter/expression, not
+# by this suite's `complete_task_as_human(...)` payloads; `grep human_approved
+# spec/processes/bpmn/SP-OP-AUTH-001_*.bpmn` returns zero hits) — so `numero_autorizacao` is
+# never populated on the APROVAR path either. Independent of the `operadora.events.publish` gap
+# T3.1 R2 fixes; `src/**` fix (wiring these workers to call kafka.publish / threading
+# `human_approved`) is out of scope for this PR.
+_ACTION_WORKER_KAFKA_GAP_REASON = (
+    "v2 drift (finding, T3.1 R2 — NOT the events.publish gap, which this PR fixes): auth.py's "
+    "action WorkerBase classes (IssueAuthorizationWorker/SendDenialNoticeWorker/"
+    "NotifySlaRiskWorker/ConveneJuntaWorker/RequestDocumentsWorker's embedded event_topic_pended "
+    "publish) never call kafka.publish — mirrors escalation.py's NotifyTeamWorker/"
+    "NotifySupervisorWorker gap. auth_probe.notifications_of_type(...)/has_event(_AUTH_PENDED) "
+    "can therefore never observe these executions; separately, human_approved (never set by any "
+    "BPMN inputParameter or this suite's complete_task_as_human payloads) always blocks "
+    "IssueAuthorizationWorker/SendDenialNoticeWorker/ConveneJuntaWorker's own internal guard, so "
+    "numero_autorizacao is never populated either. Live-confirmed (docker compose core, CIB "
+    "Seven 2.1.0) after the events.publish fix landed. Not a fixture bug; src/** fix is out of "
+    "scope for this PR."
 )
 
-_CEILING_D07_REASON = (
-    "v2 config gap (finding, T3.1 phase 1, D-07 open item): tenant `amh`'s "
-    "authorization_approval.max_value_brl is 0 in spec/policies/autonomy/{L0-core,"
-    "tenants-amh}.yaml ('teto REAL por tenant ... D-07 em aberto'). CeilingResolver."
-    "within_l2_ceiling (src/maezo/tools/workers/ceilings.py, T1.9) fails closed on a 0 ceiling, "
-    "so AnalyzeRequestWorker can never compute teto_ok=True and End_AprovadaAutomatica is "
-    "unreachable under the current tenant policy — independent of the publish-topic gap above."
+# NEW finding, live-confirmed AFTER T3.1 R2's events.publish fix: `SendDenialNoticeWorker`
+# (auth.py) does not implement the `ERR_AUTH_DENIAL_INCOMPLETE` guard the BPMN's own
+# `BE_NegativaIncompleta` boundaryEvent (attached to ST_EnviarNegativaFormal) expects — the
+# BPMN's `Error_AuthDenialIncompleta` doc/formField `enforcedBy` annotations say "worker
+# send_denial_notice guard ERR_AUTH_DENIAL_INCOMPLETE" (spec/processes/bpmn/SP-OP-AUTH-001_*
+# .bpmn), but `SendDenialNoticeWorker.execute()` only checks `human_approved` — it never
+# inspects `justificativa_clinica`/`cid10_referencia`/`fundamentacao_dut` completeness and never
+# raises `WorkerBpmnError`. Live-confirmed: NEGAR with `justificativa_clinica`+`cid10_referencia`
+# but WITHOUT `fundamentacao_dut` still reaches `End_NegadaAuditor` (never
+# `End_FundamentacaoIncompletaBloqueada`). Independent of the events.publish gap; src/** fix
+# (implementing the guard in SendDenialNoticeWorker) is out of scope for this PR.
+_DENIAL_INCOMPLETE_GUARD_MISSING_REASON = (
+    "v2 implementation gap (finding, T3.1 R2 — NOT the events.publish gap, which this PR fixes): "
+    "SendDenialNoticeWorker (auth.py) does not implement the ERR_AUTH_DENIAL_INCOMPLETE guard "
+    "the BPMN's own BE_NegativaIncompleta boundaryEvent (attached to ST_EnviarNegativaFormal) "
+    "expects (spec's own enforcedBy annotations say 'worker send_denial_notice guard "
+    "ERR_AUTH_DENIAL_INCOMPLETE') — execute() only checks human_approved, never inspects "
+    "justificativa_clinica/cid10_referencia/fundamentacao_dut completeness, never raises "
+    "WorkerBpmnError. Live-confirmed (docker compose core, CIB Seven 2.1.0): NEGAR without "
+    "fundamentacao_dut still reaches End_NegadaAuditor, never End_FundamentacaoIncompletaBloqueada. "
+    "Not a fixture bug; src/** fix (implementing the guard) is out of scope for this PR."
 )
 
 
@@ -251,6 +305,9 @@ async def auth_probe(engine: EngineRest) -> AsyncIterator[AuthEngineProbe]:
     harness = WorkerHarness(transport, worker_id=worker_id, lock_duration_ms=10_000)
     kafka = FakeKafkaPublisher()
     register_auth_workers(harness, kafka)
+    # T3.1 R2: the generic operadora.events.publish worker every ST_Publish* service task in
+    # this BPMN routes through — mirrors the donor's own register_phase0_workers composition.
+    register_events_workers(harness, kafka)
     analyze_stub = _AnalyzeRequestStub(transport, worker_id)
     probe = AuthEngineProbe(
         engine=engine,
@@ -335,7 +392,7 @@ async def _assert_no_denial_without_human_task(engine: EngineRest, iid: str) -> 
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_PUBLISH_GAP_REASON, strict=True)
+@pytest.mark.xfail(reason=_ACTION_WORKER_KAFKA_GAP_REASON, strict=True)
 async def test_invariant_nenhum_caminho_automatizado_produz_negativa(
     engine: EngineRest,
     auth_probe: AuthEngineProbe,
@@ -424,7 +481,7 @@ async def test_invariant_nenhum_caminho_automatizado_produz_negativa(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_PUBLISH_GAP_REASON, strict=True)
+@pytest.mark.xfail(reason=_ACTION_WORKER_KAFKA_GAP_REASON, strict=True)
 async def test_happy_path_aprovacao_automatica_l2(
     engine: EngineRest,
     auth_probe: AuthEngineProbe,
@@ -432,12 +489,10 @@ async def test_happy_path_aprovacao_automatica_l2(
 ) -> None:
     """Aprovacao automatica L2: DUT ok + teto ok + rede ok => End_AprovadaAutomatica.
 
-    Live-observed root cause is the publish-topic gap (finding 1): the instance never
-    progresses past `ST_PublishReceived` (before `ST_AnalyzeRequest` even runs), so `ended`
-    only ever shows `{Start_SolicitacaoRecebida, ST_PublishReceived}`. Finding 2 (D-07 ceiling)
-    is a SEPARATE, independently-confirmed-by-code gap that would ALSO block this exact
-    terminal even if finding 1 were fixed (see module docstring) — both are cited in the PR
-    body; this xfail cites the one actually observed against the live engine today.
+    T3.1 R2: End_AprovadaAutomatica IS reached now (publish-topic gap fixed) — this test's D-07
+    ceiling path is never exercised (`_ACTION_WORKER_KAFKA_GAP_REASON`'s D-07 correction note),
+    so the ONLY remaining failure is `issued = auth_probe.notifications_of_type(...)`:
+    `IssueAuthorizationWorker` never calls `kafka.publish` (module docstring finding).
     """
     inst = await start_auth(
         dut_atendida=True, dentro_teto_l2=True, rede_credenciada=True, carater_atendimento="eletivo"
@@ -466,7 +521,7 @@ async def test_happy_path_aprovacao_automatica_l2(
     assert auto_facts[0].get("numero_autorizacao"), "numero_autorizacao ausente do fato aprovada_automatica"
 
 
-@pytest.mark.xfail(reason=_PUBLISH_GAP_REASON, strict=True)
+@pytest.mark.xfail(reason=_ACTION_WORKER_KAFKA_GAP_REASON, strict=True)
 async def test_happy_path_aprovada_pelo_auditor(
     engine: EngineRest,
     auth_probe: AuthEngineProbe,
@@ -503,7 +558,7 @@ async def test_happy_path_aprovada_pelo_auditor(
     assert auditor_facts[0].get("numero_autorizacao"), "numero_autorizacao ausente do fato aprovada_auditor"
 
 
-@pytest.mark.xfail(reason=_PUBLISH_GAP_REASON, strict=True)
+@pytest.mark.xfail(reason=_ACTION_WORKER_KAFKA_GAP_REASON, strict=True)
 async def test_happy_path_negada_pelo_auditor(
     engine: EngineRest,
     auth_probe: AuthEngineProbe,
@@ -564,7 +619,7 @@ async def test_happy_path_negada_pelo_auditor(
     await _assert_no_denial_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_PUBLISH_GAP_REASON, strict=True)
+@pytest.mark.xfail(reason=_DENIAL_INCOMPLETE_GUARD_MISSING_REASON, strict=True)
 async def test_negativa_incompleta_bloqueada_pelo_guard(
     engine: EngineRest,
     auth_probe: AuthEngineProbe,
@@ -616,7 +671,6 @@ async def test_negativa_incompleta_bloqueada_pelo_guard(
     await _assert_no_denial_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_PUBLISH_GAP_REASON, strict=True)
 async def test_nao_requer_autorizacao(
     engine: EngineRest,
     auth_probe: AuthEngineProbe,
@@ -639,7 +693,6 @@ async def test_nao_requer_autorizacao(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_PUBLISH_GAP_REASON, strict=True)
 async def test_inelegibilidade_roteia_para_humano_nao_nega(
     engine: EngineRest,
     auth_probe: AuthEngineProbe,
@@ -666,7 +719,7 @@ async def test_inelegibilidade_roteia_para_humano_nao_nega(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_PUBLISH_GAP_REASON, strict=True)
+@pytest.mark.xfail(reason=_ACTION_WORKER_KAFKA_GAP_REASON, strict=True)
 async def test_pendencia_docs_recebidos_reavalia(
     engine: EngineRest,
     auth_probe: AuthEngineProbe,
@@ -708,7 +761,6 @@ async def test_pendencia_docs_recebidos_reavalia(
     assert auth_probe.has_event(_AUTH_COMPLETED, desfecho="aprovada_automatica")
 
 
-@pytest.mark.xfail(reason=_PUBLISH_GAP_REASON, strict=True)
 async def test_pendencia_expira_decisao_humana(
     engine: EngineRest,
     auth_probe: AuthEngineProbe,
@@ -740,7 +792,7 @@ async def test_pendencia_expira_decisao_humana(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_PUBLISH_GAP_REASON, strict=True)
+@pytest.mark.xfail(reason=_ACTION_WORKER_KAFKA_GAP_REASON, strict=True)
 async def test_timer_alerta_sla_nao_interruptivo(
     engine: EngineRest,
     auth_probe: AuthEngineProbe,
@@ -767,7 +819,6 @@ async def test_timer_alerta_sla_nao_interruptivo(
     assert _UT_AUDITOR in open_keys, "Timer nao-interruptivo nao deve cancelar a User Task"
 
 
-@pytest.mark.xfail(reason=_PUBLISH_GAP_REASON, strict=True)
 async def test_timer_sla_estourado_coordenacao_assume(
     engine: EngineRest,
     auth_probe: AuthEngineProbe,
@@ -796,7 +847,6 @@ async def test_timer_sla_estourado_coordenacao_assume(
     assert _UT_AUDITOR not in open_keys, "UT_AnaliseMedicoAuditor deve ser cancelada (interruptivo)"
 
 
-@pytest.mark.xfail(reason=_PUBLISH_GAP_REASON, strict=True)
 async def test_dmn_auth_sla_urgencia(
     engine: EngineRest,
     auth_probe: AuthEngineProbe,
@@ -828,7 +878,6 @@ async def test_dmn_auth_sla_urgencia(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_PUBLISH_GAP_REASON, strict=True)
 async def test_coordenacao_assume_e_aprova(
     engine: EngineRest,
     auth_probe: AuthEngineProbe,
@@ -856,7 +905,6 @@ async def test_coordenacao_assume_e_aprova(
     assert auth_probe.has_event(_AUTH_COMPLETED, desfecho="aprovada_auditor")
 
 
-@pytest.mark.xfail(reason=_PUBLISH_GAP_REASON, strict=True)
 async def test_coordenacao_assume_e_nega(
     engine: EngineRest,
     auth_probe: AuthEngineProbe,
@@ -899,7 +947,7 @@ async def test_coordenacao_assume_e_nega(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_PUBLISH_GAP_REASON, strict=True)
+@pytest.mark.xfail(reason=_ACTION_WORKER_KAFKA_GAP_REASON, strict=True)
 async def test_junta_medica_parecer_aprova(
     engine: EngineRest,
     auth_probe: AuthEngineProbe,
@@ -931,7 +979,6 @@ async def test_junta_medica_parecer_aprova(
     assert auth_probe.has_event(_AUTH_COMPLETED, desfecho="aprovada_auditor")
 
 
-@pytest.mark.xfail(reason=_PUBLISH_GAP_REASON, strict=True)
 async def test_junta_medica_parecer_nega(
     engine: EngineRest,
     auth_probe: AuthEngineProbe,
@@ -973,7 +1020,7 @@ async def test_junta_medica_parecer_nega(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_PUBLISH_GAP_REASON, strict=True)
+@pytest.mark.xfail(reason=_ACTION_WORKER_KAFKA_GAP_REASON, strict=True)
 async def test_solicitar_info_volta_para_pendencia(
     engine: EngineRest,
     auth_probe: AuthEngineProbe,
