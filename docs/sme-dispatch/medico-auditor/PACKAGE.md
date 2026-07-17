@@ -139,16 +139,24 @@ regulatório/DPO/finanças territory, see the other packages.
 - **Contract:** `docs/processes/contracts/SP-OP-FRAUDE-001.md`
 - **BPMN:** `spec/processes/bpmn/SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn`
 - **DMN:** `spec/processes/dmn/fraude_indicadores.dmn`, `fraude_routing.dmn`, `fraude_sla.dmn` —
-  all three exist and match the contract. **Not yet ported** ("não portado — pendente T2.7"): the
-  7 reference-repo scoring DMNs the contract names for portability —
-  `upcoding_complexity_ceiling`, `unbundling_partial_bundles`, `phantom_no_diagnosis`,
-  `phantom_suspicious_prefix`, `frequency_zscore_threshold`, `provider_peer_deviation`,
-  `risk_thresholds` — none of these exist yet in `spec/processes/dmn/` (verified against the
-  directory listing).
+  all three exist and match the contract. **Ported, wiring pending** (T2.7 artifact phase — no
+  longer "não portado"): the 7 scoring DMNs now exist in
+  `spec/processes/dmn/upcoding_complexity_ceiling.dmn`, `unbundling_partial_bundles.dmn`,
+  `phantom_no_diagnosis.dmn`, `phantom_suspicious_prefix.dmn`, `frequency_zscore_threshold.dmn`,
+  `provider_peer_deviation.dmn`, `risk_thresholds.dmn`, ported 1:1 (decision logic byte-faithful)
+  from the v1 donor `Maezo-Healthcare-Plan src/maezo/processes/dmn/fraude_scoring/` (commit
+  1ba8cb8) — the donor's already-inverted tables: outputs are
+  `indicador_score:integer`/`indicador_label:string`/`motivo:string` only, with NO verdict/blocking
+  column (the reference repo's verdict domain was removed by the v1 inversion, per the contract's
+  "não são portadas (são o anti-padrão puro)" rule). They are deliberate orphans
+  (`spec/processes/dmn/orphans-allowlist.yaml`) until `operadora.fraude.score_indicators` is wired
+  ("pendente T2.7 fase 2 apos T1.4" — wiring caveat carried forward; DMN-evaluation ADR). The
+  synthetic scores/thresholds are unreviewed and flagged for SME sign-off before that wiring lands.
 - **Review questions:**
-  1. When the 7 scoring DMNs above are ported (T2.7), should médico-auditor review the clinical
-     plausibility thresholds — in particular `phantom_no_diagnosis` and
-     `phantom_suspicious_prefix`, which score coding/diagnosis patterns — before they feed
+  1. Now that the 7 scoring DMNs exist as real artifacts (T2.7 artifact phase; wiring still
+     pending T2.7 phase 2/T1.4), should médico-auditor review the clinical plausibility
+     thresholds — in particular `phantom_no_diagnosis.dmn` and `phantom_suspicious_prefix.dmn`,
+     which score coding/diagnosis patterns — before they feed
      `indicadores_presentes`/`score_indicadores`?
   2. Confirm the `intensidade_investigacao` routing (`LEVE`/`APROFUNDADA`/`PRIORITARIA`) is purely
      an investigation-priority signal and never functions as a de facto clinical verdict.
