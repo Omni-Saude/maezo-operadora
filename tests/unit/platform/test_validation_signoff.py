@@ -101,6 +101,95 @@ class TestStatusParsing:
         assert any("Status" in f.message for f in report.findings)
 
 
+class TestMutationAmbiguousStatus:
+    """Regression for T2.2 verification cycle 1 (CRITICAL, fail-open): the first
+    `**Status:**` token used to win, so a contract whose operative status is FINAL
+    but which contained an earlier DRAFT-shaped token was classified DRAFT and its
+    signoff requirement silently skipped (exit 0). All three verifier phrasings
+    must now be ERROR findings — ambiguity resolves to FAIL, never to the more
+    permissive class."""
+
+    def _run(self, tmp_path: Path, contract_text: str) -> Report:
+        contracts_dir = tmp_path / "contracts"
+        contracts_dir.mkdir()
+        (contracts_dir / "SP-OP-AMBIG-001.md").write_text(contract_text)
+        tracker = _write_tracker(tmp_path)
+        report = Report()
+        validate_signoffs(contracts_dir, tracker, report)
+        return report
+
+    def test_inline_promotion_note_fails(self, tmp_path: Path) -> None:
+        """Verifier phrasing (a): a single Status line whose promotion note carries
+        the operative FINAL — one marker, two conflicting status/version pairs."""
+        report = self._run(
+            tmp_path,
+            "# Contrato — SP-OP-AMBIG-001\n\n**Status:** DRAFT (v0.9.0) -> now promoted to FINAL (v1.0.0)\n",
+        )
+        assert not report.ok
+        assert any("ambiguous status declaration" in f.message for f in report.findings)
+
+    def test_history_draft_line_above_real_final_line_fails(self, tmp_path: Path) -> None:
+        """Verifier phrasing (b): a history/changelog DRAFT line above the real FINAL line."""
+        report = self._run(
+            tmp_path,
+            "# Contrato — SP-OP-AMBIG-001\n\n"
+            "## History\n\n"
+            "**Status:** DRAFT (v0.9.0) — superseded 2026-06-01\n\n"
+            "**Status:** FINAL (v1.0.0)\n",
+        )
+        assert not report.ok
+        assert any("ambiguous status declaration" in f.message for f in report.findings)
+        # The finding must pinpoint each conflicting token's line for the human fixing it.
+        assert any("at line 5" in f.message and "at line 7" in f.message for f in report.findings)
+
+    def test_superseded_paragraph_quoting_old_status_fails(self, tmp_path: Path) -> None:
+        """Verifier phrasing (c): prose quoting the superseded line next to the current one."""
+        report = self._run(
+            tmp_path,
+            "# Contrato — SP-OP-AMBIG-001\n\n"
+            "This **Status:** DRAFT (v0.9.0) declaration is superseded. "
+            "Current: **Status:** FINAL (v1.0.0)\n",
+        )
+        assert not report.ok
+        assert any("ambiguous status declaration" in f.message for f in report.findings)
+
+    def test_conflicting_versions_same_status_fails(self, tmp_path: Path) -> None:
+        """Two FINAL tokens that disagree only on version are still ambiguous — the gate
+        cannot know which version a signoff must match."""
+        report = self._run(
+            tmp_path,
+            "# Contrato — SP-OP-AMBIG-001\n\n**Status:** FINAL (v1.0.0)\n\n**Status:** FINAL (v2.0.0)\n",
+        )
+        assert not report.ok
+        assert any("ambiguous status declaration" in f.message for f in report.findings)
+
+    def test_multiple_agreeing_tokens_pass(self, tmp_path: Path) -> None:
+        """Repeated but IDENTICAL declarations are unambiguous: classified FINAL (v1.0.0),
+        so with an approved current-version signoff on file the gate passes."""
+        contracts_dir = tmp_path / "contracts"
+        contracts_dir.mkdir()
+        (contracts_dir / "SP-OP-AMBIG-001.md").write_text(
+            "# Contrato — SP-OP-AMBIG-001\n\n"
+            "**Status:** FINAL (v1.0.0)\n\n"
+            "## Recap\n\n"
+            "**Status:** FINAL (v1.0.0)\n"
+        )
+        _write_signoff(contracts_dir, "SP-OP-AMBIG-001", APPROVED_V1)
+        tracker = _write_tracker(tmp_path)
+        report = Report()
+        validate_signoffs(contracts_dir, tracker, report)
+        assert report.ok, [f.message for f in report.findings]
+
+    def test_multiple_agreeing_final_tokens_still_require_signoff(self, tmp_path: Path) -> None:
+        """The agreeing-tokens path must not weaken the gate: without a signoff it fails."""
+        report = self._run(
+            tmp_path,
+            "# Contrato — SP-OP-AMBIG-001\n\n**Status:** FINAL (v1.0.0)\n\n**Status:** FINAL (v1.0.0)\n",
+        )
+        assert not report.ok
+        assert any("no signoff file" in f.message for f in report.findings)
+
+
 class TestMissingContractsDir:
     def test_missing_contracts_dir_is_an_error(self, tmp_path: Path) -> None:
         report = Report()

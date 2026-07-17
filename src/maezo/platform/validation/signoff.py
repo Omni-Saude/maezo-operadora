@@ -61,7 +61,15 @@ REQUIRED_FIELDS = (
 VALID_VERDICTS = frozenset({"approved", "needs-changes"})
 VALID_ROLES = frozenset({"medico-auditor", "juridico", "dpo", "regulatorio", "financas", "po"})
 
-_STATUS_RE = re.compile(r"\*\*Status:\*\*\s*(DRAFT|FINAL)\s*\(v([0-9]+(?:\.[0-9]+)*)\)")
+# A `**Status:**` marker locates a status-declaration line...
+_STATUS_MARKER_RE = re.compile(r"\*\*Status:\*\*")
+# ...and on such a line, EVERY status/version pair counts as a declaration — deliberately
+# NOT anchored to the marker itself. An inline promotion note like
+# "**Status:** DRAFT (v0.9.0) -> now promoted to FINAL (v1.0.0)" declares two conflicting
+# statuses even though only the first is marker-prefixed; resolving that toward the DRAFT
+# reading silently skipped the signoff requirement (T2.2 verification cycle 1, CRITICAL,
+# fail-open). Ambiguity must resolve to FAIL, never to the more permissive class.
+_STATUS_PAIR_RE = re.compile(r"\b(DRAFT|FINAL)\s*\(v([0-9]+(?:\.[0-9]+)*)\)")
 _VERSION_RE = re.compile(r"^v[0-9]+(?:\.[0-9]+)*$")
 
 # How much context (characters) around a contract-ID mention in tracker.md counts as
@@ -85,11 +93,26 @@ class ContractStatus:
 
 
 def parse_contract_status(path: Path, report: Report) -> ContractStatus | None:
-    """Parse the `**Status:** DRAFT|FINAL (vX.Y.Z)` line out of a contract file.
+    """Parse the contract's `**Status:** DRAFT|FINAL (vX.Y.Z)` declaration.
 
-    Returns None (with a Finding recorded) if the file can't be read or the
-    line can't be found — an unclassifiable contract can never be silently
-    treated as "doesn't need a signoff".
+    EVERY status/version pair on EVERY line carrying a `**Status:**` marker is
+    collected — never just the first match. Taking the first match was a
+    fail-open hole (T2.2 verification cycle 1, CRITICAL): a contract whose
+    operative status is FINAL but which contained an earlier DRAFT-shaped
+    token — an inline promotion note ("**Status:** DRAFT (v0.9.0) -> now
+    promoted to FINAL (v1.0.0)"), a history/changelog DRAFT line above the
+    real FINAL line, or a "superseded" paragraph quoting the old line — was
+    classified DRAFT and its signoff requirement silently skipped (exit 0).
+
+    Decision rule (fail-closed):
+    - zero declarations -> ERROR (unclassifiable is a finding, not a skip);
+    - one or more declarations that ALL agree on both status and version ->
+      classify by that status/version;
+    - any disagreement in status OR version -> ERROR naming each conflicting
+      token and its line. Ambiguity must resolve to FAIL, never to whichever
+      reading happens to be the more permissive class.
+
+    Returns None (with a Finding recorded) whenever no classification is made.
     """
     try:
         text = path.read_text(encoding="utf-8")
@@ -97,8 +120,14 @@ def parse_contract_status(path: Path, report: Report) -> ContractStatus | None:
         report.error(path, f"could not read contract file: {exc}")
         return None
 
-    match = _STATUS_RE.search(text)
-    if match is None:
+    declarations: list[tuple[str, str, int]] = []  # (status, version, line number)
+    for line_no, line in enumerate(text.splitlines(), start=1):
+        if _STATUS_MARKER_RE.search(line) is None:
+            continue
+        for pair in _STATUS_PAIR_RE.finditer(line):
+            declarations.append((pair.group(1), f"v{pair.group(2)}", line_no))
+
+    if not declarations:
         report.error(
             path,
             "could not find a '**Status:** DRAFT|FINAL (vX.Y.Z)' line — cannot determine "
@@ -107,12 +136,27 @@ def parse_contract_status(path: Path, report: Report) -> ContractStatus | None:
         )
         return None
 
-    status, version_digits = match.group(1), match.group(2)
+    distinct = {(status, version) for status, version, _ in declarations}
+    if len(distinct) > 1:
+        located = ", ".join(
+            f"{status} ({version}) at line {line_no}" for status, version, line_no in declarations
+        )
+        report.error(
+            path,
+            f"ambiguous status declaration — {len(declarations)} conflicting '**Status:**' "
+            f"tokens ({located}); cannot determine which one is operative. Fail-closed: "
+            "ambiguity is a finding, never a silent resolution toward the more permissive "
+            "class. Keep exactly one status declaration, and phrase history/promotion notes "
+            "without a 'DRAFT (vX.Y.Z)'/'FINAL (vX.Y.Z)' token on a '**Status:**' line",
+        )
+        return None
+
+    status, version = next(iter(distinct))
     return ContractStatus(
         contract_id=path.stem,
         path=path,
         status=status,
-        version=f"v{version_digits}",
+        version=version,
     )
 
 
@@ -496,7 +540,10 @@ def validate_signoffs(contracts_dir: Path, tracker_path: Path, report: Report) -
 
     contracts = discover_contracts(contracts_dir, report)
     if not contracts:
-        report.error(contracts_dir, "no contract files (*.md) found — nothing to certify as passing")
+        if not any(contracts_dir.glob("*.md")):
+            report.error(contracts_dir, "no contract files (*.md) found — nothing to certify as passing")
+        # else: contract files exist but every one failed to parse/classify — each already
+        # carries its own Finding from discover_contracts(), so the run fails regardless.
         return
 
     signoffs_dir = contracts_dir / SIGNOFFS_DIRNAME
