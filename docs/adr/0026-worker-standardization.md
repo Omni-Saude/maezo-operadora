@@ -56,22 +56,59 @@ to make all 16 registrable.
   sites). So the *tested unit* of the 13 modules is the free function; the *tested unit* of the 3 is
   `run()`.
 
-**The tension.** We need all 16 registrable (retry/metrics, dead registry removed) **without** rewriting
-the ~84 functions and their tests, and while preserving the fixture-port path for T3.1 (v1's donor also
-uses `register_<name>_workers(harness, …)` bootstraps — see T1.1 design §16).
+**Honesty note — v2 has already diverged from v1.** The v1 donor has **no** `WorkerBase` class at all:
+its workers are **async closures** `async def handler(task: ExternalTask) -> Mapping|None`, produced by
+`make_*_handler(...)` factories and registered by topic via `register_<name>_workers(harness, kafka)`;
+retry lived in the harness (tenacity) and metrics in the harness (`_emit_worker_task_outcome`), **not** in
+the worker (v1 `tools/workers/harness.py`, `service.py`). v2, by contrast, invented `WorkerBase` +
+`WorkerRegistry` and wrote its workers as **sync** units — 15 `WorkerBase` subclasses and ~84 sync
+`fn(variables)->dict` functions. So there are effectively **three** shapes in play (v1 async closures; v2
+sync classes; v2 sync functions), and any decision must be honest that "port v1" and "keep v2" pull in
+different directions. This ADR decides the **v2 worker→registry** binding; the **runtime-spine** surface
+(`WorkerHarness`/`CibSevenWorkerTransport`/`register_*_workers` names) is preserved separately by the T1.1
+design §16 so T3.1 fixtures port regardless of which option below is chosen.
 
-**Alternatives considered.**
+**The tension.** We need all 16 registrable (retry/metrics, dead registry removed) **without** rewriting
+the ~84 functions and their tests, while (a) not discarding v2's 15 `WorkerBase` subclasses and their ~39
+passing `worker.run()` tests, and (b) preserving the fixture-port path for T3.1 (v1's `register_<name>_workers`
+bootstrap names — T1.1 §16).
+
+**Alternatives considered (four real options).**
 
 - **(A) Subclassing** — turn each free function into a `WorkerBase` subclass. ~84 new trivial classes
   (or fewer classes multiplexing several topics through one `execute`, which breaks WorkerBase's
   one-topic/one-execute contract). Deletes/duplicates the free functions → rewrites ~13 function-test
   modules that import and call them, and orphans the result dataclasses' call sites. Maximum churn on the
   money/PHI paths (R3-forbidden territory), maximum risk.
-- **(B) Adapter** — one `FunctionWorker(WorkerBase)` that wraps `(topic, callable)`; each module gains a
-  small `register_<domain>_workers(registry)` bootstrap. The free functions and their tests are
-  **untouched**; registry/retry/metrics are added *on top*.
-- **(C) Do nothing / duck-type the registry** — loosen `WorkerRegistry` to accept callables. Loses the
-  retry/metrics `run()` wrapper (the whole point of B13) and the type safety; rejected.
+- **(B) Adapter (RECOMMENDED)** — one `FunctionWorker(WorkerBase)` that wraps `(topic, callable)`; each
+  module gains a small `register_<domain>_workers(registry)` bootstrap. The free functions and their tests
+  are **untouched**; the 15 subclasses and their tests are **untouched**; registry/retry/metrics are added
+  *on top*.
+- **(C) Adopt v1's async-closure + `register_*` model wholesale** — rewrite all 16 v2 modules into async
+  `handler(task)` closures, register via `harness.register(topic, handler)`, and get retry/metrics from the
+  **harness** (as v1 does) rather than `WorkerBase`. **Maximizes T3.1 fixture fidelity at the *worker
+  internals* level**, but: (i) requires rewriting **all 16** v2 modules (the ~84 sync functions **and** the
+  15 subclasses) into async closures — the exact mass churn on money/PHI paths this task exists to avoid;
+  (ii) **breaks** the v2 function tests (they call `fn(variables)` sync, not `await handler(task)`) **and**
+  the ~39 class tests (they call `worker.run()`); (iii) discards v2's `WorkerBase`/`WorkerRegistry`
+  investment. Net: the fixture *portability that matters for T3.1 is the **spine** surface* (harness +
+  `register_*_workers` names), which option (B) also preserves — so (C) pays the full rewrite cost to buy
+  fidelity T3.1 does not actually require. Rejected, but explicitly, per orchestrator challenge.
+- **(D) Hybrid** — FunctionWorker-wrap the pure sync functions (the majority), but keep/allow genuinely
+  **async** workers (those doing engine/DMN/Kafka I/O) as `run_async` overrides or a
+  `register_function_async(topic, coro)` path. This is option (B) plus an async escape hatch, not a
+  separate model; adopted as the **provision inside (B)** (see Decisao §1 note on `run_async`), not a
+  standalone choice.
+- **(E) Do nothing / duck-type the registry** — loosen `WorkerRegistry` to accept bare callables. Loses
+  the retry/metrics `run()` wrapper (the whole point of B13) and the type safety; rejected.
+
+**Retry/metrics home (reconciled).** Under (B), "retry" in the plan's "registered with retry/metrics"
+acceptance is delivered by the **engine** (T1.1 §9 makes the engine the single retry system of record; the
+dispatcher reports `failure(retries=task.retries-1)`), while "metrics" come from **both**
+`WorkerBase.run()` (exec-time/error per worker, `base.py:141-175`) **and** the dispatcher's
+dispatch-outcome counter (T1.1 §13). `WorkerBase`'s own in-process retry defaults **OFF** on the runtime
+path — it is not a third retry layer. This is coherent and matches how v1 actually behaved (retry at the
+spine), while keeping v2's per-worker metric labels.
 
 ## Decisao
 
