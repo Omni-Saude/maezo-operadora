@@ -190,7 +190,9 @@ async def test_receive_missing_runtime_context_escalates_falha_tecnica() -> None
     result = await graph.receive({"intencao": "cobranca_info"})
     assert result["route"] == "escalate_human"
     assert result["motivo_humano"] == "falha_tecnica"
-    assert "error" in result
+    # Truthiness matters post-F2: `error` is now ALWAYS present (reset to "") — the guard's own
+    # real message must survive the reset merge.
+    assert result["error"]
 
 
 async def test_receive_unknown_intencao_escalates_ambiguidade_never_silent_default() -> None:
@@ -217,7 +219,14 @@ async def test_receive_missing_intencao_escalates_ambiguidade() -> None:
 async def test_receive_valid_context_passes_through() -> None:
     graph = _graph()
     result = await graph.receive(_base_state())
-    assert result == {"business_key": "ESC-amh-wa:amh:deadbeef"}
+    assert result["business_key"] == "ESC-amh-wa:amh:deadbeef"
+    # R1 cycle-1 F2: receive resets every output-only field on entry (neutral resets below) —
+    # a caller-planted value in any of them must not survive past this node.
+    assert result["dmn_refs"] == {}
+    assert result["route"] == ""
+    assert result["error"] == ""
+    assert result["dossier"] == {}
+    assert result["process_started"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -638,3 +647,158 @@ async def test_no_adverse_desfecho_ever_originates_from_lucas_across_all_journey
         desfecho = str(result.get("desfecho", "")).lower()
         for stem in forbidden:
             assert stem not in desfecho, f"intencao={intencao} desfecho={desfecho!r} contains {stem!r}"
+
+
+# ---------------------------------------------------------------------------
+# R1 cycle-1 regressions — F1 (fail-OPEN case loss) + F2 (output-field passthrough)
+# ---------------------------------------------------------------------------
+
+
+async def test_planted_error_j3_full_turn_still_starts_real_escalation() -> None:
+    """R1 cycle-1 F1 regression (the verifier's exact fail-OPEN case): a J3 turn arriving with a
+    CALLER-planted `error` short-circuited gather/assess (no `route` stamp); `_route`'s
+    conservative default still ran `escalate_human` (dossier built, beneficiary ACK SENT) but the
+    old `start_process` gate (`route != "escalate_human"` -> skip) then silently dropped the
+    start — beneficiary promised a human, ZERO engine instances (silent case loss). Post-fix the
+    case ALWAYS reaches a REAL recorded start: `receive` resets the planted `error` (F2),
+    `escalate_human` stamps `route` authoritatively (F1a), and `start_process` fails CLOSED on
+    any non-respond route (F1b) — three independent layers, each sufficient alone."""
+    dmn = FakeDmnTransport()
+    dmn.register("lucas_escalation_routing", [{"roteamento": "COBRANCA_HUMANO"}])
+    cibseven = FakeCibSevenTransport()
+    recording = _record_start(cibseven)
+    sender = _FakeWhatsAppSender()
+    compiled = _graph(dmn=dmn, cibseven=cibseven, whatsapp=sender).compile_graph().compile()
+
+    result = await compiled.ainvoke(_base_state(intencao="inadimplencia", error="caller planted error"))
+
+    assert result["route"] == "escalate_human"
+    assert result["process_started"] is True
+    assert recording, "a REAL start must be recorded on the transport — never a silent skip"
+    assert recording[0]["motivo_encaminhamento"] == "inadimplencia_detectada"
+    assert sender.sent, "the 'a human will continue' promise must be backed by an actual process"
+
+
+async def test_escalate_human_stamps_route_authoritatively() -> None:
+    """R1 cycle-1 F1a: the node that performs the human handoff is the authority on the fact
+    that a handoff is happening — its output ALWAYS carries route="escalate_human", regardless
+    of what upstream did (or failed to) stamp."""
+    graph = _graph()
+    out = await graph.escalate_human(_base_state(motivo_humano="inadimplencia_detectada"))
+    assert out["route"] == "escalate_human"
+
+    # Even with NO motivo in state (anomalous arrival), the stamp holds and the motivo defaults
+    # to the falha_tecnica class token — never empty engine-bound fields.
+    out_anomalous = await graph.escalate_human(_base_state())
+    assert out_anomalous["route"] == "escalate_human"
+    assert out_anomalous["motivo_humano"] == "falha_tecnica"
+    assert out_anomalous["motivo_categoria"] == "falha_tecnica"
+
+
+async def test_start_process_fail_closed_on_unset_route_starts_escalation() -> None:
+    """R1 cycle-1 F1b: an unset/unknown `route` at start_process is treated as escalation-bound
+    (mirrors `_route`'s own conservative default) — the start happens; NEVER a silent
+    process_started=False skip."""
+    cibseven = FakeCibSevenTransport()
+    recording = _record_start(cibseven)
+    graph = _graph(cibseven=cibseven)
+
+    result = await graph.start_process(_base_state())  # no `route` key at all
+
+    assert result["process_started"] is True
+    assert recording, "unset route must fail CLOSED into a real start, never a silent skip"
+
+
+async def test_start_process_skips_only_on_explicit_respond_member_route() -> None:
+    """The informational path is the ONLY one that never opens a process — and it must be
+    EXPLICIT (`route == "respond_member"`), never inferred from absence."""
+    cibseven = FakeCibSevenTransport()
+    recording = _record_start(cibseven)
+    graph = _graph(cibseven=cibseven)
+
+    result = await graph.start_process(_base_state(route="respond_member"))
+
+    assert result["process_started"] is False
+    assert not recording
+
+
+def test_escalate_min_clears_dmn_refs() -> None:
+    """R1 cycle-1 F2 (verifier's exact probe surface): the pre-DMN shortcut explicitly empties
+    `dmn_refs` — nothing may pose as DMN provenance on a path where no DMN ran."""
+    out = LucasGraph._escalate_min("ambiguidade", error="x")
+    assert out["dmn_refs"] == {}
+
+
+async def test_caller_planted_output_fields_never_reach_engine_variables() -> None:
+    """R1 cycle-1 F2 regression (the verifier's exact class, incl. its live probe: a
+    'SUSPENDER CPF=...' value planted in `dmn_refs` reached `dmn_decision_refs` via the natural
+    `ambiguidade` path): one unique sentinel per OUTPUT-ONLY state field, exercised across all
+    journeys AND both skip-assess shortcuts — no sentinel fragment may reach the engine-bound
+    SP-OP-ESCALATION-001 variables. `receive`'s `_OUTPUT_FIELDS_RESET` is the fix under test."""
+    planted: dict[str, Any] = {
+        "gathered": True,
+        "billing_facts": {"x": "SENT_billing_facts"},
+        "gather_notes": ["SENT_gather_notes"],
+        "admissibilidade": "SENT_admissibilidade",
+        "roteamento_escalacao": "SENT_roteamento_escalacao",
+        "dmn_refs": {"planted": "SENT_dmn_refs SUSPENDER CPF 123.456.789-00"},
+        "dmn_error": "SENT_dmn_error",
+        "route": "SENT_route",
+        "motivo_humano": "SENT_motivo_humano",
+        "motivo_categoria": "SENT_motivo_categoria",
+        "severidade": "SENT_severidade",
+        "grupo_humano": "SENT_grupo_humano",
+        "mensagem": {"texto": "SENT_mensagem"},
+        "mensagem_enviada": True,
+        "dossier": {"narrativa": "SENT_dossier"},
+        "process_started": True,
+        "business_key": "SENT_business_key",
+        "process_ref": {"instance_id": "SENT_process_ref"},
+        "desfecho": "SENT_desfecho",
+        "error": "SENT_error",
+    }
+
+    dmn = FakeDmnTransport()
+    dmn.register("lucas_billing_admissibility", [{"roteamento": "RESPONDER"}])
+    dmn.register("lucas_escalation_routing", [{"roteamento": "ATENDIMENTO_HUMANO"}])
+
+    scenarios: list[tuple[str, dict[str, Any]]] = [
+        ("j1_respond", {**_base_state(intencao="cobranca_info"), **planted}),
+        (
+            "j2_conciliado",
+            {**_base_state(intencao="confirmacao_pagamento", status_conciliado=True), **planted},
+        ),
+        ("j3_inadimplencia", {**_base_state(intencao="inadimplencia"), **planted}),
+        # Skip-assess shortcut 1: unknown intencao -> `ambiguidade` (_escalate_min, no DMN ran —
+        # the verifier's live probe path for the planted dmn_refs).
+        ("shortcut_ambiguidade", {**_base_state(), **planted, "intencao": "SENT_intencao"}),
+        # Skip-assess shortcut 2: missing runtime context -> `falha_tecnica` (_escalate_min).
+        (
+            "shortcut_missing_context",
+            {**{k: v for k, v in _base_state().items() if k != "tenant_id"}, **planted},
+        ),
+    ]
+
+    for label, state in scenarios:
+        cibseven = FakeCibSevenTransport()
+        recording = _record_start(cibseven)
+        compiled = (
+            _graph(dmn=dmn, cibseven=cibseven, whatsapp=_FakeWhatsAppSender(), inference=_FakeInference())
+            .compile_graph()
+            .compile()
+        )
+        await compiled.ainvoke(state)  # type: ignore[arg-type]
+
+        for variables in recording:
+            serialized = json.dumps(variables, ensure_ascii=False, default=str)
+            for fragment in ("SENT_", "SUSPENDER", "123.456.789-00", "CPF"):
+                assert fragment not in serialized, (
+                    f"[{label}] engine-bound variables leaked a caller-planted output-field "
+                    f"fragment ({fragment!r}): {serialized}"
+                )
+        if label == "shortcut_ambiguidade":
+            # The verifier's exact probe: on the no-DMN shortcut, NO dmn provenance key may even
+            # exist (dmn_refs was planted; the reset + _escalate_min clear must strip it).
+            assert recording, "ambiguidade shortcut must still escalate (start recorded)"
+            assert "dmn_decision_refs" not in recording[0]
+            assert "dmn_decision_ref" not in recording[0]

@@ -55,6 +55,22 @@ ENGINE-VARIABLE HYGIENE (mirrors Helena's T1.11 R1 cycle-2 fix): every failure r
 untrusted data. A DMN `roteamento` value outside its allowlist is NEVER echoed into any
 engine-bound variable or log — only the class token `ambiguidade` is recorded.
 
+R1 CYCLE-1 (verifier REVISE — two real defects found in this graph's first revision, fixed
+here; disclosed, not hidden):
+- F1 (fail-OPEN case loss): a CALLER-planted `error` short-circuited `gather`/`assess` (no
+  `route` stamp); `_route`'s conservative default still ran `escalate_human` (dossier built,
+  beneficiary ACK SENT), but the old `start_process` gate (`route != "escalate_human"` -> skip)
+  then silently dropped the start — the beneficiary was promised a human while ZERO engine
+  instances existed. Fixed both ways: `escalate_human` stamps `route="escalate_human"`
+  authoritatively in its own output (F1a), and `start_process` fails CLOSED — only an explicit
+  `route == "respond_member"` skips the start (F1b).
+- F2 (caller-planted output-field passthrough): on skip-assess shortcuts, OUTPUT-ONLY state
+  fields (dmn_refs, motivo_*, severidade, grupo_humano, dossier, ...) planted by the caller
+  flowed verbatim into SP-OP-ESCALATION-001 engine variables (verifier's live probe: a planted
+  `dmn_refs` entry reached `dmn_decision_refs` via the `ambiguidade` path). Fixed at `receive`:
+  `_OUTPUT_FIELDS_RESET` resets every output-only field on entry (plus `_escalate_min`'s
+  explicit `dmn_refs` clear) — same defect class and fix shape as the sibling agents' cycles.
+
 PHI discipline: every LLM call in this module passes `phi=True` (ADR-0006/ADR-0017/T1.7) — the
 one PHI-tagged content boundary is state derived from a beneficiary's billing case, treated the
 same as Helena's/Rafael's PHI-tagged content.
@@ -190,6 +206,40 @@ class WhatsAppSender(Protocol):
     zero-cross-contamination stance). Operates on a phone HASH, never a raw number."""
 
     async def send(self, to_hash: str, text: str) -> dict[str, Any]: ...
+
+
+# Output-only state fields — written EXCLUSIVELY by this graph's own nodes, never legitimate
+# caller input. `receive` resets EVERY one of them on entry (R1 cycle-1 F2): a caller-planted
+# value in any of these would otherwise flow VERBATIM into SP-OP-ESCALATION-001 engine variables
+# on the skip-assess shortcuts (verifier's live probe: a planted `dmn_refs` entry reached
+# `dmn_decision_refs` via the natural `ambiguidade` path). `error` is included deliberately: it
+# is a node-written signal (receive's guards / start_process failures), and a caller-planted
+# `error` was ALSO the R1 cycle-1 F1 fail-OPEN vector (gather/assess short-circuit on it).
+# Literal-typed fields reset to "" (a value outside every allowlist — every consumer treats it
+# as absent/conservative); containers reset to their empty shape. `business_key` is re-derived
+# by `receive` itself (success path) or `start_process` (falsy -> `_business_key(state)`).
+_OUTPUT_FIELDS_RESET: dict[str, Any] = {
+    "gathered": False,
+    "billing_facts": {},
+    "gather_notes": [],
+    "admissibilidade": "",
+    "roteamento_escalacao": "",
+    "dmn_refs": {},
+    "dmn_error": "",
+    "route": "",
+    "motivo_humano": "",
+    "motivo_categoria": "",
+    "severidade": "",
+    "grupo_humano": "",
+    "mensagem": {},
+    "mensagem_enviada": False,
+    "dossier": {},
+    "process_started": False,
+    "business_key": "",
+    "process_ref": {},
+    "desfecho": "",
+    "error": "",
+}
 
 
 # --- Graph state (working memory; ADR-0002 working-memory layer) -----------------------------
@@ -337,16 +387,28 @@ class LucasGraph:
         Failure reasons are bounded CLASS TOKENS — the raw `intencao`/field value is NEVER
         echoed here (engine-variable hygiene; donor's original code echoed `intencao!r}`, fixed
         here per this task's non-negotiable hardening requirement).
+
+        R1 CYCLE-1 F2 FIX: every OUTPUT-ONLY state field is reset on entry
+        (`_OUTPUT_FIELDS_RESET`) — a caller-planted value in any node-written field (dmn_refs,
+        motivo_*, severidade, grupo_humano, dossier, error, ...) must never survive into
+        engine-bound variables via the skip-assess shortcuts. The reset happens on EVERY branch,
+        including the two fail-closed ones (whose `_escalate_min` output overrides the relevant
+        reset keys with real class tokens).
         """
+        reset = dict(_OUTPUT_FIELDS_RESET)
+
         if not state.get("tenant_id") or not state.get("conversation_id"):
-            return self._escalate_min(
-                "falha_tecnica", error="missing runtime context (tenant_id/conversation_id)"
-            )
+            return {
+                **reset,
+                **self._escalate_min(
+                    "falha_tecnica", error="missing runtime context (tenant_id/conversation_id)"
+                ),
+            }
 
         if state.get("intencao") not in _VALID_INTENCOES:
-            return self._escalate_min("ambiguidade", error="unrecognized or missing intencao")
+            return {**reset, **self._escalate_min("ambiguidade", error="unrecognized or missing intencao")}
 
-        return {"business_key": _business_key(state)}
+        return {**reset, "business_key": _business_key(state)}
 
     async def gather(self, state: LucasState) -> dict[str, Any]:
         """Best-effort consolidation of billing facts already present in state — NEVER blocks
@@ -492,7 +554,30 @@ class LucasGraph:
     async def escalate_human(self, state: LucasState) -> dict[str, Any]:
         """J3 / fail-safe: build the dossier for the human handoff and acknowledge the
         beneficiary. NEITHER communicates the adverse decision — that is exclusively the human's
-        (`_build_dossier`'s `decisao_cancelamento` is always `None`)."""
+        (`_build_dossier`'s `decisao_cancelamento` is always `None`).
+
+        R1 CYCLE-1 F1a FIX: this node now stamps `route="escalate_human"` AUTHORITATIVELY in its
+        own output. Pre-fix it relied on `assess` having stamped it — but `_route`'s conservative
+        default also sends route-UNSET states here (e.g. a turn whose assess short-circuited),
+        and `start_process`'s old gate then read the missing stamp as "not an escalation" and
+        silently skipped the start AFTER this node had already told the beneficiary a human
+        would continue (fail-OPEN case loss, verifier-proven). The node that performs the human
+        handoff is the authority on the fact that a handoff is happening.
+
+        Defensive companion: reaching this node without a `motivo_humano` is a technical
+        anomaly — it is stamped `falha_tecnica` (class token; never left empty/unset in
+        engine-bound fields).
+        """
+        defaults: dict[str, Any] = {}
+        if not state.get("motivo_humano"):
+            defaults = {
+                "motivo_humano": "falha_tecnica",
+                "motivo_categoria": "falha_tecnica",
+                "severidade": "leve",
+                "grupo_humano": "atendimento-humano",
+            }
+            state = cast(LucasState, {**state, **defaults})
+
         dossier = await self._build_dossier(state)
 
         enviada = False
@@ -505,12 +590,30 @@ class LucasGraph:
             except Exception:  # noqa: BLE001 — best-effort ack, never blocks the handoff.
                 pass
 
-        return {"dossier": dossier, "mensagem_enviada": enviada, "desfecho": "escalado_humano"}
+        return {
+            **defaults,
+            "route": "escalate_human",  # authoritative stamp (F1a) — never inferred downstream
+            "dossier": dossier,
+            "mensagem_enviada": enviada,
+            "desfecho": "escalado_humano",
+        }
 
     async def start_process(self, state: LucasState) -> dict[str, Any]:
-        """Start SP-OP-ESCALATION-001 idempotently — ONLY on the escalation route (an
-        informational response never opens a process)."""
-        if state.get("route") != "escalate_human":
+        """Start SP-OP-ESCALATION-001 idempotently. The informational route is the ONLY one
+        that never opens a process.
+
+        R1 CYCLE-1 F1b FIX (fail-CLOSED gate): pre-fix this node gated on
+        `route != "escalate_human"` -> skip — so a state that reached it WITHOUT the stamp
+        (assess short-circuited on a planted `error`; `_route`'s conservative default still ran
+        `escalate_human`, which built the dossier and SENT the beneficiary the "a human will
+        continue" ack) silently returned `process_started=False`: the beneficiary was promised a
+        human while ZERO engine instances existed (fail-OPEN case loss, verifier-proven). The
+        gate is now inverted: ONLY an explicit `route == "respond_member"` skips the start;
+        `escalate_human` (now also stamped authoritatively by the escalate node itself, F1a) or
+        ANY unset/unknown route starts the escalation — mirroring `_route`'s own conservative
+        default (on doubt, the human path), never a silent skip.
+        """
+        if state.get("route") == "respond_member":
             return {"process_started": False}
 
         business_key = state.get("business_key") or _business_key(state)
@@ -557,6 +660,10 @@ class LucasGraph:
             "motivo_categoria": _motivo_categoria(motivo),
             "severidade": _severidade_humano(motivo),
             "grupo_humano": "atendimento-humano",
+            # R1 cycle-1 F2: explicitly empty — no DMN ran on this shortcut, so nothing (least
+            # of all a caller-planted value) may pose as a DMN provenance ref in engine
+            # variables. Redundant with `receive`'s blanket reset by design (defense in depth).
+            "dmn_refs": {},
             "error": error,
         }
 
@@ -569,8 +676,11 @@ class LucasGraph:
         `rafael_route` additive style) — never a decision, only an instruction for the human."""
         dossier = state.get("dossier") or {}
         resumo = str(dossier.get("narrativa", "")) or (
-            f"Encaminhamento automatico ({state.get('motivo_humano', 'outro')})."
+            f"Encaminhamento automatico ({state.get('motivo_humano') or 'outro'})."
         )
+        # `or`-fallbacks (not `.get(k, default)`) on the output-only fields: after `receive`'s
+        # R1 cycle-1 F2 reset these keys are PRESENT but "" until a node writes them — the
+        # engine variables must carry well-formed class tokens, never an empty string.
         variables: dict[str, Any] = {
             "tenant_id": state.get("tenant_id", ""),
             "source_agent_id": "lucas",
@@ -578,8 +688,8 @@ class LucasGraph:
             "conversation_id": state.get("conversation_id", ""),
             "beneficiario_pseudo_id": state.get("beneficiario_pseudo_id", ""),
             "canal": state.get("canal", "whatsapp"),
-            "motivo_categoria": state.get("motivo_categoria", "outro"),
-            "severidade": state.get("severidade", "moderada"),
+            "motivo_categoria": state.get("motivo_categoria") or "outro",
+            "severidade": state.get("severidade") or "moderada",
             "resumo_contexto": resumo,
         }
         dmn_refs = state.get("dmn_refs")
@@ -587,9 +697,9 @@ class LucasGraph:
             variables["dmn_decision_ref"] = next(iter(dmn_refs.values()), "")
             variables["dmn_decision_refs"] = dmn_refs
         # Lucas-specific audit annotations — additive, never a decision (module docstring).
-        variables["lucas_route"] = state.get("route", "escalate_human")
-        variables["motivo_encaminhamento"] = state.get("motivo_humano", "")
-        variables["grupo_humano_sugerido"] = state.get("grupo_humano", "atendimento-humano")
+        variables["lucas_route"] = state.get("route") or "escalate_human"
+        variables["motivo_encaminhamento"] = state.get("motivo_humano") or ""
+        variables["grupo_humano_sugerido"] = state.get("grupo_humano") or "atendimento-humano"
         variables["dossie_lucas"] = dossier
         return variables
 
@@ -623,9 +733,16 @@ class LucasGraph:
     async def _build_dossier(self, state: LucasState) -> dict[str, Any]:
         """Drafts the escalation dossier narrative (J3 / fail-safe). The LLM reasons over the
         FACTS only — `decisao_cancelamento` is ALWAYS `None` (mirrors Rafael's
-        `decisao_cobertura` guardrail): the decision belongs exclusively to the human."""
+        `decisao_cobertura` guardrail): the decision belongs exclusively to the human.
+
+        `intencao` is ALLOWLIST-GATED (engine-variable hygiene, R1 cycle-1): on the
+        `ambiguidade` path the raw value is by definition UNRECOGNIZED — echoing it into the
+        dossier (which ships into engine variables as `dossie_lucas`) would be exactly the
+        offending-enum-value leak class Helena's T1.11 cycle-2 fixed. Out-of-allowlist -> None.
+        """
+        raw_intencao = state.get("intencao")
         facts: dict[str, Any] = {
-            "intencao": state.get("intencao"),
+            "intencao": raw_intencao if raw_intencao in _VALID_INTENCOES else None,
             "tipo_solicitacao": state.get("tipo_solicitacao"),
             "competencia": state.get("competencia"),
             "numero_boleto": state.get("numero_boleto"),
