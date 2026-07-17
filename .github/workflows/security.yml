@@ -266,6 +266,116 @@ jobs:
             exit 1
           fi
 
+      # ── T2.4 (GHAS-substitute lane, orchestrator ruling: GHAS downgraded
+      # from blocker to toggle). The steps above are byte-untouched — this
+      # is a pure addition after them. Independently of whether the GHAS
+      # SARIF upload above succeeded or was skipped, publish the SARIF that
+      # `analyze` already produced as a downloadable workflow artifact, so
+      # findings are reviewable without GitHub Advanced Security at all.
+      # Reuses the exact actions/upload-artifact pin already vetted
+      # elsewhere in this repo (ci.yml) — no new SHA to independently trust.
+      - name: Upload SARIF as workflow artifact (GHAS-substitute review path)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: codeql-python-sarif
+          path: sarif-results/python.sarif
+          retention-days: 30
+          if-no-files-found: error
+
+      # Compact human-readable summary (python3 stdlib only — no new
+      # dependency) so findings are visible directly in the run's Summary
+      # tab without downloading the artifact. Counts by SARIF `level`
+      # (falling back to each rule's `defaultConfiguration.level` when a
+      # result omits its own level, per the SARIF spec) plus the
+      # highest-frequency rules. A parse failure here is a real defect (the
+      # SARIF `analyze` just produced should always be well-formed), so it
+      # is NOT swallowed — the step fails closed rather than silently
+      # skipping the summary.
+      - name: Summarize SARIF findings (step-summary, GHAS-substitute)
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import collections
+          import json
+          import os
+          import sys
+
+          SARIF_PATH = "sarif-results/python.sarif"
+
+          with open(SARIF_PATH, encoding="utf-8") as fh:
+              sarif = json.load(fh)
+
+          level_counts: collections.Counter[str] = collections.Counter()
+          rule_counts: collections.Counter[str] = collections.Counter()
+          rule_names: dict[str, str] = {}
+          total = 0
+
+          for run in sarif.get("runs", []):
+              tool = run.get("tool", {})
+              # CodeQL (github/codeql-action v4+) publishes the actual query
+              # pack's rules under `tool.extensions[].rules` (e.g. the
+              # `codeql/python-queries` extension), NOT under
+              # `tool.driver.rules` (empty on a real scan, live-observed on
+              # this task's own PR artifact) — both are read here so rule
+              # names/levels resolve regardless of which one a given
+              # CodeQL version populates.
+              rule_sources = [tool.get("driver", {}).get("rules", [])]
+              for extension in tool.get("extensions", []) or []:
+                  rule_sources.append(extension.get("rules", []))
+
+              default_level_by_id = {}
+              for rules in rule_sources:
+                  for rule in rules:
+                      rule_id = rule.get("id", "")
+                      if not rule_id:
+                          continue
+                      default_level_by_id[rule_id] = rule.get("defaultConfiguration", {}).get("level", "warning")
+                      short_desc = rule.get("shortDescription", {}).get("text", "")
+                      rule_names[rule_id] = rule.get("name") or short_desc
+
+              for result in run.get("results", []):
+                  rule_id = result.get("ruleId", "unknown")
+                  level = result.get("level") or default_level_by_id.get(rule_id, "warning")
+                  level_counts[level] += 1
+                  rule_counts[rule_id] += 1
+                  total += 1
+
+          known_order = ["error", "warning", "note", "none"]
+          lines = [
+              "## codeql / python — SARIF summary (GHAS-substitute review path)",
+              "",
+              f"Total results in this scan: **{total}**",
+              "",
+              "Full SARIF is attached as the `codeql-python-sarif` workflow artifact",
+              "(30-day retention) for offline review without GitHub Advanced Security.",
+              "",
+              "| Severity (SARIF `level`) | Count |",
+              "|---|---|",
+          ]
+          for level in known_order:
+              if level_counts.get(level):
+                  lines.append(f"| {level} | {level_counts[level]} |")
+          for level, count in level_counts.items():
+              if level not in known_order:
+                  lines.append(f"| {level} | {count} |")
+          if total == 0:
+              lines.append("| (none) | 0 |")
+
+          lines += ["", "### Top rules by finding count", "", "| Rule ID | Name | Count |", "|---|---|---|"]
+          if rule_counts:
+              for rule_id, count in rule_counts.most_common(10):
+                  name = rule_names.get(rule_id, "").replace("|", "\\|")
+                  lines.append(f"| `{rule_id}` | {name} | {count} |")
+          else:
+              lines.append("| (none) | — | 0 |")
+
+          summary_path = os.environ["GITHUB_STEP_SUMMARY"]
+          with open(summary_path, "a", encoding="utf-8") as out:
+              out.write("\n".join(lines) + "\n")
+
+          print(f"SARIF summary written: {total} result(s) across {len(level_counts)} level(s), {len(rule_counts)} distinct rule(s).", file=sys.stderr)
+          PY
+
   gitleaks:
     name: gitleaks / secrets
     runs-on: ubuntu-latest
@@ -316,3 +426,296 @@ jobs:
       # inclusive dentro dos proprios arquivos de docs referenciados.
       - name: Detect secrets
         run: gitleaks detect --source . --config .gitleaks.toml --verbose --redact --exit-code 1
+
+  # ── T2.4 (GHAS-substitute lane, orchestrator ruling: GHAS downgraded from
+  # blocker to toggle for R2). This COMPLEMENTS, does not replace, the
+  # dependency-review job above (which stays exactly as-is and still
+  # auto-activates the moment GHAS is provisioned): osv-scanner runs
+  # unconditionally, needs no GitHub Advanced Security entitlement at all,
+  # and scans the real uv.lock on every trigger.
+  #
+  # Install pattern mirrors the gitleaks job above (pinned version +
+  # checksum-verified static-binary download, no floating tag, no
+  # third-party Action to trust) rather than a `uses:` action, since
+  # google/osv-scanner does not publish a first-party GitHub Action pinnable
+  # to a commit SHA with the same guarantee as a plain checksummed binary.
+  #
+  # FAIL-CLOSED semantics (see the gating step below for the full contract):
+  #   - A scan tool error (any osv-scanner exit code other than the two
+  #     documented ones, 0 = clean and 1 = findings) fails the job — never
+  #     `|| true`, never swallowed.
+  #   - Findings are bucketed by severity (CVSS base score from
+  #     osv-scanner's own per-group `max_severity`, widened by any member
+  #     advisory's GHSA `database_specific.severity` of CRITICAL). Any
+  #     non-allowlisted CRITICAL finding FAILS the job — a red job here on a
+  #     genuine critical is the correct, intended outcome, not something to
+  #     allowlist away.
+  #   - Lower severities (HIGH/MEDIUM/LOW/UNKNOWN) do not fail the job; they
+  #     are rendered into the step summary so they stay visible without
+  #     requiring GHAS's dependency graph / Dependabot alerts UI.
+  #   - The allowlist (`.github/osv-allowlist.json`) starts EMPTY and every
+  #     entry must carry a non-empty `reason`; a malformed entry fails the
+  #     job closed rather than being ignored.
+  #   - Known-exploited-in-the-wild (CISA KEV) status is NOT independently
+  #     cross-referenced here — osv.dev / osv-scanner data does not carry a
+  #     KEV flag, and fabricating one would violate this task's no-
+  #     fabricated-results constraint. CRITICAL CVSS severity is used as the
+  #     practical proxy; this is a documented limitation, not a claim of KEV
+  #     coverage.
+  osv-scan:
+    name: osv-scanner / dependencies
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - name: Install osv-scanner (pinned + checksum-verified)
+        env:
+          OSV_SCANNER_VERSION: "2.4.0"
+          # sha256 of osv-scanner_linux_amd64 from the v2.4.0 release,
+          # published at:
+          # https://github.com/google/osv-scanner/releases/download/v2.4.0/osv-scanner_SHA256SUMS
+          # (independently re-downloaded and re-hashed locally on 2026-07-17
+          # to confirm it matches the published checksums file byte-for-byte
+          # before pinning here.)
+          OSV_SCANNER_SHA256: "15314940c10d26af9c6649f150b8a47c1262e8fc7e17b1d1029b0e479e8ed8a0"
+        run: |
+          set -euo pipefail
+          BIN="osv-scanner_linux_amd64"
+          curl --fail --show-error --silent --location --retry 3 \
+            "https://github.com/google/osv-scanner/releases/download/v${OSV_SCANNER_VERSION}/${BIN}" \
+            -o "${BIN}"
+          echo "${OSV_SCANNER_SHA256}  ${BIN}" | sha256sum --check --strict -
+          chmod +x "${BIN}"
+          sudo mv "${BIN}" /usr/local/bin/osv-scanner
+          osv-scanner --version
+
+      # osv-scanner's own documented exit codes: 0 = scan completed, no
+      # vulnerabilities matched; 1 = scan completed, vulnerabilities found
+      # (an expected, non-error outcome to be classified below — NOT
+      # swallowed with `|| true`); anything else (e.g. 127 = failed to
+      # resolve the lockfile path, 128 = failed to load config) is a real
+      # tool/config error and fails the job immediately, fail-closed.
+      - name: Scan uv.lock (osv-scanner, JSON)
+        run: |
+          set -euo pipefail
+          set +e
+          osv-scanner scan source --lockfile=uv.lock --format=json --output-file=osv-results.json
+          code=$?
+          set -e
+          if [ "${code}" -ne 0 ] && [ "${code}" -ne 1 ]; then
+            echo "::error::osv-scanner exited ${code} — not one of the two documented outcomes (0 = clean, 1 = findings); treating as a scan error (fail-closed, no swallowed '|| true')."
+            exit 1
+          fi
+          if [ ! -f osv-results.json ]; then
+            echo "::error::osv-scanner exited ${code} but produced no osv-results.json — failing closed (a missing scan result must never read as a clean scan)."
+            exit 1
+          fi
+          echo "osv-scanner exit code: ${code} (0 = no findings, 1 = findings present)"
+
+      # Severity gate + step-summary rendering (python3 stdlib only). See
+      # the job-level comment above for the full fail-closed contract.
+      # OSV_FAIL_ON_SEVERITY is the tunable threshold (default CRITICAL,
+      # matching the charter's "known-exploited/critical -> fail" rule);
+      # the allowlist path is likewise a single tunable env var, but the
+      # file itself starts empty and every entry requires a reason.
+      - name: Gate on severity + render summary (allowlist-aware, fail-closed)
+        env:
+          OSV_RESULTS_PATH: osv-results.json
+          OSV_ALLOWLIST_PATH: .github/osv-allowlist.json
+          OSV_FAIL_ON_SEVERITY: "CRITICAL"
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import collections
+          import json
+          import os
+          import sys
+
+          SEVERITY_ORDER = ["UNKNOWN", "LOW", "MEDIUM", "HIGH", "CRITICAL"]
+
+
+          def bucket_from_score(score_str):
+              if not score_str:
+                  return "UNKNOWN"
+              try:
+                  score = float(score_str)
+              except (TypeError, ValueError):
+                  return "UNKNOWN"
+              if score >= 9.0:
+                  return "CRITICAL"
+              if score >= 7.0:
+                  return "HIGH"
+              if score >= 4.0:
+                  return "MEDIUM"
+              if score > 0.0:
+                  return "LOW"
+              return "UNKNOWN"
+
+
+          def bucket_from_db_specific(sev_str):
+              if not sev_str:
+                  return None
+              upper = str(sev_str).strip().upper()
+              return upper if upper in SEVERITY_ORDER else None
+
+
+          def fail(message):
+              print(f"::error::{message}", file=sys.stderr)
+              sys.exit(1)
+
+
+          results_path = os.environ["OSV_RESULTS_PATH"]
+          allowlist_path = os.environ["OSV_ALLOWLIST_PATH"]
+          fail_on = os.environ.get("OSV_FAIL_ON_SEVERITY", "CRITICAL").strip().upper()
+          if fail_on not in SEVERITY_ORDER:
+              fail(f"OSV_FAIL_ON_SEVERITY={fail_on!r} is not one of {SEVERITY_ORDER} — refusing to guess a threshold (fail-closed).")
+          fail_threshold = SEVERITY_ORDER.index(fail_on)
+
+          # --- load + validate the allowlist (fail-closed on any malformed entry) ---
+          try:
+              with open(allowlist_path, encoding="utf-8") as fh:
+                  allow_doc = json.load(fh)
+          except (OSError, json.JSONDecodeError) as exc:
+              fail(f"could not read/parse allowlist {allowlist_path}: {exc}")
+
+          raw_entries = allow_doc.get("entries") if isinstance(allow_doc, dict) else None
+          if not isinstance(raw_entries, list):
+              fail(f"allowlist {allowlist_path} is malformed: missing/invalid top-level 'entries' list.")
+
+          allow_reason_by_id = {}
+          for idx, entry in enumerate(raw_entries):
+              if not isinstance(entry, dict):
+                  fail(f"allowlist entry #{idx} is not an object.")
+              vid = entry.get("id")
+              reason = entry.get("reason")
+              if not isinstance(vid, str) or not vid.strip():
+                  fail(f"allowlist entry #{idx} is missing a non-empty 'id'.")
+              if not isinstance(reason, str) or not reason.strip():
+                  fail(f"allowlist entry #{idx} (id={vid!r}) is missing a non-empty 'reason' — every allowlist entry requires a justification.")
+              allow_reason_by_id[vid.strip()] = reason.strip()
+
+          # --- load the scan results ---
+          try:
+              with open(results_path, encoding="utf-8") as fh:
+                  osv = json.load(fh)
+          except (OSError, json.JSONDecodeError) as exc:
+              fail(f"could not read/parse osv-scanner output {results_path}: {exc}")
+
+          findings = []
+          for result in osv.get("results", []) or []:
+              for pkgres in result.get("packages", []) or []:
+                  pkg = pkgres.get("package", {}) or {}
+                  vulns_by_id = {v.get("id"): v for v in (pkgres.get("vulnerabilities", []) or [])}
+                  groups = pkgres.get("groups") or []
+
+                  if groups:
+                      for group in groups:
+                          ids = list(group.get("ids", []) or [])
+                          aliases = list(group.get("aliases", []) or [])
+                          all_ids = list(dict.fromkeys(ids + aliases))
+                          bucket = bucket_from_score(group.get("max_severity"))
+                          summary_text = ""
+                          for vid in ids:
+                              v = vulns_by_id.get(vid)
+                              if not v:
+                                  continue
+                              db_bucket = bucket_from_db_specific((v.get("database_specific") or {}).get("severity"))
+                              if db_bucket and SEVERITY_ORDER.index(db_bucket) > SEVERITY_ORDER.index(bucket):
+                                  bucket = db_bucket
+                              if not summary_text and v.get("summary"):
+                                  summary_text = v.get("summary")
+                          allow_id = next((i for i in all_ids if i in allow_reason_by_id), None)
+                          findings.append(
+                              {
+                                  "package": pkg.get("name"),
+                                  "version": pkg.get("version"),
+                                  "ecosystem": pkg.get("ecosystem"),
+                                  "ids": ids,
+                                  "max_severity_score": group.get("max_severity") or "",
+                                  "bucket": bucket,
+                                  "summary": summary_text,
+                                  "allowlisted": allow_id is not None,
+                                  "allowlist_reason": allow_reason_by_id.get(allow_id) if allow_id else "",
+                              }
+                          )
+                  else:
+                      # Defensive fallback if a future osv-scanner version omits
+                      # per-package `groups` metadata: treat each vulnerability
+                      # entry standalone rather than silently dropping it.
+                      for vid, v in vulns_by_id.items():
+                          bucket = bucket_from_db_specific((v.get("database_specific") or {}).get("severity")) or "UNKNOWN"
+                          findings.append(
+                              {
+                                  "package": pkg.get("name"),
+                                  "version": pkg.get("version"),
+                                  "ecosystem": pkg.get("ecosystem"),
+                                  "ids": [vid] if vid else [],
+                                  "max_severity_score": "",
+                                  "bucket": bucket,
+                                  "summary": v.get("summary") or "",
+                                  "allowlisted": vid in allow_reason_by_id,
+                                  "allowlist_reason": allow_reason_by_id.get(vid, ""),
+                              }
+                          )
+
+          bucket_counts = collections.Counter(f["bucket"] for f in findings)
+          allowlisted_findings = [f for f in findings if f["allowlisted"]]
+          gating_findings = [f for f in findings if not f["allowlisted"]]
+          failing_findings = [f for f in gating_findings if SEVERITY_ORDER.index(f["bucket"]) >= fail_threshold]
+
+          lines = [
+              "## osv-scanner / dependencies — summary (GHAS-substitute dependency lane)",
+              "",
+              "Lockfile scanned: `uv.lock`",
+              f"Fail threshold: **{fail_on}** and above (tunable via `OSV_FAIL_ON_SEVERITY`); KEV is not cross-referenced (see job comment) — CRITICAL CVSS is the practical proxy.",
+              f"Total vulnerable dependency findings: **{len(findings)}** ({len(allowlisted_findings)} allowlisted, {len(gating_findings)} subject to the gate)",
+              "",
+              "| Severity | Count |",
+              "|---|---|",
+          ]
+          for level in reversed(SEVERITY_ORDER):
+              if bucket_counts.get(level):
+                  lines.append(f"| {level} | {bucket_counts[level]} |")
+          if not findings:
+              lines.append("| (none) | 0 |")
+
+          lines += [
+              "",
+              "### Findings",
+              "",
+              "| Package | Version | IDs | Max CVSS | Severity | Allowlisted | Summary |",
+              "|---|---|---|---|---|---|---|",
+          ]
+          if findings:
+              for f in sorted(findings, key=lambda x: SEVERITY_ORDER.index(x["bucket"]), reverse=True):
+                  ids_str = ", ".join(f["ids"]) or "—"
+                  allow_str = f"yes — {f['allowlist_reason']}" if f["allowlisted"] else "no"
+                  summary_str = (f["summary"] or "—").replace("|", "\\|")
+                  lines.append(
+                      f"| {f['package']} | {f['version']} | {ids_str} | {f['max_severity_score'] or '—'} | {f['bucket']} | {allow_str} | {summary_str} |"
+                  )
+          else:
+              lines.append("| (none) | — | — | — | — | — | no findings |")
+
+          if failing_findings:
+              lines += ["", f"### VERDICT: FAIL — {len(failing_findings)} finding(s) at or above {fail_on}", ""]
+              for f in failing_findings:
+                  lines.append(f"- **{f['package']} {f['version']}** ({', '.join(f['ids'])}) — {f['bucket']} (max CVSS {f['max_severity_score'] or 'n/a'}): {f['summary'] or 'no summary'}")
+          else:
+              lines += ["", "### VERDICT: PASS — no non-allowlisted finding at or above the fail threshold", ""]
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as out:
+              out.write("\n".join(lines) + "\n")
+
+          print(f"osv-scan: {len(findings)} finding(s), {len(failing_findings)} at/above {fail_on} (non-allowlisted).", file=sys.stderr)
+
+          if failing_findings:
+              fail(
+                  f"{len(failing_findings)} non-allowlisted finding(s) at or above {fail_on} severity — "
+                  "see the step summary for details. This is a genuine finding, not a tooling defect: "
+                  "triage it (fix/upgrade the dependency, or add a justified .github/osv-allowlist.json "
+                  "entry) rather than suppressing the gate."
+              )
+          PY
