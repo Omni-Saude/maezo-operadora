@@ -44,6 +44,31 @@ async def test_bring_up_loads_real_agent_definition_and_policies() -> None:
     assert state.inference_provider.provider_name == "noop"  # Q-6: noop is an acceptable outcome
     assert state.inference_error is None
 
+    # T1.11/defect B6: Helena's REAL graph builds + compiles (construction only, no node runs —
+    # the injected CIB Seven/WhatsApp transports never make a network call at this point).
+    assert state.agent_graph is not None
+    assert state.agent_graph_error is None
+
+
+async def test_bring_up_loads_real_rafael_graph() -> None:
+    """Rafael's `build(config)` additionally needs an `fhir` dependency (optional) — bring-up
+    supplies one via `FhirServerReader`, still without any network call."""
+    state = _state(settings=AgentRuntimeSettings(agent_id="rafael", tenant_id="amh"))
+    await _bring_up_dependencies(state)
+
+    assert state.agent_graph is not None
+    assert state.agent_graph_error is None
+
+
+async def test_bring_up_still_stubbed_agent_graph_still_loads() -> None:
+    """A still-stubbed agent's no-arg `build()` also goes through `graph_loaded` for real —
+    T1.11 only changes helena/rafael's graphs, but the readiness check itself is generic."""
+    state = _state(settings=AgentRuntimeSettings(agent_id="andre", tenant_id="amh"))
+    await _bring_up_dependencies(state)
+
+    assert state.agent_graph is not None
+    assert state.agent_graph_error is None
+
 
 async def test_bring_up_unknown_agent_id_leaves_definition_unhealthy() -> None:
     state = _state(settings=AgentRuntimeSettings(agent_id="not-a-real-agent"))
@@ -51,9 +76,12 @@ async def test_bring_up_unknown_agent_id_leaves_definition_unhealthy() -> None:
 
     assert state.agent_definition is None
     assert state.agent_definition_error is not None
-    # The other two checks are independent — they still succeed.
+    # The other checks are independent — they still succeed/fail on their own terms.
     assert state.pep is not None
     assert state.inference_provider is not None
+    # Fail-closed (T1.11): an unknown agent id never falls back to a trivial default graph.
+    assert state.agent_graph is None
+    assert state.agent_graph_error is not None
 
 
 async def test_bring_up_agent_definition_path_override(tmp_path: object) -> None:
@@ -112,6 +140,22 @@ async def test_inference_provider_ready_unhealthy_when_absent() -> None:
     checks = {c.__name__: c for c in build_readiness_checks(state)}
     result = await checks["inference_provider_ready"]()
     assert result.healthy is False
+
+
+async def test_graph_loaded_unhealthy_when_absent() -> None:
+    state = _state()
+    checks = {c.__name__: c for c in build_readiness_checks(state)}
+    result = await checks["graph_loaded"]()
+    assert result.healthy is False
+
+
+async def test_graph_loaded_healthy_after_real_bring_up() -> None:
+    state = _state(settings=AgentRuntimeSettings(agent_id="helena", tenant_id="amh"))
+    await _bring_up_dependencies(state)
+    checks = {c.__name__: c for c in build_readiness_checks(state)}
+    result = await checks["graph_loaded"]()
+    assert result.healthy is True
+    assert result.detail == "agent_id=helena"
 
 
 async def test_all_readiness_checks_healthy_after_real_bring_up() -> None:

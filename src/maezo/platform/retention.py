@@ -132,6 +132,20 @@ class RetentionManager:
     def retention_query(self, table_name: str = "audit_chain", ts_column: str = "ts") -> str:
         """Generate a SQL DELETE query for expired records.
 
+        WARNING — BLOCKED / DO NOT CALL IN PRODUCTION [T2.8]. This builds an
+        UNCONDITIONAL ``DELETE FROM audit_chain WHERE ts < cutoff`` with (a) NO
+        legal-hold predicate (deleting held evidence is a spoliation risk;
+        ADR-0020 item 6) and (b) NO chain re-anchoring (a prune severs
+        ``verify_chain()``'s genesis contiguity, so both verifiers report the
+        surviving chain as corrupted — ``gateway/audit.py:310-344`` fails at
+        index 0, ``gateway/audit_postgres.py:380-406`` reports every survivor
+        "unreachable from genesis"). This method therefore has ZERO production
+        callers by design (locked in CI by ``tests/unit/platform/test_lifecycle.py``),
+        and the ``lifecycle audit-retention`` entrypoint deliberately REFUSES.
+        Pruning stays blocked until BOTH ``docs/compliance/ADR-0020-amendment-draft.md``
+        (legal-hold registry) and ``docs/adr/0029-audit-chain-pruning-reanchor.md``
+        (signed-checkpoint re-anchor) are ratified.
+
         Args:
             table_name: The audit table name (default: 'audit_chain').
             ts_column: The timestamp column name (default: 'ts').
