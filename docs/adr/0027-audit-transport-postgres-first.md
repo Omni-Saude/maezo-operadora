@@ -1,6 +1,6 @@
 # ADR-0027: Audit Transport — Postgres-First (amends ADR-0007's Kafka assumption) [T1.10]
 
-**Status:** Proposed — requires orchestrator/human ratification · **Data:** 2026-07-17 · **Area:** Auditoria / Transporte de Eventos
+**Status:** Accepted — ratified by Rodrigo (repo owner) 2026-07-17, recorded as DL-0026 · **Data:** 2026-07-17 · **Area:** Auditoria / Transporte de Eventos
 Owner: audit-persistence-engineer. Defects: B7 (AuditSink in-memory only) / B1 (no Kafka client exists).
 Scope: transport decision for the ADR-0007 audit tuple. Does not touch `decision_basis`/`dmn_versions` semantics (T1.5) or the PEP (T1.8, out of scope for this module).
 
