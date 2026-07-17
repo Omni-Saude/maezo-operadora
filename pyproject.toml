@@ -61,6 +61,16 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/maezo"]
 
+# ADR-0025 D2 (Rev 1, load-bearing): the autonomy matrix lives in spec/ (single
+# source of truth, constraint 5), but the wheel otherwise ships ONLY src/maezo,
+# so a packaged deployment would have no matrix file at runtime and the fail-closed
+# PEP factory (build_pep) would refuse to start — bricking the deployment. Ship the
+# policy YAMLs inside the wheel so the file is present; discovery at runtime is via
+# the T0.3 MAEZO_SPEC_DIR mechanism (resolve_spec_dir), which a wheel deployment
+# points at the shipped maezo/spec/ tree.
+[tool.hatch.build.targets.wheel.force-include]
+"spec/policies/autonomy" = "maezo/spec/policies/autonomy"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"

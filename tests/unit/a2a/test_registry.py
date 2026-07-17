@@ -13,7 +13,7 @@ def _make_card(agent_id: str) -> AgentCard:
     """Helper: create a minimal AgentCard for testing."""
     return AgentCard(
         agent_id=agent_id,
-        capabilities=["triagem_whatsapp"],
+        capabilities=["triage_and_routing"],
         endpoint=f"https://{agent_id}.maezo.local/a2a",
         public_key=f"pk-{agent_id}",
     )
@@ -72,7 +72,7 @@ def test_same_agent_different_tenants() -> None:
     card_a = _make_card("helena")
     card_b = AgentCard(
         agent_id="helena",
-        capabilities=["aprovacao_auth_dmn_favoravel"],
+        capabilities=["authorization_approval"],
         endpoint="https://helena.tenant-b.maezo.local/a2a",
         public_key="pk-helena-b",
     )
@@ -97,7 +97,7 @@ def test_list_capabilities() -> None:
         "operadora-amh",
         AgentCard(
             agent_id="rafael",
-            capabilities=["aprovacao_auth_dmn_favoravel", "glosa_padrao"],
+            capabilities=["authorization_approval", "standard_glosa_processing"],
             endpoint="https://rafael.maezo.local/a2a",
             public_key="pk-rafael",
         ),
@@ -105,9 +105,9 @@ def test_list_capabilities() -> None:
 
     caps = registry.list_capabilities("operadora-amh")
 
-    assert "triagem_whatsapp" in caps
-    assert "aprovacao_auth_dmn_favoravel" in caps
-    assert "glosa_padrao" in caps
+    assert "triage_and_routing" in caps
+    assert "authorization_approval" in caps
+    assert "standard_glosa_processing" in caps
 
 
 def test_list_capabilities_empty_tenant() -> None:
