@@ -12,6 +12,8 @@ anti-pattern this ledger exists to make structurally impossible to repeat.
 CI (`.github/workflows/evidence-ledger.yml` / `scripts/ci/check_evidence_ledger.py`)
 enforces that any PR whose branch name or body cites a task ID carries a row for it
 here at HEAD; the row is added by this table, not by the check.
+A PR body only "cites" a task ID via an explicit marker — a `Task:`/`Tasks:` line or a
+`[T<phase>.<n>]` bracket — never via a bare prose mention (T0.5 gate-precision follow-up).
 
 Test hash convention: `sha256:` of the sorted `PASSED`/`FAILED` result lines from
 `pytest <test file> -v --tb=no -p no:cacheprovider` — reproducible by anyone who
@@ -32,6 +34,7 @@ machines since it excludes timing/header noise.
 | T2.5 | 2026-07-16 | compliance-analyst (R1) | adversarial-verifier (R1) | a7db399 | docs/compliance/rn-currency-review.md + 9 independently re-verified sources; SIP-extinction finding held at verify-SME (draft) | — | verified-as-draft (merged #30) — SME confirmation blocked(external) |
 | T1.8 | 2026-07-16 | policy-guardian (R1) | adversarial-verifier (R1) | ca23263 | docs/adr/0025-pep-policy-unification.md + docs/design/T1.9-ceiling-enforcement.md; verdict REVISE with 4 revisions applied (design phase) | — | design verified (merged #32) — implementation pending |
 | T1.9 | 2026-07-16 | policy-guardian (R1) | adversarial-verifier (R1) | ca23263 | docs/adr/0025-pep-policy-unification.md + docs/design/T1.9-ceiling-enforcement.md; verdict REVISE with 4 revisions applied (design phase) | — | design verified (merged #32) — implementation pending |
+| T0.5 (gate precision fix) | 2026-07-17 | gates-engineer (R2) | — | 80b34c8981b98fd363bf94b9568bafc0146a94d9 | scripts/ci/check_evidence_ledger.py:21-24,49-51,72-96,115-129 | sha256:3913d29409889d790bc4934cfffef30adae0b2628c56b64ec643e93a97fb9316 | implemented — unverified |
 | T1.10 | 2026-07-17 | audit-persistence-engineer (R2) | adversarial-verifier (R1, cycle 1: REVISE — core claims VERIFIED, defect H1 fixed) | 09d87cc75806663a8eb4c941c3585aea9469960b | gateway/audit_postgres.py (PostgresAuditSink.emit fail-closed + per-tenant advisory lock; verify_chain); gateway/audit.py (GENESIS_PREV_HASH sentinel; tenant_id/agent_version/dmn_versions non-null; canonicalize_jsonb — H1 fix: hash the jsonb-round-trip-stable form; verifier's -0.0 repro + 18-payload sweep green, tamper detection re-proven on same payloads); migrations/env.py SET-search_path + missing-commit fixes; test_audit_postgres.py kill-test (real compose postgres, 200 records, SIGKILL after 20 confirmed, restart, 0 lost, chain verifies — re-run post-H1, unchanged); docs/adr/0027-audit-transport-postgres-first.md | sha256:e3baf7785747dec553c2087ad6a8a03bd8a3ca537b909efc35a9e1536b9e5f4d | implemented — H1 fixed, awaiting re-verification |
 | T1.1 | 2026-07-16 | runtime-spine-engineer (R1) | — | a0427d298ccd1ae1612e0b6fa8cbfc0354339240 | docs/design/T1.1-runtime-spine.md | — | design drafted — pending R1 verification |
 | T1.2 | 2026-07-16 | runtime-spine-engineer (R1) | — | a0427d298ccd1ae1612e0b6fa8cbfc0354339240 | docs/adr/0026-worker-standardization.md | — | design drafted (ADR-0026 draft) — pending R1 verification |

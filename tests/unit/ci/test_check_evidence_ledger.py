@@ -76,17 +76,24 @@ class TestDetectTaskIdsFromBody:
     def test_task_colon_form(self) -> None:
         assert detect_task_ids_from_body("Task: T0.5") == {"T0.5"}
 
-    def test_task_no_colon_form(self) -> None:
-        assert detect_task_ids_from_body("Task T0.5 closes the ledger gap.") == {"T0.5"}
+    def test_task_no_colon_is_not_a_marker(self) -> None:
+        # T0.5 gate-precision follow-up: a colon is required. Without one, "Task
+        # T0.5 ..." is indistinguishable from a prose mention and must NOT bind
+        # (this was previously a false-positive vector — see the module docstring's
+        # PR #38 postmortem, where "task T3.1" appeared mid-sentence in prose).
+        assert detect_task_ids_from_body("Task T0.5 closes the ledger gap.") == set()
 
-    def test_task_id_form(self) -> None:
-        assert detect_task_ids_from_body("**Task ID:** T0.5") == {"T0.5"}
+    def test_task_id_infix_is_not_a_marker(self) -> None:
+        # T0.5 gate-precision follow-up: "Task ID:" (word "ID" between "Task" and
+        # the colon) and Markdown-bold-prefixed lines are no longer recognized —
+        # only a bare "Task:"/"Tasks:" line or a "[T<phase>.<n>]" bracket binds.
+        assert detect_task_ids_from_body("**Task ID:** T0.5") == set()
 
     def test_case_insensitive(self) -> None:
         assert detect_task_ids_from_body("task: t0.5") == {"T0.5"}
 
     def test_multiple_task_ids(self) -> None:
-        body = "Task: T0.5\n\nAlso closes Task: T0.6 in the same sweep."
+        body = "Task: T0.5\n\nTask: T0.6 closes the same sweep."
         assert detect_task_ids_from_body(body) == {"T0.5", "T0.6"}
 
     def test_no_task_word_is_not_detected(self) -> None:
@@ -114,7 +121,7 @@ class TestDetectTaskIds:
         assert detect_task_ids("fix/unrelated", "no mention here") == set()
 
     def test_union_of_branch_and_body(self) -> None:
-        assert detect_task_ids("t0.5-evidence-ledger", "Also closes Task: T0.6") == {"T0.5", "T0.6"}
+        assert detect_task_ids("t0.5-evidence-ledger", "Task: T0.6") == {"T0.5", "T0.6"}
 
 
 # ---------------------------------------------------------------------------
@@ -254,7 +261,7 @@ class TestMainGreenCases:
                 "--branch",
                 "t0.5-evidence-ledger",
                 "--pr-body",
-                "Also closes Task: T0.6 in the same sweep.",
+                "Task: T0.6 closes the same sweep.",
                 "--ledger-path",
                 str(ledger),
             ]
@@ -330,7 +337,7 @@ class TestMainRedCases:
                 "--branch",
                 "t0.5-evidence-ledger",
                 "--pr-body",
-                "Also closes Task: T0.6 in the same sweep.",
+                "Task: T0.6 closes the same sweep.",
                 "--ledger-path",
                 str(ledger),
             ]
@@ -363,7 +370,7 @@ class TestMainRedCases:
 class TestMainPrBodyFile:
     def test_pr_body_file_is_read(self, tmp_path) -> None:
         body_file = tmp_path / "body.txt"
-        body_file.write_text("Task ID: T0.5", encoding="utf-8")
+        body_file.write_text("Task: T0.5", encoding="utf-8")
         ledger = tmp_path / "evidence-ledger.md"
         ledger.write_text(_ledger_with_rows("T0.5"), encoding="utf-8")
 
@@ -541,6 +548,108 @@ class TestEmptyPrBodyEndToEnd:
         monkeypatch.setenv("PR_HEAD_REF", "t0.5-evidence-ledger")
         monkeypatch.setenv("PR_BODY", "")
         exit_code = main(["--ledger-path", str(ledger)])
+        assert exit_code == 0
+
+
+# ---------------------------------------------------------------------------
+# T0.5 gate-precision follow-up: PR #38 false-positive regression tests.
+#
+# PR #38's body included "Status: modelado (suite de integração planejada —
+# T3.1)" and "the porting is task T3.1, not yet done" — both bare prose
+# mentions of T3.1, never a closure marker. The pre-fix _BODY_TASK_RE matched
+# the word "task" followed by loosely-punctuated filler *anywhere* in the
+# body, so "task T3.1" mid-sentence bound T3.1 and the gate wrongly demanded
+# a T3.1 ledger row for a PR that never claimed to close T3.1 (it was on
+# branch t0.2-g0-conditions, closing T0.1/T0.2 only). These tests lock in
+# the narrowed, marker-only trigger against that exact regression.
+# ---------------------------------------------------------------------------
+
+PR_38_PROSE_EXCERPT = (
+    "**Before:** \n"
+    "```\n"
+    "Status: modelado (suite integracao real-engine)\n"
+    "```\n\n"
+    "**After:**\n"
+    "```\n"
+    "Status: modelado (suite de integração planejada — T3.1)\n"
+    "```\n\n"
+    "**Rationale:** tests/integration/ contains zero integration tests; the "
+    "porting is task T3.1, not yet done."
+)
+
+
+class TestPr38FalsePositiveRegression:
+    def test_prose_mention_is_not_detected_from_body(self) -> None:
+        assert detect_task_ids_from_body(PR_38_PROSE_EXCERPT) == set()
+
+    def test_prose_mention_end_to_end_passes_on_neutral_branch(self, tmp_path) -> None:
+        # Branch deliberately does NOT match `^t\d+\.\d+-` (PR #38's actual branch,
+        # t0.2-g0-conditions, would itself trigger via the branch-name rule, which
+        # is unrelated to and unchanged by this fix — see the branch-only tests).
+        # Ledger path also points at a nonexistent file: if the body were (wrongly)
+        # detected as citing T3.1, the ledger would have to be read and this would
+        # fail closed. Exit 0 here proves nothing was detected at all.
+        missing_ledger = tmp_path / "does-not-exist.md"
+        exit_code = main(
+            [
+                "--branch",
+                "docs/g0-gate-conditions",
+                "--pr-body",
+                PR_38_PROSE_EXCERPT,
+                "--ledger-path",
+                str(missing_ledger),
+            ]
+        )
+        assert exit_code == 0
+
+    def test_task_colon_line_is_detected(self) -> None:
+        body = PR_38_PROSE_EXCERPT + "\n\nTask: T3.1"
+        assert detect_task_ids_from_body(body) == {"T3.1"}
+
+    def test_task_colon_line_required_and_missing_fails(self, tmp_path) -> None:
+        body = PR_38_PROSE_EXCERPT + "\n\nTask: T3.1"
+        ledger = tmp_path / "evidence-ledger.md"
+        ledger.write_text(_ledger_with_rows("T0.1"), encoding="utf-8")  # no T3.1 row
+        exit_code = main(["--branch", "fix/unrelated", "--pr-body", body, "--ledger-path", str(ledger)])
+        assert exit_code == 1
+
+    def test_task_colon_line_required_and_present_passes(self, tmp_path) -> None:
+        body = PR_38_PROSE_EXCERPT + "\n\nTask: T3.1"
+        ledger = tmp_path / "evidence-ledger.md"
+        ledger.write_text(_ledger_with_rows("T3.1"), encoding="utf-8")
+        exit_code = main(["--branch", "fix/unrelated", "--pr-body", body, "--ledger-path", str(ledger)])
+        assert exit_code == 0
+
+    def test_bracket_marker_is_detected(self) -> None:
+        body = PR_38_PROSE_EXCERPT + "\n\nCloses [T3.1]."
+        assert detect_task_ids_from_body(body) == {"T3.1"}
+
+    def test_bracket_marker_required_and_missing_fails(self, tmp_path) -> None:
+        body = PR_38_PROSE_EXCERPT + "\n\nCloses [T3.1]."
+        ledger = tmp_path / "evidence-ledger.md"
+        ledger.write_text(_ledger_with_rows("T0.1"), encoding="utf-8")  # no T3.1 row
+        exit_code = main(["--branch", "fix/unrelated", "--pr-body", body, "--ledger-path", str(ledger)])
+        assert exit_code == 1
+
+    def test_bracket_marker_required_and_present_passes(self, tmp_path) -> None:
+        body = PR_38_PROSE_EXCERPT + "\n\nCloses [T3.1]."
+        ledger = tmp_path / "evidence-ledger.md"
+        ledger.write_text(_ledger_with_rows("T3.1"), encoding="utf-8")
+        exit_code = main(["--branch", "fix/unrelated", "--pr-body", body, "--ledger-path", str(ledger)])
+        assert exit_code == 0
+
+    def test_mixed_prose_and_marker_binds_only_the_marker_id(self) -> None:
+        # The prose mentions T3.1; the marker line closes T0.5. Only T0.5 binds.
+        body = PR_38_PROSE_EXCERPT + "\n\nTask: T0.5"
+        assert detect_task_ids_from_body(body) == {"T0.5"}
+
+    def test_mixed_prose_and_marker_end_to_end_ignores_the_prose_id(self, tmp_path) -> None:
+        # Ledger has a row for T0.5 (the real marker) but NOT T3.1 (the prose
+        # mention) — must still pass, since T3.1 was never bound in the first place.
+        body = PR_38_PROSE_EXCERPT + "\n\nTask: T0.5"
+        ledger = tmp_path / "evidence-ledger.md"
+        ledger.write_text(_ledger_with_rows("T0.5"), encoding="utf-8")
+        exit_code = main(["--branch", "fix/unrelated", "--pr-body", body, "--ledger-path", str(ledger)])
         assert exit_code == 0
 
 
