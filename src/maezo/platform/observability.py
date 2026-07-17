@@ -186,3 +186,32 @@ def record_worker_error(
         topic=topic,
         error_type=error_type,
     ).inc()
+
+
+def record_worker_task_outcome(
+    *,
+    tenant: str,
+    topic: str,
+    outcome: str,
+    duration_seconds: float | None = None,
+) -> None:
+    """Record an external-task dispatch outcome (T1.1, GAP-XOBS-4).
+
+    Called by `WorkerHarness._handle` (tools/workers/harness.py) on each terminal branch.
+    Increments `maezo_worker_task_total` and, when `duration_seconds` is known, observes
+    `maezo_worker_task_duration_seconds` — both with the same bounded label set.
+
+    `outcome` MUST be one of `harness.WORKER_TASK_OUTCOMES` (completed | bpmn_error | failed |
+    incident). `topic` is the external-task topic (bounded by the worker registry). NEVER pass
+    task_id / business_key / process_instance_id here — those are per-instance identifiers and
+    never belong on a metric label (ADR-0010).
+
+    This is the raw typed helper. The harness wraps it in a defensive guard (never raises into
+    dispatch) — see `harness._emit_worker_task_outcome`.
+    """
+    collector = _get_metrics_collector()
+    collector.worker_task_total.labels(tenant=tenant, topic=topic, outcome=outcome).inc()
+    if duration_seconds is not None:
+        collector.worker_task_duration.labels(tenant=tenant, topic=topic, outcome=outcome).observe(
+            duration_seconds
+        )

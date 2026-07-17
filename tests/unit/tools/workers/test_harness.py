@@ -1,0 +1,748 @@
+"""Unit tests for the external-task worker harness (T1.1 runtime spine).
+
+No engine — every test uses `FakeWorkerTransport` (in-memory double) or `httpx.MockTransport`
+(for `CibSevenWorkerTransport`'s wire format). The real-engine acceptance test lives under
+`tests/integration/` (design §14 point 3).
+"""
+
+from __future__ import annotations
+
+import asyncio
+from typing import Any
+
+import httpx
+import pytest
+
+from maezo.tools.workers.base import WorkerBase
+from maezo.tools.workers.harness import (
+    CibSevenWorkerTransport as RealTransport,
+)
+from maezo.tools.workers.harness import (
+    ExternalTask,
+    FakeKafkaPublisher,
+    FakeWorkerTransport,
+    KafkaPublisher,
+    TopicSubscription,
+    WorkerBpmnError,
+    WorkerFailure,
+    WorkerFailureError,
+    WorkerHarness,
+    WorkerTransport,
+    _to_camunda_var,
+)
+
+# `asyncio_mode = "auto"` (pyproject.toml) collects async def tests automatically — no
+# `pytestmark = pytest.mark.asyncio` needed (and marking sync tests with it warns).
+
+
+def _task(
+    *,
+    task_id: str = "task-1",
+    topic: str = "operadora.test.topic",
+    retries: int | None = None,
+    variables: dict[str, Any] | None = None,
+) -> ExternalTask:
+    return ExternalTask(
+        task_id=task_id,
+        topic=topic,
+        process_instance_id="proc-1",
+        business_key="bk-1",
+        worker_id="w-1",
+        variables=variables or {},
+        retries=retries,
+    )
+
+
+# ---------------------------------------------------------------------------
+# _to_camunda_var typing (load-bearing — money/dossier round-trips)
+# ---------------------------------------------------------------------------
+
+
+def test_to_camunda_var_bool() -> None:
+    assert _to_camunda_var(True) == {"value": True, "type": "Boolean"}
+
+
+def test_to_camunda_var_small_int_is_integer() -> None:
+    assert _to_camunda_var(42) == {"value": 42, "type": "Integer"}
+
+
+def test_to_camunda_var_large_int_is_long() -> None:
+    # 5,000,000,000 cents (R$50MM) overflows Java int32 (ADR-0018 part 2).
+    big = 5_000_000_000
+    assert _to_camunda_var(big) == {"value": big, "type": "Long"}
+
+
+def test_to_camunda_var_negative_overflow_is_long() -> None:
+    too_negative = -(2**31) - 1
+    assert _to_camunda_var(too_negative)["type"] == "Long"
+
+
+def test_to_camunda_var_float_is_double() -> None:
+    assert _to_camunda_var(3.14) == {"value": 3.14, "type": "Double"}
+
+
+def test_to_camunda_var_dict_is_json() -> None:
+    result = _to_camunda_var({"a": 1})
+    assert result["type"] == "Json"
+    assert result["value"] == '{"a": 1}'
+
+
+def test_to_camunda_var_list_is_json() -> None:
+    result = _to_camunda_var([1, 2, 3])
+    assert result["type"] == "Json"
+
+
+def test_to_camunda_var_none_is_string() -> None:
+    assert _to_camunda_var(None) == {"value": None, "type": "String"}
+
+
+def test_to_camunda_var_passthrough_already_typed() -> None:
+    typed = {"value": "x", "type": "String", "valueInfo": {}}
+    assert _to_camunda_var(typed) is typed
+
+
+def test_to_camunda_var_other_types_stringified() -> None:
+    class Foo:
+        def __str__(self) -> str:
+            return "foo-repr"
+
+    assert _to_camunda_var(Foo()) == {"value": "foo-repr", "type": "String"}
+
+
+# ---------------------------------------------------------------------------
+# FakeWorkerTransport
+# ---------------------------------------------------------------------------
+
+
+async def test_fake_transport_fetch_and_lock_filters_by_topic() -> None:
+    transport = FakeWorkerTransport([_task(task_id="t1", topic="a"), _task(task_id="t2", topic="b")])
+    tasks = await transport.fetch_and_lock(
+        "w", [TopicSubscription("a", 30_000)], max_tasks=10, async_response_timeout_ms=1000
+    )
+    assert [t.task_id for t in tasks] == ["t1"]
+
+
+async def test_fake_transport_fetch_and_lock_respects_max_tasks() -> None:
+    transport = FakeWorkerTransport([_task(task_id=f"t{i}", topic="a") for i in range(5)])
+    tasks = await transport.fetch_and_lock(
+        "w", [TopicSubscription("a", 30_000)], max_tasks=2, async_response_timeout_ms=1000
+    )
+    assert len(tasks) == 2
+
+
+async def test_fake_transport_records_calls() -> None:
+    transport = FakeWorkerTransport()
+    await transport.complete("t1", "w", {"x": 1})
+    await transport.handle_failure("t1", "w", error_message="boom", retries=2, retry_timeout_ms=500)
+    await transport.handle_bpmn_error("t1", "w", error_code="ERR_X")
+    await transport.extend_lock("t1", "w", new_duration_ms=1000)
+    await transport.unlock("t1")
+    await transport.close()
+
+    assert transport.completed == [("t1", {"x": 1})]
+    assert transport.failures == [("t1", "boom", 2, 500)]
+    assert transport.bpmn_errors == [("t1", "ERR_X")]
+    assert transport.extended == [("t1", 1000)]
+    assert transport.unlocked == ["t1"]
+    assert transport.closed is True
+
+
+def test_transport_protocols_satisfied() -> None:
+    assert isinstance(FakeWorkerTransport(), WorkerTransport)
+    assert isinstance(FakeKafkaPublisher(), KafkaPublisher)
+
+
+# ---------------------------------------------------------------------------
+# WorkerHarness — registration
+# ---------------------------------------------------------------------------
+
+
+async def test_register_and_registered_topics() -> None:
+    harness = WorkerHarness(FakeWorkerTransport(), worker_id="w")
+
+    async def handler(task: ExternalTask) -> dict[str, Any]:
+        return {}
+
+    harness.register("topic.a", handler)
+    harness.register("topic.b", handler)
+    assert harness.registered_topics == ["topic.a", "topic.b"]
+
+
+class _EchoWorker(WorkerBase):
+    def __init__(self) -> None:
+        super().__init__(topic="operadora.test.echo")
+
+    def execute(self, process_vars: dict[str, Any]) -> dict[str, Any]:
+        return {"echo": process_vars.get("value")}
+
+
+class _AsyncOverrideWorker(WorkerBase):
+    def __init__(self) -> None:
+        super().__init__(topic="operadora.test.async")
+        self.run_async_called = False
+
+    def execute(self, process_vars: dict[str, Any]) -> dict[str, Any]:
+        raise AssertionError("execute() must not be called when run_async is overridden")
+
+    async def run_async(self, process_vars: dict[str, Any]) -> dict[str, Any]:
+        self.run_async_called = True
+        return {"async": True}
+
+
+async def test_register_worker_adds_to_registry_and_dispatch_table() -> None:
+    harness = WorkerHarness(FakeWorkerTransport(), worker_id="w")
+    worker = _EchoWorker()
+    harness.register_worker(worker)
+
+    assert "operadora.test.echo" in harness.registered_topics
+    assert harness.registry.get("operadora.test.echo") is worker
+
+
+async def test_register_worker_sync_execute_runs_via_handler(monkeypatch: pytest.MonkeyPatch) -> None:
+    transport = FakeWorkerTransport()
+    harness = WorkerHarness(transport, worker_id="w")
+    harness.register_worker(_EchoWorker())
+
+    task = _task(topic="operadora.test.echo", variables={"value": 42})
+    await harness._handle(task)
+
+    assert transport.completed == [(task.task_id, {"echo": 42})]
+
+
+async def test_register_worker_prefers_run_async_when_overridden() -> None:
+    transport = FakeWorkerTransport()
+    harness = WorkerHarness(transport, worker_id="w")
+    worker = _AsyncOverrideWorker()
+    harness.register_worker(worker)
+
+    task = _task(topic="operadora.test.async")
+    await harness._handle(task)
+
+    assert worker.run_async_called is True
+    assert transport.completed == [(task.task_id, {"async": True})]
+
+
+# ---------------------------------------------------------------------------
+# WorkerHarness — dispatch outcomes (retry ownership, design §9)
+# ---------------------------------------------------------------------------
+
+
+async def test_handle_success_completes_once() -> None:
+    transport = FakeWorkerTransport()
+    harness = WorkerHarness(transport, worker_id="w")
+
+    async def handler(task: ExternalTask) -> dict[str, Any]:
+        return {"result": "ok"}
+
+    harness.register("t", handler)
+    task = _task(topic="t")
+    await harness._handle(task)
+
+    assert transport.completed == [(task.task_id, {"result": "ok"})]
+    assert transport.failures == []
+    assert transport.bpmn_errors == []
+
+
+async def test_handle_success_none_return_completes_with_empty_dict() -> None:
+    transport = FakeWorkerTransport()
+    harness = WorkerHarness(transport, worker_id="w")
+
+    async def handler(task: ExternalTask) -> None:
+        return None
+
+    harness.register("t", handler)
+    await harness._handle(_task(topic="t"))
+
+    assert transport.completed[0][1] == {}
+
+
+async def test_handle_task_public_alias_matches_private() -> None:
+    assert WorkerHarness.handle_task is WorkerHarness._handle
+
+
+async def test_handle_unknown_topic_reports_incident_never_drops() -> None:
+    transport = FakeWorkerTransport()
+    harness = WorkerHarness(transport, worker_id="w")
+    task = _task(topic="unregistered.topic")
+
+    await harness._handle(task)
+
+    assert transport.completed == []
+    assert len(transport.failures) == 1
+    task_id, _msg, retries, retry_timeout_ms = transport.failures[0]
+    assert task_id == task.task_id
+    assert retries == 0
+    assert retry_timeout_ms == 0
+
+
+async def test_handle_permission_error_never_retried() -> None:
+    transport = FakeWorkerTransport()
+    harness = WorkerHarness(transport, worker_id="w", max_retry_attempts=5)
+
+    async def handler(task: ExternalTask) -> None:
+        raise PermissionError("ERR_DENIAL_NOT_HUMAN")
+
+    harness.register("t", handler)
+    # Even with retries left on the task, a guard error ALWAYS reports retries=0 (never retried).
+    await harness._handle(_task(topic="t", retries=4))
+
+    assert transport.failures[0][2] == 0
+    assert transport.failures[0][3] == 0
+    assert transport.bpmn_errors == []
+
+
+async def test_handle_value_error_reports_retries_zero() -> None:
+    transport = FakeWorkerTransport()
+    harness = WorkerHarness(transport, worker_id="w")
+
+    async def handler(task: ExternalTask) -> None:
+        raise ValueError("bad input")
+
+    harness.register("t", handler)
+    await harness._handle(_task(topic="t", retries=3))
+
+    assert transport.failures[0][2] == 0
+
+
+async def test_handle_transient_error_decrements_engine_retries() -> None:
+    transport = FakeWorkerTransport()
+    harness = WorkerHarness(transport, worker_id="w", max_retry_attempts=3)
+
+    async def handler(task: ExternalTask) -> None:
+        raise RuntimeError("transient boom")
+
+    harness.register("t", handler)
+    await harness._handle(_task(topic="t", retries=2))
+
+    task_id, msg, retries, retry_timeout_ms = transport.failures[0]
+    assert retries == 1
+    assert retry_timeout_ms > 0
+    assert "transient boom" in msg
+
+
+async def test_handle_transient_error_first_delivery_seeds_from_max_retry_attempts() -> None:
+    transport = FakeWorkerTransport()
+    harness = WorkerHarness(transport, worker_id="w", max_retry_attempts=3)
+
+    async def handler(task: ExternalTask) -> None:
+        raise RuntimeError("boom")
+
+    harness.register("t", handler)
+    # retries=None => first delivery => seeds from max_retry_attempts (3) => reports 3-1=2.
+    await harness._handle(_task(topic="t", retries=None))
+
+    assert transport.failures[0][2] == 2
+
+
+async def test_handle_transient_error_exhausted_retries_reports_zero_no_timeout() -> None:
+    transport = FakeWorkerTransport()
+    harness = WorkerHarness(transport, worker_id="w", max_retry_attempts=3)
+
+    async def handler(task: ExternalTask) -> None:
+        raise RuntimeError("boom")
+
+    harness.register("t", handler)
+    await harness._handle(_task(topic="t", retries=1))
+
+    task_id, msg, retries, retry_timeout_ms = transport.failures[0]
+    assert retries == 0
+    assert retry_timeout_ms == 0
+
+
+async def test_handle_engine_does_not_auto_decrement_client_computes() -> None:
+    """The engine does not decrement `retries` itself (design §2) — the harness must."""
+    transport = FakeWorkerTransport()
+    harness = WorkerHarness(transport, worker_id="w")
+
+    async def handler(task: ExternalTask) -> None:
+        raise RuntimeError("boom")
+
+    harness.register("t", handler)
+    await harness._handle(_task(topic="t", retries=5))
+
+    assert transport.failures[0][2] == 4  # 5 - 1, computed client-side
+
+
+async def test_handle_worker_failure_error_honors_retries_left() -> None:
+    transport = FakeWorkerTransport()
+    harness = WorkerHarness(transport, worker_id="w", max_retry_attempts=3)
+
+    async def handler(task: ExternalTask) -> None:
+        raise WorkerFailureError("custom failure", retries_left=7)
+
+    harness.register("t", handler)
+    # Computed value would be 2 (3-1), but retries_left=7 OVERRIDES it (design §9/§16.2).
+    await harness._handle(_task(topic="t", retries=None))
+
+    assert transport.failures[0][2] == 7
+
+
+async def test_worker_failure_alias_is_worker_failure_error() -> None:
+    assert WorkerFailure is WorkerFailureError
+
+
+async def test_handle_bpmn_error_allowlisted_code_reports_bpmn_error() -> None:
+    transport = FakeWorkerTransport()
+    harness = WorkerHarness(transport, worker_id="w", bpmn_error_allowlist=frozenset({"ERR_PROVEN"}))
+
+    async def handler(task: ExternalTask) -> None:
+        raise WorkerBpmnError("ERR_PROVEN", "modeled failure")
+
+    harness.register("t", handler)
+    await harness._handle(_task(topic="t"))
+
+    assert transport.bpmn_errors == [(_task(topic="t").task_id, "ERR_PROVEN")]
+    assert transport.failures == []
+
+
+async def test_handle_bpmn_error_unproven_code_demotes_to_failure() -> None:
+    """The boundary-proof gate hazard (design §9): an unmodeled bpmnError silently ends the
+    process with NO incident on CIB Seven 2.1.0 — so an unproven code MUST demote to a
+    fail-closed incident, never emit bpmnError."""
+    transport = FakeWorkerTransport()
+    harness = WorkerHarness(transport, worker_id="w", bpmn_error_allowlist=frozenset())
+
+    async def handler(task: ExternalTask) -> None:
+        raise WorkerBpmnError("ERR_NOT_PROVEN", "unmodeled")
+
+    harness.register("t", handler)
+    await harness._handle(_task(topic="t"))
+
+    assert transport.bpmn_errors == []
+    assert len(transport.failures) == 1
+    assert transport.failures[0][2] == 0  # immediate incident, never retried
+
+
+async def test_handle_bpmn_error_default_allowlist_is_empty() -> None:
+    """No code is gate-proven by default — every WorkerBpmnError demotes until a code is added
+    explicitly with proof (design §9 Q-3: no topic opts in before the gate proves it)."""
+    transport = FakeWorkerTransport()
+    harness = WorkerHarness(transport, worker_id="w")  # default bpmn_error_allowlist
+
+    async def handler(task: ExternalTask) -> None:
+        raise WorkerBpmnError("ERR_ANYTHING")
+
+    harness.register("t", handler)
+    await harness._handle(_task(topic="t"))
+
+    assert transport.bpmn_errors == []
+    assert transport.failures[0][2] == 0
+
+
+async def test_handle_never_raises_out_of_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Even if the transport's failure-reporting call itself raises, `_handle` must not crash
+    the caller — dispatch resilience is load-bearing for the loop (design §6)."""
+    transport = FakeWorkerTransport()
+
+    async def _boom(*args: Any, **kwargs: Any) -> None:
+        raise RuntimeError("secondary transport failure")
+
+    monkeypatch.setattr(transport, "handle_failure", _boom)
+    harness = WorkerHarness(transport, worker_id="w")
+
+    async def handler(task: ExternalTask) -> None:
+        raise RuntimeError("primary failure")
+
+    harness.register("t", handler)
+    with pytest.raises(RuntimeError, match="secondary transport failure"):
+        await harness._handle(_task(topic="t"))
+
+
+# ---------------------------------------------------------------------------
+# WorkerHarness — run loop, stop, drain
+# ---------------------------------------------------------------------------
+
+
+async def test_run_dispatches_fetched_tasks_and_exits_on_cancel() -> None:
+    transport = FakeWorkerTransport([_task(task_id="t1", topic="t")])
+    harness = WorkerHarness(transport, worker_id="w", poll_interval_ms=10)
+
+    async def handler(task: ExternalTask) -> dict[str, Any]:
+        return {"ok": True}
+
+    harness.register("t", handler)
+
+    run_task = asyncio.create_task(harness.run())
+    # Give the loop a chance to fetch + dispatch, then cancel it.
+    for _ in range(50):
+        if transport.completed:
+            break
+        await asyncio.sleep(0.01)
+    run_task.cancel()
+    with _suppress_cancelled():
+        await run_task
+
+    assert transport.completed == [("t1", {"ok": True})]
+
+
+def _suppress_cancelled() -> Any:
+    import contextlib
+
+    return contextlib.suppress(asyncio.CancelledError)
+
+
+async def test_stop_flips_running_flag() -> None:
+    transport = FakeWorkerTransport()
+    harness = WorkerHarness(transport, worker_id="w", poll_interval_ms=5)
+    harness.register("t", lambda task: _identity_coro())
+
+    run_task = asyncio.create_task(harness.run())
+    await asyncio.sleep(0.02)
+    await harness.stop()
+    await asyncio.wait_for(run_task, timeout=2.0)
+    assert run_task.done()
+
+
+async def _identity_coro() -> dict[str, Any]:
+    return {}
+
+
+async def test_run_backs_off_and_flags_engine_unreachable_on_repeated_fetch_errors() -> None:
+    class FlakyTransport(FakeWorkerTransport):
+        async def fetch_and_lock(self, *args: Any, **kwargs: Any) -> list[ExternalTask]:
+            raise httpx.ConnectError("connection refused")
+
+    harness = WorkerHarness(FlakyTransport(), worker_id="w", engine_unreachable_after=2)
+    harness.register("t", lambda task: _identity_coro())
+    assert harness.engine_reachable is True
+
+    run_task = asyncio.create_task(harness.run())
+    for _ in range(200):
+        if not harness.engine_reachable:
+            break
+        await asyncio.sleep(0.01)
+    run_task.cancel()
+    with _suppress_cancelled():
+        await run_task
+
+    assert harness.engine_reachable is False
+    assert harness.fetch_errors_total >= 2
+
+
+async def test_drain_with_no_inflight_returns_immediately() -> None:
+    harness = WorkerHarness(FakeWorkerTransport(), worker_id="w")
+    await harness.drain(1.0)  # must not raise / hang
+
+
+async def test_drain_waits_for_fast_handler_then_no_unlock() -> None:
+    transport = FakeWorkerTransport()
+    harness = WorkerHarness(transport, worker_id="w")
+
+    async def fast_handler(task: ExternalTask) -> dict[str, Any]:
+        await asyncio.sleep(0.01)
+        return {}
+
+    harness.register("t", fast_handler)
+    harness._spawn(_task(task_id="fast", topic="t"))
+    await harness.drain(2.0)
+
+    assert transport.unlocked == []
+    assert transport.completed and transport.completed[0][0] == "fast"
+
+
+async def test_drain_unlocks_stragglers_past_deadline() -> None:
+    transport = FakeWorkerTransport()
+    harness = WorkerHarness(transport, worker_id="w")
+
+    async def slow_handler(task: ExternalTask) -> dict[str, Any]:
+        await asyncio.sleep(10)
+        return {}
+
+    harness.register("t", slow_handler)
+    harness._spawn(_task(task_id="slow", topic="t"))
+    await harness.drain(0.05)
+
+    assert transport.unlocked == ["slow"]
+    assert harness.inflight_count == 0
+
+
+# ---------------------------------------------------------------------------
+# CibSevenWorkerTransport — wire format via httpx.MockTransport
+# ---------------------------------------------------------------------------
+
+
+async def test_real_transport_fetch_and_lock_payload_and_mapping() -> None:
+    captured: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        captured["json"] = httpx.Request(request.method, request.url, content=request.content).content
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "id": "task-99",
+                    "topicName": "t",
+                    "processInstanceId": "proc-99",
+                    "businessKey": "bk-99",
+                    "workerId": "w",
+                    "retries": 2,
+                    "variables": {"x": {"value": 10, "type": "Integer"}},
+                }
+            ],
+        )
+
+    transport = RealTransport("http://engine/engine-rest")
+    transport._client = httpx.AsyncClient(
+        base_url="http://engine/engine-rest", transport=httpx.MockTransport(handler)
+    )
+
+    tasks = await transport.fetch_and_lock(
+        "w",
+        [TopicSubscription("t", 30_000, ["x"])],
+        max_tasks=5,
+        async_response_timeout_ms=25_000,
+    )
+
+    assert captured["url"] == "http://engine/engine-rest/external-task/fetchAndLock"
+    assert len(tasks) == 1
+    task = tasks[0]
+    assert task.task_id == "task-99"
+    assert task.retries == 2
+    assert task.variables == {"x": 10}
+    await transport.close()
+
+
+async def test_real_transport_fetch_and_lock_sends_long_poll_and_per_topic_lock() -> None:
+    payloads: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json as _json
+
+        payloads.append(_json.loads(request.content))
+        return httpx.Response(200, json=[])
+
+    transport = RealTransport("http://engine/engine-rest")
+    transport._client = httpx.AsyncClient(
+        base_url="http://engine/engine-rest", transport=httpx.MockTransport(handler)
+    )
+    await transport.fetch_and_lock(
+        "w",
+        [TopicSubscription("t1", 15_000, None), TopicSubscription("t2", 45_000, ["a", "b"])],
+        max_tasks=3,
+        async_response_timeout_ms=25_000,
+    )
+
+    body = payloads[0]
+    assert body["asyncResponseTimeout"] == 25_000
+    assert body["maxTasks"] == 3
+    assert body["topics"][0] == {"topicName": "t1", "lockDuration": 15_000}
+    assert body["topics"][1] == {"topicName": "t2", "lockDuration": 45_000, "variables": ["a", "b"]}
+    await transport.close()
+
+
+async def test_real_transport_fetch_and_lock_raises_on_error_never_swallows() -> None:
+    """Design §6/§13: a transport error must propagate — never a silent empty-list success."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, text="engine down")
+
+    transport = RealTransport("http://engine/engine-rest")
+    transport._client = httpx.AsyncClient(
+        base_url="http://engine/engine-rest", transport=httpx.MockTransport(handler)
+    )
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await transport.fetch_and_lock(
+            "w", [TopicSubscription("t", 1000)], max_tasks=1, async_response_timeout_ms=1000
+        )
+    await transport.close()
+
+
+async def test_real_transport_complete_types_variables() -> None:
+    captured: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json as _json
+
+        captured["body"] = _json.loads(request.content)
+        return httpx.Response(204)
+
+    transport = RealTransport("http://engine/engine-rest")
+    transport._client = httpx.AsyncClient(
+        base_url="http://engine/engine-rest", transport=httpx.MockTransport(handler)
+    )
+    await transport.complete(
+        "t1", "w", {"amount_cents": 5_000_000_000, "approved": True, "dossier": {"a": 1}}
+    )
+
+    variables = captured["body"]["variables"]
+    assert variables["amount_cents"] == {"value": 5_000_000_000, "type": "Long"}
+    assert variables["approved"] == {"value": True, "type": "Boolean"}
+    assert variables["dossier"]["type"] == "Json"
+    await transport.close()
+
+
+async def test_real_transport_handle_failure_payload() -> None:
+    captured: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json as _json
+
+        captured["body"] = _json.loads(request.content)
+        captured["path"] = request.url.path
+        return httpx.Response(204)
+
+    transport = RealTransport("http://engine/engine-rest")
+    transport._client = httpx.AsyncClient(
+        base_url="http://engine/engine-rest", transport=httpx.MockTransport(handler)
+    )
+    await transport.handle_failure("t1", "w", error_message="boom", retries=2, retry_timeout_ms=5000)
+
+    assert captured["path"] == "/engine-rest/external-task/t1/failure"
+    assert captured["body"] == {
+        "workerId": "w",
+        "errorMessage": "boom",
+        "retries": 2,
+        "retryTimeout": 5000,
+    }
+    await transport.close()
+
+
+async def test_real_transport_handle_bpmn_error_payload() -> None:
+    captured: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json as _json
+
+        captured["body"] = _json.loads(request.content)
+        return httpx.Response(204)
+
+    transport = RealTransport("http://engine/engine-rest")
+    transport._client = httpx.AsyncClient(
+        base_url="http://engine/engine-rest", transport=httpx.MockTransport(handler)
+    )
+    await transport.handle_bpmn_error("t1", "w", error_code="ERR_X", error_message="msg")
+
+    assert captured["body"] == {"workerId": "w", "errorCode": "ERR_X", "errorMessage": "msg"}
+    await transport.close()
+
+
+async def test_real_transport_extend_lock_and_unlock_paths() -> None:
+    paths: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        paths.append(request.url.path)
+        return httpx.Response(204)
+
+    transport = RealTransport("http://engine/engine-rest")
+    transport._client = httpx.AsyncClient(
+        base_url="http://engine/engine-rest", transport=httpx.MockTransport(handler)
+    )
+    await transport.extend_lock("t1", "w", new_duration_ms=60_000)
+    await transport.unlock("t1")
+
+    assert paths == ["/engine-rest/external-task/t1/extendLock", "/engine-rest/external-task/t1/unlock"]
+    await transport.close()
+
+
+async def test_real_transport_auth_token_sets_bearer_header() -> None:
+    transport = RealTransport("http://engine/engine-rest", auth_token="secret-token")
+    assert transport._client.headers["Authorization"] == "Bearer secret-token"
+    await transport.close()
+
+
+async def test_real_transport_no_auth_token_no_header() -> None:
+    transport = RealTransport("http://engine/engine-rest")
+    assert "Authorization" not in transport._client.headers
+    await transport.close()
