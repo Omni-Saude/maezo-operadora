@@ -67,6 +67,14 @@ dev = [
 # must start the identical daemon; `__main__.py` has no import-time side effect, so importing
 # `main` here never runs the daemon on its own.
 maezo-worker = "maezo.runtime.worker_runtime.__main__:main"
+# T1.6 entrypoints (defect B1): same local-ergonomics alias pattern, one per Helm `command` that
+# previously pointed at an absent module — `deployment-agent-runtime.yaml:71`
+# (`python -m maezo.runtime.agent_runtime`), `deployment-gateway.yaml:34`
+# (`python -m maezo.gateway`), `deployment-webhook-receiver.yaml:34`
+# (`python -m maezo.platform.webhooks`). Every `__main__.py` here is side-effect-free on import.
+maezo-agent = "maezo.runtime.agent_runtime.__main__:main"
+maezo-gateway = "maezo.gateway.__main__:main"
+maezo-webhook-receiver = "maezo.platform.webhooks.__main__:main"
 
 [build-system]
 requires = ["hatchling"]
