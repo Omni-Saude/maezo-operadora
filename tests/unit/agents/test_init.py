@@ -7,7 +7,17 @@ from pathlib import Path
 
 import pytest
 
-from maezo.agents import AgentLoader, AgentRegistry
+from maezo.agents import (
+    MAEZO_SPEC_DIR_ENV,
+    AgentLoader,
+    AgentRegistry,
+    resolve_spec_agents_dir,
+    resolve_spec_dir,
+)
+
+#: Repo root, computed independently of maezo.agents._default_spec_dir() so
+#: these tests don't tautologically validate against the same math.
+_REPO_ROOT = Path(__file__).parent.parent.parent.parent
 
 
 class TestAgentLoader:
@@ -75,6 +85,74 @@ id: incomplete-agent
         loader = AgentLoader()
         with pytest.raises((ValueError, TypeError)):
             loader.load(yaml_path)
+
+
+class TestResolveSpecDir:
+    """Tests for resolve_spec_dir()/resolve_spec_agents_dir() (T0.3/B14 single source of truth)."""
+
+    def test_default_resolves_to_repo_spec_directory(self) -> None:
+        """With no MAEZO_SPEC_DIR override, resolution finds <repo_root>/spec."""
+        assert resolve_spec_dir() == _REPO_ROOT / "spec"
+
+    def test_default_spec_agents_dir_contains_known_agents(self) -> None:
+        """resolve_spec_agents_dir() must resolve to the real spec/agents/ directory."""
+        agents_dir = resolve_spec_agents_dir()
+        assert agents_dir == _REPO_ROOT / "spec" / "agents"
+        assert (agents_dir / "rafael" / "agent.yaml").exists()
+        assert (agents_dir / "helena" / "agent.yaml").exists()
+
+    def test_env_override_is_honored(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """MAEZO_SPEC_DIR, when set, takes priority over the package-relative default."""
+        monkeypatch.setenv(MAEZO_SPEC_DIR_ENV, str(tmp_path))
+        assert resolve_spec_dir() == tmp_path.resolve()
+
+    def test_env_override_missing_directory_raises(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Fail-closed: a MAEZO_SPEC_DIR pointing nowhere must raise, never fall back silently."""
+        bogus = tmp_path / "does-not-exist"
+        monkeypatch.setenv(MAEZO_SPEC_DIR_ENV, str(bogus))
+
+        with pytest.raises(FileNotFoundError, match=MAEZO_SPEC_DIR_ENV):
+            resolve_spec_dir()
+
+    def test_spec_agents_missing_raises(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Fail-closed: a resolved spec/ dir without an agents/ subdirectory must raise."""
+        monkeypatch.setenv(MAEZO_SPEC_DIR_ENV, str(tmp_path))
+
+        with pytest.raises(FileNotFoundError, match="agents"):
+            resolve_spec_agents_dir()
+
+
+class TestAgentLoaderLoadById:
+    """Tests for AgentLoader.load_by_id() — reads spec/agents/<id>/agent.yaml (T0.3/B14)."""
+
+    def test_load_by_id_reads_real_agent_from_spec_agents(self) -> None:
+        """load_by_id resolves spec/agents/ by default and loads a real agent."""
+        loader = AgentLoader()
+        definition = loader.load_by_id("rafael")
+
+        assert definition.id == "rafael"
+        assert definition.name == "Rafael Nogueira"
+
+    def test_load_by_id_missing_agent_raises(self) -> None:
+        """Fail-closed: an unknown agent id must raise, never return a default/empty definition."""
+        loader = AgentLoader()
+
+        with pytest.raises(FileNotFoundError):
+            loader.load_by_id("this-agent-does-not-exist")
+
+    def test_load_by_id_honors_explicit_spec_agents_dir_override(self, tmp_path: Path) -> None:
+        """An explicit spec_agents_dir argument overrides the resolved default."""
+        agent_dir = tmp_path / "custom-agent"
+        agent_dir.mkdir()
+        (agent_dir / "agent.yaml").write_text('id: custom-agent\nname: "Custom Agent"\nrole: "Custom role"\n')
+
+        loader = AgentLoader()
+        definition = loader.load_by_id("custom-agent", spec_agents_dir=tmp_path)
+
+        assert definition.id == "custom-agent"
+        assert definition.name == "Custom Agent"
 
 
 class TestAgentRegistry:

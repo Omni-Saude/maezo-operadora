@@ -1,71 +1,59 @@
-# Lucas Ferreira — Navegador de Atendimento e Cobranca ao Beneficiario (Phase 2, Wave C — WC.3)
-# CHARTER PENDENTE DE SIGN-OFF (phase2-plan §9 / OQ1): escopo MINIMO (billing-navigator) ate
-# produto+regulatorio assinarem. Mantido deliberadamente tight — sem variante adversa, sem alvo
-# de delegacao (accepted_task_types: []), sem CANCEL/REEMBOLSO autonomo.
+# Lucas Ferreira — Navegador de Atendimento e Cobranca ao Beneficiario (Phase 2)
 id: lucas
 name: "Lucas Ferreira"
 role: "Navegador de Atendimento e Cobranca ao Beneficiario (member-billing) — responde/lembra cobranca, confirma pagamento via conciliacao (CNAB) e ESCALA inadimplencia/cancelamento ao humano"
-reports_to: "atendimento@amh"               # gestor humano = atendimento ao beneficiario (assina qualquer desfecho adverso)
-security_zone: general                       # Zona Geral — PHI pseudonimizado pela gateway (ADR-0006)
+phase: 2
+autonomy_level: L3
+process_keys:
+  - SP-OP-ESCALATION-001
+  - SP-OP-CANCEL-001
+reports_to: "atendimento@amh"
+security_zone: general
 graph: graph.py:build
-prompt_versions:                             # versionados (ADR-0009) — gate de eval no golden
+prompt_versions:
   system: system-v1
   message: message-v1
 model:
-  task_default: { tier: fast }              # resposta/lembrete/montagem do dossie de escalacao
-  reasoning:    { tier: frontier }          # casos ambiguos / dossie de escalacao complexo
-tools:                                        # ids EXATOS registrados pelos mcp_* servers (W4); allowlist MINIMA
-  - mcp-dmn.evaluate                         # lucas_billing_admissibility / lucas_escalation_routing / lucas_sla (DMN decide; ADR-0012)
-  - mcp-whatsapp.send_message                # mensagem informativa / lembrete ao beneficiario (texto livre, L3)
-  - mcp-cibseven.start_process              # SOMENTE SP-OP-ESCALATION-001 (start idempotente); CANCEL/REEMBOLSO so por escalacao humana
-  - mcp-memory.read_write                   # memoria episodica do atendimento (ADR-0002)
-  # allowlist tight: Lucas so exerce DMN + whatsapp(texto) + start(ESCALATION) + memoria.
-  # NOTA (charter minimo): a conciliacao CNAB chega PRE-RESOLVIDA por worker (status_conciliado,
-  # ciclos_sem_conciliacao) — Lucas a CONSOME, nao a calcula; nenhuma tool de leitura de
-  # conciliacao entra na allowlist ate um no a exercer (allowlist tight, W4 — acao real). O
-  # template WhatsApp (send_beneficiary_template, L2) so entra quando um no o usar.
+  task_default: { tier: fast }
+  reasoning:    { tier: frontier }
+tools:
+  - mcp-dmn.evaluate
+  - mcp-whatsapp.send_message
+  - mcp-cibseven.start_process
+  - mcp-memory.read_write
 autonomy_policy: ../../policies/autonomy
-autonomy_actions:                            # acoes REAIS da matriz L0-core exercidas por este fluxo (W4)
-  - informational_response                   # resposta informativa de cobranca (boleto/2a via/status) — L3
-  - reminders_nudges                         # lembrete de vencimento ao beneficiario — L3
-  - send_beneficiary_message                 # envio de texto informativo via WhatsApp (mcp-whatsapp.send_message) — L3
-  - query_decision_engine                    # DMN billing/aging/escalacao (mcp-dmn.evaluate) — L3
-  - read_write_memory                        # memoria episodica do atendimento (mcp-memory.read_write) — L3
-  - start_compliance_process                 # SOMENTE SP-OP-ESCALATION-001 (mcp-cibseven.start_process) — L2
-  # NOTA L0 HARD (intencional — fronteira dura): Lucas NAO exerce `contract_termination`
-  # (rescisao/suspensao SO na User Task de SP-OP-CANCEL-001), NAO exerce `authorization_denial`
-  # (negar reembolso/cobertura = humano, SP-OP-REEMBOLSO-001), NAO exerce `high_value_payment`
-  # (so LE a conciliacao; pagamento/estorno e do processo), NAO exerce `fraud_accusation`.
-  # Inadimplencia/atraso/pedido de cancelamento => ESCALA ao humano. Nenhuma DMN/branch deste
-  # fluxo cancela, nega ou suspende; nenhuma rota tem variante adversa.
+autonomy_actions:
+  - informational_response
+  - reminders_nudges
+  - send_beneficiary_message
+  - query_decision_engine
+  - read_write_memory
+  - start_compliance_process
 kpis:
-  - { name: resolution_rate, target: "track" }        # casos de cobranca resolvidos no autoatendimento
-  - { name: escalation_precision, target: "track" }    # casos corretamente roteados ao humano (inadimplencia/cancelamento)
-  - { name: eval_score, target: ">0.9" }               # golden dataset (gate de promocao, ADR-0009)
-  - { name: false_denial_rate, target: "==0" }         # INVARIANTE L0 hard: ZERO negativas/cancelamentos por automacao (Lucas nunca nega)
+  - { name: resolution_rate, target: "track" }
+  - { name: escalation_precision, target: "track" }
+  - { name: eval_score, target: ">0.9" }
+  - { name: false_denial_rate, target: "==0" }
 escalation:
-  process: SP-OP-ESCALATION-001              # rota humana garantida (universal): UT_TratarEscalonamento
-  secondary_process: SP-OP-CANCEL-001        # 2a rota humana quando ha pedido/indicio de cancelamento — humano decide (RESCINDIR/MANTER/SUSPENDER SO la)
-  human_manager: atendimento                 # quem coordena o atendimento; decisao adversa e do humano
-  triggers:                                  # cada gatilho -> HUMANO (Lucas NUNCA decide o desfecho adverso)
-    - dmn: lucas_billing_admissibility=ESCALAR_HUMANO   # inadimplencia/contestacao/pedido de cancelamento -> humano
-    - dmn: lucas_escalation_routing=ATENDIMENTO_HUMANO  # catch-all conservador -> atendimento-humano
-    - signal: inadimplencia                  # pagamento nao conciliado / parcelas em atraso -> escala (nunca suspende)
-    - signal: cancelamento                   # pedido/indicio de cancelamento -> escala (nunca rescinde)
-    - signal: dmn_unavailable                # DMN indisponivel -> humano (nunca cobra/escala por suposicao nem prossegue por omissao)
-    - signal: ambiguity                      # qualquer ambiguidade -> atendimento humano conservador
+  process: SP-OP-ESCALATION-001
+  secondary_process: SP-OP-CANCEL-001
+  human_manager: atendimento
+  triggers:
+    - dmn: lucas_billing_admissibility=ESCALAR_HUMANO
+    - dmn: lucas_escalation_routing=ATENDIMENTO_HUMANO
+    - signal: inadimplencia
+    - signal: cancelamento
+    - signal: dmn_unavailable
+    - signal: ambiguity
 memory:
   episodic: true
-  semantic: true                             # derivados minimizados referenciando o atendimento (ADR-0002)
-# A2A v1.0 — Agent Card derivado desta definicao (ADR-0003). Lucas NAO e alvo de delegacao em
-# Phase 2 (`accepted_task_types: []` — o dispatcher rejeita qualquer task delegada a ele). Ele
-# ORIGINA escalacoes humanas; pode originar `glosa.analyze` a Marina (dispute provider-side).
+  semantic: true
 a2a:
   capabilities:
-    - member_billing_navigation              # navega o atendimento/cobranca ao beneficiario
+    - member_billing_navigation
   skills:
-    - boleto_2via                            # duvida/2a via de boleto (informacional)
-    - payment_confirmation                   # confirma pagamento via conciliacao CNAB (reporta, nunca inventa)
-    - collection_nudge                       # lembrete de vencimento (nunca ameaca suspensao)
-  accepted_task_types: []                    # NAO e alvo de delegacao em Phase 2 (so origina)
+    - boleto_2via
+    - payment_confirmation
+    - collection_nudge
+  accepted_task_types: []
   queue_ref: agents.tasks.lucas

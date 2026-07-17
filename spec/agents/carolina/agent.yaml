@@ -1,68 +1,52 @@
-# Carolina — Analista de Credenciamento/rede (Phase 3 analogue of Marina/Rafael)
-# PERSONA DRAFT (R-PERSONA-MAP — PO sign-off pendente).
+# Carolina — Analista de Revenue Cycle / Pagamentos (Phase 2)
 id: carolina
 name: "Carolina"
-role: "Analista de Credenciamento e Gestao de Rede — instrui SP-OP-CRED-001 ((des)credenciamento de prestador) e monta o dossie da gestao/juridico de rede; instrui, nao decide"
-reports_to: "coordenacao-rede@amh"            # gestor humano = coordenacao de rede credenciada
-security_zone: phi                            # ADR-0006 — Carolina e convocada na Zona PHI (prepare_dossier)
+role: "Analista de Revenue Cycle — instrui validacao de pagamento, roteamento por alcada e execucao L2 de pagamentos"
+phase: 2
+autonomy_level: L2
+process_keys:
+  - SP-OP-PAGTO-001
+reports_to: "financeiro@amh"
+security_zone: general
 graph: graph.py:build
-prompt_versions:                              # versionados (ADR-0009) — gate de eval no golden
+prompt_versions:
   system: system-v1
-  dossier: dossier-v1                         # dossie de (des)credenciamento (CRED)
+  dossier: dossier-v1
 model:
-  task_default: { tier: fast }                # gather/assess/montagem do dossie
-  reasoning:    { tier: frontier }            # casos ambiguos / descredenciamento hospitalar / dossie complexo
-tools:                                         # ids EXATOS registrados pelos mcp_* servers (W4)
-  - mcp-fhir.read_patient_summary             # resumo de beneficiarios vinculados (leitura, enriquece dossie)
-  - mcp-dmn.evaluate                          # cred_admissibility / cred_route / cred_prior_notice / cred_sla
-  - mcp-cibseven.start_process                # somente SP-OP-CRED-001 (start idempotente)
-  - mcp-memory.read_write                     # memoria episodica do caso (ADR-0002)
-  # allowlist MINIMA (TIGHT, W4): Carolina so exerce start (idempotente) + DMN + FHIR(leitura) +
-  # memoria. NPI registry mcp e PORT-PENDING -> fica FORA da allowlist ate um no do grafo o
-  # exercer (acao real, nao declarativa). get_process_status/correlate_message tambem FORA ate
-  # um no os usar.
+  task_default: { tier: fast }
+  reasoning:    { tier: frontier }
+tools:
+  - mcp-dmn.evaluate
+  - mcp-cibseven.start_process
+  - mcp-memory.read_write
 autonomy_policy: ../../policies/autonomy
-autonomy_actions:                             # acoes REAIS da matriz L0-core exercidas por este fluxo (W4)
-  - read_phi_data                             # leitura FHIR resumo (mcp-fhir.read_patient_summary) — L3
-  - query_decision_engine                     # DMN de (des)credenciamento (mcp-dmn.evaluate) — L3
-  - start_compliance_process                  # SP-OP-CRED-001 (mcp-cibseven.start_process) — L2
-  - read_write_memory                         # memoria episodica (mcp-memory.read_write) — L3
-  # query_process_status/correlate_process_message removidos: nenhum no os exerce hoje (allowlist
-  # tight). Reintroduzir junto com o tool e o no que os usar (W4 — acao real, nao declarativa).
-  # NOTA L1 (intencional): Carolina NAO exerce `provider_decredentialing` (descredenciar / negar
-  # credenciamento = efeitos adversos L1, SO da gestao/juridico de rede humano nas User Tasks
-  # UT_AnaliseDescredenciamento / UT_AnaliseCredenciamento), NAO exerce `clinical_decision` nem
-  # `fraud_accusation`. Ela instrui o caso (dossie + roteamento); o humano decide. Nenhuma
-  # DMN/branch deste fluxo descredencia nem nega um credenciamento.
+autonomy_actions:
+  - query_decision_engine
+  - start_compliance_process
+  - read_write_memory
 kpis:
-  - { name: dossier_completeness, target: ">0.95" }       # dossies completos / total (fatos + refs DMN)
-  - { name: human_routing_precision, target: "track" }    # casos corretamente roteados a gestao/juridico
-  - { name: eval_score, target: ">0.9" }                  # golden dataset (gate de promocao, ADR-0009)
-  - { name: false_decredentialing_rate, target: "==0" }   # INVARIANTE L1: ZERO descredenciamentos/negativas por automacao
+  - { name: payment_accuracy, target: "==1.0" }
+  - { name: routing_precision, target: "track" }
+  - { name: eval_score, target: ">0.9" }
+  - { name: false_payment_rate, target: "==0" }
 escalation:
-  process: SP-OP-CRED-001                      # rota humana garantida = UT_AnaliseCredenciamento / UT_AnaliseDescredenciamento
-  human_manager: coordenacao-rede              # quem coordena; decisao substantiva e da gestao/juridico de rede
-  triggers:                                   # cada gatilho -> ANALISE HUMANA (NUNCA negativa/descredenciamento)
-    - dmn: cred_admissibility=PENDENTE_DOCUMENTACAO  # documentacao incompleta -> humano (nunca negativa)
-    - dmn: cred_admissibility=ANALISE_HUMANA         # licenca/criterios aparentes -> humano
-    - dmn: cred_route=ANALISE_CREDENCIAMENTO         # natureza credenciamento -> gestao-rede decide aprovar/negar
-    - dmn: cred_route=ANALISE_DESCREDENCIAMENTO      # natureza descredenciamento -> juridico-rede decide (apos cure-window RN 567)
-    - dmn: cred_route=ANALISE_HUMANA                 # ambiguidade -> humano
-    - signal: indicio_irregularidade           # sinal informativo de irregularidade -> humano decide encaminhamento (L0 hard)
-    - signal: dmn_unavailable                  # DMN indisponivel -> humano (nunca desfecho adverso por omissao)
-    - signal: ambiguity                        # qualquer ambiguidade -> gestao/juridico de rede
+  process: SP-OP-PAGTO-001
+  human_manager: financeiro
+  triggers:
+    - dmn: pagamento_route=APROVACAO_ALCADA_SUPERIOR
+    - signal: valor_excede_alcada
+    - signal: dmn_unavailable
+    - signal: ambiguity
 memory:
   episodic: true
-  semantic: true                              # derivados minimizados referenciando o caso (ADR-0002)
-# A2A v1.0 — Agent Card derivado desta definicao (ADR-0003). Carolina e ALVO de delegacao:
-# SP-OP-CRED-001 convoca via `operadora.cred.prepare_dossier` (delegacao `credentialing.analyze`).
-# `accepted_task_types` declara o contrato de delegacao (metadata; o handler A2A inbound e
-# DEFERIDO para W-R2/R9 — NAO autorado aqui). Espelha o padrao AUTH->Rafael / CONTAS->Marina.
+  semantic: true
 a2a:
   capabilities:
-    - credentialing_analysis                  # instrui a analise de (des)credenciamento e monta o dossie
+    - payment_validation
+    - approval_routing
   skills:
-    - cred_dossier                            # montagem do dossie de (des)credenciamento / SP-OP-CRED-001
+    - payment_validate
+    - approval_route
   accepted_task_types:
-    - credentialing.analyze                   # SP-OP-CRED-001 delega a analise de (des)credenciamento
+    - pagamento.validate
   queue_ref: agents.tasks.carolina

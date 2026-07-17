@@ -1,84 +1,67 @@
-# Marina Andrade — Analista de Contas/Glosa e Recurso (Phase 2 analogue of Rafael)
+# Marina Andrade — Analista de Contas Medicas e Recurso de Glosa (Phase 2)
 id: marina
 name: "Marina Andrade"
 role: "Analista de Contas Medicas e Recurso de Glosa — instrui SP-OP-CONTAS-001/RECURSO-001 e monta o dossie do analista/auditor"
-reports_to: "coordenacao-faturamento@amh"   # gestor humano = coordenacao de faturamento/contas
-security_zone: phi                            # PHI integral provider-side TISS (ADR-0006: Marina e Zona PHI)
+phase: 2
+autonomy_level: L2
+process_keys:
+  - SP-OP-CONTAS-001
+  - SP-OP-RECURSO-001
+reports_to: "coordenacao-faturamento@amh"
+security_zone: phi
 graph: graph.py:build
-prompt_versions:                              # versionados (ADR-0009) — gate de eval no golden
+prompt_versions:
   system: system-v1
-  dossier: dossier-v1                         # triagem de glosa (CONTAS)
-  recurso: recurso-v1                         # dossie de recurso (RECURSO)
-  reembolso: reembolso-v1                     # dossie factual de reembolso (REEMBOLSO, res-marina-reembolso-card)
+  dossier: dossier-v1
+  recurso: recurso-v1
+  reembolso: reembolso-v1
 model:
-  task_default: { tier: fast }                # gather/assess/montagem do dossie
-  reasoning:    { tier: frontier }            # casos ambiguos / glosa tecnica-clinica / dossie complexo
-tools:                                         # ids EXATOS registrados pelos mcp_* servers (W4)
-  - mcp-fhir.read_patient_summary             # resumo do beneficiario (leitura, enriquece dossie)
-  - mcp-dmn.evaluate                          # glosa_* (CONTAS) / recurso_* (RECURSO)
-  - mcp-cibseven.start_process                # somente SP-OP-CONTAS-001 + SP-OP-RECURSO-001 (start idempotente)
-  - mcp-memory.read_write                     # memoria episodica do caso (ADR-0002)
-  # allowlist MINIMA: a Marina so exerce start (idempotente) + DMN + FHIR(leitura) + memoria.
-  # get_process_status/correlate_message NAO entram ate um no os usar (allowlist tight, W4).
+  task_default: { tier: fast }
+  reasoning:    { tier: frontier }
+tools:
+  - mcp-fhir.read_patient_summary
+  - mcp-dmn.evaluate
+  - mcp-cibseven.start_process
+  - mcp-memory.read_write
 autonomy_policy: ../../policies/autonomy
-autonomy_actions:                             # acoes REAIS da matriz L0-core exercidas por este fluxo (W4)
-  - read_phi_data                             # leitura FHIR resumo (mcp-fhir.read_patient_summary) — L3
-  - query_decision_engine                     # DMN de glosa/recurso (mcp-dmn.evaluate) — L3
-  - start_compliance_process                  # SP-OP-CONTAS-001 / SP-OP-RECURSO-001 (mcp-cibseven.start_process) — L2
-  - read_write_memory                         # memoria episodica (mcp-memory.read_write) — L3
-  # query_process_status/correlate_process_message removidos: nenhum no os exerce hoje (allowlist
-  # tight). Reintroduzir junto com o tool e o no que os usar (W4 — acao real, nao declarativa).
-  # NOTA L0 HARD (intencional): Marina NAO exerce `authorization_denial` (aceite de glosa /
-  # desistencia de recurso = efeito adverso, SO do analista/auditor humano na User Task), NAO
-  # exerce `standard_glosa_processing` autonomamente para CONFIRMAR glosa, NAO exerce
-  # `clinical_decision` nem `fraud_accusation`. Ela instrui o caso (dossie + roteamento);
-  # o humano decide. Nenhuma DMN/branch deste fluxo confirma uma glosa nem nega um recurso.
+autonomy_actions:
+  - read_phi_data
+  - query_decision_engine
+  - start_compliance_process
+  - read_write_memory
 kpis:
-  - { name: dossier_completeness, target: ">0.95" }   # dossies completos / total (fatos + refs DMN)
-  - { name: recurso_recovery_rate, target: "track" }  # valor recuperado em recurso / glosado (acompanha)
-  - { name: human_routing_precision, target: "track" } # casos corretamente roteados ao analista/auditor
-  - { name: eval_score, target: ">0.9" }               # golden dataset (gate de promocao, ADR-0009)
-  - { name: false_denial_rate, target: "==0" }         # INVARIANTE L0 hard: ZERO glosas/desistencias por automacao
+  - { name: dossier_completeness, target: ">0.95" }
+  - { name: recurso_recovery_rate, target: "track" }
+  - { name: human_routing_precision, target: "track" }
+  - { name: eval_score, target: ">0.9" }
+  - { name: false_denial_rate, target: "==0" }
 escalation:
-  process: SP-OP-CONTAS-001                    # rota humana garantida = UT_AnalistaContas (aceite de glosa SO aqui)
-  secondary_process: SP-OP-RECURSO-001         # 2a rota humana = UT_AnaliseRecursoAnalista (desistencia SO aqui)
-  # NOTA REEMBOLSO (res-marina-reembolso-card): a Marina NAO inicia/ancora um "tertiary_process"
-  # SP-OP-REEMBOLSO-001 aqui — ao contrario de CONTAS/RECURSO (que ela START-a, idempotente), o
-  # fluxo `reembolso` e convocado de DENTRO de uma instancia SP-OP-REEMBOLSO-001 JA em execucao
-  # (ST_PrepararDossie); a Marina so ANCORA o dossie factual (business key `REEMB-...`) e roteia
-  # SEMPRE a `analise-reembolso` (UT_AnaliseReembolso) — nunca inicia uma segunda instancia.
-  human_manager: coordenacao-faturamento       # quem coordena; decisao substantiva e do analista/auditor
-  triggers:                                   # cada gatilho -> ANALISE HUMANA (NUNCA aceite/negativa)
-    - dmn: glosa_triage=ANALISE_HUMANA         # glosa tecnica/clinica/ambiguidade -> auditoria-contas
-    - dmn: recurso_admissibility=PENDENTE_DOCUMENTACAO  # documentacao do recurso incompleta -> humano
-    - dmn: recurso_admissibility=ANALISE_HUMANA          # inadmissibilidade aparente -> humano
-    - dmn: recurso_eligibility=ANALISE_HUMANA            # glosa tecnica/clinica -> medico-auditor
-    - signal: indicio_fraude                   # sinal informativo de fraude -> humano decide encaminhamento (L0 hard)
-    - signal: dmn_unavailable                  # DMN indisponivel -> humano (nunca desfecho adverso por omissao)
-    - signal: ambiguity                        # qualquer ambiguidade -> analista/auditor
-    - signal: reembolso_dossie                 # fluxo `reembolso`: SEMPRE humano (analise-reembolso) — sem DMN/auto
+  process: SP-OP-CONTAS-001
+  secondary_process: SP-OP-RECURSO-001
+  human_manager: coordenacao-faturamento
+  triggers:
+    - dmn: glosa_triage=ANALISE_HUMANA
+    - dmn: recurso_admissibility=PENDENTE_DOCUMENTACAO
+    - dmn: recurso_admissibility=ANALISE_HUMANA
+    - dmn: recurso_eligibility=ANALISE_HUMANA
+    - signal: indicio_fraude
+    - signal: dmn_unavailable
+    - signal: ambiguity
+    - signal: reembolso_dossie
 memory:
   episodic: true
-  semantic: true                              # derivados minimizados referenciando o caso (ADR-0002)
-# A2A v1.0 — Agent Card derivado desta definicao (ADR-0003). Marina e ALVO de delegacao: CONTAS
-# delega "glosa.analyze", RECURSO delega "recurso.analyze" e REEMBOLSO delega "reembolso.analyze"
-# a ela via DelegationDispatcher. `accepted_task_types` declara o contrato de delegacao (o
-# dispatcher rejeita task_type fora desta lista — espelha o padrao AUTH->Rafael). ATE
-# res-marina-reembolso-card, `reembolso.analyze` NAO estava listado aqui: o worker
-# `operadora.reembolso.analyze_request` (GAP-REEMBOLSO-4, #150) ja despachava o envelope real, mas
-# o Agent Card recusava (TASK_TYPE_NOT_ACCEPTED) -> fallback de eco honesto. Esta entrada fecha o
-# leg (tools/workers/reembolso.py docstring "A2A delegacao REAL a Marina").
+  semantic: true
 a2a:
   capabilities:
-    - glosa_analysis                          # instrui a triagem de glosa e monta o dossie (CONTAS)
-    - recurso_dossier                         # instrui o recurso e monta o dossie (RECURSO)
-    - reembolso_dossier                       # instrui a analise do pedido de reembolso (REEMBOLSO)
+    - glosa_analysis
+    - recurso_dossier
+    - reembolso_dossier
   skills:
-    - tiss_glosa_analysis                     # analise de demonstrativo TISS / SP-OP-CONTAS-001
-    - recurso_glosa_dossier                   # montagem do dossie de recurso / SP-OP-RECURSO-001
-    - reembolso_analysis_dossier              # montagem do dossie factual de reembolso / SP-OP-REEMBOLSO-001
+    - tiss_glosa_analysis
+    - recurso_glosa_dossier
+    - reembolso_analysis_dossier
   accepted_task_types:
-    - glosa.analyze                           # CONTAS delega a triagem de glosa
-    - recurso.analyze                         # RECURSO delega a analise do recurso
-    - reembolso.analyze                       # REEMBOLSO delega a analise do pedido de reembolso
+    - glosa.analyze
+    - recurso.analyze
+    - reembolso.analyze
   queue_ref: agents.tasks.marina
