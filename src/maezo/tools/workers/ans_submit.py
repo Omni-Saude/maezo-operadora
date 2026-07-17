@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from maezo.tools.workers.base import FunctionWorker, pick_fields
+from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row, require_dmn
 
 if TYPE_CHECKING:
     from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
@@ -270,43 +271,40 @@ def retry_submission(
     retry_attempt: int,
     report_type: str = "",
     competencia: str = "",
+    *,
+    dmn: DmnTransport,
 ) -> AnsRetryPolicy:
-    """Apply DMN ans_retry_policy for backoff and retry decision.
+    """Evaluate DMN `ans_retry_policy` for backoff and retry decision (ADR-0028/T1.5).
 
-    retry_attempt 1 -> PT5M / continue_retry=true
-    2 -> PT30M / true
-    3 -> PT2H / true
-    catch-all (>3) -> "" / continue_retry=false (esgotado)
+    The attempt-count -> backoff/continue_retry ladder (1 -> PT5M, 2 -> PT30M, 3 -> PT2H,
+    catch-all >3 -> ""/continue_retry=false) used to be hand-forked here; it now lives ONLY in
+    the deployed `ans_retry_policy` decision table (ADR-0012) — golden-parity proven 1:1
+    against attempts 1-3 and the catch-all before this cutover (T1.5 PR body / evidence
+    ledger). `report_type`/`competencia` are accepted for call-site compatibility (unused by
+    this decision — the table keys only on `retry_attempt`).
     """
+    del report_type, competencia  # unused by ans_retry_policy — kept for call-site compatibility
     logger.info(
         "ans_submit.retry_submission.start",
         protocolo_ans=protocolo_ans,
         retry_attempt=retry_attempt,
     )
 
-    # DMN ans_retry_policy (hitPolicy FIRST)
-    backoff_map: dict[int, str] = {
-        1: "PT5M",
-        2: "PT30M",
-        3: "PT2H",
-    }
-
-    if retry_attempt <= 3:
-        backoff = backoff_map.get(retry_attempt, "PT5M")
-        continue_retry = True
-    else:
-        backoff = ""
-        continue_retry = False
-
-    result = AnsRetryPolicy(backoff=backoff, continue_retry=continue_retry)
+    rows, version = evaluate_sync(dmn, "ans_retry_policy", {"retry_attempt": retry_attempt})
+    row = first_row(rows, "ans_retry_policy", {"retry_attempt": retry_attempt})
+    result = AnsRetryPolicy(
+        backoff=str(row.get("backoff", "")),
+        continue_retry=bool(row.get("continue_retry", False)),
+    )
 
     logger.info(
         "ans_submit.retry_submission.complete",
         backoff=result.backoff,
         continue_retry=result.continue_retry,
+        dmn_decision_version=version.version,
     )
 
-    if not continue_retry:
+    if not result.continue_retry:
         raise AnsRetryEsgotadoError(attempt=retry_attempt)
 
     return result
@@ -402,12 +400,18 @@ def track_protocol_entry(variables: dict[str, Any], *, kafka: KafkaPublisher | N
     return handle_nack(protocolo_ans, nack_motivo, retry_attempt)
 
 
-def retransmit_entry(variables: dict[str, Any], *, kafka: KafkaPublisher | None = None) -> dict[str, Any]:
+def retransmit_entry(
+    variables: dict[str, Any],
+    *,
+    kafka: KafkaPublisher | None = None,
+    dmn: DmnTransport | None = None,
+) -> dict[str, Any]:
     """Dict-boundary entry for `regulatorio.anssubmit.retransmit` -> `retry_submission`.
 
     Fail-closed: missing/blank `protocolo_ans` raises `AnsDatasetIncompletoError`. Exhaustion
     raises `AnsRetryEsgotadoError` (`RuntimeError` family) unchanged — the harness's existing
-    transient classification applies (engine-side retry, incident at 0).
+    transient classification applies (engine-side retry, incident at 0). `dmn` unwired raises
+    `DmnEvaluationError` (`require_dmn`, ADR-0028) — also transient/engine-retried.
     """
     del kafka  # unused — retry_submission emits no domain event
     protocolo_ans = variables.get("protocolo_ans", "")
@@ -416,7 +420,13 @@ def retransmit_entry(variables: dict[str, Any], *, kafka: KafkaPublisher | None 
     retry_attempt = variables.get("retry_attempt", 0)
     report_type = variables.get("report_type", "")
     competencia = variables.get("competencia", "")
-    result = retry_submission(protocolo_ans, retry_attempt, report_type, competencia)
+    result = retry_submission(
+        protocolo_ans,
+        retry_attempt,
+        report_type,
+        competencia,
+        dmn=require_dmn(dmn, "regulatorio.anssubmit.retransmit"),
+    )
     return dataclasses.asdict(result)
 
 
@@ -443,7 +453,12 @@ def register_ans_submit_workers(
     these entry functions calls `kafka.publish` today (the typed functions only DESCRIBE the
     event to publish — see `publish_completed_entry` — a genuine `kafka.publish` fan-out would
     need an async seam distinct from these sync entry points; not fabricated here).
+
+    `dmn` (ADR-0028 §1 seam) is threaded ONLY into `retransmit_entry` — the sole function here
+    that evaluates a DMN table (`ans_retry_policy`, T1.5 cutover); every other entry function
+    ignores it (dict `**seams` passthrough, not a hand-maintained per-module signature).
     """
+    dmn = seams.get("dmn")
     harness.register_worker(
         FunctionWorker("regulatorio.anssubmit.assemble", functools.partial(assemble_entry, kafka=kafka))
     )
@@ -459,7 +474,10 @@ def register_ans_submit_workers(
         )
     )
     harness.register_worker(
-        FunctionWorker("regulatorio.anssubmit.retransmit", functools.partial(retransmit_entry, kafka=kafka))
+        FunctionWorker(
+            "regulatorio.anssubmit.retransmit",
+            functools.partial(retransmit_entry, kafka=kafka, dmn=dmn),
+        )
     )
     harness.register_worker(
         FunctionWorker(
@@ -467,4 +485,3 @@ def register_ans_submit_workers(
             functools.partial(publish_completed_entry, kafka=kafka),
         )
     )
-    del seams  # unused — no additional seam (audit=/dmn=/dispatcher=/erasure=) is needed today

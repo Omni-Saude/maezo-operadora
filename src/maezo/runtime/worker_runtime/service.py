@@ -42,6 +42,7 @@ import structlog
 from maezo.platform.health import CheckResult, build_health_server, create_health_app
 from maezo.platform.observability import get_metrics_collector
 from maezo.tools.workers.bootstrap import ALL_WORKER_BOOTSTRAPS, register_all_workers
+from maezo.tools.workers.dmn_transport import CibSevenDmnTransport
 from maezo.tools.workers.harness import (
     CibSevenWorkerTransport,
     ExternalTask,
@@ -62,12 +63,18 @@ logger = structlog.get_logger(__name__)
 # never requires a second, parallel edit here.
 
 
-def register_default_workers(harness: WorkerHarness) -> None:
+def register_default_workers(harness: WorkerHarness, *, dmn: CibSevenDmnTransport | None = None) -> None:
     """Register every worker this build serves. The daemon's ONE bootstrap call (STEP B).
+
+    `dmn` (ADR-0028 §1, the `dmn=` seam ADR-0026 §2 reserves) is threaded through to every
+    `register_<domain>_workers(harness, kafka, **seams)` bootstrap via `functools.partial` at
+    wrap time — modules with no DMN dependency ignore it. `None` (the default, and what the
+    topic-probe below passes) lets modules register their topics with no live engine present;
+    only an actual `dmn.evaluate(...)` call at task-execution time needs a real transport.
 
     Idempotent (`WorkerHarness.register_worker` replaces on re-registration, same topic).
     """
-    register_all_workers(harness)
+    register_all_workers(harness, dmn=dmn)
 
 
 def _expected_worker_topics() -> frozenset[str]:
@@ -145,6 +152,7 @@ class WorkerState:
     settings: WorkerRuntimeSettings
     live: bool = True
     transport: CibSevenWorkerTransport | None = None
+    dmn_transport: CibSevenDmnTransport | None = None
     harness: WorkerHarness | None = None
     expected_topics: frozenset[str] = field(default_factory=frozenset)
     harness_task: asyncio.Task[None] | None = None
@@ -259,6 +267,20 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
         logger.error("worker_transport_build_failed", exc_info=True)
 
     try:
+        # ADR-0028 §1: the DMN seam is built once at daemon boot, against the SAME CIB Seven
+        # engine the external-task transport targets (`CIBSEVEN_BASE_URL`) — DMN evaluation and
+        # external-task dispatch are on the same failure/retry/incident plane (ADR-0028
+        # Consequencias). Construction is pure (no network) — a failure here is unexpected but
+        # still non-fatal, mirroring the worker transport above.
+        state.dmn_transport = CibSevenDmnTransport(
+            settings.cibseven_base_url,
+            auth_token=settings.cibseven_auth_token_value(),
+            timeout=settings.client_timeout_s,
+        )
+    except Exception:  # noqa: BLE001 — construction failure: DMN-calling workers fail closed later.
+        logger.error("dmn_transport_build_failed", exc_info=True)
+
+    try:
         if state.transport is not None:
             harness = WorkerHarness(
                 state.transport,
@@ -274,7 +296,7 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
                 # fail-closed incident until a code is added here with proof.
                 bpmn_error_allowlist=frozenset(),
             )
-            register_default_workers(harness)
+            register_default_workers(harness, dmn=state.dmn_transport)
             state.harness = harness
             state.expected_topics = _expected_worker_topics()
     except Exception:  # noqa: BLE001 — registration failure leaves workers_registered unhealthy.
@@ -371,6 +393,9 @@ async def run(settings: WorkerRuntimeSettings) -> None:
     if state.transport is not None:
         with contextlib.suppress(Exception):
             await state.transport.close()
+    if state.dmn_transport is not None:
+        with contextlib.suppress(Exception):
+            await state.dmn_transport.close()
 
     # The health server's should_exit was already set in the drain trigger; make sure it's set
     # regardless of which path got us here, then wait for it to actually stop.

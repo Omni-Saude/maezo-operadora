@@ -7,11 +7,13 @@ Guards: ERR_DECRED_NOT_HUMAN, ERR_CRED_DENIAL_NOT_HUMAN (ADR-0018).
 
 from __future__ import annotations
 
+import functools
 from typing import TYPE_CHECKING, Any
 
 import structlog
 
 from maezo.tools.workers.base import FunctionWorker
+from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row, require_dmn
 
 if TYPE_CHECKING:
     from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
@@ -68,42 +70,71 @@ def validate_cred(variables: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------
 
 
-def assess_admissibility(variables: dict[str, Any]) -> dict[str, Any]:
+def assess_admissibility(variables: dict[str, Any], *, dmn: DmnTransport | None = None) -> dict[str, Any]:
     """Classify admissibility and route — NEVER produces NEGAR/DESCREDENCIAR.
 
-    DMN-like: cred_admissibility + cred_route (inverted from reference).
+    Evaluates TWO chained deployed decision tables (ADR-0028/T1.5): `cred_admissibility`
+    (direcao, tipo_prestador, documentacao_completa, licenca_valida, dentro_criterios_rede,
+    indicio_irregularidade_sinalizado) -> `roteamento` in {CLERICAL_CREDENCIAR, SEGUE_ANALISE,
+    PENDENTE_DOCUMENTACAO, ANALISE_HUMANA}; ONLY when it returns `SEGUE_ANALISE` (non-terminal
+    — proceed to human-track routing), chained into `cred_route` (direcao, tipo_prestador,
+    origem_solicitacao, indicio_irregularidade_sinalizado) -> `roteamento` in
+    {ANALISE_CREDENCIAMENTO, ANALISE_DESCREDENCIAMENTO, ANALISE_HUMANA} — the FINAL routing.
+    The old Python conflated both tables' output domains into a single hand-forked if/elif
+    ladder (its own `roteamento` sometimes held `cred_admissibility` values, sometimes
+    `cred_route` values, matching neither table's real rule order). Both tables live-verified
+    against the compose engine before cutover (5/5 existing test scenarios reproduced exactly,
+    plus a new `CLERICAL_CREDENCIAR` case). Adverse-adjacent (provider credentialing) — per
+    ADR-0028 §7, policy-guardian review recommended before this cutover is considered cleared.
     """
     direcao = variables.get("direcao", "credenciamento")
+    tipo_prestador = variables.get("tipo_prestador", "")
     licenca_valida = variables.get("licenca_valida", False)
     documentacao_completa = variables.get("documentacao_completa", False)
     dentro_criterios = variables.get("dentro_criterios_rede", False)
     indicio_irregular = variables.get("indicio_irregularidade_sinalizado", False)
 
-    if indicio_irregular:
-        roteamento = "ANALISE_DESCREDENCIAMENTO"
-        motivo = "indicio de irregularidade sinalizado — humano decide"
-    elif not documentacao_completa:
-        roteamento = "PENDENTE_DOCUMENTACAO"
-        motivo = "documentacao incompleta"
-    elif not licenca_valida or not dentro_criterios:
-        roteamento = "ANALISE_HUMANA"
-        motivo = "licenca ou criterios de rede — requer analise humana"
-    elif direcao == "descredenciamento":
-        roteamento = "ANALISE_DESCREDENCIAMENTO"
-        motivo = "descredenciamento em analise humana"
-    elif direcao == "credenciamento":
-        roteamento = "ANALISE_CREDENCIAMENTO"
-        motivo = "credenciamento em analise humana"
-    else:
-        # Catch-all conservador
-        roteamento = "ANALISE_HUMANA"
-        motivo = "direcao ambigua — requer analise humana"
+    dmn_transport = require_dmn(dmn, "operadora.cred.check_network_criteria")
+
+    adm_rows, adm_version = evaluate_sync(
+        dmn_transport,
+        "cred_admissibility",
+        {
+            "direcao": direcao,
+            "tipo_prestador": tipo_prestador,
+            "documentacao_completa": bool(documentacao_completa),
+            "licenca_valida": bool(licenca_valida),
+            "dentro_criterios_rede": bool(dentro_criterios),
+            "indicio_irregularidade_sinalizado": bool(indicio_irregular),
+        },
+    )
+    adm_row = first_row(adm_rows, "cred_admissibility", variables)
+    roteamento = str(adm_row.get("roteamento", "ANALISE_HUMANA"))
+    motivo = str(adm_row.get("motivo", ""))
+    route_version = None
+
+    if roteamento == "SEGUE_ANALISE":
+        route_rows, route_version = evaluate_sync(
+            dmn_transport,
+            "cred_route",
+            {
+                "direcao": direcao,
+                "tipo_prestador": tipo_prestador,
+                "origem_solicitacao": variables.get("origem_solicitacao", ""),
+                "indicio_irregularidade_sinalizado": bool(indicio_irregular),
+            },
+        )
+        route_row = first_row(route_rows, "cred_route", variables)
+        roteamento = str(route_row.get("roteamento", roteamento))
+        motivo = str(route_row.get("motivo", motivo))
 
     logger.info(
         "cred_assess_admissibility",
         prestador_id=variables.get("prestador_id"),
         roteamento=roteamento,
         motivo=motivo,
+        dmn_admissibility_version=adm_version.version,
+        dmn_route_version=route_version.version if route_version else None,
     )
 
     return {
@@ -272,10 +303,20 @@ def register_credenciamento_workers(
     kafka: KafkaPublisher | None = None,
     **seams: Any,
 ) -> None:
-    """Register the SP-OP-CRED-001 function workers on `harness`."""
-    del kafka, seams  # unused — no credenciamento.py worker declares a Kafka/other seam dependency
+    """Register the SP-OP-CRED-001 function workers on `harness`.
+
+    `dmn` (ADR-0028 §1 seam) is threaded into `assess_admissibility` (`cred_admissibility` +
+    `cred_route`, T1.5 cutover) via `functools.partial`; no other function here evaluates a
+    DMN table.
+    """
+    del kafka  # unused — no credenciamento.py worker declares a Kafka dependency
+    dmn = seams.get("dmn")
     harness.register_worker(FunctionWorker("operadora.cred.verify_credentials", validate_cred))
-    harness.register_worker(FunctionWorker("operadora.cred.check_network_criteria", assess_admissibility))
+    harness.register_worker(
+        FunctionWorker(
+            "operadora.cred.check_network_criteria", functools.partial(assess_admissibility, dmn=dmn)
+        )
+    )
     harness.register_worker(FunctionWorker("operadora.cred.check_prior_notice", notify_prestador))
     harness.register_worker(
         FunctionWorker("operadora.cred.register_descredenciamento", register_descredenciamento)

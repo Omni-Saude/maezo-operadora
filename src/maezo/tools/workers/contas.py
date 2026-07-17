@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from maezo.tools.workers.base import FunctionWorker, pick_fields
+from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row, require_dmn
 
 if TYPE_CHECKING:
     from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
@@ -210,12 +211,17 @@ def identify_glosa(input_data: GlosaInput) -> GlosaIdentified:
     return result
 
 
-def analyze_reason(input_data: GlosaInput) -> dict[str, Any]:
+def analyze_reason(input_data: GlosaInput, *, dmn: DmnTransport | None = None) -> dict[str, Any]:
     """Analyze glosa reason codes and produce normalized categories.
 
-    Consults glosa_reason_normalization (DMN) to map TISS reason codes
-    to categories: tecnica, administrativa, clinica, valor, documental,
-    desconhecida (catch-all).
+    Evaluates the deployed `glosa_reason_normalization` decision table (ADR-0028/T1.5) per
+    reason code — replaces the substring-match Python dict that used to live here.
+
+    golden-parity divergence found + DMN wins (documented, not patched — ADR-0028 §7): the old
+    Python mapping was a strict subset of the deployed table — e.g. `CARENCIA`/
+    `EXCLUSAO_CONTRATUAL`/`BENEFICIARIO_INATIVO` fell through to Python's `"desconhecida"`
+    catch-all, but the DMN maps them to `"clinica"` (live-verified). No adverse output either
+    way (both route conservatively downstream via `glosa_triage`).
     """
     logger.info(
         "contas.analyze_reason.start",
@@ -223,11 +229,16 @@ def analyze_reason(input_data: GlosaInput) -> dict[str, Any]:
         reason_codes=input_data.reason_codes_tiss,
     )
 
+    dmn_transport = require_dmn(dmn, "operadora.contas.analyze_reason")
     reason_map: dict[str, str] = {}
     categories: dict[str, str] = {}
 
     for code in input_data.reason_codes_tiss:
-        normalized = _normalize_reason_code(code)
+        rows, _version = evaluate_sync(
+            dmn_transport, "glosa_reason_normalization", {"reason_code_tiss": code}
+        )
+        row = first_row(rows, "glosa_reason_normalization", {"reason_code_tiss": code})
+        normalized = str(row.get("categoria_normalizada", "desconhecida"))
         reason_map[code] = normalized
         categories[code] = normalized
 
@@ -269,14 +280,27 @@ def prepare_triage_dossier(
     input_data: GlosaInput,
     identified: GlosaIdentified,
     reason_analysis: dict[str, Any],
+    *,
+    dmn: DmnTransport | None = None,
+    tipo_item: str = "",
 ) -> GlosaTriageResult:
     """Prepare the triage dossier for the human analyst.
 
-    Delegates to Marina (LLM agent) for narrative assembly;
-    the result routes to ANALISE_HUMANA — NEVER auto-accepts a glosa.
+    Delegates to Marina (LLM agent) for narrative assembly; evaluates the deployed
+    `glosa_triage` decision table (ADR-0028/T1.5) — the DMN produces `SEM_GLOSA`, `RECORRER`,
+    or `ANALISE_HUMANA` — never `ACEITAR` (glosa acceptance is exclusively
+    `operadora.contas.register_glosa_accept`, GUARDED, untouched by this cutover).
 
-    The glosa_triage DMN (DMN-only) produces SEM_GLOSA, RECORRER,
-    or ANALISE_HUMANA — never ACEITAR.
+    golden-parity finding — MAJOR behavior gap closed (T1.5): the old Python NEVER produced
+    `RECORRER` (its own docstring said "For now, always route to ANALISE_HUMANA (conservative)")
+    — it consulted only 2 of the DMN's 5 inputs (`has_glosas`, `divergencia_valor`), never
+    `item_conforme_tabela`/`documentacao_anexa`/`tipo_item`/`categoria_normalizada` for
+    branching, so `RECORRER` was structurally unreachable dead code. This cutover activates
+    that path (live-verified: `categoria_normalizada="valor"` + `item_conforme_tabela=True` +
+    `divergencia_valor=True` + `documentacao_anexa=True` -> `RECORRER`). `tipo_item` is a NEW,
+    additive parameter (not previously part of `GlosaInput`) sourced from the raw process
+    variables at the entry-function boundary. Flagged: glosa is money-adjacent — per ADR-0028
+    §7 this is in the money/adverse cutover bucket requiring policy-guardian review.
     """
     logger.info(
         "contas.prepare_triage_dossier.start",
@@ -284,25 +308,37 @@ def prepare_triage_dossier(
         has_glosas=identified.has_glosas,
     )
 
-    roteamento = "ANALISE_HUMANA"  # Conservative default
-    motivo = ""
-
-    if not identified.has_glosas and not identified.divergencia_valor:
-        roteamento = "SEM_GLOSA"
-        motivo = "Nenhuma glosa candidata identificada"
-    elif identified.has_glosas and identified.denial_ratio > 0:
-        motivo = f"Glosas candidatas: {identified.glosa_count} itens, {identified.denial_ratio:.1%}"
-        # Route to RECORRER or ANALISE_HUMANA based on DMN triage
-        # For now, always route to ANALISE_HUMANA (conservative)
-        roteamento = "ANALISE_HUMANA"
+    categoria_normalizada = reason_analysis.get("categoria_normalizada", "desconhecida")
+    rows, version = evaluate_sync(
+        require_dmn(dmn, "operadora.contas.prepare_triage_dossier"),
+        "glosa_triage",
+        {
+            "tipo_item": tipo_item,
+            "categoria_normalizada": categoria_normalizada,
+            "item_conforme_tabela": input_data.item_conforme_tabela,
+            "divergencia_valor": identified.divergencia_valor,
+            "documentacao_anexa": input_data.documentacao_anexa,
+        },
+    )
+    row = first_row(
+        rows,
+        "glosa_triage",
+        {"tenant_id": input_data.tenant_id, "numero_lote_tiss": input_data.numero_lote_tiss},
+    )
+    roteamento = str(row.get("roteamento", "ANALISE_HUMANA"))
+    motivo = str(row.get("motivo", ""))
 
     result = GlosaTriageResult(
         roteamento=roteamento,
         motivo=motivo,
-        categoria_normalizada=reason_analysis.get("categoria_normalizada", "desconhecida"),
+        categoria_normalizada=categoria_normalizada,
     )
 
-    logger.info("contas.prepare_triage_dossier.complete", roteamento=result.roteamento)
+    logger.info(
+        "contas.prepare_triage_dossier.complete",
+        roteamento=result.roteamento,
+        dmn_decision_version=version.version,
+    )
     return result
 
 
@@ -471,27 +507,6 @@ def _extract_cents(linha: dict[str, Any], prefix: str) -> int:
     return 0
 
 
-def _normalize_reason_code(code: str) -> str:
-    """Map a TISS reason code to a normalized category.
-
-    DMN glosa_reason_normalization (hitPolicy FIRST).
-    Catch-all -> 'desconhecida'.
-    """
-    code_upper = code.strip().upper()
-    mapping: dict[str, str] = {
-        "TECNICA": "tecnica",
-        "ADMINISTRATIVA": "administrativa",
-        "CLINICA": "clinica",
-        "VALOR": "valor",
-        "DOCUMENTAL": "documental",
-        "DOCUMENTACAO": "documental",
-    }
-    for key, value in mapping.items():
-        if key in code_upper:
-            return value
-    return "desconhecida"
-
-
 def _timestamp_hash() -> str:
     """Generate a short unique hash for IDs."""
     import hashlib
@@ -539,11 +554,16 @@ def identify_glosa_entry(variables: dict[str, Any], *, kafka: KafkaPublisher | N
     return dataclasses.asdict(result)
 
 
-def analyze_reason_entry(variables: dict[str, Any], *, kafka: KafkaPublisher | None = None) -> dict[str, Any]:
+def analyze_reason_entry(
+    variables: dict[str, Any],
+    *,
+    kafka: KafkaPublisher | None = None,
+    dmn: DmnTransport | None = None,
+) -> dict[str, Any]:
     """Dict-boundary entry for `operadora.contas.analyze_reason` -> `analyze_reason`."""
     del kafka  # unused — analyze_reason emits no domain event
     input_data = _build_glosa_input(variables)
-    return analyze_reason(input_data)
+    return analyze_reason(input_data, dmn=dmn)
 
 
 def calculate_impact_entry(
@@ -557,9 +577,16 @@ def calculate_impact_entry(
 
 
 def prepare_triage_dossier_entry(
-    variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
+    variables: dict[str, Any],
+    *,
+    kafka: KafkaPublisher | None = None,
+    dmn: DmnTransport | None = None,
 ) -> dict[str, Any]:
-    """Dict-boundary entry for `operadora.contas.prepare_triage_dossier` -> `prepare_triage_dossier`."""
+    """Dict-boundary entry for `operadora.contas.prepare_triage_dossier` -> `prepare_triage_dossier`.
+
+    `tipo_item` (NEW, ADR-0028/T1.5 — see `prepare_triage_dossier`'s docstring) is read directly
+    off the raw process variables here, since it is not (and was never) part of `GlosaInput`.
+    """
     del kafka  # unused — prepare_triage_dossier emits no domain event
     input_data = _build_glosa_input(variables)
     identified = GlosaIdentified(**pick_fields(variables, GlosaIdentified))
@@ -568,7 +595,8 @@ def prepare_triage_dossier_entry(
         "categoria_normalizada": variables.get("categoria_normalizada", "desconhecida"),
         "categories": variables.get("categories", {}),
     }
-    result = prepare_triage_dossier(input_data, identified, reason_analysis)
+    tipo_item = variables.get("tipo_item", "")
+    result = prepare_triage_dossier(input_data, identified, reason_analysis, dmn=dmn, tipo_item=tipo_item)
     return dataclasses.asdict(result)
 
 
@@ -639,9 +667,11 @@ def register_contas_workers(
 
     `kafka` is accepted (donor contract, ADR-0026 §2) and threaded via `functools.partial`; no
     entry function calls `kafka.publish` today — see `ans_submit.register_ans_submit_workers`'s
-    docstring for the same documented sync/async-boundary rationale.
+    docstring for the same documented sync/async-boundary rationale. `dmn` (ADR-0028 §1 seam) is
+    threaded into `analyze_reason_entry` (`glosa_reason_normalization`) and
+    `prepare_triage_dossier_entry` (`glosa_triage`, T1.5 cutover).
     """
-    del seams  # unused — no additional seam (audit=/dmn=/dispatcher=/erasure=) is needed today
+    dmn = seams.get("dmn")
     harness.register_worker(
         FunctionWorker(
             "operadora.contas.identify_glosa", functools.partial(identify_glosa_entry, kafka=kafka)
@@ -649,7 +679,8 @@ def register_contas_workers(
     )
     harness.register_worker(
         FunctionWorker(
-            "operadora.contas.analyze_reason", functools.partial(analyze_reason_entry, kafka=kafka)
+            "operadora.contas.analyze_reason",
+            functools.partial(analyze_reason_entry, kafka=kafka, dmn=dmn),
         )
     )
     harness.register_worker(
@@ -660,7 +691,7 @@ def register_contas_workers(
     harness.register_worker(
         FunctionWorker(
             "operadora.contas.prepare_triage_dossier",
-            functools.partial(prepare_triage_dossier_entry, kafka=kafka),
+            functools.partial(prepare_triage_dossier_entry, kafka=kafka, dmn=dmn),
         )
     )
     harness.register_worker(
