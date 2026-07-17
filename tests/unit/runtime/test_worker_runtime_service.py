@@ -4,12 +4,13 @@ No engine — exercises the bootstrap (`register_default_workers`), the readines
 (fail-closed on partial topic coverage), and `WorkerState`. The full `run()` lifecycle against a
 real engine is covered by `tests/integration/`.
 
-T1.2/ADR-0026: `register_default_workers` now delegates to the FULL 16-module
-`bootstrap.register_all_workers` composition — closing the T1.1 verifier's interim-scope note
-(T1.1 shipped only the 3 `WorkerBase` modules — auth/escalation/lgpd, 15 topics). The exact
-topic count is intentionally NOT hard-coded here (`ALL_WORKER_BOOTSTRAPS`/spec-driven counts
-would make this test brittle to a module gaining/losing a topic) — assertions instead check the
-self-consistency invariant and representative membership across all 16 modules.
+T1.2/ADR-0026 (+ T3.1 R2): `register_default_workers` now delegates to the FULL 17-module
+`bootstrap.register_all_workers` composition (16 + T3.1 R2's `events` module, closing the
+`operadora.events.publish` gap) — closing the T1.1 verifier's interim-scope note (T1.1 shipped
+only the 3 `WorkerBase` modules — auth/escalation/lgpd, 15 topics). The exact topic count is
+intentionally NOT hard-coded here (`ALL_WORKER_BOOTSTRAPS`/spec-driven counts would make this
+test brittle to a module gaining/losing a topic) — assertions instead check the self-consistency
+invariant and representative membership across all 17 modules.
 """
 
 from __future__ import annotations
@@ -29,22 +30,25 @@ from maezo.tools.workers.bootstrap import ALL_WORKER_BOOTSTRAPS
 from maezo.tools.workers.harness import FakeWorkerTransport, WorkerHarness
 
 
-def test_register_default_workers_registers_all_16_modules() -> None:
-    """T1.2/ADR-0026: the daemon's bootstrap now covers all 16 worker modules (the 3
-    `WorkerBase` modules T1.1 shipped + the 13 `FunctionWorker`-wrapped modules T1.2 adds),
-    closing the interim-scope note. `registry.count()` == `len(registered_topics)` because
-    every module (class-based AND FunctionWorker-wrapped) goes through
-    `WorkerHarness.register_worker` -> `WorkerRegistry.register`."""
+def test_register_default_workers_registers_all_17_modules() -> None:
+    """T1.2/ADR-0026 + T3.1 R2: the daemon's bootstrap now covers all 17 worker modules (the 3
+    `WorkerBase` modules T1.1 shipped + the 13 `FunctionWorker`-wrapped modules T1.2 adds + T3.1
+    R2's raw-handler `events` module), closing the interim-scope note. `registry.count()` ==
+    `len(registered_topics) - 1` because every module EXCEPT `events` (class-based AND
+    FunctionWorker-wrapped) goes through `WorkerHarness.register_worker` -> `WorkerRegistry
+    .register`; `events` uses the raw `harness.register()` path (see `events.py`'s module
+    docstring — it needs `ExternalTask` metadata a dict-first boundary does not expose), which
+    populates `_handlers` but NOT the `WorkerRegistry`."""
     harness = WorkerHarness(FakeWorkerTransport(), worker_id="probe")
     register_default_workers(harness)
 
-    assert len(ALL_WORKER_BOOTSTRAPS) == 16
+    assert len(ALL_WORKER_BOOTSTRAPS) == 17
     assert len(harness.registered_topics) > 90
-    assert harness.registry.count() == len(harness.registered_topics)
+    assert harness.registry.count() == len(harness.registered_topics) - 1
 
 
 def test_register_default_workers_topics_match_expected_prefixes() -> None:
-    """Representative membership across every one of the 16 modules' domain prefixes."""
+    """Representative membership across every one of the 17 modules' domain prefixes."""
     harness = WorkerHarness(FakeWorkerTransport(), worker_id="probe")
     register_default_workers(harness)
 
@@ -58,6 +62,7 @@ def test_register_default_workers_topics_match_expected_prefixes() -> None:
     assert "operadora.cancel.send_cancellation_notice" in topics
     assert "operadora.contas.register_glosa_accept" in topics
     assert "operadora.cred.register_cred_denial" in topics
+    assert "operadora.events.publish" in topics
     assert "operadora.fraude.register_fraud_accusation" in topics
     assert "operadora.inadimplencia.register_contract_suspension" in topics
     assert "operadora.nip.submit_response" in topics
@@ -131,7 +136,8 @@ async def test_workers_registered_healthy_when_full_coverage() -> None:
 async def test_workers_registered_healthy_payload_carries_the_full_scope_detail() -> None:
     """T1.2 charter: add the scope detail string to the HEALTHY `workers_registered` payload
     (closes the T1.1 verifier's interim-scope note) — `/readyz` must be self-describing about
-    what "ready" means now that it covers all 16 modules, not just the 3 T1.1 shipped."""
+    what "ready" means now that it covers all 17 modules (T3.1 R2 added `events`), not just the
+    3 T1.1 shipped."""
     harness = WorkerHarness(FakeWorkerTransport(), worker_id="w")
     register_default_workers(harness)
     state = _state(harness=harness, expected_topics=_expected_worker_topics())
@@ -141,7 +147,7 @@ async def test_workers_registered_healthy_payload_carries_the_full_scope_detail(
 
     assert result.healthy is True
     assert result.detail is not None
-    assert "16/16" in result.detail
+    assert "17/17" in result.detail
     assert "topics" in result.detail
 
 
