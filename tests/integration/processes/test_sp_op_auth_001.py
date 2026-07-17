@@ -68,15 +68,19 @@ FINDINGS (see PR body / evidence-ledger for full detail):
      the current tenant policy config — a genuine, documented v2 config gap, independent of the
      (now-fixed) publish-topic gap, affecting the 2 tests that assert the auto-approval terminal;
      those keep a `_CEILING_D07_REASON` xfail.
-  3. `phi_vars.REDACTED_PHI` (the donor's PHI-egress-redaction marker, STILL OPEN — NOT fixed
-     here) does not exist anywhere in v2 (`grep -rl REDACTED_PHI src/` — zero hits);
-     `SendDenialNoticeWorker.execute()` (`auth.py`) returns
-     `justificativa_clinica`/`cid10_referencia`/`fundamentacao_dut` as PLAIN, unredacted values in
-     its output dict. There is currently NO enforcement point in v2 for the donor's "clinical PHI
-     never leaves raw via Kafka" invariant (GAP-XPHI-1 lineage, ADR-0006) — worth flagging to
-     reviewers as a compliance-adjacent gap. `test_happy_path_negada_pelo_auditor` documents this
-     instead of asserting a symbol that cannot resolve (not xfailed — the rest of that test's
-     assertions pass).
+  3. `phi_vars.REDACTED_PHI`, FIXED (T3.1 auth-denial-hardening, THIS branch): v2 now has
+     `maezo.tools.workers.phi_vars` (one-way, class-token port of the donor's module — no
+     reversible pseudonymizer branch at this engine/Kafka-facing edge), and
+     `SendDenialNoticeWorker.execute()` (`auth.py`) redacts
+     `justificativa_clinica`/`cid10_referencia`/`fundamentacao_dut` via `redact_phi_vars` before
+     any variable leaves the worker (GAP-XPHI-1 lineage, ADR-0006). Same branch also implements
+     the `ERR_AUTH_DENIAL_INCOMPLETE` completeness guard (see
+     `_DENIAL_INCOMPLETE_GUARD_LIVE_UNVERIFIED_REASON` below). Both are unit-proven
+     (tests/unit/tools/workers/test_auth_denial_guard.py, test_phi_vars.py);
+     `test_happy_path_negada_pelo_auditor`'s notification-side redaction assertion remains
+     documented-not-asserted only because that test is still blocked upstream by
+     `_ACTION_WORKER_KAFKA_GAP_REASON` (the worker's notification never reaches
+     `auth_probe.notifications_of_type` at all).
 """
 
 from __future__ import annotations
@@ -92,7 +96,7 @@ import httpx
 import pytest
 import pytest_asyncio
 
-from maezo.tools.workers.auth import register_auth_workers
+from maezo.tools.workers.auth import AUTH_BPMN_ERROR_ALLOWLIST, register_auth_workers
 from maezo.tools.workers.events import register_events_workers
 from maezo.tools.workers.harness import (
     CibSevenWorkerTransport,
@@ -200,27 +204,25 @@ _ACTION_WORKER_KAFKA_GAP_REASON = (
     "scope for this PR."
 )
 
-# NEW finding, live-confirmed AFTER T3.1 R2's events.publish fix: `SendDenialNoticeWorker`
-# (auth.py) does not implement the `ERR_AUTH_DENIAL_INCOMPLETE` guard the BPMN's own
-# `BE_NegativaIncompleta` boundaryEvent (attached to ST_EnviarNegativaFormal) expects — the
-# BPMN's `Error_AuthDenialIncompleta` doc/formField `enforcedBy` annotations say "worker
-# send_denial_notice guard ERR_AUTH_DENIAL_INCOMPLETE" (spec/processes/bpmn/SP-OP-AUTH-001_*
-# .bpmn), but `SendDenialNoticeWorker.execute()` only checks `human_approved` — it never
-# inspects `justificativa_clinica`/`cid10_referencia`/`fundamentacao_dut` completeness and never
-# raises `WorkerBpmnError`. Live-confirmed: NEGAR with `justificativa_clinica`+`cid10_referencia`
-# but WITHOUT `fundamentacao_dut` still reaches `End_NegadaAuditor` (never
-# `End_FundamentacaoIncompletaBloqueada`). Independent of the events.publish gap; src/** fix
-# (implementing the guard in SendDenialNoticeWorker) is out of scope for this PR.
-_DENIAL_INCOMPLETE_GUARD_MISSING_REASON = (
-    "v2 implementation gap (finding, T3.1 R2 — NOT the events.publish gap, which this PR fixes): "
-    "SendDenialNoticeWorker (auth.py) does not implement the ERR_AUTH_DENIAL_INCOMPLETE guard "
-    "the BPMN's own BE_NegativaIncompleta boundaryEvent (attached to ST_EnviarNegativaFormal) "
-    "expects (spec's own enforcedBy annotations say 'worker send_denial_notice guard "
-    "ERR_AUTH_DENIAL_INCOMPLETE') — execute() only checks human_approved, never inspects "
-    "justificativa_clinica/cid10_referencia/fundamentacao_dut completeness, never raises "
-    "WorkerBpmnError. Live-confirmed (docker compose core, CIB Seven 2.1.0): NEGAR without "
-    "fundamentacao_dut still reaches End_NegadaAuditor, never End_FundamentacaoIncompletaBloqueada. "
-    "Not a fixture bug; src/** fix (implementing the guard) is out of scope for this PR."
+# T3.1 (auth-denial-hardening, THIS branch): the ERR_AUTH_DENIAL_INCOMPLETE guard is now
+# IMPLEMENTED. `SendDenialNoticeWorker.execute()` (auth.py) raises the spec-modeled
+# WorkerBpmnError ERR_AUTH_DENIAL_INCOMPLETE when a NEGAR lacks any of justificativa_clinica /
+# cid10_referencia / fundamentacao_dut (checked BEFORE the human_approved guard); the code is in
+# `auth.AUTH_BPMN_ERROR_ALLOWLIST`, wired into this suite's `auth_probe` harness above, so the
+# harness dispatches it as a real bpmnError (caught by BE_NegativaIncompleta ->
+# End_FundamentacaoIncompletaBloqueada) instead of demoting it to an incident. The guard + its
+# ordering + the PHI redaction are UNIT-PROVEN (tests/unit/tools/workers/test_auth_denial_guard.py,
+# test_phi_vars.py). This xfail is RETAINED (NOT flipped) only because a live CIB Seven engine was
+# not obtainable in the authoring session (host Docker saturation) to confirm the boundary catch
+# end-to-end; a verifier's live run is expected to XPASS -> flip this marker. `strict=True` kept so
+# that XPASS is a loud, honest "ready to flip" signal, never a silent pass.
+_DENIAL_INCOMPLETE_GUARD_LIVE_UNVERIFIED_REASON = (
+    "T3.1 auth-denial-hardening: ERR_AUTH_DENIAL_INCOMPLETE guard IS implemented + unit-proven "
+    "(SendDenialNoticeWorker raises it for missing justificativa_clinica/cid10_referencia/"
+    "fundamentacao_dut; AUTH_BPMN_ERROR_ALLOWLIST wired into auth_probe). xfail retained ONLY "
+    "because a live CIB Seven engine was not obtainable in the authoring session to confirm the "
+    "BE_NegativaIncompleta boundary catch end-to-end. Expected to XPASS on a live engine -> flip. "
+    "strict=True kept so an XPASS is a loud 'ready to flip' signal, not a silent pass."
 )
 
 
@@ -302,7 +304,19 @@ async def auth_probe(engine: EngineRest) -> AsyncIterator[AuthEngineProbe]:
     """Probe que serve as external tasks com os workers reais Phase-1 de auth."""
     worker_id = f"qa-auth-worker-{uuid.uuid4().hex[:8]}"
     transport = CibSevenWorkerTransport(CIBSEVEN_BASE_URL)
-    harness = WorkerHarness(transport, worker_id=worker_id, lock_duration_ms=10_000)
+    # T3.1 (auth-denial-hardening): ERR_AUTH_DENIAL_INCOMPLETE is catchable by SP-OP-AUTH-001's own
+    # boundaryEvent (BE_NegativaIncompleta on ST_EnviarNegativaFormal, errorRef
+    # Error_AuthDenialIncompleta) ONLY when it's in the harness's allowlist (harness.py
+    # `_bpmn_error_allowlist` — the PRODUCTION default is empty pending the boundary-proof gate).
+    # This wires the ONE code SendDenialNoticeWorker raises AND the BPMN declares a matching boundary
+    # for (`auth.AUTH_BPMN_ERROR_ALLOWLIST`), mirroring the escalation suite's own
+    # ERR_EVENT_PUBLISH_FAILED wiring and what a gate-proven production allowlist for auth would hold.
+    harness = WorkerHarness(
+        transport,
+        worker_id=worker_id,
+        lock_duration_ms=10_000,
+        bpmn_error_allowlist=AUTH_BPMN_ERROR_ALLOWLIST,
+    )
     kafka = FakeKafkaPublisher()
     register_auth_workers(harness, kafka)
     # T3.1 R2: the generic operadora.events.publish worker every ST_Publish* service task in
@@ -609,17 +623,19 @@ async def test_happy_path_negada_pelo_auditor(
     d = denials[0]
     assert d["decisao_auditor"] == "NEGAR"
     assert d["auditor_id"] == "dr-auditor-sintetico-001"
-    # FINDING 3 (module docstring): v2 has no `phi_vars.REDACTED_PHI`-equivalent egress
-    # redaction — `SendDenialNoticeWorker.execute()` returns these clinical fields RAW. The
-    # donor's invariant here was `d["cid10_referencia"] == REDACTED_PHI` (never raw on Kafka);
-    # documented as an open gap rather than asserted against a symbol that cannot resolve in v2.
+    # FINDING 3, FIXED on this branch (module docstring): `SendDenialNoticeWorker.execute()` now
+    # redacts these clinical fields one-way (`phi_vars.redact_phi_vars` -> `[REDACTED_PHI]`) in its
+    # emitted variables (unit-proven adversarially). The donor's notification-side assertion
+    # (`d["cid10_referencia"] == REDACTED_PHI`) still cannot run here: this test remains blocked
+    # upstream by `_ACTION_WORKER_KAFKA_GAP_REASON` (the worker never calls kafka.publish, so `d`
+    # is never observed). Re-add that assertion when the kafka-gap fix lands.
     assert d["business_key"], "payload_ref (business_key) deve permanecer na notificacao"
     assert d["numero_guia_tiss"], "numero_guia_tiss (referencia da guia) deve permanecer"
 
     await _assert_no_denial_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_DENIAL_INCOMPLETE_GUARD_MISSING_REASON, strict=True)
+@pytest.mark.xfail(reason=_DENIAL_INCOMPLETE_GUARD_LIVE_UNVERIFIED_REASON, strict=True)
 async def test_negativa_incompleta_bloqueada_pelo_guard(
     engine: EngineRest,
     auth_probe: AuthEngineProbe,
