@@ -4,10 +4,18 @@ Provides the foundational types and infrastructure for agent management:
 - AgentDefinition: pydantic model for agent.yaml contracts
 - AgentLoader: loads agent.yaml files into AgentDefinition instances
 - AgentRegistry: registers and retrieves agents by id
+
+T0.3 / defect B14 (single source of truth): `agent.yaml` lives ONLY under
+`spec/agents/<id>/agent.yaml` — the copies formerly duplicated under
+`src/maezo/agents/<id>/agent.yaml` have been deleted. `resolve_spec_dir()` /
+`resolve_spec_agents_dir()` resolve that directory, honoring the
+`MAEZO_SPEC_DIR` environment variable override, and FAIL CLOSED (raise) if
+the resolved directory does not exist — there is no silent fallback.
 """
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +24,72 @@ import yaml
 from pydantic import BaseModel, Field
 
 logger = structlog.get_logger(__name__)
+
+#: Environment variable that overrides the resolved `spec/` directory.
+#: Deployment environments that do not lay the repo out as
+#: `<repo_root>/src` + `<repo_root>/spec` (e.g. a wheel install, or a
+#: container image that ships `spec/` at a different mount point) MUST set
+#: this — see docs/reports/T0.3-agent-yaml-drift.md for the packaging note.
+MAEZO_SPEC_DIR_ENV = "MAEZO_SPEC_DIR"
+
+
+def _default_spec_dir() -> Path:
+    """Compute the default `spec/` directory from this module's location.
+
+    Assumes the repo's canonical src-layout: this file lives at
+    `<repo_root>/src/maezo/agents/__init__.py`, so `<repo_root>` is three
+    parents up. This is only a *default* — callers running outside a repo
+    checkout (e.g. a wheel install with no adjacent `spec/`) MUST set
+    `MAEZO_SPEC_DIR` explicitly; this function does not attempt to guess
+    further and callers must not silently tolerate a missing directory.
+    """
+    return Path(__file__).resolve().parents[3] / "spec"
+
+
+def resolve_spec_dir() -> Path:
+    """Resolve the `spec/` directory root, honoring `MAEZO_SPEC_DIR`.
+
+    Fail-closed: raises `FileNotFoundError` if the resolved directory does
+    not exist. Never falls back to a default or an empty listing silently —
+    an unresolvable spec directory is a configuration error, not a
+    warn-and-continue condition.
+
+    Returns:
+        The resolved, absolute `spec/` directory path.
+
+    Raises:
+        FileNotFoundError: If the resolved path does not exist or is not a
+            directory.
+    """
+    override = os.environ.get(MAEZO_SPEC_DIR_ENV)
+    spec_dir = Path(override).expanduser().resolve() if override else _default_spec_dir()
+
+    if not spec_dir.is_dir():
+        raise FileNotFoundError(
+            f"spec/ directory not found at {spec_dir} "
+            f"(resolved from {'env var ' + MAEZO_SPEC_DIR_ENV if override else 'package-relative default'}). "
+            f"Set the {MAEZO_SPEC_DIR_ENV} environment variable to the directory containing "
+            f"spec/agents/, spec/policies/, spec/processes/."
+        )
+    return spec_dir
+
+
+def resolve_spec_agents_dir() -> Path:
+    """Resolve the `spec/agents/` directory (single source of truth, T0.3/B14).
+
+    Fail-closed: raises `FileNotFoundError` if `spec/agents/` does not exist
+    under the resolved spec directory.
+
+    Returns:
+        The resolved, absolute `spec/agents/` directory path.
+
+    Raises:
+        FileNotFoundError: If `spec/agents/` does not exist.
+    """
+    agents_dir = resolve_spec_dir() / "agents"
+    if not agents_dir.is_dir():
+        raise FileNotFoundError(f"spec/agents/ directory not found at {agents_dir}")
+    return agents_dir
 
 
 class AgentDefinition(BaseModel):
@@ -56,12 +130,40 @@ class AgentDefinition(BaseModel):
 class AgentLoader:
     """Loads agent.yaml files into AgentDefinition pydantic models.
 
-    Supports loading from file paths or from raw dicts (programmatic).
+    Supports loading from file paths, from raw dicts (programmatic), or by
+    agent id from the canonical `spec/agents/` source of truth (T0.3/B14).
 
     Typical usage:
         loader = AgentLoader()
-        definition = loader.load(Path("src/maezo/agents/helena/agent.yaml"))
+        definition = loader.load(Path("spec/agents/helena/agent.yaml"))
+
+        # or, resolving spec/agents/ automatically (honors MAEZO_SPEC_DIR):
+        definition = loader.load_by_id("helena")
     """
+
+    def load_by_id(self, agent_id: str, spec_agents_dir: Path | None = None) -> AgentDefinition:
+        """Load an agent's definition by id from `spec/agents/<agent_id>/agent.yaml`.
+
+        Fail-closed: this delegates to `load()`, which raises if the file is
+        missing or unparseable — there is no silent fallback to a default
+        definition.
+
+        Args:
+            agent_id: The agent identifier (matches the directory name under
+                `spec/agents/`, e.g. "helena", "rafael").
+            spec_agents_dir: Optional override for the `spec/agents/`
+                directory. Defaults to `resolve_spec_agents_dir()`.
+
+        Returns:
+            An AgentDefinition instance.
+
+        Raises:
+            FileNotFoundError: If `spec/agents/` (or the override) cannot be
+                resolved, or the agent's `agent.yaml` does not exist.
+            ValueError: If the YAML is invalid or required fields are missing.
+        """
+        base_dir = spec_agents_dir if spec_agents_dir is not None else resolve_spec_agents_dir()
+        return self.load(base_dir / agent_id / "agent.yaml")
 
     def load(self, path: Path) -> AgentDefinition:
         """Load an agent.yaml file from disk and return an AgentDefinition.
@@ -196,4 +298,11 @@ class AgentRegistry:
         return agent_id in self._agents
 
 
-__all__ = ["AgentDefinition", "AgentLoader", "AgentRegistry"]
+__all__ = [
+    "MAEZO_SPEC_DIR_ENV",
+    "AgentDefinition",
+    "AgentLoader",
+    "AgentRegistry",
+    "resolve_spec_agents_dir",
+    "resolve_spec_dir",
+]

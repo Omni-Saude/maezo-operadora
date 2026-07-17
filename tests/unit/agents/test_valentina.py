@@ -16,11 +16,11 @@ from langgraph.graph import StateGraph
 
 from maezo.runtime.harness import AgentState
 
-_AGENTS_ROOT = Path(__file__).parent.parent.parent.parent / "src" / "maezo" / "agents"
+_AGENTS_ROOT = Path(__file__).parent.parent.parent.parent / "spec" / "agents"
 
 
 def test_valentina_agent_yaml_exists() -> None:
-    """Valentina's agent.yaml must exist at src/maezo/agents/valentina/agent.yaml."""
+    """Valentina's agent.yaml must exist at spec/agents/valentina/agent.yaml."""
     agent_path = _AGENTS_ROOT / "valentina" / "agent.yaml"
     assert agent_path.exists(), f"Valentina agent.yaml not found at {agent_path}"
 

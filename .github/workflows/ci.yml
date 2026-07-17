@@ -46,8 +46,19 @@ jobs:
       - name: Type check
         run: make type
 
-      - name: Unit tests
-        run: make test
+      # T2.3 (B9 CI surgery): folded the coverage gate into the unit-test step itself
+      # instead of a second pytest invocation, so the suite runs exactly once.
+      # Measured 2026-07-16: 87.09% on src/maezo (588 tests) — >=85%, so the floor is
+      # enforced at the real 85% target (not weakened, not fabricated). If a future PR
+      # drops coverage below 85% this step fails the job — no more silent erosion.
+      # This also finally makes the "Upload unit test results" step below honest: it has
+      # always claimed to upload htmlcov/, but `make test` (plain `pytest tests/ -q`)
+      # never generated an htmlcov/ directory, so that half of the artifact was
+      # cargo-cult (silently empty every run, upload-artifact just warns and moves on).
+      # --cov-report=html here makes htmlcov/ real.
+      - name: Unit tests + coverage gate (>=85%)
+        run: |
+          uv run pytest tests/ -q --cov=src/maezo --cov-report=term --cov-report=html --cov-fail-under=85
 
       - name: Upload unit test results
         if: always()
@@ -198,10 +209,19 @@ jobs:
           uv run pytest tests/unit/platform/test_provision_tenant.py -v \
             --tb=short -q
 
-  # ── M0 GREENFIELD: mantido ativo mas ESPERADO FALHAR — não há testes de integração
-  # ainda (tests/integration/ está vazio) e os containers docker (postgres, cibseven,
-  # hapi-fhir) podem não existir ou não estar configurados. Os testes de integração
-  # serão escritos a partir de M3 conforme os workers forem implementados.
+  # ── T2.3 (B9 CI surgery, guard-step pattern): tests/integration/ does not exist yet
+  # (no code has landed there since M0). Previously this job ran `make test-integration`
+  # unconditionally against a missing directory, which made it EXPECTED-RED on every
+  # PR/push and kept main permanently red (red-main-alarm firing every ~2h). It is no
+  # longer allowed to be silently disabled (`if: false`) OR expected-red — instead a
+  # guard step checks for real, collectable tests and decides at runtime:
+  #   - tests exist and collect  -> run them for real against the real engine, fail on
+  #     failure (no mock, ADR-0011).
+  #   - nothing to collect yet   -> emit a LOUD ::notice:: + step-summary marker and
+  #     exit 0 (visible skip, not silent, not expected-red).
+  # Unblock condition: T3.1 (V2-COMPLETION-PLAN) lands integration tests under
+  # tests/integration/. The moment that happens this lane auto-activates — no
+  # workflow edit needed.
   integration:
     name: integration tests (real engine)
     runs-on: ubuntu-latest
@@ -222,19 +242,6 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Start core stack
-        run: docker compose --profile core up -d
-
-      - name: Wait for stack to be healthy
-        run: |
-          echo "Waiting for postgres..."
-          timeout 60 bash -c 'until docker compose exec -T postgres pg_isready -U maezo -d maezo; do sleep 3; done'
-          echo "Waiting for cibseven..."
-          timeout 300 bash -c 'until curl -sf http://localhost:8080/engine-rest/version; do sleep 5; done'
-          echo "Waiting for hapi-fhir..."
-          timeout 300 bash -c 'until curl -sf http://localhost:8081/fhir/metadata; do sleep 5; done'
-          echo "All services healthy."
-
       - name: Install uv
         uses: astral-sh/setup-uv@v7
         with:
@@ -245,11 +252,69 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked --extra dev
 
+      # Three-bucket guard (verification cycle 1 caught a fail-open two-bucket version
+      # that routed EVERY nonzero collect exit to the visible skip — a planted
+      # import error, pytest exit 2, read as "no tests yet" and the job went GREEN):
+      #   exit 0        -> tests collected: run the real lane
+      #   exit 4 or 5   -> dir missing / nothing collected: visible skip (greenfield)
+      #   anything else -> COLLECTION BROKEN (e.g. 2 = import/collection error):
+      #                    FAIL the job. Broken tests must never masquerade as absent.
+      - name: Check for collectable integration tests
+        id: guard
+        run: |
+          set +e
+          uv run pytest tests/integration --collect-only -q
+          code=$?
+          set -e
+          echo "collect_code=${code}" >> "$GITHUB_OUTPUT"
+          case "${code}" in
+            0)
+              echo "collect exit ${code}: tests collected — running the real lane"
+              echo "run=true" >> "$GITHUB_OUTPUT"
+              ;;
+            4|5)
+              echo "collect exit ${code}: no tests yet (4 = dir missing, 5 = nothing collected) — visible skip"
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "::error::COLLECTION BROKEN — tests/integration exists but cannot be collected (pytest --collect-only exit ${code}; 2 = import/collection error). This is NOT 'no tests yet' — failing the job."
+              exit 1
+              ;;
+          esac
+
+      - name: INTEGRATION LANE SKIPPED (visible)
+        if: steps.guard.outputs.run == 'false'
+        run: |
+          echo "::notice::INTEGRATION LANE SKIPPED — no tests yet (pytest --collect-only exit ${{ steps.guard.outputs.collect_code }}); unblocks at T3.1 (V2-COMPLETION-PLAN)"
+          {
+            echo "## integration tests (real engine): SKIPPED"
+            echo ""
+            echo "No collectable tests under \`tests/integration/\` (pytest --collect-only exit"
+            echo "${{ steps.guard.outputs.collect_code }}). This lane auto-activates the"
+            echo "moment T3.1 (V2-COMPLETION-PLAN) lands tests there — no workflow edit needed."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Start core stack
+        if: steps.guard.outputs.run == 'true'
+        run: docker compose --profile core up -d
+
+      - name: Wait for stack to be healthy
+        if: steps.guard.outputs.run == 'true'
+        run: |
+          echo "Waiting for postgres..."
+          timeout 60 bash -c 'until docker compose exec -T postgres pg_isready -U maezo -d maezo; do sleep 3; done'
+          echo "Waiting for cibseven..."
+          timeout 300 bash -c 'until curl -sf http://localhost:8080/engine-rest/version; do sleep 5; done'
+          echo "Waiting for hapi-fhir..."
+          timeout 300 bash -c 'until curl -sf http://localhost:8081/fhir/metadata; do sleep 5; done'
+          echo "All services healthy."
+
       - name: Integration tests
+        if: steps.guard.outputs.run == 'true'
         run: make test-integration
 
       - name: Upload integration test results
-        if: always()
+        if: always() && steps.guard.outputs.run == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: integration-test-results-${{ github.sha }}
@@ -257,11 +322,11 @@ jobs:
           retention-days: 7
 
       - name: Collect stack logs on failure
-        if: failure()
+        if: failure() && steps.guard.outputs.run == 'true'
         run: docker compose --profile core logs --no-color > docker-compose-failure.log
 
       - name: Upload failure logs
-        if: failure()
+        if: failure() && steps.guard.outputs.run == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: docker-compose-failure-logs-${{ github.sha }}
@@ -269,7 +334,7 @@ jobs:
           retention-days: 3
 
       - name: Tear down stack
-        if: always()
+        if: always() && steps.guard.outputs.run == 'true'
         run: docker compose --profile core down -v
 
   # ---------------------------------------------------------------------------
@@ -278,12 +343,20 @@ jobs:
   # error. Runs after the core integration job to reuse the already-built images.
   # The simulator is a permanent CI deliverable (not a dev-only hack) — see ADR-0013.
   # ---------------------------------------------------------------------------
-  # ── DESABILITADO: o código do simulador Tasy e os eventos CDC ainda não
-  # foram implementados. Será reativado quando o bridge Kafka e o simulador
-  # forem construídos (post-M13).
+  # ── T2.3 (B9 CI surgery, guard-step pattern): the 'simulator' compose profile
+  # (tasy-simulator service) was REMOVED in T0.4 (defect B14) — it built from
+  # deploy/tasy_simulator.Dockerfile, which never existed in this repo, and there is
+  # no simulator source under src/ (confirmed via `git log --all`: zero history for
+  # that Dockerfile path). This job must NOT attempt `--profile simulator` blindly —
+  # that profile is gone from docker-compose.yml and the command would fail.
+  # Real double blocker: (1) tasy-simulator removed T0.4, (2) reintroduction tracked
+  # in T2.6 / ADR-0013 (which documents the simulator as a planned *permanent* CI
+  # deliverable, not a temporary hack — just not built yet).
+  # Guard step detects the profile's reintroduction via `docker compose config
+  # --profiles` (pure YAML parse, no daemon dependency) so this lane auto-activates
+  # the moment T2.6 lands the profile — no workflow edit needed.
   fhir-sync-simulator:
     name: "fhir-sync simulator smoke (ADR-0013 gap #33)"
-    if: false
     runs-on: ubuntu-latest
     # Hard safety net: job CANNOT hang longer than 12 minutes regardless of step timeouts.
     # Root cause of CI run 27511267203 hang: KAFKA_ADVERTISED_LISTENERS was localhost:9092 only,
@@ -294,13 +367,58 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Two-phase guard (verification cycle 1 caught a fail-open version that piped
+      # `docker compose config` straight into grep with stderr discarded — a BROKEN
+      # docker-compose.yml exited nonzero, produced no profile list, and read as
+      # "profile absent" -> false visible skip). Phase 1: `docker compose config`
+      # must itself succeed, else the job FAILS loudly. Phase 2: only then is the
+      # profile list inspected for 'simulator'.
+      - name: Check for reintroduced 'simulator' compose profile
+        id: guard
+        run: |
+          set +e
+          profiles="$(docker compose config --profiles 2>compose-config.stderr)"
+          code=$?
+          set -e
+          if [ "${code}" -ne 0 ]; then
+            echo "::error::docker compose config failed (exit ${code}) — docker-compose.yml is broken. Refusing to read a parse failure as 'simulator profile absent' — failing the job."
+            echo "--- docker compose config stderr ---"
+            cat compose-config.stderr
+            exit 1
+          fi
+          echo "compose profiles found:"
+          printf '%s\n' "${profiles}"
+          if printf '%s\n' "${profiles}" | grep -qx simulator; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: FHIR-SYNC-SIMULATOR LANE SKIPPED (visible)
+        if: steps.guard.outputs.run == 'false'
+        run: |
+          echo "::notice::FHIR-SYNC-SIMULATOR LANE SKIPPED — tasy-simulator service/profile removed in T0.4 (defect B14: dangling Dockerfile that never existed); reintroduction tracked in T2.6/ADR-0013"
+          {
+            echo "## fhir-sync-simulator: SKIPPED"
+            echo ""
+            echo "The \`simulator\` docker-compose profile (tasy-simulator service) was removed in"
+            echo "T0.4 (defect B14) — it built from a Dockerfile that never existed in this repo"
+            echo "and there was no simulator source under \`src/\`."
+            echo ""
+            echo "ADR-0013 documents the simulator as a planned *permanent* CI deliverable."
+            echo "Reintroduction is tracked in T2.6. This lane auto-activates the moment the"
+            echo "\`simulator\` profile is reintroduced to docker-compose.yml — no workflow edit needed."
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Build Tasy simulator image
+        if: steps.guard.outputs.run == 'true'
         # Bounded build step — prevents stalled layer pulls from eating the whole job budget.
         run: |
           timeout 300 docker compose --profile core --profile simulator build tasy-simulator
           echo "Simulator image built."
 
       - name: Start Kafka and wait for readiness
+        if: steps.guard.outputs.run == 'true'
         run: |
           docker compose --profile core --profile simulator up -d kafka
           echo "Waiting for Kafka to be ready (INTERNAL listener kafka:29092)..."
@@ -311,6 +429,7 @@ jobs:
           echo "Kafka ready."
 
       - name: Run Tasy simulator (one-shot)
+        if: steps.guard.outputs.run == 'true'
         # TASY_SIM_LOOP=0 → exits after emitting all scenarios (deterministic one-shot).
         # KAFKA_BOOTSTRAP_SERVERS=kafka:29092 → uses the cross-container INTERNAL listener.
         # timeout 120 ensures a hung AIOKafkaProducer.start() never blocks past this step.
@@ -322,11 +441,11 @@ jobs:
           echo "Tasy simulator exited successfully (one-shot complete)."
 
       - name: Collect simulator logs on failure
-        if: failure()
+        if: failure() && steps.guard.outputs.run == 'true'
         run: docker compose --profile core --profile simulator logs --no-color > simulator-failure.log
 
       - name: Upload simulator failure logs
-        if: failure()
+        if: failure() && steps.guard.outputs.run == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: simulator-failure-logs-${{ github.sha }}
@@ -334,16 +453,22 @@ jobs:
           retention-days: 3
 
       - name: Tear down stack
-        if: always()
+        if: always() && steps.guard.outputs.run == 'true'
         run: docker compose --profile core --profile simulator down -v
 
-  # ── DESABILITADO: sem código de agente nem golden datasets ainda.
-  # Será reativado quando os primeiros agentes e eval datasets forem
-  # implementados (post-M13).
+  # ── T2.3 (B9 CI surgery, guard-step pattern): no golden datasets exist yet under
+  # tests/evals/ (no agent code has landed that needs eval gating). Previously this
+  # whole job was permanently disabled via `if: false`, an invisible skip with no
+  # runtime signal. Now: the existing dorny/paths-filter gate (only run when
+  # agent-touching paths change) is preserved as-is, and a second guard step checks
+  # for real, collectable eval-marked tests. If agent paths changed but there is
+  # nothing to collect yet, a LOUD visible skip fires instead of silently no-op'ing.
+  # Unblock condition: T3.2 (V2-COMPLETION-PLAN) lands golden datasets under
+  # tests/evals/. The moment that happens this lane auto-activates — no workflow
+  # edit needed.
   evals:
     name: evals (agent-touching paths)
     runs-on: ubuntu-latest
-    if: false
     needs: [quality]
     # dorny/paths-filter cai no fallback da API listFiles (pulls/{n}/files) em alguns PRs; sem
     # `pull-requests: read` o GITHUB_TOKEN (default read-only deste repo) recebe "Resource not
@@ -383,14 +508,54 @@ jobs:
         if: steps.agent_changes.outputs.agents == 'true'
         run: uv sync --locked --extra dev
 
-      - name: Run eval gate
+      # Three-bucket guard (see the `integration` job for the verification-cycle-1
+      # fail-open this replaces): 0 -> run; 4/5 -> visible skip; else -> job FAILS
+      # (broken collection must never masquerade as "no golden datasets yet").
+      - name: Check for collectable eval golden datasets
+        id: guard
         if: steps.agent_changes.outputs.agents == 'true'
+        run: |
+          set +e
+          uv run pytest tests/evals --collect-only -q -m eval
+          code=$?
+          set -e
+          echo "collect_code=${code}" >> "$GITHUB_OUTPUT"
+          case "${code}" in
+            0)
+              echo "collect exit ${code}: eval tests collected — running the real gate"
+              echo "run=true" >> "$GITHUB_OUTPUT"
+              ;;
+            4|5)
+              echo "collect exit ${code}: no golden datasets yet (4 = dir missing, 5 = nothing collected) — visible skip"
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "::error::COLLECTION BROKEN — tests/evals exists but cannot be collected (pytest --collect-only exit ${code}; 2 = import/collection error). This is NOT 'no golden datasets yet' — failing the job."
+              exit 1
+              ;;
+          esac
+
+      - name: EVALS LANE SKIPPED (visible)
+        if: steps.agent_changes.outputs.agents == 'true' && steps.guard.outputs.run == 'false'
+        run: |
+          echo "::notice::EVALS LANE SKIPPED — no golden datasets yet (pytest --collect-only exit ${{ steps.guard.outputs.collect_code }}); unblocks at T3.2 (V2-COMPLETION-PLAN)"
+          {
+            echo "## evals (agent-touching paths): SKIPPED"
+            echo ""
+            echo "Agent-touching paths changed, but no collectable eval-marked tests exist under"
+            echo "\`tests/evals/\` yet (pytest --collect-only exit ${{ steps.guard.outputs.collect_code }})."
+            echo "This lane auto-activates the moment T3.2 (V2-COMPLETION-PLAN) lands golden"
+            echo "datasets there — no workflow edit needed."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run eval gate
+        if: steps.agent_changes.outputs.agents == 'true' && steps.guard.outputs.run == 'true'
         run: make evals
         env:
           LLM_GENERAL_API_KEY: ${{ secrets.LLM_GENERAL_API_KEY }}
 
       - name: Upload eval results
-        if: always() && steps.agent_changes.outputs.agents == 'true'
+        if: always() && steps.agent_changes.outputs.agents == 'true' && steps.guard.outputs.run == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: eval-results-${{ github.sha }}
@@ -402,12 +567,19 @@ jobs:
   # Runs at 03:00 BRT (06:00 UTC) to catch silent prompt/model drift.
   # Triggers on: schedule only (not on PRs to avoid API key usage in forks).
   # ---------------------------------------------------------------------------
-  # ── DESABILITADO: mesmos motivos do job evals (sem código de agente,
-  # sem golden datasets). Será reativado quando evals estiverem prontos.
+  # ── T2.3 (B9 CI surgery, guard-step pattern): same real blocker as `evals` — no
+  # golden datasets exist yet under tests/evals/. Previously disabled via `if: false`
+  # (invisible). Also fixes a latent bug: the comment above always claimed this job
+  # "Triggers on: schedule only (not on PRs to avoid API key usage in forks)", but
+  # there was no `if:` enforcing that — only the blanket `if: false` masked it. Now
+  # both are real: the job is schedule-gated at the job level, and a guard step
+  # decides whether there is anything to run. Unblock condition: T3.2
+  # (V2-COMPLETION-PLAN) lands golden datasets under tests/evals/. This lane
+  # auto-activates the moment that happens — no workflow edit needed.
   evals-nightly:
     name: evals-nightly (full suite)
     runs-on: ubuntu-latest
-    if: false
+    if: github.event_name == 'schedule'
     steps:
       - uses: actions/checkout@v4
 
@@ -425,14 +597,53 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked --extra dev
 
+      # Three-bucket guard (see the `integration` job for the verification-cycle-1
+      # fail-open this replaces): 0 -> run; 4/5 -> visible skip; else -> job FAILS.
+      - name: Check for collectable eval golden datasets
+        id: guard
+        run: |
+          set +e
+          uv run pytest tests/evals --collect-only -q -m eval
+          code=$?
+          set -e
+          echo "collect_code=${code}" >> "$GITHUB_OUTPUT"
+          case "${code}" in
+            0)
+              echo "collect exit ${code}: eval tests collected — running the full nightly suite"
+              echo "run=true" >> "$GITHUB_OUTPUT"
+              ;;
+            4|5)
+              echo "collect exit ${code}: no golden datasets yet (4 = dir missing, 5 = nothing collected) — visible skip"
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "::error::COLLECTION BROKEN — tests/evals exists but cannot be collected (pytest --collect-only exit ${code}; 2 = import/collection error). This is NOT 'no golden datasets yet' — failing the job."
+              exit 1
+              ;;
+          esac
+
+      - name: EVALS-NIGHTLY LANE SKIPPED (visible)
+        if: steps.guard.outputs.run == 'false'
+        run: |
+          echo "::notice::EVALS-NIGHTLY LANE SKIPPED — no golden datasets yet (pytest --collect-only exit ${{ steps.guard.outputs.collect_code }}); unblocks at T3.2 (V2-COMPLETION-PLAN)"
+          {
+            echo "## evals-nightly (full suite): SKIPPED"
+            echo ""
+            echo "No collectable eval-marked tests exist under \`tests/evals/\` yet (pytest"
+            echo "--collect-only exit ${{ steps.guard.outputs.collect_code }}). This lane"
+            echo "auto-activates the moment T3.2 (V2-COMPLETION-PLAN) lands golden datasets"
+            echo "there — no workflow edit needed."
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Full nightly eval run
+        if: steps.guard.outputs.run == 'true'
         run: make evals
         env:
           LLM_GENERAL_API_KEY: ${{ secrets.LLM_GENERAL_API_KEY }}
           NIGHTLY_EVAL: "1"
 
       - name: Upload nightly eval results
-        if: always()
+        if: always() && steps.guard.outputs.run == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: nightly-eval-results-${{ github.sha }}

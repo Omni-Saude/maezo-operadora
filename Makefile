@@ -33,6 +33,11 @@ validate-artifacts: ## BPMN/DMN/policies/agent-definitions (blocker de CI)
 	# itself classifies a directory by its on-disk *structure* (bpmn/dmn
 	# subdirectories, an autonomy/ subdirectory, or per-item agent.yaml files), not
 	# by name, so it works against either location.
+	# T0.3 × T0.4 reconciliation: spec/ is the single source of truth — spec/agents
+	# replaced src/maezo/agents (T0.3 moved agent.yaml definitions there); the
+	# src/maezo/processes and src/maezo/policies paths never existed (T0.4). Pointer
+	# repair only — validate_artifacts() in cli.py is unchanged and still fail-soft
+	# during greenfield; hardening the gate itself is T2.1.
 	uv run python -m maezo.platform.validation.cli validate spec/processes spec/policies spec/agents
 
 validate-signoff: ## gate de promocao de conteudo: artefato promovivel exige sign-off humano (Track C2)
