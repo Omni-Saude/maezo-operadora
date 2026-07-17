@@ -93,12 +93,15 @@ DIVERGENCIAS DO DONOR (disclosed, per charter "where donor and v2 spec disagree,
    `ToolInvoker`/PEP `mcp-fhir.read_patient_summary` — v2 nao tem esse tool dedicado ainda
    (mesmo labeled boundary do `FhirReader` de `rafael/graph.py`); reusa o adapter generico
    `agents.rafael.adapters.FhirServerReader` (`read_patient`) quando injetado pelo runtime.
-7. **`spec/agents/carolina/agent.yaml` esta desalinhado** (descreve um "Analista de Revenue
-   Cycle / Pagamentos" para `SP-OP-PAGTO-001`, nao credenciamento) — NAO editado por este PR
-   (fora do charter; disclosed prominently na PR body). `AgentLoader` so valida existencia/schema
-   do arquivo, nao o conteudo do `role`/`process_keys` contra o grafo real, entao
-   `create_graph("carolina")` funciona corretamente apesar do desalinhamento — mas o arquivo
-   precisa de correcao humana (SME/PO) em um follow-up.
+7. **`spec/agents/carolina/agent.yaml` estava desalinhado e FOI CORRIGIDO neste mesmo PR**
+   (correcao autorada pelo R1 spec-audit, aplicada aqui): a versao pre-T1.12 descrevia um
+   "Analista de Revenue Cycle / Pagamentos" para `SP-OP-PAGTO-001` — duplicando a ownership de
+   PAGTO do andre e deixando `SP-OP-CRED-001` orfao de agente (o audit confirmou: unica
+   definicao mis-mapeada, 10/11 corretas). O arquivo agora e o port verbatim do donor
+   (`Maezo-Healthcare-Plan .../carolina/agent.yaml`, READ-ONLY) + os 3 campos de scaffolding v2
+   (`phase: 3`, `autonomy_level: L2`, `process_keys: [SP-OP-CRED-001]`) — mesma convencao de
+   port verbatim dos demais Phase-3 (andre/beatriz/valentina/fernando, todos byte-identicos ao
+   donor). PERSONA segue DRAFT (R-PERSONA-MAP — PO sign-off pendente, header do proprio yaml).
 
 LABELED BOUNDARIES (this build, disclosed — never fabricated):
 - No episodic memory write (ADR-0002) — see divergence #5 above.

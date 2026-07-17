@@ -129,20 +129,21 @@ def test_carolina_agent_yaml_exists() -> None:
     assert agent_path.exists()
 
 
-def test_carolina_agent_yaml_has_id_field() -> None:
-    # NOTE (T1.12 disclosed divergence #7, graph.py module docstring): this repo's
-    # spec/agents/carolina/agent.yaml currently describes a "Revenue Cycle / Pagamentos"
-    # analyst (SP-OP-PAGTO-001), NOT the credentialing agent this graph implements. That is a
-    # pre-existing spec defect (no other spec/agents/*/agent.yaml claims SP-OP-CRED-001; the
-    # BPMN/DMN artifacts and this task's charter are unambiguous about Carolina = credentialing).
-    # AgentLoader only validates schema/existence, never role/process_keys content against the
-    # real graph, so create_graph("carolina") is unaffected — but this test deliberately only
-    # asserts what is actually true today (`id`), not the mismatched `role`/`process_keys`, to
-    # avoid encoding a false claim. See the PR body for the full disclosure.
+def test_carolina_agent_yaml_owns_sp_op_cred_001() -> None:
+    # T1.12 spec correction (R1 spec-audit, applied on this branch — graph.py module docstring
+    # divergence #7): the pre-T1.12 yaml mis-described Carolina as a "Revenue Cycle / Pagamentos"
+    # analyst duplicating andre's SP-OP-PAGTO-001 ownership, leaving SP-OP-CRED-001 with no
+    # owning agent. Now that the yaml is truthful (donor-verbatim port + v2 scaffold fields),
+    # these assertions pin the corrected contract so a regression re-introducing the mismatch
+    # gets caught here.
     agent_path = _AGENTS_ROOT / "carolina" / "agent.yaml"
     with open(agent_path) as f:
         data = yaml.safe_load(f)
     assert data["id"] == "carolina"
+    assert data["process_keys"] == ["SP-OP-CRED-001"]
+    assert data["phase"] == 3
+    assert "Credenciamento" in data["role"]
+    assert "SP-OP-PAGTO" not in str(data)  # the duplicate-PAGTO-ownership defect never returns
 
 
 def test_carolina_definition_loads() -> None:
@@ -150,6 +151,10 @@ def test_carolina_definition_loads() -> None:
 
     definition = AgentLoader().load(_AGENTS_ROOT / "carolina" / "agent.yaml")
     assert definition.id == "carolina"
+    assert definition.process_keys == ["SP-OP-CRED-001"]
+    assert definition.phase == 3
+    assert definition.autonomy_level == "L2"
+    assert definition.security_zone == "phi"
 
 
 # ---------------------------------------------------------------------------
