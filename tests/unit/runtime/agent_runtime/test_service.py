@@ -1,0 +1,130 @@
+"""Unit tests for `maezo.runtime.agent_runtime.service` (T1.6, design §10/Q-6).
+
+No engine, no network — exercises the three bounded/non-fatal STEP B checks (against the REAL
+`spec/` tree already checked into this repo, ADR-0011 spirit: no mock where a real, cheap,
+deterministic local dependency is available) and the readiness checks that read `AgentState`.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from maezo.gateway.pep import PolicyError
+from maezo.runtime.agent_runtime.service import (
+    AgentState,
+    _bring_up_dependencies,
+    build_readiness_checks,
+)
+from maezo.runtime.agent_runtime.settings import AgentRuntimeSettings
+
+
+def _state(**overrides: object) -> AgentState:
+    settings = overrides.pop("settings", None) or AgentRuntimeSettings()
+    return AgentState(settings=settings, **overrides)  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# _bring_up_dependencies — against the real spec/ tree (helena is a real agent)
+# ---------------------------------------------------------------------------
+
+
+async def test_bring_up_loads_real_agent_definition_and_policies() -> None:
+    state = _state(settings=AgentRuntimeSettings(agent_id="helena", tenant_id="amh"))
+    await _bring_up_dependencies(state)
+
+    assert state.agent_definition is not None
+    assert state.agent_definition.id == "helena"
+    assert state.agent_definition_error is None
+
+    assert state.pep is not None
+    assert state.pep.matrix.tenant == "amh"
+    assert state.pep_error is None
+
+    assert state.inference_provider is not None
+    assert state.inference_provider.provider_name == "noop"  # Q-6: noop is an acceptable outcome
+    assert state.inference_error is None
+
+
+async def test_bring_up_unknown_agent_id_leaves_definition_unhealthy() -> None:
+    state = _state(settings=AgentRuntimeSettings(agent_id="not-a-real-agent"))
+    await _bring_up_dependencies(state)
+
+    assert state.agent_definition is None
+    assert state.agent_definition_error is not None
+    # The other two checks are independent — they still succeed.
+    assert state.pep is not None
+    assert state.inference_provider is not None
+
+
+async def test_bring_up_agent_definition_path_override(tmp_path: object) -> None:
+    import shutil
+    from pathlib import Path
+
+    src = Path("spec/agents/helena/agent.yaml")
+    dest = Path(str(tmp_path)) / "effective-agent-definition.yaml"
+    shutil.copy(src, dest)
+
+    state = _state(settings=AgentRuntimeSettings(agent_id="helena", agent_definition_path=str(dest)))
+    await _bring_up_dependencies(state)
+
+    assert state.agent_definition is not None
+    assert state.agent_definition.id == "helena"
+
+
+async def test_bring_up_unknown_tenant_overlay_mismatch_leaves_pep_unhealthy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`build_pep` raises `PolicyError` when it cannot construct a valid matrix — the bring-up
+    isolates that into `pep_error`, never propagating (liveness must stay up, Q-6)."""
+
+    def _raise(*, tenant: str) -> None:
+        raise PolicyError("boom")
+
+    monkeypatch.setattr("maezo.runtime.agent_runtime.service.build_pep", _raise)
+    state = _state()
+    await _bring_up_dependencies(state)
+
+    assert state.pep is None
+    assert state.pep_error == "boom"
+
+
+# ---------------------------------------------------------------------------
+# Readiness checks (fail-closed, design §12)
+# ---------------------------------------------------------------------------
+
+
+async def test_agent_definition_loaded_unhealthy_when_absent() -> None:
+    state = _state()
+    checks = {c.__name__: c for c in build_readiness_checks(state)}
+    result = await checks["agent_definition_loaded"]()
+    assert result.healthy is False
+
+
+async def test_policies_loadable_unhealthy_when_absent() -> None:
+    state = _state()
+    checks = {c.__name__: c for c in build_readiness_checks(state)}
+    result = await checks["policies_loadable"]()
+    assert result.healthy is False
+
+
+async def test_inference_provider_ready_unhealthy_when_absent() -> None:
+    state = _state()
+    checks = {c.__name__: c for c in build_readiness_checks(state)}
+    result = await checks["inference_provider_ready"]()
+    assert result.healthy is False
+
+
+async def test_all_readiness_checks_healthy_after_real_bring_up() -> None:
+    state = _state(settings=AgentRuntimeSettings(agent_id="helena", tenant_id="amh"))
+    await _bring_up_dependencies(state)
+
+    checks = build_readiness_checks(state)
+    results = [await c() for c in checks]
+    assert all(r.healthy for r in results), results
+
+
+def test_agent_state_is_live_helper() -> None:
+    state = _state()
+    assert state.is_live() is True
+    state.live = False
+    assert state.is_live() is False

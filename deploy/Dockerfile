@@ -46,6 +46,18 @@ RUN uv sync --frozen --no-dev --no-install-project
 # Código-fonte e config necessários para o build hatchling (src layout). Segunda
 # camada: instala o próprio projeto (não-editável) — rápida, pois as dependências
 # já estão resolvidas/instaladas na camada anterior.
+#
+# T1.6 (predeploy-caliber defect, found while live-booting `docker compose --profile app`):
+# pyproject.toml's `[tool.hatch.build.targets.wheel.force-include]` (ADR-0025 D2 Rev 1, added
+# T1.8) requires `spec/policies/autonomy` to exist at the project root when hatchling builds the
+# wheel — `uv sync --no-editable` below invokes exactly that build. Without this COPY, the build
+# fails closed with `FileNotFoundError: Forced include not found: /app/spec/policies/autonomy`
+# (this Dockerfile predates T1.8 and was never updated; the guarded `docker/build-push-action` in
+# cd.yml is `if: vars.AWS_ENABLED == 'true'`, off by default, so no CI run had exercised this path
+# since). Copy ONLY `spec/policies/autonomy` — matching the force-include's own narrow scope
+# exactly; the rest of `spec/` is NOT shipped in the image (T0.3 `MAEZO_SPEC_DIR` / the per-agent
+# `AGENT_DEFINITION_PATH` ConfigMap mount are the runtime discovery paths for everything else).
+COPY spec/policies/autonomy ./spec/policies/autonomy
 COPY src/ ./src/
 COPY config/ ./config/
 RUN uv sync --frozen --no-dev --no-editable

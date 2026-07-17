@@ -71,6 +71,13 @@ agentDefaults:
 #
 # This default list is the platform-wide baseline; tenant overlays (values-<tenant>.yaml)
 # override per-agent zone/replicas/resources/irsa and inject effectiveDefinition.
+#
+# T1.6 (defect B1 — CrashLoop hazard the T1.1 verifier re-flagged): every entry below with
+# `enabled: true` renders a Deployment whose command (`python -m maezo.runtime.agent_runtime`,
+# deployment-agent-runtime.yaml:71) used to point at a module that did not exist —
+# `src/maezo/runtime/agent_runtime/` is now a real, health-first scaffold (design
+# docs/design/T1.1-runtime-spine.md §10/§17 Q-6): /healthz|/readyz|/metrics, no LangGraph
+# execution yet (T1.11). The pods below no longer CrashLoop.
 # ---------------------------------------------------------------------------
 agents:
   - name: helena
@@ -110,19 +117,22 @@ agents:
 # ---------------------------------------------------------------------------
 # Tool Gateway (PEP + pseudonymizer + audit)
 # ---------------------------------------------------------------------------
-# DISABLED — orphaned Deployment with no runnable module. deployment-gateway.yaml
-# runs `python -m maezo.gateway`, but src/maezo/gateway/ is a LIBRARY package (no
-# __main__.py; empty __init__.py) so that command exits 1 ("No module named
-# maezo.gateway.__main__; 'maezo.gateway' is a package and cannot be directly
-# executed") → the pod CrashLoopBackOffs. The PEP / pseudonymizer / audit gateway
-# is an IN-PROCESS library imported by the general-zone runtimes (agent-runtime,
-# worker-daemon) per ADR-0006; there is no standalone gateway service. Its
-# metrics (maezo_gateway_*, runtime/metrics.py) are emitted in-process by those
-# runtime pods and scraped from their /metrics endpoints — so the gateway.json
-# dashboard and MaezoPEPDenySpike / MaezoAuditLagHigh alerts keep their data
-# source without this pod. Re-enable ONLY once a real entrypoint (a
-# maezo/gateway/__main__.py or a dedicated FastAPI service module) exists.
-# Predeploy audit finding: gateway-deployment-crashloop-no-main (DB-1).
+# T1.6 (defect B1, gateway-deployment-crashloop-no-main / DB-1): `src/maezo/gateway/__main__.py`
+# now exists — `deployment-gateway.yaml`'s `command: ["python", "-m", "maezo.gateway"]` is a real,
+# runnable module (health-only: /healthz, /readyz, /metrics; /readyz reflects
+# `maezo.gateway.pep.build_pep()` — fail-closed policy load). The CrashLoop hazard this comment
+# used to document is closed.
+#
+# STILL disabled by default, though — NOT because it would crash, but because there is still no
+# standalone HTTP business surface: the PEP / pseudonymizer / audit gateway is an IN-PROCESS
+# library imported by the general-zone runtimes (agent-runtime, worker-daemon) per ADR-0006 (see
+# docs/runbooks/gateway.md's deployment-model note); `src/maezo/gateway/` has zero FastAPI routes
+# today. Its metrics (maezo_gateway_*, runtime/metrics.py) are emitted in-process by those runtime
+# pods and scraped from their /metrics endpoints — so the gateway.json dashboard and
+# MaezoPEPDenySpike / MaezoAuditLagHigh alerts keep their data source with or without this pod.
+# Flip `enabled: true` if this pod earns an operational purpose (e.g. a policy-freshness canary
+# independent of agent pods) or the library gains a real HTTP business surface — both would arrive
+# as a deliberate follow-up, not a default flip.
 gateway:
   enabled: false
   replicaCount: 2
@@ -140,6 +150,13 @@ gateway:
 # ---------------------------------------------------------------------------
 # Webhook Receiver (WhatsApp Cloud API inbound)
 # ---------------------------------------------------------------------------
+# T1.6 (defect B1): this was already `enabled: true` with `command: ["python", "-m",
+# "maezo.platform.webhooks"]` pointing at a module that did not exist at all —
+# `src/maezo/platform/webhooks/` is now real: Meta GET-verification handshake + real HMAC-SHA256
+# POST signature verification (`whatsapp/security.py`); message queuing (Kafka publish) is
+# deliberately NOT wired — a signature-verified POST returns 501 (no downstream consumer yet,
+# Helena's intake graph is T1.11). See `src/maezo/platform/webhooks/whatsapp/app.py`'s module
+# docstring for the full capability-honesty note.
 webhookReceiver:
   enabled: true
   replicaCount: 1

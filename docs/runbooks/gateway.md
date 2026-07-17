@@ -7,10 +7,9 @@
 > **Deployment model — the gateway is an in-process library, not a service.**
 > `maezo.gateway` (PEP, pseudonymizer, audit) is imported and executed **inside**
 > the runtime pods — each `agent-{name}` Deployment and the worker-daemon — via
-> the runtime harness/tool wiring. There is **no standalone gateway
-> Deployment/Service**: `gateway.enabled` is `false` in the chart (the orphaned
-> `deployment-gateway.yaml` was disabled — the package has no runnable
-> `__main__`). Consequences for operators:
+> the runtime harness/tool wiring. There is **no standalone gateway business
+> Deployment/Service**: `gateway.enabled` is `false` in the chart by default.
+> Consequences for operators:
 >
 > - `kubectl` commands target the runtime workloads (`deploy/agent-helena`,
 >   `deploy/agent-rafael`, `deploy/agent-marina`, `deploy/worker-daemon`), never
@@ -18,6 +17,16 @@
 > - `maezo_gateway_*` metrics are emitted in-process and scraped from the runtime
 >   pods' `/metrics` (port 8000, PodMonitor `agent-runtime`), not from a gateway pod.
 > - "Restart the gateway" = restart the runtime Deployments that embed it.
+>
+> **T1.6 update:** `deployment-gateway.yaml`'s `command: ["python", "-m",
+> "maezo.gateway"]` used to point at a package with no `__main__.py`
+> (CrashLoopBackOff the moment anyone flipped `gateway.enabled: true` — predeploy
+> finding `gateway-deployment-crashloop-no-main` / DB-1). `src/maezo/gateway/__main__.py`
+> now exists — a **health-only** entrypoint (`/healthz`, `/readyz`, `/metrics`;
+> `/readyz` reflects `build_pep()` — fail-closed policy load). It adds **zero**
+> business HTTP surface (no PEP-evaluation endpoint, no audit-query API) — the
+> in-process model above is unchanged. `gateway.enabled` stays `false` by default;
+> see `values.yaml`'s comment on that flag for why.
 
 ---
 
