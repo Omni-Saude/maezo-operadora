@@ -26,7 +26,7 @@
 ## Como adicionar um processo SP-OP
 
 1. Justifique o gatilho regulatório no PR (SLA legal, HITL mandatório, auditoria, multi-ator legal). Sem gatilho → é jornada de agente (AGJ), não BPMN.
-2. Modele em `src/maezo/processes/bpmn/` seguindo `SP-OP-{AREA}-{NNN}_{Titulo}.bpmn`; tópicos `{dominio}.{contexto}.{acao}`.
+2. Modele em `spec/processes/bpmn/` seguindo `SP-OP-{AREA}-{NNN}_{Titulo}.bpmn`; tópicos `{dominio}.{contexto}.{acao}`.
 3. Ações L0/L1 exigem User Task com candidate group humano + timer + escalation.
 4. Atualize `docs/processes/catalog.md` e `config/topic_registry.yaml`.
 
