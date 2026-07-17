@@ -40,6 +40,20 @@ expirado TODOS fail-safe para a revisao humana. Invariante de KPI: `false_decred
 (`ERR_DECRED_NOT_HUMAN` / `ERR_CRED_DENIAL_NOT_HUMAN`) — este grafo nunca os invoca diretamente;
 eles sao exercidos pelo ENGINE, do lado dos workers, apos a User Task humana.
 
+R1 CYCLE-1 FIX (caller-planted assess-output fields — same defect class found on fernando):
+`receive` (o UNICO no de entrada do grafo — START tem exatamente uma aresta, para `receive`;
+regression-tested) sobrescreve TODO campo output-only de `CarolinaState` com seu default vazio
+(`_sanitized_output_fields`) ANTES de gather/assess rodarem. Pre-fix, um caller plantando
+`error` + `route="auto_route"` fazia gather/assess bailarem cedo (ZERO chamadas de DMN) e o
+start_process embarcava a rota forjada nas variaveis do engine (contradizendo "assess SEMPRE
+consulta as DMN"); `dmn_refs` plantado alcancava a trilha de auditoria ADR-0007
+(`dmn_decision_refs`) e o dossie; campos plantados de assess (admissibilidade/roteamento/
+exige_*/prazo/sla_*) alcancavam `dossie_carolina` nos atalhos clerical/fail-closed. Post-fix o
+plantio e limpo na entrada: o gate DMN sempre roda de fato, e so valores produzidos pelos
+proprios nos alcancam `_cred_facts`/`_contract_variables`. Os guards de bail
+(`if state.get("error"): return {}`) sao seguros porque o unico `error` possivel quando eles
+rodam e o do proprio `receive`.
+
 PHI discipline: Carolina opera na Zona PHI (donor `agent.yaml`: `security_zone: phi`) — o unico
 LLM call (`_build_dossier`'s narrativa) passa `phi=True` (ADR-0006/ADR-0017/T1.7), assim como
 todo LLM call em `helena/graph.py` e `rafael/graph.py`.
@@ -281,6 +295,89 @@ def _business_key(state: CarolinaState) -> str:
     return f"CRED-{tenant}-{prestador}"
 
 
+# --- Saneamento de estado (R1 cycle-1 fix — fecha a classe "caller-planted output fields") -----
+
+#: The ONLY fields a caller may legitimately seed on the initial state (runtime identifiers +
+#: SP-OP-CRED-001 contract inputs + worker-pre-resolved facts + the gather reference). Everything
+#: else in `CarolinaState` is OUTPUT-ONLY: produced exclusively by this graph's own nodes.
+#: Single-sourced against `CarolinaState` by the partition-completeness regression test
+#: (`test_output_field_partition_is_complete`) — a new state field MUST be classified into
+#: exactly one of the two sets or that test fails, so the sanitization below can never silently
+#: drift out of date.
+_CALLER_INPUT_FIELDS: frozenset[str] = frozenset(
+    {
+        "tenant_id",
+        "canal",
+        "prestador_id",
+        "protocolo_cred",
+        "direcao",
+        "tipo_prestador",
+        "origem_solicitacao",
+        "motivo_informado",
+        "data_solicitacao_iso",
+        "documentos_refs",
+        "regiao_saude",
+        "especialidade",
+        "licenca_valida",
+        "documentacao_completa",
+        "dentro_criterios_rede",
+        "notificacao_previa_feita",
+        "substituto_equivalente_identificado",
+        "tem_beneficiarios_vinculados",
+        "indicio_irregularidade_sinalizado",
+        "patient_summary_ref",
+    }
+)
+
+
+def _sanitized_output_fields() -> dict[str, Any]:
+    """Fresh (never-shared) empty defaults for EVERY output-only `CarolinaState` field.
+
+    R1 CYCLE-1 FIX (caller-planted assess-output fields — the verifier's DMN-gate-bypass /
+    audit-forgery probes): `receive` overwrites all of these BEFORE gather/assess run, so a
+    caller planting e.g. `error` + `route="auto_route"` (pre-fix: bailed gather/assess with ZERO
+    DMN calls and shipped the forged route into engine variables) or a forged `dmn_refs`
+    (pre-fix: reached the ADR-0007 `dmn_decision_refs` audit trail + dossier) is cleared at the
+    graph's single entry point. Only node-produced values can reach `_cred_facts` /
+    `_contract_variables` afterwards. Built fresh per call (function, not module constant) so
+    the mutable `{}`/`[]` defaults are never shared across graph invocations.
+
+    `route` deliberately sanitizes to `"human_review"` (the fail-safe `_route` default), never
+    to a cleared/absent value — even a hypothetical path that skipped `assess` entirely could
+    not auto-route off the sanitized state.
+    """
+    return {
+        # gather outputs
+        "gathered": False,
+        "summary_facts": {},
+        "gather_notes": [],
+        # assess outputs (DMN results — only the DMNs, via assess, may fill these)
+        "admissibilidade": None,
+        "roteamento_natureza": None,
+        "exige_notificacao_previa": False,
+        "exige_substituto_equivalente": False,
+        "prazo_notificacao": "",
+        "fonte_regulatoria": "",
+        "sla_analise": "",
+        "sla_alerta": "",
+        "dmn_refs": {},
+        "dmn_error": "",
+        # auto_route/human_review outputs
+        "dossier": {},
+        # routing outputs
+        "route": "human_review",
+        "motivo_humano": None,
+        "grupo_humano": "",
+        # start_process outputs
+        "process_started": False,
+        "business_key": "",
+        "process_ref": {},
+        # terminal outputs
+        "desfecho": "",
+        "error": "",
+    }
+
+
 class CarolinaGraph:
     """Wires Carolina's injected dependencies into a compilable `StateGraph[CarolinaState]`."""
 
@@ -302,21 +399,33 @@ class CarolinaGraph:
     # -- Nodes ----------------------------------------------------------------------------
 
     async def receive(self, state: CarolinaState) -> dict[str, Any]:
-        """Assign the idempotent business key up front (contract SP-OP-CRED-001).
+        """Sanitize output-only fields, then assign the idempotent business key (SP-OP-CRED-001).
+
+        R1 CYCLE-1 FIX (caller-planted output fields): EVERY output-only state field is
+        overwritten with its empty default (`_sanitized_output_fields`) on BOTH paths of this
+        node, BEFORE gather/assess run — closing the DMN-gate-bypass / audit-forgery class at
+        the graph's entry (see `_sanitized_output_fields`'s docstring for the verifier's exact
+        reproductions). This covers the downstream early-bail guards
+        (`if state.get("error"): return {}` in gather/assess) because `receive` is the graph's
+        SINGLE entry node — `compile_graph` wires exactly one edge out of START, into `receive`
+        (structurally regression-tested by `test_receive_is_the_single_graph_entry_node`), so
+        the only `error` that can exist when those guards run is the one this node itself set.
 
         Fail-safe: never processes without the minimum contract identifiers (tenant + prestador).
         Without them there is no idempotent business key; routes to human by safety (never an
         adverse effect).
         """
+        sanitized = _sanitized_output_fields()
         if not state.get("tenant_id") or not state.get("prestador_id"):
             return {
+                **sanitized,
                 "route": "human_review",
                 "motivo_humano": "outro",
                 "grupo_humano": self._default_human_group(_direcao(state)),
                 "desfecho": "analise_humana",
                 "error": "contexto de runtime ausente (tenant_id/prestador_id)",
             }
-        return {"business_key": _business_key(state)}
+        return {**sanitized, "business_key": _business_key(state)}
 
     async def gather(self, state: CarolinaState) -> dict[str, Any]:
         """Best-effort summary enrichment — NEVER blocks routing (module docstring)."""

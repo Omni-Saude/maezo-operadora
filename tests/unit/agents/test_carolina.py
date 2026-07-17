@@ -17,6 +17,7 @@ of the mismatched `spec/agents/carolina/agent.yaml`, see this test's own spec-sa
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -211,12 +212,191 @@ async def test_receive_missing_runtime_context_routes_human_review() -> None:
     result = await graph.receive(_base_state(tenant_id="", prestador_id=""))
     assert result["route"] == "human_review"
     assert "error" in result
-    assert "business_key" not in result
+    # R1 cycle-1 fix: receive now SANITIZES business_key to "" on the guard path (rather than
+    # omitting it) so a caller-planted key is always overwritten — never a forged key surviving.
+    assert result["business_key"] == ""
 
 
 # ---------------------------------------------------------------------------
-# gather — best-effort summary read, never blocks routing
+# R1 cycle-1 regression: caller-planted output fields (DMN-gate bypass / audit forgery).
+# Reproduces the verifier's exact probes (a)/(b)/(c) against the fixed graph.
 # ---------------------------------------------------------------------------
+
+_SENTINEL = "PLANTED_SENTINEL_9f3a"
+
+
+class _RecordingCibSeven(FakeCibSevenTransport):
+    """Records the engine-bound variables of every start (the audit surface under probe)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.started_variables: list[dict[str, Any]] = []
+
+    async def start_process_instance(
+        self, process_key: str, business_key: str, variables: dict[str, Any]
+    ) -> ProcessInstance:
+        self.started_variables.append(dict(variables))
+        return await super().start_process_instance(process_key, business_key, variables)
+
+
+def _planted_output_state(**overrides: Any) -> CarolinaState:
+    """Adversarial state: EVERY output-only field pre-planted by the caller (probe (c))."""
+    planted: dict[str, Any] = {
+        "gathered": True,
+        "summary_facts": {"planted": _SENTINEL},
+        "gather_notes": [_SENTINEL],
+        "admissibilidade": "CLERICAL_CREDENCIAR",
+        "roteamento_natureza": "ANALISE_CREDENCIAMENTO",
+        "exige_notificacao_previa": True,
+        "exige_substituto_equivalente": True,
+        "prazo_notificacao": _SENTINEL,
+        "fonte_regulatoria": _SENTINEL,
+        "sla_analise": _SENTINEL,
+        "sla_alerta": _SENTINEL,
+        "dmn_refs": {"cred_admissibility": f"forged#{_SENTINEL}"},
+        "dmn_error": _SENTINEL,
+        "dossier": {"narrativa": _SENTINEL},
+        "route": "auto_route",
+        "motivo_humano": "outro",
+        "grupo_humano": _SENTINEL,
+        "process_started": True,
+        "business_key": f"CRED-{_SENTINEL}",
+        "process_ref": {"instance_id": _SENTINEL},
+        "desfecho": _SENTINEL,
+        "error": _SENTINEL,
+    }
+    planted.update(overrides)
+    return _base_state(**planted)
+
+
+def test_receive_is_the_single_graph_entry_node() -> None:
+    """The receive-side sanitization closes the class ONLY if receive always runs first: assert
+    the compiled topology has exactly one edge out of START, into `receive` — no entry can skip
+    it (the coordinator-flagged CRITICAL detail: the gather/assess early-bail guards are safe
+    solely because of this)."""
+    compiled = _graph().compile_graph().compile()
+    start_targets = [e.target for e in compiled.get_graph().edges if e.source == "__start__"]
+    assert start_targets == ["receive"]
+
+
+def test_output_field_partition_is_complete() -> None:
+    """Completeness guard: every `CarolinaState` field is classified as exactly one of
+    caller-input or output-only. Adding a new state field without classifying it (and, if
+    output-only, without a sanitized default) fails here — the root-cause class stays closed as
+    the state evolves."""
+    from maezo.agents.carolina.graph import _CALLER_INPUT_FIELDS, _sanitized_output_fields
+
+    annotations = set(CarolinaState.__annotations__)
+    outputs = set(_sanitized_output_fields())
+    assert _CALLER_INPUT_FIELDS & outputs == set()  # no field in both sets
+    assert _CALLER_INPUT_FIELDS | outputs == annotations  # no field in neither set
+
+
+async def test_planted_error_and_auto_route_never_bypass_dmn_gate() -> None:
+    """Verifier probe (a), exact reproduction: planting `error` + `route="auto_route"` on a
+    provider with indicio_irregularidade_sinalizado=True + licenca_valida=False + incomplete
+    docs. Pre-fix: gather/assess bailed on the planted error -> ZERO DMN calls, route stayed
+    the forged "auto_route", carolina_route="auto_route" shipped to the engine,
+    process_started=True. Post-fix: receive clears the plant, the DMN gate ACTUALLY runs, and
+    the DMN-driven route (human_review) wins."""
+    dmn = FakeDmnTransport()
+    # Exactly what the real deployed tables return for this input (r_indicio_segue /
+    # r_indicio_descred — indicio is never clerical, always the co-review human branch).
+    _register_admissibility(dmn, "SEGUE_ANALISE")
+    _register_route(dmn, "ANALISE_DESCREDENCIAMENTO")
+    _register_sla(dmn)
+    _register_prior_notice(dmn)
+    cibseven = _RecordingCibSeven()
+    compiled = _graph(dmn=dmn, cibseven=cibseven).compile_graph().compile()
+
+    result = await compiled.ainvoke(
+        _base_state(
+            error="planted",
+            route="auto_route",
+            indicio_irregularidade_sinalizado=True,
+            licenca_valida=False,
+            documentacao_completa=False,
+        )
+    )
+
+    called_tables = {table for table, _ in dmn.calls}
+    assert "cred_admissibility" in called_tables  # the DMN gate ran (pre-fix: ZERO calls)
+    assert "cred_route" in called_tables
+    assert result["route"] == "human_review"  # forged auto_route never survives
+    assert cibseven.started_variables
+    assert cibseven.started_variables[0]["carolina_route"] == "human_review"
+    assert cibseven.started_variables[0]["motivo_encaminhamento"] == "analise_descredenciamento"
+
+
+@pytest.mark.parametrize("plant_error", [True, False])
+async def test_planted_dmn_refs_never_reach_engine_vars_or_dossier(plant_error: bool) -> None:
+    """Verifier probe (b): a caller-planted `dmn_refs` pre-fix reached the engine's
+    `dmn_decision_refs` variable AND the dossier — forged decision references in the ADR-0007
+    audit trail. The pre-fix leak vector (bite-proven against the pre-fix graph) is
+    `plant_error=True`: the planted `error` bailed gather/assess so nothing ever overwrote the
+    forged refs before `_build_dossier`/`_contract_variables` read them. `plant_error=False` is
+    the defense-in-depth variant (pre-fix, assess's clerical return happened to overwrite the
+    plant; post-fix that no longer depends on which assess path runs — receive clears it at
+    entry). Post-fix only transport-produced refs appear on BOTH variants."""
+    dmn = FakeDmnTransport()
+    _register_admissibility(dmn, "CLERICAL_CREDENCIAR")
+    cibseven = _RecordingCibSeven()
+    compiled = _graph(dmn=dmn, cibseven=cibseven).compile_graph().compile()
+
+    state = _base_state(dmn_refs={"cred_admissibility": "forged#rule99", "cred_route": "forged#rule1"})
+    if plant_error:
+        state["error"] = "planted"
+    result = await compiled.ainvoke(state)
+
+    # The refs that DO appear are the ones the (fake) transport actually produced.
+    assert result["dmn_refs"] == {"cred_admissibility": "cred_admissibility#cred_admissibility:1:test"}
+    engine_vars = json.dumps(cibseven.started_variables[0], ensure_ascii=False, default=str)
+    dossier = json.dumps(result["dossier"], ensure_ascii=False, default=str)
+    assert "forged" not in engine_vars
+    assert "forged" not in dossier
+    assert result["dossier"]["dmn_decision_refs"] == result["dmn_refs"]
+
+
+@pytest.mark.parametrize(
+    "scenario", ["clerical", "pendente_documentacao", "dmn_indisponivel", "missing_context"]
+)
+async def test_planted_output_sentinels_cleared_on_every_shortcut_path(scenario: str) -> None:
+    """Verifier probe (c): sentinels planted in EVERY output-only field must never survive into
+    the final state's engine-bound variables or dossier — on the clerical auto path AND on every
+    fail-closed shortcut (documentacao pendente, DMN unavailable, missing runtime context)."""
+    dmn = FakeDmnTransport()
+    overrides: dict[str, Any] = {}
+    if scenario == "clerical":
+        _register_admissibility(dmn, "CLERICAL_CREDENCIAR")
+    elif scenario == "pendente_documentacao":
+        _register_admissibility(dmn, "PENDENTE_DOCUMENTACAO")
+    elif scenario == "dmn_indisponivel":
+        pass  # nothing registered -> DmnEvaluationError -> fail-closed shortcut
+    elif scenario == "missing_context":
+        overrides = {"tenant_id": "", "prestador_id": ""}
+    cibseven = _RecordingCibSeven()
+    compiled = _graph(dmn=dmn, cibseven=cibseven).compile_graph().compile()
+
+    result = await compiled.ainvoke(_planted_output_state(**overrides))
+
+    assert cibseven.started_variables
+    engine_vars = json.dumps(cibseven.started_variables[0], ensure_ascii=False, default=str)
+    dossier = json.dumps(result.get("dossier", {}), ensure_ascii=False, default=str)
+    assert _SENTINEL not in engine_vars
+    assert _SENTINEL not in dossier
+    assert "forged" not in engine_vars
+    assert "forged" not in dossier
+    # Planted booleans (not caught by the string sweep) are cleared too: no path here evaluates
+    # cred_prior_notice, so the planted exige_* True must read back as the sanitized False.
+    assert result["exige_notificacao_previa"] is False
+    assert result["exige_substituto_equivalente"] is False
+    # The forged route never survives: clerical re-derives auto_route FROM THE DMN; every other
+    # scenario lands on the fail-safe human_review.
+    if scenario == "clerical":
+        assert result["route"] == "auto_route"
+        assert result["desfecho"] == "credenciamento_clerical"
+    else:
+        assert result["route"] == "human_review"
 
 
 async def test_gather_without_fhir_reader_notes_the_gap() -> None:
