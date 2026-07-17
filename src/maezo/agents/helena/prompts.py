@@ -4,15 +4,25 @@ is a diffable, version-bumped edit and `PROMPT_VERSIONS` (exported by `graph.py`
 what actually ran.
 
 CLINICAL CONTENT NOTE (SME-reviewable): the `sintoma_codigo` allow-list embedded in
-`classify_prompt()` is NOT invented — every code is read directly off the deployed DMN rule
+`classify_prompt()` is NOT invented — every code exists verbatim in the deployed DMN rule
 literals in `spec/processes/dmn/triage_redflag_{adult,gestante,pediatric,mental_health}.dmn`
 (the `sintoma_codigo` `inputEntry` values), which is spec/ (single source of truth, DRAFT
-clinical content per each DMN's own `<description>`). This prompt's job is ONLY to normalize
-free text into one of these codes (or `null` if none match) plus a severity/population signal —
-the DMN table is what actually decides `red_flag` (ADR-0012: the LLM never decides). A
-médico-auditor / clinical reviewer should re-verify this allow-list against the DMN files at
-promotion time (docs/review-queue.md) — this module makes no independent clinical claim beyond
-"these are the codes the deployed DMN tables recognize today".
+clinical content per each DMN's own `<description>`). List ORDER byte-matches the v1 donor's
+`classify-v1.md` allow-lists (R1 cycle-1 non-blocking finding: the donor prompt is the
+SME-reviewable baseline and LLM prompt ordering can matter — verbatim order is the safer
+default; set-identity with the deployed DMN rule literals remains the verification anchor).
+This prompt's job is ONLY to normalize free text into one of these codes (or `null` if none
+match) plus a severity/population signal — the DMN table is what actually decides `red_flag`
+(ADR-0012: the LLM never decides). A médico-auditor / clinical reviewer should re-verify this
+allow-list against the DMN files at promotion time (docs/review-queue.md) — this module makes
+no independent clinical claim beyond "these are the codes the deployed DMN tables recognize
+today".
+
+`SINTOMA_CODIGOS_BY_POPULATION` / `ALLOWED_SINTOMA_CODIGOS` are exported so `graph.py`'s
+schema validation of the classify output (R1 cycle-1 blocking fix: a non-allow-listed
+`sintoma_codigo` is a classify FAILURE -> escalate `falha_tecnica`, never fail-open) is
+single-sourced with the exact allow-list the prompt text is built from — the prompt and the
+validator can never drift apart.
 """
 
 from __future__ import annotations
@@ -29,23 +39,55 @@ Toda preocupacao clinica termina em uma tarefa humana ou em um encaminhamento ex
 (L0 hard — ADR-0005/0008). O texto que voce recebe ja chegou pseudonimizado; voce nunca pede
 CPF, nome completo ou qualquer dado que reidentifique o beneficiario."""
 
-# Allow-list of `sintoma_codigo` values the deployed triage_redflag_* DMN tables recognize,
-# grouped by population (spec/processes/dmn/triage_redflag_{adult,gestante,pediatric,
-# mental_health}.dmn — read directly off each table's rule literals, never invented here).
-_SINTOMA_CODIGOS_ADULT = (
-    "dor_toracica, dispneia, deficit_neurologico, cefaleia_subita_intensa, sangramento_ativo, "
-    "reacao_alergica, sincope, febre, dor_abdominal"
+#: Allow-list of `sintoma_codigo` values, per population. Every code exists verbatim in the
+#: deployed `spec/processes/dmn/triage_redflag_*.dmn` rule literals (set-identity verified);
+#: tuple ORDER byte-matches the v1 donor's `classify-v1.md` lists (module docstring).
+SINTOMA_CODIGOS_BY_POPULATION: dict[str, tuple[str, ...]] = {
+    "adult": (
+        "dor_toracica",
+        "dispneia",
+        "deficit_neurologico",
+        "cefaleia_subita_intensa",
+        "sangramento_ativo",
+        "reacao_alergica",
+        "sincope",
+        "febre",
+        "dor_abdominal",
+    ),
+    "pediatric": (
+        "febre",
+        "dificuldade_respiratoria",
+        "convulsao",
+        "letargia",
+        "sinais_desidratacao",
+        "petequias_febre",
+    ),
+    "gestante": (
+        "sangramento_vaginal",
+        "cefaleia_alteracao_visual",
+        "perda_liquido",
+        "contracoes_regulares",
+        "movimentos_fetais_reduzidos",
+        "febre",
+    ),
+    "mental_health": (
+        "ideacao_suicida",
+        "autolesao",
+        "agitacao_agressividade",
+        "surto_psicotico",
+        "crise_ansiedade",
+        "crise_panico",
+    ),
+}
+
+#: Union of every allow-listed code — the schema validator's membership set (`graph.py`).
+ALLOWED_SINTOMA_CODIGOS: frozenset[str] = frozenset(
+    code for codes in SINTOMA_CODIGOS_BY_POPULATION.values() for code in codes
 )
-_SINTOMA_CODIGOS_GESTANTE = (
-    "sangramento_vaginal, cefaleia_alteracao_visual, movimentos_fetais_reduzidos, perda_liquido, "
-    "contracoes_regulares, febre"
-)
-_SINTOMA_CODIGOS_PEDIATRIC = (
-    "febre, dificuldade_respiratoria, petequias_febre, convulsao, letargia, sinais_desidratacao"
-)
-_SINTOMA_CODIGOS_MENTAL_HEALTH = (
-    "ideacao_suicida, autolesao, agitacao_agressividade, surto_psicotico, crise_ansiedade, crise_panico"
-)
+
+
+def _codes(population: str) -> str:
+    return ", ".join(SINTOMA_CODIGOS_BY_POPULATION[population])
 
 
 def system_prompt() -> str:
@@ -72,10 +114,10 @@ Tarefa: leia a mensagem do beneficiario (ja pseudonimizada) e devolva APENAS um 
     independente do intent),
   "sintoma_codigo": um codigo normalizado ou null. Use SOMENTE um destes codigos, escolhido pela
     populacao identificada (nunca invente um codigo fora desta lista; se nenhum bater, use null):
-    - adult: {_SINTOMA_CODIGOS_ADULT}
-    - gestante: {_SINTOMA_CODIGOS_GESTANTE}
-    - pediatric: {_SINTOMA_CODIGOS_PEDIATRIC}
-    - mental_health: {_SINTOMA_CODIGOS_MENTAL_HEALTH}
+    - adult: {_codes("adult")}
+    - pediatric: {_codes("pediatric")}
+    - gestante: {_codes("gestante")}
+    - mental_health: {_codes("mental_health")}
   "intensidade": um de ["leve", "moderada", "grave", "desconhecida"],
   "idade_anos": numero inteiro se population=adult e a idade foi mencionada, senao null,
   "idade_meses": numero inteiro se population=pediatric e a idade foi mencionada, senao null,
@@ -90,7 +132,7 @@ intent="clinical_question" e para perguntas que pedem uma opiniao/conduta clinic
 ("isso e grave?", "devo tomar tal remedio?") — voce NUNCA responde essas, apenas classifica.
 intent="human_request" quando o beneficiario pede explicitamente para falar com uma pessoa/
 atendente/enfermeiro. Caso contrario, use "information" para duvidas administrativas
-(cobertura, rede, agendamento e "scheduling" para pedidos de marcar consulta/exame)."""
+(cobertura, rede, elegibilidade) e "scheduling" para pedidos de marcar consulta/exame."""
 
 
 def response_prompt() -> str:

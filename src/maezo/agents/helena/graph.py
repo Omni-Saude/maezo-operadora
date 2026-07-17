@@ -21,7 +21,17 @@ SP-OP-ESCALATION-001):
                                                mental_health table fired)
 2. intent = clinical question              -> intencao_clinica (L0 hard — Helena never answers)
 3. explicit request for a human            -> solicitacao_humano
-4. technical failure (DMN/engine/LLM down) -> falha_tecnica
+4. technical failure                       -> falha_tecnica — DMN down/no-result, OR any
+                                               classify-LLM failure: exception, unparseable
+                                               JSON, or schema-invalid JSON (unknown intent,
+                                               invalid population, non-allow-listed
+                                               sintoma_codigo, out-of-domain intensidade).
+                                               R1 cycle-1 blocking fix: pre-fix, a classify
+                                               failure silently defaulted to intent=
+                                               "information" -> inform (fail-OPEN,
+                                               live-reproduced by the verifier); it now
+                                               escalates, symmetric with every other failure
+                                               path in this graph.
 5. psychosocial risk in ANY message        -> risco_psicossocial (always evaluated, highest
                                                priority — never gated behind `intent`)
 
@@ -35,9 +45,10 @@ PHI discipline (ADR-0006/ADR-0017, T1.7's gate): every LLM call in this module p
 webhook-edge phone-number pseudonymization, so it may ONLY be served by a `phi_capable`
 provider (`phi_zone_mock` in dev; a real BR-resident endpoint is blocked(external), T1.7
 charter). A non-PHI-capable provider raises `PhiZoneRoutingError` — this graph does NOT catch
-that error specially; it flows through the generic `except Exception` fail-safe in each LLM
-helper, which degrades to a safe default rather than ever silently downgrading to a general
-provider.
+that error specially: in `_classify_llm` it is a classify failure -> escalate `falha_tecnica`
+(trigger 4, human takes over); in `_respond_llm`/`_resumo_contexto` (pure text drafting, the
+route is already decided) it degrades to a safe canned text. Neither path ever silently
+downgrades to a general-zone provider.
 
 LABELED BOUNDARIES (this build, disclosed — never fabricated):
 - FHIR patient/coverage enrichment (`mcp-fhir.read_patient_summary`/`read_coverage`/
@@ -79,6 +90,7 @@ from maezo.tools.workers.dmn_transport import (
 )
 
 from .prompts import (
+    ALLOWED_SINTOMA_CODIGOS,
     CLASSIFY_PROMPT_VERSION,
     RESPONSE_PROMPT_VERSION,
     SYSTEM_PROMPT_VERSION,
@@ -91,6 +103,16 @@ from .prompts import (
 Intent = Literal["symptom", "scheduling", "information", "human_request", "clinical_question"]
 Population = Literal["adult", "pediatric", "gestante", "mental_health", "none"]
 ResponseKind = Literal["inform", "schedule", "escalate"]
+
+# Classify-output schema domains (classify-v1's own contract) — the R1 cycle-1 fail-closed
+# validator (`_validate_extraction`) checks membership against these. Kept as explicit
+# frozensets (not `typing.get_args` derivations) so the validation surface is self-contained
+# and greppable next to the Literal types it mirrors.
+_VALID_INTENTS: frozenset[str] = frozenset(
+    {"symptom", "scheduling", "information", "human_request", "clinical_question"}
+)
+_VALID_POPULATIONS: frozenset[str] = frozenset({"adult", "pediatric", "gestante", "mental_health", "none"})
+_VALID_INTENSIDADES: frozenset[str] = frozenset({"leve", "moderada", "grave", "desconhecida"})
 
 MotivoCategoria = Literal[
     "red_flag_clinico",
@@ -209,7 +231,8 @@ def _parse_json_object(text: str) -> dict[str, Any] | None:
     `InferenceProvider.generate` returns a plain string (no structured-output mode, unlike the
     v1 donor's `.complete(..., response_schema=...)`) — this defensively locates the first
     `{...}` span and parses it, tolerating stray prose/markdown fencing around the JSON. Returns
-    `None` (never raises) on any parse failure — callers apply a fail-safe default.
+    `None` (never raises) on any parse failure — the caller (`_classify_llm`) treats `None` as
+    a CLASSIFY FAILURE and routes to escalation (R1 cycle-1 fix), never a benign default.
     """
     match = _JSON_OBJECT_RE.search(text)
     if not match:
@@ -219,6 +242,47 @@ def _parse_json_object(text: str) -> dict[str, Any] | None:
     except (ValueError, TypeError):
         return None
     return data if isinstance(data, dict) else None
+
+
+def _validate_extraction(data: dict[str, Any]) -> str | None:
+    """Validate the classify LLM's parsed JSON against classify-v1's own schema.
+
+    Returns a short, bounded failure reason (NEVER echoing raw LLM output or the beneficiary's
+    message text — only the offending enum-ish value, truncated) or `None` when valid. Any
+    non-`None` return is a CLASSIFY FAILURE: the caller routes to escalation `falha_tecnica`
+    (R1 cycle-1 fix — an invalid classification must never be silently read as an
+    administrative-info turn).
+
+    Checks (classify-v1's required fields + domains):
+    - `intent` present and in `_VALID_INTENTS` (unknown intent value -> failure);
+    - `population` present and in `_VALID_POPULATIONS`;
+    - `psychosocial_risk` present and a real boolean (the always-active gatilho-5 signal must
+      never be silently absent/coerced);
+    - `sintoma_codigo` either `null` or in `ALLOWED_SINTOMA_CODIGOS` (an invented code is a
+      failure — the DMN tables cannot match it, which would silently bypass every symptom rule
+      and land on the no-red-flag catch-all);
+    - `intensidade`, when present, in `_VALID_INTENSIDADES` (an out-of-domain intensity would
+      miss the DMN's own `"grave"` fail-safe rows the same way an invented code would).
+    """
+
+    def _short(value: Any) -> str:
+        return repr(value)[:80]
+
+    intent = data.get("intent")
+    if intent not in _VALID_INTENTS:
+        return f"unknown intent value {_short(intent)}"
+    population = data.get("population")
+    if population not in _VALID_POPULATIONS:
+        return f"invalid population {_short(population)}"
+    if not isinstance(data.get("psychosocial_risk"), bool):
+        return f"missing/non-boolean psychosocial_risk {_short(data.get('psychosocial_risk'))}"
+    codigo = data.get("sintoma_codigo")
+    if codigo is not None and codigo not in ALLOWED_SINTOMA_CODIGOS:
+        return f"non-allow-listed sintoma_codigo {_short(codigo)}"
+    intensidade = data.get("intensidade")
+    if intensidade is not None and intensidade not in _VALID_INTENSIDADES:
+        return f"invalid intensidade {_short(intensidade)}"
+    return None
 
 
 # --- Graph ------------------------------------------------------------------------------------
@@ -258,11 +322,26 @@ class HelenaGraph:
     async def classify(self, state: HelenaState) -> dict[str, Any]:
         """Classify intent + normalize any symptom, then ALWAYS evaluate the red-flag DMN for a
         symptom (or for psychosocial risk, forced to the mental_health table). The LLM never
-        decides red_flag/severity — only the DMN does (ADR-0012)."""
+        decides red_flag/severity — only the DMN does (ADR-0012).
+
+        FAIL-CLOSED on classifier failure (R1 cycle-1 blocking fix): an LLM exception,
+        unparseable JSON, or schema-invalid JSON is gatilho 4 (`falha_tecnica`) -> escalate,
+        NEVER a silent `inform` default — symmetric with the DMN-down and missing-context
+        failure paths below/in `receive`.
+        """
         if state.get("error"):
             return {}  # already routed to escalate by `receive`
 
-        extraction = await self._classify_llm(state)
+        extraction, classify_failure = await self._classify_llm(state)
+        if extraction is None:
+            # Gatilho 4: classifier failure is a TECHNICAL failure -> human, NEVER read as a
+            # benign administrative turn (fail-safe; see `_classify_llm`'s docstring).
+            return {
+                "next_kind": "escalate",
+                "escalation_motivo": "falha_tecnica",
+                "escalation_severidade": "leve",
+                "error": classify_failure or "classify LLM failed",
+            }
         intent = cast(Intent, extraction.get("intent", "information"))
         psychosocial = bool(extraction.get("psychosocial_risk", False))
         population = cast(Population, extraction.get("population", "none"))
@@ -352,6 +431,12 @@ class HelenaGraph:
         business_key = _business_key(state)
 
         resumo = await self._resumo_contexto(state, motivo)
+        if motivo == "falha_tecnica" and state.get("error"):
+            # R1 cycle-1 fix: carry the technical-failure reason into the human handoff so the
+            # attendant sees WHY the automated turn failed. The reason is bounded and contains
+            # no raw LLM output / no beneficiary text (see `_classify_llm`) — everything else in
+            # this variable set is already pseudonymized (ADR-0006).
+            resumo = f"{resumo} [falha tecnica: {str(state['error'])[:300]}]"
         variables: dict[str, Any] = {
             "tenant_id": state.get("tenant_id", ""),
             "source_agent_id": "helena",
@@ -464,16 +549,35 @@ class HelenaGraph:
 
     # -- LLM helpers (all PHI-tagged — ADR-0006/ADR-0017/T1.7) ------------------------------
 
-    async def _classify_llm(self, state: HelenaState) -> dict[str, Any]:
+    async def _classify_llm(self, state: HelenaState) -> tuple[dict[str, Any] | None, str | None]:
+        """Run the classify LLM call. Returns `(extraction, None)` on success or
+        `(None, failure_reason)` on ANY failure — exception, unparseable JSON, or
+        schema-invalid JSON per `_validate_extraction`.
+
+        FAIL-CLOSED (R1 cycle-1 blocking fix): a failure here must NEVER be read as a benign
+        `intent="information"` turn — the pre-fix behavior defaulted to exactly that, silently
+        routing an unclassifiable (possibly clinical) message to `inform` (fail-OPEN,
+        live-reproduced by the verifier with "não consigo respirar" + malformed JSON). The
+        caller (`classify`) routes any failure to escalation `falha_tecnica` — the same
+        SP-OP-ESCALATION-001 technical-failure trigger the DMN-down path already uses, restoring
+        symmetry with every other failure path in this graph.
+
+        The failure reason is short and bounded: it names the failure class and (for schema
+        violations) the offending enum-ish value only — never the raw LLM output, never the
+        beneficiary's message text.
+        """
         prompt = f"{classify_prompt()}\n\nMensagem do beneficiario:\n{state.get('message_body', '')}"
         try:
             raw = await self._llm.generate(prompt, phi=True)
-        except Exception:  # noqa: BLE001 — fail-safe: treat as administrative info, never crash.
-            return {"intent": "information", "population": "none", "psychosocial_risk": False}
+        except Exception as exc:  # noqa: BLE001 — classified into a failure reason, never swallowed.
+            return None, f"classify LLM call failed: {type(exc).__name__}: {str(exc)[:200]}"
         data = _parse_json_object(raw)
         if data is None:
-            return {"intent": "information", "population": "none", "psychosocial_risk": False}
-        return data
+            return None, "classify LLM returned unparseable JSON"
+        schema_failure = _validate_extraction(data)
+        if schema_failure is not None:
+            return None, f"classify LLM returned schema-invalid JSON: {schema_failure}"
+        return data, None
 
     async def _respond_llm(self, state: HelenaState, response_kind: ResponseKind) -> str:
         context = {

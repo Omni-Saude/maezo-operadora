@@ -270,3 +270,124 @@ async def test_psychosocial_risk_always_escalates_even_when_intent_looks_adminis
     finally:
         await dmn.close()
         await cibseven.close()
+
+
+# ---------------------------------------------------------------------------
+# R1 cycle-1 regression (live): classifier failure is fail-CLOSED — escalate falha_tecnica,
+# never inform. These are the verifier's two exact live-reproduced cases; pre-fix, BOTH routed
+# to `inform` with zero engine instances started.
+# ---------------------------------------------------------------------------
+
+
+class _RaisingInference:
+    """LLM seam that always raises — the verifier's 'LLM exception' live case. `phi=True` is
+    still asserted on entry so the PHI-flag discipline check covers this path too."""
+
+    async def generate(self, prompt: str, *, phi: bool = False) -> str:
+        assert phi is True, "every Helena LLM call must be phi=True (ADR-0006/ADR-0017/T1.7)"
+        raise RuntimeError("LLM provider unavailable")
+
+
+async def test_malformed_classifier_json_escalates_falha_tecnica(
+    engine_base_url: str, engine_client: httpx.AsyncClient
+) -> None:
+    """Verifier live case 1: malformed classify JSON + 'não consigo respirar' -> a REAL
+    SP-OP-ESCALATION-001 instance (motivo=falha_tecnica -> escalation_routing r6 -> P3
+    atendimento-humano), never inform."""
+    conversation_id = f"wa:amh:t111-clf-badjson-{_RUN_ID}"
+    business_key = f"ESC-amh-{conversation_id}"
+
+    dmn = CibSevenDmnTransport(engine_base_url, timeout=30.0)
+    cibseven = CibSevenHttpTransport(engine_base_url, timeout=30.0)
+    whatsapp = _FakeWhatsAppSender()
+    inference = _FakeInference(
+        [
+            "this is {not valid json at all",  # classify -> unparseable -> falha_tecnica
+            "Resumo tecnico: classificador indisponivel; encaminhado para atendimento humano.",
+            "Tivemos um problema tecnico ao processar sua mensagem. Um atendente humano vai "
+            "continuar o atendimento.",
+        ]
+    )
+
+    graph = build({"inference": inference, "dmn": dmn, "cibseven": cibseven, "whatsapp": whatsapp})
+    compiled = graph.compile()
+
+    try:
+        result = await compiled.ainvoke(
+            {
+                "tenant_id": "amh",
+                "conversation_id": conversation_id,
+                "canal": "whatsapp",
+                "beneficiario_pseudo_id": f"pseudo-{_RUN_ID}-clf1",
+                "message_body": "não consigo respirar",
+            }
+        )
+
+        assert result["next_kind"] == "escalate", (
+            f"pre-fix fail-open regression: classifier failure must escalate, got "
+            f"next_kind={result.get('next_kind')!r}"
+        )
+        assert result["escalation_motivo"] == "falha_tecnica"
+        assert result["escalation_started"] is True
+        assert "unparseable JSON" in result["error"]
+        assert whatsapp.sent
+
+        actives = await active_instances(engine_client, business_key)
+        assert actives, (
+            f"classifier failure must start SP-OP-ESCALATION-001 for business_key={business_key!r} "
+            f"— none found active (the pre-fix behavior: zero instances)"
+        )
+        instance_id = str(actives[0]["id"])
+        task = await wait_for_task(engine_client, instance_id)
+        groups = await candidate_groups(engine_client, task["id"])
+        assert groups == {"atendimento-humano"}, (
+            f"falha_tecnica -> escalation_routing r6 -> P3 atendimento-humano; got {groups!r}"
+        )
+    finally:
+        await dmn.close()
+        await cibseven.close()
+
+
+async def test_classifier_llm_exception_escalates_falha_tecnica(
+    engine_base_url: str, engine_client: httpx.AsyncClient
+) -> None:
+    """Verifier live case 2: LLM exception + 'dor no peito muito forte' -> a REAL
+    SP-OP-ESCALATION-001 instance, never inform. The LLM is fully down for the whole turn
+    (classify, resumo, respond) — resumo/respond degrade to canned fail-safe text while the
+    escalation still starts."""
+    conversation_id = f"wa:amh:t111-clf-exc-{_RUN_ID}"
+    business_key = f"ESC-amh-{conversation_id}"
+
+    dmn = CibSevenDmnTransport(engine_base_url, timeout=30.0)
+    cibseven = CibSevenHttpTransport(engine_base_url, timeout=30.0)
+    whatsapp = _FakeWhatsAppSender()
+
+    graph = build({"inference": _RaisingInference(), "dmn": dmn, "cibseven": cibseven, "whatsapp": whatsapp})
+    compiled = graph.compile()
+
+    try:
+        result = await compiled.ainvoke(
+            {
+                "tenant_id": "amh",
+                "conversation_id": conversation_id,
+                "canal": "whatsapp",
+                "beneficiario_pseudo_id": f"pseudo-{_RUN_ID}-clf2",
+                "message_body": "dor no peito muito forte",
+            }
+        )
+
+        assert result["next_kind"] == "escalate"
+        assert result["escalation_motivo"] == "falha_tecnica"
+        assert result["escalation_started"] is True
+        assert "classify LLM call failed" in result["error"]
+        assert whatsapp.sent, "canned fail-safe reply must still reach the beneficiary"
+
+        actives = await active_instances(engine_client, business_key)
+        assert actives
+        instance_id = str(actives[0]["id"])
+        task = await wait_for_task(engine_client, instance_id)
+        groups = await candidate_groups(engine_client, task["id"])
+        assert groups == {"atendimento-humano"}
+    finally:
+        await dmn.close()
+        await cibseven.close()

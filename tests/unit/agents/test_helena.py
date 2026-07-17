@@ -286,6 +286,174 @@ async def test_classify_already_errored_state_is_noop() -> None:
     assert result == {}
 
 
+# ---------------------------------------------------------------------------
+# classify — R1 cycle-1 regression: classifier failure is fail-CLOSED (escalate falha_tecnica),
+# never a silent inform default. Covers the verifier's two live-reproduced cases plus
+# schema-invalid variants.
+# ---------------------------------------------------------------------------
+
+
+class _RaisingInference:
+    """LLM seam that always raises — the verifier's 'LLM exception' live case."""
+
+    async def generate(self, prompt: str, *, phi: bool = False) -> str:
+        raise RuntimeError("LLM provider unavailable")
+
+
+async def test_classify_llm_exception_escalates_falha_tecnica_never_informs() -> None:
+    """Verifier live case 2: LLM exception + 'dor no peito muito forte' must escalate — the
+    pre-fix behavior silently defaulted to intent='information' -> inform (fail-OPEN)."""
+    graph = _graph(inference=_RaisingInference())
+
+    result = await graph.classify(_base_state(message_body="dor no peito muito forte"))
+
+    assert result["next_kind"] == "escalate"
+    assert result["escalation_motivo"] == "falha_tecnica"
+    assert "classify LLM call failed" in result["error"]
+
+
+async def test_classify_unparseable_json_escalates_falha_tecnica_never_informs() -> None:
+    """Verifier live case 1: malformed JSON + 'não consigo respirar' must escalate."""
+    inference = _FakeInference(["this is {not valid json at all"])
+    graph = _graph(inference=inference)
+
+    result = await graph.classify(_base_state(message_body="não consigo respirar"))
+
+    assert result["next_kind"] == "escalate"
+    assert result["escalation_motivo"] == "falha_tecnica"
+    assert "unparseable JSON" in result["error"]
+
+
+async def test_classify_unknown_intent_enum_escalates_falha_tecnica() -> None:
+    """Schema-invalid: an intent value outside classify-v1's enum is a classify failure."""
+    inference = _FakeInference([_classify_json(intent="diagnose")])
+    graph = _graph(inference=inference)
+
+    result = await graph.classify(_base_state(message_body="me diga o que eu tenho"))
+
+    assert result["next_kind"] == "escalate"
+    assert result["escalation_motivo"] == "falha_tecnica"
+    assert "unknown intent" in result["error"]
+
+
+async def test_classify_invented_sintoma_codigo_escalates_falha_tecnica() -> None:
+    """Schema-invalid: a non-allow-listed sintoma_codigo would silently miss every DMN symptom
+    rule and land on the no-red-flag catch-all — it must escalate instead."""
+    inference = _FakeInference(
+        [_classify_json(intent="symptom", population="adult", sintoma_codigo="dor_de_cotovelo")]
+    )
+    graph = _graph(inference=inference)
+
+    result = await graph.classify(_base_state(message_body="dor no cotovelo"))
+
+    assert result["next_kind"] == "escalate"
+    assert result["escalation_motivo"] == "falha_tecnica"
+    assert "non-allow-listed sintoma_codigo" in result["error"]
+
+
+async def test_classify_invalid_population_escalates_falha_tecnica() -> None:
+    inference = _FakeInference([_classify_json(intent="symptom", population="idoso")])
+    graph = _graph(inference=inference)
+
+    result = await graph.classify(_base_state(message_body="dor"))
+
+    assert result["next_kind"] == "escalate"
+    assert result["escalation_motivo"] == "falha_tecnica"
+    assert "invalid population" in result["error"]
+
+
+async def test_classify_missing_psychosocial_risk_escalates_falha_tecnica() -> None:
+    """Schema-invalid: the always-active gatilho-5 signal must never be silently absent."""
+    inference = _FakeInference(['{"intent": "information", "population": "none"}'])
+    graph = _graph(inference=inference)
+
+    result = await graph.classify(_base_state(message_body="oi"))
+
+    assert result["next_kind"] == "escalate"
+    assert result["escalation_motivo"] == "falha_tecnica"
+    assert "psychosocial_risk" in result["error"]
+
+
+async def test_classify_out_of_domain_intensidade_escalates_falha_tecnica() -> None:
+    """Schema-invalid: an out-of-domain intensidade would miss the DMN's own 'grave' fail-safe
+    rows the same way an invented code would."""
+    inference = _FakeInference(
+        [
+            _classify_json(
+                intent="symptom", population="adult", sintoma_codigo="febre", intensidade="gravissima"
+            )
+        ]
+    )
+    graph = _graph(inference=inference)
+
+    result = await graph.classify(_base_state(message_body="febre muito alta"))
+
+    assert result["next_kind"] == "escalate"
+    assert result["escalation_motivo"] == "falha_tecnica"
+    assert "invalid intensidade" in result["error"]
+
+
+async def test_full_turn_malformed_json_reaches_escalation_never_inform() -> None:
+    """Full-graph version of verifier live case 1: the escalation process must actually be
+    STARTED (escalation_started True), not just routed."""
+    cibseven = FakeCibSevenTransport()
+    # Call order after the classify failure: _resumo_contexto, then _respond_llm.
+    inference = _FakeInference(["{{{malformed", "resumo tecnico", "um humano vai continuar"])
+    sender = _FakeWhatsAppSender()
+    graph = _graph(inference=inference, cibseven=cibseven, whatsapp=sender).compile_graph()
+    compiled = graph.compile()
+
+    result = await compiled.ainvoke(_base_state(message_body="não consigo respirar"))
+
+    assert result["next_kind"] == "escalate"
+    assert result["escalation_motivo"] == "falha_tecnica"
+    assert result["escalation_started"] is True
+    assert result["escalation_business_key"] == "ESC-amh-wa:amh:deadbeef"
+    assert sender.sent, "the beneficiary must still be told a human is taking over"
+
+
+async def test_full_turn_llm_exception_reaches_escalation_never_inform() -> None:
+    """Full-graph version of verifier live case 2: even with the LLM fully down (classify,
+    resumo, AND respond all raising), the escalation starts and a canned fail-safe reply is
+    still sent."""
+    cibseven = FakeCibSevenTransport()
+    sender = _FakeWhatsAppSender()
+    graph = _graph(inference=_RaisingInference(), cibseven=cibseven, whatsapp=sender).compile_graph()
+    compiled = graph.compile()
+
+    result = await compiled.ainvoke(_base_state(message_body="dor no peito muito forte"))
+
+    assert result["next_kind"] == "escalate"
+    assert result["escalation_motivo"] == "falha_tecnica"
+    assert result["escalation_started"] is True
+    assert sender.sent
+
+
+async def test_escalate_carries_classify_failure_reason_into_resumo_contexto() -> None:
+    """R1 cycle-1 fix: the technical-failure reason reaches the human handoff variable
+    (`resumo_contexto`) — bounded, no raw LLM output, no beneficiary text."""
+    recording: list[dict[str, Any]] = []
+
+    class _RecordingCibSeven(FakeCibSevenTransport):
+        async def start_process_instance(
+            self, process_key: str, business_key: str, variables: dict[str, Any]
+        ) -> ProcessInstance:
+            recording.append(dict(variables))
+            return await super().start_process_instance(process_key, business_key, variables)
+
+    graph = _graph(inference=_FakeInference(["resumo", "resposta"]), cibseven=_RecordingCibSeven())
+    await graph.escalate(
+        _base_state(
+            escalation_motivo="falha_tecnica",
+            escalation_severidade="leve",
+            error="classify LLM returned unparseable JSON",
+        )
+    )
+
+    assert recording
+    assert "falha tecnica: classify LLM returned unparseable JSON" in recording[0]["resumo_contexto"]
+
+
 async def test_evaluate_dmn_selects_table_by_population() -> None:
     dmn = FakeDmnTransport()
     dmn.register("triage_redflag_pediatric", [{"red_flag": False, "conduta": "CONTINUE"}])
