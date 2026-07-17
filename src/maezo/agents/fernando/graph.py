@@ -77,6 +77,27 @@ is carried as `None`, never echoed into `dossier["fatos"]` -> `dossie_fernando` 
 SP-OP-INADIMPLENCIA-001 engine process variable (general security zone, ADR-0006). See
 `tests/unit/agents/test_fernando.py::test_phi_bearing_intencao_never_reaches_engine_variables`.
 
+R1 CYCLE-1 FIX (verifier finding, helena-cycle-2 class — caller-planted OUTPUT-field
+read-through): the first build only guarded INPUT fields (`intencao`). The R1 verifier planted
+`status_inadimplencia="SUSPENDER CPF=..."` directly in caller state on the `rescisao` journey —
+where `assess` deliberately never classifies — and it read through verbatim into
+`dossier["fatos"]` -> `dossie_fernando` -> engine process variables; `sla_analise_iso`/
+`fonte_regulatoria_sla` leaked the same way on the receive-fail journeys, and a planted
+`business_key` would have become the ENGINE business key on those paths (`start_process`'s
+`state.get("business_key") or ...` fallback). Closed as a CLASS, both sides:
+  - WRITE side: `receive` (success return AND `_escalate_min`) merges `_output_field_resets()` —
+    every output-only state key this graph itself fills is reset to a neutral value at turn
+    start, so a caller-planted output value is overwritten before ANY downstream node reads it.
+  - READ side (defense in depth): `_build_dossier`/`_build_message` re-validate
+    `status_inadimplencia` against `_STATUS_ALLOW` at the point of use — out-of-allowlist ->
+    `None`, never echoed.
+See `test_caller_planted_status_never_reaches_engine_variables_on_rescisao` (the verifier's
+exact probe) and the `test_caller_planted_*` family. Residual (disclosed): `sla_analise_iso`/
+`sla_alerta_iso`/`fonte_regulatoria_*`/`prazo_*_iso` have no read-side closed-vocabulary check
+of their own (they are free-form DMN output strings with no finite domain to allowlist) — for
+these, the write-side reset is the load-bearing guard; they are only ever populated from DMN
+evaluation results after the reset.
+
 PHI discipline (ADR-0006/ADR-0017, T1.7's gate): every LLM call in this module passes `phi=True`
 (the message/dossier text is built from beneficiary-adjacent facts) — a non-PHI-capable provider
 raises `PhiZoneRoutingError`, which this graph does NOT special-case: `_build_message`/
@@ -289,6 +310,57 @@ def _motivo_categoria(motivo: MotivoHumano) -> MotivoCategoria:
     return "inadimplencia"
 
 
+def _output_field_resets() -> dict[str, Any]:
+    """Fresh neutral values for EVERY output-only state key this graph itself fills.
+
+    `receive` merges these into its return on BOTH the success and fail paths (R1 cycle-1 fix
+    — helena-cycle-2 class): LangGraph merges the caller's initial input state verbatim, and a
+    key no node overwrites flows through to the final state — so a caller-PLANTED value in an
+    OUTPUT field would read through into downstream nodes and engine variables on any journey
+    where the graph deliberately does not compute that field. Live example (R1 verifier probe):
+    `status_inadimplencia="SUSPENDER CPF=..."` planted in caller state on the `rescisao`
+    journey (where `assess` never classifies) landed verbatim in `dossier["fatos"]` ->
+    `dossie_fernando` -> SP-OP-INADIMPLENCIA-001 engine process variables (general zone).
+    Resetting every output field at turn start closes the CLASS, not just that field — including
+    `business_key` (a planted one would otherwise become the ENGINE business key on
+    receive-fail paths, since `start_process` falls back `state.get("business_key") or ...`)
+    and the observability outputs (`process_started`/`process_ref`/`desfecho` — a planted value
+    would fabricate a turn outcome that never happened).
+
+    Returns a FRESH dict with fresh nested containers per call — never a shared module-level
+    constant whose mutable values could alias across turns.
+    """
+    return {
+        # Filled by `assess`.
+        "status_inadimplencia": None,
+        "prazo_purga_iso": "",
+        "prazo_notificacao_previa_iso": "",
+        "periodo_minimo_iso": "",
+        "fonte_regulatoria_purga": "",
+        "sla_analise_iso": "",
+        "sla_alerta_iso": "",
+        "fonte_regulatoria_sla": "",
+        "dmn_refs": {},
+        "dmn_error": "",
+        # Routing.
+        "route": None,
+        "motivo_humano": None,
+        "motivo_categoria": None,
+        "business_key": "",
+        "error": "",
+        # `notify` outputs.
+        "mensagem": {},
+        "mensagem_enviada": False,
+        # `escalate` outputs.
+        "dossier": {},
+        # `start_process` outputs.
+        "process_started": False,
+        "process_ref": {},
+        # Turn output.
+        "desfecho": "",
+    }
+
+
 # --- Graph ------------------------------------------------------------------------------------
 
 
@@ -318,16 +390,18 @@ class FernandoGraph:
     # -- Nodes ----------------------------------------------------------------------------
 
     async def receive(self, state: FernandoState) -> dict[str, Any]:
-        """Turn start: defend against missing runtime context / an unrecognized `intencao`
-        (fail-closed -> escalate). NEVER echoes the raw offending value — class tokens only
-        (module docstring's engine-variable-hygiene section)."""
+        """Turn start: RESET every output-only state field (`_output_field_resets` — R1 cycle-1
+        fix: caller-planted values in output fields must never read through into downstream
+        nodes/engine variables), then defend against missing runtime context / an unrecognized
+        `intencao` (fail-closed -> escalate). NEVER echoes the raw offending value — class
+        tokens only (module docstring's engine-variable-hygiene section)."""
         if not state.get("tenant_id"):
             return self._escalate_min("falha_tecnica", "missing_tenant_id")
         if state.get("intencao") not in _VALID_INTENCOES:
             return self._escalate_min("ambiguidade", "invalid_intencao")
         if not (state.get("numero_contrato") or state.get("matricula_beneficiario")):
             return self._escalate_min("falha_tecnica", "missing_contract_key")
-        return {"business_key": _business_key(state)}
+        return {**_output_field_resets(), "business_key": _business_key(state)}
 
     async def assess(self, state: FernandoState) -> dict[str, Any]:
         """Evaluate the deterministic DMNs and decide `route` — NEVER by merit, only by the
@@ -484,8 +558,12 @@ class FernandoGraph:
         """Minimal fail-closed escalation used by `receive`, before any DMN runs. `error_token`
         is a bounded CLASS TOKEN ONLY — never the raw offending value (module docstring's
         engine-variable-hygiene section; unlike the donor's `graph.py:332`, which echoes
-        `intencao!r}` verbatim)."""
+        `intencao!r}` verbatim). Merges `_output_field_resets()` FIRST (R1 cycle-1 fix): the
+        receive-fail journeys were exactly where caller-planted output fields (e.g.
+        `status_inadimplencia`, `sla_analise_iso`, `business_key`) read through into engine
+        variables, because no downstream node overwrites them on these paths."""
         return {
+            **_output_field_resets(),
             "route": "escalate",
             "motivo_humano": motivo,
             "motivo_categoria": _motivo_categoria(motivo),
@@ -546,12 +624,17 @@ class FernandoGraph:
     async def _build_message(self, state: FernandoState) -> dict[str, Any]:
         """Draft the prior-notice/reminder text (J1/J2). LLM failure degrades to a safe,
         deterministic minimal text — NEVER blocks the already-decided neutral `notify` route
-        (mirrors Helena's `_respond_llm`)."""
+        (mirrors Helena's `_respond_llm`). `status_inadimplencia` gets the same read-side
+        `_STATUS_ALLOW` treatment as `_build_dossier`'s (R1 cycle-1 fix, symmetric defense in
+        depth on top of `receive`'s write-side reset — the message facts feed an LLM prompt and
+        the turn's `mensagem` output, never engine variables, but the discipline is uniform)."""
+        status_raw = state.get("status_inadimplencia")
+        status_validated = status_raw if status_raw in _STATUS_ALLOW else None
         facts: dict[str, Any] = {
             "numero_contrato": state.get("numero_contrato"),
             "tipo_plano": state.get("tipo_plano"),
             "competencias_em_aberto": state.get("competencias_em_aberto", []),
-            "status_inadimplencia": state.get("status_inadimplencia"),
+            "status_inadimplencia": status_validated,
             "dentro_janela_purga": state.get("dentro_janela_purga"),
             "prazo_purga_iso": state.get("prazo_purga_iso"),
             "prazo_notificacao_previa_iso": state.get("prazo_notificacao_previa_iso"),
@@ -583,9 +666,15 @@ class FernandoGraph:
         `facts["intencao"]` is populated ONLY from the closed `_VALID_INTENCOES` allowlist — an
         invalid/unvalidated value is NEVER echoed here (module docstring's engine-variable-
         hygiene section; this is the load-bearing fix over the donor, whose `graph.py:782`
-        embeds the raw `state.get("intencao")` unconditionally)."""
+        embeds the raw `state.get("intencao")` unconditionally). `facts["status_inadimplencia"]`
+        gets the same read-side treatment against `_STATUS_ALLOW` (R1 cycle-1 fix, defense in
+        depth on top of `receive`'s write-side reset): on the `rescisao`/DMN-unavailable/
+        receive-fail journeys the graph deliberately never classifies, so this field's value at
+        read time is only trustworthy if it survived the closed allowlist."""
         intencao = state.get("intencao")
         intencao_validated = intencao if intencao in _VALID_INTENCOES else None
+        status_raw = state.get("status_inadimplencia")
+        status_validated = status_raw if status_raw in _STATUS_ALLOW else None
         facts: dict[str, Any] = {
             "intencao": intencao_validated,
             "numero_contrato": state.get("numero_contrato"),
@@ -598,7 +687,7 @@ class FernandoGraph:
             "dentro_janela_purga": state.get("dentro_janela_purga"),
             "ja_em_rescisao_cancel": state.get("ja_em_rescisao_cancel"),
             "motivo_humano": state.get("motivo_humano"),
-            "status_inadimplencia": state.get("status_inadimplencia"),
+            "status_inadimplencia": status_validated,
             "sla_analise_iso": state.get("sla_analise_iso"),
             "fonte_regulatoria_sla": state.get("fonte_regulatoria_sla"),
             "dmn_refs": state.get("dmn_refs", {}),

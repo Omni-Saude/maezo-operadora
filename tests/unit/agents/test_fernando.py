@@ -276,7 +276,9 @@ async def test_full_turn_notify_sends_whatsapp_no_process_started() -> None:
     assert result["mensagem_enviada"] is True
     assert len(whatsapp.sent) == 1
     assert whatsapp.sent[0][0] == "hash-abc"
-    assert "process_started" not in result  # start_process node never reached
+    # start_process node never reached — the key IS present (receive's output-field reset,
+    # R1 cycle-1 fix) but explicitly False, and no engine instance exists.
+    assert result["process_started"] is False
     assert await cibseven.find_active_instance("INAD-amh-000000001") is None
 
 
@@ -530,6 +532,187 @@ async def test_phi_bearing_intencao_never_reaches_engine_variables() -> None:
     variables = graph_instance._inadimplencia_variables(result)
     assert planted_cpf not in str(variables)
     assert "intencao" not in variables  # never even a field in the contract's variable set
+
+
+# ---------------------------------------------------------------------------
+# R1 cycle-1 regression family: caller-planted OUTPUT-field read-through (helena-cycle-2 class).
+# The verifier planted values in "Filled by assess" output fields on journeys where the graph
+# deliberately never computes them (rescisao / DMN-unavailable / receive-fail) and they read
+# through verbatim into dossier facts -> dossie_fernando -> engine variables. Fixed by
+# `receive`'s write-side `_output_field_resets()` + `_build_dossier`/`_build_message`'s
+# read-side `_STATUS_ALLOW` re-validation. Sentinels below are deliberately low-entropy
+# (gitleaks hygiene, same rationale as the numero_contrato fixture comment).
+# ---------------------------------------------------------------------------
+
+# Unique low-entropy sentinel per output field — planted into caller state by the probes.
+_PLANTED_OUTPUTS: dict[str, Any] = {
+    "status_inadimplencia": "SUSPENDER CPF=123.456.789-00",  # the verifier's exact probe value
+    "prazo_purga_iso": "leak-prazo-purga-000",
+    "prazo_notificacao_previa_iso": "leak-prazo-notif-000",
+    "periodo_minimo_iso": "leak-periodo-min-000",
+    "fonte_regulatoria_purga": "leak-fonte-purga-000",
+    "sla_analise_iso": "leak-sla-analise-000",
+    "sla_alerta_iso": "leak-sla-alerta-000",
+    "fonte_regulatoria_sla": "leak-fonte-sla-000",
+    "dmn_refs": {"leak-table-000": "leak-ref-000"},
+    "dmn_error": "leak-dmn-error-000",
+    "route": "notify",  # a planted route trying to force the neutral path on a fail journey
+    "motivo_humano": "leak-motivo-000",
+    "motivo_categoria": "leak-categoria-000",
+    "error": "leak-error-000",
+    "business_key": "LEAK-BK-000000",
+    "mensagem": {"texto": "leak-mensagem-000"},
+    "mensagem_enviada": True,
+    "dossier": {"narrativa": "leak-narrativa-000"},
+    "process_started": True,
+    "process_ref": {"instance_id": "leak-instance-000"},
+    "desfecho": "leak-desfecho-000",
+}
+
+# Every string fragment that must never surface in dossier facts / engine-bound variables.
+_PLANTED_FRAGMENTS: tuple[str, ...] = (
+    "SUSPENDER",
+    "123.456.789-00",
+    "leak-",
+    "LEAK-BK-000000",
+)
+
+
+def _assert_no_planted_fragment(payload: Any) -> None:
+    text = str(payload)
+    for fragment in _PLANTED_FRAGMENTS:
+        assert fragment not in text, f"planted fragment {fragment!r} leaked into: {text[:400]}"
+
+
+async def test_caller_planted_status_never_reaches_engine_variables_on_rescisao() -> None:
+    """The R1 verifier's EXACT probe: `status_inadimplencia='SUSPENDER CPF=...'` planted in
+    caller state on the `rescisao` journey (where `assess` deliberately never classifies)
+    previously landed verbatim in dossier["fatos"].status_inadimplencia -> dossie_fernando ->
+    engine variables. Now: receive's reset overwrites it, and _build_dossier's read-side
+    allowlist would reject it even if it survived."""
+    dmn = FakeDmnTransport()
+    _register_sla(dmn)
+    cibseven = FakeCibSevenTransport()
+    graph_instance = _graph(dmn=dmn, cibseven=cibseven)
+    compiled = graph_instance.compile_graph().compile()
+
+    result = await compiled.ainvoke(
+        _base_state(intencao="rescisao", status_inadimplencia=_PLANTED_OUTPUTS["status_inadimplencia"])
+    )
+
+    assert result["route"] == "escalate"
+    assert result["motivo_humano"] == "indicio_rescisao"
+    assert result["process_started"] is True
+    assert result["dossier"]["fatos"]["status_inadimplencia"] is None
+    _assert_no_planted_fragment(result["dossier"])
+    _assert_no_planted_fragment(graph_instance._inadimplencia_variables(result))
+
+
+async def test_caller_planted_outputs_never_reach_engine_variables_on_dmn_unavailable() -> None:
+    """DMN-unavailable journey (status DMN unregistered -> dmn_indisponivel escalation): the
+    graph never computes `status_inadimplencia` here either — planted output values must be
+    reset, never read through. The graph's own `dmn_error` (a bounded transport message) must
+    replace the planted one."""
+    dmn = FakeDmnTransport()  # NOTHING registered: status AND sla both unavailable
+    cibseven = FakeCibSevenTransport()
+    graph_instance = _graph(dmn=dmn, cibseven=cibseven)
+    compiled = graph_instance.compile_graph().compile()
+
+    result = await compiled.ainvoke(_base_state(intencao="notificacao_previa", **_PLANTED_OUTPUTS))
+
+    assert result["route"] == "escalate"
+    assert result["motivo_humano"] == "dmn_indisponivel"
+    assert result["dossier"]["fatos"]["status_inadimplencia"] is None
+    assert result["sla_analise_iso"] == ""  # graph-computed reset, not the planted sentinel
+    assert "leak-dmn-error-000" not in result["dmn_error"]  # graph's own transport message
+    _assert_no_planted_fragment(result["dossier"])
+    _assert_no_planted_fragment(graph_instance._inadimplencia_variables(result))
+
+
+@pytest.mark.parametrize(
+    ("overrides", "expected_error"),
+    [
+        ({"intencao": "intencao-invalida-000"}, "invalid_intencao"),
+        ({"tenant_id": ""}, "missing_tenant_id"),
+        ({"numero_contrato": "", "matricula_beneficiario": ""}, "missing_contract_key"),
+    ],
+)
+async def test_caller_planted_outputs_cleared_on_receive_fail_paths(
+    overrides: dict[str, Any], expected_error: str
+) -> None:
+    """Every receive-fail journey resets ALL output fields (the verifier found
+    `sla_analise_iso`/`fonte_regulatoria_sla` leaking on exactly these paths). Also proves the
+    observability outputs can't be fabricated by the caller: `process_ref`/`desfecho` are the
+    graph's own, never the planted ones."""
+    dmn = FakeDmnTransport()
+    _register_sla(dmn)
+    cibseven = FakeCibSevenTransport()
+    graph_instance = _graph(dmn=dmn, cibseven=cibseven)
+    compiled = graph_instance.compile_graph().compile()
+
+    result = await compiled.ainvoke(_base_state(**{**_PLANTED_OUTPUTS, **overrides}))
+
+    assert result["route"] == "escalate"
+    assert result["error"] == expected_error
+    assert result["dossier"]["fatos"]["status_inadimplencia"] is None
+    assert result["desfecho"] == "encaminhado_analise_humana"  # graph's own, not planted
+    assert result["process_ref"]["instance_id"] != "leak-instance-000"
+    _assert_no_planted_fragment(result["dossier"])
+    _assert_no_planted_fragment(graph_instance._inadimplencia_variables(result))
+
+
+async def test_caller_planted_business_key_never_reaches_engine() -> None:
+    """A planted `business_key` on a receive-fail journey would previously have become the
+    ENGINE business key (`start_process`'s `state.get("business_key") or ...` fallback). Now:
+    receive resets it, start_process recomputes from the (input) contract identity."""
+    dmn = FakeDmnTransport()
+    _register_sla(dmn)
+    cibseven = FakeCibSevenTransport()
+    graph_instance = _graph(dmn=dmn, cibseven=cibseven)
+    compiled = graph_instance.compile_graph().compile()
+
+    result = await compiled.ainvoke(
+        _base_state(intencao="intencao-invalida-000", business_key="LEAK-BK-000000")
+    )
+
+    assert result["business_key"] == "INAD-amh-000000001"  # recomputed, never the planted key
+    assert await cibseven.find_active_instance("INAD-amh-000000001") is not None
+    assert await cibseven.find_active_instance("LEAK-BK-000000") is None
+
+
+async def test_receive_resets_every_output_field() -> None:
+    """Write-side unit proof: `receive` (success path) returns a reset for EVERY planted output
+    key, so downstream nodes can never observe a caller-planted output value."""
+    graph = _graph()
+    result = await graph.receive(_base_state(**_PLANTED_OUTPUTS))
+    for key, planted in _PLANTED_OUTPUTS.items():
+        if key == "business_key":
+            assert result[key] == "INAD-amh-000000001"  # computed, not the planted sentinel
+        else:
+            assert result[key] != planted, f"receive did not reset output field {key!r}"
+
+
+async def test_escalate_min_resets_every_output_field() -> None:
+    """Write-side unit proof for the fail paths: `_escalate_min`'s return also resets every
+    output key (then sets its own route/motivo/error class token on top)."""
+    result = FernandoGraph._escalate_min("falha_tecnica", "missing_tenant_id")
+    for key, planted in _PLANTED_OUTPUTS.items():
+        assert key in result, f"_escalate_min return is missing output field {key!r}"
+        assert result[key] != planted, f"_escalate_min does not reset output field {key!r}"
+
+
+async def test_build_dossier_read_side_allowlist_rejects_unknown_status() -> None:
+    """Read-side defense in depth (the verifier's minimal fix), proven in isolation by calling
+    `_build_dossier` directly with a hostile status ALREADY in state (bypassing receive's
+    write-side reset): out-of-allowlist -> None; a legit allowlisted value survives."""
+    graph = _graph()
+    hostile = _base_state(intencao="rescisao", status_inadimplencia="SUSPENDER CPF=123.456.789-00")
+    dossier = await graph._build_dossier(hostile)
+    assert dossier["fatos"]["status_inadimplencia"] is None
+
+    legit = _base_state(intencao="analise_inadimplencia", status_inadimplencia="SEGUE_ANALISE")
+    dossier = await graph._build_dossier(legit)
+    assert dossier["fatos"]["status_inadimplencia"] == "SEGUE_ANALISE"
 
 
 async def test_dmn_llm_calls_are_phi_tagged() -> None:
