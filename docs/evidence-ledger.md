@@ -21,3 +21,4 @@ machines since it excludes timing/header noise.
 | Task ID | Date | Author (agent, tier) | Verifier (agent, tier) | Commit SHA | Evidence (path:line) | Test hash | Status |
 |---|---|---|---|---|---|---|---|
 | T0.5 | 2026-07-16 | gates-engineer (R2) | — | 410bc01699c6ff1b275801da81b4f2d1626b39d0 | tests/unit/ci/test_check_evidence_ledger.py:1 | sha256:04abcdef4b3ff27711e03b0fe1c1ff20f5e8ea46fcfa8e5dd2ec918cfd7702c7 | implemented — unverified |
+| T1.8 | 2026-07-16 | policy-guardian (R1) | — | a9623285a3a9dc89eb72743c1b3d176e44e144c9 | src/maezo/gateway/pep.py:71 (HARD_ACTIONS frozen 5); src/maezo/gateway/pep.py:287 (load_matrix); src/maezo/gateway/pep.py:336 (build_pep fail-closed factory) | sha256:0445f32b7de310dd04b714204ee509e3df41d14e40ac37275b00a5218253fa43 | implemented — unverified |
