@@ -15,12 +15,18 @@ from maezo.tools.workers.reembolso import (
     ReembolsoInput,
     ReembolsoProtocoloInvalidoError,
     auto_approve_or_route,
+    calculate_amount_entry,
     calculate_value,
     check_coverage,
+    check_coverage_entry,
+    check_prazo_entry,
+    issue_payment_entry,
     notify_beneficiario,
     process_payment,
     publish_completed,
+    publish_completed_entry,
     send_reembolso_denial,
+    send_reembolso_denial_entry,
     validate_reembolso,
 )
 
@@ -473,3 +479,82 @@ def test_reembolso_denial_not_human_is_permission_error() -> None:
 def test_reembolso_protocolo_invalido_is_value_error() -> None:
     """ReembolsoProtocoloInvalidoError must be a subclass of ValueError."""
     assert issubclass(ReembolsoProtocoloInvalidoError, ValueError)
+
+
+# ---------------------------------------------------------------------------
+# Dict-boundary entry functions (T1.2/ADR-0026 §2b) — round-trip vs calling the
+# typed function directly; fail-closed marshalling on invalid/missing input.
+# T1.9: calculate_amount_entry only marshals into `calculate_value` — it never
+# re-derives `dentro_teto_l2` (see calculate_amount_entry's docstring).
+# ---------------------------------------------------------------------------
+
+
+def test_check_coverage_entry_round_trips_check_coverage() -> None:
+    variables = {"codigo_procedimento_tuss": "10101012", "cobertura_prevista": True}
+    assert check_coverage_entry(variables) == check_coverage(ReembolsoInput(**variables))
+
+
+def test_check_prazo_entry_raises_on_missing_protocolo() -> None:
+    """Fail-closed (unchanged guard): validate_reembolso raises ReembolsoProtocoloInvalidoError
+    when protocolo_reembolso is blank."""
+    with pytest.raises(ReembolsoProtocoloInvalidoError):
+        check_prazo_entry({"protocolo_reembolso": ""})
+
+
+def test_check_prazo_entry_happy_path_round_trips_validate_reembolso() -> None:
+    variables = {
+        "protocolo_reembolso": "REEMB-1",
+        "codigo_procedimento_tuss": "10101012",
+        "valor_solicitado_cents": 35000,
+        "dentro_prazo": True,
+    }
+    direct = validate_reembolso(ReembolsoInput(**variables))
+    result = check_prazo_entry(variables)
+    assert result["valid"] == direct.valid
+    assert result["dentro_prazo"] == direct.dentro_prazo
+
+
+def test_calculate_amount_entry_round_trips_calculate_value() -> None:
+    variables = {
+        "codigo_procedimento_tuss": "10101012",
+        "categoria_procedimento": "consulta",
+        "tipo_reembolso": "eletivo",
+        "valor_solicitado_cents": 30000,
+        "dentro_teto_l2": True,
+    }
+    direct = calculate_value(ReembolsoInput(**variables))
+    result = calculate_amount_entry(variables)
+    assert result["dentro_teto_l2"] == direct.dentro_teto_l2
+    assert result["valor_calculado_tabela_cents"] == direct.valor_calculado_tabela_cents
+
+
+def test_issue_payment_entry_round_trips_process_payment() -> None:
+    variables = {"protocolo_reembolso": "REEMB-1", "valor_cents": 30000, "beneficiario_pseudo_id": "B-1"}
+    direct = process_payment("REEMB-1", 30000, "B-1")
+    result = issue_payment_entry(variables)
+    assert result["payment_issued"] == direct["payment_issued"]
+    assert result["valor_cents"] == direct["valor_cents"]
+
+
+def test_send_reembolso_denial_entry_guards_missing_human_decision() -> None:
+    """send_reembolso_denial_entry raises the UNCHANGED ReembolsoDenialNotHumanError guard."""
+    with pytest.raises(ReembolsoDenialNotHumanError):
+        send_reembolso_denial_entry({"decisao_reembolso": ""})
+
+
+def test_send_reembolso_denial_entry_happy_path() -> None:
+    variables = {
+        "decisao_reembolso": "NEGAR",
+        "justificativa": "fora de cobertura",
+        "fundamentacao_contratual": "clausula 5",
+        "analista_id": "analista-1",
+    }
+    direct = send_reembolso_denial(ReembolsoDenialInput(**variables))
+    assert send_reembolso_denial_entry(variables) == direct
+
+
+def test_publish_completed_entry_round_trips_publish_completed() -> None:
+    variables = {"event_type": "reembolso.completed", "desfecho": "aprovado_automatico"}
+    assert publish_completed_entry(variables) == publish_completed(
+        event_type="reembolso.completed", payload={}, desfecho="aprovado_automatico"
+    )

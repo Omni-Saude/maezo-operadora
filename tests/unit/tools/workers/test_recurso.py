@@ -11,13 +11,18 @@ from maezo.tools.workers.recurso import (
     RecursoGlosaInvalidaError,
     RecursoInput,
     analyze_merits,
+    analyze_request_entry,
     assess_eligibility,
     escalate_to_junta,
     notify_prestador,
     prepare_dossier,
     publish_completed,
+    publish_completed_entry,
     register_desistencia,
+    register_desistencia_entry,
+    request_documents_entry,
     validate_recurso,
+    validate_recurso_entry,
 )
 
 # ---------------------------------------------------------------------------
@@ -306,3 +311,55 @@ def test_desistencia_not_human_is_permission_error() -> None:
 def test_recurso_glosa_invalida_is_value_error() -> None:
     """RecursoGlosaInvalidaError must be a subclass of ValueError."""
     assert issubclass(RecursoGlosaInvalidaError, ValueError)
+
+
+# ---------------------------------------------------------------------------
+# Dict-boundary entry functions (T1.2/ADR-0026 §2b) — round-trip vs calling the
+# typed function directly; fail-closed marshalling on invalid/missing input.
+# ---------------------------------------------------------------------------
+
+
+def test_validate_recurso_entry_round_trips_validate_recurso() -> None:
+    variables = {"glosa_id": "G-1", "glosa_existe": True, "dentro_prazo_recurso": True}
+    direct = validate_recurso(RecursoInput(**variables))
+    result = validate_recurso_entry(variables)
+    assert result["valid"] == direct.valid
+    assert result["glosa_existe"] == direct.glosa_existe
+
+
+def test_request_documents_entry_round_trips_notify_prestador_default_pendencia() -> None:
+    """notify_prestador's default message_type ("pendencia_documentacao") IS what makes this
+    the request_documents topic's handler (see recurso.py bootstrap docstring)."""
+    variables = {"prestador_id": "P-1", "glosa_id": "G-1"}
+    assert request_documents_entry(variables) == notify_prestador("P-1", "G-1", "pendencia_documentacao")
+
+
+def test_analyze_request_entry_round_trips_analyze_merits() -> None:
+    variables = {"glosa_id": "G-1", "glosa_type": "tecnica", "valor_glosado_brl": 100.0}
+    assert analyze_request_entry(variables) == analyze_merits(RecursoInput(**variables))
+
+
+def test_register_desistencia_entry_guards_missing_human_decision() -> None:
+    """register_desistencia_entry raises the UNCHANGED DesistenciaNotHumanError guard."""
+    with pytest.raises(DesistenciaNotHumanError):
+        register_desistencia_entry({"decisao_recurso": ""})
+
+
+def test_register_desistencia_entry_happy_path() -> None:
+    variables = {
+        "decisao_recurso": "NAO_RECORRER",
+        "justificativa_desistencia": "sem elementos novos",
+        "valor_glosa_aceito": 100.0,
+        "referencia_contratual": "clausula-1",
+        "analista_id": "analista-1",
+    }
+    direct = register_desistencia(RecursoDesistenciaInput(**variables))
+    result = register_desistencia_entry(variables)
+    assert result["registered"] == direct.registered
+
+
+def test_publish_completed_entry_round_trips_publish_completed() -> None:
+    variables = {"event_type": "recurso.completed", "desfecho": "deferido"}
+    assert publish_completed_entry(variables) == publish_completed(
+        event_type="recurso.completed", payload={}, desfecho="deferido"
+    )

@@ -8,10 +8,17 @@ only materializes after human decision.
 
 from __future__ import annotations
 
+import dataclasses
+import functools
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
+
+from maezo.tools.workers.base import FunctionWorker, pick_fields
+
+if TYPE_CHECKING:
+    from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
 
 logger = structlog.get_logger(__name__)
 
@@ -369,3 +376,179 @@ def publish_completed(
         "event_type": event_type,
         "payload": _payload,
     }
+
+
+# ---------------------------------------------------------------------------
+# Dict-boundary entry functions (T1.2/ADR-0026 §2b) — one per external-task
+# topic. Explicit field selection -> typed dataclass -> the UNCHANGED typed
+# function above -> dataclasses.asdict (or pass through when already a flat
+# dict). The typed functions/guards are byte-identical.
+#
+# Topic mapping vs spec/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn
+# (excl. shared/out-of-scope `operadora.events.publish`):
+#   notify_prestador  -> operadora.recurso.request_documents  (spec match: default message_type
+#                        IS "pendencia_documentacao" == "Abrir pendencia de documentacao ao prestador")
+#   analyze_merits     -> operadora.recurso.analyze_request     (spec match: "(agente Marina)" == this
+#                        function's own docstring "delegates to Marina (LLM agent)")
+#   register_desistencia -> operadora.recurso.register_desistencia (exact spec match, GUARDED)
+# validate_recurso/assess_eligibility/prepare_dossier/escalate_to_junta have
+# no distinct spec topic today (escalate_to_junta targets medico-auditor —
+# a DIFFERENT audience than spec's escalate_ans_timeout, not force-mapped) —
+# registered under function-derived topics for registry completeness.
+# publish_completed folds into the generic events.publish task per BPMN —
+# function-derived topic.
+# Spec topics with NO implementing function today (gap, not fabricated here):
+# notify_sla_risk, escalate_ans_timeout, submit_appeal, track_status, reconcile_payment.
+# ---------------------------------------------------------------------------
+
+
+def validate_recurso_entry(
+    variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
+) -> dict[str, Any]:
+    """Dict-boundary entry for `operadora.recurso.validate_recurso` -> `validate_recurso`."""
+    del kafka  # unused — validate_recurso emits no domain event
+    input_data = RecursoInput(**pick_fields(variables, RecursoInput))
+    result = validate_recurso(input_data)
+    return dataclasses.asdict(result)
+
+
+def assess_eligibility_entry(
+    variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
+) -> dict[str, Any]:
+    """Dict-boundary entry for `operadora.recurso.assess_eligibility` -> `assess_eligibility`."""
+    del kafka  # unused — assess_eligibility emits no domain event
+    input_data = RecursoInput(**pick_fields(variables, RecursoInput))
+    validation = RecursoValidationResult(**pick_fields(variables, RecursoValidationResult))
+    result = assess_eligibility(input_data, validation)
+    return dataclasses.asdict(result)
+
+
+def request_documents_entry(
+    variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
+) -> dict[str, Any]:
+    """Dict-boundary entry for `operadora.recurso.request_documents` -> `notify_prestador`."""
+    del kafka  # unused — notify_prestador emits no domain event
+    prestador_id = variables.get("prestador_id", "")
+    glosa_id = variables.get("glosa_id", "")
+    message_type = variables.get("message_type", "pendencia_documentacao")
+    return notify_prestador(prestador_id, glosa_id, message_type)
+
+
+def analyze_request_entry(
+    variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
+) -> dict[str, Any]:
+    """Dict-boundary entry for `operadora.recurso.analyze_request` -> `analyze_merits`."""
+    del kafka  # unused — analyze_merits emits no domain event
+    input_data = RecursoInput(**pick_fields(variables, RecursoInput))
+    return analyze_merits(input_data)
+
+
+def prepare_dossier_entry(
+    variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
+) -> dict[str, Any]:
+    """Dict-boundary entry for `operadora.recurso.prepare_dossier` -> `prepare_dossier`."""
+    del kafka  # unused — prepare_dossier emits no domain event
+    validation = RecursoValidationResult(**pick_fields(variables, RecursoValidationResult))
+    merits = {
+        "glosa_id": variables.get("glosa_id", ""),
+        "glosa_type": variables.get("glosa_type", ""),
+        "valor_glosado_brl": variables.get("valor_glosado_brl", 0.0),
+        "codigo_procedimento_tuss": variables.get("codigo_procedimento_tuss", ""),
+        "analise": variables.get("analise", ""),
+        "merito_sugerido": variables.get("merito_sugerido", "ANALISE_HUMANA"),
+    }
+    return prepare_dossier(validation, merits)
+
+
+def escalate_to_junta_entry(
+    variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
+) -> dict[str, Any]:
+    """Dict-boundary entry for `operadora.recurso.escalate_to_junta` -> `escalate_to_junta`."""
+    del kafka  # unused — escalate_to_junta emits no domain event
+    glosa_id = variables.get("glosa_id", "")
+    motivo = variables.get("motivo", "")
+    glosa_type = variables.get("glosa_type", "")
+    return escalate_to_junta(glosa_id, motivo, glosa_type)
+
+
+def register_desistencia_entry(
+    variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
+) -> dict[str, Any]:
+    """Dict-boundary entry for `operadora.recurso.register_desistencia` -> `register_desistencia`
+    (GUARDED).
+
+    Raises `DesistenciaNotHumanError` (fail-closed, ERR_DESISTENCIA_NOT_HUMAN) when
+    `decisao_recurso != NAO_RECORRER` or required fields are missing — unchanged guard, only the
+    dict<->dataclass marshalling is new.
+    """
+    del kafka  # unused — register_desistencia emits no domain event itself
+    input_data = RecursoDesistenciaInput(**pick_fields(variables, RecursoDesistenciaInput))
+    result = register_desistencia(input_data)
+    return dataclasses.asdict(result)
+
+
+def publish_completed_entry(
+    variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
+) -> dict[str, Any]:
+    """Dict-boundary entry for `operadora.recurso.publish_completed` -> `publish_completed`."""
+    del kafka  # unused — see module bootstrap docstring on the Kafka seam
+    event_type = variables.get("event_type", "recurso.completed")
+    payload = variables.get("payload") or {}
+    desfecho = variables.get("desfecho", "")
+    return publish_completed(event_type=event_type, payload=payload, desfecho=desfecho)
+
+
+def register_recurso_workers(
+    harness: WorkerHarness,
+    kafka: KafkaPublisher | None = None,
+    **seams: Any,
+) -> None:
+    """Register the SP-OP-RECURSO-001 dict-boundary entry functions on `harness`.
+
+    `kafka` is accepted (donor contract, ADR-0026 §2) and threaded via `functools.partial`; no
+    entry function calls `kafka.publish` today — see `ans_submit.register_ans_submit_workers`'s
+    docstring for the same documented sync/async-boundary rationale.
+    """
+    del seams  # unused — no additional seam (audit=/dmn=/dispatcher=/erasure=) is needed today
+    harness.register_worker(
+        FunctionWorker(
+            "operadora.recurso.validate_recurso", functools.partial(validate_recurso_entry, kafka=kafka)
+        )
+    )
+    harness.register_worker(
+        FunctionWorker(
+            "operadora.recurso.assess_eligibility",
+            functools.partial(assess_eligibility_entry, kafka=kafka),
+        )
+    )
+    harness.register_worker(
+        FunctionWorker(
+            "operadora.recurso.request_documents", functools.partial(request_documents_entry, kafka=kafka)
+        )
+    )
+    harness.register_worker(
+        FunctionWorker(
+            "operadora.recurso.analyze_request", functools.partial(analyze_request_entry, kafka=kafka)
+        )
+    )
+    harness.register_worker(
+        FunctionWorker(
+            "operadora.recurso.prepare_dossier", functools.partial(prepare_dossier_entry, kafka=kafka)
+        )
+    )
+    harness.register_worker(
+        FunctionWorker(
+            "operadora.recurso.escalate_to_junta", functools.partial(escalate_to_junta_entry, kafka=kafka)
+        )
+    )
+    harness.register_worker(
+        FunctionWorker(
+            "operadora.recurso.register_desistencia",
+            functools.partial(register_desistencia_entry, kafka=kafka),
+        )
+    )
+    harness.register_worker(
+        FunctionWorker(
+            "operadora.recurso.publish_completed", functools.partial(publish_completed_entry, kafka=kafka)
+        )
+    )

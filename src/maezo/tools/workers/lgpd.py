@@ -22,9 +22,12 @@ CRITICAL (LGPD, ADR-0008, L0 hard):
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from maezo.tools.workers.base import ERR_DENIAL_NOT_HUMAN, WorkerBase
+
+if TYPE_CHECKING:
+    from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
 
 # ---------------------------------------------------------------------------
 # ValidateIdentityWorker
@@ -399,3 +402,33 @@ class PublishCompletedWorker(WorkerBase):
             "event": "agents.events.lgpd_dsr.completed",
             "desfecho": desfecho,
         }
+
+
+# ---------------------------------------------------------------------------
+# Bootstrap — donor contract (T1.2/ADR-0026 Decisao §3). NOTE (known drift, not
+# introduced by this change): only `operadora.lgpd.verify_identity` matches a
+# `camunda:topic` in `spec/processes/bpmn/SP-OP-LGPD-DSR-001_*.bpmn` today;
+# that BPMN's other 5 topics (compile_data_package/execute_request/
+# notify_sla_risk/request_additional_proof/send_response) postdate these
+# classes and have no worker yet — pre-existing from T1.1, out of scope here
+# (no business-logic/topic edits); registered as-is per the charter ("keep
+# their classes — bootstrap-wrap them consistently").
+# ---------------------------------------------------------------------------
+
+
+def register_lgpd_workers(
+    harness: WorkerHarness,
+    kafka: KafkaPublisher | None = None,
+    **seams: Any,
+) -> None:
+    """Register the 6 SP-OP-LGPD-DSR-001 `WorkerBase` workers on `harness`."""
+    del kafka, seams  # unused — no lgpd.py worker declares a Kafka/other seam dependency
+    for worker_cls in (
+        ValidateIdentityWorker,
+        AssessRequestWorker,
+        ExecuteExportWorker,
+        ExecuteRectificationWorker,
+        ExecuteErasureWorker,
+        PublishCompletedWorker,
+    ):
+        harness.register_worker(worker_cls())

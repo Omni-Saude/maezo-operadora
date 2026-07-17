@@ -20,7 +20,7 @@ CRITICAL (ADR-0008, L0 hard):
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from maezo.tools.workers.base import ERR_DENIAL_NOT_HUMAN, WorkerBase
 from maezo.tools.workers.ceilings import CeilingResolver
@@ -30,6 +30,9 @@ from maezo.tools.workers.ceilings import CeilingResolver
 # tenants-amh.yaml overlay), resolved via the SAME loader the PEP uses.
 _CEILING_ACTION = "authorization_approval"
 _CEILING_PARAM = "max_value_brl"
+
+if TYPE_CHECKING:
+    from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
 
 # ---------------------------------------------------------------------------
 # AnalyzeRequestWorker
@@ -428,3 +431,30 @@ class ConveneJuntaWorker(WorkerBase):
             "fundamentacao": "RN 424/2017",
             "event": "agents.events.auth.completed",
         }
+
+
+# ---------------------------------------------------------------------------
+# Bootstrap — donor contract (T1.2/ADR-0026 Decisao §3): class modules register
+# directly, one WorkerBase() instance per topic. auth.py's 6 classes take no
+# constructor args (none declares a Kafka dependency today) — `kafka`/`seams`
+# are accepted for signature parity with the other 15 register_<domain>_workers
+# bootstraps and `register_all_workers` (ADR-0026 Decisao §4), unused here.
+# ---------------------------------------------------------------------------
+
+
+def register_auth_workers(
+    harness: WorkerHarness,
+    kafka: KafkaPublisher | None = None,
+    **seams: Any,
+) -> None:
+    """Register the 6 SP-OP-AUTH-001 `WorkerBase` workers on `harness`."""
+    del kafka, seams  # unused — no auth.py worker declares a Kafka/other seam dependency
+    for worker_cls in (
+        AnalyzeRequestWorker,
+        RequestDocumentsWorker,
+        IssueAuthorizationWorker,
+        SendDenialNoticeWorker,
+        NotifySlaRiskWorker,
+        ConveneJuntaWorker,
+    ):
+        harness.register_worker(worker_cls())

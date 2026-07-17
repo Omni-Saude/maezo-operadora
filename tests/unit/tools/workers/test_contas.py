@@ -11,13 +11,17 @@ from maezo.tools.workers.contas import (
     GlosaAcceptNotHumanError,
     GlosaInput,
     analyze_reason,
+    analyze_reason_entry,
     calculate_impact,
     identify_glosa,
+    identify_glosa_entry,
     notify_sla_risk,
     prepare_triage_dossier,
     publish,
+    publish_entry,
     reconcile_payment,
     register_glosa_accept,
+    register_glosa_accept_entry,
     start_recurso,
 )
 
@@ -299,3 +303,63 @@ def test_glosa_accept_not_human_is_permission_error() -> None:
 def test_contas_lote_invalido_is_value_error() -> None:
     """ContasLoteInvalidoError must be a subclass of ValueError."""
     assert issubclass(ContasLoteInvalidoError, ValueError)
+
+
+# ---------------------------------------------------------------------------
+# Dict-boundary entry functions (T1.2/ADR-0026 §2b) — round-trip vs calling the
+# typed function directly; fail-closed marshalling on invalid/missing input.
+# ---------------------------------------------------------------------------
+
+
+def test_identify_glosa_entry_round_trips_identify_glosa() -> None:
+    variables = {
+        "tenant_id": "amh",
+        "numero_lote_tiss": "LOTE-1",
+        "linhas_conta_refs": [{"valor_apresentado_brl": 100.0, "valor_glosado_brl": 10.0}],
+    }
+    direct = identify_glosa(GlosaInput(**variables))
+    result = identify_glosa_entry(variables)
+    assert result["has_glosas"] == direct.has_glosas
+    assert result["glosa_count"] == direct.glosa_count
+
+
+def test_identify_glosa_entry_raises_on_missing_required_fields() -> None:
+    """GlosaInput.tenant_id/numero_lote_tiss have NO dataclass default — fail-closed (ADR-0026
+    §2b): a missing required field raises this module's own ContasLoteInvalidoError, never a
+    bare TypeError."""
+    with pytest.raises(ContasLoteInvalidoError):
+        identify_glosa_entry({})
+
+
+def test_analyze_reason_entry_round_trips_analyze_reason() -> None:
+    variables = {"tenant_id": "amh", "numero_lote_tiss": "LOTE-1", "reason_codes_tiss": ["TECNICA"]}
+    assert analyze_reason_entry(variables) == analyze_reason(GlosaInput(**variables))
+
+
+def test_analyze_reason_entry_raises_on_missing_required_fields() -> None:
+    with pytest.raises(ContasLoteInvalidoError):
+        analyze_reason_entry({"reason_codes_tiss": ["TECNICA"]})
+
+
+def test_register_glosa_accept_entry_guards_missing_human_decision() -> None:
+    """register_glosa_accept_entry raises the UNCHANGED GlosaAcceptNotHumanError guard."""
+    with pytest.raises(GlosaAcceptNotHumanError):
+        register_glosa_accept_entry({"decisao_contas": ""})
+
+
+def test_register_glosa_accept_entry_happy_path() -> None:
+    variables = {
+        "decisao_contas": "ACEITAR_GLOSA",
+        "justificativa_glosa": "erro de tabela",
+        "codigo_glosa_aceito": "COD-1",
+        "valor_glosa_aceito_brl": 100.0,
+        "analista_id": "analista-1",
+    }
+    direct = register_glosa_accept(GlosaAcceptInput(**variables))
+    result = register_glosa_accept_entry(variables)
+    assert result["registered"] == direct.registered
+
+
+def test_publish_entry_round_trips_publish() -> None:
+    variables = {"event_type": "contas.completed", "payload": {"desfecho": "sem_glosa"}}
+    assert publish_entry(variables) == publish("contas.completed", {"desfecho": "sem_glosa"}, "")

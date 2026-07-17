@@ -17,6 +17,12 @@ process, starts an instance, and asserts:
                       is cancelled and explicitly unlocked (design §8) -> the SAME task is
                       immediately refetchable by a different worker (no need to wait out
                       `lock_duration_ms`).
+  4. T1.2/ADR-0026 — a `FunctionWorker`-wrapped, dict-first module function (registered via the
+                      real `register_<domain>_workers` bootstrap, not a raw closure) goes through
+                      the SAME real harness + real engine path: fetched -> `WorkerBase.run()`
+                      (retry/metrics) -> `execute()` -> the module's own function -> completed.
+                      Proves the FunctionWorker adapter (not just the harness itself) works
+                      end-to-end against a real engine.
 
 If the engine is unreachable, every test in this module SKIPS via the session-scoped
 `_skip_if_engine_unreachable` autouse fixture (`conftest.py`) with an explicit, loud reason —
@@ -32,12 +38,14 @@ from typing import Any
 import httpx
 import pytest
 
+from maezo.tools.workers.base import FunctionWorker
 from maezo.tools.workers.harness import (
     CibSevenWorkerTransport,
     ExternalTask,
     TopicSubscription,
     WorkerHarness,
 )
+from maezo.tools.workers.inadimplencia import resolve_facts
 
 from .conftest import RUN_ID, deploy_process, history_process_instance, list_incidents, start_process
 
@@ -179,6 +187,61 @@ async def test_graceful_shutdown_drain_unlocks_task_for_immediate_refetch(
         assert refetched.task_id == task.task_id
     finally:
         release.set()
+        await transport.close()
+
+
+async def test_function_worker_module_end_to_end(
+    engine_base_url: str, engine_client: httpx.AsyncClient
+) -> None:
+    """T1.2/ADR-0026 acceptance: ONE function-based module driven end-to-end through the REAL
+    harness + REAL engine via `FunctionWorker` — not a raw closure like the tests above, and not
+    a fake transport like the unit-level `FunctionWorker`/registration tests. Picks a simple,
+    pure, no-guard dict-first function (`inadimplencia.resolve_facts`, T1.1 §14 point 3 spirit:
+    "an inadimplencia or cancel topic with minimal variables") registered on the topic it would
+    actually get via `register_inadimplencia_workers`
+    (`operadora.inadimplencia.resolve_facts`), and asserts:
+      - the task is fetched, dispatched through `WorkerBase.run()` (retry/metrics wrapper) ->
+        `FunctionWorker.execute()` -> the UNCHANGED `resolve_facts` function,
+      - `complete` is called with the function's actual output (proving the round-trip, not
+        just "some completion happened"),
+      - the engine's process-instance history shows the process ended.
+    """
+    process_key = f"t12_it_function_worker_{RUN_ID}"
+    topic = f"operadora.inadimplencia.resolve_facts.{RUN_ID}"
+    await deploy_process(
+        engine_client,
+        process_key=process_key,
+        topic=topic,
+        deployment_name=f"t12-function-worker-{RUN_ID}",
+    )
+    process_instance_id = await start_process(
+        engine_client, process_key=process_key, business_key="bk-function-worker"
+    )
+
+    transport = CibSevenWorkerTransport(engine_base_url)
+    harness = WorkerHarness(transport, worker_id=f"it-worker-{RUN_ID}", async_response_timeout_ms=2_000)
+    harness.register_worker(FunctionWorker(topic, resolve_facts))
+
+    try:
+        run_task = asyncio.create_task(harness.run())
+        try:
+            for _ in range(60):
+                history = await history_process_instance(engine_client, process_instance_id)
+                if history.get("endTime") is not None:
+                    break
+                await asyncio.sleep(0.5)
+        finally:
+            run_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await run_task
+
+        history = await history_process_instance(engine_client, process_instance_id)
+        assert history["endTime"] is not None, (
+            f"process instance {process_instance_id} did not reach an end event after the "
+            f"FunctionWorker-wrapped resolve_facts completed (history: {history})"
+        )
+        assert history.get("state") == "COMPLETED"
+    finally:
         await transport.close()
 
 

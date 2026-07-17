@@ -13,9 +13,15 @@ from maezo.tools.workers.cancel import (
     CancelManterNotHumanError,
     assess_admissibility,
     notify_beneficiario,
+    prepare_dossier_entry,
     process_cancel,
+    process_cancel_entry,
     publish_completed,
+    publish_completed_entry,
     register_contract_termination,
+    request_notification_entry,
+    resolve_facts_entry,
+    send_cancellation_notice_entry,
     validate_cancel,
 )
 
@@ -313,3 +319,84 @@ def test_cancel_manter_not_human_is_permission_error() -> None:
 def test_cancel_contrato_invalido_is_value_error() -> None:
     """CancelContratoInvalidoError must be a subclass of ValueError."""
     assert issubclass(CancelContratoInvalidoError, ValueError)
+
+
+# ---------------------------------------------------------------------------
+# Dict-boundary entry functions (T1.2/ADR-0026 §2b) — round-trip vs calling the
+# typed function directly; fail-closed marshalling on invalid/missing input.
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_facts_entry_round_trips_validate_cancel() -> None:
+    variables = {"numero_contrato": "C-1", "tipo_solicitacao": "pedido_beneficiario", "dentro_prazo": True}
+    direct = validate_cancel(CancelInput(**variables))
+    result = resolve_facts_entry(variables)
+    assert result["valid"] == direct.valid
+    assert result["dentro_prazo"] == direct.dentro_prazo
+
+
+def test_prepare_dossier_entry_round_trips_assess_admissibility() -> None:
+    variables = {
+        "numero_contrato": "C-1",
+        "tipo_solicitacao": "pedido_beneficiario",
+        "tipo_plano": "individual",
+        "dentro_prazo": True,
+        "titularidade_confirmada": True,
+        "vinculo_ativo": True,
+    }
+    input_data = CancelInput(**{k: v for k, v in variables.items() if k in CancelInput.__dataclass_fields__})
+    validation = validate_cancel(input_data)
+    direct = assess_admissibility(input_data, validation)
+
+    entry_variables = dict(variables)
+    entry_variables.update(
+        valid=validation.valid,
+        dentro_prazo=validation.dentro_prazo,
+        notificacao_previa_feita=validation.notificacao_previa_feita,
+        titularidade_confirmada=validation.titularidade_confirmada,
+        vinculo_ativo=validation.vinculo_ativo,
+    )
+    result = prepare_dossier_entry(entry_variables)
+    assert result["roteamento"] == direct.roteamento
+
+
+def test_request_notification_entry_round_trips_notify_beneficiario() -> None:
+    variables = {"matricula_beneficiario": "M-1", "numero_contrato": "C-1", "message_type": "aviso"}
+    assert request_notification_entry(variables) == notify_beneficiario("M-1", "C-1", "aviso")
+
+
+def test_send_cancellation_notice_entry_guards_missing_human_decision() -> None:
+    """send_cancellation_notice_entry raises the UNCHANGED CancellationNotHumanError guard."""
+    with pytest.raises(CancellationNotHumanError):
+        send_cancellation_notice_entry({"decisao_cancelamento": ""})
+
+
+def test_send_cancellation_notice_entry_happy_path() -> None:
+    variables = {
+        "decisao_cancelamento": "RESCINDIR",
+        "fundamentacao_contratual": "inadimplencia",
+        "referencia_regulatoria": "RN 593",
+        "comprovacao_notificacao_previa": "carta-123",
+        "responsavel_id": "resp-1",
+    }
+    result = send_cancellation_notice_entry(variables)
+    assert result["registered"] is True
+
+
+def test_process_cancel_entry_round_trips_process_cancel() -> None:
+    variables = {
+        "numero_contrato": "C-1",
+        "decisao_cancelamento": "EFETIVAR_PEDIDO",
+    }
+    input_data = CancelInput(**{k: v for k, v in variables.items() if k in CancelInput.__dataclass_fields__})
+    decision = CancelDecisionInput(
+        **{k: v for k, v in variables.items() if k in CancelDecisionInput.__dataclass_fields__}
+    )
+    assert process_cancel_entry(variables) == process_cancel(input_data, decision)
+
+
+def test_publish_completed_entry_round_trips_publish_completed() -> None:
+    variables = {"event_type": "cancel.completed", "desfecho": "efetivado"}
+    assert publish_completed_entry(variables) == publish_completed(
+        event_type="cancel.completed", payload={}, desfecho="efetivado"
+    )

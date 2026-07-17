@@ -8,10 +8,17 @@ human decision in UT_RevisaoJuridicaNip.
 
 from __future__ import annotations
 
+import dataclasses
+import functools
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
+
+from maezo.tools.workers.base import FunctionWorker, pick_fields
+
+if TYPE_CHECKING:
+    from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
 
 logger = structlog.get_logger(__name__)
 
@@ -393,3 +400,164 @@ def _resolve_nao_assistencial_group(tema: str) -> str:
         "informacao": "regulatorio-ans",
     }
     return tema_groups.get(tema, "nucleo-ans")
+
+
+# ---------------------------------------------------------------------------
+# Dict-boundary entry functions (T1.2/ADR-0026 §2b) — one per external-task
+# topic. Explicit field selection -> typed dataclass -> the UNCHANGED typed
+# function above -> dataclasses.asdict (or pass through when already a flat
+# dict). The typed functions/guards are byte-identical.
+#
+# Topic mapping vs spec/processes/bpmn/SP-OP-NIP-001_Resposta_NIP.bpmn (excl.
+# shared/out-of-scope `operadora.events.publish`; spec has only 4 unique NIP
+# topics, several reused across multiple BPMN service tasks):
+#   assemble_response  -> operadora.nip.instruct_dossier    (exact spec match: "Montar dossie de instrucao")
+#   submit_to_ans        -> operadora.nip.submit_response     (spec match, GUARDED)
+#   handoff_ans_submit   -> operadora.nip.handoff_ans_submit  (exact name+spec match)
+# classify_nip/route_nip/review_juridico/notify_beneficiario have no distinct
+# spec topic (classification/routing/review are DMN-shaped internal steps;
+# spec's own `notify_deadline_risk` targets regulatorio-ans/juridico-regulatorio,
+# NOT the beneficiario notify_beneficiario provides — genuine audience
+# mismatch, not force-mapped) — registered under function-derived topics for
+# registry completeness. publish_completed folds into the generic
+# events.publish task per BPMN — function-derived topic.
+# Spec topic with NO implementing function today (gap, not fabricated here):
+# notify_deadline_risk.
+# ---------------------------------------------------------------------------
+
+
+def classify_nip_entry(variables: dict[str, Any], *, kafka: KafkaPublisher | None = None) -> dict[str, Any]:
+    """Dict-boundary entry for `operadora.nip.classify_nip` -> `classify_nip`."""
+    del kafka  # unused — classify_nip emits no domain event
+    input_data = NipInput(**pick_fields(variables, NipInput))
+    result = classify_nip(input_data)
+    return dataclasses.asdict(result)
+
+
+def route_nip_entry(variables: dict[str, Any], *, kafka: KafkaPublisher | None = None) -> dict[str, Any]:
+    """Dict-boundary entry for `operadora.nip.route_nip` -> `route_nip`."""
+    del kafka  # unused — route_nip emits no domain event
+    classification = NipClassificationResult(**pick_fields(variables, NipClassificationResult))
+    documentacao_suficiente = variables.get("documentacao_suficiente", False)
+    result = route_nip(classification, documentacao_suficiente)
+    return dataclasses.asdict(result)
+
+
+def instruct_dossier_entry(
+    variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
+) -> dict[str, Any]:
+    """Dict-boundary entry for `operadora.nip.instruct_dossier` -> `assemble_response`."""
+    del kafka  # unused — assemble_response emits no domain event
+    classification = NipClassificationResult(**pick_fields(variables, NipClassificationResult))
+    routing = NipRoutingResult(**pick_fields(variables, NipRoutingResult))
+    input_data = NipInput(**pick_fields(variables, NipInput))
+    return assemble_response(classification, routing, input_data)
+
+
+def review_juridico_entry(
+    variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
+) -> dict[str, Any]:
+    """Dict-boundary entry for `operadora.nip.review_juridico` -> `review_juridico`."""
+    del kafka  # unused — review_juridico emits no domain event
+    texto_minuta = variables.get("texto_minuta", "")
+    classificacao = variables.get("classificacao", "")
+    revisor_id = variables.get("revisor_id", "")
+    return review_juridico(texto_minuta, classificacao, revisor_id)
+
+
+def submit_response_entry(
+    variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
+) -> dict[str, Any]:
+    """Dict-boundary entry for `operadora.nip.submit_response` -> `submit_to_ans` (GUARDED).
+
+    Raises `NipNegativaNotHumanError` (fail-closed, ERR_NIP_NEGATIVA_NOT_HUMAN) when
+    `decisao_nip == MANTER_NEGATIVA` lacks the required human review fields — unchanged guard,
+    only the dict<->dataclass marshalling is new.
+    """
+    del kafka  # unused — submit_to_ans emits no domain event itself
+    response_input = NipResponseInput(**pick_fields(variables, NipResponseInput))
+    return submit_to_ans(response_input)
+
+
+def notify_beneficiario_entry(
+    variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
+) -> dict[str, Any]:
+    """Dict-boundary entry for `operadora.nip.notify_beneficiario` -> `notify_beneficiario`."""
+    del kafka  # unused — notify_beneficiario emits no domain event
+    beneficiario_pseudo_id = variables.get("beneficiario_pseudo_id", "")
+    numero_nip_ans = variables.get("numero_nip_ans", "")
+    decisao_nip = variables.get("decisao_nip", "")
+    return notify_beneficiario(beneficiario_pseudo_id, numero_nip_ans, decisao_nip)
+
+
+def handoff_ans_submit_entry(
+    variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
+) -> dict[str, Any]:
+    """Dict-boundary entry for `operadora.nip.handoff_ans_submit` -> `handoff_ans_submit`.
+
+    Raises `NipProtocoloInvalidoError` (fail-closed) when `protocolo_ans` is present but
+    empty/blank — absent (`None`) is legitimate (GAP-NIP-6) — unchanged guard.
+    """
+    del kafka  # unused — handoff_ans_submit emits no domain event
+    numero_nip_ans = variables.get("numero_nip_ans", "")
+    protocolo_ans = variables.get("protocolo_ans")
+    decisao_nip = variables.get("decisao_nip", "")
+    data_recebimento_nip_iso = variables.get("data_recebimento_nip_iso", "")
+    return handoff_ans_submit(numero_nip_ans, protocolo_ans, decisao_nip, data_recebimento_nip_iso)
+
+
+def publish_completed_entry(
+    variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
+) -> dict[str, Any]:
+    """Dict-boundary entry for `operadora.nip.publish_completed` -> `publish_completed`."""
+    del kafka  # unused — see module bootstrap docstring on the Kafka seam
+    event_type = variables.get("event_type", "nip.completed")
+    payload = variables.get("payload") or {}
+    desfecho = variables.get("desfecho", "")
+    return publish_completed(event_type=event_type, payload=payload, desfecho=desfecho)
+
+
+def register_nip_workers(
+    harness: WorkerHarness,
+    kafka: KafkaPublisher | None = None,
+    **seams: Any,
+) -> None:
+    """Register the SP-OP-NIP-001 dict-boundary entry functions on `harness`.
+
+    `kafka` is accepted (donor contract, ADR-0026 §2) and threaded via `functools.partial`; no
+    entry function calls `kafka.publish` today — see `ans_submit.register_ans_submit_workers`'s
+    docstring for the same documented sync/async-boundary rationale.
+    """
+    del seams  # unused — no additional seam (audit=/dmn=/dispatcher=/erasure=) is needed today
+    harness.register_worker(
+        FunctionWorker("operadora.nip.classify_nip", functools.partial(classify_nip_entry, kafka=kafka))
+    )
+    harness.register_worker(
+        FunctionWorker("operadora.nip.route_nip", functools.partial(route_nip_entry, kafka=kafka))
+    )
+    harness.register_worker(
+        FunctionWorker(
+            "operadora.nip.instruct_dossier", functools.partial(instruct_dossier_entry, kafka=kafka)
+        )
+    )
+    harness.register_worker(
+        FunctionWorker("operadora.nip.review_juridico", functools.partial(review_juridico_entry, kafka=kafka))
+    )
+    harness.register_worker(
+        FunctionWorker("operadora.nip.submit_response", functools.partial(submit_response_entry, kafka=kafka))
+    )
+    harness.register_worker(
+        FunctionWorker(
+            "operadora.nip.notify_beneficiario", functools.partial(notify_beneficiario_entry, kafka=kafka)
+        )
+    )
+    harness.register_worker(
+        FunctionWorker(
+            "operadora.nip.handoff_ans_submit", functools.partial(handoff_ans_submit_entry, kafka=kafka)
+        )
+    )
+    harness.register_worker(
+        FunctionWorker(
+            "operadora.nip.publish_completed", functools.partial(publish_completed_entry, kafka=kafka)
+        )
+    )

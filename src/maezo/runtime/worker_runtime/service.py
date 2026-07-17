@@ -10,9 +10,11 @@ Bring-up order (design §3/§10/§12), A -> E:
           engine is slow/unavailable. Signal ownership (SIGTERM/SIGINT) is claimed here.
   STEP B  Bring up dependencies BOUNDED and NON-FATAL: build the CIB Seven transport (pure
           construction — no network until the first fetch) and register every worker this build
-          serves (today: the 3 `WorkerBase` modules — auth/escalation/lgpd; T1.2 wires the other
-          13). Failure logs + leaves the corresponding readiness check unhealthy, but NEVER
-          brings the process down (liveness stays up).
+          serves — as of T1.2/ADR-0026 this is the FULL 16-module composition
+          (`bootstrap.register_all_workers`; T1.1 shipped only the 3 `WorkerBase` modules —
+          auth/escalation/lgpd — the interim-scope note this closes). Failure logs + leaves the
+          corresponding readiness check unhealthy, but NEVER brings the process down (liveness
+          stays up).
   STEP C  Readiness checks read `WorkerState`: `engine_reachable` / `workers_registered` /
           `harness_running` (+ `kafka_ready`, currently a no-op pass — see `kafka_ready`'s
           docstring in `build_readiness_checks` below). `/readyz` only turns 200 once every
@@ -39,59 +41,25 @@ import structlog
 
 from maezo.platform.health import CheckResult, build_health_server, create_health_app
 from maezo.platform.observability import get_metrics_collector
-from maezo.tools.workers.auth import (
-    AnalyzeRequestWorker,
-    ConveneJuntaWorker,
-    IssueAuthorizationWorker,
-    NotifySlaRiskWorker,
-    RequestDocumentsWorker,
-    SendDenialNoticeWorker,
-)
-from maezo.tools.workers.base import WorkerBase
-from maezo.tools.workers.escalation import NotifyFallbackWorker, NotifySupervisorWorker, NotifyTeamWorker
+from maezo.tools.workers.bootstrap import ALL_WORKER_BOOTSTRAPS, register_all_workers
 from maezo.tools.workers.harness import (
     CibSevenWorkerTransport,
     ExternalTask,
     TopicSubscription,
     WorkerHarness,
 )
-from maezo.tools.workers.lgpd import (
-    AssessRequestWorker,
-    ExecuteErasureWorker,
-    ExecuteExportWorker,
-    ExecuteRectificationWorker,
-    PublishCompletedWorker,
-    ValidateIdentityWorker,
-)
 
 from .settings import WorkerRuntimeSettings
 
 logger = structlog.get_logger(__name__)
 
-# Every `WorkerBase` module registrable TODAY (T1.1 scope). The other 13 function-based modules
-# (adequacao/ans_cron/ans_submit/cancel/contas/credenciamento/fraude/inadimplencia/nip/pagto/
-# programa/recurso/reembolso) are T1.2/ADR-0026's `FunctionWorker` adapter — deliberately NOT
-# wired here (charter: "do NOT migrate the 16 worker modules; the harness must run with whatever
-# registers today"). Adding a module here is exactly how T1.2 (and any future module) extends
-# the daemon's served-topic set — this tuple is the single source of truth `_expected_topics`
-# below derives from, never a hand-maintained duplicate.
-_DEFAULT_WORKER_CLASSES: tuple[type[WorkerBase], ...] = (
-    AnalyzeRequestWorker,
-    RequestDocumentsWorker,
-    IssueAuthorizationWorker,
-    SendDenialNoticeWorker,
-    NotifySlaRiskWorker,
-    ConveneJuntaWorker,
-    NotifyTeamWorker,
-    NotifyFallbackWorker,
-    NotifySupervisorWorker,
-    ValidateIdentityWorker,
-    AssessRequestWorker,
-    ExecuteExportWorker,
-    ExecuteRectificationWorker,
-    ExecuteErasureWorker,
-    PublishCompletedWorker,
-)
+# T1.2/ADR-0026: the daemon now registers the FULL 16-module composition
+# (`bootstrap.register_all_workers` — the donor's `_register_all_workers` shape, T1.1 design
+# §16), closing the T1.1 verifier's interim-scope note (T1.1 shipped only the 3 `WorkerBase`
+# modules — auth/escalation/lgpd). `register_default_workers` stays the daemon's STEP-B
+# bootstrap name/call site; it now delegates to the full composition rather than a
+# hand-maintained class tuple, so adding/removing a module (any of the 16, or a future 17th)
+# never requires a second, parallel edit here.
 
 
 def register_default_workers(harness: WorkerHarness) -> None:
@@ -99,8 +67,7 @@ def register_default_workers(harness: WorkerHarness) -> None:
 
     Idempotent (`WorkerHarness.register_worker` replaces on re-registration, same topic).
     """
-    for worker_cls in _DEFAULT_WORKER_CLASSES:
-        harness.register_worker(worker_cls())
+    register_all_workers(harness)
 
 
 def _expected_worker_topics() -> frozenset[str]:
@@ -234,7 +201,17 @@ def build_readiness_checks(state: WorkerState) -> list[Callable[[], Awaitable[Ch
                 name="workers_registered", healthy=False, detail="expected topic set not computed"
             )
         healthy = not missing
-        detail = None if healthy else f"missing topics ({len(missing)}/{len(expected)}): {sorted(missing)}"
+        if healthy:
+            # T1.2/ADR-0026: the scope detail the T1.1 verifier's interim-scope note asked for —
+            # readiness now reflects the FULL 16-module composition, not just the 3 WorkerBase
+            # modules T1.1 shipped. Included on the HEALTHY path too (not just failures) so
+            # `/readyz` is self-describing about what "ready" means.
+            detail = (
+                f"{len(ALL_WORKER_BOOTSTRAPS)}/16 worker modules registered "
+                f"({len(registered)} topics; scope: T1.2/ADR-0026 full composition)"
+            )
+        else:
+            detail = f"missing topics ({len(missing)}/{len(expected)}): {sorted(missing)}"
         return CheckResult(name="workers_registered", healthy=healthy, detail=detail)
 
     async def harness_running(_state: WorkerState = state) -> CheckResult:
@@ -246,14 +223,19 @@ def build_readiness_checks(state: WorkerState) -> list[Callable[[], Awaitable[Ch
         )
 
     async def kafka_ready(_state: WorkerState = state) -> CheckResult:
-        # No worker registered by THIS build declares a Kafka dependency (the 3 WorkerBase
-        # modules today take no constructor args — verified in the T1.1 design/charter). Kafka
-        # wiring is a KafkaPublisher seam (tools/workers/harness.py) for T1.2's function-module
-        # bootstraps; until a worker actually needs it, gating readiness on a producer this build
-        # never starts would be a readiness check on an unused dependency. Always healthy, with
-        # an explicit detail so this is never mistaken for "Kafka verified reachable".
+        # T1.2/ADR-0026: `kafka` (a `KafkaPublisher | None`) is now threaded via
+        # `functools.partial` into every one of the 13 function-based modules' entry functions
+        # (the donor `register_<domain>_workers(harness, kafka=None, **seams)` contract) — but no
+        # entry function actually CALLS `kafka.publish` yet (documented per-module: the sync
+        # entry-function boundary vs the async `KafkaPublisher.publish` seam is a real gap, not
+        # fabricated here). This daemon does not construct a real producer either. Gating
+        # readiness on a producer no registered worker actually drives would be a readiness check
+        # on an unused dependency. Always healthy, with an explicit detail so this is never
+        # mistaken for "Kafka verified reachable".
         return CheckResult(
-            name="kafka_ready", healthy=True, detail="not required by any worker registered in this build"
+            name="kafka_ready",
+            healthy=True,
+            detail="not required by any worker registered in this build (kafka=None; unused today)",
         )
 
     return [engine_reachable, workers_registered, harness_running, kafka_ready]
