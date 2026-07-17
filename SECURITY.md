@@ -36,11 +36,18 @@ Currently active:
   re-enabled in T2.4 (remainder) without autobuild: explicit
   `github/codeql-action/init` (`build-mode: none`) + `github/codeql-action/analyze`,
   `languages: python`. Python needs no build step, so autobuild (the original
-  blocker) is no longer in the picture. See that PR's own check run for the
-  live result; if GitHub Advanced Security is not provisioned on this
-  (private) repository, the SARIF-upload step of `analyze` may itself be
-  blocked the same way `dependency-review` is below — see the job's run logs
-  for the authoritative outcome.
+  blocker) is no longer in the picture. The **scan itself runs for real on
+  every PR/push/weekly trigger** (a scan failure is a red job). Only the
+  SARIF **upload** is gated by GitHub Advanced Security on private
+  repositories: `analyze` runs with `upload: never` and a follow-up step
+  attempts the real upload (`POST /repos/.../code-scanning/sarifs`) with the
+  workflow's own token, then classifies the outcome — success means results
+  are live in the Security tab; the exact GHAS-gate rejection ("Code
+  Security must be enabled for this repository to use code scanning.",
+  observed on this repo 2026-07-17) means a loud, visible skip; **any other
+  error fails the job** (fail-closed). Because the real gated operation is
+  attempted every run, provisioning GHAS auto-activates live results — no
+  workflow edit needed.
 - All third-party GitHub Actions across every workflow are pinned to full
   commit SHAs (a trailing comment names the version tag each SHA resolves
   to) — no floating `@vN` mutable tags remain, as of T2.4 (remainder).
@@ -56,14 +63,17 @@ Currently disabled (visible-skip guard job, not a silent `if: false`):
 
 - Dependency risk checks on PRs (`dependency-review-action`,
   `.github/workflows/security.yml`, `dependency-review` job) — this job runs
-  on every PR and checks `security_and_analysis.code_security.status` via
-  `gh api`; it only performs the real scan when that status reads
-  `"enabled"`. Confirmed via an admin-scoped API check on 2026-07-17:
-  `code_security.status == "disabled"` — GitHub Advanced Security is not
-  provisioned on this (private) repository, so `dependency-review-action` is
-  unsupported here (`"Dependency review is not supported on this
-  repository."`). Re-enablement tracked as T2.4 in
-  `docs/prompts/V2-COMPLETION-PLAN.md`; this job auto-activates the real scan
+  on every PR and **tries the exact API call the action is built on**
+  (`GET /repos/.../dependency-graph/compare/{basehead}`) with its own token,
+  then classifies the outcome: success runs the real, pinned action; an
+  HTTP 403 (which the upstream action itself maps to `"Dependency review is
+  not supported on this repository."`) is the GitHub Advanced Security gate
+  and produces a loud, visible skip; **any other error fails the job**
+  (fail-closed). GHAS is not provisioned on this (private) repository
+  (admin-scoped API check on 2026-07-17: `code_security.status ==
+  "disabled"`). Re-enablement tracked as T2.4 in
+  `docs/prompts/V2-COMPLETION-PLAN.md`; because the probe exercises the real
+  gated resource with the real token, this job auto-activates the real scan
   the moment GHAS is provisioned — no workflow edit needed.
 
 Restoration gap (documented, not implemented — see
