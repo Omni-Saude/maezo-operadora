@@ -378,6 +378,33 @@ def test_agent_yaml_autonomy_policy_paths_resolve() -> None:
         assert resolved == AUTONOMY_DIR.resolve()
 
 
+# --- Bonus (T1.8 REVISE-1): installed-wheel layout boots without MAEZO_SPEC_DIR -------
+
+
+def test_build_pep_boots_from_installed_wheel_layout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Simulate the installed-wheel layout: the hatch force-include lays the policy
+    YAMLs at `<site-packages>/maezo/spec/policies/autonomy`. With MAEZO_SPEC_DIR
+    unset and no repo checkout in sight, `resolve_spec_dir()`'s package-adjacent
+    fallback must find them and `build_pep()` must boot and hard-deny."""
+    import shutil
+
+    import maezo.agents as agents_pkg
+
+    site = tmp_path / "site-packages"
+    fake_init = site / "maezo" / "agents" / "__init__.py"
+    fake_init.parent.mkdir(parents=True)
+    fake_init.write_text("# simulated installed module file\n")
+    shutil.copytree(AUTONOMY_DIR, site / "maezo" / "spec" / "policies" / "autonomy")
+
+    monkeypatch.delenv("MAEZO_SPEC_DIR", raising=False)
+    monkeypatch.setattr(agents_pkg, "__file__", str(fake_init))
+
+    pep = build_pep()
+    assert pep.evaluate("authorization_denial") is Decision.DENY
+    assert pep.evaluate("acao_inexistente") is Decision.DENY
+    assert pep.evaluate("triage_and_routing") is Decision.ALLOW
+
+
 # --- Bonus: the L0-non-hard → REQUIRE_HUMAN mapping branch ----------------------------
 
 
