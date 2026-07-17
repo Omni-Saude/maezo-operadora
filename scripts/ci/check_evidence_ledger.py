@@ -154,6 +154,19 @@ class CheckResult:
     message: str
 
 
+# Git conflict markers at line start. `=======` alone is ambiguous with setext
+# underlines in general markdown, but the ledger is a single table document —
+# a bare 7-equals line only ever means an unresolved (or committed) conflict.
+# Incident precedent: PR #46 merged a stash-conflict block into the ledger and
+# the row-presence check happily passed over it.
+_CONFLICT_MARKER_RE = re.compile(r"^(?:<{7}(?: |$)|={7}$|>{7}(?: |$))", re.MULTILINE)
+
+
+def find_conflict_markers(ledger_text: str) -> list[int]:
+    """Return 1-indexed line numbers of git conflict markers in the ledger."""
+    return [ledger_text.count("\n", 0, m.start()) + 1 for m in _CONFLICT_MARKER_RE.finditer(ledger_text)]
+
+
 def evaluate(detected_ids: set[str], ledger_text: str | None) -> CheckResult:
     """Decide pass/fail given already-detected task IDs and (maybe) ledger content.
 
@@ -169,6 +182,20 @@ def evaluate(detected_ids: set[str], ledger_text: str | None) -> CheckResult:
         ledger row, or whenever ledger_text is None despite a non-empty
         detected_ids (treated as fail-closed, never as pass/skip).
     """
+    if ledger_text is not None:
+        marker_lines = find_conflict_markers(ledger_text)
+        if marker_lines:
+            return CheckResult(
+                ok=False,
+                detected_ids=frozenset(detected_ids),
+                missing_ids=frozenset(),
+                message=(
+                    "Ledger integrity failure: git conflict markers at line(s) "
+                    f"{marker_lines} of the evidence ledger — resolve the conflict "
+                    "properly before merging (fail-closed regardless of task rows)."
+                ),
+            )
+
     if not detected_ids:
         return CheckResult(
             ok=True,
@@ -289,10 +316,13 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     detected_ids = detect_task_ids(branch, pr_body)
 
+    # Read the ledger whenever it exists (not only when IDs were detected) so
+    # the conflict-marker integrity guard covers every PR, task-scoped or not.
     ledger_text: str | None = None
-    if detected_ids:
+    ledger_path = Path(args.ledger_path)
+    if detected_ids or ledger_path.exists():
         try:
-            ledger_text = Path(args.ledger_path).read_text(encoding="utf-8")
+            ledger_text = ledger_path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError) as exc:
             print(
                 f"[evidence-ledger-check] ERROR: could not read ledger '{args.ledger_path}': {exc}",
