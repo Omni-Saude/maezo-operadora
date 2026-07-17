@@ -98,7 +98,7 @@
         <outputEntry id="r_eletivo_leve_o2"><text>"Eletivo com acesso dentro de thresholds estendidos — gap leve; monitorar (L3); DRAFT/verify RN 259"</text></outputEntry>
       </rule>
       <rule id="r_urgencia_leve">
-        <description>Urgencia/emergencia com acesso dentro dos thresholds (<= 30min, <= 30km) e cobertura ok -> GAP_LEVE (monitorar)</description>
+        <description>Urgencia/emergencia com acesso dentro dos thresholds (&lt;= 30min, &lt;= 30km) e cobertura ok -> GAP_LEVE (monitorar)</description>
         <inputEntry id="r_urgencia_leve_i1"><text>"urgencia_emergencia"</text></inputEntry>
         <inputEntry id="r_urgencia_leve_i2"><text>&lt;= 30</text></inputEntry>
         <inputEntry id="r_urgencia_leve_i3"><text>&lt;= 30.0</text></inputEntry>

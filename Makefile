@@ -23,6 +23,16 @@ evals:            ## golden datasets por agente (gate de promocao de prompt/mode
 	uv run pytest tests/evals -q -m eval || [ $$? -eq 5 ]  # exit 5 = nenhum eval coletado ainda (scaffold); vira erro quando o 1o golden dataset entrar
 
 validate-artifacts: ## BPMN/DMN/policies/agent-definitions (blocker de CI)
+	# T2.1: validate_artifacts() is now a real, fail-closed gate (XML/YAML parsing,
+	# BPMN<->DMN cross-refs, orphan-DMN allowlist, agent.yaml schema + MCP-server
+	# allowlist) — see src/maezo/platform/validation/{bpmn,dmn,policy,agent_def,
+	# crossref}.py. Third path repointed from src/maezo/agents to spec/agents:
+	# spec/ is the single source of truth (per ADR) for every artifact family this
+	# gate checks, and T0.3 (B14) is repointing every other consumer the same way —
+	# src/maezo/agents/<id>/ will hold only graph.py once T0.3 lands. The validator
+	# itself classifies a directory by its on-disk *structure* (bpmn/dmn
+	# subdirectories, an autonomy/ subdirectory, or per-item agent.yaml files), not
+	# by name, so it works against either location.
 	# T0.3 × T0.4 reconciliation: spec/ is the single source of truth — spec/agents
 	# replaced src/maezo/agents (T0.3 moved agent.yaml definitions there); the
 	# src/maezo/processes and src/maezo/policies paths never existed (T0.4). Pointer
