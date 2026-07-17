@@ -1,50 +1,520 @@
-"""Rafael Nogueira — Analista de Autorizacao Previa Agent (Phase 1, AUTH).
+"""Rafael Nogueira — Analista de Autorizacao Previa Agent (Phase 1, AUTH, T1.11/defect B6).
 
-Rafael is the Phase 1 centerpiece agent. He instructs SP-OP-AUTH-001 and
-assembles the medico-auditor dossier. His graph is a stub in M5a — the full
-implementation (with DMN evaluation, FHIR enrichment, and dossier assembly)
-arrives in M6.
+Journey (mirrors the v1 donor's structure, READ-ONLY reference `Maezo-Healthcare-Plan
+src/maezo/agents/rafael/graph.py`, adapted to v2's flatter seam set — same rationale as
+`agents/helena/graph.py`'s module docstring):
 
-Rafael is a TARGET of delegation: Helena delegates "authorization.analyze"
-tasks to him via the A2A dispatcher (ADR-0003).
+    receive -> gather -> assess -> {auto_approve | human_auditor} -> start_process -> complete
 
-L0 HARD INVARIANT: Rafael NEVER exercises authorization_denial or clinical_decision.
-Negatives and coverage decisions are exclusively the medico-auditor's User Task.
+`assess` evaluates `auth_admissibility` (FIRST hit policy; no denial output by design — the
+contract's own invariant) and, when it resolves `SEGUE_ANALISE`, `auth_auto_approval` (also no
+denial output — only `AUTO_APROVAR` | `ANALISE_HUMANA`). `auth_sla` is evaluated unconditionally
+and is PURELY informative (feeds the dossier; never affects routing). Rafael then starts
+SP-OP-AUTH-001 idempotently (business key `AUTH-{tenant_id}-{numero_guia_tiss}`) with the
+DMN-derived route recorded as a process variable — the BPMN's OWN `businessRuleTask`s
+(`BRT_Admissibilidade`/`BRT_AutoApproval`) independently re-evaluate the same tables from the
+process variables Rafael supplied, and it is THAT engine-side gateway
+(`GW_AutoAprovacao`, condition `${{auto_aprovacao.recomendacao == 'AUTO_APROVAR'}}`) that
+actually drives the BPMN to either the automatic-issuance path or `UT_AnaliseMedicoAuditor`
+(candidate group `medico-auditor`, declared statically in the BPMN — Rafael's `start_process`
+node does nothing beyond POSTing the start with the right variables; it never explicitly
+creates/assigns a task).
+
+L0 HARD INVARIANT (ADR-0005/0008, contract SP-OP-AUTH-001 §Invariante L0 hard): Rafael NEVER
+denies coverage and NEVER makes the coverage decision. A denial is born EXCLUSIVELY in the
+human User Task (`UT_AnaliseMedicoAuditor`). Enforced structurally here:
+  - `Route` admits only `{"auto_approve", "human_auditor"}` — no deny variant exists in the type.
+  - The assembled dossier's `decisao_cobertura` field is ALWAYS `None` (`_build_dossier`) — a
+    guardrail making it explicit the decision belongs to the auditor, never to this code.
+  - `dentro_teto_l2`/`dut_atendida`/`rede_credenciada`/`carencia_cumprida`/`beneficiario_ativo`/
+    `documentacao_completa` all arrive PRE-RESOLVED by a deterministic worker upstream (contract
+    SP-OP-AUTH-001's own variable table) — this graph CONSUMES them, never computes them (the
+    `dentro_teto_l2` tenant-ceiling comparison in particular is `tools/workers/ceilings.py`'s job,
+    explicitly FORBIDDEN territory for this change).
+
+PHI discipline: Rafael's `security_zone` is `phi` end-to-end (`spec/agents/rafael/agent.yaml`) —
+the one LLM call (`_build_dossier`'s narrative) passes `phi=True` (ADR-0006/ADR-0017/T1.7).
+
+LABELED BOUNDARIES (this build, disclosed — never fabricated):
+- `gather` uses v2's generic `FhirServer` (`tools/mcp_fhir/server.py`: `read_resource`/
+  `search_resources`) via a thin `FhirReader` seam — NOT a dedicated `read_patient`/
+  `search_coverage` PEP-gated tool like the v1 donor's. This is a real shape drift, disclosed,
+  not hidden: v2 has no `ToolRegistry`/PEP gateway wiring for agent tool calls yet (T2.4 gap).
+  `gather` is best-effort and NEVER blocks routing on a FHIR failure (mirrors the donor exactly)
+  — a missing/unreachable FHIR endpoint degrades to a dossier gap note, never a fabricated fact.
+  When no `fhir` dependency is injected at all (`config.get("fhir")` is `None`), `gather` records
+  an explicit gap note rather than silently producing empty facts that look like "no findings".
+- No episodic memory write (ADR-0002) — same rationale as Helena's graph.
+- No cross-agent A2A delegation (Helena -> Rafael `authorization.analyze`) is wired in this
+  build: v2's `a2a/` package has no `DelegationEnvelope`/`DelegationDispatcher` yet (only
+  `AgentCard`/`A2ARegistry`/`AntiLoopGuard` exist) — porting/building that dispatcher is a
+  separate, non-trivial task out of this charter's scope. Rafael's graph is invoked directly
+  with an already-assembled auth-request state (as the integration test does) rather than via a
+  live Helena-originated delegation.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal, Protocol, TypedDict, cast
 
-from langgraph.graph import StateGraph
+from langgraph.graph import END, START, StateGraph
 
-from maezo.runtime.harness import AgentState
+from maezo.runtime.inference import InferenceProvider
+from maezo.tools.mcp_cibseven.transport import (
+    CibSevenError,
+    CibSevenTransport,
+    start_process_idempotent,
+)
+from maezo.tools.workers.dmn_transport import (
+    DmnEvaluationError,
+    DmnNoResultError,
+    DmnTransport,
+    first_row,
+)
+
+from .prompts import DOSSIER_PROMPT_VERSION, SYSTEM_PROMPT_VERSION, dossier_prompt
+
+PROCESS_KEY = "SP-OP-AUTH-001"
+
+Route = Literal["auto_approve", "human_auditor"]
+Admissibilidade = Literal["NAO_REQUER", "PENDENTE_DOCUMENTACAO", "SEGUE_ANALISE"]
+Recomendacao = Literal["AUTO_APROVAR", "ANALISE_HUMANA"]
+MotivoAuditor = Literal["dmn_analise_humana", "documentacao_pendente", "dmn_indisponivel", "outro"]
+CategoriaProcedimento = Literal[
+    "consulta", "exame_simples", "exame_especial", "terapia", "internacao", "opme", "alta_complexidade"
+]
+
+DMN_ADMISSIBILITY = "auth_admissibility"
+DMN_AUTO_APPROVAL = "auth_auto_approval"
+DMN_SLA = "auth_sla"
 
 
-def build() -> StateGraph[AgentState]:
-    """Build and return Rafael's StateGraph (stub for M5a).
+class FhirReader(Protocol):
+    """Best-effort FHIR read seam (`gather`). See module docstring's labeled boundary."""
 
-    Returns an uncompiled StateGraph[AgentState] wired as:
-    __start__ → agent → __end__
+    async def read_patient(self, patient_id: str) -> dict[str, Any]: ...
 
-    Full implementation (M6) will add nodes for:
-    - gather: FHIR patient/coverage reads
-    - assess: DMN auth_admissibility / auth_auto_approval
-    - dossier: assemble medico-auditor dossier
-    - escalate: SP-OP-AUTH-001 human routing
+    async def search_coverage(self, patient_id: str) -> Any: ...
 
-    Returns:
-        A StateGraph[AgentState] stub for Rafael's authorization workflow.
+
+class RafaelState(TypedDict, total=False):
+    """Case state. Pre-resolved booleans arrive from a deterministic upstream worker — Rafael
+    CONSUMES them, never computes them (module docstring's L0-hard invariant)."""
+
+    # Runtime identifiers.
+    tenant_id: str
+    numero_guia_tiss: str
+    beneficiario_pseudo_id: str
+    prestador_id: str
+    canal: str  # a2a | portal_tiss
+
+    # Request data (contract SP-OP-AUTH-001 input variables).
+    codigo_procedimento_tuss: str
+    categoria_procedimento: CategoriaProcedimento
+    carater_atendimento: str  # urgencia | eletivo
+    valor_estimado_brl: float
+    cid10: str
+    documentos_refs: list[dict[str, Any]]
+
+    # Pre-resolved booleans (deterministic worker upstream) — CONSUMED, never computed here.
+    requer_autorizacao: bool
+    documentacao_completa: bool
+    beneficiario_ativo: bool
+    carencia_cumprida: bool
+    dut_atendida: bool
+    dentro_teto_l2: bool
+    rede_credenciada: bool
+
+    # FHIR references for `gather` (never raw PHI).
+    coverage_ref: str
+    patient_ref: str
+
+    # Filled by `gather`.
+    gathered: bool
+    coverage_facts: dict[str, Any] | list[Any]
+    patient_facts: dict[str, Any]
+    gather_notes: list[str]
+
+    # Filled by `assess`.
+    admissibilidade: Admissibilidade
+    recomendacao_auto: Recomendacao
+    sla_analise: str
+    sla_alerta: str
+    dmn_refs: dict[str, str]
+    dmn_error: str
+    route: Route
+    motivo_auditor: MotivoAuditor | None
+
+    # Filled by `auto_approve`/`human_auditor`.
+    dossier: dict[str, Any]
+
+    # Filled by `start_process`.
+    process_started: bool
+    business_key: str
+    process_ref: dict[str, Any]
+
+    # Output.
+    desfecho: str  # encaminhado_auditor | aprovacao_automatica_solicitada | nao_requer
+    error: str
+
+
+def _business_key(state: RafaelState) -> str:
+    """Idempotent business key per contract: `AUTH-{tenant_id}-{numero_guia_tiss}`."""
+    return f"AUTH-{state.get('tenant_id', '')}-{state.get('numero_guia_tiss', '')}"
+
+
+class RafaelGraph:
+    """Wires Rafael's injected dependencies into a compilable `StateGraph[RafaelState]`."""
+
+    def __init__(
+        self,
+        *,
+        inference: InferenceProvider,
+        dmn: DmnTransport,
+        cibseven: CibSevenTransport,
+        fhir: FhirReader | None = None,
+        agent_version: str = "rafael@v0",
+    ) -> None:
+        self._llm = inference
+        self._dmn = dmn
+        self._cibseven = cibseven
+        self._fhir = fhir
+        self._agent_version = agent_version
+
+    # -- Nodes ----------------------------------------------------------------------------
+
+    async def receive(self, state: RafaelState) -> dict[str, Any]:
+        """Assign the idempotent business key up front (contract SP-OP-AUTH-001)."""
+        return {"business_key": _business_key(state)}
+
+    async def gather(self, state: RafaelState) -> dict[str, Any]:
+        """Best-effort FHIR enrichment — NEVER blocks routing (module docstring)."""
+        notes: list[str] = []
+        coverage_facts: dict[str, Any] | list[Any] = {}
+        patient_facts: dict[str, Any] = {}
+
+        if self._fhir is None:
+            notes.append(
+                "FHIR reader not configured for this build (labeled boundary — see graph.py "
+                "module docstring); dossier proceeds with pre-resolved worker facts only."
+            )
+            return {
+                "gathered": True,
+                "coverage_facts": coverage_facts,
+                "patient_facts": patient_facts,
+                "gather_notes": notes,
+            }
+
+        coverage_ref = state.get("coverage_ref") or state.get("beneficiario_pseudo_id", "")
+        try:
+            coverage_facts = await self._fhir.search_coverage(coverage_ref)
+        except Exception as exc:  # noqa: BLE001 — best-effort enrichment, never fatal.
+            notes.append(f"cobertura FHIR indisponivel: {exc}")
+
+        patient_ref = state.get("patient_ref")
+        if patient_ref:
+            try:
+                patient_facts = await self._fhir.read_patient(patient_ref)
+            except Exception as exc:  # noqa: BLE001 — best-effort enrichment, never fatal.
+                notes.append(f"beneficiario FHIR indisponivel: {exc}")
+
+        return {
+            "gathered": True,
+            "coverage_facts": coverage_facts,
+            "patient_facts": patient_facts,
+            "gather_notes": notes,
+        }
+
+    async def assess(self, state: RafaelState) -> dict[str, Any]:
+        """Evaluate `auth_admissibility` -> (route to human OR) `auth_auto_approval`.
+
+        `auth_sla` is evaluated unconditionally and is PURELY informative (never affects
+        `route`). Neither DMN has a denial output by contract design — this method never
+        produces anything but `{"auto_approve", "human_auditor"}` for `route`.
+        """
+        dmn_refs: dict[str, str] = {}
+
+        admis_in = {
+            "requer_autorizacao": bool(state.get("requer_autorizacao", True)),
+            "documentacao_completa": bool(state.get("documentacao_completa", False)),
+            "beneficiario_ativo": bool(state.get("beneficiario_ativo", False)),
+            "carencia_cumprida": bool(state.get("carencia_cumprida", False)),
+        }
+        admis_result = await self._evaluate_dmn(DMN_ADMISSIBILITY, admis_in)
+        if admis_result.get("error"):
+            return {
+                "route": "human_auditor",
+                "motivo_auditor": "dmn_indisponivel",
+                "admissibilidade": "SEGUE_ANALISE",
+                "dmn_refs": dmn_refs,
+                "dmn_error": admis_result["error"],
+                "desfecho": "encaminhado_auditor",
+            }
+        admissibilidade = cast(Admissibilidade, str(admis_result["row"].get("resultado", "SEGUE_ANALISE")))
+        dmn_refs[DMN_ADMISSIBILITY] = admis_result["ref"]
+
+        sla_result = await self._evaluate_dmn(
+            DMN_SLA,
+            {
+                "carater_atendimento": str(state.get("carater_atendimento", "eletivo")),
+                "categoria_procedimento": str(state.get("categoria_procedimento", "consulta")),
+            },
+        )
+        sla_row = sla_result.get("row", {}) if not sla_result.get("error") else {}
+        if sla_result.get("ref"):
+            dmn_refs[DMN_SLA] = sla_result["ref"]
+        base: dict[str, Any] = {
+            "admissibilidade": admissibilidade,
+            "dmn_refs": dmn_refs,
+            "sla_analise": str(sla_row.get("sla_analise", "")),
+            "sla_alerta": str(sla_row.get("sla_alerta", "")),
+        }
+
+        if admissibilidade == "PENDENTE_DOCUMENTACAO":
+            return {
+                **base,
+                "route": "human_auditor",
+                "motivo_auditor": "documentacao_pendente",
+                "desfecho": "encaminhado_auditor",
+            }
+        if admissibilidade == "NAO_REQUER":
+            # Still routes through the human path's dossier/start_process — the PROCESS itself
+            # (not this code) resolves "does not require authorization" as a terminal outcome.
+            return {
+                **base,
+                "route": "human_auditor",
+                "motivo_auditor": "outro",
+                "recomendacao_auto": "ANALISE_HUMANA",
+                "desfecho": "nao_requer",
+            }
+
+        auto_in = {
+            "dut_atendida": bool(state.get("dut_atendida", False)),
+            "dentro_teto_l2": bool(state.get("dentro_teto_l2", False)),
+            "rede_credenciada": bool(state.get("rede_credenciada", False)),
+            "carater_atendimento": str(state.get("carater_atendimento", "eletivo")),
+        }
+        auto_result = await self._evaluate_dmn(DMN_AUTO_APPROVAL, auto_in)
+        if auto_result.get("error"):
+            return {
+                **base,
+                "route": "human_auditor",
+                "motivo_auditor": "dmn_indisponivel",
+                "dmn_error": auto_result["error"],
+                "desfecho": "encaminhado_auditor",
+            }
+        dmn_refs[DMN_AUTO_APPROVAL] = auto_result["ref"]
+        base["dmn_refs"] = dmn_refs
+        recomendacao = cast(Recomendacao, str(auto_result["row"].get("recomendacao", "ANALISE_HUMANA")))
+        base["recomendacao_auto"] = recomendacao
+
+        if recomendacao == "AUTO_APROVAR":
+            # The ONLY L2 path. If the DMN did not say AUTO_APROVAR, this branch is never taken.
+            return {
+                **base,
+                "route": "auto_approve",
+                "motivo_auditor": None,
+                "desfecho": "aprovacao_automatica_solicitada",
+            }
+        return {
+            **base,
+            "route": "human_auditor",
+            "motivo_auditor": "dmn_analise_humana",
+            "desfecho": "encaminhado_auditor",
+        }
+
+    async def auto_approve(self, state: RafaelState) -> dict[str, Any]:
+        """The L2 automatic path. Rafael does NOT issue the authorization itself — he starts
+        SP-OP-AUTH-001, whose automatic path (engine + `operadora.auth.issue_authorization`
+        worker) emits the TISS guide. This node only finishes assembling the dossier."""
+        return {"dossier": await self._build_dossier(state)}
+
+    async def human_auditor(self, state: RafaelState) -> dict[str, Any]:
+        """Routes to the medico-auditor. NONE of these paths is a denial — a denial is born
+        SOLELY in the `UT_AnaliseMedicoAuditor` User Task; Rafael only instructs the case."""
+        return {"dossier": await self._build_dossier(state)}
+
+    async def start_process(self, state: RafaelState) -> dict[str, Any]:
+        """Start SP-OP-AUTH-001 idempotently (business key `AUTH-{tenant}-{guia}`)."""
+        business_key = state.get("business_key") or _business_key(state)
+        variables = self._contract_variables(state)
+        try:
+            instance = await start_process_idempotent(
+                self._cibseven, process_key=PROCESS_KEY, business_key=business_key, variables=variables
+            )
+        except CibSevenError as exc:
+            return {
+                "process_started": False,
+                "business_key": business_key,
+                "error": f"start_process indisponivel: {exc}",
+            }
+        return {
+            "process_started": True,
+            "business_key": business_key,
+            "process_ref": {
+                "instance_id": instance.instance_id,
+                "state": instance.state,
+                "already_existed": instance.already_existed,
+            },
+        }
+
+    async def complete(self, state: RafaelState) -> dict[str, Any]:
+        """Terminal node — no further computation; `desfecho` was already set by `assess`."""
+        return {}
+
+    # -- Conditional routing ------------------------------------------------------------------
+
+    @staticmethod
+    def _route(state: RafaelState) -> str:
+        # FAIL-SAFE: on absence/doubt, ALWAYS human (never auto_approve by omission).
+        return "auto_approve" if state.get("route") == "auto_approve" else "human_auditor"
+
+    # -- DMN (auth_admissibility / auth_sla / auth_auto_approval; none has a denial output) ----
+
+    async def _evaluate_dmn(self, table: str, dmn_input: dict[str, Any]) -> dict[str, Any]:
+        try:
+            rows, version = await self._dmn.evaluate(table, dmn_input)
+            row = first_row(rows, table, dmn_input)
+        except (DmnEvaluationError, DmnNoResultError) as exc:
+            return {"error": f"DMN `{table}` indisponivel: {exc}"}
+        # See `helena/graph.py::_evaluate_dmn` for why this cites the decision-definition id
+        # (ADR-0028 §2) rather than a rule id the engine's evaluate response never returns.
+        return {"row": row, "ref": f"{table}#{version.id}"}
+
+    # -- Dossier assembly (ADR-0007 audit provenance; L0-hard structural guardrail) ------------
+
+    async def _build_dossier(self, state: RafaelState) -> dict[str, Any]:
+        route = state.get("route", "human_auditor")
+        motivo_auditor = state.get("motivo_auditor") if route == "human_auditor" else None
+        facts = {
+            "numero_guia_tiss": state.get("numero_guia_tiss", ""),
+            "codigo_procedimento_tuss": state.get("codigo_procedimento_tuss", ""),
+            "categoria_procedimento": state.get("categoria_procedimento", ""),
+            "carater_atendimento": state.get("carater_atendimento", ""),
+            "valor_estimado_brl": state.get("valor_estimado_brl", 0.0),
+            "cid10": state.get("cid10"),
+            "beneficiario_ativo": state.get("beneficiario_ativo"),
+            "carencia_cumprida": state.get("carencia_cumprida"),
+            "dut_atendida": state.get("dut_atendida"),
+            "dentro_teto_l2": state.get("dentro_teto_l2"),
+            "rede_credenciada": state.get("rede_credenciada"),
+            "documentacao_completa": state.get("documentacao_completa"),
+            "admissibilidade": state.get("admissibilidade"),
+            "recomendacao_auto": state.get("recomendacao_auto"),
+            "dmn_refs": state.get("dmn_refs", {}),
+            "sla_analise": state.get("sla_analise", ""),
+            "lacunas_enriquecimento": state.get("gather_notes", []),
+        }
+        prompt = f"{dossier_prompt()}\n\nroute={route} motivo_auditor={motivo_auditor}\nfatos={facts}"
+        try:
+            narrativa = await self._llm.generate(prompt, phi=True)
+        except Exception:  # noqa: BLE001 — LLM failure never blocks the human/auto route.
+            narrativa = ""
+        return {
+            "prompt_version": DOSSIER_PROMPT_VERSION,
+            "route": route,
+            "motivo_auditor": motivo_auditor,
+            "fatos": facts,
+            "dmn_decision_refs": state.get("dmn_refs", {}),
+            "narrativa": narrativa,
+            "documentos_refs": state.get("documentos_refs") or [],
+            # STRUCTURAL GUARDRAIL (L0 hard): the dossier NEVER carries a coverage decision.
+            "decisao_cobertura": None,
+        }
+
+    def _contract_variables(self, state: RafaelState) -> dict[str, Any]:
+        variables: dict[str, Any] = {
+            "tenant_id": state.get("tenant_id", ""),
+            "numero_guia_tiss": state.get("numero_guia_tiss", ""),
+            "beneficiario_pseudo_id": state.get("beneficiario_pseudo_id", ""),
+            "prestador_id": state.get("prestador_id", ""),
+            "codigo_procedimento_tuss": state.get("codigo_procedimento_tuss", ""),
+            "categoria_procedimento": str(state.get("categoria_procedimento", "consulta")),
+            "carater_atendimento": str(state.get("carater_atendimento", "eletivo")),
+            "valor_estimado_brl": float(state.get("valor_estimado_brl", 0.0)),
+            "documentos_refs": state.get("documentos_refs") or [],
+            "requer_autorizacao": bool(state.get("requer_autorizacao", True)),
+            "documentacao_completa": bool(state.get("documentacao_completa", False)),
+            "beneficiario_ativo": bool(state.get("beneficiario_ativo", False)),
+            "carencia_cumprida": bool(state.get("carencia_cumprida", False)),
+            "dut_atendida": bool(state.get("dut_atendida", False)),
+            "dentro_teto_l2": bool(state.get("dentro_teto_l2", False)),
+            "rede_credenciada": bool(state.get("rede_credenciada", False)),
+            "source_agent_id": "rafael",
+            "source_agent_version": self._agent_version,
+            "dossie_rafael": state.get("dossier") or {},
+            "rafael_route": state.get("route", "human_auditor"),
+        }
+        cid10 = state.get("cid10")
+        if cid10:
+            variables["cid10"] = cid10
+        if state.get("route") == "human_auditor":
+            variables["motivo_encaminhamento"] = state.get("motivo_auditor") or "outro"
+        dmn_refs = state.get("dmn_refs")
+        if dmn_refs:
+            variables["dmn_decision_refs"] = dmn_refs
+        return variables
+
+    # -- Graph assembly -----------------------------------------------------------------------
+
+    def compile_graph(self) -> StateGraph[RafaelState]:
+        g: StateGraph[RafaelState] = StateGraph(RafaelState)
+        g.add_node("receive", self.receive)
+        g.add_node("gather", self.gather)
+        g.add_node("assess", self.assess)
+        g.add_node("auto_approve", self.auto_approve)
+        g.add_node("human_auditor", self.human_auditor)
+        g.add_node("start_process", self.start_process)
+        g.add_node("complete", self.complete)
+
+        g.add_edge(START, "receive")
+        g.add_edge("receive", "gather")
+        g.add_edge("gather", "assess")
+        g.add_conditional_edges(
+            "assess", self._route, {"auto_approve": "auto_approve", "human_auditor": "human_auditor"}
+        )
+        g.add_edge("auto_approve", "start_process")
+        g.add_edge("human_auditor", "start_process")
+        g.add_edge("start_process", "complete")
+        g.add_edge("complete", END)
+        return g
+
+
+def build(config: dict[str, Any] | None = None) -> StateGraph[RafaelState]:
+    """Contract `_template/graph.py:build`, resolved by `AgentLoader`/`runtime.harness.Harness`.
+
+    `config` MUST contain `inference` (ADR-0009), `dmn` (ADR-0028/T1.5), `cibseven`
+    (ADR-0001/T1.11). `fhir` is OPTIONAL (see module docstring's labeled boundary) — its absence
+    never fails the build, only degrades `gather` to a disclosed gap note.
+
+    Fail-closed: missing a REQUIRED dependency raises `ValueError` at build time.
     """
-    graph: StateGraph[AgentState] = StateGraph(AgentState)
+    cfg = config or {}
+    inference = cfg.get("inference")
+    dmn = cfg.get("dmn")
+    cibseven = cfg.get("cibseven")
+    missing = [
+        name
+        for name, value in (("inference", inference), ("dmn", dmn), ("cibseven", cibseven))
+        if value is None
+    ]
+    if missing:
+        raise ValueError(
+            f"Rafael build(config) is missing required dependencies: {missing} "
+            "(ADR-0001/0009/0028 — inference/dmn/cibseven must all be injected)"
+        )
+    agent_version = str(cfg.get("agent_version", "rafael@v0"))
+    return RafaelGraph(
+        inference=cast(InferenceProvider, inference),
+        dmn=cast(DmnTransport, dmn),
+        cibseven=cast(CibSevenTransport, cibseven),
+        fhir=cast("FhirReader | None", cfg.get("fhir")),
+        agent_version=agent_version,
+    ).compile_graph()
 
-    async def agent_node(state: AgentState) -> dict[str, Any]:
-        """Stub agent node — placeholder for M6 full implementation."""
-        messages: list[str] = list(state.get("messages", []))
-        return {"messages": messages}
 
-    graph.add_node("agent", agent_node)
-    graph.add_edge("__start__", "agent")
-    graph.add_edge("agent", "__end__")
-
-    return graph
+# Prompt versions exposed for audit/eval gating (ADR-0007/0009).
+PROMPT_VERSIONS: dict[str, str] = {
+    "system": SYSTEM_PROMPT_VERSION,
+    "dossier": DOSSIER_PROMPT_VERSION,
+}

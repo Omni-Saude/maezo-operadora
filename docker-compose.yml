@@ -244,12 +244,18 @@ services:
       # src/maezo/platform/webhooks/whatsapp/settings.py). NEVER real secrets in git.
       WHATSAPP_APP_SECRET: dev-app-secret-not-for-prod
       WHATSAPP_VERIFY_TOKEN: dev-verify-token-not-for-prod
+      # T1.11: Helena's in-process dispatch (DMN evaluation + starting SP-OP-ESCALATION-001)
+      # needs the engine — same var/value as worker-runtime/agent-runtime above.
+      CIBSEVEN_BASE_URL: http://cibseven:8080/engine-rest
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       HEALTH_PORT: "8080"
     # Host 8030 (not 8080) — cibseven already claims host 8080:8080 in this same compose file;
     # the container's own port stays 8080 (matches Helm's containerPort, deployment-webhook-
     # receiver.yaml:67-69).
     ports: ["8030:8080"]
+    depends_on:
+      cibseven:
+        condition: service_healthy
     healthcheck:
       test:
         [

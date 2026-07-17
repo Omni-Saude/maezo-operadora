@@ -1,16 +1,19 @@
-"""Unit tests for `maezo.platform.webhooks.whatsapp.app` (T1.6) — real signature verification,
-explicit 501 for the not-yet-wired downstream (no engine, no Kafka, ASGI in-process transport)."""
+"""Unit tests for `maezo.platform.webhooks.whatsapp.app` (T1.6 signature verification; T1.11
+real dispatch to a `HelenaDispatcher` double, ASGI in-process transport, no engine/network)."""
 
 from __future__ import annotations
 
 import hashlib
 import hmac
+import json
+from typing import Any
 
 import httpx
 import pytest
 from fastapi import FastAPI
 
 from maezo.platform.webhooks.whatsapp.app import create_app
+from maezo.platform.webhooks.whatsapp.dispatch import InboundMessage
 from maezo.platform.webhooks.whatsapp.settings import WhatsAppWebhookSettings
 
 APP_SECRET = "test-app-secret"
@@ -115,13 +118,117 @@ async def test_post_webhook_valid_signature_parse_error(app: FastAPI) -> None:
     assert resp.json()["status"] == "parse_error"
 
 
-async def test_post_webhook_valid_signature_returns_501_not_implemented(app: FastAPI) -> None:
-    """Charter: explicit 501/queue-less behavior — signature-verified, but this build does not
-    fabricate a Kafka publish with no consumer (T1.11 wires the downstream)."""
+async def test_post_webhook_valid_signature_no_messages_acks_200(app: FastAPI) -> None:
+    """A signature-verified payload with no actual message (e.g. a delivery-status callback, or
+    this fixture's empty `messages` list) is acked — nothing to dispatch, nothing fabricated."""
     payload = b'{"entry":[{"changes":[{"value":{"messages":[]}}]}]}'
     async with await _client(app) as client:
         resp = await client.post("/webhook", content=payload, headers={"X-Hub-Signature-256": _sign(payload)})
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "ok", "dispatched": 0}
+
+
+async def test_post_webhook_valid_signature_message_no_dispatcher_returns_501(app: FastAPI) -> None:
+    """T1.11: a real message with NO dispatcher configured for this replica (e.g. dependency
+    bring-up failed) still returns the explicit, honest 501 — never a fabricated dispatch."""
+    body = {
+        "entry": [
+            {
+                "changes": [
+                    {
+                        "value": {
+                            "messages": [
+                                {
+                                    "from": "5511999999999",
+                                    "id": "wamid.1",
+                                    "type": "text",
+                                    "text": {"body": "oi"},
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+    payload = json.dumps(body).encode()
+    async with await _client(app) as client:
+        resp = await client.post("/webhook", content=payload, headers={"X-Hub-Signature-256": _sign(payload)})
     assert resp.status_code == 501
-    body = resp.json()
-    assert body["status"] == "not_implemented"
-    assert "T1.11" in body["detail"]
+    assert resp.json()["status"] == "not_implemented"
+
+
+class _FakeDispatcher:
+    def __init__(self, *, fail: bool = False) -> None:
+        self.dispatched: list[InboundMessage] = []
+        self._fail = fail
+
+    async def dispatch(self, message: InboundMessage) -> dict[str, Any]:
+        if self._fail:
+            raise RuntimeError("dispatch boom")
+        self.dispatched.append(message)
+        return {"ok": True}
+
+
+def _text_message_payload(
+    *, from_number: str = "5511999999999", body: str = "oi", msg_id: str = "wamid.1"
+) -> bytes:
+    envelope = {
+        "entry": [
+            {
+                "changes": [
+                    {
+                        "value": {
+                            "messages": [
+                                {"from": from_number, "id": msg_id, "type": "text", "text": {"body": body}}
+                            ]
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+    return json.dumps(envelope).encode()
+
+
+async def test_post_webhook_dispatches_real_message_to_dispatcher() -> None:
+    dispatcher = _FakeDispatcher()
+    app = create_app(_settings(), dispatcher=dispatcher)  # type: ignore[arg-type]
+    payload = _text_message_payload(body="estou com dor no peito")
+
+    async with await _client(app) as client:
+        resp = await client.post("/webhook", content=payload, headers={"X-Hub-Signature-256": _sign(payload)})
+
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "ok", "dispatched": 1, "failed": 0}
+    assert len(dispatcher.dispatched) == 1
+    assert dispatcher.dispatched[0].text == "estou com dor no peito"
+    assert dispatcher.dispatched[0].from_number == "5511999999999"
+
+
+async def test_post_webhook_dispatch_failure_returns_500_never_fabricates_success() -> None:
+    dispatcher = _FakeDispatcher(fail=True)
+    app = create_app(_settings(), dispatcher=dispatcher)  # type: ignore[arg-type]
+    payload = _text_message_payload()
+
+    async with await _client(app) as client:
+        resp = await client.post("/webhook", content=payload, headers={"X-Hub-Signature-256": _sign(payload)})
+
+    assert resp.status_code == 500
+    assert resp.json()["status"] == "dispatch_failed"
+
+
+async def test_post_webhook_non_text_message_skipped_acks_200() -> None:
+    dispatcher = _FakeDispatcher()
+    app = create_app(_settings(), dispatcher=dispatcher)  # type: ignore[arg-type]
+    envelope = {
+        "entry": [{"changes": [{"value": {"messages": [{"from": "5511999999999", "type": "image"}]}}]}]
+    }
+    payload = json.dumps(envelope).encode()
+
+    async with await _client(app) as client:
+        resp = await client.post("/webhook", content=payload, headers={"X-Hub-Signature-256": _sign(payload)})
+
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "ok", "dispatched": 0}
+    assert dispatcher.dispatched == []

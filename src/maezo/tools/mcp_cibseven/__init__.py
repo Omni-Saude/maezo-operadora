@@ -11,5 +11,25 @@ Implements ADR-0022 (MCP in-process boot).
 """
 
 from maezo.tools.mcp_cibseven.server import CibSevenServer
+from maezo.tools.mcp_cibseven.transport import (
+    CibSevenError,
+    CibSevenHttpTransport,
+    CibSevenTransport,
+    FakeCibSevenTransport,
+    ProcessInstance,
+    ProcessNotFoundError,
+    ProcessStatus,
+    start_process_idempotent,
+)
 
-__all__ = ["CibSevenServer"]
+__all__ = [
+    "CibSevenServer",
+    "CibSevenError",
+    "CibSevenHttpTransport",
+    "CibSevenTransport",
+    "FakeCibSevenTransport",
+    "ProcessInstance",
+    "ProcessNotFoundError",
+    "ProcessStatus",
+    "start_process_idempotent",
+]

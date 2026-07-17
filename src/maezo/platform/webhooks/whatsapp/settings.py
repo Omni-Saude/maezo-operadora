@@ -1,4 +1,4 @@
-"""Injectable configuration for the WhatsApp webhook receiver (T1.6, defect B1).
+"""Injectable configuration for the WhatsApp webhook receiver (T1.6, defect B1; T1.11 dispatch).
 
 `app_secret` and `verify_token` are REQUIRED — no default (fail-closed, constraint 2). This
 mirrors `deployment-webhook-receiver.yaml`'s own documented expectation ("Missing either raises
@@ -35,6 +35,10 @@ class WhatsAppWebhookSettings(BaseSettings):
     # Accepted for Helm/env parity (deployment-webhook-receiver.yaml:60-64); NOT dialed by this
     # build — see service.py's module docstring for why (no downstream consumer yet, T1.11).
     kafka_bootstrap_servers: str = Field(default="localhost:9092", alias="KAFKA_BOOTSTRAP_SERVERS")
+
+    # T1.11: the engine URL Helena's in-process dispatch needs (DMN evaluation + starting
+    # SP-OP-ESCALATION-001) — mirrors `agent_runtime`/`worker_runtime`'s own `CIBSEVEN_BASE_URL`.
+    cibseven_base_url: str = Field(default="http://cibseven:8080/engine-rest", alias="CIBSEVEN_BASE_URL")
 
     # Helm's containerPort is a hardcoded 8080 (deployment-webhook-receiver.yaml:67-69), not env-
     # driven — HEALTH_PORT is accepted for local-dev override parity with the other two daemons.
