@@ -21,6 +21,7 @@ from scripts.ci.check_evidence_ledger import (
     detect_task_ids_from_branch,
     evaluate,
     extract_ledger_task_ids,
+    find_conflict_markers,
     main,
 )
 
@@ -728,3 +729,44 @@ class TestArgParser:
         assert args.branch == "t0.5-evidence-ledger"
         assert args.pr_body == "Task: T0.5"
         assert args.ledger_path == "some/other/path.md"
+
+
+class TestConflictMarkerGuard:
+    """Ledger integrity: committed git conflict markers must fail the gate.
+
+    Incident precedent: PR #46 merged a stash-conflict block into the ledger;
+    row-presence matching passed right over it.
+    """
+
+    _CORRUPT = (
+        "| Task ID | ... |\n"
+        "|---|---|\n"
+        "| T9.9 | row |\n"
+        "<<<<<<< Updated upstream\n"
+        "| T9.8 | a |\n"
+        "=======\n"
+        "| T9.8 | b |\n"
+        ">>>>>>> Stashed changes\n"
+    )
+
+    def test_markers_fail_even_with_matching_row(self) -> None:
+        result = evaluate({"T9.9"}, self._CORRUPT)
+        assert not result.ok
+        assert "conflict markers" in result.message
+
+    def test_markers_fail_with_no_detected_ids(self) -> None:
+        result = evaluate(set(), self._CORRUPT)
+        assert not result.ok
+        assert "conflict markers" in result.message
+
+    def test_clean_ledger_unaffected(self) -> None:
+        clean = "| Task ID | ... |\n|---|---|\n| T9.9 | row |\n"
+        assert evaluate({"T9.9"}, clean).ok
+        assert evaluate(set(), clean).ok
+
+    def test_marker_line_numbers_reported(self) -> None:
+        assert find_conflict_markers(self._CORRUPT) == [4, 6, 8]
+
+    def test_table_pipes_and_equals_in_cells_do_not_trigger(self) -> None:
+        benign = "| T9.9 | uses ======= inside a cell | x=======y |\n"
+        assert find_conflict_markers(benign) == []
