@@ -61,6 +61,13 @@ dev = [
     "testcontainers>=4.0,<5.0",
 ]
 
+[project.scripts]
+# T1.1 runtime spine: local-ergonomics alias for the Helm `command` (which keeps using
+# `python -m maezo.runtime.worker_runtime` — deployment-worker-daemon.yaml:50). Both invocations
+# must start the identical daemon; `__main__.py` has no import-time side effect, so importing
+# `main` here never runs the daemon on its own.
+maezo-worker = "maezo.runtime.worker_runtime.__main__:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
