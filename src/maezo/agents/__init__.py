@@ -26,52 +26,88 @@ from pydantic import BaseModel, Field
 logger = structlog.get_logger(__name__)
 
 #: Environment variable that overrides the resolved `spec/` directory.
-#: Deployment environments that do not lay the repo out as
-#: `<repo_root>/src` + `<repo_root>/spec` (e.g. a wheel install, or a
-#: container image that ships `spec/` at a different mount point) MUST set
-#: this — see docs/reports/T0.3-agent-yaml-drift.md for the packaging note.
+#: Deployment environments that lay `spec/` out at a location none of the
+#: default candidates cover (e.g. a container image mounting `spec/` at an
+#: arbitrary path) MUST set this — see docs/reports/T0.3-agent-yaml-drift.md
+#: for the packaging note.
 MAEZO_SPEC_DIR_ENV = "MAEZO_SPEC_DIR"
 
 
-def _default_spec_dir() -> Path:
-    """Compute the default `spec/` directory from this module's location.
+def _default_spec_dir_candidates() -> tuple[Path, ...]:
+    """Compute the ordered default `spec/` directory candidates.
 
-    Assumes the repo's canonical src-layout: this file lives at
-    `<repo_root>/src/maezo/agents/__init__.py`, so `<repo_root>` is three
-    parents up. This is only a *default* — callers running outside a repo
-    checkout (e.g. a wheel install with no adjacent `spec/`) MUST set
-    `MAEZO_SPEC_DIR` explicitly; this function does not attempt to guess
-    further and callers must not silently tolerate a missing directory.
+    Resolution order (T1.8 REVISE-1 — each candidate is validated with
+    ``is_dir()`` by the caller before use; there is no silent acceptance of a
+    nonexistent path):
+
+    1. **Repo checkout** (`<repo_root>/spec`): this file lives at
+       `<repo_root>/src/maezo/agents/__init__.py`, so `<repo_root>` is three
+       parents up. The dev/CI case.
+    2. **Installed wheel** (`<site-packages>/maezo/spec`): the wheel's hatch
+       ``force-include`` (pyproject.toml, ADR-0025 D2 Rev 1) lays
+       `spec/policies/autonomy/*.yaml` under `maezo/spec/`, i.e. one parent up
+       from this file's package directory. Without this candidate the shipped
+       policy files would be inert and the fail-closed PEP factory would
+       refuse to start on every packaged deployment.
+
+    A path too shallow for a candidate (defensive; not the case in any real
+    layout) simply omits that candidate rather than raising ``IndexError``.
     """
-    return Path(__file__).resolve().parents[3] / "spec"
+    parents = Path(__file__).resolve().parents
+    candidates: list[Path] = []
+    if len(parents) > 3:
+        candidates.append(parents[3] / "spec")  # repo checkout: <repo_root>/spec
+    if len(parents) > 1:
+        candidates.append(parents[1] / "spec")  # installed wheel: <site-packages>/maezo/spec
+    return tuple(candidates)
 
 
 def resolve_spec_dir() -> Path:
     """Resolve the `spec/` directory root, honoring `MAEZO_SPEC_DIR`.
 
-    Fail-closed: raises `FileNotFoundError` if the resolved directory does
-    not exist. Never falls back to a default or an empty listing silently —
-    an unresolvable spec directory is a configuration error, not a
-    warn-and-continue condition.
+    Resolution order:
+
+    1. ``MAEZO_SPEC_DIR`` env var — authoritative when set: if it points at a
+       nonexistent directory this raises immediately (no fallback to any
+       default; an explicit-but-wrong override is a configuration error).
+    2. The default candidates from :func:`_default_spec_dir_candidates`
+       (repo checkout, then installed-wheel package-adjacent) — the first one
+       that exists as a directory wins.
+
+    Fail-closed: raises `FileNotFoundError` if nothing resolves. Never falls
+    back to an empty listing silently — an unresolvable spec directory is a
+    configuration error, not a warn-and-continue condition.
 
     Returns:
         The resolved, absolute `spec/` directory path.
 
     Raises:
-        FileNotFoundError: If the resolved path does not exist or is not a
-            directory.
+        FileNotFoundError: If the env override points at a missing directory,
+            or no default candidate exists.
     """
     override = os.environ.get(MAEZO_SPEC_DIR_ENV)
-    spec_dir = Path(override).expanduser().resolve() if override else _default_spec_dir()
+    if override:
+        spec_dir = Path(override).expanduser().resolve()
+        if not spec_dir.is_dir():
+            raise FileNotFoundError(
+                f"spec/ directory not found at {spec_dir} "
+                f"(resolved from env var {MAEZO_SPEC_DIR_ENV}). "
+                f"Set the {MAEZO_SPEC_DIR_ENV} environment variable to the directory containing "
+                f"spec/agents/, spec/policies/, spec/processes/."
+            )
+        return spec_dir
 
-    if not spec_dir.is_dir():
-        raise FileNotFoundError(
-            f"spec/ directory not found at {spec_dir} "
-            f"(resolved from {'env var ' + MAEZO_SPEC_DIR_ENV if override else 'package-relative default'}). "
-            f"Set the {MAEZO_SPEC_DIR_ENV} environment variable to the directory containing "
-            f"spec/agents/, spec/policies/, spec/processes/."
-        )
-    return spec_dir
+    candidates = _default_spec_dir_candidates()
+    for candidate in candidates:
+        if candidate.is_dir():
+            return candidate
+
+    raise FileNotFoundError(
+        "spec/ directory not found at any default candidate: "
+        f"{', '.join(str(c) for c in candidates)} (package-relative defaults). "
+        f"Set the {MAEZO_SPEC_DIR_ENV} environment variable to the directory containing "
+        f"spec/agents/, spec/policies/, spec/processes/."
+    )
 
 
 def resolve_spec_agents_dir() -> Path:
