@@ -240,7 +240,18 @@ async def cancel_probe(engine: EngineRest) -> AsyncIterator[CancelEngineProbe]:
     """Probe que serve as external tasks com os workers reais Phase-2 de cancel."""
     worker_id = f"qa-cancel-worker-{uuid.uuid4().hex[:8]}"
     transport = CibSevenWorkerTransport(CIBSEVEN_BASE_URL)
-    harness = WorkerHarness(transport, worker_id=worker_id, lock_duration_ms=10_000)
+    # T3.1 R2: ERR_CANCEL_MANTER_NOT_HUMAN (GAP-CANCEL-3) is catchable by SP-OP-CANCEL-001's own
+    # boundary event (Error_CancelManterNotHuman / BE_ManterNaoConfirmado) ONLY when it's in the
+    # harness's allowlist (harness.py `_bpmn_error_allowlist` — no code is gate-proven at the
+    # PRODUCTION default, empty). This probe wires the ONE code this family's BPMN declares a
+    # matching boundary for, mirroring what a gate-proven production allowlist for this family
+    # would contain (same pattern as `test_sp_op_escalation_001.py`'s `ERR_EVENT_PUBLISH_FAILED`).
+    harness = WorkerHarness(
+        transport,
+        worker_id=worker_id,
+        lock_duration_ms=10_000,
+        bpmn_error_allowlist=frozenset({"ERR_CANCEL_MANTER_NOT_HUMAN"}),
+    )
     kafka = FakeKafkaPublisher()
     register_cancel_workers(harness, kafka)
     # T3.1 R2: the generic operadora.events.publish worker every ST_Publish* service task in
