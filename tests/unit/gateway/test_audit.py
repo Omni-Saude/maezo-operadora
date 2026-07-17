@@ -22,6 +22,7 @@ def test_audit_chain_integrity() -> None:
             tenant_id="amh",
             agent_version="1.0.0",
             action="triagem_whatsapp",
+            action="triage_and_routing",
             decision="ALLOW",
             details={"paciente": "pseudo-abc123"},
         )
@@ -33,6 +34,7 @@ def test_audit_chain_integrity() -> None:
             tenant_id="amh",
             agent_version="1.0.0",
             action="aprovacao_auth_dmn_favoravel",
+            action="authorization_approval",
             decision="ALLOW",
             details={"guia": "g-001"},
         )

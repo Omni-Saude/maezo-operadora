@@ -1,5 +1,5 @@
 .PHONY: setup lint type test test-integration evals validate-artifacts validate-signoff \
-        dev-stack dev-observability tf-validate localstack-up tf-smoke helm-lint
+        deploy-artifacts dev-stack dev-observability tf-validate localstack-up tf-smoke helm-lint
 
 LOCALSTACK_COMPOSE := deploy/terraform/localstack/docker-compose.localstack.yml
 TF_SMOKE_ENV       := deploy/terraform/envs/staging-sa-east-1
@@ -35,13 +35,21 @@ validate-artifacts: ## BPMN/DMN/policies/agent-definitions (blocker de CI)
 	# by name, so it works against either location.
 	# T0.3 × T0.4 reconciliation: spec/ is the single source of truth — spec/agents
 	# replaced src/maezo/agents (T0.3 moved agent.yaml definitions there); the
-	# src/maezo/processes and src/maezo/policies paths never existed (T0.4). Pointer
-	# repair only — validate_artifacts() in cli.py is unchanged and still fail-soft
-	# during greenfield; hardening the gate itself is T2.1.
+# src/maezo/processes and src/maezo/policies paths never existed (T0.4). Pointer
+# repair only. Real fail-closed validation since T2.1; orphans governed by
+# spec/processes/dmn/orphans-allowlist.yaml.
 	uv run python -m maezo.platform.validation.cli validate spec/processes spec/policies spec/agents
 
 validate-signoff: ## gate de promocao de conteudo: artefato promovivel exige sign-off humano (Track C2)
 	uv run python -m maezo.platform.validation.cli signoff
+
+deploy-artifacts: ## deploy spec/processes/{bpmn,dmn} no engine CIB Seven (idempotente; requer `make dev-stack` de pe)
+	# T1.3: POST /deployment/create multipart (enable-duplicate-filtering + deploy-changed-only)
+	# contra o `cibseven` do docker-compose.yml (ENGINE_REST_URL, default http://localhost:8080/engine-rest).
+	# spec/ e a fonte unica de verdade — deploya DIRETO de spec/processes/, nunca copia artefato
+	# para outro lugar. Fail-closed: qualquer rejeicao do engine (BPMN/DMN invalido, HTTP nao-2xx)
+	# sai non-zero com o corpo de erro do engine verbatim — ver src/maezo/platform/deploy/engine_deploy.py.
+	uv run python -m maezo.platform.deploy
 
 dev-stack:
 	docker compose --profile core up -d

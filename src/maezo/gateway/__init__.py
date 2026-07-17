@@ -22,12 +22,29 @@ from maezo.gateway.credential_vault import (
 )
 from maezo.gateway.custody import CustodyBundle
 from maezo.gateway.log_scrubber import LogScrubber
-from maezo.gateway.pep import PEP, Decision
+from maezo.gateway.pep import (
+    HARD_ACTIONS,
+    PEP,
+    ActionPolicy,
+    AutonomyMatrix,
+    Decision,
+    Level,
+    PolicyError,
+    build_pep,
+    load_matrix,
+)
 from maezo.gateway.pseudonymizer import PHI_FIELDS, Pseudonymizer
 
 __all__ = [
     "PEP",
     "Decision",
+    "Level",
+    "HARD_ACTIONS",
+    "ActionPolicy",
+    "AutonomyMatrix",
+    "PolicyError",
+    "build_pep",
+    "load_matrix",
     "Pseudonymizer",
     "PHI_FIELDS",
     "LogScrubber",
