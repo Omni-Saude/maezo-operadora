@@ -51,7 +51,16 @@ TENANT_ID: str = _x_tenant or os.environ.get("MAEZO_TENANT_ID", "public")
 # search_path: tenant schema first, then public (for pgvector type/operator).
 # This mirrors the pattern used by PostgresAuditSink and PostgresIdempotencyStore
 # (setup=_set_search_path on asyncpg pool acquire — DL-0017).
-SEARCH_PATH: str = f"{TENANT_ID}, public"
+#
+# T1.10 fix: this used to be built as a single comma-joined STRING (e.g. "public, public")
+# and passed to `SET search_path = '<that string>'` (see run_async_migrations below) — Postgres
+# treats a single quoted value as ONE identifier, so search_path was actually being set to a
+# schema literally named `public, public`, which never exists. Every real `alembic upgrade head`
+# against a live Postgres therefore failed ("no schema has been selected to create in"); this was
+# never caught because no task before T1.10 exercised migrations against a real server (discovered
+# while building the kill-test for PostgresAuditSink). Kept as a list of schema names here;
+# `run_async_migrations` renders each entry as its own quoted identifier.
+SEARCH_PATH: tuple[str, ...] = tuple(dict.fromkeys((TENANT_ID, "public")))  # de-dup, preserve order
 
 # ---------------------------------------------------------------------------
 # Metadata target (None = use raw DDL in migrations, no model reflection)
@@ -117,7 +126,21 @@ async def run_async_migrations() -> None:
     async with connectable.connect() as connection:
         # Set the tenant-aware search_path for this migration session.
         # Per DL-0017: tenant schema first, then public for pgvector.
-        await connection.execute(text(f"SET search_path = '{SEARCH_PATH}'"))
+        # Each schema is its own quoted identifier (T1.10 fix — see SEARCH_PATH comment above:
+        # a single quoted string here would set search_path to one bogus schema name).
+        search_path_sql = ", ".join(f'"{schema}"' for schema in SEARCH_PATH)
+        await connection.execute(text(f"SET search_path TO {search_path_sql}"))
+        # T1.10 fix: SQLAlchemy 2.x AsyncConnection autobegins a transaction on first
+        # execute() ("commit as you go"). Handing that still-open transaction straight to
+        # Alembic's own `context.begin_transaction()` nests inside it instead of owning it —
+        # Alembic commits ITS transaction, but the OUTER one from this SET never gets an
+        # explicit commit, so closing the connection at the end of this `async with` block
+        # silently ROLLS BACK everything, DDL included. Every real `alembic upgrade head` run
+        # against a live Postgres was therefore a no-op (verified: table count 0 after a
+        # "successful" upgrade — caught while building the kill-test for PostgresAuditSink,
+        # T1.10). Commit the SET before the migrations run so Alembic starts its own,
+        # cleanly-owned transaction.
+        await connection.commit()
         await connection.run_sync(do_run_migrations)
 
     await connectable.dispose()
