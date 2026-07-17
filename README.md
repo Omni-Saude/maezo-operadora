@@ -29,7 +29,7 @@ Plataforma **agents-first** completa para operadoras de saúde (payer). Reconstr
 | Agentes AI | 10 | Helena, Rafael, Marina, Gustavo, Lucas, Carolina, Fernando, Valentina, Beatriz, André |
 | MCP Servers | 6 | CIB Seven, DMN, FHIR, WhatsApp, Memory, Process Allowlist |
 | Testes | CI workflow | Unitários cobrindo workers, gateway, agents, platform, tools (veja CI para count atual) |
-| Código fonte | ~10K LOC | 62 arquivos Python em `src/maezo/` |
+| Código fonte | ~10K LOC | Arquivos Python em `src/maezo/` (veja a árvore para count atual) |
 | Documentação | ~205K palavras | 16 contratos SP-OP, 24 ADRs, 34 DLs, 8 runbooks |
 
 ### Princípios inegociáveis
@@ -47,14 +47,14 @@ Plataforma **agents-first** completa para operadoras de saúde (payer). Reconstr
 ```
 make test   → all passed (veja CI workflow para count atual)
 make lint   → All checks passed! (121 files)
-make type   → Success: no issues found in 62 source files (mypy --strict)
+make type   → Success: no issues found (mypy --strict; veja CI para output atual)
 ```
 
 | Métrica | Valor |
 |---------|-------|
 | Testes unitários | CI workflow (dynamically updated) |
-| Arquivos fonte (`src/`) | 62 (.py) |
-| Arquivos de teste (`tests/`) | 59 (.py) |
+| Arquivos fonte (`src/`) | veja a árvore `src/` (count estático removido — rot) |
+| Arquivos de teste (`tests/`) | veja a árvore `tests/` (count estático removido — rot) |
 | Linhas de código (src) | ~10K |
 | Workers implementados | 16 (15 processos + registry) |
 | MCP servers | 6 |
