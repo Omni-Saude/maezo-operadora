@@ -68,7 +68,13 @@ def _base_state(**overrides: Any) -> FernandoState:
         "tenant_id": "amh",
         "intencao": "notificacao_previa",
         "canal": "whatsapp",
-        "numero_contrato": "CONTRATO-001",
+        # Deliberately low-entropy synthetic value: `business_key=` literals derived from this
+        # ("INAD-amh-000000001") sit next to a 'key' substring, and the previous higher-entropy
+        # form ("CONTRATO-001", Shannon entropy 3.69) tripped the repo-wide gitleaks
+        # generic-api-key rule as a false positive. Repeated zeros keep the
+        # INAD-{tenant}-{contrato} format semantics while staying under the entropy threshold —
+        # do not "improve" this to realistic-looking data.
+        "numero_contrato": "000000001",
         "matricula_beneficiario": "MAT-001",
         "beneficiario_pseudo_id": "pseudo-123",
         "to_hash": "hash-abc",
@@ -199,7 +205,7 @@ def test_business_key_falls_back_to_matricula() -> None:
 async def test_receive_assigns_business_key() -> None:
     graph = _graph()
     result = await graph.receive(_base_state())
-    assert result["business_key"] == "INAD-amh-CONTRATO-001"
+    assert result["business_key"] == "INAD-amh-000000001"
 
 
 async def test_receive_missing_tenant_id_fails_closed() -> None:
@@ -271,7 +277,7 @@ async def test_full_turn_notify_sends_whatsapp_no_process_started() -> None:
     assert len(whatsapp.sent) == 1
     assert whatsapp.sent[0][0] == "hash-abc"
     assert "process_started" not in result  # start_process node never reached
-    assert await cibseven.find_active_instance("INAD-amh-CONTRATO-001") is None
+    assert await cibseven.find_active_instance("INAD-amh-000000001") is None
 
 
 async def test_notify_message_never_carries_suspension_or_rescission_communication() -> None:
@@ -404,7 +410,7 @@ async def test_full_turn_analise_inadimplencia_starts_process_no_decision_ever_s
 
     assert result["route"] == "escalate"
     assert result["process_started"] is True
-    assert result["business_key"] == "INAD-amh-CONTRATO-001"
+    assert result["business_key"] == "INAD-amh-000000001"
     assert result["dossier"]["decisao_inadimplencia"] is None
     assert result["dossier"]["decisao_recomendada"] is None
 
@@ -570,8 +576,8 @@ async def test_start_process_starts_with_contract_variables() -> None:
     state = _base_state(intencao="rescisao", route="escalate", motivo_humano="indicio_rescisao")
     result = await graph.start_process(state)
     assert result["process_started"] is True
-    assert result["business_key"] == "INAD-amh-CONTRATO-001"
-    instance = await cibseven.find_active_instance("INAD-amh-CONTRATO-001")
+    assert result["business_key"] == "INAD-amh-000000001"
+    instance = await cibseven.find_active_instance("INAD-amh-000000001")
     assert instance is not None
 
 
@@ -581,7 +587,7 @@ async def test_start_process_idempotent_on_active_instance() -> None:
         ProcessInstance(
             instance_id="existing-1",
             process_key="SP-OP-INADIMPLENCIA-001",
-            business_key="INAD-amh-CONTRATO-001",
+            business_key="INAD-amh-000000001",
             state="ACTIVE",
             already_existed=True,
         )
