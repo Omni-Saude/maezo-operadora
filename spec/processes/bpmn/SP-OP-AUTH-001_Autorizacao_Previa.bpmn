@@ -539,7 +539,17 @@ A decisao sai em nome do medico auditor (assignee registrado na trilha de audito
     <bpmn:sequenceFlow id="Flow_PubBreach_UTCoord" sourceRef="ST_PublishSlaBreach" targetRef="UT_CoordenacaoAssume"/>
     <bpmn:sequenceFlow id="Flow_UTAuditor_GW" sourceRef="UT_AnaliseMedicoAuditor" targetRef="GW_DecisaoAuditor"/>
     <bpmn:sequenceFlow id="Flow_UTCoord_GW" sourceRef="UT_CoordenacaoAssume" targetRef="GW_DecisaoAuditor"/>
-    <bpmn:sequenceFlow id="Flow_GWDec_Aprovar" name="APROVAR" sourceRef="GW_DecisaoAuditor" targetRef="ST_EmitirAutorizacaoAuditor"/>
+    <!-- ENGINE-09005 fix (T1.3 artifact-repair): esta flow nao e' o default do gateway
+         (default="Flow_GWDec_Invalida", GAP-AUTH-3 fail-closed) e por isso PRECISA de
+         conditionExpression propria — espelha o padrao das flows-irma (Negar/SolicitarInfo/
+         Junta) e o vocabulario do contrato (docs/processes/contracts/SP-OP-AUTH-001.md:
+         decisao_auditor in {APROVAR,NEGAR,SOLICITAR_INFO,JUNTA_MEDICA}). O v1 donor tinha
+         esta flow como default do gateway (implicitamente sem condicao); v2 endureceu o
+         default para o terminal de erro fail-closed e este fix so completa essa mudanca -
+         NAO reverte o endurecimento. -->
+    <bpmn:sequenceFlow id="Flow_GWDec_Aprovar" name="APROVAR" sourceRef="GW_DecisaoAuditor" targetRef="ST_EmitirAutorizacaoAuditor">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_auditor == 'APROVAR'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
     <bpmn:sequenceFlow id="Flow_GWDec_Negar" name="NEGAR (somente humano)" sourceRef="GW_DecisaoAuditor" targetRef="ST_EnviarNegativaFormal">
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_auditor == 'NEGAR'}</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
