@@ -553,6 +553,24 @@ lifecycle:
       erasedPatientIdsSecret: ""
     # gap #6 — retencao 5 anos da auditoria por DELETE-por-idade (audit_chain.ts >5 anos).
     # Particionamento foi rejeitado (enfraquecia a UNIQUE(prev_record_hash) DB-atomica). Mensal, dia 1, 05:00.
+    #
+    # FAIL-CLOSED [T2.8]: `python -m maezo.platform.lifecycle audit-retention` agora RECUSA
+    # explicitamente e sai com codigo != 0 (EX_CONFIG 78) — a poda NAO esta implementada e esta
+    # BLOQUEADA ate ADR-0020-amendment (registro de legal-hold) + ADR-0029 (re-anchor/checkpoint
+    # assinado) serem ratificados. Sem esses dois, o `DELETE FROM audit_chain WHERE ts < cutoff`
+    # (retention.py:143) apagaria evidencia sob legal-hold (spoliation) E cortaria a contiguidade
+    # genesis do verify_chain() (audit.py:310-344 / audit_postgres.py:380-406). Ver
+    # docs/adr/0029-audit-chain-pruning-reanchor.md e docs/compliance/ADR-0020-amendment-draft.md.
+    #
+    # DECISAO (nao suspender): mantemos o CronJob ATIVO — o exit != 0 mensal e DE PROPOSITO,
+    # legivel e auto-documentado (Job falho em `kubectl get jobs`/failedJobsHistory + a mensagem-
+    # bloqueador nos logs do pod). `suspend: true` seria mais quieto porem ESCONDERIA o sinal e,
+    # emparelhado a uma futura implementacao do modulo, viraria uma armadilha silenciosa (basta
+    # des-suspender). NOTA (gap de monitoramento): nao ha scrape kube-state-metrics nem alerta de
+    # CronJob/Job falho hoje (deploy/observability/{prometheus,alert-rules}.yml), entao um alerta de
+    # Job falho e um follow-up conhecido — mas isso argumenta por CORRIGIR o monitoramento, nao por
+    # esconder o job. A recusa explicita e a defesa primaria (o modulo recusa; retention_query fica
+    # sem chamador, travado em CI).
     - name: audit-retention
       command: "audit-retention"
       schedule: "0 5 1 * *"
