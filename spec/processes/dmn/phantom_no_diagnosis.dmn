@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:dc="http://www.omg.org/spec/DMN/20180521/DC/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_phantom_no_diagnosis"
+             name="Phantom Billing No Diagnosis (indicador de montagem)"
+             namespace="http://maezo.health/dmn/operadora">
+  <!-- T2.7 (artifact phase, rework cycle 2): portada 1:1 (logica de decisao byte-fiel) do v1 donor
+       Maezo-Healthcare-Plan src/maezo/processes/dmn/fraude_scoring/phantom_no_diagnosis.dmn
+       (commit 1ba8cb8). ORFAO DELIBERADO (orphans-allowlist.yaml) ate o wiring do worker
+       operadora.fraude.score_indicators — T2.7 fase 2, apos o ADR de avaliacao DMN do T1.4.
+       Conteudo (scores/limiares) SINTETICO, pendente SME (medico-auditor/financas) —
+       docs/review-queue.md. Comentario de proveniencia do donor preservado abaixo; unica adaptacao:
+       o token literal do dominio de veredito do reference foi redigido como "veredito-adverso"
+       para manter a arvore spec/ livre do token (grep-limpa). -->
+  <!-- PORTADA (copiada+adaptada+OWN — ADR-0011) de
+       ../maezo-reference/.../fraud_scoring/phantom_no_diagnosis.dmn. INVERSAO (SP-OP-FRAUDE-001):
+       coluna de veredito (resultado) e coluna risco REMOVIDAS; o CRITICO/veredito-adverso do reference
+       (procedimento sem diagnostico) vira apenas um indicador presente de alto score (montagem),
+       NUNCA um veredito/bloqueio. Emite indicador_score (integer) + indicador_label + motivo.
+       Rows catch-all redundantes do reference colapsadas. camunda:historyTimeToLive adicionado;
+       namespace -> maezo.health. -->
+  <decision id="phantom_no_diagnosis" name="Phantom Billing No Diagnosis" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_phantom_no_diagnosis" hitPolicy="FIRST">
+      <input id="in_has_tuss_codes" label="Has TUSS Codes">
+        <inputExpression id="ie_has_tuss_codes" typeRef="boolean"><text>has_tuss_codes</text></inputExpression>
+      </input>
+      <input id="in_has_cid10_codes" label="Has CID-10 Codes">
+        <inputExpression id="ie_has_cid10_codes" typeRef="boolean"><text>has_cid10_codes</text></inputExpression>
+      </input>
+      <output id="out_indicador_score" label="indicador_score" name="indicador_score" typeRef="integer"/>
+      <output id="out_indicador_label" label="indicador_label" name="indicador_label" typeRef="string"/>
+      <output id="out_motivo" label="motivo" name="motivo" typeRef="string"/>
+      <rule id="r_phantom_billing">
+        <description>Procedimentos (TUSS) sem diagnostico (CID-10) documentado — indicador presente de score alto (montagem; NUNCA veredito)</description>
+        <inputEntry id="r_phantom_billing_i1"><text>true</text></inputEntry>
+        <inputEntry id="r_phantom_billing_i2"><text>false</text></inputEntry>
+        <outputEntry id="r_phantom_billing_o1"><text>40</text></outputEntry>
+        <outputEntry id="r_phantom_billing_o2"><text>"phantom_no_diagnosis"</text></outputEntry>
+        <outputEntry id="r_phantom_billing_o3"><text>"Indicador: procedimentos cobrados sem diagnostico documentado — fato de montagem de dossie de score alto, NUNCA veredito de fraude"</text></outputEntry>
+      </rule>
+      <rule id="r_both_present">
+        <description>Procedimentos e diagnosticos documentados — indicador ausente</description>
+        <inputEntry id="r_both_present_i1"><text>true</text></inputEntry>
+        <inputEntry id="r_both_present_i2"><text>true</text></inputEntry>
+        <outputEntry id="r_both_present_o1"><text>0</text></outputEntry>
+        <outputEntry id="r_both_present_o2"><text>"none"</text></outputEntry>
+        <outputEntry id="r_both_present_o3"><text>"Sem indicador phantom: procedimentos e diagnosticos adequadamente documentados — fato de montagem de dossie"</text></outputEntry>
+      </rule>
+      <rule id="r_no_tuss">
+        <description>Nenhum procedimento TUSS para avaliar — indicador ausente</description>
+        <inputEntry id="r_no_tuss_i1"><text>false</text></inputEntry>
+        <inputEntry id="r_no_tuss_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_no_tuss_o1"><text>0</text></outputEntry>
+        <outputEntry id="r_no_tuss_o2"><text>"none"</text></outputEntry>
+        <outputEntry id="r_no_tuss_o3"><text>"Sem indicador phantom: nenhum procedimento TUSS presente — fato de montagem de dossie"</text></outputEntry>
+      </rule>
+      <rule id="r_catchall">
+        <description>Catch-all: estado desconhecido — indicador moderado (requer avaliacao na montagem). A tabela alimenta o dossie, nao decide.</description>
+        <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>10</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>"phantom_no_diagnosis_indeterminado"</text></outputEntry>
+        <outputEntry id="r_catchall_o3"><text>"Indicador moderado: estado de documentacao desconhecido — requer avaliacao na montagem do dossie"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

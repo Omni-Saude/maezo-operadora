@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:dc="http://www.omg.org/spec/DMN/20180521/DC/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_provider_peer_deviation"
+             name="Provider Peer Deviation (indicador de montagem)"
+             namespace="http://maezo.health/dmn/operadora">
+  <!-- T2.7 (artifact phase, rework cycle 2): portada 1:1 (byte-fiel) do v1 donor
+       Maezo-Healthcare-Plan src/maezo/processes/dmn/fraude_scoring/provider_peer_deviation.dmn
+       (commit 1ba8cb8). ORFAO DELIBERADO (orphans-allowlist.yaml) ate o wiring do worker
+       operadora.fraude.score_indicators — T2.7 fase 2, apos o ADR de avaliacao DMN do T1.4.
+       Conteudo (scores/limiares) SINTETICO, pendente SME (medico-auditor/financas) —
+       docs/review-queue.md. Comentario de proveniencia do donor preservado abaixo. -->
+  <!-- PORTADA (copiada+adaptada+OWN — ADR-0011) de
+       ../maezo-reference/.../fraud_scoring/provider_peer_deviation.dmn. INVERSAO
+       (SP-OP-FRAUDE-001): typeRef "number"->"double" (deviation_pct e percentual racional),
+       "number"->"integer" (provider_volume e contagem); coluna de veredito (resultado) e coluna
+       risco REMOVIDAS; emite indicador_score (integer) + indicador_label + motivo — FATO DE
+       MONTAGEM, NUNCA veredito. Rows catch-all redundantes colapsadas. camunda:historyTimeToLive
+       adicionado; namespace -> maezo.health. -->
+  <decision id="provider_peer_deviation" name="Provider Peer Deviation" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_provider_peer_deviation" hitPolicy="FIRST">
+      <input id="in_deviation_pct" label="Deviation Percentage">
+        <inputExpression id="ie_deviation_pct" typeRef="double"><text>deviation_pct</text></inputExpression>
+      </input>
+      <input id="in_provider_volume" label="Provider Volume">
+        <inputExpression id="ie_provider_volume" typeRef="integer"><text>provider_volume</text></inputExpression>
+      </input>
+      <output id="out_indicador_score" label="indicador_score" name="indicador_score" typeRef="integer"/>
+      <output id="out_indicador_label" label="indicador_label" name="indicador_label" typeRef="string"/>
+      <output id="out_motivo" label="motivo" name="motivo" typeRef="string"/>
+      <rule id="r_high_deviation_high_volume">
+        <description>Desvio &gt;50% com alto volume (&gt;10) — indicador presente de score alto (padrao diverge criticamente dos pares)</description>
+        <inputEntry id="r_high_deviation_high_volume_i1"><text>&gt; 50</text></inputEntry>
+        <inputEntry id="r_high_deviation_high_volume_i2"><text>&gt; 10</text></inputEntry>
+        <outputEntry id="r_high_deviation_high_volume_o1"><text>30</text></outputEntry>
+        <outputEntry id="r_high_deviation_high_volume_o2"><text>"provider_peer_deviation"</text></outputEntry>
+        <outputEntry id="r_high_deviation_high_volume_o3"><text>"Indicador: padrao de codificacao do prestador diverge criticamente dos pares (&gt;50%, alto volume) — fato de montagem de dossie, NUNCA veredito"</text></outputEntry>
+      </rule>
+      <rule id="r_medium_deviation">
+        <description>Desvio &gt;30% — indicador presente</description>
+        <inputEntry id="r_medium_deviation_i1"><text>&gt; 30</text></inputEntry>
+        <inputEntry id="r_medium_deviation_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_medium_deviation_o1"><text>20</text></outputEntry>
+        <outputEntry id="r_medium_deviation_o2"><text>"provider_peer_deviation"</text></outputEntry>
+        <outputEntry id="r_medium_deviation_o3"><text>"Indicador: padrao de codificacao do prestador diverge significativamente dos pares (&gt;30%) — fato de montagem de dossie"</text></outputEntry>
+      </rule>
+      <rule id="r_normal_deviation">
+        <description>Desvio &lt;= 30% — indicador ausente</description>
+        <inputEntry id="r_normal_deviation_i1"><text>&lt;= 30</text></inputEntry>
+        <inputEntry id="r_normal_deviation_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_normal_deviation_o1"><text>0</text></outputEntry>
+        <outputEntry id="r_normal_deviation_o2"><text>"none"</text></outputEntry>
+        <outputEntry id="r_normal_deviation_o3"><text>"Sem indicador de desvio: padrao de codificacao do prestador dentro da faixa normal — fato de montagem de dossie"</text></outputEntry>
+      </rule>
+      <rule id="r_catchall">
+        <description>Catch-all: desvio desconhecido — indicador moderado (requer avaliacao na montagem). A tabela alimenta o dossie, nao decide.</description>
+        <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>10</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>"provider_peer_deviation_indeterminado"</text></outputEntry>
+        <outputEntry id="r_catchall_o3"><text>"Indicador moderado: desvio do prestador desconhecido — requer avaliacao na montagem do dossie"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>
