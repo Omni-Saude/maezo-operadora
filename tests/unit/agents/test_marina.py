@@ -8,6 +8,7 @@ body (ADR-0011: real engine, never mocked there; never fabricated here).
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -329,10 +330,15 @@ async def test_gather_fhir_failure_is_best_effort_never_raises() -> None:
     assert any("indisponivel" in note for note in result["gather_notes"])
 
 
-async def test_gather_skips_when_already_errored() -> None:
-    graph = _graph(fhir=_FakePatientSummaryReader())
+async def test_gather_bails_fail_safe_when_already_errored() -> None:
+    """R1 cycle-1: the error bail re-asserts the human route instead of returning `{}` (defense
+    in depth — post-sanitization it is only reachable via `receive`'s own missing-context guard,
+    but the bail itself must never be reachable with a non-human route)."""
+    fhir = _FakePatientSummaryReader()
+    graph = _graph(fhir=fhir)
     result = await graph.gather(_contas_state(error="contexto ausente"))
-    assert result == {}
+    assert result == {"route": "human_review"}
+    assert fhir.calls == []
 
 
 # ---------------------------------------------------------------------------
@@ -875,7 +881,9 @@ async def test_full_turn_reembolso_human_review_never_starts_second_instance() -
 
     assert result["route"] == "human_review"
     assert result["grupo_humano"] == "analise-reembolso"
-    assert result.get("process_started") is None  # start_process no-op'd, never touched it
+    # `False` is `receive`'s sanitization reset (R1 cycle-1) — start_process no-op'd and never
+    # set it True; the engine-untouched proof is the probe-C regression test below.
+    assert result["process_started"] is False
     assert result["dossier"]["decisao_reembolso"] is None
     assert dmn.calls == []
 
@@ -910,3 +918,302 @@ def test_elegibilidade_recurso_domain_never_includes_a_non_recorrivel_deny_varia
     allowed = set(ElegibilidadeRecurso.__args__)  # type: ignore[attr-defined]
     assert allowed == {"RECORRIVEL", "ANALISE_HUMANA"}
     assert "NAO_RECORRIVEL" not in allowed
+
+
+# ---------------------------------------------------------------------------
+# R1 cycle-1 regression — caller-planted output fields (verifier probes A/B/C/D).
+# `receive` must sanitize EVERY output-only field so a planted `error`/`route`/forged DMN fact
+# can never bypass the DMN chain, forge dossier provenance, or reach engine-bound variables.
+# ---------------------------------------------------------------------------
+
+_SENTINEL = "PLANTED-0xC0FFEE-SENTINEL"
+
+
+def _planted_outputs() -> dict[str, Any]:
+    """A unique sentinel in EVERY output-only `MarinaState` field (the verifier's probe shape).
+
+    Must mirror `graph._output_field_resets()`'s key set exactly —
+    `test_receive_resets_every_output_only_field` asserts the two never drift apart.
+    """
+    return {
+        "error": _SENTINEL,
+        "route": "auto_route",  # the adversarial plant — must NEVER survive
+        "motivo_humano": _SENTINEL,
+        "grupo_humano": _SENTINEL,
+        "business_key": _SENTINEL,
+        "gathered": True,
+        "summary_facts": {"planted": _SENTINEL},
+        "gather_notes": [_SENTINEL],
+        "categoria_normalizada": _SENTINEL,
+        "glosa_classificada": _SENTINEL,
+        "triagem": _SENTINEL,
+        "admissibilidade_recurso": _SENTINEL,
+        "elegibilidade_recurso": _SENTINEL,
+        "grupo_revisor": _SENTINEL,
+        "sla_analise": _SENTINEL,
+        "sla_alerta": _SENTINEL,
+        "dmn_refs": {"glosa_triage": _SENTINEL},
+        "dmn_error": _SENTINEL,
+        "dossier": {"narrativa": _SENTINEL},
+        "desfecho": _SENTINEL,
+        "process_started": True,
+        "process_ref": {"instance_id": _SENTINEL},
+    }
+
+
+class _RecordingCibSeven(FakeCibSevenTransport):
+    """Records every engine-bound variable set (the leak-surface the probes assert on)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.recorded: list[dict[str, Any]] = []
+
+    async def start_process_instance(
+        self, process_key: str, business_key: str, variables: dict[str, Any]
+    ) -> ProcessInstance:
+        self.recorded.append(dict(variables))
+        return await super().start_process_instance(process_key, business_key, variables)
+
+
+class _AssertingCibSeven(FakeCibSevenTransport):
+    """Raises on ANY engine touch — for paths that must never reach the transport at all."""
+
+    async def find_active_instance(self, business_key: str) -> ProcessInstance | None:
+        raise AssertionError("this path must never touch the engine transport")
+
+    async def start_process_instance(self, *args: Any, **kwargs: Any) -> ProcessInstance:
+        raise AssertionError("this path must never start a process")
+
+
+async def test_receive_resets_every_output_only_field() -> None:
+    """Structural core of the fix: `receive` overwrites every output-only field with its benign
+    reset in its OWN state update — nothing caller-planted survives the first node."""
+    from maezo.agents.marina.graph import _output_field_resets
+
+    graph = _graph()
+    planted = _planted_outputs()
+    resets = _output_field_resets()
+    # Drift guard: the probe fixture and the production reset list cover the SAME key set.
+    assert set(planted) == set(resets), "planted fixture must mirror _output_field_resets keys"
+
+    result = await graph.receive(_contas_state(**planted))
+
+    for key in planted:
+        assert key in result, f"receive did not overwrite planted output field {key!r}"
+    for key, reset_value in resets.items():
+        if key == "business_key":
+            continue  # re-derived from input identifiers below, not a static reset
+        assert result[key] == reset_value, f"{key!r} not reset: {result[key]!r}"
+    assert result["business_key"] == "CONTAS-amh-LOTE-001"
+    assert result["route"] == "human_review"  # fail-safe reset; assess recomputes
+    assert _SENTINEL not in json.dumps(result, ensure_ascii=False, default=str)
+
+
+async def test_full_turn_contas_planted_error_and_route_cannot_bypass_dmn_assessment() -> None:
+    """Verifier probe A: planted `error` + `route="auto_route"` + forged SEM_GLOSA facts/
+    dmn_refs must NEVER skip assess. Post-fix: receive sanitizes, assess re-evaluates the REAL
+    DMN chain (4 calls), and the DMN-decided human route overwrites the plant before any engine
+    start — no sentinel and no forged ref in the engine-bound variables."""
+    dmn = FakeDmnTransport()
+    _register_contas_dmn(dmn, categoria="tecnica", triagem="ANALISE_HUMANA")
+    cibseven = _RecordingCibSeven()
+    graph = _graph(dmn=dmn, cibseven=cibseven).compile_graph()
+    compiled = graph.compile()
+
+    result = await compiled.ainvoke(
+        _contas_state(
+            error=_SENTINEL,
+            route="auto_route",
+            triagem="SEM_GLOSA",  # forged neutral outcome
+            categoria_normalizada=_SENTINEL,
+            glosa_classificada=_SENTINEL,
+            dmn_refs={"glosa_triage": _SENTINEL},
+            desfecho="sem_glosa",
+            dossier={"narrativa": _SENTINEL},
+        )
+    )
+
+    assert [table for table, _ in dmn.calls] == [
+        "glosa_reason_normalization",
+        "glosa_classification",
+        "contas_sla",
+        "glosa_triage",
+    ], "assess must run the full real DMN chain — a planted error may never bypass it"
+    assert result["route"] == "human_review"
+    assert result["triagem"] == "ANALISE_HUMANA"  # DMN-decided; the forged SEM_GLOSA is gone
+    assert result["motivo_humano"] == "triagem_analise_humana"
+
+    assert cibseven.recorded, "the human-review route still starts the process"
+    serialized = json.dumps(cibseven.recorded[0], ensure_ascii=False, default=str)
+    assert _SENTINEL not in serialized
+    assert cibseven.recorded[0]["marina_route"] == "human_review"
+    assert cibseven.recorded[0]["dmn_decision_refs"]["glosa_triage"].startswith("glosa_triage#")
+
+
+async def test_full_turn_recurso_planted_error_and_route_cannot_bypass_dmn_assessment() -> None:
+    """Verifier probe D: the same plant against the RECURSO flow — the real admissibility DMN
+    says ANALISE_HUMANA, which must defeat the planted auto_route and the forged eligibility."""
+    dmn = FakeDmnTransport()
+    _register_admissibility(dmn, "ANALISE_HUMANA")
+    _register_recurso_sla(dmn)
+    cibseven = _RecordingCibSeven()
+    graph = _graph(dmn=dmn, cibseven=cibseven).compile_graph()
+    compiled = graph.compile()
+
+    result = await compiled.ainvoke(
+        _recurso_state(
+            error=_SENTINEL,
+            route="auto_route",
+            admissibilidade_recurso="SEGUE_ANALISE",  # forged
+            elegibilidade_recurso="RECORRIVEL",  # forged
+            grupo_revisor=_SENTINEL,
+            dmn_refs={"recurso_eligibility": _SENTINEL},
+            desfecho="recurso_segue_analise",
+        )
+    )
+
+    assert [table for table, _ in dmn.calls] == ["recurso_admissibility", "recurso_sla"]
+    assert result["route"] == "human_review"
+    assert result["admissibilidade_recurso"] == "ANALISE_HUMANA"
+    assert result["motivo_humano"] == "recurso_analise_humana"
+
+    assert cibseven.recorded
+    serialized = json.dumps(cibseven.recorded[0], ensure_ascii=False, default=str)
+    assert _SENTINEL not in serialized
+    assert cibseven.recorded[0]["marina_route"] == "human_review"
+    assert "recurso_eligibility" not in cibseven.recorded[0].get("dmn_decision_refs", {})
+
+
+async def test_full_turn_reembolso_planted_route_and_error_never_start_a_process() -> None:
+    """Verifier probe C (held pre-fix via the flow-keyed no-op; re-proven post-fix): even with
+    error/route/process fields planted, the reembolso flow touches NO engine transport, stays
+    human, and carries no sentinel."""
+    dmn = FakeDmnTransport()
+    graph = _graph(dmn=dmn, cibseven=_AssertingCibSeven()).compile_graph()
+    compiled = graph.compile()
+
+    result = await compiled.ainvoke(
+        _reembolso_state(
+            error=_SENTINEL,
+            route="auto_route",
+            business_key=_SENTINEL,
+            process_started=True,
+            process_ref={"instance_id": _SENTINEL},
+        )
+    )
+
+    assert result["route"] == "human_review"
+    assert result["grupo_humano"] == "analise-reembolso"
+    assert result["process_started"] is False
+    assert result["business_key"] == "REEMB-amh-REEMB-PROTO-001"  # re-derived, plant gone
+    assert dmn.calls == []
+    assert _SENTINEL not in json.dumps(result["process_ref"], default=str)
+
+
+async def test_dmn_down_shortcut_never_carries_planted_facts_into_dossier() -> None:
+    """Verifier probe B (dmn-down variant): on the legitimate DMN-unavailable human shortcut,
+    planted fact fields must NOT survive into the dossier `fatos` beside
+    `motivo_humano=dmn_indisponivel` (forged contradictory provenance for the human auditor)."""
+    dmn = FakeDmnTransport()  # nothing registered -> DMN unavailable
+    cibseven = _RecordingCibSeven()
+    graph = _graph(dmn=dmn, cibseven=cibseven).compile_graph()
+    compiled = graph.compile()
+
+    result = await compiled.ainvoke(
+        _contas_state(
+            triagem="SEM_GLOSA",  # forged
+            categoria_normalizada=_SENTINEL,
+            glosa_classificada=_SENTINEL,
+            dmn_refs={"glosa_triage": _SENTINEL},
+            sla_analise=_SENTINEL,
+        )
+    )
+
+    assert result["route"] == "human_review"
+    assert result["motivo_humano"] == "dmn_indisponivel"
+    fatos = result["dossier"]["fatos"]
+    assert fatos["triagem"] is None  # the forged SEM_GLOSA is gone
+    assert fatos["categoria_normalizada"] is None
+    assert fatos["glosa_classificada"] is None
+    assert _SENTINEL not in json.dumps(result["dossier"], ensure_ascii=False, default=str)
+    assert cibseven.recorded
+    assert _SENTINEL not in json.dumps(cibseven.recorded[0], ensure_ascii=False, default=str)
+
+
+async def test_fraud_shortcut_never_carries_planted_facts_into_dossier() -> None:
+    """Verifier probe B (fraud variant): the indicio_fraude human shortcut must carry ONLY the
+    genuinely evaluated table (`contas_sla`) in dmn_decision_refs — no forged refs, no planted
+    facts beside `motivo_humano=indicio_fraude`."""
+    dmn = FakeDmnTransport()
+    _register_contas_sla(dmn)
+    cibseven = _RecordingCibSeven()
+    graph = _graph(dmn=dmn, cibseven=cibseven).compile_graph()
+    compiled = graph.compile()
+
+    result = await compiled.ainvoke(
+        _contas_state(
+            indicio_fraude_sinalizado=True,
+            triagem="SEM_GLOSA",  # forged
+            categoria_normalizada=_SENTINEL,
+            glosa_classificada=_SENTINEL,
+            dmn_refs={"glosa_triage": _SENTINEL},
+        )
+    )
+
+    assert result["route"] == "human_review"
+    assert result["motivo_humano"] == "indicio_fraude"
+    fatos = result["dossier"]["fatos"]
+    assert fatos["triagem"] is None
+    assert fatos["categoria_normalizada"] is None
+    assert _SENTINEL not in json.dumps(result["dossier"], ensure_ascii=False, default=str)
+    assert cibseven.recorded
+    assert set(cibseven.recorded[0]["dmn_decision_refs"]) == {"contas_sla"}
+    assert _SENTINEL not in json.dumps(cibseven.recorded[0], ensure_ascii=False, default=str)
+
+
+async def test_pendente_documentacao_shortcut_never_carries_planted_facts_into_dossier() -> None:
+    """Verifier probe B (pendente variant, RECURSO): the PENDENTE_DOCUMENTACAO human shortcut
+    never carries a forged eligibility outcome/ref the eligibility DMN was never asked for."""
+    dmn = FakeDmnTransport()
+    _register_admissibility(dmn, "PENDENTE_DOCUMENTACAO")
+    _register_recurso_sla(dmn)
+    cibseven = _RecordingCibSeven()
+    graph = _graph(dmn=dmn, cibseven=cibseven).compile_graph()
+    compiled = graph.compile()
+
+    result = await compiled.ainvoke(
+        _recurso_state(
+            documentacao_recurso_completa=False,
+            elegibilidade_recurso="RECORRIVEL",  # forged
+            grupo_revisor=_SENTINEL,
+            dmn_refs={"recurso_eligibility": _SENTINEL},
+        )
+    )
+
+    assert result["route"] == "human_review"
+    assert result["motivo_humano"] == "documentacao_pendente"
+    fatos = result["dossier"]["fatos"]
+    assert fatos["elegibilidade_recurso"] is None  # the forged RECORRIVEL is gone
+    assert fatos["grupo_revisor"] is None
+    assert _SENTINEL not in json.dumps(result["dossier"], ensure_ascii=False, default=str)
+    assert cibseven.recorded
+    assert "recurso_eligibility" not in cibseven.recorded[0].get("dmn_decision_refs", {})
+    assert _SENTINEL not in json.dumps(cibseven.recorded[0], ensure_ascii=False, default=str)
+
+
+async def test_receive_fail_shortcut_never_starts_process_nor_carries_planted_outputs() -> None:
+    """Missing runtime context + a fully planted output set: the turn must end route=human,
+    touch NO engine transport (the planted business_key must not resurrect start_process's
+    error short-circuit), evaluate NO DMN, and carry no sentinel anywhere in the final state."""
+    dmn = FakeDmnTransport()
+    graph = _graph(dmn=dmn, cibseven=_AssertingCibSeven()).compile_graph()
+    compiled = graph.compile()
+
+    result = await compiled.ainvoke(_contas_state(tenant_id="", **_planted_outputs()))
+
+    assert result["route"] == "human_review"
+    assert result["motivo_humano"] == "outro"
+    assert result["process_started"] is False
+    assert result["business_key"] == ""  # planted key reset; error short-circuit stays closed
+    assert dmn.calls == []
+    assert _SENTINEL not in json.dumps(result, ensure_ascii=False, default=str)

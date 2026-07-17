@@ -67,6 +67,24 @@ pure pass-through of `state.get("dentro_teto_l2")`).
 PHI discipline: Marina's `security_zone` is `phi` end-to-end (`spec/agents/marina/agent.yaml`) —
 the one LLM call per turn (`_build_dossier`'s narrative) passes `phi=True` (ADR-0006/ADR-0017/T1.7).
 
+CALLER-PLANTED-OUTPUT SANITIZATION (R1 cycle-1 fix — same defect class as fernando's/carolina's
+graphs, worst expression here because real instances start): `receive` resets EVERY output-only
+state field (`_output_field_resets`) before any other node reads them. Pre-fix, `gather`/`assess`
+early-bailed on a truthy `state["error"]` WITHOUT recomputing `route`, and `receive` neither
+cleared nor distrusted a caller-supplied `error` — so a planted `error` + `route="auto_route"` +
+forged `triagem`/`categoria_normalizada`/`dmn_refs` skipped the DMN chain entirely (0 DMN calls)
+and started a REAL SP-OP-CONTAS-001/SP-OP-RECURSO-001 instance with `marina_route="auto_route"`
+and the forged facts verbatim in the engine-bound `dossie_marina` (live-proven by the R1
+verifier); on legitimate human shortcuts (dmn-down/fraud/pendente), planted fact fields survived
+into the dossier `fatos` beside the genuine `motivo_humano` (forged contradictory provenance for
+the human auditor). Post-fix, BOTH halves of the class are closed: (1) clearing inbound `error`
+(and `route`) at `receive` makes `assess` ALWAYS recompute the route from the real DMN chain,
+overwriting any plant; (2) resetting every fact/dossier/process output field keeps planted values
+out of the dossier `fatos` and engine-bound variables even on the legitimate human-shortcut
+paths. Defense in depth: the `gather`/`assess` error bails — now reachable ONLY via `receive`'s
+own missing-context guard — explicitly re-assert `route="human_review"` instead of returning
+`{}`, so the bail is fail-safe by construction even if sanitization were ever regressed.
+
 DIVERGENCE FROM DONOR (disclosed, spec wins per this task's charter): the v1 donor lets a
 `glosa_classification` DMN failure pass through silently (glosa_type stays `""`, `assess`
 proceeds straight to `contas_sla`/`glosa_triage`) — safe-by-defense-in-depth only because a later
@@ -317,6 +335,49 @@ def _process_key(state: MarinaState) -> str:
     return PROCESS_KEY_RECURSO if _flow(state) == "recurso" else PROCESS_KEY_CONTAS
 
 
+def _output_field_resets() -> dict[str, Any]:
+    """Benign reset values for EVERY output-only `MarinaState` field — applied unconditionally at
+    `receive` entry (R1 cycle-1 fix; module docstring §CALLER-PLANTED-OUTPUT SANITIZATION).
+
+    An inbound turn's state may only carry INPUT fields (identifiers + pre-resolved worker
+    facts). Every field a NODE of this graph is supposed to fill is reset here first, so a
+    caller-planted `error`/`route`/forged DMN fact/forged `dmn_refs`/pre-cooked `dossier` can
+    never survive into routing, the dossier `fatos`, or engine-bound process variables. Returns
+    a FRESH dict per call — the mutable container values (`{}`/`[]`) must never be shared across
+    turns.
+
+    `route` resets to `"human_review"` (fail-safe: if any node were ever skipped, the
+    conditional edge still lands on the human path); `assess` ALWAYS overwrites it from the real
+    DMN chain. `business_key` resets to `""` and is re-derived from the input identifiers on the
+    happy path — on `receive`'s own missing-context guard it stays empty, which keeps
+    `start_process`'s error short-circuit closed against a planted key.
+    """
+    return {
+        "error": "",
+        "route": "human_review",
+        "motivo_humano": None,
+        "grupo_humano": None,
+        "business_key": "",
+        "gathered": False,
+        "summary_facts": {},
+        "gather_notes": [],
+        "categoria_normalizada": None,
+        "glosa_classificada": None,
+        "triagem": None,
+        "admissibilidade_recurso": None,
+        "elegibilidade_recurso": None,
+        "grupo_revisor": None,
+        "sla_analise": "",
+        "sla_alerta": "",
+        "dmn_refs": {},
+        "dmn_error": "",
+        "dossier": {},
+        "desfecho": "",
+        "process_started": False,
+        "process_ref": {},
+    }
+
+
 class MarinaGraph:
     """Wires Marina's injected dependencies into a compilable `StateGraph[MarinaState]`."""
 
@@ -341,10 +402,19 @@ class MarinaGraph:
         """Turn start (part of state 1): task arrives (A2A `glosa.analyze`/`recurso.analyze`/
         `reembolso.analyze`). Idempotent.
 
+        SANITIZATION FIRST (R1 cycle-1 fix; module docstring §CALLER-PLANTED-OUTPUT
+        SANITIZATION): EVERY output-only field is reset (`_output_field_resets`) before anything
+        else — an inbound `error`/`route`/forged DMN fact is a caller plant, never trusted.
+        Pre-fix, a planted `error` made `gather`/`assess` early-bail without recomputing
+        `route`, letting a planted `route="auto_route"` + forged `triagem`/`dmn_refs` skip the
+        DMN chain entirely and start a REAL process carrying the forged facts (live-proven by
+        the R1 verifier).
+
         Defense: never proceeds without the minimum contract identifiers (tenant + the flow's
         own business key). Without them there is no idempotent/anchorable business key — routes
         to human by safety (fail-safe, never an adverse effect).
         """
+        sanitized = _output_field_resets()
         flow = _flow(state)
         tenant_ok = bool(state.get("tenant_id"))
         if flow == "recurso":
@@ -355,17 +425,22 @@ class MarinaGraph:
             key_ok = bool(state.get("numero_lote_tiss") or state.get("numero_guia_tiss"))
         if not tenant_ok or not key_ok:
             return {
+                **sanitized,
                 "route": "human_review",
                 "motivo_humano": "outro",
                 "grupo_humano": self._default_human_group(flow),
                 "error": "contexto de runtime ausente (tenant/chave de negocio)",
             }
-        return {"business_key": _business_key(state)}
+        return {**sanitized, "business_key": _business_key(state)}
 
     async def gather(self, state: MarinaState) -> dict[str, Any]:
         """Best-effort FHIR enrichment — NEVER blocks routing (module docstring)."""
         if state.get("error"):
-            return {}  # already routed by `receive`'s guard
+            # Post-`receive`-sanitization a truthy `error` can ONLY have been set by `receive`'s
+            # own missing-context guard (which already routed human) — never by the caller.
+            # Re-assert the fail-safe route anyway (R1 cycle-1 fix, defense in depth): this bail
+            # must NEVER be reachable with a non-human route.
+            return {"route": "human_review"}
 
         summary_facts: dict[str, Any] = {}
         notes: list[str] = []
@@ -398,7 +473,9 @@ class MarinaGraph:
         donor for `glosa_classification` specifically).
         """
         if state.get("error"):
-            return {}
+            # Same rationale as `gather`'s bail: only reachable via `receive`'s own guard
+            # post-sanitization; re-asserts the fail-safe route (R1 cycle-1, defense in depth).
+            return {"route": "human_review"}
         flow = _flow(state)
         if flow == "recurso":
             return await self._assess_recurso(state)
@@ -780,8 +857,10 @@ class MarinaGraph:
                 variables["numero_conta"] = state["numero_conta"]
 
         if state.get("route") == "human_review":
-            variables["motivo_encaminhamento"] = state.get("motivo_humano", "outro")
-            variables["grupo_destino"] = state.get("grupo_humano", self._default_human_group(flow))
+            # `or`-based (not `.get(key, default)`): post-sanitization these keys EXIST with
+            # value `None` until a node sets them — the default must still apply then.
+            variables["motivo_encaminhamento"] = state.get("motivo_humano") or "outro"
+            variables["grupo_destino"] = state.get("grupo_humano") or self._default_human_group(flow)
         # Auditable rule references (ADR-0007/0012). Note: `dmn_error` (raw transport error text,
         # potentially engine-echoed) is DELIBERATELY never included here — only the bounded class
         # token in `motivo_encaminhamento` reaches engine-bound variables (hardening: engine-
