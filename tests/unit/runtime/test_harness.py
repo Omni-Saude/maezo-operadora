@@ -95,6 +95,43 @@ def test_create_graph_helena_missing_deps_raises_value_error() -> None:
         harness.create_graph("helena")
 
 
+def test_create_graph_lucas_resolves_real_build() -> None:
+    """`create_graph('lucas')` resolves Lucas's REAL `build(config)` (T1.12) — not the trivial
+    default — via `self._tool_deps` merged with `inference`."""
+    mock_inference = MagicMock()
+    harness = Harness(
+        inference=mock_inference,
+        tool_deps={
+            "dmn": FakeDmnTransport(),
+            "cibseven": FakeCibSevenTransport(),
+            "whatsapp": _fake_whatsapp(),
+        },
+    )
+
+    graph = harness.create_graph("lucas")
+
+    assert graph is not None
+    compiled = graph.compile()
+    node_names = {n for n in compiled.get_graph().nodes if n not in ("__start__", "__end__")}
+    assert {
+        "receive",
+        "gather",
+        "assess",
+        "respond_member",
+        "escalate_human",
+        "start_process",
+        "complete",
+    } <= (node_names)
+
+
+def test_create_graph_lucas_missing_deps_raises_value_error() -> None:
+    """Lucas's own `build(config)` fail-closes when a required dependency is missing — the
+    harness does not swallow or reinterpret that as `UnknownAgentError`."""
+    harness = Harness(inference=MagicMock())
+    with pytest.raises(ValueError, match="missing required dependencies"):
+        harness.create_graph("lucas")
+
+
 def test_create_graph_stub_agent_uses_no_arg_build() -> None:
     """A still-stubbed agent's `build()` takes no parameters — `create_graph` must call it with
     no arguments (introspected via `inspect.signature`, not guessed)."""

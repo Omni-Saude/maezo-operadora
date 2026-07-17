@@ -1,189 +1,743 @@
-"""Lucas Ferreira — Beneficiary Experience Agent (Phase 2, CANCEL/INADIMPLENCIA).
+"""Lucas Ferreira — Atendimento e Cobranca ao Beneficiario Agent (Phase 2, T1.12).
 
-Lucas handles beneficiary billing navigation, payment confirmation, and escalates
-inadimplencia/cancelamento to human agents. His graph consists of:
-- assess_beneficiary: evaluates beneficiary situation (billing status, payments)
-- prepare_communication: prepares WhatsApp communications
-- escalate_to_human: escalates to human when inadimplencia/cancelamento triggers
+Journey map (mirrors the v1 donor's structure, READ-ONLY reference `Maezo-Healthcare-Plan
+src/maezo/agents/lucas/graph.py`, adapted to v2's flatter seam set — same rationale as
+`agents/helena/graph.py`'s and `agents/rafael/graph.py`'s module docstrings; SOURCE OF TRUTH for
+any donor/spec disagreement is v2's `spec/agents/lucas/agent.yaml` + `spec/processes/`):
 
-The StateGraph follows the canonical AgentState pattern from maezo.runtime.harness.
+    receive -> gather -> assess -> {respond_member | escalate_human} -> start_process -> complete
 
-L0 HARD INVARIANT: Lucas NEVER exercises contract_termination (rescission/suspension
-only in SP-OP-CANCEL-001 User Task), authorization_denial (deny reimbursement/coverage
-= human), high_value_payment, or fraud_accusation. Inadimplencia/atraso/cancelamento
-request => ESCALATES to human. No DMN/branch cancels, denies, or suspends.
+ONE agent, THREE journeys — distinguished by `intencao` in state, NEVER by a merit Lucas decides:
+
+  J1 (cobranca_info): boleto/2a via/vencimento doubt -> `assess` evaluates
+     `lucas_billing_admissibility` -> `respond_member` drafts/sends an informational WhatsApp
+     message. No adverse outcome ever originates here.
+
+  J2 (confirmacao_pagamento): "was this payment conciliated?" -> Lucas READS the CNAB
+     conciliation status PRE-RESOLVED by a worker upstream (`status_conciliado`,
+     `ciclos_sem_conciliacao`) — he NEVER computes or invents it (ADR-0012) — and reports what
+     conciliation says via `lucas_billing_admissibility`. A non-conciliated / inadimplencia
+     signal routes to `escalate_human`.
+
+  J3 (inadimplencia | cancelamento | contestacao_cobranca | pedido de cancelamento sinalizado):
+     ALWAYS escalates to a human (SP-OP-ESCALATION-001; SP-OP-CANCEL-001 is where the human
+     decides RESCINDIR/MANTER/SUSPENDER). Lucas NEVER suspends, cancels, or communicates any
+     adverse outcome himself — this journey never even reaches the billing DMN.
+
+`assess` ALWAYS evaluates the deterministic DMN tables (ADR-0012: `lucas_billing_admissibility`
+decides RESPONDER/LEMBRETE/ESCALAR_HUMANO; `lucas_escalation_routing` decides which human GROUP a
+case suggests, never an adverse outcome) — the LLM never decides a rule, only drafts prose over
+an already-decided fact. Both tables are evaluated ENGINE-SIDE via `DmnTransport`
+(`tools/workers/dmn_transport.py`, ADR-0028) — this module never re-implements a decision table
+in Python.
+
+L0 HARD INVARIANT (`spec/processes/dmn/lucas_billing_admissibility.dmn` +
+`lucas_escalation_routing.dmn`'s own `<description>`, CI-enforced by
+`test_route_type_admits_no_adverse_variant` in `tests/unit/agents/test_lucas.py`): `Route` admits
+ONLY `{"respond_member", "escalate_human"}` — no cancel/suspend/deny/rescind variant exists in
+the type. `AdmissibilidadeCobranca` admits ONLY `{"RESPONDER", "LEMBRETE", "ESCALAR_HUMANO"}` —
+no COBRAR/SUSPENDER/CANCELAR/NEGAR output exists. `RoteamentoEscalacao` admits ONLY
+`{"ATENDIMENTO_HUMANO", "COBRANCA_HUMANO", "CONTRATOS_HUMANO"}` — every destination is a HUMAN
+GROUP, never an adverse outcome. The dossier's `decisao_cancelamento` field is ALWAYS `None`
+(`_build_dossier`) — a guardrail making it explicit the decision belongs to the human, never to
+this code (mirrors Rafael's `decisao_cobertura` guardrail).
+
+FAIL-SAFE FECHADO (not fail-OPEN): any DMN unavailable, any DMN output outside its recognized
+allowlist, or an unknown/missing `intencao` routes to `escalate_human` — NEVER a silent default
+or a "no adverse signal" happy path. `receive`'s `intencao` gate is Lucas's "classification"
+fail-closed guard (mirrors Helena's `_classify_llm` fail-closed discipline, T1.11 R1 cycle-1):
+an unrecognized `intencao` is treated as a CLASSIFY FAILURE, never silently read as J1.
+
+ENGINE-VARIABLE HYGIENE (mirrors Helena's T1.11 R1 cycle-2 fix): every failure reason
+(`motivo_humano`, `dmn_error` prefix) is a bounded CLASS TOKEN — `ambiguidade`,
+`dmn_indisponivel`, `falha_tecnica`, `inadimplencia_detectada`, `pedido_cancelamento`,
+`contestacao_cobranca` — never a raw DMN-returned value, never a repr(), never a truncation of
+untrusted data. A DMN `roteamento` value outside its allowlist is NEVER echoed into any
+engine-bound variable or log — only the class token `ambiguidade` is recorded.
+
+PHI discipline: every LLM call in this module passes `phi=True` (ADR-0006/ADR-0017/T1.7) — the
+one PHI-tagged content boundary is state derived from a beneficiary's billing case, treated the
+same as Helena's/Rafael's PHI-tagged content.
+
+DIVERGENCES FROM THE v1 DONOR (disclosed, not hidden — `spec/` wins per this task's charter):
+- No `lucas_sla` DMN evaluation: `spec/processes/dmn/` has no `lucas_sla` table (only
+  `lucas_billing_admissibility` and `lucas_escalation_routing` exist under `spec/processes/dmn/`,
+  confirmed against `spec/processes/dmn/orphans-allowlist.yaml`). The donor's SLA annotation step
+  is dropped entirely rather than fabricated.
+- No `resume_ack`/GAP-XHITL-4B retomada node: v2 has no `resume_driver`/`RESUME_STATE_BUILDERS`
+  infrastructure yet (Helena's graph does not implement this either — same labeled boundary,
+  "no multi-turn conversation checkpointing across separate webhook deliveries").
+- No model-tier routing (`task_default`/`reasoning`): v2's `InferenceProvider.generate(prompt,
+  phi=True)` has no `task_kind` parameter (ADR-0009's tiering is not wired to agents yet, same
+  boundary Helena/Rafael already disclose) — every LLM call here uses the same single-method
+  seam.
+- No `mcp-memory.read_write` episodic write in `finalize`: same disclosed boundary as
+  Helena/Rafael ("no episodic memory write (ADR-0002) — a follow-up once that schema exists").
+  The terminal node is a no-op `complete`, matching Rafael's naming/shape exactly.
+- `receive`'s failure-reason text NEVER echoes the raw `intencao`/field value (donor's original
+  `f"intencao desconhecida: {intencao!r}"` is replaced with a bounded class-token message) — the
+  NON-NEGOTIABLE engine-variable hygiene requirement for this task, matching the fix Helena
+  needed in T1.11 R1 cycle-2.
+- `escalate_human` ADDITIONALLY drafts + sends a short WhatsApp acknowledgement (never revealing
+  the adverse-outcome-in-waiting) before `start_process` — the donor's `escalate_human` never
+  notified the beneficiary at all. This mirrors Helena's convergent `respond` node (every turn,
+  informational or escalated, ends with the beneficiary told what happens next) — a deliberate
+  improvement over the donor, not a silent deviation.
+- No `matricula_beneficiario` fallback correlation key: v2's `spec/agents/lucas/agent.yaml` does
+  not declare one; `conversation_id` is the sole correlation key, matching Helena's
+  `SP-OP-ESCALATION-001` business-key usage exactly (same shared contract).
 """
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any, Literal, Protocol, TypedDict, cast
 
-import structlog
-from langgraph.graph import StateGraph
+from langgraph.graph import END, START, StateGraph
 
-from maezo.runtime.harness import AgentState
+from maezo.runtime.inference import InferenceProvider
+from maezo.tools.mcp_cibseven.transport import (
+    CibSevenError,
+    CibSevenTransport,
+    start_process_idempotent,
+)
+from maezo.tools.workers.dmn_transport import (
+    DmnEvaluationError,
+    DmnNoResultError,
+    DmnTransport,
+    first_row,
+)
 
-logger = structlog.get_logger(__name__)
+from .prompts import (
+    DOSSIER_PROMPT_VERSION,
+    MESSAGE_PROMPT_VERSION,
+    SYSTEM_PROMPT_VERSION,
+    dossier_prompt,
+    escalation_ack_prompt,
+    message_prompt,
+)
+
+PROCESS_KEY = "SP-OP-ESCALATION-001"
+
+DMN_BILLING_ADMISSIBILITY = "lucas_billing_admissibility"
+DMN_ESCALATION_ROUTING = "lucas_escalation_routing"
+
+# --- Domain enums (mirror the SP-OP-ESCALATION-001 contract + the lucas_* DMN schemas) -------
+
+Intencao = Literal["cobranca_info", "confirmacao_pagamento", "inadimplencia", "cancelamento"]
+_VALID_INTENCOES: frozenset[str] = frozenset(
+    {"cobranca_info", "confirmacao_pagamento", "inadimplencia", "cancelamento"}
+)
+
+# STRUCTURALLY SAFE BY CONSTRUCTION — no adverse variant exists in this type (L0 hard, CI-enforced
+# by `test_route_type_admits_no_adverse_variant`).
+Route = Literal["respond_member", "escalate_human"]
+
+# Allow-list mirrors `spec/processes/dmn/lucas_billing_admissibility.dmn`'s `roteamento` output
+# domain EXACTLY — no COBRAR/SUSPENDER/CANCELAR/NEGAR value exists there or here.
+AdmissibilidadeCobranca = Literal["RESPONDER", "LEMBRETE", "ESCALAR_HUMANO"]
+_ADMISSIBILIDADE_ALLOW: frozenset[str] = frozenset({"RESPONDER", "LEMBRETE", "ESCALAR_HUMANO"})
+
+# Allow-list mirrors `spec/processes/dmn/lucas_escalation_routing.dmn`'s `roteamento` output
+# domain EXACTLY — every destination is a HUMAN GROUP, never an adverse outcome.
+RoteamentoEscalacao = Literal["ATENDIMENTO_HUMANO", "COBRANCA_HUMANO", "CONTRATOS_HUMANO"]
+_ROTEAMENTO_ESCALACAO_ALLOW: frozenset[str] = frozenset(
+    {"ATENDIMENTO_HUMANO", "COBRANCA_HUMANO", "CONTRATOS_HUMANO"}
+)
+
+# `roteamento` (Lucas's own suggestion DMN) -> `grupo_humano_sugerido` annotation carried in the
+# dossier/process variables for the human's benefit. This is NOT the same as the shared
+# `escalation_routing` DMN that SP-OP-ESCALATION-001's own `BRT_RotearEscalonamento` evaluates
+# engine-side (keyed on `motivo_categoria`/`severidade`, whose own `grupo_atendimento` domain —
+# `docs/processes/contracts/SP-OP-ESCALATION-001.md` — is `plantao-clinico` |
+# `enfermagem-triagem` | `atendimento-humano`, with no dedicated billing/contracts group). The
+# ACTUAL BPMN candidate group always comes from that shared table, never from this map — this map
+# only feeds the dossier's `grupo_humano_sugerido` (an instruction, never a decision).
+_ESCALACAO_GRUPO: dict[RoteamentoEscalacao, str] = {
+    "ATENDIMENTO_HUMANO": "atendimento-humano",
+    "COBRANCA_HUMANO": "atendimento-humano",
+    "CONTRATOS_HUMANO": "gestao-contratos",
+}
+
+# Reason Lucas routes to a human. NONE of these is an adverse outcome — every one is a reason for
+# HANDOFF; the decision (rescindir/suspender/negar) is always the human's. Mirrors
+# `lucas_escalation_routing.dmn`'s `motivo` input literals exactly (single-sourced: the DMN table
+# only recognizes `pedido_cancelamento`/`inadimplencia_detectada`/`contestacao_cobranca` by name;
+# every other value here falls on that table's own conservative catch-all).
+MotivoHumano = Literal[
+    "inadimplencia_detectada",
+    "pedido_cancelamento",
+    "contestacao_cobranca",
+    "ambiguidade",
+    "dmn_indisponivel",
+    "falha_tecnica",
+]
+
+# Subset of the shared SP-OP-ESCALATION-001 `motivo_categoria` domain
+# (`docs/processes/contracts/SP-OP-ESCALATION-001.md`) — Lucas is billing/collection, never
+# clinical, so `red_flag_clinico`/`risco_psicossocial`/`intencao_clinica` are structurally
+# unreachable from this module (L0 hard — see `test_motivo_categoria_never_clinical` below).
+MotivoCategoria = Literal["outro", "solicitacao_humano", "falha_tecnica"]
+
+# Full shared contract domain (kept for type-fidelity with `docs/processes/contracts/
+# SP-OP-ESCALATION-001.md`) — `grave` is intentionally unreachable from Lucas's own motivo mapping
+# (cobranca/contrato is never P1 clinical, mirrors the donor's own comment on this point).
+Severidade = Literal["grave", "moderada", "leve"]
 
 
-def build() -> StateGraph[AgentState]:
-    """Build and return Lucas's StateGraph for beneficiary experience.
+class WhatsAppSender(Protocol):
+    """Outbound WhatsApp send seam — mirrors `helena/graph.py::WhatsAppSender` exactly (agent
+    independence: redeclared here, not imported, per ADR-0004's federated-definition
+    zero-cross-contamination stance). Operates on a phone HASH, never a raw number."""
 
-    Returns an uncompiled StateGraph[AgentState] wired as:
-    __start__ → assess_beneficiary → prepare_communication → escalate_to_human → __end__
+    async def send(self, to_hash: str, text: str) -> dict[str, Any]: ...
 
-    - assess_beneficiary: evaluates billing status, payment conciliation, and risk
-    - prepare_communication: prepares WhatsApp message for beneficiary
-    - escalate_to_human: routes to human when escalation triggers fire
 
-    Returns:
-        A StateGraph[AgentState] for Lucas's beneficiary experience workflow.
-    """
-    graph: StateGraph[AgentState] = StateGraph(AgentState)
+# --- Graph state (working memory; ADR-0002 working-memory layer) -----------------------------
 
-    async def assess_beneficiary_node(state: AgentState) -> dict[str, Any]:
-        """Assess beneficiary situation: billing status, payment conciliation, risk.
 
-        Evaluates billing admissibility via DMN lucas_billing_admissibility,
-        checks payment conciliation (CNAB, pre-resolved by worker), and determines
-        whether the case can be handled autonomously or must escalate.
+class LucasState(TypedDict, total=False):
+    """Billing/collection case state. Every field is pseudonymized (Zona Geral, ADR-0006) —
+    `beneficiario_pseudo_id` NEVER carries a raw CPF/name/phone number. `status_conciliado`/
+    `ciclos_sem_conciliacao` arrive PRE-RESOLVED by a deterministic CNAB conciliation worker
+    upstream — Lucas CONSUMES them, never computes them (ADR-0012, L0 hard — see
+    `test_conciliation_facts_passed_through_unchanged_never_recomputed` in
+    `tests/unit/agents/test_lucas.py`)."""
 
-        Args:
-            state: The current AgentState with beneficiary context.
+    # Runtime identifiers (injected by the calling layer at turn start).
+    tenant_id: str
+    conversation_id: str
+    canal: str  # whatsapp | portal | telefone
+    beneficiario_pseudo_id: str
+    to_hash: str  # WhatsApp destination hash (never the raw number)
 
-        Returns:
-            Updated state dict with assessment results.
+    # Turn input — `intencao` selects the JOURNEY, never a merit Lucas decides.
+    intencao: Intencao
+    tipo_solicitacao: str  # boleto | 2a_via | vencimento | status_pagamento
+    numero_boleto: str
+    competencia: str  # YYYY-MM
+
+    # Pre-resolved by a deterministic CNAB conciliation worker upstream — CONSUMED, never
+    # computed here (module docstring's L0-hard invariant).
+    status_conciliado: bool
+    ciclos_sem_conciliacao: int
+    contesta_cobranca: bool
+    pedido_cancelamento: bool
+    cnab_ref: str
+
+    # Filled by `gather`.
+    gathered: bool
+    billing_facts: dict[str, Any]
+    gather_notes: list[str]
+
+    # Filled by `assess`.
+    admissibilidade: AdmissibilidadeCobranca
+    roteamento_escalacao: RoteamentoEscalacao
+    dmn_refs: dict[str, str]
+    dmn_error: str
+    route: Route
+    motivo_humano: MotivoHumano
+    motivo_categoria: MotivoCategoria
+    severidade: Severidade
+    grupo_humano: str
+
+    # Filled by `respond_member` / `escalate_human`.
+    mensagem: dict[str, Any]
+    mensagem_enviada: bool
+    dossier: dict[str, Any]
+
+    # Filled by `start_process`.
+    process_started: bool
+    business_key: str
+    process_ref: dict[str, Any]
+
+    # Output.
+    desfecho: str
+    error: str
+
+
+# --- Helpers -----------------------------------------------------------------------------------
+
+
+def _business_key(state: LucasState) -> str:
+    """Idempotent business key per the SHARED SP-OP-ESCALATION-001 contract (same format Helena
+    uses — `ESC-{tenant_id}-{conversation_id}`)."""
+    return f"ESC-{state.get('tenant_id', '')}-{state.get('conversation_id', '')}"
+
+
+def _is_escalation_intent(state: LucasState) -> bool:
+    """True when the case is, by nature, a J3 escalation path.
+
+    `inadimplencia`/`cancelamento` intencao ALWAYS escalates — never an auto-response. A
+    beneficiary contesting a charge or a signaled cancellation request also always escalates,
+    regardless of `intencao`."""
+    return (
+        state.get("intencao") in {"inadimplencia", "cancelamento"}
+        or bool(state.get("contesta_cobranca", False))
+        or bool(state.get("pedido_cancelamento", False))
+    )
+
+
+def _escalation_motivo(state: LucasState) -> MotivoHumano:
+    """Reason for the J3 handoff. Never an adverse outcome — only a reason for a human to look."""
+    if state.get("intencao") == "cancelamento" or state.get("pedido_cancelamento"):
+        return "pedido_cancelamento"
+    if state.get("contesta_cobranca"):
+        return "contestacao_cobranca"
+    return "inadimplencia_detectada"
+
+
+def _motivo_categoria(motivo: MotivoHumano) -> MotivoCategoria:
+    """Maps the internal motivo to the SP-OP-ESCALATION-001 contract's `motivo_categoria`. Lucas
+    NEVER escalates by a clinical category — that is not his domain (L0 hard)."""
+    if motivo in {"falha_tecnica", "dmn_indisponivel"}:
+        return "falha_tecnica"
+    return "outro"
+
+
+def _severidade_humano(motivo: MotivoHumano) -> Severidade:
+    """Cobranca/contrato is never P1 clinical (`grave` is unreachable) — technical failures are
+    `leve` (mirrors Helena's falha_tecnica -> leve convention); every business-handoff reason is
+    `moderada` (mirrors the donor's own fixed choice, documented as deliberate there)."""
+    if motivo in {"falha_tecnica", "dmn_indisponivel"}:
+        return "leve"
+    return "moderada"
+
+
+# --- Graph -----------------------------------------------------------------------------------
+
+
+class LucasGraph:
+    """Wires Lucas's injected dependencies into a compilable `StateGraph[LucasState]`."""
+
+    def __init__(
+        self,
+        *,
+        inference: InferenceProvider,
+        dmn: DmnTransport,
+        cibseven: CibSevenTransport,
+        whatsapp: WhatsAppSender,
+        agent_version: str = "lucas@v0",
+    ) -> None:
+        self._llm = inference
+        self._dmn = dmn
+        self._cibseven = cibseven
+        self._whatsapp = whatsapp
+        self._agent_version = agent_version
+
+    # -- Nodes ----------------------------------------------------------------------------
+
+    async def receive(self, state: LucasState) -> dict[str, Any]:
+        """Turn start: fail-closed guards, never a silent default.
+
+        Missing runtime identifiers -> `falha_tecnica` (there is no idempotent business key
+        without them). An unrecognized/missing `intencao` -> `ambiguidade` — this IS Lucas's
+        "classification" fail-closed guard (mirrors Helena's `_classify_llm` discipline, T1.11
+        R1 cycle-1): an unmapped intencao is NEVER silently read as J1 (`cobranca_info`).
+
+        Failure reasons are bounded CLASS TOKENS — the raw `intencao`/field value is NEVER
+        echoed here (engine-variable hygiene; donor's original code echoed `intencao!r}`, fixed
+        here per this task's non-negotiable hardening requirement).
         """
-        messages: list[str] = list(state.get("messages", []))
-        logger.info(
-            "lucas.assess_beneficiary.start",
-            messages_count=len(messages),
-        )
+        if not state.get("tenant_id") or not state.get("conversation_id"):
+            return self._escalate_min(
+                "falha_tecnica", error="missing runtime context (tenant_id/conversation_id)"
+            )
 
-        # Placeholder for DMN evaluation of beneficiary billing status
-        assessment = {
-            "status": "em_dia",
-            "pagamento_conciliado": True,
-            "ciclos_sem_conciliacao": 0,
-            "inadimplencia": False,
-            "pedido_cancelamento": False,
-            "roteamento": "INFORMACIONAL",
-            "requer_escalacao": False,
+        if state.get("intencao") not in _VALID_INTENCOES:
+            return self._escalate_min("ambiguidade", error="unrecognized or missing intencao")
+
+        return {"business_key": _business_key(state)}
+
+    async def gather(self, state: LucasState) -> dict[str, Any]:
+        """Best-effort consolidation of billing facts already present in state — NEVER blocks
+        routing, NEVER computes/derives the conciliation facts (they arrive pre-resolved)."""
+        if state.get("error"):
+            return {}  # already routed by `receive`
+
+        notes: list[str] = []
+        billing_facts: dict[str, Any] = {
+            "tipo_solicitacao": state.get("tipo_solicitacao", ""),
+            "competencia": state.get("competencia", ""),
+            "status_conciliado": state.get("status_conciliado"),
+            "ciclos_sem_conciliacao": state.get("ciclos_sem_conciliacao"),
+            "cnab_ref": state.get("cnab_ref", ""),
         }
+        if state.get("intencao") == "confirmacao_pagamento" and state.get("status_conciliado") is None:
+            # The absence of a pre-resolved status NEVER becomes "inadimplente" by assumption —
+            # it is recorded as a gap; `assess`'s DMN catch-all (never this code) decides the
+            # conservative routing.
+            notes.append("conciliation status not yet pre-resolved by the CNAB worker")
 
-        logger.info(
-            "lucas.assess_beneficiary.complete",
-            status=assessment["status"],
-            requer_escalacao=assessment["requer_escalacao"],
-        )
+        return {"gathered": True, "billing_facts": billing_facts, "gather_notes": notes}
+
+    async def assess(self, state: LucasState) -> dict[str, Any]:
+        """Evaluate the deterministic DMN tables and decide the ROUTE (respond vs escalate).
+
+        ADR-0012: the DMN decides; the LLM never does. J3 (escalation-intent) NEVER even reaches
+        the billing DMN — `inadimplencia`/`cancelamento`/contestation/signaled cancellation
+        ALWAYS escalates (L0 hard).
+
+        FAIL-SAFE FECHADO: DMN unavailable or a `roteamento` value outside its recognized
+        allowlist ALWAYS escalates — NEVER a silent default, NEVER treated as "admissible" by
+        omission. The raw non-conforming value is NEVER echoed into `motivo_humano`/`error` —
+        only the class token `ambiguidade`/`dmn_indisponivel` (engine-variable hygiene).
+        """
+        if state.get("error"):
+            return {}  # already routed by `receive`
+
+        dmn_refs: dict[str, str] = {}
+
+        if _is_escalation_intent(state):
+            return await self._assess_escalation(state, dmn_refs, motivo=_escalation_motivo(state))
+
+        admis_in: dict[str, Any] = {
+            "tipo_solicitacao": str(state.get("tipo_solicitacao", "")),
+            "status_conciliado": bool(state.get("status_conciliado", False)),
+            "ciclos_sem_conciliacao": int(state.get("ciclos_sem_conciliacao", 0) or 0),
+        }
+        try:
+            rows, version = await self._dmn.evaluate(DMN_BILLING_ADMISSIBILITY, admis_in)
+            row = first_row(rows, DMN_BILLING_ADMISSIBILITY, admis_in)
+        except (DmnEvaluationError, DmnNoResultError) as exc:
+            return await self._assess_escalation(
+                state,
+                dmn_refs,
+                motivo="dmn_indisponivel",
+                dmn_error=f"DMN `{DMN_BILLING_ADMISSIBILITY}` indisponivel: {exc}",
+            )
+        dmn_refs[DMN_BILLING_ADMISSIBILITY] = f"{DMN_BILLING_ADMISSIBILITY}#{version.id}"
+
+        roteamento = str(row.get("roteamento", ""))
+        if roteamento not in _ADMISSIBILIDADE_ALLOW:
+            # FAIL-SAFE FECHADO: an unrecognized value NEVER "passes through" — and is NEVER
+            # echoed anywhere (class token only, engine-variable hygiene).
+            return await self._assess_escalation(state, dmn_refs, motivo="ambiguidade")
+
+        admissibilidade = cast(AdmissibilidadeCobranca, roteamento)
+        if admissibilidade == "ESCALAR_HUMANO":
+            return await self._assess_escalation(state, dmn_refs, motivo="inadimplencia_detectada")
 
         return {
-            "messages": messages,
-            "beneficiary_assessment": assessment,
+            "admissibilidade": admissibilidade,
+            "route": "respond_member",
+            "dmn_refs": dmn_refs,
         }
 
-    async def prepare_communication_node(state: AgentState) -> dict[str, Any]:
-        """Prepare WhatsApp communication for the beneficiary.
+    async def _assess_escalation(
+        self,
+        state: LucasState,
+        dmn_refs: dict[str, str],
+        *,
+        motivo: MotivoHumano,
+        dmn_error: str | None = None,
+    ) -> dict[str, Any]:
+        """Resolve the escalation's suggested human group (`lucas_escalation_routing`).
 
-        Generates informational messages: boleto 2a via, payment confirmation,
-        collection nudges (never threatens suspension). Uses mcp-whatsapp.send_message
-        for text delivery.
-
-        Args:
-            state: The current AgentState with beneficiary assessment.
-
-        Returns:
-            Updated state dict with prepared communication.
-        """
-        messages: list[str] = list(state.get("messages", []))
-        assessment = cast(dict[str, Any], state.get("beneficiary_assessment", {}))
-        logger.info(
-            "lucas.prepare_communication.start",
-            status=assessment.get("status", "unknown"),
-        )
-
-        # Prepare communication based on assessment
-        requires_escalation = cast(bool, assessment.get("requer_escalacao", False))
-        communication = {
-            "canal": "whatsapp",
-            "tipo": "lembrete_cobranca" if not requires_escalation else "escalacao_humano",
-            "mensagem": "",
-            "enviada": False,
-        }
-
-        logger.info(
-            "lucas.prepare_communication.complete",
-            tipo=communication["tipo"],
-        )
-
-        return {
-            "messages": messages,
-            "communication": communication,
-        }
-
-    async def escalate_to_human_node(state: AgentState) -> dict[str, Any]:
-        """Escalate to human when escalation triggers fire.
-
-        Routes to SP-OP-ESCALATION-001 when inadimplencia, cancelamento,
-        DMN unavailable, or ambiguity triggers fire. May also route to
-        SP-OP-CANCEL-001 when there's a cancelamento request/indicio.
-
-        NEVER decides the adverse outcome — the human does.
-
-        Args:
-            state: The current AgentState with assessment and communication.
-
-        Returns:
-            Updated state dict with escalation routing.
-        """
-        messages: list[str] = list(state.get("messages", []))
-        assessment = cast(dict[str, Any], state.get("beneficiary_assessment", {}))
-        logger.info(
-            "lucas.escalate_to_human.start",
-            requer_escalacao=assessment.get("requer_escalacao", False),
-        )
-
-        # Determine escalation routing
-        requires_escalation = cast(bool, assessment.get("requer_escalacao", False))
-        has_cancelamento = cast(bool, assessment.get("pedido_cancelamento", False))
-
-        if has_cancelamento:
-            process = "SP-OP-CANCEL-001"
-            grupo = "atendimento-cancelamento"
-            motivo = "Pedido/indicio de cancelamento — humano decide RESCINDIR/MANTER/SUSPENDER"
-        elif requires_escalation:
-            process = "SP-OP-ESCALATION-001"
-            grupo = "atendimento-humano"
-            motivo = "Inadimplencia/atraso — humano decide encaminhamento"
-        else:
-            process = ""
-            grupo = ""
-            motivo = "Sem gatilho de escalacao"
-
-        escalation = {
-            "escalated": requires_escalation or has_cancelamento,
-            "process": process,
-            "grupo_humano": grupo,
+        The destination is ALWAYS `escalate_human` regardless of this DMN's outcome — it only
+        picks the SUGGESTED group. A DMN failure or an out-of-allowlist value NEVER loses the
+        case: the conservative catch-all group `atendimento-humano` is used, and the case still
+        escalates (fail-safe fechado — the case is never dropped)."""
+        grupo = "atendimento-humano"  # conservative catch-all, always available
+        roteamento_escalacao: RoteamentoEscalacao | None = None
+        esc_in: dict[str, Any] = {
+            "intencao": str(state.get("intencao", "")),
             "motivo": motivo,
+            "ciclos_sem_conciliacao": int(state.get("ciclos_sem_conciliacao", 0) or 0),
         }
+        try:
+            rows, version = await self._dmn.evaluate(DMN_ESCALATION_ROUTING, esc_in)
+            row = first_row(rows, DMN_ESCALATION_ROUTING, esc_in)
+            dmn_refs[DMN_ESCALATION_ROUTING] = f"{DMN_ESCALATION_ROUTING}#{version.id}"
+            rot_raw = str(row.get("roteamento", ""))
+            if rot_raw in _ROTEAMENTO_ESCALACAO_ALLOW:
+                roteamento_escalacao = cast(RoteamentoEscalacao, rot_raw)
+                grupo = _ESCALACAO_GRUPO[roteamento_escalacao]
+        except (DmnEvaluationError, DmnNoResultError):
+            pass  # fail-safe: keep the conservative catch-all — the case is NEVER lost
 
-        logger.info(
-            "lucas.escalate_to_human.complete",
-            escalated=escalation["escalated"],
-            process=process,
+        out: dict[str, Any] = {
+            "route": "escalate_human",
+            "motivo_humano": motivo,
+            "motivo_categoria": _motivo_categoria(motivo),
+            "severidade": _severidade_humano(motivo),
+            "grupo_humano": grupo,
+            "dmn_refs": dmn_refs,
+        }
+        if roteamento_escalacao is not None:
+            out["roteamento_escalacao"] = roteamento_escalacao
+        if dmn_error is not None:
+            out["dmn_error"] = dmn_error
+        return out
+
+    async def respond_member(self, state: LucasState) -> dict[str, Any]:
+        """J1/J2: draft + send the informational/reminder message. NEVER threatens suspension or
+        cancellation, NEVER communicates a denial (structural guardrail in `_build_message`)."""
+        mensagem = await self._build_message(state)
+        enviada = False
+        to_hash = state.get("to_hash")
+        if to_hash and state.get("canal", "whatsapp") == "whatsapp":
+            try:
+                await self._whatsapp.send(to_hash, str(mensagem.get("texto", "")))
+                enviada = True
+            except Exception as exc:  # noqa: BLE001 — best-effort send, never an adverse outcome.
+                mensagem["envio_nota"] = f"whatsapp send failed: {type(exc).__name__}"
+
+        desfecho = (
+            "lembrete_enviado"
+            if state.get("admissibilidade") == "LEMBRETE"
+            else "resposta_informativa_enviada"
         )
+        return {"mensagem": mensagem, "mensagem_enviada": enviada, "desfecho": desfecho}
 
+    async def escalate_human(self, state: LucasState) -> dict[str, Any]:
+        """J3 / fail-safe: build the dossier for the human handoff and acknowledge the
+        beneficiary. NEITHER communicates the adverse decision — that is exclusively the human's
+        (`_build_dossier`'s `decisao_cancelamento` is always `None`)."""
+        dossier = await self._build_dossier(state)
+
+        enviada = False
+        to_hash = state.get("to_hash")
+        if to_hash and state.get("canal", "whatsapp") == "whatsapp":
+            ack_text = await self._build_escalation_ack(state)
+            try:
+                await self._whatsapp.send(to_hash, ack_text)
+                enviada = True
+            except Exception:  # noqa: BLE001 — best-effort ack, never blocks the handoff.
+                pass
+
+        return {"dossier": dossier, "mensagem_enviada": enviada, "desfecho": "escalado_humano"}
+
+    async def start_process(self, state: LucasState) -> dict[str, Any]:
+        """Start SP-OP-ESCALATION-001 idempotently — ONLY on the escalation route (an
+        informational response never opens a process)."""
+        if state.get("route") != "escalate_human":
+            return {"process_started": False}
+
+        business_key = state.get("business_key") or _business_key(state)
+        variables = self._escalation_variables(state)
+        try:
+            instance = await start_process_idempotent(
+                self._cibseven, process_key=PROCESS_KEY, business_key=business_key, variables=variables
+            )
+        except CibSevenError as exc:
+            return {
+                "process_started": False,
+                "business_key": business_key,
+                "error": f"start_process indisponivel: {exc}",
+            }
         return {
-            "messages": messages,
-            "escalation": escalation,
+            "process_started": True,
+            "business_key": business_key,
+            "process_ref": {
+                "instance_id": instance.instance_id,
+                "state": instance.state,
+                "already_existed": instance.already_existed,
+            },
         }
 
-    graph.add_node("assess_beneficiary", assess_beneficiary_node)
-    graph.add_node("prepare_communication", prepare_communication_node)
-    graph.add_node("escalate_to_human", escalate_to_human_node)
-    graph.add_edge("__start__", "assess_beneficiary")
-    graph.add_edge("assess_beneficiary", "prepare_communication")
-    graph.add_edge("prepare_communication", "escalate_to_human")
-    graph.add_edge("escalate_to_human", "__end__")
+    async def complete(self, state: LucasState) -> dict[str, Any]:
+        """Terminal node — no further computation; `desfecho` was already set upstream."""
+        return {}
 
-    return graph
+    # -- Conditional routing ------------------------------------------------------------------
+
+    @staticmethod
+    def _route(state: LucasState) -> str:
+        # FAIL-SAFE: on absence/doubt, ALWAYS the human (never respond_member by omission). No
+        # branch of this function can return an adverse destination — `Route` does not admit one.
+        return "respond_member" if state.get("route") == "respond_member" else "escalate_human"
+
+    # -- Fail-closed minimal escalation (used by `receive`, before any DMN runs) --------------
+
+    @staticmethod
+    def _escalate_min(motivo: MotivoHumano, *, error: str) -> dict[str, Any]:
+        return {
+            "route": "escalate_human",
+            "motivo_humano": motivo,
+            "motivo_categoria": _motivo_categoria(motivo),
+            "severidade": _severidade_humano(motivo),
+            "grupo_humano": "atendimento-humano",
+            "error": error,
+        }
+
+    # -- Contract variables + drafting -------------------------------------------------------
+
+    def _escalation_variables(self, state: LucasState) -> dict[str, Any]:
+        """Assembles SP-OP-ESCALATION-001's input variables per
+        `docs/processes/contracts/SP-OP-ESCALATION-001.md` (the SAME shared contract Helena
+        starts) plus Lucas-specific audit annotations (mirrors Rafael's `dossie_rafael`/
+        `rafael_route` additive style) — never a decision, only an instruction for the human."""
+        dossier = state.get("dossier") or {}
+        resumo = str(dossier.get("narrativa", "")) or (
+            f"Encaminhamento automatico ({state.get('motivo_humano', 'outro')})."
+        )
+        variables: dict[str, Any] = {
+            "tenant_id": state.get("tenant_id", ""),
+            "source_agent_id": "lucas",
+            "source_agent_version": self._agent_version,
+            "conversation_id": state.get("conversation_id", ""),
+            "beneficiario_pseudo_id": state.get("beneficiario_pseudo_id", ""),
+            "canal": state.get("canal", "whatsapp"),
+            "motivo_categoria": state.get("motivo_categoria", "outro"),
+            "severidade": state.get("severidade", "moderada"),
+            "resumo_contexto": resumo,
+        }
+        dmn_refs = state.get("dmn_refs")
+        if dmn_refs:
+            variables["dmn_decision_ref"] = next(iter(dmn_refs.values()), "")
+            variables["dmn_decision_refs"] = dmn_refs
+        # Lucas-specific audit annotations — additive, never a decision (module docstring).
+        variables["lucas_route"] = state.get("route", "escalate_human")
+        variables["motivo_encaminhamento"] = state.get("motivo_humano", "")
+        variables["grupo_humano_sugerido"] = state.get("grupo_humano", "atendimento-humano")
+        variables["dossie_lucas"] = dossier
+        return variables
+
+    async def _build_message(self, state: LucasState) -> dict[str, Any]:
+        """Drafts the informational/reminder message (J1/J2). The LLM only phrases already-known
+        facts — it never decides `admissibilidade` (that is 100% DMN-derived, ADR-0012)."""
+        facts: dict[str, Any] = {
+            "tipo_solicitacao": state.get("tipo_solicitacao"),
+            "competencia": state.get("competencia"),
+            "numero_boleto": state.get("numero_boleto"),
+            "status_conciliado": state.get("status_conciliado"),
+            "admissibilidade": state.get("admissibilidade"),
+            "dmn_refs": state.get("dmn_refs", {}),
+        }
+        prompt = f"{message_prompt()}\n\nfatos={facts}"
+        try:
+            texto = await self._llm.generate(prompt, phi=True)
+        except Exception:  # noqa: BLE001 — fail-safe default: never leave the beneficiary with nothing.
+            texto = "Recebemos sua solicitacao. Em breve enviaremos os detalhes por aqui."
+        return {
+            "prompt_version": MESSAGE_PROMPT_VERSION,
+            "tipo": "mensagem_beneficiario",
+            "fatos": facts,
+            "texto": texto,
+            # STRUCTURAL GUARDRAIL: never a suspension/cancellation communication — always None
+            # here; a value would be a detectable bug. Mirrors the donor's own guardrail fields.
+            "comunicacao_suspensao": None,
+            "comunicacao_cancelamento": None,
+        }
+
+    async def _build_dossier(self, state: LucasState) -> dict[str, Any]:
+        """Drafts the escalation dossier narrative (J3 / fail-safe). The LLM reasons over the
+        FACTS only — `decisao_cancelamento` is ALWAYS `None` (mirrors Rafael's
+        `decisao_cobertura` guardrail): the decision belongs exclusively to the human."""
+        facts: dict[str, Any] = {
+            "intencao": state.get("intencao"),
+            "tipo_solicitacao": state.get("tipo_solicitacao"),
+            "competencia": state.get("competencia"),
+            "numero_boleto": state.get("numero_boleto"),
+            "status_conciliado": state.get("status_conciliado"),
+            "ciclos_sem_conciliacao": state.get("ciclos_sem_conciliacao"),
+            "contesta_cobranca": state.get("contesta_cobranca"),
+            "pedido_cancelamento": state.get("pedido_cancelamento"),
+            "cnab_ref": state.get("cnab_ref"),
+            "motivo_humano": state.get("motivo_humano"),
+            "grupo_humano": state.get("grupo_humano"),
+            "roteamento_escalacao": state.get("roteamento_escalacao"),
+            "dmn_refs": state.get("dmn_refs", {}),
+            "lacunas_enriquecimento": state.get("gather_notes", []),
+        }
+        prompt = f"{dossier_prompt()}\n\nmotivo_humano={state.get('motivo_humano')}\nfatos={facts}"
+        try:
+            narrativa = await self._llm.generate(prompt, phi=True)
+        except Exception:  # noqa: BLE001 — LLM failure never blocks the escalation.
+            narrativa = ""
+        return {
+            "prompt_version": DOSSIER_PROMPT_VERSION,
+            "tipo": "dossie_escalacao",
+            "motivo_humano": state.get("motivo_humano"),
+            "grupo_humano": state.get("grupo_humano"),
+            "fatos": facts,
+            "dmn_decision_refs": state.get("dmn_refs", {}),
+            "narrativa": narrativa or f"Encaminhamento automatico ({state.get('motivo_humano', 'outro')}).",
+            # STRUCTURAL GUARDRAIL (L0 hard): the dossier NEVER carries the adverse decision.
+            "decisao_cancelamento": None,  # rescindir/manter/suspender — always human (CANCEL-001)
+        }
+
+    async def _build_escalation_ack(self, state: LucasState) -> str:
+        """Short WhatsApp acknowledgement sent on the escalation path (module docstring's
+        disclosed improvement over the donor). NEVER reveals the pending adverse outcome."""
+        prompt = f"{escalation_ack_prompt()}\n\nmotivo_humano={state.get('motivo_humano')}"
+        try:
+            return await self._llm.generate(prompt, phi=True)
+        except Exception:  # noqa: BLE001 — fail-safe default: never leave the beneficiary with nothing.
+            return "Recebemos sua solicitacao. Um atendente humano vai continuar por aqui em breve."
+
+    # -- Graph assembly -----------------------------------------------------------------------
+
+    def compile_graph(self) -> StateGraph[LucasState]:
+        g: StateGraph[LucasState] = StateGraph(LucasState)
+        g.add_node("receive", self.receive)
+        g.add_node("gather", self.gather)
+        g.add_node("assess", self.assess)
+        g.add_node("respond_member", self.respond_member)
+        g.add_node("escalate_human", self.escalate_human)
+        g.add_node("start_process", self.start_process)
+        g.add_node("complete", self.complete)
+
+        g.add_edge(START, "receive")
+        g.add_edge("receive", "gather")
+        g.add_edge("gather", "assess")
+        g.add_conditional_edges(
+            "assess", self._route, {"respond_member": "respond_member", "escalate_human": "escalate_human"}
+        )
+        g.add_edge("respond_member", "start_process")
+        g.add_edge("escalate_human", "start_process")
+        g.add_edge("start_process", "complete")
+        g.add_edge("complete", END)
+        return g
+
+
+def build(config: dict[str, Any] | None = None) -> StateGraph[LucasState]:
+    """Contract `_template/graph.py:build`, resolved by `AgentLoader`/`runtime.harness.Harness`.
+
+    `config` MUST contain:
+      - `inference`: an `InferenceProvider` (ADR-0009).
+      - `dmn`: a `DmnTransport` (ADR-0028/T1.5).
+      - `cibseven`: a `CibSevenTransport` (ADR-0001/T1.11).
+      - `whatsapp`: a `WhatsAppSender`.
+    Optional:
+      - `agent_version`: audit provenance string (ADR-0007), defaults to `"lucas@v0"`.
+
+    Fail-closed: missing a required dependency raises `ValueError` at build time — Lucas never
+    silently constructs a graph that would crash mid-conversation on its first tool call.
+    """
+    cfg = config or {}
+    inference = cfg.get("inference")
+    dmn = cfg.get("dmn")
+    cibseven = cfg.get("cibseven")
+    whatsapp = cfg.get("whatsapp")
+    missing = [
+        name
+        for name, value in (
+            ("inference", inference),
+            ("dmn", dmn),
+            ("cibseven", cibseven),
+            ("whatsapp", whatsapp),
+        )
+        if value is None
+    ]
+    if missing:
+        raise ValueError(
+            f"Lucas build(config) is missing required dependencies: {missing} "
+            "(ADR-0001/0009/0028 — inference/dmn/cibseven/whatsapp must all be injected)"
+        )
+    agent_version = str(cfg.get("agent_version", "lucas@v0"))
+    return LucasGraph(
+        inference=cast(InferenceProvider, inference),
+        dmn=cast(DmnTransport, dmn),
+        cibseven=cast(CibSevenTransport, cibseven),
+        whatsapp=cast(WhatsAppSender, whatsapp),
+        agent_version=agent_version,
+    ).compile_graph()
+
+
+# Prompt versions exposed for audit/eval gating (ADR-0007/0009).
+PROMPT_VERSIONS: dict[str, str] = {
+    "system": SYSTEM_PROMPT_VERSION,
+    "message": MESSAGE_PROMPT_VERSION,
+    "dossier": DOSSIER_PROMPT_VERSION,
+}

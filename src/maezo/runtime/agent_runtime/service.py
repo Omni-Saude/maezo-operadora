@@ -175,8 +175,6 @@ def _build_tool_deps(settings: AgentRuntimeSettings) -> dict[str, Any]:
     all defer I/O to their async methods), so building them here — purely to prove
     `create_graph(agent_id)` compiles a real graph — costs nothing at readiness-check time.
     """
-    from maezo.agents.helena.adapters import WhatsAppServerSender
-    from maezo.agents.rafael.adapters import FhirServerReader
     from maezo.tools.mcp_cibseven.transport import CibSevenHttpTransport
     from maezo.tools.mcp_fhir.server import FhirServer, FhirSettings
     from maezo.tools.mcp_whatsapp.server import WhatsAppServer
@@ -187,8 +185,21 @@ def _build_tool_deps(settings: AgentRuntimeSettings) -> dict[str, Any]:
         "cibseven": CibSevenHttpTransport(settings.cibseven_base_url),
     }
     if settings.agent_id == "helena":
-        deps["whatsapp"] = WhatsAppServerSender(WhatsAppServer())
+        from maezo.agents.helena.adapters import WhatsAppServerSender as HelenaWhatsAppServerSender
+
+        deps["whatsapp"] = HelenaWhatsAppServerSender(WhatsAppServer())
+    if settings.agent_id == "lucas":
+        # T1.12: Lucas needs the same `whatsapp` seam as Helena (his `respond_member`/
+        # `escalate_human` nodes send WhatsApp text) — his OWN adapter (`agents/lucas/
+        # adapters.py`), deliberately a duplicate of Helena's, not an import from Helena's
+        # package (ADR-0004 federated Agent-Definition independence — mirrors why `rafael`'s
+        # `FhirServerReader` below is its own copy too).
+        from maezo.agents.lucas.adapters import WhatsAppServerSender as LucasWhatsAppServerSender
+
+        deps["whatsapp"] = LucasWhatsAppServerSender(WhatsAppServer())
     if settings.agent_id == "rafael":
+        from maezo.agents.rafael.adapters import FhirServerReader
+
         deps["fhir"] = FhirServerReader(FhirServer(FhirSettings(base_url=settings.fhir_base_url)))
     return deps
 

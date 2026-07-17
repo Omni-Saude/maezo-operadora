@@ -60,6 +60,17 @@ async def test_bring_up_loads_real_rafael_graph() -> None:
     assert state.agent_graph_error is None
 
 
+async def test_bring_up_loads_real_lucas_graph() -> None:
+    """Lucas's `build(config)` additionally needs a `whatsapp` dependency (required, unlike
+    Rafael's optional `fhir`) — bring-up supplies one via Lucas's own `WhatsAppServerSender`
+    (`agents/lucas/adapters.py`), still without any network call (T1.12)."""
+    state = _state(settings=AgentRuntimeSettings(agent_id="lucas", tenant_id="amh"))
+    await _bring_up_dependencies(state)
+
+    assert state.agent_graph is not None
+    assert state.agent_graph_error is None
+
+
 async def test_bring_up_still_stubbed_agent_graph_still_loads() -> None:
     """A still-stubbed agent's no-arg `build()` also goes through `graph_loaded` for real —
     T1.11 only changes helena/rafael's graphs, but the readiness check itself is generic."""
