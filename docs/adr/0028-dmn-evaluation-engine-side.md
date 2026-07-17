@@ -48,7 +48,7 @@ engine**, not a local parser. `src/maezo/tools/mcp_dmn/server.py` in the donor d
 (donor `server.py:43-134`), a labeled `FakeDmnTransport` that **fails closed** on an unregistered key
 (donor `server.py:140-161`), and a thin `DmnServer(transport)` tool wrapper returning a `DecisionResult`
 with `decision_version` provenance (donor `server.py:167-205`). The daemon builds it once and injects it as
-a `dmn=` seam into workers (donor `worker_runtime/service.py:56,118,232,514`); fraude's scoring path shows
+a `dmn=` seam into workers (donor `runtime/worker_runtime/service.py:56,118,232,514`); fraude's scoring path shows
 the fail-closed contract — *"uma tabela indisponivel … levanta `DmnEvaluationError`"* (donor
 `fraude.py:335,344` `rows, _version = await dmn.evaluate(...)`). The test harness resolves the authoritative
 version via `GET /decision-definition/key/{key}` and evaluates via
@@ -90,8 +90,9 @@ the v1 donor:
 - **`CibSevenDmnTransport(base_url, *, auth_token=None)`** — real `httpx.AsyncClient`, `POST
   /decision-definition/key/{key}/evaluate` under `/engine-rest`. Reuses the donor's `_to_camunda_vars`
   typing — **`Long` for ints outside int32** (donor `server.py:96-107`). This is **load-bearing** for
-  `pagto_alcada`, whose `valor_pagamento_cents` reaches `1_000_000_000` (> int32) — a `Long`, or the engine
-  overflows the amount that gates the alcada. (ADR-0018 money typing; identical rationale to T1.1 §5.)
+  `pagto_alcada`, whose top alcada band is unbounded; a payment above int32-max cents (R$21.47M) —
+  verified `3_000_000_000` as Integer → HTTP 400 overflow — requires `Long`. (ADR-0018 money typing;
+  identical rationale to T1.1 §5.)
 - **`FakeDmnTransport`** — labeled, import-lint-fenced test double; `evaluate` **raises**
   `DmnEvaluationError` on an unregistered key (donor `server.py:140-161`). Never imported by production.
 
