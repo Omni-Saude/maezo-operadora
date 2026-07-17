@@ -24,8 +24,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any
 
 import structlog
@@ -57,6 +59,74 @@ def hash_input(payload: object) -> str:
     """
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def canonicalize_jsonb(payload: dict[str, Any]) -> dict[str, Any]:
+    """Normalize a payload to the exact shape it will have after a Postgres jsonb round-trip.
+
+    H1 fix (R1 verification cycle 1, T1.10): `record_hash` used to be computed from the
+    in-memory object at write time, while `verify_chain()` recomputes it from the
+    jsonb-ROUND-TRIPPED row. Postgres jsonb stores numbers as `numeric`, which normalizes some
+    values differently than Python's `json` module — reproduced with `{"x": -0.0}`: stored as
+    `0.0`, so recomputation produced a different hash and a CLEAN one-record chain reported
+    tamper (valid=False). A tamper detector that false-alarms trains on-call to ignore it, so
+    the fix is to hash what we store: every `AuditRecord` jsonb field is canonicalized through
+    THIS function at construction, guaranteeing the invariant *bytes hashed at write == bytes
+    recomputed at verify* for every value Postgres jsonb can round-trip.
+
+    The normalization (each rule verified empirically against the compose `pgvector/pgvector:pg16`
+    via `SELECT $1::jsonb::text` — see the H1-regression tests in test_audit_postgres.py):
+
+    1. Structural: `json.loads(json.dumps(payload, sort_keys=True, default=str))` first, so the
+       in-memory shape matches what `json.loads` on the stored text will produce (tuples→lists,
+       non-str keys→str, non-JSON objects→their `default=str` form).
+    2. `-0.0` → `0.0`: Postgres `numeric` has no signed zero.
+    3. Floats whose `repr` uses exponent notation (only |v| ≥ 1e16; all such doubles are
+       integral) → `int(Decimal(repr(v)))`: numeric prints them as plain digit strings with no
+       fractional part, which `json.loads` returns as *int*. `Decimal(repr(v))` — not `int(v)` —
+       because Postgres parses the shortest-repr STRING with decimal semantics: for `1e308`
+       numeric stores exactly 10**308, while `int(1e308)` is the double's exact binary value
+       (1000...1097906362944... — a different integer).
+    4. Non-finite floats (NaN/±Infinity) raise ValueError (fail-closed): they are not valid JSON
+       and Postgres would reject the INSERT anyway — rejecting at the AuditRecord boundary gives
+       the caller a clear error instead of an opaque DB failure, and keeps the in-memory
+       `AuditSink` (which has no DB to reject for it) from accepting a record the durable sink
+       could never persist.
+
+    Small-exponent floats (e.g. `1e-05`, `5e-324`) need no special-casing: numeric prints them as
+    plain decimals with a fractional part, `json.loads` parses that back to the identical double,
+    and `json.dumps` re-emits the identical shortest repr (verified empirically).
+
+    Idempotent: a payload loaded back from a stored jsonb row passes through unchanged, so
+    `verify_chain()`'s record reconstruction re-applies it harmlessly.
+    """
+    shaped = json.loads(json.dumps(payload, sort_keys=True, default=str))
+    normalized: dict[str, Any] = _normalize_jsonb_value(shaped, path="$")
+    return normalized
+
+
+def _normalize_jsonb_value(value: Any, *, path: str) -> Any:
+    """Recursive worker for `canonicalize_jsonb` (rules 2-4). `path` is for error messages."""
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError(
+                f"non-finite float ({value!r}) at {path} cannot be represented in the audit "
+                "chain's jsonb columns (fail-closed at the AuditRecord boundary)"
+            )
+        if value == 0.0:
+            return 0.0  # rule 2: numeric has no signed zero; -0.0 round-trips as 0.0
+        if "e" in repr(value):
+            # rule 3: exponent-form repr (|v| >= 1e16 → always integral as a double, OR
+            # |v| < 1e-4 → never integral). Only the integral case round-trips as int.
+            as_decimal = Decimal(repr(value))
+            if as_decimal == as_decimal.to_integral_value():
+                return int(as_decimal)
+        return value
+    if isinstance(value, dict):
+        return {key: _normalize_jsonb_value(item, path=f"{path}.{key}") for key, item in value.items()}
+    if isinstance(value, list):
+        return [_normalize_jsonb_value(item, path=f"{path}[{i}]") for i, item in enumerate(value)]
+    return value
 
 
 @dataclass
@@ -108,7 +178,28 @@ class AuditRecord:
     record_hash: str | None = field(default=None)
 
     def __post_init__(self) -> None:
-        """Compute the record hash after fields are set."""
+        """Canonicalize round-trip-sensitive fields, then compute the record hash.
+
+        H1 fix (R1 verification cycle 1): the hash must be computed over the exact
+        representation that survives storage-and-readback, otherwise `verify_chain()`
+        false-alarms on clean chains (see `canonicalize_jsonb`). Two field classes need it:
+
+        - jsonb fields (`details`, `dmn_versions`): normalized via `canonicalize_jsonb`.
+        - `timestamp`: Postgres `timestamptz` stores an absolute instant and returns it in
+          UTC — a record hashed with a non-UTC (or naive) timestamp would recompute
+          differently after readback. Aware timestamps are normalized to UTC (identical
+          instant, identical `isoformat()` after round-trip); naive ones are rejected
+          (fail-closed — a naive timestamp's actual instant is ambiguous, and guessing a
+          timezone here would fabricate audit evidence).
+        """
+        if self.timestamp.tzinfo is None:
+            raise ValueError(
+                "AuditRecord.timestamp must be timezone-aware (naive timestamps are ambiguous "
+                "and would break hash verification after the timestamptz round-trip)"
+            )
+        self.timestamp = self.timestamp.astimezone(UTC)
+        self.details = canonicalize_jsonb(self.details)
+        self.dmn_versions = canonicalize_jsonb(self.dmn_versions)
         self.record_hash = self._compute_hash()
 
     def compute_input_hash(self) -> str:

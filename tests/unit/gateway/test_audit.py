@@ -3,7 +3,12 @@
 TDD London School: tests written BEFORE implementation.
 """
 
-from maezo.gateway.audit import GENESIS_PREV_HASH, AuditRecord, AuditSink
+import math
+from datetime import UTC, datetime, timedelta, timezone
+
+import pytest
+
+from maezo.gateway.audit import GENESIS_PREV_HASH, AuditRecord, AuditSink, canonicalize_jsonb
 
 
 def test_audit_chain_integrity() -> None:
@@ -217,3 +222,124 @@ def test_audit_record_input_hash_derived_from_details() -> None:
 
     assert r1.compute_input_hash() == r2.compute_input_hash()
     assert r1.compute_input_hash() != r3.compute_input_hash()
+
+
+# ---------------------------------------------------------------------------
+# H1 regression (R1 verification cycle 1): jsonb round-trip canonicalization.
+# The DB-backed end-to-end variants live in test_audit_postgres.py; these are
+# the pure canonicalizer rules, testable without Postgres.
+# ---------------------------------------------------------------------------
+
+
+def _record(details: dict[str, object]) -> AuditRecord:
+    return AuditRecord(
+        agent_id="helena",
+        tenant_id="amh",
+        agent_version="1.0.0",
+        action="triagem",
+        decision="ALLOW",
+        details=dict(details),
+    )
+
+
+def test_canonicalize_negative_zero_normalized() -> None:
+    """H1 root cause: Postgres numeric has no signed zero, so -0.0 is stored as 0.0.
+    Canonicalization must drop the sign BEFORE hashing so write-hash == verify-hash."""
+    record = _record({"x": -0.0})
+    assert record.details["x"] == 0.0
+    assert math.copysign(1.0, record.details["x"]) == 1.0  # sign actually gone, not just ==0
+    assert isinstance(record.details["x"], float)
+
+
+def test_canonicalize_exponent_integral_floats_become_int() -> None:
+    """Floats with exponent-form repr (|v| >= 1e16) are printed by Postgres numeric as plain
+    digit strings, which json.loads returns as int. The int must follow the DECIMAL semantics
+    of the shortest repr (what Postgres parses), not the double's exact binary value:
+    numeric('1e+308') is exactly 10**308, while int(1e308) is a different integer."""
+    record = _record({"a": 1e16, "b": -1e16, "c": 1.234e16, "d": 1e308, "e": 1.0000000000000002e16})
+    assert record.details["a"] == 10**16 and isinstance(record.details["a"], int)
+    assert record.details["b"] == -(10**16) and isinstance(record.details["b"], int)
+    assert record.details["c"] == 12340000000000000 and isinstance(record.details["c"], int)
+    assert record.details["d"] == 10**308 and isinstance(record.details["d"], int)
+    assert record.details["d"] != int(1e308)  # decimal-of-repr, NOT binary value of the double
+    assert record.details["e"] == 10000000000000002 and isinstance(record.details["e"], int)
+
+
+def test_canonicalize_small_and_plain_floats_untouched() -> None:
+    """Values that round-trip hash-stable through jsonb (verified empirically) pass through:
+    small-exponent floats print as plain decimals with a fraction and load back to the same
+    double; fixed-notation floats keep their '.0'/fraction via numeric's preserved scale."""
+    record = _record({"a": 1e-05, "b": 5e-324, "c": 0.1, "d": 2.5, "e": 1.0, "f": 9.99e15})
+    for key, expected in {"a": 1e-05, "b": 5e-324, "c": 0.1, "d": 2.5, "e": 1.0, "f": 9.99e15}.items():
+        assert record.details[key] == expected
+        assert isinstance(record.details[key], float)
+
+
+def test_canonicalize_rejects_non_finite_floats() -> None:
+    """NaN/±Inf are not valid JSON and Postgres would reject the INSERT — fail-closed at the
+    AuditRecord boundary, with a path in the error, including deeply nested occurrences."""
+    for bad in (float("nan"), float("inf"), float("-inf")):
+        with pytest.raises(ValueError, match="non-finite float"):
+            _record({"x": bad})
+    with pytest.raises(ValueError, match=r"\$\.outer\[1\]\.inner"):
+        _record({"outer": [{}, {"inner": float("nan")}]})
+
+
+def test_canonicalize_recurses_and_is_idempotent() -> None:
+    """Nested dicts/lists are normalized; canonicalizing an already-canonical payload is a
+    no-op (verify_chain reconstructs records from stored rows, re-running canonicalization)."""
+    payload: dict[str, object] = {
+        "unicode_ключ_鍵": {"nested": [{"deep": [-0.0, 1e16, "café", None, True, False]}]},
+        "mixed": [1, 1.5, "1", None],
+    }
+    once = canonicalize_jsonb(payload)
+    assert once["unicode_ключ_鍵"]["nested"][0]["deep"][0] == 0.0
+    assert once["unicode_ключ_鍵"]["nested"][0]["deep"][1] == 10**16
+    assert isinstance(once["unicode_ключ_鍵"]["nested"][0]["deep"][1], int)
+    assert canonicalize_jsonb(once) == once
+
+
+def test_canonicalize_applies_to_dmn_versions_too() -> None:
+    """dmn_versions is a jsonb column with the same round-trip exposure as decision_basis."""
+    record = AuditRecord(
+        agent_id="helena",
+        tenant_id="amh",
+        agent_version="1.0.0",
+        action="triagem",
+        decision="ALLOW",
+        details={},
+        dmn_versions={"tabela": -0.0},
+    )
+    assert math.copysign(1.0, record.dmn_versions["tabela"]) == 1.0
+
+
+def test_audit_record_rejects_naive_timestamp() -> None:
+    """A naive timestamp's actual instant is ambiguous — Postgres timestamptz returns UTC, so
+    the hash would not recompute after readback. Fail-closed at construction."""
+    with pytest.raises(ValueError, match="timezone-aware"):
+        AuditRecord(
+            agent_id="helena",
+            tenant_id="amh",
+            agent_version="1.0.0",
+            action="triagem",
+            decision="ALLOW",
+            details={},
+            timestamp=datetime(2026, 7, 17, 12, 0, 0),  # noqa: DTZ001 — the point of the test
+        )
+
+
+def test_audit_record_normalizes_timestamp_to_utc() -> None:
+    """Aware non-UTC timestamps are the same instant Postgres will return in UTC — normalize
+    at construction so isoformat() (a hash input) is identical before and after storage."""
+    brt = timezone(timedelta(hours=-3))
+    record = AuditRecord(
+        agent_id="helena",
+        tenant_id="amh",
+        agent_version="1.0.0",
+        action="triagem",
+        decision="ALLOW",
+        details={},
+        timestamp=datetime(2026, 7, 17, 9, 30, 0, tzinfo=brt),
+    )
+    assert record.timestamp.tzinfo == UTC
+    assert record.timestamp == datetime(2026, 7, 17, 12, 30, 0, tzinfo=UTC)

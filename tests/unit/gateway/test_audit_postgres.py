@@ -340,6 +340,136 @@ async def test_verify_chain_empty_is_valid(pg_dsn: str, tenant_schema: str) -> N
     assert result.total_records == 0
 
 
+# ---------------------------------------------------------------------------
+# H1 regression (R1 verification cycle 1): jsonb round-trip false positives.
+#
+# The verifier reproduced a FALSE tamper alarm on a CLEAN 1-record chain: record_hash was
+# computed from the in-memory object at write, but verify_chain recomputes from the
+# jsonb-ROUND-TRIPPED row, and Postgres numeric normalizes some values differently than
+# Python json.dumps ({"x": -0.0} → stored as 0.0 → hash mismatch → valid=False). Fixed by
+# canonicalizing every AuditRecord jsonb field through audit.canonicalize_jsonb at
+# construction (hash what you store). These tests are the end-to-end proof against real
+# Postgres; the pure canonicalizer rules are unit-tested in test_audit.py.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+async def test_verify_chain_negative_zero_no_false_positive(pg_dsn: str, tenant_schema: str) -> None:
+    """The verifier's exact H1 repro: decision_basis {"x": -0.0}, one-record chain.
+    Before the fix: stored as 0.0 → recomputed hash differs → valid=False on a clean chain."""
+    sink = PostgresAuditSink(pg_dsn, tenant_schema)
+    try:
+        await sink.emit(
+            AuditRecord(
+                agent_id="helena",
+                tenant_id=tenant_schema,
+                agent_version="1.0.0",
+                action="triagem",
+                decision="ALLOW",
+                details={"x": -0.0},
+            )
+        )
+    finally:
+        await sink.aclose()
+
+    result = await verify_chain(pg_dsn, tenant_schema)
+    assert result.valid, f"false tamper alarm on a clean chain: {result.reason}"
+    assert result.total_records == 1
+    assert result.verified_records == 1
+
+
+# Every payload class Postgres jsonb normalizes (or might): the -0.0 sign drop, exponent-form
+# integral floats (stored as plain integers → json.loads returns int; incl. 1e308, where the
+# stored value is decimal 10**308, NOT the double's binary value), float extremes (5e-324 min
+# subnormal), small-exponent floats, plain floats/ints, big ints beyond 2**63, unicode keys
+# and values, deep nesting, None/bools, and the same exposure on dmn_versions.
+_JSONB_SWEEP_PAYLOADS: list[dict[str, object]] = [
+    {"x": -0.0},
+    {"x": 0.0},
+    {"x": 1e16},
+    {"x": -1e16},
+    {"x": 1.234e16},
+    {"x": 1.0000000000000002e16},
+    {"x": 1e22},
+    {"x": 1e308},
+    {"x": -1e308},
+    {"x": 5e-324},
+    {"x": 1e-05},
+    {"x": 0.1},
+    {"x": 2.5},
+    {"x": 9.99e15},
+    {"x": 123456789012345678901234567890},
+    {"x": -42},
+    {"unicode_ключ_鍵": {"nested": [{"deep": [-0.0, 1e16, "café", None, True, False]}]}},
+    {"mixed": [1, 1.5, "1", None], "empty": {}, "lista": []},
+]
+
+
+@pytest.mark.integration
+async def test_verify_chain_jsonb_roundtrip_sweep_no_false_positive(pg_dsn: str, tenant_schema: str) -> None:
+    """Property-style sweep: write one record per jsonb-normalization-sensitive payload
+    (in both decision_basis AND dmn_versions), then verify_chain must report the whole
+    chain valid — zero false tamper alarms."""
+    sink = PostgresAuditSink(pg_dsn, tenant_schema)
+    try:
+        for i, payload in enumerate(_JSONB_SWEEP_PAYLOADS):
+            await sink.emit(
+                AuditRecord(
+                    agent_id=f"sweep-{i}",
+                    tenant_id=tenant_schema,
+                    agent_version="1.0.0",
+                    action="jsonb_sweep",
+                    decision="ALLOW",
+                    details=dict(payload),
+                    dmn_versions=dict(payload),  # same exposure on the other jsonb column
+                )
+            )
+    finally:
+        await sink.aclose()
+
+    result = await verify_chain(pg_dsn, tenant_schema)
+    assert result.valid, f"false tamper alarm in sweep: {result.reason} (break_at={result.break_at_hash})"
+    assert result.total_records == len(_JSONB_SWEEP_PAYLOADS)
+    assert result.verified_records == len(_JSONB_SWEEP_PAYLOADS)
+
+
+@pytest.mark.integration
+async def test_verify_chain_sweep_genuine_tamper_still_detected(pg_dsn: str, tenant_schema: str) -> None:
+    """Canonicalization must not blunt detection: on a chain of the SAME tricky payloads,
+    genuinely tampering a stored decision_basis must still flip verify_chain to invalid."""
+    sink = PostgresAuditSink(pg_dsn, tenant_schema)
+    try:
+        for i, payload in enumerate(_JSONB_SWEEP_PAYLOADS[:4]):
+            await sink.emit(
+                AuditRecord(
+                    agent_id=f"tamper-{i}",
+                    tenant_id=tenant_schema,
+                    agent_version="1.0.0",
+                    action="jsonb_sweep",
+                    decision="ALLOW",
+                    details=dict(payload),
+                )
+            )
+    finally:
+        await sink.aclose()
+
+    assert (await verify_chain(pg_dsn, tenant_schema)).valid  # clean before tamper
+
+    conn = await asyncpg.connect(normalize_dsn(pg_dsn))
+    try:
+        await conn.execute(f'SET search_path TO "{tenant_schema}"')
+        # Tamper the jsonb content itself (the very column class H1 was about).
+        await conn.execute(
+            "UPDATE audit_chain SET decision_basis = '{\"x\": 999}'::jsonb WHERE agent_id = 'tamper-2'"
+        )
+    finally:
+        await conn.close()
+
+    result = await verify_chain(pg_dsn, tenant_schema)
+    assert not result.valid
+    assert result.reason is not None and "hash mismatch" in result.reason
+
+
 @pytest.mark.integration
 async def test_concurrent_emits_same_tenant_serialize_without_fork(pg_dsn: str, tenant_schema: str) -> None:
     """The per-tenant advisory lock must fully serialize concurrent writers — no fork, no lost
