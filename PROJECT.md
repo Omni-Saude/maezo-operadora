@@ -40,8 +40,8 @@ Beneficiário (WhatsApp/Portal)        Prestador (Portal TISS)
 | `src/maezo/a2a/` | Registry de Agent Cards, anti-loop (ADR-0003) |
 | `src/maezo/gateway/` | PEP, pseudonimização, auditoria, credenciais (ADR-0005/0006/0007) |
 | `src/maezo/tools/mcp_*/` | MCP servers — única via dos agentes aos sistemas |
-| `src/maezo/processes/` | BPMN SP-OP + DMN (artefatos validados em CI) |
-| `src/maezo/policies/autonomy/` | Matriz L0–L3 (ADR-0008) — mudança = PR com revisão de compliance |
+| `spec/processes/` | BPMN SP-OP + DMN (artefatos validados em CI) |
+| `spec/policies/autonomy/` | Matriz L0–L3 (ADR-0008) — mudança = PR com revisão de compliance |
 | `src/maezo/tools/mcp_memory/` | Memória episódica/semântica (ADR-0002) — store + MCP server |
 | `src/maezo/platform/` | Tenancy, integrações portadas, webhooks, validação de artefatos |
 | `tests/evals/golden/` | Golden datasets por agente — gate de promoção (ADR-0009) |
