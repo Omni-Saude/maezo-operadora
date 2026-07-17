@@ -4,16 +4,25 @@ Investigacao de Fraude — Cadeia de Custodia.
 MOST COMPLEX: custody sealing (Merkle), Beatriz A2A, L0-hard accusation guard.
 Guards: ERR_FRAUD_ACCUSATION_NOT_HUMAN, ERR_CUSTODY_NOT_SEALED, ERR_PHI_IN_CUSTODY.
 Inverts the reference detect_fraud v2: score is routing FACT, NEVER verdict.
+
+`score_indicators` (T2.7 phase 2) evaluates the 7 `fraude_scoring/*` decision tables (T2.7 phase
+1, PR #48) engine-side via the `dmn=` seam (ADR-0028) — replaces the `len(evidencia_refs) * 10`
+placeholder (defect B10). See that function's docstring for the aggregation contract, the
+fail-closed divergence from the v1 donor, and why `fraude_indicadores`/`fraude_routing` are
+deliberately NOT evaluated here (they are already engine-native `businessRuleTask`s downstream in
+spec/processes/bpmn/SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn).
 """
 
 from __future__ import annotations
 
+import functools
 from typing import TYPE_CHECKING, Any
 
 import structlog
 
 from maezo.gateway.custody import CustodyBundle
 from maezo.tools.workers.base import FunctionWorker
+from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row, require_dmn
 
 if TYPE_CHECKING:
     from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
@@ -99,53 +108,195 @@ def gather_evidence(variables: dict[str, Any]) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------
-# score_indicators — INVERTED detect_fraud v2 port
+# score_indicators — engine-side fraude_scoring chain (T2.7 phase 2)
 # ---------------------------------------------------------------
 
+# The 7 `fraude_scoring/*` decision tables (T2.7 phase 1, PR #48) — ported 1:1 (decision-logic
+# byte-faithful) from the v1 donor's already-inverted `fraud_scoring/*` tables: every one emits
+# ONLY `indicador_score` (integer) + `indicador_label` (string) + `motivo` (string) — ZERO
+# verdict/ACUSAR/BLOQUEAR/FRAUD_DETECTED columns (verified against every `.dmn` file under
+# spec/processes/dmn/). Each table is STANDALONE (hitPolicy FIRST; no informationRequirement/DRD
+# between them — verified), so this worker evaluates each individually via the `dmn=` seam
+# (ADR-0028) and aggregates below.
+#
+# `fraude_indicadores`/`fraude_routing` are DELIBERATELY NOT evaluated here: they are already
+# engine-native `businessRuleTask`s (`BRT_Indicadores`/`BRT_Routing`,
+# spec/processes/bpmn/SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn:135-165) that consume
+# `score_indicadores`/`indicadores_presentes`/`entidade_tipo` immediately downstream of
+# `ST_ScoreIndicators` in the SAME BPMN — the engine evaluates them directly on
+# `camunda:decisionRef`, no worker call needed. Re-evaluating them here would not be "more
+# engine-side," it would be a redundant second engine call duplicating what the BPMN already
+# does natively (root-caused against the BPMN's own documentation at ST_ScoreIndicators: "7 DMNs
+# fraude_scoring/* (rodadas pelo WORKER, NAO como businessRuleTasks)" — i.e. exactly these 7,
+# not fraude_indicadores/fraude_routing).
+_SCORING_DECISIONS: tuple[str, ...] = (
+    "risk_thresholds",
+    "upcoding_complexity_ceiling",
+    "frequency_zscore_threshold",
+    "phantom_no_diagnosis",
+    "phantom_suspicious_prefix",
+    "provider_peer_deviation",
+    "unbundling_partial_bundles",
+)
 
-def score_indicators(variables: dict[str, Any]) -> dict[str, Any]:
-    """Calculate fraud indicator scores — INVERTED from reference.
+# Evidence signal keys the 7 tables' inputExpressions reference (verified per-.dmn-file). Every
+# table receives the SAME collected dict — each ignores whatever inputs its own inputExpressions
+# don't reference (DMN FEEL evaluation semantics, not a worker-side per-table filter).
+#
+# NOTE (root-caused, not fabricated): the v1 donor's own `_collect_scoring_inputs`/
+# `_SCORING_INPUT_KEYS` do NOT derive these signals from raw claim/procedure data either — they
+# are a direct pass-through of process variables already computed upstream (CDC /
+# `feature_store.claim_features`/`provider_features` per ADR-0013). The contract
+# (docs/processes/contracts/SP-OP-FRAUDE-001.md §"Pendencias para promocao a FINAL") explicitly
+# lists "definicao de indicadores_presentes a partir de feature_store" as an OPEN item. This
+# worker ports that same architecture faithfully: it does NOT invent business-derivation formulas
+# for code_tier/z_score/deviation_pct/etc. (that would be fabrication outside a worker-WIRING
+# task's scope) — it collects whatever of these signals gather_evidence/the feature-store
+# integration has already attached to process variables, with only mechanical type coercion
+# (never business logic) applied in `_collect_scoring_inputs`.
+_SCORING_INPUT_KEYS: tuple[str, ...] = (
+    "risk_score",  # risk_thresholds (integer)
+    "encounter_class",  # upcoding_complexity_ceiling + frequency_zscore_threshold (string)
+    "code_tier",  # upcoding_complexity_ceiling (integer)
+    "z_score",  # frequency_zscore_threshold (double)
+    "has_tuss_codes",  # phantom_no_diagnosis (boolean)
+    "has_cid10_codes",  # phantom_no_diagnosis (boolean)
+    "tuss_prefix",  # phantom_suspicious_prefix (string — FEEL `starts with(...)`)
+    "deviation_pct",  # provider_peer_deviation (double)
+    "provider_volume",  # provider_peer_deviation (integer)
+    "bundle_group_id",  # unbundling_partial_bundles (string: partial|complete|none)
+    "tuss_codes",  # unbundling_partial_bundles (string; wildcard-only in every rule today)
+)
 
-    The reference detect_fraud v2 summed 7 DMN scores and issued FRAUD_DETECTED.
-    Here: score_indicators is a ROUTING FACT (integer), NEVER a verdict.
-    No FRAUD_DETECTED error. No auto-accusation.
+# Boolean-typed evidence keys — coerced defensively (native bool OR string "true"/"false"),
+# mirroring this codebase's `contas._is_true` idiom (and the v1 donor's own `_is_true`).
+_SCORING_BOOL_KEYS: frozenset[str] = frozenset({"has_tuss_codes", "has_cid10_codes"})
+
+# Neutral label every table emits on its catch-all/no-indicator row — excluded from
+# `indicadores_presentes` (it is the ABSENCE of an indicator, never itself an indicator).
+_NO_INDICATOR_LABEL = "none"
+
+
+def _is_true(value: Any) -> bool:
+    """Coerce an engine variable (native bool OR string 'true'/'false') to bool."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() == "true"
+    return False
+
+
+def _collect_scoring_inputs(variables: dict[str, Any]) -> dict[str, Any]:
+    """Collect the evidence signals the 7 `fraude_scoring/*` tables reference.
+
+    Direct pass-through filter (see `_SCORING_INPUT_KEYS` docstring) — only keys PRESENT and
+    non-None on process variables are forwarded; an absent signal falls through to that table's
+    conservative catch-all row (never a fabricated default). Only mechanical type coercion
+    (booleans) happens here — no business derivation.
     """
-    evidencia_refs = variables.get("evidencia_refs", [])
-    if not isinstance(evidencia_refs, list):
-        evidencia_refs = []
+    evidence: dict[str, Any] = {}
+    for key in _SCORING_INPUT_KEYS:
+        value = variables.get(key)
+        if value is None:
+            continue
+        evidence[key] = _is_true(value) if key in _SCORING_BOOL_KEYS else value
+    return evidence
 
-    # Placeholder scoring: count of evidence items × factor
-    # Real implementation ports the 7 DMNs (upcoding, unbundling, phantom, etc.)
-    # but ONLY to produce indicadores_presentes, never a verdict.
-    base_score = len(evidencia_refs) * 10
 
-    indicadores_presentes: list[str] = []
-    if base_score > 0:
-        indicadores_presentes.append("evidencia_presente")
-    if base_score > 50:
-        indicadores_presentes.append("score_elevado")
-    if base_score > 100:
-        indicadores_presentes.append("multiplos_indicadores")
+def _evaluate_scoring_chain(
+    dmn: DmnTransport, evidence: dict[str, Any]
+) -> tuple[int, list[str], dict[str, dict[str, Any]]]:
+    """Evaluate the 7 `fraude_scoring/*` tables and aggregate — FAIL-CLOSED, no partial fallback.
 
-    # Determine investigation intensity (NEVER accusation)
-    if base_score > 100:
-        intensidade = "PRIORITARIA"
-    elif base_score > 50:
-        intensidade = "APROFUNDADA"
-    else:
-        intensidade = "LEVE"
+    Sums `indicador_score` into a total (integer); collects `indicador_label` != "none"
+    (de-duplicated, table order) into a list. Each table is STANDALONE (verified: no
+    informationRequirement/DRD) so it is evaluated independently against the SAME evidence dict.
+
+    Deliberate divergence from the v1 donor (root-caused, not a workaround — see PR body
+    characterization table): the donor's `_score_from_dmn` CAUGHT `DmnEvaluationError` per table
+    and SKIPPED the failing one, falling back to a fixed `score=50` / `"PRIORITARIA"` sentinel
+    only when *zero* tables evaluated — a reasonable posture for the donor's dead in-process XML
+    evaluator, which itself failed OPEN on no-match (ADR-0028's defect B5). This worker instead
+    uses the REAL `dmn=` seam (ADR-0028): `evaluate_sync`/`first_row` propagate
+    `DmnEvaluationError` (engine unreachable/erroring — transient, engine-side retry) and
+    `DmnNoResultError` (empty result — coded, immediate human-visible incident) UNCAUGHT for ANY
+    of the 7 tables. A single-table outage no longer silently degrades to a fabricated
+    "zero-score-and-continue" or a fixed sentinel score — the WHOLE aggregation fails closed,
+    consistent with this codebase's ADR-0028 fail-closed doctrine (neither
+    `contas.analyze_reason` nor `recurso.assess_eligibility` swallow a per-call DMN error).
+    """
+    total_score = 0
+    labels: list[str] = []
+    dmn_versions: dict[str, dict[str, Any]] = {}
+    for decision_id in _SCORING_DECISIONS:
+        rows, version = evaluate_sync(dmn, decision_id, evidence)
+        row = first_row(rows, decision_id, evidence)
+        dmn_versions[decision_id] = version.to_audit_dict()
+        raw_score = row.get("indicador_score", 0)
+        if isinstance(raw_score, bool):
+            pass  # bool is an int subclass in Python — never summed as a score
+        elif isinstance(raw_score, (int, float)):
+            total_score += int(raw_score)
+        label = row.get("indicador_label")
+        if label and str(label) != _NO_INDICATOR_LABEL and str(label) not in labels:
+            labels.append(str(label))
+    return total_score, labels, dmn_versions
+
+
+def score_indicators(variables: dict[str, Any], *, dmn: DmnTransport | None = None) -> dict[str, Any]:
+    """Calculate fraud indicator scores — engine-side DMN evaluation (T2.7 phase 2).
+
+    Replaces the `len(evidencia_refs) * 10` placeholder (defect B10) with the REAL 7-table
+    `fraude_scoring/*` chain (T2.7 phase 1, PR #48) evaluated via the `dmn=` seam (ADR-0028):
+    `_collect_scoring_inputs` gathers whatever evidence signals `gather_evidence`/the
+    feature-store integration has attached to process variables; `_evaluate_scoring_chain`
+    evaluates each of the 7 STANDALONE tables and aggregates `indicador_score` ->
+    `score_indicadores` (integer) / `indicador_label` -> `indicadores_presentes` (`list[str]`,
+    "none" excluded).
+
+    STILL a ROUTING FACT, NEVER a verdict (unchanged invariant): no `FRAUD_DETECTED`, no
+    ACUSAR/BLOQUEAR column anywhere in the 7 tables (verified) or in this function's own output.
+    `intensidade_investigacao` is INTENTIONALLY not computed here (that was the deleted
+    placeholder's own invention) — `fraude_indicadores` is a SEPARATE, already engine-native
+    `businessRuleTask` (`BRT_Indicadores`, `camunda:decisionRef="fraude_indicadores"`) that
+    consumes `score_indicadores`/`indicadores_presentes`/`entidade_tipo` immediately downstream in
+    the SAME BPMN (spec/processes/bpmn/SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn:135-155) —
+    duplicating that evaluation here would not be "more engine-side," it would be a second,
+    redundant engine call computing what the BPMN already computes natively.
+
+    FAIL-CLOSED (never zero-score-and-continue): `require_dmn` raises `DmnEvaluationError`
+    (transient -> engine retry) if the `dmn=` seam is unwired; `_evaluate_scoring_chain`
+    propagates `DmnEvaluationError`/`DmnNoResultError` from ANY of the 7 tables uncaught (a coded
+    `DmnNoResultError` -> `ValueError` -> `failure(retries=0)` incident via
+    `FunctionWorker.execute`, the same reclassification `contas.py`/`recurso.py` rely on). No
+    fallback sentinel score is ever fabricated.
+
+    `dmn_versions` (NEW, additive — not yet reflected in
+    docs/processes/contracts/SP-OP-FRAUDE-001.md, a documentation follow-up) carries
+    `{decision_id: DmnVersion.to_audit_dict()}` for all 7 tables on the RETURNED FACTS payload
+    itself: neither `contas.py` nor `recurso.py` wire an `audit=` seam today (T1.5's own
+    residual — `AuditRecord.dmn_versions` has no production caller yet, per
+    `tests/unit/gateway/test_audit_dmn_versions.py`), so there is no `AuditLog`/`audit=` seam in
+    this module to plumb into yet. Attaching the DMN version provenance to the dossier-bound
+    facts themselves (rather than only structured logs) keeps it auditable alongside the score/
+    labels it produced, pending that follow-up.
+    """
+    dmn_transport = require_dmn(dmn, "operadora.fraude.score_indicators")
+    evidence = _collect_scoring_inputs(variables)
+    score_indicadores, indicadores_presentes, dmn_versions = _evaluate_scoring_chain(dmn_transport, evidence)
 
     logger.info(
         "fraude_score_indicators",
-        score=base_score,
-        intensidade=intensidade,
-        indicadores_count=len(indicadores_presentes),
+        numero_caso=variables.get("numero_caso"),
+        score_indicadores=score_indicadores,
+        indicadores_presentes=indicadores_presentes,
+        evidence_keys=sorted(evidence),
     )
 
     return {
-        "score_indicadores": base_score,
+        "score_indicadores": score_indicadores,
         "indicadores_presentes": indicadores_presentes,
-        "intensidade_investigacao": intensidade,
+        "dmn_versions": dmn_versions,
     }
 
 
@@ -431,11 +582,20 @@ def register_fraude_workers(
     kafka: KafkaPublisher | None = None,
     **seams: Any,
 ) -> None:
-    """Register the SP-OP-FRAUDE-001 function workers on `harness`."""
-    del kafka, seams  # unused — no fraude.py worker declares a Kafka/other seam dependency
+    """Register the SP-OP-FRAUDE-001 function workers on `harness`.
+
+    `kafka` is accepted (donor contract, ADR-0026 §2) but unused — no fraude.py worker declares a
+    Kafka dependency. `dmn` (ADR-0028 §1 seam, T2.7 phase 2) is threaded via `functools.partial`
+    into `score_indicators` ONLY — the 7 `fraude_scoring/*` tables it evaluates (see that
+    function's docstring); no other function in this module evaluates a DMN.
+    """
+    del kafka  # unused — no fraude.py worker declares a Kafka dependency
+    dmn = seams.get("dmn")
     harness.register_worker(FunctionWorker("operadora.fraude.intake", intake))
     harness.register_worker(FunctionWorker("operadora.fraude.gather_evidence", gather_evidence))
-    harness.register_worker(FunctionWorker("operadora.fraude.score_indicators", score_indicators))
+    harness.register_worker(
+        FunctionWorker("operadora.fraude.score_indicators", functools.partial(score_indicators, dmn=dmn))
+    )
     harness.register_worker(FunctionWorker("operadora.fraude.assemble_dossier", assemble_dossier))
     harness.register_worker(FunctionWorker("operadora.fraude.seal_custody_bundle", seal_custody_bundle))
     harness.register_worker(

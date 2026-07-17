@@ -7,6 +7,7 @@ PHI detection, and inverted scoring (NEVER auto-accusation).
 import pytest
 
 from maezo.gateway.custody import CustodyBundle
+from maezo.tools.workers.dmn_transport import DmnEvaluationError, DmnNoResultError, FakeDmnTransport
 from maezo.tools.workers.fraude import (
     ERR_CUSTODY_NOT_SEALED,
     ERR_FRAUD_ACCUSATION_NOT_HUMAN,
@@ -70,32 +71,210 @@ def test_gather_evidence_empty_refs() -> None:
 
 
 # ---------------------------------------------------------------
-# score_indicators — INVERTED: NEVER auto-accusation
+# score_indicators — engine-side fraude_scoring chain (T2.7 phase 2)
+#
+# Replaces the deleted `len(evidencia_refs) * 10` heuristic (defect B10). Fixture rows below
+# mirror the v1 donor's own characterization payload (tests/unit/workers/test_fraude_guards.py,
+# `test_score_indicators_computa_score_via_dmns_nunca_ecoa`), which is itself verified live
+# against the compose engine's deployed `fraude_scoring/*` tables (see this PR's characterization
+# table + `tests/integration/dmn/test_fraude_scoring_chain.py`).
 # ---------------------------------------------------------------
 
+# The 7 fraude_scoring/* decision ids, in the exact evaluation order `score_indicators` uses.
+_ALL_SCORING_DECISIONS = (
+    "risk_thresholds",
+    "upcoding_complexity_ceiling",
+    "frequency_zscore_threshold",
+    "phantom_no_diagnosis",
+    "phantom_suspicious_prefix",
+    "provider_peer_deviation",
+    "unbundling_partial_bundles",
+)
 
-def test_score_indicators_empty_evidence() -> None:
-    result = score_indicators({"evidencia_refs": []})
-    assert result["score_indicadores"] == 0
+
+def _full_scoring_fake(
+    *,
+    risk_score: int = 30,
+    upcoding: int = 0,
+    freq: int = 0,
+    phantom_no_dx: int = 0,
+    phantom_prefix: int = 0,
+    peer_dev: int = 0,
+    unbundling: int = 0,
+) -> FakeDmnTransport:
+    """A FakeDmnTransport with all 7 tables registered — no accidental DmnEvaluationError."""
+    fake = FakeDmnTransport()
+    fake.register("risk_thresholds", [{"indicador_score": risk_score, "indicador_label": "none"}])
+    fake.register("upcoding_complexity_ceiling", [{"indicador_score": upcoding, "indicador_label": "none"}])
+    fake.register("frequency_zscore_threshold", [{"indicador_score": freq, "indicador_label": "none"}])
+    fake.register("phantom_no_diagnosis", [{"indicador_score": phantom_no_dx, "indicador_label": "none"}])
+    fake.register(
+        "phantom_suspicious_prefix", [{"indicador_score": phantom_prefix, "indicador_label": "none"}]
+    )
+    fake.register("provider_peer_deviation", [{"indicador_score": peer_dev, "indicador_label": "none"}])
+    fake.register("unbundling_partial_bundles", [{"indicador_score": unbundling, "indicador_label": "none"}])
+    return fake
+
+
+def test_score_indicators_dmn_unwired_raises_dmn_evaluation_error() -> None:
+    """Fail-closed: no dmn= seam -> DmnEvaluationError (transient, engine retry) — NEVER a
+    zero-score-and-continue fallback."""
+    with pytest.raises(DmnEvaluationError):
+        score_indicators({"evidencia_refs": []}, dmn=None)
+
+
+def test_score_indicators_aggregates_via_dmn_chain_never_placeholder() -> None:
+    """score_indicadores is the SUM of indicador_score across all 7 tables — computed by the
+    DMNs, never `len(evidencia_refs) * 10` (the deleted placeholder would give 0 here for 8 refs
+    with no evidence signals attached; the DMN chain gives 120 regardless of evidencia_refs)."""
+    fake = FakeDmnTransport()
+    fake.register("risk_thresholds", [{"indicador_score": 30, "indicador_label": "risk_thresholds_alto"}])
+    fake.register(
+        "upcoding_complexity_ceiling",
+        [{"indicador_score": 30, "indicador_label": "upcoding_complexity_ceiling"}],
+    )
+    fake.register(
+        "frequency_zscore_threshold",
+        [{"indicador_score": 20, "indicador_label": "frequency_zscore_threshold"}],
+    )
+    fake.register(
+        "phantom_no_diagnosis", [{"indicador_score": 40, "indicador_label": "phantom_no_diagnosis"}]
+    )
+    fake.register("phantom_suspicious_prefix", [{"indicador_score": 0, "indicador_label": "none"}])
+    fake.register("provider_peer_deviation", [{"indicador_score": 0, "indicador_label": "none"}])
+    fake.register("unbundling_partial_bundles", [{"indicador_score": 0, "indicador_label": "none"}])
+
+    variables = {
+        "numero_caso": "FRAUDE-001",
+        "evidencia_refs": [f"ref-{i}" for i in range(8)],  # placeholder would have scored 80
+        "risk_score": 85,
+        "encounter_class": "ambulatorio",
+        "code_tier": 3,
+        "z_score": 2.5,
+        "has_tuss_codes": True,
+        "has_cid10_codes": False,
+    }
+    result = score_indicators(variables, dmn=fake)
+
+    assert result["score_indicadores"] == 120, "30+30+20+40 — the 3 zero-score tables contribute 0"
+    assert result["score_indicadores"] != 80, "never the deleted len(evidencia_refs)*10 placeholder"
+    assert result["indicadores_presentes"] == [
+        "risk_thresholds_alto",
+        "upcoding_complexity_ceiling",
+        "frequency_zscore_threshold",
+        "phantom_no_diagnosis",
+    ]
+    assert "intensidade_investigacao" not in result, (
+        "intensidade_investigacao is fraude_indicadores' output — an engine-native "
+        "businessRuleTask downstream, never computed by this worker"
+    )
+    assert set(result["dmn_versions"]) == set(_ALL_SCORING_DECISIONS)
+
+    # All 7 tables evaluated, in order, each receiving ONLY the evidence signals (never
+    # identity/case variables like numero_caso or evidencia_refs).
+    assert [c[0] for c in fake.calls] == list(_ALL_SCORING_DECISIONS)
+    expected_evidence = {
+        "risk_score": 85,
+        "encounter_class": "ambulatorio",
+        "code_tier": 3,
+        "z_score": 2.5,
+        "has_tuss_codes": True,
+        "has_cid10_codes": False,
+    }
+    for _decision_id, passed_vars in fake.calls:
+        assert passed_vars == expected_evidence
+        assert "numero_caso" not in passed_vars
+        assert "evidencia_refs" not in passed_vars
+
+
+def test_score_indicators_none_label_excluded() -> None:
+    """indicador_label == 'none' is the ABSENCE of an indicator — never collected."""
+    fake = _full_scoring_fake()  # risk_score=30 (default), all other tables score 0
+    result = score_indicators({"risk_score": 10}, dmn=fake)
+    assert result["score_indicadores"] == 30  # sum of the fixture's registered rows
     assert result["indicadores_presentes"] == []
-    assert result["intensidade_investigacao"] == "LEVE"
 
 
-def test_score_indicators_with_evidence() -> None:
-    refs = [f"ref-{i}" for i in range(8)]  # 8 refs = score 80
-    result = score_indicators({"evidencia_refs": refs})
-    assert result["score_indicadores"] == 80
-    assert "evidencia_presente" in result["indicadores_presentes"]
-    assert "score_elevado" in result["indicadores_presentes"]
-    assert result["intensidade_investigacao"] == "APROFUNDADA"
+def test_score_indicators_deduplicates_labels() -> None:
+    """The same label from two different tables is collected only once (order-preserving)."""
+    fake = FakeDmnTransport()
+    for decision_id in _ALL_SCORING_DECISIONS:
+        fake.register(decision_id, [{"indicador_score": 5, "indicador_label": "indicador_repetido"}])
+    result = score_indicators({}, dmn=fake)
+    assert result["indicadores_presentes"] == ["indicador_repetido"]
+    assert result["score_indicadores"] == 35
 
 
-def test_score_indicators_prioritario() -> None:
-    refs = [f"ref-{i}" for i in range(15)]  # 15 refs = score 150
-    result = score_indicators({"evidencia_refs": refs})
-    assert result["score_indicadores"] == 150
-    assert "multiplos_indicadores" in result["indicadores_presentes"]
-    assert result["intensidade_investigacao"] == "PRIORITARIA"
+def test_score_indicators_bool_score_never_summed() -> None:
+    """A stray boolean indicador_score (bool is an int subclass in Python) is never summed."""
+    fake = _full_scoring_fake()
+    fake.register("risk_thresholds", [{"indicador_score": True, "indicador_label": "none"}])
+    result = score_indicators({}, dmn=fake)
+    assert result["score_indicadores"] == 0
+
+
+def test_score_indicators_boolean_evidence_coerced_from_string() -> None:
+    """has_tuss_codes/has_cid10_codes accept engine string 'true'/'false' (mirrors contas._is_true).
+
+    Every table receives the SAME collected evidence dict (no per-table filtering — see
+    `_evaluate_scoring_chain` docstring), so the coercion is visible on every call.
+    """
+    fake = _full_scoring_fake()
+    variables = {"has_tuss_codes": "true", "has_cid10_codes": "false"}
+    score_indicators(variables, dmn=fake)
+    assert len(fake.calls) == len(_ALL_SCORING_DECISIONS)
+    for _decision_id, passed_vars in fake.calls:
+        assert passed_vars["has_tuss_codes"] is True
+        assert passed_vars["has_cid10_codes"] is False
+
+
+def test_score_indicators_one_table_unavailable_fails_closed_no_partial_score() -> None:
+    """DIVERGENCE FROM v1 DONOR (deliberate, root-caused — see fraude.py docstring): the donor
+    SKIPPED an unavailable table and summed the rest. This worker propagates DmnEvaluationError
+    for ANY unavailable table — no partial aggregation, no fabricated fallback score."""
+    fake = FakeDmnTransport()
+    fake.register("risk_thresholds", [{"indicador_score": 30, "indicador_label": "risk_thresholds_alto"}])
+    fake.register(
+        "phantom_no_diagnosis", [{"indicador_score": 40, "indicador_label": "phantom_no_diagnosis"}]
+    )
+    # The other 5 tables are NOT registered -> FakeDmnTransport raises DmnEvaluationError.
+    with pytest.raises(DmnEvaluationError):
+        score_indicators({"risk_score": 85}, dmn=fake)
+
+
+def test_score_indicators_empty_result_raises_dmn_no_result_error() -> None:
+    """A table returning zero rows (should not happen — every table has a catch-all — but
+    defense-in-depth per ADR-0028 §3) raises DmnNoResultError, never an implicit zero score."""
+    fake = FakeDmnTransport()
+    fake.register("risk_thresholds", [])  # empty result
+    with pytest.raises(DmnNoResultError):
+        score_indicators({"risk_score": 85}, dmn=fake)
+
+
+def test_score_indicators_never_echoes_inbound_score() -> None:
+    """A forged/stale score_indicadores or indicadores_presentes already present on process
+    variables (e.g. from a re-delivered task) is NEVER echoed — always recomputed from the DMNs."""
+    fake = _full_scoring_fake(risk_score=0)
+    variables = {
+        "score_indicadores": 999,
+        "indicadores_presentes": ["indicador_forjado_inbound"],
+    }
+    result = score_indicators(variables, dmn=fake)
+    assert result["score_indicadores"] != 999
+    assert "indicador_forjado_inbound" not in result["indicadores_presentes"]
+
+
+def test_score_indicators_never_produces_verdict_keys() -> None:
+    """Grep-level L0 guard: no accusation/verdict vocabulary ever appears in the worker's output."""
+    fake = _full_scoring_fake(risk_score=85, upcoding=30, freq=20, phantom_no_dx=40)
+    result = score_indicators({"risk_score": 85}, dmn=fake)
+    forbidden = {"FRAUD_DETECTED", "ACUSAR", "ACUSAR_FRAUDE", "BLOQUEAR", "CONFIRMAR"}
+    assert not (forbidden & set(result.keys()))
+    for value in result.values():
+        if isinstance(value, str):
+            assert value.upper() not in forbidden
+        if isinstance(value, list):
+            assert not any(str(v).upper() in forbidden for v in value)
 
 
 # ---------------------------------------------------------------
