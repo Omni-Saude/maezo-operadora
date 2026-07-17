@@ -71,16 +71,21 @@ cycle is always the eligible prefix up to the first non-eligible record.)
 
 ### 2. The signed checkpoint record
 
-Before deletion, seal a **checkpoint** row that commits to the pruned prefix. It lives **in
-`audit_chain` itself** (not a side table) so it occupies the freed `GENESIS_PREV_HASH` slot under the
-same `UNIQUE(prev_record_hash)` constraint — a side table would let a concurrent writer insert a new
-genesis at `prev_record_hash = "0"*64` and re-fork the head. The checkpoint carries (proposed
-columns, all NULL for ordinary `event` rows):
+In the same transaction as the deletion (§3 — the prefix is deleted FIRST, then the checkpoint is
+inserted into the freed slot), seal a **checkpoint** row that commits to the pruned prefix. It lives
+**in `audit_chain` itself** (not a side table) so it occupies the freed `GENESIS_PREV_HASH` slot
+under the same `UNIQUE(prev_record_hash)` constraint — a side table would let a concurrent writer
+insert a new genesis at `prev_record_hash = "0"*64` and re-fork the head. The checkpoint carries
+(proposed columns, all NULL for ordinary `event` rows):
 
 - `record_type` — `'event'` (default) | `'checkpoint'`.
 - `prev_record_hash = GENESIS_PREV_HASH` — the checkpoint **becomes the new anchor**. Valid only
-  because the old genesis row is deleted in the *same* transaction, so the `"0"*64` slot is free and
-  `UNIQUE(prev_record_hash)` still holds (exactly one row at that slot).
+  because the old genesis row is deleted *earlier in the same transaction* (§3 step 3), so at INSERT
+  time the `"0"*64` slot is free and `UNIQUE(prev_record_hash)` still holds (exactly one row at that
+  slot). The delete-before-insert ordering is load-bearing: `uq_audit_chain_prev_hash` is
+  **non-deferrable** (`0002_audit_chain.py:50`; retained on purpose — §7), so its check fires at
+  statement level, and inserting the checkpoint while the old genesis still occupied the slot would
+  abort with a UNIQUE violation before any delete ran.
 - `pruned_last_record_hash` — the `record_hash` of the **last (newest) pruned** record, `H_k`. This
   is the **bridge**: the oldest surviving record already has `prev_record_hash = H_k` (immutable —
   it is part of that record's own hash preimage and must not be rewritten), so the checkpoint records
@@ -102,15 +107,31 @@ columns, all NULL for ordinary `event` rows):
 `record_hash` for the checkpoint is computed over all of the above (extending the existing
 `_compute_hash()` preimage), so the checkpoint is itself tamper-evident like any record.
 
-### 3. Atomic write-then-delete
+### 3. Atomic delete-then-checkpoint
 
-The checkpoint insert **and** the prefix delete run in **one transaction**, under the **same
+The prefix delete **and** the checkpoint insert run in **one transaction**, under the **same
 per-tenant advisory lock** `emit()` already takes
 (`pg_advisory_xact_lock(hashtext($1))`, `src/maezo/gateway/audit_postgres.py:137`, held across the
-insert transaction at `:219`). This guarantees: (a) all-or-nothing — a failed delete rolls back the
-checkpoint and a failed checkpoint deletes nothing, so the chain is never half-pruned; (b) no
-concurrent `emit()` can append a new head between checkpoint and delete. Ordering inside the txn:
-seal checkpoint → verify the new `by_prev` walk succeeds in-txn → delete the prefix → COMMIT.
+insert transaction at `:219`). Ordering inside the single locked transaction:
+
+1. **SELECT + snapshot** the prune range (the eligible genesis prefix, §1/§6).
+2. **Compute** `H_k` (last pruned `record_hash`), the Merkle root, counts/ts-range, and the
+   hold-attestation (§2).
+3. **DELETE the prefix** — this frees the `GENESIS_PREV_HASH` slot.
+4. **INSERT the checkpoint** claiming `prev_record_hash = GENESIS_PREV_HASH` and carrying
+   `pruned_last_record_hash = H_k`.
+5. **In-txn verify** — exactly one `GENESIS_PREV_HASH`-anchored row exists (the checkpoint) and the
+   oldest surviving record's `prev_record_hash` bridges to `H_k` — then **COMMIT**; on any failure,
+   **ROLLBACK**. The rollback **restores the deleted prefix** — transaction atomicity is the safety
+   net that makes delete-before-insert safe: the chain is never observable half-pruned, and a failed
+   checkpoint insert or failed verification leaves the chain exactly as it was.
+
+Why delete-first (not checkpoint-first): `uq_audit_chain_prev_hash` is **non-deferrable**
+(`0002_audit_chain.py:50`), so the UNIQUE check runs at statement level — inserting a checkpoint
+with `prev_record_hash = "0"*64` while the old genesis row still occupies that slot would abort the
+INSERT with a UNIQUE violation before the DELETE ever ran. The constraint stays non-deferrable
+deliberately (§7); the ordering adapts to it, not the other way around. The advisory lock guarantees
+no concurrent `emit()` can append (or insert a new genesis) anywhere between steps 1-5.
 
 ### 4. Verifier support for checkpoint-anchored heads
 
@@ -141,9 +162,33 @@ history remains provable from cold storage even across many prune cycles.
 A record is prunable iff **all** of the following hold: `age > 5y` (DL-0018 retention floor) **AND**
 no active legal-hold covers it (ADR-0020 amendment registry) **AND** it is in the contiguous genesis
 prefix up to the first non-eligible record **AND** the checkpoint for the cut is written atomically
-before the delete (§3). If the oldest record is under an active hold, the eligible prefix
-is empty and the cycle is a no-op (deferred, per ADR-0020-amendment Option C — not retained forever;
-re-evaluated when the hold lifts).
+in the same delete-then-checkpoint transaction (§3). If the oldest record is under an active hold,
+the eligible prefix is empty and the cycle is a no-op (deferred, per ADR-0020-amendment Option C —
+not retained forever; re-evaluated when the hold lifts).
+
+**Hold-placed-mid-prune race (TOCTOU), acknowledged explicitly:** the hold check (feeding the
+`hold_attestation`, §3 step 2) and the DELETE (§3 step 3) are distinct steps — a hold written by a
+concurrent transaction between them would be silently violated by the prune. The hold-placement
+path must therefore **serialize against the prune**: either hold writes acquire the **same
+per-tenant advisory lock** the prune transaction holds (so a hold cannot land mid-prune), or the
+prune **re-checks the hold registry between steps 2 and 3 inside the transaction** (so the
+attestation is provably current at delete time). Which mechanism (or both, belt-and-suspenders) is
+the final form is an **ADR-0020-amendment ratification item** — the hold registry's write path does
+not exist yet — but the race itself is a design constraint of this ADR: an implementation without
+one of these serializations is non-conforming.
+
+### 7. Fork-detection timing: `UNIQUE(prev_record_hash)` stays NON-DEFERRABLE (decision)
+
+The alternative — making `uq_audit_chain_prev_hash` `DEFERRABLE INITIALLY DEFERRED` so a
+checkpoint-first ordering could work — is **rejected**. A deferrable constraint shifts fork
+detection from statement time to COMMIT time, and that re-opens exactly the concurrent-genesis-fork
+window DL-0018's real-engine testing proved broken: two concurrent forks both passing their checks
+under READ COMMITTED (`docs/decisions-log.md` DL-0018 — `test_concurrent_fork_*: assert 0==1`; the
+same reason table partitioning was rejected). The statement-level, DB-atomic anti-fork property of
+the non-deferrable UNIQUE is **load-bearing** for the whole chain design (`0002_audit_chain.py:44-50`,
+`audit.py:37-48` genesis-sentinel rationale) and is not weakened for the convenience of a prune
+ordering. Fork detection timing therefore stays at statement level; pruning uses the
+delete-then-checkpoint ordering of §3 instead.
 
 ## Consequencias
 
