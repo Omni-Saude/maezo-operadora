@@ -15,53 +15,110 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # ── Desabilitado: dependency-review-action requer GitHub Advanced Security
-  # (Dependency graph + Advanced Security) habilitado no repositório.
-  # O repo Omni-Saude/maezo-operadora não tem Advanced Security ativado
-  # e o erro é: "Dependency review is not supported on this repository."
-  # Reativar quando Advanced Security for provisionado nas settings do repo.
-  # dependency-review:
-  #   name: dependency review
-  #   runs-on: ubuntu-latest
-  #   if: github.event_name == 'pull_request'
-  #   permissions:
-  #     contents: read
-  #     pull-requests: write
-  #   steps:
-  #     - name: Dependency review
-  #       uses: actions/dependency-review-action@v4
-  #       with:
-  #         fail-on-severity: high
+  # ── T2.4 (remainder): dependency-review-action requires GitHub Advanced
+  # Security (dependency graph + code/dependency scanning) on PRIVATE
+  # repositories — confirmed via `gh api repos/Omni-Saude/maezo-operadora`
+  # (admin-scoped token) on 2026-07-17:
+  #   security_and_analysis.code_security.status == "disabled"
+  # This job re-checks the SAME field at runtime with the workflow's own
+  # GITHUB_TOKEN (which typically lacks admin visibility into repo settings —
+  # hence the "unknown" fallback is the common case even when the setting
+  # genuinely is disabled) and ONLY runs the real scan when it can positively
+  # confirm "enabled". Otherwise it emits a LOUD, non-silent skip — never
+  # `if: false`. The moment GHAS is provisioned on this repo, this job
+  # auto-activates the real scan on the next PR run — no workflow edit
+  # needed (same auto-activating guard-step pattern as ci.yml's
+  # integration/evals/fhir-sync-simulator lanes).
+  dependency-review:
+    name: dependency review
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check GitHub Advanced Security (code_security) availability
+        id: ghas
+        run: |
+          set -euo pipefail
+          status="$(gh api "repos/${{ github.repository }}" --jq '.security_and_analysis.code_security.status // "unknown"')"
+          echo "code_security.status=${status}"
+          echo "status=${status}" >> "$GITHUB_OUTPUT"
 
-  # ── Desabilitado temporariamente: CodeQL v3 autobuild.sh não reconhece
-  # layout pyproject.toml + src/maezo/ (procura setup.py). O extractor
-  # Python roda com `python3 -S` (sem site-packages), então mesmo após
-  # `pip install -e ".[dev]"` o tracer encontra 0 módulos.
+      # Pin-only note: the floating "v4" tag was DELETED upstream after
+      # actions/dependency-review-action shipped v5.0.0 — confirmed 404 via
+      # `gh api repos/actions/dependency-review-action/git/ref/tags/v4` on
+      # 2026-07-17. v4.9.0 is the last existing v4.x.y release (i.e. what
+      # "v4" resolved to immediately before removal) — pinning to it is NOT
+      # a version bump to v5.
+      - name: Dependency review
+        if: steps.ghas.outputs.status == 'enabled'
+        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48  # v4.9.0
+        with:
+          fail-on-severity: high
+
+      - name: DEPENDENCY-REVIEW SKIPPED (visible)
+        if: steps.ghas.outputs.status != 'enabled'
+        run: |
+          echo "::notice::DEPENDENCY-REVIEW SKIPPED — security_and_analysis.code_security.status='${{ steps.ghas.outputs.status }}' (needs 'enabled'); dependency-review-action is not supported on this private repo without GitHub Advanced Security. Confirmed DISABLED via an admin-scoped API check on 2026-07-17. Provisioning GHAS auto-activates this job — no workflow edit needed."
+          {
+            echo "## dependency review: SKIPPED"
+            echo ""
+            echo "\`dependency-review-action\` requires GitHub Advanced Security on private"
+            echo "repositories. This job's own \`GITHUB_TOKEN\` read"
+            echo "\`security_and_analysis.code_security.status\` = \`${{ steps.ghas.outputs.status }}\`"
+            echo "(the token commonly lacks admin visibility into repo settings, hence"
+            echo "\`unknown\` even when the setting genuinely is disabled — separately"
+            echo "confirmed DISABLED via an admin-scoped \`gh api\` call on 2026-07-17)."
+            echo ""
+            echo "Blocked(external: repo/org setting — GitHub Advanced Security not"
+            echo "provisioned). Re-enablement tracked as T2.4 in"
+            echo "\`docs/prompts/V2-COMPLETION-PLAN.md\`. Provisioning GHAS (Settings ->"
+            echo "Code security and analysis) auto-activates the real scan on the next PR"
+            echo "run — no workflow edit needed."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ── T2.4 (remainder): CodeQL re-enabled WITHOUT autobuild. The prior
+  # disablement (see git history) hit CodeQL v3's autobuild.sh, which never
+  # recognized the pyproject.toml + src/maezo/ layout (it looks for
+  # setup.py). Autobuild was the wrong tool for an interpreted language in
+  # the first place: Python needs no build step to be analyzed, so this uses
+  # `build-mode: none` (github/codeql-action v4+) via an explicit init/
+  # analyze pair — no autobuild anywhere.
   #
-  # Correção definitiva: atualizar para github/codeql-action@v4 e usar
-  # build-mode: "none" (disponível a partir do CodeQL v4).
-  # O Dependabot PR #2 (github/codeql-action de v3 para v4) já está aberto.
+  # Scan coverage: CodeQL's Python extractor walks the whole checkout and
+  # picks up every *.py file, so src/ + scripts/ (the two directories named
+  # in scope) are covered by default alongside tests/ — no `paths:`
+  # restriction is needed or applied (a narrower scan would be a silent
+  # coverage cut, not an improvement).
   #
-  # codeql:
-  #   name: codeql / python
-  #   runs-on: ubuntu-latest
-  #   permissions:
-  #     actions: read
-  #     contents: read
-  #     security-events: write
-  #   strategy:
-  #     fail-fast: false
-  #     matrix:
-  #       language: ["python"]
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - name: Initialize CodeQL
-  #       uses: github/codeql-action/init@v4
-  #       with:
-  #         languages: ${{ matrix.language }}
-  #         build-mode: none
-  #     - name: Perform CodeQL analysis
-  #       uses: github/codeql-action/analyze@v4
+  # NOTE: like dependency-review above, GitHub code scanning (CodeQL SARIF
+  # upload) also requires GitHub Advanced Security on private repositories.
+  # This job is intentionally NOT pre-gated on that check: item 1 of this
+  # task requires observing the REAL run outcome on this PR before deciding
+  # whether/how to guard it, rather than assuming the blocker without
+  # evidence. See the PR body for the actual run result and (if blocked) the
+  # exact upstream error text.
+  codeql:
+    name: codeql / python
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@7188fc363630916deb702c7fdcf4e481b751f97a  # v4.37.1
+        with:
+          languages: python
+          build-mode: none
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@7188fc363630916deb702c7fdcf4e481b751f97a  # v4.37.1
 
   gitleaks:
     name: gitleaks / secrets
@@ -70,7 +127,7 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
         with:
           fetch-depth: 0
 
