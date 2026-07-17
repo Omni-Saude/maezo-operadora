@@ -1,0 +1,62 @@
+# Grandfather exception list for the sign-off gate (T2.2, src/maezo/platform/validation/signoff.py).
+#
+# WHAT THIS FILE IS
+# ------------------
+# A narrow, visible, auditable exception list. It grandfathers FINAL process
+# contracts that shipped BEFORE this sign-off gate existed and therefore never
+# went through the docs/sme-dispatch/README.md "Signoff artifact spec" flow.
+# Listing a contract here lets the gate pass it WITHOUT a
+# docs/processes/contracts/signoffs/<CONTRACT-ID>.signoff.yaml on file, but
+# the gate still emits a loud, visible warning every single run naming the
+# contract and the reason — this is never a silent pass.
+#
+# WHAT THIS FILE IS NOT
+# ----------------------
+# - NOT a general allowlist. It exists solely to cover pre-existing debt from
+#   before T2.2, not to let future FINAL promotions skip sign-off.
+# - NOT self-service. Adding a new entry is an ORCHESTRATOR DECISION, not
+#   something an agent (or a human editing this file casually) can do
+#   unilaterally — see V2-COMPLETION-PLAN §3 T2.2 charter, constraint 2
+#   (fail-closed) and constraint 1 (no self-certification).
+# - NOT permanent. It is shrink-only in intent: an entry is removed once a
+#   human retro-verification pass produces the real signoff file(s) the
+#   contract should have had before shipping FINAL. The gate itself enforces
+#   the shrink direction structurally — see the three checks below.
+#
+# GATE ENFORCEMENT (src/maezo/platform/validation/signoff.py, check_exceptions())
+# ---------------------------------------------------------------------------
+# For every entry listed under `entries:`, the gate FAILS the whole run
+# (fail-closed) if any of the following is true:
+#   1. `contract_id` does not name a real contract in docs/processes/contracts/.
+#   2. That contract is not currently Status: FINAL (e.g. it was reverted to
+#      DRAFT, or never was FINAL) — the entry must be removed.
+#   3. That contract now HAS a real signoff file on record — the exception is
+#      obsolete and the entry must be removed (the file only proves what the
+#      real workflow already superseded).
+#   4. `contract_id` is not ALSO flagged for retro-verification in
+#      docs/sme-dispatch/tracker.md — the two documents must agree; drift
+#      between them fails closed rather than silently trusting either one.
+#
+# Only a contract that passes all four checks gets the exception, and even
+# then the gate prints a `::warning::`-prefixed notice naming it every run.
+#
+# entries: — exactly one, ONLY the pre-existing FINAL-without-signoff debt
+# identified in docs/sme-dispatch/tracker.md's "Signoff-absent flag" section.
+# Do not add to this list without an explicit orchestrator decision.
+entries:
+  - contract_id: SP-OP-ESCALATION-001
+    justification: >
+      Shipped Status: FINAL (v1.0.0) before the sign-off gate (T2.2) existed;
+      no docs/processes/contracts/signoffs/SP-OP-ESCALATION-001.signoff.yaml
+      was ever produced because the artifact spec and the enforcing gate both
+      postdate it. This is pre-existing debt, not new drift introduced by this
+      change. docs/sme-dispatch/README.md and docs/sme-dispatch/tracker.md
+      ("Signoff-absent flag — SP-OP-ESCALATION-001") both already flag it for
+      a human retro-verification pass: confirm the SLA values the contract
+      itself marks DRAFT despite the FINAL status (escalation_routing header:
+      "shape FINAL, SLAs DRAFT"), then have the assigned médico-auditor and
+      regulatório reviewers produce the real signoff file(s). Until that
+      happens, treat the SLA values in production as unverified even though
+      the contract text reads FINAL. Remove this entry the moment that
+      signoff file lands — do not extend or renew it in place.
+    tracker_ref: docs/sme-dispatch/tracker.md
