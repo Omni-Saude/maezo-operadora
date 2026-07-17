@@ -11,7 +11,7 @@ that require graphs:
   STEP A  Bind the health app IMMEDIATELY in an asyncio task. `/healthz` answers 200 right away
           (liveness) before any dependency is touched — the pod never CrashLoops because a
           spec file is missing or a policy fails to parse.
-  STEP B  Bring up the THREE things this scaffold can honestly check, bounded and non-fatal
+  STEP B  Bring up the FOUR things this build can honestly check, bounded and non-fatal
           (failure logs + leaves the corresponding readiness check unhealthy — liveness stays
           up, per constraint 2 "readiness honest", never a silent 200):
             1. agent definition loadable — via the T0.3 `AgentLoader` (spec/agents/<id>/agent.yaml,
@@ -21,9 +21,18 @@ that require graphs:
             3. inference provider constructible — `maezo.runtime.inference.InferenceProvider`
                (noop is an ACCEPTABLE outcome per Q-6 — this checks construction, not that a
                real LLM is configured).
-          NO graph execution happens here — see the explicit `agent_graph_execution_pending` log
-          line. LangGraph wiring (loading `agent.graph:build`, checkpointer, the harness) is
-          T1.11's job; this build never imports `maezo.agents.<id>.graph`.
+            4. agent graph loadable (T1.11, defect B6) — `maezo.runtime.harness.Harness.
+               create_graph(agent_id)` resolves + builds the REAL agent-specific graph (helena/
+               rafael go through their real `build(config)` with real, un-invoked transports;
+               the remaining still-stubbed agents go through their no-arg `build()`). This is a
+               CONSTRUCTION check (StateGraph build + `.compile()`), not an execution one — no
+               node ever runs, so it costs no network I/O even though the injected transports
+               (`CibSevenDmnTransport`/`CibSevenHttpTransport`/FHIR/WhatsApp adapters) are the
+               REAL classes pointed at this replica's configured URLs.
+          Turn EXECUTION (a graph actually processing a conversation) still does not happen in
+          this daemon — see `agent_graph_execution_pending` below. For Helena, live execution is
+          driven by the webhook-receiver's own in-process dispatch
+          (`maezo.platform.webhooks.whatsapp.dispatch`, T1.11), not this health-only daemon.
   STEP C  Readiness checks read `AgentState` (mirrors `WorkerState`, worker_runtime/service.py).
   STEP D  SIGTERM/SIGINT -> drain: `live=False` (`/healthz` -> 503), stop the health server.
           There is no in-flight work to drain (no graph execution, no locked external tasks) —
@@ -37,13 +46,16 @@ import contextlib
 import signal
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from typing import Any
 
 import structlog
+from langgraph.graph import StateGraph
 
 from maezo.agents import AgentDefinition, AgentLoader
 from maezo.gateway.pep import PEP, PolicyError, build_pep
 from maezo.platform.health import CheckResult, build_health_server, create_health_app
 from maezo.platform.observability import get_metrics_collector
+from maezo.runtime.harness import Harness, UnknownAgentError
 from maezo.runtime.inference import InferenceProvider
 
 from .settings import AgentRuntimeSettings
@@ -56,7 +68,7 @@ logger = structlog.get_logger(__name__)
 
 @dataclass
 class AgentState:
-    """Daemon state, mutated as the three STEP B checks run. Readiness checks (STEP C) read
+    """Daemon state, mutated as the four STEP B checks run. Readiness checks (STEP C) read
     THIS object — keeps the health app (generic, `platform/health.py`) decoupled from the
     runtime. `live` drives `/healthz` (drain: SIGTERM -> live=False)."""
 
@@ -68,6 +80,8 @@ class AgentState:
     pep_error: str | None = None
     inference_provider: InferenceProvider | None = None
     inference_error: str | None = None
+    agent_graph: StateGraph[Any] | None = None
+    agent_graph_error: str | None = None
 
     def is_live(self) -> bool:
         return self.live
@@ -123,7 +137,19 @@ def build_readiness_checks(state: AgentState) -> list[Callable[[], Awaitable[Che
             detail=_state.inference_error or "inference provider not constructed",
         )
 
-    return [agent_definition_loaded, policies_loadable, inference_provider_ready]
+    async def graph_loaded(_state: AgentState = state) -> CheckResult:
+        # T1.11/defect B6: the agent's REAL graph builds (helena/rafael go through their real
+        # build(config); still-stubbed agents go through their no-arg build()). Construction
+        # only — no node ever runs from this check.
+        if _state.agent_graph is not None:
+            return CheckResult(
+                name="graph_loaded", healthy=True, detail=f"agent_id={_state.settings.agent_id}"
+            )
+        return CheckResult(
+            name="graph_loaded", healthy=False, detail=_state.agent_graph_error or "agent graph not built"
+        )
+
+    return [agent_definition_loaded, policies_loadable, inference_provider_ready, graph_loaded]
 
 
 # --- STEP B: dependency bring-up (bounded, non-fatal) -------------------------------------------
@@ -141,8 +167,46 @@ def _load_agent_definition(settings: AgentRuntimeSettings) -> AgentDefinition:
     return loader.load_by_id(settings.agent_id)
 
 
+def _build_tool_deps(settings: AgentRuntimeSettings) -> dict[str, Any]:
+    """Construct the REAL (never-invoked-here) transports a real agent `build(config)` needs.
+
+    Construction of every transport below is pure (no network call happens until a node
+    actually runs — `CibSevenDmnTransport`/`CibSevenHttpTransport`/`FhirServer`/`WhatsAppServer`
+    all defer I/O to their async methods), so building them here — purely to prove
+    `create_graph(agent_id)` compiles a real graph — costs nothing at readiness-check time.
+    """
+    from maezo.agents.helena.adapters import WhatsAppServerSender
+    from maezo.agents.rafael.adapters import FhirServerReader
+    from maezo.tools.mcp_cibseven.transport import CibSevenHttpTransport
+    from maezo.tools.mcp_fhir.server import FhirServer, FhirSettings
+    from maezo.tools.mcp_whatsapp.server import WhatsAppServer
+    from maezo.tools.workers.dmn_transport import CibSevenDmnTransport
+
+    deps: dict[str, Any] = {
+        "dmn": CibSevenDmnTransport(settings.cibseven_base_url),
+        "cibseven": CibSevenHttpTransport(settings.cibseven_base_url),
+    }
+    if settings.agent_id == "helena":
+        deps["whatsapp"] = WhatsAppServerSender(WhatsAppServer())
+    if settings.agent_id == "rafael":
+        deps["fhir"] = FhirServerReader(FhirServer(FhirSettings(base_url=settings.fhir_base_url)))
+    return deps
+
+
+def _load_agent_graph(settings: AgentRuntimeSettings, inference: InferenceProvider | None) -> StateGraph[Any]:
+    """Resolve + build `settings.agent_id`'s real graph (T1.11, defect B6).
+
+    Raises `UnknownAgentError`/`ValueError` on any failure — the caller (`_bring_up_dependencies`)
+    isolates it into `agent_graph_error`, same as the other three STEP B checks.
+    """
+    harness = Harness(inference=inference, tool_deps=_build_tool_deps(settings))
+    graph = harness.create_graph(settings.agent_id)
+    graph.compile()  # validates the graph is structurally sound; never runs a node
+    return graph
+
+
 async def _bring_up_dependencies(state: AgentState) -> None:
-    """Run the three STEP B checks. Each block is isolated: failure logs + leaves the
+    """Run the four STEP B checks. Each block is isolated: failure logs + leaves the
     corresponding readiness check unhealthy, but NEVER propagates (liveness must stay up — this
     is precisely what kills the CrashLoop, Q-6)."""
     settings = state.settings
@@ -168,22 +232,34 @@ async def _bring_up_dependencies(state: AgentState) -> None:
         state.inference_error = f"{type(exc).__name__}: {exc}"
         logger.error("agent_inference_provider_build_failed", exc_info=True)
 
+    try:
+        state.agent_graph = _load_agent_graph(settings, state.inference_provider)
+    except (UnknownAgentError, ValueError) as exc:
+        state.agent_graph_error = f"{type(exc).__name__}: {exc}"
+        logger.error("agent_graph_build_failed", agent_id=settings.agent_id, exc_info=True)
+    except Exception as exc:  # noqa: BLE001 — same isolation as above.
+        state.agent_graph_error = f"{type(exc).__name__}: {exc}"
+        logger.error("agent_graph_build_failed", agent_id=settings.agent_id, exc_info=True)
+
     logger.info(
         "agent_dependencies_brought_up",
         agent_id=settings.agent_id,
         agent_definition_loaded=state.agent_definition is not None,
         policies_loadable=state.pep is not None,
         inference_provider_ready=state.inference_provider is not None,
+        graph_loaded=state.agent_graph is not None,
     )
-    # Explicit, load-bearing log line (design §10/Q-6 + charter): this build NEVER executes an
-    # agent graph. T1.11 wires `maezo.agents.<id>.graph:build` + the LangGraph harness + the
-    # checkpointer; until then, a "ready" agent-runtime pod is ready to be *replaced* by one that
-    # graphs, not to serve a conversation.
+    # Explicit, load-bearing log line (T1.11 update of the Q-6 scaffold note): the graph now
+    # BUILDS for real (helena/rafael, defect B6) but this daemon still never EXECUTES a turn —
+    # see the module docstring's STEP B point 4 for where live execution actually happens
+    # (the webhook receiver's in-process dispatch, for Helena; Rafael has no live intake path
+    # wired in this build — see `agents/rafael/graph.py`'s module docstring).
     logger.info(
-        "agent_graph_execution_pending",
+        "agent_graph_execution_not_performed_here",
         agent_id=settings.agent_id,
-        note="LangGraph execution is NOT wired in this build — see docs/design/T1.1-runtime-spine.md "
-        "§10/§17 Q-6; graph wiring lands in T1.11. This process serves health/readiness only.",
+        note="the graph builds/compiles (graph_loaded check) but this health-only daemon does "
+        "not execute turns — see docs/design/T1.1-runtime-spine.md §10/§17 Q-6 and this "
+        "module's STEP B point 4.",
     )
 
 
