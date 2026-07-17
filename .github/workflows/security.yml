@@ -94,13 +94,26 @@ jobs:
   # restriction is needed or applied (a narrower scan would be a silent
   # coverage cut, not an improvement).
   #
-  # NOTE: like dependency-review above, GitHub code scanning (CodeQL SARIF
-  # upload) also requires GitHub Advanced Security on private repositories.
-  # This job is intentionally NOT pre-gated on that check: item 1 of this
-  # task requires observing the REAL run outcome on this PR before deciding
-  # whether/how to guard it, rather than assuming the blocker without
-  # evidence. See the PR body for the actual run result and (if blocked) the
-  # exact upstream error text.
+  # BLOCKED(external: repo/org setting), OBSERVED ON THIS PR's OWN RUN
+  # (run 29592100816 / job 87923445084, 2026-07-17), before this guard
+  # existed: init + analyze ran successfully end-to-end (CodeQL database
+  # built, all Python security queries executed, SARIF produced), and only
+  # the final SARIF-upload step failed, with this exact upstream error:
+  #
+  #   ##[warning]Code Security must be enabled for this repository to use
+  #   code scanning. - https://docs.github.com/rest
+  #   ##[error]Please verify that the necessary features are enabled: Code
+  #   Security must be enabled for this repository to use code scanning. -
+  #   https://docs.github.com/rest
+  #
+  # i.e. the SAME GitHub Advanced Security gate as `dependency-review`
+  # above (`security_and_analysis.code_security.status`). This job now
+  # applies the identical runtime guard: it only attempts init/analyze
+  # (which is where the upload — and therefore the failure — happens) when
+  # the status reads "enabled"; otherwise it emits a loud, non-silent skip
+  # naming this exact blocker (never `if: false`). The moment GHAS is
+  # provisioned, this job auto-activates the real scan on the next run — no
+  # workflow edit needed.
   codeql:
     name: codeql / python
     runs-on: ubuntu-latest
@@ -108,17 +121,56 @@ jobs:
       actions: read
       contents: read
       security-events: write
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
 
+      - name: Check GitHub Advanced Security (code_security) availability
+        id: ghas
+        run: |
+          set -euo pipefail
+          status="$(gh api "repos/${{ github.repository }}" --jq '.security_and_analysis.code_security.status // "unknown"')"
+          echo "code_security.status=${status}"
+          echo "status=${status}" >> "$GITHUB_OUTPUT"
+
       - name: Initialize CodeQL
+        if: steps.ghas.outputs.status == 'enabled'
         uses: github/codeql-action/init@7188fc363630916deb702c7fdcf4e481b751f97a  # v4.37.1
         with:
           languages: python
           build-mode: none
 
       - name: Perform CodeQL analysis
+        if: steps.ghas.outputs.status == 'enabled'
         uses: github/codeql-action/analyze@7188fc363630916deb702c7fdcf4e481b751f97a  # v4.37.1
+
+      - name: CODEQL SKIPPED (visible)
+        if: steps.ghas.outputs.status != 'enabled'
+        run: |
+          echo "::notice::CODEQL SKIPPED — security_and_analysis.code_security.status='${{ steps.ghas.outputs.status }}' (needs 'enabled'). Confirmed BLOCKED(external: repo/org setting) by this PR's own run 29592100816/job 87923445084 on 2026-07-17: init+analyze completed the full scan, but the SARIF-upload step failed with 'Code Security must be enabled for this repository to use code scanning.' Provisioning GHAS auto-activates this job — no workflow edit needed."
+          {
+            echo "## codeql / python: SKIPPED"
+            echo ""
+            echo "\`security_and_analysis.code_security.status\` = "
+            echo "\`${{ steps.ghas.outputs.status }}\` (needs \`enabled\`)."
+            echo ""
+            echo "BLOCKED(external: repo/org setting). Confirmed on this task's own PR run"
+            echo "(29592100816 / job 87923445084, 2026-07-17) — init + analyze completed the"
+            echo "full Python scan (database build, all security queries, SARIF produced),"
+            echo "and ONLY the SARIF-upload step failed, with:"
+            echo ""
+            echo '```'
+            echo "Please verify that the necessary features are enabled: Code Security must"
+            echo "be enabled for this repository to use code scanning. - https://docs.github.com/rest"
+            echo '```'
+            echo ""
+            echo "GitHub code scanning (CodeQL SARIF upload) requires GitHub Advanced"
+            echo "Security on private repositories — same gate as \`dependency-review\`."
+            echo "Re-enablement tracked as T2.4 in \`docs/prompts/V2-COMPLETION-PLAN.md\`;"
+            echo "provisioning GHAS (Settings -> Code security and analysis) auto-activates"
+            echo "the real scan on the next run — no workflow edit needed."
+          } >> "$GITHUB_STEP_SUMMARY"
 
   gitleaks:
     name: gitleaks / secrets
