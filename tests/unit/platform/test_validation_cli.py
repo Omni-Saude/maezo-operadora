@@ -222,24 +222,87 @@ class TestMutationUnparseableYaml:
 
 
 # ---------------------------------------------------------------------------
-# validate_signoff — deliberately NOT a real gate yet (T2.2)
+# validate_signoff — real, fail-closed gate (T2.2)
 # ---------------------------------------------------------------------------
 
 
-class TestValidateSignoffStub:
-    """T2.2 owns making this real; here we only prove it can't masquerade as one."""
+class TestSignoffHappyPathOnRealTree:
+    """The actual committed docs/processes/contracts/ tree must validate clean,
+    with the grandfathered SP-OP-ESCALATION-001 exception visibly (not silently)
+    surfaced."""
 
-    def test_signoff_returns_zero_but_says_so_loudly(self, capsys: pytest.CaptureFixture[str]) -> None:
-        assert validate_signoff() == 0
+    def test_real_contracts_tree_passes(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.chdir(REPO_ROOT)
+        result = validate_signoff()
         captured = capsys.readouterr()
-        assert "NOT YET IMPLEMENTED" in captured.err
+        assert result == 0, captured.out
+        assert "NOT YET IMPLEMENTED" not in captured.out
+        assert "SP-OP-ESCALATION-001" in captured.out
+        assert "::warning::" in captured.out
+        assert "GRANDFATHERED" in captured.out
 
-    def test_signoff_strict_flag_accepted(self) -> None:
-        assert validate_signoff(strict=True) == 0
-        assert validate_signoff(strict=False) == 0
-
-    def test_main_signoff(self) -> None:
+    def test_main_signoff_real_tree(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.chdir(REPO_ROOT)
         assert main(["signoff"]) == 0
 
-    def test_main_signoff_strict(self) -> None:
+    def test_main_signoff_strict_real_tree(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.chdir(REPO_ROOT)
         assert main(["signoff", "--strict"]) == 0
+
+
+def _seed_minimal_repo(tmp_path: Path) -> Path:
+    """A throwaway repo root: pyproject.toml marker + one FINAL contract, signed
+    off and grandfathered exactly like the real tree, so mutating it in isolation
+    can't touch the real docs/processes/contracts/."""
+    (tmp_path / "pyproject.toml").write_text("[project]\nname = 'fixture'\n")
+    contracts_dir = tmp_path / "docs" / "processes" / "contracts"
+    contracts_dir.mkdir(parents=True)
+    (contracts_dir / "SP-OP-FIXTURE-001.md").write_text(
+        "# Contrato — SP-OP-FIXTURE-001\n\n**Status:** FINAL (v1.0.0) — fixture\n"
+    )
+    signoffs_dir = contracts_dir / "signoffs"
+    signoffs_dir.mkdir()
+    (signoffs_dir / "SP-OP-FIXTURE-001.signoff.yaml").write_text(
+        '- reviewer_name: "Dra. Ana Souza"\n'
+        '  role: "medico-auditor"\n'
+        '  date: "2026-07-10"\n'
+        '  contract_version_reviewed: "v1.0.0"\n'
+        '  verdict: "approved"\n'
+        '  notes: "ok"\n'
+    )
+    sme_dir = tmp_path / "docs" / "sme-dispatch"
+    sme_dir.mkdir(parents=True)
+    (sme_dir / "tracker.md").write_text("| 1 | SP-OP-FIXTURE-001 | FINAL | none |\n")
+    return tmp_path
+
+
+class TestSignoffMutationsViaCli:
+    """Live mutation demonstrations at the CLI-integration level (isolated fixture
+    repo — never mutates the real docs/processes/contracts/ tree)."""
+
+    def test_fixture_repo_happy_path(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        _seed_minimal_repo(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        assert validate_signoff() == 0
+
+    def test_mutation_deleted_signoff_file_fails(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _seed_minimal_repo(tmp_path)
+        signoffs_dir = tmp_path / "docs" / "processes" / "contracts" / "signoffs"
+        (signoffs_dir / "SP-OP-FIXTURE-001.signoff.yaml").unlink()
+        monkeypatch.chdir(tmp_path)
+        assert validate_signoff() != 0
+
+    def test_mutation_verdict_flipped_to_needs_changes_fails(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _seed_minimal_repo(tmp_path)
+        signoff_path = (
+            tmp_path / "docs" / "processes" / "contracts" / "signoffs" / "SP-OP-FIXTURE-001.signoff.yaml"
+        )
+        signoff_path.write_text(signoff_path.read_text().replace("approved", "needs-changes"))
+        monkeypatch.chdir(tmp_path)
+        assert validate_signoff() != 0
