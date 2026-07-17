@@ -33,17 +33,20 @@ PORT NOTES (fixture adaptation only — port rule 1; logic/assertions below are 
     `list[TopicSubscription]` + `async_response_timeout_ms`, NOT v1's `list[str]` +
     `lock_duration_ms` — `harness.py` module docstring: "v2-specific, NOT preserved from v1").
 
-FINDING (see PR body / evidence-ledger for detail): every test below that calls `probe.drain()`
-and expects progression past the FIRST activity is expected to fail against the live v2 engine
-today. Confirmed live (docker compose core, CIB Seven 2.1.0): starting SP-OP-ESCALATION-001 and
-draining with the real `register_escalation_workers` handlers immediately opens an engine
-incident at `ST_PublishRequested` — `"no handler registered for topic 'operadora.events.publish'"`
-— because NO module in v2's 16-bootstrap `register_all_workers` (`src/maezo/tools/workers/
-bootstrap.py`) registers a handler for the generic `operadora.events.publish` topic every
-family's BPMN uses to emit domain events (v1's donor served it via `register_phase0_workers`;
-v2 has no equivalent). This is a genuine, confirmed v2 implementation gap (constraint: FORBIDDEN
-to fix `src/**` in this PR) — NOT a fixture bug, NOT weakened here. Affected tests are marked
-`xfail(strict=True)` citing this exact finding; NOT touched are assertions themselves.
+FINDING, FIXED (T3.1 R2 — see PR body / evidence-ledger for detail): this suite originally
+documented that every test calling `probe.drain()` and expecting progression past the FIRST
+activity failed against the live v2 engine — confirmed live (docker compose core, CIB Seven
+2.1.0), starting SP-OP-ESCALATION-001 and draining with the real `register_escalation_workers`
+handlers immediately opened an engine incident at `ST_PublishRequested` — `"no handler registered
+for topic 'operadora.events.publish'"` — because NO module in v2's 16-bootstrap
+`register_all_workers` (`src/maezo/tools/workers/bootstrap.py`) registered a handler for the
+generic `operadora.events.publish` topic every family's BPMN uses to emit domain events (v1's
+donor served it via `register_phase0_workers`; v2 had no equivalent). T3.1 R2 ports the donor's
+`make_publish_event_handler` into `maezo.tools.workers.events.register_events_workers` (a 17th
+bootstrap, now in `ALL_WORKER_BOOTSTRAPS`) — this fixture's `probe` now ALSO registers it
+(mirroring the donor's own `register_phase0_workers` composition), and `strict-xfail` markers
+whose documented reason was exactly this gap are REMOVED below (per-test citation kept where a
+DIFFERENT, still-open gap blocks a specific test).
 """
 
 from __future__ import annotations
@@ -59,6 +62,7 @@ import pytest
 import pytest_asyncio
 
 from maezo.tools.workers.escalation import register_escalation_workers
+from maezo.tools.workers.events import register_events_workers
 from maezo.tools.workers.harness import CibSevenWorkerTransport, FakeKafkaPublisher, WorkerHarness
 
 from .conftest import drain_topics
@@ -84,17 +88,30 @@ _BREACHED = "agents.events.escalation.sla_breached"
 _RESOLVED = "agents.events.escalation.resolved"
 _PROCESS_COMPLETED = "agents.events.process_completed"
 
-_PUBLISH_GAP_REASON = (
-    "v2 implementation gap (finding, T3.1 phase 1): no module registered by "
-    "`register_all_workers` (src/maezo/tools/workers/bootstrap.py) serves the generic "
-    "`operadora.events.publish` external-task topic every SP-OP-* BPMN uses to emit domain "
-    "events. Live-confirmed: starting SP-OP-ESCALATION-001 opens an engine incident at "
-    "ST_PublishRequested (\"no handler registered for topic 'operadora.events.publish'\") before "
-    "ST_NotifyTeam ever runs. Root cause (pre-existing, self-documented): grep for "
-    "`kafka.publish(` across all 16 src/maezo/tools/workers/*.py modules returns zero call "
-    "sites — worker_runtime/service.py's own `kafka_ready` check says so ('no entry function "
-    "actually CALLS kafka.publish yet ... a real gap'). Not a fixture bug; src/** fix is out of "
-    "scope for this PR."
+# NEW finding, live-confirmed AFTER T3.1 R2's events.publish fix (drift, NOT the publish gap —
+# that reason string is retired, this one replaces it on the 3 tests it actually blocks):
+# `NotifyTeamWorker`/`NotifySupervisorWorker` (`src/maezo/tools/workers/escalation.py`) never
+# call `kafka.publish` — unlike the donor's `phase0.py` notify handlers, these `WorkerBase.execute
+# ()` methods return a status dict WITHOUT touching the injected `kafka` seam
+# (`register_escalation_workers` explicitly does `del kafka, seams  # unused`). Consequence:
+# `probe.notified_teams`/`probe.notified_supervisors` (backed by `FakeKafkaPublisher.published`)
+# can NEVER observe a notify_team/notify_supervisor execution, and `_FaultInjectingPublisher
+# .fail_notification_types` can never trigger (nothing ever calls `kafka.publish` for these
+# types) — so `ERR_ESC_NOTIFY_FAILED`/the fallback boundary path is never exercised either.
+# Independent of the `operadora.events.publish` gap T3.1 R2 fixes; wiring escalation.py's notify
+# workers to actually publish is `src/**` scope out of bounds for this PR (charter: "port the
+# missing operadora.events.publish worker", not escalation.py's notify handlers).
+_NOTIFY_KAFKA_GAP_REASON = (
+    "v2 drift (finding, T3.1 R2 — NOT the events.publish gap, which this PR fixes): "
+    "NotifyTeamWorker/NotifySupervisorWorker (src/maezo/tools/workers/escalation.py) never call "
+    "kafka.publish (`register_escalation_workers` does `del kafka, seams  # unused`), unlike the "
+    "donor's phase0.py notify handlers. probe.notified_teams/notified_supervisors (backed by "
+    "FakeKafkaPublisher.published) can therefore never observe a notify_team/notify_supervisor "
+    "execution, and fault-injection via _FaultInjectingPublisher.fail_notification_types can "
+    "never trigger (nothing calls kafka.publish for these types) — live-confirmed (docker "
+    "compose core, CIB Seven 2.1.0) after the events.publish fix landed. Not a fixture bug; "
+    "src/** fix (wiring escalation.py's notify workers to actually publish) is out of scope for "
+    "this PR."
 )
 
 
@@ -198,10 +215,27 @@ async def probe(engine: EngineRest) -> AsyncIterator[EngineProbe]:
     transport = CibSevenWorkerTransport(
         os.environ.get("CIBSEVEN_BASE_URL", "http://localhost:8080/engine-rest")
     )
-    harness = WorkerHarness(transport, worker_id=worker_id, lock_duration_ms=10_000)
+    # T3.1 R2: ERR_EVENT_PUBLISH_FAILED (GAP-ESC-5) is catchable by SP-OP-ESCALATION-001's own
+    # boundaryEvents (Error_EscPublishFailed) ONLY when it's in the harness's allowlist (harness.py
+    # `_bpmn_error_allowlist` — no code is gate-proven at the PRODUCTION default, empty). This
+    # probe wires the ONE code this family's BPMN declares a matching boundary for, mirroring what
+    # a gate-proven production allowlist for this family would contain.
+    harness = WorkerHarness(
+        transport,
+        worker_id=worker_id,
+        lock_duration_ms=10_000,
+        bpmn_error_allowlist=frozenset({"ERR_EVENT_PUBLISH_FAILED"}),
+    )
     kafka = FakeKafkaPublisher()
     fault = _FaultInjectingPublisher(kafka)
     register_escalation_workers(harness, fault)
+    # T3.1 R2: the generic operadora.events.publish worker — every ST_Publish* service task in
+    # this BPMN routes through it. Internally opts the 4 escalation-only domain-event topics into
+    # the boundary-catchable ERR_EVENT_PUBLISH_FAILED path (GAP-ESC-5, `events.py`'s own
+    # `_ESCALATION_PUBLISH_BPMN_ERROR_TOPICS`); the allowlist above is what makes the harness
+    # actually honor it (dispatch to `handle_bpmn_error` instead of demoting to a fail-closed
+    # incident).
+    register_events_workers(harness, fault)
     p = EngineProbe(
         engine=engine,
         harness=harness,
@@ -243,7 +277,6 @@ async def start_escalation(engine: EngineRest, deploy_artifacts: str) -> StartEs
 # --- Happy paths ---------------------------------------------------------------------
 
 
-@pytest.mark.xfail(reason=_PUBLISH_GAP_REASON, strict=True)
 async def test_happy_path_resolvido_por_humano(
     engine: EngineRest, probe: EngineProbe, start_escalation: StartEscalation
 ) -> None:
@@ -272,7 +305,6 @@ async def test_happy_path_resolvido_por_humano(
     assert not await engine.instance_is_active(iid)
 
 
-@pytest.mark.xfail(reason=_PUBLISH_GAP_REASON, strict=True)
 async def test_happy_path_devolvido_ao_agente(
     engine: EngineRest, probe: EngineProbe, start_escalation: StartEscalation
 ) -> None:
@@ -310,7 +342,6 @@ async def test_happy_path_devolvido_ao_agente(
     assert "End_DevolvidoAoAgente" in ended
 
 
-@pytest.mark.xfail(reason=_PUBLISH_GAP_REASON, strict=True)
 async def test_happy_path_emergencia_acionada(
     engine: EngineRest, probe: EngineProbe, start_escalation: StartEscalation
 ) -> None:
@@ -333,7 +364,6 @@ async def test_happy_path_emergencia_acionada(
 # --- Roteamento DMN ------------------------------------------------------------------
 
 
-@pytest.mark.xfail(reason=_PUBLISH_GAP_REASON, strict=True)
 async def test_dmn_routing_p1_plantao_clinico(
     engine: EngineRest, probe: EngineProbe, start_escalation: StartEscalation
 ) -> None:
@@ -344,7 +374,6 @@ async def test_dmn_routing_p1_plantao_clinico(
     assert task.candidate_groups == frozenset({"plantao-clinico"})
 
 
-@pytest.mark.xfail(reason=_PUBLISH_GAP_REASON, strict=True)
 async def test_dmn_routing_catchall_fail_safe(
     engine: EngineRest, probe: EngineProbe, start_escalation: StartEscalation
 ) -> None:
@@ -358,7 +387,7 @@ async def test_dmn_routing_catchall_fail_safe(
 # --- Timers (job execution, sem sleep) -----------------------------------------------
 
 
-@pytest.mark.xfail(reason=_PUBLISH_GAP_REASON, strict=True)
+@pytest.mark.xfail(reason=_NOTIFY_KAFKA_GAP_REASON, strict=True)
 async def test_timer_ack_nao_interruptivo_alerta_supervisor(
     engine: EngineRest, probe: EngineProbe, start_escalation: StartEscalation
 ) -> None:
@@ -380,7 +409,6 @@ async def test_timer_ack_nao_interruptivo_alerta_supervisor(
     assert "UT_TratarEscalonamento" in open_keys
 
 
-@pytest.mark.xfail(reason=_PUBLISH_GAP_REASON, strict=True)
 async def test_timer_resolucao_interruptivo_supervisor_assume(
     engine: EngineRest, probe: EngineProbe, start_escalation: StartEscalation
 ) -> None:
@@ -402,7 +430,6 @@ async def test_timer_resolucao_interruptivo_supervisor_assume(
     assert "UT_TratarEscalonamento" not in open_keys  # cancelada (interruptivo)
 
 
-@pytest.mark.xfail(reason=_PUBLISH_GAP_REASON, strict=True)
 async def test_supervisor_resolve_apos_breach(
     engine: EngineRest, probe: EngineProbe, start_escalation: StartEscalation
 ) -> None:
@@ -430,7 +457,7 @@ async def test_supervisor_resolve_apos_breach(
 # --- Escalation / erros: fallback de canal -------------------------------------------
 
 
-@pytest.mark.xfail(reason=_PUBLISH_GAP_REASON, strict=True)
+@pytest.mark.xfail(reason=_NOTIFY_KAFKA_GAP_REASON, strict=True)
 async def test_falha_notificacao_usa_fallback(
     engine: EngineRest, probe: EngineProbe, start_escalation: StartEscalation
 ) -> None:
@@ -452,7 +479,6 @@ async def test_falha_notificacao_usa_fallback(
     assert task.candidate_groups == frozenset({"plantao-clinico"})
 
 
-@pytest.mark.xfail(reason=_PUBLISH_GAP_REASON, strict=True)
 async def test_falha_notificacao_ambos_canais_ainda_cria_ut(
     engine: EngineRest, probe: EngineProbe, start_escalation: StartEscalation
 ) -> None:
@@ -475,7 +501,7 @@ async def test_falha_notificacao_ambos_canais_ainda_cria_ut(
     assert task.candidate_groups == frozenset({"plantao-clinico"})
 
 
-@pytest.mark.xfail(reason=_PUBLISH_GAP_REASON, strict=True)
+@pytest.mark.xfail(reason=_NOTIFY_KAFKA_GAP_REASON, strict=True)
 async def test_falha_publish_requested_nao_bloqueia_roteamento(
     engine: EngineRest, probe: EngineProbe, start_escalation: StartEscalation
 ) -> None:
@@ -527,7 +553,6 @@ async def test_business_key_idempotente(
 # --- Auditoria: todo fim emite evento de dominio antes ------------------------------
 
 
-@pytest.mark.xfail(reason=_PUBLISH_GAP_REASON, strict=True)
 async def test_todos_os_fins_emitem_evento_de_dominio(
     engine: EngineRest, probe: EngineProbe, start_escalation: StartEscalation
 ) -> None:
