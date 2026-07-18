@@ -192,6 +192,19 @@ def _build_tool_deps(settings: AgentRuntimeSettings) -> dict[str, Any]:
         # documented as a structural (Protocol-satisfying) shim over `WhatsAppServer`, not
         # Helena-specific business logic (`agents/helena/adapters.py`'s own docstring).
         deps["whatsapp"] = WhatsAppServerSender(WhatsAppServer())
+    if settings.agent_id == "lucas":
+        # T1.12: Lucas needs the same `whatsapp` seam as Helena (his `respond_member`/
+        # `escalate_human` nodes send WhatsApp text) — his OWN adapter (`agents/lucas/
+        # adapters.py`), deliberately a duplicate of Helena's, not an import from Helena's
+        # package (ADR-0004 federated Agent-Definition independence — mirrors why rafael's
+        # `FhirServerReader` is its own copy too). The import is branch-local ONLY because the
+        # top-level `WhatsAppServerSender` name is already taken by Helena's adapter — this
+        # block is purely ADDITIVE to the pre-existing helena/rafael wiring around it (R1
+        # cycle-1 F3: an earlier revision also moved the sibling imports branch-local, which
+        # broke clean-merge semantics with in-flight sibling PRs; reverted).
+        from maezo.agents.lucas.adapters import WhatsAppServerSender as LucasWhatsAppServerSender
+
+        deps["whatsapp"] = LucasWhatsAppServerSender(WhatsAppServer())
     if settings.agent_id == "rafael":
         deps["fhir"] = FhirServerReader(FhirServer(FhirSettings(base_url=settings.fhir_base_url)))
     if settings.agent_id == "carolina":
