@@ -14,11 +14,19 @@
 9ef098ef79a80314b52feedc3d246e98ca9c6df1:tests/unit/agents/test_marina.py:generic-api-key:680
 9ef098ef79a80314b52feedc3d246e98ca9c6df1:tests/unit/agents/test_marina.py:generic-api-key:691
 
+# False positive, same class as above: synthetic BPMN business-key literal quoted from a live
+# probe LOG LINE in the G1 gate-review document on the in-flight g1-gate-review branch
+# (business_key=ESC-G1PROBE-fc8aa9ee, entropy 3.92, generic-api-key). Not covered by the
+# T2.4 business-key allowlist ON PURPOSE: "G1PROBE" is not a lowercase tenant segment, so the
+# literal fails the allowlist's anchored shape even inside the scoped docs/gates/ path —
+# widening the shape for it would relax the R1-verified containment. Fingerprint-scoped
+# (single commit:file:rule:line — cannot mask any other occurrence); drop this entry once the
+# g1-gate-review branch is merged or deleted.
+a636399779661e843b485ac2a05cbfa5bbd8e559:docs/gates/G1-gate-review.md:generic-api-key:175
 # Third occurrence of the business-key FP class: the G1 gate record cites live BPMN business
 # keys as gate evidence (docs/gates/G1-gate-review.md on the g1-gate-review branch, PR #78).
 # Bridge for the immutable branch commit; the durable fix (extending the .gitleaks.toml
 # business-key allowlist paths to docs/gates/*.md) is in flight on PR #74.
-a636399779661e843b485ac2a05cbfa5bbd8e559:docs/gates/G1-gate-review.md:generic-api-key:175
 
 # Fourth occurrence of the business-key FP class: high-entropy synthetic business_key literals
 # on the in-flight t1.12-andre-graph branch (author is rewriting them to low-entropy forms;
