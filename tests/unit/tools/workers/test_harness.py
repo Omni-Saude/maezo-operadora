@@ -110,6 +110,34 @@ def test_to_camunda_var_other_types_stringified() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Symmetric path: outbound `_to_camunda_var` (Json-encode) round-trips through the SAME
+# json.loads the inbound `fetch_and_lock` decode now applies — proves `complete()`'s existing
+# dict/list -> Json serialization is the correct counterpart to the inbound fix (not a second
+# defect: the outbound half of this contract was already correct BEFORE this PR, per
+# `test_to_camunda_var_dict_is_json`/`test_real_transport_complete_types_variables` above/below;
+# this test additionally proves the round-trip, not just the wire `type` tag).
+# ---------------------------------------------------------------------------
+
+
+def test_to_camunda_var_dict_round_trips_through_json_loads() -> None:
+    import json as _json
+
+    payload = {"numero_guia_tiss": "G1", "valor_apresentado_centavos": 1000, "itens": [1, 2, 3]}
+    wire = _to_camunda_var(payload)
+    assert wire["type"] == "Json"
+    assert _json.loads(wire["value"]) == payload
+
+
+def test_to_camunda_var_list_round_trips_through_json_loads() -> None:
+    import json as _json
+
+    payload = [{"numero_guia_tiss": "G1"}, {"numero_guia_tiss": "G2"}]
+    wire = _to_camunda_var(payload)
+    assert wire["type"] == "Json"
+    assert _json.loads(wire["value"]) == payload
+
+
+# ---------------------------------------------------------------------------
 # FakeWorkerTransport
 # ---------------------------------------------------------------------------
 
@@ -128,6 +156,27 @@ async def test_fake_transport_fetch_and_lock_respects_max_tasks() -> None:
         "w", [TopicSubscription("a", 30_000)], max_tasks=2, async_response_timeout_ms=1000
     )
     assert len(tasks) == 2
+
+
+async def test_fake_transport_mirrors_real_transport_decoded_python_objects() -> None:
+    """`FakeWorkerTransport` never round-trips the CIB Seven wire format (tests build
+    `ExternalTask.variables` directly as Python objects) — this test PROVES that stays true
+    post-fix: a worker fed by the fake sees the same decoded `list`/`dict` shape the real,
+    fixed `CibSevenWorkerTransport` now produces, never a Camunda-wire-typed envelope or a raw
+    JSON string standing in for one. If this ever regressed (e.g. someone made the fake
+    simulate wire encoding without a matching decode), unit tests would pass against the fake
+    while the live worker received an undecoded string — exactly the T1.1 defect class."""
+    linhas = [{"numero_guia_tiss": "G1", "valor_apresentado_centavos": 1000}]
+    transport = FakeWorkerTransport(
+        [_task(task_id="t1", topic="a", variables={"linhas_conta_refs": linhas, "n": 1})]
+    )
+    tasks = await transport.fetch_and_lock(
+        "w", [TopicSubscription("a", 30_000)], max_tasks=10, async_response_timeout_ms=1000
+    )
+    assert len(tasks) == 1
+    assert tasks[0].variables["linhas_conta_refs"] == linhas
+    assert isinstance(tasks[0].variables["linhas_conta_refs"], list)  # decoded, not JSON text
+    assert tasks[0].variables["n"] == 1
 
 
 async def test_fake_transport_records_calls() -> None:
@@ -600,6 +649,225 @@ async def test_real_transport_fetch_and_lock_payload_and_mapping() -> None:
     assert task.task_id == "task-99"
     assert task.retries == 2
     assert task.variables == {"x": 10}
+    await transport.close()
+
+
+async def test_real_transport_fetch_and_lock_decodes_json_typed_list_variable() -> None:
+    """T1.1 regression (marina graph author, live E2E): CIB Seven's fetchAndLock returns a
+    `Json`-typed variable's `value` as a JSON STRING, e.g. SP-OP-CONTAS-001's
+    `linhas_conta_refs` (list[dict]). Without decoding, workers receive the raw string
+    `'[{"numero_guia_tiss": "G1", "valor_apresentado_centavos": 1000}]'` instead of a Python
+    list — `identify_glosa`'s `for linha in linhas: linha.get(...)` would then iterate
+    CHARACTERS of the string, not dicts. This is the real wire shape captured from CIB
+    Seven's own External Task REST contract (Camunda 7-compatible `Json` variable type)."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "id": "task-json-1",
+                    "topicName": "operadora.contas.identify_glosa",
+                    "processInstanceId": "proc-1",
+                    "businessKey": "bk-1",
+                    "workerId": "w",
+                    "retries": 3,
+                    "variables": {
+                        "linhas_conta_refs": {
+                            "value": '[{"numero_guia_tiss": "G1", "valor_apresentado_centavos": 1000}]',
+                            "type": "Json",
+                        },
+                        "numero_lote_tiss": {"value": "L1", "type": "String"},
+                    },
+                }
+            ],
+        )
+
+    transport = RealTransport("http://engine/engine-rest")
+    transport._client = httpx.AsyncClient(
+        base_url="http://engine/engine-rest", transport=httpx.MockTransport(handler)
+    )
+
+    tasks = await transport.fetch_and_lock(
+        "w",
+        [TopicSubscription("operadora.contas.identify_glosa", 30_000)],
+        max_tasks=5,
+        async_response_timeout_ms=25_000,
+    )
+
+    assert len(tasks) == 1
+    variables = tasks[0].variables
+    assert variables["linhas_conta_refs"] == [{"numero_guia_tiss": "G1", "valor_apresentado_centavos": 1000}]
+    assert isinstance(variables["linhas_conta_refs"], list)  # NOT the raw JSON string
+    assert variables["numero_lote_tiss"] == "L1"  # non-Json types unaffected
+    await transport.close()
+
+
+async def test_real_transport_fetch_and_lock_decodes_json_typed_dict_variable() -> None:
+    """Same wire shape, dict-valued Json variable (e.g. a dossier/object process variable)."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "id": "task-json-2",
+                    "topicName": "t",
+                    "processInstanceId": "proc-2",
+                    "businessKey": "bk-2",
+                    "workerId": "w",
+                    "retries": None,
+                    "variables": {
+                        "dossie": {"value": '{"a": 1, "b": [1, 2, 3]}', "type": "Json"},
+                    },
+                }
+            ],
+        )
+
+    transport = RealTransport("http://engine/engine-rest")
+    transport._client = httpx.AsyncClient(
+        base_url="http://engine/engine-rest", transport=httpx.MockTransport(handler)
+    )
+
+    tasks = await transport.fetch_and_lock(
+        "w", [TopicSubscription("t", 30_000)], max_tasks=5, async_response_timeout_ms=25_000
+    )
+
+    assert len(tasks) == 1
+    assert tasks[0].variables["dossie"] == {"a": 1, "b": [1, 2, 3]}
+    await transport.close()
+
+
+async def test_real_transport_fetch_and_lock_null_json_variable_stays_none() -> None:
+    """A `Json`-typed variable with no value (`value: null`) must decode to `None`, not crash
+    `json.loads(None)` (TypeError) — legitimate absent/unset Json process variable."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "id": "task-json-null",
+                    "topicName": "t",
+                    "processInstanceId": "proc-3",
+                    "businessKey": "bk-3",
+                    "workerId": "w",
+                    "variables": {"dossie": {"value": None, "type": "Json"}},
+                }
+            ],
+        )
+
+    transport = RealTransport("http://engine/engine-rest")
+    transport._client = httpx.AsyncClient(
+        base_url="http://engine/engine-rest", transport=httpx.MockTransport(handler)
+    )
+
+    tasks = await transport.fetch_and_lock(
+        "w", [TopicSubscription("t", 30_000)], max_tasks=5, async_response_timeout_ms=25_000
+    )
+
+    assert len(tasks) == 1
+    assert tasks[0].variables["dossie"] is None
+    await transport.close()
+
+
+async def test_real_transport_fetch_and_lock_malformed_json_variable_fails_closed() -> None:
+    """Fail-closed contract (design §9 ValueError classification, mirrored at the transport
+    seam): malformed JSON inside a `Json`-typed variable must NEVER be handed to a worker as
+    the raw string (silent corruption) and must NEVER crash `fetch_and_lock` for the whole
+    batch. Instead the offending task is reported `failure(retries=0)` directly (an immediate,
+    engine-guaranteed incident — matches this module's ValueError convention) and EXCLUDED
+    from the returned batch."""
+    failure_calls: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json as _json
+
+        if request.url.path == "/engine-rest/external-task/fetchAndLock":
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": "task-bad-json",
+                        "topicName": "operadora.contas.identify_glosa",
+                        "processInstanceId": "proc-4",
+                        "businessKey": "bk-4",
+                        "workerId": "w",
+                        "retries": 3,
+                        "variables": {
+                            "linhas_conta_refs": {"value": "{not-valid-json[", "type": "Json"},
+                        },
+                    }
+                ],
+            )
+        if request.url.path == "/engine-rest/external-task/task-bad-json/failure":
+            failure_calls.append(_json.loads(request.content))
+            return httpx.Response(204)
+        raise AssertionError(f"unexpected request: {request.url.path}")
+
+    transport = RealTransport("http://engine/engine-rest")
+    transport._client = httpx.AsyncClient(
+        base_url="http://engine/engine-rest", transport=httpx.MockTransport(handler)
+    )
+
+    tasks = await transport.fetch_and_lock(
+        "w",
+        [TopicSubscription("operadora.contas.identify_glosa", 30_000)],
+        max_tasks=5,
+        async_response_timeout_ms=25_000,
+    )
+
+    assert tasks == []  # malformed task excluded, never dispatched
+    assert len(failure_calls) == 1
+    assert failure_calls[0]["workerId"] == "w"
+    assert failure_calls[0]["retries"] == 0  # non-transient — immediate incident, never retried
+    await transport.close()
+
+
+async def test_real_transport_fetch_and_lock_malformed_json_does_not_poison_batch() -> None:
+    """One malformed `Json` variable in a batch must not crash `fetch_and_lock` for the other,
+    well-formed tasks in the same poll (design §6/§13 fail-closed rule: a transport error must
+    propagate, but a single-task decode defect must not masquerade as a transport error and
+    drop the entire batch)."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/engine-rest/external-task/fetchAndLock":
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": "task-good",
+                        "topicName": "t",
+                        "processInstanceId": "proc-5",
+                        "businessKey": "bk-5",
+                        "workerId": "w",
+                        "retries": 3,
+                        "variables": {"payload": {"value": '{"ok": true}', "type": "Json"}},
+                    },
+                    {
+                        "id": "task-bad",
+                        "topicName": "t",
+                        "processInstanceId": "proc-6",
+                        "businessKey": "bk-6",
+                        "workerId": "w",
+                        "retries": 3,
+                        "variables": {"payload": {"value": "[[[", "type": "Json"}},
+                    },
+                ],
+            )
+        return httpx.Response(204)
+
+    transport = RealTransport("http://engine/engine-rest")
+    transport._client = httpx.AsyncClient(
+        base_url="http://engine/engine-rest", transport=httpx.MockTransport(handler)
+    )
+
+    tasks = await transport.fetch_and_lock(
+        "w", [TopicSubscription("t", 30_000)], max_tasks=5, async_response_timeout_ms=25_000
+    )
+
+    assert [t.task_id for t in tasks] == ["task-good"]
+    assert tasks[0].variables["payload"] == {"ok": True}
     await transport.close()
 
 
