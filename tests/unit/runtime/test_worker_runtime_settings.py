@@ -84,3 +84,26 @@ def test_auth_token_value_none_when_absent() -> None:
 def test_auth_token_value_returns_raw_string() -> None:
     settings = WorkerRuntimeSettings(CIBSEVEN_AUTH_TOKEN="secret-123")
     assert settings.cibseven_auth_token_value() == "secret-123"
+
+
+# ---------------------------------------------------------------------------
+# DATABASE_URL — durable audit sink DSN (T1.10 T-D, ADR-0007 L0)
+# ---------------------------------------------------------------------------
+
+
+def test_database_url_defaults_none() -> None:
+    """FAIL-CLOSED default: absent DATABASE_URL -> None -> the composition root cannot build a sink
+    -> the daemon never enters the fetch rotation (design §7 T-D). NOT a startup crash — settings
+    still construct so /healthz can be green while /readyz stays red."""
+    settings = WorkerRuntimeSettings()
+    assert settings.database_url is None
+
+
+def test_database_url_binds_env_alias() -> None:
+    settings = WorkerRuntimeSettings(DATABASE_URL="postgresql+asyncpg://maezo:maezo@aurora:5432/maezo")
+    assert settings.database_url == "postgresql+asyncpg://maezo:maezo@aurora:5432/maezo"
+
+
+def test_database_url_binds_by_field_name() -> None:
+    settings = WorkerRuntimeSettings(database_url="postgresql://x@localhost:5432/db")
+    assert settings.database_url == "postgresql://x@localhost:5432/db"

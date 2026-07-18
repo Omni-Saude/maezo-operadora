@@ -212,6 +212,36 @@ class PostgresAuditSink:
             )
         return self._pool
 
+    async def check_ready(self) -> None:
+        """Bounded connectivity probe for the fail-closed `audit_sink_ready` readiness gate (T-D).
+
+        Proves the sink's pool can reach the tenant schema AND that `audit_chain` exists there —
+        i.e. that a subsequent `emit()`/`emit_once()` could actually durably persist. `to_regclass`
+        resolves against the connection's `search_path`, which `setup=self._configure_connection`
+        pins to this tenant's schema on every acquire, so a `None` result means the chain table is
+        absent from the tenant schema (migrations not applied) even if the server is reachable.
+
+        Raises `AuditPersistenceError` (never swallowed) on ANY failure — no server, wrong schema,
+        missing table. The worker daemon's readiness gate treats a raised probe as `/readyz` red and
+        REFUSES to enter the fetch-and-lock rotation (ADR-0007 L0: an un-auditable daemon must not
+        accept effect-producing work — design §7 T-D / Revision MUST-FIX 2). Read-only: acquires a
+        pooled connection and runs one metadata lookup; it never writes to `audit_chain`.
+        """
+        try:
+            pool = await self._ensure_pool()
+            async with pool.acquire() as conn:
+                table = await conn.fetchval("SELECT to_regclass('audit_chain')")
+        except Exception as exc:  # noqa: BLE001 — deliberately broad: FAIL CLOSED, always re-raise
+            raise AuditPersistenceError(
+                f"audit sink not ready for tenant={self._tenant_id!r} "
+                f"(schema {self._schema!r} unreachable): {exc}"
+            ) from exc
+        if table is None:
+            raise AuditPersistenceError(
+                f"audit sink not ready for tenant={self._tenant_id!r}: `audit_chain` not found in "
+                f"schema {self._schema!r} (migrations not applied) — cannot durably audit"
+            )
+
     async def emit(self, record: AuditRecord) -> str:
         """Persist `record` as the next link in this tenant's chain. FAIL-CLOSED.
 

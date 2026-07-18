@@ -3,6 +3,7 @@
 TDD London School: tests verify the guard contracts from the SP-OP contract.
 """
 
+import asyncio
 from typing import Any
 
 import pytest
@@ -19,6 +20,7 @@ from maezo.tools.workers.inadimplencia import (
     DECISAO_MANTER,
     DECISAO_SUSPENDER,
     ERR_CONTRACT_SUSPENSION_NOT_HUMAN,
+    ERR_INAD_INVALID_CONTRATO,
     InadimplenciaError,
     _cancel_business_key,
     assess_status,
@@ -318,17 +320,138 @@ def test_inadimplencia_register_suspension_alias() -> None:
 
 
 def test_handoff_rescisao_executes_for_encaminhar() -> None:
+    """ENCAMINHAR_RESCISAO now ACTUALLY starts CANCEL-001 via the engine seam (T1.10 T-D)."""
+    engine = FakeCibSevenTransport()
     result = handoff_rescisao(
         {
             "decisao_inadimplencia": DECISAO_ENCAMINHAR_RESCISAO,
+            "tenant_id": "t1",
             "numero_contrato": "C-456",
-        }
+        },
+        engine=engine,
     )
     assert result["handoff_executado"] is True
     assert result["processo_destino"] == "SP-OP-CANCEL-001"
+    assert result["cancel_business_key"] == "CANCEL-t1-C-456"
+
+
+def test_handoff_rescisao_starts_cancel_with_exact_business_key_and_payload() -> None:
+    """The BINDING business-key format `CANCEL-{tenant}-{contrato}` (harmonization §1) AND the
+    handoff payload (tipo/origem + carried RN-593 evidence + audit-trail responsavel_id)."""
+    engine = FakeCibSevenTransport()
+    result = handoff_rescisao(
+        {
+            "decisao_inadimplencia": DECISAO_ENCAMINHAR_RESCISAO,
+            "tenant_id": "amh",
+            "numero_contrato": "C-777",
+            "matricula_beneficiario": "mat-1",
+            "meses_inadimplencia": 4,
+            "notificacao_previa_feita": True,
+            "comprovacao_periodo_minimo": "ref-periodo-1",
+            "responsavel_id": "juridico-cobranca-9",
+            "referencia_regulatoria": "RN 593",
+            "decisao_secreta_phi": "SHOULD-NOT-LEAK",  # not in allowlist -> must not be carried
+        },
+        engine=engine,
+    )
+    assert result["cancel_business_key"] == "CANCEL-amh-C-777"
+    assert result["cancel_already_existed"] is False
+
+    # The CANCEL-001 instance was really started under the exact business key.
+    started = asyncio.run(engine.find_active_instance("CANCEL-amh-C-777"))
+    assert started is not None
+    assert started.process_key == CANCEL_PROCESS_KEY
+
+    payload = asyncio.run(engine.get_process_status("CANCEL-amh-C-777")).variables
+    assert payload["tipo_solicitacao"] == "inadimplencia"
+    assert payload["origem_solicitacao"] == "operadora"
+    assert payload["numero_contrato"] == "C-777"
+    assert payload["responsavel_id"] == "juridico-cobranca-9"
+    assert payload["notificacao_previa_feita"] is True
+    # PHI-safe allowlist, never a passthrough: a non-allowlisted key is NOT carried into CANCEL.
+    assert "decisao_secreta_phi" not in payload
+
+
+def test_handoff_rescisao_matricula_fallback_key() -> None:
+    """Individual/familiar plans (no numero_contrato) key CANCEL by matricula fallback."""
+    engine = FakeCibSevenTransport()
+    result = handoff_rescisao(
+        {
+            "decisao_inadimplencia": DECISAO_ENCAMINHAR_RESCISAO,
+            "tenant_id": "t1",
+            "matricula_beneficiario": "mat-42",
+        },
+        engine=engine,
+    )
+    assert result["cancel_business_key"] == "CANCEL-t1-mat-42"
+
+
+def test_handoff_rescisao_idempotent_returns_existing_active_cancel() -> None:
+    """A CANCEL-001 instance already active for this contract is returned unchanged — the handoff
+    NEVER starts a second one (anti-dupla-terminacao via business-key idempotency)."""
+    engine = FakeCibSevenTransport()
+    engine.seed_instance(
+        ProcessInstance(
+            instance_id="pre-existing-cancel",
+            process_key=CANCEL_PROCESS_KEY,
+            business_key="CANCEL-t1-C-5",
+            state="ACTIVE",
+            already_existed=True,  # the real find_active_instance flags an idempotent hit this way
+        )
+    )
+    result = handoff_rescisao(
+        {
+            "decisao_inadimplencia": DECISAO_ENCAMINHAR_RESCISAO,
+            "tenant_id": "t1",
+            "numero_contrato": "C-5",
+        },
+        engine=engine,
+    )
+    assert result["handoff_executado"] is True
+    assert result["cancel_already_existed"] is True
+    assert result["cancel_instance_id"] == "pre-existing-cancel"
+
+
+def test_handoff_rescisao_fail_closed_when_engine_seam_not_wired() -> None:
+    """FAIL-CLOSED: no engine seam -> the human's ENCAMINHAR_RESCISAO can NOT be silently dropped;
+    raises (transient) instead of a no-op that would strand the rescisao."""
+    with pytest.raises(RuntimeError, match="engine seam"):
+        handoff_rescisao(
+            {
+                "decisao_inadimplencia": DECISAO_ENCAMINHAR_RESCISAO,
+                "tenant_id": "t1",
+                "numero_contrato": "C-1",
+            }
+        )  # engine defaults to None
+
+
+def test_handoff_rescisao_fail_closed_no_contract_identity() -> None:
+    """No numero_contrato/matricula -> never start CANCEL-001 with an empty business key: raises."""
+    engine = FakeCibSevenTransport()
+    with pytest.raises(InadimplenciaError) as excinfo:
+        handoff_rescisao(
+            {"decisao_inadimplencia": DECISAO_ENCAMINHAR_RESCISAO, "tenant_id": "t1"},
+            engine=engine,
+        )
+    assert excinfo.value.code == ERR_INAD_INVALID_CONTRATO
+
+
+def test_handoff_rescisao_transport_error_propagates() -> None:
+    """A transport/engine error during the start propagates (transient -> engine retry -> incident),
+    never a silent success."""
+    with pytest.raises(CibSevenError):
+        handoff_rescisao(
+            {
+                "decisao_inadimplencia": DECISAO_ENCAMINHAR_RESCISAO,
+                "tenant_id": "t1",
+                "numero_contrato": "C-1",
+            },
+            engine=_RaisingCibSevenTransport(),
+        )
 
 
 def test_handoff_rescisao_noop_for_other_decisao() -> None:
+    """decisao != ENCAMINHAR_RESCISAO -> neutral no-op, never touches the engine (no engine seam)."""
     result = handoff_rescisao(
         {
             "decisao_inadimplencia": DECISAO_MANTER,
@@ -580,3 +703,41 @@ def test_registered_resolve_facts_without_engine_fails_closed() -> None:
     worker = harness.workers["operadora.inadimplencia.resolve_facts"]
     out = worker.execute({"tenant_id": "t1", "numero_contrato": "C-1"})
     assert out["ja_em_rescisao_cancel"] is True
+
+
+def test_registered_handoff_rescisao_threads_engine_seam() -> None:
+    """The engine seam is genuinely threaded into the REGISTERED handoff_rescisao worker (not just
+    the bare function): dispatching it really starts CANCEL-001 under the exact business key."""
+    harness = _RecordingHarness()
+    engine = FakeCibSevenTransport()
+    register_inadimplencia_workers(harness, None, dmn=FakeDmnTransport(), engine=engine)
+
+    worker = harness.workers["operadora.inadimplencia.handoff_rescisao"]
+    out = worker.execute(
+        {
+            "decisao_inadimplencia": DECISAO_ENCAMINHAR_RESCISAO,
+            "tenant_id": "t1",
+            "numero_contrato": "C-1",
+        }
+    )
+    assert out["handoff_executado"] is True
+    assert out["cancel_business_key"] == "CANCEL-t1-C-1"
+    assert asyncio.run(engine.find_active_instance("CANCEL-t1-C-1")) is not None
+
+
+def test_registered_handoff_rescisao_without_engine_fails_closed() -> None:
+    """Composition root has not wired the engine seam -> registered handoff_rescisao fails closed
+    (raises RuntimeError -> transient -> engine retry) rather than silently dropping the human's
+    ENCAMINHAR_RESCISAO decision. RuntimeError is `_HARNESS_CLASSIFIED`, so FunctionWorker re-raises
+    it unchanged (not reclassified)."""
+    harness = _RecordingHarness()
+    register_inadimplencia_workers(harness, None, dmn=FakeDmnTransport())  # no engine seam
+    worker = harness.workers["operadora.inadimplencia.handoff_rescisao"]
+    with pytest.raises(RuntimeError, match="engine seam"):
+        worker.execute(
+            {
+                "decisao_inadimplencia": DECISAO_ENCAMINHAR_RESCISAO,
+                "tenant_id": "t1",
+                "numero_contrato": "C-1",
+            }
+        )
