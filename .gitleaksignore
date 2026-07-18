@@ -33,3 +33,9 @@ a636399779661e843b485ac2a05cbfa5bbd8e559:docs/gates/G1-gate-review.md:generic-ap
 # these fingerprints cover the immutable pushed commit only). Durable shape allowlist: PR #74.
 0d4bcbcf1a380db28195a1ff9ebdd757db749a4c:tests/unit/agents/test_andre.py:generic-api-key:1030
 0d4bcbcf1a380db28195a1ff9ebdd757db749a4c:tests/unit/agents/test_andre.py:generic-api-key:1052
+
+# G1 gate record: synthetic BPMN business key cited as gate evidence (squash-merge commit e8116ba;
+# non-lowercase-tenant literal ESC-G1PROBE-fc8aa9ee cannot match the shape allowlist). Fingerprint
+# covers the immutable historical commit; durable fix (source rephrase of business_key=value to
+# business_key value) removes the trip from current main content.
+e8116ba82ebd06427bda89beca9aa1ec940e1a57:docs/gates/G1-gate-review.md:generic-api-key:175

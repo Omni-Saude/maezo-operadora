@@ -172,7 +172,7 @@ the real handlers:
   `"no handler registered for topic 'operadora.events.publish'"` incident does **not** occur.
 - **incidents on the instance = 0**.
 - the loud log fired: `event_publish_no_producer topic=agents.events.escalation.requested
-  business_key=ESC-G1PROBE-fc8aa9ee process_instance_id=99b19614-… — kafka=None (no producer
+  business_key ESC-G1PROBE-fc8aa9ee process_instance_id=99b19614-… — kafka=None (no producer
   wired…); event NOT published, completing with event_published=False`.
 - Bonus corroboration: the same probe run drained the Rafael auto-approve instance's own pending
   publish task (`756067b3-8276-…`, topic `agents.events.auth.received`) through the same worker with
