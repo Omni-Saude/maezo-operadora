@@ -60,7 +60,9 @@ import asyncio
 import contextlib
 import json
 import logging
+import os
 import random
+import re
 import time
 from collections.abc import Callable, Coroutine, Mapping
 from dataclasses import dataclass, field
@@ -69,6 +71,8 @@ from typing import Any, NamedTuple, Protocol, runtime_checkable
 import httpx
 import structlog
 
+from maezo.gateway.audit import AuditRecord, hash_input
+from maezo.tools.workers._audit_ctx import collect_dmn_versions
 from maezo.tools.workers.base import WorkerBase, WorkerRegistry
 
 logger = structlog.get_logger(__name__)
@@ -88,6 +92,150 @@ _JAVA_INT32_MAX = 2**31 - 1
 #: metrics (design §13). `incident` is additive over v1's {completed, bpmn_error, failed} — it
 #: marks the subset of `failed` reports where `retries == 0` (an engine incident was opened).
 WORKER_TASK_OUTCOMES: frozenset[str] = frozenset({"completed", "bpmn_error", "failed", "incident"})
+
+
+# --------------------------------------------------------------------------------------------
+# Audit emit-before-complete seam (T-C, T1.10; ADR-0007 non-repudiation, L0)
+# --------------------------------------------------------------------------------------------
+#
+# ADR-0007 invariant: every effect on the world is recorded. The worker harness's `complete` call
+# is the single conduit for engine->worker effects (ADR-0001), so it is the one chokepoint where
+# a PHI-safe `AuditRecord` is durably emitted BEFORE the effect is committed (design §4.2). See
+# `WorkerHarness._handle` for the fail-closed ordering.
+
+#: Stable SERVICE identity for the ADR-0007 tuple (design §2.2 "Agent identity note"). Workers are
+#: deterministic BPMN handlers, not LLM agents, so `model_id`/`prompt_version` are `None`, and
+#: `agent_id` must be a stable service identity — NOT the ephemeral per-replica `worker_id` (pod
+#: name). The signed service-account/cert identity ADR-0007 also asks for is orthogonal hardening,
+#: deferred to T-G.
+AUDIT_AGENT_ID: str = "operadora-worker"
+
+#: `AuditRecord.decision` for a worker completion. PEP (ALLOW/DENY/REQUIRE_HUMAN) has ZERO runtime
+#: callers today (design §2.1 site 3), so no policy verdict is available to record — the audited
+#: decision is the worker's committed COMPLETE effect, honestly labeled as such rather than
+#: fabricating a PEP ALLOW that never happened.
+AUDIT_DECISION_COMPLETE: str = "COMPLETE"
+
+#: Explicit ALLOWLIST of worker OUTPUT keys that are bounded routing/enum/flag tokens — never PHI,
+#: never free-text, never a resolvable business identifier (design §3.3). `build_decision_basis`
+#: is an allowlist, NEVER a passthrough of `out_vars`; even an allowlisted key is dropped unless
+#: its value also passes `_is_bounded_token`. Curated conservatively from the migrated workers
+#: (pagto/contas/cancel/recurso/...): routing verdicts, alcada bands, approver groups, tier
+#: numbers, terminal desfechos, and boolean effect flags. Free-text fields (`motivo`,
+#: `justificativa*`, `fundamentacao*`) and minted identifiers (`auth_number`, `dossier_ref`,
+#: `protocolo*`, `*_ref`) are deliberately EXCLUDED — they are hashed into `input_sha256`, never
+#: stored in the clear.
+_SAFE_DECISION_BASIS_KEYS: frozenset[str] = frozenset(
+    {
+        "roteamento",
+        "faixa_valor",
+        "grupo_aprovador",
+        "tier_minimo",
+        "desfecho",
+        "decisao",
+        "decisao_pagamento",
+        "tipo_liberacao",
+        "pagamento_executado",
+        "pagamento_liberado",
+        "evento_publicado",
+        "event_published",
+        "notice_sent",
+        "admissivel",
+        "elegivel",
+    }
+)
+
+#: A bounded enum/routing TOKEN in the clear: alphanumerics + underscore only (no spaces, no
+#: hyphens, no punctuation), starting with a letter, length-capped. Matches enum outputs in BOTH
+#: casings seen in the workers — UPPERCASE (`DENTRO_TETO_L2`, `APROVAR`, `PENDENTE_DADOS`) and
+#: lowercase_snake (`liberado_automatico`). Rejects free text (has spaces), minted identifiers
+#: (`AUTH-amh-guia-abc`, `ANSPROTO-...` — hyphens), and anything over the length cap. This is the
+#: value-side fail-closed guard behind the key allowlist (defense in depth).
+_ENUM_TOKEN_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,39}$")
+
+#: Bound on integer tokens admitted in the clear (tier numbers, small counts). A bound keeps a
+#: large numeric that happened to land under an allowlisted key (should not occur) out of the
+#: chain; money amounts are not allowlisted keys anyway.
+_MAX_BASIS_INT: int = 1_000_000
+
+
+def _resolve_app_version(override: str | None = None) -> str:
+    """Resolve `AuditRecord.agent_version` — the deployed service version (ADR-0007 "sob-qual-versao").
+
+    Precedence: explicit `override` > `MAEZO_APP_VERSION` env > the installed
+    `maezo-operadora` distribution version > `"unknown"` (never fabricated; `"unknown"` is an
+    honest fallback for a source checkout with no installed metadata).
+    """
+    if override:
+        return override
+    env = os.environ.get("MAEZO_APP_VERSION")
+    if env:
+        return env
+    try:
+        from importlib.metadata import PackageNotFoundError, version  # noqa: PLC0415
+
+        try:
+            return version("maezo-operadora")
+        except PackageNotFoundError:
+            return "unknown"
+    except Exception:  # noqa: BLE001 — metadata lookup must never break dispatch; fall back honestly.
+        return "unknown"
+
+
+def _is_bounded_token(value: Any) -> bool:
+    """True iff `value` is safe to store IN THE CLEAR in `decision_basis` (design §3.3)."""
+    if isinstance(value, bool):
+        return True
+    if isinstance(value, int):  # note: bool is handled above (bool is a subclass of int)
+        return -_MAX_BASIS_INT <= value <= _MAX_BASIS_INT
+    if isinstance(value, str):
+        return bool(_ENUM_TOKEN_RE.match(value))
+    return False  # dicts/lists/floats/None/identifiers -> never in the clear
+
+
+def build_decision_basis(variables: Mapping[str, Any], out_vars: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Curate a PHI-safe `decision_basis` (`AuditRecord.details`) — design §3.3.
+
+    Two parts, both fail-closed:
+      1. ``input_sha256`` — a ONE-WAY SHA-256 of the raw (possibly PHI-bearing) `variables`. The
+         raw inputs are hashed, NEVER stored; this binds the audit record to the exact tool input
+         without persisting it (the `input_hash` column is in turn `hash_input(details)`).
+      2. A CURATED allowlist of bounded routing/enum/flag tokens from `out_vars` — an explicit
+         allowlist (`_SAFE_DECISION_BASIS_KEYS`) gated by a value guard (`_is_bounded_token`),
+         NEVER a passthrough. Nothing else from `out_vars` enters the chain.
+    """
+    details: dict[str, Any] = {"input_sha256": hash_input(dict(variables))}
+    if out_vars:
+        for key in sorted(_SAFE_DECISION_BASIS_KEYS):
+            if key in out_vars and _is_bounded_token(out_vars[key]):
+                details[key] = out_vars[key]
+    return details
+
+
+class AuditEmitError(RuntimeError):
+    """Raised on the `_handle` success path when a PHI-safe audit record cannot be durably emitted
+    BEFORE `complete` — the fail-closed belt-and-suspenders for a missing/None sink.
+
+    A `RuntimeError` subclass deliberately: it lands in `_handle`'s transient branch
+    (`_transient_types` includes `RuntimeError`) -> engine-computed retry -> the effect is
+    re-attempted by a properly-wired daemon (self-healing), never completed un-audited. Mirrors
+    the fail-closed posture of `PostgresAuditSink.emit_once`'s own `AuditPersistenceError`
+    (also a `RuntimeError`).
+    """
+
+
+@runtime_checkable
+class AuditEmitter(Protocol):
+    """The exactly-once durable-audit seam the harness depends on (design §4.3, T-A landed).
+
+    Satisfied by `maezo.gateway.audit_postgres.PostgresAuditSink` (the real, fail-closed sink) and
+    by `FakeAuditSink` (tests). Kept a narrow Protocol so the harness carries no hard dependency on
+    asyncpg — only `AuditRecord` (a pure dataclass) is imported. `dedup_key` shape is the T-C
+    caller contract: ``f"{tenant}:{task_id}"`` for worker completions (the CIB Seven external-task
+    id is stable across re-delivery), matching `PostgresAuditSink.emit_once`'s documented contract.
+    """
+
+    async def emit_once(self, record: AuditRecord, *, dedup_key: str) -> str: ...
 
 
 # --------------------------------------------------------------------------------------------
@@ -567,6 +715,38 @@ class FakeKafkaPublisher:
         self.published.append((topic, value, key))
 
 
+class FakeAuditSink:
+    """In-memory `AuditEmitter` double for unit tests. NEVER imported by production code.
+
+    Records every `emit_once` call (`.emitted` — the `(record, dedup_key)` pairs, in call order)
+    and honours the exactly-once contract: a second `emit_once` for an already-seen `dedup_key` is
+    a no-op that returns the PRIOR record's hash (mirrors `PostgresAuditSink.emit_once`'s dedup
+    semantics) — so idempotency/re-delivery tests can drive it without a real Postgres. Set
+    `.fail_next = <exc>` (or `.always_fail = <exc>`) to make the next (or every) emit raise, for
+    the fail-closed ordering tests.
+    """
+
+    def __init__(self) -> None:
+        self.emitted: list[tuple[AuditRecord, str]] = []
+        self._by_key: dict[str, str] = {}
+        self.fail_next: BaseException | None = None
+        self.always_fail: BaseException | None = None
+
+    async def emit_once(self, record: AuditRecord, *, dedup_key: str) -> str:
+        if self.always_fail is not None:
+            raise self.always_fail
+        if self.fail_next is not None:
+            exc, self.fail_next = self.fail_next, None
+            raise exc
+        prior = self._by_key.get(dedup_key)
+        if prior is not None:
+            return prior  # dedup no-op: no second chain link, prior identity returned
+        self.emitted.append((record, dedup_key))
+        record_hash = record.record_hash or record._compute_hash()
+        self._by_key[dedup_key] = record_hash
+        return record_hash
+
+
 # --------------------------------------------------------------------------------------------
 # Observability (best-effort, never breaks dispatch — design §13)
 # --------------------------------------------------------------------------------------------
@@ -633,13 +813,27 @@ class WorkerHarness:
         async_response_timeout_ms: int = 25_000,
         bpmn_error_allowlist: frozenset[str] | None = None,
         engine_unreachable_after: int = 3,
+        audit_sink: AuditEmitter | None = None,
+        app_version: str | None = None,
     ) -> None:
         self._transport = transport
         self._worker_id = worker_id
-        # `tenant` is an OBSERVABILITY-ONLY dimension (bounded, non-PHI metric label). Defaults
-        # to "unknown" so every existing construction call site (tests, readiness probes) keeps
-        # working unchanged; the service passes `settings.tenant_id`.
+        # `tenant` is BOTH an observability dimension (bounded, non-PHI metric label) AND the
+        # audit tuple's `tenant_id` / dedup-key prefix (design §4.3). Defaults to "unknown" so
+        # every existing construction call site (tests, readiness probes) keeps working unchanged;
+        # the service passes `settings.tenant_id`.
         self._tenant = tenant
+
+        # T-C (ADR-0007, L0): the durable exactly-once audit sink. The emit-before-complete gate
+        # (`_handle`) FAILS CLOSED on a missing sink — a task is never completed without a
+        # preceding durable audit row (design §4.2 + MUST-FIX 2 belt-and-suspenders). `None` is
+        # accepted at CONSTRUCTION only (the topic-probe / unit fixtures that never complete a
+        # task, and the daemon before its T-D go-live co-requisite wires a real
+        # `PostgresAuditSink`); any harness that actually dispatches a task to a successful
+        # completion without a sink raises `AuditEmitError` -> incident, never a silent
+        # un-audited complete. See the T-D seam-contract note in the PR body.
+        self._audit_sink = audit_sink
+        self._audit_app_version = _resolve_app_version(app_version)
         self._lock_duration_ms = lock_duration_ms
         self._poll_interval_ms = poll_interval_ms
         self._max_tasks = max_tasks_per_poll
@@ -880,6 +1074,69 @@ class WorkerHarness:
         )
         return "incident" if retries == 0 else "failed"
 
+    # -- audit emit-before-complete (T-C, ADR-0007, L0) -----------------------------------------
+
+    def _build_audit_record(
+        self, task: ExternalTask, out_vars: Mapping[str, Any] | None, dmn_versions: dict[str, Any]
+    ) -> AuditRecord:
+        """Construct the PHI-safe ADR-0007 audit record for a worker completion (design §2.2/§3.3).
+
+        `agent_id` is the stable SERVICE identity (not the per-replica `worker_id`); `action` is
+        the task topic; `model_id`/`prompt_version` are `None` (deterministic BPMN worker, no LLM);
+        `details` is the curated PHI-safe `decision_basis`; `dmn_versions` is the provenance the
+        `_audit_ctx` collector captured during the handler run.
+        """
+        return AuditRecord(
+            agent_id=AUDIT_AGENT_ID,
+            tenant_id=self._tenant,
+            agent_version=self._audit_app_version,
+            action=task.topic,
+            decision=AUDIT_DECISION_COMPLETE,
+            details=build_decision_basis(task.variables, out_vars),
+            dmn_versions=dmn_versions,
+            model_id=None,
+            prompt_version=None,
+        )
+
+    def _audit_dedup_key(self, task: ExternalTask) -> str:
+        """Exactly-once key for a worker completion (design §4.3; matches emit_once's contract).
+
+        `f"{tenant}:{task_id}"` — the CIB Seven external-task id is STABLE across lock-expiry /
+        failure-with-retries re-delivery (the same task entity is re-locked), so a re-delivered
+        effect dedups to the SAME chain row (no double-audit).
+        """
+        return f"{self._tenant}:{task.task_id}"
+
+    async def _emit_audit(self, record: AuditRecord, task: ExternalTask) -> str:
+        """Durably emit `record` exactly-once BEFORE the effect is committed. FAIL-CLOSED.
+
+        Raises `AuditEmitError` when no sink is wired (belt-and-suspenders for a missing/
+        misconfigured sink — MUST-FIX 2), or propagates the sink's own `AuditPersistenceError`
+        (a `RuntimeError`) on a DB failure. Either raise lands in `_handle`'s transient branch ->
+        the task is NOT completed -> engine re-delivery, so no effect is ever committed to the
+        engine without a preceding durable audit row (ADR-0007). Returns the persisted (or
+        deduped-prior) record hash.
+        """
+        if self._audit_sink is None:
+            _stdlib_logger.error(
+                "worker_task_audit_sink_missing_fail_closed task_id=%s topic=%s tenant=%s",
+                task.task_id,
+                task.topic,
+                self._tenant,
+            )
+            logger.error(
+                "worker_task_audit_sink_missing_fail_closed",
+                task_id=task.task_id,
+                topic=task.topic,
+                tenant=self._tenant,
+            )
+            raise AuditEmitError(
+                f"no audit sink configured for tenant={self._tenant!r} — refusing to complete "
+                f"task {task.task_id!r} un-audited (ADR-0007 fail-closed); a PostgresAuditSink is "
+                "the T-D go-live co-requisite of T-C"
+            )
+        return await self._audit_sink.emit_once(record, dedup_key=self._audit_dedup_key(task))
+
     async def _handle(self, task: ExternalTask) -> None:
         handler = self._handlers.get(task.topic)
         started_at = time.perf_counter()
@@ -900,7 +1157,18 @@ class WorkerHarness:
                 return
 
             try:
-                out_vars = await handler(task)
+                # DMN provenance capture (T-B): a fresh per-task collector is bound for the
+                # handler run; `evaluate_sync` populates it in-thread via the ContextVar bridge
+                # (design §3.2). Reset-per-task in `collect_dmn_versions`'s `finally`.
+                with collect_dmn_versions() as dmn_versions:
+                    out_vars = await handler(task)
+                # T-C (ADR-0007, L0): audit-BEFORE-complete. Build the PHI-safe record, then emit
+                # it durably + exactly-once. A failure here (missing sink OR DB error) raises and
+                # is classified transient below -> `complete` NEVER runs -> engine re-delivery.
+                # The forbidden direction (an engine effect with no audit row) is structurally
+                # impossible (design §4.2).
+                record = self._build_audit_record(task, out_vars, dict(dmn_versions))
+                audit_record_hash = await self._emit_audit(record, task)
                 await self._transport.complete(
                     task.task_id,
                     self._worker_id,
@@ -912,6 +1180,7 @@ class WorkerHarness:
                     task_id=task.task_id,
                     topic=task.topic,
                     business_key=task.business_key,
+                    audit_record_hash=audit_record_hash,
                 )
             except WorkerBpmnError as exc:
                 if exc.error_code in self._bpmn_error_allowlist:

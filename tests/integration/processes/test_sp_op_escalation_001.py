@@ -209,8 +209,12 @@ async def deploy_artifacts(engine: EngineRest) -> str:
 
 
 @pytest_asyncio.fixture
-async def probe(engine: EngineRest) -> AsyncIterator[EngineProbe]:
-    """Probe que serve as external tasks com os WORKERS REAIS de escalation."""
+async def probe(engine: EngineRest, audit_sink: Any, audit_tenant: str) -> AsyncIterator[EngineProbe]:
+    """Probe que serve as external tasks com os WORKERS REAIS de escalation.
+
+    T1.10 wave: completions são emit-before-complete contra o sink durável REAL da lane
+    (PostgresAuditSink, migrações aplicadas) — um harness sem sink agora recusa completar.
+    """
     worker_id = f"qa-escalation-worker-{uuid.uuid4().hex[:8]}"
     transport = CibSevenWorkerTransport(
         os.environ.get("CIBSEVEN_BASE_URL", "http://localhost:8080/engine-rest")
@@ -223,8 +227,10 @@ async def probe(engine: EngineRest) -> AsyncIterator[EngineProbe]:
     harness = WorkerHarness(
         transport,
         worker_id=worker_id,
+        tenant=audit_tenant,
         lock_duration_ms=10_000,
         bpmn_error_allowlist=frozenset({"ERR_EVENT_PUBLISH_FAILED"}),
+        audit_sink=audit_sink,
     )
     kafka = FakeKafkaPublisher()
     fault = _FaultInjectingPublisher(kafka)

@@ -135,3 +135,145 @@ async def list_incidents(client: httpx.AsyncClient, process_instance_id: str) ->
     resp.raise_for_status()
     result: list[dict[str, Any]] = resp.json()
     return result
+
+
+# ---------------------------------------------------------------------------
+# Durable audit bootstrap (T1.10 wave integration — ADR-0007 L0, fail-closed audit lane glue).
+#
+# T-C made the worker harness emit-before-complete FAIL-CLOSED: a harness without an
+# `audit_sink` routes every task completion to an incident (`AuditEmitError`), and T-C2 made
+# `start_process_idempotent` structurally REQUIRE a durable sink + provenance. This lane runs
+# against the REAL engine — so it runs against the REAL durable sink too: the compose stack's
+# Postgres (the same one the engine itself persists to), with migrations 0001->0005 applied to a
+# per-run tenant schema. FakeStartAuditSink is deliberately NOT used here: the lane's purpose is
+# the production wiring, and the lane already has Postgres.
+#
+# DSN resolution (mirrors tests/unit/gateway/test_audit_postgres.py's convention, extended with
+# the compose port variable): `MAEZO_TEST_DATABASE_URL` wins; otherwise
+# postgresql://maezo:maezo@localhost:${MAEZO_PG_HOST_PORT:-5433}/maezo — which is byte-for-byte
+# the CI lane's Postgres (ci.yml pins MAEZO_PG_HOST_PORT=5432), the local dev default (5433),
+# and any isolated validation stack (e.g. MAEZO_PG_HOST_PORT=5546) with zero workflow edits.
+#
+# Unreachable Postgres -> loud, explicit skip of the suites that REQUEST these fixtures (same
+# ADR-0011 "explicit could-not-verify" posture as the engine gate above — never silent, never
+# fabricated). Suites that don't audit (e.g. dmn parity) don't request them and are unaffected.
+# ---------------------------------------------------------------------------
+
+
+def _audit_pg_dsn() -> str:
+    import os
+
+    explicit = os.environ.get("MAEZO_TEST_DATABASE_URL")
+    if explicit:
+        return explicit
+    port = os.environ.get("MAEZO_PG_HOST_PORT", "5433")
+    return f"postgresql://maezo:maezo@localhost:{port}/maezo"
+
+
+def _pg_reachable(dsn: str) -> bool:
+    import asyncio
+
+    import asyncpg  # type: ignore[import-untyped]
+
+    from maezo.gateway.audit_postgres import normalize_dsn
+
+    async def _probe() -> bool:
+        try:
+            conn = await asyncio.wait_for(asyncpg.connect(normalize_dsn(dsn)), timeout=3.0)
+        except Exception:  # noqa: BLE001 — any failure means "skip loudly", never an error here
+            return False
+        await conn.close()
+        return True
+
+    return asyncio.run(_probe())
+
+
+def _apply_migrations(dsn: str, tenant_id: str) -> None:
+    """Apply migrations 0001->0005 to `tenant_id`'s schema — the REAL alembic migrations (not a
+    DDL mirror): the lane proves the production bootstrap end-to-end, including env.py's
+    tenant-aware search_path."""
+    import argparse
+    from pathlib import Path
+
+    from alembic import command
+    from alembic.config import Config
+
+    repo_root = Path(__file__).resolve().parents[2]
+    cfg = Config(str(repo_root / "alembic.ini"))
+    cfg.set_main_option("script_location", str(repo_root / "src" / "maezo" / "platform" / "migrations"))
+    # alembic.ini hardcodes the docker-internal DSN (postgres:5432); point it at the lane's
+    # host-published Postgres instead. env.py's async engine needs the +asyncpg driver suffix.
+    async_dsn = dsn if "+asyncpg" in dsn else dsn.replace("postgresql://", "postgresql+asyncpg://", 1)
+    cfg.set_main_option("sqlalchemy.url", async_dsn)
+    cfg.cmd_opts = argparse.Namespace(x=[f"tenant={tenant_id}"])  # env.py: -x tenant=<id>
+    command.upgrade(cfg, "head")
+
+
+@pytest.fixture(scope="session")
+def audit_pg(engine_base_url: str) -> Any:
+    """Session-scoped durable-audit bootstrap: per-run tenant schema + REAL migrations 0001->0005.
+
+    Yields ``(dsn, tenant_id)``. Skips LOUDLY when the lane's Postgres is unreachable (ADR-0011
+    could-not-verify — mirrors the engine gate). Depends on `engine_base_url` purely to keep the
+    engine-unreachable session skip first (clearer skip reason ordering).
+    """
+    import asyncio
+
+    import asyncpg  # type: ignore[import-untyped]
+
+    from maezo.gateway.audit_postgres import normalize_dsn
+
+    dsn = _audit_pg_dsn()
+    if not _pg_reachable(dsn):
+        pytest.skip(
+            f"COULD NOT VERIFY: lane Postgres unreachable at {dsn!r} (override with "
+            "MAEZO_TEST_DATABASE_URL / MAEZO_PG_HOST_PORT). The fail-closed audit suites need the "
+            "compose stack's Postgres: `docker compose --profile core up -d`."
+        )
+
+    tenant_id = f"it_{RUN_ID}"  # [a-z][a-z0-9_]* — per-run schema, no cross-run dedup residue
+
+    async def _create_schema() -> None:
+        conn = await asyncpg.connect(normalize_dsn(dsn))
+        try:
+            await conn.execute(f'CREATE SCHEMA IF NOT EXISTS "{tenant_id}"')
+        finally:
+            await conn.close()
+
+    async def _drop_schema() -> None:
+        conn = await asyncpg.connect(normalize_dsn(dsn))
+        try:
+            await conn.execute(f'DROP SCHEMA IF EXISTS "{tenant_id}" CASCADE')
+        finally:
+            await conn.close()
+
+    asyncio.run(_create_schema())
+    _apply_migrations(dsn, tenant_id)
+    yield (dsn, tenant_id)
+    asyncio.run(_drop_schema())
+
+
+@pytest.fixture(scope="session")
+def audit_tenant(audit_pg: tuple[str, str]) -> str:
+    """The per-run tenant id whose schema carries `audit_chain`/`audit_emit_dedup` — pass it as
+    the harness `tenant=` so records + dedup keys are honest about which chain they write."""
+    return audit_pg[1]
+
+
+@pytest.fixture
+async def audit_sink(audit_pg: tuple[str, str]) -> Any:
+    """FUNCTION-scoped REAL `PostgresAuditSink` against the lane's Postgres.
+
+    Function scope is deliberate (not an optimization miss): asyncpg pools bind to the event loop
+    that first uses them, and pytest-asyncio gives each test its own loop — a session-scoped sink
+    would emit on a dead/foreign loop from the second test on. Satisfies both the harness
+    `AuditEmitter` and the chokepoint `AuditStartSink` seams.
+    """
+    from maezo.gateway.audit_postgres import PostgresAuditSink
+
+    dsn, tenant_id = audit_pg
+    sink = PostgresAuditSink(dsn, tenant_id)
+    try:
+        yield sink
+    finally:
+        await sink.aclose()

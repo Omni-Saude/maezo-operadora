@@ -58,6 +58,15 @@ spec:
                   fieldPath: metadata.name
             - name: CIBSEVEN_BASE_URL
               value: "http://cibseven:8080/engine-rest"
+            # DATABASE_URL para o sink de auditoria durável (ADR-0007 L0, ADR-0027, T1.10 T-D).
+            # Injetado do ExternalSecret do Aurora (mesma convenção do agent-runtime). FAIL-CLOSED:
+            # sem ele o daemon NÃO constrói o PostgresAuditSink, não entra no fetch-and-lock e
+            # /readyz fica vermelho (audit_sink_ready) — nunca serve tráfego que não consiga auditar.
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.aurora.secretName }}
+                  key: database-url
             - name: KAFKA_BOOTSTRAP_SERVERS
               valueFrom:
                 secretKeyRef:

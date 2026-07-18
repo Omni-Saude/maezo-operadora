@@ -16,6 +16,7 @@ import httpx
 import pytest
 
 from maezo.tools.mcp_cibseven.transport import (
+    AgentDecisionProvenance,
     CibSevenError,
     CibSevenHttpTransport,
     CibSevenVariableDecodeError,
@@ -23,6 +24,15 @@ from maezo.tools.mcp_cibseven.transport import (
     ProcessInstance,
     ProcessNotFoundError,
     start_process_idempotent,
+)
+from tests.support.audit_fakes import FakeStartAuditSink
+
+# T-C2 fence: `start_process_idempotent` now requires an audit sink + decision provenance. These
+# minimal fixtures let the pre-existing idempotency tests keep exercising the transport behavior;
+# the fence itself (required params, emit-before-effect, PHI, dedup) is covered exhaustively in
+# tests/unit/tools/test_start_process_fence.py.
+_PROV = AgentDecisionProvenance(
+    agent_id="helena", agent_version="helena@v0", tenant_id="amh", decision_basis={"route": "escalate"}
 )
 
 
@@ -105,7 +115,12 @@ async def test_fake_correlate_message_records_calls() -> None:
 async def test_start_process_idempotent_starts_when_no_active_instance() -> None:
     fake = FakeCibSevenTransport()
     inst = await start_process_idempotent(
-        fake, process_key="SP-OP-ESCALATION-001", business_key="ESC-amh-1", variables={}
+        fake,
+        process_key="SP-OP-ESCALATION-001",
+        business_key="ESC-amh-1",
+        variables={},
+        audit_sink=FakeStartAuditSink(),
+        provenance=_PROV,
     )
     assert inst.already_existed is False
     assert inst.instance_id == "fake-ESC-amh-1"
@@ -123,7 +138,12 @@ async def test_start_process_idempotent_returns_existing_never_double_starts() -
         )
     )
     inst = await start_process_idempotent(
-        fake, process_key="SP-OP-ESCALATION-001", business_key="ESC-amh-1", variables={"x": 1}
+        fake,
+        process_key="SP-OP-ESCALATION-001",
+        business_key="ESC-amh-1",
+        variables={"x": 1},
+        audit_sink=FakeStartAuditSink(),
+        provenance=_PROV,
     )
     assert inst.instance_id == "existing-1"
     assert inst.already_existed is True

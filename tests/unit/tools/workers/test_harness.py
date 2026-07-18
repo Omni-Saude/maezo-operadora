@@ -19,6 +19,7 @@ from maezo.tools.workers.harness import (
 )
 from maezo.tools.workers.harness import (
     ExternalTask,
+    FakeAuditSink,
     FakeKafkaPublisher,
     FakeWorkerTransport,
     KafkaPublisher,
@@ -249,7 +250,7 @@ async def test_register_worker_adds_to_registry_and_dispatch_table() -> None:
 
 async def test_register_worker_sync_execute_runs_via_handler(monkeypatch: pytest.MonkeyPatch) -> None:
     transport = FakeWorkerTransport()
-    harness = WorkerHarness(transport, worker_id="w")
+    harness = WorkerHarness(transport, worker_id="w", audit_sink=FakeAuditSink())
     harness.register_worker(_EchoWorker())
 
     task = _task(topic="operadora.test.echo", variables={"value": 42})
@@ -260,7 +261,7 @@ async def test_register_worker_sync_execute_runs_via_handler(monkeypatch: pytest
 
 async def test_register_worker_prefers_run_async_when_overridden() -> None:
     transport = FakeWorkerTransport()
-    harness = WorkerHarness(transport, worker_id="w")
+    harness = WorkerHarness(transport, worker_id="w", audit_sink=FakeAuditSink())
     worker = _AsyncOverrideWorker()
     harness.register_worker(worker)
 
@@ -278,7 +279,7 @@ async def test_register_worker_prefers_run_async_when_overridden() -> None:
 
 async def test_handle_success_completes_once() -> None:
     transport = FakeWorkerTransport()
-    harness = WorkerHarness(transport, worker_id="w")
+    harness = WorkerHarness(transport, worker_id="w", audit_sink=FakeAuditSink())
 
     async def handler(task: ExternalTask) -> dict[str, Any]:
         return {"result": "ok"}
@@ -294,7 +295,7 @@ async def test_handle_success_completes_once() -> None:
 
 async def test_handle_success_none_return_completes_with_empty_dict() -> None:
     transport = FakeWorkerTransport()
-    harness = WorkerHarness(transport, worker_id="w")
+    harness = WorkerHarness(transport, worker_id="w", audit_sink=FakeAuditSink())
 
     async def handler(task: ExternalTask) -> None:
         return None
@@ -504,7 +505,7 @@ async def test_handle_never_raises_out_of_dispatch(monkeypatch: pytest.MonkeyPat
 
 async def test_run_dispatches_fetched_tasks_and_exits_on_cancel() -> None:
     transport = FakeWorkerTransport([_task(task_id="t1", topic="t")])
-    harness = WorkerHarness(transport, worker_id="w", poll_interval_ms=10)
+    harness = WorkerHarness(transport, worker_id="w", poll_interval_ms=10, audit_sink=FakeAuditSink())
 
     async def handler(task: ExternalTask) -> dict[str, Any]:
         return {"ok": True}
@@ -575,7 +576,7 @@ async def test_drain_with_no_inflight_returns_immediately() -> None:
 
 async def test_drain_waits_for_fast_handler_then_no_unlock() -> None:
     transport = FakeWorkerTransport()
-    harness = WorkerHarness(transport, worker_id="w")
+    harness = WorkerHarness(transport, worker_id="w", audit_sink=FakeAuditSink())
 
     async def fast_handler(task: ExternalTask) -> dict[str, Any]:
         await asyncio.sleep(0.01)

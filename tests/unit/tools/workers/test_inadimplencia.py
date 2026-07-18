@@ -3,22 +3,27 @@
 TDD London School: tests verify the guard contracts from the SP-OP contract.
 """
 
+import asyncio
 from typing import Any
 
 import pytest
 
+from maezo.gateway.audit_postgres import AuditPersistenceError
 from maezo.tools.mcp_cibseven.transport import (
     CibSevenError,
     FakeCibSevenTransport,
     ProcessInstance,
+    start_dedup_key,
 )
 from maezo.tools.workers.dmn_transport import DmnEvaluationError, FakeDmnTransport
+from maezo.tools.workers.harness import AUDIT_AGENT_ID
 from maezo.tools.workers.inadimplencia import (
     CANCEL_PROCESS_KEY,
     DECISAO_ENCAMINHAR_RESCISAO,
     DECISAO_MANTER,
     DECISAO_SUSPENDER,
     ERR_CONTRACT_SUSPENSION_NOT_HUMAN,
+    ERR_INAD_INVALID_CONTRATO,
     InadimplenciaError,
     _cancel_business_key,
     assess_status,
@@ -32,6 +37,7 @@ from maezo.tools.workers.inadimplencia import (
     register_suspension,
     resolve_facts,
 )
+from tests.support.audit_fakes import FakeStartAuditSink
 
 
 def _inadimplencia_status_fake(*, roteamento: str, motivo: str = "") -> FakeDmnTransport:
@@ -318,17 +324,224 @@ def test_inadimplencia_register_suspension_alias() -> None:
 
 
 def test_handoff_rescisao_executes_for_encaminhar() -> None:
+    """ENCAMINHAR_RESCISAO now ACTUALLY starts CANCEL-001 via the engine seam (T1.10 T-D),
+    AUDITED through the T-C2 fence (10th start site, wave integration)."""
+    engine = FakeCibSevenTransport()
+    sink = FakeStartAuditSink()
     result = handoff_rescisao(
         {
             "decisao_inadimplencia": DECISAO_ENCAMINHAR_RESCISAO,
+            "tenant_id": "t1",
             "numero_contrato": "C-456",
-        }
+        },
+        engine=engine,
+        audit_sink=sink,
     )
     assert result["handoff_executado"] is True
     assert result["processo_destino"] == "SP-OP-CANCEL-001"
+    assert result["cancel_business_key"] == "CANCEL-t1-C-456"
+    # T-C2 fence: exactly ONE durable start record, under the exact-once dedup key.
+    assert sink.dedup_keys == [start_dedup_key("t1", CANCEL_PROCESS_KEY, "CANCEL-t1-C-456")]
+    assert sink.dedup_keys == ["t1:start:SP-OP-CANCEL-001:CANCEL-t1-C-456"]
+
+
+def test_handoff_rescisao_starts_cancel_with_exact_business_key_and_payload() -> None:
+    """The BINDING business-key format `CANCEL-{tenant}-{contrato}` (harmonization §1) AND the
+    handoff payload (tipo/origem + carried RN-593 evidence + audit-trail responsavel_id)."""
+    engine = FakeCibSevenTransport()
+    sink = FakeStartAuditSink()
+    result = handoff_rescisao(
+        {
+            "decisao_inadimplencia": DECISAO_ENCAMINHAR_RESCISAO,
+            "tenant_id": "amh",
+            "numero_contrato": "C-777",
+            "matricula_beneficiario": "mat-1",
+            "meses_inadimplencia": 4,
+            "notificacao_previa_feita": True,
+            "comprovacao_periodo_minimo": "ref-periodo-1",
+            "responsavel_id": "juridico-cobranca-9",
+            "referencia_regulatoria": "RN 593",
+            "decisao_secreta_phi": "SHOULD-NOT-LEAK",  # not in allowlist -> must not be carried
+        },
+        engine=engine,
+        audit_sink=sink,
+    )
+    assert result["cancel_business_key"] == "CANCEL-amh-C-777"
+    assert result["cancel_already_existed"] is False
+
+    # The CANCEL-001 instance was really started under the exact business key.
+    started = asyncio.run(engine.find_active_instance("CANCEL-amh-C-777"))
+    assert started is not None
+    assert started.process_key == CANCEL_PROCESS_KEY
+
+    payload = asyncio.run(engine.get_process_status("CANCEL-amh-C-777")).variables
+    assert payload["tipo_solicitacao"] == "inadimplencia"
+    assert payload["origem_solicitacao"] == "operadora"
+    assert payload["numero_contrato"] == "C-777"
+    assert payload["responsavel_id"] == "juridico-cobranca-9"
+    assert payload["notificacao_previa_feita"] is True
+    # PHI-safe allowlist, never a passthrough: a non-allowlisted key is NOT carried into CANCEL.
+    assert "decisao_secreta_phi" not in payload
+
+    # T-C2 fence: the durable ADR-0007 start record — worker-context provenance, exactly once.
+    assert sink.dedup_keys == [start_dedup_key("amh", CANCEL_PROCESS_KEY, "CANCEL-amh-C-777")]
+    [record] = sink.records
+    assert record.agent_id == AUDIT_AGENT_ID  # stable service identity ("operadora-worker")
+    assert record.tenant_id == "amh"
+    assert record.action == f"start_process:{CANCEL_PROCESS_KEY}"
+    assert record.decision == "START_PROCESS"
+    assert record.model_id is None  # deterministic worker context — no LLM legs, honest nulls
+    assert record.prompt_version is None
+    # decision_basis: bounded enum/flag tokens ONLY (design §3.3) + the one-way input hash.
+    assert record.details["decisao_inadimplencia"] == DECISAO_ENCAMINHAR_RESCISAO
+    assert record.details["origem_solicitacao"] == "operadora"
+    assert record.details["notificacao_previa_feita"] is True
+    assert record.details["process_key"] == CANCEL_PROCESS_KEY
+    assert "input_sha256" in record.details
+    # Identifiers/PHI never in the clear in the chain: hash-bound via input_sha256 only.
+    assert "responsavel_id" not in record.details
+    assert "numero_contrato" not in record.details
+    assert "matricula_beneficiario" not in record.details
+    assert "decisao_secreta_phi" not in record.details
+
+
+def test_handoff_rescisao_matricula_fallback_key() -> None:
+    """Individual/familiar plans (no numero_contrato) key CANCEL by matricula fallback."""
+    engine = FakeCibSevenTransport()
+    sink = FakeStartAuditSink()
+    result = handoff_rescisao(
+        {
+            "decisao_inadimplencia": DECISAO_ENCAMINHAR_RESCISAO,
+            "tenant_id": "t1",
+            "matricula_beneficiario": "mat-42",
+        },
+        engine=engine,
+        audit_sink=sink,
+    )
+    assert result["cancel_business_key"] == "CANCEL-t1-mat-42"
+    # The dedup key follows the matricula-fallback business key too (same identity scheme).
+    assert sink.dedup_keys == [start_dedup_key("t1", CANCEL_PROCESS_KEY, "CANCEL-t1-mat-42")]
+
+
+def test_handoff_rescisao_idempotent_returns_existing_active_cancel() -> None:
+    """A CANCEL-001 instance already active for this contract is returned unchanged — the handoff
+    NEVER starts a second one (anti-dupla-terminacao via business-key idempotency)."""
+    engine = FakeCibSevenTransport()
+    sink = FakeStartAuditSink()
+    engine.seed_instance(
+        ProcessInstance(
+            instance_id="pre-existing-cancel",
+            process_key=CANCEL_PROCESS_KEY,
+            business_key="CANCEL-t1-C-5",
+            state="ACTIVE",
+            already_existed=True,  # the real find_active_instance flags an idempotent hit this way
+        )
+    )
+    result = handoff_rescisao(
+        {
+            "decisao_inadimplencia": DECISAO_ENCAMINHAR_RESCISAO,
+            "tenant_id": "t1",
+            "numero_contrato": "C-5",
+        },
+        engine=engine,
+        audit_sink=sink,
+    )
+    assert result["handoff_executado"] is True
+    assert result["cancel_already_existed"] is True
+    assert result["cancel_instance_id"] == "pre-existing-cancel"
+    # The fence still records the (idempotent) start decision — emit precedes the active-hit
+    # check, and a re-delivery of the same key dedups in the sink, never double-chains.
+    assert sink.dedup_keys == [start_dedup_key("t1", CANCEL_PROCESS_KEY, "CANCEL-t1-C-5")]
+
+
+def test_handoff_rescisao_fail_closed_when_engine_seam_not_wired() -> None:
+    """FAIL-CLOSED: no engine seam -> the human's ENCAMINHAR_RESCISAO can NOT be silently dropped;
+    raises (transient) instead of a no-op that would strand the rescisao."""
+    with pytest.raises(RuntimeError, match="engine seam"):
+        handoff_rescisao(
+            {
+                "decisao_inadimplencia": DECISAO_ENCAMINHAR_RESCISAO,
+                "tenant_id": "t1",
+                "numero_contrato": "C-1",
+            },
+            audit_sink=FakeStartAuditSink(),
+        )  # engine defaults to None
+
+
+def test_handoff_rescisao_fail_closed_when_audit_sink_not_wired() -> None:
+    """FAIL-CLOSED (T-C2 fence co-requisite): no audit sink -> the fenced start CANNOT emit the
+    ADR-0007 record, so CANCEL-001 is NOT started (emit-before-effect) and the handoff raises
+    (transient -> retry -> incident) — never an un-audited start, never a silent no-op."""
+    engine = FakeCibSevenTransport()
+    with pytest.raises(RuntimeError, match="audit sink"):
+        handoff_rescisao(
+            {
+                "decisao_inadimplencia": DECISAO_ENCAMINHAR_RESCISAO,
+                "tenant_id": "t1",
+                "numero_contrato": "C-1",
+            },
+            engine=engine,
+        )  # audit_sink defaults to None
+    # No engine effect happened: the fence never ran, nothing was started.
+    assert asyncio.run(engine.find_active_instance("CANCEL-t1-C-1")) is None
+
+
+def test_handoff_rescisao_emit_failure_blocks_engine_start() -> None:
+    """EMIT-BEFORE-EFFECT (design §4.2): a durable-audit failure propagates
+    (`AuditPersistenceError` -> transient -> retry) and the engine start NEVER happens — the
+    forbidden direction (a CANCEL-001 start with no audit row) is structurally impossible."""
+    engine = FakeCibSevenTransport()
+    sink = FakeStartAuditSink(fail=True)
+    with pytest.raises(AuditPersistenceError):
+        handoff_rescisao(
+            {
+                "decisao_inadimplencia": DECISAO_ENCAMINHAR_RESCISAO,
+                "tenant_id": "t1",
+                "numero_contrato": "C-1",
+            },
+            engine=engine,
+            audit_sink=sink,
+        )
+    assert len(sink.calls) == 1  # the emit was attempted...
+    assert asyncio.run(engine.find_active_instance("CANCEL-t1-C-1")) is None  # ...the start was not
+
+
+def test_handoff_rescisao_fail_closed_no_contract_identity() -> None:
+    """No numero_contrato/matricula -> never start CANCEL-001 with an empty business key: raises."""
+    engine = FakeCibSevenTransport()
+    sink = FakeStartAuditSink()
+    with pytest.raises(InadimplenciaError) as excinfo:
+        handoff_rescisao(
+            {"decisao_inadimplencia": DECISAO_ENCAMINHAR_RESCISAO, "tenant_id": "t1"},
+            engine=engine,
+            audit_sink=sink,
+        )
+    assert excinfo.value.code == ERR_INAD_INVALID_CONTRATO
+    assert sink.calls == []  # refused BEFORE any audit emit — no record for a refused handoff
+
+
+def test_handoff_rescisao_transport_error_propagates() -> None:
+    """A transport/engine error during the start propagates (transient -> engine retry -> incident),
+    never a silent success. The audit record was already durably emitted (emit-before-effect):
+    the retry re-emit dedups to the same chain link, so no double-audit on the eventual success."""
+    sink = FakeStartAuditSink()
+    with pytest.raises(CibSevenError):
+        handoff_rescisao(
+            {
+                "decisao_inadimplencia": DECISAO_ENCAMINHAR_RESCISAO,
+                "tenant_id": "t1",
+                "numero_contrato": "C-1",
+            },
+            engine=_RaisingCibSevenTransport(),
+            audit_sink=sink,
+        )
+    # Emit happened BEFORE the failing engine call — the audited-decision-without-effect direction
+    # is the SAFE one (idempotent start + emit_once dedup make the retry converge).
+    assert sink.dedup_keys == [start_dedup_key("t1", CANCEL_PROCESS_KEY, "CANCEL-t1-C-1")]
 
 
 def test_handoff_rescisao_noop_for_other_decisao() -> None:
+    """decisao != ENCAMINHAR_RESCISAO -> neutral no-op, never touches the engine (no engine seam)."""
     result = handoff_rescisao(
         {
             "decisao_inadimplencia": DECISAO_MANTER,
@@ -580,3 +793,64 @@ def test_registered_resolve_facts_without_engine_fails_closed() -> None:
     worker = harness.workers["operadora.inadimplencia.resolve_facts"]
     out = worker.execute({"tenant_id": "t1", "numero_contrato": "C-1"})
     assert out["ja_em_rescisao_cancel"] is True
+
+
+def test_registered_handoff_rescisao_threads_engine_seam() -> None:
+    """The engine + audit_sink seams are genuinely threaded into the REGISTERED handoff_rescisao
+    worker (not just the bare function): dispatching it really starts CANCEL-001 under the exact
+    business key AND emits the fenced ADR-0007 start record through the threaded sink."""
+    harness = _RecordingHarness()
+    engine = FakeCibSevenTransport()
+    sink = FakeStartAuditSink()
+    register_inadimplencia_workers(harness, None, dmn=FakeDmnTransport(), engine=engine, audit_sink=sink)
+
+    worker = harness.workers["operadora.inadimplencia.handoff_rescisao"]
+    out = worker.execute(
+        {
+            "decisao_inadimplencia": DECISAO_ENCAMINHAR_RESCISAO,
+            "tenant_id": "t1",
+            "numero_contrato": "C-1",
+        }
+    )
+    assert out["handoff_executado"] is True
+    assert out["cancel_business_key"] == "CANCEL-t1-C-1"
+    assert asyncio.run(engine.find_active_instance("CANCEL-t1-C-1")) is not None
+    # The threaded sink received the fenced start record, exactly once, exact dedup key.
+    assert sink.dedup_keys == [start_dedup_key("t1", CANCEL_PROCESS_KEY, "CANCEL-t1-C-1")]
+
+
+def test_registered_handoff_rescisao_without_engine_fails_closed() -> None:
+    """Composition root has not wired the engine seam -> registered handoff_rescisao fails closed
+    (raises RuntimeError -> transient -> engine retry) rather than silently dropping the human's
+    ENCAMINHAR_RESCISAO decision. RuntimeError is `_HARNESS_CLASSIFIED`, so FunctionWorker re-raises
+    it unchanged (not reclassified)."""
+    harness = _RecordingHarness()
+    register_inadimplencia_workers(harness, None, dmn=FakeDmnTransport())  # no engine seam
+    worker = harness.workers["operadora.inadimplencia.handoff_rescisao"]
+    with pytest.raises(RuntimeError, match="engine seam"):
+        worker.execute(
+            {
+                "decisao_inadimplencia": DECISAO_ENCAMINHAR_RESCISAO,
+                "tenant_id": "t1",
+                "numero_contrato": "C-1",
+            }
+        )
+
+
+def test_registered_handoff_rescisao_without_audit_sink_fails_closed() -> None:
+    """Engine wired but audit sink NOT wired -> registered handoff_rescisao fails closed BEFORE
+    any engine effect (T-C2 fence co-requisite: an un-audited CANCEL-001 start is impossible).
+    Same transient RuntimeError posture as the engine seam (`_HARNESS_CLASSIFIED`)."""
+    harness = _RecordingHarness()
+    engine = FakeCibSevenTransport()
+    register_inadimplencia_workers(harness, None, dmn=FakeDmnTransport(), engine=engine)  # no sink
+    worker = harness.workers["operadora.inadimplencia.handoff_rescisao"]
+    with pytest.raises(RuntimeError, match="audit sink"):
+        worker.execute(
+            {
+                "decisao_inadimplencia": DECISAO_ENCAMINHAR_RESCISAO,
+                "tenant_id": "t1",
+                "numero_contrato": "C-1",
+            }
+        )
+    assert asyncio.run(engine.find_active_instance("CANCEL-t1-C-1")) is None  # no engine effect

@@ -28,7 +28,7 @@ import structlog
 from maezo.agents.helena.graph import HelenaState, WhatsAppSender, build, new_helena_state
 from maezo.gateway.pseudonymizer import Pseudonymizer
 from maezo.runtime.inference import InferenceProvider
-from maezo.tools.mcp_cibseven.transport import CibSevenTransport
+from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
 from maezo.tools.mcp_whatsapp.server import WhatsAppServer
 from maezo.tools.workers.dmn_transport import DmnTransport
 
@@ -115,6 +115,9 @@ class HelenaDispatcher:
     cibseven: CibSevenTransport
     whatsapp_client: WhatsAppServer
     pseudonymizer: Pseudonymizer
+    # T-C2 fence: the durable ADR-0007 sink Helena's escalation start audits BEFORE the engine
+    # effect (fail-closed). Required — the dispatcher cannot be built without it (`service.py`).
+    audit_sink: AuditStartSink
 
     async def dispatch(self, message: InboundMessage) -> dict[str, Any]:
         """Run ONE complete Helena turn (receive..respond) for `message`. No checkpointer is
@@ -133,6 +136,7 @@ class HelenaDispatcher:
                 "dmn": self.dmn,
                 "cibseven": self.cibseven,
                 "whatsapp": sender,
+                "audit_sink": self.audit_sink,
                 "agent_version": "helena@v0",
             }
         )

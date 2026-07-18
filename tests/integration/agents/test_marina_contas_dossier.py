@@ -32,6 +32,7 @@ result (constraint 3).
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 import httpx
 import pytest
@@ -57,7 +58,7 @@ class _FakeInference:
 
 
 async def test_contas_assess_evaluates_real_deployed_dmn_and_originates_process(
-    engine_base_url: str, engine_client: httpx.AsyncClient
+    engine_base_url: str, engine_client: httpx.AsyncClient, audit_sink: Any
 ) -> None:
     """Marina's `assess` evaluates the REAL, deployed `glosa_reason_normalization` ->
     `glosa_classification` -> `glosa_triage` (+ `contas_sla`) chain against the engine (never
@@ -81,7 +82,7 @@ async def test_contas_assess_evaluates_real_deployed_dmn_and_originates_process(
         ["Dossie factual: glosa candidata classificada como tecnica pela DMN; analise humana obrigatoria."]
     )
 
-    graph = build({"inference": inference, "dmn": dmn, "cibseven": cibseven})
+    graph = build({"inference": inference, "dmn": dmn, "cibseven": cibseven, "audit_sink": audit_sink})
     compiled = graph.compile()
 
     try:

@@ -136,6 +136,8 @@ from langgraph.graph import END, START, StateGraph
 
 from maezo.runtime.inference import InferenceProvider
 from maezo.tools.mcp_cibseven.transport import (
+    AgentDecisionProvenance,
+    AuditStartSink,
     CibSevenError,
     CibSevenTransport,
     start_process_idempotent,
@@ -387,12 +389,16 @@ class CarolinaGraph:
         inference: InferenceProvider,
         dmn: DmnTransport,
         cibseven: CibSevenTransport,
+        audit_sink: AuditStartSink,
         fhir: SummaryReader | None = None,
         agent_version: str = "carolina@v0",
     ) -> None:
         self._llm = inference
         self._dmn = dmn
         self._cibseven = cibseven
+        # T-C2 fence: required durable ADR-0007 sink for the SP-OP-CRED-001 start.
+        self._audit_sink = audit_sink
+        self._model_id = getattr(inference, "model_id", None)
         self._fhir = fhir
         self._agent_version = agent_version
 
@@ -604,9 +610,26 @@ class CarolinaGraph:
         """Start SP-OP-CRED-001 idempotently (business key `CRED-{tenant}-{prestador}[-{protocolo}]`)."""
         business_key = state.get("business_key") or _business_key(state)
         variables = self._contract_variables(state)
+        provenance = AgentDecisionProvenance(
+            agent_id="carolina",
+            agent_version=self._agent_version,
+            tenant_id=state.get("tenant_id", ""),
+            model_id=self._model_id,
+            prompt_version=SYSTEM_PROMPT_VERSION,
+            decision_basis={
+                "route": state.get("route", ""),
+                "desfecho": state.get("desfecho", ""),
+                "motivo_humano": state.get("motivo_humano") or "",
+            },
+        )
         try:
             instance = await start_process_idempotent(
-                self._cibseven, process_key=PROCESS_KEY, business_key=business_key, variables=variables
+                self._cibseven,
+                process_key=PROCESS_KEY,
+                business_key=business_key,
+                variables=variables,
+                audit_sink=self._audit_sink,
+                provenance=provenance,
             )
         except CibSevenError as exc:
             return {
@@ -813,21 +836,29 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[CarolinaState]:
     inference = cfg.get("inference")
     dmn = cfg.get("dmn")
     cibseven = cfg.get("cibseven")
+    audit_sink = cfg.get("audit_sink")
     missing = [
         name
-        for name, value in (("inference", inference), ("dmn", dmn), ("cibseven", cibseven))
+        for name, value in (
+            ("inference", inference),
+            ("dmn", dmn),
+            ("cibseven", cibseven),
+            ("audit_sink", audit_sink),
+        )
         if value is None
     ]
     if missing:
         raise ValueError(
             f"Carolina build(config) is missing required dependencies: {missing} "
-            "(ADR-0001/0009/0028 — inference/dmn/cibseven must all be injected)"
+            "(ADR-0001/0007/0009/0028 — inference/dmn/cibseven/audit_sink must all be injected; "
+            "audit_sink is the T-C2 fence — no process start without a durable sink)"
         )
     agent_version = str(cfg.get("agent_version", "carolina@v0"))
     return CarolinaGraph(
         inference=cast(InferenceProvider, inference),
         dmn=cast(DmnTransport, dmn),
         cibseven=cast(CibSevenTransport, cibseven),
+        audit_sink=cast(AuditStartSink, audit_sink),
         fhir=cast("SummaryReader | None", cfg.get("fhir")),
         agent_version=agent_version,
     ).compile_graph()

@@ -436,6 +436,17 @@ class InferenceProvider:
         """Return the active provider name (e.g. 'noop', 'anthropic')."""
         return self._settings.provider
 
+    @property
+    def model_id(self) -> str | None:
+        """Effective LLM model identifier for ADR-0007 audit provenance, or None.
+
+        Returns the configured concrete model (e.g. the Anthropic model id) so an agent can record
+        which model drove a decision (the `model_id` leg of the audit tuple, consumed by the T-C2
+        process-start provenance fence). None for a provider with no concrete model configured (the
+        noop mock), which is the honest value — never a fabricated model id.
+        """
+        return self._settings.model or None
+
     def health_check(self) -> dict[str, str]:
         """Return provider health status.
 

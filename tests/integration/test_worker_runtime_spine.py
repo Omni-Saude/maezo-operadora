@@ -53,7 +53,11 @@ pytestmark = pytest.mark.integration
 
 
 async def test_happy_path_fetch_complete_history(
-    engine_base_url: str, engine_client: httpx.AsyncClient
+    engine_base_url: str,
+    engine_client: httpx.AsyncClient,
+    audit_pg: tuple[str, str],
+    audit_sink: Any,
+    audit_tenant: str,
 ) -> None:
     process_key = f"t11_it_happy_{RUN_ID}"
     topic = f"t11.it.happy.{RUN_ID}"
@@ -63,7 +67,15 @@ async def test_happy_path_fetch_complete_history(
     process_instance_id = await start_process(engine_client, process_key=process_key, business_key="bk-happy")
 
     transport = CibSevenWorkerTransport(engine_base_url)
-    harness = WorkerHarness(transport, worker_id=f"it-worker-{RUN_ID}", async_response_timeout_ms=2_000)
+    # T-C (T1.10): completion is emit-before-complete against the REAL durable sink (lane PG,
+    # migrations applied) — a sink-less harness would now (correctly) refuse to complete.
+    harness = WorkerHarness(
+        transport,
+        worker_id=f"it-worker-{RUN_ID}",
+        tenant=audit_tenant,
+        async_response_timeout_ms=2_000,
+        audit_sink=audit_sink,
+    )
 
     completed: list[str] = []
 
@@ -92,6 +104,15 @@ async def test_happy_path_fetch_complete_history(
         f"process instance {process_instance_id} did not reach an end event after task completion "
         f"(history: {history})"
     )
+
+    # T1.10 wave acceptance: the completion left a DURABLE, verifiable ADR-0007 chain row in the
+    # lane's Postgres (emit-before-complete really wrote through the real sink, not a fake).
+    from maezo.gateway.audit_postgres import verify_chain
+
+    dsn, tenant_id = audit_pg
+    chain = await verify_chain(dsn, tenant_id)
+    assert chain.valid, f"audit chain invalid after audited completion: {chain.reason}"
+    assert chain.total_records >= 1, "audited completion wrote no durable audit record"
 
 
 async def test_transient_failure_retries_decrement_then_incident(
@@ -191,7 +212,10 @@ async def test_graceful_shutdown_drain_unlocks_task_for_immediate_refetch(
 
 
 async def test_function_worker_module_end_to_end(
-    engine_base_url: str, engine_client: httpx.AsyncClient
+    engine_base_url: str,
+    engine_client: httpx.AsyncClient,
+    audit_sink: Any,
+    audit_tenant: str,
 ) -> None:
     """T1.2/ADR-0026 acceptance: ONE function-based module driven end-to-end through the REAL
     harness + REAL engine via `FunctionWorker` — not a raw closure like the tests above, and not
@@ -219,7 +243,13 @@ async def test_function_worker_module_end_to_end(
     )
 
     transport = CibSevenWorkerTransport(engine_base_url)
-    harness = WorkerHarness(transport, worker_id=f"it-worker-{RUN_ID}", async_response_timeout_ms=2_000)
+    harness = WorkerHarness(
+        transport,
+        worker_id=f"it-worker-{RUN_ID}",
+        tenant=audit_tenant,
+        async_response_timeout_ms=2_000,
+        audit_sink=audit_sink,
+    )
     harness.register_worker(FunctionWorker(topic, resolve_facts))
 
     try:

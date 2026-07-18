@@ -294,8 +294,14 @@ async def deploy_artifacts(engine: EngineRest) -> str:
 
 
 @pytest_asyncio.fixture
-async def auth_probe(engine: EngineRest) -> AsyncIterator[AuthEngineProbe]:
-    """Probe que serve as external tasks com os workers reais Phase-1 de auth."""
+async def auth_probe(
+    engine: EngineRest, audit_sink: Any, audit_tenant: str
+) -> AsyncIterator[AuthEngineProbe]:
+    """Probe que serve as external tasks com os workers reais Phase-1 de auth.
+
+    T1.10 wave: completions são emit-before-complete contra o sink durável REAL da lane
+    (PostgresAuditSink, migrações aplicadas) — um harness sem sink agora recusa completar.
+    """
     worker_id = f"qa-auth-worker-{uuid.uuid4().hex[:8]}"
     transport = CibSevenWorkerTransport(CIBSEVEN_BASE_URL)
     # T3.1 (auth-denial-hardening): ERR_AUTH_DENIAL_INCOMPLETE is catchable by SP-OP-AUTH-001's own
@@ -308,8 +314,10 @@ async def auth_probe(engine: EngineRest) -> AsyncIterator[AuthEngineProbe]:
     harness = WorkerHarness(
         transport,
         worker_id=worker_id,
+        tenant=audit_tenant,
         lock_duration_ms=10_000,
         bpmn_error_allowlist=AUTH_BPMN_ERROR_ALLOWLIST,
+        audit_sink=audit_sink,
     )
     kafka = FakeKafkaPublisher()
     register_auth_workers(harness, kafka)
