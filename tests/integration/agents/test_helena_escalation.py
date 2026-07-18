@@ -47,6 +47,7 @@ from maezo.tools.mcp_cibseven.transport import CibSevenHttpTransport
 from maezo.tools.workers.dmn_transport import CibSevenDmnTransport
 from maezo.tools.workers.escalation import register_escalation_workers
 from maezo.tools.workers.harness import CibSevenWorkerTransport, WorkerHarness
+from tests.support.audit_fakes import FakeStartAuditSink
 
 from ._engine_helpers import active_instances, candidate_groups, noop_events_publish, wait_for_task
 
@@ -136,7 +137,15 @@ async def test_red_flag_message_starts_escalation_with_correct_business_key_and_
         ]
     )
 
-    graph = build({"inference": inference, "dmn": dmn, "cibseven": cibseven, "whatsapp": whatsapp})
+    graph = build(
+        {
+            "inference": inference,
+            "dmn": dmn,
+            "cibseven": cibseven,
+            "whatsapp": whatsapp,
+            "audit_sink": FakeStartAuditSink(),
+        }
+    )
     compiled = graph.compile()
 
     try:
@@ -194,7 +203,15 @@ async def test_non_red_flag_message_never_starts_escalation(
         ]
     )
 
-    graph = build({"inference": inference, "dmn": dmn, "cibseven": cibseven, "whatsapp": whatsapp})
+    graph = build(
+        {
+            "inference": inference,
+            "dmn": dmn,
+            "cibseven": cibseven,
+            "whatsapp": whatsapp,
+            "audit_sink": FakeStartAuditSink(),
+        }
+    )
     compiled = graph.compile()
 
     try:
@@ -243,7 +260,15 @@ async def test_psychosocial_risk_always_escalates_even_when_intent_looks_adminis
         ]
     )
 
-    graph = build({"inference": inference, "dmn": dmn, "cibseven": cibseven, "whatsapp": whatsapp})
+    graph = build(
+        {
+            "inference": inference,
+            "dmn": dmn,
+            "cibseven": cibseven,
+            "whatsapp": whatsapp,
+            "audit_sink": FakeStartAuditSink(),
+        }
+    )
     compiled = graph.compile()
 
     try:
@@ -309,7 +334,15 @@ async def test_malformed_classifier_json_escalates_falha_tecnica(
         ]
     )
 
-    graph = build({"inference": inference, "dmn": dmn, "cibseven": cibseven, "whatsapp": whatsapp})
+    graph = build(
+        {
+            "inference": inference,
+            "dmn": dmn,
+            "cibseven": cibseven,
+            "whatsapp": whatsapp,
+            "audit_sink": FakeStartAuditSink(),
+        }
+    )
     compiled = graph.compile()
 
     try:
@@ -417,7 +450,15 @@ async def test_cpf_bearing_field_value_never_reaches_engine_variables_live(
         ]
     )
 
-    graph = build({"inference": inference, "dmn": dmn, "cibseven": cibseven, "whatsapp": whatsapp})
+    graph = build(
+        {
+            "inference": inference,
+            "dmn": dmn,
+            "cibseven": cibseven,
+            "whatsapp": whatsapp,
+            "audit_sink": FakeStartAuditSink(),
+        }
+    )
     compiled = graph.compile()
 
     try:

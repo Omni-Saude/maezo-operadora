@@ -43,6 +43,7 @@ from maezo.agents.gustavo.graph import (
 )
 from maezo.tools.mcp_cibseven.transport import CibSevenError, FakeCibSevenTransport, ProcessInstance
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
+from tests.support.audit_fakes import FakeStartAuditSink
 
 _AGENTS_ROOT = Path(__file__).parent.parent.parent.parent / "spec" / "agents"
 
@@ -135,12 +136,14 @@ def _graph(
     inference: Any | None = None,
     dmn: FakeDmnTransport | None = None,
     cibseven: FakeCibSevenTransport | None = None,
+    audit_sink: Any | None = None,
     fhir: Any | None = None,
 ) -> GustavoGraph:
     return GustavoGraph(
         inference=inference or _FakeInference(),
         dmn=dmn or FakeDmnTransport(),
         cibseven=cibseven or FakeCibSevenTransport(),
+        audit_sink=audit_sink or FakeStartAuditSink(),
         fhir=fhir,
     )
 
@@ -251,7 +254,12 @@ def test_build_requires_inference_dmn_cibseven() -> None:
 
 def test_build_without_fhir_still_compiles() -> None:
     graph = build(
-        {"inference": _FakeInference(), "dmn": FakeDmnTransport(), "cibseven": FakeCibSevenTransport()}
+        {
+            "inference": _FakeInference(),
+            "dmn": FakeDmnTransport(),
+            "cibseven": FakeCibSevenTransport(),
+            "audit_sink": FakeStartAuditSink(),
+        }
     )
     compiled = graph.compile()
     node_names = {n for n in compiled.get_graph().nodes if n not in ("__start__", "__end__")}

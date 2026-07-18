@@ -38,6 +38,7 @@ from maezo.tools.mcp_cibseven.transport import CibSevenHttpTransport
 from maezo.tools.workers.auth import register_auth_workers
 from maezo.tools.workers.dmn_transport import CibSevenDmnTransport
 from maezo.tools.workers.harness import CibSevenWorkerTransport, WorkerHarness
+from tests.support.audit_fakes import FakeStartAuditSink
 
 from ._engine_helpers import active_instances, candidate_groups, noop_events_publish, wait_for_task
 
@@ -99,7 +100,9 @@ async def test_human_review_auth_request_reaches_medico_auditor_task(
         ]
     )
 
-    graph = build({"inference": inference, "dmn": dmn, "cibseven": cibseven})
+    graph = build(
+        {"inference": inference, "dmn": dmn, "cibseven": cibseven, "audit_sink": FakeStartAuditSink()}
+    )
     compiled = graph.compile()
 
     try:
@@ -162,7 +165,9 @@ async def test_auto_approve_path_starts_process_without_reaching_human_task(
     cibseven = CibSevenHttpTransport(engine_base_url, timeout=30.0)
     inference = _FakeInference(["Dossie factual: dentro dos criterios de aprovacao automatica."])
 
-    graph = build({"inference": inference, "dmn": dmn, "cibseven": cibseven})
+    graph = build(
+        {"inference": inference, "dmn": dmn, "cibseven": cibseven, "audit_sink": FakeStartAuditSink()}
+    )
     compiled = graph.compile()
 
     try:

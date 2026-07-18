@@ -39,6 +39,7 @@ import pytest
 from maezo.agents.marina.graph import build
 from maezo.tools.mcp_cibseven.transport import CibSevenHttpTransport
 from maezo.tools.workers.dmn_transport import CibSevenDmnTransport
+from tests.support.audit_fakes import FakeStartAuditSink
 
 from ._engine_helpers import active_instances
 
@@ -81,7 +82,9 @@ async def test_contas_assess_evaluates_real_deployed_dmn_and_originates_process(
         ["Dossie factual: glosa candidata classificada como tecnica pela DMN; analise humana obrigatoria."]
     )
 
-    graph = build({"inference": inference, "dmn": dmn, "cibseven": cibseven})
+    graph = build(
+        {"inference": inference, "dmn": dmn, "cibseven": cibseven, "audit_sink": FakeStartAuditSink()}
+    )
     compiled = graph.compile()
 
     try:

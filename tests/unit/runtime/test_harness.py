@@ -3,6 +3,7 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from tests.support.audit_fakes import FakeStartAuditSink
 
 from maezo.runtime.harness import Harness, UnknownAgentError
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
@@ -76,6 +77,7 @@ def test_create_graph_helena_resolves_real_build() -> None:
             "dmn": FakeDmnTransport(),
             "cibseven": FakeCibSevenTransport(),
             "whatsapp": _fake_whatsapp(),
+            "audit_sink": FakeStartAuditSink(),
         },
     )
 
@@ -100,7 +102,11 @@ def test_create_graph_gustavo_resolves_real_build() -> None:
     contract as helena/rafael: `self._tool_deps` merged with `inference`; `fhir` optional."""
     harness = Harness(
         inference=MagicMock(),
-        tool_deps={"dmn": FakeDmnTransport(), "cibseven": FakeCibSevenTransport()},
+        tool_deps={
+            "dmn": FakeDmnTransport(),
+            "cibseven": FakeCibSevenTransport(),
+            "audit_sink": FakeStartAuditSink(),
+        },
     )
 
     graph = harness.create_graph("gustavo")
@@ -136,6 +142,7 @@ def test_create_graph_lucas_resolves_real_build() -> None:
             "dmn": FakeDmnTransport(),
             "cibseven": FakeCibSevenTransport(),
             "whatsapp": _fake_whatsapp(),
+            "audit_sink": FakeStartAuditSink(),
         },
     )
 
