@@ -8,6 +8,7 @@ directly (no mocking needed — they're pure Python).
 
 from __future__ import annotations
 
+import json
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -17,6 +18,7 @@ import pytest
 from maezo.tools.mcp_cibseven.transport import (
     CibSevenError,
     CibSevenHttpTransport,
+    CibSevenVariableDecodeError,
     FakeCibSevenTransport,
     ProcessInstance,
     ProcessNotFoundError,
@@ -60,6 +62,25 @@ async def test_fake_get_process_status_raises_when_not_found() -> None:
     fake = FakeCibSevenTransport()
     with pytest.raises(ProcessNotFoundError):
         await fake.get_process_status("nope")
+
+
+async def test_fake_get_process_status_mirrors_real_transport_decoded_objects() -> None:
+    """T1.1 sibling fix: the fake must mirror the real (post-fix) transport's contract —
+    callers of `get_process_status` see decoded Python objects (list/dict), never a raw JSON
+    string and never a silently-dropped `{}` (mirrors `test_fake_transport_mirrors_real_
+    transport_decoded_python_objects` in `tests/unit/tools/workers/test_harness.py`)."""
+    fake = FakeCibSevenTransport()
+    await fake.start_process_instance(
+        "SP-OP-CONTAS-001",
+        "CONTAS-amh-1",
+        {"linhas_conta_refs": [{"numero_guia_tiss": "G1"}], "numero_lote_tiss": "L1"},
+    )
+
+    status = await fake.get_process_status("CONTAS-amh-1")
+
+    assert status.variables["linhas_conta_refs"] == [{"numero_guia_tiss": "G1"}]
+    assert isinstance(status.variables["linhas_conta_refs"], list)
+    assert status.variables["numero_lote_tiss"] == "L1"
 
 
 async def test_fake_correlate_message_records_calls() -> None:
@@ -167,6 +188,32 @@ async def test_http_start_process_instance_long_typed_above_int32() -> None:
     assert payload["variables"]["valor_pagamento_cents"] == {"value": huge, "type": "Long"}
 
 
+async def test_http_start_process_instance_dict_and_list_variables_round_trip_as_json() -> None:
+    """Symmetric outbound path check (T1.1 task item 2): `_to_camunda_vars` already serializes
+    dict/list process variables as `{"value": json.dumps(v), "type": "Json"}` — the exact wire
+    counterpart the inbound `_from_camunda_var` fix (this PR) now decodes on read. Confirms the
+    outbound half of the contract was already correct (not a second defect) by round-tripping
+    the emitted `value` string back through `json.loads`."""
+    transport = CibSevenHttpTransport("http://engine/engine-rest")
+    transport._client.post = AsyncMock(return_value=_mock_response({"id": "proc-4"}))  # type: ignore[method-assign]
+
+    linhas = [{"numero_guia_tiss": "G1", "valor_apresentado_centavos": 1000}]
+    dossie = {"a": 1, "b": [1, 2, 3]}
+    await transport.start_process_instance(
+        "SP-OP-CONTAS-001",
+        "CONTAS-amh-1",
+        {"linhas_conta_refs": linhas, "dossie": dossie},
+    )
+
+    payload = transport._client.post.call_args[1]["json"]
+    linhas_var = payload["variables"]["linhas_conta_refs"]
+    dossie_var = payload["variables"]["dossie"]
+    assert linhas_var["type"] == "Json"
+    assert dossie_var["type"] == "Json"
+    assert json.loads(linhas_var["value"]) == linhas
+    assert json.loads(dossie_var["value"]) == dossie
+
+
 async def test_http_start_process_instance_raises_cibseven_error_on_http_failure() -> None:
     transport = CibSevenHttpTransport("http://engine/engine-rest")
     transport._client.post = AsyncMock(  # type: ignore[method-assign]
@@ -194,6 +241,107 @@ async def test_http_correlate_message_posts_message_endpoint() -> None:
     payload = call_args[1]["json"]
     assert payload["messageName"] == "msg.auth.docs_received"
     assert payload["businessKey"] == "AUTH-amh-1"
+
+
+# ---------------------------------------------------------------------------
+# get_process_status — Json-typed variable decode (T1.1 sibling of the harness fix, PR #75)
+# ---------------------------------------------------------------------------
+
+
+def _route_process_status_gets(
+    routes: dict[str, Any], *, calls: list[tuple[str, dict[str, Any] | None]] | None = None
+) -> Any:
+    """Build a `side_effect` for `transport._client.get` that dispatches on the request path,
+    mirroring the real engine: `find_active_instance` queries `/process-instance` first, then
+    `get_process_status` follows up with `/process-instance/{id}/variables`. `calls`, if given,
+    records `(url, params)` for every GET so a test can assert on the exact query sent."""
+
+    def _get(url: str, params: dict[str, Any] | None = None) -> MagicMock:
+        if calls is not None:
+            calls.append((url, params))
+        if url not in routes:
+            raise AssertionError(f"unexpected GET {url}")
+        return routes[url]
+
+    return _get
+
+
+async def test_http_get_process_status_decodes_json_typed_variable() -> None:
+    """T1.1 sibling defect (identical shape to the harness fix merged in PR #75, mirrored here
+    at the `mcp_cibseven` transport seam): CIB Seven's `/process-instance/{id}/variables`
+    returns a `Json`-typed variable's `value` as a JSON STRING — the exact wire shape
+    `tools/workers/harness.py`'s `_from_camunda_var` already decodes on the engine->worker
+    leg. Before this fix, `get_process_status` extracted variables via a bare `.get("value")`,
+    so a list-valued process variable (e.g. SP-OP-CONTAS-001's `linhas_conta_refs`) arrived as
+    the raw string `'[{"numero_guia_tiss": "G1", ...}]'` instead of a Python `list` — any
+    caller iterating/indexing it would break or silently misbehave."""
+    calls: list[tuple[str, dict[str, Any] | None]] = []
+    transport = CibSevenHttpTransport("http://engine/engine-rest")
+    transport._client.get = AsyncMock(  # type: ignore[method-assign]
+        side_effect=_route_process_status_gets(
+            {
+                "/process-instance": _mock_response(
+                    [{"id": "proc-1", "processDefinitionKey": "SP-OP-CONTAS-001"}]
+                ),
+                "/process-instance/proc-1/variables": _mock_response(
+                    {
+                        "linhas_conta_refs": {
+                            "value": '[{"numero_guia_tiss": "G1", "valor_apresentado_centavos": 1000}]',
+                            "type": "Json",
+                        },
+                        "numero_lote_tiss": {"value": "L1", "type": "String"},
+                        "dossie": {"value": '{"a": 1, "b": [1, 2, 3]}', "type": "Json"},
+                        "dossie_vazio": {"value": None, "type": "Json"},
+                    }
+                ),
+            },
+            calls=calls,
+        )
+    )
+
+    status = await transport.get_process_status("CONTAS-amh-1")
+
+    assert status.variables["linhas_conta_refs"] == [
+        {"numero_guia_tiss": "G1", "valor_apresentado_centavos": 1000}
+    ]
+    assert isinstance(status.variables["linhas_conta_refs"], list)  # NOT the raw JSON string
+    assert status.variables["numero_lote_tiss"] == "L1"  # non-Json types unaffected
+    assert status.variables["dossie"] == {"a": 1, "b": [1, 2, 3]}  # dict-valued Json too
+    assert status.variables["dossie_vazio"] is None  # null Json value -> None, never crashes
+
+    # Live-caught (T1.1): `GET /process-instance/{id}/variables` server-side "deserializes" a
+    # `Json`-typed value into a useless Jackson `JsonNode` bean reflection UNLESS
+    # `deserializeValues=false` is explicitly requested — a DIFFERENT default than
+    # `fetchAndLock`'s (harness, PR #75), which already returns the raw JSON string with no
+    # flag needed. Without this param the mocked assertions above would pass (they assert
+    # against a hand-authored fixture, not the engine's real default shape) while the real
+    # engine would silently hand back bean-reflection garbage — this assertion locks in the
+    # actual outbound request shape the live engine requires.
+    variables_call = next(c for c in calls if c[0] == "/process-instance/proc-1/variables")
+    assert variables_call[1] == {"deserializeValues": "false"}
+
+
+async def test_http_get_process_status_malformed_json_variable_fails_closed() -> None:
+    """Fail-closed contract (mirrors `tools/workers/harness.py`'s `fetch_and_lock` decode
+    contract, PR #75): malformed JSON inside a `Json`-typed process variable must NEVER be
+    handed to the caller as the raw string (silent corruption). `get_process_status` raises a
+    coded `CibSevenVariableDecodeError` instead of swallowing it into an empty/partial result."""
+    transport = CibSevenHttpTransport("http://engine/engine-rest")
+    transport._client.get = AsyncMock(  # type: ignore[method-assign]
+        side_effect=_route_process_status_gets(
+            {
+                "/process-instance": _mock_response(
+                    [{"id": "proc-9", "processDefinitionKey": "SP-OP-ESCALATION-001"}]
+                ),
+                "/process-instance/proc-9/variables": _mock_response(
+                    {"linhas_conta_refs": {"value": "{not-valid-json[", "type": "Json"}}
+                ),
+            }
+        )
+    )
+
+    with pytest.raises(CibSevenVariableDecodeError):
+        await transport.get_process_status("ESC-amh-9")
 
 
 async def test_http_close_closes_client() -> None:
