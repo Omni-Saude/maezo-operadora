@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from maezo.tools.mcp_cibseven.transport import start_process_idempotent
 from maezo.tools.workers.base import FunctionWorker
 from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row, require_dmn
 
@@ -464,10 +465,51 @@ register_contract_suspension = _register_contract_suspension
 # ---------------------------------------------------------------
 
 
-def handoff_rescisao(variables: dict[str, Any]) -> dict[str, Any]:
-    """Neutral handoff: initiate/correlate CANCEL-001 for rescission.
+#: PHI-safe allowlist of process variables carried into the CANCEL-001 start payload (the handoff
+#: hands CANCEL the RN-593 evidence so its `notificacao_previa_feita=true` branch routes to
+#: SEGUE_ANALISE without re-opening the cure-window — INADIMPLENCIA owns the cure-window, CANCEL
+#: must not re-run it (harmonization-inadimplencia-cancel.md §2). Explicit allowlist (never a
+#: passthrough of the full variable dict): only bounded identifiers/enums/refs, no raw PHI.
+_HANDOFF_CARRY_KEYS = (
+    "numero_contrato",
+    "matricula_beneficiario",
+    "tenant_id",
+    "tipo_plano",
+    "meses_inadimplencia",
+    "notificacao_previa_feita",
+    "comprovacao_notificacao_previa",
+    "comprovacao_periodo_minimo",
+    "referencia_regulatoria",
+    "fundamentacao_contratual",
+    "documentos_refs",
+    # The inadimplencia human who decided ENCAMINHAR_RESCISAO — carried for the ADR-0007 audit
+    # trail; CANCEL's OWN human gate (UT_AnaliseRescisao) re-confirms the rescisao decision.
+    "responsavel_id",
+)
 
-    This is NOT an adverse effect — CANCEL-001 owns the sole rescission terminal.
+
+def handoff_rescisao(variables: dict[str, Any], *, engine: CibSevenTransport | None = None) -> dict[str, Any]:
+    """Neutral handoff: idempotently START/correlate SP-OP-CANCEL-001 for the rescission.
+
+    NOT an adverse effect — CANCEL-001 owns the sole rescission terminal, human-gated by its OWN
+    `UT_AnaliseRescisao` (harmonization-inadimplencia-cancel.md §2). When the INADIMPLENCIA human
+    decides `ENCAMINHAR_RESCISAO`, this worker starts CANCEL-001 (business key
+    ``CANCEL-{tenant}-{numero_contrato}``, matricula fallback for individual/familiar) via the
+    shared, business-key-idempotent ``start_process_idempotent`` chokepoint — an already-active
+    CANCEL instance for this contract is returned unchanged (no duplicate rescisao).
+
+    P1-safe mid-handler effect (design §4.2, "MUST-FIX 1"): the ONLY external effect here is the
+    business-key-idempotent process start, whose dedup makes a re-delivery return the SAME active
+    instance — no double-effect — so it is exempt from the "no mid-handler external effect" rule.
+    The business key is a DETERMINISTIC function of process variables (no wall-clock / uuid), so a
+    re-run keys the same instance.
+
+    FAIL-CLOSED (never a silent no-op — mirrors fraude's ``start_contratual`` handoff intent):
+      - a transport/engine error propagates from ``start_process_idempotent`` (``CibSevenError`` ->
+        transient -> engine retry -> incident);
+      - a missing engine seam (``engine is None`` — composition root not wired) raises (transient);
+      - a missing contract identity raises ``InadimplenciaError`` (deterministic -> immediate
+        incident) — the handoff can never target an empty CANCEL business key.
     """
     decisao = variables.get("decisao_inadimplencia", "")
     if decisao != DECISAO_ENCAMINHAR_RESCISAO:
@@ -477,14 +519,70 @@ def handoff_rescisao(variables: dict[str, Any]) -> dict[str, Any]:
         )
         return {"handoff_executado": False}
 
+    tenant_id = str(variables.get("tenant_id", ""))
+    numero_contrato = str(variables.get("numero_contrato", ""))
+    matricula_beneficiario = str(variables.get("matricula_beneficiario", ""))
+
+    if not (numero_contrato or matricula_beneficiario):
+        # No contract identity -> cannot key CANCEL-001 -> refuse (deterministic bad input).
+        logger.error(
+            "inadimplencia_handoff_rescisao_no_contract_identity",
+            tenant_id=tenant_id,
+        )
+        raise InadimplenciaError(
+            ERR_INAD_INVALID_CONTRATO,
+            "handoff_rescisao: sem numero_contrato/matricula_beneficiario — nao ha identidade de "
+            "contrato para iniciar CANCEL-001 (recusado, nunca inicia com business key vazia)",
+        )
+
+    if engine is None:
+        # Composition root has not wired the agent->engine seam: fail closed (never a silent
+        # no-op that would drop the human's ENCAMINHAR_RESCISAO decision). Transient RuntimeError
+        # -> engine-computed retry -> incident (mirrors require_dmn's unwired-seam posture).
+        logger.error(
+            "inadimplencia_handoff_rescisao_engine_seam_not_wired",
+            numero_contrato=numero_contrato or matricula_beneficiario,
+        )
+        raise RuntimeError(
+            "handoff_rescisao: engine seam (CibSevenTransport) not wired — cannot start CANCEL-001; "
+            "failing closed to a retry/incident (never a silent no-op)"
+        )
+
+    cancel_business_key = _cancel_business_key(tenant_id, numero_contrato, matricula_beneficiario)
+    payload: dict[str, Any] = {
+        "tipo_solicitacao": "inadimplencia",
+        "origem_solicitacao": "operadora",  # handoff origin (harmonization §2)
+        **{k: variables[k] for k in _HANDOFF_CARRY_KEYS if k in variables},
+    }
+
+    # T-C2 RECONCILE NOTE (10th start site): this is a NEW `start_process_idempotent` call site,
+    # in addition to the 9 agent-graph sites the design's SHOULD-FIX 3 enumerates. Called against
+    # the CURRENT signature on main; when T-C2 fences the chokepoint with REQUIRED
+    # `audit_sink=`/`provenance=` params, this site must supply them — the provenance-ready values
+    # are already assembled in `payload`/`responsavel_id` so the reconcile is mechanical.
+    instance = asyncio.run(
+        start_process_idempotent(
+            engine,
+            process_key=CANCEL_PROCESS_KEY,
+            business_key=cancel_business_key,
+            variables=payload,
+        )
+    )
+
     logger.info(
         "inadimplencia_handoff_rescisao",
-        numero_contrato=variables.get("numero_contrato"),
+        numero_contrato=numero_contrato or matricula_beneficiario,
+        cancel_business_key=cancel_business_key,
+        cancel_instance_id=instance.instance_id,
+        cancel_already_existed=instance.already_existed,
     )
 
     return {
         "handoff_executado": True,
         "processo_destino": "SP-OP-CANCEL-001",
+        "cancel_business_key": cancel_business_key,
+        "cancel_instance_id": instance.instance_id,
+        "cancel_already_existed": instance.already_existed,
     }
 
 
@@ -534,13 +632,16 @@ def register_inadimplencia_workers(
     `dmn` (ADR-0028 §1 seam) is threaded into `assess_status` (`inadimplencia_status`, T1.5
     cutover) via `functools.partial`; no other function here evaluates a DMN table.
 
-    `engine` (a `CibSevenTransport`, the SAME `find_active_instance` seam the agent graphs use for
-    start-time idempotency, ADR-0001/T1.11) is threaded into `resolve_facts` for the anti-dupla-
-    terminacao cross-process query (GAP-INAD-1). When ABSENT (`None` — e.g. the composition root has
-    not yet wired the seam), `resolve_facts` FAILS CLOSED (`ja_em_rescisao_cancel := True`) and the
-    `register_contract_suspension` guard REFUSES the suspension, routing to a human (ADR-0018). The
-    seam flows in through the standard `**seams` channel (`register_all_workers(harness, ...,
-    engine=...)`), identical to how `dmn` is threaded — no other bootstrap needs to change.
+    `engine` (a `CibSevenTransport`, the SAME `find_active_instance`/`start_process` seam the agent
+    graphs use, ADR-0001/T1.11) is threaded into BOTH engine-touching workers:
+      - `resolve_facts` — the anti-dupla-terminacao cross-process `find_active_instance` query
+        (GAP-INAD-1). ABSENT (`None`) -> FAILS CLOSED (`ja_em_rescisao_cancel := True`), so the
+        `register_contract_suspension` guard REFUSES the suspension (ADR-0018).
+      - `handoff_rescisao` — the CANCEL-001 `start_process_idempotent` start (T1.10 T-D). ABSENT
+        (`None`) -> RAISES (never a silent no-op that would drop the human's ENCAMINHAR_RESCISAO).
+    The seam flows in through the standard `**seams` channel (`register_all_workers(harness, ...,
+    engine=...)`), identical to how `dmn` is threaded — no other bootstrap needs to change. In the
+    live daemon it is a `FreshClientCibSevenTransport` (fresh-client-per-call, GAP-INAD-1).
     """
     del kafka  # unused — no inadimplencia.py worker declares a Kafka dependency
     dmn = seams.get("dmn")
@@ -559,5 +660,10 @@ def register_inadimplencia_workers(
     harness.register_worker(
         FunctionWorker("operadora.inadimplencia.register_contract_suspension", register_contract_suspension)
     )
-    harness.register_worker(FunctionWorker("operadora.inadimplencia.handoff_rescisao", handoff_rescisao))
+    harness.register_worker(
+        FunctionWorker(
+            "operadora.inadimplencia.handoff_rescisao",
+            functools.partial(handoff_rescisao, engine=engine),
+        )
+    )
     harness.register_worker(FunctionWorker("operadora.inadimplencia.notify_sla_risk", notify_sla_risk))
