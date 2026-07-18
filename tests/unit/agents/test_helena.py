@@ -15,7 +15,14 @@ from typing import Any
 import pytest
 import yaml
 
-from maezo.agents.helena.graph import HelenaGraph, HelenaState, _business_key, _to_hash_from_state, build
+from maezo.agents.helena.graph import (
+    HELENA_INPUT_FIELDS,
+    HelenaGraph,
+    HelenaState,
+    _business_key,
+    _to_hash_from_state,
+    build,
+)
 from maezo.tools.mcp_cibseven.transport import CibSevenError, FakeCibSevenTransport, ProcessInstance
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
 
@@ -163,10 +170,17 @@ async def test_receive_missing_runtime_context_escalates() -> None:
     assert "error" in result
 
 
-async def test_receive_with_context_passes_through() -> None:
+async def test_receive_with_context_resets_all_output_fields_to_neutral() -> None:
+    """T1.11 layer-1 entry sanitization: with valid runtime context, `receive` no longer
+    passes through untouched — it resets EVERY output-only field to its neutral default so a
+    caller-planted value can never be read downstream. `error` must be neutral (falsy) so the
+    classify bail only ever fires on errors THIS graph set after the reset."""
     graph = _graph(inference=_FakeInference([]))
     result = await graph.receive(_base_state())
-    assert result == {}
+    assert frozenset(result) == frozenset(HelenaState.__annotations__) - HELENA_INPUT_FIELDS
+    assert not result["error"]
+    assert result["next_kind"] == "inform"
+    assert result["escalation_started"] is False
 
 
 # ---------------------------------------------------------------------------
