@@ -1,195 +1,545 @@
-"""Beatriz — Chronic Disease Care Agent (Phase 3, PROGRAMA).
+"""Beatriz Salgado — Investigadora de Fraude / Cadeia de Custodia (Phase 3, T1.12).
 
-Beatriz manages chronic disease care programs: assesses eligibility,
-designs care plans, and monitors adherence. She operates in the PHI
-security zone (ADR-0006), processing PHI only after the consent gate.
+Journey (mirrors the v1 donor's structure, READ-ONLY reference `Maezo-Healthcare-Plan
+src/maezo/agents/beatriz/graph.py`, adapted to v2's flatter seam set — same rationale as
+`agents/rafael/graph.py`'s/`agents/marina/graph.py`'s module docstrings). The graph is REDUCED
+to a single substantive node (`instruct_investigation`, the Rafael/Beatriz principle):
 
-L0 HARD INVARIANT: Beatriz NEVER exercises clinical_decision. Program
-discharge (alta/desligamento clínico) is exclusively a human clinical
-decision via UT_DecisaoClinica in SP-OP-PROGRAMA-001. The adverse effect
-register_program_discharge is guarded by ERR_PROGRAM_DISCHARGE_NOT_HUMAN
-in the engine — never triggered by Beatriz's graph.
+    receive -> gather -> instruct_investigation -> finalize
 
-Her graph consists of:
-- assess_eligibility: assesses program eligibility (consent-gated, NEVER denies care)
-- design_care_plan: designs the care plan and risk stratification dossier
-- monitor_adherence: monitors program adherence (NEVER decides discharge)
+Beatriz serves SP-OP-FRAUDE-001 (Investigacao de Fraude — Cadeia de Custodia): convoked via A2A
+`fraude.investigate` by the engine's own service tasks (`operadora.fraude.gather_evidence` /
+`operadora.fraude.assemble_dossier`), she COLLECTS/normalizes the case evidence (PSEUDONYMIZED
+pointers + hashes — never raw PHI) and ASSEMBLES the investigation dossier from the
+`indicadores_presentes`/`score_indicadores` that arrive PRE-RESOLVED by the worker
+`operadora.fraude.score_indicators` (T2.7: the 7 `fraude_scoring/*` DMNs evaluated engine-side;
+`fraude_indicadores`/`fraude_routing` are engine-native `businessRuleTask`s downstream in the
+SAME BPMN). The LLM REASONS over the observed facts/indicators to organize the case — it NEVER
+decides. This graph evaluates NO DMN and starts NO process: per the R1-audited
+`spec/agents/beatriz/agent.yaml` (tools allowlist TIGHT — `mcp-fhir.read_patient` +
+`mcp-memory.read_write` ONLY; `mcp-cibseven.start_process`/`mcp-dmn.evaluate` deliberately NOT
+declared), the ENGINE drives SP-OP-FRAUDE-001 and convokes Beatriz — she never starts it and
+never re-evaluates the scoring chain (the donor's `len(evidencia)*10` heuristic was defect B10,
+deleted in T2.7 — nothing here reintroduces any score arithmetic).
+
+L0 HARD STRUCTURAL GUARDRAIL (invariant of SP-OP-FRAUDE-001; ADR-0005/0008/0018, CI-enforced;
+KPIs `zero_auto_accusation == 0` / `false_accusation_rate == 0`): Beatriz NEVER accuses fraud,
+NEVER decides fraud, NEVER produces an adverse verdict — she instructs the investigation and a
+HUMAN decides (`UT_DecisaoInvestigador`, over the SEALED `bundle_root`). Structurally:
+  - There is NO fraud-accusation path in her route/desfecho type: `Desfecho` admits ONLY
+    `{"dossie_instruido", "instrucao_incompleta"}` — no ACUSAR/FRAUD_DETECTED/BLOQUEAR/
+    DESCREDENCIAR variant exists in the type, and the graph has NO conditional edge at all
+    (linear, single entry) — there is no branch that could even express an adverse outcome.
+  - `BeatrizState` has NO `decisao_fraude`/`bundle_root`/`destino_referral` channel — those
+    variables cannot even be transported by this graph's state, let alone set. The dossier
+    carries them explicitly as ALWAYS-`None` guardrail fields (`_build_dossier`) to make it
+    unmistakable that the decision belongs to the human and the sealing to the engine worker
+    (`operadora.fraude.seal_custody_bundle` / gated `register_fraud_accusation`, guarded by
+    `ERR_FRAUD_ACCUSATION_NOT_HUMAN` — workers untouched by this build).
+  - A high `score_indicadores` is a ROUTING FACT ("investigate more"), NEVER a verdict: the
+    score is CONSUMED from the pre-resolved input, coerced defensively, and echoed to the
+    dossier as an observed fact — no branch reads it to change behavior, and no code path
+    derives it from the evidence.
+
+CUSTODY / NO-PHI-IN-CUSTODY (ADR-0006/0020): everything reaching this graph is already
+pseudonymized (`entidade_pseudo_id`/`beneficiario_pseudo_id`/`prestador_id` — never
+CPF/CNPJ/nome/CNS). The evidence Beatriz assembles leaves as VALIDATED pointer projections only:
+`gather` refuses any item without a `ref`, refuses any item carrying a known raw-PHI key, and
+PROJECTS surviving items to the closed key allowlist `{ref, hash, tipo, origem}` — so even an
+unknown extra key smuggling raw PHI in its value is stripped before the dossier (defense in
+depth; the hard barrier remains the `seal_custody_bundle` worker's `ERR_PHI_IN_CUSTODY` guard).
+TASY write DROP (ADR-0013): CDC is consumed, Tasy is never written.
+
+CALLER-PLANTED-OUTPUT SANITIZATION (baked in from the start — the R1 cycle-1 defect class all
+four tranche-1 graphs had, per fernando/carolina/marina's proven fix): `receive` is the SINGLE
+entry (one edge START->receive) and merges `_output_field_resets()` on ALL its paths BEFORE
+gather/instruct run, so a hostile caller pre-planting output fields (a forged/accusation-shaped
+`dossier`, a forged `evidencia_normalizada`, a planted `desfecho="dossie_instruido"`, a planted
+`error`, a forged `business_key`) can NEVER flow verbatim into the dossier the engine will seal
+into the custody chain. For Beatriz this class is ESPECIALLY dangerous — a planted
+accusation-shaped value reaching the sealed dossier would be indistinguishable from agent
+output to the human investigator. `_CALLER_INPUT_FIELDS` + the partition-completeness test
+(`test_output_field_partition_is_complete`) keep the reset list structurally in sync with
+`BeatrizState`. Defense in depth: the `gather`/`instruct_investigation` error bails — reachable
+ONLY via `receive`'s own missing-context guard post-sanitization — re-assert the fail-safe
+`desfecho="instrucao_incompleta"` instead of returning `{}`.
+
+FAIL-CLOSED FAILURE POSTURE (class tokens only): every failure reason this graph records
+(`error`, `gather_notes`, dossier `lacunas`) is a BOUNDED CLASS TOKEN (e.g.
+`contexto_runtime_ausente`, `resumo_fhir_indisponivel`, `evidencia_recusada:<idx>`,
+`narrativa_indisponivel`) — NEVER an exception string, field value, or raw LLM output. The
+dossier is the corpus the engine seals into the ADR-0007 custody chain; echoing free text into
+it would smuggle unbounded content past the no-PHI guarantee. (Disclosed divergence from the
+donor, which interpolated `{exc}` into gather notes — spec's custody hygiene wins.) LLM/FHIR/
+gather failure NEVER blocks the instruction path and NEVER produces a silent auto-anything: the
+turn always ends at the human-bound dossier (`dossie_instruido`) or the explicit incomplete
+marker (`instrucao_incompleta`) — both of which SP-OP-FRAUDE-001 routes to the human
+investigator by design (`fraude_routing`'s output domain is exactly `{INVESTIGACAO_HUMANA}`).
+
+LABELED BOUNDARIES (this build, disclosed — never fabricated, same rationale as
+`agents/rafael/graph.py`'s/`agents/marina/graph.py`'s module docstrings):
+- `gather` uses a thin `PatientSummaryReader` Protocol over v2's generic FHIR server — NOT the
+  donor's PEP-gated `mcp-fhir.read_patient` ToolInvoker (v2 has no ToolRegistry/PEP gateway
+  wiring for agent tool calls yet, T2.4 gap). Best-effort: FHIR absence/failure degrades to a
+  dossier gap note, never a fabricated fact, never a blocked instruction.
+- No episodic memory write (`mcp-memory.read_write`, ADR-0002) in `finalize` — same rationale
+  as Helena's/Rafael's/Marina's graphs: v2's `MemoryServer` requires a live Postgres/pgvector
+  schema not yet wired into any agent graph in this repo.
+- No inbound A2A delegation adapter (`fraude.investigate` handler): v2's `a2a/` package has no
+  `DelegationEnvelope`/`DelegationDispatcher` yet (only `AgentCard`/`A2ARegistry`/
+  `AntiLoopGuard` exist) — same gap every T1.11/T1.12 graph discloses. The graph is invoked
+  directly with an already-assembled case state, as the unit tests do.
+- Unanchorable case (missing `tenant_id`/`numero_caso`): this build bails WITHOUT assembling a
+  dossier (`dossier` stays `{}`, `desfecho="instrucao_incompleta"`) — a disclosed divergence
+  from the donor, which assembled a best-effort dossier anyway. Rationale: without the
+  idempotent business key (`FRAUDE-{tenant}-{numero_caso}`, contract §Business key) the dossier
+  cannot be anchored to a case instance, and producing an unanchored corpus that could be
+  sealed would be worse than the explicit incomplete marker (spec's conservative-ambiguity
+  escalation trigger wins).
 """
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any, Literal, Protocol, TypedDict, cast
 
-from langgraph.graph import StateGraph
+from langgraph.graph import END, START, StateGraph
 
-from maezo.runtime.harness import AgentState
+from maezo.runtime.inference import InferenceProvider
+
+from .prompts import DOSSIER_PROMPT_VERSION, SYSTEM_PROMPT_VERSION, dossier_prompt
+
+# --- Domain enums (mirror the SP-OP-FRAUDE-001 contract) --------------------------------------
+
+# Investigated-entity type (contract input `entidade_tipo`).
+EntidadeTipo = Literal["prestador", "beneficiario", "contrato", "rede"]
+
+# Investigation intensity (DMN `fraude_indicadores` output, resolved ENGINE-SIDE by
+# `BRT_Indicadores` — arrives pre-resolved in state; a ROUTING FACT, never a verdict).
+Intensidade = Literal["LEVE", "APROFUNDADA", "PRIORITARIA"]
+
+# Turn outcome. STRUCTURALLY WITHOUT AN ADVERSE VARIANT (L0 hard, `zero_auto_accusation`): the
+# only outcomes this graph can produce are "the dossier was instructed/assembled" and "the
+# instruction is incomplete" — there is NO `fraude_confirmada`, NO `acusar`, NO `descredenciar`,
+# NO `referir` variant. Those are born SOLELY in the human User Task `UT_DecisaoInvestigador`.
+Desfecho = Literal["dossie_instruido", "instrucao_incompleta"]
+
+# Bounded failure-class tokens (module docstring §FAIL-CLOSED FAILURE POSTURE) — the ONLY
+# values ever written to `error`/`gather_notes`/dossier `lacunas` (plus the
+# `evidencia_recusada:<idx>` family, index-only by construction).
+ERROR_CONTEXTO_RUNTIME_AUSENTE = "contexto_runtime_ausente"
+NOTE_FHIR_READER_NAO_CONFIGURADO = "fhir_reader_nao_configurado"
+NOTE_RESUMO_FHIR_INDISPONIVEL = "resumo_fhir_indisponivel"
+NOTE_SEM_EVIDENCIA_NO_INTAKE = "sem_evidencia_no_intake"
+NOTE_NARRATIVA_INDISPONIVEL = "narrativa_indisponivel"
+NOTE_EVIDENCIA_RECUSADA_PREFIX = "evidencia_recusada"
+
+# Closed projection allowlist for a normalized evidence pointer (no-PHI-in-custody,
+# ADR-0006/0020): whatever else an inbound item carries is STRIPPED, never forwarded.
+_POINTER_ALLOWED_KEYS: frozenset[str] = frozenset({"ref", "hash", "tipo", "origem"})
+
+# Known raw-PHI key names — an item carrying ANY of these is refused whole (it signals upstream
+# contamination; laundering it via projection would hide the incident from the lacuna trail).
+_PHI_KEYS: frozenset[str] = frozenset(
+    {"cpf", "cnpj", "nome", "name", "nome_social", "cns", "rg", "telefone", "endereco", "email"}
+)
 
 
-def build() -> StateGraph[AgentState]:
-    """Build and return Beatriz's StateGraph for chronic disease care programs.
+class PatientSummaryReader(Protocol):
+    """Best-effort FHIR summary-read seam (`gather`). See module docstring's labeled boundary."""
 
-    Returns an uncompiled StateGraph[AgentState] wired as:
-    __start__ → assess_eligibility → design_care_plan → monitor_adherence → __end__
+    async def read_patient_summary(self, patient_id: str) -> dict[str, Any]: ...
 
-    Returns:
-        A StateGraph[AgentState] for Beatriz's care program workflow.
+
+# --- Graph state (working memory; ADR-0002) ----------------------------------------------------
+
+
+class BeatrizState(TypedDict, total=False):
+    """Investigation-case state. Every field is pseudonymized (ADR-0006): `entidade_pseudo_id`/
+    `beneficiario_pseudo_id`/`prestador_id` NEVER carry raw CPF/CNPJ/nome/CNS. The indicators
+    and score arrive PRE-RESOLVED by the `operadora.fraude.score_indicators` worker — Beatriz
+    CONSUMES them as assembly facts, never computes them, never turns them into a verdict.
+
+    Deliberately ABSENT channels (L0 hard): `decisao_fraude`, `bundle_root`, `destino_referral`
+    and every accusation/referral variable of the contract — this graph's state cannot even
+    transport them (`test_state_has_no_decision_channels`).
     """
-    graph: StateGraph[AgentState] = StateGraph(AgentState)
 
-    async def assess_eligibility_node(state: AgentState) -> dict[str, Any]:
-        """Assess beneficiary eligibility for care programs.
+    # --- Caller inputs (contract SP-OP-FRAUDE-001 §Variaveis de entrada) ---
+    tenant_id: str
+    numero_caso: str
+    origem_encaminhamento: str  # contas|recurso|reembolso|cancel|nip|cdc_proativo|denuncia|auditoria
+    entidade_tipo: EntidadeTipo
+    entidade_pseudo_id: str
+    prestador_id: str
+    beneficiario_pseudo_id: str
+    numero_contrato: str
+    encaminhado_por_id: str  # the Phase-2 HUMAN who set encaminhar_fraude (provenance)
+    competencia: str
+    evidencia_refs: list[dict[str, Any]]  # inbound pointers — normalized by `gather`, never raw PHI
+    feature_snapshot_ref: str
+    indicadores_presentes: list[str]  # PRE-RESOLVED by worker (assembly fact, NEVER verdict)
+    score_indicadores: int  # PRE-RESOLVED by worker (ROUTING FACT, NEVER verdict)
+    intensidade_investigacao: Intensidade  # engine-side BRT_Indicadores output (pre-resolved)
+    indicio_fraude_sinalizado: bool  # informative Phase-2 signal (NEVER decides)
+    patient_summary_ref: str  # FHIR reference for dossier enrichment (never raw PHI)
 
-        Verifies consent (CHOKEPOINT: fail-closed if no consent), evaluates
-        clinical criteria, and stratifies risk. NEVER denies care or decides
-        discharge — only produces eligibility assessment for the human clinician.
+    # --- Output-only fields (produced EXCLUSIVELY by this graph's nodes; reset at `receive`) ---
+    business_key: str  # FRAUDE-{tenant}-{numero_caso} (re-derived every turn)
+    gathered: bool
+    summary_facts: dict[str, Any]  # pseudonymized FHIR enrichment (best-effort)
+    evidencia_normalizada: list[dict[str, Any]]  # validated pointer PROJECTIONS (custody-bound)
+    gather_notes: list[str]  # bounded class tokens only (dossier lacunas)
+    dossier: dict[str, Any]  # the assembled instruction (NEVER a decision)
+    desfecho: Desfecho
+    error: str  # bounded class token only (technical failure — never an adverse outcome)
 
-        Args:
-            state: The current AgentState with beneficiary data.
 
-        Returns:
-            Updated state dict with eligibility assessment.
+# --- Helpers -----------------------------------------------------------------------------------
+
+
+def _business_key(state: BeatrizState) -> str:
+    """Idempotent business key per contract: `FRAUDE-{tenant_id}-{numero_caso}`."""
+    return f"FRAUDE-{state.get('tenant_id', '')}-{state.get('numero_caso', '')}"
+
+
+# --- State sanitization (caller-planted-output class, closed at the single entry) --------------
+
+#: The ONLY fields a caller may legitimately seed on the initial state (runtime identifiers +
+#: SP-OP-FRAUDE-001 contract inputs + worker-pre-resolved facts + the gather reference).
+#: Everything else in `BeatrizState` is OUTPUT-ONLY: produced exclusively by this graph's own
+#: nodes. Single-sourced against `BeatrizState` by the partition-completeness regression test
+#: (`test_output_field_partition_is_complete`) — a new state field MUST be classified into
+#: exactly one of the two sets or that test fails, so the sanitization below can never silently
+#: drift out of date.
+_CALLER_INPUT_FIELDS: frozenset[str] = frozenset(
+    {
+        "tenant_id",
+        "numero_caso",
+        "origem_encaminhamento",
+        "entidade_tipo",
+        "entidade_pseudo_id",
+        "prestador_id",
+        "beneficiario_pseudo_id",
+        "numero_contrato",
+        "encaminhado_por_id",
+        "competencia",
+        "evidencia_refs",
+        "feature_snapshot_ref",
+        "indicadores_presentes",
+        "score_indicadores",
+        "intensidade_investigacao",
+        "indicio_fraude_sinalizado",
+        "patient_summary_ref",
+    }
+)
+
+
+def _output_field_resets() -> dict[str, Any]:
+    """Fresh (never-shared) neutral defaults for EVERY output-only `BeatrizState` field —
+    merged unconditionally at `receive` entry, on ALL paths (module docstring
+    §CALLER-PLANTED-OUTPUT SANITIZATION).
+
+    A caller-planted accusation-shaped `dossier`, forged `evidencia_normalizada`, planted
+    `desfecho="dossie_instruido"`, planted `error`, or forged `business_key` is cleared here
+    before any other node reads it — only node-produced values can reach the custody-bound
+    dossier afterwards. Built fresh per call (function, not module constant) so the mutable
+    `{}`/`[]` defaults are never shared across graph invocations.
+
+    `desfecho` deliberately resets to `"instrucao_incompleta"` (the fail-safe): if
+    `instruct_investigation` were ever skipped, the turn reads as an INCOMPLETE instruction —
+    never as a planted "dossier assembled". `business_key` resets to `""` and is re-derived
+    from the input identifiers on the happy path only.
+    """
+    return {
+        "business_key": "",
+        "gathered": False,
+        "summary_facts": {},
+        "evidencia_normalizada": [],
+        "gather_notes": [],
+        "dossier": {},
+        "desfecho": "instrucao_incompleta",
+        "error": "",
+    }
+
+
+def _normalize_evidence(
+    evidencia_refs: list[Any],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Normalize inbound evidence to validated pointer PROJECTIONS (no-PHI-in-custody).
+
+    Per item: (1) must be a dict with a non-empty string `ref` — else refused; (2) any known
+    raw-PHI key present -> the WHOLE item is refused (upstream contamination surfaces as a
+    lacuna, never laundered); (3) survivors are PROJECTED to the closed allowlist
+    `{ref, hash, tipo, origem}` with string values only — unknown keys (which could smuggle raw
+    PHI in their values) are STRIPPED. Refusals are recorded as index-only class tokens
+    (`evidencia_recusada:<idx>`) — item VALUES never reach the notes (custody hygiene).
+    """
+    normalized: list[dict[str, Any]] = []
+    refused_notes: list[str] = []
+    for idx, item in enumerate(evidencia_refs):
+        if not isinstance(item, dict):
+            refused_notes.append(f"{NOTE_EVIDENCIA_RECUSADA_PREFIX}:{idx}")
+            continue
+        ref = item.get("ref")
+        if not isinstance(ref, str) or not ref:
+            refused_notes.append(f"{NOTE_EVIDENCIA_RECUSADA_PREFIX}:{idx}")
+            continue
+        if _PHI_KEYS & {str(k).lower() for k in item}:
+            refused_notes.append(f"{NOTE_EVIDENCIA_RECUSADA_PREFIX}:{idx}")
+            continue
+        projected = {
+            key: item[key] for key in _POINTER_ALLOWED_KEYS if isinstance(item.get(key), str) and item[key]
+        }
+        normalized.append(projected)
+    return normalized, refused_notes
+
+
+def _score_consumed(state: BeatrizState) -> int:
+    """The pre-resolved worker score, CONSUMED defensively — never derived, never recomputed.
+
+    Anything but a genuine int (bool excluded — a bool is an int subclass) collapses to 0. No
+    code path in this module performs arithmetic over the evidence to produce a score (the
+    donor's `len(evidencia)*10` heuristic was defect B10, deleted in T2.7 — see module
+    docstring).
+    """
+    value = state.get("score_indicadores")
+    if isinstance(value, bool) or not isinstance(value, int):
+        return 0
+    return value
+
+
+class BeatrizGraph:
+    """Wires Beatriz's injected dependencies into a compilable `StateGraph[BeatrizState]`."""
+
+    def __init__(
+        self,
+        *,
+        inference: InferenceProvider,
+        fhir: PatientSummaryReader | None = None,
+        agent_version: str = "beatriz@v0",
+    ) -> None:
+        self._llm = inference
+        self._fhir = fhir
+        self._agent_version = agent_version
+
+    # -- Nodes ----------------------------------------------------------------------------
+
+    async def receive(self, state: BeatrizState) -> dict[str, Any]:
+        """Turn start — the SINGLE graph entry (one edge START->receive). Idempotent.
+
+        SANITIZATION FIRST: every output-only field is reset (`_output_field_resets`) on BOTH
+        paths before anything else — an inbound `dossier`/`desfecho`/`error`/forged pointer
+        list is a caller plant, never trusted (module docstring §CALLER-PLANTED-OUTPUT
+        SANITIZATION).
+
+        Defense: never proceeds without the minimum contract identifiers (tenant + numero do
+        caso) — without them there is no idempotent business key (`FRAUDE-{tenant}-{caso}`) to
+        anchor the dossier to. Fail-safe: the reset `desfecho="instrucao_incompleta"` stands and
+        `error` records the BOUNDED class token (never an echoed value) — NEVER an adverse
+        outcome; SP-OP-FRAUDE-001 routes every desfecho to the human investigator by design.
         """
-        messages: list[str] = list(state.get("messages", []))
-        beneficiary_id: str = cast(str, state.get("beneficiario_pseudo_id", ""))
-        consent_active: bool = cast(bool, state.get("consentimento_ativo", False))
+        sanitized = _output_field_resets()
+        if not state.get("tenant_id") or not state.get("numero_caso"):
+            return {**sanitized, "error": ERROR_CONTEXTO_RUNTIME_AUSENTE}
+        return {**sanitized, "business_key": _business_key(state)}
 
-        # Consent chokepoint: fail-closed, NEVER processes PHI without consent
-        if not consent_active:
-            eligibility: dict[str, Any] = {
-                "beneficiario_pseudo_id": beneficiary_id,
-                "eligible": False,
-                "reason": "sem_consentimento_ativo",
-                "requires_human": True,
-                "routing": "FAIL_CLOSED_CONSENT",
-            }
+    async def gather(self, state: BeatrizState) -> dict[str, Any]:
+        """Collect the FHIR summary (best-effort) and NORMALIZE the evidence to pointer
+        projections (no-PHI-in-custody). NEVER blocks the instruction path.
+
+        The pre-resolved indicators/score are NOT touched here — they are consumed as facts by
+        `instruct_investigation` (never recomputed; module docstring's L0-hard invariant).
+        """
+        if state.get("error"):
+            # Post-`receive`-sanitization a truthy `error` can ONLY have been set by `receive`'s
+            # own missing-context guard — never by the caller. Re-assert the fail-safe outcome
+            # (defense in depth): this bail must NEVER return `{}` nor a "dossier assembled"
+            # signal for an unanchorable case.
+            return {"desfecho": "instrucao_incompleta"}
+
+        notes: list[str] = []
+        summary_facts: dict[str, Any] = {}
+
+        if self._fhir is None:
+            notes.append(NOTE_FHIR_READER_NAO_CONFIGURADO)
         else:
-            # Assess clinical eligibility — NEVER denies care
-            risco: str = cast(str, state.get("risco_estratificado", "BAIXO"))
-            programa_id: str = cast(str, state.get("programa_id", ""))
+            summary_ref = state.get("patient_summary_ref") or state.get("beneficiario_pseudo_id", "")
+            if summary_ref:
+                try:
+                    summary_facts = await self._fhir.read_patient_summary(summary_ref)
+                except Exception:  # noqa: BLE001 — best-effort enrichment; class token only.
+                    notes.append(NOTE_RESUMO_FHIR_INDISPONIVEL)
 
-            eligibility = {
-                "beneficiario_pseudo_id": beneficiary_id,
-                "programa_id": programa_id,
-                "eligible": True,
-                "risco_estratificado": risco,
-                "requires_human": risco in ("ALTO", "CRITICO"),
-                "routing": ("ANALISE_HUMANA" if risco in ("ALTO", "CRITICO") else "ENROLL"),
-                # CRITICAL: NEVER sets decisao_programa (discharge)
-            }
+        inbound = state.get("evidencia_refs") or []
+        normalized, refused_notes = _normalize_evidence(list(inbound))
+        notes.extend(refused_notes)
+        if not inbound:
+            # Contract §Business key: the dossier may grow by annexation (msg.fraude.
+            # evidencia_anexada) — an empty intake is a lacuna, never a failure.
+            notes.append(NOTE_SEM_EVIDENCIA_NO_INTAKE)
 
         return {
-            "messages": messages,
-            "eligibility": eligibility,
+            "gathered": True,
+            "summary_facts": summary_facts,
+            "evidencia_normalizada": normalized,
+            "gather_notes": notes,
         }
 
-    async def design_care_plan_node(state: AgentState) -> dict[str, Any]:
-        """Design the care plan dossier for the beneficiary.
+    async def instruct_investigation(self, state: BeatrizState) -> dict[str, Any]:
+        """The single substantive node (Rafael/Beatriz principle): assemble the investigation
+        dossier. INSTRUCTS, NEVER decides.
 
-        Assembles the clinical dossier: risk stratification, care plan steps,
-        monitoring schedule, and clinical references. NEVER decides discharge
-        or clinical outcomes — the plan is an INSTRUCTION for the human clinician
-        who makes the final decision in UT_DecisaoClinica.
-
-        Args:
-            state: The current AgentState with eligibility data.
-
-        Returns:
-            Updated state dict with care plan design.
+        L0 HARD (zero_auto_accusation): this node NEVER sets `decisao_fraude`, NEVER accuses,
+        NEVER recommends an adverse effect. It organizes the FACTS (validated evidence pointers
+        + OBSERVED indicators + the score as a routing fact) into the dossier the
+        `seal_custody_bundle` worker will seal and the human investigator will decide over in
+        `UT_DecisaoInvestigador`. The dossier's `decisao_fraude`/`bundle_root`/
+        `destino_referral` fields are ALWAYS `None` here — if any ever weren't, it is an L0 bug
+        (tested). A high score does NOT change behavior — there is no conditional branch in
+        this graph at all; the only possible outputs are the assembled dossier or the explicit
+        incomplete marker.
         """
-        messages: list[str] = list(state.get("messages", []))
-        eligibility: dict[str, Any] = cast(dict[str, Any], state.get("eligibility", {}))
-        beneficiary_id: str = cast(str, eligibility.get("beneficiario_pseudo_id", ""))
-        programa_id: str = cast(str, eligibility.get("programa_id", ""))
-        risco: str = cast(str, eligibility.get("risco_estratificado", "BAIXO"))
-        is_eligible: bool = cast(bool, eligibility.get("eligible", False))
+        if state.get("error"):
+            # Unanchorable case (receive's guard): NO dossier is assembled — see the module
+            # docstring's disclosed divergence from the donor. Fail-safe re-assert, never `{}`.
+            return {"desfecho": "instrucao_incompleta"}
+        dossier = await self._build_dossier(state)
+        return {"dossier": dossier, "desfecho": "dossie_instruido"}
 
-        if not is_eligible:
-            care_plan: dict[str, Any] = {
-                "beneficiario_pseudo_id": beneficiary_id,
-                "plan_created": False,
-                "reason": "not_eligible",
-                "routing": "TERMINAL_NEUTRO",
-            }
-        else:
-            # Design care plan — instructs, NEVER decides clinical outcomes
-            care_plan = {
-                "beneficiario_pseudo_id": beneficiary_id,
-                "programa_id": programa_id,
-                "plan_created": True,
-                "risco_estratificado": risco,
-                "steps": ["avaliacao_inicial", "meta_terapeutica", "monitoramento"],
-                "references": [],
-                "requires_clinical_review": risco in ("ALTO", "CRITICO"),
-                # CRITICAL: NEVER sets decisao_programa (discharge)
-            }
+    async def finalize(self, state: BeatrizState) -> dict[str, Any]:
+        """Terminal node — no further computation; `desfecho` was already set upstream.
+
+        No episodic memory write here (labeled boundary, module docstring — same rationale as
+        Helena's/Rafael's/Marina's graphs). NEVER accuses, NEVER seals, NEVER triggers a
+        downstream handoff — sealing and decision belong to the engine workers and the human.
+        """
+        return {}
+
+    # -- Dossier assembly (ADR-0007 audit provenance; L0-hard structural guardrail) -------------
+
+    async def _build_dossier(self, state: BeatrizState) -> dict[str, Any]:
+        """Assemble the investigator's dossier. The LLM reasons over the FACTS to write the
+        narrative; it never decides — and its output lands ONLY in `narrativa` (free text for
+        the human), never in a decision/verdict field. LLM failure never blocks the
+        instruction: the dossier degrades to an empty narrative + a bounded lacuna token."""
+        facts = self._facts(state)
+        lacunas = list(state.get("gather_notes") or [])
+
+        prompt = f"{dossier_prompt()}\n\nfatos={facts}"
+        try:
+            narrativa = await self._llm.generate(prompt, phi=True)
+        except Exception:  # noqa: BLE001 — LLM failure never blocks the human-bound instruction.
+            narrativa = ""
+            lacunas.append(NOTE_NARRATIVA_INDISPONIVEL)
 
         return {
-            "messages": messages,
-            "care_plan": care_plan,
+            "prompt_version": DOSSIER_PROMPT_VERSION,
+            "business_key": state.get("business_key", ""),
+            "numero_caso": state.get("numero_caso"),
+            "origem_encaminhamento": state.get("origem_encaminhamento"),
+            "entidade_tipo": state.get("entidade_tipo"),
+            "entidade_pseudo_id": state.get("entidade_pseudo_id"),
+            "encaminhado_por_id": state.get("encaminhado_por_id"),  # provenance (ADR-0007)
+            "competencia": state.get("competencia"),
+            "fatos": facts,
+            # Evidence: ONLY the validated pointer projections from `gather` (no-PHI-in-custody).
+            # These are the items `seal_custody_bundle` will order and seal into `bundle_root`.
+            "evidencia_refs": state.get("evidencia_normalizada") or [],
+            "feature_snapshot_ref": state.get("feature_snapshot_ref"),
+            # Indicators OBSERVED (assembly/routing fact — NEVER a verdict).
+            "indicadores_observados": list(state.get("indicadores_presentes") or []),
+            "score_indicadores": _score_consumed(state),
+            "intensidade_investigacao": state.get("intensidade_investigacao"),
+            "indicio_fraude_sinalizado": bool(state.get("indicio_fraude_sinalizado", False)),
+            "narrativa": narrativa,
+            "lacunas": lacunas,
+            # STRUCTURAL GUARDRAIL (L0 hard, zero_auto_accusation): the dossier NEVER carries a
+            # decision/accusation/seal. These exist ONLY to make it explicit that the decision
+            # is the human's and the seal is the engine worker's — ALWAYS None here (tested; a
+            # non-None value would be an L0 bug).
+            "decisao_fraude": None,  # accusation/archive/monitor: SOLELY UT_DecisaoInvestigador
+            "bundle_root": None,  # sealing: SOLELY the seal_custody_bundle engine worker
+            "destino_referral": None,  # referral: SOLELY downstream of a HUMAN accusation
         }
 
-    async def monitor_adherence_node(state: AgentState) -> dict[str, Any]:
-        """Monitor beneficiary adherence to the care program.
-
-        Tracks program participation, clinical indicators, and flags potential
-        issues for human review. NEVER decides discharge — any apparent discharge
-        criteria are escalated to the human clinician via UT_DecisaoClinica.
-
-        L0 HARD: This node NEVER sets decisao_programa = DESLIGAR_CLINICO.
-        Clinical discharge is exclusively a human decision.
-
-        Args:
-            state: The current AgentState with care plan data.
-
-        Returns:
-            Updated state dict with adherence monitoring results.
-        """
-        messages: list[str] = list(state.get("messages", []))
-        care_plan: dict[str, Any] = cast(dict[str, Any], state.get("care_plan", {}))
-        eligibility: dict[str, Any] = cast(dict[str, Any], state.get("eligibility", {}))
-        beneficiary_id: str = cast(str, eligibility.get("beneficiario_pseudo_id", ""))
-        risco: str = cast(str, care_plan.get("risco_estratificado", "BAIXO"))
-        plan_created: bool = cast(bool, care_plan.get("plan_created", False))
-
-        if not plan_created:
-            monitoring: dict[str, Any] = {
-                "beneficiario_pseudo_id": beneficiary_id,
-                "monitoring_active": False,
-                "reason": "no_active_plan",
-                "requires_human": False,
-            }
-        else:
-            # Monitor adherence — NEVER decides discharge
-            # Apparent discharge criteria → escalate to human
-            sinal_alta: bool = cast(bool, state.get("sinal_alta_aparente", False))
-            criterio_alta_aparente: bool = risco == "BAIXO" and sinal_alta
-
-            monitoring = {
-                "beneficiario_pseudo_id": beneficiary_id,
-                "monitoring_active": True,
-                "risco_atual": risco,
-                "criterio_alta_aparente": criterio_alta_aparente,
-                "requires_human": criterio_alta_aparente or risco in ("ALTO", "CRITICO"),
-                "routing": (
-                    "UT_DecisaoClinica"
-                    if criterio_alta_aparente or risco in ("ALTO", "CRITICO")
-                    else "MONITORAR"
-                ),
-                # CRITICAL: NEVER sets decisao_programa = DESLIGAR_CLINICO
-            }
-
+    @staticmethod
+    def _facts(state: BeatrizState) -> dict[str, Any]:
+        """Deterministic fact sheet (pseudonymized identifiers + pre-resolved worker facts +
+        counts). `n_evidencia` counts the VALIDATED pointers — it is a count, never a score."""
         return {
-            "messages": messages,
-            "adherence": monitoring,
+            "numero_caso": state.get("numero_caso"),
+            "tenant_id": state.get("tenant_id"),
+            "origem_encaminhamento": state.get("origem_encaminhamento"),
+            "entidade_tipo": state.get("entidade_tipo"),
+            "entidade_pseudo_id": state.get("entidade_pseudo_id"),
+            "prestador_id": state.get("prestador_id"),
+            "beneficiario_pseudo_id": state.get("beneficiario_pseudo_id"),
+            "numero_contrato": state.get("numero_contrato"),
+            "competencia": state.get("competencia"),
+            "n_evidencia": len(state.get("evidencia_normalizada") or []),
+            "indicadores_presentes": list(state.get("indicadores_presentes") or []),
+            "score_indicadores": _score_consumed(state),
+            "intensidade_investigacao": state.get("intensidade_investigacao"),
+            "indicio_fraude_sinalizado": bool(state.get("indicio_fraude_sinalizado", False)),
+            "feature_snapshot_ref": state.get("feature_snapshot_ref"),
+            "resumo_fhir": state.get("summary_facts") or {},
+            "lacunas": list(state.get("gather_notes") or []),
         }
 
-    graph.add_node("assess_eligibility", assess_eligibility_node)
-    graph.add_node("design_care_plan", design_care_plan_node)
-    graph.add_node("monitor_adherence", monitor_adherence_node)
+    # -- Graph assembly -----------------------------------------------------------------------
 
-    graph.add_edge("__start__", "assess_eligibility")
-    graph.add_edge("assess_eligibility", "design_care_plan")
-    graph.add_edge("design_care_plan", "monitor_adherence")
-    graph.add_edge("monitor_adherence", "__end__")
+    def compile_graph(self) -> StateGraph[BeatrizState]:
+        """Linear single-entry graph: receive -> gather -> instruct_investigation -> finalize.
 
-    return graph
+        There is NO `add_conditional_edges` call and NO adverse node/route: the graph can only
+        assemble and deliver the dossier. The ABSENCE of any accusation node/edge/branch is the
+        L0 structural guarantee (`zero_auto_accusation`) — tested by
+        `test_graph_is_linear_single_entry_no_conditional_edges`.
+        """
+        g: StateGraph[BeatrizState] = StateGraph(BeatrizState)
+        g.add_node("receive", self.receive)
+        g.add_node("gather", self.gather)
+        g.add_node("instruct_investigation", self.instruct_investigation)
+        g.add_node("finalize", self.finalize)
+
+        g.add_edge(START, "receive")
+        g.add_edge("receive", "gather")
+        g.add_edge("gather", "instruct_investigation")
+        g.add_edge("instruct_investigation", "finalize")
+        g.add_edge("finalize", END)
+        return g
+
+
+def build(config: dict[str, Any] | None = None) -> StateGraph[BeatrizState]:
+    """Contract `_template/graph.py:build`, resolved by `AgentLoader`/`runtime.harness.Harness`.
+
+    `config` MUST contain `inference` (ADR-0009). `fhir` is OPTIONAL (module docstring's labeled
+    boundary) — its absence never fails the build, only degrades `gather` to a disclosed gap
+    note. `dmn`/`cibseven` (which the harness's shared `tool_deps` may carry for the
+    rafael/marina-shaped graphs) are DELIBERATELY ignored: per the R1-audited
+    `spec/agents/beatriz/agent.yaml`, Beatriz evaluates no DMN (the scoring chain is
+    worker/engine-side) and starts no process (the engine convokes her) — accepting those
+    transports here would silently widen her action surface beyond the agent.yaml allowlist.
+
+    Fail-closed: a missing REQUIRED dependency raises `ValueError` at build time.
+    """
+    cfg = config or {}
+    inference = cfg.get("inference")
+    if inference is None:
+        raise ValueError(
+            "Beatriz build(config) is missing required dependencies: ['inference'] "
+            "(ADR-0009 — the inference provider must be injected)"
+        )
+    agent_version = str(cfg.get("agent_version", "beatriz@v0"))
+    return BeatrizGraph(
+        inference=cast(InferenceProvider, inference),
+        fhir=cast("PatientSummaryReader | None", cfg.get("fhir")),
+        agent_version=agent_version,
+    ).compile_graph()
+
+
+# Prompt versions exposed for audit/eval gating (ADR-0007/0009).
+PROMPT_VERSIONS: dict[str, str] = {
+    "system": SYSTEM_PROMPT_VERSION,
+    "dossier": DOSSIER_PROMPT_VERSION,
+}
