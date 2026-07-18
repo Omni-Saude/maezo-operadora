@@ -95,12 +95,44 @@ def test_create_graph_helena_missing_deps_raises_value_error() -> None:
         harness.create_graph("helena")
 
 
+def test_create_graph_gustavo_resolves_real_build() -> None:
+    """`create_graph('gustavo')` resolves Gustavo's REAL `build(config)` (T1.12) — same wiring
+    contract as helena/rafael: `self._tool_deps` merged with `inference`; `fhir` optional."""
+    harness = Harness(
+        inference=MagicMock(),
+        tool_deps={"dmn": FakeDmnTransport(), "cibseven": FakeCibSevenTransport()},
+    )
+
+    graph = harness.create_graph("gustavo")
+
+    assert graph is not None
+    compiled = graph.compile()
+    node_names = {n for n in compiled.get_graph().nodes if n not in ("__start__", "__end__")}
+    assert {
+        "receive",
+        "gather",
+        "assess",
+        "review_submission",
+        "instruct_nip",
+        "start_process",
+        "finalize",
+    } <= node_names
+
+
+def test_create_graph_gustavo_missing_deps_raises_value_error() -> None:
+    """Gustavo's own `build(config)` fail-closes when a required dependency is missing (T1.12)."""
+    harness = Harness(inference=MagicMock())
+    with pytest.raises(ValueError, match="missing required dependencies"):
+        harness.create_graph("gustavo")
+
+
 def test_create_graph_stub_agent_uses_no_arg_build() -> None:
     """A still-stubbed agent's `build()` takes no parameters — `create_graph` must call it with
-    no arguments (introspected via `inspect.signature`, not guessed). (Was `andre` until T1.12
-    made his graph real — `beatriz` is a remaining stub.)"""
+    no arguments (introspected via `inspect.signature`, not guessed). Post-B6 all 10 named
+    agents expose `build(config)`, so the `_template` scaffold (never a named agent) is the
+    durable no-arg-build example."""
     harness = Harness()
-    graph = harness.create_graph("beatriz")
+    graph = harness.create_graph("_template")
     assert graph is not None
     assert hasattr(graph, "compile")
 

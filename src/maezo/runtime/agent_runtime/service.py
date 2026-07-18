@@ -200,6 +200,20 @@ def _build_tool_deps(settings: AgentRuntimeSettings) -> dict[str, Any]:
         # reused here rather than duplicating an adapter (module docstring's divergence #6 in
         # `agents/carolina/graph.py`).
         deps["fhir"] = FhirServerReader(FhirServer(FhirSettings(base_url=settings.fhir_base_url)))
+    if settings.agent_id == "gustavo":
+        # T1.12: gustavo's OPTIONAL `fhir` seam (J2 NIP dossier enrichment, best-effort) —
+        # structural reuse of rafael's adapter (`agents/gustavo/graph.py::FhirReader` is the
+        # same `read_patient` Protocol shape). Purely additive; required deps (dmn/cibseven/
+        # inference) are already provided generically above.
+        deps["fhir"] = FhirServerReader(FhirServer(FhirSettings(base_url=settings.fhir_base_url)))
+    if settings.agent_id == "valentina":
+        # T1.12: Valentina's optional post-consent `gather` seam (her own adapter — her
+        # `PatientSummaryReader` Protocol needs `read_patient_summary`, which Rafael's adapter
+        # does not expose). Purely additive; construction is pure (no I/O until a node runs),
+        # same as every transport above.
+        from maezo.agents.valentina.adapters import FhirServerReader as ValentinaFhirServerReader
+
+        deps["fhir"] = ValentinaFhirServerReader(FhirServer(FhirSettings(base_url=settings.fhir_base_url)))
     if settings.agent_id == "andre":
         # T1.12: Andre's `gather` seam (`graph.PatientSummaryReader`) only needs `read_patient` —
         # `FhirServerReader` (built for Rafael) already implements it structurally, so it is

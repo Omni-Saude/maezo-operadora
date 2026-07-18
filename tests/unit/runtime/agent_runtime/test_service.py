@@ -71,6 +71,18 @@ async def test_bring_up_loads_real_carolina_graph() -> None:
     assert state.agent_graph_error is None
 
 
+async def test_bring_up_loads_real_valentina_graph() -> None:
+    """T1.12: Valentina's `build(config)` additionally takes an optional `fhir` dependency —
+    bring-up supplies one via her OWN `agents/valentina/adapters.FhirServerReader`
+    (`read_patient_summary` Protocol shape), still without any network call (construction
+    only). Her consent chokepoint is a graph-execution concern — never exercised here."""
+    state = _state(settings=AgentRuntimeSettings(agent_id="valentina", tenant_id="amh"))
+    await _bring_up_dependencies(state)
+
+    assert state.agent_graph is not None
+    assert state.agent_graph_error is None
+
+
 async def test_bring_up_loads_real_andre_graph() -> None:
     """T1.12: Andre's `build(config)` additionally accepts optional `fhir`/`population` seams —
     bring-up supplies `fhir` via the same `FhirServerReader` as Rafael (still without any network
