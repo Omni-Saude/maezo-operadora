@@ -21,10 +21,11 @@ that require graphs:
             3. inference provider constructible — `maezo.runtime.inference.InferenceProvider`
                (noop is an ACCEPTABLE outcome per Q-6 — this checks construction, not that a
                real LLM is configured).
-            4. agent graph loadable (T1.11, defect B6) — `maezo.runtime.harness.Harness.
-               create_graph(agent_id)` resolves + builds the REAL agent-specific graph (helena/
-               rafael go through their real `build(config)` with real, un-invoked transports;
-               the remaining still-stubbed agents go through their no-arg `build()`). This is a
+            4. agent graph loadable (T1.11, defect B6; fernando added T1.12) — `maezo.runtime.
+               harness.Harness.create_graph(agent_id)` resolves + builds the REAL agent-specific
+               graph (helena/rafael/fernando go through their real `build(config)` with real,
+               un-invoked transports; the remaining still-stubbed agents go through their no-arg
+               `build()`). This is a
                CONSTRUCTION check (StateGraph build + `.compile()`), not an execution one — no
                node ever runs, so it costs no network I/O even though the injected transports
                (`CibSevenDmnTransport`/`CibSevenHttpTransport`/FHIR/WhatsApp adapters) are the
@@ -138,9 +139,9 @@ def build_readiness_checks(state: AgentState) -> list[Callable[[], Awaitable[Che
         )
 
     async def graph_loaded(_state: AgentState = state) -> CheckResult:
-        # T1.11/defect B6: the agent's REAL graph builds (helena/rafael go through their real
-        # build(config); still-stubbed agents go through their no-arg build()). Construction
-        # only — no node ever runs from this check.
+        # T1.11/defect B6 (fernando added T1.12): the agent's REAL graph builds (helena/rafael/
+        # fernando go through their real build(config); still-stubbed agents go through their
+        # no-arg build()). Construction only — no node ever runs from this check.
         if _state.agent_graph is not None:
             return CheckResult(
                 name="graph_loaded", healthy=True, detail=f"agent_id={_state.settings.agent_id}"
@@ -186,9 +187,18 @@ def _build_tool_deps(settings: AgentRuntimeSettings) -> dict[str, Any]:
         "dmn": CibSevenDmnTransport(settings.cibseven_base_url),
         "cibseven": CibSevenHttpTransport(settings.cibseven_base_url),
     }
-    if settings.agent_id == "helena":
+    if settings.agent_id in ("helena", "fernando"):
+        # T1.12: Fernando reuses the SAME generic WhatsAppSender adapter as Helena — it is
+        # documented as a structural (Protocol-satisfying) shim over `WhatsAppServer`, not
+        # Helena-specific business logic (`agents/helena/adapters.py`'s own docstring).
         deps["whatsapp"] = WhatsAppServerSender(WhatsAppServer())
     if settings.agent_id == "rafael":
+        deps["fhir"] = FhirServerReader(FhirServer(FhirSettings(base_url=settings.fhir_base_url)))
+    if settings.agent_id == "carolina":
+        # T1.12: Carolina's `gather` seam (`graph.SummaryReader`) only needs `read_patient` —
+        # `FhirServerReader` (built for Rafael) already implements it structurally, so it is
+        # reused here rather than duplicating an adapter (module docstring's divergence #6 in
+        # `agents/carolina/graph.py`).
         deps["fhir"] = FhirServerReader(FhirServer(FhirSettings(base_url=settings.fhir_base_url)))
     if settings.agent_id == "andre":
         # T1.12: Andre's `gather` seam (`graph.PatientSummaryReader`) only needs `read_patient` —
