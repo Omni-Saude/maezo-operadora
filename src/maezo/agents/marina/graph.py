@@ -1,165 +1,1055 @@
-"""Marina Andrade — Medical Accounts Analyst Agent (Phase 2, CONTAS/RECURSO/REEMBOLSO).
+"""Marina Andrade — Analista de Contas Medicas e Recurso de Glosa Agent (Phase 2, T1.12).
 
-Marina handles TISS medical account analysis, glosa triage, and recurso dossier
-preparation. Her graph consists of:
-- analyze_claim: inspects TISS demonstrativos, identifies glosa candidates
-- prepare_dossier: assembles the triage/recurso dossier for human analyst review
+Journey (mirrors the v1 donor's structure, READ-ONLY reference `Maezo-Healthcare-Plan
+src/maezo/agents/marina/graph.py`, adapted to v2's flatter seam set — same rationale as
+`agents/rafael/graph.py`'s module docstring, of which Marina is explicitly the Phase 2 analog):
 
-A2A delegation: Marina delegates to Lucas when beneficiary information is needed.
+    receive -> gather -> assess(DMN) -> {auto_route | human_review} -> start_process -> finalize
 
-The StateGraph follows the canonical AgentState pattern from maezo.runtime.harness.
+Marina serves THREE flows, distinguished by `flow` in state (`contas` | `recurso` | `reembolso`):
 
-L0 HARD INVARIANT: Marina NEVER exercises authorization_denial, standard_glosa_processing
-(confirm glosa), clinical_decision, or fraud_accusation. She instructs the case
-(dossier + routing); the human decides.
+- `contas`    : convoked by `operadora.contas.prepare_triage_dossier` (A2A `glosa.analyze`,
+                SP-OP-CONTAS-001). `assess` evaluates the DMN chain
+                `glosa_reason_normalization` -> `glosa_classification` -> `glosa_triage` (+
+                `contas_sla`, purely informative — never gates routing, mirrors Rafael's
+                `auth_sla`). Triage produces `SEM_GLOSA` | `RECORRER` | `ANALISE_HUMANA` — this
+                is ROUTING, never a merit decision (no DMN in this chain has an accept/confirm
+                output). Marina STARTS SP-OP-CONTAS-001 idempotently (business key
+                `CONTAS-{tenant}-{numero_lote_tiss}` or, when adjudicating by guia/conta,
+                `CONTAS-{tenant}-{numero_guia_tiss}-{numero_conta}`).
+- `recurso`   : convoked by `operadora.recurso.analyze_request` (A2A `recurso.analyze`,
+                SP-OP-RECURSO-001). `assess` evaluates `recurso_admissibility` ->
+                `recurso_eligibility` (+ `recurso_sla`, purely informative). Admissibility/
+                eligibility produce `SEGUE_ANALISE` | `PENDENTE_DOCUMENTACAO` | `ANALISE_HUMANA`
+                / `RECORRIVEL` | `ANALISE_HUMANA` — no NEGAR/DESISTIR output exists by design.
+                Marina STARTS SP-OP-RECURSO-001 idempotently (business key
+                `RECURSO-{tenant}-{numero_guia_tiss}-{glosa_id}`).
+- `reembolso` : convoked by `operadora.reembolso.analyze_request` (A2A `reembolso.analyze`,
+                SP-OP-REEMBOLSO-001) from INSIDE an ALREADY-RUNNING instance (`ST_PrepararDossie`,
+                after the BPMN's own `BRT_Admissibilidade`/`BRT_Calculo`/`BRT_AutoApproval`
+                business-rule tasks — `reembolso_admissibility`/`reembolso_calculo`/
+                `reembolso_auto_approval` — have already run). STRUCTURALLY different from
+                contas/recurso: `assess` evaluates NO DMN at all here (only REPORTS the
+                pre-resolved facts) and `start_process` is a NO-OP (Marina never starts a second
+                instance) — she only assembles the factual dossier and ALWAYS routes to the human
+                `analise-reembolso` group (no `auto_route` variant exists for this flow — mirrors
+                `andre.adequacao_dossier`'s single-outcome shape referenced by the donor).
+
+`assess` ALWAYS consults the deterministic DMN for `contas`/`recurso` (ADR-0012); the LLM
+REASONS over the DMN result to assemble the dossier — it NEVER substitutes or re-decides it.
+
+L0 HARD STRUCTURAL GUARDRAIL (contracts SP-OP-CONTAS-001/RECURSO-001/REEMBOLSO-001 invariant;
+ADR-0005/0008, CI-enforced): Marina NEVER accepts nor denies a glosa, NEVER gives up a recurso
+(maintains the glosa), NEVER approves/denies/reduces a reembolso, NEVER decides clinically, NEVER
+accuses fraud. `Route` has NO adverse variant — only `auto_route` (neutral routing determined by
+the DMN, `contas`/`recurso` only) and `human_review` (fail-safe/instructive, the ONLY path in
+`reembolso`). No automatic outcome ever confirms a glosa, denies a recurso, or approves/denies/
+reduces a reembolso: glosa acceptance is born SOLELY in `UT_AnalistaContas`
+(`operadora.contas.register_glosa_accept`, guarded `ERR_GLOSA_ACCEPT_NOT_HUMAN`); recurso
+desistencia SOLELY in `UT_AnaliseRecursoAnalista` (`operadora.recurso.register_desistencia`,
+guarded `ERR_DESISTENCIA_NOT_HUMAN`); reembolso denial/reduction SOLELY in `UT_AnaliseReembolso`/
+`UT_RevisaoAuditorMedico`/`UT_CoordenacaoReembolso` (`operadora.reembolso.send_reembolso_denial`,
+guarded `ERR_REEMBOLSO_DENIAL_NOT_HUMAN`) — all three worker guards untouched by this build
+(T1.5 already cut these workers over to engine-side DMN; this graph CONSUMES their outputs,
+never edits `tools/workers/{contas,recurso,reembolso}.py`). Ambiguity, glosa tecnica/clinica, an
+indicio de fraude signal, DMN unavailability, or an apparently-expired deadline ALWAYS fail-safe
+to human review — never a silent auto_route (structurally: every `assess` branch that cannot
+prove a neutral, allow-listed DMN output returns `human_review`, mirroring Rafael's own
+"nothing ambiguous falls through to automatic by omission" invariant).
+
+`dentro_teto_l2` (and every other reembolso ceiling fact) arrives PRE-RESOLVED by
+`tools/workers/reembolso.py::calculate_value` (via `CeilingResolver`, T1.9) — this graph
+CONSUMES it, NEVER computes it (`tests/unit/sec/test_dentro_teto_source.py` scans
+`tools/workers/{reembolso,auth,pagto}.py` only; this module is deliberately out of that scan's
+scope because it never originates the fact in the first place — `_reembolso_facts` below is a
+pure pass-through of `state.get("dentro_teto_l2")`).
+
+PHI discipline: Marina's `security_zone` is `phi` end-to-end (`spec/agents/marina/agent.yaml`) —
+the one LLM call per turn (`_build_dossier`'s narrative) passes `phi=True` (ADR-0006/ADR-0017/T1.7).
+
+CALLER-PLANTED-OUTPUT SANITIZATION (R1 cycle-1 fix — same defect class as fernando's/carolina's
+graphs, worst expression here because real instances start): `receive` resets EVERY output-only
+state field (`_output_field_resets`) before any other node reads them. Pre-fix, `gather`/`assess`
+early-bailed on a truthy `state["error"]` WITHOUT recomputing `route`, and `receive` neither
+cleared nor distrusted a caller-supplied `error` — so a planted `error` + `route="auto_route"` +
+forged `triagem`/`categoria_normalizada`/`dmn_refs` skipped the DMN chain entirely (0 DMN calls)
+and started a REAL SP-OP-CONTAS-001/SP-OP-RECURSO-001 instance with `marina_route="auto_route"`
+and the forged facts verbatim in the engine-bound `dossie_marina` (live-proven by the R1
+verifier); on legitimate human shortcuts (dmn-down/fraud/pendente), planted fact fields survived
+into the dossier `fatos` beside the genuine `motivo_humano` (forged contradictory provenance for
+the human auditor). Post-fix, BOTH halves of the class are closed: (1) clearing inbound `error`
+(and `route`) at `receive` makes `assess` ALWAYS recompute the route from the real DMN chain,
+overwriting any plant; (2) resetting every fact/dossier/process output field keeps planted values
+out of the dossier `fatos` and engine-bound variables even on the legitimate human-shortcut
+paths. Defense in depth: the `gather`/`assess` error bails — now reachable ONLY via `receive`'s
+own missing-context guard — explicitly re-assert `route="human_review"` instead of returning
+`{}`, so the bail is fail-safe by construction even if sanitization were ever regressed.
+
+DIVERGENCE FROM DONOR (disclosed, spec wins per this task's charter): the v1 donor lets a
+`glosa_classification` DMN failure pass through silently (glosa_type stays `""`, `assess`
+proceeds straight to `contas_sla`/`glosa_triage`) — safe-by-defense-in-depth only because a later
+`recurso_eligibility` call would still catch an empty `glosa_type` on its own catch-all row. This
+build instead routes `glosa_classification` failure straight to `human_review` (`motivo_humano
+= "dmn_indisponivel"`), uniformly with every other DMN in the assess chain (normalization,
+triage, admissibility, eligibility) — this reads spec's `agent.yaml` `escalation.triggers: -
+signal: dmn_unavailable` literally (a generic, unqualified trigger, not scoped to only the
+routing-critical tables) and is simpler to prove/test than relying on a downstream table's
+catch-all as the real safety net. `contas_sla`/`recurso_sla` remain PURELY INFORMATIVE and
+non-gating on failure — mirrors Rafael's `auth_sla` exactly (feeds the dossier only, never
+affects `route`).
+
+LABELED BOUNDARIES (this build, disclosed — never fabricated, same rationale as
+`agents/rafael/graph.py`'s/`agents/helena/graph.py`'s module docstrings):
+- `gather` uses a thin `PatientSummaryReader` Protocol over v2's generic `FhirServer`
+  (`tools/mcp_fhir/server.py: read_resource`) — NOT the donor's dedicated
+  `mcp-fhir.read_patient_summary` tool (no PEP/ToolRegistry gateway wiring for agent tool calls
+  yet, T2.4 gap). `gather` is best-effort and NEVER blocks routing on a FHIR failure (mirrors
+  Rafael exactly) — a missing/unreachable FHIR endpoint degrades to a dossier gap note, never a
+  fabricated fact. When no `fhir` dependency is injected at all, `gather` records an explicit gap
+  note rather than silently producing empty facts that look like "no findings".
+- No episodic memory write (`mcp-memory.read_write`, ADR-0002) — same rationale as Helena's/
+  Rafael's graphs: v2's `MemoryServer` requires a live Postgres/pgvector schema not yet wired
+  into any agent graph in this repo; adding it is a follow-up once that schema exists.
+- No cross-agent A2A delegation (`operadora.contas/recurso/reembolso.*` -> Marina) is wired in
+  this build: v2's `a2a/` package has no `DelegationEnvelope`/`DelegationDispatcher` yet (only
+  `AgentCard`/`A2ARegistry`/`AntiLoopGuard` exist) — same gap Rafael's/Helena's graphs already
+  disclose. Marina's graph is invoked directly with an already-assembled case state, as the unit
+  tests do, rather than via a live delegation envelope.
 """
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any, Literal, Protocol, TypedDict, cast
 
-import structlog
-from langgraph.graph import StateGraph
+from langgraph.graph import END, START, StateGraph
 
-from maezo.runtime.harness import AgentState
+from maezo.runtime.inference import InferenceProvider
+from maezo.tools.mcp_cibseven.transport import (
+    CibSevenError,
+    CibSevenTransport,
+    start_process_idempotent,
+)
+from maezo.tools.workers.dmn_transport import (
+    DmnEvaluationError,
+    DmnNoResultError,
+    DmnTransport,
+    first_row,
+)
 
-logger = structlog.get_logger(__name__)
+from .prompts import (
+    DOSSIER_PROMPT_VERSION,
+    RECURSO_PROMPT_VERSION,
+    REEMBOLSO_PROMPT_VERSION,
+    SYSTEM_PROMPT_VERSION,
+    dossier_prompt,
+    recurso_prompt,
+    reembolso_prompt,
+)
+
+# --- Domain enums (mirror the CONTAS/RECURSO/REEMBOLSO contracts + DMN schema) ----------------
+
+Flow = Literal["contas", "recurso", "reembolso"]
+
+# Graph routing. STRUCTURALLY WITHOUT AN ADVERSE VARIANT — no value here accepts a glosa, denies
+# a recurso, or approves/denies/reduces a reembolso.
+Route = Literal["auto_route", "human_review"]
+
+# `glosa_triage` output domain (CONTAS) — no ACEITAR/CONFIRMAR output by design.
+TriagemGlosa = Literal["SEM_GLOSA", "RECORRER", "ANALISE_HUMANA"]
+# `recurso_admissibility` output domain (RECURSO) — no NEGAR/INADMISSIVEL output by design.
+AdmissibilidadeRecurso = Literal["SEGUE_ANALISE", "PENDENTE_DOCUMENTACAO", "ANALISE_HUMANA"]
+# `recurso_eligibility` output domain (RECURSO) — no NAO_RECORRIVEL output by design.
+ElegibilidadeRecurso = Literal["RECORRIVEL", "ANALISE_HUMANA"]
+
+# Why the case went to human review — attached to the dossier/contract variables. NONE of these
+# is an accept/deny — they are all reasons FOR human review.
+MotivoHumano = Literal[
+    "triagem_analise_humana",  # glosa_triage = ANALISE_HUMANA (tecnica/clinica/ambiguidade)
+    "documentacao_pendente",  # recurso_admissibility = PENDENTE_DOCUMENTACAO
+    "recurso_analise_humana",  # recurso_admissibility/eligibility = ANALISE_HUMANA (or medico-auditor)
+    "indicio_fraude",  # fraud signal — informative only, human decides the referral
+    "dmn_indisponivel",  # a DMN in the assess chain failed -> never an adverse outcome by omission
+    "reembolso_dossie",  # reembolso: SP-OP-REEMBOLSO-001 already resolved its own DMN -> analise-reembolso
+    "outro",
+]
+
+PROCESS_KEY_CONTAS = "SP-OP-CONTAS-001"
+PROCESS_KEY_RECURSO = "SP-OP-RECURSO-001"
+
+DMN_GLOSA_NORMALIZATION = "glosa_reason_normalization"
+DMN_GLOSA_CLASSIFICATION = "glosa_classification"
+DMN_GLOSA_TRIAGE = "glosa_triage"
+DMN_CONTAS_SLA = "contas_sla"
+DMN_RECURSO_ADMISSIBILITY = "recurso_admissibility"
+DMN_RECURSO_ELIGIBILITY = "recurso_eligibility"
+DMN_RECURSO_SLA = "recurso_sla"
 
 
-def build() -> StateGraph[AgentState]:
-    """Build and return Marina's StateGraph with analyze_claim and prepare_dossier nodes.
+class PatientSummaryReader(Protocol):
+    """Best-effort FHIR summary read seam (`gather`). See module docstring's labeled boundary."""
 
-    Returns an uncompiled StateGraph[AgentState] wired as:
-    __start__ → analyze_claim → prepare_dossier → __end__
+    async def read_patient_summary(self, patient_id: str) -> dict[str, Any]: ...
 
-    The analyze_claim node inspects TISS demonstrativos and identifies glosa candidates.
-    The prepare_dossier node assembles the triage/recurso dossier for human analyst review.
 
-    Returns:
-        A StateGraph[AgentState] for Marina's medical accounts workflow.
+# --- Graph state (working memory; ADR-0002) ----------------------------------------------------
+
+
+class MarinaState(TypedDict, total=False):
+    """Case state. Every field here is pseudonymized (Zona PHI, ADR-0006) —
+    `beneficiario_pseudo_id` NEVER carries a raw CPF/name/CNS. Boolean facts
+    (`divergencia_valor`/`item_conforme_tabela`/`dentro_prazo_recurso`/reembolso ceiling facts/
+    ...) arrive PRE-RESOLVED by a deterministic upstream worker — Marina CONSUMES them, never
+    computes them (module docstring's L0-hard invariant)."""
+
+    # Flow (decides process, DMN chain, and human group).
+    flow: Flow
+
+    # Runtime identifiers / task origin.
+    tenant_id: str
+    canal: str  # a2a | portal_tiss
+    beneficiario_pseudo_id: str
+    prestador_id: str
+
+    # --- CONTAS inputs (SP-OP-CONTAS-001) ---
+    numero_lote_tiss: str
+    numero_guia_tiss: str
+    numero_conta: str
+    competencia: str
+    data_recebimento_lote: str
+    valor_apresentado_brl: float
+    tipo_lote: str  # consulta | sadt | internacao | honorario | opme | misto
+    linhas_conta_refs: list[dict[str, Any]]
+    reason_codes_tiss: list[str]
+    # Pre-resolved by worker (deterministic input to the CONTAS DMN chain).
+    divergencia_valor: bool
+    item_conforme_tabela: bool
+    documentacao_anexa: bool
+    denial_ratio: float  # worker arithmetic (operadora.contas.calculate_impact)
+    indicio_fraude_sinalizado: bool  # informative signal only — never decides, only routes human
+
+    # --- RECURSO inputs (SP-OP-RECURSO-001) ---
+    glosa_id: str
+    glosa_type: str  # administrativa | tecnica | clinica | linha_duplicada | formatacao
+    glosa_reason_code: str
+    valor_glosado_brl: float
+    codigo_procedimento_tuss: str
+    cid10: str
+    documentos_recurso_refs: list[dict[str, Any]]
+    data_ciencia_glosa: str
+    data_recebimento_recurso_iso: str
+    # Pre-resolved by worker (deterministic input to the RECURSO DMN chain).
+    glosa_existe: bool
+    dentro_prazo_recurso: bool
+    documentacao_recurso_completa: bool
+
+    # --- REEMBOLSO inputs (SP-OP-REEMBOLSO-001) ---
+    protocolo_reembolso: str  # business key component (REEMB-{tenant}-{protocolo})
+    tipo_reembolso: str  # urgencia_emergencia | livre_escolha | fora_de_rede | indisponibilidade_rede
+    # consulta | exame_simples | exame_especial | terapia | internacao | opme | alta_complexidade
+    categoria_procedimento: str
+    valor_solicitado_cents: int  # integer-centavos — NEVER float/BRL (contract SP-OP-REEMBOLSO-001)
+    # Pre-resolved/pre-calculated by SP-OP-REEMBOLSO-001's OWN BusinessRuleTasks
+    # (BRT_Admissibilidade/BRT_Calculo/BRT_AutoApproval) BEFORE this hop — Marina REPORTS them,
+    # never recomputes them.
+    cobertura_prevista: bool
+    documentacao_completa: bool
+    dentro_prazo: bool
+    beneficiario_ativo: bool
+    carencia_cumprida: bool
+    dentro_tabela: bool
+    dentro_teto_l2: bool
+    requer_avaliacao_clinica: bool
+    valor_calculado_tabela_cents: int  # output of BRT_Calculo (reembolso_calculo)
+
+    # FHIR reference for the dossier (patient summary). Never raw PHI.
+    patient_summary_ref: str
+
+    # Filled by `gather` (pseudonymized FHIR facts).
+    gathered: bool
+    summary_facts: dict[str, Any]
+    gather_notes: list[str]  # FHIR enrichment gaps (attached to the dossier)
+
+    # Filled by `assess` (DMN results + refs).
+    categoria_normalizada: str  # glosa_reason_normalization (CONTAS)
+    glosa_classificada: str  # glosa_classification.glosa_type (CONTAS)
+    triagem: TriagemGlosa  # glosa_triage (CONTAS)
+    admissibilidade_recurso: AdmissibilidadeRecurso  # recurso_admissibility (RECURSO)
+    elegibilidade_recurso: ElegibilidadeRecurso  # recurso_eligibility (RECURSO)
+    grupo_revisor: str  # recurso_eligibility.grupo_revisor (RECURSO)
+    sla_analise: str  # ISO 8601 (flow's own SLA DMN output)
+    sla_alerta: str
+    dmn_refs: dict[str, str]  # table -> rule reference (e.g. glosa_triage#<decision-def-id>)
+    dmn_error: str  # set when a DMN in the assess chain failed/was unavailable
+    dossier: dict[str, Any]  # the LLM-assembled dossier (instruction, never a decision)
+
+    # Routing (NEVER an accept/deny — only neutral or human).
+    route: Route
+    motivo_humano: MotivoHumano
+    grupo_humano: str  # candidate group of the human destination
+
+    # Filled by `start_process` (CONTAS/RECURSO only; no-op in `reembolso`).
+    process_started: bool
+    business_key: str
+    process_ref: dict[str, Any]
+
+    # Output.
+    desfecho: str  # sem_glosa | encaminhada_recurso_triagem | triagem_humana |
+    #                 recurso_segue_analise | recurso_humano | reembolso_dossie_humano
+    error: str  # technical failure (routes human, for safety)
+
+
+# --- Helpers -------------------------------------------------------------------------------
+
+
+def _flow(state: MarinaState) -> Flow:
+    """Case flow (default `contas` — glosa triage)."""
+    return state.get("flow", "contas")
+
+
+def _business_key(state: MarinaState) -> str:
+    """Idempotent business key per the flow's contract.
+
+    CONTAS:    `CONTAS-{tenant}-{numero_lote_tiss}` (or, when adjudicating by guia/conta:
+               `CONTAS-{tenant}-{numero_guia_tiss}-{numero_conta}`). Marina STARTS this instance.
+    RECURSO:   `RECURSO-{tenant}-{numero_guia_tiss}-{glosa_id}`. Marina STARTS this instance.
+    REEMBOLSO: `REEMB-{tenant}-{protocolo_reembolso}` — the SAME format SP-OP-REEMBOLSO-001 itself
+               uses (contract §Correlacao). Marina does NOT start this instance (already running
+               when `reembolso.analyze` arrives); the key only ANCHORS the factual dossier to the
+               existing instance (`start_process` is a no-op in this flow).
     """
-    graph: StateGraph[AgentState] = StateGraph(AgentState)
+    tenant = state.get("tenant_id", "")
+    flow = _flow(state)
+    if flow == "recurso":
+        return f"RECURSO-{tenant}-{state.get('numero_guia_tiss', '')}-{state.get('glosa_id', '')}"
+    if flow == "reembolso":
+        return f"REEMB-{tenant}-{state.get('protocolo_reembolso', '')}"
+    guia = state.get("numero_guia_tiss", "")
+    conta = state.get("numero_conta", "")
+    if guia and conta:
+        return f"CONTAS-{tenant}-{guia}-{conta}"
+    return f"CONTAS-{tenant}-{state.get('numero_lote_tiss', '')}"
 
-    async def analyze_claim_node(state: AgentState) -> dict[str, Any]:
-        """Analyze TISS medical accounts and identify glosa candidates.
 
-        This node inspects the claim data, identifies glosa lines via DMN evaluation,
-        computes denial ratios, and determines whether to route to CONTAS or RECURSO.
+def _process_key(state: MarinaState) -> str:
+    """Only called for `contas`/`recurso` — `reembolso`'s `start_process` no-ops before this."""
+    return PROCESS_KEY_RECURSO if _flow(state) == "recurso" else PROCESS_KEY_CONTAS
 
-        Args:
-            state: The current AgentState with messages and claim context.
 
-        Returns:
-            Updated state dict with claim analysis results.
+def _output_field_resets() -> dict[str, Any]:
+    """Benign reset values for EVERY output-only `MarinaState` field — applied unconditionally at
+    `receive` entry (R1 cycle-1 fix; module docstring §CALLER-PLANTED-OUTPUT SANITIZATION).
+
+    An inbound turn's state may only carry INPUT fields (identifiers + pre-resolved worker
+    facts). Every field a NODE of this graph is supposed to fill is reset here first, so a
+    caller-planted `error`/`route`/forged DMN fact/forged `dmn_refs`/pre-cooked `dossier` can
+    never survive into routing, the dossier `fatos`, or engine-bound process variables. Returns
+    a FRESH dict per call — the mutable container values (`{}`/`[]`) must never be shared across
+    turns.
+
+    `route` resets to `"human_review"` (fail-safe: if any node were ever skipped, the
+    conditional edge still lands on the human path); `assess` ALWAYS overwrites it from the real
+    DMN chain. `business_key` resets to `""` and is re-derived from the input identifiers on the
+    happy path — on `receive`'s own missing-context guard it stays empty, which keeps
+    `start_process`'s error short-circuit closed against a planted key.
+    """
+    return {
+        "error": "",
+        "route": "human_review",
+        "motivo_humano": None,
+        "grupo_humano": None,
+        "business_key": "",
+        "gathered": False,
+        "summary_facts": {},
+        "gather_notes": [],
+        "categoria_normalizada": None,
+        "glosa_classificada": None,
+        "triagem": None,
+        "admissibilidade_recurso": None,
+        "elegibilidade_recurso": None,
+        "grupo_revisor": None,
+        "sla_analise": "",
+        "sla_alerta": "",
+        "dmn_refs": {},
+        "dmn_error": "",
+        "dossier": {},
+        "desfecho": "",
+        "process_started": False,
+        "process_ref": {},
+    }
+
+
+class MarinaGraph:
+    """Wires Marina's injected dependencies into a compilable `StateGraph[MarinaState]`."""
+
+    def __init__(
+        self,
+        *,
+        inference: InferenceProvider,
+        dmn: DmnTransport,
+        cibseven: CibSevenTransport,
+        fhir: PatientSummaryReader | None = None,
+        agent_version: str = "marina@v0",
+    ) -> None:
+        self._llm = inference
+        self._dmn = dmn
+        self._cibseven = cibseven
+        self._fhir = fhir
+        self._agent_version = agent_version
+
+    # -- Nodes ----------------------------------------------------------------------------
+
+    async def receive(self, state: MarinaState) -> dict[str, Any]:
+        """Turn start (part of state 1): task arrives (A2A `glosa.analyze`/`recurso.analyze`/
+        `reembolso.analyze`). Idempotent.
+
+        SANITIZATION FIRST (R1 cycle-1 fix; module docstring §CALLER-PLANTED-OUTPUT
+        SANITIZATION): EVERY output-only field is reset (`_output_field_resets`) before anything
+        else — an inbound `error`/`route`/forged DMN fact is a caller plant, never trusted.
+        Pre-fix, a planted `error` made `gather`/`assess` early-bail without recomputing
+        `route`, letting a planted `route="auto_route"` + forged `triagem`/`dmn_refs` skip the
+        DMN chain entirely and start a REAL process carrying the forged facts (live-proven by
+        the R1 verifier).
+
+        Defense: never proceeds without the minimum contract identifiers (tenant + the flow's
+        own business key). Without them there is no idempotent/anchorable business key — routes
+        to human by safety (fail-safe, never an adverse effect).
         """
-        messages: list[str] = list(state.get("messages", []))
-        logger.info(
-            "marina.analyze_claim.start",
-            messages_count=len(messages),
-        )
-
-        # Placeholder for TISS claim analysis via DMN evaluation
-        claim_analysis = {
-            "has_glosas": False,
-            "denial_ratio": 0.0,
-            "glosa_count": 0,
-            "roteamento": "ANALISE_HUMANA",
-            "categoria_normalizada": "desconhecida",
-        }
-
-        logger.info(
-            "marina.analyze_claim.complete",
-            roteamento=claim_analysis["roteamento"],
-        )
-
-        return {
-            "messages": messages,
-            "claim_analysis": claim_analysis,
-        }
-
-    async def prepare_dossier_node(state: AgentState) -> dict[str, Any]:
-        """Assemble the triage/recurso dossier for human analyst review.
-
-        Combines claim analysis facts into a structured dossier. Routes to the
-        appropriate human group (analista-contas or medico-auditor).
-        Delegates to Lucas via A2A when beneficiary information is needed.
-
-        Args:
-            state: The current AgentState with claim analysis results.
-
-        Returns:
-            Updated state dict with dossier and routing information.
-        """
-        messages: list[str] = list(state.get("messages", []))
-        claim_analysis = cast(dict[str, Any], state.get("claim_analysis", {}))
-        logger.info(
-            "marina.prepare_dossier.start",
-            roteamento=claim_analysis.get("roteamento", "ANALISE_HUMANA"),
-        )
-
-        # A2A check: delegate to Lucas for beneficiary info when needed
-        needs_beneficiary_info = cast(bool, state.get("needs_beneficiary_info", False))
-        a2a_delegation = None
-        if needs_beneficiary_info:
-            a2a_delegation = {
-                "target_agent": "lucas",
-                "task_type": "beneficiary.assess",
-                "reason": "Beneficiary information required for dossier completion",
+        sanitized = _output_field_resets()
+        flow = _flow(state)
+        tenant_ok = bool(state.get("tenant_id"))
+        if flow == "recurso":
+            key_ok = bool(state.get("numero_guia_tiss") and state.get("glosa_id"))
+        elif flow == "reembolso":
+            key_ok = bool(state.get("protocolo_reembolso"))
+        else:
+            key_ok = bool(state.get("numero_lote_tiss") or state.get("numero_guia_tiss"))
+        if not tenant_ok or not key_ok:
+            return {
+                **sanitized,
+                "route": "human_review",
+                "motivo_humano": "outro",
+                "grupo_humano": self._default_human_group(flow),
+                "error": "contexto de runtime ausente (tenant/chave de negocio)",
             }
-            logger.info(
-                "marina.prepare_dossier.a2a_delegate",
-                target="lucas",
-                task_type="beneficiary.assess",
-            )
+        return {**sanitized, "business_key": _business_key(state)}
 
-        # Assemble dossier — facts only, never decides merit
-        dossier = {
-            "resumo": {
-                "glosa_count": claim_analysis.get("glosa_count", 0),
-                "denial_ratio": claim_analysis.get("denial_ratio", 0.0),
-                "categoria": claim_analysis.get("categoria_normalizada", "desconhecida"),
+    async def gather(self, state: MarinaState) -> dict[str, Any]:
+        """Best-effort FHIR enrichment — NEVER blocks routing (module docstring)."""
+        if state.get("error"):
+            # Post-`receive`-sanitization a truthy `error` can ONLY have been set by `receive`'s
+            # own missing-context guard (which already routed human) — never by the caller.
+            # Re-assert the fail-safe route anyway (R1 cycle-1 fix, defense in depth): this bail
+            # must NEVER be reachable with a non-human route.
+            return {"route": "human_review"}
+
+        summary_facts: dict[str, Any] = {}
+        notes: list[str] = []
+
+        if self._fhir is None:
+            notes.append(
+                "FHIR reader not configured for this build (labeled boundary — see graph.py "
+                "module docstring); dossier proceeds with pre-resolved worker facts only."
+            )
+            return {"gathered": True, "summary_facts": summary_facts, "gather_notes": notes}
+
+        summary_ref = state.get("patient_summary_ref") or state.get("beneficiario_pseudo_id", "")
+        if summary_ref:
+            try:
+                summary_facts = await self._fhir.read_patient_summary(summary_ref)
+            except Exception as exc:  # noqa: BLE001 — best-effort enrichment, never fatal.
+                notes.append(f"resumo FHIR indisponivel: {exc}")
+
+        return {"gathered": True, "summary_facts": summary_facts, "gather_notes": notes}
+
+    async def assess(self, state: MarinaState) -> dict[str, Any]:
+        """Evaluate the flow's deterministic DMN chain and decide ROUTING (neutral vs human).
+
+        ADR-0012: the DMN decides; the LLM reasons over the result (dossier). NO branch here ever
+        produces a glosa acceptance, a recurso denial, or a reembolso approval/denial/reduction —
+        only `auto_route` (neutral routing) or `human_review` (fail-safe/instructive).
+
+        FAIL-SAFE: any DMN in the chain being unavailable NEVER becomes an adverse outcome by
+        omission — always `human_review` (see module docstring's disclosed divergence from the
+        donor for `glosa_classification` specifically).
+        """
+        if state.get("error"):
+            # Same rationale as `gather`'s bail: only reachable via `receive`'s own guard
+            # post-sanitization; re-asserts the fail-safe route (R1 cycle-1, defense in depth).
+            return {"route": "human_review"}
+        flow = _flow(state)
+        if flow == "recurso":
+            return await self._assess_recurso(state)
+        if flow == "reembolso":
+            # No reembolso DMN is re-evaluated here (already ran in the BPMN before this hop) —
+            # sync, no I/O (module docstring's structural divergence from contas/recurso).
+            return self._assess_reembolso(state)
+        return await self._assess_contas(state)
+
+    async def _assess_contas(self, state: MarinaState) -> dict[str, Any]:
+        """CONTAS flow: normalization -> classification -> triage (+ SLA, informative)."""
+        dmn_refs: dict[str, str] = {}
+
+        # A fraud signal is INFORMATIVE (L0 hard): never self-flags, routes to human to decide
+        # the referral. Takes precedence over automatic triage.
+        if bool(state.get("indicio_fraude_sinalizado", False)):
+            sla = await self._evaluate_dmn(DMN_CONTAS_SLA, self._contas_sla_input(state))
+            base = self._sla_base(sla, dmn_refs, DMN_CONTAS_SLA)
+            return {**base, **self._route_human("indicio_fraude", dmn_refs, "auditoria-contas")}
+
+        # 1) Reason code normalization (first code in the list — defensive).
+        reason_codes = state.get("reason_codes_tiss") or []
+        reason_code = str(reason_codes[0]) if reason_codes else ""
+        norm = await self._evaluate_dmn(DMN_GLOSA_NORMALIZATION, {"reason_code_tiss": reason_code})
+        if norm.get("error"):
+            return self._route_human(
+                "dmn_indisponivel", dmn_refs, "auditoria-contas", dmn_error=str(norm["error"])
+            )
+        categoria = str(norm["row"].get("categoria_normalizada", "desconhecida"))
+        dmn_refs[DMN_GLOSA_NORMALIZATION] = norm["ref"]
+
+        # 2) Classification (categoria + worker denial_ratio). See module docstring's disclosed
+        # divergence: failure here now routes human (donor let it pass through silently).
+        classif = await self._evaluate_dmn(
+            DMN_GLOSA_CLASSIFICATION,
+            {"categoria_normalizada": categoria, "denial_ratio": float(state.get("denial_ratio", 0.0))},
+        )
+        if classif.get("error"):
+            return self._route_human(
+                "dmn_indisponivel", dmn_refs, "auditoria-contas", dmn_error=str(classif["error"])
+            )
+        glosa_type = str(classif["row"].get("glosa_type", ""))
+        dmn_refs[DMN_GLOSA_CLASSIFICATION] = classif["ref"]
+
+        # 3) SLA (always — attaches deadlines to the dossier; never decides routing).
+        sla = await self._evaluate_dmn(DMN_CONTAS_SLA, self._contas_sla_input(state))
+        base = self._sla_base(sla, dmn_refs, DMN_CONTAS_SLA)
+        base["categoria_normalizada"] = categoria
+        base["glosa_classificada"] = glosa_type
+
+        # 4) Triage — the negativa-like heart of CONTAS, with NO accept/confirm output.
+        triage = await self._evaluate_dmn(
+            DMN_GLOSA_TRIAGE,
+            {
+                "tipo_item": str(state.get("tipo_lote", "")),
+                "categoria_normalizada": categoria,
+                "item_conforme_tabela": bool(state.get("item_conforme_tabela", False)),
+                "divergencia_valor": bool(state.get("divergencia_valor", False)),
+                "documentacao_anexa": bool(state.get("documentacao_anexa", False)),
             },
-            "roteamento": claim_analysis.get("roteamento", "ANALISE_HUMANA"),
-            "grupo_revisor": _resolve_revisor_group(claim_analysis),
+        )
+        if triage.get("error"):
+            return {
+                **base,
+                **self._route_human(
+                    "dmn_indisponivel", dmn_refs, "auditoria-contas", dmn_error=str(triage["error"])
+                ),
+            }
+        triagem = cast(TriagemGlosa, str(triage["row"].get("roteamento", "ANALISE_HUMANA")))
+        dmn_refs[DMN_GLOSA_TRIAGE] = triage["ref"]
+        base["triagem"] = triagem
+        base["dmn_refs"] = dmn_refs
+
+        # FAIL-SAFE (closed allowlist): ONLY the known neutral values proceed to auto_route.
+        # SEM_GLOSA/RECORRER -> neutral routing (never an acceptance). ANY other value
+        # (ANALISE_HUMANA, an unexpected/unknown value, empty) -> human. Mirrors Rafael: nothing
+        # ambiguous falls through to automatic by omission (L0 hard invariant).
+        if triagem in ("SEM_GLOSA", "RECORRER"):
+            desfecho = "sem_glosa" if triagem == "SEM_GLOSA" else "encaminhada_recurso_triagem"
+            return {**base, "route": "auto_route", "desfecho": desfecho, "dmn_refs": dmn_refs}
+        return {**base, **self._route_human("triagem_analise_humana", dmn_refs, "auditoria-contas")}
+
+    async def _assess_recurso(self, state: MarinaState) -> dict[str, Any]:
+        """RECURSO flow: admissibility -> eligibility (+ SLA, informative)."""
+        dmn_refs: dict[str, str] = {}
+
+        # 1) Admissibility — NO NEGAR/INADMISSIVEL output.
+        admis = await self._evaluate_dmn(
+            DMN_RECURSO_ADMISSIBILITY,
+            {
+                "glosa_existe": bool(state.get("glosa_existe", False)),
+                "dentro_prazo_recurso": bool(state.get("dentro_prazo_recurso", False)),
+                "documentacao_recurso_completa": bool(state.get("documentacao_recurso_completa", False)),
+            },
+        )
+        if admis.get("error"):
+            return self._route_human(
+                "dmn_indisponivel", dmn_refs, "analista-recurso-glosa", dmn_error=str(admis["error"])
+            )
+        admissibilidade = cast(AdmissibilidadeRecurso, str(admis["row"].get("roteamento", "ANALISE_HUMANA")))
+        dmn_refs[DMN_RECURSO_ADMISSIBILITY] = admis["ref"]
+
+        # 2) SLA (always — attaches deadlines to the dossier).
+        sla = await self._evaluate_dmn(DMN_RECURSO_SLA, self._recurso_sla_input(state))
+        base = self._sla_base(sla, dmn_refs, DMN_RECURSO_SLA)
+        base["admissibilidade_recurso"] = admissibilidade
+
+        if admissibilidade == "PENDENTE_DOCUMENTACAO":
+            return {**base, **self._route_human("documentacao_pendente", dmn_refs, "analista-recurso-glosa")}
+        # FAIL-SAFE (closed allowlist): ONLY `SEGUE_ANALISE` proceeds to eligibility.
+        # ANALISE_HUMANA and any other/unexpected value -> human by omission (L0 hard).
+        if admissibilidade != "SEGUE_ANALISE":
+            return {**base, **self._route_human("recurso_analise_humana", dmn_refs, "analista-recurso-glosa")}
+
+        # 3) Eligibility — NO NAO_RECORRIVEL output.
+        elig = await self._evaluate_dmn(
+            DMN_RECURSO_ELIGIBILITY,
+            {
+                "glosa_type": str(state.get("glosa_type", "")),
+                "glosa_reason_code": str(state.get("glosa_reason_code", "")),
+                "valor_glosado_brl": float(state.get("valor_glosado_brl", 0.0)),
+            },
+        )
+        if elig.get("error"):
+            return {
+                **base,
+                **self._route_human(
+                    "dmn_indisponivel", dmn_refs, "analista-recurso-glosa", dmn_error=str(elig["error"])
+                ),
+            }
+        elegibilidade = cast(ElegibilidadeRecurso, str(elig["row"].get("roteamento", "ANALISE_HUMANA")))
+        grupo_revisor = str(elig["row"].get("grupo_revisor", "analista-recurso-glosa"))
+        dmn_refs[DMN_RECURSO_ELIGIBILITY] = elig["ref"]
+        base["elegibilidade_recurso"] = elegibilidade
+        base["grupo_revisor"] = grupo_revisor
+        base["dmn_refs"] = dmn_refs
+
+        # FAIL-SAFE (closed allowlist): ONLY `RECORRIVEL` with a non-medico-auditor reviewer
+        # proceeds to auto_route. Glosa tecnica/clinica (grupo_revisor=medico-auditor) always
+        # goes human for merit review. ANALISE_HUMANA / any unexpected value -> human by omission.
+        if elegibilidade == "RECORRIVEL" and grupo_revisor != "medico-auditor":
+            return {**base, "route": "auto_route", "desfecho": "recurso_segue_analise", "dmn_refs": dmn_refs}
+        grupo = "medico-auditor" if grupo_revisor == "medico-auditor" else "analista-recurso-glosa"
+        return {**base, **self._route_human("recurso_analise_humana", dmn_refs, grupo)}
+
+    def _assess_reembolso(self, state: MarinaState) -> dict[str, Any]:
+        """REEMBOLSO flow: factual dossier of an ALREADY-RUNNING SP-OP-REEMBOLSO-001 instance.
+
+        Structurally different from CONTAS/RECURSO: Marina re-evaluates NO reembolso DMN
+        (`reembolso_admissibility`/`reembolso_calculo`/`reembolso_auto_approval` already ran in
+        the BPMN's own `BRT_Admissibilidade`/`BRT_Calculo`/`BRT_AutoApproval` BEFORE she is
+        convoked — the facts arrive pre-resolved in `cobertura_prevista`/`dentro_prazo`/
+        `dentro_tabela`/`dentro_teto_l2`/`valor_calculado_tabela_cents`) and never starts a
+        process (`start_process` is a no-op outside `contas`/`recurso`). She only ASSEMBLES the
+        factual dossier and ALWAYS routes to the `analise-reembolso` human group
+        (`UT_AnaliseReembolso`) — NO `auto_route` variant exists for this flow: reembolso
+        approval/denial/reduction is ALWAYS a human decision (ADR-0005/0018, worker-guard
+        `ERR_REEMBOLSO_DENIAL_NOT_HUMAN`).
+        """
+        return {
+            **self._route_human("reembolso_dossie", {}, "analise-reembolso"),
+            "desfecho": "reembolso_dossie_humano",
         }
 
-        logger.info(
-            "marina.prepare_dossier.complete",
-            roteamento=dossier["roteamento"],
-            grupo_revisor=dossier["grupo_revisor"],
-        )
+    async def auto_route(self, state: MarinaState) -> dict[str, Any]:
+        """Neutral routing (SEM_GLOSA/RECORRER/RECORRIVEL). Only reachable for `contas`/`recurso`.
+
+        GUARDRAIL: this path NEVER produces a glosa acceptance nor a recurso denial. It only
+        assembles the dossier and records the routing outcome; `start_process` (next node) opens
+        the instance, whose human User Task is where any substantive decision is made.
+        """
+        return {"dossier": await self._build_dossier(state, route="auto_route")}
+
+    async def human_review(self, state: MarinaState) -> dict[str, Any]:
+        """Prepares the human analyst's/auditor's/coordenacao's dossier and marks the human route.
+
+        This is the route for ANY ambiguous/technical/clinical/pending/fraud-signal/
+        DMN-unavailable case, and the ONLY route in `reembolso`. NONE of these is an accept/deny:
+        glosa acceptance is born SOLELY in `UT_AnalistaContas`; recurso desistencia SOLELY in
+        `UT_AnaliseRecursoAnalista`/medico-auditor merit review; reembolso approval/denial/
+        reduction SOLELY in `UT_AnaliseReembolso`/`UT_RevisaoAuditorMedico`/
+        `UT_CoordenacaoReembolso`. Marina instructs; the human decides.
+        """
+        dossier = await self._build_dossier(state, route="human_review")
+        desfecho = state.get("desfecho") or self._human_desfecho(state)
+        return {"dossier": dossier, "desfecho": desfecho}
+
+    async def start_process(self, state: MarinaState) -> dict[str, Any]:
+        """Starts (idempotently) the flow's process with the contract's variables.
+
+        ONLY for `contas`/`recurso` (Marina STARTS those). NO-OP in `reembolso`: the
+        SP-OP-REEMBOLSO-001 instance is already running when `reembolso.analyze` arrives
+        (convoked from INSIDE the process, `ST_PrepararDossie`) — starting a second instance
+        would duplicate the case.
+
+        Idempotent business key (the start checks the key before creating — a resend returns the
+        active instance). A start failure never loses the case: it records the error and keeps
+        the routing. NEVER emits a glosa acceptance or a recurso denial "on the side".
+        """
+        if _flow(state) == "reembolso":
+            return {}  # SP-OP-REEMBOLSO-001 is already running — Marina NEVER starts a 2nd instance.
+        if state.get("error") and not state.get("business_key"):
+            return {"process_started": False}
+
+        business_key = state.get("business_key") or _business_key(state)
+        variables = self._contract_variables(state)
+        try:
+            instance = await start_process_idempotent(
+                self._cibseven,
+                process_key=_process_key(state),
+                business_key=business_key,
+                variables=variables,
+            )
+        except CibSevenError as exc:
+            return {
+                "process_started": False,
+                "business_key": business_key,
+                "error": f"start_process indisponivel: {exc}",
+            }
+        return {
+            "process_started": True,
+            "business_key": business_key,
+            "process_ref": {
+                "instance_id": instance.instance_id,
+                "state": instance.state,
+                "already_existed": instance.already_existed,
+            },
+        }
+
+    async def finalize(self, state: MarinaState) -> dict[str, Any]:
+        """Terminal node — no further computation; `desfecho` was already set upstream.
+
+        No episodic memory write here (labeled boundary, module docstring — same rationale as
+        Rafael's/Helena's graphs).
+        """
+        return {}
+
+    # -- Conditional routing --------------------------------------------------------------
+
+    @staticmethod
+    def _route(state: MarinaState) -> str:
+        # FAIL-SAFE: on absence/doubt, ALWAYS human (never auto_route by omission).
+        return "auto_route" if state.get("route") == "auto_route" else "human_review"
+
+    @staticmethod
+    def _default_human_group(flow: Flow) -> str:
+        if flow == "recurso":
+            return "analista-recurso-glosa"
+        if flow == "reembolso":
+            return "analise-reembolso"
+        return "auditoria-contas"
+
+    @staticmethod
+    def _human_desfecho(state: MarinaState) -> str:
+        flow = _flow(state)
+        if flow == "recurso":
+            return "recurso_humano"
+        if flow == "reembolso":
+            return "reembolso_dossie_humano"
+        return "triagem_humana"
+
+    @staticmethod
+    def _route_human(
+        motivo: MotivoHumano,
+        dmn_refs: dict[str, str],
+        grupo_humano: str,
+        *,
+        dmn_error: str | None = None,
+    ) -> dict[str, Any]:
+        out: dict[str, Any] = {
+            "route": "human_review",
+            "motivo_humano": motivo,
+            "grupo_humano": grupo_humano,
+            "dmn_refs": dmn_refs,
+        }
+        if dmn_error is not None:
+            out["dmn_error"] = dmn_error
+        return out
+
+    @staticmethod
+    def _contas_sla_input(state: MarinaState) -> dict[str, Any]:
+        return {
+            "tipo_lote": str(state.get("tipo_lote", "")),
+            "valor_apresentado_brl": float(state.get("valor_apresentado_brl", 0.0)),
+        }
+
+    @staticmethod
+    def _recurso_sla_input(state: MarinaState) -> dict[str, Any]:
+        return {
+            "glosa_type": str(state.get("glosa_type", "")),
+            "valor_glosado_brl": float(state.get("valor_glosado_brl", 0.0)),
+        }
+
+    @staticmethod
+    def _sla_base(sla: dict[str, Any], dmn_refs: dict[str, str], table: str) -> dict[str, Any]:
+        sla_row = sla.get("row", {}) if not sla.get("error") else {}
+        if not sla.get("error"):
+            dmn_refs[table] = sla["ref"]
+        return {
+            "sla_analise": str(sla_row.get("sla_analise", "")),
+            "sla_alerta": str(sla_row.get("sla_alerta", "")),
+        }
+
+    # -- DMN (ADR-0028): the engine evaluates; the LLM never decides ----------------------------
+
+    async def _evaluate_dmn(self, table: str, dmn_input: dict[str, Any]) -> dict[str, Any]:
+        try:
+            rows, version = await self._dmn.evaluate(table, dmn_input)
+            row = first_row(rows, table, dmn_input)
+        except (DmnEvaluationError, DmnNoResultError) as exc:
+            return {"error": f"DMN `{table}` indisponivel: {exc}"}
+        # See `rafael/graph.py::_evaluate_dmn`/`helena/graph.py::_evaluate_dmn` for why this cites
+        # the decision-definition id (ADR-0028 §2) rather than a rule id the engine's evaluate
+        # response never returns.
+        return {"row": row, "ref": f"{table}#{version.id}"}
+
+    # -- Contract variables + dossier assembly (ADR-0007 audit provenance) --------------------
+
+    def _contract_variables(self, state: MarinaState) -> dict[str, Any]:
+        """Assembles the flow's process start variables (exactly the contract's own input set).
+
+        Includes Marina's dossier as `dossie_marina` (instruction) and `motivo_encaminhamento`/
+        `grupo_destino` when routed to human — NEVER a glosa acceptance nor a recurso denial.
+        Never called for `reembolso` (`start_process` no-ops before this for that flow).
+        """
+        flow = _flow(state)
+        variables: dict[str, Any] = {
+            "tenant_id": state.get("tenant_id", ""),
+            "beneficiario_pseudo_id": state.get("beneficiario_pseudo_id", ""),
+            "prestador_id": state.get("prestador_id", ""),
+            "source_agent_id": "marina",
+            "source_agent_version": self._agent_version,
+            "dossie_marina": state.get("dossier") or {},
+            "marina_flow": flow,
+            "marina_route": state.get("route", "human_review"),
+        }
+        if flow == "recurso":
+            variables.update(
+                {
+                    "numero_guia_tiss": state.get("numero_guia_tiss", ""),
+                    "glosa_id": state.get("glosa_id", ""),
+                    "numero_lote_tiss": state.get("numero_lote_tiss", ""),
+                    "glosa_type": str(state.get("glosa_type", "")),
+                    "glosa_reason_code": str(state.get("glosa_reason_code", "")),
+                    "valor_glosado_brl": float(state.get("valor_glosado_brl", 0.0)),
+                    "codigo_procedimento_tuss": state.get("codigo_procedimento_tuss", ""),
+                    "documentos_recurso_refs": state.get("documentos_recurso_refs") or [],
+                    "glosa_existe": bool(state.get("glosa_existe", False)),
+                    "dentro_prazo_recurso": bool(state.get("dentro_prazo_recurso", False)),
+                    "documentacao_recurso_completa": bool(state.get("documentacao_recurso_completa", False)),
+                }
+            )
+            if state.get("cid10"):
+                variables["cid10"] = state["cid10"]
+            if state.get("data_ciencia_glosa"):
+                variables["data_ciencia_glosa"] = state["data_ciencia_glosa"]
+            if state.get("data_recebimento_recurso_iso"):
+                variables["data_recebimento_recurso_iso"] = state["data_recebimento_recurso_iso"]
+        else:
+            variables.update(
+                {
+                    "numero_lote_tiss": state.get("numero_lote_tiss", ""),
+                    "competencia": state.get("competencia", ""),
+                    "valor_apresentado_brl": float(state.get("valor_apresentado_brl", 0.0)),
+                    "tipo_lote": str(state.get("tipo_lote", "")),
+                    "linhas_conta_refs": state.get("linhas_conta_refs") or [],
+                    "reason_codes_tiss": state.get("reason_codes_tiss") or [],
+                    "divergencia_valor": bool(state.get("divergencia_valor", False)),
+                    "item_conforme_tabela": bool(state.get("item_conforme_tabela", False)),
+                    "documentacao_anexa": bool(state.get("documentacao_anexa", False)),
+                    "indicio_fraude_sinalizado": bool(state.get("indicio_fraude_sinalizado", False)),
+                }
+            )
+            if state.get("data_recebimento_lote"):
+                variables["data_recebimento_lote"] = state["data_recebimento_lote"]
+            if state.get("numero_guia_tiss"):
+                variables["numero_guia_tiss"] = state["numero_guia_tiss"]
+            if state.get("numero_conta"):
+                variables["numero_conta"] = state["numero_conta"]
+
+        if state.get("route") == "human_review":
+            # `or`-based (not `.get(key, default)`): post-sanitization these keys EXIST with
+            # value `None` until a node sets them — the default must still apply then.
+            variables["motivo_encaminhamento"] = state.get("motivo_humano") or "outro"
+            variables["grupo_destino"] = state.get("grupo_humano") or self._default_human_group(flow)
+        # Auditable rule references (ADR-0007/0012). Note: `dmn_error` (raw transport error text,
+        # potentially engine-echoed) is DELIBERATELY never included here — only the bounded class
+        # token in `motivo_encaminhamento` reaches engine-bound variables (hardening: engine-
+        # variable hygiene).
+        dmn_refs = state.get("dmn_refs")
+        if dmn_refs:
+            variables["dmn_decision_refs"] = dmn_refs
+        return variables
+
+    async def _build_dossier(self, state: MarinaState, *, route: Route) -> dict[str, Any]:
+        """Assembles the analyst's/auditor's/coordenacao's dossier. The LLM reasons over the
+        FACTS; it never decides. Failure never blocks the route — falls back to a minimal
+        deterministic dossier with an empty narrative (mirrors Rafael/Helena exactly)."""
+        flow = _flow(state)
+        if flow == "recurso":
+            facts = self._recurso_facts(state)
+            prompt_text = recurso_prompt()
+            prompt_version = RECURSO_PROMPT_VERSION
+        elif flow == "reembolso":
+            facts = self._reembolso_facts(state)
+            prompt_text = reembolso_prompt()
+            prompt_version = REEMBOLSO_PROMPT_VERSION
+        else:
+            facts = self._contas_facts(state)
+            prompt_text = dossier_prompt()
+            prompt_version = DOSSIER_PROMPT_VERSION
+
+        motivo_humano = state.get("motivo_humano") if route == "human_review" else None
+        grupo_humano = state.get("grupo_humano") if route == "human_review" else None
+        prompt = f"{prompt_text}\n\nflow={flow} route={route} motivo_humano={motivo_humano}\nfatos={facts}"
+        try:
+            narrativa = await self._llm.generate(prompt, phi=True)
+        except Exception:  # noqa: BLE001 — LLM failure never blocks the human/auto route.
+            narrativa = ""
 
         return {
-            "messages": messages,
-            "dossier": dossier,
-            "a2a_delegation": a2a_delegation,
+            "prompt_version": prompt_version,
+            "flow": flow,
+            "route": route,
+            "motivo_humano": motivo_humano,
+            "grupo_humano": grupo_humano,
+            "fatos": facts,
+            "dmn_decision_refs": state.get("dmn_refs", {}),
+            "narrativa": narrativa,
+            "documentos_refs": self._documentos_refs_for(flow, state),
+            # STRUCTURAL GUARDRAIL (L0 hard): the dossier NEVER carries an adverse decision.
+            "decisao_glosa": None,  # glosa acceptance: SOLELY UT_AnalistaContas
+            "decisao_recurso": None,  # desistencia/recurso: SOLELY UT_AnaliseRecursoAnalista
+            "decisao_reembolso": None,  # approval/denial/reduction: ALWAYS human (UT_AnaliseReembolso+)
         }
 
-    graph.add_node("analyze_claim", analyze_claim_node)
-    graph.add_node("prepare_dossier", prepare_dossier_node)
-    graph.add_edge("__start__", "analyze_claim")
-    graph.add_edge("analyze_claim", "prepare_dossier")
-    graph.add_edge("prepare_dossier", "__end__")
+    @staticmethod
+    def _documentos_refs_for(flow: Flow, state: MarinaState) -> list[dict[str, Any]]:
+        """Document refs attached to the dossier, per flow (never raw PHI — only refs/ids)."""
+        if flow == "recurso":
+            return state.get("documentos_recurso_refs") or []
+        if flow == "reembolso":
+            # `tools/workers/reembolso.py`'s payload does not carry a document-ref list today —
+            # only pre-resolved identifiers/booleans/numerics.
+            return []
+        return state.get("linhas_conta_refs") or []
 
-    return graph
+    @staticmethod
+    def _contas_facts(state: MarinaState) -> dict[str, Any]:
+        return {
+            "numero_lote_tiss": state.get("numero_lote_tiss"),
+            "numero_guia_tiss": state.get("numero_guia_tiss"),
+            "numero_conta": state.get("numero_conta"),
+            "competencia": state.get("competencia"),
+            "tipo_lote": state.get("tipo_lote"),
+            "valor_apresentado_brl": state.get("valor_apresentado_brl"),
+            "reason_codes_tiss": state.get("reason_codes_tiss", []),
+            "categoria_normalizada": state.get("categoria_normalizada"),
+            "glosa_classificada": state.get("glosa_classificada"),
+            "denial_ratio": state.get("denial_ratio"),
+            "item_conforme_tabela": state.get("item_conforme_tabela"),
+            "divergencia_valor": state.get("divergencia_valor"),
+            "documentacao_anexa": state.get("documentacao_anexa"),
+            "triagem": state.get("triagem"),
+            "indicio_fraude_sinalizado": state.get("indicio_fraude_sinalizado"),
+            "dmn_refs": state.get("dmn_refs", {}),
+            "sla_analise": state.get("sla_analise"),
+            "lacunas_enriquecimento": state.get("gather_notes", []),
+        }
+
+    @staticmethod
+    def _recurso_facts(state: MarinaState) -> dict[str, Any]:
+        return {
+            "numero_guia_tiss": state.get("numero_guia_tiss"),
+            "glosa_id": state.get("glosa_id"),
+            "glosa_type": state.get("glosa_type"),
+            "glosa_reason_code": state.get("glosa_reason_code"),
+            "valor_glosado_brl": state.get("valor_glosado_brl"),
+            "codigo_procedimento_tuss": state.get("codigo_procedimento_tuss"),
+            "cid10": state.get("cid10"),
+            "glosa_existe": state.get("glosa_existe"),
+            "dentro_prazo_recurso": state.get("dentro_prazo_recurso"),
+            "documentacao_recurso_completa": state.get("documentacao_recurso_completa"),
+            "admissibilidade_recurso": state.get("admissibilidade_recurso"),
+            "elegibilidade_recurso": state.get("elegibilidade_recurso"),
+            "grupo_revisor": state.get("grupo_revisor"),
+            "dmn_refs": state.get("dmn_refs", {}),
+            "sla_analise": state.get("sla_analise"),
+            "lacunas_enriquecimento": state.get("gather_notes", []),
+        }
+
+    @staticmethod
+    def _reembolso_facts(state: MarinaState) -> dict[str, Any]:
+        """REEMBOLSO facts — ALL pre-resolved by the process BEFORE this hop (Marina REPORTS
+        them, never recomputes: `dmn_refs` is deliberately absent here — no DMN was evaluated by
+        her in this flow, unlike CONTAS/RECURSO. `dentro_teto_l2` in particular is a pure
+        pass-through of the pre-resolved worker fact — see module docstring's L0-hard invariant)."""
+        return {
+            "protocolo_reembolso": state.get("protocolo_reembolso"),
+            "numero_guia_tiss": state.get("numero_guia_tiss"),
+            "tipo_reembolso": state.get("tipo_reembolso"),
+            "categoria_procedimento": state.get("categoria_procedimento"),
+            "codigo_procedimento_tuss": state.get("codigo_procedimento_tuss"),
+            "valor_solicitado_cents": state.get("valor_solicitado_cents"),
+            "valor_calculado_tabela_cents": state.get("valor_calculado_tabela_cents"),
+            "cobertura_prevista": state.get("cobertura_prevista"),
+            "dentro_prazo": state.get("dentro_prazo"),
+            "dentro_tabela": state.get("dentro_tabela"),
+            "dentro_teto_l2": state.get("dentro_teto_l2"),
+            "lacunas_enriquecimento": state.get("gather_notes", []),
+        }
+
+    # -- Graph assembly ---------------------------------------------------------------------
+
+    def compile_graph(self) -> StateGraph[MarinaState]:
+        g: StateGraph[MarinaState] = StateGraph(MarinaState)
+        g.add_node("receive", self.receive)
+        g.add_node("gather", self.gather)
+        g.add_node("assess", self.assess)
+        g.add_node("auto_route", self.auto_route)
+        g.add_node("human_review", self.human_review)
+        g.add_node("start_process", self.start_process)
+        g.add_node("finalize", self.finalize)
+
+        g.add_edge(START, "receive")
+        g.add_edge("receive", "gather")
+        g.add_edge("gather", "assess")
+        g.add_conditional_edges(
+            "assess", self._route, {"auto_route": "auto_route", "human_review": "human_review"}
+        )
+        g.add_edge("auto_route", "start_process")
+        g.add_edge("human_review", "start_process")
+        g.add_edge("start_process", "finalize")
+        g.add_edge("finalize", END)
+        return g
 
 
-def _resolve_revisor_group(claim_analysis: dict[str, Any]) -> str:
-    """Map claim analysis category to the appropriate human review group.
+def build(config: dict[str, Any] | None = None) -> StateGraph[MarinaState]:
+    """Contract `_template/graph.py:build`, resolved by `AgentLoader`/`runtime.harness.Harness`.
 
-    Glosa tecnica/clinica -> medico-auditor.
-    Glosa administrativa/valor/documental -> analista-contas.
-    Default -> analista-recurso-glosa (conservative).
+    `config` MUST contain `inference` (ADR-0009), `dmn` (ADR-0028/T1.5), `cibseven`
+    (ADR-0001/T1.11). `fhir` is OPTIONAL (see module docstring's labeled boundary) — its absence
+    never fails the build, only degrades `gather` to a disclosed gap note.
 
-    Args:
-        claim_analysis: The claim analysis result dict.
-
-    Returns:
-        The human review group identifier.
+    Fail-closed: missing a REQUIRED dependency raises `ValueError` at build time.
     """
-    categoria = claim_analysis.get("categoria_normalizada", "desconhecida")
-    if categoria in ("tecnica", "clinica"):
-        return "medico-auditor"
-    elif categoria in ("administrativa", "valor", "documental"):
-        return "analista-contas"
-    return "analista-recurso-glosa"
+    cfg = config or {}
+    inference = cfg.get("inference")
+    dmn = cfg.get("dmn")
+    cibseven = cfg.get("cibseven")
+    missing = [
+        name
+        for name, value in (("inference", inference), ("dmn", dmn), ("cibseven", cibseven))
+        if value is None
+    ]
+    if missing:
+        raise ValueError(
+            f"Marina build(config) is missing required dependencies: {missing} "
+            "(ADR-0001/0009/0028 — inference/dmn/cibseven must all be injected)"
+        )
+    agent_version = str(cfg.get("agent_version", "marina@v0"))
+    return MarinaGraph(
+        inference=cast(InferenceProvider, inference),
+        dmn=cast(DmnTransport, dmn),
+        cibseven=cast(CibSevenTransport, cibseven),
+        fhir=cast("PatientSummaryReader | None", cfg.get("fhir")),
+        agent_version=agent_version,
+    ).compile_graph()
+
+
+# Prompt versions exposed for audit/eval gating (ADR-0007/0009).
+PROMPT_VERSIONS: dict[str, str] = {
+    "system": SYSTEM_PROMPT_VERSION,
+    "dossier": DOSSIER_PROMPT_VERSION,
+    "recurso": RECURSO_PROMPT_VERSION,
+    "reembolso": REEMBOLSO_PROMPT_VERSION,
+}
