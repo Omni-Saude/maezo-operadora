@@ -196,6 +196,35 @@ def _to_camunda_var(value: Any) -> dict[str, Any]:
     return {"value": str(value), "type": "String"}
 
 
+def _from_camunda_var(entry: Mapping[str, Any]) -> Any:
+    """Decode ONE inbound CIB Seven / Camunda variable entry (`{"value": ..., "type": ...}`)
+    into the Python value a handler actually consumes. Symmetric read-side counterpart to
+    `_to_camunda_var` above.
+
+    **Load-bearing** (T1.1 defect, live-caught by the marina graph author): every wire type
+    except `Json` already arrives value-ready — `Integer`/`Long`/`Double`/`Boolean`/`String`/a
+    `null` value deserialize straight off the `fetchAndLock` JSON response body, so `.get
+    ("value")` alone was correct for them. `Json` is the ONE type that needs a second decode:
+    CIB Seven/Camunda 7's External Task REST contract returns a `Json`-typed variable's
+    `value` as a JSON STRING (the structured content re-encoded — the exact mirror of what
+    `_to_camunda_var` WRITES on `complete`/`bpmnError`), never as an already-parsed
+    object/array. Without this, list/dict process variables (e.g. SP-OP-CONTAS-001's
+    `linhas_conta_refs`) arrive at every consuming worker as a raw string instead of a Python
+    `list`/`dict` — every worker iterating/indexing it breaks or silently misbehaves.
+
+    Raises `json.JSONDecodeError` (a `ValueError` subclass) on malformed JSON content, and
+    `TypeError`/`AttributeError` on a malformed entry shape — both left for the caller
+    (`fetch_and_lock`) to fail-closed per-task (module docstring §9 ValueError convention:
+    bad/immutable input never retried, never silently passed through). A `Json`-typed variable
+    with `value: null` (unset) decodes to `None`, never attempted through `json.loads` (which
+    would raise `TypeError` on a non-str/bytes argument).
+    """
+    value = entry.get("value")
+    if entry.get("type") == "Json" and isinstance(value, str):
+        return json.loads(value)
+    return value
+
+
 # --------------------------------------------------------------------------------------------
 # Transport abstraction
 # --------------------------------------------------------------------------------------------
@@ -268,6 +297,14 @@ class CibSevenWorkerTransport:
     swallows a transport error into a fake-empty success (design §6/§13 fail-closed rule) — every
     method raises `httpx.HTTPStatusError`/`httpx.RequestError` on failure; the caller (harness
     loop) is responsible for backoff/readiness, never this transport.
+
+    `fetch_and_lock` decodes `Json`-typed variables (`_from_camunda_var`) — CIB Seven returns a
+    `Json` variable's `value` as a JSON STRING, the exact wire-symmetric counterpart of what
+    `complete`/`handle_bpmn_error` WRITE via `_to_camunda_var`'s `dict|list -> Json` branch (T1.1
+    fix, live-caught: list/dict process variables were arriving at workers as raw strings). A
+    task whose `Json` variable fails to decode is fail-closed per-task — reported
+    `failure(retries=0)` directly and excluded from the returned batch — never handed to a
+    worker undecoded, and never allowed to abort the rest of the polled batch.
     """
 
     def __init__(self, base_url: str, *, auth_token: str | None = None, timeout: float = 20.0) -> None:
@@ -306,7 +343,51 @@ class CibSevenWorkerTransport:
 
         tasks: list[ExternalTask] = []
         for item in resp.json():
-            variables: dict[str, Any] = {k: v.get("value") for k, v in (item.get("variables") or {}).items()}
+            task_id = item.get("id", "")
+            topic = item.get("topicName", "")
+            try:
+                variables: dict[str, Any] = {
+                    k: _from_camunda_var(v) for k, v in (item.get("variables") or {}).items()
+                }
+            except (ValueError, TypeError, AttributeError) as exc:
+                # Fail-closed (design §9 ValueError convention, applied at the transport seam):
+                # a malformed `Json`-typed variable is bad/immutable input — it will not fix
+                # itself on redelivery. NEVER hand the worker the raw undecoded string (silent
+                # corruption) and NEVER let this abort the WHOLE batch (a decode defect on one
+                # task must not drop every other polled task — that would look like, but is not,
+                # a transport error). Report an immediate incident directly for just this task
+                # and exclude it from the returned batch; the harness dispatch loop never sees it.
+                _stdlib_logger.error(
+                    "worker_task_json_variable_malformed_demoted_to_failure task_id=%s topic=%s error=%s",
+                    task_id,
+                    topic,
+                    exc,
+                )
+                logger.error(
+                    "worker_task_json_variable_malformed_demoted_to_failure",
+                    task_id=task_id,
+                    topic=topic,
+                    error=str(exc),
+                )
+                try:
+                    await self.handle_failure(
+                        task_id,
+                        worker_id,
+                        error_message=f"malformed Json-typed variable: {exc}",
+                        retries=0,
+                        retry_timeout_ms=0,
+                    )
+                except Exception:  # noqa: BLE001 — best-effort: reporting the incident must
+                    # never itself crash fetch_and_lock; an unreported task simply stays locked
+                    # until it expires and is redelivered (safe fallback, never silently dropped
+                    # forever).
+                    logger.error(
+                        "worker_task_json_variable_malformed_failure_report_failed",
+                        task_id=task_id,
+                        topic=topic,
+                        exc_info=True,
+                    )
+                continue
             tasks.append(
                 ExternalTask(
                     task_id=item["id"],
