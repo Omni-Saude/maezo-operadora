@@ -72,8 +72,10 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Mapping
 from typing import Any, Literal, Protocol, TypedDict, cast
 
+import structlog
 from langgraph.graph import END, START, StateGraph
 
 from maezo.runtime.inference import InferenceProvider
@@ -97,6 +99,8 @@ from .prompts import (
     classify_prompt,
     response_prompt,
 )
+
+logger = structlog.get_logger(__name__)
 
 # --- Domain enums (mirror the SP-OP-ESCALATION-001 contract + DMN schema) -------------------
 
@@ -189,6 +193,107 @@ class HelenaState(TypedDict, total=False):
     response_text: str
     response_kind: ResponseKind
     error: str
+
+
+# --- Input/output field split + input-boundary gate (T1.11 caller-planted read-through fix) ---
+#
+# HelenaState carries TWO disjoint classes of key:
+#   * INPUT-ONLY  (`HELENA_INPUT_FIELDS`): the ONLY keys a caller/upstream/dispatch seam may set.
+#   * OUTPUT-ONLY (`_HELENA_NEUTRAL_OUTPUTS`): keys OWNED by this graph's nodes. A caller must
+#     NEVER set one — a planted output field is an injection (forged routing, forged escalation
+#     motivo/severidade, forged ADR-0007 `dmn_decision_ref` provenance, or an anti-escalation
+#     `next_kind`/`error` that suppresses a red flag).
+#
+# TWO defenses, both fail-closed:
+#   1. Per-graph entry sanitization — `receive` resets EVERY output-only field to its neutral
+#      default before any downstream node runs, so a planted value cannot be read even if it
+#      reached the state dict (see `HelenaGraph.receive`).
+#   2. Input-boundary gate — the production construction seam(s) assemble state ONLY through the
+#      typed `new_helena_state` constructor or the `gate_inbound_state` allowlist filter, so an
+#      output-only key can never enter the state dict in the first place. This is the durable,
+#      class-killing layer: the read-throughs stay unreachable even if a future node regresses.
+#
+# The `_completeness` guard below fails at import time if a newly added HelenaState field is not
+# classified into exactly one of the two sets — "any missed key is a hole".
+
+HELENA_INPUT_FIELDS: frozenset[str] = frozenset(
+    {"tenant_id", "conversation_id", "canal", "beneficiario_pseudo_id", "message_body"}
+)
+
+# Neutral default for every OUTPUT-ONLY field. `receive` writes a copy of this over the incoming
+# state so nothing a caller planted survives to a downstream read. Every value here is immutable
+# (scalars / None) — safe to share across turns via a shallow copy.
+_HELENA_NEUTRAL_OUTPUTS: dict[str, Any] = {
+    "intent": None,
+    "population": None,
+    "psychosocial_risk": False,
+    "sintoma_codigo": None,
+    "intensidade": None,
+    "idade_anos": None,
+    "idade_meses": None,
+    "idade_gestacional_semanas": None,
+    "risco_imediato": None,
+    "dmn_table": None,
+    "dmn_decision": None,
+    "dmn_decision_ref": None,
+    "next_kind": "inform",
+    "escalation_motivo": None,
+    "escalation_severidade": "leve",
+    "escalation_started": False,
+    "escalation_business_key": None,
+    "escalation_process_ref": None,
+    "response_text": None,
+    "response_kind": None,
+    "error": None,
+}
+
+_HELENA_ALL_FIELDS = HELENA_INPUT_FIELDS | frozenset(_HELENA_NEUTRAL_OUTPUTS)
+if frozenset(HelenaState.__annotations__) != _HELENA_ALL_FIELDS:
+    _missing = frozenset(HelenaState.__annotations__) - _HELENA_ALL_FIELDS
+    _extra = _HELENA_ALL_FIELDS - frozenset(HelenaState.__annotations__)
+    raise RuntimeError(
+        "HelenaState input/output field split is incomplete (T1.11 input-boundary gate): "
+        f"unclassified fields={sorted(_missing)} stale entries={sorted(_extra)} — every "
+        "HelenaState key MUST be either an INPUT field or carry a neutral output default."
+    )
+
+
+def new_helena_state(
+    *,
+    tenant_id: str,
+    conversation_id: str,
+    canal: str,
+    beneficiario_pseudo_id: str,
+    message_body: str,
+) -> HelenaState:
+    """Typed input-boundary constructor for a fresh Helena turn (T1.11).
+
+    This is the production construction seam's ONLY sanctioned way to build a `HelenaState`: its
+    explicit keyword-only signature makes it STRUCTURALLY impossible to pass an output-only key
+    through it (a forged `next_kind`/`error`/`escalation_*`/`dmn_decision_ref`). Every accepted
+    argument is an `HELENA_INPUT_FIELDS` member.
+    """
+    return {
+        "tenant_id": tenant_id,
+        "conversation_id": conversation_id,
+        "canal": canal,
+        "beneficiario_pseudo_id": beneficiario_pseudo_id,
+        "message_body": message_body,
+    }
+
+
+def gate_inbound_state(raw: Mapping[str, Any]) -> HelenaState:
+    """Fail-closed input allowlist for seams that receive a raw mapping (A2A/delegation, future).
+
+    Only `HELENA_INPUT_FIELDS` keys survive; EVERY other key — i.e. any caller-planted output
+    field — is DROPPED (never reaches a downstream node) and logged. Use this at any seam that
+    assembles Helena state from an untrusted/upstream dict; use `new_helena_state` where the
+    input scalars are already in hand (the dispatch path).
+    """
+    dropped = sorted(k for k in raw if k not in HELENA_INPUT_FIELDS)
+    if dropped:
+        logger.warning("helena_inbound_output_fields_dropped", dropped=dropped)
+    return cast(HelenaState, {k: raw[k] for k in HELENA_INPUT_FIELDS if k in raw})
 
 
 # --- Helpers ---------------------------------------------------------------------------------
@@ -317,10 +422,23 @@ class HelenaGraph:
     # -- Nodes ----------------------------------------------------------------------------
 
     async def receive(self, state: HelenaState) -> dict[str, Any]:
-        """Turn start: defend against missing runtime identifiers (fail-closed -> escalate)."""
+        """Turn start: (1) ENTRY SANITIZATION — reset EVERY output-only field to its neutral
+        default so no caller/upstream-planted value can be read by a downstream node (T1.11
+        caller-planted read-through fix, layer 1); (2) defend against missing runtime identifiers
+        (fail-closed -> escalate).
+
+        The reset is what makes the `if state.get("error")` bails downstream (`classify`,
+        `escalate`) safe: after `receive`, `error` reflects ONLY a failure THIS graph set this
+        turn (missing context here; a classify/DMN/tool failure later) — never a caller-supplied
+        one. In particular it defeats the anti-escalation probe (planted `error`+`next_kind=
+        'inform'` on a red-flag message): the planted `error` is cleared, `classify` runs, and the
+        existing fail-closed red-flag logic re-engages instead of being skipped.
+        """
+        reset: dict[str, Any] = dict(_HELENA_NEUTRAL_OUTPUTS)
         if not state.get("conversation_id") or not state.get("tenant_id"):
-            return {"next_kind": "escalate", "error": "missing runtime context (tenant_id/conversation_id)"}
-        return {}
+            reset["next_kind"] = "escalate"
+            reset["error"] = "missing runtime context (tenant_id/conversation_id)"
+        return reset
 
     async def classify(self, state: HelenaState) -> dict[str, Any]:
         """Classify intent + normalize any symptom, then ALWAYS evaluate the red-flag DMN for a
@@ -333,7 +451,11 @@ class HelenaGraph:
         failure paths below/in `receive`.
         """
         if state.get("error"):
-            return {}  # already routed to escalate by `receive`
+            # `receive` already reset every output-only field, so a surviving `error` here can
+            # ONLY be one THIS graph set this turn (missing runtime context) — never a caller-
+            # planted one. That genuine mid-turn failure was already routed to escalate by
+            # `receive`; do not re-classify over it.
+            return {}
 
         extraction, classify_failure = await self._classify_llm(state)
         if extraction is None:
