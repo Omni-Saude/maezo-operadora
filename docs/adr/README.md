@@ -39,6 +39,7 @@ Regras:
 | 0027 | Audit Transport — Postgres-first (amends ADR-0007's Kafka assumption) (T1.10) | Accepted |
 | 0028 | Avaliacao de DMN em runtime — engine-side (CIB Seven REST), fail-closed (T1.4) | Proposed |
 | 0029 | Poda de audit_chain via checkpoint assinado + re-anchor; BLOQUEADA ate ADR-0020-amend + este ADR ratificarem (T2.8) | Proposed |
+| 0030 | Semantica de erro de worker vs boundary catches do BPMN — `WorkerBpmnError` modelado (opt-in por codigo gate-proven), incidente para todo o resto (T3.1) | Proposed |
 
 Texto integral e racional estendido: `agent-platform-adrs.md` no projeto de arquitetura
 (serie AP-001..AP-012 mapeia 1:1 para 0001..0012 desta serie).
