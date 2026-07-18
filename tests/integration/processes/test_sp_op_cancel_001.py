@@ -51,32 +51,30 @@ PORT NOTES (fixture adaptation only — port rule 1; logic/assertions verbatim f
     does not touch the engine).
 
 FINDINGS (see PR body / evidence-ledger for full detail):
-  1. `operadora.events.publish` gap, FIXED (T3.1 R2): this suite originally documented that
-     Cancel's BPMN sequences `Start_SolicitacaoCancelamento -> ST_PublishReceived ->
-     ST_ResolveFacts -> ...` and the unregistered publish topic was the VERY FIRST activity,
-     before `resolve_facts` even ran. `cancel_probe` now also registers
+  1. `operadora.events.publish` gap, FIXED (T3.1 R2, PR #61): `cancel_probe` registers
      `maezo.tools.workers.events.register_events_workers` (mirrors the donor's own
-     `register_phase0_workers` composition) — but see finding 2b: this does NOT flip any test to
-     green (finding 2b blocks earlier still, at fixture SETUP).
-  2. `register_cancel_workers` (`src/maezo/tools/workers/cancel.py`) registers handlers for only
-     4 of the 7 non-shared `operadora.cancel.*` topics the BPMN declares
-     (`spec/processes/bpmn/SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn`:
-     `resolve_facts`, `prepare_dossier`, `request_notification`, `send_cancellation_notice`) — 3
-     spec-declared topics have NO implementing entry function at all (module's own comment,
-     verbatim): `confirm_maintained_decision`, `effectuate_member_request`, `notify_sla_risk`.
-     Genuine v2 implementation gap, STILL OPEN — but UNREACHABLE by any test in this file today
-     (finding 2b below blocks every `cancel_probe`-based test before this one is ever hit).
-  2b. PROXIMATE BLOCKER for all 22 `cancel_probe`-based xfails below (verifier's nudge, T3.1 R2 —
-     live-confirmed AFTER finding 1 was fixed): `register_cancel_workers` ALSO registers 2
-     handlers with NO corresponding BPMN topic at all — `operadora.cancel.process_cancel` /
-     `operadora.cancel.publish_completed` (module's own comment concedes `process_cancel` is
-     "registered under a function-derived topic for registry completeness" with no spec topic).
-     The donor's OWN `cancel_probe` drift-guard fixture (ported verbatim — "falha AQUI,
-     explicita") catches this at fixture SETUP, for EVERY test that uses `cancel_probe` — not
-     just the 2 originally tagged `test_nenhum_caminho_automatizado_rescinde_contrato` (the
-     128-combination L0 sweep) and `test_business_key_uma_instancia_por_contrato`. Every xfail
-     below now cites this finding (not findings 1/2, which are real but unreachable) — marked
-     xfail rather than editing the ported guard (constraint 2: the guard assertion is unchanged).
+     `register_phase0_workers` composition) — engine-routed `ST_Publish*` domain events
+     (cancel.received/completed/sla_breached) flow and are asserted green below.
+  2 + 2b. Registry drift, FIXED (T3.1 topic reconciliation — the PR that carries this note):
+     `register_cancel_workers` now registers EXACTLY the 7 `operadora.cancel.*` topics the BPMN
+     declares — the 3 previously-missing workers are implemented (`confirm_maintained_decision`:
+     GATED, GAP-CANCEL-3, raises a MODELED `WorkerBpmnError(ERR_CANCEL_MANTER_NOT_HUMAN)` so
+     `BE_ManterNaoConfirmado`'s boundary catch fires; `effectuate_member_request`: L2 clerical,
+     NOT adverse, no guard; `notify_sla_risk`: informational) and the 2 orphan registrations with
+     no BPMN topic (`process_cancel`, `publish_completed`) are REMOVED. The donor's drift-guard in
+     `cancel_probe` (`assert not missing_from_drain`, ported verbatim, byte-untouched) now passes
+     NATURALLY. Live-proven (fresh `docker compose -p cancelfix` stack, CIB Seven 2.1.0, single
+     clean run, 2026-07-18): 20/28 pass including the 128-combination L0 sweep, both
+     `End_ManterNaoConfirmado` guard-catch paths, and all five human-decision terminals.
+  3. REMAINING (the 8 xfails below, `_WORKER_KAFKA_GAP_REASON`): v2's ADR-0026 dict-boundary
+     entry functions never call `kafka.publish` — the donor's cancel workers published per-worker
+     notifications (`operadora.notifications.internal`) and the `agents.events.cancel.pended`
+     domain event from INSIDE the handler; v2's entry functions only RETURN output variables.
+     Every one of the 8 fails ONLY on a `notifications_of_type(...)` / `has_event(cancel.pended)`
+     assertion over those worker-emitted messages (live-verified: each reached its correct end
+     event / passed its flow assertions first). Same systemic finding as escalation's
+     NotifyTeamWorker and auth's action-worker residuals (T3.1 events.publish-fix ledger row).
+     Fix belongs to the Kafka-producer wiring task, not this registry reconciliation.
 """
 
 from __future__ import annotations
@@ -117,12 +115,11 @@ _SEND_NOTICE_TOPIC = "operadora.cancel.send_cancellation_notice"
 _CONFIRM_MAINTAINED_TOPIC = "operadora.cancel.confirm_maintained_decision"
 _NOTIFY_SLA_TOPIC = "operadora.cancel.notify_sla_risk"
 
-# Topicos servidos pelos workers REAIS registrados no harness (drain generico). NOTA (finding 2
-# acima): v2 `register_cancel_workers` nao registra handler para `_EFFECTUATE_TOPIC`,
-# `_CONFIRM_MAINTAINED_TOPIC` nem `_NOTIFY_SLA_TOPIC` hoje — mantidos na lista de drain (fixture
-# verbatim do donor) porque o drift-guard abaixo compara contra `harness.registered_topics`
-# (subset real), nao o contrario; nao ha risco do drain travar numa task sem handler ficar
-# "parada para sempre" adicional ao gap ja documentado (mesmo mecanismo: vira incidente).
+# Topicos servidos pelos workers REAIS registrados no harness (drain generico). T3.1 topic
+# reconciliation (findings 2+2b, FIXED): `register_cancel_workers` agora registra handler para
+# TODOS os 7 topicos `operadora.cancel.*` abaixo — a lista de drain (fixture verbatim do donor)
+# e o registro real coincidem 1:1, e o drift-guard do `cancel_probe` (compara
+# `harness.registered_topics` contra esta lista) passa NATURALMENTE.
 _CANCEL_WORKER_TOPICS = [
     _PUBLISH_TOPIC,
     _RESOLVE_FACTS_TOPIC,
@@ -161,36 +158,30 @@ _CAMPOS_ADVERSOS = {
     "responsavel_id": "juridico-sintetico-001",
 }
 
-# T3.1 R2 (verifier's nudge — tighten these 22 reason strings to name the PROXIMATE failure):
-# finding 1 (the generic events.publish gap) is FIXED, but that does NOT flip any of the 22
-# tests below to green. Live-confirmed (docker compose core, CIB Seven 2.1.0) AFTER wiring
-# `register_events_workers` into `cancel_probe`: EVERY test using the `cancel_probe` fixture
-# ERRORs at fixture SETUP — before the fixture even returns, let alone before any BPMN activity
-# runs — because finding 2b's drift-guard (`assert not missing_from_drain`, ported verbatim from
-# the donor, constraint 2: unchanged) ALWAYS fires: `register_cancel_workers` unconditionally
-# registers 2 extra handlers with no BPMN topic (`operadora.cancel.process_cancel`,
-# `operadora.cancel.publish_completed`), independent of anything this PR touches. Finding 2b is
-# therefore the PROXIMATE blocker for ALL 22 of these tests (not just the 2 originally tagged
-# `_REGISTRY_MISMATCH_REASON`) — findings 1 (publish gap, fixed) and 2 (3 missing entry
-# functions: confirm_maintained_decision/effectuate_member_request/notify_sla_risk) are real,
-# separately-documented gaps, but NEITHER is reachable: fixture setup fails before a single
-# `ST_Publish*`/`ST_*` service task ever runs. Every xfail below now cites finding 2b — the ONE
-# reason that actually explains the observed error for each and every one of them (findings 1/2
-# stay documented above for completeness/background, not because they are the live blocker).
-_REGISTRY_MISMATCH_REASON = (
-    "v2 implementation gap (finding 2b, T3.1 R2, live-confirmed by the donor's OWN drift-guard "
-    "fixture in `cancel_probe` — not touched, it did its job, PROXIMATE cause for every "
-    "cancel_probe-based test in this file, independent of the events.publish gap T3.1 R2 fixes): "
-    "`register_cancel_workers` registers 2 EXTRA handlers (`operadora.cancel.process_cancel`, "
-    "`operadora.cancel.publish_completed`) that correspond to NO `camunda:topic` in "
-    "spec/processes/bpmn/SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn — orphaned registrations. "
-    "`cancel_probe`'s drift-guard (`assert not missing_from_drain`) therefore ERRORs at fixture "
-    "SETUP for every test using it, before any BPMN activity runs — 3 further BPMN-declared "
-    "topics with no handler at all (confirm_maintained_decision/effectuate_member_request/"
-    "notify_sla_risk, finding 2) are consequently unreachable too. The module's own comment "
-    "concedes this: process_cancel is 'registered under a function-derived topic for registry "
-    "completeness' with no corresponding spec topic. Not a fixture bug (the ported drift-guard "
-    "assertion is verbatim donor code, constraint 2); src/** fix is out of scope for this PR."
+# T3.1 topic reconciliation: findings 2+2b (registry drift) are FIXED — 16 of the previous 24
+# xfails flipped green on a single clean run against a fresh engine (docker compose -p cancelfix,
+# CIB Seven 2.1.0, 2026-07-18: 20 passed / 8 failed under --runxfail; the 4 never-marked tests
+# were already green). The 8 tests still marked below all failed ONLY on the same remaining
+# assertion class — worker-emitted Kafka messages (finding 3 in the module docstring): each one
+# reached its correct end event / passed every flow assertion first, then failed on an empty
+# `notifications_of_type(...)` (or the worker-published `cancel.pended` `has_event`). That is the
+# donor-vs-v2 behavioral drift ADR-0026 §2 documents for EVERY dict-boundary module ("no entry
+# function calls kafka.publish today"): the donor's handlers published notifications from inside
+# the worker; v2's entry functions only return output variables. Same systemic residual already
+# on record for escalation (NotifyTeamWorker) and auth (action workers) in the T3.1
+# events.publish-fix ledger row — kept as HONEST xfails until the Kafka-producer wiring task
+# lands, rather than weakening the ported assertions (constraint 2).
+_WORKER_KAFKA_GAP_REASON = (
+    "v2 systemic drift (T3.1 finding 3 — same class as escalation/auth residuals, ledger row "
+    "'T3.1 (events.publish fix)'): v2's ADR-0026 dict-boundary entry functions never call "
+    "kafka.publish — the donor's cancel handlers published per-worker notifications "
+    "(operadora.notifications.internal) and agents.events.cancel.pended from INSIDE the worker; "
+    "v2's entry functions only RETURN output variables. This test's notifications_of_type()/"
+    "pended has_event() assertions can therefore never observe an execution, even though the "
+    "worker itself now runs and completes against the live engine (registry drift fixed by the "
+    "T3.1 topic reconciliation — live-verified: this test's instance reached its correct end "
+    "event and passed every flow assertion before failing here). Fix belongs to the "
+    "Kafka-producer wiring task, not this registry reconciliation."
 )
 
 
@@ -346,7 +337,6 @@ async def _drive_to_analise(engine: EngineRest, probe: CancelEngineProbe, iid: s
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_REGISTRY_MISMATCH_REASON, strict=True)
 async def test_nenhum_caminho_automatizado_rescinde_contrato(
     engine: EngineRest,
     cancel_probe: CancelEngineProbe,
@@ -354,13 +344,10 @@ async def test_nenhum_caminho_automatizado_rescinde_contrato(
 ) -> None:
     """INVARIANTE L0 (contract_termination): NENHUM caminho automatizado rescinde/suspende/nega.
 
-    Blocked at FIXTURE SETUP today (finding 2b — the donor's own `cancel_probe` drift-guard,
-    ported verbatim, correctly refuses to proceed): `register_cancel_workers` registers 2 extra
-    handlers with no corresponding BPMN topic, on top of 3 BPMN topics with no handler (finding
-    2). Even setting that aside, every one of the 128 instances this test would start also gets
-    stuck at `ST_PublishReceived` (finding 1) before ever reaching `cancel_admissibility` — so
-    the sweep would not exercise DMN routing even if finding 2b's guard were satisfied. The
-    assertion body is unchanged from the donor.
+    GREEN since the T3.1 topic reconciliation (findings 1 + 2 + 2b all FIXED — see module
+    docstring): live-proven on a fresh engine (2026-07-18, single clean run), all 128
+    combinations swept, zero adverse terminals reached without a human User Task. The assertion
+    body is unchanged from the donor.
     """
     tipos_solicitacao = [
         "pedido_beneficiario",
@@ -398,7 +385,6 @@ async def test_nenhum_caminho_automatizado_rescinde_contrato(
     assert checked == 128, f"Esperava 128 combinacoes varridas; varri {checked}"
 
 
-@pytest.mark.xfail(reason=_REGISTRY_MISMATCH_REASON, strict=True)
 async def test_inadimplencia_aparente_roteia_para_humano_nao_rescinde(
     engine: EngineRest,
     cancel_probe: CancelEngineProbe,
@@ -420,7 +406,6 @@ async def test_inadimplencia_aparente_roteia_para_humano_nao_rescinde(
     await _assert_no_adverse_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_REGISTRY_MISMATCH_REASON, strict=True)
 async def test_inelegibilidade_pedido_roteia_para_humano_nunca_auto_nega(
     engine: EngineRest,
     cancel_probe: CancelEngineProbe,
@@ -442,7 +427,6 @@ async def test_inelegibilidade_pedido_roteia_para_humano_nunca_auto_nega(
     await _assert_no_adverse_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_REGISTRY_MISMATCH_REASON, strict=True)
 async def test_plano_coletivo_pedido_roteia_para_humano(
     engine: EngineRest,
     cancel_probe: CancelEngineProbe,
@@ -468,7 +452,6 @@ async def test_plano_coletivo_pedido_roteia_para_humano(
     await _assert_no_adverse_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_REGISTRY_MISMATCH_REASON, strict=True)
 async def test_fora_prazo_pedido_roteia_para_humano_nunca_auto_efetiva(
     engine: EngineRest,
     cancel_probe: CancelEngineProbe,
@@ -496,7 +479,6 @@ async def test_fora_prazo_pedido_roteia_para_humano_nunca_auto_efetiva(
     await _assert_no_adverse_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_REGISTRY_MISMATCH_REASON, strict=True)
 async def test_fraude_referida_nunca_auto_flag(
     engine: EngineRest,
     cancel_probe: CancelEngineProbe,
@@ -519,7 +501,7 @@ async def test_fraude_referida_nunca_auto_flag(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_REGISTRY_MISMATCH_REASON, strict=True)
+@pytest.mark.xfail(reason=_WORKER_KAFKA_GAP_REASON, strict=True)
 async def test_happy_path_cancelamento_a_pedido_beneficiario_l2(
     engine: EngineRest,
     cancel_probe: CancelEngineProbe,
@@ -547,7 +529,7 @@ async def test_happy_path_cancelamento_a_pedido_beneficiario_l2(
     )
 
 
-@pytest.mark.xfail(reason=_REGISTRY_MISMATCH_REASON, strict=True)
+@pytest.mark.xfail(reason=_WORKER_KAFKA_GAP_REASON, strict=True)
 async def test_happy_path_rescisao_pela_operadora_humano(
     engine: EngineRest,
     cancel_probe: CancelEngineProbe,
@@ -575,7 +557,7 @@ async def test_happy_path_rescisao_pela_operadora_humano(
     assert a["responsavel_id"] == "juridico-sintetico-001"
 
 
-@pytest.mark.xfail(reason=_REGISTRY_MISMATCH_REASON, strict=True)
+@pytest.mark.xfail(reason=_WORKER_KAFKA_GAP_REASON, strict=True)
 async def test_happy_path_suspensao_por_inadimplencia_humano(
     engine: EngineRest,
     cancel_probe: CancelEngineProbe,
@@ -598,7 +580,7 @@ async def test_happy_path_suspensao_por_inadimplencia_humano(
     assert avisos and avisos[0]["decisao_cancelamento"] == "SUSPENDER"
 
 
-@pytest.mark.xfail(reason=_REGISTRY_MISMATCH_REASON, strict=True)
+@pytest.mark.xfail(reason=_WORKER_KAFKA_GAP_REASON, strict=True)
 async def test_happy_path_pedido_negado_humano(
     engine: EngineRest,
     cancel_probe: CancelEngineProbe,
@@ -633,7 +615,7 @@ async def test_happy_path_pedido_negado_humano(
     assert "fundamentacao_contratual" not in confirmacoes[0]
 
 
-@pytest.mark.xfail(reason=_REGISTRY_MISMATCH_REASON, strict=True)
+@pytest.mark.xfail(reason=_WORKER_KAFKA_GAP_REASON, strict=True)
 async def test_happy_path_contrato_mantido(
     engine: EngineRest,
     cancel_probe: CancelEngineProbe,
@@ -671,7 +653,6 @@ async def test_happy_path_contrato_mantido(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_REGISTRY_MISMATCH_REASON, strict=True)
 async def test_rescindir_exige_campos_worker_guard(
     engine: EngineRest,
     cancel_probe: CancelEngineProbe,
@@ -695,7 +676,6 @@ async def test_rescindir_exige_campos_worker_guard(
     await _assert_no_adverse_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_REGISTRY_MISMATCH_REASON, strict=True)
 async def test_manter_sem_fundamentacao_bloqueado_pelo_guard(
     engine: EngineRest,
     cancel_probe: CancelEngineProbe,
@@ -736,7 +716,6 @@ async def test_manter_sem_fundamentacao_bloqueado_pelo_guard(
     await _assert_no_adverse_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_REGISTRY_MISMATCH_REASON, strict=True)
 async def test_efetivar_pedido_restrito_a_pedido_beneficiario(
     engine: EngineRest,
     cancel_probe: CancelEngineProbe,
@@ -852,7 +831,7 @@ async def test_send_cancellation_notice_recusa_sem_humano() -> None:
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_REGISTRY_MISMATCH_REASON, strict=True)
+@pytest.mark.xfail(reason=_WORKER_KAFKA_GAP_REASON, strict=True)
 async def test_notificacao_previa_pendente_publica_pended(
     engine: EngineRest,
     cancel_probe: CancelEngineProbe,
@@ -877,7 +856,6 @@ async def test_notificacao_previa_pendente_publica_pended(
     assert await engine.instance_is_active(iid), "Instancia deve aguardar no event gateway de notificacao"
 
 
-@pytest.mark.xfail(reason=_REGISTRY_MISMATCH_REASON, strict=True)
 async def test_notificacao_ack_destrava_analise(
     engine: EngineRest,
     cancel_probe: CancelEngineProbe,
@@ -914,7 +892,6 @@ async def test_notificacao_ack_destrava_analise(
     await _assert_no_adverse_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_REGISTRY_MISMATCH_REASON, strict=True)
 async def test_prazo_notificacao_expira_vai_para_humano_nao_rescinde(
     engine: EngineRest,
     cancel_probe: CancelEngineProbe,
@@ -946,7 +923,7 @@ async def test_prazo_notificacao_expira_vai_para_humano_nao_rescinde(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_REGISTRY_MISMATCH_REASON, strict=True)
+@pytest.mark.xfail(reason=_WORKER_KAFKA_GAP_REASON, strict=True)
 async def test_timer_alerta_sla_nao_interruptivo(
     engine: EngineRest,
     cancel_probe: CancelEngineProbe,
@@ -970,7 +947,6 @@ async def test_timer_alerta_sla_nao_interruptivo(
     assert _UT_ANALISE in open_keys, "Timer nao-interruptivo nao deve cancelar a User Task"
 
 
-@pytest.mark.xfail(reason=_REGISTRY_MISMATCH_REASON, strict=True)
 async def test_timer_sla_estourado_coordenacao_assume(
     engine: EngineRest,
     cancel_probe: CancelEngineProbe,
@@ -999,7 +975,6 @@ async def test_timer_sla_estourado_coordenacao_assume(
     await _assert_no_adverse_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_REGISTRY_MISMATCH_REASON, strict=True)
 async def test_coordenacao_assume_e_rescinde(
     engine: EngineRest,
     cancel_probe: CancelEngineProbe,
@@ -1033,7 +1008,6 @@ async def test_coordenacao_assume_e_rescinde(
     assert cancel_probe.has_event(_CANCEL_COMPLETED, desfecho="rescindido_operadora")
 
 
-@pytest.mark.xfail(reason=_REGISTRY_MISMATCH_REASON, strict=True)
 async def test_dmn_cancel_sla_registra_fonte(
     engine: EngineRest,
     cancel_probe: CancelEngineProbe,
@@ -1051,7 +1025,7 @@ async def test_dmn_cancel_sla_registra_fonte(
     assert job_sla.activity_id == "BT_SlaAnalise"
 
 
-@pytest.mark.xfail(reason=_REGISTRY_MISMATCH_REASON, strict=True)
+@pytest.mark.xfail(reason=_WORKER_KAFKA_GAP_REASON, strict=True)
 async def test_cancel_routing_alimenta_dossie_humano(
     engine: EngineRest,
     cancel_probe: CancelEngineProbe,
@@ -1074,7 +1048,6 @@ async def test_cancel_routing_alimenta_dossie_humano(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_REGISTRY_MISMATCH_REASON, strict=True)
 async def test_solicitar_info_aguarda_correlacao(
     engine: EngineRest,
     cancel_probe: CancelEngineProbe,
@@ -1196,7 +1169,6 @@ def test_dmn_typeref_allowlist() -> None:
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_REGISTRY_MISMATCH_REASON, strict=True)
 async def test_business_key_uma_instancia_por_contrato(
     engine: EngineRest,
     cancel_probe: CancelEngineProbe,
@@ -1204,10 +1176,11 @@ async def test_business_key_uma_instancia_por_contrato(
 ) -> None:
     """Mesmo business key: consultar antes de iniciar; nao criar 2a instancia ativa.
 
-    Does not call `cancel_probe.drain()` (would otherwise survive finding 1, like the
-    escalation/auth idempotency tests) — but it DOES depend on the `cancel_probe` fixture being
-    constructed, which trips finding 2b's drift-guard at SETUP regardless (see
-    `_REGISTRY_MISMATCH_REASON`).
+    GREEN since the T3.1 topic reconciliation (finding 2b FIXED — the `cancel_probe` fixture's
+    drift-guard now passes naturally at setup). NOTE (unchanged from the phase-1 ledger row's
+    disclosure): this test uses a HARDCODED business key, so it is single-clean-run-only — a
+    rerun against a non-torn-down engine accumulates a second active instance and fails; CI
+    provisions a fresh stack per run.
     """
     contrato = "CONTRATO-TESTE-IDEM-001"
     business_key = f"CANCEL-amh-{contrato}"
