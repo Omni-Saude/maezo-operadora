@@ -10,8 +10,11 @@
 > **Amended 2026-07-18 per R1 adversarial verification round 1 (F1-F6).** The census and code citations
 > reproduced exactly and Option A's direction survived; four findings required amendment: (F1) the
 > phase-2 xfail-evidence claim corrected — the 13 phase-2 suites on `t3.1-process-suites-phase2-land`
-> @ `d27264e` carry **11 strict-xfails documenting exactly this defect class**, which flip under
-> Tiers 1-2 (§xfail evidence, §Migration); (F2) the `operadora.events.publish` all-16-consumers vs
+> @ `d27264e` carry **≥11 (13 including the compound cred guard-shape pair
+> `_CRED_GUARD_SHAPE_MISMATCH_REASON` ×2, whose tests the author labeled by their primary
+> missing-worker blocker) strict-xfails documenting exactly this defect class**, 11 of which flip
+> under Tiers 1-2 and the compound pair under Tier 3 (§xfail evidence, §Migration); (F2) the
+> `operadora.events.publish` all-16-consumers vs
 > single-declaring-process conflict resolved with a consumption-scoped gate clause (§2); (F4) T-E
 > hard-gating widened to **all** `*_NOT_HUMAN` guard codes, including G1's
 > `ERR_CANCEL_MANTER_NOT_HUMAN` (§4, Tier 0); (F5) gate clause (c) phased warn→hard across the
@@ -171,15 +174,18 @@ only via **test-only inline allowlists** (`test_sp_op_cancel_001.py:244`
 (`service.py:300 frozenset()`) does not wire. Auth even **removed** a former strict-xfail on its
 boundary path after it XPASSED against a real CIB Seven 2.1.0 engine.
 
-**Phase-2 files (branch `t3.1-process-suites-phase2-land` @ `d27264e`, 13 additional suites): 11
-strict-xfails document EXACTLY this defect class** — dead boundary catches caused by the coded-error →
-incident path — several citing this ADR's own load-bearing lines verbatim:
+**Phase-2 files (branch `t3.1-process-suites-phase2-land` @ `d27264e`, 13 additional suites): ≥11
+(13 including the compound cred guard-shape pair `_CRED_GUARD_SHAPE_MISMATCH_REASON` ×2, whose tests
+the author labeled by their primary missing-worker blocker) strict-xfails document EXACTLY this defect
+class** — dead boundary catches caused by the coded-error → incident path — several citing this ADR's
+own load-bearing lines verbatim:
 
 | Suite (file:line of reason constant) | Constant | × | errorCode documented dead |
 |---|---|---|---|
 | `test_sp_op_programa_001.py:323` | `_PROGRAMA_CONSENT_GUARD_NOT_BPMN_ERROR_REASON` (cites `base.py:284-294` reclassification + the harness dispatch) | 2 | `ERR_PROGRAMA_NO_CONSENT` |
 | `test_sp_op_nip_001.py:266` | `_PROTOCOLO_INVALIDO_NOT_BPMN_ERROR_REASON` (cites `harness.py:916-943` vs `:952-954`) | 3 | `ERR_NIP_PROTOCOLO_INVALIDO` |
 | `test_sp_op_cred_001.py:344` | `_CRED_INVALID_PRESTADOR_NOT_RAISED_REASON` | 1 | `ERR_CRED_INVALID_PRESTADOR` |
+| `test_sp_op_cred_001.py:355` | `_CRED_GUARD_SHAPE_MISMATCH_REASON` — **compound**: primary blocker = missing `prepare_dossier` worker (`_CRED_MISSING_WORKERS_REASON`, finding 1, same suite); same-class secondary (why it belongs here) = `CredError` raise → `base.py:284-293` reclassifies to `ValueError` → `harness.py:952` generic incident → dead boundary, identical mechanism to the rest of this table. Applied at `:892`/`:924`. | 2 | `ERR_DECRED_NOT_HUMAN` / `ERR_CRED_DENIAL_NOT_HUMAN` |
 | `test_sp_op_lgpd_dsr_001.py:252` | `_LGPD_IDENTITY_UNVERIFIABLE_BOUNDARY_UNWIRED_REASON` | 1 | `ERR_DSR_IDENTITY_UNVERIFIED` |
 | `test_sp_op_recurso_001.py:357` | `_RECURSO_INVALID_GLOSA_GUARD_MISSING_REASON` | 2 | `ERR_RECURSO_INVALID_GLOSA` |
 | `test_sp_op_ans_submit_001.py:285` | `_SUBMIT_NACK_UNREACHABLE_REASON` | 2 | `ERR_ANS_PROTOCOLO_NACK` |
@@ -189,14 +195,26 @@ three: `test_sp_op_lgpd_dsr_001.py:212` (`_LGPD_BPMN_ERROR_ALLOWLIST =
 frozenset({"ERR_DSR_IDENTITY_UNVERIFIED"})`, wired at `:350`) and `test_sp_op_ans_submit_001.py:372`
 (`frozenset({"ERR_ANS_PROTOCOLO_NACK", "ERR_ANS_RETRY_ESGOTADO"})`).
 
+**Count correction (R2 re-verify, cred guard-shape pair):** the `test_sp_op_cred_001.py:892,924` pair
+above was omitted from the original 11-count because the test author's `xfail(reason=...)` labels
+those two tests by their PRIMARY blocker (`_CRED_MISSING_WORKERS_REASON` — the missing
+`prepare_dossier` worker blocks this suite from ever reaching the UT, finding 1), not by the same-class
+secondary mechanism the reason text also documents verbatim (`CredError(code)` raise →
+`base.py:284-293` reclassifies to `ValueError` → `harness.py:952` generic incident →
+`BE_DecredNaoHumano`/`BE_CredDenialNaoHumano` never fire for
+`ERR_DECRED_NOT_HUMAN`/`ERR_CRED_DENIAL_NOT_HUMAN`). Same defect class as the other six rows; compound
+label only. True same-class count: **13**.
+
 **This evidence STRENGTHENS Option A:** independent test engineers, porting per-family suites, each
 independently modeled the boundary catches as *intended to fire* and encoded the current
 incident-instead-of-boundary behavior as a **defect** (strict-xfail), not as an accepted posture.
-Under Option B every one of these 11 xfail markers would instead be rewritten to *assert* the incident
-— inverting the suites' declared intent. Consequence for the migration plan: these 11 flip
-strict-xfail → XPASS as Tiers 1-2 land, and per program discipline each marker must then be **removed
-with live-engine proof** (precedent: auth's removed boundary xfail). The 19 phase-1 Kafka-gap xfails
-flip under neither option (different defect, tracked by its own task).
+Under Option B every one of these ≥11 (13 incl. the compound cred guard-shape pair) xfail markers
+would instead be rewritten to *assert* the incident — inverting the suites' declared intent.
+Consequence for the migration plan: the original 11 flip strict-xfail → XPASS as Tiers 1-2 land; the
+compound cred guard-shape pair (`test_sp_op_cred_001.py:892,924`) flips only once Tier 3 *additionally*
+resolves its primary missing-worker blocker — and per program discipline each marker must then be
+**removed with live-engine proof** (precedent: auth's removed boundary xfail). The 19 phase-1
+Kafka-gap xfails flip under neither option (different defect, tracked by its own task).
 
 ### The tension
 
@@ -410,9 +428,13 @@ its own test strategy already knew better.
   live. Worker raises `WorkerBpmnError` routed to the modeled neutral terminal; ADR-0008 invariant
   preserved (no adverse action performed).
 
-**Which xfails flip (corrected per R1 F1):** the **11 phase-2 boundary-class strict-xfails** flip
-strict-xfail → XPASS as their tier lands, and each marker must then be **removed with live-engine
-proof** (program discipline; precedent: auth's removed boundary xfail). By tier: **Tier 2 flips 9** —
+**Which xfails flip (corrected per R1 F1; count precision per R2 re-verify — see §xfail evidence for
+the cred guard-shape pair):** the **11 phase-2 boundary-class strict-xfails** enumerated by Tier below
+flip strict-xfail → XPASS as their tier lands (a further compound pair,
+`test_sp_op_cred_001.py:892,924`, is same-class but flips only once Tier 3 additionally resolves its
+primary missing-worker blocker — §xfail evidence), and each marker must then be **removed with
+live-engine proof** (program discipline; precedent: auth's removed boundary xfail). By tier: **Tier 2
+flips 9** —
 `test_sp_op_programa_001.py` ×2 (`ERR_PROGRAMA_NO_CONSENT`), `test_sp_op_nip_001.py` ×3
 (`ERR_NIP_PROTOCOLO_INVALIDO`), `test_sp_op_cred_001.py` ×1 (`ERR_CRED_INVALID_PRESTADOR`),
 `test_sp_op_lgpd_dsr_001.py` ×1 (`ERR_DSR_IDENTITY_UNVERIFIED`), `test_sp_op_recurso_001.py` ×2
