@@ -3,20 +3,32 @@
 TDD London School: tests verify the guard contracts from the SP-OP contract.
 """
 
+from typing import Any
+
 import pytest
 
+from maezo.tools.mcp_cibseven.transport import (
+    CibSevenError,
+    FakeCibSevenTransport,
+    ProcessInstance,
+)
 from maezo.tools.workers.dmn_transport import DmnEvaluationError, FakeDmnTransport
 from maezo.tools.workers.inadimplencia import (
+    CANCEL_PROCESS_KEY,
     DECISAO_ENCAMINHAR_RESCISAO,
     DECISAO_MANTER,
     DECISAO_SUSPENDER,
     ERR_CONTRACT_SUSPENSION_NOT_HUMAN,
     InadimplenciaError,
+    _cancel_business_key,
     assess_status,
     calculate_purge,
     handoff_rescisao,
     notify_beneficiario,
+    notify_sla_risk,
+    prepare_dossier,
     register_contract_suspension,
+    register_inadimplencia_workers,
     register_suspension,
     resolve_facts,
 )
@@ -323,3 +335,248 @@ def test_handoff_rescisao_noop_for_other_decisao() -> None:
         }
     )
     assert result["handoff_executado"] is False
+
+
+# ---------------------------------------------------------------
+# GAP-INAD-1 — anti-dupla-terminacao cross-process CANCEL-001 query
+# ---------------------------------------------------------------
+
+
+_VALID_SUSPENSION_HUMAN_FIELDS: dict[str, Any] = {
+    "decisao_inadimplencia": DECISAO_SUSPENDER,
+    "responsavel_id": "juridico-001",
+    "fundamentacao_contratual": "Art. 13 Lei 9656",
+    "referencia_regulatoria": "RN 593",
+    "comprovacao_notificacao_previa": "ref-notif-001",
+    "comprovacao_periodo_minimo": "ref-periodo-001",
+}
+
+
+class _RaisingCibSevenTransport:
+    """Test double whose engine query ALWAYS raises — proves the fail-closed path (query error)."""
+
+    async def find_active_instance(self, business_key: str) -> ProcessInstance | None:
+        raise CibSevenError(f"engine unreachable querying `{business_key}`")
+
+
+class _RecordingHarness:
+    """Minimal harness double capturing registered workers by topic (register_worker only)."""
+
+    def __init__(self) -> None:
+        self.workers: dict[str, Any] = {}
+
+    def register_worker(self, worker: Any) -> None:
+        self.workers[worker.topic] = worker
+
+
+def _seed_active_cancel(fake: FakeCibSevenTransport, business_key: str) -> None:
+    fake.seed_instance(
+        ProcessInstance(
+            instance_id=f"cancel-inst-{business_key}",
+            process_key=CANCEL_PROCESS_KEY,
+            business_key=business_key,
+            state="ACTIVE",
+        )
+    )
+
+
+def test_cancel_business_key_format_and_matricula_fallback() -> None:
+    """Distinct CANCEL- prefix over the SAME contract identity; matricula fallback (individual plans)."""
+    assert _cancel_business_key("t1", "C-123", "mat-9") == "CANCEL-t1-C-123"
+    assert _cancel_business_key("t1", "", "mat-9") == "CANCEL-t1-mat-9"
+
+
+def test_anti_dupla_terminacao_blocks_suspension_when_cancel_active() -> None:
+    """THE anti-dupla-terminacao invariant (first-class): a live SP-OP-CANCEL-001 instance for the
+    same contract makes resolve_facts resolve ja_em_rescisao_cancel=True, and the suspension guard
+    then REFUSES the independent suspension — a contract already in rescisao is never also suspended."""
+    fake = FakeCibSevenTransport()
+    _seed_active_cancel(fake, "CANCEL-t1-C-123")
+
+    facts = resolve_facts(
+        {
+            "tenant_id": "t1",
+            "numero_contrato": "C-123",
+            "competencias_em_aberto": ["2024-01", "2024-02"],
+        },
+        engine=fake,
+    )
+    # Invariant, asserted directly: the cross-process correlation is a resolved FACT == True.
+    assert facts["ja_em_rescisao_cancel"] is True
+
+    with pytest.raises(InadimplenciaError) as excinfo:
+        register_contract_suspension({**_VALID_SUSPENSION_HUMAN_FIELDS, "numero_contrato": "C-123", **facts})
+    assert excinfo.value.code == ERR_CONTRACT_SUSPENSION_NOT_HUMAN
+    assert "ja_em_rescisao_cancel" in excinfo.value.message
+
+
+def test_anti_dupla_terminacao_proceeds_when_no_active_cancel() -> None:
+    """No live CANCEL-001 instance -> resolve_facts confirms ja_em_rescisao_cancel=False -> the
+    legitimate human-decided suspension PROCEEDS."""
+    fake = FakeCibSevenTransport()  # nothing seeded — engine positively confirms no active instance
+
+    facts = resolve_facts({"tenant_id": "t1", "numero_contrato": "C-123"}, engine=fake)
+    assert facts["ja_em_rescisao_cancel"] is False
+
+    result = register_contract_suspension(
+        {**_VALID_SUSPENSION_HUMAN_FIELDS, "numero_contrato": "C-123", **facts}
+    )
+    assert result["suspensao_registrada"] is True
+
+
+def test_anti_dupla_terminacao_matricula_keyed_cancel_blocks() -> None:
+    """Individual/familiar plans (no numero_contrato) key the query by matricula fallback."""
+    fake = FakeCibSevenTransport()
+    _seed_active_cancel(fake, "CANCEL-t1-mat-99")
+
+    facts = resolve_facts({"tenant_id": "t1", "matricula_beneficiario": "mat-99"}, engine=fake)
+    assert facts["ja_em_rescisao_cancel"] is True
+
+
+def test_fail_closed_when_query_raises() -> None:
+    """Query cannot be answered (engine/transport error) -> fail closed (block)."""
+    facts = resolve_facts({"tenant_id": "t1", "numero_contrato": "C-9"}, engine=_RaisingCibSevenTransport())
+    assert facts["ja_em_rescisao_cancel"] is True
+
+
+def test_fail_closed_when_engine_seam_not_wired() -> None:
+    """No engine seam injected -> correlation unconfirmable -> fail closed (block)."""
+    facts = resolve_facts({"tenant_id": "t1", "numero_contrato": "C-9"})  # engine defaults to None
+    assert facts["ja_em_rescisao_cancel"] is True
+
+
+def test_fail_closed_when_contract_identity_missing() -> None:
+    """No contract identity to key on -> cannot rule out a rescisao -> fail closed (block)."""
+    fake = FakeCibSevenTransport()
+    facts = resolve_facts({"tenant_id": "t1"}, engine=fake)
+    assert facts["ja_em_rescisao_cancel"] is True
+
+
+def test_register_suspension_fail_closed_when_fact_absent() -> None:
+    """Defense in depth at the adverse boundary: register REFUSES when ja_em_rescisao_cancel was
+    never resolved (absent) — 'inability to decide = do not suspend'. Only explicit False proceeds."""
+    with pytest.raises(InadimplenciaError) as excinfo:
+        register_contract_suspension(
+            {**_VALID_SUSPENSION_HUMAN_FIELDS, "numero_contrato": "C-9"}  # ja_em_rescisao_cancel absent
+        )
+    assert excinfo.value.code == ERR_CONTRACT_SUSPENSION_NOT_HUMAN
+    assert "ja_em_rescisao_cancel" in excinfo.value.message
+
+
+def test_resolve_facts_default_engine_is_fail_closed_true() -> None:
+    """resolve_facts now ALWAYS resolves ja_em_rescisao_cancel (never a silent pass-through)."""
+    facts = resolve_facts({"numero_contrato": "C-1"})
+    assert "ja_em_rescisao_cancel" in facts
+    assert facts["ja_em_rescisao_cancel"] is True  # no engine wired -> fail closed
+
+
+# ---------------------------------------------------------------
+# prepare_dossier — INSTRUCTS, never originates an adverse decision
+# ---------------------------------------------------------------
+
+
+def _flatten_values(obj: Any) -> set[Any]:
+    out: set[Any] = set()
+    if isinstance(obj, dict):
+        for value in obj.values():
+            out |= _flatten_values(value)
+    elif isinstance(obj, (list, tuple, set)):
+        for item in obj:
+            out |= _flatten_values(item)
+    else:
+        out.add(obj)
+    return out
+
+
+def test_prepare_dossier_happy_path() -> None:
+    result = prepare_dossier(
+        {
+            "numero_contrato": "C-123",
+            "matricula_beneficiario": "pseudo-abc",
+            "tipo_plano": "individual",
+            "meses_inadimplencia": 3,
+            "valor_total_devido_cents": 150000,
+            "ja_em_rescisao_cancel": False,
+        }
+    )
+    assert result["dossier_prepared"] is True
+    assert result["dossier_ref"].startswith("dossier-inad-")
+    assert result["numero_contrato"] == "C-123"
+    # The summary INSTRUCTS the human with the pre-resolved facts.
+    assert result["dossier_summary"]["meses_inadimplencia"] == 3
+    assert result["dossier_summary"]["ja_em_rescisao_cancel"] is False
+
+
+def test_prepare_dossier_no_adverse_origination() -> None:
+    """No-adverse-origination guard: even when the INPUT carries an adverse decision, the dossier
+    output originates NONE — no decisao_inadimplencia key, no SUSPENDER/RESCINDIR/ENCAMINHAR value."""
+    result = prepare_dossier(
+        {
+            "numero_contrato": "C-123",
+            "decisao_inadimplencia": DECISAO_SUSPENDER,  # adverse hint present in input
+            "suspensao_registrada": True,
+        }
+    )
+    assert "decisao_inadimplencia" not in result
+    assert "suspensao_registrada" not in result
+    adverse_values = {DECISAO_SUSPENDER, DECISAO_ENCAMINHAR_RESCISAO, "RESCINDIR"}
+    assert adverse_values.isdisjoint(_flatten_values(result))
+
+
+# ---------------------------------------------------------------
+# notify_sla_risk — informational, never adverse
+# ---------------------------------------------------------------
+
+
+def test_notify_sla_risk_informational() -> None:
+    result = notify_sla_risk({"numero_contrato": "C-123", "tenant_id": "t1"})
+    assert result["sla_risk_notified"] is True
+    assert result["grupo_alertado"] == "coordenacao-cobranca"
+    assert result["numero_contrato"] == "C-123"
+
+
+def test_notify_sla_risk_no_adverse_outcome() -> None:
+    """The non-interruptive timer alert never produces or propagates an adverse decision."""
+    result = notify_sla_risk({"numero_contrato": "C-123", "decisao_inadimplencia": DECISAO_SUSPENDER})
+    assert "decisao_inadimplencia" not in result
+    adverse_values = {DECISAO_SUSPENDER, DECISAO_ENCAMINHAR_RESCISAO, "RESCINDIR"}
+    assert adverse_values.isdisjoint(_flatten_values(result))
+
+
+# ---------------------------------------------------------------
+# register_inadimplencia_workers — registration + engine seam wiring
+# ---------------------------------------------------------------
+
+
+def test_register_inadimplencia_workers_registers_new_topics() -> None:
+    harness = _RecordingHarness()
+    register_inadimplencia_workers(harness, None, dmn=FakeDmnTransport(), engine=FakeCibSevenTransport())
+    topics = set(harness.workers)
+    assert "operadora.inadimplencia.prepare_dossier" in topics
+    assert "operadora.inadimplencia.notify_sla_risk" in topics
+    assert "operadora.inadimplencia.resolve_facts" in topics
+    assert len(topics) == 8  # resolve_facts, assess_status, calculate_purge, check_prior_notice,
+    #                          prepare_dossier, register_contract_suspension, handoff_rescisao,
+    #                          notify_sla_risk
+
+
+def test_registered_resolve_facts_threads_engine_seam() -> None:
+    """The engine seam is genuinely threaded into the REGISTERED resolve_facts worker (not just the
+    bare function): dispatching it with an active CANCEL-001 instance yields the fail-closed True."""
+    harness = _RecordingHarness()
+    engine = FakeCibSevenTransport()
+    _seed_active_cancel(engine, "CANCEL-t1-C-1")
+    register_inadimplencia_workers(harness, None, dmn=FakeDmnTransport(), engine=engine)
+
+    worker = harness.workers["operadora.inadimplencia.resolve_facts"]
+    out = worker.execute({"tenant_id": "t1", "numero_contrato": "C-1"})
+    assert out["ja_em_rescisao_cancel"] is True
+
+
+def test_registered_resolve_facts_without_engine_fails_closed() -> None:
+    """Composition root has not wired the engine seam yet -> registered resolve_facts fails closed."""
+    harness = _RecordingHarness()
+    register_inadimplencia_workers(harness, None, dmn=FakeDmnTransport())  # no engine seam
+    worker = harness.workers["operadora.inadimplencia.resolve_facts"]
+    out = worker.execute({"tenant_id": "t1", "numero_contrato": "C-1"})
+    assert out["ja_em_rescisao_cancel"] is True

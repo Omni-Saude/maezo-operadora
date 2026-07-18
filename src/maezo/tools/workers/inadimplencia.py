@@ -7,7 +7,9 @@ NAO ha worker de rescisao gated AQUI — rescisao e propriedade de CANCEL-001.
 
 from __future__ import annotations
 
+import asyncio
 import functools
+import uuid
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -16,6 +18,7 @@ from maezo.tools.workers.base import FunctionWorker
 from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row, require_dmn
 
 if TYPE_CHECKING:
+    from maezo.tools.mcp_cibseven.transport import CibSevenTransport
     from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
 
 logger = structlog.get_logger(__name__)
@@ -32,17 +35,105 @@ DECISAO_SUSPENDER = "SUSPENDER"
 DECISAO_ENCAMINHAR_RESCISAO = "ENCAMINHAR_RESCISAO"
 DECISAO_MANTER = "MANTER"
 
+# Process key of the sole owner of the contract-termination (rescisao) terminal — SP-OP-CANCEL-001
+# holds End_ContratoRescindido, human-gated by UT_AnaliseRescisao (docs/processes/
+# harmonization-inadimplencia-cancel.md §1). INADIMPLENCIA-001 NEVER rescinds; it hands off.
+CANCEL_PROCESS_KEY = "SP-OP-CANCEL-001"
+
 
 # ---------------------------------------------------------------
-# resolve_facts — pre-resolve facts (arithmetic, no decision)
+# Anti-dupla-terminacao — cross-process CANCEL-001 correlation query (GAP-INAD-1)
 # ---------------------------------------------------------------
 
 
-def resolve_facts(variables: dict[str, Any]) -> dict[str, Any]:
-    """Pre-resolve factual variables: mes count, value, period, purge window.
+def _cancel_business_key(tenant_id: str, numero_contrato: str, matricula_beneficiario: str) -> str:
+    """Business key of the SP-OP-CANCEL-001 instance that would be terminating THIS contract.
+
+    Same identity scheme both processes derive (docs/processes/harmonization-inadimplencia-cancel.md
+    §1): a DISTINCT prefix (``CANCEL-`` vs INADIMPLENCIA's ``INAD-``) over the SAME contract identity,
+    falling back to ``matricula_beneficiario`` when there is no contract number (individual/familiar
+    plans) — mirrors ``fernando.graph._business_key`` exactly. An ACTIVE instance under this key means
+    a rescisao/suspensao is already in flight in CANCEL-001 for this same ``contract_termination``.
+    """
+    contrato = numero_contrato or matricula_beneficiario
+    return f"CANCEL-{tenant_id}-{contrato}"
+
+
+def _query_ja_em_rescisao_cancel(
+    engine: CibSevenTransport | None,
+    *,
+    tenant_id: str,
+    numero_contrato: str,
+    matricula_beneficiario: str,
+) -> bool:
+    """REAL cross-process query: is a live SP-OP-CANCEL-001 instance already terminating this contract?
+
+    Anti-dupla-terminacao (GAP-INAD-1, docs/processes/harmonization-inadimplencia-cancel.md §1): keys
+    the engine by ``CANCEL-{tenant}-{contrato}`` (the CANCEL-001 business key — the process that OWNS
+    the rescisao terminal) via the same ``CibSevenTransport.find_active_instance`` seam the agent graphs
+    use for start-time idempotency. Read-only (TASY write DROP, ADR-0013); a FACT, never a decision.
+
+    FAIL CLOSED (ADR-0018, defense in depth): returns ``True`` (BLOCK the suspension) whenever the
+    correlation CANNOT be confirmed — no engine seam wired, no contract identity to key on, or any
+    transport/engine error. "Inability to decide = do not suspend": the guard NEVER presumes the
+    absence of an in-flight rescisao it could not positively rule out. Returns ``False`` (suspension
+    may proceed) ONLY when the engine positively confirms no active CANCEL-001 instance exists.
+    """
+    contrato = numero_contrato or matricula_beneficiario
+    cancel_business_key = _cancel_business_key(tenant_id, numero_contrato, matricula_beneficiario)
+
+    if not contrato:
+        # No contract identity -> cannot key the correlation query -> cannot rule out a rescisao.
+        logger.warning(
+            "inadimplencia_cancel_correlation_unavailable",
+            reason="contract_identity_missing",
+            tenant_id=tenant_id,
+        )
+        return True
+
+    if engine is None:
+        # No engine seam injected -> the cross-process correlation cannot be confirmed: fail closed.
+        logger.warning(
+            "inadimplencia_cancel_correlation_unavailable",
+            reason="engine_seam_not_wired",
+            cancel_business_key=cancel_business_key,
+        )
+        return True
+
+    try:
+        instance = asyncio.run(engine.find_active_instance(cancel_business_key))
+    except Exception as exc:  # noqa: BLE001 — engine/transport error -> fail closed (block, route human).
+        logger.warning(
+            "inadimplencia_cancel_correlation_query_failed",
+            error=str(exc),
+            cancel_business_key=cancel_business_key,
+        )
+        return True
+
+    return instance is not None
+
+
+# ---------------------------------------------------------------
+# resolve_facts — pre-resolve facts (arithmetic + cross-process query, no decision)
+# ---------------------------------------------------------------
+
+
+def resolve_facts(variables: dict[str, Any], *, engine: CibSevenTransport | None = None) -> dict[str, Any]:
+    """Pre-resolve factual variables: mes count, value, period, purge window, rescisao correlation.
 
     This worker computes factual data — it NEVER makes an adverse decision.
     All monetary values in integer cents.
+
+    ``ja_em_rescisao_cancel`` is the anti-dupla-terminacao correlation RESOLVED HERE (GAP-INAD-1) via
+    a REAL read-only query to the engine (``engine`` seam, ``CibSevenTransport.find_active_instance``):
+    does a live SP-OP-CANCEL-001 instance already terminate this ``{tenant}-{contrato}``? Before this
+    fix nothing populated the variable — the ``register_contract_suspension`` guard read a value no
+    worker ever set (a dead guard). The FACT is returned to the engine as an output variable the
+    harness carries on ``complete`` so the downstream suspension guard reads a real value.
+
+    FAIL CLOSED (ADR-0018): when the query cannot be answered (no ``engine`` seam wired, missing
+    contract identity, or a transport/engine error) ``ja_em_rescisao_cancel := True`` — the guard
+    downstream then REFUSES the suspension and routes to a human. See ``_query_ja_em_rescisao_cancel``.
     """
     competencias = variables.get("competencias_em_aberto", [])
     meses_inadimplencia = len(competencias) if isinstance(competencias, list) else 0
@@ -59,12 +150,21 @@ def resolve_facts(variables: dict[str, Any]) -> dict[str, Any]:
 
     notificacao_previa_feita = variables.get("notificacao_previa_feita", False)
 
+    # REAL cross-process query (anti-dupla-terminacao) — replaces the pure pass-through. Fail closed.
+    ja_em_rescisao_cancel = _query_ja_em_rescisao_cancel(
+        engine,
+        tenant_id=str(variables.get("tenant_id", "")),
+        numero_contrato=str(variables.get("numero_contrato", "")),
+        matricula_beneficiario=str(variables.get("matricula_beneficiario", "")),
+    )
+
     logger.info(
         "inadimplencia_resolve_facts",
         meses_inadimplencia=meses_inadimplencia,
         valor_total_devido_cents=valor_total,
         dentro_periodo_minimo=dentro_periodo_minimo,
         notificacao_previa_feita=notificacao_previa_feita,
+        ja_em_rescisao_cancel=ja_em_rescisao_cancel,
     )
 
     return {
@@ -73,6 +173,8 @@ def resolve_facts(variables: dict[str, Any]) -> dict[str, Any]:
         "dentro_periodo_minimo": dentro_periodo_minimo,
         "notificacao_previa_feita": notificacao_previa_feita,
         "dentro_janela_purga": dentro_janela_purga,
+        # RESOLVED by engine query (not echoed): the real anti-dupla-terminacao correlation fact.
+        "ja_em_rescisao_cancel": ja_em_rescisao_cancel,
     }
 
 
@@ -194,6 +296,83 @@ def notify_beneficiario(variables: dict[str, Any]) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------
+# prepare_dossier — assemble human-review dossier (INSTRUCTS, never decides)
+# ---------------------------------------------------------------
+
+#: Keys copied verbatim from the pre-resolved process facts into the dossier summary the human
+#: analyst reviews. Deliberately EXCLUDES every decision variable (`decisao_inadimplencia`) — the
+#: dossier instructs UT_AnaliseInadimplencia, it never originates the adverse decision.
+_DOSSIER_SUMMARY_KEYS = (
+    "numero_contrato",
+    "matricula_beneficiario",
+    "tipo_plano",
+    "origem_solicitacao",
+    "meses_inadimplencia",
+    "valor_total_devido_cents",
+    "dentro_periodo_minimo",
+    "notificacao_previa_feita",
+    "dentro_janela_purga",
+    "ja_em_rescisao_cancel",
+)
+
+
+def prepare_dossier(variables: dict[str, Any]) -> dict[str, Any]:
+    """Assemble the human-review dossier for UT_AnaliseInadimplencia — INSTRUCTS, never decides.
+
+    Mirrors the cancel/auth dossier pattern (`auth.AnalyzeRequestWorker`, `cancel.assess_admissibility`):
+    it gathers the pre-resolved facts + regulatory context into a dossier the human analyst
+    (juridico-contratos / gestao-cobranca) reviews. It NEVER originates an adverse decision — the
+    suspension/rescisao is born ONLY in the human User Task (L0 hard, contract_termination,
+    ADR-0005/0008). This worker therefore produces NO `decisao_inadimplencia` and NO
+    SUSPENDER/RESCINDIR output; the returned dict is a non-routing record no BPMN gateway reads for a
+    decision (it only feeds the human task). `ja_em_rescisao_cancel` is carried through as an
+    informational fact (surfaced to the analyst), never re-derived or overridden here.
+    """
+    dossier_ref = f"dossier-inad-{uuid.uuid4().hex[:12]}"
+    dossier_summary = {k: variables[k] for k in _DOSSIER_SUMMARY_KEYS if k in variables}
+
+    logger.info(
+        "inadimplencia_dossier_prepared",
+        numero_contrato=variables.get("numero_contrato"),
+        dossier_ref=dossier_ref,
+    )
+
+    return {
+        "dossier_prepared": True,
+        "dossier_ref": dossier_ref,
+        "dossier_summary": dossier_summary,
+        "numero_contrato": variables.get("numero_contrato", ""),
+    }
+
+
+# ---------------------------------------------------------------
+# notify_sla_risk — informational SLA alert (non-interruptive timer)
+# ---------------------------------------------------------------
+
+
+def notify_sla_risk(variables: dict[str, Any]) -> dict[str, Any]:
+    """Alert coordenacao-cobranca of SLA risk (non-interruptive timer BT_AlertaSla).
+
+    Informational only (mirrors `cancel.notify_sla_risk`): UT_AnaliseInadimplencia stays open, no
+    decision is made or altered, NO adverse outcome is produced by timeout. Fires at ~60-70% of the
+    analysis SLA (internal policy, DRAFT; `inadimplencia_sla` DMN resolves the actual duration).
+    """
+    numero_contrato = variables.get("numero_contrato", "")
+
+    logger.info(
+        "inadimplencia_notify_sla_risk",
+        numero_contrato=numero_contrato,
+        grupo_alertado="coordenacao-cobranca",
+    )
+
+    return {
+        "sla_risk_notified": True,
+        "grupo_alertado": "coordenacao-cobranca",
+        "numero_contrato": numero_contrato,
+    }
+
+
+# ---------------------------------------------------------------
 # register_suspension — GATED adverse effect (L0-hard)
 # ---------------------------------------------------------------
 
@@ -223,7 +402,11 @@ def _register_contract_suspension(variables: dict[str, Any]) -> dict[str, Any]:
     ref_regulatoria = variables.get("referencia_regulatoria", "")
     comprovacao_notif = variables.get("comprovacao_notificacao_previa", "")
     comprovacao_periodo = variables.get("comprovacao_periodo_minimo", "")
-    ja_em_rescisao = variables.get("ja_em_rescisao_cancel", False)
+    # Anti-dupla-terminacao (GAP-INAD-1): the FACT resolved by resolve_facts's cross-process CANCEL-001
+    # query. FAIL CLOSED default `True` — an ABSENT fact means the correlation was never confirmed
+    # (resolve_facts did not run / its output did not propagate), so the suspension is REFUSED. Only an
+    # explicit `False` (engine positively confirmed no active CANCEL-001 instance) permits the effect.
+    ja_em_rescisao = variables.get("ja_em_rescisao_cancel", True)
 
     errors: list[str] = []
 
@@ -239,8 +422,12 @@ def _register_contract_suspension(variables: dict[str, Any]) -> dict[str, Any]:
         errors.append("comprovacao_notificacao_previa ausente (RN 593)")
     if not comprovacao_periodo:
         errors.append("comprovacao_periodo_minimo ausente")
-    if ja_em_rescisao:
-        errors.append("ja_em_rescisao_cancel=true — contrato ja em rescisao em CANCEL-001")
+    if ja_em_rescisao is not False:
+        errors.append(
+            "ja_em_rescisao_cancel — contrato ja em rescisao/suspensao ativa em CANCEL-001 (ou "
+            "correlacao nao confirmada): suspensao recusada para evitar dupla-terminacao do "
+            "contract_termination (anti-dupla-rescisao, harmonization-inadimplencia-cancel.md §1)"
+        )
 
     if errors:
         logger.error(
@@ -320,18 +507,20 @@ class InadimplenciaError(Exception):
 #
 # Topic mapping vs spec/processes/bpmn/SP-OP-INADIMPLENCIA-001_Suspensao_Rescisao.bpmn
 # (excl. shared/out-of-scope `operadora.events.publish`):
-#   resolve_facts       -> operadora.inadimplencia.resolve_facts (exact spec match)
+#   resolve_facts       -> operadora.inadimplencia.resolve_facts (exact spec match; threads the
+#     `engine=` seam for the anti-dupla-terminacao CANCEL-001 correlation query, GAP-INAD-1)
 #   notify_beneficiario -> operadora.inadimplencia.check_prior_notice
 #     (spec match: RN 593 prior-notice dispatch)
+#   prepare_dossier -> operadora.inadimplencia.prepare_dossier (exact spec match; INSTRUCTS the
+#     human User Task, never originates an adverse decision — cancel/auth dossier pattern)
 #   register_suspension (alias register_contract_suspension)
 #     -> operadora.inadimplencia.register_contract_suspension (exact spec match, GUARDED)
 #   handoff_rescisao -> operadora.inadimplencia.handoff_rescisao (exact spec match)
+#   notify_sla_risk -> operadora.inadimplencia.notify_sla_risk (exact spec match; informational)
 # assess_status/calculate_purge have no distinct spec topic (assess_status
 # evaluates the deployed `inadimplencia_status` decision table via the dmn=
 # seam since T1.5/ADR-0028; calculate_purge resolves regulatory deadlines) —
 # registered under function-derived topics for registry completeness.
-# Spec topics with NO implementing function today (gap, not fabricated here):
-# prepare_dossier, notify_sla_risk.
 # ---------------------------------------------------------------
 
 
@@ -344,16 +533,31 @@ def register_inadimplencia_workers(
 
     `dmn` (ADR-0028 §1 seam) is threaded into `assess_status` (`inadimplencia_status`, T1.5
     cutover) via `functools.partial`; no other function here evaluates a DMN table.
+
+    `engine` (a `CibSevenTransport`, the SAME `find_active_instance` seam the agent graphs use for
+    start-time idempotency, ADR-0001/T1.11) is threaded into `resolve_facts` for the anti-dupla-
+    terminacao cross-process query (GAP-INAD-1). When ABSENT (`None` — e.g. the composition root has
+    not yet wired the seam), `resolve_facts` FAILS CLOSED (`ja_em_rescisao_cancel := True`) and the
+    `register_contract_suspension` guard REFUSES the suspension, routing to a human (ADR-0018). The
+    seam flows in through the standard `**seams` channel (`register_all_workers(harness, ...,
+    engine=...)`), identical to how `dmn` is threaded — no other bootstrap needs to change.
     """
     del kafka  # unused — no inadimplencia.py worker declares a Kafka dependency
     dmn = seams.get("dmn")
-    harness.register_worker(FunctionWorker("operadora.inadimplencia.resolve_facts", resolve_facts))
+    engine: CibSevenTransport | None = seams.get("engine")
+    harness.register_worker(
+        FunctionWorker(
+            "operadora.inadimplencia.resolve_facts", functools.partial(resolve_facts, engine=engine)
+        )
+    )
     harness.register_worker(
         FunctionWorker("operadora.inadimplencia.assess_status", functools.partial(assess_status, dmn=dmn))
     )
     harness.register_worker(FunctionWorker("operadora.inadimplencia.calculate_purge", calculate_purge))
     harness.register_worker(FunctionWorker("operadora.inadimplencia.check_prior_notice", notify_beneficiario))
+    harness.register_worker(FunctionWorker("operadora.inadimplencia.prepare_dossier", prepare_dossier))
     harness.register_worker(
         FunctionWorker("operadora.inadimplencia.register_contract_suspension", register_contract_suspension)
     )
     harness.register_worker(FunctionWorker("operadora.inadimplencia.handoff_rescisao", handoff_rescisao))
+    harness.register_worker(FunctionWorker("operadora.inadimplencia.notify_sla_risk", notify_sla_risk))
