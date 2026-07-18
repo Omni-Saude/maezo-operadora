@@ -74,9 +74,11 @@ FINDINGS (see PR body / evidence-ledger for full detail):
      `SendDenialNoticeWorker.execute()` (`auth.py`) redacts
      `justificativa_clinica`/`cid10_referencia`/`fundamentacao_dut` via `redact_phi_vars` before
      any variable leaves the worker (GAP-XPHI-1 lineage, ADR-0006). Same branch also implements
-     the `ERR_AUTH_DENIAL_INCOMPLETE` completeness guard (see
-     `_DENIAL_INCOMPLETE_GUARD_LIVE_UNVERIFIED_REASON` below). Both are unit-proven
-     (tests/unit/tools/workers/test_auth_denial_guard.py, test_phi_vars.py);
+     the `ERR_AUTH_DENIAL_INCOMPLETE` completeness guard, unit-proven
+     (tests/unit/tools/workers/test_auth_denial_guard.py, test_phi_vars.py) AND now live-verified
+     end-to-end by `test_negativa_incompleta_bloqueada_pelo_guard` below (T3.1 R3: former
+     strict-xfail XPASSED against a real CIB Seven engine — boundary catch, blocked notice, empty
+     incident — marker flipped, test now runs as a normal pass).
      `test_happy_path_negada_pelo_auditor`'s notification-side redaction assertion remains
      documented-not-asserted only because that test is still blocked upstream by
      `_ACTION_WORKER_KAFKA_GAP_REASON` (the worker's notification never reaches
@@ -204,26 +206,18 @@ _ACTION_WORKER_KAFKA_GAP_REASON = (
     "scope for this PR."
 )
 
-# T3.1 (auth-denial-hardening, THIS branch): the ERR_AUTH_DENIAL_INCOMPLETE guard is now
-# IMPLEMENTED. `SendDenialNoticeWorker.execute()` (auth.py) raises the spec-modeled
+# T3.1 R3 (flip, THIS branch): the ERR_AUTH_DENIAL_INCOMPLETE guard is IMPLEMENTED and now
+# LIVE-VERIFIED end-to-end. `SendDenialNoticeWorker.execute()` (auth.py) raises the spec-modeled
 # WorkerBpmnError ERR_AUTH_DENIAL_INCOMPLETE when a NEGAR lacks any of justificativa_clinica /
 # cid10_referencia / fundamentacao_dut (checked BEFORE the human_approved guard); the code is in
 # `auth.AUTH_BPMN_ERROR_ALLOWLIST`, wired into this suite's `auth_probe` harness above, so the
 # harness dispatches it as a real bpmnError (caught by BE_NegativaIncompleta ->
 # End_FundamentacaoIncompletaBloqueada) instead of demoting it to an incident. The guard + its
 # ordering + the PHI redaction are UNIT-PROVEN (tests/unit/tools/workers/test_auth_denial_guard.py,
-# test_phi_vars.py). This xfail is RETAINED (NOT flipped) only because a live CIB Seven engine was
-# not obtainable in the authoring session (host Docker saturation) to confirm the boundary catch
-# end-to-end; a verifier's live run is expected to XPASS -> flip this marker. `strict=True` kept so
-# that XPASS is a loud, honest "ready to flip" signal, never a silent pass.
-_DENIAL_INCOMPLETE_GUARD_LIVE_UNVERIFIED_REASON = (
-    "T3.1 auth-denial-hardening: ERR_AUTH_DENIAL_INCOMPLETE guard IS implemented + unit-proven "
-    "(SendDenialNoticeWorker raises it for missing justificativa_clinica/cid10_referencia/"
-    "fundamentacao_dut; AUTH_BPMN_ERROR_ALLOWLIST wired into auth_probe). xfail retained ONLY "
-    "because a live CIB Seven engine was not obtainable in the authoring session to confirm the "
-    "BE_NegativaIncompleta boundary catch end-to-end. Expected to XPASS on a live engine -> flip. "
-    "strict=True kept so an XPASS is a loud 'ready to flip' signal, not a silent pass."
-)
+# test_phi_vars.py). The prior strict-xfail (retained pending a live engine) XPASSED against a real
+# CIB Seven 2.1.0 engine (isolated capped-heap stack) — the boundary catch, the blocked notice, and
+# the empty-incident contract were all confirmed end-to-end — so the marker is REMOVED here; this
+# now runs as a normal passing test (see PR body for the live run evidence).
 
 
 # ---------------------------------------------------------------------------
@@ -635,7 +629,6 @@ async def test_happy_path_negada_pelo_auditor(
     await _assert_no_denial_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_DENIAL_INCOMPLETE_GUARD_LIVE_UNVERIFIED_REASON, strict=True)
 async def test_negativa_incompleta_bloqueada_pelo_guard(
     engine: EngineRest,
     auth_probe: AuthEngineProbe,
