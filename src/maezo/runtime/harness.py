@@ -127,7 +127,7 @@ class Harness:
         With `agent_id`: resolves and invokes the agent's REAL `build(config)` (T1.11, defect
         B6) via `AgentLoader`/`maezo.agents.<agent_id>.graph:build` conventions. `config` is
         `self._tool_deps` merged with `inference` and a default `agent_version`. An agent whose
-        `build` takes no parameters (the still-stubbed agents, e.g. andre/beatriz/...) is called
+        `build` takes no parameters (the still-stubbed agents, e.g. andre/valentina/...) is called
         with no arguments — introspected via `inspect.signature`, never guessed by try/except
         (a real `TypeError` raised *inside* a real `build(config)` must propagate, not be
         misread as "this build takes no config").
