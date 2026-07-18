@@ -26,18 +26,49 @@ Error semantics (ADR-0028 §3 — the fail-closed core, NEVER `{}`):
 - Version unresolvable -> raises `DmnEvaluationError` -> same (fail-closed provenance).
 - Empty result `[]` (no rule matched) -> `DmnNoResultError` from `first_row()` -> immediate
   incident, NEVER retried (deterministic — retrying changes nothing).
+- A `Json`-typed result variable that fails to decode -> `DmnVariableDecodeError` -> immediate
+  incident, NEVER retried (deterministic, same reasoning as `DmnNoResultError` — see T1.5 note
+  below).
 
 `DmnEvaluationError` is deliberately a bare `RuntimeError` (no `.code`/`.message`) so
 `tools/workers/base.py`'s `_HARNESS_CLASSIFIED` tuple and `harness.py`'s `_handle` transient
-classification pick it up unchanged -> engine-computed retries. `DmnNoResultError` deliberately
-carries `.code`/`.message` (this package's "coded exception" convention, e.g. `PagtoError`,
-`AdequacaoError`) so `FunctionWorker.execute()` (`base.py:272-282`) reclassifies it to
-`ValueError` -> `failure(retries=0)` -> an engine-guaranteed, human-visible incident.
+classification pick it up unchanged -> engine-computed retries. `DmnNoResultError` and
+`DmnVariableDecodeError` deliberately carry `.code`/`.message` (this package's "coded exception"
+convention, e.g. `PagtoError`, `AdequacaoError`) so `FunctionWorker.execute()`
+(`base.py:272-282`) reclassifies them to `ValueError` -> `failure(retries=0)` -> an
+engine-guaranteed, human-visible incident.
+
+T1.5 (Json-typed result-variable decode, sibling of `harness.py::_from_camunda_var` PR #75 and
+`mcp_cibseven/transport.py::_from_camunda_var` PR #89): `evaluate()`'s result-row entries are
+decoded the same one-line rule those two seams already apply (`type == "Json"` and a `str`
+`value` -> `json.loads`). **Live-probed** against an isolated CIB Seven `2.1.0` engine (capped
+JVM heap, throwaway `postgres`+`cibseven` pair, no production/shared instance touched) to answer
+whether the DMN evaluate endpoint needed the SAME `deserializeValues=false` treatment PR #89
+found for `GET /process-instance/{id}/variables`: it does NOT. `POST /decision-definition/key/
+{key}/evaluate` silently ignores an unrecognized `deserializeValues` query param (confirmed —
+identical response with or without it) and, for a non-primitive (context/list) output value,
+returns it **already deserialized** — `{"type": null, "value": <native dict/list>, "valueInfo":
+null}` — never `type: "Json"` with a re-encoded string. This is a THIRD, previously-undocumented
+serialization behavior, distinct from both `fetchAndLock` (PR #75: `type: "Json"`, string value,
+no flag) and `GET .../variables`'s default (PR #89: `deserializeValues=false` required to avoid
+a Jackson `JsonNode` bean reflection). The `type == "Json"` decode below is therefore added
+DEFENSIVELY, for wire-format symmetry with the two sibling seams and in case a differently-
+configured engine or a custom DMN `itemDefinition` ever does emit `type: "Json"` here — not
+because any currently-deployed decision table (`spec/processes/dmn/*.dmn`, every output typeRef
+restricted to `{string,boolean,integer,long,double,date}` — see `pagto_alcada.dmn`'s
+description) exercises it today. Separately: an output typeRef of `"string"` applied to a
+context/list literal is a DMN-modeling error, not a transport defect — the DMN engine coerces
+the value via Java `Map.toString()`/`List.toString()` BEFORE it ever reaches the wire (confirmed
+live: `{"a": 1, "b": [1, 2, 3]}` -> `"{a=1, b=[1, 2, 3]}"`), destroying the structure upstream of
+anything this transport could decode; this is exactly why every real table here restricts output
+typeRef to scalar FEEL types and routes structured results through process variables instead.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
@@ -83,6 +114,33 @@ class DmnNoResultError(Exception):
         self.message = (
             f"DMN '{decision_key}' produced no matching rule for the given inputs (empty "
             "result) — routing to human review, NEVER treated as an implicit decision"
+        )
+        super().__init__(f"{self.code}: {self.message}")
+
+
+class DmnVariableDecodeError(Exception):
+    """A `Json`-typed DMN result variable's `value` was not valid JSON — fail-closed (T1.5,
+    sibling of `tools/workers/harness.py::fetch_and_lock`'s decode defect, PR #75, and
+    `mcp_cibseven/transport.py::get_process_status`'s copy, PR #89).
+
+    Deliberately NOT a `RuntimeError`/`DmnEvaluationError`: a malformed `Json`-typed result
+    variable on an otherwise-successful 200 `evaluate` response is a DETERMINISTIC function of
+    the decision table's own rule definitions — retrying the identical `evaluate` call
+    reproduces the identical malformed value, so this must reach a human immediately and NEVER
+    be engine-retried (same reasoning as `DmnNoResultError` above — deliberately NOT mirroring
+    `mcp_cibseven.transport.CibSevenVariableDecodeError`'s choice to subclass a `RuntimeError`;
+    see module docstring's T1.5 note for the live-probe context). Carries `.code`/`.message`
+    (this package's coded-exception convention) so `FunctionWorker.execute()`
+    (`tools/workers/base.py:272-282`) reclassifies it into `ValueError` -> `failure(retries=0)`
+    — an engine-guaranteed, human-visible incident, NEVER a silent raw-string passthrough.
+    """
+
+    def __init__(self, decision_key: str, variable_name: str, error: Exception) -> None:
+        self.code = "ERR_DMN_VARIABLE_DECODE"
+        self.decision_key = decision_key
+        self.variable_name = variable_name
+        self.message = (
+            f"DMN '{decision_key}' returned a malformed Json-typed result variable `{variable_name}`: {error}"
         )
         super().__init__(f"{self.code}: {self.message}")
 
@@ -154,6 +212,33 @@ def _to_camunda_vars(variables: dict[str, Any]) -> dict[str, Any]:
         else:
             camunda_vars[k] = {"value": str(v), "type": "String"}
     return camunda_vars
+
+
+def _from_camunda_var(entry: Mapping[str, Any]) -> Any:
+    """Decode ONE outbound DMN result-row variable entry (`{"value": ..., "type": ...}`) into
+    the Python value a worker actually consumes. Duplicated (not imported — this module's
+    zero-dependency stance, see `_to_camunda_vars`'s docstring) from `tools/workers/harness.py`'s
+    `_from_camunda_var` (T1.1 fix, PR #75) / `mcp_cibseven/transport.py`'s copy (PR #89): same
+    rule, same fail-closed posture.
+
+    **Defensive, not currently live-exercised** (T1.5 investigation — see module docstring):
+    every wire type this endpoint has been observed to actually emit already arrives value-ready
+    (`Integer`/`Long`/`Double`/`Boolean`/`String`/a `null` value, OR an untyped `type: null`
+    context/list already deserialized) — `.get("value")` alone is correct for all of them. This
+    decode is applied anyway for wire-format symmetry with the two sibling seams and as a guard
+    against a differently-configured engine that DOES emit `type: "Json"` with a re-encoded
+    JSON string here, exactly as `fetchAndLock` already does for process variables.
+
+    Raises `json.JSONDecodeError` (a `ValueError` subclass) on malformed JSON content, and
+    `TypeError`/`AttributeError` on a malformed entry shape — both left for the caller
+    (`evaluate`) to wrap into `DmnVariableDecodeError` (fail-closed, never a silent raw-string
+    passthrough). A `Json`-typed entry with `value: null` decodes to `None`, never attempted
+    through `json.loads` (which would raise `TypeError` on a non-str/bytes argument).
+    """
+    value = entry.get("value")
+    if entry.get("type") == "Json" and isinstance(value, str):
+        return json.loads(value)
+    return value
 
 
 class CibSevenDmnTransport:
@@ -264,9 +349,23 @@ class CibSevenDmnTransport:
 
             body = resp.json()
 
-        result_rows: list[dict[str, Any]] = [
-            {k: (v.get("value") if isinstance(v, dict) else v) for k, v in row.items()} for row in body
-        ]
+        # T1.5 fix (sibling of `harness.py::fetch_and_lock` PR #75 / `mcp_cibseven/transport.py`
+        # PR #89): decode `type == "Json"` result-variable entries via `_from_camunda_var`
+        # instead of a bare `.get("value")` — see module docstring for the live-probe verdict.
+        # A malformed `Json`-typed entry NEVER reaches the worker as the raw undecoded string;
+        # it raises `DmnVariableDecodeError` (fail-closed) instead.
+        result_rows: list[dict[str, Any]] = []
+        for row in body:
+            decoded_row: dict[str, Any] = {}
+            for k, v in row.items():
+                if not isinstance(v, dict):
+                    decoded_row[k] = v
+                    continue
+                try:
+                    decoded_row[k] = _from_camunda_var(v)
+                except (ValueError, TypeError, AttributeError) as exc:
+                    raise DmnVariableDecodeError(decision_key, k, exc) from exc
+            result_rows.append(decoded_row)
         return result_rows, version
 
     async def close(self) -> None:
@@ -282,6 +381,14 @@ class FakeDmnTransport:
     `.evaluate` RAISES `DmnEvaluationError` on an unregistered key (donor `server.py:140-161`) —
     a test that forgets to `.register(...)` a decision key gets a loud failure, never a silent
     empty/default result.
+
+    Post-fix contract (T1.5, mirrors `FakeCibSevenTransport.get_process_status`'s comment,
+    `mcp_cibseven/transport.py`): callers of `evaluate()` see decoded Python objects (dict/list),
+    never a raw JSON string. This fake never wire-encodes/decodes at all — `register` stores
+    exactly the Python objects a test passes in — so it already matches
+    `CibSevenDmnTransport.evaluate()`'s post-fix, already-decoded contract by construction; a
+    test that needs to prove the wire-level `Json` decode uses `CibSevenDmnTransport` against a
+    mocked `httpx` client instead, per `test_dmn_transport.py`.
     """
 
     def __init__(self) -> None:
