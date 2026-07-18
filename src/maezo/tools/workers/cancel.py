@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from maezo.tools.workers.base import FunctionWorker, pick_fields
+from maezo.tools.workers.harness import WorkerBpmnError
 
 if TYPE_CHECKING:
     from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
@@ -68,6 +69,18 @@ class CancelContratoInvalidoError(ValueError):
     def __init__(self, detail: str = "") -> None:
         msg = f"ERR_CANCEL_INVALID_CONTRATO: {detail}" if detail else "ERR_CANCEL_INVALID_CONTRATO"
         super().__init__(msg)
+
+
+# BPMN-declared error code for GAP-CANCEL-3 (`Error_CancelManterNotHuman` in the BPMN's own
+# <bpmn:error> declaration; docs/processes/contracts/SP-OP-CANCEL-001.md SS Codigos de erro).
+# `confirm_maintained_decision` raises this as a `WorkerBpmnError` — NOT `CancelManterNotHumanError`
+# — so the harness can report it as a MODELED `bpmnError` that the BPMN's own
+# `BE_ManterNaoConfirmado` boundary event captures (-> `End_ManterNaoConfirmado`, terminal NEUTRO).
+# Distinct from `ERR_CANCELLATION_NOT_HUMAN` (`send_cancellation_notice_entry`): that guard is
+# declared UNCAUGHT by BPMN design (an engine incident on the RESCINDIR/SUSPENDER path is the
+# correct, intended outcome). See `confirm_maintained_decision`'s docstring for the full rationale.
+_ERR_CANCEL_MANTER_NOT_HUMAN = "ERR_CANCEL_MANTER_NOT_HUMAN"
+_DECISAO_MANTER = "MANTER"
 
 
 # ---------------------------------------------------------------------------
@@ -125,6 +138,24 @@ class CancelDecisionInput:
     fundamentacao_contratual: str = ""
     referencia_regulatoria: str = ""
     comprovacao_notificacao_previa: str = ""
+    responsavel_id: str = ""
+
+
+@dataclass
+class CancelEffectuationResult:
+    """Output of effectuate_member_request — L2 clerical (RN 412), NOT an adverse effect."""
+
+    member_request_effectuated: bool = False
+    numero_contrato: str = ""
+    matricula_beneficiario: str = ""
+
+
+@dataclass
+class CancelMaintainedConfirmation:
+    """Output of confirm_maintained_decision — GATED confirmation (GAP-CANCEL-3)."""
+
+    maintained_decision_confirmed: bool = False
+    fundamentacao_provided: bool = False
     responsavel_id: str = ""
 
 
@@ -262,6 +293,112 @@ def notify_beneficiario(
         "numero_contrato": numero_contrato,
         "message_type": message_type,
     }
+
+
+def effectuate_member_request(input_data: CancelInput) -> CancelEffectuationResult:
+    """Effectuate the beneficiario-requested cancellation (RN 412, L2 clerical).
+
+    NOT the adverse path: this worker EXECUTES a cancellation the MEMBER requested (a right of
+    the titular), never one the operadora originates. No guard — reached only via
+    cancel_admissibility=EFETIVAR_PEDIDO (DMN, engine-routed: titularidade/vinculo/prazo already
+    confirmed) or a human's EFETIVAR_PEDIDO decision, itself restricted by the BPMN's own
+    conditionExpression to tipo_solicitacao=pedido_beneficiario (GAP-CANCEL-7 —
+    inadimplencia/for_cause_operadora/fraude_referida can never reach this worker via
+    decisao_cancelamento, mirroring GW_Manter's tipo_solicitacao gate). NUNCA rescinde for-cause;
+    NUNCA produz negativa do pedido. TASY write DROP (ADR-0013) — consumes CDC, never writes back.
+    """
+    logger.info(
+        "cancel.effectuate_member_request.start",
+        numero_contrato=input_data.numero_contrato,
+        tipo_plano=input_data.tipo_plano,
+    )
+    result = CancelEffectuationResult(
+        member_request_effectuated=True,
+        numero_contrato=input_data.numero_contrato,
+        matricula_beneficiario=input_data.matricula_beneficiario,
+    )
+    logger.info(
+        "cancel.effectuate_member_request.complete",
+        numero_contrato=input_data.numero_contrato,
+    )
+    return result
+
+
+def confirm_maintained_decision(decision: CancelDecisionInput) -> CancelMaintainedConfirmation:
+    """Confirm the MANTER decision — GATED effect (GAP-CANCEL-3).
+
+    HARD BOUNDARY (L0 hard, contract_termination, ADR-0005/0008). GW_DecisaoCancelamento's flow
+    default (`Flow_GWDec_Mantido`) fires for ANY unrecognized decisao_cancelamento — including one
+    that is absent/empty/corrupted. Without a worker guard on this branch, a modeling bug or a
+    malformed User Task could reach End_PedidoCancelamentoNegado (ADVERSO) or End_ContratoMantido
+    without a human having actually recorded MANTER with justification. This worker closes that
+    gap: mirrors send_cancellation_notice's defense-in-depth, but for decisao_cancelamento ==
+    "MANTER" (strict equality — not membership: any other value, including empty, means the
+    instance fell through the gateway's default WITHOUT a valid human decision) and
+    fundamentacao_contratual (contract SP-OP-CANCEL-001: "fundamentacao_contratual obrigatoria se
+    RESCINDIR, MANTER ou SUSPENDER").
+
+    Raises `WorkerBpmnError(ERR_CANCEL_MANTER_NOT_HUMAN)` — a MODELED BPMN error, deliberately NOT
+    `CancelManterNotHumanError` (the PermissionError `process_cancel` raises internally for its
+    own, separate decision-routing use). The BPMN's own `BE_ManterNaoConfirmado` boundary event is
+    a CAPTURED catch (unlike the send_cancellation_notice siblings, declared-uncaught by design —
+    an incident on THAT path is the correct outcome) because an uncaught error on the MANTER
+    branch would silently end a live case. Routing this guard failure to a `bpmnError` lets the
+    boundary catch fire as the BPMN designs it (`End_ManterNaoConfirmado`, a NEUTRO terminal —
+    nothing registered, the human recomposes the decision) instead of an opaque engine incident
+    (docs/processes/contracts/SP-OP-CANCEL-001.md SS Codigos de erro; SS test-specs
+    test_manter_sem_fundamentacao_bloqueado_pelo_guard: "lista de incidentes vazia").
+
+    This worker NEVER decides whether the bond is maintained or the request denied (GW_Manter
+    routes on tipo_solicitacao, an input fact) — it only confirms the MANTER decision already
+    taken in the human User Task.
+    """
+    if decision.decisao_cancelamento != _DECISAO_MANTER:
+        raise WorkerBpmnError(
+            _ERR_CANCEL_MANTER_NOT_HUMAN,
+            f"confirm_maintained_decision: decisao_cancelamento={decision.decisao_cancelamento!r} — "
+            "manutencao do vinculo / negativa do pedido exige decisao humana explicita (MANTER) na "
+            "User Task juridico-contratos (L0 hard, contract_termination). Este worker NUNCA "
+            "decide; so confirma a decisao ja tomada na UT humana — inclui o flow default da "
+            "gateway GW_DecisaoCancelamento (nenhuma decisao_cancelamento reconhecida cai aqui SEM "
+            "confirmacao humana).",
+        )
+    if not decision.fundamentacao_contratual.strip():
+        raise WorkerBpmnError(
+            _ERR_CANCEL_MANTER_NOT_HUMAN,
+            "confirm_maintained_decision: fundamentacao_contratual ausente — MANTER exige "
+            "fundamentacao da decisao (contrato SP-OP-CANCEL-001 SS Variaveis de saida; L0 hard, "
+            "contract_termination).",
+        )
+
+    logger.info(
+        "cancel.confirm_maintained_decision.confirmed",
+        responsavel_id=decision.responsavel_id,
+    )
+    # RETORNA APENAS confirmacao (ADR-0018 no-denial): fundamentacao_provided=True proves the
+    # justification was present WITHOUT echoing its text (same caution as send_cancellation_notice
+    # — free-text justification never rides the confirmation channel). responsavel_id is always
+    # returned (default "" when the UT did not require it) — GAP-CANCEL-6 provenance parity with
+    # ST_PublishMantido/ST_PublishPedidoNegado's event_payload_vars.
+    return CancelMaintainedConfirmation(
+        maintained_decision_confirmed=True,
+        fundamentacao_provided=True,
+        responsavel_id=decision.responsavel_id,
+    )
+
+
+def notify_sla_risk(input_data: CancelInput) -> dict[str, Any]:
+    """Notify coordenacao-contratos of SLA risk (non-interruptive timer BT_AlertaSla).
+
+    Informational only: UT_AnaliseRescisao stays open, no decision is made or altered. Fires at
+    ~60-70% of sla.sla_analise (internal policy; DMN cancel_sla resolves the actual duration).
+    """
+    logger.info(
+        "cancel.notify_sla_risk",
+        numero_contrato=input_data.numero_contrato,
+        tipo_solicitacao=input_data.tipo_solicitacao,
+    )
+    return {"sla_risk_notified": True, "numero_contrato": input_data.numero_contrato}
 
 
 def process_cancel(
@@ -411,23 +548,39 @@ def _current_date_iso() -> str:
 # dict). The typed functions/guards are byte-identical.
 #
 # Topic mapping vs spec/processes/bpmn/SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn
-# (excl. shared/out-of-scope `operadora.events.publish`):
-#   validate_cancel      -> operadora.cancel.resolve_facts        (spec match: "Pre-resolve
-#                           cancel/termination facts")
-#   assess_admissibility -> operadora.cancel.prepare_dossier      (spec match: routing/motivo
-#                           dossier for UT_AnaliseRescisao)
-#   notify_beneficiario  -> operadora.cancel.request_notification (spec match: prior-notice dispatch)
+# (excl. shared `operadora.events.publish`, registered separately by
+# `events.register_events_workers` — T3.1 R2, PR #61):
+#   validate_cancel               -> operadora.cancel.resolve_facts        (spec match:
+#                                     "Pre-resolve cancel/termination facts")
+#   assess_admissibility          -> operadora.cancel.prepare_dossier      (spec match:
+#                                     routing/motivo dossier for UT_AnaliseRescisao)
+#   notify_beneficiario           -> operadora.cancel.request_notification (spec match:
+#                                     prior-notice dispatch)
+#   effectuate_member_request     -> operadora.cancel.effectuate_member_request (spec match,
+#                                     L2 clerical, NOT adverse)
 #   register_contract_termination -> operadora.cancel.send_cancellation_notice (spec match, GUARDED)
-# process_cancel is an internal decision router with no single spec topic
-# (its RESCINDIR/SUSPENDER branch re-validates the SAME guard as
-# register_contract_termination; its MANTER/EFETIVAR_PEDIDO branches have no
-# dedicated gated effector in this module) — registered under a
-# function-derived topic for registry completeness, NOT as
-# confirm_maintained_decision/effectuate_member_request (that would imply
-# guard coverage this module does not independently provide for those two
-# spec topics — left unmapped rather than mis-wired).
-# Spec topics with NO implementing function today (gap, not fabricated here):
-# confirm_maintained_decision, effectuate_member_request, notify_sla_risk.
+#   confirm_maintained_decision   -> operadora.cancel.confirm_maintained_decision (spec match,
+#                                     GATED, GAP-CANCEL-3 — raises WorkerBpmnError so
+#                                     BE_ManterNaoConfirmado's boundary catch fires; distinct from
+#                                     the PermissionError-based guards elsewhere in this module)
+#   notify_sla_risk                -> operadora.cancel.notify_sla_risk (spec match, informational,
+#                                     non-interruptive timer)
+#
+# T3.1 R2 (topic reconciliation — this PR): the BPMN declares exactly 7 `operadora.cancel.*`
+# topics (+ the shared `operadora.events.publish`); the registry above now maps 1:1 onto them —
+# no gaps, no orphans. `process_cancel`/`publish_completed` (below) are kept as PURE, UNREGISTERED
+# functions — no BPMN camunda:topic anywhere in this process (or any other, `grep -r` verified)
+# references `operadora.cancel.process_cancel`/`operadora.cancel.publish_completed`; the donor's
+# own `register_cancel_workers` never registered either. `process_cancel` re-validates the SAME
+# guards as `register_contract_termination`/`confirm_maintained_decision` internally (dead code
+# from a registry-dispatch perspective, but exercised directly by pre-existing unit tests as
+# reusable decision-routing logic); `publish_completed` describes an event the generic
+# `operadora.events.publish` worker (`events.py`, registered by `register_events_workers`) already
+# emits for every `ST_Publish*` service task in this BPMN. Removed from `register_cancel_workers`
+# (were the PROXIMATE cause of all 24 `cancel_probe`-based integration xfails — the donor's own
+# ported drift-guard, `assert not missing_from_drain`, correctly refused every test at fixture
+# SETUP while these 2 orphan registrations existed). Functions/entry-functions/tests kept for the
+# reusable logic they still exercise; only the dead `harness.register_worker(...)` calls are gone.
 # ---------------------------------------------------------------------------
 
 
@@ -459,6 +612,47 @@ def request_notification_entry(
     numero_contrato = variables.get("numero_contrato", "")
     message_type = variables.get("message_type", "")
     return notify_beneficiario(matricula, numero_contrato, message_type)
+
+
+def effectuate_member_request_entry(
+    variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
+) -> dict[str, Any]:
+    """Dict-boundary entry for `operadora.cancel.effectuate_member_request` ->
+    `effectuate_member_request`. NOT the adverse path — no guard (module docstring)."""
+    del kafka  # unused — effectuate_member_request emits no domain event itself
+    input_data = CancelInput(**pick_fields(variables, CancelInput))
+    result = effectuate_member_request(input_data)
+    return dataclasses.asdict(result)
+
+
+def confirm_maintained_decision_entry(
+    variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
+) -> dict[str, Any]:
+    """Dict-boundary entry for `operadora.cancel.confirm_maintained_decision` ->
+    `confirm_maintained_decision` (GATED, GAP-CANCEL-3).
+
+    Raises `WorkerBpmnError(ERR_CANCEL_MANTER_NOT_HUMAN)` — a MODELED BPMN error, not one of the
+    `_HARNESS_CLASSIFIED` types `FunctionWorker.execute` special-cases (`base.py`), so it
+    propagates unchanged to `WorkerHarness._handle`'s `except WorkerBpmnError` branch, which
+    reports it as `bpmnError` when the harness's `bpmn_error_allowlist` includes
+    `ERR_CANCEL_MANTER_NOT_HUMAN` (opt-in, ADR-0026 Decisao §5 — gate-proven: SP-OP-CANCEL-001 is
+    the only BPMN declaring `Error_CancelManterNotHuman` with a matching boundary catch,
+    `BE_ManterNaoConfirmado`). See `confirm_maintained_decision`'s docstring for why this must be a
+    modeled bpmnError rather than the `PermissionError`-based guard used elsewhere in this module.
+    """
+    del kafka  # unused — confirm_maintained_decision emits no domain event itself
+    decision = CancelDecisionInput(**pick_fields(variables, CancelDecisionInput))
+    result = confirm_maintained_decision(decision)
+    return dataclasses.asdict(result)
+
+
+def notify_sla_risk_entry(
+    variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
+) -> dict[str, Any]:
+    """Dict-boundary entry for `operadora.cancel.notify_sla_risk` -> `notify_sla_risk`."""
+    del kafka  # unused — notify_sla_risk emits no domain event itself
+    input_data = CancelInput(**pick_fields(variables, CancelInput))
+    return notify_sla_risk(input_data)
 
 
 def send_cancellation_notice_entry(
@@ -509,6 +703,13 @@ def register_cancel_workers(
     `kafka` is accepted (donor contract, ADR-0026 §2) and threaded via `functools.partial`; no
     entry function calls `kafka.publish` today — see `ans_submit.register_ans_submit_workers`'s
     docstring for the same documented sync/async-boundary rationale.
+
+    T3.1 R2 (topic reconciliation): registers exactly the 7 `operadora.cancel.*` topics
+    `spec/processes/bpmn/SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn` declares — 1:1, no gaps, no
+    orphans (see the "Topic mapping" comment above `resolve_facts_entry`). `process_cancel`/
+    `publish_completed` are deliberately NOT registered here (evidence + rationale in that same
+    comment) — the shared `operadora.events.publish` topic is registered separately by
+    `events.register_events_workers` (PR #61), not by this module.
     """
     del seams  # unused — no additional seam (audit=/dmn=/dispatcher=/erasure=) is needed today
     harness.register_worker(
@@ -527,17 +728,25 @@ def register_cancel_workers(
     )
     harness.register_worker(
         FunctionWorker(
+            "operadora.cancel.effectuate_member_request",
+            functools.partial(effectuate_member_request_entry, kafka=kafka),
+        )
+    )
+    harness.register_worker(
+        FunctionWorker(
             "operadora.cancel.send_cancellation_notice",
             functools.partial(send_cancellation_notice_entry, kafka=kafka),
         )
     )
     harness.register_worker(
         FunctionWorker(
-            "operadora.cancel.process_cancel", functools.partial(process_cancel_entry, kafka=kafka)
+            "operadora.cancel.confirm_maintained_decision",
+            functools.partial(confirm_maintained_decision_entry, kafka=kafka),
         )
     )
     harness.register_worker(
         FunctionWorker(
-            "operadora.cancel.publish_completed", functools.partial(publish_completed_entry, kafka=kafka)
+            "operadora.cancel.notify_sla_risk",
+            functools.partial(notify_sla_risk_entry, kafka=kafka),
         )
     )
