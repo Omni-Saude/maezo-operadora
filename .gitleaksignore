@@ -13,3 +13,12 @@
 7c4b87143ab68db6c234c4cf645858532a27ce35:docs/evidence-ledger.md:generic-api-key:63
 9ef098ef79a80314b52feedc3d246e98ca9c6df1:tests/unit/agents/test_marina.py:generic-api-key:680
 9ef098ef79a80314b52feedc3d246e98ca9c6df1:tests/unit/agents/test_marina.py:generic-api-key:691
+
+# False positive, same class as above: synthetic BPMN business-key literal quoted from a live
+# probe LOG LINE in the G1 gate-review document on the in-flight g1-gate-review branch
+# (business_key=ESC-G1PROBE-fc8aa9ee, entropy 3.92, generic-api-key). Not covered by the
+# T2.4 business-key allowlist ON PURPOSE: docs/gates/ is outside its two scoped paths and
+# "G1PROBE" is not a lowercase tenant segment, so widening the allowlist for it would relax
+# the R1-verified containment. Fingerprint-scoped (single commit:file:rule:line — cannot mask
+# any other occurrence); drop this entry once the g1-gate-review branch is merged or deleted.
+a63639977c2d67083922eba07d68b18c37b166be:docs/gates/G1-gate-review.md:generic-api-key:175
