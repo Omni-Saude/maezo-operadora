@@ -280,19 +280,28 @@ class IssueAuthorizationWorker(WorkerBase):
 # ---------------------------------------------------------------------------
 
 
+# Zero-width / BOM code points that carry NO visible content but which `str.strip()` does NOT
+# remove (their `str.isspace()` is False): zero-width space, ZWNJ, ZWJ, word joiner, BOM /
+# zero-width no-break space. A grounding field made only of these is empty for completeness.
+_ZERO_WIDTH_CHARS = "\u200b\u200c\u200d\u2060\ufeff"  # ZWSP, ZWNJ, ZWJ, word-joiner, BOM/ZWNBSP
+_ZERO_WIDTH_TRANSLATION = dict.fromkeys(map(ord, _ZERO_WIDTH_CHARS))
+
+
 def _is_blank(value: Any) -> bool:
     """Fail-closed emptiness for a required denial-grounding field.
 
-    A field is blank (=> incomplete => DENY the send) when it is ``None`` or a string that is
-    empty / whitespace-only. A non-str, non-None value is treated as PRESENT here: the completeness
-    guard only asserts that grounding EXISTS — `redact_phi_vars` still neutralizes whatever content
-    a clinical field carries before egress, regardless of type.
+    A field is blank (=> incomplete => DENY the send) when it is NOT a non-empty grounding STRING:
+      - any non-``str`` value (``None``, ``int``, ``list``, ``dict``, ``bool``, ``0``, ``False`` …)
+        is blank — a required ANS grounding field that is not textual is unusable (the BPMN types
+        these fields ``string``; "cannot decide completeness = incomplete = DENY the send"). This is
+        stricter than the donor's ``not v`` (which admits e.g. a non-empty list as present).
+      - a ``str`` that is empty / whitespace-only after zero-width & BOM characters are removed. The
+        zero-width strip closes a gap where ``"\\u200b"`` alone (isspace() is False) would otherwise
+        survive ``.strip()`` and read as present.
     """
-    if value is None:
+    if not isinstance(value, str):
         return True
-    if isinstance(value, str):
-        return not value.strip()
-    return False
+    return not value.translate(_ZERO_WIDTH_TRANSLATION).strip()
 
 
 class SendDenialNoticeWorker(WorkerBase):

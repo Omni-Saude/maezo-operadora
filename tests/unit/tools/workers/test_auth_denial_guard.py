@@ -201,6 +201,53 @@ def test_denial_incomplete_blank_values_raise(blanked_field: str, blank_value: o
     assert exc.value.error_code == ERR_AUTH_DENIAL_INCOMPLETE
 
 
+@pytest.mark.parametrize("non_str_value", [0, 1, False, True, [], {}, ["texto"], {"k": "v"}, 3.14])
+@pytest.mark.parametrize("field", _REQUIRED_DENIAL_FIELDS)
+def test_denial_incomplete_non_string_grounding_raises(field: str, non_str_value: object) -> None:
+    """A required grounding field that is not a non-empty STRING is incomplete (fail-closed).
+
+    Closes the class the donor's `not v` half-covered: 0/[]/{}/False are blocked, and so are
+    truthy-but-non-textual values (1, [texto], {k:v}, 3.14) that `not v` would wrongly admit — the
+    BPMN types these fields `string`, a non-str grounding value is unusable.
+    """
+    worker = SendDenialNoticeWorker()
+    process_vars = {
+        "tenant_id": "amh",
+        "decisao_auditor": "NEGAR",
+        "human_approved": True,
+        **_COMPLETE_DENIAL_FUNDAMENTACAO,
+        field: non_str_value,
+    }
+    with pytest.raises(WorkerBpmnError) as exc:
+        worker.execute(process_vars)
+    assert exc.value.error_code == ERR_AUTH_DENIAL_INCOMPLETE
+
+
+@pytest.mark.parametrize(
+    "zero_width_value",
+    [
+        "\u200b",  # zero-width space alone
+        "\ufeff",  # BOM / zero-width no-break space alone
+        "\u200b\u200c\u200d\u2060\ufeff",  # the whole zero-width family
+        "  \u200b\t\ufeff\n ",  # zero-width mixed with ordinary whitespace
+    ],
+)
+@pytest.mark.parametrize("field", _REQUIRED_DENIAL_FIELDS)
+def test_denial_incomplete_zero_width_only_grounding_raises(field: str, zero_width_value: str) -> None:
+    """A grounding field of only zero-width / BOM chars is empty (str.strip() would miss them)."""
+    worker = SendDenialNoticeWorker()
+    process_vars = {
+        "tenant_id": "amh",
+        "decisao_auditor": "NEGAR",
+        "human_approved": True,
+        **_COMPLETE_DENIAL_FUNDAMENTACAO,
+        field: zero_width_value,
+    }
+    with pytest.raises(WorkerBpmnError) as exc:
+        worker.execute(process_vars)
+    assert exc.value.error_code == ERR_AUTH_DENIAL_INCOMPLETE
+
+
 def test_denial_incomplete_all_fields_missing_raises() -> None:
     """A bare NEGAR (no grounding at all) is incomplete -> ERR_AUTH_DENIAL_INCOMPLETE."""
     worker = SendDenialNoticeWorker()
