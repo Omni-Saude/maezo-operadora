@@ -6,6 +6,17 @@
 > process-engine-architect (R1); must be R1-verified before it moves to Accepted. Every citation below
 > was re-pinned against `main = e4e3ed1`. **Docs-only:** this ADR changes no `src/`, `tests/`, or
 > `spec/` file; it *decides* and *schedules* the migration, which later tasks implement.
+>
+> **Amended 2026-07-18 per R1 adversarial verification round 1 (F1-F6).** The census and code citations
+> reproduced exactly and Option A's direction survived; four findings required amendment: (F1) the
+> phase-2 xfail-evidence claim corrected — the 13 phase-2 suites on `t3.1-process-suites-phase2-land`
+> @ `d27264e` carry **11 strict-xfails documenting exactly this defect class**, which flip under
+> Tiers 1-2 (§xfail evidence, §Migration); (F2) the `operadora.events.publish` all-16-consumers vs
+> single-declaring-process conflict resolved with a consumption-scoped gate clause (§2); (F4) T-E
+> hard-gating widened to **all** `*_NOT_HUMAN` guard codes, including G1's
+> `ERR_CANCEL_MANTER_NOT_HUMAN` (§4, Tier 0); (F5) gate clause (c) phased warn→hard across the
+> migration window (§2). F3/F6: distinct-pair count corrected 15→17; `events.py:193
+> ERR_PUBLISH_MISSING_TOPIC` catalogued; ADR-0026's prior guard-vs-gate resolution credited (§5).
 
 ## Contexto
 
@@ -23,9 +34,13 @@ in the corrected reality (hard rule: ground in repo, report the discrepancy):
    `bpmn_error_allowlist` (`:917`), calls `transport.handle_bpmn_error(...)` (`:919-924`) — a real
    engine `bpmnError` with `errorCode`, which fires the modeled boundary catch. Three families already
    raise it: `auth.py:380` (`ERR_AUTH_DENIAL_INCOMPLETE`), `cancel.py:357,367`
-   (`ERR_CANCEL_MANTER_NOT_HUMAN`), `events.py:262` (`ERR_EVENT_PUBLISH_FAILED`). So Option A is not a
-   greenfield proposal — it is **already the partially-built architecture**; the decision is whether to
-   *complete* it or *retreat* from it.
+   (`ERR_CANCEL_MANTER_NOT_HUMAN`), `events.py:262` (`ERR_EVENT_PUBLISH_FAILED`, gated at `:259` on
+   the `_ESCALATION_PUBLISH_BPMN_ERROR_TOPICS` filter, `:120-127`). A **fourth raise site** exists and
+   is catalogued here (R1 F6): `events.py:193` raises `WorkerBpmnError("ERR_PUBLISH_MISSING_TOPIC")`
+   for a task arriving without an `event_topic` variable — a code with **no** spec-declared boundary
+   anywhere, i.e. a raise that deliberately relies on the harness's demote-to-incident path; §2 gate
+   clause (b) flags it for Tier-0 cleanup. So Option A is not a greenfield proposal — it is **already
+   the partially-built architecture**; the decision is whether to *complete* it or *retreat* from it.
 
 2. **`FunctionWorker` does not reclassify `WorkerBpmnError`.** `FunctionWorker.execute`
    (`base.py:284-294`) reclassifies to `ValueError` **only** exceptions that are (a) not in
@@ -97,7 +112,10 @@ escalation, nip, reembolso.)
 
 **Per-family catch count:** escalation 8, cred 3, nip 3, recurso 2, auth 1, ans 1, cancel 1,
 inadimplencia 1, lgpd 1, pagto 1, programa 1, reembolso 1 = **24**. **Distinct `(topic, errorCode)`
-signals: 15.** Zero catches on `userTask`/`callActivity`; one error boundary on a non-external
+pairs: 17; distinct errorCodes: 15** (`ERR_ESC_NOTIFY_FAILED` and `ERR_RECURSO_INVALID_GLOSA` each
+span two topics; `ERR_EVENT_PUBLISH_FAILED` and `ERR_NIP_PROTOCOLO_INVALIDO` are one pair each across
+multiple attached tasks) — R1 F3 correction; the earlier "15 pairs" figure was the code count.
+Zero catches on `userTask`/`callActivity`; one error boundary on a non-external
 `subProcess` (`ans` `BE_RetryEsgotado`, out of scope). † `ans`/`SP-OP-ANS-SUBMIT-001` is under active
 **decommission** (DL-0028/DL-0029, RN 639/2025 extinguished the SIP obligation) — its catch is likely
 mooted by that re-scope, not migrated.
@@ -137,23 +155,48 @@ own boundary documentation: *"Antes: sem captura, o incidente travava a mainline
   **T-E** ("Audited-refusal", R2). PR #97's own disclosure confirms failure/bpmnError/incident paths are
   unaudited by design today. This ADR must not contradict that deferral — and does not (see Decisao §4).
 
-### The phase-2 xfail evidence — a second brief discrepancy, reported
+### The phase-2 xfail evidence — the suites already encode this defect class as strict-xfails
 
-The brief states the phase-2 suites *"document this with strict xfails"* that would flip under the fix.
-Verified against the reconciler worktree (`…/agent-a41120b110d4b7c41/tests/integration/processes/`,
-branch `t3.1-process-suites-phase2-land`): **zero of the 19 strict-xfails are this defect.** All 19
-(cancel 8, auth 8, escalation 3) are the **separate "Kafka-producer gap"** (`_WORKER_KAFKA_GAP_REASON`,
-`_ACTION_WORKER_KAFKA_GAP_REASON`, `_NOTIFY_KAFKA_GAP_REASON`) — entry functions / action workers never
-call `kafka.publish`, so notification assertions can't observe an execution; the string `ValueError`
-appears nowhere in those files. The modeled-boundary tests instead **PASS today** — but only because
-each fixture wires a **test-only, non-empty** allowlist (`test_sp_op_cancel_001.py:244`
+*(Rewritten per R1 F1 — the first draft's "0 of 19 xfails are this defect / no xfails flip" claim was
+FALSE: it examined only the 3 **phase-1** files. The narrow phase-1 sub-claim stands; the
+generalization did not survive verification against the full branch.)*
+
+**Phase-1 files (auth/cancel/escalation), accurate sub-claim:** their 19 strict-xfails are all the
+**separate "Kafka-producer gap"** (`_WORKER_KAFKA_GAP_REASON`, `_ACTION_WORKER_KAFKA_GAP_REASON`,
+`_NOTIFY_KAFKA_GAP_REASON`) — entry functions / action workers never call `kafka.publish`, so
+notification assertions can't observe an execution. Their modeled-boundary tests **pass today**, but
+only via **test-only inline allowlists** (`test_sp_op_cancel_001.py:244`
 `frozenset({"ERR_CANCEL_MANTER_NOT_HUMAN"})`, `…auth…:312` `AUTH_BPMN_ERROR_ALLOWLIST`,
 `…escalation…:227` `frozenset({"ERR_EVENT_PUBLISH_FAILED"})`) that production
-(`service.py:300 frozenset()`) does not. Auth even **removed** a former strict-xfail on its boundary
-path after it XPASSED against a real CIB Seven 2.1.0 engine. Consequence for the migration plan: **no
-existing xfail flips** under either option; the honest testability delta is (i) the three G1 suites drop
-their inline allowlist and assert against production wiring, and (ii) the G2 families gain new
-boundary-catch tests (the remaining phase-2 suites) that today would be forced to assert *incident*.
+(`service.py:300 frozenset()`) does not wire. Auth even **removed** a former strict-xfail on its
+boundary path after it XPASSED against a real CIB Seven 2.1.0 engine.
+
+**Phase-2 files (branch `t3.1-process-suites-phase2-land` @ `d27264e`, 13 additional suites): 11
+strict-xfails document EXACTLY this defect class** — dead boundary catches caused by the coded-error →
+incident path — several citing this ADR's own load-bearing lines verbatim:
+
+| Suite (file:line of reason constant) | Constant | × | errorCode documented dead |
+|---|---|---|---|
+| `test_sp_op_programa_001.py:323` | `_PROGRAMA_CONSENT_GUARD_NOT_BPMN_ERROR_REASON` (cites `base.py:284-294` reclassification + the harness dispatch) | 2 | `ERR_PROGRAMA_NO_CONSENT` |
+| `test_sp_op_nip_001.py:266` | `_PROTOCOLO_INVALIDO_NOT_BPMN_ERROR_REASON` (cites `harness.py:916-943` vs `:952-954`) | 3 | `ERR_NIP_PROTOCOLO_INVALIDO` |
+| `test_sp_op_cred_001.py:344` | `_CRED_INVALID_PRESTADOR_NOT_RAISED_REASON` | 1 | `ERR_CRED_INVALID_PRESTADOR` |
+| `test_sp_op_lgpd_dsr_001.py:252` | `_LGPD_IDENTITY_UNVERIFIABLE_BOUNDARY_UNWIRED_REASON` | 1 | `ERR_DSR_IDENTITY_UNVERIFIED` |
+| `test_sp_op_recurso_001.py:357` | `_RECURSO_INVALID_GLOSA_GUARD_MISSING_REASON` | 2 | `ERR_RECURSO_INVALID_GLOSA` |
+| `test_sp_op_ans_submit_001.py:285` | `_SUBMIT_NACK_UNREACHABLE_REASON` | 2 | `ERR_ANS_PROTOCOLO_NACK` |
+
+All are `strict=True`. Two further phase-2 suites wire test-only inline allowlists beyond the phase-1
+three: `test_sp_op_lgpd_dsr_001.py:212` (`_LGPD_BPMN_ERROR_ALLOWLIST =
+frozenset({"ERR_DSR_IDENTITY_UNVERIFIED"})`, wired at `:350`) and `test_sp_op_ans_submit_001.py:372`
+(`frozenset({"ERR_ANS_PROTOCOLO_NACK", "ERR_ANS_RETRY_ESGOTADO"})`).
+
+**This evidence STRENGTHENS Option A:** independent test engineers, porting per-family suites, each
+independently modeled the boundary catches as *intended to fire* and encoded the current
+incident-instead-of-boundary behavior as a **defect** (strict-xfail), not as an accepted posture.
+Under Option B every one of these 11 xfail markers would instead be rewritten to *assert* the incident
+— inverting the suites' declared intent. Consequence for the migration plan: these 11 flip
+strict-xfail → XPASS as Tiers 1-2 land, and per program discipline each marker must then be **removed
+with live-engine proof** (precedent: auth's removed boundary xfail). The 19 phase-1 Kafka-gap xfails
+flip under neither option (different defect, tracked by its own task).
 
 ### The tension
 
@@ -170,7 +213,9 @@ BPMN boundary-catch declaration.** This is the recommended option; it completes 
 §5 already chose and that auth/cancel/events already build against, and it keeps every non-modeled
 failure incident-fail-closed. In one sentence: **a worker raises `WorkerBpmnError(code)` if and only if
 `code` is declared as a `bpmn:error@errorCode` on an error boundary event attached to that worker's
-external task in *every* consuming process (proven by the boundary-proof gate); everything else —
+external task with **consumption coverage** — declared in every consuming process, or restricted to
+boundary-declaring processes by a spec-mechanically-verified worker-side dispatch condition (§2,
+amended per R1 F2) — proven by the boundary-proof gate; everything else —
 unexpected faults, bad/immutable input, and L0 guards with *no* modeled boundary — stays
 incident-fail-closed.**
 
@@ -203,12 +248,44 @@ enforced by CI, not a per-error judgement call.
   external task — **never** a hand-maintained list (mirrors ADR-0026 §2b: topics come from spec, not a
   hand-list).
 - **The boundary-proof gate** (T1.1 §9, the unbuilt follow-up — this ADR makes it a hard precondition,
-  not an optional nicety): a CI static check that (a) computes the allowlist from spec; (b) fails if any
-  worker raises a `WorkerBpmnError(code)` whose `code` is not spec-declared on that worker's topic's
-  boundary in **every** consuming process; (c) fails if any spec-declared boundary `errorCode` on an
-  external task has **no** worker raising it (the dead-model regression this ADR closes). The runtime
-  `bpmn_error_allowlist` (`service.py`) is then populated **from the gate's output**, replacing
-  `frozenset()`.
+  not an optional nicety): a CI static check with three clauses. **(a)** computes the allowlist from
+  spec. **(b)** fails if any worker raises a `WorkerBpmnError(code)` whose `code` is not
+  **consumption-covered** for that worker's topic — defined below (R1 F2). **(c)** fails if any
+  spec-declared boundary `errorCode` on an external task has **no** worker raising it (the dead-model
+  regression this ADR closes) — **phased** (R1 F5): during the migration window (Tiers 0-2) clause (c)
+  runs **warn-only** against a documented, shrinking baseline (the same convention as PR #97's
+  non-determinism baseline fence); it hardens to **fail** at Tier-3 close. Without phasing, clause (c)
+  necessarily fails from Tier 0 until Tier 3 completes — a permanently red CI teaches people to ignore
+  the gate. The runtime `bpmn_error_allowlist` (`service.py`) is then populated **from the gate's
+  output**, replacing `frozenset()`.
+- **Consumption-covered (clause (b) semantics — resolves R1 F2).** For a topic consumed by exactly one
+  process family, "covered" = the boundary is declared on that topic's attached task(s) in **every**
+  consuming process — the simple rule; it holds for 14 of the 15 distinct codes. The exception is
+  `operadora.events.publish`: consumed by **all 16** processes, but `ERR_EVENT_PUBLISH_FAILED` is
+  boundary-declared **only** in SP-OP-ESCALATION-001 — the naive "every consuming process" rule would
+  block the very code classified G1. The as-built safety is a **worker-side dispatch condition**: the
+  raise at `events.py:262` is gated (`:259`) on the event topic being in
+  `_ESCALATION_PUBLISH_BPMN_ERROR_TOPICS` (`events.py:120-127`) — and those 4 escalation domain topics
+  appear in **no other process's** `event_topic` input mappings (verified against `spec/**`), so the
+  raise can only occur on task instances originating from the boundary-declaring process. This ADR
+  **formally admits that pattern into the criterion** — chosen over the alternatives — with the
+  discipline that keeps it spec-mechanical, not trust-based: the gate must verify **(b1)** the
+  worker's filter set equals the set of `event_topic` input-mapping values on the boundary-carrying
+  activities in the declaring process, and **(b2)** none of those values appears in any *other*
+  process's `event_topic` mappings. A drift in either direction (a new process reusing an escalation
+  domain topic; the filter diverging from the spec) fails CI. *Rejected (i) — per-process runtime gate
+  semantics:* the harness would need to resolve each task's process-definition key at dispatch
+  (`ExternalTask` carries only `process_instance_id`, `harness.py:98-113`) — a hot-path engine lookup
+  for a property CI can prove statically. *Rejected (iii) — declare the boundary in the other 15
+  processes:* breaks this ADR's zero-BPMN-edits consequence and would model 15 catches whose routed
+  targets nobody has designed; a publish failure in a non-escalation process is correctly an incident
+  today.
+- **Clause (b) flags `ERR_PUBLISH_MISSING_TOPIC`** (`events.py:193` — R1 F6): raised as a
+  `WorkerBpmnError` with no spec-declared boundary anywhere, deliberately relying on the harness's
+  demote-to-incident path. Under the gate this is a clause-(b) violation. Tier-0 cleanup: reclassify
+  the raise to `ValueError` (identical incident outcome — it is a bad/immutable-input condition — and
+  removes the violation), or carry an explicit `deliberate-demote` annotation the gate recognizes.
+  Preference: reclassify; the annotation escape hatch exists for future genuinely-transitional cases.
 - Codes stay **stable and semantic** (`ERR_<DOMAIN>_<CONDITION>`), matching the existing convention;
   reuse across tasks sharing a topic is fine (nip's `ERR_NIP_PROTOCOLO_INVALIDO` ×3, recurso's
   `ERR_RECURSO_INVALID_GLOSA` ×2 already do this).
@@ -236,14 +313,21 @@ audit-wiring design MUST-FIX 1, guarantees no mid-handler effect preceded it).
 - **The T-E deferral is currently safe** precisely because the allowlist is empty (`service.py:300`): no
   `bpmnError` fires in production today, so there is nothing to audit. Option A changes that. Therefore
   this ADR **schedules T-E as a hard co-requisite of populating the allowlist for any *business-outcome*
-  code** — the G2-guard family (`ERR_*_NOT_HUMAN` blocking an adverse action) and the denial-block
-  (`ERR_AUTH_DENIAL_INCOMPLETE`): before such a code goes live in the production allowlist, T-E must
-  land so the *refusal/routing decision* ("this instance was blocked from denying / suspending and
-  routed to a neutral terminal") is recorded per ADR-0007. For **technical fail-safe** codes
-  (`ERR_EVENT_PUBLISH_FAILED`, `ERR_ESC_NOTIFY_FAILED`, and the `G2-val` origin-validation catches),
-  T-E is desirable but **not** a hard blocker — they route to retry/fallback/technical terminals, not
-  regulated outcomes. This respects the deferral (no contradiction) while closing the one gap Option A
-  would otherwise open.
+  code**, defined by pattern, not by group (amended per R1 F4): **ALL `*_NOT_HUMAN` guard codes** —
+  `ERR_DECRED_NOT_HUMAN`, `ERR_CRED_DENIAL_NOT_HUMAN`, `ERR_CONTRACT_SUSPENSION_NOT_HUMAN`, **and
+  G1's `ERR_CANCEL_MANTER_NOT_HUMAN`** — plus the denial-block (`ERR_AUTH_DENIAL_INCOMPLETE`). The
+  first draft exempted `ERR_CANCEL_MANTER_NOT_HUMAN` because its worker already raises it (G1); that
+  was an inconsistency: activating any guard code pre-T-E converts today's **guaranteed-human-visible
+  incident** into a **clean, silent end** at the neutral terminal (`End_ManterNaoConfirmado`) — no
+  incident, no audit row, no notification. Membership in G1 changes the *implementation cost*, not the
+  *visibility regression*; the gating pattern is the code semantics, not the group. Before any such
+  code goes live in the production allowlist, T-E must land so the *refusal/routing decision* ("this
+  instance was blocked from denying / suspending / maintaining-without-human and routed to a neutral
+  terminal") is recorded per ADR-0007. For **technical fail-safe** codes (`ERR_EVENT_PUBLISH_FAILED`,
+  `ERR_ESC_NOTIFY_FAILED`) and the **`G2-val`** origin-validation catches, T-E is desirable but
+  **not** a hard blocker — they route to retry/fallback/technical terminals, not regulated outcomes.
+  This respects the deferral (no contradiction) while closing the one gap Option A would otherwise
+  open.
 
 ### 5. Refinement of ADR-0026 §5 (recorded, not a silent override)
 
@@ -254,9 +338,14 @@ conflict. This ADR resolves the conflict in favour of the **gate rule**: a guard
 modeled boundary → `WorkerBpmnError` routed to its modeled **neutral** terminal; a guard code with **no**
 modeled boundary (e.g. auth's `ERR_DENIAL_NOT_HUMAN`, deliberately un-allowlisted at `auth.py:58-59`;
 cancel's `ERR_CANCELLATION_NOT_HUMAN`, declared-uncaught) → **incident**, unchanged. The L0 invariant
-holds identically either way — neither path performs the adverse action. This is a refinement, not a
-reversal: ADR-0026's blanket "guards → incident" was too coarse for guards the process author modeled a
-clean terminal for.
+holds identically either way — neither path performs the adverse action. Credit where due (R1 F6):
+ADR-0026's own **Test strategy** (`0026-worker-standardization.md:250-252`) already resolved the
+conflict in this same direction — *"a gate-proven code → `bpmnError`; an unproven `WorkerBpmnError`
+code demotes to `failure(retries=0)`"* — with no guard-code carve-out; §5 therefore **records and
+refines** that prior resolution (making it explicit for the four boundary-modeled guard codes and
+binding it to the T-E gating of §4), rather than making a new one. ADR-0026's blanket "guards →
+incident" in §Decisao 5 was too coarse for guards the process author modeled a clean terminal for;
+its own test strategy already knew better.
 
 ## Consequencias
 
@@ -293,15 +382,17 @@ clean terminal for.
 **No `spec/**` BPMN file changes.** Worker (`src/maezo/tools/workers/**`), the runtime wiring
 (`service.py`), a new CI gate, and (later) audit are what move.
 
-- **Tier 0 — boundary-proof gate + G1 activation (no worker-logic change).** Build the CI gate (§2);
-  wire `service.py` to populate `bpmn_error_allowlist` from the gate output (drop `frozenset()`,
-  `service.py:300`). This alone activates the **G1** codes — `ERR_AUTH_DENIAL_INCOMPLETE`,
-  `ERR_CANCEL_MANTER_NOT_HUMAN`, `ERR_EVENT_PUBLISH_FAILED` — because their workers already raise them.
-  Co-requisite: **T-E audit** must land before `ERR_AUTH_DENIAL_INCOMPLETE` (a denial-block, business
-  outcome) is enabled (§4); `ERR_EVENT_PUBLISH_FAILED` (technical fail-safe) and
-  `ERR_CANCEL_MANTER_NOT_HUMAN` may enable with T-E scheduled-not-blocking (cancel's neutral terminal is
-  non-adverse). *Testability:* the three phase-2 G1 suites drop their inline test-only allowlist
-  (`test_sp_op_{cancel,auth,escalation}_001.py:244/312/227`) and assert against production wiring.
+- **Tier 0 — boundary-proof gate + G1 activation (no worker-logic change).** Build the CI gate (§2,
+  clause (c) warn-only per F5); wire `service.py` to populate `bpmn_error_allowlist` from the gate
+  output (drop `frozenset()`, `service.py:300`); reclassify `ERR_PUBLISH_MISSING_TOPIC`
+  (`events.py:193`) to `ValueError` (§2 clause-(b) cleanup — identical incident outcome). Of the
+  **G1** codes: `ERR_EVENT_PUBLISH_FAILED` (technical fail-safe) enables immediately under §2's
+  consumption-covered criterion (b1)/(b2); `ERR_AUTH_DENIAL_INCOMPLETE` **and**
+  `ERR_CANCEL_MANTER_NOT_HUMAN` are **hard-gated on T-E** (§4, amended per R1 F4 — a `*_NOT_HUMAN`
+  guard activated pre-T-E would trade a human-visible incident for a silent clean end). *Testability:*
+  the suites that wire inline test-only allowlists (`test_sp_op_{cancel,auth,escalation}_001.py:
+  244/312/227`, plus `lgpd_dsr:212/350` and `ans_submit:372` at their tiers) switch to the
+  gate-derived allowlist and assert against production wiring.
 - **Tier 1 — G2-fs technical fail-safe (lowest risk, non-regulated outcomes).** escalation
   `ERR_ESC_NOTIFY_FAILED` (make `NotifyTeamWorker`/`NotifySupervisorWorker` raise it on notify failure —
   entangled with the Kafka-producer gap the 19 xfails track, so co-schedule); ans `ERR_ANS_PROTOCOLO_NACK`
@@ -319,13 +410,24 @@ clean terminal for.
   live. Worker raises `WorkerBpmnError` routed to the modeled neutral terminal; ADR-0008 invariant
   preserved (no adverse action performed).
 
-**Which xfails flip:** none of the 19 existing phase-2 xfails (they are the Kafka gap, not this defect —
-reported above). The observable test deltas are the Tier-0 suites dropping their inline allowlists, and
-the Tier 1-3 families gaining boundary-catch tests (in the remaining phase-2 suites) that assert the
-catch fires + routes to its neutral terminal, replacing an *incident* assertion. **Which BPMN files
-change:** none (except the ans decommission, owned by T2.6). **Which worker files change:** the ~10 G2
-families' modules (`credenciamento/inadimplencia/lgpd/nip/pagto/programa/recurso/reembolso/escalation`,
-ans conditionally), `service.py` (wiring), plus the new gate and T-E.
+**Which xfails flip (corrected per R1 F1):** the **11 phase-2 boundary-class strict-xfails** flip
+strict-xfail → XPASS as their tier lands, and each marker must then be **removed with live-engine
+proof** (program discipline; precedent: auth's removed boundary xfail). By tier: **Tier 2 flips 9** —
+`test_sp_op_programa_001.py` ×2 (`ERR_PROGRAMA_NO_CONSENT`), `test_sp_op_nip_001.py` ×3
+(`ERR_NIP_PROTOCOLO_INVALIDO`), `test_sp_op_cred_001.py` ×1 (`ERR_CRED_INVALID_PRESTADOR`),
+`test_sp_op_lgpd_dsr_001.py` ×1 (`ERR_DSR_IDENTITY_UNVERIFIED`), `test_sp_op_recurso_001.py` ×2
+(`ERR_RECURSO_INVALID_GLOSA`); **Tier 1 flips 2** — `test_sp_op_ans_submit_001.py` ×2
+(`ERR_ANS_PROTOCOLO_NACK`), *iff* SP-OP-ANS-SUBMIT-001 survives the DL-0028/0029 decommission (else
+those two are removed with the suite's re-scope). The 19 phase-1 xfails (Kafka-producer gap) flip
+under **neither** option — different defect, tracked separately. Some flips additionally depend on the
+sibling gaps their suites disclose (e.g. missing workers on adjacent topics) landing first; the
+boundary semantics is the necessary condition this ADR owns. Further test deltas: the inline-allowlist
+suites switch to gate-derived wiring (Tier 0), and Tier-3 guard codes gain new boundary-catch tests
+replacing today's *incident* assertions. **Which BPMN files change:** none (except the ans
+decommission, owned by T2.6). **Which worker files change:** the ~10 G2 families' modules
+(`credenciamento/inadimplencia/lgpd/nip/pagto/programa/recurso/reembolso/escalation`, ans
+conditionally), `events.py` (`ERR_PUBLISH_MISSING_TOPIC` reclassification), `service.py` (wiring),
+plus the new gate and T-E.
 
 ## Rejected alternatives
 
