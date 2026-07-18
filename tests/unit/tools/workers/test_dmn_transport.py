@@ -296,6 +296,123 @@ async def test_boolean_and_string_and_none_typing() -> None:
 
 
 # ---------------------------------------------------------------------------
+# dict|list -> Json input typing (T1.5 parity fix): `_to_camunda_vars` now mirrors
+# `harness.py::_to_camunda_var`'s `dict|list` branch byte-for-byte. Before this fix a bare
+# list/dict INPUT value fell through to the catch-all `else` and was typed `String` via Python
+# `str(v)` (e.g. `"[1, 2, 3]"` — repr-like text, not guaranteed valid/round-trippable JSON for
+# arbitrary content), which the engine would store as an opaque string rather than a structured
+# object/array.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_list_input_typed_as_json() -> None:
+    """A bare `list` input value types as Camunda `Json`, `json.dumps`-encoded — exact parity
+    with `harness.py::_to_camunda_var`'s `dict|list` branch, never the catch-all `String`
+    branch's `str(v)`."""
+    import json as jsonlib
+
+    captured: dict = {}
+    payload_list = [1, 2, 3]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/evaluate"):
+            captured["body"] = jsonlib.loads(request.content)
+            return httpx.Response(200, json=[_camunda_row(faixa_valor="OK")])
+        return httpx.Response(200, json=_definition_body())
+
+    transport = _client_with_handler(handler)
+    await transport.evaluate("some_key", {"itens": payload_list})
+
+    sent_var = captured["body"]["variables"]["itens"]
+    assert sent_var == {
+        "value": jsonlib.dumps(payload_list, ensure_ascii=False, default=str),
+        "type": "Json",
+    }
+
+
+@pytest.mark.asyncio
+async def test_dict_input_typed_as_json() -> None:
+    """A bare `dict` input value types as Camunda `Json`, `json.dumps`-encoded — exact parity
+    with `harness.py::_to_camunda_var`'s `dict|list` branch."""
+    import json as jsonlib
+
+    captured: dict = {}
+    payload_dict = {"motivo": "ok", "valor": 10}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/evaluate"):
+            captured["body"] = jsonlib.loads(request.content)
+            return httpx.Response(200, json=[_camunda_row(faixa_valor="OK")])
+        return httpx.Response(200, json=_definition_body())
+
+    transport = _client_with_handler(handler)
+    await transport.evaluate("some_key", {"dossie": payload_dict})
+
+    sent_var = captured["body"]["variables"]["dossie"]
+    assert sent_var == {
+        "value": jsonlib.dumps(payload_dict, ensure_ascii=False, default=str),
+        "type": "Json",
+    }
+
+
+@pytest.mark.asyncio
+async def test_nested_structure_round_trips_through_json_typing() -> None:
+    """End-to-end parity proof: a nested list/dict INPUT is `Json`-typed by this fix
+    (`_to_camunda_vars`) on the way OUT, and — mirroring the pre-existing `Json`-typed
+    result-variable decode (`_from_camunda_var`, PR #92, tested below) — decodes back to an
+    IDENTICAL Python structure on the way IN. Proves the encode/decode legs of this transport
+    are exact wire-format mirrors of each other, same contract as `harness.py`'s
+    `_to_camunda_var`/`_from_camunda_var` pair."""
+    import json as jsonlib
+
+    nested = {"a": 1, "b": [1, 2, {"c": "x", "d": [True, None]}]}
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/evaluate"):
+            captured["body"] = jsonlib.loads(request.content)
+            sent = captured["body"]["variables"]["dossie"]
+            # Echo the exact Json-typed wire entry back as a Json-typed RESULT variable, so
+            # evaluate()'s existing decode leg (_from_camunda_var) exercises the round trip.
+            return httpx.Response(200, json=[{"dossie_echo": sent}])
+        return httpx.Response(200, json=_definition_body())
+
+    transport = _client_with_handler(handler)
+    rows, _version = await transport.evaluate("some_key", {"dossie": nested})
+
+    sent_var = captured["body"]["variables"]["dossie"]
+    assert sent_var == {"value": jsonlib.dumps(nested, ensure_ascii=False, default=str), "type": "Json"}
+    assert rows == [{"dossie_echo": nested}]
+    assert isinstance(rows[0]["dossie_echo"], dict)
+
+
+@pytest.mark.asyncio
+async def test_pretyped_camunda_var_with_value_key_passes_through_unchanged() -> None:
+    """Backward-compat guard (T1.5): a value ALREADY shaped as a Camunda variable
+    (`{"value": ..., "type": ...}` — e.g. a caller explicitly forcing `Double` typing) must be
+    caught by the dict-with-`"value"` passthrough branch BEFORE the new `dict|list` -> Json
+    branch, and pass through completely UNCHANGED — never re-wrapped/re-encoded as Json. This
+    is the exact regression this fix must not introduce: the passthrough branch is checked
+    first in both `_to_camunda_vars` and `harness.py::_to_camunda_var`."""
+    import json as jsonlib
+
+    captured: dict = {}
+    pretyped = {"value": 3.14, "type": "Double"}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/evaluate"):
+            captured["body"] = jsonlib.loads(request.content)
+            return httpx.Response(200, json=[_camunda_row(faixa_valor="OK")])
+        return httpx.Response(200, json=_definition_body())
+
+    transport = _client_with_handler(handler)
+    await transport.evaluate("some_key", {"taxa": pretyped})
+
+    assert captured["body"]["variables"]["taxa"] == pretyped
+
+
+# ---------------------------------------------------------------------------
 # Json-typed result-variable decode (T1.5 sibling of the harness fix PR #75 and the
 # mcp_cibseven/transport.py fix PR #89 — same defect class, this transport's evaluate() leg).
 # ---------------------------------------------------------------------------
