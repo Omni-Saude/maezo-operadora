@@ -36,6 +36,8 @@ import pytest
 from maezo.gateway.audit import AuditRecord
 from maezo.gateway.audit_postgres import (
     _COLUMNS,
+    _DEDUP_CLAIM_SQL,
+    _DEDUP_LOOKUP_SQL,
     INSERT_SQL,
     AuditPersistenceError,
     PostgresAuditSink,
@@ -45,6 +47,7 @@ from maezo.gateway.audit_postgres import (
 )
 
 _KILLTEST_WRITER = Path(__file__).parent / "_audit_killtest_writer.py"
+_KILLTEST_EMIT_ONCE_WRITER = Path(__file__).parent / "_audit_emit_once_killtest_writer.py"
 
 
 # ---------------------------------------------------------------------------
@@ -99,6 +102,17 @@ def test_insert_sql_never_writes_id_or_created_at() -> None:
     # never try to set them explicitly.
     assert "id" not in _COLUMNS
     assert "created_at" not in _COLUMNS
+
+
+def test_dedup_claim_sql_is_conflict_safe_and_returns_prior_identity() -> None:
+    # The emit_once claim must (a) target audit_emit_dedup, (b) be an idempotent claim
+    # (ON CONFLICT DO NOTHING) so a re-delivered effect never errors, and (c) RETURN the
+    # record_hash so a first-writer win can be distinguished from a lost race in one round-trip.
+    assert "INSERT INTO audit_emit_dedup" in _DEDUP_CLAIM_SQL
+    assert "ON CONFLICT (tenant, dedup_key) DO NOTHING" in _DEDUP_CLAIM_SQL
+    assert "RETURNING record_hash" in _DEDUP_CLAIM_SQL
+    # The lookup returns the prior chain link's identity for an already-claimed key.
+    assert "SELECT record_hash FROM audit_emit_dedup" in _DEDUP_LOOKUP_SQL
 
 
 # ---------------------------------------------------------------------------
@@ -160,6 +174,21 @@ _AUDIT_CHAIN_DDL = """
     )
 """
 
+# Mirrors platform/migrations/versions/0005_audit_emit_dedup.py's upgrade() DDL exactly (same
+# rationale as _AUDIT_CHAIN_DDL: duplicated for test speed/isolation, migration itself is run
+# end-to-end separately — see PR body). emit_once() claims a dedup_key here inside the same
+# advisory-lock transaction as the chain insert.
+_AUDIT_EMIT_DEDUP_DDL = """
+    CREATE TABLE audit_emit_dedup (
+        tenant       text NOT NULL,
+        dedup_key    text NOT NULL,
+        record_hash  text NOT NULL,
+        created_at   timestamptz NOT NULL DEFAULT now(),
+
+        PRIMARY KEY (tenant, dedup_key)
+    )
+"""
+
 
 async def _make_tenant_schema(dsn: str, *, with_table: bool = True) -> str:
     tenant_id = f"kt{uuid.uuid4().hex[:16]}"  # schema_for_tenant requires [a-z][a-z0-9_]*
@@ -169,6 +198,7 @@ async def _make_tenant_schema(dsn: str, *, with_table: bool = True) -> str:
         if with_table:
             await conn.execute(f'SET search_path TO "{tenant_id}"')
             await conn.execute(_AUDIT_CHAIN_DDL)
+            await conn.execute(_AUDIT_EMIT_DEDUP_DDL)
     finally:
         await conn.close()
     return tenant_id
@@ -544,6 +574,188 @@ async def test_different_tenants_do_not_share_a_chain(pg_dsn: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# emit_once — exactly-once idempotent emission (T-A, docs/design/audit-emit-path-wiring.md §4.3).
+# ---------------------------------------------------------------------------
+
+
+async def _count_chain_rows(dsn: str, tenant_id: str) -> int:
+    conn = await asyncpg.connect(normalize_dsn(dsn))
+    try:
+        await conn.execute(f'SET search_path TO "{tenant_id}"')
+        count: int = await conn.fetchval("SELECT count(*) FROM audit_chain")
+    finally:
+        await conn.close()
+    return count
+
+
+async def _count_dedup_rows(dsn: str, tenant_id: str) -> int:
+    conn = await asyncpg.connect(normalize_dsn(dsn))
+    try:
+        await conn.execute(f'SET search_path TO "{tenant_id}"')
+        count: int = await conn.fetchval("SELECT count(*) FROM audit_emit_dedup")
+    finally:
+        await conn.close()
+    return count
+
+
+def _emit_once_record(tenant_id: str, *, marker: str) -> AuditRecord:
+    return AuditRecord(
+        agent_id="operadora-worker",
+        tenant_id=tenant_id,
+        agent_version="1.0.0",
+        action="task_complete",
+        decision="ALLOW",
+        details={"marker": marker},
+    )
+
+
+@pytest.mark.integration
+async def test_emit_once_same_key_twice_writes_one_link_and_returns_prior_identity(
+    pg_dsn: str, tenant_schema: str
+) -> None:
+    """Same dedup_key twice → exactly one chain row + one dedup row; the second call is a no-op
+    that returns the FIRST record's identity (not an error, not a second link)."""
+    sink = PostgresAuditSink(pg_dsn, tenant_schema)
+    key = f"{tenant_schema}:task-abc"
+    try:
+        first = _emit_once_record(tenant_schema, marker="first")
+        h1 = await sink.emit_once(first, dedup_key=key)
+
+        # A genuinely different record (different details) under the SAME key — must be suppressed.
+        second = _emit_once_record(tenant_schema, marker="second-should-be-ignored")
+        h2 = await sink.emit_once(second, dedup_key=key)
+    finally:
+        await sink.aclose()
+
+    assert h2 == h1, "re-delivery must return the prior link's identity, not a new hash"
+    assert h1 == first.record_hash
+    assert await _count_chain_rows(pg_dsn, tenant_schema) == 1, "second emit_once wrote a 2nd link"
+    assert await _count_dedup_rows(pg_dsn, tenant_schema) == 1
+
+    result = await verify_chain(pg_dsn, tenant_schema)
+    assert result.valid and result.total_records == 1 and result.verified_records == 1
+
+
+@pytest.mark.integration
+async def test_emit_once_different_keys_write_distinct_links(pg_dsn: str, tenant_schema: str) -> None:
+    """Different dedup_keys → two distinct chain rows, two dedup rows, a valid chain."""
+    sink = PostgresAuditSink(pg_dsn, tenant_schema)
+    try:
+        h1 = await sink.emit_once(
+            _emit_once_record(tenant_schema, marker="a"), dedup_key=f"{tenant_schema}:task-1"
+        )
+        h2 = await sink.emit_once(
+            _emit_once_record(tenant_schema, marker="b"), dedup_key=f"{tenant_schema}:task-2"
+        )
+    finally:
+        await sink.aclose()
+
+    assert h1 != h2
+    assert await _count_chain_rows(pg_dsn, tenant_schema) == 2
+    assert await _count_dedup_rows(pg_dsn, tenant_schema) == 2
+
+    result = await verify_chain(pg_dsn, tenant_schema)
+    assert result.valid and result.total_records == 2 and result.verified_records == 2
+
+
+@pytest.mark.integration
+async def test_emit_once_concurrent_same_key_exactly_one_wins(pg_dsn: str, tenant_schema: str) -> None:
+    """N coroutines racing emit_once on the SAME key → exactly one chain row is written, every
+    caller returns that one record's identity, and the chain verifies (no fork, no duplicate)."""
+    sink = PostgresAuditSink(pg_dsn, tenant_schema)
+    key = f"{tenant_schema}:task-race"
+    try:
+
+        async def race(i: int) -> str:
+            return await sink.emit_once(_emit_once_record(tenant_schema, marker=f"r{i}"), dedup_key=key)
+
+        results = await asyncio.gather(*[race(i) for i in range(25)])
+    finally:
+        await sink.aclose()
+
+    assert len(set(results)) == 1, "concurrent same-key emits must all resolve to ONE identity"
+    assert await _count_chain_rows(pg_dsn, tenant_schema) == 1, "the race wrote more than one link"
+    assert await _count_dedup_rows(pg_dsn, tenant_schema) == 1
+
+    result = await verify_chain(pg_dsn, tenant_schema)
+    assert result.valid and result.total_records == 1 and result.verified_records == 1
+
+
+@pytest.mark.integration
+async def test_emit_once_concurrent_distinct_keys_serialize_without_fork(
+    pg_dsn: str, tenant_schema: str
+) -> None:
+    """N coroutines racing emit_once on DISTINCT keys → all N links written, chain still valid
+    (the advisory lock serializes the tail read across emit_once calls exactly as for emit)."""
+    sink = PostgresAuditSink(pg_dsn, tenant_schema)
+    try:
+
+        async def emit(i: int) -> str:
+            return await sink.emit_once(
+                _emit_once_record(tenant_schema, marker=f"d{i}"), dedup_key=f"{tenant_schema}:task-{i}"
+            )
+
+        results = await asyncio.gather(*[emit(i) for i in range(25)])
+    finally:
+        await sink.aclose()
+
+    assert len(set(results)) == 25, "distinct keys must each produce a unique link — no collision"
+    assert await _count_chain_rows(pg_dsn, tenant_schema) == 25
+
+    result = await verify_chain(pg_dsn, tenant_schema)
+    assert result.valid and result.total_records == 25 and result.verified_records == 25
+
+
+@pytest.mark.integration
+async def test_emit_once_interoperates_with_plain_emit(pg_dsn: str, tenant_schema: str) -> None:
+    """emit() and emit_once() share the same chain-insert path — interleaving them keeps one
+    unbroken, verifiable chain."""
+    sink = PostgresAuditSink(pg_dsn, tenant_schema)
+    try:
+        await sink.emit(_emit_once_record(tenant_schema, marker="plain-1"))
+        await sink.emit_once(
+            _emit_once_record(tenant_schema, marker="once-1"), dedup_key=f"{tenant_schema}:k1"
+        )
+        await sink.emit(_emit_once_record(tenant_schema, marker="plain-2"))
+        # re-delivery of k1 — no new link
+        await sink.emit_once(
+            _emit_once_record(tenant_schema, marker="once-1-again"), dedup_key=f"{tenant_schema}:k1"
+        )
+    finally:
+        await sink.aclose()
+
+    assert await _count_chain_rows(pg_dsn, tenant_schema) == 3
+    result = await verify_chain(pg_dsn, tenant_schema)
+    assert result.valid and result.total_records == 3 and result.verified_records == 3
+
+
+@pytest.mark.integration
+async def test_emit_once_fail_closed_when_dedup_table_missing(pg_dsn: str) -> None:
+    """A missing audit_emit_dedup table (misconfiguration) must FAIL CLOSED — raise, write no
+    chain link — never silently skip the dedup claim and complete the effect unaudited."""
+    tenant_id = await _make_tenant_schema(pg_dsn, with_table=False)
+    try:
+        # Give it audit_chain but NOT audit_emit_dedup, so the failure is specifically the claim.
+        conn = await asyncpg.connect(normalize_dsn(pg_dsn))
+        try:
+            await conn.execute(f'SET search_path TO "{tenant_id}"')
+            await conn.execute(_AUDIT_CHAIN_DDL)
+        finally:
+            await conn.close()
+
+        sink = PostgresAuditSink(pg_dsn, tenant_id)
+        try:
+            with pytest.raises(AuditPersistenceError):
+                await sink.emit_once(_emit_once_record(tenant_id, marker="x"), dedup_key=f"{tenant_id}:k")
+        finally:
+            await sink.aclose()
+
+        assert await _count_chain_rows(pg_dsn, tenant_id) == 0, "fail-closed must leave no chain link"
+    finally:
+        await _drop_tenant_schema(pg_dsn, tenant_id)
+
+
+# ---------------------------------------------------------------------------
 # Kill-test — the T1.10 acceptance criterion.
 # ---------------------------------------------------------------------------
 
@@ -658,3 +870,123 @@ async def test_kill_test_process_crash_loses_zero_committed_records(pg_dsn: str,
     # Sanity: every pre-kill CONFIRMED hash is still reachable in the verified chain (not just
     # "a" row in the table, but actually linked in — verify_chain() already proved the whole
     # table is one unbroken chain from genesis, so membership in db_hashes above is sufficient).
+
+
+@pytest.mark.integration
+async def test_kill_test_emit_once_atomic_across_crash(pg_dsn: str, tenant_schema: str) -> None:
+    """emit_once kill-test (T-A acceptance): SIGKILL a writer BETWEEN the dedup-claim and the
+    chain-insert; prove the claim+link are atomic across the crash.
+
+    The dedup-claim INSERT and the chain-insert run in ONE per-tenant advisory-lock transaction.
+    A crash between them must roll back BOTH — otherwise a surviving claim would suppress the
+    re-delivery's audit (a GAP), or a surviving link with no claim would let the re-delivery
+    double-audit (a DUPLICATE). This test lands the SIGKILL exactly in that window and proves,
+    after re-delivery of the SAME dedup_key, that EXACTLY ONE audit record exists and the chain
+    verifies.
+
+    Protocol:
+      1. Spawn the writer in `hang-before-chain` mode: it runs emit_once far enough to execute
+         the dedup-claim INSERT (inside its uncommitted transaction), prints `CLAIMED <key>`, then
+         blocks at the chain insert.
+      2. On seeing `CLAIMED`, SIGKILL — Postgres rolls back the whole transaction (claim included)
+         when the connection dies.
+      3. Assert: zero chain rows AND zero dedup rows survived (atomic rollback — the claim did not
+         outlive the link it was atomic with).
+      4. Re-deliver: spawn a FRESH writer in `complete` mode with the SAME dedup_key. It sees no
+         prior claim, so it emits cleanly.
+      5. Assert: EXACTLY ONE chain row (no duplicate), one dedup row, verify_chain valid (no gap,
+         no fork), and its record_hash is what the completing writer returned.
+    """
+    dedup_key = f"{tenant_schema}:killtest-effect-1"
+
+    proc = subprocess.Popen(  # noqa: S603, ASYNC220 — kill-test needs real-time stdout + a real OS signal
+        [
+            sys.executable,
+            str(_KILLTEST_EMIT_ONCE_WRITER),
+            "--dsn",
+            pg_dsn,
+            "--tenant",
+            tenant_schema,
+            "--dedup-key",
+            dedup_key,
+            "--mode",
+            "hang-before-chain",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,
+    )
+    assert proc.stdout is not None
+
+    claimed_seen = False
+    try:
+        while True:
+            line = proc.stdout.readline()
+            if not line:
+                break
+            line = line.strip()
+            if line.startswith("CLAIMED "):
+                claimed_seen = True
+                break
+            if line.startswith("ERROR "):
+                pytest.fail(f"emit_once writer errored before the claim: {line!r}")
+    finally:
+        proc.send_signal(signal.SIGKILL)
+        proc.wait(timeout=10)
+
+    assert proc.returncode != 0  # confirms it was actually killed, not a clean exit
+    assert claimed_seen, "writer never reached the dedup-claim (CLAIMED) — widen the window"
+
+    # The kill landed between claim and chain-insert. Atomic rollback: NEITHER survives.
+    assert await _count_chain_rows(pg_dsn, tenant_schema) == 0, (
+        "a chain link survived the crash without its dedup claim — non-atomic (duplicate hazard)"
+    )
+    assert await _count_dedup_rows(pg_dsn, tenant_schema) == 0, (
+        "a dedup claim survived the crash without its chain link — non-atomic (gap hazard: the "
+        "re-delivery would be suppressed and the effect left unaudited)"
+    )
+
+    # Re-deliver the SAME effect (same dedup_key). It must emit cleanly — the crashed claim left
+    # nothing behind to suppress it.
+    proc2 = subprocess.run(  # noqa: S603, ASYNC221 — re-delivery writer must finish before verifying
+        [
+            sys.executable,
+            str(_KILLTEST_EMIT_ONCE_WRITER),
+            "--dsn",
+            pg_dsn,
+            "--tenant",
+            tenant_schema,
+            "--dedup-key",
+            dedup_key,
+            "--mode",
+            "complete",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert proc2.returncode == 0, f"re-delivery failed: stdout={proc2.stdout!r} stderr={proc2.stderr!r}"
+    done_line = next((line for line in proc2.stdout.splitlines() if line.startswith("DONE ")), None)
+    assert done_line is not None, f"re-delivery writer produced no DONE line: {proc2.stdout!r}"
+    redelivered_hash = done_line.split(" ", 1)[1]
+
+    # EXACTLY ONE record for the effect — no duplicate from the retry, no gap.
+    assert await _count_chain_rows(pg_dsn, tenant_schema) == 1
+    assert await _count_dedup_rows(pg_dsn, tenant_schema) == 1
+
+    result = await verify_chain(pg_dsn, tenant_schema)
+    assert result.valid, f"chain invalid after re-delivery: {result.reason} (break_at={result.break_at_hash})"
+    assert result.total_records == 1 and result.verified_records == 1
+
+    conn = await asyncpg.connect(normalize_dsn(pg_dsn))
+    try:
+        await conn.execute(f'SET search_path TO "{tenant_schema}"')
+        db_hash = await conn.fetchval("SELECT record_hash FROM audit_chain")
+        claim_hash = await conn.fetchval(
+            "SELECT record_hash FROM audit_emit_dedup WHERE dedup_key = $1", dedup_key
+        )
+    finally:
+        await conn.close()
+    assert db_hash == redelivered_hash, "the surviving chain row is not the one the retry wrote"
+    assert claim_hash == redelivered_hash, "the dedup claim does not point at the surviving link"
