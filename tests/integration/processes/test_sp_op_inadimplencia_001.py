@@ -183,10 +183,11 @@ _CALCULATE_PURGE_TOPIC = "operadora.inadimplencia.calculate_purge"  # function-d
 _CHECK_PRIOR_NOTICE_TOPIC = "operadora.inadimplencia.check_prior_notice"
 _REGISTER_SUSPENSION_TOPIC = "operadora.inadimplencia.register_contract_suspension"
 _HANDOFF_RESCISAO_TOPIC = "operadora.inadimplencia.handoff_rescisao"
-# NOT registered by register_inadimplencia_workers (FINDING 1) — declared here only so the
-# reader can see, by contrast, which BPMN topics have NO drain entry (deliberately excluded,
-# since no worker would ever serve them):
-#   operadora.inadimplencia.prepare_dossier, operadora.inadimplencia.notify_sla_risk
+# Registered by register_inadimplencia_workers SINCE merged PR #93 (e4e3ed1, landed after this
+# port's snapshot was authored — FINDING 1's missing workers were implemented in src; the
+# inad_probe drift-guard caught the stale drain list on the first real-engine CI run, as designed):
+_PREPARE_DOSSIER_TOPIC = "operadora.inadimplencia.prepare_dossier"
+_NOTIFY_SLA_RISK_TOPIC = "operadora.inadimplencia.notify_sla_risk"
 
 # Topicos servidos pelos workers REAIS registrados no harness (drain generico). Inclui os 2
 # topicos function-derived sem contraparte BPMN (assess_status/calculate_purge) para que o
@@ -197,8 +198,10 @@ _INAD_WORKER_TOPICS = [
     _ASSESS_STATUS_TOPIC,
     _CALCULATE_PURGE_TOPIC,
     _CHECK_PRIOR_NOTICE_TOPIC,
+    _PREPARE_DOSSIER_TOPIC,  # #93 sync
     _REGISTER_SUSPENSION_TOPIC,
     _HANDOFF_RESCISAO_TOPIC,
+    _NOTIFY_SLA_RISK_TOPIC,  # #93 sync
 ]
 
 _NOTIFICATIONS_TOPIC = "operadora.notifications.internal"
