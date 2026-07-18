@@ -206,6 +206,14 @@ def _build_tool_deps(settings: AgentRuntimeSettings) -> dict[str, Any]:
         # same `read_patient` Protocol shape). Purely additive; required deps (dmn/cibseven/
         # inference) are already provided generically above.
         deps["fhir"] = FhirServerReader(FhirServer(FhirSettings(base_url=settings.fhir_base_url)))
+    if settings.agent_id == "valentina":
+        # T1.12: Valentina's optional post-consent `gather` seam (her own adapter — her
+        # `PatientSummaryReader` Protocol needs `read_patient_summary`, which Rafael's adapter
+        # does not expose). Purely additive; construction is pure (no I/O until a node runs),
+        # same as every transport above.
+        from maezo.agents.valentina.adapters import FhirServerReader as ValentinaFhirServerReader
+
+        deps["fhir"] = ValentinaFhirServerReader(FhirServer(FhirSettings(base_url=settings.fhir_base_url)))
     return deps
 
 
