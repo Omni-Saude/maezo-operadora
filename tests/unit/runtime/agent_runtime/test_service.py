@@ -82,6 +82,18 @@ async def test_bring_up_loads_real_carolina_graph() -> None:
     assert state.agent_graph_error is None
 
 
+async def test_bring_up_loads_real_valentina_graph() -> None:
+    """T1.12: Valentina's `build(config)` additionally takes an optional `fhir` dependency —
+    bring-up supplies one via her OWN `agents/valentina/adapters.FhirServerReader`
+    (`read_patient_summary` Protocol shape), still without any network call (construction
+    only). Her consent chokepoint is a graph-execution concern — never exercised here."""
+    state = _state(settings=AgentRuntimeSettings(agent_id="valentina", tenant_id="amh"))
+    await _bring_up_dependencies(state)
+
+    assert state.agent_graph is not None
+    assert state.agent_graph_error is None
+
+
 async def test_bring_up_still_stubbed_agent_graph_still_loads() -> None:
     """A still-stubbed agent's no-arg `build()` also goes through `graph_loaded` for real —
     T1.11/T1.12 only change helena/rafael/carolina's graphs, but the readiness check itself is
