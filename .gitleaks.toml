@@ -62,11 +62,16 @@ regexes = ['''^ESC-amh-conv-\d{3}$''']
 #       INAD    (fernando, SP-OP-INADIMPLENCIA-001)
 #       CRED    (fernando, SP-OP-CRED-001)
 #       CANCEL  (suites T3.1, SP-OP-CANCEL-001: "CANCEL-amh-{contrato}")
-#     NAO incluidos (sem construtor de business key ainda — literais
-#     curtos tipo FRAUDE-001/NIP-005 sao numeros de protocolo sem
-#     segmento <tenant> e nao disparam a regra): FRAUDE, NIP, PAGTO,
-#     PROG(RAMA), ANS, ADEQUACAO, LGPD. Adicionar aqui SOMENTE quando um
-#     construtor real existir.
+#     NAO incluidos (sem construtor de business key em codigo ainda —
+#     literais curtos tipo FRAUDE-001/NIP-005 sao numeros de protocolo
+#     sem segmento <tenant> e nao disparam a regra). Naming corrigido na
+#     verificacao R1 para os prefixos que os specs BPMN REALMENTE
+#     definem (formatos `<PREFIX>-{tenant_id}-...` em
+#     spec/processes/bpmn/): FRAUDE, NIP, PAGTO, PROG, ANSSUB, ADEQ,
+#     DSR. Quando um construtor real chegar, adicionar aqui EXATAMENTE
+#     essas strings de prefixo (nao "ANS"/"ADEQUACAO"/"LGPD" — nomes de
+#     familia de processo, nao de business key). Adicionar SOMENTE
+#     quando o construtor real existir.
 #     Depois do prefixo: `-<tenant>-` (id de tenant minusculo, ex. amh) e
 #     um sufixo de id/hash com charset estrito [A-Za-z0-9:_-] (colons
 #     cobrem conversation ids ESC `wa:amh:...`; sufixo vazio cobre o
@@ -79,6 +84,13 @@ regexes = ['''^ESC-amh-conv-\d{3}$''']
 #     literal plantado em src/ continua sendo detectado (prova de
 #     replay no PR), e segredos reais plantados NOS caminhos escopados
 #     continuam detectados (shape nao casa).
+#
+# RESIDUAL registrado (verificacao R1, aceito): um insider que
+# deliberadamente nomeie um segredo real NO shape de business key dentro
+# dos dois caminhos escopados escaparia das deteccoes por regra generica
+# ali — custo irredutivel de QUALQUER allowlist, limitado pela ancora de
+# shape + pelos dois paths (regras especificas tipo aws-access-token /
+# openai-api-key continuam ativas em toda parte).
 # Data: 2026-07-17 | Task: T2.4
 description = "T2.4 2026-07-17: business keys BPM <PREFIX>-<tenant>-<sufixo> em tests/** e docs/evidence-ledger.md (identificadores sinteticos de instancia de processo, nao credenciais; AND path+shape)"
 condition = "AND"
