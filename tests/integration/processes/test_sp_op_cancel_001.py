@@ -227,8 +227,14 @@ async def deploy_artifacts(engine: EngineRest) -> str:
 
 
 @pytest_asyncio.fixture
-async def cancel_probe(engine: EngineRest) -> AsyncIterator[CancelEngineProbe]:
-    """Probe que serve as external tasks com os workers reais Phase-2 de cancel."""
+async def cancel_probe(
+    engine: EngineRest, audit_sink: Any, audit_tenant: str
+) -> AsyncIterator[CancelEngineProbe]:
+    """Probe que serve as external tasks com os workers reais Phase-2 de cancel.
+
+    T1.10 wave: completions são emit-before-complete contra o sink durável REAL da lane
+    (PostgresAuditSink, migrações aplicadas) — um harness sem sink agora recusa completar.
+    """
     worker_id = f"qa-cancel-worker-{uuid.uuid4().hex[:8]}"
     transport = CibSevenWorkerTransport(CIBSEVEN_BASE_URL)
     # T3.1 R2: ERR_CANCEL_MANTER_NOT_HUMAN (GAP-CANCEL-3) is catchable by SP-OP-CANCEL-001's own
@@ -240,8 +246,10 @@ async def cancel_probe(engine: EngineRest) -> AsyncIterator[CancelEngineProbe]:
     harness = WorkerHarness(
         transport,
         worker_id=worker_id,
+        tenant=audit_tenant,
         lock_duration_ms=10_000,
         bpmn_error_allowlist=frozenset({"ERR_CANCEL_MANTER_NOT_HUMAN"}),
+        audit_sink=audit_sink,
     )
     kafka = FakeKafkaPublisher()
     register_cancel_workers(harness, kafka)

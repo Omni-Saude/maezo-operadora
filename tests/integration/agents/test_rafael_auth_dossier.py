@@ -29,6 +29,7 @@ import asyncio
 import contextlib
 import uuid
 from collections.abc import AsyncIterator
+from typing import Any
 
 import httpx
 import pytest
@@ -38,7 +39,6 @@ from maezo.tools.mcp_cibseven.transport import CibSevenHttpTransport
 from maezo.tools.workers.auth import register_auth_workers
 from maezo.tools.workers.dmn_transport import CibSevenDmnTransport
 from maezo.tools.workers.harness import CibSevenWorkerTransport, WorkerHarness
-from tests.support.audit_fakes import FakeStartAuditSink
 
 from ._engine_helpers import active_instances, candidate_groups, noop_events_publish, wait_for_task
 
@@ -57,7 +57,7 @@ class _FakeInference:
 
 
 @pytest.fixture
-async def auth_worker_probe(engine_base_url: str) -> AsyncIterator[None]:
+async def auth_worker_probe(engine_base_url: str, audit_sink: Any, audit_tenant: str) -> AsyncIterator[None]:
     """A background `WorkerHarness` servicing the REAL `SP-OP-AUTH-001` external tasks
     (`operadora.auth.*`, `tools/workers/auth.py` — unmodified) so the BPMN can actually progress
     from `ST_PrepararDossie` to `UT_AnaliseMedicoAuditor` during this test. Mirrors
@@ -66,6 +66,8 @@ async def auth_worker_probe(engine_base_url: str) -> AsyncIterator[None]:
     harness = WorkerHarness(
         transport,
         worker_id=f"it-rafael-auth-probe-{_RUN_ID}",
+        tenant=audit_tenant,
+        audit_sink=audit_sink,
         async_response_timeout_ms=5_000,
         # Fast local polling for test turnaround — see the sibling Helena suite's identical
         # tuning note (`test_helena_escalation.py`).
@@ -84,7 +86,7 @@ async def auth_worker_probe(engine_base_url: str) -> AsyncIterator[None]:
 
 
 async def test_human_review_auth_request_reaches_medico_auditor_task(
-    engine_base_url: str, engine_client: httpx.AsyncClient, auth_worker_probe: None
+    engine_base_url: str, engine_client: httpx.AsyncClient, auth_worker_probe: None, audit_sink: Any
 ) -> None:
     """The G1 gate's Rafael acceptance target: 'Rafael dossier task appears for medico-auditor'
     — verified as a REAL User Task, `medico-auditor` candidate group, in the real engine."""
@@ -100,9 +102,7 @@ async def test_human_review_auth_request_reaches_medico_auditor_task(
         ]
     )
 
-    graph = build(
-        {"inference": inference, "dmn": dmn, "cibseven": cibseven, "audit_sink": FakeStartAuditSink()}
-    )
+    graph = build({"inference": inference, "dmn": dmn, "cibseven": cibseven, "audit_sink": audit_sink})
     compiled = graph.compile()
 
     try:
@@ -150,7 +150,7 @@ async def test_human_review_auth_request_reaches_medico_auditor_task(
 
 
 async def test_auto_approve_path_starts_process_without_reaching_human_task(
-    engine_base_url: str, engine_client: httpx.AsyncClient
+    engine_base_url: str, engine_client: httpx.AsyncClient, audit_sink: Any
 ) -> None:
     """Structural counterpoint (no worker probe needed — `GW_AutoAprovacao` routes straight to
     `ST_EmitirAutorizacaoAuto`, bypassing `ST_PrepararDossie`/`UT_AnaliseMedicoAuditor`
@@ -165,9 +165,7 @@ async def test_auto_approve_path_starts_process_without_reaching_human_task(
     cibseven = CibSevenHttpTransport(engine_base_url, timeout=30.0)
     inference = _FakeInference(["Dossie factual: dentro dos criterios de aprovacao automatica."])
 
-    graph = build(
-        {"inference": inference, "dmn": dmn, "cibseven": cibseven, "audit_sink": FakeStartAuditSink()}
-    )
+    graph = build({"inference": inference, "dmn": dmn, "cibseven": cibseven, "audit_sink": audit_sink})
     compiled = graph.compile()
 
     try:

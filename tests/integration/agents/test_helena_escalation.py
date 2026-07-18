@@ -47,7 +47,6 @@ from maezo.tools.mcp_cibseven.transport import CibSevenHttpTransport
 from maezo.tools.workers.dmn_transport import CibSevenDmnTransport
 from maezo.tools.workers.escalation import register_escalation_workers
 from maezo.tools.workers.harness import CibSevenWorkerTransport, WorkerHarness
-from tests.support.audit_fakes import FakeStartAuditSink
 
 from ._engine_helpers import active_instances, candidate_groups, noop_events_publish, wait_for_task
 
@@ -57,13 +56,19 @@ _RUN_ID = uuid.uuid4().hex[:8]
 
 
 @pytest.fixture(autouse=True)
-async def _escalation_worker_probe(engine_base_url: str) -> AsyncIterator[None]:
+async def _escalation_worker_probe(
+    engine_base_url: str, audit_sink: Any, audit_tenant: str
+) -> AsyncIterator[None]:
     """Services `operadora.escalation.*` + `operadora.events.publish` for the test using it
-    (function-scoped — see module docstring for why)."""
+    (function-scoped — see module docstring for why). T1.10 wave: completions are
+    emit-before-complete against the lane's REAL durable sink (a sink-less harness now
+    correctly refuses to complete)."""
     transport = CibSevenWorkerTransport(engine_base_url, timeout=30.0)
     harness = WorkerHarness(
         transport,
         worker_id=f"it-helena-escalation-probe-{_RUN_ID}",
+        tenant=audit_tenant,
+        audit_sink=audit_sink,
         async_response_timeout_ms=5_000,
         # Fast local polling for test turnaround — the DEFAULT (5s) idle-backoff cadence is tuned
         # for production (avoid hammering the engine); against a local compose engine this is
@@ -115,7 +120,7 @@ def _classify_json(**overrides: Any) -> str:
 
 
 async def test_red_flag_message_starts_escalation_with_correct_business_key_and_group(
-    engine_base_url: str, engine_client: httpx.AsyncClient
+    engine_base_url: str, engine_client: httpx.AsyncClient, audit_sink: Any
 ) -> None:
     """(a) simulated red-flag input -> SP-OP-ESCALATION-001 instance ACTIVE, business key
     `ESC-{tenant}-{conversation_id}`, candidate group `plantao-clinico` (motivo_categoria=
@@ -143,7 +148,7 @@ async def test_red_flag_message_starts_escalation_with_correct_business_key_and_
             "dmn": dmn,
             "cibseven": cibseven,
             "whatsapp": whatsapp,
-            "audit_sink": FakeStartAuditSink(),
+            "audit_sink": audit_sink,
         }
     )
     compiled = graph.compile()
@@ -185,7 +190,7 @@ async def test_red_flag_message_starts_escalation_with_correct_business_key_and_
 
 
 async def test_non_red_flag_message_never_starts_escalation(
-    engine_base_url: str, engine_client: httpx.AsyncClient
+    engine_base_url: str, engine_client: httpx.AsyncClient, audit_sink: Any
 ) -> None:
     """(b) non-red-flag input -> Helena's `inform` path — no SP-OP-ESCALATION-001 instance is
     ever started for this conversation's business key."""
@@ -209,7 +214,7 @@ async def test_non_red_flag_message_never_starts_escalation(
             "dmn": dmn,
             "cibseven": cibseven,
             "whatsapp": whatsapp,
-            "audit_sink": FakeStartAuditSink(),
+            "audit_sink": audit_sink,
         }
     )
     compiled = graph.compile()
@@ -241,7 +246,7 @@ async def test_non_red_flag_message_never_starts_escalation(
 
 
 async def test_psychosocial_risk_always_escalates_even_when_intent_looks_administrative(
-    engine_base_url: str, engine_client: httpx.AsyncClient
+    engine_base_url: str, engine_client: httpx.AsyncClient, audit_sink: Any
 ) -> None:
     """Gatilho 5 (always active): psychosocial risk escalates regardless of `intent`, verified
     against the REAL `triage_redflag_mental_health` table + `escalation_routing` (motivo=
@@ -266,7 +271,7 @@ async def test_psychosocial_risk_always_escalates_even_when_intent_looks_adminis
             "dmn": dmn,
             "cibseven": cibseven,
             "whatsapp": whatsapp,
-            "audit_sink": FakeStartAuditSink(),
+            "audit_sink": audit_sink,
         }
     )
     compiled = graph.compile()
@@ -314,7 +319,7 @@ class _RaisingInference:
 
 
 async def test_malformed_classifier_json_escalates_falha_tecnica(
-    engine_base_url: str, engine_client: httpx.AsyncClient
+    engine_base_url: str, engine_client: httpx.AsyncClient, audit_sink: Any
 ) -> None:
     """Verifier live case 1: malformed classify JSON + 'não consigo respirar' -> a REAL
     SP-OP-ESCALATION-001 instance (motivo=falha_tecnica -> escalation_routing r6 -> P3
@@ -340,7 +345,7 @@ async def test_malformed_classifier_json_escalates_falha_tecnica(
             "dmn": dmn,
             "cibseven": cibseven,
             "whatsapp": whatsapp,
-            "audit_sink": FakeStartAuditSink(),
+            "audit_sink": audit_sink,
         }
     )
     compiled = graph.compile()
@@ -382,7 +387,7 @@ async def test_malformed_classifier_json_escalates_falha_tecnica(
 
 
 async def test_classifier_llm_exception_escalates_falha_tecnica(
-    engine_base_url: str, engine_client: httpx.AsyncClient
+    engine_base_url: str, engine_client: httpx.AsyncClient, audit_sink: Any
 ) -> None:
     """Verifier live case 2: LLM exception + 'dor no peito muito forte' -> a REAL
     SP-OP-ESCALATION-001 instance, never inform. The LLM is fully down for the whole turn
@@ -395,7 +400,17 @@ async def test_classifier_llm_exception_escalates_falha_tecnica(
     cibseven = CibSevenHttpTransport(engine_base_url, timeout=30.0)
     whatsapp = _FakeWhatsAppSender()
 
-    graph = build({"inference": _RaisingInference(), "dmn": dmn, "cibseven": cibseven, "whatsapp": whatsapp})
+    graph = build(
+        {
+            "inference": _RaisingInference(),
+            "dmn": dmn,
+            "cibseven": cibseven,
+            "whatsapp": whatsapp,
+            # T-C2 fence: REQUIRED build dep (this 6th build site was missed on the fence branch —
+            # caught by the wave's live lane run; real sink, like every other build here).
+            "audit_sink": audit_sink,
+        }
+    )
     compiled = graph.compile()
 
     try:
@@ -427,7 +442,7 @@ async def test_classifier_llm_exception_escalates_falha_tecnica(
 
 
 async def test_cpf_bearing_field_value_never_reaches_engine_variables_live(
-    engine_base_url: str, engine_client: httpx.AsyncClient
+    engine_base_url: str, engine_client: httpx.AsyncClient, audit_sink: Any
 ) -> None:
     """R1 cycle-2 regression (leak, the verifier's exact live probe): the LLM copies a
     beneficiary-typed CPF into `sintoma_codigo` — schema-invalid -> escalate falha_tecnica —
@@ -456,7 +471,7 @@ async def test_cpf_bearing_field_value_never_reaches_engine_variables_live(
             "dmn": dmn,
             "cibseven": cibseven,
             "whatsapp": whatsapp,
-            "audit_sink": FakeStartAuditSink(),
+            "audit_sink": audit_sink,
         }
     )
     compiled = graph.compile()
