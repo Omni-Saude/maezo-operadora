@@ -1,0 +1,15 @@
+# False positive: synthetic BPMN business-key literal in a unit test. The 'generic-api-key'
+# rule matches the substring "key" in `business_key=` plus the literal's entropy; the value
+# INAD-amh-CONTRATO-001 is a fabricated test fixture, not a credential.
+# Scope: one historical commit on the t1.12-fernando-graph branch (PR #67). The literal is
+# being rewritten to a low-entropy form pre-merge; drop this entry once that branch is deleted.
+72c865eef650dfbb54b1f6ed873723f8e984cec7:tests/unit/agents/test_fernando.py:generic-api-key:584
+
+# Same false-positive class, second occurrence: synthetic BPMN business-key literals on the
+# t1.12-marina-graph branch (PR #71). Literals rewritten to low-entropy forms in commit b2290fc;
+# these three fingerprints cover the immutable historical commits only (no force-push policy).
+# All three removable once that branch is deleted post-merge. Durable fix (scoped .gitleaks.toml
+# allowlist for the business-key shape) is in flight on t2.4-gitleaks-businesskey-allowlist.
+7c4b87143ab68db6c234c4cf645858532a27ce35:docs/evidence-ledger.md:generic-api-key:63
+9ef098ef79a80314b52feedc3d246e98ca9c6df1:tests/unit/agents/test_marina.py:generic-api-key:680
+9ef098ef79a80314b52feedc3d246e98ca9c6df1:tests/unit/agents/test_marina.py:generic-api-key:691
