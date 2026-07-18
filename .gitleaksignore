@@ -13,3 +13,9 @@
 7c4b87143ab68db6c234c4cf645858532a27ce35:docs/evidence-ledger.md:generic-api-key:63
 9ef098ef79a80314b52feedc3d246e98ca9c6df1:tests/unit/agents/test_marina.py:generic-api-key:680
 9ef098ef79a80314b52feedc3d246e98ca9c6df1:tests/unit/agents/test_marina.py:generic-api-key:691
+
+# Third occurrence of the business-key FP class: the G1 gate record cites live BPMN business
+# keys as gate evidence (docs/gates/G1-gate-review.md on the g1-gate-review branch, PR #78).
+# Bridge for the immutable branch commit; the durable fix (extending the .gitleaks.toml
+# business-key allowlist paths to docs/gates/*.md) is in flight on PR #74.
+a636399779661e843b485ac2a05cbfa5bbd8e559:docs/gates/G1-gate-review.md:generic-api-key:175
