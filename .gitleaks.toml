@@ -34,3 +34,88 @@ regexes = ['''^SP-OP-INADIMPLENCIA-001$''']
 description = "T2.4 2026-07-16: BPM business key ESC-amh-conv-NNN (identificador sintetico de instancia, nao credencial)"
 regexTarget = "secret"
 regexes = ['''^ESC-amh-conv-\d{3}$''']
+
+[[allowlists]]
+# T2.4 (2026-07-17): classe sistemica de falso positivo — a regra
+# generic-api-key casa literais de business key BPM (`business_key=
+# "<PREFIX>-<tenant>-<sufixo>"`) porque "key" aparece no identificador e
+# literais realistas passam o limiar de entropia (ex.: entropia 4.03 em
+# CONTAS-amh-IT-MARINA-CONTAS-fdde8b00). Como o lane escaneia TODAS as
+# refs (fetch-depth 0), o literal de qualquer branch em voo derruba o
+# gitleaks de TODOS os PRs (incidentes: test_fernando.py @ 72c865e —
+# fingerprint em .gitleaksignore, mantido como cinto-e-suspensorio;
+# test_marina.py:680,691 @ 9ef098e + evidence-ledger.md:63 @ 7c4b871).
+#
+# CONTENCAO DUPLA — condition = "AND" exige que AMBOS os criterios casem
+# (um caminho sozinho NUNCA allowlista nada; um shape sozinho fora dos
+# caminhos tambem nao):
+#
+# (a) regexTarget="secret", ancorado ^...$ no shape documentado de
+#     business key: prefixo de processo em maiusculas, derivado dos
+#     construtores reais `f"<PREFIX>-{tenant}-..."` nos grafos de agente
+#     (todas as branches) + suites T3.1:
+#       ESC     (helena,   SP-OP-ESCALATION-001,   graph.py:199)
+#       AUTH    (rafael,   SP-OP-AUTH-001,         graph.py:163)
+#       CONTAS  (marina,   SP-OP-CONTAS-001)
+#       RECURSO (marina,   SP-OP-RECURSO-001)
+#       REEMB   (marina,   SP-OP-REEMBOLSO-001)
+#       INAD    (fernando, SP-OP-INADIMPLENCIA-001)
+#       CRED    (fernando, SP-OP-CRED-001)
+#       CANCEL  (suites T3.1, SP-OP-CANCEL-001: "CANCEL-amh-{contrato}")
+#       FRAUDE  (beatriz,  SP-OP-FRAUDE-001: construtor real
+#                f"FRAUDE-{tenant_id}-{numero_caso}" em
+#                agents/beatriz/graph.py:202 — adicionado assim que o
+#                construtor chegou, conforme a politica desta entrada;
+#                primeiro literal FRAUDE-t1-caso-001 ja disparava a regra)
+#       PAGTO   (andre,    SP-OP-PAGTO-001: construtores reais
+#                f"PAGTO-{tenant}-{ordem}" e
+#                f"PAGTO-{tenant}-{numero_lote_tiss}-{prestador_id}" em
+#                agents/andre/graph.py:442-443 (branch t1.12-andre-graph)
+#                — builder-first, mesma politica; literais de teste
+#                (PAGTO-amh-op-0001, test_andre.py) ja disparavam a
+#                regra e foram ponte-fingerprint no PR #85 ate este
+#                merge)
+#     NAO incluidos (sem construtor de business key em codigo ainda —
+#     literais curtos tipo NIP-005 sao numeros de protocolo sem segmento
+#     <tenant> e nao disparam a regra). Naming corrigido na verificacao
+#     R1 para os prefixos que os specs BPMN REALMENTE definem (formatos
+#     `<PREFIX>-{tenant_id}-...` em spec/processes/bpmn/): NIP, PROG,
+#     ANSSUB, ADEQ, DSR. Quando um construtor real chegar, adicionar
+#     aqui EXATAMENTE essas strings de prefixo (nao
+#     "ANS"/"ADEQUACAO"/"LGPD" — nomes de familia de processo, nao de
+#     business key). Adicionar SOMENTE quando o construtor real existir.
+#     Depois do prefixo: `-<tenant>-` (id de tenant minusculo, ex. amh) e
+#     um sufixo de id/hash com charset estrito [A-Za-z0-9:_-] (colons
+#     cobrem conversation ids ESC `wa:amh:...`; sufixo vazio cobre o
+#     literal real `CONTAS-amh-GUIA-001-`), limitado a 64 chars. Um
+#     segredo arbitrario (AKIA..., sk-..., 40-hex, base64) NAO comeca com
+#     `<PREFIX>-<tenant minusculo>-` e nao casa a ancora.
+#
+# (b) paths restritos aos TRES lares legitimos desses literais como
+#     artefatos de evidencia:
+#       1. tests/**                    (fixtures sinteticas de teste)
+#       2. docs/evidence-ledger.md     (celulas de evidencia do ledger)
+#       3. docs/gates/<arquivo>.md     (gate records G1/G2/G3/... — citam
+#          business keys reais de probes ao vivo como evidencia, mesma
+#          classe de artefato que o ledger; adicionado quando o G1 record
+#          do PR #78 derrubou o lane)
+#     Nenhum escopo em src/ — o mesmo literal plantado em src/ continua
+#     sendo detectado (prova de replay no PR), e segredos reais plantados
+#     NOS caminhos escopados continuam detectados (shape nao casa).
+#
+# RESIDUAL registrado (verificacao R1, aceito): um insider que
+# deliberadamente nomeie um segredo real NO shape de business key dentro
+# dos tres caminhos escopados escaparia das deteccoes por regra generica
+# ali — custo irredutivel de QUALQUER allowlist, limitado pela ancora de
+# shape + pelos tres paths (regras especificas tipo aws-access-token /
+# openai-api-key continuam ativas em toda parte).
+# Data: 2026-07-17 (paths docs/gates/ + prefixos FRAUDE/PAGTO: 2026-07-18) | Task: T2.4
+description = "T2.4: business keys BPM <PREFIX>-<tenant>-<sufixo> em tests/**, docs/evidence-ledger.md e docs/gates/*.md (identificadores sinteticos de instancia de processo, nao credenciais; AND path+shape)"
+condition = "AND"
+regexTarget = "secret"
+regexes = ['''^(ESC|AUTH|CONTAS|RECURSO|REEMB|INAD|CRED|CANCEL|FRAUDE|PAGTO)-[a-z][a-z0-9]{1,15}-[A-Za-z0-9:_-]{0,64}$''']
+paths = [
+  '''^tests/.*''',
+  '''^docs/evidence-ledger\.md$''',
+  '''^docs/gates/[^/]+\.md$''',
+]

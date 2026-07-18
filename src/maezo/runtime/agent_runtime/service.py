@@ -194,6 +194,12 @@ def _build_tool_deps(settings: AgentRuntimeSettings) -> dict[str, Any]:
         deps["whatsapp"] = WhatsAppServerSender(WhatsAppServer())
     if settings.agent_id == "rafael":
         deps["fhir"] = FhirServerReader(FhirServer(FhirSettings(base_url=settings.fhir_base_url)))
+    if settings.agent_id == "carolina":
+        # T1.12: Carolina's `gather` seam (`graph.SummaryReader`) only needs `read_patient` —
+        # `FhirServerReader` (built for Rafael) already implements it structurally, so it is
+        # reused here rather than duplicating an adapter (module docstring's divergence #6 in
+        # `agents/carolina/graph.py`).
+        deps["fhir"] = FhirServerReader(FhirServer(FhirSettings(base_url=settings.fhir_base_url)))
     return deps
 
 
