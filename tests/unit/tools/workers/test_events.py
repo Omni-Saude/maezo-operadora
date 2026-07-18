@@ -21,6 +21,7 @@ from maezo.tools.workers.events import (
 )
 from maezo.tools.workers.harness import (
     ExternalTask,
+    FakeAuditSink,
     FakeKafkaPublisher,
     FakeWorkerTransport,
     WorkerBpmnError,
@@ -282,7 +283,7 @@ def test_register_events_workers_accepts_and_ignores_seams() -> None:
 async def test_register_events_workers_end_to_end_via_harness_handle() -> None:
     """Dispatch through the SAME `harness._handle` the production loop uses (design §16.1 —
     preserved fixture surface) — proves the wiring, not just the bare handler function."""
-    harness = WorkerHarness(FakeWorkerTransport(), worker_id="probe")
+    harness = WorkerHarness(FakeWorkerTransport(), worker_id="probe", audit_sink=FakeAuditSink())
     kafka = FakeKafkaPublisher()
     register_events_workers(harness, kafka)
 
