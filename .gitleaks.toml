@@ -67,13 +67,21 @@ regexes = ['''^ESC-amh-conv-\d{3}$''']
 #                agents/beatriz/graph.py:202 — adicionado assim que o
 #                construtor chegou, conforme a politica desta entrada;
 #                primeiro literal FRAUDE-t1-caso-001 ja disparava a regra)
+#       PAGTO   (andre,    SP-OP-PAGTO-001: construtores reais
+#                f"PAGTO-{tenant}-{ordem}" e
+#                f"PAGTO-{tenant}-{numero_lote_tiss}-{prestador_id}" em
+#                agents/andre/graph.py:442-443 (branch t1.12-andre-graph)
+#                — builder-first, mesma politica; literais de teste
+#                (PAGTO-amh-op-0001, test_andre.py) ja disparavam a
+#                regra e foram ponte-fingerprint no PR #85 ate este
+#                merge)
 #     NAO incluidos (sem construtor de business key em codigo ainda —
 #     literais curtos tipo NIP-005 sao numeros de protocolo sem segmento
 #     <tenant> e nao disparam a regra). Naming corrigido na verificacao
 #     R1 para os prefixos que os specs BPMN REALMENTE definem (formatos
-#     `<PREFIX>-{tenant_id}-...` em spec/processes/bpmn/): NIP, PAGTO,
-#     PROG, ANSSUB, ADEQ, DSR. Quando um construtor real chegar,
-#     adicionar aqui EXATAMENTE essas strings de prefixo (nao
+#     `<PREFIX>-{tenant_id}-...` em spec/processes/bpmn/): NIP, PROG,
+#     ANSSUB, ADEQ, DSR. Quando um construtor real chegar, adicionar
+#     aqui EXATAMENTE essas strings de prefixo (nao
 #     "ANS"/"ADEQUACAO"/"LGPD" — nomes de familia de processo, nao de
 #     business key). Adicionar SOMENTE quando o construtor real existir.
 #     Depois do prefixo: `-<tenant>-` (id de tenant minusculo, ex. amh) e
@@ -101,11 +109,11 @@ regexes = ['''^ESC-amh-conv-\d{3}$''']
 # ali — custo irredutivel de QUALQUER allowlist, limitado pela ancora de
 # shape + pelos tres paths (regras especificas tipo aws-access-token /
 # openai-api-key continuam ativas em toda parte).
-# Data: 2026-07-17 (paths docs/gates/ + prefixo FRAUDE: 2026-07-18) | Task: T2.4
+# Data: 2026-07-17 (paths docs/gates/ + prefixos FRAUDE/PAGTO: 2026-07-18) | Task: T2.4
 description = "T2.4: business keys BPM <PREFIX>-<tenant>-<sufixo> em tests/**, docs/evidence-ledger.md e docs/gates/*.md (identificadores sinteticos de instancia de processo, nao credenciais; AND path+shape)"
 condition = "AND"
 regexTarget = "secret"
-regexes = ['''^(ESC|AUTH|CONTAS|RECURSO|REEMB|INAD|CRED|CANCEL|FRAUDE)-[a-z][a-z0-9]{1,15}-[A-Za-z0-9:_-]{0,64}$''']
+regexes = ['''^(ESC|AUTH|CONTAS|RECURSO|REEMB|INAD|CRED|CANCEL|FRAUDE|PAGTO)-[a-z][a-z0-9]{1,15}-[A-Za-z0-9:_-]{0,64}$''']
 paths = [
   '''^tests/.*''',
   '''^docs/evidence-ledger\.md$''',
