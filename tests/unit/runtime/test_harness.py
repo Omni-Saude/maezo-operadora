@@ -165,9 +165,11 @@ def test_create_graph_lucas_missing_deps_raises_value_error() -> None:
 
 def test_create_graph_stub_agent_uses_no_arg_build() -> None:
     """A still-stubbed agent's `build()` takes no parameters — `create_graph` must call it with
-    no arguments (introspected via `inspect.signature`, not guessed)."""
+    no arguments (introspected via `inspect.signature`, not guessed). Post-B6 all 10 named
+    agents expose `build(config)`, so the `_template` scaffold (never a named agent) is the
+    durable no-arg-build example."""
     harness = Harness()
-    graph = harness.create_graph("andre")
+    graph = harness.create_graph("_template")
     assert graph is not None
     assert hasattr(graph, "compile")
 

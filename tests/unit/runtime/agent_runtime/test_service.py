@@ -94,11 +94,23 @@ async def test_bring_up_loads_real_valentina_graph() -> None:
     assert state.agent_graph_error is None
 
 
+async def test_bring_up_loads_real_andre_graph() -> None:
+    """T1.12: Andre's `build(config)` additionally accepts optional `fhir`/`population` seams —
+    bring-up supplies `fhir` via the same `FhirServerReader` as Rafael (still without any network
+    call; construction only). `population` (PORT-PENDING WB.4) is deliberately absent and the
+    build must still succeed (labeled boundary in `agents/andre/graph.py`)."""
+    state = _state(settings=AgentRuntimeSettings(agent_id="andre", tenant_id="amh"))
+    await _bring_up_dependencies(state)
+
+    assert state.agent_graph is not None
+    assert state.agent_graph_error is None
+
+
 async def test_bring_up_still_stubbed_agent_graph_still_loads() -> None:
     """A still-stubbed agent's no-arg `build()` also goes through `graph_loaded` for real —
-    T1.11/T1.12 only change helena/rafael/carolina's graphs, but the readiness check itself is
-    generic."""
-    state = _state(settings=AgentRuntimeSettings(agent_id="andre", tenant_id="amh"))
+    T1.11/T1.12 only change helena/rafael/fernando/carolina/andre's graphs, but the readiness
+    check itself is generic."""
+    state = _state(settings=AgentRuntimeSettings(agent_id="beatriz", tenant_id="amh"))
     await _bring_up_dependencies(state)
 
     assert state.agent_graph is not None
