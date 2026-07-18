@@ -25,6 +25,7 @@ from maezo.agents.helena.graph import (
 )
 from maezo.tools.mcp_cibseven.transport import CibSevenError, FakeCibSevenTransport, ProcessInstance
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
+from tests.support.audit_fakes import FakeStartAuditSink
 
 _AGENTS_ROOT = Path(__file__).parent.parent.parent.parent / "spec" / "agents"
 
@@ -82,12 +83,14 @@ def _graph(
     inference: Any,
     dmn: FakeDmnTransport | None = None,
     cibseven: FakeCibSevenTransport | None = None,
+    audit_sink: Any | None = None,
     whatsapp: Any | None = None,
 ) -> HelenaGraph:
     return HelenaGraph(
         inference=inference,
         dmn=dmn or FakeDmnTransport(),
         cibseven=cibseven or FakeCibSevenTransport(),
+        audit_sink=audit_sink or FakeStartAuditSink(),
         whatsapp=whatsapp or _FakeWhatsAppSender(),
     )
 
@@ -130,6 +133,7 @@ def test_build_with_full_config_compiles() -> None:
             "inference": _FakeInference([]),
             "dmn": FakeDmnTransport(),
             "cibseven": FakeCibSevenTransport(),
+            "audit_sink": FakeStartAuditSink(),
             "whatsapp": _FakeWhatsAppSender(),
         }
     )

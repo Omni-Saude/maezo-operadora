@@ -40,6 +40,13 @@ class WhatsAppWebhookSettings(BaseSettings):
     # SP-OP-ESCALATION-001) — mirrors `agent_runtime`/`worker_runtime`'s own `CIBSEVEN_BASE_URL`.
     cibseven_base_url: str = Field(default="http://cibseven:8080/engine-rest", alias="CIBSEVEN_BASE_URL")
 
+    # T-C2: the tenant Postgres DSN Helena's in-process dispatch needs to construct the durable
+    # ADR-0007 audit sink her escalation start (SP-OP-ESCALATION-001) fails-closed on. Unset here
+    # (no default) means the dispatcher cannot be built (module docstring STEP A) and `/webhook`
+    # degrades to its explicit 501 — Helena never starts an un-audited escalation. Provisioning the
+    # secret is an ops/deploy concern (mirrors `app_secret` above), outside this task's scope.
+    database_url: str | None = Field(default=None, alias="DATABASE_URL")
+
     # Helm's containerPort is a hardcoded 8080 (deployment-webhook-receiver.yaml:67-69), not env-
     # driven — HEALTH_PORT is accepted for local-dev override parity with the other two daemons.
     health_port: int = Field(default=8080, alias="HEALTH_PORT")

@@ -42,6 +42,7 @@ from dataclasses import dataclass
 
 import structlog
 
+from maezo.gateway.audit_postgres import PostgresAuditSink
 from maezo.gateway.pseudonymizer import Pseudonymizer
 from maezo.platform.health import build_health_server
 from maezo.runtime.inference import InferenceProvider
@@ -70,11 +71,25 @@ class WebhookState:
 
 def _build_dispatcher(settings: WhatsAppWebhookSettings) -> tuple[HelenaDispatcher, CibSevenHttpTransport]:
     """Construct Helena's dispatch dependencies. Pure construction — no network call happens
-    until a node actually runs (mirrors `agent_runtime`'s `_build_tool_deps`)."""
+    until a node actually runs (mirrors `agent_runtime`'s `_build_tool_deps`).
+
+    T-C2 fail-closed: Helena's escalation start (SP-OP-ESCALATION-001) structurally requires a
+    durable ADR-0007 audit sink (`start_process_idempotent`'s fence). Without `DATABASE_URL` the
+    sink cannot be constructed, so this raises — caught by `_bring_up_dependencies`, leaving
+    `state.dispatcher` None so `/webhook` degrades to its explicit 501 (module docstring STEP A):
+    Helena never starts an un-audited escalation."""
+    if not settings.database_url:
+        raise ValueError(
+            "DATABASE_URL is required to build Helena's dispatcher: the escalation process start "
+            "must audit to a durable ADR-0007 sink BEFORE any engine effect (T-C2 fence). Refusing "
+            "to construct a dispatcher that could start an un-audited escalation."
+        )
     inference = InferenceProvider()
     dmn = CibSevenDmnTransport(settings.cibseven_base_url)
     cibseven = CibSevenHttpTransport(settings.cibseven_base_url)
     whatsapp_client = WhatsAppServer()
+    # Pure construction (asyncpg pool is lazy) — mirrors the transports above.
+    audit_sink = PostgresAuditSink(settings.database_url, settings.tenant_id)
     dispatcher = HelenaDispatcher(
         tenant_id=settings.tenant_id,
         inference=inference,
@@ -82,6 +97,7 @@ def _build_dispatcher(settings: WhatsAppWebhookSettings) -> tuple[HelenaDispatch
         cibseven=cibseven,
         whatsapp_client=whatsapp_client,
         pseudonymizer=Pseudonymizer(),
+        audit_sink=audit_sink,
     )
     return dispatcher, cibseven
 

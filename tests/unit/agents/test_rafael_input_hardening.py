@@ -34,6 +34,7 @@ from maezo.agents.rafael.graph import (
 )
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
+from tests.support.audit_fakes import FakeStartAuditSink
 
 
 class _RecordingCibSeven(FakeCibSevenTransport):
@@ -85,7 +86,11 @@ def _dmn_admissibility_down() -> FakeDmnTransport:
 
 
 def _compiled(cib: _RecordingCibSeven, dmn: FakeDmnTransport):
-    return RafaelGraph(inference=_FakeInference(), dmn=dmn, cibseven=cib).compile_graph().compile()
+    return (
+        RafaelGraph(inference=_FakeInference(), dmn=dmn, cibseven=cib, audit_sink=FakeStartAuditSink())
+        .compile_graph()
+        .compile()
+    )
 
 
 async def test_r1_planted_sla_and_recomendacao_never_reach_engine_dossier() -> None:
