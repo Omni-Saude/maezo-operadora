@@ -1,14 +1,14 @@
 """Registration coverage tests for `register_all_workers` (T1.2/ADR-0026 Decisao §4).
 
-Fail-closed registry-coverage test (ADR-0026 "Test strategy"): asserts 16/16 module bootstraps
-run, produce a non-empty, collision-free topic set, and — spot-checked against the real BPMN
-`camunda:topic` declarations under `spec/processes/bpmn/` (5 topics, one per a sample of
-domains) — that the registry is not "dead" (a spec topic with no worker would fail here).
-Topic NAMES are otherwise derived from the modules themselves (ADR-0026 acceptance: "derive
-expected topic names from the modules themselves"), not a hand-list — full spec-vs-registry
-reconciliation (every one of the 16 BPMNs' external-task topics) is out of this task's scope
-(T1.1 design §12/Q-4, a follow-up); several known gaps (spec topics with no implementing
-function yet) are documented in each module's bootstrap docstring.
+Fail-closed registry-coverage test (ADR-0026 "Test strategy"): asserts 17/17 module bootstraps
+run (16 + T3.1 R2's `events` module), produce a non-empty, collision-free topic set, and —
+spot-checked against the real BPMN `camunda:topic` declarations under `spec/processes/bpmn/`
+(5 topics, one per a sample of domains) — that the registry is not "dead" (a spec topic with no
+worker would fail here). Topic NAMES are otherwise derived from the modules themselves (ADR-0026
+acceptance: "derive expected topic names from the modules themselves"), not a hand-list — full
+spec-vs-registry reconciliation (every one of the 16 BPMNs' external-task topics) is out of this
+task's scope (T1.1 design §12/Q-4, a follow-up); several known gaps (spec topics with no
+implementing function yet) are documented in each module's bootstrap docstring.
 """
 
 from __future__ import annotations
@@ -34,8 +34,8 @@ def _fresh_harness() -> WorkerHarness:
 # ---------------------------------------------------------------------------
 
 
-def test_all_16_bootstraps_are_composed() -> None:
-    assert len(ALL_WORKER_BOOTSTRAPS) == 16
+def test_all_17_bootstraps_are_composed() -> None:
+    assert len(ALL_WORKER_BOOTSTRAPS) == 17
 
 
 def test_register_all_workers_registers_every_module_without_collision() -> None:
@@ -51,8 +51,8 @@ def test_register_all_workers_registers_every_module_without_collision() -> None
     assert len(topics) > 90, f"expected ~99 topics across 16 modules, got {len(topics)}"
 
 
-def test_register_all_workers_covers_all_16_module_topic_prefixes() -> None:
-    """Every one of the 16 modules contributed at least one topic — the literal "16/16 modules
+def test_register_all_workers_covers_all_17_module_topic_prefixes() -> None:
+    """Every one of the 17 modules contributed at least one topic — the literal "17/17 modules
     registered" acceptance criterion."""
     harness = _fresh_harness()
     register_all_workers(harness)
@@ -67,6 +67,7 @@ def test_register_all_workers_covers_all_16_module_topic_prefixes() -> None:
         "operadora.contas.",
         "operadora.cred.",
         "operadora.escalation.",
+        "operadora.events.",
         "operadora.fraude.",
         "operadora.inadimplencia.",
         "operadora.lgpd.",
@@ -76,7 +77,7 @@ def test_register_all_workers_covers_all_16_module_topic_prefixes() -> None:
         "operadora.recurso.",
         "operadora.reembolso.",
     }
-    assert len(expected_prefixes) == 16
+    assert len(expected_prefixes) == 17
 
     for prefix in expected_prefixes:
         matching = [t for t in topics if t.startswith(prefix)]
@@ -123,17 +124,34 @@ def test_class_module_bootstraps_register_workerbase_instances_not_function_work
 
 def test_function_based_module_bootstraps_register_function_workers() -> None:
     """The 13 function-based modules (7 dict-first + ans_cron + 6 typed-I/O with entry
-    functions) register `FunctionWorker` instances (ADR-0026 §2a/§2b)."""
+    functions) register `FunctionWorker` instances (ADR-0026 §2a/§2b). `events` (T3.1 R2) is a
+    THIRD category — a raw `harness.register()` handler, excluded here (see its module
+    docstring for why it cannot use the dict-first `FunctionWorker` boundary)."""
     harness = _fresh_harness()
     register_all_workers(harness)
 
     class_module_prefixes = ("operadora.auth.", "operadora.escalation.", "operadora.lgpd.")
-    function_topics = [t for t in harness.registered_topics if not t.startswith(class_module_prefixes)]
+    raw_handler_topics = {"operadora.events.publish"}
+    function_topics = [
+        t
+        for t in harness.registered_topics
+        if not t.startswith(class_module_prefixes) and t not in raw_handler_topics
+    ]
     assert function_topics, "no function-based topics found"
 
     for topic in function_topics:
         worker = harness.registry.get(topic)
         assert isinstance(worker, FunctionWorker), f"{topic} was not registered as a FunctionWorker"
+
+
+def test_raw_handler_module_registers_outside_the_worker_registry() -> None:
+    """`events` (T3.1 R2) populates `_handlers` (dispatch-reachable) but NOT `WorkerRegistry` —
+    it is registered via `harness.register()`, not `harness.register_worker()`."""
+    harness = _fresh_harness()
+    register_all_workers(harness)
+
+    assert "operadora.events.publish" in harness.registered_topics
+    assert harness.registry.get("operadora.events.publish") is None
 
 
 # ---------------------------------------------------------------------------
