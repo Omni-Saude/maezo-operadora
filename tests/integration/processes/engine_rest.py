@@ -35,6 +35,7 @@ Tudo assincrono (httpx). Sem dependencia de PR pendente: fala REST cru com o eng
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -141,6 +142,17 @@ class EngineRest:
                 # valor (> ~2.1e9) DEVEM ser Long para nao estourar java.lang.Integer.
                 fits_int32 = cls._JAVA_INT32_MIN <= v <= cls._JAVA_INT32_MAX
                 out[k] = {"value": v, "type": "Integer" if fits_int32 else "Long"}
+            elif isinstance(v, float):
+                # Espelha harness.py::_to_camunda_var (mapper canonico, T1.1): float -> Double,
+                # NUNCA String. Um guard numerico `<= 0` da DMN/BPMN recebe uma str e quebra
+                # (TypeError) se o float for tipado como String — o defeito que este ramo corrige.
+                out[k] = {"value": v, "type": "Double"}
+            elif isinstance(v, dict | list):
+                # Espelha harness.py::_to_camunda_var: dict/list "cru" (sem chave "value") vira
+                # `Json` via json.dumps identico byte-a-byte ao harness (ensure_ascii=False,
+                # default=str), nunca Python repr(). Um dict COM "value" ja foi tratado no
+                # passthrough acima; so um dict/list sem essa chave cai aqui.
+                out[k] = {"value": json.dumps(v, ensure_ascii=False, default=str), "type": "Json"}
             else:
                 out[k] = {"value": v if v is None else str(v), "type": "String"}
         return out
