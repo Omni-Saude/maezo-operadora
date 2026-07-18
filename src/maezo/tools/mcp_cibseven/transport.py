@@ -31,6 +31,8 @@ masquerading as "nothing to do".
 
 from __future__ import annotations
 
+import json
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
@@ -52,6 +54,16 @@ class CibSevenError(RuntimeError):
 
 class ProcessNotFoundError(CibSevenError):
     """No process instance (active or historic) matches the given business key."""
+
+
+class CibSevenVariableDecodeError(CibSevenError):
+    """A `Json`-typed process variable's `value` was not valid JSON — FAIL-CLOSED.
+
+    T1.1 sibling of the `tools/workers/harness.py` `fetch_and_lock` decode defect (PR #75):
+    same wire shape, same fail-closed posture, adapted to `get_process_status`'s single-
+    instance read (there is no engine task to report `failure(retries=0)` against here, unlike
+    the harness's fetch-and-lock batch loop — this call simply raises instead of silently
+    returning the raw JSON string or dropping the offending variable)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,14 +136,42 @@ def _to_camunda_vars(variables: dict[str, Any]) -> dict[str, Any]:
         elif isinstance(v, float):
             camunda_vars[k] = {"value": v, "type": "Double"}
         elif isinstance(v, dict | list):
-            import json as _json
-
-            camunda_vars[k] = {"value": _json.dumps(v, ensure_ascii=False, default=str), "type": "Json"}
+            camunda_vars[k] = {"value": json.dumps(v, ensure_ascii=False, default=str), "type": "Json"}
         elif v is None:
             camunda_vars[k] = {"value": None, "type": "String"}
         else:
             camunda_vars[k] = {"value": str(v), "type": "String"}
     return camunda_vars
+
+
+def _from_camunda_var(entry: Mapping[str, Any]) -> Any:
+    """Decode ONE inbound CIB Seven / Camunda variable entry (`{"value": ..., "type": ...}`)
+    into the Python value a caller actually consumes. Symmetric read-side counterpart to
+    `_to_camunda_vars` above.
+
+    Ported verbatim (posture, not import — this module's zero-dependency stance, see
+    `_to_camunda_vars`'s docstring) from `tools/workers/harness.py`'s `_from_camunda_var`
+    (T1.1 harness fix, PR #75). **Load-bearing**: every wire type except `Json` already
+    arrives value-ready — `Integer`/`Long`/`Double`/`Boolean`/`String`/a `null` value
+    deserialize straight off the REST response body, so `.get("value")` alone was correct for
+    them. `Json` is the ONE type that needs a second decode: CIB Seven/Camunda 7's REST
+    contract returns a `Json`-typed variable's `value` as a JSON STRING (the structured
+    content re-encoded — the exact mirror of what `_to_camunda_vars` WRITES on
+    `start_process_instance`/`correlate_message`), never as an already-parsed object/array.
+    Without this, list/dict process variables (e.g. SP-OP-CONTAS-001's `linhas_conta_refs`)
+    read via `get_process_status` arrive as a raw string instead of a Python `list`/`dict`.
+
+    Raises `json.JSONDecodeError` (a `ValueError` subclass) on malformed JSON content, and
+    `TypeError`/`AttributeError` on a malformed entry shape — both left for the caller
+    (`get_process_status`) to fail-closed (module docstring: `CibSevenVariableDecodeError`,
+    never a silent raw-string passthrough). A `Json`-typed variable with `value: null` (unset)
+    decodes to `None`, never attempted through `json.loads` (which would raise `TypeError` on
+    a non-str/bytes argument).
+    """
+    value = entry.get("value")
+    if entry.get("type") == "Json" and isinstance(value, str):
+        return json.loads(value)
+    return value
 
 
 class CibSevenHttpTransport:
@@ -266,12 +306,38 @@ class CibSevenHttpTransport:
             )
 
         try:
-            resp_vars = await self._client.get(f"/process-instance/{instance.instance_id}/variables")
+            # `deserializeValues=false` is LOAD-BEARING (live-caught, T1.1): CIB Seven's
+            # `GET /process-instance/{id}/variables` defaults to SERVER-SIDE deserializing a
+            # `Json`-typed variable's value — the response's `value` is then a Jackson
+            # `JsonNode` bean reflection (`{"array": bool, "nodeType": ..., "object": bool,
+            # ...}`), NOT the actual JSON content and NOT a string `_from_camunda_var` can
+            # decode. This is a DIFFERENT default than `POST /external-task/fetchAndLock`
+            # (`tools/workers/harness.py`, PR #75), which already returns a `Json` variable's
+            # `value` as the raw JSON string with no query param needed — the two REST
+            # resources have different serialization defaults for the same `Json` type.
+            # `deserializeValues=false` makes THIS endpoint match that shape (confirmed live
+            # against cibseven:2.1.0: `String`/`Integer`/other scalar types are unaffected by
+            # the flag — only `Json`/`Object`-family types change).
+            resp_vars = await self._client.get(
+                f"/process-instance/{instance.instance_id}/variables",
+                params={"deserializeValues": "false"},
+            )
             resp_vars.raise_for_status()
             raw_vars: dict[str, Any] = resp_vars.json()
-            variables_out = {k: v.get("value") for k, v in raw_vars.items()}
         except (httpx.HTTPStatusError, httpx.RequestError):
             variables_out = {}
+        else:
+            try:
+                variables_out = {k: _from_camunda_var(v) for k, v in raw_vars.items()}
+            except (ValueError, TypeError, AttributeError) as exc:
+                # Fail-closed (mirrors `tools/workers/harness.py`'s ValueError-family decode
+                # convention, PR #75): a malformed `Json`-typed variable is bad/immutable
+                # input from the engine — NEVER hand it to the caller as the raw undecoded
+                # string (silent corruption) and NEVER silently drop it into `{}` either.
+                raise CibSevenVariableDecodeError(
+                    f"CIB Seven returned a malformed Json-typed variable for business_key "
+                    f"`{business_key}` (instance `{instance.instance_id}`): {exc}"
+                ) from exc
 
         return ProcessStatus(
             instance_id=instance.instance_id,
@@ -290,11 +356,18 @@ class FakeCibSevenTransport:
 
     def __init__(self) -> None:
         self._instances: dict[str, ProcessInstance] = {}
+        self._variables: dict[str, dict[str, Any]] = {}
         self._correlate_calls: list[dict[str, Any]] = []
 
-    def seed_instance(self, instance: ProcessInstance) -> None:
-        """Pre-load an instance (simulates a pre-existing active instance for idempotency tests)."""
+    def seed_instance(self, instance: ProcessInstance, *, variables: dict[str, Any] | None = None) -> None:
+        """Pre-load an instance (simulates a pre-existing active instance for idempotency
+        tests). `variables`, if given, is what `get_process_status` returns for it —
+        already-decoded Python objects (this fake never wire-encodes/decodes, mirroring
+        `FakeWorkerTransport`/`FakeDmnTransport`'s pure-Python-double posture; a caller that
+        needs to prove the wire-level `Json` decode uses `CibSevenHttpTransport` against a
+        mocked `httpx` client instead, per `test_mcp_cibseven_transport.py`)."""
         self._instances[instance.business_key] = instance
+        self._variables[instance.business_key] = dict(variables) if variables else {}
 
     async def find_active_instance(self, business_key: str) -> ProcessInstance | None:
         inst = self._instances.get(business_key)
@@ -316,6 +389,7 @@ class FakeCibSevenTransport:
             already_existed=False,
         )
         self._instances[business_key] = inst
+        self._variables[business_key] = dict(variables)
         return inst
 
     async def correlate_message(
@@ -346,7 +420,10 @@ class FakeCibSevenTransport:
             process_key=inst.process_key,
             business_key=business_key,
             state=inst.state,
-            variables={},
+            # Post-fix contract (T1.1): callers see decoded Python objects, matching
+            # `CibSevenHttpTransport.get_process_status`'s now-decoded `Json` variables — this
+            # fake stores them decoded already (it never wire-encodes), never `{}`.
+            variables=dict(self._variables.get(business_key, {})),
         )
 
     @property
