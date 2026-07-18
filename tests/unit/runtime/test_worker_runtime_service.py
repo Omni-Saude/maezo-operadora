@@ -295,12 +295,14 @@ async def test_bring_up_fail_closed_without_database_url() -> None:
 
 class _SpyHarness:
     """Minimal WorkerHarness stand-in for composition-root wiring tests — records the `audit_sink`
-    seam T-C's harness will require, and exposes just enough surface for `_bring_up_dependencies`.
+    seam and exposes just enough surface for `_bring_up_dependencies`.
 
-    Justification: on this branch's base the real WorkerHarness does not yet declare `audit_sink`
-    (T-C's co-requisite harness PR adds it). These tests prove T-D THREADS the sink into the
-    harness constructor and gates the fetch rotation on the sink probe — the real harness+sink
-    end-to-end is T-C's acceptance + the co-requisite merge."""
+    Since the T1.10 wave merge the REAL `WorkerHarness` declares `audit_sink: AuditEmitter | None
+    = None` (T-C, Optional-fail-closed: a sink-less harness raises `AuditEmitError` before any
+    completion). This spy stays a spy for the same reason as before: these tests prove the
+    COMPOSITION ROOT's threading/gating (sink into the ctor, fetch rotation gated on the probe),
+    not harness mechanics — the real harness+sink end-to-end lives in the T-C acceptance suites
+    (tests/unit/tools/workers/test_harness_audit_emit.py and the integration lane)."""
 
     def __init__(self, transport: Any, *, worker_id: str, audit_sink: Any = None, **kwargs: Any) -> None:
         self.transport = transport
@@ -327,16 +329,19 @@ async def test_bring_up_threads_audit_sink_and_engine_and_spawns_when_probe_gree
     monkeypatch: Any,
 ) -> None:
     """Healthy path (probe stubbed green): the composition root THREADS `audit_sink` into the
-    harness constructor (T-C's seam) AND the `engine` seam into `register_default_workers`, and
-    ENTERS the fetch-and-lock rotation (spawns the harness) only because the sink verified."""
+    harness constructor (T-C's seam) AND the `engine`+`audit_sink` seams into
+    `register_default_workers` (the worker-side seam is a per-call `FreshSinkAuditEmitter`, NOT
+    the pooled sink — sync dispatches emit on fresh `asyncio.run` loops), and ENTERS the
+    fetch-and-lock rotation (spawns the harness) only because the sink verified."""
     import maezo.runtime.worker_runtime.service as svc
-    from maezo.gateway.audit_postgres import PostgresAuditSink
+    from maezo.gateway.audit_postgres import FreshSinkAuditEmitter, PostgresAuditSink
 
     captured: dict[str, Any] = {}
 
-    def _spy_register(harness: Any, *, dmn: Any = None, engine: Any = None) -> None:
+    def _spy_register(harness: Any, *, dmn: Any = None, engine: Any = None, audit_sink: Any = None) -> None:
         captured["engine"] = engine
         captured["dmn"] = dmn
+        captured["audit_sink"] = audit_sink
 
     async def _probe_ok(_sink: Any, _timeout: float) -> bool:
         return True
@@ -358,6 +363,9 @@ async def test_bring_up_threads_audit_sink_and_engine_and_spawns_when_probe_gree
         assert state.harness.audit_sink is state.audit_sink
         # GAP-INAD-1 engine seam threaded into the bootstrap.
         assert captured["engine"] is state.engine_transport
+        # T1.10 wave: the worker-side audit seam is a loop-safe per-call emitter (handoff_rescisao
+        # emits on its own asyncio.run loop — the pooled sink must never cross loops).
+        assert isinstance(captured["audit_sink"], FreshSinkAuditEmitter)
         assert state.harness_task is not None, "verified sink -> daemon enters the fetch rotation"
     finally:
         if state.harness_task is not None:

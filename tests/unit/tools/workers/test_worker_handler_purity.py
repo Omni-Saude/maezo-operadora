@@ -59,6 +59,10 @@ _INFRA_MODULES: frozenset[str] = frozenset(
         "ceilings",  # governance-ceiling resolver (policy loader, no engine/PHI)
         "phi_vars",  # one-way PHI redaction helper
         "_audit_ctx",  # per-task DMN-version collector (T-B)
+        # T-D (merged in the T1.10 wave alongside this arch-test): the fresh-client-per-call
+        # CibSevenTransport SEAM (GAP-INAD-1) — an engine transport like dmn_transport, reached
+        # by workers ONLY via the engine= param; registers no workers, legitimately owns httpx.
+        "cibseven_engine",
     }
 )
 

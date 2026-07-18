@@ -39,10 +39,10 @@ from typing import Any
 
 import structlog
 
-from maezo.gateway.audit_postgres import PostgresAuditSink
+from maezo.gateway.audit_postgres import FreshSinkAuditEmitter, PostgresAuditSink
 from maezo.platform.health import CheckResult, build_health_server, create_health_app
 from maezo.platform.observability import get_metrics_collector
-from maezo.tools.mcp_cibseven.transport import CibSevenTransport
+from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
 from maezo.tools.workers.bootstrap import ALL_WORKER_BOOTSTRAPS, register_all_workers
 from maezo.tools.workers.cibseven_engine import FreshClientCibSevenTransport
 from maezo.tools.workers.dmn_transport import CibSevenDmnTransport
@@ -72,6 +72,7 @@ def register_default_workers(
     *,
     dmn: CibSevenDmnTransport | None = None,
     engine: CibSevenTransport | None = None,
+    audit_sink: AuditStartSink | None = None,
 ) -> None:
     """Register every worker this build serves. The daemon's ONE bootstrap call (STEP B).
 
@@ -89,9 +90,18 @@ def register_default_workers(
     seam was wired. In the live daemon it is a `FreshClientCibSevenTransport` (fresh-client-per-call
     — see that class's docstring for the "Event loop is closed" rationale).
 
+    `audit_sink` (an `AuditStartSink`, T1.10 T-C2 fence / wave integration) is the durable
+    ADR-0007 sink for `handoff_rescisao`'s fenced CANCEL-001 start — the 10th
+    `start_process_idempotent` site. Absent (`None`, the topic-probe default) leaves the handoff
+    FAILING CLOSED (raises before any engine effect — never an un-audited start). In the live
+    daemon it is a `FreshSinkAuditEmitter` (gateway/audit_postgres.py), NOT the pooled
+    `state.audit_sink`: sync worker dispatches emit on fresh per-call `asyncio.run` loops, and an
+    asyncpg pool binds to the loop that created it (same rationale as
+    `FreshClientCibSevenTransport`, sink-side).
+
     Idempotent (`WorkerHarness.register_worker` replaces on re-registration, same topic).
     """
-    register_all_workers(harness, dmn=dmn, engine=engine)
+    register_all_workers(harness, dmn=dmn, engine=engine, audit_sink=audit_sink)
 
 
 def _expected_worker_topics() -> frozenset[str]:
@@ -174,9 +184,12 @@ class WorkerState:
     # inadimplencia workers that start/correlate CANCEL-001 and query cross-process rescisao.
     engine_transport: CibSevenTransport | None = None
     # Durable, fail-closed audit sink (ADR-0007 L0, T1.10 T-D). `None` when DATABASE_URL is unset
-    # or construction failed -> the harness is NOT built (audit_sink is a required seam) and
-    # `audit_sink_ready` stays red. `audit_sink_ready` is the boot-time connectivity-probe result
-    # that gates whether the daemon enters the fetch-and-lock rotation at all.
+    # or construction failed -> THIS composition root refuses to build the harness (see
+    # `_bring_up_dependencies`: the `WorkerHarness` ctor itself accepts `audit_sink=None`
+    # Optional-fail-closed, T-C — a sink-less harness raises `AuditEmitError` before any
+    # completion; the root simply never constructs that degraded harness) and `audit_sink_ready`
+    # stays red. `audit_sink_ready` is the boot-time connectivity-probe result that gates whether
+    # the daemon enters the fetch-and-lock rotation at all.
     audit_sink: PostgresAuditSink | None = None
     audit_sink_ready: bool = False
     harness: WorkerHarness | None = None
@@ -395,20 +408,16 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
             )
 
     try:
-        # FAIL-CLOSED SEAM (design §7 T-C/T-D): the harness is built ONLY with a durable audit sink.
-        # `audit_sink` is a REQUIRED WorkerHarness seam (T-C) — a daemon that cannot durably audit
-        # cannot construct a harness, so it can never complete an effect unaudited. No sink (missing
-        # DATABASE_URL / bad DSN) => no harness => no fetching. (Co-requisite: the `audit_sink=`
-        # keyword is consumed by T-C's harness constructor; see this PR's seam-conformance note.)
+        # FAIL-CLOSED SEAM (design §7 T-C/T-D, reconciled at wave integration): THIS composition
+        # root builds the harness ONLY with a durable audit sink. T-C's landed `WorkerHarness`
+        # constructor takes `audit_sink: AuditEmitter | None = None` — Optional at CONSTRUCTION
+        # (so topic probes / unit fixtures that never complete a task keep working), fail-closed
+        # at COMPLETION (`_handle` raises `AuditEmitError` before `complete` when the sink is
+        # missing). The `state.audit_sink is not None` guard here is the daemon's own stricter
+        # posture on top of that belt-and-suspenders: no sink (missing DATABASE_URL / bad DSN)
+        # => no harness => no fetching — the degraded raise-on-complete harness is never even
+        # constructed in the live daemon.
         if state.transport is not None and state.audit_sink is not None:
-            # CO-REQUISITE SEAM (design §7 T-C): `audit_sink` becomes a REQUIRED WorkerHarness
-            # constructor argument in T-C's concurrent harness PR (they ship together — T-D is the
-            # go-live co-requisite of T-C, Revision MUST-FIX 2). It is threaded through a typed
-            # `**` indirection so this call type-checks against BOTH the pre-T-C signature and
-            # T-C's — the merge is mechanical, no `type: ignore` to unwind. See the PR's
-            # seam-conformance note. (Runtime: until T-C's constructor accepts it, the harness
-            # build raises and is caught below -> harness None -> fail-closed red, never unaudited.)
-            audit_seam: dict[str, Any] = {"audit_sink": state.audit_sink}
             harness = WorkerHarness(
                 state.transport,
                 worker_id=settings.worker_id,
@@ -422,9 +431,20 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
                 # proof gate is a T1.3/T1.4 follow-up); every WorkerBpmnError demotes to a
                 # fail-closed incident until a code is added here with proof.
                 bpmn_error_allowlist=frozenset(),
-                **audit_seam,
+                # T-C seam, direct since the wave merge (the pre-merge `**` indirection is gone).
+                audit_sink=state.audit_sink,
             )
-            register_default_workers(harness, dmn=state.dmn_transport, engine=state.engine_transport)
+            # Worker seams: the pooled `state.audit_sink` serves the harness on the daemon's main
+            # loop; the `audit_sink` SEAM for sync per-call workers (handoff_rescisao's fenced
+            # CANCEL-001 start) is a FreshSinkAuditEmitter — per-call loop-safe, same DSN/tenant.
+            register_default_workers(
+                harness,
+                dmn=state.dmn_transport,
+                engine=state.engine_transport,
+                audit_sink=FreshSinkAuditEmitter(settings.database_url, settings.tenant_id)
+                if settings.database_url
+                else None,
+            )
             state.harness = harness
             state.expected_topics = _expected_worker_topics()
     except Exception:  # noqa: BLE001 — registration failure leaves workers_registered unhealthy.

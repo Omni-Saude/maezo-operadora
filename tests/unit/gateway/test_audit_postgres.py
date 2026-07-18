@@ -40,6 +40,7 @@ from maezo.gateway.audit_postgres import (
     _DEDUP_LOOKUP_SQL,
     INSERT_SQL,
     AuditPersistenceError,
+    FreshSinkAuditEmitter,
     PostgresAuditSink,
     normalize_dsn,
     schema_for_tenant,
@@ -990,3 +991,122 @@ async def test_kill_test_emit_once_atomic_across_crash(pg_dsn: str, tenant_schem
         await conn.close()
     assert db_hash == redelivered_hash, "the surviving chain row is not the one the retry wrote"
     assert claim_hash == redelivered_hash, "the dedup claim does not point at the surviving link"
+
+
+# ---------------------------------------------------------------------------
+# FreshSinkAuditEmitter — per-call, loop-agnostic adapter (T1.10 wave integration).
+# Pure-unit tests monkeypatch the module-global `PostgresAuditSink` the adapter constructs;
+# the cross-loop test below runs against real Postgres (integration-marked).
+# ---------------------------------------------------------------------------
+
+
+def _adapter_record(tenant_id: str, action: str = "start_process:SP-OP-CANCEL-001") -> AuditRecord:
+    return AuditRecord(
+        agent_id="operadora-worker",
+        tenant_id=tenant_id,
+        agent_version="1.0.0",
+        action=action,
+        decision="START_PROCESS",
+        details={"decisao_inadimplencia": "ENCAMINHAR_RESCISAO"},
+    )
+
+
+def test_fresh_sink_emitter_rejects_unsafe_tenant_at_construction() -> None:
+    """Same eager fail-closed tenant validation as PostgresAuditSink itself — a bad tenant is a
+    construction-time ValueError, never a deferred surprise inside a worker dispatch."""
+    with pytest.raises(ValueError, match="not a valid schema identifier"):
+        FreshSinkAuditEmitter("postgresql://x@localhost/db", "bad-tenant;drop")
+
+
+async def test_fresh_sink_emitter_delegates_and_closes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """emit_once constructs a FRESH delegate inside the calling loop, delegates verbatim
+    (record + dedup_key), returns the delegate's hash, and ALWAYS closes the delegate."""
+    import maezo.gateway.audit_postgres as ap
+
+    events: list[tuple[str, object]] = []
+
+    class _RecordingSink:
+        def __init__(self, dsn: str, tenant_id: str, *, pool: object | None = None) -> None:
+            events.append(("init", (dsn, tenant_id)))
+
+        async def emit_once(self, record: AuditRecord, *, dedup_key: str) -> str:
+            events.append(("emit", (record, dedup_key)))
+            return "hash-1"
+
+        async def aclose(self) -> None:
+            events.append(("aclose", None))
+
+    monkeypatch.setattr(ap, "PostgresAuditSink", _RecordingSink)
+    emitter = FreshSinkAuditEmitter("postgresql://maezo@localhost/maezo", "amh")
+    record = _adapter_record("amh")
+
+    got = await emitter.emit_once(record, dedup_key="amh:start:SP-OP-CANCEL-001:CANCEL-amh-C-1")
+
+    assert got == "hash-1"
+    assert [e[0] for e in events] == ["init", "emit", "aclose"]  # fresh ctor, emit, then close
+    assert events[0][1] == ("postgresql://maezo@localhost/maezo", "amh")
+    emitted_record, emitted_key = events[1][1]  # type: ignore[misc]
+    assert emitted_record is record
+    assert emitted_key == "amh:start:SP-OP-CANCEL-001:CANCEL-amh-C-1"
+
+
+async def test_fresh_sink_emitter_failure_propagates_and_still_closes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FAIL-CLOSED: the delegate's AuditPersistenceError propagates unchanged (no swallow, no
+    fallback) and the fresh delegate is still closed — no leaked pool on the failure path."""
+    import maezo.gateway.audit_postgres as ap
+
+    closed: list[bool] = []
+
+    class _FailingSink:
+        def __init__(self, dsn: str, tenant_id: str, *, pool: object | None = None) -> None:
+            pass
+
+        async def emit_once(self, record: AuditRecord, *, dedup_key: str) -> str:
+            raise AuditPersistenceError("durable write failed")
+
+        async def aclose(self) -> None:
+            closed.append(True)
+
+    monkeypatch.setattr(ap, "PostgresAuditSink", _FailingSink)
+    emitter = FreshSinkAuditEmitter("postgresql://maezo@localhost/maezo", "amh")
+
+    with pytest.raises(AuditPersistenceError, match="durable write failed"):
+        await emitter.emit_once(_adapter_record("amh"), dedup_key="amh:k")
+    assert closed == [True]
+
+
+@pytest.mark.integration
+def test_fresh_sink_emitter_cross_loop_sequential_asyncio_run(pg_dsn: str) -> None:
+    """THE reason this adapter exists (T1.10 wave): two SEQUENTIAL `asyncio.run` loops — exactly
+    how sync worker dispatches (handoff_rescisao) emit — through ONE emitter instance, against
+    REAL Postgres. A pooled PostgresAuditSink shared across these loops fails with cross-loop
+    asyncpg errors; the per-call adapter must succeed on both, honouring emit_once dedup:
+    a DIFFERENT dedup key appends a second chain link; the SAME key returns the prior hash."""
+    tenant_id = asyncio.run(_make_tenant_schema(pg_dsn))
+    try:
+        emitter = FreshSinkAuditEmitter(pg_dsn, tenant_id)
+
+        # Loop 1: first dispatch emits.
+        hash_1 = asyncio.run(
+            emitter.emit_once(_adapter_record(tenant_id, action="start:one"), dedup_key="t:one")
+        )
+        # Loop 2 (fresh loop, same emitter): a second, distinct dispatch emits.
+        hash_2 = asyncio.run(
+            emitter.emit_once(_adapter_record(tenant_id, action="start:two"), dedup_key="t:two")
+        )
+        # Loop 3: re-delivery of dispatch one dedups to the prior link (no third row).
+        hash_redelivery = asyncio.run(
+            emitter.emit_once(_adapter_record(tenant_id, action="start:one"), dedup_key="t:one")
+        )
+
+        assert hash_1 != hash_2
+        assert hash_redelivery == hash_1
+
+        result = asyncio.run(verify_chain(pg_dsn, tenant_id))
+        assert result.valid
+        assert result.total_records == 2
+        assert result.verified_records == 2
+    finally:
+        asyncio.run(_drop_tenant_schema(pg_dsn, tenant_id))

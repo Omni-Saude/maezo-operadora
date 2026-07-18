@@ -450,6 +450,47 @@ class PostgresAuditSink:
             self._pool = None
 
 
+class FreshSinkAuditEmitter:
+    """Loop-agnostic per-call adapter over `PostgresAuditSink` (T1.10 wave integration).
+
+    WHY THIS EXISTS: `PostgresAuditSink`'s asyncpg pool is created lazily and BINDS to the event
+    loop that first uses it. That is correct for the worker harness (one long-lived loop), but a
+    SYNC worker handler that needs to emit — `inadimplencia.handoff_rescisao`'s audited CANCEL-001
+    start through the T-C2 `start_process_idempotent` fence — runs each dispatch on its own fresh
+    `asyncio.run` loop. Threading the daemon's pooled sink into that seam would produce the exact
+    cross-loop asyncpg failure class `FreshClientCibSevenTransport` (tools/workers/
+    cibseven_engine.py) exists to prevent on the engine side. This adapter is the sink-side
+    mirror of that pattern: construct a fresh `PostgresAuditSink` INSIDE the calling loop, emit,
+    and close it before the loop dies — nothing pooled ever outlives or crosses a loop.
+
+    Fail-closed by construction: emit failures propagate as the delegate's
+    `AuditPersistenceError` — no fallback, no swallow. A close-time failure AFTER a successful
+    emit also propagates (fail-closed direction: the row is durably persisted, and a caller retry
+    dedups to the same chain link via `emit_once`, so raising loses nothing and hides nothing).
+    Satisfies both seam Protocols structurally (`AuditEmitter` in tools/workers/harness.py and
+    `AuditStartSink` in tools/mcp_cibseven/transport.py). Construction is pure (no I/O): a bad
+    DSN/tenant surfaces on the first emit, which raises — never a silent no-op.
+
+    One connection-pool setup per emit is the deliberate price of loop-safety at this seam — the
+    handoff is a rare human-gated event (ENCAMINHAR_RESCISAO), not a hot path; the harness's own
+    completion emits keep using the pooled sink on the daemon's main loop.
+    """
+
+    def __init__(self, dsn: str, tenant_id: str) -> None:
+        # Validate the tenant eagerly (same fail-closed posture as PostgresAuditSink itself).
+        schema_for_tenant(tenant_id)
+        self._dsn = dsn
+        self._tenant_id = tenant_id
+
+    async def emit_once(self, record: AuditRecord, *, dedup_key: str) -> str:
+        """Durable exactly-once emit via a fresh, per-call `PostgresAuditSink`. FAIL-CLOSED."""
+        sink = PostgresAuditSink(self._dsn, self._tenant_id)
+        try:
+            return await sink.emit_once(record, dedup_key=dedup_key)
+        finally:
+            await sink.aclose()
+
+
 @dataclass(frozen=True, slots=True)
 class ChainVerificationResult:
     """Result of `verify_chain()` — recomputed, not trusted from stored flags."""
