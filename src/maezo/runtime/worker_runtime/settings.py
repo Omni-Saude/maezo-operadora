@@ -30,6 +30,14 @@ class WorkerRuntimeSettings(BaseSettings):
     # Service token for the worker->engine call (Bearer). Blocked seam: absent => no auth header
     # (the transport accepts None). Never hardcoded; comes from the secret store in prod.
     cibseven_auth_token: str | None = Field(default=None, alias="CIBSEVEN_AUTH_TOKEN")
+    # Aurora/Postgres DSN for the durable audit sink (ADR-0007/ADR-0027, T1.10 T-D). Helm injects
+    # it from the Aurora ExternalSecret (`deployment-worker-daemon.yaml`, key `database-url`), same
+    # convention as `agent_runtime/settings.py`. FAIL-CLOSED: absent (`None`) means the composition
+    # root CANNOT construct a `PostgresAuditSink`, so it never builds/starts the harness and
+    # `audit_sink_ready` stays red — the daemon refuses to serve effect-producing traffic it could
+    # not durably audit (design §7 T-D / Revision MUST-FIX 2). This is NOT a startup crash: the
+    # health-first bring-up keeps `/healthz` green (liveness) while `/readyz` stays red.
+    database_url: str | None = Field(default=None, alias="DATABASE_URL")
     kafka_bootstrap_servers: str = Field(default="localhost:9092", alias="KAFKA_BOOTSTRAP_SERVERS")
     # PHI pseudonymizer HMAC key (ADR-0006) — accepted for Helm/env parity (design §11 table);
     # not consumed by this build (no T1.1-registered worker publishes PHI-adjacent values to

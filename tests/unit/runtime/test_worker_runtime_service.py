@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from typing import Any
 
 from maezo.runtime.worker_runtime.service import (
     WorkerState,
@@ -210,3 +211,187 @@ def test_worker_state_is_live_and_harness_running_helpers() -> None:
     assert state.harness_running() is False
     state.live = False
     assert state.is_live() is False
+
+
+# ---------------------------------------------------------------------------
+# audit_sink_ready readiness gate (T1.10 T-D, ADR-0007 L0 fail-closed)
+# ---------------------------------------------------------------------------
+
+
+async def test_audit_sink_ready_red_when_sink_missing() -> None:
+    """No DATABASE_URL / no sink -> /readyz RED, WITHOUT probing (fail-closed by construction)."""
+    state = _state()  # default settings: no DATABASE_URL -> audit_sink None
+    checks = {c.__name__: c for c in build_readiness_checks(state)}
+    result = await checks["audit_sink_ready"]()
+    assert result.healthy is False
+    assert "not constructed" in (result.detail or "")
+
+
+async def test_audit_sink_ready_red_when_sink_unreachable() -> None:
+    """A present sink pointed at an unreachable Postgres probes RED (connection refused, bounded)."""
+    from maezo.gateway.audit_postgres import PostgresAuditSink
+
+    settings = WorkerRuntimeSettings(dep_connect_timeout_s=1.0)
+    # Port 1 => immediate ECONNREFUSED; construction is pure, the probe is what fails-closed.
+    sink = PostgresAuditSink("postgresql://maezo@127.0.0.1:1/none", "amh")
+    state = WorkerState(settings=settings, audit_sink=sink)
+    try:
+        checks = {c.__name__: c for c in build_readiness_checks(state)}
+        result = await checks["audit_sink_ready"]()
+        assert result.healthy is False
+        assert "unreachable" in (result.detail or "")
+    finally:
+        await sink.aclose()
+
+
+async def test_audit_sink_ready_green_when_probe_passes(monkeypatch: Any) -> None:
+    """A sink whose bounded connectivity probe succeeds flips /readyz GREEN. The probe is stubbed
+    (no live Postgres) — the real-PG green path is the integration suite."""
+    from maezo.gateway.audit_postgres import PostgresAuditSink
+
+    sink = PostgresAuditSink("postgresql://maezo@localhost:5432/maezo", "amh")
+
+    async def _ok() -> None:
+        return None
+
+    monkeypatch.setattr(sink, "check_ready", _ok)
+    state = _state(audit_sink=sink)
+    try:
+        checks = {c.__name__: c for c in build_readiness_checks(state)}
+        result = await checks["audit_sink_ready"]()
+        assert result.healthy is True
+    finally:
+        await sink.aclose()
+
+
+# ---------------------------------------------------------------------------
+# _bring_up_dependencies — fail-closed sink gating (design §7 T-D / MUST-FIX 2)
+# ---------------------------------------------------------------------------
+
+
+async def test_bring_up_fail_closed_without_database_url() -> None:
+    """No DATABASE_URL => no audit sink => the harness is NEVER built and NEVER started, so the
+    daemon does not enter the fetch-and-lock rotation (fail-closed, ADR-0007). Readiness is red."""
+    from maezo.runtime.worker_runtime.service import _bring_up_dependencies
+
+    state = _state()  # default settings: DATABASE_URL unset
+    try:
+        await _bring_up_dependencies(state)
+
+        assert state.audit_sink is None
+        assert state.audit_sink_ready is False
+        assert state.harness is None, "harness must NOT be built without a durable audit sink"
+        assert state.harness_task is None, "daemon must NOT enter the fetch rotation unaudited"
+
+        checks = {c.__name__: c for c in build_readiness_checks(state)}
+        audit = await checks["audit_sink_ready"]()
+        workers = await checks["workers_registered"]()
+        assert audit.healthy is False
+        assert workers.healthy is False
+    finally:
+        if state.transport is not None:
+            await state.transport.close()
+
+
+class _SpyHarness:
+    """Minimal WorkerHarness stand-in for composition-root wiring tests — records the `audit_sink`
+    seam T-C's harness will require, and exposes just enough surface for `_bring_up_dependencies`.
+
+    Justification: on this branch's base the real WorkerHarness does not yet declare `audit_sink`
+    (T-C's co-requisite harness PR adds it). These tests prove T-D THREADS the sink into the
+    harness constructor and gates the fetch rotation on the sink probe — the real harness+sink
+    end-to-end is T-C's acceptance + the co-requisite merge."""
+
+    def __init__(self, transport: Any, *, worker_id: str, audit_sink: Any = None, **kwargs: Any) -> None:
+        self.transport = transport
+        self.worker_id = worker_id
+        self.audit_sink = audit_sink
+        self.kwargs = kwargs
+        self._topics: list[str] = []
+
+    def register_worker(self, worker: Any) -> None:
+        self._topics.append(worker.topic)
+
+    def register(self, topic: str, handler: Any, *, variables: Any = None) -> None:
+        self._topics.append(topic)
+
+    @property
+    def registered_topics(self) -> list[str]:
+        return sorted(self._topics)
+
+    async def run(self) -> None:
+        await asyncio.Event().wait()  # stays "running" until cancelled
+
+
+async def test_bring_up_threads_audit_sink_and_engine_and_spawns_when_probe_green(
+    monkeypatch: Any,
+) -> None:
+    """Healthy path (probe stubbed green): the composition root THREADS `audit_sink` into the
+    harness constructor (T-C's seam) AND the `engine` seam into `register_default_workers`, and
+    ENTERS the fetch-and-lock rotation (spawns the harness) only because the sink verified."""
+    import maezo.runtime.worker_runtime.service as svc
+    from maezo.gateway.audit_postgres import PostgresAuditSink
+
+    captured: dict[str, Any] = {}
+
+    def _spy_register(harness: Any, *, dmn: Any = None, engine: Any = None) -> None:
+        captured["engine"] = engine
+        captured["dmn"] = dmn
+
+    async def _probe_ok(_sink: Any, _timeout: float) -> bool:
+        return True
+
+    monkeypatch.setattr(svc, "WorkerHarness", _SpyHarness)
+    monkeypatch.setattr(svc, "register_default_workers", _spy_register)
+    monkeypatch.setattr(svc, "_expected_worker_topics", lambda: frozenset({"t"}))
+    monkeypatch.setattr(svc, "_probe_audit_sink", _probe_ok)
+
+    settings = WorkerRuntimeSettings(DATABASE_URL="postgresql://maezo@localhost:5432/maezo")
+    state = WorkerState(settings=settings)
+    try:
+        await svc._bring_up_dependencies(state)
+
+        assert isinstance(state.audit_sink, PostgresAuditSink)
+        assert state.audit_sink_ready is True
+        assert isinstance(state.harness, _SpyHarness)
+        # T-C seam conformance: the SAME sink instance is threaded into the harness constructor.
+        assert state.harness.audit_sink is state.audit_sink
+        # GAP-INAD-1 engine seam threaded into the bootstrap.
+        assert captured["engine"] is state.engine_transport
+        assert state.harness_task is not None, "verified sink -> daemon enters the fetch rotation"
+    finally:
+        if state.harness_task is not None:
+            state.harness_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await state.harness_task
+        if state.transport is not None:
+            await state.transport.close()
+        if state.audit_sink is not None:
+            await state.audit_sink.aclose()
+
+
+async def test_bring_up_does_not_spawn_when_sink_probe_red(monkeypatch: Any) -> None:
+    """Sink present but unreachable at boot: the harness may be BUILT (with the sink) but the daemon
+    must NOT enter the fetch rotation — an un-auditable daemon that locked tasks would stall them."""
+    import maezo.runtime.worker_runtime.service as svc
+
+    async def _probe_red(_sink: Any, _timeout: float) -> bool:
+        return False
+
+    monkeypatch.setattr(svc, "WorkerHarness", _SpyHarness)
+    monkeypatch.setattr(svc, "register_default_workers", lambda *a, **k: None)
+    monkeypatch.setattr(svc, "_expected_worker_topics", lambda: frozenset({"t"}))
+    monkeypatch.setattr(svc, "_probe_audit_sink", _probe_red)
+
+    settings = WorkerRuntimeSettings(DATABASE_URL="postgresql://maezo@localhost:5432/maezo")
+    state = WorkerState(settings=settings)
+    try:
+        await svc._bring_up_dependencies(state)
+
+        assert state.audit_sink_ready is False
+        assert state.harness_task is None, "unverified sink -> daemon must NOT fetch (fail-closed)"
+    finally:
+        if state.transport is not None:
+            await state.transport.close()
+        if state.audit_sink is not None:
+            await state.audit_sink.aclose()
