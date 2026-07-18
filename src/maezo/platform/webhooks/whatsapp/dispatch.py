@@ -25,7 +25,7 @@ from typing import Any
 
 import structlog
 
-from maezo.agents.helena.graph import HelenaState, WhatsAppSender, build
+from maezo.agents.helena.graph import HelenaState, WhatsAppSender, build, new_helena_state
 from maezo.gateway.pseudonymizer import Pseudonymizer
 from maezo.runtime.inference import InferenceProvider
 from maezo.tools.mcp_cibseven.transport import CibSevenTransport
@@ -137,13 +137,18 @@ class HelenaDispatcher:
             }
         )
         compiled = graph.compile()
-        initial_state: HelenaState = {
-            "tenant_id": self.tenant_id,
-            "conversation_id": conversation_id,
-            "canal": "whatsapp",
-            "beneficiario_pseudo_id": beneficiario_pseudo_id,
-            "message_body": message.text,
-        }
+        # INPUT-BOUNDARY GATE (T1.11): assemble state through the typed constructor, NOT an inline
+        # dict literal. `new_helena_state`'s explicit keyword-only signature makes it structurally
+        # impossible to pass an output-only key (a forged `next_kind`/`error`/`escalation_*`/
+        # `dmn_decision_ref`) from here into `HelenaState` — the caller-planted read-through class
+        # is unreachable at the construction seam, not just neutralized inside `receive`.
+        initial_state: HelenaState = new_helena_state(
+            tenant_id=self.tenant_id,
+            conversation_id=conversation_id,
+            canal="whatsapp",
+            beneficiario_pseudo_id=beneficiario_pseudo_id,
+            message_body=message.text,
+        )
         logger.info(
             "helena_dispatch_turn_started",
             tenant_id=self.tenant_id,

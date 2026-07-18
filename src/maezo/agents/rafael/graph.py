@@ -55,8 +55,10 @@ LABELED BOUNDARIES (this build, disclosed — never fabricated):
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any, Literal, Protocol, TypedDict, cast
 
+import structlog
 from langgraph.graph import END, START, StateGraph
 
 from maezo.runtime.inference import InferenceProvider
@@ -87,6 +89,8 @@ CategoriaProcedimento = Literal[
 DMN_ADMISSIBILITY = "auth_admissibility"
 DMN_AUTO_APPROVAL = "auth_auto_approval"
 DMN_SLA = "auth_sla"
+
+logger = structlog.get_logger(__name__)
 
 
 class FhirReader(Protocol):
@@ -163,6 +167,124 @@ def _business_key(state: RafaelState) -> str:
     return f"AUTH-{state.get('tenant_id', '')}-{state.get('numero_guia_tiss', '')}"
 
 
+# --- Input/output field split + input-boundary gate (T1.11 caller-planted read-through fix) ---
+#
+# RafaelState carries TWO disjoint classes of key:
+#   * INPUT-ONLY  (`RAFAEL_INPUT_FIELDS`): the ONLY keys a caller/upstream (A2A delegation, the
+#     portal-TISS worker) may set — request data + the PRE-RESOLVED worker booleans this graph
+#     legitimately CONSUMES (never computes; see module docstring's L0-hard invariant).
+#   * OUTPUT-ONLY (`_RAFAEL_NEUTRAL_OUTPUTS`): keys OWNED by this graph's nodes (route,
+#     admissibilidade, recomendacao_auto, sla_*, dmn_refs, dossier, process_*, ...). A caller
+#     must NEVER set one — a planted output field is an injection.
+#
+# TWO defenses, both fail-closed (mirrors `agents/helena/graph.py`):
+#   1. Per-graph entry sanitization — `receive` resets EVERY output-only field to its neutral
+#      default before any downstream node runs. This closes the admissibility-DMN-down early
+#      return that omits `sla_analise`/`recomendacao_auto` (a planted value would otherwise
+#      survive into the dossier via `_build_dossier`).
+#   2. Input-boundary gate — a construction seam assembles state ONLY through the typed
+#      `new_rafael_state` constructor or the `gate_inbound_state` allowlist filter, so an
+#      output-only key can never enter the state dict. Rafael has NO live A2A/delegation seam in
+#      this build (module docstring's labeled boundary); the gate is provided HERE so it is
+#      enforced the moment that seam lands.
+#
+# The completeness guard below fails at import time if a newly added RafaelState field is not
+# classified into exactly one of the two sets — "any missed key is a hole".
+
+RAFAEL_INPUT_FIELDS: frozenset[str] = frozenset(
+    {
+        "tenant_id",
+        "numero_guia_tiss",
+        "beneficiario_pseudo_id",
+        "prestador_id",
+        "canal",
+        "codigo_procedimento_tuss",
+        "categoria_procedimento",
+        "carater_atendimento",
+        "valor_estimado_brl",
+        "cid10",
+        "documentos_refs",
+        "requer_autorizacao",
+        "documentacao_completa",
+        "beneficiario_ativo",
+        "carencia_cumprida",
+        "dut_atendida",
+        "dentro_teto_l2",
+        "rede_credenciada",
+        "coverage_ref",
+        "patient_ref",
+    }
+)
+
+# Neutral default for every OUTPUT-ONLY field. `receive` writes a copy of this over the incoming
+# state. Container-typed outputs use `None` (they are ALWAYS overwritten by `gather`/`assess`
+# before any read); the string SLA fields default to `""` and `recomendacao_auto` to `None` —
+# the exact values `_build_dossier` reads on the admissibility-DMN-down path, so a planted value
+# is replaced by the correct neutral rather than merely dropped.
+_RAFAEL_NEUTRAL_OUTPUTS: dict[str, Any] = {
+    "gathered": False,
+    "coverage_facts": None,
+    "patient_facts": None,
+    "gather_notes": None,
+    "admissibilidade": None,
+    "recomendacao_auto": None,
+    "sla_analise": "",
+    "sla_alerta": "",
+    "dmn_refs": None,
+    "dmn_error": None,
+    "route": None,
+    "motivo_auditor": None,
+    "dossier": None,
+    "process_started": False,
+    "business_key": None,
+    "process_ref": None,
+    "desfecho": None,
+    "error": None,
+}
+
+_RAFAEL_ALL_FIELDS = RAFAEL_INPUT_FIELDS | frozenset(_RAFAEL_NEUTRAL_OUTPUTS)
+if frozenset(RafaelState.__annotations__) != _RAFAEL_ALL_FIELDS:
+    _missing = frozenset(RafaelState.__annotations__) - _RAFAEL_ALL_FIELDS
+    _extra = _RAFAEL_ALL_FIELDS - frozenset(RafaelState.__annotations__)
+    raise RuntimeError(
+        "RafaelState input/output field split is incomplete (T1.11 input-boundary gate): "
+        f"unclassified fields={sorted(_missing)} stale entries={sorted(_extra)} — every "
+        "RafaelState key MUST be either an INPUT field or carry a neutral output default."
+    )
+
+
+def new_rafael_state(raw: Mapping[str, Any]) -> RafaelState:
+    """Typed input-boundary constructor for a fresh Rafael case (T1.11).
+
+    Accepts a raw mapping (the shape an A2A `authorization.analyze` delegation envelope or the
+    portal-TISS worker would hand over) and returns a `RafaelState` containing ONLY
+    `RAFAEL_INPUT_FIELDS` keys. An unknown key is a hard error — unlike the webhook edge, a
+    delegation seam is an internal contract, so a stray key means a producer bug and must fail
+    closed, LOUDLY, rather than be silently tolerated.
+    """
+    unknown = sorted(k for k in raw if k not in RAFAEL_INPUT_FIELDS)
+    if unknown:
+        raise ValueError(
+            "new_rafael_state received non-input keys (T1.11 input-boundary gate): "
+            f"{unknown} — only RAFAEL_INPUT_FIELDS may be set by a caller/delegation seam; "
+            "output-only fields are owned by Rafael's graph nodes."
+        )
+    return cast(RafaelState, {k: raw[k] for k in RAFAEL_INPUT_FIELDS if k in raw})
+
+
+def gate_inbound_state(raw: Mapping[str, Any]) -> RafaelState:
+    """Fail-closed input allowlist (drop-and-log variant of `new_rafael_state`).
+
+    Only `RAFAEL_INPUT_FIELDS` keys survive; every other key — any caller-planted output field —
+    is DROPPED and logged. Use where tolerating benign upstream drift is preferable to raising
+    (e.g. a lenient ingestion edge); use `new_rafael_state` on a strict internal delegation seam.
+    """
+    dropped = sorted(k for k in raw if k not in RAFAEL_INPUT_FIELDS)
+    if dropped:
+        logger.warning("rafael_inbound_output_fields_dropped", dropped=dropped)
+    return cast(RafaelState, {k: raw[k] for k in RAFAEL_INPUT_FIELDS if k in raw})
+
+
 class RafaelGraph:
     """Wires Rafael's injected dependencies into a compilable `StateGraph[RafaelState]`."""
 
@@ -184,8 +306,18 @@ class RafaelGraph:
     # -- Nodes ----------------------------------------------------------------------------
 
     async def receive(self, state: RafaelState) -> dict[str, Any]:
-        """Assign the idempotent business key up front (contract SP-OP-AUTH-001)."""
-        return {"business_key": _business_key(state)}
+        """Turn start: (1) ENTRY SANITIZATION — reset EVERY output-only field to its neutral
+        default so no caller/upstream-planted value can be read by a downstream node (T1.11,
+        layer 1); (2) assign the idempotent business key up front (contract SP-OP-AUTH-001).
+
+        In particular this closes the admissibility-DMN-down early return in `assess`, which does
+        not set `sla_analise`/`recomendacao_auto`: post-reset those carry their neutral defaults
+        (`""`/`None`) instead of a planted value, so `_build_dossier`/`_contract_variables` can
+        never ship a forged SLA or auto-recommendation into the engine dossier.
+        """
+        reset: dict[str, Any] = dict(_RAFAEL_NEUTRAL_OUTPUTS)
+        reset["business_key"] = _business_key(state)
+        return reset
 
     async def gather(self, state: RafaelState) -> dict[str, Any]:
         """Best-effort FHIR enrichment — NEVER blocks routing (module docstring)."""

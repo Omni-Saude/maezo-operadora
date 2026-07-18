@@ -6,7 +6,9 @@ from typing import Any
 
 import pytest
 
+from maezo.agents.helena.graph import HELENA_INPUT_FIELDS
 from maezo.gateway.pseudonymizer import Pseudonymizer
+from maezo.platform.webhooks.whatsapp import dispatch as dispatch_module
 from maezo.platform.webhooks.whatsapp.dispatch import (
     HelenaDispatcher,
     InboundMessage,
@@ -169,3 +171,43 @@ async def test_dispatcher_red_flag_message_starts_escalation() -> None:
 
     assert result["escalation_started"] is True
     assert result["escalation_business_key"].startswith("ESC-amh-wa:amh:")
+
+
+# ---------------------------------------------------------------------------
+# Input-boundary gate (T1.11 layer 2) — the state entering Helena's graph from the dispatch
+# seam carries ONLY the declared INPUT fields; no caller-planted output field can reach it.
+# ---------------------------------------------------------------------------
+
+
+async def test_dispatch_constructs_state_with_only_input_fields(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The dispatcher assembles state via the typed `new_helena_state` constructor, so the state
+    handed to the compiled graph contains EXACTLY `HELENA_INPUT_FIELDS` — never an output-only
+    key (`next_kind`/`error`/`escalation_*`/`dmn_decision_ref`). We capture the exact initial
+    state by intercepting the graph the dispatcher builds."""
+    captured: dict[str, Any] = {}
+
+    class _RecordingCompiled:
+        async def ainvoke(self, state: dict[str, Any]) -> dict[str, Any]:
+            captured["state"] = dict(state)
+            return {"next_kind": "inform"}
+
+    class _RecordingGraph:
+        def compile(self) -> _RecordingCompiled:
+            return _RecordingCompiled()
+
+    monkeypatch.setattr(dispatch_module, "build", lambda _config: _RecordingGraph())
+
+    dispatcher = HelenaDispatcher(
+        tenant_id="amh",
+        inference=_FakeInference([]),
+        dmn=FakeDmnTransport(),
+        cibseven=FakeCibSevenTransport(),
+        whatsapp_client=_FakeWhatsAppClient(),  # type: ignore[arg-type]
+        pseudonymizer=Pseudonymizer(),
+    )
+
+    await dispatcher.dispatch(InboundMessage(from_number="5511999999999", text="ola", message_id="wamid.1"))
+
+    assert frozenset(captured["state"]) == HELENA_INPUT_FIELDS
+    for output_only in ("next_kind", "error", "escalation_motivo", "escalation_started", "dmn_decision_ref"):
+        assert output_only not in captured["state"]
