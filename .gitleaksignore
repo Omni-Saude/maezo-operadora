@@ -21,4 +21,4 @@
 # "G1PROBE" is not a lowercase tenant segment, so widening the allowlist for it would relax
 # the R1-verified containment. Fingerprint-scoped (single commit:file:rule:line — cannot mask
 # any other occurrence); drop this entry once the g1-gate-review branch is merged or deleted.
-a63639977c2d67083922eba07d68b18c37b166be:docs/gates/G1-gate-review.md:generic-api-key:175
+a636399779661e843b485ac2a05cbfa5bbd8e559:docs/gates/G1-gate-review.md:generic-api-key:175
