@@ -107,7 +107,10 @@ def _pagto_state(**overrides: Any) -> AndreState:
         "flow": "pagto_dossier",
         "tenant_id": "amh",
         "canal": "a2a",
-        "ordem_pagamento_id": "op-0001",
+        # Synthetic, LOW-ENTROPY identifiers only (gitleaks hygiene): never use
+        # realistic-looking ids/keys in fixtures — repeated zeros keep the business-key
+        # format semantics without tripping the repo-wide secrets lane.
+        "ordem_pagamento_id": "000000001",
         "prestador_id": "prestador-1",
         "tipo_pagamento": "prestador_rede",
         "valor_pagamento_cents": 85_000,  # R$ 850,00 — synthetic low value
@@ -264,7 +267,7 @@ def test_build_without_fhir_and_population_still_compiles() -> None:
 
 
 def test_business_key_pagto_by_ordem() -> None:
-    assert _business_key(_pagto_state()) == "PAGTO-amh-op-0001"
+    assert _business_key(_pagto_state()) == "PAGTO-amh-000000001"
 
 
 def test_business_key_pagto_by_lote_and_prestador() -> None:
@@ -281,7 +284,7 @@ def test_business_key_adequacao_with_and_without_ciclo() -> None:
 
 async def test_receive_assigns_pagto_business_key() -> None:
     result = await _graph().receive(_pagto_state())
-    assert result["business_key"] == "PAGTO-amh-op-0001"
+    assert result["business_key"] == "PAGTO-amh-000000001"
 
 
 async def test_receive_missing_tenant_routes_human_review() -> None:
@@ -1027,7 +1030,7 @@ async def test_start_process_starts_pagto_with_contract_variables() -> None:
 
     state = _pagto_state(
         route="auto_route",
-        business_key="PAGTO-amh-op-0001",
+        business_key="PAGTO-amh-000000001",
         dossier={"route": "auto_route"},
         faixa_valor="DENTRO_TETO_L2",
         grupo_aprovador="clerical-pagamentos",
@@ -1035,7 +1038,7 @@ async def test_start_process_starts_pagto_with_contract_variables() -> None:
     result = await graph.start_process(state)
 
     assert result["process_started"] is True
-    assert result["business_key"] == "PAGTO-amh-op-0001"
+    assert result["business_key"] == "PAGTO-amh-000000001"
     assert result["process_ref"]["already_existed"] is False
     variables = cibseven.started_variables[0]
     assert variables["valor_pagamento_cents"] == 85_000
@@ -1049,7 +1052,7 @@ async def test_start_process_starts_pagto_with_contract_variables() -> None:
 
 async def test_start_process_idempotent_on_active_instance() -> None:
     cibseven = FakeCibSevenTransport()
-    business_key = "PAGTO-amh-op-0001"
+    business_key = "PAGTO-amh-000000001"
     cibseven.seed_instance(
         ProcessInstance(
             instance_id="existing-pagto-1",
@@ -1168,7 +1171,7 @@ async def test_full_turn_pagto_clerical_auto_routes_and_starts_process() -> None
     assert result["route"] == "auto_route"
     assert result["desfecho"] == "dossie_pronto_clerical"
     assert result["process_started"] is True
-    assert result["business_key"] == "PAGTO-amh-op-0001"
+    assert result["business_key"] == "PAGTO-amh-000000001"
     assert result["dossier"]["decisao_pagamento"] is None
     assert result["dossier"]["preco_recomendado"] is None
 
