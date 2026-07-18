@@ -22,14 +22,42 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING, Any
 
-from maezo.tools.workers.base import ERR_DENIAL_NOT_HUMAN, WorkerBase
+from maezo.tools.workers.base import (
+    ERR_AUTH_DENIAL_INCOMPLETE,
+    ERR_DENIAL_NOT_HUMAN,
+    WorkerBase,
+)
 from maezo.tools.workers.ceilings import CeilingResolver
+from maezo.tools.workers.harness import WorkerBpmnError
+from maezo.tools.workers.phi_vars import redact_phi_vars
 
 # Governance ceiling for AUTH L2 auto-approval (design T1.9 §2.4). The teto VALUE lives in
 # the autonomy matrix (`authorization_approval.max_value_brl`, L0-core.yaml:22 +
 # tenants-amh.yaml overlay), resolved via the SAME loader the PEP uses.
 _CEILING_ACTION = "authorization_approval"
 _CEILING_PARAM = "max_value_brl"
+
+# ANS-required grounding fields for a *negativa fundamentada* (RN 395 art. 10). These are exactly
+# the three fields SP-OP-AUTH-001 marks `requiredIf="decisao_auditor == NEGAR"` +
+# `enforcedBy="worker send_denial_notice guard ERR_AUTH_DENIAL_INCOMPLETE"` on each of its three
+# human decision tasks (UT_AnaliseMedicoAuditor / UT_CoordenacaoAssume / UT_RegistrarParecerJunta
+# — 9 formField annotations, 3 distinct fields). The BPMN is the source of truth for WHAT must be
+# present; this list mirrors it exactly (and the donor's own `send_denial_notice` completeness
+# check). All three are PHI-named (see `phi_vars.PHI_PROCESS_VARS`).
+_REQUIRED_DENIAL_FIELDS: tuple[str, ...] = (
+    "justificativa_clinica",
+    "cid10_referencia",
+    "fundamentacao_dut",
+)
+
+# Spec-modeled BPMN error codes the auth workers raise. Registered in the auth harness's
+# `bpmn_error_allowlist` so the harness dispatches them as real `bpmnError`s (caught by the BPMN's
+# own boundary events) instead of demoting them to fail-closed incidents (harness.py §9). Only
+# `ERR_AUTH_DENIAL_INCOMPLETE` is here — it is the ONE auth code with a matching
+# `bpmn:error@errorCode` + boundary event (`BE_NegativaIncompleta` on `ST_EnviarNegativaFormal`)
+# in SP-OP-AUTH-001. `ERR_DENIAL_NOT_HUMAN` is deliberately NOT allowlisted: the BPMN declares no
+# boundary for it, so it must stay a fail-closed incident, never a silently-ended scope.
+AUTH_BPMN_ERROR_ALLOWLIST: frozenset[str] = frozenset({ERR_AUTH_DENIAL_INCOMPLETE})
 
 if TYPE_CHECKING:
     from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
@@ -252,69 +280,140 @@ class IssueAuthorizationWorker(WorkerBase):
 # ---------------------------------------------------------------------------
 
 
+# Zero-width / BOM code points that carry NO visible content but which `str.strip()` does NOT
+# remove (their `str.isspace()` is False): zero-width space, ZWNJ, ZWJ, word joiner, BOM /
+# zero-width no-break space. A grounding field made only of these is empty for completeness.
+_ZERO_WIDTH_CHARS = "\u200b\u200c\u200d\u2060\ufeff"  # ZWSP, ZWNJ, ZWJ, word-joiner, BOM/ZWNBSP
+_ZERO_WIDTH_TRANSLATION = dict.fromkeys(map(ord, _ZERO_WIDTH_CHARS))
+
+
+def _is_blank(value: Any) -> bool:
+    """Fail-closed emptiness for a required denial-grounding field.
+
+    A field is blank (=> incomplete => DENY the send) when it is NOT a non-empty grounding STRING:
+      - any non-``str`` value (``None``, ``int``, ``list``, ``dict``, ``bool``, ``0``, ``False`` …)
+        is blank — a required ANS grounding field that is not textual is unusable (the BPMN types
+        these fields ``string``; "cannot decide completeness = incomplete = DENY the send"). This is
+        stricter than the donor's ``not v`` (which admits e.g. a non-empty list as present).
+      - a ``str`` that is empty / whitespace-only after zero-width & BOM characters are removed. The
+        zero-width strip closes a gap where ``"\\u200b"`` alone (isspace() is False) would otherwise
+        survive ``.strip()`` and read as present.
+    """
+    if not isinstance(value, str):
+        return True
+    return not value.translate(_ZERO_WIDTH_TRANSLATION).strip()
+
+
 class SendDenialNoticeWorker(WorkerBase):
     """External task: operadora.auth.send_denial_notice
 
-    Envia negativa formal por escrito (em nome do auditor).
-    Guard: ERR_AUTH_DENIAL_NOT_HUMAN — automatic denial is FORBIDDEN.
+    Transmite a negativa FORMAL por escrito, em nome do medico auditor HUMANO. Este worker NUNCA
+    decide — apenas transmite/registra uma negativa JA decidida por uma User Task humana
+    (UT_AnaliseMedicoAuditor / UT_CoordenacaoAssume / UT_RegistrarParecerJunta; L0 hard,
+    ADR-0005/ADR-0008).
 
-    Only sends when:
-    1. decisao_auditor is present (APROVAR or NEGAR)
-    2. human_approved flag is True
+    Guards (fail-closed, defesa-em-profundidade):
 
-    Without human_approved, the guard blocks the denial.
-    For APROVAR decisions, sends an approval notice instead.
+    1. COMPLETUDE (ERR_AUTH_DENIAL_INCOMPLETE, T3.1) — uma NEGAR cujo dossie nao carrega TODAS as
+       fundamentacoes obrigatorias da ANS (`_REQUIRED_DENIAL_FIELDS`: justificativa_clinica,
+       cid10_referencia, fundamentacao_dut; RN 395 art. 10) NUNCA e transmitida. Levanta o
+       WorkerBpmnError MODELADO `ERR_AUTH_DENIAL_INCOMPLETE`, capturado pelo boundary
+       `BE_NegativaIncompleta` (ST_EnviarNegativaFormal) -> `End_FundamentacaoIncompletaBloqueada`
+       (terminal NEUTRO: nada foi enviado ao beneficiario). Checado ANTES do guard `human_approved`
+       porque um dossie incompleto deve ser barrado em QUALQUER circunstancia (a impossibilidade de
+       decidir completude = incompleto = negar a transmissao). O codigo esta em
+       `AUTH_BPMN_ERROR_ALLOWLIST` para o harness o despachar como `bpmnError` (nao incidente).
+
+    2. NEGATIVA-NAO-HUMANA (ERR_DENIAL_NOT_HUMAN) — guard v2 pre-existente, INALTERADO (finding
+       separado `_ACTION_WORKER_KAFKA_GAP_REASON`, fora do escopo deste PR): uma NEGAR sem
+       `human_approved` e bloqueada. RETORNA um registro (nao levanta) — o BPMN nao declara boundary
+       para este codigo, entao ele nao pode virar um `bpmnError`.
+
+    EGRESS PHI (ADR-0006): a negativa carrega texto livre clinico (justificativa_clinica /
+    cid10_referencia / fundamentacao_dut — nomes-PHI, `phi_vars.PHI_PROCESS_VARS`). Antes de
+    qualquer variavel deixar o worker (engine/Kafka = Zona Geral), o payload passa por
+    `redact_phi_vars` (redacao UNIDIRECIONAL, classe-token `REDACTED_PHI`): nenhum texto clinico cru
+    entra em variavel de engine. O canal seguro real ao prestador recebe o texto integral fora
+    desta costura (Fase 1).
     """
 
     def __init__(self) -> None:
-        super().__init__(topic="operadora.auth.send_denial_notice")
+        # max_retries=1: os guards deste worker sao DETERMINISTICOS, nao transitorios. Um
+        # WorkerBpmnError (completude) NUNCA deve ser re-tentado pelo retry in-process do
+        # WorkerBase — o engine e' dono do retry duravel (T1.1 design §9). Sem isto o
+        # WorkerBpmnError seria re-tentado (com sleeps) antes de propagar ao harness.
+        super().__init__(topic="operadora.auth.send_denial_notice", max_retries=1)
 
     def execute(self, process_vars: dict[str, Any]) -> dict[str, Any]:
         """Send denial (or approval) notice.
 
-        Guard: blocks NEGAR decisions without human approval.
+        Guards (NEGAR path, in order): completeness (raises `ERR_AUTH_DENIAL_INCOMPLETE`), then the
+        pre-existing `human_approved` guard. Clinical PHI in the emitted denial payload is redacted
+        one-way before return.
 
         Args:
-            process_vars: Must include decisao_auditor, justificativa_clinica,
+            process_vars: Must include decisao_auditor; for NEGAR, the three grounding fields
+                          (justificativa_clinica, cid10_referencia, fundamentacao_dut) and
                           human_approved.
 
         Returns:
-            Dict with notice status and optional error code.
+            Dict with notice status and optional error code (clinical fields redacted).
+
+        Raises:
+            WorkerBpmnError: ERR_AUTH_DENIAL_INCOMPLETE when a NEGAR lacks any grounding field.
         """
         tenant_id = process_vars.get("tenant_id", "")
         decisao = process_vars.get("decisao_auditor", "")
-        justificativa = process_vars.get("justificativa_clinica", "")
         human_approved = process_vars.get("human_approved", False)
 
-        # Guard: block NEGAR without human approval
-        if decisao == "NEGAR" and not human_approved:
-            self.logger.error(
-                "auth_denial_blocked_by_guard",
-                tenant_id=tenant_id,
-                reason="NEGAR sem aprovacao humana (L0 hard)",
-            )
-            return {
-                "status": "blocked_by_guard",
-                "error_code": ERR_DENIAL_NOT_HUMAN,
-                "mensagem": "Negativa automatica PROIBIDA. Requer decisao de medico auditor humano.",
-            }
-
-        # For APROVAR, human_approved is still checked but not mandatory for notice
         if decisao == "NEGAR":
-            self.logger.info(
-                "auth_denial_sent",
-                tenant_id=tenant_id,
-                justificativa=justificativa,
-            )
-            return {
+            # GUARD 1 — COMPLETUDE (fail-closed, checado PRIMEIRO). None/""/whitespace = ausente.
+            missing = [field for field in _REQUIRED_DENIAL_FIELDS if _is_blank(process_vars.get(field))]
+            if missing:
+                # Loga apenas os NOMES dos campos ausentes — nunca valores (PHI, ADR-0006).
+                self.logger.error(
+                    "auth_denial_blocked_incomplete",
+                    tenant_id=tenant_id,
+                    missing_fields=missing,
+                    reason="negativa formal exige fundamentacao completa (RN 395 art. 10, L0 hard)",
+                )
+                raise WorkerBpmnError(
+                    ERR_AUTH_DENIAL_INCOMPLETE,
+                    f"send_denial_notice: fundamentacao incompleta, campos ausentes: {missing} — "
+                    "negativa formal NAO transmitida (RN 395 art. 10, L0 hard ADR-0005).",
+                )
+
+            # GUARD 2 — human_approved (INALTERADO; retorna registro, nao levanta).
+            if not human_approved:
+                self.logger.error(
+                    "auth_denial_blocked_by_guard",
+                    tenant_id=tenant_id,
+                    reason="NEGAR sem aprovacao humana (L0 hard)",
+                )
+                return {
+                    "status": "blocked_by_guard",
+                    "error_code": ERR_DENIAL_NOT_HUMAN,
+                    "mensagem": "Negativa automatica PROIBIDA. Requer decisao de medico auditor humano.",
+                }
+
+            # Transmissao: monta a notificacao formal (carrega os campos clinicos) e REDIGE o PHI
+            # (redacao unidirecional) antes de qualquer variavel deixar o worker. Nunca loga o
+            # conteudo clinico — apenas o registro de transmissao.
+            self.logger.info("auth_denial_sent", tenant_id=tenant_id)
+            notice = {
                 "status": "notice_sent",
                 "notice_type": "denial",
-                "justificativa_clinica": justificativa,
                 "error_code": None,
                 "event": "agents.events.auth.completed",
+                "justificativa_clinica": process_vars.get("justificativa_clinica", ""),
+                "cid10_referencia": process_vars.get("cid10_referencia", ""),
+                "fundamentacao_dut": process_vars.get("fundamentacao_dut", ""),
             }
+            # ENFORCEMENT POINT (PHI egress, ADR-0006/GAP-XPHI-1): nenhum campo clinico cru sai em
+            # variavel de engine. Chaves estruturais (status/event/...) passam intactas.
+            return redact_phi_vars(notice)
 
-        # APROVAR or other — send approval notice
+        # APROVAR ou outro — envia aviso de aprovacao (sem campos clinicos).
         self.logger.info(
             "auth_approval_notice_sent",
             tenant_id=tenant_id,
