@@ -97,9 +97,10 @@ def test_create_graph_helena_missing_deps_raises_value_error() -> None:
 
 def test_create_graph_stub_agent_uses_no_arg_build() -> None:
     """A still-stubbed agent's `build()` takes no parameters — `create_graph` must call it with
-    no arguments (introspected via `inspect.signature`, not guessed)."""
+    no arguments (introspected via `inspect.signature`, not guessed). (Was `andre` until T1.12
+    made his graph real — `beatriz` is a remaining stub.)"""
     harness = Harness()
-    graph = harness.create_graph("andre")
+    graph = harness.create_graph("beatriz")
     assert graph is not None
     assert hasattr(graph, "compile")
 

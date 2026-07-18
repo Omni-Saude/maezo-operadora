@@ -190,6 +190,14 @@ def _build_tool_deps(settings: AgentRuntimeSettings) -> dict[str, Any]:
         deps["whatsapp"] = WhatsAppServerSender(WhatsAppServer())
     if settings.agent_id == "rafael":
         deps["fhir"] = FhirServerReader(FhirServer(FhirSettings(base_url=settings.fhir_base_url)))
+    if settings.agent_id == "andre":
+        # T1.12: Andre's `gather` seam (`graph.PatientSummaryReader`) only needs `read_patient` —
+        # `FhirServerReader` (built for Rafael) already implements it structurally, so it is
+        # reused here rather than duplicating an adapter (labeled boundary in
+        # `agents/andre/graph.py`'s module docstring). Andre's OTHER optional seam
+        # (`population` — the k-anon lake client) is PORT-PENDING (WB.4) and deliberately not
+        # wired: `build(config)` treats its absence as a disclosed gap note, never a failure.
+        deps["fhir"] = FhirServerReader(FhirServer(FhirSettings(base_url=settings.fhir_base_url)))
     return deps
 
 
