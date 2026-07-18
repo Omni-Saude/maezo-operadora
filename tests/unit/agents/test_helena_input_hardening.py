@@ -37,6 +37,7 @@ from maezo.agents.helena.graph import (
 )
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
+from tests.support.audit_fakes import FakeStartAuditSink
 
 
 class _RecordingCibSeven(FakeCibSevenTransport):
@@ -115,7 +116,13 @@ def _redflag_dmn() -> FakeDmnTransport:
 
 def _compiled(*, inference: _FakeInference, dmn: FakeDmnTransport, cib: _RecordingCibSeven):
     return (
-        HelenaGraph(inference=inference, dmn=dmn, cibseven=cib, whatsapp=_FakeWhatsAppSender())
+        HelenaGraph(
+            inference=inference,
+            dmn=dmn,
+            cibseven=cib,
+            audit_sink=FakeStartAuditSink(),
+            whatsapp=_FakeWhatsAppSender(),
+        )
         .compile_graph()
         .compile()
     )

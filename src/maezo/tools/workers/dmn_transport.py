@@ -75,6 +75,8 @@ from typing import Any, Protocol, runtime_checkable
 import httpx
 import structlog
 
+from maezo.tools.workers._audit_ctx import record_dmn_version
+
 logger = structlog.get_logger(__name__)
 
 # Java `int32` (java.lang.Integer) bounds — identical to `harness.py`'s constants (ADR-0018
@@ -447,8 +449,18 @@ def evaluate_sync(
     the harness always dispatches them via `asyncio.to_thread` — never directly on the event
     loop (T1.1 design §7 sync/async bridge) — so a fresh `asyncio.run()` here never collides
     with a running loop in production. Direct synchronous unit tests call it the same way.
+
+    T-B (T1.10, ADR-0007 non-repudiation): on every successful evaluation this records the
+    authoritative `DmnVersion` into the current task's audit collector (`_audit_ctx`), so the
+    harness can populate `AuditRecord.dmn_versions` at emit time WITHOUT changing the
+    `fn(variables) -> dict` worker boundary (design §3.2). `record_dmn_version` is a no-op
+    outside an audited dispatch (tests/tooling), so this is transparent to every existing caller.
+    This is the ONE funnel every worker DMN eval passes through, so a single hook covers all
+    ~11 migrated tables.
     """
-    return asyncio.run(dmn.evaluate(decision_key, variables, tenant=tenant))
+    rows, version = asyncio.run(dmn.evaluate(decision_key, variables, tenant=tenant))
+    record_dmn_version(version)
+    return rows, version
 
 
 def first_row(

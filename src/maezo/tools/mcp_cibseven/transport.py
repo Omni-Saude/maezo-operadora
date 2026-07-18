@@ -39,6 +39,18 @@ from typing import Any, Protocol, runtime_checkable
 import httpx
 import structlog
 
+# T-C2 provenance-chokepoint fence (ADR-0007, docs/design/audit-emit-path-wiring.md SHOULD-FIX 3).
+# Deliberate, load-bearing coupling — the fence makes a durable, PHI-safe ADR-0007 provenance
+# record a STRUCTURAL precondition of every process start, so `start_process_idempotent` must
+# reach the audit-record type + the one-way PHI redactor. This is the ONLY dependency this module
+# takes beyond its self-contained transport primitives; both imports are cycle-free (neither
+# `maezo.gateway` nor `maezo.tools.workers.phi_vars` imports `mcp_cibseven` at load time) and
+# neither pulls `asyncpg` (the durable sink is duck-typed via the `AuditStartSink` Protocol below,
+# concrete-typed only under TYPE_CHECKING) — so a consumer of the read/transport primitives pays
+# no new heavyweight cost.
+from maezo.gateway.audit import AuditRecord, hash_input
+from maezo.tools.workers.phi_vars import redact_phi_vars
+
 logger = structlog.get_logger(__name__)
 
 # Java `int32` (java.lang.Integer) bounds — identical rationale/constants as
@@ -434,17 +446,161 @@ class FakeCibSevenTransport:
         return None
 
 
+@runtime_checkable
+class AuditStartSink(Protocol):
+    """The exactly-once emit seam `start_process_idempotent` requires (T-C2 fence).
+
+    The production implementation is `maezo.gateway.audit_postgres.PostgresAuditSink`, which
+    satisfies this Protocol structurally (durable, fail-closed, per-tenant advisory-locked, atomic
+    dedup-claim + chain-insert — T-A). Typed as a Protocol rather than the concrete class so the
+    chokepoint takes no `asyncpg` import and unit tests can inject a recording fake, while a real
+    agent daemon injects the real durable sink.
+    """
+
+    async def emit_once(self, record: AuditRecord, *, dedup_key: str) -> str: ...
+
+
+@dataclass(frozen=True, slots=True)
+class AgentDecisionProvenance:
+    """The ADR-0007 decision-provenance an agent MUST carry to start a process (T-C2 fence).
+
+    This is the LLM-decision provenance the deterministic worker chokepoint (T-C) structurally
+    leaves null: `model_id`/`prompt_version`/`decision_basis` for the autonomous agent decision
+    that led to the process start. It is a REQUIRED argument of `start_process_idempotent`, so an
+    agent physically cannot start a process without supplying it (a missing tuple is a call-time
+    error, never a silent audit gap — the drift-proof property the fence buys over enumerating the
+    call sites).
+
+    PHI discipline (docs/design/audit-emit-path-wiring.md §3.3): `decision_basis` MUST be a curated
+    allowlist of bounded routing/enum tokens ONLY (`route`, `desfecho`, `faixa_valor`,
+    `grupo_aprovador`, `motivo_*`, `severidade`, ...) — NEVER raw clinical free text, and never a
+    passthrough of `state`/`variables`. The chokepoint additionally runs it through the one-way
+    `redact_phi_vars` backstop and binds the raw start `variables` via a one-way `input_sha256`
+    (never persisting them), so a resolvable business key / clinical value never reaches the durable
+    chain even if a caller's allowlist slips.
+
+    Attributes:
+        agent_id: Stable agent identity (ADR-0007 `agent_id`), e.g. ``"andre"`` — NOT an ephemeral
+            per-replica id.
+        agent_version: Emitting agent version (ADR-0007 "sob-qual-versao").
+        tenant_id: Owning tenant — also the schema the durable sink writes to; used to build the
+            per-tenant dedup key.
+        decision_basis: Curated, PHI-safe routing/enum tokens (§3.3). REQUIRED and explicit.
+        model_id: LLM model id that drove the decision, when one did (else None — honest, mirrors
+            the worker path).
+        prompt_version: Prompt-template version that drove the decision, when applicable.
+        dmn_versions: DMN decision-definition version tokens consulted, ``{key: {...}}`` (class
+            tokens only, never clinical values). Defaults to empty.
+    """
+
+    agent_id: str
+    agent_version: str
+    tenant_id: str
+    decision_basis: dict[str, Any]
+    model_id: str | None = None
+    prompt_version: str | None = None
+    dmn_versions: dict[str, Any] = field(default_factory=dict)
+
+
+# ADR-0007 "tool"/"decision" values for the agent process-start effect. `action` names the effect
+# and its target process definition (a class token); `decision` is a fixed honest label — PEP is
+# unwired at runtime (design §2.1 site 3), so no ALLOW/DENY verdict is captured here; this record
+# attests "the agent committed to starting this process instance". The agent's own routing verdict
+# lives in `decision_basis`.
+_START_ACTION_PREFIX = "start_process"
+_START_DECISION = "START_PROCESS"
+
+
+def build_start_audit_record(
+    provenance: AgentDecisionProvenance,
+    *,
+    process_key: str,
+    business_key: str,
+    variables: dict[str, Any],
+) -> AuditRecord:
+    """Build the PHI-safe ADR-0007 process-start record from `provenance` + the start inputs.
+
+    PHI discipline (design §3.3): the caller-curated `decision_basis` passes through the one-way
+    `redact_phi_vars` backstop; the raw start `variables` (which legitimately carry resolvable
+    business identifiers — e.g. a `numero_guia_tiss`-derived business key or payment order id) are
+    bound by a one-way `input_sha256` and NEVER stored in the clear. `business_key` itself is NOT
+    placed in the durable chain (§3.3 "no resolvable business identifiers"); it lives only in the
+    dedup key (a sibling table), mirroring how the engine already stores its own business key.
+    `process_key` is a decision-definition class token, safe in the clear (it is also the `action`).
+    """
+    details: dict[str, Any] = {
+        **redact_phi_vars(provenance.decision_basis),
+        "process_key": process_key,
+        "input_sha256": hash_input(variables),
+    }
+    return AuditRecord(
+        agent_id=provenance.agent_id,
+        tenant_id=provenance.tenant_id,
+        agent_version=provenance.agent_version,
+        action=f"{_START_ACTION_PREFIX}:{process_key}",
+        decision=_START_DECISION,
+        details=details,
+        dmn_versions=dict(provenance.dmn_versions),
+        model_id=provenance.model_id,
+        prompt_version=provenance.prompt_version,
+    )
+
+
+def start_dedup_key(tenant_id: str, process_key: str, business_key: str) -> str:
+    """The exactly-once dedup key for an agent process start (design SHOULD-FIX 3 / §4.3).
+
+    ``f"{tenant}:start:{process_key}:{business_key}"`` — matches each SP-OP-* contract's "one
+    active instance per business key" invariant, so a re-run dedupes BOTH the start effect (via
+    `find_active_instance`) AND the audit row (via `emit_once`). Stable across re-delivery/retry
+    because it is derived from the business key, not a per-call id.
+    """
+    return f"{tenant_id}:start:{process_key}:{business_key}"
+
+
 async def start_process_idempotent(
     transport: CibSevenTransport,
     *,
     process_key: str,
     business_key: str,
     variables: dict[str, Any],
+    audit_sink: AuditStartSink,
+    provenance: AgentDecisionProvenance,
 ) -> ProcessInstance:
-    """Idempotent start: `find_active_instance` first — an active hit is returned unchanged
-    (`already_existed=True`), never re-started (every SP-OP-* contract's "one active instance per
-    business key" invariant). This is the ONE call site agent graphs (Helena/Rafael) should use —
-    never `start_process_instance` directly, which has no idempotency check of its own."""
+    """Idempotent, ADR-0007-audited process start — the SINGLE agent-side effect chokepoint (T-C2).
+
+    This is the ONE call site agent graphs use to start a BPMN process — never
+    `start_process_instance` directly. `audit_sink` and `provenance` are REQUIRED (no defaults):
+    the fence is structural, so a caller that omits either fails LOUDLY at call time (a
+    `TypeError`), never silently starting an un-audited process. Because every present and future
+    agent start funnels through here, the ADR-0007 provenance coverage cannot drift the way an
+    enumerated list of call sites did (design SHOULD-FIX 3).
+
+    Fail-closed ordering (design §4.2 — audit BEFORE effect):
+      1. Emit the durable, PHI-safe provenance record via `emit_once` (idempotent on
+         `start_dedup_key`). This RAISES `AuditPersistenceError` on any durability failure — and,
+         being neither a `CibSevenError` nor caught by the agents' `except CibSevenError`, it
+         propagates and fails the turn. No process is ever started without a preceding durable
+         audit row.
+      2. `find_active_instance` — an active hit is returned unchanged (`already_existed=True`),
+         never re-started (the "one active instance per business key" invariant).
+      3. Otherwise start the instance.
+
+    Idempotency & no-double: on re-delivery the same business key yields `emit_once` →
+    ``ALREADY_AUDITED`` (no second chain link) AND `find_active_instance` → the existing instance
+    (no second start). The process start is itself business-key-idempotent, so it is P1-safe (no
+    double-effect); the emit dedup closes the double-audit window. Emitting slightly ahead of the
+    (idempotent) start is the fail-closed choice: the record attests the agent's decision to start;
+    the start is the mechanical realization the idempotency guard makes safe to repeat.
+    """
+    # 1. FAIL-CLOSED durable provenance BEFORE any engine effect (ADR-0007 invariant).
+    record = build_start_audit_record(
+        provenance, process_key=process_key, business_key=business_key, variables=variables
+    )
+    await audit_sink.emit_once(
+        record, dedup_key=start_dedup_key(provenance.tenant_id, process_key, business_key)
+    )
+
+    # 2. Idempotency: an active instance is returned unchanged, never double-started.
     existing = await transport.find_active_instance(business_key)
     if existing is not None:
         logger.info(
@@ -454,6 +610,8 @@ async def start_process_idempotent(
             instance_id=existing.instance_id,
         )
         return existing
+
+    # 3. Start the instance (the effect — gated behind the durable audit above).
     instance = await transport.start_process_instance(process_key, business_key, variables)
     logger.info(
         "cibseven_process_started",

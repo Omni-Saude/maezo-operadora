@@ -14,11 +14,13 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from maezo.tools.mcp_cibseven.transport import AgentDecisionProvenance, start_process_idempotent
 from maezo.tools.workers.base import FunctionWorker
 from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row, require_dmn
+from maezo.tools.workers.harness import AUDIT_AGENT_ID, _resolve_app_version
 
 if TYPE_CHECKING:
-    from maezo.tools.mcp_cibseven.transport import CibSevenTransport
+    from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
     from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
 
 logger = structlog.get_logger(__name__)
@@ -464,10 +466,70 @@ register_contract_suspension = _register_contract_suspension
 # ---------------------------------------------------------------
 
 
-def handoff_rescisao(variables: dict[str, Any]) -> dict[str, Any]:
-    """Neutral handoff: initiate/correlate CANCEL-001 for rescission.
+#: PHI-safe allowlist of process variables carried into the CANCEL-001 start payload (the handoff
+#: hands CANCEL the RN-593 evidence so its `notificacao_previa_feita=true` branch routes to
+#: SEGUE_ANALISE without re-opening the cure-window — INADIMPLENCIA owns the cure-window, CANCEL
+#: must not re-run it (harmonization-inadimplencia-cancel.md §2). Explicit allowlist (never a
+#: passthrough of the full variable dict): only bounded identifiers/enums/refs, no raw PHI.
+_HANDOFF_CARRY_KEYS = (
+    "numero_contrato",
+    "matricula_beneficiario",
+    "tenant_id",
+    "tipo_plano",
+    "meses_inadimplencia",
+    "notificacao_previa_feita",
+    "comprovacao_notificacao_previa",
+    "comprovacao_periodo_minimo",
+    "referencia_regulatoria",
+    "fundamentacao_contratual",
+    "documentos_refs",
+    # The inadimplencia human who decided ENCAMINHAR_RESCISAO — carried for the ADR-0007 audit
+    # trail; CANCEL's OWN human gate (UT_AnaliseRescisao) re-confirms the rescisao decision.
+    "responsavel_id",
+)
 
-    This is NOT an adverse effect — CANCEL-001 owns the sole rescission terminal.
+
+def handoff_rescisao(
+    variables: dict[str, Any],
+    *,
+    engine: CibSevenTransport | None = None,
+    audit_sink: AuditStartSink | None = None,
+) -> dict[str, Any]:
+    """Neutral handoff: idempotently START/correlate SP-OP-CANCEL-001 for the rescission.
+
+    NOT an adverse effect — CANCEL-001 owns the sole rescission terminal, human-gated by its OWN
+    `UT_AnaliseRescisao` (harmonization-inadimplencia-cancel.md §2). When the INADIMPLENCIA human
+    decides `ENCAMINHAR_RESCISAO`, this worker starts CANCEL-001 (business key
+    ``CANCEL-{tenant}-{numero_contrato}``, matricula fallback for individual/familiar) via the
+    shared, business-key-idempotent ``start_process_idempotent`` chokepoint — an already-active
+    CANCEL instance for this contract is returned unchanged (no duplicate rescisao).
+
+    T-C2 FENCE (10th start site, T1.10 wave integration): the chokepoint REQUIRES a durable
+    ``audit_sink`` + ``AgentDecisionProvenance`` — the ADR-0007 start record is emitted
+    exactly-once (dedup key ``{tenant}:start:SP-OP-CANCEL-001:{business_key}``) BEFORE any engine
+    effect. Provenance for this deterministic worker context: ``agent_id`` is the stable service
+    identity (`AUDIT_AGENT_ID`, T-C convention — not the per-replica worker id), no
+    ``model_id``/``prompt_version`` (no LLM decides here; the human's ENCAMINHAR_RESCISAO does),
+    and ``decision_basis`` carries ONLY bounded enum/flag tokens (design §3.3). ``responsavel_id``
+    and the contract identity stay in the start ``variables``, bound one-way via the record's
+    ``input_sha256`` — never stored in the clear.
+
+    P1-safe mid-handler effect (design §4.2, "MUST-FIX 1"): the ONLY external effect here is the
+    business-key-idempotent process start, whose dedup makes a re-delivery return the SAME active
+    instance — no double-effect — so it is exempt from the "no mid-handler external effect" rule.
+    The business key is a DETERMINISTIC function of process variables (no wall-clock / uuid), so a
+    re-run keys the same instance (and its audit emit dedups to the same chain link).
+
+    FAIL-CLOSED (never a silent no-op — mirrors fraude's ``start_contratual`` handoff intent):
+      - a transport/engine error propagates from ``start_process_idempotent`` (``CibSevenError`` ->
+        transient -> engine retry -> incident);
+      - an audit-persistence failure propagates (``AuditPersistenceError``, a ``RuntimeError`` ->
+        transient -> retry) and the engine start NEVER happens (emit-before-effect);
+      - a missing engine seam (``engine is None`` — composition root not wired) raises (transient);
+      - a missing audit seam (``audit_sink is None``) raises (transient) — the handoff can never
+        start CANCEL-001 un-audited (ADR-0007 L0);
+      - a missing contract identity raises ``InadimplenciaError`` (deterministic -> immediate
+        incident) — the handoff can never target an empty CANCEL business key.
     """
     decisao = variables.get("decisao_inadimplencia", "")
     if decisao != DECISAO_ENCAMINHAR_RESCISAO:
@@ -477,14 +539,101 @@ def handoff_rescisao(variables: dict[str, Any]) -> dict[str, Any]:
         )
         return {"handoff_executado": False}
 
+    tenant_id = str(variables.get("tenant_id", ""))
+    numero_contrato = str(variables.get("numero_contrato", ""))
+    matricula_beneficiario = str(variables.get("matricula_beneficiario", ""))
+
+    if not (numero_contrato or matricula_beneficiario):
+        # No contract identity -> cannot key CANCEL-001 -> refuse (deterministic bad input).
+        logger.error(
+            "inadimplencia_handoff_rescisao_no_contract_identity",
+            tenant_id=tenant_id,
+        )
+        raise InadimplenciaError(
+            ERR_INAD_INVALID_CONTRATO,
+            "handoff_rescisao: sem numero_contrato/matricula_beneficiario — nao ha identidade de "
+            "contrato para iniciar CANCEL-001 (recusado, nunca inicia com business key vazia)",
+        )
+
+    if engine is None:
+        # Composition root has not wired the agent->engine seam: fail closed (never a silent
+        # no-op that would drop the human's ENCAMINHAR_RESCISAO decision). Transient RuntimeError
+        # -> engine-computed retry -> incident (mirrors require_dmn's unwired-seam posture).
+        logger.error(
+            "inadimplencia_handoff_rescisao_engine_seam_not_wired",
+            numero_contrato=numero_contrato or matricula_beneficiario,
+        )
+        raise RuntimeError(
+            "handoff_rescisao: engine seam (CibSevenTransport) not wired — cannot start CANCEL-001; "
+            "failing closed to a retry/incident (never a silent no-op)"
+        )
+
+    if audit_sink is None:
+        # T-C2 fence co-requisite: no durable audit sink -> the fenced chokepoint cannot emit the
+        # ADR-0007 start record -> the handoff must NOT start CANCEL-001 (emit-before-effect, L0).
+        # Same transient fail-closed posture as the engine seam above: RuntimeError -> retry ->
+        # incident, never a silent no-op and never an un-audited start.
+        logger.error(
+            "inadimplencia_handoff_rescisao_audit_sink_not_wired",
+            numero_contrato=numero_contrato or matricula_beneficiario,
+        )
+        raise RuntimeError(
+            "handoff_rescisao: audit sink (AuditStartSink) not wired — cannot emit the ADR-0007 "
+            "start record, so CANCEL-001 is NOT started (fail-closed, emit-before-effect); "
+            "failing to a retry/incident (never a silent no-op, never an un-audited start)"
+        )
+
+    cancel_business_key = _cancel_business_key(tenant_id, numero_contrato, matricula_beneficiario)
+    payload: dict[str, Any] = {
+        "tipo_solicitacao": "inadimplencia",
+        "origem_solicitacao": "operadora",  # handoff origin (harmonization §2)
+        **{k: variables[k] for k in _HANDOFF_CARRY_KEYS if k in variables},
+    }
+
+    # ADR-0007 provenance for the fenced start (T-C2, 10th site). Deterministic worker context:
+    # stable service identity, no LLM legs; `decision_basis` is a curated allowlist of bounded
+    # enum/flag tokens ONLY (design §3.3) — `responsavel_id`/contract identity live in `payload`,
+    # bound one-way via the record's `input_sha256`, never in the clear.
+    provenance = AgentDecisionProvenance(
+        agent_id=AUDIT_AGENT_ID,
+        agent_version=_resolve_app_version(),
+        tenant_id=tenant_id,
+        decision_basis={
+            "decisao_inadimplencia": decisao,
+            "origem_solicitacao": "operadora",
+            "notificacao_previa_feita": bool(variables.get("notificacao_previa_feita", False)),
+        },
+        model_id=None,
+        prompt_version=None,
+    )
+
+    # Fenced chokepoint call: emits the durable start record exactly-once (dedup key
+    # `{tenant}:start:SP-OP-CANCEL-001:{cancel_business_key}`) BEFORE `find_active_instance`/start.
+    instance = asyncio.run(
+        start_process_idempotent(
+            engine,
+            process_key=CANCEL_PROCESS_KEY,
+            business_key=cancel_business_key,
+            variables=payload,
+            audit_sink=audit_sink,
+            provenance=provenance,
+        )
+    )
+
     logger.info(
         "inadimplencia_handoff_rescisao",
-        numero_contrato=variables.get("numero_contrato"),
+        numero_contrato=numero_contrato or matricula_beneficiario,
+        cancel_business_key=cancel_business_key,
+        cancel_instance_id=instance.instance_id,
+        cancel_already_existed=instance.already_existed,
     )
 
     return {
         "handoff_executado": True,
         "processo_destino": "SP-OP-CANCEL-001",
+        "cancel_business_key": cancel_business_key,
+        "cancel_instance_id": instance.instance_id,
+        "cancel_already_existed": instance.already_existed,
     }
 
 
@@ -534,17 +683,28 @@ def register_inadimplencia_workers(
     `dmn` (ADR-0028 §1 seam) is threaded into `assess_status` (`inadimplencia_status`, T1.5
     cutover) via `functools.partial`; no other function here evaluates a DMN table.
 
-    `engine` (a `CibSevenTransport`, the SAME `find_active_instance` seam the agent graphs use for
-    start-time idempotency, ADR-0001/T1.11) is threaded into `resolve_facts` for the anti-dupla-
-    terminacao cross-process query (GAP-INAD-1). When ABSENT (`None` — e.g. the composition root has
-    not yet wired the seam), `resolve_facts` FAILS CLOSED (`ja_em_rescisao_cancel := True`) and the
-    `register_contract_suspension` guard REFUSES the suspension, routing to a human (ADR-0018). The
-    seam flows in through the standard `**seams` channel (`register_all_workers(harness, ...,
-    engine=...)`), identical to how `dmn` is threaded — no other bootstrap needs to change.
+    `engine` (a `CibSevenTransport`, the SAME `find_active_instance`/`start_process` seam the agent
+    graphs use, ADR-0001/T1.11) is threaded into BOTH engine-touching workers:
+      - `resolve_facts` — the anti-dupla-terminacao cross-process `find_active_instance` query
+        (GAP-INAD-1). ABSENT (`None`) -> FAILS CLOSED (`ja_em_rescisao_cancel := True`), so the
+        `register_contract_suspension` guard REFUSES the suspension (ADR-0018).
+      - `handoff_rescisao` — the CANCEL-001 `start_process_idempotent` start (T1.10 T-D). ABSENT
+        (`None`) -> RAISES (never a silent no-op that would drop the human's ENCAMINHAR_RESCISAO).
+    The seam flows in through the standard `**seams` channel (`register_all_workers(harness, ...,
+    engine=...)`), identical to how `dmn` is threaded — no other bootstrap needs to change. In the
+    live daemon it is a `FreshClientCibSevenTransport` (fresh-client-per-call, GAP-INAD-1).
+
+    `audit_sink` (an `AuditStartSink`, T1.10 T-C2 fence co-requisite) is threaded into
+    `handoff_rescisao` only — the one worker here that runs the fenced `start_process_idempotent`
+    chokepoint. ABSENT (`None`) -> `handoff_rescisao` RAISES before any engine effect (an
+    un-audited CANCEL-001 start is structurally impossible, ADR-0007 L0). In the live daemon it is
+    a `FreshSinkAuditEmitter` (gateway/audit_postgres.py) — the sink-side mirror of the
+    fresh-client-per-call pattern, because each sync dispatch emits on its own `asyncio.run` loop.
     """
     del kafka  # unused — no inadimplencia.py worker declares a Kafka dependency
     dmn = seams.get("dmn")
     engine: CibSevenTransport | None = seams.get("engine")
+    audit_sink: AuditStartSink | None = seams.get("audit_sink")
     harness.register_worker(
         FunctionWorker(
             "operadora.inadimplencia.resolve_facts", functools.partial(resolve_facts, engine=engine)
@@ -559,5 +719,10 @@ def register_inadimplencia_workers(
     harness.register_worker(
         FunctionWorker("operadora.inadimplencia.register_contract_suspension", register_contract_suspension)
     )
-    harness.register_worker(FunctionWorker("operadora.inadimplencia.handoff_rescisao", handoff_rescisao))
+    harness.register_worker(
+        FunctionWorker(
+            "operadora.inadimplencia.handoff_rescisao",
+            functools.partial(handoff_rescisao, engine=engine, audit_sink=audit_sink),
+        )
+    )
     harness.register_worker(FunctionWorker("operadora.inadimplencia.notify_sla_risk", notify_sla_risk))

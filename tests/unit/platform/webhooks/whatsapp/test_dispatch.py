@@ -17,6 +17,7 @@ from maezo.platform.webhooks.whatsapp.dispatch import (
 )
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
+from tests.support.audit_fakes import FakeStartAuditSink
 
 
 class _FakeInference:
@@ -128,6 +129,7 @@ async def test_dispatcher_derives_conversation_id_and_pseudo_id_never_raw_phone(
         cibseven=FakeCibSevenTransport(),
         whatsapp_client=whatsapp_client,  # type: ignore[arg-type]
         pseudonymizer=Pseudonymizer(),
+        audit_sink=FakeStartAuditSink(),
     )
 
     result = await dispatcher.dispatch(
@@ -163,6 +165,7 @@ async def test_dispatcher_red_flag_message_starts_escalation() -> None:
         cibseven=cibseven,
         whatsapp_client=_FakeWhatsAppClient(),  # type: ignore[arg-type]
         pseudonymizer=Pseudonymizer(),
+        audit_sink=FakeStartAuditSink(),
     )
 
     result = await dispatcher.dispatch(
@@ -204,6 +207,7 @@ async def test_dispatch_constructs_state_with_only_input_fields(monkeypatch: pyt
         cibseven=FakeCibSevenTransport(),
         whatsapp_client=_FakeWhatsAppClient(),  # type: ignore[arg-type]
         pseudonymizer=Pseudonymizer(),
+        audit_sink=FakeStartAuditSink(),
     )
 
     await dispatcher.dispatch(InboundMessage(from_number="5511999999999", text="ola", message_id="wamid.1"))

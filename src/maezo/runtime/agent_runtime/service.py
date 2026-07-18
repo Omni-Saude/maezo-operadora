@@ -178,6 +178,7 @@ def _build_tool_deps(settings: AgentRuntimeSettings) -> dict[str, Any]:
     """
     from maezo.agents.helena.adapters import WhatsAppServerSender
     from maezo.agents.rafael.adapters import FhirServerReader
+    from maezo.gateway.audit_postgres import PostgresAuditSink
     from maezo.tools.mcp_cibseven.transport import CibSevenHttpTransport
     from maezo.tools.mcp_fhir.server import FhirServer, FhirSettings
     from maezo.tools.mcp_whatsapp.server import WhatsAppServer
@@ -187,6 +188,15 @@ def _build_tool_deps(settings: AgentRuntimeSettings) -> dict[str, Any]:
         "dmn": CibSevenDmnTransport(settings.cibseven_base_url),
         "cibseven": CibSevenHttpTransport(settings.cibseven_base_url),
     }
+    # T-C2 fence: every agent's `start_process` node structurally REQUIRES a durable ADR-0007 sink
+    # (the fail-closed emit-before-effect chokepoint, `start_process_idempotent`). Construction is
+    # pure (asyncpg pool is lazy, like the transports above — no I/O at readiness-check time). When
+    # `DATABASE_URL` is unset the sink is deliberately NOT fabricated: the agent `build(config)`
+    # then fail-closes (missing `audit_sink`) and `graph_loaded` reports unhealthy with the reason —
+    # an agent replica that cannot durably audit its process starts must not advertise a loadable
+    # graph (ADR-0007 fail-closed; mirrors T-D's worker-daemon `audit_sink_ready` posture).
+    if settings.database_url:
+        deps["audit_sink"] = PostgresAuditSink(settings.database_url, settings.tenant_id)
     if settings.agent_id in ("helena", "fernando"):
         # T1.12: Fernando reuses the SAME generic WhatsAppSender adapter as Helena — it is
         # documented as a structural (Protocol-satisfying) shim over `WhatsAppServer`, not
