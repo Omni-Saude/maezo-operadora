@@ -136,6 +136,19 @@ INSERT_SQL = f"INSERT INTO audit_chain ({', '.join(_COLUMNS)}) VALUES ({_INSERT_
 # docstring ("Per-tenant serialization, not global").
 _ADVISORY_LOCK_SQL = "SELECT pg_advisory_xact_lock(hashtext($1))"
 
+# Idempotency claim for exactly-once emission (emit_once) — audit_emit_dedup
+# (0005_audit_emit_dedup.py). The read below returns the prior chain link's record_hash for an
+# already-claimed key (so a re-delivered effect gets the SAME identity back, not an error); the
+# claim INSERT below runs INSIDE emit()'s advisory-lock transaction so claim+chain-link commit
+# atomically. `ON CONFLICT DO NOTHING` is belt-and-suspenders under the advisory lock (which
+# already serializes claims per tenant): if the lock were ever bypassed, a colliding claim returns
+# zero rows and emit_once fails closed rather than forking the chain.
+_DEDUP_LOOKUP_SQL = "SELECT record_hash FROM audit_emit_dedup WHERE tenant = $1 AND dedup_key = $2"
+_DEDUP_CLAIM_SQL = (
+    "INSERT INTO audit_emit_dedup (tenant, dedup_key, record_hash) VALUES ($1, $2, $3) "
+    "ON CONFLICT (tenant, dedup_key) DO NOTHING RETURNING record_hash"
+)
+
 # Structural tail lookup: the tail is the ONE record_hash that is never anyone's
 # prev_record_hash. This is robust to wall-clock skew (unlike `ORDER BY timestamp`, which the
 # v1 implementation's own comments flag as fragile across replicas/failover). Uses a correlated
@@ -223,22 +236,7 @@ class PostgresAuditSink:
                 record.prev_hash = tail
                 record.record_hash = record._compute_hash()
 
-                await conn.execute(
-                    INSERT_SQL,
-                    record.timestamp,
-                    record.tenant_id,
-                    record.agent_id,
-                    record.agent_version,
-                    record.action,
-                    record.decision,
-                    record.compute_input_hash(),
-                    json.dumps(record.details, sort_keys=True, default=str),
-                    json.dumps(record.dmn_versions, sort_keys=True, default=str),
-                    record.model_id,
-                    record.prompt_version,
-                    record.record_hash,
-                    record.prev_hash,
-                )
+                await self._insert_chain_row(conn, record)
         except AuditPersistenceError:
             raise
         except Exception as exc:  # noqa: BLE001 — deliberately broad: FAIL CLOSED, always re-raise
@@ -263,6 +261,134 @@ class PostgresAuditSink:
             record_hash=record.record_hash,
         )
         return record.record_hash
+
+    async def emit_once(self, record: AuditRecord, *, dedup_key: str) -> str:
+        """Idempotently persist `record` as the next chain link, keyed on `dedup_key`. FAIL-CLOSED.
+
+        The exactly-once wrapper around `emit()` for effects the engine may re-deliver: it claims
+        `dedup_key` in `audit_emit_dedup` (0005_audit_emit_dedup.py) and inserts the chain link
+        INSIDE THE SAME per-tenant advisory-lock transaction, so the claim and the link are atomic
+        (see docs/design/audit-emit-path-wiring.md §4.3):
+
+          - **First emit for a key** → reads the tail, chains `record` onto it, claims the key
+            (storing the new `record_hash`), inserts the chain link — all in one committed
+            transaction. Returns the new `record_hash` (identical to `emit()`).
+          - **Second emit for the same key** (engine re-delivery of the same effect) → the claim
+            already exists, so this is a NO-OP: NO second chain link is written, and the PRIOR
+            link's `record_hash` is returned. Not an error — a re-delivered effect legitimately
+            maps to the audit row already written for it.
+          - **Crash between claim and chain-insert** → both roll back together (one transaction),
+            so re-delivery re-emits cleanly: no dangling claim to suppress the retry (no gap), no
+            orphan chain link for the retry to duplicate (no duplicate). This is the property the
+            kill-test proves.
+
+        `dedup_key` is supplied by the caller and identifies the logical effect. Its shape is a
+        caller contract (T-C / T-C2 — not enforced here), and MUST be stable across the engine's
+        re-delivery of one effect:
+          - worker completions:  ``f"{tenant}:{task_id}"`` (the CIB Seven external-task id is
+            stable across lock-expiry / failure-with-retries re-delivery);
+          - process-start emits: ``f"{tenant}:start:{process_key}:{business_key}"``.
+
+        Preserves every guarantee `emit()` makes: single-writer-per-tenant ordering
+        (`pg_advisory_xact_lock`), a structurally-derived tail (no in-memory head cache), and the
+        hash-chain integrity `verify_chain()` checks. The dedup lookup and claim are serialized
+        with the tail read by the same advisory lock, so there is no TOCTOU between "already
+        audited?" and "chain the link".
+
+        Mutates `record.prev_hash`/`record.record_hash` in place on the first emit (as `emit()`
+        does); on a dedup no-op the record is NOT chained (there is no new link) and the returned
+        hash is the prior link's, read from the claim row.
+
+        Raises `AuditPersistenceError` (chaining the original DB error) on ANY failure — an
+        unauditable effect must not proceed as if it had been audited.
+        """
+        try:
+            pool = await self._ensure_pool()
+            async with pool.acquire() as conn, conn.transaction():
+                await conn.execute(_ADVISORY_LOCK_SQL, self._tenant_id)
+
+                # 1. Already audited? Serialized with the tail read below by the advisory lock —
+                #    no TOCTOU. Returns the prior chain link's identity for a re-delivered effect.
+                prior_hash: str | None = await conn.fetchval(_DEDUP_LOOKUP_SQL, self._tenant_id, dedup_key)
+                if prior_hash is not None:
+                    logger.debug(
+                        "audit_emit_once_deduped",
+                        tenant_id=self._tenant_id,
+                        dedup_key=dedup_key,
+                        record_hash=prior_hash,
+                    )
+                    return prior_hash
+
+                # 2. First time for this effect — chain the record onto the current tail.
+                tail = await self._fetch_tail(conn)
+                record.prev_hash = tail
+                record.record_hash = record._compute_hash()
+
+                # 3. Claim the key AND insert the chain link, atomically. The claim carries the
+                #    new record_hash so a later re-delivery gets it back (step 1). ON CONFLICT
+                #    returning zero rows means a concurrent claim slipped past the advisory lock
+                #    (should be impossible) — fail closed rather than fork the chain.
+                claimed: str | None = await conn.fetchval(
+                    _DEDUP_CLAIM_SQL, self._tenant_id, dedup_key, record.record_hash
+                )
+                if claimed is None:
+                    raise AuditPersistenceError(
+                        f"audit_emit_dedup claim for tenant={self._tenant_id!r} "
+                        f"dedup_key={dedup_key!r} collided under the advisory lock "
+                        "(concurrent claim bypassed serialization) — refusing to fork the chain"
+                    )
+
+                await self._insert_chain_row(conn, record)
+        except AuditPersistenceError:
+            raise
+        except Exception as exc:  # noqa: BLE001 — deliberately broad: FAIL CLOSED, always re-raise
+            logger.error(
+                "audit_emit_once_write_failed",
+                tenant_id=self._tenant_id,
+                agent_id=record.agent_id,
+                action=record.action,
+                dedup_key=dedup_key,
+                error=str(exc),
+            )
+            raise AuditPersistenceError(
+                f"failed to persist audit record (emit_once) for tenant={self._tenant_id!r} "
+                f"agent={record.agent_id!r} action={record.action!r} dedup_key={dedup_key!r}: {exc}"
+            ) from exc
+
+        logger.debug(
+            "audit_emit_once_persisted",
+            tenant_id=self._tenant_id,
+            agent_id=record.agent_id,
+            action=record.action,
+            decision=record.decision,
+            dedup_key=dedup_key,
+            record_hash=record.record_hash,
+        )
+        return record.record_hash
+
+    async def _insert_chain_row(self, conn: asyncpg.Connection, record: AuditRecord) -> None:
+        """Insert `record` as a chain row on `conn`. Caller owns the advisory-locked transaction.
+
+        Shared by `emit()` and `emit_once()` — the single place the `audit_chain` INSERT is issued,
+        so the two write paths can never drift in the columns/order they persist. Assumes
+        `record.prev_hash`/`record.record_hash` are already set for the current tail.
+        """
+        await conn.execute(
+            INSERT_SQL,
+            record.timestamp,
+            record.tenant_id,
+            record.agent_id,
+            record.agent_version,
+            record.action,
+            record.decision,
+            record.compute_input_hash(),
+            json.dumps(record.details, sort_keys=True, default=str),
+            json.dumps(record.dmn_versions, sort_keys=True, default=str),
+            record.model_id,
+            record.prompt_version,
+            record.record_hash,
+            record.prev_hash,
+        )
 
     async def _fetch_tail(self, conn: asyncpg.Connection) -> str:
         """Return the current chain tail, or GENESIS_PREV_HASH if the chain is empty.
