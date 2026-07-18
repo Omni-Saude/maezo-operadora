@@ -18,6 +18,7 @@ from maezo.tools.workers.dmn_transport import (
     DmnEvaluationError,
     DmnNoResultError,
     DmnTransport,
+    DmnVariableDecodeError,
     DmnVersion,
     FakeDmnTransport,
     evaluate_sync,
@@ -295,6 +296,119 @@ async def test_boolean_and_string_and_none_typing() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Json-typed result-variable decode (T1.5 sibling of the harness fix PR #75 and the
+# mcp_cibseven/transport.py fix PR #89 — same defect class, this transport's evaluate() leg).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_evaluate_decodes_json_typed_result_variable() -> None:
+    """Real DMN-result wire shape (T1.5 investigation, live-probed against an isolated CIB
+    Seven 2.1.0 engine): a decision-table output value wire-typed `Json` arrives in the
+    `evaluate` response as a JSON STRING requiring a second decode — the exact same shape
+    `tools/workers/harness.py`'s `_from_camunda_var` (PR #75) and `mcp_cibseven/transport.py`'s
+    copy (PR #89) already decode on their own read legs. Before this fix, `evaluate()` extracted
+    every result-row entry via a bare `v.get("value") if isinstance(v, dict) else v`, so a
+    dict/list-valued DMN output would arrive at the calling worker as the raw JSON string
+    `'{"a": 1, "b": [1, 2, 3]}'` instead of a Python `dict` — any worker indexing/iterating it
+    would break or silently misbehave.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/evaluate"):
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "resultado": {
+                            "value": '{"a": 1, "b": [1, 2, 3]}',
+                            "type": "Json",
+                        },
+                        "motivo": {"value": "ok", "type": "String"},
+                    }
+                ],
+            )
+        return httpx.Response(200, json=_definition_body())
+
+    transport = _client_with_handler(handler)
+    rows, _version = await transport.evaluate("some_key", {"x": 1})
+
+    assert rows == [{"resultado": {"a": 1, "b": [1, 2, 3]}, "motivo": "ok"}]
+    assert isinstance(rows[0]["resultado"], dict)  # NOT the raw JSON string
+
+
+@pytest.mark.asyncio
+async def test_evaluate_json_null_value_decodes_to_none() -> None:
+    """A `Json`-typed result variable with `value: null` (unset) decodes to `None`, never
+    attempted through `json.loads` (which would raise `TypeError` on a non-str/bytes argument)."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/evaluate"):
+            return httpx.Response(200, json=[{"dossie_vazio": {"value": None, "type": "Json"}}])
+        return httpx.Response(200, json=_definition_body())
+
+    transport = _client_with_handler(handler)
+    rows, _version = await transport.evaluate("some_key", {})
+
+    assert rows == [{"dossie_vazio": None}]
+
+
+@pytest.mark.asyncio
+async def test_evaluate_malformed_json_result_variable_fails_closed() -> None:
+    """Fail-closed contract (mirrors `tools/workers/harness.py`'s `fetch_and_lock` and
+    `mcp_cibseven/transport.py`'s `get_process_status` decode contracts, PR #75/#89): malformed
+    JSON inside a `Json`-typed DMN result variable must NEVER be handed to the worker as the raw
+    string (silent corruption). `evaluate()` raises a coded `DmnVariableDecodeError` instead."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/evaluate"):
+            return httpx.Response(200, json=[{"resultado": {"value": "{not-valid-json[", "type": "Json"}}])
+        return httpx.Response(200, json=_definition_body())
+
+    transport = _client_with_handler(handler)
+    with pytest.raises(DmnVariableDecodeError) as excinfo:
+        await transport.evaluate("some_key", {})
+
+    assert excinfo.value.code == "ERR_DMN_VARIABLE_DECODE"
+    assert excinfo.value.decision_key == "some_key"
+    assert excinfo.value.variable_name == "resultado"
+
+
+def test_dmn_variable_decode_error_is_coded_not_runtime_error() -> None:
+    """Must carry `.code`/`.message` (this package's coded-exception convention) and must NOT be
+    a `RuntimeError`/`DmnEvaluationError`: a malformed `Json`-typed result variable on an
+    otherwise-successful 200 `evaluate` response is a DETERMINISTIC function of the decision
+    table's own rule definitions — retrying the identical `evaluate` call reproduces the
+    identical malformed value, so `FunctionWorker.execute()` must reclassify it into `ValueError`
+    -> `failure(retries=0)` (immediate incident), exactly like `DmnNoResultError`, NEVER treated
+    as transient engine-retryable infrastructure like `DmnEvaluationError`."""
+    exc = DmnVariableDecodeError("pagto_alcada", "dossie", ValueError("boom"))
+    assert exc.code == "ERR_DMN_VARIABLE_DECODE"
+    assert isinstance(exc.message, str)
+    assert exc.decision_key == "pagto_alcada"
+    assert exc.variable_name == "dossie"
+    assert not isinstance(exc, RuntimeError)
+    assert not isinstance(exc, DmnEvaluationError)
+
+
+@pytest.mark.asyncio
+async def test_evaluate_non_dict_entry_passes_through_unchanged() -> None:
+    """Defensive fallback preserved: a result-row entry that never arrived engine-shaped
+    (`{"value": ..., "type": ...}`) passes through unchanged rather than crashing — mirrors the
+    pre-fix code's `else v` branch."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/evaluate"):
+            return httpx.Response(200, json=[{"bare": "already-a-string"}])
+        return httpx.Response(200, json=_definition_body())
+
+    transport = _client_with_handler(handler)
+    rows, _version = await transport.evaluate("some_key", {})
+
+    assert rows == [{"bare": "already-a-string"}]
+
+
+# ---------------------------------------------------------------------------
 # FakeDmnTransport — fail-closed on unregistered key
 # ---------------------------------------------------------------------------
 
@@ -317,6 +431,24 @@ async def test_fake_transport_returns_registered_rows_and_version() -> None:
     assert version.version == 7
     assert version.key == "ans_retry_policy"
     assert fake.calls == [("ans_retry_policy", {"retry_attempt": 1})]
+
+
+@pytest.mark.asyncio
+async def test_fake_transport_mirrors_real_transport_decoded_python_objects() -> None:
+    """Post-fix contract (T1.5, mirrors `test_fake_get_process_status_mirrors_real_transport_
+    decoded_objects` in `tests/unit/tools/test_mcp_cibseven_transport.py` and `test_fake_
+    transport_mirrors_real_transport_decoded_python_objects` in `tests/unit/tools/workers/
+    test_harness.py`): callers of `evaluate()` see decoded Python objects (dict/list), never a
+    raw JSON string — this fake never wire-encodes/decodes at all (`register` stores exactly
+    what the test passes in), so it already matches `CibSevenDmnTransport.evaluate()`'s
+    post-fix, already-decoded contract by construction."""
+    fake = FakeDmnTransport()
+    fake.register("SP-OP-CONTAS-001", [{"dossie": {"a": 1, "b": [1, 2, 3]}, "motivo": "ok"}])
+
+    rows, _version = await fake.evaluate("SP-OP-CONTAS-001", {})
+
+    assert rows == [{"dossie": {"a": 1, "b": [1, 2, 3]}, "motivo": "ok"}]
+    assert isinstance(rows[0]["dossie"], dict)
 
 
 @pytest.mark.asyncio
