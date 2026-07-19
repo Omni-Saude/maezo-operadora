@@ -419,12 +419,56 @@ jobs:
           sudo mv gitleaks /usr/local/bin/
           gitleaks version
 
-      # T2.4: --config .gitleaks.toml estende o ruleset default com uma
-      # allowlist ESTREITA (regex ancorada em 2 shapes de identificadores
-      # BPM de docs — nao segredos; sem allowlist por path). Prova de
-      # mutacao no PR #28: segredo fake plantado continua detectado,
-      # inclusive dentro dos proprios arquivos de docs referenciados.
-      - name: Detect secrets
+      # ── ci-gitleaks-scan-scope: scan SCOPE is split by trigger so a PR is
+      # judged ONLY on its own commits, while already-merged code keeps
+      # full-history coverage.
+      #
+      # ROOT CAUSE this replaces: the previous single step ran
+      #   `gitleaks detect --source . ... --exit-code 1`
+      # with NO `--log-opts`. gitleaks `detect` in that mode walks EVERY
+      # reachable commit (locally reproduced: 382 commits scanned, and it
+      # flagged a business key at commit 6c698193 that is NOT an ancestor of
+      # HEAD — i.e. it reaches commits beyond the checked-out ref's own
+      # history). Combined with `fetch-depth: 0`, a NEW business-key shape
+      # introduced by ANY in-flight PR (e.g. #109's `ANSSUB-...` keys)
+      # reddened gitleaks on ALL other concurrent open PRs until that PR's
+      # `.gitleaks.toml` allowlist stanza reached their HEAD — forcing a
+      # serialized merge order purely to clear false positives. The rules,
+      # entropy thresholds and business-key allowlists are UNCHANGED; only
+      # the commit RANGE each trigger scans changed.
+      #
+      # `--config .gitleaks.toml` still extends the default ruleset with the
+      # NARROW business-key allowlist (anchored shapes; no blanket path
+      # allowlist). Mutation proof (PR #28): a planted fake secret is still
+      # detected, including inside the referenced docs files.
+
+      # PR GATE — scan ONLY the PR's own commit range `base..head`, so a
+      # secret is caught in the PR that INTRODUCES it and unrelated
+      # concurrent PRs are never reddened by another PR's in-flight business
+      # keys. `fetch-depth: 0` above guarantees both base.sha and head.sha
+      # (the merge ref's two parents) are present locally. SHAs come from the
+      # trusted event payload (hex, not attacker-controlled text) and are
+      # passed via env per this repo's script-injection discipline.
+      - name: Detect secrets (PR diff — base..head only)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          gitleaks detect --source . --config .gitleaks.toml \
+            --log-opts="${BASE_SHA}..${HEAD_SHA}" \
+            --verbose --redact --exit-code 1
+
+      # FULL SWEEP — on push to main and on the weekly schedule, scan the
+      # ENTIRE reachable history (the prior behavior). This preserves
+      # defense-in-depth for already-merged code: every merge to main
+      # re-scans full history, and the weekly cron is a periodic backstop, so
+      # nothing that the old always-full scan caught is lost. Together the PR
+      # gate (introduction-time) + this sweep (post-merge + periodic) cover
+      # >= what the single full scan covered before.
+      - name: Detect secrets (full history — push to main + weekly sweep)
+        if: github.event_name != 'pull_request'
         run: gitleaks detect --source . --config .gitleaks.toml --verbose --redact --exit-code 1
 
   # ── T2.4 (GHAS-substitute lane, orchestrator ruling: GHAS downgraded from
