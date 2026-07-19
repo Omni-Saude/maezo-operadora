@@ -126,6 +126,18 @@ _ESCALATION_PUBLISH_BPMN_ERROR_TOPICS = frozenset(
     }
 )
 
+# ADR-0030 Tier-0: the module's consumption-covered, production-enabled BPMN error code(s).
+# The boundary-proof gate (`scripts/ci/check_bpmn_error_allowlist.py`) proves
+# `ERR_EVENT_PUBLISH_FAILED` is consumption-covered for `operadora.events.publish` via the §2
+# dispatch-filter escape: the raise in `handler` below is gated (`str(event_topic) in
+# bpmn_error_topics`) on `_ESCALATION_PUBLISH_BPMN_ERROR_TOPICS`, which (b1) EQUALS the
+# `event_topic` set on SP-OP-ESCALATION-001's boundary-carrying publish activities and (b2)
+# appears in NO other process's `event_topic` mappings. It is a NON-adverse technical fail-safe
+# (routes to a retry/fallback terminal), so it is NOT T-E-gated (§4) — the runtime imports this
+# into its production `bpmn_error_allowlist` (`worker_runtime/service.py`). Mirrors auth's
+# `AUTH_BPMN_ERROR_ALLOWLIST`; the boundary-proof gate — not this list — is the source of truth.
+EVENTS_BPMN_ERROR_ALLOWLIST: frozenset[str] = frozenset({_ERR_EVENT_PUBLISH_FAILED})
+
 # res-ans-competencia-sentinel (GAP-ANS-1/GAP-ANS-3) — see module docstring.
 _ANS_CRON_DUE_EVENT_TYPE = "ans.cron_due"
 _ANS_CRON_REFERENCE_DATE_KEY = "ans_cron_reference_date_iso"
@@ -190,10 +202,15 @@ def make_publish_event_handler(
     async def handler(task: ExternalTask) -> Mapping[str, Any]:
         event_topic = task.variables.get("event_topic")
         if not event_topic:
-            raise WorkerBpmnError(
-                "ERR_PUBLISH_MISSING_TOPIC",
-                "operadora.events.publish: `event_topic` ausente nas variaveis",
-            )
+            # ADR-0030 §2 clause-(b) Tier-0 cleanup: a missing `event_topic` is bad/immutable
+            # INPUT, not a modeled business outcome — there is NO
+            # `bpmn:error@errorCode="ERR_PUBLISH_MISSING_TOPIC"` boundary anywhere in spec/**.
+            # Raising a `WorkerBpmnError` here deliberately relied on the harness's
+            # demote-to-incident path (an uncatalogued raise — a boundary-proof-gate violation).
+            # A `ValueError` routes to the SAME fail-closed incident (harness ladder `except
+            # ValueError` -> `failure(retries=0)`) WITHOUT an uncatalogued `bpmnError` code —
+            # identical outcome, and clean under the gate.
+            raise ValueError("operadora.events.publish: `event_topic` ausente nas variaveis")
 
         payload_vars = _parse_payload_vars(task.variables.get("event_payload_vars"))
         payload: dict[str, Any] = {

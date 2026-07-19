@@ -43,9 +43,11 @@ from maezo.gateway.audit_postgres import FreshSinkAuditEmitter, PostgresAuditSin
 from maezo.platform.health import CheckResult, build_health_server, create_health_app
 from maezo.platform.observability import get_metrics_collector
 from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
+from maezo.tools.workers.auth import AUTH_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.bootstrap import ALL_WORKER_BOOTSTRAPS, register_all_workers
 from maezo.tools.workers.cibseven_engine import FreshClientCibSevenTransport
 from maezo.tools.workers.dmn_transport import CibSevenDmnTransport
+from maezo.tools.workers.events import EVENTS_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.harness import (
     CibSevenWorkerTransport,
     ExternalTask,
@@ -65,6 +67,52 @@ logger = structlog.get_logger(__name__)
 # bootstrap name/call site; it now delegates to the full composition rather than a
 # hand-maintained class tuple, so adding/removing a module never requires a second, parallel
 # edit here.
+
+
+# ---------------------------------------------------------------------------
+# ADR-0030 Tier-0 production BPMN-error allowlist
+# ---------------------------------------------------------------------------
+#
+# The harness reports a worker's `WorkerBpmnError(code)` to the engine as a REAL `bpmnError`
+# (firing the modeled boundary catch) ONLY when `code` is in this allowlist; every other code
+# demotes to a fail-closed incident (harness.py §9). Before ADR-0030 this was `frozenset()` — so
+# every one of the 24 deliberately-modeled boundary catches was dead code in production (the
+# systemic blocker ADR-0030 Tier-0 closes).
+#
+# This set is ASSEMBLED from the per-worker allowlist constants that the boundary-proof gate
+# (`scripts/ci/check_bpmn_error_allowlist.py`) mechanically proves consumption-covered against
+# `spec/**` — never a hand-maintained code list. The T-E hard-gate (ADR-0030 §4) is then applied:
+# business-outcome codes (every `*_NOT_HUMAN` guard + the denial-block `ERR_AUTH_DENIAL_INCOMPLETE`)
+# are consumption-covered too, but activating one pre-T-E would trade a guaranteed-human-visible
+# incident for a silent clean end at a neutral terminal, so they stay incident-fail-closed until
+# T-E (audited-refusal) lands. At Tier-0 this resolves to exactly `{ERR_EVENT_PUBLISH_FAILED}` —
+# the single non-adverse technical fail-safe.
+
+
+def _is_te_gated(code: str) -> bool:
+    """True iff `code` is a business-outcome code hard-gated on T-E (ADR-0030 §4).
+
+    The `*_NOT_HUMAN` guard family (matched by suffix) plus the denial-block
+    `ERR_AUTH_DENIAL_INCOMPLETE`. Mirrors the boundary-proof gate's `is_te_gated`, kept a tiny
+    local predicate so the runtime carries no import dependency on the CI script.
+    """
+    return code.endswith("_NOT_HUMAN") or code == "ERR_AUTH_DENIAL_INCOMPLETE"
+
+
+#: Every gate-proven (consumption-covered) code raised by a worker that exposes an allowlist
+#: constant. `AUTH_BPMN_ERROR_ALLOWLIST` is unioned in DELIBERATELY so the T-E filter below has
+#: something to act on: `ERR_AUTH_DENIAL_INCOMPLETE` is proven yet filtered OUT — if a future edit
+#: dropped the T-E gate, the denial-block code would leak into production and the unit test
+#: (`tests/unit/runtime/test_worker_runtime_bpmn_error_allowlist.py`) fails. `ERR_CANCEL_MANTER_
+#: NOT_HUMAN` is gate-proven too but its worker exposes no constant (nothing is enabled for it at
+#: any tier until T-E), so there is nothing to import.
+_GATE_PROVEN_BPMN_ERROR_CODES: frozenset[str] = AUTH_BPMN_ERROR_ALLOWLIST | EVENTS_BPMN_ERROR_ALLOWLIST
+
+#: The Tier-0 production allowlist wired into the harness: gate-proven codes MINUS the T-E-gated
+#: business-outcome codes. Resolves to `{ERR_EVENT_PUBLISH_FAILED}` today.
+PRODUCTION_BPMN_ERROR_ALLOWLIST: frozenset[str] = frozenset(
+    code for code in _GATE_PROVEN_BPMN_ERROR_CODES if not _is_te_gated(code)
+)
 
 
 def register_default_workers(
@@ -427,10 +475,13 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
                 max_tasks_per_poll=settings.max_tasks_per_poll,
                 max_retry_attempts=settings.max_retry_attempts,
                 async_response_timeout_ms=settings.async_response_timeout_ms,
-                # No bpmnError code is gate-proven yet (T1.1 §9 open Q-3 — the CI-side boundary-
-                # proof gate is a T1.3/T1.4 follow-up); every WorkerBpmnError demotes to a
-                # fail-closed incident until a code is added here with proof.
-                bpmn_error_allowlist=frozenset(),
+                # ADR-0030 Tier-0: the CI-side boundary-proof gate is now built
+                # (scripts/ci/check_bpmn_error_allowlist.py) and proves the consumption-covered
+                # codes; the production allowlist is populated from the per-worker constants it
+                # verifies, with T-E-gated business-outcome codes excluded (§4). Every
+                # non-allowlisted WorkerBpmnError still demotes to a fail-closed incident
+                # (harness.py §9), so the fail-closed default is preserved, not weakened.
+                bpmn_error_allowlist=PRODUCTION_BPMN_ERROR_ALLOWLIST,
                 # T-C seam, direct since the wave merge (the pre-merge `**` indirection is gone).
                 audit_sink=state.audit_sink,
             )

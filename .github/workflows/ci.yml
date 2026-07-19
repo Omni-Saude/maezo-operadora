@@ -96,6 +96,13 @@ jobs:
       - name: Validate BPMN / DMN / policies / agent definitions
         run: make validate-artifacts
 
+      # ADR-0030 §2 boundary-proof gate: every WorkerBpmnError a worker raises must be a
+      # consumption-covered spec-declared boundary code on its external task (b1/b2); an
+      # uncatalogued/unproven raise fails the build. Dead-model (clause c) is warn-only during the
+      # Tier-0..2 migration window (F5). Belt-and-suspenders with the arch-test in tests/unit/ci/.
+      - name: Boundary-proof BPMN-error allowlist gate (ADR-0030)
+        run: make check-bpmn-error-allowlist
+
   # ── Reativado em M13: o módulo maezo.platform.validation.cli está implementado
   # (construído em M2/M9). make validate-signoff funciona.
   # ✅ Passa em CI (greenfield stub, exit 0).
