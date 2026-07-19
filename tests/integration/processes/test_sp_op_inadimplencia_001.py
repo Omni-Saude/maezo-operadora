@@ -333,9 +333,7 @@ async def inad_probe(
     # emit-before-complete runs on the test loop), exactly as the daemon splits the two seams.
     engine_seam = FreshClientCibSevenTransport(CIBSEVEN_BASE_URL)
     handoff_audit_sink = FreshSinkAuditEmitter(audit_pg[0], audit_tenant)
-    register_inadimplencia_workers(
-        harness, kafka, dmn=dmn, engine=engine_seam, audit_sink=handoff_audit_sink
-    )
+    register_inadimplencia_workers(harness, kafka, dmn=dmn, engine=engine_seam, audit_sink=handoff_audit_sink)
     # T3.1 R2: o worker generico operadora.events.publish que todo ST_Publish* deste BPMN usa.
     register_events_workers(harness, kafka)
     # DRIFT GUARD (mirrors cancel's/contas's — verbatim style): todo topico inadimplencia.*
