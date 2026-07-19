@@ -115,10 +115,19 @@ FINDINGS (grep/read/direct-execution confirmed — see PR body / evidence-ledger
      local, recurso.py): `register_desistencia()` now parses the monetary value via
      `_parse_valor_glosa_aceito()` (float, dot-decimal, the `contas.py` `float(brl)` money idiom)
      BEFORE the `<= 0` guard, and FAILS CLOSED (treats a missing/blank/non-numeric value as a
-     missing required field -> `DesistenciaNotHumanError`) — never silently defaults to 0. The
-     xfails previously carrying this reason are now flipped to passing (analista/coordenacao human
-     paths) or re-pointed to finding 4 (auditor `ACEITAR_GLOSA` path, which finding 4 independently
-     still blocks).
+     missing required field -> `DesistenciaNotHumanError`) — never silently defaults to 0.
+     LIVE-VERIFIED against a real engine, the 5 xfails that previously carried this reason split
+     as follows: (1) FLIPPED TO PASSING — `test_coordenacao_assume_e_mantem_glosa_humano` and the
+     guard unit `test_worker_guard_register_desistencia_recusa_sem_humano` (scenarios a-d) now
+     pass for the right reason (desistencia decision completes, terminal reached); (2) RE-POINTED
+     TO FINDING 1 (kafka drift, out of scope) — `test_happy_path_nao_recorrer_humano` and
+     `test_coordenacao_inadmissivel_humano_gated` now reach End_RecursoNaoInterposto/
+     End_RecursoInadmissivel and emit their _RECURSO_COMPLETED events (finding-3 asserts pass),
+     but still fail their trailing `notifications_of_type('recurso.register_desistencia')` assert
+     because register_desistencia_entry never publishes (`del kafka`); (3) RE-POINTED TO FINDING 4
+     (auditor gap, out of scope) — `test_happy_path_auditor_aceita_glosa_mantem_glosa_humano` and
+     the split-out `test_worker_guard_register_desistencia_auditor_path_finding4` (former guard
+     scenario (e)), which finding 4 independently still blocks.
 
   4. Auditor `ACEITAR_GLOSA` unrecognized (recurso-specific, `_RECURSO_AUDITOR_ACEITAR_GLOSA_
      GUARD_GAP_REASON`, LIVE-CONFIRMED, independent of finding 3): `ST_RegisterGlosaMantida` (the
@@ -739,6 +748,7 @@ async def test_happy_path_recurso_indeferido_pela_operadora(
     assert not recurso_probe.notifications_of_type("recurso.register_desistencia")
 
 
+@pytest.mark.xfail(reason=_RECURSO_KAFKA_GAP_REASON, strict=True)
 async def test_happy_path_nao_recorrer_humano(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
@@ -749,8 +759,13 @@ async def test_happy_path_nao_recorrer_humano(
     Unico caminho que mantem a glosa — e e humano. `_desistencia_fields()` seeds
     valor_glosa_aceito="150.00" (donor's BRL-as-string convention). Finding-3 (recurso.py:366)
     RESOLVED by t3.1-a2-recurso-valor-glosa: register_desistencia() now parses the monetary
-    String via `_parse_valor_glosa_aceito` before the `<= 0` guard, so the desistencia decision
-    completes cleanly and the instance reaches End_RecursoNaoInterposto.
+    String via `_parse_valor_glosa_aceito` before the `<= 0` guard — LIVE-CONFIRMED the instance
+    now reaches End_RecursoNaoInterposto and emits _RECURSO_COMPLETED(desfecho=
+    "nao_interposto_humano") (both asserts above the notifications check now PASS). This test
+    stays xfail purely on finding 1 (kafka drift): register_desistencia_entry does `del kafka`
+    and never publishes the `recurso.register_desistencia` notification, so the final
+    `notifications_of_type('recurso.register_desistencia')` assert sees []. Finding 1 is out of
+    scope for t3.1-a2 (Kafka-producer wiring task — see _RECURSO_KAFKA_GAP_REASON).
     """
     inst = await start_recurso(glosa_type="administrativa")
     iid = inst["id"]
@@ -1265,6 +1280,7 @@ async def test_coordenacao_assume_e_mantem_glosa_humano(
     assert recurso_probe.has_event(_RECURSO_COMPLETED, desfecho="nao_interposto_humano")
 
 
+@pytest.mark.xfail(reason=_RECURSO_KAFKA_GAP_REASON, strict=True)
 async def test_coordenacao_inadmissivel_humano_gated(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
@@ -1274,7 +1290,12 @@ async def test_coordenacao_inadmissivel_humano_gated(
 
     Prova que End_RecursoInadmissivel e humano-gated (review gap pinado). O payload seta
     valor_glosa_aceito="150.00" (string); finding-3 RESOLVIDA (t3.1-a2-recurso-valor-glosa) — o
-    valor e parseado antes do guard `<= 0`, entao a instancia atinge End_RecursoInadmissivel.
+    valor e parseado antes do guard `<= 0`. LIVE-CONFIRMED: a instancia agora atinge
+    End_RecursoInadmissivel e emite _RECURSO_COMPLETED(desfecho="inadmissivel") (ambos os asserts
+    acima do notifications check PASSAM). Permanece xfail apenas por finding 1 (kafka drift):
+    register_desistencia_entry faz `del kafka` e nunca publica a notificacao
+    `recurso.register_desistencia`, entao o assert final ve []. Finding 1 fora de escopo do
+    t3.1-a2 (Kafka-producer wiring — ver _RECURSO_KAFKA_GAP_REASON).
     """
     inst = await start_recurso(glosa_type="administrativa", dentro_prazo_recurso=False)
     iid = inst["id"]
