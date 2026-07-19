@@ -36,6 +36,31 @@ regexTarget = "secret"
 regexes = ['''^ESC-amh-conv-\d{3}$''']
 
 [[allowlists]]
+# O que casa: business keys BPM de submissao ANS no shape documentado
+# `ANSSUB-<tenant>-<report_type>-<competencia>`. O construtor real e
+# `_ans_business_key` em src/maezo/tools/workers/ans_submit.py (T2.6-1,
+# f"ANSSUB-{tenant_id}-{report_type}-{competencia}"), consumido por
+# transmit_to_ans -> AnsGatewayTransport (contrato SP-OP-ANS-SUBMIT-001
+# "Business key"). Literais sinteticos flagrados pela generic-api-key nos
+# testes T2.6-1 (entropia alta + "key" no identificador):
+#   ANSSUB-amh-RN_124_SIP-2026-06        (test_ans_submit.py)
+#   ANSSUB-amh-DIOPS_TRIMESTRAL-2026-Q2  (test_ans_submit.py)
+# demais literais introduzidos cobertos pela mesma ancora:
+#   ANSSUB-amh-RN_124_SIP-2026-GUARD / -2026-01 / ANSSUB-amh-SIP-2026-06
+#   (test_ans_submit.py, test_sp_op_ans_submit_001.py).
+# Por que nao e segredo: identificador sintetico de instancia de processo
+# (tenant minusculo + report_type ANS maiusculo [A-Z0-9_] + competencia
+# \d{4}-(mes|Qn|palavra)), formato deterministico, nao uma credencial.
+# Ancora ^...$ no shape: um segredo real (AKIA.../sk-.../hex/base64) nao
+# comeca com `ANSSUB-<tenant minusculo>-` e nao casa.
+# Data: 2026-07-19 | Task: T2.6-1 (construtor ANSSUB real chegou — cf. a
+# reserva de prefixo na entrada generica abaixo; stanza dedicada como a
+# ESC-amh-conv acima)
+description = "T2.6-1 2026-07-19: BPM business key ANSSUB-<tenant>-<report_type>-<competencia> (identificador sintetico de instancia de submissao ANS, nao credencial)"
+regexTarget = "secret"
+regexes = ['''^ANSSUB-[a-z][a-z0-9]{0,15}-[A-Z0-9_]+-\d{4}-(\d{2}|Q\d|[A-Z]+)$''']
+
+[[allowlists]]
 # T2.4 (2026-07-17): classe sistemica de falso positivo — a regra
 # generic-api-key casa literais de business key BPM (`business_key=
 # "<PREFIX>-<tenant>-<sufixo>"`) porque "key" aparece no identificador e
@@ -80,8 +105,10 @@ regexes = ['''^ESC-amh-conv-\d{3}$''']
 #     <tenant> e nao disparam a regra). Naming corrigido na verificacao
 #     R1 para os prefixos que os specs BPMN REALMENTE definem (formatos
 #     `<PREFIX>-{tenant_id}-...` em spec/processes/bpmn/): NIP, PROG,
-#     ANSSUB, ADEQ, DSR. Quando um construtor real chegar, adicionar
-#     aqui EXATAMENTE essas strings de prefixo (nao
+#     ADEQ, DSR (ANSSUB ja NAO esta pendente — seu construtor real
+#     `_ans_submit._ans_business_key` chegou no T2.6-1 e ganhou uma stanza
+#     dedicada propria acima, no estilo ESC-amh-conv). Quando um construtor
+#     real chegar, adicionar aqui EXATAMENTE essas strings de prefixo (nao
 #     "ANS"/"ADEQUACAO"/"LGPD" — nomes de familia de processo, nao de
 #     business key). Adicionar SOMENTE quando o construtor real existir.
 #     Depois do prefixo: `-<tenant>-` (id de tenant minusculo, ex. amh) e

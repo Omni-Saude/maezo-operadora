@@ -177,6 +177,7 @@ import httpx
 import pytest
 import pytest_asyncio
 
+from maezo.tools.workers.ans_gateway import MOCK_ANS_PROTOCOL_PREFIX, LabeledMockAnsGatewayTransport
 from maezo.tools.workers.ans_submit import (
     AnsDatasetIncompletoError,
     AnsSubmitNotHumanError,
@@ -376,7 +377,11 @@ async def ans_probe(engine: EngineRest, audit_sink: Any, audit_tenant: str) -> A
     )
     kafka = FakeKafkaPublisher()
     dmn = CibSevenDmnTransport(CIBSEVEN_BASE_URL)
-    register_ans_submit_workers(harness, kafka, dmn=dmn)
+    # T2.6-1 (design §2.A): inject the LabeledMock ANS gateway (dev/test) so legitimately-transmitting
+    # paths get a deterministic, non-binding `MOCK-ANS-NAO-VINCULATIVO-{business_key}` protocol. In
+    # PRODUCTION no gateway is injected -> `resolve_ans_gateway` fails closed to the Refusing
+    # transport (issues nothing). The old fabricated `ANSPROTO-{sha256(time_ns)}` is gone.
+    register_ans_submit_workers(harness, kafka, dmn=dmn, ans_gateway=LabeledMockAnsGatewayTransport())
     # The generic operadora.events.publish worker every ST_Publish* service task in this BPMN
     # routes through — mirrors the donor's own register_phase0_workers composition.
     register_events_workers(harness, kafka)
@@ -656,7 +661,11 @@ async def test_happy_path_envio_aprovado_e_acked(
     s = submits[0]
     assert s["decisao_envio"] == "APROVAR_ENVIO"
     assert s["revisor_id"] == "revisor-sintetico-001"
-    assert s["protocolo_ans"].startswith("ANS")
+    # T2.6-1 (design §2.A): the probe injects the LabeledMock gateway, so the protocol is the
+    # deterministic, unmistakably-synthetic `MOCK-ANS-NAO-VINCULATIVO-{business_key}` — NOT the old
+    # fabricated `ANSPROTO-{sha256(time_ns)}`. (This test stays strict-xfail on FINDING A, which
+    # blocks the flow before it reaches submit; the assertion is corrected for when FINDING A lands.)
+    assert s["protocolo_ans"].startswith(MOCK_ANS_PROTOCOL_PREFIX)
 
 
 @pytest.mark.xfail(reason=_NOTIFY_REGULATORIO_GAP_REASON, strict=True)
@@ -1225,7 +1234,9 @@ def test_err_ans_submit_not_human_recusa_sem_aprovacao() -> None:
     assert "ERR_ANS_SUBMIT_NOT_HUMAN" in str(exc_c.value)
     assert not kafka.published, "Nenhum filing deve ser publicado quando o guard recusa"
 
-    # (d) decisao humana completa -> transmite e carrega revisor_id
+    # (d) decisao humana completa -> transmite e carrega revisor_id. T2.6-1 (design §2.A): dev/test
+    # injects the LabeledMock gateway; the protocol is the deterministic, non-binding
+    # `MOCK-ANS-NAO-VINCULATIVO-{business_key}` — NOT the removed fabricated `ANSPROTO-{sha256}`.
     result = submit_entry(
         {
             "decisao_envio": "APROVAR_ENVIO",
@@ -1235,10 +1246,13 @@ def test_err_ans_submit_not_human_recusa_sem_aprovacao() -> None:
             "competencia": "2026-GUARD",
         },
         kafka=kafka,
+        ans_gateway=LabeledMockAnsGatewayTransport(),
     )
     assert result["submitted"] is True
     assert result["revisor_id"] == "revisor-sintetico-001"
-    assert result["protocolo_ans"].startswith("ANSPROTO-")
+    assert result["protocolo_ans"] == f"{MOCK_ANS_PROTOCOL_PREFIX}ANSSUB-amh-RN_124_SIP-2026-GUARD"
+    assert not result["protocolo_ans"].startswith("ANSPROTO-")
+    assert result["synthetic"] is True and result["vinculativo"] is False
 
 
 @pytest.mark.xfail(reason=_ASSEMBLE_FAILURE_GUARD_MISSING_REASON, strict=True)
