@@ -12,6 +12,7 @@ import pytest
 
 from maezo.tools.workers.base import ERR_DENIAL_NOT_HUMAN, ERR_FRAUD_ACCUSATION_NOT_HUMAN
 from maezo.tools.workers.dmn_transport import DmnEvaluationError, FakeDmnTransport
+from maezo.tools.workers.harness import WorkerBpmnError
 from maezo.tools.workers.lgpd import (
     AssessRequestWorker,
     ExecuteErasureWorker,
@@ -52,8 +53,9 @@ def test_validate_identity_topic() -> None:
     assert worker.topic == "operadora.lgpd.verify_identity"
 
 
-def test_validate_identity_confirms_valid_id() -> None:
-    """validate_identity confirms identity when pseudo_id is present."""
+def test_validate_identity_fail_closed_requires_explicit_verified_signal() -> None:
+    """FAIL-CLOSED (T2.8): identity is confirmed ONLY on an explicit `identidade_verificada is
+    True`. Pseudo_id present but no verified signal -> NOT confirmed (routes to the challenge)."""
     worker = ValidateIdentityWorker()
 
     result = worker.run(
@@ -61,6 +63,7 @@ def test_validate_identity_confirms_valid_id() -> None:
             "tenant_id": "amh",
             "titular_pseudo_id": "pseudo-abc123",
             "canal": "portal",
+            "identidade_verificada": True,
         }
     )
 
@@ -68,48 +71,72 @@ def test_validate_identity_confirms_valid_id() -> None:
     assert result["status"] == "verified"
 
 
-def test_validate_identity_rejects_empty_pseudo_id() -> None:
-    """validate_identity raises identity error when pseudo_id is empty/missing.
+@pytest.mark.parametrize(
+    "vars_extra",
+    [
+        {},  # identidade_verificada absent
+        {"identidade_verificada": False},  # explicit False
+        {"identidade_verificada": "true"},  # garbage (truthy string, not the bool True)
+        {"identidade_verificada": 1},  # garbage (truthy int, not the bool True)
+    ],
+)
+def test_validate_identity_fail_closed_rejects_non_true_signal(vars_extra: dict[str, object]) -> None:
+    """The mere presence of the (obligatory) titular_pseudo_id NEVER confirms identity, and only
+    the bool `True` confirms — absent/False/garbage -> NOT confirmed (fail-closed, anti eng.
+    social). This is the fail-OPEN defect this change closes."""
+    worker = ValidateIdentityWorker()
 
-    Per GAP-LGPD-6: absent/empty titular_pseudo_id raises ERR_DSR_IDENTITY_UNVERIFIED.
+    result = worker.run(
+        {"tenant_id": "amh", "titular_pseudo_id": "pseudo-abc123", "canal": "portal", **vars_extra}
+    )
+
+    assert result["identidade_confirmada"] is False
+    assert result["status"] == "pending_proof"
+
+
+def test_validate_identity_rejects_empty_pseudo_id() -> None:
+    """validate_identity RAISES a modeled BPMN error when pseudo_id is empty/missing.
+
+    Per GAP-LGPD-6: absent/empty titular_pseudo_id RAISES WorkerBpmnError(ERR_DSR_IDENTITY_
+    UNVERIFIED) so the BE_IdentidadeInverificavel boundary can fire -> End_IdentidadeInverificavel.
     This is a TECHNICAL guard (impossibilidade mecanica), NEVER an accusation.
     """
     worker = ValidateIdentityWorker()
 
-    result = worker.run(
-        {
-            "tenant_id": "amh",
-            "titular_pseudo_id": "",
-            "canal": "whatsapp",
-        }
-    )
+    with pytest.raises(WorkerBpmnError) as exc_info:
+        worker.run(
+            {
+                "tenant_id": "amh",
+                "titular_pseudo_id": "",
+                "canal": "whatsapp",
+            }
+        )
 
-    assert result["identidade_confirmada"] is False
-    assert result["status"] == "identity_unverified"
-    assert result["error_code"] == "ERR_DSR_IDENTITY_UNVERIFIED"
+    assert exc_info.value.error_code == "ERR_DSR_IDENTITY_UNVERIFIED"
 
 
 def test_validate_identity_never_accuses_fraud() -> None:
     """validate_identity must NEVER automatically accuse fraud.
 
-    L0 hard: fraud_accusation is intocavel. Even with obviously fake data,
-    the worker only reports inability to verify mechanically.
+    L0 hard: fraud_accusation is intocavel. Even with missing data, the worker only reports
+    inability to verify MECHANICALLY (a technical BPMN error), never a fraud accusation.
     """
     worker = ValidateIdentityWorker()
 
-    result = worker.run(
-        {
-            "tenant_id": "amh",
-            "titular_pseudo_id": None,  # missing
-        }
-    )
+    with pytest.raises(WorkerBpmnError) as exc_info:
+        worker.run(
+            {
+                "tenant_id": "amh",
+                "titular_pseudo_id": None,  # missing
+            }
+        )
 
-    # Must not contain fraud accusation language
-    assert "fraud" not in str(result).lower()
-    assert "acusacao" not in str(result).lower()
-    assert result["error_code"] != ERR_FRAUD_ACCUSATION_NOT_HUMAN
-    # Must be a technical, fail-safe outcome
-    assert result["status"] == "identity_unverified"
+    exc = exc_info.value
+    # Must be a technical, fail-safe outcome — never fraud-accusation language/code.
+    assert exc.error_code == "ERR_DSR_IDENTITY_UNVERIFIED"
+    assert exc.error_code != ERR_FRAUD_ACCUSATION_NOT_HUMAN
+    assert "fraud" not in str(exc).lower()
+    assert "acusacao" not in str(exc).lower()
 
 
 # ---------------------------------------------------------------------------
