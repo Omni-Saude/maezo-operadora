@@ -343,6 +343,37 @@ def escalate_to_junta(
     }
 
 
+def _parse_valor_glosa_aceito(value: Any) -> float | None:
+    """Coerce a monetary ``valor_glosa_aceito`` to a float for the desistencia guard.
+
+    Root cause: the engine seeds this field as a Camunda ``String`` (e.g. ``"150.00"`` —
+    EngineRest._to_camunda_vars has no float branch, so it falls through to the String
+    catch-all); harness ``_from_camunda_var`` decodes it back to a Python ``str`` and
+    ``pick_fields`` performs NO coercion. A raw ``<= 0`` comparison then raises
+    ``TypeError: '<=' not supported between instances of 'str' and 'int'``.
+
+    Returns the parsed amount as a ``float`` — matching the dataclass's declared ``float``
+    typing and the canonical ``contas.py`` money idiom (``float(brl)``, dot-decimal, the
+    donor/engine wire convention). Returns ``None`` for a missing/blank/non-numeric value so
+    the caller FAILS CLOSED (treats it as a missing required field ->
+    ``DesistenciaNotHumanError``). NEVER silently defaults to ``0`` — a wrong monetary
+    decision on a glosa waiver is a financial defect.
+    """
+    if isinstance(value, bool):  # bool is an int subclass — never a monetary amount
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            return float(text)
+        except ValueError:
+            return None
+    return None
+
+
 def register_desistencia(input_data: RecursoDesistenciaInput) -> RecursoDesistenciaResult:
     """Register desistencia (maintain glosa) — GUARDED adverse effect.
 
@@ -363,7 +394,10 @@ def register_desistencia(input_data: RecursoDesistenciaInput) -> RecursoDesisten
         missing.append("decisao_recurso != NAO_RECORRER")
     if not input_data.justificativa_desistencia.strip():
         missing.append("justificativa_desistencia")
-    if input_data.valor_glosa_aceito <= 0:
+    # valor_glosa_aceito arrives from Camunda as a String ("150.00"); parse fail-closed
+    # before comparing. None (missing/blank/non-numeric) or <= 0 => required field absent.
+    valor_glosa_aceito = _parse_valor_glosa_aceito(input_data.valor_glosa_aceito)
+    if valor_glosa_aceito is None or valor_glosa_aceito <= 0:
         missing.append("valor_glosa_aceito")
     if not input_data.referencia_contratual.strip():
         missing.append("referencia_contratual")
