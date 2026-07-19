@@ -3,8 +3,18 @@
 TDD London School: tests exercise the external task contracts.
 """
 
+import functools
+
 import pytest
 
+from maezo.tools.workers.ans_gateway import (
+    MOCK_ANS_PROTOCOL_PREFIX,
+    AnsGatewayUnavailableError,
+    LabeledMockAnsGatewayTransport,
+    RealAnsGatewayTransport,
+    RefusingAnsGatewayTransport,
+    resolve_ans_gateway,
+)
 from maezo.tools.workers.ans_submit import (
     AnsDatasetIncompletoError,
     AnsRetryEsgotadoError,
@@ -25,6 +35,7 @@ from maezo.tools.workers.ans_submit import (
     validate_data,
     validate_entry,
 )
+from maezo.tools.workers.base import FunctionWorker
 from maezo.tools.workers.dmn_transport import DmnEvaluationError, FakeDmnTransport
 
 
@@ -138,8 +149,13 @@ def test_transmit_to_ans_guard_missing_revisor() -> None:
     assert "revisor_id" in str(exc.value)
 
 
-def test_transmit_to_ans_success() -> None:
-    """transmit_to_ans succeeds with approved decision."""
+def test_transmit_to_ans_success_labeled_mock() -> None:
+    """transmit_to_ans succeeds with an approved decision + an injected LabeledMock gateway,
+    returning a DETERMINISTIC, UNMISTAKABLY-SYNTHETIC protocol (T2.6-1, design §2.A).
+
+    The old fabricated `ANSPROTO-{sha256(time_ns)}` is gone: the protocol now reads
+    `MOCK-ANS-NAO-VINCULATIVO-{business_key}` and carries `synthetic`/`vinculativo` flags, so it
+    can never be mistaken for a real ANS protocol."""
     submission = AnsSubmissionData(
         dataset_ref="ds-1",
         report_type="RN_124_SIP",
@@ -149,10 +165,137 @@ def test_transmit_to_ans_success() -> None:
         decisao_envio="APROVAR_ENVIO",
         revisor_id="reg-001",
     )
-    result = transmit_to_ans(submission, decision)
+    result = transmit_to_ans(
+        submission,
+        decision,
+        gateway=LabeledMockAnsGatewayTransport(),
+        business_key="ANSSUB-amh-RN_124_SIP-2026-06",
+    )
     assert result["submitted"] is True
-    assert result["protocolo_ans"].startswith("ANSPROTO-")
+    assert result["protocolo_ans"] == f"{MOCK_ANS_PROTOCOL_PREFIX}ANSSUB-amh-RN_124_SIP-2026-06"
+    assert not result["protocolo_ans"].startswith("ANSPROTO-")
+    assert result["synthetic"] is True
+    assert result["vinculativo"] is False
     assert result["status_envio"] == "enviado"
+
+
+# ---------------------------------------------------------------------------
+# AnsGatewayTransport triple (T2.6-1, design §2.A) — Refusing prod-default / LabeledMock /
+# Real creds-blocked; NO fabricated protocol anywhere.
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_ans_gateway_defaults_to_refusing_not_mock() -> None:
+    """Fail-closed selection: an unwired seam resolves to Refusing (prod default), NEVER the mock —
+    the mock is unreachable in prod by construction (design §2.A)."""
+    assert isinstance(resolve_ans_gateway(None), RefusingAnsGatewayTransport)
+    mock = LabeledMockAnsGatewayTransport()
+    assert resolve_ans_gateway(mock) is mock
+
+
+def test_labeled_mock_is_deterministic_by_business_key() -> None:
+    """LabeledMock returns a DETERMINISTIC, synthetic, non-binding protocol keyed on the business
+    key — two calls with the same business key return the identical protocol (subsumes the T-H
+    determinism requirement + fixes the latent retry idempotency bug, BPMN :461). No `ANSPROTO-`."""
+    mock = LabeledMockAnsGatewayTransport()
+    bk = "ANSSUB-amh-RN_124_SIP-2026-06"
+    kwargs = {"report_type": "RN_124_SIP", "competencia": "2026-06", "dataset_ref": "ds", "revisor_id": "r"}
+    p1 = mock.submit(business_key=bk, **kwargs)
+    p2 = mock.submit(business_key=bk, **kwargs)
+    assert p1 == p2  # frozen dataclass equality — fully deterministic
+    assert p1.protocolo_ans == f"{MOCK_ANS_PROTOCOL_PREFIX}{bk}"
+    assert not p1.protocolo_ans.startswith("ANSPROTO-")
+    assert p1.synthetic is True
+    assert p1.vinculativo is False
+    # A different business key yields a different protocol.
+    p3 = mock.submit(business_key="ANSSUB-amh-DIOPS_TRIMESTRAL-2026-Q2", **kwargs)
+    assert p3.protocolo_ans != p1.protocolo_ans
+
+
+def test_refusing_transport_never_issues_a_protocol() -> None:
+    """Refusing (prod default) RAISES a fail-closed AnsGatewayUnavailableError — it NEVER returns a
+    protocol (the anti-fabrication guarantee, design §2.A)."""
+    with pytest.raises(AnsGatewayUnavailableError) as exc:
+        RefusingAnsGatewayTransport().submit(
+            business_key="ANSSUB-amh-RN_124_SIP-2026-06",
+            report_type="RN_124_SIP",
+            competencia="2026-06",
+            dataset_ref="ds",
+            revisor_id="r",
+        )
+    assert exc.value.code == "ERR_ANS_GATEWAY_UNAVAILABLE"
+
+
+def test_real_transport_is_creds_blocked_stub() -> None:
+    """Real is a documented, creds-blocked future integration point — `submit` fails closed, never
+    fabricates (Plan §7, issue #16). Blocked ≠ done."""
+    with pytest.raises(AnsGatewayUnavailableError):
+        RealAnsGatewayTransport("https://ans.example/ws", auth_token="x").submit(
+            business_key="ANSSUB-amh-RN_124_SIP-2026-06",
+            report_type="RN_124_SIP",
+            competencia="2026-06",
+            dataset_ref="ds",
+            revisor_id="r",
+        )
+
+
+def test_transmit_prod_default_refuses_no_protocol() -> None:
+    """FAIL-CLOSED PROD-CONFIG: transmit_to_ans with NO gateway (the production wiring — the
+    registered partial binds `ans_gateway=None`) refuses via the resolved Refusing transport and
+    returns NO protocol at all, even for a fully-approved human decision."""
+    submission = AnsSubmissionData(dataset_ref="ds-1", report_type="RN_124_SIP", competencia="2026-06")
+    decision = AnsSubmitDecision(decisao_envio="APROVAR_ENVIO", revisor_id="reg-001")
+    with pytest.raises(AnsGatewayUnavailableError):
+        transmit_to_ans(submission, decision, business_key="ANSSUB-amh-RN_124_SIP-2026-06")
+
+
+def test_submit_entry_prod_default_refuses() -> None:
+    """The dict-boundary entry mirrors it: an approved payload with NO injected gateway refuses
+    (prod default) rather than fabricating a protocol."""
+    variables = {
+        "tenant_id": "amh",
+        "report_type": "RN_124_SIP",
+        "competencia": "2026-06",
+        "decisao_envio": "APROVAR_ENVIO",
+        "revisor_id": "reg-001",
+    }
+    with pytest.raises(AnsGatewayUnavailableError):
+        submit_entry(variables)
+
+
+def test_submit_worker_refusal_reclassifies_to_failclosed_incident() -> None:
+    """Through the FunctionWorker dispatch path (exactly how production registers the submit
+    worker: `functools.partial(submit_entry, ans_gateway=None)`), the refusal reclassifies to a
+    `ValueError` — which the harness maps to `failure(retries=0)`, an engine-guaranteed,
+    human-visible incident (base.py §5), NEVER a transient engine-retry and NEVER a fabricated
+    protocol."""
+    worker = FunctionWorker("regulatorio.anssubmit.submit", functools.partial(submit_entry, ans_gateway=None))
+    with pytest.raises(ValueError) as exc:
+        worker.execute(
+            {
+                "tenant_id": "amh",
+                "report_type": "RN_124_SIP",
+                "competencia": "2026-06",
+                "decisao_envio": "APROVAR_ENVIO",
+                "revisor_id": "reg-001",
+            }
+        )
+    assert "ERR_ANS_GATEWAY_UNAVAILABLE" in str(exc.value)
+
+
+def test_guard_fires_before_gateway_even_with_refusing() -> None:
+    """The ERR_ANS_SUBMIT_NOT_HUMAN guard is orthogonal to the gateway and fires FIRST: a missing
+    human decision raises AnsSubmitNotHumanError BEFORE the gateway is ever consulted — even with a
+    Refusing gateway wired, the error is the guard's, not the gateway's."""
+    submission = AnsSubmissionData(dataset_ref="ds-1", report_type="RN_124_SIP", competencia="2026-06")
+    decision = AnsSubmitDecision(decisao_envio="ADIAR_ENVIO", revisor_id="")
+    with pytest.raises(AnsSubmitNotHumanError):
+        transmit_to_ans(
+            submission,
+            decision,
+            gateway=RefusingAnsGatewayTransport(),
+            business_key="ANSSUB-amh-RN_124_SIP-2026-06",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -289,14 +432,20 @@ def test_submit_entry_guards_missing_human_decision() -> None:
 
 def test_submit_entry_happy_path() -> None:
     variables = {
+        "tenant_id": "amh",
         "report_type": "SIP",
         "competencia": "2026-06",
         "decisao_envio": "APROVAR_ENVIO",
         "revisor_id": "revisor-1",
     }
-    result = submit_entry(variables)
+    # Dev/test explicitly inject the LabeledMock gateway (design §2.A) — with NO gateway the
+    # prod-default Refusing transport would fail closed (see the prod-config tests below).
+    result = submit_entry(variables, ans_gateway=LabeledMockAnsGatewayTransport())
     assert result["submitted"] is True
     assert result["revisor_id"] == "revisor-1"
+    # Deterministic synthetic protocol keyed on the derived business key.
+    assert result["protocolo_ans"] == f"{MOCK_ANS_PROTOCOL_PREFIX}ANSSUB-amh-SIP-2026-06"
+    assert result["synthetic"] is True and result["vinculativo"] is False
 
 
 def test_track_protocol_entry_raises_on_missing_protocolo() -> None:
