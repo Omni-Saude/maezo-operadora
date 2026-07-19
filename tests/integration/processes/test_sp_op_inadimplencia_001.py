@@ -38,8 +38,9 @@ test_nenhum_caminho_automatizado_suspende_contrato:
 PORT NOTES (fixture adaptation only — port rule 1):
 
   - import paths -> v2 `maezo.tools.workers.inadimplencia`/`harness`/`dmn_transport`/`events`.
-    Donor's `from maezo.tools.mcp_cibseven.server import CibSevenHttpTransport` (cross-process
-    query seam) DROPPED — see FINDING 2 (the seam does not exist on v2's `resolve_facts`).
+    The cross-process query seam is now REAL on v2: `inad_probe` wires
+    `FreshClientCibSevenTransport` as the `engine=` seam into `register_inadimplencia_workers` (see
+    FINDING 2) — resolve_facts runs the live `find_active_instance` anti-dupla query.
   - artifact paths -> `spec/processes/{bpmn,dmn}/**` (constraint 5).
   - `drain()` uses the shared `drain_topics()` helper (v2 transport signature adaptation).
   - **`dentro_periodo_minimo` is RECOMPUTED downstream, not pass-through (verify-before-citing).**
@@ -80,44 +81,26 @@ PORT NOTES (fixture adaptation only — port rule 1):
 
 FINDINGS (root-cause, file:line evidence; see PR body / evidence-ledger for full detail):
 
-  1. **`operadora.inadimplencia.prepare_dossier` / `notify_sla_risk` have NO REGISTERED WORKER
-     (headline finding — blocks the majority of engine-driven tests below).**
-     `register_inadimplencia_workers` (inadimplencia.py:338-359) registers exactly 6 topics
-     (resolve_facts, assess_status, calculate_purge, check_prior_notice, register_contract_
-     suspension, handoff_rescisao). The BPMN (`SP-OP-INADIMPLENCIA-001_Suspensao_Rescisao.bpmn`)
-     declares `ST_PrepareDossier` (line 210, topic `operadora.inadimplencia.prepare_dossier`) and
-     `ST_NotificarRiscoSla` (line 245, topic `operadora.inadimplencia.notify_sla_risk`) as
-     service tasks on the CRITICAL PATH to the human User Task — confirmed via grep: no
-     `prepare_dossier`/`notify_sla_risk` FUNCTION exists anywhere in inadimplencia.py at all
-     (the module's own comment at line 334 self-documents this: "Spec topics with NO
-     implementing function today (gap, not fabricated here): prepare_dossier, notify_sla_risk").
-     EVERY path from `BRT_Sla` to `UT_AnaliseInadimplencia` passes through `ST_PrepareDossier`
-     (`Flow_Sla_Dossie -> ST_PrepareDossier -> Flow_Dossie_UTAnalise -> UT_AnaliseInadimplencia`,
-     bpmn:410-411) — with no worker ever completing this external task, the instance stalls there
-     PERMANENTLY and never reaches the human UT. This is DISTINCT from (and more severe than) the
-     systemic Kafka-publish gap: it is a missing WORKER IMPLEMENTATION on the BPMN's own critical
-     path, not just an unobservable notification side-channel. Every test below that calls
-     `_drive_to_analise(...)` is blocked by this and marked `_PREPARE_DOSSIER_UNREGISTERED_
-     REASON`. NOT invented as a workaround (no local stub was added — `src/**` is out of scope
-     for this port, and no donor precedent for a "prepare_dossier stub" exists for this family,
-     unlike auth's donor-native `_AnalyzeRequestStub`).
-  2. **GAP-INAD-1 cross-process query (`ja_em_rescisao_cancel`) is NOT IMPLEMENTED in v2.**
-     The donor (and `docs/processes/contracts/SP-OP-INADIMPLENCIA-001.md:23,66,204`) describe
-     `resolve_facts` as RESOLVING `ja_em_rescisao_cancel` via a real cross-process engine query
-     (`CibSevenTransport.find_active_instance` against `CANCEL-{tenant}-{numero_contrato}`,
-     fail-closed). v2's actual `resolve_facts()` (inadimplencia.py:41-76) and `_register_
-     contract_suspension()` (inadimplencia.py:215-265) both treat `ja_em_rescisao_cancel` as a
-     PURE PASS-THROUGH (`variables.get("ja_em_rescisao_cancel", False)`, line 226) — there is no
-     `query_engine`/`CibSevenHttpTransport`/`find_active_instance` import or seam ANYWHERE in
-     inadimplencia.py, and `register_inadimplencia_workers`'s `**seams` only reads `dmn` (line
-     349); `resolve_facts` itself takes a single `variables: dict` argument with no seam
-     parameter at all. Materializing a live CANCEL-001 instance (as the donor's
-     `test_suspensao_recusada_se_ja_em_rescisao_cancel` does) therefore has NO EFFECT on v2's
-     `ja_em_rescisao_cancel` resolution — it will always default to `False` regardless, and the
-     anti-double-termination guard will NOT fire. This is a genuine, real anti-double-termination
-     SAFETY GAP (not merely fixture/plumbing friction) — flagged prominently. (This specific
-     test is ALSO blocked by FINDING 1 first, since it needs `_drive_to_analise`; a verifier who
-     fixes FINDING 1 alone will still find this ONE test red for the SEPARATE reason above.)
+  1. **RESOLVED in src (#93, e4e3ed1) — HISTORICAL.** The original port snapshot found
+     `prepare_dossier`/`notify_sla_risk` had no registered worker (ST_PrepareDossier stalled the
+     critical path to the human UT). #93 implemented BOTH functions and
+     `register_inadimplencia_workers` now registers all 8 topics (inadimplencia.py:708-728,
+     `prepare_dossier` at :718, `notify_sla_risk` at :728). `_drive_to_analise(...)` therefore
+     reaches `UT_AnaliseInadimplencia` normally; the `_PREPARE_DOSSIER_UNREGISTERED_REASON` xfail
+     premise is STALE and its markers were removed (GAP-INAD-1 seam-wiring PR, R1 2026-07-19).
+  2. **GAP-INAD-1 anti-dupla cross-process query — IMPLEMENTED in src (#93), WIRED here.**
+     `resolve_facts(variables, *, engine=...)` now resolves `ja_em_rescisao_cancel` via a REAL
+     read-only `CibSevenTransport.find_active_instance` query against `CANCEL-{tenant}-{contrato}`
+     (`_query_ja_em_rescisao_cancel`, inadimplencia.py:64-115), FAIL CLOSED (`True`) when it cannot
+     confirm the correlation (no engine seam, missing identity, transport error). This suite's
+     `inad_probe` fixture WIRES that seam (`engine=FreshClientCibSevenTransport(...)`) plus the
+     mandatory `audit_sink=` (handoff_rescisao's ADR-0007 emit-before-effect co-requisite), so the
+     guard is now genuinely exercised: `test_suspensao_recusada_se_ja_em_rescisao_cancel`
+     materializes a live CANCEL-001 (SAME contract) -> query detects it -> suspension REFUSED; the
+     discriminator sibling `test_suspensao_prossegue_sem_cancel_ativo` (no CANCEL) -> query returns
+     False -> suspension COMPLETES. CANCEL presence is causally decisive — the anti-dupla-terminacao
+     L0 guarantee is proven end-to-end against the real engine (was a spurious fail-closed XPASS
+     before wiring: every instance refused regardless of CANCEL — a FALSE L0 claim, now real).
   3. **`End_SuspensaoBloqueadaNaoHumano` (GAP-INAD-7) is an ADDITIVE end-event vs the donor's
      topology expectation, but is itself STRUCTURALLY UNREACHABLE.** The BPMN declares
      `BE_SuspensaoNaoHumano` (line 313, `errorRef="Error_ContractSuspensionNotHuman"`) as a
@@ -155,6 +138,8 @@ import httpx
 import pytest
 import pytest_asyncio
 
+from maezo.gateway.audit_postgres import FreshSinkAuditEmitter
+from maezo.tools.workers.cibseven_engine import FreshClientCibSevenTransport
 from maezo.tools.workers.dmn_transport import CibSevenDmnTransport
 from maezo.tools.workers.events import register_events_workers
 from maezo.tools.workers.harness import CibSevenWorkerTransport, FakeKafkaPublisher, WorkerHarness
@@ -236,48 +221,20 @@ _CAMPOS_SUSP = {
     "tier": "tier-2",
 }
 
-# FINDING 1 (module docstring): ST_PrepareDossier's topic has no registered worker in v2 — every
-# path to UT_AnaliseInadimplencia passes through it first, so the instance never reaches the
-# human UT at all. Blocks every test below that calls `_drive_to_analise`.
-_PREPARE_DOSSIER_UNREGISTERED_REASON = (
-    "v2 gap (T3.1 finding 1, MORE SEVERE than the systemic Kafka-publish drift): "
-    "register_inadimplencia_workers (inadimplencia.py:338-359) registers 6 topics but NOT "
-    "operadora.inadimplencia.prepare_dossier (BPMN ST_PrepareDossier) nor operadora."
-    "inadimplencia.notify_sla_risk (BPMN ST_NotificarRiscoSla) — no function implementing either "
-    "exists anywhere in inadimplencia.py (module's own comment, line 334: 'Spec topics with NO "
-    "implementing function today (gap, not fabricated here): prepare_dossier, notify_sla_risk'). "
-    "Every path from BRT_Sla to UT_AnaliseInadimplencia passes through ST_PrepareDossier "
-    "(Flow_Sla_Dossie -> ST_PrepareDossier -> Flow_Dossie_UTAnalise -> UT_AnaliseInadimplencia) — "
-    "with no worker ever completing that external task, the instance stalls there permanently "
-    "and never reaches the human User Task this test depends on. src/** fix is out of scope for "
-    "this port; no local stub was added (no donor precedent for this family, unlike auth's "
-    "donor-native _AnalyzeRequestStub)."
-)
-
-# GAP-INAD-1 (anti-dupla-terminacao) — CORRECTED, live-proven premise (R1, T3.1 land, 2026-07-18 @
-# cibseven 2.1.0). Both ORIGINAL premises are now stale in SRC: #93 (e4e3ed1) registered
-# prepare_dossier (old cause 1) AND implemented the real cross-process query (old cause 2's "NOT
-# IMPLEMENTED" is stale — _query_ja_em_rescisao_cancel now queries CANCEL-{tenant}-{contrato} via
-# CibSevenTransport.find_active_instance). What KEEPS this test xfail is now a TEST-WIRING gap: the
-# `inad_probe` fixture calls register_inadimplencia_workers WITHOUT the `engine=` seam, so
-# resolve_facts FAILS CLOSED (ja_em_rescisao_cancel := True) for EVERY instance — the guard then
-# refuses suspension UNCONDITIONALLY, so this test XPASSES but SPURIOUSLY (the live CANCEL-001 it
-# materializes is causally irrelevant; the sibling test_suspensao_prossegue_sem_cancel_ativo, with
-# NO cancel, is refused too and XFAILs). strict=False: kept as a documented xfail (it xpasses, but
-# NOT for the anti-dupla-detection reason it asserts) — flipping would be a FALSE L0 safety claim.
-# Follow-up: wire the `engine=` seam into inad_probe to genuinely exercise the query (coherently
-# flips this + the 3 suspension-happy-path siblings + the handoff test — GAP-INAD-1, out of this
-# test-only flip scope).
-_CROSS_PROCESS_QUERY_AND_DOSSIER_GAP_REASON = (
-    "SPURIOUS-PASS, kept xfail (live-proven R1 2026-07-18): src now implements the anti-dupla "
-    "cross-process query (#93 _query_ja_em_rescisao_cancel via find_active_instance), but this "
-    "suite's inad_probe fixture does NOT wire the `engine=` seam into register_inadimplencia_workers, "
-    "so resolve_facts FAILS CLOSED (ja_em_rescisao_cancel := True) for every instance (captured log: "
-    "'inadimplencia_cancel_correlation_unavailable reason=engine_seam_not_wired'). The guard refuses "
-    "suspension unconditionally, so this XPASSES — but NOT because it detected the materialized live "
-    "CANCEL-001 (causally irrelevant: the sibling test_suspensao_prossegue_sem_cancel_ativo, with no "
-    "cancel, is refused too). Flipping would falsely assert live anti-dupla detection. Follow-up: "
-    "wire `engine=` into inad_probe (flips this + the 3 suspension-happy-paths + handoff)."
+# notify_sla_risk is dict-first (ADR-0026 §2a) and NON-observable via the FakeKafka probe: the BPMN
+# has NO ST_Publish task on the BT_AlertaSla path (grep of the 6 publish tasks: Received/Purgado/
+# SlaBreach/Suspenso/RescisaoHandoff/Mantido — none for notify_sla_risk), and notify_sla_risk itself
+# never publishes. The donor's `notifications_of_type("inadimplencia.notify_sla_risk")` internal-
+# notification channel therefore has NO v2 equivalent the kafka probe can see. This is DISTINCT from
+# the anti-dupla seam (this PR's scope): wiring `engine=` does NOT make this event observable. Kept
+# xfail; a follow-up could re-express it against engine history (ST_NotificarRiscoSla ended) — a
+# separate stale-donor-assertion adaptation outside GAP-INAD-1.
+_NOTIFY_SLA_RISK_UNOBSERVABLE_REASON = (
+    "v2 stale-donor-assertion (NOT the anti-dupla seam): notify_sla_risk is dict-first and its "
+    "BT_AlertaSla path has no ST_Publish task, so it emits NO event the FakeKafka probe can observe "
+    "— `notifications_of_type('inadimplencia.notify_sla_risk')` is always empty in v2. Wiring the "
+    "`engine=` seam does not change this. Re-expressing against engine history (ST_NotificarRiscoSla "
+    "ended) is a separate follow-up outside this GAP-INAD-1 anti-dupla-seam PR."
 )
 
 
@@ -335,7 +292,7 @@ async def deploy_artifacts(engine: EngineRest) -> str:
 
 @pytest_asyncio.fixture
 async def inad_probe(
-    engine: EngineRest, audit_sink: Any, audit_tenant: str
+    engine: EngineRest, audit_sink: Any, audit_tenant: str, audit_pg: tuple[str, str]
 ) -> AsyncIterator[InadEngineProbe]:
     """Probe que serve as external tasks com os workers reais de inadimplencia."""
     worker_id = f"qa-inad-worker-{uuid.uuid4().hex[:8]}"
@@ -355,7 +312,28 @@ async def inad_probe(
     )
     kafka = FakeKafkaPublisher()
     dmn = CibSevenDmnTransport(CIBSEVEN_BASE_URL, timeout=30.0)
-    register_inadimplencia_workers(harness, kafka, dmn=dmn)
+    # GAP-INAD-1 seam wiring: thread the REAL agent->engine transport (`engine=`) AND the durable
+    # `audit_sink=` into the inadimplencia workers, exactly as the live worker-daemon composition
+    # root does (worker_runtime/service.py). Without `engine=`, resolve_facts FAILS CLOSED
+    # (ja_em_rescisao_cancel := True) for every instance, so the anti-dupla suspension guard would
+    # refuse UNCONDITIONALLY (a false L0 guarantee — the materialized CANCEL-001 would be causally
+    # irrelevant). `audit_sink=` is MANDATORY: handoff_rescisao raises (fail-closed, ADR-0007
+    # emit-before-effect) if it is None. `FreshClientCibSevenTransport` builds a fresh client per
+    # call so consecutive sync workers (each on its own `asyncio.run` loop) never share/outlive an
+    # event loop (cibseven_engine.py module docstring).
+    #
+    # CRITICAL — the workers' `audit_sink=` seam MUST be loop-agnostic, NOT the pooled `audit_sink`:
+    # handoff_rescisao emits its ADR-0007 CANCEL-001 start record from inside its own fresh
+    # `asyncio.run` loop (start_process_idempotent). The harness's pooled PostgresAuditSink binds
+    # its asyncpg pool to the TEST loop, so threading it here produces the exact cross-loop
+    # asyncpg failure ("got Future ... attached to a different loop") that stalls the handoff.
+    # `FreshSinkAuditEmitter` (audit_postgres.py) is the sink-side mirror of the fresh-client-
+    # per-call pattern the live daemon uses for precisely this seam — a fresh PostgresAuditSink
+    # constructed+closed INSIDE the calling loop per emit. The harness keeps the POOLED sink (its
+    # emit-before-complete runs on the test loop), exactly as the daemon splits the two seams.
+    engine_seam = FreshClientCibSevenTransport(CIBSEVEN_BASE_URL)
+    handoff_audit_sink = FreshSinkAuditEmitter(audit_pg[0], audit_tenant)
+    register_inadimplencia_workers(harness, kafka, dmn=dmn, engine=engine_seam, audit_sink=handoff_audit_sink)
     # T3.1 R2: o worker generico operadora.events.publish que todo ST_Publish* deste BPMN usa.
     register_events_workers(harness, kafka)
     # DRIFT GUARD (mirrors cancel's/contas's — verbatim style): todo topico inadimplencia.*
@@ -373,6 +351,7 @@ async def inad_probe(
     finally:
         await transport.close()
         await dmn.close()
+        await engine_seam.close()  # no-op (fresh-client-per-call), kept for lifecycle symmetry
 
 
 def _unique_contrato(prefix: str = "CONTRATO-TESTE") -> str:
@@ -449,8 +428,8 @@ async def _assert_no_adverse_without_human_task(engine: EngineRest, iid: str) ->
 async def _drive_to_analise(engine: EngineRest, probe: InadEngineProbe, iid: str) -> Any:
     """Drena ate UT_AnaliseInadimplencia surgir (dossie preparado pelo worker real).
 
-    BLOQUEADO por FINDING 1 (module docstring) — `ST_PrepareDossier` nunca e servido; esta
-    chamada nunca retorna sob o gap atual. Todo teste que a usa esta marcado xfail.
+    `ST_PrepareDossier` e servido pelo `prepare_dossier` real desde #93 (FINDING 1, historico) — o
+    drain avanca a instancia ate a User Task humana normalmente.
     """
     await probe.drain()
     return await engine.await_user_task(iid, _UT_ANALISE)
@@ -621,7 +600,6 @@ async def test_notificacao_ack_reavalia_nunca_suspende(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_PREPARE_DOSSIER_UNREGISTERED_REASON, strict=True)
 async def test_happy_path_suspensao_por_inadimplencia_humano(
     engine: EngineRest,
     inad_probe: InadEngineProbe,
@@ -640,14 +618,20 @@ async def test_happy_path_suspensao_por_inadimplencia_humano(
     ended = await _await_end(engine, iid)
     await _assert_no_adverse_without_human_task(engine, iid)
     assert _END_SUSPENSO in ended, f"Suspensao humana deve atingir End_ContratoSuspenso_Inad. ended={ended}"
-    assert inad_probe.has_event(_INAD_COMPLETED, desfecho="suspenso")
 
-    avisos = inad_probe.notifications_of_type("inadimplencia.register_contract_suspension")
-    assert avisos and avisos[0]["decisao_inadimplencia"] == "SUSPENDER"
-    assert avisos[0]["responsavel_id"] == "juridico-sintetico-001"
+    # v2-real emitted shape (ADAPTADO — donor's internal-notification channel does not exist here):
+    # register_contract_suspension is dict-first and NEVER publishes an `operadora.notifications.
+    # internal` record with a typed envelope, so `notifications_of_type(...)` is ALWAYS empty in v2.
+    # The engine-observable proof is the BPMN publish task ST_PublishSuspenso (event_topic=
+    # agents.events.inadimplencia.completed, event_desfecho=suspenso, event_payload_vars carry
+    # `responsavel_id`). Asserting the completed event WITH the human `responsavel_id` proves the
+    # SUSPENDER effect AND that its accountable human propagated end-to-end — a strictly STRONGER
+    # property than the donor's internal aviso[0]["responsavel_id"] check.
+    assert inad_probe.has_event(
+        _INAD_COMPLETED, desfecho="suspenso", responsavel_id="juridico-sintetico-001"
+    ), "ST_PublishSuspenso deve emitir completed(desfecho=suspenso) com o responsavel_id humano"
 
 
-@pytest.mark.xfail(reason=_PREPARE_DOSSIER_UNREGISTERED_REASON, strict=True)
 async def test_happy_path_encaminhar_rescisao_handoff_neutro_nao_rescinde(
     engine: EngineRest,
     inad_probe: InadEngineProbe,
@@ -656,6 +640,16 @@ async def test_happy_path_encaminhar_rescisao_handoff_neutro_nao_rescinde(
     """SEGUE_ANALISE; humano ENCAMINHAR_RESCISAO => handoff a CANCEL-001; End_RescisaoHandoffCancel
     (NEUTRO).
     """
+    # handoff_rescisao runs the fenced `start_process_idempotent` chokepoint against SP-OP-CANCEL-001,
+    # so its BPMN + DMNs MUST be deployed for the handoff to succeed (do NOT rely on cross-test engine
+    # leakage: the engine is function-scoped-shared -> order-dependent/flaky). Mirror #6's deploy.
+    await engine.deploy(
+        _REPO / "spec/processes/bpmn/SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn",
+        _REPO / "spec/processes/dmn/cancel_admissibility.dmn",
+        _REPO / "spec/processes/dmn/cancel_routing.dmn",
+        _REPO / "spec/processes/dmn/cancel_sla.dmn",
+        name="SP-OP-CANCEL-001-qa-inad-handoff",
+    )
     inst = await start_inad()
     iid = inst["id"]
 
@@ -668,11 +662,18 @@ async def test_happy_path_encaminhar_rescisao_handoff_neutro_nao_rescinde(
     ended = await _await_end(engine, iid)
     assert _END_HANDOFF in ended, f"ENCAMINHAR_RESCISAO => End_RescisaoHandoffCancel (neutro). ended={ended}"
     assert not (ended & _ENDS_ADVERSOS), "Handoff de rescisao NAO atinge terminal adverso local"
-    assert inad_probe.has_event(_INAD_COMPLETED, desfecho="rescisao_handoff")
 
-    handoffs = inad_probe.notifications_of_type("inadimplencia.handoff_rescisao")
-    assert handoffs, "handoff_rescisao deve ser executado em ENCAMINHAR_RESCISAO"
-    assert not inad_probe.notifications_of_type("inadimplencia.register_contract_suspension")
+    # v2-real emitted shape (ADAPTADO — v2 has no internal-notification channel; see #1). The
+    # ST_PublishRescisaoHandoff publish task (desfecho=rescisao_handoff, event_payload_vars carry
+    # `responsavel_id`) is the engine-observable proof the neutral handoff ran carrying its
+    # accountable human. And NO `suspenso` desfecho is emitted on this path — the handoff is neutral
+    # (CANCEL-001 owns the rescisao terminal), never an adverse-local suspension.
+    assert inad_probe.has_event(
+        _INAD_COMPLETED, desfecho="rescisao_handoff", responsavel_id="juridico-sintetico-001"
+    ), "ST_PublishRescisaoHandoff deve emitir completed(desfecho=rescisao_handoff) com o responsavel_id"
+    assert not inad_probe.has_event(_INAD_COMPLETED, desfecho="suspenso"), (
+        "o caminho de ENCAMINHAR_RESCISAO NUNCA emite um desfecho de suspensao (neutro, anti-dupla)"
+    )
 
 
 async def test_happy_path_contrato_mantido(
@@ -728,24 +729,30 @@ async def test_suspender_exige_campos_worker_guard(
     assert _END_SUSPENSO not in ended, (
         "Suspensao sem campos obrigatorios NAO pode atingir End_ContratoSuspenso_Inad (guard do worker)"
     )
-    assert not inad_probe.notifications_of_type("inadimplencia.register_contract_suspension"), (
-        "register_contract_suspension NAO deve emitir sem campos obrigatorios"
+    # v2-real proof (ADAPTADO — donor's internal-notification channel absent): the guard raises, so
+    # ST_PublishSuspenso never runs -> NO completed(desfecho=suspenso) event. Strictly stronger than
+    # the donor's always-empty `notifications_of_type(...)` negative check (which passed vacuously).
+    assert not inad_probe.has_event(_INAD_COMPLETED, desfecho="suspenso"), (
+        "register_contract_suspension NAO deve completar (nenhum desfecho=suspenso) sem campos obrigatorios"
     )
     await _assert_no_adverse_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_CROSS_PROCESS_QUERY_AND_DOSSIER_GAP_REASON, strict=False)
 async def test_suspensao_recusada_se_ja_em_rescisao_cancel(
     engine: EngineRest,
     inad_probe: InadEngineProbe,
     start_inad: Callable[..., Any],
 ) -> None:
-    """ANTI-DUPLA-TERMINACAO (GAP-INAD-1): CANCEL-001 ATIVO => resolve_facts deveria detectar e recusar.
+    """ANTI-DUPLA-TERMINACAO (GAP-INAD-1): CANCEL-001 ATIVO => resolve_facts DETECTA e recusa a suspensao.
 
-    FINDING 2 (module docstring): v2's resolve_facts NAO implementa a consulta cross-process real
-    — ja_em_rescisao_cancel e pass-through puro. Materializar uma instancia CANCEL-001 ATIVA (como
-    o donor faz) nao tem NENHUM efeito sobre a resolucao de v2. Preservado verbatim (mesma
-    materializacao + mesmas assercoes do donor) para documentar honestamente o gap.
+    Com o seam `engine=` wired no `inad_probe` (FreshClientCibSevenTransport), resolve_facts roda a
+    consulta cross-process REAL (`_query_ja_em_rescisao_cancel` -> `find_active_instance` sobre
+    CANCEL-amh-{contrato}). A instancia CANCEL-001 materializada abaixo (MESMO contrato) e detectada
+    como ATIVA -> ja_em_rescisao_cancel=True -> o guard de register_contract_suspension RECUSA a
+    suspensao -> End_ContratoSuspenso_Inad NUNCA e atingido. A prova de que a deteccao e CAUSAL (nao
+    uma recusa incondicional/fail-closed): o teste irmao `test_suspensao_prossegue_sem_cancel_ativo`
+    (SEM CANCEL ativo, mesma wiring) COMPLETA a suspensao -> a presenca do CANCEL-001 e o unico
+    discriminador. Anti-dupla-terminacao provada end-to-end.
     """
     contrato = _unique_contrato()
     cancel_bk = f"CANCEL-amh-{contrato}"
@@ -792,19 +799,27 @@ async def test_suspensao_recusada_se_ja_em_rescisao_cancel(
     assert _END_SUSPENSO not in ended, (
         "Com rescisao CANCEL ja ativa, a suspensao deve ser recusada (anti-dupla-terminacao)"
     )
-    assert not inad_probe.notifications_of_type("inadimplencia.register_contract_suspension"), (
-        "Nenhuma suspensao registrada quando resolve_facts detecta CANCEL-001 ativo"
+    # v2-real proof (ADAPTADO): the guard raises -> ST_PublishSuspenso never runs, so NO completed
+    # (desfecho=suspenso) event is ever emitted when CANCEL-001 is detected active. Strictly stronger
+    # than the donor's always-empty `notifications_of_type(...)` check (which passed vacuously).
+    assert not inad_probe.has_event(_INAD_COMPLETED, desfecho="suspenso"), (
+        "Nenhum desfecho de suspensao deve ser emitido quando resolve_facts detecta CANCEL-001 ativo"
     )
     await _assert_no_adverse_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_PREPARE_DOSSIER_UNREGISTERED_REASON, strict=True)
 async def test_suspensao_prossegue_sem_cancel_ativo(
     engine: EngineRest,
     inad_probe: InadEngineProbe,
     start_inad: Callable[..., Any],
 ) -> None:
-    """Sem instancia CANCEL-001 ativa => ja_em_rescisao_cancel=false; suspensao humana segue."""
+    """Sem instancia CANCEL-001 ativa => ja_em_rescisao_cancel=false; suspensao humana segue.
+
+    Discriminador do anti-dupla (par de `test_suspensao_recusada_se_ja_em_rescisao_cancel`): com o
+    seam `engine=` wired mas SEM CANCEL-001 ativo, a consulta cross-process retorna False e a
+    suspensao humana COMPLETA — provando que a recusa do teste irmao e CAUSADA pela presenca do
+    CANCEL-001, nao por um fail-closed incondicional.
+    """
     inst = await start_inad()
     iid = inst["id"]
 
@@ -816,9 +831,11 @@ async def test_suspensao_prossegue_sem_cancel_ativo(
     assert _END_SUSPENSO in ended, (
         f"Sem CANCEL ativo, a suspensao humana deve prosseguir ao terminal adverso. ended={ended}"
     )
-    assert inad_probe.notifications_of_type("inadimplencia.register_contract_suspension"), (
-        "A suspensao deve ser registrada quando nao ha CANCEL-001 ativo"
-    )
+    # v2-real emitted shape (ADAPTADO — see #1): completed(desfecho=suspenso) com o responsavel_id
+    # humano prova que a suspensao registrou e propagou o humano responsavel quando NAO ha CANCEL-001.
+    assert inad_probe.has_event(
+        _INAD_COMPLETED, desfecho="suspenso", responsavel_id="juridico-sintetico-001"
+    ), "Sem CANCEL-001 ativo, a suspensao humana deve completar e emitir completed(desfecho=suspenso)"
 
 
 # ===========================================================================
@@ -826,7 +843,7 @@ async def test_suspensao_prossegue_sem_cancel_ativo(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_PREPARE_DOSSIER_UNREGISTERED_REASON, strict=True)
+@pytest.mark.xfail(reason=_NOTIFY_SLA_RISK_UNOBSERVABLE_REASON, strict=True)
 async def test_timer_alerta_sla_nao_interruptivo(
     engine: EngineRest,
     inad_probe: InadEngineProbe,
@@ -877,7 +894,6 @@ async def test_timer_sla_estourado_coordenacao_assume(
     await _assert_no_adverse_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_PREPARE_DOSSIER_UNREGISTERED_REASON, strict=True)
 async def test_coordenacao_assume_e_suspende(
     engine: EngineRest,
     inad_probe: InadEngineProbe,
