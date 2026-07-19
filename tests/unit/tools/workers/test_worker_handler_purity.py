@@ -36,8 +36,14 @@ lgpd/recurso/reembolso) — the design UNDERCOUNTED, exactly as the R1 re-review
 `start_process_idempotent` undercount. All seven are latent today (the minted values are output
 variables of stub/no-network handlers, so no real external `E` re-runs); each becomes a genuine
 double-effect / audit-misalignment hazard the moment its handler performs a real external effect
-keyed on that identifier. `ans_submit` is the T-H (T2.6-owned) named co-requisite; the other six are
+keyed on that identifier. `ans_submit` WAS the T-H (T2.6-owned) named co-requisite; the other six are
 recorded here so they cannot silently become real effects without tripping this fence.
+
+UPDATE (T2.6-1, design §2.A): `ans_submit` has since been FIXED and REMOVED from the baseline — its
+fabricated `protocolo_ans = sha256(time_ns())` was replaced by the explicit `AnsGatewayTransport`
+triple (`ans_gateway.py`: Refusing prod-default / LabeledMock deterministic-by-business-key / Real
+creds-blocked stub). The baseline now tracks SIX modules; the pin
+(`test_ans_submit_protocolo_th_corequisite_landed_deterministic`) guards the fixed state.
 """
 
 from __future__ import annotations
@@ -63,6 +69,12 @@ _INFRA_MODULES: frozenset[str] = frozenset(
         # CibSevenTransport SEAM (GAP-INAD-1) — an engine transport like dmn_transport, reached
         # by workers ONLY via the engine= param; registers no workers, legitimately owns httpx.
         "cibseven_engine",
+        # T2.6-1 (design §2.A): the ANS protocol-issuance SEAM (AnsGatewayTransport triple —
+        # Refusing prod-default / LabeledMock / Real creds-blocked stub), reached by ans_submit
+        # ONLY via the ans_gateway= param; registers no workers. It replaced ans_submit's fabricated
+        # sha256(time_ns) protocol, so ans_submit itself drops out of the non-determinism baseline
+        # below.
+        "ans_gateway",
     }
 )
 
@@ -82,9 +94,10 @@ _NONDET_ROOTS: frozenset[str] = frozenset({"random", "secrets"})
 # DOCUMENTED baseline of domain worker modules that currently mint non-deterministic identifiers.
 # Value = the tracking note. NEW entries (a module not here) FAIL the fence. See module FINDING.
 _NONDETERMINISM_BASELINE: dict[str, str] = {
-    "ans_submit": "protocolo_ans = sha256(time_ns()) — T-H / T2.6 NAMED co-requisite (design "
-    "MUST-FIX 1); MUST derive deterministically before transmit_to_ans becomes a real audited "
-    "external effect.",
+    # NOTE: `ans_submit` was REMOVED from this baseline by T2.6-1 (the T-H co-requisite landed). Its
+    # fabricated `protocolo_ans = sha256(time_ns())` was replaced by the explicit
+    # `AnsGatewayTransport` triple (Refusing prod-default / LabeledMock deterministic-by-business-key
+    # / Real creds-blocked) — see `test_ans_submit_protocolo_th_corequisite_landed_deterministic`.
     "auth": "dossier_ref / auth_number = uuid4 — latent (output vars of a no-network handler); "
     "must become deterministic before any real keyed external effect (P1).",
     "contas": "time_ns()-derived id — latent; same P1 caveat.",
@@ -173,13 +186,21 @@ def test_nondeterministic_identifier_minting_confined_to_documented_baseline() -
     )
 
 
-def test_ans_submit_protocolo_is_the_named_th_corequisite() -> None:
-    """Pin the design's NAMED T-H co-requisite so it cannot silently disappear from the baseline
-    without the deterministic fix landing (MUST-FIX 1 co-requisite)."""
-    assert "ans_submit" in _NONDETERMINISM_BASELINE
+def test_ans_submit_protocolo_th_corequisite_landed_deterministic() -> None:
+    """T-H (T2.6-1, the design's NAMED co-requisite / MUST-FIX 1) LANDED: `ans_submit` no longer
+    mints a non-deterministic protocol.
+
+    The fabricated `protocolo_ans = sha256(time.time_ns())` path was removed and replaced by the
+    explicit `AnsGatewayTransport` triple (`ans_gateway.py`): Refusing (prod default — refuses,
+    fabricates nothing), LabeledMock (deterministic `MOCK-ANS-NAO-VINCULATIVO-{business_key}`), Real
+    (creds-blocked stub). Pin the FIXED state so a regression (re-introducing `time_ns`/any
+    non-deterministic identifier into `ans_submit`) trips BOTH this pin and the baseline fence
+    (`test_nondeterministic_identifier_minting_confined_to_documented_baseline` would then flag
+    `ans_submit` as a NEW violation)."""
+    assert "ans_submit" not in _NONDETERMINISM_BASELINE
     path = _domain_worker_modules()["ans_submit"]
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    assert "time.time_ns" in _nondeterministic_calls(tree), (
-        "ans_submit no longer mints protocolo_ans from time_ns — if T-H landed the deterministic "
-        "derivation, remove ans_submit from _NONDETERMINISM_BASELINE."
+    assert "time.time_ns" not in _nondeterministic_calls(tree), (
+        "ans_submit still mints a non-deterministic identifier — T2.6-1 removed the fabricated "
+        "sha256(time_ns) protocol; nothing in this module may re-introduce time_ns/uuid/random."
     )
