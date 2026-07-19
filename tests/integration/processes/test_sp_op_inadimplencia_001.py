@@ -138,6 +138,7 @@ import httpx
 import pytest
 import pytest_asyncio
 
+from maezo.gateway.audit_postgres import FreshSinkAuditEmitter
 from maezo.tools.workers.cibseven_engine import FreshClientCibSevenTransport
 from maezo.tools.workers.dmn_transport import CibSevenDmnTransport
 from maezo.tools.workers.events import register_events_workers
@@ -291,7 +292,7 @@ async def deploy_artifacts(engine: EngineRest) -> str:
 
 @pytest_asyncio.fixture
 async def inad_probe(
-    engine: EngineRest, audit_sink: Any, audit_tenant: str
+    engine: EngineRest, audit_sink: Any, audit_tenant: str, audit_pg: tuple[str, str]
 ) -> AsyncIterator[InadEngineProbe]:
     """Probe que serve as external tasks com os workers reais de inadimplencia."""
     worker_id = f"qa-inad-worker-{uuid.uuid4().hex[:8]}"
@@ -320,9 +321,20 @@ async def inad_probe(
     # emit-before-effect) if it is None. `FreshClientCibSevenTransport` builds a fresh client per
     # call so consecutive sync workers (each on its own `asyncio.run` loop) never share/outlive an
     # event loop (cibseven_engine.py module docstring).
+    #
+    # CRITICAL — the workers' `audit_sink=` seam MUST be loop-agnostic, NOT the pooled `audit_sink`:
+    # handoff_rescisao emits its ADR-0007 CANCEL-001 start record from inside its own fresh
+    # `asyncio.run` loop (start_process_idempotent). The harness's pooled PostgresAuditSink binds
+    # its asyncpg pool to the TEST loop, so threading it here produces the exact cross-loop
+    # asyncpg failure ("got Future ... attached to a different loop") that stalls the handoff.
+    # `FreshSinkAuditEmitter` (audit_postgres.py) is the sink-side mirror of the fresh-client-
+    # per-call pattern the live daemon uses for precisely this seam — a fresh PostgresAuditSink
+    # constructed+closed INSIDE the calling loop per emit. The harness keeps the POOLED sink (its
+    # emit-before-complete runs on the test loop), exactly as the daemon splits the two seams.
     engine_seam = FreshClientCibSevenTransport(CIBSEVEN_BASE_URL)
+    handoff_audit_sink = FreshSinkAuditEmitter(audit_pg[0], audit_tenant)
     register_inadimplencia_workers(
-        harness, kafka, dmn=dmn, engine=engine_seam, audit_sink=audit_sink
+        harness, kafka, dmn=dmn, engine=engine_seam, audit_sink=handoff_audit_sink
     )
     # T3.1 R2: o worker generico operadora.events.publish que todo ST_Publish* deste BPMN usa.
     register_events_workers(harness, kafka)
