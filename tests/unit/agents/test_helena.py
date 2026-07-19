@@ -439,6 +439,23 @@ def test_coerce_age_rejects_non_coercible_and_ambiguous_values() -> None:
     assert _coerce_age(True) == (False, None)  # bool is an int subclass — reject
 
 
+def test_coerce_age_unicode_digit_glyph_fails_closed_never_raises() -> None:
+    """A Unicode digit glyph that `str.isdigit()` accepts but `int()` cannot parse (superscript
+    `"²"`, circled digits) fails CLOSED to (False, None) — never raises ValueError.
+
+    Regression guard for the `isdigit()` -> `isdecimal()` fix: `"²".isdigit()` is True yet
+    `int("²")` raises; the call site (`_validate_extraction`) does not wrap `_coerce_age`, so a
+    raise here would escape unwrapped. `isdecimal()` admits only int()-parseable base-10 digits.
+    """
+    # Demonstrate the footgun the fix closes: a superscript is isdigit() (old guard) but not
+    # isdecimal() (new guard), and int() raises on it.
+    assert "²".isdigit() and not "²".isdecimal()
+    with pytest.raises(ValueError):
+        int("²")
+    for glyph in ("²", "⁵", "①", "5²", "½"):
+        assert _coerce_age(glyph) == (False, None), glyph
+
+
 def test_validate_extraction_coerces_valid_numeric_string_age_in_place() -> None:
     data = {
         "intent": "symptom",

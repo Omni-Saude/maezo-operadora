@@ -9,10 +9,14 @@ import pytest
 from maezo.gateway.custody import CustodyBundle
 from maezo.tools.workers.dmn_transport import DmnEvaluationError, DmnNoResultError, FakeDmnTransport
 from maezo.tools.workers.fraude import (
+    _SCORING_INPUT_KEYS,
+    _SCORING_NUMERIC_KEYS,
     ERR_CUSTODY_NOT_SEALED,
     ERR_FRAUD_ACCUSATION_NOT_HUMAN,
     ERR_PHI_IN_CUSTODY,
     FraudeError,
+    _coerce_numeric,
+    _collect_scoring_inputs,
     assemble_dossier,
     gather_evidence,
     intake,
@@ -226,6 +230,110 @@ def test_score_indicators_boolean_evidence_coerced_from_string() -> None:
     for _decision_id, passed_vars in fake.calls:
         assert passed_vars["has_tuss_codes"] is True
         assert passed_vars["has_cid10_codes"] is False
+
+
+# ---------------------------------------------------------------
+# T1.5 DMN-input hardening: numeric coerce-or-drop (fail-closed) + tuss_codes drop
+# ---------------------------------------------------------------
+
+
+def test_coerce_numeric_valid_values_typed_to_declared_typeref() -> None:
+    """A valid numeric coerces to the DMN-declared type: integer -> int, double -> float."""
+    # integer typeRef inputs (risk_score/code_tier/provider_volume)
+    assert _coerce_numeric(85, "int") == (True, 85)
+    assert _coerce_numeric("85", "int") == (True, 85)
+    assert _coerce_numeric(80.0, "int") == (True, 80)  # integral float -> int
+    assert _coerce_numeric("80.0", "int") == (True, 80)  # integral decimal string -> int
+    # double typeRef inputs (z_score/deviation_pct)
+    ok, val = _coerce_numeric(2.5, "double")
+    assert ok and isinstance(val, float) and val == 2.5
+    ok, val = _coerce_numeric("2.5", "double")
+    assert ok and isinstance(val, float) and val == 2.5
+    ok, val = _coerce_numeric(60, "double")  # int coerces UP to float for a double input
+    assert ok and isinstance(val, float) and val == 60.0
+
+
+def test_coerce_numeric_non_coercible_fails_closed() -> None:
+    """A non-numeric value fails closed to (False, None) — the caller then OMITS the key so NO
+    wrong-typed value reaches the DMN (its missing-input catch-all row handles the absence)."""
+    for bad in ("abc", "", "  ", "8o", None, [30], {"v": 1}, object()):
+        assert _coerce_numeric(bad, "int") == (False, None), bad
+        assert _coerce_numeric(bad, "double") == (False, None), bad
+    # bool is an int subclass but is NEVER a numeric fraud signal
+    assert _coerce_numeric(True, "int") == (False, None)
+    assert _coerce_numeric(False, "double") == (False, None)
+    # NaN / inf never valid
+    assert _coerce_numeric(float("nan"), "double") == (False, None)
+    assert _coerce_numeric(float("inf"), "double") == (False, None)
+    # a FRACTIONAL value for an integer input fails closed (never int("80.5") -> 80, which could
+    # silently flip a threshold rule) — strictly worse than fail-closed
+    assert _coerce_numeric(80.5, "int") == (False, None)
+    assert _coerce_numeric("80.5", "int") == (False, None)
+
+
+def test_coerce_numeric_int_input_preserves_precision_past_2_pow_53() -> None:
+    """A large integer input is typed WITHOUT a float round-trip (no precision loss)."""
+    big = 2**53 + 1  # not representable as a float
+    assert _coerce_numeric(big, "int") == (True, big)
+
+
+def test_collect_scoring_inputs_coerces_each_numeric_field() -> None:
+    """Every numeric signal is coerced to its declared type; a valid numeric string is typed."""
+    evidence = _collect_scoring_inputs(
+        {
+            "risk_score": "85",  # integer typeRef
+            "code_tier": "3",  # integer typeRef
+            "provider_volume": 15,  # integer typeRef
+            "z_score": "2.5",  # double typeRef
+            "deviation_pct": 60,  # double typeRef (int -> float)
+            "encounter_class": "ambulatorio",  # string pass-through, untouched
+        }
+    )
+    assert evidence["risk_score"] == 85 and type(evidence["risk_score"]) is int
+    assert evidence["code_tier"] == 3 and type(evidence["code_tier"]) is int
+    assert evidence["provider_volume"] == 15 and type(evidence["provider_volume"]) is int
+    assert evidence["z_score"] == 2.5 and type(evidence["z_score"]) is float
+    assert evidence["deviation_pct"] == 60.0 and type(evidence["deviation_pct"]) is float
+    assert evidence["encounter_class"] == "ambulatorio"  # string input forwarded unchanged
+
+
+def test_collect_scoring_inputs_drops_non_numeric_fields_no_wrong_typed_passthrough() -> None:
+    """A non-numeric value on any numeric field is DROPPED (never passed wrong-typed to the DMN)."""
+    evidence = _collect_scoring_inputs(
+        {
+            "risk_score": "not-a-number",
+            "code_tier": [3],  # list — never repr-cast
+            "z_score": "abc",
+            "deviation_pct": {"value": 60.0},  # engine-shaped dict is not a decoded numeric here
+            "provider_volume": True,  # bool never a numeric signal
+        }
+    )
+    for key in _SCORING_NUMERIC_KEYS:
+        assert key not in evidence, f"{key} must be dropped, never passed wrong-typed to the DMN"
+
+
+def test_collect_scoring_inputs_never_forwards_tuss_codes() -> None:
+    """`tuss_codes` is dropped from the scoring inputs entirely — never str()/repr-cast.
+
+    It is a list-per-convention field bound to a `string`-declared DMN input whose column is `-`
+    (wildcard) in every rule; forwarding `str(["30101012"]) -> "['30101012']"` would silently flip
+    any future `starts with(...)` rule. It is deliberately absent from `_SCORING_INPUT_KEYS`.
+    """
+    assert "tuss_codes" not in _SCORING_INPUT_KEYS
+    evidence = _collect_scoring_inputs({"tuss_codes": ["30101012", "30101020"], "risk_score": 10})
+    assert "tuss_codes" not in evidence
+    # and the repr-cast footgun never appears anywhere in the forwarded evidence
+    assert "['30101012'" not in repr(evidence)
+
+
+def test_score_indicators_drops_non_numeric_end_to_end_no_wrong_type_to_dmn() -> None:
+    """End-to-end: a garbage risk_score never reaches any of the 7 DMN calls (fail-closed omit)."""
+    fake = _full_scoring_fake()
+    score_indicators({"risk_score": "garbage", "tuss_codes": ["30101012"]}, dmn=fake)
+    assert len(fake.calls) == len(_ALL_SCORING_DECISIONS)
+    for _decision_id, passed_vars in fake.calls:
+        assert "risk_score" not in passed_vars, "non-numeric risk_score must be dropped"
+        assert "tuss_codes" not in passed_vars, "tuss_codes must never be forwarded"
 
 
 def test_score_indicators_one_table_unavailable_fails_closed_no_partial_score() -> None:

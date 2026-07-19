@@ -16,6 +16,7 @@ spec/processes/bpmn/SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn).
 from __future__ import annotations
 
 import functools
+import math
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -154,6 +155,17 @@ _SCORING_DECISIONS: tuple[str, ...] = (
 # task's scope) — it collects whatever of these signals gather_evidence/the feature-store
 # integration has already attached to process variables, with only mechanical type coercion
 # (never business logic) applied in `_collect_scoring_inputs`.
+#
+# `tuss_codes` (unbundling_partial_bundles' `ie_tuss_codes`, typeRef="string") is DELIBERATELY
+# ABSENT from this tuple (T1.5 DMN-input hardening): it is a list-per-convention field bound to a
+# `string`-declared DMN input whose column is `-` (wildcard) in EVERY rule of the only table that
+# declares it (verified against unbundling_partial_bundles.dmn — no rule reads it). A generic
+# `str()` coercion would turn `["30101012"]` into the Python repr `"['30101012']"`; if a future
+# rule ever did FEEL `starts with(...)`/`contains(...)` on it that repr would SILENTLY FLIP the
+# decision — strictly worse than today's fail-closed no-op. Since it is wildcard-only dead weight,
+# the cleanest fix is to NOT forward it at all: evaluation is byte-identical today (the wildcard
+# ignores a missing input) and the latent repr-cast footgun is removed. If a future rule needs it,
+# fix the DMN `typeRef` to a collection type and normalize deliberately (join) — never blanket-cast.
 _SCORING_INPUT_KEYS: tuple[str, ...] = (
     "risk_score",  # risk_thresholds (integer)
     "encounter_class",  # upcoding_complexity_ceiling + frequency_zscore_threshold (string)
@@ -165,12 +177,24 @@ _SCORING_INPUT_KEYS: tuple[str, ...] = (
     "deviation_pct",  # provider_peer_deviation (double)
     "provider_volume",  # provider_peer_deviation (integer)
     "bundle_group_id",  # unbundling_partial_bundles (string: partial|complete|none)
-    "tuss_codes",  # unbundling_partial_bundles (string; wildcard-only in every rule today)
 )
 
 # Boolean-typed evidence keys — coerced defensively (native bool OR string "true"/"false"),
 # mirroring this codebase's `contas._is_true` idiom (and the v1 donor's own `_is_true`).
 _SCORING_BOOL_KEYS: frozenset[str] = frozenset({"has_tuss_codes", "has_cid10_codes"})
+
+# Numeric-typed evidence keys -> the DMN-declared typeRef of the input they feed (verified per
+# `.dmn` file). "int" == an `integer` typeRef (risk_thresholds/upcoding/provider_peer_deviation),
+# "double" == a `double` typeRef (frequency_zscore/provider_peer_deviation). These arrive RAW from
+# untyped upstream sources (feature-store pass-through, ADR-0013); `_coerce_numeric` types a valid
+# numeric to the declared type and OMITS anything non-coercible (fail-closed — see its docstring).
+_SCORING_NUMERIC_KEYS: dict[str, str] = {
+    "risk_score": "int",
+    "code_tier": "int",
+    "z_score": "double",
+    "deviation_pct": "double",
+    "provider_volume": "int",
+}
 
 # Neutral label every table emits on its catch-all/no-indicator row — excluded from
 # `indicadores_presentes` (it is the ABSENCE of an indicator, never itself an indicator).
@@ -186,20 +210,83 @@ def _is_true(value: Any) -> bool:
     return False
 
 
+def _coerce_numeric(value: Any, kind: str) -> tuple[bool, int | float | None]:
+    """Coerce a raw process variable to the DMN-declared numeric type — FAIL-CLOSED (T1.5).
+
+    Returns `(ok, coerced)`:
+    - a native `int` (not a `bool`) or a clean integer string like `"80"`/`"80.0"` -> `(True, int)`
+      for `kind == "int"`, `(True, float)` for `kind == "double"`;
+    - a native `float` or clean decimal string -> `(True, float)` for `"double"`; for `"int"` only
+      an INTEGRAL float/string (`80.0`) coerces (`-> int(80)`), a fractional one (`80.5`) fails;
+    - ANYTHING else -> `(False, None)`: a `bool` (an int subclass but never a numeric fraud
+      signal), a non-numeric or empty string, a NaN/inf, a `list`/`dict`, a fractional value for an
+      integer input. The caller then OMITS the key so NO wrong-typed value reaches DMN evaluation —
+      the table's own missing-input catch-all row handles the absence conservatively. A coercion
+      that could silently flip a DMN decision (e.g. `int("80.5") -> 80`) is worse than fail-closed.
+
+    Integer inputs are typed WITHOUT a float round-trip so a large `provider_volume` never loses
+    precision past 2**53.
+    """
+    if isinstance(value, bool):
+        return False, None
+    if isinstance(value, int):
+        return (True, value) if kind == "int" else (True, float(value))
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            return False, None
+        if kind == "double":
+            return True, value
+        return (True, int(value)) if value.is_integer() else (False, None)
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return False, None
+        if kind == "int":
+            try:
+                return True, int(text)
+            except ValueError:
+                pass  # fall through: accept an integral decimal string ("80.0"), reject "80.5"
+            try:
+                parsed = float(text)
+            except ValueError:
+                return False, None
+            if math.isfinite(parsed) and parsed.is_integer():
+                return True, int(parsed)
+            return False, None
+        try:
+            parsed = float(text)
+        except ValueError:
+            return False, None
+        return (True, parsed) if math.isfinite(parsed) else (False, None)
+    return False, None
+
+
 def _collect_scoring_inputs(variables: dict[str, Any]) -> dict[str, Any]:
     """Collect the evidence signals the 7 `fraude_scoring/*` tables reference.
 
     Direct pass-through filter (see `_SCORING_INPUT_KEYS` docstring) — only keys PRESENT and
     non-None on process variables are forwarded; an absent signal falls through to that table's
-    conservative catch-all row (never a fabricated default). Only mechanical type coercion
-    (booleans) happens here — no business derivation.
+    conservative catch-all row (never a fabricated default). Only mechanical type coercion happens
+    here (never business derivation): booleans via `_is_true`; the numeric signals in
+    `_SCORING_NUMERIC_KEYS` via `_coerce_numeric` (coerce-or-DROP, fail-closed — a non-coercible
+    value is omitted, never passed wrong-typed into DMN evaluation). `tuss_codes` is deliberately
+    not in `_SCORING_INPUT_KEYS` (repr-cast footgun — see that tuple's comment). All remaining keys
+    are genuine `string`-typeRef inputs, forwarded unchanged.
     """
     evidence: dict[str, Any] = {}
     for key in _SCORING_INPUT_KEYS:
         value = variables.get(key)
         if value is None:
             continue
-        evidence[key] = _is_true(value) if key in _SCORING_BOOL_KEYS else value
+        if key in _SCORING_BOOL_KEYS:
+            evidence[key] = _is_true(value)
+        elif key in _SCORING_NUMERIC_KEYS:
+            ok, coerced = _coerce_numeric(value, _SCORING_NUMERIC_KEYS[key])
+            if ok:
+                evidence[key] = coerced
+            # else: OMIT — fail-closed, no wrong-typed value reaches the DMN
+        else:
+            evidence[key] = value
     return evidence
 
 
