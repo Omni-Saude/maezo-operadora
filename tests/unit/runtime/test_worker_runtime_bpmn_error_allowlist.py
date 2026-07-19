@@ -1,0 +1,65 @@
+"""Unit tests for the ADR-0030 Tier-0 production BPMN-error allowlist wired in
+`maezo.runtime.worker_runtime.service`.
+
+Proves the production allowlist is populated correctly (the systemic blocker ADR-0030 closes was
+the empty `frozenset()`), that the T-E hard-gate (§4) actively EXCLUDES the business-outcome codes
+pending audited-refusal, and that the runtime wiring agrees with the independently-computed output
+of the boundary-proof gate (`scripts/ci/check_bpmn_error_allowlist.py`).
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from scripts.ci.check_bpmn_error_allowlist import run_gate
+
+from maezo.runtime.worker_runtime.service import (
+    _GATE_PROVEN_BPMN_ERROR_CODES,
+    PRODUCTION_BPMN_ERROR_ALLOWLIST,
+    _is_te_gated,
+)
+
+# tests/unit/runtime/<file> -> parents[3] == repo root.
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_BPMN_DIR = _REPO_ROOT / "spec" / "processes" / "bpmn"
+_WORKERS_DIR = _REPO_ROOT / "src" / "maezo" / "tools" / "workers"
+
+# The four business-outcome codes ADR-0030 §4 hard-gates on T-E (all consumption-covered or
+# modeled, all MUST stay out of the production allowlist until audited-refusal lands).
+_TE_GATED_CODES = (
+    "ERR_CANCEL_MANTER_NOT_HUMAN",
+    "ERR_DECRED_NOT_HUMAN",
+    "ERR_CRED_DENIAL_NOT_HUMAN",
+    "ERR_CONTRACT_SUSPENSION_NOT_HUMAN",
+    "ERR_AUTH_DENIAL_INCOMPLETE",
+)
+
+
+def test_production_allowlist_is_exactly_event_publish_failed() -> None:
+    # Tier-0: the ONE non-adverse technical fail-safe. Not empty (the old blocker), not more.
+    assert frozenset({"ERR_EVENT_PUBLISH_FAILED"}) == PRODUCTION_BPMN_ERROR_ALLOWLIST
+
+
+def test_te_denial_code_is_proven_but_excluded_from_production() -> None:
+    # ERR_AUTH_DENIAL_INCOMPLETE is gate-proven (present in the union) yet filtered OUT — this is
+    # the live regression fence: drop the T-E filter and the denial-block code leaks into prod.
+    assert "ERR_AUTH_DENIAL_INCOMPLETE" in _GATE_PROVEN_BPMN_ERROR_CODES
+    assert "ERR_AUTH_DENIAL_INCOMPLETE" not in PRODUCTION_BPMN_ERROR_ALLOWLIST
+
+
+def test_no_not_human_guard_code_in_production() -> None:
+    assert not any(c.endswith("_NOT_HUMAN") for c in PRODUCTION_BPMN_ERROR_ALLOWLIST)
+
+
+def test_all_business_outcome_codes_classified_te_gated() -> None:
+    for code in _TE_GATED_CODES:
+        assert _is_te_gated(code), code
+        assert code not in PRODUCTION_BPMN_ERROR_ALLOWLIST, code
+
+
+def test_production_allowlist_matches_gate_tier0_output() -> None:
+    # Cross-validation: the runtime wiring (assembled from per-worker constants) equals the
+    # boundary-proof gate's independently-computed Tier-0 set (from spec/** + worker AST).
+    result = run_gate(_BPMN_DIR, _WORKERS_DIR)
+    assert result.ok, result.render()
+    assert result.tier0_enabled == PRODUCTION_BPMN_ERROR_ALLOWLIST

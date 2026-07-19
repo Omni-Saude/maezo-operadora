@@ -1,4 +1,5 @@
 .PHONY: setup lint type test test-integration evals validate-artifacts validate-signoff \
+        check-bpmn-error-allowlist \
         deploy-artifacts dev-stack dev-observability tf-validate localstack-up tf-smoke helm-lint
 
 LOCALSTACK_COMPOSE := deploy/terraform/localstack/docker-compose.localstack.yml
@@ -42,6 +43,13 @@ validate-artifacts: ## BPMN/DMN/policies/agent-definitions (blocker de CI)
 
 validate-signoff: ## gate de promocao de conteudo: artefato promovivel exige sign-off humano (Track C2)
 	uv run python -m maezo.platform.validation.cli signoff
+
+check-bpmn-error-allowlist: ## ADR-0030 §2: prova que todo WorkerBpmnError raised e um boundary code consumption-covered no spec (gate boundary-proof)
+	# Computa de spec/** o conjunto de (topic, errorCode) em external tasks e verifica cada
+	# `raise WorkerBpmnError(code)` dos workers contra o criterio consumption-covered (b1/b2).
+	# FALHA em raise nao-coberto/nao-catalogado; clausula (c) dead-model e warn-only no Tier-0..2
+	# (F5) — `--strict-dead-models` endurece para FALHA no fecho do Tier-3.
+	uv run python scripts/ci/check_bpmn_error_allowlist.py
 
 deploy-artifacts: ## deploy spec/processes/{bpmn,dmn} no engine CIB Seven (idempotente; requer `make dev-stack` de pe)
 	# T1.3: POST /deployment/create multipart (enable-duplicate-filtering + deploy-changed-only)
