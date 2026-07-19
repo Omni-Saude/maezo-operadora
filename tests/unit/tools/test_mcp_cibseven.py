@@ -1,102 +1,87 @@
-"""Unit tests for maezo.tools.mcp_cibseven (ADR-0022)."""
+"""Package-level invariants for `maezo.tools.mcp_cibseven` (T2.4 co-requisite).
 
-from unittest.mock import AsyncMock, MagicMock, patch
+The dead, un-audited `CibSevenServer.start_process` (a raw httpx POST to
+`/process-definition/key/{key}/start` — no audit emit, no provenance/audit_sink fence, no
+idempotency/businessKey) has been REMOVED entirely, along with its `register_tools`/`list_tools`
+sibling and `CibSevenSettings`. Grep-confirmed unreferenced anywhere in `src/**`: `register_tools`
+was never called (no `ToolRegistry`/`tool_wiring.py`/`build_tool_invoker` exists in this v2 tree —
+ADR-0022's claim that `register_tools` is load-bearing describes that unbuilt mechanism, not v2's
+actual `src/`). Left in place, it would become a LIVE un-audited process-start the moment a future
+tool registry wired it up directly instead of the canonical chokepoint. The SOLE agent-side
+process-start effect is now `maezo.tools.mcp_cibseven.transport.start_process_idempotent`
+(ADR-0007-audited, T-C2 fence — see `test_start_process_fence.py`).
 
-import pytest
+This module asserts two things stay true over time:
+(a) the dead class/settings never quietly come back onto the package's public surface, and
+(b) no OTHER file under `src/maezo` hardcodes the raw process-start REST path outside that one
+    fenced chokepoint — a structural (AST) guard, durable even against a future un-audited caller
+    that uses a different HTTP client/helper, since it keys on the literal wire path rather than a
+    specific call shape or import.
+"""
 
+from __future__ import annotations
 
-def test_mcp_cibseven_tools_registered() -> None:
-    """MCP CIB Seven server should expose exactly 3 tools: start_process, get_task, complete_task."""
-    from maezo.tools.mcp_cibseven import CibSevenServer
+import ast
+from pathlib import Path
 
-    server = CibSevenServer()
+import maezo.tools.mcp_cibseven as mcp_cibseven_pkg
 
-    tools = server.list_tools()
+# The literal CIB Seven / Camunda 7 REST path segment for "start a process instance by
+# definition key" (POST /process-definition/key/{key}/start). Distinctive enough that its
+# presence anywhere under src/ signals a process-start call site — present in both plain string
+# literals and f-string constant segments (an f-string's static text lowers to `ast.Constant`
+# nodes inside the parsed `JoinedStr`, so this catches `f"{base}/process-definition/key/..."`
+# just as well as a bare literal).
+_RAW_START_PATH_MARKER = "process-definition/key"
 
-    assert len(tools) == 3, f"Expected 3 tools, got {len(tools)}: {tools}"
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_SRC_ROOT = _REPO_ROOT / "src" / "maezo"
 
-    tool_names = {t["name"] for t in tools}
-    assert tool_names == {"start_process", "get_task", "complete_task"}
-
-
-def test_mcp_cibseven_settings_defaults() -> None:
-    """CibSevenSettings should default to http://localhost:8080/engine-rest."""
-    from maezo.tools.mcp_cibseven.server import CibSevenSettings
-
-    settings = CibSevenSettings()
-
-    assert settings.url == "http://localhost:8080/engine-rest"
-
-
-@pytest.mark.asyncio
-async def test_start_process_makes_correct_http_call() -> None:
-    """start_process should POST to the correct CIB Seven REST endpoint."""
-    from maezo.tools.mcp_cibseven.server import CibSevenServer
-
-    server = CibSevenServer()
-
-    mock_response = MagicMock()
-    mock_response.raise_for_status = MagicMock()
-    mock_response.json = MagicMock(return_value={"id": "proc-123", "definitionId": "def-1"})
-
-    mock_client = AsyncMock()
-    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_client.__aexit__ = AsyncMock(return_value=None)
-    mock_client.post = AsyncMock(return_value=mock_response)
-
-    with patch("httpx.AsyncClient", return_value=mock_client):
-        result = await server.start_process("my_process", {"var1": "val1"})
-
-    assert result == "proc-123"
-    mock_client.post.assert_awaited_once()
-    call_args = mock_client.post.call_args
-    assert "/process-definition/key/my_process/start" in call_args[0][0]
+# The ONLY file allowed to reference the raw start path: the audited, idempotent chokepoint
+# (`start_process_idempotent` / `CibSevenHttpTransport.start_process_instance`, ADR-0007 T-C2).
+_ALLOWED_FILE = Path("src/maezo/tools/mcp_cibseven/transport.py")
 
 
-@pytest.mark.asyncio
-async def test_get_task_makes_correct_http_call() -> None:
-    """get_task should GET from the correct CIB Seven REST endpoint."""
-    from maezo.tools.mcp_cibseven.server import CibSevenServer
-
-    server = CibSevenServer()
-
-    mock_response = MagicMock()
-    mock_response.raise_for_status = MagicMock()
-    mock_response.json = MagicMock(return_value={"id": "task-1", "name": "Review"})
-
-    mock_client = AsyncMock()
-    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_client.__aexit__ = AsyncMock(return_value=None)
-    mock_client.get = AsyncMock(return_value=mock_response)
-
-    with patch("httpx.AsyncClient", return_value=mock_client):
-        result = await server.get_task("task-1")
-
-    assert result == {"id": "task-1", "name": "Review"}
-    mock_client.get.assert_awaited_once()
-    call_args = mock_client.get.call_args
-    assert "/task/task-1" in call_args[0][0]
+def test_cibseven_server_dead_class_removed_from_public_surface() -> None:
+    """The dead, un-audited CibSevenServer/CibSevenSettings must not be importable/exported."""
+    assert not hasattr(mcp_cibseven_pkg, "CibSevenServer")
+    assert "CibSevenServer" not in mcp_cibseven_pkg.__all__
+    assert not (_SRC_ROOT / "tools" / "mcp_cibseven" / "server.py").exists()
 
 
-@pytest.mark.asyncio
-async def test_complete_task_makes_correct_http_call() -> None:
-    """complete_task should POST to the correct CIB Seven REST endpoint."""
-    from maezo.tools.mcp_cibseven.server import CibSevenServer
+def test_no_raw_process_start_path_outside_the_fenced_chokepoint() -> None:
+    """Only transport.py's fenced chokepoint may reference the raw process-start REST path.
 
-    server = CibSevenServer()
+    Scans every .py file under src/maezo for the `process-definition/key` wire-path marker and
+    asserts the ONLY file containing it is the allowlisted chokepoint — proving no second
+    un-audited start path exists anywhere in src/ (not just that the deleted server.py is gone).
+    """
+    offending: dict[str, list[int]] = {}
+    allowed_hit = False
 
-    mock_response = MagicMock()
-    mock_response.raise_for_status = MagicMock()
+    for path in sorted(_SRC_ROOT.rglob("*.py")):
+        rel = path.relative_to(_REPO_ROOT)
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        hit_lines = [
+            node.lineno
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and _RAW_START_PATH_MARKER in node.value
+        ]
+        if not hit_lines:
+            continue
+        if rel == _ALLOWED_FILE:
+            allowed_hit = True
+            continue
+        offending[str(rel)] = hit_lines
 
-    mock_client = AsyncMock()
-    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_client.__aexit__ = AsyncMock(return_value=None)
-    mock_client.post = AsyncMock(return_value=mock_response)
-
-    with patch("httpx.AsyncClient", return_value=mock_client):
-        result = await server.complete_task("task-1", {"approved": True})
-
-    assert result is None
-    mock_client.post.assert_awaited_once()
-    call_args = mock_client.post.call_args
-    assert "/task/task-1/complete" in call_args[0][0]
+    assert not offending, (
+        f"raw un-fenced process-start path found outside the chokepoint: {offending} "
+        f"(only {_ALLOWED_FILE} may build this URL — route through "
+        "maezo.tools.mcp_cibseven.transport.start_process_idempotent instead)"
+    )
+    assert allowed_hit, (
+        f"expected the fenced chokepoint {_ALLOWED_FILE} to reference the raw start path at "
+        "least once — this allowlist may be stale (file moved/renamed?)"
+    )
