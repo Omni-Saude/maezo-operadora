@@ -3,6 +3,29 @@
 **Task:** T0.6 dispatch packaging. **Status:** prepared — awaiting SME roster (`blocked(external)`,
 see `../README.md` and `../tracker.md`). No reviewer has been named or contacted.
 
+## Re-scope note — RN 639/2025 (SIP filing extinct) — read before the ANS items
+
+**2026-07-18 (t2.6-regulatorio-package-reframe).** The two ANS items below (SP-OP-ANS-CRON-001 and
+SP-OP-ANS-SUBMIT-001) were re-framed **before roster** so this package never asks you to ratify an
+obligation that no longer exists. Basis:
+
+- **RN 639/2025** revokes RN 551/2022 and desobriga o envio do **SIP** após o 4º trimestre/2025
+  (vigência 02/03/2026) — the SIP periodic-filing obligation is **EXTINCT** as of the current date
+  (verified against the primary ANS text; `docs/compliance/rn-639-primary-source.md`).
+- **DL-0028 / DL-0029** (`../../decisions-log.md`) ratify the extinction and the T2.6 re-scope.
+  The ratified direction is **Option B — KEEP and harden the transmit path, not delete it**
+  (`../../design/T2.6-ans-submission-rescope.md`, esp. §2.A/§3): `ST_SubmeterEnvio` / the
+  `transmit_to_ans` filing pipeline **survive** because they serve obligations that are **still in
+  force** — the **NIP-response filing (RN 483/2022)**, **DIOPS** (econ-financeiro trimestral), and
+  **Monitoramento TISS** (padrão TISS, RN 501/2022). Only the SIP-specific surface (the `SIP` /
+  `RN_124_SIP` report type, its calendar row, and its cron timer) is being surgically retired.
+
+**What this means for your review:** do **not** review SIP periodicity, deadlines, or transmission
+— that obligation is gone. Every ANS question below is scoped to the **surviving in-force
+obligations** and to the kept-and-hardened transmit path. Whether **Monitoramento TISS** is the
+*named successor* to SIP is a separate SME-gated question (RN 639's primary text names no successor)
+— see SP-OP-ANS-SUBMIT-001 Q5. The non-ANS items in this package are unchanged.
+
 ## How to use this package
 
 1. Read the contract at the canonical path listed for each item (`docs/processes/contracts/` —
@@ -51,40 +74,69 @@ doesn't replace it.
 
 ### SP-OP-ANS-CRON-001 — Agendador per-report_type (DRAFT, v0.2.0)
 
-- **Why regulatório:** the `timeCycle` per `report_type` and the derived `competencia` mapping are
-  entirely regulatory-calendar questions with no legal-decision content of their own.
+- **Why regulatório:** the `timeCycle` per surviving `report_type` and the derived `competencia`
+  mapping are entirely regulatory-calendar questions with no legal-decision content of their own.
+- **RN 639 scope note:** the `SP-OP-ANS-CRON-001-RN124SIP` timer (the SIP schedule) is being
+  **surgically retired** — the SIP obligation is extinct (see the re-scope note above). Do **not**
+  review the SIP timer's cadence; the questions below cover only the timers that dispatch a
+  **still-in-force** obligation.
 - **Contract:** `docs/processes/contracts/SP-OP-ANS-CRON-001.md`
 - **BPMN:** `spec/processes/bpmn/SP-OP-ANS-CRON-001_Agendador_Envios_ANS.bpmn`
 - **DMN:** none (agendador puro; the contract states no DMN of its own).
 - **Review questions:**
-  1. Confirm the real `timeCycle` per `report_type` (RN 124/209/388/424, DIOPS) including the
-     date anchor (e.g. `R/P1M` from which day of month).
-  2. **Confirm the competência-derivation mapping**: the implemented rule
-     (`_ans_cron_competencia`) assumes the calendar period (month/quarter) **immediately prior**
-     to the anchor month — is that the correct regulatory mapping, or should it be the period
-     containing the anchor?
-  3. Confirm this scheduler requires no ANS filing of its own (it only dispatches to
-     SP-OP-ANS-SUBMIT-001, which carries the actual HITL pre-filing gate).
+  1. For each **surviving** timer, tell us **which in-force obligation it serves** and its real
+     `timeCycle` (including the date anchor — e.g. `R/P1M` from which day of month): confirm the
+     **DIOPS** trimestral cadence and the **Monitoramento-TISS** cadence. Two of the current timer
+     labels are miscited and need re-derivation, not confirmation: `RN_209_UTILIZACAO` (RN 209/2009
+     is financial/*Recursos Próprios*, revoked by RN 451/2020 — not "utilização") and
+     `RN_388_QUALIDADE` (RN 388/2015 is *fiscalização/NIP*, superseded by RN 483/2022 — not
+     "qualidade", and NIP is event-driven, not a periodic timer). For each, state the correct
+     in-force norm and cadence, or confirm the timer should be dropped.
+  2. **Confirm the competência-derivation mapping** (for the surviving timers): the implemented
+     rule (`_ans_cron_competencia`) assumes the calendar period (month/quarter) **immediately
+     prior** to the anchor month — is that the correct regulatory mapping, or should it be the
+     period containing the anchor?
+  3. Confirm this scheduler requires no ANS filing of its own (it only dispatches surviving
+     obligations to SP-OP-ANS-SUBMIT-001, which carries the actual HITL pre-filing gate).
 
 ### SP-OP-ANS-SUBMIT-001 — Envios Periódicos ANS (DRAFT, v0.1.0)
 
-- **Why regulatório:** this is the actual regulatory filing process — RN 124/209/388/424 and
-  DIOPS periodicity/deadlines/sources all live here.
+- **Why regulatório:** this is the **generic, obligation-agnostic gated filing pipeline**
+  (assemble → validate → human-signs → transmit → track → retry). Per DL-0028/DL-0029 it is being
+  **kept and hardened (Option B), not decommissioned** — it is the transmit path for the ANS
+  obligations that are **still in force**: the **NIP-response filing (RN 483/2022)**, **DIOPS**
+  (econ-financeiro trimestral), and **Monitoramento TISS** (padrão TISS, RN 501/2022). The `SIP` /
+  `RN_124_SIP` report type it once carried is **extinct** (RN 639/2025) and is being surgically
+  removed. Do **not** review SIP periodicity/deadlines/sources — see the re-scope note above.
 - **Contract:** `docs/processes/contracts/SP-OP-ANS-SUBMIT-001.md`
 - **BPMN:** `spec/processes/bpmn/SP-OP-ANS-SUBMIT-001_Envios_Periodicos_ANS.bpmn`
 - **DMN:** `spec/processes/dmn/ans_calendar.dmn`, `ans_sla.dmn`,
   `ans_submission_admissibility.dmn`, `ans_retry_policy.dmn`.
 - **Review questions:**
-  1. Confirm `due_date`/`fonte_regulatoria` per `report_type` in `ans_calendar` against vigente
-     ANS text — the contract states every date/periodicity is DRAFT/verify.
+  1. Confirm `due_date`/`fonte_regulatoria` in `ans_calendar` **for the surviving report types
+     only** (DIOPS, Monitoramento-TISS, and the NIP-response filing), against vigente ANS text —
+     the contract states every date/periodicity is DRAFT/verify. Note: the `r_rn124_sip` calendar
+     row is being removed (SIP extinct — do not review it); the `RN_209_UTILIZACAO` and
+     `RN_388_QUALIDADE` rows are **miscited** (RN 209 → financial/RN 451/2020; RN 388 →
+     fiscalização/NIP → RN 483/2022) — for each, state the correct in-force norm, or confirm the
+     row should be dropped.
   2. Confirm the holiday/business-day resolution policy for `due_date` (contract says "resolver
      feriados/fim de semana no worker de calendário conservadoramente — antecipar, nunca
-     postergar" — confirm this conservative default is regulatorily correct).
-  3. Confirm the NIP→ANS-SUBMIT handoff (`origem_envio==nip_filing`) correlation is
-     regulatorily sound — same filing channel used for two different origins (calendar cron and
-     NIP response).
+     postergar" — confirm this conservative default is regulatorily correct). This is
+     obligation-agnostic and applies to every surviving filing.
+  3. Confirm the **NIP→ANS-SUBMIT handoff** (`origem_envio==nip_filing`) is regulatorily sound —
+     this is now a **load-bearing in-force obligation** (the NIP-response filing under RN 483/2022,
+     see SP-OP-NIP-001 below), and it is the primary reason the transmit path is kept. Confirm that
+     routing a formal NIP response through this filing channel, and sharing the channel with the
+     periodic (DIOPS / Monitoramento-TISS) origins, is the correct regulatory posture.
   4. Confirm candidate group names `regulatorio-ans` / `juridico-regulatorio` /
      `coordenacao-regulatorio` against your organizational taxonomy.
+  5. **Monitoramento TISS — obligation vs successor.** Independently of SIP: is **Monitoramento
+     TISS** an in-force periodic obligation this channel must serve, and what is its governing norm
+     and submission version (candidate: padrão TISS under RN 501/2022)? Separately — and this is the
+     SME-gated point RN 639's primary text leaves open — is Monitoramento TISS the *named successor*
+     to the extinct SIP filing, or merely a distinct in-force obligation? Please answer these two
+     parts separately; we are **not** asking you to re-instate SIP.
 
 ### SP-OP-AUTH-001 — Autorização Prévia (DRAFT, v0.1.0)
 
@@ -193,14 +245,19 @@ doesn't replace it.
 
 ### SP-OP-NIP-001 — Resposta a NIP (DRAFT, v0.1.0)
 
-- **Why regulatório:** this process exists entirely to implement RN 388/2016's NIP response
-  obligation.
+- **Why regulatório:** this process exists entirely to implement the NIP response obligation
+  (contract cites RN 388/2016; T2.5's currency sweep flags this as possibly superseded by
+  **RN 483/2022** — see cross-cutting flag above and confirm below). This is an **in-force**
+  obligation, and its formal response is the **NIP-response filing** that anchors the kept
+  (Option-B) SP-OP-ANS-SUBMIT-001 transmit path via `origem_envio==nip_filing` — so the NIP
+  deadlines here and the SUBMIT filing questions above are two halves of the same in-force channel.
 - **Contract:** `docs/processes/contracts/SP-OP-NIP-001.md`
 - **BPMN:** `spec/processes/bpmn/SP-OP-NIP-001_Resposta_NIP.bpmn`
 - **DMN:** `spec/processes/dmn/nip_classification.dmn`, `nip_routing.dmn`, `nip_sla.dmn`.
 - **Review questions:**
-  1. Confirm RN 388/2016 assistencial (~5 business days) / não-assistencial (~10 business days)
-     deadlines — the contract flags exposure to ANS sanction if these are wrong.
+  1. Confirm the in-force NIP norm (RN 388/2016 vs **RN 483/2022**) and its assistencial
+     (~5 business days) / não-assistencial (~10 business days) deadlines — the contract flags
+     exposure to ANS sanction if these are wrong.
   2. Confirm the stable business-key identifier: `numero_nip_ans` vs `protocolo_ans`.
   3. Confirm candidate groups `nucleo-ans` / `regulatorio-ans` / `coordenacao-regulatorio` against
      your organizational taxonomy.
