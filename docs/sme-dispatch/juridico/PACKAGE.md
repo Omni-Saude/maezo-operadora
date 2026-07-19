@@ -3,6 +3,32 @@
 **Task:** T0.6 dispatch packaging. **Status:** prepared — awaiting SME roster (`blocked(external)`,
 see `../README.md` and `../tracker.md`). No reviewer has been named or contacted.
 
+## Re-scope note — RN 639/2025 (SIP filing extinct) — read before SP-OP-ANS-SUBMIT-001
+
+**2026-07-18 (t2.6-juridico-package-reframe).** The one ANS filing item in this package
+(SP-OP-ANS-SUBMIT-001) was re-framed **before roster** so it never asks you to ratify — or attach a
+legal opinion to — an obligation that no longer exists. Basis:
+
+- **RN 639/2025** revokes RN 551/2022 and desobriga o envio do **SIP** após o 4º trimestre/2025
+  (vigência 02/03/2026) — the SIP periodic-filing obligation is **EXTINCT** as of the current date
+  (verified against the primary ANS text; `docs/compliance/rn-639-primary-source.md`).
+- **DL-0028 / DL-0029** (`../../decisions-log.md`) ratify the extinction and the T2.6 re-scope.
+  The ratified direction is **Option B — KEEP and harden the transmit path, not delete it**
+  (`../../design/T2.6-ans-submission-rescope.md`, esp. §1.5/§2.A): `UT_RevisarEnvio` / the
+  legally binding, non-repudiable ANS filing pipeline **survive** because they carry obligations
+  that are **still in force** — the **NIP-response filing (RN 483/2022)**, **DIOPS**
+  (econ-financeiro trimestral), and **Monitoramento TISS** (padrão TISS, RN 501/2022). Only the
+  SIP-specific surface (the `SIP` / `RN_124_SIP` report type and its `r_rn124_sip` calendar row) is
+  being surgically retired.
+
+**What this means for your review:** do **not** attach a legal opinion to SIP periodicity, deadlines,
+or transmission — that obligation is gone, so there is no residual sanction exposure to assess on it.
+The SP-OP-ANS-SUBMIT-001 question below is scoped to the **legal-risk / sanction-exposure /
+non-repudiation** dimension of the surviving in-force obligations and of the kept-and-hardened filing
+path — the *jurídico* lane. The regulatory-calendar cadence itself (which `timeCycle`/`due_date` per
+report type) is regulatório's lane, not asked here (see `../regulatorio/PACKAGE.md`). The non-ANS
+items in this package are unchanged.
+
 ## How to use this package
 
 1. Read the contract at the canonical path listed for each item (`docs/processes/contracts/` —
@@ -57,18 +83,38 @@ package does not resolve that; it is T2.5's systematic sweep, and this ask compl
 ### SP-OP-ANS-SUBMIT-001 — Envios Periódicos ANS (DRAFT, v0.1.0)
 
 - **Why jurídico:** `UT_RevisarEnvio` is the sole source of the legally binding, non-repudiable
-  filing to ANS; NIP-originated filings route specifically to `juridico-regulatorio`.
+  filing to ANS, and NIP-originated filings route specifically to `juridico-regulatorio`. Per
+  DL-0028/DL-0029 this pipeline is **kept and hardened (Option B), not decommissioned** — it is the
+  transmit path for the ANS obligations that are **still in force**: the **NIP-response filing
+  (RN 483/2022)**, **DIOPS** (econ-financeiro trimestral), and **Monitoramento TISS** (padrão TISS,
+  RN 501/2022). The `SIP` / `RN_124_SIP` report type it once carried is **extinct** (RN 639/2025 —
+  see the re-scope note above); jurídico's review is scoped to the legal-risk of the **surviving**
+  filings, **not** to SIP.
 - **Contract:** `docs/processes/contracts/SP-OP-ANS-SUBMIT-001.md`
 - **BPMN:** `spec/processes/bpmn/SP-OP-ANS-SUBMIT-001_Envios_Periodicos_ANS.bpmn`
 - **DMN:** `spec/processes/dmn/ans_calendar.dmn`, `ans_sla.dmn`,
   `ans_submission_admissibility.dmn`, `ans_retry_policy.dmn` — all four exist and match.
 - **Review questions:**
-  1. Confirm RN 124/2006, RN 209/2009, RN 388/2015, RN 424/2017, and DIOPS periodicity/deadline
-     citations are current (all marked DRAFT/verify in the contract).
+  1. **Correct in-force legal basis on each surviving filing (sanction exposure).** Every filing
+     that leaves `UT_RevisarEnvio` is legally binding and non-repudiable, so it must be transmitted
+     under the **correct in-force legal basis**. Two `report_type` literals the pipeline still
+     carries are **miscited** and would attach a dead or wrong norm to a live filing:
+     `RN_209_UTILIZACAO` (RN 209/2009 is financial/*Recursos Próprios*, revoked by **RN 451/2020**)
+     and `RN_388_QUALIDADE` (RN 388/2015 is *fiscalização/NIP*, superseded by **RN 483/2022**). For
+     each **surviving** filing — DIOPS, Monitoramento-TISS, and the NIP-response filing — confirm
+     the legal basis the operator should assert, and the **sanction exposure** if a filing is
+     transmitted under the wrong or extinct citation. Do **not** review SIP / RN 124/2006 — that
+     obligation is extinct and its row is being removed; the cadence/calendar itself is
+     regulatório's lane.
   2. Confirm the candidate group `juridico-regulatorio` (vs `regulatorio-ans`) is the right
-     taxonomy for reviewing NIP-originated filings (`origem_envio==nip_filing`).
+     taxonomy for the mandatory legal review of NIP-originated filings (`origem_envio==nip_filing`)
+     — this NIP-response filing (RN 483/2022) is now a **load-bearing in-force obligation** and the
+     primary reason the transmit path is kept, so the "revisão sempre jurídica" gate on it is itself
+     load-bearing.
   3. Is the retry/backoff policy on ANS NACK (attempts + `PT5M`/`PT30M`/`PT2H` backoff) legally
-     sufficient, or does a transmission failure carry its own notice obligation to ANS?
+     sufficient for the surviving in-force filings, or does a transmission failure carry its own
+     notice obligation to ANS (e.g. an intempestividade/sanction risk if the filing deadline lapses
+     while retries are still running)?
 
 ### SP-OP-AUTH-001 — Autorização Prévia (DRAFT, v0.1.0)
 
