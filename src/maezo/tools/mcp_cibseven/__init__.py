@@ -1,16 +1,26 @@
-"""MCP CIB Seven — in-process MCP server for Camunda/CIB Seven process engine.
+"""MCP CIB Seven — agent-directed transport for the Camunda/CIB Seven process engine.
 
-Exposes 3 tools:
-- start_process(process_key, variables) -> process_instance_id
-- get_task(task_id) -> task_dict
-- complete_task(task_id, variables) -> None
+Exposes the transport primitives an agent graph uses to direct BPMN process instances
+(ADR-0001, T1.11):
+- start_process_idempotent(...) -> ProcessInstance (the SOLE, ADR-0007-audited process-start
+  chokepoint — idempotent by business key, requires audit_sink + provenance)
+- CibSevenHttpTransport.correlate_message(...) / .get_process_status(...)
 
-Uses httpx.AsyncClient for REST calls. Configuration via settings (CIBSEVEN_REST_URL).
+Uses httpx.AsyncClient for REST calls. Configuration is injected by each runtime's own
+Settings (CIBSEVEN_BASE_URL), not by this package.
 
-Implements ADR-0022 (MCP in-process boot).
+T2.4 co-requisite note: the earlier `CibSevenServer` tool-registration wrapper (a raw,
+un-audited `start_process` with no idempotency/businessKey, meant to plug into a
+`ToolRegistry` per ADR-0022) was removed — grep-confirmed dead in `src/**` (no
+`ToolRegistry`/`tool_wiring.py`/`build_tool_invoker` exists anywhere in this v2 tree; ADR-0022's
+claim that `register_tools` is load-bearing describes that unbuilt mechanism, not v2's actual
+`src/`). Left wired, it would become a LIVE un-audited process-start the moment a future tool
+registry called it directly instead of `start_process_idempotent` below. When T2.4 builds a
+real ToolRegistry, any CIB Seven start tool it exposes MUST wrap `start_process_idempotent`
+(never resurrect a raw, un-fenced call) — see `tests/unit/tools/test_mcp_cibseven.py`'s
+structural guard.
 """
 
-from maezo.tools.mcp_cibseven.server import CibSevenServer
 from maezo.tools.mcp_cibseven.transport import (
     AgentDecisionProvenance,
     AuditStartSink,
@@ -30,7 +40,6 @@ from maezo.tools.mcp_cibseven.transport import (
 __all__ = [
     "AgentDecisionProvenance",
     "AuditStartSink",
-    "CibSevenServer",
     "CibSevenError",
     "CibSevenHttpTransport",
     "CibSevenTransport",
