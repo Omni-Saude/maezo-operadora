@@ -197,6 +197,16 @@ def _to_camunda_vars(variables: dict[str, Any]) -> dict[str, Any]:
     `valor_pagamento_cents` is unbounded on its top band — a payment above int32-max cents
     (R$21.47M) typed as `Integer` gets HTTP 400 "Cannot convert value ... to java type
     java.lang.Integer" from the engine (verified — ADR-0028 §1).
+
+    T1.5 (dict|list -> Json parity fix): a bare `dict`/`list` value (no pre-existing `"value"`
+    key) now types as a Camunda `Json` variable, exactly mirroring `harness.py::_to_camunda_var`'s
+    `dict|list` branch byte-for-byte (`json.dumps(v, ensure_ascii=False, default=str)`). Before
+    this fix such a value fell through to the catch-all `else` and was typed `String` via Python
+    `str(v)` (e.g. `"{'a': 1}"`, `repr()`-like and not valid JSON) — the engine would store it as
+    an opaque string, not a structured object/array, and no DMN input in this codebase is
+    currently a bare list/dict (every T1.5-migrated table's inputs are scalar — verified against
+    `evaluate_sync`/`evaluate`'s live call sites), so this is additive wire-format hardening for
+    parity with the canonical mapper, not a behavior change for any current caller.
     """
     camunda_vars: dict[str, Any] = {}
     for k, v in variables.items():
@@ -209,6 +219,8 @@ def _to_camunda_vars(variables: dict[str, Any]) -> dict[str, Any]:
             camunda_vars[k] = {"value": v, "type": "Integer" if fits_int32 else "Long"}
         elif isinstance(v, float):
             camunda_vars[k] = {"value": v, "type": "Double"}
+        elif isinstance(v, dict | list):
+            camunda_vars[k] = {"value": json.dumps(v, ensure_ascii=False, default=str), "type": "Json"}
         elif v is None:
             camunda_vars[k] = {"value": None, "type": "String"}
         else:

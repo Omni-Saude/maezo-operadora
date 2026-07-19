@@ -75,16 +75,20 @@ def test_parse_payload_vars_empty_string() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Missing event_topic -> WorkerBpmnError (fail-closed, never silently drops)
+# Missing event_topic -> ValueError (fail-closed incident, never silently drops)
 # ---------------------------------------------------------------------------
+# ADR-0030 §2 Tier-0 cleanup: reclassified from WorkerBpmnError("ERR_PUBLISH_MISSING_TOPIC") — a
+# code with NO spec-declared boundary (an uncatalogued raise relying on the harness's
+# demote-to-incident path, a boundary-proof-gate clause-(b) violation). A ValueError routes to the
+# SAME failure(retries=0) incident (harness ladder `except ValueError`) without an uncatalogued
+# bpmnError code — identical fail-closed outcome, and clean under the gate.
 
 
-async def test_missing_event_topic_raises_bpmn_error() -> None:
+async def test_missing_event_topic_raises_value_error() -> None:
     kafka = FakeKafkaPublisher()
     handler = make_publish_event_handler(kafka)
-    with pytest.raises(WorkerBpmnError) as exc:
+    with pytest.raises(ValueError, match="event_topic"):
         await handler(_task(variables={}))
-    assert exc.value.error_code == "ERR_PUBLISH_MISSING_TOPIC"
     assert not kafka.published
 
 
