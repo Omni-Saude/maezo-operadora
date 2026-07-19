@@ -363,13 +363,24 @@ async def deploy_artifacts(engine: EngineRest) -> str:
 
 
 @pytest_asyncio.fixture
-async def contas_probe(engine: EngineRest) -> AsyncIterator[ContasEngineProbe]:
+async def contas_probe(
+    engine: EngineRest, audit_sink: Any, audit_tenant: str
+) -> AsyncIterator[ContasEngineProbe]:
     """Probe que serve as external tasks com os workers reais de contas."""
     worker_id = f"qa-contas-worker-{uuid.uuid4().hex[:8]}"
     transport = CibSevenWorkerTransport(CIBSEVEN_BASE_URL)
     # Nenhum WorkerBpmnError e lancado por contas.py (FINDING 3: os guards sao PermissionError/
     # ValueError, sempre incident, nunca bpmnError) — bpmn_error_allowlist deliberadamente OMITIDO.
-    harness = WorkerHarness(transport, worker_id=worker_id, lock_duration_ms=10_000)
+    # T1.10 wave: emit-before-complete is FAIL-CLOSED (harness.py _emit_audit) — a real
+    # PostgresAuditSink (lane PG, migrations 0001->0005) is REQUIRED or the harness refuses
+    # to complete. `tenant` scopes the durable audit chain / dedup key to the per-run schema.
+    harness = WorkerHarness(
+        transport,
+        worker_id=worker_id,
+        tenant=audit_tenant,
+        lock_duration_ms=10_000,
+        audit_sink=audit_sink,
+    )
     kafka = FakeKafkaPublisher()
     dmn = CibSevenDmnTransport(CIBSEVEN_BASE_URL, timeout=30.0)
     register_contas_workers(harness, kafka, dmn=dmn)

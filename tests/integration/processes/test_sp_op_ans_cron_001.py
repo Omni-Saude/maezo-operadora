@@ -232,11 +232,22 @@ async def deploy_cron_and_submit_artifacts(engine: EngineRest) -> str:
 
 
 @pytest_asyncio.fixture
-async def cron_probe(engine: EngineRest) -> AsyncIterator[CronEngineProbe]:
+async def cron_probe(
+    engine: EngineRest, audit_sink: Any, audit_tenant: str
+) -> AsyncIterator[CronEngineProbe]:
     """Probe que serve as external tasks do agendador CRON com os workers reais."""
     worker_id = f"qa-anscron-worker-{uuid.uuid4().hex[:8]}"
     transport = CibSevenWorkerTransport(CIBSEVEN_BASE_URL)
-    harness = WorkerHarness(transport, worker_id=worker_id, lock_duration_ms=10_000)
+    # T1.10 wave: emit-before-complete is FAIL-CLOSED (harness.py _emit_audit) — a real
+    # PostgresAuditSink (lane PG, migrations 0001->0005) is REQUIRED or the harness refuses
+    # to complete. `tenant` scopes the durable audit chain / dedup key to the per-run schema.
+    harness = WorkerHarness(
+        transport,
+        worker_id=worker_id,
+        tenant=audit_tenant,
+        lock_duration_ms=10_000,
+        audit_sink=audit_sink,
+    )
     kafka = FakeKafkaPublisher()
     # Registered for fidelity (mirrors a production register_all_workers composition) — genuinely
     # UNREACHABLE from this BPMN (FINDING #1); NOT in _CRON_WORKER_TOPICS, so cron_probe.drain()

@@ -254,23 +254,30 @@ _PREPARE_DOSSIER_UNREGISTERED_REASON = (
     "donor-native _AnalyzeRequestStub)."
 )
 
-# FINDING 2 (module docstring): compounds with FINDING 1 for this ONE test — flagged distinctly
-# since fixing FINDING 1 alone would NOT flip this test (a separate, deeper gap).
+# GAP-INAD-1 (anti-dupla-terminacao) — CORRECTED, live-proven premise (R1, T3.1 land, 2026-07-18 @
+# cibseven 2.1.0). Both ORIGINAL premises are now stale in SRC: #93 (e4e3ed1) registered
+# prepare_dossier (old cause 1) AND implemented the real cross-process query (old cause 2's "NOT
+# IMPLEMENTED" is stale — _query_ja_em_rescisao_cancel now queries CANCEL-{tenant}-{contrato} via
+# CibSevenTransport.find_active_instance). What KEEPS this test xfail is now a TEST-WIRING gap: the
+# `inad_probe` fixture calls register_inadimplencia_workers WITHOUT the `engine=` seam, so
+# resolve_facts FAILS CLOSED (ja_em_rescisao_cancel := True) for EVERY instance — the guard then
+# refuses suspension UNCONDITIONALLY, so this test XPASSES but SPURIOUSLY (the live CANCEL-001 it
+# materializes is causally irrelevant; the sibling test_suspensao_prossegue_sem_cancel_ativo, with
+# NO cancel, is refused too and XFAILs). strict=False: kept as a documented xfail (it xpasses, but
+# NOT for the anti-dupla-detection reason it asserts) — flipping would be a FALSE L0 safety claim.
+# Follow-up: wire the `engine=` seam into inad_probe to genuinely exercise the query (coherently
+# flips this + the 3 suspension-happy-path siblings + the handoff test — GAP-INAD-1, out of this
+# test-only flip scope).
 _CROSS_PROCESS_QUERY_AND_DOSSIER_GAP_REASON = (
-    "v2 gap, TWO STACKED root causes (T3.1 findings 1+2): (1) blocked by "
-    "_PREPARE_DOSSIER_UNREGISTERED_REASON like every other _drive_to_analise-dependent test in "
-    "this file; (2) SEPARATELY, even if (1) were fixed, GAP-INAD-1's cross-process query "
-    "(donor/contract docs describe resolve_facts querying CANCEL-{tenant}-{contrato} via "
-    "CibSevenTransport.find_active_instance to resolve ja_em_rescisao_cancel) is NOT IMPLEMENTED "
-    "in v2 — resolve_facts (inadimplencia.py:41-76) and the register_contract_suspension guard "
-    "(inadimplencia.py:215-265) both treat ja_em_rescisao_cancel as a pure pass-through "
-    "(variables.get('ja_em_rescisao_cancel', False)); no query_engine/CibSevenHttpTransport/"
-    "find_active_instance seam exists anywhere in inadimplencia.py, and register_inadimplencia_"
-    "workers's **seams only reads 'dmn'. Materializing a live CANCEL-001 instance (as this test "
-    "does) has NO EFFECT on v2's resolution of ja_em_rescisao_cancel — it always defaults False, "
-    "so the anti-double-termination guard never fires. A verifier who fixes (1) alone will find "
-    "this test STILL red for reason (2) — a genuine anti-double-termination safety gap, not just "
-    "fixture friction. src/** fix is out of scope for this port."
+    "SPURIOUS-PASS, kept xfail (live-proven R1 2026-07-18): src now implements the anti-dupla "
+    "cross-process query (#93 _query_ja_em_rescisao_cancel via find_active_instance), but this "
+    "suite's inad_probe fixture does NOT wire the `engine=` seam into register_inadimplencia_workers, "
+    "so resolve_facts FAILS CLOSED (ja_em_rescisao_cancel := True) for every instance (captured log: "
+    "'inadimplencia_cancel_correlation_unavailable reason=engine_seam_not_wired'). The guard refuses "
+    "suspension unconditionally, so this XPASSES — but NOT because it detected the materialized live "
+    "CANCEL-001 (causally irrelevant: the sibling test_suspensao_prossegue_sem_cancel_ativo, with no "
+    "cancel, is refused too). Flipping would falsely assert live anti-dupla detection. Follow-up: "
+    "wire `engine=` into inad_probe (flips this + the 3 suspension-happy-paths + handoff)."
 )
 
 
@@ -327,14 +334,25 @@ async def deploy_artifacts(engine: EngineRest) -> str:
 
 
 @pytest_asyncio.fixture
-async def inad_probe(engine: EngineRest) -> AsyncIterator[InadEngineProbe]:
+async def inad_probe(
+    engine: EngineRest, audit_sink: Any, audit_tenant: str
+) -> AsyncIterator[InadEngineProbe]:
     """Probe que serve as external tasks com os workers reais de inadimplencia."""
     worker_id = f"qa-inad-worker-{uuid.uuid4().hex[:8]}"
     transport = CibSevenWorkerTransport(CIBSEVEN_BASE_URL)
     # Nenhum WorkerBpmnError e lancado por inadimplencia.py (FINDING 3: InadimplenciaError e
     # reclassificada para ValueError por FunctionWorker.execute, sempre incident, nunca
     # bpmnError) — bpmn_error_allowlist deliberadamente OMITIDO.
-    harness = WorkerHarness(transport, worker_id=worker_id, lock_duration_ms=10_000)
+    # T1.10 wave: emit-before-complete is FAIL-CLOSED (harness.py _emit_audit) — a real
+    # PostgresAuditSink (lane PG, migrations 0001->0005) is REQUIRED or the harness refuses
+    # to complete. `tenant` scopes the durable audit chain / dedup key to the per-run schema.
+    harness = WorkerHarness(
+        transport,
+        worker_id=worker_id,
+        tenant=audit_tenant,
+        lock_duration_ms=10_000,
+        audit_sink=audit_sink,
+    )
     kafka = FakeKafkaPublisher()
     dmn = CibSevenDmnTransport(CIBSEVEN_BASE_URL, timeout=30.0)
     register_inadimplencia_workers(harness, kafka, dmn=dmn)
@@ -483,7 +501,6 @@ async def test_nenhum_caminho_automatizado_suspende_contrato(
     assert checked == 32, f"Esperava 32 combinacoes varridas; varri {checked}"
 
 
-@pytest.mark.xfail(reason=_PREPARE_DOSSIER_UNREGISTERED_REASON, strict=True)
 async def test_inadimplencia_aparente_roteia_para_humano_nao_suspende(
     engine: EngineRest,
     inad_probe: InadEngineProbe,
@@ -540,7 +557,6 @@ async def test_pagamento_dentro_janela_purga_purgado_nunca_adverso(
     assert inad_probe.has_event(_INAD_COMPLETED, desfecho="purgado")
 
 
-@pytest.mark.xfail(reason=_PREPARE_DOSSIER_UNREGISTERED_REASON, strict=True)
 async def test_expiracao_purga_nao_auto_suspende(
     engine: EngineRest,
     inad_probe: InadEngineProbe,
@@ -569,7 +585,6 @@ async def test_expiracao_purga_nao_auto_suspende(
     await _assert_no_adverse_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_PREPARE_DOSSIER_UNREGISTERED_REASON, strict=True)
 async def test_notificacao_ack_reavalia_nunca_suspende(
     engine: EngineRest,
     inad_probe: InadEngineProbe,
@@ -660,7 +675,6 @@ async def test_happy_path_encaminhar_rescisao_handoff_neutro_nao_rescinde(
     assert not inad_probe.notifications_of_type("inadimplencia.register_contract_suspension")
 
 
-@pytest.mark.xfail(reason=_PREPARE_DOSSIER_UNREGISTERED_REASON, strict=True)
 async def test_happy_path_contrato_mantido(
     engine: EngineRest,
     inad_probe: InadEngineProbe,
@@ -692,7 +706,6 @@ async def test_happy_path_contrato_mantido(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_PREPARE_DOSSIER_UNREGISTERED_REASON, strict=True)
 async def test_suspender_exige_campos_worker_guard(
     engine: EngineRest,
     inad_probe: InadEngineProbe,
@@ -721,7 +734,7 @@ async def test_suspender_exige_campos_worker_guard(
     await _assert_no_adverse_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_CROSS_PROCESS_QUERY_AND_DOSSIER_GAP_REASON, strict=True)
+@pytest.mark.xfail(reason=_CROSS_PROCESS_QUERY_AND_DOSSIER_GAP_REASON, strict=False)
 async def test_suspensao_recusada_se_ja_em_rescisao_cancel(
     engine: EngineRest,
     inad_probe: InadEngineProbe,
@@ -836,7 +849,6 @@ async def test_timer_alerta_sla_nao_interruptivo(
     assert _UT_ANALISE in open_keys, "Timer nao-interruptivo nao deve cancelar a User Task"
 
 
-@pytest.mark.xfail(reason=_PREPARE_DOSSIER_UNREGISTERED_REASON, strict=True)
 async def test_timer_sla_estourado_coordenacao_assume(
     engine: EngineRest,
     inad_probe: InadEngineProbe,
@@ -898,7 +910,6 @@ async def test_coordenacao_assume_e_suspende(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_PREPARE_DOSSIER_UNREGISTERED_REASON, strict=True)
 async def test_solicitar_info_aguarda_correlacao(
     engine: EngineRest,
     inad_probe: InadEngineProbe,

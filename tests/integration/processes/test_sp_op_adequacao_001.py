@@ -396,7 +396,9 @@ async def deploy_artifacts(engine: EngineRest) -> str:
 
 
 @pytest_asyncio.fixture
-async def adequacao_probe(engine: EngineRest) -> AsyncIterator[AdequacaoEngineProbe]:
+async def adequacao_probe(
+    engine: EngineRest, audit_sink: Any, audit_tenant: str
+) -> AsyncIterator[AdequacaoEngineProbe]:
     """Probe que serve as external tasks com os workers reais Phase-3 de adequacao.
 
     Monta: `CibSevenWorkerTransport` (REST real) + `WorkerHarness` + `register_adequacao_workers`
@@ -405,7 +407,16 @@ async def adequacao_probe(engine: EngineRest) -> AsyncIterator[AdequacaoEnginePr
     """
     worker_id = f"qa-adequacao-worker-{uuid.uuid4().hex[:8]}"
     transport = CibSevenWorkerTransport(CIBSEVEN_BASE_URL)
-    harness = WorkerHarness(transport, worker_id=worker_id, lock_duration_ms=10_000)
+    # T1.10 wave: emit-before-complete is FAIL-CLOSED (harness.py _emit_audit) — a real
+    # PostgresAuditSink (lane PG, migrations 0001->0005) is REQUIRED or the harness refuses
+    # to complete. `tenant` scopes the durable audit chain / dedup key to the per-run schema.
+    harness = WorkerHarness(
+        transport,
+        worker_id=worker_id,
+        tenant=audit_tenant,
+        lock_duration_ms=10_000,
+        audit_sink=audit_sink,
+    )
     kafka = FakeKafkaPublisher()
     # ADR-0028/T1.5: route_remediation evaluates adequacao_gap + adequacao_remediation_routing via
     # the REAL deployed engine (never a mock, ADR-0011) — same live engine `engine`/`transport`

@@ -364,11 +364,20 @@ async def deploy_artifacts(engine: EngineRest) -> str:
 
 
 @pytest_asyncio.fixture
-async def nip_probe(engine: EngineRest) -> AsyncIterator[NipEngineProbe]:
+async def nip_probe(engine: EngineRest, audit_sink: Any, audit_tenant: str) -> AsyncIterator[NipEngineProbe]:
     """Probe que serve as external tasks com os workers reais Phase-2 de NIP."""
     worker_id = f"qa-nip-worker-{uuid.uuid4().hex[:8]}"
     transport = CibSevenWorkerTransport(CIBSEVEN_BASE_URL)
-    harness = WorkerHarness(transport, worker_id=worker_id, lock_duration_ms=10_000)
+    # T1.10 wave: emit-before-complete is FAIL-CLOSED (harness.py _emit_audit) — a real
+    # PostgresAuditSink (lane PG, migrations 0001->0005) is REQUIRED or the harness refuses
+    # to complete. `tenant` scopes the durable audit chain / dedup key to the per-run schema.
+    harness = WorkerHarness(
+        transport,
+        worker_id=worker_id,
+        tenant=audit_tenant,
+        lock_duration_ms=10_000,
+        audit_sink=audit_sink,
+    )
     kafka = FakeKafkaPublisher()
     register_nip_workers(harness, kafka)
     # T3.1 R2: the generic operadora.events.publish worker every ST_Publish* service task in

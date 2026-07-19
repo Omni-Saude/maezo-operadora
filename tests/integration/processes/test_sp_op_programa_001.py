@@ -388,14 +388,25 @@ async def deploy_artifacts(engine: EngineRest) -> str:
 
 
 @pytest_asyncio.fixture
-async def programa_probe(engine: EngineRest) -> AsyncIterator[ProgramaEngineProbe]:
+async def programa_probe(
+    engine: EngineRest, audit_sink: Any, audit_tenant: str
+) -> AsyncIterator[ProgramaEngineProbe]:
     """Probe que serve as external tasks com os workers reais de programa."""
     worker_id = f"qa-programa-worker-{uuid.uuid4().hex[:8]}"
     transport = CibSevenWorkerTransport(CIBSEVEN_BASE_URL)
     # SEM bpmn_error_allowlist (diferente de auth/cancel): nenhum worker de programa.py chega a
     # levantar um WorkerBpmnError (finding 2 — ProgramaError vira ValueError antes do harness ver
     # a excecao), entao nao ha codigo nenhum para gatear num allowlist.
-    harness = WorkerHarness(transport, worker_id=worker_id, lock_duration_ms=10_000)
+    # T1.10 wave: emit-before-complete is FAIL-CLOSED (harness.py _emit_audit) — a real
+    # PostgresAuditSink (lane PG, migrations 0001->0005) is REQUIRED or the harness refuses
+    # to complete. `tenant` scopes the durable audit chain / dedup key to the per-run schema.
+    harness = WorkerHarness(
+        transport,
+        worker_id=worker_id,
+        tenant=audit_tenant,
+        lock_duration_ms=10_000,
+        audit_sink=audit_sink,
+    )
     kafka = FakeKafkaPublisher()
     register_programa_workers(harness, kafka)
     # T3.1 R2: o worker generico operadora.events.publish que toda ST_Publish* deste BPMN usa —

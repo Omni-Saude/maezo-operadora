@@ -358,7 +358,7 @@ async def deploy_artifacts(engine: EngineRest) -> str:
 
 
 @pytest_asyncio.fixture
-async def ans_probe(engine: EngineRest) -> AsyncIterator[AnsEngineProbe]:
+async def ans_probe(engine: EngineRest, audit_sink: Any, audit_tenant: str) -> AsyncIterator[AnsEngineProbe]:
     """Probe que serve as external tasks com os workers reais de envio ANS."""
     worker_id = f"qa-anssubmit-worker-{uuid.uuid4().hex[:8]}"
     transport = CibSevenWorkerTransport(CIBSEVEN_BASE_URL)
@@ -368,8 +368,11 @@ async def ans_probe(engine: EngineRest) -> AsyncIterator[AnsEngineProbe]:
     harness = WorkerHarness(
         transport,
         worker_id=worker_id,
+        tenant=audit_tenant,
         lock_duration_ms=10_000,
         bpmn_error_allowlist=frozenset({"ERR_ANS_PROTOCOLO_NACK", "ERR_ANS_RETRY_ESGOTADO"}),
+        # T1.10 wave: emit-before-complete is fail-closed — real lane PostgresAuditSink required.
+        audit_sink=audit_sink,
     )
     kafka = FakeKafkaPublisher()
     dmn = CibSevenDmnTransport(CIBSEVEN_BASE_URL)

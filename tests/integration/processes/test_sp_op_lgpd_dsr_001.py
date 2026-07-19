@@ -333,7 +333,9 @@ async def deploy_artifacts(engine: EngineRest) -> str:
 
 
 @pytest_asyncio.fixture
-async def lgpd_probe(engine: EngineRest) -> AsyncIterator[LgpdEngineProbe]:
+async def lgpd_probe(
+    engine: EngineRest, audit_sink: Any, audit_tenant: str
+) -> AsyncIterator[LgpdEngineProbe]:
     """Probe que serve as external tasks com os WorkerBase reais de lgpd + gap stubs (finding 2).
 
     Mirrors auth's/escalation's own WorkerBase probe-construction pattern (task charter): register
@@ -346,8 +348,11 @@ async def lgpd_probe(engine: EngineRest) -> AsyncIterator[LgpdEngineProbe]:
     harness = WorkerHarness(
         transport,
         worker_id=worker_id,
+        tenant=audit_tenant,
         lock_duration_ms=10_000,
         bpmn_error_allowlist=_LGPD_BPMN_ERROR_ALLOWLIST,
+        # T1.10 wave: emit-before-complete is fail-closed — real lane PostgresAuditSink required.
+        audit_sink=audit_sink,
     )
     kafka = FakeKafkaPublisher()
     register_lgpd_workers(harness, kafka)
