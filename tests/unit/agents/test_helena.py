@@ -20,7 +20,10 @@ from maezo.agents.helena.graph import (
     HelenaGraph,
     HelenaState,
     _business_key,
+    _coerce_age,
+    _is_explicitly_false,
     _to_hash_from_state,
+    _validate_extraction,
     build,
 )
 from maezo.tools.mcp_cibseven.transport import CibSevenError, FakeCibSevenTransport, ProcessInstance
@@ -408,6 +411,166 @@ async def test_classify_out_of_domain_intensidade_escalates_falha_tecnica() -> N
     assert result["next_kind"] == "escalate"
     assert result["escalation_motivo"] == "falha_tecnica"
     assert "invalid_intensidade" in result["error"]
+
+
+# ---------------------------------------------------------------------------
+# age-field input gate (t2.7) — an LLM-sourced age feeds the red-flag DMN as a
+# typed integer; a malformed value must escalate DETERMINISTICALLY, never reach
+# the DMN where a wrong/ambiguous age could MISS a red flag.
+# ---------------------------------------------------------------------------
+
+
+def test_coerce_age_accepts_int_numeric_string_and_none() -> None:
+    assert _coerce_age(5) == (True, 5)
+    assert _coerce_age("5") == (True, 5)  # quoted JSON number -> coerced to int
+    assert _coerce_age(" 12 ") == (True, 12)
+    assert _coerce_age(0) == (True, 0)
+    assert _coerce_age(None) == (True, None)  # absent age is valid
+
+
+def test_coerce_age_rejects_non_coercible_and_ambiguous_values() -> None:
+    # Fail-closed on ANY ambiguous/malformed shape — never int(float(...)) a fraction.
+    assert _coerce_age([5]) == (False, None)
+    assert _coerce_age("abc") == (False, None)
+    assert _coerce_age("5.9") == (False, None)
+    assert _coerce_age(5.9) == (False, None)
+    assert _coerce_age("-5") == (False, None)
+    assert _coerce_age(-5) == (False, None)
+    assert _coerce_age(True) == (False, None)  # bool is an int subclass — reject
+
+
+def test_validate_extraction_coerces_valid_numeric_string_age_in_place() -> None:
+    data = {
+        "intent": "symptom",
+        "population": "adult",
+        "psychosocial_risk": False,
+        "sintoma_codigo": "febre",
+        "intensidade": "leve",
+        "idade_anos": "5",
+    }
+    assert _validate_extraction(data) is None
+    assert data["idade_anos"] == 5  # coerced str -> int for the DMN's `integer` type
+
+
+async def test_classify_malformed_age_list_escalates_falha_tecnica_never_reaches_dmn() -> None:
+    """A non-integer age (list) must fail closed DETERMINISTICALLY — not rely on an incidental
+    downstream engine error — and never be handed to the red-flag DMN."""
+    dmn = FakeDmnTransport()  # register the table so a leak-through would NOT error incidentally
+    dmn.register("triage_redflag_adult", [{"red_flag": False, "conduta": "CONTINUE"}])
+    inference = _FakeInference(
+        [_classify_json(intent="symptom", population="adult", sintoma_codigo="febre", idade_anos=[5])]
+    )
+    graph = _graph(inference=inference, dmn=dmn)
+
+    result = await graph.classify(_base_state(message_body="febre, tenho 5 anos"))
+
+    assert result["next_kind"] == "escalate"
+    assert result["escalation_motivo"] == "falha_tecnica"
+    assert "invalid_age" in result["error"]
+    assert dmn.calls == []  # the bad age NEVER reached the DMN
+
+
+async def test_classify_non_numeric_string_age_escalates_falha_tecnica() -> None:
+    inference = _FakeInference(
+        [_classify_json(intent="symptom", population="pediatric", sintoma_codigo="febre", idade_meses="abc")]
+    )
+    graph = _graph(inference=inference)
+
+    result = await graph.classify(_base_state(message_body="bebe com febre"))
+
+    assert result["next_kind"] == "escalate"
+    assert result["escalation_motivo"] == "falha_tecnica"
+    assert "invalid_age" in result["error"]
+
+
+async def test_classify_fractional_age_string_fails_closed_never_truncates() -> None:
+    """`"5.9"` must NOT be silently truncated to 5 (a plausible-but-wrong age) — fail closed."""
+    inference = _FakeInference(
+        [_classify_json(intent="symptom", population="adult", sintoma_codigo="febre", idade_anos="5.9")]
+    )
+    graph = _graph(inference=inference)
+
+    result = await graph.classify(_base_state(message_body="febre"))
+
+    assert result["next_kind"] == "escalate"
+    assert result["escalation_motivo"] == "falha_tecnica"
+    assert "invalid_age" in result["error"]
+
+
+async def test_classify_valid_numeric_string_age_passes_coerced_int_to_dmn() -> None:
+    """A valid quoted age reaches the DMN as a real integer (not the raw string)."""
+    dmn = FakeDmnTransport()
+    dmn.register("triage_redflag_adult", [{"red_flag": False, "conduta": "CONTINUE"}])
+    inference = _FakeInference(
+        [_classify_json(intent="symptom", population="adult", sintoma_codigo="febre", idade_anos="42")]
+    )
+    graph = _graph(inference=inference, dmn=dmn)
+
+    result = await graph.classify(_base_state(message_body="febre, 42 anos"))
+
+    assert result["next_kind"] == "inform"  # no red flag
+    assert dmn.calls[0][1]["idade_anos"] == 42
+    assert isinstance(dmn.calls[0][1]["idade_anos"], int)
+
+
+async def test_classify_absent_age_still_works() -> None:
+    """Many turns carry no age — absence is valid and must classify normally."""
+    dmn = FakeDmnTransport()
+    dmn.register("triage_redflag_adult", [{"red_flag": False, "conduta": "CONTINUE"}])
+    inference = _FakeInference([_classify_json(intent="symptom", population="adult", sintoma_codigo="febre")])
+    graph = _graph(inference=inference, dmn=dmn)
+
+    result = await graph.classify(_base_state(message_body="febre"))
+
+    assert result["next_kind"] == "inform"
+    assert dmn.calls[0][1].get("idade_anos") is None
+
+
+# ---------------------------------------------------------------------------
+# risco_imediato coercion (t2.7 adjacent) — `bool("false") == True` bug fixed:
+# only an EXPLICIT false disables immediate-risk; unknowns stay fail-safe.
+# ---------------------------------------------------------------------------
+
+
+def test_is_explicitly_false_only_for_native_false_and_string_false() -> None:
+    assert _is_explicitly_false(False) is True
+    assert _is_explicitly_false("false") is True
+    assert _is_explicitly_false("False") is True
+    assert _is_explicitly_false(True) is False
+    assert _is_explicitly_false("true") is False
+    assert _is_explicitly_false(None) is False
+    assert _is_explicitly_false("maybe") is False
+    assert _is_explicitly_false([]) is False
+
+
+async def test_evaluate_dmn_risco_imediato_string_false_is_not_immediate_risk() -> None:
+    """The prior `bool("false")` coerced the string `"false"` to True — fixed."""
+    dmn = FakeDmnTransport()
+    dmn.register("triage_redflag_mental_health", [{"red_flag": True, "conduta": "ESCALATE"}])
+    graph = _graph(inference=_FakeInference([]), dmn=dmn)
+
+    await graph._evaluate_dmn(
+        {"population": "mental_health", "risco_imediato": "false"},
+        force_population="mental_health",
+    )
+
+    assert dmn.calls[0][1]["risco_imediato"] is False
+
+
+async def test_evaluate_dmn_risco_imediato_unknown_defaults_to_immediate_risk() -> None:
+    dmn = FakeDmnTransport()
+    dmn.register("triage_redflag_mental_health", [{"red_flag": True, "conduta": "ESCALATE"}])
+    graph = _graph(inference=_FakeInference([]), dmn=dmn)
+
+    # None (absent) and an unparseable value both stay conservatively immediate-risk.
+    await graph._evaluate_dmn({"population": "mental_health"}, force_population="mental_health")
+    await graph._evaluate_dmn(
+        {"population": "mental_health", "risco_imediato": "maybe"},
+        force_population="mental_health",
+    )
+
+    assert dmn.calls[0][1]["risco_imediato"] is True
+    assert dmn.calls[1][1]["risco_imediato"] is True
 
 
 async def test_full_turn_malformed_json_reaches_escalation_never_inform() -> None:

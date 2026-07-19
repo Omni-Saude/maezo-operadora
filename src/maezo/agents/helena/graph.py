@@ -351,6 +351,56 @@ def _parse_json_object(text: str) -> dict[str, Any] | None:
     return data if isinstance(data, dict) else None
 
 
+# The three age signals the red-flag DMN tables consume, each DMN-typed `integer`
+# (`idade_anos`->triage_redflag_adult, `idade_meses`->triage_redflag_pediatric,
+# `idade_gestacional_semanas`->triage_redflag_gestante). They arrive from the classify LLM's
+# free-text JSON and drive which pediatric/gestational/adult red-flag rows can fire — a wrong
+# age could MISS a red flag, so they are validated (below) exactly like every other classify
+# field before ever reaching the DMN.
+_AGE_FIELDS: tuple[str, ...] = ("idade_anos", "idade_meses", "idade_gestacional_semanas")
+
+
+def _coerce_age(value: Any) -> tuple[bool, int | None]:
+    """Coerce an LLM-sourced age value to a non-negative `int`, fail-closed on ambiguity.
+
+    Returns `(ok, coerced)`:
+    - `None`/absent -> `(True, None)` — many turns carry no age; that is valid, the DMN's own
+      catch-all handles the missing-age case;
+    - a native `int` that is not a `bool` and `>= 0` -> `(True, value)`;
+    - a clean non-negative integer STRING like `"5"` -> `(True, 5)` (the classify LLM emits JSON
+      where a number may arrive quoted);
+    - ANYTHING else -> `(False, None)`: a `bool`, a float / fractional or signed string
+      (`5.9`, `"5.9"`, `"-5"`), a non-numeric string, a list/dict. We NEVER `int(float(...))` a
+      `"5.9"` into `5` — a plausible-but-wrong age could mis-triage — the caller fails closed
+      (escalate to a human) instead, never passing an ambiguous value to the DMN.
+    """
+    if value is None:
+        return True, None
+    if isinstance(value, bool):  # bool is an int subclass — a `true`/`false` age is malformed.
+        return False, None
+    if isinstance(value, int):
+        return (True, value) if value >= 0 else (False, None)
+    if isinstance(value, str) and value.strip().isdigit():  # non-negative integer only.
+        return True, int(value.strip())
+    return False, None
+
+
+def _is_explicitly_false(value: Any) -> bool:
+    """True only for an EXPLICIT boolean-false signal (native `False` or the string `"false"`).
+
+    Mirrors this codebase's `_is_true` idiom (fraude/contas workers) but inverted for the
+    conservative red-flag posture: any value that is NOT an explicit false — `None`, `"true"`,
+    an unparseable string, a list — is treated as NOT-explicitly-false so the caller can fail
+    SAFE toward immediate risk. Never coerces a truthiness (`bool("false") == True`), which is
+    the very bug this replaces at the `risco_imediato` call site.
+    """
+    if isinstance(value, bool):
+        return value is False
+    if isinstance(value, str):
+        return value.strip().lower() == "false"
+    return False
+
+
 def _validate_extraction(data: dict[str, Any]) -> str | None:
     """Validate the classify LLM's parsed JSON against classify-v1's own schema.
 
@@ -378,7 +428,14 @@ def _validate_extraction(data: dict[str, Any]) -> str | None:
       and land on the no-red-flag catch-all) -> `non_allowlisted_sintoma_codigo`;
     - `intensidade`, when present, in `_VALID_INTENSIDADES` (an out-of-domain intensity would
       miss the DMN's own `"grave"` fail-safe rows the same way an invented code would) ->
-      `invalid_intensidade`.
+      `invalid_intensidade`;
+    - each of `_AGE_FIELDS` (`idade_anos`/`idade_meses`/`idade_gestacional_semanas`) is
+      int-or-None (`None`/absent is valid). A non-coercible age (list, non-numeric or fractional
+      string, float, bool) -> `invalid_age`: these feed the red-flag DMN tables as typed
+      `integer`s and a wrong/ambiguous age could MISS a red flag, so an un-validated value must
+      never reach the DMN (previously a bad value only failed INCIDENTALLY via a downstream
+      engine FEEL/400 error — this makes the escalation EXPLICIT and DETERMINISTIC). Valid ages
+      are COERCED IN PLACE (a quoted `"5"` -> `5`) so the DMN receives the correct integer type.
     """
     if data.get("intent") not in _VALID_INTENTS:
         return "invalid_intent"
@@ -392,6 +449,14 @@ def _validate_extraction(data: dict[str, Any]) -> str | None:
     intensidade = data.get("intensidade")
     if intensidade is not None and intensidade not in _VALID_INTENSIDADES:
         return "invalid_intensidade"
+    for field in _AGE_FIELDS:
+        ok, coerced = _coerce_age(data.get(field))
+        if not ok:
+            return "invalid_age"
+        # Coerce in place (e.g. "5" -> 5) so `_evaluate_dmn` reads the same dict and hands the
+        # DMN a correctly typed integer. Absent fields (coerced None) are left as-is.
+        if coerced is not None:
+            data[field] = coerced
     return None
 
 
@@ -677,9 +742,13 @@ class HelenaGraph:
             dmn_input["idade_gestacional_semanas"] = extraction.get("idade_gestacional_semanas")
         elif table == "triage_redflag_mental_health":
             risco = extraction.get("risco_imediato")
-            # Conservative posture: unknown -> treat as immediate risk (matches the DMN's own
-            # fail-safe stance and the classify prompt's instruction).
-            dmn_input["risco_imediato"] = True if risco is None else bool(risco)
+            # Conservative posture: immediate risk UNLESS the LLM says explicitly false. This
+            # matches the DMN's fail-safe stance and the classify prompt's instruction, and fixes
+            # a wrong coercion: the prior `bool(risco)` read the string `"false"` as `True`
+            # (harmless here — it fails safe) but also read `""`/`0`/`[]` as `False` (fail-OPEN).
+            # `_is_explicitly_false` yields True only for native `False`/`"false"`; everything
+            # else (None, "true", unparseable) stays immediate-risk.
+            dmn_input["risco_imediato"] = not _is_explicitly_false(risco)
 
         try:
             rows, version = await self._dmn.evaluate(table, dmn_input)
