@@ -373,6 +373,12 @@ def _coerce_age(value: Any) -> tuple[bool, int | None]:
       (`5.9`, `"5.9"`, `"-5"`), a non-numeric string, a list/dict. We NEVER `int(float(...))` a
       `"5.9"` into `5` — a plausible-but-wrong age could mis-triage — the caller fails closed
       (escalate to a human) instead, never passing an ambiguous value to the DMN.
+
+    The string guard is `str.isdecimal()`, NOT `str.isdigit()`: `isdigit()` is `True` for
+    Unicode digit glyphs that `int()` cannot parse (superscripts like `"²"`, circled digits),
+    so `isdigit()` + `int()` would RAISE on such input; `isdecimal()` admits only base-10 digits
+    `int()` accepts, so a Unicode-digit glyph fails CLOSED to `(False, None)` here rather than
+    raising up an unwrapped call site.
     """
     if value is None:
         return True, None
@@ -380,7 +386,7 @@ def _coerce_age(value: Any) -> tuple[bool, int | None]:
         return False, None
     if isinstance(value, int):
         return (True, value) if value >= 0 else (False, None)
-    if isinstance(value, str) and value.strip().isdigit():  # non-negative integer only.
+    if isinstance(value, str) and value.strip().isdecimal():  # base-10 digits only -> int()-safe.
         return True, int(value.strip())
     return False, None
 
