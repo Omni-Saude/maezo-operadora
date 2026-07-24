@@ -53,9 +53,13 @@ finding below says otherwise):
     harness routes any `PermissionError` straight to an engine incident, `harness.py` `_handle`),
     not donor's `WorkerBpmnError(error_code=...)` (a modeled BPMN error routed to a boundary
     catch). Scenarios (a)-(d) (analista path) are preserved verbatim; scenario (e) (auditor
-    ACEITAR_GLOSA path) surfaces TWO genuine, independently-verified v2 bugs (findings 3 and 4
-    below) rather than a fixture-shape mismatch — the whole test is marked xfail accordingly (one
-    marker per test, matching auth's own multi-scenario-invariant convention).
+    ACEITAR_GLOSA path) originally surfaced TWO genuine, independently-verified v2 bugs (findings
+    3 and 4 below) rather than a fixture-shape mismatch — split into its own
+    `test_worker_guard_register_desistencia_auditor_path_finding4` test, xfail on both. BOTH
+    findings are now RESOLVED (finding 3 by t3.1-a2-recurso-valor-glosa, finding 4 by
+    t3.1-recurso-findings-a — `RecursoDesistenciaInput` now carries `decisao_auditor_recurso`/
+    `auditor_id` and `register_desistencia`'s guard accepts the auditor channel) — that test is
+    no longer xfail.
 
 FINDINGS (grep/read/direct-execution confirmed — see PR body / evidence-ledger for full detail):
 
@@ -103,14 +107,18 @@ FINDINGS (grep/read/direct-execution confirmed — see PR body / evidence-ledger
   3. `valor_glosa_aceito` TypeError (recurso-specific CODE BUG) — RESOLVED by
      t3.1-a2-recurso-valor-glosa. Historical: `register_desistencia()` (recurso.py:366) did
      `if input_data.valor_glosa_aceito <= 0:` — a raw Python numeric comparison — on a dataclass
-     field typed `float` (`RecursoDesistenciaInput.valor_glosa_aceito`, recurso.py:112) that NO
-     caller could ever deliver as a `float`: `engine_rest.py::EngineRest._to_camunda_vars` has
-     branches for dict-passthrough/`bool`/`int` only — a `float` (or the donor's own `"150.00"`
-     string convention for BRL fields, mirrored verbatim here per the port's synthetic-data rule)
-     fell into the catch-all `else` branch and was sent to the engine as a Camunda `String`
-     variable; `harness.py::_from_camunda_var` then decoded a `String`-typed variable back to a
-     Python `str` (no numeric coercion), so the comparison raised `TypeError: '<=' not supported
-     between instances of 'str' and 'int'` and the task retried then incidented rather than cleanly
+     field typed `float` (`RecursoDesistenciaInput.valor_glosa_aceito`, recurso.py:112). CORRECTED
+     root cause (a prior version of this docstring wrongly claimed
+     `engine_rest.py::EngineRest._to_camunda_vars` had no `float` branch — it DOES: engine_rest.py
+     :145-149, mirroring `harness.py::_to_camunda_var`:335-336, floats always map to a Camunda
+     `Double`, never a `String`): the actual cause is that this suite's own fixtures
+     (`_desistencia_fields()`/`start_recurso`) seed `valor_glosa_aceito` as a Python `str`
+     (`"150.00"`, the donor's own BRL-as-string convention, mirrored verbatim here per the port's
+     synthetic-data rule) — a `str` never reaches the float branch at all, so it fell into the
+     catch-all `else` branch regardless and was sent to the engine as a Camunda `String` variable;
+     `harness.py::_from_camunda_var` then decoded that `String`-typed variable back to a Python
+     `str` (no numeric coercion), so the comparison raised `TypeError: '<=' not supported between
+     instances of 'str' and 'int'` and the task retried then incidented rather than cleanly
      reaching `End_RecursoNaoInterposto`/`End_GlosaMantida`/`End_RecursoInadmissivel`. FIX (SRC-
      local, recurso.py): `register_desistencia()` now parses the monetary value via
      `_parse_valor_glosa_aceito()` (float, dot-decimal, the `contas.py` `float(brl)` money idiom)
@@ -119,32 +127,41 @@ FINDINGS (grep/read/direct-execution confirmed — see PR body / evidence-ledger
      LIVE-VERIFIED against a real engine, the 5 xfails that previously carried this reason split
      as follows: (1) FLIPPED TO PASSING — `test_coordenacao_assume_e_mantem_glosa_humano` and the
      guard unit `test_worker_guard_register_desistencia_recusa_sem_humano` (scenarios a-d) now
-     pass for the right reason (desistencia decision completes, terminal reached); (2) RE-POINTED
-     TO FINDING 1 (kafka drift, out of scope) — `test_happy_path_nao_recorrer_humano` and
-     `test_coordenacao_inadmissivel_humano_gated` now reach End_RecursoNaoInterposto/
-     End_RecursoInadmissivel and emit their _RECURSO_COMPLETED events (finding-3 asserts pass),
-     but still fail their trailing `notifications_of_type('recurso.register_desistencia')` assert
-     because register_desistencia_entry never publishes (`del kafka`); (3) RE-POINTED TO FINDING 4
-     (auditor gap, out of scope) — `test_happy_path_auditor_aceita_glosa_mantem_glosa_humano` and
-     the split-out `test_worker_guard_register_desistencia_auditor_path_finding4` (former guard
-     scenario (e)), which finding 4 independently still blocks.
+     pass for the right reason (desistencia decision completes, terminal reached); (2) originally
+     RE-POINTED to finding 1 (kafka drift) — `test_happy_path_nao_recorrer_humano` and
+     `test_coordenacao_inadmissivel_humano_gated` reach End_RecursoNaoInterposto/
+     End_RecursoInadmissivel and emit their _RECURSO_COMPLETED events, but their trailing
+     `notifications_of_type('recurso.register_desistencia')` assert was STALE — that internal
+     notification channel is structurally always-empty in v2 (register_desistencia_entry never
+     publishes to it, `del kafka`; ADAPTED (t3.1-recurso-findings-a, finding 1a): both tests now
+     assert the human decisor's id on the real, engine-observable `_RECURSO_COMPLETED` event
+     instead (`has_event(..., analista_id=...)`), which DOES work (events.py's real kafka.publish
+     call site) — both FLIPPED TO PASSING, finding 1 (kafka-notification-channel gap) remains
+     out of scope and unaffected; (3) originally RE-POINTED to finding 4 (auditor gap) —
+     `test_happy_path_auditor_aceita_glosa_mantem_glosa_humano` and the split-out
+     `test_worker_guard_register_desistencia_auditor_path_finding4` — finding 4 is now RESOLVED
+     (see below), and both tests are ADAPTED the same way as (2) and FLIPPED TO PASSING.
 
-  4. Auditor `ACEITAR_GLOSA` unrecognized (recurso-specific, `_RECURSO_AUDITOR_ACEITAR_GLOSA_
-     GUARD_GAP_REASON`, LIVE-CONFIRMED, independent of finding 3): `ST_RegisterGlosaMantida` (the
-     auditor's `ACEITAR_GLOSA` path, `GW_MeritoAuditor` -> `Flow_GWMerito_AceitarGlosa`) routes to
-     the SAME `operadora.recurso.register_desistencia` topic as the analista's `NAO_RECORRER`
-     path, but `RecursoDesistenciaInput` (recurso.py:107-113) has ONLY `decisao_recurso`/
-     `analista_id` fields — no `decisao_auditor_recurso`, no `auditor_id`. `pick_fields()`
-     silently drops both when the auditor completes `UT_RevisaoAuditorMedico` with
-     `decisao_auditor_recurso='ACEITAR_GLOSA'` (the BPMN never resets `decisao_recurso` off its
-     earlier `'ESCALAR_AUDITOR'` value), so the guard ALWAYS sees `decisao_recurso !=
-     'NAO_RECORRER'` and refuses. Direct call, isolated from finding 3 by using a real float for
-     `valor_glosa_aceito`: `register_desistencia_entry({'decisao_auditor_recurso':
-     'ACEITAR_GLOSA', 'valor_glosa_aceito': 150.00, 'auditor_id': ..., 'justificativa_desistencia':
-     ..., 'referencia_contratual': ...})` raises `DesistenciaNotHumanError` ("missing:
-     decisao_recurso != NAO_RECORRER, analista_id") even with every BPMN-documented field present.
-     `End_GlosaMantida` is therefore PERMANENTLY unreachable via the intended human path in v2
-     today, for two independent reasons (this + finding 3 both block the same terminal).
+  4. Auditor `ACEITAR_GLOSA` unrecognized (recurso-specific) — RESOLVED by
+     t3.1-recurso-findings-a. Historical (LIVE-CONFIRMED, independent of finding 3):
+     `ST_RegisterGlosaMantida` (the auditor's `ACEITAR_GLOSA` path, `GW_MeritoAuditor` ->
+     `Flow_GWMerito_AceitarGlosa`) routes to the SAME `operadora.recurso.register_desistencia`
+     topic as the analista's `NAO_RECORRER` path, but `RecursoDesistenciaInput` (recurso.py:
+     107-115, pre-fix) had ONLY `decisao_recurso`/`analista_id` fields — no
+     `decisao_auditor_recurso`, no `auditor_id`. `pick_fields()` silently dropped both when the
+     auditor completed `UT_RevisaoAuditorMedico` with `decisao_auditor_recurso='ACEITAR_GLOSA'`
+     (the BPMN never resets `decisao_recurso` off its earlier `'ESCALAR_AUDITOR'` value), so the
+     guard ALWAYS saw `decisao_recurso != 'NAO_RECORRER'` and refused even with every
+     BPMN-documented field present. `End_GlosaMantida` was therefore PERMANENTLY unreachable via
+     the intended human path, for two independent reasons (this + finding 3 both blocked the same
+     terminal). FIX (SRC-local, recurso.py): `RecursoDesistenciaInput` now carries
+     `decisao_auditor_recurso`/`auditor_id`, and `register_desistencia()`'s guard accepts EITHER
+     the analista channel (`decisao_recurso == NAO_RECORRER` + `analista_id`) OR the auditor
+     channel (`decisao_auditor_recurso == ACEITAR_GLOSA` + `auditor_id`) — both channels still
+     require justificativa_desistencia/valor_glosa_aceito/referencia_contratual; the guard refuses
+     ONLY if NEITHER channel's decision field matches, with a channel-aware missing-fields
+     message. Zero BPMN/contract changes — the BPMN already routed `ACEITAR_GLOSA` ->
+     `register_desistencia` -> `End_GlosaMantida`.
 
   5. `ERR_RECURSO_INVALID_GLOSA` guard missing (GAP-RECURSO-3, `_RECURSO_INVALID_GLOSA_GUARD_
      MISSING_REASON`, TWO independent reasons, both grep/read-confirmed): the BPMN declares
@@ -322,28 +339,10 @@ _RECURSO_UNIMPLEMENTED_TOPIC_REASON = (
 
 # Finding 3 (valor_glosa_aceito TypeError) RESOLVED by t3.1-a2-recurso-valor-glosa — the
 # strict-xfail reason it carried was retired when the src fix landed (see module docstring
-# finding 3). Human analista/coordenacao paths now pass; the auditor ACEITAR_GLOSA path stays
-# xfail on finding 4 below.
-
-_RECURSO_AUDITOR_ACEITAR_GLOSA_GUARD_GAP_REASON = (
-    "v2 gap (finding 4, recurso-specific — LIVE-CONFIRMED, independent of finding 3): "
-    "ST_RegisterGlosaMantida (auditor's ACEITAR_GLOSA path, GW_MeritoAuditor -> "
-    "Flow_GWMerito_AceitarGlosa) routes to the SAME operadora.recurso.register_desistencia topic "
-    "as the analista's NAO_RECORRER path, but RecursoDesistenciaInput (recurso.py:107-113) has "
-    "ONLY decisao_recurso/analista_id fields — no decisao_auditor_recurso, no auditor_id. "
-    "pick_fields() silently drops both when the auditor completes UT_RevisaoAuditorMedico with "
-    "decisao_auditor_recurso='ACEITAR_GLOSA' (decisao_recurso is never reset off its earlier "
-    "'ESCALAR_AUDITOR' value), so the guard ALWAYS sees decisao_recurso != 'NAO_RECORRER' and "
-    "refuses. Confirmed by direct call (isolated from finding 3 via a real float for "
-    "valor_glosa_aceito): register_desistencia_entry({'decisao_auditor_recurso': 'ACEITAR_GLOSA', "
-    "'valor_glosa_aceito': 150.00, 'auditor_id': ..., ...}) raises DesistenciaNotHumanError "
-    "('missing: decisao_recurso != NAO_RECORRER, analista_id') even with every BPMN-documented "
-    "field present. End_GlosaMantida is therefore PERMANENTLY unreachable via the intended human "
-    "path in v2 today, for two independent reasons (this + finding 3 both block the same "
-    "terminal — the engine-driven test below hits finding 3's TypeError first). src/** fix "
-    "(recognizing decisao_auditor_recurso=='ACEITAR_GLOSA' + an auditor_id field) is out of "
-    "scope for this port."
-)
+# finding 3). Finding 4 (auditor ACEITAR_GLOSA guard gap) is ALSO now RESOLVED, by
+# t3.1-recurso-findings-a — its strict-xfail reason constant
+# (_RECURSO_AUDITOR_ACEITAR_GLOSA_GUARD_GAP_REASON) is retired the same way (see module docstring
+# finding 4); every path (analista, coordenacao, auditor) now passes.
 
 _RECURSO_INVALID_GLOSA_GUARD_MISSING_REASON = (
     "v2 gap (GAP-RECURSO-3, finding 5, TWO independent reasons, both grep/read-confirmed): the "
@@ -748,7 +747,6 @@ async def test_happy_path_recurso_indeferido_pela_operadora(
     assert not recurso_probe.notifications_of_type("recurso.register_desistencia")
 
 
-@pytest.mark.xfail(reason=_RECURSO_KAFKA_GAP_REASON, strict=True)
 async def test_happy_path_nao_recorrer_humano(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
@@ -760,12 +758,17 @@ async def test_happy_path_nao_recorrer_humano(
     valor_glosa_aceito="150.00" (donor's BRL-as-string convention). Finding-3 (recurso.py:366)
     RESOLVED by t3.1-a2-recurso-valor-glosa: register_desistencia() now parses the monetary
     String via `_parse_valor_glosa_aceito` before the `<= 0` guard — LIVE-CONFIRMED the instance
-    now reaches End_RecursoNaoInterposto and emits _RECURSO_COMPLETED(desfecho=
-    "nao_interposto_humano") (both asserts above the notifications check now PASS). This test
-    stays xfail purely on finding 1 (kafka drift): register_desistencia_entry does `del kafka`
-    and never publishes the `recurso.register_desistencia` notification, so the final
-    `notifications_of_type('recurso.register_desistencia')` assert sees []. Finding 1 is out of
-    scope for t3.1-a2 (Kafka-producer wiring task — see _RECURSO_KAFKA_GAP_REASON).
+    reaches End_RecursoNaoInterposto and emits _RECURSO_COMPLETED(desfecho="nao_interposto_humano").
+
+    ADAPTED (t3.1-recurso-findings-a, finding 1a): the trailing
+    `notifications_of_type('recurso.register_desistencia')` assert was STALE — that internal
+    notification channel is structurally always-empty in v2 (register_desistencia_entry does
+    `del kafka` and never publishes to it; unrelated to whether the desistencia registered).
+    Asserting the human decisor's `analista_id` on the real, engine-observable
+    `_RECURSO_COMPLETED` event (`ST_PublishNaoInterposto`'s own `event_payload_vars` carry
+    `analista_id`) proves the SAME property — that register_desistencia executed AND carried the
+    accountable human end-to-end — via a mechanism that actually works (events.py's real
+    kafka.publish call site). No longer xfail.
     """
     inst = await start_recurso(glosa_type="administrativa")
     iid = inst["id"]
@@ -777,13 +780,9 @@ async def test_happy_path_nao_recorrer_humano(
     ended = await _await_end(engine, iid)
     await _assert_no_desistencia_without_human_task(engine, iid)
     assert _END_NAO_INTERPOSTO in ended, f"NAO_RECORRER humano => End_RecursoNaoInterposto. ended={ended}"
-    assert recurso_probe.has_event(_RECURSO_COMPLETED, desfecho="nao_interposto_humano")
-
-    desistencias = recurso_probe.notifications_of_type("recurso.register_desistencia")
-    assert desistencias, "Worker register_desistencia deve ser executado apos NAO_RECORRER humano"
-    d = desistencias[0]
-    assert d["decisao_recurso"] == "NAO_RECORRER"
-    assert d["analista_id"] == "analista-sintetico-001"
+    assert recurso_probe.has_event(
+        _RECURSO_COMPLETED, desfecho="nao_interposto_humano", analista_id="analista-sintetico-001"
+    ), "ST_PublishNaoInterposto deve emitir completed(desfecho=nao_interposto_humano) com o analista_id"
 
 
 @pytest.mark.xfail(reason=_RECURSO_UNIMPLEMENTED_TOPIC_REASON, strict=True)
@@ -825,7 +824,6 @@ async def test_happy_path_escalar_auditor_mantem_recurso(
     await _assert_no_desistencia_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_RECURSO_AUDITOR_ACEITAR_GLOSA_GUARD_GAP_REASON, strict=True)
 async def test_happy_path_auditor_aceita_glosa_mantem_glosa_humano(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
@@ -833,12 +831,19 @@ async def test_happy_path_auditor_aceita_glosa_mantem_glosa_humano(
 ) -> None:
     """ESCALAR_AUDITOR; auditor ACEITAR_GLOSA com campos => End_GlosaMantida (humano-gated).
 
-    Finding-3 (the valor_glosa_aceito='150.00' TypeError) is now RESOLVED
-    (t3.1-a2-recurso-valor-glosa), but this path stays xfail on finding 4 (LIVE-CONFIRMED still
-    blocking): register_desistencia never recognizes decisao_auditor_recurso=='ACEITAR_GLOSA' nor
-    an auditor_id field, so the guard sees decisao_recurso != 'NAO_RECORRER' and refuses ->
-    End_GlosaMantida remains unreachable via the auditor path. Finding 4 is a separate src gap,
-    out of scope for t3.1-a2 (see _RECURSO_AUDITOR_ACEITAR_GLOSA_GUARD_GAP_REASON).
+    Finding-3 (the valor_glosa_aceito='150.00' TypeError) was RESOLVED by
+    t3.1-a2-recurso-valor-glosa; finding 4 (auditor ACEITAR_GLOSA unrecognized by the guard) is
+    now ALSO RESOLVED by t3.1-recurso-findings-a: `RecursoDesistenciaInput` carries
+    `decisao_auditor_recurso`/`auditor_id`, and `register_desistencia()`'s guard accepts the
+    auditor channel (`decisao_auditor_recurso == ACEITAR_GLOSA` + `auditor_id`) alongside the
+    analista channel — End_GlosaMantida is now reachable via the auditor path.
+
+    ADAPTED (t3.1-recurso-findings-a, finding 1a — same as test_happy_path_nao_recorrer_humano):
+    the trailing `notifications_of_type('recurso.register_desistencia')` assert was STALE (that
+    internal channel is structurally always-empty in v2). Asserting the human decisor's
+    `auditor_id` on the real `_RECURSO_COMPLETED` event (`ST_PublishGlosaMantida`'s own
+    `event_payload_vars` carry `auditor_id`) proves the same property via a mechanism that
+    actually works. No longer xfail.
     """
     inst = await start_recurso(glosa_type="clinica")
     iid = inst["id"]
@@ -864,11 +869,9 @@ async def test_happy_path_auditor_aceita_glosa_mantem_glosa_humano(
     ended = await _await_end(engine, iid)
     await _assert_no_desistencia_without_human_task(engine, iid)
     assert _END_GLOSA_MANTIDA in ended, f"auditor ACEITAR_GLOSA => End_GlosaMantida. ended={ended}"
-    assert recurso_probe.has_event(_RECURSO_COMPLETED, desfecho="nao_interposto_humano")
-
-    desistencias = recurso_probe.notifications_of_type("recurso.register_desistencia")
-    assert desistencias, "Worker register_desistencia deve ser executado apos ACEITAR_GLOSA do auditor"
-    assert desistencias[0]["auditor_id"] == "auditor-sintetico-001"
+    assert recurso_probe.has_event(
+        _RECURSO_COMPLETED, desfecho="nao_interposto_humano", auditor_id="auditor-sintetico-001"
+    ), "ST_PublishGlosaMantida deve emitir completed(desfecho=nao_interposto_humano) com o auditor_id"
 
 
 @pytest.mark.xfail(reason=_RECURSO_UNIMPLEMENTED_TOPIC_REASON, strict=True)
@@ -956,8 +959,8 @@ async def test_worker_guard_register_desistencia_recusa_sem_humano() -> None:
     (donor's BRL-as-string convention): finding-3 (recurso.py:366 TypeError) is RESOLVED by
     t3.1-a2-recurso-valor-glosa — the monetary String is parsed via `_parse_valor_glosa_aceito`
     before the `<= 0` guard, so (c) refuses for the RIGHT reason (missing analista_id, not a
-    crash) and (d) registers cleanly. The auditor ACEITAR_GLOSA path (former scenario (e)) is
-    still blocked by finding 4 and lives in its own xfail test below.
+    crash) and (d) registers cleanly. The auditor ACEITAR_GLOSA path (former scenario (e)) is now
+    ALSO resolved (finding 4, t3.1-recurso-findings-a) and lives in its own passing test below.
     """
     kafka = FakeKafkaPublisher()
 
@@ -1008,15 +1011,15 @@ async def test_worker_guard_register_desistencia_recusa_sem_humano() -> None:
     assert result_d["protocolo"]
 
 
-@pytest.mark.xfail(reason=_RECURSO_AUDITOR_ACEITAR_GLOSA_GUARD_GAP_REASON, strict=True)
 async def test_worker_guard_register_desistencia_auditor_path_finding4() -> None:
     """Auditor ACEITAR_GLOSA (former scenario (e) of the guard test) — donor espera registro.
 
-    Finding-3 (the valor_glosa_aceito='150.00' TypeError) is now RESOLVED, so this isolates
-    finding 4: register_desistencia never recognizes `decisao_auditor_recurso=='ACEITAR_GLOSA'`
-    nor an `auditor_id` field (RecursoDesistenciaInput has only decisao_recurso/analista_id), so
-    the guard sees decisao_recurso != 'NAO_RECORRER' and refuses instead of registering. Separate
-    src gap, out of scope for t3.1-a2 (see _RECURSO_AUDITOR_ACEITAR_GLOSA_GUARD_GAP_REASON).
+    Finding-3 (the valor_glosa_aceito='150.00' TypeError) was RESOLVED by
+    t3.1-a2-recurso-valor-glosa; finding 4 (register_desistencia never recognized
+    `decisao_auditor_recurso=='ACEITAR_GLOSA'` nor an `auditor_id` field) is now ALSO RESOLVED by
+    t3.1-recurso-findings-a: `RecursoDesistenciaInput` carries both fields, and the guard accepts
+    this as its own auditor channel (alongside the pre-existing analista channel) — registers
+    cleanly instead of refusing. No longer xfail.
     """
     kafka = FakeKafkaPublisher()
     result_e = register_desistencia_entry(
@@ -1030,6 +1033,7 @@ async def test_worker_guard_register_desistencia_auditor_path_finding4() -> None
         kafka=kafka,
     )
     assert result_e["registered"] is True
+    assert result_e["protocolo"]
 
 
 # ===========================================================================
@@ -1280,7 +1284,6 @@ async def test_coordenacao_assume_e_mantem_glosa_humano(
     assert recurso_probe.has_event(_RECURSO_COMPLETED, desfecho="nao_interposto_humano")
 
 
-@pytest.mark.xfail(reason=_RECURSO_KAFKA_GAP_REASON, strict=True)
 async def test_coordenacao_inadmissivel_humano_gated(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
@@ -1290,12 +1293,16 @@ async def test_coordenacao_inadmissivel_humano_gated(
 
     Prova que End_RecursoInadmissivel e humano-gated (review gap pinado). O payload seta
     valor_glosa_aceito="150.00" (string); finding-3 RESOLVIDA (t3.1-a2-recurso-valor-glosa) — o
-    valor e parseado antes do guard `<= 0`. LIVE-CONFIRMED: a instancia agora atinge
-    End_RecursoInadmissivel e emite _RECURSO_COMPLETED(desfecho="inadmissivel") (ambos os asserts
-    acima do notifications check PASSAM). Permanece xfail apenas por finding 1 (kafka drift):
-    register_desistencia_entry faz `del kafka` e nunca publica a notificacao
-    `recurso.register_desistencia`, entao o assert final ve []. Finding 1 fora de escopo do
-    t3.1-a2 (Kafka-producer wiring — ver _RECURSO_KAFKA_GAP_REASON).
+    valor e parseado antes do guard `<= 0`. LIVE-CONFIRMED: a instancia atinge
+    End_RecursoInadmissivel e emite _RECURSO_COMPLETED(desfecho="inadmissivel").
+
+    ADAPTADO (t3.1-recurso-findings-a, finding 1a — mesmo padrao de
+    test_happy_path_nao_recorrer_humano): o assert final `notifications_of_type(
+    'recurso.register_desistencia')` era STALE (canal interno estruturalmente sempre-vazio em
+    v2). Asserir o `analista_id` do decisor humano (aqui a propria coordenacao, que reusa o campo
+    `analista_id`) no evento `_RECURSO_COMPLETED` real (`ST_PublishInadmissivel`'s
+    `event_payload_vars` carregam `analista_id`) prova a mesma propriedade por um mecanismo que
+    de fato funciona. Nao mais xfail.
     """
     inst = await start_recurso(glosa_type="administrativa", dentro_prazo_recurso=False)
     iid = inst["id"]
@@ -1322,10 +1329,9 @@ async def test_coordenacao_inadmissivel_humano_gated(
     ended = await _await_end(engine, iid)
     await _assert_no_desistencia_without_human_task(engine, iid)
     assert _END_INADMISSIVEL in ended, f"inadmissibilidade humana => End_RecursoInadmissivel. ended={ended}"
-    assert recurso_probe.has_event(_RECURSO_COMPLETED, desfecho="inadmissivel")
-    assert recurso_probe.notifications_of_type("recurso.register_desistencia"), (
-        "inadmissibilidade passa pelo guard register_desistencia (humano-gated)"
-    )
+    assert recurso_probe.has_event(
+        _RECURSO_COMPLETED, desfecho="inadmissivel", analista_id="coordenacao-sintetica-001"
+    ), "ST_PublishInadmissivel deve emitir completed(desfecho=inadmissivel) com o analista_id"
 
 
 @pytest.mark.xfail(reason=_RECURSO_UNIMPLEMENTED_TOPIC_REASON, strict=True)
