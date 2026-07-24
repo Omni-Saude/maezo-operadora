@@ -6,13 +6,18 @@ TDD London School: tests verify value-driven tier routing and payment release gu
 import pytest
 
 from maezo.tools.workers.dmn_transport import DmnEvaluationError, FakeDmnTransport
+from maezo.tools.workers.harness import WorkerHarness
 from maezo.tools.workers.pagto import (
     ERR_PAGTO_ORDEM_INVALIDA,
+    ERR_PAYMENT_REFUSAL_NOT_HUMAN,
     ERR_PAYMENT_RELEASE_NOT_HUMAN,
     PagtoError,
     assess_admissibility,
     execute_pagto,
+    notify_sla_risk,
     publish_completed,
+    register_pagto_workers,
+    register_payment_refusal,
     release_high_value_payment,
     route_aprovacao,
     validate_pagto,
@@ -277,6 +282,28 @@ def test_execute_pagto_fora_teto() -> None:
 
 
 # ---------------------------------------------------------------
+# notify_sla_risk — informational, never adverse (t2.5-p2b-round2)
+# ---------------------------------------------------------------
+
+
+def test_notify_sla_risk_informational() -> None:
+    result = notify_sla_risk({"ordem_pagamento_id": "OP-001", "faixa_valor": "ALCADA_L2"})
+    assert result["sla_risk_notified"] is True
+    assert result["grupo_alertado"] == "coordenacao-financeira"
+    assert result["ordem_pagamento_id"] == "OP-001"
+
+
+def test_notify_sla_risk_no_adverse_outcome() -> None:
+    """The non-interruptive timer alert never produces or propagates a release/refusal decision
+    -- UT_AprovacaoAlcada stays open, no adverse outcome ever arises from a timer."""
+    result = notify_sla_risk({"ordem_pagamento_id": "OP-001", "decisao_pagamento": "APROVAR"})
+    assert "decisao_pagamento" not in result
+    forbidden = {"APROVAR", "RECUSAR", "CANCELAR"}
+    for value in result.values():
+        assert str(value).upper() not in forbidden
+
+
+# ---------------------------------------------------------------
 # release_high_value_payment — GUARD + tier-match
 # ---------------------------------------------------------------
 
@@ -338,6 +365,141 @@ def test_release_high_value_missing_aprovador() -> None:
             }
         )
     assert excinfo.value.code == ERR_PAYMENT_RELEASE_NOT_HUMAN
+
+
+# ---------------------------------------------------------------
+# register_payment_refusal — GUARD, dual human channel (t2.5-p2b-round2)
+# ---------------------------------------------------------------
+
+
+def test_register_payment_refusal_alcada_channel_happy_path() -> None:
+    """decisao_pagamento=RECUSAR (UT_AprovacaoAlcada/UT_CoordenacaoAlcada) + required fields."""
+    result = register_payment_refusal(
+        {
+            "decisao_pagamento": "RECUSAR",
+            "justificativa_recusa": "Lastro inconsistente — devolver para revisao",
+            "aprovador_id": "fin-001",
+            "ordem_pagamento_id": "OP-001",
+        }
+    )
+    assert result["recusa_registrada"] is True
+    assert result["canal"] == "alcada"
+
+
+def test_register_payment_refusal_admissibilidade_channel_happy_path() -> None:
+    """decisao_admissibilidade=DEVOLVER (UT_AnaliseAdmissibilidade) + required fields — the
+    SAME terminal/worker as the alcada RECUSAR channel (BPMN: ST_RegisterPaymentRefusal has TWO
+    incoming flows, Flow_GWDec_Recusar and Flow_GWResol_Devolver)."""
+    result = register_payment_refusal(
+        {
+            "decisao_admissibilidade": "DEVOLVER",
+            "justificativa_recusa": "Duplicidade confirmada — devolver para revisao",
+            "aprovador_id": "analista-003",
+            "ordem_pagamento_id": "OP-002",
+        }
+    )
+    assert result["recusa_registrada"] is True
+    assert result["canal"] == "admissibilidade"
+
+
+def test_register_payment_refusal_refuses_neither_channel() -> None:
+    """Refuse-if-no-human (mirrors recurso.register_desistencia): neither decisao_pagamento==
+    RECUSAR nor decisao_admissibilidade==DEVOLVER present -- e.g. an omitted/empty decision, or
+    a forged direct dispatch of this topic."""
+    with pytest.raises(PagtoError) as excinfo:
+        register_payment_refusal(
+            {
+                "decisao_pagamento": "",
+                "decisao_admissibilidade": "",
+                "aprovador_id": "fin-001",
+                "justificativa_recusa": "x",
+            }
+        )
+    assert excinfo.value.code == ERR_PAYMENT_REFUSAL_NOT_HUMAN
+
+
+def test_register_payment_refusal_rejects_aprovar() -> None:
+    """decisao_pagamento=APROVAR must never register a refusal (wrong channel value)."""
+    with pytest.raises(PagtoError) as excinfo:
+        register_payment_refusal(
+            {
+                "decisao_pagamento": "APROVAR",
+                "aprovador_id": "fin-001",
+                "justificativa_recusa": "x",
+            }
+        )
+    assert excinfo.value.code == ERR_PAYMENT_REFUSAL_NOT_HUMAN
+
+
+def test_register_payment_refusal_alcada_missing_aprovador_id() -> None:
+    with pytest.raises(PagtoError) as excinfo:
+        register_payment_refusal(
+            {
+                "decisao_pagamento": "RECUSAR",
+                "aprovador_id": "",
+                "justificativa_recusa": "Lastro inconsistente",
+            }
+        )
+    assert excinfo.value.code == ERR_PAYMENT_REFUSAL_NOT_HUMAN
+    assert "aprovador_id" in excinfo.value.message
+
+
+def test_register_payment_refusal_alcada_missing_justificativa() -> None:
+    with pytest.raises(PagtoError) as excinfo:
+        register_payment_refusal(
+            {
+                "decisao_pagamento": "RECUSAR",
+                "aprovador_id": "fin-001",
+                "justificativa_recusa": "",
+            }
+        )
+    assert excinfo.value.code == ERR_PAYMENT_REFUSAL_NOT_HUMAN
+    assert "justificativa_recusa" in excinfo.value.message
+
+
+def test_register_payment_refusal_admissibilidade_missing_fields() -> None:
+    """DEVOLVER without aprovador_id/justificativa_recusa still refuses -- the gateway's own
+    conservative default routing here does NOT by itself satisfy the guard."""
+    with pytest.raises(PagtoError) as excinfo:
+        register_payment_refusal(
+            {
+                "decisao_admissibilidade": "DEVOLVER",
+                "aprovador_id": "",
+                "justificativa_recusa": "",
+            }
+        )
+    assert excinfo.value.code == ERR_PAYMENT_REFUSAL_NOT_HUMAN
+    assert "aprovador_id" in excinfo.value.message
+    assert "justificativa_recusa" in excinfo.value.message
+
+
+def test_register_payment_refusal_never_releases() -> None:
+    """NAO e glosa, NAO libera (BPMN task doc) -- result never contains a release marker."""
+    result = register_payment_refusal(
+        {
+            "decisao_pagamento": "RECUSAR",
+            "justificativa_recusa": "x",
+            "aprovador_id": "fin-001",
+        }
+    )
+    assert "pagamento_liberado" not in result
+    assert "glosa" not in str(result).lower()
+
+
+# ---------------------------------------------------------------
+# register_pagto_workers — registration + topic-registry drift guard
+# ---------------------------------------------------------------
+
+
+def test_register_pagto_workers_registers_new_topics() -> None:
+    """`notify_sla_risk`/`register_payment_refusal` are registered on their exact BPMN-declared
+    topics; `prepare_approval_dossier` (Andre A2A, gated) remains unregistered."""
+    harness = WorkerHarness(None, worker_id="unit-test-pagto")  # type: ignore[arg-type]
+    register_pagto_workers(harness, None, dmn=FakeDmnTransport())
+    topics = set(harness.registered_topics)
+    assert "operadora.pagto.notify_sla_risk" in topics
+    assert "operadora.pagto.register_payment_refusal" in topics
+    assert "operadora.pagto.prepare_approval_dossier" not in topics
 
 
 # ---------------------------------------------------------------
