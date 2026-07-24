@@ -235,6 +235,25 @@ _LGPD_MISSING_WORKER_STUB_REASON = (
     "out of scope for this port."
 )
 
+# T2.8 batch1 (#55 R-G): `make_notify_sla_risk_handler` now EXISTS in src/maezo/tools/workers/
+# lgpd.py — notify_sla_risk is no longer a missing-worker gap. `lgpd_probe` below still wires
+# `_gap_topic_stub` (not the real handler) for `operadora.lgpd.notify_sla_risk`, because flipping
+# these two xfails requires a LIVE CIB Seven engine run proving the P7D ack-phase (BT_AlertaDpo)
+# and P15D resolution-phase (ESP_SlaGlobal) discriminator end-to-end — batch1 is a mechanical,
+# engine-less pass (no docker/live engine in scope here). BUILT, PENDING LIVE-PROOF FLIP: swap the
+# probe's stub registration for the real handler and re-run against a live engine before removing
+# either xfail mark.
+_LGPD_NOTIFY_SLA_RISK_PENDING_LIVE_PROOF_REASON = (
+    "src/ handler now EXISTS (T2.8 batch1, #55 R-G `make_notify_sla_risk_handler` in "
+    "src/maezo/tools/workers/lgpd.py) — this is NO LONGER a missing-worker gap. `lgpd_probe` "
+    "still wires `_gap_topic_stub` for `operadora.lgpd.notify_sla_risk` (not the real handler) "
+    "because flipping this xfail requires a LIVE CIB Seven engine run to prove the P7D ack-phase "
+    "(BT_AlertaDpo) and P15D resolution-phase (ESP_SlaGlobal) sla_breach_phase discriminator "
+    "end-to-end (bpmn:217-232,325-337) — batch1 (T2.8 P2b) is a mechanical, engine-less pass "
+    "(constraint: no docker/live engine). BUILT, PENDING LIVE-PROOF FLIP: swap the probe's stub "
+    "for the real handler and re-run against a live engine before removing this xfail."
+)
+
 # Finding 3 (identity semantics) and finding 4 (GAP-LGPD-6 dangling boundary) were RESOLVED in T2.8
 # (fail-closed `identidade_verificada is True` + raise-on-empty-pseudo-id + #55 R-B worker); their
 # former `_LGPD_IDENTITY_SEMANTICS_DIVERGE_REASON` / `_LGPD_IDENTITY_UNVERIFIABLE_BOUNDARY_UNWIRED_
@@ -376,9 +395,11 @@ async def start_lgpd(engine: EngineRest, deploy_artifacts: str) -> Callable[...,
     """Inicia uma instancia com business key DSR-amh-{titular}-{tipo}-{data} e payload canonico.
 
     `detalhes_requisicao` e semeado com PHI CRU sintetico (CPF/nome) para provar que NENHUM
-    worker/evento o publica. `identidade_verificada` e semeado (fato clerical do donor) — mas
-    finding 3 documenta que v2's `ValidateIdentityWorker` NUNCA o le; a confirmacao de identidade
-    em v2 depende apenas de `titular_pseudo_id` estar presente.
+    worker/evento o publica. `identidade_verificada` e semeado (fato clerical do donor) — desde o
+    T2.8 fail-closed fix (#113), v2's `ValidateIdentityWorker` LE `identidade_verificada`
+    explicitamente: `identidade_confirmada` so e `True` com o sinal EXATO `identidade_verificada
+    is True`; a mera presenca de `titular_pseudo_id` NUNCA confirma identidade (former finding 3,
+    RESOLVED — see the module docstring note above).
     """
 
     async def _start(**overrides: Any) -> dict[str, Any]:
@@ -773,7 +794,7 @@ async def test_dmn_catchall_tipo_desconhecido_juridico(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_LGPD_MISSING_WORKER_STUB_REASON, strict=True)
+@pytest.mark.xfail(reason=_LGPD_NOTIFY_SLA_RISK_PENDING_LIVE_PROOF_REASON, strict=True)
 async def test_alerta_interno_nao_interruptivo(
     engine: EngineRest,
     lgpd_probe: LgpdEngineProbe,
@@ -795,7 +816,7 @@ async def test_alerta_interno_nao_interruptivo(
     lgpd_probe.assert_no_phi()
 
 
-@pytest.mark.xfail(reason=_LGPD_MISSING_WORKER_STUB_REASON, strict=True)
+@pytest.mark.xfail(reason=_LGPD_NOTIFY_SLA_RISK_PENDING_LIVE_PROOF_REASON, strict=True)
 async def test_sla_global_15_dias_event_subprocess(
     engine: EngineRest,
     lgpd_probe: LgpdEngineProbe,
