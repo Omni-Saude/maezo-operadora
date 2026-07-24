@@ -112,17 +112,22 @@ def test_class_module_bootstraps_register_workerbase_instances_not_function_work
     """auth/escalation/lgpd keep their WorkerBase subclasses — `register_worker` stores them in
     the harness's WorkerRegistry directly, never re-wrapped in FunctionWorker.
 
-    `operadora.lgpd.request_additional_proof` (#55 R-B, T2.8) is the ONE exception in these three
-    modules: a raw `harness.register()` handler (it needs the async Kafka seam a WorkerBase
-    `execute` boundary cannot reach — mirrors `events.publish`), so it populates `_handlers` but
-    NOT the WorkerRegistry. Excluded here.
+    `operadora.lgpd.request_additional_proof` (#55 R-B, T2.8), `operadora.lgpd.send_response`
+    (#55 R-F, T2.8), and `operadora.lgpd.notify_sla_risk` (#55 R-G, T2.8) are the THREE exceptions
+    in these three modules: raw `harness.register()` handlers (they need the async Kafka seam a
+    WorkerBase `execute` boundary cannot reach — mirrors `events.publish`), so they populate
+    `_handlers` but NOT the WorkerRegistry. Excluded here.
     """
     harness = _fresh_harness()
     register_auth_workers(harness)
     register_escalation_workers(harness)
     register_lgpd_workers(harness)
 
-    raw_handler_topics = {"operadora.lgpd.request_additional_proof"}
+    raw_handler_topics = {
+        "operadora.lgpd.request_additional_proof",
+        "operadora.lgpd.send_response",
+        "operadora.lgpd.notify_sla_risk",
+    }
     for topic in harness.registered_topics:
         if topic in raw_handler_topics:
             assert harness.registry.get(topic) is None  # raw handler: not in the WorkerRegistry
