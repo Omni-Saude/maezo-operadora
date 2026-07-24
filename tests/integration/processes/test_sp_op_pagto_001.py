@@ -778,7 +778,6 @@ async def test_lastro_nao_confirmado_nunca_auto_libera_clerical(
     await _assert_no_adverse_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_PAGTO_REGISTER_REFUSAL_BUILT_REASON, strict=True)
 async def test_admissibilidade_devolver_registra_recusa_humana(
     engine: EngineRest,
     pagto_probe: PagtoEngineProbe,
