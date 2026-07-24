@@ -197,6 +197,39 @@ regulatório/DPO/finanças territory, see the other packages.
      (PHI) only after the LGPD consent chokepoint passes.
   3. Confirm candidate groups `coordenacao-clinica` / `equipe-cuidado`.
 
+**T2.9 addendum (2026-07-24, `t2.9-sme-packages`) — `stratify_risk` criteria prescribed nowhere;
+`proactive_contact` clinical-appropriateness (joint with DPO):**
+
+  1. **`stratify_risk` — ratify the fail-safe default, and supply the actual criteria.**
+     `programa_routing.dmn` consumes `risco_estratificado` (values `{baixo, moderado, alto}`) but
+     the DMN's own `<description>` states plainly: "criterios de estratificacao/elegibilidade
+     requerem SME medico-auditor + taxonomia de programas" (`programa_routing.dmn:9-10`) — no
+     deterministic stratification rule exists anywhere in the repo. **Correction to this dispatch's
+     brief:** framing this as "the built worker echoes a valid pre-resolved band or fail-closes to
+     alto" describes intent, not fact — `operadora.programa.stratify_risk` (`ST_StratifyRisk`,
+     delegating "care.stratify a Valentina ... INSTRUI, NAO decide," `bpmn:152-154`) has **no
+     implementing worker at all** today; `programa.py`'s own bootstrap comment lists it among
+     "Spec topics with NO implementing function today (gap, not fabricated here)"
+     (`programa.py:222-223`). What IS built is the DMN's fail-safe posture for *whatever* band
+     eventually arrives: rule `r_risco_alto` routes `alto` unconditionally to `ANALISE_HUMANA`, and
+     the catch-all `r_catchall` routes any unmapped/indeterminate value the same way
+     (`programa_routing.dmn`). Two asks: (a) ratify that this fail-safe-to-human posture is the
+     correct default once Valentina's `care.stratify` delegation is wired and echoes (or fails to
+     resolve) a band; (b) supply the actual clinical stratification criteria — what inputs and
+     thresholds should that delegation compute into `{baixo, moderado, alto}` in the first place
+     (today entirely unspecified — the taxonomy of programs itself, crônicos/pré-natal/oncologia/
+     APS, is the same open question as Q1 above).
+  2. **`proactive_contact` — PHI-bearing outbound contact, clinical-appropriateness half (DPO
+     co-owns the channel/consent half).** `operadora.programa.proactive_contact` is documented as
+     contact "so com `consent_checked==true`; re-busca PHI in-zone — precedente Helena/WhatsApp, D9"
+     (`docs/processes/contracts/SP-OP-PROGRAMA-001.md:125`) but, like `stratify_risk`, has no
+     implementing worker yet (`programa.py:222-223`, same gap list). From a clinical standpoint:
+     which risk bands / program types warrant proactive outbound contact, and does the
+     WhatsApp/Helena channel precedent (D9) carry any clinical-appropriateness constraint (e.g.
+     should an urgent/high-risk finding ever be delivered by an unmonitored async channel, or
+     should it always escalate to a synchronous/human channel instead)? See
+     `../dpo/PACKAGE.md` SP-OP-PROGRAMA-001 addendum for the paired consent/channel question.
+
 ### SP-OP-RECURSO-001 — Recurso de Glosa (DRAFT, v0.1.0)
 
 - **Why médico-auditor:** `UT_RevisaoAuditorMedico` decides the merit of técnica/clínica glosa
