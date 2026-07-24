@@ -110,13 +110,23 @@ def test_register_all_workers_accepts_and_forwards_seams() -> None:
 
 def test_class_module_bootstraps_register_workerbase_instances_not_function_workers() -> None:
     """auth/escalation/lgpd keep their WorkerBase subclasses — `register_worker` stores them in
-    the harness's WorkerRegistry directly, never re-wrapped in FunctionWorker."""
+    the harness's WorkerRegistry directly, never re-wrapped in FunctionWorker.
+
+    `operadora.lgpd.request_additional_proof` (#55 R-B, T2.8) is the ONE exception in these three
+    modules: a raw `harness.register()` handler (it needs the async Kafka seam a WorkerBase
+    `execute` boundary cannot reach — mirrors `events.publish`), so it populates `_handlers` but
+    NOT the WorkerRegistry. Excluded here.
+    """
     harness = _fresh_harness()
     register_auth_workers(harness)
     register_escalation_workers(harness)
     register_lgpd_workers(harness)
 
+    raw_handler_topics = {"operadora.lgpd.request_additional_proof"}
     for topic in harness.registered_topics:
+        if topic in raw_handler_topics:
+            assert harness.registry.get(topic) is None  # raw handler: not in the WorkerRegistry
+            continue
         worker = harness.registry.get(topic)
         assert worker is not None
         assert not isinstance(worker, FunctionWorker), f"{topic} unexpectedly wrapped in FunctionWorker"

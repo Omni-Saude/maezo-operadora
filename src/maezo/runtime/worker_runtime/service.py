@@ -54,6 +54,7 @@ from maezo.tools.workers.harness import (
     TopicSubscription,
     WorkerHarness,
 )
+from maezo.tools.workers.lgpd import LGPD_BPMN_ERROR_ALLOWLIST
 
 from .settings import WorkerRuntimeSettings
 
@@ -85,8 +86,9 @@ logger = structlog.get_logger(__name__)
 # business-outcome codes (every `*_NOT_HUMAN` guard + the denial-block `ERR_AUTH_DENIAL_INCOMPLETE`)
 # are consumption-covered too, but activating one pre-T-E would trade a guaranteed-human-visible
 # incident for a silent clean end at a neutral terminal, so they stay incident-fail-closed until
-# T-E (audited-refusal) lands. At Tier-0 this resolves to exactly `{ERR_EVENT_PUBLISH_FAILED}` —
-# the single non-adverse technical fail-safe.
+# T-E (audited-refusal) lands. At Tier-0 this resolves to `{ERR_EVENT_PUBLISH_FAILED,
+# ERR_DSR_IDENTITY_UNVERIFIED}` — the non-adverse technical fail-safes (a publish failure routed to
+# retry/fallback; a mechanically-unverifiable LGPD titular routed to a neutral terminal).
 
 
 def _is_te_gated(code: str) -> bool:
@@ -103,13 +105,18 @@ def _is_te_gated(code: str) -> bool:
 #: constant. `AUTH_BPMN_ERROR_ALLOWLIST` is unioned in DELIBERATELY so the T-E filter below has
 #: something to act on: `ERR_AUTH_DENIAL_INCOMPLETE` is proven yet filtered OUT — if a future edit
 #: dropped the T-E gate, the denial-block code would leak into production and the unit test
-#: (`tests/unit/runtime/test_worker_runtime_bpmn_error_allowlist.py`) fails. `ERR_CANCEL_MANTER_
-#: NOT_HUMAN` is gate-proven too but its worker exposes no constant (nothing is enabled for it at
-#: any tier until T-E), so there is nothing to import.
-_GATE_PROVEN_BPMN_ERROR_CODES: frozenset[str] = AUTH_BPMN_ERROR_ALLOWLIST | EVENTS_BPMN_ERROR_ALLOWLIST
+#: (`tests/unit/runtime/test_worker_runtime_bpmn_error_allowlist.py`) fails. `LGPD_BPMN_ERROR_
+#: ALLOWLIST` contributes `ERR_DSR_IDENTITY_UNVERIFIED` (T2.8) — a NON-adverse technical fail-safe
+#: (mechanically-unverifiable titular -> End_IdentidadeInverificavel, a neutral terminal), so it is
+#: NOT T-E-gated and DOES land in Tier-0. `ERR_CANCEL_MANTER_NOT_HUMAN` is gate-proven too but its
+#: worker exposes no constant (nothing is enabled for it at any tier until T-E), so there is
+#: nothing to import.
+_GATE_PROVEN_BPMN_ERROR_CODES: frozenset[str] = (
+    AUTH_BPMN_ERROR_ALLOWLIST | EVENTS_BPMN_ERROR_ALLOWLIST | LGPD_BPMN_ERROR_ALLOWLIST
+)
 
 #: The Tier-0 production allowlist wired into the harness: gate-proven codes MINUS the T-E-gated
-#: business-outcome codes. Resolves to `{ERR_EVENT_PUBLISH_FAILED}` today.
+#: business-outcome codes. Resolves to `{ERR_EVENT_PUBLISH_FAILED, ERR_DSR_IDENTITY_UNVERIFIED}` today.
 PRODUCTION_BPMN_ERROR_ALLOWLIST: frozenset[str] = frozenset(
     code for code in _GATE_PROVEN_BPMN_ERROR_CODES if not _is_te_gated(code)
 )
