@@ -32,14 +32,22 @@ logger = structlog.get_logger(__name__)
 class DesistenciaNotHumanError(PermissionError):
     """Raised when register_desistencia is called without human authorization.
 
-    Guard ERR_DESISTENCIA_NOT_HUMAN — the worker MUST refuse to register
-    a desistencia (maintain glosa) unless decisao_recurso == NAO_RECORRER
-    was set by a human with all required fields.
+    Guard ERR_DESISTENCIA_NOT_HUMAN — the worker MUST refuse to register a desistencia
+    (maintain glosa) unless ONE of two human channels was satisfied with all its required
+    fields:
+    - analista channel (ST_RegisterDesistencia): decisao_recurso == NAO_RECORRER + analista_id
+    - auditor channel (ST_RegisterGlosaMantida, auditor merito ACEITAR_GLOSA):
+      decisao_auditor_recurso == ACEITAR_GLOSA + auditor_id
+    Both channels ALSO require justificativa_desistencia, valor_glosa_aceito, and
+    referencia_contratual.
     """
 
-    def __init__(self, missing_fields: list[str] | None = None) -> None:
+    def __init__(self, missing_fields: list[str] | None = None, channel: str = "") -> None:
         self.missing_fields = missing_fields or []
+        self.channel = channel
         msg = "ERR_DESISTENCIA_NOT_HUMAN: desistencia requires human decision"
+        if self.channel:
+            msg += f" (canal tentado: {self.channel})"
         if self.missing_fields:
             msg += f"; missing: {', '.join(self.missing_fields)}"
         super().__init__(msg)
@@ -105,13 +113,22 @@ class RecursoAdmissibilityResult:
 
 @dataclass
 class RecursoDesistenciaInput:
-    """Input for register_desistencia — the gated adverse effect."""
+    """Input for register_desistencia — the gated adverse effect.
+
+    Two human channels route to the SAME `operadora.recurso.register_desistencia` topic
+    (BPMN `ST_RegisterDesistencia` / `ST_RegisterGlosaMantida`): the analista's
+    `decisao_recurso == NAO_RECORRER` + `analista_id`, or the auditor's merito
+    `decisao_auditor_recurso == ACEITAR_GLOSA` + `auditor_id` (`GW_MeritoAuditor` ->
+    `Flow_GWMerito_AceitarGlosa` -> `End_GlosaMantida`).
+    """
 
     decisao_recurso: str = ""
     justificativa_desistencia: str = ""
     valor_glosa_aceito: float = 0.0
     referencia_contratual: str = ""
     analista_id: str = ""
+    decisao_auditor_recurso: str = ""
+    auditor_id: str = ""
 
 
 @dataclass
@@ -377,21 +394,41 @@ def _parse_valor_glosa_aceito(value: Any) -> float | None:
 def register_desistencia(input_data: RecursoDesistenciaInput) -> RecursoDesistenciaResult:
     """Register desistencia (maintain glosa) — GUARDED adverse effect.
 
-    ERR_DESISTENCIA_NOT_HUMAN: MUST refuse if:
-    - decisao_recurso != NAO_RECORRER
-    - Missing justificativa_desistencia, valor_glosa_aceito,
-      referencia_contratual, or analista_id
+    ERR_DESISTENCIA_NOT_HUMAN: MUST refuse unless ONE of two human channels is attempted —
+    - analista channel: decisao_recurso == NAO_RECORRER (requires analista_id)
+    - auditor channel: decisao_auditor_recurso == ACEITAR_GLOSA (requires auditor_id)
+    Both channels ALSO require justificativa_desistencia, valor_glosa_aceito (> 0), and
+    referencia_contratual. Refuses with `DesistenciaNotHumanError` ONLY if NEITHER channel's
+    decision field matches; otherwise validates the attempted channel's own required fields
+    (channel-aware missing-fields message).
     """
     logger.info(
         "recurso.register_desistencia.start",
         decisao_recurso=input_data.decisao_recurso,
+        decisao_auditor_recurso=input_data.decisao_auditor_recurso,
         analista_id=input_data.analista_id,
+        auditor_id=input_data.auditor_id,
     )
 
+    is_analista = input_data.decisao_recurso == "NAO_RECORRER"
+    is_auditor = input_data.decisao_auditor_recurso == "ACEITAR_GLOSA"
+
+    if not is_analista and not is_auditor:
+        raise DesistenciaNotHumanError(
+            missing_fields=[
+                "decisao_recurso != NAO_RECORRER (canal analista)",
+                "decisao_auditor_recurso != ACEITAR_GLOSA (canal auditor)",
+            ],
+            channel="nenhum",
+        )
+
+    channel = "analista" if is_analista else "auditor"
     missing: list[str] = []
 
-    if input_data.decisao_recurso != "NAO_RECORRER":
-        missing.append("decisao_recurso != NAO_RECORRER")
+    if is_analista and not input_data.analista_id.strip():
+        missing.append("analista_id")
+    if is_auditor and not input_data.auditor_id.strip():
+        missing.append("auditor_id")
     if not input_data.justificativa_desistencia.strip():
         missing.append("justificativa_desistencia")
     # valor_glosa_aceito arrives from Camunda as a String ("150.00"); parse fail-closed
@@ -401,11 +438,9 @@ def register_desistencia(input_data: RecursoDesistenciaInput) -> RecursoDesisten
         missing.append("valor_glosa_aceito")
     if not input_data.referencia_contratual.strip():
         missing.append("referencia_contratual")
-    if not input_data.analista_id.strip():
-        missing.append("analista_id")
 
     if missing:
-        raise DesistenciaNotHumanError(missing_fields=missing)
+        raise DesistenciaNotHumanError(missing_fields=missing, channel=channel)
 
     import hashlib
     import time
@@ -415,7 +450,9 @@ def register_desistencia(input_data: RecursoDesistenciaInput) -> RecursoDesisten
     logger.info(
         "recurso.register_desistencia.complete",
         protocolo=protocolo,
+        channel=channel,
         analista_id=input_data.analista_id,
+        auditor_id=input_data.auditor_id,
     )
     return RecursoDesistenciaResult(registered=True, protocolo=protocolo)
 
@@ -546,9 +583,10 @@ def register_desistencia_entry(
     """Dict-boundary entry for `operadora.recurso.register_desistencia` -> `register_desistencia`
     (GUARDED).
 
-    Raises `DesistenciaNotHumanError` (fail-closed, ERR_DESISTENCIA_NOT_HUMAN) when
-    `decisao_recurso != NAO_RECORRER` or required fields are missing — unchanged guard, only the
-    dict<->dataclass marshalling is new.
+    Raises `DesistenciaNotHumanError` (fail-closed, ERR_DESISTENCIA_NOT_HUMAN) unless the
+    analista channel (`decisao_recurso == NAO_RECORRER` + `analista_id`) or the auditor channel
+    (`decisao_auditor_recurso == ACEITAR_GLOSA` + `auditor_id`) is satisfied with its required
+    fields — only the dict<->dataclass marshalling is a boundary concern here.
     """
     del kafka  # unused — register_desistencia emits no domain event itself
     input_data = RecursoDesistenciaInput(**pick_fields(variables, RecursoDesistenciaInput))
