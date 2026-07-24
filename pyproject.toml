@@ -24,6 +24,7 @@ dependencies = [
     "pyyaml>=6.0,<7.0",            # parsing de artefatos (policies, agent.yaml, topic_registry, PEP)
     "pydantic>=2.7,<3.0",
     "pydantic-settings>=2.3,<3.0",
+    "lxml>=5.0,<7.0",               # T2.6-2: real XSD validation (tools/workers/tiss_schema.py)
     "sqlalchemy>=2.0,<3.0",
     "greenlet>=3.5.3",              # required by sqlalchemy's async engine (platform/migrations/env.py);
                                      # without it `alembic upgrade head` fails immediately for every
@@ -59,6 +60,7 @@ dev = [
     "mypy>=1.10,<3.0",
     "types-PyYAML>=6.0,<7.0",     # stubs p/ mypy --strict (pyyaml nao tem tipos inline)
     "testcontainers>=4.0,<5.0",
+    "lxml-stubs>=0.5,<1.0",
 ]
 
 [project.scripts]
