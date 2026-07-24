@@ -70,51 +70,60 @@ FINDINGS (see PR body / evidence-ledger for full detail):
      composition) — every `ST_Publish*` service task in this BPMN (nip.received/classified/
      deadline_risk/breached/completed) flows and is asserted green below.
 
-  2. REGISTRY DRIFT (mirrors cancel's finding 2+2b style — 2 sub-findings, both genuine, NEITHER
-     fixed here — `src/**` fix out of scope for this port):
+  2. REGISTRY DRIFT — RECONCILED in src (t2.5-p2b-nip-mechanical): 2 sub-findings, both fixed
+     (mirrors #93/e4e3ed1's inadimplencia reconciliation style — that PR is this fix's template):
 
-     2a. `register_nip_workers` (nip.py) registers 8 `operadora.nip.*` topics
-         (classify_nip/route_nip/instruct_dossier/review_juridico/submit_response/
-         notify_beneficiario/handoff_ans_submit/publish_completed), but the BPMN
-         (SP-OP-NIP-001_Resposta_NIP.bpmn) only declares `camunda:topic` service tasks for 4 of
-         them (instruct_dossier, submit_response, handoff_ans_submit; publish_completed folds into
-         the generic events.publish). `classify_nip`/`route_nip`/`review_juridico`/
-         `notify_beneficiario` are ORPHAN registrations with no BPMN consumer — harmless (the
-         engine never dispatches a task to them) but dead code from the engine's perspective;
-         nip.py's own module docstring (lines ~410-425) already documents this precisely.
+     2a. RESOLVED. `register_nip_workers` (nip.py) used to register 8 `operadora.nip.*` topics
+         but the BPMN only declared `camunda:topic` service tasks for 4 of them
+         (instruct_dossier/submit_response/handoff_ans_submit/notify_deadline_risk;
+         publish_completed folds into the generic events.publish). `classify_nip`/`route_nip`
+         (superseded by the NATIVE DMN businessRuleTasks BRT_Classificacao/BRT_Roteamento —
+         `camunda:decisionRef="nip_classification"`/`"nip_routing"`,
+         SP-OP-NIP-001_Resposta_NIP.bpmn:136,167 — the engine evaluates the deployed `.dmn`
+         directly, no `camunda:topic` was ever declared for these) and `review_juridico`/
+         `notify_beneficiario` (NO BPMN consumer at all — zero hits anywhere in spec/) were
+         DELETED (functions + entry functions + registrations + unit tests; `classify_nip`'s
+         `_resolve_*_group` helpers went with it). `register_nip_workers` now registers EXACTLY
+         5 `operadora.nip.*` topics (nip.py:415-438) — verified via the unit-test drift guard
+         `test_register_nip_workers_matches_bpmn_topics_exactly`
+         (tests/unit/tools/workers/test_nip.py).
 
-     2b. THE INVERSE, MORE SEVERE drift: the BPMN declares THREE service tasks on
-         `operadora.nip.notify_deadline_risk` (`ST_NotificarRiscoPrazo`
-         :272-273, `ST_NotificarRiscoRevisao` :358-359, `ST_SolicitarInfoNip` :518-519 — the
-         SOLICITAR_INFO branch reuses this same topic per its own BPMN comment "reusa o canal de
-         notificacao regulatoria") — but `register_nip_workers` registers NO handler for it at
-         all. nip.py's own module docstring (lines 424-425) already flags this: "Spec topic with
-         NO implementing function today (gap, not fabricated here): notify_deadline_risk." See
-         `_NOTIFY_DEADLINE_RISK_UNREGISTERED_REASON` below — this is NOT the generic
-         kafka-publish gap (finding 3): no worker exists for this topic at ALL, so the external
-         task is never even fetched/completed, not merely "completed without a Kafka side-effect."
-         `_NIP_WORKER_TOPICS` below is built from `register_nip_workers`'s ACTUAL registrations
-         (deliberately EXCLUDING `notify_deadline_risk`, confirmed absent) — a drift-guard
-         assertion in `nip_probe` (mirrors cancel's pattern) fails loudly if a future
-         `register_nip_workers` change silently adds/removes an `operadora.nip.*` registration
-         without this file's topic list being updated to match.
+     2b. RESOLVED (built, pending live-proof — see `_NOTIFY_DEADLINE_RISK_UNREGISTERED_REASON`
+         below). The BPMN declares THREE service tasks on `operadora.nip.notify_deadline_risk`
+         (`ST_NotificarRiscoPrazo` :272-273, `ST_NotificarRiscoRevisao` :358-359,
+         `ST_SolicitarInfoNip` :518-519 — the SOLICITAR_INFO branch reuses this same topic per
+         its own BPMN comment "reusa o canal de notificacao regulatoria") — `register_nip_workers`
+         now registers `notify_deadline_risk`/`notify_deadline_risk_entry` (nip.py) for it,
+         mirroring `cancel.notify_sla_risk`/`contas.notify_sla_risk`/
+         `inadimplencia.notify_sla_risk`/`auth.NotifySlaRiskWorker`'s notify-only, non-adverse,
+         fail-safe pattern. `_NIP_WORKER_TOPICS` below now INCLUDES `notify_deadline_risk` — a
+         drift-guard assertion in `nip_probe` (mirrors cancel's pattern) still fails loudly if a
+         future `register_nip_workers` change silently adds/removes an `operadora.nip.*`
+         registration without this file's topic list being updated to match. UNVERIFIED against a
+         live engine in this worktree (HARD CONSTRAINT: no docker/live engine) — the 3 xfails this
+         previously blocked (`_NOTIFY_DEADLINE_RISK_UNREGISTERED_REASON`) remain xfail(strict=True)
+         pending a live-engine run; see that reason string for the precise residual risk.
 
   3. Kafka-publish gap (systemic, SAME class as auth/cancel/escalation residuals — ledger row
-     "T3.1 (events.publish fix)"): every ADR-0026 dict-boundary entry function nip.py registers
-     under an `operadora.nip.*` topic — `classify_nip_entry`, `route_nip_entry`,
-     `instruct_dossier_entry`, `review_juridico_entry`, `submit_response_entry`,
-     `notify_beneficiario_entry`, `handoff_ans_submit_entry` (nip.py:429-506, every one has
-     `del kafka  # unused`) — never calls `kafka.publish`; `register_nip_workers`'s own docstring
-     (nip.py:527-528) says so explicitly ("no entry function calls kafka.publish today"). The
-     donor's equivalent handlers published a per-worker notification
-     (`operadora.notifications.internal`) from INSIDE the handler; v2's entry functions only
-     RETURN output variables loaded back onto the process instance by the harness's `complete`
-     call. `nip_probe.notifications_of_type(...)` over any of these topics can therefore never
-     observe an execution, even though the worker itself runs/completes correctly against the
-     live engine (this suite's flow-level assertions for the same tests generally DO pass — see
-     `_NIP_WORKER_KAFKA_GAP_REASON` below for the exact 3 tests this blocks). Distinguish this from
-     `agents.events.nip.*` topics (published via the GENERIC, WORKING `operadora.events.publish`
-     handler, `events.py`) — those DO work and are asserted un-xfailed throughout this suite.
+     "T3.1 (events.publish fix)") — STILL OPEN, unchanged by t2.5-p2b-nip-mechanical: every
+     ADR-0026 dict-boundary entry function nip.py registers under an `operadora.nip.*` topic —
+     `instruct_dossier_entry`, `submit_response_entry`, `notify_deadline_risk_entry` (new, BUILT
+     the SAME way — `del kafka  # unused`, deliberately matching this convention rather than
+     fixing the systemic gap, which is out of scope here), `handoff_ans_submit_entry` — never
+     calls `kafka.publish`; `register_nip_workers`'s own docstring says so explicitly. The donor's
+     equivalent handlers published a per-worker notification (`operadora.notifications.internal`)
+     from INSIDE the handler; v2's entry functions only RETURN output variables loaded back onto
+     the process instance by the harness's `complete` call. `nip_probe.notifications_of_type(...)`
+     over any of these topics can therefore never observe an execution, even though the worker
+     itself runs/completes correctly against the live engine (this suite's flow-level assertions
+     for the same tests generally DO pass — see `_NIP_WORKER_KAFKA_GAP_REASON` below for the exact
+     tests this blocks). Distinguish this from `agents.events.nip.*` topics (published via the
+     GENERIC, WORKING `operadora.events.publish` handler, `events.py`) — those DO work and are
+     asserted un-xfailed throughout this suite. NOTE: `test_prazo_nip_dispara_alerta_nao_
+     interruptivo` (finding 2b) additionally asserts `has_event(_NIP_DEADLINE_RISK)` — a REAL
+     `agents.events.nip.deadline_risk` Kafka publish — which `notify_deadline_risk_entry` does
+     NOT perform (same systemic gap); that assertion would still fail even once 2b's "handler
+     unregistered" root cause is live-proven fixed, UNLESS this finding is separately addressed.
 
   4. `ERR_NIP_PROTOCOLO_INVALIDO` never reaches its BPMN boundary catch (nip-specific, NOT the
      generic kafka-publish gap): nip.py's `NipProtocoloInvalidoError` (nip.py:47-54) is a
@@ -190,30 +199,30 @@ _DMN_SLA = _REPO / "spec/processes/dmn/nip_sla.dmn"
 # External task topics do contrato SP-OP-NIP-001 REALMENTE registrados por `register_nip_workers`
 # (nip.py) — construida a partir do registro real, NAO copiada do donor (finding 2 acima).
 _PUBLISH_TOPIC = "operadora.events.publish"
-_CLASSIFY_TOPIC = "operadora.nip.classify_nip"
-_ROUTE_TOPIC = "operadora.nip.route_nip"
 _INSTRUCT_TOPIC = "operadora.nip.instruct_dossier"
-_REVIEW_TOPIC = "operadora.nip.review_juridico"
 _SUBMIT_TOPIC = "operadora.nip.submit_response"
-_NOTIFY_BENEFICIARIO_TOPIC = "operadora.nip.notify_beneficiario"
 _HANDOFF_TOPIC = "operadora.nip.handoff_ans_submit"
 _PUBLISH_COMPLETED_TOPIC = "operadora.nip.publish_completed"
 
-# BPMN-declared topic (ST_NotificarRiscoPrazo/ST_NotificarRiscoRevisao/ST_SolicitarInfoNip) com
-# NENHUM worker registrado (finding 2b) — deliberadamente EXCLUIDO do drain: incluir aqui faria o
-# harness reportar "no handler registered for topic" como um incidente IMEDIATO (harness.py
-# `_handle`) em vez de deixar a task simplesmente pendente/nao-drenada.
-_NOTIFY_DEADLINE_RISK_TOPIC = "operadora.nip.notify_deadline_risk"
+# Registered by register_nip_workers SINCE t2.5-p2b-nip-mechanical (mirrors inadimplencia's own
+# #93/e4e3ed1 reconciliation, cited in that suite's module docstring finding 1 — the sync-comment
+# style below is the SAME convention): finding 2b's missing worker
+# (notify_deadline_risk/notify_deadline_risk_entry, nip.py) was implemented — the drift-guard
+# below would have caught a stale drain list on the first real-engine run, as designed. Serves
+# ST_NotificarRiscoPrazo/ST_NotificarRiscoRevisao/ST_SolicitarInfoNip (all three reuse this one
+# topic). NOT yet live-proven in THIS worktree (no docker/live engine here) — see
+# `_NOTIFY_DEADLINE_RISK_UNREGISTERED_REASON` below for the precise residual risk.
+_NOTIFY_DEADLINE_RISK_TOPIC = "operadora.nip.notify_deadline_risk"  # t2.5-p2b-nip-mechanical sync
 
-# Topicos servidos pelos workers REAIS registrados no harness (drain generico).
+# Topicos servidos pelos workers REAIS registrados no harness (drain generico). classify_nip/
+# route_nip (superseded by native DMN businessRuleTasks) and review_juridico/notify_beneficiario
+# (no BPMN consumer) were DELETED from nip.py (t2.5-p2b-nip-mechanical) — removed from this list
+# to match; NOT copied from the donor (finding 2 acima).
 _NIP_WORKER_TOPICS = [
     _PUBLISH_TOPIC,
-    _CLASSIFY_TOPIC,
-    _ROUTE_TOPIC,
     _INSTRUCT_TOPIC,
-    _REVIEW_TOPIC,
     _SUBMIT_TOPIC,
-    _NOTIFY_BENEFICIARIO_TOPIC,
+    _NOTIFY_DEADLINE_RISK_TOPIC,
     _HANDOFF_TOPIC,
     _PUBLISH_COMPLETED_TOPIC,
 ]
@@ -251,16 +260,18 @@ _UT_HUMANAS_MANTER = frozenset({_UT_REVISAO, _UT_COORDENACAO})
 _NIP_WORKER_KAFKA_GAP_REASON = (
     "v2 systemic drift (T3.1 finding 3 — same class as auth/cancel/escalation residuals, ledger "
     "row 'T3.1 (events.publish fix)'): nip.py's ADR-0026 dict-boundary entry functions "
-    "(classify_nip_entry/route_nip_entry/instruct_dossier_entry/review_juridico_entry/"
-    "submit_response_entry/notify_beneficiario_entry/handoff_ans_submit_entry, nip.py:429-506, "
-    "every one has `del kafka  # unused`) never call kafka.publish — register_nip_workers's own "
-    "docstring (nip.py:527-528) says so explicitly. The donor's equivalent handlers published a "
+    "(instruct_dossier_entry/submit_response_entry/notify_deadline_risk_entry/"
+    "handoff_ans_submit_entry — t2.5-p2b-nip-mechanical DELETED classify_nip_entry/route_nip_"
+    "entry/review_juridico_entry/notify_beneficiario_entry as orphan registrations, and BUILT "
+    "notify_deadline_risk_entry the SAME way, `del kafka  # unused`, deliberately matching this "
+    "convention rather than fixing it) never call kafka.publish — register_nip_workers's own "
+    "docstring says so explicitly. The donor's equivalent handlers published a "
     "per-worker notification from INSIDE the handler; v2's entry functions only RETURN output "
     "variables. nip_probe.notifications_of_type(...) over an operadora.nip.* topic can therefore "
     "never observe an execution, even though the worker itself runs/completes correctly against "
     "the live engine and this test's OTHER (flow-level, agents.events.nip.* via the generic "
     "operadora.events.publish worker) assertions would pass. Fix belongs to the Kafka-producer "
-    "wiring task, not this port."
+    "wiring task, not this port (STILL true after t2.5-p2b-nip-mechanical)."
 )
 
 _PROTOCOLO_INVALIDO_NOT_BPMN_ERROR_REASON = (
@@ -280,21 +291,30 @@ _PROTOCOLO_INVALIDO_NOT_BPMN_ERROR_REASON = (
 )
 
 _NOTIFY_DEADLINE_RISK_UNREGISTERED_REASON = (
-    "nip-specific gap (module docstring finding 2b — registry drift, NOT the generic "
-    "kafka-publish gap): register_nip_workers (nip.py) registers NO handler at all for "
-    "operadora.nip.notify_deadline_risk — nip.py's own module docstring (nip.py:424-425) "
-    "documents this: 'Spec topic with NO implementing function today (gap, not fabricated "
-    "here): notify_deadline_risk.' Three distinct BPMN service tasks route through this topic "
-    "(SP-OP-NIP-001_Resposta_NIP.bpmn: ST_NotificarRiscoPrazo:272-273, "
+    "nip-specific gap (module docstring finding 2b) — BUILT, PENDING LIVE-PROOF FLIP "
+    "(t2.5-p2b-nip-mechanical): register_nip_workers (nip.py) now registers "
+    "notify_deadline_risk/notify_deadline_risk_entry for operadora.nip.notify_deadline_risk "
+    "(mirrors cancel.notify_sla_risk/contas.notify_sla_risk/inadimplencia.notify_sla_risk/"
+    "auth.NotifySlaRiskWorker's notify-only, non-adverse, fail-safe pattern) — the prior root "
+    "cause ('registers NO handler at all') no longer holds. Three distinct BPMN service tasks "
+    "route through this topic (SP-OP-NIP-001_Resposta_NIP.bpmn: ST_NotificarRiscoPrazo:272-273, "
     "ST_NotificarRiscoRevisao:358-359, and ST_SolicitarInfoNip:518-519, which reuses the same "
-    "topic for the SOLICITAR_INFO branch). None of these external tasks can ever be fetched/"
-    "completed (harness.registered_topics has no entry for it, so _NIP_WORKER_TOPICS/"
-    "nip_probe.drain() correctly excludes it rather than mis-drain it into a spurious incident). "
-    "The two alert-boundary branches are non-interruptive side-tokens (harmless to the main UT), "
-    "but ST_SolicitarInfoNip sits on the MAIN token — the SOLICITAR_INFO branch deadlocks "
-    "permanently at that service task and never reaches GW_AguardarInfo/ICE_InfoRecebida, so "
-    "msg.nip.info_recebida correlation has nothing to correlate against. src/** fix (implementing "
-    "notify_deadline_risk/notify_deadline_risk_entry in nip.py) is out of scope for this port."
+    "topic for the SOLICITAR_INFO branch) — all three are now fetchable/completable, and the "
+    "ST_SolicitarInfoNip MAIN-token deadlock this finding also flagged (the SOLICITAR_INFO branch "
+    "never reaching GW_AguardarInfo/ICE_InfoRecebida because the external task was never even "
+    "drained) is structurally resolved as a byproduct. STILL XFAIL (strict, unflipped) because "
+    "this worktree has no live-engine access to prove it end-to-end (HARD CONSTRAINT: no docker/"
+    "live engine) — the worker + registration + unit coverage (test_notify_deadline_risk_* / "
+    "test_register_nip_workers_matches_bpmn_topics_exactly, tests/unit/tools/workers/test_nip.py) "
+    "is mechanical/unit-verified only, never run against CIB Seven. Two INDEPENDENT residual "
+    "risks even on a live run: (1) test_prazo_nip_dispara_alerta_nao_interruptivo additionally "
+    "asserts nip_probe.has_event(_NIP_DEADLINE_RISK) — a REAL agents.events.nip.deadline_risk "
+    "Kafka publish — which notify_deadline_risk_entry deliberately does NOT perform (`del kafka "
+    "# unused`, matching every other nip.py entry function; see _NIP_WORKER_KAFKA_GAP_REASON, "
+    "finding 3, STILL open); (2) untested FEEL/engine wiring specifics (candidateGroups, timer "
+    "boundary semantics) that only a live CIB Seven run can confirm. FLIP CANDIDATE: re-run this "
+    "suite against a live engine; if green, remove this xfail from the affected test (and, "
+    "separately, close finding 3 if has_event(_NIP_DEADLINE_RISK) is still required to pass)."
 )
 
 _ANCHOR_FAILSAFE_MISSING_REASON = (
