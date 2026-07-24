@@ -1,6 +1,6 @@
 # ADR-0032: ADR-0015's "runtime completo" claim describes the v1 donor's PR #17, not v2 — amends ADR-0015 [T3.4]
 
-**Status:** Proposed (pending orchestrator/gatekeeper ratification) · **Data:** 2026-07-24 · **Area:** Comunicacao / A2A
+**Status:** Accepted (ratificado pelo orquestrador 2026-07-24, autoridade autônoma vigente; DL-0032) · **Data:** 2026-07-24 · **Area:** Comunicacao / A2A
 
 Owner: docs-agent (R2). Scope: status-correction only — no `src/`/`tests/`/`spec/`/evidence-ledger
 change. Does not edit ADR-0015's original text (history is history); this is a new, separate ADR
