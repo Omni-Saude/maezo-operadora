@@ -235,6 +235,20 @@ _LGPD_MISSING_WORKER_STUB_REASON = (
     "out of scope for this port."
 )
 
+# T2.8 batch1 (#55 R-G): `make_notify_sla_risk_handler` EXISTS in src/maezo/tools/workers/lgpd.py.
+# LIVE-PROVEN (T2.8 P2b live-validation, isolated CIB Seven stack): `lgpd_probe` now wires the REAL
+# `operadora.lgpd.notify_sla_risk` (#55 R-G) handler (its gap stub dropped) — the two SLA-timer
+# xfails below are FLIPPED. Each flipped test forces its timer job (BT_AlertaDpo P7D ack-phase /
+# Start_SlaGlobal P15D resolution-phase) via `execute_job` and now asserts the `sla_breach_phase`
+# discriminator (ack vs resolution) on the captured notification — proving the right-reason path
+# (the notify task completed with the correct phase), not a timer-never-fired false pass.
+# NOTE: `operadora.lgpd.send_response` (#55 R-F) is ALSO built + live-verified (observed
+# `lgpd_send_response_sent decisao=APROVAR_ENVIO` on the live engine), but its probe wiring stays
+# the gap stub so the three DPO-gated happy-path xfails below remain xfailed pending DPO sign-off
+# on the full DSR merit flow (governance gate) — un-shadowing R-F would XPASS
+# `test_happy_path_acesso_dados_saude_aprovado` for the right reason (a latent additional flip
+# candidate, deliberately deferred here).
+
 # Finding 3 (identity semantics) and finding 4 (GAP-LGPD-6 dangling boundary) were RESOLVED in T2.8
 # (fail-closed `identidade_verificada is True` + raise-on-empty-pseudo-id + #55 R-B worker); their
 # former `_LGPD_IDENTITY_SEMANTICS_DIVERGE_REASON` / `_LGPD_IDENTITY_UNVERIFIABLE_BOUNDARY_UNWIRED_
@@ -333,19 +347,25 @@ async def lgpd_probe(
         audit_sink=audit_sink,
     )
     kafka = FakeKafkaPublisher()
-    # register_lgpd_workers now also serves operadora.lgpd.request_additional_proof via the real
-    # #55 R-B handler (threaded `kafka`) — T2.8. Its gap-topic stub (previously registered below) is
-    # dropped so the real worker serves ST_PedirProvaAdicional (the challenge/anti eng.-social step).
+    # register_lgpd_workers now also serves operadora.lgpd.request_additional_proof (#55 R-B) and
+    # operadora.lgpd.notify_sla_risk (#55 R-G) via the real raw handlers (threaded `kafka`) — T2.8.
+    # Their gap-topic stubs are dropped so the real workers serve ST_PedirProvaAdicional,
+    # ST_NotificarRiscoSla and ST_NotificarJuridicoBreach. `operadora.lgpd.send_response` (#55 R-F)
+    # ALSO has a real handler registered here, but the probe deliberately RE-SHADOWS it with the
+    # gap stub below: the three DPO-gated happy-path xfails stay xfailed pending DPO sign-off on the
+    # full DSR merit flow (governance gate, not a src gap — R-F is built and live-verified). See the
+    # module-level note above `_LGPD_MISSING_WORKER_STUB_REASON`.
     register_lgpd_workers(harness, kafka)
     # T3.1 R2: the generic operadora.events.publish worker every ST_Publish* service task in this
     # BPMN routes through — mirrors escalation's/auth's own register_phase0_workers composition.
     register_events_workers(harness, kafka)
     # Finding 2 — gap-topic stubs (test fixture only, see module docstring + _gap_topic_stub) for the
-    # 4 BPMN topics still without a real worker (#55 R-C/R-D/R-F/R-G).
+    # BPMN topics still served by a stub in this probe: compile_data_package (#55 R-C) and
+    # execute_request (#55 R-D) have no real worker yet; send_response (#55 R-F) is re-shadowed to
+    # keep the DPO-gated happy paths xfailed (governance gate) per the note above.
     harness.register(_COMPILE_TOPIC, _gap_topic_stub)
     harness.register(_EXECUTE_TOPIC, _gap_topic_stub)
     harness.register(_SEND_TOPIC, _gap_topic_stub)
-    harness.register(_NOTIFY_SLA_TOPIC, _gap_topic_stub)
     probe = LgpdEngineProbe(
         engine=engine,
         harness=harness,
@@ -376,9 +396,11 @@ async def start_lgpd(engine: EngineRest, deploy_artifacts: str) -> Callable[...,
     """Inicia uma instancia com business key DSR-amh-{titular}-{tipo}-{data} e payload canonico.
 
     `detalhes_requisicao` e semeado com PHI CRU sintetico (CPF/nome) para provar que NENHUM
-    worker/evento o publica. `identidade_verificada` e semeado (fato clerical do donor) — mas
-    finding 3 documenta que v2's `ValidateIdentityWorker` NUNCA o le; a confirmacao de identidade
-    em v2 depende apenas de `titular_pseudo_id` estar presente.
+    worker/evento o publica. `identidade_verificada` e semeado (fato clerical do donor) — desde o
+    T2.8 fail-closed fix (#113), v2's `ValidateIdentityWorker` LE `identidade_verificada`
+    explicitamente: `identidade_confirmada` so e `True` com o sinal EXATO `identidade_verificada
+    is True`; a mera presenca de `titular_pseudo_id` NUNCA confirma identidade (former finding 3,
+    RESOLVED — see the module docstring note above).
     """
 
     async def _start(**overrides: Any) -> dict[str, Any]:
@@ -773,7 +795,6 @@ async def test_dmn_catchall_tipo_desconhecido_juridico(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_LGPD_MISSING_WORKER_STUB_REASON, strict=True)
 async def test_alerta_interno_nao_interruptivo(
     engine: EngineRest,
     lgpd_probe: LgpdEngineProbe,
@@ -789,13 +810,16 @@ async def test_alerta_interno_nao_interruptivo(
     await engine.execute_job(job.id)
     await lgpd_probe.drain()
 
-    assert lgpd_probe.notifications_of_type("lgpd.notify_sla_risk"), "notify_sla_risk deve ser executado"
+    notifs = lgpd_probe.notifications_of_type("lgpd.notify_sla_risk")
+    assert notifs, "notify_sla_risk deve ser executado"
+    # Right-reason discriminator: BT_AlertaDpo is the internal ACK-phase alert (bpmn:226-227).
+    assert notifs[0]["sla_breach_phase"] == "ack", notifs[0]
+    assert notifs[0]["sla_breach_task_name"] == _UT_REVISAO, notifs[0]
     open_keys = {t.task_definition_key for t in await engine.list_user_tasks(iid)}
     assert _UT_REVISAO in open_keys, "Timer nao-interruptivo nao deve cancelar a User Task"
     lgpd_probe.assert_no_phi()
 
 
-@pytest.mark.xfail(reason=_LGPD_MISSING_WORKER_STUB_REASON, strict=True)
 async def test_sla_global_15_dias_event_subprocess(
     engine: EngineRest,
     lgpd_probe: LgpdEngineProbe,
@@ -813,7 +837,10 @@ async def test_sla_global_15_dias_event_subprocess(
     await lgpd_probe.drain()
 
     assert lgpd_probe.has_event(_DSR_SLA_BREACHED), "lgpd_dsr.sla_breached deve ser publicado"
-    assert lgpd_probe.notifications_of_type("lgpd.notify_sla_risk"), "juridico deve ser notificado"
+    notifs = lgpd_probe.notifications_of_type("lgpd.notify_sla_risk")
+    assert notifs, "juridico deve ser notificado"
+    # Right-reason discriminator: ESP_SlaGlobal is the RESOLUTION-phase legal breach (bpmn:331-332).
+    assert notifs[0]["sla_breach_phase"] == "resolution", notifs[0]
     assert await engine.instance_is_active(iid), "SLA global nao-interruptivo: instancia segue aberta"
     lgpd_probe.assert_no_phi()
 
