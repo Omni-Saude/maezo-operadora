@@ -66,15 +66,24 @@ FINDINGS (see PR body / evidence-ledger for full detail):
      NATURALLY. Live-proven (fresh `docker compose -p cancelfix` stack, CIB Seven 2.1.0, single
      clean run, 2026-07-18): 20/28 pass including the 128-combination L0 sweep, both
      `End_ManterNaoConfirmado` guard-catch paths, and all five human-decision terminals.
-  3. REMAINING (the 8 xfails below, `_WORKER_KAFKA_GAP_REASON`): v2's ADR-0026 dict-boundary
+  3. REMAINING (7 xfails below, `_WORKER_KAFKA_GAP_REASON`): v2's ADR-0026 dict-boundary
      entry functions never call `kafka.publish` — the donor's cancel workers published per-worker
      notifications (`operadora.notifications.internal`) and the `agents.events.cancel.pended`
      domain event from INSIDE the handler; v2's entry functions only RETURN output variables.
-     Every one of the 8 fails ONLY on a `notifications_of_type(...)` / `has_event(cancel.pended)`
-     assertion over those worker-emitted messages (live-verified: each reached its correct end
-     event / passed its flow assertions first). Same systemic finding as escalation's
-     NotifyTeamWorker and auth's action-worker residuals (T3.1 events.publish-fix ledger row).
-     Fix belongs to the Kafka-producer wiring task, not this registry reconciliation.
+     Every one of these 7 fails ONLY on a `notifications_of_type(...)` assertion over those
+     worker-emitted messages (live-verified: each reached its correct end event / passed its flow
+     assertions first). Same systemic finding as escalation's NotifyTeamWorker and auth's
+     action-worker residuals (T3.1 events.publish-fix ledger row). Fix belongs to the
+     Kafka-producer wiring task, not this registry reconciliation.
+  4. T3.1 Wave 1 remedy B (event-gap design doc §2.2, THIS PR): the 8th test that used to carry
+     `_WORKER_KAFKA_GAP_REASON` (`test_notificacao_previa_pendente_publica_pended`) asserted BOTH
+     `has_event(cancel.pended)` (C1 — no publish task existed) AND
+     `notifications_of_type("cancel.request_notification")` (C2 — dead internal channel). BPMN now
+     carries `ST_PublishCancelPended` (a boundary-free `operadora.events.publish` task on
+     `Flow_Request_WaitNotif`, mirroring `ST_PublishSlaBreach`), closing the C1 half; the C2 half
+     is adapted to `has_event(..., tipo_solicitacao=...)` per the #108/#123 precedent. Split into
+     its own `_CANCEL_PENDED_PUBLISH_ADDED_REASON` xfail reason — kept xfail (not flipped) pending
+     a live engine run (no docker/engine in this pass); see that constant's docstring for detail.
 """
 
 from __future__ import annotations
@@ -182,6 +191,31 @@ _WORKER_KAFKA_GAP_REASON = (
     "T3.1 topic reconciliation — live-verified: this test's instance reached its correct end "
     "event and passed every flow assertion before failing here). Fix belongs to the "
     "Kafka-producer wiring task, not this registry reconciliation."
+)
+
+# T3.1 Wave 1 remedy B (event-gap design doc §2.2): CLOSES the C1 half of the gap this ONE test
+# hit — `ST_PublishCancelPended` (a plain, boundary-free `operadora.events.publish` task mirroring
+# `ST_PublishSlaBreach`) now sits on `Flow_Request_WaitNotif` (spec/processes/bpmn/SP-OP-CANCEL-001_
+# Cancelamento_Contrato.bpmn), so `has_event(_CANCEL_PENDED)` is no longer structurally blocked by a
+# missing publisher. Distinct from `_WORKER_KAFKA_GAP_REASON` (which still applies to the OTHER 7
+# xfails in this module — those have no publish task and are out of scope for this batch). Publish
+# task added, pending live-proof flip: this repo's gates run without a live CIB Seven engine (no
+# docker/engine in this pass), so the marker is intentionally NOT removed here — flip only after a
+# real `make deploy-artifacts` + `pytest tests/integration/processes/test_sp_op_cancel_001.py -k
+# test_notificacao_previa_pendente_publica_pended` run confirms the event round-trips and no
+# sibling assertion regresses (design doc §5). The `notifications_of_type("cancel.request_notification")`
+# execution-proof half of the original assert pair was ADAPTED to `has_event(..., tipo_solicitacao=...)`
+# per the #108/#123 precedent (that internal-notification channel is structurally always-empty in
+# v2's dict-first workers, ADR-0026) — see the test body below.
+_CANCEL_PENDED_PUBLISH_ADDED_REASON = (
+    "T3.1 Wave 1 remedy B (event-gap design doc §2.2, contract SP-OP-CANCEL-001.md:91 'produz'): "
+    "ST_PublishCancelPended now exists on Flow_Request_WaitNotif — the BPMN-side gap that blocked "
+    "has_event(_CANCEL_PENDED) is closed (mirrors ST_PublishSlaBreach; boundary-free per the 15/16 "
+    "convention, check-bpmn-error-allowlist unaffected). Publish task added, pending live-proof "
+    "flip: requires a real CIB Seven engine run (make deploy-artifacts + this suite) to confirm the "
+    "event round-trips and no sibling assertion regresses before the xfail marker is removed — not "
+    "flipped in this PR (no docker/engine in this pass, per the design doc's live-validation "
+    "requirement, §5)."
 )
 
 
@@ -839,7 +873,7 @@ async def test_send_cancellation_notice_recusa_sem_humano() -> None:
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_WORKER_KAFKA_GAP_REASON, strict=True)
+@pytest.mark.xfail(reason=_CANCEL_PENDED_PUBLISH_ADDED_REASON, strict=True)
 async def test_notificacao_previa_pendente_publica_pended(
     engine: EngineRest,
     cancel_probe: CancelEngineProbe,
@@ -854,10 +888,15 @@ async def test_notificacao_previa_pendente_publica_pended(
 
     await cancel_probe.drain()
 
-    assert cancel_probe.notifications_of_type("cancel.request_notification"), (
-        "Worker request_notification deve ser executado em PENDENTE_NOTIFICACAO"
+    # T3.1 Wave 1 remedy B (#108/#123 has_event adaptation): the old execution-proof assert
+    # (`notifications_of_type("cancel.request_notification")`) is structurally always-empty in v2
+    # (dict-first worker, ADR-0026 — never reaches the internal notifications channel). Folded into
+    # this single has_event() call with `tipo_solicitacao` matched from payload, which ALSO proves
+    # request_notification ran (ST_PublishCancelPended sits immediately downstream on the same
+    # token, so the event firing proves the worker's token flowed through PENDENTE_NOTIFICACAO).
+    assert cancel_probe.has_event(_CANCEL_PENDED, tipo_solicitacao="for_cause_operadora"), (
+        "cancel.pended deve ser publicado (ST_PublishCancelPended) apos request_notification"
     )
-    assert cancel_probe.has_event(_CANCEL_PENDED), "cancel.pended deve ser publicado"
 
     ended = await engine.activity_instances_ended(iid)
     assert not (ended & _ENDS_ADVERSOS), "Pendencia de notificacao nunca rescinde automaticamente"

@@ -83,6 +83,17 @@ FINDINGS (see PR body / evidence-ledger for full detail):
      documented-not-asserted only because that test is still blocked upstream by
      `_ACTION_WORKER_KAFKA_GAP_REASON` (the worker's notification never reaches
      `auth_probe.notifications_of_type` at all).
+  4. T3.1 Wave 1 remedy B (event-gap design doc §2.3, THIS PR): `test_pendencia_docs_recebidos_
+     reavalia` and `test_solicitar_info_volta_para_pendencia` each asserted BOTH
+     `has_event(_AUTH_PENDED)` (C1 — no publish task existed) AND
+     `notifications_of_type("auth.request_documents")` (C2 — dead internal channel), both
+     previously folded under `_ACTION_WORKER_KAFKA_GAP_REASON`. BPMN now carries
+     `ST_PublishAuthPended` (a boundary-free `operadora.events.publish` task on
+     `Flow_Solicitar_WaitDocs`, mirroring `ST_PublishReceived`), closing the C1 half for both
+     tests (reached via either route into `ST_SolicitarDocumentos`); the C2 half of each is
+     adapted to `has_event(..., prestador_id=...)` per the #108/#123 precedent. Split into their
+     own `_AUTH_PENDED_PUBLISH_ADDED_REASON` xfail reason — kept xfail (not flipped) pending a
+     live engine run (no docker/engine in this pass); see that constant's docstring for detail.
 """
 
 from __future__ import annotations
@@ -204,6 +215,34 @@ _ACTION_WORKER_KAFKA_GAP_REASON = (
     "numero_autorizacao is never populated either. Live-confirmed (docker compose core, CIB "
     "Seven 2.1.0) after the events.publish fix landed. Not a fixture bug; src/** fix is out of "
     "scope for this PR."
+)
+
+# T3.1 Wave 1 remedy B (event-gap design doc §2.3): CLOSES the C1 half of the gap for the 2 tests
+# below that assert `has_event(_AUTH_PENDED)` — `ST_PublishAuthPended` (a plain, boundary-free
+# `operadora.events.publish` task mirroring `ST_PublishReceived`) now sits on
+# `Flow_Solicitar_WaitDocs` (spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn), reached
+# by BOTH the initial-pendencia route (`Flow_GW_Pendencia`) and the SOLICITAR_INFO route
+# (`Flow_GWDec_SolicitarInfo`) into `ST_SolicitarDocumentos`, so `has_event(_AUTH_PENDED)` is no
+# longer structurally blocked by a missing publisher. Distinct from `_ACTION_WORKER_KAFKA_GAP_
+# REASON` (still the blocker for every OTHER auth action-worker test in this module — those have no
+# publish task and remain out of scope for this batch). Publish task added, pending live-proof
+# flip: this repo's gates run without a live CIB Seven engine (no docker/engine in this pass), so
+# the marker is intentionally NOT removed here — flip only after a real `make deploy-artifacts` +
+# `pytest tests/integration/processes/test_sp_op_auth_001.py -k "pendencia_docs_recebidos_reavalia
+# or solicitar_info_volta_para_pendencia"` run confirms the event round-trips and no sibling
+# assertion regresses (design doc §5). The `notifications_of_type("auth.request_documents")`
+# execution-proof half of each original assert pair was ADAPTED to `has_event(...,
+# prestador_id=...)` per the #108/#123 precedent (that internal-notification channel is
+# structurally always-empty in v2's dict-first workers, ADR-0026) — see the two test bodies below.
+_AUTH_PENDED_PUBLISH_ADDED_REASON = (
+    "T3.1 Wave 1 remedy B (event-gap design doc §2.3, contract SP-OP-AUTH-001.md:60 'produz'): "
+    "ST_PublishAuthPended now exists on Flow_Solicitar_WaitDocs — the BPMN-side gap that blocked "
+    "has_event(_AUTH_PENDED) is closed (mirrors ST_PublishReceived; boundary-free per the 15/16 "
+    "convention, check-bpmn-error-allowlist unaffected). Publish task added, pending live-proof "
+    "flip: requires a real CIB Seven engine run (make deploy-artifacts + this suite) to confirm the "
+    "event round-trips and no sibling assertion regresses before the xfail marker is removed — not "
+    "flipped in this PR (no docker/engine in this pass, per the design doc's live-validation "
+    "requirement, §5)."
 )
 
 # T3.1 R3 (flip, THIS branch): the ERR_AUTH_DENIAL_INCOMPLETE guard is IMPLEMENTED and now
@@ -736,7 +775,7 @@ async def test_inelegibilidade_roteia_para_humano_nao_nega(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_ACTION_WORKER_KAFKA_GAP_REASON, strict=True)
+@pytest.mark.xfail(reason=_AUTH_PENDED_PUBLISH_ADDED_REASON, strict=True)
 async def test_pendencia_docs_recebidos_reavalia(
     engine: EngineRest,
     auth_probe: AuthEngineProbe,
@@ -753,9 +792,15 @@ async def test_pendencia_docs_recebidos_reavalia(
 
     await auth_probe.drain()
 
-    assert auth_probe.has_event(_AUTH_PENDED), "auth.pended deve ser publicado na pendencia"
-    req_docs = auth_probe.notifications_of_type("auth.request_documents")
-    assert req_docs, "Worker request_documents deve ser executado"
+    # T3.1 Wave 1 remedy B (#108/#123 has_event adaptation): the old execution-proof assert
+    # (`notifications_of_type("auth.request_documents")`) is structurally always-empty in v2
+    # (dict-first worker, ADR-0026 — never reaches the internal notifications channel). Folded
+    # into this single has_event() call with `prestador_id` matched from payload, which ALSO
+    # proves request_documents ran (ST_PublishAuthPended sits immediately downstream on the same
+    # token, so the event firing proves the worker's token flowed through PENDENTE_DOCUMENTACAO).
+    assert auth_probe.has_event(_AUTH_PENDED, prestador_id="PRESTADOR-TESTE-001"), (
+        "auth.pended deve ser publicado (ST_PublishAuthPended) apos request_documents"
+    )
 
     business_key = inst["businessKey"]
     correlate_payload = {
@@ -1037,7 +1082,7 @@ async def test_junta_medica_parecer_nega(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_ACTION_WORKER_KAFKA_GAP_REASON, strict=True)
+@pytest.mark.xfail(reason=_AUTH_PENDED_PUBLISH_ADDED_REASON, strict=True)
 async def test_solicitar_info_volta_para_pendencia(
     engine: EngineRest,
     auth_probe: AuthEngineProbe,
@@ -1055,10 +1100,15 @@ async def test_solicitar_info_volta_para_pendencia(
     await engine.complete_task_as_human(ut.id, {"decisao_auditor": "SOLICITAR_INFO"})
     await auth_probe.drain()
 
-    req_docs = auth_probe.notifications_of_type("auth.request_documents")
-    assert req_docs, "Worker request_documents deve ser executado apos SOLICITAR_INFO"
-
-    assert auth_probe.has_event(_AUTH_PENDED), "auth.pended deve ser publicado apos SOLICITAR_INFO"
+    # T3.1 Wave 1 remedy B (#108/#123 has_event adaptation): see test_pendencia_docs_recebidos_
+    # reavalia above — same fold of the dead notifications_of_type("auth.request_documents")
+    # execution-proof assert into this single has_event() call (prestador_id matched from
+    # payload); ST_PublishAuthPended is on Flow_Solicitar_WaitDocs, reached via BOTH the
+    # SOLICITAR_INFO route (Flow_GWDec_SolicitarInfo) exercised here and the initial-pendencia
+    # route (Flow_GW_Pendencia) exercised there.
+    assert auth_probe.has_event(_AUTH_PENDED, prestador_id="PRESTADOR-TESTE-001"), (
+        "auth.pended deve ser publicado (ST_PublishAuthPended) apos SOLICITAR_INFO"
+    )
 
     assert await engine.instance_is_active(iid), "Instancia deve estar ativa aguardando docs"
 
