@@ -33,11 +33,16 @@ _CEILING_PARAM = "threshold_brl"
 
 ERR_PAYMENT_RELEASE_NOT_HUMAN = "ERR_PAYMENT_RELEASE_NOT_HUMAN"
 ERR_PAGTO_ORDEM_INVALIDA = "ERR_PAGTO_ORDEM_INVALIDA"
+ERR_PAYMENT_REFUSAL_NOT_HUMAN = "ERR_PAYMENT_REFUSAL_NOT_HUMAN"
 
-# Decision values
+# Decision values (UT_AprovacaoAlcada / UT_CoordenacaoAlcada — `decisao_pagamento`)
 DECISAO_APROVAR = "APROVAR"
 DECISAO_RECUSAR = "RECUSAR"
 DECISAO_CANCELAR = "CANCELAR"
+
+# Decision value (UT_AnaliseAdmissibilidade — `decisao_admissibilidade`, a DIFFERENT process
+# variable than `decisao_pagamento`; GW_ResolucaoAdmissibilidade's own conservative default).
+DECISAO_ADMISSIBILIDADE_DEVOLVER = "DEVOLVER"
 
 # Tier constants
 # Tier required per faixa_valor: higher tiers require higher approval levels
@@ -311,6 +316,138 @@ def release_high_value_payment(variables: dict[str, Any]) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------
+# notify_sla_risk — informational SLA alert (non-interruptive timer)
+# ---------------------------------------------------------------
+
+
+def notify_sla_risk(variables: dict[str, Any]) -> dict[str, Any]:
+    """Alert coordenacao-financeira of SLA risk (non-interruptive timer BT_AlertaSlaPagto).
+
+    External task: `operadora.pagto.notify_sla_risk` (`ST_NotificarRiscoSla`,
+    SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn:300-304 — task name "Notificar risco de SLA
+    (coordenacao-financeira)"). Fires at `${sla.sla_alerta}` (60-70% of `pagto_sla`'s
+    `sla_alerta`, per the contract, DRAFT/verify -- docs/processes/contracts/
+    SP-OP-PAGTO-001.md:134,199) on the non-interruptive boundary event
+    (cancelActivity="false") attached to `UT_AprovacaoAlcada`.
+
+    Informational only (mirrors `inadimplencia.notify_sla_risk`/`cancel.notify_sla_risk`/
+    `fraude.notify_sla_risk`/`adequacao.notify_sla_risk`): UT_AprovacaoAlcada stays open, no
+    decision is made or altered, NO adverse outcome (payment release, refusal, or otherwise) is
+    ever produced by this alert. The payment release NEVER arises from a timer -- only the human
+    decision at UT_AprovacaoAlcada/UT_CoordenacaoAlcada (`release_high_value_payment`'s own
+    tier-match guard, unchanged) does.
+    """
+    ordem_id = variables.get("ordem_pagamento_id", "")
+    faixa = variables.get("faixa_valor", "")
+
+    logger.info(
+        "pagto_notify_sla_risk",
+        ordem_id=ordem_id,
+        faixa_valor=faixa,
+        grupo_alertado="coordenacao-financeira",
+    )
+
+    return {
+        "sla_risk_notified": True,
+        "grupo_alertado": "coordenacao-financeira",
+        "ordem_pagamento_id": ordem_id,
+    }
+
+
+# ---------------------------------------------------------------
+# register_payment_refusal — GATED, dual human channel (NOT adverse-release; refuse-if-no-human)
+# ---------------------------------------------------------------
+
+
+def register_payment_refusal(variables: dict[str, Any]) -> dict[str, Any]:
+    """Register payment refusal/return for review — GUARDED, dual human channel.
+
+    External task: `operadora.pagto.register_payment_refusal` (`ST_RegisterPaymentRefusal`,
+    SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn:408-414). Task documentation (line 410): "Registra a
+    recusa/devolucao do pagamento para revisao quando decisao_pagamento=RECUSAR (decisao de
+    alcada) OU quando a admissibilidade e devolvida por humano (decisao_admissibilidade=DEVOLVER)
+    -- ambos registram justificativa_recusa + responsavel humano. NAO e glosa (glosa nasce em
+    CONTAS-001); NAO libera." NOT adverse in the release sense (it never authorizes payment) but
+    IS adverse-SHAPED for the counterparty (a formal refusal/return-for-review record) and is
+    channel-gated identically to a genuine adverse effect -- so this worker GUARDS it exactly
+    like `release_high_value_payment` guards a release, refusing to register anything absent a
+    genuine human decision (mirrors `recurso.register_desistencia`'s dual-channel
+    refuse-if-no-human pattern, `DesistenciaNotHumanError`).
+
+    GUARDED, dual channel -- ONE of TWO human decisions must be attempted:
+    - alcada channel (`Flow_GWDec_Recusar`, GW_DecisaoPagamento's OWN conservative default --
+      BPMN line 375 -- from `UT_AprovacaoAlcada`/`UT_CoordenacaoAlcada`):
+      `decisao_pagamento == RECUSAR` (contract docs/processes/contracts/SP-OP-PAGTO-001.md:92,95:
+      "justificativa_recusa Obrigatoria se RECUSAR").
+    - admissibilidade channel (`Flow_GWResol_Devolver`, `GW_ResolucaoAdmissibilidade`'s OWN
+      conservative default -- BPMN line 173 -- from `UT_AnaliseAdmissibilidade`):
+      `decisao_admissibilidade == DEVOLVER` (BPMN lines 163-164: "DEVOLVER (default
+      conservador) exige justificativa_recusa + aprovador_id").
+    Both channels ALSO require `aprovador_id` (ST_RegisterPaymentRefusal's own task doc, line
+    410: "Carrega aprovador_id na trilha de auditoria" -- ADR-0007) and `justificativa_recusa`.
+    CANCELAR is a SEPARATE, direct-publish terminal (`ST_PublishCancelado` -- BPMN lines 431-439,
+    contract line 40) and is DELIBERATELY never routed through this worker.
+
+    Refuses with `ERR_PAYMENT_REFUSAL_NOT_HUMAN` if NEITHER channel's decision field matches
+    (e.g. both gateways' own conservative DEFAULTS can route here with the decision variable
+    unset/empty on an omitted UT completion -- GW_DecisaoPagamento defaults to
+    `Flow_GWDec_Recusar`, GW_ResolucaoAdmissibilidade defaults to `Flow_GWResol_Devolver` -- the
+    engine's fail-safe routing does NOT by itself constitute a human decision; this worker still
+    requires the explicit decision literal plus its required fields) -- never silently registers
+    a refusal without a genuine human decision behind it.
+    """
+    decisao_pagamento = variables.get("decisao_pagamento", "")
+    decisao_admissibilidade = variables.get("decisao_admissibilidade", "")
+    aprovador_id = variables.get("aprovador_id", "")
+    justificativa = variables.get("justificativa_recusa", "")
+    ordem_id = variables.get("ordem_pagamento_id", "")
+
+    is_alcada = decisao_pagamento == DECISAO_RECUSAR
+    is_admissibilidade = decisao_admissibilidade == DECISAO_ADMISSIBILIDADE_DEVOLVER
+
+    if not is_alcada and not is_admissibilidade:
+        logger.error(
+            "pagto_refusal_guard_rejected_no_channel",
+            decisao_pagamento=decisao_pagamento,
+            decisao_admissibilidade=decisao_admissibilidade,
+            ordem_id=ordem_id,
+        )
+        raise PagtoError(
+            ERR_PAYMENT_REFUSAL_NOT_HUMAN,
+            f"decisao_pagamento != {DECISAO_RECUSAR} (canal alcada) e decisao_admissibilidade != "
+            f"{DECISAO_ADMISSIBILIDADE_DEVOLVER} (canal admissibilidade) -- nenhum canal humano",
+        )
+
+    channel = "alcada" if is_alcada else "admissibilidade"
+    errors: list[str] = []
+    if not aprovador_id:
+        errors.append("aprovador_id ausente (ADR-0007)")
+    if not justificativa:
+        errors.append("justificativa_recusa ausente")
+
+    if errors:
+        logger.error(
+            "pagto_refusal_guard_rejected",
+            errors=errors,
+            channel=channel,
+            ordem_id=ordem_id,
+        )
+        raise PagtoError(ERR_PAYMENT_REFUSAL_NOT_HUMAN, f"canal {channel}: " + "; ".join(errors))
+
+    logger.info(
+        "pagto_refusal_registered",
+        ordem_id=ordem_id,
+        aprovador_id=aprovador_id,
+        channel=channel,
+    )
+
+    return {
+        "recusa_registrada": True,
+        "canal": channel,
+    }
+
+
+# ---------------------------------------------------------------
 # publish_completed — publishing completion event
 # ---------------------------------------------------------------
 
@@ -370,11 +507,15 @@ class PagtoError(Exception):
 #     (spec match: DENTRO_TETO_L2 auto/clerical release)
 #   release_high_value_payment -> operadora.pagto.release_high_value_payment
 #     (exact spec match, GUARDED)
+#   notify_sla_risk -> operadora.pagto.notify_sla_risk (spec match, informational —
+#     t2.5-p2b-round2 closed this gap)
+#   register_payment_refusal -> operadora.pagto.register_payment_refusal (spec match,
+#     GUARDED dual-channel refuse-if-no-human — t2.5-p2b-round2 closed this gap)
 # assess_admissibility has no distinct spec topic — registered under a
 # function-derived topic for registry completeness. publish_completed folds
 # into the generic events.publish task per BPMN — function-derived topic.
-# Spec topics with NO implementing function today (gap, not fabricated here):
-# prepare_approval_dossier, notify_sla_risk, register_payment_refusal.
+# Spec topic with NO implementing function today (gap, not fabricated here, Andre A2A-gated —
+# out of scope for t2.5-p2b-round2): prepare_approval_dossier.
 # ---------------------------------------------------------------
 
 
@@ -387,7 +528,9 @@ def register_pagto_workers(
 
     `dmn` (ADR-0028 §1 seam) is threaded into `assess_admissibility` (`pagto_admissibility`)
     and `route_aprovacao` (`pagto_alcada`, T1.5 cutover) via `functools.partial`; no other
-    function here evaluates a DMN table.
+    function here evaluates a DMN table. `kafka` is accepted but unused — no pagto.py worker
+    declares a Kafka dependency, `notify_sla_risk`/`register_payment_refusal` included
+    (dict-first, mirror the family's existing idiom).
     """
     del kafka  # unused — no pagto.py worker declares a Kafka dependency
     dmn = seams.get("dmn")
@@ -403,5 +546,9 @@ def register_pagto_workers(
     harness.register_worker(FunctionWorker("operadora.pagto.release_low_value_payment", execute_pagto))
     harness.register_worker(
         FunctionWorker("operadora.pagto.release_high_value_payment", release_high_value_payment)
+    )
+    harness.register_worker(FunctionWorker("operadora.pagto.notify_sla_risk", notify_sla_risk))
+    harness.register_worker(
+        FunctionWorker("operadora.pagto.register_payment_refusal", register_payment_refusal)
     )
     harness.register_worker(FunctionWorker("operadora.pagto.publish_completed", publish_completed))
