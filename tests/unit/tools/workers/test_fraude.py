@@ -20,14 +20,17 @@ from maezo.tools.workers.fraude import (
     assemble_dossier,
     gather_evidence,
     intake,
+    notify_sla_risk,
     publish_completed,
     refer_to_legal,
     register_fraud_accusation,
+    register_fraude_workers,
     score_indicators,
     seal_custody_bundle,
     start_contratual,
     start_credenciamento,
 )
+from maezo.tools.workers.harness import WorkerHarness
 
 # ---------------------------------------------------------------
 # intake — neutral start
@@ -578,6 +581,60 @@ def test_fraud_accusation_guard_missing_investigator() -> None:
             }
         )
     assert excinfo.value.code == ERR_FRAUD_ACCUSATION_NOT_HUMAN
+
+
+# ---------------------------------------------------------------
+# notify_sla_risk — informational, never adverse (t2.5-p2b-round2)
+# ---------------------------------------------------------------
+
+
+def test_notify_sla_risk_informational() -> None:
+    result = notify_sla_risk({"numero_caso": "F-001", "tenant_id": "amh"})
+    assert result["sla_risk_notified"] is True
+    assert result["grupo_alertado"] == "coordenacao-investigacao"
+    assert result["numero_caso"] == "F-001"
+
+
+def test_notify_sla_risk_no_adverse_outcome() -> None:
+    """The non-interruptive timer alert never produces or propagates an adverse decision.
+
+    UT_DecisaoInvestigador stays open (cancelActivity=false) — score/SLA risk NEVER accuses;
+    only the human decision at UT_DecisaoInvestigador (register_fraud_accusation's guard) does.
+    """
+    result = notify_sla_risk({"numero_caso": "F-001", "decisao_fraude": "ACUSAR_FRAUDE"})
+    assert "decisao_fraude" not in result
+    forbidden = {"ACUSAR_FRAUDE", "ACUSAR", "BLOQUEAR", "FRAUD_DETECTED"}
+    for value in result.values():
+        assert str(value).upper() not in forbidden
+
+
+def test_notify_sla_risk_missing_numero_caso_defaults_empty() -> None:
+    """Missing `numero_caso` degrades gracefully (no KeyError) — fail-safe, never adverse."""
+    result = notify_sla_risk({})
+    assert result["sla_risk_notified"] is True
+    assert result["numero_caso"] == ""
+
+
+# ---------------------------------------------------------------
+# register_fraude_workers — registration + topic-registry drift guard
+# ---------------------------------------------------------------
+
+
+def test_register_fraude_workers_registers_notify_sla_risk() -> None:
+    """`notify_sla_risk` is registered on the exact BPMN-declared topic (ST_NotifySlaRisk,
+    SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn:247-248) -- closes the prior registry-drift gap
+    (see tests/integration/processes/test_sp_op_fraude_001.py::
+    test_bpmn_fraude_topics_vs_registered_workers)."""
+    harness = WorkerHarness(None, worker_id="unit-test-fraude")  # type: ignore[arg-type]
+    register_fraude_workers(harness, None, dmn=FakeDmnTransport())
+    topics = set(harness.registered_topics)
+    assert "operadora.fraude.notify_sla_risk" in topics
+    assert "operadora.fraude.intake" in topics
+    assert "operadora.fraude.register_fraud_accusation" in topics
+    # 10 spec-declared operadora.fraude.* topics + the documented orphan publish_completed
+    # (ACCEPT — folds into the generic events.publish task per BPMN, no distinct spec topic).
+    fraude_topics = {t for t in topics if t.startswith("operadora.fraude.")}
+    assert len(fraude_topics) == 11
 
 
 # ---------------------------------------------------------------

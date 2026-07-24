@@ -553,6 +553,40 @@ def register_fraud_accusation(variables: dict[str, Any]) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------
+# notify_sla_risk — informational SLA alert (non-interruptive timer)
+# ---------------------------------------------------------------
+
+
+def notify_sla_risk(variables: dict[str, Any]) -> dict[str, Any]:
+    """Alert coordenacao-investigacao of SLA risk (non-interruptive timer BT_AlertaSlaFraude).
+
+    External task: `operadora.fraude.notify_sla_risk` (`ST_NotifySlaRisk`,
+    SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn:247-251). Fires at `${sla.sla_alerta}`
+    (50-70% of `${sla.sla_alerta}` per the contract, DRAFT/verify) on the
+    non-interruptive boundary event attached to UT_DecisaoInvestigador.
+
+    Informational only (mirrors `inadimplencia.notify_sla_risk`/`cancel.notify_sla_risk`):
+    UT_DecisaoInvestigador stays open (cancelActivity="false"), no decision is made or
+    altered, NO adverse outcome (accusation or otherwise) is ever produced by this alert.
+    Score alto/SLA risk NEVER accuses -- only UT_DecisaoInvestigador's human decision does
+    (register_fraud_accusation's own guard, unchanged).
+    """
+    numero_caso = variables.get("numero_caso", "")
+
+    logger.info(
+        "fraude_notify_sla_risk",
+        numero_caso=numero_caso,
+        grupo_alertado="coordenacao-investigacao",
+    )
+
+    return {
+        "sla_risk_notified": True,
+        "grupo_alertado": "coordenacao-investigacao",
+        "numero_caso": numero_caso,
+    }
+
+
+# ---------------------------------------------------------------
 # refer_to_legal — downstream referral (only after accusation)
 # ---------------------------------------------------------------
 
@@ -656,11 +690,14 @@ class FraudeError(Exception):
 # Bootstrap — FunctionWorker adapter (T1.2/ADR-0026 Decisao §2a).
 #
 # Topic mapping vs spec/processes/bpmn/SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn
-# (excl. shared/out-of-scope `operadora.events.publish`) — 9 of 10 functions
-# are an EXACT 1:1 name match with their spec topic; only notify_sla_risk has
-# no implementing function today (gap, not fabricated here). publish_completed
-# has no distinct spec topic (folds into the generic events.publish task per
-# BPMN) — registered under a function-derived topic for registry completeness.
+# (excl. shared/out-of-scope `operadora.events.publish`) — all 10 spec-declared
+# `operadora.fraude.*` topics now have an EXACT 1:1 name match with their
+# implementing function (t2.5-p2b-round2 added `notify_sla_risk`, closing the
+# prior gap). publish_completed has no distinct spec topic (folds into the
+# generic events.publish task per BPMN) — registered under a function-derived
+# topic for registry completeness (documented orphan, ACCEPT — see
+# tests/integration/processes/test_sp_op_fraude_001.py::
+# test_bpmn_fraude_topics_vs_registered_workers).
 # ---------------------------------------------------------------
 
 
@@ -672,9 +709,11 @@ def register_fraude_workers(
     """Register the SP-OP-FRAUDE-001 function workers on `harness`.
 
     `kafka` is accepted (donor contract, ADR-0026 §2) but unused — no fraude.py worker declares a
-    Kafka dependency. `dmn` (ADR-0028 §1 seam, T2.7 phase 2) is threaded via `functools.partial`
-    into `score_indicators` ONLY — the 7 `fraude_scoring/*` tables it evaluates (see that
-    function's docstring); no other function in this module evaluates a DMN.
+    Kafka dependency (`notify_sla_risk` included — dict-first, informational-only, mirrors
+    `inadimplencia.notify_sla_risk`/`cancel.notify_sla_risk`). `dmn` (ADR-0028 §1 seam, T2.7 phase
+    2) is threaded via `functools.partial` into `score_indicators` ONLY — the 7
+    `fraude_scoring/*` tables it evaluates (see that function's docstring); no other function in
+    this module evaluates a DMN.
     """
     del kafka  # unused — no fraude.py worker declares a Kafka dependency
     dmn = seams.get("dmn")
@@ -688,6 +727,7 @@ def register_fraude_workers(
     harness.register_worker(
         FunctionWorker("operadora.fraude.register_fraud_accusation", register_fraud_accusation)
     )
+    harness.register_worker(FunctionWorker("operadora.fraude.notify_sla_risk", notify_sla_risk))
     harness.register_worker(FunctionWorker("operadora.fraude.refer_to_legal", refer_to_legal))
     harness.register_worker(FunctionWorker("operadora.fraude.start_credenciamento", start_credenciamento))
     harness.register_worker(FunctionWorker("operadora.fraude.start_contratual", start_contratual))
