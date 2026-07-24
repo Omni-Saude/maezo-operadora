@@ -8,6 +8,7 @@ import pytest
 from maezo.tools.workers.programa import (
     ERR_PROGRAM_DISCHARGE_NOT_HUMAN,
     ERR_PROGRAMA_NO_CONSENT,
+    RISCO_FAIL_CLOSED_DEFAULT,
     ProgramaError,
     check_consent,
     enroll_beneficiario,
@@ -15,6 +16,7 @@ from maezo.tools.workers.programa import (
     register_discharge,
     register_program_discharge,
     stop_processing,
+    stratify_risk,
 )
 
 # ---------------------------------------------------------------
@@ -71,6 +73,75 @@ def test_programa_consent_gate_blocks_not_checked() -> None:
             }
         )
     assert excinfo.value.code == ERR_PROGRAMA_NO_CONSENT
+
+
+# ---------------------------------------------------------------
+# stratify_risk — in-zone risk-band delegation stub (care.stratify — Valentina A2A)
+# ---------------------------------------------------------------
+
+
+def _consented_variables(**overrides: object) -> dict[str, object]:
+    variables: dict[str, object] = {
+        "consentimento_ativo": True,
+        "consent_checked": True,
+        "consent_scope": "programa_cuidado",
+        "beneficiario_pseudo_id": "b-001",
+        "programa_id": "cronicos",
+    }
+    variables.update(overrides)
+    return variables
+
+
+def test_stratify_risk_happy_path_echoes_pre_resolved_band() -> None:
+    """A pre-resolved, valid risk band is echoed through unchanged (instrui, nao decide)."""
+    result = stratify_risk(_consented_variables(risco_estratificado="moderado"))
+    assert result["risco_estratificado"] == "moderado"
+    assert result["risco_estratificado_origem"] == "pre_resolvido"
+
+
+def test_stratify_risk_normalizes_case_and_whitespace() -> None:
+    """Only mechanical coercion (case/whitespace) — never business derivation."""
+    result = stratify_risk(_consented_variables(risco_estratificado="  ALTO  "))
+    assert result["risco_estratificado"] == "alto"
+    assert result["risco_estratificado_origem"] == "pre_resolvido"
+
+
+def test_stratify_risk_refuses_without_active_consent() -> None:
+    """Defense-in-depth: estratificacao de risco is PHI processing gated by consent (Invariante A).
+
+    Same ERR_PROGRAMA_NO_CONSENT code as check_consent's chokepoint — this is the SAME invariant,
+    checked a second time in case this task is ever reached without the gate having passed.
+    """
+    with pytest.raises(ProgramaError) as excinfo:
+        stratify_risk(_consented_variables(consentimento_ativo=False))
+    assert excinfo.value.code == ERR_PROGRAMA_NO_CONSENT
+
+
+def test_stratify_risk_refuses_without_consent_checked() -> None:
+    with pytest.raises(ProgramaError) as excinfo:
+        stratify_risk(_consented_variables(consent_checked=False))
+    assert excinfo.value.code == ERR_PROGRAMA_NO_CONSENT
+
+
+def test_stratify_risk_fail_closed_default_when_missing() -> None:
+    """No pre-resolved band available => fail-closed to the DMN's lowest-autonomy path ("alto"),
+    which programa_routing ALWAYS routes to ANALISE_HUMANA (never auto-elegivel/auto-alta)."""
+    result = stratify_risk(_consented_variables())
+    assert result["risco_estratificado"] == RISCO_FAIL_CLOSED_DEFAULT
+    assert result["risco_estratificado_origem"] == "fail_closed_default"
+
+
+def test_stratify_risk_fail_closed_default_when_invalid_value() -> None:
+    """A band outside the DMN's known vocabulary is treated as unresolved, not guessed at."""
+    result = stratify_risk(_consented_variables(risco_estratificado="urgentissimo"))
+    assert result["risco_estratificado"] == RISCO_FAIL_CLOSED_DEFAULT
+    assert result["risco_estratificado_origem"] == "fail_closed_default"
+
+
+def test_stratify_risk_never_sets_decisao_programa() -> None:
+    """Invariant C: no worker in this module (esp. stratify_risk) may set decisao_programa."""
+    result = stratify_risk(_consented_variables(risco_estratificado="alto"))
+    assert "decisao_programa" not in result
 
 
 # ---------------------------------------------------------------
