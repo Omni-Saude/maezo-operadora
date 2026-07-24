@@ -96,6 +96,98 @@ def enroll_beneficiario(variables: dict[str, Any]) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------
+# stratify_risk — in-zone risk-band delegation stub (care.stratify — Valentina A2A)
+# ---------------------------------------------------------------
+
+# Domain the `programa_routing` DMN (spec/processes/dmn/programa_routing.dmn) actually reads for
+# `risco_estratificado` (typeRef string, exact FEEL literal match — "alto"/"moderado"/"baixo").
+# Anything outside this set never matches a specific row and falls through to the DMN's own
+# wildcard catch-all (-> ANALISE_HUMANA) anyway; validating here just makes that fact observable
+# in worker logs/tests instead of silently relying on FEEL fallthrough.
+_RISCO_BANDAS_VALIDAS = frozenset({"baixo", "moderado", "alto"})
+
+# FAIL-CLOSED default (T2.5): no deterministic clinical stratification algorithm is prescribed —
+# neither the contract (docs/processes/contracts/SP-OP-PROGRAMA-001.md §DMN referenciadas:
+# "criterios clinicos DRAFT/verify medico") nor the DMN itself (programa_routing.dmn description:
+# "criterios de estratificacao/elegibilidade requerem SME medico-auditor") define one. POLICY GAP
+# (flagged for medico-auditor/SME — not resolved here, and out of scope for this worker to invent):
+# until Valentina's real `care.stratify` A2A delegation lands, this worker cannot compute an actual
+# risk band, so it defaults to the DMN's OWN lowest-autonomy path. "alto" is not a guess at the
+# beneficiary's real risk — it is the row the DMN itself documents as the conservative, always-
+# human destination (`r_risco_alto`: "Risco alto -> sempre analise clinica humana (conservador;
+# nunca auto-elegivel/auto-alta)"), regardless of `elegibilidade_criterios_atendidos`. This mirrors
+# the DMN's wildcard catch-all row destination (ANALISE_HUMANA) but as an explicit, auditable value
+# rather than an implicit FEEL fallthrough.
+RISCO_FAIL_CLOSED_DEFAULT = "alto"
+
+
+def stratify_risk(variables: dict[str, Any]) -> dict[str, Any]:
+    """Stratify beneficiary risk band (in-zone, care.stratify — Valentina A2A delegation stub).
+
+    CONTRACT (SP-OP-PROGRAMA-001.md, Invariante A): estratificacao de risco is explicitly named as
+    PHI processing gated by consent ("Antes de qualquer tratamento de dados de saude do
+    beneficiario no ambito do programa (estratificacao de risco, ...) o consentimento DEVE estar
+    ativo e verificado"). This is the FIRST task after `Start_Cuidado` (BPMN:147-157) — it runs
+    in-zone, immediately after the consent gate. Defense-in-depth guard mirrors check_consent's
+    chokepoint exactly (same ERR_PROGRAMA_NO_CONSENT code — this is the SAME invariant, checked a
+    second time) in case this task is ever reached without the gate having passed.
+
+    Delegation stub (mirrors `enroll_beneficiario`/`fraude.gather_evidence`): does NOT invent
+    clinical risk logic. INSTRUI, NAO DECIDE (BPMN:154). If a pre-resolved risk band is already on
+    the process variables (Valentina/agent output, or test-seeded — normalized case/whitespace
+    only, never re-derived), it is echoed through UNCHANGED. Otherwise fails closed to
+    `RISCO_FAIL_CLOSED_DEFAULT` ("alto"), which `programa_routing` ALWAYS routes to
+    ANALISE_HUMANA (clinico humano) — NEVER to auto-elegivel/auto-nao-elegivel. NEVER sets
+    `decisao_programa` (BPMN:154 documentation) — no clinical decision is made here.
+    """
+    consentimento_ativo = variables.get("consentimento_ativo", False)
+    consent_checked = variables.get("consent_checked", False)
+    consent_scope = variables.get("consent_scope", "programa_cuidado")
+    beneficiario = variables.get("beneficiario_pseudo_id")
+    programa_id = variables.get("programa_id")
+
+    if not consentimento_ativo or not consent_checked:
+        logger.warning(
+            "programa_stratify_risk_no_consent",
+            beneficiario=beneficiario,
+            consent_scope=consent_scope,
+        )
+        raise ProgramaError(
+            ERR_PROGRAMA_NO_CONSENT,
+            f"stratify_risk recusado: consentimento ausente/revogado para escopo '{consent_scope}'",
+        )
+
+    raw = variables.get("risco_estratificado")
+    normalized = raw.strip().lower() if isinstance(raw, str) else None
+
+    if normalized in _RISCO_BANDAS_VALIDAS:
+        risco = normalized
+        origem = "pre_resolvido"
+    else:
+        risco = RISCO_FAIL_CLOSED_DEFAULT
+        origem = "fail_closed_default"
+        logger.warning(
+            "programa_stratify_risk_fail_closed_default",
+            beneficiario=beneficiario,
+            programa_id=programa_id,
+            risco_recebido=raw,
+        )
+
+    logger.info(
+        "programa_stratify_risk",
+        beneficiario=beneficiario,
+        programa_id=programa_id,
+        risco_estratificado=risco,
+        origem=origem,
+    )
+
+    return {
+        "risco_estratificado": risco,
+        "risco_estratificado_origem": origem,
+    }
+
+
+# ---------------------------------------------------------------
 # monitor_programa — L3 monitoring
 # ---------------------------------------------------------------
 
@@ -212,6 +304,9 @@ class ProgramaError(Exception):
 # Topic mapping vs spec/processes/bpmn/SP-OP-PROGRAMA-001_Programas_Cuidado.bpmn
 # (excl. shared/out-of-scope `operadora.events.publish`):
 #   check_consent    -> operadora.programa.check_consent (exact spec match, CHOKEPOINT guard)
+#   stratify_risk    -> operadora.programa.stratify_risk (exact spec match; T2.5 — the FIRST
+#     external task after Start_Cuidado, immediately after the consent gate; was a registry gap,
+#     now implemented as a fail-closed delegation stub — see stratify_risk's own docstring)
 #   enroll_beneficiario -> operadora.programa.build_care_plan
 #     (spec match: task name says "care.enroll")
 #   register_discharge (alias register_program_discharge)
@@ -219,8 +314,9 @@ class ProgramaError(Exception):
 #   stop_processing  -> operadora.programa.stop_processing (exact spec match)
 # monitor_programa has no distinct spec topic — registered under a
 # function-derived topic for registry completeness.
-# Spec topics with NO implementing function today (gap, not fabricated here):
-# stratify_risk, proactive_contact, notify_sla_risk.
+# Spec topics with NO implementing function today (gap, not fabricated here; T2.5 scope is
+# stratify_risk ONLY — proactive_contact/notify_sla_risk are tracked separately):
+# proactive_contact, notify_sla_risk.
 # ---------------------------------------------------------------
 
 
@@ -232,6 +328,7 @@ def register_programa_workers(
     """Register the SP-OP-PROGRAMA-001 function workers on `harness`."""
     del kafka, seams  # unused — no programa.py worker declares a Kafka/other seam dependency
     harness.register_worker(FunctionWorker("operadora.programa.check_consent", check_consent))
+    harness.register_worker(FunctionWorker("operadora.programa.stratify_risk", stratify_risk))
     harness.register_worker(FunctionWorker("operadora.programa.build_care_plan", enroll_beneficiario))
     harness.register_worker(FunctionWorker("operadora.programa.monitor_programa", monitor_programa))
     harness.register_worker(
