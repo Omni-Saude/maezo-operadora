@@ -348,22 +348,24 @@ async def test_two_distinct_tasks_two_audit_rows() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Failure paths do NOT emit (T-E deferred) — only the success path audits
+# Non-guard failure paths do NOT emit — only success (T-C) and guard refusals
+# (T-E, ADR-0030 F4) audit. A plain bad-input ValueError is neither.
+# (Guard-refusal audit coverage lives in test_harness_audited_refusal.py.)
 # ---------------------------------------------------------------------------
 
 
-async def test_handler_error_does_not_emit() -> None:
+async def test_non_guard_handler_error_does_not_emit() -> None:
     transport = FakeWorkerTransport()
     sink = FakeAuditSink()
     harness = WorkerHarness(transport, worker_id="w", tenant="amh", audit_sink=sink)
 
     async def handler(task: ExternalTask) -> dict[str, Any]:
-        raise ValueError("bad input")
+        raise ValueError("bad input")  # no ERR_* guard code -> not a guard refusal
 
     harness.register("t", handler)
     await harness._handle(_task(topic="t"))
 
-    assert sink.emitted == []  # audited-refusal on failure paths is T-E, deferred
+    assert sink.emitted == []  # bad-input ValueError is not a guard refusal (T-E scopes to guards)
     assert len(transport.failures) == 1
 
 
