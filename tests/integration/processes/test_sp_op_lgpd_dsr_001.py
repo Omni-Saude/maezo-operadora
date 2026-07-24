@@ -235,32 +235,10 @@ _LGPD_MISSING_WORKER_STUB_REASON = (
     "out of scope for this port."
 )
 
-_LGPD_IDENTITY_SEMANTICS_DIVERGE_REASON = (
-    "v2 behavioral gap (finding 3, LGPD-specific identity guard — genuine, not a fixture issue): "
-    "v1's donor model resolves identidade_confirmada by echoing a pre-resolved fact, "
-    "identidade_verificada (seeded at start). v2's ValidateIdentityWorker.execute() NEVER reads "
-    "identidade_verificada at all — it derives identidade_confirmada purely from whether "
-    "titular_pseudo_id is present/non-empty. This test seeds identidade_verificada=False while "
-    "titular_pseudo_id stays non-empty (the default) expecting the 'not yet confirmed' branch "
-    "(ST_PedirProvaAdicional); v2 instead reads identity as CONFIRMED (titular_pseudo_id present) "
-    "and routes straight to BRT_RotearDsr, a materially different (weaker) verification posture. "
-    "Not silently patched: this documents the divergence rather than changing what the test "
-    "asserts. src/** fix (wiring identidade_verificada into ValidateIdentityWorker) is out of "
-    "scope for this port."
-)
-
-_LGPD_IDENTITY_UNVERIFIABLE_BOUNDARY_UNWIRED_REASON = (
-    "v2 behavioral gap (finding 4, GAP-LGPD-6 — distinct from finding 3): ValidateIdentityWorker."
-    "execute() never raises WorkerBpmnError(ERR_DSR_IDENTITY_UNVERIFIED) for the empty-titular_"
-    "pseudo_id case; it returns a plain dict with error_code as an output VALUE, never a thrown "
-    "exception. BE_IdentidadeInverificavel (the boundary event this suite's bpmn_error_allowlist "
-    "wires ERR_DSR_IDENTITY_UNVERIFIED for) can therefore never fire — GW_Identidade routes the "
-    "empty-pseudo-id case through its ordinary default 'nao confirmada' branch "
-    "(ST_PedirProvaAdicional, itself a gap-stub per finding 2), identically to the merely-not-"
-    "yet-confirmed case. End_IdentidadeInverificavel is UNREACHABLE via this worker's current "
-    "implementation. src/** fix (raising WorkerBpmnError for the empty-pseudo-id case) is out of "
-    "scope for this port."
-)
+# Finding 3 (identity semantics) and finding 4 (GAP-LGPD-6 dangling boundary) were RESOLVED in T2.8
+# (fail-closed `identidade_verificada is True` + raise-on-empty-pseudo-id + #55 R-B worker); their
+# former `_LGPD_IDENTITY_SEMANTICS_DIVERGE_REASON` / `_LGPD_IDENTITY_UNVERIFIABLE_BOUNDARY_UNWIRED_
+# REASON` strict-xfails are flipped below and now assert the fail-closed property directly.
 
 
 # ---------------------------------------------------------------------------
@@ -355,12 +333,15 @@ async def lgpd_probe(
         audit_sink=audit_sink,
     )
     kafka = FakeKafkaPublisher()
+    # register_lgpd_workers now also serves operadora.lgpd.request_additional_proof via the real
+    # #55 R-B handler (threaded `kafka`) — T2.8. Its gap-topic stub (previously registered below) is
+    # dropped so the real worker serves ST_PedirProvaAdicional (the challenge/anti eng.-social step).
     register_lgpd_workers(harness, kafka)
     # T3.1 R2: the generic operadora.events.publish worker every ST_Publish* service task in this
     # BPMN routes through — mirrors escalation's/auth's own register_phase0_workers composition.
     register_events_workers(harness, kafka)
-    # Finding 2 — gap-topic stubs (test fixture only, see module docstring + _gap_topic_stub).
-    harness.register(_PROOF_TOPIC, _gap_topic_stub)
+    # Finding 2 — gap-topic stubs (test fixture only, see module docstring + _gap_topic_stub) for the
+    # 4 BPMN topics still without a real worker (#55 R-C/R-D/R-F/R-G).
     harness.register(_COMPILE_TOPIC, _gap_topic_stub)
     harness.register(_EXECUTE_TOPIC, _gap_topic_stub)
     harness.register(_SEND_TOPIC, _gap_topic_stub)
@@ -656,7 +637,6 @@ async def test_negar_fundamentado_sem_fundamentacao_guard_estrutural(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_LGPD_IDENTITY_SEMANTICS_DIVERGE_REASON, strict=True)
 async def test_identidade_nao_confirmada_pede_prova(
     engine: EngineRest,
     lgpd_probe: LgpdEngineProbe,
@@ -681,7 +661,6 @@ async def test_identidade_nao_confirmada_pede_prova(
     lgpd_probe.assert_no_phi()
 
 
-@pytest.mark.xfail(reason=_LGPD_IDENTITY_SEMANTICS_DIVERGE_REASON, strict=True)
 async def test_prova_recebida_reverifica(
     engine: EngineRest,
     lgpd_probe: LgpdEngineProbe,
@@ -706,7 +685,6 @@ async def test_prova_recebida_reverifica(
     lgpd_probe.assert_no_phi()
 
 
-@pytest.mark.xfail(reason=_LGPD_IDENTITY_SEMANTICS_DIVERGE_REASON, strict=True)
 async def test_prova_expira_encerra_sem_vazamento(
     engine: EngineRest,
     lgpd_probe: LgpdEngineProbe,
@@ -730,7 +708,6 @@ async def test_prova_expira_encerra_sem_vazamento(
     lgpd_probe.assert_no_phi()
 
 
-@pytest.mark.xfail(reason=_LGPD_IDENTITY_UNVERIFIABLE_BOUNDARY_UNWIRED_REASON, strict=True)
 async def test_identidade_inverificavel_titular_ausente_boundary_catch(
     engine: EngineRest,
     lgpd_probe: LgpdEngineProbe,

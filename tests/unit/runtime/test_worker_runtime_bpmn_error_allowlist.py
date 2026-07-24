@@ -35,9 +35,16 @@ _TE_GATED_CODES = (
 )
 
 
-def test_production_allowlist_is_exactly_event_publish_failed() -> None:
-    # Tier-0: the ONE non-adverse technical fail-safe. Not empty (the old blocker), not more.
-    assert frozenset({"ERR_EVENT_PUBLISH_FAILED"}) == PRODUCTION_BPMN_ERROR_ALLOWLIST
+def test_production_allowlist_is_exactly_the_non_adverse_failsafes() -> None:
+    # Tier-0: the non-adverse technical fail-safes. Not empty (the old blocker), not more.
+    #   - ERR_EVENT_PUBLISH_FAILED: a publish failure routed to a retry/fallback terminal.
+    #   - ERR_DSR_IDENTITY_UNVERIFIED (T2.8): a mechanically-unverifiable LGPD titular routed to
+    #     End_IdentidadeInverificavel (a neutral terminal). Both are NON-adverse (not a denial),
+    #     so neither is T-E-gated.
+    assert (
+        frozenset({"ERR_EVENT_PUBLISH_FAILED", "ERR_DSR_IDENTITY_UNVERIFIED"})
+        == PRODUCTION_BPMN_ERROR_ALLOWLIST
+    )
 
 
 def test_te_denial_code_is_proven_but_excluded_from_production() -> None:
