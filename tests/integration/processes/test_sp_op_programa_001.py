@@ -110,13 +110,16 @@ FINDINGS (see PR body / evidence-ledger for full detail):
      unchanged, else defaults to `"alto"`, the DMN's own lowest-autonomy/always-ANALISE_HUMANA
      row) and moved into `_PROGRAMA_WORKER_TOPICS`. `proactive_contact`/`notify_sla_risk` remain
      unregistered — a separate, tracked gap, deliberately out of scope for T2.5's task brief.
-     Consequence: most xfails below remain marked (see `_PROGRAMA_MISSING_WORKER_REASON`'s updated
-     text for exactly why each one still fails — usually a compounding finding 2/3/4/5, or a
-     dependency on one of the 2 still-missing workers); exactly one
-     (`test_estratificacao_alta_roteia_para_humano_nunca_desliga`) is proven, by static BPMN/DMN
-     reading + the unit lane, to depend on NOTHING else and is unmarked separately at its own
-     definition. `test_nenhum_caminho_automatizado_desliga_clinicamente`'s PORT NOTE (below) is
-     updated to reflect that its sweep is no longer vacuous.
+     Consequence: the xfails below still marked (see `_PROGRAMA_MISSING_WORKER_REASON`'s updated
+     text for exactly why each one still fails — a compounding finding 2/3/4/5, or a dependency on
+     one of the 2 still-missing workers) are exactly those that genuinely depend on more than the
+     stratify_risk stall. LIVE-VALIDATION CORRECTION (T2.5 P2b, isolated CIB Seven stack): a live
+     engine run proved that removing the ST_StratifyRisk stall unblocks NINE tests, not one — the
+     author's static-inference claim of a single flip was too conservative. All nine
+     (test_estratificacao_alta_roteia_para_humano_nunca_desliga + the eight enumerated in
+     `_PROGRAMA_MISSING_WORKER_REASON`) are now unmarked (live-proven PASS).
+     `test_nenhum_caminho_automatizado_desliga_clinicamente`'s PORT NOTE (below) is updated to
+     reflect that its sweep is no longer vacuous.
 
   2. ROOT CAUSE (programa-specific, distinct from auth/cancel's `WorkerBpmnError` pattern):
      programa.py's guard failures can NEVER be reported to the engine as a `bpmnError` — they
@@ -339,9 +342,17 @@ _PROGRAMA_MISSING_WORKER_REASON = (
     "programa.py's dict-first functions, stratify_risk included, never call kafka.publish, so any "
     "notifications_of_type('programa.*') assertion can never observe an execution), or (d) finding "
     "5 (ST_PublishCompleted's event_payload_vars omits responsavel_clinico_id). "
-    "test_estratificacao_alta_roteia_para_humano_nunca_desliga (elsewhere in this file) is the ONE "
-    "exception: its assertions touch none of (a)-(d), so T2.5 unmarks it separately — see that "
-    "test's own comment. programa.py's OWN bootstrap docstring already self-documents the "
+    "LIVE-VALIDATION CORRECTION (T2.5 P2b, isolated CIB Seven stack — supersedes the author's "
+    "static-inference claim that only ONE test was flippable): a live engine run proved that "
+    "registering stratify_risk (removing the ST_StratifyRisk stall) unblocks NINE tests, not one. "
+    "Besides test_estratificacao_alta_roteia_para_humano_nunca_desliga, eight more were blocked "
+    "ONLY by that stall and touch none of (a)-(d): test_happy_path_enroll_humano, "
+    "test_happy_path_manter_acompanhamento, test_desligar_exige_campos_worker_guard, "
+    "test_timer_sla_estourado_coordenacao_assume, test_dmn_programa_sla_resolve_timers, "
+    "test_solicitar_info_aguarda_correlacao, test_business_key_uma_instancia_por_ciclo, "
+    "test_bridge_correlaciona_revogacao_fan_out_multiplas_instancias_do_titular — all now unmarked "
+    "(live-proven PASS). The tests STILL bearing this reason are exactly those genuinely depending "
+    "on (a)-(d). programa.py's OWN bootstrap docstring already self-documents the "
     "proactive_contact/notify_sla_risk gap as known, not fabricated here. src/** fix "
     "(implementing/registering proactive_contact/notify_sla_risk workers) is out of scope for T2.5."
 )
@@ -746,7 +757,6 @@ async def test_bridge_correlaciona_revogacao_por_correlation_keys_instancia_unic
     await _assert_no_adverse_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_PROGRAMA_MISSING_WORKER_REASON, strict=True)
 async def test_bridge_correlaciona_revogacao_fan_out_multiplas_instancias_do_titular(
     engine: EngineRest,
     programa_probe: ProgramaEngineProbe,
@@ -869,7 +879,12 @@ async def test_nenhum_caminho_automatizado_desliga_clinicamente(
     assert checked == 8, f"Esperava 8 combinacoes varridas; varri {checked}"
 
 
-# T2.5: xfail REMOVED (registry-level proof, not a live-engine run — flag for the verifier).
+# T2.5: xfail REMOVED — LIVE-CONFIRMED (T2.5 P2b, isolated CIB Seven stack): ST_StratifyRisk
+# completed canceled=False and the instance reached UT_DecisaoClinica (candidateGroups
+# coordenacao-clinica/equipe-cuidado) with NO adverse end — never auto-desliga. The author's
+# original static-inference flip is corroborated by a real engine run (and eight sibling tests,
+# also blocked only by the stratify_risk stall, were flipped alongside it — see
+# _PROGRAMA_MISSING_WORKER_REASON).
 # Reasoning: this test's ONLY prior blocker was finding 1's stratify_risk gap
 # (_PROGRAMA_MISSING_WORKER_REASON) — its path is Start_Cuidado -> ST_StratifyRisk (NOW
 # registered) -> ST_BuildCarePlan (already registered) -> BRT_Routing/BRT_Sla (engine-inline DMN
@@ -1001,7 +1016,6 @@ async def test_happy_path_desligamento_clinico_humano(
     assert programa_probe.has_event(_PROGRAMA_COMPLETED, desfecho="desligamento_clinico_humano")
 
 
-@pytest.mark.xfail(reason=_PROGRAMA_MISSING_WORKER_REASON, strict=True)
 async def test_happy_path_enroll_humano(
     engine: EngineRest,
     programa_probe: ProgramaEngineProbe,
@@ -1027,7 +1041,6 @@ async def test_happy_path_enroll_humano(
     )
 
 
-@pytest.mark.xfail(reason=_PROGRAMA_MISSING_WORKER_REASON, strict=True)
 async def test_happy_path_manter_acompanhamento(
     engine: EngineRest,
     programa_probe: ProgramaEngineProbe,
@@ -1057,7 +1070,6 @@ async def test_happy_path_manter_acompanhamento(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_PROGRAMA_MISSING_WORKER_REASON, strict=True)
 async def test_desligar_exige_campos_worker_guard(
     engine: EngineRest,
     programa_probe: ProgramaEngineProbe,
@@ -1114,7 +1126,6 @@ async def test_timer_alerta_sla_nao_interruptivo(
     assert _UT_DECISAO in open_keys, "Timer nao-interruptivo nao deve cancelar a User Task"
 
 
-@pytest.mark.xfail(reason=_PROGRAMA_MISSING_WORKER_REASON, strict=True)
 async def test_timer_sla_estourado_coordenacao_assume(
     engine: EngineRest,
     programa_probe: ProgramaEngineProbe,
@@ -1183,7 +1194,6 @@ async def test_coordenacao_assume_e_desliga(
     assert programa_probe.has_event(_PROGRAMA_COMPLETED, desfecho="desligamento_clinico_humano")
 
 
-@pytest.mark.xfail(reason=_PROGRAMA_MISSING_WORKER_REASON, strict=True)
 async def test_dmn_programa_sla_resolve_timers(
     engine: EngineRest,
     programa_probe: ProgramaEngineProbe,
@@ -1210,7 +1220,6 @@ async def test_dmn_programa_sla_resolve_timers(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_PROGRAMA_MISSING_WORKER_REASON, strict=True)
 async def test_solicitar_info_aguarda_correlacao(
     engine: EngineRest,
     programa_probe: ProgramaEngineProbe,
@@ -1342,7 +1351,6 @@ def test_programa_bpmn_desligamento_so_apos_user_task() -> None:
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_PROGRAMA_MISSING_WORKER_REASON, strict=True)
 async def test_business_key_uma_instancia_por_ciclo(
     engine: EngineRest,
     programa_probe: ProgramaEngineProbe,
