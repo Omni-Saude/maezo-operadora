@@ -17,10 +17,13 @@ Dados sempre sinteticos (`Paciente Teste 001`, tenant `amh`, `PSEUDO-TESTE-001`)
 
 PORT NOTES (fixture adaptation only — port rule 1; logic/assertions below are verbatim):
   - import paths: `maezo.tools.workers.escalation.register_escalation_workers` (v2's escalation
-    family folds the donor's `phase0.register_phase0_workers` role — the generic 3 WorkerBase
-    classes NotifyTeamWorker/NotifyFallbackWorker/NotifySupervisorWorker — under
-    `register_escalation_workers`; `FakeKafkaPublisher` moved to `maezo.tools.workers.harness`
-    per T1.1, both preserved fixture surfaces, design §16.1).
+    family folds the donor's `phase0.register_phase0_workers` role — the generic WorkerBase
+    classes NotifyTeamWorker/NotifySupervisorWorker — under `register_escalation_workers`;
+    `FakeKafkaPublisher` moved to `maezo.tools.workers.harness` per T1.1, both preserved fixture
+    surfaces, design §16.1). t2.5-p2b-round2 removed the dead `NotifyFallbackWorker` (topic
+    `operadora.escalation.notify_fallback` had no matching `camunda:topic` anywhere in
+    spec/ — `ST_NotificarFallback` actually declares `notify_supervisor`, now served by
+    `NotifySupervisorWorker`); `_WORKER_TOPICS` below already excluded `notify_fallback`.
   - artifact paths -> `spec/processes/{bpmn,dmn}/**` (deploy via `engine.deploy`, constraint 5).
   - the donor kept this family's fixture quartet in a dedicated `conftest.py` (this file imported
     `from .conftest import EngineProbe`); ported here as a SELF-CONTAINED module (matching the
