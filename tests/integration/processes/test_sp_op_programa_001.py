@@ -104,6 +104,20 @@ FINDINGS (see PR body / evidence-ledger for full detail):
      (implementing/registering `stratify_risk`/`proactive_contact`/`notify_sla_risk` workers) is
      out of scope for this port.
 
+     T2.5 UPDATE (partial fix, this is not a rewrite of the above history): `operadora.programa.
+     stratify_risk` is now implemented and registered (programa.py's `stratify_risk` — a
+     fail-closed `care.stratify` delegation stub; echoes a pre-resolved, valid risk band
+     unchanged, else defaults to `"alto"`, the DMN's own lowest-autonomy/always-ANALISE_HUMANA
+     row) and moved into `_PROGRAMA_WORKER_TOPICS`. `proactive_contact`/`notify_sla_risk` remain
+     unregistered — a separate, tracked gap, deliberately out of scope for T2.5's task brief.
+     Consequence: most xfails below remain marked (see `_PROGRAMA_MISSING_WORKER_REASON`'s updated
+     text for exactly why each one still fails — usually a compounding finding 2/3/4/5, or a
+     dependency on one of the 2 still-missing workers); exactly one
+     (`test_estratificacao_alta_roteia_para_humano_nunca_desliga`) is proven, by static BPMN/DMN
+     reading + the unit lane, to depend on NOTHING else and is unmarked separately at its own
+     definition. `test_nenhum_caminho_automatizado_desliga_clinicamente`'s PORT NOTE (below) is
+     updated to reflect that its sweep is no longer vacuous.
+
   2. ROOT CAUSE (programa-specific, distinct from auth/cancel's `WorkerBpmnError` pattern):
      programa.py's guard failures can NEVER be reported to the engine as a `bpmnError` — they
      always demote straight to an engine incident, bypassing the BPMN's OWN declared boundary
@@ -222,9 +236,13 @@ _DMN_ROUTING = _REPO / "spec/processes/dmn/programa_routing.dmn"
 _DMN_SLA = _REPO / "spec/processes/dmn/programa_sla.dmn"
 
 # External task topics do contrato SP-OP-PROGRAMA-001, REGISTRADOS de fato por
-# `register_programa_workers` (programa.py:227-241) + o publisher generico (finding 3).
+# `register_programa_workers` (programa.py) + o publisher generico (finding 3).
+# T2.5 UPDATE: `operadora.programa.stratify_risk` (finding 1's FIRST/blocking gap) is now
+# registered (programa.py's `stratify_risk` — a fail-closed delegation stub; see its own
+# docstring) and moved from the "UNREGISTERED" block below into this list.
 _PUBLISH_TOPIC = "operadora.events.publish"
 _CHECK_CONSENT_TOPIC = "operadora.programa.check_consent"
+_STRATIFY_RISK_TOPIC = "operadora.programa.stratify_risk"  # ST_StratifyRisk, BPMN:153 — T2.5, FIXED
 _BUILD_CARE_PLAN_TOPIC = "operadora.programa.build_care_plan"
 _MONITOR_PROGRAMA_TOPIC = "operadora.programa.monitor_programa"  # orfao (sem topico BPMN correspondente)
 _REGISTER_DISCHARGE_TOPIC = "operadora.programa.register_program_discharge"
@@ -233,6 +251,7 @@ _STOP_PROCESSING_TOPIC = "operadora.programa.stop_processing"
 _PROGRAMA_WORKER_TOPICS = [
     _PUBLISH_TOPIC,
     _CHECK_CONSENT_TOPIC,
+    _STRATIFY_RISK_TOPIC,
     _BUILD_CARE_PLAN_TOPIC,
     _MONITOR_PROGRAMA_TOPIC,
     _REGISTER_DISCHARGE_TOPIC,
@@ -240,9 +259,10 @@ _PROGRAMA_WORKER_TOPICS = [
 ]
 
 # BPMN-declared `operadora.programa.*` topicos SEM worker registrado (finding 1 — registry drift em
-# programa.py, nao neste port). Deliberadamente FORA de `_PROGRAMA_WORKER_TOPICS`/drain(): ver
-# module docstring. Mantidos aqui so para documentar os nomes exatos citados nos xfail reasons.
-_STRATIFY_TOPIC_UNREGISTERED = "operadora.programa.stratify_risk"  # ST_StratifyRisk, BPMN:153
+# programa.py, nao neste port; T2.5 fixed ONLY stratify_risk, above — these 2 remain a SEPARATE,
+# out-of-scope gap per T2.5's own task brief). Deliberadamente FORA de `_PROGRAMA_WORKER_TOPICS`/
+# drain(): ver module docstring. Mantidos aqui so para documentar os nomes exatos citados nos
+# xfail reasons.
 # ST_ProactiveContact, BPMN:191
 _PROACTIVE_CONTACT_TOPIC_UNREGISTERED = "operadora.programa.proactive_contact"
 _NOTIFY_SLA_TOPIC_UNREGISTERED = "operadora.programa.notify_sla_risk"  # ST_NotifySlaRisk, BPMN:263
@@ -302,22 +322,28 @@ _CAMPOS_DESLIGAMENTO = {
 # ---------------------------------------------------------------------------
 
 _PROGRAMA_MISSING_WORKER_REASON = (
-    "T3.1 phase-2 finding 1 (registry drift in programa.py itself, NOT this port): "
-    "register_programa_workers (programa.py:227-241) registers handlers for only 5 of the 7 "
-    "operadora.programa.* topics the BPMN declares. operadora.programa.stratify_risk "
-    "(ST_StratifyRisk, BPMN:153) has NO registered worker at all, and it is the FIRST external "
-    "task any consented instance hits inside SUB_Cuidado (immediately after the consent gate) — "
-    "so the instance stalls there, genuinely pending (not an incident: the topic is deliberately "
-    "excluded from this suite's drain() rather than routed through harness._handle's "
-    "'no handler registered' -> incident branch). Every assertion downstream of that point "
-    "(BRT_Routing's DMN evaluation, UT_DecisaoClinica, any SLA timer attached to it, any human "
-    "decision, any programa.completed fact) is therefore unreachable. operadora.programa."
-    "proactive_contact (ST_ProactiveContact, BPMN:191) and operadora.programa.notify_sla_risk "
-    "(ST_NotifySlaRisk, BPMN:263) are separately unregistered too (module docstring finding 1), "
-    "compounding the same class of gap further downstream. programa.py's OWN bootstrap docstring "
-    "(lines 220-223) already self-documents this as a known gap, not fabricated here. src/** fix "
-    "(implementing/registering stratify_risk/proactive_contact/notify_sla_risk workers) is out of "
-    "scope for this port."
+    "T3.1 phase-2 finding 1 (registry drift in programa.py itself, NOT this port) — T2.5 UPDATE: "
+    "operadora.programa.stratify_risk (ST_StratifyRisk, BPMN:153 — the FIRST external task any "
+    "consented instance hits inside SUB_Cuidado, immediately after the consent gate) now HAS a "
+    "registered worker (programa.py's stratify_risk, a fail-closed care.stratify delegation stub) "
+    "and no longer stalls the instance there. This alone does NOT flip the tests still marked with "
+    "this reason: operadora.programa.proactive_contact (ST_ProactiveContact, BPMN:191) and "
+    "operadora.programa.notify_sla_risk (ST_NotifySlaRisk, BPMN:263) remain unregistered "
+    "(out of scope for T2.5 — a separate, tracked gap), and every test below depends on at least "
+    "one of: (a) one of those 2 still-missing workers directly (e.g. any assertion reaching "
+    "ST_ProactiveContact/End_EnrollmentRealizado, or notify_sla_risk's timer-fired notification), "
+    "(b) finding 2 below (check_consent's ERR_PROGRAMA_NO_CONSENT — and, by the same mechanism, "
+    "stratify_risk's own defense-in-depth guard — reclassify to ValueError before the harness ever "
+    "sees a WorkerBpmnError, so BE_SemConsentimento's boundary catch never fires), (c) the "
+    "Kafka-producer-wiring systemic gap (module docstring finding 4 / this reason's prior text: "
+    "programa.py's dict-first functions, stratify_risk included, never call kafka.publish, so any "
+    "notifications_of_type('programa.*') assertion can never observe an execution), or (d) finding "
+    "5 (ST_PublishCompleted's event_payload_vars omits responsavel_clinico_id). "
+    "test_estratificacao_alta_roteia_para_humano_nunca_desliga (elsewhere in this file) is the ONE "
+    "exception: its assertions touch none of (a)-(d), so T2.5 unmarks it separately — see that "
+    "test's own comment. programa.py's OWN bootstrap docstring already self-documents the "
+    "proactive_contact/notify_sla_risk gap as known, not fabricated here. src/** fix "
+    "(implementing/registering proactive_contact/notify_sla_risk workers) is out of scope for T2.5."
 )
 
 _PROGRAMA_CONSENT_GUARD_NOT_BPMN_ERROR_REASON = (
@@ -797,16 +823,27 @@ async def test_nenhum_caminho_automatizado_desliga_clinicamente(
     - Invariante de historia (prova formal via history/activity-instance).
 
     PORT NOTE (honesty disclosure, NOT a weakening — every assertion below is BYTE-IDENTICAL to
-    the donor): left UNMARKED (no xfail) because it is predicted to PASS as written, but the proof
-    it delivers right now is WEAKER than intended. `operadora.programa.stratify_risk` has no
-    registered worker (`_PROGRAMA_MISSING_WORKER_REASON` above) — it is the FIRST task inside
-    `SUB_Cuidado`, reached BEFORE `BRT_Routing` (the DMN business-rule task this sweep's
-    `risco_estratificado`/`elegibilidade_criterios_atendidos` combinations are meant to drive) ever
-    evaluates. Every one of the 8 instances this sweep starts therefore stalls at `ST_StratifyRisk`
-    before `BRT_Routing` runs, so the invariant holds VACUOUSLY (no automated path reaches
-    `End_DesligamentoClinicoHumano` because NOTHING reaches it, not because each DMN branch was
-    exercised and proven safe). Flagged here so a verifier does not mistake a green run for genuine
-    DMN-branch coverage until the `stratify_risk` gap (finding 1) is fixed.
+    the donor): left UNMARKED (no xfail); predicted to PASS as written.
+
+    T2.5 UPDATE (supersedes the prior vacuous-coverage disclosure): `operadora.programa.
+    stratify_risk` now HAS a registered worker (a fail-closed delegation stub — see programa.py's
+    `stratify_risk` docstring), so this sweep's 8 instances no longer stall at `ST_StratifyRisk`
+    before `BRT_Routing` evaluates. For 6 of the 8 (`risco_estratificado` in {baixo, moderado,
+    alto}) the worker ECHOES the seeded value unchanged (pre-resolved, valid band — INSTRUI, NAO
+    DECIDE), so `BRT_Routing` genuinely evaluates against the sweep's own intended input; for the
+    remaining 2 (`indeterminado`, deliberately outside the DMN's known vocabulary) the worker
+    fails closed to `"alto"` — landing on the SAME conservative ANALISE_HUMANA destination the
+    sweep's own semantics intend for an indeterminate band, so the invariant is not weakened, just
+    reached via the worker's documented fail-closed default rather than DMN catch-all fallthrough.
+    Depth of completion still varies per branch (`build_care_plan`/`register_program_discharge`
+    are registered; `ST_ProactiveContact`/`ST_NotifySlaRisk` are NOT — out of scope for T2.5,
+    tracked separately): NAO_ELEGIVEL combos now reach a genuine `End_NaoElegivel`;
+    ANALISE_HUMANA combos now reach a genuinely-pending `UT_DecisaoClinica` (open, not completed —
+    this sweep never completes a User Task, so it never contributes to `ended`); ELEGIVEL combos
+    (moderado + criterios atendidos) still stall one step later, at the still-unregistered
+    `ST_ProactiveContact`. In every case `BRT_Routing` itself is now genuinely exercised (no longer
+    vacuous at that layer) — this note is left here, updated rather than deleted, so a verifier can
+    see exactly how the proof strengthened and what still gates full end-to-end completion.
     """
     riscos = ["baixo", "moderado", "alto", "indeterminado"]
     bools = [True, False]
@@ -832,7 +869,20 @@ async def test_nenhum_caminho_automatizado_desliga_clinicamente(
     assert checked == 8, f"Esperava 8 combinacoes varridas; varri {checked}"
 
 
-@pytest.mark.xfail(reason=_PROGRAMA_MISSING_WORKER_REASON, strict=True)
+# T2.5: xfail REMOVED (registry-level proof, not a live-engine run — flag for the verifier).
+# Reasoning: this test's ONLY prior blocker was finding 1's stratify_risk gap
+# (_PROGRAMA_MISSING_WORKER_REASON) — its path is Start_Cuidado -> ST_StratifyRisk (NOW
+# registered) -> ST_BuildCarePlan (already registered) -> BRT_Routing/BRT_Sla (engine-inline DMN
+# eval, not a worker) -> ST_PrepareDossier (build_care_plan again, already registered) ->
+# UT_DecisaoClinica (a pending REST poll, no worker needed). Unlike its neighbors sharing the same
+# reason constant, it never touches: ST_ProactiveContact/notify_sla_risk (still unregistered,
+# out of scope), the consent-guard ValueError-misrouting (finding 2 — no guard is exercised on
+# this path), any notifications_of_type()/has_event() assertion (findings 3/4's systemic Kafka gap
+# — this test asserts none), or responsavel_clinico_id (finding 5 — no discharge/completed
+# payload assertion here). Verified by reading the BPMN flow line-by-line + the unit lane's
+# stratify_risk coverage, NOT by an actual live-engine run (HARD CONSTRAINT: no docker/live engine
+# available to this agent) — a verifier with engine access should confirm this on a live run
+# before relying on it.
 async def test_estratificacao_alta_roteia_para_humano_nunca_desliga(
     engine: EngineRest,
     programa_probe: ProgramaEngineProbe,
