@@ -35,17 +35,18 @@ def test_register_default_workers_registers_all_17_modules() -> None:
     """T1.2/ADR-0026 + T3.1 R2: the daemon's bootstrap now covers all 17 worker modules (the 3
     `WorkerBase` modules T1.1 shipped + the 13 `FunctionWorker`-wrapped modules T1.2 adds + T3.1
     R2's raw-handler `events` module), closing the interim-scope note. `registry.count()` ==
-    `len(registered_topics) - 2` because TWO topics use the raw `harness.register()` path (which
-    populates `_handlers` but NOT the `WorkerRegistry`): `operadora.events.publish` (T3.1 R2) and
-    `operadora.lgpd.request_additional_proof` (#55 R-B, T2.8) — both need `ExternalTask`/async-Kafka
-    seams a dict-first `FunctionWorker` boundary does not expose. Every other module goes through
-    `WorkerHarness.register_worker` -> `WorkerRegistry.register`."""
+    `len(registered_topics) - 4` because FOUR topics use the raw `harness.register()` path (which
+    populates `_handlers` but NOT the `WorkerRegistry`): `operadora.events.publish` (T3.1 R2),
+    `operadora.lgpd.request_additional_proof` (#55 R-B, T2.8), `operadora.lgpd.send_response`
+    (#55 R-F, T2.8), and `operadora.lgpd.notify_sla_risk` (#55 R-G, T2.8) — all four need
+    `ExternalTask`/async-Kafka seams a dict-first `FunctionWorker` boundary does not expose. Every
+    other module goes through `WorkerHarness.register_worker` -> `WorkerRegistry.register`."""
     harness = WorkerHarness(FakeWorkerTransport(), worker_id="probe")
     register_default_workers(harness)
 
     assert len(ALL_WORKER_BOOTSTRAPS) == 17
     assert len(harness.registered_topics) > 90
-    assert harness.registry.count() == len(harness.registered_topics) - 2
+    assert harness.registry.count() == len(harness.registered_topics) - 4
 
 
 def test_register_default_workers_topics_match_expected_prefixes() -> None:
