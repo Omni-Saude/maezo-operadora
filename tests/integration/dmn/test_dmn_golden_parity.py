@@ -500,7 +500,8 @@ async def test_adequacao_remediation_routing_parity(
 
 
 # ---------------------------------------------------------------------------
-# lgpd_dsr_routing — lgpd.AssessRequestWorker
+# lgpd_dsr_routing — BRT_RotearDsr (native businessRuleTask; the former `lgpd.AssessRequestWorker`
+# duplicate was RETIRED, #55 R-E, T2.8 — routing is engine-side DMN evaluation only)
 # ---------------------------------------------------------------------------
 
 
