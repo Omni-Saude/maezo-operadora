@@ -106,21 +106,38 @@ already-fixed cross-family facts unless they apply):
      `check_network_criteria`, `check_prior_notice`, `notify_doc_pendente`, `prepare_dossier`
      [x2 — descred AND cred branches, SAME topic], `register_credenciamento`,
      `register_cred_denial`, `register_descredenciamento`, `notify_sla_risk`).
-     `register_credenciamento_workers` (credenciamento.py:301-325) registers only 5 of these —
-     `verify_credentials` -> `validate_cred`, `check_network_criteria` -> `assess_admissibility`,
+     **UPDATE (T2.5-p2b, this task's own follow-up build):** `register_credenciamento_workers`
+     (credenciamento.py) now registers 8 of these 9 — the original port snapshot's 5
+     (`verify_credentials` -> `validate_cred`, `check_network_criteria` -> `assess_admissibility`,
      `check_prior_notice` -> `notify_prestador`, `register_descredenciamento`, `register_cred_
-     denial`. The remaining 4 — `notify_doc_pendente`, `prepare_dossier`, `register_
-     credenciamento`, `notify_sla_risk` — have NO implementing function anywhere in the module;
-     this is EXPLICITLY documented in-source (credenciamento.py:296-297: "Spec topics with NO
-     implementing function today (gap, not fabricated here): register_credenciamento,
-     notify_doc_pendente, prepare_dossier, notify_sla_risk."). Because `ST_PrepareDossierDescred`
-     AND `ST_PrepareDossierCred` (BPMN lines 303-309, 498-503) BOTH route through the SAME
-     unimplemented `operadora.cred.prepare_dossier` topic, and BOTH sit immediately upstream of
-     `UT_AnaliseDescredenciamento`/`UT_AnaliseCredenciamento` (the ONLY two entry points into the
-     human-decision branches), essentially EVERY donor test that needs to reach either User Task
-     is blocked — the instance simply stalls at the dossier step forever (the topic is not even
-     in `_CRED_WORKER_TOPICS`'s drain subscription, so the task is never fetched, never errors,
-     just sits open). `_CRED_MISSING_WORKERS_REASON` below.
+     denial`) PLUS 3 newly-built neutral/notify-only workers: `notify_doc_pendente` (fail-safe,
+     never denies — PENDENTE_DOCUMENTACAO branch), `register_credenciamento` (EXCECAO CLERICAL —
+     the favorable/neutral direction, no human-gate by BPMN design), `notify_sla_risk`
+     (informational, non-interruptive, shared by both directions' boundary timers). Mechanically
+     built + wired (`_CRED_WORKER_TOPICS` synced below, mirrors the #93/#94 inadimplencia
+     precedent — `d27264e`); **NOT live-proven** — no docker/live-engine run was performed to
+     build this (HARD CONSTRAINT). Only `operadora.cred.prepare_dossier` remains genuinely
+     unimplemented (Carolina A2A integration, separately gated, explicitly out of scope for
+     T2.5-p2b) — `ST_PrepareDossierDescred` AND `ST_PrepareDossierCred` (BPMN lines 303-309,
+     498-503) BOTH route through this SAME unimplemented topic, and BOTH sit immediately upstream
+     of `UT_AnaliseDescredenciamento`/`UT_AnaliseCredenciamento` (the ONLY two entry points into
+     the human-decision branches) — so every test that needs to reach either User Task via the
+     descredenciamento branch (which ALWAYS passes through `ST_PrepareDossierDescred`) remains
+     blocked on this ONE residual topic; the instance still stalls at the dossier step (not in
+     `_CRED_WORKER_TOPICS`'s drain subscription by design — see the module-level topic
+     constants). `_CRED_MISSING_WORKERS_REASON` below reflects this narrowed, single-topic gap.
+     A SEPARATE, PRE-EXISTING gap (finding 5 below, unaffected by this task): NONE of the 8 now-
+     registered `operadora.cred.*` functions (the original 5 OR the 3 built here) calls
+     `kafka.publish` for the `operadora.notifications.internal` "type"-tagged notification
+     convention several assertions in this file rely on (e.g.
+     `cred_probe.notifications_of_type("cred.register_credenciamento")`,
+     `cred_probe.notifications_of_type("cred.notify_doc_pendente")`) — this module's dict-first,
+     synchronous functions mirror the SAME "not fabricated here" convention documented across
+     `ans_submit.py`/`cancel.py`/`contas.py`/`reembolso.py`/`nip.py`/`recurso.py`/
+     `inadimplencia.py` (a genuine `kafka.publish` fan-out needs an async seam distinct from these
+     sync entry points). Tests that assert on `notifications_of_type(...)` therefore remain
+     blocked even where the underlying worker-registration gap is now closed — see the
+     per-test notes below and the flip-candidate disclosure in the companion commit.
   2. `documentacao_completa`/`licenca_valida` OVERWRITE BUG (credenciamento-direction-specific):
      `validate_cred` (credenciamento.py:43-65, the `operadora.cred.verify_credentials` worker fn)
      computes `licenca_valida = True` UNCONDITIONALLY (line 52, "placeholder — real: query
@@ -138,10 +155,15 @@ already-fixed cross-family facts unless they apply):
      lines 80-90) BEFORE `r_cred_clerical`/`r_cred_humano` — so EVERY credenciamento-direction,
      non-indicio test (which seeds `documentacao_completa=True`/`licenca_valida={True,False}` to
      reach `CLERICAL_CREDENCIAR`/`ANALISE_HUMANA`) instead ALWAYS reroutes to
-     `PENDENTE_DOCUMENTACAO` once `verify_credentials` completes — which is itself gated by the
-     missing `notify_doc_pendente` worker (finding 1). `_CRED_DOC_COMPLETA_OVERWRITE_REASON`
-     below. (Descredenciamento-direction tests are UNAFFECTED: `r_descred_segue`, line 69-79,
-     matches on `direcao` alone.)
+     `PENDENTE_DOCUMENTACAO` once `verify_credentials` completes. **UPDATE (T2.5-p2b):**
+     `notify_doc_pendente` is now registered (finding 1 closed for this topic specifically) — the
+     instance no longer stalls unserved at `ST_NotifyDocPendente`, but this finding's OWN root
+     cause (the overwrite bug itself) is untouched and remains the independent blocker for every
+     test tagged `_CRED_DOC_COMPLETA_OVERWRITE_REASON` below: the rerouted instance now correctly
+     reaches `ICE_AguardarInfoDoc` and waits there for `msg.cred.info_received` (never sent by
+     these tests), so it still never reaches the `ANALISE_HUMANA`/`CLERICAL_CREDENCIAR` branch the
+     test expects. (Descredenciamento-direction tests are UNAFFECTED: `r_descred_segue`, line
+     69-79, matches on `direcao` alone.)
   3. `ERR_CRED_INVALID_PRESTADOR` NEVER RAISED: the constant is declared
      (credenciamento.py:29) and the BPMN declares a matching boundary catch
      (`BE_PrestadorInvalido` / `Error_CredPrestadorInvalido`, BPMN lines 129-136), but
@@ -168,13 +190,25 @@ already-fixed cross-family facts unless they apply):
      (`prepare_dossier` missing, so the instance never even reaches the UT to submit the
      incomplete decision) — finding 4 is the SECOND, independent blocker that would remain even
      after finding 1 is fixed. `_CRED_GUARD_SHAPE_MISMATCH_REASON` below.
-  5. Kafka-publish gap (Step 3 systemic fact #1) — VERIFIED N/A as an independent blocker here:
-     `grep -rn "kafka[.]publish(" src/maezo/tools/workers/credenciamento.py` returns zero hits
-     (consistent with `register_credenciamento_workers`'s own `del kafka  # unused —
-     no credenciamento.py worker declares a Kafka dependency`, credenciamento.py:312). Unlike
-     auth/cancel/escalation, no donor cred test fails ONLY on this gap after everything else
-     works — every test that would exercise a credenciamento-specific
-     `notifications_of_type(...)` assertion is already blocked earlier by findings 1-4 above.
+  5. Kafka-publish gap (Step 3 systemic fact #1) — was VERIFIED N/A as an INDEPENDENT blocker at
+     port-authoring time: `grep -rn "kafka[.]publish(" src/maezo/tools/workers/credenciamento.py`
+     returned zero hits (consistent with `register_credenciamento_workers`'s own `del kafka  #
+     unused — no credenciamento.py worker declares a Kafka dependency`), and every test that would
+     exercise a credenciamento-specific `notifications_of_type(...)` assertion was already blocked
+     earlier by findings 1-4. **UPDATE (T2.5-p2b):** this gap is now the FIRST-ORDER blocker for
+     `test_documentacao_incompleta_pendente_nunca_nega` specifically (finding 1's
+     `notify_doc_pendente` registration gap is closed AND finding 2's overwrite bug happens to be
+     a no-op for that one test's exact seed values — see its own docstring update below): the
+     assertion `cred_probe.notifications_of_type("cred.notify_doc_pendente")` still returns `[]`
+     because `notify_doc_pendente` (like every other function in this dict-first, synchronous
+     module — the original 5 AND the 3 built by T2.5-p2b) does not itself call `kafka.publish`
+     (mirrors the SAME documented "not fabricated here" convention as `ans_submit.py`/`cancel.py`/
+     `contas.py`/`reembolso.py`/`nip.py`/`recurso.py`/`inadimplencia.py` — a genuine fan-out needs
+     an async seam distinct from these sync entry points; not fabricated here either). This gap
+     remains latent (not newly introduced) for every OTHER `notifications_of_type(...)` assertion
+     in this file (`cred.register_credenciamento`, `cred.register_descredenciamento`,
+     `cred.register_cred_denial`) — those tests remain blocked by findings 1/2/4 first regardless,
+     so this gap stays undetectable for them until those are ALSO fixed.
   6. D-07 (`CeilingResolver`) — VERIFIED N/A: `grep -n "CeilingResolver" src/maezo/tools/workers/
      credenciamento.py` returns zero hits. Only auth.py/pagto.py/reembolso.py import it.
   7. `notification_bridge.py`'s FRAUDE->CRED rule — VERIFIED N/A for this file: the donor's own
@@ -224,33 +258,41 @@ _DMN_PRIOR_NOTICE = _REPO / "spec/processes/dmn/cred_prior_notice.dmn"
 _DMN_SLA = _REPO / "spec/processes/dmn/cred_sla.dmn"
 
 # External task topics do contrato SP-OP-CRED-001 — 9 declarados no BPMN (grep
-# camunda:topic="operadora.cred.*"), dos quais SOMENTE 5 tem worker registrado (finding 1).
+# camunda:topic="operadora.cred.*"). T2.5-p2b (this port's follow-up task) BUILT 3 of the
+# original 4 missing workers (notify_doc_pendente / register_credenciamento / notify_sla_risk) —
+# SOMENTE operadora.cred.prepare_dossier permanece sem worker registrado (Carolina A2A
+# integration, separately gated, genuinely out of scope for T2.5-p2b — module bootstrap
+# docstring documents this explicitly; NOT fabricated here either).
 _PUBLISH_TOPIC = "operadora.events.publish"
 _VERIFY_CRED_TOPIC = "operadora.cred.verify_credentials"
 _CHECK_NETWORK_TOPIC = "operadora.cred.check_network_criteria"
 _CHECK_PRIOR_NOTICE_TOPIC = "operadora.cred.check_prior_notice"
+_NOTIFY_DOC_TOPIC = "operadora.cred.notify_doc_pendente"  # registrado desde T2.5-p2b
 _REGISTER_DESCRED_TOPIC = "operadora.cred.register_descredenciamento"
 _REGISTER_DENIAL_TOPIC = "operadora.cred.register_cred_denial"
+_REGISTER_CREDENCIAMENTO_TOPIC = "operadora.cred.register_credenciamento"  # registrado desde T2.5-p2b
+_NOTIFY_SLA_TOPIC = "operadora.cred.notify_sla_risk"  # registrado desde T2.5-p2b
 
-# Declarados no BPMN, SEM worker registrado em `register_credenciamento_workers`
-# (credenciamento.py:296-297, "gap, not fabricated here") — NAO incluidos no drain: o drain so
-# deve poll topicos com handler real (poll-los sem handler so mudaria o SINTOMA do stall, nao o
-# resultado). Mantidos aqui, documentados, para o finding 1 e para os textos de xfail abaixo.
-_NOTIFY_DOC_TOPIC = "operadora.cred.notify_doc_pendente"  # NAO registrado (finding 1)
-_PREPARE_DOSSIER_TOPIC = "operadora.cred.prepare_dossier"  # NAO registrado (finding 1)
-_REGISTER_CREDENCIAMENTO_TOPIC = "operadora.cred.register_credenciamento"  # NAO registrado (finding 1)
-_NOTIFY_SLA_TOPIC = "operadora.cred.notify_sla_risk"  # NAO registrado (finding 1)
+# Declarado no BPMN, SEM worker registrado em `register_credenciamento_workers`
+# (credenciamento.py bootstrap docstring, "Carolina A2A integration, separately gated") — NAO
+# incluido no drain: o drain so deve poll topicos com handler real (poll-lo sem handler so
+# mudaria o SINTOMA do stall, nao o resultado). Mantido aqui, documentado, para o finding 1
+# residual e para os textos de xfail abaixo.
+_PREPARE_DOSSIER_TOPIC = "operadora.cred.prepare_dossier"  # NAO registrado (out of scope T2.5-p2b)
 
 # Topicos servidos pelos workers REAIS registrados no harness (drain generico) — espelha 1:1 o
-# que `register_credenciamento_workers` de fato registra (credenciamento.py:301-325) + o
+# que `register_credenciamento_workers` de fato registra (credenciamento.py, T2.5-p2b) + o
 # `operadora.events.publish` generico (register_events_workers).
 _CRED_WORKER_TOPICS = [
     _PUBLISH_TOPIC,
     _VERIFY_CRED_TOPIC,
     _CHECK_NETWORK_TOPIC,
     _CHECK_PRIOR_NOTICE_TOPIC,
+    _NOTIFY_DOC_TOPIC,  # T2.5-p2b sync
     _REGISTER_DESCRED_TOPIC,
     _REGISTER_DENIAL_TOPIC,
+    _REGISTER_CREDENCIAMENTO_TOPIC,  # T2.5-p2b sync
+    _NOTIFY_SLA_TOPIC,  # T2.5-p2b sync
 ]
 
 # Topico interno de notificacoes (harness.py FakeKafkaPublisher convention)
@@ -308,17 +350,20 @@ _CAMPOS_DENIAL = {
 # ---------------------------------------------------------------------------
 
 _CRED_MISSING_WORKERS_REASON = (
-    "REGISTRY DRIFT (finding 1, T3.1 phase-2 port): the BPMN declares 9 operadora.cred.* "
-    "topics; register_credenciamento_workers (credenciamento.py:301-325) registers only 5 — "
-    "notify_doc_pendente / prepare_dossier / register_credenciamento / notify_sla_risk have NO "
-    "implementing function (credenciamento.py:296-297 documents this in-source: 'gap, not "
-    "fabricated here'). ST_PrepareDossierDescred AND ST_PrepareDossierCred (BPMN lines 303-309, "
-    "498-503) both route through the unimplemented operadora.cred.prepare_dossier topic and both "
-    "sit immediately upstream of UT_AnaliseDescredenciamento/UT_AnaliseCredenciamento — the ONLY "
-    "two human-decision entry points — so this test's instance stalls before ever reaching the "
-    "User Task it needs. Not fabricated: the topic is simply absent from _CRED_WORKER_TOPICS "
-    "because no worker serves it. src/** fix (implementing the 4 missing functions) is out of "
-    "scope for this port."
+    "REGISTRY DRIFT (finding 1, T3.1 phase-2 port) — NARROWED by T2.5-p2b: the BPMN declares 9 "
+    "operadora.cred.* topics; register_credenciamento_workers (credenciamento.py) originally "
+    "registered only 5. notify_doc_pendente / register_credenciamento / notify_sla_risk are now "
+    "BUILT and registered (T2.5-p2b, mechanical worker-registry reconciliation) — PENDING "
+    "LIVE-PROOF FLIP (no docker/live-engine run was performed to build them; this reason text is "
+    "updated, the xfail mark/strict is NOT flipped without that proof). Only "
+    "operadora.cred.prepare_dossier remains genuinely unimplemented (Carolina A2A integration, "
+    "separately gated, explicitly out of scope for T2.5-p2b). ST_PrepareDossierDescred AND "
+    "ST_PrepareDossierCred (BPMN lines 303-309, 498-503) both route through this SAME "
+    "unimplemented topic and both sit immediately upstream of "
+    "UT_AnaliseDescredenciamento/UT_AnaliseCredenciamento — the ONLY two human-decision entry "
+    "points — so any test that needs to reach either User Task still stalls before getting there. "
+    "Not fabricated: the topic is simply absent from _CRED_WORKER_TOPICS because no worker serves "
+    "it. src/** fix (implementing prepare_dossier, Carolina A2A) is out of scope for T2.5-p2b."
 )
 
 _CRED_DOC_COMPLETA_OVERWRITE_REASON = (
@@ -334,8 +379,11 @@ _CRED_DOC_COMPLETA_OVERWRITE_REASON = (
     "cred_admissibility.dmn's hitPolicy=FIRST table checks r_cred_doc_pendente (documentacao_"
     "completa=false, cred_admissibility.dmn lines 80-90) BEFORE r_cred_clerical/r_cred_humano, so "
     "every credenciamento-direction (non-indicio) scenario in this test reroutes to "
-    "PENDENTE_DOCUMENTACAO instead of the intended branch — itself ALSO blocked by the missing "
-    "notify_doc_pendente worker (_CRED_MISSING_WORKERS_REASON). Descredenciamento-direction tests "
+    "PENDENTE_DOCUMENTACAO instead of the intended branch. UPDATE (T2.5-p2b): notify_doc_pendente "
+    "is now BUILT and registered — PENDING LIVE-PROOF FLIP — so the rerouted instance no longer "
+    "stalls unserved; instead it correctly reaches ICE_AguardarInfoDoc and waits there for "
+    "msg.cred.info_received (never sent by this test), so THIS finding (the overwrite bug itself) "
+    "remains the independent, still-unfixed blocker regardless. Descredenciamento-direction tests "
     "are unaffected (r_descred_segue matches on direcao alone). src/** fix (either typing "
     "documentos_refs as Json, or having validate_cred stop clobbering an already-resolved fact) "
     "is out of scope for this port."
@@ -348,7 +396,10 @@ _CRED_INVALID_PRESTADOR_NOT_RAISED_REASON = (
     "credenciamento.py for this code returns only the declaration — zero raise-sites. "
     "validate_cred never inspects prestador_id at all. End_CredPrestadorInvalido is categorically "
     "unreachable via any worker path; this is independent of and precedes every other finding in "
-    "this suite (it would apply even with prepare_dossier/notify_doc_pendente implemented). "
+    "this suite (it would apply even with prepare_dossier implemented — notify_doc_pendente IS "
+    "implemented as of T2.5-p2b, which does not change this finding: this test never reaches "
+    "notify_doc_pendente at all, since ST_VerifyCredentials — the very first service task after "
+    "start — is where the missing raise-site would need to be). "
     "src/** fix (adding the presence check + raise) is out of scope for this port."
 )
 
@@ -453,8 +504,9 @@ async def cred_probe(
     register_events_workers(harness, kafka)
     # DRIFT GUARD (mirrors test_sp_op_cancel_001.py's cancel_probe fixture, verbatim technique):
     # todo topico operadora.cred.* registrado no harness DEVE estar na lista de drain — falha
-    # AQUI, explicita, se um worker novo ficar fora. Passa NATURALMENTE hoje (1:1 com os 5
-    # topicos que register_credenciamento_workers de fato registra — finding 1).
+    # AQUI, explicita, se um worker novo ficar fora. Passa NATURALMENTE hoje (1:1 com os 8
+    # topicos que register_credenciamento_workers de fato registra desde T2.5-p2b — finding 1
+    # narrowed to the single remaining operadora.cred.prepare_dossier gap).
     cred_registered = {t for t in harness.registered_topics if t.startswith("operadora.cred.")}
     missing_from_drain = cred_registered - set(_CRED_WORKER_TOPICS)
     assert not missing_from_drain, (
@@ -710,10 +762,16 @@ async def test_happy_path_credenciamento_clerical_neutro(
     (credenciado); fim End_PrestadorCredenciado; NENHUMA User Task adversa criada (direcao favoravel).
     register_cred_denial / register_descredenciamento NUNCA invocados.
 
-    Doubly-blocked: the documentacao_completa overwrite bug reroutes this test to PENDENTE_
-    DOCUMENTACAO before it can ever reach CLERICAL_CREDENCIAR; independently, operadora.cred.
-    register_credenciamento (the CLERICAL_CREDENCIAR target) also has no registered worker
-    (_CRED_MISSING_WORKERS_REASON) — either gap alone would block this test.
+    UPDATE (T2.5-p2b): operadora.cred.register_credenciamento is now BUILT and registered — the
+    registry-drift half of this test's original "doubly-blocked" framing is closed. The
+    documentacao_completa overwrite bug (finding 2) remains the PRIMARY, still-unfixed blocker
+    (reroutes this test to PENDENTE_DOCUMENTACAO before it can ever reach CLERICAL_CREDENCIAR).
+    Even if finding 2 were also fixed, this test's final assertion
+    (`cred_probe.notifications_of_type("cred.register_credenciamento")`) would STILL fail on
+    finding 5 (Kafka-publish gap): register_credenciamento does not itself kafka.publish a
+    "cred.register_credenciamento"-typed internal notification (the two has_event(...) assertions
+    above it DO go through the generic, already-wired operadora.events.publish worker and would
+    pass). PENDING LIVE-PROOF FLIP.
     """
     inst = await start_cred(
         direcao="credenciamento",
@@ -1106,6 +1164,18 @@ async def test_documentacao_incompleta_pendente_nunca_nega(
     """credenciamento + documentacao_completa=false => PENDENTE_DOCUMENTACAO; notify_doc_pendente; pended.
 
     A documentacao incompleta NUNCA produz negativa automatica: a instancia aguarda a documentacao.
+
+    UPDATE (T2.5-p2b): notify_doc_pendente is now BUILT and registered, and this test's seeded
+    documentacao_completa=False survives the finding-2 overwrite bug unchanged (it does not need
+    ANY UT, so it is the CLOSEST of this file's xfails to a genuine live flip). It remains xfail
+    ONLY on finding 5 (Kafka-publish gap, module docstring): notify_doc_pendente does not itself
+    kafka.publish an `agents.events.cred.pended` domain event or a `cred.notify_doc_pendente`-
+    typed internal notification (mirrors the SAME "not fabricated here" convention documented for
+    the other 5 dict-first cred functions and 7+ sibling modules) — both
+    `cred_probe.notifications_of_type("cred.notify_doc_pendente")` and
+    `cred_probe.has_event(_CRED_PENDED)` below will still return empty. PENDING LIVE-PROOF FLIP —
+    do not flip without also resolving finding 5 (a genuine kafka.publish fan-out, out of scope
+    for T2.5-p2b's mechanical worker build) or adjusting these two assertions.
     """
     inst = await start_cred(
         direcao="credenciamento",
@@ -1271,7 +1341,15 @@ async def test_timer_alerta_sla_nao_interruptivo(
     cred_probe: CredEngineProbe,
     start_cred: Callable[..., Any],
 ) -> None:
-    """Timer BT_AlertaSlaDescred (nao-interruptivo): notify_sla_risk recebe task; UT segue aberta."""
+    """Timer BT_AlertaSlaDescred (nao-interruptivo): notify_sla_risk recebe task; UT segue aberta.
+
+    UPDATE (T2.5-p2b): notify_sla_risk is now BUILT and registered, but this test still never
+    reaches it — `_drive_to_descred` stalls at `ST_PrepareDossierDescred` first (prepare_dossier,
+    out of scope). Once that is fixed, the `notifications_of_type("cred.notify_sla_risk")`
+    assertion below would ALSO need finding 5 (Kafka-publish gap) resolved — notify_sla_risk does
+    not itself kafka.publish a "cred.notify_sla_risk"-typed internal notification either (same
+    "not fabricated here" convention as every other function in this module).
+    """
     inst = await start_cred(direcao="descredenciamento", tem_beneficiarios_vinculados=False)
     iid = inst["id"]
 

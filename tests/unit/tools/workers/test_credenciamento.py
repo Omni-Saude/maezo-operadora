@@ -7,16 +7,22 @@ import pytest
 
 from maezo.tools.workers.credenciamento import (
     ERR_CRED_DENIAL_NOT_HUMAN,
+    ERR_CRED_REGISTER_INVALID,
     ERR_DECRED_NOT_HUMAN,
     CredError,
     assess_admissibility,
+    notify_doc_pendente,
     notify_prestador,
+    notify_sla_risk,
     register_cred_denial,
+    register_credenciamento,
+    register_credenciamento_workers,
     register_decred,
     register_descredenciamento,
     validate_cred,
 )
 from maezo.tools.workers.dmn_transport import DmnEvaluationError, FakeDmnTransport
+from maezo.tools.workers.harness import FakeKafkaPublisher, FakeWorkerTransport, WorkerHarness
 
 
 def _cred_admissibility_only_fake(*, roteamento: str, motivo: str = "") -> FakeDmnTransport:
@@ -184,6 +190,57 @@ def test_notify_prestador() -> None:
 
 
 # ---------------------------------------------------------------
+# notify_doc_pendente — NEUTRAL (never a denial)
+# ---------------------------------------------------------------
+
+
+def test_notify_doc_pendente_happy_path() -> None:
+    result = notify_doc_pendente(
+        {
+            "prestador_id": "P-003",
+            "tenant_id": "amh",
+            "direcao": "credenciamento",
+        }
+    )
+    assert result["documentacao_pendente_notificada"] is True
+    assert result["prestador_id"] == "P-003"
+
+
+def test_notify_doc_pendente_missing_fields_does_not_raise() -> None:
+    """Notify-only worker (T2.5-p2b) — fails SAFE (never raises) on missing identity, mirroring
+    the proven `notify_prestador`/`cancel.notify_sla_risk` idiom (`.get(..., default)`, no guard)."""
+    result = notify_doc_pendente({})
+    assert result["documentacao_pendente_notificada"] is True
+    assert result["prestador_id"] == ""
+
+
+# ---------------------------------------------------------------
+# notify_sla_risk — NEUTRAL (informational, non-interruptive)
+# ---------------------------------------------------------------
+
+
+def test_notify_sla_risk_happy_path() -> None:
+    result = notify_sla_risk(
+        {
+            "prestador_id": "P-004",
+            "tenant_id": "amh",
+            "direcao": "descredenciamento",
+        }
+    )
+    assert result["sla_risk_notified"] is True
+    assert result["grupo_alertado"] == "coordenacao-rede"
+    assert result["prestador_id"] == "P-004"
+
+
+def test_notify_sla_risk_missing_fields_does_not_raise() -> None:
+    """Mirrors `cancel.notify_sla_risk`/`inadimplencia.notify_sla_risk`/
+    `auth.NotifySlaRiskWorker` — informational only, never raises, never alters a decision."""
+    result = notify_sla_risk({})
+    assert result["sla_risk_notified"] is True
+    assert result["grupo_alertado"] == "coordenacao-rede"
+
+
+# ---------------------------------------------------------------
 # register_decred — GUARD (direcao A: descredenciamento)
 # ---------------------------------------------------------------
 
@@ -289,3 +346,111 @@ def test_cred_denial_rejects_missing_regulatoria() -> None:
             }
         )
     assert excinfo.value.code == ERR_CRED_DENIAL_NOT_HUMAN
+
+
+# ---------------------------------------------------------------
+# register_credenciamento — NEUTRAL (favorable direction; EXCECAO CLERICAL, no human-gate)
+# ---------------------------------------------------------------
+
+
+def test_register_credenciamento_happy_path_clerical() -> None:
+    """Reached via Flow_GW_ClericalCredenciar (DMN CLERICAL_CREDENCIAR) — no decisao_cred set at
+    all; this is the intentional, BPMN-documented no-human-decision path (EXCECAO CLERICAL)."""
+    result = register_credenciamento(
+        {
+            "tenant_id": "amh",
+            "prestador_id": "P-005",
+            "tipo_prestador": "clinica",
+            "data_efeito_iso": "2026-07-15",
+        }
+    )
+    assert result["credenciamento_registrado"] is True
+    assert result["network_changed"] is True
+    assert result["data_efeito_iso"] == "2026-07-15"
+
+
+def test_register_credenciamento_happy_path_human_aprovar() -> None:
+    """Reached via Flow_GWCred_Aprovar (decisao_cred == APROVAR_CREDENCIAMENTO, human) — also
+    succeeds; this worker never requires a human decision, but does not reject one either."""
+    result = register_credenciamento(
+        {
+            "tenant_id": "amh",
+            "prestador_id": "P-006",
+            "decisao_cred": "APROVAR_CREDENCIAMENTO",
+            "responsavel_id": "gestao-rede-001",
+        }
+    )
+    assert result["credenciamento_registrado"] is True
+
+
+def test_register_credenciamento_rejects_missing_tenant_id() -> None:
+    with pytest.raises(CredError) as excinfo:
+        register_credenciamento({"prestador_id": "P-007"})
+    assert excinfo.value.code == ERR_CRED_REGISTER_INVALID
+    assert "tenant_id" in excinfo.value.message
+
+
+def test_register_credenciamento_rejects_missing_prestador_id() -> None:
+    with pytest.raises(CredError) as excinfo:
+        register_credenciamento({"tenant_id": "amh"})
+    assert excinfo.value.code == ERR_CRED_REGISTER_INVALID
+    assert "prestador_id" in excinfo.value.message
+
+
+def test_register_credenciamento_rejects_empty_variables() -> None:
+    with pytest.raises(CredError) as excinfo:
+        register_credenciamento({})
+    assert excinfo.value.code == ERR_CRED_REGISTER_INVALID
+    assert "tenant_id" in excinfo.value.message
+    assert "prestador_id" in excinfo.value.message
+
+
+# ---------------------------------------------------------------------------
+# register_credenciamento_workers — registry/drift coverage (T2.5-p2b, mirrors
+# test_cancel.py's test_register_cancel_workers_matches_bpmn_topics_exactly)
+# ---------------------------------------------------------------------------
+
+# 9 operadora.cred.* topics declared in the BPMN (camunda:topic="operadora.cred.*", grepped from
+# spec/processes/bpmn/SP-OP-CRED-001_Descredenciamento.bpmn); operadora.cred.prepare_dossier is
+# DELIBERATELY excluded — Carolina A2A integration, separately gated, out of scope for T2.5-p2b
+# (module bootstrap docstring documents this; DO NOT add it here without also building it).
+_BPMN_CRED_TOPICS_MINUS_DOSSIER = frozenset(
+    {
+        "operadora.cred.verify_credentials",
+        "operadora.cred.check_network_criteria",
+        "operadora.cred.check_prior_notice",
+        "operadora.cred.notify_doc_pendente",
+        "operadora.cred.register_descredenciamento",
+        "operadora.cred.register_cred_denial",
+        "operadora.cred.register_credenciamento",
+        "operadora.cred.notify_sla_risk",
+    }
+)
+
+
+def test_register_credenciamento_workers_registers_new_topics() -> None:
+    """T2.5-p2b: register_credenciamento_workers now registers notify_doc_pendente/
+    register_credenciamento/notify_sla_risk (previously a documented gap)."""
+    harness = WorkerHarness(FakeWorkerTransport(), worker_id="test-worker")
+    register_credenciamento_workers(harness, FakeKafkaPublisher(), dmn=FakeDmnTransport())
+    assert "operadora.cred.notify_doc_pendente" in harness.registered_topics
+    assert "operadora.cred.register_credenciamento" in harness.registered_topics
+    assert "operadora.cred.notify_sla_risk" in harness.registered_topics
+
+
+def test_register_credenciamento_workers_matches_bpmn_topics_minus_prepare_dossier() -> None:
+    """Registry coverage: the registered `operadora.cred.*` topic set equals EXACTLY the 8
+    BPMN-declared topics this task builds — no orphan, and the sole remaining gap
+    (`operadora.cred.prepare_dossier`, Carolina A2A) is exactly and only that one topic."""
+    harness = WorkerHarness(FakeWorkerTransport(), worker_id="test-worker")
+    register_credenciamento_workers(harness, FakeKafkaPublisher(), dmn=FakeDmnTransport())
+    cred_topics = {t for t in harness.registered_topics if t.startswith("operadora.cred.")}
+    assert cred_topics == _BPMN_CRED_TOPICS_MINUS_DOSSIER
+
+
+def test_register_credenciamento_workers_does_not_register_prepare_dossier() -> None:
+    """prepare_dossier (Carolina A2A) is explicitly OUT OF SCOPE for T2.5-p2b — must never be
+    registered here (leave any xfail/stub referencing it untouched)."""
+    harness = WorkerHarness(FakeWorkerTransport(), worker_id="test-worker")
+    register_credenciamento_workers(harness, FakeKafkaPublisher(), dmn=FakeDmnTransport())
+    assert "operadora.cred.prepare_dossier" not in harness.registered_topics
