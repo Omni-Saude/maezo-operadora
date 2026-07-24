@@ -385,6 +385,60 @@ def test_desistencia_success() -> None:
 
 
 # ---------------------------------------------------------------------------
+# register_desistencia — auditor channel (finding 4, t3.1-recurso-findings-a)
+# ---------------------------------------------------------------------------
+
+
+def test_desistencia_guard_neither_channel() -> None:
+    """register_desistencia raises if NEITHER the analista nor the auditor channel matches."""
+    inp = RecursoDesistenciaInput(
+        decisao_recurso="",
+        decisao_auditor_recurso="",
+        justificativa_desistencia="Motivo valido",
+        valor_glosa_aceito=100.0,
+        referencia_contratual="CLAUSULA-1",
+    )
+    with pytest.raises(DesistenciaNotHumanError) as exc:
+        register_desistencia(inp)
+    assert "decisao_recurso" in str(exc.value)
+    assert "decisao_auditor_recurso" in str(exc.value)
+
+
+def test_desistencia_guard_auditor_missing_auditor_id() -> None:
+    """register_desistencia raises if the auditor channel is attempted (ACEITAR_GLOSA) but
+    auditor_id is empty — same fail-closed shape as the analista channel's missing analista_id."""
+    inp = RecursoDesistenciaInput(
+        decisao_auditor_recurso="ACEITAR_GLOSA",
+        justificativa_desistencia="Merito tecnico confirma a glosa",
+        valor_glosa_aceito=150.0,
+        referencia_contratual="Diretriz DUT",
+        auditor_id="",
+    )
+    with pytest.raises(DesistenciaNotHumanError) as exc:
+        register_desistencia(inp)
+    assert "ERR_DESISTENCIA_NOT_HUMAN" in str(exc.value)
+    assert "auditor_id" in str(exc.value)
+    assert "analista_id" not in str(exc.value), (
+        "o canal auditor foi o atacado — a mensagem nao deve reclamar de analista_id"
+    )
+
+
+def test_desistencia_success_auditor_channel() -> None:
+    """register_desistencia succeeds via the auditor channel (ACEITAR_GLOSA + auditor_id) —
+    ST_RegisterGlosaMantida routes here on the SAME topic as the analista's NAO_RECORRER path."""
+    inp = RecursoDesistenciaInput(
+        decisao_auditor_recurso="ACEITAR_GLOSA",
+        justificativa_desistencia="Merito tecnico-clinico confirma a glosa",
+        valor_glosa_aceito=150.0,
+        referencia_contratual="Diretriz clinica DUT",
+        auditor_id="auditor-456",
+    )
+    result = register_desistencia(inp)
+    assert result.registered is True
+    assert result.protocolo.startswith("RECDESIST-")
+
+
+# ---------------------------------------------------------------------------
 # publish_completed
 # ---------------------------------------------------------------------------
 
@@ -454,6 +508,21 @@ def test_register_desistencia_entry_happy_path() -> None:
     direct = register_desistencia(RecursoDesistenciaInput(**variables))
     result = register_desistencia_entry(variables)
     assert result["registered"] == direct.registered
+
+
+def test_register_desistencia_entry_happy_path_auditor_channel() -> None:
+    """register_desistencia_entry round-trips the auditor channel (finding 4) — `pick_fields`
+    picks up `decisao_auditor_recurso`/`auditor_id` off the flat BPMN variables dict."""
+    variables = {
+        "decisao_auditor_recurso": "ACEITAR_GLOSA",
+        "justificativa_desistencia": "merito tecnico-clinico confirma a glosa",
+        "valor_glosa_aceito": 150.0,
+        "referencia_contratual": "diretriz DUT",
+        "auditor_id": "auditor-1",
+    }
+    direct = register_desistencia(RecursoDesistenciaInput(**variables))
+    result = register_desistencia_entry(variables)
+    assert result["registered"] == direct.registered is True
 
 
 def test_publish_completed_entry_round_trips_publish_completed() -> None:
