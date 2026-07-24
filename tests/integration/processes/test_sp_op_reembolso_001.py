@@ -10,7 +10,7 @@ reembolso.py).
 Implementa o test-spec do W5 contra o engine real (ADR-0011: sem mock de engine). Cada teste:
 
 1. inicia a instancia via REST com business key `REEMB-amh-{protocolo_reembolso}`;
-2. drena as external tasks com o `reembolso_probe` (workers reais + generic publish + gap stubs);
+2. drena as external tasks com o `reembolso_probe` (workers reais + generic publish);
 3. avanca o HITL completando User Tasks como humano sintetico (caminho HITL permitido);
 4. dispara timers via job execution (NUNCA sleep);
 5. verifica invariantes via historia do engine (garantia de que negativa/reducao passa pela UT humana).
@@ -62,28 +62,21 @@ FINDINGS (module docstring; see PR body / evidence-ledger for full detail):
      function ever sets one. `_REEMBOLSO_WORKER_KAFKA_GAP_REASON` covers the 2 real-worker topics
      (`issue_payment`, `send_reembolso_denial`) whose donor tests assert this.
 
-  2. Missing workers for 3 BPMN-declared topics (registry gap, DISTINCT from finding 1 — no
-     implementation exists at all, not merely a Kafka-silent one): reembolso.py's own module
-     docstring says so explicitly — "Spec topics with NO implementing function today (gap, not
-     fabricated here): request_documents, analyze_request, notify_sla_risk." Cross-checked against
-     the BPMN (`grep camunda:topic`): `ST_SolicitarDocumentos` (`operadora.reembolso.
-     request_documents`), `ST_PrepararDossie` (`operadora.reembolso.analyze_request` — the ONLY
-     path INTO `UT_AnaliseReembolso`, `Flow_Sla_Dossie`/`Flow_Dossie_UTAnalista`), and
-     `ST_NotificarRiscoSla` (`operadora.reembolso.notify_sla_risk`) all have camunda:topics with
-     ZERO registered handler in `register_reembolso_workers`. Mirrors auth.py's OWN
-     `_AnalyzeRequestStub` pattern (this suite's primary template, per the port charter) — but
-     unlike auth's case (a REAL `AnalyzeRequestWorker` exists there; the donor fixture simply
-     chose a dedicated stub for its own reasons), this is a genuine v2 registry gap: no real
-     worker exists at all for these 3 topics. A minimal test-fixture-only completion stub
-     (`_gap_topic_stub`, registered directly on the harness, `del`s all inputs, completes with no
-     output vars, never calls `kafka.publish`) is wired here SOLELY so the flow can progress
-     structurally past these 3 nodes (otherwise EVERY test reaching `UT_AnaliseReembolso` would
-     simply hang — `await_user_task` timing out — since nothing ever fetches
-     `ST_PrepararDossie`'s task). This is NOT a src/ change and fabricates NO business decision;
-     any donor assertion that a REAL worker ran/notified for these 3 topics
-     (`notifications_of_type("reembolso.analyze_request")` etc., or the `agents.events.
-     reembolso.pended` domain event `ST_SolicitarDocumentos` was meant to publish per its own
-     `event_topic_pended` inputParameter) still correctly fails — `_REEMBOLSO_MISSING_WORKER_STUB_REASON`.
+  2. Missing workers for 3 BPMN-declared topics — FIXED (T2.5-P2B reembolso reconciliation):
+     `ST_SolicitarDocumentos` (`operadora.reembolso.request_documents`), `ST_PrepararDossie`
+     (`operadora.reembolso.analyze_request` — the ONLY path INTO `UT_AnaliseReembolso`,
+     `Flow_Sla_Dossie`/`Flow_Dossie_UTAnalista`), and `ST_NotificarRiscoSla`
+     (`operadora.reembolso.notify_sla_risk`) now have REAL registered workers in
+     `register_reembolso_workers` (non-adverse; analyze_request instructs, never decides,
+     ADR-0005; notify_sla_risk mirrors cancel's proven informational pattern). The former
+     test-fixture-only `_gap_topic_stub` is REMOVED (it would otherwise SHADOW the real workers —
+     `harness.register` is last-registration-wins). The 2 xfails that blamed the missing workers
+     keep their marks (strict, NO flip without live proof — port charter) with the reason retagged
+     `_REEMBOLSO_BUILT_WORKER_PENDING_LIVE_PROOF_REASON`: the workers are built, but their
+     `notifications_of_type(...)` assertions still hit finding 1's systemic kafka gap (the new
+     entry functions, like every other ADR-0026 dict-boundary module, never call kafka.publish),
+     and the `agents.events.reembolso.pended` event `ST_SolicitarDocumentos`'s own
+     `event_topic_pended` inputParameter implies is likewise not published by the worker.
 
   3. D-07 ceiling gap (T1.9, `CeilingResolver`) DOES GENUINELY BLOCK reembolso's auto-approval path
      — UNLIKE auth's carve-out, LIKE pagto's non-carve-out (verified by reading, per Step 2):
@@ -110,22 +103,19 @@ FINDINGS (module docstring; see PR body / evidence-ledger for full detail):
      remains a genuine, OPEN config gap — same conclusion as auth/pagto — but here it DOES block a
      test, mirroring the task's own auth-vs-pagto contrast).
 
-  4. Dead topic registrations (harmless, but a real mismatch — cross-checked against the BPMN):
-     `register_reembolso_workers` ALSO registers `operadora.reembolso.auto_approve_or_route` and
-     `operadora.reembolso.notify_beneficiario` and `operadora.reembolso.publish_completed` — NONE
-     of these 3 appear as a `camunda:topic` anywhere in
-     `SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn` (verified by grep). `BRT_AutoApproval` is a
-     NATIVE `businessRuleTask` (`camunda:decisionRef="reembolso_auto_approval"`, resultVariable
+  4. Dead topic registrations — RECONCILED (T2.5-P2B): `operadora.reembolso.auto_approve_or_route`
+     and `operadora.reembolso.notify_beneficiario` are DELETED from `register_reembolso_workers`
+     (grep-verified: neither ever appeared as a `camunda:topic` in
+     `SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn`; `BRT_AutoApproval` is a NATIVE
+     `businessRuleTask`, `camunda:decisionRef="reembolso_auto_approval"`, resultVariable
      `auto_aprovacao`, consumed directly by `GW_AutoAprovacao`'s condition
-     `${auto_aprovacao.recomendacao == 'AUTO_APROVAR'}`) — the Python `auto_approve_or_route`
-     function is never invoked by this BPMN at all. Likewise every `ST_Publish*` service task uses
-     the generic `operadora.events.publish` topic, never `operadora.reembolso.publish_completed`.
-     These 3 topics are simply excluded from `_REEMBOLSO_WORKER_TOPICS` below (draining them would
-     be a no-op — no BPMN task is ever created on them); NOT included in a cancel.py-style
-     drift-guard assertion (unlike cancel's fixed 1:1 reconciliation, this mismatch is NOT
-     reconciled on v2 main — asserting `registered_topics == worker_topics` here would fail at
-     EVERY test's fixture setup, which is not useful; the mismatch is documented narratively
-     instead, per the port charter: "any mismatch is itself a finding").
+     `${auto_aprovacao.recomendacao == 'AUTO_APROVAR'}` — the deleted Python fork was never
+     invoked by this BPMN). `operadora.reembolso.publish_completed` is KEPT (documented
+     registry-completeness convention shared with recurso.py; every `ST_Publish*` service task
+     uses the generic `operadora.events.publish` topic) and is now INCLUDED in
+     `_REEMBOLSO_WORKER_TOPICS` below so the drain list matches `register_reembolso_workers`'
+     registered set exactly (the #93 inadimplencia drain-sync treatment; draining it is a no-op —
+     no BPMN task is ever created on it).
 
   5. `notification_bridge.py`'s 5 rules (CONTAS→RECURSO, CONTAS→FRAUDE, FRAUDE→CRED, FRAUDE→CANCEL,
      FRAUDE→INADIMPLENCIA): verified — reembolso is neither source nor target. N/A.
@@ -158,7 +148,6 @@ import pytest_asyncio
 
 from maezo.tools.workers.harness import (
     CibSevenWorkerTransport,
-    ExternalTask,
     FakeKafkaPublisher,
     WorkerHarness,
 )
@@ -187,15 +176,19 @@ _CALC_AMOUNT_TOPIC = "operadora.reembolso.calculate_amount"
 _ISSUE_PAYMENT_TOPIC = "operadora.reembolso.issue_payment"
 _DENIAL_TOPIC = "operadora.reembolso.send_reembolso_denial"
 
-# Finding 2: BPMN-declared topics with ZERO real v2 worker — served by `_gap_topic_stub` (test
-# fixture only, never a src/ change) so the flow can progress structurally past these nodes.
+# Registered by register_reembolso_workers SINCE the T2.5-P2B reconciliation (finding 2's
+# missing workers were implemented in src; the former test-fixture `_gap_topic_stub` is gone):
 _REQ_DOCS_TOPIC = "operadora.reembolso.request_documents"
 _ANALYZE_TOPIC = "operadora.reembolso.analyze_request"
 _NOTIFY_SLA_TOPIC = "operadora.reembolso.notify_sla_risk"
+# Function-derived topic KEPT by documented registry-completeness convention (finding 4,
+# reconciled) — no BPMN task is ever created on it; draining it is a no-op.
+_PUBLISH_COMPLETED_TOPIC = "operadora.reembolso.publish_completed"
 
-# Topicos servidos pelos workers REAIS registrados via `register_reembolso_workers` E que
-# aparecem no BPMN (finding 4: `auto_approve_or_route`/`notify_beneficiario`/`publish_completed`
-# sao registros mortos — nao aparecem no BPMN — deliberadamente EXCLUIDOS daqui).
+# Topicos servidos pelos workers REAIS registrados via `register_reembolso_workers` (mais o
+# publish generico compartilhado). T2.5-P2B (findings 2+4, reconciled): a lista de drain agora
+# coincide EXATAMENTE com o conjunto registrado em src — 8 topicos BPMN + o publish_completed
+# de convencao (tratamento #93/inadimplencia: drain sincronizado ao registro real).
 _REEMBOLSO_WORKER_TOPICS = [
     _PUBLISH_TOPIC,
     _CHECK_COVERAGE_TOPIC,
@@ -203,10 +196,12 @@ _REEMBOLSO_WORKER_TOPICS = [
     _CALC_AMOUNT_TOPIC,
     _ISSUE_PAYMENT_TOPIC,
     _DENIAL_TOPIC,
-    # Finding 2 — gap-topic stubs (test-fixture only, see module docstring).
+    # T2.5-P2B — real workers (previously finding-2 gap stubs).
     _REQ_DOCS_TOPIC,
     _ANALYZE_TOPIC,
     _NOTIFY_SLA_TOPIC,
+    # Convention topic (finding 4, reconciled) — keeps drain == registered set.
+    _PUBLISH_COMPLETED_TOPIC,
 ]
 
 _NOTIFICATIONS_TOPIC = "operadora.notifications.internal"
@@ -245,21 +240,18 @@ _REEMBOLSO_WORKER_KAFKA_GAP_REASON = (
     "residuals. Fix belongs to the Kafka-producer wiring task, not this port."
 )
 
-_REEMBOLSO_MISSING_WORKER_STUB_REASON = (
-    "v2 registry gap (finding 2, DISTINCT from finding 1 — no implementation exists at all, not "
-    "merely Kafka-silent): reembolso.py's own module docstring documents "
-    "'Spec topics with NO implementing function today: request_documents, analyze_request, "
-    "notify_sla_risk'. This suite wires a test-fixture-only completion stub (_gap_topic_stub) for "
-    "these 3 BPMN-declared topics so the flow can progress past ST_PrepararDossie/"
-    "ST_SolicitarDocumentos/ST_NotificarRiscoSla (otherwise every test reaching UT_AnaliseReembolso "
-    "would simply hang) — but the stub completes with NO output and never calls kafka.publish, so "
-    "any assertion that a REAL worker ran for one of these 3 topics "
-    "(notifications_of_type('reembolso.analyze_request'/'reembolso.notify_sla_risk') truthy, or "
-    "the agents.events.reembolso.pended domain event ST_SolicitarDocumentos's own "
-    "event_topic_pended inputParameter implies) correctly still fails. Mirrors auth.py's own "
-    "_AnalyzeRequestStub pattern (this suite's primary template), but for a genuine v2 gap rather "
-    "than a donor fixture preference. src/** fix (implementing these 3 workers) is out of scope "
-    "for this port."
+_REEMBOLSO_BUILT_WORKER_PENDING_LIVE_PROOF_REASON = (
+    "BUILT, pending live-proof flip (T2.5-P2B reembolso reconciliation; finding 2 FIXED in src): "
+    "request_documents/analyze_request/notify_sla_risk now have REAL registered workers in "
+    "register_reembolso_workers (the former test-fixture _gap_topic_stub is removed), so the flow "
+    "genuinely executes these nodes with real handlers. The marks are NOT flipped without a live "
+    "engine run (port charter: no pre-emptive flips): the residual expectation is that this "
+    "test's worker-emitted-Kafka assertions (notifications_of_type('reembolso.analyze_request'/"
+    "'reembolso.notify_sla_risk'), or the agents.events.reembolso.pended event "
+    "ST_SolicitarDocumentos's own event_topic_pended inputParameter implies) still fail on "
+    "finding 1's systemic kafka gap — the new entry functions, like every ADR-0026 dict-boundary "
+    "module, never call kafka.publish. The next live-validation run decides: flip if it passes, "
+    "retag to _REEMBOLSO_WORKER_KAFKA_GAP_REASON if it fails there."
 )
 
 _REEMBOLSO_CEILING_D07_REASON = (
@@ -278,26 +270,9 @@ _REEMBOLSO_CEILING_D07_REASON = (
 )
 
 
-# ---------------------------------------------------------------------------
-# Gap-topic stub (finding 2) — test fixture only, mirrors auth.py's _AnalyzeRequestStub.
-# ---------------------------------------------------------------------------
-
-
-async def _gap_topic_stub(task: ExternalTask) -> dict[str, Any]:
-    """Completes a task on a BPMN-declared topic with NO real v2 worker (finding 2).
-
-    Deliberately fabricates nothing: no output variables, no kafka.publish call. Lets the engine
-    flow progress past ST_PrepararDossie/ST_SolicitarDocumentos/ST_NotificarRiscoSla so downstream
-    nodes (UT_AnaliseReembolso, GW_AguardarDocs, etc.) are reachable for testing; any donor
-    assertion that a REAL worker executed for one of these 3 topics still correctly fails.
-    """
-    del task
-    return {}
-
-
 @dataclass
 class ReembolsoEngineProbe:
-    """Driva os workers reais de reembolso (+ gap stubs, finding 2) contra o engine CIB Seven."""
+    """Driva os workers reais de reembolso contra o engine CIB Seven."""
 
     engine: EngineRest
     harness: WorkerHarness
@@ -342,7 +317,8 @@ async def deploy_artifacts(engine: EngineRest) -> str:
 async def reembolso_probe(
     engine: EngineRest, audit_sink: Any, audit_tenant: str
 ) -> AsyncIterator[ReembolsoEngineProbe]:
-    """Probe que serve as external tasks com os workers reais de reembolso + gap stubs (finding 2).
+    """Probe que serve as external tasks com os workers reais de reembolso (T2.5-P2B: TODOS os
+    8 topicos BPMN tem worker real — os gap stubs de finding 2 foram removidos).
 
     Resolver de teto DEFAULT (matriz real, sem seam de injecao — finding 3):
     `reembolso_auto_approval.max_value_brl=0` para amh (D-07 em aberto) => `calculate_amount`
@@ -370,10 +346,9 @@ async def reembolso_probe(
     from maezo.tools.workers.events import register_events_workers
 
     register_events_workers(harness, kafka)
-    # Finding 2 — gap-topic stubs (test fixture only, see module docstring + _gap_topic_stub).
-    harness.register(_REQ_DOCS_TOPIC, _gap_topic_stub)
-    harness.register(_ANALYZE_TOPIC, _gap_topic_stub)
-    harness.register(_NOTIFY_SLA_TOPIC, _gap_topic_stub)
+    # T2.5-P2B: request_documents/analyze_request/notify_sla_risk are served by the REAL workers
+    # register_reembolso_workers registers above — no gap stubs (a stub here would SHADOW them:
+    # harness.register is last-registration-wins).
     probe = ReembolsoEngineProbe(
         engine=engine,
         harness=harness,
@@ -466,7 +441,7 @@ async def _assert_no_adverse_without_human_task(engine: EngineRest, iid: str) ->
 
 
 async def _drive_to_analista(engine: EngineRest, probe: ReembolsoEngineProbe, iid: str) -> Any:
-    """Drena ate UT_AnaliseReembolso surgir (dossie preparado pelo gap-stub analyze_request)."""
+    """Drena ate UT_AnaliseReembolso surgir (dossie preparado pelo worker real analyze_request)."""
     await probe.drain()
     return await engine.await_user_task(iid, _UT_ANALISTA)
 
@@ -640,7 +615,7 @@ async def test_happy_path_aprovacao_automatica_l2_com_teto_positivo(
     assert not reembolso_probe.notifications_of_type("reembolso.send_reembolso_denial")
 
 
-@pytest.mark.xfail(reason=_REEMBOLSO_MISSING_WORKER_STUB_REASON, strict=True)
+@pytest.mark.xfail(reason=_REEMBOLSO_BUILT_WORKER_PENDING_LIVE_PROOF_REASON, strict=True)
 async def test_happy_path_aprovado_pelo_analista(
     engine: EngineRest,
     reembolso_probe: ReembolsoEngineProbe,
@@ -648,8 +623,9 @@ async def test_happy_path_aprovado_pelo_analista(
 ) -> None:
     """dentro_teto_l2=false => analise humana; analista completa APROVAR => End_ReembolsoAprovadoAnalista.
 
-    Blocked on the dossie assertion — `analyze_request` has no real worker (finding 2); the
-    gap-stub never publishes a notification for `reembolso.analyze_request`.
+    analyze_request is now a REAL worker (T2.5-P2B) — mark kept pending live proof; the dossie
+    assertion (`notifications_of_type('reembolso.analyze_request')`) is still expected to hit the
+    systemic kafka gap (finding 1) since the entry function never calls kafka.publish.
     """
     inst = await start_reembolso(dentro_teto_l2=False)
     iid = inst["id"]
@@ -1019,7 +995,7 @@ async def test_pendencia_expira_decisao_humana_nunca_auto_nega(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_REEMBOLSO_MISSING_WORKER_STUB_REASON, strict=True)
+@pytest.mark.xfail(reason=_REEMBOLSO_BUILT_WORKER_PENDING_LIVE_PROOF_REASON, strict=True)
 async def test_timer_alerta_sla_nao_interruptivo(
     engine: EngineRest,
     reembolso_probe: ReembolsoEngineProbe,
@@ -1027,7 +1003,9 @@ async def test_timer_alerta_sla_nao_interruptivo(
 ) -> None:
     """Timer BT_AlertaSla (nao-interruptivo): notify_sla_risk recebe task; UT segue aberta.
 
-    Blocked: `notify_sla_risk` has no real worker (finding 2) — the gap-stub never publishes.
+    notify_sla_risk is now a REAL worker (T2.5-P2B) — mark kept pending live proof; the
+    `notifications_of_type('reembolso.notify_sla_risk')` assertion is still expected to hit the
+    systemic kafka gap (finding 1) since the entry function never calls kafka.publish.
     """
     inst = await start_reembolso(dentro_teto_l2=False)
     iid = inst["id"]
