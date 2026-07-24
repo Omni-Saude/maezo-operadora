@@ -233,6 +233,7 @@ import pytest_asyncio
 from maezo.tools.workers.events import register_events_workers
 from maezo.tools.workers.harness import CibSevenWorkerTransport, FakeKafkaPublisher, WorkerHarness
 from maezo.tools.workers.recurso import (
+    RECURSO_BPMN_ERROR_ALLOWLIST,
     DesistenciaNotHumanError,
     register_desistencia_entry,
     register_recurso_workers,
@@ -255,19 +256,30 @@ _PUBLISH_TOPIC = "operadora.events.publish"
 _REQUEST_DOCS_TOPIC = "operadora.recurso.request_documents"
 _ANALYZE_TOPIC = "operadora.recurso.analyze_request"
 _REGISTER_DESISTENCIA_TOPIC = "operadora.recurso.register_desistencia"
+# finding 2 (P2b) topics — the 5 workers built by t3.1-recurso-batch2.
+_NOTIFY_SLA_RISK_TOPIC = "operadora.recurso.notify_sla_risk"
+_ESCALATE_ANS_TIMEOUT_TOPIC = "operadora.recurso.escalate_ans_timeout"
+_SUBMIT_APPEAL_TOPIC = "operadora.recurso.submit_appeal"
+_TRACK_STATUS_TOPIC = "operadora.recurso.track_status"
+_RECONCILE_PAYMENT_TOPIC = "operadora.recurso.reconcile_payment"
 
 # Topicos servidos pelos workers REAIS registrados no harness (drain generico). finding 2
-# RESOLVED (t3.1-recurso-batch2, built pending live-proof flip): os 5 topicos antes
-# BPMN-declarados-mas-sem-worker AGORA tem handler registrado em register_recurso_workers — mas
-# esta lista de drain permanece DELIBERADAMENTE nao-expandida (os mesmos 4 topicos pre-fix) ate
-# que um engine real prove o comportamento dos novos workers; expandi-la agora arriscaria um
-# XPASS nao revisado contra os strict xfails que ainda os citam (ver
-# _RECURSO_UNIMPLEMENTED_TOPIC_REASON).
+# RESOLVED + LIVE-PROVEN (wave2a, CIB Seven 2.1.0): os 5 topicos antes BPMN-declarados-mas-sem-
+# worker AGORA tem handler registrado em register_recurso_workers E foram provados contra engine
+# real — a lista de drain foi EXPANDIDA para servi-los (notify_sla_risk/escalate_ans_timeout/
+# submit_appeal/track_status raw handlers + reconcile_payment FunctionWorker), permitindo o flip
+# dos 10 xfails _RECURSO_UNIMPLEMENTED_TOPIC_REASON. `reconcile_payment` (ST_ReconcilePayment*)
+# e uma service task BPMN real (nao orfã); os outros 4 sao boundary/timer/loop tasks.
 _RECURSO_WORKER_TOPICS = [
     _PUBLISH_TOPIC,
     _REQUEST_DOCS_TOPIC,
     _ANALYZE_TOPIC,
     _REGISTER_DESISTENCIA_TOPIC,
+    _NOTIFY_SLA_RISK_TOPIC,
+    _ESCALATE_ANS_TIMEOUT_TOPIC,
+    _SUBMIT_APPEAL_TOPIC,
+    _TRACK_STATUS_TOPIC,
+    _RECONCILE_PAYMENT_TOPIC,
 ]
 
 # finding 2 (module docstring) — RESOLVED by t3.1-recurso-batch2: register_recurso_workers now
@@ -457,6 +469,7 @@ async def recurso_probe(
         tenant=audit_tenant,
         lock_duration_ms=10_000,
         audit_sink=audit_sink,
+        bpmn_error_allowlist=RECURSO_BPMN_ERROR_ALLOWLIST,
     )
     kafka = FakeKafkaPublisher()
     register_recurso_workers(harness, kafka)
@@ -739,7 +752,6 @@ async def test_happy_path_recorrer_e_deferido(
     assert reconcilia, "Worker reconcile_payment deve ser executado no deferimento"
 
 
-@pytest.mark.xfail(reason=_RECURSO_UNIMPLEMENTED_TOPIC_REASON, strict=True)
 async def test_happy_path_recurso_indeferido_pela_operadora(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
@@ -814,7 +826,6 @@ async def test_happy_path_nao_recorrer_humano(
     ), "ST_PublishNaoInterposto deve emitir completed(desfecho=nao_interposto_humano) com o analista_id"
 
 
-@pytest.mark.xfail(reason=_RECURSO_UNIMPLEMENTED_TOPIC_REASON, strict=True)
 async def test_happy_path_escalar_auditor_mantem_recurso(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
@@ -903,7 +914,6 @@ async def test_happy_path_auditor_aceita_glosa_mantem_glosa_humano(
     ), "ST_PublishGlosaMantida deve emitir completed(desfecho=nao_interposto_humano) com o auditor_id"
 
 
-@pytest.mark.xfail(reason=_RECURSO_UNIMPLEMENTED_TOPIC_REASON, strict=True)
 async def test_recurso_parcialmente_deferido(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
@@ -1071,7 +1081,6 @@ async def test_worker_guard_register_desistencia_auditor_path_finding4() -> None
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_RECURSO_INVALID_GLOSA_GUARD_MISSING_REASON, strict=True)
 async def test_glosa_id_ausente_pendencia_termina_limpo_sem_incidente_travado(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
@@ -1106,7 +1115,6 @@ async def test_glosa_id_ausente_pendencia_termina_limpo_sem_incidente_travado(
     await _assert_no_desistencia_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_RECURSO_INVALID_GLOSA_GUARD_MISSING_REASON, strict=True)
 async def test_glosa_id_ausente_analise_termina_limpo_sem_incidente_travado(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
@@ -1212,7 +1220,6 @@ async def test_pendencia_expira_decisao_humana(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_RECURSO_UNIMPLEMENTED_TOPIC_REASON, strict=True)
 async def test_timer_alerta_sla_nao_interruptivo(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
@@ -1363,7 +1370,6 @@ async def test_coordenacao_inadmissivel_humano_gated(
     ), "ST_PublishInadmissivel deve emitir completed(desfecho=inadmissivel) com o analista_id"
 
 
-@pytest.mark.xfail(reason=_RECURSO_UNIMPLEMENTED_TOPIC_REASON, strict=True)
 async def test_loop_acompanhamento_limitado(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
@@ -1407,7 +1413,6 @@ async def test_loop_acompanhamento_limitado(
     await _assert_no_desistencia_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_RECURSO_UNIMPLEMENTED_TOPIC_REASON, strict=True)
 async def test_prazo_max_recurso_escala_humano(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
@@ -1443,7 +1448,6 @@ async def test_prazo_max_recurso_escala_humano(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_RECURSO_UNIMPLEMENTED_TOPIC_REASON, strict=True)
 async def test_prazo_max_ancora_absoluta_nao_no_attach_da_ut(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
@@ -1524,7 +1528,6 @@ async def test_prazo_max_fail_safe_ancora_data_ciencia_glosa(
     )
 
 
-@pytest.mark.xfail(reason=_RECURSO_UNIMPLEMENTED_TOPIC_REASON, strict=True)
 async def test_prazo_max_coord_mesmo_instante_absoluto(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
@@ -1571,7 +1574,6 @@ async def test_prazo_max_coord_mesmo_instante_absoluto(
     await _assert_no_desistencia_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_RECURSO_UNIMPLEMENTED_TOPIC_REASON, strict=True)
 async def test_prazo_max_auditor_mesmo_instante_absoluto(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
@@ -1618,7 +1620,6 @@ async def test_prazo_max_auditor_mesmo_instante_absoluto(
     await _assert_no_desistencia_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_RECURSO_UNIMPLEMENTED_TOPIC_REASON, strict=True)
 async def test_prazo_max_escalonamento_sem_cascata(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
