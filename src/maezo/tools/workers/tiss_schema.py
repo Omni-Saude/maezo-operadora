@@ -50,6 +50,23 @@ pattern as the `lgpd_anonimizado` echo, GAP-ANS-5, `docs/review-queue.md:115`). 
 5. Well-formed XML that fails schema validation -> `schema_valid=False` + structured errors
    (`lxml`'s `error_log`, stringified).
 6. Well-formed XML that validates cleanly against the pinned schema -> `schema_valid=True`.
+
+**The TWO RUNTIME REGIMES this produces (live-confirmed against the real engine — R1
+validate3 report):**
+
+- **UNPINNED (production TODAY, every environment):** `MAEZO_TISS_SCHEMA_VERSION` unset =>
+  rule 1 fires => `schema_valid` is ALWAYS False => the admissibility DMN's
+  `[-, false, -] -> PENDENTE` row routes EVERY submission — including `origem_envio=nip_filing`
+  — to `UT_CorrigirPendenciaEnvio` (human pendency). This pre-empts the SEGUE_ENVIO branch, so
+  the nip_filing juridical review (`UT_RevisarEnvioJuridico`) is UNREACHABLE until a version is
+  pinned + XSDs vendored. That re-routing is the intended fail-closed posture (never
+  auto-transmits, never rejects), NOT a defect — but any consumer expecting the SEGUE_ENVIO
+  paths must account for it.
+- **PINNED (dev/test today; production once SME unblocks):** a version is pinned and the XSD
+  set resolves => `schema_valid` is genuinely computed (rules 4-6), SEGUE_ENVIO becomes
+  reachable for schema-valid payloads, and schema-invalid payloads still route PENDENTE. Proven
+  live via the `ans_probe_tiss_pinned` fixture
+  (`tests/integration/processes/test_sp_op_ans_submit_001.py`, `test_tiss_pinned_*`).
 """
 
 from __future__ import annotations
