@@ -339,3 +339,157 @@ def test_fallback_commitment_rejects_missing_justificativa() -> None:
             }
         )
     assert excinfo.value.code == ERR_FALLBACK_COMMITMENT_NOT_HUMAN
+
+
+# ---------------------------------------------------------------
+# register_fallback_commitment — whitespace-bypass vectors (t3.1-guard-input-hardening,
+# closing the #133-audit-flagged gap at adequacao.py:289-295: the guard's original bare
+# `if not tipo_fallback` / `if not justificativa` / ... checks let WHITESPACE-ONLY decision +
+# accountability fields through, the same class the c1377fa fix closed for
+# pagto.register_payment_refusal. Every vector below MUST refuse with
+# ERR_FALLBACK_COMMITMENT_NOT_HUMAN -- whitespace-only is the SAME as absent (ADR-0007/RN 259:
+# a fallback commitment must carry an identifying human approver + a real justification).
+# ---------------------------------------------------------------
+
+_WHITESPACE_VARIANTS = [" ", "   ", "\t", "\n", "\t\n ", "\r\n"]
+_NON_STRING_VARIANTS: list[object] = [123, True, 0.5, ["x"], {"k": "v"}]
+
+
+def _fallback_baseline(**overrides: object) -> dict[str, object]:
+    """Happy-path baseline for register_fallback_commitment -- so any guard failure observed
+    in a test is attributable ONLY to the field under test."""
+    base: dict[str, object] = {
+        "decisao_remediacao": "COMPROMISSO_FALLBACK",
+        "tipo_fallback": "livre_escolha",
+        "justificativa_fallback": "Sem prestador na regiao — RN 259",
+        "referencia_regulatoria": "RN 259",
+        "responsavel_id": "gestor-001",
+        "estimativa_custo_cents": 500000,
+    }
+    base.update(overrides)
+    return base
+
+
+@pytest.mark.parametrize("whitespace", _WHITESPACE_VARIANTS)
+def test_fallback_commitment_whitespace_only_tipo_fallback_refuses(whitespace: str) -> None:
+    with pytest.raises(AdequacaoError) as excinfo:
+        register_fallback_commitment(_fallback_baseline(tipo_fallback=whitespace))
+    assert excinfo.value.code == ERR_FALLBACK_COMMITMENT_NOT_HUMAN
+    assert "tipo_fallback" in excinfo.value.message
+
+
+@pytest.mark.parametrize("non_string", _NON_STRING_VARIANTS)
+def test_fallback_commitment_non_string_tipo_fallback_refuses(non_string: object) -> None:
+    """A NON-string tipo_fallback normalizes to '' and refuses -- the pre-fix bare truthiness
+    check (`if not tipo_fallback`) would have silently PASSED a truthy non-string."""
+    with pytest.raises(AdequacaoError) as excinfo:
+        register_fallback_commitment(_fallback_baseline(tipo_fallback=non_string))
+    assert excinfo.value.code == ERR_FALLBACK_COMMITMENT_NOT_HUMAN
+    assert "tipo_fallback" in excinfo.value.message
+
+
+@pytest.mark.parametrize("whitespace", _WHITESPACE_VARIANTS)
+def test_fallback_commitment_whitespace_only_justificativa_refuses(whitespace: str) -> None:
+    with pytest.raises(AdequacaoError) as excinfo:
+        register_fallback_commitment(_fallback_baseline(justificativa_fallback=whitespace))
+    assert excinfo.value.code == ERR_FALLBACK_COMMITMENT_NOT_HUMAN
+    assert "justificativa_fallback" in excinfo.value.message
+
+
+@pytest.mark.parametrize("non_string", _NON_STRING_VARIANTS)
+def test_fallback_commitment_non_string_justificativa_refuses(non_string: object) -> None:
+    with pytest.raises(AdequacaoError) as excinfo:
+        register_fallback_commitment(_fallback_baseline(justificativa_fallback=non_string))
+    assert excinfo.value.code == ERR_FALLBACK_COMMITMENT_NOT_HUMAN
+    assert "justificativa_fallback" in excinfo.value.message
+
+
+@pytest.mark.parametrize("whitespace", _WHITESPACE_VARIANTS)
+def test_fallback_commitment_whitespace_only_referencia_regulatoria_refuses(whitespace: str) -> None:
+    with pytest.raises(AdequacaoError) as excinfo:
+        register_fallback_commitment(_fallback_baseline(referencia_regulatoria=whitespace))
+    assert excinfo.value.code == ERR_FALLBACK_COMMITMENT_NOT_HUMAN
+    assert "referencia_regulatoria" in excinfo.value.message
+
+
+@pytest.mark.parametrize("non_string", _NON_STRING_VARIANTS)
+def test_fallback_commitment_non_string_referencia_regulatoria_refuses(non_string: object) -> None:
+    with pytest.raises(AdequacaoError) as excinfo:
+        register_fallback_commitment(_fallback_baseline(referencia_regulatoria=non_string))
+    assert excinfo.value.code == ERR_FALLBACK_COMMITMENT_NOT_HUMAN
+    assert "referencia_regulatoria" in excinfo.value.message
+
+
+@pytest.mark.parametrize("whitespace", _WHITESPACE_VARIANTS)
+def test_fallback_commitment_whitespace_only_responsavel_id_refuses(whitespace: str) -> None:
+    with pytest.raises(AdequacaoError) as excinfo:
+        register_fallback_commitment(_fallback_baseline(responsavel_id=whitespace))
+    assert excinfo.value.code == ERR_FALLBACK_COMMITMENT_NOT_HUMAN
+    assert "responsavel_id" in excinfo.value.message
+
+
+@pytest.mark.parametrize("non_string", _NON_STRING_VARIANTS)
+def test_fallback_commitment_non_string_responsavel_id_refuses(non_string: object) -> None:
+    with pytest.raises(AdequacaoError) as excinfo:
+        register_fallback_commitment(_fallback_baseline(responsavel_id=non_string))
+    assert excinfo.value.code == ERR_FALLBACK_COMMITMENT_NOT_HUMAN
+    assert "responsavel_id" in excinfo.value.message
+
+
+@pytest.mark.parametrize("whitespace", _WHITESPACE_VARIANTS)
+def test_fallback_commitment_both_responsavel_and_justificativa_whitespace_refuses(
+    whitespace: str,
+) -> None:
+    """Both responsavel_id AND justificativa_fallback whitespace-only -- both missing fields
+    named in the guard's error message."""
+    with pytest.raises(AdequacaoError) as excinfo:
+        register_fallback_commitment(
+            _fallback_baseline(responsavel_id=whitespace, justificativa_fallback=whitespace)
+        )
+    assert excinfo.value.code == ERR_FALLBACK_COMMITMENT_NOT_HUMAN
+    assert "responsavel_id" in excinfo.value.message
+    assert "justificativa_fallback" in excinfo.value.message
+
+
+@pytest.mark.parametrize("whitespace", [" ", "\t", "\n", "  \t\n"])
+def test_fallback_commitment_whitespace_only_decisao_refuses(whitespace: str) -> None:
+    """Whitespace-only decisao_remediacao normalizes to '' -> != COMPROMISSO_FALLBACK ->
+    refuses (the engine's own gateway default routing is not itself a human decision)."""
+    with pytest.raises(AdequacaoError) as excinfo:
+        register_fallback_commitment(_fallback_baseline(decisao_remediacao=whitespace))
+    assert excinfo.value.code == ERR_FALLBACK_COMMITMENT_NOT_HUMAN
+    assert "decisao_remediacao" in excinfo.value.message
+
+
+def test_fallback_commitment_padded_valid_literal_normalizes_and_registers() -> None:
+    """Whitespace-PADDED but otherwise exact literal/fields normalize via `_norm_str` and
+    still register (pins the normalization behavior -- this is NOT a bypass, it is the
+    documented, intentional consequence of `.strip()`)."""
+    result = register_fallback_commitment(
+        _fallback_baseline(
+            decisao_remediacao=" COMPROMISSO_FALLBACK ",
+            tipo_fallback=" livre_escolha ",
+            justificativa_fallback=" Sem prestador na regiao — RN 259 ",
+            referencia_regulatoria=" RN 259 ",
+            responsavel_id=" gestor-001 ",
+        )
+    )
+    assert result["compromisso_fallback_registrado"] is True
+
+
+@pytest.mark.parametrize(
+    "decision",
+    [
+        "compromisso_fallback",
+        "Compromisso_Fallback",
+        "COMPROMISSO_FALLBACK_X",
+        "XCOMPROMISSO_FALLBACK",
+        "MONITORAR_OK ",
+    ],
+)
+def test_fallback_commitment_non_exact_decisao_literal_still_refuses(decision: str) -> None:
+    """Exact-match discipline survives normalization: case variants/substrings of the decision
+    literal never satisfy the guard."""
+    with pytest.raises(AdequacaoError) as excinfo:
+        register_fallback_commitment(_fallback_baseline(decisao_remediacao=decision))
+    assert excinfo.value.code == ERR_FALLBACK_COMMITMENT_NOT_HUMAN
