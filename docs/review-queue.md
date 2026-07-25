@@ -500,7 +500,9 @@ routing-prose mismatch that turned out to require the CONTRACT to change (not th
 
 `docs-p2b-escalation-packages` (T2.9 SME-packaging pass): zero BPMN/DMN/worker edits — this batch
 packages open design questions into dated addenda in `docs/sme-dispatch/dpo/PACKAGE.md` and
-`docs/sme-dispatch/medico-auditor/PACKAGE.md` (both 2026-07-24). Both artifacts are already
+`docs/sme-dispatch/medico-auditor/PACKAGE.md` (both 2026-07-24; status refreshed 2026-07-25
+post-merge of `origin/main` 6288341 — #125 built R-F/R-G, #126 built `stratify_risk`, #131 landed
+T-E; the questions themselves are unchanged). Both artifacts are already
 tracked generically above (LGPD-DSR-001's "Fluxos LGPD..." row near the top; PROGRAMA-001's
 Phase-3-foundations row) — this section only points at the NEW, specific questions; it does not
 duplicate them.
@@ -508,6 +510,6 @@ duplicate them.
 | Artefato | O que precisa de revisao humana | Revisor | Status |
 |---|---|---|---|
 | `spec/processes/bpmn/SP-OP-LGPD-DSR-001_Direitos_do_Titular.bpmn` (`ST_CompilarPacote`/`ST_ExecutarRequisicao`; `Error_LgpdErasureFalhou`/`Error_LgpdErasureNaoHumana` declared-unbound) + `src/maezo/tools/workers/lgpd.py` (#55 R-C/R-D orphan topics) | Legal-bases/retention matrix for `compile_data_package` (#55 R-C); collapse 3 orphan `execute_*` workers into 1 `execute_request`-topic worker (#55 R-D) + ratify the erasure-failure/denial routing shape — see `docs/sme-dispatch/dpo/PACKAGE.md` SP-OP-LGPD-DSR-001 addendum | DPO + juridico-privacidade | `DRAFT — requires human review before any deploy` |
-| `spec/processes/dmn/programa_routing.dmn` (`risco_estratificado` input) + `operadora.programa.stratify_risk`/`proactive_contact` (unbuilt, `programa.py:222-223`) | Actual clinical stratification criteria for `risco_estratificado` (prescribed nowhere today) + ratification of the DMN's fail-safe-to-`ANALISE_HUMANA` default; `proactive_contact` channel/consent constraints (joint DPO) — see `docs/sme-dispatch/medico-auditor/PACKAGE.md` and `docs/sme-dispatch/dpo/PACKAGE.md` SP-OP-PROGRAMA-001 addenda | médico-auditor (+ DPO on `proactive_contact`) | `DRAFT — requires human review before any deploy` |
+| `spec/processes/dmn/programa_routing.dmn` (`risco_estratificado` input) + `operadora.programa.stratify_risk` (BUILT #126 — fail-closed stub, default `"alto"` live-proven; criteria still SME-gated) / `proactive_contact` (unbuilt, `programa.py:318-319`) | Actual clinical stratification criteria for `risco_estratificado` (prescribed nowhere today) + ratification of the shipped fail-closed `"alto"`→`ANALISE_HUMANA` default; `proactive_contact` channel/consent constraints (joint DPO) — see `docs/sme-dispatch/medico-auditor/PACKAGE.md` and `docs/sme-dispatch/dpo/PACKAGE.md` SP-OP-PROGRAMA-001 addenda | médico-auditor (+ DPO on `proactive_contact`) | `DRAFT — requires human review before any deploy` |
 
 

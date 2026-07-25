@@ -48,11 +48,13 @@ baseline is assumed correct platform-wide and isn't re-litigated contract by con
      path distinct from the general DSR flow, especially given SP-OP-PROGRAMA-001 depends on this
      process's output as its interrupt trigger (see that contract below).
 
-**T2.9 addendum (2026-07-24, `t2.9-sme-packages`) — #55 R-C/R-D orphan-worker design +
-producer-policy status.** Packaged after auditing the DSR pipeline's four still-worker-less BPMN
-topics (`compile_data_package`/R-C, `execute_request`/R-D, `send_response`/R-F,
-`notify_sla_risk`/R-G — `src/maezo/tools/workers/lgpd.py:542-548`). Three design questions, plus a
-status correction on what is and is not blocked:
+**T2.9 addendum (2026-07-24, `t2.9-sme-packages`; status refreshed 2026-07-25 after merging
+`origin/main` 6288341 — #125/#126/#131 landed; the QUESTIONS are unchanged) — #55 R-C/R-D
+orphan-worker design + producer-policy status.** Packaged after auditing the DSR pipeline's
+still-worker-less BPMN topics — as of the refresh exactly **two** remain: `compile_data_package`
+(R-C) and `execute_request` (R-D) (`src/maezo/tools/workers/lgpd.py:631-641`; R-F/R-G were built
+by #125, see the status note below). Three design questions, plus a status note on what is and is
+not blocked:
 
   1. **R-C `compile_data_package` — legal-bases/retention matrix.** `ST_CompilarPacote` is
      documented to compile "conforme `roteamento_dsr.fluxo` ..., incluindo mapa de bases legais e
@@ -69,16 +71,19 @@ status correction on what is and is not blocked:
      `ExecuteRectificationWorker`/`ExecuteErasureWorker` under three topics
      (`operadora.lgpd.execute_export`/`execute_rectification`/`execute_erasure`) that do **not**
      match the BPMN's single `ST_ExecutarRequisicao` topic (`operadora.lgpd.execute_request`,
-     `bpmn:270-275`) — the registry's own bootstrap comment discloses the donor-shape mismatch
-     (`lgpd.py:542-548`: the intersection of registered vs. BPMN-declared topics is exactly one
-     topic, `verify_identity`). Please ratify collapsing the three into a single
+     `bpmn:270-275`) — the registry's own bootstrap comment discloses the remaining gap
+     (`lgpd.py:631-641`, post-#125: "that BPMN's remaining 2 topics (compile_data_package/
+     execute_request) still have no worker — #55 R-C/R-D, DPO/SME-sign-off-gated"; the three
+     `Execute*Worker` orphan registrations persist at `lgpd.py:658-665`). Please ratify collapsing
+     the three into a single
      `execute_request`-topic worker matching the modeled shape. Separately: `ST_ExecutarRequisicao`
      has **no** boundary event (confirmed: zero `errorRef` to `Error_LgpdErasureFalhou`/
      `Error_LgpdErasureNaoHumana` anywhere in the file) and its one outgoing flow
      (`Flow_Executar_Enviar`) feeds `ST_EnviarResposta` unconditionally, alongside two other
      incoming flows (`bpmn:270-275` execute task, `bpmn:277-284` send-response task) — so whatever
-     a future R-D worker returns for a denied/failed execution flows into `send_response` (R-F,
-     also unbuilt) with no BPMN-level filter; only a worker-internal guard (today,
+     a future R-D worker returns for a denied/failed execution flows into `send_response` (#55
+     R-F — now BUILT, #125, so the unfiltered flow is live-reachable) with no BPMN-level filter;
+     only a worker-internal guard (today,
      `ExecuteErasureWorker`'s dual guard on `human_approved`/`decisao_dsr`) distinguishes success
      from block, and it currently returns a status dict rather than raising. Please ratify: should
      R-D raise the two declared-but-unbound errors below instead (accepting the BPMN's own
@@ -91,21 +96,37 @@ status correction on what is and is not blocked:
      `errorRef` anywhere in the file (grep-confirmed) — the incident-fail-closed behavior described
      in that comment is BPMN's *default* absence-of-catch semantics, not a modeled route. If a
      future boundary is added for `ERR_DSR_ERASURE_NOT_HUMAN` specifically, note it is a
-     `*_NOT_HUMAN` guard code and per ADR-0030 §4 would be hard-gated on T-E (audited-refusal)
-     before going live in the production allowlist — same posture as `ERR_DECRED_NOT_HUMAN`/
+     `*_NOT_HUMAN` guard code hard-gated on T-E (audited-refusal) per ADR-0030 §4 — and **T-E has
+     now LANDED** (#131: harness-level audited-refusal chokepoint, `is_guard_refusal_code`,
+     `harness.py:333-346`, emitting a PHI-safe REFUSED AuditRecord before every guard/denial
+     refusal; #131 deliberately does NOT enable any `*_NOT_HUMAN` code in the production
+     allowlist). So the remaining blockers for these two codes are (a) the boundary-shape decision
+     asked in this very question, and (b) the per-code enablement proof through the
+     boundary-proof gate (consumption coverage) — same posture as `ERR_DECRED_NOT_HUMAN`/
      `ERR_CRED_DENIAL_NOT_HUMAN`/`ERR_CONTRACT_SUSPENSION_NOT_HUMAN`.
 
-  **What is NOT blocked (status check, not a question).** The identity gate is LIVE and
-  adversarially verified in production shape: `ValidateIdentityWorker` (#55 R-A) fail-closes on an
-  explicit `identidade_verificada is True` signal, and #55 R-B (`request_additional_proof`) is a
-  built, live-proven raw async handler (#113, ADR-0031/DL-0031; independent R1 adversarial
-  reproduction on a live CIB Seven 2.1.0 engine, `docs/evidence-ledger.md` T2.8 row, 2026-07-19).
-  **Correction to this dispatch's brief:** R-F (`send_response`) and R-G (`notify_sla_risk`) are
-  **not** "built pending live-proof" — ground truth (`lgpd.py:542-548`) is that R-C/R-D/R-F/R-G are
-  all four still-unbuilt orphan topics; only R-A and R-B are served. Separately, the **producer
-  policy** — which channels/proof types are sanctioned to seed `identidade_verificada=True` —
-  remains pending DPO ratification per ADR-0031 Decisao point 5; the consumer-side fail-closed
-  semantics does not wait on that ratification (ADR-0031's own framing).
+  **What is NOT blocked (status check, not a question — refreshed 2026-07-25 post-merge).** The
+  identity gate is LIVE and adversarially verified in production shape: `ValidateIdentityWorker`
+  (#55 R-A) fail-closes on an explicit `identidade_verificada is True` signal, and #55 R-B
+  (`request_additional_proof`) is a built, live-proven raw async handler (#113, ADR-0031/DL-0031;
+  independent R1 adversarial reproduction on a live CIB Seven 2.1.0 engine,
+  `docs/evidence-ledger.md` T2.8 row, 2026-07-19). **#55 R-F (`send_response`) and R-G
+  (`notify_sla_risk`) are now BUILT and MERGED (#125,** `make_send_response_handler`
+  `lgpd.py:479` / `make_notify_sla_risk_handler` `lgpd.py:558`, registered `lgpd.py:670-674`):
+  R-G is live-proven — its two SLA-phase tests (P7D ack via `ST_NotificarRiscoSla`, P15D
+  resolution via `ST_NotificarJuridicoBreach`, discriminated by `sla_breach_phase`) flipped; R-F
+  is built AND live-verified (`lgpd_send_response_sent decisao=APROVAR_ENVIO` observed on the
+  live engine) but its integration-suite probe wiring is **deliberately kept on the gap stub**
+  pending DPO sign-off on the full DSR merit flow — a governance gate, not a src gap
+  (`tests/integration/processes/test_sp_op_lgpd_dsr_001.py:245-250`): un-shadowing R-F genuinely
+  flips a happy-path test, and a known assert-key mismatch is tracked for that moment (the worker
+  emits `tem_fundamentacao`, `lgpd.py:516`; the test asserts `has_fundamentacao`, test `:553`).
+  (An earlier revision of this addendum, written against pre-#125 main, correctly recorded
+  R-F/R-G as unbuilt at that time.) Only R-C/R-D remain unbuilt — exactly the two topics this
+  addendum's questions cover. Separately, the **producer policy** — which channels/proof types
+  are sanctioned to seed `identidade_verificada=True` — remains pending DPO ratification per
+  ADR-0031 Decisao point 5; the consumer-side fail-closed semantics does not wait on that
+  ratification (ADR-0031's own framing).
 
 ### SP-OP-ANS-SUBMIT-001 — Envios Periódicos ANS (DRAFT, v0.1.0)
 
@@ -197,8 +218,9 @@ constraints (joint with médico-auditor).**
   1. `operadora.programa.proactive_contact` re-fetches PHI in-zone and contacts the beneficiary
      only when `consent_checked==true`, following "o precedente Helena/WhatsApp, D9"
      (`docs/processes/contracts/SP-OP-PROGRAMA-001.md:125`) — but the worker itself is unbuilt
-     (`programa.py:222-223`, same "Spec topics with NO implementing function today" gap list as
-     `stratify_risk`). Confirm the WhatsApp/Helena channel is DPO-acceptable for PHI-adjacent
+     (`programa.py:318-319`, the "Spec topics with NO implementing function today" gap list —
+     which, post-#126, no longer contains `stratify_risk`; that one is now built). Confirm the
+     WhatsApp/Helena channel is DPO-acceptable for PHI-adjacent
      proactive outreach under this program's consent scope, and whether any additional consent
      granularity (beyond the general `programa_cuidado` scope already gated by `check_consent`) is
      needed for proactive (vs. reactive/beneficiary-initiated) contact specifically. Joint with

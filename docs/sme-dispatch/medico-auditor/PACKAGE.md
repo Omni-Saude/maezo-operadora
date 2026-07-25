@@ -197,33 +197,37 @@ regulatório/DPO/finanças territory, see the other packages.
      (PHI) only after the LGPD consent chokepoint passes.
   3. Confirm candidate groups `coordenacao-clinica` / `equipe-cuidado`.
 
-**T2.9 addendum (2026-07-24, `t2.9-sme-packages`) — `stratify_risk` criteria prescribed nowhere;
-`proactive_contact` clinical-appropriateness (joint with DPO):**
+**T2.9 addendum (2026-07-24, `t2.9-sme-packages`; status refreshed 2026-07-25 after merging
+`origin/main` 6288341 — #126 landed; the ASKS are unchanged) — `stratify_risk` criteria
+prescribed nowhere; `proactive_contact` clinical-appropriateness (joint with DPO):**
 
   1. **`stratify_risk` — ratify the fail-safe default, and supply the actual criteria.**
      `programa_routing.dmn` consumes `risco_estratificado` (values `{baixo, moderado, alto}`) but
      the DMN's own `<description>` states plainly: "criterios de estratificacao/elegibilidade
      requerem SME medico-auditor + taxonomia de programas" (`programa_routing.dmn:9-10`) — no
-     deterministic stratification rule exists anywhere in the repo. **Correction to this dispatch's
-     brief:** framing this as "the built worker echoes a valid pre-resolved band or fail-closes to
-     alto" describes intent, not fact — `operadora.programa.stratify_risk` (`ST_StratifyRisk`,
-     delegating "care.stratify a Valentina ... INSTRUI, NAO decide," `bpmn:152-154`) has **no
-     implementing worker at all** today; `programa.py`'s own bootstrap comment lists it among
-     "Spec topics with NO implementing function today (gap, not fabricated here)"
-     (`programa.py:222-223`). What IS built is the DMN's fail-safe posture for *whatever* band
-     eventually arrives: rule `r_risco_alto` routes `alto` unconditionally to `ANALISE_HUMANA`, and
-     the catch-all `r_catchall` routes any unmapped/indeterminate value the same way
-     (`programa_routing.dmn`). Two asks: (a) ratify that this fail-safe-to-human posture is the
-     correct default once Valentina's `care.stratify` delegation is wired and echoes (or fails to
-     resolve) a band; (b) supply the actual clinical stratification criteria — what inputs and
-     thresholds should that delegation compute into `{baixo, moderado, alto}` in the first place
-     (today entirely unspecified — the taxonomy of programs itself, crônicos/pré-natal/oncologia/
-     APS, is the same open question as Q1 above).
+     deterministic stratification rule exists anywhere in the repo. **Status (refreshed
+     post-merge):** the worker for `operadora.programa.stratify_risk` (`ST_StratifyRisk`,
+     delegating "care.stratify a Valentina ... INSTRUI, NAO decide," `bpmn:152-154`) is now
+     **BUILT and MERGED (#126)** as a fail-closed delegation stub: it echoes a pre-resolved band
+     only when it is a valid member of `_RISCO_BANDAS_VALIDAS` `{baixo, moderado, alto}`, and
+     otherwise (absent/invalid/unresolvable) fail-closes to `RISCO_FAIL_CLOSED_DEFAULT = "alto"`
+     (`programa.py:107,121,124-186`) — which `programa_routing`'s rule `r_risco_alto` routes
+     unconditionally to `ANALISE_HUMANA`, same as the catch-all `r_catchall` for any unmapped
+     value. The fail-closed "alto" default is live-proven (#126: 9 integration tests flipped).
+     (An earlier revision of this addendum, written against pre-#126 main, correctly recorded the
+     worker as unbuilt at that time.) The two asks STAND unchanged: (a) ratify that the
+     fail-closed `"alto"` → `ANALISE_HUMANA` default is the correct clinical posture — it is now
+     shipped behavior, not just intent; (b) supply the actual clinical stratification criteria —
+     what inputs and thresholds should the (still-unwired) Valentina `care.stratify` delegation
+     compute into `{baixo, moderado, alto}` in the first place (today entirely unspecified — the
+     taxonomy of programs itself, crônicos/pré-natal/oncologia/APS, is the same open question as
+     Q1 above).
   2. **`proactive_contact` — PHI-bearing outbound contact, clinical-appropriateness half (DPO
      co-owns the channel/consent half).** `operadora.programa.proactive_contact` is documented as
      contact "so com `consent_checked==true`; re-busca PHI in-zone — precedente Helena/WhatsApp, D9"
-     (`docs/processes/contracts/SP-OP-PROGRAMA-001.md:125`) but, like `stratify_risk`, has no
-     implementing worker yet (`programa.py:222-223`, same gap list). From a clinical standpoint:
+     (`docs/processes/contracts/SP-OP-PROGRAMA-001.md:125`) but has no implementing worker yet
+     (`programa.py:318-319` gap list — which, post-#126, no longer contains `stratify_risk`).
+     From a clinical standpoint:
      which risk bands / program types warrant proactive outbound contact, and does the
      WhatsApp/Helena channel precedent (D9) carry any clinical-appropriateness constraint (e.g.
      should an urgent/high-risk finding ever be delivered by an unmonitored async channel, or
