@@ -119,50 +119,65 @@ FINDINGS (see PR body / evidence-ledger for full detail):
      `xfail(strict=True)` rather than weakened.
 
   2. **Missing worker registrations — blocks the entire human-alcada branch
-     (`_PAGTO_ALCADA_WORKER_MISSING_REASON`).** The BPMN declares 8 external-task topics via
-     `camunda:type="external"` (grep-confirmed: `operadora.events.publish` ×7 call sites +
-     `operadora.pagto.{validate_payment_data, calculate_facts, release_low_value_payment,
-     prepare_approval_dossier, notify_sla_risk, release_high_value_payment,
-     register_payment_refusal}`). `register_pagto_workers` (`pagto.py:381-407`) implements only 6
-     topics, and 2 of those 6 — `operadora.pagto.assess_admissibility` and
+     (`_PAGTO_ALCADA_WORKER_MISSING_REASON`)** — UPDATED, t2.5-p2b-round2. The BPMN declares 8
+     external-task topics via `camunda:type="external"` (grep-confirmed: `operadora.events.publish`
+     ×7 call sites + `operadora.pagto.{validate_payment_data, calculate_facts,
+     release_low_value_payment, prepare_approval_dossier, notify_sla_risk,
+     release_high_value_payment, register_payment_refusal}`). `register_pagto_workers` originally
+     implemented only 6 topics, 2 of which — `operadora.pagto.assess_admissibility` and
      `operadora.pagto.publish_completed` — have NO matching BPMN service task at all (orphan
      registrations: `BRT_PagtoAdmissibility` is a NATIVE businessRuleTask, and every
      `pagto.completed` publish routes through the generic `operadora.events.publish`, not a
-     dedicated topic — harmless, simply never dispatched for this BPMN). Conversely, 3
-     BPMN-declared topics have NO implementing Python function at all —
-     `operadora.pagto.prepare_approval_dossier`, `operadora.pagto.notify_sla_risk`,
-     `operadora.pagto.register_payment_refusal` — confirmed by `register_pagto_workers`'s OWN
-     trailing comment (`pagto.py:376-377`: "Spec topics with NO implementing function today (gap,
-     not fabricated here): prepare_approval_dossier, notify_sla_risk,
-     register_payment_refusal"). `_PAGTO_WORKER_TOPICS` below is built from what
-     `register_pagto_workers` ACTUALLY registers (this mismatch is itself the finding — task
-     instruction). Consequence: `ST_PrepareApprovalDossier` sits on the ONLY path from
-     `BRT_PagtoSla` to `UT_AprovacaoAlcada` (BPMN: `BRT_AlcadaRouting` -> `GW_Faixa` -default->
-     `BRT_PagtoSla` -> `ST_PrepareApprovalDossier` -> `UT_AprovacaoAlcada`) — with no worker to
-     claim it, EVERY test needing `UT_AprovacaoAlcada` (the entire value-driven-candidate-group /
-     human-approval / tier-match / SLA-coordenacao surface — the process's OWN "coracao" per its
-     BPMN documentation) stalls indefinitely; `await_user_task`/`_await_end` time out
-     (`EngineRestError`/a stuck `ended` set missing the expected terminal). The DEVOLVER branch of
-     `GW_ResolucaoAdmissibilidade` (default) similarly stalls at `ST_RegisterPaymentRefusal`. Two
-     of the affected donor tests (`test_coordenacao_seguir_analise_refaz_dossie_...`,
+     dedicated topic — harmless, simply never dispatched for this BPMN; UNCHANGED). t2.5-p2b-round2
+     CLOSED 2 of the 3 originally-missing BPMN-declared topics: `operadora.pagto.notify_sla_risk`
+     and `operadora.pagto.register_payment_refusal` now have real implementing functions (mirror
+     the proven inadimplencia.py/cancel.py/fraude.py/adequacao.py dict-first idiom for the
+     SLA-alert worker; `register_payment_refusal` mirrors `recurso.register_desistencia`'s
+     dual-channel refuse-if-no-human GUARD pattern — decisao_pagamento==RECUSAR OR
+     decisao_admissibilidade==DEVOLVER, both requiring aprovador_id+justificativa_recusa). Only
+     `operadora.pagto.prepare_approval_dossier` remains unimplemented (Andre A2A-gated, explicitly
+     out of scope for that PR). `_PAGTO_WORKER_TOPICS` below is built from what
+     `register_pagto_workers` ACTUALLY registers. Consequence: `ST_PrepareApprovalDossier` STILL
+     sits on the ONLY path from `BRT_PagtoSla` to `UT_AprovacaoAlcada` (BPMN: `BRT_AlcadaRouting`
+     -> `GW_Faixa` -default-> `BRT_PagtoSla` -> `ST_PrepareApprovalDossier` -> `UT_AprovacaoAlcada`)
+     — with no worker to claim it, EVERY test needing `UT_AprovacaoAlcada` (the entire
+     value-driven-candidate-group / human-approval / tier-match / SLA-coordenacao surface — the
+     process's OWN "coracao" per its BPMN documentation) STILL stalls indefinitely;
+     `await_user_task`/`_await_end` time out (`EngineRestError`/a stuck `ended` set missing the
+     expected terminal) — these tests keep the `_PAGTO_ALCADA_WORKER_MISSING_REASON` xfail
+     (reason text updated, mark/strict unchanged). The DEVOLVER branch of
+     `GW_ResolucaoAdmissibilidade` (default), UNLIKE the dossier-gated branch, is NO LONGER
+     blocked by a missing worker — `ST_RegisterPaymentRefusal` does not sit downstream of
+     `ST_PrepareApprovalDossier` at all — see `_PAGTO_REGISTER_REFUSAL_BUILT_REASON` (a
+     HIGH-CONFIDENCE full-pass candidate, flagged for live-engine verification). Two of the
+     affected donor tests (`test_coordenacao_seguir_analise_refaz_dossie_...`,
      `test_coordenacao_omite_decisao_cai_no_default_...`) ALSO assert
      `notifications_of_type("pagto.prepare_approval_dossier")`/`("pagto.notify_sla_risk")` — even
-     setting the missing-registration aside, these would face the SAME systemic Kafka-publish gap
-     as every other dict-first module (`register_pagto_workers` itself: `del kafka  # unused — no
-     pagto.py worker declares a Kafka dependency`, `pagto.py:392`) — a doubly-compounded block, but
-     the PRIMARY/first-hit cause for all `_PAGTO_ALCADA_WORKER_MISSING_REASON`-marked tests is the
-     missing registration (the process never even reaches the point where the second gap would
-     matter).
+     setting the still-open dossier-registration gap aside, these would face the SAME systemic
+     Kafka-publish gap as every other dict-first module (`register_pagto_workers` itself: `del
+     kafka  # unused — no pagto.py worker declares a Kafka dependency`, unchanged, `notify_sla_risk`/
+     `register_payment_refusal` included) — a doubly-compounded block, but the PRIMARY/first-hit
+     cause for all still-`_PAGTO_ALCADA_WORKER_MISSING_REASON`-marked tests remains the
+     `prepare_approval_dossier` registration gap (the process never even reaches the point where
+     the second gap would matter).
 
   3. Kafka-publish systemic gap (cross-family fact, `grep -rn "kafka.publish(" src/maezo/tools/
      workers/*.py` = exactly ONE call site, `events.py:247`): generic-publish-topic domain events
      (`pagto.received`/`routed`/`sla_breached`/`completed`, all via `operadora.events.publish` ->
      `register_events_workers`) DO work and ARE asserted green in the 3 unmarked tests below.
-     pagto.py's own 6 registered functions are dict-first (ADR-0026 §2a) and NEVER call
-     `kafka.publish` directly (`pagto.py:392`, explicit) — matching cancel.py's
-     `_WORKER_KAFKA_GAP_REASON` class — but none of the 3 tests left unmarked in this file assert
-     a direct (non-generic-publish) worker notification, so this gap is fully absorbed into
-     FINDING 2 above rather than needing its own separate `_REASON` constant.
+     pagto.py's own registered functions (8 after t2.5-p2b-round2, was 6) are dict-first
+     (ADR-0026 §2a) and NEVER call `kafka.publish` directly — matching cancel.py's
+     `_WORKER_KAFKA_GAP_REASON` class; `notify_sla_risk`/`register_payment_refusal` deliberately
+     mirror this SAME no-Kafka idiom (a dedicated systemic Kafka-seam task is queued, out of scope
+     here). None of the 3 tests left unmarked in this file assert a direct (non-generic-publish)
+     worker notification, so this gap is fully absorbed into FINDING 2 above rather than needing
+     its own separate `_REASON` constant for THOSE tests. NOTE (t2.5-p2b-round2): this gap does
+     NOT apply to `test_admissibilidade_devolver_registra_recusa_humana`
+     (`_PAGTO_REGISTER_REFUSAL_BUILT_REASON`) either — its assertions check only the engine's
+     `ended` activity-history set (via the already-fixed generic `operadora.events.publish`
+     path), never a kafka-backed `notifications_of_type(...)` call — which is exactly why that
+     one test is flagged as a HIGH-CONFIDENCE full-pass candidate rather than merely "still
+     blocked, narrower reason" like the dossier-gated tests.
 
   4. Fact #4 (notification_bridge: CONTAS->RECURSO, CONTAS->FRAUDE, FRAUDE->CRED, FRAUDE->CANCEL,
      FRAUDE->INADIMPLENCIA) — N/A for pagto (neither source nor target of any of the 5 rules);
@@ -226,19 +241,24 @@ _ASSESS_ADMISSIBILITY_TOPIC = "operadora.pagto.assess_admissibility"
 _CALCULATE_FACTS_TOPIC = "operadora.pagto.calculate_facts"
 _RELEASE_LOW_TOPIC = "operadora.pagto.release_low_value_payment"
 _RELEASE_HIGH_TOPIC = "operadora.pagto.release_high_value_payment"
+_NOTIFY_SLA_TOPIC = "operadora.pagto.notify_sla_risk"
+_REGISTER_REFUSAL_TOPIC = "operadora.pagto.register_payment_refusal"
 _PUBLISH_COMPLETED_TOPIC = "operadora.pagto.publish_completed"
 
 # Topicos servidos pelos workers REAIS registrados no harness (drain generico) — construido a
-# partir do que `register_pagto_workers` REALMENTE registra (pagto.py:381-407), NAO do que o BPMN
-# declara (module docstring FINDING 2 documents the mismatch in both directions):
+# partir do que `register_pagto_workers` REALMENTE registra, NAO do que o BPMN declara (module
+# docstring FINDING 2 documents the mismatch in both directions). UPDATED t2.5-p2b-round2:
 #   - `_ASSESS_ADMISSIBILITY_TOPIC`/`_PUBLISH_COMPLETED_TOPIC` are registered but have NO matching
-#     BPMN service task (orphan — harmless, simply never dispatched for this BPMN).
-#   - `operadora.pagto.{prepare_approval_dossier,notify_sla_risk,register_payment_refusal}` ARE
-#     declared by the BPMN but have NO registered worker — deliberately NOT in this list:
-#     subscribing to a topic nothing handles would make `harness._handle` report an immediate
-#     "no handler registered" incident the moment the engine dispatches it; omitting it instead
-#     leaves the task simply unclaimed (the instance stalls cleanly at that service task, which is
-#     exactly the behavior FINDING 2's xfailed tests below observe/expect).
+#     BPMN service task (orphan — harmless, simply never dispatched for this BPMN; unchanged).
+#   - `_NOTIFY_SLA_TOPIC`/`_REGISTER_REFUSAL_TOPIC` are NOW registered (t2.5-p2b-round2 closed
+#     these 2 of the 3 originally-missing topics) — INCLUDED in this list, so the drain genuinely
+#     fetches/completes both external tasks now.
+#   - `operadora.pagto.prepare_approval_dossier` is STILL declared by the BPMN with NO registered
+#     worker (Andre A2A-gated, explicitly out of scope for t2.5-p2b-round2) — deliberately NOT in
+#     this list: subscribing to a topic nothing handles would make `harness._handle` report an
+#     immediate "no handler registered" incident the moment the engine dispatches it; omitting it
+#     instead leaves the task simply unclaimed (the instance stalls cleanly at that service task,
+#     which is exactly the behavior FINDING 2's still-xfailed tests below observe/expect).
 _PAGTO_WORKER_TOPICS = [
     _PUBLISH_TOPIC,
     _VALIDATE_TOPIC,
@@ -246,6 +266,8 @@ _PAGTO_WORKER_TOPICS = [
     _CALCULATE_FACTS_TOPIC,
     _RELEASE_LOW_TOPIC,
     _RELEASE_HIGH_TOPIC,
+    _NOTIFY_SLA_TOPIC,
+    _REGISTER_REFUSAL_TOPIC,
     _PUBLISH_COMPLETED_TOPIC,
 ]
 
@@ -335,21 +357,53 @@ _CALCULATE_FACTS_CEILING_NOT_PROPAGATED_REASON = (
 # surface) stalls indefinitely; the DEVOLVER admissibility branch similarly stalls at
 # ST_RegisterPaymentRefusal.
 _PAGTO_ALCADA_WORKER_MISSING_REASON = (
-    "v2 registration gap (module docstring FINDING 2): the BPMN declares "
-    "operadora.pagto.{prepare_approval_dossier,notify_sla_risk,register_payment_refusal} as "
-    "external-task topics (camunda:type='external'), but register_pagto_workers (pagto.py:381-407) "
-    "implements NONE of them — confirmed by that function's own trailing comment block "
-    "('Spec topics with NO implementing function today (gap, not fabricated here): "
-    "prepare_approval_dossier, notify_sla_risk, register_payment_refusal', pagto.py:376-377). "
-    "ST_PrepareApprovalDossier is the ONLY path from BRT_PagtoSla to UT_AprovacaoAlcada (BPMN: "
-    "BRT_AlcadaRouting -> GW_Faixa -default-> BRT_PagtoSla -> ST_PrepareApprovalDossier -> "
-    "UT_AprovacaoAlcada) — with no worker to claim it, the external task sits unclaimed forever "
-    "and this test's await_user_task/_await_end call times out (EngineRestError) or observes a "
-    "stuck `ended` set missing the expected terminal, since _PAGTO_WORKER_TOPICS deliberately does "
-    "not subscribe to a topic with no registered handler (see its own comment). The "
-    "GW_ResolucaoAdmissibilidade DEVOLVER default branch is equally blocked at "
-    "ST_RegisterPaymentRefusal. src/** fix (implementing these 3 workers) is out of scope for "
-    "this port."
+    "v2 registration gap (module docstring FINDING 2), UPDATED t2.5-p2b-round2: the BPMN "
+    "declares operadora.pagto.{prepare_approval_dossier,notify_sla_risk,register_payment_"
+    "refusal} as external-task topics (camunda:type='external'); register_pagto_workers now "
+    "implements 2 of these 3 (notify_sla_risk, register_payment_refusal — t2.5-p2b-round2). Only "
+    "`prepare_approval_dossier` remains unimplemented (Andre A2A-gated, explicitly out of scope "
+    "for that PR). ST_PrepareApprovalDossier is the ONLY path from BRT_PagtoSla to "
+    "UT_AprovacaoAlcada (BPMN: BRT_AlcadaRouting -> GW_Faixa -default-> BRT_PagtoSla -> "
+    "ST_PrepareApprovalDossier -> UT_AprovacaoAlcada) — with no worker to claim it, the external "
+    "task sits unclaimed forever and this test's await_user_task/_await_end call times out "
+    "(EngineRestError) or observes a stuck `ended` set missing the expected terminal, since "
+    "_PAGTO_WORKER_TOPICS deliberately does not subscribe to a topic with no registered handler "
+    "(see its own comment). This STILL blocks every test needing UT_AprovacaoAlcada (the entire "
+    "value-driven-candidate-group / human-approval / tier-match / SLA-coordenacao surface). The "
+    "GW_ResolucaoAdmissibilidade DEVOLVER default branch (ST_RegisterPaymentRefusal) is NO "
+    "LONGER blocked by a missing worker (t2.5-p2b-round2 registered register_payment_refusal, "
+    "which does not sit downstream of ST_PrepareApprovalDossier at all) — see "
+    "`_PAGTO_REGISTER_REFUSAL_BUILT_REASON` for the ONE test on that branch, which now has a "
+    "narrower/different (or possibly no remaining) blocker. src/** fix (implementing "
+    "prepare_approval_dossier) is out of scope for this PR."
+)
+
+# t2.5-p2b-round2: register_payment_refusal is now BUILT and registered. Unlike every OTHER
+# _PAGTO_ALCADA_WORKER_MISSING_REASON-marked test, `test_admissibilidade_devolver_registra_
+# recusa_humana` reaches ST_RegisterPaymentRefusal via the ADMISSIBILIDADE/DEVOLVER channel
+# (UT_AnaliseAdmissibilidade -> GW_ResolucaoAdmissibilidade -> ST_RegisterPaymentRefusal), which
+# is NOT downstream of the still-missing ST_PrepareApprovalDossier/UT_AprovacaoAlcada at all --
+# it is reachable directly from GW_Admissibilidade without ever touching the dossier gate. None
+# of this test's assertions touch a kafka-backed notification (`_ENDS_ADVERSOS`/`ended`-set
+# checks only, via the ALREADY-FIXED generic operadora.events.publish path) -- so, unlike every
+# other xfail in this file, this one has NO KNOWN remaining src-side blocker after
+# t2.5-p2b-round2. HIGH-CONFIDENCE full-pass candidate: flagged prominently in the round-2 report
+# for a human to verify live and then REMOVE this xfail (a strict=True xfail that unexpectedly
+# passes is itself a hard failure -- XPASS(strict) -- so leaving this mark in place is a
+# deliberate, policy-mandated choice pending that live-proof, not an oversight).
+_PAGTO_REGISTER_REFUSAL_BUILT_REASON = (
+    "built, pending live-proof flip (t2.5-p2b-round2): pagto.py's `register_payment_refusal` is "
+    "now implemented and registered on `operadora.pagto.register_payment_refusal` (dual human "
+    "channel: decisao_pagamento==RECUSAR OR decisao_admissibilidade==DEVOLVER, both requiring "
+    "aprovador_id+justificativa_recusa -- refuses ERR_PAYMENT_REFUSAL_NOT_HUMAN otherwise, "
+    "mirrors recurso.register_desistencia's refuse-if-no-human pattern). This test's DEVOLVER "
+    "path (UT_AnaliseAdmissibilidade -> GW_ResolucaoAdmissibilidade -> ST_RegisterPaymentRefusal) "
+    "does NOT depend on ST_PrepareApprovalDossier/UT_AprovacaoAlcada (the still-open "
+    "prepare_approval_dossier gap) at all, and none of its assertions touch a kafka-backed "
+    "notification -- structurally, this test has NO remaining known blocker. Kept as strict "
+    "xfail per policy (mark/strict unchanged pending live-engine proof, NOT flipped here) -- "
+    "if it genuinely passes against a live engine, REMOVE this xfail (an unexpected XPASS under "
+    "strict=True is itself a CI failure)."
 )
 
 
@@ -425,6 +479,14 @@ async def pagto_probe(
     # T3.1 R2: the generic operadora.events.publish worker every ST_Publish* service task in this
     # BPMN routes through — mirrors the donor's own register_phase0_workers composition.
     register_events_workers(harness, kafka)
+    # DRIFT GUARD (t2.5-p2b-round2, mirrors the #93 inadimplencia template / fraude.py's/
+    # adequacao.py's fixtures): todo topico operadora.pagto.* registrado no harness DEVE estar na
+    # lista de drain — falha AQUI, explicita, se um worker novo ficar fora.
+    pagto_registered = {t for t in harness.registered_topics if t.startswith("operadora.pagto.")}
+    missing_from_drain = pagto_registered - set(_PAGTO_WORKER_TOPICS)
+    assert not missing_from_drain, (
+        f"_PAGTO_WORKER_TOPICS desatualizada — topicos registrados fora do drain: {missing_from_drain}"
+    )
     probe = PagtoEngineProbe(
         engine=engine,
         harness=harness,
@@ -716,7 +778,6 @@ async def test_lastro_nao_confirmado_nunca_auto_libera_clerical(
     await _assert_no_adverse_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_PAGTO_ALCADA_WORKER_MISSING_REASON, strict=True)
 async def test_admissibilidade_devolver_registra_recusa_humana(
     engine: EngineRest,
     pagto_probe: PagtoEngineProbe,
@@ -726,7 +787,9 @@ async def test_admissibilidade_devolver_registra_recusa_humana(
 
     O default conservador do gateway de resolucao (DEVOLVER) reusa o terminal de recusa humana
     (register_payment_refusal -> End_PagamentoRecusadoHumano). Nenhuma liberacao; nenhum terminal
-    adverso automatico. BLOQUEADO: register_payment_refusal nao tem worker registrado (finding 2).
+    adverso automatico. t2.5-p2b-round2: register_payment_refusal is NOW built/registered on this
+    topic -- see `_PAGTO_REGISTER_REFUSAL_BUILT_REASON` (HIGH-CONFIDENCE full-pass candidate,
+    live-proof needed).
     """
     inst = await start_pagto(
         valor_pagamento_cents=120_000_000, dentro_teto_l2=False, duplicidade_suspeita=True
