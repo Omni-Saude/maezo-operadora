@@ -19,6 +19,29 @@ from maezo.tools.workers.programa import (
     stratify_risk,
 )
 
+# T3.1 (mirrors lgpd.py's ADR-0031 `identidade_verificada` fail-closed matrix): the consent
+# chokepoint (`consentimento_ativo`/`consent_checked`) is pinned to the explicit boolean `True` —
+# NOT bare truthiness. Absent / False / None / any truthy junk (string incl. whitespace-only, int,
+# list, dict) must NEVER be read as active/verified consent — this chokepoint "gates ALL PHI
+# processing" (module docstring; contract SP-OP-PROGRAMA-001.md:15). Shared vectors reused across
+# check_consent's and stratify_risk's own parametrized fail-closed tests below.
+_CONSENT_NON_TRUE_VECTORS: list[dict[str, object]] = [
+    {"consentimento_ativo": False},  # explicit False (consent_checked left True)
+    {"consentimento_ativo": None},  # explicit None
+    {"consentimento_ativo": "true"},  # garbage: truthy string, not the bool True
+    {"consentimento_ativo": " "},  # garbage: whitespace-only truthy string
+    {"consentimento_ativo": 1},  # garbage: truthy int, not the bool True
+    {"consentimento_ativo": [1]},  # garbage: truthy list, not the bool True
+    {"consentimento_ativo": {"ok": True}},  # garbage: truthy dict, not the bool True
+    {"consent_checked": False},  # explicit False (consentimento_ativo left True)
+    {"consent_checked": None},  # explicit None
+    {"consent_checked": "true"},  # garbage: truthy string, not the bool True
+    {"consent_checked": " "},  # garbage: whitespace-only truthy string
+    {"consent_checked": 1},  # garbage: truthy int, not the bool True
+    {"consent_checked": [1]},  # garbage: truthy list, not the bool True
+    {"consent_checked": {"ok": True}},  # garbage: truthy dict, not the bool True
+]
+
 # ---------------------------------------------------------------
 # check_consent — CHOKEPOINT
 # ---------------------------------------------------------------
@@ -75,6 +98,27 @@ def test_programa_consent_gate_blocks_not_checked() -> None:
     assert excinfo.value.code == ERR_PROGRAMA_NO_CONSENT
 
 
+@pytest.mark.parametrize("vars_extra", _CONSENT_NON_TRUE_VECTORS)
+def test_programa_consent_gate_fail_closed_rejects_non_true_signal(
+    vars_extra: dict[str, object],
+) -> None:
+    """FAIL-CLOSED (T3.1): the chokepoint only accepts the literal `is True` for each consent flag.
+
+    False/None/truthy-junk (string incl. whitespace-only, int, list, dict) on EITHER flag must
+    NEVER be read as active/verified consent — closes the fail-OPEN class this change fixes.
+    """
+    variables: dict[str, object] = {
+        "consentimento_ativo": True,
+        "consent_checked": True,
+        "consent_scope": "programa_cuidado",
+        **vars_extra,
+    }
+
+    with pytest.raises(ProgramaError) as excinfo:
+        check_consent(variables)
+    assert excinfo.value.code == ERR_PROGRAMA_NO_CONSENT
+
+
 # ---------------------------------------------------------------
 # stratify_risk — in-zone risk-band delegation stub (care.stratify — Valentina A2A)
 # ---------------------------------------------------------------
@@ -120,6 +164,15 @@ def test_stratify_risk_refuses_without_active_consent() -> None:
 def test_stratify_risk_refuses_without_consent_checked() -> None:
     with pytest.raises(ProgramaError) as excinfo:
         stratify_risk(_consented_variables(consent_checked=False))
+    assert excinfo.value.code == ERR_PROGRAMA_NO_CONSENT
+
+
+@pytest.mark.parametrize("vars_extra", _CONSENT_NON_TRUE_VECTORS)
+def test_stratify_risk_fail_closed_rejects_non_true_signal(vars_extra: dict[str, object]) -> None:
+    """FAIL-CLOSED (T3.1): this defense-in-depth guard only accepts the literal `is True` for each
+    consent flag — same invariant/vectors as check_consent's own parametrized fail-closed test."""
+    with pytest.raises(ProgramaError) as excinfo:
+        stratify_risk(_consented_variables(**vars_extra))
     assert excinfo.value.code == ERR_PROGRAMA_NO_CONSENT
 
 
