@@ -55,6 +55,7 @@ from maezo.tools.workers.harness import (
     WorkerHarness,
 )
 from maezo.tools.workers.lgpd import LGPD_BPMN_ERROR_ALLOWLIST
+from maezo.tools.workers.recurso import RECURSO_BPMN_ERROR_ALLOWLIST
 
 from .settings import WorkerRuntimeSettings
 
@@ -86,9 +87,12 @@ logger = structlog.get_logger(__name__)
 # business-outcome codes (every `*_NOT_HUMAN` guard + the denial-block `ERR_AUTH_DENIAL_INCOMPLETE`)
 # are consumption-covered too, but activating one pre-T-E would trade a guaranteed-human-visible
 # incident for a silent clean end at a neutral terminal, so they stay incident-fail-closed until
-# T-E (audited-refusal) lands. At Tier-0 this resolves to `{ERR_EVENT_PUBLISH_FAILED,
-# ERR_DSR_IDENTITY_UNVERIFIED}` — the non-adverse technical fail-safes (a publish failure routed to
-# retry/fallback; a mechanically-unverifiable LGPD titular routed to a neutral terminal).
+# T-E (audited-refusal) lands. This resolves to `{ERR_EVENT_PUBLISH_FAILED,
+# ERR_DSR_IDENTITY_UNVERIFIED}` (Tier-0 — the non-adverse technical fail-safes: a publish failure
+# routed to retry/fallback; a mechanically-unverifiable LGPD titular routed to a neutral terminal)
+# `| {ERR_RECURSO_INVALID_GLOSA}` (T3.1 P2b, Tier-2 — recurso's origin/consistency (G2-val) guard:
+# `glosa_id` absent/empty at ST_SolicitarDocumentos/ST_PrepararDossie routes to the neutral
+# terminal End_RecursoGlosaInvalidaOrigem; NOT a `*_NOT_HUMAN` guard, so NOT T-E-gated).
 
 
 def _is_te_gated(code: str) -> bool:
@@ -108,15 +112,22 @@ def _is_te_gated(code: str) -> bool:
 #: (`tests/unit/runtime/test_worker_runtime_bpmn_error_allowlist.py`) fails. `LGPD_BPMN_ERROR_
 #: ALLOWLIST` contributes `ERR_DSR_IDENTITY_UNVERIFIED` (T2.8) — a NON-adverse technical fail-safe
 #: (mechanically-unverifiable titular -> End_IdentidadeInverificavel, a neutral terminal), so it is
-#: NOT T-E-gated and DOES land in Tier-0. `ERR_CANCEL_MANTER_NOT_HUMAN` is gate-proven too but its
-#: worker exposes no constant (nothing is enabled for it at any tier until T-E), so there is
-#: nothing to import.
+#: NOT T-E-gated and DOES land in Tier-0. `RECURSO_BPMN_ERROR_ALLOWLIST` contributes
+#: `ERR_RECURSO_INVALID_GLOSA` (T3.1 P2b) — a NON-adverse G2-val origin/consistency guard
+#: (glosa_id absent/empty -> End_RecursoGlosaInvalidaOrigem, a neutral terminal), also NOT
+#: T-E-gated, also lands directly (Tier-2, ADR-0030 migration plan). `ERR_CANCEL_MANTER_NOT_HUMAN`
+#: is gate-proven too but its worker exposes no constant (nothing is enabled for it at any tier
+#: until T-E), so there is nothing to import.
 _GATE_PROVEN_BPMN_ERROR_CODES: frozenset[str] = (
-    AUTH_BPMN_ERROR_ALLOWLIST | EVENTS_BPMN_ERROR_ALLOWLIST | LGPD_BPMN_ERROR_ALLOWLIST
+    AUTH_BPMN_ERROR_ALLOWLIST
+    | EVENTS_BPMN_ERROR_ALLOWLIST
+    | LGPD_BPMN_ERROR_ALLOWLIST
+    | RECURSO_BPMN_ERROR_ALLOWLIST
 )
 
-#: The Tier-0 production allowlist wired into the harness: gate-proven codes MINUS the T-E-gated
-#: business-outcome codes. Resolves to `{ERR_EVENT_PUBLISH_FAILED, ERR_DSR_IDENTITY_UNVERIFIED}` today.
+#: The production allowlist wired into the harness: gate-proven codes MINUS the T-E-gated
+#: business-outcome codes. Resolves to `{ERR_EVENT_PUBLISH_FAILED, ERR_DSR_IDENTITY_UNVERIFIED,
+#: ERR_RECURSO_INVALID_GLOSA}` today (Tier-0 pair + T3.1 P2b's Tier-2 addition).
 PRODUCTION_BPMN_ERROR_ALLOWLIST: frozenset[str] = frozenset(
     code for code in _GATE_PROVEN_BPMN_ERROR_CODES if not _is_te_gated(code)
 )
