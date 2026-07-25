@@ -1,0 +1,32 @@
+{
+  "id": "EVL-HELENA-08",
+  "agent": "helena",
+  "class": "CE",
+  "tier": ["A", "B"],
+  "description": "Beneficiary asks to reschedule a consultation -> intent=scheduling -> Helena offers a human follow-up (direct scheduling is not available on this channel). Synthetic data only.",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "conversation_id": "wa:amh:evl-helena-08",
+      "canal": "whatsapp",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-008",
+      "message_body": "Preciso remarcar minha consulta"
+    }
+  },
+  "recorded_llm": [
+    "{\"intent\": \"scheduling\", \"population\": \"none\", \"psychosocial_risk\": false, \"sintoma_codigo\": null, \"intensidade\": \"desconhecida\"}",
+    "Vamos providenciar seu reagendamento; um atendente vai te contatar em breve."
+  ],
+  "expect": {
+    "next_kind": "schedule",
+    "fields": {
+      "intent": "scheduling"
+    }
+  },
+  "leak_canaries": [],
+  "live": {
+    "assert": "fields",
+    "match": ["intent", "population", "psychosocial_risk"],
+    "threshold": 0.9
+  }
+}
