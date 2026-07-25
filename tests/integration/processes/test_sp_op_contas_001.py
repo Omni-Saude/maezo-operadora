@@ -269,7 +269,17 @@ _WORKER_KAFKA_GAP_REASON = (
     "to run clean end-to-end against a live engine (as the docstring above already claims for "
     "the OTHER, unrelated assertions in each of these tests) has not been re-verified live here — "
     "that confirmation, and the consequent xfail removal, is deferred to the live-validation step "
-    "(see PR body / t3.1-event-gap-a-contas report)."
+    "(see PR body / t3.1-event-gap-a-contas report). "
+    "LIVE-FLIPPED (wave2b2 R1 live-validation, cibseven 2.1.0): all 5 adapted tests ran green "
+    "end-to-end against a real engine + real PostgresAuditSink and their xfail marks were removed "
+    "in-step. Right-reason evidence (engine /history, independent of the tests' own asserts): "
+    "ST_PublishEncaminhadaRecurso/ST_PublishGlosaAceita/ST_PublishReenviada completed in the "
+    "respective instances (has_event matched the REAL publish-task payloads: desfecho + "
+    "glosa_id/codigo_glosa_aceito+analista_id/prestador_id), ST_NotificarRiscoSla completed in "
+    "both SLA-alert instances, and the recorrer instance's engine-recorded variables were "
+    "categoria_normalizada=valor + glosa_id=GLOSA-TESTE-001. This constant is retained (no test "
+    "references it anymore) purely because the module docstring/FINDING prose above cites it; the "
+    "underlying per-worker kafka-publish gap in contas.py itself remains open and out of scope."
 )
 
 
@@ -683,7 +693,6 @@ async def test_sem_detalhe_de_linha_fail_closed_roteia_a_humano(
     await _assert_no_accept_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_WORKER_KAFKA_GAP_REASON, strict=True)
 async def test_happy_path_recorrer_handoff_recurso(
     engine: EngineRest,
     contas_probe: ContasEngineProbe,
@@ -740,7 +749,6 @@ async def test_happy_path_recorrer_handoff_recurso(
     ), "ST_PublishEncaminhadaRecurso deve emitir completed(desfecho=encaminhada_recurso, glosa_id=...)"
 
 
-@pytest.mark.xfail(reason=_WORKER_KAFKA_GAP_REASON, strict=True)
 async def test_happy_path_aceitar_glosa_pelo_analista(
     engine: EngineRest,
     contas_probe: ContasEngineProbe,
@@ -803,7 +811,6 @@ async def test_happy_path_aceitar_glosa_pelo_analista(
     )
 
 
-@pytest.mark.xfail(reason=_WORKER_KAFKA_GAP_REASON, strict=True)
 async def test_happy_path_reenviar(
     engine: EngineRest,
     contas_probe: ContasEngineProbe,
@@ -985,7 +992,6 @@ async def test_linhas_atualizadas_reavalia(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_WORKER_KAFKA_GAP_REASON, strict=True)
 async def test_timer_alerta_sla_nao_interruptivo(
     engine: EngineRest,
     contas_probe: ContasEngineProbe,
@@ -1113,7 +1119,6 @@ async def test_dmn_contas_sla_internacao(
     assert job_sla.activity_id == "BT_SlaTriagem"
 
 
-@pytest.mark.xfail(reason=_WORKER_KAFKA_GAP_REASON, strict=True)
 async def test_sla_ancora_em_data_recebimento_lote_nao_em_attach_da_ut(
     engine: EngineRest,
     contas_probe: ContasEngineProbe,
