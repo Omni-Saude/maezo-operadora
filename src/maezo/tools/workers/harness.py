@@ -116,6 +116,33 @@ AUDIT_AGENT_ID: str = "operadora-worker"
 #: fabricating a PEP ALLOW that never happened.
 AUDIT_DECISION_COMPLETE: str = "COMPLETE"
 
+#: `AuditRecord.decision` for a GUARD REFUSAL (T-E, ADR-0030 finding F4). When a worker refuses to
+#: perform an adverse L0 action automatically — every `*_NOT_HUMAN` guard plus the denial-block
+#: `ERR_AUTH_DENIAL_INCOMPLETE` — the harness records the *refusal decision* so it is non-repudiable
+#: (ADR-0007), even though the refusal itself is a control-flow signal that BLOCKS the effect (never
+#: an "efeito no mundo" — ADR-0030 §4). Honestly labeled as a refusal, not a fabricated PEP DENY.
+AUDIT_DECISION_REFUSED: str = "REFUSED"
+
+#: ADR-0030 §4 denial-block codes hard-gated on T-E that do NOT carry the `_NOT_HUMAN` suffix. The
+#: `*_NOT_HUMAN` guard family is matched by suffix (see `is_guard_refusal_code`), so a NEW guard code
+#: is recognized automatically; this set carries only the non-suffixed denial-block(s). Mirrors
+#: `scripts/ci/check_bpmn_error_allowlist.py::_DENIAL_BLOCK_CODES` (the two are pinned equal by
+#: `tests/unit/tools/workers/test_harness_audited_refusal.py`, so they cannot drift).
+_DENIAL_BLOCK_CODES: frozenset[str] = frozenset({"ERR_AUTH_DENIAL_INCOMPLETE"})
+
+#: `decision_basis["guard_code"]` fallback when a `PermissionError` guard's message carries no
+#: parseable `ERR_*` prefix. A `PermissionError` is ALWAYS the guard family in this harness (module
+#: docstring §"Guard errors"), so it is audited unconditionally — the specific code is best-effort.
+_GUARD_REFUSAL_FALLBACK_CODE: str = "ERR_GUARD_NOT_HUMAN"
+
+#: Extracts the leading `ERR_*` code token from a refusal exception message. The codebase convention
+#: is `"ERR_<DOMAIN>_<CONDITION>: <detail>"` — the `*NotHumanError` classes (`recurso.py:42`,
+#: `cancel.py:44,60`, …) and the `FunctionWorker`-reclassified coded exceptions
+#: (`base.py:293` → `ValueError(f"{code}: {message}")`, e.g. `CredError(ERR_DECRED_NOT_HUMAN, …)`)
+#: both follow it. Only the CODE token (bounded, non-PHI) is ever read; the free-text detail (which
+#: may name missing fields) is never parsed into the audit payload.
+_REFUSAL_CODE_RE = re.compile(r"^(ERR_[A-Z0-9_]+)")
+
 #: Explicit ALLOWLIST of worker OUTPUT keys that are bounded routing/enum/flag tokens — never PHI,
 #: never free-text, never a resolvable business identifier (design §3.3). `build_decision_basis`
 #: is an allowlist, NEVER a passthrough of `out_vars`; even an allowlisted key is dropped unless
@@ -301,6 +328,40 @@ class WorkerFailureError(Exception):  # noqa: N818 — domain name predates the 
 
 # Alias kept for compatibility with donor-ported call sites and handler readability.
 WorkerFailure = WorkerFailureError
+
+
+def is_guard_refusal_code(code: str | None) -> bool:
+    """True iff `code` is a guard/denial refusal the T-E audited-refusal chokepoint must record.
+
+    ADR-0030 finding F4 (pattern, not a hand-list): ALL `*_NOT_HUMAN` guard codes (a worker refusing
+    to perform an adverse L0 action automatically — negativa, descredenciamento, suspensão, glosa
+    acceptance, desistência, …) PLUS the denial-block `ERR_AUTH_DENIAL_INCOMPLETE`. A NEW guard code
+    is recognized automatically by the `_NOT_HUMAN` suffix — that is what makes the chokepoint
+    drift-proof (a future guard cannot bypass the audit emit without also breaking this predicate,
+    which the arch-test pins against the CI gate's `is_te_gated`).
+
+    Kept semantically identical to `scripts/ci/check_bpmn_error_allowlist.py::is_te_gated` — the
+    boundary-proof gate uses it to decide which codes are hard-gated on T-E before they may enter the
+    production allowlist; this harness uses it to decide which refusals to audit. The two are pinned
+    equal by `tests/unit/tools/workers/test_harness_audited_refusal.py` so they cannot silently diverge.
+    """
+    return code is not None and (code.endswith("_NOT_HUMAN") or code in _DENIAL_BLOCK_CODES)
+
+
+def extract_refusal_code(exc: BaseException) -> str | None:
+    """Best-effort extraction of the `ERR_*` code from a refusal exception (T-E).
+
+    A `WorkerBpmnError` carries its code as a first-class attribute (`.error_code`). Every other
+    refusal shape — the `PermissionError` `*NotHumanError` family and the `FunctionWorker`-reclassified
+    coded exceptions (`base.py:293` → `ValueError("ERR_<CODE>: <detail>")`) — carries it as the leading
+    `ERR_*` token of the message (codebase convention `"ERR_<DOMAIN>_<CONDITION>: <detail>"`). Only the
+    bounded code token is returned; the free-text detail is never parsed. Returns `None` when no
+    `ERR_*` prefix is present (e.g. a plain `ValueError("bad input")` — not a guard refusal).
+    """
+    if isinstance(exc, WorkerBpmnError):
+        return exc.error_code
+    match = _REFUSAL_CODE_RE.match(str(exc))
+    return match.group(1) if match else None
 
 
 # A handler returns a Mapping of output variables (loaded on the harness's `complete`,
@@ -1137,6 +1198,90 @@ class WorkerHarness:
             )
         return await self._audit_sink.emit_once(record, dedup_key=self._audit_dedup_key(task))
 
+    # -- audited refusal (T-E, ADR-0007 / ADR-0030 F4) ------------------------------------------
+
+    def _build_refusal_record(
+        self, task: ExternalTask, guard_code: str, dmn_versions: dict[str, Any]
+    ) -> AuditRecord:
+        """Construct the PHI-safe ADR-0007 record for a GUARD REFUSAL (T-E, ADR-0030 §4).
+
+        Same PHI discipline as the completion record (`_build_audit_record`): raw inputs are hashed
+        into `input_sha256`, never stored. Adds `guard_code` (a bounded, non-PHI `ERR_*` token, guarded
+        by `_is_bounded_token` as defence-in-depth) so the chain attests WHICH guard blocked the adverse
+        action. `decision` is the honest REFUSED label — no `out_vars` exist (the handler raised), so no
+        output tokens are curated; `dmn_versions` carries any table the handler consulted before it
+        refused (the collector stays bound across the raise — design §3.2).
+        """
+        details = build_decision_basis(task.variables, out_vars=None)
+        details["guard_code"] = guard_code if _is_bounded_token(guard_code) else _GUARD_REFUSAL_FALLBACK_CODE
+        return AuditRecord(
+            agent_id=AUDIT_AGENT_ID,
+            tenant_id=self._tenant,
+            agent_version=self._audit_app_version,
+            action=task.topic,
+            decision=AUDIT_DECISION_REFUSED,
+            details=details,
+            dmn_versions=dmn_versions,
+            model_id=None,
+            prompt_version=None,
+        )
+
+    def _audit_refusal_dedup_key(self, task: ExternalTask) -> str:
+        """Exactly-once key for a REFUSAL audit — a distinct namespace from the completion key.
+
+        `f"{tenant}:refuse:{task_id}"` (mirrors the T-C2 `{tenant}:start:...` namespacing). A task's
+        terminal outcome is deterministic (P1) and either a completion OR a refusal, never both, so the
+        namespace prevents any cross-collision and dedups a re-fired refusal (same `task_id`) to the
+        SAME chain row — exactly-once per refused effect.
+        """
+        return f"{self._tenant}:refuse:{task.task_id}"
+
+    async def _audit_guard_refusal(
+        self, task: ExternalTask, *, guard_code: str, dmn_versions: dict[str, Any]
+    ) -> None:
+        """Emit the PHI-safe refusal audit BEFORE the refusal is reported (emit-before-refuse).
+
+        BEST-EFFORT, deliberately — NOT the fail-closed GATE the T-C success path uses. A refusal is a
+        control-flow signal that BLOCKS the adverse action; it is NOT an ADR-0007 "efeito no mundo"
+        (ADR-0030 §4), and the path is ALREADY fail-closed to a human via the incident / neutral
+        terminal (audit-emit design §2.1 row 2, §7 "additive"). So a sink failure here must NOT block
+        the refusal: blocking it could only mean (a) failing-open the guard — forbidden — or (b)
+        converting the refusal into a guard RETRY — forbidden by ADR-0008 ("guards ALWAYS report
+        retries=0, never retried"). Instead the failure is logged LOUDLY (stdlib + structlog, so it is
+        never *silent*) and the refusal proceeds to its incident. No adverse action is ever performed
+        un-audited, because no adverse action is performed at all. In normal operation (a live sink —
+        the T-D `audit_sink_ready` readiness gate keeps `/readyz` red otherwise) every refusal is
+        durably recorded before it is reported; the log-and-proceed path is the bounded-outage fallback.
+        """
+        record = self._build_refusal_record(task, guard_code, dmn_versions)
+        try:
+            if self._audit_sink is None:
+                raise AuditEmitError(
+                    f"no audit sink configured for tenant={self._tenant!r} — guard refusal "
+                    f"{guard_code!r} on task {task.task_id!r} could not be recorded (ADR-0007); the "
+                    "refusal still fails closed to an incident (never fail-open)"
+                )
+            await self._audit_sink.emit_once(record, dedup_key=self._audit_refusal_dedup_key(task))
+        except RuntimeError as exc:
+            # AuditEmitError (missing sink) or the sink's AuditPersistenceError (DB fault) — both
+            # RuntimeError. Loud on BOTH loggers (the refusal is NEVER silent); the guard still refuses.
+            _stdlib_logger.error(
+                "worker_guard_refusal_audit_unavailable_proceeding_fail_closed "
+                "task_id=%s topic=%s tenant=%s guard_code=%s error=%s",
+                task.task_id,
+                task.topic,
+                self._tenant,
+                guard_code,
+                exc,
+            )
+            logger.error(
+                "worker_guard_refusal_audit_unavailable_proceeding_fail_closed",
+                task_id=task.task_id,
+                topic=task.topic,
+                tenant=self._tenant,
+                guard_code=guard_code,
+            )
+
     async def _handle(self, task: ExternalTask) -> None:
         handler = self._handlers.get(task.topic)
         started_at = time.perf_counter()
@@ -1183,6 +1328,16 @@ class WorkerHarness:
                     audit_record_hash=audit_record_hash,
                 )
             except WorkerBpmnError as exc:
+                # T-E (ADR-0030 F4): a guard/denial bpmnError (ERR_CANCEL_MANTER_NOT_HUMAN,
+                # ERR_AUTH_DENIAL_INCOMPLETE, …) records the REFUSAL decision BEFORE it is reported —
+                # whether it routes to a modeled boundary (allowlisted) or demotes to an incident.
+                # Non-guard bpmnErrors (fail-safe ERR_EVENT_PUBLISH_FAILED, origin-validation
+                # ERR_NIP_PROTOCOLO_INVALIDO, …) are NOT T-E-audited (ADR-0030 §4: desirable, not a
+                # hard blocker for those). emit-before-refuse, best-effort (`_audit_guard_refusal`).
+                if is_guard_refusal_code(exc.error_code):
+                    await self._audit_guard_refusal(
+                        task, guard_code=exc.error_code, dmn_versions=dict(dmn_versions)
+                    )
                 if exc.error_code in self._bpmn_error_allowlist:
                     outcome = "bpmn_error"
                     await self._transport.handle_bpmn_error(
@@ -1216,10 +1371,27 @@ class WorkerHarness:
                 )
             except PermissionError as exc:
                 # ERR_*_NOT_HUMAN guard family — NEVER retried (ADR-0008): an incident is the
-                # engine-guaranteed, always-human-visible outcome.
+                # engine-guaranteed, always-human-visible outcome. T-E (ADR-0030 F4): record the
+                # refusal decision BEFORE the incident. A `PermissionError` is ALWAYS the guard family
+                # in this harness (module docstring §"Guard errors"), so it is audited unconditionally;
+                # emit-before-refuse, best-effort (never fail-open, never a guard retry).
+                await self._audit_guard_refusal(
+                    task,
+                    guard_code=extract_refusal_code(exc) or _GUARD_REFUSAL_FALLBACK_CODE,
+                    dmn_versions=dict(dmn_versions),
+                )
                 outcome = await self._report_failure(task, str(exc), retries_override=0)
             except ValueError as exc:
-                # Bad/immutable input — won't fix itself on retry; route straight to incident.
+                # Bad/immutable input — won't fix itself on retry; route straight to incident. T-E
+                # (ADR-0030 F4): a coded guard exception reclassified by FunctionWorker (base.py:293 ->
+                # ValueError("ERR_*_NOT_HUMAN: …"), e.g. CredError(ERR_DECRED_NOT_HUMAN)) IS a guard
+                # refusal — record it before the incident. A plain bad-input ValueError carries no
+                # ERR_* guard code and is NOT audited (it is not a guard refusal).
+                refusal_code = extract_refusal_code(exc)
+                if refusal_code is not None and is_guard_refusal_code(refusal_code):
+                    await self._audit_guard_refusal(
+                        task, guard_code=refusal_code, dmn_versions=dict(dmn_versions)
+                    )
                 outcome = await self._report_failure(task, str(exc), retries_override=0)
             except Exception as exc:  # noqa: BLE001 — classified below; never escapes dispatch.
                 _transient_types = (RuntimeError, OSError, TimeoutError, ConnectionError, httpx.HTTPError)

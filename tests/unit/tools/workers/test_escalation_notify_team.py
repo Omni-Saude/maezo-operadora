@@ -1,13 +1,21 @@
 """Unit tests for SP-OP-ESCALATION-001 workers — TDD London School.
 
-Tests escalation workers: notify_team, notify_fallback, notify_supervisor.
+Tests escalation workers: notify_team, notify_supervisor.
 Workers must never make adverse decisions — only route and notify.
+
+NOTE (t2.5-p2b-round2): `NotifyFallbackWorker` (and its topic
+`operadora.escalation.notify_fallback`) was removed — `grep -rn
+notify_fallback spec/` returns zero hits; the BPMN's `ST_NotificarFallback`
+task actually declares `camunda:topic="operadora.escalation.notify_supervisor"`
+(same topic as `ST_NotificarSupervisor`), so `NotifySupervisorWorker` serves
+BOTH tasks. Its former unit coverage (test_notify_fallback_topic,
+test_notify_fallback_notifies_supervisor_group,
+test_notify_fallback_never_escalates_to_adverse) is deleted alongside it.
 """
 
 from __future__ import annotations
 
 from maezo.tools.workers.escalation import (
-    NotifyFallbackWorker,
     NotifySupervisorWorker,
     NotifyTeamWorker,
 )
@@ -127,48 +135,6 @@ def test_notify_team_publishes_event() -> None:
     )
 
     assert result["event"] == "agents.events.escalation.requested"
-
-
-# ---------------------------------------------------------------------------
-# notify_fallback
-# ---------------------------------------------------------------------------
-
-
-def test_notify_fallback_topic() -> None:
-    """notify_fallback worker must have the correct topic."""
-    worker = NotifyFallbackWorker()
-    assert worker.topic == "operadora.escalation.notify_fallback"
-
-
-def test_notify_fallback_notifies_supervisor_group() -> None:
-    """notify_fallback must route to supervisor when primary notification fails."""
-    worker = NotifyFallbackWorker()
-
-    result = worker.run(
-        {
-            "tenant_id": "amh",
-            "fallback_reason": "ERR_ESC_NOTIFY_FAILED",
-        }
-    )
-
-    assert result["status"] == "fallback_triggered"
-    assert result["fallback_group"] == "supervisao-atendimento"
-    assert result["original_error"] == "ERR_ESC_NOTIFY_FAILED"
-
-
-def test_notify_fallback_never_escalates_to_adverse() -> None:
-    """notify_fallback must NOT make any adverse decisions."""
-    worker = NotifyFallbackWorker()
-
-    result = worker.run(
-        {
-            "tenant_id": "amh",
-            "fallback_reason": "timeout",
-        }
-    )
-
-    assert "negativa" not in str(result).lower()
-    assert "deny" not in str(result).lower()
 
 
 # ---------------------------------------------------------------------------

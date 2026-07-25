@@ -101,6 +101,28 @@ FINDINGS (root-cause, file:line evidence; see PR body / evidence-ledger for full
      (they flow through the generic handler, not contas.py's own functions) and are asserted
      green below. Only the tests whose blocking assertion is specifically `notifications_of_type
      ("contas.<fn>")` are marked `_WORKER_KAFKA_GAP_REASON`.
+  1a. **t3.1-event-gap-a-contas batch (test-only, zero src/BPMN/DMN/contract edits).** The 5
+     `notifications_of_type("contas.<fn>")` checks that were the SOLE blocking assertion in their
+     xfail test (`test_happy_path_recorrer_handoff_recurso` x3, `test_happy_path_aceitar_glosa_
+     pelo_analista`, `test_happy_path_reenviar`, `test_timer_alerta_sla_nao_interruptivo`,
+     `test_sla_ancora_em_data_recebimento_lote_nao_em_attach_da_ut`) were re-expressed against the
+     strongest available engine-side equivalent: `has_event(_CONTAS_COMPLETED, ...)` on the real
+     `operadora.events.publish` path where a downstream `ST_Publish*` task exists
+     (register_glosa_accept/start_recurso/reconcile_payment all feed one), or
+     `engine.get_variable`/`activity_instances_ended` where none does (analyze_reason's
+     `categoria_normalizada`, prepare_triage_dossier's execution, and BOTH `notify_sla_risk`
+     non-interruptive alert tests — `ST_NotificarRiscoSla` routes straight to
+     `End_RiscoSlaNotificado`, no publish task on that branch at all). xfail/strict marks are
+     UNCHANGED on purpose (see `_WORKER_KAFKA_GAP_REASON`'s UPDATE paragraph): the underlying
+     kafka-publish gap is not touched by this batch, and whether the adapted asserts flip these
+     tests fully green has not been re-verified against a live engine here — deferred to the
+     live-validation step. `test_aceitar_glosa_exige_campos` (below) ALSO calls
+     `notifications_of_type` but is NOT xfail-marked and asserts emptiness (`assert not aceites`)
+     — that assert is structurally vacuous (always true; the channel is always empty regardless of
+     whether the worker guard fired) and was deliberately left UNCHANGED here per this batch's
+     policy against silently altering a passing test's semantics; the test's real coverage of the
+     guard already comes from the `_END_GLOSA_ACEITA not in ended` / `_assert_no_accept_without_
+     human_task` checks alongside it.
   2. **Registry drift (mild, opposite direction from cancel's): 1 orphan registration.**
      `register_contas_workers` (contas.py:661-719) registers `operadora.contas.publish` (line
      717) — contas.py's OWN module comment (contas.py:530-533) says this "has no distinct spec
@@ -232,6 +254,32 @@ _WORKER_KAFKA_GAP_REASON = (
     "GENERIC operadora.events.publish path (events.py:247, already fixed) which DOES work and is "
     "asserted via has_event(...) elsewhere in this file. Fix belongs to the Kafka-producer wiring "
     "task, not this port."
+    "\n\nUPDATE (t3.1-event-gap-a-contas, test-only batch, zero src/BPMN/DMN/contract edits): "
+    "assert adapted to engine-side has_event, pending live-proof flip. The dead "
+    "`notifications_of_type(...)` checks below have been replaced with the strongest available "
+    "engine-side equivalent per assert — `has_event(_CONTAS_COMPLETED, ...)` on the real "
+    "`operadora.events.publish` path where a matching ST_Publish* task exists downstream "
+    "(register_glosa_accept/start_recurso/reconcile_payment), `engine.get_variable(...)`/"
+    "`activity_instances_ended(...)` where no domain event carries the fact at all "
+    "(analyze_reason's categoria_normalizada value, prepare_triage_dossier's execution, "
+    "notify_sla_risk's non-interruptive alert branch — none has a downstream ST_Publish task in "
+    "SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn). This mark/strict is left UNCHANGED "
+    "on purpose: the underlying kafka-publish gap in contas.py's own entry functions is NOT "
+    "touched by this batch (no src/ edit), so whether the adapted assertions now cause the test "
+    "to run clean end-to-end against a live engine (as the docstring above already claims for "
+    "the OTHER, unrelated assertions in each of these tests) has not been re-verified live here — "
+    "that confirmation, and the consequent xfail removal, is deferred to the live-validation step "
+    "(see PR body / t3.1-event-gap-a-contas report). "
+    "LIVE-FLIPPED (wave2b2 R1 live-validation, cibseven 2.1.0): all 5 adapted tests ran green "
+    "end-to-end against a real engine + real PostgresAuditSink and their xfail marks were removed "
+    "in-step. Right-reason evidence (engine /history, independent of the tests' own asserts): "
+    "ST_PublishEncaminhadaRecurso/ST_PublishGlosaAceita/ST_PublishReenviada completed in the "
+    "respective instances (has_event matched the REAL publish-task payloads: desfecho + "
+    "glosa_id/codigo_glosa_aceito+analista_id/prestador_id), ST_NotificarRiscoSla completed in "
+    "both SLA-alert instances, and the recorrer instance's engine-recorded variables were "
+    "categoria_normalizada=valor + glosa_id=GLOSA-TESTE-001. This constant is retained (no test "
+    "references it anymore) purely because the module docstring/FINDING prose above cites it; the "
+    "underlying per-worker kafka-publish gap in contas.py itself remains open and out of scope."
 )
 
 
@@ -645,13 +693,22 @@ async def test_sem_detalhe_de_linha_fail_closed_roteia_a_humano(
     await _assert_no_accept_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_WORKER_KAFKA_GAP_REASON, strict=True)
 async def test_happy_path_recorrer_handoff_recurso(
     engine: EngineRest,
     contas_probe: ContasEngineProbe,
     start_contas: Callable[..., Any],
 ) -> None:
-    """Analista completa RECORRER => start_recurso (handoff); End_EncaminhadaRecurso."""
+    """Analista completa RECORRER => start_recurso (handoff); End_EncaminhadaRecurso.
+
+    ADAPTED (t3.1-event-gap-a-contas, test-only, see `_WORKER_KAFKA_GAP_REASON` UPDATE): the 3
+    `notifications_of_type(...)` checks below were dead (FINDING 1). `ST_AnalyzeReason` and
+    `ST_PrepareTriageDossier` have NO downstream `ST_Publish*` task in the BPMN (they feed
+    `BRT_Classification`/`UT_AnalistaContas` directly) — no `has_event(...)` equivalent exists for
+    either; re-expressed via `engine.get_variable` (real process variable) and
+    `activity_instances_ended` (real engine history) respectively. `ST_StartRecurso` IS
+    immediately followed by `ST_PublishEncaminhadaRecurso` (bpmn:272-283), whose
+    `event_payload_vars` (bpmn:278) carry `glosa_id` — folded into the existing `has_event` call.
+    """
     inst = await start_contas(categoria_normalizada="valor", has_glosas=True)
     iid = inst["id"]
 
@@ -662,12 +719,20 @@ async def test_happy_path_recorrer_handoff_recurso(
     assert "ST_AnalyzeReason" in ended_pre_ut, (
         f"ST_AnalyzeReason deve aparecer na historia. ended={ended_pre_ut}"
     )
-    fatos_motivo = contas_probe.notifications_of_type("contas.analyze_reason")
-    assert fatos_motivo, "Worker analyze_reason deve ter sido executado"
-    assert fatos_motivo[0]["categoria_normalizada"] == "valor"
+    # categoria_normalizada is a REAL engine process variable (module docstring PORT NOTE 2:
+    # ST_AnalyzeReason's return dict unconditionally overwrites it) — reading it directly from the
+    # live engine is strictly stronger than the dead notifications_of_type echo it replaces.
+    categoria_var = await engine.get_variable(iid, "categoria_normalizada")
+    assert categoria_var == "valor", (
+        f"categoria_normalizada (variavel de processo, engine-side) deve ser 'valor'; veio {categoria_var!r}"
+    )
 
-    dossiers = contas_probe.notifications_of_type("contas.prepare_triage_dossier")
-    assert dossiers, "Worker prepare_triage_dossier (Marina) deve ter sido executado"
+    # `ended_pre_ut` is captured AFTER `_drive_to_analista` (i.e. after UT_AnalistaContas already
+    # exists) — ST_PrepareTriageDossier is its ONLY predecessor on Flow_Dossie_UTAnalista, so it
+    # must already be in the engine's activity history if the UT was reached at all.
+    assert "ST_PrepareTriageDossier" in ended_pre_ut, (
+        f"ST_PrepareTriageDossier (Marina) deve aparecer na historia. ended={ended_pre_ut}"
+    )
 
     await engine.complete_task_as_human(ut.id, {"decisao_contas": "RECORRER", "glosa_id": "GLOSA-TESTE-001"})
     await contas_probe.drain()
@@ -675,13 +740,15 @@ async def test_happy_path_recorrer_handoff_recurso(
     ended = await _await_end(engine, iid)
     assert _END_ENCAMINHADA_RECURSO in ended, f"RECORRER => End_EncaminhadaRecurso. ended={ended}"
     assert _END_GLOSA_ACEITA not in ended
-    assert contas_probe.has_event(_CONTAS_COMPLETED, desfecho="encaminhada_recurso")
+    # ST_PublishEncaminhadaRecurso (bpmn:272-283) is the ONLY task downstream of ST_StartRecurso on
+    # Flow_Recurso_Pub; its event_payload_vars (bpmn:278) carry glosa_id — asserting it here proves
+    # start_recurso ran AND correlates the handoff (replaces the dead `notifications_of_type
+    # ("contas.start_recurso")` check that used to sit here).
+    assert contas_probe.has_event(
+        _CONTAS_COMPLETED, desfecho="encaminhada_recurso", glosa_id="GLOSA-TESTE-001"
+    ), "ST_PublishEncaminhadaRecurso deve emitir completed(desfecho=encaminhada_recurso, glosa_id=...)"
 
-    recursos = contas_probe.notifications_of_type("contas.start_recurso")
-    assert recursos, "Worker start_recurso deve ser executado no handoff de recurso"
 
-
-@pytest.mark.xfail(reason=_WORKER_KAFKA_GAP_REASON, strict=True)
 async def test_happy_path_aceitar_glosa_pelo_analista(
     engine: EngineRest,
     contas_probe: ContasEngineProbe,
@@ -723,23 +790,43 @@ async def test_happy_path_aceitar_glosa_pelo_analista(
     ended = await _await_end(engine, iid)
     await _assert_no_accept_without_human_task(engine, iid)
     assert _END_GLOSA_ACEITA in ended, f"Aceite humano deve atingir End_GlosaAceitaHumano. ended={ended}"
-    assert contas_probe.has_event(_CONTAS_COMPLETED, desfecho="glosa_aceita_humano")
+    # ADAPTED (t3.1-event-gap-a-contas, test-only, see `_WORKER_KAFKA_GAP_REASON` UPDATE): the
+    # trailing `notifications_of_type("contas.register_glosa_accept")` check (+ its 3 field
+    # asserts) was dead (FINDING 1: register_glosa_accept_entry does `del kafka`).
+    # Flow_GWDec_Aceitar's own condition (bpmn:363, `${decisao_contas == 'ACEITAR_GLOSA'}`) is the
+    # ONLY route to ST_RegisterGlosaAccept/End_GlosaAceitaHumano — reaching this end event already
+    # proves decisao_contas=='ACEITAR_GLOSA' engine-side (gateway-gated, not worker-echoed). The
+    # real _CONTAS_COMPLETED event (ST_PublishGlosaAceita, bpmn:295-306) carries codigo_glosa_
+    # aceito/analista_id in its own event_payload_vars (bpmn:301) — asserting them here is
+    # strictly stronger than the dead notification echo (same field names, real kafka.publish
+    # call site instead of a fabricated worker-side capture).
+    assert contas_probe.has_event(
+        _CONTAS_COMPLETED,
+        desfecho="glosa_aceita_humano",
+        codigo_glosa_aceito="VALOR_ACIMA_TABELA",
+        analista_id="analista-sintetico-001",
+    ), (
+        "ST_PublishGlosaAceita deve emitir completed(desfecho=glosa_aceita_humano) com "
+        "codigo_glosa_aceito/analista_id do aceite humano"
+    )
 
-    aceites = contas_probe.notifications_of_type("contas.register_glosa_accept")
-    assert aceites, "Worker register_glosa_accept deve ser executado apos aceite humano"
-    a = aceites[0]
-    assert a["decisao_contas"] == "ACEITAR_GLOSA"
-    assert a["analista_id"] == "analista-sintetico-001"
-    assert a["codigo_glosa_aceito"] == "VALOR_ACIMA_TABELA"
 
-
-@pytest.mark.xfail(reason=_WORKER_KAFKA_GAP_REASON, strict=True)
 async def test_happy_path_reenviar(
     engine: EngineRest,
     contas_probe: ContasEngineProbe,
     start_contas: Callable[..., Any],
 ) -> None:
-    """Analista completa REENVIAR => reconcile_payment (sem efeito adverso); End_Reenviada."""
+    """Analista completa REENVIAR => reconcile_payment (sem efeito adverso); End_Reenviada.
+
+    ADAPTED (t3.1-event-gap-a-contas, test-only, see `_WORKER_KAFKA_GAP_REASON` UPDATE): the
+    trailing `notifications_of_type("contas.reconcile_payment")` check was dead (FINDING 1).
+    ST_PublishReenviada (bpmn:318-329) is the ONLY task downstream of ST_ReconcilePayment on
+    Flow_Reenvio_Pub, gated by Flow_GWDec_Reenviar's condition (bpmn:365,
+    `${decisao_contas == 'REENVIAR'}`) — the has_event assert below already proves
+    reconcile_payment ran; strengthened with `prestador_id` (in ST_PublishReenviada's own
+    event_payload_vars, bpmn:324) since no reconcile-specific payload field exists to
+    distinguish further.
+    """
     inst = await start_contas(
         categoria_normalizada="administrativa", documentacao_anexa=False, has_glosas=True
     )
@@ -754,10 +841,9 @@ async def test_happy_path_reenviar(
     ended = await _await_end(engine, iid)
     assert _END_REENVIADA in ended, f"REENVIAR => End_Reenviada. ended={ended}"
     assert _END_GLOSA_ACEITA not in ended
-    assert contas_probe.has_event(_CONTAS_COMPLETED, desfecho="reenviada")
-
-    reconcilia = contas_probe.notifications_of_type("contas.reconcile_payment")
-    assert reconcilia, "Worker reconcile_payment deve ser executado no reenvio"
+    assert contas_probe.has_event(
+        _CONTAS_COMPLETED, desfecho="reenviada", prestador_id="PRESTADOR-TESTE-001"
+    ), "ST_PublishReenviada deve emitir completed(desfecho=reenviada, prestador_id=...)"
 
 
 # ===========================================================================
@@ -790,6 +876,12 @@ async def test_aceitar_glosa_exige_campos(
     assert _END_GLOSA_ACEITA not in ended, (
         "Aceite sem campos obrigatorios NAO pode atingir End_GlosaAceitaHumano (guard do worker)"
     )
+    # FLAGGED, not adapted (t3.1-event-gap-a-contas — see module docstring FINDING 1a): this test
+    # is NOT xfail-marked and this assert checks EMPTINESS, so it is structurally vacuous — the
+    # dead notifications_of_type channel (FINDING 1) is ALWAYS empty regardless of whether the
+    # worker guard actually fired. Left UNCHANGED per this batch's policy against silently
+    # reinterpreting a passing test's semantics; the guard's real coverage is the
+    # `_END_GLOSA_ACEITA not in ended` / `_assert_no_accept_without_human_task` checks above/below.
     aceites = contas_probe.notifications_of_type("contas.register_glosa_accept")
     assert not aceites, "register_glosa_accept NAO deve registrar aceite sem campos obrigatorios"
     await _assert_no_accept_without_human_task(engine, iid)
@@ -900,13 +992,21 @@ async def test_linhas_atualizadas_reavalia(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_WORKER_KAFKA_GAP_REASON, strict=True)
 async def test_timer_alerta_sla_nao_interruptivo(
     engine: EngineRest,
     contas_probe: ContasEngineProbe,
     start_contas: Callable[..., Any],
 ) -> None:
-    """Timer BT_AlertaSlaContas (nao-interruptivo): notify_sla_risk recebe task; UT segue aberta."""
+    """Timer BT_AlertaSlaContas (nao-interruptivo): notify_sla_risk recebe task; UT segue aberta.
+
+    ADAPTED (t3.1-event-gap-a-contas, test-only, see `_WORKER_KAFKA_GAP_REASON` UPDATE): the
+    `notifications_of_type("contas.notify_sla_risk")` check was dead (FINDING 1). Unlike the
+    other adaptations in this file, this one has NO has_event equivalent at all — bpmn:216-223
+    confirms `ST_NotificarRiscoSla` routes DIRECTLY to `End_RiscoSlaNotificado` (a plain end
+    event), with no `ST_Publish*` task anywhere on this non-interruptive alert branch. Re-expressed
+    against engine activity-history instead (the same technique the design doc itself proposes for
+    inadimplencia's structurally-identical `notify_sla_risk` alert case).
+    """
     inst = await start_contas(categoria_normalizada="tecnica", has_glosas=True)
     iid = inst["id"]
 
@@ -916,8 +1016,10 @@ async def test_timer_alerta_sla_nao_interruptivo(
     await engine.execute_job(job.id)
     await contas_probe.drain()
 
-    sla_alerts = contas_probe.notifications_of_type("contas.notify_sla_risk")
-    assert sla_alerts, "Worker notify_sla_risk deve ser executado no alerta de SLA"
+    ended_after_alerta = await engine.activity_instances_ended(iid)
+    assert "ST_NotificarRiscoSla" in ended_after_alerta, (
+        "Worker notify_sla_risk (ST_NotificarRiscoSla) deve aparecer na historia apos o alerta de SLA"
+    )
 
     open_keys = {t.task_definition_key for t in await engine.list_user_tasks(iid)}
     assert _UT_ANALISTA in open_keys, "Timer nao-interruptivo nao deve cancelar a User Task"
@@ -1017,7 +1119,6 @@ async def test_dmn_contas_sla_internacao(
     assert job_sla.activity_id == "BT_SlaTriagem"
 
 
-@pytest.mark.xfail(reason=_WORKER_KAFKA_GAP_REASON, strict=True)
 async def test_sla_ancora_em_data_recebimento_lote_nao_em_attach_da_ut(
     engine: EngineRest,
     contas_probe: ContasEngineProbe,
@@ -1028,6 +1129,12 @@ async def test_sla_ancora_em_data_recebimento_lote_nao_em_attach_da_ut(
     Tecnica (output-vars + execute_job, sem sleep — precedente GAP-NIP-1/#111): `data_recebimento_
     lote` e seedada com um valor no FUTURO distante. Consultamos o `dueDate` real do job (SEM
     dispara-lo) e comparamos com a ancora correta vs a legada (attach da UT).
+
+    ADAPTED (t3.1-event-gap-a-contas, test-only, see `_WORKER_KAFKA_GAP_REASON` UPDATE): the
+    `notifications_of_type("contas.notify_sla_risk")` check after the non-interruptive alert was
+    dead (FINDING 1) and has no has_event equivalent (bpmn:216-223: ST_NotificarRiscoSla routes
+    directly to End_RiscoSlaNotificado, no ST_Publish* task on that branch) — re-expressed against
+    engine activity-history, same technique as `test_timer_alerta_sla_nao_interruptivo` above.
     """
     anchor_iso = _data_recebimento_futura(days=30)
     anchor_midnight = datetime.combine(datetime.fromisoformat(anchor_iso).date(), datetime.min.time())
@@ -1074,8 +1181,10 @@ async def test_sla_ancora_em_data_recebimento_lote_nao_em_attach_da_ut(
 
     await engine.execute_job(job_alerta.id)
     await contas_probe.drain()
-    sla_alerts = contas_probe.notifications_of_type("contas.notify_sla_risk")
-    assert sla_alerts, "notify_sla_risk deve executar no alerta (nao-interruptivo)"
+    ended_after_alerta = await engine.activity_instances_ended(iid)
+    assert "ST_NotificarRiscoSla" in ended_after_alerta, (
+        "notify_sla_risk (ST_NotificarRiscoSla) deve aparecer na historia apos o alerta (nao-interruptivo)"
+    )
     open_keys = {t.task_definition_key for t in await engine.list_user_tasks(iid)}
     assert _UT_ANALISTA in open_keys, "Timer nao-interruptivo nao deve cancelar UT_AnalistaContas"
 

@@ -131,20 +131,38 @@ docs/processes/contracts/SP-OP-REEMBOLSO-001.md.
     <!-- Ramo: pendencia de documentacao (sub-fluxo portado estruturalmente do AUTH-001) -->
     <bpmn:serviceTask id="ST_SolicitarDocumentos" name="Solicitar documentacao ao beneficiario"
                       camunda:type="external" camunda:topic="operadora.reembolso.request_documents">
-      <bpmn:documentation>Worker abre a pendencia e publica agents.events.reembolso.pended (suspensao de prazo durante pendencia: regra RN — DRAFT/verify).</bpmn:documentation>
-      <bpmn:extensionElements>
-        <camunda:inputOutput>
-          <camunda:inputParameter name="event_topic_pended">agents.events.reembolso.pended</camunda:inputParameter>
-        </camunda:inputOutput>
-      </bpmn:extensionElements>
+      <bpmn:documentation>Abre a pendencia de documentacao ao beneficiario (suspensao de prazo durante pendencia: regra RN — DRAFT/verify). Worker dict-first (ADR-0026, del kafka): NAO publica agents.events.reembolso.pended diretamente — ver ST_PublishReembolsoPended logo a seguir (T3.1 event-gap remedy B, wave 4 latent conformance).</bpmn:documentation>
       <bpmn:incoming>Flow_GW_Pendencia</bpmn:incoming>
       <bpmn:incoming>Flow_GWDec_SolicitarInfo</bpmn:incoming>
-      <bpmn:outgoing>Flow_Solicitar_WaitDocs</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Solicitar_PubPended</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- T3.1 event-gap remedy B, wave 4 latent conformance (event-gap design doc §2.8; contract
+         SP-OP-REEMBOLSO-001.md:100 "produz" agents.events.reembolso.pended na pendencia de
+         documentacao; worker-row SP-OP-REEMBOLSO-001.md:108). ST_SolicitarDocumentos e' dict-first
+         (ADR-0026) e nao publica; o generico operadora.events.publish fecha o gap aqui, mirror
+         byte-a-byte de ST_PublishSlaBreach/ST_PublishReembolsoCompleted (mesmo padrao event_topic/
+         event_payload_vars, boundary-free por convencao 15/16 — check-bpmn-error-allowlist §0.4).
+         event_payload_vars so' chaves de negocio (tenant_id, protocolo_reembolso) — sem PHI
+         (beneficiario_pseudo_id deliberadamente NAO incluido, mesma convencao das demais
+         ST_Publish* deste BPMN). Alcancado por AMBOS os ramos que levam a ST_SolicitarDocumentos
+         (pendencia inicial + SOLICITAR_INFO do analista). Nao havia teste red pre-existente
+         pinando esta obrigacao (latent B) — regressao nova em test_sp_op_reembolso_001.py. -->
+    <bpmn:serviceTask id="ST_PublishReembolsoPended" name="Publicar evento: reembolso.pended"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.reembolso.pended</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,protocolo_reembolso</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Solicitar_PubPended</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubPended_WaitDocs</bpmn:outgoing>
     </bpmn:serviceTask>
 
     <!-- Corrida: documentacao chega OU prazo de pendencia expira -->
     <bpmn:eventBasedGateway id="GW_AguardarDocs" name="Aguardar documentacao">
-      <bpmn:incoming>Flow_Solicitar_WaitDocs</bpmn:incoming>
+      <bpmn:incoming>Flow_PubPended_WaitDocs</bpmn:incoming>
       <bpmn:outgoing>Flow_Wait_DocsMsg</bpmn:outgoing>
       <bpmn:outgoing>Flow_Wait_Timer</bpmn:outgoing>
     </bpmn:eventBasedGateway>
@@ -440,7 +458,8 @@ prazos DRAFT/verify). A decisao sai em nome do analista (assignee na trilha de a
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${admissibilidade.roteamento == 'ANALISE_HUMANA'}</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
     <bpmn:sequenceFlow id="Flow_GW_SegueAnalise" name="SEGUE_ANALISE (default)" sourceRef="GW_Admissibilidade" targetRef="BRT_Calculo"/>
-    <bpmn:sequenceFlow id="Flow_Solicitar_WaitDocs" sourceRef="ST_SolicitarDocumentos" targetRef="GW_AguardarDocs"/>
+    <bpmn:sequenceFlow id="Flow_Solicitar_PubPended" sourceRef="ST_SolicitarDocumentos" targetRef="ST_PublishReembolsoPended"/>
+    <bpmn:sequenceFlow id="Flow_PubPended_WaitDocs" sourceRef="ST_PublishReembolsoPended" targetRef="GW_AguardarDocs"/>
     <bpmn:sequenceFlow id="Flow_Wait_DocsMsg" sourceRef="GW_AguardarDocs" targetRef="ICE_DocsRecebidos"/>
     <bpmn:sequenceFlow id="Flow_Wait_Timer" sourceRef="GW_AguardarDocs" targetRef="ICE_PrazoPendencia"/>
     <bpmn:sequenceFlow id="Flow_DocsOk_Admiss" sourceRef="ICE_DocsRecebidos" targetRef="BRT_Admissibilidade"/>
@@ -525,6 +544,9 @@ prazos DRAFT/verify). A decisao sai em nome do analista (assignee na trilha de a
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_SolicitarDocumentos" bpmnElement="ST_SolicitarDocumentos">
         <dc:Bounds x="1070" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishReembolsoPended" bpmnElement="ST_PublishReembolsoPended">
+        <dc:Bounds x="1070" y="184" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_GW_AguardarDocs" bpmnElement="GW_AguardarDocs" isMarkerVisible="true">
         <dc:Bounds x="1250" y="67" width="50" height="50"/>
@@ -671,8 +693,14 @@ prazos DRAFT/verify). A decisao sai em nome do analista (assignee na trilha de a
         <di:waypoint x="1398" y="224"/>
         <di:waypoint x="1806" y="224"/>
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_Solicitar_WaitDocs" bpmnElement="Flow_Solicitar_WaitDocs">
-        <di:waypoint x="1170" y="92"/>
+      <bpmndi:BPMNEdge id="Edge_Flow_Solicitar_PubPended" bpmnElement="Flow_Solicitar_PubPended">
+        <di:waypoint x="1120" y="132"/>
+        <di:waypoint x="1120" y="184"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubPended_WaitDocs" bpmnElement="Flow_PubPended_WaitDocs">
+        <di:waypoint x="1170" y="224"/>
+        <di:waypoint x="1210" y="224"/>
+        <di:waypoint x="1210" y="92"/>
         <di:waypoint x="1250" y="92"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Wait_DocsMsg" bpmnElement="Flow_Wait_DocsMsg">
