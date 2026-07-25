@@ -237,6 +237,17 @@ _NOTIFY_SLA_RISK_UNOBSERVABLE_REASON = (
     "ended) is a separate follow-up outside this GAP-INAD-1 anti-dupla-seam PR."
 )
 
+# SP-OP-INADIMPLENCIA-001.md:109's "produz" obligation for agents.events.inadimplencia.notified
+# RESOLVED by t3.1-event-gap-w4-reemb-inad (T3.1 event-gap remedy B, wave 4 latent conformance) —
+# ST_PublishInadimplenciaNotified (boundary-free operadora.events.publish task between
+# ST_CheckPriorNotice and GW_CureWindow) now emits it. LIVE-PROVEN against a real CIB Seven 2.1.0
+# engine: activity ST_PublishInadimplenciaNotified COMPLETED (canceled=false) in engine history on
+# the notificacao-previa instance, the token advanced to GW_CureWindow, and has_event matched both
+# payload vars (tenant_id, numero_contrato). The L0 anti-dupla + suspension family (splice sits on
+# its main token path) was regression-run in the same live session: all previously-green tests
+# still pass. Its strict-xfail reason constant (_INAD_NOTIFIED_PUBLISH_ADDED_REASON) is retired on
+# that proof (precedent: recurso's own retired _RECURSO_PENDED_PUBLISH_ADDED_REASON).
+
 
 def _json_var(value: Any) -> dict[str, Any]:
     """Engine-shaped `Json`-typed variable (see `test_sp_op_contas_001.py`'s PORT NOTE 1 for the
@@ -534,6 +545,40 @@ async def test_pagamento_dentro_janela_purga_purgado_nunca_adverso(
     assert _END_PURGADO in ended, f"Pagamento dentro da janela => End_Purgado. ended={ended}"
     assert not (ended & _ENDS_ADVERSOS), "Purga NUNCA atinge terminal adverso (L0)"
     assert inad_probe.has_event(_INAD_COMPLETED, desfecho="purgado")
+
+
+async def test_notificacao_previa_publica_inadimplencia_notified(
+    engine: EngineRest,
+    inad_probe: InadEngineProbe,
+    start_inad: Callable[..., Any],
+) -> None:
+    """T3.1 event-gap remedy B (wave 4, latent conformance, event-gap design doc §2.8).
+
+    dentro_janela_purga=True => BRT_Status roteia AGUARDA_PURGA => BRT_PurgaPrazos =>
+    ST_CheckPriorNotice roda => ST_PublishInadimplenciaNotified (novo, boundary-free) publica
+    agents.events.inadimplencia.notified com os business keys do processo. NENHUM teste
+    pre-existente pinava esta obrigacao de contrato (SP-OP-INADIMPLENCIA-001.md:109 "produz") —
+    regressao NOVA, nao adaptacao de um xfail vermelho ja existente (contraste com o padrao
+    recurso/cancel/auth Wave 1). LIVE-PROVEN (t3.1-event-gap-w4 live validation):
+    ST_PublishInadimplenciaNotified completou no engine history, o token avancou ao GW_CureWindow
+    e has_event casou ambos os payload vars contra um CIB Seven 2.1.0 real — strict-xfail removido
+    nessa prova; familia anti-dupla/suspensao L0 toda verde na mesma sessao live.
+    """
+    contrato = _unique_contrato()
+    inst = await start_inad(numero_contrato=contrato, dentro_janela_purga=True, notificacao_previa_feita=True)
+    iid = inst["id"]
+
+    await inad_probe.drain()
+
+    assert await engine.instance_is_active(iid), "Instancia deve aguardar no cure-window de purga"
+    assert inad_probe.has_event(
+        _INAD_NOTIFIED,
+        tenant_id="amh",
+        numero_contrato=contrato,
+    ), (
+        "inadimplencia.notified (ST_PublishInadimplenciaNotified) deve ser publicado com os "
+        "business keys do processo"
+    )
 
 
 async def test_expiracao_purga_nao_auto_suspende(
