@@ -1,0 +1,277 @@
+# A2A Dispatcher + Agent-Card Signing — Recon & Ratification-Ready Design (M5/P3)
+
+> **Promotion header (added 2026-07-25).** This document promotes the R1 recon-agent's design
+> (originally written to an ephemeral scratchpad) into the tracked repo. The orchestrator
+> **ratified the W1→W4 build-wave sequence (§5) on 2026-07-25**: W1 (this branch,
+> `t2.4-a2a-w1-card-signing` — the card-signing slice) is cleared for autonomous build; W2/W3
+> remain future waves gated on W1 landing; W4's T-F half rides W2 and its T-G signed-Card half
+> rides W1, but W4's T-G **cert/service-account half stays ADR-gated** (see below).
+>
+> **Policy questions deferred to their own ADRs (do not build against these until ratified):**
+> - **T-G service-account/cert identity** (§4 row 1 / §7.1) — issuance mechanism, per-tenant/
+>   per-agent-version granularity, rotation policy, and verification chokepoint are all
+>   **DESIGN-GAP**. This needs a **new ADR** before any cert-issuance code is written. Card-signing
+>   (this branch) delivers only the *signed-Agent-Card* half of T-G, not the cert half.
+> - **Card-signing key management** (§4 row 2) is NOT ADR-gated — it follows the existing
+>   `gateway.pseudonymizer` injected-key precedent. Only the **real** vault/KMS key population is
+>   external/blocked (§6); the injection seam itself (`card_signer_from_key`) is buildable now and
+>   is part of this branch.
+> - **Card `version` semantics** (§4 row 3) is a small, load-bearing decision made *inside* W1
+>   (not a new ADR) — see the implementation note in `src/maezo/a2a/card.py` for the exact choice
+>   and rationale.
+> - **ADR-0015 refresh** (§4 row 4) and **ADR-0022/ToolRegistry decoupling** (§4 row 5) are
+>   housekeeping / explicitly out-of-scope-confirmations, not blockers.
+>
+> The rest of this document is the R1 agent's recon output, preserved verbatim below (only this
+> header block was added; no other text was altered). It is the ratified reference design for the
+> W1 build landing on this branch — re-verifiable donor citations at
+> `/Users/familia/code/Maezo-Healthcare-Plan/src/maezo/a2a/` and v2 citations at `main` @ `f0b7164`.
+
+---
+
+**Agent:** R1 RECON+DESIGN · **Date:** 2026-07-25 · **Basis:** fresh clone of `main` @ `f0b7164` +
+donor repo `Maezo-Healthcare-Plan` (VERIFIED accessible, read-only) + ADR-0032/0015/0007/0003/0022 +
+`docs/design/audit-emit-path-wiring.md` + `docs/reports/T2.4-a2a-agent-card-signing-gap.md`.
+
+Unblocks **T-F** (A2A delegation audit) and **T-G** (signed identity). NO commits — design only.
+
+**Verify-vs-reconstruct posture:** the donor implementation is FULLY VISIBLE on this machine
+(`/Users/familia/code/Maezo-Healthcare-Plan/src/maezo/a2a/`). Every donor claim below is cited to a
+donor file:line and was read directly — nothing is reconstructed from memory. v2 claims cite the
+fresh clone.
+
+---
+
+## 1. Component inventory — HAVE (v2) vs NEED (port/build)
+
+### 1.1 What v2 has today (4 inert files, ZERO production call sites — ADR-0032)
+
+| v2 symbol | File:line | Shape | Gap vs a real dispatcher |
+|---|---|---|---|
+| `AgentCard` | `src/maezo/a2a/card.py:15-68` | **Plain, MUTABLE class**. Fields: `agent_id`, `capabilities: list[str]`, `endpoint`, `public_key: str`. `to_dict`/`from_dict`. `from_definition()` named in docstring (`card.py:6-7`) but **NOT implemented**. | Not frozen; NO `version`/`tenant`/`security_zone`/`skills`/`accepted_task_types`/`federation_layer`/`signature`; NO `signing_payload()`; `public_key` is stored-but-unused (no sign/verify). |
+| `A2ARegistry` | `src/maezo/a2a/registry.py:21-105` | Dict `(tenant, agent_id) -> AgentCard`. `register(tenant, card)` takes tenant as a **separate arg**. `lookup`/`list_capabilities`/`list_agents`. | **NO `verifier` gate** — nothing to gate (no card carries a signature). Tenant is a call arg, not baked into the card. |
+| `AntiLoopGuard` | `src/maezo/a2a/anti_loop.py:25-63` | `validate_chain(chain)`: max_depth (default 3) checked BEFORE cycle (`anti_loop.py:54-63`). Invariant: acyclic + depth ≤ max_depth. Raises `MaxDepthExceededError`/`CyclicDelegationError`. | Standalone validator over a `list[str]`; **not tied to any envelope**. Donor folds these guards INTO the envelope (see §1.3). Redundant once the envelope lands. |
+
+Missing entirely from v2: `dispatcher.py`, `delegation.py`, `facts.py`, `idempotency.py`,
+`assembly.py`, `CardSigner`, `CardSignatureError` (confirmed ADR-0032:27-32; T2.4 report §"What v2
+has today").
+
+### 1.2 What the donor has (VERIFIED — target shape to port)
+
+Donor `src/maezo/a2a/` = 7 files (vs v2's 4). Public surface from `__init__.py:1-95`:
+
+| Donor component | File:line | Verified shape |
+|---|---|---|
+| `AgentCard` (frozen) | `registry.py:44-166` | `@dataclass(frozen=True, slots=True)`. Fields: `agent_id, version, tenant, security_zone, capabilities: frozenset, skills: frozenset, accepted_task_types: frozenset, federation_layer="L3", endpoint, queue_ref, signature: str\|None=None`. `__post_init__` validates agent_id/tenant/federation_layer. `is_signed` prop, `accepts(task_type)`, `signed_copy(sig)`, `from_definition(...)`. |
+| `signing_payload()` | `registry.py:85-108` | Canonical bytes: `json.dumps(payload, sort_keys=True, separators=(",",":"))` over every field EXCEPT `signature`, with sets `sorted()` (order-independent) + a `"scheme": "v1"` tag. Mirrors the audit-chain canonicalization. |
+| `CardSigner` | `registry.py:183-236` | HMAC-SHA256 (std-lib `hmac`+`sha256`). `__init__` **fail-closed on empty key** (`CardSignatureError`, `:199-204`). `_digest` → `"v1:<hex>"`. `sign` (idempotent), `verify` (constant-time `hmac.compare_digest`, `signature is None`→False, unknown scheme→False fail-closed), `require_valid` (raise-on-invalid). |
+| `CardSignatureError` / `RegistryError` | `registry.py:36-41` | `RegistryError(LookupError)`; `CardSignatureError(RegistryError)`. |
+| `AgentCardRegistry` | `registry.py:239-291` | `__init__(*, verifier: CardSigner\|None=None)`. `register(card)` → if verifier injected, `require_valid` BEFORE admission (fail-closed chokepoint). `lookup(agent_id,*,tenant)`, `get`, `list_cards`, `__contains__`, `__len__`. Tenant baked into card. |
+| `DelegationEnvelope` (frozen) | `delegation.py:81-208` | Fields incl. `task_id, task_type, origin, target, tenant, delegation_chain: tuple, budget: Budget, payload_ref, max_hops=3, deadline, payload_meta`. `root()` + `extend()` apply anti-loop **structurally**: Guard1 acyclic (`:189-192`), Guard2 max_hops (`:194-197`), Guard3 budget (`:198`). `_looks_like_phi` guard on payload_ref (`:116-119`, `:217-220`). |
+| `Budget` (frozen) | `delegation.py:44-78` | `tokens, time_ms, cost_per_hop=1`. `charge()` → new Budget or `BudgetExhaustedError`. |
+| Anti-loop errors | `delegation.py:28-41` | `DelegationError(ValueError)` → `CyclicDelegationError`, `MaxHopsExceededError`, `BudgetExhaustedError`. |
+| `DelegationDispatcher` | `dispatcher.py:148-319` | `delegate(envelope) -> DelegationResult`. Order: idempotency(Guard4) → validate(expiry/registry-lookup/accepts/handler) → **audit BEFORE effect** → emit `requested` → route to handler → emit `completed`. Rejection = structured `DelegationResult` (never raises to caller). In-memory `_inflight` (asyncio.Lock) OR durable `IdempotencyStore`. |
+| `DelegationResult` / `RejectionReason` / `HandlerOutput` / `AgentHandler` | `dispatcher.py:40-102` | `RejectionReason`: unknown_target/task_type_not_accepted/no_handler/expired/anti_loop. `HandlerOutput(output_ref, meta)`. `AgentHandler = Callable[[Envelope], Awaitable[HandlerOutput]]`. |
+| `FactProducer` + topics | `dispatcher.py:43-54`, `facts.py:18-103` | Kafka fact emit, partitioned by tenant. Topics `agents.events.delegation.{requested,completed,rejected}`. `DelegationFact` PHI-free (`facts.py:36-70`): task_id/type/chain/reason/output_ref only. |
+| `IdempotencyStore` / `PostgresIdempotencyStore` / `StoredResult` | `idempotency.py:84-238` | Protocol `claim_or_get`/`complete`. Postgres: `INSERT...ON CONFLICT DO NOTHING` under `pg_advisory_xact_lock`, `setup=` search_path (fix #55), poll-until-done. Terminal states pending/done. |
+| `build_agent_cards` / `build_dispatcher` / `card_signer_from_key` / `RouterInferenceProvider` | `assembly.py:42-192` | Production assembly. `card_signer_from_key(key)` → `None` if no key (dev fail-safe) else `CardSigner` (`:140-151`) — the **vault/KMS injection seam**. `build_dispatcher(..., verifier=)` wires the registry gate (`:177-184`). |
+| Per-agent handlers/originators | `agents/{rafael,helena,carolina,andre,marina,valentina,beatriz,fernando,gustavo,lucas}/delegation.py` | e.g. `rafael/delegation.py:91 make_rafael_handler` (target adapter envelope→graph→output_ref), `helena/delegation.py:53 build_auth_analysis_envelope` + `:105 delegate_auth_analysis` (originator). |
+| Test suites | `tests/unit/a2a/{test_card_signing,test_registry,test_anti_loop,test_dispatcher,test_idempotency,test_idempotency_store,test_assembly}.py` + `fakes.py` | `test_card_signing.py` = **22 test functions** (one parametrized ×10 → ~31 cases; the "20-test" figure in T2.4/memory is approximate). |
+
+### 1.3 Reconciliation notes (donor design ≠ v2 file layout)
+
+- **Anti-loop lives in TWO places**: v2 has a standalone `AntiLoopGuard` (`anti_loop.py`, over a
+  `list[str]`); the donor has **no standalone anti_loop module** — guards are folded into
+  `DelegationEnvelope.root/extend` + `Budget` (`delegation.py`). Donor `test_anti_loop.py` imports
+  from `maezo.a2a` (the envelope). **Decision needed**: port the envelope-baked guards (donor design,
+  ADR-0015 §Envelope) and either deprecate `AntiLoopGuard` or keep it as a thin façade.
+- **`CyclicDelegationError` name collision**: v2 `anti_loop.py:17` AND donor `delegation.py:32` both
+  define it (v2 subclasses `ValueError`; donor subclasses `DelegationError(ValueError)`). The port
+  must land ONE canonical definition (donor's, in `delegation.py`) and repoint `__init__.py`.
+
+---
+
+## 2. Dependency-surface friction (the real cost — donor imports ≠ v2 modules)
+
+The donor files are **not drop-in**. Every donor import was checked against the v2 clone:
+
+| Donor import | Donor file | v2 reality | Port action |
+|---|---|---|---|
+| `from maezo.gateway.audit import AuditLog, AuditRecord, hash_input` | `dispatcher.py:27` | v2 HAS `hash_input` (`audit.py:51`) + `AuditRecord` (`audit.py:133`) but **NO `AuditLog`** (v2 has `AuditSink` + `PostgresAuditSink`). | **Rewrite** the dispatcher's audit seam (see §3). |
+| `AuditRecord(agent_id, agent_version, tenant, tool, input_hash, decision_basis, autonomy_level)` | `dispatcher.py:282-297` | v2 `AuditRecord` has a **DIFFERENT shape** (`audit.py:179-190`): `agent_id, tenant_id, agent_version, action, decision, details: dict, dmn_versions, model_id, prompt_version, prev_hash, record_hash`. No `tool`/`decision_basis`/`autonomy_level`. | **Rewrite** `_audit_delegation` to build v2's record (`tenant_id`, `action=f"a2a.delegate:{target}"`, `decision`, `details={...}`). |
+| `self._audit.record(record)` (append) | `dispatcher.py:298` | v2 emit seam is `emit_once(record, *, dedup_key) -> str` (Protocol `AuditStartSink`, `transport.py:449-460`; satisfied by `PostgresAuditSink`). | **Rewrite** to `emit_once` with a per-delegation dedup key (see §3). |
+| `from maezo.runtime.checkpoint import normalize_conn_string, schema_for_tenant` | `idempotency.py:37` | v2 has `schema_for_tenant` in **`gateway.audit_postgres:85`** and `normalize_dsn` (`:100`, NOT `normalize_conn_string`). `runtime.checkpoint` only has `Checkpointer`. | **Repoint** import to `gateway.audit_postgres`; rename `normalize_conn_string`→`normalize_dsn`. Mechanical. |
+| `from maezo.runtime.harness import load_agent_definition_merged, AgentDefinition` | `assembly.py:27`, `registry.py:24` | v2 has **no `load_agent_definition_merged`**; agent defs load via `AgentLoader().load_by_id()` (`agents/__init__.py:180`) from **`spec/agents/<id>/agent.yaml`** (NOT `src/maezo/agents/`). v2 `AgentDefinition` (`agents/__init__.py:131`, Pydantic) has `id` (not `agent_id`), `security_zone`, `a2a` (already-parsed dict, `:272`), `prompt_versions` — **NO `agent_version`, NO `.raw`**. | **Rewrite** `from_definition`/`build_agent_cards` to v2's `AgentLoader`; source `a2a` from `definition.a2a`; DECIDE the card `version` (v2 has no `agent_version` on the definition — harness only sets a `f"{id}@v0"` default at graph-build, `harness.py:170`). |
+| `from maezo.runtime.inference import InferenceRouter, InferenceRequest, Message, Role, SecurityZone, TaskKind` | `assembly.py:28-35` | v2 `runtime.inference` has a **DIFFERENT abstraction** (`InferenceProvider`/`BaseInferenceProvider`/`AnthropicInferenceProvider`, `inference.py:129-390`). **No `InferenceRouter`/`TaskKind`/`SecurityZone` enum/`resolve_spec`.** | `RouterInferenceProvider` (`assembly.py:42-92`) does NOT port — only needed for REAL agent handlers (W3+). Drop from W1/W2; redesign against v2's provider seam in W3. |
+| `import asyncpg` | `idempotency.py:35` | v2 already uses asyncpg in `audit_postgres.py`. | OK — align pool/`setup=` pattern with v2's `PostgresAuditSink`. |
+| agent.yaml `a2a:` data | `assembly.build_agent_cards` | **All 10 v2 agents + `_template` already carry an `a2a:` block** (verified). e.g. `spec/agents/rafael/agent.yaml`: `capabilities:[prior_authorization_analysis]`, `skills:[tiss_auth_analysis, medico_auditor_dossier]`, `accepted_task_types:[authorization.analyze]`, `queue_ref:agents.tasks.rafael`. | **No data gap** — card derivation has real inputs today. |
+
+**Bottom line:** `delegation.py` + `facts.py` port ~clean (std-lib + self-contained). `registry.py`
+(card+signer+registry) ports clean EXCEPT `from_definition`. `dispatcher.py` needs an **audit-seam
+rewrite** (biggest single friction). `idempotency.py` needs a mechanical import repoint. `assembly.py`
+needs `from_definition`/`build_agent_cards` reworked to `AgentLoader`+`spec/agents`, and
+`RouterInferenceProvider` deferred.
+
+---
+
+## 3. Integration surface
+
+### 3.1 Where the dispatcher plugs in (intended delegation edges — from v2 graph disclosures)
+
+Every v2 agent graph discloses the missing edge (each independently — ADR-0032:38-42):
+
+| Originator → Target | task_type | Disclosure (v2) | Donor proof edge |
+|---|---|---|---|
+| Helena → **Rafael** | `authorization.analyze` | `rafael/graph.py:48` | YES — `helena/delegation.py` + `rafael/delegation.py` (canonical, matches `spec/agents/rafael` `accepted_task_types`) |
+| ? → **Carolina** | `operadora.cred.prepare_dossier` | `carolina/graph.py:122` | `carolina/delegation.py` |
+| ? → **Andre** | payment-approval dossier (`pagto_dossier`) | `andre/graph.py:151,184` | `andre/delegation.py` |
+| ? → **Marina** | `operadora.contas/recurso/reembolso.*` | `marina/graph.py:113` | `marina/delegation.py` |
+| ? → **Valentina** | `care.stratify` / `care.enroll` | `valentina/graph.py:103` | `valentina/delegation.py` |
+| ? → **Beatriz** | `fraude.investigate` (inbound handler) | `beatriz/graph.py:88` | `beatriz/delegation.py` |
+| ? → **Fernando/Gustavo** | caller/A2A-supplied `intencao`/state | `fernando/graph.py:67`, `gustavo/graph.py:97` | `fernando`/`gustavo/delegation.py` |
+
+**W3 proof edge = Helena→Rafael `authorization.analyze`** — the only edge with BOTH originator and
+target adapters in the donor, and whose target `accepted_task_types` already matches v2's
+`spec/agents/rafael/agent.yaml`.
+
+### 3.2 Interaction with the FENCED process-start chokepoint (ADR-0007/T-C2)
+
+`start_process_idempotent` (`tools/mcp_cibseven/transport.py:560`) is the SOLE agent→**process-start**
+chokepoint: audit-before-effect via `emit_once` on `AuditStartSink` (`transport.py:449-460`), dedup
+key `f"{tenant}:start:{process_key}:{business_key}"` (`:549-557`), PHI-safe provenance
+(`AgentDecisionProvenance`, `:463-502`).
+
+**A2A delegation is a DISTINCT effect surface** — agent→agent, not agent→process-start. The design
+doc classifies it as **§2.1 site 5, "the second effect surface"** (`audit-emit-path-wiring.md:76`,
+`:387-388`, `:627`). **T-F does NOT need a new chokepoint and does NOT ride the fence**: it reuses the
+SAME `emit_once` idempotent audit seam, instrumenting the dispatcher's `_execute` path. This is a
+clean fit because delegation is ALREADY `task_id`-idempotent (Guard 4) — the audit dedup_key is
+naturally `f"{tenant}:a2a:{kind}:{task_id}"`, mirroring `start_dedup_key`. So the port's dispatcher
+audit rewrite (§2) targets `emit_once`, not `AuditLog.record`.
+
+### 3.3 Interaction with the audit identity (AUDIT_AGENT_ID → T-G)
+
+- Today: `AUDIT_AGENT_ID = "operadora-worker"` (plain string, `tools/workers/harness.py:111`) is the
+  audited identity for **worker completions**. The donor dispatcher audits delegation with
+  `agent_id=envelope.origin` (`dispatcher.py:283`) — the chain ORIGINATOR, not AUDIT_AGENT_ID.
+- **T-G** replaces "the interim stable-string identity" (`audit-emit-path-wiring.md:389-391`) with a
+  **signed/cert-backed identity** (ADR-0007:10 "service account + certificado; Agent Card assinado").
+- **Card-signing (W1) delivers the signed-Agent-Card half**: a verified `AgentCard` cryptographically
+  binds `agent_id`+`version`+`tenant`+`security_zone` (`signing_payload`, `registry.py:95-108`). The
+  audited `agent_id` becomes trustworthy exactly when the dispatcher only `lookup`s verified cards
+  (registry `verifier=` gate). The **service-account/cert half is a separate ADR** (§4).
+
+---
+
+## 4. ADR / policy questions
+
+| Question | Status | Needs |
+|---|---|---|
+| **T-G service-account/cert identity** (issuance: who mints? per-tenant? per-agent-version? rotation? verification chokepoint: at dispatch / audit-emit / PEP?) | **DESIGN-GAP** — ADR-0007:10 states it in ONE clause with zero elaboration (ADR-0032:67-73). | **NEW ADR** (issuance mechanism + verification chokepoint). Blocks the cert half of T-G. NOT autonomously buildable. |
+| **Card-signing key management** (vault/KMS seam) | Seam EXISTS in donor (`card_signer_from_key`, `assembly.py:140-151`) — mirrors `gateway.pseudonymizer` injected-key contract. Key material = blocked external secret (§6.2). | **Follows existing precedent** (pseudonymizer). No new ADR for the seam; provisioning the real key = external/infra. |
+| **Card `version` source** (ADR-0007 "sob-qual-versao" — donor uses the AgentDefinition hash) | v2's `AgentDefinition` has NO `agent_version`/`.raw` (`agents/__init__.py:131-165`); harness sets `f"{id}@v0"` default at graph-build (`harness.py:170`). | **Small design decision** inside W1 (compute a stable hash of the definition, or adopt the harness default). Precedent exists; no new ADR. |
+| **ADR-0015 refresh** (its §Decisao describes the port as already-present) | ADR-0032 already corrected the STATUS claim; the design remains the valid target. | When the port lands, a follow-up ADR should flip ADR-0015's "implementado" framing to "implemented by PR #NNN". Housekeeping, not a blocker. |
+| **ADR-0003** (Kafka facts + 4 anti-loop guards) | Accepted; the donor implements it faithfully. Topics need registering in `config/topic_registry.yaml` (validate-artifacts). | No new ADR; W2/W4 must add the 3 topics to the registry. |
+| **ADR-0022 (register_tools/ToolRegistry)** | Accepted; RATIFIES `register_tools` as "load-bearing — intocavel" (`0022:60-61`). **ORTHOGONAL to A2A** — the dispatcher does not touch ToolRegistry/register_tools. | **SEPARATE from this program.** The memory note (ADR-0022 stale re: a real ToolRegistry) belongs to whichever task lands the real `ToolRegistry` (ADR-0016 PEP+audit+scrub boundary), NOT this A2A wave. Do not couple. |
+
+---
+
+## 5. Build-wave decomposition (multi-PR sequence)
+
+Large program → 4 waves. Each wave is independently mergeable behind the zero-trust gates.
+
+### W1 — Card-signing slice (self-contained; NO dispatcher needed)
+- **Files (new):** `a2a/registry.py` rewrite → frozen `AgentCard` + `signing_payload` + `CardSigner`
+  + `CardSignatureError` + `RegistryError` + `AgentCardRegistry(verifier=)`. Update `a2a/card.py`
+  (fold into registry.py per donor, or keep a thin re-export) + `a2a/__init__.py`.
+- **Depends on:** nothing new. Std-lib `hmac`/`hashlib` only. `from_definition` needs v2 `AgentLoader`
+  (already present) + a `version` decision (§4).
+- **Tests:** port `test_card_signing.py` (22 funcs/~31 cases) + `test_registry.py`. Adapt
+  `build_agent_cards` tests to `spec/agents` real yaml (data already present).
+- **Live-engine needs:** NONE (unit/engine-free — T2.4 report §"Tudo unit/engine-free").
+- **Verification:** all 22 signing tests green; tamper/wrong-key/empty-key/unknown-scheme fail-closed;
+  registry admits-only-signed under verifier, backward-compatible without.
+- **Breaking-change note:** frozen AgentCard is a breaking change to the current `AgentCard.__init__`/
+  `to_dict`/`from_dict` and `A2ARegistry.register(tenant, card)` signature (T2.4 report items 1,3) —
+  but there are ZERO production call sites (ADR-0032), so blast radius = the 4 a2a files + their
+  tests only.
+
+### W2 — Envelope + dispatcher + facts + idempotency (the runtime)
+- **Files (new):** `a2a/delegation.py` (envelope+Budget+guards), `a2a/facts.py` (facts+topics),
+  `a2a/dispatcher.py` (**audit seam rewritten to `emit_once`** + v2 `AuditRecord` shape),
+  `a2a/idempotency.py` (import repointed to `gateway.audit_postgres`), `a2a/assembly.py`
+  (`build_agent_cards`/`build_dispatcher`/`card_signer_from_key` — MINUS `RouterInferenceProvider`).
+  Reconcile `AntiLoopGuard`/`CyclicDelegationError` collision (§1.3). Register 3 topics in
+  `config/topic_registry.yaml`.
+- **Depends on:** W1 (registry+cards), `gateway.audit` (`AuditRecord`/`hash_input`/emit seam).
+- **Tests:** port `test_dispatcher.py`, `test_idempotency.py`, `test_assembly.py`, `test_anti_loop.py`
+  (envelope guards), `fakes.py` (adapt `RecordingSink.emit`→v2 `emit_once` fake).
+- **Live-engine needs:** in-memory idempotency path = none. `test_idempotency_store.py`
+  (`PostgresIdempotencyStore`) needs a **live Postgres** + an `a2a_idempotency` table migration
+  (mirror `PostgresAuditSink` schema-per-tenant).
+- **Verification:** dispatcher routes/rejects/replays; audit-before-effect ordering; `emit_once` dedup
+  on re-delivery; anti-loop guards fire structurally; facts PHI-free.
+
+### W3 — Wire ONE real edge end-to-end (Helena→Rafael, proof of life)
+- **Files (new):** `agents/helena/delegation.py` (originator: build envelope + `delegate`),
+  `agents/rafael/delegation.py` (target handler envelope→graph→output_ref). Redesign
+  `RouterInferenceProvider` against v2's `InferenceProvider` seam (`inference.py:390`). Wire the
+  dispatcher into the agent-runtime bring-up (`runtime/agent_runtime/service.py`).
+- **Depends on:** W2 + W1. Rafael's graph (exists) + `spec/agents/rafael` a2a block (exists).
+- **Tests:** port `test_rafael_a2a_delegation.py` + Helena originator test. Assert output_ref is a
+  business-key REFERENCE, never a coverage decision (donor HARD GUARDRAIL, `rafael/delegation.py:19`).
+- **Live-engine needs:** the handler runs Rafael's graph; end-to-end proof may want the live inference
+  provider (or the PhiZoneMock for the PHI zone). No BPMN engine for the A2A hop itself.
+- **Verification:** a real `authorization.analyze` delegation flows Helena→dispatcher→Rafael→output_ref
+  with audit + facts emitted; anti-loop + idempotency observed on a live-ish path.
+
+### W4 — T-F audit wiring + T-G identity binding
+- **T-F (buildable-now):** confirm the dispatcher's `emit_once` call (from W2) is the site-5 effect
+  surface; add the audited-refusal path on rejections; make the agent daemon's `audit_sink_ready`
+  readiness cover A2A (fail-closed). Files: `dispatcher.py` (already emits), `service.py` readiness.
+- **T-G signed-Card half (buildable-now on top of W1):** flip production assembly to inject
+  `verifier=card_signer_from_key(key)` so the dispatcher only `lookup`s verified cards; bind the
+  audited `agent_id` to the verified card identity.
+- **T-G cert/service-account half (ADR-GATED):** BLOCKED on the new identity ADR (§4). Not in this
+  wave's autonomous scope.
+- **Tests:** delegation-audit assertions (dedup, PHI-free details, chain link); verifier-gated build.
+- **Live-engine needs:** durable audit assertions want live Postgres (chain verify).
+
+**Dependency graph:** W1 → W2 → W3 → W4. W1 is fully independent and shippable first (closes the T2.4
+signing gap with no dispatcher). W4's T-F rides W2; W4's T-G signed-half rides W1; W4's cert-half waits
+on an ADR.
+
+---
+
+## 6. Buildable-now vs ADR-gated vs external
+
+| Bucket | Items |
+|---|---|
+| **Buildable-now (autonomous)** | W1 (entire card-signing slice — engine-free). W2 (runtime port + audit-seam rewrite + import repoints; in-memory paths engine-free). W3 (Helena→Rafael edge). W4 T-F (delegation audit via `emit_once`) + W4 T-G signed-Card half (verifier gate). The `version`-source and AntiLoopGuard-reconciliation micro-decisions (§1.3/§4). |
+| **ADR-gated (ratify first)** | **T-G service-account/cert identity** — needs a NEW ADR (issuance mechanism + verification chokepoint) before build; ADR-0007:10 is a single unelaborated clause (ADR-0032:67-73). |
+| **External / infra (SME)** | Real card-signing key + service-account cert **provisioning in vault/KMS** (blocked secret, §6.2). Live Postgres + `a2a_idempotency` table migration for durable-path tests (W2/W4). Real inference provider credentials for the live W3 proof. |
+
+---
+
+## 7. Open decisions to ratify (top policy questions)
+
+1. **NEW ADR for T-G identity issuance/verification** — who mints the service-account cert, at what
+   granularity (per-tenant? per-agent-version?), rotation policy, and WHERE it is verified (dispatch
+   vs audit-emit vs PEP). Hard blocker for the cert half of T-G. (ADR-0032:67-73.)
+2. **Card `version` semantics** — adopt a content-hash of the v2 `AgentDefinition` (ADR-0007
+   "sob-qual-versao") vs the harness `f"{id}@v0"` default. Small but load-bearing (it is signed).
+3. **Anti-loop consolidation** — deprecate the standalone `AntiLoopGuard` in favor of the
+   envelope-baked guards (donor design), resolving the `CyclicDelegationError` name collision.
+4. **Audit-seam contract for site 5** — ratify `emit_once` dedup_key = `f"{tenant}:a2a:{kind}:{task_id}"`
+   and the v2 `AuditRecord` field mapping (`action=f"a2a.delegate:{target}"`, `decision`, PHI-safe
+   `details`) as the T-F wiring shape.
+5. **ADR-0022 / ToolRegistry is OUT of scope** — confirm it stays decoupled from this program (belongs
+   to the real-ToolRegistry task, not the A2A dispatcher wave).
+
+---
+
+## 8. Path to the full design doc
+This file IS the design doc. Next step for a build orchestrator: lift §5 waves into 4 PR charters,
+attach the §2 friction table as the per-file port checklist, and open the T-G identity ADR (§7.1)
+before W4's cert half. All donor citations are re-verifiable at
+`/Users/familia/code/Maezo-Healthcare-Plan/src/maezo/a2a/` and v2 citations at `main` @ `f0b7164`.
