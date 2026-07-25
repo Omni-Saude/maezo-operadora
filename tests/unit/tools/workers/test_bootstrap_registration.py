@@ -110,13 +110,28 @@ def test_register_all_workers_accepts_and_forwards_seams() -> None:
 
 def test_class_module_bootstraps_register_workerbase_instances_not_function_workers() -> None:
     """auth/escalation/lgpd keep their WorkerBase subclasses — `register_worker` stores them in
-    the harness's WorkerRegistry directly, never re-wrapped in FunctionWorker."""
+    the harness's WorkerRegistry directly, never re-wrapped in FunctionWorker.
+
+    `operadora.lgpd.request_additional_proof` (#55 R-B, T2.8), `operadora.lgpd.send_response`
+    (#55 R-F, T2.8), and `operadora.lgpd.notify_sla_risk` (#55 R-G, T2.8) are the THREE exceptions
+    in these three modules: raw `harness.register()` handlers (they need the async Kafka seam a
+    WorkerBase `execute` boundary cannot reach — mirrors `events.publish`), so they populate
+    `_handlers` but NOT the WorkerRegistry. Excluded here.
+    """
     harness = _fresh_harness()
     register_auth_workers(harness)
     register_escalation_workers(harness)
     register_lgpd_workers(harness)
 
+    raw_handler_topics = {
+        "operadora.lgpd.request_additional_proof",
+        "operadora.lgpd.send_response",
+        "operadora.lgpd.notify_sla_risk",
+    }
     for topic in harness.registered_topics:
+        if topic in raw_handler_topics:
+            assert harness.registry.get(topic) is None  # raw handler: not in the WorkerRegistry
+            continue
         worker = harness.registry.get(topic)
         assert worker is not None
         assert not isinstance(worker, FunctionWorker), f"{topic} unexpectedly wrapped in FunctionWorker"
@@ -126,12 +141,24 @@ def test_function_based_module_bootstraps_register_function_workers() -> None:
     """The 13 function-based modules (7 dict-first + ans_cron + 6 typed-I/O with entry
     functions) register `FunctionWorker` instances (ADR-0026 §2a/§2b). `events` (T3.1 R2) is a
     THIRD category — a raw `harness.register()` handler, excluded here (see its module
-    docstring for why it cannot use the dict-first `FunctionWorker` boundary)."""
+    docstring for why it cannot use the dict-first `FunctionWorker` boundary).
+
+    SHARED FILE (T3.1 P2b flag for merge-time reconciliation): `raw_handler_topics` also excludes
+    recurso's 4 NEW raw handlers (`notify_sla_risk`/`escalate_ans_timeout`/`submit_appeal`/
+    `track_status`, Finding 2 — need the async Kafka seam for their test-spec-demanded
+    `notifications_of_type`/domain-event observability; recurso.py's module-level rationale).
+    """
     harness = _fresh_harness()
     register_all_workers(harness)
 
     class_module_prefixes = ("operadora.auth.", "operadora.escalation.", "operadora.lgpd.")
-    raw_handler_topics = {"operadora.events.publish"}
+    raw_handler_topics = {
+        "operadora.events.publish",
+        "operadora.recurso.notify_sla_risk",
+        "operadora.recurso.escalate_ans_timeout",
+        "operadora.recurso.submit_appeal",
+        "operadora.recurso.track_status",
+    }
     function_topics = [
         t
         for t in harness.registered_topics
@@ -146,12 +173,22 @@ def test_function_based_module_bootstraps_register_function_workers() -> None:
 
 def test_raw_handler_module_registers_outside_the_worker_registry() -> None:
     """`events` (T3.1 R2) populates `_handlers` (dispatch-reachable) but NOT `WorkerRegistry` —
-    it is registered via `harness.register()`, not `harness.register_worker()`."""
+    it is registered via `harness.register()`, not `harness.register_worker()`. Recurso's 4 NEW
+    raw handlers (Finding 2, T3.1 P2b) follow the SAME shape."""
     harness = _fresh_harness()
     register_all_workers(harness)
 
     assert "operadora.events.publish" in harness.registered_topics
     assert harness.registry.get("operadora.events.publish") is None
+
+    for topic in (
+        "operadora.recurso.notify_sla_risk",
+        "operadora.recurso.escalate_ans_timeout",
+        "operadora.recurso.submit_appeal",
+        "operadora.recurso.track_status",
+    ):
+        assert topic in harness.registered_topics
+        assert harness.registry.get(topic) is None
 
 
 # ---------------------------------------------------------------------------

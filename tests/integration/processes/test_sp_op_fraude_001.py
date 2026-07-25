@@ -128,24 +128,29 @@ FINDINGS (new, beyond the 5 VERIFIED CROSS-FAMILY FACTS supplied for this port):
      `test_manter_sem_fundamentacao_bloqueado_pelo_guard`), so no test needs to xfail over this —
      it is a genuine production-readiness gap worth a human follow-up, not a test blocker.
   2. **Registry drift between BPMN-declared and fraude.py-registered `operadora.fraude.*`
-     topics (2-way mismatch), confirmed by a dedicated static test
-     (`test_bpmn_fraude_topics_vs_registered_workers`) rather than left as an unverified comment:**
-     (a) the BPMN declares `operadora.fraude.notify_sla_risk` (`ST_NotifySlaRisk`,
-     `SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn:248`) but `register_fraude_workers` never
-     registers a handler for it (fraude.py's own bootstrap comment already flags this: "only
-     notify_sla_risk has no implementing function today") — deliberately EXCLUDED from
-     `_FRAUDE_WORKER_TOPICS` (mirrors cancel.py's convention of building the drain list from what
-     is ACTUALLY registered); (b) fraude.py registers `operadora.fraude.publish_completed`
+     topics, confirmed by a dedicated static test (`test_bpmn_fraude_topics_vs_registered_workers`)
+     rather than left as an unverified comment — UPDATED, t2.5-p2b-round2:**
+     (a) [CLOSED] the BPMN declares `operadora.fraude.notify_sla_risk` (`ST_NotifySlaRisk`,
+     `SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn:247-248`); `register_fraude_workers` now
+     registers a real `notify_sla_risk` FunctionWorker for it (t2.5-p2b-round2), so
+     `missing_worker` in the static test is now the empty set — INCLUDED in
+     `_FRAUDE_WORKER_TOPICS` (ST_NotifySlaRisk is genuinely drained by this suite now); (b)
+     [ACCEPT, unchanged] fraude.py registers `operadora.fraude.publish_completed`
      (fraude.py:536-551, 607) — a topic the BPMN never declares anywhere (every `ST_Publish*`
      node routes through the generic `operadora.events.publish` topic instead) — an orphan,
      dead-from-the-engine's-perspective registration, included in `_FRAUDE_WORKER_TOPICS` (it is
      genuinely registered) but never exercised by any test since no engine task is ever created
-     on it.
-  3. **`operadora.fraude.notify_sla_risk` gap blocks ONE test**
-     (`test_timer_alerta_sla_nao_interruptivo`) whose only assertion about worker execution is a
-     `notifications_of_type("fraude.notify_sla_risk")` check — this is a stronger gap than the
-     systemic kafka-publish gap (finding 4 below): there is no worker AT ALL for this topic, not
-     merely a worker that doesn't publish. xfailed with `_FRAUDE_NOTIFY_SLA_UNREGISTERED_REASON`.
+     on it. Out of scope for this port (documented ACCEPT, not touched).
+  3. **`operadora.fraude.notify_sla_risk` now built (t2.5-p2b-round2) but the SLA-alert
+     integration test still xfails — on a NARROWER, different gap:**
+     `test_timer_alerta_sla_nao_interruptivo`'s only assertion about worker execution is a
+     `notifications_of_type("fraude.notify_sla_risk")` check, which is backed by
+     `FakeKafkaPublisher.published` — `notify_sla_risk` follows the family's dict-first/`del
+     kafka` idiom (mirrors inadimplencia.py/cancel.py) and never calls `kafka.publish`, so this
+     check is still always empty even though the worker now genuinely executes. Same class as
+     the systemic kafka-publish gap (finding 4 below), no longer the "no worker at all" gap.
+     xfailed with `_FRAUDE_NOTIFY_SLA_UNREGISTERED_REASON` (reason text updated to "built,
+     pending live-proof flip" per xfail policy — mark/strict unchanged).
   4. **fraude-specific kafka-publish gap (systemic finding, fraude-scoped instance):**
      `register_fraude_workers` does `del kafka  # unused` (fraude.py:592) — confirmed NO
      `fraude.py` function ever calls `kafka.publish` (grep: zero `kafka.publish(` hits in
@@ -162,6 +167,37 @@ FINDINGS (new, beyond the 5 VERIFIED CROSS-FAMILY FACTS supplied for this port):
      explicitly out of scope for this port) — this suite only asserts that fraude's OWN handoff
      WORKER (`start_credenciamento`/`start_contratual`) executes and that the neutral
      `End_Encaminhado*` terminal is reached, never that a second process instance auto-starts.
+  7. T3.1 event-gap-a batch (THIS PR, test-only, zero src/BPMN/DMN/contract edits): the 4
+     `_FRAUDE_WORKER_KAFKA_GAP_REASON` xfails (score_indicators, handoff_credenciamento/
+     contratual/juridico) each had a `notifications_of_type(...)` check as a blocking or
+     already-redundant assertion — re-expressed against the strongest available engine-side
+     equivalent. For the 3 handoff tests, `ST_Publish{EncaminhadoCredenciamento,
+     EncaminhadoContratual,EncaminhadoJuridico}` (bpmn:346-398) is the ONLY task downstream of
+     `ST_{StartCredenciamento,StartContratual,ReferToLegal}` on its respective `Flow_*_Pub` edge —
+     the already-present `has_event(_FRAUDE_COMPLETED, desfecho=...)` assert already proves the
+     handoff worker ran; folded `investigator_id`/`tier` (the publish task's own
+     `event_payload_vars`) into that call and added activity-history containment for THIS
+     instance (wave2b2 verifier pattern, #135 precedent). For score_indicators,
+     `ST_ScoreIndicators` (bpmn:127) has NO downstream `ST_Publish*` task (feeds
+     `BRT_Indicadores`, a businessRuleTask) — re-expressed via `activity_instances_ended`
+     containment; the dead notification's `scoring_source`/`score_indicadores` fields are made
+     fully redundant by the already-present `engine.get_variable("score_indicadores")`/
+     `indicadores_presentes` checks immediately below (fraude.py's `score_indicators` function has
+     NO `scoring_source` field in its actual return dict — grep-confirmed, that field was only
+     ever asserted against the dead kafka echo, never a real one). Separately, `test_timer_alerta_sla_nao_
+     interruptivo` (`_FRAUDE_NOTIFY_SLA_UNREGISTERED_REASON`) is RE-GROUNDED against the current
+     BPMN (post-#133/#136): `ST_NotifySlaRisk` (bpmn:247-248, BT_AlertaSlaFraude's non-interruptive
+     alert branch) routes DIRECTLY to `End_RiscoSlaNotificado` (Flow_Notify_EndAlerta, bpmn:479) —
+     structurally identical to cancel's/contas's `notify_sla_risk`, NOT the design doc's alternate
+     suggestion of `has_event(fraude.sla_breached)` (that event belongs to the DIFFERENT,
+     interruptive `BT_SlaInvestigacao` timer/`ST_PublishSlaBreached` path, already exercised by
+     the sibling `test_timer_sla_estourado_coordenacao_assume` — folding it here would assert the
+     wrong branch's evidence). Verdict is a plain **A** adapt (engine activity-history), not a
+     retag — see the constant's own UPDATE paragraph. xfail/strict marks are left UNCHANGED on all
+     5 tests (same policy as #134/#135): the underlying kafka-publish gap in fraude.py's own
+     entry functions is NOT touched by this batch, and whether the adapted asserts flip these
+     tests fully green has not been re-verified against a live engine here — deferred to the
+     live-validation step.
 """
 
 from __future__ import annotations
@@ -222,15 +258,16 @@ _REGISTER_ACCUSATION_TOPIC = "operadora.fraude.register_fraud_accusation"
 _REFER_TO_LEGAL_TOPIC = "operadora.fraude.refer_to_legal"
 _START_CREDENCIAMENTO_TOPIC = "operadora.fraude.start_credenciamento"
 _START_CONTRATUAL_TOPIC = "operadora.fraude.start_contratual"
-# Orphan registration (finding 2b): fraude.py registers this, but the BPMN never declares it --
-# every ST_Publish* node routes through the generic `operadora.events.publish` topic instead.
-# Included in the drain list below because it IS genuinely registered (mirrors cancel.py's own
-# "drain list == what's registered" convention) -- but no engine task will ever land on it.
+# Orphan registration (finding 2b, ACCEPT -- unchanged by t2.5-p2b-round2): fraude.py registers
+# this, but the BPMN never declares it -- every ST_Publish* node routes through the generic
+# `operadora.events.publish` topic instead. Included in the drain list below because it IS
+# genuinely registered (mirrors cancel.py's own "drain list == what's registered" convention) --
+# but no engine task will ever land on it.
 _PUBLISH_COMPLETED_TOPIC = "operadora.fraude.publish_completed"
-# BPMN-declared (ST_NotifySlaRisk) but NEVER registered by `register_fraude_workers` (finding 2a
-# / fraude.py's own bootstrap comment). Named here for the timer-job lookup and the drift-check
-# test below, but DELIBERATELY EXCLUDED from `_FRAUDE_WORKER_TOPICS` -- there is no handler to
-# drain it with.
+# BPMN-declared (ST_NotifySlaRisk) -- t2.5-p2b-round2 CLOSED finding 2a: fraude.py's
+# `notify_sla_risk` now registers a real FunctionWorker on this topic (mirrors
+# inadimplencia.notify_sla_risk/cancel.notify_sla_risk's dict-first, informational-only idiom).
+# Included in `_FRAUDE_WORKER_TOPICS` below -- ST_NotifySlaRisk is now genuinely drained.
 _NOTIFY_SLA_TOPIC = "operadora.fraude.notify_sla_risk"
 
 _FRAUDE_WORKER_TOPICS = [
@@ -241,6 +278,7 @@ _FRAUDE_WORKER_TOPICS = [
     _ASSEMBLE_DOSSIER_TOPIC,
     _SEAL_CUSTODY_TOPIC,
     _REGISTER_ACCUSATION_TOPIC,
+    _NOTIFY_SLA_TOPIC,
     _REFER_TO_LEGAL_TOPIC,
     _START_CREDENCIAMENTO_TOPIC,
     _START_CONTRATUAL_TOPIC,
@@ -323,24 +361,78 @@ _FRAUDE_WORKER_KAFKA_GAP_REASON = (
     "received/custody_sealed/sla_breached/completed) are a SEPARATE, already-fixed path (T3.1 "
     "R2) and are NOT affected. Fix belongs to the Kafka-producer wiring task, not this port; "
     "src/** fix is out of scope."
+    "\n\nUPDATE (t3.1-event-gap-a-fraude-cancel, test-only batch, zero src/BPMN/DMN/contract "
+    "edits, see module docstring finding 7): the dead `notifications_of_type(...)` checks in all "
+    "4 tests below have been replaced with the strongest available engine-side equivalent per "
+    "assert — assert adapted to engine-side evidence, pending live-proof flip. This mark/strict "
+    "is left UNCHANGED on purpose: the underlying kafka-publish gap in fraude.py's own entry "
+    "functions is NOT touched by this batch (no src/ edit), so whether the adapted assertions now "
+    "cause each test to run clean end-to-end against a live engine has not been re-verified here "
+    "— that confirmation, and the consequent xfail removal, is deferred to the live-validation "
+    "step (design doc §5)."
 )
 
-# BPMN declares `operadora.fraude.notify_sla_risk` (ST_NotifySlaRisk) but `register_fraude_
-# workers` never registers a handler for it -- fraude.py's own bootstrap comment already flags
-# this ("only notify_sla_risk has no implementing function today"). Stronger than the kafka-
-# publish gap above: there is no worker AT ALL, so the external task is never even fetched by
-# this suite's drain (deliberately excluded from `_FRAUDE_WORKER_TOPICS`) and stays locked/
-# undrained on the engine side.
+# t2.5-p2b-round2: `notify_sla_risk` is now BUILT and registered (was previously the
+# _FRAUDE_NOTIFY_SLA_UNREGISTERED_REASON gap -- fraude.py had no implementing function at all).
+# This test STILL xfails, but on a DIFFERENT, narrower gap now: `notify_sla_risk` follows the
+# family's proven dict-first/`del kafka` idiom (mirrors inadimplencia.py/cancel.py) and never
+# calls `kafka.publish` -- so `fraude_probe.notifications_of_type("fraude.notify_sla_risk")`
+# (backed by `FakeKafkaPublisher.published`) still can never observe its execution, even though
+# ST_NotifySlaRisk is now genuinely fetched/completed by the drain (added to
+# `_FRAUDE_WORKER_TOPICS`). Same class as `_FRAUDE_WORKER_KAFKA_GAP_REASON` below (systemic
+# Kafka-producer-wiring gap, NOT this port's src/** scope) -- kept as a SEPARATE named constant
+# because the underlying finding (2a, registry drift) it originally documented is now CLOSED.
 _FRAUDE_NOTIFY_SLA_UNREGISTERED_REASON = (
-    "v2 gap (fraude-specific, confirmed by `test_bpmn_fraude_topics_vs_registered_workers` "
-    "below): the BPMN declares `operadora.fraude.notify_sla_risk` (ST_NotifySlaRisk, boundary "
-    "BT_AlertaSlaFraude) but fraude.py's `register_fraude_workers` never registers a "
-    "FunctionWorker for this topic (fraude.py's own bootstrap comment: 'only notify_sla_risk has "
-    "no implementing function today' -- a gap, not fabricated here). Because no handler exists, "
-    "this topic is excluded from `_FRAUDE_WORKER_TOPICS` (mirrors cancel.py's convention of "
-    "draining exactly what is registered) -- the ST_NotifySlaRisk task this test's timer creates "
-    "is never fetched/completed, so notifications_of_type('fraude.notify_sla_risk') is always "
-    "empty. src/** fix (implementing notify_sla_risk) is out of scope for this port."
+    "built, pending live-proof flip (t2.5-p2b-round2): fraude.py's `notify_sla_risk` is now "
+    "implemented and registered on `operadora.fraude.notify_sla_risk` (closes the prior "
+    "MISSING_WORKER gap, confirmed by `test_bpmn_fraude_topics_vs_registered_workers` below --  "
+    "`missing_worker` is now empty) and `_FRAUDE_WORKER_TOPICS` includes it, so ST_NotifySlaRisk "
+    "is genuinely fetched and completed by this suite's drain. This test still xfails on the "
+    "SAME systemic Kafka-publish gap as `_FRAUDE_WORKER_KAFKA_GAP_REASON`: `notify_sla_risk` is "
+    "dict-first and never calls `kafka.publish` (mirrors inadimplencia.py/cancel.py's proven "
+    "idiom -- this port deliberately does NOT add worker-side Kafka publishing, per the queued "
+    "systemic Kafka-seam task), so `notifications_of_type('fraude.notify_sla_risk')` (backed by "
+    "`FakeKafkaPublisher.published`) is still always empty. Expect this to flip only alongside "
+    "the systemic Kafka-producer-wiring fix, not independently -- live-proof needed against a "
+    "real engine before removing this xfail."
+    "\n\nUPDATE (t3.1-event-gap-a-fraude-cancel, test-only, see module docstring finding 7):"
+    " RE-GROUNDED against the current BPMN (post-#133/#136, this constant's own prior paragraph"
+    " was written before that grounding) -- ST_NotifySlaRisk (bpmn:247-248) routes DIRECTLY to"
+    " End_RiscoSlaNotificado (Flow_Notify_EndAlerta, bpmn:479), NO ST_Publish* task on this"
+    " non-interruptive alert branch at all (structurally identical to cancel's/contas's own"
+    " notify_sla_risk, NOT the DIFFERENT interruptive BT_SlaInvestigacao/ST_PublishSlaBreached"
+    " path the sibling test_timer_sla_estourado_coordenacao_assume already exercises). Verdict is"
+    " a plain A adapt, not a retag: the dead notifications_of_type(...) check below is replaced"
+    " with activity_instances_ended containment (contas #134 precedent). Assert adapted to"
+    " engine-side evidence, pending live-proof flip -- mark/strict unchanged."
+)
+
+# part4 R1 LIVE VALIDATION (engine cibseven 2.1.0) — HONEST RETAG. The t3.1-event-gap-a-fraude-
+# cancel batch predicted test_score_indicators_computa_dmns_reais_contra_evidencia would XPASS
+# once its dead notifications_of_type("fraude.score_indicators") block was replaced with
+# activity_instances_ended containment. It does NOT: removing that block let execution reach the
+# pre-existing `labels`/`indicadores_presentes` assertion, which fails. engine.get_variable(iid,
+# "indicadores_presentes") returns the engine's SPIN-JSON typed-value WRAPPER dict
+# ({'array': True, 'nodeType': 'ARRAY', 'dataFormatName': 'application/json', ...}), not the
+# deserialized list; the `json.loads(x) if isinstance(x, str) else x` guard does not unwrap a
+# dict, so `labels` is the wrapper and the list-equality assert raises. The score itself is proven
+# engine-side (score_indicadores==200 passes; ST_ScoreIndicators COMPLETED in history), so this is
+# purely a typed-value deserialization defect in the test's `labels` read — NOT the fraude.py
+# kafka gap the old reason names. Retagged (not flipped); the fix is unwrapping the typed-value in
+# the adaptation (read the JSON/list value, or use the history variable API), out of validation
+# scope here.
+_FRAUDE_SCORE_INDICADORES_TYPEDVALUE_GAP = (
+    "test-adaptation defect (t3.1-event-gap-a-fraude-cancel, exposed by part4 R1 live validation): "
+    "after the dead notifications_of_type(...) block was removed, execution reaches the pre-existing "
+    "`labels == [...]` assert, which reads engine.get_variable(iid, 'indicadores_presentes'). For a "
+    "serialized-JSON/array process variable the runtime endpoint returns a SPIN typed-value WRAPPER "
+    "dict ({'array': True, 'nodeType': 'ARRAY', ...}), not the deserialized list, and the "
+    "`json.loads(x) if isinstance(x, str)` guard does not unwrap a dict — so `labels` is the wrapper "
+    "and the list-equality assert raises. The score is proven engine-side (score_indicadores==200; "
+    "ST_ScoreIndicators COMPLETED in history) — this is a typed-value deserialization bug in the "
+    "test read, NOT the fraude.py kafka gap _FRAUDE_WORKER_KAFKA_GAP_REASON names. Left xfail(strict) "
+    "pending the adaptation fix (unwrap the typed value / use the history variable API); a validator "
+    "does not rewrite the builder's adaptation. Flips loudly once the read is corrected."
 )
 
 
@@ -671,7 +763,7 @@ async def test_score_alto_roteia_para_humano_nunca_acusa(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_FRAUDE_WORKER_KAFKA_GAP_REASON, strict=True)
+@pytest.mark.xfail(reason=_FRAUDE_SCORE_INDICADORES_TYPEDVALUE_GAP, strict=True)
 async def test_score_indicators_computa_dmns_reais_contra_evidencia(
     engine: EngineRest,
     fraude_probe: FraudeEngineProbe,
@@ -700,6 +792,17 @@ async def test_score_indicators_computa_dmns_reais_contra_evidencia(
     `notifications_of_type("fraude.score_indicators")`/`scoring_source` can never be observed even
     though the process-variable-based DMN computation (score_indicadores==200, labels list) would
     likely pass on its own merits.
+
+    ADAPTED (t3.1-event-gap-a-fraude-cancel, test-only, see module docstring finding 7 /
+    `_FRAUDE_WORKER_KAFKA_GAP_REASON` UPDATE): the dead `notifications_of_type(...)` block below
+    was replaced with `activity_instances_ended` containment. `ST_ScoreIndicators` (bpmn:127) has
+    NO downstream `ST_Publish*` task (`Flow_Score_Indicadores` feeds `BRT_Indicadores`, a
+    businessRuleTask, not a publish task) -- no has_event equivalent exists. Also: `scoring_source`
+    was never a REAL field `score_indicators` returns (grep-confirmed zero hits in fraude.py's
+    actual dict return -- only ever asserted here against the fabricated kafka echo); the
+    score_var/labels checks immediately below already prove score_indicadores==200 came from the
+    real DMN chain (the forged inbound decoy 3 was overwritten) -- strictly stronger evidence than
+    the old fabricated field ever was.
     """
     caso = _unique_caso("CASO-TESTE-DMN")
     inst = await start_fraude(
@@ -727,15 +830,9 @@ async def test_score_indicators_computa_dmns_reais_contra_evidencia(
     ut = await _drive_to_decisao(engine, fraude_probe, iid)
     assert ut.task_definition_key == _UT_DECISAO
 
-    score_notes = [
-        n
-        for n in fraude_probe.notifications_of_type("fraude.score_indicators")
-        if n.get("numero_caso") == caso
-    ]
-    assert score_notes, "score_indicators deve ter executado e publicado a montagem"
-    assert score_notes[-1]["scoring_source"] == "dmn", "o score deve vir das DMNs reais do engine"
-    assert score_notes[-1]["score_indicadores"] == 200, (
-        f"score DMN-computado (soma das 7 tabelas) deve ser 200; veio {score_notes[-1]['score_indicadores']}"
+    ended_pre_ut = await engine.activity_instances_ended(iid)
+    assert "ST_ScoreIndicators" in ended_pre_ut, (
+        f"ST_ScoreIndicators deve aparecer na historia. ended={ended_pre_ut}"
     )
 
     score_var = await engine.get_variable(iid, "score_indicadores")
@@ -1000,7 +1097,11 @@ async def test_acusar_fraude_round_trip_custodia_do_seal_worker(
     ), "fraude.completed adverso deve carregar investigator_id+tier (round-trip de custodia OK)"
 
 
-@pytest.mark.xfail(reason=_FRAUDE_WORKER_KAFKA_GAP_REASON, strict=True)
+# FLIPPED (part4 R1 live validation, engine cibseven 2.1.0): XPASS(strict) live. Engine history:
+# ST_StartCredenciamento + ST_PublishEncaminhadoCredenciamento COMPLETED canceled=False;
+# ST_PublishEncaminhadoCredenciamento emitted agents.events.fraude.completed with
+# desfecho=encaminhado_credenciamento, investigator_id=investigador-sintetico-001, tier=T2
+# (has_event matched). Prior xfail(_FRAUDE_WORKER_KAFKA_GAP_REASON, strict) removed.
 async def test_happy_path_acusar_handoff_credenciamento(
     engine: EngineRest,
     fraude_probe: FraudeEngineProbe,
@@ -1010,6 +1111,14 @@ async def test_happy_path_acusar_handoff_credenciamento(
 
     operadora.fraude.start_credenciamento executado (inicia SP-OP-CRED-001 -- que tem sua propria
     UT adversa; FRAUDE nunca auto-descredencia); fim End_EncaminhadoCredenciamento.
+
+    ADAPTED (t3.1-event-gap-a-fraude-cancel, test-only, see module docstring finding 7 /
+    `_FRAUDE_WORKER_KAFKA_GAP_REASON` UPDATE): the `notifications_of_type(...)` check was dead.
+    ST_PublishEncaminhadoCredenciamento (bpmn:346-352) is the ONLY task downstream of
+    ST_StartCredenciamento on Flow_Cred_Pub (bpmn:508) -- folded `investigator_id`/`tier` (its own
+    `event_payload_vars`, bpmn:352) into the has_event call below, which already proves
+    start_credenciamento ran; strengthened with activity-history containment for THIS instance
+    (wave2b2 verifier pattern, #135 precedent).
     """
     inst = await start_fraude(entidade_tipo="prestador")
     iid = inst["id"]
@@ -1029,13 +1138,22 @@ async def test_happy_path_acusar_handoff_credenciamento(
     ended = await _await_end(engine, iid)
     await _assert_no_adverse_without_human_task(engine, iid)
     assert _END_ENCAMINHADO_CREDENCIAMENTO in ended, f"=> End_EncaminhadoCredenciamento. ended={ended}"
-    assert fraude_probe.notifications_of_type("fraude.start_credenciamento"), (
-        "start_credenciamento deve ser executado (handoff a SP-OP-CRED-001)"
+    assert "ST_StartCredenciamento" in ended, "start_credenciamento deve ter executado nesta instancia"
+    assert fraude_probe.has_event(
+        _FRAUDE_COMPLETED,
+        desfecho="encaminhado_credenciamento",
+        investigator_id="investigador-sintetico-001",
+        tier="T2",
+    ), (
+        "ST_PublishEncaminhadoCredenciamento deve emitir completed(desfecho=..., "
+        "investigator_id=..., tier=...)"
     )
-    assert fraude_probe.has_event(_FRAUDE_COMPLETED, desfecho="encaminhado_credenciamento")
 
 
-@pytest.mark.xfail(reason=_FRAUDE_WORKER_KAFKA_GAP_REASON, strict=True)
+# FLIPPED (part4 R1 live validation, engine cibseven 2.1.0): XPASS(strict) live. Engine history:
+# ST_StartContratual + ST_PublishEncaminhadoContratual COMPLETED canceled=False; has_event matched
+# completed(desfecho=encaminhado_contratual, investigator_id=investigador-sintetico-001, tier=T2).
+# Prior xfail(_FRAUDE_WORKER_KAFKA_GAP_REASON, strict) removed.
 async def test_happy_path_acusar_handoff_contratual(
     engine: EngineRest,
     fraude_probe: FraudeEngineProbe,
@@ -1045,6 +1163,12 @@ async def test_happy_path_acusar_handoff_contratual(
 
     operadora.fraude.start_contratual executado (inicia SP-OP-CANCEL-001/INADIMPLENCIA-001 -- com
     UT adversa propria; FRAUDE nunca auto-rescinde); fim End_EncaminhadoContratual.
+
+    ADAPTED (t3.1-event-gap-a-fraude-cancel, test-only, see module docstring finding 7 /
+    `_FRAUDE_WORKER_KAFKA_GAP_REASON` UPDATE): the `notifications_of_type(...)` check was dead.
+    ST_PublishEncaminhadoContratual (bpmn:369-375) is the ONLY task downstream of
+    ST_StartContratual on Flow_Contratual_Pub (bpmn:510) -- folded `investigator_id`/`tier` into
+    the has_event call below; strengthened with activity-history containment.
     """
     inst = await start_fraude(entidade_tipo="beneficiario", beneficiario_pseudo_id="bnf-teste-0001")
     iid = inst["id"]
@@ -1066,13 +1190,19 @@ async def test_happy_path_acusar_handoff_contratual(
     ended = await _await_end(engine, iid)
     await _assert_no_adverse_without_human_task(engine, iid)
     assert _END_ENCAMINHADO_CONTRATUAL in ended, f"=> End_EncaminhadoContratual. ended={ended}"
-    assert fraude_probe.notifications_of_type("fraude.start_contratual"), (
-        "start_contratual deve ser executado (handoff a SP-OP-CANCEL/INADIMPLENCIA)"
-    )
-    assert fraude_probe.has_event(_FRAUDE_COMPLETED, desfecho="encaminhado_contratual")
+    assert "ST_StartContratual" in ended, "start_contratual deve ter executado nesta instancia"
+    assert fraude_probe.has_event(
+        _FRAUDE_COMPLETED,
+        desfecho="encaminhado_contratual",
+        investigator_id="investigador-sintetico-001",
+        tier="T2",
+    ), "ST_PublishEncaminhadoContratual deve emitir completed(desfecho=..., investigator_id=..., tier=...)"
 
 
-@pytest.mark.xfail(reason=_FRAUDE_WORKER_KAFKA_GAP_REASON, strict=True)
+# FLIPPED (part4 R1 live validation, engine cibseven 2.1.0): XPASS(strict) live. Engine history:
+# ST_ReferToLegal + ST_PublishEncaminhadoJuridico COMPLETED canceled=False; has_event matched
+# completed(desfecho=encaminhado_juridico, investigator_id=investigador-sintetico-001, tier=T2).
+# Prior xfail(_FRAUDE_WORKER_KAFKA_GAP_REASON, strict) removed.
 async def test_happy_path_acusar_handoff_juridico(
     engine: EngineRest,
     fraude_probe: FraudeEngineProbe,
@@ -1082,6 +1212,12 @@ async def test_happy_path_acusar_handoff_juridico(
 
     operadora.fraude.refer_to_legal executado (so a jusante de acusacao humana); fim
     End_EncaminhadoJuridico.
+
+    ADAPTED (t3.1-event-gap-a-fraude-cancel, test-only, see module docstring finding 7 /
+    `_FRAUDE_WORKER_KAFKA_GAP_REASON` UPDATE): the `notifications_of_type(...)` check was dead.
+    ST_PublishEncaminhadoJuridico (bpmn:392-398) is the ONLY task downstream of ST_ReferToLegal on
+    Flow_Legal_Pub (bpmn:512) -- folded `investigator_id`/`tier` into the has_event call below;
+    strengthened with activity-history containment.
     """
     inst = await start_fraude(entidade_tipo="prestador")
     iid = inst["id"]
@@ -1108,10 +1244,13 @@ async def test_happy_path_acusar_handoff_juridico(
     ended = await _await_end(engine, iid)
     await _assert_no_adverse_without_human_task(engine, iid)
     assert _END_ENCAMINHADO_JURIDICO in ended, f"=> End_EncaminhadoJuridico. ended={ended}"
-    assert fraude_probe.notifications_of_type("fraude.refer_to_legal"), (
-        "refer_to_legal deve ser executado (referral a juridico/ANS -- so apos acusacao humana)"
-    )
-    assert fraude_probe.has_event(_FRAUDE_COMPLETED, desfecho="encaminhado_juridico")
+    assert "ST_ReferToLegal" in ended, "refer_to_legal deve ter executado nesta instancia"
+    assert fraude_probe.has_event(
+        _FRAUDE_COMPLETED,
+        desfecho="encaminhado_juridico",
+        investigator_id="investigador-sintetico-001",
+        tier="T2",
+    ), "ST_PublishEncaminhadoJuridico deve emitir completed(desfecho=..., investigator_id=..., tier=...)"
 
 
 # ===========================================================================
@@ -1321,13 +1460,29 @@ async def test_prazo_diligencia_expira_vai_para_humano_nao_acusa(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_FRAUDE_NOTIFY_SLA_UNREGISTERED_REASON, strict=True)
+# FLIPPED (part4 R1 live validation, engine cibseven 2.1.0): XPASS(strict) live. Engine history:
+# ST_NotifySlaRisk COMPLETED canceled=False in this instance's activity history (non-interruptive
+# alert branch routes directly to End_RiscoSlaNotificado — no publish task; activity-history
+# containment is the strongest available evidence). UT stayed open. Prior
+# xfail(_FRAUDE_NOTIFY_SLA_UNREGISTERED_REASON, strict) removed.
 async def test_timer_alerta_sla_nao_interruptivo(
     engine: EngineRest,
     fraude_probe: FraudeEngineProbe,
     start_fraude: Callable[..., Any],
 ) -> None:
-    """Timer BT_AlertaSlaFraude (nao-interruptivo): notify_sla_risk recebe task; UT segue aberta."""
+    """Timer BT_AlertaSlaFraude (nao-interruptivo): notify_sla_risk recebe task; UT segue aberta.
+
+    ADAPTED (t3.1-event-gap-a-fraude-cancel, test-only, see module docstring finding 7 /
+    `_FRAUDE_NOTIFY_SLA_UNREGISTERED_REASON` UPDATE): the `notifications_of_type(...)` check was
+    dead. RE-GROUNDED against the current BPMN (post-#133/#136): `ST_NotifySlaRisk` (bpmn:247-248)
+    routes DIRECTLY to `End_RiscoSlaNotificado` (`Flow_Notify_EndAlerta`, bpmn:479) -- no
+    `ST_Publish*` task on this non-interruptive alert branch at all (structurally identical to
+    cancel's/contas's own `notify_sla_risk` -- NOT the design doc's alternate suggestion of
+    `has_event(fraude.sla_breached)`, which belongs to the DIFFERENT interruptive
+    `BT_SlaInvestigacao`/`ST_PublishSlaBreached` path exercised by the sibling
+    `test_timer_sla_estourado_coordenacao_assume`). Re-expressed against engine activity-history
+    (contas #134 precedent) -- a plain A adapt, not a retag.
+    """
     inst = await start_fraude()
     iid = inst["id"]
 
@@ -1337,8 +1492,9 @@ async def test_timer_alerta_sla_nao_interruptivo(
     await engine.execute_job(job.id)
     await fraude_probe.drain()
 
-    assert fraude_probe.notifications_of_type("fraude.notify_sla_risk"), (
-        "Worker notify_sla_risk deve ser executado no alerta de SLA"
+    ended_after_alerta = await engine.activity_instances_ended(iid)
+    assert "ST_NotifySlaRisk" in ended_after_alerta, (
+        "Worker notify_sla_risk (ST_NotifySlaRisk) deve aparecer na historia apos o alerta de SLA"
     )
 
     open_keys = {t.task_definition_key for t in await engine.list_user_tasks(iid)}
@@ -1631,13 +1787,14 @@ def test_bpmn_fraude_topics_vs_registered_workers() -> None:
     """Cross-check estatico: `camunda:topic="operadora.fraude.*"` no BPMN vs o que
     `register_fraude_workers` efetivamente registra no harness.
 
-    PINNED FINDING (nao remexido em src/**): (a) o BPMN declara `operadora.fraude.notify_sla_risk`
-    (ST_NotifySlaRisk) mas NENHUMA funcao em fraude.py o implementa (comentario do proprio
-    bootstrap: "only notify_sla_risk has no implementing function today") -- gap MISSING_WORKER;
-    (b) fraude.py registra `operadora.fraude.publish_completed` -- topico que o BPMN NUNCA declara
+    UPDATED (t2.5-p2b-round2): (a) [CLOSED] o BPMN declara `operadora.fraude.notify_sla_risk`
+    (ST_NotifySlaRisk) e fraude.py agora IMPLEMENTA e registra um `notify_sla_risk` real -- gap
+    MISSING_WORKER fechado, `missing_worker` agora e o conjunto vazio; (b) [ACCEPT, inalterado]
+    fraude.py registra `operadora.fraude.publish_completed` -- topico que o BPMN NUNCA declara
     (todo no ST_Publish* deste BPMN roteia pelo generic `operadora.events.publish`) -- registro
-    ORFAO, morto do ponto de vista do engine. Pinned aqui (em vez de um comentario nao verificado)
-    para que uma futura correcao apareca como uma edicao INTENCIONAL deste teste.
+    ORFAO, morto do ponto de vista do engine, documentado ACCEPT (fora de escopo, nao tocado).
+    Pinned aqui (em vez de um comentario nao verificado) para que uma futura correcao apareca
+    como uma edicao INTENCIONAL deste teste.
     """
     camunda_ns = "{http://camunda.org/schema/1.0/bpmn}"
     tree = ET.parse(_BPMN)
@@ -1656,9 +1813,10 @@ def test_bpmn_fraude_topics_vs_registered_workers() -> None:
     missing_worker = bpmn_topics - registered
     orphan_worker = registered - bpmn_topics
 
-    assert missing_worker == {_NOTIFY_SLA_TOPIC}, (
+    assert missing_worker == set(), (
         f"topicos declarados no BPMN sem worker registrado mudou de composicao: {missing_worker} "
-        f"(esperado apenas {_NOTIFY_SLA_TOPIC} -- atualize este teste e a suite se corrigido)"
+        "(esperado conjunto vazio -- notify_sla_risk foi implementado no t2.5-p2b-round2; "
+        "atualize este teste e a suite se um NOVO gap apareceu)"
     )
     assert orphan_worker == {_PUBLISH_COMPLETED_TOPIC}, (
         f"topicos registrados sem topico BPMN correspondente mudou de composicao: {orphan_worker} "

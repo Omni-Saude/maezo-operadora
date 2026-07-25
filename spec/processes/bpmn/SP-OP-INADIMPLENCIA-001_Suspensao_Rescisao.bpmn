@@ -127,17 +127,35 @@ Contrato completo: docs/processes/contracts/SP-OP-INADIMPLENCIA-001.md.
       <bpmn:outgoing>Flow_Purga_RequestNotif</bpmn:outgoing>
     </bpmn:businessRuleTask>
 
-    <!-- Dispara/registra notificacao previa ao beneficiario (RN 593) + publica inadimplencia.notified. -->
+    <!-- Dispara/registra notificacao previa ao beneficiario (RN 593). -->
     <bpmn:serviceTask id="ST_CheckPriorNotice" name="Disparar/registrar notificacao previa (RN 593)"
                       camunda:type="external" camunda:topic="operadora.inadimplencia.check_prior_notice">
-      <bpmn:documentation>Dispara/registra a notificacao previa ao beneficiario (RN 593 — notificacao ate o 50o dia; DRAFT/verify). Publica agents.events.inadimplencia.notified (notificacao disparada). NAO suspende/rescinde.</bpmn:documentation>
+      <bpmn:documentation>Dispara/registra a notificacao previa ao beneficiario (RN 593 — notificacao ate o 50o dia; DRAFT/verify). NAO suspende/rescinde. Worker dict-first (ADR-0026, del kafka): NAO publica agents.events.inadimplencia.notified diretamente — ver ST_PublishInadimplenciaNotified logo a seguir (T3.1 event-gap remedy B, wave 4 latent conformance).</bpmn:documentation>
+      <bpmn:incoming>Flow_Purga_RequestNotif</bpmn:incoming>
+      <bpmn:outgoing>Flow_RequestNotif_PubPended</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- T3.1 event-gap remedy B, wave 4 latent conformance (event-gap design doc §2.8; contract
+         SP-OP-INADIMPLENCIA-001.md:109 "produz" agents.events.inadimplencia.notified na
+         notificacao previa disparada/registrada; worker-row SP-OP-INADIMPLENCIA-001.md:114).
+         ST_CheckPriorNotice e' dict-first (ADR-0026) e nao publica; o generico
+         operadora.events.publish fecha o gap aqui, mirror byte-a-byte de
+         ST_PublishSlaBreach/ST_PublishCompleted (mesmo padrao event_topic/event_payload_vars,
+         boundary-free por convencao 15/16 — check-bpmn-error-allowlist §0.4). event_payload_vars
+         so' chaves de negocio (tenant_id, numero_contrato) — sem PHI (matricula_beneficiario
+         deliberadamente NAO incluido, mesma convencao das demais ST_Publish* deste BPMN). Nao
+         havia teste red pre-existente pinando esta obrigacao (latent B) — regressao nova em
+         test_sp_op_inadimplencia_001.py. -->
+    <bpmn:serviceTask id="ST_PublishInadimplenciaNotified" name="Publicar evento: inadimplencia.notified"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
       <bpmn:extensionElements>
         <camunda:inputOutput>
-          <camunda:inputParameter name="event_topic_notified">agents.events.inadimplencia.notified</camunda:inputParameter>
+          <camunda:inputParameter name="event_topic">agents.events.inadimplencia.notified</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_contrato</camunda:inputParameter>
         </camunda:inputOutput>
       </bpmn:extensionElements>
-      <bpmn:incoming>Flow_Purga_RequestNotif</bpmn:incoming>
-      <bpmn:outgoing>Flow_RequestNotif_CureGW</bpmn:outgoing>
+      <bpmn:incoming>Flow_RequestNotif_PubPended</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubPended_CureGW</bpmn:outgoing>
     </bpmn:serviceTask>
 
     <!-- CURE-WINDOW (event-based gateway, RN 593): corrida entre o PAGAMENTO recebido (purga) e a
@@ -145,7 +163,7 @@ Contrato completo: docs/processes/contracts/SP-OP-INADIMPLENCIA-001.md.
          Task humana (NUNCA terminal adverso automatico — INVERTE auto-suspender/auto-rescindir-no-timeout).
          Ack da notificacao previa -> reavaliacao (re-resolve fatos). -->
     <bpmn:eventBasedGateway id="GW_CureWindow" name="Cure-window de purga (RN 593)">
-      <bpmn:incoming>Flow_RequestNotif_CureGW</bpmn:incoming>
+      <bpmn:incoming>Flow_PubPended_CureGW</bpmn:incoming>
       <bpmn:outgoing>Flow_Cure_Pagamento</bpmn:outgoing>
       <bpmn:outgoing>Flow_Cure_NotifAck</bpmn:outgoing>
       <bpmn:outgoing>Flow_Cure_PrazoPurga</bpmn:outgoing>
@@ -398,7 +416,8 @@ pela User Task humana propria de CANCEL-001 (anti-dupla-rescisao). MANTER => vin
     </bpmn:sequenceFlow>
     <bpmn:sequenceFlow id="Flow_GW_AnaliseHumana" name="ANALISE_HUMANA (default — sempre humano)" sourceRef="GW_Status" targetRef="BRT_Sla"/>
     <bpmn:sequenceFlow id="Flow_Purga_RequestNotif" sourceRef="BRT_PurgaPrazos" targetRef="ST_CheckPriorNotice"/>
-    <bpmn:sequenceFlow id="Flow_RequestNotif_CureGW" sourceRef="ST_CheckPriorNotice" targetRef="GW_CureWindow"/>
+    <bpmn:sequenceFlow id="Flow_RequestNotif_PubPended" sourceRef="ST_CheckPriorNotice" targetRef="ST_PublishInadimplenciaNotified"/>
+    <bpmn:sequenceFlow id="Flow_PubPended_CureGW" sourceRef="ST_PublishInadimplenciaNotified" targetRef="GW_CureWindow"/>
     <bpmn:sequenceFlow id="Flow_Cure_Pagamento" sourceRef="GW_CureWindow" targetRef="ICE_PagamentoRecebido"/>
     <bpmn:sequenceFlow id="Flow_Cure_NotifAck" sourceRef="GW_CureWindow" targetRef="ICE_NotificacaoAck"/>
     <bpmn:sequenceFlow id="Flow_Cure_PrazoPurga" sourceRef="GW_CureWindow" targetRef="ICE_PrazoPurga"/>
@@ -456,6 +475,9 @@ pela User Task humana propria de CANCEL-001 (anti-dupla-rescisao). MANTER => vin
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_CheckPriorNotice" bpmnElement="ST_CheckPriorNotice">
         <dc:Bounds x="1070" y="40" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishInadimplenciaNotified" bpmnElement="ST_PublishInadimplenciaNotified">
+        <dc:Bounds x="1070" y="172" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_GW_CureWindow" bpmnElement="GW_CureWindow" isMarkerVisible="true">
         <dc:Bounds x="1250" y="55" width="50" height="50"/>
@@ -575,8 +597,14 @@ pela User Task humana propria de CANCEL-001 (anti-dupla-rescisao). MANTER => vin
         <di:waypoint x="990" y="80"/>
         <di:waypoint x="1070" y="80"/>
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_RequestNotif_CureGW" bpmnElement="Flow_RequestNotif_CureGW">
-        <di:waypoint x="1170" y="80"/>
+      <bpmndi:BPMNEdge id="Edge_Flow_RequestNotif_PubPended" bpmnElement="Flow_RequestNotif_PubPended">
+        <di:waypoint x="1120" y="120"/>
+        <di:waypoint x="1120" y="172"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubPended_CureGW" bpmnElement="Flow_PubPended_CureGW">
+        <di:waypoint x="1170" y="212"/>
+        <di:waypoint x="1210" y="212"/>
+        <di:waypoint x="1210" y="80"/>
         <di:waypoint x="1250" y="80"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Cure_Pagamento" bpmnElement="Flow_Cure_Pagamento">

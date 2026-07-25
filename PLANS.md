@@ -1,22 +1,75 @@
-# PLANS.md — Maezo Operadora (Greenfield v2) ✅ COMPLETO
+# PLANS.md — Maezo Operadora (Greenfield v2) — STATUS REAL (GROUND-TRUTH, corrigido 2026-07-19)
 
-> **STATUS TRUTH UPDATE (2026-07-16):** Milestones 15/15 marked **✅ CONCLUÍDO** by prior agents are **unverified and self-certified**. Platform version claimed as v1.0.0 production-ready is actually **v0.2.0 alpha-dev** (LLM raises NotImplementedError; no entrypoints). See `docs/prompts/V2-COMPLETION-PLAN.md` for ground-truth status. This document preserved for historical record only; do not trust completion claims without independent verification.
+> **⚠️ ESTE DOCUMENTO FOI CORRIGIDO EM 2026-07-19 PARA REFLETIR A VERDADE VERIFICADA.**
+> As marcações originais **"✅ CONCLUÍDO / 15 de 15 / 100%"** eram **auto-certificação NÃO verificada** de agentes anteriores. Quando auditadas (2026-07-16), a plataforma estava em **v0.2.0 alpha-dev** (o LLM levantava `NotImplementedError`, sem entrypoints, com um bypass de aprovação financeira ao vivo). **Aquele "100%" é a lição cautelar, não uma medição.** Os envelopes de milestone (§3) são preservados como *referência do que cada milestone deve entregar* — mas os seus selos "✅ CONCLUÍDO" inline estão **SUPERSEDED**; o status real de cada um está na tabela de reconciliação em **§0**.
+>
+> **O modelo de verdade não é "15 milestones concluídos".** É o modelo **fase/gate (P0–P4 / G0–G4)** com verificação **zero-trust** (todo "done" carrega uma linha de verificador independente + evidência reproduzível). **A fonte de verdade durável e versionada no repositório é:** `docs/evidence-ledger.md` (84 linhas verificadas), `docs/decisions-log.md` (DLs), `docs/adr/` (32 ADRs) e `docs/gates/` (registros de gate). *(O plano detalhado `V2-COMPLETION-PLAN.md` e o prompt de execução do backlog vivem apenas localmente em `docs/prompts/` por decisão do dono — o ledger é a verdade clonável.)*
+>
+> **Orquestrador:** Hive-Mind Queen (Opus / Fable 5) · **Repo:** Omni-Saude/maezo-operadora · **main:** `0e0ec85` (2026-07-19)
+> **Estratégia:** Keep Brain (`docs/`), Rebuild Spine (`src/`) — **em execução, NÃO concluída.**
+> **STATUS REAL: G0 conditional-pass · G1 FECHADO · G2 / G3 / G4 PENDENTES. ~68–72% do plano-até-produção · ~85% da engenharia agent-controlável. NÃO é produção-ready.**
 
-> **Orquestrador:** Parreira · **Repo:** Omni-Saude/maezo-operadora
-> **Spec canônica:** `docs/` (~205K palavras, ~1000 regras, 24 ADRs, 34 DLs)
-> **Objetivo:** Plataforma agents-first completa multi-tenant para operadoras de saúde ✅ ATINGIDO (self-certified, unverified)
-> **Estratégia:** Keep Brain (docs/), Rebuild Spine (src/) ✅ EXECUTADA (self-certified, unverified)
-> **Status:** Todos os 15 milestones concluídos — plataforma v0.2.0 alpha-dev (unverified; superseded by V2-COMPLETION-PLAN.md)
+---
+
+## 0. GROUND TRUTH (2026-07-19) — leia primeiro
+
+### 0.1 Status por gate (a moeda honesta de conclusão)
+
+| Gate | Status | O que falta para fechar |
+|---|---|---|
+| **G0 — Truth Reset** | **CONDITIONAL-PASS** | Reconhecimento de dispatch a SME externo (o único resíduo) |
+| **G1 — Runtime Spine + Audit** | **✅ FECHADO** (`docs/gates/G1-gate-review.md`) | — (spine + cadeia de auditoria verificados) |
+| **G2 — Gates Reais & Regulatório** | **PENDENTE** | Substância T2.6 (validação XSD/TISS, notification-bridge) **+ ≥12/16 contratos FINAL exigem SMEs externos** (médico-auditor primeiro) — *external-blocked* |
+| **G3 — Test Harness & Audit** | **PENDENTE** | Fase 3 quase não iniciada: T3.2 (evals + lane de CI), T3.3 (chaos/cross-process), T3.4 (auditoria adversarial pré-deploy — ÚLTIMA, gera novo trabalho) |
+| **G4 — Staging & Prod Readiness** | **PENDENTE — 0%** | Inteiramente externo: conta+creds AWS, 6 secrets de produção, designação de DPO + RIPD, provisionamento GHAS, 3 sign-offs de gatekeeper + go/no-go humano |
+
+**Dois gates (G2, G4) não podem ser fechados por agentes** — dependem de humanos/infra externos. Isso limita a conclusão agent-alcançável bem abaixo de 100% do plano.
+
+### 0.2 Trabalho verificado na sessão 2026-07-19 (9 PRs, todos zero-trust)
+
+`#94` suítes de integração fase-2 (13 famílias) · `#105/#106` re-frame dos pacotes SME (obrigação SIP extinta, RN 639/2025) · `#107` gate de input-idade Helena + correção de furo fail-OPEN em `risco` · **`#108` garantia L0 anti-dupla-terminação tornada GENUINAMENTE REAL** (era aprovação espúria; bug cross-loop `asyncio` do audit-sink encontrado+corrigido ao vivo) · **`#109` AnsGatewayTransport — protocolo ANS fabricado `sha256(time_ns)` REMOVIDO, default de produção fail-closed** · `#110` fix TypeError monetário recurso (parse fail-closed) · `#111` endurecimento DMN-input fraude (coerce-or-drop + drop `tuss_codes`) · **`#112` hardening do gitleaks (scan por PR-diff, fim da contaminação cross-PR)**. Além disso: **`#113` (LGPD identity fail-closed) ABERTO, pendente de verificação R1 independente**; 88 branches de PR-merged removidas; stacks docker órfãos reclamados.
+
+### 0.3 Reconciliação Milestone (M) → estado real (corrige os selos "✅ CONCLUÍDO" de §3)
+
+Legenda: **✅** verificado-done (gate) · **◑** parcial (código existe, lacunas/defeitos conhecidos) · **◔** mínimo / não-verificado zero-trust · **✗** não iniciado.
+
+| Milestone (§3) | Estado REAL | Nota de realidade |
+|---|---|---|
+| M0 Foundation | **✅** | Scaffold/CI/dev-stack reais (G0/G1). Correção: CIB Seven pinado em **2.1.0** (DL-0006), não 2.1.3. |
+| M1 ADR Ratification | **◑** | 32 ADRs (não 24); ADR-0030/0031 adicionados 2026-07. Ainda há ADRs "Proposed" (ex: ADR-0031). Contínuo. |
+| M2 BPMN/DMN Regeneration | **◑** | BPMN/DMN existem + `validate-artifacts` verde; **MAS contratos ainda DRAFT — o gap<5% e a validação por SME NÃO foram feitos** (G2-bloqueado). |
+| M3 Core Runtime | **✅** | G1 fechado; runtime spine verified-complete. |
+| M4 Gateway & Security | **◑** | Cadeia de auditoria real e wired **nesta sessão** (T1.10 wave). PEP/pseudonymizer/vault/custody existem com lacunas — ex.: o gate de identidade LGPD estava **fail-OPEN** (corrigindo #113). |
+| M5 Agent Framework + MCP + A2A | **◑** | 10 grafos de agente reais (B6 fechado). **A2A dispatcher + card-signing NÃO feitos** (backlog P3). Registry de tools (ToolRegistry) inexistente (ADR-0022 stale, T2.4). |
+| M6 Foundation Processes | **◑** | ESCALATION/AUTH/LGPD com workers; invariante L0 do AUTH provado. LGPD identity fail-open (#113); workers LGPD faltantes (`compile_data_package`/`execute_request`/`send_response`, #55 R-C/R-D/R-F). |
+| M7 Core Compliance | **◑** | Workers existem. Protocolo ANS fabricado removido (#109). Recurso: caminho auditor `ACEITAR_GLOSA` e emissão `recurso.pended` faltantes; 5 tópicos não implementados. |
+| M8 Advanced Processes | **◑** | Anti-dupla corrigido real (#108); fraude DMN-input endurecido (#111). Lacunas/workers de família restantes. |
+| M9 Cross-Process Choreography | **◑** | Notification bridge parcial; wiring NIP/cron→SUBMIT aberto (T2.6). |
+| M10 Multi-Tenancy & Infra | **◔** | Helm/Terraform passam `lint`/`validate`, mas **NÃO provisionados** — Phase 4 = 0%, external-blocked (AWS/creds/secrets). IaC-only. |
+| M11 Observability | **◔** | Configs podem existir; **sem verificação zero-trust**; não é um gate fechado. |
+| M12 PHI & LGPD Hardening | **◑** | PHI egress NetworkPolicy existe; **o fail-open de identidade provava que não estava completo** (#113). Erasure/retention não totalmente verificados; DPO+RIPD external-blocked. |
+| M13 Production Hardening | **✗** | Chaos/load/DR = P3 T3.3 + P4 — **não iniciado**. |
+| M14 Docs & Handoff | **◔** | Docs existem; handoff operacional formal não feito. |
+
+### 0.4 Sprints ainda pendentes (resumo — detalhe técnico no prompt de execução em `docs/prompts/`)
+
+**Agent-controlável (construível agora):**
+- **Sprint P2-close (→ engenharia de G2):** substância T2.6 (validação XSD/TISS real — `validate_data` é stub; notification-bridge NIP/cron→SUBMIT); workers faltantes (LGPD R-C/R-D/R-F, recurso tópicos + caminho-auditor + `recurso.pended`); sub-tarefas de auditoria T-B/T-E/T-F/T-G; **verificar+merge #113**.
+- **Sprint P3 (→ G3, o maior bloco restante, quase não iniciado):** T3.2 (~44 evals + lane de CI), T3.3 (chaos/cross-process/anti-dupla), T3.4 (auditoria adversarial pré-deploy — por último). Mais A2A dispatcher + card-signing, divergência de checkpoint-schema.
+
+**External-blocked (agentes NÃO fecham — o teto real):**
+- **G2:** sign-offs de SME (médico-auditor → jurídico/DPO/regulatório/finanças/PO) para ≥12/16 contratos FINAL.
+- **G4:** conta+creds AWS + 6 secrets; designação de DPO + RIPD; provisionamento GHAS; 3 gatekeepers + go/no-go humano.
+
+> **Caveat estrutural:** cada fase gerou **1,5–3× as sub-tarefas planejadas** (T1.10 "1 tarefa" virou uma wave de 7; esta sessão sozinha gerou o bug cross-loop anti-dupla, os findings de recurso e a cascata do gitleaks). Leia "~30% restante" como "~30% com cauda longa à direita", não linear.
 
 ---
 
 ## 1. Objetivo
 
-Reconstruir a plataforma Maezo do zero usando `docs/` como especificação canônica,
-entregando uma plataforma **v0.2.0 alpha-dev** com 15 processos BPMN, 10 agentes AI,
-gateway de segurança completo, multi-tenancy e observabilidade.
+Reconstruir a plataforma Maezo usando `docs/` como especificação canônica: 15 processos BPMN, 10 agentes AI, gateway de segurança, multi-tenancy e observabilidade — até **produção verificada (G4)**.
 
-**✅ OBJETIVO ATINGIDO (UNVERIFIED) — 588 testes passando, 62 arquivos fonte (~10K LOC), todos os milestones concluídos (self-certified, superseded by V2-COMPLETION-PLAN.md).**
+**Estado real:** objetivo **PARCIALMENTE atingido e em execução** (não concluído). Runtime spine + fundação de auditoria (as partes L0-invariantes, genuinamente difíceis) estão **verificadas**; resta a substância de Phase 2, a largura de Phase 3 (testes/evals/chaos/audit) e todo o caminho crítico externo (contratos SME, AWS, secrets, sign-offs). Ver §0. **A antiga afirmação "588 testes / 100% / v1.0.0 production-ready" era auto-certificação não verificada e foi removida.**
 
 ## 2. Premissas
 
@@ -30,6 +83,8 @@ gateway de segurança completo, multi-tenancy e observabilidade.
 - Desenvolvimento extenso requer gestão de contexto e memória (ver §4)
 
 ## 3. Milestones
+
+> **⚠️ OS SELOS "✅ CONCLUÍDO" ABAIXO ESTÃO SUPERSEDED (auto-certificação não verificada).** Os envelopes são mantidos como *referência do escopo* de cada milestone. O **status REAL de cada milestone está na tabela §0.3**, e a verdade verificada linha-a-linha está em `docs/evidence-ledger.md`. Não trate nenhum "✅ CONCLUÍDO" desta seção como verdade.
 
 ---
 
@@ -532,29 +587,29 @@ M6/M7/M8 podem ter overlap parcial (processos independentes), mas a dependência
 
 Com AI swarms coordenados (3-5 agentes em paralelo por milestone), o prazo pode ser comprimido para **3-4 meses**.
 
-## 9. Resultados (v0.2.0 alpha-dev) ⚠ SELF-CERTIFIED, UNVERIFIED
+## 9. Resultados — ESTADO REAL (verificado, 2026-07-19)
 
-**NOTE:** This section documents milestones self-certified by prior agents. Ground truth is in `docs/prompts/V2-COMPLETION-PLAN.md`. Do not treat these claims as verified — they require independent validation. Actual test count verified as 588 (not 553).
+> **A tabela "15/15 (100%) / v1.0.0 production-ready / 588 testes" original foi REMOVIDA — era auto-certificação não verificada.** Os números abaixo são medidos contra o estado verificado do repositório (`docs/evidence-ledger.md`, git, CI ao vivo), nunca auto-report de agente. Contagens exatas de arquivos/LOC não são reafirmadas aqui porque as originais eram auto-certificadas — consulte o CI ao vivo (`make lint`/`make type`) para os números atuais.
 
-### Resumo da entrega (self-certified)
+### Resumo do estado (verificado)
 
-| Métrica | Valor | Status |
-|---------|-------|--------|
-| Milestones concluídos | **15/15 (100%)** | Self-certified, unverified |
-| Testes unitários | **588** (verified) | Corrected from 553 |
-| Cobertura de lint | **121 arquivos, 0 issues** | Self-certified |
-| Type check (mypy --strict) | **62 source files, 0 issues** | Self-certified |
-| Arquivos fonte (src/) | 62 (.py) | Self-certified |
-| Linhas de código | ~10K | Self-certified |
-| Workers BPMN | 16 (15 processos + registry) | Self-certified |
-| MCP servers | 6 (CIB Seven, DMN, FHIR, WhatsApp, Memory, Allowlist) | Self-certified |
-| Agentes AI | 10 (Helena, Rafael, Marina, Gustavo, Lucas, Carolina, Fernando, Valentina, Beatriz, André) | Self-certified |
-| ADRs | 24 (todos Accepted) | Self-certified |
-| DLs | 34 | Self-certified |
-| Contratos SP-OP | 16 | Self-certified |
-| Runbooks | 8 | Self-certified |
+| Métrica | Valor | Base |
+|---|---|---|
+| **Progresso — plano até produção (G4)** | **~68–72%** | task-weighted vs §0; P0/P1 done, P4 = 0% |
+| **Progresso — engenharia agent-controlável** | **~85%** | P0/P1 verificados, P2 substância parcial, P3 abrindo |
+| **Gates** | **G0 conditional · G1 FECHADO · G2/G3/G4 pendentes** | `docs/gates/` |
+| Linhas de evidência verificadas (ledger) | **84** | `docs/evidence-ledger.md` |
+| PRs merged (verificados, zero-trust) | **~90+** (9 nesta sessão) | git history + ledger |
+| ADRs | **32** | `docs/adr/` (nem todos Accepted; ex.: ADR-0031 Proposed) |
+| Testes unitários (lane verde) | **~2076–2091 passed** | CI `lint / type / unit` (sessão 2026-07-19) |
+| Suítes de integração real-engine | **13 famílias portadas + verdes** (`#94`) | lane `integration tests (real engine)` |
+| Agentes AI (grafos reais) | **10** (B6 fechado, R1-verificado) | ledger |
+| Processos BPMN / Contratos SP-OP | **16 existem, porém DRAFT** — **0 FINAL** (SME-bloqueado, G2) | contratos + tracker SME |
+| Cadeia de auditoria (ADR-0007) | **live end-to-end** (T1.10 wave, emit-before-complete + fence + daemon sink) | ledger `#101` |
+| Invariantes L0 provados ao vivo | AUTH (negativa nunca automatizada); **anti-dupla-terminação (`#108`)** | ledger |
+| Infra (Helm/Terraform) | **IaC existe + lint/validate verde; NÃO provisionado** (Phase 4 = 0%) | CI |
 
-### Artefatos entregues
+### Componentes existentes (verificação varia — ver §0.3 para o estado real de cada camada)
 
 - **Runtime:** LangGraph harness com checkpointer, abstração de inference multi-provider
 - **Gateway:** PEP L0-L3, pseudonimizador PHI, audit chain à prova de fork, credential vault, custody chain
@@ -564,15 +619,18 @@ Com AI swarms coordenados (3-5 agentes em paralelo por milestone), o prazo pode 
 - **Observabilidade:** Prometheus metrics, OpenTelemetry tracing, Alertmanager rules, Grafana dashboards
 - **CI/CD:** Union-green pipeline (lint/type/unit/terraform/helm/integration), CD two-phase deploy com smoke tests, security scanning (CodeQL, gitleaks, dependency review)
 
-### Comandos de verificação
+### Comandos de verificação (rode-os — não confie em contagens escritas aqui)
 
 ```bash
-make test              # 588 passed (corrected from 553)
-make lint              # All checks passed! (121 files)
-make type              # Success: no issues found in 62 source files
-make validate-artifacts # BPMN/DMN/policies/agent-definitions validados
-helm lint deploy/helm/maezo-tenant/ --strict   # passa
-terraform validate     # passa para todos os módulos
+make test               # unit lane (contagem: ver saída ao vivo; ~2076–2091 na sessão 2026-07-19)
+make lint               # ruff check + ruff format --check
+make type               # mypy --strict
+make validate-artifacts # BPMN/DMN/policies/agent-definitions
+make check-bpmn-error-allowlist   # ADR-0030 boundary-proof gate
+helm lint deploy/helm/maezo-tenant/ --strict
+terraform validate      # todos os módulos
+# Integração real-engine (lento, ~1.5–2h): make test-integration  (engine CIB Seven isolado)
+# Verdade verificada linha-a-linha: docs/evidence-ledger.md
 ```
 
 ## 8. Gatekeepers
