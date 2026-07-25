@@ -18,6 +18,7 @@ carry PHI; the exact v2 `AuditRecord` shape + `emit_once` dedup_key.
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from maezo.a2a import (
     TOPIC_COMPLETED,
@@ -28,6 +29,11 @@ from maezo.a2a import (
     RejectionReason,
 )
 from maezo.a2a.dispatcher import a2a_audit_dedup_key
+from maezo.agents.helena.delegation import build_auth_analysis_envelope
+from maezo.agents.rafael.delegation import make_rafael_handler
+from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
+from maezo.tools.workers.dmn_transport import FakeDmnTransport
+from tests.support.audit_fakes import FakeStartAuditSink
 
 from .fakes import FakeAgentHandler, build_test_dispatcher, make_card
 
@@ -199,3 +205,131 @@ async def test_redelivery_does_not_reaudit_or_reemit_requested() -> None:
     assert handler.call_count == 1
     assert len(sink.emitted) == 1  # audited exactly once, not once per delivery
     assert producer.topics() == [TOPIC_REQUESTED, TOPIC_COMPLETED]  # not emitted twice
+
+
+# --- W3: the dispatcher routes to the REAL Rafael handler (not FakeAgentHandler) ---------------
+#
+# See `docs/design/A2A-dispatcher-card-signing.md` §9 for the full W3 rationale. This is the
+# unit-level (engine-free, PG-free) half of the "T-F becomes real" proof: the dispatcher's own
+# `_audit_delegation` (T-F, dedup `{tenant}:a2a:delegate:{task_id}`) is asserted here against a
+# FakeAuditSink, DISTINCT from Rafael's own process-start audit (T-C2), which uses a SEPARATE
+# `FakeStartAuditSink` injected only into `make_rafael_handler` — never conflated. The live-PG
+# proof that the SAME distinction holds against a real `PostgresAuditSink` is
+# `tests/integration/agents/test_a2a_auth_delegation_edge.py`.
+
+_EDGE_CASE_META: dict[str, Any] = {
+    "beneficiario_pseudo_id": "pseudo-edge-1",
+    "prestador_id": "prestador-1",
+    "codigo_procedimento_tuss": "10101012",
+    "categoria_procedimento": "consulta",
+    "carater_atendimento": "eletivo",
+    "valor_estimado_brl": 500.0,
+    "requer_autorizacao": True,
+    "documentacao_completa": True,
+    "beneficiario_ativo": True,
+    "carencia_cumprida": True,
+    "dut_atendida": True,
+    "dentro_teto_l2": False,
+    "rede_credenciada": True,
+}
+
+
+class _FakeInference:
+    async def generate(self, prompt: str, *, phi: bool = False) -> str:
+        assert phi is True
+        return "dossie factual sintetico"
+
+
+def _real_rafael_handler(*, recomendacao: str = "ANALISE_HUMANA") -> tuple[Any, FakeStartAuditSink]:
+    """A REAL Rafael handler (`make_rafael_handler`) over fakes — no engine, no Postgres."""
+    dmn = FakeDmnTransport()
+    dmn.register("auth_admissibility", [{"resultado": "SEGUE_ANALISE", "motivo": "test"}])
+    dmn.register("auth_sla", [{"sla_analise": "P5D", "sla_alerta": "P3D"}])
+    dmn.register("auth_auto_approval", [{"recomendacao": recomendacao, "motivo": "test"}])
+    rafael_audit_sink = FakeStartAuditSink()
+    handler = make_rafael_handler(
+        _FakeInference(),
+        dmn=dmn,
+        cibseven=FakeCibSevenTransport(),
+        audit_sink=rafael_audit_sink,
+    )
+    return handler, rafael_audit_sink
+
+
+def _real_envelope(*, numero_guia_tiss: str = "GUIA-EDGE-1") -> DelegationEnvelope:
+    return build_auth_analysis_envelope(
+        tenant="amh",
+        numero_guia_tiss=numero_guia_tiss,
+        coverage_ref="fhir://Coverage/edge-1",
+        case_meta=_EDGE_CASE_META,
+    )
+
+
+async def test_dispatcher_routes_a_real_authorization_analysis_delegation_to_rafael() -> None:
+    handler, rafael_audit_sink = _real_rafael_handler()
+    card = make_card("rafael", accepted=frozenset({"authorization.analyze"}))
+    dispatcher, sink, producer = build_test_dispatcher(cards=[card], handlers={"rafael": handler})
+    envelope = _real_envelope()
+
+    result = await dispatcher.delegate(envelope)
+
+    assert result.success
+    assert result.output_ref == "process://AUTH-amh-GUIA-EDGE-1"
+    assert result.idempotent_replay is False
+
+    # Surface 1 (T-F): the dispatcher's OWN delegation audit — action/dedup_key exactly as the
+    # design specifies, fired on the dispatcher's audit fake.
+    assert len(sink.emitted) == 1
+    record, dedup_key = sink.emitted[0]
+    assert record.agent_id == "helena"
+    assert record.tenant_id == "amh"
+    assert record.action == "a2a.delegate:rafael"
+    assert record.decision == "ALLOW"
+    assert dedup_key == a2a_audit_dedup_key("amh", envelope.task_id)
+
+    # Surface 2 (T-C2): Rafael's OWN process-start audit fired on a DIFFERENT sink instance —
+    # never conflated with surface 1 above (design doc §9.3).
+    assert len(rafael_audit_sink.calls) == 1
+
+    assert producer.topics() == [TOPIC_REQUESTED, TOPIC_COMPLETED]
+
+
+async def test_dispatcher_redelivery_does_not_rerun_the_real_rafael_handler() -> None:
+    handler, rafael_audit_sink = _real_rafael_handler()
+    calls = 0
+    inner_handler = handler
+
+    async def counting_handler(envelope: DelegationEnvelope) -> Any:
+        nonlocal calls
+        calls += 1
+        return await inner_handler(envelope)
+
+    card = make_card("rafael", accepted=frozenset({"authorization.analyze"}))
+    dispatcher, sink, producer = build_test_dispatcher(cards=[card], handlers={"rafael": counting_handler})
+    envelope = _real_envelope(numero_guia_tiss="GUIA-EDGE-2")
+
+    first = await dispatcher.delegate(envelope)
+    second = await dispatcher.delegate(envelope)  # same task_id (deterministic auth_task_id)
+
+    assert first.idempotent_replay is False
+    assert second.idempotent_replay is True
+    assert second.output_ref == first.output_ref == "process://AUTH-amh-GUIA-EDGE-2"
+    assert calls == 1  # the real Rafael graph never re-ran on replay
+    assert len(sink.emitted) == 1  # audited exactly once
+    assert len(rafael_audit_sink.calls) == 1  # Rafael's own process-start fence, also once
+    assert producer.topics() == [TOPIC_REQUESTED, TOPIC_COMPLETED]
+
+
+async def test_dispatcher_auto_approve_route_through_the_real_rafael_handler() -> None:
+    """Structural counterpoint: the L2 auto-approve route also returns a process reference,
+    never a coverage decision (guardrail re-confirmed at the dispatcher level)."""
+    handler, _ = _real_rafael_handler(recomendacao="AUTO_APROVAR")
+    card = make_card("rafael", accepted=frozenset({"authorization.analyze"}))
+    dispatcher, sink, _ = build_test_dispatcher(cards=[card], handlers={"rafael": handler})
+    envelope = _real_envelope(numero_guia_tiss="GUIA-EDGE-AUTO")
+
+    result = await dispatcher.delegate(envelope)
+
+    assert result.success
+    assert result.output_ref == "process://AUTH-amh-GUIA-EDGE-AUTO"
+    assert sink.emitted[0][0].decision == "ALLOW"
