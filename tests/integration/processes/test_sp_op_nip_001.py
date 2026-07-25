@@ -314,7 +314,19 @@ _NOTIFY_DEADLINE_RISK_UNREGISTERED_REASON = (
     "finding 3, STILL open); (2) untested FEEL/engine wiring specifics (candidateGroups, timer "
     "boundary semantics) that only a live CIB Seven run can confirm. FLIP CANDIDATE: re-run this "
     "suite against a live engine; if green, remove this xfail from the affected test (and, "
-    "separately, close finding 3 if has_event(_NIP_DEADLINE_RISK) is still required to pass)."
+    "separately, close finding 3 if has_event(_NIP_DEADLINE_RISK) is still required to pass). "
+    "LIVE-ADJUDICATED (wave2b2 R1 live-validation, cibseven 2.1.0): test_solicitar_info_aguarda_"
+    "e_retoma XPASSed strict on a real engine (the ST_SolicitarInfoNip main-token deadlock is "
+    "GONE: SOLICITAR_INFO -> drain -> GW_AguardarInfo wait -> msg.nip.info_recebida correlation "
+    "-> resume, all live) and its xfail was removed in-step. The other two tests were RETAGGED to "
+    "_NIP_WORKER_KAFKA_GAP_REASON: --runxfail runs proved the worker executes and completes live "
+    "on all three BPMN sites (engine logs worker_executing -> worker_completed -> "
+    "audit_emit_once_persisted for operadora.nip.notify_deadline_risk) and the ONLY failing "
+    "asserts are the dead kafka-channel observations (notifications_of_type / has_event(_NIP_"
+    "DEADLINE_RISK) — agents.events.nip.deadline_risk exists in the BPMN only as a DANGLING "
+    "event_topic_deadline_risk inputParameter on the worker tasks, never as a generic "
+    "ST_Publish*/event_topic, so no publisher exists on any path). Constant retained for the "
+    "docstring prose above; no test references it anymore."
 )
 
 _ANCHOR_FAILSAFE_MISSING_REASON = (
@@ -1240,7 +1252,7 @@ async def test_a2a_start_via_nip_instruct(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_NOTIFY_DEADLINE_RISK_UNREGISTERED_REASON, strict=True)
+@pytest.mark.xfail(reason=_NIP_WORKER_KAFKA_GAP_REASON, strict=True)
 async def test_prazo_nip_dispara_alerta_nao_interruptivo(
     engine: EngineRest,
     nip_probe: NipEngineProbe,
@@ -1379,7 +1391,7 @@ async def test_dmn_nip_sla_assistencial_prazo_mais_curto(
     assert job_prazo.activity_id == "BT_PrazoRevisaoEstourado"
 
 
-@pytest.mark.xfail(reason=_NOTIFY_DEADLINE_RISK_UNREGISTERED_REASON, strict=True)
+@pytest.mark.xfail(reason=_NIP_WORKER_KAFKA_GAP_REASON, strict=True)
 async def test_prazo_ancora_em_data_recebimento_nip_nao_em_attach_da_ut(
     engine: EngineRest,
     nip_probe: NipEngineProbe,
@@ -1544,7 +1556,6 @@ async def test_anchor_failsafe_ancora_ausente_ou_lixo_nao_derruba_o_processo(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_NOTIFY_DEADLINE_RISK_UNREGISTERED_REASON, strict=True)
 async def test_solicitar_info_aguarda_e_retoma(
     engine: EngineRest,
     nip_probe: NipEngineProbe,
