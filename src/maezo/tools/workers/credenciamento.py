@@ -27,6 +27,7 @@ logger = structlog.get_logger(__name__)
 ERR_DECRED_NOT_HUMAN = "ERR_DECRED_NOT_HUMAN"
 ERR_CRED_DENIAL_NOT_HUMAN = "ERR_CRED_DENIAL_NOT_HUMAN"
 ERR_CRED_INVALID_PRESTADOR = "ERR_CRED_INVALID_PRESTADOR"
+ERR_CRED_REGISTER_INVALID = "ERR_CRED_REGISTER_INVALID"
 
 # Decision values
 DECISAO_DESCREDENCIAR = "DESCREDENCIAR"
@@ -159,6 +160,81 @@ def notify_prestador(variables: dict[str, Any]) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------
+# notify_doc_pendente — neutral notification (documentacao pendente)
+# ---------------------------------------------------------------
+
+
+def notify_doc_pendente(variables: dict[str, Any]) -> dict[str, Any]:
+    """Request missing documentation from the provider (NEUTRAL — never a denial).
+
+    Reached ONLY when `cred_admissibility` routes `PENDENTE_DOCUMENTACAO`
+    (`documentacao_completa=false` — BPMN `ST_NotifyDocPendente`, upstream of
+    `ICE_AguardarInfoDoc`, which waits for `msg.cred.info_received` to re-trigger
+    `ST_VerifyCredentials`). Incomplete documentation NEVER produces an automatic denial — only
+    the human User Tasks (`UT_AnaliseCredenciamento`/`UT_AnaliseDescredenciamento`) can ever
+    deny/de-credential (ADR-0018); this worker only observes/logs the pendency and asks for the
+    missing documents. Mirrors this module's own `notify_prestador` (`check_prior_notice`) idiom —
+    same shape, same BPMN `event_topic_pended` extensionElement.
+
+    A genuine `kafka.publish` of `agents.events.cred.pended` (the BPMN's own
+    `event_topic_pended` extensionElement) is NOT fabricated here — same documented gap as this
+    module's sibling `notify_prestador` (which carries the identical extensionElement and does
+    not publish either) and the cross-family "not fabricated here" convention documented in
+    `ans_submit.register_ans_submit_workers`'s docstring (mirrored by `cancel.py`/`contas.py`/
+    `reembolso.py`/`nip.py`/`recurso.py`/`inadimplencia.py` for their own entry functions).
+    """
+    prestador_id = variables.get("prestador_id", "")
+    tenant_id = variables.get("tenant_id", "")
+    direcao = variables.get("direcao", "")
+
+    logger.info(
+        "cred_notify_doc_pendente",
+        prestador_id=prestador_id,
+        tenant_id=tenant_id,
+        direcao=direcao,
+    )
+
+    return {
+        "documentacao_pendente_notificada": True,
+        "prestador_id": prestador_id,
+    }
+
+
+# ---------------------------------------------------------------
+# notify_sla_risk — neutral notification (alerta de risco de SLA)
+# ---------------------------------------------------------------
+
+
+def notify_sla_risk(variables: dict[str, Any]) -> dict[str, Any]:
+    """Alert coordenacao-rede of SLA risk (non-interruptive timer, both directions).
+
+    Mirrors the proven `cancel.notify_sla_risk` / `inadimplencia.notify_sla_risk` /
+    `auth.NotifySlaRiskWorker` idiom: informational only — the User Task
+    (`UT_AnaliseDescredenciamento`/`UT_AnaliseCredenciamento`) stays open, no decision is made or
+    altered, no adverse outcome is produced by the alert. Fires at `sla.sla_alerta` (~50-70% of
+    `sla.sla_analise` — DMN `cred_sla`); shared by BOTH `BT_AlertaSlaDescred` and
+    `BT_AlertaSlaCred` (BPMN `ST_NotifySlaRisk`, fed by both non-interruptive boundary timers).
+    """
+    prestador_id = variables.get("prestador_id", "")
+    tenant_id = variables.get("tenant_id", "")
+    direcao = variables.get("direcao", "")
+
+    logger.warning(
+        "cred_notify_sla_risk",
+        prestador_id=prestador_id,
+        tenant_id=tenant_id,
+        direcao=direcao,
+        grupo_alertado="coordenacao-rede",
+    )
+
+    return {
+        "sla_risk_notified": True,
+        "grupo_alertado": "coordenacao-rede",
+        "prestador_id": prestador_id,
+    }
+
+
+# ---------------------------------------------------------------
 # register_decred — GATED adverse effect A (descredenciamento)
 # ---------------------------------------------------------------
 
@@ -267,6 +343,65 @@ def register_cred_denial(variables: dict[str, Any]) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------
+# register_credenciamento — NEUTRAL clerical registration (favorable direction)
+# ---------------------------------------------------------------
+
+
+def register_credenciamento(variables: dict[str, Any]) -> dict[str, Any]:
+    """Register APPROVED credentialing (NEUTRAL — favorable direction, NEVER adverse).
+
+    EXCECAO CLERICAL (BPMN process documentation lines 54-59; contract SS Terminais
+    humano-gated, `End_PrestadorCredenciado` row): crediting a NEW provider is NOT an adverse
+    effect against anyone. Unlike `register_descredenciamento`/`register_cred_denial` (this
+    module's two L1 `ERR_*_NOT_HUMAN`-guarded adverse workers), this worker carries NO
+    human-decision requirement — the BPMN reaches it via EITHER of two inbound edges, both
+    already gated by the engine itself before this task ever executes:
+      - `Flow_GW_ClericalCredenciar`: `cred_admissibility` DMN routed `CLERICAL_CREDENCIAR`
+        (documentacao completa + licenca valida + dentro de criterios de rede) — no
+        `decisao_cred` variable is even set on this path;
+      - `Flow_GWCred_Aprovar`: sequenceFlow `conditionExpression`
+        `${decisao_cred == 'APROVAR_CREDENCIAMENTO'}` — an explicit equality gate, NOT a
+        default/catch-all edge (contrast `cancel.py`'s `GW_Manter`, whose default edge fires for
+        ANY unrecognized value and therefore genuinely needs `confirm_maintained_decision`-style
+        defense-in-depth; `GW_DecisaoCred` has no such default routed here — its default targets
+        `ST_PublishVinculoMantidoCred` instead).
+    Fail-closed ONLY on the identity fields required to safely record the registration and the
+    downstream `network_changed` fact (`tenant_id`/`prestador_id`) — never on
+    `decisao_cred`/`responsavel_id` (both correctly absent on the clerical path; `responsavel_id`
+    is contractually scoped to "os workers adversos" only — SS Variaveis de saida). This worker
+    has no adverse branch to guard against and therefore raises no `*_NOT_HUMAN` error.
+    """
+    tenant_id = variables.get("tenant_id", "")
+    prestador_id = variables.get("prestador_id", "")
+
+    errors: list[str] = []
+    if not tenant_id:
+        errors.append("tenant_id ausente")
+    if not prestador_id:
+        errors.append("prestador_id ausente")
+
+    if errors:
+        logger.error(
+            "cred_register_credenciamento_rejected",
+            errors=errors,
+        )
+        raise CredError(ERR_CRED_REGISTER_INVALID, "; ".join(errors))
+
+    logger.info(
+        "cred_prestador_credenciado",
+        tenant_id=tenant_id,
+        prestador_id=prestador_id,
+        decisao_cred=variables.get("decisao_cred", ""),
+    )
+
+    return {
+        "credenciamento_registrado": True,
+        "network_changed": True,
+        "data_efeito_iso": variables.get("data_efeito_iso", ""),
+    }
+
+
+# ---------------------------------------------------------------
 # Custom error
 # ---------------------------------------------------------------
 
@@ -285,16 +420,22 @@ class CredError(Exception):
 #
 # Topic mapping vs spec/processes/bpmn/SP-OP-CRED-001_Descredenciamento.bpmn
 # (excl. shared/out-of-scope `operadora.events.publish`):
-#   validate_cred        -> operadora.cred.verify_credentials     (exact spec match)
-#   assess_admissibility -> operadora.cred.check_network_criteria (spec match: RN 566 criteria
-#                           classification)
-#   notify_prestador     -> operadora.cred.check_prior_notice     (spec match: RN 567 prior-notice
-#                           dispatch)
+#   validate_cred          -> operadora.cred.verify_credentials     (exact spec match)
+#   assess_admissibility   -> operadora.cred.check_network_criteria (spec match: RN 566 criteria
+#                             classification)
+#   notify_prestador       -> operadora.cred.check_prior_notice     (spec match: RN 567 prior-notice
+#                             dispatch)
+#   notify_doc_pendente    -> operadora.cred.notify_doc_pendente    (exact spec match, T2.5-p2b;
+#                             NEUTRAL — PENDENTE_DOCUMENTACAO never denies)
 #   register_decred (alias register_descredenciamento)
 #     -> operadora.cred.register_descredenciamento (exact spec match, GUARDED)
-#   register_cred_denial -> operadora.cred.register_cred_denial     (exact spec match, GUARDED)
-# Spec topics with NO implementing function today (gap, not fabricated here):
-# register_credenciamento, notify_doc_pendente, prepare_dossier, notify_sla_risk.
+#   register_cred_denial   -> operadora.cred.register_cred_denial   (exact spec match, GUARDED)
+#   register_credenciamento -> operadora.cred.register_credenciamento (exact spec match, T2.5-p2b;
+#                             NEUTRAL — EXCECAO CLERICAL, no human-gate guard by design)
+#   notify_sla_risk        -> operadora.cred.notify_sla_risk        (exact spec match, T2.5-p2b;
+#                             informational, shared by both directions' boundary timers)
+# Spec topic with NO implementing function today (gap, NOT fabricated here — Carolina A2A
+# integration, separately gated, out of scope for T2.5-p2b): operadora.cred.prepare_dossier.
 # ---------------------------------------------------------------
 
 
@@ -318,7 +459,10 @@ def register_credenciamento_workers(
         )
     )
     harness.register_worker(FunctionWorker("operadora.cred.check_prior_notice", notify_prestador))
+    harness.register_worker(FunctionWorker("operadora.cred.notify_doc_pendente", notify_doc_pendente))
     harness.register_worker(
         FunctionWorker("operadora.cred.register_descredenciamento", register_descredenciamento)
     )
     harness.register_worker(FunctionWorker("operadora.cred.register_cred_denial", register_cred_denial))
+    harness.register_worker(FunctionWorker("operadora.cred.register_credenciamento", register_credenciamento))
+    harness.register_worker(FunctionWorker("operadora.cred.notify_sla_risk", notify_sla_risk))
