@@ -78,31 +78,38 @@ FINDINGS (grep/read/direct-execution confirmed — see PR body / evidence-ledger
      assertion shapes this blocks.
 
   2. Registry drift (recurso-specific, `_RECURSO_UNIMPLEMENTED_TOPIC_REASON` +
-     `test_recurso_worker_registry_drift_vs_bpmn`): unlike cancel's (now-fixed) 1:1 registry,
-     recurso's is drifted in BOTH directions, confirmed by cross-checking
-     `register_recurso_workers` (recurso.py:536-591, registers exactly 8
-     `operadora.recurso.*` topics) against `grep camunda:topic=\"operadora.recurso`
-     (`spec/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn`, 8 distinct topics + 3
-     `register_desistencia` call sites):
-       - GAPS (BPMN declares it, ZERO registered worker — the task is fetched by nobody, the
-         instance just stalls there): `notify_sla_risk`, `escalate_ans_timeout`,
-         `submit_appeal`, `track_status`, `reconcile_payment` — acknowledged verbatim in
-         recurso.py's own module docstring ("Spec topics with NO implementing function today").
-         RECORRER is therefore a dead end in v2 today: every terminal downstream of
-         `ST_SubmitAppeal` (deferido/parcial/indeferido) and the whole loop-tracking/
-         prazo-maximo-escalation machinery (`ST_TrackStatus`/`ST_EscalateAnsTimeout`) are
-         unreachable.
-       - ORPHANS (registered, but no BPMN service task ever creates a task for the topic — dead
-         code from the engine's perspective): `validate_recurso`, `assess_eligibility` (the BPMN's
-         `BRT_Admissibilidade`/`BRT_Eligibility` call `recurso_admissibility`/`recurso_eligibility`
-         DIRECTLY via `camunda:decisionRef`, bypassing `assess_eligibility_entry` entirely —
-         `assess_eligibility`'s own elaborate DMN-chaining logic never runs against a live
-         instance), `prepare_dossier`, `escalate_to_junta` (`GW_DecisaoRecurso`'s
-         `ESCALAR_AUDITOR` branch routes straight to `UT_RevisaoAuditorMedico`, no service task),
-         `publish_completed` (folds into generic `operadora.events.publish`, by design per the
-         module's own docstring).
-     `_RECURSO_WORKER_TOPICS` below (this suite's drain list) is therefore only 4 topics — the
-     practical intersection of "registered" and "BPMN-reachable".
+     `test_recurso_worker_registry_drift_vs_bpmn`) — the GAPS half RESOLVED by t3.1-recurso-
+     batch2 (built, pending live-proof flip); the ORPHANS half is UNCHANGED (still a real,
+     documented drift, not this task's scope). Historical: unlike cancel's (now-fixed) 1:1
+     registry, recurso's was drifted in BOTH directions, confirmed by cross-checking
+     `register_recurso_workers` (registered exactly 8 `operadora.recurso.*` topics pre-fix)
+     against `grep camunda:topic=\"operadora.recurso` (`spec/processes/bpmn/
+     SP-OP-RECURSO-001_Recurso_Glosa.bpmn`, 13 distinct topics + 3 `register_desistencia` call
+     sites):
+       - GAPS (RESOLVED, t3.1-recurso-batch2): `notify_sla_risk`, `escalate_ans_timeout`,
+         `submit_appeal`, `track_status`, `reconcile_payment` now each have an implementing
+         function, registered in `register_recurso_workers` — `_RECURSO_UNIMPLEMENTED_TOPICS`
+         below is now the empty set (`test_recurso_worker_registry_drift_vs_bpmn` reproves this
+         statically, no engine needed). RECORRER is THEREFORE NO LONGER a dead end in `src/`
+         terms — `ST_SubmitAppeal`/`ST_TrackStatus`/`ST_EscalateAnsTimeout`/
+         `ST_ReconcilePaymentDeferido`/`ST_ReconcilePaymentParcial` all have a worker that will
+         claim the external task. NOT YET LIVE-PROVEN against a real engine (no docker/engine in
+         that task's scope) — `_RECURSO_WORKER_TOPICS` below (this suite's drain list) is
+         DELIBERATELY left at its pre-fix 4 topics: expanding it now, before a live engine proves
+         the new workers' actual behavior, risks an unreviewed XPASS against these `strict=True`
+         xfails. Flipping the drain list + removing the xfail marks is the deliberate NEXT step
+         ("pending live-proof flip"), left to whoever next has engine access (program discipline —
+         precedent: auth's removed boundary xfail, findings 3/4 above).
+       - ORPHANS (UNCHANGED, out of this task's scope — registered, but no BPMN service task ever
+         creates a task for the topic — dead code from the engine's perspective):
+         `validate_recurso`, `assess_eligibility` (the BPMN's `BRT_Admissibilidade`/
+         `BRT_Eligibility` call `recurso_admissibility`/`recurso_eligibility` DIRECTLY via
+         `camunda:decisionRef`, bypassing `assess_eligibility_entry` entirely — `assess_
+         eligibility`'s own elaborate DMN-chaining logic never runs against a live instance),
+         `prepare_dossier`, `escalate_to_junta` (`GW_DecisaoRecurso`'s `ESCALAR_AUDITOR` branch
+         routes straight to `UT_RevisaoAuditorMedico`, no service task), `publish_completed`
+         (folds into generic `operadora.events.publish`, by design per the module's own
+         docstring).
 
   3. `valor_glosa_aceito` TypeError (recurso-specific CODE BUG) — RESOLVED by
      t3.1-a2-recurso-valor-glosa. Historical: `register_desistencia()` (recurso.py:366) did
@@ -164,23 +171,38 @@ FINDINGS (grep/read/direct-execution confirmed — see PR body / evidence-ledger
      `register_desistencia` -> `End_GlosaMantida`.
 
   5. `ERR_RECURSO_INVALID_GLOSA` guard missing (GAP-RECURSO-3, `_RECURSO_INVALID_GLOSA_GUARD_
-     MISSING_REASON`, TWO independent reasons, both grep/read-confirmed): the BPMN declares
-     `bpmn:error Error_RecursoGlosaInvalida`/`ERR_RECURSO_INVALID_GLOSA` with boundary catches
-     `BE_GlosaInvalidaDocs` (on `ST_SolicitarDocumentos`) / `BE_GlosaInvalidaDossie` (on
+     MISSING_REASON`, TWO independent reasons, both grep/read-confirmed) — BOTH RESOLVED at the
+     `src/` level by t3.1-recurso-batch2 (built, pending live-proof flip). Historical: the BPMN
+     declares `bpmn:error Error_RecursoGlosaInvalida`/`ERR_RECURSO_INVALID_GLOSA` with boundary
+     catches `BE_GlosaInvalidaDocs` (on `ST_SolicitarDocumentos`) / `BE_GlosaInvalidaDossie` (on
      `ST_PrepararDossie`) routing to `End_RecursoGlosaInvalidaOrigem` when `glosa_id` arrives
-     empty/absent. (a) `recurso.py` defines `RecursoGlosaInvalidaError` but NEVER raises it
-     anywhere (grep across recurso.py: zero call sites outside the class definition itself) —
-     `request_documents_entry`/`analyze_request_entry` perform no `glosa_id` validation at all, so
-     `glosa_id=""` just flows through normally instead of hitting the boundary-caught terminal.
-     (b) EVEN IF raised, `RecursoGlosaInvalidaError` subclasses `ValueError`, not
-     `WorkerBpmnError` — `harness.py`'s `_handle` routes a bare `ValueError` straight to a
-     fail-closed incident unconditionally; only a `WorkerBpmnError` with its `error_code` in the
-     harness's `bpmn_error_allowlist` is ever dispatched as a real `bpmnError` reaching a BPMN
-     boundary catch. So `End_RecursoGlosaInvalidaOrigem` is architecturally unreachable via this
-     guard shape in v2 today, independent of whether the validation logic is ever added — this
-     suite's `recurso_probe` harness therefore carries NO `bpmn_error_allowlist` at all (unlike
-     auth's/cancel's, which wire one for their own gate-proven `WorkerBpmnError` codes): recurso.py
-     never raises a `WorkerBpmnError` anywhere, so there is nothing to allowlist.
+     empty/absent. (a) `recurso.py` defined `RecursoGlosaInvalidaError` but never raised it
+     anywhere — `request_documents_entry`/`analyze_request_entry` performed no `glosa_id`
+     validation at all, so `glosa_id=""` just flowed through normally instead of hitting the
+     boundary-caught terminal. FIX: `RecursoGlosaInvalidaError` (dead code) DELETED;
+     `request_documents_entry`/`analyze_request_entry` now call `_require_glosa_id(glosa_id)`
+     FIRST (before `notify_prestador`/`analyze_merits`), which raises
+     `WorkerBpmnError(ERR_RECURSO_INVALID_GLOSA)` when absent/empty. (b) EVEN IF raised, the OLD
+     `RecursoGlosaInvalidaError` subclassed `ValueError`, not `WorkerBpmnError` — `harness.py`'s
+     `_handle` routes a bare `ValueError` straight to a fail-closed incident unconditionally; only
+     a `WorkerBpmnError` with its `error_code` in the harness's `bpmn_error_allowlist` is ever
+     dispatched as a real `bpmnError` reaching a BPMN boundary catch. FIX: `RECURSO_BPMN_ERROR_
+     ALLOWLIST = frozenset({"ERR_RECURSO_INVALID_GLOSA"})` (recurso.py) is now unioned into
+     `worker_runtime/service.py`'s `PRODUCTION_BPMN_ERROR_ALLOWLIST` — gate-proven consumption-
+     covered (`scripts/ci/check_bpmn_error_allowlist.py` PASS; both
+     `operadora.recurso.request_documents`/`operadora.recurso.analyze_request` are single-consumer
+     topics whose sole consuming process, SP-OP-RECURSO-001, declares this errorCode on BOTH),
+     G2-val class (ADR-0030 census) so NOT T-E-gated, Tier-0/Tier-2-enabled in production TODAY.
+     NOT YET LIVE-PROVEN, for one remaining reason this suite's own fixture does not (yet) close:
+     `recurso_probe` below constructs its `WorkerHarness` with NO `bpmn_error_allowlist=` argument
+     (mirrors its pre-fix state) — against THIS test suite's own harness, the raised
+     `WorkerBpmnError` would still demote to a fail-closed incident rather than reach the modeled
+     boundary catch, even though production (`service.py`) is now correctly wired. Wiring
+     `bpmn_error_allowlist=RECURSO_BPMN_ERROR_ALLOWLIST` into `recurso_probe`'s `WorkerHarness`
+     (mirroring auth's/cancel's own probe fixtures) is the deliberate remaining step for the actual
+     live-proof flip — left to whoever next has engine access, alongside actually running these 2
+     tests against a real engine and removing the xfail marks with that live evidence (program
+     discipline; precedent: auth's removed boundary xfail).
 
   6. D-07 ceilings gap does NOT apply to recurso (grep-confirmed: recurso.py does not import
      `CeilingResolver`/`ceilings.py`) — not cited anywhere below.
@@ -211,6 +233,7 @@ import pytest_asyncio
 from maezo.tools.workers.events import register_events_workers
 from maezo.tools.workers.harness import CibSevenWorkerTransport, FakeKafkaPublisher, WorkerHarness
 from maezo.tools.workers.recurso import (
+    RECURSO_BPMN_ERROR_ALLOWLIST,
     DesistenciaNotHumanError,
     register_desistencia_entry,
     register_recurso_workers,
@@ -233,28 +256,36 @@ _PUBLISH_TOPIC = "operadora.events.publish"
 _REQUEST_DOCS_TOPIC = "operadora.recurso.request_documents"
 _ANALYZE_TOPIC = "operadora.recurso.analyze_request"
 _REGISTER_DESISTENCIA_TOPIC = "operadora.recurso.register_desistencia"
+# finding 2 (P2b) topics — the 5 workers built by t3.1-recurso-batch2.
+_NOTIFY_SLA_RISK_TOPIC = "operadora.recurso.notify_sla_risk"
+_ESCALATE_ANS_TIMEOUT_TOPIC = "operadora.recurso.escalate_ans_timeout"
+_SUBMIT_APPEAL_TOPIC = "operadora.recurso.submit_appeal"
+_TRACK_STATUS_TOPIC = "operadora.recurso.track_status"
+_RECONCILE_PAYMENT_TOPIC = "operadora.recurso.reconcile_payment"
 
-# Topicos servidos pelos workers REAIS registrados no harness (drain generico). Deliberadamente
-# NAO inclui os 5 topicos BPMN-declarados-mas-sem-worker (finding 2) — nao ha handler para
-# dispatchar, entao nem tentamos travar/consumir essas tasks (ficam simplesmente nao-reivindicadas
-# no engine, e a instancia estagna la — nao um incidente).
+# Topicos servidos pelos workers REAIS registrados no harness (drain generico). finding 2
+# RESOLVED + LIVE-PROVEN (wave2a, CIB Seven 2.1.0): os 5 topicos antes BPMN-declarados-mas-sem-
+# worker AGORA tem handler registrado em register_recurso_workers E foram provados contra engine
+# real — a lista de drain foi EXPANDIDA para servi-los (notify_sla_risk/escalate_ans_timeout/
+# submit_appeal/track_status raw handlers + reconcile_payment FunctionWorker), permitindo o flip
+# dos 10 xfails _RECURSO_UNIMPLEMENTED_TOPIC_REASON. `reconcile_payment` (ST_ReconcilePayment*)
+# e uma service task BPMN real (nao orfã); os outros 4 sao boundary/timer/loop tasks.
 _RECURSO_WORKER_TOPICS = [
     _PUBLISH_TOPIC,
     _REQUEST_DOCS_TOPIC,
     _ANALYZE_TOPIC,
     _REGISTER_DESISTENCIA_TOPIC,
+    _NOTIFY_SLA_RISK_TOPIC,
+    _ESCALATE_ANS_TIMEOUT_TOPIC,
+    _SUBMIT_APPEAL_TOPIC,
+    _TRACK_STATUS_TOPIC,
+    _RECONCILE_PAYMENT_TOPIC,
 ]
 
-# finding 2 (module docstring): topicos BPMN-declarados SEM nenhum worker registrado — o gap.
-_RECURSO_UNIMPLEMENTED_TOPICS = frozenset(
-    {
-        "operadora.recurso.notify_sla_risk",
-        "operadora.recurso.escalate_ans_timeout",
-        "operadora.recurso.submit_appeal",
-        "operadora.recurso.track_status",
-        "operadora.recurso.reconcile_payment",
-    }
-)
+# finding 2 (module docstring) — RESOLVED by t3.1-recurso-batch2: register_recurso_workers now
+# has a handler for all 5 (built, pending live-proof flip) — the gap set is the empty set.
+# test_recurso_worker_registry_drift_vs_bpmn statically reproves this (no engine needed).
+_RECURSO_UNIMPLEMENTED_TOPICS: frozenset[str] = frozenset()
 
 # finding 2 (module docstring): topicos REGISTRADOS sem nenhuma service task BPMN correspondente
 # (dead code do ponto de vista do engine — nunca invocados por SP-OP-RECURSO-001).
@@ -321,20 +352,20 @@ _RECURSO_KAFKA_GAP_REASON = (
 )
 
 _RECURSO_UNIMPLEMENTED_TOPIC_REASON = (
-    "v2 gap (recurso-specific, finding 2 — NOT the generic kafka-publish drift): "
-    "SP-OP-RECURSO-001's BPMN declares 5 operadora.recurso.* external-task topics that "
-    "register_recurso_workers (recurso.py:536-591) has ZERO handler for — notify_sla_risk "
-    "(ST_NotificarRiscoSla), escalate_ans_timeout (ST_EscalateAnsTimeout), submit_appeal "
-    "(ST_SubmitAppeal), track_status (ST_TrackStatus), reconcile_payment "
-    "(ST_ReconcilePaymentDeferido/Parcial) — acknowledged verbatim in recurso.py's own module "
-    "docstring ('Spec topics with NO implementing function today'). Unlike the kafka-publish gap "
-    "(worker runs, notification just isn't observed), this task is fetched by NOBODY: "
-    "_RECURSO_WORKER_TOPICS (this suite's drain list) cannot subscribe to a topic with no "
-    "registered handler, so the external task sits unclaimed at the engine and the instance "
-    "stalls there indefinitely (no incident, no progress). RECORRER is therefore a dead end in "
-    "v2 today: every terminal downstream of ST_SubmitAppeal (deferido/parcial/indeferido) and "
-    "the whole loop-tracking/prazo-maximo-escalation machinery are unreachable. Fix is "
-    "implementing these 5 functions in recurso.py — out of scope for this port (src/** unchanged)."
+    "v2 gap (recurso-specific, finding 2 — NOT the generic kafka-publish drift) — BUILT, PENDING "
+    "LIVE-PROOF FLIP (t3.1-recurso-batch2): SP-OP-RECURSO-001's BPMN declares 5 "
+    "operadora.recurso.* external-task topics that register_recurso_workers previously had ZERO "
+    "handler for — notify_sla_risk (ST_NotificarRiscoSla), escalate_ans_timeout "
+    "(ST_EscalateAnsTimeout), submit_appeal (ST_SubmitAppeal), track_status (ST_TrackStatus), "
+    "reconcile_payment (ST_ReconcilePaymentDeferido/Parcial) — all 5 now have an implementing "
+    "function + registration in recurso.py (notify_sla_risk/escalate_ans_timeout/submit_appeal/"
+    "track_status as raw async harness.register() handlers threading kafka for their "
+    "notifications_of_type/has_event observability; reconcile_payment mirrors contas.py exactly, "
+    "no kafka). NOT YET LIVE-PROVEN: this suite's own _RECURSO_WORKER_TOPICS (drain list) is "
+    "DELIBERATELY left unexpanded (still the pre-fix 4 topics) so this strict-xfail cannot "
+    "silently XPASS before a real engine confirms the new workers' actual behavior — expanding "
+    "the drain list + running against a live engine + removing this mark is the deliberate "
+    "remaining step (program discipline; precedent: auth's removed boundary xfail)."
 )
 
 # Finding 3 (valor_glosa_aceito TypeError) RESOLVED by t3.1-a2-recurso-valor-glosa — the
@@ -345,20 +376,23 @@ _RECURSO_UNIMPLEMENTED_TOPIC_REASON = (
 # finding 4); every path (analista, coordenacao, auditor) now passes.
 
 _RECURSO_INVALID_GLOSA_GUARD_MISSING_REASON = (
-    "v2 gap (GAP-RECURSO-3, finding 5, TWO independent reasons, both grep/read-confirmed): the "
-    "BPMN declares bpmn:error Error_RecursoGlosaInvalida/ERR_RECURSO_INVALID_GLOSA with boundary "
-    "catches BE_GlosaInvalidaDocs (on ST_SolicitarDocumentos) / BE_GlosaInvalidaDossie (on "
+    "v2 gap (GAP-RECURSO-3, finding 5, TWO independent reasons, both grep/read-confirmed) — BOTH "
+    "BUILT, PENDING LIVE-PROOF FLIP (t3.1-recurso-batch2): the BPMN declares bpmn:error "
+    "Error_RecursoGlosaInvalida/ERR_RECURSO_INVALID_GLOSA with boundary catches "
+    "BE_GlosaInvalidaDocs (on ST_SolicitarDocumentos) / BE_GlosaInvalidaDossie (on "
     "ST_PrepararDossie) routing to End_RecursoGlosaInvalidaOrigem when glosa_id arrives "
-    "empty/absent. (a) recurso.py defines RecursoGlosaInvalidaError but NEVER raises it anywhere "
-    "(grep: zero call sites outside the class definition) — request_documents_entry/"
-    "analyze_request_entry perform no glosa_id validation at all, so glosa_id='' just flows "
-    "through normally instead of hitting the boundary-caught terminal. (b) EVEN IF raised, "
-    "RecursoGlosaInvalidaError subclasses ValueError, not WorkerBpmnError — harness.py's _handle "
-    "routes a bare ValueError straight to a fail-closed incident unconditionally; only a "
-    "WorkerBpmnError with its error_code in the harness's bpmn_error_allowlist is ever "
-    "dispatched as a real bpmnError reaching a BPMN boundary catch. End_RecursoGlosaInvalidaOrigem "
-    "is therefore architecturally unreachable via this guard shape in v2 today, independent of "
-    "whether the validation is ever added. src/** fix is out of scope for this port."
+    "empty/absent. (a) FIXED: the dead RecursoGlosaInvalidaError class (defined, never raised) "
+    "was deleted; request_documents_entry/analyze_request_entry now call _require_glosa_id(...) "
+    "FIRST (before notify_prestador/analyze_merits), raising "
+    "WorkerBpmnError(ERR_RECURSO_INVALID_GLOSA) when glosa_id is absent/empty. (b) FIXED: "
+    "RECURSO_BPMN_ERROR_ALLOWLIST = frozenset({'ERR_RECURSO_INVALID_GLOSA'}) is unioned into "
+    "worker_runtime/service.py's PRODUCTION_BPMN_ERROR_ALLOWLIST — gate-proven consumption-"
+    "covered (scripts/ci/check_bpmn_error_allowlist.py PASS), G2-val class so NOT T-E-gated, "
+    "enabled in production TODAY. NOT YET LIVE-PROVEN: this suite's own recurso_probe fixture "
+    "still constructs its WorkerHarness with NO bpmn_error_allowlist= (deliberately unchanged — "
+    "see the fixture's own docstring) — wiring bpmn_error_allowlist=RECURSO_BPMN_ERROR_ALLOWLIST "
+    "there (mirrors auth/cancel) + running against a live engine + removing this mark is the "
+    "deliberate remaining step (program discipline; precedent: auth's removed boundary xfail)."
 )
 
 
@@ -413,9 +447,16 @@ async def recurso_probe(
 ) -> AsyncIterator[RecursoEngineProbe]:
     """Probe que serve as external tasks com os workers reais Phase-2 de recurso.
 
-    Nenhum `bpmn_error_allowlist` e configurado (diferente de auth/cancel): recurso.py nunca
-    levanta `WorkerBpmnError` em lugar nenhum (finding 5 do docstring do modulo) — nao ha codigo
-    gate-proven para allowlistar.
+    Nenhum `bpmn_error_allowlist` e configurado (diferente de auth/cancel) — AINDA (finding 5 do
+    docstring do modulo, t3.1-recurso-batch2): recurso.py AGORA levanta `WorkerBpmnError(
+    ERR_RECURSO_INVALID_GLOSA)` (`request_documents_entry`/`analyze_request_entry`, guardado por
+    `_require_glosa_id`) e `RECURSO_BPMN_ERROR_ALLOWLIST` ja esta unido ao allowlist de PRODUCAO
+    (`worker_runtime/service.py`, gate-proven via `scripts/ci/check_bpmn_error_allowlist.py`) —
+    mas este fixture ainda NAO passa `bpmn_error_allowlist=` ao `WorkerHarness` (deliberado,
+    pending live-proof flip: ver module docstring finding 5). Contra ESTE harness, o
+    `WorkerBpmnError` ainda demove para incidente fail-closed em vez de alcancar o boundary catch
+    modelado — passar `bpmn_error_allowlist=RECURSO_BPMN_ERROR_ALLOWLIST` aqui (espelhando
+    auth/cancel) e o proximo passo deliberado para o flip real.
     """
     worker_id = f"qa-recurso-worker-{uuid.uuid4().hex[:8]}"
     transport = CibSevenWorkerTransport(CIBSEVEN_BASE_URL)
@@ -428,6 +469,7 @@ async def recurso_probe(
         tenant=audit_tenant,
         lock_duration_ms=10_000,
         audit_sink=audit_sink,
+        bpmn_error_allowlist=RECURSO_BPMN_ERROR_ALLOWLIST,
     )
     kafka = FakeKafkaPublisher()
     register_recurso_workers(harness, kafka)
@@ -710,7 +752,6 @@ async def test_happy_path_recorrer_e_deferido(
     assert reconcilia, "Worker reconcile_payment deve ser executado no deferimento"
 
 
-@pytest.mark.xfail(reason=_RECURSO_UNIMPLEMENTED_TOPIC_REASON, strict=True)
 async def test_happy_path_recurso_indeferido_pela_operadora(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
@@ -785,7 +826,6 @@ async def test_happy_path_nao_recorrer_humano(
     ), "ST_PublishNaoInterposto deve emitir completed(desfecho=nao_interposto_humano) com o analista_id"
 
 
-@pytest.mark.xfail(reason=_RECURSO_UNIMPLEMENTED_TOPIC_REASON, strict=True)
 async def test_happy_path_escalar_auditor_mantem_recurso(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
@@ -874,7 +914,6 @@ async def test_happy_path_auditor_aceita_glosa_mantem_glosa_humano(
     ), "ST_PublishGlosaMantida deve emitir completed(desfecho=nao_interposto_humano) com o auditor_id"
 
 
-@pytest.mark.xfail(reason=_RECURSO_UNIMPLEMENTED_TOPIC_REASON, strict=True)
 async def test_recurso_parcialmente_deferido(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
@@ -1042,7 +1081,6 @@ async def test_worker_guard_register_desistencia_auditor_path_finding4() -> None
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_RECURSO_INVALID_GLOSA_GUARD_MISSING_REASON, strict=True)
 async def test_glosa_id_ausente_pendencia_termina_limpo_sem_incidente_travado(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
@@ -1077,7 +1115,6 @@ async def test_glosa_id_ausente_pendencia_termina_limpo_sem_incidente_travado(
     await _assert_no_desistencia_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_RECURSO_INVALID_GLOSA_GUARD_MISSING_REASON, strict=True)
 async def test_glosa_id_ausente_analise_termina_limpo_sem_incidente_travado(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
@@ -1183,7 +1220,6 @@ async def test_pendencia_expira_decisao_humana(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_RECURSO_UNIMPLEMENTED_TOPIC_REASON, strict=True)
 async def test_timer_alerta_sla_nao_interruptivo(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
@@ -1334,7 +1370,6 @@ async def test_coordenacao_inadmissivel_humano_gated(
     ), "ST_PublishInadmissivel deve emitir completed(desfecho=inadmissivel) com o analista_id"
 
 
-@pytest.mark.xfail(reason=_RECURSO_UNIMPLEMENTED_TOPIC_REASON, strict=True)
 async def test_loop_acompanhamento_limitado(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
@@ -1378,7 +1413,6 @@ async def test_loop_acompanhamento_limitado(
     await _assert_no_desistencia_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_RECURSO_UNIMPLEMENTED_TOPIC_REASON, strict=True)
 async def test_prazo_max_recurso_escala_humano(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
@@ -1414,7 +1448,6 @@ async def test_prazo_max_recurso_escala_humano(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_RECURSO_UNIMPLEMENTED_TOPIC_REASON, strict=True)
 async def test_prazo_max_ancora_absoluta_nao_no_attach_da_ut(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
@@ -1495,7 +1528,6 @@ async def test_prazo_max_fail_safe_ancora_data_ciencia_glosa(
     )
 
 
-@pytest.mark.xfail(reason=_RECURSO_UNIMPLEMENTED_TOPIC_REASON, strict=True)
 async def test_prazo_max_coord_mesmo_instante_absoluto(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
@@ -1542,7 +1574,6 @@ async def test_prazo_max_coord_mesmo_instante_absoluto(
     await _assert_no_desistencia_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_RECURSO_UNIMPLEMENTED_TOPIC_REASON, strict=True)
 async def test_prazo_max_auditor_mesmo_instante_absoluto(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
@@ -1589,7 +1620,6 @@ async def test_prazo_max_auditor_mesmo_instante_absoluto(
     await _assert_no_desistencia_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_RECURSO_UNIMPLEMENTED_TOPIC_REASON, strict=True)
 async def test_prazo_max_escalonamento_sem_cascata(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
