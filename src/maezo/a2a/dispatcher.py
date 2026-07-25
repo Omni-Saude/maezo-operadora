@@ -19,7 +19,11 @@ delegation passes through. In this order:
      delegation is an auditable external effect, audited BEFORE the effect.
   4. **Emit** the `requested` fact on Kafka before routing.
   5. **Route** to the target's handler (an injectable `agent_id -> handler` map). Success -> a
-     `completed` fact; the `task_id` is cached for idempotency.
+     `completed` fact; the `task_id` is cached for idempotency. A handler-internal `DelegationError`
+     (e.g. a cyclic sub-delegation) -> a `rejected` fact AND a TERMINAL-outcome audit row (T-F
+     follow-up, W4 — see `_audit_delegation_outcome`'s docstring): closes the gap where an ALLOWed
+     delegation that then failed inside the handler left no audit trace distinguishing it from one
+     still in flight.
 
 The runtime wires real handlers (agent graphs) in W3; here the handler is an injectable callable
 (`FakeAgentHandler` in tests). Handler and registry resolution are both injected.
@@ -68,11 +72,22 @@ def a2a_audit_dedup_key(tenant: str, task_id: str) -> str:
     ``f"{tenant}:a2a:delegate:{task_id}"`` — mirrors `tools.mcp_cibseven.transport.
     start_dedup_key`'s ``f"{tenant}:start:{process_key}:{business_key}"`` shape. Delegation is
     ALREADY `task_id`-idempotent (Guard 4), so keying the audit dedup the same way needs no extra
-    business identifier. Exactly one `_audit_delegation` call happens per `_execute` invocation
-    (the reject branch XOR the allow branch, never both), so a single fixed `"delegate"` kind
-    token is sufficient — there is no second, distinct audit-emit site per task_id today.
+    business identifier. Exactly one `_audit_delegation` (pre-exec ALLOW/DENY) call happens per
+    `_execute` invocation; the TERMINAL-outcome audit (`_audit_delegation_outcome`, W4) is a
+    DISTINCT, second call with its own key (`a2a_audit_outcome_dedup_key`) — never the same key,
+    so `emit_once` never collapses the two into one chain link.
     """
     return f"{tenant}:a2a:delegate:{task_id}"
+
+
+def a2a_audit_outcome_dedup_key(tenant: str, task_id: str) -> str:
+    """Exactly-once audit dedup key for the TERMINAL delegation-outcome audit (T-F follow-up, W4).
+
+    ``f"{tenant}:a2a:delegate:{task_id}:outcome"`` — the `:outcome` suffix is what distinguishes
+    this row from the pre-execution ALLOW row's key (`a2a_audit_dedup_key`), so the two audits
+    are independently deduplicated and never collide under `emit_once`.
+    """
+    return f"{tenant}:a2a:delegate:{task_id}:outcome"
 
 
 # v2 `AuditRecord.decision` follows the PEP ALLOW/DENY/REQUIRE_HUMAN convention (`gateway/
@@ -80,6 +95,12 @@ def a2a_audit_dedup_key(tenant: str, task_id: str) -> str:
 # REQUIRE_HUMAN path exists in the dispatcher).
 _DECISION_ALLOW = "ALLOW"
 _DECISION_DENY = "DENY"
+
+# Terminal-outcome decision (T-F follow-up, W4): distinct from the pre-exec ALLOW/DENY admission
+# vocabulary above, so a chain reader never mistakes this SECOND, terminal row for a second
+# admission decision — it records that an ALREADY-ALLOWED delegation's handler subsequently
+# failed (see `_audit_delegation_outcome`).
+_DECISION_FAILED = "FAILED"
 
 
 class FactProducer:
@@ -288,6 +309,15 @@ class DelegationDispatcher:
         except DelegationError as exc:
             # Structural failure raised by the handler (e.g. a cyclic sub-delegation): rejection.
             reason = RejectionReason.ANTI_LOOP
+            # TERMINAL-outcome audit (T-F follow-up, W4): the pre-exec ALLOW row above already
+            # fired — without this, an ALLOWed-then-internally-failed delegation would leave no
+            # audit trace distinguishing it from one still silently in flight (see
+            # `_audit_delegation_outcome`'s docstring).
+            await self._audit_delegation_outcome(
+                envelope,
+                basis=f"A2A:handler_error:{reason}",
+                detail=str(exc),
+            )
             await self._emit(envelope, DelegationFactKind.REJECTED, reason=str(exc))
             return DelegationResult.rejected(envelope.task_id, reason, detail=str(exc))
 
@@ -400,6 +430,59 @@ class DelegationDispatcher:
             details=details,
         )
         await self._audit.emit_once(record, dedup_key=a2a_audit_dedup_key(envelope.tenant, envelope.task_id))
+
+    async def _audit_delegation_outcome(
+        self, envelope: DelegationEnvelope, *, basis: str, detail: str
+    ) -> None:
+        """TERMINAL delegation-outcome audit (T-F follow-up, W4 — closes the W2 completeness gap).
+
+        Today, only the pre-execution ALLOW audit (`_audit_delegation`) fires before the handler
+        runs. If the handler then raises `DelegationError` (e.g. a cyclic sub-delegation attempted
+        internally), the dispatcher emitted a `rejected` Kafka FACT but no second AUDIT row — an
+        ALLOWed-then-internally-failed delegation left no durable trace distinguishing it from one
+        still silently in flight. This method emits that SECOND, TERMINAL row, called ONLY from
+        the handler-error branch of `_execute` (the pre-exec ALLOW row already IS the terminal row
+        for every other outcome: a validation rejection never reaches here, and a successful
+        handler already returns a synchronous `output_ref` to the caller plus a `completed` fact —
+        this closes specifically the one gap named "TERMINAL-REJECTION audit" in the charter).
+
+        Distinct from `_audit_delegation` in three ways, all deliberate:
+          - `action` gets a `:outcome` suffix (`f"a2a.delegate:{target}:outcome"`) so a chain
+            reader can tell the pre-exec admission row apart from the terminal-outcome row at a
+            glance, without inspecting `decision`.
+          - `decision=_DECISION_FAILED` — NOT `_DECISION_DENY` — so this is never mistaken for a
+            second ADMISSION decision (the delegation WAS allowed; it terminally failed after).
+          - `dedup_key` is `a2a_audit_outcome_dedup_key(tenant, task_id)` (the `:outcome`-suffixed
+            key), never the same key as the pre-exec row's `a2a_audit_dedup_key` — so `emit_once`
+            treats them as two independent, individually-deduplicated chain links, and a re-entry
+            of `_execute` for the same `task_id` (from a fresh process, mirroring the pre-exec
+            row's own re-entry-safety rationale) can never fork either one.
+
+        PHI safety: identical discipline to `_audit_delegation` — `details` excludes
+        `envelope.payload_meta` entirely; `detail` (the exception message) is itself PHI-free by
+        construction (`CyclicDelegationError`/`MaxHopsExceededError`/`BudgetExhaustedError` only
+        ever name agent_ids, chain tuples, and counts — never envelope payload data).
+        """
+        details: dict[str, Any] = {
+            "task_id": envelope.task_id,
+            "task_type": envelope.task_type,
+            "chain": list(envelope.delegation_chain),
+            "payload_ref": envelope.payload_ref,
+            "target": envelope.target,
+            "decision_basis": basis,
+            "detail": detail,
+        }
+        record = AuditRecord(
+            agent_id=envelope.origin,
+            tenant_id=envelope.tenant,
+            agent_version="a2a",
+            action=f"a2a.delegate:{envelope.target}:outcome",
+            decision=_DECISION_FAILED,
+            details=details,
+        )
+        await self._audit.emit_once(
+            record, dedup_key=a2a_audit_outcome_dedup_key(envelope.tenant, envelope.task_id)
+        )
 
     async def _emit(
         self,

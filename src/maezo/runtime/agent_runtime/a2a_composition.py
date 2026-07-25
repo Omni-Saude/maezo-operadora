@@ -22,6 +22,20 @@ No production Kafka producer exists anywhere in this platform yet (verified: no
 (`agents.events.delegation.*`) are an OBSERVABILITY surface, not the T-F audit — the audit proof
 rides the real `PostgresAuditSink` above, so a construction-time no-op `KafkaLike` stands in here,
 clearly labeled, until a live Kafka producer seam is wired platform-wide (design §9.2 / risk 6).
+
+**T-G signed-Card enforcement (T2.4 A2A W4 — `docs/design/A2A-dispatcher-card-signing.md` §10).**
+W3 left this composition wired with NO `verifier=`: Cards came back unsigned and the registry
+admitted them unconditionally. W4 flips this: `card_signing_key_from_env()` resolves the
+vault/KMS-injected signing key (env var `MAEZO_A2A_CARD_SIGNING_KEY`), `card_signer_from_key`
+builds a `CardSigner` from it, and the SAME signer instance both signs the Cards
+(`build_agent_cards(..., signer=signer)`) and gates the registry
+(`build_dispatcher(..., verifier=signer)`) — symmetric HMAC, one key does both jobs. The W1 dev
+fail-safe asymmetry is preserved exactly: key unset/empty -> `signer=None` -> unsigned Cards, no
+verifier, unchanged Phase-0 behavior (real key provisioning in vault/KMS remains an external/infra
+dependency, design doc §6.2); key present -> every Card is signed AND the registry fail-closes
+(`CardSignatureError`) on anything not validly signed under that exact key — an unsigned, tampered,
+or wrong-key Card never reaches `register()` successfully, so this function raises before a
+dispatcher object is ever returned (fail-closed: there is nothing to `.delegate()` against).
 """
 
 from __future__ import annotations
@@ -36,6 +50,7 @@ from maezo.a2a import (
     build_agent_cards,
     build_dispatcher,
 )
+from maezo.a2a.assembly import card_signer_from_key, card_signing_key_from_env
 from maezo.a2a.dispatcher import KafkaLike
 from maezo.agents.rafael.delegation import make_rafael_handler
 from maezo.runtime.inference import InferenceProvider
@@ -75,11 +90,12 @@ def build_auth_delegation_dispatcher(
     are unavailable — mirrors `rafael.graph.build(config)`'s own fail-closed contract, surfaced
     here BEFORE `make_rafael_handler` would otherwise raise the same thing less legibly.
 
-    **No `verifier` is wired here** (deliberately): T-G signed-Card enforcement — "flip the
-    composition to inject `verifier=card_signer_from_key(...)`" — is explicit W4 scope (design doc
-    §5/§9.3), not W3's. Cards come back unsigned (the existing W1 dev fail-safe default); the
-    registry admits them unconditionally, exactly like every other pre-W4 caller of
-    `build_dispatcher`.
+    **T-G signed-Card ENFORCEMENT (W4, module docstring):** resolves the Card-signing key from the
+    environment and, when present, signs every Card AND injects the same key as the registry's
+    `verifier` — an unsigned/tampered/wrong-key Card raises `CardSignatureError` out of
+    `build_dispatcher` (fail-closed: no dispatcher is returned, so nothing can `.delegate()`).
+    When the key is absent (no vault/KMS secret provisioned yet, design doc §6.2), Cards come back
+    unsigned and no verifier is wired — the unchanged W1/W3 dev fail-safe path.
     """
     tenant = settings.tenant_id
     tool_deps = _build_tool_deps(settings)
@@ -91,7 +107,12 @@ def build_auth_delegation_dispatcher(
             "without it — ADR-0007, T-C2)"
         )
 
-    cards = build_agent_cards(tenant, _EDGE_AGENT_IDS)
+    # T-G enforcement (W4): ONE signer resolved from the injected key both signs the Cards and
+    # verifies them at registration — absent key -> None -> unsigned Cards / no verifier (dev
+    # fail-safe, unchanged); present key -> every Card signed AND the registry fail-closes on
+    # anything not validly signed under this exact key (`build_dispatcher`'s `verifier=`).
+    signer = card_signer_from_key(card_signing_key_from_env())
+    cards = build_agent_cards(tenant, _EDGE_AGENT_IDS, signer=signer)
 
     handler: AgentHandler = make_rafael_handler(
         inference or InferenceProvider(),
@@ -116,6 +137,7 @@ def build_auth_delegation_dispatcher(
         tenant=tenant,
         agents=_EDGE_AGENT_IDS,
         durable_idempotency=idempotency is not None,
+        card_signing_enforced=signer is not None,
     )
     return build_dispatcher(
         tenant=tenant,
@@ -124,4 +146,5 @@ def build_auth_delegation_dispatcher(
         audit=audit,
         facts=facts,
         idempotency=idempotency,
+        verifier=signer,
     )

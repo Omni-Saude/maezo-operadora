@@ -20,6 +20,8 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import pytest
+
 from maezo.a2a import (
     TOPIC_COMPLETED,
     TOPIC_REJECTED,
@@ -28,11 +30,12 @@ from maezo.a2a import (
     DelegationEnvelope,
     RejectionReason,
 )
-from maezo.a2a.dispatcher import a2a_audit_dedup_key
+from maezo.a2a.dispatcher import a2a_audit_dedup_key, a2a_audit_outcome_dedup_key
 from maezo.agents.helena.delegation import build_auth_analysis_envelope
 from maezo.agents.rafael.delegation import make_rafael_handler
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
+from maezo.tools.workers.harness import FakeAuditSink
 from tests.support.audit_fakes import FakeStartAuditSink
 
 from .fakes import FakeAgentHandler, build_test_dispatcher, make_card
@@ -171,7 +174,10 @@ async def test_expired_envelope_rejected_before_routing() -> None:
 
 
 async def test_handler_subdelegation_loop_surfaces_as_rejection() -> None:
-    """If the handler attempts a cyclic sub-delegation, the dispatcher returns an anti-loop rejection."""
+    """If the handler attempts a cyclic sub-delegation, the dispatcher returns an anti-loop
+    rejection AND records a TERMINAL-outcome audit row (T-F follow-up, W4) — see
+    `test_handler_error_emits_terminal_outcome_audit_row` below for the full shape/PHI assertions;
+    this test keeps its original focus on the `DelegationResult`/fact behavior."""
     # rafael tries to sub-delegate back to helena (already in the chain) -> CyclicDelegationError.
     handler = FakeAgentHandler(subdelegate_to="helena")
     dispatcher, sink, producer = build_test_dispatcher(
@@ -181,12 +187,75 @@ async def test_handler_subdelegation_loop_surfaces_as_rejection() -> None:
     assert not result.success
     assert result.rejection_reason is RejectionReason.ANTI_LOOP
     assert TOPIC_REJECTED in producer.topics()
-    # The pre-execution "allow" audit already ran (the handler WAS allowed to run); the handler's
-    # own internal anti-loop failure is captured only in the rejected fact, not a 2nd audit call —
-    # ported faithfully from the donor's own control flow (dispatcher.py `_execute`'s except
-    # branch does not call `_audit_delegation` a second time).
-    assert len(sink.emitted) == 1
+    # The pre-execution "allow" audit already ran (the handler WAS allowed to run); W4 adds a
+    # SECOND, terminal-outcome row closing the gap where this branch used to leave no audit trace
+    # of the handler's own internal failure.
+    assert len(sink.emitted) == 2
     assert sink.emitted[0][0].decision == "ALLOW"
+    assert sink.emitted[1][0].decision == "FAILED"
+
+
+async def test_handler_error_emits_terminal_outcome_audit_row() -> None:
+    """T-F follow-up (W4): closes the completeness gap — an ALLOWed-then-internally-failed
+    delegation now produces BOTH the pre-exec ALLOW row and a distinct terminal-outcome row, with
+    its own dedup_key and PHI-safe details (payload_meta excluded, same discipline as the pre-exec
+    audit)."""
+    synthetic_cpf = "123.456.789-01"
+    handler = FakeAgentHandler(subdelegate_to="helena")
+    dispatcher, sink, _ = build_test_dispatcher(cards=[make_card("rafael")], handlers={"rafael": handler})
+    result = await dispatcher.delegate(_envelope(payload_meta={"cpf_beneficiario": synthetic_cpf}))
+    assert not result.success
+
+    assert len(sink.emitted) == 2
+    allow_record, allow_key = sink.emitted[0]
+    outcome_record, outcome_key = sink.emitted[1]
+
+    assert allow_record.decision == "ALLOW"
+    assert allow_key == a2a_audit_dedup_key("amh", "t1")
+
+    assert outcome_record.agent_id == "helena"
+    assert outcome_record.tenant_id == "amh"
+    assert outcome_record.action == "a2a.delegate:rafael:outcome"
+    assert outcome_record.decision == "FAILED"
+    assert outcome_key == a2a_audit_outcome_dedup_key("amh", "t1")
+    assert outcome_key != allow_key  # distinct dedup keys — never collapsed by emit_once
+
+    # PHI-safe: the synthetic CPF planted in payload_meta must never reach either row.
+    for record in (allow_record, outcome_record):
+        assert synthetic_cpf not in record.details.values()
+        assert "cpf_beneficiario" not in record.details
+        assert synthetic_cpf not in str(record.details)
+
+    assert outcome_record.details == {
+        "task_id": "t1",
+        "task_type": "authorization.analyze",
+        "chain": ["helena", "rafael"],
+        "payload_ref": "fhir://Patient/abc",
+        "target": "rafael",
+        "decision_basis": "A2A:handler_error:anti_loop",
+        "detail": outcome_record.details["detail"],  # exact exception message, asserted below
+    }
+    assert "helena" in outcome_record.details["detail"]  # structural, PHI-free exception message
+
+
+async def test_audit_sink_failure_propagates_and_handler_never_runs() -> None:
+    """FAIL-CLOSED proof (T-F daemon-readiness, W4): audit-before-effect means a durable sink that
+    cannot persist ALREADY prevents the handler from ever running — no code change was needed for
+    this, only a test proving the pre-existing ordering. `FakeAuditSink.always_fail` simulates an
+    audit sink that is not ready (e.g. `audit_chain` unreachable)."""
+    from maezo.gateway.audit_postgres import AuditPersistenceError
+
+    handler = FakeAgentHandler()
+    sink = FakeAuditSink()
+    sink.always_fail = AuditPersistenceError("audit sink not ready (simulated)")
+    dispatcher, _, _ = build_test_dispatcher(
+        cards=[make_card("rafael")], handlers={"rafael": handler}, audit=sink
+    )
+
+    with pytest.raises(AuditPersistenceError):
+        await dispatcher.delegate(_envelope())
+
+    assert handler.call_count == 0  # the handler NEVER ran — audit failure blocked it upstream
 
 
 # --- Idempotent replay never re-audits or re-emits requested -----------------------------------

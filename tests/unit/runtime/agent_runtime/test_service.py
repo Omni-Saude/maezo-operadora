@@ -29,6 +29,23 @@ def _state(**overrides: object) -> AgentState:
     return AgentState(settings=settings, **overrides)  # type: ignore[arg-type]
 
 
+@pytest.fixture(autouse=True)
+def _stub_a2a_audit_sink_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    """T2.4 A2A W4: `_probe_a2a_audit_sink` would otherwise make a REAL network attempt (against
+    this module's dummy `_DSN`) for every helena/rafael bring-up test in this file — this module's
+    own docstring/comments document the pre-W4 contract that bring-up construction never opens a
+    connection. Stub the probe deterministically GREEN by default so that contract holds for every
+    test that doesn't care about audit-sink readiness specifically; the dedicated
+    `a2a_audit_sink_ready` tests below override this within their own test body (a later
+    `monkeypatch.setattr` call on the same fixture wins for the rest of that test)."""
+    import maezo.runtime.agent_runtime.service as svc
+
+    async def _ok(sink: object, timeout_s: float) -> bool:
+        return True
+
+    monkeypatch.setattr(svc, "_probe_a2a_audit_sink", _ok)
+
+
 # ---------------------------------------------------------------------------
 # _bring_up_dependencies — against the real spec/ tree (helena is a real agent)
 # ---------------------------------------------------------------------------
@@ -267,6 +284,113 @@ async def test_all_readiness_checks_healthy_after_real_bring_up() -> None:
     checks = build_readiness_checks(state)
     results = [await c() for c in checks]
     assert all(r.healthy for r in results), results
+
+
+# ---------------------------------------------------------------------------
+# a2a_audit_sink_ready (T2.4 A2A W4 — T-F daemon-readiness finalization)
+# ---------------------------------------------------------------------------
+
+
+async def test_probe_a2a_audit_sink_red_when_unreachable(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Bounded probe against an address that refuses instantly fails closed — mirrors
+    `worker_runtime`'s own `_probe_audit_sink` unreachable-probe test exactly.
+
+    `monkeypatch.undo()` reverts THIS module's autouse `_stub_a2a_audit_sink_probe` fixture first —
+    otherwise the `from ... import _probe_a2a_audit_sink` below would bind the STUBBED name (the
+    autouse fixture patches the module attribute directly), defeating the point of this test.
+    """
+    monkeypatch.undo()
+    from maezo.gateway.audit_postgres import PostgresAuditSink
+    from maezo.runtime.agent_runtime.service import _probe_a2a_audit_sink
+
+    sink = PostgresAuditSink("postgresql://maezo@127.0.0.1:1/none", "amh")
+    try:
+        healthy = await _probe_a2a_audit_sink(sink, 1.0)
+        assert healthy is False
+    finally:
+        await sink.aclose()
+
+
+async def test_probe_a2a_audit_sink_green_when_probe_passes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The probe is stubbed (no live Postgres needed here) — a real-PG green path belongs to the
+    integration/live-PG suites, mirroring `worker_runtime`'s equivalent unit test.
+
+    `monkeypatch.undo()` reverts the autouse `_stub_a2a_audit_sink_probe` fixture first — same
+    reason as `test_probe_a2a_audit_sink_red_when_unreachable` above: this test exercises the REAL
+    `_probe_a2a_audit_sink` (with `PostgresAuditSink.check_ready` itself stubbed instead)."""
+    monkeypatch.undo()
+    from maezo.gateway.audit_postgres import PostgresAuditSink
+    from maezo.runtime.agent_runtime.service import _probe_a2a_audit_sink
+
+    sink = PostgresAuditSink("postgresql://maezo@localhost:5432/maezo", "amh")
+
+    async def _ok() -> None:
+        return None
+
+    monkeypatch.setattr(sink, "check_ready", _ok)
+    try:
+        healthy = await _probe_a2a_audit_sink(sink, 5.0)
+        assert healthy is True
+    finally:
+        await sink.aclose()
+
+
+async def test_a2a_audit_sink_ready_not_applicable_for_unrelated_agent() -> None:
+    state = _state(settings=AgentRuntimeSettings(agent_id="marina", tenant_id="amh"))
+    checks = {c.__name__: c for c in build_readiness_checks(state)}
+    result = await checks["a2a_audit_sink_ready"]()
+    assert result.healthy is True
+    assert result.detail == "not applicable to agent_id='marina'"
+
+
+async def test_a2a_audit_sink_ready_unhealthy_when_never_probed() -> None:
+    state = _state(settings=AgentRuntimeSettings(agent_id="rafael", tenant_id="amh"))
+    checks = {c.__name__: c for c in build_readiness_checks(state)}
+    result = await checks["a2a_audit_sink_ready"]()
+    assert result.healthy is False
+
+
+async def test_a2a_audit_sink_ready_unhealthy_without_database_url() -> None:
+    """No DATABASE_URL -> nothing to probe -> fail-closed, mirrors `a2a_dispatcher_ready`'s own
+    DATABASE_URL-gated posture."""
+    state = _state(settings=AgentRuntimeSettings(agent_id="rafael", tenant_id="amh"))
+    await _bring_up_dependencies(state)
+    checks = {c.__name__: c for c in build_readiness_checks(state)}
+    result = await checks["a2a_audit_sink_ready"]()
+    assert result.healthy is False
+    assert "DATABASE_URL" in (state.a2a_audit_sink_error or "")
+
+
+async def test_a2a_audit_sink_ready_healthy_after_bring_up_with_verified_probe() -> None:
+    """Proves the wiring end-to-end (bring-up -> `state.a2a_audit_sink_ready` -> the readiness
+    check) against the autouse-stubbed GREEN probe — no live Postgres needed."""
+    state = _state(settings=AgentRuntimeSettings(agent_id="rafael", tenant_id="amh", database_url=_DSN))
+    await _bring_up_dependencies(state)
+    assert state.a2a_audit_sink_ready is True
+    checks = {c.__name__: c for c in build_readiness_checks(state)}
+    result = await checks["a2a_audit_sink_ready"]()
+    assert result.healthy is True
+
+
+async def test_a2a_audit_sink_ready_unhealthy_when_probe_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    """FAIL-CLOSED: a present-but-unreachable audit sink keeps `/readyz` red (ADR-0007) — the
+    daemon refuses to consider delegation processing ready even though the dispatcher itself
+    assembled successfully (`a2a_dispatcher_ready` stays construction-only, unaffected)."""
+    import maezo.runtime.agent_runtime.service as svc
+
+    async def _fail(sink: object, timeout_s: float) -> bool:
+        return False
+
+    monkeypatch.setattr(svc, "_probe_a2a_audit_sink", _fail)
+    state = _state(settings=AgentRuntimeSettings(agent_id="rafael", tenant_id="amh", database_url=_DSN))
+    await _bring_up_dependencies(state)
+    assert state.a2a_audit_sink_ready is False
+
+    checks = {c.__name__: c for c in build_readiness_checks(state)}
+    audit = await checks["a2a_audit_sink_ready"]()
+    dispatcher = await checks["a2a_dispatcher_ready"]()
+    assert audit.healthy is False
+    assert dispatcher.healthy is True, state.a2a_dispatcher_error
 
 
 def test_agent_state_is_live_helper() -> None:

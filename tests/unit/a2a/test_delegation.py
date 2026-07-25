@@ -145,6 +145,40 @@ class TestRoot:
         env = _root(payload_ref="fhir://Patient/abc-123")
         assert env.payload_ref == "fhir://Patient/abc-123"
 
+    @pytest.mark.parametrize(
+        "embedded",
+        [
+            "fhir://Patient/123.456.789-01",
+            "process://patient-123.456.789-01/actions",
+            "fhir://Coverage/12.345.678/0001-95",  # CNPJ shape
+            "https://example.internal/lookup?cpf=123.456.789-01",
+        ],
+    )
+    def test_root_rejects_embedded_formatted_cpf_cnpj_in_payload_ref(self, embedded: str) -> None:
+        """W4 defense-in-depth (design doc §10): a canonically-punctuated CPF/CNPJ substring
+        embedded inside an otherwise-legitimate URI-style payload_ref is rejected, closing the
+        gap where the whole-string check above only catches a payload_ref that IS entirely a raw
+        CPF/CNPJ, not one that merely CONTAINS one."""
+        with pytest.raises(DelegationError, match="payload_ref"):
+            _root(payload_ref=embedded)
+
+    @pytest.mark.parametrize(
+        "safe_ref",
+        [
+            "fhir://Patient/12345678901",  # bare 11-digit numeric id — NOT flagged (see rationale)
+            "fhir://Coverage/abc-123",
+            "process://AUTH-amh-GUIA-0001",
+            "fhir://Patient/123e4567-e89b-12d3-a456-426614174000",  # uuid-shaped
+        ],
+    )
+    def test_root_accepts_legitimate_refs_without_formatted_cpf_cnpj_substring(self, safe_ref: str) -> None:
+        """The narrowly-scoped embedded check must NOT false-positive-reject legitimate
+        FHIR/process references that merely contain digits — only the CANONICALLY-PUNCTUATED
+        CPF/CNPJ shape is rejected (design doc §10's assessment: a bare-digit-run scan was
+        rejected as unsafe precisely because of cases like the first one here)."""
+        env = _root(payload_ref=safe_ref)
+        assert env.payload_ref == safe_ref
+
     def test_payload_meta_defaults_to_empty(self) -> None:
         assert _root().payload_meta == {}
 
