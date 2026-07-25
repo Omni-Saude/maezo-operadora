@@ -487,6 +487,142 @@ def test_register_payment_refusal_never_releases() -> None:
 
 
 # ---------------------------------------------------------------
+# register_payment_refusal — whitespace-bypass vectors (R1 live-validation finding,
+# t2.5-p2b-round2 wave2a: 3 of 12 vectors REGISTERED with whitespace-only accountability
+# fields because the guard lacked .strip(), unlike its mirror recurso.register_desistencia).
+# Every vector below MUST refuse with ERR_PAYMENT_REFUSAL_NOT_HUMAN — whitespace-only is
+# the SAME as absent (ADR-0007: a refusal must carry an identifying human approver).
+# ---------------------------------------------------------------
+
+
+@pytest.mark.parametrize("whitespace", [" ", "   ", "\t", "\n", "\t\n ", "\r\n"])
+def test_register_payment_refusal_v4_whitespace_only_aprovador_id_refuses(whitespace: str) -> None:
+    """Bypass vector V4 (previously REGISTERED): whitespace-only aprovador_id must refuse."""
+    with pytest.raises(PagtoError) as excinfo:
+        register_payment_refusal(
+            {
+                "decisao_pagamento": "RECUSAR",
+                "aprovador_id": whitespace,
+                "justificativa_recusa": "Lastro inconsistente — devolver para revisao",
+            }
+        )
+    assert excinfo.value.code == ERR_PAYMENT_REFUSAL_NOT_HUMAN
+    assert "aprovador_id" in excinfo.value.message
+
+
+@pytest.mark.parametrize("whitespace", [" ", "   ", "\t", "\n", "\t\n ", "\r\n"])
+def test_register_payment_refusal_v5_whitespace_only_justificativa_refuses(whitespace: str) -> None:
+    """Bypass vector V5 (previously REGISTERED): whitespace-only justificativa_recusa must refuse."""
+    with pytest.raises(PagtoError) as excinfo:
+        register_payment_refusal(
+            {
+                "decisao_pagamento": "RECUSAR",
+                "aprovador_id": "fin-001",
+                "justificativa_recusa": whitespace,
+            }
+        )
+    assert excinfo.value.code == ERR_PAYMENT_REFUSAL_NOT_HUMAN
+    assert "justificativa_recusa" in excinfo.value.message
+
+
+@pytest.mark.parametrize("whitespace", [" ", "   ", "\t", "\n", "\t\n ", "\r\n"])
+def test_register_payment_refusal_v12_both_whitespace_devolver_refuses(whitespace: str) -> None:
+    """Bypass vector V12 (previously REGISTERED): DEVOLVER channel + BOTH accountability fields
+    whitespace-only must refuse (both missing fields named in the channel-aware message)."""
+    with pytest.raises(PagtoError) as excinfo:
+        register_payment_refusal(
+            {
+                "decisao_admissibilidade": "DEVOLVER",
+                "aprovador_id": whitespace,
+                "justificativa_recusa": whitespace,
+            }
+        )
+    assert excinfo.value.code == ERR_PAYMENT_REFUSAL_NOT_HUMAN
+    assert "aprovador_id" in excinfo.value.message
+    assert "justificativa_recusa" in excinfo.value.message
+
+
+def test_register_payment_refusal_both_whitespace_alcada_refuses() -> None:
+    """V12 variant on the alcada channel: RECUSAR + both fields whitespace-only must refuse."""
+    with pytest.raises(PagtoError) as excinfo:
+        register_payment_refusal(
+            {
+                "decisao_pagamento": "RECUSAR",
+                "aprovador_id": " \t ",
+                "justificativa_recusa": "\n\n",
+            }
+        )
+    assert excinfo.value.code == ERR_PAYMENT_REFUSAL_NOT_HUMAN
+
+
+@pytest.mark.parametrize("whitespace", [" ", "\t", "\n", "  \t\n"])
+def test_register_payment_refusal_whitespace_only_decision_fields_refuse(whitespace: str) -> None:
+    """Whitespace-only decision fields normalize to '' -> neither-channel refusal (the engine's
+    gateway DEFAULTS can route here with an unset/omitted decision — fail-safe routing is not a
+    human decision)."""
+    with pytest.raises(PagtoError) as excinfo:
+        register_payment_refusal(
+            {
+                "decisao_pagamento": whitespace,
+                "decisao_admissibilidade": whitespace,
+                "aprovador_id": "fin-001",
+                "justificativa_recusa": "x",
+            }
+        )
+    assert excinfo.value.code == ERR_PAYMENT_REFUSAL_NOT_HUMAN
+    assert "nenhum canal humano" in excinfo.value.message
+
+
+@pytest.mark.parametrize("non_string", [123, True, ["fin-001"], {"id": "fin-001"}, 0.5])
+def test_register_payment_refusal_non_string_aprovador_id_refuses(non_string: object) -> None:
+    """A NON-string aprovador_id normalizes to '' and refuses — the pre-fix bare truthiness
+    check (`if not aprovador_id`) would have silently PASSED a truthy non-string (e.g. 123),
+    recording a refusal with a non-identifying approver (same ADR-0007 class as V4)."""
+    with pytest.raises(PagtoError) as excinfo:
+        register_payment_refusal(
+            {
+                "decisao_pagamento": "RECUSAR",
+                "aprovador_id": non_string,
+                "justificativa_recusa": "Lastro inconsistente",
+            }
+        )
+    assert excinfo.value.code == ERR_PAYMENT_REFUSAL_NOT_HUMAN
+    assert "aprovador_id" in excinfo.value.message
+
+
+def test_register_payment_refusal_padded_exact_decision_literal_registers() -> None:
+    """A whitespace-PADDED but otherwise exact decision literal (' RECUSAR ') normalizes to the
+    literal and selects its channel (directive-mandated normalization of decision fields,
+    mirroring register_desistencia's strip treatment) — still requiring the stripped
+    accountability fields. Case variants/substrings still refuse (next test)."""
+    result = register_payment_refusal(
+        {
+            "decisao_pagamento": " RECUSAR ",
+            "aprovador_id": " fin-001 ",
+            "justificativa_recusa": " Lastro inconsistente ",
+        }
+    )
+    assert result["recusa_registrada"] is True
+    assert result["canal"] == "alcada"
+
+
+@pytest.mark.parametrize("decision", ["recusar", "Recusar", "RECUSAR_X", "XRECUSAR", "DEVOLVER "])
+def test_register_payment_refusal_non_exact_alcada_literal_still_refuses(decision: str) -> None:
+    """Exact-match discipline survives normalization: case variants/substrings of the alcada
+    literal never select a channel ('DEVOLVER ' here is on the WRONG field — decisao_pagamento —
+    and must not cross-satisfy the admissibilidade channel)."""
+    with pytest.raises(PagtoError) as excinfo:
+        register_payment_refusal(
+            {
+                "decisao_pagamento": decision,
+                "aprovador_id": "fin-001",
+                "justificativa_recusa": "x",
+            }
+        )
+    assert excinfo.value.code == ERR_PAYMENT_REFUSAL_NOT_HUMAN
+
+
+# ---------------------------------------------------------------
 # register_pagto_workers — registration + topic-registry drift guard
 # ---------------------------------------------------------------
 

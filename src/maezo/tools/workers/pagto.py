@@ -359,6 +359,26 @@ def notify_sla_risk(variables: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------
 
 
+def _norm_str(value: Any) -> str:
+    """Normalize an engine variable to a stripped string for guard checks — FAIL-CLOSED.
+
+    R1 live-validation finding (t2.5-p2b-round2, wave2a, 3 of 12 bypass vectors): the guard's
+    original bare `if not aprovador_id` / `if not justificativa` checks let WHITESPACE-ONLY
+    accountability fields REGISTER a refusal — defeating ADR-0007 (a refusal recorded with a
+    non-identifying approver) — whereas the claimed mirror `recurso.register_desistencia`
+    `.strip()`s every human field. This helper closes that class:
+    - a `str` normalizes to `value.strip()` — whitespace-only ("   ", "\\t", "\\n", ...)
+      becomes "" and is treated EXACTLY like an absent field (refusal, never registration);
+    - a NON-string (None, int, bool, list, dict — engine variables arrive untyped) normalizes
+      to "" (fail-closed refusal), never a truthy pass-through (`if not 123` was falsy — a
+      non-string aprovador_id would previously have silently PASSED the accountability check)
+      and never an AttributeError incident from calling `.strip()` on a non-string.
+    """
+    if isinstance(value, str):
+        return value.strip()
+    return ""
+
+
 def register_payment_refusal(variables: dict[str, Any]) -> dict[str, Any]:
     """Register payment refusal/return for review — GUARDED, dual human channel.
 
@@ -395,11 +415,24 @@ def register_payment_refusal(variables: dict[str, Any]) -> dict[str, Any]:
     engine's fail-safe routing does NOT by itself constitute a human decision; this worker still
     requires the explicit decision literal plus its required fields) -- never silently registers
     a refusal without a genuine human decision behind it.
+
+    NORMALIZATION (R1 live-validation fix, t2.5-p2b-round2 wave2a finding): ALL decision and
+    human-accountability fields are normalized via `_norm_str` (strip; non-string -> "") BEFORE
+    any guard check -- mirroring `recurso.register_desistencia`'s `.strip()` treatment of every
+    human field. Consequences, all fail-closed:
+    - whitespace-only `aprovador_id`/`justificativa_recusa` (space/tab/newline) REFUSES exactly
+      like an absent field (was the 3-of-12-vector bypass: V4/V5/V12 previously REGISTERED);
+    - whitespace-only decision fields normalize to "" -> neither-channel refusal;
+    - a whitespace-PADDED but otherwise exact decision literal ("RECUSAR ") normalizes to the
+      literal and selects its channel (still subject to the accountability-field checks) --
+      case variants/substrings ("recusar", "RECUSAR_X") still refuse (exact match, no folding);
+    - a non-string in ANY of these fields normalizes to "" (refusal), never a truthy
+      pass-through and never an AttributeError incident.
     """
-    decisao_pagamento = variables.get("decisao_pagamento", "")
-    decisao_admissibilidade = variables.get("decisao_admissibilidade", "")
-    aprovador_id = variables.get("aprovador_id", "")
-    justificativa = variables.get("justificativa_recusa", "")
+    decisao_pagamento = _norm_str(variables.get("decisao_pagamento", ""))
+    decisao_admissibilidade = _norm_str(variables.get("decisao_admissibilidade", ""))
+    aprovador_id = _norm_str(variables.get("aprovador_id", ""))
+    justificativa = _norm_str(variables.get("justificativa_recusa", ""))
     ordem_id = variables.get("ordem_pagamento_id", "")
 
     is_alcada = decisao_pagamento == DECISAO_RECUSAR
