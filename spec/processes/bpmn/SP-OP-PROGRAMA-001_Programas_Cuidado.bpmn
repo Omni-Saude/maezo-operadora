@@ -1,24 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-                  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-                  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
-                  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
-                  xmlns:camunda="http://camunda.org/schema/1.0/bpmn"
-                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-                  id="Definitions_SP_OP_PROGRAMA_001"
-                  targetNamespace="http://maezo.health/operadora/programa"
-                  exporter="Maezo W-B PROC"
-                  exporterVersion="0.1.0-draft">
-
-  <bpmn:message id="Msg_ProgramaConsentRevoked" name="msg.programa.consent_revoked"/>
-  <bpmn:message id="Msg_ProgramaInfoReceived" name="msg.programa.info_received"/>
-  <bpmn:error id="Error_ProgramaNoConsent" name="Sem consentimento ativo para programa" errorCode="ERR_PROGRAMA_NO_CONSENT"/>
-  <bpmn:error id="Error_ProgramDischargeNotHuman" name="Desligamento clinico sem decisao humana" errorCode="ERR_PROGRAM_DISCHARGE_NOT_HUMAN"/>
-  <bpmn:error id="Error_ProgramaInstanciaInvalida" name="Instancia de programa inconsistente na origem" errorCode="ERR_PROGRAMA_INSTANCIA_INVALIDA"/>
-
-  <bpmn:process id="SP-OP-PROGRAMA-001" name="SP-OP-PROGRAMA-001 Programas de Cuidado (Consent-Gated)"
-                isExecutable="true" camunda:historyTimeToLive="1825">
-    <bpmn:documentation><![CDATA[
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:camunda="http://camunda.org/schema/1.0/bpmn" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" id="Definitions_SP_OP_PROGRAMA_001" targetNamespace="http://maezo.health/operadora/programa" exporter="Camunda Modeler" exporterVersion="5.49.0">
+  <bpmn:message id="Msg_ProgramaConsentRevoked" name="msg.programa.consent_revoked" />
+  <bpmn:message id="Msg_ProgramaInfoReceived" name="msg.programa.info_received" />
+  <bpmn:error id="Error_ProgramaNoConsent" name="Sem consentimento ativo para programa" errorCode="ERR_PROGRAMA_NO_CONSENT" />
+  <bpmn:error id="Error_ProgramDischargeNotHuman" name="Desligamento clinico sem decisao humana" errorCode="ERR_PROGRAM_DISCHARGE_NOT_HUMAN" />
+  <bpmn:error id="Error_ProgramaInstanciaInvalida" name="Instancia de programa inconsistente na origem" errorCode="ERR_PROGRAMA_INSTANCIA_INVALIDA" />
+  <bpmn:process id="SP-OP-PROGRAMA-001" name="SP-OP-PROGRAMA-001 Programas de Cuidado (Consent-Gated)" isExecutable="true" camunda:historyTimeToLive="1825">
+    <bpmn:documentation>
 SP-OP-PROGRAMA-001 — Programas de Cuidado (consent-gated). Status: DRAFT (v0.1.0) — Phase 3, Wave W-B.
 DI (diagrama) sera adicionado na promocao a FINAL. Requer revisao humana (medico-auditor/juridico/
 DPO/regulatorio/financas/PO) antes de qualquer deploy — ver docs/review-queue.md. Toda citacao de
@@ -37,7 +25,7 @@ INVARIANTE (A) — CHOKEPOINT DE CONSENTIMENTO (LGPD): antes de QUALQUER tratame
 (estratificacao, plano de cuidado, contato proativo, registro clinico), o consentimento DEVE estar
 ativo e verificado para consent_scope=programa_cuidado. O worker operadora.programa.check_consent e o
 CHOKEPOINT: se nao ha consentimento ativo, lanca ERR_PROGRAMA_NO_CONSENT (fail-closed) — capturado por
-boundary error -> publica programa.consent_blocked -> End_SemConsentimento; NENHUM PHI de programa e
+boundary error -&gt; publica programa.consent_blocked -&gt; End_SemConsentimento; NENHUM PHI de programa e
 processado. Toda atividade que toca PHI vive DEPOIS do gate.
 
 INVARIANTE (B) — REVOGACAO = BOUNDARY INTERRUPTIVO (LGPD art. 8 §5 / art. 18 §2): o subprocesso de
@@ -54,7 +42,7 @@ programa (register_program_discharge — alta por motivo clinico, decisao clinic
 decisao clinica") SO nasce na User Task humana UT_DecisaoClinica (grupos coordenacao-clinica/
 equipe-cuidado), com decisao_programa=DESLIGAR_CLINICO setado por humano. NENHUMA DMN deste processo
 tem saida de desligamento/alta/negativa de cuidado: programa_routing apenas ESTRATIFICA/sugere
-elegibilidade (informativo); catch-all -> ANALISE_HUMANA (conservador -> clinico humano). Caso clinico
+elegibilidade (informativo); catch-all -&gt; ANALISE_HUMANA (conservador -&gt; clinico humano). Caso clinico
 ambiguo, risco alto, criterio de alta aparente, DMN indisponivel e estouro de SLA todos fail-safe para
 a User Task clinica. O efeito adverso clinico e materializado APENAS pelo worker
 operadora.programa.register_program_discharge, guardado por ERR_PROGRAM_DISCHARGE_NOT_HUMAN. O terminal
@@ -74,11 +62,11 @@ BUSINESS KEY (idempotente): "PROG-{tenant_id}-{programa_id}-{beneficiario_pseudo
 instancia ativa por (programa x beneficiario x ciclo); re-disparo retorna a instancia ativa.
 
 EVENTOS DE DOMINIO (worker operadora.events.publish):
-  inicio   -> agents.events.programa.received
-  bloqueio -> agents.events.programa.consent_blocked
-  parada   -> agents.events.programa.processing_stopped
-  breach   -> agents.events.programa.sla_breached
-  fim      -> agents.events.programa.completed (payload.desfecho = enrollment_realizado | nao_elegivel |
+  inicio   -&gt; agents.events.programa.received
+  bloqueio -&gt; agents.events.programa.consent_blocked
+  parada   -&gt; agents.events.programa.processing_stopped
+  breach   -&gt; agents.events.programa.sla_breached
+  fim      -&gt; agents.events.programa.completed (payload.desfecho = enrollment_realizado | nao_elegivel |
               sem_consentimento | interrompido_revogacao | desligamento_clinico_humano |
               acompanhamento_concluido)
 
@@ -87,14 +75,11 @@ gatilho (canal_proativo | indicacao_clinica | auto_inscricao_beneficiario | estr
 proactive_trigger_ref (opc), consent_scope (programa_cuidado), consentimento_ativo (resolvido no gate),
 consent_checked (do trigger D9), risco_estratificado (in-zone, APOS gate), elegibilidade_criterios_atendidos
 (in-zone, APOS gate). Contrato: docs/processes/contracts/SP-OP-PROGRAMA-001.md.
-]]></bpmn:documentation>
-
+</bpmn:documentation>
     <bpmn:startEvent id="Start_Programa" name="Programa de cuidado iniciado (trigger proativo / indicacao / auto-inscricao)">
       <bpmn:outgoing>Flow_Start_PubReceived</bpmn:outgoing>
     </bpmn:startEvent>
-
-    <bpmn:serviceTask id="ST_PublishReceived" name="Publicar evento: programa.received"
-                      camunda:type="external" camunda:topic="operadora.events.publish">
+    <bpmn:serviceTask id="ST_PublishReceived" name="Publicar evento: programa.received" camunda:type="external" camunda:topic="operadora.events.publish">
       <bpmn:documentation>Enrollment iniciado — SEM PHI clinico cru no payload (so pseudonimo/programa/ciclo/gatilho). Inicializa desfecho="" e decisao_programa="" (GAP-PROG-2/ENGINE-16004; espelha o idioma desfecho_humano="" de SP-OP-RECURSO-001): primeira service task do processo, garante que TODO identificador lido pelo event_desfecho de ST_PublishCompleted e sempre resolvivel no engine real (nunca "Unknown property"), em qualquer ramo. decisao_programa="" NAO e um valor de decisao — a decisao continua nascendo SO na User Task humana (L0 hard); "" apenas torna a variavel resolvivel (GW_Decisao segue caindo no default com "").</bpmn:documentation>
       <bpmn:extensionElements>
         <camunda:inputOutput>
@@ -107,22 +92,16 @@ consent_checked (do trigger D9), risco_estratificado (in-zone, APOS gate), elegi
       <bpmn:incoming>Flow_Start_PubReceived</bpmn:incoming>
       <bpmn:outgoing>Flow_PubReceived_CheckConsent</bpmn:outgoing>
     </bpmn:serviceTask>
-
-    <!-- ===== CHOKEPOINT DE CONSENTIMENTO (A) — gateia TODO processamento de PHI ===== -->
-    <bpmn:serviceTask id="ST_CheckConsent" name="Verificar consentimento ativo (CHOKEPOINT LGPD)"
-                      camunda:type="external" camunda:topic="operadora.programa.check_consent">
-      <bpmn:documentation>CHOKEPOINT (A): verifica consentimento ativo e nao-revogado para consent_scope. Fail-closed: se ausente/revogado, lanca ERR_PROGRAMA_NO_CONSENT (boundary error -> End_SemConsentimento). NENHUM PHI de programa e processado antes deste gate passar. Re-verifica in-zone o consent_checked do trigger D9.</bpmn:documentation>
+    <bpmn:serviceTask id="ST_CheckConsent" name="Verificar consentimento ativo (CHOKEPOINT LGPD)" camunda:type="external" camunda:topic="operadora.programa.check_consent">
+      <bpmn:documentation>CHOKEPOINT (A): verifica consentimento ativo e nao-revogado para consent_scope. Fail-closed: se ausente/revogado, lanca ERR_PROGRAMA_NO_CONSENT (boundary error -&gt; End_SemConsentimento). NENHUM PHI de programa e processado antes deste gate passar. Re-verifica in-zone o consent_checked do trigger D9.</bpmn:documentation>
       <bpmn:incoming>Flow_PubReceived_CheckConsent</bpmn:incoming>
       <bpmn:outgoing>Flow_CheckConsent_Sub</bpmn:outgoing>
     </bpmn:serviceTask>
-
-    <!-- Boundary error: sem consentimento -> publica consent_blocked -> End_SemConsentimento (fail-safe LGPD) -->
     <bpmn:boundaryEvent id="BE_SemConsentimento" name="Sem consentimento (ERR_PROGRAMA_NO_CONSENT)" attachedToRef="ST_CheckConsent">
       <bpmn:outgoing>Flow_SemConsentimento_Pub</bpmn:outgoing>
-      <bpmn:errorEventDefinition id="EED_SemConsentimento" errorRef="Error_ProgramaNoConsent"/>
+      <bpmn:errorEventDefinition id="EED_SemConsentimento" errorRef="Error_ProgramaNoConsent" />
     </bpmn:boundaryEvent>
-    <bpmn:serviceTask id="ST_PublishConsentBlocked" name="Publicar evento: programa.consent_blocked"
-                      camunda:type="external" camunda:topic="operadora.events.publish">
+    <bpmn:serviceTask id="ST_PublishConsentBlocked" name="Publicar evento: programa.consent_blocked" camunda:type="external" camunda:topic="operadora.events.publish">
       <bpmn:documentation>Auditoria LGPD: o chokepoint barrou por falta de consentimento. SEM PHI clinico cru.</bpmn:documentation>
       <bpmn:extensionElements>
         <camunda:inputOutput>
@@ -137,38 +116,25 @@ consent_checked (do trigger D9), risco_estratificado (in-zone, APOS gate), elegi
       <bpmn:documentation>Fail-safe LGPD (NAO adverso): sem consentimento ativo, nenhum PHI de programa foi processado.</bpmn:documentation>
       <bpmn:incoming>Flow_ConsentBlocked_End</bpmn:incoming>
     </bpmn:endEvent>
-
-    <!-- ===== SUBPROCESSO DE CUIDADO (sob boundary interruptivo de revogacao — B) ===== -->
     <bpmn:subProcess id="SUB_Cuidado" name="Subprocesso de cuidado (in-zone, APOS consentimento)">
       <bpmn:documentation>Todo o tratamento de PHI do programa vive AQUI, APOS o gate de consentimento. Sob um boundary interruptivo de revogacao (B): a revogacao interrompe e para o tratamento a qualquer momento.</bpmn:documentation>
       <bpmn:incoming>Flow_CheckConsent_Sub</bpmn:incoming>
       <bpmn:outgoing>Flow_Sub_PubCompleted</bpmn:outgoing>
-
       <bpmn:startEvent id="Start_Cuidado" name="Cuidado consentido (in-zone)">
         <bpmn:outgoing>Flow_StartCuidado_Stratify</bpmn:outgoing>
       </bpmn:startEvent>
-
-      <!-- Estratificacao de risco in-zone (Valentina A2A) — APOS o gate. Instrui, nao decide. -->
-      <bpmn:serviceTask id="ST_StratifyRisk" name="Estratificar risco (in-zone, care.stratify — Valentina)"
-                        camunda:type="external" camunda:topic="operadora.programa.stratify_risk">
+      <bpmn:serviceTask id="ST_StratifyRisk" name="Estratificar risco (in-zone, care.stratify — Valentina)" camunda:type="external" camunda:topic="operadora.programa.stratify_risk">
         <bpmn:documentation>Delegacao care.stratify a Valentina (Zona PHI, D10), APOS o gate. INSTRUI, NAO decide. So bandas de risco/pseudonimos a Zona Geral — NUNCA PHI clinico cru (ADR-0006). NUNCA seta decisao_programa.</bpmn:documentation>
         <bpmn:incoming>Flow_StartCuidado_Stratify</bpmn:incoming>
         <bpmn:outgoing>Flow_Stratify_BuildPlan</bpmn:outgoing>
       </bpmn:serviceTask>
-
-      <bpmn:serviceTask id="ST_BuildCarePlan" name="Montar plano de cuidado / dossie (care.enroll — Valentina)"
-                        camunda:type="external" camunda:topic="operadora.programa.build_care_plan">
+      <bpmn:serviceTask id="ST_BuildCarePlan" name="Montar plano de cuidado / dossie (care.enroll — Valentina)" camunda:type="external" camunda:topic="operadora.programa.build_care_plan">
         <bpmn:documentation>Delegacao care.enroll a Valentina: monta plano/dossie para a User Task clinica. INSTRUI a decisao humana, nunca a substitui (Rafael/ADR-0005). NAO decide alta. So ponteiros pseudonimizados.</bpmn:documentation>
         <bpmn:incoming>Flow_Stratify_BuildPlan</bpmn:incoming>
         <bpmn:outgoing>Flow_BuildPlan_Routing</bpmn:outgoing>
       </bpmn:serviceTask>
-
-      <!-- DMN: estratificacao/elegibilidade INFORMATIVA — sem saida adversa; catch-all -> ANALISE_HUMANA -->
-      <bpmn:businessRuleTask id="BRT_Routing" name="Estratificar elegibilidade (DMN programa_routing)"
-                             camunda:decisionRef="programa_routing"
-                             camunda:mapDecisionResult="singleResult"
-                             camunda:resultVariable="roteamento">
-        <bpmn:documentation>Saidas: elegivel_programa in {ELEGIVEL, NAO_ELEGIVEL, ANALISE_HUMANA} (informativo) + motivo. SEM saida de desligamento/alta/negativa de cuidado. Catch-all -> ANALISE_HUMANA (conservador -> clinico humano). Roda SO APOS o chokepoint de consentimento. Fixa desfecho=nao_elegivel quando NAO_ELEGIVEL (GAP-PROG-2 — ramo direto a End_NaoElegivel sem task). Seguro no engine real: roteamento.elegivel_programa e SEMPRE setado (DMN singleResult + catch-all) e BRT nao e wait state — o outputParameter nunca avalia num exit interrompido. ELEGIVEL deixa o desfecho para ST_ProactiveContact; ANALISE_HUMANA deixa para o worker register_program_discharge (adverso, pos-guard) ou o fallback neutro do event_desfecho de ST_PublishCompleted. GAP-PROG-3: promove `elegivel_programa` para variavel de processo PLANA — o contrato declara `elegivel_programa` no `event_payload_vars` de ST_PublishCompleted (publicador generico le vars FLAT do escopo do processo, nunca caminhos aninhados), mas so a forma aninhada `roteamento.elegivel_programa` existia; sem o outputParameter abaixo o publisher sempre emitia payload.elegivel_programa vazio (mesmo padrao de promocao de admissibilidade_roteamento em PAGTO-001/pagto_admissibility, ENGINE-16004-avoidance). Sem saida adversa: so re-expoe a classificacao ja produzida pela DMN.</bpmn:documentation>
+      <bpmn:businessRuleTask id="BRT_Routing" name="Estratificar elegibilidade (DMN programa_routing)" camunda:resultVariable="roteamento" camunda:decisionRef="programa_routing" camunda:mapDecisionResult="singleResult">
+        <bpmn:documentation>Saidas: elegivel_programa in {ELEGIVEL, NAO_ELEGIVEL, ANALISE_HUMANA} (informativo) + motivo. SEM saida de desligamento/alta/negativa de cuidado. Catch-all -&gt; ANALISE_HUMANA (conservador -&gt; clinico humano). Roda SO APOS o chokepoint de consentimento. Fixa desfecho=nao_elegivel quando NAO_ELEGIVEL (GAP-PROG-2 — ramo direto a End_NaoElegivel sem task). Seguro no engine real: roteamento.elegivel_programa e SEMPRE setado (DMN singleResult + catch-all) e BRT nao e wait state — o outputParameter nunca avalia num exit interrompido. ELEGIVEL deixa o desfecho para ST_ProactiveContact; ANALISE_HUMANA deixa para o worker register_program_discharge (adverso, pos-guard) ou o fallback neutro do event_desfecho de ST_PublishCompleted. GAP-PROG-3: promove `elegivel_programa` para variavel de processo PLANA — o contrato declara `elegivel_programa` no `event_payload_vars` de ST_PublishCompleted (publicador generico le vars FLAT do escopo do processo, nunca caminhos aninhados), mas so a forma aninhada `roteamento.elegivel_programa` existia; sem o outputParameter abaixo o publisher sempre emitia payload.elegivel_programa vazio (mesmo padrao de promocao de admissibilidade_roteamento em PAGTO-001/pagto_admissibility, ENGINE-16004-avoidance). Sem saida adversa: so re-expoe a classificacao ja produzida pela DMN.</bpmn:documentation>
         <bpmn:extensionElements>
           <camunda:inputOutput>
             <camunda:outputParameter name="desfecho">${roteamento.elegivel_programa == 'NAO_ELEGIVEL' ? 'nao_elegivel' : ''}</camunda:outputParameter>
@@ -178,17 +144,13 @@ consent_checked (do trigger D9), risco_estratificado (in-zone, APOS gate), elegi
         <bpmn:incoming>Flow_BuildPlan_Routing</bpmn:incoming>
         <bpmn:outgoing>Flow_Routing_GW</bpmn:outgoing>
       </bpmn:businessRuleTask>
-
       <bpmn:exclusiveGateway id="GW_Elegibilidade" name="Resultado da estratificacao" default="Flow_GW_AnaliseHumana">
         <bpmn:incoming>Flow_Routing_GW</bpmn:incoming>
         <bpmn:outgoing>Flow_GW_Elegivel</bpmn:outgoing>
         <bpmn:outgoing>Flow_GW_NaoElegivel</bpmn:outgoing>
         <bpmn:outgoing>Flow_GW_AnaliseHumana</bpmn:outgoing>
       </bpmn:exclusiveGateway>
-
-      <!-- Ramo ELEGIVEL (L3 consentido, nao-adverso): contato proativo + enrollment informativo -->
-      <bpmn:serviceTask id="ST_ProactiveContact" name="Contato proativo com o beneficiario (consent_checked==true)"
-                        camunda:type="external" camunda:topic="operadora.programa.proactive_contact">
+      <bpmn:serviceTask id="ST_ProactiveContact" name="Contato proativo com o beneficiario (consent_checked==true)" camunda:type="external" camunda:topic="operadora.programa.proactive_contact">
         <bpmn:documentation>Contato proativo (so com consent_checked==true; re-busca PHI in-zone — precedente Helena/WhatsApp, D9). Caminho L3 consentido e nao-adverso. NAO decide alta. Fixa desfecho=enrollment_realizado (GAP-PROG-2) — unico predecessor de End_EnrollmentRealizado.</bpmn:documentation>
         <bpmn:extensionElements>
           <camunda:inputOutput>
@@ -202,34 +164,22 @@ consent_checked (do trigger D9), risco_estratificado (in-zone, APOS gate), elegi
         <bpmn:documentation>Neutro: beneficiario incluido no programa com consentimento; cuidado em curso. Caminho L3.</bpmn:documentation>
         <bpmn:incoming>Flow_Contact_EnrollEnd</bpmn:incoming>
       </bpmn:endEvent>
-
-      <!-- Ramo NAO_ELEGIVEL (neutro — NAO e negativa de cobertura) -->
       <bpmn:endEvent id="End_NaoElegivel" name="Nao elegivel ao programa (informativo; NAO e negativa de cobertura)">
         <bpmn:documentation>Neutro: nao-inclusao num programa de promocao a saude (criterio populacional/clinico informativo). NAO nega tratamento; o beneficiario segue com cobertura normal. Por isso e neutro e pode ser L3.</bpmn:documentation>
         <bpmn:incoming>Flow_GW_NaoElegivel</bpmn:incoming>
       </bpmn:endEvent>
-
-      <!-- Ramo ANALISE_HUMANA (default conservador): SLA DMN -> dossie -> User Task clinica -->
-      <bpmn:businessRuleTask id="BRT_Sla" name="Determinar SLA da decisao clinica (DMN programa_sla)"
-                             camunda:decisionRef="programa_sla"
-                             camunda:mapDecisionResult="singleResult"
-                             camunda:resultVariable="sla">
+      <bpmn:businessRuleTask id="BRT_Sla" name="Determinar SLA da decisao clinica (DMN programa_sla)" camunda:resultVariable="sla" camunda:decisionRef="programa_sla" camunda:mapDecisionResult="singleResult">
         <bpmn:documentation>Saidas: sla_decisao, sla_alerta (string ISO 8601), fonte. SLA da decisao clinica (quando ha User Task). Sem saida adversa. Resolvida no ramo ANALISE_HUMANA ANTES da User Task (fornece `sla.sla_decisao`/`sla.sla_alerta` aos timers).</bpmn:documentation>
         <bpmn:incoming>Flow_GW_AnaliseHumana</bpmn:incoming>
         <bpmn:outgoing>Flow_Sla_Dossie</bpmn:outgoing>
       </bpmn:businessRuleTask>
-
-      <bpmn:serviceTask id="ST_PrepareDossier" name="Preparar dossie clinico para a User Task (Valentina; instrui, nao decide)"
-                        camunda:type="external" camunda:topic="operadora.programa.build_care_plan">
+      <bpmn:serviceTask id="ST_PrepareDossier" name="Preparar dossie clinico para a User Task (Valentina; instrui, nao decide)" camunda:type="external" camunda:topic="operadora.programa.build_care_plan">
         <bpmn:documentation>Reusa build_care_plan para montar o dossie clinico que INSTRUI a decisao humana (Rafael/ADR-0005). NAO decide alta. So bandas/ponteiros pseudonimizados a Zona Geral.</bpmn:documentation>
         <bpmn:incoming>Flow_Sla_Dossie</bpmn:incoming>
         <bpmn:outgoing>Flow_Dossie_UT</bpmn:outgoing>
       </bpmn:serviceTask>
-
-      <!-- HITL clinico: UNICO ponto onde o desligamento clinico (L0 hard) pode nascer -->
-      <bpmn:userTask id="UT_DecisaoClinica" name="Decisao clinica do programa (coordenacao-clinica / equipe-cuidado)"
-                     camunda:candidateGroups="coordenacao-clinica,equipe-cuidado">
-        <bpmn:documentation><![CDATA[
+      <bpmn:userTask id="UT_DecisaoClinica" name="Decisao clinica do programa (coordenacao-clinica / equipe-cuidado)" camunda:candidateGroups="coordenacao-clinica,equipe-cuidado">
+        <bpmn:documentation>
 HITL L0 hard (clinical_decision, ADR-0005/0008): UNICO ponto onde o desligamento clinico do programa
 pode nascer. Saidas: decisao_programa in {ENROLL, MANTER_ACOMPANHAMENTO, DESLIGAR_CLINICO, SOLICITAR_INFO}.
 DESLIGAR_CLINICO (decisao clinica adversa) exige motivo_desligamento_clinico, referencia_clinica e
@@ -237,46 +187,32 @@ responsavel_clinico_id (campos obrigatorios — validacao de formulario + guard 
 register_program_discharge). ENROLL/MANTER_ACOMPANHAMENTO sao L3 quando consentidos e nao-adversos. SLA:
 `sla.sla_decisao` (DMN programa_sla — DRAFT/verify politica clinica). A decisao sai em nome do humano
 (assignee na trilha de auditoria, ADR-0007).
-]]></bpmn:documentation>
-        <!-- SEM camunda:inputOutput NESTA User Task (regressao real-engine, run 28603060161, GAP-PROG-2):
-             outputParameters avaliam em TODO exit da task — INCLUSIVE interrupcoes (BT_SlaDecisao,
-             BME_InfoRecebida, revogacao interrompendo SUB_Cuidado) onde decisao_programa nunca foi
-             setada; o engine lanca ProcessEngineException "Unknown property" MESMO dentro de ternario.
-             E semantica: desfecho deve refletir o desfecho REGISTRADO (pos-guard), nunca a INTENCAO da
-             decisao. O desfecho adverso nasce SO do output var do worker register_program_discharge
-             (sucesso pos-guard); ENROLL/MANTER derivam no event_desfecho de ST_PublishCompleted
-             (inputParameter — avalia so no start daquela task, nunca em interrupcao). -->
+</bpmn:documentation>
         <bpmn:incoming>Flow_Dossie_UT</bpmn:incoming>
         <bpmn:incoming>Flow_InfoReceived_UT</bpmn:incoming>
         <bpmn:incoming>Flow_InfoCatch_UT</bpmn:incoming>
         <bpmn:outgoing>Flow_UT_GWDecisao</bpmn:outgoing>
       </bpmn:userTask>
-
-      <!-- Timer nao-interruptivo: alerta de risco de SLA -> coordenacao clinica (UT segue aberta) -->
       <bpmn:boundaryEvent id="BT_AlertaSlaPrograma" name="Alerta de risco de SLA" cancelActivity="false" attachedToRef="UT_DecisaoClinica">
         <bpmn:outgoing>Flow_Alerta_Notify</bpmn:outgoing>
         <bpmn:timerEventDefinition id="TD_AlertaSlaPrograma">
           <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${sla.sla_alerta}</bpmn:timeDuration>
         </bpmn:timerEventDefinition>
       </bpmn:boundaryEvent>
-      <bpmn:serviceTask id="ST_NotifySlaRisk" name="Notificar risco de SLA (coordenacao-clinica / equipe-cuidado)"
-                        camunda:type="external" camunda:topic="operadora.programa.notify_sla_risk">
+      <bpmn:serviceTask id="ST_NotifySlaRisk" name="Notificar risco de SLA (coordenacao-clinica / equipe-cuidado)" camunda:type="external" camunda:topic="operadora.programa.notify_sla_risk">
         <bpmn:incoming>Flow_Alerta_Notify</bpmn:incoming>
         <bpmn:outgoing>Flow_Notify_EndAlerta</bpmn:outgoing>
       </bpmn:serviceTask>
       <bpmn:endEvent id="End_RiscoSlaNotificado" name="Risco de SLA notificado (decisao clinica segue)">
         <bpmn:incoming>Flow_Notify_EndAlerta</bpmn:incoming>
       </bpmn:endEvent>
-
-      <!-- Timer interruptivo: SLA estourado -> coordenacao clinica assume (NUNCA auto-desliga por timeout) -->
-      <bpmn:boundaryEvent id="BT_SlaDecisao" name="SLA da decisao clinica (DRAFT/verify)" cancelActivity="true" attachedToRef="UT_DecisaoClinica">
+      <bpmn:boundaryEvent id="BT_SlaDecisao" name="SLA da decisao clinica (DRAFT/verify)" attachedToRef="UT_DecisaoClinica">
         <bpmn:outgoing>Flow_SlaEstourado_Pub</bpmn:outgoing>
         <bpmn:timerEventDefinition id="TD_SlaDecisao">
           <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${sla.sla_decisao}</bpmn:timeDuration>
         </bpmn:timerEventDefinition>
       </bpmn:boundaryEvent>
-      <bpmn:serviceTask id="ST_PublishSlaBreached" name="Publicar evento: programa.sla_breached"
-                        camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:serviceTask id="ST_PublishSlaBreached" name="Publicar evento: programa.sla_breached" camunda:type="external" camunda:topic="operadora.events.publish">
         <bpmn:extensionElements>
           <camunda:inputOutput>
             <camunda:inputParameter name="event_topic">agents.events.programa.sla_breached</camunda:inputParameter>
@@ -286,22 +222,15 @@ register_program_discharge). ENROLL/MANTER_ACOMPANHAMENTO sao L3 quando consenti
         <bpmn:incoming>Flow_SlaEstourado_Pub</bpmn:incoming>
         <bpmn:outgoing>Flow_PubBreach_UTCoord</bpmn:outgoing>
       </bpmn:serviceTask>
-      <bpmn:userTask id="UT_CoordenacaoDecisao" name="Coordenacao clinica assume a decisao"
-                     camunda:candidateGroups="coordenacao-clinica">
+      <bpmn:userTask id="UT_CoordenacaoDecisao" name="Coordenacao clinica assume a decisao" camunda:candidateGroups="coordenacao-clinica">
         <bpmn:documentation>Escalation path do SLA: caso reatribuido a coordenacao clinica. Mesmas saidas e mesmos campos obrigatorios de UT_DecisaoClinica — o desligamento clinico continua HUMANO; NUNCA auto-desliga por timeout. A natureza da decisao (L0 hard clinical_decision) nao muda por estouro de SLA.</bpmn:documentation>
-        <!-- SEM camunda:inputOutput NESTA User Task — mesma regressao/semantica de UT_DecisaoClinica
-             (outputParameters avaliam em exits interrompidos, ex. revogacao do SUB_Cuidado; e desfecho
-             deve refletir o REGISTRADO pos-guard, nao a intencao). Ver o comentario em UT_DecisaoClinica. -->
         <bpmn:incoming>Flow_PubBreach_UTCoord</bpmn:incoming>
         <bpmn:outgoing>Flow_UTCoord_GWDecisao</bpmn:outgoing>
       </bpmn:userTask>
-
-      <!-- Mensagem: info clinica solicitada chegou -> reabre a decisao (interruptivo) -->
-      <bpmn:boundaryEvent id="BME_InfoRecebida" name="Info clinica solicitada recebida" cancelActivity="true" attachedToRef="UT_DecisaoClinica">
+      <bpmn:boundaryEvent id="BME_InfoRecebida" name="Info clinica solicitada recebida" attachedToRef="UT_DecisaoClinica">
         <bpmn:outgoing>Flow_InfoReceived_UT</bpmn:outgoing>
-        <bpmn:messageEventDefinition id="MED_InfoRecebida" messageRef="Msg_ProgramaInfoReceived"/>
+        <bpmn:messageEventDefinition id="MED_InfoRecebida" messageRef="Msg_ProgramaInfoReceived" />
       </bpmn:boundaryEvent>
-
       <bpmn:exclusiveGateway id="GW_Decisao" name="Decisao clinica do programa" default="Flow_GWDec_Acompanhamento">
         <bpmn:incoming>Flow_UT_GWDecisao</bpmn:incoming>
         <bpmn:incoming>Flow_UTCoord_GWDecisao</bpmn:incoming>
@@ -310,10 +239,7 @@ register_program_discharge). ENROLL/MANTER_ACOMPANHAMENTO sao L3 quando consenti
         <bpmn:outgoing>Flow_GWDec_SolicitarInfo</bpmn:outgoing>
         <bpmn:outgoing>Flow_GWDec_Acompanhamento</bpmn:outgoing>
       </bpmn:exclusiveGateway>
-
-      <!-- Ramo DESLIGAR_CLINICO (C): efeito adverso clinico gated por worker (ERR_PROGRAM_DISCHARGE_NOT_HUMAN) -->
-      <bpmn:serviceTask id="ST_RegisterDischarge" name="Registrar desligamento clinico (efeito adverso gated)"
-                        camunda:type="external" camunda:topic="operadora.programa.register_program_discharge">
+      <bpmn:serviceTask id="ST_RegisterDischarge" name="Registrar desligamento clinico (efeito adverso gated)" camunda:type="external" camunda:topic="operadora.programa.register_program_discharge">
         <bpmn:documentation>HARD GUARDRAIL (L0 hard, clinical_decision, ADR-0005/0008): o worker RECUSA registrar o desligamento se decisao_programa != DESLIGAR_CLINICO setado por humano, ou se faltar motivo_desligamento_clinico/referencia_clinica/responsavel_clinico_id (lanca ERR_PROGRAM_DISCHARGE_NOT_HUMAN). Carrega responsavel_clinico_id na trilha de auditoria (ADR-0007). Este worker NUNCA decide; so registra a decisao ja tomada na UT humana.</bpmn:documentation>
         <bpmn:incoming>Flow_GWDec_Desligar</bpmn:incoming>
         <bpmn:outgoing>Flow_Discharge_End</bpmn:outgoing>
@@ -322,48 +248,40 @@ register_program_discharge). ENROLL/MANTER_ACOMPANHAMENTO sao L3 quando consenti
         <bpmn:documentation>ADVERSO (decisao clinica L0-hard): alta/desligamento clinico do programa. So alcancavel apos UT_DecisaoClinica concluida com decisao_programa=DESLIGAR_CLINICO humano e o worker register_program_discharge ter completado (guard satisfeito).</bpmn:documentation>
         <bpmn:incoming>Flow_Discharge_End</bpmn:incoming>
       </bpmn:endEvent>
-
-      <!-- Ramo ENROLL humano (consentido, nao-adverso) -> enrollment realizado -->
       <bpmn:endEvent id="End_EnrollmentRealizadoHumano" name="Enrollment confirmado por decisao clinica (consentido)">
         <bpmn:documentation>Neutro: o clinico confirmou o enrollment (ENROLL) — caminho consentido, nao-adverso. Converge ao mesmo desfecho enrollment_realizado.</bpmn:documentation>
         <bpmn:incoming>Flow_GWDec_Enroll</bpmn:incoming>
       </bpmn:endEvent>
-
-      <!-- Ramo SOLICITAR_INFO: aguarda info clinica (msg) -> reabre a decisao (sem efeito adverso) -->
       <bpmn:intermediateCatchEvent id="ICE_AguardarInfo" name="Aguardar info clinica solicitada">
         <bpmn:incoming>Flow_GWDec_SolicitarInfo</bpmn:incoming>
         <bpmn:outgoing>Flow_InfoCatch_UT</bpmn:outgoing>
-        <bpmn:messageEventDefinition id="MED_AguardarInfo" messageRef="Msg_ProgramaInfoReceived"/>
+        <bpmn:messageEventDefinition id="MED_AguardarInfo" messageRef="Msg_ProgramaInfoReceived" />
       </bpmn:intermediateCatchEvent>
-
-      <!-- Ramo MANTER_ACOMPANHAMENTO (default): ciclo de acompanhamento concluido (alta administrativa nao-clinica) -->
       <bpmn:endEvent id="End_AcompanhamentoConcluido" name="Ciclo de acompanhamento concluido (alta administrativa nao-clinica)">
         <bpmn:documentation>Neutro: ciclo de acompanhamento concluido / fim de ciclo (alta administrativa nao-clinica). Caminho L3. NAO e desligamento clinico.</bpmn:documentation>
         <bpmn:incoming>Flow_GWDec_Acompanhamento</bpmn:incoming>
       </bpmn:endEvent>
-
-      <!-- FLOWS internos do subprocesso -->
-      <bpmn:sequenceFlow id="Flow_StartCuidado_Stratify" sourceRef="Start_Cuidado" targetRef="ST_StratifyRisk"/>
-      <bpmn:sequenceFlow id="Flow_Stratify_BuildPlan" sourceRef="ST_StratifyRisk" targetRef="ST_BuildCarePlan"/>
-      <bpmn:sequenceFlow id="Flow_BuildPlan_Routing" sourceRef="ST_BuildCarePlan" targetRef="BRT_Routing"/>
-      <bpmn:sequenceFlow id="Flow_Routing_GW" sourceRef="BRT_Routing" targetRef="GW_Elegibilidade"/>
+      <bpmn:sequenceFlow id="Flow_StartCuidado_Stratify" sourceRef="Start_Cuidado" targetRef="ST_StratifyRisk" />
+      <bpmn:sequenceFlow id="Flow_Stratify_BuildPlan" sourceRef="ST_StratifyRisk" targetRef="ST_BuildCarePlan" />
+      <bpmn:sequenceFlow id="Flow_BuildPlan_Routing" sourceRef="ST_BuildCarePlan" targetRef="BRT_Routing" />
+      <bpmn:sequenceFlow id="Flow_Routing_GW" sourceRef="BRT_Routing" targetRef="GW_Elegibilidade" />
       <bpmn:sequenceFlow id="Flow_GW_Elegivel" name="ELEGIVEL" sourceRef="GW_Elegibilidade" targetRef="ST_ProactiveContact">
         <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${roteamento.elegivel_programa == 'ELEGIVEL'}</bpmn:conditionExpression>
       </bpmn:sequenceFlow>
       <bpmn:sequenceFlow id="Flow_GW_NaoElegivel" name="NAO_ELEGIVEL" sourceRef="GW_Elegibilidade" targetRef="End_NaoElegivel">
         <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${roteamento.elegivel_programa == 'NAO_ELEGIVEL'}</bpmn:conditionExpression>
       </bpmn:sequenceFlow>
-      <bpmn:sequenceFlow id="Flow_GW_AnaliseHumana" name="ANALISE_HUMANA (default — sempre clinico humano)" sourceRef="GW_Elegibilidade" targetRef="BRT_Sla"/>
-      <bpmn:sequenceFlow id="Flow_Contact_EnrollEnd" sourceRef="ST_ProactiveContact" targetRef="End_EnrollmentRealizado"/>
-      <bpmn:sequenceFlow id="Flow_Sla_Dossie" sourceRef="BRT_Sla" targetRef="ST_PrepareDossier"/>
-      <bpmn:sequenceFlow id="Flow_Dossie_UT" sourceRef="ST_PrepareDossier" targetRef="UT_DecisaoClinica"/>
-      <bpmn:sequenceFlow id="Flow_Alerta_Notify" sourceRef="BT_AlertaSlaPrograma" targetRef="ST_NotifySlaRisk"/>
-      <bpmn:sequenceFlow id="Flow_Notify_EndAlerta" sourceRef="ST_NotifySlaRisk" targetRef="End_RiscoSlaNotificado"/>
-      <bpmn:sequenceFlow id="Flow_SlaEstourado_Pub" sourceRef="BT_SlaDecisao" targetRef="ST_PublishSlaBreached"/>
-      <bpmn:sequenceFlow id="Flow_PubBreach_UTCoord" sourceRef="ST_PublishSlaBreached" targetRef="UT_CoordenacaoDecisao"/>
-      <bpmn:sequenceFlow id="Flow_InfoReceived_UT" sourceRef="BME_InfoRecebida" targetRef="UT_DecisaoClinica"/>
-      <bpmn:sequenceFlow id="Flow_UT_GWDecisao" sourceRef="UT_DecisaoClinica" targetRef="GW_Decisao"/>
-      <bpmn:sequenceFlow id="Flow_UTCoord_GWDecisao" sourceRef="UT_CoordenacaoDecisao" targetRef="GW_Decisao"/>
+      <bpmn:sequenceFlow id="Flow_GW_AnaliseHumana" name="ANALISE_HUMANA (default — sempre clinico humano)" sourceRef="GW_Elegibilidade" targetRef="BRT_Sla" />
+      <bpmn:sequenceFlow id="Flow_Contact_EnrollEnd" sourceRef="ST_ProactiveContact" targetRef="End_EnrollmentRealizado" />
+      <bpmn:sequenceFlow id="Flow_Sla_Dossie" sourceRef="BRT_Sla" targetRef="ST_PrepareDossier" />
+      <bpmn:sequenceFlow id="Flow_Dossie_UT" sourceRef="ST_PrepareDossier" targetRef="UT_DecisaoClinica" />
+      <bpmn:sequenceFlow id="Flow_Alerta_Notify" sourceRef="BT_AlertaSlaPrograma" targetRef="ST_NotifySlaRisk" />
+      <bpmn:sequenceFlow id="Flow_Notify_EndAlerta" sourceRef="ST_NotifySlaRisk" targetRef="End_RiscoSlaNotificado" />
+      <bpmn:sequenceFlow id="Flow_SlaEstourado_Pub" sourceRef="BT_SlaDecisao" targetRef="ST_PublishSlaBreached" />
+      <bpmn:sequenceFlow id="Flow_PubBreach_UTCoord" sourceRef="ST_PublishSlaBreached" targetRef="UT_CoordenacaoDecisao" />
+      <bpmn:sequenceFlow id="Flow_InfoReceived_UT" sourceRef="BME_InfoRecebida" targetRef="UT_DecisaoClinica" />
+      <bpmn:sequenceFlow id="Flow_UT_GWDecisao" sourceRef="UT_DecisaoClinica" targetRef="GW_Decisao" />
+      <bpmn:sequenceFlow id="Flow_UTCoord_GWDecisao" sourceRef="UT_CoordenacaoDecisao" targetRef="GW_Decisao" />
       <bpmn:sequenceFlow id="Flow_GWDec_Desligar" name="DESLIGAR_CLINICO (somente humano)" sourceRef="GW_Decisao" targetRef="ST_RegisterDischarge">
         <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_programa == 'DESLIGAR_CLINICO'}</bpmn:conditionExpression>
       </bpmn:sequenceFlow>
@@ -373,19 +291,16 @@ register_program_discharge). ENROLL/MANTER_ACOMPANHAMENTO sao L3 quando consenti
       <bpmn:sequenceFlow id="Flow_GWDec_SolicitarInfo" name="SOLICITAR_INFO" sourceRef="GW_Decisao" targetRef="ICE_AguardarInfo">
         <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_programa == 'SOLICITAR_INFO'}</bpmn:conditionExpression>
       </bpmn:sequenceFlow>
-      <bpmn:sequenceFlow id="Flow_GWDec_Acompanhamento" name="MANTER_ACOMPANHAMENTO (default)" sourceRef="GW_Decisao" targetRef="End_AcompanhamentoConcluido"/>
-      <bpmn:sequenceFlow id="Flow_InfoCatch_UT" sourceRef="ICE_AguardarInfo" targetRef="UT_DecisaoClinica"/>
-      <bpmn:sequenceFlow id="Flow_Discharge_End" sourceRef="ST_RegisterDischarge" targetRef="End_DesligamentoClinicoHumano"/>
+      <bpmn:sequenceFlow id="Flow_GWDec_Acompanhamento" name="MANTER_ACOMPANHAMENTO (default)" sourceRef="GW_Decisao" targetRef="End_AcompanhamentoConcluido" />
+      <bpmn:sequenceFlow id="Flow_InfoCatch_UT" sourceRef="ICE_AguardarInfo" targetRef="UT_DecisaoClinica" />
+      <bpmn:sequenceFlow id="Flow_Discharge_End" sourceRef="ST_RegisterDischarge" targetRef="End_DesligamentoClinicoHumano" />
     </bpmn:subProcess>
-
-    <!-- Boundary interruptivo de REVOGACAO (B) — anexado ao subprocesso de cuidado -->
-    <bpmn:boundaryEvent id="BME_RevogacaoConsentimento" name="Revogacao de consentimento (interrompe e para)" cancelActivity="true" attachedToRef="SUB_Cuidado">
+    <bpmn:boundaryEvent id="BME_RevogacaoConsentimento" name="Revogacao de consentimento (interrompe e para)" attachedToRef="SUB_Cuidado">
       <bpmn:documentation>Interrupting boundary message event (B): a revogacao (msg.programa.consent_revoked) INTERROMPE o subprocesso de cuidado e para o tratamento de PHI. Origem canonica: a consent_revocation_bridge (GAP-PROG-4, a partir de agents.events.lgpd_dsr.completed de SP-OP-LGPD-DSR-001) correlaciona por correlationKeys — tenant_id + beneficiario_pseudo_id, all=true, fan-out do engine a TODAS as instancias ativas do titular (uma por programa x ciclo); um canal direto/agente pode tambem correlacionar por business key de instancia unica. NAO e happy-path; e fail-safe LGPD (art. 8 par. 5 / art. 18 par. 2).</bpmn:documentation>
       <bpmn:outgoing>Flow_Revogacao_Stop</bpmn:outgoing>
-      <bpmn:messageEventDefinition id="MED_RevogacaoConsentimento" messageRef="Msg_ProgramaConsentRevoked"/>
+      <bpmn:messageEventDefinition id="MED_RevogacaoConsentimento" messageRef="Msg_ProgramaConsentRevoked" />
     </bpmn:boundaryEvent>
-    <bpmn:serviceTask id="ST_StopProcessing" name="Parar tratamento de PHI (revogacao)"
-                      camunda:type="external" camunda:topic="operadora.programa.stop_processing">
+    <bpmn:serviceTask id="ST_StopProcessing" name="Parar tratamento de PHI (revogacao)" camunda:type="external" camunda:topic="operadora.programa.stop_processing">
       <bpmn:documentation>Para o tratamento de PHI apos a revogacao (boundary interruptivo); registra a cessacao (LGPD art. 8 §5 / art. 18 §2). Publica agents.events.programa.processing_stopped (auditoria LGPD). NAO e adverso ao beneficiario.</bpmn:documentation>
       <bpmn:extensionElements>
         <camunda:inputOutput>
@@ -396,14 +311,11 @@ register_program_discharge). ENROLL/MANTER_ACOMPANHAMENTO sao L3 quando consenti
       <bpmn:outgoing>Flow_Stop_End</bpmn:outgoing>
     </bpmn:serviceTask>
     <bpmn:endEvent id="End_ProcessamentoInterrompidoRevogacao" name="Processamento interrompido por revogacao (fail-safe LGPD)">
-      <bpmn:documentation>Fail-safe LGPD (NAO adverso): a revogacao parou o tratamento de PHI. So alcancavel via boundary interruptivo msg.programa.consent_revoked -> stop_processing.</bpmn:documentation>
+      <bpmn:documentation>Fail-safe LGPD (NAO adverso): a revogacao parou o tratamento de PHI. So alcancavel via boundary interruptivo msg.programa.consent_revoked -&gt; stop_processing.</bpmn:documentation>
       <bpmn:incoming>Flow_Stop_End</bpmn:incoming>
     </bpmn:endEvent>
-
-    <!-- Publicacao de fim (caminho consentido que completa o subprocesso normalmente) -->
-    <bpmn:serviceTask id="ST_PublishCompleted" name="Publicar evento: programa.completed"
-                      camunda:type="external" camunda:topic="operadora.events.publish">
-      <bpmn:documentation>Publica programa.completed quando o subprocesso de cuidado completa normalmente. GAP-PROG-2 — resolucao de payload.desfecho (contrato §Topicos), caminho a caminho: (1) ELEGIVEL-L3: ST_ProactiveContact fixa desfecho=enrollment_realizado (outputParameter literal); (2) NAO_ELEGIVEL: BRT_Routing fixa desfecho=nao_elegivel (ternario sobre roteamento.elegivel_programa, sempre setado pela DMN singleResult+catch-all; BRT nao e wait state — nunca avaliado em interrupcao); (3) DESLIGAR_CLINICO registrado: o worker register_program_discharge RETORNA desfecho=desligamento_clinico_humano como output var SO no sucesso pos-guard (harness complete -> variavel de processo) — UNICA fonte do valor adverso; guard recusado (ERR_PROGRAM_DISCHARGE_NOT_HUMAN) nao seta nada e desfecho permanece nao-adverso; (4) ENROLL / MANTER_ACOMPANHAMENTO humanos: GW_Decisao roteia DIRETO a End events (sem task no ramo) — o fallback do event_desfecho abaixo deriva o desfecho NEUTRO de decisao_programa (intencao == desfecho: nao ha registro/guard nesses ramos). O fallback e um inputParameter — avalia SO no start DESTA task (alcancada apenas pela completude normal do SUB_Cuidado; os caminhos de interrupcao/boundary nao passam aqui) — e le apenas identificadores default-inicializados em ST_PublishReceived (desfecho="", decisao_programa="") — nunca "Unknown property" no engine real (regressao run 28603060161). User Tasks NAO tem outputParameters (avaliariam em exits interrompidos).</bpmn:documentation>
+    <bpmn:serviceTask id="ST_PublishCompleted" name="Publicar evento: programa.completed" camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:documentation>Publica programa.completed quando o subprocesso de cuidado completa normalmente. GAP-PROG-2 — resolucao de payload.desfecho (contrato §Topicos), caminho a caminho: (1) ELEGIVEL-L3: ST_ProactiveContact fixa desfecho=enrollment_realizado (outputParameter literal); (2) NAO_ELEGIVEL: BRT_Routing fixa desfecho=nao_elegivel (ternario sobre roteamento.elegivel_programa, sempre setado pela DMN singleResult+catch-all; BRT nao e wait state — nunca avaliado em interrupcao); (3) DESLIGAR_CLINICO registrado: o worker register_program_discharge RETORNA desfecho=desligamento_clinico_humano como output var SO no sucesso pos-guard (harness complete -&gt; variavel de processo) — UNICA fonte do valor adverso; guard recusado (ERR_PROGRAM_DISCHARGE_NOT_HUMAN) nao seta nada e desfecho permanece nao-adverso; (4) ENROLL / MANTER_ACOMPANHAMENTO humanos: GW_Decisao roteia DIRETO a End events (sem task no ramo) — o fallback do event_desfecho abaixo deriva o desfecho NEUTRO de decisao_programa (intencao == desfecho: nao ha registro/guard nesses ramos). O fallback e um inputParameter — avalia SO no start DESTA task (alcancada apenas pela completude normal do SUB_Cuidado; os caminhos de interrupcao/boundary nao passam aqui) — e le apenas identificadores default-inicializados em ST_PublishReceived (desfecho="", decisao_programa="") — nunca "Unknown property" no engine real (regressao run 28603060161). User Tasks NAO tem outputParameters (avaliariam em exits interrompidos).</bpmn:documentation>
       <bpmn:extensionElements>
         <camunda:inputOutput>
           <camunda:inputParameter name="event_topic">agents.events.programa.completed</camunda:inputParameter>
@@ -417,278 +329,354 @@ register_program_discharge). ENROLL/MANTER_ACOMPANHAMENTO sao L3 quando consenti
     <bpmn:endEvent id="End_ProgramaConcluido" name="Programa concluido (desfecho publicado)">
       <bpmn:incoming>Flow_PubCompleted_End</bpmn:incoming>
     </bpmn:endEvent>
-
-    <!-- FLOWS de nivel de processo -->
-    <bpmn:sequenceFlow id="Flow_Start_PubReceived" sourceRef="Start_Programa" targetRef="ST_PublishReceived"/>
-    <bpmn:sequenceFlow id="Flow_PubReceived_CheckConsent" sourceRef="ST_PublishReceived" targetRef="ST_CheckConsent"/>
-    <bpmn:sequenceFlow id="Flow_CheckConsent_Sub" sourceRef="ST_CheckConsent" targetRef="SUB_Cuidado"/>
-    <bpmn:sequenceFlow id="Flow_SemConsentimento_Pub" sourceRef="BE_SemConsentimento" targetRef="ST_PublishConsentBlocked"/>
-    <bpmn:sequenceFlow id="Flow_ConsentBlocked_End" sourceRef="ST_PublishConsentBlocked" targetRef="End_SemConsentimento"/>
-    <bpmn:sequenceFlow id="Flow_Sub_PubCompleted" sourceRef="SUB_Cuidado" targetRef="ST_PublishCompleted"/>
-    <bpmn:sequenceFlow id="Flow_PubCompleted_End" sourceRef="ST_PublishCompleted" targetRef="End_ProgramaConcluido"/>
-    <bpmn:sequenceFlow id="Flow_Revogacao_Stop" sourceRef="BME_RevogacaoConsentimento" targetRef="ST_StopProcessing"/>
-    <bpmn:sequenceFlow id="Flow_Stop_End" sourceRef="ST_StopProcessing" targetRef="End_ProcessamentoInterrompidoRevogacao"/>
+    <bpmn:sequenceFlow id="Flow_Start_PubReceived" sourceRef="Start_Programa" targetRef="ST_PublishReceived" />
+    <bpmn:sequenceFlow id="Flow_PubReceived_CheckConsent" sourceRef="ST_PublishReceived" targetRef="ST_CheckConsent" />
+    <bpmn:sequenceFlow id="Flow_CheckConsent_Sub" sourceRef="ST_CheckConsent" targetRef="SUB_Cuidado" />
+    <bpmn:sequenceFlow id="Flow_SemConsentimento_Pub" sourceRef="BE_SemConsentimento" targetRef="ST_PublishConsentBlocked" />
+    <bpmn:sequenceFlow id="Flow_ConsentBlocked_End" sourceRef="ST_PublishConsentBlocked" targetRef="End_SemConsentimento" />
+    <bpmn:sequenceFlow id="Flow_Sub_PubCompleted" sourceRef="SUB_Cuidado" targetRef="ST_PublishCompleted" />
+    <bpmn:sequenceFlow id="Flow_PubCompleted_End" sourceRef="ST_PublishCompleted" targetRef="End_ProgramaConcluido" />
+    <bpmn:sequenceFlow id="Flow_Revogacao_Stop" sourceRef="BME_RevogacaoConsentimento" targetRef="ST_StopProcessing" />
+    <bpmn:sequenceFlow id="Flow_Stop_End" sourceRef="ST_StopProcessing" targetRef="End_ProcessamentoInterrompidoRevogacao" />
   </bpmn:process>
-
   <bpmndi:BPMNDiagram id="Diagram_SP-OP-PROGRAMA-001">
     <bpmndi:BPMNPlane id="Plane_SP-OP-PROGRAMA-001" bpmnElement="SP-OP-PROGRAMA-001">
       <bpmndi:BPMNShape id="Shape_Start_Programa" bpmnElement="Start_Programa">
-        <dc:Bounds x="72" y="355" width="36" height="36"/>
+        <dc:Bounds x="192" y="355" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="168" y="391" width="84" height="66" />
+        </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_PublishReceived" bpmnElement="ST_PublishReceived">
-        <dc:Bounds x="220" y="333" width="100" height="80"/>
+        <dc:Bounds x="340" y="333" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_CheckConsent" bpmnElement="ST_CheckConsent">
-        <dc:Bounds x="400" y="333" width="100" height="80"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_BE_SemConsentimento" bpmnElement="BE_SemConsentimento">
-        <dc:Bounds x="432" y="395" width="36" height="36"/>
+        <dc:Bounds x="520" y="333" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_PublishConsentBlocked" bpmnElement="ST_PublishConsentBlocked">
-        <dc:Bounds x="40" y="746" width="100" height="80"/>
+        <dc:Bounds x="520" y="570" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_End_SemConsentimento" bpmnElement="End_SemConsentimento">
-        <dc:Bounds x="252" y="768" width="36" height="36"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_SUB_Cuidado" bpmnElement="SUB_Cuidado" isExpanded="true">
-        <dc:Bounds x="580" y="52" width="1796" height="642"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_Start_Cuidado" bpmnElement="Start_Cuidado">
-        <dc:Bounds x="642" y="114" width="36" height="36"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_StratifyRisk" bpmnElement="ST_StratifyRisk">
-        <dc:Bounds x="790" y="92" width="100" height="80"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_BuildCarePlan" bpmnElement="ST_BuildCarePlan">
-        <dc:Bounds x="970" y="92" width="100" height="80"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_BRT_Routing" bpmnElement="BRT_Routing">
-        <dc:Bounds x="1150" y="92" width="100" height="80"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_GW_Elegibilidade" bpmnElement="GW_Elegibilidade" isMarkerVisible="true">
-        <dc:Bounds x="1330" y="107" width="50" height="50"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_ProactiveContact" bpmnElement="ST_ProactiveContact">
-        <dc:Bounds x="1460" y="92" width="100" height="80"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_End_EnrollmentRealizado" bpmnElement="End_EnrollmentRealizado">
-        <dc:Bounds x="1672" y="114" width="36" height="36"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_End_NaoElegivel" bpmnElement="End_NaoElegivel">
-        <dc:Bounds x="1492" y="234" width="36" height="36"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_BRT_Sla" bpmnElement="BRT_Sla">
-        <dc:Bounds x="1460" y="344" width="100" height="80"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_PrepareDossier" bpmnElement="ST_PrepareDossier">
-        <dc:Bounds x="1640" y="344" width="100" height="80"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_UT_DecisaoClinica" bpmnElement="UT_DecisaoClinica">
-        <dc:Bounds x="1820" y="344" width="100" height="80"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_BT_AlertaSlaPrograma" bpmnElement="BT_AlertaSlaPrograma">
-        <dc:Bounds x="1827" y="406" width="36" height="36"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_NotifySlaRisk" bpmnElement="ST_NotifySlaRisk">
-        <dc:Bounds x="610" y="212" width="100" height="80"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_End_RiscoSlaNotificado" bpmnElement="End_RiscoSlaNotificado">
-        <dc:Bounds x="822" y="234" width="36" height="36"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_BT_SlaDecisao" bpmnElement="BT_SlaDecisao">
-        <dc:Bounds x="1852" y="406" width="36" height="36"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_PublishSlaBreached" bpmnElement="ST_PublishSlaBreached">
-        <dc:Bounds x="610" y="344" width="100" height="80"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_UT_CoordenacaoDecisao" bpmnElement="UT_CoordenacaoDecisao">
-        <dc:Bounds x="790" y="344" width="100" height="80"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_BME_InfoRecebida" bpmnElement="BME_InfoRecebida">
-        <dc:Bounds x="1877" y="406" width="36" height="36"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_GW_Decisao" bpmnElement="GW_Decisao" isMarkerVisible="true">
-        <dc:Bounds x="2000" y="359" width="50" height="50"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_RegisterDischarge" bpmnElement="ST_RegisterDischarge">
-        <dc:Bounds x="2130" y="344" width="100" height="80"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_End_DesligamentoClinicoHumano" bpmnElement="End_DesligamentoClinicoHumano">
-        <dc:Bounds x="2310" y="366" width="36" height="36"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_End_EnrollmentRealizadoHumano" bpmnElement="End_EnrollmentRealizadoHumano">
-        <dc:Bounds x="2162" y="476" width="36" height="36"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ICE_AguardarInfo" bpmnElement="ICE_AguardarInfo">
-        <dc:Bounds x="2162" y="552" width="36" height="36"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_End_AcompanhamentoConcluido" bpmnElement="End_AcompanhamentoConcluido">
-        <dc:Bounds x="2162" y="628" width="36" height="36"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_BME_RevogacaoConsentimento" bpmnElement="BME_RevogacaoConsentimento">
-        <dc:Bounds x="1460" y="676" width="36" height="36"/>
+        <dc:Bounds x="382" y="592" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="359" y="628" width="82" height="66" />
+        </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_StopProcessing" bpmnElement="ST_StopProcessing">
-        <dc:Bounds x="40" y="866" width="100" height="80"/>
+        <dc:Bounds x="160" y="866" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_End_ProcessamentoInterrompidoRevogacao" bpmnElement="End_ProcessamentoInterrompidoRevogacao">
-        <dc:Bounds x="252" y="888" width="36" height="36"/>
+        <dc:Bounds x="372" y="888" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="350" y="924" width="81" height="53" />
+        </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_PublishCompleted" bpmnElement="ST_PublishCompleted">
-        <dc:Bounds x="2456" y="333" width="100" height="80"/>
+        <dc:Bounds x="2576" y="333" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_End_ProgramaConcluido" bpmnElement="End_ProgramaConcluido">
-        <dc:Bounds x="2636" y="355" width="36" height="36"/>
+        <dc:Bounds x="2756" y="355" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2749" y="391" width="51" height="53" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SUB_Cuidado" bpmnElement="SUB_Cuidado" isExpanded="true">
+        <dc:Bounds x="700" y="71" width="1796" height="642" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Start_Cuidado" bpmnElement="Start_Cuidado">
+        <dc:Bounds x="762" y="133" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="744" y="169" width="73" height="40" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_StratifyRisk" bpmnElement="ST_StratifyRisk">
+        <dc:Bounds x="910" y="111" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_BuildCarePlan" bpmnElement="ST_BuildCarePlan">
+        <dc:Bounds x="1090" y="111" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_Routing" bpmnElement="BRT_Routing">
+        <dc:Bounds x="1270" y="111" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_Elegibilidade" bpmnElement="GW_Elegibilidade" isMarkerVisible="true">
+        <dc:Bounds x="1450" y="126" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1443" y="176" width="65" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_ProactiveContact" bpmnElement="ST_ProactiveContact">
+        <dc:Bounds x="1580" y="111" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_EnrollmentRealizado" bpmnElement="End_EnrollmentRealizado">
+        <dc:Bounds x="1792" y="133" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1780" y="169" width="60" height="66" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_NaoElegivel" bpmnElement="End_NaoElegivel">
+        <dc:Bounds x="1612" y="253" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1586" y="289" width="88" height="66" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_Decisao" bpmnElement="GW_Decisao" isMarkerVisible="true">
+        <dc:Bounds x="2120" y="378" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2108" y="428" width="74" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_RegisterDischarge" bpmnElement="ST_RegisterDischarge">
+        <dc:Bounds x="2250" y="363" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_DesligamentoClinicoHumano" bpmnElement="End_DesligamentoClinicoHumano">
+        <dc:Bounds x="2430" y="385" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2408" y="421" width="81" height="53" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_EnrollmentRealizadoHumano" bpmnElement="End_EnrollmentRealizadoHumano">
+        <dc:Bounds x="2282" y="495" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2263" y="531" width="74" height="53" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ICE_AguardarInfo" bpmnElement="ICE_AguardarInfo">
+        <dc:Bounds x="2282" y="571" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2260" y="533.5" width="80" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_AcompanhamentoConcluido" bpmnElement="End_AcompanhamentoConcluido">
+        <dc:Bounds x="2282" y="647" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2256" y="683" width="89" height="66" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishSlaBreached" bpmnElement="ST_PublishSlaBreached">
+        <dc:Bounds x="730" y="398" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT_CoordenacaoDecisao" bpmnElement="UT_CoordenacaoDecisao">
+        <dc:Bounds x="910" y="398" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_NotifySlaRisk" bpmnElement="ST_NotifySlaRisk">
+        <dc:Bounds x="730" y="610" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_RiscoSlaNotificado" bpmnElement="End_RiscoSlaNotificado">
+        <dc:Bounds x="902" y="632" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="882" y="668" width="76" height="53" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_Sla" bpmnElement="BRT_Sla">
+        <dc:Bounds x="1580" y="419" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PrepareDossier" bpmnElement="ST_PrepareDossier">
+        <dc:Bounds x="1760" y="419" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT_DecisaoClinica" bpmnElement="UT_DecisaoClinica">
+        <dc:Bounds x="1940" y="419" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BME_InfoRecebida" bpmnElement="BME_InfoRecebida">
+        <dc:Bounds x="1997" y="481" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1989" y="517" width="52" height="40" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_SlaDecisao" bpmnElement="BT_SlaDecisao">
+        <dc:Bounds x="1972" y="481" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1951" y="517" width="78" height="40" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_AlertaSlaPrograma" bpmnElement="BT_AlertaSlaPrograma">
+        <dc:Bounds x="1947" y="481" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1922" y="517" width="86" height="27" />
+        </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNEdge id="Edge_Flow_StartCuidado_Stratify" bpmnElement="Flow_StartCuidado_Stratify">
-        <di:waypoint x="678" y="132"/>
-        <di:waypoint x="790" y="132"/>
+        <di:waypoint x="798" y="151" />
+        <di:waypoint x="910" y="151" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Stratify_BuildPlan" bpmnElement="Flow_Stratify_BuildPlan">
-        <di:waypoint x="890" y="132"/>
-        <di:waypoint x="970" y="132"/>
+        <di:waypoint x="1010" y="151" />
+        <di:waypoint x="1090" y="151" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_BuildPlan_Routing" bpmnElement="Flow_BuildPlan_Routing">
-        <di:waypoint x="1070" y="132"/>
-        <di:waypoint x="1150" y="132"/>
+        <di:waypoint x="1190" y="151" />
+        <di:waypoint x="1270" y="151" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Routing_GW" bpmnElement="Flow_Routing_GW">
-        <di:waypoint x="1250" y="132"/>
-        <di:waypoint x="1330" y="132"/>
+        <di:waypoint x="1370" y="151" />
+        <di:waypoint x="1450" y="151" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_GW_Elegivel" bpmnElement="Flow_GW_Elegivel">
-        <di:waypoint x="1380" y="132"/>
-        <di:waypoint x="1460" y="132"/>
+        <di:waypoint x="1500" y="151" />
+        <di:waypoint x="1580" y="151" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1513" y="126" width="54" height="14" />
+        </bpmndi:BPMNLabel>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_GW_NaoElegivel" bpmnElement="Flow_GW_NaoElegivel">
-        <di:waypoint x="1380" y="132"/>
-        <di:waypoint x="1436" y="132"/>
-        <di:waypoint x="1436" y="252"/>
-        <di:waypoint x="1492" y="252"/>
+        <di:waypoint x="1500" y="151" />
+        <di:waypoint x="1556" y="151" />
+        <di:waypoint x="1556" y="271" />
+        <di:waypoint x="1612" y="271" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1529" y="201" width="84" height="14" />
+        </bpmndi:BPMNLabel>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_GW_AnaliseHumana" bpmnElement="Flow_GW_AnaliseHumana">
-        <di:waypoint x="1380" y="132"/>
-        <di:waypoint x="1420" y="132"/>
-        <di:waypoint x="1420" y="384"/>
-        <di:waypoint x="1460" y="384"/>
+        <di:waypoint x="1500" y="151" />
+        <di:waypoint x="1540" y="151" />
+        <di:waypoint x="1540" y="459" />
+        <di:waypoint x="1580" y="459" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1513" y="323" width="85" height="53" />
+        </bpmndi:BPMNLabel>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Contact_EnrollEnd" bpmnElement="Flow_Contact_EnrollEnd">
-        <di:waypoint x="1560" y="132"/>
-        <di:waypoint x="1672" y="132"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_Sla_Dossie" bpmnElement="Flow_Sla_Dossie">
-        <di:waypoint x="1560" y="384"/>
-        <di:waypoint x="1640" y="384"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_Dossie_UT" bpmnElement="Flow_Dossie_UT">
-        <di:waypoint x="1740" y="384"/>
-        <di:waypoint x="1820" y="384"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_Alerta_Notify" bpmnElement="Flow_Alerta_Notify">
-        <di:waypoint x="1845" y="442"/>
-        <di:waypoint x="1845" y="502"/>
-        <di:waypoint x="610" y="502"/>
-        <di:waypoint x="610" y="252"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_Notify_EndAlerta" bpmnElement="Flow_Notify_EndAlerta">
-        <di:waypoint x="710" y="252"/>
-        <di:waypoint x="822" y="252"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_SlaEstourado_Pub" bpmnElement="Flow_SlaEstourado_Pub">
-        <di:waypoint x="1870" y="442"/>
-        <di:waypoint x="1870" y="502"/>
-        <di:waypoint x="610" y="502"/>
-        <di:waypoint x="610" y="384"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_PubBreach_UTCoord" bpmnElement="Flow_PubBreach_UTCoord">
-        <di:waypoint x="710" y="384"/>
-        <di:waypoint x="790" y="384"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_InfoReceived_UT" bpmnElement="Flow_InfoReceived_UT">
-        <di:waypoint x="1895" y="442"/>
-        <di:waypoint x="1895" y="502"/>
-        <di:waypoint x="1820" y="502"/>
-        <di:waypoint x="1820" y="384"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_UT_GWDecisao" bpmnElement="Flow_UT_GWDecisao">
-        <di:waypoint x="1920" y="384"/>
-        <di:waypoint x="2000" y="384"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_UTCoord_GWDecisao" bpmnElement="Flow_UTCoord_GWDecisao">
-        <di:waypoint x="890" y="384"/>
-        <di:waypoint x="2000" y="384"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Desligar" bpmnElement="Flow_GWDec_Desligar">
-        <di:waypoint x="2050" y="384"/>
-        <di:waypoint x="2130" y="384"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Enroll" bpmnElement="Flow_GWDec_Enroll">
-        <di:waypoint x="2050" y="384"/>
-        <di:waypoint x="2106" y="384"/>
-        <di:waypoint x="2106" y="494"/>
-        <di:waypoint x="2162" y="494"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_SolicitarInfo" bpmnElement="Flow_GWDec_SolicitarInfo">
-        <di:waypoint x="2050" y="384"/>
-        <di:waypoint x="2106" y="384"/>
-        <di:waypoint x="2106" y="570"/>
-        <di:waypoint x="2162" y="570"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Acompanhamento" bpmnElement="Flow_GWDec_Acompanhamento">
-        <di:waypoint x="2050" y="384"/>
-        <di:waypoint x="2106" y="384"/>
-        <di:waypoint x="2106" y="646"/>
-        <di:waypoint x="2162" y="646"/>
+        <di:waypoint x="1680" y="151" />
+        <di:waypoint x="1792" y="151" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_InfoCatch_UT" bpmnElement="Flow_InfoCatch_UT">
-        <di:waypoint x="2180" y="588"/>
-        <di:waypoint x="2180" y="648"/>
-        <di:waypoint x="1820" y="648"/>
-        <di:waypoint x="1820" y="384"/>
+        <di:waypoint x="2300" y="607" />
+        <di:waypoint x="2300" y="667" />
+        <di:waypoint x="1940" y="667" />
+        <di:waypoint x="1940" y="489" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_UT_GWDecisao" bpmnElement="Flow_UT_GWDecisao">
+        <di:waypoint x="2040" y="459" />
+        <di:waypoint x="2080" y="459" />
+        <di:waypoint x="2080" y="403" />
+        <di:waypoint x="2120" y="403" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_SlaEstourado_Pub" bpmnElement="Flow_SlaEstourado_Pub">
+        <di:waypoint x="1972" y="499" />
+        <di:waypoint x="1410" y="499" />
+        <di:waypoint x="1410" y="438" />
+        <di:waypoint x="830" y="438" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_UTCoord_GWDecisao" bpmnElement="Flow_UTCoord_GWDecisao">
+        <di:waypoint x="1010" y="438" />
+        <di:waypoint x="1565" y="438" />
+        <di:waypoint x="1565" y="403" />
+        <di:waypoint x="2120" y="403" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Desligar" bpmnElement="Flow_GWDec_Desligar">
+        <di:waypoint x="2170" y="403" />
+        <di:waypoint x="2250" y="403" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2165" y="378" width="90" height="40" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Enroll" bpmnElement="Flow_GWDec_Enroll">
+        <di:waypoint x="2170" y="403" />
+        <di:waypoint x="2226" y="403" />
+        <di:waypoint x="2226" y="513" />
+        <di:waypoint x="2282" y="513" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2199" y="448" width="85" height="40" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_SolicitarInfo" bpmnElement="Flow_GWDec_SolicitarInfo">
+        <di:waypoint x="2170" y="403" />
+        <di:waypoint x="2226" y="403" />
+        <di:waypoint x="2226" y="589" />
+        <di:waypoint x="2282" y="589" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2196" y="486" width="90" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Acompanhamento" bpmnElement="Flow_GWDec_Acompanhamento">
+        <di:waypoint x="2170" y="403" />
+        <di:waypoint x="2226" y="403" />
+        <di:waypoint x="2226" y="665" />
+        <di:waypoint x="2282" y="665" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2198" y="524" width="86" height="40" />
+        </bpmndi:BPMNLabel>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Discharge_End" bpmnElement="Flow_Discharge_End">
-        <di:waypoint x="2230" y="384"/>
-        <di:waypoint x="2310" y="384"/>
+        <di:waypoint x="2350" y="403" />
+        <di:waypoint x="2430" y="403" />
       </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Alerta_Notify" bpmnElement="Flow_Alerta_Notify">
+        <di:waypoint x="1947" y="499" />
+        <di:waypoint x="730" y="499" />
+        <di:waypoint x="730" y="620" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubBreach_UTCoord" bpmnElement="Flow_PubBreach_UTCoord">
+        <di:waypoint x="830" y="438" />
+        <di:waypoint x="910" y="438" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Notify_EndAlerta" bpmnElement="Flow_Notify_EndAlerta">
+        <di:waypoint x="830" y="650" />
+        <di:waypoint x="902" y="650" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Sla_Dossie" bpmnElement="Flow_Sla_Dossie">
+        <di:waypoint x="1680" y="459" />
+        <di:waypoint x="1760" y="459" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Dossie_UT" bpmnElement="Flow_Dossie_UT">
+        <di:waypoint x="1860" y="459" />
+        <di:waypoint x="1940" y="459" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_InfoReceived_UT" bpmnElement="Flow_InfoReceived_UT">
+        <di:waypoint x="2015" y="517" />
+        <di:waypoint x="2015" y="577" />
+        <di:waypoint x="1940" y="577" />
+        <di:waypoint x="1940" y="459" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Shape_BE_SemConsentimento" bpmnElement="BE_SemConsentimento">
+        <dc:Bounds x="552" y="395" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="528" y="431" width="85" height="66" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BME_RevogacaoConsentimento" bpmnElement="BME_RevogacaoConsentimento">
+        <dc:Bounds x="1580" y="695" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1562" y="731" width="72" height="53" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
       <bpmndi:BPMNEdge id="Edge_Flow_Start_PubReceived" bpmnElement="Flow_Start_PubReceived">
-        <di:waypoint x="108" y="373"/>
-        <di:waypoint x="220" y="373"/>
+        <di:waypoint x="228" y="373" />
+        <di:waypoint x="340" y="373" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_PubReceived_CheckConsent" bpmnElement="Flow_PubReceived_CheckConsent">
-        <di:waypoint x="320" y="373"/>
-        <di:waypoint x="400" y="373"/>
+        <di:waypoint x="440" y="373" />
+        <di:waypoint x="520" y="373" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_CheckConsent_Sub" bpmnElement="Flow_CheckConsent_Sub">
-        <di:waypoint x="500" y="373"/>
-        <di:waypoint x="580" y="373"/>
+        <di:waypoint x="620" y="373" />
+        <di:waypoint x="700" y="373" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_SemConsentimento_Pub" bpmnElement="Flow_SemConsentimento_Pub">
-        <di:waypoint x="450" y="431"/>
-        <di:waypoint x="450" y="588"/>
-        <di:waypoint x="90" y="588"/>
-        <di:waypoint x="90" y="746"/>
+        <di:waypoint x="570" y="431" />
+        <di:waypoint x="570" y="570" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_ConsentBlocked_End" bpmnElement="Flow_ConsentBlocked_End">
-        <di:waypoint x="140" y="786"/>
-        <di:waypoint x="252" y="786"/>
+        <di:waypoint x="520" y="610" />
+        <di:waypoint x="418" y="610" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Sub_PubCompleted" bpmnElement="Flow_Sub_PubCompleted">
-        <di:waypoint x="2376" y="373"/>
-        <di:waypoint x="2456" y="373"/>
+        <di:waypoint x="2496" y="373" />
+        <di:waypoint x="2576" y="373" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_PubCompleted_End" bpmnElement="Flow_PubCompleted_End">
-        <di:waypoint x="2556" y="373"/>
-        <di:waypoint x="2636" y="373"/>
+        <di:waypoint x="2676" y="373" />
+        <di:waypoint x="2756" y="373" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Revogacao_Stop" bpmnElement="Flow_Revogacao_Stop">
-        <di:waypoint x="1478" y="712"/>
-        <di:waypoint x="1478" y="789"/>
-        <di:waypoint x="90" y="789"/>
-        <di:waypoint x="90" y="866"/>
+        <di:waypoint x="1598" y="731" />
+        <di:waypoint x="1598" y="789" />
+        <di:waypoint x="210" y="789" />
+        <di:waypoint x="210" y="866" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Stop_End" bpmnElement="Flow_Stop_End">
-        <di:waypoint x="140" y="906"/>
-        <di:waypoint x="252" y="906"/>
+        <di:waypoint x="260" y="906" />
+        <di:waypoint x="372" y="906" />
       </bpmndi:BPMNEdge>
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>
