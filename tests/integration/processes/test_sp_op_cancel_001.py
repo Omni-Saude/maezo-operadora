@@ -215,7 +215,12 @@ _CANCEL_PENDED_PUBLISH_ADDED_REASON = (
     "flip: requires a real CIB Seven engine run (make deploy-artifacts + this suite) to confirm the "
     "event round-trips and no sibling assertion regresses before the xfail marker is removed — not "
     "flipped in this PR (no docker/engine in this pass, per the design doc's live-validation "
-    "requirement, §5)."
+    "requirement, §5). LIVE-FLIPPED (wave2b2 R1 live-validation, cibseven 2.1.0): the test XPASSed "
+    "strict on a real engine and the xfail was removed in-step. Engine /history right-reason "
+    "evidence: ST_RequestNotification -> ST_PublishCancelPended both ended in the for_cause "
+    "instance (splice executed on the main token flow in EVERY Flow_Request_WaitNotif traversal; "
+    "downstream GW_AguardarNotificacao event race + prazo-notificacao timer tests all still green "
+    "— 0 sibling regressions). Constant retained for the docstring prose above."
 )
 
 
@@ -873,7 +878,6 @@ async def test_send_cancellation_notice_recusa_sem_humano() -> None:
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_CANCEL_PENDED_PUBLISH_ADDED_REASON, strict=True)
 async def test_notificacao_previa_pendente_publica_pended(
     engine: EngineRest,
     cancel_probe: CancelEngineProbe,
@@ -899,6 +903,11 @@ async def test_notificacao_previa_pendente_publica_pended(
     )
 
     ended = await engine.activity_instances_ended(iid)
+    # wave2b2 belt-and-suspenders (verifier flag: tipo_solicitacao is an INPUT-known field, so the
+    # has_event fold alone proves "some instance with that input published" — this engine-history
+    # containment proves THIS instance's token ran request_notification AND the new publish task):
+    assert "ST_RequestNotification" in ended, "request_notification deve ter executado nesta instancia"
+    assert "ST_PublishCancelPended" in ended, "ST_PublishCancelPended deve ter executado nesta instancia"
     assert not (ended & _ENDS_ADVERSOS), "Pendencia de notificacao nunca rescinde automaticamente"
     assert await engine.instance_is_active(iid), "Instancia deve aguardar no event gateway de notificacao"
 

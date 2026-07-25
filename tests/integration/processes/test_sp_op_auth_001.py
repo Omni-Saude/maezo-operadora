@@ -242,7 +242,13 @@ _AUTH_PENDED_PUBLISH_ADDED_REASON = (
     "flip: requires a real CIB Seven engine run (make deploy-artifacts + this suite) to confirm the "
     "event round-trips and no sibling assertion regresses before the xfail marker is removed — not "
     "flipped in this PR (no docker/engine in this pass, per the design doc's live-validation "
-    "requirement, §5)."
+    "requirement, §5). LIVE-FLIPPED (wave2b2 R1 live-validation, cibseven 2.1.0): BOTH tests "
+    "XPASSed strict on a real engine and the xfails were removed in-step. Engine /history "
+    "right-reason evidence, both routes proven: initial-pendencia (GW_Admissibilidade -> "
+    "ST_SolicitarDocumentos -> ST_PublishAuthPended -> GW_AguardarDocs -> ICE_DocsRecebidos fired) "
+    "AND SOLICITAR_INFO (UT_AnaliseMedicoAuditor -> ST_SolicitarDocumentos -> ST_PublishAuthPended); "
+    "a third traversal proved ICE_PrazoPendencia still fires downstream of the splice. 0 sibling "
+    "regressions. Constant retained for the docstring prose above."
 )
 
 # T3.1 R3 (flip, THIS branch): the ERR_AUTH_DENIAL_INCOMPLETE guard is IMPLEMENTED and now
@@ -775,7 +781,6 @@ async def test_inelegibilidade_roteia_para_humano_nao_nega(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_AUTH_PENDED_PUBLISH_ADDED_REASON, strict=True)
 async def test_pendencia_docs_recebidos_reavalia(
     engine: EngineRest,
     auth_probe: AuthEngineProbe,
@@ -801,6 +806,11 @@ async def test_pendencia_docs_recebidos_reavalia(
     assert auth_probe.has_event(_AUTH_PENDED, prestador_id="PRESTADOR-TESTE-001"), (
         "auth.pended deve ser publicado (ST_PublishAuthPended) apos request_documents"
     )
+    # wave2b2 belt-and-suspenders (verifier flag: prestador_id is an INPUT-known field — prove
+    # THIS instance's token ran request_documents AND the new publish task, engine-side):
+    ended_pended = await engine.activity_instances_ended(iid)
+    assert "ST_SolicitarDocumentos" in ended_pended, "request_documents deve ter executado nesta instancia"
+    assert "ST_PublishAuthPended" in ended_pended, "ST_PublishAuthPended deve ter executado nesta instancia"
 
     business_key = inst["businessKey"]
     correlate_payload = {
@@ -1082,7 +1092,6 @@ async def test_junta_medica_parecer_nega(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_AUTH_PENDED_PUBLISH_ADDED_REASON, strict=True)
 async def test_solicitar_info_volta_para_pendencia(
     engine: EngineRest,
     auth_probe: AuthEngineProbe,
@@ -1109,6 +1118,11 @@ async def test_solicitar_info_volta_para_pendencia(
     assert auth_probe.has_event(_AUTH_PENDED, prestador_id="PRESTADOR-TESTE-001"), (
         "auth.pended deve ser publicado (ST_PublishAuthPended) apos SOLICITAR_INFO"
     )
+    # wave2b2 belt-and-suspenders (see test_pendencia_docs_recebidos_reavalia): engine-history
+    # containment for THIS instance — SOLICITAR_INFO route through the new publish task:
+    ended_pended = await engine.activity_instances_ended(iid)
+    assert "ST_SolicitarDocumentos" in ended_pended, "request_documents deve ter reexecutado nesta instancia"
+    assert "ST_PublishAuthPended" in ended_pended, "ST_PublishAuthPended deve ter executado nesta instancia"
 
     assert await engine.instance_is_active(iid), "Instancia deve estar ativa aguardando docs"
 
