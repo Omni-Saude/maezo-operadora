@@ -6,25 +6,58 @@ TDD London School: tests exercise the external task contracts.
 import pytest
 
 from maezo.tools.workers.dmn_transport import DmnEvaluationError, FakeDmnTransport
+from maezo.tools.workers.harness import ExternalTask, FakeKafkaPublisher, WorkerBpmnError
 from maezo.tools.workers.recurso import (
+    RECURSO_BPMN_ERROR_ALLOWLIST,
     DesistenciaNotHumanError,
+    EscalateAnsTimeoutInput,
+    NotifySlaRiskInput,
     RecursoDesistenciaInput,
-    RecursoGlosaInvalidaError,
     RecursoInput,
+    SubmitAppealInput,
+    TrackStatusInput,
+    _mint_protocolo_recurso,
+    _require_glosa_id,
     analyze_merits,
     analyze_request_entry,
     assess_eligibility,
+    escalate_ans_timeout,
     escalate_to_junta,
+    make_escalate_ans_timeout_handler,
+    make_notify_sla_risk_handler,
+    make_submit_appeal_handler,
+    make_track_status_handler,
     notify_prestador,
+    notify_sla_risk,
     prepare_dossier,
     publish_completed,
     publish_completed_entry,
+    reconcile_payment,
+    reconcile_payment_entry,
     register_desistencia,
     register_desistencia_entry,
     request_documents_entry,
+    submit_appeal,
+    track_status,
     validate_recurso,
     validate_recurso_entry,
 )
+
+
+def _task(
+    *,
+    topic: str = "operadora.recurso.probe",
+    business_key: str = "RECURSO-amh-GUIA-1-GLOSA-1",
+    variables: dict | None = None,
+) -> ExternalTask:
+    return ExternalTask(
+        task_id="task-1",
+        topic=topic,
+        process_instance_id="proc-1",
+        business_key=business_key,
+        worker_id="w-1",
+        variables=variables or {},
+    )
 
 
 def _recurso_admissibility_fake(*, roteamento: str, motivo: str = "") -> FakeDmnTransport:
@@ -385,6 +418,60 @@ def test_desistencia_success() -> None:
 
 
 # ---------------------------------------------------------------------------
+# register_desistencia — auditor channel (finding 4, t3.1-recurso-findings-a)
+# ---------------------------------------------------------------------------
+
+
+def test_desistencia_guard_neither_channel() -> None:
+    """register_desistencia raises if NEITHER the analista nor the auditor channel matches."""
+    inp = RecursoDesistenciaInput(
+        decisao_recurso="",
+        decisao_auditor_recurso="",
+        justificativa_desistencia="Motivo valido",
+        valor_glosa_aceito=100.0,
+        referencia_contratual="CLAUSULA-1",
+    )
+    with pytest.raises(DesistenciaNotHumanError) as exc:
+        register_desistencia(inp)
+    assert "decisao_recurso" in str(exc.value)
+    assert "decisao_auditor_recurso" in str(exc.value)
+
+
+def test_desistencia_guard_auditor_missing_auditor_id() -> None:
+    """register_desistencia raises if the auditor channel is attempted (ACEITAR_GLOSA) but
+    auditor_id is empty — same fail-closed shape as the analista channel's missing analista_id."""
+    inp = RecursoDesistenciaInput(
+        decisao_auditor_recurso="ACEITAR_GLOSA",
+        justificativa_desistencia="Merito tecnico confirma a glosa",
+        valor_glosa_aceito=150.0,
+        referencia_contratual="Diretriz DUT",
+        auditor_id="",
+    )
+    with pytest.raises(DesistenciaNotHumanError) as exc:
+        register_desistencia(inp)
+    assert "ERR_DESISTENCIA_NOT_HUMAN" in str(exc.value)
+    assert "auditor_id" in str(exc.value)
+    assert "analista_id" not in str(exc.value), (
+        "o canal auditor foi o atacado — a mensagem nao deve reclamar de analista_id"
+    )
+
+
+def test_desistencia_success_auditor_channel() -> None:
+    """register_desistencia succeeds via the auditor channel (ACEITAR_GLOSA + auditor_id) —
+    ST_RegisterGlosaMantida routes here on the SAME topic as the analista's NAO_RECORRER path."""
+    inp = RecursoDesistenciaInput(
+        decisao_auditor_recurso="ACEITAR_GLOSA",
+        justificativa_desistencia="Merito tecnico-clinico confirma a glosa",
+        valor_glosa_aceito=150.0,
+        referencia_contratual="Diretriz clinica DUT",
+        auditor_id="auditor-456",
+    )
+    result = register_desistencia(inp)
+    assert result.registered is True
+    assert result.protocolo.startswith("RECDESIST-")
+
+
+# ---------------------------------------------------------------------------
 # publish_completed
 # ---------------------------------------------------------------------------
 
@@ -404,11 +491,6 @@ def test_publish_completed_recurso() -> None:
 def test_desistencia_not_human_is_permission_error() -> None:
     """DesistenciaNotHumanError must be a subclass of PermissionError."""
     assert issubclass(DesistenciaNotHumanError, PermissionError)
-
-
-def test_recurso_glosa_invalida_is_value_error() -> None:
-    """RecursoGlosaInvalidaError must be a subclass of ValueError."""
-    assert issubclass(RecursoGlosaInvalidaError, ValueError)
 
 
 # ---------------------------------------------------------------------------
@@ -437,6 +519,55 @@ def test_analyze_request_entry_round_trips_analyze_merits() -> None:
     assert analyze_request_entry(variables) == analyze_merits(RecursoInput(**variables))
 
 
+# ---------------------------------------------------------------------------
+# GAP-RECURSO-3 / Finding 5 — ERR_RECURSO_INVALID_GLOSA guard (WorkerBpmnError, NOT ValueError)
+# ---------------------------------------------------------------------------
+
+
+def test_require_glosa_id_raises_worker_bpmn_error_when_absent() -> None:
+    with pytest.raises(WorkerBpmnError) as exc:
+        _require_glosa_id("")
+    assert exc.value.error_code == "ERR_RECURSO_INVALID_GLOSA"
+
+
+def test_require_glosa_id_raises_worker_bpmn_error_when_whitespace_only() -> None:
+    with pytest.raises(WorkerBpmnError) as exc:
+        _require_glosa_id("   ")
+    assert exc.value.error_code == "ERR_RECURSO_INVALID_GLOSA"
+
+
+def test_require_glosa_id_accepts_non_empty() -> None:
+    _require_glosa_id("GLOSA-001")  # must not raise
+
+
+def test_request_documents_entry_raises_before_notifying_prestador_when_glosa_id_absent() -> None:
+    """The guard fires BEFORE `notify_prestador` — test-spec invariant
+    (`test_glosa_id_ausente_pendencia_termina_limpo_sem_incidente_travado`: no
+    `notifications_of_type("recurso.request_documents")` may be observed)."""
+    with pytest.raises(WorkerBpmnError) as exc:
+        request_documents_entry({"prestador_id": "P-1", "glosa_id": ""})
+    assert exc.value.error_code == "ERR_RECURSO_INVALID_GLOSA"
+
+
+def test_request_documents_entry_raises_when_glosa_id_missing_entirely() -> None:
+    with pytest.raises(WorkerBpmnError):
+        request_documents_entry({"prestador_id": "P-1"})
+
+
+def test_analyze_request_entry_raises_before_analyzing_merits_when_glosa_id_absent() -> None:
+    """Test-spec invariant (`test_glosa_id_ausente_analise_termina_limpo_sem_incidente_travado`):
+    no `notifications_of_type("recurso.analyze_request")` may be observed."""
+    with pytest.raises(WorkerBpmnError) as exc:
+        analyze_request_entry({"glosa_id": "", "glosa_type": "tecnica"})
+    assert exc.value.error_code == "ERR_RECURSO_INVALID_GLOSA"
+
+
+def test_recurso_bpmn_error_allowlist_is_exactly_invalid_glosa() -> None:
+    """`RECURSO_BPMN_ERROR_ALLOWLIST` is unioned into `worker_runtime/service.py`'s production
+    allowlist (SHARED FILE) — pin its exact membership here so a drift is caught locally too."""
+    assert frozenset({"ERR_RECURSO_INVALID_GLOSA"}) == RECURSO_BPMN_ERROR_ALLOWLIST
+
+
 def test_register_desistencia_entry_guards_missing_human_decision() -> None:
     """register_desistencia_entry raises the UNCHANGED DesistenciaNotHumanError guard."""
     with pytest.raises(DesistenciaNotHumanError):
@@ -456,8 +587,344 @@ def test_register_desistencia_entry_happy_path() -> None:
     assert result["registered"] == direct.registered
 
 
+def test_register_desistencia_entry_happy_path_auditor_channel() -> None:
+    """register_desistencia_entry round-trips the auditor channel (finding 4) — `pick_fields`
+    picks up `decisao_auditor_recurso`/`auditor_id` off the flat BPMN variables dict."""
+    variables = {
+        "decisao_auditor_recurso": "ACEITAR_GLOSA",
+        "justificativa_desistencia": "merito tecnico-clinico confirma a glosa",
+        "valor_glosa_aceito": 150.0,
+        "referencia_contratual": "diretriz DUT",
+        "auditor_id": "auditor-1",
+    }
+    direct = register_desistencia(RecursoDesistenciaInput(**variables))
+    result = register_desistencia_entry(variables)
+    assert result["registered"] == direct.registered is True
+
+
 def test_publish_completed_entry_round_trips_publish_completed() -> None:
     variables = {"event_type": "recurso.completed", "desfecho": "deferido"}
     assert publish_completed_entry(variables) == publish_completed(
         event_type="recurso.completed", payload={}, desfecho="deferido"
     )
+
+
+# ---------------------------------------------------------------------------
+# T3.1 P2b (Finding 2) — the 5 previously-zero-worker topics.
+# ---------------------------------------------------------------------------
+
+# ----- notify_sla_risk (BT_AlertaSlaRecurso -> ST_NotificarRiscoSla) --------------------------
+
+
+def test_notify_sla_risk_happy_path() -> None:
+    """Informational only — no decision made/altered."""
+    inp = NotifySlaRiskInput(tenant_id="amh", numero_guia_tiss="G-1", glosa_id="GLOSA-1")
+    result = notify_sla_risk(inp)
+    assert result["sla_risk_notified"] is True
+    assert result["glosa_id"] == "GLOSA-1"
+
+
+def test_notify_sla_risk_missing_input_defaults_safe() -> None:
+    """A blank input still completes (informational-only, non-adverse) — no exception."""
+    result = notify_sla_risk(NotifySlaRiskInput())
+    assert result["sla_risk_notified"] is True
+    assert result["glosa_id"] == ""
+
+
+async def test_make_notify_sla_risk_handler_publishes_notification() -> None:
+    kafka = FakeKafkaPublisher()
+    handler = make_notify_sla_risk_handler(kafka)
+    task = _task(
+        topic="operadora.recurso.notify_sla_risk",
+        variables={
+            "tenant_id": "amh",
+            "numero_guia_tiss": "G-1",
+            "glosa_id": "GLOSA-1",
+            "glosa_type": "administrativa",
+        },
+    )
+    result = await handler(task)
+    assert result["sla_risk_notified"] is True
+    assert len(kafka.published) == 1
+    topic, payload, key = kafka.published[0]
+    assert topic == "operadora.notifications.internal"
+    assert payload["type"] == "recurso.notify_sla_risk"
+    assert payload["glosa_id"] == "GLOSA-1"
+    assert key == task.business_key
+
+
+async def test_make_notify_sla_risk_handler_fail_closed_default_no_producer() -> None:
+    """kafka=None: completes anyway (informational-only task must not block the timer path),
+    never fabricates a publish."""
+    handler = make_notify_sla_risk_handler(None)
+    result = await handler(_task(variables={"glosa_id": "GLOSA-1"}))
+    assert result["sla_risk_notified"] is True
+
+
+# ----- escalate_ans_timeout (BT_PrazoMax* -> ST_EscalateAnsTimeout) ---------------------------
+
+
+def test_escalate_ans_timeout_happy_path() -> None:
+    inp = EscalateAnsTimeoutInput(tenant_id="amh", numero_guia_tiss="G-1", glosa_id="GLOSA-1")
+    result = escalate_ans_timeout(inp)
+    assert result["escalated"] is True
+    assert result["fase"] == "prazo_max"
+
+
+def test_escalate_ans_timeout_never_touches_ans_gateway() -> None:
+    """'ANS' in the task name is the RN 424 regulatory deadline — grep-proof no import of
+    ans_gateway anywhere in recurso.py (AST-based: prose mentions in docstrings/comments don't
+    count, only real `import`/`from ... import` statements)."""
+    import ast
+
+    import maezo.tools.workers.recurso as recurso_module
+
+    with open(recurso_module.__file__, encoding="utf-8") as f:
+        tree = ast.parse(f.read())
+    imported_roots: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported_roots.update(alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imported_roots.add(node.module.split(".")[0])
+            imported_roots.update(alias.name for alias in node.names)
+    assert "ans_gateway" not in imported_roots
+
+
+async def test_make_escalate_ans_timeout_handler_publishes_domain_event_prazo_max() -> None:
+    """has_event(_RECURSO_SLA_BREACHED, fase="prazo_max") — a REAL domain event (not merely an
+    internal notification), matching the BPMN's own embedded event_topic_breach inputParameter."""
+    kafka = FakeKafkaPublisher()
+    handler = make_escalate_ans_timeout_handler(kafka)
+    task = _task(
+        topic="operadora.recurso.escalate_ans_timeout",
+        variables={
+            "tenant_id": "amh",
+            "numero_guia_tiss": "G-1",
+            "glosa_id": "GLOSA-1",
+            "glosa_type": "administrativa",
+            "event_topic_breach": "agents.events.recurso.sla_breached",
+        },
+    )
+    result = await handler(task)
+    assert result["escalated"] is True
+    assert len(kafka.published) == 1
+    topic, payload, key = kafka.published[0]
+    assert topic == "agents.events.recurso.sla_breached"
+    assert payload["fase"] == "prazo_max"
+    assert payload["glosa_id"] == "GLOSA-1"
+    assert key == task.business_key
+
+
+async def test_make_escalate_ans_timeout_handler_defaults_event_topic_when_absent() -> None:
+    """Defensive default when `event_topic_breach` is missing from variables (should never
+    happen against the real BPMN, which always carries it)."""
+    kafka = FakeKafkaPublisher()
+    handler = make_escalate_ans_timeout_handler(kafka)
+    await handler(_task(variables={"glosa_id": "GLOSA-1"}))
+    topic, _payload, _key = kafka.published[0]
+    assert topic == "agents.events.recurso.sla_breached"
+
+
+async def test_make_escalate_ans_timeout_handler_fail_closed_default_no_producer() -> None:
+    handler = make_escalate_ans_timeout_handler(None)
+    result = await handler(_task(variables={"glosa_id": "GLOSA-1"}))
+    assert result["escalated"] is True
+
+
+# ----- submit_appeal (GW_DecisaoRecurso RECORRER / GW_MeritoAuditor MANTER -> ST_SubmitAppeal) -
+
+
+def test_mint_protocolo_recurso_is_deterministic_by_business_key() -> None:
+    """ADR-0030/T-H determinism: the SAME business key always mints the IDENTICAL protocol — no
+    time_ns/uuid/random (mirrors LabeledMockAnsGatewayTransport's MOCK-...-{business_key})."""
+    bk = "RECURSO-amh-GUIA-1-GLOSA-1"
+    first = _mint_protocolo_recurso(bk, "amh", "GUIA-1", "GLOSA-1")
+    second = _mint_protocolo_recurso(bk, "amh", "GUIA-1", "GLOSA-1")
+    assert first == second
+    assert first == f"RECAPPEAL-{bk}"
+
+
+def test_mint_protocolo_recurso_differs_by_business_key() -> None:
+    a = _mint_protocolo_recurso("RECURSO-amh-G-1-X", "amh", "G-1", "X")
+    b = _mint_protocolo_recurso("RECURSO-amh-G-2-Y", "amh", "G-2", "Y")
+    assert a != b
+
+
+def test_mint_protocolo_recurso_falls_back_to_composed_key_when_business_key_blank() -> None:
+    """Defensive fallback (production always carries business_key) — still deterministic."""
+    result = _mint_protocolo_recurso("", "amh", "GUIA-1", "GLOSA-1")
+    assert result == "RECAPPEAL-RECURSO-amh-GUIA-1-GLOSA-1"
+    assert result == _mint_protocolo_recurso("  ", "amh", "GUIA-1", "GLOSA-1")
+
+
+def test_mint_protocolo_recurso_never_uses_time_or_random() -> None:
+    """Static proof (independent of the shared arch-test baseline fence) that THIS specific
+    function's BODY (not its docstring prose) contains no nondeterministic call — AST-based,
+    mirrors test_worker_handler_purity.py's `_nondeterministic_calls` detector."""
+    import ast
+    import inspect
+
+    nondet_dotted = {"time.time_ns", "time.time", "uuid.uuid4", "uuid.uuid1", "uuid.uuid3", "uuid.uuid5"}
+    nondet_roots = {"random", "secrets", "os"}
+
+    tree = ast.parse(inspect.getsource(_mint_protocolo_recurso))
+    hits: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+            dotted = f"{node.value.id}.{node.attr}"
+            if dotted in nondet_dotted or node.value.id in nondet_roots:
+                hits.add(dotted)
+    assert not hits, f"nondeterministic call(s) found in _mint_protocolo_recurso: {hits}"
+
+
+def test_submit_appeal_happy_path_sets_loop_counter_zero() -> None:
+    inp = SubmitAppealInput(tenant_id="amh", numero_guia_tiss="G-1", glosa_id="GLOSA-1")
+    result = submit_appeal(inp, business_key="RECURSO-amh-G-1-GLOSA-1")
+    assert result["loop_counter"] == 0
+    assert result["protocolo_recurso"] == "RECAPPEAL-RECURSO-amh-G-1-GLOSA-1"
+
+
+def test_submit_appeal_missing_business_key_still_deterministic() -> None:
+    inp = SubmitAppealInput(tenant_id="amh", numero_guia_tiss="G-1", glosa_id="GLOSA-1")
+    result = submit_appeal(inp)
+    assert result["protocolo_recurso"] == submit_appeal(inp)["protocolo_recurso"]
+
+
+async def test_make_submit_appeal_handler_publishes_notification_and_result() -> None:
+    """Test-spec invariant (`test_happy_path_escalar_auditor_mantem_recurso`):
+    notifications_of_type("recurso.submit_appeal") must be observable."""
+    kafka = FakeKafkaPublisher()
+    handler = make_submit_appeal_handler(kafka)
+    task = _task(
+        topic="operadora.recurso.submit_appeal",
+        business_key="RECURSO-amh-G-1-GLOSA-1",
+        variables={"tenant_id": "amh", "numero_guia_tiss": "G-1", "glosa_id": "GLOSA-1"},
+    )
+    result = await handler(task)
+    assert result["protocolo_recurso"] == "RECAPPEAL-RECURSO-amh-G-1-GLOSA-1"
+    assert result["loop_counter"] == 0
+    assert len(kafka.published) == 1
+    topic, payload, key = kafka.published[0]
+    assert topic == "operadora.notifications.internal"
+    assert payload["type"] == "recurso.submit_appeal"
+    assert payload["protocolo_recurso"] == result["protocolo_recurso"]
+    assert key == task.business_key
+
+
+async def test_make_submit_appeal_handler_fail_closed_default_no_producer() -> None:
+    handler = make_submit_appeal_handler(None)
+    result = await handler(_task(variables={"glosa_id": "GLOSA-1"}))
+    assert result["protocolo_recurso"]
+    assert result["loop_counter"] == 0
+
+
+# ----- track_status (ICE_AguardarResposta loop -> ST_TrackStatus) ----------------------------
+
+
+def test_track_status_happy_path() -> None:
+    inp = TrackStatusInput(glosa_id="GLOSA-1", protocolo_recurso="RECAPPEAL-X")
+    result = track_status(inp)
+    assert result["tracked"] is True
+    assert result["glosa_id"] == "GLOSA-1"
+
+
+def test_track_status_never_touches_loop_counter() -> None:
+    """The BPMN's own outputParameter increments loop_counter; the worker must not echo/return
+    it (double-count risk against that pre-complete expression)."""
+    result = track_status(TrackStatusInput())
+    assert "loop_counter" not in result
+
+
+async def test_make_track_status_handler_publishes_notification() -> None:
+    """Test-spec invariant (`test_loop_acompanhamento_limitado`):
+    notifications_of_type("recurso.track_status") must be observable."""
+    kafka = FakeKafkaPublisher()
+    handler = make_track_status_handler(kafka)
+    task = _task(
+        topic="operadora.recurso.track_status",
+        variables={"glosa_id": "GLOSA-1", "protocolo_recurso": "RECAPPEAL-X"},
+    )
+    result = await handler(task)
+    assert result["tracked"] is True
+    assert len(kafka.published) == 1
+    topic, payload, key = kafka.published[0]
+    assert topic == "operadora.notifications.internal"
+    assert payload["type"] == "recurso.track_status"
+    assert payload["protocolo_recurso"] == "RECAPPEAL-X"
+    assert key == task.business_key
+
+
+async def test_make_track_status_handler_fail_closed_default_no_producer() -> None:
+    handler = make_track_status_handler(None)
+    result = await handler(_task(variables={"glosa_id": "GLOSA-1"}))
+    assert result["tracked"] is True
+
+
+# ----- reconcile_payment (ST_ReconcilePaymentDeferido/Parcial) --------------------------------
+
+
+def test_reconcile_payment_happy_path_mirrors_contas_shape() -> None:
+    result = reconcile_payment("LOTE-1", "GUIA-1", "deferido")
+    assert result == {
+        "reconciled": True,
+        "status": "deferido",
+        "numero_lote_tiss": "LOTE-1",
+        "numero_guia_tiss": "GUIA-1",
+    }
+
+
+def test_reconcile_payment_default_status_is_deferido() -> None:
+    result = reconcile_payment("LOTE-1", "GUIA-1")
+    assert result["status"] == "deferido"
+
+
+def test_reconcile_payment_parcial_status() -> None:
+    result = reconcile_payment("LOTE-1", "GUIA-1", "parcialmente_deferido")
+    assert result["status"] == "parcialmente_deferido"
+
+
+def test_reconcile_payment_entry_reads_resposta_operadora_as_status() -> None:
+    variables = {
+        "numero_lote_tiss": "LOTE-1",
+        "numero_guia_tiss": "GUIA-1",
+        "resposta_operadora": "parcialmente_deferido",
+    }
+    result = reconcile_payment_entry(variables)
+    assert result == reconcile_payment("LOTE-1", "GUIA-1", "parcialmente_deferido")
+
+
+def test_reconcile_payment_entry_missing_input_defaults_safe() -> None:
+    result = reconcile_payment_entry({})
+    assert result["reconciled"] is True
+    assert result["status"] == "deferido"
+    assert result["numero_lote_tiss"] == ""
+    assert result["numero_guia_tiss"] == ""
+
+
+def test_reconcile_payment_entry_never_calls_kafka() -> None:
+    """kafka is accepted (donor contract) but never invoked — a real FakeKafkaPublisher must
+    stay untouched (no `.published` entries)."""
+    kafka = FakeKafkaPublisher()
+    reconcile_payment_entry({}, kafka=kafka)
+    assert kafka.published == []
+
+
+# ----- register_recurso_workers wires all 5 new topics ----------------------------------------
+
+
+def test_register_recurso_workers_registers_all_5_new_topics() -> None:
+    from maezo.tools.workers.harness import FakeWorkerTransport, WorkerHarness
+    from maezo.tools.workers.recurso import register_recurso_workers
+
+    harness = WorkerHarness(FakeWorkerTransport(), worker_id="probe")
+    register_recurso_workers(harness, FakeKafkaPublisher())
+    topics = set(harness.registered_topics)
+    for topic in (
+        "operadora.recurso.notify_sla_risk",
+        "operadora.recurso.escalate_ans_timeout",
+        "operadora.recurso.submit_appeal",
+        "operadora.recurso.track_status",
+        "operadora.recurso.reconcile_payment",
+    ):
+        assert topic in topics, f"{topic} not registered by register_recurso_workers"

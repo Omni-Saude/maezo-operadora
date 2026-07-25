@@ -156,19 +156,32 @@ data_solicitacao_iso, documentos_refs (json). Contrato completo: docs/processes/
     <!-- Ramo: pendencia de notificacao previa (inadimplencia/for-cause sem notificacao feita) -->
     <bpmn:serviceTask id="ST_RequestNotification" name="Solicitar/registrar notificacao previa (RN 593)"
                       camunda:type="external" camunda:topic="operadora.cancel.request_notification">
-      <bpmn:documentation>Dispara/registra a notificacao previa ao beneficiario (RN 593 — DRAFT/verify). Tambem publica agents.events.cancel.pended (pendencia aberta). NAO rescinde.</bpmn:documentation>
+      <bpmn:documentation>Dispara/registra a notificacao previa ao beneficiario (RN 593 — DRAFT/verify). NAO rescinde. Worker dict-first (ADR-0026, del kafka): NAO publica agents.events.cancel.pended diretamente — ver ST_PublishCancelPended logo a seguir (T3.1 Wave 1 remedy B, event-gap design doc §2.2).</bpmn:documentation>
+      <bpmn:incoming>Flow_SlaPreNotif_Request</bpmn:incoming>
+      <bpmn:outgoing>Flow_Request_PubPended</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- T3.1 Wave 1 remedy B (event-gap design doc §2.2; contract SP-OP-CANCEL-001.md:91 "produz"
+         agents.events.cancel.pended na pendencia de notificacao previa). ST_RequestNotification e'
+         dict-first (ADR-0026) e nao publica; o generico operadora.events.publish fecha o gap aqui,
+         mirror byte-a-byte de ST_PublishSlaBreach (mesmo padrao event_topic/event_payload_vars,
+         boundary-free por convencao 15/16 — check-bpmn-error-allowlist §0.4). event_payload_vars
+         so' chaves de negocio (tenant_id, numero_contrato, tipo_solicitacao) — sem PHI. -->
+    <bpmn:serviceTask id="ST_PublishCancelPended" name="Publicar evento: cancel.pended"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
       <bpmn:extensionElements>
         <camunda:inputOutput>
-          <camunda:inputParameter name="event_topic_pended">agents.events.cancel.pended</camunda:inputParameter>
+          <camunda:inputParameter name="event_topic">agents.events.cancel.pended</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_contrato,tipo_solicitacao</camunda:inputParameter>
         </camunda:inputOutput>
       </bpmn:extensionElements>
-      <bpmn:incoming>Flow_SlaPreNotif_Request</bpmn:incoming>
-      <bpmn:outgoing>Flow_Request_WaitNotif</bpmn:outgoing>
+      <bpmn:incoming>Flow_Request_PubPended</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubPended_WaitNotif</bpmn:outgoing>
     </bpmn:serviceTask>
 
     <!-- Corrida: ack da notificacao previa chega OU prazo expira. AMBOS -> analise humana (INVERTE auto-rescisao). -->
     <bpmn:eventBasedGateway id="GW_AguardarNotificacao" name="Aguardar notificacao previa">
-      <bpmn:incoming>Flow_Request_WaitNotif</bpmn:incoming>
+      <bpmn:incoming>Flow_PubPended_WaitNotif</bpmn:incoming>
       <bpmn:outgoing>Flow_Wait_NotifAck</bpmn:outgoing>
       <bpmn:outgoing>Flow_Wait_PrazoNotif</bpmn:outgoing>
     </bpmn:eventBasedGateway>
@@ -473,7 +486,8 @@ ERR_CANCEL_MANTER_NOT_HUMAN).
     <bpmn:sequenceFlow id="Flow_Effectuate_Pub" sourceRef="ST_EffectuateMemberRequest" targetRef="ST_PublishCanceladoBeneficiario"/>
     <bpmn:sequenceFlow id="Flow_PubCancelado_End" sourceRef="ST_PublishCanceladoBeneficiario" targetRef="End_CanceladoBeneficiario"/>
     <bpmn:sequenceFlow id="Flow_SlaPreNotif_Request" sourceRef="BRT_CancelSlaPreNotif" targetRef="ST_RequestNotification"/>
-    <bpmn:sequenceFlow id="Flow_Request_WaitNotif" sourceRef="ST_RequestNotification" targetRef="GW_AguardarNotificacao"/>
+    <bpmn:sequenceFlow id="Flow_Request_PubPended" sourceRef="ST_RequestNotification" targetRef="ST_PublishCancelPended"/>
+    <bpmn:sequenceFlow id="Flow_PubPended_WaitNotif" sourceRef="ST_PublishCancelPended" targetRef="GW_AguardarNotificacao"/>
     <bpmn:sequenceFlow id="Flow_Wait_NotifAck" sourceRef="GW_AguardarNotificacao" targetRef="ICE_NotificacaoAck"/>
     <bpmn:sequenceFlow id="Flow_Wait_PrazoNotif" sourceRef="GW_AguardarNotificacao" targetRef="ICE_PrazoNotificacao"/>
     <bpmn:sequenceFlow id="Flow_NotifAck_ResolveFacts" sourceRef="ICE_NotificacaoAck" targetRef="ST_ResolveFacts"/>
@@ -545,6 +559,9 @@ ERR_CANCEL_MANTER_NOT_HUMAN).
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_RequestNotification" bpmnElement="ST_RequestNotification">
         <dc:Bounds x="1070" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishCancelPended" bpmnElement="ST_PublishCancelPended">
+        <dc:Bounds x="1150" y="184" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_GW_AguardarNotificacao" bpmnElement="GW_AguardarNotificacao" isMarkerVisible="true">
         <dc:Bounds x="1250" y="67" width="50" height="50"/>
@@ -683,8 +700,14 @@ ERR_CANCEL_MANTER_NOT_HUMAN).
         <di:waypoint x="990" y="92"/>
         <di:waypoint x="1070" y="92"/>
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_Request_WaitNotif" bpmnElement="Flow_Request_WaitNotif">
-        <di:waypoint x="1170" y="92"/>
+      <bpmndi:BPMNEdge id="Edge_Flow_Request_PubPended" bpmnElement="Flow_Request_PubPended">
+        <di:waypoint x="1120" y="132"/>
+        <di:waypoint x="1120" y="224"/>
+        <di:waypoint x="1150" y="224"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubPended_WaitNotif" bpmnElement="Flow_PubPended_WaitNotif">
+        <di:waypoint x="1200" y="184"/>
+        <di:waypoint x="1200" y="92"/>
         <di:waypoint x="1250" y="92"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Wait_NotifAck" bpmnElement="Flow_Wait_NotifAck">

@@ -8,23 +8,32 @@ from pathlib import Path
 import pytest
 
 from maezo.tools.workers.ceilings import CeilingResolver
+from maezo.tools.workers.harness import (
+    FakeKafkaPublisher,
+    FakeWorkerTransport,
+    WorkerHarness,
+)
 from maezo.tools.workers.reembolso import (
-    ReembolsoCalculoResult,
     ReembolsoDenialInput,
     ReembolsoDenialNotHumanError,
     ReembolsoInput,
     ReembolsoProtocoloInvalidoError,
-    auto_approve_or_route,
+    analyze_request,
+    analyze_request_entry,
     calculate_amount_entry,
     calculate_value,
     check_coverage,
     check_coverage_entry,
     check_prazo_entry,
     issue_payment_entry,
-    notify_beneficiario,
+    notify_sla_risk,
+    notify_sla_risk_entry,
     process_payment,
     publish_completed,
     publish_completed_entry,
+    register_reembolso_workers,
+    request_documents,
+    request_documents_entry,
     send_reembolso_denial,
     send_reembolso_denial_entry,
     validate_reembolso,
@@ -210,11 +219,15 @@ def test_calculate_value_urgencia_multiplier() -> None:
 
 
 def test_within_table_max_value_zero_routes_analise_humana(tmp_path: Path) -> None:
-    """THE T1.9 property: a within-table request with max_value_brl=0 routes ANALISE_HUMANA.
+    """THE T1.9 property: a within-table request with max_value_brl=0 computes dentro_teto_l2=False.
 
     consulta @ 30000 cents is within the 35000 reference table (dentro_tabela=True), but the
-    reembolso_auto_approval ceiling is 0 (D-07) -> dentro_teto_l2=False -> auto-approval gate
-    falls through to ANALISE_HUMANA. This is the exact acceptance criterion.
+    reembolso_auto_approval ceiling is 0 (D-07) -> dentro_teto_l2=False. The auto-approval
+    routing itself is the NATIVE DMN `reembolso_auto_approval` (BRT_AutoApproval,
+    spec/processes/dmn/reembolso_coverage.dmn — its ONLY AUTO_APROVAR rule, `r_auto`, requires
+    dentro_teto_l2=true; hitPolicy FIRST with fail-safe catch-all ANALISE_HUMANA), so the False
+    fact this worker computes is exactly what forces ANALISE_HUMANA engine-side. This is the
+    exact acceptance criterion.
     """
     resolver = _pin_resolver(tmp_path, max_value_brl=0)
     inp = ReembolsoInput(
@@ -229,9 +242,6 @@ def test_within_table_max_value_zero_routes_analise_humana(tmp_path: Path) -> No
     calculo = calculate_value(inp, resolver=resolver)
     assert calculo.dentro_tabela is True
     assert calculo.dentro_teto_l2 is False
-
-    decision = auto_approve_or_route(calculo, requer_avaliacao_clinica=False)
-    assert decision.recomendacao == "ANALISE_HUMANA"
 
 
 def test_calculate_value_ignores_inbound_dentro_teto_l2(tmp_path: Path) -> None:
@@ -255,10 +265,12 @@ def test_calculate_value_ignores_inbound_dentro_teto_l2(tmp_path: Path) -> None:
 
 
 def test_calculate_value_within_ceiling_when_configured(tmp_path: Path) -> None:
-    """A real positive ceiling enables auto-approval, config-driven, at the inclusive boundary.
+    """A real positive ceiling computes dentro_teto_l2=True, config-driven, at the inclusive boundary.
 
     Ceiling R$500 (50000 cents). An unknown category makes valor_calculado == valor_solicitado,
     so the boundary can be exercised directly: 50000 -> within (True), 50001 -> above (False).
+    (The AUTO_APROVAR routing on a True fact is the native DMN `reembolso_auto_approval`,
+    BRT_AutoApproval — engine-side, not this worker.)
     """
     resolver = _pin_resolver(tmp_path, max_value_brl=500)
 
@@ -273,7 +285,6 @@ def test_calculate_value_within_ceiling_when_configured(tmp_path: Path) -> None:
     calculo_ok = calculate_value(at_boundary, resolver=resolver)
     assert calculo_ok.dentro_tabela is True
     assert calculo_ok.dentro_teto_l2 is True
-    assert auto_approve_or_route(calculo_ok, requer_avaliacao_clinica=False).recomendacao == "AUTO_APROVAR"
 
     above = ReembolsoInput(
         tenant_id="amh",
@@ -288,55 +299,208 @@ def test_calculate_value_within_ceiling_when_configured(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# auto_approve_or_route
+# request_documents (T2.5-P2B — BPMN ST_SolicitarDocumentos, previously missing)
 # ---------------------------------------------------------------------------
 
 
-def test_auto_approve_or_route_approve() -> None:
-    """All conditions met -> AUTO_APROVAR."""
-    calculo = ReembolsoCalculoResult(
-        valor_calculado_tabela_cents=35000,
-        valor_solicitado_cents=35000,
-        dentro_tabela=True,
-        dentro_teto_l2=True,
-    )
-    result = auto_approve_or_route(calculo, requer_avaliacao_clinica=False)
-    assert result.recomendacao == "AUTO_APROVAR"
-
-
-def test_auto_approve_or_route_clinica() -> None:
-    """Requer avaliacao clinica -> ANALISE_HUMANA."""
-    calculo = ReembolsoCalculoResult(
-        valor_calculado_tabela_cents=35000,
-        valor_solicitado_cents=35000,
-        dentro_tabela=True,
-        dentro_teto_l2=True,
-    )
-    result = auto_approve_or_route(calculo, requer_avaliacao_clinica=True)
-    assert result.recomendacao == "ANALISE_HUMANA"
-
-
-def test_auto_approve_or_route_fora_tabela() -> None:
-    """Above table -> ANALISE_HUMANA."""
-    calculo = ReembolsoCalculoResult(
-        valor_calculado_tabela_cents=35000,
-        valor_solicitado_cents=50000,
-        dentro_tabela=False,
-        dentro_teto_l2=False,
-    )
-    result = auto_approve_or_route(calculo, requer_avaliacao_clinica=False)
-    assert result.recomendacao == "ANALISE_HUMANA"
-
-
-# ---------------------------------------------------------------------------
-# notify_beneficiario
-# ---------------------------------------------------------------------------
-
-
-def test_notify_beneficiario_reembolso() -> None:
-    """notify_beneficiario sends status notification."""
-    result = notify_beneficiario("BEN-PSEUDO-001", "REEMB-008", "aprovado")
+def test_request_documents_happy_path() -> None:
+    """request_documents opens the documentation pendency to the beneficiario."""
+    result = request_documents("BEN-PSEUDO-001", "REEMB-010")
     assert result["notified"] is True
+    assert result["status"] == "pended"
+    assert result["beneficiario_pseudo_id"] == "BEN-PSEUDO-001"
+    assert result["protocolo_reembolso"] == "REEMB-010"
+    assert result["message_type"] == "pendencia_documentacao"
+
+
+def test_request_documents_never_carries_a_decision() -> None:
+    """Invariant (L0): request_documents never fabricates or carries an adverse decision.
+
+    The BPMN's own ST_SolicitarDocumentos documentation: expiry of the pendency NEVER
+    auto-denies — a human decides in UT_DecidirPendenciaExpirada.
+    """
+    result = request_documents("", "")
+    assert "decisao_reembolso" not in result
+    assert "decisao_pendencia" not in result
+    assert set(result.keys()) == {
+        "notified",
+        "beneficiario_pseudo_id",
+        "protocolo_reembolso",
+        "status",
+        "message_type",
+    }
+
+
+def test_request_documents_entry_round_trips_default_pendencia() -> None:
+    """Default message_type is 'pendencia_documentacao' (the pendency-open semantics of
+    ST_SolicitarDocumentos; mirrors recurso's request_documents idiom)."""
+    variables = {"beneficiario_pseudo_id": "B-1", "protocolo_reembolso": "R-1"}
+    assert request_documents_entry(variables) == request_documents("B-1", "R-1", "pendencia_documentacao")
+
+
+def test_request_documents_entry_missing_inputs_fail_safe() -> None:
+    """Missing inputs degrade to empty identifiers — never an exception, never a decision."""
+    result = request_documents_entry({})
+    assert result["notified"] is True
+    assert result["beneficiario_pseudo_id"] == ""
+    assert result["protocolo_reembolso"] == ""
+
+
+def test_request_documents_entry_ignores_kafka_seam() -> None:
+    """Entry accepts the kafka seam (donor contract) but never publishes (documented gap)."""
+    kafka = FakeKafkaPublisher()
+    result = request_documents_entry({"protocolo_reembolso": "R-2"}, kafka=kafka)
+    assert result["notified"] is True
+    assert kafka.published == []
+
+
+# ---------------------------------------------------------------------------
+# analyze_request (T2.5-P2B — BPMN ST_PrepararDossie, previously missing)
+# ---------------------------------------------------------------------------
+
+
+def test_analyze_request_never_decides() -> None:
+    """analyze_request assembles the dossie; it NEVER substitutes the human decision (ADR-0005)."""
+    inp = ReembolsoInput(
+        tenant_id="amh",
+        protocolo_reembolso="REEMB-011",
+        tipo_reembolso="livre_escolha",
+        categoria_procedimento="consulta",
+        codigo_procedimento_tuss="10101012",
+        valor_solicitado_cents=35000,
+    )
+    result = analyze_request(inp)
+    assert result["dossie"] == "dossie_instruido"
+    assert result["recomendacao_sugerida"] == "ANALISE_HUMANA"
+    assert result["protocolo_reembolso"] == "REEMB-011"
+    assert "decisao_reembolso" not in result
+
+
+def test_analyze_request_carries_calculo_evidence_opportunistically() -> None:
+    """dentro_tabela/requer_avaliacao_clinica ride as evidence when present — facts, not verdicts."""
+    inp = ReembolsoInput(
+        protocolo_reembolso="REEMB-012",
+        dentro_tabela=True,
+        requer_avaliacao_clinica=True,
+        valor_solicitado_cents=99000,
+    )
+    result = analyze_request(inp)
+    assert result["dentro_tabela"] is True
+    assert result["requer_avaliacao_clinica"] is True
+    assert result["valor_solicitado_cents"] == 99000
+    assert result["recomendacao_sugerida"] == "ANALISE_HUMANA"
+
+
+def test_analyze_request_missing_inputs_fail_safe() -> None:
+    """Empty input still yields a human-routing dossie — never an exception, never a verdict."""
+    result = analyze_request(ReembolsoInput())
+    assert result["recomendacao_sugerida"] == "ANALISE_HUMANA"
+    assert "decisao_reembolso" not in result
+
+
+def test_analyze_request_entry_round_trips() -> None:
+    variables = {
+        "protocolo_reembolso": "REEMB-013",
+        "tipo_reembolso": "urgencia_emergencia",
+        "valor_solicitado_cents": 12000,
+    }
+    assert analyze_request_entry(variables) == analyze_request(ReembolsoInput(**variables))
+
+
+def test_analyze_request_entry_ignores_kafka_seam() -> None:
+    kafka = FakeKafkaPublisher()
+    result = analyze_request_entry({"protocolo_reembolso": "REEMB-014"}, kafka=kafka)
+    assert result["recomendacao_sugerida"] == "ANALISE_HUMANA"
+    assert kafka.published == []
+
+
+# ---------------------------------------------------------------------------
+# notify_sla_risk (T2.5-P2B — BPMN ST_NotificarRiscoSla, previously missing;
+# mirrors cancel.notify_sla_risk's proven pattern)
+# ---------------------------------------------------------------------------
+
+
+def test_notify_sla_risk_happy_path() -> None:
+    """notify_sla_risk is informational-only: no guard, no decision, UT stays open."""
+    inp = ReembolsoInput(protocolo_reembolso="REEMB-SLA-001", tipo_reembolso="livre_escolha")
+    result = notify_sla_risk(inp)
+    assert result["sla_risk_notified"] is True
+    assert result["protocolo_reembolso"] == "REEMB-SLA-001"
+
+
+def test_notify_sla_risk_never_alters_a_decision() -> None:
+    """Invariant: notify_sla_risk's output never carries a decision/adverse marker."""
+    result = notify_sla_risk(ReembolsoInput(protocolo_reembolso="REEMB-SLA-002"))
+    assert "decisao_reembolso" not in result
+    assert set(result.keys()) == {"sla_risk_notified", "protocolo_reembolso"}
+
+
+def test_notify_sla_risk_missing_inputs_fail_safe() -> None:
+    """Empty input still notifies (fail-safe, non-adverse) — never an exception."""
+    result = notify_sla_risk(ReembolsoInput())
+    assert result["sla_risk_notified"] is True
+    assert result["protocolo_reembolso"] == ""
+
+
+def test_notify_sla_risk_entry_round_trips() -> None:
+    variables = {"protocolo_reembolso": "REEMB-SLA-003", "tipo_reembolso": "urgencia_emergencia"}
+    input_data = ReembolsoInput(
+        **{k: v for k, v in variables.items() if k in ReembolsoInput.__dataclass_fields__}
+    )
+    assert notify_sla_risk_entry(variables) == notify_sla_risk(input_data)
+
+
+def test_notify_sla_risk_entry_ignores_kafka_seam() -> None:
+    kafka = FakeKafkaPublisher()
+    result = notify_sla_risk_entry({"protocolo_reembolso": "REEMB-SLA-004"}, kafka=kafka)
+    assert result["sla_risk_notified"] is True
+    assert kafka.published == []
+
+
+# ---------------------------------------------------------------------------
+# register_reembolso_workers — registry/drift coverage (T2.5-P2B reconciliation)
+# ---------------------------------------------------------------------------
+
+# The 8 `operadora.reembolso.*` topics SP-OP-REEMBOLSO-001 declares as camunda:topic (grep
+# spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn), excl. the shared
+# `operadora.events.publish` (registered separately by events.register_events_workers).
+_BPMN_REEMBOLSO_TOPICS = frozenset(
+    {
+        "operadora.reembolso.check_coverage",
+        "operadora.reembolso.check_prazo",
+        "operadora.reembolso.calculate_amount",
+        "operadora.reembolso.request_documents",
+        "operadora.reembolso.analyze_request",
+        "operadora.reembolso.notify_sla_risk",
+        "operadora.reembolso.issue_payment",
+        "operadora.reembolso.send_reembolso_denial",
+    }
+)
+
+# Function-derived topic KEPT by documented registry-completeness convention (shared with
+# recurso.py; the generic events.publish task serves the BPMN's ST_Publish* nodes).
+_CONVENTION_TOPICS = frozenset({"operadora.reembolso.publish_completed"})
+
+
+def test_register_reembolso_workers_matches_bpmn_topics_plus_convention() -> None:
+    """Registry coverage (ADR-0026 test strategy): the registered `operadora.reembolso.*` set is
+    EXACTLY the 8 BPMN-declared topics + the documented publish_completed convention — no gap
+    (previously-missing request_documents/analyze_request/notify_sla_risk now registered) and no
+    orphan (auto_approve_or_route/notify_beneficiario deleted: BRT_AutoApproval is a NATIVE
+    businessRuleTask with camunda:decisionRef=reembolso_auto_approval, and no BPMN topic ever
+    referenced notify_beneficiario)."""
+    harness = WorkerHarness(FakeWorkerTransport(), worker_id="test-worker")
+    register_reembolso_workers(harness, FakeKafkaPublisher())
+    reembolso_topics = {t for t in harness.registered_topics if t.startswith("operadora.reembolso.")}
+    assert reembolso_topics == _BPMN_REEMBOLSO_TOPICS | _CONVENTION_TOPICS
+
+
+def test_register_reembolso_workers_orphans_absent() -> None:
+    """The two T2.5-P2B-deleted orphan registrations must never come back."""
+    harness = WorkerHarness(FakeWorkerTransport(), worker_id="test-worker")
+    register_reembolso_workers(harness, FakeKafkaPublisher())
+    assert "operadora.reembolso.auto_approve_or_route" not in harness.registered_topics
+    assert "operadora.reembolso.notify_beneficiario" not in harness.registered_topics
 
 
 # ---------------------------------------------------------------------------
