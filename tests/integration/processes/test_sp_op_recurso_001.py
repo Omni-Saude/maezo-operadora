@@ -375,6 +375,26 @@ _RECURSO_UNIMPLEMENTED_TOPIC_REASON = (
 # (_RECURSO_AUDITOR_ACEITAR_GLOSA_GUARD_GAP_REASON) is retired the same way (see module docstring
 # finding 4); every path (analista, coordenacao, auditor) now passes.
 
+_RECURSO_PENDED_PUBLISH_ADDED_REASON = (
+    "v2 gap (finding 1's pended half only) — BUILT, PENDING LIVE-PROOF FLIP (T3.1 event-gap "
+    "remedy B): ST_SolicitarDocumentos's own event_topic_pended inputParameter was "
+    "worker-intended but request_documents_entry discards its kafka seam (del kafka, ADR-0026) "
+    "and never publishes — the embedded publish never happened. FIXED (BPMN-only, no src/ "
+    "change): a dedicated boundary-free operadora.events.publish task, ST_PublishRecursoPended, "
+    "now sits on Flow_Solicitar_WaitDocs (spec/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa."
+    "bpmn: ST_SolicitarDocumentos -> ST_PublishRecursoPended -> GW_AguardarDocs) and emits "
+    "agents.events.recurso.pended with event_payload_vars=tenant_id,numero_guia_tiss,glosa_id,"
+    "prestador_id on every NORMAL completion of ST_SolicitarDocumentos (BE_GlosaInvalidaDocs "
+    "still intercepts the token first on the glosa_id-ausente guard path, so the guard tests "
+    "asserting `not has_event(_RECURSO_PENDED)` are unaffected). make validate-artifacts and "
+    "make check-bpmn-error-allowlist both PASS against it (boundary-free task does not perturb "
+    "the operadora.events.publish dispatch-filter escape, ADR-0030 §2 clause b1/b2). NOT YET "
+    "LIVE-PROVEN: no docker/live CIB Seven engine in this task's scope (spec+test edit only) — "
+    "make deploy-artifacts against make dev-stack + this suite + removing this mark is the "
+    "deliberate remaining step (program discipline; precedent: recurso-batch2's own "
+    "_RECURSO_UNIMPLEMENTED_TOPIC_REASON / auth's removed boundary xfail)."
+)
+
 _RECURSO_INVALID_GLOSA_GUARD_MISSING_REASON = (
     "v2 gap (GAP-RECURSO-3, finding 5, TWO independent reasons, both grep/read-confirmed) — BOTH "
     "BUILT, PENDING LIVE-PROOF FLIP (t3.1-recurso-batch2): the BPMN declares bpmn:error "
@@ -1152,7 +1172,7 @@ async def test_glosa_id_ausente_analise_termina_limpo_sem_incidente_travado(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_RECURSO_KAFKA_GAP_REASON, strict=True)
+@pytest.mark.xfail(reason=_RECURSO_PENDED_PUBLISH_ADDED_REASON, strict=True)
 async def test_pendencia_docs_recebidos_reavalia(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
@@ -1160,17 +1180,28 @@ async def test_pendencia_docs_recebidos_reavalia(
 ) -> None:
     """documentacao_recurso_completa=false => PENDENTE_DOCUMENTACAO; docs_received => reavalia.
 
-    Fails at `has_event(_RECURSO_PENDED)` — ST_SolicitarDocumentos's embedded event_topic_pended
-    publish never happens (finding 1).
+    T3.1 event-gap remedy B: ST_PublishRecursoPended (spec/processes/bpmn/
+    SP-OP-RECURSO-001_Recurso_Glosa.bpmn) now publishes agents.events.recurso.pended immediately
+    downstream of ST_SolicitarDocumentos, on the same token — so the event itself is the
+    execution-proof and the formerly-dead `notifications_of_type("recurso.request_documents")`
+    assert (worker channel is del-kafka'd, finding 1) is redundant and dropped in favor of a
+    single has_event(...) match on the new task's own payload vars (strongest-kwargs precedent
+    #108/#123). Still xfail/strict pending a live CIB Seven run (no docker in this task's scope,
+    see _RECURSO_PENDED_PUBLISH_ADDED_REASON).
     """
-    inst = await start_recurso(documentacao_recurso_completa=False)
+    glosa_id = _unique_glosa()
+    inst = await start_recurso(documentacao_recurso_completa=False, glosa_id=glosa_id)
     iid = inst["id"]
 
     await recurso_probe.drain()
 
-    assert recurso_probe.has_event(_RECURSO_PENDED), "recurso.pended deve ser publicado na pendencia"
-    req_docs = recurso_probe.notifications_of_type("recurso.request_documents")
-    assert req_docs, "Worker request_documents deve ser executado"
+    assert recurso_probe.has_event(
+        _RECURSO_PENDED,
+        tenant_id="amh",
+        numero_guia_tiss="GUIA-TESTE-0001",
+        glosa_id=glosa_id,
+        prestador_id="PREST-TESTE-001",
+    ), "recurso.pended (ST_PublishRecursoPended) deve ser publicado com os business keys do processo"
 
     business_key = inst["businessKey"]
     correlate_payload = {
