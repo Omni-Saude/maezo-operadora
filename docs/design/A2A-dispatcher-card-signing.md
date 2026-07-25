@@ -275,3 +275,76 @@ This file IS the design doc. Next step for a build orchestrator: lift §5 waves 
 attach the §2 friction table as the per-file port checklist, and open the T-G identity ADR (§7.1)
 before W4's cert half. All donor citations are re-verifiable at
 `/Users/familia/code/Maezo-Healthcare-Plan/src/maezo/a2a/` and v2 citations at `main` @ `f0b7164`.
+
+---
+
+## 9. W3 — Helena→Rafael edge (built 2026-07-25)
+
+**Branch:** `t2.4-a2a-w3-helena-rafael-edge` off `t2.4-a2a-w2-dispatcher` @ `6750a96`. Basis for the
+R1 design behind this build: an ephemeral recon note at
+`scratchpad/a2a-w3-design.md` (R1 RECON+DESIGN, 2026-07-25) — this section promotes its load-bearing
+findings into the tracked doc; the ephemeral file itself is not part of the repo.
+
+### 9.1 Headline finding — the inference seam W2 deferred COLLAPSES (no router, no adapter)
+
+W2's `assembly.py` deliberately dropped `RouterInferenceProvider` with a "needs redesign in W3"
+note. The W3 recon found the opposite of a build task: **v2 needs no router and no adapter at all**.
+`RafaelGraph` (`agents/rafael/graph.py:293-310`) was already written to consume v2's
+`runtime.inference.InferenceProvider` FACADE directly — `await self._llm.generate(prompt, *,
+phi=True)` (`graph.py:566`) — not the donor's graph-local `agents.<id>.contracts.InferenceProvider`
+(`complete(task_kind, system, messages, *, zone, response_schema)`) that `RouterInferenceProvider`
+existed to bridge. Both ends of that bridge are absent in v2; there is nothing to adapt. PHI
+fail-closed routing is already native: `generate(phi=True)` raises `PhiZoneRoutingError` when the
+active provider isn't `phi_capable` (`inference.py:484-491`) — the donor's `_PhiNotConfiguredProvider`
+sentinel is redundant against it. **W3's rafael handler injects a v2 `InferenceProvider` straight
+into `rafael.graph.build(config)`.** No `RouterInferenceProvider` was ported; none should be in any
+future wave either — this line item is now closed, not deferred.
+
+### 9.2 Scope actually built — in-process (Option A), test/driver-invoked, not a live daemon consumer
+
+Per-file, additive/changed:
+
+| File | Status | What it does |
+|---|---|---|
+| `agents/helena/delegation.py` | NEW/additive | Originator: `build_auth_analysis_envelope` + `delegate_auth_analysis`. Ports ~verbatim from the donor (`Maezo-Healthcare-Plan src/maezo/agents/helena/delegation.py`) — the donor's `from maezo.a2a import Budget, DelegationEnvelope` already resolves against W2's real public surface, so this is a straight port (English-translated docstrings/comments, PT-BR domain terms kept), not a rewrite. Helena's triage graph (`agents/helena/graph.py`) is untouched. |
+| `agents/rafael/delegation.py` | NEW/additive | Target: `state_from_envelope` (routes through `graph.new_rafael_state`, the T1.11 input-boundary gate — NOT a raw cast) + `make_rafael_handler(inference, *, dmn, cibseven, audit_sink, fhir=None, agent_version=...)`, which compiles the REAL `rafael.graph.build(config)` graph and returns an `async handler(envelope) -> HandlerOutput`. REWRITE, not a port: the donor's handler imported a `contracts.py`/`RafaelGraph(inference, tools)` shape that does not exist in v2; v2's `build(config)` fail-closes without `dmn`/`cibseven`/`audit_sink` (`graph.py:648-668`), a larger dependency surface than the donor's inference+tools. |
+| `runtime/agent_runtime/a2a_composition.py` | NEW/additive | `build_auth_delegation_dispatcher(settings)` — Option-A in-process composition: `build_agent_cards(tenant, ["helena","rafael"])` + `{"rafael": make_rafael_handler(...)}` + a real `PostgresAuditSink` (T-F) + a real `PostgresIdempotencyStore` (when `DATABASE_URL` set) + `build_dispatcher(...)`. Reuses `agent_runtime.service._build_tool_deps` for rafael's dmn/cibseven/audit_sink/fhir — deliberately NOT a second, divergent dep-construction path. No production Kafka producer exists anywhere in the platform yet (confirmed — grep for a real `KafkaProducer`/bootstrap wiring returns nothing outside tests); a construction-time no-op `KafkaLike` stands in, clearly labeled, until a live Kafka seam lands (facts are observability, not the T-F audit surface — see §9.3). |
+| `runtime/agent_runtime/service.py` | additive | New OPTIONAL readiness check `a2a_dispatcher_ready`, gated to `agent_id in ("helena", "rafael")` only (the two parties to this one edge — deliberately NOT forced on every unrelated agent replica, keeping W3 to its one-edge scope). Construction-only, mirrors `graph_loaded`: proves `build_auth_delegation_dispatcher(settings)` assembles; never calls `.delegate()`, never executes a turn. |
+| `agents/helena/graph.py`, `agents/rafael/graph.py`, `a2a/{dispatcher,delegation,registry,facts,idempotency,assembly}.py` | UNCHANGED | W3 consumes W1+W2's public surface as-is; adds no new guard/audit/dispatch code. |
+
+**The honest nuance (do not over-claim):** `runtime/agent_runtime/service.py` is still a health-only
+daemon that executes no turns (`agent_graph_execution_not_performed_here`, its own log line) — there
+is no live Kafka-consume loop and no cross-pod delegation consumer. The `a2a_dispatcher_ready` check
+proves the edge *assembles*; the actual `await dispatcher.delegate(envelope)` call in this build is
+driven by the W3 test suite / a thin driver, not by a supervised daemon loop. Remote cross-pod A2A
+transport (queue_ref/endpoint, HTTP/mTLS) remains explicitly out of scope (S5/S8, unchanged from §5).
+
+### 9.3 T-F becomes REAL — two distinct audit surfaces, do not conflate
+
+W2 proved the dispatcher's `_audit_delegation` → `emit_once` call only against `FakeAuditSink`. W3
+wires a REAL `PostgresAuditSink` on the edge and drives `delegate_auth_analysis(...)` against live
+Postgres, so the `a2a.delegate:rafael` row is actually persisted into the audit hash chain on a real
+delegation — this is the T-F "becomes real" moment, not just another unit proof.
+
+Two chain links exist on a full run and must be told apart:
+1. **The A2A delegation audit** (dispatcher `_audit_delegation`, `action="a2a.delegate:rafael"`,
+   `dedup_key=f"{tenant}:a2a:delegate:{task_id}"`) — this IS T-F / site-5, W3's target. Fires
+   strictly BEFORE the dispatcher calls `handlers["rafael"]`.
+2. **Rafael's own process-start audit** (`start_process_idempotent(..., audit_sink=...)`, the T-C2
+   fence inside `graph.py`'s `start_process` node) — a SEPARATE chain link, already covered by
+   `test_rafael_auth_dossier.py`. The W3 integration test asserts specifically on (1)'s
+   `action`+`dedup_key`, never conflating it with (2).
+
+W4 residual (unchanged from §5): daemon-level `audit_sink_ready` fail-closed readiness for A2A, and
+the T-G verifier-gated registry (`build_dispatcher(..., verifier=card_signer_from_key(...))`) so the
+audited `agent_id=envelope.origin` binds to a cryptographically verified card identity. Neither is
+built in W3.
+
+### 9.4 Guardrail (unchanged, re-confirmed)
+
+`HandlerOutput.output_ref` is always `f"process://{business_key}"` (`AUTH-{tenant}-{numero_guia_tiss}`)
+— never a coverage decision. `rafael/delegation.py`'s handler doesn't even forward the dossier in its
+`HandlerOutput.meta` (only `route`/`desfecho`/`process_started` strings) — stricter than the donor,
+which is otherwise mirrored. `graph.py`'s own structural guardrail (`_build_dossier`'s
+`decisao_cobertura` is always `None`) is the thing that makes this true regardless of what the
+handler forwards; the W3 test suite asserts both independently.
