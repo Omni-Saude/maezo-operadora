@@ -375,25 +375,15 @@ _RECURSO_UNIMPLEMENTED_TOPIC_REASON = (
 # (_RECURSO_AUDITOR_ACEITAR_GLOSA_GUARD_GAP_REASON) is retired the same way (see module docstring
 # finding 4); every path (analista, coordenacao, auditor) now passes.
 
-_RECURSO_PENDED_PUBLISH_ADDED_REASON = (
-    "v2 gap (finding 1's pended half only) — BUILT, PENDING LIVE-PROOF FLIP (T3.1 event-gap "
-    "remedy B): ST_SolicitarDocumentos's own event_topic_pended inputParameter was "
-    "worker-intended but request_documents_entry discards its kafka seam (del kafka, ADR-0026) "
-    "and never publishes — the embedded publish never happened. FIXED (BPMN-only, no src/ "
-    "change): a dedicated boundary-free operadora.events.publish task, ST_PublishRecursoPended, "
-    "now sits on Flow_Solicitar_WaitDocs (spec/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa."
-    "bpmn: ST_SolicitarDocumentos -> ST_PublishRecursoPended -> GW_AguardarDocs) and emits "
-    "agents.events.recurso.pended with event_payload_vars=tenant_id,numero_guia_tiss,glosa_id,"
-    "prestador_id on every NORMAL completion of ST_SolicitarDocumentos (BE_GlosaInvalidaDocs "
-    "still intercepts the token first on the glosa_id-ausente guard path, so the guard tests "
-    "asserting `not has_event(_RECURSO_PENDED)` are unaffected). make validate-artifacts and "
-    "make check-bpmn-error-allowlist both PASS against it (boundary-free task does not perturb "
-    "the operadora.events.publish dispatch-filter escape, ADR-0030 §2 clause b1/b2). NOT YET "
-    "LIVE-PROVEN: no docker/live CIB Seven engine in this task's scope (spec+test edit only) — "
-    "make deploy-artifacts against make dev-stack + this suite + removing this mark is the "
-    "deliberate remaining step (program discipline; precedent: recurso-batch2's own "
-    "_RECURSO_UNIMPLEMENTED_TOPIC_REASON / auth's removed boundary xfail)."
-)
+# Finding 1's pended half RESOLVED by t3.1-event-gap-recurso-pended (T3.1 event-gap remedy B) —
+# ST_PublishRecursoPended (boundary-free operadora.events.publish task on Flow_Solicitar_WaitDocs)
+# now emits agents.events.recurso.pended; LIVE-PROVEN against a real CIB Seven 2.1.0 engine
+# (activity ST_PublishRecursoPended completed in engine history on the pendencia instance;
+# has_event matched all 4 payload vars tenant_id/numero_guia_tiss/glosa_id/prestador_id; the
+# glosa_id-ausente boundary instance showed ST_PublishRecursoPended count=0 with
+# BE_GlosaInvalidaDocs=1 -> End_RecursoGlosaInvalidaOrigem, proving the guard-path pre-emption).
+# Its strict-xfail reason constant (_RECURSO_PENDED_PUBLISH_ADDED_REASON) is retired the same way
+# as findings 3/4 above.
 
 _RECURSO_INVALID_GLOSA_GUARD_MISSING_REASON = (
     "v2 gap (GAP-RECURSO-3, finding 5, TWO independent reasons, both grep/read-confirmed) — BOTH "
@@ -1172,7 +1162,6 @@ async def test_glosa_id_ausente_analise_termina_limpo_sem_incidente_travado(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_RECURSO_PENDED_PUBLISH_ADDED_REASON, strict=True)
 async def test_pendencia_docs_recebidos_reavalia(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
@@ -1186,8 +1175,9 @@ async def test_pendencia_docs_recebidos_reavalia(
     execution-proof and the formerly-dead `notifications_of_type("recurso.request_documents")`
     assert (worker channel is del-kafka'd, finding 1) is redundant and dropped in favor of a
     single has_event(...) match on the new task's own payload vars (strongest-kwargs precedent
-    #108/#123). Still xfail/strict pending a live CIB Seven run (no docker in this task's scope,
-    see _RECURSO_PENDED_PUBLISH_ADDED_REASON).
+    #108/#123). LIVE-PROVEN (t3.1-event-gap-recurso-pended live validation): ST_PublishRecursoPended
+    completed in engine history on the pendencia instance and has_event matched all 4 payload
+    vars against a real CIB Seven 2.1.0 engine — strict-xfail mark removed on that proof.
     """
     glosa_id = _unique_glosa()
     inst = await start_recurso(documentacao_recurso_completa=False, glosa_id=glosa_id)
