@@ -353,9 +353,12 @@ _CRED_MISSING_WORKERS_REASON = (
     "REGISTRY DRIFT (finding 1, T3.1 phase-2 port) — NARROWED by T2.5-p2b: the BPMN declares 9 "
     "operadora.cred.* topics; register_credenciamento_workers (credenciamento.py) originally "
     "registered only 5. notify_doc_pendente / register_credenciamento / notify_sla_risk are now "
-    "BUILT and registered (T2.5-p2b, mechanical worker-registry reconciliation) — PENDING "
-    "LIVE-PROOF FLIP (no docker/live-engine run was performed to build them; this reason text is "
-    "updated, the xfail mark/strict is NOT flipped without that proof). Only "
+    "BUILT and registered (T2.5-p2b, mechanical worker-registry reconciliation) — LIVE-PROVEN "
+    "(wave2a, CIB Seven 2.1.0): a live-engine run CONFIRMED these tests still XFAIL and are NOT "
+    "flippable (notify_doc_pendente/notify_sla_risk are dict-first and never kafka.publish, so "
+    "notifications_of_type(...)/has_event(_CRED_PENDED) stay empty on the systemic kafka gap; the "
+    "descredenciamento/credenciamento tests still stall upstream on the unimplemented "
+    "prepare_dossier). Only "
     "operadora.cred.prepare_dossier remains genuinely unimplemented (Carolina A2A integration, "
     "separately gated, explicitly out of scope for T2.5-p2b). ST_PrepareDossierDescred AND "
     "ST_PrepareDossierCred (BPMN lines 303-309, 498-503) both route through this SAME "
@@ -380,10 +383,12 @@ _CRED_DOC_COMPLETA_OVERWRITE_REASON = (
     "completa=false, cred_admissibility.dmn lines 80-90) BEFORE r_cred_clerical/r_cred_humano, so "
     "every credenciamento-direction (non-indicio) scenario in this test reroutes to "
     "PENDENTE_DOCUMENTACAO instead of the intended branch. UPDATE (T2.5-p2b): notify_doc_pendente "
-    "is now BUILT and registered — PENDING LIVE-PROOF FLIP — so the rerouted instance no longer "
+    "is now BUILT and registered — LIVE-PROVEN (wave2a, CIB Seven 2.1.0): a live-engine run "
+    "CONFIRMED this test still XFAILs (NOT flippable) — so the rerouted instance no longer "
     "stalls unserved; instead it correctly reaches ICE_AguardarInfoDoc and waits there for "
     "msg.cred.info_received (never sent by this test), so THIS finding (the overwrite bug itself) "
-    "remains the independent, still-unfixed blocker regardless. Descredenciamento-direction tests "
+    "remains the independent, still-unfixed blocker regardless (NOT fixed here per charter — "
+    "separate task). Descredenciamento-direction tests "
     "are unaffected (r_descred_segue matches on direcao alone). src/** fix (either typing "
     "documentos_refs as Json, or having validate_cred stop clobbering an already-resolved fact) "
     "is out of scope for this port."
@@ -771,7 +776,8 @@ async def test_happy_path_credenciamento_clerical_neutro(
     finding 5 (Kafka-publish gap): register_credenciamento does not itself kafka.publish a
     "cred.register_credenciamento"-typed internal notification (the two has_event(...) assertions
     above it DO go through the generic, already-wired operadora.events.publish worker and would
-    pass). PENDING LIVE-PROOF FLIP.
+    pass). LIVE-PROVEN (wave2a): the documentacao_completa overwrite bug reroutes this test to
+    PENDENTE_DOCUMENTACAO before CLERICAL_CREDENCIAR is reachable, so it still XFAILs — NOT flipped.
     """
     inst = await start_cred(
         direcao="credenciamento",
@@ -1173,9 +1179,10 @@ async def test_documentacao_incompleta_pendente_nunca_nega(
     typed internal notification (mirrors the SAME "not fabricated here" convention documented for
     the other 5 dict-first cred functions and 7+ sibling modules) — both
     `cred_probe.notifications_of_type("cred.notify_doc_pendente")` and
-    `cred_probe.has_event(_CRED_PENDED)` below will still return empty. PENDING LIVE-PROOF FLIP —
-    do not flip without also resolving finding 5 (a genuine kafka.publish fan-out, out of scope
-    for T2.5-p2b's mechanical worker build) or adjusting these two assertions.
+    `cred_probe.has_event(_CRED_PENDED)` below will still return empty. LIVE-PROVEN (wave2a): a
+    live-engine run confirmed both assertions return empty (the systemic kafka gap) — this test
+    still XFAILs and was NOT flipped. Resolving finding 5 (a genuine kafka.publish fan-out, out of
+    scope for T2.5-p2b's mechanical worker build) or adjusting these two assertions is the remedy.
     """
     inst = await start_cred(
         direcao="credenciamento",
