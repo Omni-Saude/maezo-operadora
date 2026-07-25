@@ -250,6 +250,13 @@ _CANCEL_COMPLETED_RUNTIME_VAR_GAP = (
     "already removed by that batch) — this is a runtime-vs-history API selection bug in the test, "
     "not a cancel.py/BPMN gap. Left xfail(strict) pending the one-line adaptation fix (a validator "
     "does not rewrite the builder's adaptation); flips loudly once the API is corrected."
+    "\n\nFIXED + LIVE-FLIPPED (t3.1-test-hygiene-batch): the one-line API swap landed — all 3 call "
+    "sites now read via the new `engine.get_history_variable` (engine_rest.py), which queries "
+    "`GET /history/variable-instance` (processInstanceIdIn=<iid>) instead of the runtime endpoint. "
+    "All 3 tests XPASSed strict on a live engine for the predicted reason (history row present, "
+    "member_request_effectuated=True / fundamentacao_provided=True); xfail markers removed in-step. "
+    "Constant retained for the docstring prose above and cross-references from other tests' "
+    "docstrings in this module."
 )
 
 # T3.1 Wave 1 remedy B (event-gap design doc §2.2): CLOSES the C1 half of the gap this ONE test
@@ -607,7 +614,6 @@ async def test_fraude_referida_nunca_auto_flag(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_CANCEL_COMPLETED_RUNTIME_VAR_GAP, strict=True)
 async def test_happy_path_cancelamento_a_pedido_beneficiario_l2(
     engine: EngineRest,
     cancel_probe: CancelEngineProbe,
@@ -621,10 +627,15 @@ async def test_happy_path_cancelamento_a_pedido_beneficiario_l2(
     ST_EffectuateMemberRequest on Flow_Effectuate_Pub (bpmn:486) — the has_event assert below
     already proves effectuate_member_request ran; strengthened with the worker's OWN real output
     variable (`member_request_effectuated`, `effectuate_member_request_entry`'s return dict,
-    cancel.py) via engine.get_variable. The negative check (send_cancellation_notice never runs
-    on this L2 path) is re-expressed against engine activity-history — neither
+    cancel.py) via engine.get_history_variable. The negative check (send_cancellation_notice never
+    runs on this L2 path) is re-expressed against engine activity-history — neither
     ST_SendCancellationNoticeRescisao nor ...Suspensao can appear (this branch never reaches
     GW_DecisaoCancelamento at all).
+
+    FIXED (t3.1-test-hygiene-batch, `_CANCEL_COMPLETED_RUNTIME_VAR_GAP`): the read below used to go
+    through `engine.get_variable` (RUNTIME variable API), which 500s ("execution is null") once the
+    instance reaches its end event; swapped to `engine.get_history_variable` (HISTORY variable API,
+    engine_rest.py), which stays queryable after completion. Live-proven: XPASS -> genuine pass.
     """
     inst = await start_cancel(
         tipo_solicitacao="pedido_beneficiario",
@@ -644,7 +655,7 @@ async def test_happy_path_cancelamento_a_pedido_beneficiario_l2(
     assert "ST_EffectuateMemberRequest" in ended, (
         "effectuate_member_request deve ter executado nesta instancia"
     )
-    member_effectuated = await engine.get_variable(iid, "member_request_effectuated")
+    member_effectuated = await engine.get_history_variable(iid, "member_request_effectuated")
     assert member_effectuated is True, (
         f"member_request_effectuated (variavel de processo, engine-side) deve ser True; "
         f"veio {member_effectuated!r}"
@@ -737,7 +748,6 @@ async def test_happy_path_suspensao_por_inadimplencia_humano(
     ), "ST_PublishSuspenso deve emitir completed(desfecho=suspenso, responsavel_id=...)"
 
 
-@pytest.mark.xfail(reason=_CANCEL_COMPLETED_RUNTIME_VAR_GAP, strict=True)
 async def test_happy_path_pedido_negado_humano(
     engine: EngineRest,
     cancel_probe: CancelEngineProbe,
@@ -752,9 +762,13 @@ async def test_happy_path_pedido_negado_humano(
     below already proves confirm_maintained_decision ran; `fundamentacao_provided`
     (`confirm_maintained_decision_entry`'s own return field, cancel.py's
     `CancelMaintainedConfirmation`) is a REAL process variable, read directly via
-    engine.get_variable — strictly stronger than the dead notification echo. The negative check
-    (send_cancellation_notice never runs on the MANTER path) is re-expressed against engine
+    engine.get_history_variable — strictly stronger than the dead notification echo. The negative
+    check (send_cancellation_notice never runs on the MANTER path) is re-expressed against engine
     activity-history.
+
+    FIXED (t3.1-test-hygiene-batch, `_CANCEL_COMPLETED_RUNTIME_VAR_GAP`): swapped the RUNTIME
+    `engine.get_variable` read (500s "execution is null" on a completed instance) for the HISTORY
+    `engine.get_history_variable`. Live-proven: XPASS -> genuine pass.
     """
     inst = await start_cancel(
         tipo_solicitacao="pedido_beneficiario",
@@ -784,7 +798,7 @@ async def test_happy_path_pedido_negado_humano(
     assert "ST_ConfirmMaintainedDecision" in ended, (
         "confirm_maintained_decision deve ter executado nesta instancia"
     )
-    fundamentacao_provided = await engine.get_variable(iid, "fundamentacao_provided")
+    fundamentacao_provided = await engine.get_history_variable(iid, "fundamentacao_provided")
     assert fundamentacao_provided is True, (
         f"fundamentacao_provided (variavel de processo, engine-side) deve ser True; "
         f"veio {fundamentacao_provided!r}"
@@ -801,7 +815,6 @@ async def test_happy_path_pedido_negado_humano(
     # confirm_maintained_decision_entry's return dict.
 
 
-@pytest.mark.xfail(reason=_CANCEL_COMPLETED_RUNTIME_VAR_GAP, strict=True)
 async def test_happy_path_contrato_mantido(
     engine: EngineRest,
     cancel_probe: CancelEngineProbe,
@@ -815,10 +828,14 @@ async def test_happy_path_contrato_mantido(
     (ST_PublishMantido, bpmn:455-466, is the ONLY task downstream of ST_ConfirmMaintainedDecision
     on Flow_GWManter_Mantido, bpmn:529; folding `responsavel_id` already proves the worker ran).
     Strengthened with `fundamentacao_provided` (`confirm_maintained_decision_entry`'s own return
-    field) read directly via engine.get_variable. The trailing `"fundamentacao_contratual" not in
-    confirmacoes[0]` check is FLAGGED, not adapted — see `test_happy_path_pedido_negado_humano`'s
-    docstring above for the identical reasoning (source-verified: cancel.py's
-    `CancelMaintainedConfirmation` never carries that field).
+    field) read directly via engine.get_history_variable. The trailing `"fundamentacao_contratual"
+    not in confirmacoes[0]` check is FLAGGED, not adapted — see
+    `test_happy_path_pedido_negado_humano`'s docstring above for the identical reasoning
+    (source-verified: cancel.py's `CancelMaintainedConfirmation` never carries that field).
+
+    FIXED (t3.1-test-hygiene-batch, `_CANCEL_COMPLETED_RUNTIME_VAR_GAP`): swapped the RUNTIME
+    `engine.get_variable` read for the HISTORY `engine.get_history_variable`. Live-proven: XPASS ->
+    genuine pass.
     """
     inst = await start_cancel(tipo_solicitacao="inadimplencia", notificacao_previa_feita=True)
     iid = inst["id"]
@@ -844,7 +861,7 @@ async def test_happy_path_contrato_mantido(
     assert "ST_ConfirmMaintainedDecision" in ended, (
         "confirm_maintained_decision deve ter executado nesta instancia"
     )
-    fundamentacao_provided = await engine.get_variable(iid, "fundamentacao_provided")
+    fundamentacao_provided = await engine.get_history_variable(iid, "fundamentacao_provided")
     assert fundamentacao_provided is True, (
         f"fundamentacao_provided (variavel de processo, engine-side) deve ser True; "
         f"veio {fundamentacao_provided!r}"
