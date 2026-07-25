@@ -7,10 +7,15 @@ Two layers:
    the b1/b2 dispatch-filter escape passes and its drift/leak variants fail, (c) is warn-only
    unless ``--strict-dead-models``, and ambiguity (an unresolvable raise) fails closed.
 2. **Real-tree** tests run the full parser against ``spec/**`` + ``src/maezo/tools/workers`` and
-   assert the gate PASSES and independently reproduces the ADR-0030 census (4 consumption-covered
-   codes after T2.8; the two non-adverse technical fail-safes ``ERR_EVENT_PUBLISH_FAILED`` +
-   ``ERR_DSR_IDENTITY_UNVERIFIED`` Tier-0-enabled; the two guard/denial codes T-E-deferred; 11
-   dead-model warnings → 15 distinct spec codes).
+   assert the gate PASSES and independently reproduces the ADR-0030 census (5 consumption-covered
+   codes after T3.1 P2b; the three non-adverse technical fail-safes ``ERR_EVENT_PUBLISH_FAILED`` +
+   ``ERR_DSR_IDENTITY_UNVERIFIED`` + ``ERR_RECURSO_INVALID_GLOSA`` Tier-0/Tier-2-enabled; the two
+   guard/denial codes T-E-deferred; 10 dead-model warnings → 15 distinct spec codes).
+
+SHARED FILE (T3.1 P2b flag for merge-time reconciliation): the census counts below
+(``_G1_COVERED``, ``dead_models`` counts) move every time a branch wires a NEW ``WorkerBpmnError``
+raise into a previously-dead-model spec code — reconcile against sibling in-flight branches at
+merge time.
 """
 
 from __future__ import annotations
@@ -34,13 +39,15 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 _BPMN_DIR = _REPO_ROOT / "spec" / "processes" / "bpmn"
 _WORKERS_DIR = _REPO_ROOT / "src" / "maezo" / "tools" / "workers"
 
-# Consumption-covered codes: G1's 3 + T2.8's ERR_DSR_IDENTITY_UNVERIFIED (lgpd verify_identity).
+# Consumption-covered codes: G1's 3 + T2.8's ERR_DSR_IDENTITY_UNVERIFIED (lgpd verify_identity) +
+# T3.1 P2b's ERR_RECURSO_INVALID_GLOSA (recurso request_documents/analyze_request guards).
 _G1_COVERED = frozenset(
     {
         "ERR_AUTH_DENIAL_INCOMPLETE",
         "ERR_CANCEL_MANTER_NOT_HUMAN",
         "ERR_EVENT_PUBLISH_FAILED",
         "ERR_DSR_IDENTITY_UNVERIFIED",
+        "ERR_RECURSO_INVALID_GLOSA",
     }
 )
 
@@ -54,10 +61,12 @@ def test_real_tree_passes_and_reproduces_adr_census() -> None:
     result = run_gate(_BPMN_DIR, _WORKERS_DIR)
     assert result.ok, result.render()
     assert result.consumption_covered == _G1_COVERED
-    assert result.tier0_enabled == frozenset({"ERR_EVENT_PUBLISH_FAILED", "ERR_DSR_IDENTITY_UNVERIFIED"})
+    assert result.tier0_enabled == frozenset(
+        {"ERR_EVENT_PUBLISH_FAILED", "ERR_DSR_IDENTITY_UNVERIFIED", "ERR_RECURSO_INVALID_GLOSA"}
+    )
     assert result.te_deferred == frozenset({"ERR_AUTH_DENIAL_INCOMPLETE", "ERR_CANCEL_MANTER_NOT_HUMAN"})
-    # ADR-0030 census: 15 distinct external-task boundary codes = 4 covered (T2.8) + 11 dead-model.
-    assert len(result.dead_models) == 11
+    # ADR-0030 census: 15 distinct external-task boundary codes = 5 covered (T3.1 P2b) + 10 dead-model.
+    assert len(result.dead_models) == 10
     assert len(result.consumption_covered | result.dead_models) == 15
 
 
@@ -71,7 +80,7 @@ def test_real_tree_dead_models_are_warn_only_at_tier0() -> None:
 def test_real_tree_strict_mode_hardens_dead_models_to_failure() -> None:
     result = run_gate(_BPMN_DIR, _WORKERS_DIR, strict_dead_models=True)
     assert not result.ok  # Tier-3 posture: a dead model is a hard failure
-    assert len(result.violations) == 11
+    assert len(result.violations) == 10
     assert not result.warnings
 
 
