@@ -275,6 +275,16 @@ _REEMBOLSO_CEILING_D07_REASON = (
     "scope for this port."
 )
 
+# SP-OP-REEMBOLSO-001.md:100's "produz" obligation for agents.events.reembolso.pended RESOLVED by
+# t3.1-event-gap-w4-reemb-inad (T3.1 event-gap remedy B, wave 4 latent conformance) —
+# ST_PublishReembolsoPended (boundary-free operadora.events.publish task between
+# ST_SolicitarDocumentos and GW_AguardarDocs) now emits it. LIVE-PROVEN against a real CIB Seven
+# 2.1.0 engine: activity ST_PublishReembolsoPended COMPLETED (canceled=false) in engine history on
+# the pendencia instance, the token advanced to GW_AguardarDocs, and has_event matched both
+# payload vars (tenant_id, protocolo_reembolso). Its strict-xfail reason constant
+# (_REEMBOLSO_PENDED_PUBLISH_ADDED_REASON) is retired on that proof (precedent: recurso's own
+# retired _RECURSO_PENDED_PUBLISH_ADDED_REASON).
+
 
 @dataclass
 class ReembolsoEngineProbe:
@@ -966,6 +976,35 @@ async def test_pendencia_docs_recebidos_reavalia(
     assert await engine.instance_is_active(iid) or _END_AUTO in ended, (
         "Apos a mensagem, a instancia deve reavaliar (ativa) ou chegar a aprovacao integral"
     )
+
+
+async def test_pendencia_docs_publica_reembolso_pended(
+    engine: EngineRest,
+    reembolso_probe: ReembolsoEngineProbe,
+    start_reembolso: Callable[..., Any],
+) -> None:
+    """T3.1 event-gap remedy B (wave 4, latent conformance, event-gap design doc §2.8).
+
+    documentacao_completa=false => ST_SolicitarDocumentos roda => ST_PublishReembolsoPended
+    (novo, boundary-free) publica agents.events.reembolso.pended com os business keys do processo.
+    NENHUM teste pre-existente pinava esta obrigacao de contrato (SP-OP-REEMBOLSO-001.md:100
+    "produz") — regressao NOVA, nao adaptacao de um xfail vermelho ja existente (contraste com o
+    padrao recurso/cancel/auth Wave 1). LIVE-PROVEN (t3.1-event-gap-w4 live validation):
+    ST_PublishReembolsoPended completou no engine history e has_event casou ambos os payload
+    vars contra um CIB Seven 2.1.0 real — strict-xfail removido nessa prova.
+    """
+    protocolo = _unique_protocolo()
+    inst = await start_reembolso(documentacao_completa=False, protocolo_reembolso=protocolo)
+    iid = inst["id"]
+
+    await reembolso_probe.drain()
+
+    assert await engine.instance_is_active(iid), "Instancia deve aguardar documentacao na GW_AguardarDocs"
+    assert reembolso_probe.has_event(
+        _REEMBOLSO_PENDED,
+        tenant_id="amh",
+        protocolo_reembolso=protocolo,
+    ), "reembolso.pended (ST_PublishReembolsoPended) deve ser publicado com os business keys do processo"
 
 
 async def test_pendencia_expira_decisao_humana_nunca_auto_nega(
