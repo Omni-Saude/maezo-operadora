@@ -33,14 +33,17 @@ test_nenhum_caminho_automatizado_firma_compromisso_fallback:
   End_CompromissoFallbackHumano sem que UT_DecisaoFallback / UT_CoordenacaoRede tenha sido
   completada por humano. Os caminhos L3 (CONFORME / MONITORAR / ENCAMINHAR_CREDENCIAMENTO) atingem
   terminais NEUTROS autonomamente (sem User Task). A prova e feita consultando a historia do
-  engine. NOTE (documented, NOT a weakening — the assertion body is byte-identical to the donor):
-  for the scenarios that route to GAP_CRITICO/ANALISE_HUMANA or GAP_LEVE/MONITORAR, the instance
-  never fully drains in v2 (FINDING 1 below — `_MISSING_DOSSIER_WORKER_REASON`/
-  `_MISSING_MONITORING_WORKER_REASON`), so `End_CompromissoFallbackHumano` is unreachable for a
-  STRONGER reason than the donor anticipated (not just "gated behind a human task" but "gated
-  behind a human task that is itself currently unreachable via the engine"). The invariant still
-  holds — vacuously for those scenarios, genuinely for CONFORME/ENCAMINHAR_CREDENCIAMENTO — so this
-  test is left UNMARKED (no concrete per-assertion failure to xfail).
+  engine. NOTE (documented, NOT a weakening — the assertion body is byte-identical to the donor;
+  UPDATED t2.5-p2b-round2): for the scenario that routes to GAP_CRITICO/ANALISE_HUMANA, the
+  instance never fully drains in v2 (FINDING 1 below — `_MISSING_DOSSIER_WORKER_REASON`, still
+  open: `prepare_remediation_dossier` remains Andre A2A-gated), so `End_CompromissoFallbackHumano`
+  is unreachable for a STRONGER reason than the donor anticipated (not just "gated behind a human
+  task" but "gated behind a human task that is itself currently unreachable via the engine"). The
+  GAP_LEVE/MONITORAR scenario is NO LONGER stuck (t2.5-p2b-round2 registered
+  `update_monitoring_plan`) — it now genuinely completes to `End_MonitoramentoAtualizado`. The
+  invariant still holds either way — vacuously for the still-stuck ANALISE_HUMANA scenarios,
+  genuinely for CONFORME/GAP_LEVE-MONITORAR/ENCAMINHAR_CREDENCIAMENTO — so this test is left
+  UNMARKED (no concrete per-assertion failure to xfail).
 
 WorkerHarness NAO retorna output variables de roteamento ao engine: os workers observam/ecoam/
 publicam. Por isso o TESTE seed os fatos apurados (tempo_acesso_apurado_min, distancia_apurada_km,
@@ -71,9 +74,11 @@ PORT NOTES (fixture adaptation only — port rule 1; logic/assertions verbatim f
     REAL `CibSevenDmnTransport(CIBSEVEN_BASE_URL)` against the SAME live engine the worker harness
     talks to (no fake/mock — ADR-0011).
   - `_ADEQUACAO_WORKER_TOPICS` is built from what `register_adequacao_workers` ACTUALLY registers
-    (5 `operadora.adequacao.*` topics + the generic `operadora.events.publish`), cross-checked
+    (7 `operadora.adequacao.*` topics + the generic `operadora.events.publish`, after
+    t2.5-p2b-round2 added `update_monitoring_plan`/`notify_sla_risk` — originally 5), cross-checked
     against the BPMN's 8 declared `operadora.adequacao.*`-namespaced service-task topics — the
-    3-topic mismatch IS FINDING 1 below (not a fixture bug to silently correct).
+    remaining 1-topic mismatch (`prepare_remediation_dossier`, Andre A2A-gated) IS FINDING 1 below
+    (not a fixture bug to silently correct).
   - D-07 ceilings gap does NOT apply here — VERIFIED (`grep -n "CeilingResolver\\|within_l2_
     ceiling" src/maezo/tools/workers/adequacao.py` returns nothing); not cited anywhere below.
   - notification_bridge.py's 5 rules (CONTAS/FRAUDE/CRED/CANCEL/INADIMPLENCIA) do not name
@@ -89,27 +94,31 @@ PORT NOTES (fixture adaptation only — port rule 1; logic/assertions verbatim f
 FINDINGS (grep/read-verified against v2 `main` this branch — see PR body / evidence-ledger for
 full detail):
 
-  1. REGISTRATION GAP (`_MISSING_DOSSIER_WORKER_REASON` / `_MISSING_MONITORING_WORKER_REASON`):
-     `register_adequacao_workers` (adequacao.py:271-291) registers FunctionWorkers for exactly 5
-     of the 8 `operadora.adequacao.*` topics this BPMN declares — `measure_coverage`,
-     `calculate_gap`, `notify_rede`, `start_credenciamento`, `register_fallback_commitment`. THREE
-     topics have NO implementing function at all: `update_monitoring_plan`
-     (ST_UpdateMonitoringPlanL3, BPMN line 198 — first step of the GAP_LEVE/MONITORAR L3 branch),
-     `prepare_remediation_dossier` (ST_PrepareRemediationDossier, BPMN line 252 — the SOLE entry
-     point into the ANALISE_HUMANA branch, i.e. UT_DecisaoFallback and, transitively, its SLA-
-     breach escalation UT_CoordenacaoRede), and `notify_sla_risk` (ST_NotificarRiscoSla, BPMN line
-     288 — the non-interruptive SLA-alert boundary timer's target, not exercised by any donor test
-     in this ported subset). adequacao.py's own module comment (lines 266-267) already calls this
-     out: "Spec topics with NO implementing function today (gap, not fabricated here)." Because
-     these topics are never registered, they are correctly EXCLUDED from `_ADEQUACAO_WORKER_TOPICS`
-     (mirrors cancel.py's drift-guard convention: only ACTUALLY-registered topics are drained) —
-     `adequacao_probe.drain()` never even attempts to fetch these external tasks; they sit pending
-     forever. This is a MISSING-WORKER gap, categorically DIFFERENT from the systemic
-     `operadora.events.publish`/`kafka.publish` gaps documented for other T3.1 families (facts
-     #1/#5 of the phase-2 charter) — no amount of Kafka-producer wiring fixes it; these three
-     topics need actual implementing functions (e.g. the Andre A2A dossier handoff the BPMN
-     documentation on `ST_PrepareRemediationDossier` describes) before the ANALISE_HUMANA branch
-     (10 of the 20 ported tests) and the GAP_LEVE/MONITORAR branch (1 test) become reachable.
+  1. REGISTRATION GAP (`_MISSING_DOSSIER_WORKER_REASON` / `_MISSING_MONITORING_WORKER_REASON`) —
+     UPDATED, t2.5-p2b-round2: `register_adequacao_workers` (adequacao.py) originally registered
+     FunctionWorkers for exactly 5 of the 8 `operadora.adequacao.*` topics this BPMN declares —
+     `measure_coverage`, `calculate_gap`, `notify_rede`, `start_credenciamento`,
+     `register_fallback_commitment`. THREE topics had NO implementing function at all:
+     `update_monitoring_plan` (ST_UpdateMonitoringPlanL3, BPMN line 198 — first step of the
+     GAP_LEVE/MONITORAR L3 branch), `prepare_remediation_dossier` (ST_PrepareRemediationDossier,
+     BPMN line 252 — the SOLE entry point into the ANALISE_HUMANA branch, i.e. UT_DecisaoFallback
+     and, transitively, its SLA-breach escalation UT_CoordenacaoRede), and `notify_sla_risk`
+     (ST_NotificarRiscoSla, BPMN line 288 — the non-interruptive SLA-alert boundary timer's
+     target, not exercised by any donor test in this ported subset). t2.5-p2b-round2 CLOSED TWO
+     of these three: `update_monitoring_plan` and `notify_sla_risk` now have real implementing
+     functions (mirror inadimplencia.py/cancel.py/fraude.py's proven dict-first idiom) and are
+     INCLUDED in `_ADEQUACAO_WORKER_TOPICS`. `prepare_remediation_dossier` remains registration-
+     gapped — Andre A2A-gated, explicitly out of scope for that PR — its topic is still EXCLUDED
+     from `_ADEQUACAO_WORKER_TOPICS` (mirrors cancel.py's drift-guard convention: only ACTUALLY-
+     registered topics are drained) — `adequacao_probe.drain()` never even attempts to fetch that
+     external task; it sits pending forever. This remains a MISSING-WORKER gap, categorically
+     DIFFERENT from the systemic `operadora.events.publish`/`kafka.publish` gaps documented for
+     other T3.1 families (facts #1/#5 of the phase-2 charter) — no amount of Kafka-producer
+     wiring fixes it; `prepare_remediation_dossier` needs an actual implementing function (e.g.
+     the Andre A2A dossier handoff the BPMN documentation describes) before the ANALISE_HUMANA
+     branch (9 of the remaining ported tests) becomes reachable. The GAP_LEVE/MONITORAR branch (1
+     test, `_MISSING_MONITORING_WORKER_REASON`) is no longer blocked by a MISSING-WORKER gap —
+     see Finding 3 for why it still xfails (systemic Kafka-publish gap instead).
 
   2. DMN-INPUT-OVERRIDE DRIFT (`_MEASURE_GAP_OVERRIDES_SEEDED_FACTS_REASON`, 3 tests): `measure_gap`
      (adequacao.py:38-69) is an explicitly-labeled placeholder ("real implementation queries
@@ -137,21 +146,30 @@ full detail):
      originally designed.
 
   3. TOTAL Kafka-publish gap for this family (documented, NOT the primary blocker for any test
-     here): `adequacao.py`'s `register_adequacao_workers` explicitly discards its `kafka` argument
-     (`del kafka  # unused — no adequacao.py worker declares a Kafka dependency`, line 281) — EVERY
-     function this module registers (`measure_gap`, `route_remediation`, `notify_coordenacao`,
-     `execute_remediation`, `register_fallback_commitment`) returns a plain dict and never calls
-     `kafka.publish`. `adequacao_probe.notifications_of_type(...)` will therefore ALWAYS return an
-     empty list for any `adequacao.*`-typed notification, in EVERY test — the systemic fact #1
-     carve-out ("family-specific direct-kafka calls DON'T work") applies TOTALLY here, not
-     partially as in cancel.py/auth.py (where SOME action workers still ran, just without
-     publishing). In this ported subset, every `notifications_of_type(...)` call site happens to be
-     preceded by a MORE fundamental blocker (FINDING 1 or FINDING 2 above), so no test's FIRST
-     failing assertion is this gap — it is recorded here so the live verifier does not mistake a
-     future FINDING-1/2 fix for a full green: `notifications_of_type(...)` assertions will keep
-     failing even after the registration/override gaps are fixed, until this family also gets
-     Kafka-producer wiring (same follow-up task as cancel/auth/escalation's residual action-worker
-     gap). Domain events via the GENERIC `operadora.events.publish` path (`has_event(...)`
+     here) — UPDATED, t2.5-p2b-round2: `adequacao.py`'s `register_adequacao_workers` explicitly
+     discards its `kafka` argument (`del kafka  # unused — no adequacao.py worker declares a
+     Kafka dependency`) — EVERY function this module registers (`measure_gap`, `route_remediation`,
+     `notify_coordenacao`, `execute_remediation`, `register_fallback_commitment`, and — new in
+     t2.5-p2b-round2 — `update_monitoring_plan`/`notify_sla_risk`, which deliberately mirror the
+     SAME dict-first, no-Kafka idiom rather than add worker-side publishing) returns a plain dict
+     and never calls `kafka.publish`. `adequacao_probe.notifications_of_type(...)` will therefore
+     ALWAYS return an empty list for any `adequacao.*`-typed notification, in EVERY test — the
+     systemic fact #1 carve-out ("family-specific direct-kafka calls DON'T work") applies TOTALLY
+     here, not partially as in cancel.py/auth.py (where SOME action workers still ran, just
+     without publishing). For `update_monitoring_plan` specifically, this IS now the primary
+     blocker for `test_l3_gap_leve_monitora_sem_user_task` (registration gap closed,
+     t2.5-p2b-round2 — see Finding 1): the `_END_MONITORAMENTO`/no-user-task assertions are
+     expected to PASS now that the branch genuinely completes, but the
+     `notifications_of_type("adequacao.update_monitoring_plan")` assertion still fails on this
+     gap — `_MISSING_MONITORING_WORKER_REASON`'s text is updated accordingly ("built, pending
+     live-proof flip"), mark/strict unchanged per xfail policy. For every OTHER
+     `notifications_of_type(...)` call site in this ported subset, a MORE fundamental blocker
+     (FINDING 1's remaining `prepare_remediation_dossier` gap, or FINDING 2) still precedes it, so
+     this gap is recorded here so the live verifier does not mistake a future FINDING-1/2 fix for
+     a full green: these assertions will keep failing until this family also gets Kafka-producer
+     wiring (same follow-up task as cancel/auth/escalation's residual action-worker gap; a
+     dedicated systemic Kafka-seam task is queued, NOT fixed in t2.5-p2b-round2). Domain events
+     via the GENERIC `operadora.events.publish` path (`has_event(...)`
      assertions) are UNAFFECTED and DO work (fact #1, FIXED) — `register_events_workers` is wired
      into `adequacao_probe` exactly like cancel.py/auth.py.
 
@@ -210,18 +228,21 @@ _NOTIFY_REDE_TOPIC = "operadora.adequacao.notify_rede"
 _START_CRED_TOPIC = "operadora.adequacao.start_credenciamento"
 _REGISTER_FALLBACK_TOPIC = "operadora.adequacao.register_fallback_commitment"
 
-# Spec-declared topics with NO implementing function in `register_adequacao_workers` today (gap,
-# FINDING 1 above — adequacao.py lines 266-267/271-291). Named here for documentation/grep-ability
-# only — deliberately NOT included in `_ADEQUACAO_WORKER_TOPICS` below (mirrors cancel.py's
-# drift-guard: only ACTUALLY-registered topics are drained).
-_UPDATE_MON_TOPIC = "operadora.adequacao.update_monitoring_plan"  # unregistered — FINDING 1
+# t2.5-p2b-round2 CLOSED 2 of the 3 registration gaps: `update_monitoring_plan`/`notify_sla_risk`
+# now have real implementing functions in adequacao.py (mirrors inadimplencia.py/cancel.py/
+# fraude.py's proven dict-first, informational-only idiom for the SLA-alert worker) and are
+# INCLUDED in `_ADEQUACAO_WORKER_TOPICS` below. `prepare_remediation_dossier` remains unregistered
+# (Andre A2A-gated, out of scope for t2.5-p2b-round2 — named here for documentation/grep-ability
+# only, deliberately NOT included in `_ADEQUACAO_WORKER_TOPICS`, mirrors cancel.py's drift-guard:
+# only ACTUALLY-registered topics are drained).
+_UPDATE_MON_TOPIC = "operadora.adequacao.update_monitoring_plan"
 _PREPARE_DOSSIER_TOPIC = "operadora.adequacao.prepare_remediation_dossier"  # unregistered — FINDING 1
-_NOTIFY_SLA_TOPIC = "operadora.adequacao.notify_sla_risk"  # unregistered — FINDING 1
+_NOTIFY_SLA_TOPIC = "operadora.adequacao.notify_sla_risk"
 
 # Topicos REALMENTE servidos pelos workers registrados no harness (drain generico). Cross-checked
 # against the BPMN's 8 declared operadora.adequacao.* topics in the `adequacao_probe` fixture's
-# drift-guard below — the 3-topic gap (`_UPDATE_MON_TOPIC`/`_PREPARE_DOSSIER_TOPIC`/
-# `_NOTIFY_SLA_TOPIC`) IS FINDING 1, not a fixture oversight.
+# drift-guard below — only `_PREPARE_DOSSIER_TOPIC` (FINDING 1, Andre A2A-gated) remains excluded
+# after t2.5-p2b-round2 closed the `update_monitoring_plan`/`notify_sla_risk` gaps.
 _ADEQUACAO_WORKER_TOPICS = [
     _PUBLISH_TOPIC,
     _MEASURE_TOPIC,
@@ -229,6 +250,8 @@ _ADEQUACAO_WORKER_TOPICS = [
     _NOTIFY_REDE_TOPIC,
     _START_CRED_TOPIC,
     _REGISTER_FALLBACK_TOPIC,
+    _UPDATE_MON_TOPIC,
+    _NOTIFY_SLA_TOPIC,
 ]
 
 # Topico interno de notificacoes (harness.py) — always empty for this family (FINDING 3).
@@ -274,12 +297,13 @@ _CAMPOS_FALLBACK = {
 # its topic is excluded from `_ADEQUACAO_WORKER_TOPICS` — the external task is never fetched and
 # sits pending forever. Blocks 9 tests below.
 _MISSING_DOSSIER_WORKER_REASON = (
-    "v2 registration gap (adequacao.py `register_adequacao_workers`, lines 271-291): only 5 of "
-    "the 8 `operadora.adequacao.*` topics this BPMN declares are registered as FunctionWorkers "
-    "(measure_coverage/calculate_gap/notify_rede/start_credenciamento/"
-    "register_fallback_commitment) — `update_monitoring_plan`, `prepare_remediation_dossier`, "
-    "`notify_sla_risk` have NO implementing function at all (adequacao.py's own module comment, "
-    "lines 266-267, calls this out explicitly: 'gap, not fabricated here'). Because "
+    "v2 registration gap (adequacao.py `register_adequacao_workers`), UPDATED t2.5-p2b-round2: "
+    "7 of the 8 `operadora.adequacao.*` topics this BPMN declares are now registered as "
+    "FunctionWorkers (measure_coverage/calculate_gap/notify_rede/start_credenciamento/"
+    "register_fallback_commitment/update_monitoring_plan/notify_sla_risk — the last two closed "
+    "by t2.5-p2b-round2). Only `prepare_remediation_dossier` still has NO implementing function "
+    "(Andre A2A-gated, explicitly out of scope for that PR — adequacao.py's own module comment "
+    "calls this out: 'gap, not fabricated here'). Because "
     "`prepare_remediation_dossier` (ST_PrepareRemediationDossier, BPMN line 252 — the SOLE entry "
     "point into the ANALISE_HUMANA branch) has no registered handler, its topic is excluded from "
     "`_ADEQUACAO_WORKER_TOPICS` (mirrors cancel.py's drift-guard convention), so "
@@ -294,17 +318,28 @@ _MISSING_DOSSIER_WORKER_REASON = (
     "reachable again."
 )
 
-# FINDING 1 — same root cause, different topic: ST_UpdateMonitoringPlanL3 (the FIRST step of the
-# GAP_LEVE/MONITORAR L3 branch) also has no implementing function. Blocks 1 test below.
+# t2.5-p2b-round2: `update_monitoring_plan` is now BUILT and registered (was previously the same
+# MISSING-WORKER gap as `_MISSING_DOSSIER_WORKER_REASON`). This test STILL xfails, but on a
+# DIFFERENT, narrower gap now: `End_MonitoramentoAtualizado` is genuinely reachable (the branch
+# completes — `update_monitoring_plan` -> `notify_rede` -> generic `operadora.events.publish` ->
+# End), so the `_END_MONITORAMENTO`/no-user-task assertions are expected to PASS now. The test
+# still fails (xfail stays correct) on its `notifications_of_type("adequacao.update_monitoring_
+# plan")` assertion: `update_monitoring_plan` mirrors the family's dict-first/`del kafka` idiom
+# (same as every other adequacao.py function) and never calls `kafka.publish` — Finding 3's TOTAL
+# Kafka-publish gap now applies to THIS test directly. Blocks 1 test below.
 _MISSING_MONITORING_WORKER_REASON = (
-    "v2 registration gap (same evidence as `_MISSING_DOSSIER_WORKER_REASON`, adequacao.py lines "
-    "266-267/271-291): `operadora.adequacao.update_monitoring_plan` (ST_UpdateMonitoringPlanL3, "
-    "BPMN line 198 — the FIRST step of the GAP_LEVE/MONITORAR L3 branch) also has no "
-    "implementing function/registered worker. Excluded from `_ADEQUACAO_WORKER_TOPICS` for the "
-    "same reason: the external task is never even fetched, so End_MonitoramentoAtualizado is "
-    "unreachable even though the DMN correctly routes to MONITORAR for this scenario (unlike "
-    "`_MEASURE_GAP_OVERRIDES_SEEDED_FACTS_REASON` below, there is no DMN-routing divergence here "
-    "— the routing decision itself is right; only the downstream worker is missing)."
+    "built, pending live-proof flip (t2.5-p2b-round2): adequacao.py's `update_monitoring_plan` is "
+    "now implemented and registered on `operadora.adequacao.update_monitoring_plan` (closes the "
+    "prior MISSING-WORKER gap — ST_UpdateMonitoringPlanL3 is genuinely fetched/completed by this "
+    "suite's drain now, `_ADEQUACAO_WORKER_TOPICS` includes it) — `End_MonitoramentoAtualizado` "
+    "and the no-user-task assertions are expected to pass. This test still xfails on Finding 3's "
+    "TOTAL Kafka-publish gap instead: `update_monitoring_plan` is dict-first and never calls "
+    "`kafka.publish` (mirrors every other adequacao.py function's proven idiom -- this port "
+    "deliberately does NOT add worker-side Kafka publishing, per the queued systemic Kafka-seam "
+    "task), so `notifications_of_type('adequacao.update_monitoring_plan')` (backed by "
+    "`FakeKafkaPublisher.published`) is still always empty. Expect this to flip only alongside "
+    "the systemic Kafka-producer-wiring fix, not independently -- live-proof needed against a "
+    "real engine before removing this xfail."
 )
 
 # FINDING 2 — measure_gap (adequacao.py:38-69) overwrites the donor's seeded geo-facts before the
@@ -428,8 +463,9 @@ async def adequacao_probe(
     register_events_workers(harness, kafka)
     # DRIFT GUARD (mirrors cancel.py's fixture, verbatim intent): todo topico operadora.adequacao.*
     # registrado no harness DEVE estar na lista de drain — falha AQUI, explicita, se um worker
-    # novo ficar fora. Also documents FINDING 1: today only 5 of the 8 BPMN-declared topics are
-    # registered, so this passes NATURALLY (nothing registered is left undrained).
+    # novo ficar fora. Also documents FINDING 1: after t2.5-p2b-round2, 7 of the 8 BPMN-declared
+    # topics are registered (only `prepare_remediation_dossier` remains gapped), so this passes
+    # NATURALLY (nothing registered is left undrained).
     adequacao_registered = {t for t in harness.registered_topics if t.startswith("operadora.adequacao.")}
     missing_from_drain = adequacao_registered - set(_ADEQUACAO_WORKER_TOPICS)
     assert not missing_from_drain, (

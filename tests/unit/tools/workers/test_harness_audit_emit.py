@@ -15,7 +15,9 @@ Coverage (design §6.1):
 
 from __future__ import annotations
 
+import asyncio
 import functools
+import time
 from typing import Any
 
 import pytest
@@ -263,6 +265,44 @@ async def test_dmn_versions_empty_when_no_table_consulted() -> None:
     assert record.dmn_versions == {}
 
 
+async def test_multiple_dmn_evaluations_within_one_task_accumulate_in_order() -> None:
+    """A handler that consults TWO distinct DMN tables in one task (e.g. `pagto`'s admissibility
+    then alcada, ADR-0028's migration table) must accumulate BOTH into `AuditRecord.dmn_versions`,
+    in evaluation order — the collector is a per-task dict keyed by decision key, not a
+    single-slot value (design §3.2's `collector[version.key] = ...`; Python dicts preserve
+    insertion order for distinct keys)."""
+    dmn = FakeDmnTransport()
+    dmn.register("table_one", [{"r": 1}], version=3, definition_id="table_one:3:x", deployment_id="dep-a")
+    dmn.register("table_two", [{"r": 2}], version=5, definition_id="table_two:5:y", deployment_id="dep-b")
+
+    def _route(variables: dict[str, Any], *, dmn: FakeDmnTransport) -> dict[str, Any]:
+        rows_one, _ = evaluate_sync(dmn, "table_one", {"x": 1})
+        first_row(rows_one, "table_one")
+        rows_two, _ = evaluate_sync(dmn, "table_two", {"y": 2})
+        first_row(rows_two, "table_two")
+        return {"desfecho": "ok"}
+
+    transport = FakeWorkerTransport()
+    sink = FakeAuditSink()
+    harness = WorkerHarness(transport, worker_id="w", tenant="amh", audit_sink=sink)
+    harness.register_worker(FunctionWorker("multi.dmn.topic", functools.partial(_route, dmn=dmn)))
+
+    await harness._handle(_task(topic="multi.dmn.topic"))
+
+    record, _ = sink.emitted[0]
+    assert list(record.dmn_versions.keys()) == ["table_one", "table_two"]  # accumulation order
+    assert record.dmn_versions["table_one"] == {
+        "version": 3,
+        "id": "table_one:3:x",
+        "deploymentId": "dep-a",
+    }
+    assert record.dmn_versions["table_two"] == {
+        "version": 5,
+        "id": "table_two:5:y",
+        "deploymentId": "dep-b",
+    }
+
+
 async def test_collector_reset_per_task_no_cross_leak() -> None:
     """The collector is reset per task — a DMN consulted in task A never leaks into task B's
     record (reset-per-task invariant, design §3.2 / MUST-FIX 1)."""
@@ -285,6 +325,55 @@ async def test_collector_reset_per_task_no_cross_leak() -> None:
     record_b, _ = sink.emitted[1]
     assert "pagto_alcada" in record_a.dmn_versions
     assert record_b.dmn_versions == {}  # no leak from task A
+
+
+async def test_collector_no_leak_under_interleaved_concurrent_tasks() -> None:
+    """Two tasks dispatched CONCURRENTLY (`asyncio.gather`, mirroring `_spawn`'s
+    `asyncio.create_task` pattern, `harness.py:1010-1011`) must not cross-contaminate
+    `dmn_versions` even when their `asyncio.to_thread` executions genuinely OVERLAP in wall time
+    — this complements `test_collector_reset_per_task_no_cross_leak`'s sequential (await, then
+    await) proof with a true concurrent/interleaved one. Each `_handle` coroutine, once scheduled
+    as its own `asyncio.Task` (by `gather`, same as `_spawn`'s `create_task`), gets an isolated
+    `contextvars` copy at creation time (design §5 / MUST-FIX 1 / R1 review point #5) — no shared
+    collector, regardless of how the two tasks' thread-pool executions happen to interleave."""
+    dmn = FakeDmnTransport()
+    dmn.register("slow_table", [{"r": 1}], version=1, definition_id="slow:1", deployment_id="dep-slow")
+    dmn.register("fast_table", [{"r": 2}], version=2, definition_id="fast:2", deployment_id="dep-fast")
+
+    def _slow_route(variables: dict[str, Any], *, dmn: FakeDmnTransport) -> dict[str, Any]:
+        rows, _ = evaluate_sync(dmn, "slow_table", {})
+        first_row(rows, "slow_table")
+        time.sleep(0.08)  # keep this task's collector open/in-flight while the fast task finishes
+        return {"desfecho": "slow_done"}
+
+    def _fast_route(variables: dict[str, Any], *, dmn: FakeDmnTransport) -> dict[str, Any]:
+        rows, _ = evaluate_sync(dmn, "fast_table", {})
+        first_row(rows, "fast_table")
+        return {"desfecho": "fast_done"}
+
+    transport = FakeWorkerTransport()
+    sink = FakeAuditSink()
+    harness = WorkerHarness(transport, worker_id="w", tenant="amh", audit_sink=sink)
+    harness.register_worker(FunctionWorker("slow.topic", functools.partial(_slow_route, dmn=dmn)))
+    harness.register_worker(FunctionWorker("fast.topic", functools.partial(_fast_route, dmn=dmn)))
+
+    slow_task = _task(task_id="slow-1", topic="slow.topic")
+    fast_task = _task(task_id="fast-1", topic="fast.topic")
+
+    # gather schedules BOTH `_handle` coroutines as concurrent asyncio.Tasks (same primitive
+    # `_spawn` uses in production) — the fast task's to_thread call completes (and its collector
+    # is torn down via `collect_dmn_versions`'s `finally`) WHILE the slow task's own to_thread
+    # call and collector are still in flight (the 0.08s sleep), a genuine interleaving, not just
+    # two sequential awaits.
+    await asyncio.gather(harness._handle(slow_task), harness._handle(fast_task))
+
+    by_dedup_key = {key: record for record, key in sink.emitted}
+    assert by_dedup_key["amh:slow-1"].dmn_versions == {
+        "slow_table": {"version": 1, "id": "slow:1", "deploymentId": "dep-slow"}
+    }
+    assert by_dedup_key["amh:fast-1"].dmn_versions == {
+        "fast_table": {"version": 2, "id": "fast:2", "deploymentId": "dep-fast"}
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -348,22 +437,24 @@ async def test_two_distinct_tasks_two_audit_rows() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Failure paths do NOT emit (T-E deferred) — only the success path audits
+# Non-guard failure paths do NOT emit — only success (T-C) and guard refusals
+# (T-E, ADR-0030 F4) audit. A plain bad-input ValueError is neither.
+# (Guard-refusal audit coverage lives in test_harness_audited_refusal.py.)
 # ---------------------------------------------------------------------------
 
 
-async def test_handler_error_does_not_emit() -> None:
+async def test_non_guard_handler_error_does_not_emit() -> None:
     transport = FakeWorkerTransport()
     sink = FakeAuditSink()
     harness = WorkerHarness(transport, worker_id="w", tenant="amh", audit_sink=sink)
 
     async def handler(task: ExternalTask) -> dict[str, Any]:
-        raise ValueError("bad input")
+        raise ValueError("bad input")  # no ERR_* guard code -> not a guard refusal
 
     harness.register("t", handler)
     await harness._handle(_task(topic="t"))
 
-    assert sink.emitted == []  # audited-refusal on failure paths is T-E, deferred
+    assert sink.emitted == []  # bad-input ValueError is not a guard refusal (T-E scopes to guards)
     assert len(transport.failures) == 1
 
 

@@ -8,7 +8,6 @@ human decision in UT_RevisaoJuridicaNip.
 
 from __future__ import annotations
 
-import dataclasses
 import functools
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -110,99 +109,6 @@ class NipResponseInput:
 # ---------------------------------------------------------------------------
 
 
-def classify_nip(input_data: NipInput) -> NipClassificationResult:
-    """Classify a NIP — DMN nip_classification.
-
-    Maps classificacao_nip + tema_nip + contesta_negativa to:
-    classificacao, prazo_dias, grupo_revisor.
-
-    Catch-all (unknown tema or ambiguous contesta_negativa) ->
-    classificacao = ASSISTENCIAL_CONTESTA_NEGATIVA,
-    grupo_revisor = juridico-regulatorio, menor prazo_dias (conservative).
-    """
-    logger.info(
-        "nip.classify_nip.start",
-        tenant_id=input_data.tenant_id,
-        numero_nip_ans=input_data.numero_nip_ans,
-        classificacao_nip=input_data.classificacao_nip,
-        tema_nip=input_data.tema_nip,
-    )
-
-    classificacao_nip = input_data.classificacao_nip.lower()
-    tema = input_data.tema_nip.lower()
-
-    # Default conservative
-    classificacao = "ASSISTENCIAL_CONTESTA_NEGATIVA"
-    prazo_dias = 5
-    grupo_revisor = "juridico-regulatorio"
-
-    if classificacao_nip == "assistencial":
-        if input_data.contesta_negativa:
-            classificacao = "ASSISTENCIAL_CONTESTA_NEGATIVA"
-            prazo_dias = 5
-            grupo_revisor = "juridico-regulatorio"
-        else:
-            classificacao = "ASSISTENCIAL_OUTRO"
-            prazo_dias = 5
-            grupo_revisor = _resolve_assistencial_group(tema)
-    elif classificacao_nip == "nao_assistencial":
-        classificacao = "NAO_ASSISTENCIAL"
-        prazo_dias = 10
-        grupo_revisor = _resolve_nao_assistencial_group(tema)
-
-    result = NipClassificationResult(
-        classificacao=classificacao,
-        prazo_dias=prazo_dias,
-        grupo_revisor=grupo_revisor,
-    )
-
-    logger.info(
-        "nip.classify_nip.complete",
-        classificacao=result.classificacao,
-        prazo_dias=result.prazo_dias,
-        grupo_revisor=result.grupo_revisor,
-    )
-    return result
-
-
-def route_nip(
-    classification: NipClassificationResult,
-    documentacao_suficiente: bool,
-) -> NipRoutingResult:
-    """Route NIP to appropriate human group — DMN nip_routing.
-
-    NO saida que decida o merito; only routes to human groups.
-    Catch-all -> REVISAO_JURIDICA / juridico-regulatorio.
-    """
-    logger.info(
-        "nip.route_nip.start",
-        classificacao=classification.classificacao,
-        documentacao_suficiente=documentacao_suficiente,
-    )
-
-    if not documentacao_suficiente:
-        roteamento = "PENDENTE_INFO"
-        grupo_humano = classification.grupo_revisor
-    elif classification.classificacao == "ASSISTENCIAL_CONTESTA_NEGATIVA":
-        roteamento = "REVISAO_JURIDICA"
-        grupo_humano = "juridico-regulatorio"
-    else:
-        roteamento = "ELABORAR_RESPOSTA"
-        grupo_humano = classification.grupo_revisor
-
-    result = NipRoutingResult(
-        grupo_humano=grupo_humano,
-        roteamento=roteamento,
-    )
-
-    logger.info(
-        "nip.route_nip.complete",
-        roteamento=result.roteamento,
-        grupo_humano=result.grupo_humano,
-    )
-    return result
-
-
 def assemble_response(
     classification: NipClassificationResult,
     routing: NipRoutingResult,
@@ -236,29 +142,6 @@ def assemble_response(
 
     logger.info("nip.assemble_response.complete")
     return result
-
-
-def review_juridico(
-    texto_minuta: str,
-    classificacao: str,
-    revisor_id: str = "",
-) -> dict[str, Any]:
-    """Juridico/regulatorio reviews the response draft.
-
-    UT_RevisaoJuridicaNip — only origin of decisao_nip == MANTER_NEGATIVA.
-    """
-    logger.info(
-        "nip.review_juridico.start",
-        classificacao=classificacao,
-        revisor_id=revisor_id,
-    )
-
-    return {
-        "revisado": True,
-        "classificacao": classificacao,
-        "revisor_id": revisor_id,
-        "texto_final": texto_minuta,
-    }
 
 
 def submit_to_ans(response_input: NipResponseInput) -> dict[str, Any]:
@@ -303,24 +186,55 @@ def submit_to_ans(response_input: NipResponseInput) -> dict[str, Any]:
     }
 
 
-def notify_beneficiario(
-    beneficiario_pseudo_id: str,
-    numero_nip_ans: str,
-    decisao_nip: str = "",
+def notify_deadline_risk(
+    numero_nip_ans: str = "",
+    tenant_id: str = "",
+    grupo_humano: str = "",
+    sla_breach_task_name: str = "",
+    event_topic_deadline_risk: str = "",
 ) -> dict[str, Any]:
-    """Notify beneficiario about the NIP resolution."""
+    """Notify regulatorio-ans/nucleo-ans/juridico-regulatorio of NIP deadline risk.
+
+    BUILT t2.5-p2b-nip-mechanical (spec/BPMN previously had NO implementing function — see the
+    module docstring's "Topic mapping" note below). Now serves ONE BPMN service task on this topic
+    (`operadora.nip.notify_deadline_risk`):
+      - `ST_SolicitarInfoNip` — sits on the MAIN token of the `SOLICITAR_INFO` branch and reuses
+        this topic per its own BPMN comment ("reusa o canal de notificacao regulatoria"), setting
+        NEITHER `sla_breach_task_name` nor `event_topic_deadline_risk` inputParameter — both
+        default to `""` so that reuse degrades gracefully.
+
+    Was three tasks until t3.1-event-gap-nip-alerts CONVERTED-IN-PLACE the two non-interruptive
+    deadline-risk alerts — `ST_NotificarRiscoPrazo` (boundary `BT_AlertaPrazoNip` on
+    `UT_ElaborarRespostaNip`) and `ST_NotificarRiscoRevisao` (boundary `BT_AlertaPrazoRevisao` on
+    `UT_RevisaoJuridicaNip`) — to the generic `operadora.events.publish` worker so they now
+    actually publish `agents.events.nip.deadline_risk` (this worker never did; it only logged).
+    This function is UNCHANGED by that conversion and is not orphaned: `ST_SolicitarInfoNip` keeps
+    it registered.
+
+    Mirrors `cancel.notify_sla_risk` / `contas.notify_sla_risk` / `inadimplencia.notify_sla_risk`
+    / `auth.NotifySlaRiskWorker`: notify-only, non-adverse, fail-safe. This worker NEVER decides,
+    cancels, or advances the process — the affected User Task (when `sla_breach_task_name` is
+    present) stays OPEN regardless. It never itself files/submits/transmits anything to the ANS:
+    RN 483 transmission is fenced behind the ANS-SUBMIT gateway triple (#109); this worker only
+    alerts the human group that a regulatory deadline is approaching. Matches every other nip.py
+    entry function (see `register_nip_workers` docstring): does not call `kafka.publish` itself —
+    the systemic Kafka-producer-wiring gap (T3.1 finding "events.publish fix") is unchanged by
+    this worker and out of scope here.
+    """
     logger.info(
-        "nip.notify_beneficiario",
-        beneficiario_pseudo_id=beneficiario_pseudo_id,
+        "nip.notify_deadline_risk",
+        tenant_id=tenant_id,
         numero_nip_ans=numero_nip_ans,
-        decisao_nip=decisao_nip,
+        grupo_humano=grupo_humano,
+        sla_breach_task_name=sla_breach_task_name,
     )
 
     return {
-        "notified": True,
-        "beneficiario_pseudo_id": beneficiario_pseudo_id,
+        "deadline_risk_notified": True,
         "numero_nip_ans": numero_nip_ans,
-        "decisao_nip": decisao_nip,
+        "grupo_humano": grupo_humano,
+        "sla_breach_task_name": sla_breach_task_name,
+        "event_topic_deadline_risk": event_topic_deadline_risk,
     }
 
 
@@ -376,71 +290,43 @@ def publish_completed(
 
 
 # ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _resolve_assistencial_group(tema: str) -> str:
-    """Map assistencial tema to appropriate human group."""
-    tema_groups: dict[str, str] = {
-        "negativa_cobertura": "juridico-regulatorio",
-        "prazo_atendimento": "regulatorio-ans",
-        "reembolso": "nucleo-ans",
-        "rede": "nucleo-ans",
-        "cobranca": "nucleo-ans",
-    }
-    return tema_groups.get(tema, "juridico-regulatorio")
-
-
-def _resolve_nao_assistencial_group(tema: str) -> str:
-    """Map nao-assistencial tema to appropriate human group."""
-    tema_groups: dict[str, str] = {
-        "cobranca": "nucleo-ans",
-        "cadastro": "nucleo-ans",
-        "informacao": "regulatorio-ans",
-    }
-    return tema_groups.get(tema, "nucleo-ans")
-
-
-# ---------------------------------------------------------------------------
 # Dict-boundary entry functions (T1.2/ADR-0026 §2b) — one per external-task
-# topic. Explicit field selection -> typed dataclass -> the UNCHANGED typed
-# function above -> dataclasses.asdict (or pass through when already a flat
-# dict). The typed functions/guards are byte-identical.
+# topic. Explicit field selection -> typed dataclass (or plain kwargs, for the
+# entry functions that never needed one) -> the UNCHANGED typed function above,
+# which returns a plain dict directly (no nip.py worker function returns a
+# dataclass instance today, so no `dataclasses.asdict` step is needed here).
+# The typed functions/guards are byte-identical.
 #
 # Topic mapping vs spec/processes/bpmn/SP-OP-NIP-001_Resposta_NIP.bpmn (excl.
-# shared/out-of-scope `operadora.events.publish`; spec has only 4 unique NIP
+# shared/out-of-scope `operadora.events.publish`; spec has 5 unique NIP
 # topics, several reused across multiple BPMN service tasks):
-#   assemble_response  -> operadora.nip.instruct_dossier    (exact spec match: "Montar dossie de instrucao")
-#   submit_to_ans        -> operadora.nip.submit_response     (spec match, GUARDED)
-#   handoff_ans_submit   -> operadora.nip.handoff_ans_submit  (exact name+spec match)
-# classify_nip/route_nip/review_juridico/notify_beneficiario have no distinct
-# spec topic (classification/routing/review are DMN-shaped internal steps;
-# spec's own `notify_deadline_risk` targets regulatorio-ans/juridico-regulatorio,
-# NOT the beneficiario notify_beneficiario provides — genuine audience
-# mismatch, not force-mapped) — registered under function-derived topics for
-# registry completeness. publish_completed folds into the generic
-# events.publish task per BPMN — function-derived topic.
-# Spec topic with NO implementing function today (gap, not fabricated here):
-# notify_deadline_risk.
+#   assemble_response    -> operadora.nip.instruct_dossier      (exact spec match:
+#     "Montar dossie de instrucao")
+#   submit_to_ans         -> operadora.nip.submit_response       (spec match, GUARDED)
+#   handoff_ans_submit    -> operadora.nip.handoff_ans_submit    (exact name+spec match)
+#   notify_deadline_risk  -> operadora.nip.notify_deadline_risk  (exact spec match; BUILT
+#     t2.5-p2b-nip-mechanical — since t3.1-event-gap-nip-alerts consumed only by
+#     ST_SolicitarInfoNip; ST_NotificarRiscoPrazo/ST_NotificarRiscoRevisao were converted
+#     in place to operadora.events.publish; see the function's own docstring)
+# publish_completed folds into the generic events.publish task per BPMN —
+# kept as a function-derived topic for registry completeness (mirrors
+# inadimplencia.py's assess_status/calculate_purge convention).
+#
+# t2.5-p2b-nip-mechanical (worker-registry reconciliation, verified against
+# spec/ + docs/processes/contracts/SP-OP-NIP-001.md — zero hits for any of
+# the four names below anywhere in spec/):
+#   - DELETED classify_nip/route_nip (+ their entries + _resolve_*_group
+#     helpers): superseded by the NATIVE DMN businessRuleTasks
+#     BRT_Classificacao (camunda:decisionRef="nip_classification",
+#     SP-OP-NIP-001_Resposta_NIP.bpmn:136) and BRT_Roteamento
+#     (camunda:decisionRef="nip_routing", :167) — the engine evaluates the
+#     deployed .dmn directly; these Python functions never had a
+#     camunda:topic to be dispatched against.
+#   - DELETED review_juridico/notify_beneficiario (+ their entries): NO BPMN
+#     consumer at all (no camunda:topic anywhere in spec/processes/bpmn/
+#     SP-OP-NIP-001_Resposta_NIP.bpmn nor its contract) — orphan
+#     registrations with no engine-reachable path.
 # ---------------------------------------------------------------------------
-
-
-def classify_nip_entry(variables: dict[str, Any], *, kafka: KafkaPublisher | None = None) -> dict[str, Any]:
-    """Dict-boundary entry for `operadora.nip.classify_nip` -> `classify_nip`."""
-    del kafka  # unused — classify_nip emits no domain event
-    input_data = NipInput(**pick_fields(variables, NipInput))
-    result = classify_nip(input_data)
-    return dataclasses.asdict(result)
-
-
-def route_nip_entry(variables: dict[str, Any], *, kafka: KafkaPublisher | None = None) -> dict[str, Any]:
-    """Dict-boundary entry for `operadora.nip.route_nip` -> `route_nip`."""
-    del kafka  # unused — route_nip emits no domain event
-    classification = NipClassificationResult(**pick_fields(variables, NipClassificationResult))
-    documentacao_suficiente = variables.get("documentacao_suficiente", False)
-    result = route_nip(classification, documentacao_suficiente)
-    return dataclasses.asdict(result)
 
 
 def instruct_dossier_entry(
@@ -454,15 +340,24 @@ def instruct_dossier_entry(
     return assemble_response(classification, routing, input_data)
 
 
-def review_juridico_entry(
+def notify_deadline_risk_entry(
     variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
 ) -> dict[str, Any]:
-    """Dict-boundary entry for `operadora.nip.review_juridico` -> `review_juridico`."""
-    del kafka  # unused — review_juridico emits no domain event
-    texto_minuta = variables.get("texto_minuta", "")
-    classificacao = variables.get("classificacao", "")
-    revisor_id = variables.get("revisor_id", "")
-    return review_juridico(texto_minuta, classificacao, revisor_id)
+    """Dict-boundary entry for `operadora.nip.notify_deadline_risk` -> `notify_deadline_risk`."""
+    del kafka  # unused — notify_deadline_risk emits no domain event itself (systemic across
+    # nip.py's entry functions — see register_nip_workers docstring / T3.1 "events.publish fix")
+    numero_nip_ans = variables.get("numero_nip_ans", "")
+    tenant_id = variables.get("tenant_id", "")
+    grupo_humano = variables.get("grupo_humano", "")
+    sla_breach_task_name = variables.get("sla_breach_task_name", "")
+    event_topic_deadline_risk = variables.get("event_topic_deadline_risk", "")
+    return notify_deadline_risk(
+        numero_nip_ans=numero_nip_ans,
+        tenant_id=tenant_id,
+        grupo_humano=grupo_humano,
+        sla_breach_task_name=sla_breach_task_name,
+        event_topic_deadline_risk=event_topic_deadline_risk,
+    )
 
 
 def submit_response_entry(
@@ -477,17 +372,6 @@ def submit_response_entry(
     del kafka  # unused — submit_to_ans emits no domain event itself
     response_input = NipResponseInput(**pick_fields(variables, NipResponseInput))
     return submit_to_ans(response_input)
-
-
-def notify_beneficiario_entry(
-    variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
-) -> dict[str, Any]:
-    """Dict-boundary entry for `operadora.nip.notify_beneficiario` -> `notify_beneficiario`."""
-    del kafka  # unused — notify_beneficiario emits no domain event
-    beneficiario_pseudo_id = variables.get("beneficiario_pseudo_id", "")
-    numero_nip_ans = variables.get("numero_nip_ans", "")
-    decisao_nip = variables.get("decisao_nip", "")
-    return notify_beneficiario(beneficiario_pseudo_id, numero_nip_ans, decisao_nip)
 
 
 def handoff_ans_submit_entry(
@@ -527,28 +411,27 @@ def register_nip_workers(
     `kafka` is accepted (donor contract, ADR-0026 §2) and threaded via `functools.partial`; no
     entry function calls `kafka.publish` today — see `ans_submit.register_ans_submit_workers`'s
     docstring for the same documented sync/async-boundary rationale.
+
+    t2.5-p2b-nip-mechanical: `classify_nip`/`route_nip` (superseded by the native DMN
+    businessRuleTasks BRT_Classificacao/BRT_Roteamento) and `review_juridico`/
+    `notify_beneficiario` (no BPMN consumer at all) are no longer registered — deleted along
+    with their entry functions and (for classify_nip) its `_resolve_*_group` helpers. Registers
+    `notify_deadline_risk` for the first time (previously a documented gap — the BPMN's
+    `operadora.nip.notify_deadline_risk` topic had NO implementing function).
     """
     del seams  # unused — no additional seam (audit=/dmn=/dispatcher=/erasure=) is needed today
-    harness.register_worker(
-        FunctionWorker("operadora.nip.classify_nip", functools.partial(classify_nip_entry, kafka=kafka))
-    )
-    harness.register_worker(
-        FunctionWorker("operadora.nip.route_nip", functools.partial(route_nip_entry, kafka=kafka))
-    )
     harness.register_worker(
         FunctionWorker(
             "operadora.nip.instruct_dossier", functools.partial(instruct_dossier_entry, kafka=kafka)
         )
     )
     harness.register_worker(
-        FunctionWorker("operadora.nip.review_juridico", functools.partial(review_juridico_entry, kafka=kafka))
-    )
-    harness.register_worker(
         FunctionWorker("operadora.nip.submit_response", functools.partial(submit_response_entry, kafka=kafka))
     )
     harness.register_worker(
         FunctionWorker(
-            "operadora.nip.notify_beneficiario", functools.partial(notify_beneficiario_entry, kafka=kafka)
+            "operadora.nip.notify_deadline_risk",
+            functools.partial(notify_deadline_risk_entry, kafka=kafka),
         )
     )
     harness.register_worker(
