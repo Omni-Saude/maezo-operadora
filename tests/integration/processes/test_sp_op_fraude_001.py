@@ -407,6 +407,34 @@ _FRAUDE_NOTIFY_SLA_UNREGISTERED_REASON = (
     " engine-side evidence, pending live-proof flip -- mark/strict unchanged."
 )
 
+# part4 R1 LIVE VALIDATION (engine cibseven 2.1.0) — HONEST RETAG. The t3.1-event-gap-a-fraude-
+# cancel batch predicted test_score_indicators_computa_dmns_reais_contra_evidencia would XPASS
+# once its dead notifications_of_type("fraude.score_indicators") block was replaced with
+# activity_instances_ended containment. It does NOT: removing that block let execution reach the
+# pre-existing `labels`/`indicadores_presentes` assertion, which fails. engine.get_variable(iid,
+# "indicadores_presentes") returns the engine's SPIN-JSON typed-value WRAPPER dict
+# ({'array': True, 'nodeType': 'ARRAY', 'dataFormatName': 'application/json', ...}), not the
+# deserialized list; the `json.loads(x) if isinstance(x, str) else x` guard does not unwrap a
+# dict, so `labels` is the wrapper and the list-equality assert raises. The score itself is proven
+# engine-side (score_indicadores==200 passes; ST_ScoreIndicators COMPLETED in history), so this is
+# purely a typed-value deserialization defect in the test's `labels` read — NOT the fraude.py
+# kafka gap the old reason names. Retagged (not flipped); the fix is unwrapping the typed-value in
+# the adaptation (read the JSON/list value, or use the history variable API), out of validation
+# scope here.
+_FRAUDE_SCORE_INDICADORES_TYPEDVALUE_GAP = (
+    "test-adaptation defect (t3.1-event-gap-a-fraude-cancel, exposed by part4 R1 live validation): "
+    "after the dead notifications_of_type(...) block was removed, execution reaches the pre-existing "
+    "`labels == [...]` assert, which reads engine.get_variable(iid, 'indicadores_presentes'). For a "
+    "serialized-JSON/array process variable the runtime endpoint returns a SPIN typed-value WRAPPER "
+    "dict ({'array': True, 'nodeType': 'ARRAY', ...}), not the deserialized list, and the "
+    "`json.loads(x) if isinstance(x, str)` guard does not unwrap a dict — so `labels` is the wrapper "
+    "and the list-equality assert raises. The score is proven engine-side (score_indicadores==200; "
+    "ST_ScoreIndicators COMPLETED in history) — this is a typed-value deserialization bug in the "
+    "test read, NOT the fraude.py kafka gap _FRAUDE_WORKER_KAFKA_GAP_REASON names. Left xfail(strict) "
+    "pending the adaptation fix (unwrap the typed value / use the history variable API); a validator "
+    "does not rewrite the builder's adaptation. Flips loudly once the read is corrected."
+)
+
 
 def _json_var(value: Any) -> dict[str, Any]:
     """Wrap a `list`/`dict` as an explicit Camunda `Json`-typed variable for `EngineRest` calls.
@@ -735,7 +763,7 @@ async def test_score_alto_roteia_para_humano_nunca_acusa(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_FRAUDE_WORKER_KAFKA_GAP_REASON, strict=True)
+@pytest.mark.xfail(reason=_FRAUDE_SCORE_INDICADORES_TYPEDVALUE_GAP, strict=True)
 async def test_score_indicators_computa_dmns_reais_contra_evidencia(
     engine: EngineRest,
     fraude_probe: FraudeEngineProbe,
@@ -1069,7 +1097,11 @@ async def test_acusar_fraude_round_trip_custodia_do_seal_worker(
     ), "fraude.completed adverso deve carregar investigator_id+tier (round-trip de custodia OK)"
 
 
-@pytest.mark.xfail(reason=_FRAUDE_WORKER_KAFKA_GAP_REASON, strict=True)
+# FLIPPED (part4 R1 live validation, engine cibseven 2.1.0): XPASS(strict) live. Engine history:
+# ST_StartCredenciamento + ST_PublishEncaminhadoCredenciamento COMPLETED canceled=False;
+# ST_PublishEncaminhadoCredenciamento emitted agents.events.fraude.completed with
+# desfecho=encaminhado_credenciamento, investigator_id=investigador-sintetico-001, tier=T2
+# (has_event matched). Prior xfail(_FRAUDE_WORKER_KAFKA_GAP_REASON, strict) removed.
 async def test_happy_path_acusar_handoff_credenciamento(
     engine: EngineRest,
     fraude_probe: FraudeEngineProbe,
@@ -1118,7 +1150,10 @@ async def test_happy_path_acusar_handoff_credenciamento(
     )
 
 
-@pytest.mark.xfail(reason=_FRAUDE_WORKER_KAFKA_GAP_REASON, strict=True)
+# FLIPPED (part4 R1 live validation, engine cibseven 2.1.0): XPASS(strict) live. Engine history:
+# ST_StartContratual + ST_PublishEncaminhadoContratual COMPLETED canceled=False; has_event matched
+# completed(desfecho=encaminhado_contratual, investigator_id=investigador-sintetico-001, tier=T2).
+# Prior xfail(_FRAUDE_WORKER_KAFKA_GAP_REASON, strict) removed.
 async def test_happy_path_acusar_handoff_contratual(
     engine: EngineRest,
     fraude_probe: FraudeEngineProbe,
@@ -1164,7 +1199,10 @@ async def test_happy_path_acusar_handoff_contratual(
     ), "ST_PublishEncaminhadoContratual deve emitir completed(desfecho=..., investigator_id=..., tier=...)"
 
 
-@pytest.mark.xfail(reason=_FRAUDE_WORKER_KAFKA_GAP_REASON, strict=True)
+# FLIPPED (part4 R1 live validation, engine cibseven 2.1.0): XPASS(strict) live. Engine history:
+# ST_ReferToLegal + ST_PublishEncaminhadoJuridico COMPLETED canceled=False; has_event matched
+# completed(desfecho=encaminhado_juridico, investigator_id=investigador-sintetico-001, tier=T2).
+# Prior xfail(_FRAUDE_WORKER_KAFKA_GAP_REASON, strict) removed.
 async def test_happy_path_acusar_handoff_juridico(
     engine: EngineRest,
     fraude_probe: FraudeEngineProbe,
@@ -1422,7 +1460,11 @@ async def test_prazo_diligencia_expira_vai_para_humano_nao_acusa(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_FRAUDE_NOTIFY_SLA_UNREGISTERED_REASON, strict=True)
+# FLIPPED (part4 R1 live validation, engine cibseven 2.1.0): XPASS(strict) live. Engine history:
+# ST_NotifySlaRisk COMPLETED canceled=False in this instance's activity history (non-interruptive
+# alert branch routes directly to End_RiscoSlaNotificado — no publish task; activity-history
+# containment is the strongest available evidence). UT stayed open. Prior
+# xfail(_FRAUDE_NOTIFY_SLA_UNREGISTERED_REASON, strict) removed.
 async def test_timer_alerta_sla_nao_interruptivo(
     engine: EngineRest,
     fraude_probe: FraudeEngineProbe,

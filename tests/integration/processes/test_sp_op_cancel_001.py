@@ -225,6 +225,33 @@ _WORKER_KAFKA_GAP_REASON = (
     "is deferred to the live-validation step (design doc §5)."
 )
 
+# part4 R1 LIVE VALIDATION (engine cibseven 2.1.0) — HONEST RETAG of 3 of the 7 event-gap-a
+# adaptations that did NOT flip. The t3.1-event-gap-a-fraude-cancel batch predicted all 7 XPASS,
+# but 3 tests (test_happy_path_cancelamento_a_pedido_beneficiario_l2,
+# test_happy_path_pedido_negado_humano, test_happy_path_contrato_mantido) replaced their dead
+# notifications_of_type(...) check with `engine.get_variable(iid, <var>)` — a RUNTIME variable
+# read — on an instance that has ALREADY reached its end event (cancelado_beneficiario /
+# End_PedidoCancelamentoNegado / End_ContratoMantido). The runtime endpoint returns HTTP 500
+# ("execution is null") once the instance completes, so the assert raises BEFORE it can observe
+# the fact. The fact itself IS engine-recorded: GET /history/variable-instance for these instances
+# returns member_request_effectuated=True / fundamentacao_provided=True (state=CREATED). The
+# adaptation should have used the HISTORY variable API, not the runtime one, for a completed
+# instance. This is a defect in the test adaptation (951cd1c), NOT the cancel.py kafka gap the
+# old reason names, and NOT a src/BPMN/DMN issue — so the reason is retagged (not flipped); the
+# fix is a one-line API swap in the adaptation, out of validation scope here.
+_CANCEL_COMPLETED_RUNTIME_VAR_GAP = (
+    "test-adaptation defect (t3.1-event-gap-a-fraude-cancel, exposed by part4 R1 live validation): "
+    "the adapted assert reads engine.get_variable(iid, <var>) via the RUNTIME variable API on an "
+    "instance that has already reached its end event — the engine returns HTTP 500 'execution is "
+    "null' for a completed instance's runtime execution, so the assert raises. The fact IS "
+    "engine-recorded (GET /history/variable-instance shows member_request_effectuated=True / "
+    "fundamentacao_provided=True); the adaptation should query the HISTORY variable API for a "
+    "completed instance. Distinct from _WORKER_KAFKA_GAP_REASON (the dead notification check was "
+    "already removed by that batch) — this is a runtime-vs-history API selection bug in the test, "
+    "not a cancel.py/BPMN gap. Left xfail(strict) pending the one-line adaptation fix (a validator "
+    "does not rewrite the builder's adaptation); flips loudly once the API is corrected."
+)
+
 # T3.1 Wave 1 remedy B (event-gap design doc §2.2): CLOSES the C1 half of the gap this ONE test
 # hit — `ST_PublishCancelPended` (a plain, boundary-free `operadora.events.publish` task mirroring
 # `ST_PublishSlaBreach`) now sits on `Flow_Request_WaitNotif` (spec/processes/bpmn/SP-OP-CANCEL-001_
@@ -580,7 +607,7 @@ async def test_fraude_referida_nunca_auto_flag(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_WORKER_KAFKA_GAP_REASON, strict=True)
+@pytest.mark.xfail(reason=_CANCEL_COMPLETED_RUNTIME_VAR_GAP, strict=True)
 async def test_happy_path_cancelamento_a_pedido_beneficiario_l2(
     engine: EngineRest,
     cancel_probe: CancelEngineProbe,
@@ -627,7 +654,11 @@ async def test_happy_path_cancelamento_a_pedido_beneficiario_l2(
     ), "Cancelamento a pedido NUNCA emite notificacao de rescisao (L0)"
 
 
-@pytest.mark.xfail(reason=_WORKER_KAFKA_GAP_REASON, strict=True)
+# FLIPPED (part4 R1 live validation, engine cibseven 2.1.0): XPASS(strict) live. Engine history:
+# ST_SendCancellationNoticeRescisao + ST_PublishRescindido COMPLETED canceled=False on this
+# instance; ST_PublishRescindido emitted agents.events.cancel.completed with
+# desfecho=rescindido_operadora, responsavel_id=juridico-sintetico-001 (has_event matched). Prior
+# xfail(_WORKER_KAFKA_GAP_REASON, strict) removed.
 async def test_happy_path_rescisao_pela_operadora_humano(
     engine: EngineRest,
     cancel_probe: CancelEngineProbe,
@@ -667,7 +698,10 @@ async def test_happy_path_rescisao_pela_operadora_humano(
     ), "ST_PublishRescindido deve emitir completed(desfecho=rescindido_operadora, responsavel_id=...)"
 
 
-@pytest.mark.xfail(reason=_WORKER_KAFKA_GAP_REASON, strict=True)
+# FLIPPED (part4 R1 live validation, engine cibseven 2.1.0): XPASS(strict) live. Engine history:
+# ST_SendCancellationNoticeSuspensao + ST_PublishSuspenso COMPLETED canceled=False; has_event
+# matched completed(desfecho=suspenso, responsavel_id=juridico-sintetico-001). Prior
+# xfail(_WORKER_KAFKA_GAP_REASON, strict) removed.
 async def test_happy_path_suspensao_por_inadimplencia_humano(
     engine: EngineRest,
     cancel_probe: CancelEngineProbe,
@@ -703,7 +737,7 @@ async def test_happy_path_suspensao_por_inadimplencia_humano(
     ), "ST_PublishSuspenso deve emitir completed(desfecho=suspenso, responsavel_id=...)"
 
 
-@pytest.mark.xfail(reason=_WORKER_KAFKA_GAP_REASON, strict=True)
+@pytest.mark.xfail(reason=_CANCEL_COMPLETED_RUNTIME_VAR_GAP, strict=True)
 async def test_happy_path_pedido_negado_humano(
     engine: EngineRest,
     cancel_probe: CancelEngineProbe,
@@ -767,7 +801,7 @@ async def test_happy_path_pedido_negado_humano(
     # confirm_maintained_decision_entry's return dict.
 
 
-@pytest.mark.xfail(reason=_WORKER_KAFKA_GAP_REASON, strict=True)
+@pytest.mark.xfail(reason=_CANCEL_COMPLETED_RUNTIME_VAR_GAP, strict=True)
 async def test_happy_path_contrato_mantido(
     engine: EngineRest,
     cancel_probe: CancelEngineProbe,
@@ -1101,7 +1135,10 @@ async def test_prazo_notificacao_expira_vai_para_humano_nao_rescinde(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_WORKER_KAFKA_GAP_REASON, strict=True)
+# FLIPPED (part4 R1 live validation, engine cibseven 2.1.0): XPASS(strict) live. Engine history:
+# ST_NotificarRiscoSla COMPLETED canceled=False in this instance's activity history (no publish
+# task on this non-interruptive alert branch — activity-history containment is the strongest
+# available evidence). UT stayed open. Prior xfail(_WORKER_KAFKA_GAP_REASON, strict) removed.
 async def test_timer_alerta_sla_nao_interruptivo(
     engine: EngineRest,
     cancel_probe: CancelEngineProbe,
@@ -1214,7 +1251,10 @@ async def test_dmn_cancel_sla_registra_fonte(
     assert job_sla.activity_id == "BT_SlaAnalise"
 
 
-@pytest.mark.xfail(reason=_WORKER_KAFKA_GAP_REASON, strict=True)
+# FLIPPED (part4 R1 live validation, engine cibseven 2.1.0): XPASS(strict) live. Instance is
+# paused at UT_AnaliseRescisao (runtime execution still exists), so engine.get_variable succeeds:
+# ST_PrepareDossier COMPLETED canceled=False in history; natureza_caso='inadimplencia',
+# grupo_sugerido='juridico-contratos' matched. Prior xfail(_WORKER_KAFKA_GAP_REASON, strict) removed.
 async def test_cancel_routing_alimenta_dossie_humano(
     engine: EngineRest,
     cancel_probe: CancelEngineProbe,
