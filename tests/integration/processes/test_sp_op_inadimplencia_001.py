@@ -237,6 +237,31 @@ _NOTIFY_SLA_RISK_UNOBSERVABLE_REASON = (
     "ended) is a separate follow-up outside this GAP-INAD-1 anti-dupla-seam PR."
 )
 
+_INAD_NOTIFIED_PUBLISH_ADDED_REASON = (
+    "T3.1 event-gap remedy B, wave 4 latent conformance (event-gap design doc §2.8) — BUILT, "
+    "PENDING LIVE-PROOF FLIP: SP-OP-INADIMPLENCIA-001.md:109 declares agents.events.inadimplencia."
+    "notified as a 'produz' contract obligation, but ST_CheckPriorNotice's own event_topic_notified "
+    "inputParameter was worker-intended and check_prior_notice never calls kafka.publish (dict-"
+    "first, ADR-0026) — the embedded publish never happened. UNLIKE recurso/cancel/auth's Wave-1 "
+    "batches, NO existing test ever pinned this obligation red: `_INAD_NOTIFIED` was defined "
+    "(above) but referenced only in prose (event-gap design doc §1 row 10 / §2.8 — 'no has_event "
+    "test'). This is a NEW regression test locking the contract obligation, not a flip of a "
+    "pre-existing xfail. FIXED (BPMN-only, no src/ change): a dedicated boundary-free "
+    "operadora.events.publish task, ST_PublishInadimplenciaNotified, now sits between "
+    "ST_CheckPriorNotice and GW_CureWindow (spec/processes/bpmn/SP-OP-INADIMPLENCIA-001_"
+    "Suspensao_Rescisao.bpmn: ST_CheckPriorNotice -> ST_PublishInadimplenciaNotified -> "
+    "GW_CureWindow, via Flow_RequestNotif_PubPended -> Flow_PubPended_CureGW) and emits "
+    "agents.events.inadimplencia.notified with event_payload_vars=tenant_id,numero_contrato on "
+    "every completion of ST_CheckPriorNotice (reached from BOTH the AGUARDA_PURGA and "
+    "PENDENTE_NOTIFICACAO branches of BRT_Status, which converge on BRT_PurgaPrazos upstream). "
+    "make validate-artifacts and make check-bpmn-error-allowlist both PASS against it "
+    "(boundary-free task does not perturb the operadora.events.publish dispatch-filter escape, "
+    "ADR-0030 §2 clause b1/b2). NOT YET LIVE-PROVEN: no docker/live CIB Seven engine in this "
+    "task's scope (spec+test edit only) — make deploy-artifacts against make dev-stack + this "
+    "suite + removing this mark is the deliberate remaining step (program discipline; precedent: "
+    "recurso's own _RECURSO_PENDED_PUBLISH_ADDED_REASON)."
+)
+
 
 def _json_var(value: Any) -> dict[str, Any]:
     """Engine-shaped `Json`-typed variable (see `test_sp_op_contas_001.py`'s PORT NOTE 1 for the
@@ -534,6 +559,38 @@ async def test_pagamento_dentro_janela_purga_purgado_nunca_adverso(
     assert _END_PURGADO in ended, f"Pagamento dentro da janela => End_Purgado. ended={ended}"
     assert not (ended & _ENDS_ADVERSOS), "Purga NUNCA atinge terminal adverso (L0)"
     assert inad_probe.has_event(_INAD_COMPLETED, desfecho="purgado")
+
+
+@pytest.mark.xfail(reason=_INAD_NOTIFIED_PUBLISH_ADDED_REASON, strict=True)
+async def test_notificacao_previa_publica_inadimplencia_notified(
+    engine: EngineRest,
+    inad_probe: InadEngineProbe,
+    start_inad: Callable[..., Any],
+) -> None:
+    """T3.1 event-gap remedy B (wave 4, latent conformance, event-gap design doc §2.8).
+
+    dentro_janela_purga=True => BRT_Status roteia AGUARDA_PURGA => BRT_PurgaPrazos =>
+    ST_CheckPriorNotice roda => ST_PublishInadimplenciaNotified (novo, boundary-free) publica
+    agents.events.inadimplencia.notified com os business keys do processo. NENHUM teste
+    pre-existente pinava esta obrigacao de contrato (SP-OP-INADIMPLENCIA-001.md:109 "produz") —
+    regressao NOVA, nao adaptacao de um xfail vermelho ja existente (contraste com o padrao
+    recurso/cancel/auth Wave 1).
+    """
+    contrato = _unique_contrato()
+    inst = await start_inad(numero_contrato=contrato, dentro_janela_purga=True, notificacao_previa_feita=True)
+    iid = inst["id"]
+
+    await inad_probe.drain()
+
+    assert await engine.instance_is_active(iid), "Instancia deve aguardar no cure-window de purga"
+    assert inad_probe.has_event(
+        _INAD_NOTIFIED,
+        tenant_id="amh",
+        numero_contrato=contrato,
+    ), (
+        "inadimplencia.notified (ST_PublishInadimplenciaNotified) deve ser publicado com os "
+        "business keys do processo"
+    )
 
 
 async def test_expiracao_purga_nao_auto_suspende(

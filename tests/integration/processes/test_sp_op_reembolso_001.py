@@ -275,6 +275,32 @@ _REEMBOLSO_CEILING_D07_REASON = (
     "scope for this port."
 )
 
+_REEMBOLSO_PENDED_PUBLISH_ADDED_REASON = (
+    "T3.1 event-gap remedy B, wave 4 latent conformance (event-gap design doc §2.8) — BUILT, "
+    "PENDING LIVE-PROOF FLIP: SP-OP-REEMBOLSO-001.md:100 declares agents.events.reembolso.pended "
+    "as a 'produz' contract obligation, but ST_SolicitarDocumentos's own event_topic_pended "
+    "inputParameter was worker-intended and request_documents_entry discards its kafka seam (del "
+    "kafka, ADR-0026) — the embedded publish never happened. UNLIKE recurso/cancel/auth's Wave-1 "
+    "batches, NO existing test ever pinned this obligation red: `_REEMBOLSO_PENDED` was defined "
+    "(above) but referenced only in prose (event-gap design doc §1 row 8 / §2.8 — 'no has_event "
+    "test'). This is a NEW regression test locking the contract obligation, not a flip of a "
+    "pre-existing xfail. FIXED (BPMN-only, no src/ change): a dedicated boundary-free "
+    "operadora.events.publish task, ST_PublishReembolsoPended, now sits between "
+    "ST_SolicitarDocumentos and GW_AguardarDocs (spec/processes/bpmn/SP-OP-REEMBOLSO-001_"
+    "Reembolso_Beneficiario.bpmn: ST_SolicitarDocumentos -> ST_PublishReembolsoPended -> "
+    "GW_AguardarDocs, via Flow_Solicitar_PubPended -> Flow_PubPended_WaitDocs) and emits "
+    "agents.events.reembolso.pended with event_payload_vars=tenant_id,protocolo_reembolso on "
+    "every completion of ST_SolicitarDocumentos (both the initial-pendencia branch, "
+    "Flow_GW_Pendencia, and the SOLICITAR_INFO re-entry branch, Flow_GWDec_SolicitarInfo, "
+    "converge on this single outgoing edge). make validate-artifacts and make "
+    "check-bpmn-error-allowlist both PASS against it (boundary-free task does not perturb the "
+    "operadora.events.publish dispatch-filter escape, ADR-0030 §2 clause b1/b2). NOT YET "
+    "LIVE-PROVEN: no docker/live CIB Seven engine in this task's scope (spec+test edit only) — "
+    "make deploy-artifacts against make dev-stack + this suite + removing this mark is the "
+    "deliberate remaining step (program discipline; precedent: recurso's own "
+    "_RECURSO_PENDED_PUBLISH_ADDED_REASON)."
+)
+
 
 @dataclass
 class ReembolsoEngineProbe:
@@ -966,6 +992,34 @@ async def test_pendencia_docs_recebidos_reavalia(
     assert await engine.instance_is_active(iid) or _END_AUTO in ended, (
         "Apos a mensagem, a instancia deve reavaliar (ativa) ou chegar a aprovacao integral"
     )
+
+
+@pytest.mark.xfail(reason=_REEMBOLSO_PENDED_PUBLISH_ADDED_REASON, strict=True)
+async def test_pendencia_docs_publica_reembolso_pended(
+    engine: EngineRest,
+    reembolso_probe: ReembolsoEngineProbe,
+    start_reembolso: Callable[..., Any],
+) -> None:
+    """T3.1 event-gap remedy B (wave 4, latent conformance, event-gap design doc §2.8).
+
+    documentacao_completa=false => ST_SolicitarDocumentos roda => ST_PublishReembolsoPended
+    (novo, boundary-free) publica agents.events.reembolso.pended com os business keys do processo.
+    NENHUM teste pre-existente pinava esta obrigacao de contrato (SP-OP-REEMBOLSO-001.md:100
+    "produz") — regressao NOVA, nao adaptacao de um xfail vermelho ja existente (contraste com o
+    padrao recurso/cancel/auth Wave 1).
+    """
+    protocolo = _unique_protocolo()
+    inst = await start_reembolso(documentacao_completa=False, protocolo_reembolso=protocolo)
+    iid = inst["id"]
+
+    await reembolso_probe.drain()
+
+    assert await engine.instance_is_active(iid), "Instancia deve aguardar documentacao na GW_AguardarDocs"
+    assert reembolso_probe.has_event(
+        _REEMBOLSO_PENDED,
+        tenant_id="amh",
+        protocolo_reembolso=protocolo,
+    ), "reembolso.pended (ST_PublishReembolsoPended) deve ser publicado com os business keys do processo"
 
 
 async def test_pendencia_expira_decisao_humana_nunca_auto_nega(
