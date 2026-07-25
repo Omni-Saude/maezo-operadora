@@ -270,17 +270,51 @@ def notify_sla_risk(variables: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------
 
 
+def _norm_str(value: Any) -> str:
+    """Normalize an engine variable to a stripped string for guard checks — FAIL-CLOSED.
+
+    Mirrors `pagto._norm_str`/`pagto.register_payment_refusal`'s fix (t2.5-p2b-round2, then
+    t3.1-guard-input-hardening for `release_high_value_payment`): the pre-fix bare
+    `if not tipo_fallback` / `if not justificativa` / ... checks let WHITESPACE-ONLY decision +
+    accountability fields pass the guard — defeating ADR-0007/RN 259 (a fallback commitment
+    recorded with a non-identifying approver or a blank justification/regulatory reference).
+    Closes that class:
+    - a `str` normalizes to `value.strip()` — whitespace-only ("   ", "\\t", "\\n", ...)
+      becomes "" and is treated EXACTLY like an absent field (refusal, never registration);
+    - a NON-string (None, int, bool, list, dict — engine variables arrive untyped) normalizes
+      to "" (fail-closed refusal), never a truthy pass-through and never an AttributeError
+      incident from calling `.strip()` on a non-string.
+    """
+    if isinstance(value, str):
+        return value.strip()
+    return ""
+
+
 def register_fallback_commitment(variables: dict[str, Any]) -> dict[str, Any]:
     """Register a financial fallback commitment (livre escolha/reembolso).
 
     GUARDED: ERR_FALLBACK_COMMITMENT_NOT_HUMAN.
     This is the ONLY adverse effect in this L3-majority process.
+
+    NORMALIZATION (t3.1-guard-input-hardening, closing the bare-truthiness gap noted in the
+    #133 audit — adequacao.py:289-295 pre-fix): ALL decision + human-accountability fields
+    (`decisao_remediacao`, `tipo_fallback`, `justificativa_fallback`, `referencia_regulatoria`,
+    `responsavel_id`) are normalized via `_norm_str` (strip; non-string -> "") BEFORE any guard
+    check, mirroring `pagto.register_payment_refusal`'s fix. Consequences, all fail-closed:
+    - whitespace-only `tipo_fallback`/`justificativa_fallback`/`referencia_regulatoria`/
+      `responsavel_id` REFUSES exactly like an absent field;
+    - a whitespace-PADDED but otherwise exact `decisao_remediacao` literal
+      ("COMPROMISSO_FALLBACK ") normalizes to the literal and still passes Guard 1 (still
+      subject to the accountability-field checks) — case variants/substrings still refuse
+      (exact `!=` match, no folding);
+    - a non-string in ANY of these fields normalizes to "" (refusal), never a truthy
+      pass-through and never an AttributeError incident.
     """
-    decisao = variables.get("decisao_remediacao", "")
-    tipo_fallback = variables.get("tipo_fallback", "")
-    justificativa = variables.get("justificativa_fallback", "")
-    ref_regulatoria = variables.get("referencia_regulatoria", "")
-    responsavel_id = variables.get("responsavel_id", "")
+    decisao = _norm_str(variables.get("decisao_remediacao", ""))
+    tipo_fallback = _norm_str(variables.get("tipo_fallback", ""))
+    justificativa = _norm_str(variables.get("justificativa_fallback", ""))
+    ref_regulatoria = _norm_str(variables.get("referencia_regulatoria", ""))
+    responsavel_id = _norm_str(variables.get("responsavel_id", ""))
 
     errors: list[str] = []
 

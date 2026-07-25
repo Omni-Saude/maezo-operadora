@@ -349,6 +349,205 @@ def test_cred_denial_rejects_missing_regulatoria() -> None:
 
 
 # ---------------------------------------------------------------
+# register_descredenciamento / register_cred_denial — whitespace-bypass vectors
+# (t3.1-guard-input-hardening, same class as the c1377fa fix for
+# pagto.register_payment_refusal: bare `if not field:` let WHITESPACE-ONLY decision +
+# accountability fields through. Every vector below MUST refuse with the function's own
+# error code — whitespace-only is the SAME as absent (ADR-0007/RN 566/RN 567).
+# ---------------------------------------------------------------
+
+_WHITESPACE_VARIANTS = [" ", "   ", "\t", "\n", "\t\n ", "\r\n"]
+_NON_STRING_VARIANTS: list[object] = [123, True, 0.5, ["x"], {"k": "v"}]
+
+
+def _decred_baseline(**overrides: object) -> dict[str, object]:
+    """Happy-path baseline for register_descredenciamento (tem_beneficiarios_vinculados=True so
+    plano_substituicao is exercised as an obligatory field) -- any guard failure observed in a
+    test is attributable ONLY to the field under test."""
+    base: dict[str, object] = {
+        "decisao_cred": "DESCREDENCIAR",
+        "responsavel_id": "gestor-001",
+        "fundamentacao": "Violacao contratual",
+        "referencia_regulatoria": "RN 567",
+        "comprovacao_notificacao_previa": "ref-notif-001",
+        "tem_beneficiarios_vinculados": True,
+        "plano_substituicao": "Substituto equivalente hospital X",
+        "prestador_id": "P-001",
+    }
+    base.update(overrides)
+    return base
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "responsavel_id",
+        "fundamentacao",
+        "referencia_regulatoria",
+        "comprovacao_notificacao_previa",
+        "plano_substituicao",
+    ],
+)
+@pytest.mark.parametrize("whitespace", _WHITESPACE_VARIANTS)
+def test_decred_whitespace_only_accountability_field_refuses(field: str, whitespace: str) -> None:
+    """Bare-truthiness bypass (pre-fix): whitespace-only accountability field must refuse and
+    be named in the guard's error message. plano_substituicao included: contract
+    SP-OP-CRED-001.md:80,149 makes it an obligatory human-typed string when
+    tem_beneficiarios_vinculados (RN 567)."""
+    with pytest.raises(CredError) as excinfo:
+        register_descredenciamento(_decred_baseline(**{field: whitespace}))
+    assert excinfo.value.code == ERR_DECRED_NOT_HUMAN
+    assert field in excinfo.value.message
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "responsavel_id",
+        "fundamentacao",
+        "referencia_regulatoria",
+        "comprovacao_notificacao_previa",
+        "plano_substituicao",
+    ],
+)
+@pytest.mark.parametrize("non_string", _NON_STRING_VARIANTS)
+def test_decred_non_string_accountability_field_refuses(field: str, non_string: object) -> None:
+    """A NON-string accountability field normalizes to '' and refuses -- the pre-fix bare
+    truthiness check would have silently PASSED a truthy non-string (e.g. 123)."""
+    with pytest.raises(CredError) as excinfo:
+        register_descredenciamento(_decred_baseline(**{field: non_string}))
+    assert excinfo.value.code == ERR_DECRED_NOT_HUMAN
+    assert field in excinfo.value.message
+
+
+@pytest.mark.parametrize("whitespace", _WHITESPACE_VARIANTS)
+def test_decred_both_responsavel_and_fundamentacao_whitespace_refuses(whitespace: str) -> None:
+    """Both responsavel_id AND fundamentacao whitespace-only -- both missing fields named."""
+    with pytest.raises(CredError) as excinfo:
+        register_descredenciamento(_decred_baseline(responsavel_id=whitespace, fundamentacao=whitespace))
+    assert excinfo.value.code == ERR_DECRED_NOT_HUMAN
+    assert "responsavel_id" in excinfo.value.message
+    assert "fundamentacao" in excinfo.value.message
+
+
+@pytest.mark.parametrize("whitespace", [" ", "\t", "\n", "  \t\n"])
+def test_decred_whitespace_only_decisao_refuses(whitespace: str) -> None:
+    """Whitespace-only decisao_cred normalizes to '' -> != DESCREDENCIAR -> refuses."""
+    with pytest.raises(CredError) as excinfo:
+        register_descredenciamento(_decred_baseline(decisao_cred=whitespace))
+    assert excinfo.value.code == ERR_DECRED_NOT_HUMAN
+    assert "decisao_cred" in excinfo.value.message
+
+
+def test_decred_padded_valid_literal_normalizes_and_registers() -> None:
+    """Whitespace-PADDED but otherwise exact literal/fields normalize via `_norm_str` and still
+    register (pins the normalization -- NOT a bypass, the documented `.strip()` consequence)."""
+    result = register_descredenciamento(
+        _decred_baseline(
+            decisao_cred=" DESCREDENCIAR ",
+            responsavel_id=" gestor-001 ",
+            fundamentacao=" Violacao contratual ",
+            referencia_regulatoria=" RN 567 ",
+            comprovacao_notificacao_previa=" ref-notif-001 ",
+            plano_substituicao=" Substituto equivalente hospital X ",
+        )
+    )
+    assert result["descredenciamento_registrado"] is True
+
+
+@pytest.mark.parametrize(
+    "decision", ["descredenciar", "Descredenciar", "DESCREDENCIAR_X", "XDESCREDENCIAR", "MANTER "]
+)
+def test_decred_non_exact_decisao_literal_still_refuses(decision: str) -> None:
+    """Exact-match discipline survives normalization: case variants/substrings never pass."""
+    with pytest.raises(CredError) as excinfo:
+        register_descredenciamento(_decred_baseline(decisao_cred=decision))
+    assert excinfo.value.code == ERR_DECRED_NOT_HUMAN
+
+
+def _cred_denial_baseline(**overrides: object) -> dict[str, object]:
+    """Happy-path baseline for register_cred_denial."""
+    base: dict[str, object] = {
+        "decisao_cred": "NEGAR_CREDENCIAMENTO",
+        "responsavel_id": "gestor-002",
+        "fundamentacao": "Fora dos criterios RN 566",
+        "referencia_regulatoria": "RN 566",
+        "prestador_id": "P-002",
+    }
+    base.update(overrides)
+    return base
+
+
+@pytest.mark.parametrize("field", ["responsavel_id", "fundamentacao", "referencia_regulatoria"])
+@pytest.mark.parametrize("whitespace", _WHITESPACE_VARIANTS)
+def test_cred_denial_whitespace_only_accountability_field_refuses(field: str, whitespace: str) -> None:
+    """Bare-truthiness bypass (pre-fix): whitespace-only accountability field must refuse."""
+    with pytest.raises(CredError) as excinfo:
+        register_cred_denial(_cred_denial_baseline(**{field: whitespace}))
+    assert excinfo.value.code == ERR_CRED_DENIAL_NOT_HUMAN
+    assert field in excinfo.value.message
+
+
+@pytest.mark.parametrize("field", ["responsavel_id", "fundamentacao", "referencia_regulatoria"])
+@pytest.mark.parametrize("non_string", _NON_STRING_VARIANTS)
+def test_cred_denial_non_string_accountability_field_refuses(field: str, non_string: object) -> None:
+    """A NON-string accountability field normalizes to '' and refuses."""
+    with pytest.raises(CredError) as excinfo:
+        register_cred_denial(_cred_denial_baseline(**{field: non_string}))
+    assert excinfo.value.code == ERR_CRED_DENIAL_NOT_HUMAN
+    assert field in excinfo.value.message
+
+
+@pytest.mark.parametrize("whitespace", _WHITESPACE_VARIANTS)
+def test_cred_denial_both_responsavel_and_fundamentacao_whitespace_refuses(
+    whitespace: str,
+) -> None:
+    with pytest.raises(CredError) as excinfo:
+        register_cred_denial(_cred_denial_baseline(responsavel_id=whitespace, fundamentacao=whitespace))
+    assert excinfo.value.code == ERR_CRED_DENIAL_NOT_HUMAN
+    assert "responsavel_id" in excinfo.value.message
+    assert "fundamentacao" in excinfo.value.message
+
+
+@pytest.mark.parametrize("whitespace", [" ", "\t", "\n", "  \t\n"])
+def test_cred_denial_whitespace_only_decisao_refuses(whitespace: str) -> None:
+    with pytest.raises(CredError) as excinfo:
+        register_cred_denial(_cred_denial_baseline(decisao_cred=whitespace))
+    assert excinfo.value.code == ERR_CRED_DENIAL_NOT_HUMAN
+    assert "decisao_cred" in excinfo.value.message
+
+
+def test_cred_denial_padded_valid_literal_normalizes_and_registers() -> None:
+    result = register_cred_denial(
+        _cred_denial_baseline(
+            decisao_cred=" NEGAR_CREDENCIAMENTO ",
+            responsavel_id=" gestor-002 ",
+            fundamentacao=" Fora dos criterios RN 566 ",
+            referencia_regulatoria=" RN 566 ",
+        )
+    )
+    assert result["credenciamento_negado"] is True
+
+
+@pytest.mark.parametrize(
+    "decision",
+    [
+        "negar_credenciamento",
+        "Negar_Credenciamento",
+        "NEGAR_CREDENCIAMENTO_X",
+        "XNEGAR_CREDENCIAMENTO",
+        "DESCREDENCIAR ",
+    ],
+)
+def test_cred_denial_non_exact_decisao_literal_still_refuses(decision: str) -> None:
+    """Case variants/substrings never pass; a padded DESCREDENCIAR on the denial guard is the
+    WRONG literal for this function and must refuse."""
+    with pytest.raises(CredError) as excinfo:
+        register_cred_denial(_cred_denial_baseline(decisao_cred=decision))
+    assert excinfo.value.code == ERR_CRED_DENIAL_NOT_HUMAN
+
+
+# ---------------------------------------------------------------
 # register_credenciamento — NEUTRAL (favorable direction; EXCECAO CLERICAL, no human-gate)
 # ---------------------------------------------------------------
 

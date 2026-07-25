@@ -368,6 +368,118 @@ def test_release_high_value_missing_aprovador() -> None:
 
 
 # ---------------------------------------------------------------
+# release_high_value_payment — whitespace-bypass vectors (t3.1-guard-input-hardening,
+# closing the #133-audit-flagged gap at pagto.py:283,285: the guard's original bare
+# `if not aprovador_id` / `if not justificativa` checks let WHITESPACE-ONLY accountability
+# fields through, exactly the same class the c1377fa fix closed for
+# register_payment_refusal. Every vector below MUST refuse with ERR_PAYMENT_RELEASE_NOT_HUMAN
+# -- whitespace-only is the SAME as absent (ADR-0007: a release must carry an identifying
+# human approver + a real justification).
+# ---------------------------------------------------------------
+
+
+def _release_high_value_baseline(**overrides: object) -> dict[str, object]:
+    """Happy-path baseline for release_high_value_payment -- tier-match satisfied so any
+    guard failure observed in a test is attributable ONLY to the field under test."""
+    base: dict[str, object] = {
+        "decisao_pagamento": "APROVAR",
+        "aprovador_id": "fin-001",
+        "aprovador_tier": 3,
+        "justificativa_aprovacao": "Contrato emergencial aprovado pelo comite",
+        "valor_aprovado_cents": 500_000_000,
+        "faixa_valor": "ALCADA_L3",
+    }
+    base.update(overrides)
+    return base
+
+
+@pytest.mark.parametrize("whitespace", [" ", "   ", "\t", "\n", "\t\n ", "\r\n"])
+def test_release_high_value_whitespace_only_aprovador_id_refuses(whitespace: str) -> None:
+    """Bare-truthiness bypass (pre-fix): whitespace-only aprovador_id must refuse."""
+    with pytest.raises(PagtoError) as excinfo:
+        release_high_value_payment(_release_high_value_baseline(aprovador_id=whitespace))
+    assert excinfo.value.code == ERR_PAYMENT_RELEASE_NOT_HUMAN
+    assert "aprovador_id" in excinfo.value.message
+
+
+@pytest.mark.parametrize("non_string", [123, True, 0.5, ["fin-001"], {"id": "fin-001"}])
+def test_release_high_value_non_string_aprovador_id_refuses(non_string: object) -> None:
+    """A NON-string aprovador_id normalizes to '' and refuses -- the pre-fix bare truthiness
+    check (`if not aprovador_id`) would have silently PASSED a truthy non-string (e.g. 123),
+    releasing a high-value payment with a non-identifying approver."""
+    with pytest.raises(PagtoError) as excinfo:
+        release_high_value_payment(_release_high_value_baseline(aprovador_id=non_string))
+    assert excinfo.value.code == ERR_PAYMENT_RELEASE_NOT_HUMAN
+    assert "aprovador_id" in excinfo.value.message
+
+
+@pytest.mark.parametrize("whitespace", [" ", "   ", "\t", "\n", "\t\n ", "\r\n"])
+def test_release_high_value_whitespace_only_justificativa_refuses(whitespace: str) -> None:
+    """Bare-truthiness bypass (pre-fix): whitespace-only justificativa_aprovacao must refuse."""
+    with pytest.raises(PagtoError) as excinfo:
+        release_high_value_payment(_release_high_value_baseline(justificativa_aprovacao=whitespace))
+    assert excinfo.value.code == ERR_PAYMENT_RELEASE_NOT_HUMAN
+    assert "justificativa_aprovacao" in excinfo.value.message
+
+
+@pytest.mark.parametrize("non_string", [123, True, 0.5, ["ok"], {"j": "ok"}])
+def test_release_high_value_non_string_justificativa_refuses(non_string: object) -> None:
+    """A NON-string justificativa_aprovacao normalizes to '' and refuses -- same sibling hole
+    as aprovador_id (a truthy non-string would previously have silently PASSED)."""
+    with pytest.raises(PagtoError) as excinfo:
+        release_high_value_payment(_release_high_value_baseline(justificativa_aprovacao=non_string))
+    assert excinfo.value.code == ERR_PAYMENT_RELEASE_NOT_HUMAN
+    assert "justificativa_aprovacao" in excinfo.value.message
+
+
+@pytest.mark.parametrize("whitespace", [" ", "   ", "\t", "\n", "\t\n ", "\r\n"])
+def test_release_high_value_both_accountability_fields_whitespace_refuses(whitespace: str) -> None:
+    """Both aprovador_id AND justificativa_aprovacao whitespace-only -- both missing fields
+    named in the guard's error message."""
+    with pytest.raises(PagtoError) as excinfo:
+        release_high_value_payment(
+            _release_high_value_baseline(aprovador_id=whitespace, justificativa_aprovacao=whitespace)
+        )
+    assert excinfo.value.code == ERR_PAYMENT_RELEASE_NOT_HUMAN
+    assert "aprovador_id" in excinfo.value.message
+    assert "justificativa_aprovacao" in excinfo.value.message
+
+
+@pytest.mark.parametrize("whitespace", [" ", "\t", "\n", "  \t\n"])
+def test_release_high_value_whitespace_only_decisao_refuses(whitespace: str) -> None:
+    """Whitespace-only decisao_pagamento normalizes to '' -> != APROVAR -> refuses (the
+    engine's own gateway default routing is not itself a human decision)."""
+    with pytest.raises(PagtoError) as excinfo:
+        release_high_value_payment(_release_high_value_baseline(decisao_pagamento=whitespace))
+    assert excinfo.value.code == ERR_PAYMENT_RELEASE_NOT_HUMAN
+    assert "decisao_pagamento" in excinfo.value.message
+
+
+def test_release_high_value_padded_valid_literal_normalizes_and_releases() -> None:
+    """A whitespace-PADDED but otherwise exact literal/id/justificativa normalizes via
+    `_norm_str` and still releases (pins the normalization behavior -- this is NOT a bypass,
+    it is the documented, intentional consequence of `.strip()`)."""
+    result = release_high_value_payment(
+        _release_high_value_baseline(
+            decisao_pagamento=" APROVAR ",
+            aprovador_id=" fin-001 ",
+            justificativa_aprovacao=" Contrato emergencial aprovado pelo comite ",
+        )
+    )
+    assert result["pagamento_liberado"] is True
+    assert result["tipo_liberacao"] == "humano_alcada"
+
+
+@pytest.mark.parametrize("decision", ["aprovar", "Aprovar", "APROVAR_X", "XAPROVAR", "RECUSAR "])
+def test_release_high_value_non_exact_decisao_literal_still_refuses(decision: str) -> None:
+    """Exact-match discipline survives normalization: case variants/substrings of the decision
+    literal never satisfy Guard 1."""
+    with pytest.raises(PagtoError) as excinfo:
+        release_high_value_payment(_release_high_value_baseline(decisao_pagamento=decision))
+    assert excinfo.value.code == ERR_PAYMENT_RELEASE_NOT_HUMAN
+
+
+# ---------------------------------------------------------------
 # register_payment_refusal — GUARD, dual human channel (t2.5-p2b-round2)
 # ---------------------------------------------------------------
 
