@@ -52,6 +52,7 @@ from typing import Any
 import structlog
 from langgraph.graph import StateGraph
 
+from maezo.a2a import DelegationDispatcher
 from maezo.agents import AgentDefinition, AgentLoader
 from maezo.gateway.pep import PEP, PolicyError, build_pep
 from maezo.platform.health import CheckResult, build_health_server, create_health_app
@@ -60,6 +61,10 @@ from maezo.runtime.harness import Harness, UnknownAgentError
 from maezo.runtime.inference import InferenceProvider
 
 from .settings import AgentRuntimeSettings
+
+#: The two agents party to the ONE A2A edge W3 wires (design doc §9.2) — every other agent
+#: replica is not forced onto Rafael's dependency posture by the `a2a_dispatcher_ready` check.
+_A2A_EDGE_AGENT_IDS = ("helena", "rafael")
 
 logger = structlog.get_logger(__name__)
 
@@ -83,6 +88,8 @@ class AgentState:
     inference_error: str | None = None
     agent_graph: StateGraph[Any] | None = None
     agent_graph_error: str | None = None
+    a2a_dispatcher: DelegationDispatcher | None = None
+    a2a_dispatcher_error: str | None = None
 
     def is_live(self) -> bool:
         return self.live
@@ -150,7 +157,35 @@ def build_readiness_checks(state: AgentState) -> list[Callable[[], Awaitable[Che
             name="graph_loaded", healthy=False, detail=_state.agent_graph_error or "agent graph not built"
         )
 
-    return [agent_definition_loaded, policies_loadable, inference_provider_ready, graph_loaded]
+    async def a2a_dispatcher_ready(_state: AgentState = state) -> CheckResult:
+        # T2.4 A2A W3: construction-only proof the Helena->Rafael `authorization.analyze`
+        # delegation edge ASSEMBLES (mirrors `graph_loaded` — no `.delegate()` call happens here,
+        # no turn ever runs). Gated to the two agents party to this ONE edge (design doc §9.2):
+        # every other agent replica reports healthy/not-applicable rather than being forced onto
+        # Rafael's dependency posture (dmn/cibseven/audit_sink) for an edge it isn't part of.
+        if _state.settings.agent_id not in _A2A_EDGE_AGENT_IDS:
+            return CheckResult(
+                name="a2a_dispatcher_ready",
+                healthy=True,
+                detail=f"not applicable to agent_id={_state.settings.agent_id!r}",
+            )
+        if _state.a2a_dispatcher is not None:
+            return CheckResult(
+                name="a2a_dispatcher_ready", healthy=True, detail="helena->rafael edge assembled"
+            )
+        return CheckResult(
+            name="a2a_dispatcher_ready",
+            healthy=False,
+            detail=_state.a2a_dispatcher_error or "A2A delegation dispatcher not assembled",
+        )
+
+    return [
+        agent_definition_loaded,
+        policies_loadable,
+        inference_provider_ready,
+        graph_loaded,
+        a2a_dispatcher_ready,
+    ]
 
 
 # --- STEP B: dependency bring-up (bounded, non-fatal) -------------------------------------------
@@ -296,6 +331,24 @@ async def _bring_up_dependencies(state: AgentState) -> None:
         state.agent_graph_error = f"{type(exc).__name__}: {exc}"
         logger.error("agent_graph_build_failed", agent_id=settings.agent_id, exc_info=True)
 
+    if settings.agent_id in _A2A_EDGE_AGENT_IDS:
+        # T2.4 A2A W3: construction-only — proves the Option-A in-process Helena->Rafael edge
+        # assembles (see `a2a_composition.build_auth_delegation_dispatcher`'s own docstring for
+        # why this is NOT a live consumer). Isolated exactly like the four checks above: failure
+        # leaves `a2a_dispatcher_ready` unhealthy, never propagates (liveness stays up).
+        # Local import: avoids a module-load-time cycle (`a2a_composition` imports
+        # `_build_tool_deps` FROM this module; deferring the import until this function actually
+        # runs means `service` is already fully initialized by the time it's needed).
+        from .a2a_composition import build_auth_delegation_dispatcher
+
+        try:
+            state.a2a_dispatcher = build_auth_delegation_dispatcher(
+                settings, inference=state.inference_provider
+            )
+        except Exception as exc:  # noqa: BLE001 — same isolation as above.
+            state.a2a_dispatcher_error = f"{type(exc).__name__}: {exc}"
+            logger.error("a2a_dispatcher_build_failed", agent_id=settings.agent_id, exc_info=True)
+
     logger.info(
         "agent_dependencies_brought_up",
         agent_id=settings.agent_id,
@@ -303,6 +356,9 @@ async def _bring_up_dependencies(state: AgentState) -> None:
         policies_loadable=state.pep is not None,
         inference_provider_ready=state.inference_provider is not None,
         graph_loaded=state.agent_graph is not None,
+        a2a_dispatcher_ready=(
+            state.a2a_dispatcher is not None if settings.agent_id in _A2A_EDGE_AGENT_IDS else "n/a"
+        ),
     )
     # Explicit, load-bearing log line (T1.11 update of the Q-6 scaffold note): the graph now
     # BUILDS for real (helena/rafael, defect B6) but this daemon still never EXECUTES a turn —
