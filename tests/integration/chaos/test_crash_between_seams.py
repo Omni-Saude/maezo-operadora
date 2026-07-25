@@ -97,9 +97,7 @@ async def test_b1a_crash_between_claim_and_chain_insert_atomic_rollback(
 
     monkeypatch.undo()  # restore the real _insert_chain_row before the (real) re-delivery
 
-    redelivered_hash = await chaos_sink.emit_once(
-        _record(chaos_tenant_schema, "re-delivery"), dedup_key=key
-    )
+    redelivered_hash = await chaos_sink.emit_once(_record(chaos_tenant_schema, "re-delivery"), dedup_key=key)
 
     assert await count_chain_rows(chaos_pg_dsn, chaos_tenant_schema) == 1, (
         "re-delivery after the crash wrote more (or fewer) than exactly one link"
@@ -142,9 +140,7 @@ async def test_b1a_mutation_check_chain_insert_outside_lock_turns_suite_red(
     monkeypatch.setattr(PostgresAuditSink, "_insert_chain_row", _raise_once)
 
     with pytest.raises(Exception):  # noqa: B017 - the broken variant's own (unwrapped) raise
-        await mutations.broken_emit_once_chain_insert_outside_advisory_lock(
-            chaos_sink, record, dedup_key=key
-        )
+        await mutations.broken_emit_once_chain_insert_outside_advisory_lock(chaos_sink, record, dedup_key=key)
 
     # Same invariant the green test proves — under the mutation this MUST fail (proving the
     # green test would have caught the real defect):
@@ -235,7 +231,11 @@ async def test_b1b_crash_between_emit_and_engine_start_converges_to_one_start(
     )
     assert start_calls["n"] == 1, "a THIRD delivery double-started the engine"
     assert instance_again.instance_id == instance.instance_id
-    assert instance_again.already_existed is True
+    # NOTE: `FakeCibSevenTransport.find_active_instance` returns the stored `ProcessInstance`
+    # object VERBATIM (unlike `CibSevenHttpTransport.find_active_instance`, which explicitly sets
+    # `already_existed=True` on an idempotent hit) — so `already_existed` on the Fake's return
+    # value is not a reliable idempotent-hit signal. `start_calls["n"] == 1` above (no second
+    # engine start across 3 deliveries) is the load-bearing assertion for this invariant.
 
 
 @pytest.mark.skipif(

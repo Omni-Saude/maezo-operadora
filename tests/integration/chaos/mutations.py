@@ -86,7 +86,10 @@ async def broken_emit_once_chain_insert_outside_advisory_lock(
         record.record_hash = record._compute_hash()  # noqa: SLF001
 
         claimed: str | None = await conn.fetchval(
-            _DEDUP_CLAIM_SQL, sink._tenant_id, dedup_key, record.record_hash  # noqa: SLF001
+            _DEDUP_CLAIM_SQL,
+            sink._tenant_id,
+            dedup_key,
+            record.record_hash,  # noqa: SLF001
         )
         if claimed is None:
             raise AuditPersistenceError(
@@ -150,8 +153,14 @@ _FAIL_OPEN_FABRICATED_HASH = "0" * 64  # never a real record_hash — visibly sy
 async def broken_emit_once_fail_open_swallow(
     sink: PostgresAuditSink, record: AuditRecord, *, dedup_key: str
 ) -> str:
-    """C1-down MUTATION double: swallows `AuditPersistenceError` and fabricates success."""
+    """C1-down MUTATION double: swallows `AuditPersistenceError` and fabricates success.
+
+    Calls the REAL `PostgresAuditSink.emit_once` via the CLASS (`PostgresAuditSink.emit_once(sink,
+    ...)`), never `sink.emit_once(...)` — a caller that installs this as an INSTANCE override of
+    `sink.emit_once` (the intended usage: patch the instance so a harness picks up the broken
+    variant) would otherwise recurse into itself through instance attribute lookup.
+    """
     try:
-        return await sink.emit_once(record, dedup_key=dedup_key)
+        return await PostgresAuditSink.emit_once(sink, record, dedup_key=dedup_key)
     except AuditPersistenceError:
         return _FAIL_OPEN_FABRICATED_HASH

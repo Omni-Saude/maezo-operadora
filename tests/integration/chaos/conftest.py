@@ -46,8 +46,9 @@ docs/design/T3.3-chaos-resilience.md §4 Wave W2, a separate serialized NIGHTLY 
 
 from __future__ import annotations
 
+import asyncio
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 
 import asyncpg  # type: ignore[import-untyped]
 import pytest
@@ -91,27 +92,40 @@ def chaos_pg_dsn() -> str:
 
 
 @pytest.fixture
-async def chaos_tenant_schema(chaos_pg_dsn: str) -> AsyncIterator[str]:
+def chaos_tenant_schema(chaos_pg_dsn: str) -> Iterator[str]:
     """One fresh, REAL-migrated (0001->0005 via `_apply_migrations`, not a DDL mirror) tenant
-    schema per test — see module docstring point 2 for why this is per-test, not session-scoped."""
+    schema per test — see module docstring point 2 for why this is per-test, not session-scoped.
+
+    Deliberately a SYNC fixture (not `async def`), mirroring the parent `audit_pg` fixture
+    exactly: `_apply_migrations` is a sync helper that itself calls `asyncio.run(...)`
+    (alembic's `env.py`) — nesting that inside an already-running pytest-asyncio event loop
+    (which an `async def` fixture would be) raises `RuntimeError: asyncio.run() cannot be called
+    from a running event loop`. Running schema create/drop via `asyncio.run()` here, OUTSIDE any
+    loop, avoids that trap.
+    """
     tenant_id = f"chaos{uuid.uuid4().hex[:16]}"  # schema_for_tenant: [a-z][a-z0-9_]*
     schema_for_tenant(tenant_id)  # fail fast (construction-time) if the generated id is ever unsafe
 
-    conn = await asyncpg.connect(normalize_dsn(chaos_pg_dsn))
-    try:
-        await conn.execute(f'CREATE SCHEMA IF NOT EXISTS "{tenant_id}"')
-    finally:
-        await conn.close()
+    async def _create_schema() -> None:
+        conn = await asyncpg.connect(normalize_dsn(chaos_pg_dsn))
+        try:
+            await conn.execute(f'CREATE SCHEMA IF NOT EXISTS "{tenant_id}"')
+        finally:
+            await conn.close()
 
+    async def _drop_schema() -> None:
+        conn = await asyncpg.connect(normalize_dsn(chaos_pg_dsn))
+        try:
+            await conn.execute(f'DROP SCHEMA IF EXISTS "{tenant_id}" CASCADE')
+        finally:
+            await conn.close()
+
+    asyncio.run(_create_schema())
     _apply_migrations(chaos_pg_dsn, tenant_id)
 
     yield tenant_id
 
-    conn = await asyncpg.connect(normalize_dsn(chaos_pg_dsn))
-    try:
-        await conn.execute(f'DROP SCHEMA IF EXISTS "{tenant_id}" CASCADE')
-    finally:
-        await conn.close()
+    asyncio.run(_drop_schema())
 
 
 @pytest.fixture
@@ -150,8 +164,7 @@ async def assert_chain_valid(
     )
     if expected_records is not None:
         assert result.total_records == expected_records, (
-            f"tenant={tenant_id!r}: expected {expected_records} chain record(s), "
-            f"found {result.total_records}"
+            f"tenant={tenant_id!r}: expected {expected_records} chain record(s), found {result.total_records}"
         )
     return result
 

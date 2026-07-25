@@ -101,9 +101,7 @@ async def test_c1_down_worker_completion_fail_closed_no_unaudited_complete(
     calls `_report_failure`, never `complete`."""
     dead_sink = PostgresAuditSink(dead_dsn, chaos_tenant_schema)
     transport = FakeWorkerTransport()
-    harness = WorkerHarness(
-        transport, worker_id="chaos-w1", tenant=chaos_tenant_schema, audit_sink=dead_sink
-    )
+    harness = WorkerHarness(transport, worker_id="chaos-w1", tenant=chaos_tenant_schema, audit_sink=dead_sink)
     harness.register("operadora.chaos.c1down", _noop_handler)
     task = ExternalTask(
         task_id="chaos-task-1",
@@ -151,7 +149,9 @@ async def test_c1_down_mutation_check_fail_open_swallow_turns_suite_red(
 
     async def _fail_open_emit_once(record: object, *, dedup_key: str) -> str:
         return await mutations.broken_emit_once_fail_open_swallow(
-            dead_sink, record, dedup_key=dedup_key  # type: ignore[arg-type]
+            dead_sink,
+            record,
+            dedup_key=dedup_key,  # type: ignore[arg-type]
         )
 
     dead_sink.emit_once = _fail_open_emit_once  # type: ignore[method-assign]
