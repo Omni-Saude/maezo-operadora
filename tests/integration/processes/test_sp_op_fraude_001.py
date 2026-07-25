@@ -128,24 +128,29 @@ FINDINGS (new, beyond the 5 VERIFIED CROSS-FAMILY FACTS supplied for this port):
      `test_manter_sem_fundamentacao_bloqueado_pelo_guard`), so no test needs to xfail over this —
      it is a genuine production-readiness gap worth a human follow-up, not a test blocker.
   2. **Registry drift between BPMN-declared and fraude.py-registered `operadora.fraude.*`
-     topics (2-way mismatch), confirmed by a dedicated static test
-     (`test_bpmn_fraude_topics_vs_registered_workers`) rather than left as an unverified comment:**
-     (a) the BPMN declares `operadora.fraude.notify_sla_risk` (`ST_NotifySlaRisk`,
-     `SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn:248`) but `register_fraude_workers` never
-     registers a handler for it (fraude.py's own bootstrap comment already flags this: "only
-     notify_sla_risk has no implementing function today") — deliberately EXCLUDED from
-     `_FRAUDE_WORKER_TOPICS` (mirrors cancel.py's convention of building the drain list from what
-     is ACTUALLY registered); (b) fraude.py registers `operadora.fraude.publish_completed`
+     topics, confirmed by a dedicated static test (`test_bpmn_fraude_topics_vs_registered_workers`)
+     rather than left as an unverified comment — UPDATED, t2.5-p2b-round2:**
+     (a) [CLOSED] the BPMN declares `operadora.fraude.notify_sla_risk` (`ST_NotifySlaRisk`,
+     `SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn:247-248`); `register_fraude_workers` now
+     registers a real `notify_sla_risk` FunctionWorker for it (t2.5-p2b-round2), so
+     `missing_worker` in the static test is now the empty set — INCLUDED in
+     `_FRAUDE_WORKER_TOPICS` (ST_NotifySlaRisk is genuinely drained by this suite now); (b)
+     [ACCEPT, unchanged] fraude.py registers `operadora.fraude.publish_completed`
      (fraude.py:536-551, 607) — a topic the BPMN never declares anywhere (every `ST_Publish*`
      node routes through the generic `operadora.events.publish` topic instead) — an orphan,
      dead-from-the-engine's-perspective registration, included in `_FRAUDE_WORKER_TOPICS` (it is
      genuinely registered) but never exercised by any test since no engine task is ever created
-     on it.
-  3. **`operadora.fraude.notify_sla_risk` gap blocks ONE test**
-     (`test_timer_alerta_sla_nao_interruptivo`) whose only assertion about worker execution is a
-     `notifications_of_type("fraude.notify_sla_risk")` check — this is a stronger gap than the
-     systemic kafka-publish gap (finding 4 below): there is no worker AT ALL for this topic, not
-     merely a worker that doesn't publish. xfailed with `_FRAUDE_NOTIFY_SLA_UNREGISTERED_REASON`.
+     on it. Out of scope for this port (documented ACCEPT, not touched).
+  3. **`operadora.fraude.notify_sla_risk` now built (t2.5-p2b-round2) but the SLA-alert
+     integration test still xfails — on a NARROWER, different gap:**
+     `test_timer_alerta_sla_nao_interruptivo`'s only assertion about worker execution is a
+     `notifications_of_type("fraude.notify_sla_risk")` check, which is backed by
+     `FakeKafkaPublisher.published` — `notify_sla_risk` follows the family's dict-first/`del
+     kafka` idiom (mirrors inadimplencia.py/cancel.py) and never calls `kafka.publish`, so this
+     check is still always empty even though the worker now genuinely executes. Same class as
+     the systemic kafka-publish gap (finding 4 below), no longer the "no worker at all" gap.
+     xfailed with `_FRAUDE_NOTIFY_SLA_UNREGISTERED_REASON` (reason text updated to "built,
+     pending live-proof flip" per xfail policy — mark/strict unchanged).
   4. **fraude-specific kafka-publish gap (systemic finding, fraude-scoped instance):**
      `register_fraude_workers` does `del kafka  # unused` (fraude.py:592) — confirmed NO
      `fraude.py` function ever calls `kafka.publish` (grep: zero `kafka.publish(` hits in
@@ -222,15 +227,16 @@ _REGISTER_ACCUSATION_TOPIC = "operadora.fraude.register_fraud_accusation"
 _REFER_TO_LEGAL_TOPIC = "operadora.fraude.refer_to_legal"
 _START_CREDENCIAMENTO_TOPIC = "operadora.fraude.start_credenciamento"
 _START_CONTRATUAL_TOPIC = "operadora.fraude.start_contratual"
-# Orphan registration (finding 2b): fraude.py registers this, but the BPMN never declares it --
-# every ST_Publish* node routes through the generic `operadora.events.publish` topic instead.
-# Included in the drain list below because it IS genuinely registered (mirrors cancel.py's own
-# "drain list == what's registered" convention) -- but no engine task will ever land on it.
+# Orphan registration (finding 2b, ACCEPT -- unchanged by t2.5-p2b-round2): fraude.py registers
+# this, but the BPMN never declares it -- every ST_Publish* node routes through the generic
+# `operadora.events.publish` topic instead. Included in the drain list below because it IS
+# genuinely registered (mirrors cancel.py's own "drain list == what's registered" convention) --
+# but no engine task will ever land on it.
 _PUBLISH_COMPLETED_TOPIC = "operadora.fraude.publish_completed"
-# BPMN-declared (ST_NotifySlaRisk) but NEVER registered by `register_fraude_workers` (finding 2a
-# / fraude.py's own bootstrap comment). Named here for the timer-job lookup and the drift-check
-# test below, but DELIBERATELY EXCLUDED from `_FRAUDE_WORKER_TOPICS` -- there is no handler to
-# drain it with.
+# BPMN-declared (ST_NotifySlaRisk) -- t2.5-p2b-round2 CLOSED finding 2a: fraude.py's
+# `notify_sla_risk` now registers a real FunctionWorker on this topic (mirrors
+# inadimplencia.notify_sla_risk/cancel.notify_sla_risk's dict-first, informational-only idiom).
+# Included in `_FRAUDE_WORKER_TOPICS` below -- ST_NotifySlaRisk is now genuinely drained.
 _NOTIFY_SLA_TOPIC = "operadora.fraude.notify_sla_risk"
 
 _FRAUDE_WORKER_TOPICS = [
@@ -241,6 +247,7 @@ _FRAUDE_WORKER_TOPICS = [
     _ASSEMBLE_DOSSIER_TOPIC,
     _SEAL_CUSTODY_TOPIC,
     _REGISTER_ACCUSATION_TOPIC,
+    _NOTIFY_SLA_TOPIC,
     _REFER_TO_LEGAL_TOPIC,
     _START_CREDENCIAMENTO_TOPIC,
     _START_CONTRATUAL_TOPIC,
@@ -325,22 +332,29 @@ _FRAUDE_WORKER_KAFKA_GAP_REASON = (
     "src/** fix is out of scope."
 )
 
-# BPMN declares `operadora.fraude.notify_sla_risk` (ST_NotifySlaRisk) but `register_fraude_
-# workers` never registers a handler for it -- fraude.py's own bootstrap comment already flags
-# this ("only notify_sla_risk has no implementing function today"). Stronger than the kafka-
-# publish gap above: there is no worker AT ALL, so the external task is never even fetched by
-# this suite's drain (deliberately excluded from `_FRAUDE_WORKER_TOPICS`) and stays locked/
-# undrained on the engine side.
+# t2.5-p2b-round2: `notify_sla_risk` is now BUILT and registered (was previously the
+# _FRAUDE_NOTIFY_SLA_UNREGISTERED_REASON gap -- fraude.py had no implementing function at all).
+# This test STILL xfails, but on a DIFFERENT, narrower gap now: `notify_sla_risk` follows the
+# family's proven dict-first/`del kafka` idiom (mirrors inadimplencia.py/cancel.py) and never
+# calls `kafka.publish` -- so `fraude_probe.notifications_of_type("fraude.notify_sla_risk")`
+# (backed by `FakeKafkaPublisher.published`) still can never observe its execution, even though
+# ST_NotifySlaRisk is now genuinely fetched/completed by the drain (added to
+# `_FRAUDE_WORKER_TOPICS`). Same class as `_FRAUDE_WORKER_KAFKA_GAP_REASON` below (systemic
+# Kafka-producer-wiring gap, NOT this port's src/** scope) -- kept as a SEPARATE named constant
+# because the underlying finding (2a, registry drift) it originally documented is now CLOSED.
 _FRAUDE_NOTIFY_SLA_UNREGISTERED_REASON = (
-    "v2 gap (fraude-specific, confirmed by `test_bpmn_fraude_topics_vs_registered_workers` "
-    "below): the BPMN declares `operadora.fraude.notify_sla_risk` (ST_NotifySlaRisk, boundary "
-    "BT_AlertaSlaFraude) but fraude.py's `register_fraude_workers` never registers a "
-    "FunctionWorker for this topic (fraude.py's own bootstrap comment: 'only notify_sla_risk has "
-    "no implementing function today' -- a gap, not fabricated here). Because no handler exists, "
-    "this topic is excluded from `_FRAUDE_WORKER_TOPICS` (mirrors cancel.py's convention of "
-    "draining exactly what is registered) -- the ST_NotifySlaRisk task this test's timer creates "
-    "is never fetched/completed, so notifications_of_type('fraude.notify_sla_risk') is always "
-    "empty. src/** fix (implementing notify_sla_risk) is out of scope for this port."
+    "built, pending live-proof flip (t2.5-p2b-round2): fraude.py's `notify_sla_risk` is now "
+    "implemented and registered on `operadora.fraude.notify_sla_risk` (closes the prior "
+    "MISSING_WORKER gap, confirmed by `test_bpmn_fraude_topics_vs_registered_workers` below --  "
+    "`missing_worker` is now empty) and `_FRAUDE_WORKER_TOPICS` includes it, so ST_NotifySlaRisk "
+    "is genuinely fetched and completed by this suite's drain. This test still xfails on the "
+    "SAME systemic Kafka-publish gap as `_FRAUDE_WORKER_KAFKA_GAP_REASON`: `notify_sla_risk` is "
+    "dict-first and never calls `kafka.publish` (mirrors inadimplencia.py/cancel.py's proven "
+    "idiom -- this port deliberately does NOT add worker-side Kafka publishing, per the queued "
+    "systemic Kafka-seam task), so `notifications_of_type('fraude.notify_sla_risk')` (backed by "
+    "`FakeKafkaPublisher.published`) is still always empty. Expect this to flip only alongside "
+    "the systemic Kafka-producer-wiring fix, not independently -- live-proof needed against a "
+    "real engine before removing this xfail."
 )
 
 
@@ -1631,13 +1645,14 @@ def test_bpmn_fraude_topics_vs_registered_workers() -> None:
     """Cross-check estatico: `camunda:topic="operadora.fraude.*"` no BPMN vs o que
     `register_fraude_workers` efetivamente registra no harness.
 
-    PINNED FINDING (nao remexido em src/**): (a) o BPMN declara `operadora.fraude.notify_sla_risk`
-    (ST_NotifySlaRisk) mas NENHUMA funcao em fraude.py o implementa (comentario do proprio
-    bootstrap: "only notify_sla_risk has no implementing function today") -- gap MISSING_WORKER;
-    (b) fraude.py registra `operadora.fraude.publish_completed` -- topico que o BPMN NUNCA declara
+    UPDATED (t2.5-p2b-round2): (a) [CLOSED] o BPMN declara `operadora.fraude.notify_sla_risk`
+    (ST_NotifySlaRisk) e fraude.py agora IMPLEMENTA e registra um `notify_sla_risk` real -- gap
+    MISSING_WORKER fechado, `missing_worker` agora e o conjunto vazio; (b) [ACCEPT, inalterado]
+    fraude.py registra `operadora.fraude.publish_completed` -- topico que o BPMN NUNCA declara
     (todo no ST_Publish* deste BPMN roteia pelo generic `operadora.events.publish`) -- registro
-    ORFAO, morto do ponto de vista do engine. Pinned aqui (em vez de um comentario nao verificado)
-    para que uma futura correcao apareca como uma edicao INTENCIONAL deste teste.
+    ORFAO, morto do ponto de vista do engine, documentado ACCEPT (fora de escopo, nao tocado).
+    Pinned aqui (em vez de um comentario nao verificado) para que uma futura correcao apareca
+    como uma edicao INTENCIONAL deste teste.
     """
     camunda_ns = "{http://camunda.org/schema/1.0/bpmn}"
     tree = ET.parse(_BPMN)
@@ -1656,9 +1671,10 @@ def test_bpmn_fraude_topics_vs_registered_workers() -> None:
     missing_worker = bpmn_topics - registered
     orphan_worker = registered - bpmn_topics
 
-    assert missing_worker == {_NOTIFY_SLA_TOPIC}, (
+    assert missing_worker == set(), (
         f"topicos declarados no BPMN sem worker registrado mudou de composicao: {missing_worker} "
-        f"(esperado apenas {_NOTIFY_SLA_TOPIC} -- atualize este teste e a suite se corrigido)"
+        "(esperado conjunto vazio -- notify_sla_risk foi implementado no t2.5-p2b-round2; "
+        "atualize este teste e a suite se um NOVO gap apareceu)"
     )
     assert orphan_worker == {_PUBLISH_COMPLETED_TOPIC}, (
         f"topicos registrados sem topico BPMN correspondente mudou de composicao: {orphan_worker} "

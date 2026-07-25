@@ -11,10 +11,14 @@ from maezo.tools.workers.adequacao import (
     execute_remediation,
     measure_gap,
     notify_coordenacao,
+    notify_sla_risk,
+    register_adequacao_workers,
     register_fallback_commitment,
     route_remediation,
+    update_monitoring_plan,
 )
 from maezo.tools.workers.dmn_transport import DmnEvaluationError, FakeDmnTransport
+from maezo.tools.workers.harness import WorkerHarness
 
 
 def _adequacao_fake(*, gap_adequacao: str, roteamento_remediacao: str, motivo: str = "") -> FakeDmnTransport:
@@ -215,6 +219,78 @@ def test_execute_remediation() -> None:
     )
     assert result["handoff_credenciamento"] is True
     assert result["processo_destino"] == "SP-OP-CRED-001"
+
+
+# ---------------------------------------------------------------
+# update_monitoring_plan — NEUTRAL, no adverse effect (t2.5-p2b-round2)
+# ---------------------------------------------------------------
+
+
+def test_update_monitoring_plan_neutral() -> None:
+    result = update_monitoring_plan(
+        {
+            "regiao_saude": "R-001",
+            "especialidade": "cardiologia",
+            "gap_adequacao": "GAP_LEVE",
+        }
+    )
+    assert result["plano_monitoramento_atualizado"] is True
+    assert result["celula"] == "R-001:cardiologia"
+    assert result["gap_adequacao"] == "GAP_LEVE"
+
+
+def test_update_monitoring_plan_never_commits_fallback() -> None:
+    """Monitoring/alert only -- NEVER commits cash-flow nor denies care (BPMN task doc,
+    ST_UpdateMonitoringPlanL3: 'NAO compromete caixa nem nega atendimento')."""
+    result = update_monitoring_plan({"regiao_saude": "R-001", "especialidade": "cardiologia"})
+    forbidden = {"COMPROMISSO_FALLBACK", "NEGADO", "NEGAR"}
+    for value in result.values():
+        assert str(value).upper() not in forbidden
+    assert "decisao_remediacao" not in result
+    assert "compromisso_fallback_registrado" not in result
+
+
+# ---------------------------------------------------------------
+# notify_sla_risk — informational, never adverse (t2.5-p2b-round2)
+# ---------------------------------------------------------------
+
+
+def test_notify_sla_risk_informational() -> None:
+    result = notify_sla_risk({"regiao_saude": "R-001", "especialidade": "cardiologia"})
+    assert result["sla_risk_notified"] is True
+    assert result["grupo_alertado"] == "coordenacao-rede"
+    assert result["regiao_saude"] == "R-001"
+    assert result["especialidade"] == "cardiologia"
+
+
+def test_notify_sla_risk_no_adverse_outcome() -> None:
+    """The non-interruptive timer alert never produces or propagates the fallback commitment
+    decision -- UT_DecisaoFallback stays open, the commitment NEVER arises from a timer."""
+    result = notify_sla_risk({"regiao_saude": "R-001", "decisao_remediacao": "COMPROMISSO_FALLBACK"})
+    assert "decisao_remediacao" not in result
+    forbidden = {"COMPROMISSO_FALLBACK"}
+    for value in result.values():
+        assert str(value).upper() not in forbidden
+
+
+# ---------------------------------------------------------------
+# register_adequacao_workers — registration + topic-registry drift guard
+# ---------------------------------------------------------------
+
+
+def test_register_adequacao_workers_registers_new_topics() -> None:
+    """`update_monitoring_plan`/`notify_sla_risk` are registered on their exact BPMN-declared
+    topics -- closes 2 of the 3 registry-drift gaps documented in
+    tests/integration/processes/test_sp_op_adequacao_001.py (FINDING 1); only
+    `prepare_remediation_dossier` (Andre A2A, gated) remains unregistered."""
+    harness = WorkerHarness(None, worker_id="unit-test-adequacao")  # type: ignore[arg-type]
+    register_adequacao_workers(harness, None, dmn=FakeDmnTransport())
+    topics = set(harness.registered_topics)
+    assert "operadora.adequacao.update_monitoring_plan" in topics
+    assert "operadora.adequacao.notify_sla_risk" in topics
+    assert "operadora.adequacao.prepare_remediation_dossier" not in topics
+    adequacao_topics = {t for t in topics if t.startswith("operadora.adequacao.")}
+    assert len(adequacao_topics) == 7  # 8 BPMN-declared topics minus the gated dossier worker
 
 
 # ---------------------------------------------------------------
