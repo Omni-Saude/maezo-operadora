@@ -4,8 +4,10 @@ Provides BPMN external task handlers for the Escalonamento Humano Universal proc
 
 Workers:
 - NotifyTeamWorker: routes escalation to the correct human group
-- NotifyFallbackWorker: fallback notification when primary channel fails
-- NotifySupervisorWorker: supervisor alert on SLA breach
+- NotifySupervisorWorker: supervisor alert on SLA breach (also serves
+  `ST_NotificarFallback` — the BPMN's fallback-channel task publishes to
+  this SAME topic, `operadora.escalation.notify_supervisor`; there is no
+  separate `notify_fallback` topic in the BPMN)
 
 CRITICAL: Workers NEVER make adverse decisions (L0 hard). They only route
 and notify. Escalation resolution is always a human decision.
@@ -90,50 +92,6 @@ class NotifyTeamWorker(WorkerBase):
 
 
 # ---------------------------------------------------------------------------
-# NotifyFallbackWorker
-# ---------------------------------------------------------------------------
-
-
-class NotifyFallbackWorker(WorkerBase):
-    """External task: operadora.escalation.notify_fallback
-
-    Fallback notification when the primary notification channel fails
-    (e.g., ERR_ESC_NOTIFY_FAILED). Routes to supervisor for manual handling.
-
-    NEVER escalates to an adverse decision — only notifies the supervisor
-    that the primary channel failed.
-    """
-
-    def __init__(self) -> None:
-        super().__init__(topic="operadora.escalation.notify_fallback")
-
-    def execute(self, process_vars: dict[str, Any]) -> dict[str, Any]:
-        """Notify supervisor when primary channel fails.
-
-        Args:
-            process_vars: Must include fallback_reason.
-
-        Returns:
-            Dict with fallback status and target group.
-        """
-        reason = process_vars.get("fallback_reason", "unknown")
-        tenant_id = process_vars.get("tenant_id", "")
-
-        self.logger.warning(
-            "escalation_fallback_triggered",
-            tenant_id=tenant_id,
-            reason=reason,
-        )
-
-        return {
-            "status": "fallback_triggered",
-            "fallback_group": "supervisao-atendimento",
-            "original_error": reason,
-            "event": "agents.events.escalation.sla_breached",
-        }
-
-
-# ---------------------------------------------------------------------------
 # NotifySupervisorWorker
 # ---------------------------------------------------------------------------
 
@@ -142,6 +100,15 @@ class NotifySupervisorWorker(WorkerBase):
     """External task: operadora.escalation.notify_supervisor
 
     Alerts supervisor when SLA is breached (ack or resolution timer expired).
+    Also serves `ST_NotificarFallback` (the channel-fallback task when
+    `notify_team` fails) — the BPMN wires BOTH tasks to this SAME topic
+    (`spec/processes/bpmn/SP-OP-ESCALATION-001_*.bpmn:112,203`); there is no
+    separate `notify_fallback` topic anywhere in spec/. A prior
+    `NotifyFallbackWorker` registered on a dead `operadora.escalation.
+    notify_fallback` topic (no matching `camunda:topic` in the BPMN, no
+    engine subscriber would ever dispatch to it) was removed — see
+    docs/processes/test-specs/SP-OP-ESCALATION-001.md:65 ("`ST_NotificarFallback`
+    (topic `notify_supervisor`) executa").
 
     NEVER makes any decision about the case — only notifies.
     The supervisor (human) decides the next action.
@@ -180,13 +147,15 @@ class NotifySupervisorWorker(WorkerBase):
 
 
 # ---------------------------------------------------------------------------
-# Bootstrap — donor contract (T1.2/ADR-0026 Decisao §3). NOTE (known drift, not
-# introduced by this change): `operadora.escalation.notify_fallback` has no
-# matching `camunda:topic` in `spec/processes/bpmn/SP-OP-ESCALATION-001_*.bpmn`
-# today (that BPMN only declares notify_team/notify_supervisor) — pre-existing
-# from T1.1, out of scope here (no business-logic/topic edits); registered
-# as-is per the charter ("keep their classes — bootstrap-wrap them
-# consistently").
+# Bootstrap — donor contract (T1.2/ADR-0026 Decisao §3).
+#
+# t2.5-p2b-round2: removed the dead `NotifyFallbackWorker` (topic
+# `operadora.escalation.notify_fallback`) — verified via `grep -rn
+# notify_fallback spec/` (zero hits) that no BPMN task ever declared that
+# topic; `ST_NotificarFallback` (the only task with "fallback" in its name)
+# actually declares `camunda:topic="operadora.escalation.notify_supervisor"`
+# (BPMN lines 111-112), the SAME topic as `ST_NotificarSupervisor`. Both
+# tasks are now correctly served by the single `NotifySupervisorWorker`.
 # ---------------------------------------------------------------------------
 
 
@@ -195,7 +164,7 @@ def register_escalation_workers(
     kafka: KafkaPublisher | None = None,
     **seams: Any,
 ) -> None:
-    """Register the 3 SP-OP-ESCALATION-001 `WorkerBase` workers on `harness`."""
+    """Register the 2 SP-OP-ESCALATION-001 `WorkerBase` workers on `harness`."""
     del kafka, seams  # unused — no escalation.py worker declares a Kafka/other seam dependency
-    for worker_cls in (NotifyTeamWorker, NotifyFallbackWorker, NotifySupervisorWorker):
+    for worker_cls in (NotifyTeamWorker, NotifySupervisorWorker):
         harness.register_worker(worker_cls())

@@ -4,6 +4,7 @@ TDD London School: tests exercise the external task contracts.
 """
 
 import functools
+from pathlib import Path
 
 import pytest
 
@@ -37,6 +38,39 @@ from maezo.tools.workers.ans_submit import (
 )
 from maezo.tools.workers.base import FunctionWorker
 from maezo.tools.workers.dmn_transport import DmnEvaluationError, FakeDmnTransport
+from maezo.tools.workers.tiss_schema import TissSchemaValidator
+
+#: NOT a real ANS Padrão TISS version — a minimal, clearly-labeled FIXTURE used only to prove the
+#: T2.6-2 validation seam end-to-end (design §2.B external-dependency finding: the real vendored
+#: XSD set + pinned version are SME-gated / not sourced in this task).
+_FIXTURE_TISS_VERSION = "FIXTURE-0"
+
+_FIXTURE_XSD = """<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <xs:element name="loteGuias">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="numeroLote" type="xs:string"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+</xs:schema>
+"""
+
+
+def _fixture_validator(tmp_path: Path, report_type: str = "RN_124_SIP") -> TissSchemaValidator:
+    """A `TissSchemaValidator` pinned at a temp schema root holding ONE fixture XSD — NOT a real
+    TISS schema (see `_FIXTURE_TISS_VERSION` docstring)."""
+    version_dir = tmp_path / _FIXTURE_TISS_VERSION
+    version_dir.mkdir(parents=True, exist_ok=True)
+    (version_dir / f"{report_type}.xsd").write_text(_FIXTURE_XSD, encoding="utf-8")
+    return TissSchemaValidator(schema_root=tmp_path, version=_FIXTURE_TISS_VERSION)
+
+
+def _write_dataset_xml(tmp_path: Path, name: str, content: str) -> str:
+    path = tmp_path / name
+    path.write_text(content, encoding="utf-8")
+    return str(path)
 
 
 def _ans_retry_policy_fake(*, backoff: str, continue_retry: bool) -> FakeDmnTransport:
@@ -81,12 +115,21 @@ def test_prepare_submission_incomplete() -> None:
 
 
 # ---------------------------------------------------------------------------
-# validate_data
+# validate_data — T2.6-2 (design §2.B): real lxml.etree.XMLSchema validation, NOT an echo of the
+# inbound `schema_valid` flag (the stub this replaces). See tests/unit/tools/workers/
+# test_tiss_schema.py for the seam module's own exhaustive edge-case coverage (missing version,
+# missing XSD, malformed XSD, malformed XML, valid/invalid XML); the tests here prove the WIRING
+# into validate_data/validate_entry.
 # ---------------------------------------------------------------------------
 
 
-def test_validate_data_valid() -> None:
-    """validate_data returns schema_valid=True for complete data."""
+def test_validate_data_no_version_pinned_fails_closed() -> None:
+    """T2.6-2: with NO `tiss_validator` injected, `validate_data` resolves a real
+    `TissSchemaValidator()` — and `MAEZO_TISS_SCHEMA_VERSION` is unset (today, everywhere: the
+    padrão-TISS version in force is SME-gated, design §2.B/§7). Fail-closed: `schema_valid=False`
+    even for an otherwise-'complete' submission. This is the CURRENT production posture, and
+    replaces the old stub's echo-True — the inbound `schema_valid=True` flag is now IGNORED
+    (no longer trusted from the wire), the exact fix this task makes."""
     submission = AnsSubmissionData(
         dataset_ref="dataset-ok",
         report_type="RN_124_SIP",
@@ -95,12 +138,13 @@ def test_validate_data_valid() -> None:
         schema_valid=True,
     )
     result = validate_data(submission)
-    assert result["schema_valid"] is True
-    assert len(result["errors"]) == 0
+    assert result["schema_valid"] is False
+    assert result["tiss_schema_version"] is None
 
 
 def test_validate_data_missing_ref() -> None:
-    """validate_data flags missing dataset_ref."""
+    """validate_data flags missing dataset_ref (unchanged structural check, layered on top of the
+    new real TISS validation)."""
     submission = AnsSubmissionData(
         dataset_ref="",
         report_type="RN_124_SIP",
@@ -110,6 +154,89 @@ def test_validate_data_missing_ref() -> None:
     result = validate_data(submission)
     assert result["schema_valid"] is False
     assert any("dataset_ref" in e.lower() for e in result["errors"])
+
+
+def test_validate_data_valid_xml_against_fixture_xsd_is_schema_valid(tmp_path: Path) -> None:
+    """Design §2.B verification plan: 'a schema-valid XML → schema_valid=True'. Proves the
+    mechanism genuinely validates (not another echo) against a FIXTURE XSD (NOT real TISS)."""
+    validator = _fixture_validator(tmp_path)
+    dataset_ref = _write_dataset_xml(
+        tmp_path, "dataset-ok.xml", "<loteGuias><numeroLote>1</numeroLote></loteGuias>"
+    )
+    submission = AnsSubmissionData(
+        dataset_ref=dataset_ref,
+        report_type="RN_124_SIP",
+        competencia="2026-06",
+        dataset_complete=True,
+    )
+    result = validate_data(submission, tiss_validator=validator)
+    assert result["schema_valid"] is True
+    assert result["errors"] == []
+    assert result["tiss_schema_version"] == _FIXTURE_TISS_VERSION
+
+
+def test_validate_data_corrupt_xml_fails_schema_routes_to_human(tmp_path: Path) -> None:
+    """Design §2.B verification plan: 'corrupt a valid TISS XML → schema_valid=False → routes to
+    human'. `validate_data` never raises — it returns `schema_valid=False` + structured errors,
+    which the BPMN routes to `UT_CorrigirPendenciaEnvio`, never a reject."""
+    validator = _fixture_validator(tmp_path)
+    dataset_ref = _write_dataset_xml(
+        tmp_path, "dataset-corrupt.xml", "<loteGuias><campoInexistente/></loteGuias>"
+    )
+    submission = AnsSubmissionData(
+        dataset_ref=dataset_ref,
+        report_type="RN_124_SIP",
+        competencia="2026-06",
+        dataset_complete=True,
+    )
+    result = validate_data(submission, tiss_validator=validator)
+    assert result["schema_valid"] is False
+    assert result["errors"]
+
+
+def test_validate_data_missing_vendored_xsd_fails_closed(tmp_path: Path) -> None:
+    """Design §2.B: 'Missing/unvendored XSD for a report type → schema_valid=False → human (never
+    pass on absence)'."""
+    validator = TissSchemaValidator(schema_root=tmp_path, version="v-sem-xsd-vendorizado")
+    dataset_ref = _write_dataset_xml(tmp_path, "dataset.xml", "<loteGuias/>")
+    submission = AnsSubmissionData(
+        dataset_ref=dataset_ref,
+        report_type="RN_209_UTILIZACAO",
+        competencia="2026-06",
+        dataset_complete=True,
+    )
+    result = validate_data(submission, tiss_validator=validator)
+    assert result["schema_valid"] is False
+
+
+def test_validate_data_stub_dataset_ref_never_green_even_with_schema_pinned(tmp_path: Path) -> None:
+    """Design §2.B: 'Because assemble is a stub today ... there is no real XML to validate →
+    validation stays False → human, which is the correct fail-closed posture.' Today's stub
+    `prepare_submission` produces a synthetic, non-file `dataset_ref`
+    (`dataset-{report_type}-{competencia}`) — even WITH a version+XSD pinned, that never resolves
+    to a real file, so it fails closed."""
+    validator = _fixture_validator(tmp_path)
+    submission = AnsSubmissionData(
+        dataset_ref="dataset-RN_124_SIP-2026-06",  # prepare_submission's stub shape, not a real file
+        report_type="RN_124_SIP",
+        competencia="2026-06",
+        dataset_complete=True,
+    )
+    result = validate_data(submission, tiss_validator=validator)
+    assert result["schema_valid"] is False
+
+
+def test_validate_data_version_pin_surfaced_in_result(tmp_path: Path) -> None:
+    """Design §2.B verification plan: 'Version pin surfaced in the audit record.'"""
+    validator = _fixture_validator(tmp_path)
+    dataset_ref = _write_dataset_xml(
+        tmp_path, "dataset-ok.xml", "<loteGuias><numeroLote>1</numeroLote></loteGuias>"
+    )
+    submission = AnsSubmissionData(
+        dataset_ref=dataset_ref, report_type="RN_124_SIP", competencia="2026-06", dataset_complete=True
+    )
+    result = validate_data(submission, tiss_validator=validator)
+    assert result["tiss_schema_version"] == _FIXTURE_TISS_VERSION
 
 
 # ---------------------------------------------------------------------------

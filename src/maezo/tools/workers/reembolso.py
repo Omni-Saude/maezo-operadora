@@ -120,14 +120,6 @@ class ReembolsoCalculoResult:
 
 
 @dataclass
-class ReembolsoAutoApprovalResult:
-    """Output of auto_approve_or_route — DMN reembolso_auto_approval."""
-
-    recomendacao: str = "ANALISE_HUMANA"
-    motivo: str = ""
-
-
-@dataclass
 class ReembolsoDenialInput:
     """Input for send_reembolso_denial — the gated adverse effect."""
 
@@ -277,66 +269,92 @@ def calculate_value(
     return result
 
 
-def auto_approve_or_route(
-    calculo: ReembolsoCalculoResult,
-    requer_avaliacao_clinica: bool,
-) -> ReembolsoAutoApprovalResult:
-    """Auto-approve or route to human — DMN reembolso_auto_approval.
-
-    AUTO_APROVAR only with: dentro_tabela=true AND dentro_teto_l2=true
-    AND requer_avaliacao_clinica=false.
-    NO saida de negativa/reducao — those are always human.
-    Catch-all -> ANALISE_HUMANA.
-    """
-    logger.info(
-        "reembolso.auto_approve_or_route.start",
-        dentro_tabela=calculo.dentro_tabela,
-        dentro_teto_l2=calculo.dentro_teto_l2,
-        requer_avaliacao_clinica=requer_avaliacao_clinica,
-    )
-
-    if calculo.dentro_tabela and calculo.dentro_teto_l2 and not requer_avaliacao_clinica:
-        recomendacao = "AUTO_APROVAR"
-        motivo = "Dentro da tabela, dentro do teto L2, sem avaliacao clinica necessaria"
-    else:
-        recomendacao = "ANALISE_HUMANA"
-        if requer_avaliacao_clinica:
-            motivo = "Requer avaliacao clinica (procedimento alta complexidade/OPME ou CID sensivel)"
-        elif not calculo.dentro_tabela:
-            motivo = "Valor solicitado acima da tabela de referencia"
-        elif not calculo.dentro_teto_l2:
-            motivo = "Valor acima do teto de auto-aprovacao L2 do tenant"
-        else:
-            motivo = "Catch-all conservador"
-
-    result = ReembolsoAutoApprovalResult(recomendacao=recomendacao, motivo=motivo)
-
-    logger.info(
-        "reembolso.auto_approve_or_route.complete",
-        recomendacao=result.recomendacao,
-    )
-    return result
-
-
-def notify_beneficiario(
+def request_documents(
     beneficiario_pseudo_id: str,
     protocolo_reembolso: str,
-    status: str = "",
+    message_type: str = "pendencia_documentacao",
 ) -> dict[str, Any]:
-    """Notify beneficiario about reimbursement status."""
+    """Request missing documentation from the beneficiario — abre a pendencia (ST_SolicitarDocumentos).
+
+    Non-adverse, notify-only: pairs with `GW_AguardarDocs`'s race (message
+    `msg.reembolso.docs_received` OR `ICE_PrazoPendencia` timer). A beneficiario who never
+    responds is decided by a HUMAN in `UT_DecidirPendenciaExpirada` — this worker never
+    auto-cancels or auto-denies (mirrors AUTH-001's structurally-ported sub-flow, per the BPMN's
+    own documentation on `ST_SolicitarDocumentos`).
+
+    The BPMN's `event_topic_pended` inputParameter (`agents.events.reembolso.pended`) documents
+    the intent for THIS task to publish a domain event (no downstream `ST_Publish*` exists on
+    this branch — unlike the other completion events, which flow through a dedicated generic
+    `operadora.events.publish` service task). This is the SAME disclosed, systemic gap already on
+    record for every other family's `request_documents`-shaped worker in this codebase
+    (auth/cancel/cred/recurso — grep-verified: none call `kafka.publish` for their own embedded
+    `event_topic_pended`); this worker does not publish either, it only returns the notify
+    signal. Fix belongs to the Kafka-producer wiring task, not this build.
+    """
     logger.info(
-        "reembolso.notify_beneficiario",
+        "reembolso.request_documents",
         beneficiario_pseudo_id=beneficiario_pseudo_id,
         protocolo_reembolso=protocolo_reembolso,
-        status=status,
+        message_type=message_type,
     )
 
     return {
         "notified": True,
         "beneficiario_pseudo_id": beneficiario_pseudo_id,
         "protocolo_reembolso": protocolo_reembolso,
-        "status": status,
+        "status": "pended",
+        "message_type": message_type,
     }
+
+
+def analyze_request(input_data: ReembolsoInput) -> dict[str, Any]:
+    """Prepare the reembolso analysis dossier — convoca o agente analista (Marina-classe).
+
+    `ST_PrepararDossie` is the ONLY path into `UT_AnaliseReembolso` (both `Flow_Sla_Dossie` and
+    `BRT_SlaAnalise`'s two incoming edges — admissibilidade-direta AND auto-aprovacao-recusada —
+    converge here). The dossie assembles structured evidence (protocolo, valor solicitado,
+    evidencias de tabela/teto quando ja calculadas) to INSTRUCT the human decision — it NEVER
+    substitutes for it (principio Rafael, ADR-0005): no recommendation this function returns is
+    ever a decisao_reembolso value. Because both convergent paths reach this task (one BEFORE
+    `BRT_Calculo` runs, one after), `dentro_tabela`/`requer_avaliacao_clinica` are read as
+    opportunistic evidence only — never assumed fresh or required.
+    """
+    logger.info(
+        "reembolso.analyze_request.start",
+        protocolo_reembolso=input_data.protocolo_reembolso,
+        tipo_reembolso=input_data.tipo_reembolso,
+    )
+
+    result = {
+        "protocolo_reembolso": input_data.protocolo_reembolso,
+        "tipo_reembolso": input_data.tipo_reembolso,
+        "categoria_procedimento": input_data.categoria_procedimento,
+        "codigo_procedimento_tuss": input_data.codigo_procedimento_tuss,
+        "valor_solicitado_cents": input_data.valor_solicitado_cents,
+        "dentro_tabela": input_data.dentro_tabela,
+        "requer_avaliacao_clinica": input_data.requer_avaliacao_clinica,
+        "dossie": "dossie_instruido",
+        "recomendacao_sugerida": "ANALISE_HUMANA",  # O agente NUNCA decide (ADR-0005)
+    }
+
+    logger.info("reembolso.analyze_request.complete", protocolo_reembolso=input_data.protocolo_reembolso)
+    return result
+
+
+def notify_sla_risk(input_data: ReembolsoInput) -> dict[str, Any]:
+    """Notify coordenacao-reembolso of SLA risk (non-interruptive timer `BT_AlertaSla`).
+
+    Informational only: `UT_AnaliseReembolso` stays open, no decision is made or altered. Fires
+    at `sla.sla_alerta` (DMN `reembolso_sla` resolves the actual duration — 50-70% of
+    `sla.sla_analise` per contract SS SLAs). Mirrors `cancel.notify_sla_risk`'s proven shape
+    exactly (same family of non-adverse, fail-safe alert worker).
+    """
+    logger.info(
+        "reembolso.notify_sla_risk",
+        protocolo_reembolso=input_data.protocolo_reembolso,
+        tipo_reembolso=input_data.tipo_reembolso,
+    )
+    return {"sla_risk_notified": True, "protocolo_reembolso": input_data.protocolo_reembolso}
 
 
 def process_payment(
@@ -501,15 +519,29 @@ def _compute_table_value(
 #   process_payment     -> operadora.reembolso.issue_payment
 #     (spec match: "Emitir pagamento do reembolso")
 #   send_reembolso_denial -> operadora.reembolso.send_reembolso_denial (exact spec match, GUARDED)
-# auto_approve_or_route/notify_beneficiario have no distinct spec topic
-# (spec's `analyze_request` names a dossier-prep step this module does not
-# implement; spec's `notify_sla_risk` targets coordenacao-reembolso, NOT the
-# beneficiario notify_beneficiario provides — genuine audience mismatch, not
-# force-mapped) — registered under function-derived topics for registry
-# completeness. publish_completed folds into the generic events.publish task
-# per BPMN — function-derived topic.
-# Spec topics with NO implementing function today (gap, not fabricated here):
-# request_documents, analyze_request, notify_sla_risk.
+#   request_documents  -> operadora.reembolso.request_documents (exact name+spec match:
+#     ST_SolicitarDocumentos, "Solicitar documentacao ao beneficiario")
+#   analyze_request     -> operadora.reembolso.analyze_request (exact name+spec match:
+#     ST_PrepararDossie, "Preparar dossie de analise (agente analista)" — the ONLY path into
+#     UT_AnaliseReembolso)
+#   notify_sla_risk     -> operadora.reembolso.notify_sla_risk (exact name+spec match:
+#     ST_NotificarRiscoSla, "Notificar risco de SLA (coordenacao-reembolso)"; mirrors
+#     cancel.notify_sla_risk's proven shape)
+# publish_completed folds into the generic events.publish task per BPMN — function-derived
+# topic, KEPT registered (documented registry-completeness convention shared with recurso.py;
+# do not remove).
+#
+# T2.5-P2B reconciliation (this build): `auto_approve_or_route` and `notify_beneficiario` are
+# DELETED (were dead orphan registrations, no BPMN camunda:topic anywhere references either —
+# grep-verified against spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn).
+# `BRT_AutoApproval` is a NATIVE businessRuleTask (`camunda:decisionRef="reembolso_auto_approval"`,
+# resolving to the real DMN decision in `spec/processes/dmn/reembolso_coverage.dmn`) — the Python
+# `auto_approve_or_route` function this module used to carry was NEVER invoked by this BPMN.
+# `notify_beneficiario` had a genuine audience mismatch (spec's `notify_sla_risk` targets
+# coordenacao-reembolso, not the beneficiario audience that function's name implied) and no
+# spec-declared topic of its own either. `request_documents`/`analyze_request`/`notify_sla_risk`
+# above are their REPLACEMENTS: real, BPMN-topic-matched workers (previously gap: "Spec topics
+# with NO implementing function today").
 # ---------------------------------------------------------------------------
 
 
@@ -547,26 +579,33 @@ def calculate_amount_entry(
     return dataclasses.asdict(result)
 
 
-def auto_approve_or_route_entry(
+def request_documents_entry(
     variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
 ) -> dict[str, Any]:
-    """Dict-boundary entry for `operadora.reembolso.auto_approve_or_route` -> `auto_approve_or_route`."""
-    del kafka  # unused — auto_approve_or_route emits no domain event
-    calculo = ReembolsoCalculoResult(**pick_fields(variables, ReembolsoCalculoResult))
-    requer_avaliacao_clinica = variables.get("requer_avaliacao_clinica", False)
-    result = auto_approve_or_route(calculo, requer_avaliacao_clinica)
-    return dataclasses.asdict(result)
-
-
-def notify_beneficiario_entry(
-    variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
-) -> dict[str, Any]:
-    """Dict-boundary entry for `operadora.reembolso.notify_beneficiario` -> `notify_beneficiario`."""
-    del kafka  # unused — notify_beneficiario emits no domain event
+    """Dict-boundary entry for `operadora.reembolso.request_documents` -> `request_documents`."""
+    del kafka  # unused — request_documents emits no domain event itself (see docstring)
     beneficiario_pseudo_id = variables.get("beneficiario_pseudo_id", "")
     protocolo_reembolso = variables.get("protocolo_reembolso", "")
-    status = variables.get("status", "")
-    return notify_beneficiario(beneficiario_pseudo_id, protocolo_reembolso, status)
+    message_type = variables.get("message_type", "pendencia_documentacao")
+    return request_documents(beneficiario_pseudo_id, protocolo_reembolso, message_type)
+
+
+def analyze_request_entry(
+    variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
+) -> dict[str, Any]:
+    """Dict-boundary entry for `operadora.reembolso.analyze_request` -> `analyze_request`."""
+    del kafka  # unused — analyze_request emits no domain event
+    input_data = ReembolsoInput(**pick_fields(variables, ReembolsoInput))
+    return analyze_request(input_data)
+
+
+def notify_sla_risk_entry(
+    variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
+) -> dict[str, Any]:
+    """Dict-boundary entry for `operadora.reembolso.notify_sla_risk` -> `notify_sla_risk`."""
+    del kafka  # unused — notify_sla_risk emits no domain event itself
+    input_data = ReembolsoInput(**pick_fields(variables, ReembolsoInput))
+    return notify_sla_risk(input_data)
 
 
 def issue_payment_entry(variables: dict[str, Any], *, kafka: KafkaPublisher | None = None) -> dict[str, Any]:
@@ -631,14 +670,20 @@ def register_reembolso_workers(
     )
     harness.register_worker(
         FunctionWorker(
-            "operadora.reembolso.auto_approve_or_route",
-            functools.partial(auto_approve_or_route_entry, kafka=kafka),
+            "operadora.reembolso.request_documents",
+            functools.partial(request_documents_entry, kafka=kafka),
         )
     )
     harness.register_worker(
         FunctionWorker(
-            "operadora.reembolso.notify_beneficiario",
-            functools.partial(notify_beneficiario_entry, kafka=kafka),
+            "operadora.reembolso.analyze_request",
+            functools.partial(analyze_request_entry, kafka=kafka),
+        )
+    )
+    harness.register_worker(
+        FunctionWorker(
+            "operadora.reembolso.notify_sla_risk",
+            functools.partial(notify_sla_risk_entry, kafka=kafka),
         )
     )
     harness.register_worker(
