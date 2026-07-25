@@ -43,18 +43,31 @@ def card_signing_key_from_env() -> bytes | None:
     PROVISIONING in the vault/KMS remains an external/infra dependency (BLOCKED for this build wave
     — see `docs/design/A2A-dispatcher-card-signing.md` §6.2); this function only reads whatever is
     already there. UTF-8 encoded (matches how a secret-manager-injected env var is materialized).
+
+    The value is whitespace-STRIPPED before use: leading/trailing whitespace (most commonly a
+    trailing newline from `echo secret > file` / a mounted secret file) is a TRANSPORT artifact,
+    not key material — stripping here keeps the signature stable regardless of how the same secret
+    was materialized. A whitespace-only value is treated as unset -> `None` (dev fail-safe, same
+    as absent), so a blank-but-present env var can never construct a signer. A present-but-too-
+    short value is NOT filtered here: it flows to `CardSigner`, which refuses it fail-closed
+    (`CardSignatureError`, `MIN_SIGNING_KEY_BYTES`) — a present-but-garbage key must fail loudly,
+    never silently downgrade production to unsigned Cards.
     """
-    value = os.environ.get(CARD_SIGNING_KEY_ENV_VAR, "")
+    value = os.environ.get(CARD_SIGNING_KEY_ENV_VAR, "").strip()
     return value.encode("utf-8") if value else None
 
 
 def card_signer_from_key(signing_key: bytes | None) -> CardSigner | None:
     """Build a `CardSigner` from an INJECTED key (vault/KMS), or `None` if absent.
 
-    When the key is present, `CardSigner` REQUIRES it (refuses empty, fail-closed) and the
-    production path signs/verifies Cards. When absent (`None`), returns `None`: the dev path keeps
-    producing unsigned Cards, fail-safe, without loosening production. Feature-gated on key
-    presence, mirroring `gateway.pseudonymizer`.
+    When the key is present, `CardSigner` REQUIRES it to be well-formed (refuses empty,
+    whitespace-only, and shorter-than-`MIN_SIGNING_KEY_BYTES` keys, fail-closed with
+    `CardSignatureError`) and the production path signs/verifies Cards. When absent
+    (`None`/empty), returns `None`: the dev path keeps producing unsigned Cards, fail-safe,
+    without loosening production. Feature-gated on key presence, mirroring
+    `gateway.pseudonymizer`. Note the asymmetry is deliberate: ABSENT -> `None` (dev fail-safe),
+    but PRESENT-and-garbage (whitespace/too short) -> raise — a deployment that tried to configure
+    signing and got the key wrong must fail loudly, never silently run unsigned.
     """
     if not signing_key:
         return None

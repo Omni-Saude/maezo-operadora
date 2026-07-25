@@ -55,6 +55,7 @@ from maezo.a2a import (
 )
 from maezo.a2a.assembly import CARD_SIGNING_KEY_ENV_VAR
 from maezo.a2a.card import SIGNATURE_SCHEME
+from maezo.a2a.signing import MIN_SIGNING_KEY_BYTES
 
 TENANT = "amh"
 OTHER_TENANT = "outra-operadora"
@@ -121,11 +122,12 @@ def test_verify_fails_with_wrong_key() -> None:
 
 def test_verify_uses_constant_time_comparison(monkeypatch: pytest.MonkeyPatch) -> None:
     """Pin the implementation choice: verification MUST route through `hmac.compare_digest`
-    (constant-time), never a short-circuiting `==` that could leak timing information."""
-    calls: list[tuple[str, str]] = []
+    (constant-time), never a short-circuiting `==` that could leak timing information — and both
+    operands MUST be bytes (str operands make compare_digest raise TypeError on non-ASCII)."""
+    calls: list[tuple[bytes, bytes]] = []
     real_compare_digest = hmac.compare_digest
 
-    def _spy(a: str, b: str) -> bool:
+    def _spy(a: bytes, b: bytes) -> bool:
         calls.append((a, b))
         return bool(real_compare_digest(a, b))
 
@@ -134,6 +136,9 @@ def test_verify_uses_constant_time_comparison(monkeypatch: pytest.MonkeyPatch) -
     signed = signer.sign(_card())
     assert signer.verify(signed) is True
     assert calls, "verify() must call hmac.compare_digest for constant-time comparison"
+    assert all(isinstance(a, bytes) and isinstance(b, bytes) for a, b in calls), (
+        "verify() must compare BYTES operands (str operands raise TypeError on non-ASCII input)"
+    )
 
 
 def test_canonical_bytes_independent_of_set_order() -> None:
@@ -206,6 +211,37 @@ def test_empty_signing_key_raises() -> None:
         CardSigner(b"")
 
 
+@pytest.mark.parametrize("key", [b" ", b"   ", b"\n", b"\t\t", b" \n \t "])
+def test_whitespace_only_signing_key_raises(key: bytes) -> None:
+    """A whitespace-only key is as good as no key: same fail-closed error as empty (R1 finding 1)."""
+    with pytest.raises(CardSignatureError):
+        CardSigner(key)
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        b"x",
+        b"test",
+        b"0123456789abcde",  # 15 bytes — one under the floor
+        b"   0123456789abcde   ",  # 15 real bytes padded with whitespace — strip-then-measure
+    ],
+)
+def test_too_short_signing_key_raises(key: bytes) -> None:
+    """Keys under MIN_SIGNING_KEY_BYTES (16, a 128-bit floor) are refused fail-closed — a
+    degenerate key gives no real HMAC security (R1 finding 1)."""
+    with pytest.raises(CardSignatureError):
+        CardSigner(key)
+
+
+def test_minimum_length_signing_key_accepted() -> None:
+    """Boundary: exactly MIN_SIGNING_KEY_BYTES after strip constructs a working signer."""
+    key = b"0123456789abcdef"  # exactly 16 bytes
+    assert len(key) == MIN_SIGNING_KEY_BYTES
+    signer = CardSigner(key)
+    assert signer.verify(signer.sign(_card())) is True
+
+
 def test_unsigned_card_does_not_verify() -> None:
     """A Card without a signature (`signature is None`) is NEVER treated as verified."""
     assert CardSigner(_KEY).verify(_card()) is False
@@ -249,6 +285,33 @@ def test_card_signing_key_from_env_gates_on_presence(monkeypatch: pytest.MonkeyP
     signer = card_signer_from_key(key)
     assert isinstance(signer, CardSigner)
     assert signer.verify(signer.sign(_card())) is True
+
+
+def test_card_signing_key_from_env_normalizes_transport_whitespace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """R1 finding 1, env-seam half: a whitespace-only env value is UNSET (-> None, dev fail-safe,
+    never a signer); leading/trailing whitespace (e.g. the trailing newline of a mounted secret
+    file) is a transport artifact and is stripped, so the same secret signs identically however it
+    was materialized."""
+    for blank in (" ", "   ", "\n", "\t", " \n "):
+        monkeypatch.setenv(CARD_SIGNING_KEY_ENV_VAR, blank)
+        assert card_signing_key_from_env() is None
+
+    monkeypatch.setenv(CARD_SIGNING_KEY_ENV_VAR, "test-env-injected-signing-key\n")
+    assert card_signing_key_from_env() == b"test-env-injected-signing-key"
+
+
+def test_whitespace_key_through_seam_raises_not_silently_unsigned() -> None:
+    """A PRESENT-but-garbage key must fail loudly at the seam, never silently downgrade to the
+    unsigned dev path: card_signer_from_key treats only None/empty as 'absent' (-> None); a
+    whitespace-only or too-short key reaches CardSigner and raises (R1 finding 1)."""
+    assert card_signer_from_key(None) is None
+    assert card_signer_from_key(b"") is None
+    with pytest.raises(CardSignatureError):
+        card_signer_from_key(b"   ")
+    with pytest.raises(CardSignatureError):
+        card_signer_from_key(b"short")
 
 
 # --- registry as the trust chokepoint (a dispatcher only ever looks up verified cards) ----
@@ -360,3 +423,26 @@ def test_garbage_signature_value_fails_closed() -> None:
     assert signed.signature is not None
     for junk in ("", "v1:", "v1:deadbeef", "not-a-signature", signed.signature + "0"):
         assert signer.verify(dataclasses.replace(signed, signature=junk)) is False
+
+
+def test_non_ascii_signature_fails_closed_without_raising() -> None:
+    """A non-ASCII signature is definitionally invalid (valid = ASCII `scheme:hexdigest`):
+    verify() must return False — NOT leak the TypeError that `hmac.compare_digest` raises on
+    non-ASCII str operands (R1 finding 2: a W2 caller catching only CardSignatureError must never
+    see an uncaught TypeError). And the registry gate must surface it as CardSignatureError."""
+    signer = CardSigner(_KEY)
+    signed = signer.sign(_card())
+    assert signed.signature is not None
+    for non_ascii in (
+        "v1:déadbeef",  # accented latin inside the hex part
+        "assinatura-🔑",  # emoji, no scheme
+        "v1:" + "Δ" * 64,  # greek Delta payload, right length-ish
+        signed.signature[:-1] + "ÿ",  # valid sig with one non-ASCII trailing char
+    ):
+        forged = dataclasses.replace(signed, signature=non_ascii)
+        assert signer.verify(forged) is False  # returns, never raises
+
+    # The fail-closed chokepoint surfaces it as the documented error type, not TypeError.
+    reg = A2ARegistry(verifier=signer)
+    with pytest.raises(CardSignatureError):
+        reg.register(dataclasses.replace(signed, signature="v1:🚨forged🚨"))
