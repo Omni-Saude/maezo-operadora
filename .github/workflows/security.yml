@@ -92,12 +92,12 @@ jobs:
             exit 1
           fi
 
-      # Pin-only note: the floating "v4" tag was DELETED upstream after
-      # actions/dependency-review-action shipped v5.0.0 — confirmed 404 via
-      # `gh api repos/actions/dependency-review-action/git/ref/tags/v4` on
-      # 2026-07-17. v4.9.0 is the last existing v4.x.y release (i.e. what
-      # "v4" resolved to immediately before removal) — pinning to it is NOT
-      # a version bump to v5.
+      # Pin-only note: pinned by SHA to actions/dependency-review-action
+      # v5.0.0 (dependabot bump #117, 4.9.0 -> 5.0.0). GHAS is still
+      # disabled on this repo (see the T2.4 job header above), so this step
+      # stays probe-gated by `steps.probe.outputs.run` and has never
+      # actually executed — the version bump is functionally inert until
+      # GHAS is provisioned.
       - name: Dependency review
         if: steps.probe.outputs.run == 'true'
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294  # v5.0.0
