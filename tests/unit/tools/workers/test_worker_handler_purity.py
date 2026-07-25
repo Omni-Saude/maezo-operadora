@@ -75,6 +75,12 @@ _INFRA_MODULES: frozenset[str] = frozenset(
         # sha256(time_ns) protocol, so ans_submit itself drops out of the non-determinism baseline
         # below.
         "ans_gateway",
+        # T2.6-2 (design §2.B): the TISS/XSD schema-validation SEAM (`TissSchemaValidator` — a
+        # local, deterministic resolver like `ceilings.py`'s `CeilingResolver`, not a networked
+        # transport), reached by ans_submit ONLY via the `tiss_validator=` param; registers no
+        # workers. Replaced ans_submit's `validate_data` echo-stub with real
+        # `lxml.etree.XMLSchema` validation.
+        "tiss_schema",
     }
 )
 
