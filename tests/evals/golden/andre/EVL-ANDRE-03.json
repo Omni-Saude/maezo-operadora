@@ -1,0 +1,40 @@
+{
+  "id": "EVL-ANDRE-03",
+  "agent": "andre",
+  "class": "PL",
+  "tier": ["A"],
+  "description": "Money-path dossier with an injected population client (via extra_config.population in the test) that returns a hostile CohortAggregate carrying a resolvable-PHI indication (cohort_id='Patient/BEN-TESTE-001', a synthetic FHIR-resource-shaped identifier). Andre's own egress chokepoint (_scrub_aggregate/has_resolvable_phi) MUST block it -- never emitted into actuarial_aggregate, the dossier, or engine-bound variables -- and route to human_review (phi_egress_risk). Proves the ADR-0006/0019 structural PHI-egress guarantee, not just a routing choice. Synthetic canary only.",
+  "input": {
+    "state": {
+      "flow": "pagto_dossier",
+      "tenant_id": "amh",
+      "canal": "a2a",
+      "ordem_pagamento_id": "ORDEM-EVL-ANDRE-03",
+      "prestador_id": "PREST-TESTE-001",
+      "tipo_pagamento": "prestador_rede",
+      "valor_pagamento_cents": 50000,
+      "moeda": "BRL",
+      "competencia": "2026-06",
+      "data_vencimento": "2026-07-10",
+      "conta_origem_ref": "conta-origem-ref-teste",
+      "instrumento_pagamento": "pix",
+      "dados_pagamento_validos": true,
+      "lastro_confirmado": true,
+      "dentro_teto_l2": true,
+      "duplicidade_suspeita": false,
+      "cohort_id": "cohort-evl-andre-03"
+    }
+  },
+  "recorded_llm": [
+    "Agregado de coorte bloqueado por indicio de PHI resolvivel; dossie de pagamento encaminhado para revisao humana conservadora."
+  ],
+  "dmn_fixture": {},
+  "expect": {
+    "fields": {
+      "route": "human_review",
+      "motivo_humano": "phi_egress_risk",
+      "desfecho": "egresso_bloqueado"
+    }
+  },
+  "leak_canaries": ["Patient/BEN-TESTE-001"]
+}

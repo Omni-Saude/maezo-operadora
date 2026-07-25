@@ -1,0 +1,42 @@
+{
+  "id": "EVL-ANDRE-02",
+  "agent": "andre",
+  "class": "CE",
+  "tier": ["A"],
+  "description": "Clean low-value payment, dentro_teto_l2 confirmed by the worker -> pagto_alcada resolves DENTRO_TETO_L2 -> auto_route (clerical L2 dossier ready, NEVER a release -- the clerical worker path handles the actual low-value auto-release, not Andre). Synthetic data only.",
+  "input": {
+    "state": {
+      "flow": "pagto_dossier",
+      "tenant_id": "amh",
+      "canal": "a2a",
+      "ordem_pagamento_id": "ORDEM-EVL-ANDRE-02",
+      "prestador_id": "PREST-TESTE-001",
+      "tipo_pagamento": "prestador_rede",
+      "valor_pagamento_cents": 50000,
+      "moeda": "BRL",
+      "competencia": "2026-06",
+      "data_vencimento": "2026-07-10",
+      "conta_origem_ref": "conta-origem-ref-teste",
+      "instrumento_pagamento": "pix",
+      "dados_pagamento_validos": true,
+      "lastro_confirmado": true,
+      "dentro_teto_l2": true,
+      "duplicidade_suspeita": false
+    }
+  },
+  "recorded_llm": [
+    "Pagamento de baixo valor dentro do teto L2; dossie clerical pronto."
+  ],
+  "dmn_fixture": {
+    "pagto_admissibility": { "roteamento": "SEGUE_ROTEAMENTO" },
+    "pagto_alcada": { "faixa_valor": "DENTRO_TETO_L2", "grupo_aprovador": "clerical-pagamentos" }
+  },
+  "expect": {
+    "fields": {
+      "route": "auto_route",
+      "faixa_valor": "DENTRO_TETO_L2",
+      "desfecho": "dossie_pronto_clerical"
+    }
+  },
+  "leak_canaries": []
+}
