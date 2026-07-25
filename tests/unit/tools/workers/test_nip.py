@@ -5,131 +5,23 @@ TDD London School: tests exercise the external task contracts.
 
 import pytest
 
+from maezo.tools.workers.harness import FakeKafkaPublisher, FakeWorkerTransport, WorkerHarness
 from maezo.tools.workers.nip import (
     NipInput,
     NipNegativaNotHumanError,
     NipProtocoloInvalidoError,
     NipResponseInput,
     assemble_response,
-    classify_nip,
-    classify_nip_entry,
     handoff_ans_submit,
     handoff_ans_submit_entry,
-    notify_beneficiario,
+    notify_deadline_risk,
+    notify_deadline_risk_entry,
     publish_completed,
     publish_completed_entry,
-    review_juridico,
-    route_nip,
+    register_nip_workers,
     submit_response_entry,
     submit_to_ans,
 )
-
-# ---------------------------------------------------------------------------
-# classify_nip
-# ---------------------------------------------------------------------------
-
-
-def test_classify_nip_assistencial_contesta() -> None:
-    """Assistencial + contesta_negativa -> ASSISTENCIAL_CONTESTA_NEGATIVA, 5d, juridico."""
-    inp = NipInput(
-        tenant_id="amh",
-        numero_nip_ans="NIP-001",
-        classificacao_nip="assistencial",
-        tema_nip="negativa_cobertura",
-        contesta_negativa=True,
-    )
-    result = classify_nip(inp)
-    assert result.classificacao == "ASSISTENCIAL_CONTESTA_NEGATIVA"
-    assert result.prazo_dias == 5
-    assert result.grupo_revisor == "juridico-regulatorio"
-
-
-def test_classify_nip_assistencial_outro() -> None:
-    """Assistencial without contesta -> ASSISTENCIAL_OUTRO."""
-    inp = NipInput(
-        tenant_id="amh",
-        numero_nip_ans="NIP-002",
-        classificacao_nip="assistencial",
-        tema_nip="prazo_atendimento",
-        contesta_negativa=False,
-    )
-    result = classify_nip(inp)
-    assert result.classificacao == "ASSISTENCIAL_OUTRO"
-
-
-def test_classify_nip_nao_assistencial() -> None:
-    """Nao-assistencial -> NAO_ASSISTENCIAL, 10d."""
-    inp = NipInput(
-        tenant_id="amh",
-        numero_nip_ans="NIP-003",
-        classificacao_nip="nao_assistencial",
-        tema_nip="cobranca",
-        contesta_negativa=False,
-    )
-    result = classify_nip(inp)
-    assert result.classificacao == "NAO_ASSISTENCIAL"
-    assert result.prazo_dias == 10
-
-
-def test_classify_nip_unknown_tema() -> None:
-    """Unknown tema -> catch-all: ASSISTENCIAL_CONTESTA_NEGATIVA, juridico-regulatorio."""
-    inp = NipInput(
-        tenant_id="amh",
-        numero_nip_ans="NIP-004",
-        classificacao_nip="assistencial",
-        tema_nip="tema_desconhecido",
-        contesta_negativa=True,
-    )
-    result = classify_nip(inp)
-    assert result.classificacao == "ASSISTENCIAL_CONTESTA_NEGATIVA"
-    assert result.grupo_revisor == "juridico-regulatorio"
-
-
-# ---------------------------------------------------------------------------
-# route_nip
-# ---------------------------------------------------------------------------
-
-
-def test_route_nip_elaborar_resposta() -> None:
-    """Documentacao suficiente + nao contesta negativa -> ELABORAR_RESPOSTA."""
-    from maezo.tools.workers.nip import NipClassificationResult
-
-    classification = NipClassificationResult(
-        classificacao="NAO_ASSISTENCIAL",
-        prazo_dias=10,
-        grupo_revisor="nucleo-ans",
-    )
-    result = route_nip(classification, documentacao_suficiente=True)
-    assert result.roteamento == "ELABORAR_RESPOSTA"
-    assert result.grupo_humano == "nucleo-ans"
-
-
-def test_route_nip_revisao_juridica() -> None:
-    """Assistencial + contesta_negativa -> REVISAO_JURIDICA."""
-    from maezo.tools.workers.nip import NipClassificationResult
-
-    classification = NipClassificationResult(
-        classificacao="ASSISTENCIAL_CONTESTA_NEGATIVA",
-        prazo_dias=5,
-        grupo_revisor="juridico-regulatorio",
-    )
-    result = route_nip(classification, documentacao_suficiente=True)
-    assert result.roteamento == "REVISAO_JURIDICA"
-    assert result.grupo_humano == "juridico-regulatorio"
-
-
-def test_route_nip_pendente_info() -> None:
-    """Insufficient documentation -> PENDENTE_INFO."""
-    from maezo.tools.workers.nip import NipClassificationResult
-
-    classification = NipClassificationResult(
-        classificacao="ASSISTENCIAL_OUTRO",
-        prazo_dias=5,
-        grupo_revisor="regulatorio-ans",
-    )
-    result = route_nip(classification, documentacao_suficiente=False)
-    assert result.roteamento == "PENDENTE_INFO"
-
 
 # ---------------------------------------------------------------------------
 # assemble_response
@@ -147,22 +39,6 @@ def test_assemble_response() -> None:
     result = assemble_response(classification, routing, inp)
     assert result["numero_nip_ans"] == "NIP-005"
     assert "dossie" in result
-
-
-# ---------------------------------------------------------------------------
-# review_juridico
-# ---------------------------------------------------------------------------
-
-
-def test_review_juridico() -> None:
-    """review_juridico approves final response text."""
-    result = review_juridico(
-        texto_minuta="Resposta formal...",
-        classificacao="ASSISTENCIAL_CONTESTA_NEGATIVA",
-        revisor_id="juridico-001",
-    )
-    assert result["revisado"] is True
-    assert result["revisor_id"] == "juridico-001"
 
 
 # ---------------------------------------------------------------------------
@@ -220,14 +96,67 @@ def test_submit_to_ans_missing_texto() -> None:
 
 
 # ---------------------------------------------------------------------------
-# notify_beneficiario
+# notify_deadline_risk (t2.5-p2b-nip-mechanical — BPMN-declared, previously missing)
 # ---------------------------------------------------------------------------
 
 
-def test_notify_beneficiario_nip() -> None:
-    """notify_beneficiario sends resolution notification."""
-    result = notify_beneficiario("BEN-PSEUDO-001", "NIP-006", decisao_nip="CONCEDER")
-    assert result["notified"] is True
+def test_notify_deadline_risk_happy_path() -> None:
+    """notify_deadline_risk is informational-only: no guard, no decision, UT stays open."""
+    result = notify_deadline_risk(
+        numero_nip_ans="NIP-010",
+        tenant_id="amh",
+        grupo_humano="juridico-regulatorio",
+        sla_breach_task_name="UT_RevisaoJuridicaNip",
+        event_topic_deadline_risk="agents.events.nip.deadline_risk",
+    )
+    assert result["deadline_risk_notified"] is True
+    assert result["numero_nip_ans"] == "NIP-010"
+    assert result["grupo_humano"] == "juridico-regulatorio"
+    assert result["sla_breach_task_name"] == "UT_RevisaoJuridicaNip"
+
+
+def test_notify_deadline_risk_never_alters_a_decision() -> None:
+    """Invariant: notify_deadline_risk's output never carries a decision/adverse marker."""
+    result = notify_deadline_risk(numero_nip_ans="NIP-011")
+    assert "decisao_nip" not in result
+    assert set(result.keys()) == {
+        "deadline_risk_notified",
+        "numero_nip_ans",
+        "grupo_humano",
+        "sla_breach_task_name",
+        "event_topic_deadline_risk",
+    }
+
+
+def test_notify_deadline_risk_defaults_for_solicitar_info_reuse() -> None:
+    """ST_SolicitarInfoNip reuses this same topic with NEITHER inputParameter set (BPMN comment
+    "reusa o canal de notificacao regulatoria") — sla_breach_task_name/event_topic_deadline_risk
+    must default gracefully rather than raise."""
+    result = notify_deadline_risk(numero_nip_ans="NIP-012", tenant_id="amh")
+    assert result["deadline_risk_notified"] is True
+    assert result["sla_breach_task_name"] == ""
+    assert result["event_topic_deadline_risk"] == ""
+
+
+def test_notify_deadline_risk_entry_round_trips() -> None:
+    variables = {
+        "numero_nip_ans": "NIP-013",
+        "tenant_id": "amh",
+        "grupo_humano": "regulatorio-ans",
+        "sla_breach_task_name": "UT_ElaborarRespostaNip",
+        "event_topic_deadline_risk": "agents.events.nip.deadline_risk",
+    }
+    direct = notify_deadline_risk(**variables)
+    assert notify_deadline_risk_entry(variables) == direct
+
+
+def test_notify_deadline_risk_entry_ignores_kafka_seam() -> None:
+    """Matches every other nip.py entry function: kafka is accepted but never published to
+    (systemic Kafka-producer-wiring gap, out of scope for this worker)."""
+    kafka = FakeKafkaPublisher()
+    result = notify_deadline_risk_entry({"numero_nip_ans": "NIP-014"}, kafka=kafka)
+    assert result["deadline_risk_notified"] is True
+    assert kafka.published == []
 
 
 # ---------------------------------------------------------------------------
@@ -297,14 +226,6 @@ def test_nip_protocolo_invalido_is_value_error() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_classify_nip_entry_round_trips_classify_nip() -> None:
-    variables = {"classificacao_nip": "assistencial", "tema_nip": "reembolso", "contesta_negativa": True}
-    direct = classify_nip(NipInput(**variables))
-    result = classify_nip_entry(variables)
-    assert result["classificacao"] == direct.classificacao
-    assert result["prazo_dias"] == direct.prazo_dias
-
-
 def test_submit_response_entry_guards_missing_human_decision() -> None:
     """submit_response_entry raises the UNCHANGED NipNegativaNotHumanError guard."""
     with pytest.raises(NipNegativaNotHumanError):
@@ -340,3 +261,44 @@ def test_publish_completed_entry_round_trips_publish_completed() -> None:
     assert publish_completed_entry(variables) == publish_completed(
         event_type="nip.completed", payload={}, desfecho="resolvida_favoravel"
     )
+
+
+# ---------------------------------------------------------------------------
+# register_nip_workers — registry/drift coverage (t2.5-p2b-nip-mechanical)
+# ---------------------------------------------------------------------------
+
+_BPMN_NIP_TOPICS = frozenset(
+    {
+        "operadora.nip.instruct_dossier",
+        "operadora.nip.submit_response",
+        "operadora.nip.notify_deadline_risk",
+        "operadora.nip.handoff_ans_submit",
+        "operadora.nip.publish_completed",
+    }
+)
+
+
+def test_register_nip_workers_matches_bpmn_topics_exactly() -> None:
+    """Registry coverage (ADR-0026 test strategy, mirrors cancel.py's own drift-guard unit test):
+    the registered `operadora.nip.*` topic set equals EXACTLY the 4 BPMN-declared topics
+    (instruct_dossier/submit_response/notify_deadline_risk/handoff_ans_submit) plus
+    `publish_completed` (KEPT — registry-completeness convention, mirrors
+    inadimplencia.py's assess_status/calculate_purge; folds into the generic
+    operadora.events.publish per BPMN) — no gap and no orphan."""
+    harness = WorkerHarness(FakeWorkerTransport(), worker_id="test-worker")
+    register_nip_workers(harness, FakeKafkaPublisher())
+    nip_topics = {t for t in harness.registered_topics if t.startswith("operadora.nip.")}
+    assert nip_topics == _BPMN_NIP_TOPICS
+
+
+def test_register_nip_workers_does_not_register_orphan_topics() -> None:
+    """t2.5-p2b-nip-mechanical: classify_nip/route_nip (superseded by the native DMN
+    businessRuleTasks BRT_Classificacao/BRT_Roteamento — camunda:decisionRef="nip_classification"/
+    "nip_routing") and review_juridico/notify_beneficiario (no BPMN consumer at all — zero hits
+    anywhere in spec/) must never be registered."""
+    harness = WorkerHarness(FakeWorkerTransport(), worker_id="test-worker")
+    register_nip_workers(harness, FakeKafkaPublisher())
+    assert "operadora.nip.classify_nip" not in harness.registered_topics
+    assert "operadora.nip.route_nip" not in harness.registered_topics
+    assert "operadora.nip.review_juridico" not in harness.registered_topics
+    assert "operadora.nip.notify_beneficiario" not in harness.registered_topics

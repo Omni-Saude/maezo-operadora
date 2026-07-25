@@ -30,3 +30,9 @@ SESSION.log
 RUNBOOK.md
 CHECKPOINT.md
 .worktrees/
+
+# Local-only orchestration docs (excluded from GitHub per owner decision 2026-07-19).
+# Kept on the working tree only; the rest of docs/ (evidence-ledger.md, adr/, decisions-log.md,
+# contracts, compliance, gates, design, sme-dispatch) stays tracked + on GitHub + CI-readable.
+docs/prompts/
+docs/audits/

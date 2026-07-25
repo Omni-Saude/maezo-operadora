@@ -146,9 +146,29 @@ cascata infinita.
       <bpmn:errorEventDefinition id="EED_GlosaInvalidaDocs" errorRef="Error_RecursoGlosaInvalida"/>
     </bpmn:boundaryEvent>
 
+    <!-- T3.1 event-gap remedy B (docs/processes/contracts/SP-OP-RECURSO-001.md:96 "produz"
+         obligation; SP-OP-RECURSO-001.md:101 worker row) — ST_SolicitarDocumentos's own
+         event_topic_pended inputParameter is worker-intended but v2 request_documents_entry
+         del kafka's (never publishes, ADR-0026); this dedicated engine-side publish task closes
+         the gap without touching src/. Boundary-free (mirrors 15/16 ST_Publish* convention);
+         only reached on NORMAL completion of ST_SolicitarDocumentos (BE_GlosaInvalidaDocs
+         intercepts the token first on the glosa_id-ausente guard path, so no pended event fires
+         there). -->
+    <bpmn:serviceTask id="ST_PublishRecursoPended" name="Publicar evento: recurso.pended"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.recurso.pended</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_guia_tiss,glosa_id,prestador_id</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Solicitar_WaitDocs</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubPended_WaitDocs</bpmn:outgoing>
+    </bpmn:serviceTask>
+
     <!-- Corrida: documentacao chega OU prazo de pendencia expira (decisao HUMANA, nunca auto-desiste) -->
     <bpmn:eventBasedGateway id="GW_AguardarDocs" name="Aguardar documentacao do recurso">
-      <bpmn:incoming>Flow_Solicitar_WaitDocs</bpmn:incoming>
+      <bpmn:incoming>Flow_PubPended_WaitDocs</bpmn:incoming>
       <bpmn:outgoing>Flow_Wait_DocsMsg</bpmn:outgoing>
       <bpmn:outgoing>Flow_Wait_Timer</bpmn:outgoing>
     </bpmn:eventBasedGateway>
@@ -587,7 +607,8 @@ auditor_id. auditor_id na trilha de auditoria (ADR-0007).
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${admissibilidade.roteamento == 'PENDENTE_DOCUMENTACAO'}</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
     <bpmn:sequenceFlow id="Flow_GW_AnaliseHumana" name="ANALISE_HUMANA (default — sempre humano)" sourceRef="GW_Admissibilidade" targetRef="BRT_Sla"/>
-    <bpmn:sequenceFlow id="Flow_Solicitar_WaitDocs" sourceRef="ST_SolicitarDocumentos" targetRef="GW_AguardarDocs"/>
+    <bpmn:sequenceFlow id="Flow_Solicitar_WaitDocs" sourceRef="ST_SolicitarDocumentos" targetRef="ST_PublishRecursoPended"/>
+    <bpmn:sequenceFlow id="Flow_PubPended_WaitDocs" sourceRef="ST_PublishRecursoPended" targetRef="GW_AguardarDocs"/>
     <bpmn:sequenceFlow id="Flow_Wait_DocsMsg" sourceRef="GW_AguardarDocs" targetRef="ICE_DocsRecebidos"/>
     <bpmn:sequenceFlow id="Flow_Wait_Timer" sourceRef="GW_AguardarDocs" targetRef="ICE_PrazoPendencia"/>
     <bpmn:sequenceFlow id="Flow_DocsOk_Admiss" sourceRef="ICE_DocsRecebidos" targetRef="BRT_Admissibilidade"/>
@@ -693,6 +714,9 @@ auditor_id. auditor_id na trilha de auditoria (ADR-0007).
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_BE_GlosaInvalidaDocs" bpmnElement="BE_GlosaInvalidaDocs">
         <dc:Bounds x="1592" y="258" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishRecursoPended" bpmnElement="ST_PublishRecursoPended">
+        <dc:Bounds x="1670" y="196" width="90" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_GW_AguardarDocs" bpmnElement="GW_AguardarDocs" isMarkerVisible="true">
         <dc:Bounds x="1765" y="211" width="50" height="50"/>
@@ -866,6 +890,10 @@ auditor_id. auditor_id na trilha de auditoria (ADR-0007).
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Solicitar_WaitDocs" bpmnElement="Flow_Solicitar_WaitDocs">
         <di:waypoint x="1660" y="236"/>
+        <di:waypoint x="1670" y="236"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubPended_WaitDocs" bpmnElement="Flow_PubPended_WaitDocs">
+        <di:waypoint x="1760" y="236"/>
         <di:waypoint x="1765" y="236"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Wait_DocsMsg" bpmnElement="Flow_Wait_DocsMsg">
