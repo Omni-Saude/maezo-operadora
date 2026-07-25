@@ -215,7 +215,9 @@ async def test_redelivery_does_not_reaudit_or_reemit_requested() -> None:
 # FakeAuditSink, DISTINCT from Rafael's own process-start audit (T-C2), which uses a SEPARATE
 # `FakeStartAuditSink` injected only into `make_rafael_handler` — never conflated. The live-PG
 # proof that the SAME distinction holds against a real `PostgresAuditSink` is
-# `tests/integration/agents/test_a2a_auth_delegation_edge.py`.
+# `tests/unit/a2a/test_a2a_edge_live_pg.py` (Tier 2, `@pytest.mark.integration`, mirrors
+# `test_idempotency_store.py`'s placement — PG-only, deliberately NOT under `tests/integration/`
+# so it is never gated on the unrelated CIB Seven engine's reachability).
 
 _EDGE_CASE_META: dict[str, Any] = {
     "beneficiario_pseudo_id": "pseudo-edge-1",

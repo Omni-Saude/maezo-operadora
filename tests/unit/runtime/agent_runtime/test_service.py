@@ -224,6 +224,42 @@ async def test_graph_loaded_healthy_after_real_bring_up() -> None:
     assert result.detail == "agent_id=helena"
 
 
+async def test_a2a_dispatcher_ready_not_applicable_for_unrelated_agent() -> None:
+    """T2.4 A2A W3: the ONE Helena->Rafael edge does not force its dependency posture onto
+    unrelated agent replicas (design doc §9.2)."""
+    state = _state(settings=AgentRuntimeSettings(agent_id="marina", tenant_id="amh"))
+    checks = {c.__name__: c for c in build_readiness_checks(state)}
+    result = await checks["a2a_dispatcher_ready"]()
+    assert result.healthy is True
+    assert result.detail == "not applicable to agent_id='marina'"
+
+
+async def test_a2a_dispatcher_ready_unhealthy_when_absent() -> None:
+    state = _state(settings=AgentRuntimeSettings(agent_id="rafael", tenant_id="amh"))
+    checks = {c.__name__: c for c in build_readiness_checks(state)}
+    result = await checks["a2a_dispatcher_ready"]()
+    assert result.healthy is False
+
+
+async def test_a2a_dispatcher_ready_healthy_after_real_bring_up() -> None:
+    state = _state(settings=AgentRuntimeSettings(agent_id="rafael", tenant_id="amh", database_url=_DSN))
+    await _bring_up_dependencies(state)
+    checks = {c.__name__: c for c in build_readiness_checks(state)}
+    result = await checks["a2a_dispatcher_ready"]()
+    assert result.healthy is True, state.a2a_dispatcher_error
+
+
+async def test_a2a_dispatcher_ready_unhealthy_without_database_url() -> None:
+    """No DATABASE_URL -> `_build_tool_deps` never constructs `audit_sink` -> the composition
+    fails closed (mirrors `graph_loaded`'s own DATABASE_URL-gated behavior)."""
+    state = _state(settings=AgentRuntimeSettings(agent_id="rafael", tenant_id="amh"))
+    await _bring_up_dependencies(state)
+    checks = {c.__name__: c for c in build_readiness_checks(state)}
+    result = await checks["a2a_dispatcher_ready"]()
+    assert result.healthy is False
+    assert "audit_sink" in (state.a2a_dispatcher_error or "")
+
+
 async def test_all_readiness_checks_healthy_after_real_bring_up() -> None:
     state = _state(settings=AgentRuntimeSettings(agent_id="helena", tenant_id="amh", database_url=_DSN))
     await _bring_up_dependencies(state)
