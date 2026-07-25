@@ -164,3 +164,45 @@ async def broken_emit_once_fail_open_swallow(
         return await PostgresAuditSink.emit_once(sink, record, dedup_key=dedup_key)
     except AuditPersistenceError:
         return _FAIL_OPEN_FABRICATED_HASH
+
+
+# ---------------------------------------------------------------------------------------------
+# A1/A2 mutation: "skip find_active_instance (always start)" (design §4 table, row A1/A2 — T3.3
+# W1 cross-process correctness, `tests/integration/processes/test_t33_a1_*.py` /
+# `test_t33_a2_*.py`). The real `start_process_idempotent` (transport.py:560-623) ALWAYS calls
+# `find_active_instance` before `start_process_instance` — a re-delivered/duplicate call with the
+# SAME business key must return the EXISTING active instance, never start a second one. This
+# broken variant OMITS that check (always starts unconditionally), reproducing the exact
+# TOCTOU/double-start hazard the design's §1.2 names as "the real risk" — WITHOUT ever editing
+# transport.py. This is the SAME chokepoint every A1 (inadimplencia.handoff_rescisao) and A2
+# (every agent's own `start_process` node) call site funnels through, so ONE broken variant here
+# covers both suites' mutation-check (per the design's own table, which lists "A1/A2" as a single
+# row sharing one mutation).
+# ---------------------------------------------------------------------------------------------
+
+
+async def broken_start_process_always_start(
+    transport: CibSevenTransport,
+    *,
+    process_key: str,
+    business_key: str,
+    variables: dict[str, Any],
+    audit_sink: AuditStartSink,
+    provenance: AgentDecisionProvenance,
+) -> ProcessInstance:
+    """A1/A2 MUTATION double for `start_process_idempotent` — see module docstring.
+
+    Still emits the durable audit record BEFORE the effect (emit-before-effect stays intact —
+    this mutation isolates ONLY the idempotency-check omission, not the audit-ordering invariant
+    B1b/B1c already cover), but OMITS `find_active_instance` entirely: every call unconditionally
+    starts a NEW engine instance, so a re-delivered call with the SAME business key creates a
+    SECOND active instance — the exact hazard A1/A2's "exactly one instance" assertion must catch.
+    """
+    record = build_start_audit_record(
+        provenance, process_key=process_key, business_key=business_key, variables=variables
+    )
+    await audit_sink.emit_once(
+        record, dedup_key=start_dedup_key(provenance.tenant_id, process_key, business_key)
+    )
+    # MUTATION: no `find_active_instance` check — always starts, never returns an existing hit.
+    return await transport.start_process_instance(process_key, business_key, variables)

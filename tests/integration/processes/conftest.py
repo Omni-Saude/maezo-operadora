@@ -125,3 +125,31 @@ async def drain_topics(
             idle += 1
             if idle >= idle_limit:
                 return
+
+
+# ---------------------------------------------------------------------------------------------
+# T3.3 A1/A2 shared helper (docs/design/T3.3-chaos-resilience.md — cross-process handoff /
+# agent-own-start idempotency correctness suites, `test_t33_a1_*.py` / `test_t33_a2_*.py`).
+# Hoisted here (port rule 3: identical contract across both consumers) rather than duplicated —
+# a thin wrapper over the REAL `maezo.gateway.audit_postgres.verify_chain`/table read, never a
+# reimplementation, mirroring `tests/integration/chaos/conftest.py`'s sibling helpers (that
+# package's version is per-test-throwaway-schema; this one reads the SESSION-scoped
+# `audit_tenant`/`audit_pg` schema this package's suites already share).
+# ---------------------------------------------------------------------------------------------
+
+
+async def count_chain_rows(dsn: str, tenant_id: str) -> int:
+    """Row count of `audit_chain` for `tenant_id` — used to assert an exact DELTA (e.g. "the
+    re-delivered start added ZERO new chain rows") since `audit_tenant`'s schema is shared by
+    every test in the session, not exclusive to one test."""
+    import asyncpg  # type: ignore[import-untyped]
+
+    from maezo.gateway.audit_postgres import normalize_dsn
+
+    conn = await asyncpg.connect(normalize_dsn(dsn))
+    try:
+        await conn.execute(f'SET search_path TO "{tenant_id}"')
+        count: int = await conn.fetchval("SELECT count(*) FROM audit_chain")
+    finally:
+        await conn.close()
+    return count
