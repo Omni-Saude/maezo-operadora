@@ -348,3 +348,86 @@ built in W3.
 which is otherwise mirrored. `graph.py`'s own structural guardrail (`_build_dossier`'s
 `decisao_cobertura` is always `None`) is the thing that makes this true regardless of what the
 handler forwards; the W3 test suite asserts both independently.
+
+---
+
+## 10. W4 — enforcement & finalization (built 2026-07-25)
+
+**Branch:** `t2.4-a2a-w4-tg-enforce-tf-final` off `t2.4-a2a-w3-helena-rafael-edge` @ `8d166ad`.
+Closes the four items §9's "W4 residual" flagged, plus the tracked W2 audit-completeness gap and a
+cosmetic DSN nit.
+
+**T-G signed-Card enforcement (the security posture change).** W3 deliberately left
+`build_auth_delegation_dispatcher` calling `build_dispatcher(...)` with no `verifier=` — cards came
+back unsigned and the registry admitted them unconditionally (the W1 dev fail-safe path). W4 flips
+the PRODUCTION composition: it resolves `signer = card_signer_from_key(card_signing_key_from_env())`
+once, signs the Cards with it (`build_agent_cards(..., signer=signer)`), and injects the SAME signer
+as `build_dispatcher(..., verifier=signer)` — symmetric HMAC, so the one key both signs and verifies.
+The dev/test asymmetry from W1 is preserved exactly: `MAEZO_A2A_CARD_SIGNING_KEY` unset/empty ->
+`signer=None` -> unsigned Cards, no verifier, unchanged Phase-0 behavior; present -> every Card is
+signed AND the registry fail-closes on anything that isn't validly signed under that same key. The
+underlying fail-closed gate (`A2ARegistry(verifier=...).register`) already existed and was already
+fully unit-tested from W1 (`test_card_signing.py`); W4's job was wiring the composition root to
+actually use it. New coverage: `tests/unit/a2a/test_assembly.py` (unsigned/tampered/wrong-key
+rejected at `build_dispatcher`, so no dispatcher object is ever returned — "cannot dispatch" is
+true by construction; a validly-signed card admits and dispatches) plus a LIVE-PG end-to-end proof
+in `test_a2a_edge_live_pg.py` exercising the exact `card_signing_key_from_env`/`card_signer_from_key`
+seam the composition calls, against a real `PostgresAuditSink`.
+
+**T-F terminal-outcome audit (closes the W2 completeness gap).** Today only the pre-execution ALLOW
+audit fires; when the target's handler raises a `DelegationError` after being allowed to run (e.g. a
+cyclic sub-delegation), the dispatcher emitted a `rejected` Kafka fact but no second audit row — an
+ALLOWed-then-internally-failed delegation left no terminal audit record distinguishing it from one
+still silently in flight. `DelegationDispatcher._audit_delegation_outcome` (new) emits a SECOND,
+terminal `emit_once` call in that branch only — scoped narrowly to the handler-error path named in
+the charter ("TERMINAL-REJECTION audit"), not to the success path (which already returns a
+synchronous `output_ref` to the caller and a `completed` fact; it is a continuation of the
+already-audited ALLOW decision, not a new one requiring its own row). `action` gets a `:outcome`
+suffix (`f"a2a.delegate:{target}:outcome"`), `decision="FAILED"` (distinct from the pre-exec
+ALLOW/DENY vocabulary, so a chain reader never mistakes it for a second admission decision), and
+`dedup_key = f"{tenant}:a2a:delegate:{task_id}:outcome"` (`a2a_audit_outcome_dedup_key`) — distinct
+from the pre-exec row's key so `emit_once` never collapses the two. Same PHI discipline as the
+existing `_audit_delegation`: `details` excludes `payload_meta`, carries only task_id/task_type/
+chain/target/payload_ref/decision_basis plus the structural exception message (itself PHI-free —
+`CyclicDelegationError`/`MaxHopsExceededError`/`BudgetExhaustedError` messages only ever name
+agent_ids and counts).
+
+**T-F daemon readiness (finalization, honestly scoped).** The agent-runtime daemon is still,
+unchanged from W3, a health-only scaffold with no live delegation-consumer loop (no Kafka-consume
+loop, no cross-pod dispatch) — W4 does NOT fabricate one. What IS real: (1) the dispatcher's own
+audit-before-effect ordering was ALREADY fail-closed — `_audit_delegation` runs, and can raise,
+BEFORE the handler is ever invoked, so an audit sink that cannot durably persist already prevents
+the handler from running (no code change; proved by a new unit test that makes `FakeAuditSink.
+always_fail` and asserts the handler is never called and the exception propagates). (2) A NEW,
+ADDITIVE readiness check, `a2a_audit_sink_ready` (`agent_runtime/service.py`), mirrors
+`worker_runtime`'s T-D `audit_sink_ready` gate: a bounded `check_ready()` probe (new
+`AgentRuntimeSettings.dep_connect_timeout_s`, same 5s default as the worker daemon) against the SAME
+audit sink the A2A composition would use, reported red until proven reachable. Deliberately kept
+SEPARATE from the pre-existing `a2a_dispatcher_ready` check (which stays construction-only, unchanged
+— no existing test's semantics are broken) and, unlike the worker daemon's own gate, is a
+boot-time-only snapshot rather than a live per-`/readyz` re-probe: there is no fetch/consume rotation
+here for it to gate entry into, so a live re-probe would add cost without changing any actual
+traffic-admission decision. If/when a real delegation-consumer is wired, it should condition on this
+bit before pulling work — this build stops at making the bit honestly available.
+
+**Structural-field PHI-scrub assessment (payload_ref only; task_type/origin/target untouched).**
+Assessed adding defense-in-depth validation for the reported gap: a CPF embedded in a URI-style
+`payload_ref` bypasses `_looks_like_phi`'s whole-string check (it requires the ENTIRE string to be
+digits+separators). Rejected a bare-digit-run substring scan (any embedded 11/14-digit run) as
+UNSAFE: legitimate FHIR/process resource ids are sometimes purely numeric and of arbitrary length,
+so this would false-positive-reject legitimate references. Implemented instead a NARROWLY-scoped
+substring check for the CPF/CNPJ **canonically-punctuated** shape only
+(`\d{3}\.\d{3}\.\d{3}-\d{2}` / `\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}`), which a URI/reference scheme
+essentially never produces by chance — this closes the concrete example in the charter (a
+dot-and-dash-formatted CPF interpolated into a reference string) without touching bare numeric ids.
+Fail-closed (raises `DelegationError`, same as the existing guard), not a silent scrub. `task_type`/
+`origin`/`target` were assessed and deliberately left alone: they are not free-form strings a caller
+could embed PHI into — `origin`/`target` are agent ids resolved against the Card registry and
+`task_type` against `accepted_task_types`, both closed vocabularies enforced elsewhere in the
+dispatch path, not text a caller can extend with a URI.
+
+**Nit:** `test_a2a_edge_live_pg.py`'s hardcoded default DSN said port 5642 while the independently
+R1-verified live run used 5643 (`docs/evidence-ledger.md`'s t2.4/W3 row flagged this exact mismatch).
+Fixed the hardcoded fallback to 5643; `MAEZO_TEST_A2A_EDGE_DATABASE_URL` still overrides it for any
+other local setup (this build's own test run used a dedicated, non-colliding 5645 via that override,
+so it never touched the port-5642/5643 ambiguity at all).
