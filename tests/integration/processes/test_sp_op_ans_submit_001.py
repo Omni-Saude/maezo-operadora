@@ -159,6 +159,34 @@ dominant reason most of this suite's tests are blocked:
   use — NO taxonomy mismatch for SUBMIT. Do not conflate the two; see the sibling
   `test_sp_op_ans_cron_001.py` for the ans_cron-specific finding.
 
+T2.6-2 (design §2.B) — TWO SCHEMA-VALIDATION REGIMES coexist in this suite. `validate_data` no
+longer echoes the seeded `schema_valid` flag; it computes it via the real `TissSchemaValidator`
+(lxml XSD validation, `tools/workers/tiss_schema.py`):
+
+  UNPINNED (fail-closed — production TODAY, and the default `ans_probe` fixture): no
+  `MAEZO_TISS_SCHEMA_VERSION` is pinned (the padrão-TISS version in force is SME-gated, design
+  §2.B/§7) and no real TISS XSDs are vendored, so `schema_valid` is ALWAYS False. The
+  admissibility DMN's `[-, false, -] -> PENDENTE` row then fires for EVERY submission —
+  including `origem_envio=nip_filing` — routing to `UT_CorrigirPendenciaEnvio` (human pendency)
+  and pre-empting the SEGUE_ENVIO branch where nip_filing would route to
+  `UT_RevisarEnvioJuridico`. IMPORTANT correction to an earlier claim in this file: nip_filing's
+  `Flow_GW_NipFiling` bypasses ST_PrepararDossie only WITHIN the SEGUE_ENVIO branch — the
+  admissibility gate is UPSTREAM of it, so fail-closed `schema_valid=False` re-routes nip_filing
+  too (live-confirmed by the R1 validator: actual task = UT_CorrigirPendenciaEnvio). The tests
+  `test_nip_filing_sem_schema_pinado_roteia_pendencia_fail_closed` and
+  `test_timer_due_date_pendencia_nip_filing_fail_closed` prove THIS regime: human pendency,
+  ST_SubmeterEnvio never reached, never auto-transmits.
+
+  PINNED (fixture regime — the `ans_probe_tiss_pinned` fixture): a `TissSchemaValidator` pinned
+  at a tmp_path fixture schema root (version `TISS-FIXTURE-0`, one minimal XSD per report_type —
+  NOT a real TISS schema; clearly-labeled fixture, same pattern as the unit tests) is injected
+  through the `tiss_validator` seam, and `dataset_ref` points at a real tmp XML file. A
+  schema-VALID payload -> `schema_valid=True` -> SEGUE_ENVIO -> the nip_filing juridical-review
+  human gate (`UT_RevisarEnvioJuridico`) and its BT_DueDateJuridico escalation work exactly as
+  before; a schema-INVALID payload still -> PENDENTE -> `UT_CorrigirPendenciaEnvio`. The
+  `test_tiss_pinned_*` tests prove THIS regime — the juridico gate is preserved under test
+  instead of silently lost to the fail-closed default.
+
 Synthetic data mirrors the donor's obviously-fake identifiers exactly (`revisor-sintetico-001`,
 `DATASET-TESTE-0001`, `NIP-TESTE-0001`, etc.).
 """
@@ -188,6 +216,7 @@ from maezo.tools.workers.ans_submit import (
 from maezo.tools.workers.dmn_transport import CibSevenDmnTransport
 from maezo.tools.workers.events import register_events_workers
 from maezo.tools.workers.harness import CibSevenWorkerTransport, FakeKafkaPublisher, WorkerHarness
+from maezo.tools.workers.tiss_schema import TissSchemaValidator
 
 from .conftest import CIBSEVEN_BASE_URL, drain_topics
 from .engine_rest import EngineRest
@@ -358,9 +387,17 @@ async def deploy_artifacts(engine: EngineRest) -> str:
     )
 
 
-@pytest_asyncio.fixture
-async def ans_probe(engine: EngineRest, audit_sink: Any, audit_tenant: str) -> AsyncIterator[AnsEngineProbe]:
-    """Probe que serve as external tasks com os workers reais de envio ANS."""
+def _build_ans_probe(
+    engine: EngineRest,
+    audit_sink: Any,
+    audit_tenant: str,
+    *,
+    tiss_validator: TissSchemaValidator | None = None,
+) -> AnsEngineProbe:
+    """Shared probe construction for the two schema-validation regimes (module docstring, T2.6-2):
+    `tiss_validator=None` -> UNPINNED fail-closed regime (validate_data resolves a real
+    `TissSchemaValidator()`, `MAEZO_TISS_SCHEMA_VERSION` unset -> `schema_valid` always False);
+    a pinned validator -> PINNED fixture regime (real lxml validation against the fixture XSD)."""
     worker_id = f"qa-anssubmit-worker-{uuid.uuid4().hex[:8]}"
     transport = CibSevenWorkerTransport(CIBSEVEN_BASE_URL)
     # bpmn_error_allowlist mirrors the 2 bpmn:error codes SUBMIT's BPMN declares a boundary catch
@@ -381,21 +418,86 @@ async def ans_probe(engine: EngineRest, audit_sink: Any, audit_tenant: str) -> A
     # paths get a deterministic, non-binding `MOCK-ANS-NAO-VINCULATIVO-{business_key}` protocol. In
     # PRODUCTION no gateway is injected -> `resolve_ans_gateway` fails closed to the Refusing
     # transport (issues nothing). The old fabricated `ANSPROTO-{sha256(time_ns)}` is gone.
-    register_ans_submit_workers(harness, kafka, dmn=dmn, ans_gateway=LabeledMockAnsGatewayTransport())
+    register_ans_submit_workers(
+        harness,
+        kafka,
+        dmn=dmn,
+        ans_gateway=LabeledMockAnsGatewayTransport(),
+        tiss_validator=tiss_validator,
+    )
     # The generic operadora.events.publish worker every ST_Publish* service task in this BPMN
     # routes through — mirrors the donor's own register_phase0_workers composition.
     register_events_workers(harness, kafka)
-    probe = AnsEngineProbe(
+    return AnsEngineProbe(
         engine=engine,
         harness=harness,
         transport=transport,
         kafka=kafka,
         worker_id=worker_id,
     )
+
+
+@pytest_asyncio.fixture
+async def ans_probe(engine: EngineRest, audit_sink: Any, audit_tenant: str) -> AsyncIterator[AnsEngineProbe]:
+    """Probe que serve as external tasks com os workers reais de envio ANS — regime NAO-PINADO
+    (fail-closed, T2.6-2): nenhum `tiss_validator` injetado, `MAEZO_TISS_SCHEMA_VERSION` unset =>
+    `schema_valid` sempre False => admissibilidade PENDENTE => UT_CorrigirPendenciaEnvio."""
+    probe = _build_ans_probe(engine, audit_sink, audit_tenant)
     try:
         yield probe
     finally:
-        await transport.close()
+        await probe.transport.close()
+
+
+#: T2.6-2 fixture-schema constants — NOT a real ANS Padrão TISS version/schema. A minimal,
+#: clearly-labeled fixture (same `loteGuias` shape as tests/unit/tools/workers/test_tiss_schema.py)
+#: used only to prove the PINNED regime's routing end-to-end against the real engine.
+_TISS_FIXTURE_VERSION = "TISS-FIXTURE-0"
+
+_TISS_FIXTURE_XSD = """<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <xs:element name="loteGuias">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="numeroLote" type="xs:string"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+</xs:schema>
+"""
+
+_TISS_VALID_XML = "<loteGuias><numeroLote>LOTE-TESTE-0001</numeroLote></loteGuias>"
+_TISS_SCHEMA_INVALID_XML = "<loteGuias><campoInexistente/></loteGuias>"
+
+
+def _write_tiss_dataset(tmp_path: Path, name: str, xml: str) -> str:
+    """Write a fixture dataset XML under tmp_path and return its path as the `dataset_ref` (the
+    validator resolves `dataset_ref` as a local file path — `tiss_schema.py` docstring)."""
+    path = tmp_path / name
+    path.write_text(xml, encoding="utf-8")
+    return str(path)
+
+
+@pytest_asyncio.fixture
+async def ans_probe_tiss_pinned(
+    engine: EngineRest, audit_sink: Any, audit_tenant: str, tmp_path: Path
+) -> AsyncIterator[AnsEngineProbe]:
+    """Probe do regime PINADO (T2.6-2): injeta um `TissSchemaValidator` pinado num schema-root de
+    fixture (tmp_path) com a versao `TISS-FIXTURE-0` e o XSD minimo para o report_type default
+    (`RN_124_SIP`). Com `dataset_ref` apontando a um XML valido, `schema_valid=True` e o roteamento
+    SEGUE_ENVIO (incl. nip_filing -> UT_RevisarEnvioJuridico) funciona; um XML schema-invalido
+    continua PENDENTE. pytest injeta o MESMO `tmp_path` no teste, entao os testes escrevem seus
+    datasets via `_write_tiss_dataset(tmp_path, ...)` no mesmo diretorio."""
+    schema_root = tmp_path / "tiss-fixture-schemas"
+    version_dir = schema_root / _TISS_FIXTURE_VERSION
+    version_dir.mkdir(parents=True)
+    (version_dir / "RN_124_SIP.xsd").write_text(_TISS_FIXTURE_XSD, encoding="utf-8")
+    validator = TissSchemaValidator(schema_root=schema_root, version=_TISS_FIXTURE_VERSION)
+    probe = _build_ans_probe(engine, audit_sink, audit_tenant, tiss_validator=validator)
+    try:
+        yield probe
+    finally:
+        await probe.transport.close()
 
 
 @pytest_asyncio.fixture
@@ -590,36 +692,170 @@ async def test_aprovar_envio_exige_revisor_id(
     await _assert_no_filing_without_human_task(engine, iid)
 
 
-async def test_nip_filing_exige_revisao_juridica(
+async def test_nip_filing_sem_schema_pinado_roteia_pendencia_fail_closed(
     engine: EngineRest,
     ans_probe: AnsEngineProbe,
     start_ans: Callable[..., Any],
 ) -> None:
-    """origem_envio=nip_filing => revisao roteada a juridico-regulatorio (texto legal sempre humano).
-
-    Flow_GW_NipFiling vai DIRETO a UT_RevisarEnvioJuridico (bypassa ST_PrepararDossie) — nao
-    afetado por FINDING A.
-    """
+    """REGIME NAO-PINADO (T2.6-2 fail-closed — adaptado de `test_nip_filing_exige_revisao_juridica`,
+    que regrediu quando `validate_data` deixou de ecoar o `schema_valid` seedado): sem
+    `MAEZO_TISS_SCHEMA_VERSION` pinada, `schema_valid` e SEMPRE False, e a admissibilidade
+    (`[-, false, -] -> PENDENTE`) roteia TODA submissao — inclusive nip_filing — a
+    `UT_CorrigirPendenciaEnvio` (pendencia humana), pre-emptando o ramo SEGUE_ENVIO onde
+    `Flow_GW_NipFiling` levaria a `UT_RevisarEnvioJuridico`. (Correcao do claim anterior deste
+    teste: o bypass de ST_PrepararDossie so existe DENTRO do ramo SEGUE_ENVIO — o gate de
+    admissibilidade e UPSTREAM dele.) O roteamento juridico em si e provado no regime PINADO
+    (`test_tiss_pinned_nip_filing_valido_roteia_revisao_juridica`). Invariante mantida: nunca
+    auto-transmite — ST_SubmeterEnvio jamais alcancado sem humano."""
     inst = await start_ans(
         competencia="2026-NIP", origem_envio="nip_filing", nip_protocolo_origem="NIP-TESTE-0001"
     )
     iid = inst["id"]
 
     await ans_probe.drain()
+    ut = await engine.await_user_task(iid, _UT_CORRIGIR)
+    assert "regulatorio-ans" in ut.candidate_groups
+
+    # Fail-closed computado pelo validador real (nao mais o echo do flag seedado True).
+    assert await engine.get_variable(iid, "schema_valid") is False
+
+    open_keys = {t.task_definition_key for t in await engine.list_user_tasks(iid)}
+    assert _UT_REVISAR_JURIDICO not in open_keys, (
+        "Sem schema pinado, nip_filing NAO deve alcancar a revisao juridica (PENDENTE pre-empta)"
+    )
+
+    ended = await engine.activity_instances_ended(iid)
+    assert _ST_SUBMETER not in ended, "Fail-closed nunca transmite (HITL)"
+    assert not (ended & _ENDS_ENVIO), "Fail-closed nunca atinge terminal de envio"
+    await _assert_no_filing_without_human_task(engine, iid)
+
+
+# ===========================================================================
+# T2.6-2 — REGIME PINADO (fixture): valida que com um `TissSchemaValidator` pinado (XSD de
+# fixture, NAO um schema TISS real) o roteamento SEGUE_ENVIO volta a funcionar — o gate juridico
+# do nip_filing e preservado sob teste em vez de silenciosamente perdido ao fail-closed.
+# ===========================================================================
+
+
+async def test_tiss_pinned_nip_filing_valido_roteia_revisao_juridica(
+    engine: EngineRest,
+    ans_probe_tiss_pinned: AnsEngineProbe,
+    start_ans: Callable[..., Any],
+    tmp_path: Path,
+) -> None:
+    """REGIME PINADO: schema pinado (fixture) + payload XML schema-VALIDO => o validador real
+    computa `schema_valid=True` => admissibilidade SEGUE_ENVIO => `Flow_GW_NipFiling` roteia a
+    `UT_RevisarEnvioJuridico` (juridico-regulatorio; texto legal sempre humano) => aprovacao
+    humana => transmit (LabeledMock) => ACK => End_EnviadoAck. E o conteudo integral do antigo
+    `test_nip_filing_exige_revisao_juridica`, agora sob o regime que o torna alcancavel."""
+    dataset_ref = _write_tiss_dataset(tmp_path, "dataset-nip-valido.xml", _TISS_VALID_XML)
+    inst = await start_ans(
+        competencia="2026-NIPPIN",
+        origem_envio="nip_filing",
+        nip_protocolo_origem="NIP-TESTE-PIN1",
+        dataset_ref=dataset_ref,
+    )
+    iid = inst["id"]
+
+    await ans_probe_tiss_pinned.drain()
     ut = await engine.await_user_task(iid, _UT_REVISAR_JURIDICO)
     assert "juridico-regulatorio" in ut.candidate_groups
+
+    # schema_valid COMPUTADO True pelo lxml contra o XSD de fixture; pin da versao surfaceado
+    # como variavel de processo (registro de auditoria — design §2.B).
+    assert await engine.get_variable(iid, "schema_valid") is True
+    assert await engine.get_variable(iid, "tiss_schema_version") == _TISS_FIXTURE_VERSION
 
     ended = await engine.activity_instances_ended(iid)
     assert _ST_SUBMETER not in ended, "nip_filing nao transmite antes da revisao juridica"
     await _assert_no_filing_without_human_task(engine, iid)
 
     await _aprovar_envio(engine, ut.id, revisor_id="juridico-sintetico-001")
-    await ans_probe.drain()
+    await ans_probe_tiss_pinned.drain()
     await _correlate_ack(inst["businessKey"])
-    await ans_probe.drain()
+    await ans_probe_tiss_pinned.drain()
 
     ended = await _await_end(engine, iid)
     assert _END_ENVIADO_ACK in ended, f"nip_filing aprovado juridicamente => enviado_ack. ended={ended}"
+    await _assert_no_filing_without_human_task(engine, iid)
+
+
+async def test_tiss_pinned_payload_schema_invalido_roteia_pendencia(
+    engine: EngineRest,
+    ans_probe_tiss_pinned: AnsEngineProbe,
+    start_ans: Callable[..., Any],
+    tmp_path: Path,
+) -> None:
+    """REGIME PINADO, payload INVALIDO: mesmo com o schema pinado, um XML que viola o XSD =>
+    `schema_valid=False` => PENDENTE => `UT_CorrigirPendenciaEnvio` (humano corrige; nunca
+    rejeita, nunca transmite). Prova que o True do teste anterior vem da validacao real — nao de
+    um echo/sempre-True."""
+    dataset_ref = _write_tiss_dataset(tmp_path, "dataset-nip-invalido.xml", _TISS_SCHEMA_INVALID_XML)
+    inst = await start_ans(
+        competencia="2026-PININV",
+        origem_envio="nip_filing",
+        nip_protocolo_origem="NIP-TESTE-PIN2",
+        dataset_ref=dataset_ref,
+    )
+    iid = inst["id"]
+
+    await ans_probe_tiss_pinned.drain()
+    ut = await engine.await_user_task(iid, _UT_CORRIGIR)
+    assert "regulatorio-ans" in ut.candidate_groups
+
+    assert await engine.get_variable(iid, "schema_valid") is False
+
+    ended = await engine.activity_instances_ended(iid)
+    assert _ST_SUBMETER not in ended, "Schema invalido nunca transmite (HITL)"
+    assert not (ended & _ENDS_ENVIO)
+    await _assert_no_filing_without_human_task(engine, iid)
+
+
+async def test_tiss_pinned_timer_due_date_coordenacao_assume_juridico(
+    engine: EngineRest,
+    ans_probe_tiss_pinned: AnsEngineProbe,
+    start_ans: Callable[..., Any],
+    tmp_path: Path,
+) -> None:
+    """REGIME PINADO: o conteudo integral do antigo `test_timer_due_date_coordenacao_assume_juridico`
+    (que regrediu no regime nao-pinado — `UT_RevisarEnvioJuridico` nunca aparecia). Com schema
+    pinado + payload valido, a UT juridica existe e seu timer INTERRUPTIVO `BT_DueDateJuridico`
+    (Flow_DueDateJuridico_UTCoord, direto — sem ST_NotificarDeadlineRisk, nao bloqueado por
+    FINDING A) cancela a UT juridica e cria `UT_CoordenacaoEnvioAssume`; a coordenacao aprova =>
+    filing so apos UT humana (invariante)."""
+    dataset_ref = _write_tiss_dataset(tmp_path, "dataset-ddjur-valido.xml", _TISS_VALID_XML)
+    inst = await start_ans(
+        competencia="2026-DDJPIN",
+        origem_envio="nip_filing",
+        nip_protocolo_origem="NIP-TESTE-DDPIN",
+        dataset_ref=dataset_ref,
+    )
+    iid = inst["id"]
+
+    await ans_probe_tiss_pinned.drain()
+    await engine.await_user_task(iid, _UT_REVISAR_JURIDICO)
+
+    job = await engine.await_timer_job(iid, "BT_DueDateJuridico")
+    await engine.execute_job(job.id)
+    await ans_probe_tiss_pinned.drain()
+
+    ut_coord = await engine.await_user_task(iid, _UT_COORDENACAO)
+    assert "coordenacao-regulatorio" in ut_coord.candidate_groups
+
+    open_keys = {t.task_definition_key for t in await engine.list_user_tasks(iid)}
+    assert _UT_REVISAR_JURIDICO not in open_keys, "UT_RevisarEnvioJuridico deve ser cancelada (interruptivo)"
+
+    ended = await engine.activity_instances_ended(iid)
+    assert _ST_SUBMETER not in ended, "Estouro de prazo nunca transmite automaticamente (HITL)"
+    await _assert_no_filing_without_human_task(engine, iid)
+
+    await _aprovar_envio(engine, ut_coord.id, revisor_id="coordenacao-sintetica-002")
+    await ans_probe_tiss_pinned.drain()
+    await _correlate_ack(inst["businessKey"])
+    await ans_probe_tiss_pinned.drain()
+
+    ended = await _await_end(engine, iid)
+    assert _END_ENVIADO_ACK in ended
     await _assert_no_filing_without_human_task(engine, iid)
 
 
@@ -971,6 +1207,12 @@ async def test_timer_deadline_risk_nao_interruptivo_juridico(
     """Timer BT_DeadlineRiskJuridico (nao-interruptivo): converge em ST_NotificarDeadlineRisk
     (topico compartilhado regulatorio.anssubmit.notify_regulatorio) — BLOQUEADO por FINDING A,
     mesmo a UT_RevisarEnvioJuridico em si NAO precisando de notify_regulatorio para ser criada.
+
+    T2.6-2: no regime NAO-PINADO este teste agora falha ANTES do FINDING A — sem schema pinado a
+    UT_RevisarEnvioJuridico nunca aparece (fail-closed => UT_CorrigirPendenciaEnvio; ver docstring
+    do modulo), entao o `await_user_task` ja estoura. O strict-xfail continua satisfeito; quando
+    FINDING A for corrigido, este teste precisara TAMBEM do probe pinado
+    (`ans_probe_tiss_pinned` + dataset valido) para alcancar a UT juridica.
     """
     inst = await start_ans(
         competencia="2026-DLRJUR", origem_envio="nip_filing", nip_protocolo_origem="NIP-TESTE-DLR"
@@ -990,23 +1232,34 @@ async def test_timer_deadline_risk_nao_interruptivo_juridico(
     assert _UT_REVISAR_JURIDICO in open_keys, "Timer nao-interruptivo nao deve cancelar a User Task"
 
 
-async def test_timer_due_date_coordenacao_assume_juridico(
+async def test_timer_due_date_pendencia_nip_filing_fail_closed(
     engine: EngineRest,
     ans_probe: AnsEngineProbe,
     start_ans: Callable[..., Any],
 ) -> None:
-    """Timer BT_DueDateJuridico (interruptivo): vai DIRETO a UT_CoordenacaoEnvioAssume
-    (Flow_DueDateJuridico_UTCoord) — NAO passa por ST_NotificarDeadlineRisk, logo NAO bloqueado por
-    FINDING A (verificado tracando o BPMN)."""
+    """REGIME NAO-PINADO (T2.6-2 fail-closed — adaptado de
+    `test_timer_due_date_coordenacao_assume_juridico`, que regrediu: sem schema pinado,
+    `UT_RevisarEnvioJuridico` nunca aparece, entao seu timer `BT_DueDateJuridico` e inalcancavel).
+    Realidade atual: nip_filing fail-closed => `UT_CorrigirPendenciaEnvio`; o timer INTERRUPTIVO
+    dessa UT e `BT_DueDatePendencia` (Flow_DueDatePendencia_UTCoord, direto — nao bloqueado por
+    FINDING A) => cancela a pendencia e cria `UT_CoordenacaoEnvioAssume`. O timer juridico
+    equivalente e provado no regime PINADO
+    (`test_tiss_pinned_timer_due_date_coordenacao_assume_juridico`). Invariantes mantidas:
+    estouro de prazo nunca transmite; filing so apos UT humana."""
     inst = await start_ans(
         competencia="2026-DDJUR", origem_envio="nip_filing", nip_protocolo_origem="NIP-TESTE-DD"
     )
     iid = inst["id"]
 
     await ans_probe.drain()
-    await engine.await_user_task(iid, _UT_REVISAR_JURIDICO)
+    await engine.await_user_task(iid, _UT_CORRIGIR)
 
-    job = await engine.await_timer_job(iid, "BT_DueDateJuridico")
+    open_keys = {t.task_definition_key for t in await engine.list_user_tasks(iid)}
+    assert _UT_REVISAR_JURIDICO not in open_keys, (
+        "Sem schema pinado, a revisao juridica e inalcancavel (PENDENTE pre-empta)"
+    )
+
+    job = await engine.await_timer_job(iid, "BT_DueDatePendencia")
     await engine.execute_job(job.id)
     await ans_probe.drain()
 
@@ -1014,19 +1267,11 @@ async def test_timer_due_date_coordenacao_assume_juridico(
     assert "coordenacao-regulatorio" in ut_coord.candidate_groups
 
     open_keys = {t.task_definition_key for t in await engine.list_user_tasks(iid)}
-    assert _UT_REVISAR_JURIDICO not in open_keys, "UT_RevisarEnvioJuridico deve ser cancelada (interruptivo)"
+    assert _UT_CORRIGIR not in open_keys, "UT_CorrigirPendenciaEnvio deve ser cancelada (interruptivo)"
 
     ended = await engine.activity_instances_ended(iid)
     assert _ST_SUBMETER not in ended, "Estouro de prazo nunca transmite automaticamente (HITL)"
-    await _assert_no_filing_without_human_task(engine, iid)
-
-    await _aprovar_envio(engine, ut_coord.id, revisor_id="coordenacao-sintetica-002")
-    await ans_probe.drain()
-    await _correlate_ack(inst["businessKey"])
-    await ans_probe.drain()
-
-    ended = await _await_end(engine, iid)
-    assert _END_ENVIADO_ACK in ended
+    assert not (ended & _ENDS_ENVIO)
     await _assert_no_filing_without_human_task(engine, iid)
 
 
