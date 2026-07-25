@@ -237,30 +237,16 @@ _NOTIFY_SLA_RISK_UNOBSERVABLE_REASON = (
     "ended) is a separate follow-up outside this GAP-INAD-1 anti-dupla-seam PR."
 )
 
-_INAD_NOTIFIED_PUBLISH_ADDED_REASON = (
-    "T3.1 event-gap remedy B, wave 4 latent conformance (event-gap design doc §2.8) — BUILT, "
-    "PENDING LIVE-PROOF FLIP: SP-OP-INADIMPLENCIA-001.md:109 declares agents.events.inadimplencia."
-    "notified as a 'produz' contract obligation, but ST_CheckPriorNotice's own event_topic_notified "
-    "inputParameter was worker-intended and check_prior_notice never calls kafka.publish (dict-"
-    "first, ADR-0026) — the embedded publish never happened. UNLIKE recurso/cancel/auth's Wave-1 "
-    "batches, NO existing test ever pinned this obligation red: `_INAD_NOTIFIED` was defined "
-    "(above) but referenced only in prose (event-gap design doc §1 row 10 / §2.8 — 'no has_event "
-    "test'). This is a NEW regression test locking the contract obligation, not a flip of a "
-    "pre-existing xfail. FIXED (BPMN-only, no src/ change): a dedicated boundary-free "
-    "operadora.events.publish task, ST_PublishInadimplenciaNotified, now sits between "
-    "ST_CheckPriorNotice and GW_CureWindow (spec/processes/bpmn/SP-OP-INADIMPLENCIA-001_"
-    "Suspensao_Rescisao.bpmn: ST_CheckPriorNotice -> ST_PublishInadimplenciaNotified -> "
-    "GW_CureWindow, via Flow_RequestNotif_PubPended -> Flow_PubPended_CureGW) and emits "
-    "agents.events.inadimplencia.notified with event_payload_vars=tenant_id,numero_contrato on "
-    "every completion of ST_CheckPriorNotice (reached from BOTH the AGUARDA_PURGA and "
-    "PENDENTE_NOTIFICACAO branches of BRT_Status, which converge on BRT_PurgaPrazos upstream). "
-    "make validate-artifacts and make check-bpmn-error-allowlist both PASS against it "
-    "(boundary-free task does not perturb the operadora.events.publish dispatch-filter escape, "
-    "ADR-0030 §2 clause b1/b2). NOT YET LIVE-PROVEN: no docker/live CIB Seven engine in this "
-    "task's scope (spec+test edit only) — make deploy-artifacts against make dev-stack + this "
-    "suite + removing this mark is the deliberate remaining step (program discipline; precedent: "
-    "recurso's own _RECURSO_PENDED_PUBLISH_ADDED_REASON)."
-)
+# SP-OP-INADIMPLENCIA-001.md:109's "produz" obligation for agents.events.inadimplencia.notified
+# RESOLVED by t3.1-event-gap-w4-reemb-inad (T3.1 event-gap remedy B, wave 4 latent conformance) —
+# ST_PublishInadimplenciaNotified (boundary-free operadora.events.publish task between
+# ST_CheckPriorNotice and GW_CureWindow) now emits it. LIVE-PROVEN against a real CIB Seven 2.1.0
+# engine: activity ST_PublishInadimplenciaNotified COMPLETED (canceled=false) in engine history on
+# the notificacao-previa instance, the token advanced to GW_CureWindow, and has_event matched both
+# payload vars (tenant_id, numero_contrato). The L0 anti-dupla + suspension family (splice sits on
+# its main token path) was regression-run in the same live session: all previously-green tests
+# still pass. Its strict-xfail reason constant (_INAD_NOTIFIED_PUBLISH_ADDED_REASON) is retired on
+# that proof (precedent: recurso's own retired _RECURSO_PENDED_PUBLISH_ADDED_REASON).
 
 
 def _json_var(value: Any) -> dict[str, Any]:
@@ -561,7 +547,6 @@ async def test_pagamento_dentro_janela_purga_purgado_nunca_adverso(
     assert inad_probe.has_event(_INAD_COMPLETED, desfecho="purgado")
 
 
-@pytest.mark.xfail(reason=_INAD_NOTIFIED_PUBLISH_ADDED_REASON, strict=True)
 async def test_notificacao_previa_publica_inadimplencia_notified(
     engine: EngineRest,
     inad_probe: InadEngineProbe,
@@ -574,7 +559,10 @@ async def test_notificacao_previa_publica_inadimplencia_notified(
     agents.events.inadimplencia.notified com os business keys do processo. NENHUM teste
     pre-existente pinava esta obrigacao de contrato (SP-OP-INADIMPLENCIA-001.md:109 "produz") —
     regressao NOVA, nao adaptacao de um xfail vermelho ja existente (contraste com o padrao
-    recurso/cancel/auth Wave 1).
+    recurso/cancel/auth Wave 1). LIVE-PROVEN (t3.1-event-gap-w4 live validation):
+    ST_PublishInadimplenciaNotified completou no engine history, o token avancou ao GW_CureWindow
+    e has_event casou ambos os payload vars contra um CIB Seven 2.1.0 real — strict-xfail removido
+    nessa prova; familia anti-dupla/suspensao L0 toda verde na mesma sessao live.
     """
     contrato = _unique_contrato()
     inst = await start_inad(numero_contrato=contrato, dentro_janela_purga=True, notificacao_previa_feita=True)
