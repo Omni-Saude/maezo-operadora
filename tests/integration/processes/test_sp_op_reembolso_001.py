@@ -230,14 +230,20 @@ _UT_HUMANAS_ADVERSA = frozenset({_UT_ANALISTA, _UT_AUDITOR, _UT_COORDENACAO})
 _REEMBOLSO_WORKER_KAFKA_GAP_REASON = (
     "v2 systemic drift (finding 1, T3.1 events.publish-fix ledger row): reembolso.py's ADR-0026 "
     "dict-boundary entry functions never call kafka.publish (issue_payment_entry/"
-    "send_reembolso_denial_entry both `del kafka  # unused`) — the donor's workers published a "
+    "send_reembolso_denial_entry/analyze_request_entry/request_documents_entry/notify_sla_risk all "
+    "`del kafka  # unused`) — the donor's workers published a "
     "per-worker notification (operadora.notifications.internal, `type` key) from INSIDE the "
     "handler; v2's entry functions only RETURN output variables. reembolso_probe."
-    "notifications_of_type(...) can therefore never observe issue_payment/send_reembolso_denial "
+    "notifications_of_type(...) can therefore never observe issue_payment/send_reembolso_denial/"
+    "analyze_request/notify_sla_risk "
     "executions, even though the worker itself runs and completes normally against the engine "
     "(the flow/end-event assertions in these tests would pass). Same systemic residual as "
     "escalation's NotifyTeamWorker / auth's action-worker residuals / cancel's entry-function "
-    "residuals. Fix belongs to the Kafka-producer wiring task, not this port."
+    "residuals. Fix belongs to the Kafka-producer wiring task, not this port. "
+    "LIVE-PROVEN (wave2a, CIB Seven 2.1.0): test_happy_path_aprovado_pelo_analista + "
+    "test_timer_alerta_sla_nao_interruptivo were retagged here from "
+    "_REEMBOLSO_BUILT_WORKER_PENDING_LIVE_PROOF_REASON after a live run confirmed they fail on "
+    "notifications_of_type('reembolso.analyze_request'/'reembolso.notify_sla_risk') — NOT flippable."
 )
 
 _REEMBOLSO_BUILT_WORKER_PENDING_LIVE_PROOF_REASON = (
@@ -615,7 +621,7 @@ async def test_happy_path_aprovacao_automatica_l2_com_teto_positivo(
     assert not reembolso_probe.notifications_of_type("reembolso.send_reembolso_denial")
 
 
-@pytest.mark.xfail(reason=_REEMBOLSO_BUILT_WORKER_PENDING_LIVE_PROOF_REASON, strict=True)
+@pytest.mark.xfail(reason=_REEMBOLSO_WORKER_KAFKA_GAP_REASON, strict=True)
 async def test_happy_path_aprovado_pelo_analista(
     engine: EngineRest,
     reembolso_probe: ReembolsoEngineProbe,
@@ -995,7 +1001,7 @@ async def test_pendencia_expira_decisao_humana_nunca_auto_nega(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_REEMBOLSO_BUILT_WORKER_PENDING_LIVE_PROOF_REASON, strict=True)
+@pytest.mark.xfail(reason=_REEMBOLSO_WORKER_KAFKA_GAP_REASON, strict=True)
 async def test_timer_alerta_sla_nao_interruptivo(
     engine: EngineRest,
     reembolso_probe: ReembolsoEngineProbe,
