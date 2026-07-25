@@ -241,7 +241,10 @@ class IssueAuthorizationWorker(WorkerBase):
         """
         tenant_id = process_vars.get("tenant_id", "")
         guia = process_vars.get("numero_guia_tiss", "unknown")
-        human_approved = process_vars.get("human_approved", False)
+        # FAIL-CLOSED (T3.1, mirrors lgpd.ValidateIdentityWorker / ADR-0031): aprovacao confirmada
+        # SO com sinal explicito `human_approved is True`. Ausente/False/lixo (string truthy como
+        # "true"/" ", int 1, list/dict) -> False -> guard bloqueia a emissao.
+        human_approved = process_vars.get("human_approved") is True
 
         # Guard: require human approval for authorization issuance
         if not human_approved:
@@ -364,7 +367,10 @@ class SendDenialNoticeWorker(WorkerBase):
         """
         tenant_id = process_vars.get("tenant_id", "")
         decisao = process_vars.get("decisao_auditor", "")
-        human_approved = process_vars.get("human_approved", False)
+        # FAIL-CLOSED (T3.1, mirrors lgpd.ValidateIdentityWorker / ADR-0031): aprovacao confirmada
+        # SO com sinal explicito `human_approved is True`. Ausente/False/lixo (string truthy como
+        # "true"/" ", int 1, list/dict) -> False -> GUARD 2 bloqueia o envio.
+        human_approved = process_vars.get("human_approved") is True
 
         if decisao == "NEGAR":
             # GUARD 1 — COMPLETUDE (fail-closed, checado PRIMEIRO). None/""/whitespace = ausente.
@@ -501,7 +507,10 @@ class ConveneJuntaWorker(WorkerBase):
         tenant_id = process_vars.get("tenant_id", "")
         guia = process_vars.get("numero_guia_tiss", "unknown")
         decisao = process_vars.get("decisao_auditor", "")
-        human_approved = process_vars.get("human_approved", False)
+        # FAIL-CLOSED (T3.1, mirrors lgpd.ValidateIdentityWorker / ADR-0031): aprovacao confirmada
+        # SO com sinal explicito `human_approved is True`. Ausente/False/lixo (string truthy como
+        # "true"/" ", int 1, list/dict) -> False -> guard bloqueia a convocacao.
+        human_approved = process_vars.get("human_approved") is True
 
         # Guard: require human approval
         if not human_approved:

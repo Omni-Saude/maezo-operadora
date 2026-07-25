@@ -42,8 +42,11 @@ def check_consent(variables: dict[str, Any]) -> dict[str, Any]:
     CHOKEPOINT: if no active consent, raises ERR_PROGRAMA_NO_CONSENT.
     NO PHI processing happens before this gate passes (fail-closed).
     """
-    consentimento_ativo = variables.get("consentimento_ativo", False)
-    consent_checked = variables.get("consent_checked", False)
+    # FAIL-CLOSED (T3.1, mirrors lgpd.ValidateIdentityWorker / ADR-0031): consentimento confirmado
+    # SO com sinal explicito `is True`. Ausente/False/lixo (string truthy como "true"/" ", int 1,
+    # list/dict) -> False -> o chokepoint bloqueia TODO processamento de PHI do programa.
+    consentimento_ativo = variables.get("consentimento_ativo") is True
+    consent_checked = variables.get("consent_checked") is True
     consent_scope = variables.get("consent_scope", "programa_cuidado")
 
     if not consentimento_ativo or not consent_checked:
@@ -140,8 +143,11 @@ def stratify_risk(variables: dict[str, Any]) -> dict[str, Any]:
     ANALISE_HUMANA (clinico humano) — NEVER to auto-elegivel/auto-nao-elegivel. NEVER sets
     `decisao_programa` (BPMN:154 documentation) — no clinical decision is made here.
     """
-    consentimento_ativo = variables.get("consentimento_ativo", False)
-    consent_checked = variables.get("consent_checked", False)
+    # FAIL-CLOSED (T3.1, mirrors lgpd.ValidateIdentityWorker / ADR-0031): consentimento confirmado
+    # SO com sinal explicito `is True`. Ausente/False/lixo (string truthy como "true"/" ", int 1,
+    # list/dict) -> False -> este guard (mesma invariante de check_consent) bloqueia o PHI.
+    consentimento_ativo = variables.get("consentimento_ativo") is True
+    consent_checked = variables.get("consent_checked") is True
     consent_scope = variables.get("consent_scope", "programa_cuidado")
     beneficiario = variables.get("beneficiario_pseudo_id")
     programa_id = variables.get("programa_id")
