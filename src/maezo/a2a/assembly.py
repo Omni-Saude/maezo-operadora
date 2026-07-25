@@ -1,13 +1,21 @@
-"""A2A card assembly — derive Agent Cards from `agent.yaml` + the signing-key injection seam.
+"""A2A assembly — derive Agent Cards from `agent.yaml`, the signing-key seam, and `build_dispatcher`.
 
-Ported (W1-scoped subset) from the donor `Maezo-Healthcare-Plan` reference implementation
-(`src/maezo/a2a/assembly.py:108-151`, functions `build_agent_cards`/`card_signer_from_key`) as part
-of the T2.4 A2A W1 (card-signing) build wave — see `docs/design/A2A-dispatcher-card-signing.md`
-§1.2/§2/§5. `build_dispatcher`/`RouterInferenceProvider` do NOT port here: they need
-`DelegationDispatcher`/`AuditLog`/`FactProducer`/`IdempotencyStore`, which are out of scope for W1
-(dispatcher/envelope/facts/idempotency land in W2 per the design's §5 wave split). This module is
-engine-free: `build_agent_cards` only reads real `agent.yaml` files (via `maezo.agents.AgentLoader`,
-no Kafka/DB/BPMN).
+Ported from the donor `Maezo-Healthcare-Plan` reference implementation (`src/maezo/a2a/
+assembly.py:1-192`, minus `RouterInferenceProvider`) across the T2.4 A2A W1 (card-signing,
+`build_agent_cards`/`card_signer_from_key`) and W2 (delegation runtime, `build_dispatcher`) build
+waves — see `docs/design/A2A-dispatcher-card-signing.md` §1.2/§2/§5.
+
+`RouterInferenceProvider` deliberately does NOT port here (design §2 friction row 5 / §5 W2 scope
+note): it adapts `runtime.inference.InferenceRouter`/`TaskKind`/`SecurityZone` to the agent-graph
+`InferenceProvider` contract, none of which exist in v2's `runtime.inference` (a materially
+different `InferenceProvider`/`BaseInferenceProvider` abstraction, `inference.py:129-390`) — wiring
+a REAL agent handler through a real inference provider is W3 scope (Helena->Rafael proof edge), not
+W2 (envelope/dispatcher/facts/idempotency runtime, no real agent edge yet).
+
+This module is engine-free for `build_agent_cards` (only reads real `agent.yaml` files via
+`maezo.agents.AgentLoader`, no Kafka/DB/BPMN) and Kafka/DB-free for `build_dispatcher` itself (it
+only wires injected collaborators — `cards`/`handlers`/`audit`/`facts`/`idempotency`/`verifier` are
+all passed in; no fake handler resolution or engine bring-up happens here).
 
 Key-management seam (ADR-0003/0007): the REAL Card-signing key lives in a vault/KMS and its
 provisioning is an EXTERNAL dependency (blocked secret — see
@@ -22,9 +30,12 @@ never hard-coded, never logged). `card_signer_from_key` then gates construction 
 from __future__ import annotations
 
 import os
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 
 from maezo.a2a.card import AgentCard, FederationLayer
+from maezo.a2a.dispatcher import AgentHandler, AuditEmitter, DelegationDispatcher, FactProducer
+from maezo.a2a.idempotency import IdempotencyStore
+from maezo.a2a.registry import A2ARegistry, RegistryError
 from maezo.a2a.signing import CardSigner
 from maezo.agents import AgentLoader
 
@@ -107,3 +118,45 @@ def build_agent_cards(
             )
         )
     return cards
+
+
+def build_dispatcher(
+    *,
+    tenant: str,
+    cards: Iterable[AgentCard],
+    handlers: Mapping[str, AgentHandler],
+    audit: AuditEmitter,
+    facts: FactProducer,
+    idempotency: IdempotencyStore | None = None,
+    verifier: CardSigner | None = None,
+) -> DelegationDispatcher:
+    """Assemble the production `DelegationDispatcher` (mirrors the donor's `assembly.build_dispatcher`).
+
+    Registers `cards` (tenant-scoped) into an `A2ARegistry` and wires `handlers`, `audit` (the
+    `emit_once` seam, T-F — see `dispatcher.AuditEmitter`/`_audit_delegation`), `facts`, and the
+    durable `idempotency` store (when present -> cross-replica Guard 4; `None` -> in-memory
+    fallback).
+
+    Rejects a card whose `tenant` does not match the assembly's tenant (the registry is
+    tenant-scoped, ADR-0004).
+
+    With `verifier` (a `CardSigner`) injected, the registry REFUSES admission of any card without a
+    valid signature (ADR-0003/0007) — the dispatcher only ever `lookup`s verified cards (T-G
+    signed-Card half). Without `verifier`, dev behavior is preserved (unsigned cards accepted):
+    verification is gated on the presence of the key.
+    """
+    registry = A2ARegistry(verifier=verifier)
+    for card in cards:
+        if card.tenant != tenant:
+            raise RegistryError(
+                f"card for tenant {card.tenant!r} does not match the assembly's tenant {tenant!r} "
+                "(the registry is tenant-scoped, ADR-0004)"
+            )
+        registry.register(card)
+    return DelegationDispatcher(
+        registry=registry,
+        handlers=handlers,
+        audit=audit,
+        facts=facts,
+        idempotency=idempotency,
+    )

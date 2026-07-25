@@ -1,44 +1,109 @@
-"""MAEZO A2A Collaboration — Agent Card signing, Registry, Anti-Loop (ADR-0003, ADR-0007, ADR-0015).
+"""MAEZO A2A Collaboration — Agent Card signing + the delegation runtime (ADR-0003/0004/0007/0015).
 
 Public surface of the A2A workstream — the rest of the codebase imports only `maezo.a2a` (ADR-0003
 "SDK encapsulado").
 
-W1 (card-signing slice, this module set — see `docs/design/A2A-dispatcher-card-signing.md` §5):
+W1 (card-signing slice — see `docs/design/A2A-dispatcher-card-signing.md` §5):
 - `AgentCard`: frozen identity + capability declaration for an agent, with a `signing_payload()`
   used by `CardSigner` (HMAC-SHA256, fail-closed, constant-time verify).
 - `A2ARegistry`: tenant-scoped registry of AgentCards (ADR-0004), with a `verifier=` fail-closed
   admission gate.
 - `card_signer_from_key`/`card_signing_key_from_env`/`build_agent_cards`: the vault/KMS key
   injection seam + `agent.yaml`-derived card assembly.
-- `AntiLoopGuard`: structural loop prevention (max depth, cycle detection) — standalone today;
-  W2 folds equivalent guards into the delegation envelope (see design doc §1.3).
 
-Deliberately NOT here yet (W2/W3/W4 — see design doc §5): `DelegationEnvelope`/`Budget`,
-`DelegationDispatcher`, `FactProducer`/Kafka topics, `IdempotencyStore`.
+W2 (delegation runtime, this module set — see design doc §5 W2):
+- `DelegationEnvelope`/`Budget`: the idempotent, anti-loop delegation message (ADR-0003 guards 1-3
+  enforced structurally at `root()`/`extend()`).
+- `DelegationDispatcher`/`DelegationResult`/`RejectionReason`/`HandlerOutput`/`AgentHandler`: the
+  single agent->agent delegation chokepoint — audits (v2 `AuditRecord` via `emit_once`, T-F),
+  emits Kafka facts, and routes to an injectable handler.
+- `FactProducer` + the 3 `agents.events.delegation.*` topics (`DelegationFact`,
+  `register_a2a_topics`).
+- `IdempotencyStore`/`PostgresIdempotencyStore`/`StoredResult`: durable, cross-replica Guard 4.
+- `build_dispatcher`: production assembly (cards + handlers + audit + facts + idempotency +
+  verifier -> a wired `DelegationDispatcher`).
+- `AntiLoopGuard`: kept as a thin, DEPRECATED façade — the real guards now live structurally in
+  `DelegationEnvelope` (see `maezo.a2a.anti_loop`'s module docstring for the
+  `CyclicDelegationError` consolidation, design §1.3/§7.2 decision #3).
+
+Deliberately NOT here yet (W3/W4 — see design doc §5): a real agent handler edge
+(Helena->Rafael), `RouterInferenceProvider` (needs v2's `runtime.inference` redesigned against it),
+and the T-G cert/service-account identity half (ADR-gated).
 """
 
-from maezo.a2a.anti_loop import AntiLoopGuard, CyclicDelegationError, MaxDepthExceededError
+from maezo.a2a.anti_loop import AntiLoopGuard, MaxDepthExceededError
 from maezo.a2a.assembly import (
     CARD_SIGNING_KEY_ENV_VAR,
     build_agent_cards,
+    build_dispatcher,
     card_signer_from_key,
     card_signing_key_from_env,
 )
 from maezo.a2a.card import AgentCard, CardSignatureError, RegistryError
+from maezo.a2a.delegation import (
+    MAX_HOPS,
+    Budget,
+    BudgetExhaustedError,
+    CyclicDelegationError,
+    DelegationEnvelope,
+    DelegationError,
+    MaxHopsExceededError,
+)
+from maezo.a2a.dispatcher import (
+    AgentHandler,
+    AuditEmitter,
+    DelegationDispatcher,
+    DelegationResult,
+    FactProducer,
+    HandlerOutput,
+    RejectionReason,
+)
+from maezo.a2a.facts import (
+    TOPIC_COMPLETED,
+    TOPIC_REJECTED,
+    TOPIC_REQUESTED,
+    DelegationFact,
+    DelegationFactKind,
+    register_a2a_topics,
+)
+from maezo.a2a.idempotency import IdempotencyStore, PostgresIdempotencyStore, StoredResult
 from maezo.a2a.registry import A2ARegistry
 from maezo.a2a.signing import CardSigner
 
 __all__ = [
     "CARD_SIGNING_KEY_ENV_VAR",
+    "MAX_HOPS",
+    "TOPIC_COMPLETED",
+    "TOPIC_REJECTED",
+    "TOPIC_REQUESTED",
     "A2ARegistry",
     "AgentCard",
+    "AgentHandler",
     "AntiLoopGuard",
+    "AuditEmitter",
+    "Budget",
+    "BudgetExhaustedError",
     "CardSignatureError",
     "CardSigner",
     "CyclicDelegationError",
+    "DelegationDispatcher",
+    "DelegationEnvelope",
+    "DelegationError",
+    "DelegationFact",
+    "DelegationFactKind",
+    "DelegationResult",
+    "FactProducer",
+    "HandlerOutput",
+    "IdempotencyStore",
     "MaxDepthExceededError",
+    "MaxHopsExceededError",
+    "PostgresIdempotencyStore",
     "RegistryError",
+    "RejectionReason",
+    "StoredResult",
     "build_agent_cards",
+    "build_dispatcher",
     "card_signer_from_key",
     "card_signing_key_from_env",
+    "register_a2a_topics",
 ]
