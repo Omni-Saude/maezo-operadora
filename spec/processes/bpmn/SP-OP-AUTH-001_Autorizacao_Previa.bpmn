@@ -114,20 +114,35 @@ Contrato completo: docs/processes/contracts/SP-OP-AUTH-001.md.
     <!-- Ramo: pendencia de documentacao -->
     <bpmn:serviceTask id="ST_SolicitarDocumentos" name="Solicitar documentacao ao prestador"
                       camunda:type="external" camunda:topic="operadora.auth.request_documents">
-      <bpmn:documentation>Worker tambem publica agents.events.auth.pended (suspensao de prazo durante pendencia: regra RN — DRAFT/verify com regulatorio).</bpmn:documentation>
-      <bpmn:extensionElements>
-        <camunda:inputOutput>
-          <camunda:inputParameter name="event_topic_pended">agents.events.auth.pended</camunda:inputParameter>
-        </camunda:inputOutput>
-      </bpmn:extensionElements>
+      <bpmn:documentation>Suspensao de prazo durante pendencia (regra RN — DRAFT/verify com regulatorio). Worker dict-first (ADR-0026, del kafka): NAO publica agents.events.auth.pended diretamente — ver ST_PublishAuthPended logo a seguir (T3.1 Wave 1 remedy B, event-gap design doc §2.3).</bpmn:documentation>
       <bpmn:incoming>Flow_GW_Pendencia</bpmn:incoming>
       <bpmn:incoming>Flow_GWDec_SolicitarInfo</bpmn:incoming>
-      <bpmn:outgoing>Flow_Solicitar_WaitDocs</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Solicitar_PubPended</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- T3.1 Wave 1 remedy B (event-gap design doc §2.3; contract SP-OP-AUTH-001.md:60 "produz"
+         agents.events.auth.pended na pendencia de documentacao). ST_SolicitarDocumentos e'
+         dict-first (ADR-0026) e nao publica; o generico operadora.events.publish fecha o gap
+         aqui, mirror byte-a-byte de ST_PublishReceived acima (mesmo padrao event_topic/
+         event_payload_vars, boundary-free por convencao 15/16 — check-bpmn-error-allowlist §0.4).
+         event_payload_vars so' chaves de negocio (tenant_id, numero_guia_tiss, prestador_id) —
+         sem PHI (beneficiario_pseudo_id deliberadamente NAO incluido). Alcancado por AMBOS os
+         ramos que levam a ST_SolicitarDocumentos (pendencia inicial + SOLICITAR_INFO do auditor). -->
+    <bpmn:serviceTask id="ST_PublishAuthPended" name="Publicar evento: auth.pended"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.auth.pended</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_guia_tiss,prestador_id</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Solicitar_PubPended</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubPended_WaitDocs</bpmn:outgoing>
     </bpmn:serviceTask>
 
     <!-- Corrida: documentacao chega OU prazo de pendencia expira -->
     <bpmn:eventBasedGateway id="GW_AguardarDocs" name="Aguardar documentacao">
-      <bpmn:incoming>Flow_Solicitar_WaitDocs</bpmn:incoming>
+      <bpmn:incoming>Flow_PubPended_WaitDocs</bpmn:incoming>
       <bpmn:outgoing>Flow_Wait_DocsMsg</bpmn:outgoing>
       <bpmn:outgoing>Flow_Wait_Timer</bpmn:outgoing>
     </bpmn:eventBasedGateway>
@@ -510,7 +525,8 @@ A decisao sai em nome do medico auditor (assignee registrado na trilha de audito
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${admissibilidade.resultado == 'PENDENTE_DOCUMENTACAO'}</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
     <bpmn:sequenceFlow id="Flow_GW_SegueAnalise" name="SEGUE_ANALISE (default)" sourceRef="GW_Admissibilidade" targetRef="BRT_SlaAnalise"/>
-    <bpmn:sequenceFlow id="Flow_Solicitar_WaitDocs" sourceRef="ST_SolicitarDocumentos" targetRef="GW_AguardarDocs"/>
+    <bpmn:sequenceFlow id="Flow_Solicitar_PubPended" sourceRef="ST_SolicitarDocumentos" targetRef="ST_PublishAuthPended"/>
+    <bpmn:sequenceFlow id="Flow_PubPended_WaitDocs" sourceRef="ST_PublishAuthPended" targetRef="GW_AguardarDocs"/>
     <bpmn:sequenceFlow id="Flow_Wait_DocsMsg" sourceRef="GW_AguardarDocs" targetRef="ICE_DocsRecebidos"/>
     <bpmn:sequenceFlow id="Flow_Wait_Timer" sourceRef="GW_AguardarDocs" targetRef="ICE_PrazoPendencia"/>
     <bpmn:sequenceFlow id="Flow_DocsOk_Admiss" sourceRef="ICE_DocsRecebidos" targetRef="BRT_Admissibilidade"/>
@@ -592,6 +608,9 @@ A decisao sai em nome do medico auditor (assignee registrado na trilha de audito
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_SolicitarDocumentos" bpmnElement="ST_SolicitarDocumentos">
         <dc:Bounds x="710" y="160" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishAuthPended" bpmnElement="ST_PublishAuthPended">
+        <dc:Bounds x="710" y="280" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_GW_AguardarDocs" bpmnElement="GW_AguardarDocs" isMarkerVisible="true">
         <dc:Bounds x="890" y="175" width="50" height="50"/>
@@ -725,8 +744,14 @@ A decisao sai em nome do medico auditor (assignee registrado na trilha de audito
         <di:waypoint x="1038" y="200"/>
         <di:waypoint x="1446" y="200"/>
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_Solicitar_WaitDocs" bpmnElement="Flow_Solicitar_WaitDocs">
-        <di:waypoint x="810" y="200"/>
+      <bpmndi:BPMNEdge id="Edge_Flow_Solicitar_PubPended" bpmnElement="Flow_Solicitar_PubPended">
+        <di:waypoint x="760" y="240"/>
+        <di:waypoint x="760" y="280"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubPended_WaitDocs" bpmnElement="Flow_PubPended_WaitDocs">
+        <di:waypoint x="810" y="320"/>
+        <di:waypoint x="850" y="320"/>
+        <di:waypoint x="850" y="200"/>
         <di:waypoint x="890" y="200"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Wait_DocsMsg" bpmnElement="Flow_Wait_DocsMsg">

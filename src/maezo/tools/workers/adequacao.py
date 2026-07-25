@@ -188,6 +188,84 @@ def execute_remediation(variables: dict[str, Any]) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------
+# update_monitoring_plan — L3 monitoring, NEUTRAL (no adverse effect)
+# ---------------------------------------------------------------
+
+
+def update_monitoring_plan(variables: dict[str, Any]) -> dict[str, Any]:
+    """Open/update the cell's (regiao x especialidade) monitoring plan.
+
+    External task: `operadora.adequacao.update_monitoring_plan` (`ST_UpdateMonitoringPlanL3`,
+    SP-OP-ADEQUACAO-001_Adequacao_Rede.bpmn:197-203). First step of the GAP_LEVE/MONITORAR L3
+    branch (reached from the initial routing gateway `GW_Monitorar` OR from
+    `GWDec_MonitorarOk` — the human choosing `decisao_remediacao=MONITORAR_OK` at
+    `UT_DecisaoFallback` instead of committing a fallback).
+
+    NEUTRAL, per the BPMN's own task documentation (bpmn:documentation, line 199):
+    "Monitoramento/alerta — NAO compromete caixa nem nega atendimento" (monitoring/alert only —
+    does NOT commit cash-flow nor deny care) — mirrors the contract's own framing (GAP-ADEQ-6,
+    docs/processes/contracts/SP-OP-ADEQUACAO-001.md:149). TASY write DROP (same doc line). No
+    human gate: unlike `register_fallback_commitment`, this is a clerical/monitoring action, not
+    an adverse effect.
+    """
+    regiao = variables.get("regiao_saude", "")
+    especialidade = variables.get("especialidade", "")
+    gap = variables.get("gap_adequacao", "")
+
+    logger.info(
+        "adequacao_update_monitoring_plan",
+        regiao_saude=regiao,
+        especialidade=especialidade,
+        gap_adequacao=gap,
+    )
+
+    return {
+        "plano_monitoramento_atualizado": True,
+        "celula": f"{regiao}:{especialidade}",
+        "gap_adequacao": gap,
+    }
+
+
+# ---------------------------------------------------------------
+# notify_sla_risk — informational SLA alert (non-interruptive timer)
+# ---------------------------------------------------------------
+
+
+def notify_sla_risk(variables: dict[str, Any]) -> dict[str, Any]:
+    """Alert coordenacao-rede of SLA risk (non-interruptive timer BT_AlertaSlaAdequacao).
+
+    External task: `operadora.adequacao.notify_sla_risk` (`ST_NotificarRiscoSla`,
+    SP-OP-ADEQUACAO-001_Adequacao_Rede.bpmn:287-291 — task name "Notificar risco de SLA
+    (coordenacao-rede)"). Fires at `${sla.sla_alerta}` (60-70% of `adequacao_sla`'s
+    `sla_alerta`, per the contract, DRAFT/verify — docs/processes/contracts/
+    SP-OP-ADEQUACAO-001.md:153,225) on the non-interruptive boundary event
+    (cancelActivity="false") attached to `UT_DecisaoFallback`.
+
+    Informational only (mirrors `inadimplencia.notify_sla_risk`/`cancel.notify_sla_risk`/
+    `fraude.notify_sla_risk`): UT_DecisaoFallback stays open, no decision is made or altered,
+    NO adverse outcome (fallback commitment or otherwise) is ever produced by this alert.
+    The fallback commitment NEVER arises from a timer -- only the human decision at
+    UT_DecisaoFallback (`register_fallback_commitment`'s own guard, unchanged) does.
+    """
+    regiao = variables.get("regiao_saude", "")
+    especialidade = variables.get("especialidade", "")
+
+    logger.info(
+        "adequacao_notify_sla_risk",
+        regiao_saude=regiao,
+        especialidade=especialidade,
+        grupo_alertado="coordenacao-rede",
+    )
+
+    return {
+        "sla_risk_notified": True,
+        "grupo_alertado": "coordenacao-rede",
+        "regiao_saude": regiao,
+        "especialidade": especialidade,
+    }
+
+
+# ---------------------------------------------------------------
 # register_fallback_commitment — GATED adverse effect
 # ---------------------------------------------------------------
 
@@ -263,8 +341,12 @@ class AdequacaoError(Exception):
 #   execute_remediation -> operadora.adequacao.start_credenciamento (spec match: CRED-001 handoff)
 #   register_fallback_commitment -> operadora.adequacao.register_fallback_commitment
 #     (exact spec match, GUARDED)
-# Spec topics with NO implementing function today (gap, not fabricated here):
-# update_monitoring_plan, prepare_remediation_dossier, notify_sla_risk.
+#   update_monitoring_plan -> operadora.adequacao.update_monitoring_plan (spec match, NEUTRAL —
+#     t2.5-p2b-round2 closed this gap)
+#   notify_sla_risk -> operadora.adequacao.notify_sla_risk (spec match, informational —
+#     t2.5-p2b-round2 closed this gap)
+# Spec topic with NO implementing function today (gap, not fabricated here, Andre A2A-gated —
+# out of scope for t2.5-p2b-round2): prepare_remediation_dossier.
 # ---------------------------------------------------------------
 
 
@@ -276,7 +358,9 @@ def register_adequacao_workers(
     """Register the SP-OP-ADEQUACAO-001 function workers on `harness`.
 
     `dmn` (ADR-0028 §1 seam) is threaded into `route_remediation` (`adequacao_gap` +
-    `adequacao_remediation_routing`, T1.5 cutover) via `functools.partial`.
+    `adequacao_remediation_routing`, T1.5 cutover) via `functools.partial`. `kafka` is accepted
+    but unused — no adequacao.py worker declares a Kafka dependency, `update_monitoring_plan`/
+    `notify_sla_risk` included (dict-first, mirror the family's existing idiom).
     """
     del kafka  # unused — no adequacao.py worker declares a Kafka dependency
     dmn = seams.get("dmn")
@@ -289,3 +373,7 @@ def register_adequacao_workers(
     harness.register_worker(
         FunctionWorker("operadora.adequacao.register_fallback_commitment", register_fallback_commitment)
     )
+    harness.register_worker(
+        FunctionWorker("operadora.adequacao.update_monitoring_plan", update_monitoring_plan)
+    )
+    harness.register_worker(FunctionWorker("operadora.adequacao.notify_sla_risk", notify_sla_risk))
