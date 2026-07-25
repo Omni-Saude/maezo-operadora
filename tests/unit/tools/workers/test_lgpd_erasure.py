@@ -1,9 +1,15 @@
 """Unit tests for SP-OP-LGPD-DSR-001 workers — TDD London School.
 
-Tests LGPD DSR workers: validate_identity, assess_request, execute_export,
+Tests LGPD DSR workers: validate_identity, execute_export,
 execute_rectification, execute_erasure, publish_completed.
 
 CRITICAL: Workers must NEVER make adverse decisions (accusation of fraud, denial).
+
+NOTE (#55 R-E, T2.8): `assess_request` (`AssessRequestWorker`) was RETIRED — routing
+(`BRT_RotearDsr`) is a native engine-side DMN decision (`lgpd_dsr_routing`), never an external
+task; the worker was unreachable by construction. Its tests were removed with it (see
+`docs/compliance/lgpd-topic-reconciliation.md` R-E). `send_response`/`notify_sla_risk` (#55 R-F/
+R-G raw handlers) are covered in `test_lgpd_send_response.py`/`test_lgpd_notify_sla_risk.py`.
 """
 
 from __future__ import annotations
@@ -11,36 +17,14 @@ from __future__ import annotations
 import pytest
 
 from maezo.tools.workers.base import ERR_DENIAL_NOT_HUMAN, ERR_FRAUD_ACCUSATION_NOT_HUMAN
-from maezo.tools.workers.dmn_transport import DmnEvaluationError, FakeDmnTransport
 from maezo.tools.workers.harness import WorkerBpmnError
 from maezo.tools.workers.lgpd import (
-    AssessRequestWorker,
     ExecuteErasureWorker,
     ExecuteExportWorker,
     ExecuteRectificationWorker,
     PublishCompletedWorker,
     ValidateIdentityWorker,
 )
-
-
-def _lgpd_dsr_routing_fake(
-    *, fluxo: str, grupo_revisor: str, sla_resposta: str = "P15D", sla_alerta: str = "P7D"
-) -> FakeDmnTransport:
-    """Rows verified live against the compose engine (T1.5 parity run)."""
-    fake = FakeDmnTransport()
-    fake.register(
-        "lgpd_dsr_routing",
-        [
-            {
-                "fluxo": fluxo,
-                "grupo_revisor": grupo_revisor,
-                "sla_resposta": sla_resposta,
-                "sla_alerta": sla_alerta,
-            }
-        ],
-    )
-    return fake
-
 
 # ---------------------------------------------------------------------------
 # validate_identity
@@ -137,97 +121,6 @@ def test_validate_identity_never_accuses_fraud() -> None:
     assert exc.error_code != ERR_FRAUD_ACCUSATION_NOT_HUMAN
     assert "fraud" not in str(exc).lower()
     assert "acusacao" not in str(exc).lower()
-
-
-# ---------------------------------------------------------------------------
-# assess_request
-# ---------------------------------------------------------------------------
-
-
-def test_assess_request_topic() -> None:
-    """assess_request worker must have the correct topic."""
-    worker = AssessRequestWorker()
-    assert worker.topic == "operadora.lgpd.assess_request"
-
-
-def test_assess_request_routes_by_type() -> None:
-    """assess_request determines the fluxo based on tipo_requisicao, via the DMN seam
-    (ADR-0028/T1.5)."""
-    fake = _lgpd_dsr_routing_fake(fluxo="EXPORTACAO", grupo_revisor="dpo")
-    worker = AssessRequestWorker(dmn=fake)
-
-    result = worker.run(
-        {
-            "tenant_id": "amh",
-            "tipo_requisicao": "confirmacao_acesso",
-            "envolve_dados_saude": False,
-        }
-    )
-
-    assert result["status"] == "assessed"
-    assert result["fluxo"] == "EXPORTACAO"
-
-
-def test_assess_request_data_saude_routes_to_juridico() -> None:
-    """Requests involving health data go to juridico-privacidade."""
-    fake = _lgpd_dsr_routing_fake(fluxo="ELIMINACAO_AVALIACAO", grupo_revisor="juridico-privacidade")
-    worker = AssessRequestWorker(dmn=fake)
-
-    result = worker.run(
-        {
-            "tenant_id": "amh",
-            "tipo_requisicao": "eliminacao",
-            "envolve_dados_saude": True,
-        }
-    )
-
-    assert result["grupo_revisor"] == "juridico-privacidade"
-
-
-def test_assess_request_non_saude_routes_to_dpo() -> None:
-    """Requests without health data go to dpo."""
-    fake = _lgpd_dsr_routing_fake(fluxo="EXPORTACAO", grupo_revisor="dpo")
-    worker = AssessRequestWorker(dmn=fake)
-
-    result = worker.run(
-        {
-            "tenant_id": "amh",
-            "tipo_requisicao": "confirmacao_acesso",
-            "envolve_dados_saude": False,
-        }
-    )
-
-    assert result["grupo_revisor"] == "dpo"
-
-
-def test_assess_request_eliminacao_always_juridico_regardless_of_saude() -> None:
-    """golden-parity finding (T1.5, live-verified): the deployed lgpd_dsr_routing table's
-    `eliminacao` rule (r5) ALWAYS routes to juridico-privacidade, REGARDLESS of
-    envolve_dados_saude (conflict with legal retention — prontuario/ANS — is always a juridico
-    matter). The old Python's grupo_revisor logic would have routed this exact combination
-    (eliminacao + envolve_dados_saude=False) to 'dpo' instead. DMN wins (documented, not
-    patched) — PHI/LGPD-adjacent, policy-guardian review recommended (ADR-0028 §7)."""
-    fake = _lgpd_dsr_routing_fake(fluxo="ELIMINACAO_AVALIACAO", grupo_revisor="juridico-privacidade")
-    worker = AssessRequestWorker(dmn=fake)
-
-    result = worker.run(
-        {
-            "tenant_id": "amh",
-            "tipo_requisicao": "eliminacao",
-            "envolve_dados_saude": False,
-        }
-    )
-
-    assert result["grupo_revisor"] == "juridico-privacidade"
-
-
-def test_assess_request_dmn_unwired_raises_dmn_evaluation_error() -> None:
-    """`require_dmn` fail-closed guard. Calls `execute()` directly (not `.run()`) to avoid
-    exercising `WorkerBase.run()`'s in-process retry/backoff sleep for this deterministic,
-    always-fails case — still ends up DmnEvaluationError, never a silent/degraded result."""
-    worker = AssessRequestWorker(dmn=None)
-    with pytest.raises(DmnEvaluationError):
-        worker.execute({"tenant_id": "amh", "tipo_requisicao": "confirmacao_acesso"})
 
 
 # ---------------------------------------------------------------------------
