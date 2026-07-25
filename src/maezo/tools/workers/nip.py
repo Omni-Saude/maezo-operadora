@@ -196,15 +196,20 @@ def notify_deadline_risk(
     """Notify regulatorio-ans/nucleo-ans/juridico-regulatorio of NIP deadline risk.
 
     BUILT t2.5-p2b-nip-mechanical (spec/BPMN previously had NO implementing function — see the
-    module docstring's "Topic mapping" note below). Serves THREE BPMN service tasks that all
-    reuse this one topic (`operadora.nip.notify_deadline_risk`):
-      - `ST_NotificarRiscoPrazo` (boundary `BT_AlertaPrazoNip` on `UT_ElaborarRespostaNip`) and
-        `ST_NotificarRiscoRevisao` (boundary `BT_AlertaPrazoRevisao` on `UT_RevisaoJuridicaNip`) —
-        both non-interruptive alerts, both setting `sla_breach_task_name`/
-        `event_topic_deadline_risk` as static `camunda:inputParameter`s (BPMN);
+    module docstring's "Topic mapping" note below). Now serves ONE BPMN service task on this topic
+    (`operadora.nip.notify_deadline_risk`):
       - `ST_SolicitarInfoNip` — sits on the MAIN token of the `SOLICITAR_INFO` branch and reuses
-        this SAME topic per its own BPMN comment ("reusa o canal de notificacao regulatoria"),
-        setting NEITHER inputParameter — both default to `""` so that reuse degrades gracefully.
+        this topic per its own BPMN comment ("reusa o canal de notificacao regulatoria"), setting
+        NEITHER `sla_breach_task_name` nor `event_topic_deadline_risk` inputParameter — both
+        default to `""` so that reuse degrades gracefully.
+
+    Was three tasks until t3.1-event-gap-nip-alerts CONVERTED-IN-PLACE the two non-interruptive
+    deadline-risk alerts — `ST_NotificarRiscoPrazo` (boundary `BT_AlertaPrazoNip` on
+    `UT_ElaborarRespostaNip`) and `ST_NotificarRiscoRevisao` (boundary `BT_AlertaPrazoRevisao` on
+    `UT_RevisaoJuridicaNip`) — to the generic `operadora.events.publish` worker so they now
+    actually publish `agents.events.nip.deadline_risk` (this worker never did; it only logged).
+    This function is UNCHANGED by that conversion and is not orphaned: `ST_SolicitarInfoNip` keeps
+    it registered.
 
     Mirrors `cancel.notify_sla_risk` / `contas.notify_sla_risk` / `inadimplencia.notify_sla_risk`
     / `auth.NotifySlaRiskWorker`: notify-only, non-adverse, fail-safe. This worker NEVER decides,
@@ -300,8 +305,9 @@ def publish_completed(
 #   submit_to_ans         -> operadora.nip.submit_response       (spec match, GUARDED)
 #   handoff_ans_submit    -> operadora.nip.handoff_ans_submit    (exact name+spec match)
 #   notify_deadline_risk  -> operadora.nip.notify_deadline_risk  (exact spec match; BUILT
-#     t2.5-p2b-nip-mechanical — reused by ST_NotificarRiscoPrazo/ST_NotificarRiscoRevisao/
-#     ST_SolicitarInfoNip; see the function's own docstring)
+#     t2.5-p2b-nip-mechanical — since t3.1-event-gap-nip-alerts consumed only by
+#     ST_SolicitarInfoNip; ST_NotificarRiscoPrazo/ST_NotificarRiscoRevisao were converted
+#     in place to operadora.events.publish; see the function's own docstring)
 # publish_completed folds into the generic events.publish task per BPMN —
 # kept as a function-derived topic for registry completeness (mirrors
 # inadimplencia.py's assess_status/calculate_purge convention).

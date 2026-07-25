@@ -88,21 +88,42 @@ FINDINGS (see PR body / evidence-ledger for full detail):
          `test_register_nip_workers_matches_bpmn_topics_exactly`
          (tests/unit/tools/workers/test_nip.py).
 
-     2b. RESOLVED (built, pending live-proof — see `_NOTIFY_DEADLINE_RISK_UNREGISTERED_REASON`
-         below). The BPMN declares THREE service tasks on `operadora.nip.notify_deadline_risk`
-         (`ST_NotificarRiscoPrazo` :272-273, `ST_NotificarRiscoRevisao` :358-359,
-         `ST_SolicitarInfoNip` :518-519 — the SOLICITAR_INFO branch reuses this same topic per
-         its own BPMN comment "reusa o canal de notificacao regulatoria") — `register_nip_workers`
-         now registers `notify_deadline_risk`/`notify_deadline_risk_entry` (nip.py) for it,
-         mirroring `cancel.notify_sla_risk`/`contas.notify_sla_risk`/
-         `inadimplencia.notify_sla_risk`/`auth.NotifySlaRiskWorker`'s notify-only, non-adverse,
-         fail-safe pattern. `_NIP_WORKER_TOPICS` below now INCLUDES `notify_deadline_risk` — a
-         drift-guard assertion in `nip_probe` (mirrors cancel's pattern) still fails loudly if a
-         future `register_nip_workers` change silently adds/removes an `operadora.nip.*`
-         registration without this file's topic list being updated to match. UNVERIFIED against a
-         live engine in this worktree (HARD CONSTRAINT: no docker/live engine) — the 3 xfails this
-         previously blocked (`_NOTIFY_DEADLINE_RISK_UNREGISTERED_REASON`) remain xfail(strict=True)
-         pending a live-engine run; see that reason string for the precise residual risk.
+     2b. RESOLVED (built; SUPERSEDED for 2 of its 3 sites — see 2c below). The BPMN used to
+         declare THREE service tasks on `operadora.nip.notify_deadline_risk`
+         (`ST_NotificarRiscoPrazo`, `ST_NotificarRiscoRevisao`, `ST_SolicitarInfoNip` — the
+         SOLICITAR_INFO branch reuses this same topic per its own BPMN comment "reusa o canal de
+         notificacao regulatoria") — `register_nip_workers` registers
+         `notify_deadline_risk`/`notify_deadline_risk_entry` (nip.py, UNCHANGED) for it, mirroring
+         `cancel.notify_sla_risk`/`contas.notify_sla_risk`/`inadimplencia.notify_sla_risk`/
+         `auth.NotifySlaRiskWorker`'s notify-only, non-adverse, fail-safe pattern.
+         `_NIP_WORKER_TOPICS` below still INCLUDES `notify_deadline_risk` — a drift-guard
+         assertion in `nip_probe` (mirrors cancel's pattern) still fails loudly if a future
+         `register_nip_workers` change silently adds/removes an `operadora.nip.*` registration
+         without this file's topic list being updated to match. `ST_SolicitarInfoNip` is the ONLY
+         BPMN site left on this topic since 2c (below); it never set
+         `event_topic_deadline_risk`/`sla_breach_task_name` (both defaulted to `""`) and is
+         unrelated to `agents.events.nip.deadline_risk` — the worker is NOT orphaned by 2c.
+
+     2c. RESOLVED (T3.1 event-gap-nip-alerts — this pass; BUILT, PENDING LIVE-PROOF FLIP, see
+         `_NIP_DEADLINE_RISK_PUBLISH_ADDED_REASON` below). `ST_NotificarRiscoPrazo` and
+         `ST_NotificarRiscoRevisao` (SP-OP-NIP-001_Resposta_NIP.bpmn) were CONVERTED IN PLACE
+         from `operadora.nip.notify_deadline_risk` to the generic `operadora.events.publish`
+         worker — contract SP-OP-NIP-001.md:111 "produz" `agents.events.nip.deadline_risk`, which
+         previously had only a dangling `event_topic_deadline_risk` inputParameter and no
+         publisher (finding 3's `has_event(_NIP_DEADLINE_RISK)` blocker). Unlike the cancel/auth/
+         reembolso/inadimplencia Wave-1/wave-4 remedy-B batches (each a SPLICE: a new ST_Publish*
+         task added alongside the original dict-first worker, which keeps its own separate
+         business action), this is a straight in-place conversion: `notify_deadline_risk_entry`
+         never did anything beyond a structlog line at these two call sites (no real side effect
+         to preserve), so no splice was needed — see the BPMN task's own documentation for the
+         full rationale. `event_payload_vars` = `tenant_id,numero_nip_ans,classificacao,
+         sla_breach_task_name` (business-keys-only, no PHI; mirrors `ST_PublishBreach`'s sibling
+         payload plus the pre-existing `sla_breach_task_name` literal as the elaboracao/revisao
+         discriminator). ZERO src/**.py edits (nip.py untouched) — `register_nip_workers` keeps
+         registering `operadora.nip.notify_deadline_risk` because `ST_SolicitarInfoNip` (2b) still
+         consumes it; `_NIP_WORKER_TOPICS`/the drift guard therefore need NO change. Not flipped
+         in this pass (no docker/live engine here) — see `_NIP_DEADLINE_RISK_PUBLISH_ADDED_REASON`
+         for the exact residual risk and flip procedure.
 
   3. Kafka-publish gap (systemic, SAME class as auth/cancel/escalation residuals — ledger row
      "T3.1 (events.publish fix)") — STILL OPEN, unchanged by t2.5-p2b-nip-mechanical: every
@@ -119,11 +140,13 @@ FINDINGS (see PR body / evidence-ledger for full detail):
      for the same tests generally DO pass — see `_NIP_WORKER_KAFKA_GAP_REASON` below for the exact
      tests this blocks). Distinguish this from `agents.events.nip.*` topics (published via the
      GENERIC, WORKING `operadora.events.publish` handler, `events.py`) — those DO work and are
-     asserted un-xfailed throughout this suite. NOTE: `test_prazo_nip_dispara_alerta_nao_
-     interruptivo` (finding 2b) additionally asserts `has_event(_NIP_DEADLINE_RISK)` — a REAL
-     `agents.events.nip.deadline_risk` Kafka publish — which `notify_deadline_risk_entry` does
-     NOT perform (same systemic gap); that assertion would still fail even once 2b's "handler
-     unregistered" root cause is live-proven fixed, UNLESS this finding is separately addressed.
+     asserted un-xfailed throughout this suite. NOTE (SUPERSEDED by 2c above): the 2
+     `has_event(_NIP_DEADLINE_RISK)` assertions (`test_prazo_nip_dispara_alerta_nao_interruptivo`,
+     `test_prazo_ancora_em_data_recebimento_nip_nao_em_attach_da_ut`) are no longer blocked by this
+     finding — `agents.events.nip.deadline_risk` now has a real publisher
+     (`ST_NotificarRiscoPrazo`/`ST_NotificarRiscoRevisao` converted to `operadora.events.publish`,
+     2c) independent of the still-open dict-first `notify_deadline_risk_entry` gap. Both tests
+     were retagged to `_NIP_DEADLINE_RISK_PUBLISH_ADDED_REASON` (not flipped — pending live-proof).
 
   4. `ERR_NIP_PROTOCOLO_INVALIDO` never reaches its BPMN boundary catch (nip-specific, NOT the
      generic kafka-publish gap): nip.py's `NipProtocoloInvalidoError` (nip.py:47-54) is a
@@ -208,10 +231,14 @@ _PUBLISH_COMPLETED_TOPIC = "operadora.nip.publish_completed"
 # #93/e4e3ed1 reconciliation, cited in that suite's module docstring finding 1 — the sync-comment
 # style below is the SAME convention): finding 2b's missing worker
 # (notify_deadline_risk/notify_deadline_risk_entry, nip.py) was implemented — the drift-guard
-# below would have caught a stale drain list on the first real-engine run, as designed. Serves
-# ST_NotificarRiscoPrazo/ST_NotificarRiscoRevisao/ST_SolicitarInfoNip (all three reuse this one
-# topic). NOT yet live-proven in THIS worktree (no docker/live engine here) — see
-# `_NOTIFY_DEADLINE_RISK_UNREGISTERED_REASON` below for the precise residual risk.
+# below would have caught a stale drain list on the first real-engine run, as designed.
+# T3.1 event-gap-nip-alerts (finding 2c, this pass): ST_NotificarRiscoPrazo/ST_NotificarRiscoRevisao
+# were CONVERTED IN PLACE to operadora.events.publish (zero src/**.py edits — nip.py, this
+# constant, and _NIP_WORKER_TOPICS below are all UNCHANGED). ST_SolicitarInfoNip is now the SOLE
+# remaining BPMN site on this topic — register_nip_workers still registers it for that reason, so
+# the worker is not orphaned. NOT yet live-proven in THIS worktree (no docker/live engine here) —
+# see `_NOTIFY_DEADLINE_RISK_UNREGISTERED_REASON` (historical — the prior 3-site gap) and
+# `_NIP_DEADLINE_RISK_PUBLISH_ADDED_REASON` (current — the 2c publish-task-added state) below.
 _NOTIFY_DEADLINE_RISK_TOPIC = "operadora.nip.notify_deadline_risk"  # t2.5-p2b-nip-mechanical sync
 
 # Topicos servidos pelos workers REAIS registrados no harness (drain generico). classify_nip/
@@ -326,8 +353,32 @@ _NOTIFY_DEADLINE_RISK_UNREGISTERED_REASON = (
     "DEADLINE_RISK) — agents.events.nip.deadline_risk exists in the BPMN only as a DANGLING "
     "event_topic_deadline_risk inputParameter on the worker tasks, never as a generic "
     "ST_Publish*/event_topic, so no publisher exists on any path). Constant retained for the "
-    "docstring prose above; no test references it anymore."
+    "docstring prose above; no test references it anymore.\n"
+    "SUPERSEDED (T3.1 event-gap-nip-alerts, this pass, module docstring finding 2c): the "
+    "'DANGLING event_topic_deadline_risk inputParameter... no publisher exists on any path' "
+    "premise above no longer holds for ST_NotificarRiscoPrazo/ST_NotificarRiscoRevisao — both "
+    "were converted in place to operadora.events.publish (see the BPMN task's own documentation "
+    "and _NIP_DEADLINE_RISK_PUBLISH_ADDED_REASON below). This constant is kept verbatim as the "
+    "historical record of the 3-site dangling-param gap; the two tests that referenced it were "
+    "retagged again, to _NIP_DEADLINE_RISK_PUBLISH_ADDED_REASON."
 )
+
+# T3.1 event-gap-nip-alerts remedy B, CONVERT-IN-PLACE variant (module docstring finding 2c;
+# contract SP-OP-NIP-001.md:111 "produz" agents.events.nip.deadline_risk): CLOSED the
+# has_event(_NIP_DEADLINE_RISK) blocker for the 2 prazo tests above.
+# ST_NotificarRiscoPrazo/ST_NotificarRiscoRevisao (SP-OP-NIP-001_Resposta_NIP.bpmn) now route
+# through the generic, WORKING operadora.events.publish handler instead of the dict-first
+# operadora.nip.notify_deadline_risk (which never called kafka.publish at these two sites — see
+# _NIP_WORKER_KAFKA_GAP_REASON/finding 3, still open for every OTHER operadora.nip.* topic in this
+# module). Unlike cancel/auth/reembolso/inadimplencia's own Wave-1/wave-4 remedy-B batches (each a
+# SPLICE), this was a straight CONVERT-IN-PLACE. ST_SolicitarInfoNip (finding 2b) still consumes
+# operadora.nip.notify_deadline_risk so the worker is not orphaned.
+# RETIRED (recurso-flip convention, part4 R1 live validation): the constant
+# _NIP_DEADLINE_RISK_PUBLISH_ADDED_REASON below carried the pre-flip xfail(strict) reason. Both
+# tests XPASS(strict) live (engine cibseven 2.1.0): ST_NotificarRiscoRevisao COMPLETED
+# canceled=False carrying event_topic=agents.events.nip.deadline_risk on BK
+# NIP-amh-NIP-TESTE-<run>; has_event(numero_nip_ans, sla_breach_task_name=_UT_REVISAO) matched.
+# Markers removed; the constant is retired to this comment (no test references it anymore).
 
 _ANCHOR_FAILSAFE_MISSING_REASON = (
     "nip-specific gap (module docstring finding 5 — regression vs the donor): the donor's "
@@ -1252,13 +1303,17 @@ async def test_a2a_start_via_nip_instruct(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_NIP_WORKER_KAFKA_GAP_REASON, strict=True)
+# T3.1 event-gap-nip-alerts FLIPPED (live-proven, part4 R1 validation, engine cibseven 2.1.0):
+# ST_NotificarRiscoRevisao (converted in place to operadora.events.publish, finding 2c) COMPLETED
+# canceled=False on BK NIP-amh-NIP-TESTE-<run> carrying event_topic=agents.events.nip.deadline_risk;
+# has_event(_NIP_DEADLINE_RISK, numero_nip_ans, sla_breach_task_name=_UT_REVISAO) matched. Prior
+# xfail(_NIP_DEADLINE_RISK_PUBLISH_ADDED_REASON, strict) removed on XPASS(strict).
 async def test_prazo_nip_dispara_alerta_nao_interruptivo(
     engine: EngineRest,
     nip_probe: NipEngineProbe,
     start_nip: Callable[..., Any],
 ) -> None:
-    """Timer BT_AlertaPrazoRevisao (nao-interruptivo): notify_deadline_risk recebe task; UT segue aberta.
+    """Timer BT_AlertaPrazoRevisao (nao-interruptivo): ST_NotificarRiscoRevisao recebe task; UT segue aberta.
 
     nip.deadline_risk publicado (countdown WD.3). A User Task de revisao segue aberta (nao-interruptivo).
     """
@@ -1276,9 +1331,18 @@ async def test_prazo_nip_dispara_alerta_nao_interruptivo(
     await engine.execute_job(job.id)
     await nip_probe.drain()
 
-    alerts = nip_probe.notifications_of_type("nip.notify_deadline_risk")
-    assert alerts, "Worker notify_deadline_risk deve ser executado no alerta de prazo"
-    assert nip_probe.has_event(_NIP_DEADLINE_RISK), "nip.deadline_risk deve ser publicado (countdown WD.3)"
+    # T3.1 event-gap-nip-alerts (has_event adaptation, mirrors the #108/#123/cancel+auth Wave-1
+    # precedent): the old execution-proof assert (`notifications_of_type("nip.notify_deadline_
+    # risk")`) is now structurally dead — ST_NotificarRiscoRevisao was converted in place to
+    # operadora.events.publish (module docstring finding 2c), so notify_deadline_risk_entry no
+    # longer runs at this site at all. Folded into a single has_event() call with
+    # sla_breach_task_name/numero_nip_ans matched from the declared payload (this task's
+    # event_payload_vars), which ALSO proves this SPECIFIC alert (revisao phase, not elaboracao)
+    # fired for this instance.
+    numero_nip_ans = await engine.get_variable(iid, "numero_nip_ans")
+    assert nip_probe.has_event(
+        _NIP_DEADLINE_RISK, numero_nip_ans=numero_nip_ans, sla_breach_task_name=_UT_REVISAO
+    ), "nip.deadline_risk deve ser publicado (ST_NotificarRiscoRevisao, countdown WD.3)"
 
     open_keys = {t.task_definition_key for t in await engine.list_user_tasks(iid)}
     assert _UT_REVISAO in open_keys, "Timer nao-interruptivo nao deve cancelar a User Task de revisao"
@@ -1391,7 +1455,11 @@ async def test_dmn_nip_sla_assistencial_prazo_mais_curto(
     assert job_prazo.activity_id == "BT_PrazoRevisaoEstourado"
 
 
-@pytest.mark.xfail(reason=_NIP_WORKER_KAFKA_GAP_REASON, strict=True)
+# T3.1 event-gap-nip-alerts FLIPPED (live-proven, part4 R1 validation, engine cibseven 2.1.0):
+# same as test_prazo_nip_dispara_alerta_nao_interruptivo above — ST_NotificarRiscoRevisao COMPLETED
+# canceled=False carrying event_topic=agents.events.nip.deadline_risk; strengthened has_event
+# (numero_nip_ans, sla_breach_task_name=_UT_REVISAO) matched. Prior
+# xfail(_NIP_DEADLINE_RISK_PUBLISH_ADDED_REASON, strict) removed on XPASS(strict).
 async def test_prazo_ancora_em_data_recebimento_nip_nao_em_attach_da_ut(
     engine: EngineRest,
     nip_probe: NipEngineProbe,
@@ -1476,9 +1544,13 @@ async def test_prazo_ancora_em_data_recebimento_nip_nao_em_attach_da_ut(
     # de ponta a ponta, alem da prova de ancora acima.
     await engine.execute_job(job_alerta.id)
     await nip_probe.drain()
-    assert nip_probe.has_event(_NIP_DEADLINE_RISK), (
-        "nip.deadline_risk deve publicar (alerta nao-interruptivo)"
-    )
+    # T3.1 event-gap-nip-alerts (finding 2c): strengthened with sla_breach_task_name/numero_nip_ans
+    # matched from the declared payload (ST_NotificarRiscoRevisao's event_payload_vars) — proves
+    # this SPECIFIC alert (revisao phase) fired for this instance, not just topic presence.
+    numero_nip_ans = await engine.get_variable(iid, "numero_nip_ans")
+    assert nip_probe.has_event(
+        _NIP_DEADLINE_RISK, numero_nip_ans=numero_nip_ans, sla_breach_task_name=_UT_REVISAO
+    ), "nip.deadline_risk deve publicar (ST_NotificarRiscoRevisao, alerta nao-interruptivo)"
     open_keys = {t.task_definition_key for t in await engine.list_user_tasks(iid)}
     assert _UT_REVISAO in open_keys, "Timer nao-interruptivo nao deve cancelar UT_RevisaoJuridicaNip"
 
