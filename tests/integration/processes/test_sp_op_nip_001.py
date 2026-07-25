@@ -364,39 +364,21 @@ _NOTIFY_DEADLINE_RISK_UNREGISTERED_REASON = (
 )
 
 # T3.1 event-gap-nip-alerts remedy B, CONVERT-IN-PLACE variant (module docstring finding 2c;
-# contract SP-OP-NIP-001.md:111 "produz" agents.events.nip.deadline_risk): CLOSES the
-# has_event(_NIP_DEADLINE_RISK) blocker for the 2 tests below.
+# contract SP-OP-NIP-001.md:111 "produz" agents.events.nip.deadline_risk): CLOSED the
+# has_event(_NIP_DEADLINE_RISK) blocker for the 2 prazo tests above.
 # ST_NotificarRiscoPrazo/ST_NotificarRiscoRevisao (SP-OP-NIP-001_Resposta_NIP.bpmn) now route
 # through the generic, WORKING operadora.events.publish handler instead of the dict-first
 # operadora.nip.notify_deadline_risk (which never called kafka.publish at these two sites — see
 # _NIP_WORKER_KAFKA_GAP_REASON/finding 3, still open for every OTHER operadora.nip.* topic in this
 # module). Unlike cancel/auth/reembolso/inadimplencia's own Wave-1/wave-4 remedy-B batches (each a
-# SPLICE: a NEW ST_Publish* task added alongside the original dict-first worker, which keeps its
-# own separate business action — request_documents/request_notification/check_prior_notice), this
-# is a straight CONVERT-IN-PLACE: notify_deadline_risk_entry never performed any real side effect
-# at these two call sites beyond a structlog line, so there was no separate action to preserve —
-# see the BPMN task's own documentation for the full rationale. ZERO src/**.py edits (nip.py
-# untouched): register_nip_workers keeps registering operadora.nip.notify_deadline_risk because
-# ST_SolicitarInfoNip (module docstring finding 2b) still consumes it — the worker is NOT
-# orphaned, and _NIP_WORKER_TOPICS/the drift guard need no change.
-_NIP_DEADLINE_RISK_PUBLISH_ADDED_REASON = (
-    "T3.1 event-gap-nip-alerts remedy B, CONVERT-IN-PLACE variant (contract SP-OP-NIP-001.md:111 "
-    "'produz' agents.events.nip.deadline_risk): ST_NotificarRiscoPrazo/ST_NotificarRiscoRevisao "
-    "(SP-OP-NIP-001_Resposta_NIP.bpmn) now route through the generic operadora.events.publish "
-    "worker instead of the dict-first operadora.nip.notify_deadline_risk (which never called "
-    "kafka.publish at these two sites — see _NIP_WORKER_KAFKA_GAP_REASON/finding 3) — the "
-    "BPMN-side gap that blocked has_event(_NIP_DEADLINE_RISK) is closed. Unlike the cancel/auth/"
-    "reembolso/inadimplencia Wave-1/wave-4 remedy-B batches (which SPLICE a new ST_Publish* task "
-    "alongside the original dict-first worker, preserving its own separate business action), this "
-    "is a CONVERT-IN-PLACE: notify_deadline_risk_entry never performed any real side effect at "
-    "these two call sites beyond a structlog line, so no splice was needed. ST_SolicitarInfoNip is "
-    "unaffected and remains the sole operadora.nip.notify_deadline_risk consumer "
-    "(register_nip_workers, nip.py, UNCHANGED — zero src edits — still registers it; the worker "
-    "is not orphaned). Publish task added, pending live-proof flip: requires a real CIB Seven "
-    "engine run (make deploy-artifacts + this suite) to confirm the event round-trips and no "
-    "sibling assertion regresses before the xfail marker is removed — not flipped in this pass "
-    "(no docker/engine here, per the design doc's live-validation requirement)."
-)
+# SPLICE), this was a straight CONVERT-IN-PLACE. ST_SolicitarInfoNip (finding 2b) still consumes
+# operadora.nip.notify_deadline_risk so the worker is not orphaned.
+# RETIRED (recurso-flip convention, part4 R1 live validation): the constant
+# _NIP_DEADLINE_RISK_PUBLISH_ADDED_REASON below carried the pre-flip xfail(strict) reason. Both
+# tests XPASS(strict) live (engine cibseven 2.1.0): ST_NotificarRiscoRevisao COMPLETED
+# canceled=False carrying event_topic=agents.events.nip.deadline_risk on BK
+# NIP-amh-NIP-TESTE-<run>; has_event(numero_nip_ans, sla_breach_task_name=_UT_REVISAO) matched.
+# Markers removed; the constant is retired to this comment (no test references it anymore).
 
 _ANCHOR_FAILSAFE_MISSING_REASON = (
     "nip-specific gap (module docstring finding 5 — regression vs the donor): the donor's "
@@ -1321,7 +1303,11 @@ async def test_a2a_start_via_nip_instruct(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_NIP_DEADLINE_RISK_PUBLISH_ADDED_REASON, strict=True)
+# T3.1 event-gap-nip-alerts FLIPPED (live-proven, part4 R1 validation, engine cibseven 2.1.0):
+# ST_NotificarRiscoRevisao (converted in place to operadora.events.publish, finding 2c) COMPLETED
+# canceled=False on BK NIP-amh-NIP-TESTE-<run> carrying event_topic=agents.events.nip.deadline_risk;
+# has_event(_NIP_DEADLINE_RISK, numero_nip_ans, sla_breach_task_name=_UT_REVISAO) matched. Prior
+# xfail(_NIP_DEADLINE_RISK_PUBLISH_ADDED_REASON, strict) removed on XPASS(strict).
 async def test_prazo_nip_dispara_alerta_nao_interruptivo(
     engine: EngineRest,
     nip_probe: NipEngineProbe,
@@ -1469,7 +1455,11 @@ async def test_dmn_nip_sla_assistencial_prazo_mais_curto(
     assert job_prazo.activity_id == "BT_PrazoRevisaoEstourado"
 
 
-@pytest.mark.xfail(reason=_NIP_DEADLINE_RISK_PUBLISH_ADDED_REASON, strict=True)
+# T3.1 event-gap-nip-alerts FLIPPED (live-proven, part4 R1 validation, engine cibseven 2.1.0):
+# same as test_prazo_nip_dispara_alerta_nao_interruptivo above — ST_NotificarRiscoRevisao COMPLETED
+# canceled=False carrying event_topic=agents.events.nip.deadline_risk; strengthened has_event
+# (numero_nip_ans, sla_breach_task_name=_UT_REVISAO) matched. Prior
+# xfail(_NIP_DEADLINE_RISK_PUBLISH_ADDED_REASON, strict) removed on XPASS(strict).
 async def test_prazo_ancora_em_data_recebimento_nip_nao_em_attach_da_ut(
     engine: EngineRest,
     nip_probe: NipEngineProbe,
