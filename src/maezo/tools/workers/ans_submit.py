@@ -18,6 +18,7 @@ import structlog
 from maezo.tools.workers.ans_gateway import AnsGatewayTransport, resolve_ans_gateway
 from maezo.tools.workers.base import FunctionWorker, pick_fields
 from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row, require_dmn
+from maezo.tools.workers.tiss_schema import TissSchemaValidator
 
 if TYPE_CHECKING:
     from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
@@ -150,11 +151,27 @@ def prepare_submission(input_data: AnsSubmitInput) -> AnsSubmissionData:
     return result
 
 
-def validate_data(submission: AnsSubmissionData) -> dict[str, Any]:
-    """Validate the ANS submission dataset (XSD/TISS schema).
+def validate_data(
+    submission: AnsSubmissionData,
+    *,
+    tiss_validator: TissSchemaValidator | None = None,
+) -> dict[str, Any]:
+    """Validate the ANS submission dataset (XSD/TISS schema) — T2.6-2, design §2.B.
 
-    Returns schema_valid flag and any validation errors.
-    Never rejects — routes to human for correction.
+    Real `lxml.etree.XMLSchema` validation against the pinned padrão-TISS version
+    (`tools/workers/tiss_schema.py`), NOT an echo of the inbound `schema_valid` flag (the old
+    stub this replaces). Fail-closed on every axis: missing dataset_ref/incomplete dataset
+    (unchanged structural checks), unpinned/unvendored TISS schema, unreadable/malformed XML, or
+    a genuine schema violation all resolve `schema_valid=False` — NEVER an exception, NEVER an
+    auto-pass. Returns `schema_valid` + structured `errors`; the BPMN routes False to
+    `UT_CorrigirPendenciaEnvio` (human), never a reject.
+
+    `tiss_validator` is the T2.6-2 seam (mirrors the `dmn`/`ans_gateway` seams already threaded
+    through this module): `None` (production default, no seam injected) resolves to a real
+    `TissSchemaValidator()`, which itself fails closed to `schema_valid=False` while
+    `MAEZO_TISS_SCHEMA_VERSION` stays unset (today, everywhere — the version is SME-gated,
+    design §2.B/§7, and the real vendored XSD set is a documented external dependency, not
+    fabricated here). Dev/test inject a `TissSchemaValidator` pinned at a fixture schema root.
     """
     logger.info(
         "ans_submit.validate_data.start",
@@ -162,9 +179,11 @@ def validate_data(submission: AnsSubmissionData) -> dict[str, Any]:
         report_type=submission.report_type,
     )
 
-    # In production, validates against XSD/TISS schemas
-    schema_valid = submission.schema_valid
-    errors: list[str] = []
+    validator = tiss_validator if tiss_validator is not None else TissSchemaValidator()
+    tiss_result = validator.validate(report_type=submission.report_type, dataset_ref=submission.dataset_ref)
+
+    schema_valid = tiss_result.schema_valid
+    errors: list[str] = list(tiss_result.errors)
 
     if not submission.dataset_ref.strip():
         errors.append("dataset_ref ausente")
@@ -179,9 +198,15 @@ def validate_data(submission: AnsSubmissionData) -> dict[str, Any]:
         "errors": errors,
         "report_type": submission.report_type,
         "competencia": submission.competencia,
+        "tiss_schema_version": tiss_result.tiss_schema_version,
     }
 
-    logger.info("ans_submit.validate_data.complete", schema_valid=schema_valid, errors=errors)
+    logger.info(
+        "ans_submit.validate_data.complete",
+        schema_valid=schema_valid,
+        errors=errors,
+        tiss_schema_version=tiss_result.tiss_schema_version,
+    )
     return result
 
 
@@ -391,11 +416,22 @@ def assemble_entry(variables: dict[str, Any], *, kafka: KafkaPublisher | None = 
     return dataclasses.asdict(result)
 
 
-def validate_entry(variables: dict[str, Any], *, kafka: KafkaPublisher | None = None) -> dict[str, Any]:
-    """Dict-boundary entry for `regulatorio.anssubmit.validate` -> `validate_data`."""
+def validate_entry(
+    variables: dict[str, Any],
+    *,
+    kafka: KafkaPublisher | None = None,
+    tiss_validator: TissSchemaValidator | None = None,
+) -> dict[str, Any]:
+    """Dict-boundary entry for `regulatorio.anssubmit.validate` -> `validate_data`.
+
+    `tiss_validator` (T2.6-2 seam, design §2.B — threaded the same way T2.6-1's `ans_gateway` is)
+    is threaded via `register_ans_submit_workers`'s `**seams` — production injects nothing, so
+    `validate_data` resolves a real `TissSchemaValidator()` (fail-closed while the version is
+    SME-gated); dev/test inject one pinned at a fixture schema root.
+    """
     del kafka  # unused — validate_data emits no domain event
     submission = AnsSubmissionData(**pick_fields(variables, AnsSubmissionData))
-    return validate_data(submission)
+    return validate_data(submission, tiss_validator=tiss_validator)
 
 
 def _ans_business_key(variables: dict[str, Any]) -> str:
@@ -520,14 +556,24 @@ def register_ans_submit_workers(
     `RefusingAnsGatewayTransport` — production refuses to issue a protocol (never fabricates) until
     real ANS credentials are wired. Dev/test/integration explicitly inject
     `LabeledMockAnsGatewayTransport`.
+
+    `tiss_validator` (T2.6-2 seam, design §2.B) is the TISS/XSD validation resolver threaded
+    ONLY into `validate_entry`. PRODUCTION injects nothing here, so `validate_data` resolves a
+    real `TissSchemaValidator()` — fail-closed (`schema_valid=False`) until a real vendored XSD
+    set + pinned version exist (SME-gated, `MAEZO_TISS_SCHEMA_VERSION` unset everywhere today).
+    Dev/test inject a `TissSchemaValidator` pinned at a fixture schema root.
     """
     dmn = seams.get("dmn")
     ans_gateway = seams.get("ans_gateway")
+    tiss_validator = seams.get("tiss_validator")
     harness.register_worker(
         FunctionWorker("regulatorio.anssubmit.assemble", functools.partial(assemble_entry, kafka=kafka))
     )
     harness.register_worker(
-        FunctionWorker("regulatorio.anssubmit.validate", functools.partial(validate_entry, kafka=kafka))
+        FunctionWorker(
+            "regulatorio.anssubmit.validate",
+            functools.partial(validate_entry, kafka=kafka, tiss_validator=tiss_validator),
+        )
     )
     harness.register_worker(
         FunctionWorker(

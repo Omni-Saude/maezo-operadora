@@ -36,13 +36,24 @@ _TE_GATED_CODES = (
 
 
 def test_production_allowlist_is_exactly_the_non_adverse_failsafes() -> None:
-    # Tier-0: the non-adverse technical fail-safes. Not empty (the old blocker), not more.
+    # SHARED FILE (T3.1 P2b flag for merge-time reconciliation): this exact-set assertion is the
+    # ADR-0030 production allowlist census — every branch that wires a NEW non-T-E-gated
+    # WorkerBpmnError code into service.py must extend this set. Not empty (the old blocker), not
+    # more than what's gate-proven-and-not-T-E-gated today:
     #   - ERR_EVENT_PUBLISH_FAILED: a publish failure routed to a retry/fallback terminal.
     #   - ERR_DSR_IDENTITY_UNVERIFIED (T2.8): a mechanically-unverifiable LGPD titular routed to
-    #     End_IdentidadeInverificavel (a neutral terminal). Both are NON-adverse (not a denial),
-    #     so neither is T-E-gated.
+    #     End_IdentidadeInverificavel (a neutral terminal).
+    #   - ERR_RECURSO_INVALID_GLOSA (T3.1 P2b): recurso's G2-val origin/consistency guard
+    #     (glosa_id absent/empty) routed to End_RecursoGlosaInvalidaOrigem (a neutral terminal).
+    # All three are NON-adverse (not a denial), so none is T-E-gated.
     assert (
-        frozenset({"ERR_EVENT_PUBLISH_FAILED", "ERR_DSR_IDENTITY_UNVERIFIED"})
+        frozenset(
+            {
+                "ERR_EVENT_PUBLISH_FAILED",
+                "ERR_DSR_IDENTITY_UNVERIFIED",
+                "ERR_RECURSO_INVALID_GLOSA",
+            }
+        )
         == PRODUCTION_BPMN_ERROR_ALLOWLIST
     )
 
