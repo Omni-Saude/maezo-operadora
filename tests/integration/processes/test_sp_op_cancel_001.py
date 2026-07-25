@@ -66,15 +66,47 @@ FINDINGS (see PR body / evidence-ledger for full detail):
      NATURALLY. Live-proven (fresh `docker compose -p cancelfix` stack, CIB Seven 2.1.0, single
      clean run, 2026-07-18): 20/28 pass including the 128-combination L0 sweep, both
      `End_ManterNaoConfirmado` guard-catch paths, and all five human-decision terminals.
-  3. REMAINING (the 8 xfails below, `_WORKER_KAFKA_GAP_REASON`): v2's ADR-0026 dict-boundary
+  3. REMAINING (7 xfails below, `_WORKER_KAFKA_GAP_REASON`): v2's ADR-0026 dict-boundary
      entry functions never call `kafka.publish` — the donor's cancel workers published per-worker
      notifications (`operadora.notifications.internal`) and the `agents.events.cancel.pended`
      domain event from INSIDE the handler; v2's entry functions only RETURN output variables.
-     Every one of the 8 fails ONLY on a `notifications_of_type(...)` / `has_event(cancel.pended)`
-     assertion over those worker-emitted messages (live-verified: each reached its correct end
-     event / passed its flow assertions first). Same systemic finding as escalation's
-     NotifyTeamWorker and auth's action-worker residuals (T3.1 events.publish-fix ledger row).
-     Fix belongs to the Kafka-producer wiring task, not this registry reconciliation.
+     Every one of these 7 fails ONLY on a `notifications_of_type(...)` assertion over those
+     worker-emitted messages (live-verified: each reached its correct end event / passed its flow
+     assertions first). Same systemic finding as escalation's NotifyTeamWorker and auth's
+     action-worker residuals (T3.1 events.publish-fix ledger row). Fix belongs to the
+     Kafka-producer wiring task, not this registry reconciliation.
+  4. T3.1 Wave 1 remedy B (event-gap design doc §2.2, landed in #135): the 8th test that used to
+     carry `_WORKER_KAFKA_GAP_REASON` (`test_notificacao_previa_pendente_publica_pended`) asserted
+     BOTH `has_event(cancel.pended)` (C1 — no publish task existed) AND
+     `notifications_of_type("cancel.request_notification")` (C2 — dead internal channel). BPMN now
+     carries `ST_PublishCancelPended` (a boundary-free `operadora.events.publish` task on
+     `Flow_Request_WaitNotif`, mirroring `ST_PublishSlaBreach`), closing the C1 half; the C2 half
+     was adapted to `has_event(..., tipo_solicitacao=...)` per the #108/#123 precedent. That test
+     is OUT OF SCOPE for this batch (already live-flipped in #135) — see
+     `_CANCEL_PENDED_PUBLISH_ADDED_REASON`'s docstring for detail.
+  5. T3.1 event-gap-a batch (THIS PR, test-only, zero src/BPMN/DMN/contract edits): the 7
+     REMAINING `_WORKER_KAFKA_GAP_REASON` xfails (distinct from the ONE PENDED test #135 already
+     adapted in finding 4 above) each had a `notifications_of_type(...)` check as their SOLE
+     blocking assertion — re-expressed against the strongest available engine-side equivalent:
+     `has_event(_CANCEL_COMPLETED, ..., responsavel_id=...)` folding the downstream ST_Publish*
+     task's own `event_payload_vars` where one exists and carries a distinguishing field
+     (ST_PublishRescindido/ST_PublishSuspenso/ST_PublishPedidoNegado/ST_PublishMantido all carry
+     `responsavel_id`), or `engine.get_variable(...)`/`activity_instances_ended(...)` (contas #134
+     fallback) where no domain event carries the fact at all (effectuate_member_request's own
+     `member_request_effectuated`, confirm_maintained_decision's `fundamentacao_provided`,
+     notify_sla_risk's `ST_NotificarRiscoSla` activity — routes DIRECTLY to
+     `End_RiscoSlaNotificado`, bpmn:291-296, no publish task on that branch — and
+     prepare_dossier's own `natureza_caso`/`grupo_sugerido`). xfail/strict marks are left
+     UNCHANGED on purpose (same policy as #134/#135): the underlying kafka-publish gap in
+     cancel.py's own entry functions is NOT touched by this batch, and whether the adapted
+     asserts flip these 7 tests fully green has not been re-verified against a live engine here —
+     deferred to the live-validation step. One check (`"fundamentacao_contratual" not in
+     confirmacoes[0]`, in both `test_happy_path_pedido_negado_humano` and
+     `test_happy_path_contrato_mantido`) is FLAGGED rather than adapted: it asserted the WORKER'S
+     OWN return shape never echoes the free-text field, which has no engine-observable equivalent
+     (that field is ALSO a legitimate process variable from the human UT completion) —
+     source-verified instead (cancel.py's `CancelMaintainedConfirmation` dataclass has exactly 3
+     fields and never carries it).
 """
 
 from __future__ import annotations
@@ -182,6 +214,72 @@ _WORKER_KAFKA_GAP_REASON = (
     "T3.1 topic reconciliation — live-verified: this test's instance reached its correct end "
     "event and passed every flow assertion before failing here). Fix belongs to the "
     "Kafka-producer wiring task, not this registry reconciliation."
+    "\n\nUPDATE (t3.1-event-gap-a-fraude-cancel, test-only batch, zero src/BPMN/DMN/contract "
+    "edits, see module docstring finding 5): the dead `notifications_of_type(...)` checks in the "
+    "7 REMAINING xfail tests below have each been replaced with the strongest available "
+    "engine-side equivalent per assert — assert adapted to engine-side evidence, pending "
+    "live-proof flip. This mark/strict is left UNCHANGED on purpose: the underlying kafka-publish "
+    "gap in cancel.py's own entry functions is NOT touched by this batch (no src/ edit), so "
+    "whether the adapted assertions now cause each test to run clean end-to-end against a live "
+    "engine has not been re-verified here — that confirmation, and the consequent xfail removal, "
+    "is deferred to the live-validation step (design doc §5)."
+)
+
+# part4 R1 LIVE VALIDATION (engine cibseven 2.1.0) — HONEST RETAG of 3 of the 7 event-gap-a
+# adaptations that did NOT flip. The t3.1-event-gap-a-fraude-cancel batch predicted all 7 XPASS,
+# but 3 tests (test_happy_path_cancelamento_a_pedido_beneficiario_l2,
+# test_happy_path_pedido_negado_humano, test_happy_path_contrato_mantido) replaced their dead
+# notifications_of_type(...) check with `engine.get_variable(iid, <var>)` — a RUNTIME variable
+# read — on an instance that has ALREADY reached its end event (cancelado_beneficiario /
+# End_PedidoCancelamentoNegado / End_ContratoMantido). The runtime endpoint returns HTTP 500
+# ("execution is null") once the instance completes, so the assert raises BEFORE it can observe
+# the fact. The fact itself IS engine-recorded: GET /history/variable-instance for these instances
+# returns member_request_effectuated=True / fundamentacao_provided=True (state=CREATED). The
+# adaptation should have used the HISTORY variable API, not the runtime one, for a completed
+# instance. This is a defect in the test adaptation (951cd1c), NOT the cancel.py kafka gap the
+# old reason names, and NOT a src/BPMN/DMN issue — so the reason is retagged (not flipped); the
+# fix is a one-line API swap in the adaptation, out of validation scope here.
+_CANCEL_COMPLETED_RUNTIME_VAR_GAP = (
+    "test-adaptation defect (t3.1-event-gap-a-fraude-cancel, exposed by part4 R1 live validation): "
+    "the adapted assert reads engine.get_variable(iid, <var>) via the RUNTIME variable API on an "
+    "instance that has already reached its end event — the engine returns HTTP 500 'execution is "
+    "null' for a completed instance's runtime execution, so the assert raises. The fact IS "
+    "engine-recorded (GET /history/variable-instance shows member_request_effectuated=True / "
+    "fundamentacao_provided=True); the adaptation should query the HISTORY variable API for a "
+    "completed instance. Distinct from _WORKER_KAFKA_GAP_REASON (the dead notification check was "
+    "already removed by that batch) — this is a runtime-vs-history API selection bug in the test, "
+    "not a cancel.py/BPMN gap. Left xfail(strict) pending the one-line adaptation fix (a validator "
+    "does not rewrite the builder's adaptation); flips loudly once the API is corrected."
+)
+
+# T3.1 Wave 1 remedy B (event-gap design doc §2.2): CLOSES the C1 half of the gap this ONE test
+# hit — `ST_PublishCancelPended` (a plain, boundary-free `operadora.events.publish` task mirroring
+# `ST_PublishSlaBreach`) now sits on `Flow_Request_WaitNotif` (spec/processes/bpmn/SP-OP-CANCEL-001_
+# Cancelamento_Contrato.bpmn), so `has_event(_CANCEL_PENDED)` is no longer structurally blocked by a
+# missing publisher. Distinct from `_WORKER_KAFKA_GAP_REASON` (which still applies to the OTHER 7
+# xfails in this module — those have no publish task and are out of scope for this batch). Publish
+# task added, pending live-proof flip: this repo's gates run without a live CIB Seven engine (no
+# docker/engine in this pass), so the marker is intentionally NOT removed here — flip only after a
+# real `make deploy-artifacts` + `pytest tests/integration/processes/test_sp_op_cancel_001.py -k
+# test_notificacao_previa_pendente_publica_pended` run confirms the event round-trips and no
+# sibling assertion regresses (design doc §5). The `notifications_of_type("cancel.request_notification")`
+# execution-proof half of the original assert pair was ADAPTED to `has_event(..., tipo_solicitacao=...)`
+# per the #108/#123 precedent (that internal-notification channel is structurally always-empty in
+# v2's dict-first workers, ADR-0026) — see the test body below.
+_CANCEL_PENDED_PUBLISH_ADDED_REASON = (
+    "T3.1 Wave 1 remedy B (event-gap design doc §2.2, contract SP-OP-CANCEL-001.md:91 'produz'): "
+    "ST_PublishCancelPended now exists on Flow_Request_WaitNotif — the BPMN-side gap that blocked "
+    "has_event(_CANCEL_PENDED) is closed (mirrors ST_PublishSlaBreach; boundary-free per the 15/16 "
+    "convention, check-bpmn-error-allowlist unaffected). Publish task added, pending live-proof "
+    "flip: requires a real CIB Seven engine run (make deploy-artifacts + this suite) to confirm the "
+    "event round-trips and no sibling assertion regresses before the xfail marker is removed — not "
+    "flipped in this PR (no docker/engine in this pass, per the design doc's live-validation "
+    "requirement, §5). LIVE-FLIPPED (wave2b2 R1 live-validation, cibseven 2.1.0): the test XPASSed "
+    "strict on a real engine and the xfail was removed in-step. Engine /history right-reason "
+    "evidence: ST_RequestNotification -> ST_PublishCancelPended both ended in the for_cause "
+    "instance (splice executed on the main token flow in EVERY Flow_Request_WaitNotif traversal; "
+    "downstream GW_AguardarNotificacao event race + prazo-notificacao timer tests all still green "
+    "— 0 sibling regressions). Constant retained for the docstring prose above."
 )
 
 
@@ -509,13 +607,25 @@ async def test_fraude_referida_nunca_auto_flag(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_WORKER_KAFKA_GAP_REASON, strict=True)
+@pytest.mark.xfail(reason=_CANCEL_COMPLETED_RUNTIME_VAR_GAP, strict=True)
 async def test_happy_path_cancelamento_a_pedido_beneficiario_l2(
     engine: EngineRest,
     cancel_probe: CancelEngineProbe,
     start_cancel: Callable[..., Any],
 ) -> None:
-    """Pedido do titular (individual, titularidade confirmada, dentro do prazo) => EFETIVAR_PEDIDO."""
+    """Pedido do titular (individual, titularidade confirmada, dentro do prazo) => EFETIVAR_PEDIDO.
+
+    ADAPTED (t3.1-event-gap-a-fraude-cancel, test-only, see `_WORKER_KAFKA_GAP_REASON` UPDATE):
+    the trailing `notifications_of_type(...)` checks were dead (module docstring finding 3/5).
+    ST_PublishCanceladoBeneficiario (bpmn:134-151) is the ONLY task downstream of
+    ST_EffectuateMemberRequest on Flow_Effectuate_Pub (bpmn:486) — the has_event assert below
+    already proves effectuate_member_request ran; strengthened with the worker's OWN real output
+    variable (`member_request_effectuated`, `effectuate_member_request_entry`'s return dict,
+    cancel.py) via engine.get_variable. The negative check (send_cancellation_notice never runs
+    on this L2 path) is re-expressed against engine activity-history — neither
+    ST_SendCancellationNoticeRescisao nor ...Suspensao can appear (this branch never reaches
+    GW_DecisaoCancelamento at all).
+    """
     inst = await start_cancel(
         tipo_solicitacao="pedido_beneficiario",
         tipo_plano="individual",
@@ -531,19 +641,43 @@ async def test_happy_path_cancelamento_a_pedido_beneficiario_l2(
     assert not await engine.list_user_tasks(iid), "Pedido do titular L2 nao cria User Task adversa"
     assert cancel_probe.has_event(_CANCEL_RECEIVED)
     assert cancel_probe.has_event(_CANCEL_COMPLETED, desfecho="cancelado_beneficiario")
-    assert cancel_probe.notifications_of_type("cancel.effectuate_member_request")
-    assert not cancel_probe.notifications_of_type("cancel.send_cancellation_notice"), (
-        "Cancelamento a pedido NUNCA emite notificacao de rescisao (L0)"
+    assert "ST_EffectuateMemberRequest" in ended, (
+        "effectuate_member_request deve ter executado nesta instancia"
     )
+    member_effectuated = await engine.get_variable(iid, "member_request_effectuated")
+    assert member_effectuated is True, (
+        f"member_request_effectuated (variavel de processo, engine-side) deve ser True; "
+        f"veio {member_effectuated!r}"
+    )
+    assert (
+        "ST_SendCancellationNoticeRescisao" not in ended and "ST_SendCancellationNoticeSuspensao" not in ended
+    ), "Cancelamento a pedido NUNCA emite notificacao de rescisao (L0)"
 
 
-@pytest.mark.xfail(reason=_WORKER_KAFKA_GAP_REASON, strict=True)
+# FLIPPED (part4 R1 live validation, engine cibseven 2.1.0): XPASS(strict) live. Engine history:
+# ST_SendCancellationNoticeRescisao + ST_PublishRescindido COMPLETED canceled=False on this
+# instance; ST_PublishRescindido emitted agents.events.cancel.completed with
+# desfecho=rescindido_operadora, responsavel_id=juridico-sintetico-001 (has_event matched). Prior
+# xfail(_WORKER_KAFKA_GAP_REASON, strict) removed.
 async def test_happy_path_rescisao_pela_operadora_humano(
     engine: EngineRest,
     cancel_probe: CancelEngineProbe,
     start_cancel: Callable[..., Any],
 ) -> None:
-    """Inadimplencia com notificacao previa => SEGUE_ANALISE; humano RESCINDIR => End_ContratoRescindido."""
+    """Inadimplencia com notificacao previa => SEGUE_ANALISE; humano RESCINDIR => End_ContratoRescindido.
+
+    ADAPTED (t3.1-event-gap-a-fraude-cancel, test-only, see `_WORKER_KAFKA_GAP_REASON` UPDATE):
+    the trailing `notifications_of_type("cancel.send_cancellation_notice")` check was dead
+    (module docstring finding 3/5). ST_PublishRescindido (bpmn:348-359) is the ONLY task
+    downstream of ST_SendCancellationNoticeRescisao on Flow_Rescisao_Pub (bpmn:522), gated by
+    Flow_GWDec_Rescindir's condition (bpmn:505, `${decisao_cancelamento == 'RESCINDIR'}`) —
+    reaching End_ContratoRescindido already proves decisao_cancelamento=='RESCINDIR'
+    (gateway-gated, contas aceitar_glosa precedent). ST_PublishRescindido's own
+    `event_payload_vars` (bpmn:354) carry `responsavel_id` — folded into the has_event call below
+    (strictly stronger than the dead notification echo, same field name, real kafka.publish call
+    site instead of a fabricated worker-side capture); strengthened with activity-history
+    containment for THIS instance (wave2b2 verifier pattern, #135 precedent).
+    """
     inst = await start_cancel(tipo_solicitacao="inadimplencia", notificacao_previa_feita=True)
     iid = inst["id"]
 
@@ -556,22 +690,35 @@ async def test_happy_path_rescisao_pela_operadora_humano(
     ended = await _await_end(engine, iid)
     await _assert_no_adverse_without_human_task(engine, iid)
     assert _END_RESCINDIDO in ended, f"Rescisao humana deve atingir End_ContratoRescindido. ended={ended}"
-    assert cancel_probe.has_event(_CANCEL_COMPLETED, desfecho="rescindido_operadora")
+    assert "ST_SendCancellationNoticeRescisao" in ended, (
+        "send_cancellation_notice deve ter executado nesta instancia"
+    )
+    assert cancel_probe.has_event(
+        _CANCEL_COMPLETED, desfecho="rescindido_operadora", responsavel_id="juridico-sintetico-001"
+    ), "ST_PublishRescindido deve emitir completed(desfecho=rescindido_operadora, responsavel_id=...)"
 
-    avisos = cancel_probe.notifications_of_type("cancel.send_cancellation_notice")
-    assert avisos, "Worker send_cancellation_notice deve ser executado apos rescisao humana"
-    a = avisos[0]
-    assert a["decisao_cancelamento"] == "RESCINDIR"
-    assert a["responsavel_id"] == "juridico-sintetico-001"
 
-
-@pytest.mark.xfail(reason=_WORKER_KAFKA_GAP_REASON, strict=True)
+# FLIPPED (part4 R1 live validation, engine cibseven 2.1.0): XPASS(strict) live. Engine history:
+# ST_SendCancellationNoticeSuspensao + ST_PublishSuspenso COMPLETED canceled=False; has_event
+# matched completed(desfecho=suspenso, responsavel_id=juridico-sintetico-001). Prior
+# xfail(_WORKER_KAFKA_GAP_REASON, strict) removed.
 async def test_happy_path_suspensao_por_inadimplencia_humano(
     engine: EngineRest,
     cancel_probe: CancelEngineProbe,
     start_cancel: Callable[..., Any],
 ) -> None:
-    """Inadimplencia => SEGUE_ANALISE; humano SUSPENDER => End_ContratoSuspenso."""
+    """Inadimplencia => SEGUE_ANALISE; humano SUSPENDER => End_ContratoSuspenso.
+
+    ADAPTED (t3.1-event-gap-a-fraude-cancel, test-only, see `_WORKER_KAFKA_GAP_REASON` UPDATE):
+    the trailing `notifications_of_type("cancel.send_cancellation_notice")` check was dead
+    (module docstring finding 3/5). ST_PublishSuspenso (bpmn:371-382) is the ONLY task downstream
+    of ST_SendCancellationNoticeSuspensao on Flow_Suspensao_Pub (bpmn:524), gated by
+    Flow_GWDec_Suspender's condition (bpmn:508, `${decisao_cancelamento == 'SUSPENDER'}`) —
+    reaching End_ContratoSuspenso already proves decisao_cancelamento=='SUSPENDER' (same
+    gateway-gated reasoning as the RESCINDIR sibling above). ST_PublishSuspenso's own
+    `event_payload_vars` (bpmn:377) carry `responsavel_id` — folded into the has_event call;
+    strengthened with activity-history containment.
+    """
     inst = await start_cancel(tipo_solicitacao="inadimplencia", notificacao_previa_feita=True)
     iid = inst["id"]
 
@@ -582,19 +729,33 @@ async def test_happy_path_suspensao_por_inadimplencia_humano(
     ended = await _await_end(engine, iid)
     await _assert_no_adverse_without_human_task(engine, iid)
     assert _END_SUSPENSO in ended, f"Suspensao humana deve atingir End_ContratoSuspenso. ended={ended}"
-    assert cancel_probe.has_event(_CANCEL_COMPLETED, desfecho="suspenso")
+    assert "ST_SendCancellationNoticeSuspensao" in ended, (
+        "send_cancellation_notice deve ter executado nesta instancia"
+    )
+    assert cancel_probe.has_event(
+        _CANCEL_COMPLETED, desfecho="suspenso", responsavel_id="juridico-sintetico-001"
+    ), "ST_PublishSuspenso deve emitir completed(desfecho=suspenso, responsavel_id=...)"
 
-    avisos = cancel_probe.notifications_of_type("cancel.send_cancellation_notice")
-    assert avisos and avisos[0]["decisao_cancelamento"] == "SUSPENDER"
 
-
-@pytest.mark.xfail(reason=_WORKER_KAFKA_GAP_REASON, strict=True)
+@pytest.mark.xfail(reason=_CANCEL_COMPLETED_RUNTIME_VAR_GAP, strict=True)
 async def test_happy_path_pedido_negado_humano(
     engine: EngineRest,
     cancel_probe: CancelEngineProbe,
     start_cancel: Callable[..., Any],
 ) -> None:
-    """pedido_beneficiario + titularidade nao confirmada => ANALISE_HUMANA; humano MANTER => pedido_negado."""
+    """pedido_beneficiario + titularidade nao confirmada => ANALISE_HUMANA; humano MANTER => pedido_negado.
+
+    ADAPTED (t3.1-event-gap-a-fraude-cancel, test-only, see `_WORKER_KAFKA_GAP_REASON` UPDATE):
+    the trailing `notifications_of_type(...)` checks were dead (module docstring finding 3/5).
+    ST_PublishPedidoNegado (bpmn:431-442) is the ONLY task downstream of
+    ST_ConfirmMaintainedDecision on Flow_GWManter_PedidoNegado (bpmn:526) — the has_event assert
+    below already proves confirm_maintained_decision ran; `fundamentacao_provided`
+    (`confirm_maintained_decision_entry`'s own return field, cancel.py's
+    `CancelMaintainedConfirmation`) is a REAL process variable, read directly via
+    engine.get_variable — strictly stronger than the dead notification echo. The negative check
+    (send_cancellation_notice never runs on the MANTER path) is re-expressed against engine
+    activity-history.
+    """
     inst = await start_cancel(
         tipo_solicitacao="pedido_beneficiario",
         tipo_plano="coletivo_empresarial",
@@ -617,19 +778,48 @@ async def test_happy_path_pedido_negado_humano(
     await _assert_no_adverse_without_human_task(engine, iid)
     assert _END_PEDIDO_NEGADO in ended, f"MANTER + pedido => End_PedidoCancelamentoNegado. ended={ended}"
     assert cancel_probe.has_event(_CANCEL_COMPLETED, desfecho="pedido_negado")
-    assert not cancel_probe.notifications_of_type("cancel.send_cancellation_notice")
-    confirmacoes = cancel_probe.notifications_of_type("cancel.confirm_maintained_decision")
-    assert confirmacoes and confirmacoes[0]["fundamentacao_provided"] is True
-    assert "fundamentacao_contratual" not in confirmacoes[0]
+    assert (
+        "ST_SendCancellationNoticeRescisao" not in ended and "ST_SendCancellationNoticeSuspensao" not in ended
+    ), "MANTER nunca deve executar send_cancellation_notice"
+    assert "ST_ConfirmMaintainedDecision" in ended, (
+        "confirm_maintained_decision deve ter executado nesta instancia"
+    )
+    fundamentacao_provided = await engine.get_variable(iid, "fundamentacao_provided")
+    assert fundamentacao_provided is True, (
+        f"fundamentacao_provided (variavel de processo, engine-side) deve ser True; "
+        f"veio {fundamentacao_provided!r}"
+    )
+    # FLAGGED, not adapted (t3.1-event-gap-a-fraude-cancel — see module docstring finding 5): the
+    # original `"fundamentacao_contratual" not in confirmacoes[0]` check asserted the WORKER'S OWN
+    # return shape never echoes the free-text field, alongside the dead notifications_of_type()
+    # call this batch removes above. No engine-observable equivalent exists (fundamentacao_
+    # contratual is ALSO a legitimate process variable from the human UT completion, so
+    # re-checking it via engine.get_variable would prove the wrong fact — of course it's present,
+    # as human input, not as a worker leak). Source-verified instead: cancel.py's
+    # `CancelMaintainedConfirmation` dataclass has exactly 3 fields (maintained_decision_confirmed/
+    # fundamentacao_provided/responsavel_id) — fundamentacao_contratual can never be part of
+    # confirm_maintained_decision_entry's return dict.
 
 
-@pytest.mark.xfail(reason=_WORKER_KAFKA_GAP_REASON, strict=True)
+@pytest.mark.xfail(reason=_CANCEL_COMPLETED_RUNTIME_VAR_GAP, strict=True)
 async def test_happy_path_contrato_mantido(
     engine: EngineRest,
     cancel_probe: CancelEngineProbe,
     start_cancel: Callable[..., Any],
 ) -> None:
-    """Inadimplencia => SEGUE_ANALISE; humano MANTER (ex.: purga da inadimplencia) => End_ContratoMantido."""
+    """Inadimplencia => SEGUE_ANALISE; humano MANTER (ex.: purga da inadimplencia) => End_ContratoMantido.
+
+    ADAPTED (t3.1-event-gap-a-fraude-cancel, test-only, see `_WORKER_KAFKA_GAP_REASON` UPDATE):
+    the trailing `notifications_of_type("cancel.confirm_maintained_decision")` check was dead
+    (module docstring finding 3/5) — already made redundant by the has_event asserts above
+    (ST_PublishMantido, bpmn:455-466, is the ONLY task downstream of ST_ConfirmMaintainedDecision
+    on Flow_GWManter_Mantido, bpmn:529; folding `responsavel_id` already proves the worker ran).
+    Strengthened with `fundamentacao_provided` (`confirm_maintained_decision_entry`'s own return
+    field) read directly via engine.get_variable. The trailing `"fundamentacao_contratual" not in
+    confirmacoes[0]` check is FLAGGED, not adapted — see `test_happy_path_pedido_negado_humano`'s
+    docstring above for the identical reasoning (source-verified: cancel.py's
+    `CancelMaintainedConfirmation` never carries that field).
+    """
     inst = await start_cancel(tipo_solicitacao="inadimplencia", notificacao_previa_feita=True)
     iid = inst["id"]
 
@@ -651,9 +841,14 @@ async def test_happy_path_contrato_mantido(
     assert cancel_probe.has_event(
         _CANCEL_COMPLETED, desfecho="mantido", responsavel_id="juridico-sintetico-001"
     )
-    confirmacoes = cancel_probe.notifications_of_type("cancel.confirm_maintained_decision")
-    assert confirmacoes and confirmacoes[0]["fundamentacao_provided"] is True
-    assert "fundamentacao_contratual" not in confirmacoes[0]
+    assert "ST_ConfirmMaintainedDecision" in ended, (
+        "confirm_maintained_decision deve ter executado nesta instancia"
+    )
+    fundamentacao_provided = await engine.get_variable(iid, "fundamentacao_provided")
+    assert fundamentacao_provided is True, (
+        f"fundamentacao_provided (variavel de processo, engine-side) deve ser True; "
+        f"veio {fundamentacao_provided!r}"
+    )
 
 
 # ===========================================================================
@@ -839,7 +1034,6 @@ async def test_send_cancellation_notice_recusa_sem_humano() -> None:
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_WORKER_KAFKA_GAP_REASON, strict=True)
 async def test_notificacao_previa_pendente_publica_pended(
     engine: EngineRest,
     cancel_probe: CancelEngineProbe,
@@ -854,12 +1048,22 @@ async def test_notificacao_previa_pendente_publica_pended(
 
     await cancel_probe.drain()
 
-    assert cancel_probe.notifications_of_type("cancel.request_notification"), (
-        "Worker request_notification deve ser executado em PENDENTE_NOTIFICACAO"
+    # T3.1 Wave 1 remedy B (#108/#123 has_event adaptation): the old execution-proof assert
+    # (`notifications_of_type("cancel.request_notification")`) is structurally always-empty in v2
+    # (dict-first worker, ADR-0026 — never reaches the internal notifications channel). Folded into
+    # this single has_event() call with `tipo_solicitacao` matched from payload, which ALSO proves
+    # request_notification ran (ST_PublishCancelPended sits immediately downstream on the same
+    # token, so the event firing proves the worker's token flowed through PENDENTE_NOTIFICACAO).
+    assert cancel_probe.has_event(_CANCEL_PENDED, tipo_solicitacao="for_cause_operadora"), (
+        "cancel.pended deve ser publicado (ST_PublishCancelPended) apos request_notification"
     )
-    assert cancel_probe.has_event(_CANCEL_PENDED), "cancel.pended deve ser publicado"
 
     ended = await engine.activity_instances_ended(iid)
+    # wave2b2 belt-and-suspenders (verifier flag: tipo_solicitacao is an INPUT-known field, so the
+    # has_event fold alone proves "some instance with that input published" — this engine-history
+    # containment proves THIS instance's token ran request_notification AND the new publish task):
+    assert "ST_RequestNotification" in ended, "request_notification deve ter executado nesta instancia"
+    assert "ST_PublishCancelPended" in ended, "ST_PublishCancelPended deve ter executado nesta instancia"
     assert not (ended & _ENDS_ADVERSOS), "Pendencia de notificacao nunca rescinde automaticamente"
     assert await engine.instance_is_active(iid), "Instancia deve aguardar no event gateway de notificacao"
 
@@ -931,13 +1135,26 @@ async def test_prazo_notificacao_expira_vai_para_humano_nao_rescinde(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_WORKER_KAFKA_GAP_REASON, strict=True)
+# FLIPPED (part4 R1 live validation, engine cibseven 2.1.0): XPASS(strict) live. Engine history:
+# ST_NotificarRiscoSla COMPLETED canceled=False in this instance's activity history (no publish
+# task on this non-interruptive alert branch — activity-history containment is the strongest
+# available evidence). UT stayed open. Prior xfail(_WORKER_KAFKA_GAP_REASON, strict) removed.
 async def test_timer_alerta_sla_nao_interruptivo(
     engine: EngineRest,
     cancel_probe: CancelEngineProbe,
     start_cancel: Callable[..., Any],
 ) -> None:
-    """Timer BT_AlertaSla (nao-interruptivo): notify_sla_risk recebe task; UT segue aberta."""
+    """Timer BT_AlertaSla (nao-interruptivo): notify_sla_risk recebe task; UT segue aberta.
+
+    ADAPTED (t3.1-event-gap-a-fraude-cancel, test-only, see `_WORKER_KAFKA_GAP_REASON` UPDATE):
+    the `notifications_of_type("cancel.notify_sla_risk")` check was dead (module docstring
+    finding 3/5). Unlike the other adaptations in this file, this one has NO has_event equivalent
+    at all — bpmn:285-296 confirms `ST_NotificarRiscoSla` routes DIRECTLY to
+    `End_RiscoSlaNotificado` (a plain end event), with no `ST_Publish*` task anywhere on this
+    non-interruptive alert branch. Re-expressed against engine activity-history instead (the
+    contas #134 precedent, same technique for its structurally-identical `notify_sla_risk` alert
+    case).
+    """
     inst = await start_cancel(tipo_solicitacao="inadimplencia", notificacao_previa_feita=True)
     iid = inst["id"]
 
@@ -947,8 +1164,9 @@ async def test_timer_alerta_sla_nao_interruptivo(
     await engine.execute_job(job.id)
     await cancel_probe.drain()
 
-    assert cancel_probe.notifications_of_type("cancel.notify_sla_risk"), (
-        "Worker notify_sla_risk deve ser executado no alerta de SLA"
+    ended_after_alerta = await engine.activity_instances_ended(iid)
+    assert "ST_NotificarRiscoSla" in ended_after_alerta, (
+        "Worker notify_sla_risk (ST_NotificarRiscoSla) deve aparecer na historia apos o alerta de SLA"
     )
 
     open_keys = {t.task_definition_key for t in await engine.list_user_tasks(iid)}
@@ -1033,22 +1251,47 @@ async def test_dmn_cancel_sla_registra_fonte(
     assert job_sla.activity_id == "BT_SlaAnalise"
 
 
-@pytest.mark.xfail(reason=_WORKER_KAFKA_GAP_REASON, strict=True)
+# FLIPPED (part4 R1 live validation, engine cibseven 2.1.0): XPASS(strict) live. Instance is
+# paused at UT_AnaliseRescisao (runtime execution still exists), so engine.get_variable succeeds:
+# ST_PrepareDossier COMPLETED canceled=False in history; natureza_caso='inadimplencia',
+# grupo_sugerido='juridico-contratos' matched. Prior xfail(_WORKER_KAFKA_GAP_REASON, strict) removed.
 async def test_cancel_routing_alimenta_dossie_humano(
     engine: EngineRest,
     cancel_probe: CancelEngineProbe,
     start_cancel: Callable[..., Any],
 ) -> None:
-    """GAP-CANCEL-5: cancel_routing alimenta o dossie humano com natureza_caso/grupo_sugerido."""
+    """GAP-CANCEL-5: cancel_routing alimenta o dossie humano com natureza_caso/grupo_sugerido.
+
+    ADAPTED (t3.1-event-gap-a-fraude-cancel, test-only, see `_WORKER_KAFKA_GAP_REASON` UPDATE):
+    the `notifications_of_type("cancel.prepare_dossier")` checks were dead (module docstring
+    finding 3/5). `natureza_caso`/`grupo_sugerido` are `prepare_dossier_entry`'s own return fields
+    (cancel.py's `assess_admissibility` -> `CancelAdmissibilityResult`) — REAL process variables,
+    read directly via engine.get_variable; strictly stronger than the dead notification echo
+    (same field names, the worker's actual completion payload instead of a fabricated capture).
+    `ended_pre_ut` is captured AFTER `_drive_to_analise` (i.e. after UT_AnaliseRescisao already
+    exists) — ST_PrepareDossier (bpmn:253-258) is its ONLY predecessor on Flow_Dossie_UTAnalise
+    (bpmn:497), so it must already be in the engine's activity history if the UT was reached at
+    all (contas #134 precedent, same reasoning for ST_PrepareTriageDossier).
+    """
     inst = await start_cancel(tipo_solicitacao="inadimplencia", notificacao_previa_feita=True)
     iid = inst["id"]
 
     await _drive_to_analise(engine, cancel_probe, iid)
 
-    dossies = cancel_probe.notifications_of_type("cancel.prepare_dossier")
-    assert dossies, "prepare_dossier deve ter sido executado apos BRT_Classificacao"
-    assert dossies[0]["natureza_caso"] == "inadimplencia"
-    assert dossies[0]["grupo_sugerido"] == "juridico-contratos"
+    ended_pre_ut = await engine.activity_instances_ended(iid)
+    assert "ST_PrepareDossier" in ended_pre_ut, (
+        f"ST_PrepareDossier deve aparecer na historia. ended={ended_pre_ut}"
+    )
+    natureza_caso_var = await engine.get_variable(iid, "natureza_caso")
+    grupo_sugerido_var = await engine.get_variable(iid, "grupo_sugerido")
+    assert natureza_caso_var == "inadimplencia", (
+        f"natureza_caso (variavel de processo, engine-side) deve ser 'inadimplencia'; "
+        f"veio {natureza_caso_var!r}"
+    )
+    assert grupo_sugerido_var == "juridico-contratos", (
+        f"grupo_sugerido (variavel de processo, engine-side) deve ser 'juridico-contratos'; "
+        f"veio {grupo_sugerido_var!r}"
+    )
 
 
 # ===========================================================================

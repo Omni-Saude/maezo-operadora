@@ -269,12 +269,35 @@ cuja propria doc cita o mesmo exemplo dollar-brace, completa sem erro) — apena
         <bpmn:timeDate xsi:type="bpmn:tFormalExpression">${sla.sla_alerta_absoluto_iso}</bpmn:timeDate>
       </bpmn:timerEventDefinition>
     </bpmn:boundaryEvent>
-    <bpmn:serviceTask id="ST_NotificarRiscoPrazo" name="Notificar risco de prazo (regulatorio-ans/nucleo-ans)"
-                      camunda:type="external" camunda:topic="operadora.nip.notify_deadline_risk">
+    <bpmn:serviceTask id="ST_NotificarRiscoPrazo" name="Publicar evento: nip.deadline_risk (elaboracao — regulatorio-ans/nucleo-ans)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:documentation>T3.1 event-gap remedy B — CONVERT-IN-PLACE (not a splice, unlike cancel/auth/reembolso/
+inadimplencia's Wave-1/wave-4 pattern for their own pended/notified gaps): contract
+SP-OP-NIP-001.md:111 "produz" agents.events.nip.deadline_risk had a dangling
+event_topic_deadline_risk inputParameter on this task's former topic
+operadora.nip.notify_deadline_risk. UNLIKE those other families' dict-first workers (which each
+perform a REAL, separate business action alongside their own dangling param —
+request_documents/request_notification/check_prior_notice), nip.py's notify_deadline_risk
+(t2.5-p2b-nip-mechanical) does nothing beyond a structlog line and an inert echo-dict; it never
+wrote to any external channel at this call site. Converting this task's topic to the generic
+operadora.events.publish therefore loses no real side effect and, for the first time, actually
+wires the WD.3 observability countdown this task's alert always promised. This BPMN's own
+top-of-file "EVENTOS DE DOMINIO (worker operadora.events.publish)" documentation already
+grouped "risco de prazo -> agents.events.nip.deadline_risk" alongside received/classified/
+breached/completed BEFORE this fix — the dangling inputParameter was the drift, not that prose.
+event_payload_vars are business-keys-only (tenant_id, numero_nip_ans, classificacao — no PHI,
+mirrors ST_PublishBreach's sibling payload exactly) plus sla_breach_task_name (already a static
+literal here, reused verbatim as the phase discriminator between this task and
+ST_NotificarRiscoRevisao below, which publish the SAME event topic from two different UTs).
+ST_SolicitarInfoNip (further below) is the ONLY remaining operadora.nip.notify_deadline_risk
+consumer — it never sets event_topic_deadline_risk and is unrelated to this event; register_nip_
+workers (nip.py, UNCHANGED) still registers that topic, so the worker is NOT orphaned by this
+conversion.</bpmn:documentation>
       <bpmn:extensionElements>
         <camunda:inputOutput>
-          <camunda:inputParameter name="event_topic_deadline_risk">agents.events.nip.deadline_risk</camunda:inputParameter>
+          <camunda:inputParameter name="event_topic">agents.events.nip.deadline_risk</camunda:inputParameter>
           <camunda:inputParameter name="sla_breach_task_name">UT_ElaborarRespostaNip</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_nip_ans,classificacao,sla_breach_task_name</camunda:inputParameter>
         </camunda:inputOutput>
       </bpmn:extensionElements>
       <bpmn:incoming>Flow_AlertaPrazo_Notify</bpmn:incoming>
@@ -355,12 +378,19 @@ de MANTER_NEGATIVA) e SEMPRE juridico-regulatorio. Ver nota completa em BRT_Rote
         <bpmn:timeDate xsi:type="bpmn:tFormalExpression">${sla.sla_alerta_absoluto_iso}</bpmn:timeDate>
       </bpmn:timerEventDefinition>
     </bpmn:boundaryEvent>
-    <bpmn:serviceTask id="ST_NotificarRiscoRevisao" name="Notificar risco de prazo (juridico-regulatorio)"
-                      camunda:type="external" camunda:topic="operadora.nip.notify_deadline_risk">
+    <bpmn:serviceTask id="ST_NotificarRiscoRevisao" name="Publicar evento: nip.deadline_risk (revisao — juridico-regulatorio)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:documentation>T3.1 event-gap remedy B — CONVERT-IN-PLACE, mesma justificativa completa de
+ST_NotificarRiscoPrazo acima (contrato SP-OP-NIP-001.md:111 "produz" agents.events.nip.
+deadline_risk; notify_deadline_risk nunca fez nada alem de logar aqui — ver nota completa la).
+sla_breach_task_name discrimina esta task (revisao) da outra (elaboracao) no mesmo topico de
+evento. ST_SolicitarInfoNip continua o UNICO consumidor de operadora.nip.notify_deadline_risk —
+worker nao fica orfao.</bpmn:documentation>
       <bpmn:extensionElements>
         <camunda:inputOutput>
-          <camunda:inputParameter name="event_topic_deadline_risk">agents.events.nip.deadline_risk</camunda:inputParameter>
+          <camunda:inputParameter name="event_topic">agents.events.nip.deadline_risk</camunda:inputParameter>
           <camunda:inputParameter name="sla_breach_task_name">UT_RevisaoJuridicaNip</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_nip_ans,classificacao,sla_breach_task_name</camunda:inputParameter>
         </camunda:inputOutput>
       </bpmn:extensionElements>
       <bpmn:incoming>Flow_AlertaRevisao_Notify</bpmn:incoming>
@@ -517,7 +547,7 @@ GAP-NIP-6: protocolo_ans PRESENTE porem vazio/em branco (guard de origem, nao me
     <!-- Ramo SOLICITAR_INFO: aguarda info adicional (event gateway: mensagem vs timer) -->
     <bpmn:serviceTask id="ST_SolicitarInfoNip" name="Registrar solicitacao de informacao adicional"
                       camunda:type="external" camunda:topic="operadora.nip.notify_deadline_risk">
-      <bpmn:documentation>Registra/abre a solicitacao de informacao adicional (reusa o canal de notificacao regulatoria). A info adicional destrava o fluxo via msg.nip.info_recebida; nenhum desfecho adverso enquanto a info nao chega.</bpmn:documentation>
+      <bpmn:documentation>Registra/abre a solicitacao de informacao adicional (reusa o canal de notificacao regulatoria). A info adicional destrava o fluxo via msg.nip.info_recebida; nenhum desfecho adverso enquanto a info nao chega. T3.1 event-gap remedy B: desde a conversao de ST_NotificarRiscoPrazo/ST_NotificarRiscoRevisao para operadora.events.publish (acima), esta e' a UNICA service task restante em operadora.nip.notify_deadline_risk — nao setando event_topic_deadline_risk (default vazio no worker), permanece fora do escopo do evento agents.events.nip.deadline_risk; register_nip_workers (nip.py) continua registrando este topico exclusivamente por causa desta task.</bpmn:documentation>
       <bpmn:incoming>Flow_GWDec_SolicitarInfo</bpmn:incoming>
       <bpmn:outgoing>Flow_SolicitarInfo_GWAguardar</bpmn:outgoing>
     </bpmn:serviceTask>
