@@ -25,7 +25,9 @@ efeito adverso e materializado SO pelo worker operadora.contas.register_glosa_ac
 ERR_GLOSA_ACCEPT_NOT_HUMAN. O terminal End_GlosaAceitaHumano so e alcancavel apos UT_AnalistaContas
 concluida por humano. Indicio de fraude (fraud_accusation, L0 hard) NUNCA e auto-sinalizado:
 indicio_fraude_sinalizado e informativo; roteia a UT_AnalistaContas que decide encaminhar_fraude
-(handoff a SP-OP-FRAUDE-001, Phase 3). Nenhum branch auto-flagueia fraude.
+(handoff a SP-OP-FRAUDE-001, Phase 3 — IMPLEMENTADO: branch humano decisao_contas==ENCAMINHAR_FRAUDE
+-&gt; ST_StartFraude -&gt; ST_PublishEncaminhadaFraude). Nenhum branch auto-flagueia fraude (a decisao
+nasce SO na User Task humana, como ACEITAR_GLOSA/RECORRER).
 
 BUSINESS KEY (idempotente): "CONTAS-{tenant_id}-{numero_lote_tiss}"
   — uma instancia por lote TISS (ou por conta/guia). Reenvio do mesmo lote NAO cria nova
@@ -36,7 +38,7 @@ EVENTOS DE DOMINIO (worker operadora.events.publish):
   glosas candidatas -&gt; agents.events.contas.glosa_identified
   breach -&gt; agents.events.contas.sla_breached
   fim -&gt; agents.events.contas.completed (payload.desfecho = sem_glosa | encaminhada_recurso |
-         glosa_aceita_humano | reenviada)
+         glosa_aceita_humano | reenviada | encaminhada_fraude)
 
 VARIAVEIS DE ENTRADA: tenant_id, numero_lote_tiss, numero_guia_tiss (opc), numero_conta (opc),
 prestador_id, beneficiario_pseudo_id (ADR-0006), competencia, data_recebimento_lote,
@@ -195,6 +197,7 @@ A decisao sai em nome do analista (assignee na trilha de auditoria, ADR-0007).
       <bpmn:outgoing>Flow_GWDec_Recorrer</bpmn:outgoing>
       <bpmn:outgoing>Flow_GWDec_Aceitar</bpmn:outgoing>
       <bpmn:outgoing>Flow_GWDec_Reenviar</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWDec_Fraude</bpmn:outgoing>
     </bpmn:exclusiveGateway>
     <bpmn:serviceTask id="ST_StartRecurso" name="Iniciar recurso de glosa (handoff SP-OP-RECURSO-001)" camunda:type="external" camunda:topic="operadora.contas.start_recurso">
       <bpmn:documentation>Handoff neutro: inicia SP-OP-RECURSO-001 com glosa_id + numero_guia_tiss. Sem efeito adverso.</bpmn:documentation>
@@ -206,7 +209,7 @@ A decisao sai em nome do analista (assignee na trilha de auditoria, ADR-0007).
         <camunda:inputOutput>
           <camunda:inputParameter name="event_topic">agents.events.contas.completed</camunda:inputParameter>
           <camunda:inputParameter name="event_desfecho">encaminhada_recurso</camunda:inputParameter>
-          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_lote_tiss,glosa_id</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_lote_tiss,glosa_id,numero_guia_tiss</camunda:inputParameter>
         </camunda:inputOutput>
       </bpmn:extensionElements>
       <bpmn:incoming>Flow_Recurso_Pub</bpmn:incoming>
@@ -253,6 +256,25 @@ A decisao sai em nome do analista (assignee na trilha de auditoria, ADR-0007).
     <bpmn:endEvent id="End_Reenviada" name="Reenviada para correcao (decisao humana)">
       <bpmn:incoming>Flow_PubReenvio_End</bpmn:incoming>
     </bpmn:endEvent>
+    <bpmn:serviceTask id="ST_StartFraude" name="Encaminhar a investigacao de fraude (handoff SP-OP-FRAUDE-001)" camunda:type="external" camunda:topic="operadora.contas.start_fraude">
+      <bpmn:documentation>Handoff neutro (Phase 3): inicia SP-OP-FRAUDE-001 SO a jusante da decisao HUMANA decisao_contas==ENCAMINHAR_FRAUDE em UT_AnalistaContas/UT_CoordenacaoContasAssume (indicio_fraude_sinalizado e informativo — NUNCA auto-flagueia; L0 hard, ADR-0005/0008). CONTAS nunca investiga nem acusa: FRAUDE-001 tem suas PROPRIAS User Tasks humanas para a acusacao. Business key idempotente FRAUDE-{tenant}-{numero_caso|prestador_id} — convergente com a regra CONTAS→FRAUDE do notification_bridge (nunca double-start). Ancoras minimas (sem PHI clinica): tenant_id, prestador_id.</bpmn:documentation>
+      <bpmn:incoming>Flow_GWDec_Fraude</bpmn:incoming>
+      <bpmn:outgoing>Flow_Fraude_Pub</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="ST_PublishEncaminhadaFraude" name="Publicar evento: contas.completed (encaminhada_fraude)" camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.contas.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">encaminhada_fraude</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_lote_tiss,prestador_id</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Fraude_Pub</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubFraude_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_EncaminhadaFraude" name="Encaminhada a investigacao de fraude (decisao humana)">
+      <bpmn:incoming>Flow_PubFraude_End</bpmn:incoming>
+    </bpmn:endEvent>
     <bpmn:sequenceFlow id="Flow_Start_PubReceived" sourceRef="Start_LoteRecebido" targetRef="ST_PublishReceived" />
     <bpmn:sequenceFlow id="Flow_PubReceived_Identify" sourceRef="ST_PublishReceived" targetRef="ST_IdentifyGlosa" />
     <bpmn:sequenceFlow id="Flow_Identify_Impact" sourceRef="ST_IdentifyGlosa" targetRef="ST_CalculateImpact" />
@@ -292,6 +314,11 @@ A decisao sai em nome do analista (assignee na trilha de auditoria, ADR-0007).
     <bpmn:sequenceFlow id="Flow_PubAceite_End" sourceRef="ST_PublishGlosaAceita" targetRef="End_GlosaAceitaHumano" />
     <bpmn:sequenceFlow id="Flow_Reenvio_Pub" sourceRef="ST_ReconcilePayment" targetRef="ST_PublishReenviada" />
     <bpmn:sequenceFlow id="Flow_PubReenvio_End" sourceRef="ST_PublishReenviada" targetRef="End_Reenviada" />
+    <bpmn:sequenceFlow id="Flow_GWDec_Fraude" name="ENCAMINHAR_FRAUDE (somente humano)" sourceRef="GW_DecisaoContas" targetRef="ST_StartFraude">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisao_contas == 'ENCAMINHAR_FRAUDE'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_Fraude_Pub" sourceRef="ST_StartFraude" targetRef="ST_PublishEncaminhadaFraude" />
+    <bpmn:sequenceFlow id="Flow_PubFraude_End" sourceRef="ST_PublishEncaminhadaFraude" targetRef="End_EncaminhadaFraude" />
   </bpmn:process>
   <bpmndi:BPMNDiagram id="Diagram_SP-OP-CONTAS-001">
     <bpmndi:BPMNPlane id="Plane_SP-OP-CONTAS-001" bpmnElement="SP-OP-CONTAS-001">
@@ -400,6 +427,34 @@ A decisao sai em nome do analista (assignee na trilha de auditoria, ADR-0007).
           <dc:Bounds x="2918" y="542" width="89" height="40" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_StartFraude" bpmnElement="ST_StartFraude">
+        <dc:Bounds x="2584" y="644" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishEncaminhadaFraude" bpmnElement="ST_PublishEncaminhadaFraude">
+        <dc:Bounds x="2764" y="644" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_EncaminhadaFraude" bpmnElement="End_EncaminhadaFraude">
+        <dc:Bounds x="2944" y="666" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2918" y="702" width="89" height="40" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Fraude" bpmnElement="Flow_GWDec_Fraude">
+        <di:waypoint x="2425" y="429" />
+        <di:waypoint x="2425" y="684" />
+        <di:waypoint x="2584" y="684" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2440" y="650" width="90" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Fraude_Pub" bpmnElement="Flow_Fraude_Pub">
+        <di:waypoint x="2684" y="684" />
+        <di:waypoint x="2764" y="684" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubFraude_End" bpmnElement="Flow_PubFraude_End">
+        <di:waypoint x="2864" y="684" />
+        <di:waypoint x="2944" y="684" />
+      </bpmndi:BPMNEdge>
       <bpmndi:BPMNShape id="Shape_ST_AnalyzeReason" bpmnElement="ST_AnalyzeReason">
         <dc:Bounds x="1048" y="220" width="100" height="80" />
       </bpmndi:BPMNShape>

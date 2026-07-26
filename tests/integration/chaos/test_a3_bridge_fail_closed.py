@@ -1,9 +1,9 @@
 """T3.3 A3 — NotificationBridge negative-certification: fail-closed-under-fault pins.
 
 Extends the T3.3 W0/W1 seam-fault harness (`tests/integration/chaos/conftest.py`,
-`test_sink_down_failclosed.py`'s C1-down precedent) to the bridge's 3 real, LIVE, fenced-start
-in-flow handoff workers (`contas.start_recurso`, `fraude.start_credenciamento`,
-`fraude.start_contratual`) and to the bridge's own fenced starter
+`test_sink_down_failclosed.py`'s C1-down precedent) to the bridge's FOUR real, LIVE, fenced-start
+in-flow handoff workers (`contas.start_recurso`, `contas.start_fraude` [T4 Phase-3 leg],
+`fraude.start_credenciamento`, `fraude.start_contratual`) and to the bridge's own fenced starter
 (`notification_bridge.build_cibseven_process_starter`):
 
   - **audit sink down** (a real `PostgresAuditSink` pointed at `dead_dsn`, a syntactically valid
@@ -89,6 +89,36 @@ def test_contas_start_recurso_fail_closed_when_audit_sink_down(
     assert transport.start_call_count == 0, (
         "contas.start_recurso attempted an engine start despite the audit sink being down "
         "(un-audited RECURSO-001 start — ADR-0007 L0 violation)"
+    )
+
+
+def test_contas_start_fraude_fail_closed_when_audit_sink_down(
+    chaos_tenant_schema: str, dead_dsn: str
+) -> None:
+    """`contas.start_fraude` (operadora.contas.start_fraude — the T4 Phase-3 CONTAS→FRAUDE in-flow
+    worker) must raise `AuditPersistenceError` when the audit sink is down and NEVER attempt the
+    FRAUDE-001 engine start — the same ADR-0007 durable-audit-before-effect fence, proven at the
+    new handoff worker."""
+    dead_sink = PostgresAuditSink(dead_dsn, chaos_tenant_schema)
+    transport = _CountingCibSevenTransport()
+    variables = {
+        "tenant_id": chaos_tenant_schema,
+        "prestador_id": "PREST-A3-C1",
+        "numero_lote_tiss": "LOTE-A3-C1",
+        "analista_id": "analista-a3-c1",
+    }
+
+    import asyncio
+
+    try:
+        with pytest.raises(AuditPersistenceError):
+            contas.start_fraude(variables, engine=transport, audit_sink=dead_sink)
+    finally:
+        asyncio.run(dead_sink.aclose())
+
+    assert transport.start_call_count == 0, (
+        "contas.start_fraude attempted an engine start despite the audit sink being down "
+        "(un-audited FRAUDE-001 start — ADR-0007 L0 violation)"
     )
 
 

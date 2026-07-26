@@ -9,7 +9,9 @@ import pytest
 
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport, ProcessInstance, start_dedup_key
 from maezo.tools.workers.contas import (
+    FRAUDE_PROCESS_KEY,
     RECURSO_PROCESS_KEY,
+    ContasFraudeSemAlvoError,
     ContasLoteInvalidoError,
     ContasRecursoSemGlosaError,
     GlosaAcceptInput,
@@ -27,6 +29,7 @@ from maezo.tools.workers.contas import (
     reconcile_payment,
     register_glosa_accept,
     register_glosa_accept_entry,
+    start_fraude,
     start_recurso,
 )
 from maezo.tools.workers.dmn_transport import DmnEvaluationError, FakeDmnTransport
@@ -488,6 +491,122 @@ def test_start_recurso_refuses_degenerate_anchors_before_any_engine_call(
     sink = FakeStartAuditSink()
     with pytest.raises(ContasRecursoSemGlosaError):
         start_recurso(_recurso_vars(**over), engine=engine, audit_sink=sink)
+    assert sink.dedup_keys == []  # emit-before-effect: refusal precedes ANY audit/engine call
+    assert sink.records == []
+
+
+# ---------------------------------------------------------------------------
+# start_fraude (Phase-3 CONTAS→FRAUDE leg)
+# ---------------------------------------------------------------------------
+
+
+def _fraude_vars(**over: object) -> dict[str, object]:
+    base: dict[str, object] = {
+        "tenant_id": "amh",
+        "prestador_id": "prov:teste-0001",
+        "numero_lote_tiss": "LOTE-9",
+        "analista_id": "analista-001",
+        "evidencia_refs": ["ref:1"],
+        "indicadores_presentes": ["ind_a"],
+    }
+    base.update(over)
+    return base
+
+
+def test_start_fraude_starts_fraude_with_converged_business_key_and_payload() -> None:
+    """start_fraude REALLY starts SP-OP-FRAUDE-001 through the fenced chokepoint. Asserts the
+    exact business key (CONVERGENT with the notification_bridge CONTAS→FRAUDE rule:
+    FRAUDE-{tenant}-{prestador_id} when no numero_caso), the started instance, the carried
+    payload, and the exactly-once ADR-0007 start record."""
+    engine = FakeCibSevenTransport()
+    sink = FakeStartAuditSink()
+    result = start_fraude(_fraude_vars(secreta_phi="SHOULD-NOT-LEAK"), engine=engine, audit_sink=sink)
+    assert result["handoff"] == FRAUDE_PROCESS_KEY
+    assert result["handoff_executado"] is True
+    assert result["fraude_business_key"] == "FRAUDE-amh-prov:teste-0001"
+    assert result["fraude_already_existed"] is False
+
+    started = asyncio.run(engine.find_active_instance("FRAUDE-amh-prov:teste-0001"))
+    assert started is not None and started.process_key == FRAUDE_PROCESS_KEY
+    payload = asyncio.run(engine.get_process_status("FRAUDE-amh-prov:teste-0001")).variables
+    assert payload["prestador_id"] == "prov:teste-0001"
+    assert payload["origem_encaminhamento"] == "contas"
+    assert payload["numero_caso"] == "prov:teste-0001"
+    assert payload["entidade_tipo"] == "prestador"
+    assert "secreta_phi" not in payload  # explicit allowlist, never a passthrough
+
+    assert sink.dedup_keys == [start_dedup_key("amh", FRAUDE_PROCESS_KEY, "FRAUDE-amh-prov:teste-0001")]
+    [record] = sink.records
+    assert record.agent_id == AUDIT_AGENT_ID
+    assert record.tenant_id == "amh"
+    assert record.action == f"start_process:{FRAUDE_PROCESS_KEY}"
+    assert record.model_id is None and record.prompt_version is None
+    assert record.details["decisao_contas"] == "ENCAMINHAR_FRAUDE"
+    assert "input_sha256" in record.details
+    assert "prestador_id" not in record.details  # identifiers hash-bound only, never in the clear
+
+
+def test_start_fraude_prefers_assigned_numero_caso_when_present() -> None:
+    """When the CONTAS process already carries an assigned numero_caso, the business key uses it
+    (still convergent with the bridge's own numero_caso-first derivation)."""
+    engine = FakeCibSevenTransport()
+    sink = FakeStartAuditSink()
+    result = start_fraude(_fraude_vars(numero_caso="CASO-777"), engine=engine, audit_sink=sink)
+    assert result["fraude_business_key"] == "FRAUDE-amh-CASO-777"
+    assert result["numero_caso"] == "CASO-777"
+
+
+def test_start_fraude_idempotent_returns_existing_active_instance() -> None:
+    """A FRAUDE-001 already active for this case is returned unchanged — never a second start
+    (the L0 convergence guarantee: in-flow start + bridge re-delivery never double-start)."""
+    engine = FakeCibSevenTransport()
+    sink = FakeStartAuditSink()
+    engine.seed_instance(
+        ProcessInstance(
+            instance_id="pre-existing-fraude",
+            process_key=FRAUDE_PROCESS_KEY,
+            business_key="FRAUDE-amh-prov:teste-0001",
+            state="ACTIVE",
+            already_existed=True,
+        )
+    )
+    result = start_fraude(_fraude_vars(), engine=engine, audit_sink=sink)
+    assert result["fraude_already_existed"] is True
+    assert result["fraude_instance_id"] == "pre-existing-fraude"
+
+
+def test_start_fraude_fail_closed_when_engine_seam_not_wired() -> None:
+    with pytest.raises(RuntimeError, match="engine seam"):
+        start_fraude(_fraude_vars(), audit_sink=FakeStartAuditSink())
+
+
+def test_start_fraude_fail_closed_when_audit_sink_not_wired() -> None:
+    with pytest.raises(RuntimeError, match="audit sink"):
+        start_fraude(_fraude_vars(), engine=FakeCibSevenTransport())
+
+
+@pytest.mark.parametrize(
+    "over",
+    [
+        {"prestador_id": ""},
+        {"prestador_id": "   "},
+        {"prestador_id": None},
+        {"tenant_id": ""},
+        {"tenant_id": "   "},
+        {"tenant_id": None},
+    ],
+    ids=["prest-empty", "prest-ws", "prest-none", "tenant-empty", "tenant-ws", "tenant-none"],
+)
+def test_start_fraude_refuses_degenerate_anchors_before_any_engine_call(
+    over: dict[str, object],
+) -> None:
+    """Whitespace-only / explicit-None anchors and a blank/None tenant_id all refuse
+    (`non_blank` semantics, shared with the bridge) BEFORE any engine call — no start attempted,
+    no audit emitted, never a degenerate business key like `FRAUDE-amh-None`."""
+    engine = FakeCibSevenTransport()
+    sink = FakeStartAuditSink()
+    with pytest.raises(ContasFraudeSemAlvoError):
+        start_fraude(_fraude_vars(**over), engine=engine, audit_sink=sink)
     assert sink.dedup_keys == []  # emit-before-effect: refusal precedes ANY audit/engine call
     assert sink.records == []
 

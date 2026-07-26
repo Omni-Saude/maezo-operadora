@@ -349,7 +349,7 @@ do CONTAS). A decisao sai em nome do humano (assignee na trilha de auditoria, AD
         <camunda:inputOutput>
           <camunda:inputParameter name="event_topic">agents.events.fraude.completed</camunda:inputParameter>
           <camunda:inputParameter name="event_desfecho">encaminhado_credenciamento</camunda:inputParameter>
-          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_caso,investigator_id,tier</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_caso,investigator_id,tier,prestador_id</camunda:inputParameter>
         </camunda:inputOutput>
       </bpmn:extensionElements>
       <bpmn:incoming>Flow_Cred_Pub</bpmn:incoming>
@@ -372,7 +372,7 @@ do CONTAS). A decisao sai em nome do humano (assignee na trilha de auditoria, AD
         <camunda:inputOutput>
           <camunda:inputParameter name="event_topic">agents.events.fraude.completed</camunda:inputParameter>
           <camunda:inputParameter name="event_desfecho">encaminhado_contratual</camunda:inputParameter>
-          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_caso,investigator_id,tier</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,numero_caso,investigator_id,tier,numero_contrato,entidade_tipo</camunda:inputParameter>
         </camunda:inputOutput>
       </bpmn:extensionElements>
       <bpmn:incoming>Flow_Contratual_Pub</bpmn:incoming>
