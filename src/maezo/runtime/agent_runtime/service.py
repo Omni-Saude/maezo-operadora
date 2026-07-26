@@ -30,6 +30,12 @@ that require graphs:
                node ever runs, so it costs no network I/O even though the injected transports
                (`CibSevenDmnTransport`/`CibSevenHttpTransport`/FHIR/WhatsApp adapters) are the
                REAL classes pointed at this replica's configured URLs.
+            5. durable checkpointer provisioned (T3.4/F4) — `_provision_checkpointer` constructs an
+               `AsyncPostgresSaver` from `DATABASE_URL` and runs `asetup()` ONCE (idempotent). The
+               graph (point 4) is then compiled checkpoint-enabled. FAIL-CLOSED in production
+               (`agent_runtime_mode != "local"`): a missing DSN or a setup failure leaves
+               `checkpointer_ready` red — the daemon refuses to run stateless; local/dev falls
+               back to an in-memory saver with a loud warning. (The a2a checks 6-7 follow.)
           Turn EXECUTION (a graph actually processing a conversation) still does not happen in
           this daemon — see `agent_graph_execution_pending` below. For Helena, live execution is
           driven by the webhook-receiver's own in-process dispatch
@@ -57,6 +63,7 @@ from maezo.agents import AgentDefinition, AgentLoader
 from maezo.gateway.pep import PEP, PolicyError, build_pep
 from maezo.platform.health import CheckResult, build_health_server, create_health_app
 from maezo.platform.observability import get_metrics_collector
+from maezo.runtime.checkpoint import Checkpointer
 from maezo.runtime.harness import Harness, UnknownAgentError
 from maezo.runtime.inference import InferenceProvider
 
@@ -68,6 +75,12 @@ if TYPE_CHECKING:
 #: The two agents party to the ONE A2A edge W3 wires (design doc §9.2) — every other agent
 #: replica is not forced onto Rafael's dependency posture by the `a2a_dispatcher_ready` check.
 _A2A_EDGE_AGENT_IDS = ("helena", "rafael")
+
+#: The ONLY non-production `agent_runtime_mode` (settings default). Mirrors the identically-named
+#: discriminator in `a2a_composition.py` (F2): anything other than "local" (Helm injects
+#: "kubernetes") is PRODUCTION, where a missing/failed durable checkpointer fails CLOSED rather
+#: than silently degrading to stateless / in-memory persistence.
+_LOCAL_RUNTIME_MODE = "local"
 
 logger = structlog.get_logger(__name__)
 
@@ -91,6 +104,15 @@ class AgentState:
     inference_error: str | None = None
     agent_graph: StateGraph[Any] | None = None
     agent_graph_error: str | None = None
+    # T3.4/F4: durable LangGraph checkpointer (working-layer state persistence). Provisioned once
+    # at bring-up (`.setup()` idempotent). `checkpointer_ready` is FAIL-CLOSED in production
+    # (`agent_runtime_mode != "local"`): a prod daemon that cannot durably checkpoint must not
+    # advertise readiness — it would otherwise silently run stateless (no resume-after-restart).
+    # In local/dev it falls back to an in-memory saver with a LOUD warning.
+    checkpointer: Checkpointer | None = None
+    checkpointer_ready: bool = False
+    checkpointer_backend: str | None = None
+    checkpointer_error: str | None = None
     a2a_dispatcher: DelegationDispatcher | None = None
     a2a_dispatcher_error: str | None = None
     # T2.4 A2A W4 (T-F daemon-readiness finalization): FAIL-CLOSED gate mirroring worker_runtime's
@@ -166,6 +188,26 @@ def build_readiness_checks(state: AgentState) -> list[Callable[[], Awaitable[Che
             name="graph_loaded", healthy=False, detail=_state.agent_graph_error or "agent graph not built"
         )
 
+    async def checkpointer_ready(_state: AgentState = state) -> CheckResult:
+        # T3.4/F4: FAIL-CLOSED durable-persistence gate. In production (`agent_runtime_mode !=
+        # "local"`) this is red unless an AsyncPostgresSaver was constructed AND `asetup()`
+        # succeeded — the daemon refuses to advertise readiness while it could only run stateless
+        # (mirrors the F2 a2a_composition discipline + worker_runtime's audit_sink_ready posture).
+        # In local/dev the in-memory fallback reports healthy with its backend named in the detail.
+        if _state.checkpointer_ready:
+            return CheckResult(
+                name="checkpointer_ready",
+                healthy=True,
+                detail=f"backend={_state.checkpointer_backend}",
+            )
+        return CheckResult(
+            name="checkpointer_ready",
+            healthy=False,
+            detail=_state.checkpointer_error
+            or "durable checkpointer not provisioned — the daemon refuses to run stateless in "
+            "production (T3.4/F4 fail-closed)",
+        )
+
     async def a2a_dispatcher_ready(_state: AgentState = state) -> CheckResult:
         # T2.4 A2A W3: construction-only proof the Helena->Rafael `authorization.analyze`
         # delegation edge ASSEMBLES (mirrors `graph_loaded` — no `.delegate()` call happens here,
@@ -222,6 +264,7 @@ def build_readiness_checks(state: AgentState) -> list[Callable[[], Awaitable[Che
         policies_loadable,
         inference_provider_ready,
         graph_loaded,
+        checkpointer_ready,
         a2a_dispatcher_ready,
         a2a_audit_sink_ready,
     ]
@@ -322,16 +365,97 @@ def _build_tool_deps(settings: AgentRuntimeSettings) -> dict[str, Any]:
     return deps
 
 
-def _load_agent_graph(settings: AgentRuntimeSettings, inference: InferenceProvider | None) -> StateGraph[Any]:
+def _load_agent_graph(
+    settings: AgentRuntimeSettings,
+    inference: InferenceProvider | None,
+    checkpointer: Checkpointer | None = None,
+) -> StateGraph[Any]:
     """Resolve + build `settings.agent_id`'s real graph (T1.11, defect B6).
 
+    T3.4/F4: the durable `checkpointer` (provisioned once at bring-up) is now wired into the
+    `Harness` AND into the structural-validation `compile()` — so the readiness-time proof is
+    that the graph compiles *checkpoint-enabled*, not merely stateless. Construction still never
+    runs a node (no checkpoint I/O happens here; the write occurs when a turn actually executes,
+    e.g. the webhook dispatch path). When `checkpointer` is None (dev with no saver at all) the
+    graph still compiles stateless — the fail-closed signal for "no durable persistence in prod"
+    is the separate `checkpointer_ready` readiness gate, not this build check.
+
     Raises `UnknownAgentError`/`ValueError` on any failure — the caller (`_bring_up_dependencies`)
-    isolates it into `agent_graph_error`, same as the other three STEP B checks.
+    isolates it into `agent_graph_error`, same as the other STEP B checks.
     """
-    harness = Harness(inference=inference, tool_deps=_build_tool_deps(settings))
+    harness = Harness(inference=inference, checkpointer=checkpointer, tool_deps=_build_tool_deps(settings))
     graph = harness.create_graph(settings.agent_id)
-    graph.compile()  # validates the graph is structurally sound; never runs a node
+    saver = checkpointer.saver if checkpointer is not None else None
+    graph.compile(checkpointer=saver)  # validates structure (checkpoint-enabled); never runs a node
     return graph
+
+
+async def _provision_checkpointer(state: AgentState) -> None:
+    """Provision the durable LangGraph checkpointer ONCE, with F2 fail-closed discipline (T3.4/F4).
+
+    Discipline (mirrors `a2a_composition._require_signer_or_fail_closed` + worker_runtime's
+    `audit_sink_ready`):
+
+      - `DATABASE_URL` present -> open an `AsyncPostgresSaver` and run `asetup()` once (idempotent
+        DDL; `checkpoint_migrations` owns versioning — NOT Alembic, see
+        `platform/migrations/versions/0006_retire_dead_checkpoint_tables.py`). Success ->
+        `checkpointer_ready`. Failure -> PRODUCTION fails closed (readiness red, no fallback);
+        NON-production falls back to in-memory with a loud warning.
+      - `DATABASE_URL` absent -> PRODUCTION fails closed (a prod daemon must not run stateless);
+        NON-production falls back to in-memory with a loud warning.
+
+    Isolated exactly like the other bring-up blocks: never propagates (liveness stays up); a
+    failure leaves `checkpointer_ready` False so `/readyz` reports it red.
+    """
+    settings = state.settings
+    is_production = settings.agent_runtime_mode != _LOCAL_RUNTIME_MODE
+
+    if settings.database_url:
+        try:
+            state.checkpointer = await Checkpointer.connect_and_setup(settings.database_url)
+            state.checkpointer_ready = True
+            state.checkpointer_backend = "postgres"
+            return
+        except Exception as exc:  # noqa: BLE001 — isolated; fail-closed in prod, fallback in dev.
+            state.checkpointer_error = f"AsyncPostgresSaver setup failed: {type(exc).__name__}: {exc}"
+            logger.error(
+                "checkpointer_postgres_setup_failed",
+                agent_id=settings.agent_id,
+                agent_runtime_mode=settings.agent_runtime_mode,
+                exc_info=True,
+            )
+            if is_production:
+                # FAIL-CLOSED: no silent degradation to in-memory in production.
+                return
+    else:
+        state.checkpointer_error = "DATABASE_URL unset — no durable checkpoint backend available"
+        if is_production:
+            logger.error(
+                "checkpointer_no_database_url_production",
+                agent_id=settings.agent_id,
+                agent_runtime_mode=settings.agent_runtime_mode,
+                detail="prod daemon refuses to run with a non-durable (in-memory) checkpointer",
+            )
+            # FAIL-CLOSED: leave checkpointer_ready False.
+            return
+
+    # NON-production fallback ONLY (reached only when is_production is False): in-memory saver,
+    # explicit warning. State does NOT survive a restart — dev/test ergonomics, never prod.
+    from langgraph.checkpoint.memory import InMemorySaver
+
+    state.checkpointer = Checkpointer(saver=InMemorySaver())
+    state.checkpointer_ready = True
+    state.checkpointer_backend = "memory"
+    logger.warning(
+        "checkpointer_inmemory_fallback_dev",
+        agent_id=settings.agent_id,
+        agent_runtime_mode=settings.agent_runtime_mode,
+        reason=state.checkpointer_error,
+        detail=(
+            "IN-MEMORY checkpointer: state will NOT survive a restart. Non-production fallback "
+            "ONLY (agent_runtime_mode='local'); production fails closed instead (T3.4/F4)."
+        ),
+    )
 
 
 async def _probe_a2a_audit_sink(sink: PostgresAuditSink, timeout_s: float) -> bool:
@@ -379,8 +503,12 @@ async def _bring_up_dependencies(state: AgentState) -> None:
         state.inference_error = f"{type(exc).__name__}: {exc}"
         logger.error("agent_inference_provider_build_failed", exc_info=True)
 
+    # T3.4/F4: provision the durable checkpointer BEFORE building the graph, so the graph compiles
+    # checkpoint-enabled. Own isolation + fail-closed discipline lives inside the helper.
+    await _provision_checkpointer(state)
+
     try:
-        state.agent_graph = _load_agent_graph(settings, state.inference_provider)
+        state.agent_graph = _load_agent_graph(settings, state.inference_provider, state.checkpointer)
     except (UnknownAgentError, ValueError) as exc:
         state.agent_graph_error = f"{type(exc).__name__}: {exc}"
         logger.error("agent_graph_build_failed", agent_id=settings.agent_id, exc_info=True)
@@ -435,6 +563,8 @@ async def _bring_up_dependencies(state: AgentState) -> None:
         policies_loadable=state.pep is not None,
         inference_provider_ready=state.inference_provider is not None,
         graph_loaded=state.agent_graph is not None,
+        checkpointer_ready=state.checkpointer_ready,
+        checkpointer_backend=state.checkpointer_backend,
         a2a_dispatcher_ready=(
             state.a2a_dispatcher is not None if settings.agent_id in _A2A_EDGE_AGENT_IDS else "n/a"
         ),
@@ -522,5 +652,11 @@ async def run(settings: AgentRuntimeSettings) -> None:
     server.should_exit = True
     with contextlib.suppress(asyncio.CancelledError, SystemExit):
         await serve_task
+
+    # T3.4/F4: release the checkpointer's connection pool (idempotent; no-op for the in-memory
+    # fallback / when never provisioned). Non-fatal — a close failure must not mask shutdown.
+    if state.checkpointer is not None:
+        with contextlib.suppress(Exception):
+            await state.checkpointer.aclose()
 
     logger.info("agent_runtime_stopped", tenant=settings.tenant_id, agent_id=settings.agent_id)
