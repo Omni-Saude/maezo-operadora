@@ -1814,7 +1814,6 @@ async def deploy_nip_and_submit_artifacts(engine: EngineRest) -> str:
     )
 
 
-@pytest.mark.xfail(reason=_T267_NIP_END_TO_END_PENDING_LIVE_PROOF_REASON, strict=True)
 async def test_nip_handoff_end_to_end_starts_ans_submit_via_live_bridge(
     engine: EngineRest,
     deploy_nip_and_submit_artifacts: str,
