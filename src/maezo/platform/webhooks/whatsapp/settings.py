@@ -24,6 +24,14 @@ class WhatsAppWebhookSettings(BaseSettings):
 
     tenant_id: str = Field(default="amh", alias="TENANT_ID")
 
+    # PHI pseudonymizer HMAC key (ADR-0006/ADR-0031) — the vault-synced secret Helena's dispatch
+    # keys her CPF/telefone/nome/email pseudonyms with (`gateway/pseudonymizer.py`). This is the
+    # daemon that actually constructs+calls the Pseudonymizer (service.py `_build_dispatcher` ->
+    # dispatch.py), so the key MUST be injected here (ExternalSecret `phi-hmac-key`). Absent in a
+    # production `runtime_mode` -> `Pseudonymizer.from_settings` fails closed (never a reversible
+    # unkeyed pseudonym). Empty in dev/CI -> deterministic per-tenant DEV key (non-secret).
+    phi_hmac_key: str | None = Field(default=None, alias="PHI_HMAC_KEY")
+
     # Meta app secret (HMAC-SHA256 signature validation, POST /webhook) — REQUIRED, no default.
     app_secret: str = Field(alias="WHATSAPP_APP_SECRET")
     # Meta verify token (GET /webhook handshake) — REQUIRED, no default.

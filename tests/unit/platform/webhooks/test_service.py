@@ -26,6 +26,10 @@ def _settings(**overrides: object) -> WhatsAppWebhookSettings:
         "app_secret": "s3cret",
         "verify_token": "vt",
         "tenant_id": "amh",
+        # A validly-configured receiver carries the PHI_HMAC_KEY (ADR-0031): a production-mode
+        # dispatcher build now fails closed without it. These tests exercise the checkpointer/DSN
+        # fences, not the pseudonymizer key gate, so supply a key by default.
+        "phi_hmac_key": "test-phi-hmac-key",
     }
     base.update(overrides)
     return WhatsAppWebhookSettings(**base)  # type: ignore[arg-type]
