@@ -41,6 +41,7 @@ import structlog
 
 from maezo.gateway.audit_postgres import FreshSinkAuditEmitter, PostgresAuditSink
 from maezo.platform.health import CheckResult, build_health_server, create_health_app
+from maezo.platform.integrations.events_kafka_producer import AioKafkaEventsProducer
 from maezo.platform.observability import get_metrics_collector
 from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
 from maezo.tools.workers.auth import AUTH_BPMN_ERROR_ALLOWLIST
@@ -140,6 +141,7 @@ def register_default_workers(
     engine: CibSevenTransport | None = None,
     audit_sink: AuditStartSink | None = None,
     tenant_id: str = "",
+    kafka: AioKafkaEventsProducer | None = None,
 ) -> None:
     """Register every worker this build serves. The daemon's ONE bootstrap call (STEP B).
 
@@ -173,9 +175,22 @@ def register_default_workers(
     asyncpg pool binds to the loop that created it (same rationale as
     `FreshClientCibSevenTransport`, sink-side).
 
+    `kafka` (a `harness.KafkaPublisher`, T4 producer-leg wiring) is the domain-event/notifications
+    egress seam threaded into every `register_<domain>_workers(harness, kafka, **seams)` bootstrap
+    (the pre-existing `kafka: KafkaPublisher | None = None` parameter every one of the 17 modules
+    already declares — T1.2/ADR-0026 — but which no composition root ever populated with a real
+    producer). Absent (`None`, the topic-probe default) preserves the pre-existing `kafka=None`
+    behavior byte-for-byte (`events.py`'s own documented decision: loud log, `event_published=
+    False`, never a fabricated success, never a crash). In the live daemon it is an
+    `AioKafkaEventsProducer` (`platform/integrations/events_kafka_producer.py`) — real, best-effort
+    for the domain-completed-event/notifications topics (see that module's docstring for the
+    fail-safe discipline and the CONTAS/FRAUDE-completed -> notifications-bridge mirror it applies).
+
     Idempotent (`WorkerHarness.register_worker` replaces on re-registration, same topic).
     """
-    register_all_workers(harness, dmn=dmn, engine=engine, audit_sink=audit_sink, tenant_id=tenant_id)
+    register_all_workers(
+        harness, dmn=dmn, engine=engine, audit_sink=audit_sink, tenant_id=tenant_id, kafka=kafka
+    )
 
 
 def _expected_worker_topics() -> frozenset[str]:
@@ -266,6 +281,13 @@ class WorkerState:
     # the daemon enters the fetch-and-lock rotation at all.
     audit_sink: PostgresAuditSink | None = None
     audit_sink_ready: bool = False
+    # T4 producer-leg seam: real `KafkaPublisher` for `operadora.events.publish`/`lgpd.py`'s
+    # notification handlers. Construction is PURE (no network — mirrors `dmn_transport`/
+    # `engine_transport` above: `AioKafkaEventsProducer` connects LAZILY on its first `.publish()`
+    # call, bounded by its own internal connect/send timeouts). `None` only if construction itself
+    # raised (e.g. bad settings) -> every worker then sees `kafka=None`, the PRE-EXISTING
+    # documented behavior (`events.py` module docstring), never a crash.
+    kafka_publisher: AioKafkaEventsProducer | None = None
     harness: WorkerHarness | None = None
     expected_topics: frozenset[str] = field(default_factory=frozenset)
     harness_task: asyncio.Task[None] | None = None
@@ -363,20 +385,25 @@ def build_readiness_checks(state: WorkerState) -> list[Callable[[], Awaitable[Ch
         )
 
     async def kafka_ready(_state: WorkerState = state) -> CheckResult:
-        # T1.2/ADR-0026: `kafka` (a `KafkaPublisher | None`) is now threaded via
-        # `functools.partial` into every one of the 13 function-based modules' entry functions
-        # (the donor `register_<domain>_workers(harness, kafka=None, **seams)` contract) — but no
-        # entry function actually CALLS `kafka.publish` yet (documented per-module: the sync
-        # entry-function boundary vs the async `KafkaPublisher.publish` seam is a real gap, not
-        # fabricated here). This daemon does not construct a real producer either. Gating
-        # readiness on a producer no registered worker actually drives would be a readiness check
-        # on an unused dependency. Always healthy, with an explicit detail so this is never
-        # mistaken for "Kafka verified reachable".
-        return CheckResult(
-            name="kafka_ready",
-            healthy=True,
-            detail="not required by any worker registered in this build (kafka=None; unused today)",
+        # T4 producer-leg wiring: a real `AioKafkaEventsProducer` is now constructed at bring-up
+        # (bounded, non-fatal — see `_bring_up_dependencies`). `events.py`'s generic
+        # `operadora.events.publish` worker DOES call `kafka.publish` (unlike the stale comment
+        # this replaced claimed) — but a Kafka outage must NEVER fail this readiness check, since
+        # no BPMN gateway routes on any publish outcome (events.py's own documented invariant) and
+        # the producer itself is best-effort for the topics that matter (module docstring,
+        # `events_kafka_producer.py`). Reports the boot-time connectivity outcome for OPERATOR
+        # visibility only — never gates `/readyz` (always healthy=True), mirroring the pre-existing
+        # "kafka=None is not a readiness failure" posture this check has always held.
+        detail = (
+            "kafka producer constructed (connects lazily on first publish; a broker outage is "
+            "best-effort/audited for the mirrored topics, never a readiness failure — see "
+            "events_kafka_producer.py)"
+            if _state.kafka_publisher is not None
+            else "kafka producer NOT constructed (construction failed at boot) — workers fall back "
+            "to kafka=None (event_published=False, never a crash, ADR-0026 pre-existing behavior); "
+            "not a readiness failure"
         )
+        return CheckResult(name="kafka_ready", healthy=True, detail=detail)
 
     async def audit_sink_ready(_state: WorkerState = state) -> CheckResult:
         # FAIL-CLOSED L0 gate (ADR-0007, design §7 T-D / Revision MUST-FIX 2): `/readyz` stays RED
@@ -455,6 +482,15 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
     except Exception:  # noqa: BLE001 — construction failure: engine-seam workers fail closed later.
         logger.error("engine_transport_build_failed", exc_info=True)
 
+    try:
+        # T4 producer-leg seam: PURE construction (no network — see `WorkerState.kafka_publisher`
+        # docstring), so a bad/unreachable KAFKA_BOOTSTRAP_SERVERS never blocks bring-up; the first
+        # actual `.publish()` call connects lazily and is itself best-effort for the topics that
+        # matter (`events_kafka_producer.py`).
+        state.kafka_publisher = AioKafkaEventsProducer(bootstrap_servers=settings.kafka_bootstrap_servers)
+    except Exception:  # noqa: BLE001 — construction failure: workers fall back to kafka=None.
+        logger.error("kafka_publisher_build_failed", exc_info=True)
+
     if settings.database_url:
         try:
             # Durable audit sink (ADR-0007 L0, ADR-0027). Construction is PURE (the asyncpg pool is
@@ -522,6 +558,7 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
                 if settings.database_url
                 else None,
                 tenant_id=settings.tenant_id,
+                kafka=state.kafka_publisher,
             )
             state.harness = harness
             state.expected_topics = _expected_worker_topics()
@@ -639,6 +676,9 @@ async def run(settings: WorkerRuntimeSettings) -> None:
     if state.audit_sink is not None:
         with contextlib.suppress(Exception):
             await state.audit_sink.aclose()
+    if state.kafka_publisher is not None:
+        with contextlib.suppress(Exception):
+            await state.kafka_publisher.close()
 
     # The health server's should_exit was already set in the drain trigger; make sure it's set
     # regardless of which path got us here, then wait for it to actually stop.

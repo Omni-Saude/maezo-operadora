@@ -203,9 +203,10 @@ async def test_harness_running_true_while_task_alive() -> None:
 
 
 async def test_kafka_ready_always_healthy_with_explicit_detail() -> None:
-    """No worker registered by this build declares a Kafka dependency — see service.py's
-    `kafka_ready` docstring. The check is present (design §12 lists it) but never gates
-    readiness until a T1.2 module actually needs Kafka."""
+    """T4 producer-leg: a real (lazily-connecting) `AioKafkaEventsProducer` is now constructed at
+    bring-up — see service.py's `kafka_ready` docstring. The check is present (design §12 lists
+    it) but NEVER gates readiness (a Kafka outage is best-effort/audited for the mirrored topics,
+    not a readiness failure)."""
     state = _state()
     checks = {c.__name__: c for c in build_readiness_checks(state)}
     result = await checks["kafka_ready"]()
@@ -353,11 +354,13 @@ async def test_bring_up_threads_audit_sink_and_engine_and_spawns_when_probe_gree
         engine: Any = None,
         audit_sink: Any = None,
         tenant_id: str = "",
+        kafka: Any = None,
     ) -> None:
         captured["engine"] = engine
         captured["dmn"] = dmn
         captured["audit_sink"] = audit_sink
         captured["tenant_id"] = tenant_id
+        captured["kafka"] = kafka
 
     async def _probe_ok(_sink: Any, _timeout: float) -> bool:
         return True
@@ -385,6 +388,10 @@ async def test_bring_up_threads_audit_sink_and_engine_and_spawns_when_probe_gree
         # T2.6-EB3 part 3: the daemon's own tenant identity threads into register_default_workers
         # (-> ans_cron.trigger_submissions' seam).
         assert captured["tenant_id"] == settings.tenant_id
+        # T4 producer-leg: the real (lazily-connecting) Kafka publisher threads into
+        # register_default_workers too — constructed purely, no network at bring-up.
+        assert captured["kafka"] is state.kafka_publisher
+        assert state.kafka_publisher is not None
         assert state.harness_task is not None, "verified sink -> daemon enters the fetch rotation"
     finally:
         if state.harness_task is not None:
