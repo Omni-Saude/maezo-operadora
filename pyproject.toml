@@ -53,8 +53,11 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8.0,<10.0",
-    "pytest-asyncio>=0.23,<1.0",
+    "pytest>=9.0.3,<10.0",        # T4: pytest 9 stack bump (was 8.4.2); paired with pytest-asyncio>=1.4
+                                  # below to fix the pytest-asyncio 0.x `Package.obj` AttributeError
+                                  # INTERNALERROR at collection (dependabot PR #161 could not land pytest alone)
+    "pytest-asyncio>=1.4.0,<2.0", # pytest-asyncio 1.x is the pytest-9-compatible line (declares
+                                  # pytest<10,>=8.4); 0.x is incompatible with pytest 9 collection hooks
     "pytest-cov>=5.0,<8.0",
     "ruff>=0.5,<1.0",
     "mypy>=1.10,<3.0",
