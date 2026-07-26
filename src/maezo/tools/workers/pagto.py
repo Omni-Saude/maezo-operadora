@@ -253,6 +253,30 @@ def execute_pagto(variables: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------
 
 
+def _norm_str(value: Any) -> str:
+    """Normalize an engine variable to a stripped string for guard checks — FAIL-CLOSED.
+
+    R1 live-validation finding (t2.5-p2b-round2, wave2a, 3 of 12 bypass vectors): the guard's
+    original bare `if not aprovador_id` / `if not justificativa` checks let WHITESPACE-ONLY
+    accountability fields REGISTER a refusal — defeating ADR-0007 (a refusal recorded with a
+    non-identifying approver) — whereas the claimed mirror `recurso.register_desistencia`
+    `.strip()`s every human field. This helper closes that class:
+    - a `str` normalizes to `value.strip()` — whitespace-only ("   ", "\\t", "\\n", ...)
+      becomes "" and is treated EXACTLY like an absent field (refusal, never registration);
+    - a NON-string (None, int, bool, list, dict — engine variables arrive untyped) normalizes
+      to "" (fail-closed refusal), never a truthy pass-through (`if not 123` was falsy — a
+      non-string aprovador_id would previously have silently PASSED the accountability check)
+      and never an AttributeError incident from calling `.strip()` on a non-string.
+
+    Shared by `release_high_value_payment` (t3.1-guard-input-hardening — closes the pre-existing
+    bare-truthiness gap flagged in the #133 audit note, pagto.py:283,285) and
+    `register_payment_refusal` (original t2.5-p2b-round2 fix, below).
+    """
+    if isinstance(value, str):
+        return value.strip()
+    return ""
+
+
 def release_high_value_payment(variables: dict[str, Any]) -> dict[str, Any]:
     """Release high-value payment — GATED with tier-match.
 
@@ -261,11 +285,25 @@ def release_high_value_payment(variables: dict[str, Any]) -> dict[str, Any]:
       - decisao_pagamento == APROVAR from human
       - aprovador_id + justificativa + valor_aprovado_cents
       - tier-match: aprovador_tier >= required for faixa_valor
+
+    NORMALIZATION (t3.1-guard-input-hardening, closing the bare-truthiness gap noted in the
+    #133 audit — pagto.py:283,285 pre-fix): `decisao_pagamento`, `aprovador_id` and
+    `justificativa_aprovacao` are normalized via `_norm_str` (strip; non-string -> "") BEFORE any
+    guard check, mirroring `register_payment_refusal`'s own fix below. Consequences, all
+    fail-closed:
+    - whitespace-only `aprovador_id`/`justificativa_aprovacao` REFUSES exactly like an absent
+      field (was a silent pass-through: `if not aprovador_id` treats "   " as truthy);
+    - a whitespace-PADDED but otherwise exact `decisao_pagamento` literal ("APROVAR ") normalizes
+      to the literal and still passes Guard 1 (still subject to tier-match and the
+      accountability-field checks) — case variants/substrings ("aprovar", "APROVAR_X") still
+      refuse (exact `!=` match, no folding);
+    - a non-string in ANY of these fields normalizes to "" (refusal), never a truthy
+      pass-through and never an AttributeError incident.
     """
-    decisao = variables.get("decisao_pagamento", "")
-    aprovador_id = variables.get("aprovador_id", "")
+    decisao = _norm_str(variables.get("decisao_pagamento", ""))
+    aprovador_id = _norm_str(variables.get("aprovador_id", ""))
     aprovador_tier = variables.get("aprovador_tier", 0)
-    justificativa = variables.get("justificativa_aprovacao", "")
+    justificativa = _norm_str(variables.get("justificativa_aprovacao", ""))
     valor_aprovado = variables.get("valor_aprovado_cents", 0)
     faixa = variables.get("faixa_valor", "")
 
@@ -357,26 +395,6 @@ def notify_sla_risk(variables: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------
 # register_payment_refusal — GATED, dual human channel (NOT adverse-release; refuse-if-no-human)
 # ---------------------------------------------------------------
-
-
-def _norm_str(value: Any) -> str:
-    """Normalize an engine variable to a stripped string for guard checks — FAIL-CLOSED.
-
-    R1 live-validation finding (t2.5-p2b-round2, wave2a, 3 of 12 bypass vectors): the guard's
-    original bare `if not aprovador_id` / `if not justificativa` checks let WHITESPACE-ONLY
-    accountability fields REGISTER a refusal — defeating ADR-0007 (a refusal recorded with a
-    non-identifying approver) — whereas the claimed mirror `recurso.register_desistencia`
-    `.strip()`s every human field. This helper closes that class:
-    - a `str` normalizes to `value.strip()` — whitespace-only ("   ", "\\t", "\\n", ...)
-      becomes "" and is treated EXACTLY like an absent field (refusal, never registration);
-    - a NON-string (None, int, bool, list, dict — engine variables arrive untyped) normalizes
-      to "" (fail-closed refusal), never a truthy pass-through (`if not 123` was falsy — a
-      non-string aprovador_id would previously have silently PASSED the accountability check)
-      and never an AttributeError incident from calling `.strip()` on a non-string.
-    """
-    if isinstance(value, str):
-        return value.strip()
-    return ""
 
 
 def register_payment_refusal(variables: dict[str, Any]) -> dict[str, Any]:

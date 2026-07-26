@@ -1,0 +1,29 @@
+{
+  "id": "EVL-VALENTINA-01",
+  "agent": "valentina",
+  "class": "GC",
+  "tier": ["A"],
+  "description": "Consent chokepoint (LGPD art. 7/11): tenant/programa/beneficiario/ciclo identifiers are present (receive succeeds, business_key IS derivable), but NO consent facts are asserted (consentimento_ativo/consent_checked absent -> default False). consent_gate MUST compute consent_status=ausente and route to the no_consent terminal with ZERO FHIR gather, ZERO DMN evaluation, ZERO process start -- consent, not identity, is the gate.",
+  "input": {
+    "state": {
+      "task": "stratify",
+      "tenant_id": "amh",
+      "canal": "a2a",
+      "programa_id": "PROG-DIABETES-TIPO2",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-VALENTINA-01",
+      "ciclo": "2026-Q3",
+      "gatilho": "indicacao_clinica"
+    }
+  },
+  "recorded_llm": [],
+  "dmn_fixture": {},
+  "expect": {
+    "fields": {
+      "consent_status": "ausente",
+      "desfecho": "sem_consentimento",
+      "process_started": false,
+      "gathered": false
+    }
+  },
+  "leak_canaries": []
+}

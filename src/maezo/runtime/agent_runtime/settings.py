@@ -56,3 +56,7 @@ class AgentRuntimeSettings(BaseSettings):
 
     # --- Operational ----------------------------------------------------------------------------
     health_port: int = Field(default=8000, alias="HEALTH_PORT")
+    # T2.4 A2A W4 (T-F daemon-readiness finalization): bounded connectivity-probe timeout for the
+    # `a2a_audit_sink_ready` gate, mirroring `worker_runtime.settings.WorkerRuntimeSettings`'s
+    # identically-named/defaulted T-D field — never let a slow/hung Postgres hang bring-up.
+    dep_connect_timeout_s: float = Field(default=5.0, alias="DEP_CONNECT_TIMEOUT_S")

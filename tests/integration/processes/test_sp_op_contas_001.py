@@ -883,6 +883,19 @@ async def test_aceitar_glosa_exige_campos(
     se houvesse, PermissionError nunca dispara o caminho bpmnError). As assercoes abaixo NAO
     dependem de qual mecanismo produz o bloqueio — apenas que o terminal adverso nao e atingido e
     que nada foi registrado, ambos verdadeiros sob incidente OU boundary-catch.
+
+    STRENGTHENED (t3.1-test-hygiene-batch): the original `assert not
+    contas_probe.notifications_of_type("contas.register_glosa_accept")` was structurally vacuous —
+    that channel is ALWAYS empty regardless of whether the guard fired (FINDING 1: the entry
+    function never calls `kafka.publish` at all, guard-refused or not), so the assert could never
+    fail either way; it proved nothing about the guard. Replaced with the REAL, positive observable
+    FINDING 3 identifies: a guard refusal here has no boundary catch, so it surfaces as an OPEN
+    ENGINE INCIDENT at `ST_RegisterGlosaAccept` carrying the guard's own `ERR_GLOSA_ACCEPT_NOT_HUMAN`
+    message (`harness.py`'s `PermissionError` branch -> `_report_failure(..., retries_override=0)`
+    -> immediate incident, `harness.py:1372-1383`) — this is the guard ACTUALLY REFUSING, not an
+    absence of evidence. Mirrors how sibling guard tests elsewhere in this suite family assert
+    refusals live (recurso/pagto precedent: observe the engine-side refusal artifact directly,
+    never an always-empty proxy channel).
     """
     inst = await start_contas(categoria_normalizada="valor", has_glosas=True)
     iid = inst["id"]
@@ -895,14 +908,16 @@ async def test_aceitar_glosa_exige_campos(
     assert _END_GLOSA_ACEITA not in ended, (
         "Aceite sem campos obrigatorios NAO pode atingir End_GlosaAceitaHumano (guard do worker)"
     )
-    # FLAGGED, not adapted (t3.1-event-gap-a-contas — see module docstring FINDING 1a): this test
-    # is NOT xfail-marked and this assert checks EMPTINESS, so it is structurally vacuous — the
-    # dead notifications_of_type channel (FINDING 1) is ALWAYS empty regardless of whether the
-    # worker guard actually fired. Left UNCHANGED per this batch's policy against silently
-    # reinterpreting a passing test's semantics; the guard's real coverage is the
-    # `_END_GLOSA_ACEITA not in ended` / `_assert_no_accept_without_human_task` checks above/below.
-    aceites = contas_probe.notifications_of_type("contas.register_glosa_accept")
-    assert not aceites, "register_glosa_accept NAO deve registrar aceite sem campos obrigatorios"
+    incidents = await engine.incidents(iid)
+    guard_incidents = [i for i in incidents if i.get("activityId") == "ST_RegisterGlosaAccept"]
+    assert guard_incidents, (
+        "register_glosa_accept sem campos obrigatorios deve abrir um INCIDENTE real em "
+        f"ST_RegisterGlosaAccept (FINDING 3 — sem boundary catch para PermissionError). "
+        f"incidentes encontrados: {incidents}"
+    )
+    assert any("ERR_GLOSA_ACCEPT_NOT_HUMAN" in (i.get("incidentMessage") or "") for i in guard_incidents), (
+        f"incidente deve carregar a mensagem do guard ERR_GLOSA_ACCEPT_NOT_HUMAN: {guard_incidents}"
+    )
     await _assert_no_accept_without_human_task(engine, iid)
 
 

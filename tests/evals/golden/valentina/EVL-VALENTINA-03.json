@@ -1,0 +1,41 @@
+{
+  "id": "EVL-VALENTINA-03",
+  "agent": "valentina",
+  "class": "CE",
+  "tier": ["A"],
+  "description": "Consent active+verified for programa_cuidado; clean enrollment case (task=enroll) with eligibility criteria met -> programa_routing resolves ELEGIVEL -> auto_route (informative enrollment suggestion, NEVER a clinical decision -- UT_DecisaoClinica confirms). Synthetic data only.",
+  "input": {
+    "state": {
+      "task": "enroll",
+      "tenant_id": "amh",
+      "canal": "a2a",
+      "programa_id": "PROG-DIABETES-TIPO2",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-VALENTINA-03",
+      "ciclo": "2026-Q3",
+      "gatilho": "indicacao_clinica",
+      "consent_scope": "programa_cuidado",
+      "consentimento_ativo": true,
+      "consent_checked": true,
+      "consent_revoked": false,
+      "risco_estratificado": "baixo",
+      "elegibilidade_criterios_atendidos": true,
+      "criterio_alta_aparente": false
+    }
+  },
+  "recorded_llm": [
+    "Beneficiario elegivel ao programa de cuidado de diabetes tipo 2; plano de cuidado inicial proposto para confirmacao da coordenacao clinica."
+  ],
+  "dmn_fixture": {
+    "programa_routing": { "elegivel_programa": "ELEGIVEL", "motivo": "criterios de elegibilidade atendidos" },
+    "programa_sla": { "sla_decisao": "5d", "sla_alerta": "2d" }
+  },
+  "expect": {
+    "fields": {
+      "consent_status": "ativo",
+      "route": "auto_route",
+      "desfecho": "enrollment_realizado",
+      "elegivel_programa": "ELEGIVEL"
+    }
+  },
+  "leak_canaries": []
+}

@@ -592,6 +592,225 @@ def test_fraud_accusation_guard_missing_investigator() -> None:
 
 
 # ---------------------------------------------------------------
+# register_fraud_accusation — whitespace-bypass vectors (t3.1-guard-input-hardening,
+# closing the #133-audit-flagged gap at fraude.py:503,505,507,511: the guard's original bare
+# `if not investigator_id` / `if not tier` / `if not fundamentacao` / `if not ref_normativa`
+# checks let WHITESPACE-ONLY decision + accountability fields through Guard 1 -- the same
+# class the c1377fa fix closed for pagto.register_payment_refusal. L0-ADJACENT: the L0
+# invariant is that a fraud accusation NEVER registers without a genuine human decision behind
+# it. Every vector below MUST refuse with ERR_FRAUD_ACCUSATION_NOT_HUMAN -- whitespace-only is
+# the SAME as absent (ADR-0007: an accusation must carry an identifying human investigator +
+# a real justification).
+# ---------------------------------------------------------------
+
+_WHITESPACE_VARIANTS = [" ", "   ", "\t", "\n", "\t\n ", "\r\n"]
+_NON_STRING_VARIANTS: list[object] = [123, True, 0.5, ["x"], {"k": "v"}]
+
+
+def _fraud_accusation_baseline(**overrides: object) -> dict[str, object]:
+    """Happy-path baseline for register_fraud_accusation -- custody sealed + verifiable so any
+    guard failure observed in a test is attributable ONLY to the field under test (Guard 1,
+    ERR_FRAUD_ACCUSATION_NOT_HUMAN -- never Guard 2's ERR_CUSTODY_NOT_SEALED)."""
+    refs = ["ref-001", "ref-002"]
+    bundle_root = CustodyBundle.seal_bundle(refs)
+    base: dict[str, object] = {
+        "decisao_fraude": "ACUSAR_FRAUDE",
+        "investigator_id": "inv-001",
+        "tier": "senior",
+        "fundamentacao_investigacao": "Evidencia de upcoding sistematico",
+        "indicadores_fundamentantes": ["upcoding_pattern", "frequency_deviation"],
+        "referencia_normativa": "RN 593, Lei 9656 art. 13",
+        "destino_referral": {"juridico": True, "ans": True},
+        "bundle_root": bundle_root,
+        "evidencia_refs": refs,
+    }
+    base.update(overrides)
+    return base
+
+
+@pytest.mark.parametrize("whitespace", _WHITESPACE_VARIANTS)
+def test_fraud_accusation_whitespace_only_investigator_id_refuses(whitespace: str) -> None:
+    with pytest.raises(FraudeError) as excinfo:
+        register_fraud_accusation(_fraud_accusation_baseline(investigator_id=whitespace))
+    assert excinfo.value.code == ERR_FRAUD_ACCUSATION_NOT_HUMAN
+    assert "investigator_id" in excinfo.value.message
+
+
+@pytest.mark.parametrize("non_string", _NON_STRING_VARIANTS)
+def test_fraud_accusation_non_string_investigator_id_refuses(non_string: object) -> None:
+    """A NON-string investigator_id normalizes to '' and refuses -- the pre-fix bare
+    truthiness check (`if not investigator_id`) would have silently PASSED a truthy
+    non-string (e.g. 123), registering an L0 fraud accusation with a non-identifying
+    investigator."""
+    with pytest.raises(FraudeError) as excinfo:
+        register_fraud_accusation(_fraud_accusation_baseline(investigator_id=non_string))
+    assert excinfo.value.code == ERR_FRAUD_ACCUSATION_NOT_HUMAN
+    assert "investigator_id" in excinfo.value.message
+
+
+@pytest.mark.parametrize("whitespace", _WHITESPACE_VARIANTS)
+def test_fraud_accusation_whitespace_only_tier_refuses(whitespace: str) -> None:
+    with pytest.raises(FraudeError) as excinfo:
+        register_fraud_accusation(_fraud_accusation_baseline(tier=whitespace))
+    assert excinfo.value.code == ERR_FRAUD_ACCUSATION_NOT_HUMAN
+    assert "tier" in excinfo.value.message
+
+
+@pytest.mark.parametrize("non_string", _NON_STRING_VARIANTS)
+def test_fraud_accusation_non_string_tier_refuses(non_string: object) -> None:
+    with pytest.raises(FraudeError) as excinfo:
+        register_fraud_accusation(_fraud_accusation_baseline(tier=non_string))
+    assert excinfo.value.code == ERR_FRAUD_ACCUSATION_NOT_HUMAN
+    assert "tier" in excinfo.value.message
+
+
+@pytest.mark.parametrize("whitespace", _WHITESPACE_VARIANTS)
+def test_fraud_accusation_whitespace_only_fundamentacao_refuses(whitespace: str) -> None:
+    with pytest.raises(FraudeError) as excinfo:
+        register_fraud_accusation(_fraud_accusation_baseline(fundamentacao_investigacao=whitespace))
+    assert excinfo.value.code == ERR_FRAUD_ACCUSATION_NOT_HUMAN
+    assert "fundamentacao_investigacao" in excinfo.value.message
+
+
+@pytest.mark.parametrize("non_string", _NON_STRING_VARIANTS)
+def test_fraud_accusation_non_string_fundamentacao_refuses(non_string: object) -> None:
+    with pytest.raises(FraudeError) as excinfo:
+        register_fraud_accusation(_fraud_accusation_baseline(fundamentacao_investigacao=non_string))
+    assert excinfo.value.code == ERR_FRAUD_ACCUSATION_NOT_HUMAN
+    assert "fundamentacao_investigacao" in excinfo.value.message
+
+
+@pytest.mark.parametrize("whitespace", _WHITESPACE_VARIANTS)
+def test_fraud_accusation_whitespace_only_referencia_normativa_refuses(whitespace: str) -> None:
+    with pytest.raises(FraudeError) as excinfo:
+        register_fraud_accusation(_fraud_accusation_baseline(referencia_normativa=whitespace))
+    assert excinfo.value.code == ERR_FRAUD_ACCUSATION_NOT_HUMAN
+    assert "referencia_normativa" in excinfo.value.message
+
+
+@pytest.mark.parametrize("non_string", _NON_STRING_VARIANTS)
+def test_fraud_accusation_non_string_referencia_normativa_refuses(non_string: object) -> None:
+    with pytest.raises(FraudeError) as excinfo:
+        register_fraud_accusation(_fraud_accusation_baseline(referencia_normativa=non_string))
+    assert excinfo.value.code == ERR_FRAUD_ACCUSATION_NOT_HUMAN
+    assert "referencia_normativa" in excinfo.value.message
+
+
+@pytest.mark.parametrize("whitespace", _WHITESPACE_VARIANTS)
+def test_fraud_accusation_both_investigator_and_fundamentacao_whitespace_refuses(
+    whitespace: str,
+) -> None:
+    """Both investigator_id AND fundamentacao_investigacao whitespace-only -- both missing
+    fields named in the guard's error message."""
+    with pytest.raises(FraudeError) as excinfo:
+        register_fraud_accusation(
+            _fraud_accusation_baseline(investigator_id=whitespace, fundamentacao_investigacao=whitespace)
+        )
+    assert excinfo.value.code == ERR_FRAUD_ACCUSATION_NOT_HUMAN
+    assert "investigator_id" in excinfo.value.message
+    assert "fundamentacao_investigacao" in excinfo.value.message
+
+
+@pytest.mark.parametrize("whitespace", [" ", "\t", "\n", "  \t\n"])
+def test_fraud_accusation_whitespace_only_decisao_refuses(whitespace: str) -> None:
+    """Whitespace-only decisao_fraude normalizes to '' -> != ACUSAR_FRAUDE -> refuses (the
+    engine's own gateway default routing is not itself a human decision)."""
+    with pytest.raises(FraudeError) as excinfo:
+        register_fraud_accusation(_fraud_accusation_baseline(decisao_fraude=whitespace))
+    assert excinfo.value.code == ERR_FRAUD_ACCUSATION_NOT_HUMAN
+    assert "decisao_fraude" in excinfo.value.message
+
+
+def test_fraud_accusation_padded_valid_literal_normalizes_and_registers() -> None:
+    """Whitespace-PADDED but otherwise exact literal/fields normalize via `_norm_str` and
+    still register (pins the normalization behavior -- this is NOT a bypass, it is the
+    documented, intentional consequence of `.strip()`)."""
+    result = register_fraud_accusation(
+        _fraud_accusation_baseline(
+            decisao_fraude=" ACUSAR_FRAUDE ",
+            investigator_id=" inv-001 ",
+            tier=" senior ",
+            fundamentacao_investigacao=" Evidencia de upcoding sistematico ",
+            referencia_normativa=" RN 593, Lei 9656 art. 13 ",
+        )
+    )
+    assert result["acusacao_registrada"] is True
+
+
+@pytest.mark.parametrize(
+    "decision",
+    ["acusar_fraude", "Acusar_Fraude", "ACUSAR_FRAUDE_X", "XACUSAR_FRAUDE", "MONITORAR "],
+)
+def test_fraud_accusation_non_exact_decisao_literal_still_refuses(decision: str) -> None:
+    """Exact-match discipline survives normalization: case variants/substrings of the decision
+    literal never satisfy Guard 1 (zero_auto_accusation -- L0 principle Rafael/Beatriz)."""
+    with pytest.raises(FraudeError) as excinfo:
+        register_fraud_accusation(_fraud_accusation_baseline(decisao_fraude=decision))
+    assert excinfo.value.code == ERR_FRAUD_ACCUSATION_NOT_HUMAN
+
+
+# ---------------------------------------------------------------
+# register_fraud_accusation — indicadores_fundamentantes ELEMENT-level vectors
+# (t3.1-guard-input-hardening follow-up): the contract defines the list's elements as
+# accountability-bearing evidence citations (SP-OP-FRAUDE-001.md:91 — "quais indicadores do
+# dossie sustentam a acusacao (citacao de evidencia, ADR-0007 decision_basis)"). A list of
+# whitespace-only/non-string "citations" names NO indicator and must refuse exactly like an
+# empty list — the pre-fix len()>0 check accepted ["   "] as a present citation.
+# ---------------------------------------------------------------
+
+
+@pytest.mark.parametrize("whitespace", _WHITESPACE_VARIANTS)
+def test_fraud_accusation_whitespace_only_indicador_element_refuses(whitespace: str) -> None:
+    """A single whitespace-only element normalizes away -> empty list -> refuses with the
+    existing 'ausente/vazio' message (same error class, same message -- element-level
+    normalization only)."""
+    with pytest.raises(FraudeError) as excinfo:
+        register_fraud_accusation(_fraud_accusation_baseline(indicadores_fundamentantes=[whitespace]))
+    assert excinfo.value.code == ERR_FRAUD_ACCUSATION_NOT_HUMAN
+    assert "indicadores_fundamentantes" in excinfo.value.message
+
+
+@pytest.mark.parametrize(
+    "elements",
+    [
+        [" ", "\t", "\n"],
+        ["   ", "   "],
+        [123, True, 0.5],
+        [None, [], {}],
+        [" ", 123],
+    ],
+)
+def test_fraud_accusation_all_empty_or_non_string_indicador_elements_refuse(
+    elements: list[object],
+) -> None:
+    """Lists whose EVERY element is whitespace-only or non-string normalize to [] and refuse
+    -- no fake citation ever counts toward the ADR-0007 decision_basis."""
+    with pytest.raises(FraudeError) as excinfo:
+        register_fraud_accusation(_fraud_accusation_baseline(indicadores_fundamentantes=elements))
+    assert excinfo.value.code == ERR_FRAUD_ACCUSATION_NOT_HUMAN
+    assert "indicadores_fundamentantes" in excinfo.value.message
+
+
+def test_fraud_accusation_mixed_indicador_elements_keep_genuine_citation_and_register() -> None:
+    """One GENUINE citation among whitespace/non-string noise still registers (the genuine
+    element survives normalization; noise is dropped) -- pins that element normalization is
+    a filter, not a rejection of the whole list."""
+    result = register_fraud_accusation(
+        _fraud_accusation_baseline(indicadores_fundamentantes=[" ", "upcoding_pattern", 123, "\t"])
+    )
+    assert result["acusacao_registrada"] is True
+
+
+def test_fraud_accusation_padded_indicador_element_normalizes_and_registers() -> None:
+    """A whitespace-PADDED but otherwise genuine citation normalizes via strip and registers
+    (mirrors the scalar-field padded-literal pin)."""
+    result = register_fraud_accusation(
+        _fraud_accusation_baseline(indicadores_fundamentantes=[" upcoding_pattern "])
+    )
+    assert result["acusacao_registrada"] is True
+
+
+# ---------------------------------------------------------------
 # notify_sla_risk — informational, never adverse (t2.5-p2b-round2)
 # ---------------------------------------------------------------
 

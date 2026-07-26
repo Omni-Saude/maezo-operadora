@@ -47,11 +47,12 @@ import contextlib
 import signal
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
 from langgraph.graph import StateGraph
 
+from maezo.a2a import DelegationDispatcher
 from maezo.agents import AgentDefinition, AgentLoader
 from maezo.gateway.pep import PEP, PolicyError, build_pep
 from maezo.platform.health import CheckResult, build_health_server, create_health_app
@@ -60,6 +61,13 @@ from maezo.runtime.harness import Harness, UnknownAgentError
 from maezo.runtime.inference import InferenceProvider
 
 from .settings import AgentRuntimeSettings
+
+if TYPE_CHECKING:
+    from maezo.gateway.audit_postgres import PostgresAuditSink
+
+#: The two agents party to the ONE A2A edge W3 wires (design doc §9.2) — every other agent
+#: replica is not forced onto Rafael's dependency posture by the `a2a_dispatcher_ready` check.
+_A2A_EDGE_AGENT_IDS = ("helena", "rafael")
 
 logger = structlog.get_logger(__name__)
 
@@ -83,6 +91,14 @@ class AgentState:
     inference_error: str | None = None
     agent_graph: StateGraph[Any] | None = None
     agent_graph_error: str | None = None
+    a2a_dispatcher: DelegationDispatcher | None = None
+    a2a_dispatcher_error: str | None = None
+    # T2.4 A2A W4 (T-F daemon-readiness finalization): FAIL-CLOSED gate mirroring worker_runtime's
+    # T-D `audit_sink_ready` — a boot-time-only snapshot (see `a2a_audit_sink_ready`'s own
+    # docstring for why this differs from T-D's live per-`/readyz` re-probe) of whether the A2A
+    # composition's durable audit sink is VERIFIED reachable, not merely present/constructed.
+    a2a_audit_sink_ready: bool = False
+    a2a_audit_sink_error: str | None = None
 
     def is_live(self) -> bool:
         return self.live
@@ -150,7 +166,65 @@ def build_readiness_checks(state: AgentState) -> list[Callable[[], Awaitable[Che
             name="graph_loaded", healthy=False, detail=_state.agent_graph_error or "agent graph not built"
         )
 
-    return [agent_definition_loaded, policies_loadable, inference_provider_ready, graph_loaded]
+    async def a2a_dispatcher_ready(_state: AgentState = state) -> CheckResult:
+        # T2.4 A2A W3: construction-only proof the Helena->Rafael `authorization.analyze`
+        # delegation edge ASSEMBLES (mirrors `graph_loaded` — no `.delegate()` call happens here,
+        # no turn ever runs). Gated to the two agents party to this ONE edge (design doc §9.2):
+        # every other agent replica reports healthy/not-applicable rather than being forced onto
+        # Rafael's dependency posture (dmn/cibseven/audit_sink) for an edge it isn't part of.
+        if _state.settings.agent_id not in _A2A_EDGE_AGENT_IDS:
+            return CheckResult(
+                name="a2a_dispatcher_ready",
+                healthy=True,
+                detail=f"not applicable to agent_id={_state.settings.agent_id!r}",
+            )
+        if _state.a2a_dispatcher is not None:
+            return CheckResult(
+                name="a2a_dispatcher_ready", healthy=True, detail="helena->rafael edge assembled"
+            )
+        return CheckResult(
+            name="a2a_dispatcher_ready",
+            healthy=False,
+            detail=_state.a2a_dispatcher_error or "A2A delegation dispatcher not assembled",
+        )
+
+    async def a2a_audit_sink_ready(_state: AgentState = state) -> CheckResult:
+        # T2.4 A2A W4 (T-F daemon-readiness finalization): FAIL-CLOSED gate mirroring
+        # worker_runtime's T-D `audit_sink_ready` (design doc §10) — deliberately SEPARATE from
+        # `a2a_dispatcher_ready` above (which stays construction-only, unchanged) so this is
+        # purely ADDITIVE. Gated to the two A2A-edge agents, same as `a2a_dispatcher_ready`.
+        #
+        # Honest scope note (do not over-claim): unlike `worker_runtime`'s own `audit_sink_ready`,
+        # this is a BOOT-TIME-ONLY snapshot, not a live per-`/readyz` re-probe — there is no
+        # delegation fetch/consume rotation here for a live re-probe to gate entry into (W3's
+        # "health-only daemon" nuance, unchanged by this build). If/when a real delegation
+        # consumer is wired, it should condition on this bit before pulling work; this build only
+        # makes the bit honestly available.
+        if _state.settings.agent_id not in _A2A_EDGE_AGENT_IDS:
+            return CheckResult(
+                name="a2a_audit_sink_ready",
+                healthy=True,
+                detail=f"not applicable to agent_id={_state.settings.agent_id!r}",
+            )
+        if _state.a2a_audit_sink_ready:
+            return CheckResult(name="a2a_audit_sink_ready", healthy=True, detail="a2a audit_chain reachable")
+        return CheckResult(
+            name="a2a_audit_sink_ready",
+            healthy=False,
+            detail=_state.a2a_audit_sink_error
+            or "A2A composition's durable audit sink not verified reachable — the daemon refuses "
+            "to consider delegation processing ready until audit_chain is confirmed (ADR-0007 "
+            "fail-closed, mirrors worker_runtime's T-D audit_sink_ready posture)",
+        )
+
+    return [
+        agent_definition_loaded,
+        policies_loadable,
+        inference_provider_ready,
+        graph_loaded,
+        a2a_dispatcher_ready,
+        a2a_audit_sink_ready,
+    ]
 
 
 # --- STEP B: dependency bring-up (bounded, non-fatal) -------------------------------------------
@@ -260,6 +334,24 @@ def _load_agent_graph(settings: AgentRuntimeSettings, inference: InferenceProvid
     return graph
 
 
+async def _probe_a2a_audit_sink(sink: PostgresAuditSink, timeout_s: float) -> bool:
+    """Bounded, non-raising connectivity probe for the A2A composition's durable audit sink.
+
+    T2.4 A2A W4 (T-F daemon-readiness finalization) — mirrors `worker_runtime.service.
+    _probe_audit_sink` (T-D) exactly: wraps `PostgresAuditSink.check_ready()` (which raises on any
+    unreachable/missing-table failure) in a hard timeout so `_bring_up_dependencies` can never hang
+    on a slow/hung Postgres. Returns `True` only when the sink positively proves it can reach the
+    tenant schema's `audit_chain`; every failure (timeout, connection refused, missing table) is
+    `False` (fail-closed).
+    """
+    try:
+        await asyncio.wait_for(sink.check_ready(), timeout=timeout_s)
+    except Exception as exc:  # noqa: BLE001 — any failure means "not ready", never propagates.
+        logger.warning("a2a_audit_sink_probe_failed", error=str(exc))
+        return False
+    return True
+
+
 async def _bring_up_dependencies(state: AgentState) -> None:
     """Run the four STEP B checks. Each block is isolated: failure logs + leaves the
     corresponding readiness check unhealthy, but NEVER propagates (liveness must stay up — this
@@ -296,6 +388,46 @@ async def _bring_up_dependencies(state: AgentState) -> None:
         state.agent_graph_error = f"{type(exc).__name__}: {exc}"
         logger.error("agent_graph_build_failed", agent_id=settings.agent_id, exc_info=True)
 
+    if settings.agent_id in _A2A_EDGE_AGENT_IDS:
+        # T2.4 A2A W3: construction-only — proves the Option-A in-process Helena->Rafael edge
+        # assembles (see `a2a_composition.build_auth_delegation_dispatcher`'s own docstring for
+        # why this is NOT a live consumer). Isolated exactly like the four checks above: failure
+        # leaves `a2a_dispatcher_ready` unhealthy, never propagates (liveness stays up).
+        # Local import: avoids a module-load-time cycle (`a2a_composition` imports
+        # `_build_tool_deps` FROM this module; deferring the import until this function actually
+        # runs means `service` is already fully initialized by the time it's needed).
+        from .a2a_composition import build_auth_delegation_dispatcher
+
+        try:
+            state.a2a_dispatcher = build_auth_delegation_dispatcher(
+                settings, inference=state.inference_provider
+            )
+        except Exception as exc:  # noqa: BLE001 — same isolation as above.
+            state.a2a_dispatcher_error = f"{type(exc).__name__}: {exc}"
+            logger.error("a2a_dispatcher_build_failed", agent_id=settings.agent_id, exc_info=True)
+
+        # T2.4 A2A W4 (T-F daemon-readiness finalization, design doc §10): FAIL-CLOSED boot-time
+        # probe of the SAME audit sink the composition above would use (reconstructed via
+        # `_build_tool_deps` — construction is pure, mirrors every other use of that helper; no
+        # second, divergent dep-construction path). Isolated exactly like the checks above:
+        # failure leaves `a2a_audit_sink_ready` unhealthy, never propagates.
+        if settings.database_url:
+            try:
+                audit_sink = _build_tool_deps(settings).get("audit_sink")
+                if audit_sink is not None:
+                    state.a2a_audit_sink_ready = await _probe_a2a_audit_sink(
+                        audit_sink, settings.dep_connect_timeout_s
+                    )
+            except Exception as exc:  # noqa: BLE001 — same isolation as above.
+                state.a2a_audit_sink_error = f"{type(exc).__name__}: {exc}"
+                logger.error(
+                    "a2a_audit_sink_probe_construction_failed", agent_id=settings.agent_id, exc_info=True
+                )
+        else:
+            state.a2a_audit_sink_error = (
+                "DATABASE_URL unset — the A2A composition has no durable audit sink to probe"
+            )
+
     logger.info(
         "agent_dependencies_brought_up",
         agent_id=settings.agent_id,
@@ -303,6 +435,12 @@ async def _bring_up_dependencies(state: AgentState) -> None:
         policies_loadable=state.pep is not None,
         inference_provider_ready=state.inference_provider is not None,
         graph_loaded=state.agent_graph is not None,
+        a2a_dispatcher_ready=(
+            state.a2a_dispatcher is not None if settings.agent_id in _A2A_EDGE_AGENT_IDS else "n/a"
+        ),
+        a2a_audit_sink_ready=(
+            state.a2a_audit_sink_ready if settings.agent_id in _A2A_EDGE_AGENT_IDS else "n/a"
+        ),
     )
     # Explicit, load-bearing log line (T1.11 update of the Q-6 scaffold note): the graph now
     # BUILDS for real (helena/rafael, defect B6) but this daemon still never EXECUTES a turn —

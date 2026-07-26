@@ -1,0 +1,41 @@
+{
+  "id": "EVL-CAROLINA-01",
+  "agent": "carolina",
+  "class": "CE",
+  "tier": ["A"],
+  "description": "Complete credentialing packet (valid license, complete docs, within network criteria, no irregularity signal) -> cred_admissibility resolves CLERICAL_CREDENCIAR -> Carolina's only automatic path, a NEUTRAL clerical credentialing (never an adverse decision). Synthetic data only (tenant amh, synthetic prestador id).",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "canal": "portal",
+      "prestador_id": "PROV-CRED-EVAL-01",
+      "direcao": "credenciamento",
+      "tipo_prestador": "clinica",
+      "origem_solicitacao": "prestador",
+      "motivo_informado": "Solicitacao de credenciamento de nova clinica na regiao",
+      "data_solicitacao_iso": "2026-07-20",
+      "documentos_refs": [],
+      "licenca_valida": true,
+      "documentacao_completa": true,
+      "dentro_criterios_rede": true,
+      "indicio_irregularidade_sinalizado": false
+    }
+  },
+  "recorded_llm": [
+    "Clinica com documentacao completa, licenca valida e dentro dos criterios de rede; credenciamento clerical favoravel, sem indicio de irregularidade."
+  ],
+  "dmn_fixture": {
+    "cred_admissibility": {
+      "roteamento": "CLERICAL_CREDENCIAR",
+      "motivo": "documentacao completa e criterios de rede atendidos"
+    }
+  },
+  "expect": {
+    "fields": {
+      "route": "auto_route",
+      "admissibilidade": "CLERICAL_CREDENCIAR",
+      "desfecho": "credenciamento_clerical"
+    }
+  },
+  "leak_canaries": []
+}
