@@ -168,19 +168,19 @@ FINDINGS (see PR body / evidence-ledger for full detail):
      reached — which holds regardless of whether the guard surfaces as an incident or a caught
      bpmnError), so this asymmetry needs no xfail of its own.
 
-  5. Missing anchor fail-safe for `data_recebimento_nip_iso` (nip-specific regression vs the
-     donor): the donor's `instruct_dossier` worker defaulted a blank/garbage
-     `data_recebimento_nip_iso` to today's date (UTC) BEFORE it could reach `BRT_NipSla`'s FEEL
-     evaluation. v2's `assemble_response`/`instruct_dossier_entry` (nip.py:206-238, 446-454)
-     carries NO such validation/defaulting — `NipInput.data_recebimento_nip_iso` (nip.py:73) is
-     stored and returned completely unvalidated, and no BPMN `outputParameter`/`inputParameter`
-     defaults it either (grep confirms zero hits for a default expression on this variable
-     anywhere in SP-OP-NIP-001_Resposta_NIP.bpmn). `nip_sla.dmn`'s FEEL expression
-     (nip_sla.dmn:64,74,84,94) is `date and time(data_recebimento_nip_iso + "T00:00:00")` — a
-     blank string yields `"T00:00:00"` and `"not-a-date"` yields `"not-a-dateT00:00:00"`, NEITHER
-     of which `date and time(...)` can parse; `BRT_NipSla` fails DMN evaluation and opens an
-     incident BEFORE `UT_RevisaoJuridicaNip` is ever created — exactly the catastrophic failure
-     mode this test exists to prove is fail-safe. See `_ANCHOR_FAILSAFE_MISSING_REASON` below.
+  5. Anchor fail-safe for `data_recebimento_nip_iso` — RESOLVED (was: nip-specific regression vs
+     the donor; CLOSED in t5-workers-f1). Historically, v2's `instruct_dossier_entry` carried NO
+     validation/defaulting for the anchor, so a blank/garbage value reached `BRT_NipSla`'s FEEL
+     expression (`date and time(data_recebimento_nip_iso + "T00:00:00")`, nip_sla.dmn:64,74,84,94)
+     un-parseable — DMN evaluation failed and opened an incident BEFORE `UT_RevisaoJuridicaNip`
+     was ever created. t5-workers-f1 ported the fail-safe: `_sanitize_anchor_date` (nip.py, wired
+     into `instruct_dossier_entry` — ST_InstruirDossie is the only worker before BRT_NipSla)
+     coerces a valid anchor to canonical `YYYY-MM-DD` and substitutes today's date (UTC) for a
+     malformed/absent one, flagging `data_recebimento_nip_iso_valida=False` (route-to-human, no
+     adverse decision). `test_anchor_failsafe_ancora_ausente_ou_lixo_nao_derruba_o_processo` now
+     PROVES the fail-safe live (its xfail was removed after the real-engine CI lane on the
+     assembled t5-completion-wave branch reported it XPASS(strict) — run 30207508349); the
+     retired `_ANCHOR_FAILSAFE_MISSING_REASON` constant is a comment below.
 
   Static-analysis confirmation (no live engine needed, verified directly against the deployed
   `.dmn` XML): `nip_classification.dmn`/`nip_routing.dmn`/`nip_sla.dmn`'s rule outputs and
@@ -393,23 +393,16 @@ _NOTIFY_DEADLINE_RISK_UNREGISTERED_REASON = (
 # NIP-amh-NIP-TESTE-<run>; has_event(numero_nip_ans, sla_breach_task_name=_UT_REVISAO) matched.
 # Markers removed; the constant is retired to this comment (no test references it anymore).
 
-_ANCHOR_FAILSAFE_MISSING_REASON = (
-    "nip-specific gap (module docstring finding 5 — regression vs the donor): the donor's "
-    "instruct_dossier worker defaulted a blank/garbage data_recebimento_nip_iso to today's date "
-    "(UTC) before it could reach BRT_NipSla's FEEL evaluation. v2's assemble_response/"
-    "instruct_dossier_entry (nip.py:206-238,446-454) carries NO such validation/defaulting — "
-    "NipInput.data_recebimento_nip_iso (nip.py:73) is stored and returned completely unvalidated, "
-    "and no BPMN outputParameter/inputParameter defaults it either (grep confirms zero hits for a "
-    "default expression on this variable anywhere in SP-OP-NIP-001_Resposta_NIP.bpmn). "
-    "nip_sla.dmn's FEEL expression (nip_sla.dmn:64,74,84,94) is "
-    "'date and time(data_recebimento_nip_iso + \"T00:00:00\")' — a blank string yields "
-    "'T00:00:00' and 'not-a-date' yields 'not-a-dateT00:00:00', neither of which date and time(...) "
-    "can parse; BRT_NipSla fails DMN evaluation and opens an incident BEFORE "
-    "UT_RevisaoJuridicaNip is ever created — exactly the catastrophic failure mode this test "
-    "exists to prove is fail-safe. await_user_task(iid, _UT_REVISAO) times out. src/** fix "
-    "(porting the donor's anchor-defaulting logic into instruct_dossier/instruct_dossier_entry) "
-    "is out of scope for this port."
-)
+# _ANCHOR_FAILSAFE_MISSING_REASON — RETIRED (module docstring finding 5, RESOLVED in
+# t5-workers-f1): the anchor fail-safe was ported into `instruct_dossier_entry` via
+# `_sanitize_anchor_date` (nip.py) — a valid anchor is canonicalized to YYYY-MM-DD, a
+# malformed/absent one is substituted with today's date (UTC) + `data_recebimento_nip_iso_valida=
+# False` (route-to-human, no adverse decision), so BRT_NipSla's FEEL never sees an un-parseable
+# anchor and UT_RevisaoJuridicaNip is always created. Live proof: the real-engine CI lane on the
+# assembled t5-completion-wave branch (run 30207508349) reported
+# test_anchor_failsafe_ancora_ausente_ou_lixo_nao_derruba_o_processo as its ONLY failure —
+# [XPASS(strict)] — with the rest of the lane green (391 passed / 105 xfailed); marker removed
+# in-step, same discipline as _NIP_DEADLINE_RISK_PUBLISH_ADDED_REASON below.
 
 
 # ---------------------------------------------------------------------------
@@ -1620,13 +1613,18 @@ async def test_prazo_ancora_em_data_recebimento_nip_nao_em_attach_da_ut(
     await _assert_no_manter_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_ANCHOR_FAILSAFE_MISSING_REASON, strict=True)
 async def test_anchor_failsafe_ancora_ausente_ou_lixo_nao_derruba_o_processo(
     engine: EngineRest,
     nip_probe: NipEngineProbe,
     start_nip: Callable[..., Any],
 ) -> None:
     """GAP-NIP-1 fail-safe (worker instruct_dossier): ancora em branco/lixo -> hoje (UTC).
+
+    CONSTRUIDO em t5-workers-f1 (`_sanitize_anchor_date` em `instruct_dossier_entry`, nip.py):
+    ancora malformada/ausente e substituida pela data de processamento (UTC, YYYY-MM-DD) +
+    `data_recebimento_nip_iso_valida=False` (rota-a-humano, sem decisao adversa) ANTES de
+    BRT_NipSla avaliar o FEEL — o xfail(strict) foi removido apos o lane real-engine do CI na
+    t5-completion-wave (run 30207508349) reportar XPASS(strict). Teste normal passante.
 
     Sem o fail-safe, um start path que nao seede `data_recebimento_nip_iso` valido tem dois modos
     de falha catastroficos com os timers timeDate:

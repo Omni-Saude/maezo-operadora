@@ -35,25 +35,27 @@ def test_register_default_workers_registers_all_17_modules() -> None:
     """T1.2/ADR-0026 + T3.1 R2: the daemon's bootstrap now covers all 17 worker modules (the 3
     `WorkerBase` modules T1.1 shipped + the 13 `FunctionWorker`-wrapped modules T1.2 adds + T3.1
     R2's raw-handler `events` module), closing the interim-scope note. `registry.count()` ==
-    `len(registered_topics) - 8` because EIGHT topics use the raw `harness.register()` path (which
+    `len(registered_topics) - 11` because ELEVEN topics use the raw `harness.register()` path (which
     populates `_handlers` but NOT the `WorkerRegistry`) — MERGE RECONCILIATION (T3.1 P2b recurso ×
-    origin/main LGPD batch-1): `operadora.events.publish` (T3.1 R2); the three LGPD raw handlers
-    `operadora.lgpd.request_additional_proof` (#55 R-B, T2.8), `operadora.lgpd.send_response`
-    (#55 R-F, T2.8), `operadora.lgpd.notify_sla_risk` (#55 R-G, T2.8); and recurso's four
-    `operadora.recurso.notify_sla_risk`/`escalate_ans_timeout`/`submit_appeal`/`track_status`
-    (Finding 2: these need the async Kafka seam for their test-spec-demanded
-    `notifications_of_type`/domain-event observability, see recurso.py's module-level rationale) —
-    all eight need `ExternalTask`/async-Kafka seams a dict-first `FunctionWorker` boundary does not
-    expose. Derived from code (registered_topics=111, registry.count()=103, delta=8); the branch's
-    pre-merge `-6` (2 base + 4 recurso) missed main's 2 new LGPD raw handlers, main's `-4` missed
-    the 4 recurso — union = 8. Every other module/topic goes through
-    `WorkerHarness.register_worker` -> `WorkerRegistry.register`."""
+    origin/main LGPD batch-1 × t5 escalation/ans-notify): `operadora.events.publish` (T3.1 R2); the
+    three LGPD raw handlers `operadora.lgpd.request_additional_proof` (#55 R-B, T2.8),
+    `operadora.lgpd.send_response` (#55 R-F, T2.8), `operadora.lgpd.notify_sla_risk` (#55 R-G, T2.8);
+    recurso's four `operadora.recurso.notify_sla_risk`/`escalate_ans_timeout`/`submit_appeal`/
+    `track_status` (Finding 2: async Kafka seam for their test-spec-demanded `notifications_of_type`/
+    domain-event observability); `regulatorio.anssubmit.notify_regulatorio` (t5 FINDING A fix:
+    raw handler emitting the `anssubmit.notify_regulatorio` notification); and escalation's two
+    `operadora.escalation.notify_team`/`notify_supervisor` (DL-0034, built in t5: converted from
+    `WorkerBase` to raw async handlers — notifying IS the business effect and needed the async Kafka
+    seam the old classes lacked, so they moved OUT of the WorkerRegistry). All eleven need
+    `ExternalTask`/async-Kafka seams a dict-first `FunctionWorker` boundary does not expose. Delta
+    breakdown: 1 events + 3 lgpd + 4 recurso + 1 ans-notify + 2 escalation = 11. Every other
+    module/topic goes through `WorkerHarness.register_worker` -> `WorkerRegistry.register`."""
     harness = WorkerHarness(FakeWorkerTransport(), worker_id="probe")
     register_default_workers(harness)
 
     assert len(ALL_WORKER_BOOTSTRAPS) == 17
     assert len(harness.registered_topics) > 90
-    assert harness.registry.count() == len(harness.registered_topics) - 8
+    assert harness.registry.count() == len(harness.registered_topics) - 11
 
 
 def test_register_default_workers_topics_match_expected_prefixes() -> None:

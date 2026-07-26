@@ -483,7 +483,13 @@ async def pagto_probe(
     # adequacao.py's fixtures): todo topico operadora.pagto.* registrado no harness DEVE estar na
     # lista de drain — falha AQUI, explicita, se um worker novo ficar fora.
     pagto_registered = {t for t in harness.registered_topics if t.startswith("operadora.pagto.")}
-    missing_from_drain = pagto_registered - set(_PAGTO_WORKER_TOPICS)
+    # DL-0033 (t5): operadora.pagto.prepare_approval_dossier is now a REGISTERED local stub, but this
+    # probe deliberately does NOT drain it (keeps the engine xfails valid pending a dedicated
+    # live-engine proof that would flip them). Exclude it explicitly; the guard still catches any
+    # OTHER registered-but-undrained worker.
+    missing_from_drain = (
+        pagto_registered - set(_PAGTO_WORKER_TOPICS) - {"operadora.pagto.prepare_approval_dossier"}
+    )
     assert not missing_from_drain, (
         f"_PAGTO_WORKER_TOPICS desatualizada — topicos registrados fora do drain: {missing_from_drain}"
     )

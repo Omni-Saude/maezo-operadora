@@ -43,6 +43,7 @@ Regras:
 | 0031 | LGPD DSR identity gate fail-closed em `identidade_verificada is True` + GAP-LGPD-6 raise + #55 R-B request_additional_proof (T2.8) | Proposed |
 | 0032 | Corrige a alegacao de "runtime completo" do ADR-0015 (e do donor v1 PR #17, nao do v2); amends ADR-0015, nao supersede (T3.4) | Accepted |
 | 0033 | Identidade de servico do agente — emissao/verificacao do certificado/service-account (metade cert de T-G); espaco de decisao + recomendacao nao-vinculante; amends ADR-0007, nao supersede | Proposed |
+| 0034 | L2 review sampling intencionalmente fora do v2 (descope ratificado, #24); autonomia enforce-ada estruturalmente (ADR-0018), nao por PEP em runtime; amends ADR-0008 + ADR-0025, nao supersede | Accepted |
 
 Texto integral e racional estendido: `agent-platform-adrs.md` no projeto de arquitetura
 (serie AP-001..AP-012 mapeia 1:1 para 0001..0012 desta serie).

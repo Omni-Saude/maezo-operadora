@@ -293,7 +293,13 @@ _ENDS_ENVIO = frozenset({_END_ENVIADO_ACK, _END_ENVIADO_PENDENTE_ACK})
 # (systemic per-worker-notification kafka gap) as a compounding cause for any assertion this test
 # would ALSO hit on `notifications_of_type(...)` even if A were fixed.
 _NOTIFY_REGULATORIO_GAP_REASON = (
-    "T3.1 phase-2 FINDING A (new, registration gap): BPMN topic "
+    "AMENDED t5-workers-f1: FINDING A is RESOLVED — regulatorio.anssubmit.notify_regulatorio is now "
+    "registered by register_ans_submit_workers (raw async handler make_notify_regulatorio_handler). "
+    "The tests that KEEP this reason still strict-xfail on the compounding systemic FINDING C (below), "
+    "NOT the original registration gap; the deadline-risk-only test with no FINDING-C dependency "
+    "(test_timer_deadline_risk_nao_interruptivo_pendencia) had its marker removed — it XPASSes live "
+    "(R1 gatekeeper, CIB Seven 2.1.0). ORIGINAL FINDING A (now historical): T3.1 phase-2 registration "
+    "gap — BPMN topic "
     "regulatorio.anssubmit.notify_regulatorio (ST_PrepararDossie / ST_NotificarDeadlineRisk, "
     "spec/processes/bpmn/SP-OP-ANS-SUBMIT-001_Envios_Periodicos_ANS.bpmn) has NO worker registered "
     "in register_ans_submit_workers (ans_submit.py registers exactly 6 topics — assemble/validate/"
@@ -1275,14 +1281,16 @@ async def test_timer_due_date_pendencia_nip_filing_fail_closed(
     await _assert_no_filing_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_NOTIFY_REGULATORIO_GAP_REASON, strict=True)
 async def test_timer_deadline_risk_nao_interruptivo_pendencia(
     engine: EngineRest,
     ans_probe: AnsEngineProbe,
     start_ans: Callable[..., Any],
 ) -> None:
-    """Timer BT_DeadlineRiskPendencia (nao-interruptivo): converge em ST_NotificarDeadlineRisk —
-    BLOQUEADO por FINDING A, mesmo UT_CorrigirPendenciaEnvio em si sendo alcancavel."""
+    """Timer BT_DeadlineRiskPendencia (nao-interruptivo): converge em ST_NotificarDeadlineRisk
+    (topico notify_regulatorio, REGISTRADO em t5 — FINDING A resolvido), publica
+    anssubmit.deadline_risk (via o handler generico operadora.events.publish) e mantem
+    UT_CorrigirPendenciaEnvio aberta. Sem dependencia da FINDING C (nao asserta
+    notifications_of_type), logo passa ao vivo (R1 gatekeeper, CIB Seven 2.1.0) apos o fix de A."""
     inst = await start_ans(competencia="2026-DLRPEND", dataset_complete=False)
     iid = inst["id"]
 

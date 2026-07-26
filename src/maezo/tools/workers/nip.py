@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import functools
 from dataclasses import dataclass, field
+from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -300,6 +301,81 @@ def publish_completed(
 
 
 # ---------------------------------------------------------------------------
+# Anchor-date fail-safe (GAP-NIP-1 anchor hardening) — pure input validation.
+# ---------------------------------------------------------------------------
+
+# Output flag (record/observability only — NO BPMN gateway routes on it): False marks that the
+# inbound `data_recebimento_nip_iso` was malformed/absent and a safe fallback anchor was
+# substituted, so the human review task (which the flow ALWAYS reaches) can correct the anchor
+# before any binding submission. Mirrors events.py's `event_published` record-variable idiom.
+_ANCHOR_VALIDA_KEY = "data_recebimento_nip_iso_valida"
+
+
+def _coerce_anchor_date_iso(value: Any) -> str | None:
+    """Coerce `data_recebimento_nip_iso` to a canonical FEEL-safe ``YYYY-MM-DD`` — FAIL-SAFE.
+
+    GAP-NIP-1: the `nip_sla` DMN feeds this ANCHOR into a FEEL
+    ``date and time(data_recebimento_nip_iso + "T00:00:00") + duration(...)`` expression
+    (spec/processes/dmn/nip_sla.dmn), evaluated NATIVELY by the engine in `BRT_NipSla` — which
+    runs BEFORE any human review task. A malformed/absent anchor makes that FEEL expression throw,
+    faulting `BRT_NipSla` into an engine INCIDENT before a human ever sees the NIP. This coerces
+    the value so a well-formed date always reaches FEEL, mirroring fraude.py's
+    `_coerce_numeric` coerce-or-reject shape (here `str | None` instead of `(ok, coerced)`).
+
+    Returns the canonical ``YYYY-MM-DD`` string for:
+    - a native `datetime.date` / `datetime.datetime` (-> the date part, ISO);
+    - a bare ISO date string ``YYYY-MM-DD``;
+    - an ISO datetime string ``YYYY-MM-DDTHH:MM:SS[...]`` — the date part ONLY (the DMN appends its
+      own ``"T00:00:00"``; keeping a time/zone component would produce ``...T00:00:00T00:00:00`` and
+      crash FEEL just the same, so it is stripped here — this also fixes that latent footgun).
+    Returns ``None`` for anything else (empty/whitespace, non-ISO text like ``15/01/2026``, wrong
+    type) — the caller then routes to human via a flagged safe fallback, NEVER passing the bad
+    value to FEEL. Purely mechanical validation: NO business/adverse decision is made here.
+    """
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            return date.fromisoformat(text).isoformat()
+        except ValueError:
+            pass
+        try:
+            return datetime.fromisoformat(text).date().isoformat()
+        except ValueError:
+            return None
+    return None
+
+
+def _sanitize_anchor_date(raw: Any) -> dict[str, Any]:
+    """Sanitize `data_recebimento_nip_iso` into FEEL-safe output variables (coerce-or-route-human).
+
+    Coercible -> the canonical anchor + `data_recebimento_nip_iso_valida=True`.
+    Malformed/absent -> a SAFE, VALID fallback anchor (processing date, UTC — the same
+    "worker stamps today" idiom events.py uses for `ans_cron_reference_date_iso`) + a LOUD warning
+    + `data_recebimento_nip_iso_valida=False`. The fallback keeps `BRT_NipSla` from faulting so the
+    NIP reaches its (always-present) human review task, where the flag signals the anchor must be
+    corrected before submission. NO adverse decision — never denies, never shortens to the
+    beneficiary's detriment; today+duration is future, so it never masks a real overrun either.
+    """
+    coerced = _coerce_anchor_date_iso(raw)
+    if coerced is not None:
+        return {"data_recebimento_nip_iso": coerced, _ANCHOR_VALIDA_KEY: True}
+    fallback = datetime.now(UTC).date().isoformat()
+    logger.warning(
+        "nip.data_recebimento_nip_iso_invalida",
+        raw_type=type(raw).__name__,
+        fallback=fallback,
+        detail="malformed/absent NIP anchor date coerced to processing date; routed to human review",
+    )
+    return {"data_recebimento_nip_iso": fallback, _ANCHOR_VALIDA_KEY: False}
+
+
+# ---------------------------------------------------------------------------
 # Dict-boundary entry functions (T1.2/ADR-0026 §2b) — one per external-task
 # topic. Explicit field selection -> typed dataclass (or plain kwargs, for the
 # entry functions that never needed one) -> the UNCHANGED typed function above,
@@ -342,12 +418,22 @@ def publish_completed(
 def instruct_dossier_entry(
     variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
 ) -> dict[str, Any]:
-    """Dict-boundary entry for `operadora.nip.instruct_dossier` -> `assemble_response`."""
+    """Dict-boundary entry for `operadora.nip.instruct_dossier` -> `assemble_response`.
+
+    ST_InstruirDossie is the ONLY external-task worker that runs BEFORE the native `BRT_NipSla`
+    businessRuleTask (BPMN order: ...ST_InstruirDossie -> BRT_Classificacao -> BRT_Roteamento ->
+    BRT_NipSla). It is therefore the fail-safe seam for the anchor date: `_sanitize_anchor_date`
+    writes a canonical, FEEL-safe `data_recebimento_nip_iso` back onto the process variables here,
+    so a malformed/absent anchor can never fault `BRT_NipSla`'s FEEL `date and time(...)` into an
+    incident before the human review task (GAP-NIP-1 anchor hardening). Pure input validation.
+    """
     del kafka  # unused — assemble_response emits no domain event
     classification = NipClassificationResult(**pick_fields(variables, NipClassificationResult))
     routing = NipRoutingResult(**pick_fields(variables, NipRoutingResult))
     input_data = NipInput(**pick_fields(variables, NipInput))
-    return assemble_response(classification, routing, input_data)
+    result = assemble_response(classification, routing, input_data)
+    result.update(_sanitize_anchor_date(variables.get("data_recebimento_nip_iso")))
+    return result
 
 
 def notify_deadline_risk_entry(

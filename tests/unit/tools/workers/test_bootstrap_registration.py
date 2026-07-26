@@ -109,14 +109,17 @@ def test_register_all_workers_accepts_and_forwards_seams() -> None:
 
 
 def test_class_module_bootstraps_register_workerbase_instances_not_function_workers() -> None:
-    """auth/escalation/lgpd keep their WorkerBase subclasses — `register_worker` stores them in
-    the harness's WorkerRegistry directly, never re-wrapped in FunctionWorker.
+    """auth/lgpd keep their WorkerBase subclasses — `register_worker` stores them in the harness's
+    WorkerRegistry directly, never re-wrapped in FunctionWorker.
 
-    `operadora.lgpd.request_additional_proof` (#55 R-B, T2.8), `operadora.lgpd.send_response`
-    (#55 R-F, T2.8), and `operadora.lgpd.notify_sla_risk` (#55 R-G, T2.8) are the THREE exceptions
-    in these three modules: raw `harness.register()` handlers (they need the async Kafka seam a
-    WorkerBase `execute` boundary cannot reach — mirrors `events.publish`), so they populate
-    `_handlers` but NOT the WorkerRegistry. Excluded here.
+    RAW `harness.register()` handlers (they need the async Kafka seam a WorkerBase `execute`
+    boundary cannot reach — mirrors `events.publish`) populate `_handlers` but NOT the
+    WorkerRegistry, and are excluded here:
+    - `operadora.lgpd.request_additional_proof` (#55 R-B, T2.8), `operadora.lgpd.send_response`
+      (#55 R-F, T2.8), `operadora.lgpd.notify_sla_risk` (#55 R-G, T2.8);
+    - `operadora.escalation.notify_team` / `operadora.escalation.notify_supervisor` (DL-0034,
+      built in t5 — escalation's notify workers converted from `WorkerBase` to raw async handlers;
+      notifying IS the business effect and needed the async Kafka seam the old classes lacked).
     """
     harness = _fresh_harness()
     register_auth_workers(harness)
@@ -127,6 +130,8 @@ def test_class_module_bootstraps_register_workerbase_instances_not_function_work
         "operadora.lgpd.request_additional_proof",
         "operadora.lgpd.send_response",
         "operadora.lgpd.notify_sla_risk",
+        "operadora.escalation.notify_team",
+        "operadora.escalation.notify_supervisor",
     }
     for topic in harness.registered_topics:
         if topic in raw_handler_topics:
@@ -158,6 +163,10 @@ def test_function_based_module_bootstraps_register_function_workers() -> None:
         "operadora.recurso.escalate_ans_timeout",
         "operadora.recurso.submit_appeal",
         "operadora.recurso.track_status",
+        # notify_regulatorio (t5 FINDING A fix): raw async handler (needs the Kafka seam to emit
+        # the anssubmit.notify_regulatorio notification), harness.register not register_worker —
+        # mirrors recurso's raw handlers above.
+        "regulatorio.anssubmit.notify_regulatorio",
     }
     function_topics = [
         t

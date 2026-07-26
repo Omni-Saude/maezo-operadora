@@ -174,8 +174,21 @@ webhookReceiver:
 # ---------------------------------------------------------------------------
 # FHIR Sync (HAPI FHIR R4 ↔ Tasy integration)
 # ---------------------------------------------------------------------------
+# DEFAULT FLIPPED TO false (t5-deploy-hygiene, crash-loop footgun): `deployment-fhir-sync.yaml`'s
+# `command: ["python", "-m", "maezo.platform.integrations.fhir_sync"]` targets a module that does
+# NOT exist in src/ — `src/maezo/platform/integrations/` only holds `notifications_bridge.py` (+
+# `__init__.py`); there is no `fhir_sync` package/module anywhere in this repo (grep-confirmed,
+# zero Python references to `maezo.platform.integrations.fhir_sync` outside this Helm chart's
+# command array and the runbook prose). Every fhir-sync pod would crash-loop immediately on start
+# (`ModuleNotFoundError`) — same class of bug as the already-fixed gateway crash-loop above (DB-1).
+# Also contract-gated: fhir-sync's Tasy Oracle DSN secret has no real value yet
+# (docs/Tarefas_Pendentes.md §1.1, gap #33 — "acordo Tasy" pending), so even a working module
+# couldn't reach Tasy in production today. Flip `enabled: true` only once BOTH land: (1) the
+# `maezo.platform.integrations.fhir_sync` consumer module is actually built (see
+# docs/runbooks/fhir-sync.md for the intended shape) and (2) the Tasy Oracle credentials are
+# populated in the secret vault (gap #33). Do NOT flip this back to true as a quick fix.
 fhirSync:
-  enabled: true
+  enabled: false
   replicaCount: 1
   resources:
     requests:

@@ -21,9 +21,14 @@ from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first
 from maezo.tools.workers.tiss_schema import TissSchemaValidator
 
 if TYPE_CHECKING:
-    from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
+    from maezo.tools.workers.harness import ExternalTask, KafkaPublisher, TaskHandler, WorkerHarness
 
 logger = structlog.get_logger(__name__)
+
+# Internal notification channel — the SAME typed-envelope channel recurso.py/lgpd.py publish their
+# per-worker notifications to (`operadora.notifications.internal`; observed in tests via
+# `notifications_of_type(...)`). notify_regulatorio is the one ans_submit worker that emits one.
+_NOTIFICATIONS_TOPIC = "operadora.notifications.internal"
 
 
 # ---------------------------------------------------------------------------
@@ -387,6 +392,110 @@ def publish_completed(
 
 
 # ---------------------------------------------------------------------------
+# notify_regulatorio — the ONE ans_submit worker that emits an internal
+# notification (event-gap design, mirrors recurso.py's raw-async handlers).
+# Serves BOTH BPMN tasks on `regulatorio.anssubmit.notify_regulatorio`:
+#   ST_PrepararDossie      — dossie de envio do agente Gustavo (resumo do
+#                            dataset + regras DMN + due_date). INSTRUI a decisao
+#                            humana de aprovar o envio; NUNCA transmite (Gustavo
+#                            L1 require_human) — sem efeito adverso.
+#   ST_NotificarDeadlineRisk — alerta nao-interruptivo de risco de prazo
+#                            (reusado por BT_DeadlineRisk/Pendencia/Juridico).
+# Raw async handler (not a `FunctionWorker` dict boundary) for the SAME reason
+# recurso's notify_sla_risk/track_status are: it needs the async Kafka seam to
+# publish the notification the donor emitted (`anssubmit.notify_regulatorio`);
+# the sync `FunctionWorker.execute` boundary cannot reach `await kafka.publish`.
+# ---------------------------------------------------------------------------
+
+_NOTIFY_REGULATORIO_TOPIC = "regulatorio.anssubmit.notify_regulatorio"
+_NOTIFY_REGULATORIO_NOTIFICATION_TYPE = "anssubmit.notify_regulatorio"
+
+
+@dataclass
+class AnsNotifyRegulatorioInput:
+    """Input for `notify_regulatorio` (ST_PrepararDossie + ST_NotificarDeadlineRisk)."""
+
+    tenant_id: str = ""
+    report_type: str = ""
+    competencia: str = ""
+    periodicidade: str = ""
+
+
+def notify_regulatorio(
+    input_data: AnsNotifyRegulatorioInput,
+    *,
+    event_topic_deadline_risk: str = "",
+) -> dict[str, Any]:
+    """Convoca o agente Gustavo (dossie de envio) / notifica risco de prazo — NAO decide.
+
+    Informational only, no adverse effect: the dossie INSTRUI a decisao humana de aprovar o
+    envio (UT_RevisarEnvio) e o alerta de deadline-risk e nao-interruptivo (a UT segue aberta).
+    Gustavo NUNCA transmite autonomamente (PEP require_human, ans_official_submission L1) — this
+    worker only assembles/announces, it never touches the ANS gateway or sets `decisao_envio`.
+
+    `event_topic_deadline_risk` is `ST_NotificarDeadlineRisk`'s own BPMN `inputParameter`
+    (`agents.events.anssubmit.deadline_risk`); when present it marks this invocation as the
+    deadline-risk variant (vs the dossie-prep variant on `ST_PrepararDossie`, which carries none).
+    """
+    is_deadline_risk = bool(event_topic_deadline_risk)
+    logger.info(
+        "ans_submit.notify_regulatorio",
+        tenant_id=input_data.tenant_id,
+        report_type=input_data.report_type,
+        competencia=input_data.competencia,
+        variant="deadline_risk" if is_deadline_risk else "dossie",
+    )
+    return {
+        "notify_regulatorio_sent": True,
+        "report_type": input_data.report_type,
+        "competencia": input_data.competencia,
+        "deadline_risk": is_deadline_risk,
+    }
+
+
+def make_notify_regulatorio_handler(kafka: KafkaPublisher | None) -> TaskHandler:
+    """Raw-handler factory for `regulatorio.anssubmit.notify_regulatorio`.
+
+    Mirrors recurso.py's `make_notify_sla_risk_handler` exactly (raw `harness.register()` handler,
+    NOT a `FunctionWorker`): publishes the `anssubmit.notify_regulatorio` typed notification to
+    `operadora.notifications.internal` (the donor's own per-worker notification — its
+    `test_happy_path_envio_aprovado_e_acked` asserts
+    `notifications_of_type("anssubmit.notify_regulatorio")` is non-empty).
+
+    kafka=None (fail-closed, evidenced — same decision as events.py/recurso.py): completes the
+    external task ANYWAY (informational-only; blocking here would starve the default
+    `Flow_GW_Revisao` path to UT_RevisarEnvio and every shared deadline-risk timer), logging
+    LOUDLY instead of ever fabricating a publish. No BPMN gateway routes on this worker's output.
+    """
+
+    async def handler(task: ExternalTask) -> dict[str, Any]:
+        input_data = AnsNotifyRegulatorioInput(**pick_fields(task.variables, AnsNotifyRegulatorioInput))
+        event_topic_deadline_risk = str(task.variables.get("event_topic_deadline_risk") or "")
+        result = notify_regulatorio(input_data, event_topic_deadline_risk=event_topic_deadline_risk)
+        if kafka is None:
+            logger.warning(
+                "ans_submit_notify_regulatorio_no_producer",
+                business_key=task.business_key,
+                report_type=input_data.report_type,
+            )
+            return result
+        notification = {
+            "type": _NOTIFY_REGULATORIO_NOTIFICATION_TYPE,
+            "tenant_id": input_data.tenant_id,
+            "report_type": input_data.report_type,
+            "competencia": input_data.competencia,
+            "periodicidade": input_data.periodicidade,
+            "deadline_risk": result["deadline_risk"],
+        }
+        if event_topic_deadline_risk:
+            notification["event_topic_deadline_risk"] = event_topic_deadline_risk
+        await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=task.business_key or None)
+        return result
+
+    return handler
+
+
+# ---------------------------------------------------------------------------
 # Dict-boundary entry functions (T1.2/ADR-0026 §2b) — one per external-task
 # topic. Explicit field selection -> typed dataclass -> the UNCHANGED typed
 # function above -> dataclasses.asdict (or pass through when already a
@@ -403,8 +512,12 @@ def publish_completed(
 #   retry_submission      -> regulatorio.anssubmit.retransmit      (exact spec match)
 # publish_completed has no distinct spec topic (folds into the generic
 # events.publish task per BPMN) — function-derived topic.
-# Spec topic with NO implementing function today (gap, not fabricated here):
-# notify_regulatorio (shared by 2 distinct BPMN tasks: dossie prep + deadline-risk notice).
+#   notify_regulatorio -> regulatorio.anssubmit.notify_regulatorio (shared by 2
+#     distinct BPMN tasks: ST_PrepararDossie dossie prep + ST_NotificarDeadlineRisk
+#     deadline-risk notice). Implemented ABOVE as a raw async handler
+#     (`make_notify_regulatorio_handler`), NOT a dict-boundary entry — it emits the
+#     `anssubmit.notify_regulatorio` notification the donor's worker emitted, which
+#     needs the async Kafka seam a sync FunctionWorker.execute boundary cannot reach.
 # ---------------------------------------------------------------------------
 
 
@@ -538,7 +651,13 @@ def register_ans_submit_workers(
     kafka: KafkaPublisher | None = None,
     **seams: Any,
 ) -> None:
-    """Register the SP-OP-ANS-SUBMIT-001 dict-boundary entry functions on `harness`.
+    """Register the SP-OP-ANS-SUBMIT-001 workers on `harness`.
+
+    Six dict-boundary `FunctionWorker` entries (assemble/validate/submit/track_protocol/
+    retransmit/publish_completed) PLUS one raw async handler
+    (`make_notify_regulatorio_handler` on `regulatorio.anssubmit.notify_regulatorio`, via
+    `harness.register` not `register_worker` — it emits the `anssubmit.notify_regulatorio`
+    notification the sync `FunctionWorker` boundary cannot; mirrors recurso's raw handlers).
 
     `kafka` is accepted (donor contract, ADR-0026 §2) and threaded to every entry function via
     `functools.partial` for signature parity with modules that DO emit domain events; none of
@@ -597,4 +716,13 @@ def register_ans_submit_workers(
             "regulatorio.anssubmit.publish_completed",
             functools.partial(publish_completed_entry, kafka=kafka),
         )
+    )
+    # notify_regulatorio: raw async handler (NOT register_worker) — mirrors recurso's
+    # notify_sla_risk / events.publish. Serves the BPMN topic shared by ST_PrepararDossie
+    # (dossie prep, DEFAULT Flow_GW_Revisao happy path) and ST_NotificarDeadlineRisk (all 3
+    # shared deadline-risk boundary timers). Was MISSING before — the process stalled at
+    # ST_PrepararDossie with "no handler registered for topic" (T3.1 phase-2 FINDING A).
+    harness.register(
+        _NOTIFY_REGULATORIO_TOPIC,
+        make_notify_regulatorio_handler(kafka),
     )

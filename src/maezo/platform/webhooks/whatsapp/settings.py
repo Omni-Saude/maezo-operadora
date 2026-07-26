@@ -40,12 +40,28 @@ class WhatsAppWebhookSettings(BaseSettings):
     # SP-OP-ESCALATION-001) — mirrors `agent_runtime`/`worker_runtime`'s own `CIBSEVEN_BASE_URL`.
     cibseven_base_url: str = Field(default="http://cibseven:8080/engine-rest", alias="CIBSEVEN_BASE_URL")
 
-    # T-C2: the tenant Postgres DSN Helena's in-process dispatch needs to construct the durable
-    # ADR-0007 audit sink her escalation start (SP-OP-ESCALATION-001) fails-closed on. Unset here
-    # (no default) means the dispatcher cannot be built (module docstring STEP A) and `/webhook`
-    # degrades to its explicit 501 — Helena never starts an un-audited escalation. Provisioning the
-    # secret is an ops/deploy concern (mirrors `app_secret` above), outside this task's scope.
+    # T-C2 / T4b: the tenant Postgres DSN Helena's in-process dispatch needs — BOTH to construct
+    # the durable ADR-0007 audit sink her escalation start (SP-OP-ESCALATION-001) fails-closed on
+    # AND (T4b) to open the durable LangGraph checkpointer that makes multi-turn conversation state
+    # survive across webhook invocations / receiver restarts. Unset here (no default) means the
+    # dispatcher cannot be built (module docstring STEP A) and `/webhook` degrades to its explicit
+    # 501 — Helena never starts an un-audited escalation, and never runs stateless in prod.
+    # Provisioning the secret is an ops/deploy concern (mirrors `app_secret` above), outside scope.
     database_url: str | None = Field(default=None, alias="DATABASE_URL")
+
+    # T4b F2 mode discriminator (mirrors `agent_runtime`'s `agent_runtime_mode`): "local" is the
+    # ONLY non-production value. Anything else (Helm injects "kubernetes") is PRODUCTION, where a
+    # durable checkpointer that fails to provision makes the receiver REFUSE to serve (no dispatcher
+    # -> `/webhook` 501) rather than silently run Helena stateless. Local/dev falls back to an
+    # in-memory checkpointer with a loud warning. Accepted for env parity (like `database_url`).
+    runtime_mode: str = Field(default="local", alias="RUNTIME_MODE")
+
+    # T4b: bounded timeout for the checkpointer connect+setup() at bring-up. Unlike the two
+    # health-first daemons, this receiver binds its health server AFTER dependency bring-up, so a
+    # hung Postgres connect must not stall the `/healthz` bind — mirrors the identically-named field
+    # in `agent_runtime`/`worker_runtime` settings. A timeout is treated as a setup failure (prod
+    # refuses to serve; local falls back to in-memory).
+    dep_connect_timeout_s: float = Field(default=5.0, alias="DEP_CONNECT_TIMEOUT_S")
 
     # Helm's containerPort is a hardcoded 8080 (deployment-webhook-receiver.yaml:67-69), not env-
     # driven — HEALTH_PORT is accepted for local-dev override parity with the other two daemons.

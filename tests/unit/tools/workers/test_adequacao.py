@@ -12,6 +12,7 @@ from maezo.tools.workers.adequacao import (
     measure_gap,
     notify_coordenacao,
     notify_sla_risk,
+    prepare_remediation_dossier,
     register_adequacao_workers,
     register_fallback_commitment,
     route_remediation,
@@ -281,16 +282,25 @@ def test_notify_sla_risk_no_adverse_outcome() -> None:
 def test_register_adequacao_workers_registers_new_topics() -> None:
     """`update_monitoring_plan`/`notify_sla_risk` are registered on their exact BPMN-declared
     topics -- closes 2 of the 3 registry-drift gaps documented in
-    tests/integration/processes/test_sp_op_adequacao_001.py (FINDING 1); only
-    `prepare_remediation_dossier` (Andre A2A, gated) remains unregistered."""
+    tests/integration/processes/test_sp_op_adequacao_001.py (FINDING 1);
+    `prepare_remediation_dossier` is now a registered DL-0033 local stub (Andre A2A real delegation
+    still deferred, but the BPMN topic is no longer orphaned) -- closing the last drift gap."""
     harness = WorkerHarness(None, worker_id="unit-test-adequacao")  # type: ignore[arg-type]
     register_adequacao_workers(harness, None, dmn=FakeDmnTransport())
     topics = set(harness.registered_topics)
     assert "operadora.adequacao.update_monitoring_plan" in topics
     assert "operadora.adequacao.notify_sla_risk" in topics
-    assert "operadora.adequacao.prepare_remediation_dossier" not in topics
+    assert "operadora.adequacao.prepare_remediation_dossier" in topics
     adequacao_topics = {t for t in topics if t.startswith("operadora.adequacao.")}
-    assert len(adequacao_topics) == 7  # 8 BPMN-declared topics minus the gated dossier worker
+    assert len(adequacao_topics) == 8  # all 8 BPMN-declared topics now registered (DL-0033 dossier stub)
+
+
+def test_prepare_remediation_dossier_stub() -> None:
+    """DL-0033 LOCAL STUB (NEUTRAL; mirrors programa.enroll_beneficiario) — instructs
+    UT_DecisaoFallback, never decides. Fails safe on missing identity."""
+    result = prepare_remediation_dossier({"regiao_saude": "SP-01", "especialidade": "cardiologia"})
+    assert result["dossier_prepared"] is True
+    assert prepare_remediation_dossier({})["dossier_prepared"] is True
 
 
 # ---------------------------------------------------------------
