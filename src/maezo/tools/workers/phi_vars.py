@@ -3,6 +3,14 @@
 This is the ONE-WAY variant of the donor's `phi_vars.scrub_phi_vars`
 (`Maezo-Healthcare-Plan`, READ-ONLY), ported for the v2 external-task workers (T3.1).
 
+`redact_error_message` (T3.4 F5) is a SIBLING backstop for a different shape of leak: not a
+named PHI process variable, but PHI-shaped substrings (a CPF, a long digit run) that end up
+INSIDE a raw exception message forwarded to the engine's Cockpit-visible incident store
+(`WorkerTransport.handle_failure`/`.handle_bpmn_error`'s `error_message`). `redact_phi_vars`
+cannot help there — it redacts whole values by KEY, not patterns embedded in free text. Same
+one-way, class-token, never-raises philosophy as `redact_phi_vars`; see that function's
+docstring for the shared invariant.
+
 ## The invariant (ADR-0006, "Zona Geral" vs "Zona PHI")
 
 A domain event or notice a worker emits toward the GENERAL ZONE — Kafka `agents.events.*` /
@@ -33,6 +41,7 @@ import cycle.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from typing import Any
 
@@ -84,3 +93,73 @@ def _is_empty(value: Any) -> bool:
     if value is None:
         return True
     return isinstance(value, str) and not value.strip()
+
+
+# --------------------------------------------------------------------------------------------
+# Exception-message redaction backstop (T3.4 F5) — module docstring for the "why".
+# --------------------------------------------------------------------------------------------
+#
+# Sibling of `a2a.delegation._looks_like_phi`'s CPF/CNPJ net (deliberately NOT imported — that
+# module's copies are private to its own payload_ref guard, a different call site with a different
+# false-positive tradeoff: rejecting a legitimate structural reference is COSTLY there, so it
+# accepts only the canonical punctuation). HERE over-redaction is the safe failure mode — this
+# backstop guards an engine-visible INCIDENT message, not a routing field — so the net is WIDER
+# (T3.4 R2 gatekeeper finding F5-1: canonical-only patterns let dash-only `123-456-789-01`,
+# space-separated `123 456 789 01`, and dots-without-final-dash `123.456.789.01` CPFs — plus the
+# analogous CNPJ separator variants — through unredacted). One pattern FAMILY per identifier
+# instead of enumerated styles: the CPF (3-3-3-2) / CNPJ (2-3-3-4-2) digit-group shapes with each
+# separator slot independently any of `[ .\-/]` (mixed styles match too). The `(?<!\d)`/`(?!\d)`
+# digit-boundary lookarounds stop the family from partially matching INSIDE a longer digit
+# sequence (an IP octet like `192.168.001.001`, an all-numeric UUID segment) — those must fall
+# through to the bare-digit-run rule (or pass through) on their own merits. A bare run of >=11
+# digits is the final, broadest arm (bare CPF/CNS/CNPJ, or any long numeric id in free text).
+_SEP = r"[ .\-/]"  # one separator between digit groups; slots are independent (mixed styles ok)
+_CPF_FORMATTED_RE = re.compile(rf"(?<!\d)\d{{3}}{_SEP}\d{{3}}{_SEP}\d{{3}}{_SEP}\d{{2}}(?!\d)")
+_CNPJ_FORMATTED_RE = re.compile(rf"(?<!\d)\d{{2}}{_SEP}\d{{3}}{_SEP}\d{{3}}{_SEP}\d{{4}}{_SEP}\d{{2}}(?!\d)")
+_DIGIT_RUN_RE = re.compile(r"\d{11,}")
+
+#: Class token substituted for a redacted PHI-shaped substring. Distinct from `REDACTED_PHI`
+#: (whole-value, key-based redaction) so an ops reader can tell the two backstops apart in a log.
+REDACTED_DIGITS: str = "[REDACTED_DIGITS]"
+
+#: Cap on the redacted message forwarded to the engine's incident store. Mirrors the existing
+#: `resp.text[:500]` truncation convention (`platform/deploy/engine_deploy.py`) used elsewhere in
+#: this codebase for bounding untrusted text before it lands in an error message.
+_ERROR_MESSAGE_MAX_CHARS: int = 500
+_TRUNCATION_MARKER: str = "...[TRUNCATED]"
+
+
+def redact_error_message(error: BaseException | str) -> str:
+    """Redact PHI-shaped substrings from an exception message before it reaches an
+    engine-visible incident store (`WorkerTransport.handle_failure` / `.handle_bpmn_error`'s
+    `error_message`, T3.4 F5).
+
+    Fail-closed, one-way, NEVER raises (mirrors `redact_phi_vars`'s backstop contract — this
+    sits on the worker's failure-reporting hot path, and a defect in the scrubber must never
+    itself crash the failure report):
+      - a separated CPF/CNPJ substring in ANY common separator style — canonical
+        (`123.456.789-01`, `12.345.678/0001-90`), dash-only (`123-456-789-01`), space-separated
+        (`123 456 789 01`), dots-only (`123.456.789.01`), or mixed — -> `REDACTED_DIGITS`
+        (pattern family: the CPF/CNPJ digit-group shapes with `[ .\\-/]` per separator slot,
+        digit-boundary-anchored; widened from canonical-only per T3.4 R2 finding F5-1).
+      - any remaining run of 11+ contiguous digits (bare CPF/CNS/CNPJ, or any other long numeric
+        identifier) -> `REDACTED_DIGITS`.
+      - the result is capped at `_ERROR_MESSAGE_MAX_CHARS`, truncated with `_TRUNCATION_MARKER` —
+        bounds an unbounded/adversarial message length regardless of content.
+
+    The error CLASS is preserved as a stable `"{ClassName}: "` prefix when `error` is an
+    exception instance (plain strings, e.g. static harness messages with no exception, are
+    returned without a prefix) — ops can still diagnose WHAT kind of failure occurred from the
+    Cockpit incident view even though the message body may have been scrubbed.
+    """
+    try:
+        error_class = type(error).__name__ if isinstance(error, BaseException) else None
+        raw = str(error)
+        scrubbed = _CPF_FORMATTED_RE.sub(REDACTED_DIGITS, raw)
+        scrubbed = _CNPJ_FORMATTED_RE.sub(REDACTED_DIGITS, scrubbed)
+        scrubbed = _DIGIT_RUN_RE.sub(REDACTED_DIGITS, scrubbed)
+        if len(scrubbed) > _ERROR_MESSAGE_MAX_CHARS:
+            scrubbed = scrubbed[:_ERROR_MESSAGE_MAX_CHARS] + _TRUNCATION_MARKER
+        return f"{error_class}: {scrubbed}" if error_class else scrubbed
+    except Exception:  # noqa: BLE001 — backstop must never itself raise onto the failure path.
+        return "[REDACTED_ERROR]"

@@ -17,7 +17,7 @@ from __future__ import annotations
 import pytest
 
 from maezo.tools.workers.base import ERR_DENIAL_NOT_HUMAN, ERR_FRAUD_ACCUSATION_NOT_HUMAN
-from maezo.tools.workers.harness import WorkerBpmnError
+from maezo.tools.workers.harness import WorkerBpmnError, WorkerFailureError
 from maezo.tools.workers.lgpd import (
     ExecuteErasureWorker,
     ExecuteExportWorker,
@@ -194,22 +194,34 @@ def test_execute_erasure_fail_closed_rejects_non_true_human_approved(
     assert result["error_code"] == ERR_DENIAL_NOT_HUMAN
 
 
-def test_execute_erasure_with_human_approval() -> None:
-    """execute_erasure proceeds when human_approved flag is present."""
+def test_execute_erasure_approved_fails_closed_not_success() -> None:
+    """FAIL-CLOSED (T3.4-F3): even with BOTH guards satisfied (human_approved is True +
+    decisao_dsr == EXECUTAR_E_ENVIAR), execute_erasure MUST NOT report success — real deletion
+    is unimplemented, so it raises a NON-RETRIED incident (WorkerFailureError, retries_left=0)
+    instead of the old fabricated ``status="erasure_completed"``.
+
+    CONSCIOUS-FLIP GUARD: a future implementor wiring real deletion MUST rewrite this test — it
+    cannot silently start returning ``erasure_completed``. Reporting a completed erasure without
+    executing any SQL is a silent LGPD art. 18, VI violation (the titular is told their data is
+    gone while it remains).
+    """
     worker = ExecuteErasureWorker()
 
-    result = worker.run(
-        {
-            "tenant_id": "amh",
-            "titular_pseudo_id": "pseudo-abc",
-            "decisao_dsr": "EXECUTAR_E_ENVIAR",
-            "human_approved": True,
-            "fundamentacao_legal": "Art. 18, LGPD",
-        }
-    )
+    with pytest.raises(WorkerFailureError) as exc_info:
+        worker.run(
+            {
+                "tenant_id": "amh",
+                "titular_pseudo_id": "pseudo-abc",
+                "decisao_dsr": "EXECUTAR_E_ENVIAR",
+                "human_approved": True,
+                "fundamentacao_legal": "Art. 18, LGPD",
+            }
+        )
 
-    assert result["status"] == "erasure_completed"
-    assert result["data_type"] == "erasure"
+    # retries_left=0 => an IMMEDIATE engine incident, never a transient retry. Retrying a
+    # not-implemented deletion accomplishes nothing; a human must be paged.
+    assert exc_info.value.retries_left == 0
+    assert "NAO esta implementada" in str(exc_info.value)
 
 
 def test_execute_erasure_never_erases_without_decision() -> None:

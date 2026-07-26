@@ -103,6 +103,13 @@ jobs:
       - name: Boundary-proof BPMN-error allowlist gate (ADR-0030)
         run: make check-bpmn-error-allowlist
 
+      # T3.4 F1: repo-wide AST gate — a direct `transport.start_process_instance(...)` call (or a
+      # hand-rolled raw REST start-path literal) anywhere outside the pinned 2-file transport
+      # allowlist bypasses the `start_process_idempotent` fence (ADR-0007/T-C2 emit-before-effect
+      # + business-key idempotency). Belt-and-suspenders with the arch-test in tests/unit/ci/.
+      - name: Start-process fence gate (ADR-0007/T-C2)
+        run: make check-start-process-fence
+
   # ── Reativado em M13: o módulo maezo.platform.validation.cli está implementado
   # (construído em M2/M9). make validate-signoff funciona.
   # ✅ Passa em CI (greenfield stub, exit 0).

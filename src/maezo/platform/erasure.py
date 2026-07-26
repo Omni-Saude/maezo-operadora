@@ -1,7 +1,9 @@
 """Erasure Manager — cascading data deletion by fhir_patient_id (ADR-0002).
 
 Implements LGPD right to erasure (art. 18, VI) with a three-layer cascade:
-1. Working layer: LangGraph checkpointer (PostgreSQL, schema `agents`)
+1. Working layer: LangGraph checkpointer (PostgreSQL, tables `checkpoints` /
+   `checkpoint_blobs` / `checkpoint_writes` -- T3.4 F4 correction; NOT a schema literally
+   named `agents`, and NOT `agent_checkpoints`/`agent_checkpoint_writes`)
 2. Episodic layer: Transcripts/decisions/events partition by fhir_patient_id
 3. Semantic layer: pgvector embeddings
 
@@ -9,10 +11,18 @@ The cascade is FAIL-SAFE: if any layer fails, the entire operation is rolled
 back (or at minimum reported as incomplete). Verification runs after erasure
 to confirm all three layers are clean.
 
+FAIL-CLOSED (T3.4-F3): the per-layer deletion SQL is NOT YET IMPLEMENTED — it is
+gated on the DPO legal-bases/retention matrix (human-decided) AND the checkpoint-
+schema reconciliation (T3.4-F4). Until real deletion lands, ``erase()`` and
+``verify()`` RAISE ``ErasureNotImplementedError`` rather than reporting a
+``"completed"``/``"clean"`` outcome that no data movement backs. Reporting success
+for an erasure that executed zero SQL would be a silent LGPD art. 18, VI violation
+(the data subject is told their data is gone while it remains) — so the honest,
+fail-closed behavior is to refuse loudly and force an incident.
+
 Usage:
     manager = ErasureManager(langgraph_session, episodic_session, semantic_session)
-    result = await manager.erase("tenant-amh", "patient-123")
-    assert result["status"] == "completed"
+    result = manager.erase("tenant-amh", "patient-123")  # raises ErasureNotImplementedError today
 """
 
 from __future__ import annotations
@@ -24,6 +34,22 @@ from typing import Any
 import structlog
 
 logger = structlog.get_logger(__name__)
+
+
+class ErasureNotImplementedError(NotImplementedError):
+    """Fail-closed sentinel: real cascading deletion is not yet implemented (T3.4-F3).
+
+    Raised by ``ErasureManager.erase()``/``verify()`` so NO caller can mistake the
+    ABSENCE of a deletion effect for a completed erasure. The deletion/verification SQL
+    is deliberately unwritten — it is gated on the DPO legal-bases/retention matrix
+    (human-decided) and the checkpoint-schema reconciliation (T3.4-F4). A future
+    implementor flipping this to real deletion MUST remove these raises and, in doing so,
+    consciously update every test that currently asserts this fail-closed refusal.
+
+    Subclasses ``NotImplementedError`` (a ``RuntimeError``) so a bare ``except Exception``
+    still catches it, but the precise type lets callers (e.g. the LGPD erasure worker)
+    convert it into an engine incident that is NEVER retried and NEVER reported as success.
+    """
 
 
 @dataclass
@@ -55,7 +81,8 @@ class ErasureManager:
     """Manages cascading data erasure across three storage layers.
 
     ADR-0002 mandates that erasure by fhir_patient_id must cascade through:
-    1. Working (LangGraph checkpointer — PostgreSQL `agents` schema)
+    1. Working (LangGraph checkpointer — PostgreSQL `checkpoints`/`checkpoint_blobs`/
+       `checkpoint_writes` tables, T3.4 F4 correction)
     2. Episodic (transcripts, decisions, events partitioned by fhir_patient_id)
     3. Semantic (pgvector embeddings referencing FHIR resources)
 
@@ -103,88 +130,31 @@ class ErasureManager:
 
         Returns:
             ErasureResult with status and per-layer results.
+
+        Raises:
+            ErasureNotImplementedError: ALWAYS, today. The per-layer deletion SQL is not
+                yet implemented (see module docstring / class ErasureNotImplementedError).
+                This raise is fail-closed: it is the ONLY honest outcome while zero data
+                movement is possible, and it precedes the status machine below so no code
+                path can ever return ``status="completed"`` without a real effect.
         """
-        result = ErasureResult(fhir_patient_id=fhir_patient_id, tenant_id=tenant_id)
-        errors: list[str] = []
-
-        # Layer 1: Working (LangGraph checkpoint)
-        try:
-            self._erase_working(tenant_id, fhir_patient_id)
-            result.working_erased = True
-            logger.info(
-                "erasure_working_complete",
-                tenant_id=tenant_id,
-                fhir_patient_id=fhir_patient_id,
-            )
-        except Exception as e:
-            errors.append(f"working: {e}")
-            logger.error(
-                "erasure_working_failed",
-                tenant_id=tenant_id,
-                fhir_patient_id=fhir_patient_id,
-                error=str(e),
-            )
-
-        # Layer 2: Episodic (transcripts, decisions, events)
-        try:
-            self._erase_episodic(tenant_id, fhir_patient_id)
-            result.episodic_erased = True
-            logger.info(
-                "erasure_episodic_complete",
-                tenant_id=tenant_id,
-                fhir_patient_id=fhir_patient_id,
-            )
-        except Exception as e:
-            errors.append(f"episodic: {e}")
-            logger.error(
-                "erasure_episodic_failed",
-                tenant_id=tenant_id,
-                fhir_patient_id=fhir_patient_id,
-                error=str(e),
-            )
-
-        # Layer 3: Semantic (pgvector embeddings)
-        try:
-            self._erase_semantic(tenant_id, fhir_patient_id)
-            result.semantic_erased = True
-            logger.info(
-                "erasure_semantic_complete",
-                tenant_id=tenant_id,
-                fhir_patient_id=fhir_patient_id,
-            )
-        except Exception as e:
-            errors.append(f"semantic: {e}")
-            logger.error(
-                "erasure_semantic_failed",
-                tenant_id=tenant_id,
-                fhir_patient_id=fhir_patient_id,
-                error=str(e),
-            )
-
-        result.errors = errors
-
-        # Determine overall status
-        all_erased = result.working_erased and result.episodic_erased and result.semantic_erased
-        none_erased = not result.working_erased and not result.episodic_erased and not result.semantic_erased
-
-        if all_erased:
-            result.status = "completed"
-        elif none_erased:
-            result.status = "failed"
-        else:
-            result.status = "partial"
-
-        logger.info(
-            "erasure_cascade_complete",
+        # FAIL-CLOSED (T3.4-F3): refuse before touching the (unimplemented) layer helpers.
+        # The `_erase_*`/`_verify_*` helpers below are intentionally unreachable until the
+        # deletion SQL is written (gated on the DPO retention matrix + T3.4-F4 checkpoint-
+        # schema reconciliation). Removing this raise WITHOUT implementing real deletion
+        # would re-introduce the audited "false success" defect.
+        logger.error(
+            "erasure_refused_not_implemented",
             tenant_id=tenant_id,
             fhir_patient_id=fhir_patient_id,
-            status=result.status,
-            working=result.working_erased,
-            episodic=result.episodic_erased,
-            semantic=result.semantic_erased,
+            layer="all",
         )
-
-        return result
+        raise ErasureNotImplementedError(
+            "ErasureManager.erase: cascading deletion is NOT IMPLEMENTED — refusing to "
+            "report success for an erasure that executes zero SQL (LGPD art. 18, VI). "
+            "Gated on the DPO legal-bases/retention matrix + T3.4-F4 checkpoint-schema "
+            "reconciliation. Implement real per-layer deletion before removing this guard."
+        )
 
     def verify(self, tenant_id: str, fhir_patient_id: str) -> dict[str, Any]:
         """Verify that all three layers are clean for a given fhir_patient_id.
@@ -198,36 +168,42 @@ class ErasureManager:
 
         Returns:
             Dict with keys: working_clean, episodic_clean, semantic_clean, status.
+
+        Raises:
+            ErasureNotImplementedError: ALWAYS, today. The per-layer verification SELECTs are
+                not yet implemented, so ``verify()`` cannot honestly report ``"clean"``.
+                Returning ``"clean"`` from a verify that executed zero SQL would falsely
+                certify that erased data is gone — the fail-closed refusal is the only
+                truthful outcome until real verification queries are written.
         """
-        working_clean = self._verify_working(tenant_id, fhir_patient_id)
-        episodic_clean = self._verify_episodic(tenant_id, fhir_patient_id)
-        semantic_clean = self._verify_semantic(tenant_id, fhir_patient_id)
-
-        all_clean = working_clean and episodic_clean and semantic_clean
-
-        logger.info(
-            "erasure_verification_complete",
+        # FAIL-CLOSED (T3.4-F3): the `_verify_*` helpers below are intentionally unreachable
+        # until the verification SELECTs are written. Never return "clean" without a real check.
+        logger.error(
+            "erasure_verify_refused_not_implemented",
             tenant_id=tenant_id,
             fhir_patient_id=fhir_patient_id,
-            all_clean=all_clean,
-            working_clean=working_clean,
-            episodic_clean=episodic_clean,
-            semantic_clean=semantic_clean,
+            layer="all",
         )
-
-        return {
-            "working_clean": working_clean,
-            "episodic_clean": episodic_clean,
-            "semantic_clean": semantic_clean,
-            "status": "clean" if all_clean else "dirty",
-        }
+        raise ErasureNotImplementedError(
+            "ErasureManager.verify: erasure verification is NOT IMPLEMENTED — refusing to "
+            "certify a layer as 'clean' without executing a real SELECT. Implement per-layer "
+            "verification before removing this guard (T3.4-F3)."
+        )
 
     def _erase_working(self, tenant_id: str, fhir_patient_id: str) -> None:
         """Erase working layer (LangGraph checkpoint) data.
 
-        In production, this executes:
-            DELETE FROM agents.checkpoints WHERE fhir_patient_id = :pid
-            DELETE FROM agents.checkpoint_writes WHERE fhir_patient_id = :pid
+        T3.4 F4 correction: the REAL langgraph-checkpoint-postgres tables are `checkpoints`,
+        `checkpoint_blobs`, and `checkpoint_writes` (provisioned by `PostgresSaver.setup()`,
+        not Alembic -- see `platform/migrations/versions/0006_retire_dead_checkpoint_tables.py`).
+        `agents.checkpoints` / `agents.checkpoint_writes` (this docstring's prior text) were
+        never real tables. Note these tables are keyed by `thread_id` / `checkpoint_ns`, NOT by
+        `fhir_patient_id` -- there is no `fhir_patient_id` column to filter on directly; a real
+        implementation would need a thread_id -> fhir_patient_id mapping to erase by patient.
+        In production, this would execute (illustrative, pending that mapping):
+            DELETE FROM checkpoints WHERE thread_id = ANY(:thread_ids)
+            DELETE FROM checkpoint_blobs WHERE thread_id = ANY(:thread_ids)
+            DELETE FROM checkpoint_writes WHERE thread_id = ANY(:thread_ids)
 
         Args:
             tenant_id: The tenant scope.
@@ -278,8 +254,11 @@ class ErasureManager:
     def _verify_working(self, tenant_id: str, fhir_patient_id: str) -> bool:
         """Verify working layer is clean.
 
-        In production, this executes:
-            SELECT COUNT(*) FROM agents.checkpoints WHERE fhir_patient_id = :pid
+        T3.4 F4 correction: the REAL table is `checkpoints` (plus `checkpoint_blobs` /
+        `checkpoint_writes`), not `agents.checkpoints` -- see `_erase_working` for the
+        thread_id-vs-fhir_patient_id keying caveat. In production, this would execute
+        (illustrative, pending a thread_id -> fhir_patient_id mapping):
+            SELECT COUNT(*) FROM checkpoints WHERE thread_id = ANY(:thread_ids)
 
         Returns True if no rows remain.
 

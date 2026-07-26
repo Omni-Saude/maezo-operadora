@@ -41,7 +41,7 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from maezo.tools.workers.base import ERR_DENIAL_NOT_HUMAN, WorkerBase
-from maezo.tools.workers.harness import ExternalTask, WorkerBpmnError
+from maezo.tools.workers.harness import ExternalTask, WorkerBpmnError, WorkerFailureError
 
 if TYPE_CHECKING:
     from maezo.tools.workers.harness import KafkaPublisher, TaskHandler, WorkerHarness
@@ -285,13 +285,31 @@ class ExecuteErasureWorker(WorkerBase):
 
     NUNCA elimina dados com NEGAR_FUNDAMENTADO (decisao humana de negar).
     NUNCA elimina dados sem decisao_dsr explicita (fail-closed).
+
+    FAIL-CLOSED (T3.4-F3): mesmo com AMBOS os guards satisfeitos (human_approved is True +
+    decisao_dsr == EXECUTAR_E_ENVIAR), a eliminacao REAL ainda NAO e executavel — a cascata de
+    delecao (`platform.erasure.ErasureManager`) nao esta implementada (gated na matriz de bases
+    legais/retencao do DPO + reconciliacao de schema de checkpoint, T3.4-F4) E nao ha resolucao
+    `titular_pseudo_id`->`fhir_patient_id` disponivel nas process_vars. Retornar
+    `status="erasure_completed"` aqui — o comportamento anterior — mentia ao titular (art. 18, VI):
+    afirmava delecao concluida sem executar UMA LINHA de SQL. O worker portanto LEVANTA um INCIDENTE
+    fail-closed (`WorkerFailureError(retries_left=0)`), NUNCA reporta sucesso. Nao e um
+    `WorkerBpmnError`: o unico `bpmn:error` com boundary nesta BPMN e ERR_DSR_IDENTITY_UNVERIFIED;
+    `ERR_DSR_ERASURE_FAILED` e declarado no spec MAS SEM boundary event e sem service task no topico
+    de erasure, entao um raise dele reprovaria o gate de allowlist (ADR-0030 §2 clausula b) e seria
+    demovido a failure de qualquer forma. Um incidente (retries=0) e o desfecho honesto: exige
+    atencao humana, NUNCA avanca o processo para "enviar confirmacao ao titular".
     """
 
     def __init__(self) -> None:
-        super().__init__(topic="operadora.lgpd.execute_erasure")
+        # max_retries=1: este e um refuso DETERMINISTICO (delecao nao implementada), nao um fault
+        # transitorio. O WorkerFailureError(retries_left=0) abaixo NUNCA deve ser re-tentado pelo
+        # retry in-process do WorkerBase (base.py re-tenta TODA Exception com time.sleep) — o engine
+        # e' dono do retry duravel (T1.1 design §9). Espelha ValidateIdentityWorker/auth.
+        super().__init__(topic="operadora.lgpd.execute_erasure", max_retries=1)
 
     def execute(self, process_vars: dict[str, Any]) -> dict[str, Any]:
-        """Execute data erasure.
+        """Execute data erasure — or fail closed if real deletion is not yet possible.
 
         Duplo guard: human_approved + decisao_dsr == EXECUTAR_E_ENVIAR.
 
@@ -299,7 +317,12 @@ class ExecuteErasureWorker(WorkerBase):
             process_vars: Must include titular_pseudo_id, decisao_dsr, human_approved.
 
         Returns:
-            Dict with erasure status.
+            Dict with erasure status — for the GUARD-BLOCKED outcomes only (blocked_by_guard /
+            erasure_blocked). The APPROVED path never returns: it raises (see Raises).
+
+        Raises:
+            WorkerFailureError: retries_left=0 (immediate, non-retried engine incident) when both
+                guards pass but real deletion is unimplemented (T3.4-F3). NEVER reports success.
         """
         tenant_id = process_vars.get("tenant_id", "")
         decisao = process_vars.get("decisao_dsr", "")
@@ -351,18 +374,26 @@ class ExecuteErasureWorker(WorkerBase):
                 ),
             }
 
-        # Execute erasure
-        self.logger.info(
-            "lgpd_erasure_completed",
+        # Both guards satisfied (human_approved is True + decisao_dsr == EXECUTAR_E_ENVIAR) — but
+        # real deletion is NOT IMPLEMENTED. FAIL CLOSED: raise a non-retried incident instead of
+        # fabricating "erasure_completed". A future implementor MUST wire the real cascade
+        # (`platform.erasure.ErasureManager` — currently raises ErasureNotImplementedError) AND the
+        # titular_pseudo_id->fhir_patient_id resolution, then consciously update this branch and its
+        # tests. Removing this raise without implementing deletion re-introduces the audited defect
+        # (LGPD art. 18, VI: telling the titular their data is gone while it remains).
+        self.logger.error(
+            "lgpd_erasure_refused_not_implemented",
             tenant_id=tenant_id,
+            reason="real deletion cascade unimplemented (T3.4-F3, gated on DPO matrix + T3.4-F4)",
         )
-
-        return {
-            "status": "erasure_completed",
-            "data_type": "erasure",
-            "fundamentacao_legal": fundamentacao,
-            "event": "agents.events.lgpd_dsr.completed",
-        }
+        raise WorkerFailureError(
+            "execute_erasure: eliminacao APROVADA (human_approved + decisao_dsr=EXECUTAR_E_ENVIAR) "
+            "mas a cascata de delecao real NAO esta implementada (platform.erasure.ErasureManager "
+            "levanta ErasureNotImplementedError; falta resolucao titular_pseudo_id->fhir_patient_id). "
+            "Recusando a reportar 'erasure_completed' sem executar SQL (LGPD art. 18, VI) — "
+            "incidente fail-closed, NAO retentar, NAO avancar para envio de confirmacao ao titular.",
+            retries_left=0,
+        )
 
 
 # ---------------------------------------------------------------------------

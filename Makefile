@@ -1,5 +1,5 @@
 .PHONY: setup lint type test test-integration evals validate-artifacts validate-signoff \
-        check-bpmn-error-allowlist \
+        check-bpmn-error-allowlist check-start-process-fence \
         deploy-artifacts dev-stack dev-observability tf-validate localstack-up tf-smoke helm-lint
 
 LOCALSTACK_COMPOSE := deploy/terraform/localstack/docker-compose.localstack.yml
@@ -50,6 +50,14 @@ check-bpmn-error-allowlist: ## ADR-0030 §2: prova que todo WorkerBpmnError rais
 	# FALHA em raise nao-coberto/nao-catalogado; clausula (c) dead-model e warn-only no Tier-0..2
 	# (F5) — `--strict-dead-models` endurece para FALHA no fecho do Tier-3.
 	uv run python scripts/ci/check_bpmn_error_allowlist.py
+
+check-start-process-fence: ## T3.4 F1: nenhuma chamada direta a start_process_instance fora do allowlist da fence (ADR-0007/T-C2)
+	# AST-scan repo-wide de src/maezo: `start_process_idempotent` (mcp_cibseven/transport.py:560)
+	# e o UNICO chokepoint de start de processo sancionado (emit-before-effect + idempotencia por
+	# business_key). Uma chamada direta a `transport.start_process_instance(...)` (ou um POST
+	# hand-rolled a /process-definition/key/{key}/start) fora do allowlist pinado (a propria
+	# transport.py + o decorator cibseven_engine.py) falha o gate, apontando para a fence.
+	uv run python scripts/ci/check_start_process_fence.py
 
 deploy-artifacts: ## deploy spec/processes/{bpmn,dmn} no engine CIB Seven (idempotente; requer `make dev-stack` de pe)
 	# T1.3: POST /deployment/create multipart (enable-duplicate-filtering + deploy-changed-only)

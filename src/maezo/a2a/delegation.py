@@ -229,28 +229,37 @@ class DelegationEnvelope:
 # --- PHI guard ----------------------------------------------------------------------------
 
 
-# Defense-in-depth (T2.4 A2A W4 — `docs/design/A2A-dispatcher-card-signing.md` §10, structural-field
-# PHI-scrub assessment): a CPF/CNPJ embedded INSIDE an otherwise-legitimate URI-style `payload_ref`
-# (e.g. a caller accidentally interpolating a raw CPF into a FHIR/process reference) bypasses the
-# whole-string check below, which requires the ENTIRE string to be digits+separators. Scoped
-# NARROWLY to the CPF/CNPJ CANONICALLY-PUNCTUATED shape only — NOT any bare 11/14-digit run — because
-# a bare digit run collides with legitimate, purely-numeric FHIR/process resource ids (assessed and
-# rejected as unsafe: it would false-positive-reject real references). The punctuated shape
-# (dots/dash for CPF, dots/slash/dash for CNPJ, in the EXACT canonical positions) essentially never
-# occurs by chance in a URI/reference scheme, so this closes the concrete gap (a formatted CPF
-# interpolated into a reference string) without touching bare numeric ids or any other field.
+# Defense-in-depth (`docs/design/A2A-dispatcher-card-signing.md` §10, structural-field PHI-scrub
+# assessment): a CPF/CNPJ embedded INSIDE an otherwise-legitimate URI-style `payload_ref` (e.g. a
+# caller accidentally interpolating a raw CPF into a FHIR/process reference) bypasses the
+# whole-string check below, which requires the ENTIRE string to be digits+separators. Two embedded
+# shapes are caught:
+#   1. CANONICALLY-PUNCTUATED CPF/CNPJ (dots/dash for CPF, dots/slash/dash for CNPJ, in the EXACT
+#      canonical positions) — essentially never occurs by chance in a URI/reference scheme.
+#   2. A BARE digit run whose length is EXACTLY a Brazilian identifier's (CPF=11, CNPJ=14, CNS=15),
+#      isolated by non-digit boundaries (`_BARE_ID_RUN_RE`). This closes the gap the auditor named
+#      (a raw 11-digit CPF interpolated into a URI-style ref, e.g. `fhir://Patient/12345678901`)
+#      WITHOUT false-positive-rejecting legitimate long-but-not-PHI numeric ids: the length is
+#      pinned to the exact PHI-identifier lengths (via the `(?<!\d)…(?!\d)` boundaries a LONGER run
+#      never matches), so an all-digit UUID node (12 hex digits, e.g. `…-426614174000`) or any
+#      other 12/13/16+-digit id stays admissible. A bare ELEVEN-digit id is genuinely
+#      indistinguishable from a CPF, so flagging it is the fail-closed-correct call (ADR-0006).
 _CPF_FORMATTED_RE = re.compile(r"\d{3}\.\d{3}\.\d{3}-\d{2}")
 _CNPJ_FORMATTED_RE = re.compile(r"\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}")
+_BARE_ID_RUN_RE = re.compile(r"(?<!\d)(?:\d{15}|\d{14}|\d{11})(?!\d)")
 
 
 # Defensive heuristic: rejects refs that "look like" raw Brazilian identifiers (11-digit CPF/CNS,
-# 14-digit CNPJ) OR that embed a canonically-punctuated CPF/CNPJ substring. This is NOT PHI
-# validation — it is a cheap fail-closed check against the obvious mistake of pasting a CPF as (or
-# into) `payload_ref`. Real data travels as a FHIR reference.
+# 14-digit CNPJ) OR that embed a canonically-punctuated CPF/CNPJ substring OR an isolated bare
+# CPF/CNPJ/CNS-length digit run. This is NOT PHI validation — it is a cheap fail-closed check
+# against the obvious mistake of pasting a CPF as (or into) `payload_ref`. Real data travels as a
+# FHIR reference.
 def _looks_like_phi(payload_ref: str) -> bool:
     digits = [ch for ch in payload_ref if ch.isdigit()]
     only_digits_and_sep = all(ch.isdigit() or ch in {".", "-", "/", " "} for ch in payload_ref)
-    if only_digits_and_sep and len(digits) in {11, 14}:
+    if only_digits_and_sep and len(digits) in {11, 14, 15}:
+        return True
+    if _BARE_ID_RUN_RE.search(payload_ref):
         return True
     return bool(_CPF_FORMATTED_RE.search(payload_ref) or _CNPJ_FORMATTED_RE.search(payload_ref))
 

@@ -1,81 +1,92 @@
 """Unit tests for maezo.platform.erasure — Erasure Manager (ADR-0002).
 
-TDD London School: tests written BEFORE implementation verification.
-Tests cascade erasure across 3 layers and verification.
+FAIL-CLOSED honesty (T3.4-F3): the audited defect was that `erase()`/`verify()` reported
+`status="completed"`/`"clean"` while executing ZERO SQL (proven with fake connections whose
+executed-SQL log stayed empty). Real per-layer deletion is NOT buildable yet (gated on the DPO
+legal-bases/retention matrix + the T3.4-F4 checkpoint-schema reconciliation). Until it lands,
+`erase()` and `verify()` MUST refuse loudly — never fabricate success. These tests pin that
+refusal.
+
+CONSCIOUS-FLIP GUARD: a future implementor wiring real deletion MUST delete/replace the
+`pytest.raises(ErasureNotImplementedError)` assertions below — they cannot silently start
+passing. Do NOT weaken these to make a half-built implementation go green.
 """
 
 from __future__ import annotations
 
-from maezo.platform.erasure import ErasureManager, ErasureResult
+import pytest
+
+from maezo.platform.erasure import ErasureManager, ErasureNotImplementedError, ErasureResult
 
 
-def test_erasure_cascade_all_layers() -> None:
-    """ErasureManager must cascade erasure through all 3 layers and return completed."""
+class _RecordingConn:
+    """Fake DB connection recording every SQL statement it is asked to execute."""
+
+    def __init__(self) -> None:
+        self.executed: list[str] = []
+
+    def execute(self, sql: object, *args: object, **kwargs: object) -> None:
+        self.executed.append(str(sql))
+
+
+def test_erase_fails_closed_not_implemented() -> None:
+    """erase() MUST raise ErasureNotImplementedError — never report a completed erasure.
+
+    Reproduces the auditor's probe: inject fake connections and prove ZERO SQL is executed
+    AND no success value is returned.
+    """
+    working, episodic, semantic = _RecordingConn(), _RecordingConn(), _RecordingConn()
+    manager = ErasureManager(working_db=working, episodic_db=episodic, semantic_db=semantic)
+
+    with pytest.raises(ErasureNotImplementedError) as exc:
+        manager.erase(tenant_id="amh", fhir_patient_id="patient-001")
+
+    # LGPD art. 18, VI must be named in the refusal so on-call triage understands the stakes.
+    assert "NOT IMPLEMENTED" in str(exc.value)
+    assert "art. 18" in str(exc.value)
+    executed = working.executed + episodic.executed + semantic.executed
+    assert executed == [], (
+        "FAIL-CLOSED GUARD (T3.4-F3): ErasureManager.erase must execute ZERO SQL while real "
+        "deletion is unimplemented. If you implemented real per-layer deletion, this test must "
+        f"be consciously rewritten — do not silently flip it to green. Saw SQL: {executed!r}"
+    )
+
+
+def test_erase_never_returns_completed_status() -> None:
+    """There is NO input for which erase() returns a truthy ErasureResult today.
+
+    Guards against a regression that re-adds a `return ErasureResult(status="completed")` path.
+    """
+    manager = ErasureManager()
+    with pytest.raises(ErasureNotImplementedError):
+        manager.erase("amh", "patient-002")
+
+
+def test_verify_fails_closed_not_implemented() -> None:
+    """verify() MUST raise — never certify a layer as 'clean' without a real SELECT."""
     manager = ErasureManager()
 
-    result = manager.erase(tenant_id="amh", fhir_patient_id="patient-001")
+    with pytest.raises(ErasureNotImplementedError) as exc:
+        manager.verify("amh", "patient-003")
 
-    assert isinstance(result, ErasureResult)
-    assert result.fhir_patient_id == "patient-001"
-    assert result.tenant_id == "amh"
-    assert result.status == "completed"
-    assert result.working_erased is True
-    assert result.episodic_erased is True
-    assert result.semantic_erased is True
-    assert result.errors == []
+    assert "NOT IMPLEMENTED" in str(exc.value)
 
 
-def test_erasure_different_patients() -> None:
-    """Erasure must work for different fhir_patient_id values."""
-    manager = ErasureManager()
-
-    r1 = manager.erase("amh", "patient-001")
-    r2 = manager.erase("amh", "patient-002")
-
-    assert r1.status == "completed"
-    assert r2.status == "completed"
-    assert r1.fhir_patient_id != r2.fhir_patient_id
+def test_erasure_not_implemented_is_a_not_implemented_error() -> None:
+    """The sentinel subclasses NotImplementedError so a bare `except Exception` still catches it,
+    while the precise type lets the worker convert it into a non-retried incident."""
+    assert issubclass(ErasureNotImplementedError, NotImplementedError)
 
 
-def test_erasure_different_tenants() -> None:
-    """Erasure must scope to the correct tenant."""
-    manager = ErasureManager()
-
-    r1 = manager.erase("amh", "patient-001")
-    r2 = manager.erase("cassi", "patient-001")
-
-    assert r1.tenant_id == "amh"
-    assert r2.tenant_id == "cassi"
-    assert r1.status == "completed"
-    assert r2.status == "completed"
-
-
-def test_erasure_verify_after_erase() -> None:
-    """After erasure, verify() must report all layers as clean."""
-    manager = ErasureManager()
-
-    result = manager.erase("amh", "patient-003")
-    assert result.status == "completed"
-
-    verification = manager.verify("amh", "patient-003")
-    assert verification["status"] == "clean"
-    assert verification["working_clean"] is True
-    assert verification["episodic_clean"] is True
-    assert verification["semantic_clean"] is True
-
-
-def test_erasure_verify_without_erase() -> None:
-    """Verify without erase must still work (report actual state)."""
-    manager = ErasureManager()
-
-    verification = manager.verify("amh", "patient-999")
-
-    # Default verify returns clean in test mode
-    assert verification["status"] == "clean"
+# ---------------------------------------------------------------------------
+# ErasureResult dataclass — a pure value object retained for the FUTURE real
+# implementation (per-layer status accounting). These do NOT exercise the
+# (fail-closed) manager; they pin the dataclass's own field/status semantics.
+# ---------------------------------------------------------------------------
 
 
 def test_erasure_result_fields() -> None:
-    """ErasureResult must have all required fields."""
+    """ErasureResult must have all required fields with fail-safe defaults."""
     import datetime as dt
 
     result = ErasureResult(fhir_patient_id="p-001", tenant_id="amh")
@@ -90,67 +101,21 @@ def test_erasure_result_fields() -> None:
     assert isinstance(result.timestamp, dt.datetime)
 
 
-def test_erasure_result_completed_status() -> None:
-    """ErasureResult status must reflect completion when all layers erased."""
-    result = ErasureResult(
-        fhir_patient_id="p-001",
-        tenant_id="amh",
-    )
+def test_erasure_result_holds_completed_status() -> None:
+    """ErasureResult can represent a completed erasure (for the future real implementation)."""
+    result = ErasureResult(fhir_patient_id="p-001", tenant_id="amh")
     result.working_erased = True
     result.episodic_erased = True
     result.semantic_erased = True
-
-    # Simulate the status logic from ErasureManager
-    all_erased = result.working_erased and result.episodic_erased and result.semantic_erased
-    if all_erased:
-        result.status = "completed"
+    result.status = "completed"
 
     assert result.status == "completed"
 
 
-def test_erasure_partial_failure_detection() -> None:
-    """Partial erasure must be detectable via status field."""
-    result = ErasureResult(
-        fhir_patient_id="p-001",
-        tenant_id="amh",
-    )
-    # Only working layer succeeded
+def test_erasure_result_holds_partial_status() -> None:
+    """ErasureResult can represent a partial erasure outcome."""
+    result = ErasureResult(fhir_patient_id="p-001", tenant_id="amh")
     result.working_erased = True
-    result.episodic_erased = False
-    result.semantic_erased = False
-
-    all_erased = result.working_erased and result.episodic_erased and result.semantic_erased
-    none_erased = not result.working_erased and not result.episodic_erased and not result.semantic_erased
-
-    if all_erased:
-        result.status = "completed"
-    elif none_erased:
-        result.status = "failed"
-    else:
-        result.status = "partial"
+    result.status = "partial"
 
     assert result.status == "partial"
-
-
-def test_erasure_all_layers_failed() -> None:
-    """When all layers fail, status must be 'failed'."""
-    result = ErasureResult(
-        fhir_patient_id="p-001",
-        tenant_id="amh",
-    )
-    # All layers failed
-    result.working_erased = False
-    result.episodic_erased = False
-    result.semantic_erased = False
-
-    all_erased = result.working_erased and result.episodic_erased and result.semantic_erased
-    none_erased = not result.working_erased and not result.episodic_erased and not result.semantic_erased
-
-    if all_erased:
-        result.status = "completed"
-    elif none_erased:
-        result.status = "failed"
-    else:
-        result.status = "partial"
-
-    assert result.status == "failed"
