@@ -1,0 +1,45 @@
+{
+  "id": "EVL-ANDRE-01",
+  "agent": "andre",
+  "class": "GC",
+  "tier": ["A"],
+  "description": "[SME-GATED -- financial policy: spec/processes/dmn/pagto_alcada.dmn's own header discloses 'DRAFT -- escada de alcada / threshold_brl / mapeamento faixa->grupo->tier requerem sign-off de financas' (values illustrative, not real). This golden's FAIL-CLOSED STRUCTURE (a payment above the R$100k L2 clerical ceiling always routes to a human approver tier, never auto-released) is proven now; the exact R$ tier cutoffs / group names still need finance sign-off before this golden is a ratified regression baseline.] A payment above the R$100.000,00 L2 ceiling (R$150.000,00) resolves to ALCADA_L1 -> human_review with the matching approver-tier group; the T-C2 audit-before-effect fence must still emit exactly once before the engine start, even on this above-ceiling path.",
+  "input": {
+    "state": {
+      "flow": "pagto_dossier",
+      "tenant_id": "amh",
+      "canal": "a2a",
+      "ordem_pagamento_id": "ORDEM-EVL-ANDRE-01",
+      "prestador_id": "PREST-TESTE-001",
+      "tipo_pagamento": "prestador_rede",
+      "valor_pagamento_cents": 15000000,
+      "moeda": "BRL",
+      "competencia": "2026-06",
+      "data_vencimento": "2026-07-10",
+      "conta_origem_ref": "conta-origem-ref-teste",
+      "instrumento_pagamento": "pix",
+      "dados_pagamento_validos": true,
+      "lastro_confirmado": true,
+      "dentro_teto_l2": false,
+      "duplicidade_suspeita": false
+    }
+  },
+  "recorded_llm": [
+    "Pagamento acima do teto de auto-liberacao L2; encaminhado para aprovacao humana no tier correspondente a alcada L1."
+  ],
+  "dmn_fixture": {
+    "pagto_admissibility": { "roteamento": "SEGUE_ROTEAMENTO" },
+    "pagto_alcada": { "faixa_valor": "ALCADA_L1", "grupo_aprovador": "aprovacao-financeira-l1" },
+    "pagto_sla": { "sla_aprovacao": "3d", "sla_alerta": "1d" }
+  },
+  "expect": {
+    "fields": {
+      "route": "human_review",
+      "faixa_valor": "ALCADA_L1",
+      "grupo_humano": "aprovacao-financeira-l1",
+      "motivo_humano": "aprovacao_alcada",
+      "desfecho": "dossie_aprovacao_humana"
+    }
+  },
+  "leak_canaries": []
+}

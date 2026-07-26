@@ -1,0 +1,29 @@
+{
+  "id": "EVL-HELENA-06",
+  "agent": "helena",
+  "class": "DD",
+  "tier": ["A"],
+  "description": "clinical routing — SME-ratification pending. Pediatric symptom with age emitted as the fractional string \"5.9\" -> _coerce_age fails closed (invalid_age) -> escalate falha_tecnica; the ambiguous age NEVER reaches the red-flag DMN (age-input gate, PR #107). Synthetic data only.",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "conversation_id": "wa:amh:evl-helena-06",
+      "canal": "whatsapp",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-006",
+      "message_body": "Minha filha esta com febre, ela tem 5.9 anos"
+    }
+  },
+  "recorded_llm": [
+    "{\"intent\": \"symptom\", \"population\": \"pediatric\", \"psychosocial_risk\": false, \"sintoma_codigo\": \"febre\", \"intensidade\": \"leve\", \"idade_meses\": \"5.9\"}",
+    "resumo tecnico",
+    "um humano vai continuar"
+  ],
+  "expect": {
+    "next_kind": "escalate",
+    "fields": {
+      "escalation_motivo": "falha_tecnica",
+      "error": "classify LLM returned schema-invalid JSON: invalid_age"
+    }
+  },
+  "leak_canaries": []
+}

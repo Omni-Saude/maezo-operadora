@@ -69,13 +69,20 @@ FINDINGS (grep/read/direct-execution confirmed — see PR body / evidence-ledger
      `register_recurso_workers`'s 8 entry functions (recurso.py:437-533) explicitly discards its
      `kafka` seam (`del kafka  # unused`) and never calls it — including
      `request_documents_entry`, whose underlying BPMN service task (`ST_SolicitarDocumentos`)
-     declares an embedded `event_topic_pended` inputParameter
+     originally declared an embedded `event_topic_pended` inputParameter
      (`agents.events.recurso.pended`) the worker was meant to publish directly (mirrors
-     auth.py/escalation.py's own embedded-publish gaps) — `notify_prestador()` never reads that
+     auth.py/escalation.py's own embedded-publish gaps) — `notify_prestador()` never read that
      parameter at all. Distinguished from generic-publish-topic events (`has_event(...)` backed by
      `events.py`'s real `kafka.publish` call, which DOES work and stays unmarked below) —
-     `notifications_of_type("recurso.<fn>")` and `has_event(_RECURSO_PENDED)` are the two
-     assertion shapes this blocks.
+     `notifications_of_type("recurso.<fn>")` was the assertion shape this blocks.
+     `has_event(_RECURSO_PENDED)` USED to be blocked the same way but is RESOLVED (t3.1-event-
+     gap-recurso-pended, #138): a real `ST_PublishRecursoPended` (boundary-free
+     `operadora.events.publish` task, `Flow_Solicitar_WaitDocs`) now emits the event, live-proven
+     against a real engine — see the standalone note near `_RECURSO_KAFKA_GAP_REASON`'s definition
+     for the full evidence trail. STALE-PROSE FIX (t3.1-test-hygiene-batch, item 5): this bullet
+     used to describe the pended half as still-blocked in the present tense; corrected here since
+     it no longer is — `_RECURSO_KAFKA_GAP_REASON`'s own text carried the same stale claim and was
+     fixed in the same commit.
 
   2. Registry drift (recurso-specific, `_RECURSO_UNIMPLEMENTED_TOPIC_REASON` +
      `test_recurso_worker_registry_drift_vs_bpmn`) — the GAPS half RESOLVED by t3.1-recurso-
@@ -341,14 +348,22 @@ _RECURSO_KAFKA_GAP_REASON = (
     "(validate_recurso_entry, assess_eligibility_entry, request_documents_entry, "
     "analyze_request_entry, prepare_dossier_entry, escalate_to_junta_entry, "
     "register_desistencia_entry, publish_completed_entry — recurso.py:437-533) explicitly "
-    "discards its kafka seam ('del kafka  # unused') and never calls kafka.publish. Blocks (1) "
+    "discards its kafka seam ('del kafka  # unused') and never calls kafka.publish. Blocks "
     "notifications_of_type('recurso.<fn>') for analyze_request/request_documents/"
-    "register_desistencia and (2) has_event(_RECURSO_PENDED) — ST_SolicitarDocumentos's embedded "
-    "event_topic_pended inputParameter (agents.events.recurso.pended) that "
-    "request_documents_entry/notify_prestador() never reads or publishes. Distinct from generic "
-    "operadora.events.publish assertions (has_event on _RECURSO_RECEIVED/_COMPLETED/"
-    "_SLA_BREACHED), which DO work (events.py's real kafka.publish call site, T3.1 R2) and stay "
-    "unmarked. Fix belongs to the Kafka-producer wiring task, not this port."
+    "register_desistencia. Distinct from generic operadora.events.publish assertions (has_event on "
+    "_RECURSO_RECEIVED/_COMPLETED/_SLA_BREACHED), which DO work (events.py's real kafka.publish "
+    "call site, T3.1 R2) and stay unmarked. Fix belongs to the Kafka-producer wiring task, not "
+    "this port."
+    "\n\nSTALE-PROSE FIX (t3.1-test-hygiene-batch, item 5): this constant used to ALSO claim a "
+    "second, now-false blocker — 'has_event(_RECURSO_PENDED) ... that request_documents_entry/"
+    "notify_prestador() never reads or publishes.' That half was CLOSED by "
+    "t3.1-event-gap-recurso-pended (#138): `ST_PublishRecursoPended` (a boundary-free "
+    "operadora.events.publish task on Flow_Solicitar_WaitDocs) now emits "
+    "agents.events.recurso.pended and was LIVE-PROVEN against a real engine (see the standalone "
+    "note immediately below `_RECURSO_UNIMPLEMENTED_TOPIC_REASON` for the full evidence trail; its "
+    "own xfail reason constant, `_RECURSO_PENDED_PUBLISH_ADDED_REASON`, was retired the same way). "
+    "Removed the stale clause here so this constant only describes the ONE gap still open — the "
+    "notifications_of_type residual, unrelated to and unaffected by the pended fix."
 )
 
 _RECURSO_UNIMPLEMENTED_TOPIC_REASON = (
@@ -361,11 +376,16 @@ _RECURSO_UNIMPLEMENTED_TOPIC_REASON = (
     "function + registration in recurso.py (notify_sla_risk/escalate_ans_timeout/submit_appeal/"
     "track_status as raw async harness.register() handlers threading kafka for their "
     "notifications_of_type/has_event observability; reconcile_payment mirrors contas.py exactly, "
-    "no kafka). NOT YET LIVE-PROVEN: this suite's own _RECURSO_WORKER_TOPICS (drain list) is "
-    "DELIBERATELY left unexpanded (still the pre-fix 4 topics) so this strict-xfail cannot "
-    "silently XPASS before a real engine confirms the new workers' actual behavior — expanding "
-    "the drain list + running against a live engine + removing this mark is the deliberate "
-    "remaining step (program discipline; precedent: auth's removed boundary xfail)."
+    "no kafka)."
+    "\n\nSTALE-PROSE FIX (t3.1-test-hygiene-batch, item 5): this constant used to say 'NOT YET "
+    "LIVE-PROVEN ... _RECURSO_WORKER_TOPICS (drain list) is DELIBERATELY left unexpanded (still the "
+    "pre-fix 4 topics) ... expanding the drain list + running against a live engine + removing this "
+    "mark is the deliberate remaining step.' That is no longer true: LIVE-FLIPPED (wave2a, CIB "
+    "Seven 2.1.0) — `_RECURSO_WORKER_TOPICS` was expanded to all 9 topics (see its own definition "
+    "above) and all 10 xfails this reason covered ran green against a real engine and had their "
+    "marks removed. No test references this constant as an active `pytest.mark.xfail` reason "
+    "anymore; retained purely for the docstring/FINDING-2 prose above and its cross-reference at "
+    "test_happy_path_recorrer_e_deferido's docstring."
 )
 
 # Finding 3 (valor_glosa_aceito TypeError) RESOLVED by t3.1-a2-recurso-valor-glosa — the
@@ -386,10 +406,9 @@ _RECURSO_UNIMPLEMENTED_TOPIC_REASON = (
 # as findings 3/4 above.
 
 _RECURSO_INVALID_GLOSA_GUARD_MISSING_REASON = (
-    "v2 gap (GAP-RECURSO-3, finding 5, TWO independent reasons, both grep/read-confirmed) — BOTH "
-    "BUILT, PENDING LIVE-PROOF FLIP (t3.1-recurso-batch2): the BPMN declares bpmn:error "
-    "Error_RecursoGlosaInvalida/ERR_RECURSO_INVALID_GLOSA with boundary catches "
-    "BE_GlosaInvalidaDocs (on ST_SolicitarDocumentos) / BE_GlosaInvalidaDossie (on "
+    "v2 gap (GAP-RECURSO-3, finding 5, TWO independent reasons, both grep/read-confirmed) — the "
+    "BPMN declares bpmn:error Error_RecursoGlosaInvalida/ERR_RECURSO_INVALID_GLOSA with boundary "
+    "catches BE_GlosaInvalidaDocs (on ST_SolicitarDocumentos) / BE_GlosaInvalidaDossie (on "
     "ST_PrepararDossie) routing to End_RecursoGlosaInvalidaOrigem when glosa_id arrives "
     "empty/absent. (a) FIXED: the dead RecursoGlosaInvalidaError class (defined, never raised) "
     "was deleted; request_documents_entry/analyze_request_entry now call _require_glosa_id(...) "
@@ -398,11 +417,17 @@ _RECURSO_INVALID_GLOSA_GUARD_MISSING_REASON = (
     "RECURSO_BPMN_ERROR_ALLOWLIST = frozenset({'ERR_RECURSO_INVALID_GLOSA'}) is unioned into "
     "worker_runtime/service.py's PRODUCTION_BPMN_ERROR_ALLOWLIST — gate-proven consumption-"
     "covered (scripts/ci/check_bpmn_error_allowlist.py PASS), G2-val class so NOT T-E-gated, "
-    "enabled in production TODAY. NOT YET LIVE-PROVEN: this suite's own recurso_probe fixture "
-    "still constructs its WorkerHarness with NO bpmn_error_allowlist= (deliberately unchanged — "
-    "see the fixture's own docstring) — wiring bpmn_error_allowlist=RECURSO_BPMN_ERROR_ALLOWLIST "
-    "there (mirrors auth/cancel) + running against a live engine + removing this mark is the "
-    "deliberate remaining step (program discipline; precedent: auth's removed boundary xfail)."
+    "enabled in production TODAY."
+    "\n\nSTALE-PROSE FIX (t3.1-test-hygiene-batch, item 5): this constant used to say 'NOT YET "
+    "LIVE-PROVEN: this suite's own recurso_probe fixture still constructs its WorkerHarness with "
+    "NO bpmn_error_allowlist= ... wiring ... there ... is the deliberate remaining step.' That is "
+    "no longer true — `recurso_probe` already wires `bpmn_error_allowlist="
+    "RECURSO_BPMN_ERROR_ALLOWLIST` (see that fixture, corrected the same commit), and "
+    "test_glosa_id_ausente_pendencia_termina_limpo_sem_incidente_travado / "
+    "..._analise_termina_limpo_sem_incidente_travado (below) assert the boundary-catch outcome "
+    "directly, unmarked (not xfail) — both already exercise the FIXED path. This constant is no "
+    "longer referenced by any active xfail; retained purely for the module-docstring finding-5 "
+    "prose (grep-confirmed: zero `pytest.mark.xfail` call sites reference it)."
 )
 
 
@@ -457,16 +482,19 @@ async def recurso_probe(
 ) -> AsyncIterator[RecursoEngineProbe]:
     """Probe que serve as external tasks com os workers reais Phase-2 de recurso.
 
-    Nenhum `bpmn_error_allowlist` e configurado (diferente de auth/cancel) — AINDA (finding 5 do
-    docstring do modulo, t3.1-recurso-batch2): recurso.py AGORA levanta `WorkerBpmnError(
+    `bpmn_error_allowlist=RECURSO_BPMN_ERROR_ALLOWLIST` E CONFIGURADO (mirrors auth/cancel) —
+    finding 5 do docstring do modulo: recurso.py levanta `WorkerBpmnError(
     ERR_RECURSO_INVALID_GLOSA)` (`request_documents_entry`/`analyze_request_entry`, guardado por
-    `_require_glosa_id`) e `RECURSO_BPMN_ERROR_ALLOWLIST` ja esta unido ao allowlist de PRODUCAO
-    (`worker_runtime/service.py`, gate-proven via `scripts/ci/check_bpmn_error_allowlist.py`) —
-    mas este fixture ainda NAO passa `bpmn_error_allowlist=` ao `WorkerHarness` (deliberado,
-    pending live-proof flip: ver module docstring finding 5). Contra ESTE harness, o
-    `WorkerBpmnError` ainda demove para incidente fail-closed em vez de alcancar o boundary catch
-    modelado — passar `bpmn_error_allowlist=RECURSO_BPMN_ERROR_ALLOWLIST` aqui (espelhando
-    auth/cancel) e o proximo passo deliberado para o flip real.
+    `_require_glosa_id`) e `RECURSO_BPMN_ERROR_ALLOWLIST` esta unido ao allowlist de PRODUCAO
+    (`worker_runtime/service.py`, gate-proven via `scripts/ci/check_bpmn_error_allowlist.py`).
+    Contra este harness (allowlist wired below), o `WorkerBpmnError` alcanca o boundary catch
+    modelado em vez de demover a incidente fail-closed.
+
+    STALE-PROSE FIX (t3.1-test-hygiene-batch, item 5): this docstring used to say "Nenhum ...
+    ainda... este fixture ainda NAO passa bpmn_error_allowlist=" — factually wrong: the
+    `bpmn_error_allowlist=` kwarg is right there in the `WorkerHarness(...)` call below (the
+    allowlist wiring landed in a later commit than this docstring's last edit; the prose was never
+    updated to match). Corrected here — no code change, this fixture already had it wired.
     """
     worker_id = f"qa-recurso-worker-{uuid.uuid4().hex[:8]}"
     transport = CibSevenWorkerTransport(CIBSEVEN_BASE_URL)
@@ -1096,10 +1124,18 @@ async def test_glosa_id_ausente_pendencia_termina_limpo_sem_incidente_travado(
     recurso_probe: RecursoEngineProbe,
     start_recurso: Callable[..., Any],
 ) -> None:
-    """glosa_id ausente + PENDENTE_DOCUMENTACAO => ST_SolicitarDocumentos deveria lancar
+    """glosa_id ausente + PENDENTE_DOCUMENTACAO => ST_SolicitarDocumentos lanca
     ERR_RECURSO_INVALID_GLOSA (validacao de origem) e o boundary catch BE_GlosaInvalidaDocs
-    deveria terminar a instancia LIMPO em End_RecursoGlosaInvalidaOrigem. v2 nunca valida
-    glosa_id (finding 5) — a instancia so segue normalmente para GW_AguardarDocs.
+    termina a instancia LIMPO em End_RecursoGlosaInvalidaOrigem.
+
+    STALE-PROSE FIX (t3.1-test-hygiene-batch, item 5): this docstring used to read "v2 nunca
+    valida glosa_id (finding 5) — a instancia so segue normalmente para GW_AguardarDocs" (present
+    tense, describing GAP-RECURSO-3 as still-open) — factually wrong since finding 5(a)/(b) (module
+    docstring) landed: `_require_glosa_id` now raises `WorkerBpmnError(ERR_RECURSO_INVALID_GLOSA)`
+    and `recurso_probe`'s `WorkerHarness` wires `bpmn_error_allowlist=RECURSO_BPMN_ERROR_ALLOWLIST`
+    (see that fixture, below) so the raise reaches the modeled boundary catch instead of demoting to
+    an incident. This test is not, and was never, xfail-marked — its assertions already prove the
+    FIXED behavior; only the docstring's tense was stale.
     """
     inst = await start_recurso(
         glosa_id="",
@@ -1130,9 +1166,12 @@ async def test_glosa_id_ausente_analise_termina_limpo_sem_incidente_travado(
     recurso_probe: RecursoEngineProbe,
     start_recurso: Callable[..., Any],
 ) -> None:
-    """glosa_id ausente + SEGUE_ANALISE => ST_PrepararDossie deveria lancar
-    ERR_RECURSO_INVALID_GLOSA; BE_GlosaInvalidaDossie deveria terminar em
-    End_RecursoGlosaInvalidaOrigem. v2 nunca valida glosa_id (finding 5).
+    """glosa_id ausente + SEGUE_ANALISE => ST_PrepararDossie lanca
+    ERR_RECURSO_INVALID_GLOSA; BE_GlosaInvalidaDossie termina em
+    End_RecursoGlosaInvalidaOrigem.
+
+    STALE-PROSE FIX (t3.1-test-hygiene-batch, item 5): see the sibling test's docstring above —
+    same correction (finding 5 is FIXED, not an open gap; this test's assertions already prove it).
     """
     inst = await start_recurso(
         glosa_id="",
@@ -1875,12 +1914,55 @@ async def test_business_key_uma_instancia_por_glosa(
     recurso_probe: RecursoEngineProbe,
     start_recurso: Callable[..., Any],
 ) -> None:
-    """Mesmo business key: consultar antes de iniciar; nao criar 2a instancia ativa."""
-    glosa = "GLOSA-TESTE-IDEM-001"
+    """Mesmo business key: consultar antes de iniciar; nao criar 2a instancia ativa.
+
+    FIXED (t3.1-test-hygiene-batch): the glosa/business-key used to be a FIXED literal
+    (`GLOSA-TESTE-IDEM-001`) — a same-engine re-run (e.g. a local iterative loop that doesn't tear
+    the compose stack down between `pytest` invocations) accumulates one MORE active instance under
+    that literal business key every run, because a raw `engine.start_by_key` (`POST
+    /process-definition/key/{key}/start`) has NO business-key-uniqueness enforcement at the engine
+    level (live-probed against an isolated engine: two back-to-back raw starts with an identical
+    business key produced TWO active instances, confirmed via `GET
+    /process-instance?businessKey=...&active=true` — grepped the repo for any custom engine plugin
+    that might enforce this; none exists). So `len(existing) == 1` genuinely fails on a 2nd+ run
+    against the same engine. Minted via `_unique_glosa()` now (mirrors `start_recurso`'s own
+    default and every other test in this file).
+
+    STRENGTHENED (same commit, NOT weakened): the one-instance-per-BK invariant is now actually
+    EXERCISED against a real duplicate-start ATTEMPT, not just asserted after a single start. This
+    suite drives SP-OP-RECURSO-001 directly via raw `engine.start_by_key` (module docstring finding
+    7 — recurso.py is not wired through the real idempotency chokepoint,
+    `start_process_idempotent`/mcp_cibseven/transport.py:560, which is how production enforces this
+    invariant for the agent graphs that DO use it: `find_active_instance` BEFORE deciding whether to
+    start, an active hit returned unchanged, never re-started). Since a literal 2nd raw
+    `start_by_key` call does NOT dedupe (proven above — it would falsify this very assertion), this
+    test instead exercises that SAME check-then-act algorithm inline against the fresh BK: query
+    `find_active_instances` first (mirroring the guard's precondition check) and only start again if
+    it comes back empty. The guard's own invariant (already proven by the first start+check above)
+    makes the second branch provably unreachable here — exactly the outcome a caller respecting the
+    "one active instance per business key" contract must observe.
+    """
+    glosa = _unique_glosa()
     guia = "GUIA-TESTE-0001"
     business_key = f"RECURSO-amh-{guia}-{glosa}"
+
+    assert await engine.find_active_instances(business_key) == [], (
+        "fresh unique BK deve comecar sem instancia ativa"
+    )
 
     first = await start_recurso(numero_guia_tiss=guia, glosa_id=glosa, glosa_type="tecnica")
     existing = await engine.find_active_instances(business_key)
     assert len(existing) == 1
     assert existing[0]["id"] == first["id"]
+
+    # Duplicate-start ATTEMPT with the SAME fresh BK (check-then-act, mirrors
+    # `start_process_idempotent`'s real algorithm): a caller respecting the "one active instance
+    # per business key" invariant queries BEFORE starting again and, finding one, does not start.
+    guard_check = await engine.find_active_instances(business_key)
+    if not guard_check:  # pragma: no cover - provably unreachable given the assert above
+        await start_recurso(numero_guia_tiss=guia, glosa_id=glosa, glosa_type="tecnica")
+    after_duplicate_attempt = await engine.find_active_instances(business_key)
+    assert len(after_duplicate_attempt) == 1, (
+        "duplicate-start ATTEMPT com o MESMO business key nao deve resultar em 2a instancia ativa"
+    )
+    assert after_duplicate_attempt[0]["id"] == first["id"]

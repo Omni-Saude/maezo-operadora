@@ -433,6 +433,17 @@ _FRAUDE_SCORE_INDICADORES_TYPEDVALUE_GAP = (
     "test read, NOT the fraude.py kafka gap _FRAUDE_WORKER_KAFKA_GAP_REASON names. Left xfail(strict) "
     "pending the adaptation fix (unwrap the typed value / use the history variable API); a validator "
     "does not rewrite the builder's adaptation. Flips loudly once the read is corrected."
+    "\n\nFIXED + LIVE-FLIPPED (t3.1-test-hygiene-batch): live-probed the wrapper shape directly "
+    "against an isolated engine (SP-OP-FRAUDE-001 instance, indicadores_presentes sent as a real "
+    "Json var) -- confirmed the default `deserializeValue=true` read never carries a recoverable "
+    "value (the SpinJsonNode bean's own fields: array/null/dataFormatName/object/boolean/number/"
+    "string/nodeType/value, none of which is the actual list). `engine.get_variable(iid, name, "
+    "deserialize=False)` (engine_rest.py, new optional kwarg, default True so every other call site "
+    "is unaffected) requests `deserializeValue=false` instead, which returns the raw JSON string -- "
+    "decoded by the pre-existing `json.loads` guard. XPASSed strict on a live engine for the "
+    "predicted reason (score_indicadores==200 DMN-computed; labels == the 7 expected indicator "
+    "names, decoy 'indicador_forjado_inbound' absent); xfail marker removed in-step. Constant "
+    "retained for the docstring prose above."
 )
 
 
@@ -763,7 +774,6 @@ async def test_score_alto_roteia_para_humano_nunca_acusa(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_FRAUDE_SCORE_INDICADORES_TYPEDVALUE_GAP, strict=True)
 async def test_score_indicators_computa_dmns_reais_contra_evidencia(
     engine: EngineRest,
     fraude_probe: FraudeEngineProbe,
@@ -837,7 +847,16 @@ async def test_score_indicators_computa_dmns_reais_contra_evidencia(
 
     score_var = await engine.get_variable(iid, "score_indicadores")
     assert score_var == 200, "a variavel de processo deve ser o score DMN-computado"
-    ind_var_raw = await engine.get_variable(iid, "indicadores_presentes")
+    # FIXED (t3.1-test-hygiene-batch, `_FRAUDE_SCORE_INDICADORES_TYPEDVALUE_GAP`): the default
+    # `deserializeValue=true` read of a `Json`-typed SPIN variable serializes the `SpinJsonNode`
+    # BEAN via Jackson introspection ({'array': True, 'nodeType': 'ARRAY', 'dataFormatName':
+    # 'application/json', ...}) -- no field in that shape recovers the actual list, so the old
+    # `json.loads(x) if isinstance(x, str) else x` guard could never unwrap it (live-probed against
+    # an isolated engine: confirmed byte-exact, no "value"-bearing field survives). `deserialize=
+    # False` requests `deserializeValue=false` instead, which returns the raw JSON string (the same
+    # serialization `_to_camunda_vars` produced on send) -- decodable via the pre-existing
+    # `json.loads` guard below unchanged.
+    ind_var_raw = await engine.get_variable(iid, "indicadores_presentes", deserialize=False)
     labels = json.loads(ind_var_raw) if isinstance(ind_var_raw, str) else ind_var_raw
     assert labels == [
         "risk_thresholds_alto",
