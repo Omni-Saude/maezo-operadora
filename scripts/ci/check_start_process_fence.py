@@ -112,7 +112,8 @@ def scan_module(path: Path) -> tuple[list[Violation], bool]:
     try:
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     except (SyntaxError, OSError) as exc:
-        return [Violation(path, 0, f"could not parse ({exc}) — fail-closed, cannot prove absence of a bypass")], False
+        detail = f"could not parse ({exc}) — fail-closed, cannot prove absence of a bypass"
+        return [Violation(path, 0, detail)], False
 
     violations: list[Violation] = []
     calls_fence = False
