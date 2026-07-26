@@ -74,6 +74,13 @@ agents:
 # would set a replica count for a Deployment that never renders.
 # Restore this block when a real gateway entrypoint exists and the flag is re-enabled.
 
+# fhirSync: DISABLED platform-wide (fhirSync.enabled=false in values.yaml, t5-deploy-hygiene) —
+# `deployment-fhir-sync.yaml` runs `python -m maezo.platform.integrations.fhir_sync`, a module
+# that does not exist in src/ (crash-loop footgun, same class as gateway above). Also
+# contract-gated: Tasy Oracle DSN secret has no real value yet (gap #33). No replicaCount
+# override here: it would set a replica count for a Deployment that never renders. Restore this
+# block when the fhir_sync consumer module exists AND the Tasy contract/secret lands.
+
 webhookReceiver:
   replicaCount: 1
 
