@@ -63,7 +63,7 @@ from maezo.agents import AgentDefinition, AgentLoader
 from maezo.gateway.pep import PEP, PolicyError, build_pep
 from maezo.platform.health import CheckResult, build_health_server, create_health_app
 from maezo.platform.observability import get_metrics_collector
-from maezo.runtime.checkpoint import Checkpointer
+from maezo.runtime.checkpoint import Checkpointer, provision_checkpointer
 from maezo.runtime.harness import Harness, UnknownAgentError
 from maezo.runtime.inference import InferenceProvider
 
@@ -393,69 +393,31 @@ def _load_agent_graph(
 async def _provision_checkpointer(state: AgentState) -> None:
     """Provision the durable LangGraph checkpointer ONCE, with F2 fail-closed discipline (T3.4/F4).
 
-    Discipline (mirrors `a2a_composition._require_signer_or_fail_closed` + worker_runtime's
-    `audit_sink_ready`):
+    Thin adapter over the shared `runtime.checkpoint.provision_checkpointer` policy (the SAME
+    helper the live webhook dispatch path uses — so the daemon that advertises readiness and the
+    receiver that actually runs Helena's turns can never drift apart on fail-closed semantics),
+    mapping its `CheckpointerProvision` result onto this daemon's `AgentState`:
 
-      - `DATABASE_URL` present -> open an `AsyncPostgresSaver` and await `setup()` once (idempotent
-        DDL; `checkpoint_migrations` owns versioning — NOT Alembic, see
-        `platform/migrations/versions/0006_retire_dead_checkpoint_tables.py`). Success ->
-        `checkpointer_ready`. Failure -> PRODUCTION fails closed (readiness red, no fallback);
-        NON-production falls back to in-memory with a loud warning.
-      - `DATABASE_URL` absent -> PRODUCTION fails closed (a prod daemon must not run stateless);
-        NON-production falls back to in-memory with a loud warning.
+      - `DATABASE_URL` present -> `AsyncPostgresSaver` + awaited `setup()` (idempotent; NOT
+        Alembic — `checkpoint_migrations` owns versioning). Success -> `checkpointer_ready`.
+        Failure -> PRODUCTION fails closed (readiness red, no fallback); NON-production falls back
+        to in-memory with a loud warning.
+      - `DATABASE_URL` absent -> PRODUCTION fails closed; NON-production in-memory + warning.
 
     Isolated exactly like the other bring-up blocks: never propagates (liveness stays up); a
     failure leaves `checkpointer_ready` False so `/readyz` reports it red.
     """
     settings = state.settings
     is_production = settings.agent_runtime_mode != _LOCAL_RUNTIME_MODE
-
-    if settings.database_url:
-        try:
-            state.checkpointer = await Checkpointer.connect_and_setup(settings.database_url)
-            state.checkpointer_ready = True
-            state.checkpointer_backend = "postgres"
-            return
-        except Exception as exc:  # noqa: BLE001 — isolated; fail-closed in prod, fallback in dev.
-            state.checkpointer_error = f"AsyncPostgresSaver setup failed: {type(exc).__name__}: {exc}"
-            logger.error(
-                "checkpointer_postgres_setup_failed",
-                agent_id=settings.agent_id,
-                agent_runtime_mode=settings.agent_runtime_mode,
-                exc_info=True,
-            )
-            if is_production:
-                # FAIL-CLOSED: no silent degradation to in-memory in production.
-                return
-    else:
-        state.checkpointer_error = "DATABASE_URL unset — no durable checkpoint backend available"
-        if is_production:
-            logger.error(
-                "checkpointer_no_database_url_production",
-                agent_id=settings.agent_id,
-                agent_runtime_mode=settings.agent_runtime_mode,
-                detail="prod daemon refuses to run with a non-durable (in-memory) checkpointer",
-            )
-            # FAIL-CLOSED: leave checkpointer_ready False.
-            return
-
-    # NON-production fallback ONLY (reached only when is_production is False): in-memory saver,
-    # explicit warning. State does NOT survive a restart — dev/test ergonomics, never prod.
-    from langgraph.checkpoint.memory import InMemorySaver
-
-    state.checkpointer = Checkpointer(saver=InMemorySaver())
-    state.checkpointer_ready = True
-    state.checkpointer_backend = "memory"
-    logger.warning(
-        "checkpointer_inmemory_fallback_dev",
-        agent_id=settings.agent_id,
-        agent_runtime_mode=settings.agent_runtime_mode,
-        reason=state.checkpointer_error,
-        detail=(
-            "IN-MEMORY checkpointer: state will NOT survive a restart. Non-production fallback "
-            "ONLY (agent_runtime_mode='local'); production fails closed instead (T3.4/F4)."
-        ),
+    provision = await provision_checkpointer(
+        database_url=settings.database_url,
+        is_production=is_production,
+        component=f"agent_runtime:{settings.agent_id}",
     )
+    state.checkpointer = provision.checkpointer
+    state.checkpointer_ready = provision.ready
+    state.checkpointer_backend = provision.backend
+    state.checkpointer_error = provision.error
 
 
 async def _probe_a2a_audit_sink(sink: PostgresAuditSink, timeout_s: float) -> bool:
