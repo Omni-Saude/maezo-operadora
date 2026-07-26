@@ -91,30 +91,27 @@ _BREACHED = "agents.events.escalation.sla_breached"
 _RESOLVED = "agents.events.escalation.resolved"
 _PROCESS_COMPLETED = "agents.events.process_completed"
 
-# NEW finding, live-confirmed AFTER T3.1 R2's events.publish fix (drift, NOT the publish gap —
-# that reason string is retired, this one replaces it on the 3 tests it actually blocks):
-# `NotifyTeamWorker`/`NotifySupervisorWorker` (`src/maezo/tools/workers/escalation.py`) never
-# call `kafka.publish` — unlike the donor's `phase0.py` notify handlers, these `WorkerBase.execute
-# ()` methods return a status dict WITHOUT touching the injected `kafka` seam
-# (`register_escalation_workers` explicitly does `del kafka, seams  # unused`). Consequence:
-# `probe.notified_teams`/`probe.notified_supervisors` (backed by `FakeKafkaPublisher.published`)
-# can NEVER observe a notify_team/notify_supervisor execution, and `_FaultInjectingPublisher
-# .fail_notification_types` can never trigger (nothing ever calls `kafka.publish` for these
-# types) — so `ERR_ESC_NOTIFY_FAILED`/the fallback boundary path is never exercised either.
-# Independent of the `operadora.events.publish` gap T3.1 R2 fixes; wiring escalation.py's notify
-# workers to actually publish is `src/**` scope out of bounds for this PR (charter: "port the
-# missing operadora.events.publish worker", not escalation.py's notify handlers).
-_NOTIFY_KAFKA_GAP_REASON = (
-    "v2 drift (finding, T3.1 R2 — NOT the events.publish gap, which this PR fixes): "
-    "NotifyTeamWorker/NotifySupervisorWorker (src/maezo/tools/workers/escalation.py) never call "
-    "kafka.publish (`register_escalation_workers` does `del kafka, seams  # unused`), unlike the "
-    "donor's phase0.py notify handlers. probe.notified_teams/notified_supervisors (backed by "
-    "FakeKafkaPublisher.published) can therefore never observe a notify_team/notify_supervisor "
-    "execution, and fault-injection via _FaultInjectingPublisher.fail_notification_types can "
-    "never trigger (nothing calls kafka.publish for these types) — live-confirmed (docker "
-    "compose core, CIB Seven 2.1.0) after the events.publish fix landed. Not a fixture bug; "
-    "src/** fix (wiring escalation.py's notify workers to actually publish) is out of scope for "
-    "this PR."
+# DL-0034 (built in t5-workers-f1): escalation's notify workers were converted from `WorkerBase` to
+# RAW ASYNC KAFKA HANDLERS (`make_notify_team_handler`/`make_notify_supervisor_handler`) that DO call
+# `kafka.publish` (mirror #55 R-B) — so the old "never publishes" gap (formerly
+# `_NOTIFY_KAFKA_GAP_REASON`) is CLOSED and the happy-path notify-observability tests now PASS
+# (markers removed on `test_timer_ack_nao_interruptivo_alerta_supervisor` and
+# `test_falha_publish_requested_nao_bloqueia_roteamento`; live-verified XPASS by the R1 gatekeeper on
+# CIB Seven 2.1.0). What remains UNBUILT is the notify-FAILURE -> fallback path: on a publish failure
+# the handler mirrors #55 R-B (propagates the RAW exception), it does NOT raise the modeled
+# `ERR_ESC_NOTIFY_FAILED` bpmnError that `BE_FalhaNotificacao`/`BE_NotifFallbackFailed` catch — that
+# raise is ADR-0030 Tier-1 (co-scheduled with the Kafka-producer gap), deliberately out of DL-0034
+# scope. So the two tests that ACTIVELY fault the notify channel(s) and depend on that fallback
+# boundary firing still xfail (strict) and self-flag for removal once the Tier-1 boundary is modeled.
+# kafka=None (current prod) still completes fine — no prod-current impact.
+_ESC_NOTIFY_FAIL_FALLBACK_PENDING = (
+    "_ESC_NOTIFY_FAIL_FALLBACK_PENDING: depends on the unbuilt ERR_ESC_NOTIFY_FAILED Tier-1 boundary "
+    "(ADR-0030; co-scheduled with the Kafka-producer gap). DL-0034 (built in t5) wired the notify "
+    "workers to publish (mirror #55 R-B), but on a publish FAILURE the handler propagates the raw "
+    "exception rather than raising the modeled ERR_ESC_NOTIFY_FAILED bpmnError, so the "
+    "notify-failure -> fallback boundary (BE_FalhaNotificacao/BE_NotifFallbackFailed) never fires and "
+    "the flow cannot reach the fallback assertion. XPASSes once the notify-failure -> fallback path "
+    "is modeled; remove this marker then."
 )
 
 
@@ -396,7 +393,6 @@ async def test_dmn_routing_catchall_fail_safe(
 # --- Timers (job execution, sem sleep) -----------------------------------------------
 
 
-@pytest.mark.xfail(reason=_NOTIFY_KAFKA_GAP_REASON, strict=True)
 async def test_timer_ack_nao_interruptivo_alerta_supervisor(
     engine: EngineRest, probe: EngineProbe, start_escalation: StartEscalation
 ) -> None:
@@ -466,7 +462,7 @@ async def test_supervisor_resolve_apos_breach(
 # --- Escalation / erros: fallback de canal -------------------------------------------
 
 
-@pytest.mark.xfail(reason=_NOTIFY_KAFKA_GAP_REASON, strict=True)
+@pytest.mark.xfail(reason=_ESC_NOTIFY_FAIL_FALLBACK_PENDING, strict=True)
 async def test_falha_notificacao_usa_fallback(
     engine: EngineRest, probe: EngineProbe, start_escalation: StartEscalation
 ) -> None:
@@ -488,6 +484,7 @@ async def test_falha_notificacao_usa_fallback(
     assert task.candidate_groups == frozenset({"plantao-clinico"})
 
 
+@pytest.mark.xfail(reason=_ESC_NOTIFY_FAIL_FALLBACK_PENDING, strict=True)
 async def test_falha_notificacao_ambos_canais_ainda_cria_ut(
     engine: EngineRest, probe: EngineProbe, start_escalation: StartEscalation
 ) -> None:
@@ -510,7 +507,6 @@ async def test_falha_notificacao_ambos_canais_ainda_cria_ut(
     assert task.candidate_groups == frozenset({"plantao-clinico"})
 
 
-@pytest.mark.xfail(reason=_NOTIFY_KAFKA_GAP_REASON, strict=True)
 async def test_falha_publish_requested_nao_bloqueia_roteamento(
     engine: EngineRest, probe: EngineProbe, start_escalation: StartEscalation
 ) -> None:

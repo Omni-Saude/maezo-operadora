@@ -3,6 +3,8 @@
 TDD London School: tests exercise the external task contracts.
 """
 
+import datetime as _dt
+
 import pytest
 
 from maezo.tools.workers.harness import FakeKafkaPublisher, FakeWorkerTransport, WorkerHarness
@@ -11,9 +13,11 @@ from maezo.tools.workers.nip import (
     NipNegativaNotHumanError,
     NipProtocoloInvalidoError,
     NipResponseInput,
+    _coerce_anchor_date_iso,
     assemble_response,
     handoff_ans_submit,
     handoff_ans_submit_entry,
+    instruct_dossier_entry,
     notify_deadline_risk,
     notify_deadline_risk_entry,
     publish_completed,
@@ -328,3 +332,81 @@ def test_register_nip_workers_does_not_register_orphan_topics() -> None:
     assert "operadora.nip.route_nip" not in harness.registered_topics
     assert "operadora.nip.review_juridico" not in harness.registered_topics
     assert "operadora.nip.notify_beneficiario" not in harness.registered_topics
+
+
+# ---------------------------------------------------------------------------
+# GAP-NIP-1 anchor-date fail-safe (data_recebimento_nip_iso -> BRT_NipSla FEEL).
+# The nip_sla DMN feeds this anchor into FEEL `date and time(anchor + "T00:00:00")`
+# NATIVELY in BRT_NipSla, which runs BEFORE any human task — a malformed anchor
+# faulted the businessRuleTask into an incident. instruct_dossier_entry (the only
+# worker before BRT_NipSla) now coerces-or-routes-to-human. Pure input validation.
+# ---------------------------------------------------------------------------
+
+
+def _today_iso() -> str:
+    return _dt.datetime.now(_dt.UTC).date().isoformat()
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("2026-01-15", "2026-01-15"),  # bare ISO date — canonical passthrough
+        ("  2026-01-15  ", "2026-01-15"),  # surrounding whitespace tolerated
+        ("2026-01-15T10:30:00", "2026-01-15"),  # ISO datetime — date part only (no doubled T00:00)
+        ("2026-01-15T10:30:00+00:00", "2026-01-15"),  # ISO datetime w/ tz — date part only
+    ],
+)
+def test_coerce_anchor_date_iso_valid_canonicalizes(raw: str, expected: str) -> None:
+    assert _coerce_anchor_date_iso(raw) == expected
+
+
+def test_coerce_anchor_date_iso_accepts_native_date_and_datetime() -> None:
+    assert _coerce_anchor_date_iso(_dt.date(2026, 1, 15)) == "2026-01-15"
+    assert _coerce_anchor_date_iso(_dt.datetime(2026, 1, 15, 9, 0, tzinfo=_dt.UTC)) == "2026-01-15"
+
+
+@pytest.mark.parametrize(
+    "raw",
+    ["not-a-date", "15/01/2026", "2026-1-5", "", "   ", "2026-13-45", None, 20260115, []],
+)
+def test_coerce_anchor_date_iso_rejects_malformed(raw: object) -> None:
+    """Anything not a well-formed ISO date -> None (the caller substitutes a flagged fallback)."""
+    assert _coerce_anchor_date_iso(raw) is None
+
+
+def test_instruct_dossier_entry_valid_anchor_passes_through_flagged_valid() -> None:
+    out = instruct_dossier_entry(
+        {"numero_nip_ans": "NIP-1", "tema_nip": "reembolso", "data_recebimento_nip_iso": "2026-01-15"}
+    )
+    assert out["data_recebimento_nip_iso"] == "2026-01-15"
+    assert out["data_recebimento_nip_iso_valida"] is True
+
+
+def test_instruct_dossier_entry_datetime_anchor_stripped_to_date() -> None:
+    """Latent footgun guard: an ISO datetime anchor would become `...T00:00:00T00:00:00` in the
+    DMN's FEEL and crash — the entry strips it to the bare date."""
+    out = instruct_dossier_entry(
+        {"numero_nip_ans": "NIP-1", "data_recebimento_nip_iso": "2026-01-15T00:00:00"}
+    )
+    assert out["data_recebimento_nip_iso"] == "2026-01-15"
+    assert out["data_recebimento_nip_iso_valida"] is True
+
+
+@pytest.mark.parametrize("raw", ["not-a-date", "15/01/2026", ""])
+def test_instruct_dossier_entry_malformed_anchor_routes_to_human_with_safe_fallback(raw: str) -> None:
+    """Malformed/absent anchor: FEEL-safe fallback (processing date) + valida=False flag, so
+    BRT_NipSla never faults and the human review task sees the substitution. NO adverse decision."""
+    out = instruct_dossier_entry(
+        {"numero_nip_ans": "NIP-1", "tema_nip": "x", "data_recebimento_nip_iso": raw}
+    )
+    assert out["data_recebimento_nip_iso"] == _today_iso()
+    assert out["data_recebimento_nip_iso_valida"] is False
+    # the substituted anchor is always FEEL-parseable (the whole point of the fail-safe)
+    _dt.date.fromisoformat(out["data_recebimento_nip_iso"])
+
+
+def test_instruct_dossier_entry_absent_anchor_key_routes_to_human() -> None:
+    """The anchor process variable entirely absent (not just blank) is handled identically."""
+    out = instruct_dossier_entry({"numero_nip_ans": "NIP-1", "tema_nip": "x"})
+    assert out["data_recebimento_nip_iso"] == _today_iso()
+    assert out["data_recebimento_nip_iso_valida"] is False

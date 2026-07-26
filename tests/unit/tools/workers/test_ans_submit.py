@@ -18,6 +18,7 @@ from maezo.tools.workers.ans_gateway import (
 )
 from maezo.tools.workers.ans_submit import (
     AnsDatasetIncompletoError,
+    AnsNotifyRegulatorioInput,
     AnsRetryEsgotadoError,
     AnsSubmissionData,
     AnsSubmitDecision,
@@ -25,9 +26,12 @@ from maezo.tools.workers.ans_submit import (
     AnsSubmitNotHumanError,
     assemble_entry,
     handle_nack,
+    make_notify_regulatorio_handler,
+    notify_regulatorio,
     prepare_submission,
     publish_completed,
     publish_completed_entry,
+    register_ans_submit_workers,
     retransmit_entry,
     retry_submission,
     submit_entry,
@@ -38,6 +42,12 @@ from maezo.tools.workers.ans_submit import (
 )
 from maezo.tools.workers.base import FunctionWorker
 from maezo.tools.workers.dmn_transport import DmnEvaluationError, FakeDmnTransport
+from maezo.tools.workers.harness import (
+    ExternalTask,
+    FakeKafkaPublisher,
+    FakeWorkerTransport,
+    WorkerHarness,
+)
 from maezo.tools.workers.tiss_schema import TissSchemaValidator
 
 #: NOT a real ANS Padrão TISS version — a minimal, clearly-labeled FIXTURE used only to prove the
@@ -618,3 +628,104 @@ def test_publish_completed_entry_round_trips_publish_completed() -> None:
     assert publish_completed_entry(variables) == publish_completed(
         event_type="anssubmit.submitted", payload={}, desfecho="enviado"
     )
+
+
+# ---------------------------------------------------------------------------
+# notify_regulatorio (T3.1 phase-2 FINDING A — registration gap regression fix).
+# BPMN topic `regulatorio.anssubmit.notify_regulatorio` (ST_PrepararDossie dossie
+# prep + ST_NotificarDeadlineRisk) had NO registered worker — the process stalled
+# at ST_PrepararDossie ("no handler registered for topic"). Raw async handler,
+# mirrors recurso's make_notify_sla_risk_handler.
+# ---------------------------------------------------------------------------
+
+
+def _notify_task(*, business_key: str = "ANSSUB-amh-RN_124_SIP-2026-01", **variables: object) -> ExternalTask:
+    return ExternalTask(
+        task_id="task-notify-1",
+        topic="regulatorio.anssubmit.notify_regulatorio",
+        process_instance_id="proc-1",
+        business_key=business_key,
+        worker_id="w-1",
+        variables=dict(variables),
+    )
+
+
+def test_notify_regulatorio_dossie_variant_no_deadline_risk() -> None:
+    """ST_PrepararDossie: no `event_topic_deadline_risk` -> dossie variant, no adverse effect."""
+    result = notify_regulatorio(
+        AnsNotifyRegulatorioInput(tenant_id="amh", report_type="RN_124_SIP", competencia="2026-01")
+    )
+    assert result["notify_regulatorio_sent"] is True
+    assert result["deadline_risk"] is False
+    assert result["report_type"] == "RN_124_SIP"
+
+
+def test_notify_regulatorio_deadline_risk_variant() -> None:
+    """ST_NotificarDeadlineRisk: `event_topic_deadline_risk` present -> deadline-risk variant."""
+    result = notify_regulatorio(
+        AnsNotifyRegulatorioInput(tenant_id="amh", report_type="RN_124_SIP", competencia="2026-01"),
+        event_topic_deadline_risk="agents.events.anssubmit.deadline_risk",
+    )
+    assert result["notify_regulatorio_sent"] is True
+    assert result["deadline_risk"] is True
+
+
+async def test_make_notify_regulatorio_handler_publishes_notification() -> None:
+    """Handler emits the donor's `anssubmit.notify_regulatorio` notification to the internal
+    channel (observable via notifications_of_type — the donor's happy-path assertion)."""
+    kafka = FakeKafkaPublisher()
+    handler = make_notify_regulatorio_handler(kafka)
+    task = _notify_task(
+        tenant_id="amh", report_type="RN_124_SIP", competencia="2026-01", periodicidade="mensal"
+    )
+    result = await handler(task)
+    assert result["notify_regulatorio_sent"] is True
+    assert len(kafka.published) == 1
+    topic, payload, key = kafka.published[0]
+    assert topic == "operadora.notifications.internal"
+    assert payload["type"] == "anssubmit.notify_regulatorio"
+    assert payload["report_type"] == "RN_124_SIP"
+    assert payload["deadline_risk"] is False
+    assert key == task.business_key
+
+
+async def test_make_notify_regulatorio_handler_deadline_risk_stamps_topic() -> None:
+    kafka = FakeKafkaPublisher()
+    handler = make_notify_regulatorio_handler(kafka)
+    task = _notify_task(
+        tenant_id="amh",
+        report_type="RN_124_SIP",
+        competencia="2026-01",
+        event_topic_deadline_risk="agents.events.anssubmit.deadline_risk",
+    )
+    result = await handler(task)
+    assert result["deadline_risk"] is True
+    _topic, payload, _key = kafka.published[0]
+    assert payload["deadline_risk"] is True
+    assert payload["event_topic_deadline_risk"] == "agents.events.anssubmit.deadline_risk"
+
+
+async def test_make_notify_regulatorio_handler_fail_closed_no_producer() -> None:
+    """kafka=None: completes anyway (informational-only — blocking would starve the
+    Flow_GW_Revisao happy path to UT_RevisarEnvio and the shared deadline-risk timers), never
+    fabricates a publish."""
+    result = await make_notify_regulatorio_handler(None)(_notify_task(report_type="RN_124_SIP"))
+    assert result["notify_regulatorio_sent"] is True
+
+
+def test_register_ans_submit_workers_registers_notify_regulatorio() -> None:
+    """Regression fence for FINDING A: register_ans_submit_workers MUST wire all 7 BPMN topics
+    it owns (6 FunctionWorker entries + the notify_regulatorio raw handler)."""
+    harness = WorkerHarness(FakeWorkerTransport(), worker_id="probe")
+    register_ans_submit_workers(harness, FakeKafkaPublisher())
+    topics = set(harness.registered_topics)
+    assert "regulatorio.anssubmit.notify_regulatorio" in topics, "notify_regulatorio not registered"
+    for topic in (
+        "regulatorio.anssubmit.assemble",
+        "regulatorio.anssubmit.validate",
+        "regulatorio.anssubmit.submit",
+        "regulatorio.anssubmit.track_protocol",
+        "regulatorio.anssubmit.retransmit",
+        "regulatorio.anssubmit.publish_completed",
+    ):
+        assert topic in topics, f"{topic} regressed out of register_ans_submit_workers"
