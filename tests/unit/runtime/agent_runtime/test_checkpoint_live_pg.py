@@ -4,12 +4,12 @@ Tier 2 (`@pytest.mark.integration`), placed HERE (not under `tests/integration/`
 mirrors `tests/unit/a2a/test_a2a_edge_live_pg.py`: this suite needs a REAL Postgres but explicitly
 NOT the CIB Seven BPMN engine (the `tests/integration/` package's autouse engine-reachability
 fixture would otherwise gate it on the engine). No Alembic migrations are applied: the checkpoint
-tables are provisioned by the saver's own `asetup()` (upstream-owned schema — see
+tables are provisioned by the saver's own awaited `setup()` (upstream-owned schema — see
 `platform/migrations/versions/0006_retire_dead_checkpoint_tables.py`), which is exactly what this
 suite proves works.
 
 What this proves that the mock-only unit suite cannot:
-  1. `Checkpointer.connect_and_setup` opens a REAL `AsyncPostgresSaver` and `asetup()` provisions
+  1. `Checkpointer.connect_and_setup` opens a REAL `AsyncPostgresSaver` and its awaited `setup()` provisions
      the four upstream tables (`checkpoints`/`checkpoint_blobs`/`checkpoint_writes`/
      `checkpoint_migrations`) — verified compatible with langgraph-checkpoint 4.1.1 +
      langgraph-checkpoint-postgres 3.0.5.
@@ -63,7 +63,7 @@ def pg_dsn() -> str:
         pytest.skip(
             f"COULD NOT VERIFY: Postgres not reachable at {dsn!r} (override with "
             "MAEZO_TEST_CHECKPOINT_DATABASE_URL). This suite provisions the checkpoint tables via "
-            "the saver's own asetup() — no migrations needed."
+            "the saver's own awaited setup() — no migrations needed."
         )
     return dsn
 
@@ -92,7 +92,7 @@ def _build_counter_graph():  # type: ignore[no-untyped-def]
 
 
 async def test_connect_and_setup_is_idempotent(pg_dsn: str) -> None:
-    """`asetup()` runs on every boot without error (checkpoint_migrations owns versioning)."""
+    """Awaited `setup()` runs on every boot without error (checkpoint_migrations owns versioning)."""
     ck1 = await Checkpointer.connect_and_setup(pg_dsn)
     await ck1.aclose()
     ck2 = await Checkpointer.connect_and_setup(pg_dsn)  # second boot: idempotent

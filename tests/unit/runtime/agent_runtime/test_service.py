@@ -60,7 +60,7 @@ def _allow_unsigned_a2a_cards_in_dev(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture(autouse=True)
 def _stub_checkpointer_connect(monkeypatch: pytest.MonkeyPatch) -> None:
-    """T3.4/F4: `_provision_checkpointer` genuinely opens an AsyncPostgresSaver pool + `asetup()`
+    """T3.4/F4: `_provision_checkpointer` genuinely opens an AsyncPostgresSaver pool + awaited `setup()`
     (unlike the pre-existing construction-only deps, which are lazy against the dummy `_DSN`). So
     for every bring-up test that isn't specifically about the checkpointer, stub the connect to
     fail fast — the default `agent_runtime_mode="local"` then deterministically takes the in-memory
@@ -475,7 +475,7 @@ async def test_checkpointer_fail_closed_in_production_without_database_url() -> 
 async def test_checkpointer_fail_closed_in_production_on_setup_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """PRODUCTION with DATABASE_URL set but `asetup()`/connect failing: fail CLOSED (no fallback).
+    """PRODUCTION with DATABASE_URL set but `setup()`/connect failing: fail CLOSED (no fallback).
     The autouse `_stub_checkpointer_connect` already makes connect raise — in production that is a
     RED readiness gate, never a silent in-memory degrade."""
     state = _state(

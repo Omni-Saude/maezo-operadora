@@ -7,18 +7,20 @@ ASYNC SAVER, NOT SYNC (proven, T3.4/F4 compat verification):
   The daemon and every graph execution path (`ainvoke`) run under asyncio. The sync
   `PostgresSaver`'s async methods (`aput`/`aget_tuple`/...) raise `NotImplementedError`, so a
   sync saver wired into an async graph fails at the FIRST checkpoint write. Production wiring
-  therefore uses `AsyncPostgresSaver` (verified round-trip: asetup/aput/aget_tuple/alist/
+  therefore uses `AsyncPostgresSaver` (verified round-trip: awaited setup()/aput/aget_tuple/alist/
   adelete_thread all pass against langgraph-checkpoint 4.1.1 + langgraph-checkpoint-postgres
   3.0.5 on real Postgres 16). `InMemorySaver` (dev fallback) is likewise async-capable.
 
 SCHEMA PROVISIONING is imperative, NOT Alembic (see
 `platform/migrations/versions/0006_retire_dead_checkpoint_tables.py`): the four real tables
 (`checkpoints`, `checkpoint_blobs`, `checkpoint_writes`, `checkpoint_migrations`) are created by
-the saver's own `setup()`/`asetup()` — the schema is UPSTREAM-OWNED (its `MIGRATIONS` list is
-versioned by the `checkpoint_migrations` table itself). Calling `asetup()` is idempotent; it
-re-runs only the migrations newer than the row recorded there. Mirroring that DDL into Alembic
-would fork an upstream-owned schema and drift on every library bump — so we call `asetup()` once
-at daemon bootstrap instead (see `runtime/agent_runtime/service.py::_provision_checkpointer`).
+the saver's own `setup()` (a plain call on the sync saver; a coroutine — `await saver.setup()` —
+on `AsyncPostgresSaver`; there is NO `asetup()` in langgraph-checkpoint-postgres 3.0.5). The
+schema is UPSTREAM-OWNED (its `MIGRATIONS` list is versioned by the `checkpoint_migrations` table
+itself). `setup()` is idempotent; it re-runs only the migrations newer than the row recorded
+there. Mirroring that DDL into Alembic would fork an upstream-owned schema and drift on every
+library bump — so we await `setup()` once at daemon bootstrap instead (see
+`runtime/agent_runtime/service.py::_provision_checkpointer`).
 
 PHI / THREAD-ID DISCIPLINE (LGPD): `checkpoint_blobs` stores BYTEA channel values that ARE
 PHI-bearing, keyed by `thread_id`. Thread ids must therefore NEVER embed a raw identifier (phone,
@@ -92,8 +94,9 @@ class Checkpointer:
     Wraps a `BaseCheckpointSaver` (production: `AsyncPostgresSaver`; dev fallback:
     `InMemorySaver`). Construct one of three ways:
 
-      - `await Checkpointer.connect_and_setup(dsn)` — opens an `AsyncPostgresSaver` pool and runs
-        `asetup()` ONCE (idempotent). Use `async with`, or call `aclose()` to release the pool.
+      - `await Checkpointer.connect_and_setup(dsn)` — opens an `AsyncPostgresSaver` pool and
+        awaits `setup()` ONCE (idempotent). Use `async with`, or call `aclose()` to release the
+        pool.
       - `Checkpointer(saver=<a BaseCheckpointSaver>)` — wrap an already-constructed saver.
       - `Checkpointer(conn_string=...)` — carry a DSN without opening a pool (metadata only).
     """
@@ -122,9 +125,10 @@ class Checkpointer:
 
     @classmethod
     async def connect_and_setup(cls, conn_string: str) -> Checkpointer:
-        """Open an `AsyncPostgresSaver` pool on `conn_string` and run `asetup()` once (idempotent).
+        """Open an `AsyncPostgresSaver` pool on `conn_string` and await `setup()` once (idempotent).
 
-        `asetup()` provisions the four upstream-owned tables and advances `checkpoint_migrations`;
+        The awaited `setup()` (a coroutine on `AsyncPostgresSaver` — there is no `asetup()`)
+        provisions the four upstream-owned tables and advances `checkpoint_migrations`;
         it is safe to call on every boot (it re-runs only migrations newer than the recorded row).
         On ANY failure the pool is released and the error propagates — the caller
         (`_provision_checkpointer`) turns that into a fail-closed readiness signal in production.

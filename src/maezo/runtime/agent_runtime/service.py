@@ -31,7 +31,7 @@ that require graphs:
                (`CibSevenDmnTransport`/`CibSevenHttpTransport`/FHIR/WhatsApp adapters) are the
                REAL classes pointed at this replica's configured URLs.
             5. durable checkpointer provisioned (T3.4/F4) — `_provision_checkpointer` constructs an
-               `AsyncPostgresSaver` from `DATABASE_URL` and runs `asetup()` ONCE (idempotent). The
+               `AsyncPostgresSaver` from `DATABASE_URL` and awaits `setup()` ONCE (idempotent). The
                graph (point 4) is then compiled checkpoint-enabled. FAIL-CLOSED in production
                (`agent_runtime_mode != "local"`): a missing DSN or a setup failure leaves
                `checkpointer_ready` red — the daemon refuses to run stateless; local/dev falls
@@ -190,7 +190,7 @@ def build_readiness_checks(state: AgentState) -> list[Callable[[], Awaitable[Che
 
     async def checkpointer_ready(_state: AgentState = state) -> CheckResult:
         # T3.4/F4: FAIL-CLOSED durable-persistence gate. In production (`agent_runtime_mode !=
-        # "local"`) this is red unless an AsyncPostgresSaver was constructed AND `asetup()`
+        # "local"`) this is red unless an AsyncPostgresSaver was constructed AND awaited `setup()`
         # succeeded — the daemon refuses to advertise readiness while it could only run stateless
         # (mirrors the F2 a2a_composition discipline + worker_runtime's audit_sink_ready posture).
         # In local/dev the in-memory fallback reports healthy with its backend named in the detail.
@@ -396,7 +396,7 @@ async def _provision_checkpointer(state: AgentState) -> None:
     Discipline (mirrors `a2a_composition._require_signer_or_fail_closed` + worker_runtime's
     `audit_sink_ready`):
 
-      - `DATABASE_URL` present -> open an `AsyncPostgresSaver` and run `asetup()` once (idempotent
+      - `DATABASE_URL` present -> open an `AsyncPostgresSaver` and await `setup()` once (idempotent
         DDL; `checkpoint_migrations` owns versioning — NOT Alembic, see
         `platform/migrations/versions/0006_retire_dead_checkpoint_tables.py`). Success ->
         `checkpointer_ready`. Failure -> PRODUCTION fails closed (readiness red, no fallback);
