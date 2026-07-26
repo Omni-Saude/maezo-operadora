@@ -4,16 +4,23 @@ TDD London School: tests verify custody sealing (Merkle), accusation guard (L0-h
 PHI detection, and inverted scoring (NEVER auto-accusation).
 """
 
+import asyncio
+
 import pytest
 
 from maezo.gateway.custody import CustodyBundle
+from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport, ProcessInstance, start_dedup_key
 from maezo.tools.workers.dmn_transport import DmnEvaluationError, DmnNoResultError, FakeDmnTransport
 from maezo.tools.workers.fraude import (
     _SCORING_INPUT_KEYS,
     _SCORING_NUMERIC_KEYS,
+    CANCEL_PROCESS_KEY,
+    CRED_PROCESS_KEY,
     ERR_CUSTODY_NOT_SEALED,
     ERR_FRAUD_ACCUSATION_NOT_HUMAN,
+    ERR_FRAUDE_HANDOFF_SEM_ALVO,
     ERR_PHI_IN_CUSTODY,
+    INADIMPLENCIA_PROCESS_KEY,
     FraudeError,
     _coerce_numeric,
     _collect_scoring_inputs,
@@ -30,7 +37,8 @@ from maezo.tools.workers.fraude import (
     start_contratual,
     start_credenciamento,
 )
-from maezo.tools.workers.harness import WorkerHarness
+from maezo.tools.workers.harness import AUDIT_AGENT_ID, WorkerHarness
+from tests.support.audit_fakes import FakeStartAuditSink
 
 # ---------------------------------------------------------------
 # intake — neutral start
@@ -657,10 +665,59 @@ def test_refer_to_legal() -> None:
 # ---------------------------------------------------------------
 
 
-def test_start_credenciamento() -> None:
-    result = start_credenciamento({"prestador_id": "P-001"})
+def test_start_credenciamento_starts_cred_with_exact_key_and_audit() -> None:
+    """start_credenciamento now REALLY starts SP-OP-CRED-001 through the fence (was a stub)."""
+    engine = FakeCibSevenTransport()
+    sink = FakeStartAuditSink()
+    result = start_credenciamento(
+        {"tenant_id": "amh", "prestador_id": "P-001", "numero_caso": "CASO-1", "bundle_root": "r1"},
+        engine=engine,
+        audit_sink=sink,
+    )
     assert result["handoff_credenciamento"] is True
-    assert result["processo_destino"] == "SP-OP-CRED-001"
+    assert result["processo_destino"] == CRED_PROCESS_KEY
+    assert result["cred_business_key"] == "CRED-amh-P-001"
+    assert result["cred_already_existed"] is False
+    started = asyncio.run(engine.find_active_instance("CRED-amh-P-001"))
+    assert started is not None and started.process_key == CRED_PROCESS_KEY
+    assert sink.dedup_keys == [start_dedup_key("amh", CRED_PROCESS_KEY, "CRED-amh-P-001")]
+    [record] = sink.records
+    assert record.agent_id == AUDIT_AGENT_ID
+    assert record.action == f"start_process:{CRED_PROCESS_KEY}"
+    assert record.details["entidade_tipo"] == "prestador"
+    assert "prestador_id" not in record.details  # hash-bound only
+
+
+def test_start_credenciamento_fail_closed_seams_and_target() -> None:
+    with pytest.raises(RuntimeError, match="engine seam"):
+        start_credenciamento({"tenant_id": "amh", "prestador_id": "P-1"}, audit_sink=FakeStartAuditSink())
+    with pytest.raises(RuntimeError, match="audit sink"):
+        start_credenciamento({"tenant_id": "amh", "prestador_id": "P-1"}, engine=FakeCibSevenTransport())
+    with pytest.raises(FraudeError) as exc:
+        start_credenciamento(
+            {"tenant_id": "amh"}, engine=FakeCibSevenTransport(), audit_sink=FakeStartAuditSink()
+        )
+    assert exc.value.code == ERR_FRAUDE_HANDOFF_SEM_ALVO
+
+
+def test_start_credenciamento_idempotent() -> None:
+    engine = FakeCibSevenTransport()
+    engine.seed_instance(
+        ProcessInstance(
+            instance_id="pre-cred",
+            process_key=CRED_PROCESS_KEY,
+            business_key="CRED-amh-P-9",
+            state="ACTIVE",
+            already_existed=True,
+        )
+    )
+    result = start_credenciamento(
+        {"tenant_id": "amh", "prestador_id": "P-9"},
+        engine=engine,
+        audit_sink=FakeStartAuditSink(),
+    )
+    assert result["cred_already_existed"] is True
+    assert result["cred_instance_id"] == "pre-cred"
 
 
 # ---------------------------------------------------------------
@@ -668,10 +725,54 @@ def test_start_credenciamento() -> None:
 # ---------------------------------------------------------------
 
 
-def test_start_contratual() -> None:
-    result = start_contratual({"numero_contrato": "C-001"})
+def test_start_contratual_contrato_starts_cancel_and_inadimplencia() -> None:
+    """entidade_tipo=contrato -> starts BOTH CANCEL-001 AND INADIMPLENCIA-001 (mirrors the two
+    bridge rules), each under its own distinct business key, both audited."""
+    engine = FakeCibSevenTransport()
+    sink = FakeStartAuditSink()
+    result = start_contratual(
+        {"tenant_id": "amh", "numero_contrato": "C-001", "entidade_tipo": "contrato"},
+        engine=engine,
+        audit_sink=sink,
+    )
     assert result["handoff_contratual"] is True
-    assert "CANCEL-001" in result["processo_destino"]
+    assert result["cancel_business_key"] == "CANCEL-amh-C-001"
+    assert result["inadimplencia_business_key"] == "INAD-amh-C-001"
+    assert CANCEL_PROCESS_KEY in result["processo_destino"]
+    assert INADIMPLENCIA_PROCESS_KEY in result["processo_destino"]
+    assert asyncio.run(engine.find_active_instance("CANCEL-amh-C-001")) is not None
+    assert asyncio.run(engine.find_active_instance("INAD-amh-C-001")) is not None
+    assert sink.dedup_keys == [
+        start_dedup_key("amh", CANCEL_PROCESS_KEY, "CANCEL-amh-C-001"),
+        start_dedup_key("amh", INADIMPLENCIA_PROCESS_KEY, "INAD-amh-C-001"),
+    ]
+
+
+def test_start_contratual_beneficiario_starts_only_cancel() -> None:
+    """entidade_tipo=beneficiario -> CANCEL-001 only (no INADIMPLENCIA), matching the bridge."""
+    engine = FakeCibSevenTransport()
+    sink = FakeStartAuditSink()
+    result = start_contratual(
+        {"tenant_id": "amh", "numero_contrato": "C-777", "entidade_tipo": "beneficiario"},
+        engine=engine,
+        audit_sink=sink,
+    )
+    assert result["cancel_business_key"] == "CANCEL-amh-C-777"
+    assert "inadimplencia_business_key" not in result
+    assert result["processo_destino"] == CANCEL_PROCESS_KEY
+    assert sink.dedup_keys == [start_dedup_key("amh", CANCEL_PROCESS_KEY, "CANCEL-amh-C-777")]
+
+
+def test_start_contratual_fail_closed_seams_and_target() -> None:
+    with pytest.raises(RuntimeError, match="engine seam"):
+        start_contratual({"tenant_id": "amh", "numero_contrato": "C-1"}, audit_sink=FakeStartAuditSink())
+    with pytest.raises(RuntimeError, match="audit sink"):
+        start_contratual({"tenant_id": "amh", "numero_contrato": "C-1"}, engine=FakeCibSevenTransport())
+    with pytest.raises(FraudeError) as exc:
+        start_contratual(
+            {"tenant_id": "amh"}, engine=FakeCibSevenTransport(), audit_sink=FakeStartAuditSink()
+        )
+    assert exc.value.code == ERR_FRAUDE_HANDOFF_SEM_ALVO
 
 
 # ---------------------------------------------------------------

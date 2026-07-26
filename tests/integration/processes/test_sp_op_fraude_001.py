@@ -216,6 +216,8 @@ import httpx
 import pytest
 import pytest_asyncio
 
+from maezo.gateway.audit_postgres import FreshSinkAuditEmitter
+from maezo.tools.workers.cibseven_engine import FreshClientCibSevenTransport
 from maezo.tools.workers.dmn_transport import CibSevenDmnTransport
 from maezo.tools.workers.events import register_events_workers
 from maezo.tools.workers.fraude import FraudeError, register_fraud_accusation, register_fraude_workers
@@ -536,7 +538,7 @@ async def deploy_artifacts(engine: EngineRest) -> str:
 
 @pytest_asyncio.fixture
 async def fraude_probe(
-    engine: EngineRest, audit_sink: Any, audit_tenant: str
+    engine: EngineRest, audit_sink: Any, audit_tenant: str, audit_pg: tuple[str, str]
 ) -> AsyncIterator[FraudeEngineProbe]:
     """Probe que serve as external tasks com os workers reais de fraude.
 
@@ -558,7 +560,14 @@ async def fraude_probe(
         audit_sink=audit_sink,
     )
     kafka = FakeKafkaPublisher()
-    register_fraude_workers(harness, kafka, dmn=dmn)
+    # EB-4: start_credenciamento/start_contratual now run the fenced start_process_idempotent
+    # chokepoint against SP-OP-CRED-001 / SP-OP-CANCEL-001 / SP-OP-INADIMPLENCIA-001, so they
+    # REQUIRE the engine seam (`engine=`) + a loop-agnostic durable audit sink (`audit_sink=`,
+    # FreshSinkAuditEmitter — the sync worker emits on its own asyncio.run loop, NOT the harness's
+    # pooled sink). Same split the live worker-daemon + the inadimplencia probe use.
+    engine_seam = FreshClientCibSevenTransport(CIBSEVEN_BASE_URL)
+    handoff_audit_sink = FreshSinkAuditEmitter(audit_pg[0], audit_tenant)
+    register_fraude_workers(harness, kafka, dmn=dmn, engine=engine_seam, audit_sink=handoff_audit_sink)
     # T3.1 R2: the generic operadora.events.publish worker every ST_Publish* service task in
     # this BPMN routes through -- mirrors the donor's own register_phase0_workers composition.
     register_events_workers(harness, kafka)
@@ -1120,6 +1129,17 @@ async def test_happy_path_acusar_handoff_credenciamento(
     start_credenciamento ran; strengthened with activity-history containment for THIS instance
     (wave2b2 verifier pattern, #135 precedent).
     """
+    # EB-4: start_credenciamento runs the fenced start_process_idempotent chokepoint against
+    # SP-OP-CRED-001, so its BPMN + DMNs MUST be deployed for the handoff to reach
+    # End_EncaminhadoCredenciamento (mirrors the inadimplencia->CANCEL handoff downstream deploy).
+    await engine.deploy(
+        _REPO / "spec/processes/bpmn/SP-OP-CRED-001_Descredenciamento.bpmn",
+        _REPO / "spec/processes/dmn/cred_admissibility.dmn",
+        _REPO / "spec/processes/dmn/cred_prior_notice.dmn",
+        _REPO / "spec/processes/dmn/cred_route.dmn",
+        _REPO / "spec/processes/dmn/cred_sla.dmn",
+        name="SP-OP-CRED-001-qa-fraude-handoff",
+    )
     inst = await start_fraude(entidade_tipo="prestador")
     iid = inst["id"]
 
@@ -1170,7 +1190,22 @@ async def test_happy_path_acusar_handoff_contratual(
     ST_StartContratual on Flow_Contratual_Pub (bpmn:510) -- folded `investigator_id`/`tier` into
     the has_event call below; strengthened with activity-history containment.
     """
-    inst = await start_fraude(entidade_tipo="beneficiario", beneficiario_pseudo_id="bnf-teste-0001")
+    # EB-4: start_contratual runs the fenced start_process_idempotent chokepoint against
+    # SP-OP-CANCEL-001 (keyed on numero_contrato — provided below for this beneficiario/contrato
+    # rescisao), so CANCEL's BPMN + DMNs MUST be deployed for the handoff to reach
+    # End_EncaminhadoContratual.
+    await engine.deploy(
+        _REPO / "spec/processes/bpmn/SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn",
+        _REPO / "spec/processes/dmn/cancel_admissibility.dmn",
+        _REPO / "spec/processes/dmn/cancel_routing.dmn",
+        _REPO / "spec/processes/dmn/cancel_sla.dmn",
+        name="SP-OP-CANCEL-001-qa-fraude-handoff",
+    )
+    inst = await start_fraude(
+        entidade_tipo="beneficiario",
+        beneficiario_pseudo_id="bnf-teste-0001",
+        numero_contrato="CTR-FRAUDE-0001",  # CANCEL-001 business-key anchor (start_contratual)
+    )
     iid = inst["id"]
 
     ut = await _drive_to_decisao(engine, fraude_probe, iid)

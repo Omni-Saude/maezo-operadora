@@ -76,6 +76,36 @@ logger = structlog.get_logger(__name__)
 #: Target process key for both new T2.6-7 handoffs (contract `SP-OP-ANS-SUBMIT-001.md`).
 PROCESS_KEY_ANS_SUBMIT = "SP-OP-ANS-SUBMIT-001"
 
+# ---------------------------------------------------------------------------
+# EB-4 event_type reconciliation (option b — repoint to the REAL emitted event shape)
+#
+# The 5 pre-existing rules previously keyed off event_type strings NO publisher ever emits
+# (`contas.glosa_confirmed`, `contas.encaminhar_fraude`, `fraude.acusacao_registrada`) — they were
+# DORMANT. The events the source processes ACTUALLY emit are the `operadora.events.publish`
+# domain-event trail (BPMN `event_topic` inputParameter): `agents.events.contas.completed` /
+# `agents.events.fraude.completed`, each carrying `payload.desfecho` (the routing outcome). This
+# repoints the rules onto those real event_type names, keyed on `desfecho` (the real routing
+# signal) — see `docs/design/audit-emit-path-wiring.md` §"EB-4 bridge reconciliation".
+#
+# CANONICAL PATH IS THE IN-FLOW WORKER. The dedicated BPMN service-task workers
+# (`operadora.contas.start_recurso` / `operadora.fraude.start_credenciamento` /
+# `operadora.fraude.start_contratual`, un-stubbed in EB-4 to run `start_process_idempotent` through
+# the same fence — mirroring the merged `inadimplencia.handoff_rescisao`) are the GUARANTEED,
+# business-key-CORRECT, PHI-complete handoff, because they run in-flow with full process variables.
+# This bridge is the DECOUPLED Kafka mirror; it derives the SAME business keys (identical helpers),
+# so if it ever fires it converges idempotently on the SAME instance (never a divergent double-start).
+#
+# FAIL-CLOSED ANCHOR REQUIREMENT (no divergent-key hazard). The real `agents.events.*.completed`
+# payloads are intentionally MINIMAL/PHI-safe (`event_payload_vars`) and do NOT all carry the
+# downstream business-key anchors (`numero_guia_tiss`, `prestador_id`, `numero_contrato`) or the
+# `entidade_tipo` discriminator. Each repointed predicate therefore ALSO requires its business-key
+# anchor to be present/non-blank: against today's minimal events the anchor is absent -> the rule is
+# CORRECTLY DORMANT (no start under a wrong/partial key), and it arms automatically iff/when the
+# source BPMN enriches `event_payload_vars` with the anchor (a named `spec/` follow-up, OUT of this
+# task's mechanical scope — flagged, not silently done). The in-flow worker is live regardless.
+CONTAS_COMPLETED_EVENT = "agents.events.contas.completed"
+FRAUDE_COMPLETED_EVENT = "agents.events.fraude.completed"
+
 #: Sentinel competência the BPMN's own `Start_DespachoEnvio` comment documents for the
 #: calendar path ("competencia=COMPETENCIA_PENDENTE (sentinela)") — reused verbatim for the
 #: nip_filing path below (per-case filings do not carry a periodic competência either; the
@@ -453,10 +483,17 @@ class NotificationBridge:
         the payload — required for the fenced starter (`build_cibseven_process_starter`) to
         start them at all; it fail-closed refuses any rule whose variables lack `business_key`.
         """
-        # CONTAS→RECURSO: when glosa confirmed → start SP-OP-RECURSO-001
+        # CONTAS→RECURSO: on the REAL `agents.events.contas.completed` (desfecho=encaminhada_recurso)
+        # → start SP-OP-RECURSO-001. Fail-closed anchor requirement (see module reconciliation note):
+        # `numero_guia_tiss` + `glosa_id` must be present (business-key anchors) or the rule stays
+        # dormant against today's minimal completed-event payload — never a divergent-key start.
         self.register_handoff(
-            event_type="contas.glosa_confirmed",
-            predicate=lambda p: p.get("decisao_contas") == "RECORRER",
+            event_type=CONTAS_COMPLETED_EVENT,
+            predicate=lambda p: (
+                p.get("desfecho") == "encaminhada_recurso"
+                and _non_blank(p.get("numero_guia_tiss"))
+                and _non_blank(p.get("glosa_id"))
+            ),
             target_process="SP-OP-RECURSO-001",
             variables_fn=lambda p: {
                 "tenant_id": str(p.get("tenant_id", "")),
@@ -474,10 +511,18 @@ class NotificationBridge:
             },
         )
 
-        # CONTAS→FRAUDE: when encaminhar_fraude == true
+        # CONTAS→FRAUDE: PHASE-3-DEFERRED handoff. The current CONTAS BPMN emits NO fraude desfecho
+        # (its `agents.events.contas.completed` desfechos are {sem_glosa, encaminhada_recurso,
+        # glosa_aceita_humano, reenviada} — no `encaminhada_fraude`), AND there is no in-flow
+        # `start_fraude` worker. This rule is repointed onto the real completed event with a
+        # (not-yet-emitted) `encaminhada_fraude` desfecho + anchor requirement, so it stays honestly
+        # DORMANT until CONTAS Phase 3 lands the fraude branch. Flagged as a genuine deferred gap,
+        # NOT force-wired here.
         self.register_handoff(
-            event_type="contas.encaminhar_fraude",
-            predicate=lambda p: p.get("encaminhar_fraude") is True,
+            event_type=CONTAS_COMPLETED_EVENT,
+            predicate=lambda p: (
+                p.get("desfecho") == "encaminhada_fraude" and _non_blank(p.get("prestador_id"))
+            ),
             target_process="SP-OP-FRAUDE-001",
             variables_fn=lambda p: {
                 "tenant_id": str(p.get("tenant_id", "")),
@@ -493,11 +538,13 @@ class NotificationBridge:
             },
         )
 
-        # FRAUDE→CRED: when fraud confirmed against a prestador
+        # FRAUDE→CRED: on the REAL `agents.events.fraude.completed`
+        # (desfecho=encaminhado_credenciamento — the BPMN's own routing encoding, replaces the
+        # never-emitted decisao_fraude/entidade_tipo pair). Fail-closed anchor: `prestador_id`.
         self.register_handoff(
-            event_type="fraude.acusacao_registrada",
+            event_type=FRAUDE_COMPLETED_EVENT,
             predicate=lambda p: (
-                p.get("decisao_fraude") == "ACUSAR_FRAUDE" and p.get("entidade_tipo") == "prestador"
+                p.get("desfecho") == "encaminhado_credenciamento" and _non_blank(p.get("prestador_id"))
             ),
             target_process="SP-OP-CRED-001",
             variables_fn=lambda p: {
@@ -512,12 +559,13 @@ class NotificationBridge:
             },
         )
 
-        # FRAUDE→CANCEL: when fraud confirmed against a beneficiario/contract
+        # FRAUDE→CANCEL: on the REAL `agents.events.fraude.completed`
+        # (desfecho=encaminhado_contratual — covers BOTH beneficiario and contrato, matching the
+        # BPMN's single `ST_StartContratual` handoff). Fail-closed anchor: `numero_contrato`.
         self.register_handoff(
-            event_type="fraude.acusacao_registrada",
+            event_type=FRAUDE_COMPLETED_EVENT,
             predicate=lambda p: (
-                p.get("decisao_fraude") == "ACUSAR_FRAUDE"
-                and p.get("entidade_tipo") in ("beneficiario", "contrato")
+                p.get("desfecho") == "encaminhado_contratual" and _non_blank(p.get("numero_contrato"))
             ),
             target_process="SP-OP-CANCEL-001",
             variables_fn=lambda p: {
@@ -532,11 +580,17 @@ class NotificationBridge:
             },
         )
 
-        # FRAUDE→INADIMPLENCIA: secondary handoff for contract fraud
+        # FRAUDE→INADIMPLENCIA: secondary handoff for CONTRATO fraud only. Same real completed event
+        # (desfecho=encaminhado_contratual) but ALSO requires `entidade_tipo == "contrato"` — a
+        # discriminator the minimal completed payload does not currently carry, so this rule stays
+        # honestly DORMANT until the source enriches it (named follow-up), matching the in-flow
+        # `start_contratual` worker which starts INADIMPLENCIA only for a contrato.
         self.register_handoff(
-            event_type="fraude.acusacao_registrada",
+            event_type=FRAUDE_COMPLETED_EVENT,
             predicate=lambda p: (
-                p.get("decisao_fraude") == "ACUSAR_FRAUDE" and p.get("entidade_tipo") == "contrato"
+                p.get("desfecho") == "encaminhado_contratual"
+                and p.get("entidade_tipo") == "contrato"
+                and _non_blank(p.get("numero_contrato"))
             ),
             target_process="SP-OP-INADIMPLENCIA-001",
             variables_fn=lambda p: {

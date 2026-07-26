@@ -10,6 +10,7 @@ only materializes after human decision in UT_AnalistaContas.
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import functools
 from dataclasses import dataclass, field
@@ -17,13 +18,23 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from maezo.tools.mcp_cibseven.transport import AgentDecisionProvenance, start_process_idempotent
 from maezo.tools.workers.base import FunctionWorker, pick_fields
 from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row, require_dmn
+from maezo.tools.workers.harness import AUDIT_AGENT_ID, _resolve_app_version
 
 if TYPE_CHECKING:
+    from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
     from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
 
 logger = structlog.get_logger(__name__)
+
+# Process key of the SP-OP-RECURSO-001 handoff target — one recurso per glosa per guia TISS,
+# human-gated by RECURSO-001's own User Tasks. CONTAS never files the recurso itself; it hands off.
+RECURSO_PROCESS_KEY = "SP-OP-RECURSO-001"
+
+# Deterministic-input guard: cannot key RECURSO-001 without a glosa identity (fail-closed).
+ERR_CONTAS_RECURSO_SEM_GLOSA = "ERR_CONTAS_RECURSO_SEM_GLOSA"
 
 
 # ---------------------------------------------------------------------------
@@ -45,6 +56,19 @@ class GlosaAcceptNotHumanError(PermissionError):
         if self.missing_fields:
             msg += f"; missing: {', '.join(self.missing_fields)}"
         super().__init__(msg)
+
+
+class ContasRecursoSemGlosaError(ValueError):
+    """Raised when start_recurso has no glosa identity to key SP-OP-RECURSO-001.
+
+    Fail-closed (ERR_CONTAS_RECURSO_SEM_GLOSA): a handoff without glosa_id/numero_guia_tiss cannot
+    derive a deterministic RECURSO-001 business key — refuse rather than start under an empty key.
+    """
+
+    def __init__(self, detail: str = "") -> None:
+        super().__init__(
+            f"{ERR_CONTAS_RECURSO_SEM_GLOSA}: {detail}" if detail else ERR_CONTAS_RECURSO_SEM_GLOSA
+        )
 
 
 class ContasLoteInvalidoError(ValueError):
@@ -410,31 +434,132 @@ def notify_sla_risk(
     }
 
 
+def _recurso_business_key(tenant_id: str, numero_guia_tiss: str, glosa_id: str) -> str:
+    """`RECURSO-{tenant_id}-{numero_guia_tiss}-{glosa_id}` (contract `SP-OP-RECURSO-001.md`
+    "Business key (idempotencia)") — one recurso per glosa per guia TISS. IDENTICAL scheme to
+    `notification_bridge._recurso_business_key`, so the in-flow worker start and the (decoupled)
+    Kafka-bridge start converge on the SAME instance (idempotent redundancy, never a divergent
+    double-start)."""
+    return f"RECURSO-{tenant_id}-{numero_guia_tiss}-{glosa_id}"
+
+
 def start_recurso(
-    glosa_id: str,
-    numero_guia_tiss: str,
-    glosa_type: str = "",
-    documentacao_anexa: bool = False,
+    variables: dict[str, Any],
+    *,
+    engine: CibSevenTransport | None = None,
+    audit_sink: AuditStartSink | None = None,
 ) -> dict[str, Any]:
-    """Handoff to SP-OP-RECURSO-001 when decisao_contas == RECORRER.
+    """Neutral handoff: idempotently START/correlate SP-OP-RECURSO-001 when decisao_contas==RECORRER.
 
-    Passes glosa_id, numero_guia_tiss, glosa_type, glosa_existe=true,
-    and documentacao_anexa to the recurso process.
+    NOT an adverse effect — RECURSO-001 owns the recurso filing, human-gated by its OWN User Tasks;
+    CONTAS never files the recurso. This worker starts RECURSO-001 (business key
+    ``RECURSO-{tenant}-{numero_guia_tiss}-{glosa_id}``) via the shared, business-key-idempotent
+    ``start_process_idempotent`` chokepoint — an already-active recurso for this glosa is returned
+    unchanged (no duplicate recurso).
+
+    T-C2 FENCE (mirrors ``inadimplencia.handoff_rescisao``, the merged 10th start site): the
+    chokepoint REQUIRES a durable ``audit_sink`` + ``AgentDecisionProvenance`` — the ADR-0007 start
+    record is emitted exactly-once (dedup key ``{tenant}:start:SP-OP-RECURSO-001:{business_key}``)
+    BEFORE any engine effect. Deterministic worker context: ``agent_id`` = the stable service
+    identity (``AUDIT_AGENT_ID``), no ``model_id``/``prompt_version`` (no LLM decides — the analyst's
+    RECORRER in ``UT_AnalistaContas`` does), and ``decision_basis`` carries ONLY bounded enum/flag
+    tokens (design §3.3); glosa/guia identifiers stay in the start ``variables``, bound one-way via
+    the record's ``input_sha256``, never stored in the clear.
+
+    P1-safe mid-handler effect (audit-emit design §4.2): the ONLY external effect is the
+    business-key-idempotent process start (its dedup makes re-delivery return the SAME active
+    instance), and the business key is a DETERMINISTIC function of process variables (no
+    wall-clock/uuid) — so this worker is exempt from the "no mid-handler external effect" rule.
+
+    FAIL-CLOSED (never a silent no-op):
+      - missing engine seam (``engine is None`` — composition root not wired) raises (transient);
+      - missing audit seam (``audit_sink is None``) raises (transient) — RECURSO-001 can never
+        start un-audited (ADR-0007 L0);
+      - missing glosa identity raises ``ContasRecursoSemGlosaError`` (deterministic -> incident) —
+        never a start under an empty/garbage business key.
     """
-    logger.info(
-        "contas.start_recurso",
-        glosa_id=glosa_id,
-        numero_guia_tiss=numero_guia_tiss,
-        glosa_type=glosa_type,
-    )
+    tenant_id = str(variables.get("tenant_id", ""))
+    glosa_id = str(variables.get("glosa_id", ""))
+    numero_guia_tiss = str(variables.get("numero_guia_tiss", ""))
+    glosa_type = str(variables.get("glosa_type", ""))
+    documentacao_anexa = bool(variables.get("documentacao_anexa", False))
+    numero_lote_tiss = str(variables.get("numero_lote_tiss", ""))
 
-    return {
-        "handoff": "SP-OP-RECURSO-001",
+    if not (glosa_id and numero_guia_tiss):
+        # No glosa identity -> cannot key RECURSO-001 -> refuse (deterministic bad input, never a
+        # start under an empty business key).
+        logger.error("contas_start_recurso_no_glosa_identity", tenant_id=tenant_id)
+        raise ContasRecursoSemGlosaError(
+            "start_recurso: sem glosa_id/numero_guia_tiss — nao ha identidade de glosa para "
+            "iniciar RECURSO-001 (recusado, nunca inicia com business key vazia)"
+        )
+
+    if engine is None:
+        logger.error("contas_start_recurso_engine_seam_not_wired", glosa_id=glosa_id)
+        raise RuntimeError(
+            "start_recurso: engine seam (CibSevenTransport) not wired — cannot start RECURSO-001; "
+            "failing closed to a retry/incident (never a silent no-op)"
+        )
+    if audit_sink is None:
+        logger.error("contas_start_recurso_audit_sink_not_wired", glosa_id=glosa_id)
+        raise RuntimeError(
+            "start_recurso: audit sink (AuditStartSink) not wired — cannot emit the ADR-0007 start "
+            "record, so RECURSO-001 is NOT started (fail-closed, emit-before-effect); failing to a "
+            "retry/incident (never a silent no-op, never an un-audited start)"
+        )
+
+    business_key = _recurso_business_key(tenant_id, numero_guia_tiss, glosa_id)
+    payload: dict[str, Any] = {
+        "tenant_id": tenant_id,
         "glosa_id": glosa_id,
         "numero_guia_tiss": numero_guia_tiss,
         "glosa_type": glosa_type,
         "glosa_existe": True,
         "documentacao_anexa": documentacao_anexa,
+        "numero_lote_tiss": numero_lote_tiss,
+    }
+    provenance = AgentDecisionProvenance(
+        agent_id=AUDIT_AGENT_ID,
+        agent_version=_resolve_app_version(),
+        tenant_id=tenant_id,
+        decision_basis={
+            "decisao_contas": "RECORRER",
+            "glosa_type": glosa_type,
+            "documentacao_anexa": documentacao_anexa,
+        },
+        model_id=None,
+        prompt_version=None,
+    )
+    instance = asyncio.run(
+        start_process_idempotent(
+            engine,
+            process_key=RECURSO_PROCESS_KEY,
+            business_key=business_key,
+            variables=payload,
+            audit_sink=audit_sink,
+            provenance=provenance,
+        )
+    )
+    logger.info(
+        "contas.start_recurso",
+        glosa_id=glosa_id,
+        numero_guia_tiss=numero_guia_tiss,
+        recurso_business_key=business_key,
+        recurso_instance_id=instance.instance_id,
+        recurso_already_existed=instance.already_existed,
+    )
+    return {
+        "handoff": RECURSO_PROCESS_KEY,
+        "handoff_executado": True,
+        "processo_destino": RECURSO_PROCESS_KEY,
+        "glosa_id": glosa_id,
+        "numero_guia_tiss": numero_guia_tiss,
+        "glosa_type": glosa_type,
+        "glosa_existe": True,
+        "documentacao_anexa": documentacao_anexa,
+        "recurso_business_key": business_key,
+        "recurso_instance_id": instance.instance_id,
+        "recurso_already_existed": instance.already_existed,
     }
 
 
@@ -628,14 +753,20 @@ def notify_sla_risk_entry(
     return notify_sla_risk(tenant_id, numero_lote_tiss, sla_remaining, grupo)
 
 
-def start_recurso_entry(variables: dict[str, Any], *, kafka: KafkaPublisher | None = None) -> dict[str, Any]:
-    """Dict-boundary entry for `operadora.contas.start_recurso` -> `start_recurso`."""
-    del kafka  # unused — start_recurso emits no domain event
-    glosa_id = variables.get("glosa_id", "")
-    numero_guia_tiss = variables.get("numero_guia_tiss", "")
-    glosa_type = variables.get("glosa_type", "")
-    documentacao_anexa = variables.get("documentacao_anexa", False)
-    return start_recurso(glosa_id, numero_guia_tiss, glosa_type, documentacao_anexa)
+def start_recurso_entry(
+    variables: dict[str, Any],
+    *,
+    kafka: KafkaPublisher | None = None,
+    engine: CibSevenTransport | None = None,
+    audit_sink: AuditStartSink | None = None,
+) -> dict[str, Any]:
+    """Dict-boundary entry for `operadora.contas.start_recurso` -> `start_recurso`.
+
+    Threads the fenced-start seams (`engine`/`audit_sink`) — start_recurso now REALLY starts
+    SP-OP-RECURSO-001 through the ADR-0007 chokepoint (was a stub returning a marker dict).
+    """
+    del kafka  # unused — start_recurso starts a process, it does not publish a Kafka event
+    return start_recurso(variables, engine=engine, audit_sink=audit_sink)
 
 
 def reconcile_payment_entry(
@@ -672,6 +803,13 @@ def register_contas_workers(
     `prepare_triage_dossier_entry` (`glosa_triage`, T1.5 cutover).
     """
     dmn = seams.get("dmn")
+    # Fenced-start seams (T-C2, mirrors register_inadimplencia_workers) — threaded into
+    # start_recurso ONLY (the one CONTAS worker that runs `start_process_idempotent`). ABSENT
+    # (`None`) -> start_recurso RAISES before any engine effect (an un-audited RECURSO-001 start is
+    # structurally impossible, ADR-0007 L0). In the live daemon: FreshClientCibSevenTransport +
+    # FreshSinkAuditEmitter (loop-agnostic, sync dispatch emits on its own asyncio.run loop).
+    engine: CibSevenTransport | None = seams.get("engine")
+    audit_sink: AuditStartSink | None = seams.get("audit_sink")
     harness.register_worker(
         FunctionWorker(
             "operadora.contas.identify_glosa", functools.partial(identify_glosa_entry, kafka=kafka)
@@ -706,7 +844,10 @@ def register_contas_workers(
         )
     )
     harness.register_worker(
-        FunctionWorker("operadora.contas.start_recurso", functools.partial(start_recurso_entry, kafka=kafka))
+        FunctionWorker(
+            "operadora.contas.start_recurso",
+            functools.partial(start_recurso_entry, kafka=kafka, engine=engine, audit_sink=audit_sink),
+        )
     )
     harness.register_worker(
         FunctionWorker(

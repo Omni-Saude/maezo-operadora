@@ -49,9 +49,9 @@ def _bridge_with_spy() -> tuple[NotificationBridge, _StarterSpy]:
 
 
 _CONTAS_MESSAGE = {
-    "type": "contas.glosa_confirmed",
+    "type": "agents.events.contas.completed",  # EB-4: real emitted event_type
     "tenant_id": "amh",
-    "decisao_contas": "RECORRER",
+    "desfecho": "encaminhada_recurso",
     "glosa_id": "GLOSA-1",
     "numero_guia_tiss": "GUIA-1",
 }

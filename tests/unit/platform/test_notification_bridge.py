@@ -13,6 +13,8 @@ from typing import Any
 import pytest
 
 from maezo.platform.notification_bridge import (
+    CONTAS_COMPLETED_EVENT,
+    FRAUDE_COMPLETED_EVENT,
     PROCESS_KEY_ANS_SUBMIT,
     HandoffEvent,
     HandoffResult,
@@ -23,6 +25,10 @@ from maezo.platform.notification_bridge import (
 )
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from tests.support.audit_fakes import FakeStartAuditSink
+
+# EB-4 event_type reconciliation — the REAL emitted domain events the bridge now consumes
+# (`agents.events.{contas,fraude}.completed`), keyed on `payload.desfecho`. See the module
+# reconciliation note in notification_bridge.py.
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -115,12 +121,13 @@ def test_bridge_register_custom_handoff() -> None:
 
 
 def test_bridge_contas_to_recurso_triggered() -> None:
-    """Handoff CONTAS→RECURSO triggers when decisao_contas == RECORRER."""
+    """Handoff CONTAS→RECURSO triggers on the REAL agents.events.contas.completed
+    (desfecho=encaminhada_recurso) with the business-key anchors present."""
     bridge = _make_bridge()
     event = HandoffEvent(
-        event_type="contas.glosa_confirmed",
+        event_type=CONTAS_COMPLETED_EVENT,
         payload={
-            "decisao_contas": "RECORRER",
+            "desfecho": "encaminhada_recurso",
             "glosa_id": "GLOSA-001",
             "numero_guia_tiss": "GUIA-123",
             "glosa_type": "tecnica",
@@ -140,13 +147,14 @@ def test_bridge_contas_to_recurso_triggered() -> None:
 
 
 def test_bridge_contas_to_recurso_not_triggered_when_not_recorrer() -> None:
-    """Handoff CONTAS→RECURSO does NOT trigger when decisao_contas != RECORRER."""
+    """Does NOT trigger on a non-recurso desfecho (e.g. reenviada)."""
     bridge = _make_bridge()
     event = HandoffEvent(
-        event_type="contas.glosa_confirmed",
+        event_type=CONTAS_COMPLETED_EVENT,
         payload={
-            "decisao_contas": "ACEITAR_GLOSA",
+            "desfecho": "reenviada",
             "glosa_id": "GLOSA-001",
+            "numero_guia_tiss": "GUIA-123",
         },
     )
     result = bridge.evaluate(event)
@@ -155,18 +163,30 @@ def test_bridge_contas_to_recurso_not_triggered_when_not_recorrer() -> None:
     assert "No handoff rule matched" in result.reason
 
 
+def test_bridge_contas_to_recurso_dormant_when_anchor_missing() -> None:
+    """EB-4 fail-closed anchor: the right desfecho but WITHOUT numero_guia_tiss/glosa_id (today's
+    minimal completed payload) stays DORMANT — never a divergent-key start."""
+    bridge = _make_bridge()
+    result = bridge.evaluate(
+        HandoffEvent(event_type=CONTAS_COMPLETED_EVENT, payload={"desfecho": "encaminhada_recurso"})
+    )
+    assert result.handoff_triggered is False
+
+
 # ---------------------------------------------------------------------------
 # CONTAS → FRAUDE
 # ---------------------------------------------------------------------------
 
 
 def test_bridge_contas_to_fraude_triggered() -> None:
-    """Handoff CONTAS→FRAUDE triggers when encaminhar_fraude == true."""
+    """Handoff CONTAS→FRAUDE (PHASE-3-DEFERRED): fires on the not-yet-emitted
+    desfecho=encaminhada_fraude with prestador_id anchor — proves the rule is correctly ARMED
+    though the current CONTAS BPMN does not yet emit this desfecho."""
     bridge = _make_bridge()
     event = HandoffEvent(
-        event_type="contas.encaminhar_fraude",
+        event_type=CONTAS_COMPLETED_EVENT,
         payload={
-            "encaminhar_fraude": True,
+            "desfecho": "encaminhada_fraude",
             "analista_id": "auditor-001",
             "numero_lote_tiss": "LOTE-001",
             "prestador_id": "PREST-001",
@@ -183,25 +203,23 @@ def test_bridge_contas_to_fraude_triggered() -> None:
     assert result.variables["evidencia_refs"] == ["ref-1", "ref-2"]
 
 
-def test_bridge_contas_to_fraude_not_triggered_when_false() -> None:
-    """Handoff CONTAS→FRAUDE does NOT trigger when encaminhar_fraude is False."""
+def test_bridge_contas_to_fraude_not_triggered_when_other_desfecho() -> None:
+    """Does NOT trigger on a non-fraude desfecho."""
     bridge = _make_bridge()
     event = HandoffEvent(
-        event_type="contas.encaminhar_fraude",
-        payload={"encaminhar_fraude": False},
+        event_type=CONTAS_COMPLETED_EVENT,
+        payload={"desfecho": "encaminhada_recurso", "prestador_id": "PREST-001"},
     )
     result = bridge.evaluate(event)
-    assert result.handoff_triggered is False
+    assert result.target_process != "SP-OP-FRAUDE-001"
 
 
-def test_bridge_contas_to_fraude_not_triggered_when_missing() -> None:
-    """Handoff CONTAS→FRAUDE does NOT trigger when encaminhar_fraude is absent."""
+def test_bridge_contas_to_fraude_dormant_when_anchor_missing() -> None:
+    """The fraude desfecho but no prestador_id anchor -> dormant (fail-closed)."""
     bridge = _make_bridge()
-    event = HandoffEvent(
-        event_type="contas.encaminhar_fraude",
-        payload={},
+    result = bridge.evaluate(
+        HandoffEvent(event_type=CONTAS_COMPLETED_EVENT, payload={"desfecho": "encaminhada_fraude"})
     )
-    result = bridge.evaluate(event)
     assert result.handoff_triggered is False
 
 
@@ -211,13 +229,13 @@ def test_bridge_contas_to_fraude_not_triggered_when_missing() -> None:
 
 
 def test_bridge_fraude_to_cred_triggered() -> None:
-    """Handoff FRAUDE→CRED triggers when fraud confirmed against a prestador."""
+    """Handoff FRAUDE→CRED triggers on desfecho=encaminhado_credenciamento (the BPMN's routing
+    encoding) with a prestador_id anchor."""
     bridge = _make_bridge()
     event = HandoffEvent(
-        event_type="fraude.acusacao_registrada",
+        event_type=FRAUDE_COMPLETED_EVENT,
         payload={
-            "decisao_fraude": "ACUSAR_FRAUDE",
-            "entidade_tipo": "prestador",
+            "desfecho": "encaminhado_credenciamento",
             "prestador_id": "PREST-001",
             "numero_caso": "FRAUDE-001",
             "bundle_root": "abc123def",
@@ -229,15 +247,14 @@ def test_bridge_fraude_to_cred_triggered() -> None:
     assert result.target_process == "SP-OP-CRED-001"
 
 
-def test_bridge_fraude_to_cred_not_triggered_when_not_prestador() -> None:
-    """Handoff FRAUDE→CRED does NOT trigger for beneficiario fraud."""
+def test_bridge_fraude_to_cred_not_triggered_when_contratual_desfecho() -> None:
+    """A contratual desfecho routes to CANCEL, not CRED."""
     bridge = _make_bridge()
     event = HandoffEvent(
-        event_type="fraude.acusacao_registrada",
+        event_type=FRAUDE_COMPLETED_EVENT,
         payload={
-            "decisao_fraude": "ACUSAR_FRAUDE",
-            "entidade_tipo": "beneficiario",
-            "prestador_id": "PREST-001",
+            "desfecho": "encaminhado_contratual",
+            "numero_contrato": "CTR-001",
         },
     )
     result = bridge.evaluate(event)
@@ -251,12 +268,13 @@ def test_bridge_fraude_to_cred_not_triggered_when_not_prestador() -> None:
 
 
 def test_bridge_fraude_to_cancel_triggered() -> None:
-    """Handoff FRAUDE→CANCEL triggers when fraud confirmed against a beneficiario."""
+    """Handoff FRAUDE→CANCEL triggers on desfecho=encaminhado_contratual (beneficiario path —
+    a single desfecho covers both beneficiario and contrato)."""
     bridge = _make_bridge()
     event = HandoffEvent(
-        event_type="fraude.acusacao_registrada",
+        event_type=FRAUDE_COMPLETED_EVENT,
         payload={
-            "decisao_fraude": "ACUSAR_FRAUDE",
+            "desfecho": "encaminhado_contratual",
             "entidade_tipo": "beneficiario",
             "beneficiario_pseudo_id": "pseudo-b-001",
             "numero_contrato": "CTR-001",
@@ -271,12 +289,13 @@ def test_bridge_fraude_to_cancel_triggered() -> None:
 
 
 def test_bridge_fraude_to_inadimplencia_triggered() -> None:
-    """Handoff FRAUDE→INADIMPLENCIA and CANCEL both trigger for contract fraud."""
+    """Handoff FRAUDE→INADIMPLENCIA and CANCEL both trigger for CONTRATO fraud
+    (entidade_tipo=contrato, the INAD discriminator)."""
     bridge = _make_bridge()
     event = HandoffEvent(
-        event_type="fraude.acusacao_registrada",
+        event_type=FRAUDE_COMPLETED_EVENT,
         payload={
-            "decisao_fraude": "ACUSAR_FRAUDE",
+            "desfecho": "encaminhado_contratual",
             "entidade_tipo": "contrato",
             "numero_contrato": "CTR-001",
             "beneficiario_pseudo_id": "pseudo-b-001",
@@ -304,9 +323,9 @@ def test_evaluate_all_multiple_fraude_handoffs() -> None:
     """evaluate_all returns all matching rules for fraude.acusacao_registrada."""
     bridge = _make_bridge()
     event = HandoffEvent(
-        event_type="fraude.acusacao_registrada",
+        event_type=FRAUDE_COMPLETED_EVENT,
         payload={
-            "decisao_fraude": "ACUSAR_FRAUDE",
+            "desfecho": "encaminhado_contratual",
             "entidade_tipo": "contrato",
             "numero_contrato": "CTR-001",
             "beneficiario_pseudo_id": "pseudo-b-001",
@@ -327,9 +346,9 @@ def test_evaluate_all_single_match() -> None:
     """evaluate_all returns one result when only one rule matches."""
     bridge = _make_bridge()
     event = HandoffEvent(
-        event_type="contas.glosa_confirmed",
+        event_type=CONTAS_COMPLETED_EVENT,
         payload={
-            "decisao_contas": "RECORRER",
+            "desfecho": "encaminhada_recurso",
             "glosa_id": "GLOSA-001",
             "numero_guia_tiss": "GUIA-123",
             "glosa_type": "tecnica",
@@ -435,9 +454,9 @@ async def test_on_event_propagates_when_matched_rule_start_fails() -> None:
     bridge = NotificationBridge(cibseven_starter=spy)
     with pytest.raises(NotificationBridgeHandoffFailedError):
         await bridge.on_event(
-            event_type="contas.glosa_confirmed",
+            event_type=CONTAS_COMPLETED_EVENT,
             payload={
-                "decisao_contas": "RECORRER",
+                "desfecho": "encaminhada_recurso",
                 "glosa_id": "GLOSA-002",
                 "numero_guia_tiss": "GUIA-456",
                 "tenant_id": "amh",
@@ -476,9 +495,9 @@ async def test_on_event_full_pipeline() -> None:
     """on_event evaluates and executes in one call."""
     bridge, spy = _make_bridge_with_spy()
     results = await bridge.on_event(
-        event_type="contas.glosa_confirmed",
+        event_type=CONTAS_COMPLETED_EVENT,
         payload={
-            "decisao_contas": "RECORRER",
+            "desfecho": "encaminhada_recurso",
             "glosa_id": "GLOSA-002",
             "numero_guia_tiss": "GUIA-456",
             "glosa_type": "clinica",
@@ -498,9 +517,9 @@ async def test_on_event_multiple_handoffs() -> None:
     """on_event starts multiple processes for multi-handoff events."""
     bridge, spy = _make_bridge_with_spy()
     results = await bridge.on_event(
-        event_type="fraude.acusacao_registrada",
+        event_type=FRAUDE_COMPLETED_EVENT,
         payload={
-            "decisao_fraude": "ACUSAR_FRAUDE",
+            "desfecho": "encaminhado_contratual",
             "entidade_tipo": "contrato",
             "numero_contrato": "CTR-001",
             "beneficiario_pseudo_id": "pseudo-b-001",
@@ -530,21 +549,25 @@ def test_list_handoffs_returns_all() -> None:
 
 
 def test_get_handoff_returns_rules() -> None:
-    """get_handoff returns all rules for an event type."""
+    """get_handoff returns all rules for an event type. agents.events.contas.completed now carries
+    2 rules (RECURSO + the Phase-3 FRAUDE handoff)."""
     bridge = _make_bridge()
-    rules = bridge.get_handoff("contas.glosa_confirmed")
-    assert len(rules) == 1
-    target, predicate = rules[0]
-    assert target == "SP-OP-RECURSO-001"
+    rules = bridge.get_handoff(CONTAS_COMPLETED_EVENT)
+    assert len(rules) == 2
+    recurso = [(t, p) for t, p in rules if t == "SP-OP-RECURSO-001"]
+    assert len(recurso) == 1
+    _, predicate = recurso[0]
     assert callable(predicate)
-    assert predicate({"decisao_contas": "RECORRER"}) is True
-    assert predicate({"decisao_contas": "ACEITAR"}) is False
+    assert (
+        predicate({"desfecho": "encaminhada_recurso", "numero_guia_tiss": "G-1", "glosa_id": "GL-1"}) is True
+    )
+    assert predicate({"desfecho": "reenviada", "numero_guia_tiss": "G-1", "glosa_id": "GL-1"}) is False
 
 
 def test_get_handoff_multiple_rules() -> None:
-    """get_handoff returns multiple rules for fraude.acusacao_registrada."""
+    """get_handoff returns the 3 rules on agents.events.fraude.completed (CRED/CANCEL/INAD)."""
     bridge = _make_bridge()
-    rules = bridge.get_handoff("fraude.acusacao_registrada")
+    rules = bridge.get_handoff(FRAUDE_COMPLETED_EVENT)
     assert len(rules) == 3  # CRED, CANCEL, INADIMPLENCIA
     targets = {t for t, _ in rules}
     assert targets == {"SP-OP-CRED-001", "SP-OP-CANCEL-001", "SP-OP-INADIMPLENCIA-001"}
@@ -973,10 +996,10 @@ async def test_fenced_starter_raises_directly_when_called_standalone() -> None:
 def test_contas_to_recurso_derives_business_key() -> None:
     bridge = _make_bridge()
     event = HandoffEvent(
-        event_type="contas.glosa_confirmed",
+        event_type=CONTAS_COMPLETED_EVENT,
         payload={
             "tenant_id": "amh",
-            "decisao_contas": "RECORRER",
+            "desfecho": "encaminhada_recurso",
             "glosa_id": "GLOSA-001",
             "numero_guia_tiss": "GUIA-123",
         },
@@ -992,10 +1015,10 @@ def test_contas_to_fraude_derives_business_key_from_prestador_fallback() -> None
     intake here) -> falls back to `prestador_id` per `_fraude_numero_caso_for_contas_handoff`."""
     bridge = _make_bridge()
     event = HandoffEvent(
-        event_type="contas.encaminhar_fraude",
+        event_type=CONTAS_COMPLETED_EVENT,
         payload={
             "tenant_id": "amh",
-            "encaminhar_fraude": True,
+            "desfecho": "encaminhada_fraude",
             "prestador_id": "PREST-001",
         },
     )
@@ -1009,10 +1032,10 @@ def test_contas_to_fraude_derives_business_key_from_explicit_numero_caso() -> No
     prestador_id fallback."""
     bridge = _make_bridge()
     event = HandoffEvent(
-        event_type="contas.encaminhar_fraude",
+        event_type=CONTAS_COMPLETED_EVENT,
         payload={
             "tenant_id": "amh",
-            "encaminhar_fraude": True,
+            "desfecho": "encaminhada_fraude",
             "prestador_id": "PREST-001",
             "numero_caso": "CASO-777",
         },
@@ -1024,11 +1047,10 @@ def test_contas_to_fraude_derives_business_key_from_explicit_numero_caso() -> No
 def test_fraude_to_cred_derives_business_key() -> None:
     bridge = _make_bridge()
     event = HandoffEvent(
-        event_type="fraude.acusacao_registrada",
+        event_type=FRAUDE_COMPLETED_EVENT,
         payload={
             "tenant_id": "amh",
-            "decisao_fraude": "ACUSAR_FRAUDE",
-            "entidade_tipo": "prestador",
+            "desfecho": "encaminhado_credenciamento",
             "prestador_id": "PREST-001",
             "numero_caso": "FRAUDE-001",
         },
@@ -1041,10 +1063,10 @@ def test_fraude_to_cred_derives_business_key() -> None:
 def test_fraude_to_cancel_derives_business_key() -> None:
     bridge = _make_bridge()
     event = HandoffEvent(
-        event_type="fraude.acusacao_registrada",
+        event_type=FRAUDE_COMPLETED_EVENT,
         payload={
             "tenant_id": "amh",
-            "decisao_fraude": "ACUSAR_FRAUDE",
+            "desfecho": "encaminhado_contratual",
             "entidade_tipo": "beneficiario",
             "numero_contrato": "CTR-001",
         },
@@ -1060,10 +1082,10 @@ def test_fraude_to_inadimplencia_derives_business_key_distinct_from_cancel() -> 
     the two coordinating processes."""
     bridge = _make_bridge()
     event = HandoffEvent(
-        event_type="fraude.acusacao_registrada",
+        event_type=FRAUDE_COMPLETED_EVENT,
         payload={
             "tenant_id": "amh",
-            "decisao_fraude": "ACUSAR_FRAUDE",
+            "desfecho": "encaminhado_contratual",
             "entidade_tipo": "contrato",
             "numero_contrato": "CTR-001",
         },
@@ -1083,12 +1105,12 @@ def test_5_rules_business_key_deterministic_across_redelivery() -> None:
     bridge = _make_bridge()
     payload = {
         "tenant_id": "amh",
-        "decisao_contas": "RECORRER",
+        "desfecho": "encaminhada_recurso",
         "glosa_id": "GLOSA-9",
         "numero_guia_tiss": "GUIA-9",
     }
-    r1 = bridge.evaluate(HandoffEvent(event_type="contas.glosa_confirmed", payload=dict(payload)))
-    r2 = bridge.evaluate(HandoffEvent(event_type="contas.glosa_confirmed", payload=dict(payload)))
+    r1 = bridge.evaluate(HandoffEvent(event_type=CONTAS_COMPLETED_EVENT, payload=dict(payload)))
+    r2 = bridge.evaluate(HandoffEvent(event_type=CONTAS_COMPLETED_EVENT, payload=dict(payload)))
     assert r1.variables["business_key"] == r2.variables["business_key"] == "RECURSO-amh-GUIA-9-GLOSA-9"
 
 
@@ -1102,10 +1124,10 @@ async def test_5_rules_now_start_through_the_fenced_starter() -> None:
     bridge = NotificationBridge(cibseven_starter=starter)
 
     results = await bridge.on_event(
-        event_type="contas.glosa_confirmed",
+        event_type=CONTAS_COMPLETED_EVENT,
         payload={
             "tenant_id": "amh",
-            "decisao_contas": "RECORRER",
+            "desfecho": "encaminhada_recurso",
             "glosa_id": "GLOSA-42",
             "numero_guia_tiss": "GUIA-42",
         },

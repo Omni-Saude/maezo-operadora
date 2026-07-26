@@ -832,3 +832,78 @@ Re-scope T-C2 to every `start_process_idempotent` site (enforced at the `transpo
 chokepoint). That is the only unresolved item; nothing else in the revision needs changing. An R1
 implementer still starts with **T-A** (`emit_once` + `0005_audit_emit_dedup` migration) — self-
 contained and kill-testable — landing **with T-D** as its go-live co-requisite.
+
+---
+
+## EB-4 addendum — un-stubbing the CONTAS/FRAUDE handoff workers + bridge event_type reconciliation
+
+**Date:** 2026-07-25 · **Area:** Cross-process choreography (CONTAS→RECURSO→FRAUDE) · **Branch:**
+`t2.6-eb4-bridge-live` (off `t2.6-eb3-bridge-wiring`). Landed live-proven against a lean
+postgres+cibseven stack (engine :18195, PG :5650, `-Xmx900m`).
+
+### Context — the handoff was dead on BOTH paths
+
+Two mechanisms could start a downstream process from a CONTAS/FRAUDE handoff:
+
+1. **Dedicated in-flow BPMN service-task workers** — `operadora.contas.start_recurso`
+   (`ST_StartRecurso`), `operadora.fraude.start_credenciamento` (`ST_StartCredenciamento`),
+   `operadora.fraude.start_contratual` (`ST_StartContratual`). They run *synchronously inside the
+   source process* with the full process-variable context. They were **STUBS** (log + a marker
+   dict; NO `start_process` call).
+2. **`NotificationBridge`** (Kafka choreography, `platform/notification_bridge.py`) — its 5
+   pre-existing rules keyed off event_type strings (`contas.glosa_confirmed`,
+   `contas.encaminhar_fraude`, `fraude.acusacao_registrada`) that **no publisher ever emits**
+   (6 of 7 rules dormant; only `ans.cron_due` fires).
+
+The events the source processes ACTUALLY emit (BPMN `operadora.events.publish` `event_topic`
+inputParameter) are `agents.events.contas.completed` / `agents.events.fraude.completed`, each
+carrying `payload.desfecho` (the routing outcome).
+
+### Decision 1 — un-stub the 3 workers as the CANONICAL handoff (the live path)
+
+Root-cause-correct per the **already-merged precedent** `inadimplencia.handoff_rescisao` (T1.10
+T-C2 "10th start site"): the dedicated in-flow worker is the sanctioned way to start a downstream
+process from a handoff, because it runs with full variable context and can derive the CORRECT,
+contract-shaped business key. Each of the 3 workers now runs `start_process_idempotent` through the
+**fenced chokepoint** (`transport.py`, this doc's T-C2) with a required `engine` + `audit_sink`
+seam (threaded by `register_contas_workers` / `register_fraude_workers`, exactly as
+`register_inadimplencia_workers` does), emitting the ADR-0007 start record **before** any engine
+effect. Fail-closed: a missing seam or a missing business-key anchor RAISES (never a silent no-op,
+never an un-audited start). Business keys are IDENTICAL to the bridge's (`RECURSO-…`, `CRED-…`,
+`CANCEL-…`, `INAD-…`), so redelivery is an idempotent hit, never a divergent double-start.
+
+### Decision 2 — bridge event_type reconciliation = OPTION (b), repoint + fail-closed anchor
+
+The 5 dormant rules are repointed onto the REAL emitted event_type names
+(`agents.events.{contas,fraude}.completed`) keyed on `payload.desfecho`
+(`encaminhada_recurso` / `encaminhada_fraude` / `encaminhado_credenciamento` /
+`encaminhado_contratual`). Each repointed predicate ALSO requires its business-key anchor
+(`numero_guia_tiss`+`glosa_id` / `prestador_id` / `numero_contrato`) to be non-blank.
+
+**Why the anchor requirement (no divergent-key hazard).** The real completed events carry an
+intentionally MINIMAL, PHI-safe `event_payload_vars` payload that does NOT include those anchors
+(or the `entidade_tipo` discriminator). Against today's payloads the anchored predicate is
+**correctly DORMANT** (no start under a wrong/partial key); the rule ARMS automatically iff/when
+the source BPMN enriches `event_payload_vars` with the anchor (a named `spec/` follow-up, OUT of
+this task's mechanical scope). The bridge remains the decoupled Kafka mirror of the in-flow worker;
+because both derive the SAME business key, a live bridge fire converges idempotently on the same
+instance. Option (a) — making the source emit the bridge-consumed strings with richer payloads —
+was rejected: it duplicates the now-live worker AND would push resolvable identifiers onto a Kafka
+topic (a PHI-egress concern), for no additional coverage.
+
+**Flagged residuals (honest, not force-wired):** (i) `CONTAS→FRAUDE` is Phase-3-deferred — the
+current CONTAS BPMN emits no `encaminhada_fraude` desfecho and has no in-flow `start_fraude`
+worker; the rule is armed but stays dormant. (ii) The bridge's live-Kafka publish/consume leg (a
+publisher writing the completed event, with anchors, to `operadora.notifications.internal`) remains
+the documented gap the `notifications_bridge` module already records.
+
+### Live proof (mandatory R1)
+
+For each of the 3 workers AND the reconciled bridge, proven against a REAL engine + REAL
+`audit_chain`: source event → handoff fires → downstream instance STARTED (queried by business key
+via engine REST) → ADR-0007 start row SELECTed from `audit_chain`; redelivery idempotent (same
+instance, one chain link); non-matching desfecho starts nothing. Captured by
+`tests/integration/platform/test_notifications_bridge_live_engine.py` (bridge + worker) and the
+3 full-BPMN handoff tests in `tests/integration/processes/test_sp_op_{contas,fraude}_001.py`
+(now wiring the `engine=`/`audit_sink=` seams + deploying the downstream BPMN, mirroring the
+inadimplencia→CANCEL handoff test).
