@@ -4,16 +4,17 @@
 > Desde então uma segunda leva de reconstrução (v2 "Keep Brain, Rebuild Spine": tracks T0–T5, PRs
 > #89–#166) fechou a maior parte do que faltava — runtime spine, cadeia de auditoria, A2A completo,
 > chaos/cross-process, auditoria adversarial pré-deploy (T3.4) + remediação total, persistência de
-> checkpoint, pytest 9. **PR #165 (`t4-platform-completion`) está mergeado em `main` (`9cc8aaa`).**
-> **PR #166 (`t5-completion-wave`) está ABERTO** aguardando merge — fecha os últimos achados
-> adversariais (fix crítico de DSN no checkpoint, correções de workers ANS/nip/cred, DL-0033/DL-0034
-> construídos, descope do L2 ratificado via ADR-0034, footgun de deploy do fhir-sync corrigido) e já
-> passou pela mesma verificação zero-trust (R1/R2 independente) das demais linhas do ledger.
+> checkpoint, pytest 9. **PR #165 (`t4-platform-completion`) e PR #166 (`t5-completion-wave`) estão
+> ambos MERGEADOS em `main` (tip: `0ecacbb`).** O #166 fechou os últimos achados adversariais — fix
+> crítico de DSN no checkpoint (`normalize_dsn`), correções de workers ANS/nip/cred (o failsafe de
+> âncora do NIP está **provado em engine real**: o strict-xfail de `test_sp_op_nip_001` foi removido
+> com prova live em CI — finding-5 fechado end-to-end), DL-0033/DL-0034 construídos, descope do L2
+> ratificado via ADR-0034, footgun de deploy do fhir-sync corrigido — tudo com a mesma verificação
+> zero-trust (R1/R2 independente) das demais linhas do ledger.
 >
 > Fonte de verdade viva, mais granular que este documento:
 > [`docs/evidence-ledger.md`](evidence-ledger.md) (toda linha "verified" carrega reprodução
-> independente) + [`docs/decisions-log.md`](decisions-log.md) (DLs) + [`docs/adr/`](adr/) (33 ADRs em
-> `main`; 34ª — ADR-0034, descope L2 — chega com o merge do PR #166).
+> independente) + [`docs/decisions-log.md`](decisions-log.md) (DLs) + [`docs/adr/`](adr/) (34 ADRs).
 > O relatório histórico de 2026-06-14 segue válido só para o arco #65–#88:
 > [`docs/reports/autonomous-completion-report.md`](reports/autonomous-completion-report.md).
 >
@@ -83,13 +84,13 @@ camada de aplicação (auditoria, A2A, checkpoint, bridge, kafka producer).
 >    `--set migrations.enabled=false`, `kubectl wait --for=condition=Ready
 >    externalsecret/aurora-master-credentials`, e só então o release completo. O `cd.yml` e o
 >    runbook §3 já fazem isso; um `helm install` manual precisa seguir a mesma ordem.
-> 5. **(T4, já em `main`@9cc8aaa) Essa mesma `database_url` agora também alimenta a persistência
->    durável de checkpoint langgraph** (`AsyncPostgresSaver`, prod fail-closed — ver Apêndice) — **mas
->    hoje, só em `main`, isso está QUEBRADO para o formato real do DSN de produção**: o ESO entrega
->    `postgresql+asyncpg://` e o psycopg do checkpointer não parseia o `+asyncpg`, então
->    `checkpointer_ready` fica `false` em TODO boot de produção (`/readyz` vermelho) até o fix
->    (`normalize_dsn`, seam compartilhado com o audit-sink) mergear via **PR #166** (ainda aberto).
->    Nenhuma ação humana além de garantir que #166 mergeie antes de subir checkpoint em prod real.
+> 5. **(T4/T4b, em `main`) Essa mesma `database_url` agora também alimenta a persistência durável
+>    de checkpoint langgraph** (`AsyncPostgresSaver`, prod fail-closed — ver Apêndice). O formato
+>    real do DSN de produção (`postgresql+asyncpg://`, que o psycopg do checkpointer não parseia)
+>    quebrava TODO boot de produção — **corrigido em `main` (PR #166, `0ecacbb`)** via
+>    `normalize_dsn` no seam compartilhado com o audit-sink
+>    (`runtime/checkpoint.py:151-153` → `gateway/audit_postgres.py:100`). Nenhuma ação humana aqui,
+>    só verificar que o pod sobe com `checkpointer_ready=true` em `/readyz`.
 
 Comando-modelo (substituir `<…>`):
 ```bash
@@ -142,38 +143,40 @@ implicava (o consumer nunca foi escrito).
 |---|---|---|
 | **Endpoint PHI BR-resident** | Mecanismo **não é mais** `BR_INFERENCE_ENDPOINT`/`config/inference_routing.yaml` (esse arquivo/env não existem no v2). Hoje: `MAEZO_INFERENCE_PROVIDER` seleciona o provider (`runtime/inference.py:118`, default `"noop"`); chamadas com `phi_capable=True` só funcionam com `PhiZoneMockProvider` (`:295`/`:311`) ou levantam `PhiZoneRoutingError` (`:88`) — **continua fail-closed em substância**, só a citação de env/arquivo estava obsoleta. Falta o **contrato DPA** (§3.1) para existir um provider real. | #2 |
 | **CIB Seven/HAPI in-cluster** | Sem mudanças, confirmado ainda preciso: `--set cibSeven.inCluster.enabled=true` + `fhir.inCluster.enabled=true` (`values.yaml:434`/`:467`, default `false` → usa URL externa; manifests StatefulSet reais e não-triviais, ADR-0021). | #14 |
-| **Anexos episódicos S3 / Tasy Oracle / Avro** | **Reframe crítico — footgun ATIVO em `main` agora.** O Helm aponta o deployment fhir-sync para `python -m maezo.platform.integrations.fhir_sync` (`deployment-fhir-sync.yaml:39`) — **esse módulo não existe**; `src/maezo/platform/integrations/` só tem `notifications_bridge.py` + `events_kafka_producer.py`. **Em `main`@9cc8aaa, `values.yaml:178` ainda tem `fhirSync.enabled: true` por default** — um `helm install`/`upgrade` real, hoje, crash-loopa em `ModuleNotFoundError`. O fix (default → `false`, 3 overlays) está pronto e verificado em **PR #166 (aberto, não mergeado)** — **priorizar esse merge antes de qualquer deploy de chart novo.** Construir o consumer real (S3/`boto3`, driver Oracle, Avro/Schema Registry) continua sendo trabalho de escopo grande, gated em contrato Tasy — **não é mais "só setar env vars"**. | #20/#25/#33 |
+| **Anexos episódicos S3 / Tasy Oracle / Avro** | **Reframe crítico.** O Helm aponta o deployment fhir-sync para `python -m maezo.platform.integrations.fhir_sync` (`deployment-fhir-sync.yaml`) — **esse módulo não existe**; `src/maezo/platform/integrations/` só tem `notifications_bridge.py` + `events_kafka_producer.py`. O footgun operacional (default `fhirSync.enabled: true`, que crash-loopava qualquer deploy real em `ModuleNotFoundError`) foi **corrigido em `main` (PR #166, `0ecacbb`)** — default agora `false` em `values.yaml` + 3 overlays, opt-in intacto. Construir o consumer real (S3/`boto3`, driver Oracle, Avro/Schema Registry) continua sendo trabalho de escopo grande, gated em contrato Tasy — **não é mais "só setar env vars"**. | #20/#25/#33 |
 | **Token-metering / custo USD do LLM** | `_COST_PER_1K_TOKENS_USD` **não existe em lugar nenhum** do código, e a premissa de que "os tokens já são emitidos reais" é falsa: `AnthropicInferenceProvider.generate()` (`runtime/inference.py:242-278`) nunca lê `response.usage`. Antes de preencher qualquer tabela de preço é preciso **construir o próprio metering de tokens** — escopo maior que o item original sugeria. | #29 |
-| **L2 ReviewQueue + sample_rate** | 🔧 **Resolvido por decisão arquitetural — ratificação formal em PR #166 (aberto, ainda não em `main`).** `ADR-0034` ratifica o descope, mas o **fato de código subjacente já é verdade em `main`@9cc8aaa hoje**: o `PEP.evaluate` do v2 tem **zero chamadores em runtime** (só usado como probe de `/readyz`; `gateway/pep.py:412`, confirmado por grep exaustivo) — não existe chokepoint por-tool-call para uma amostra L2 disparar, com ou sem a ADR mergeada. A garantia HITL é estrutural (BPMN no-denial 5 partes + DMN + tetos fail-closed + cadeia de auditoria, ADR-0018), não um PEP async com sampling como no donor v1. Pré-condição de revisita registrada na própria ADR (só reabre se um chokepoint PEP por-tool-call for introduzido). Remover definitivamente do pending assim que #166 mergear. | #24 |
+| **L2 ReviewQueue + sample_rate** | ✅ **RESOLVIDO por decisão arquitetural — removido do pending.** `ADR-0034` (Accepted, em `main` via PR #166) ratifica o descope: o `PEP.evaluate` do v2 tem **zero chamadores em runtime** (só usado como probe de `/readyz`; `gateway/pep.py:412`, confirmado por grep exaustivo) — não existe chokepoint por-tool-call para uma amostra L2 disparar. A garantia HITL é estrutural (BPMN no-denial 5 partes + DMN + tetos fail-closed + cadeia de auditoria, ADR-0018), não um PEP async com sampling como no donor v1. Pré-condição de revisita registrada na própria ADR (só reabre se um chokepoint PEP por-tool-call for introduzido). | #24 → ADR-0034 |
 | **CronJob `verify-erasure`** | **Reframe crítico — a premissa "só alimentar o segredo" está errada.** Ver §3.2: o próprio entrypoint do CronJob recusa incondicionalmente (exit 78) e `ErasureManager` levanta `ErasureNotImplementedError` por design (T3.4-F3) — nada aqui liga com o conteúdo do segredo `ERASED_PATIENT_IDS`. Bloqueado em ratificação DPO da matriz de retenção, não em dado operacional. | #5 |
 | **`PopulationFeatureClient` (André)** | Sem mudanças: `andre/graph.py:555` `population: PopulationFeatureClient \| None = None`, docstring confirma "PORT-PENDING (WB.4, mcp-datalake) — population=None is a supported configuration". | — |
 | **Ingress + TLS** | Sem mudanças: `ingress.enabled=true` + `certificateArn` (`values.yaml:204`). | — |
 
 **🔧 Novos itens agent-buildable-mas-decision-gated (não construídos, mas o código-alvo é pequeno assim que a decisão vier):**
-- **Webhook-receiver sem `DATABASE_URL`/`AGENT_RUNTIME_MODE` (gap em 2 camadas).** Em `main`@9cc8aaa
-  o grafo de dispatch da Helena/WhatsApp (`platform/webhooks/whatsapp/dispatch.py:123`) **não tem
-  checkpointer nenhum** (comentário explícito no código: "No checkpointer is [wired]" — out of scope
-  em T4). **PR #166 (aberto)** adiciona esse checkpointer (t4b: mesmo padrão fail-closed do
-  agent-runtime + thread-id PHI-safe hasheado) — mas **mesmo pós-merge** o deployment
+- **Webhook-receiver sem `DATABASE_URL`/`AGENT_RUNTIME_MODE`.** O checkpointer durável do grafo de
+  dispatch da Helena/WhatsApp está **em `main`** (t4b via PR #166:
+  `platform/webhooks/whatsapp/dispatch.py` compila checkpoint-enabled, mesmo padrão fail-closed do
+  agent-runtime + thread-id PHI-safe hasheado `wa:{tenant}:{phone_hash}`) — **mas o Helm não o
+  alimenta**: o deployment
   `deployment-webhook-receiver.yaml` (hoje só declara `TENANT_ID`/`WHATSAPP_*`/`KAFKA_BOOTSTRAP_SERVERS`)
-  não passa `DATABASE_URL` nem `AGENT_RUNTIME_MODE` — o checkpointer ficará **inerte em produção**
+  não passa `DATABASE_URL` nem `AGENT_RUNTIME_MODE` — o checkpointer fica **inerte em produção**
   até esse deployment ser religado com as mesmas env vars do `deployment-agent-runtime.yaml`. PR
   mecânico pequeno, deliberadamente fora do escopo do #166 — aguardando priorização.
 - **DL-0033 (dossiês A2A Carolina/André).** Os 3 workers de dossiê sem função implementadora
   (`operadora.cred.prepare_dossier`, `operadora.pagto.prepare_approval_dossier`,
   `operadora.adequacao.prepare_remediation_dossier`) ganharam stubs locais neutros (espelhando
-  `programa.enroll_beneficiario`, sem `DelegationDispatcher`) em **PR #166 (aberto)**. A integração
-  A2A real até Carolina/André segue **deliberadamente deferida** a uma tarefa futura de wiring
-  completo — não é urgente, só um follow-up sinalizado (não confundir com o marco histórico M5 já
-  concluído; o brief do orquestrador reusa o rótulo para essa tarefa futura).
+  `programa.enroll_beneficiario`, sem `DelegationDispatcher`) — **construídos, em `main` (PR #166;
+  DL-0033 ACEITO)**. A integração A2A real até Carolina/André segue **deliberadamente deferida** a
+  uma tarefa futura de wiring completo — não é urgente, só um follow-up sinalizado (não confundir
+  com o marco histórico M5 já concluído; o brief do orquestrador reusa o rótulo para essa tarefa
+  futura).
 - **`ERR_ESC_NOTIFY_FAILED` (Tier-1, boundary de fallback de escalation).** Os workers
   `notify_team`/`notify_supervisor` (`tools/workers/escalation.py`) foram convertidos para handlers
-  Kafka assíncronos reais nesta leva (DL-0034, PR #166) — a notificação agora **acontece de fato**.
-  O que falta é o `raise` do `ERR_ESC_NOTIFY_FAILED` que dispara os boundaries de fallback
-  `BE_FalhaNotificacao`/`BE_NotifFallbackFailed` quando o publish falha; os dois xfails
-  correspondentes (`tests/integration/processes/test_sp_op_escalation_001.py:469` e `:491`) seguem
-  `strict=True`. Está classificado como ADR-0030 Tier-1, co-agendado com o gap sistêmico de
-  producer Kafka por-worker (não o `events.publish` genérico, já corrigido em T4).
+  Kafka assíncronos reais — **em `main` (DL-0034 ACEITO, PR #166)** — a notificação agora
+  **acontece de fato** (provado live). O que falta é o `raise` do `ERR_ESC_NOTIFY_FAILED` que
+  dispara os boundaries de fallback `BE_FalhaNotificacao`/`BE_NotifFallbackFailed` quando o publish
+  falha; os dois xfails correspondentes
+  (`tests/integration/processes/test_sp_op_escalation_001.py:465` e `:487`) seguem `strict=True`.
+  Está classificado como ADR-0030 Tier-1, co-agendado com o gap sistêmico de producer Kafka
+  por-worker (não o `events.publish` genérico, já corrigido em T4).
 - **DMN DUT×4 + `carencia_check`** — ver §1.6 e §2.1 (gated em sign-off médico-auditor, não em código).
 
 ### 1.5 🔴 Revisão de código pré-lançamento (lista `review-before-launch` — DESATUALIZADA, precisa de extensão)
@@ -187,7 +190,7 @@ trabalho agent-buildable, a revisão em si é humana):
 - **#157** (bridge EB-3/EB-4: CONTAS→RECURSO→FRAUDE ao vivo).
 - **#159** (T3.4 remediação: honestidade de erasure, A2A fail-closed, schema de checkpoint, PHI redaction backstop).
 - **#165** (T4: persistência de checkpoint em prod, bridge armado + CONTAS→FRAUDE Phase-3, kafka producer, pytest 9).
-- **#166** (T5, ainda aberto: fix crítico de DSN de checkpoint, correções de workers, DL-0033/0034, descope L2).
+- **#166** (T5: fix crítico de DSN de checkpoint, correções de workers ANS/nip/cred, DL-0033/0034, descope L2 — mergeado, `0ecacbb`).
 
 Lista original (#65–#88), ainda válida: #67 (egress), #68 (TLS prod), #69 (allowlist), #72 (PHI/LGPD
 + cadeia de auditoria), #73 (credencial), #76 (assinatura de card), #77 (BR-region), #78
@@ -336,7 +339,7 @@ de lançamento é humana, ADR-0018/§6.2).
 
 | Var | Significado | Fonte em prod |
 |---|---|---|
-| `DATABASE_URL` | Aurora (estado/memória/auditoria **e, desde T4 em `main`@9cc8aaa, persistência durável de checkpoint langgraph** via `AsyncPostgresSaver` para o agent-runtime) | ExternalSecret `aurora/master-user-secret`. Fail-closed em prod: `AGENT_RUNTIME_MODE != local` + DSN ausente/`setup()` falhando ⇒ `checkpointer_ready=false`, sem fallback silencioso em memória. **Bug conhecido em `main`:** o DSN real do ESO vem como `postgresql+asyncpg://`, que o psycopg do checkpointer não parseia — todo boot de prod falha fechado até o fix (`normalize_dsn`) mergear via **PR #166** (aberto). #166 também adiciona checkpointer ao webhook da Helena/WhatsApp (`dispatch.py`, hoje **sem** checkpointer nenhum — "out of scope" em T4) — mas mesmo pós-merge o deployment `webhook-receiver` ainda não recebe `DATABASE_URL`/`AGENT_RUNTIME_MODE` (ver §1.4), então ficará inerte até esse Helm gap fechar. |
+| `DATABASE_URL` | Aurora (estado/memória/auditoria **e, desde T4/T4b, persistência durável de checkpoint langgraph** via `AsyncPostgresSaver` — agent-runtime E webhook da Helena/WhatsApp) | ExternalSecret `aurora/master-user-secret`. Fail-closed em prod: `AGENT_RUNTIME_MODE != local` + DSN ausente/`setup()` falhando ⇒ `checkpointer_ready=false`, sem fallback silencioso em memória. O DSN `postgresql+asyncpg://` do ESO, que o psycopg não parseava (quebrava todo boot de prod), está **corrigido** (`normalize_dsn`, PR #166, `0ecacbb`). **Gap remanescente:** o deployment `webhook-receiver` ainda não recebe `DATABASE_URL`/`AGENT_RUNTIME_MODE` (ver §1.4) — o checkpointer do webhook fica inerte até esse Helm gap fechar. |
 | `AGENT_RUNTIME_MODE` | Seleciona modo prod vs local (gate fail-closed de checkpoint, A2A card-signing, etc.) | `production` nos deployments reais |
 | `MAEZO_INFERENCE_PROVIDER` | Seleciona o provider de inferência (Geral/PHI); substitui o antigo `BR_INFERENCE_ENDPOINT` | contrato + ExternalSecret (§3.1) |
 | `CIBSEVEN_BASE_URL` / `FHIR_BASE_URL` | engine + FHIR | URL externa ou StatefulSet in-cluster (gated) |
@@ -351,6 +354,7 @@ de lançamento é humana, ADR-0018/§6.2).
 
 ---
 
-_Última atualização: 2026-07-26 (reconciliação de ground-truth pós-T5; base `main`@`9cc8aaa` +
-PR #166 aberto). Fonte primária de evidência: `docs/evidence-ledger.md`, `docs/decisions-log.md`,
-`docs/adr/`. Para o histórico #65–#88, ver `docs/reports/autonomous-completion-report.md` §6._
+_Última atualização: 2026-07-26 (reconciliação de ground-truth pós-T5; base `main`@`0ecacbb`,
+PRs #165 e #166 mergeados). Fonte primária de evidência: `docs/evidence-ledger.md`,
+`docs/decisions-log.md`, `docs/adr/`. Para o histórico #65–#88, ver
+`docs/reports/autonomous-completion-report.md` §6._
