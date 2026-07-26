@@ -19,6 +19,29 @@ from maezo.tools.workers.programa import (
     stratify_risk,
 )
 
+# T3.1 (mirrors lgpd.py's ADR-0031 `identidade_verificada` fail-closed matrix): the consent
+# chokepoint (`consentimento_ativo`/`consent_checked`) is pinned to the explicit boolean `True` —
+# NOT bare truthiness. Absent / False / None / any truthy junk (string incl. whitespace-only, int,
+# list, dict) must NEVER be read as active/verified consent — this chokepoint "gates ALL PHI
+# processing" (module docstring; contract SP-OP-PROGRAMA-001.md:15). Shared vectors reused across
+# check_consent's and stratify_risk's own parametrized fail-closed tests below.
+_CONSENT_NON_TRUE_VECTORS: list[dict[str, object]] = [
+    {"consentimento_ativo": False},  # explicit False (consent_checked left True)
+    {"consentimento_ativo": None},  # explicit None
+    {"consentimento_ativo": "true"},  # garbage: truthy string, not the bool True
+    {"consentimento_ativo": " "},  # garbage: whitespace-only truthy string
+    {"consentimento_ativo": 1},  # garbage: truthy int, not the bool True
+    {"consentimento_ativo": [1]},  # garbage: truthy list, not the bool True
+    {"consentimento_ativo": {"ok": True}},  # garbage: truthy dict, not the bool True
+    {"consent_checked": False},  # explicit False (consentimento_ativo left True)
+    {"consent_checked": None},  # explicit None
+    {"consent_checked": "true"},  # garbage: truthy string, not the bool True
+    {"consent_checked": " "},  # garbage: whitespace-only truthy string
+    {"consent_checked": 1},  # garbage: truthy int, not the bool True
+    {"consent_checked": [1]},  # garbage: truthy list, not the bool True
+    {"consent_checked": {"ok": True}},  # garbage: truthy dict, not the bool True
+]
+
 # ---------------------------------------------------------------
 # check_consent — CHOKEPOINT
 # ---------------------------------------------------------------
@@ -75,6 +98,27 @@ def test_programa_consent_gate_blocks_not_checked() -> None:
     assert excinfo.value.code == ERR_PROGRAMA_NO_CONSENT
 
 
+@pytest.mark.parametrize("vars_extra", _CONSENT_NON_TRUE_VECTORS)
+def test_programa_consent_gate_fail_closed_rejects_non_true_signal(
+    vars_extra: dict[str, object],
+) -> None:
+    """FAIL-CLOSED (T3.1): the chokepoint only accepts the literal `is True` for each consent flag.
+
+    False/None/truthy-junk (string incl. whitespace-only, int, list, dict) on EITHER flag must
+    NEVER be read as active/verified consent — closes the fail-OPEN class this change fixes.
+    """
+    variables: dict[str, object] = {
+        "consentimento_ativo": True,
+        "consent_checked": True,
+        "consent_scope": "programa_cuidado",
+        **vars_extra,
+    }
+
+    with pytest.raises(ProgramaError) as excinfo:
+        check_consent(variables)
+    assert excinfo.value.code == ERR_PROGRAMA_NO_CONSENT
+
+
 # ---------------------------------------------------------------
 # stratify_risk — in-zone risk-band delegation stub (care.stratify — Valentina A2A)
 # ---------------------------------------------------------------
@@ -120,6 +164,15 @@ def test_stratify_risk_refuses_without_active_consent() -> None:
 def test_stratify_risk_refuses_without_consent_checked() -> None:
     with pytest.raises(ProgramaError) as excinfo:
         stratify_risk(_consented_variables(consent_checked=False))
+    assert excinfo.value.code == ERR_PROGRAMA_NO_CONSENT
+
+
+@pytest.mark.parametrize("vars_extra", _CONSENT_NON_TRUE_VECTORS)
+def test_stratify_risk_fail_closed_rejects_non_true_signal(vars_extra: dict[str, object]) -> None:
+    """FAIL-CLOSED (T3.1): this defense-in-depth guard only accepts the literal `is True` for each
+    consent flag — same invariant/vectors as check_consent's own parametrized fail-closed test."""
+    with pytest.raises(ProgramaError) as excinfo:
+        stratify_risk(_consented_variables(**vars_extra))
     assert excinfo.value.code == ERR_PROGRAMA_NO_CONSENT
 
 
@@ -229,6 +282,111 @@ def test_programa_register_discharge_alias() -> None:
         }
     )
     assert result["desligamento_clinico_registrado"] is True
+
+
+# ---------------------------------------------------------------
+# register_program_discharge — whitespace-bypass vectors (t3.1-guard-input-hardening,
+# same class as the c1377fa fix for pagto.register_payment_refusal: bare `if not field:`
+# let WHITESPACE-ONLY decision + accountability fields through. L0-HARD CLINICAL decision
+# (ADR-0005/0008): a discharge NEVER registers without a genuine human clinician behind it.
+# Every vector below MUST refuse with ERR_PROGRAM_DISCHARGE_NOT_HUMAN — whitespace-only is
+# the SAME as absent (ADR-0007).
+# ---------------------------------------------------------------
+
+_WHITESPACE_VARIANTS = [" ", "   ", "\t", "\n", "\t\n ", "\r\n"]
+_NON_STRING_VARIANTS: list[object] = [123, True, 0.5, ["x"], {"k": "v"}]
+_DISCHARGE_ACCOUNTABILITY_FIELDS = [
+    "motivo_desligamento_clinico",
+    "referencia_clinica",
+    "responsavel_clinico_id",
+]
+
+
+def _discharge_baseline(**overrides: object) -> dict[str, object]:
+    """Happy-path baseline for register_program_discharge -- any guard failure observed in a
+    test is attributable ONLY to the field under test."""
+    base: dict[str, object] = {
+        "decisao_programa": "DESLIGAR_CLINICO",
+        "motivo_desligamento_clinico": "Alta apos conclusao do ciclo terapeutico",
+        "referencia_clinica": "Protocolo HCPA 2023",
+        "responsavel_clinico_id": "med-001",
+        "beneficiario_pseudo_id": "b-001",
+    }
+    base.update(overrides)
+    return base
+
+
+@pytest.mark.parametrize("field", _DISCHARGE_ACCOUNTABILITY_FIELDS)
+@pytest.mark.parametrize("whitespace", _WHITESPACE_VARIANTS)
+def test_discharge_whitespace_only_accountability_field_refuses(field: str, whitespace: str) -> None:
+    """Bare-truthiness bypass (pre-fix): whitespace-only accountability field must refuse and
+    be named in the guard's error message."""
+    with pytest.raises(ProgramaError) as excinfo:
+        register_program_discharge(_discharge_baseline(**{field: whitespace}))
+    assert excinfo.value.code == ERR_PROGRAM_DISCHARGE_NOT_HUMAN
+    assert field in excinfo.value.message
+
+
+@pytest.mark.parametrize("field", _DISCHARGE_ACCOUNTABILITY_FIELDS)
+@pytest.mark.parametrize("non_string", _NON_STRING_VARIANTS)
+def test_discharge_non_string_accountability_field_refuses(field: str, non_string: object) -> None:
+    """A NON-string accountability field normalizes to '' and refuses -- the pre-fix bare
+    truthiness check would have silently PASSED a truthy non-string (e.g. 123), registering
+    an L0-hard clinical discharge with a non-identifying clinician."""
+    with pytest.raises(ProgramaError) as excinfo:
+        register_program_discharge(_discharge_baseline(**{field: non_string}))
+    assert excinfo.value.code == ERR_PROGRAM_DISCHARGE_NOT_HUMAN
+    assert field in excinfo.value.message
+
+
+@pytest.mark.parametrize("whitespace", _WHITESPACE_VARIANTS)
+def test_discharge_both_motivo_and_responsavel_whitespace_refuses(whitespace: str) -> None:
+    """Both motivo_desligamento_clinico AND responsavel_clinico_id whitespace-only -- both
+    named in the guard's error message."""
+    with pytest.raises(ProgramaError) as excinfo:
+        register_program_discharge(
+            _discharge_baseline(motivo_desligamento_clinico=whitespace, responsavel_clinico_id=whitespace)
+        )
+    assert excinfo.value.code == ERR_PROGRAM_DISCHARGE_NOT_HUMAN
+    assert "motivo_desligamento_clinico" in excinfo.value.message
+    assert "responsavel_clinico_id" in excinfo.value.message
+
+
+@pytest.mark.parametrize("whitespace", [" ", "\t", "\n", "  \t\n"])
+def test_discharge_whitespace_only_decisao_refuses(whitespace: str) -> None:
+    """Whitespace-only decisao_programa normalizes to '' -> != DESLIGAR_CLINICO -> refuses
+    (ST_PublishReceived default-initializes decisao_programa='' — BPMN:98-104; '' is NEVER a
+    decision value)."""
+    with pytest.raises(ProgramaError) as excinfo:
+        register_program_discharge(_discharge_baseline(decisao_programa=whitespace))
+    assert excinfo.value.code == ERR_PROGRAM_DISCHARGE_NOT_HUMAN
+    assert "decisao_programa" in excinfo.value.message
+
+
+def test_discharge_padded_valid_literal_normalizes_and_registers() -> None:
+    """Whitespace-PADDED but otherwise exact literal/fields normalize via `_norm_str` and still
+    register (pins the normalization -- NOT a bypass, the documented `.strip()` consequence)."""
+    result = register_program_discharge(
+        _discharge_baseline(
+            decisao_programa=" DESLIGAR_CLINICO ",
+            motivo_desligamento_clinico=" Alta apos conclusao do ciclo terapeutico ",
+            referencia_clinica=" Protocolo HCPA 2023 ",
+            responsavel_clinico_id=" med-001 ",
+        )
+    )
+    assert result["desligamento_clinico_registrado"] is True
+
+
+@pytest.mark.parametrize(
+    "decision",
+    ["desligar_clinico", "Desligar_Clinico", "DESLIGAR_CLINICO_X", "XDESLIGAR_CLINICO", "ENROLL "],
+)
+def test_discharge_non_exact_decisao_literal_still_refuses(decision: str) -> None:
+    """Exact-match discipline survives normalization: case variants/substrings never satisfy
+    the L0-hard clinical guard."""
+    with pytest.raises(ProgramaError) as excinfo:
+        register_program_discharge(_discharge_baseline(decisao_programa=decision))
+    assert excinfo.value.code == ERR_PROGRAM_DISCHARGE_NOT_HUMAN
 
 
 # ---------------------------------------------------------------

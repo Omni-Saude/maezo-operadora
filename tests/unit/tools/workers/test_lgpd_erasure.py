@@ -26,6 +26,22 @@ from maezo.tools.workers.lgpd import (
     ValidateIdentityWorker,
 )
 
+# T3.1 (mirrors this file's own ADR-0031 `identidade_verificada` fail-closed matrix above):
+# `human_approved` is now pinned to the explicit boolean `True` — NOT bare truthiness — in
+# execute_export/execute_rectification/execute_erasure. Absent / False / None / any truthy junk
+# (string incl. whitespace-only, int, list, dict) must NEVER be read as human approval. Shared
+# vectors reused across each worker's own parametrized fail-closed test below.
+_HUMAN_APPROVED_NON_TRUE_VECTORS: list[dict[str, object]] = [
+    {},  # human_approved absent
+    {"human_approved": False},  # explicit False
+    {"human_approved": None},  # explicit None
+    {"human_approved": "true"},  # garbage: truthy string, not the bool True
+    {"human_approved": " "},  # garbage: whitespace-only truthy string
+    {"human_approved": 1},  # garbage: truthy int, not the bool True
+    {"human_approved": [1]},  # garbage: truthy list, not the bool True
+    {"human_approved": {"ok": True}},  # garbage: truthy dict, not the bool True
+]
+
 # ---------------------------------------------------------------------------
 # validate_identity
 # ---------------------------------------------------------------------------
@@ -154,6 +170,30 @@ def test_execute_erasure_blocks_without_human_approval() -> None:
     assert result["error_code"] == ERR_DENIAL_NOT_HUMAN
 
 
+@pytest.mark.parametrize("vars_extra", _HUMAN_APPROVED_NON_TRUE_VECTORS)
+def test_execute_erasure_fail_closed_rejects_non_true_human_approved(
+    vars_extra: dict[str, object],
+) -> None:
+    """FAIL-CLOSED (T3.1): Guard 1 only accepts the literal `human_approved is True`.
+
+    Absent/False/None/truthy-junk (string incl. whitespace-only, int, list, dict) must NEVER be
+    read as human approval — closes the fail-OPEN class this change fixes.
+    """
+    worker = ExecuteErasureWorker()
+
+    result = worker.run(
+        {
+            "tenant_id": "amh",
+            "titular_pseudo_id": "pseudo-abc",
+            "decisao_dsr": "EXECUTAR_E_ENVIAR",
+            **vars_extra,
+        }
+    )
+
+    assert result["status"] == "blocked_by_guard"
+    assert result["error_code"] == ERR_DENIAL_NOT_HUMAN
+
+
 def test_execute_erasure_with_human_approval() -> None:
     """execute_erasure proceeds when human_approved flag is present."""
     worker = ExecuteErasureWorker()
@@ -250,6 +290,30 @@ def test_execute_export_guard_blocks_without_human() -> None:
     assert result["status"] == "blocked_by_guard"
 
 
+@pytest.mark.parametrize("vars_extra", _HUMAN_APPROVED_NON_TRUE_VECTORS)
+def test_execute_export_fail_closed_rejects_non_true_human_approved(
+    vars_extra: dict[str, object],
+) -> None:
+    """FAIL-CLOSED (T3.1): execute_export only accepts the literal `human_approved is True`.
+
+    Absent/False/None/truthy-junk (string incl. whitespace-only, int, list, dict) must NEVER be
+    read as human approval — closes the fail-OPEN class this change fixes.
+    """
+    worker = ExecuteExportWorker()
+
+    result = worker.run(
+        {
+            "tenant_id": "amh",
+            "titular_pseudo_id": "pseudo-abc",
+            "decisao_dsr": "APROVAR_ENVIO",
+            **vars_extra,
+        }
+    )
+
+    assert result["status"] == "blocked_by_guard"
+    assert result["error_code"] == ERR_DENIAL_NOT_HUMAN
+
+
 # ---------------------------------------------------------------------------
 # execute_rectification
 # ---------------------------------------------------------------------------
@@ -276,6 +340,47 @@ def test_execute_rectification_applies_correction() -> None:
 
     assert result["status"] == "rectification_completed"
     assert result["data_type"] == "rectification"
+
+
+def test_execute_rectification_guard_blocks_without_human() -> None:
+    """execute_rectification must block without human approval (DPO/juridico)."""
+    worker = ExecuteRectificationWorker()
+
+    result = worker.run(
+        {
+            "tenant_id": "amh",
+            "titular_pseudo_id": "pseudo-abc",
+            "decisao_dsr": "EXECUTAR_E_ENVIAR",
+            # no human_approved
+        }
+    )
+
+    assert result["status"] == "blocked_by_guard"
+    assert result["error_code"] == ERR_DENIAL_NOT_HUMAN
+
+
+@pytest.mark.parametrize("vars_extra", _HUMAN_APPROVED_NON_TRUE_VECTORS)
+def test_execute_rectification_fail_closed_rejects_non_true_human_approved(
+    vars_extra: dict[str, object],
+) -> None:
+    """FAIL-CLOSED (T3.1): execute_rectification only accepts the literal `human_approved is True`.
+
+    Absent/False/None/truthy-junk (string incl. whitespace-only, int, list, dict) must NEVER be
+    read as human approval — closes the fail-OPEN class this change fixes.
+    """
+    worker = ExecuteRectificationWorker()
+
+    result = worker.run(
+        {
+            "tenant_id": "amh",
+            "titular_pseudo_id": "pseudo-abc",
+            "decisao_dsr": "EXECUTAR_E_ENVIAR",
+            **vars_extra,
+        }
+    )
+
+    assert result["status"] == "blocked_by_guard"
+    assert result["error_code"] == ERR_DENIAL_NOT_HUMAN
 
 
 # ---------------------------------------------------------------------------

@@ -35,6 +35,22 @@ _COMPLETE_DENIAL_FUNDAMENTACAO = {
     "fundamentacao_dut": "DUT item 3.1 — exclusao sintetica para teste",
 }
 
+# T3.1 (mirrors ADR-0031's `identidade_verificada` fail-closed matrix, test_lgpd_erasure.py):
+# `human_approved` is now pinned to the explicit boolean `True` — NOT bare truthiness. Absent /
+# False / None / any truthy junk (string incl. whitespace-only, int, list, dict) must NEVER be
+# read as human approval. Shared vectors reused across issue_authorization / send_denial_notice /
+# convene_junta's own parametrized fail-closed tests below.
+_HUMAN_APPROVED_NON_TRUE_VECTORS: list[dict[str, object]] = [
+    {},  # human_approved absent
+    {"human_approved": False},  # explicit False
+    {"human_approved": None},  # explicit None
+    {"human_approved": "true"},  # garbage: truthy string, not the bool True
+    {"human_approved": " "},  # garbage: whitespace-only truthy string
+    {"human_approved": 1},  # garbage: truthy int, not the bool True
+    {"human_approved": [1]},  # garbage: truthy list, not the bool True
+    {"human_approved": {"ok": True}},  # garbage: truthy dict, not the bool True
+]
+
 # Synthetic-core helper — pins the AUTH ceiling in isolation (mirrors test_ceilings) so these
 # tests do not depend on the D-07 value (max_value_brl=0) in the real spec matrix.
 _HARD_BLOCK = """\
@@ -138,6 +154,31 @@ def test_send_denial_notice_guard_activates_on_denial() -> None:
     )
     assert result["status"] == "notice_sent"
     assert result["error_code"] is None
+
+
+@pytest.mark.parametrize("vars_extra", _HUMAN_APPROVED_NON_TRUE_VECTORS)
+def test_send_denial_notice_fail_closed_rejects_non_true_human_approved(
+    vars_extra: dict[str, object],
+) -> None:
+    """FAIL-CLOSED (T3.1): GUARD 2 only accepts the literal `human_approved is True`.
+
+    Dossier is COMPLETE so the T3.1 completeness guard passes and this exercises the human_approved
+    guard specifically. Absent/False/None/truthy-junk (string incl. whitespace-only, int, list,
+    dict) must NEVER be read as human approval — closes the fail-OPEN class this change fixes.
+    """
+    worker = SendDenialNoticeWorker()
+
+    result = worker.run(
+        {
+            "tenant_id": "amh",
+            "decisao_auditor": "NEGAR",
+            **_COMPLETE_DENIAL_FUNDAMENTACAO,
+            **vars_extra,
+        }
+    )
+
+    assert result["status"] == "blocked_by_guard"
+    assert result["error_code"] == ERR_DENIAL_NOT_HUMAN
 
 
 # ---------------------------------------------------------------------------
@@ -598,6 +639,30 @@ def test_issue_authorization_only_with_human_approval() -> None:
     assert result["error_code"] == ERR_DENIAL_NOT_HUMAN
 
 
+@pytest.mark.parametrize("vars_extra", _HUMAN_APPROVED_NON_TRUE_VECTORS)
+def test_issue_authorization_fail_closed_rejects_non_true_human_approved(
+    vars_extra: dict[str, object],
+) -> None:
+    """FAIL-CLOSED (T3.1): issue_authorization only accepts the literal `human_approved is True`.
+
+    Absent/False/None/truthy-junk (string incl. whitespace-only, int, list, dict) must NEVER be
+    read as human approval — closes the fail-OPEN class this change fixes.
+    """
+    worker = IssueAuthorizationWorker()
+
+    result = worker.run(
+        {
+            "tenant_id": "amh",
+            "numero_guia_tiss": "G12345",
+            "decisao_auditor": "APROVAR",
+            **vars_extra,
+        }
+    )
+
+    assert result["status"] == "blocked_by_guard"
+    assert result["error_code"] == ERR_DENIAL_NOT_HUMAN
+
+
 # ---------------------------------------------------------------------------
 # notify_sla_risk
 # ---------------------------------------------------------------------------
@@ -663,6 +728,30 @@ def test_convene_junta_guard_blocks_without_human() -> None:
             "decisao_auditor": "JUNTA_MEDICA",
             # no human_approved
             "numero_guia_tiss": "G12345",
+        }
+    )
+
+    assert result["status"] == "blocked_by_guard"
+    assert result["error_code"] == ERR_DENIAL_NOT_HUMAN
+
+
+@pytest.mark.parametrize("vars_extra", _HUMAN_APPROVED_NON_TRUE_VECTORS)
+def test_convene_junta_fail_closed_rejects_non_true_human_approved(
+    vars_extra: dict[str, object],
+) -> None:
+    """FAIL-CLOSED (T3.1): convene_junta only accepts the literal `human_approved is True`.
+
+    Absent/False/None/truthy-junk (string incl. whitespace-only, int, list, dict) must NEVER be
+    read as human approval — closes the fail-OPEN class this change fixes.
+    """
+    worker = ConveneJuntaWorker()
+
+    result = worker.run(
+        {
+            "tenant_id": "amh",
+            "decisao_auditor": "JUNTA_MEDICA",
+            "numero_guia_tiss": "G12345",
+            **vars_extra,
         }
     )
 

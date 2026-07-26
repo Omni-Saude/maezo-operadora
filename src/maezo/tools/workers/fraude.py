@@ -471,6 +471,42 @@ def seal_custody_bundle(variables: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------
 
 
+def _norm_str(value: Any) -> str:
+    """Normalize an engine variable to a stripped string for guard checks — FAIL-CLOSED.
+
+    Mirrors `pagto._norm_str`/`pagto.register_payment_refusal`'s fix (t2.5-p2b-round2, then
+    t3.1-guard-input-hardening for `pagto.release_high_value_payment` and
+    `adequacao.register_fallback_commitment`): the pre-fix bare `if not investigator_id` /
+    `if not tier` / ... checks let WHITESPACE-ONLY decision + accountability fields pass Guard 1
+    — on an L0-hard, adjacent-to-the-L0-invariant fraud accusation ("fraud accusation NEVER
+    without a genuine human decision"), a whitespace-only `investigator_id` would defeat
+    ADR-0007's audit-chain identification and a whitespace-only `fundamentacao_investigacao`/
+    `referencia_normativa` would record an accusation with no real justification. Closes that
+    class:
+    - a `str` normalizes to `value.strip()` — whitespace-only ("   ", "\\t", "\\n", ...)
+      becomes "" and is treated EXACTLY like an absent field (refusal, never registration);
+    - a NON-string (None, int, bool, list, dict — engine variables arrive untyped) normalizes
+      to "" (fail-closed refusal), never a truthy pass-through and never an AttributeError
+      incident from calling `.strip()` on a non-string.
+
+    Scope: applies to the scalar string decision/accountability fields of Guard 1
+    (`decisao_fraude`, `investigator_id`, `tier`, `fundamentacao_investigacao`,
+    `referencia_normativa`). `indicadores_fundamentantes` additionally receives ELEMENT-level
+    normalization inside `register_fraud_accusation` (each element through this same
+    str-or-"" rule; empty-after-strip elements dropped) because the contract defines its
+    elements as accountability-bearing evidence citations (SP-OP-FRAUDE-001.md:91 — "quais
+    indicadores do dossie sustentam a acusacao (citacao de evidencia, ADR-0007
+    `decision_basis`)"): a list of whitespace-only "citations" names no indicator and must
+    refuse exactly like an empty list. `destino_referral` stays isinstance+len guarded (a dict
+    of referral flags, not free-text accountability) and `bundle_root` stays fail-closed via
+    `CustodyBundle.verify_bundle`'s cryptographic equality check (Guard 2, a DIFFERENT error
+    class, ERR_CUSTODY_NOT_SEALED) — Guard 2's structure is deliberately left untouched.
+    """
+    if isinstance(value, str):
+        return value.strip()
+    return ""
+
+
 def register_fraud_accusation(variables: dict[str, Any]) -> dict[str, Any]:
     """Register a fraud accusation — L0-hard, NEVER automatic.
 
@@ -481,13 +517,44 @@ def register_fraud_accusation(variables: dict[str, Any]) -> dict[str, Any]:
       - fundamentacao, indicadores_fundamentantes, referencia_normativa
       - destino_referral present
       - bundle_root sealed and verifiable
+
+    NORMALIZATION (t3.1-guard-input-hardening, closing the bare-truthiness gap noted in the
+    #133 audit — fraude.py:503,505,507,511 pre-fix; L0-ADJACENT — the L0 invariant is that a
+    fraud accusation NEVER registers without a genuine human decision behind it): the Guard-1
+    scalar string fields `decisao_fraude`, `investigator_id`, `tier`,
+    `fundamentacao_investigacao` and `referencia_normativa` are normalized via `_norm_str` (strip;
+    non-string -> "") BEFORE any guard check, mirroring `pagto.register_payment_refusal`'s fix.
+    Consequences, all fail-closed:
+    - whitespace-only `investigator_id`/`tier`/`fundamentacao_investigacao`/
+      `referencia_normativa` REFUSES exactly like an absent field (named in the guard's error
+      list, unchanged message format);
+    - a whitespace-PADDED but otherwise exact `decisao_fraude` literal ("ACUSAR_FRAUDE ")
+      normalizes to the literal and still passes Guard 1 (still subject to every other
+      accountability-field check and to Guard 2's custody verification) — case
+      variants/substrings still refuse (exact `!=` match, no folding);
+    - a non-string in ANY of these fields normalizes to "" (refusal), never a truthy
+      pass-through and never an AttributeError incident.
+    `indicadores_fundamentantes` receives ELEMENT-level normalization (each element through
+    `_norm_str`; empty-after-strip/non-string elements dropped, so `["   "]` or `[123]`
+    refuses exactly like `[]` — its elements are accountability-bearing evidence citations,
+    contract SP-OP-FRAUDE-001.md:91: ADR-0007 `decision_basis`). `destino_referral`,
+    `bundle_root` and `evidencia_refs` are UNCHANGED — their existing isinstance/length/
+    cryptographic checks already fail closed (see `_norm_str`'s docstring for why).
     """
-    decisao = variables.get("decisao_fraude", "")
-    investigator_id = variables.get("investigator_id", "")
-    tier = variables.get("tier", "")
-    fundamentacao = variables.get("fundamentacao_investigacao", "")
+    decisao = _norm_str(variables.get("decisao_fraude", ""))
+    investigator_id = _norm_str(variables.get("investigator_id", ""))
+    tier = _norm_str(variables.get("tier", ""))
+    fundamentacao = _norm_str(variables.get("fundamentacao_investigacao", ""))
     indicadores = variables.get("indicadores_fundamentantes", [])
-    ref_normativa = variables.get("referencia_normativa", "")
+    if isinstance(indicadores, list):
+        # Element-level normalization (t3.1-guard-input-hardening): keep only genuine,
+        # non-empty-after-strip string citations — a whitespace-only or non-string element
+        # names no indicator (ADR-0007 decision_basis) and must not count toward presence.
+        # A list reduced to [] falls through to the existing "ausente/vazio" refusal below;
+        # a non-list keeps failing the existing isinstance check. Same error class, same
+        # message — input normalization only.
+        indicadores = [_norm_str(item) for item in indicadores if _norm_str(item)]
+    ref_normativa = _norm_str(variables.get("referencia_normativa", ""))
     destino = variables.get("destino_referral", {})
     bundle_root = variables.get("bundle_root", "")
     evidencia_refs = variables.get("evidencia_refs", [])

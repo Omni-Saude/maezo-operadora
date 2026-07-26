@@ -379,6 +379,29 @@ def notify_sla_risk(variables: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------
 
 
+def _norm_str(value: Any) -> str:
+    """Normalize an engine variable to a stripped string for guard checks — FAIL-CLOSED.
+
+    Mirrors `pagto._norm_str` (t2.5-p2b-round2 / t3.1-guard-input-hardening): the pre-fix bare
+    `if not responsavel_id` / `if not fundamentacao` / ... checks in
+    `_register_contract_suspension` let WHITESPACE-ONLY decision + accountability fields pass —
+    defeating ADR-0007/RN 593 (a contract suspension recorded with a non-identifying approver
+    or blank justification/regulatory reference/notice/period proofs). Closes that class:
+    - a `str` normalizes to `value.strip()` — whitespace-only ("   ", "\\t", "\\n", ...)
+      becomes "" and is treated EXACTLY like an absent field (refusal, never registration);
+    - a NON-string (None, int, bool, list, dict — engine variables arrive untyped) normalizes
+      to "" (fail-closed refusal), never a truthy pass-through and never an AttributeError
+      incident from calling `.strip()` on a non-string.
+
+    Scope: STRING fields only. The anti-dupla-terminacao fact `ja_em_rescisao_cancel`
+    (GAP-INAD-1, boolean, fail-closed `is not False` check) is NOT part of this class and is
+    deliberately untouched — its guard logic remains byte-identical.
+    """
+    if isinstance(value, str):
+        return value.strip()
+    return ""
+
+
 def register_suspension(variables: dict[str, Any]) -> dict[str, Any]:
     """Register contract suspension for default.
 
@@ -397,13 +420,23 @@ def _register_contract_suspension(variables: dict[str, Any]) -> dict[str, Any]:
     """Internal: validate guard conditions and register suspension.
 
     Raises ERR_CONTRACT_SUSPENSION_NOT_HUMAN if any guard fails.
+
+    NORMALIZATION (t3.1-guard-input-hardening): ALL decision + human-accountability STRING
+    fields (`decisao_inadimplencia`, `responsavel_id`, `fundamentacao_contratual`,
+    `referencia_regulatoria`, `comprovacao_notificacao_previa`, `comprovacao_periodo_minimo` —
+    contract SP-OP-INADIMPLENCIA-001.md:94-98,155,174) are normalized via `_norm_str` (strip;
+    non-string -> "") BEFORE any guard check, mirroring `pagto.register_payment_refusal`'s fix.
+    Whitespace-only/non-string refuses exactly like absent; a whitespace-PADDED exact
+    `decisao_inadimplencia` literal still passes (exact `!=` match, no folding). The
+    `ja_em_rescisao_cancel` anti-dupla boolean check below is UNTOUCHED (input normalization
+    only — no change near the engine-seam/anti-dupla guard logic).
     """
-    decisao = variables.get("decisao_inadimplencia", "")
-    responsavel_id = variables.get("responsavel_id", "")
-    fundamentacao = variables.get("fundamentacao_contratual", "")
-    ref_regulatoria = variables.get("referencia_regulatoria", "")
-    comprovacao_notif = variables.get("comprovacao_notificacao_previa", "")
-    comprovacao_periodo = variables.get("comprovacao_periodo_minimo", "")
+    decisao = _norm_str(variables.get("decisao_inadimplencia", ""))
+    responsavel_id = _norm_str(variables.get("responsavel_id", ""))
+    fundamentacao = _norm_str(variables.get("fundamentacao_contratual", ""))
+    ref_regulatoria = _norm_str(variables.get("referencia_regulatoria", ""))
+    comprovacao_notif = _norm_str(variables.get("comprovacao_notificacao_previa", ""))
+    comprovacao_periodo = _norm_str(variables.get("comprovacao_periodo_minimo", ""))
     # Anti-dupla-terminacao (GAP-INAD-1): the FACT resolved by resolve_facts's cross-process CANCEL-001
     # query. FAIL CLOSED default `True` — an ABSENT fact means the correlation was never confirmed
     # (resolve_facts did not run / its output did not propagate), so the suspension is REFUSED. Only an

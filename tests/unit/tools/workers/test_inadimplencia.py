@@ -319,6 +319,127 @@ def test_inadimplencia_register_suspension_alias() -> None:
 
 
 # ---------------------------------------------------------------
+# register_contract_suspension — whitespace-bypass vectors (t3.1-guard-input-hardening,
+# same class as the c1377fa fix for pagto.register_payment_refusal: bare `if not field:`
+# let WHITESPACE-ONLY decision + accountability fields through. Every vector below MUST
+# refuse with ERR_CONTRACT_SUSPENSION_NOT_HUMAN — whitespace-only is the SAME as absent
+# (ADR-0007/RN 593). The ja_em_rescisao_cancel anti-dupla boolean guard is UNTOUCHED by
+# the normalization (input normalization only) — pinned by the last test in this block.
+# ---------------------------------------------------------------
+
+_WHITESPACE_VARIANTS = [" ", "   ", "\t", "\n", "\t\n ", "\r\n"]
+_NON_STRING_VARIANTS: list[object] = [123, True, 0.5, ["x"], {"k": "v"}]
+_SUSPENSION_ACCOUNTABILITY_FIELDS = [
+    "responsavel_id",
+    "fundamentacao_contratual",
+    "referencia_regulatoria",
+    "comprovacao_notificacao_previa",
+    "comprovacao_periodo_minimo",
+]
+
+
+def _suspension_baseline(**overrides: object) -> dict[str, object]:
+    """Happy-path baseline (ja_em_rescisao_cancel explicitly False — engine positively
+    confirmed no active CANCEL-001 instance) so any guard failure observed in a test is
+    attributable ONLY to the field under test."""
+    base: dict[str, object] = {
+        "decisao_inadimplencia": DECISAO_SUSPENDER,
+        "responsavel_id": "juridico-001",
+        "fundamentacao_contratual": "Art. 13 Lei 9656",
+        "referencia_regulatoria": "RN 593",
+        "comprovacao_notificacao_previa": "ref-notif-001",
+        "comprovacao_periodo_minimo": "ref-periodo-001",
+        "ja_em_rescisao_cancel": False,
+        "numero_contrato": "C-123",
+    }
+    base.update(overrides)
+    return base
+
+
+@pytest.mark.parametrize("field", _SUSPENSION_ACCOUNTABILITY_FIELDS)
+@pytest.mark.parametrize("whitespace", _WHITESPACE_VARIANTS)
+def test_suspension_whitespace_only_accountability_field_refuses(field: str, whitespace: str) -> None:
+    """Bare-truthiness bypass (pre-fix): whitespace-only accountability field must refuse and
+    be named in the guard's error message."""
+    with pytest.raises(InadimplenciaError) as excinfo:
+        register_contract_suspension(_suspension_baseline(**{field: whitespace}))
+    assert excinfo.value.code == ERR_CONTRACT_SUSPENSION_NOT_HUMAN
+    assert field in excinfo.value.message
+
+
+@pytest.mark.parametrize("field", _SUSPENSION_ACCOUNTABILITY_FIELDS)
+@pytest.mark.parametrize("non_string", _NON_STRING_VARIANTS)
+def test_suspension_non_string_accountability_field_refuses(field: str, non_string: object) -> None:
+    """A NON-string accountability field normalizes to '' and refuses -- the pre-fix bare
+    truthiness check would have silently PASSED a truthy non-string (e.g. 123)."""
+    with pytest.raises(InadimplenciaError) as excinfo:
+        register_contract_suspension(_suspension_baseline(**{field: non_string}))
+    assert excinfo.value.code == ERR_CONTRACT_SUSPENSION_NOT_HUMAN
+    assert field in excinfo.value.message
+
+
+@pytest.mark.parametrize("whitespace", _WHITESPACE_VARIANTS)
+def test_suspension_both_responsavel_and_fundamentacao_whitespace_refuses(
+    whitespace: str,
+) -> None:
+    """Both responsavel_id AND fundamentacao_contratual whitespace-only -- both named."""
+    with pytest.raises(InadimplenciaError) as excinfo:
+        register_contract_suspension(
+            _suspension_baseline(responsavel_id=whitespace, fundamentacao_contratual=whitespace)
+        )
+    assert excinfo.value.code == ERR_CONTRACT_SUSPENSION_NOT_HUMAN
+    assert "responsavel_id" in excinfo.value.message
+    assert "fundamentacao_contratual" in excinfo.value.message
+
+
+@pytest.mark.parametrize("whitespace", [" ", "\t", "\n", "  \t\n"])
+def test_suspension_whitespace_only_decisao_refuses(whitespace: str) -> None:
+    """Whitespace-only decisao_inadimplencia normalizes to '' -> != SUSPENDER -> refuses."""
+    with pytest.raises(InadimplenciaError) as excinfo:
+        register_contract_suspension(_suspension_baseline(decisao_inadimplencia=whitespace))
+    assert excinfo.value.code == ERR_CONTRACT_SUSPENSION_NOT_HUMAN
+    assert "decisao_inadimplencia" in excinfo.value.message
+
+
+def test_suspension_padded_valid_literal_normalizes_and_registers() -> None:
+    """Whitespace-PADDED but otherwise exact literal/fields normalize via `_norm_str` and still
+    register (pins the normalization -- NOT a bypass, the documented `.strip()` consequence).
+    ja_em_rescisao_cancel remains an explicit False boolean -- untouched by normalization."""
+    result = register_contract_suspension(
+        _suspension_baseline(
+            decisao_inadimplencia=" SUSPENDER ",
+            responsavel_id=" juridico-001 ",
+            fundamentacao_contratual=" Art. 13 Lei 9656 ",
+            referencia_regulatoria=" RN 593 ",
+            comprovacao_notificacao_previa=" ref-notif-001 ",
+            comprovacao_periodo_minimo=" ref-periodo-001 ",
+        )
+    )
+    assert result["suspensao_registrada"] is True
+
+
+@pytest.mark.parametrize("decision", ["suspender", "Suspender", "SUSPENDER_X", "XSUSPENDER", "MANTER "])
+def test_suspension_non_exact_decisao_literal_still_refuses(decision: str) -> None:
+    """Exact-match discipline survives normalization: case variants/substrings never pass."""
+    with pytest.raises(InadimplenciaError) as excinfo:
+        register_contract_suspension(_suspension_baseline(decisao_inadimplencia=decision))
+    assert excinfo.value.code == ERR_CONTRACT_SUSPENSION_NOT_HUMAN
+
+
+def test_suspension_anti_dupla_guard_unchanged_by_normalization() -> None:
+    """The ja_em_rescisao_cancel anti-dupla-terminacao guard (GAP-INAD-1, fail-closed
+    `is not False`) is byte-identical after the normalization change: all string fields
+    valid + ja_em_rescisao_cancel absent (defaults True — correlation never confirmed)
+    STILL refuses, proving normalization touched only the string inputs."""
+    variables = _suspension_baseline()
+    del variables["ja_em_rescisao_cancel"]
+    with pytest.raises(InadimplenciaError) as excinfo:
+        register_contract_suspension(variables)
+    assert excinfo.value.code == ERR_CONTRACT_SUSPENSION_NOT_HUMAN
+    assert "ja_em_rescisao_cancel" in excinfo.value.message
+
+
+# ---------------------------------------------------------------
 # handoff_rescisao — NEUTRO
 # ---------------------------------------------------------------
 

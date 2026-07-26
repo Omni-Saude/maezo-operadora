@@ -239,6 +239,26 @@ def notify_sla_risk(variables: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------
 
 
+def _norm_str(value: Any) -> str:
+    """Normalize an engine variable to a stripped string for guard checks — FAIL-CLOSED.
+
+    Mirrors `pagto._norm_str` (t2.5-p2b-round2 / t3.1-guard-input-hardening): the pre-fix bare
+    `if not responsavel_id` / `if not fundamentacao` / ... checks in BOTH of this module's L1
+    adverse guards (`_register_descredenciamento`, `register_cred_denial`) let WHITESPACE-ONLY
+    decision + accountability fields pass — defeating ADR-0007/RN 566/RN 567 (an adverse
+    de-credentialing/denial recorded with a non-identifying approver or blank justification/
+    regulatory reference/prior-notice proof). Closes that class:
+    - a `str` normalizes to `value.strip()` — whitespace-only ("   ", "\\t", "\\n", ...)
+      becomes "" and is treated EXACTLY like an absent field (refusal, never registration);
+    - a NON-string (None, int, bool, list, dict — engine variables arrive untyped) normalizes
+      to "" (fail-closed refusal), never a truthy pass-through and never an AttributeError
+      incident from calling `.strip()` on a non-string.
+    """
+    if isinstance(value, str):
+        return value.strip()
+    return ""
+
+
 def register_decred(variables: dict[str, Any]) -> dict[str, Any]:
     """Register provider de-credentialing.
 
@@ -249,14 +269,25 @@ def register_decred(variables: dict[str, Any]) -> dict[str, Any]:
 
 
 def _register_descredenciamento(variables: dict[str, Any]) -> dict[str, Any]:
-    """Internal: validate guard and register de-credentialing."""
-    decisao = variables.get("decisao_cred", "")
-    responsavel_id = variables.get("responsavel_id", "")
-    fundamentacao = variables.get("fundamentacao", "")
-    ref_regulatoria = variables.get("referencia_regulatoria", "")
-    comprovacao_notif = variables.get("comprovacao_notificacao_previa", "")
+    """Internal: validate guard and register de-credentialing.
+
+    NORMALIZATION (t3.1-guard-input-hardening): ALL decision + human-accountability string
+    fields (`decisao_cred`, `responsavel_id`, `fundamentacao`, `referencia_regulatoria`,
+    `comprovacao_notificacao_previa`, `plano_substituicao` — the last per contract
+    SP-OP-CRED-001.md:80,149, obligatory when `tem_beneficiarios_vinculados`) are normalized
+    via `_norm_str` (strip; non-string -> "") BEFORE any guard check, mirroring
+    `pagto.register_payment_refusal`'s fix. Whitespace-only/non-string refuses exactly like
+    absent; a whitespace-PADDED exact `decisao_cred` literal still passes (case variants/
+    substrings still refuse — exact `!=` match, no folding). `tem_beneficiarios_vinculados`
+    is a boolean routing FACT, not a human-typed string — untouched.
+    """
+    decisao = _norm_str(variables.get("decisao_cred", ""))
+    responsavel_id = _norm_str(variables.get("responsavel_id", ""))
+    fundamentacao = _norm_str(variables.get("fundamentacao", ""))
+    ref_regulatoria = _norm_str(variables.get("referencia_regulatoria", ""))
+    comprovacao_notif = _norm_str(variables.get("comprovacao_notificacao_previa", ""))
     tem_benef = variables.get("tem_beneficiarios_vinculados", False)
-    plano_substituicao = variables.get("plano_substituicao", "")
+    plano_substituicao = _norm_str(variables.get("plano_substituicao", ""))
 
     errors: list[str] = []
 
@@ -306,11 +337,17 @@ def register_cred_denial(variables: dict[str, Any]) -> dict[str, Any]:
     """Register denial of credentialing application.
 
     GUARDED: ERR_CRED_DENIAL_NOT_HUMAN.
+
+    NORMALIZATION (t3.1-guard-input-hardening): ALL decision + human-accountability fields
+    (`decisao_cred`, `responsavel_id`, `fundamentacao`, `referencia_regulatoria` — contract
+    SP-OP-CRED-001.md:148,168) are normalized via `_norm_str` (strip; non-string -> "")
+    BEFORE any guard check — whitespace-only/non-string refuses exactly like absent; a
+    whitespace-PADDED exact decision literal still passes (exact `!=` match, no folding).
     """
-    decisao = variables.get("decisao_cred", "")
-    responsavel_id = variables.get("responsavel_id", "")
-    fundamentacao = variables.get("fundamentacao", "")
-    ref_regulatoria = variables.get("referencia_regulatoria", "")
+    decisao = _norm_str(variables.get("decisao_cred", ""))
+    responsavel_id = _norm_str(variables.get("responsavel_id", ""))
+    fundamentacao = _norm_str(variables.get("fundamentacao", ""))
+    ref_regulatoria = _norm_str(variables.get("referencia_regulatoria", ""))
 
     errors: list[str] = []
 
