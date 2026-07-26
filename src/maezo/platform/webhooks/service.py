@@ -16,14 +16,19 @@ ITSELF the fail-closed boot gate (constraint 2): a missing `WHATSAPP_APP_SECRET`
   STEP A  Bring up Helena's dispatch dependencies, BOUNDED and NON-FATAL (same isolation
           discipline as `worker_runtime`/`agent_runtime`'s `_bring_up_dependencies`): the
           inference provider, the DMN transport, the CIB Seven start transport, the WhatsApp
-          send client, and the pseudonymizer. Every one of these constructors is PURE (no
-          network call happens until a node actually runs) — unlike the engine-dialing STEP B
-          in `worker_runtime`/`agent_runtime`, this genuinely never blocks, so it runs BEFORE
-          binding the health server without risking `/healthz`'s liveness promise. On success,
-          `/webhook` dispatches for real; on failure (caught, logged), it keeps the prior
-          explicit-501 behavior for any message that needs dispatch — never a fabricated
-          dispatch. No Kafka producer is constructed (still true — see `dispatch.py`'s module
-          docstring for why an in-process call, not a queue, is this build's honest choice).
+          send client, and the pseudonymizer — all PURE constructors (no network call until a
+          node runs) — PLUS (T4b) the ONE bounded bring-up I/O this receiver now performs: the
+          durable LangGraph checkpointer's connect+`setup()` (multi-turn conversation state that
+          survives webhook invocations / receiver restarts), bounded by `dep_connect_timeout_s`
+          so a hung Postgres cannot stall the `/healthz` bind that follows. F2 FAIL-CLOSED: in
+          production (`runtime_mode != "local"`) a checkpointer that fails to provision makes the
+          receiver REFUSE TO SERVE — the dispatcher is dropped and `/webhook` returns its explicit
+          501 rather than running Helena stateless; local/dev falls back to an in-memory saver
+          with a loud warning. On success, `/webhook` dispatches for real; on any failure (caught,
+          logged) it keeps the prior explicit-501 behavior — never a fabricated dispatch, never a
+          silently-stateless prod dispatch. No Kafka producer is constructed (still true — see
+          `dispatch.py`'s module docstring for why an in-process call, not a queue, is this
+          build's honest choice).
   STEP B  Bind the app (health + `/webhook`) with the STEP A result baked in.
   STEP C  `/readyz` reflects `config_loaded` (`whatsapp/app.py`) — dispatch readiness is NOT a
           separate gate: an unconfigured dispatcher degrades `/webhook` to 501, it does not
@@ -45,6 +50,7 @@ import structlog
 from maezo.gateway.audit_postgres import PostgresAuditSink
 from maezo.gateway.pseudonymizer import Pseudonymizer
 from maezo.platform.health import build_health_server
+from maezo.runtime.checkpoint import Checkpointer, provision_checkpointer
 from maezo.runtime.inference import InferenceProvider
 from maezo.tools.mcp_cibseven.transport import CibSevenHttpTransport
 from maezo.tools.mcp_whatsapp.server import WhatsAppServer
@@ -53,6 +59,11 @@ from maezo.tools.workers.dmn_transport import CibSevenDmnTransport
 from .whatsapp.app import create_app
 from .whatsapp.dispatch import HelenaDispatcher
 from .whatsapp.settings import WhatsAppWebhookSettings
+
+#: F2 mode discriminator — the ONLY non-production `runtime_mode`. Anything else (Helm injects
+#: "kubernetes") is PRODUCTION, where a checkpointer that fails to provision makes the receiver
+#: refuse to serve. Mirrors `agent_runtime.service._LOCAL_RUNTIME_MODE`.
+_LOCAL_RUNTIME_MODE = "local"
 
 logger = structlog.get_logger(__name__)
 
@@ -64,6 +75,11 @@ class WebhookState:
     dispatcher: HelenaDispatcher | None = None
     dispatcher_error: str | None = None
     cibseven_transport: CibSevenHttpTransport | None = None
+    # T4b: the durable LangGraph checkpointer wired into the dispatcher (its pool is released on
+    # drain). None when the dispatcher was never built, or when a prod-mode provision failed
+    # closed (in which case `dispatcher` is also None -> `/webhook` 501, refuse-to-serve).
+    checkpointer: Checkpointer | None = None
+    checkpointer_backend: str | None = None
 
     def is_live(self) -> bool:
         return self.live
@@ -102,16 +118,79 @@ def _build_dispatcher(settings: WhatsAppWebhookSettings) -> tuple[HelenaDispatch
     return dispatcher, cibseven
 
 
-def _bring_up_dependencies(state: WebhookState) -> None:
-    """STEP A: bounded, non-fatal, and provably non-blocking (module docstring). Failure leaves
-    `state.dispatcher` `None` — `/webhook` degrades to the explicit 501 for any message needing
-    dispatch (never a fabricated dispatch)."""
+async def _provision_dispatch_checkpointer(state: WebhookState) -> None:
+    """T4b: attach the durable LangGraph checkpointer to the just-built dispatcher, with F2
+    fail-closed discipline (shared `runtime.checkpoint.provision_checkpointer` — the SAME policy
+    the agent-runtime daemon's readiness gate uses, so the two can never drift).
+
+    Fail-closed SHAPE for a webhook (decided from how this receiver already handles a mandatory
+    dep): a production receiver that cannot durably checkpoint must REFUSE TO SERVE — so on a
+    prod-mode provision failure the just-built dispatcher is DROPPED (`state.dispatcher = None`),
+    exactly like a missing audit sink / DSN already does, and `/webhook` returns its explicit 501
+    rather than silently running Helena stateless (no resume-after-restart). In local/dev the
+    provision falls back to an in-memory saver (loud warning) and the dispatcher is kept.
+
+    Note: this receiver's DSN is ALREADY mandatory for the dispatcher to build at all (the T-C2
+    audit sink), so the checkpointer's "DSN absent" branch is unreachable from here — the live
+    fail-closed axis for the webhook is a connect/`setup()` FAILURE (or timeout), not a missing
+    DSN (a missing DSN refuses even earlier, in `_build_dispatcher`)."""
+    if state.dispatcher is None:
+        return  # dispatcher never built (e.g. missing DSN) — nothing to checkpoint; already 501.
+    settings = state.settings
+    is_production = settings.runtime_mode != _LOCAL_RUNTIME_MODE
+    provision = await provision_checkpointer(
+        database_url=settings.database_url,
+        is_production=is_production,
+        component="webhook",
+        setup_timeout_s=settings.dep_connect_timeout_s,
+    )
+    if not provision.ready:
+        # FAIL-CLOSED (production): refuse to serve rather than run stateless. Drop the dispatcher
+        # so `/webhook` returns the explicit 501 (same refuse-to-serve shape as a missing dep).
+        state.dispatcher = None
+        state.dispatcher_error = (
+            f"durable checkpointer unavailable and runtime_mode={settings.runtime_mode!r} is "
+            f"production — refusing to serve Helena stateless (T4b/F4 fail-closed): {provision.error}"
+        )
+        logger.error(
+            "webhook_dispatcher_refused_no_durable_checkpointer",
+            tenant=settings.tenant_id,
+            runtime_mode=settings.runtime_mode,
+            reason=provision.error,
+        )
+        return
+    state.dispatcher.checkpointer = provision.checkpointer
+    state.checkpointer = provision.checkpointer
+    state.checkpointer_backend = provision.backend
+    logger.info(
+        "webhook_dispatch_checkpointer_ready",
+        tenant=settings.tenant_id,
+        backend=provision.backend,
+    )
+
+
+async def _bring_up_dependencies(state: WebhookState) -> None:
+    """STEP A: bounded, non-fatal. Pure dispatcher CONSTRUCTION (no I/O) followed by the ONE
+    bounded bring-up I/O this receiver now performs — the durable checkpointer's connect+setup()
+    (T4b), bounded by `dep_connect_timeout_s`. Any failure leaves `state.dispatcher` `None` —
+    `/webhook` degrades to the explicit 501 for a message needing dispatch (never a fabricated
+    dispatch, never a silently-stateless prod dispatch)."""
     try:
         state.dispatcher, state.cibseven_transport = _build_dispatcher(state.settings)
         logger.info("webhook_dispatcher_ready", tenant=state.settings.tenant_id)
     except Exception as exc:  # noqa: BLE001 — isolated: liveness/readiness must stay up.
         state.dispatcher_error = f"{type(exc).__name__}: {exc}"
         logger.error("webhook_dispatcher_build_failed", exc_info=True)
+        return
+
+    # T4b: wire durable multi-turn persistence into the dispatcher, fail-closed in production.
+    # Isolated exactly like the construction above — a failure here must not crash bring-up.
+    try:
+        await _provision_dispatch_checkpointer(state)
+    except Exception as exc:  # noqa: BLE001 — isolated; never propagate (liveness stays up).
+        state.dispatcher = None
+        state.dispatcher_error = f"checkpointer provisioning error: {type(exc).__name__}: {exc}"
+        logger.error("webhook_dispatch_checkpointer_provision_failed", exc_info=True)
 
 
 async def run(settings: WhatsAppWebhookSettings) -> None:
@@ -119,8 +198,9 @@ async def run(settings: WhatsAppWebhookSettings) -> None:
     logger.info("webhook_receiver_starting", tenant=settings.tenant_id, health_port=settings.health_port)
 
     state = WebhookState(settings=settings)
-    # STEP A: bring up dispatch dependencies — pure construction, no I/O (module docstring).
-    _bring_up_dependencies(state)
+    # STEP A: bring up dispatch dependencies — pure construction + the ONE bounded I/O (the T4b
+    # durable checkpointer connect+setup, `dep_connect_timeout_s`-bounded; module docstring).
+    await _bring_up_dependencies(state)
 
     # STEP B: bind the app (health + /webhook) with the STEP A result baked in.
     app = create_app(settings, is_live=state.is_live, dispatcher=state.dispatcher)
@@ -158,5 +238,11 @@ async def run(settings: WhatsAppWebhookSettings) -> None:
     if state.cibseven_transport is not None:
         with contextlib.suppress(Exception):
             await state.cibseven_transport.close()
+
+    # T4b: release the checkpointer's connection pool (idempotent; no-op for the in-memory
+    # fallback / when never provisioned). Non-fatal — a close failure must not mask shutdown.
+    if state.checkpointer is not None:
+        with contextlib.suppress(Exception):
+            await state.checkpointer.aclose()
 
     logger.info("webhook_receiver_stopped", tenant=settings.tenant_id)

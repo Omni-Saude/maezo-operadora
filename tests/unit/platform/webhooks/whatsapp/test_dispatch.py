@@ -6,8 +6,11 @@ from typing import Any
 
 import pytest
 
+from langgraph.checkpoint.memory import InMemorySaver
+
 from maezo.agents.helena.graph import HELENA_INPUT_FIELDS
 from maezo.gateway.pseudonymizer import Pseudonymizer
+from maezo.runtime.checkpoint import Checkpointer, checkpoint_thread_config
 from maezo.platform.webhooks.whatsapp import dispatch as dispatch_module
 from maezo.platform.webhooks.whatsapp.dispatch import (
     HelenaDispatcher,
@@ -190,12 +193,14 @@ async def test_dispatch_constructs_state_with_only_input_fields(monkeypatch: pyt
     captured: dict[str, Any] = {}
 
     class _RecordingCompiled:
-        async def ainvoke(self, state: dict[str, Any]) -> dict[str, Any]:
+        async def ainvoke(self, state: dict[str, Any], config: Any = None) -> dict[str, Any]:
             captured["state"] = dict(state)
+            captured["config"] = config
             return {"next_kind": "inform"}
 
     class _RecordingGraph:
-        def compile(self) -> _RecordingCompiled:
+        def compile(self, checkpointer: Any = None) -> _RecordingCompiled:
+            captured["checkpointer"] = checkpointer
             return _RecordingCompiled()
 
     monkeypatch.setattr(dispatch_module, "build", lambda _config: _RecordingGraph())
@@ -215,3 +220,96 @@ async def test_dispatch_constructs_state_with_only_input_fields(monkeypatch: pyt
     assert frozenset(captured["state"]) == HELENA_INPUT_FIELDS
     for output_only in ("next_kind", "error", "escalation_motivo", "escalation_started", "dmn_decision_ref"):
         assert output_only not in captured["state"]
+    # No checkpointer injected -> stateless compile + no thread config (fresh turn every time).
+    assert captured["checkpointer"] is None
+    assert captured["config"] is None
+
+
+# ---------------------------------------------------------------------------
+# T4b — durable checkpointer wiring: PHI-safe thread config, multi-turn resume, distinct identity
+# ---------------------------------------------------------------------------
+
+
+def _info_dispatcher(checkpointer: Checkpointer | None, *, turns: int = 4) -> HelenaDispatcher:
+    """A dispatcher whose inference always classifies 'information' intent + replies — enough
+    canned responses for `turns` sequential dispatches (2 inference calls per info turn)."""
+    responses: list[str] = []
+    for _ in range(turns):
+        responses.append('{"intent": "information", "population": "none", "psychosocial_risk": false}')
+        responses.append("resposta")
+    dmn = FakeDmnTransport()
+    dmn.register("triage_redflag_adult", [{"red_flag": False, "conduta": "CONTINUE"}] * turns)
+    return HelenaDispatcher(
+        tenant_id="amh",
+        inference=_FakeInference(responses),
+        dmn=dmn,
+        cibseven=FakeCibSevenTransport(),
+        whatsapp_client=_FakeWhatsAppClient(),  # type: ignore[arg-type]
+        pseudonymizer=Pseudonymizer(),
+        audit_sink=FakeStartAuditSink(),
+        checkpointer=checkpointer,
+    )
+
+
+async def test_dispatch_with_checkpointer_uses_phi_safe_thread_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    """With a checkpointer wired, the graph is compiled checkpoint-enabled and invoked under a
+    thread config keyed by the HASHED `wa:{tenant}:{phone_hash}` conversation id — never the raw
+    phone number (LGPD; the PHI-bearing `checkpoint_blobs` rows are keyed by this thread id)."""
+    captured: dict[str, Any] = {}
+
+    class _RecordingCompiled:
+        async def ainvoke(self, state: dict[str, Any], config: Any = None) -> dict[str, Any]:
+            captured["config"] = config
+            return {"next_kind": "inform"}
+
+    class _RecordingGraph:
+        def compile(self, checkpointer: Any = None) -> _RecordingCompiled:
+            captured["checkpointer"] = checkpointer
+            return _RecordingCompiled()
+
+    monkeypatch.setattr(dispatch_module, "build", lambda _config: _RecordingGraph())
+
+    saver = InMemorySaver()
+    dispatcher = _info_dispatcher(Checkpointer(saver=saver))
+    await dispatcher.dispatch(InboundMessage(from_number="5511999999999", text="oi", message_id="wamid.1"))
+
+    assert captured["checkpointer"] is saver  # compiled checkpoint-enabled with the wrapped saver
+    thread_id = captured["config"]["configurable"]["thread_id"]
+    assert thread_id.startswith("wa:amh:")
+    assert "5511999999999" not in thread_id  # hashed, never the raw number
+    # And it is exactly what the PHI-safety helper would build (fail-closes on a raw-numeric id).
+    assert captured["config"] == checkpoint_thread_config(thread_id)
+
+
+async def test_dispatch_multi_turn_same_identity_resumes_distinct_identity_fresh() -> None:
+    """Two sequential dispatches with the SAME conversation identity accumulate checkpoint history
+    on ONE thread (turn 2 resumes turn 1's persisted state); a DIFFERENT identity gets its own
+    independent, fresh thread. Real `InMemorySaver` — the durable persistence contract, no PG."""
+    saver = InMemorySaver()
+    dispatcher = _info_dispatcher(Checkpointer(saver=saver), turns=6)
+
+    r1 = await dispatcher.dispatch(InboundMessage(from_number="5511999999999", text="oi", message_id="m1"))
+    conv = r1["conversation_id"]
+    cfg = checkpoint_thread_config(conv)
+    assert await saver.aget_tuple(cfg) is not None  # turn 1 persisted a checkpoint
+    hist_after_1 = [c async for c in saver.alist(cfg)]
+
+    r2 = await dispatcher.dispatch(InboundMessage(from_number="5511999999999", text="de novo", message_id="m2"))
+    assert r2["conversation_id"] == conv  # same identity -> same thread
+    hist_after_2 = [c async for c in saver.alist(cfg)]
+    assert len(hist_after_2) > len(hist_after_1)  # state accumulated across turns (resume)
+
+    r3 = await dispatcher.dispatch(InboundMessage(from_number="5511000000000", text="oi", message_id="m3"))
+    assert r3["conversation_id"] != conv  # different phone -> different hashed thread
+    other_cfg = checkpoint_thread_config(r3["conversation_id"])
+    hist_other = [c async for c in saver.alist(other_cfg)]
+    assert len(hist_other) < len(hist_after_2)  # fresh thread, not the 2-turn history
+
+
+async def test_dispatch_stateless_when_no_checkpointer_starts_fresh_each_turn() -> None:
+    """No checkpointer -> the graph compiles stateless; two turns from the same identity leave NO
+    persisted checkpoint anywhere (the pre-T4b behavior, preserved for tests / deliberate builds)."""
+    saver = InMemorySaver()  # a bystander saver the dispatcher never receives
+    dispatcher = _info_dispatcher(None, turns=2)
+    r1 = await dispatcher.dispatch(InboundMessage(from_number="5511999999999", text="oi", message_id="m1"))
+    assert await saver.aget_tuple(checkpoint_thread_config(r1["conversation_id"])) is None
