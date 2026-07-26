@@ -465,6 +465,40 @@ def register_credenciamento(variables: dict[str, Any]) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------
+# prepare_dossier — LOCAL STUB dossier (DL-0033; Carolina A2A deferred)
+# ---------------------------------------------------------------
+
+
+def prepare_dossier(variables: dict[str, Any]) -> dict[str, Any]:
+    """Prepare the analysis dossier for the human-review User Task — NEUTRAL (DL-0033 local stub).
+
+    Assembling a dossier INSTRUCTS the human decision (UT_AnaliseDescredenciamento /
+    UT_AnaliseCredenciamento), it NEVER originates an adverse effect — mirrors
+    `programa.enroll_beneficiario` ("enrollment is not an adverse effect"; the clinical/adverse
+    decision is separate, human-gated). This is the local echo/log stub DL-0033 ratified
+    (`FunctionWorker`, no `DelegationDispatcher`): it closes the BPMN topic orphanage
+    (`operadora.cred.prepare_dossier`, both `ST_PrepareDossierDescred` and `ST_PrepareDossierCred`,
+    which today open the human User Tasks with NO dossier) without inventing delegation
+    business-logic before the real Carolina A2A wiring (`credentialing.analyze`) lands in the
+    deferred full-A2A task. Fails SAFE (never raises — `.get(..., default)`, no guard), mirroring
+    the module's `notify_prestador`/`notify_doc_pendente` neutral idiom.
+    """
+    prestador_id = variables.get("prestador_id", "")
+    direcao = variables.get("direcao", "")
+
+    logger.info(
+        "cred_prepare_dossier",
+        prestador_id=prestador_id,
+        direcao=direcao,
+    )
+
+    return {
+        "dossier_prepared": True,
+        "data_dossier": "now",
+    }
+
+
+# ---------------------------------------------------------------
 # Custom error
 # ---------------------------------------------------------------
 
@@ -505,8 +539,11 @@ class CredError(Exception):
 #                             NEUTRAL — EXCECAO CLERICAL, no human-gate guard by design)
 #   notify_sla_risk        -> operadora.cred.notify_sla_risk        (exact spec match, T2.5-p2b;
 #                             informational, shared by both directions' boundary timers)
-# Spec topic with NO implementing function today (gap, NOT fabricated here — Carolina A2A
-# integration, separately gated, out of scope for T2.5-p2b): operadora.cred.prepare_dossier.
+#   prepare_dossier        -> operadora.cred.prepare_dossier        (exact spec match, DL-0033 LOCAL
+#                             STUB; NEUTRAL — instructs the human UT, never adverse. Both
+#                             ST_PrepareDossierDescred and ST_PrepareDossierCred route here. The REAL
+#                             Carolina A2A delegation (credentialing.analyze) is deferred to the
+#                             full-A2A wiring task; this stub only closes the BPMN topic orphanage.)
 # ---------------------------------------------------------------
 
 
@@ -537,3 +574,4 @@ def register_credenciamento_workers(
     harness.register_worker(FunctionWorker("operadora.cred.register_cred_denial", register_cred_denial))
     harness.register_worker(FunctionWorker("operadora.cred.register_credenciamento", register_credenciamento))
     harness.register_worker(FunctionWorker("operadora.cred.notify_sla_risk", notify_sla_risk))
+    harness.register_worker(FunctionWorker("operadora.cred.prepare_dossier", prepare_dossier))

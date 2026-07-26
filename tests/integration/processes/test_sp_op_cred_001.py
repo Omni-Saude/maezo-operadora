@@ -282,7 +282,7 @@ _NOTIFY_SLA_TOPIC = "operadora.cred.notify_sla_risk"  # registrado desde T2.5-p2
 # incluido no drain: o drain so deve poll topicos com handler real (poll-lo sem handler so
 # mudaria o SINTOMA do stall, nao o resultado). Mantido aqui, documentado, para o finding 1
 # residual e para os textos de xfail abaixo.
-_PREPARE_DOSSIER_TOPIC = "operadora.cred.prepare_dossier"  # NAO registrado (out of scope T2.5-p2b)
+_PREPARE_DOSSIER_TOPIC = "operadora.cred.prepare_dossier"  # DL-0033 stub (registered; not drained here)
 
 # Topicos servidos pelos workers REAIS registrados no harness (drain generico) — espelha 1:1 o
 # que `register_credenciamento_workers` de fato registra (credenciamento.py, T2.5-p2b) + o
@@ -518,7 +518,11 @@ async def cred_probe(
     # topicos que register_credenciamento_workers de fato registra desde T2.5-p2b — finding 1
     # narrowed to the single remaining operadora.cred.prepare_dossier gap).
     cred_registered = {t for t in harness.registered_topics if t.startswith("operadora.cred.")}
-    missing_from_drain = cred_registered - set(_CRED_WORKER_TOPICS)
+    # DL-0033 (t5): operadora.cred.prepare_dossier is now a REGISTERED local stub, but this probe
+    # deliberately does NOT drain it (keeps the guard-shape/HITL engine xfails valid pending a
+    # dedicated live-engine proof that would flip them). Exclude it explicitly from the drift check;
+    # the guard still catches any OTHER registered-but-undrained worker.
+    missing_from_drain = cred_registered - set(_CRED_WORKER_TOPICS) - {_PREPARE_DOSSIER_TOPIC}
     assert not missing_from_drain, (
         f"_CRED_WORKER_TOPICS desatualizada — topicos registrados fora do drain: {missing_from_drain}"
     )

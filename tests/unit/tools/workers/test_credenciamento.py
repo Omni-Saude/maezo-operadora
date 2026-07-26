@@ -17,6 +17,7 @@ from maezo.tools.workers.credenciamento import (
     notify_doc_pendente,
     notify_prestador,
     notify_sla_risk,
+    prepare_dossier,
     register_cred_denial,
     register_credenciamento,
     register_credenciamento_workers,
@@ -619,11 +620,11 @@ def test_register_credenciamento_rejects_empty_variables() -> None:
 # test_cancel.py's test_register_cancel_workers_matches_bpmn_topics_exactly)
 # ---------------------------------------------------------------------------
 
-# 9 operadora.cred.* topics declared in the BPMN (camunda:topic="operadora.cred.*", grepped from
-# spec/processes/bpmn/SP-OP-CRED-001_Descredenciamento.bpmn); operadora.cred.prepare_dossier is
-# DELIBERATELY excluded — Carolina A2A integration, separately gated, out of scope for T2.5-p2b
-# (module bootstrap docstring documents this; DO NOT add it here without also building it).
-_BPMN_CRED_TOPICS_MINUS_DOSSIER = frozenset(
+# All 9 operadora.cred.* topics declared in the BPMN (camunda:topic="operadora.cred.*", grepped from
+# spec/processes/bpmn/SP-OP-CRED-001_Descredenciamento.bpmn). operadora.cred.prepare_dossier is now
+# BUILT as a local stub (DL-0033, t5-workers-f2) — Carolina A2A real delegation still deferred, but
+# the BPMN topic is no longer orphaned; all 9 are registered.
+_BPMN_CRED_TOPICS = frozenset(
     {
         "operadora.cred.verify_credentials",
         "operadora.cred.check_network_criteria",
@@ -633,6 +634,7 @@ _BPMN_CRED_TOPICS_MINUS_DOSSIER = frozenset(
         "operadora.cred.register_cred_denial",
         "operadora.cred.register_credenciamento",
         "operadora.cred.notify_sla_risk",
+        "operadora.cred.prepare_dossier",
     }
 )
 
@@ -647,22 +649,44 @@ def test_register_credenciamento_workers_registers_new_topics() -> None:
     assert "operadora.cred.notify_sla_risk" in harness.registered_topics
 
 
-def test_register_credenciamento_workers_matches_bpmn_topics_minus_prepare_dossier() -> None:
-    """Registry coverage: the registered `operadora.cred.*` topic set equals EXACTLY the 8
-    BPMN-declared topics this task builds — no orphan, and the sole remaining gap
-    (`operadora.cred.prepare_dossier`, Carolina A2A) is exactly and only that one topic."""
+def test_register_credenciamento_workers_matches_bpmn_topics() -> None:
+    """Registry coverage: the registered `operadora.cred.*` topic set equals EXACTLY the 9
+    BPMN-declared topics — no orphan, no extra. prepare_dossier is now built (DL-0033 stub)."""
     harness = WorkerHarness(FakeWorkerTransport(), worker_id="test-worker")
     register_credenciamento_workers(harness, FakeKafkaPublisher(), dmn=FakeDmnTransport())
     cred_topics = {t for t in harness.registered_topics if t.startswith("operadora.cred.")}
-    assert cred_topics == _BPMN_CRED_TOPICS_MINUS_DOSSIER
+    assert cred_topics == _BPMN_CRED_TOPICS
 
 
-def test_register_credenciamento_workers_does_not_register_prepare_dossier() -> None:
-    """prepare_dossier (Carolina A2A) is explicitly OUT OF SCOPE for T2.5-p2b — must never be
-    registered here (leave any xfail/stub referencing it untouched)."""
+def test_register_credenciamento_workers_registers_prepare_dossier_stub() -> None:
+    """DL-0033 (ratified, built in t5): prepare_dossier (Carolina A2A) is now registered as a local
+    stub — the BPMN topic ST_PrepareDossierDescred/ST_PrepareDossierCred is no longer orphaned. The
+    REAL A2A delegation is still deferred to the full-A2A wiring task."""
     harness = WorkerHarness(FakeWorkerTransport(), worker_id="test-worker")
     register_credenciamento_workers(harness, FakeKafkaPublisher(), dmn=FakeDmnTransport())
-    assert "operadora.cred.prepare_dossier" not in harness.registered_topics
+    assert "operadora.cred.prepare_dossier" in harness.registered_topics
+
+
+# ---------------------------------------------------------------
+# prepare_dossier — DL-0033 LOCAL STUB (NEUTRAL; mirrors programa.enroll_beneficiario)
+# ---------------------------------------------------------------
+
+
+def test_prepare_dossier_stub() -> None:
+    result = prepare_dossier(
+        {
+            "prestador_id": "P-001",
+            "direcao": "descredenciamento",
+        }
+    )
+    assert result["dossier_prepared"] is True
+
+
+def test_prepare_dossier_fails_safe_on_missing_fields() -> None:
+    """NEUTRAL stub — never raises on missing identity (mirrors notify_prestador /
+    programa.enroll_beneficiario `.get(..., default)` idiom)."""
+    result = prepare_dossier({})
+    assert result["dossier_prepared"] is True
 
 
 # ---------------------------------------------------------------------------
