@@ -134,19 +134,31 @@ class Checkpointer:
         it is safe to call on every boot (it re-runs only migrations newer than the recorded row).
         On ANY failure the pool is released and the error propagates — the caller
         (`_provision_checkpointer`) turns that into a fail-closed readiness signal in production.
+
+        DSN NORMALIZATION (prod-critical): the platform `DATABASE_URL` convention is a SQLAlchemy
+        `postgresql+asyncpg://...` DSN (Helm's Aurora ExternalSecret, `alembic.ini`). psycopg —
+        which `AsyncPostgresSaver` connects with — cannot parse the `+asyncpg` driver token and
+        raises `ProgrammingError`, which in production would fail the checkpointer CLOSED on EVERY
+        boot (readiness red / webhook refuses to serve). So strip it to the plain `postgresql://`
+        form via the SAME `normalize_dsn` the ADR-0007 audit sink uses — guaranteeing one
+        `DATABASE_URL` is interpreted identically by both the audit sink and the checkpointer in
+        the same pod. A plain `postgresql://` DSN is passed through unchanged.
         """
         # Imported lazily so importing this module never hard-requires the postgres extra
         # (dev/test paths that only touch InMemorySaver / the wrapper stay import-light).
         from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
-        pool_cm = AsyncPostgresSaver.from_conn_string(conn_string)
+        from maezo.gateway.audit_postgres import normalize_dsn
+
+        dsn = normalize_dsn(conn_string)
+        pool_cm = AsyncPostgresSaver.from_conn_string(dsn)
         saver = await pool_cm.__aenter__()
         try:
             await saver.setup()  # idempotent DDL; checkpoint_migrations owns versioning
         except BaseException:
             await pool_cm.__aexit__(*sys.exc_info())
             raise
-        instance = cls(saver=saver, conn_string=conn_string)
+        instance = cls(saver=saver, conn_string=dsn)
         instance._pool_cm = pool_cm
         logger.info("checkpointer_postgres_setup_complete")
         return instance
