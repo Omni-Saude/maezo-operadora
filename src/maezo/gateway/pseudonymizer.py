@@ -1,16 +1,16 @@
-"""PHI Pseudonymization via KEYED HMAC-SHA256 (ADR-0006, ADR-0031).
+"""PHI Pseudonymization via KEYED HMAC-SHA256 (ADR-0006, ADR-0035).
 
 Pseudonymizes protected health information (PHI) fields before data leaves the
 PHI zone. Uses deterministic **keyed** HMAC-SHA256 so the same (key, input) pair
 always produces the same pseudonym — enabling correlation without exposing raw PHI.
 
-Why keyed (ADR-0031): a bare SHA-256 of a low-entropy identifier (a CPF is ~10^9
+Why keyed (ADR-0035): a bare SHA-256 of a low-entropy identifier (a CPF is ~10^9
 valid values after the check digits) is trivially reversible via a precomputed
 table, so an unkeyed digest is NOT an LGPD-grade pseudonym — the mapping must be
 infeasible to reverse without a secret. HMAC with a vault-injected key makes the
 pseudonym irreversible to anyone who does not hold `PHI_HMAC_KEY`.
 
-Fail-closed policy (ADR-0031, mirrors `webhooks/service.py`'s DATABASE_URL fence
+Fail-closed policy (ADR-0035, mirrors `webhooks/service.py`'s DATABASE_URL fence
 and `runtime/inference.py`'s "no silent fallback"):
   - key present               -> keyed HMAC with the real (vault-synced) key.
   - production, key ABSENT     -> `PseudonymizerKeyMissingError` (fail-closed): a
@@ -63,7 +63,7 @@ class PseudonymizerKeyMissingError(RuntimeError):
     """Raised when a PRODUCTION Pseudonymizer is built without a PHI_HMAC_KEY (fail-closed).
 
     A production pod must not silently fall back to an unkeyed/deterministic pseudonym: that
-    would ship the reversible weakness ADR-0031 exists to close. Provision the vault-synced
+    would ship the reversible weakness ADR-0035 exists to close. Provision the vault-synced
     `PHI_HMAC_KEY` (ExternalSecret `phi-hmac-key`, §6.2) before serving PHI-adjacent traffic.
     """
 
@@ -71,7 +71,7 @@ class PseudonymizerKeyMissingError(RuntimeError):
 class Pseudonymizer:
     """Pseudonymizes PHI fields using deterministic **keyed** HMAC-SHA256.
 
-    Prefer the `from_settings` factory in composition roots — it enforces the ADR-0031
+    Prefer the `from_settings` factory in composition roots — it enforces the ADR-0035
     fail-closed policy. The bare constructor is for explicit key injection (and for the
     dev/CI/tests default, which uses a non-secret deterministic DEV key — never plain SHA-256).
 
@@ -97,10 +97,8 @@ class Pseudonymizer:
         self._key: bytes = key if key is not None else _derive_dev_key("__dev__")
 
     @classmethod
-    def from_settings(
-        cls, *, phi_hmac_key: str | None, production: bool, tenant_id: str
-    ) -> Pseudonymizer:
-        """Construct per the ADR-0031 fail-closed policy from runtime settings.
+    def from_settings(cls, *, phi_hmac_key: str | None, production: bool, tenant_id: str) -> Pseudonymizer:
+        """Construct per the ADR-0035 fail-closed policy from runtime settings.
 
         Args:
             phi_hmac_key: The vault-synced `PHI_HMAC_KEY` (None/empty when not provisioned).
@@ -120,7 +118,7 @@ class Pseudonymizer:
             raise PseudonymizerKeyMissingError(
                 "PHI_HMAC_KEY is absent but the runtime is in production mode: refusing to "
                 "construct a Pseudonymizer that would fall back to a deterministic/reversible "
-                "pseudonym (ADR-0031 fail-closed). Provision the vault-synced PHI_HMAC_KEY "
+                "pseudonym (ADR-0035 fail-closed). Provision the vault-synced PHI_HMAC_KEY "
                 "(ExternalSecret `phi-hmac-key`, §6.2) before serving PHI-adjacent traffic."
             )
         logger.warning(
@@ -149,9 +147,7 @@ class Pseudonymizer:
         for key, value in data.items():
             if key in PHI_FIELDS:
                 if value is not None and value != "":
-                    digest = hmac.new(
-                        self._key, str(value).encode("utf-8"), hashlib.sha256
-                    ).hexdigest()
+                    digest = hmac.new(self._key, str(value).encode("utf-8"), hashlib.sha256).hexdigest()
                     result[key] = digest
                     logger.debug("phi_pseudonymized", field=key)
                 else:

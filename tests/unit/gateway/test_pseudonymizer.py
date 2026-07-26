@@ -1,9 +1,19 @@
-"""Unit tests for maezo.gateway.pseudonymizer — PHI Pseudonymization (ADR-0006).
+"""Unit tests for maezo.gateway.pseudonymizer — PHI Pseudonymization (ADR-0006, ADR-0035).
 
 TDD London School: tests written BEFORE implementation.
 """
 
-from maezo.gateway.pseudonymizer import Pseudonymizer
+import hashlib
+import hmac
+
+import pytest
+import structlog
+
+from maezo.gateway.pseudonymizer import (
+    Pseudonymizer,
+    PseudonymizerKeyMissingError,
+    _derive_dev_key,
+)
 
 
 def test_pseudonymize_removes_phi() -> None:
@@ -94,3 +104,97 @@ def test_pseudonymize_phi_fields_frozenset() -> None:
     assert "nome" in PHI_FIELDS
     assert "telefone" in PHI_FIELDS
     assert "email" in PHI_FIELDS
+
+
+# --- ADR-0035: keyed HMAC-SHA256 + fail-closed policy ------------------------------------------
+
+_CPF = "12345678901"
+
+
+def _plain_sha256(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def test_keyed_output_is_not_plain_sha256() -> None:
+    """SECURITY (ADR-0035): a keyed pseudonym must NOT equal the reversible unkeyed sha256(cpf).
+
+    This is the reversibility-closed invariant: an attacker with a precomputed sha256 table of
+    all ~10^9 valid CPFs must not be able to reverse the pseudonym.
+    """
+    keyed = Pseudonymizer(key=b"real-vault-key").pseudonymize({"cpf": _CPF})["cpf"]
+    assert keyed != _plain_sha256(_CPF)
+    # It IS an HMAC of the cpf under that key (proves keying, not some other transform).
+    expected = hmac.new(b"real-vault-key", _CPF.encode("utf-8"), hashlib.sha256).hexdigest()
+    assert keyed == expected
+
+
+def test_keyed_output_differs_from_unkeyed_for_same_cpf() -> None:
+    """Keyed HMAC output != plain sha256 output for the SAME cpf (the core weakness closed)."""
+    keyed = Pseudonymizer(key=b"k").pseudonymize({"cpf": _CPF})["cpf"]
+    assert keyed != _plain_sha256(_CPF)
+
+
+def test_same_key_same_token() -> None:
+    """Deterministic WITHIN a key: same key + same input -> same token (correlation preserved)."""
+    a = Pseudonymizer(key=b"shared").pseudonymize({"cpf": _CPF})["cpf"]
+    b = Pseudonymizer(key=b"shared").pseudonymize({"cpf": _CPF})["cpf"]
+    assert a == b
+
+
+def test_different_key_different_token() -> None:
+    """Different key -> different token for the same input (proves it is actually keyed)."""
+    a = Pseudonymizer(key=b"key-A").pseudonymize({"cpf": _CPF})["cpf"]
+    b = Pseudonymizer(key=b"key-B").pseudonymize({"cpf": _CPF})["cpf"]
+    assert a != b
+
+
+def test_from_settings_keyed_uses_provided_key() -> None:
+    """from_settings with a key -> HMAC under exactly that key."""
+    p = Pseudonymizer.from_settings(phi_hmac_key="vault-key", production=True, tenant_id="amh")
+    token = p.pseudonymize({"cpf": _CPF})["cpf"]
+    assert token == hmac.new(b"vault-key", _CPF.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def test_prod_absent_key_fails_closed() -> None:
+    """SECURITY-CRITICAL (ADR-0035): production + absent key MUST raise (fail-closed).
+
+    Mutation-mind: revert `from_settings` to return a Pseudonymizer instead of raising here and
+    this test goes RED — the reversible-in-prod weakness would ship silently otherwise.
+    """
+    with pytest.raises(PseudonymizerKeyMissingError):
+        Pseudonymizer.from_settings(phi_hmac_key=None, production=True, tenant_id="amh")
+    # Empty string is treated the same as absent (an env set to "" is not a key).
+    with pytest.raises(PseudonymizerKeyMissingError):
+        Pseudonymizer.from_settings(phi_hmac_key="", production=True, tenant_id="amh")
+
+
+def test_local_absent_key_deterministic_fallback_with_warning() -> None:
+    """dev/local + absent key -> deterministic per-tenant DEV key + loud warning, NO raise."""
+    with structlog.testing.capture_logs() as logs:
+        p1 = Pseudonymizer.from_settings(phi_hmac_key=None, production=False, tenant_id="amh")
+    # Loud warning emitted (the ".env vazia em dev" convention, made visible).
+    assert any(
+        e.get("event") == "phi_pseudonymizer_dev_fallback_key" and e.get("log_level") == "warning"
+        for e in logs
+    )
+    # Deterministic across constructions in the same tenant.
+    p2 = Pseudonymizer.from_settings(phi_hmac_key=None, production=False, tenant_id="amh")
+    assert p1.pseudonymize({"cpf": _CPF})["cpf"] == p2.pseudonymize({"cpf": _CPF})["cpf"]
+    # ...and it is the deterministic per-tenant DEV key (HMAC, never plain sha256).
+    dev_token = p1.pseudonymize({"cpf": _CPF})["cpf"]
+    assert dev_token == hmac.new(_derive_dev_key("amh"), _CPF.encode("utf-8"), hashlib.sha256).hexdigest()
+    assert dev_token != _plain_sha256(_CPF)
+
+
+def test_dev_fallback_is_per_tenant() -> None:
+    """Distinct tenants get distinct dev pseudonyms (no cross-tenant collision in dev)."""
+    amh = Pseudonymizer.from_settings(phi_hmac_key=None, production=False, tenant_id="amh")
+    other = Pseudonymizer.from_settings(phi_hmac_key=None, production=False, tenant_id="other")
+    assert amh.pseudonymize({"cpf": _CPF})["cpf"] != other.pseudonymize({"cpf": _CPF})["cpf"]
+
+
+def test_bare_constructor_default_is_not_plain_sha256() -> None:
+    """Even the no-arg constructor (LogScrubber/tests default) is keyed HMAC, not reversible sha256."""
+    token = Pseudonymizer().pseudonymize({"cpf": _CPF})["cpf"]
+    assert token != _plain_sha256(_CPF)
+    assert len(token) == 64 and all(c in "0123456789abcdef" for c in token)

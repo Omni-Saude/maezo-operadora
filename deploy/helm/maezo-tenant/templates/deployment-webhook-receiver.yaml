@@ -62,13 +62,13 @@ spec:
                 secretKeyRef:
                   name: maezo-kafka-config
                   key: bootstrap-servers
-            # Production runtime mode (ADR-0031). Any deployed pod is production, so an absent
+            # Production runtime mode (ADR-0035). Any deployed pod is production, so an absent
             # PHI_HMAC_KEY fails closed at Pseudonymizer construction (service.py `_build_dispatcher`).
             # Mirrors `deployment-agent-runtime.yaml`'s AGENT_RUNTIME_MODE: "kubernetes".
             - name: RUNTIME_MODE
               value: "kubernetes"
             {{- if .Values.externalSecrets.enabled }}
-            # PHI pseudonymizer HMAC key (ADR-0006/ADR-0031, res-phi-hmac-env-injection). This is
+            # PHI pseudonymizer HMAC key (ADR-0006/ADR-0035, res-phi-hmac-env-injection). This is
             # the daemon that actually constructs+calls the Pseudonymizer (Helena's dispatch), so
             # the key MUST be injected here — same secret the agent-runtime/worker-daemon read.
             # Same gate as the phi-hmac-key ExternalSecret (`.Values.externalSecrets.enabled`) so

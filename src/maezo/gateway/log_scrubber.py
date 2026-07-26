@@ -8,7 +8,7 @@ Usage with structlog:
     structlog.configure(processors=[LogScrubber(), ...])
 
 The scrubber is a callable structlog processor that intercepts the event_dict,
-replaces PHI field values with keyed HMAC-SHA256 pseudonyms (ADR-0031), and
+replaces PHI field values with keyed HMAC-SHA256 pseudonyms (ADR-0035), and
 returns the cleaned dict.
 """
 
@@ -36,7 +36,7 @@ class LogScrubber:
     """
 
     def __init__(self, pseudonymizer: Pseudonymizer | None = None) -> None:
-        # Reuse the gateway's keyed pseudonymizer (ADR-0031). A production log config should
+        # Reuse the gateway's keyed pseudonymizer (ADR-0035). A production log config should
         # inject the SAME keyed instance the gateway uses (`Pseudonymizer.from_settings(...)`);
         # the bare default is the non-secret deterministic DEV pseudonymizer (keyed HMAC, never
         # plain SHA-256) so local/CI logging works without provisioning a secret.
