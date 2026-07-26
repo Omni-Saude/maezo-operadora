@@ -46,6 +46,18 @@ def _stub_a2a_audit_sink_probe(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(svc, "_probe_a2a_audit_sink", _ok)
 
 
+@pytest.fixture(autouse=True)
+def _allow_unsigned_a2a_cards_in_dev(monkeypatch: pytest.MonkeyPatch) -> None:
+    """F2: bring-up assembles the Helena->Rafael A2A edge in the default (dev/"local")
+    `agent_runtime_mode` with no Card-signing key. The composition root now REFUSES to build an
+    UNSIGNED dispatcher unless the explicit non-production opt-out is set (no silent downgrade) — so
+    set it here: these health-daemon tests deliberately exercise the dev/unsigned assembly path, and
+    the opt-out is exactly the explicit dev signal F2 requires. Also delenv the signing key so this
+    suite never depends on ambient env state."""
+    monkeypatch.setenv("MAEZO_A2A_ALLOW_UNSIGNED_CARDS", "1")
+    monkeypatch.delenv("MAEZO_A2A_CARD_SIGNING_KEY", raising=False)
+
+
 # ---------------------------------------------------------------------------
 # _bring_up_dependencies — against the real spec/ tree (helena is a real agent)
 # ---------------------------------------------------------------------------
@@ -275,6 +287,27 @@ async def test_a2a_dispatcher_ready_unhealthy_without_database_url() -> None:
     result = await checks["a2a_dispatcher_ready"]()
     assert result.healthy is False
     assert "audit_sink" in (state.a2a_dispatcher_error or "")
+
+
+async def test_a2a_dispatcher_ready_red_in_production_without_signing_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """F2 (daemon level): in PRODUCTION runtime mode (`agent_runtime_mode="kubernetes"`, as Helm
+    injects) with no Card-signing key, the composition fail-CLOSES — so the daemon comes up with
+    `a2a_dispatcher_ready` RED (never silently healthy on an unsigned edge), and the recorded error
+    names the missing signing key. The module's autouse dev opt-out is IGNORED in production, which
+    is exactly the un-bypassable property F2 guarantees."""
+    monkeypatch.delenv("MAEZO_A2A_CARD_SIGNING_KEY", raising=False)
+    state = _state(
+        settings=AgentRuntimeSettings(
+            agent_id="rafael", tenant_id="amh", database_url=_DSN, agent_runtime_mode="kubernetes"
+        )
+    )
+    await _bring_up_dependencies(state)
+    checks = {c.__name__: c for c in build_readiness_checks(state)}
+    result = await checks["a2a_dispatcher_ready"]()
+    assert result.healthy is False
+    assert "signing key" in (state.a2a_dispatcher_error or "")
 
 
 async def test_all_readiness_checks_healthy_after_real_bring_up() -> None:

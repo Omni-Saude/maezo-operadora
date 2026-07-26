@@ -155,7 +155,7 @@ class TestRoot:
         ],
     )
     def test_root_rejects_embedded_formatted_cpf_cnpj_in_payload_ref(self, embedded: str) -> None:
-        """W4 defense-in-depth (design doc §10): a canonically-punctuated CPF/CNPJ substring
+        """Defense-in-depth (design doc §10): a canonically-punctuated CPF/CNPJ substring
         embedded inside an otherwise-legitimate URI-style payload_ref is rejected, closing the
         gap where the whole-string check above only catches a payload_ref that IS entirely a raw
         CPF/CNPJ, not one that merely CONTAINS one."""
@@ -163,19 +163,43 @@ class TestRoot:
             _root(payload_ref=embedded)
 
     @pytest.mark.parametrize(
+        "embedded",
+        [
+            "fhir://Patient/12345678901",  # the auditor's named vector: bare 11-digit CPF in a URI
+            "fhir://Coverage/12345678901",
+            "process://patient-12345678901/actions",
+            "https://example.internal/lookup?cpf=12345678901",  # bare CPF in a query param
+            "fhir://Org/12345678901234",  # bare 14-digit CNPJ embedded
+            "fhir://Patient/123456789012345",  # bare 15-digit CNS embedded
+        ],
+    )
+    def test_root_rejects_embedded_bare_cpf_length_digit_run_in_payload_ref(self, embedded: str) -> None:
+        """LOW-2 (the auditor's named gap): a BARE digit run whose length is exactly a Brazilian
+        identifier's (CPF=11, CNPJ=14, CNS=15), embedded inside a URI-style payload_ref, is
+        rejected at the envelope boundary — closing the gap where the whole-string check only
+        caught a payload_ref that IS entirely a raw id, and the punctuated check only caught a
+        canonically-formatted substring. This is the revert-RED guard for the `_BARE_ID_RUN_RE`
+        hardening: without it, `fhir://Patient/12345678901` (a raw CPF) would silently persist into
+        the dispatcher's audit `details`."""
+        with pytest.raises(DelegationError, match="payload_ref"):
+            _root(payload_ref=embedded)
+
+    @pytest.mark.parametrize(
         "safe_ref",
         [
-            "fhir://Patient/12345678901",  # bare 11-digit numeric id — NOT flagged (see rationale)
             "fhir://Coverage/abc-123",
             "process://AUTH-amh-GUIA-0001",
-            "fhir://Patient/123e4567-e89b-12d3-a456-426614174000",  # uuid-shaped
+            "fhir://Patient/123e4567-e89b-12d3-a456-426614174000",  # uuid-shaped (12-digit node)
+            "fhir://Patient/426614174000",  # bare 12-digit id — NOT a BR id length, admissible
+            "fhir://Coverage/1234567890",  # bare 10-digit id — shorter than any BR id, admissible
         ],
     )
     def test_root_accepts_legitimate_refs_without_formatted_cpf_cnpj_substring(self, safe_ref: str) -> None:
         """The narrowly-scoped embedded check must NOT false-positive-reject legitimate
-        FHIR/process references that merely contain digits — only the CANONICALLY-PUNCTUATED
-        CPF/CNPJ shape is rejected (design doc §10's assessment: a bare-digit-run scan was
-        rejected as unsafe precisely because of cases like the first one here)."""
+        FHIR/process references that merely contain digits — only a run whose length EXACTLY matches
+        a Brazilian identifier (11/14/15) is flagged, so an all-digit UUID node (12 digits) or any
+        other non-PHI-length numeric id stays admissible (design doc §10 rationale: a raw ≥11-digit
+        scan was rejected as unsafe precisely because of the UUID-node case here)."""
         env = _root(payload_ref=safe_ref)
         assert env.payload_ref == safe_ref
 

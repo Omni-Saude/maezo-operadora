@@ -192,12 +192,20 @@ def _phi_capable_inference() -> InferenceProvider:
 
 @pytest.fixture(autouse=True)
 def _no_ambient_card_signing_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    """T-G enforcement (W4): this suite must never depend on an ambient
-    `MAEZO_A2A_CARD_SIGNING_KEY` (same "never depend on ambient env state" rationale as
-    `_phi_capable_inference` above) — the tests that need the key SET do so explicitly within
-    their own body (a later `monkeypatch.setenv` in the same test overrides this fixture's
-    `delenv` for the rest of that test)."""
+    """T-G enforcement: this suite must never depend on an ambient `MAEZO_A2A_CARD_SIGNING_KEY`
+    (same "never depend on ambient env state" rationale as `_phi_capable_inference` above) — the
+    tests that need the key SET do so explicitly within their own body (a later
+    `monkeypatch.setenv` in the same test overrides this fixture's `delenv` for the rest of that
+    test).
+
+    F2: the unsigned dev-path tests here run in the default `agent_runtime_mode="local"` with no
+    key, and the composition root now REFUSES to build an unsigned dispatcher unless the explicit
+    non-production opt-out is set. Set it for the suite: these tests deliberately exercise the
+    dev/unsigned path (`build_auth_delegation_dispatcher` without a key), so the opt-out is exactly
+    the explicit signal F2 requires. It is IGNORED by the key-present T-G tests below (a present key
+    always wins)."""
     monkeypatch.delenv("MAEZO_A2A_CARD_SIGNING_KEY", raising=False)
+    monkeypatch.setenv("MAEZO_A2A_ALLOW_UNSIGNED_CARDS", "1")
 
 
 async def _fetch_a2a_delegate_rows(dsn: str, tenant_id: str, *, task_id: str) -> list[Any]:
