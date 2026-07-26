@@ -1,7 +1,9 @@
 """Erasure Manager — cascading data deletion by fhir_patient_id (ADR-0002).
 
 Implements LGPD right to erasure (art. 18, VI) with a three-layer cascade:
-1. Working layer: LangGraph checkpointer (PostgreSQL, schema `agents`)
+1. Working layer: LangGraph checkpointer (PostgreSQL, tables `checkpoints` /
+   `checkpoint_blobs` / `checkpoint_writes` -- T3.4 F4 correction; NOT a schema literally
+   named `agents`, and NOT `agent_checkpoints`/`agent_checkpoint_writes`)
 2. Episodic layer: Transcripts/decisions/events partition by fhir_patient_id
 3. Semantic layer: pgvector embeddings
 
@@ -79,7 +81,8 @@ class ErasureManager:
     """Manages cascading data erasure across three storage layers.
 
     ADR-0002 mandates that erasure by fhir_patient_id must cascade through:
-    1. Working (LangGraph checkpointer — PostgreSQL `agents` schema)
+    1. Working (LangGraph checkpointer — PostgreSQL `checkpoints`/`checkpoint_blobs`/
+       `checkpoint_writes` tables, T3.4 F4 correction)
     2. Episodic (transcripts, decisions, events partitioned by fhir_patient_id)
     3. Semantic (pgvector embeddings referencing FHIR resources)
 
@@ -190,9 +193,17 @@ class ErasureManager:
     def _erase_working(self, tenant_id: str, fhir_patient_id: str) -> None:
         """Erase working layer (LangGraph checkpoint) data.
 
-        In production, this executes:
-            DELETE FROM agents.checkpoints WHERE fhir_patient_id = :pid
-            DELETE FROM agents.checkpoint_writes WHERE fhir_patient_id = :pid
+        T3.4 F4 correction: the REAL langgraph-checkpoint-postgres tables are `checkpoints`,
+        `checkpoint_blobs`, and `checkpoint_writes` (provisioned by `PostgresSaver.setup()`,
+        not Alembic -- see `platform/migrations/versions/0006_retire_dead_checkpoint_tables.py`).
+        `agents.checkpoints` / `agents.checkpoint_writes` (this docstring's prior text) were
+        never real tables. Note these tables are keyed by `thread_id` / `checkpoint_ns`, NOT by
+        `fhir_patient_id` -- there is no `fhir_patient_id` column to filter on directly; a real
+        implementation would need a thread_id -> fhir_patient_id mapping to erase by patient.
+        In production, this would execute (illustrative, pending that mapping):
+            DELETE FROM checkpoints WHERE thread_id = ANY(:thread_ids)
+            DELETE FROM checkpoint_blobs WHERE thread_id = ANY(:thread_ids)
+            DELETE FROM checkpoint_writes WHERE thread_id = ANY(:thread_ids)
 
         Args:
             tenant_id: The tenant scope.
@@ -243,8 +254,11 @@ class ErasureManager:
     def _verify_working(self, tenant_id: str, fhir_patient_id: str) -> bool:
         """Verify working layer is clean.
 
-        In production, this executes:
-            SELECT COUNT(*) FROM agents.checkpoints WHERE fhir_patient_id = :pid
+        T3.4 F4 correction: the REAL table is `checkpoints` (plus `checkpoint_blobs` /
+        `checkpoint_writes`), not `agents.checkpoints` -- see `_erase_working` for the
+        thread_id-vs-fhir_patient_id keying caveat. In production, this would execute
+        (illustrative, pending a thread_id -> fhir_patient_id mapping):
+            SELECT COUNT(*) FROM checkpoints WHERE thread_id = ANY(:thread_ids)
 
         Returns True if no rows remain.
 
