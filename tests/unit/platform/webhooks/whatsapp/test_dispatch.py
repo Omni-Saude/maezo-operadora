@@ -5,12 +5,10 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-
 from langgraph.checkpoint.memory import InMemorySaver
 
 from maezo.agents.helena.graph import HELENA_INPUT_FIELDS
 from maezo.gateway.pseudonymizer import Pseudonymizer
-from maezo.runtime.checkpoint import Checkpointer, checkpoint_thread_config
 from maezo.platform.webhooks.whatsapp import dispatch as dispatch_module
 from maezo.platform.webhooks.whatsapp.dispatch import (
     HelenaDispatcher,
@@ -18,6 +16,7 @@ from maezo.platform.webhooks.whatsapp.dispatch import (
     _ScopedWhatsAppSender,
     extract_inbound_messages,
 )
+from maezo.runtime.checkpoint import Checkpointer, checkpoint_thread_config
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from tests.support.audit_fakes import FakeStartAuditSink
@@ -251,7 +250,9 @@ def _info_dispatcher(checkpointer: Checkpointer | None, *, turns: int = 4) -> He
     )
 
 
-async def test_dispatch_with_checkpointer_uses_phi_safe_thread_config(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_dispatch_with_checkpointer_uses_phi_safe_thread_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """With a checkpointer wired, the graph is compiled checkpoint-enabled and invoked under a
     thread config keyed by the HASHED `wa:{tenant}:{phone_hash}` conversation id — never the raw
     phone number (LGPD; the PHI-bearing `checkpoint_blobs` rows are keyed by this thread id)."""
@@ -294,7 +295,9 @@ async def test_dispatch_multi_turn_same_identity_resumes_distinct_identity_fresh
     assert await saver.aget_tuple(cfg) is not None  # turn 1 persisted a checkpoint
     hist_after_1 = [c async for c in saver.alist(cfg)]
 
-    r2 = await dispatcher.dispatch(InboundMessage(from_number="5511999999999", text="de novo", message_id="m2"))
+    r2 = await dispatcher.dispatch(
+        InboundMessage(from_number="5511999999999", text="de novo", message_id="m2")
+    )
     assert r2["conversation_id"] == conv  # same identity -> same thread
     hist_after_2 = [c async for c in saver.alist(cfg)]
     assert len(hist_after_2) > len(hist_after_1)  # state accumulated across turns (resume)
