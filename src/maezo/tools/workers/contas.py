@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from maezo.tools.mcp_cibseven.transport import AgentDecisionProvenance, start_process_idempotent
-from maezo.tools.workers.base import FunctionWorker, pick_fields
+from maezo.tools.workers.base import FunctionWorker, non_blank, pick_fields
 from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row, require_dmn
 from maezo.tools.workers.harness import AUDIT_AGENT_ID, _resolve_app_version
 
@@ -475,24 +475,37 @@ def start_recurso(
       - missing engine seam (``engine is None`` — composition root not wired) raises (transient);
       - missing audit seam (``audit_sink is None``) raises (transient) — RECURSO-001 can never
         start un-audited (ADR-0007 L0);
-      - missing glosa identity raises ``ContasRecursoSemGlosaError`` (deterministic -> incident) —
-        never a start under an empty/garbage business key.
+      - missing/blank/None business-key anchor (``tenant_id``/``glosa_id``/``numero_guia_tiss``)
+        raises ``ContasRecursoSemGlosaError`` (deterministic -> incident) — never a start under an
+        empty/degenerate business key. EB-4 R1 finding: anchors are validated with the SHARED
+        `non_blank` (the bridge's own semantics) — plain `str(...)` truthiness would let a
+        whitespace-only anchor or an explicit ``None`` (`str(None) == "None"`) through, minting
+        degenerate keys like ``RECURSO--GUIA-…-None``.
     """
+    # non_blank BEFORE str(): explicit None must refuse, never stringify to the truthy "None".
+    if not (
+        non_blank(variables.get("tenant_id"))
+        and non_blank(variables.get("glosa_id"))
+        and non_blank(variables.get("numero_guia_tiss"))
+    ):
+        # No usable business-key anchor -> cannot key RECURSO-001 -> refuse (deterministic bad
+        # input, never a start under an empty/whitespace/None-degenerate business key).
+        logger.error(
+            "contas_start_recurso_no_glosa_identity",
+            tenant_id=str(variables.get("tenant_id", "")),
+        )
+        raise ContasRecursoSemGlosaError(
+            "start_recurso: tenant_id/glosa_id/numero_guia_tiss ausente, em branco ou None — nao "
+            "ha ancora de business key para iniciar RECURSO-001 (recusado, nunca inicia com "
+            "business key vazia/degenerada)"
+        )
+
     tenant_id = str(variables.get("tenant_id", ""))
     glosa_id = str(variables.get("glosa_id", ""))
     numero_guia_tiss = str(variables.get("numero_guia_tiss", ""))
     glosa_type = str(variables.get("glosa_type", ""))
     documentacao_anexa = bool(variables.get("documentacao_anexa", False))
     numero_lote_tiss = str(variables.get("numero_lote_tiss", ""))
-
-    if not (glosa_id and numero_guia_tiss):
-        # No glosa identity -> cannot key RECURSO-001 -> refuse (deterministic bad input, never a
-        # start under an empty business key).
-        logger.error("contas_start_recurso_no_glosa_identity", tenant_id=tenant_id)
-        raise ContasRecursoSemGlosaError(
-            "start_recurso: sem glosa_id/numero_guia_tiss — nao ha identidade de glosa para "
-            "iniciar RECURSO-001 (recusado, nunca inicia com business key vazia)"
-        )
 
     if engine is None:
         logger.error("contas_start_recurso_engine_seam_not_wired", glosa_id=glosa_id)

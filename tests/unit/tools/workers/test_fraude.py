@@ -700,6 +700,32 @@ def test_start_credenciamento_fail_closed_seams_and_target() -> None:
     assert exc.value.code == ERR_FRAUDE_HANDOFF_SEM_ALVO
 
 
+@pytest.mark.parametrize(
+    "variables",
+    [
+        {"tenant_id": "amh", "prestador_id": "   "},  # whitespace-only anchor
+        {"tenant_id": "amh", "prestador_id": None},  # explicit None -> "None" must NOT slip through
+        {"tenant_id": "", "prestador_id": "P-1"},  # blank tenant -> CRED--P-1 degenerate key
+        {"tenant_id": "  ", "prestador_id": "P-1"},
+        {"tenant_id": None, "prestador_id": "P-1"},
+    ],
+    ids=["prestador-ws", "prestador-none", "tenant-empty", "tenant-ws", "tenant-none"],
+)
+def test_start_credenciamento_refuses_degenerate_anchors_before_any_engine_call(
+    variables: dict[str, object],
+) -> None:
+    """EB-4 R1 finding: whitespace-only / explicit-None prestador_id and blank/None tenant_id all
+    refuse (`_non_blank` semantics, shared with the bridge) BEFORE any engine call — no start,
+    no audit row, never a degenerate business key like `CRED-amh-None` / `CRED--P-1`."""
+    engine = FakeCibSevenTransport()
+    sink = FakeStartAuditSink()
+    with pytest.raises(FraudeError) as exc:
+        start_credenciamento(dict(variables), engine=engine, audit_sink=sink)
+    assert exc.value.code == ERR_FRAUDE_HANDOFF_SEM_ALVO
+    assert sink.dedup_keys == []  # emit-before-effect: refusal precedes ANY audit/engine call
+    assert sink.records == []
+
+
 def test_start_credenciamento_idempotent() -> None:
     engine = FakeCibSevenTransport()
     engine.seed_instance(
@@ -773,6 +799,33 @@ def test_start_contratual_fail_closed_seams_and_target() -> None:
             {"tenant_id": "amh"}, engine=FakeCibSevenTransport(), audit_sink=FakeStartAuditSink()
         )
     assert exc.value.code == ERR_FRAUDE_HANDOFF_SEM_ALVO
+
+
+@pytest.mark.parametrize(
+    "variables",
+    [
+        {"tenant_id": "amh", "numero_contrato": "   "},  # whitespace-only anchor
+        {"tenant_id": "amh", "numero_contrato": None},  # explicit None -> "None" must NOT slip
+        {"tenant_id": "", "numero_contrato": "C-1"},  # blank tenant -> CANCEL--C-1 degenerate key
+        {"tenant_id": "  ", "numero_contrato": "C-1"},
+        {"tenant_id": None, "numero_contrato": "C-1"},
+    ],
+    ids=["contrato-ws", "contrato-none", "tenant-empty", "tenant-ws", "tenant-none"],
+)
+def test_start_contratual_refuses_degenerate_anchors_before_any_engine_call(
+    variables: dict[str, object],
+) -> None:
+    """EB-4 R1 finding: whitespace-only / explicit-None numero_contrato and blank/None tenant_id
+    all refuse (`_non_blank` semantics, shared with the bridge) BEFORE any engine call — no
+    CANCEL/INADIMPLENCIA start, no audit row, never a degenerate business key like
+    `CANCEL-amh-None` / `INAD--C-1`."""
+    engine = FakeCibSevenTransport()
+    sink = FakeStartAuditSink()
+    with pytest.raises(FraudeError) as exc:
+        start_contratual(dict(variables) | {"entidade_tipo": "contrato"}, engine=engine, audit_sink=sink)
+    assert exc.value.code == ERR_FRAUDE_HANDOFF_SEM_ALVO
+    assert sink.dedup_keys == []  # emit-before-effect: refusal precedes ANY audit/engine call
+    assert sink.records == []
 
 
 # ---------------------------------------------------------------

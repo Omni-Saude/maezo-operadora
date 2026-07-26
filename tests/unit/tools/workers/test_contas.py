@@ -457,6 +457,41 @@ def test_start_recurso_refuses_without_glosa_identity() -> None:
     assert sink.dedup_keys == []  # emit-before-effect: no audit, no start
 
 
+@pytest.mark.parametrize(
+    "over",
+    [
+        {"glosa_id": "   "},  # whitespace-only anchor
+        {"numero_guia_tiss": "\t "},  # whitespace-only anchor
+        {"glosa_id": None},  # explicit None (str(None)=="None" is truthy — must NOT slip through)
+        {"numero_guia_tiss": None},
+        {"tenant_id": ""},  # blank tenant -> RECURSO--GUIA-…-GLOSA-… degenerate key forbidden
+        {"tenant_id": "   "},
+        {"tenant_id": None},
+    ],
+    ids=[
+        "glosa-ws",
+        "guia-ws",
+        "glosa-none",
+        "guia-none",
+        "tenant-empty",
+        "tenant-ws",
+        "tenant-none",
+    ],
+)
+def test_start_recurso_refuses_degenerate_anchors_before_any_engine_call(
+    over: dict[str, object],
+) -> None:
+    """EB-4 R1 finding: whitespace-only / explicit-None anchors and a blank/None tenant_id all
+    refuse (`_non_blank` semantics, shared with the bridge) BEFORE any engine call — no start
+    attempted, no audit emitted, never a degenerate business key like `RECURSO--G-None`."""
+    engine = FakeCibSevenTransport()
+    sink = FakeStartAuditSink()
+    with pytest.raises(ContasRecursoSemGlosaError):
+        start_recurso(_recurso_vars(**over), engine=engine, audit_sink=sink)
+    assert sink.dedup_keys == []  # emit-before-effect: refusal precedes ANY audit/engine call
+    assert sink.records == []
+
+
 # ---------------------------------------------------------------------------
 # reconcile_payment
 # ---------------------------------------------------------------------------

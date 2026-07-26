@@ -24,7 +24,7 @@ import structlog
 
 from maezo.gateway.custody import CustodyBundle
 from maezo.tools.mcp_cibseven.transport import AgentDecisionProvenance, start_process_idempotent
-from maezo.tools.workers.base import FunctionWorker
+from maezo.tools.workers.base import FunctionWorker, non_blank
 from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row, require_dmn
 from maezo.tools.workers.harness import AUDIT_AGENT_ID, _resolve_app_version
 
@@ -702,17 +702,23 @@ def start_credenciamento(
     entidade_tipo=prestador). CRED-001 owns its OWN human-gated adverse UT — FRAUDE NUNCA
     auto-descredencia. Starts CRED-001 (business key ``CRED-{tenant}-{prestador_id}``) through the
     fenced ``start_process_idempotent`` chokepoint (ADR-0007 emit-before-effect, T-C2). Was a stub
-    returning a marker dict (NO start). FAIL-CLOSED on missing engine/audit seam or missing
-    prestador_id (never a start under an empty business key)."""
-    tenant_id = str(variables.get("tenant_id", ""))
-    prestador_id = str(variables.get("prestador_id", ""))
-    if not prestador_id:
-        logger.error("fraude_start_credenciamento_no_prestador", tenant_id=tenant_id)
+    returning a marker dict (NO start). FAIL-CLOSED on missing engine/audit seam or a missing/
+    blank/None ``tenant_id``/``prestador_id`` anchor (EB-4 R1: validated with the SHARED
+    `non_blank`, the bridge's own semantics — never a degenerate key like ``CRED-{t}-None``)."""
+    # non_blank BEFORE str(): explicit None must refuse, never stringify to the truthy "None".
+    if not (non_blank(variables.get("tenant_id")) and non_blank(variables.get("prestador_id"))):
+        logger.error(
+            "fraude_start_credenciamento_no_prestador",
+            tenant_id=str(variables.get("tenant_id", "")),
+        )
         raise FraudeError(
             ERR_FRAUDE_HANDOFF_SEM_ALVO,
-            "start_credenciamento: sem prestador_id — nao ha alvo para iniciar CRED-001 (recusado, "
-            "nunca inicia com business key vazia)",
+            "start_credenciamento: tenant_id/prestador_id ausente, em branco ou None — nao ha "
+            "ancora de business key para iniciar CRED-001 (recusado, nunca inicia com business "
+            "key vazia/degenerada)",
         )
+    tenant_id = str(variables.get("tenant_id", ""))
+    prestador_id = str(variables.get("prestador_id", ""))
     business_key = _cred_business_key(tenant_id, prestador_id)
     payload: dict[str, Any] = {
         "tenant_id": tenant_id,
@@ -771,18 +777,24 @@ def start_contratual(
     adverse UTs — FRAUDE NUNCA auto-rescinde. Matches the two `notification_bridge` rules for
     `fraude.acusacao_registrada`: CANCEL for {beneficiario, contrato}; INADIMPLENCIA additionally
     for {contrato}. Both keyed on ``numero_contrato`` through the fenced chokepoint (ADR-0007). Was a
-    stub returning a marker dict (NO start). FAIL-CLOSED on missing engine/audit seam or missing
-    numero_contrato (never a start under an empty business key)."""
+    stub returning a marker dict (NO start). FAIL-CLOSED on missing engine/audit seam or a missing/
+    blank/None ``tenant_id``/``numero_contrato`` anchor (EB-4 R1: validated with the SHARED
+    `non_blank`, the bridge's own semantics — never a degenerate key like ``CANCEL-{t}-None``)."""
+    # non_blank BEFORE str(): explicit None must refuse, never stringify to the truthy "None".
+    if not (non_blank(variables.get("tenant_id")) and non_blank(variables.get("numero_contrato"))):
+        logger.error(
+            "fraude_start_contratual_no_contrato",
+            tenant_id=str(variables.get("tenant_id", "")),
+        )
+        raise FraudeError(
+            ERR_FRAUDE_HANDOFF_SEM_ALVO,
+            "start_contratual: tenant_id/numero_contrato ausente, em branco ou None — nao ha "
+            "ancora de business key para iniciar CANCEL/INADIMPLENCIA (recusado, nunca inicia "
+            "com business key vazia/degenerada)",
+        )
     tenant_id = str(variables.get("tenant_id", ""))
     numero_contrato = str(variables.get("numero_contrato", ""))
     entidade_tipo = str(variables.get("entidade_tipo", ""))
-    if not numero_contrato:
-        logger.error("fraude_start_contratual_no_contrato", tenant_id=tenant_id)
-        raise FraudeError(
-            ERR_FRAUDE_HANDOFF_SEM_ALVO,
-            "start_contratual: sem numero_contrato — nao ha alvo para iniciar CANCEL/INADIMPLENCIA "
-            "(recusado, nunca inicia com business key vazia)",
-        )
     base_payload: dict[str, Any] = {
         "tenant_id": tenant_id,
         "numero_contrato": numero_contrato,

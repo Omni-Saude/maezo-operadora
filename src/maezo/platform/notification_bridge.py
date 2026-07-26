@@ -66,6 +66,7 @@ from maezo.tools.mcp_cibseven.transport import (
     CibSevenTransport,
     start_process_idempotent,
 )
+from maezo.tools.workers.base import non_blank as _shared_non_blank
 
 logger = structlog.get_logger(__name__)
 
@@ -215,10 +216,13 @@ def _non_blank(value: Any) -> bool:
     so the owning rule's predicate returns `False` and the handoff does not trigger (no start,
     no garbage business key). A non-`None`, non-blank value round-trips through `str(...).strip()`
     unchanged, same as before.
+
+    EB-4 R1 follow-up: the implementation is now the SHARED `tools.workers.base.non_blank` — the
+    single source of truth the 3 fenced-start handoff workers (`contas.start_recurso`,
+    `fraude.start_credenciamento`/`start_contratual`) also use for their anchor/tenant guards, so
+    the bridge predicates and the in-flow workers can never drift on what counts as a valid anchor.
     """
-    if value is None:
-        return False
-    return bool(str(value).strip())
+    return _shared_non_blank(value)
 
 
 # ---------------------------------------------------------------------------
