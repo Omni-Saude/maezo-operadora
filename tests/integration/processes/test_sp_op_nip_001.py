@@ -1850,14 +1850,17 @@ async def test_nip_handoff_end_to_end_starts_ans_submit_via_live_bridge(
     # handoff payload the SAME way the worker would, from the instance's own known synthetic
     # values (start_nip's canonical numero_nip_ans/protocolo_ans, the human's revisor_id is NOT
     # part of handoff_ans_submit's own signature — matches nip.py:327-355 exactly).
+    # tenant_id (T2.6-EB3 part 3): handoff_ans_submit's signature now carries it directly (it no
+    # longer needs to be bolted onto the dict afterward — the prior gap this test's own comment
+    # used to flag is closed at the source).
     numero_nip_ans = inst.get("businessKey", "").removeprefix("NIP-amh-")
     handoff_payload = handoff_ans_submit(
         numero_nip_ans=numero_nip_ans,
         protocolo_ans="PROTO-TESTE-0001",
         decisao_nip="CONCEDER",
         data_recebimento_nip_iso="2026-07-10",
+        tenant_id="amh",
     )
-    handoff_payload["tenant_id"] = "amh"  # boundary: not part of handoff_ans_submit's own output
 
     # Stand-in for the still-missing live consumer (gap (b)): construct the bridge with the REAL
     # fenced starter (never a raw engine call) and feed it the handoff directly.
