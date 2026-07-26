@@ -36,7 +36,11 @@ import asyncpg  # type: ignore[import-untyped]
 import pytest
 
 from maezo.gateway.audit_postgres import PostgresAuditSink, normalize_dsn, schema_for_tenant
-from maezo.platform.notification_bridge import NotificationBridge, build_cibseven_process_starter
+from maezo.platform.notification_bridge import (
+    CONTAS_COMPLETED_EVENT,
+    NotificationBridge,
+    build_cibseven_process_starter,
+)
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from tests.integration.conftest import _apply_migrations, _pg_reachable
 
@@ -109,9 +113,14 @@ async def _fetch_chain_rows(dsn: str, tenant_id: str) -> list[Any]:
 async def test_bridge_handoff_through_fenced_starter_emits_durable_audit_row(
     pg_tenant_schema: tuple[str, str],
 ) -> None:
-    """A REAL bridge handoff (CONTAS->RECURSO, the 5-rule EB-3 part 4 wiring) through the
-    fenced starter durably persists the ADR-0007 audit row BEFORE the (faked) engine effect —
-    proven by querying `audit_chain` directly, not merely by `emit_once` not raising."""
+    """A REAL bridge handoff (CONTAS->RECURSO, the reconciled EB-4 `agents.events.contas.
+    completed`/`desfecho=encaminhada_recurso` rule — this test previously drove the
+    pre-reconciliation `contas.glosa_confirmed` literal, which `notification_bridge.py` no longer
+    registers at all) through the fenced starter durably persists the ADR-0007 audit row BEFORE
+    the (faked) engine effect — proven by querying `audit_chain` directly, not merely by
+    `emit_once` not raising. The payload is a SYNTHETIC enriched one (carries `numero_guia_tiss`,
+    the business-key anchor today's real minimal `event_payload_vars` does not yet emit — EB-4
+    "arming" follow-up note in `notification_bridge.py`)."""
     dsn, tenant_id = pg_tenant_schema
     audit_sink = PostgresAuditSink(dsn, tenant_id)
     transport = FakeCibSevenTransport()
@@ -119,10 +128,10 @@ async def test_bridge_handoff_through_fenced_starter_emits_durable_audit_row(
 
     try:
         results = await bridge.on_event(
-            event_type="contas.glosa_confirmed",
+            event_type=CONTAS_COMPLETED_EVENT,
             payload={
                 "tenant_id": tenant_id,
-                "decisao_contas": "RECORRER",
+                "desfecho": "encaminhada_recurso",
                 "glosa_id": "GLOSA-LIVE-001",
                 "numero_guia_tiss": "GUIA-LIVE-001",
             },
@@ -153,13 +162,13 @@ async def test_bridge_handoff_redelivery_is_idempotent_at_the_audit_layer(
 
     payload = {
         "tenant_id": tenant_id,
-        "decisao_contas": "RECORRER",
+        "desfecho": "encaminhada_recurso",
         "glosa_id": "GLOSA-LIVE-002",
         "numero_guia_tiss": "GUIA-LIVE-002",
     }
     try:
-        first = await bridge.on_event(event_type="contas.glosa_confirmed", payload=dict(payload))
-        second = await bridge.on_event(event_type="contas.glosa_confirmed", payload=dict(payload))
+        first = await bridge.on_event(event_type=CONTAS_COMPLETED_EVENT, payload=dict(payload))
+        second = await bridge.on_event(event_type=CONTAS_COMPLETED_EVENT, payload=dict(payload))
 
         assert first[0].handoff_triggered is True
         assert second[0].handoff_triggered is True

@@ -36,6 +36,15 @@ RECURSO_PROCESS_KEY = "SP-OP-RECURSO-001"
 # Deterministic-input guard: cannot key RECURSO-001 without a glosa identity (fail-closed).
 ERR_CONTAS_RECURSO_SEM_GLOSA = "ERR_CONTAS_RECURSO_SEM_GLOSA"
 
+# Process key of the SP-OP-FRAUDE-001 handoff target (Phase-3 CONTAS→FRAUDE leg) — one active
+# investigation per case, human-gated by FRAUDE-001's own User Tasks. CONTAS never investigates
+# nor accuses: the analyst's ENCAMINHAR_FRAUDE decision (UT_AnalistaContas, L0 hard) only starts
+# the neutral FRAUDE-001 process; the accusation is FRAUDE-001's own human decision.
+FRAUDE_PROCESS_KEY = "SP-OP-FRAUDE-001"
+
+# Deterministic-input guard: cannot key FRAUDE-001 without a target identity (fail-closed).
+ERR_CONTAS_FRAUDE_SEM_ALVO = "ERR_CONTAS_FRAUDE_SEM_ALVO"
+
 
 # ---------------------------------------------------------------------------
 # Error types
@@ -69,6 +78,17 @@ class ContasRecursoSemGlosaError(ValueError):
         super().__init__(
             f"{ERR_CONTAS_RECURSO_SEM_GLOSA}: {detail}" if detail else ERR_CONTAS_RECURSO_SEM_GLOSA
         )
+
+
+class ContasFraudeSemAlvoError(ValueError):
+    """Raised when start_fraude has no target identity to key SP-OP-FRAUDE-001.
+
+    Fail-closed (ERR_CONTAS_FRAUDE_SEM_ALVO): a fraud referral without tenant_id/prestador_id cannot
+    derive a deterministic FRAUDE-001 business key — refuse rather than start under an empty key.
+    """
+
+    def __init__(self, detail: str = "") -> None:
+        super().__init__(f"{ERR_CONTAS_FRAUDE_SEM_ALVO}: {detail}" if detail else ERR_CONTAS_FRAUDE_SEM_ALVO)
 
 
 class ContasLoteInvalidoError(ValueError):
@@ -576,6 +596,160 @@ def start_recurso(
     }
 
 
+def _fraude_business_key(tenant_id: str, numero_caso: str) -> str:
+    """`FRAUDE-{tenant_id}-{numero_caso}` (contract `SP-OP-FRAUDE-001.md` "Business key
+    (idempotencia)") — one active investigation instance per case. IDENTICAL scheme to
+    `notification_bridge._fraude_business_key`, so the in-flow worker start and the (decoupled)
+    Kafka-bridge start (CONTAS→FRAUDE rule) CONVERGE on the SAME instance (idempotent redundancy,
+    never a divergent double-start)."""
+    return f"FRAUDE-{tenant_id}-{numero_caso}"
+
+
+def _fraude_numero_caso_for_handoff(variables: dict[str, Any]) -> str:
+    """Resolve the FRAUDE-001 `numero_caso` business-key anchor for the CONTAS→FRAUDE handoff.
+
+    IDENTICAL derivation to `notification_bridge._fraude_numero_caso_for_contas_handoff` (BK
+    convergence is the L0 requirement): use an already-assigned `numero_caso` when the CONTAS
+    process carries one, else fall back to `prestador_id` (the entity under investigation) — so
+    repeated referrals of the SAME prestador converge on the SAME FRAUDE-001 instance instead of
+    minting a fresh, non-deterministic case id on every forward.
+    """
+    numero_caso = variables.get("numero_caso")
+    if non_blank(numero_caso):
+        return str(numero_caso)
+    return str(variables.get("prestador_id", ""))
+
+
+def start_fraude(
+    variables: dict[str, Any],
+    *,
+    engine: CibSevenTransport | None = None,
+    audit_sink: AuditStartSink | None = None,
+) -> dict[str, Any]:
+    """Neutral handoff (Phase-3 CONTAS→FRAUDE leg): idempotently START SP-OP-FRAUDE-001 when the
+    HUMAN analyst decides ``decisao_contas == ENCAMINHAR_FRAUDE`` (BPMN ``GW_DecisaoContas`` ->
+    ``ST_StartFraude``, fed only by ``UT_AnalistaContas``/``UT_CoordenacaoContasAssume``).
+
+    L0 HARD (ADR-0005/0008): a fraud referral is NEVER auto-flagged — ``indicio_fraude_sinalizado``
+    is informative only; this worker is reached SOLELY downstream of the human ENCAMINHAR_FRAUDE
+    decision (exactly like RECORRER/ACEITAR_GLOSA). CONTAS never investigates nor accuses:
+    FRAUDE-001 owns the accusation via its OWN human User Tasks. This worker starts FRAUDE-001
+    (business key ``FRAUDE-{tenant}-{numero_caso|prestador_id}``) via the shared,
+    business-key-idempotent ``start_process_idempotent`` chokepoint — an already-active
+    investigation for this case is returned unchanged (no duplicate case), and the SAME business
+    key is derived by the ``notification_bridge`` CONTAS→FRAUDE rule (the completed-event
+    re-delivery path) so the two paths CONVERGE, never a divergent double-start.
+
+    T-C2 FENCE (mirrors ``start_recurso``): the chokepoint REQUIRES a durable ``audit_sink`` +
+    ``AgentDecisionProvenance`` — the ADR-0007 start record is emitted exactly-once
+    (dedup key ``{tenant}:start:SP-OP-FRAUDE-001:{business_key}``) BEFORE any engine effect.
+    ``agent_id`` = the stable service identity (``AUDIT_AGENT_ID``), no ``model_id``/
+    ``prompt_version`` (no LLM decides — the analyst's ENCAMINHAR_FRAUDE in ``UT_AnalistaContas``
+    does), and ``decision_basis`` carries ONLY bounded enum/flag tokens; operational identifiers
+    stay in the start ``variables``, bound one-way via the record's ``input_sha256``.
+
+    FAIL-CLOSED (never a silent no-op):
+      - missing engine seam (``engine is None``) raises (transient);
+      - missing audit seam (``audit_sink is None``) raises (transient) — FRAUDE-001 can never
+        start un-audited (ADR-0007 L0);
+      - missing/blank/None business-key anchor (``tenant_id``/``prestador_id``) raises
+        ``ContasFraudeSemAlvoError`` (deterministic -> incident) — never a start under an
+        empty/degenerate business key. Anchors validated with the SHARED ``non_blank`` (the
+        bridge's own semantics) — a whitespace-only anchor or an explicit ``None``
+        (``str(None) == "None"``) is refused, never minting a degenerate ``FRAUDE-{t}-None`` key.
+    """
+    # non_blank BEFORE str(): explicit None must refuse, never stringify to the truthy "None".
+    if not (non_blank(variables.get("tenant_id")) and non_blank(variables.get("prestador_id"))):
+        logger.error(
+            "contas_start_fraude_no_target",
+            tenant_id=str(variables.get("tenant_id", "")),
+        )
+        raise ContasFraudeSemAlvoError(
+            "start_fraude: tenant_id/prestador_id ausente, em branco ou None — nao ha ancora de "
+            "business key para iniciar FRAUDE-001 (recusado, nunca inicia com business key "
+            "vazia/degenerada)"
+        )
+
+    tenant_id = str(variables.get("tenant_id", ""))
+    prestador_id = str(variables.get("prestador_id", ""))
+    numero_caso = _fraude_numero_caso_for_handoff(variables)
+    numero_lote_tiss = str(variables.get("numero_lote_tiss", ""))
+    analista_id = str(variables.get("analista_id", ""))
+    evidencia_refs = variables.get("evidencia_refs", [])
+    if not isinstance(evidencia_refs, list):
+        evidencia_refs = []
+    indicadores_presentes = variables.get("indicadores_presentes", [])
+    if not isinstance(indicadores_presentes, list):
+        indicadores_presentes = []
+
+    if engine is None:
+        logger.error("contas_start_fraude_engine_seam_not_wired", prestador_id=prestador_id)
+        raise RuntimeError(
+            "start_fraude: engine seam (CibSevenTransport) not wired — cannot start FRAUDE-001; "
+            "failing closed to a retry/incident (never a silent no-op)"
+        )
+    if audit_sink is None:
+        logger.error("contas_start_fraude_audit_sink_not_wired", prestador_id=prestador_id)
+        raise RuntimeError(
+            "start_fraude: audit sink (AuditStartSink) not wired — cannot emit the ADR-0007 start "
+            "record, so FRAUDE-001 is NOT started (fail-closed, emit-before-effect); failing to a "
+            "retry/incident (never a silent no-op, never an un-audited start)"
+        )
+
+    business_key = _fraude_business_key(tenant_id, numero_caso)
+    payload: dict[str, Any] = {
+        "tenant_id": tenant_id,
+        "origem_encaminhamento": "contas",
+        "encaminhado_por_id": analista_id,
+        "numero_lote_tiss": numero_lote_tiss,
+        "prestador_id": prestador_id,
+        "numero_caso": numero_caso,
+        "entidade_tipo": "prestador",
+        "evidencia_refs": evidencia_refs,
+        "indicadores_presentes": indicadores_presentes,
+    }
+    provenance = AgentDecisionProvenance(
+        agent_id=AUDIT_AGENT_ID,
+        agent_version=_resolve_app_version(),
+        tenant_id=tenant_id,
+        decision_basis={
+            "decisao_contas": "ENCAMINHAR_FRAUDE",
+            "origem_encaminhamento": "contas",
+            "entidade_tipo": "prestador",
+        },
+        model_id=None,
+        prompt_version=None,
+    )
+    instance = asyncio.run(
+        start_process_idempotent(
+            engine,
+            process_key=FRAUDE_PROCESS_KEY,
+            business_key=business_key,
+            variables=payload,
+            audit_sink=audit_sink,
+            provenance=provenance,
+        )
+    )
+    logger.info(
+        "contas.start_fraude",
+        prestador_id=prestador_id,
+        numero_caso=numero_caso,
+        fraude_business_key=business_key,
+        fraude_instance_id=instance.instance_id,
+        fraude_already_existed=instance.already_existed,
+    )
+    return {
+        "handoff": FRAUDE_PROCESS_KEY,
+        "handoff_executado": True,
+        "processo_destino": FRAUDE_PROCESS_KEY,
+        "prestador_id": prestador_id,
+        "numero_caso": numero_caso,
+        "fraude_business_key": business_key,
+        "fraude_instance_id": instance.instance_id,
+        "fraude_already_existed": instance.already_existed,
+    }
+
+
 def reconcile_payment(
     numero_lote_tiss: str,
     numero_guia_tiss: str,
@@ -662,9 +836,10 @@ def _timestamp_hash() -> str:
 #
 # Topic mapping vs spec/processes/bpmn/SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn
 # (excl. shared/out-of-scope `operadora.events.publish`) — EXACT 1:1 name
-# match for 8 of 9 functions:
+# match for the fenced/handoff functions:
 #   identify_glosa, analyze_reason, calculate_impact, prepare_triage_dossier,
-#   register_glosa_accept (GUARDED), notify_sla_risk, start_recurso, reconcile_payment.
+#   register_glosa_accept (GUARDED), notify_sla_risk, start_recurso, start_fraude
+#   (Phase-3 CONTAS→FRAUDE leg), reconcile_payment.
 # `publish` has no distinct spec topic (its own docstring: "Consumed as
 # operadora.events.publish" — the shared/out-of-scope generic topic, ADR-0026
 # §2b note) — registered under a function-derived topic for registry
@@ -782,6 +957,23 @@ def start_recurso_entry(
     return start_recurso(variables, engine=engine, audit_sink=audit_sink)
 
 
+def start_fraude_entry(
+    variables: dict[str, Any],
+    *,
+    kafka: KafkaPublisher | None = None,
+    engine: CibSevenTransport | None = None,
+    audit_sink: AuditStartSink | None = None,
+) -> dict[str, Any]:
+    """Dict-boundary entry for `operadora.contas.start_fraude` -> `start_fraude` (Phase-3 leg).
+
+    Threads the fenced-start seams (`engine`/`audit_sink`) — start_fraude REALLY starts
+    SP-OP-FRAUDE-001 through the ADR-0007 chokepoint, converging on the SAME business key the
+    notification_bridge CONTAS→FRAUDE rule derives (never a divergent double-start).
+    """
+    del kafka  # unused — start_fraude starts a process, it does not publish a Kafka event
+    return start_fraude(variables, engine=engine, audit_sink=audit_sink)
+
+
 def reconcile_payment_entry(
     variables: dict[str, Any], *, kafka: KafkaPublisher | None = None
 ) -> dict[str, Any]:
@@ -860,6 +1052,12 @@ def register_contas_workers(
         FunctionWorker(
             "operadora.contas.start_recurso",
             functools.partial(start_recurso_entry, kafka=kafka, engine=engine, audit_sink=audit_sink),
+        )
+    )
+    harness.register_worker(
+        FunctionWorker(
+            "operadora.contas.start_fraude",
+            functools.partial(start_fraude_entry, kafka=kafka, engine=engine, audit_sink=audit_sink),
         )
     )
     harness.register_worker(

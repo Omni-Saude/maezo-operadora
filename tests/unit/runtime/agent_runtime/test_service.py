@@ -58,6 +58,22 @@ def _allow_unsigned_a2a_cards_in_dev(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("MAEZO_A2A_CARD_SIGNING_KEY", raising=False)
 
 
+@pytest.fixture(autouse=True)
+def _stub_checkpointer_connect(monkeypatch: pytest.MonkeyPatch) -> None:
+    """T3.4/F4: `_provision_checkpointer` genuinely opens an AsyncPostgresSaver pool + awaited `setup()`
+    (unlike the pre-existing construction-only deps, which are lazy against the dummy `_DSN`). So
+    for every bring-up test that isn't specifically about the checkpointer, stub the connect to
+    fail fast — the default `agent_runtime_mode="local"` then deterministically takes the in-memory
+    fallback (checkpointer_ready GREEN, backend=memory) with NO real network I/O against `_DSN`.
+    The dedicated checkpointer tests below override this within their own body."""
+    import maezo.runtime.agent_runtime.service as svc
+
+    async def _refuse(conn_string: str) -> object:
+        raise ConnectionError("stubbed: no real Postgres in this unit suite")
+
+    monkeypatch.setattr(svc.Checkpointer, "connect_and_setup", classmethod(lambda cls, dsn: _refuse(dsn)))
+
+
 # ---------------------------------------------------------------------------
 # _bring_up_dependencies — against the real spec/ tree (helena is a real agent)
 # ---------------------------------------------------------------------------
@@ -431,3 +447,82 @@ def test_agent_state_is_live_helper() -> None:
     assert state.is_live() is True
     state.live = False
     assert state.is_live() is False
+
+
+# ---------------------------------------------------------------------------
+# checkpointer_ready (T3.4/F4 — durable LangGraph checkpoint persistence, fail-closed)
+# ---------------------------------------------------------------------------
+
+
+async def test_checkpointer_fail_closed_in_production_without_database_url() -> None:
+    """PRODUCTION (`agent_runtime_mode="kubernetes"`) with no DATABASE_URL: NO in-memory fallback —
+    the daemon must not silently run stateless, so `checkpointer_ready` stays RED and the error
+    names the missing durable backend (F2 discipline, mirrors a2a_composition)."""
+    state = _state(
+        settings=AgentRuntimeSettings(agent_id="rafael", tenant_id="amh", agent_runtime_mode="kubernetes")
+    )
+    await _bring_up_dependencies(state)
+
+    assert state.checkpointer_ready is False
+    assert state.checkpointer is None
+    assert "DATABASE_URL" in (state.checkpointer_error or "")
+
+    checks = {c.__name__: c for c in build_readiness_checks(state)}
+    result = await checks["checkpointer_ready"]()
+    assert result.healthy is False
+
+
+async def test_checkpointer_fail_closed_in_production_on_setup_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PRODUCTION with DATABASE_URL set but `setup()`/connect failing: fail CLOSED (no fallback).
+    The autouse `_stub_checkpointer_connect` already makes connect raise — in production that is a
+    RED readiness gate, never a silent in-memory degrade."""
+    state = _state(
+        settings=AgentRuntimeSettings(
+            agent_id="rafael",
+            tenant_id="amh",
+            database_url=_DSN,
+            agent_runtime_mode="kubernetes",
+        )
+    )
+    await _bring_up_dependencies(state)
+
+    assert state.checkpointer_ready is False
+    assert state.checkpointer_backend is None
+    assert "setup failed" in (state.checkpointer_error or "")
+
+    checks = {c.__name__: c for c in build_readiness_checks(state)}
+    assert (await checks["checkpointer_ready"]()).healthy is False
+
+
+async def test_checkpointer_local_fallback_to_memory_with_warning() -> None:
+    """LOCAL/dev with no DATABASE_URL: falls back to an in-memory saver so dev ergonomics work —
+    `checkpointer_ready` GREEN, backend named 'memory' (the warning is emitted by the helper)."""
+    state = _state(
+        settings=AgentRuntimeSettings(agent_id="rafael", tenant_id="amh", agent_runtime_mode="local")
+    )
+    await _bring_up_dependencies(state)
+
+    assert state.checkpointer_ready is True
+    assert state.checkpointer_backend == "memory"
+    assert state.checkpointer is not None
+
+    checks = {c.__name__: c for c in build_readiness_checks(state)}
+    result = await checks["checkpointer_ready"]()
+    assert result.healthy is True
+    assert result.detail == "backend=memory"
+
+
+async def test_checkpointer_local_fallback_to_memory_on_setup_failure() -> None:
+    """LOCAL with a DATABASE_URL that fails to connect: dev still degrades to in-memory (GREEN) —
+    the autouse stub makes connect raise; local mode is permitted to fall back (unlike prod)."""
+    state = _state(
+        settings=AgentRuntimeSettings(
+            agent_id="rafael", tenant_id="amh", database_url=_DSN, agent_runtime_mode="local"
+        )
+    )
+    await _bring_up_dependencies(state)
+
+    assert state.checkpointer_ready is True
+    assert state.checkpointer_backend == "memory"

@@ -84,18 +84,24 @@ async def test_aiokafka_bridge_consumer_consumes_a_real_published_message(
     kafka_bootstrap_servers: str,
 ) -> None:
     """PENDING KAFKA RUNTIME (skips loudly above when unreachable): publish a real
-    `contas.glosa_confirmed` message via `AIOKafkaProducer`, consume it via
-    `AioKafkaBridgeConsumer`, and dispatch it through `handle_bridge_message` against a spy
-    bridge — proving the REAL consumer (not the fake) actually receives and correctly shapes a
-    message a real broker delivered."""
+    `agents.events.contas.completed` message (T4 producer-leg update — this test previously used
+    the pre-EB-4-reconciliation `contas.glosa_confirmed` literal, which `notification_bridge.py`
+    no longer registers AT ALL post-reconciliation; kept it dormant/misleading rather than a
+    genuine live proof) via `AIOKafkaProducer`, consume it via `AioKafkaBridgeConsumer`, and
+    dispatch it through `handle_bridge_message` against a spy bridge — proving the REAL consumer
+    (not the fake) actually receives and correctly shapes a message a real broker delivered. The
+    payload is a SYNTHETIC enriched one (carries `numero_guia_tiss`, the business-key anchor
+    today's real minimal `event_payload_vars` does not yet emit — see the EB-4 "arming" follow-up
+    note in `notification_bridge.py`), matching
+    `tests/unit/platform/integrations/test_notifications_bridge.py`'s `_CONTAS_MESSAGE` fixture."""
     from aiokafka import AIOKafkaProducer  # type: ignore[import-untyped]
 
     group_id = f"eb3-live-probe-{uuid.uuid4().hex[:8]}"
     business_key_suffix = uuid.uuid4().hex[:8]
     message = {
-        "type": "contas.glosa_confirmed",
+        "type": "agents.events.contas.completed",
         "tenant_id": "amh",
-        "decisao_contas": "RECORRER",
+        "desfecho": "encaminhada_recurso",
         "glosa_id": f"GLOSA-{business_key_suffix}",
         "numero_guia_tiss": f"GUIA-{business_key_suffix}",
     }

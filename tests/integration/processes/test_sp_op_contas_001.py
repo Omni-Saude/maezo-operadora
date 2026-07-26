@@ -203,6 +203,7 @@ _DOSSIER_TOPIC = "operadora.contas.prepare_triage_dossier"
 _NOTIFY_SLA_TOPIC = "operadora.contas.notify_sla_risk"
 _REGISTER_ACCEPT_TOPIC = "operadora.contas.register_glosa_accept"
 _START_RECURSO_TOPIC = "operadora.contas.start_recurso"
+_START_FRAUDE_TOPIC = "operadora.contas.start_fraude"  # T4 Phase-3 CONTAS→FRAUDE in-flow worker.
 _RECONCILE_TOPIC = "operadora.contas.reconcile_payment"
 _ORPHAN_PUBLISH_TOPIC = "operadora.contas.publish"  # FINDING 2: registered, no BPMN consumer.
 
@@ -217,6 +218,7 @@ _CONTAS_WORKER_TOPICS = [
     _NOTIFY_SLA_TOPIC,
     _REGISTER_ACCEPT_TOPIC,
     _START_RECURSO_TOPIC,
+    _START_FRAUDE_TOPIC,
     _RECONCILE_TOPIC,
     _ORPHAN_PUBLISH_TOPIC,
 ]
@@ -235,6 +237,7 @@ _END_SEM_GLOSA = "End_SemGlosa"
 _END_ENCAMINHADA_RECURSO = "End_EncaminhadaRecurso"
 _END_GLOSA_ACEITA = "End_GlosaAceitaHumano"
 _END_REENVIADA = "End_Reenviada"
+_END_ENCAMINHADA_FRAUDE = "End_EncaminhadaFraude"  # T4 Phase-3 CONTAS→FRAUDE leg terminal.
 
 _UT_HUMANAS_ACEITE = frozenset({_UT_ANALISTA, _UT_COORDENACAO})
 
@@ -766,6 +769,87 @@ async def test_happy_path_recorrer_handoff_recurso(
     assert contas_probe.has_event(
         _CONTAS_COMPLETED, desfecho="encaminhada_recurso", glosa_id="GLOSA-TESTE-001"
     ), "ST_PublishEncaminhadaRecurso deve emitir completed(desfecho=encaminhada_recurso, glosa_id=...)"
+
+
+async def test_happy_path_encaminhar_fraude_handoff_fraude(
+    engine: EngineRest,
+    contas_probe: ContasEngineProbe,
+    start_contas: Callable[..., Any],
+) -> None:
+    """T4 Phase-3 leg: analista humano decide ENCAMINHAR_FRAUDE => start_fraude (handoff neutro);
+    End_EncaminhadaFraude.
+
+    Prova end-to-end (engine cibseven real, lean stack):
+      - o branch humano decisao_contas==ENCAMINHAR_FRAUDE (GW_DecisaoContas -> ST_StartFraude ->
+        ST_PublishEncaminhadaFraude) alcanca End_EncaminhadaFraude;
+      - ST_PublishEncaminhadaFraude emite completed(desfecho=encaminhada_fraude, prestador_id=...)
+        (o event_payload_vars enriquecido que ARMA a regra CONTAS→FRAUDE do notification_bridge);
+      - o worker in-flow start_fraude iniciou SP-OP-FRAUDE-001 sob a business key CONVERGENTE
+        FRAUDE-amh-PRESTADOR-TESTE-001 (== a que a regra do bridge deriva) — prova de convergencia;
+      - IDEMPOTENCIA: uma segunda instancia CONTAS que encaminha o MESMO prestador converge na
+        MESMA instancia FRAUDE-001 ativa (already_existed) — ZERO double-start (requisito L0).
+    """
+    # start_fraude runs the fenced start_process_idempotent chokepoint against SP-OP-FRAUDE-001,
+    # so its BPMN + DMNs MUST be deployed for the handoff to reach End_EncaminhadaFraude (mirrors
+    # the RECORRER->RECURSO downstream deploy above).
+    await engine.deploy(
+        _REPO / "spec/processes/bpmn/SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn",
+        _REPO / "spec/processes/dmn/fraude_indicadores.dmn",
+        _REPO / "spec/processes/dmn/fraude_routing.dmn",
+        _REPO / "spec/processes/dmn/fraude_sla.dmn",
+        name="SP-OP-FRAUDE-001-qa-contas-handoff",
+    )
+    # Unique prestador per run: the cibseven container persists instances across the whole test
+    # session, so a fixed business key would collide with a prior run's still-active FRAUDE-001.
+    prestador = f"PRESTADOR-FRAUDE-{uuid.uuid4().hex[:8]}"
+    expected_fraude_bk = f"FRAUDE-amh-{prestador}"
+
+    # No FRAUDE-001 instance for this prestador yet.
+    assert await engine.find_active_instances(expected_fraude_bk) == []
+
+    inst = await start_contas(categoria_normalizada="tecnica", has_glosas=True, prestador_id=prestador)
+    iid = inst["id"]
+
+    ut = await _drive_to_analista(engine, contas_probe, iid)
+    assert "auditoria-contas" in ut.candidate_groups
+
+    # HUMAN decision — never auto-flagged (L0 hard): the analyst sets ENCAMINHAR_FRAUDE.
+    await engine.complete_task_as_human(ut.id, {"decisao_contas": "ENCAMINHAR_FRAUDE"})
+    await contas_probe.drain()
+
+    ended = await _await_end(engine, iid)
+    assert _END_ENCAMINHADA_FRAUDE in ended, f"ENCAMINHAR_FRAUDE => End_EncaminhadaFraude. ended={ended}"
+    assert _END_GLOSA_ACEITA not in ended  # never the adverse terminal
+    assert "ST_StartFraude" in ended, "start_fraude deve ter executado nesta instancia"
+    # ST_PublishEncaminhadaFraude (the only task downstream of ST_StartFraude) emits the enriched
+    # completed event that ARMS the bridge's CONTAS→FRAUDE rule.
+    assert contas_probe.has_event(_CONTAS_COMPLETED, desfecho="encaminhada_fraude", prestador_id=prestador), (
+        "ST_PublishEncaminhadaFraude deve emitir completed(desfecho=encaminhada_fraude, prestador_id=...)"
+    )
+
+    # CONVERGENCE: start_fraude started SP-OP-FRAUDE-001 under the SAME business key the bridge
+    # rule derives (FRAUDE-{tenant}-{prestador_id}).
+    fraude_instances = await engine.find_active_instances(expected_fraude_bk)
+    assert len(fraude_instances) == 1, (
+        f"start_fraude deve ter iniciado exatamente 1 SP-OP-FRAUDE-001 sob {expected_fraude_bk}; "
+        f"veio {fraude_instances}"
+    )
+    assert fraude_instances[0]["definitionId"].startswith("SP-OP-FRAUDE-001")
+
+    # IDEMPOTENCY / no double-start: a SECOND CONTAS instance referring the SAME prestador to fraud
+    # converges on the SAME active FRAUDE-001 instance (business-key idempotent chokepoint).
+    inst2 = await start_contas(categoria_normalizada="tecnica", has_glosas=True, prestador_id=prestador)
+    iid2 = inst2["id"]
+    ut2 = await _drive_to_analista(engine, contas_probe, iid2)
+    await engine.complete_task_as_human(ut2.id, {"decisao_contas": "ENCAMINHAR_FRAUDE"})
+    await contas_probe.drain()
+    ended2 = await _await_end(engine, iid2)
+    assert _END_ENCAMINHADA_FRAUDE in ended2
+    still_one = await engine.find_active_instances(expected_fraude_bk)
+    assert len(still_one) == 1 and still_one[0]["id"] == fraude_instances[0]["id"], (
+        "re-encaminhamento do MESMO prestador NAO pode criar uma segunda instancia FRAUDE-001 "
+        f"(convergencia idempotente): antes={fraude_instances}, depois={still_one}"
+    )
 
 
 async def test_happy_path_aceitar_glosa_pelo_analista(
