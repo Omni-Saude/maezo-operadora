@@ -345,6 +345,128 @@ jobs:
         run: docker compose --profile core down -v
 
   # ---------------------------------------------------------------------------
+  # T3.3 W0/W1 — chaos / cross-process resilience: seam-level fault-injection suites
+  # (docs/design/T3.3-chaos-resilience.md, orchestrator-ratified 2026-07-25). These suites
+  # (B1a/B1b/C1-down under tests/integration/chaos/, marked `chaos`) inject faults at the PYTHON
+  # SEAM — monkeypatched `PostgresAuditSink` methods / `CibSevenTransport` call sites against a
+  # `FakeCibSevenTransport` — never a real container kill, never a real CIB Seven engine. This job
+  # therefore brings up ONLY the `postgres` service from the `core` compose profile: a separate,
+  # lean, fast lane that cannot contend with (or be contended by) the `integration` job's full
+  # engine stack — each GitHub Actions job already runs on its own isolated runner, and this job
+  # additionally never touches cibseven/hapi-fhir/kafka at all.
+  #
+  # W2 (container-control chaos — real worker pod-kill / worker-daemon restart / engine restart;
+  # docs/design/T3.3-chaos-resilience.md §4 Wave W2, tests still to be written:
+  # test_pod_kill_handoff.py / test_daemon_restart_readiness.py / test_engine_restart.py) is
+  # DELIBERATELY NOT wired into this job — the ratified §5 policy is that destructive
+  # container-control chaos lands as a SEPARATE, SERIALIZED, NIGHTLY job (mirroring
+  # `evals-nightly`'s `if: github.event_name == 'schedule'` gating below) once W2 is actually
+  # built, so it can never corrupt this job's (or `integration`'s) shared stack state mid-run.
+  # This is a documented placeholder, not a stub job — add a `chaos-nightly` job here (schedule-
+  # gated, its own `docker compose -p chaos` or testcontainers-controlled stack, `-m chaos and
+  # destructive` or a distinct marker) when W2 lands.
+  #
+  # Guard-step pattern mirrors `integration`/`evals` (three-bucket: 0 = run; 4|5 = visible skip;
+  # else = COLLECTION BROKEN fails the job — never masquerade a broken collection as "no tests").
+  chaos:
+    name: chaos (seam-level fault injection, PG-only)
+    runs-on: ubuntu-latest
+    needs: [quality]
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    env:
+      # Same convention as the `integration` job — CI has no local-port collision to avoid.
+      MAEZO_PG_HOST_PORT: "5432"
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990  # v8.3.2
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install dependencies
+        run: uv sync --locked --extra dev
+
+      - name: Check for collectable chaos tests
+        id: guard
+        run: |
+          set +e
+          uv run pytest tests/integration/chaos --collect-only -q -m chaos
+          code=$?
+          set -e
+          echo "collect_code=${code}" >> "$GITHUB_OUTPUT"
+          case "${code}" in
+            0)
+              echo "collect exit ${code}: chaos tests collected — running the real lane"
+              echo "run=true" >> "$GITHUB_OUTPUT"
+              ;;
+            4|5)
+              echo "collect exit ${code}: no chaos tests yet (4 = dir missing, 5 = nothing collected) — visible skip"
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "::error::COLLECTION BROKEN — tests/integration/chaos exists but cannot be collected (pytest --collect-only exit ${code}; 2 = import/collection error). This is NOT 'no tests yet' — failing the job."
+              exit 1
+              ;;
+          esac
+
+      - name: CHAOS LANE SKIPPED (visible)
+        if: steps.guard.outputs.run == 'false'
+        run: |
+          echo "::notice::CHAOS LANE SKIPPED — no chaos-marked tests yet (pytest --collect-only exit ${{ steps.guard.outputs.collect_code }})"
+          {
+            echo "## chaos (seam-level fault injection): SKIPPED"
+            echo ""
+            echo "No collectable \`-m chaos\` tests under \`tests/integration/chaos/\` yet (pytest"
+            echo "--collect-only exit ${{ steps.guard.outputs.collect_code }})."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Start Postgres only (no cibseven — chaos seam suites are PG-only)
+        if: steps.guard.outputs.run == 'true'
+        run: docker compose --profile core up -d postgres
+
+      - name: Wait for Postgres to be healthy
+        if: steps.guard.outputs.run == 'true'
+        run: |
+          echo "Waiting for postgres..."
+          timeout 60 bash -c 'until docker compose exec -T postgres pg_isready -U maezo -d maezo; do sleep 3; done'
+          echo "Postgres healthy."
+
+      - name: Chaos tests (seam-level fault injection)
+        if: steps.guard.outputs.run == 'true'
+        run: uv run pytest tests/integration/chaos -q -m chaos
+
+      - name: Upload chaos test results
+        if: always() && steps.guard.outputs.run == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: chaos-test-results-${{ github.sha }}
+          path: .pytest_cache/
+          retention-days: 7
+
+      - name: Collect Postgres logs on failure
+        if: failure() && steps.guard.outputs.run == 'true'
+        run: docker compose --profile core logs postgres --no-color > chaos-postgres-failure.log
+
+      - name: Upload failure logs
+        if: failure() && steps.guard.outputs.run == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: chaos-postgres-failure-logs-${{ github.sha }}
+          path: chaos-postgres-failure.log
+          retention-days: 3
+
+      - name: Tear down stack
+        if: always() && steps.guard.outputs.run == 'true'
+        run: docker compose --profile core down -v
+
+  # ---------------------------------------------------------------------------
   # Tasy simulator smoke test (ADR-0013 gap #33):
   # Validates that the simulator profile starts and produces CDC events without
   # error. Runs after the core integration job to reuse the already-built images.
