@@ -58,7 +58,7 @@ from __future__ import annotations
 import copy
 import json
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -72,6 +72,7 @@ from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from tests.support.audit_fakes import FakeStartAuditSink
 
 from ._harness import (
+    RunResult,
     assert_expect,
     assert_no_leak,
     load_golden,
@@ -229,7 +230,7 @@ def _live_inference() -> InferenceProvider:
     return InferenceProvider(settings=InferenceSettings(provider="anthropic"))
 
 
-async def _engine_variables(result: Any) -> dict[str, Any]:
+async def _engine_variables(result: RunResult) -> dict[str, Any]:
     """Fetch the variables `start_process` actually shipped to the (fake) engine for this run."""
     business_key = result.state["business_key"]
     status = await result.cibseven.get_process_status(business_key)
@@ -350,7 +351,7 @@ async def test_evl_rafael_03_eval_tier_b_live() -> None:
         fhir=_make_rafael_fhir_fake(),
     )
     compiled = graph.compile_graph().compile()
-    result_state = dict(await compiled.ainvoke(dict(case["input"]["state"])))
+    result_state = dict(await compiled.ainvoke(cast(rafael_graph.RafaelState, dict(case["input"]["state"]))))
     assert_no_leak(result_state.get("dossier"), case["leak_canaries"])
 
 
@@ -472,7 +473,9 @@ async def test_evl_valentina_05_eval_tier_b_live() -> None:
         fhir=_make_summary_fake(),
     )
     compiled = graph.compile_graph().compile()
-    result_state = dict(await compiled.ainvoke(dict(case["input"]["state"])))
+    result_state = dict(
+        await compiled.ainvoke(cast(valentina_graph.ValentinaState, dict(case["input"]["state"])))
+    )
     assert_no_leak(result_state.get("dossier"), case["leak_canaries"])
 
 
@@ -490,13 +493,15 @@ async def test_valentina_llm_failure_on_consented_auto_route_downgrades_to_human
     dmn = FakeDmnTransport()
     register_dmn_fixture(dmn, case.get("dmn_fixture"))
     graph = valentina_graph.ValentinaGraph(
-        inference=_RaisingInference(),
+        inference=cast(InferenceProvider, _RaisingInference()),
         dmn=dmn,
         cibseven=FakeCibSevenTransport(),
         audit_sink=FakeStartAuditSink(),
     )
     compiled = graph.compile_graph().compile()
-    result_state = dict(await compiled.ainvoke(dict(case["input"]["state"])))
+    result_state = dict(
+        await compiled.ainvoke(cast(valentina_graph.ValentinaState, dict(case["input"]["state"])))
+    )
     assert result_state.get("route") == "human_review"
     assert result_state.get("motivo_humano") == "falha_tecnica"
     assert result_state.get("desfecho") == "analise_humana_clinica"
@@ -596,7 +601,7 @@ async def test_evl_marina_03_eval_tier_b_live() -> None:
         fhir=_make_summary_fake(),
     )
     compiled = graph.compile_graph().compile()
-    result_state = dict(await compiled.ainvoke(dict(case["input"]["state"])))
+    result_state = dict(await compiled.ainvoke(cast(marina_graph.MarinaState, dict(case["input"]["state"]))))
     assert_no_leak(result_state.get("dossier"), case["leak_canaries"])
 
 

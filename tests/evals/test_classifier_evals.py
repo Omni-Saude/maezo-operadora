@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import copy
 import json
+from collections.abc import Mapping
 from typing import Any
 
 import pytest
@@ -244,7 +245,7 @@ async def test_evl_helena_07_mutation_check_canary_plant_is_non_vacuous() -> Non
 # ---------------------------------------------------------------------------
 
 
-def _mutate_route_field(case: dict[str, Any], alternates: tuple[str, ...]) -> dict[str, Any]:
+def _mutate_route_field(case: Mapping[str, Any], alternates: tuple[str, ...]) -> dict[str, Any]:
     """Deep-copy `case` with `expect["fields"]["route"]` flipped to a DIFFERENT value from
     `alternates`. Mirrors `_harness.mutate_expected_route`'s shape exactly, just targeting
     `fields["route"]` instead of the top-level `next_kind` key Fernando/Lucas never populate."""
