@@ -112,7 +112,16 @@ def _build_dispatcher(settings: WhatsAppWebhookSettings) -> tuple[HelenaDispatch
         dmn=dmn,
         cibseven=cibseven,
         whatsapp_client=whatsapp_client,
-        pseudonymizer=Pseudonymizer(),
+        # Keyed HMAC pseudonymizer (ADR-0035). Fail-closed: in a production `runtime_mode` an
+        # absent PHI_HMAC_KEY raises `PseudonymizerKeyMissingError` here — caught by
+        # `_bring_up_dependencies`, leaving `state.dispatcher` None so `/webhook` degrades to its
+        # explicit 501 (never a fabricated dispatch, never a reversible unkeyed pseudonym). Same
+        # fence discipline as the DATABASE_URL check above.
+        pseudonymizer=Pseudonymizer.from_settings(
+            phi_hmac_key=settings.phi_hmac_key,
+            production=settings.runtime_mode != _LOCAL_RUNTIME_MODE,
+            tenant_id=settings.tenant_id,
+        ),
         audit_sink=audit_sink,
     )
     return dispatcher, cibseven

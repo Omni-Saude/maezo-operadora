@@ -8,7 +8,8 @@ Usage with structlog:
     structlog.configure(processors=[LogScrubber(), ...])
 
 The scrubber is a callable structlog processor that intercepts the event_dict,
-replaces PHI field values with SHA-256 pseudonyms, and returns the cleaned dict.
+replaces PHI field values with keyed HMAC-SHA256 pseudonyms (ADR-0035), and
+returns the cleaned dict.
 """
 
 from __future__ import annotations
@@ -21,8 +22,8 @@ from maezo.gateway.pseudonymizer import PHI_FIELDS, Pseudonymizer
 class LogScrubber:
     """Structlog processor that pseudonymizes PHI fields in log events.
 
-    Reuses Pseudonymizer for deterministic SHA-256 hashing, ensuring that
-    log scrubbing is consistent with the gateway's pseudonymization.
+    Reuses Pseudonymizer for deterministic keyed HMAC-SHA256 hashing, ensuring
+    that log scrubbing is consistent with the gateway's pseudonymization.
 
     Typical usage:
         import structlog
@@ -34,8 +35,12 @@ class LogScrubber:
     NOT maintain a separate list.
     """
 
-    def __init__(self) -> None:
-        self._pseudonymizer = Pseudonymizer()
+    def __init__(self, pseudonymizer: Pseudonymizer | None = None) -> None:
+        # Reuse the gateway's keyed pseudonymizer (ADR-0035). A production log config should
+        # inject the SAME keyed instance the gateway uses (`Pseudonymizer.from_settings(...)`);
+        # the bare default is the non-secret deterministic DEV pseudonymizer (keyed HMAC, never
+        # plain SHA-256) so local/CI logging works without provisioning a secret.
+        self._pseudonymizer = pseudonymizer if pseudonymizer is not None else Pseudonymizer()
 
     def __call__(self, logger: Any, method_name: str, event_dict: dict[str, Any]) -> dict[str, Any]:
         """Process a log event dict, scrubbing PHI fields.
@@ -57,7 +62,7 @@ class LogScrubber:
             data: Input dict potentially containing PHI fields.
 
         Returns:
-            New dict with PHI fields replaced by SHA-256 hex digests.
+            New dict with PHI fields replaced by keyed HMAC-SHA256 hex digests.
         """
         return self._pseudonymizer.pseudonymize(data)
 
