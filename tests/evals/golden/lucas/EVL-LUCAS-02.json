@@ -1,0 +1,33 @@
+{
+  "id": "EVL-LUCAS-02",
+  "agent": "lucas",
+  "class": "EU",
+  "tier": ["A"],
+  "description": "Beneficiary asks to cancel their plan (J3 cancelamento) -> ALWAYS escalates to a human (SP-OP-CANCEL-001 is where a human decides RESCINDIR/MANTER) -- Lucas never even reaches the billing DMN for this journey. Synthetic data only.",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "conversation_id": "wa:amh:evl-lucas-02",
+      "canal": "whatsapp",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-022",
+      "to_hash": "hash-evl-lucas-02",
+      "intencao": "cancelamento",
+      "tipo_solicitacao": "status_pagamento"
+    }
+  },
+  "recorded_llm": [
+    "Resumo factual do pedido de cancelamento para avaliacao humana.",
+    "Um atendente humano vai continuar seu atendimento em breve."
+  ],
+  "dmn_fixture": {
+    "lucas_escalation_routing": {"roteamento": "CONTRATOS_HUMANO"}
+  },
+  "expect": {
+    "fields": {
+      "route": "escalate_human",
+      "motivo_humano": "pedido_cancelamento",
+      "grupo_humano": "gestao-contratos"
+    }
+  },
+  "leak_canaries": []
+}

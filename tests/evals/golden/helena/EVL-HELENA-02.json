@@ -1,0 +1,32 @@
+{
+  "id": "EVL-HELENA-02",
+  "agent": "helena",
+  "class": "CE",
+  "tier": ["A", "B"],
+  "description": "Beneficiary asks about their carencia (waiting period) limit -> classify extracts intent=information -> Helena informs directly, no escalation. Synthetic data only (tenant amh, pseudo id).",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "conversation_id": "wa:amh:evl-helena-02",
+      "canal": "whatsapp",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-002",
+      "message_body": "Quero saber qual e o meu limite de carencia"
+    }
+  },
+  "recorded_llm": [
+    "{\"intent\": \"information\", \"population\": \"none\", \"psychosocial_risk\": false, \"sintoma_codigo\": null, \"intensidade\": \"desconhecida\"}",
+    "Voce pode consultar os prazos de carencia no aplicativo ou falando com um atendente."
+  ],
+  "expect": {
+    "next_kind": "inform",
+    "fields": {
+      "intent": "information"
+    }
+  },
+  "leak_canaries": [],
+  "live": {
+    "assert": "fields",
+    "match": ["intent", "population", "psychosocial_risk"],
+    "threshold": 0.9
+  }
+}

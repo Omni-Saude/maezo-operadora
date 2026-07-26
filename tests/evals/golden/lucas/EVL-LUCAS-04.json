@@ -1,0 +1,29 @@
+{
+  "id": "EVL-LUCAS-04",
+  "agent": "lucas",
+  "class": "FC",
+  "tier": ["A"],
+  "description": "An unrecognized intencao fails closed to escalate_human ambiguidade at receive() -- this IS Lucas's 'classification' fail-closed guard (mirrors Helena's classify-failure discipline); never silently read as J1 respond_member. Synthetic data only.",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "conversation_id": "wa:amh:evl-lucas-04",
+      "canal": "whatsapp",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-024",
+      "to_hash": "hash-evl-lucas-04",
+      "intencao": "solicitacao_desconhecida_xyz",
+      "tipo_solicitacao": "boleto"
+    }
+  },
+  "recorded_llm": [
+    "Encaminhamento automatico por ambiguidade na solicitacao.",
+    "Um atendente humano vai continuar seu atendimento em breve."
+  ],
+  "expect": {
+    "fields": {
+      "route": "escalate_human",
+      "motivo_humano": "ambiguidade"
+    }
+  },
+  "leak_canaries": []
+}

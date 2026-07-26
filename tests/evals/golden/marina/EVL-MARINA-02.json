@@ -1,0 +1,47 @@
+{
+  "id": "EVL-MARINA-02",
+  "agent": "marina",
+  "class": "EU",
+  "tier": ["A"],
+  "description": "RECURSO flow: admissibility clears (SEGUE_ANALISE) but recurso_eligibility itself resolves ANALISE_HUMANA (ambiguous merit) -> human_review, motivo_humano=recurso_analise_humana. NEVER a recurso denial/desistencia (false_denial invariant) -- desistencia is born solely in UT_AnaliseRecursoAnalista.",
+  "input": {
+    "state": {
+      "flow": "recurso",
+      "tenant_id": "amh",
+      "canal": "portal_tiss",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-MARINA-02",
+      "prestador_id": "PREST-TESTE-001",
+      "numero_guia_tiss": "GUIA-EVL-MARINA-02",
+      "glosa_id": "GLOSA-EVL-MARINA-02",
+      "glosa_type": "clinica",
+      "glosa_reason_code": "GC-12",
+      "valor_glosado_brl": 2200.0,
+      "codigo_procedimento_tuss": "40304361",
+      "cid10": "M54.5",
+      "documentos_recurso_refs": [],
+      "data_ciencia_glosa": "2026-05-01",
+      "data_recebimento_recurso_iso": "2026-05-20",
+      "glosa_existe": true,
+      "dentro_prazo_recurso": true,
+      "documentacao_recurso_completa": true
+    }
+  },
+  "recorded_llm": [
+    "Merito do recurso ambiguo; encaminhado para analise humana especializada antes de qualquer desfecho."
+  ],
+  "dmn_fixture": {
+    "recurso_admissibility": { "roteamento": "SEGUE_ANALISE" },
+    "recurso_sla": { "sla_analise": "7d", "sla_alerta": "3d" },
+    "recurso_eligibility": { "roteamento": "ANALISE_HUMANA", "grupo_revisor": "analista-recurso-glosa" }
+  },
+  "expect": {
+    "fields": {
+      "route": "human_review",
+      "motivo_humano": "recurso_analise_humana",
+      "desfecho": "recurso_humano",
+      "admissibilidade_recurso": "SEGUE_ANALISE",
+      "elegibilidade_recurso": "ANALISE_HUMANA"
+    }
+  },
+  "leak_canaries": []
+}

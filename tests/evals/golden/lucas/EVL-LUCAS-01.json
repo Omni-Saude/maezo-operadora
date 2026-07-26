@@ -1,0 +1,33 @@
+{
+  "id": "EVL-LUCAS-01",
+  "agent": "lucas",
+  "class": "CE",
+  "tier": ["A"],
+  "description": "Beneficiary asks how to issue a 2nd-copy boleto (J1 cobranca_info) -> DMN lucas_billing_admissibility says RESPONDER -> Lucas drafts + sends the informational reply, never starts an escalation process. Synthetic data only.",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "conversation_id": "wa:amh:evl-lucas-01",
+      "canal": "whatsapp",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-021",
+      "to_hash": "hash-evl-lucas-01",
+      "intencao": "cobranca_info",
+      "tipo_solicitacao": "2a_via",
+      "numero_boleto": "BOL-EVL-021",
+      "competencia": "2026-06"
+    }
+  },
+  "recorded_llm": [
+    "Aqui esta o link para emitir a 2a via do seu boleto."
+  ],
+  "dmn_fixture": {
+    "lucas_billing_admissibility": {"roteamento": "RESPONDER", "motivo": "duvida informacional de boleto"}
+  },
+  "expect": {
+    "fields": {
+      "route": "respond_member",
+      "admissibilidade": "RESPONDER"
+    }
+  },
+  "leak_canaries": []
+}

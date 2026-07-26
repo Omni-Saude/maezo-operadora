@@ -1,0 +1,46 @@
+{
+  "id": "EVL-RAFAEL-02",
+  "agent": "rafael",
+  "class": "CE",
+  "tier": ["A"],
+  "description": "Clean, low-risk elective auth request with every worker-pre-resolved fact true -> admissibility SEGUE_ANALISE, auth_auto_approval AUTO_APROVAR -> the single L2 auto path (auto_approve). Rafael only finishes the dossier; SP-OP-AUTH-001's own automatic path issues the TISS guide, never Rafael directly. Synthetic data only.",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "numero_guia_tiss": "GUIA-EVL-RAFAEL-02",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-RAFAEL-02",
+      "prestador_id": "PREST-TESTE-001",
+      "canal": "a2a",
+      "codigo_procedimento_tuss": "40304361",
+      "categoria_procedimento": "exame_simples",
+      "carater_atendimento": "eletivo",
+      "valor_estimado_brl": 350.0,
+      "cid10": "Z00.0",
+      "documentos_refs": [],
+      "requer_autorizacao": true,
+      "documentacao_completa": true,
+      "beneficiario_ativo": true,
+      "carencia_cumprida": true,
+      "dut_atendida": true,
+      "dentro_teto_l2": true,
+      "rede_credenciada": true
+    }
+  },
+  "recorded_llm": [
+    "Exame simples eletivo dentro dos criterios automaticos; guia liberada para emissao automatica pelo processo."
+  ],
+  "dmn_fixture": {
+    "auth_admissibility": { "resultado": "SEGUE_ANALISE" },
+    "auth_sla": { "sla_analise": "2d", "sla_alerta": "1d" },
+    "auth_auto_approval": { "recomendacao": "AUTO_APROVAR" }
+  },
+  "expect": {
+    "fields": {
+      "route": "auto_approve",
+      "motivo_auditor": null,
+      "desfecho": "aprovacao_automatica_solicitada",
+      "recomendacao_auto": "AUTO_APROVAR"
+    }
+  },
+  "leak_canaries": []
+}
