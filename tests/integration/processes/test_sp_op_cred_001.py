@@ -236,14 +236,18 @@ import pytest_asyncio
 from maezo.tools.workers.credenciamento import (
     ERR_CRED_DENIAL_NOT_HUMAN,
     ERR_DECRED_NOT_HUMAN,
-    CredError,
     register_cred_denial,
     register_credenciamento_workers,
     register_descredenciamento,
 )
 from maezo.tools.workers.dmn_transport import CibSevenDmnTransport
 from maezo.tools.workers.events import register_events_workers
-from maezo.tools.workers.harness import CibSevenWorkerTransport, FakeKafkaPublisher, WorkerHarness
+from maezo.tools.workers.harness import (
+    CibSevenWorkerTransport,
+    FakeKafkaPublisher,
+    WorkerBpmnError,
+    WorkerHarness,
+)
 
 from .conftest import CIBSEVEN_BASE_URL, drain_topics
 from .engine_rest import EngineRest
@@ -409,23 +413,24 @@ _CRED_INVALID_PRESTADOR_NOT_RAISED_REASON = (
 )
 
 _CRED_GUARD_SHAPE_MISMATCH_REASON = (
-    "CredError GUARD-SHAPE MISMATCH (finding 4, T3.1 phase-2 port) — COMPOUNDS with finding 1 "
-    "(_CRED_MISSING_WORKERS_REASON: prepare_dossier missing blocks this test from ever reaching "
-    "the UT to submit the incomplete decision in the first place). Independently, EVEN IF finding "
-    "1 were fixed: register_descredenciamento/register_cred_denial (credenciamento.py:175-221, "
-    "229-266) raise CredError(code, message) — a bespoke .code/.message exception (ADR-0026's "
-    "'coded exception' convention) — which FunctionWorker.execute() (base.py:284-293) "
-    "reclassifies into a bare ValueError (not a WorkerBpmnError). harness._handle's `except "
-    "ValueError` branch (harness.py:952) reports a generic failure(retries=0) incident via "
-    "_report_failure; only `except WorkerBpmnError` (harness.py:916-917) would dispatch "
-    "handle_bpmn_error, which is what BE_DecredNaoHumano/BE_CredDenialNaoHumano (the BPMN's own "
-    "boundary catches for Error_DecredNotHuman/Error_CredDenialNotHuman) need to fire. "
-    "End_DecredBloqueadoNaoHumano/End_CredGuardBloqueadoNaoHumano are therefore unreachable even "
-    "after finding 1 is fixed — the guard itself still blocks the adverse registration (no "
-    "regression to L1), only the CLEAN fail-safe terminal is unreachable; the instance would be "
-    "left with an open incident instead. src/** fix (either raising WorkerBpmnError directly, or "
-    "adding these codes to a harness allowlist AND reclassifying appropriately) is out of scope "
-    "for this port."
+    "GUARD-SHAPE finding 4 is RESOLVED in src (t5-workers-f2): register_descredenciamento/"
+    "register_cred_denial now raise WorkerBpmnError(ERR_DECRED_NOT_HUMAN)/"
+    "WorkerBpmnError(ERR_CRED_DENIAL_NOT_HUMAN) — the MODELED bpmn errors — instead of a bespoke "
+    "CredError (which FunctionWorker.execute reclassified to a bare ValueError -> generic "
+    "failure(retries=0) incident, so BE_DecredNaoHumano/BE_CredDenialNaoHumano could never fire). "
+    "The boundary is now REACHABLE — gate-proven/consumption-covered by "
+    "scripts/ci/check_bpmn_error_allowlist.py and proven at the harness layer by "
+    "tests/unit/tools/workers/test_credenciamento.py::test_decred_guard_reaches_boundary_when_"
+    "allowlisted (mirrors ERR_CANCEL_MANTER_NOT_HUMAN). This ENGINE test nonetheless stays xfail on "
+    "the STILL-open finding 1 (_CRED_MISSING_WORKERS_REASON): operadora.cred.prepare_dossier is not "
+    "in this probe's _CRED_WORKER_TOPICS drain (a local stub worker now exists in the production "
+    "bootstrap per DL-0033/t5, but wiring it into THIS probe's drain + flipping this engine xfail "
+    "needs a dedicated live-engine proof, out of scope here), so the instance still stalls at "
+    "ST_PrepareDossier before ever reaching the UT to submit the incomplete decision. (The "
+    "credenciamento-direction sibling is additionally blocked by finding 2, the documentos_refs "
+    "overwrite.) The two adverse guard codes stay T-E-deferred out of PRODUCTION_BPMN_ERROR_"
+    "ALLOWLIST until T-E, so on a live engine today the guard still fails closed to an audited "
+    "incident — identical runtime effect, boundary now reachable the moment T-E flips the allowlist."
 )
 
 
@@ -1083,30 +1088,29 @@ async def test_prestador_id_ausente_termina_limpo_sem_incidente_travado(
 
 def test_register_descredenciamento_recusa_sem_humano() -> None:
     """Invocacao direta do dict-first fn register_descredenciamento sem decisao humana =>
-    CredError(ERR_DECRED_NOT_HUMAN). Unit-style sobre a funcao real (SEM engine — roda mesmo sem
+    WorkerBpmnError(ERR_DECRED_NOT_HUMAN). Unit-style sobre a funcao real (SEM engine — roda mesmo sem
     o dev-stack).
 
     ADAPTED (port rule 1, verify each register_*-shape on v2 main): v2's
     register_descredenciamento(variables: dict) -> dict (dict-first, ADR-0026 Decisao Sec2a)
     replaces donor's make_register_descredenciamento_handler(kafka) ->
-    Callable[[ExternalTask], ...], which does not exist on v2 main. The guard raises
-    CredError(code, message) (credenciamento.py:206) rather than donor's
-    WorkerBpmnError(error_code=...) — checked via `.code`. v2's function takes NO kafka argument
-    at all (register_credenciamento_workers discards its own kafka param — credenciamento.py:312,
-    `del kafka  # unused`); this module has zero Kafka dependency. The 3 guard scenarios (empty /
-    neutral MANTER decision / all-required-fields-present) are preserved verbatim in intent; the
-    success-case assertions check v2's ACTUAL return shape (descredenciamento_registrado /
-    network_changed / data_efeito_iso) — v2 does not echo responsavel_id/tier back nor generate a
-    descredenciamento_id tracking value the donor's handler did (data-contract simplification, not
-    a guard weakening — the required-fields guard itself is byte-identical).
+    Callable[[ExternalTask], ...], which does not exist on v2 main. UPDATE (t5-workers-f2, finding 4
+    fix): the adverse guard now raises `WorkerBpmnError(ERR_DECRED_NOT_HUMAN)` — the MODELED bpmn
+    error the donor used — restoring the byte-for-byte donor shape, so the boundary catch
+    BE_DecredNaoHumano is reachable (checked via `.error_code`; was a bespoke CredError -> ValueError
+    -> incident before). v2's function takes NO kafka argument at all
+    (register_credenciamento_workers discards its own kafka param, `del kafka  # unused`); this module
+    has zero Kafka dependency. The 3 guard scenarios (empty / neutral MANTER decision /
+    all-required-fields-present) are preserved verbatim in intent; the success-case assertions check
+    v2's ACTUAL return shape (descredenciamento_registrado / network_changed / data_efeito_iso).
     """
-    with pytest.raises(CredError) as exc_a:
+    with pytest.raises(WorkerBpmnError) as exc_a:
         register_descredenciamento({})
-    assert exc_a.value.code == ERR_DECRED_NOT_HUMAN
+    assert exc_a.value.error_code == ERR_DECRED_NOT_HUMAN
 
-    with pytest.raises(CredError) as exc_b:
+    with pytest.raises(WorkerBpmnError) as exc_b:
         register_descredenciamento({"decisao_cred": "MANTER"})
-    assert exc_b.value.code == ERR_DECRED_NOT_HUMAN
+    assert exc_b.value.error_code == ERR_DECRED_NOT_HUMAN
 
     result = register_descredenciamento(
         {
@@ -1128,19 +1132,20 @@ def test_register_descredenciamento_recusa_sem_humano() -> None:
 
 def test_register_cred_denial_recusa_sem_humano() -> None:
     """Invocacao direta do dict-first fn register_cred_denial sem decisao humana =>
-    CredError(ERR_CRED_DENIAL_NOT_HUMAN). Unit-style sobre a funcao real (SEM engine).
+    WorkerBpmnError(ERR_CRED_DENIAL_NOT_HUMAN). Unit-style sobre a funcao real (SEM engine).
 
     Same adaptation rationale as test_register_descredenciamento_recusa_sem_humano above
-    (register_cred_denial(variables: dict) -> dict; no kafka param).
+    (register_cred_denial(variables: dict) -> dict; no kafka param). UPDATE (t5-workers-f2, finding 4
+    fix): now raises WorkerBpmnError so BE_CredDenialNaoHumano is reachable (checked via `.error_code`).
     """
-    with pytest.raises(CredError) as exc_a:
+    with pytest.raises(WorkerBpmnError) as exc_a:
         register_cred_denial({})
-    assert exc_a.value.code == ERR_CRED_DENIAL_NOT_HUMAN
+    assert exc_a.value.error_code == ERR_CRED_DENIAL_NOT_HUMAN
 
     # APROVAR_CREDENCIAMENTO (neutro) tampouco passa pelo worker adverso.
-    with pytest.raises(CredError) as exc_b:
+    with pytest.raises(WorkerBpmnError) as exc_b:
         register_cred_denial({"decisao_cred": "APROVAR_CREDENCIAMENTO"})
-    assert exc_b.value.code == ERR_CRED_DENIAL_NOT_HUMAN
+    assert exc_b.value.error_code == ERR_CRED_DENIAL_NOT_HUMAN
 
     result = register_cred_denial(
         {

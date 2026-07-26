@@ -3,8 +3,11 @@
 TDD London School: tests verify both adverse directions (decred + denial).
 """
 
+import asyncio
+
 import pytest
 
+from maezo.tools.workers.base import FunctionWorker
 from maezo.tools.workers.credenciamento import (
     ERR_CRED_DENIAL_NOT_HUMAN,
     ERR_CRED_REGISTER_INVALID,
@@ -22,7 +25,14 @@ from maezo.tools.workers.credenciamento import (
     validate_cred,
 )
 from maezo.tools.workers.dmn_transport import DmnEvaluationError, FakeDmnTransport
-from maezo.tools.workers.harness import FakeKafkaPublisher, FakeWorkerTransport, WorkerHarness
+from maezo.tools.workers.harness import (
+    ExternalTask,
+    FakeAuditSink,
+    FakeKafkaPublisher,
+    FakeWorkerTransport,
+    WorkerBpmnError,
+    WorkerHarness,
+)
 
 
 def _cred_admissibility_only_fake(*, roteamento: str, motivo: str = "") -> FakeDmnTransport:
@@ -261,7 +271,7 @@ def test_cred_guard_decred_happy_path() -> None:
 
 
 def test_cred_guard_rejects_wrong_decisao() -> None:
-    with pytest.raises(CredError) as excinfo:
+    with pytest.raises(WorkerBpmnError) as excinfo:
         register_descredenciamento(
             {
                 "decisao_cred": "MANTER",
@@ -271,12 +281,12 @@ def test_cred_guard_rejects_wrong_decisao() -> None:
                 "comprovacao_notificacao_previa": "x",
             }
         )
-    assert excinfo.value.code == ERR_DECRED_NOT_HUMAN
+    assert excinfo.value.error_code == ERR_DECRED_NOT_HUMAN
 
 
 def test_cred_guard_rejects_missing_plano_substituicao() -> None:
     """Se ha beneficiarios vinculados, plano_substituicao e obrigatorio (RN 567)."""
-    with pytest.raises(CredError) as excinfo:
+    with pytest.raises(WorkerBpmnError) as excinfo:
         register_descredenciamento(
             {
                 "decisao_cred": "DESCREDENCIAR",
@@ -288,8 +298,8 @@ def test_cred_guard_rejects_missing_plano_substituicao() -> None:
                 "plano_substituicao": "",
             }
         )
-    assert excinfo.value.code == ERR_DECRED_NOT_HUMAN
-    assert "plano_substituicao" in excinfo.value.message
+    assert excinfo.value.error_code == ERR_DECRED_NOT_HUMAN
+    assert "plano_substituicao" in str(excinfo.value)
 
 
 def test_cred_guard_register_decred_alias() -> None:
@@ -323,7 +333,7 @@ def test_cred_denial_happy_path() -> None:
 
 
 def test_cred_denial_rejects_missing_decisao() -> None:
-    with pytest.raises(CredError) as excinfo:
+    with pytest.raises(WorkerBpmnError) as excinfo:
         register_cred_denial(
             {
                 "decisao_cred": "APROVAR_CREDENCIAMENTO",
@@ -332,11 +342,11 @@ def test_cred_denial_rejects_missing_decisao() -> None:
                 "referencia_regulatoria": "x",
             }
         )
-    assert excinfo.value.code == ERR_CRED_DENIAL_NOT_HUMAN
+    assert excinfo.value.error_code == ERR_CRED_DENIAL_NOT_HUMAN
 
 
 def test_cred_denial_rejects_missing_regulatoria() -> None:
-    with pytest.raises(CredError) as excinfo:
+    with pytest.raises(WorkerBpmnError) as excinfo:
         register_cred_denial(
             {
                 "decisao_cred": "NEGAR_CREDENCIAMENTO",
@@ -345,7 +355,7 @@ def test_cred_denial_rejects_missing_regulatoria() -> None:
                 "referencia_regulatoria": "",
             }
         )
-    assert excinfo.value.code == ERR_CRED_DENIAL_NOT_HUMAN
+    assert excinfo.value.error_code == ERR_CRED_DENIAL_NOT_HUMAN
 
 
 # ---------------------------------------------------------------
@@ -394,10 +404,10 @@ def test_decred_whitespace_only_accountability_field_refuses(field: str, whitesp
     be named in the guard's error message. plano_substituicao included: contract
     SP-OP-CRED-001.md:80,149 makes it an obligatory human-typed string when
     tem_beneficiarios_vinculados (RN 567)."""
-    with pytest.raises(CredError) as excinfo:
+    with pytest.raises(WorkerBpmnError) as excinfo:
         register_descredenciamento(_decred_baseline(**{field: whitespace}))
-    assert excinfo.value.code == ERR_DECRED_NOT_HUMAN
-    assert field in excinfo.value.message
+    assert excinfo.value.error_code == ERR_DECRED_NOT_HUMAN
+    assert field in str(excinfo.value)
 
 
 @pytest.mark.parametrize(
@@ -414,29 +424,29 @@ def test_decred_whitespace_only_accountability_field_refuses(field: str, whitesp
 def test_decred_non_string_accountability_field_refuses(field: str, non_string: object) -> None:
     """A NON-string accountability field normalizes to '' and refuses -- the pre-fix bare
     truthiness check would have silently PASSED a truthy non-string (e.g. 123)."""
-    with pytest.raises(CredError) as excinfo:
+    with pytest.raises(WorkerBpmnError) as excinfo:
         register_descredenciamento(_decred_baseline(**{field: non_string}))
-    assert excinfo.value.code == ERR_DECRED_NOT_HUMAN
-    assert field in excinfo.value.message
+    assert excinfo.value.error_code == ERR_DECRED_NOT_HUMAN
+    assert field in str(excinfo.value)
 
 
 @pytest.mark.parametrize("whitespace", _WHITESPACE_VARIANTS)
 def test_decred_both_responsavel_and_fundamentacao_whitespace_refuses(whitespace: str) -> None:
     """Both responsavel_id AND fundamentacao whitespace-only -- both missing fields named."""
-    with pytest.raises(CredError) as excinfo:
+    with pytest.raises(WorkerBpmnError) as excinfo:
         register_descredenciamento(_decred_baseline(responsavel_id=whitespace, fundamentacao=whitespace))
-    assert excinfo.value.code == ERR_DECRED_NOT_HUMAN
-    assert "responsavel_id" in excinfo.value.message
-    assert "fundamentacao" in excinfo.value.message
+    assert excinfo.value.error_code == ERR_DECRED_NOT_HUMAN
+    assert "responsavel_id" in str(excinfo.value)
+    assert "fundamentacao" in str(excinfo.value)
 
 
 @pytest.mark.parametrize("whitespace", [" ", "\t", "\n", "  \t\n"])
 def test_decred_whitespace_only_decisao_refuses(whitespace: str) -> None:
     """Whitespace-only decisao_cred normalizes to '' -> != DESCREDENCIAR -> refuses."""
-    with pytest.raises(CredError) as excinfo:
+    with pytest.raises(WorkerBpmnError) as excinfo:
         register_descredenciamento(_decred_baseline(decisao_cred=whitespace))
-    assert excinfo.value.code == ERR_DECRED_NOT_HUMAN
-    assert "decisao_cred" in excinfo.value.message
+    assert excinfo.value.error_code == ERR_DECRED_NOT_HUMAN
+    assert "decisao_cred" in str(excinfo.value)
 
 
 def test_decred_padded_valid_literal_normalizes_and_registers() -> None:
@@ -460,9 +470,9 @@ def test_decred_padded_valid_literal_normalizes_and_registers() -> None:
 )
 def test_decred_non_exact_decisao_literal_still_refuses(decision: str) -> None:
     """Exact-match discipline survives normalization: case variants/substrings never pass."""
-    with pytest.raises(CredError) as excinfo:
+    with pytest.raises(WorkerBpmnError) as excinfo:
         register_descredenciamento(_decred_baseline(decisao_cred=decision))
-    assert excinfo.value.code == ERR_DECRED_NOT_HUMAN
+    assert excinfo.value.error_code == ERR_DECRED_NOT_HUMAN
 
 
 def _cred_denial_baseline(**overrides: object) -> dict[str, object]:
@@ -482,39 +492,39 @@ def _cred_denial_baseline(**overrides: object) -> dict[str, object]:
 @pytest.mark.parametrize("whitespace", _WHITESPACE_VARIANTS)
 def test_cred_denial_whitespace_only_accountability_field_refuses(field: str, whitespace: str) -> None:
     """Bare-truthiness bypass (pre-fix): whitespace-only accountability field must refuse."""
-    with pytest.raises(CredError) as excinfo:
+    with pytest.raises(WorkerBpmnError) as excinfo:
         register_cred_denial(_cred_denial_baseline(**{field: whitespace}))
-    assert excinfo.value.code == ERR_CRED_DENIAL_NOT_HUMAN
-    assert field in excinfo.value.message
+    assert excinfo.value.error_code == ERR_CRED_DENIAL_NOT_HUMAN
+    assert field in str(excinfo.value)
 
 
 @pytest.mark.parametrize("field", ["responsavel_id", "fundamentacao", "referencia_regulatoria"])
 @pytest.mark.parametrize("non_string", _NON_STRING_VARIANTS)
 def test_cred_denial_non_string_accountability_field_refuses(field: str, non_string: object) -> None:
     """A NON-string accountability field normalizes to '' and refuses."""
-    with pytest.raises(CredError) as excinfo:
+    with pytest.raises(WorkerBpmnError) as excinfo:
         register_cred_denial(_cred_denial_baseline(**{field: non_string}))
-    assert excinfo.value.code == ERR_CRED_DENIAL_NOT_HUMAN
-    assert field in excinfo.value.message
+    assert excinfo.value.error_code == ERR_CRED_DENIAL_NOT_HUMAN
+    assert field in str(excinfo.value)
 
 
 @pytest.mark.parametrize("whitespace", _WHITESPACE_VARIANTS)
 def test_cred_denial_both_responsavel_and_fundamentacao_whitespace_refuses(
     whitespace: str,
 ) -> None:
-    with pytest.raises(CredError) as excinfo:
+    with pytest.raises(WorkerBpmnError) as excinfo:
         register_cred_denial(_cred_denial_baseline(responsavel_id=whitespace, fundamentacao=whitespace))
-    assert excinfo.value.code == ERR_CRED_DENIAL_NOT_HUMAN
-    assert "responsavel_id" in excinfo.value.message
-    assert "fundamentacao" in excinfo.value.message
+    assert excinfo.value.error_code == ERR_CRED_DENIAL_NOT_HUMAN
+    assert "responsavel_id" in str(excinfo.value)
+    assert "fundamentacao" in str(excinfo.value)
 
 
 @pytest.mark.parametrize("whitespace", [" ", "\t", "\n", "  \t\n"])
 def test_cred_denial_whitespace_only_decisao_refuses(whitespace: str) -> None:
-    with pytest.raises(CredError) as excinfo:
+    with pytest.raises(WorkerBpmnError) as excinfo:
         register_cred_denial(_cred_denial_baseline(decisao_cred=whitespace))
-    assert excinfo.value.code == ERR_CRED_DENIAL_NOT_HUMAN
-    assert "decisao_cred" in excinfo.value.message
+    assert excinfo.value.error_code == ERR_CRED_DENIAL_NOT_HUMAN
+    assert "decisao_cred" in str(excinfo.value)
 
 
 def test_cred_denial_padded_valid_literal_normalizes_and_registers() -> None:
@@ -542,9 +552,9 @@ def test_cred_denial_padded_valid_literal_normalizes_and_registers() -> None:
 def test_cred_denial_non_exact_decisao_literal_still_refuses(decision: str) -> None:
     """Case variants/substrings never pass; a padded DESCREDENCIAR on the denial guard is the
     WRONG literal for this function and must refuse."""
-    with pytest.raises(CredError) as excinfo:
+    with pytest.raises(WorkerBpmnError) as excinfo:
         register_cred_denial(_cred_denial_baseline(decisao_cred=decision))
-    assert excinfo.value.code == ERR_CRED_DENIAL_NOT_HUMAN
+    assert excinfo.value.error_code == ERR_CRED_DENIAL_NOT_HUMAN
 
 
 # ---------------------------------------------------------------
@@ -586,22 +596,22 @@ def test_register_credenciamento_rejects_missing_tenant_id() -> None:
     with pytest.raises(CredError) as excinfo:
         register_credenciamento({"prestador_id": "P-007"})
     assert excinfo.value.code == ERR_CRED_REGISTER_INVALID
-    assert "tenant_id" in excinfo.value.message
+    assert "tenant_id" in str(excinfo.value)
 
 
 def test_register_credenciamento_rejects_missing_prestador_id() -> None:
     with pytest.raises(CredError) as excinfo:
         register_credenciamento({"tenant_id": "amh"})
     assert excinfo.value.code == ERR_CRED_REGISTER_INVALID
-    assert "prestador_id" in excinfo.value.message
+    assert "prestador_id" in str(excinfo.value)
 
 
 def test_register_credenciamento_rejects_empty_variables() -> None:
     with pytest.raises(CredError) as excinfo:
         register_credenciamento({})
     assert excinfo.value.code == ERR_CRED_REGISTER_INVALID
-    assert "tenant_id" in excinfo.value.message
-    assert "prestador_id" in excinfo.value.message
+    assert "tenant_id" in str(excinfo.value)
+    assert "prestador_id" in str(excinfo.value)
 
 
 # ---------------------------------------------------------------------------
@@ -653,3 +663,110 @@ def test_register_credenciamento_workers_does_not_register_prepare_dossier() -> 
     harness = WorkerHarness(FakeWorkerTransport(), worker_id="test-worker")
     register_credenciamento_workers(harness, FakeKafkaPublisher(), dmn=FakeDmnTransport())
     assert "operadora.cred.prepare_dossier" not in harness.registered_topics
+
+
+# ---------------------------------------------------------------------------
+# Boundary REACHABILITY (t5-workers-f2) — the two adverse guards raise WorkerBpmnError so their
+# modeled BPMN boundary catches (BE_DecredNaoHumano / BE_CredDenialNaoHumano) can fire, instead of
+# a CredError->ValueError reclassification that could ONLY ever demote to an uncaught engine
+# incident. Mutation-minded: allowlisted -> boundary (handle_bpmn_error); NOT allowlisted -> the
+# fail-closed incident (handle_failure, retries=0). Drives the REAL harness dispatch path
+# (harness._handle) end-to-end, no live engine.
+# ---------------------------------------------------------------------------
+
+
+def _drive_guard_failure(topic: str, fn, variables: dict, *, allowlist: frozenset[str]):
+    """Run a guard-failing worker through the real harness; return (bpmn_errors, failures)."""
+    transport = FakeWorkerTransport()
+    harness = WorkerHarness(
+        transport,
+        worker_id="cred-boundary-test",
+        tenant="amh",
+        audit_sink=FakeAuditSink(),
+        bpmn_error_allowlist=allowlist,
+    )
+    harness.register_worker(FunctionWorker(topic, fn))
+    task = ExternalTask(
+        task_id="task-1",
+        topic=topic,
+        process_instance_id="proc-1",
+        business_key="CRED-amh-P1",
+        worker_id="cred-boundary-test",
+        variables=variables,
+    )
+    asyncio.run(harness._handle(task))
+    return transport.bpmn_errors, transport.failures
+
+
+_DECRED_GUARD_FAIL = {
+    "decisao_cred": "MANTER",  # != DESCREDENCIAR -> guard refuses
+    "responsavel_id": "x",
+    "fundamentacao": "x",
+    "referencia_regulatoria": "x",
+    "comprovacao_notificacao_previa": "x",
+}
+_DENIAL_GUARD_FAIL = {
+    "decisao_cred": "APROVAR_CREDENCIAMENTO",  # != NEGAR_CREDENCIAMENTO -> guard refuses
+    "responsavel_id": "x",
+    "fundamentacao": "x",
+    "referencia_regulatoria": "x",
+}
+
+
+def test_register_descredenciamento_raises_workerbpmnerror_not_credorror() -> None:
+    """Root-cause proof: the decred guard now raises WorkerBpmnError (a MODELED bpmn error), NOT a
+    CredError (which FunctionWorker reclassifies to a bare ValueError -> incident, boundary unreachable)."""
+    with pytest.raises(WorkerBpmnError) as excinfo:
+        register_descredenciamento(_DECRED_GUARD_FAIL)
+    assert excinfo.value.error_code == ERR_DECRED_NOT_HUMAN
+    assert not isinstance(excinfo.value, CredError)
+
+
+def test_register_cred_denial_raises_workerbpmnerror_not_crederror() -> None:
+    """Root-cause proof for the denial direction (mirror of the decred proof above)."""
+    with pytest.raises(WorkerBpmnError) as excinfo:
+        register_cred_denial(_DENIAL_GUARD_FAIL)
+    assert excinfo.value.error_code == ERR_CRED_DENIAL_NOT_HUMAN
+    assert not isinstance(excinfo.value, CredError)
+
+
+def test_decred_guard_reaches_boundary_when_allowlisted() -> None:
+    """ALLOWLISTED: the adverse decred guard routes to handle_bpmn_error (BE_DecredNaoHumano fires),
+    NEVER to a failure/incident — the boundary is now REACHABLE (was unreachable pre-fix)."""
+    bpmn_errors, failures = _drive_guard_failure(
+        "operadora.cred.register_descredenciamento",
+        register_descredenciamento,
+        _DECRED_GUARD_FAIL,
+        allowlist=frozenset({ERR_DECRED_NOT_HUMAN}),
+    )
+    assert bpmn_errors == [("task-1", ERR_DECRED_NOT_HUMAN, bpmn_errors[0][2])]
+    assert failures == []
+
+
+def test_cred_denial_guard_reaches_boundary_when_allowlisted() -> None:
+    """ALLOWLISTED: the adverse denial guard routes to handle_bpmn_error (BE_CredDenialNaoHumano)."""
+    bpmn_errors, failures = _drive_guard_failure(
+        "operadora.cred.register_cred_denial",
+        register_cred_denial,
+        _DENIAL_GUARD_FAIL,
+        allowlist=frozenset({ERR_CRED_DENIAL_NOT_HUMAN}),
+    )
+    assert bpmn_errors == [("task-1", ERR_CRED_DENIAL_NOT_HUMAN, bpmn_errors[0][2])]
+    assert failures == []
+
+
+def test_decred_guard_fails_closed_to_incident_when_not_allowlisted() -> None:
+    """MUTATION: with the code NOT in the allowlist (today's T-E-deferred production posture), the
+    guard fails CLOSED to a retries=0 incident (handle_failure) — never a silent unmodeled bpmnError.
+    Pins that the boundary is gated on the allowlist, and that pre-T-E the effect is still incident."""
+    bpmn_errors, failures = _drive_guard_failure(
+        "operadora.cred.register_descredenciamento",
+        register_descredenciamento,
+        _DECRED_GUARD_FAIL,
+        allowlist=frozenset(),
+    )
+    assert bpmn_errors == []
+    assert len(failures) == 1
+    task_id, _msg, retries, _timeout = failures[0]
+    assert task_id == "task-1"
+    assert retries == 0  # engine opens an incident (human-visible), never retried (ADR-0008)
