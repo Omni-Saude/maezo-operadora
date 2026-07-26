@@ -58,7 +58,7 @@ camada de aplicação (auditoria, A2A, checkpoint, bridge, kafka producer).
 | `…/llm/api-keys` | `general_api_key`, `phi_api_key` | Zona Geral/PHI (`runtime/inference.py`) | contrato LLM |
 | `…/tasy/oracle` | `dsn`, `user`, `password` | consumer fhir-sync — **módulo ainda não existe** (ver §1.4) | acordo Tasy + build do consumer |
 | `…/whatsapp/waba-token` | `token` | webhook WhatsApp (`deployment-webhook-receiver.yaml`) | contrato WABA |
-| chave HMAC do pseudonymizer | `phi_hmac_key` | `gateway/hmac_key_provider.VaultHmacKeyProvider` → `Pseudonymizer.from_vault` (gap #12) | — |
+| chave HMAC do pseudonymizer | `PHI_HMAC_KEY` | ⚠️ **GAP de PHI-hardening, NÃO só "popular segredo" — ver ⬇nota HMAC.** Hoje o `Pseudonymizer` (`gateway/pseudonymizer.py:30`) usa **SHA-256 puro sem chave** e `PHI_HMAC_KEY` é uma setting **morta** (declarada em `runtime/{worker,agent}_runtime/settings.py`, consumida em lugar nenhum). Fix em andamento (branch `t6-hmac-pseudonymizer`). | **fix agent-buildable em curso** |
 | chave de assinatura do Agent Card | `agent_card_signing_key` | `a2a/signing.py::CardSigner`; enforcement fail-closed em `runtime/agent_runtime/a2a_composition.py::_require_signer_or_fail_closed` (gap #9, agora **completo e fail-closed em produção** — T2.4/T3.4-F2) | — |
 
 > **Aurora `database_url` — composto automaticamente pelo ESO (predeploy DB-4; corrige registro
@@ -99,7 +99,17 @@ aws secretsmanager put-secret-value \
   --secret-string '{"general_api_key":"<…>","phi_api_key":"<…>"}' \
   --region sa-east-1
 ```
-> ⚠️ Sem a chave HMAC, `Pseudonymizer.from_vault` **levanta erro** (fail-closed — nunca usa default).
+> ⚠️ **Nota HMAC (PHI-hardening — correção da versão anterior deste doc).** A citação antiga
+> (`gateway/hmac_key_provider.VaultHmacKeyProvider` → `Pseudonymizer.from_vault`, "gap #12") estava
+> **factualmente errada**: nenhum desses símbolos existe no código atual (só apareceram no commit
+> greenfield `d4e6189`, nunca fiados). Ground-truth em `main`@`0ecacbb` (grep-verificado): o
+> `Pseudonymizer` real (`gateway/pseudonymizer.py:30`) faz **SHA-256 puro SEM chave** e não recebe
+> key alguma; `PHI_HMAC_KEY` existe nas settings de runtime mas é **consumido em lugar nenhum**
+> (setting morta). Isso é um **gap de segurança de PHI**, não "só popular um segredo": um SHA-256
+> não-keyed de um CPF é **reversível por força-bruta** (espaço de CPF é pequeno) — pseudonimização
+> LGPD exige um mapeamento com segredo (HMAC keyed). **Fix agent-buildable em curso** (branch
+> `t6-hmac-pseudonymizer`: fiar `PHI_HMAC_KEY` como HMAC keyed, fail-closed em prod). Só **após** esse
+> merge o segredo passa a ter efeito real; até lá, popular o segredo não muda nada.
 > Sem um provedor de inferência PHI real, a Zona PHI **falha fechada** (ver §1.4 — o mecanismo não é
 > mais `BR_INFERENCE_ENDPOINT`).
 
@@ -345,7 +355,7 @@ de lançamento é humana, ADR-0018/§6.2).
 | `CIBSEVEN_BASE_URL` / `FHIR_BASE_URL` | engine + FHIR | URL externa ou StatefulSet in-cluster (gated) |
 | `KAFKA_BOOTSTRAP_SERVERS` | eventos/CDC/auditoria/bridge (agora inclui o producer leg real do bridge, T4) | MSK (amh-data-platform) |
 | `LLM_GENERAL_API_KEY` / `LLM_PHI_API_KEY` | LLM Zona Geral/PHI | ExternalSecret `llm/api-keys` |
-| `PHI_HMAC_KEY` | chave HMAC do pseudonymizer | cofre/KMS (§6.2; vazia em dev = chave determinística) |
+| `PHI_HMAC_KEY` | chave HMAC do pseudonymizer — **hoje setting MORTA**: o `Pseudonymizer` usa SHA-256 sem chave e não lê essa var (ver nota HMAC em §1.1); passa a ter efeito só após o fix `t6-hmac-pseudonymizer` | cofre/KMS (§6.2) |
 | `TASY_ORACLE_DSN` / `TASY_ORACLE_USER` | integração Tasy (consumer ainda não existe, ver §1.4/§4) | ExternalSecret `tasy/oracle` (§6.2) |
 | `EPISODIC_ATTACHMENTS_BUCKET` / `_REGION` | anexos episódicos S3 (consumer ainda não existe) | bucket + IRSA (§6.2) |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | export de traços | collector → AMP/AMG (TLS+SigV4 em prod) |
