@@ -1,104 +1,99 @@
-"""A2A Registry — tenant-scoped AgentCard registry (ADR-0015, ADR-0004).
+"""A2A Registry — tenant-scoped AgentCard registry with a signature-verification gate.
 
-The A2ARegistry stores AgentCards keyed by (tenant, agent_id), enforcing
-strict tenant isolation per ADR-0004. Zero cross-contamination by construction:
-lookups without a tenant are structurally impossible.
+Ported from the donor `Maezo-Healthcare-Plan` reference implementation
+(`src/maezo/a2a/registry.py:239-291`, class `AgentCardRegistry`) as part of the T2.4 A2A W1
+(card-signing) build wave — see `docs/design/A2A-dispatcher-card-signing.md` §1.2/§5. The class
+name `A2ARegistry` is kept (v2 naming) rather than the donor's `AgentCardRegistry`.
 
-Per ADR-0015:
-- Cards are derived from AgentDefinitions, not configured standalone.
-- The registry is tenant-scoped: key = (tenant, agent_id).
-- Capabilities lookup is per-tenant.
-- Duplicate registrations are rejected.
+The registry stores AgentCards keyed by `(tenant, agent_id)`, enforcing strict tenant isolation per
+ADR-0004. Zero cross-contamination by construction: lookups without a tenant are structurally
+impossible (`tenant` is now baked into the `AgentCard` itself, not a separate call argument).
+
+`verifier` (a `CardSigner`) is the trust gate (ADR-0003/0007): when injected, `register` REFUSES
+(fail-closed) a Card without a valid signature — so a tampered or unsigned Card never enters the
+registry that a (future, W2) dispatcher consults via `lookup`. `verifier=None` (default) preserves
+Phase-0/dev behavior (unsigned Cards are accepted): verification is gated on the PRESENCE of the
+key, keeping the local fail-safe without loosening production.
+
+**Breaking change from the prior (Phase-0) shape** (see `docs/design/A2A-dispatcher-card-signing.md`
+§5 W1 "Breaking-change note" and `src/maezo/a2a/card.py`'s module docstring): `register` used to
+take `(tenant, card)` as two separate arguments and return `None`, raising a bare `ValueError` on a
+duplicate; `lookup` used to take `(tenant, agent_id)` and return `None` when missing. This version
+takes `card` alone (tenant lives on the card), RE-REGISTERING the same `(tenant, agent_id)` REPLACES
+the prior Card (a version bump) rather than raising, and `lookup` raises `RegistryError` when
+missing (`get` is the None-returning variant). There are ZERO production call sites for the old
+shape (ADR-0032), so the blast radius is this module plus `tests/unit/a2a/test_registry.py`
+(updated in the same change).
 """
 
 from __future__ import annotations
 
-from typing import Any
+from maezo.a2a.card import AgentCard, RegistryError
+from maezo.a2a.signing import CardSigner
 
-from maezo.a2a.card import AgentCard
+__all__ = ["A2ARegistry", "RegistryError"]
 
 
 class A2ARegistry:
-    """Tenant-scoped registry of A2A AgentCards.
+    """Tenant-scoped registry of A2A AgentCards (in-memory; a durable backing store lands later).
 
-    Cards are indexed by (tenant, agent_id). All lookups require
-    explicit tenant context — cross-tenant access is impossible
-    by construction (ADR-0004).
+    Key: `(tenant, agent_id)`. There is no cross-tenant lookup — `lookup`/`get`/`list_cards`
+    require the tenant (ADR-0004). Re-registering the same `(tenant, agent_id)` replaces the Card
+    (an Agent Definition version bump).
 
     Usage:
         registry = A2ARegistry()
-        registry.register("operadora-amh", card)
-        card = registry.lookup("operadora-amh", "helena")
-        caps = registry.list_capabilities("operadora-amh")
+        registry.register(card)
+        card = registry.lookup("rafael", tenant="operadora-amh")
+
+    With a `verifier` injected:
+        registry = A2ARegistry(verifier=CardSigner(signing_key))
+        registry.register(card)  # raises CardSignatureError if `card` is unsigned/tampered
     """
 
-    def __init__(self) -> None:
-        """Initialize an empty registry."""
+    def __init__(self, *, verifier: CardSigner | None = None) -> None:
+        """Initialize an empty registry.
+
+        Args:
+            verifier: Optional `CardSigner` used as the fail-closed admission gate. When present,
+                `register` refuses any Card without a signature valid under this key. When absent
+                (default), Cards are admitted regardless of signature state (Phase-0/dev
+                fail-safe).
+        """
         self._cards: dict[tuple[str, str], AgentCard] = {}
+        self._verifier = verifier
 
-    def register(self, tenant: str, card: AgentCard) -> None:
-        """Register an AgentCard for a given tenant.
+    def register(self, card: AgentCard) -> AgentCard:
+        """Publish/update a Card. Returns the registered Card.
 
-        Args:
-            tenant: Tenant identifier (e.g. 'operadora-amh').
-            card: The AgentCard to register.
-
-        Raises:
-            ValueError: If (tenant, agent_id) is already registered.
+        With a `verifier` injected, validates the signature BEFORE admission (raises
+        `CardSignatureError` if absent/invalid) — this is the trust chokepoint: the (future)
+        dispatcher only ever `lookup`s Cards that have already been verified.
         """
-        key = (tenant, card.agent_id)
-        if key in self._cards:
-            raise ValueError(f"Agent {card.agent_id!r} already registered for tenant {tenant!r}")
-        self._cards[key] = card
+        if self._verifier is not None:
+            self._verifier.require_valid(card)
+        self._cards[(card.tenant, card.agent_id)] = card
+        return card
 
-    def lookup(self, tenant: str, agent_id: str) -> AgentCard | None:
-        """Look up an AgentCard by tenant and agent_id.
+    def lookup(self, agent_id: str, *, tenant: str) -> AgentCard:
+        """Discover the Card for `agent_id` in `tenant`. Raises `RegistryError` if absent."""
+        try:
+            return self._cards[(tenant, agent_id)]
+        except KeyError as exc:
+            raise RegistryError(f"no Agent Card for agent_id={agent_id!r} tenant={tenant!r}") from exc
 
-        Args:
-            tenant: Tenant identifier.
-            agent_id: Agent identifier to look up.
-
-        Returns:
-            The AgentCard if found, or None.
-        """
+    def get(self, agent_id: str, *, tenant: str) -> AgentCard | None:
+        """Like `lookup`, but returns None instead of raising."""
         return self._cards.get((tenant, agent_id))
 
-    def list_capabilities(self, tenant: str) -> set[str]:
-        """List all capabilities available in a given tenant.
+    def list_cards(self, *, tenant: str) -> tuple[AgentCard, ...]:
+        """List the Cards registered for a tenant (sorted by agent_id)."""
+        cards = [c for (t, _), c in self._cards.items() if t == tenant]
+        return tuple(sorted(cards, key=lambda c: c.agent_id))
 
-        Args:
-            tenant: Tenant identifier.
+    def __contains__(self, key: tuple[str, str]) -> bool:
+        """`(tenant, agent_id) in registry`."""
+        return key in self._cards
 
-        Returns:
-            A set of all capability strings across all agents in the tenant.
-        """
-        caps: set[str] = set()
-        for (t, _), card in self._cards.items():
-            if t == tenant:
-                caps.update(card.capabilities)
-        return caps
-
-    def list_agents(self, tenant: str) -> set[str]:
-        """List all agent_ids registered for a given tenant.
-
-        Args:
-            tenant: Tenant identifier.
-
-        Returns:
-            A set of agent_id strings.
-        """
-        return {agent_id for (t, agent_id) in self._cards if t == tenant}
-
-    @property
-    def tenant_count(self) -> int:
-        """Return the number of distinct tenants with registered agents."""
-        return len({t for (t, _) in self._cards})
-
-    def to_dict(self) -> dict[str, Any]:
-        """Serialize the registry to a dict (for debugging/persistence)."""
-        result: dict[str, dict[str, dict[str, Any]]] = {}
-        for (tenant, agent_id), card in self._cards.items():
-            if tenant not in result:
-                result[tenant] = {}
-            result[tenant][agent_id] = card.to_dict()
-        return result
+    def __len__(self) -> int:
+        return len(self._cards)

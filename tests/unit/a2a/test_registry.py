@@ -1,130 +1,136 @@
-"""Unit tests for maezo.a2a.registry — A2ARegistry (ADR-0015, ADR-0004).
+"""Unit tests for maezo.a2a.registry — A2ARegistry (ADR-0003/0004/0007/0015).
 
-TDD London School: tests written BEFORE implementation.
+Ported (v2-adapted) from the donor `Maezo-Healthcare-Plan` reference implementation's
+`tests/unit/a2a/test_registry.py` as part of the T2.4 A2A W1 (card-signing) build wave — see
+`docs/design/A2A-dispatcher-card-signing.md` §1.2/§5. Adaptations vs the donor: v2 keeps the
+`A2ARegistry` class name (not `AgentCardRegistry`); `AgentCard.from_definition` sources the
+definition via `maezo.agents.AgentLoader`/`spec/agents/` (not `maezo.runtime.harness`); the
+`version` assertion checks determinism of v2's content-hash convention (v2's `AgentDefinition` has
+no donor-equivalent `agent_version`).
+
+This intentionally REPLACES the pre-W1 test suite (which exercised the old mutable, 4-field,
+public_key-carrying AgentCard and the old `register(tenant, card)` signature) — there are ZERO
+production call sites for that shape (ADR-0032), so the old tests are superseded rather than kept
+alongside the new frozen-dataclass API. Card-signing-specific security properties (tamper/fail-
+closed/constant-time/cross-tenant) live in `test_card_signing.py`; this file covers the registry's
+own CRUD/tenant-isolation/derivation behavior.
 """
+
+from __future__ import annotations
 
 import pytest
 
-from maezo.a2a.card import AgentCard
-from maezo.a2a.registry import A2ARegistry
+from maezo.a2a import A2ARegistry, AgentCard, RegistryError
+from maezo.agents import AgentLoader
 
 
-def _make_card(agent_id: str) -> AgentCard:
-    """Helper: create a minimal AgentCard for testing."""
+def _card(agent_id: str, *, tenant: str = "amh", **kw: object) -> AgentCard:
     return AgentCard(
         agent_id=agent_id,
-        capabilities=["triage_and_routing"],
-        endpoint=f"https://{agent_id}.maezo.local/a2a",
-        public_key=f"pk-{agent_id}",
+        version="v0",
+        tenant=tenant,
+        security_zone="phi",
+        **kw,  # type: ignore[arg-type]
     )
 
 
-def test_register_and_lookup() -> None:
-    """Register a card and then look it up by (tenant, agent_id)."""
-    registry = A2ARegistry()
-    card = _make_card("helena")
-
-    registry.register("operadora-amh", card)
-
-    retrieved = registry.lookup("operadora-amh", "helena")
-    assert retrieved is not None
-    assert retrieved.agent_id == "helena"
-    assert retrieved.capabilities == card.capabilities
-    assert retrieved.endpoint == card.endpoint
+def test_register_lookup_roundtrip() -> None:
+    reg = A2ARegistry()
+    card = _card("rafael")
+    reg.register(card)
+    assert reg.lookup("rafael", tenant="amh") is card
+    assert ("amh", "rafael") in reg
 
 
-def test_lookup_nonexistent_agent() -> None:
-    """Looking up an agent that was never registered must return None."""
-    registry = A2ARegistry()
-
-    result = registry.lookup("operadora-amh", "nonexistent")
-    assert result is None
-
-
-def test_lookup_wrong_tenant() -> None:
-    """Looking up an agent registered under tenant-A in tenant-B must return None."""
-    registry = A2ARegistry()
-    card = _make_card("helena")
-
-    registry.register("operadora-amh", card)
-
-    # Same agent_id, different tenant
-    result = registry.lookup("operadora-xyz", "helena")
-    assert result is None
+def test_lookup_missing_raises() -> None:
+    reg = A2ARegistry()
+    with pytest.raises(RegistryError):
+        reg.lookup("ghost", tenant="amh")
+    assert reg.get("ghost", tenant="amh") is None
 
 
-def test_duplicate_register_rejected() -> None:
-    """Registering the same (tenant, agent_id) twice must raise an error."""
-    registry = A2ARegistry()
-    card1 = _make_card("helena")
-    card2 = _make_card("helena")
-    # card2 could differ slightly (different endpoint, same agent_id); should still reject
-
-    registry.register("operadora-amh", card1)
-
-    with pytest.raises(ValueError, match="already registered"):
-        registry.register("operadora-amh", card2)
-
-
-def test_same_agent_different_tenants() -> None:
-    """The same agent_id can be registered in different tenants independently."""
-    registry = A2ARegistry()
-    card_a = _make_card("helena")
-    card_b = AgentCard(
-        agent_id="helena",
-        capabilities=["authorization_approval"],
-        endpoint="https://helena.tenant-b.maezo.local/a2a",
-        public_key="pk-helena-b",
-    )
-
-    registry.register("operadora-amh", card_a)
-    registry.register("operadora-xyz", card_b)
-
-    retrieved_a = registry.lookup("operadora-amh", "helena")
-    retrieved_b = registry.lookup("operadora-xyz", "helena")
-
-    assert retrieved_a is not None
-    assert retrieved_b is not None
-    assert retrieved_a.endpoint != retrieved_b.endpoint
+def test_registration_is_tenant_scoped() -> None:
+    """The same agent_id in distinct tenants is two distinct entries (ADR-0004)."""
+    reg = A2ARegistry()
+    reg.register(_card("rafael", tenant="amh"))
+    reg.register(_card("rafael", tenant="outra-op"))
+    assert reg.lookup("rafael", tenant="amh").tenant == "amh"
+    assert reg.lookup("rafael", tenant="outra-op").tenant == "outra-op"
+    # Lookup never crosses tenants.
+    with pytest.raises(RegistryError):
+        reg.lookup("rafael", tenant="tenant-inexistente")
 
 
-def test_list_capabilities() -> None:
-    """list_capabilities() must return all capabilities for agents in a tenant."""
-    registry = A2ARegistry()
-
-    registry.register("operadora-amh", _make_card("helena"))
-    registry.register(
-        "operadora-amh",
-        AgentCard(
-            agent_id="rafael",
-            capabilities=["authorization_approval", "standard_glosa_processing"],
-            endpoint="https://rafael.maezo.local/a2a",
-            public_key="pk-rafael",
-        ),
-    )
-
-    caps = registry.list_capabilities("operadora-amh")
-
-    assert "triage_and_routing" in caps
-    assert "authorization_approval" in caps
-    assert "standard_glosa_processing" in caps
+def test_list_cards_is_tenant_filtered_and_sorted() -> None:
+    reg = A2ARegistry()
+    reg.register(_card("rafael", tenant="amh"))
+    reg.register(_card("beatriz", tenant="amh"))
+    reg.register(_card("rafael", tenant="outra-op"))
+    amh = reg.list_cards(tenant="amh")
+    assert [c.agent_id for c in amh] == ["beatriz", "rafael"]
+    assert all(c.tenant == "amh" for c in amh)
+    assert len(reg) == 3
 
 
-def test_list_capabilities_empty_tenant() -> None:
-    """list_capabilities() on a tenant with no agents must return an empty set."""
-    registry = A2ARegistry()
+def test_reregister_replaces_card() -> None:
+    reg = A2ARegistry()
+    reg.register(AgentCard(agent_id="rafael", version="v0", tenant="amh", security_zone="phi"))
+    reg.register(AgentCard(agent_id="rafael", version="v1", tenant="amh", security_zone="phi"))
+    assert reg.lookup("rafael", tenant="amh").version == "v1"
+    assert len(reg) == 1
 
-    caps = registry.list_capabilities("tenant-vazio")
-    assert caps == set()
+
+def test_card_requires_agent_id() -> None:
+    with pytest.raises(RegistryError):
+        AgentCard(agent_id="", version="v0", tenant="amh", security_zone="phi")
 
 
-def test_list_agents() -> None:
-    """list_agents() must return all agent_ids registered for a tenant."""
-    registry = A2ARegistry()
+def test_card_requires_tenant() -> None:
+    with pytest.raises(RegistryError):
+        AgentCard(agent_id="rafael", version="v0", tenant="", security_zone="phi")
 
-    registry.register("operadora-amh", _make_card("helena"))
-    registry.register("operadora-amh", _make_card("rafael"))
-    registry.register("operadora-amh", _make_card("beatriz"))
 
-    agents = registry.list_agents("operadora-amh")
-    assert agents == {"helena", "rafael", "beatriz"}
+def test_invalid_federation_layer_rejected() -> None:
+    with pytest.raises(RegistryError):
+        AgentCard(agent_id="rafael", version="v0", tenant="amh", security_zone="phi", federation_layer="L9")
+
+
+def test_accepts_contract() -> None:
+    restrictive = _card("rafael", accepted_task_types=frozenset({"authorization.analyze"}))
+    assert restrictive.accepts("authorization.analyze") is True
+    assert restrictive.accepts("something.else") is False
+    # A Card without declared task types accepts anything (Phase-0 compat).
+    permissive = _card("legacy")
+    assert permissive.accepts("anything") is True
+
+
+def test_from_definition_references_agent_yaml() -> None:
+    """The Card derives from the Agent Definition (source of truth); it never duplicates agent_id/zone."""
+    definition = AgentLoader().load_by_id("helena")
+    card = AgentCard.from_definition(definition, tenant="amh", federation_layer="L3")
+    assert card.agent_id == "helena"
+    assert card.security_zone == "general"
+    assert "health_navigation" in card.capabilities
+    assert card.queue_ref == "agents.tasks.helena"
+    # Helena is not a delegation target in Phase 1.
+    assert card.accepted_task_types == frozenset()
+    assert card.accepts("authorization.analyze") is True  # empty = permissive
+
+
+def test_from_definition_version_is_a_deterministic_content_hash() -> None:
+    """`version` is a content hash of the definition (v2 has no donor-equivalent agent_version)."""
+    definition = AgentLoader().load_by_id("helena")
+    card_a = AgentCard.from_definition(definition, tenant="amh")
+    card_b = AgentCard.from_definition(definition, tenant="amh")
+    assert card_a.version == card_b.version
+    assert card_a.version != ""
+
+
+def test_from_definition_signs_when_signer_injected() -> None:
+    from maezo.a2a import CardSigner
+
+    signer = CardSigner(b"test-fixture-registry-signing-key-000")
+    definition = AgentLoader().load_by_id("rafael")
+    card = AgentCard.from_definition(definition, tenant="amh", signer=signer)
+    assert card.is_signed is True
+    assert signer.verify(card) is True
