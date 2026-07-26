@@ -1,20 +1,21 @@
 # Tarefas Pendentes — MAEZO Healthcare Plan
 
 > **Contexto.** O build original (auditoria forense, 37 gaps, PRs #65–#88) fechou em 2026-06-14.
-> Desde então uma segunda leva de reconstrução (v2 "Keep Brain, Rebuild Spine": tracks T0–T5, PRs
-> #89–#166) fechou a maior parte do que faltava — runtime spine, cadeia de auditoria, A2A completo,
+> Desde então uma segunda leva de reconstrução (v2 "Keep Brain, Rebuild Spine": tracks T0–T6, PRs
+> #89–#167) fechou a maior parte do que faltava — runtime spine, cadeia de auditoria, A2A completo,
 > chaos/cross-process, auditoria adversarial pré-deploy (T3.4) + remediação total, persistência de
-> checkpoint, pytest 9. **PR #165 (`t4-platform-completion`) e PR #166 (`t5-completion-wave`) estão
-> ambos MERGEADOS em `main` (tip: `0ecacbb`).** O #166 fechou os últimos achados adversariais — fix
-> crítico de DSN no checkpoint (`normalize_dsn`), correções de workers ANS/nip/cred (o failsafe de
-> âncora do NIP está **provado em engine real**: o strict-xfail de `test_sp_op_nip_001` foi removido
-> com prova live em CI — finding-5 fechado end-to-end), DL-0033/DL-0034 construídos, descope do L2
-> ratificado via ADR-0034, footgun de deploy do fhir-sync corrigido — tudo com a mesma verificação
-> zero-trust (R1/R2 independente) das demais linhas do ledger.
+> checkpoint, pytest 9. **PRs #165 (`t4`), #166 (`t5`) e #167 (`t6`) estão todos MERGEADOS em `main`
+> (tip: `9871555`).** O #166 fechou os últimos achados adversariais da T5 — fix crítico de DSN no
+> checkpoint (`normalize_dsn`), correções de workers ANS/nip/cred (o failsafe de âncora do NIP está
+> **provado em engine real**: o strict-xfail de `test_sp_op_nip_001` foi removido com prova live em CI
+> — finding-5 fechado end-to-end), DL-0033/DL-0034 construídos, descope do L2 ratificado via ADR-0034,
+> footgun de deploy do fhir-sync corrigido. O #167 (T6) endureceu a pseudonimização PHI:
+> `Pseudonymizer` agora usa **HMAC-SHA256 keyed** (era SHA-256 puro, reversível), fail-closed em prod
+> (ADR-0035). Tudo com a mesma verificação zero-trust (R1/R2 independente) das demais linhas do ledger.
 >
 > Fonte de verdade viva, mais granular que este documento:
 > [`docs/evidence-ledger.md`](evidence-ledger.md) (toda linha "verified" carrega reprodução
-> independente) + [`docs/decisions-log.md`](decisions-log.md) (DLs) + [`docs/adr/`](adr/) (34 ADRs).
+> independente) + [`docs/decisions-log.md`](decisions-log.md) (DLs) + [`docs/adr/`](adr/) (35 ADRs).
 > O relatório histórico de 2026-06-14 segue válido só para o arco #65–#88:
 > [`docs/reports/autonomous-completion-report.md`](reports/autonomous-completion-report.md).
 >
@@ -58,7 +59,7 @@ camada de aplicação (auditoria, A2A, checkpoint, bridge, kafka producer).
 | `…/llm/api-keys` | `general_api_key`, `phi_api_key` | Zona Geral/PHI (`runtime/inference.py`) | contrato LLM |
 | `…/tasy/oracle` | `dsn`, `user`, `password` | consumer fhir-sync — **módulo ainda não existe** (ver §1.4) | acordo Tasy + build do consumer |
 | `…/whatsapp/waba-token` | `token` | webhook WhatsApp (`deployment-webhook-receiver.yaml`) | contrato WABA |
-| chave HMAC do pseudonymizer | `PHI_HMAC_KEY` | ⚠️ **GAP de PHI-hardening, NÃO só "popular segredo" — ver ⬇nota HMAC.** Hoje o `Pseudonymizer` (`gateway/pseudonymizer.py:30`) usa **SHA-256 puro sem chave** e `PHI_HMAC_KEY` é uma setting **morta** (declarada em `runtime/{worker,agent}_runtime/settings.py`, consumida em lugar nenhum). Fix em andamento (branch `t6-hmac-pseudonymizer`). | **fix agent-buildable em curso** |
+| `phi-hmac-key` (ExternalSecret `maezo-phi-hmac`) | `PHI_HMAC_KEY` | `Pseudonymizer.from_settings` → **HMAC-SHA256 keyed**, fail-closed em prod (chave ausente/blank/whitespace ⇒ `PseudonymizerKeyMissingError`); ver ⬇nota HMAC. **Código corrigido em `main` (PR #167, `9871555`; ADR-0035 Accepted)** — falta só **provisionar o valor real** do segredo no cofre. | provisionar segredo (§6.2) |
 | chave de assinatura do Agent Card | `agent_card_signing_key` | `a2a/signing.py::CardSigner`; enforcement fail-closed em `runtime/agent_runtime/a2a_composition.py::_require_signer_or_fail_closed` (gap #9, agora **completo e fail-closed em produção** — T2.4/T3.4-F2) | — |
 
 > **Aurora `database_url` — composto automaticamente pelo ESO (predeploy DB-4; corrige registro
@@ -99,17 +100,17 @@ aws secretsmanager put-secret-value \
   --secret-string '{"general_api_key":"<…>","phi_api_key":"<…>"}' \
   --region sa-east-1
 ```
-> ⚠️ **Nota HMAC (PHI-hardening — correção da versão anterior deste doc).** A citação antiga
-> (`gateway/hmac_key_provider.VaultHmacKeyProvider` → `Pseudonymizer.from_vault`, "gap #12") estava
-> **factualmente errada**: nenhum desses símbolos existe no código atual (só apareceram no commit
-> greenfield `d4e6189`, nunca fiados). Ground-truth em `main`@`0ecacbb` (grep-verificado): o
-> `Pseudonymizer` real (`gateway/pseudonymizer.py:30`) faz **SHA-256 puro SEM chave** e não recebe
-> key alguma; `PHI_HMAC_KEY` existe nas settings de runtime mas é **consumido em lugar nenhum**
-> (setting morta). Isso é um **gap de segurança de PHI**, não "só popular um segredo": um SHA-256
-> não-keyed de um CPF é **reversível por força-bruta** (espaço de CPF é pequeno) — pseudonimização
-> LGPD exige um mapeamento com segredo (HMAC keyed). **Fix agent-buildable em curso** (branch
-> `t6-hmac-pseudonymizer`: fiar `PHI_HMAC_KEY` como HMAC keyed, fail-closed em prod). Só **após** esse
-> merge o segredo passa a ter efeito real; até lá, popular o segredo não muda nada.
+> ⚠️ **Nota HMAC (PHI-hardening — RESOLVIDO em `main`, PR #167).** A versão anterior deste doc citava
+> `gateway/hmac_key_provider.VaultHmacKeyProvider` → `Pseudonymizer.from_vault` ("gap #12") — símbolos
+> que **nunca existiram** no código fiado (só no commit greenfield `d4e6189`), e até `0ecacbb` o
+> `Pseudonymizer` real fazia **SHA-256 puro SEM chave** (reversível por força-bruta — o espaço de CPF
+> é pequeno — logo pseudonimização LGPD fraca), com `PHI_HMAC_KEY` como setting **morta**. **Corrigido
+> em `main` (PR #167, `9871555`; ADR-0035 Accepted):** `Pseudonymizer.from_settings`
+> (`gateway/pseudonymizer.py`) agora deriva pseudônimos por **HMAC-SHA256 keyed** e é **fail-closed em
+> produção** — chave ausente **ou blank/whitespace-only** ⇒ `PseudonymizerKeyMissingError` (nunca cai
+> para um pseudônimo determinístico/reversível; dev/CI usa uma chave-derivada não-secreta, também HMAC,
+> nunca SHA-256 puro). Resíduo humano: **provisionar o valor real** do `PHI_HMAC_KEY` no cofre
+> (ExternalSecret `maezo-phi-hmac`, §6.2) — só então a pseudonimização passa a ser irreversível em prod.
 > Sem um provedor de inferência PHI real, a Zona PHI **falha fechada** (ver §1.4 — o mecanismo não é
 > mais `BR_INFERENCE_ENDPOINT`).
 
@@ -161,15 +162,17 @@ implicava (o consumer nunca foi escrito).
 | **Ingress + TLS** | Sem mudanças: `ingress.enabled=true` + `certificateArn` (`values.yaml:204`). | — |
 
 **🔧 Novos itens agent-buildable-mas-decision-gated (não construídos, mas o código-alvo é pequeno assim que a decisão vier):**
-- **Webhook-receiver sem `DATABASE_URL`/`AGENT_RUNTIME_MODE`.** O checkpointer durável do grafo de
-  dispatch da Helena/WhatsApp está **em `main`** (t4b via PR #166:
-  `platform/webhooks/whatsapp/dispatch.py` compila checkpoint-enabled, mesmo padrão fail-closed do
-  agent-runtime + thread-id PHI-safe hasheado `wa:{tenant}:{phone_hash}`) — **mas o Helm não o
-  alimenta**: o deployment
-  `deployment-webhook-receiver.yaml` (hoje só declara `TENANT_ID`/`WHATSAPP_*`/`KAFKA_BOOTSTRAP_SERVERS`)
-  não passa `DATABASE_URL` nem `AGENT_RUNTIME_MODE` — o checkpointer fica **inerte em produção**
-  até esse deployment ser religado com as mesmas env vars do `deployment-agent-runtime.yaml`. PR
-  mecânico pequeno, deliberadamente fora do escopo do #166 — aguardando priorização.
+- **Webhook-receiver sem `DATABASE_URL` (resíduo real pós-#167).** O deployment
+  `deployment-webhook-receiver.yaml` já recebe `RUNTIME_MODE` e `PHI_HMAC_KEY` (fiados pelo #167),
+  mas **ainda não recebe `DATABASE_URL`** — declara só
+  `TENANT_ID`/`WHATSAPP_*`/`KAFKA_BOOTSTRAP_SERVERS`/`RUNTIME_MODE`/`PHI_HMAC_KEY`. O dispatcher da
+  Helena (`platform/webhooks/service.py:_build_dispatcher`) **exige** `DATABASE_URL` — tanto para o
+  sink de auditoria durável ADR-0007 (fence T-C2 antes de qualquer start de escalonamento) quanto
+  para o checkpointer durável t4b; sem ele o build **levanta** (fail-closed), `_bring_up_dependencies`
+  captura, `state.dispatcher` fica `None` e `/webhook` degrada para **501** — ou seja, com o template
+  Helm atual o canal WhatsApp da Helena **não serve em produção**, e o checkpointer segue **dormente**.
+  Fix já **enfileirado** (religar o deployment com `DATABASE_URL`, espelhando
+  `deployment-agent-runtime.yaml`): PR mecânico pequeno, fora do escopo do #167.
 - **DL-0033 (dossiês A2A Carolina/André).** Os 3 workers de dossiê sem função implementadora
   (`operadora.cred.prepare_dossier`, `operadora.pagto.prepare_approval_dossier`,
   `operadora.adequacao.prepare_remediation_dossier`) ganharam stubs locais neutros (espelhando
@@ -349,13 +352,13 @@ de lançamento é humana, ADR-0018/§6.2).
 
 | Var | Significado | Fonte em prod |
 |---|---|---|
-| `DATABASE_URL` | Aurora (estado/memória/auditoria **e, desde T4/T4b, persistência durável de checkpoint langgraph** via `AsyncPostgresSaver` — agent-runtime E webhook da Helena/WhatsApp) | ExternalSecret `aurora/master-user-secret`. Fail-closed em prod: `AGENT_RUNTIME_MODE != local` + DSN ausente/`setup()` falhando ⇒ `checkpointer_ready=false`, sem fallback silencioso em memória. O DSN `postgresql+asyncpg://` do ESO, que o psycopg não parseava (quebrava todo boot de prod), está **corrigido** (`normalize_dsn`, PR #166, `0ecacbb`). **Gap remanescente:** o deployment `webhook-receiver` ainda não recebe `DATABASE_URL`/`AGENT_RUNTIME_MODE` (ver §1.4) — o checkpointer do webhook fica inerte até esse Helm gap fechar. |
+| `DATABASE_URL` | Aurora (estado/memória/auditoria **e, desde T4/T4b, persistência durável de checkpoint langgraph** via `AsyncPostgresSaver` — agent-runtime E webhook da Helena/WhatsApp) | ExternalSecret `aurora/master-user-secret`. Fail-closed em prod: `AGENT_RUNTIME_MODE != local` + DSN ausente/`setup()` falhando ⇒ `checkpointer_ready=false`, sem fallback silencioso em memória. O DSN `postgresql+asyncpg://` do ESO, que o psycopg não parseava (quebrava todo boot de prod), está **corrigido** (`normalize_dsn`, PR #166, `0ecacbb`). **Gap remanescente:** o deployment `webhook-receiver` ainda **não recebe `DATABASE_URL`** (ver §1.4) — sem ele o dispatcher da Helena não constrói (fail-closed) e `/webhook` degrada para 501; fix enfileirado. |
 | `AGENT_RUNTIME_MODE` | Seleciona modo prod vs local (gate fail-closed de checkpoint, A2A card-signing, etc.) | `production` nos deployments reais |
 | `MAEZO_INFERENCE_PROVIDER` | Seleciona o provider de inferência (Geral/PHI); substitui o antigo `BR_INFERENCE_ENDPOINT` | contrato + ExternalSecret (§3.1) |
 | `CIBSEVEN_BASE_URL` / `FHIR_BASE_URL` | engine + FHIR | URL externa ou StatefulSet in-cluster (gated) |
 | `KAFKA_BOOTSTRAP_SERVERS` | eventos/CDC/auditoria/bridge (agora inclui o producer leg real do bridge, T4) | MSK (amh-data-platform) |
 | `LLM_GENERAL_API_KEY` / `LLM_PHI_API_KEY` | LLM Zona Geral/PHI | ExternalSecret `llm/api-keys` |
-| `PHI_HMAC_KEY` | chave HMAC do pseudonymizer — **hoje setting MORTA**: o `Pseudonymizer` usa SHA-256 sem chave e não lê essa var (ver nota HMAC em §1.1); passa a ter efeito só após o fix `t6-hmac-pseudonymizer` | cofre/KMS (§6.2) |
+| `PHI_HMAC_KEY` | chave do pseudonymizer HMAC-SHA256 keyed (`Pseudonymizer.from_settings`, fail-closed em prod; ADR-0035) — **código efetivo em `main` (PR #167, `9871555`)**; falta só provisionar o valor real do segredo no cofre (§6) | ExternalSecret `maezo-phi-hmac` (§6.2) |
 | `TASY_ORACLE_DSN` / `TASY_ORACLE_USER` | integração Tasy (consumer ainda não existe, ver §1.4/§4) | ExternalSecret `tasy/oracle` (§6.2) |
 | `EPISODIC_ATTACHMENTS_BUCKET` / `_REGION` | anexos episódicos S3 (consumer ainda não existe) | bucket + IRSA (§6.2) |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | export de traços | collector → AMP/AMG (TLS+SigV4 em prod) |
@@ -364,7 +367,7 @@ de lançamento é humana, ADR-0018/§6.2).
 
 ---
 
-_Última atualização: 2026-07-26 (reconciliação de ground-truth pós-T5; base `main`@`0ecacbb`,
-PRs #165 e #166 mergeados). Fonte primária de evidência: `docs/evidence-ledger.md`,
+_Última atualização: 2026-07-26 (reconciliação de ground-truth pós-T6; base `main`@`9871555`,
+PRs #165, #166 e #167 mergeados). Fonte primária de evidência: `docs/evidence-ledger.md`,
 `docs/decisions-log.md`, `docs/adr/`. Para o histórico #65–#88, ver
 `docs/reports/autonomous-completion-report.md` §6._
