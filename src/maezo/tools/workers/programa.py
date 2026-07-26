@@ -42,8 +42,11 @@ def check_consent(variables: dict[str, Any]) -> dict[str, Any]:
     CHOKEPOINT: if no active consent, raises ERR_PROGRAMA_NO_CONSENT.
     NO PHI processing happens before this gate passes (fail-closed).
     """
-    consentimento_ativo = variables.get("consentimento_ativo", False)
-    consent_checked = variables.get("consent_checked", False)
+    # FAIL-CLOSED (T3.1, mirrors lgpd.ValidateIdentityWorker / ADR-0031): consentimento confirmado
+    # SO com sinal explicito `is True`. Ausente/False/lixo (string truthy como "true"/" ", int 1,
+    # list/dict) -> False -> o chokepoint bloqueia TODO processamento de PHI do programa.
+    consentimento_ativo = variables.get("consentimento_ativo") is True
+    consent_checked = variables.get("consent_checked") is True
     consent_scope = variables.get("consent_scope", "programa_cuidado")
 
     if not consentimento_ativo or not consent_checked:
@@ -140,8 +143,11 @@ def stratify_risk(variables: dict[str, Any]) -> dict[str, Any]:
     ANALISE_HUMANA (clinico humano) — NEVER to auto-elegivel/auto-nao-elegivel. NEVER sets
     `decisao_programa` (BPMN:154 documentation) — no clinical decision is made here.
     """
-    consentimento_ativo = variables.get("consentimento_ativo", False)
-    consent_checked = variables.get("consent_checked", False)
+    # FAIL-CLOSED (T3.1, mirrors lgpd.ValidateIdentityWorker / ADR-0031): consentimento confirmado
+    # SO com sinal explicito `is True`. Ausente/False/lixo (string truthy como "true"/" ", int 1,
+    # list/dict) -> False -> este guard (mesma invariante de check_consent) bloqueia o PHI.
+    consentimento_ativo = variables.get("consentimento_ativo") is True
+    consent_checked = variables.get("consent_checked") is True
     consent_scope = variables.get("consent_scope", "programa_cuidado")
     beneficiario = variables.get("beneficiario_pseudo_id")
     programa_id = variables.get("programa_id")
@@ -213,6 +219,28 @@ def monitor_programa(variables: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------
 
 
+def _norm_str(value: Any) -> str:
+    """Normalize an engine variable to a stripped string for guard checks — FAIL-CLOSED.
+
+    Mirrors `pagto._norm_str` (t2.5-p2b-round2 / t3.1-guard-input-hardening): the pre-fix bare
+    `if not motivo` / `if not referencia` / `if not responsavel_id` checks in
+    `_register_program_discharge` let WHITESPACE-ONLY decision + accountability fields pass —
+    on an L0-HARD CLINICAL decision (ADR-0005/0008: a clinical discharge NEVER without a
+    genuine human clinician behind it), a whitespace-only `responsavel_clinico_id` would defeat
+    ADR-0007's audit-chain identification and a whitespace-only `motivo_desligamento_clinico`/
+    `referencia_clinica` would record a discharge with no real clinical justification/protocol.
+    Closes that class:
+    - a `str` normalizes to `value.strip()` — whitespace-only ("   ", "\\t", "\\n", ...)
+      becomes "" and is treated EXACTLY like an absent field (refusal, never registration);
+    - a NON-string (None, int, bool, list, dict — engine variables arrive untyped) normalizes
+      to "" (fail-closed refusal), never a truthy pass-through and never an AttributeError
+      incident from calling `.strip()` on a non-string.
+    """
+    if isinstance(value, str):
+        return value.strip()
+    return ""
+
+
 def register_discharge(variables: dict[str, Any]) -> dict[str, Any]:
     """Register clinical discharge from program.
 
@@ -223,11 +251,22 @@ def register_discharge(variables: dict[str, Any]) -> dict[str, Any]:
 
 
 def _register_program_discharge(variables: dict[str, Any]) -> dict[str, Any]:
-    """Internal: validate clinical discharge guard."""
-    decisao = variables.get("decisao_programa", "")
-    motivo = variables.get("motivo_desligamento_clinico", "")
-    referencia = variables.get("referencia_clinica", "")
-    responsavel_id = variables.get("responsavel_clinico_id", "")
+    """Internal: validate clinical discharge guard.
+
+    NORMALIZATION (t3.1-guard-input-hardening, L0-hard clinical decision): ALL decision +
+    human-accountability fields (`decisao_programa`, `motivo_desligamento_clinico`,
+    `referencia_clinica`, `responsavel_clinico_id` — BPMN ST_RegisterDischarge doc,
+    SP-OP-PROGRAMA-001_Programas_Cuidado.bpmn:317; contract SP-OP-PROGRAMA-001.md:102-105,181)
+    are normalized via `_norm_str` (strip; non-string -> "") BEFORE any guard check, mirroring
+    `pagto.register_payment_refusal`'s fix. Whitespace-only/non-string refuses exactly like
+    absent; a whitespace-PADDED exact `decisao_programa` literal ("DESLIGAR_CLINICO ") still
+    passes (case variants/substrings still refuse — exact `!=` match, no folding). Input
+    normalization ONLY — the guard structure, error class and refusal semantics are unchanged.
+    """
+    decisao = _norm_str(variables.get("decisao_programa", ""))
+    motivo = _norm_str(variables.get("motivo_desligamento_clinico", ""))
+    referencia = _norm_str(variables.get("referencia_clinica", ""))
+    responsavel_id = _norm_str(variables.get("responsavel_clinico_id", ""))
 
     errors: list[str] = []
 

@@ -204,9 +204,16 @@ import httpx
 import pytest
 import pytest_asyncio
 
+from maezo.platform.notification_bridge import NotificationBridge, build_cibseven_process_starter
+from maezo.tools.mcp_cibseven.transport import CibSevenHttpTransport
 from maezo.tools.workers.events import register_events_workers
 from maezo.tools.workers.harness import CibSevenWorkerTransport, FakeKafkaPublisher, WorkerHarness
-from maezo.tools.workers.nip import NipNegativaNotHumanError, register_nip_workers, submit_response_entry
+from maezo.tools.workers.nip import (
+    NipNegativaNotHumanError,
+    handoff_ans_submit,
+    register_nip_workers,
+    submit_response_entry,
+)
 
 from .conftest import CIBSEVEN_BASE_URL, drain_topics
 from .engine_rest import EngineRest
@@ -218,6 +225,12 @@ _BPMN = _REPO / "spec/processes/bpmn/SP-OP-NIP-001_Resposta_NIP.bpmn"
 _DMN_CLASS = _REPO / "spec/processes/dmn/nip_classification.dmn"
 _DMN_ROUTING = _REPO / "spec/processes/dmn/nip_routing.dmn"
 _DMN_SLA = _REPO / "spec/processes/dmn/nip_sla.dmn"
+_BPMN_ANS_SUBMIT = _REPO / "spec/processes/bpmn/SP-OP-ANS-SUBMIT-001_Envios_Periodicos_ANS.bpmn"
+_DMN_ANS_CALENDAR = _REPO / "spec/processes/dmn/ans_calendar.dmn"
+_DMN_ANS_SLA = _REPO / "spec/processes/dmn/ans_sla.dmn"
+_DMN_ANS_ADMISS = _REPO / "spec/processes/dmn/ans_submission_admissibility.dmn"
+_DMN_ANS_RETRY = _REPO / "spec/processes/dmn/ans_retry_policy.dmn"
+_PROCESS_KEY_ANS_SUBMIT = "SP-OP-ANS-SUBMIT-001"
 
 # External task topics do contrato SP-OP-NIP-001 REALMENTE registrados por `register_nip_workers`
 # (nip.py) — construida a partir do registro real, NAO copiada do donor (finding 2 acima).
@@ -1793,6 +1806,119 @@ async def test_handoff_ans_submit_apos_decisao_humana(
     assert h["numero_nip_ans"]
     assert h["revisor_id"] == "revisor-sintetico-005"
     assert h["origem_envio"] == "nip_filing"
+
+
+# ===========================================================================
+# T2.6-7 — end-to-end: NIP handoff -> live NotificationBridge -> real SP-OP-ANS-SUBMIT-001
+# start (pending live proof; xfail-strict, no docker in this dev environment).
+# ===========================================================================
+
+_T267_NIP_END_TO_END_PENDING_LIVE_PROOF_REASON = (
+    "T2.6-7 (docs/design/T2.6-ans-submission-rescope.md §1.5/§5): notification_bridge.py now "
+    "registers a nip.handoff_ans_submit -> SP-OP-ANS-SUBMIT-001 rule with a deterministic "
+    "business key (ANSSUB-{tenant}-nipfiling-{numero_nip_ans}) and a fenced starter "
+    "(build_cibseven_process_starter -> start_process_idempotent, ADR-0007/T-C2) — both fully "
+    "unit-proven against fakes in tests/unit/platform/test_notification_bridge.py. This test "
+    "drives the SAME pipeline against the REAL engine end-to-end (NIP concluded -> handoff "
+    "computed -> fed into a live NotificationBridge instance -> a genuinely NEW "
+    "SP-OP-ANS-SUBMIT-001 instance). It intentionally still bypasses two separate, "
+    "already-disclosed gaps rather than re-litigating them here: (a) handoff_ans_submit_entry "
+    "does not itself call kafka.publish yet (nip.py module docstring finding 3 / "
+    "_NIP_WORKER_KAFKA_GAP_REASON, xfailed independently on test_handoff_ans_submit_apos_"
+    "decisao_humana above) — this test calls the pure handoff_ans_submit(...) function directly "
+    "with the NIP instance's own known synthetic values instead of observing a published event; "
+    "(b) no production consumer in src/ instantiates NotificationBridge against "
+    "operadora.notifications.internal in a running daemon — this test constructs the bridge "
+    "manually, standing in for that (not-yet-built) consumer. Kept xfail-strict because this "
+    "agent has no docker/live-engine access to actually run and prove it end-to-end (task "
+    "instruction: 'no docker here' / 'pending live proof') — un-xfail only after a real R1 run "
+    "against a live CIB Seven + Postgres stack confirms it, per this design's own R2-build/"
+    "R1-verify tiering."
+)
+
+
+@pytest_asyncio.fixture
+async def deploy_nip_and_submit_artifacts(engine: EngineRest) -> str:
+    """Deploya SP-OP-NIP-001 (BPMN + 3 DMN) + SP-OP-ANS-SUBMIT-001 (BPMN + 4 DMN) juntos, para
+    que `engine.instance_ids_of_definition(_PROCESS_KEY_ANS_SUBMIT)` consulte uma definition
+    genuinamente deployada (mirrors `deploy_cron_and_submit_artifacts`,
+    `test_sp_op_ans_cron_001.py`)."""
+    return await engine.deploy(
+        _BPMN,
+        _DMN_CLASS,
+        _DMN_ROUTING,
+        _DMN_SLA,
+        _BPMN_ANS_SUBMIT,
+        _DMN_ANS_CALENDAR,
+        _DMN_ANS_SLA,
+        _DMN_ANS_ADMISS,
+        _DMN_ANS_RETRY,
+        name="SP-OP-NIP-001-ans-submit-seam-qa",
+    )
+
+
+async def test_nip_handoff_end_to_end_starts_ans_submit_via_live_bridge(
+    engine: EngineRest,
+    deploy_nip_and_submit_artifacts: str,
+    nip_probe: NipEngineProbe,
+    start_nip: Callable[..., Any],
+    audit_sink: Any,
+) -> None:
+    """A concluded NIP (CONCEDER), fed through a live `NotificationBridge` with a real fenced
+    starter, starts a genuinely NEW SP-OP-ANS-SUBMIT-001 instance — the T2.6-7 acceptance
+    criterion ("integration: bridge instantiated by the running consumer, end-to-end NIP handoff
+    actually starts the SUBMIT process")."""
+    inst = await start_nip(
+        classificacao_nip="assistencial",
+        tema_nip="negativa_cobertura",
+        contesta_negativa=True,
+        documentacao_suficiente=True,
+    )
+    iid = inst["id"]
+
+    ut = await _drive_to_revisao(engine, nip_probe, iid)
+    await engine.complete_task_as_human(
+        ut.id,
+        {
+            "decisao_nip": "CONCEDER",
+            "texto_resposta_nip": "Concede o pleito (teste, T2.6-7 seam)",
+            "revisor_id": "revisor-sintetico-t267",
+        },
+    )
+    await nip_probe.drain()
+    await _await_end(engine, iid)
+
+    # Stand-in for the still-missing Kafka-publish leg (gap (a), see xfail reason): compute the
+    # handoff payload the SAME way the worker would, from the instance's own known synthetic
+    # values (start_nip's canonical numero_nip_ans/protocolo_ans, the human's revisor_id is NOT
+    # part of handoff_ans_submit's own signature — matches nip.py:327-355 exactly).
+    numero_nip_ans = inst.get("businessKey", "").removeprefix("NIP-amh-")
+    handoff_payload = handoff_ans_submit(
+        numero_nip_ans=numero_nip_ans,
+        protocolo_ans="PROTO-TESTE-0001",
+        decisao_nip="CONCEDER",
+        data_recebimento_nip_iso="2026-07-10",
+    )
+    handoff_payload["tenant_id"] = "amh"  # boundary: not part of handoff_ans_submit's own output
+
+    # Stand-in for the still-missing live consumer (gap (b)): construct the bridge with the REAL
+    # fenced starter (never a raw engine call) and feed it the handoff directly.
+    transport = CibSevenHttpTransport(CIBSEVEN_BASE_URL)
+    bridge = NotificationBridge(cibseven_starter=build_cibseven_process_starter(transport, audit_sink))
+
+    before_submit = await engine.instance_ids_of_definition(_PROCESS_KEY_ANS_SUBMIT)
+    try:
+        results = await bridge.on_event(event_type="nip.handoff_ans_submit", payload=handoff_payload)
+    finally:
+        await transport.close()
+    after_submit = await engine.instance_ids_of_definition(_PROCESS_KEY_ANS_SUBMIT)
+
+    assert results[0].handoff_triggered is True
+    novas = after_submit - before_submit
+    assert len(novas) == 1, (
+        "end-to-end: o handoff da ponte deveria ter iniciado exatamente 1 instancia real de "
+        f"SP-OP-ANS-SUBMIT-001; novas={novas}"
+    )
 
 
 # ===========================================================================
