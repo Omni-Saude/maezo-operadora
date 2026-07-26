@@ -31,6 +31,23 @@ actually calls `on_event`/`execute_handoff` in production remain open, see this 
 `build_cibseven_process_starter` docstring and the xfail-strict integration coverage in
 `tests/integration/processes/`).
 
+T2.6-EB3 (production-wiring hardening — the bridge was dormant fail-OPEN, this closes it):
+1. `execute_handoff` is now fail-CLOSED — a genuine start failure PROPAGATES
+   (`NotificationBridgeHandoffFailedError`) instead of being swallowed into `.reason`.
+2. The two T2.6-7 rules' anchor-field predicates reject an explicit `None` the same as
+   absent/blank (`_non_blank` helper) — a naive `bool(str(...).strip())` check would otherwise
+   treat `None` as the non-blank string `"None"`.
+3. `tenant_id` now flows from a real source for both T2.6-7 rules: `nip.py`'s
+   `handoff_ans_submit_entry` reads it off the process instance's own variables; `ans_cron.py`'s
+   `trigger_submissions` accepts it as a worker-registration seam (deployment-scoped — see that
+   function's docstring for the residual live-wire gap this does NOT close).
+4. The 5 pre-existing rules (CONTAS→RECURSO/FRAUDE, FRAUDE→CRED/CANCEL/INADIMPLENCIA) now derive
+   `business_key` (they never did before — the fenced starter would have fail-closed refused
+   every one of them).
+5. `maezo.platform.integrations.notifications_bridge` (new module) is the Kafka consumer
+   entry point Helm's `deployment-bridge.yaml` already references — see that module's docstring
+   for the live-Kafka-runtime boundary this repo cannot exercise.
+
 London School TDD: the bridge is pure domain logic. Kafka consumption and
 CIB Seven HTTP calls are injected as async callables so tests remain fast.
 """
@@ -150,6 +167,31 @@ def _ans_nip_business_key(tenant_id: str, numero_nip_ans: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# EB-3 part 2 — None-predicate hardening (fail-closed anchor-field validation)
+# ---------------------------------------------------------------------------
+
+
+def _non_blank(value: Any) -> bool:
+    """True iff `value` is a present, non-blank business-key anchor field.
+
+    The naive `bool(str(p.get(field, "")).strip())` idiom treats an EXPLICIT `None` as the
+    4-character string `"None"` — `str(None) == "None"`, which `.strip()` leaves non-empty, so
+    the naive check returns `True` for a field that is actually absent-as-None. That produces a
+    garbage, non-deterministic-looking business key like `ANSSUB-amh-nipfiling-None` instead of
+    correctly refusing to start (the SAME failure mode the absent/blank-string cases already
+    guard against).
+
+    Fail-closed: `None` is treated EXACTLY like an absent or blank field — both fail this check,
+    so the owning rule's predicate returns `False` and the handoff does not trigger (no start,
+    no garbage business key). A non-`None`, non-blank value round-trips through `str(...).strip()`
+    unchanged, same as before.
+    """
+    if value is None:
+        return False
+    return bool(str(value).strip())
+
+
+# ---------------------------------------------------------------------------
 # T2.6-7 variable derivation (NIP handoff + ans.cron_due fact -> SUBMIT seed variables)
 # ---------------------------------------------------------------------------
 
@@ -168,11 +210,14 @@ def _ans_submit_variables_from_nip_handoff(payload: dict[str, Any]) -> dict[str,
     constants, see their docstrings) — CONSTANTS, never derived from the processing clock, so
     redelivery of the same NIP case always reconstructs the same business key.
 
-    `tenant_id` is a genuine, pre-existing gap: `handoff_ans_submit`'s own return dict
-    (`nip.py:348-355`) does not carry it (only `numero_nip_ans`/`protocolo_ans`/`decisao_nip`/
-    `data_recebimento_nip_iso`) — this mapping passes through whatever `tenant_id` key the
-    eventual event envelope supplies, defaulting to `""` fail-closed. Boundary flagged in the
-    T2.6-7 PR body; NOT fabricated here (out of this rule's edit authority over `nip.py`).
+    `tenant_id` (EB-3 part 3 — SOURCE fixed): `handoff_ans_submit`'s return dict now carries a
+    real `tenant_id` (`nip.py`'s `handoff_ans_submit_entry` reads it off the SP-OP-NIP-001
+    process instance's own variables — every process instance carries `tenant_id` as a top-level
+    variable, the SAME convention every other `tenant_id: str` dataclass field in `nip.py`'s
+    sibling worker modules already relies on; `handoff_ans_submit_entry` simply wasn't reading it
+    before this fix). This mapping still defaults to `""` fail-closed ONLY when the upstream
+    payload genuinely omits the key (e.g. a caller that predates the T2.6-EB3 fix, or a
+    malformed/legacy event) — never fabricated here.
     """
     tenant_id = str(payload.get("tenant_id", ""))
     numero_nip_ans = str(payload.get("numero_nip_ans", ""))
@@ -204,13 +249,23 @@ def _ans_submit_variables_from_cron_due(payload: dict[str, Any]) -> dict[str, An
     `tests/integration/processes/test_sp_op_ans_cron_001.py`), falling back to the sentinel only
     if the fact is missing it entirely (never silently invents a real period).
 
-    `tenant_id` is a genuine, pre-existing gap: the fact carries NO `tenant_id` today
-    (`test_sp_op_ans_cron_001.py:400` asserts `"tenant_id" not in fact`) — SP-OP-ANS-CRON-001's
-    BPMN bakes `report_type`/`periodicidade`/`origem_envio`/`competencia` as literal
-    `camunda:inputParameter`s with no tenant scoping. Fixing that is a `spec/` edit (BPMN),
-    outside this mechanical wiring task's edit authority (T2.6-7 is explicitly "no spec/contract
-    change"). This mapping passes through whatever `tenant_id` key the eventual event envelope
-    supplies, defaulting to `""` fail-closed — boundary flagged in the T2.6-7 PR body.
+    `tenant_id` (EB-3 part 3 — SOURCE partially fixed, HONEST residual boundary):
+    `ans_cron.py`'s `trigger_submissions` now accepts a `tenant_id` KEYWORD parameter threaded
+    in at worker registration (`register_ans_cron_workers(harness, tenant_id=...)`, sourced from
+    the deployment's own `TENANT_ID`/`WorkerRuntimeSettings.tenant_id` — there is no
+    PER-INSTANCE tenant on this TimerStartEvent-triggered process the way there is on a
+    case-driven process like SP-OP-NIP-001; this scheduler is deployment-scoped, not
+    case-scoped). RESIDUAL GAP, NOT fixed here (still a `spec/` edit, still outside this
+    mechanical wiring task's edit authority): `trigger_submissions` itself is UNREACHABLE in the
+    real deployed BPMN today (FINDING #1c — the 5 `SP-OP-ANS-CRON-001-*` process definitions
+    bind `ST_PublishCronDue*` directly to the generic `operadora.events.publish` topic with
+    literal `camunda:inputParameter`s, never to `operadora.ans_cron.trigger_submissions`), and
+    that generic worker's own `event_payload_vars` literal
+    (`report_type,periodicidade,origem_envio,competencia`) does not list `tenant_id` — so the
+    REAL live Kafka fact still omits it until a `spec/` edit adds `tenant_id` to that BPMN
+    literal (`test_sp_op_ans_cron_001.py:428` still correctly documents this live-wire gap).
+    This mapping passes through whatever `tenant_id` key the payload supplies, defaulting to
+    `""` fail-closed when it is genuinely absent — never fabricated here.
     """
     tenant_id = str(payload.get("tenant_id", ""))
     report_type = str(payload.get("report_type", ""))
@@ -228,6 +283,118 @@ def _ans_submit_variables_from_cron_due(payload: dict[str, Any]) -> dict[str, An
         "dataset_ref": "",
         "business_key": _ans_cron_business_key(tenant_id, report_type, competencia),
     }
+
+
+# ---------------------------------------------------------------------------
+# EB-3 part 4 — business_key derivation for the 5 pre-existing bridge rules
+#
+# Added so the fenced starter (`build_cibseven_process_starter`) can actually start these five
+# rules: it fail-closed REFUSES any rule whose variables lack `business_key`
+# (`NotificationBridgeMissingBusinessKeyError`) — before this fix, NONE of the 5 pre-existing
+# rules (CONTAS→RECURSO, CONTAS→FRAUDE, FRAUDE→CRED, FRAUDE→CANCEL, FRAUDE→INADIMPLENCIA) set
+# one, so a fenced-starter start attempt on any of them raised (and, under the OLD swallowing
+# `execute_handoff` — see `NotificationBridgeHandoffFailedError`'s docstring — was silently
+# absorbed): these five handoffs have never actually started a process through the fenced path.
+# Each derivation mirrors the ANSSUB pattern (`_ans_cron_business_key`/`_ans_nip_business_key`
+# above): a plain, deterministic f-string over the exact shape each target process's own
+# contract documents under "Business key (idempotencia)".
+# ---------------------------------------------------------------------------
+
+
+def _recurso_business_key(tenant_id: str, numero_guia_tiss: str, glosa_id: str) -> str:
+    """`RECURSO-{tenant_id}-{numero_guia_tiss}-{glosa_id}` (contract `SP-OP-RECURSO-001.md`
+    "Business key (idempotencia)") — one recurso per glosa per guia TISS; a re-handoff of the
+    same glosa (e.g. CONTAS redelegating) converges on the SAME active instance."""
+    return f"RECURSO-{tenant_id}-{numero_guia_tiss}-{glosa_id}"
+
+
+def _fraude_business_key(tenant_id: str, numero_caso: str) -> str:
+    """`FRAUDE-{tenant_id}-{numero_caso}` (contract `SP-OP-FRAUDE-001.md` "Business key
+    (idempotencia)") — one active investigation instance per case."""
+    return f"FRAUDE-{tenant_id}-{numero_caso}"
+
+
+def _fraude_numero_caso_for_contas_handoff(payload: dict[str, Any]) -> str:
+    """Resolve the FRAUDE-001 `numero_caso` business-key anchor for a CONTAS→FRAUDE handoff.
+
+    Contract `SP-OP-FRAUDE-001.md` "Business key (idempotencia)": `numero_caso` is the case's
+    stable identifier and — pending a product/regulatory sign-off (contract's own
+    DRAFT/verify note) — is documented to be "a chave fornecida pelo intake" until then. For
+    THIS bridge rule the notification_bridge itself is the intake (it is what starts
+    SP-OP-FRAUDE-001 from a CONTAS forward), so when the CONTAS payload does not already carry
+    an assigned `numero_caso`, this falls back to `prestador_id` — the entity under
+    investigation — which honors the contract's OWN documented idempotency intent ("reenvio do
+    mesmo caso... retorna a instancia ativa" for repeated forwards on the SAME prestador) instead
+    of minting a fresh, non-deterministic case id on every forward.
+    """
+    numero_caso = payload.get("numero_caso")
+    if isinstance(numero_caso, str) and numero_caso.strip():
+        return numero_caso
+    return str(payload.get("prestador_id", ""))
+
+
+def _cred_business_key(tenant_id: str, prestador_id: str) -> str:
+    """`CRED-{tenant_id}-{prestador_id}` (contract `SP-OP-CRED-001.md` "Business key
+    (idempotencia)") — one active (des)credenciamento cycle per prestador. The contract also
+    documents a per-protocolo variant (`CRED-{tenant}-{prestador}-{protocolo_cred}`) for
+    multi-cycle cases; not used here because this bridge rule's payload does not carry a
+    `protocolo_cred`."""
+    return f"CRED-{tenant_id}-{prestador_id}"
+
+
+def _cancel_business_key(tenant_id: str, numero_contrato: str) -> str:
+    """`CANCEL-{tenant_id}-{numero_contrato}` (contract `SP-OP-CANCEL-001.md` "Business key
+    (idempotencia)") — one active cancelamento/rescisao instance per contract."""
+    return f"CANCEL-{tenant_id}-{numero_contrato}"
+
+
+def _inadimplencia_business_key(tenant_id: str, numero_contrato: str) -> str:
+    """`INAD-{tenant_id}-{numero_contrato}` (contract `SP-OP-INADIMPLENCIA-001.md` "Business key
+    (idempotencia) — coordenada com CANCEL-001") — a prefix DISTINCT from CANCEL for the SAME
+    contract (the two processes coordinate via topology + a runtime active-instance check, not
+    via a shared business key — see the contract's own "Coordenacao com CANCEL-001" note)."""
+    return f"INAD-{tenant_id}-{numero_contrato}"
+
+
+# ---------------------------------------------------------------------------
+# EB-3 part 1 — fail-closed execute_handoff error type
+# ---------------------------------------------------------------------------
+
+
+class NotificationBridgeHandoffFailedError(RuntimeError):
+    """Raised by `execute_handoff`/`on_event` when a MATCHED rule's process start genuinely
+    fails (the starter raised) — fail-closed (EB-3 part 1).
+
+    Before this fix, `execute_handoff` caught `Exception` broadly around the starter call and
+    only recorded `result.reason = f"CIB Seven start failed: {exc}"`, returning a "successful"
+    HandoffResult with an empty `process_instance_id` — a real start failure (a missing
+    business key, a durable-audit-persistence failure, a transport/HTTP error against CIB Seven)
+    was SILENTLY SWALLOWED: the caller (a Kafka consumer) would see `evaluated=True,
+    handoff_triggered=True` and move on, with no signal that the process never actually started.
+    That is fail-OPEN — exactly backwards for a chokepoint whose entire purpose (ADR-0007/T-C2)
+    is to make a start failure impossible to miss.
+
+    Now the starter's exception PROPAGATES (wrapped here, `raise ... from exc` preserves the
+    original traceback/cause) instead of being absorbed into `.reason`. This is deliberately
+    DISTINCT from the two cases that must NOT raise:
+      - "no matching rule" (`result.handoff_triggered is False`) — a legitimate skip, unrelated
+        to any process-start attempt; `execute_handoff` returns immediately, unchanged.
+      - idempotent replay (`start_process_idempotent`'s `find_active_instance` hit) — the
+        starter returns the EXISTING instance normally (no exception at all), so a duplicate
+        delivery of the same business key is indistinguishable from a fresh success here; it is
+        not a failure and never raises.
+    A caller (the Kafka consumer entry point, `maezo.platform.integrations.notifications_bridge`)
+    that lets this propagate turns a matched-but-failed handoff into a visible incident (the
+    message is not acked/committed, so it can be retried/escalated) instead of a silently
+    "successful" no-op.
+    """
+
+    def __init__(self, target_process: str, cause: BaseException) -> None:
+        self.target_process = target_process
+        super().__init__(
+            f"notification_bridge: handoff to target_process={target_process!r} failed "
+            f"(fail-closed, not swallowed): {cause}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -279,6 +446,12 @@ class NotificationBridge:
 
         CONTAS→RECURSO, CONTAS→FRAUDE, FRAUDE→CRED, FRAUDE→CANCEL/INADIMPLENCIA (5, pre-T2.6-7)
         + NIP→ANS-SUBMIT, ans.cron_due→ANS-SUBMIT (2, T2.6-7).
+
+        EB-3 part 4: all 5 pre-existing rules now derive `business_key` (see the module-level
+        `_recurso_business_key`/`_fraude_business_key`/`_cred_business_key`/
+        `_cancel_business_key`/`_inadimplencia_business_key` helpers) and read `tenant_id` from
+        the payload — required for the fenced starter (`build_cibseven_process_starter`) to
+        start them at all; it fail-closed refuses any rule whose variables lack `business_key`.
         """
         # CONTAS→RECURSO: when glosa confirmed → start SP-OP-RECURSO-001
         self.register_handoff(
@@ -286,12 +459,18 @@ class NotificationBridge:
             predicate=lambda p: p.get("decisao_contas") == "RECORRER",
             target_process="SP-OP-RECURSO-001",
             variables_fn=lambda p: {
+                "tenant_id": str(p.get("tenant_id", "")),
                 "glosa_id": p.get("glosa_id", ""),
                 "numero_guia_tiss": p.get("numero_guia_tiss", ""),
                 "glosa_type": p.get("glosa_type", ""),
                 "glosa_existe": True,
                 "documentacao_anexa": p.get("documentacao_anexa", False),
                 "numero_lote_tiss": p.get("numero_lote_tiss", ""),
+                "business_key": _recurso_business_key(
+                    str(p.get("tenant_id", "")),
+                    str(p.get("numero_guia_tiss", "")),
+                    str(p.get("glosa_id", "")),
+                ),
             },
         )
 
@@ -301,12 +480,16 @@ class NotificationBridge:
             predicate=lambda p: p.get("encaminhar_fraude") is True,
             target_process="SP-OP-FRAUDE-001",
             variables_fn=lambda p: {
+                "tenant_id": str(p.get("tenant_id", "")),
                 "origem_encaminhamento": "contas",
                 "encaminhado_por_id": p.get("analista_id", ""),
                 "numero_lote_tiss": p.get("numero_lote_tiss", ""),
                 "prestador_id": p.get("prestador_id", ""),
                 "evidencia_refs": p.get("evidencia_refs", []),
                 "indicadores_presentes": p.get("indicadores_presentes", []),
+                "business_key": _fraude_business_key(
+                    str(p.get("tenant_id", "")), _fraude_numero_caso_for_contas_handoff(p)
+                ),
             },
         )
 
@@ -318,10 +501,14 @@ class NotificationBridge:
             ),
             target_process="SP-OP-CRED-001",
             variables_fn=lambda p: {
+                "tenant_id": str(p.get("tenant_id", "")),
                 "prestador_id": p.get("prestador_id", ""),
                 "numero_caso": p.get("numero_caso", ""),
                 "bundle_root": p.get("bundle_root", ""),
                 "destino_referral": p.get("destino_referral", {}),
+                "business_key": _cred_business_key(
+                    str(p.get("tenant_id", "")), str(p.get("prestador_id", ""))
+                ),
             },
         )
 
@@ -334,10 +521,14 @@ class NotificationBridge:
             ),
             target_process="SP-OP-CANCEL-001",
             variables_fn=lambda p: {
+                "tenant_id": str(p.get("tenant_id", "")),
                 "numero_contrato": p.get("numero_contrato", ""),
                 "beneficiario_pseudo_id": p.get("beneficiario_pseudo_id", ""),
                 "numero_caso": p.get("numero_caso", ""),
                 "bundle_root": p.get("bundle_root", ""),
+                "business_key": _cancel_business_key(
+                    str(p.get("tenant_id", "")), str(p.get("numero_contrato", ""))
+                ),
             },
         )
 
@@ -349,9 +540,13 @@ class NotificationBridge:
             ),
             target_process="SP-OP-INADIMPLENCIA-001",
             variables_fn=lambda p: {
+                "tenant_id": str(p.get("tenant_id", "")),
                 "numero_contrato": p.get("numero_contrato", ""),
                 "beneficiario_pseudo_id": p.get("beneficiario_pseudo_id", ""),
                 "numero_caso": p.get("numero_caso", ""),
+                "business_key": _inadimplencia_business_key(
+                    str(p.get("tenant_id", "")), str(p.get("numero_contrato", ""))
+                ),
             },
         )
 
@@ -359,22 +554,25 @@ class NotificationBridge:
         # Fail-closed predicate: BOTH the origin marker AND the per-case anchor
         # (numero_nip_ans, the business-key anchor) must be present/non-blank, or the
         # handoff does not trigger — a malformed/incomplete event never starts a process
-        # with a garbage/non-deterministic business key.
+        # with a garbage/non-deterministic business key. EB-3 part 2: `_non_blank` also
+        # fail-closed rejects an EXPLICIT `None` (not just absent/blank-string), which the
+        # naive `bool(str(...).strip())` idiom would otherwise treat as the non-blank string
+        # `"None"`.
         self.register_handoff(
             event_type="nip.handoff_ans_submit",
-            predicate=lambda p: (
-                p.get("origem_envio") == "nip_filing" and bool(str(p.get("numero_nip_ans", "")).strip())
-            ),
+            predicate=lambda p: p.get("origem_envio") == "nip_filing" and _non_blank(p.get("numero_nip_ans")),
             target_process=PROCESS_KEY_ANS_SUBMIT,
             variables_fn=_ans_submit_variables_from_nip_handoff,
         )
 
         # ans.cron_due→ANS-SUBMIT (T2.6-7): per-report_type scheduler tick.
         # Fail-closed predicate: report_type must be present/non-blank (no sensible
-        # calendar/business-key derivation without it).
+        # calendar/business-key derivation without it). EB-3 part 2: `_non_blank` also
+        # fail-closed rejects an EXPLICIT `None` report_type (see `nip.handoff_ans_submit`
+        # rule above for the same hardening rationale).
         self.register_handoff(
             event_type="ans.cron_due",
-            predicate=lambda p: bool(str(p.get("report_type", "")).strip()),
+            predicate=lambda p: _non_blank(p.get("report_type")),
             target_process=PROCESS_KEY_ANS_SUBMIT,
             variables_fn=_ans_submit_variables_from_cron_due,
         )
@@ -460,11 +658,28 @@ class NotificationBridge:
     async def execute_handoff(self, result: HandoffResult) -> HandoffResult:
         """Execute the handoff by starting the target CIB Seven process.
 
+        FAIL-CLOSED (EB-3 part 1, see `NotificationBridgeHandoffFailedError`): a rule that
+        matched but whose process start genuinely fails PROPAGATES that failure — it is never
+        swallowed into `result.reason`. Distinguish three outcomes:
+          1. No rule matched (`handoff_triggered=False`) — legitimate skip, returns immediately,
+             never touches the starter, never raises.
+          2. Rule matched, starter succeeds (fresh start OR idempotent replay of an existing
+             instance — `start_process_idempotent`'s `find_active_instance` hit returns
+             normally, no exception) — returns the result with `process_instance_id` populated.
+          3. Rule matched, starter RAISES (missing business key, durable-audit-persistence
+             failure, CIB Seven transport/HTTP error, ...) — raises
+             `NotificationBridgeHandoffFailedError` (chained via `from exc`) instead of
+             returning a falsely-"complete" result. The caller (a Kafka consumer) must treat
+             this as an incident: never ack/commit a message whose handoff failed to start.
+
         Args:
             result: The evaluated HandoffResult (must have handoff_triggered=True).
 
         Returns:
-            The result with process_instance_id populated (or error details).
+            The result with process_instance_id populated, on success only.
+
+        Raises:
+            NotificationBridgeHandoffFailedError: the matched rule's process start failed.
         """
         if not result.handoff_triggered:
             logger.warning(
@@ -481,20 +696,20 @@ class NotificationBridge:
 
         try:
             instance_id = await self._starter(result.target_process, result.variables)
-            result.process_instance_id = str(instance_id)
-            logger.info(
-                "notification_bridge.handoff_complete",
-                target_process=result.target_process,
-                instance_id=result.process_instance_id,
-            )
         except Exception as exc:
             logger.error(
                 "notification_bridge.handoff_failed",
                 target_process=result.target_process,
                 error=str(exc),
             )
-            result.reason = f"CIB Seven start failed: {exc}"
+            raise NotificationBridgeHandoffFailedError(result.target_process, exc) from exc
 
+        result.process_instance_id = str(instance_id)
+        logger.info(
+            "notification_bridge.handoff_complete",
+            target_process=result.target_process,
+            instance_id=result.process_instance_id,
+        )
         return result
 
     async def on_event(self, event_type: str, payload: dict[str, Any]) -> list[HandoffResult]:
@@ -504,12 +719,25 @@ class NotificationBridge:
         Multiple processes may be started for a single event
         (e.g., fraude.acusacao_registrada triggers CRED + CANCEL + INADIMPLENCIA).
 
+        FAIL-CLOSED (EB-3 part 1): if ANY matched rule's `execute_handoff` genuinely fails to
+        start its process, `NotificationBridgeHandoffFailedError` PROPAGATES out of this method
+        (no try/except here) — the caller (the Kafka consumer handler,
+        `maezo.platform.integrations.notifications_bridge.handle_bridge_message`) must not
+        ack/commit the triggering message when this raises. A prior successful start earlier in
+        the same `evaluate_all` fan-out (e.g. CRED started, CANCEL then failed) is NOT rolled
+        back — each rule's start is independently idempotent by its own business key, so a safe
+        redelivery re-attempts only the failed one(s) (the already-started one is a no-op
+        idempotent hit, never a double start).
+
         Args:
             event_type: Domain event type (e.g., 'contas.glosa_confirmed').
             payload: Event payload dictionary.
 
         Returns:
-            List of HandoffResult with evaluation and execution outcome.
+            List of HandoffResult with evaluation and execution outcome (only on full success).
+
+        Raises:
+            NotificationBridgeHandoffFailedError: a matched rule's process start failed.
         """
         event = HandoffEvent(event_type=event_type, payload=payload)
         results = self.evaluate_all(event)
@@ -610,9 +838,11 @@ def build_cibseven_process_starter(
     "raw engine start" this fence exists to make impossible in production.
 
     Requires `variables["business_key"]` to already be populated by the matched rule's
-    `variables_fn` (every rule registered by `_register_default_handoffs`, including the two
-    T2.6-7 ANS-SUBMIT rules, sets it) — raises `NotificationBridgeMissingBusinessKeyError`
-    (fail-closed) rather than starting with a garbage/empty key when it is missing.
+    `variables_fn` (every one of the 7 rules registered by `_register_default_handoffs` sets it
+    — the 2 T2.6-7 ANS-SUBMIT rules from the start, and the 5 pre-existing rules
+    CONTAS→RECURSO/FRAUDE + FRAUDE→CRED/CANCEL/INADIMPLENCIA as of EB-3 part 4) — raises
+    `NotificationBridgeMissingBusinessKeyError` (fail-closed) rather than starting with a
+    garbage/empty key when it is missing.
 
     `decision_basis` carries ONLY bounded class tokens (`trigger`, `target_process`) — no
     resolvable business identifier or free text, per `AgentDecisionProvenance`'s PHI discipline;

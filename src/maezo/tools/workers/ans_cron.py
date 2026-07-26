@@ -7,6 +7,7 @@ Dispatches via operadora.events.publish (reused generic publisher).
 
 from __future__ import annotations
 
+import functools
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -77,7 +78,7 @@ def _compute_competencia(reference_date_iso: str, periodicidade: str) -> str:
 # ---------------------------------------------------------------
 
 
-def trigger_submissions(variables: dict[str, Any]) -> dict[str, Any]:
+def trigger_submissions(variables: dict[str, Any], *, tenant_id: str = "") -> dict[str, Any]:
     """Publish the ans.cron_due fact for the notification bridge.
 
     Each tick of the timer produces a typed fact on
@@ -85,6 +86,20 @@ def trigger_submissions(variables: dict[str, Any]) -> dict[str, Any]:
     The notifications_bridge then starts SP-OP-ANS-SUBMIT-001.
 
     NO adverse effects — pure scheduling dispatch.
+
+    `tenant_id` (T2.6-EB3 part 3 — worker-signature change, keyword-only, threaded via
+    `register_ans_cron_workers(harness, tenant_id=...)`): SP-OP-ANS-CRON-001 is a
+    TimerStartEvent-triggered scheduler with NO per-instance case context (unlike a
+    case-driven process such as SP-OP-NIP-001), so there is no process variable to read a real
+    tenant from — the source here is the DEPLOYMENT's own identity
+    (`WorkerRuntimeSettings.tenant_id`/`TENANT_ID`), passed in at worker registration. HONEST
+    RESIDUAL BOUNDARY (not fixed here — see `notification_bridge._ans_submit_variables_from_
+    cron_due`'s docstring): this function itself is UNREACHABLE in the real deployed BPMN today
+    (FINDING #1c — the engine binds `ST_PublishCronDue*` directly to the generic
+    `operadora.events.publish` topic with literal `camunda:inputParameter`s, never to
+    `operadora.ans_cron.trigger_submissions`), and that generic worker's own `event_payload_vars`
+    literal does not list `tenant_id` — so the REAL live Kafka fact still omits it until a
+    `spec/` edit extends that BPMN literal (outside this task's edit authority).
     """
     report_type = variables.get("report_type", "")
     periodicidade = _REPORT_PERIODICIDADE.get(report_type, "P1M")
@@ -98,6 +113,7 @@ def trigger_submissions(variables: dict[str, Any]) -> dict[str, Any]:
         periodicidade=periodicidade,
         competencia=competencia,
         reference_date=reference_date,
+        tenant_id=tenant_id,
     )
 
     return {
@@ -107,6 +123,7 @@ def trigger_submissions(variables: dict[str, Any]) -> dict[str, Any]:
         "periodicidade": periodicidade,
         "competencia": competencia,
         "ans_cron_reference_date_iso": reference_date,
+        "tenant_id": tenant_id,
     }
 
 
@@ -182,7 +199,20 @@ def register_ans_cron_workers(
     kafka: KafkaPublisher | None = None,
     **seams: Any,
 ) -> None:
-    """Register the SP-OP-ANS-CRON-001 function workers on `harness`."""
-    del kafka, seams  # unused — no ans_cron.py worker declares a Kafka/other seam dependency
-    harness.register_worker(FunctionWorker("operadora.ans_cron.trigger_submissions", trigger_submissions))
+    """Register the SP-OP-ANS-CRON-001 function workers on `harness`.
+
+    `tenant_id` (T2.6-EB3 part 3 seam, `**seams` catch-all — mirrors `ans_gateway`/
+    `tiss_validator` in `ans_submit.py`): threaded ONLY into `trigger_submissions` (see its
+    docstring for why this scheduler needs a deployment-scoped seam rather than a per-instance
+    process variable). Defaults to `""` fail-closed when the composition root does not pass one
+    (unchanged behavior for every existing caller that doesn't know about this seam yet).
+    """
+    del kafka  # unused — no ans_cron.py worker declares a Kafka dependency
+    tenant_id = str(seams.get("tenant_id", ""))
+    harness.register_worker(
+        FunctionWorker(
+            "operadora.ans_cron.trigger_submissions",
+            functools.partial(trigger_submissions, tenant_id=tenant_id),
+        )
+    )
     harness.register_worker(FunctionWorker("operadora.ans_cron.check_calendar", check_calendar))

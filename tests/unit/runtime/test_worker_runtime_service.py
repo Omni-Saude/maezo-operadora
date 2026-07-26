@@ -346,10 +346,18 @@ async def test_bring_up_threads_audit_sink_and_engine_and_spawns_when_probe_gree
 
     captured: dict[str, Any] = {}
 
-    def _spy_register(harness: Any, *, dmn: Any = None, engine: Any = None, audit_sink: Any = None) -> None:
+    def _spy_register(
+        harness: Any,
+        *,
+        dmn: Any = None,
+        engine: Any = None,
+        audit_sink: Any = None,
+        tenant_id: str = "",
+    ) -> None:
         captured["engine"] = engine
         captured["dmn"] = dmn
         captured["audit_sink"] = audit_sink
+        captured["tenant_id"] = tenant_id
 
     async def _probe_ok(_sink: Any, _timeout: float) -> bool:
         return True
@@ -374,6 +382,9 @@ async def test_bring_up_threads_audit_sink_and_engine_and_spawns_when_probe_gree
         # T1.10 wave: the worker-side audit seam is a loop-safe per-call emitter (handoff_rescisao
         # emits on its own asyncio.run loop — the pooled sink must never cross loops).
         assert isinstance(captured["audit_sink"], FreshSinkAuditEmitter)
+        # T2.6-EB3 part 3: the daemon's own tenant identity threads into register_default_workers
+        # (-> ans_cron.trigger_submissions' seam).
+        assert captured["tenant_id"] == settings.tenant_id
         assert state.harness_task is not None, "verified sink -> daemon enters the fetch rotation"
     finally:
         if state.harness_task is not None:

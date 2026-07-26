@@ -243,16 +243,25 @@ def handoff_ans_submit(
     protocolo_ans: str | None,
     decisao_nip: str = "",
     data_recebimento_nip_iso: str = "",
+    tenant_id: str = "",
 ) -> dict[str, Any]:
     """Handoff NIP filing to SP-OP-ANS-SUBMIT-001.
 
     Validates protocolo_ans: absent (None) is legitimate;
     present but empty/blank raises ERR_NIP_PROTOCOLO_INVALIDO.
+
+    `tenant_id` (T2.6-EB3 part 3 — SOURCE fix): the notification_bridge's
+    `_ans_submit_variables_from_nip_handoff` rule reads `tenant_id` off THIS return dict to
+    build both the fenced-starter provenance and the `ANSSUB-{tenant_id}-nipfiling-{...}`
+    business key; before this fix, this dict never carried it (defaulted to `""` at the bridge
+    layer, breaking multi-tenant routing). Defaults to `""` when the caller genuinely has none —
+    never fabricated here.
     """
     logger.info(
         "nip.handoff_ans_submit.start",
         numero_nip_ans=numero_nip_ans,
         protocolo_ans=protocolo_ans,
+        tenant_id=tenant_id,
     )
 
     # GAP-NIP-6: absent is fine, empty/blank is invalid
@@ -266,6 +275,7 @@ def handoff_ans_submit(
         "decisao_nip": decisao_nip,
         "data_recebimento_nip_iso": data_recebimento_nip_iso,
         "origem_envio": "nip_filing",
+        "tenant_id": tenant_id,
     }
 
 
@@ -381,13 +391,21 @@ def handoff_ans_submit_entry(
 
     Raises `NipProtocoloInvalidoError` (fail-closed) when `protocolo_ans` is present but
     empty/blank — absent (`None`) is legitimate (GAP-NIP-6) — unchanged guard.
+
+    `tenant_id` (T2.6-EB3 part 3): read off `variables` — the SP-OP-NIP-001 process instance's
+    own variables, the SAME place `notify_deadline_risk_entry` (above) already reads it from.
+    Every process instance carries `tenant_id` as a top-level variable (the convention every
+    `tenant_id: str` dataclass field across the sibling worker modules — contas.py, cancel.py,
+    inadimplencia.py, ans_submit.py — already relies on); this entry function simply wasn't
+    forwarding it to `handoff_ans_submit` before this fix.
     """
     del kafka  # unused — handoff_ans_submit emits no domain event
     numero_nip_ans = variables.get("numero_nip_ans", "")
     protocolo_ans = variables.get("protocolo_ans")
     decisao_nip = variables.get("decisao_nip", "")
     data_recebimento_nip_iso = variables.get("data_recebimento_nip_iso", "")
-    return handoff_ans_submit(numero_nip_ans, protocolo_ans, decisao_nip, data_recebimento_nip_iso)
+    tenant_id = variables.get("tenant_id", "")
+    return handoff_ans_submit(numero_nip_ans, protocolo_ans, decisao_nip, data_recebimento_nip_iso, tenant_id)
 
 
 def publish_completed_entry(

@@ -139,8 +139,16 @@ def register_default_workers(
     dmn: CibSevenDmnTransport | None = None,
     engine: CibSevenTransport | None = None,
     audit_sink: AuditStartSink | None = None,
+    tenant_id: str = "",
 ) -> None:
     """Register every worker this build serves. The daemon's ONE bootstrap call (STEP B).
+
+    `tenant_id` (T2.6-EB3 part 3 seam) is threaded ONLY into `ans_cron.trigger_submissions`
+    (`register_ans_cron_workers`'s own `**seams` catch-all) — the daemon's own
+    `settings.tenant_id` identity, since SP-OP-ANS-CRON-001's TimerStartEvent-triggered
+    processes carry no per-instance tenant the way case-driven processes do. Every other
+    module ignores this new seam key (the existing `**seams` catch-all every
+    `register_<domain>_workers` already accepts).
 
     `dmn` (ADR-0028 §1, the `dmn=` seam ADR-0026 §2 reserves) is threaded through to every
     `register_<domain>_workers(harness, kafka, **seams)` bootstrap via `functools.partial` at
@@ -167,7 +175,7 @@ def register_default_workers(
 
     Idempotent (`WorkerHarness.register_worker` replaces on re-registration, same topic).
     """
-    register_all_workers(harness, dmn=dmn, engine=engine, audit_sink=audit_sink)
+    register_all_workers(harness, dmn=dmn, engine=engine, audit_sink=audit_sink, tenant_id=tenant_id)
 
 
 def _expected_worker_topics() -> frozenset[str]:
@@ -513,6 +521,7 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
                 audit_sink=FreshSinkAuditEmitter(settings.database_url, settings.tenant_id)
                 if settings.database_url
                 else None,
+                tenant_id=settings.tenant_id,
             )
             state.harness = harness
             state.expected_topics = _expected_worker_topics()
