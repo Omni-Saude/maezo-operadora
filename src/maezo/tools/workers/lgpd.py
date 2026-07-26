@@ -180,7 +180,10 @@ class ExecuteExportWorker(WorkerBase):
         """
         tenant_id = process_vars.get("tenant_id", "")
         decisao = process_vars.get("decisao_dsr", "")
-        human_approved = process_vars.get("human_approved", False)
+        # FAIL-CLOSED (T3.1, mirrors ValidateIdentityWorker / ADR-0031): aprovacao confirmada SO
+        # com sinal explicito `human_approved is True`. Ausente/False/lixo (string truthy como
+        # "true"/" ", int 1, list/dict) -> False -> guard bloqueia a exportacao.
+        human_approved = process_vars.get("human_approved") is True
 
         # Guard: require human approval before exporting data
         if not human_approved:
@@ -239,7 +242,10 @@ class ExecuteRectificationWorker(WorkerBase):
             Dict with rectification status.
         """
         tenant_id = process_vars.get("tenant_id", "")
-        human_approved = process_vars.get("human_approved", False)
+        # FAIL-CLOSED (T3.1, mirrors ValidateIdentityWorker / ADR-0031): aprovacao confirmada SO
+        # com sinal explicito `human_approved is True`. Ausente/False/lixo (string truthy como
+        # "true"/" ", int 1, list/dict) -> False -> guard bloqueia a retificacao.
+        human_approved = process_vars.get("human_approved") is True
 
         if not human_approved:
             self.logger.warning(
@@ -297,7 +303,10 @@ class ExecuteErasureWorker(WorkerBase):
         """
         tenant_id = process_vars.get("tenant_id", "")
         decisao = process_vars.get("decisao_dsr", "")
-        human_approved = process_vars.get("human_approved", False)
+        # FAIL-CLOSED (T3.1, mirrors ValidateIdentityWorker / ADR-0031): aprovacao confirmada SO
+        # com sinal explicito `human_approved is True`. Ausente/False/lixo (string truthy como
+        # "true"/" ", int 1, list/dict) -> False -> Guard 1 bloqueia a eliminacao.
+        human_approved = process_vars.get("human_approved") is True
         fundamentacao = process_vars.get("fundamentacao_legal", "")
 
         # Guard 1: human approval required
