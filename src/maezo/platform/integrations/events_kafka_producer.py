@@ -108,8 +108,9 @@ BEST_EFFORT_TOPICS: frozenset[str] = MIRROR_TOPICS | {NOTIFICATIONS_TOPIC}
 
 #: PHI/business-identifier scrub ALLOWLIST for the MIRRORED envelope only (module docstring). Union
 #: of: (a) the fixed prefix/marker keys `events.py`'s handler always sets
-#: (`_business_key`/`_process_instance_id`/`_worker_topic`/`type`/`desfecho`/`fase`/
-#: `tipo_mudanca`/`ans_cron_reference_date_iso`), (b) every `event_payload_vars` literal name used
+#: (`_business_key`/`_process_instance_id`/`_worker_topic`/`desfecho`/`fase`/
+#: `tipo_mudanca`/`ans_cron_reference_date_iso` — but NOT `type`, which the mirror envelope owns
+#: exclusively, see the R1 F1 note inside the set), (b) every `event_payload_vars` literal name used
 #: by a CONTAS/FRAUDE `*.completed` `ST_Publish*` task today (grep-verified against `spec/processes/
 #: bpmn/SP-OP-{CONTAS,FRAUDE}-001*.bpmn`), and (c) the business-key-anchor fields `notification_
 #: bridge.py`'s reconciled predicates require (`numero_guia_tiss`/`glosa_id`/`prestador_id`/
@@ -118,8 +119,12 @@ BEST_EFFORT_TOPICS: frozenset[str] = MIRROR_TOPICS | {NOTIFICATIONS_TOPIC}
 #: does not need a second edit when that follow-up lands.
 MIRROR_PAYLOAD_ALLOWLIST: frozenset[str] = frozenset(
     {
-        # Fixed marker/prefix keys events.py always sets.
-        "type",
+        # Fixed marker/prefix keys events.py always sets. NOTE (R1 F1): `type` is deliberately
+        # NOT allowlisted — the mirror ENVELOPE owns that field exclusively (`publish()` stamps
+        # `type=<source topic>` itself, and no CONTAS/FRAUDE `ST_Publish*` task sets an
+        # `event_type` inputParameter, so a legitimate source payload for a mirrored topic never
+        # carries `type`); a source-payload `type` key is therefore always injected/foreign and
+        # must be scrubbed, never allowed to shadow the envelope's discriminator.
         "desfecho",
         "fase",
         "tipo_mudanca",
@@ -300,7 +305,13 @@ class AioKafkaEventsProducer:
         await self._publish_one(topic, value, key=key, best_effort=topic in BEST_EFFORT_TOPICS)
 
         if topic in MIRROR_TOPICS:
-            envelope = {"type": topic, **scrub_mirror_payload(value)}
+            # R1 F1: `type` is stamped LAST so the envelope's discriminator always wins — a
+            # source payload carrying its own `type` key could otherwise shadow it via
+            # dict-spread ordering (`{"type": topic, **scrubbed}` let the payload override).
+            # Defense-in-depth: the scrub allowlist ALSO drops any source `type` key (it is not
+            # allowlisted — see MIRROR_PAYLOAD_ALLOWLIST's note), so both layers must fail for a
+            # foreign discriminator to reach the bridge.
+            envelope = {**scrub_mirror_payload(value), "type": topic}
             # NOTIFICATIONS_TOPIC is always in BEST_EFFORT_TOPICS (module constant) — the mirror
             # leg is unconditionally best-effort regardless of the primary topic's own posture,
             # since no BPMN boundary event anywhere expects a "mirror publish failed" error.

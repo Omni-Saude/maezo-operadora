@@ -158,6 +158,37 @@ async def test_publish_fraude_completed_is_also_mirrored() -> None:
 
 
 @pytest.mark.asyncio
+async def test_mirror_envelope_type_cannot_be_shadowed_by_a_source_payload_type_key() -> None:
+    """R1 F1 (gatekeeper-proven): the old `{"type": topic, **scrub(value)}` spread ordering let a
+    source payload carrying its own `type` key OVERRIDE the envelope discriminator (and `type`
+    was allowlisted, so the scrub did not stop it) — the gatekeeper injected
+    `type="attacker_injected"` and it won. Fixed twice over: `type` is stamped LAST
+    (`{**scrub(value), "type": topic}`) so the envelope always wins, AND `type` is no longer on
+    `MIRROR_PAYLOAD_ALLOWLIST` so an injected discriminator is scrubbed regardless. This test
+    goes RED on the old ordering."""
+    raw = FakeRawKafkaProducer()
+    producer = AioKafkaEventsProducer(raw_producer=raw)
+
+    await producer.publish(
+        _CONTAS_TOPIC,
+        {"type": "attacker_injected", "tenant_id": "amh", "desfecho": "encaminhada_recurso"},
+    )
+
+    assert len(raw.sent) == 2
+    mirror_topic, mirror_value, _key = raw.sent[1]
+    assert mirror_topic == NOTIFICATIONS_TOPIC
+    assert mirror_value["type"] == _CONTAS_TOPIC  # envelope owns the discriminator, always
+
+
+def test_type_is_not_on_the_mirror_scrub_allowlist() -> None:
+    """R1 F1 defense-in-depth: the envelope owns `type` exclusively — a source-payload `type` key
+    on a mirrored topic is always foreign (no CONTAS/FRAUDE `ST_Publish*` task sets an
+    `event_type` inputParameter) and must be dropped by the scrub, independent of spread order."""
+    assert "type" not in MIRROR_PAYLOAD_ALLOWLIST
+    assert scrub_mirror_payload({"type": "attacker_injected", "tenant_id": "amh"}) == {"tenant_id": "amh"}
+
+
+@pytest.mark.asyncio
 async def test_publish_mirror_topic_primary_failure_is_swallowed_and_mirror_still_attempted() -> None:
     """Fail-safe discipline (module docstring): a Kafka-down primary-publish failure on a
     best-effort topic must NOT raise (the source BPMN process must still complete) — and the
