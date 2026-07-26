@@ -1,6 +1,10 @@
 # ADR-0008: Niveis de autonomia L0-L3 por acao
 
 **Status:** Accepted (2026-07-05) · **Data:** 2026-06-12 · **Area:** Governanca
+**Amended by ADR-0034:** a clausula "avaliada pelo PEP a cada tool call" (§Decisao) descreve o modelo
+intencao/donor; no v2 a avaliacao de autonomia e enforce-ada ESTRUTURALMENTE via BPMN (ADR-0018) e o
+PEP e um objeto de validacao/readiness de politica, nao um gate por-call — logo a "revisao por
+amostragem" L2 esta intencionalmente fora do v2 (ADR-0034, gap #24). ADR-0034 amends, nao supersede.
 
 ## Contexto
 "Quanto o agente faz sozinho" deve ser politica explicita, versionada, auditavel e diferente por

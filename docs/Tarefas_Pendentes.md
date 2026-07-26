@@ -117,7 +117,7 @@ Cada uma tem o código pronto; falta só o insumo/flag:
 | **Tasy Oracle real** | setar `TASY_ORACLE_DSN`/`TASY_ORACLE_USER`; adicionar driver `cx_Oracle`/`oracledb` | #33 |
 | **Avro/Schema Registry** | habilitar o seam env-gated do consumer fhir-sync | #25 |
 | **Tabela de custo USD do LLM** | preencher `inference.py::_COST_PER_1K_TOKENS_USD` (tokens já são emitidos reais) | #29 |
-| **L2 ReviewQueue + sample_rate** | construir `L2ReviewSampler(sample_rate=…)` + `ReviewQueue` concreto e injetar nos 2 `PolicyEnforcementPoint(...)` em `runtime/agent_runtime/service.py` | #24 |
+| **L2 ReviewQueue + sample_rate** | **Intencionalmente fora do v2 — ADR-0034 (descope ratificado).** ~~Instrução anterior (STALE): construir `L2ReviewSampler` + `ReviewQueue` e injetar em `PolicyEnforcementPoint(...)`.~~ Não construir: o `PEP.evaluate` do v2 não tem chamadores em runtime (`build_pep()` é só readiness probe), a autonomia é enforce-ada estruturalmente via BPMN (ADR-0018), e um sampler injetado amostraria zero ações. Revisitar só se o v2 introduzir um chokepoint PEP por-tool-call em runtime (ver ADR-0034). | #24 → ADR-0034 |
 | **CronJob `verify-erasure`** | criar/alimentar o segredo `ERASED_PATIENT_IDS` (lista de pacientes apagados a auditar) | #5 |
 | **`PopulationFeatureClient` (André)** | injetar cliente concreto do lago (port WB.4/ADR-0019) em `make_andre_handler` (hoje `population=None`, degrada) | — |
 | **Ingress + TLS** | `ingress.enabled=true` + `certificateArn` | — |
