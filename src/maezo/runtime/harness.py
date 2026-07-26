@@ -24,10 +24,11 @@ from collections.abc import Mapping
 from typing import Any, TypedDict, cast
 
 import structlog
+from langchain_core.runnables.config import RunnableConfig
 from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
-from maezo.runtime.checkpoint import Checkpointer
+from maezo.runtime.checkpoint import Checkpointer, checkpoint_thread_config
 from maezo.runtime.inference import InferenceProvider
 
 logger = structlog.get_logger(__name__)
@@ -177,11 +178,16 @@ class Harness:
         logger.info("harness_graph_created", agent_id=agent_id)
         return cast("StateGraph[Any]", resolved_graph)
 
-    async def invoke(self, state: dict[str, object]) -> dict[str, object]:
+    async def invoke(self, state: dict[str, object], *, thread_id: str | None = None) -> dict[str, object]:
         """Compile the graph (if needed) and invoke it with the given state.
 
         Args:
             state: Initial state dict with 'messages' key.
+            thread_id: PHI-safe checkpoint thread id (a `wa:{tenant}:{phone_hash}` conversation
+                id or an `ESC-{tenant}-...` process business key). REQUIRED when a checkpointer is
+                wired — langgraph cannot persist/resume without one, and this harness fail-closes
+                rather than silently run stateless under a configured checkpointer. Validated
+                PHI-safe via `checkpoint_thread_config` (a raw phone/CPF is refused).
 
         Returns:
             The final state after graph execution.
@@ -190,12 +196,24 @@ class Harness:
             raise RuntimeError("No graph created. Call create_graph() first.")
 
         if self._compiled is None:
-            checkpointer_arg = None
-            if self._checkpointer is not None:
-                checkpointer_arg = self._checkpointer._saver
+            checkpointer_arg = self._checkpointer.saver if self._checkpointer is not None else None
             self._compiled = self._graph.compile(checkpointer=checkpointer_arg)
 
+        config: RunnableConfig | None = None
+        if self._checkpointer is not None and self._checkpointer.saver is not None:
+            if thread_id is None:
+                raise ValueError(
+                    "a checkpointer is wired but no thread_id was supplied — refusing to run a "
+                    "checkpointed graph without a thread scope (langgraph requires one; running "
+                    "stateless here would silently drop persistence)."
+                )
+            config = checkpoint_thread_config(thread_id)
+
         msgs = state.get("messages", [])
-        logger.info("harness_invoke", messages_count=len(msgs) if isinstance(msgs, list) else 0)
-        result = await self._compiled.ainvoke(state)
+        logger.info(
+            "harness_invoke",
+            messages_count=len(msgs) if isinstance(msgs, list) else 0,
+            thread_id=thread_id,
+        )
+        result = await self._compiled.ainvoke(state, config=config)
         return dict(result)
