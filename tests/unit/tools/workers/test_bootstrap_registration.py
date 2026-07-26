@@ -163,6 +163,10 @@ def test_function_based_module_bootstraps_register_function_workers() -> None:
         "operadora.recurso.escalate_ans_timeout",
         "operadora.recurso.submit_appeal",
         "operadora.recurso.track_status",
+        # notify_regulatorio (t5 FINDING A fix): raw async handler (needs the Kafka seam to emit
+        # the anssubmit.notify_regulatorio notification), harness.register not register_worker —
+        # mirrors recurso's raw handlers above.
+        "regulatorio.anssubmit.notify_regulatorio",
     }
     function_topics = [
         t
