@@ -1,0 +1,39 @@
+{
+  "id": "EVL-FERNANDO-05",
+  "agent": "fernando",
+  "class": "PL",
+  "tier": ["A"],
+  "description": "An invalid intencao value that itself carries a synthetic CPF fails closed to escalate ambiguidade at receive() -- the raw value is NEVER echoed, only the bounded class token ambiguidade/invalid_intencao. The CPF harmlessly persists in the in-memory graph state's own intencao echo (LangGraph preserves untouched input keys), which is why this golden's own leak_canaries is deliberately empty; the real assertion (what actually reaches the BPM engine's process variables) lives in the dedicated engine-variable test in test_classifier_evals.py. Synthetic CPF only (123.456.789-09), never real PHI.",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "intencao": "CPF 123.456.789-09 quero cancelar",
+      "canal": "whatsapp",
+      "numero_contrato": "000000015",
+      "matricula_beneficiario": "MAT-EVL-015",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-015",
+      "to_hash": "hash-evl-fernando-05",
+      "tipo_plano": "individual",
+      "origem_solicitacao": "cobranca",
+      "competencias_em_aberto": [],
+      "meses_inadimplencia": 0,
+      "valor_total_devido_cents": 0,
+      "dentro_periodo_minimo": false,
+      "notificacao_previa_feita": false,
+      "dentro_janela_purga": false,
+      "ja_em_rescisao_cancel": false,
+      "documentos_refs": []
+    }
+  },
+  "recorded_llm": [
+    "Encaminhamento automatico por ambiguidade na intencao informada."
+  ],
+  "expect": {
+    "fields": {
+      "route": "escalate",
+      "motivo_humano": "ambiguidade",
+      "error": "invalid_intencao"
+    }
+  },
+  "leak_canaries": []
+}

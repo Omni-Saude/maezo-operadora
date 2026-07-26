@@ -248,15 +248,52 @@ class EngineRest:
 
     # --- variaveis de processo ---------------------------------------------------------
 
-    async def get_variable(self, instance_id: str, name: str) -> Any:
-        """Le o VALOR atual de uma variavel de processo de uma instancia ATIVA."""
-        resp = await self._client.get(f"/process-instance/{instance_id}/variables/{name}")
+    async def get_variable(self, instance_id: str, name: str, *, deserialize: bool = True) -> Any:
+        """Le o VALOR atual de uma variavel de processo de uma instancia ATIVA.
+
+        `deserialize=True` (default, byte-identical ao comportamento anterior desta assinatura —
+        nenhum call site existente muda) pede ao engine `deserializeValue=true` (o default do
+        Camunda/CIB Seven REST). Para uma variavel `Json` SPIN-tipada, isso serializa o BEAN
+        `SpinJsonNode` por introspecao Jackson (`{'array': True, 'nodeType': 'ARRAY',
+        'dataFormatName': 'application/json', ...}`), NAO o valor deserializado — os dados reais
+        nao sobrevivem nesse shape (nao ha campo recuperavel com a lista/dict original; e um
+        defeito conhecido do REST do Camunda para SpinJsonNode via GET runtime variable). Passe
+        `deserialize=False` para pedir `deserializeValue=false`: o engine devolve a string JSON
+        CRUA (a mesma serializacao que `_to_camunda_vars` produziu ao enviar), decodificavel via
+        `json.loads`.
+        """
+        params = {} if deserialize else {"deserializeValue": "false"}
+        resp = await self._client.get(f"/process-instance/{instance_id}/variables/{name}", params=params)
         if resp.status_code != 200:
             raise EngineRestError(
                 f"get variable `{name}` da instancia {instance_id} falhou "
                 f"[{resp.status_code}]: {resp.text[:300]}"
             )
         return resp.json().get("value")
+
+    async def get_history_variable(self, instance_id: str, name: str) -> Any:
+        """Le o VALOR historico de uma variavel de processo (instancia ATIVA ou JA CONCLUIDA).
+
+        `get_variable` acima usa o endpoint de RUNTIME (`/process-instance/{id}/variables/{name}`),
+        que devolve HTTP 500 "execution is null" assim que a instancia atinge um end event — a
+        execucao raiz deixa de existir (t3.1-test-hygiene-batch finding: `_CANCEL_COMPLETED_
+        RUNTIME_VAR_GAP`). O endpoint de HISTORICO (`GET /history/variable-instance`) permanece
+        consultavel indefinidamente apos o fim da instancia (mesma garantia de `history_state`/
+        `activity_instances_ended` acima) — use este metodo para ler uma variavel de processo de
+        uma instancia que ja pode ter terminado. `processInstanceIdIn` (lista) e o parametro real
+        da API de historico do Camunda/CIB Seven (nao `processInstanceId`, que essa API nao aceita).
+        Levanta `EngineRestError` se a variavel nao aparecer no historico da instancia (nome
+        errado / nunca setada) — sem "variavel ausente" silenciosa.
+        """
+        resp = await self._client.get(
+            "/history/variable-instance",
+            params={"processInstanceIdIn": instance_id, "variableName": name},
+        )
+        resp.raise_for_status()
+        rows = resp.json()
+        if not rows:
+            raise EngineRestError(f"history variable `{name}` nao encontrada para a instancia {instance_id}")
+        return rows[0].get("value")
 
     # --- jobs de timer (sem sleep) -----------------------------------------------------
 

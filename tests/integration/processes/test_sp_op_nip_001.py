@@ -1361,6 +1361,49 @@ async def test_prazo_nip_dispara_alerta_nao_interruptivo(
     assert _UT_REVISAO in open_keys, "Timer nao-interruptivo nao deve cancelar a User Task de revisao"
 
 
+# t3.1-test-hygiene-batch (item 4): ST_NotificarRiscoPrazo (elaboracao/P?D timer path,
+# BT_AlertaPrazoNip attached to UT_ElaborarRespostaNip, bpmn:265-310) had ZERO test coverage — only
+# its revisao sibling (test_prazo_nip_dispara_alerta_nao_interruptivo above, BT_AlertaPrazoRevisao/
+# ST_NotificarRiscoRevisao) was live-proven (#140's in-place conversion note, module docstring
+# finding 2c). Added here, mirroring that test's technique exactly (forced job execution, never
+# sleep) but on the ELABORAR path; the `sla_breach_task_name` discriminator
+# (`UT_ElaborarRespostaNip` vs `UT_RevisaoJuridicaNip`, both literal `camunda:inputParameter`
+# values on their respective ST_NotificarRisco* tasks, bpmn:299/392) proves this is genuinely the
+# elaboracao-site alert, not a copy-paste of the revisao one.
+async def test_prazo_nip_elaboracao_dispara_alerta_nao_interruptivo(
+    engine: EngineRest,
+    nip_probe: NipEngineProbe,
+    start_nip: Callable[..., Any],
+) -> None:
+    """Timer BT_AlertaPrazoNip (nao-interruptivo): ST_NotificarRiscoPrazo dispara; UT elaboracao segue aberta.
+
+    nip.deadline_risk publicado no site de ELABORACAO (sla_breach_task_name=UT_ElaborarRespostaNip
+    — distingue do site de revisao, coberto pelo teste irmao acima). A User Task de elaboracao
+    segue aberta (nao-interruptivo, cancelActivity=false, bpmn:265).
+    """
+    inst = await start_nip(
+        classificacao_nip="nao_assistencial",
+        tema_nip="cobranca",
+        contesta_negativa=False,
+        documentacao_suficiente=True,
+    )
+    iid = inst["id"]
+
+    await _drive_to_elaborar(engine, nip_probe, iid)
+
+    job = await engine.await_timer_job(iid, "BT_AlertaPrazoNip")
+    await engine.execute_job(job.id)
+    await nip_probe.drain()
+
+    numero_nip_ans = await engine.get_variable(iid, "numero_nip_ans")
+    assert nip_probe.has_event(
+        _NIP_DEADLINE_RISK, numero_nip_ans=numero_nip_ans, sla_breach_task_name=_UT_ELABORAR
+    ), "nip.deadline_risk deve ser publicado (ST_NotificarRiscoPrazo, site de elaboracao)"
+
+    open_keys = {t.task_definition_key for t in await engine.list_user_tasks(iid)}
+    assert _UT_ELABORAR in open_keys, "Timer nao-interruptivo nao deve cancelar a User Task de elaboracao"
+
+
 async def test_prazo_nip_estourado_coordenacao_assume_interruptivo(
     engine: EngineRest,
     nip_probe: NipEngineProbe,

@@ -42,6 +42,7 @@ Regras:
 | 0030 | Semantica de erro de worker vs boundary catches do BPMN — `WorkerBpmnError` modelado (opt-in por codigo gate-proven), incidente para todo o resto (T3.1) | Proposed |
 | 0031 | LGPD DSR identity gate fail-closed em `identidade_verificada is True` + GAP-LGPD-6 raise + #55 R-B request_additional_proof (T2.8) | Proposed |
 | 0032 | Corrige a alegacao de "runtime completo" do ADR-0015 (e do donor v1 PR #17, nao do v2); amends ADR-0015, nao supersede (T3.4) | Accepted |
+| 0033 | Identidade de servico do agente — emissao/verificacao do certificado/service-account (metade cert de T-G); espaco de decisao + recomendacao nao-vinculante; amends ADR-0007, nao supersede | Proposed |
 
 Texto integral e racional estendido: `agent-platform-adrs.md` no projeto de arquitetura
 (serie AP-001..AP-012 mapeia 1:1 para 0001..0012 desta serie).
