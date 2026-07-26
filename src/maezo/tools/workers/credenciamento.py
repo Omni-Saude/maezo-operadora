@@ -14,6 +14,7 @@ import structlog
 
 from maezo.tools.workers.base import FunctionWorker
 from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row, require_dmn
+from maezo.tools.workers.harness import WorkerBpmnError
 
 if TYPE_CHECKING:
     from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
@@ -24,8 +25,29 @@ logger = structlog.get_logger(__name__)
 # Error codes
 # ---------------------------------------------------------------
 
+# The two ADVERSE guard codes are MODELED BPMN boundary errors (spec/processes/bpmn/
+# SP-OP-CRED-001_Descredenciamento.bpmn: `Error_DecredNotHuman`/`Error_CredDenialNotHuman`, caught
+# by `BE_DecredNaoHumano`/`BE_CredDenialNaoHumano` on `ST_RegisterDescredenciamento`/
+# `ST_RegisterCredDenial` -> the NEUTRO terminals `End_DecredBloqueadoNaoHumano`/
+# `End_CredGuardBloqueadoNaoHumano`). Their guards therefore raise `WorkerBpmnError(code)` — NOT a
+# `.code`/`.message` `CredError` — mirroring `cancel.confirm_maintained_decision`
+# (`ERR_CANCEL_MANTER_NOT_HUMAN`), the sibling adverse `_NOT_HUMAN` guard (ADR-0030 §2/§4). Rationale:
+# a `CredError` is reclassified by `FunctionWorker.execute` (base.py:284-293) into a bare
+# `ValueError`, which `WorkerHarness._handle`'s `except ValueError` branch reports as a generic
+# `failure(retries=0)` incident and NEVER consults the `bpmn_error_allowlist` — so the modeled
+# boundary could NEVER fire (the guard blocked the adverse write, but the clean fail-safe terminal was
+# structurally UNREACHABLE, left as an opaque engine incident). `WorkerBpmnError` propagates unchanged
+# through `execute` (it exposes `.error_code`, not `.code`/`.message`) to the harness's
+# `except WorkerBpmnError` branch, which routes it to `handle_bpmn_error` (the boundary) when the code
+# is allowlisted. Both codes are T-E-gated (adverse `_NOT_HUMAN` — ADR-0030 §4): consumption-covered
+# by the boundary-proof gate (`scripts/ci/check_bpmn_error_allowlist.py`), yet DEFERRED out of
+# `PRODUCTION_BPMN_ERROR_ALLOWLIST` until T-E audited-refusal is production-activated, so today they
+# still fail-closed to an (audited) incident — identical runtime effect, but the boundary is now
+# REACHABLE the moment T-E flips the allowlist (exactly the `ERR_CANCEL_MANTER_NOT_HUMAN` posture).
 ERR_DECRED_NOT_HUMAN = "ERR_DECRED_NOT_HUMAN"
 ERR_CRED_DENIAL_NOT_HUMAN = "ERR_CRED_DENIAL_NOT_HUMAN"
+# Clerical (favorable-direction) input-validation code — NOT a modeled boundary error; a genuine
+# bad-input failure that correctly stays a `CredError` -> ValueError -> incident (no boundary to fire).
 ERR_CRED_INVALID_PRESTADOR = "ERR_CRED_INVALID_PRESTADOR"
 ERR_CRED_REGISTER_INVALID = "ERR_CRED_REGISTER_INVALID"
 
@@ -310,7 +332,9 @@ def _register_descredenciamento(variables: dict[str, Any]) -> dict[str, Any]:
             errors=errors,
             prestador_id=variables.get("prestador_id"),
         )
-        raise CredError(ERR_DECRED_NOT_HUMAN, "; ".join(errors))
+        # MODELED boundary error (BE_DecredNaoHumano) — WorkerBpmnError, not CredError; see the
+        # error-codes section above and cancel.confirm_maintained_decision for the rationale.
+        raise WorkerBpmnError(ERR_DECRED_NOT_HUMAN, "; ".join(errors))
 
     logger.info(
         "cred_prestador_descredenciado",
@@ -366,7 +390,9 @@ def register_cred_denial(variables: dict[str, Any]) -> dict[str, Any]:
             errors=errors,
             prestador_id=variables.get("prestador_id"),
         )
-        raise CredError(ERR_CRED_DENIAL_NOT_HUMAN, "; ".join(errors))
+        # MODELED boundary error (BE_CredDenialNaoHumano) — WorkerBpmnError, not CredError; see the
+        # error-codes section above and cancel.confirm_maintained_decision for the rationale.
+        raise WorkerBpmnError(ERR_CRED_DENIAL_NOT_HUMAN, "; ".join(errors))
 
     logger.info(
         "cred_credenciamento_negado",
@@ -439,12 +465,54 @@ def register_credenciamento(variables: dict[str, Any]) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------
+# prepare_dossier — LOCAL STUB dossier (DL-0033; Carolina A2A deferred)
+# ---------------------------------------------------------------
+
+
+def prepare_dossier(variables: dict[str, Any]) -> dict[str, Any]:
+    """Prepare the analysis dossier for the human-review User Task — NEUTRAL (DL-0033 local stub).
+
+    Assembling a dossier INSTRUCTS the human decision (UT_AnaliseDescredenciamento /
+    UT_AnaliseCredenciamento), it NEVER originates an adverse effect — mirrors
+    `programa.enroll_beneficiario` ("enrollment is not an adverse effect"; the clinical/adverse
+    decision is separate, human-gated). This is the local echo/log stub DL-0033 ratified
+    (`FunctionWorker`, no `DelegationDispatcher`): it closes the BPMN topic orphanage
+    (`operadora.cred.prepare_dossier`, both `ST_PrepareDossierDescred` and `ST_PrepareDossierCred`,
+    which today open the human User Tasks with NO dossier) without inventing delegation
+    business-logic before the real Carolina A2A wiring (`credentialing.analyze`) lands in the
+    deferred full-A2A task. Fails SAFE (never raises — `.get(..., default)`, no guard), mirroring
+    the module's `notify_prestador`/`notify_doc_pendente` neutral idiom.
+    """
+    prestador_id = variables.get("prestador_id", "")
+    direcao = variables.get("direcao", "")
+
+    logger.info(
+        "cred_prepare_dossier",
+        prestador_id=prestador_id,
+        direcao=direcao,
+    )
+
+    return {
+        "dossier_prepared": True,
+        "data_dossier": "now",
+    }
+
+
+# ---------------------------------------------------------------
 # Custom error
 # ---------------------------------------------------------------
 
 
 class CredError(Exception):
-    """Worker guard error for credenciamento adverse effects."""
+    """Coded worker error for credenciamento CLERICAL input-validation (`ERR_CRED_REGISTER_INVALID`).
+
+    Reclassified by `FunctionWorker.execute` (base.py:284-293) into a bare `ValueError` -> harness
+    `failure(retries=0)` incident, the correct outcome for a genuine bad-input failure with NO modeled
+    BPMN boundary. The two ADVERSE guards (`register_descredenciamento`/`register_cred_denial`) do NOT
+    use this — they raise `WorkerBpmnError(ERR_DECRED_NOT_HUMAN)`/`WorkerBpmnError(
+    ERR_CRED_DENIAL_NOT_HUMAN)` so their modeled boundary catches can fire (see the error-codes
+    section at the top of this module).
+    """
 
     def __init__(self, code: str, message: str) -> None:
         self.code = code
@@ -471,8 +539,11 @@ class CredError(Exception):
 #                             NEUTRAL — EXCECAO CLERICAL, no human-gate guard by design)
 #   notify_sla_risk        -> operadora.cred.notify_sla_risk        (exact spec match, T2.5-p2b;
 #                             informational, shared by both directions' boundary timers)
-# Spec topic with NO implementing function today (gap, NOT fabricated here — Carolina A2A
-# integration, separately gated, out of scope for T2.5-p2b): operadora.cred.prepare_dossier.
+#   prepare_dossier        -> operadora.cred.prepare_dossier        (exact spec match, DL-0033 LOCAL
+#                             STUB; NEUTRAL — instructs the human UT, never adverse. Both
+#                             ST_PrepareDossierDescred and ST_PrepareDossierCred route here. The REAL
+#                             Carolina A2A delegation (credentialing.analyze) is deferred to the
+#                             full-A2A wiring task; this stub only closes the BPMN topic orphanage.)
 # ---------------------------------------------------------------
 
 
@@ -503,3 +574,4 @@ def register_credenciamento_workers(
     harness.register_worker(FunctionWorker("operadora.cred.register_cred_denial", register_cred_denial))
     harness.register_worker(FunctionWorker("operadora.cred.register_credenciamento", register_credenciamento))
     harness.register_worker(FunctionWorker("operadora.cred.notify_sla_risk", notify_sla_risk))
+    harness.register_worker(FunctionWorker("operadora.cred.prepare_dossier", prepare_dossier))

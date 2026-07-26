@@ -15,6 +15,7 @@ from maezo.tools.workers.pagto import (
     assess_admissibility,
     execute_pagto,
     notify_sla_risk,
+    prepare_approval_dossier,
     publish_completed,
     register_pagto_workers,
     register_payment_refusal,
@@ -741,13 +742,21 @@ def test_register_payment_refusal_non_exact_alcada_literal_still_refuses(decisio
 
 def test_register_pagto_workers_registers_new_topics() -> None:
     """`notify_sla_risk`/`register_payment_refusal` are registered on their exact BPMN-declared
-    topics; `prepare_approval_dossier` (Andre A2A, gated) remains unregistered."""
+    topics; `prepare_approval_dossier` is now a registered DL-0033 local stub (Andre A2A real
+    delegation still deferred, but the BPMN topic is no longer orphaned)."""
     harness = WorkerHarness(None, worker_id="unit-test-pagto")  # type: ignore[arg-type]
     register_pagto_workers(harness, None, dmn=FakeDmnTransport())
     topics = set(harness.registered_topics)
     assert "operadora.pagto.notify_sla_risk" in topics
     assert "operadora.pagto.register_payment_refusal" in topics
-    assert "operadora.pagto.prepare_approval_dossier" not in topics
+    assert "operadora.pagto.prepare_approval_dossier" in topics
+
+
+def test_prepare_approval_dossier_stub() -> None:
+    """DL-0033 LOCAL STUB (NEUTRAL; mirrors programa.enroll_beneficiario) — instructs
+    UT_AprovacaoAlcada, never decides. Fails safe on missing identity."""
+    assert prepare_approval_dossier({"ordem_pagamento_id": "OP-001"})["dossier_prepared"] is True
+    assert prepare_approval_dossier({})["dossier_prepared"] is True
 
 
 # ---------------------------------------------------------------

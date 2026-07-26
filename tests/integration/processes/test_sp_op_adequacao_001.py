@@ -231,12 +231,12 @@ _REGISTER_FALLBACK_TOPIC = "operadora.adequacao.register_fallback_commitment"
 # t2.5-p2b-round2 CLOSED 2 of the 3 registration gaps: `update_monitoring_plan`/`notify_sla_risk`
 # now have real implementing functions in adequacao.py (mirrors inadimplencia.py/cancel.py/
 # fraude.py's proven dict-first, informational-only idiom for the SLA-alert worker) and are
-# INCLUDED in `_ADEQUACAO_WORKER_TOPICS` below. `prepare_remediation_dossier` remains unregistered
-# (Andre A2A-gated, out of scope for t2.5-p2b-round2 — named here for documentation/grep-ability
-# only, deliberately NOT included in `_ADEQUACAO_WORKER_TOPICS`, mirrors cancel.py's drift-guard:
-# only ACTUALLY-registered topics are drained).
+# INCLUDED in `_ADEQUACAO_WORKER_TOPICS` below. `prepare_remediation_dossier` is now a REGISTERED
+# DL-0033 local stub (Andre A2A real delegation still deferred), but it is deliberately NOT included
+# in `_ADEQUACAO_WORKER_TOPICS` — this probe does not drain it, keeping the engine xfails valid
+# pending a dedicated live-engine proof that would flip them (the drift guard excludes it explicitly).
 _UPDATE_MON_TOPIC = "operadora.adequacao.update_monitoring_plan"
-_PREPARE_DOSSIER_TOPIC = "operadora.adequacao.prepare_remediation_dossier"  # unregistered — FINDING 1
+_PREPARE_DOSSIER_TOPIC = "operadora.adequacao.prepare_remediation_dossier"  # DL-0033 stub (not drained here)
 _NOTIFY_SLA_TOPIC = "operadora.adequacao.notify_sla_risk"
 
 # Topicos REALMENTE servidos pelos workers registrados no harness (drain generico). Cross-checked
@@ -467,7 +467,11 @@ async def adequacao_probe(
     # topics are registered (only `prepare_remediation_dossier` remains gapped), so this passes
     # NATURALLY (nothing registered is left undrained).
     adequacao_registered = {t for t in harness.registered_topics if t.startswith("operadora.adequacao.")}
-    missing_from_drain = adequacao_registered - set(_ADEQUACAO_WORKER_TOPICS)
+    # DL-0033 (t5): operadora.adequacao.prepare_remediation_dossier is now a REGISTERED local stub,
+    # but this probe deliberately does NOT drain it (keeps the engine xfails valid pending a dedicated
+    # live-engine proof that would flip them). Exclude it explicitly; the guard still catches any
+    # OTHER registered-but-undrained worker.
+    missing_from_drain = adequacao_registered - set(_ADEQUACAO_WORKER_TOPICS) - {_PREPARE_DOSSIER_TOPIC}
     assert not missing_from_drain, (
         f"_ADEQUACAO_WORKER_TOPICS desatualizada — topicos registrados fora do drain: {missing_from_drain}"
     )
