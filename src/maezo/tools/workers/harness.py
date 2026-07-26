@@ -74,6 +74,7 @@ import structlog
 from maezo.gateway.audit import AuditRecord, hash_input
 from maezo.tools.workers._audit_ctx import collect_dmn_versions
 from maezo.tools.workers.base import WorkerBase, WorkerRegistry
+from maezo.tools.workers.phi_vars import redact_error_message
 
 logger = structlog.get_logger(__name__)
 
@@ -579,10 +580,16 @@ class CibSevenWorkerTransport:
                     error=str(exc),
                 )
                 try:
+                    # T3.4 F5: `str(exc)` on a malformed-Json decode failure can legitimately
+                    # embed the offending raw value verbatim (e.g. a CPF pasted into a `Json`
+                    # variable) — redact before it reaches the engine's Cockpit-visible incident
+                    # store, same backstop as `_report_failure` (this call bypasses that harness
+                    # method entirely, since it fires from within the transport's own
+                    # `fetch_and_lock`, before a task is even handed to the harness dispatch loop).
                     await self.handle_failure(
                         task_id,
                         worker_id,
-                        error_message=f"malformed Json-typed variable: {exc}",
+                        error_message=redact_error_message(f"malformed Json-typed variable: {exc}"),
                         retries=0,
                         retry_timeout_ms=0,
                     )
@@ -679,14 +686,17 @@ class FakeWorkerTransport:
     `.completed` / `.failures` / `.bpmn_errors` / `.unlocked` / `.extended` record every call for
     assertions. `.failures` is a 4-tuple `(task_id, error_message, retries, retry_timeout_ms)` —
     widened from v1's 2-tuple so retry-ownership tests can assert the computed/overridden retry
-    count (design §16.2: fixtures adapt to the new retry semantics).
+    count (design §16.2: fixtures adapt to the new retry semantics). `.bpmn_errors` is a 3-tuple
+    `(task_id, error_code, error_message)` — widened (T3.4 F5) so tests can assert the harness
+    redacts `error_message` before it reaches this chokepoint too (the allowlisted-bpmnError path
+    bypasses `_report_failure` entirely, so it needs its own coverage).
     """
 
     def __init__(self, tasks: list[ExternalTask] | None = None) -> None:
         self._tasks: list[ExternalTask] = list(tasks or [])
         self.completed: list[tuple[str, dict[str, Any]]] = []
         self.failures: list[tuple[str, str, int, int]] = []
-        self.bpmn_errors: list[tuple[str, str]] = []
+        self.bpmn_errors: list[tuple[str, str, str]] = []
         self.unlocked: list[str] = []
         self.extended: list[tuple[str, int]] = []
         self.closed: bool = False
@@ -737,7 +747,7 @@ class FakeWorkerTransport:
         error_message: str = "",
         variables: dict[str, Any] | None = None,
     ) -> None:
-        self.bpmn_errors.append((task_id, error_code))
+        self.bpmn_errors.append((task_id, error_code, error_message))
 
     async def extend_lock(self, task_id: str, worker_id: str, *, new_duration_ms: int) -> None:
         self.extended.append((task_id, new_duration_ms))
@@ -1114,11 +1124,18 @@ class WorkerHarness:
     async def _report_failure(
         self,
         task: ExternalTask,
-        error_message: str,
+        error: BaseException | str,
         *,
         retries_override: int | None,
     ) -> str:
         """Report `failure` to the engine with the given (or computed) retry count.
+
+        `error` is redacted via `redact_error_message` (T3.4 F5) BEFORE it reaches the transport
+        — this is the single chokepoint for every `_handle` failure branch, so callers pass the
+        raw exception (or a static string) and never need to redact it themselves. The engine's
+        incident store (Cockpit) is otherwise a direct, unredacted PHI-egress path: `str(exc)` on
+        an input-validation failure can legitimately embed the offending value (a CPF, a long
+        numeric id) verbatim.
 
         Returns the emitted outcome label: "incident" when the reported retries is 0 (the engine
         will open an incident), else "failed" (the engine will re-deliver after the timeout).
@@ -1129,7 +1146,7 @@ class WorkerHarness:
         await self._transport.handle_failure(
             task.task_id,
             self._worker_id,
-            error_message=error_message,
+            error_message=redact_error_message(error),
             retries=retries,
             retry_timeout_ms=retry_timeout_ms,
         )
@@ -1344,7 +1361,10 @@ class WorkerHarness:
                         task.task_id,
                         self._worker_id,
                         error_code=exc.error_code,
-                        error_message=str(exc),
+                        # T3.4 F5: this call bypasses `_report_failure` (it is the ALLOWLISTED
+                        # bpmn-error path, not a failure report), so it needs its own redaction —
+                        # `error_message` is still `str(exc)`-derived and still Cockpit-visible.
+                        error_message=redact_error_message(exc),
                     )
                 else:
                     # Live-verified hazard (design §9): an unmodeled bpmnError silently ends the
@@ -1364,11 +1384,9 @@ class WorkerHarness:
                         topic=task.topic,
                         error_code=exc.error_code,
                     )
-                    outcome = await self._report_failure(task, str(exc), retries_override=0)
+                    outcome = await self._report_failure(task, exc, retries_override=0)
             except WorkerFailureError as exc:
-                outcome = await self._report_failure(
-                    task, str(exc), retries_override=max(exc.retries_left, 0)
-                )
+                outcome = await self._report_failure(task, exc, retries_override=max(exc.retries_left, 0))
             except PermissionError as exc:
                 # ERR_*_NOT_HUMAN guard family — NEVER retried (ADR-0008): an incident is the
                 # engine-guaranteed, always-human-visible outcome. T-E (ADR-0030 F4): record the
@@ -1380,7 +1398,7 @@ class WorkerHarness:
                     guard_code=extract_refusal_code(exc) or _GUARD_REFUSAL_FALLBACK_CODE,
                     dmn_versions=dict(dmn_versions),
                 )
-                outcome = await self._report_failure(task, str(exc), retries_override=0)
+                outcome = await self._report_failure(task, exc, retries_override=0)
             except ValueError as exc:
                 # Bad/immutable input — won't fix itself on retry; route straight to incident. T-E
                 # (ADR-0030 F4): a coded guard exception reclassified by FunctionWorker (base.py:293 ->
@@ -1392,7 +1410,7 @@ class WorkerHarness:
                     await self._audit_guard_refusal(
                         task, guard_code=refusal_code, dmn_versions=dict(dmn_versions)
                     )
-                outcome = await self._report_failure(task, str(exc), retries_override=0)
+                outcome = await self._report_failure(task, exc, retries_override=0)
             except Exception as exc:  # noqa: BLE001 — classified below; never escapes dispatch.
                 _transient_types = (RuntimeError, OSError, TimeoutError, ConnectionError, httpx.HTTPError)
                 transient = isinstance(exc, _transient_types)
@@ -1403,7 +1421,7 @@ class WorkerHarness:
                         topic=task.topic,
                         error_type=type(exc).__name__,
                     )
-                outcome = await self._report_failure(task, str(exc), retries_override=None)
+                outcome = await self._report_failure(task, exc, retries_override=None)
         finally:
             if outcome is not None:
                 _emit_worker_task_outcome(

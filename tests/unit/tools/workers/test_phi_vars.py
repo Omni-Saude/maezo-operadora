@@ -8,7 +8,13 @@ from __future__ import annotations
 
 import pytest
 
-from maezo.tools.workers.phi_vars import PHI_PROCESS_VARS, REDACTED_PHI, redact_phi_vars
+from maezo.tools.workers.phi_vars import (
+    PHI_PROCESS_VARS,
+    REDACTED_DIGITS,
+    REDACTED_PHI,
+    redact_error_message,
+    redact_phi_vars,
+)
 
 
 def test_redacted_phi_is_a_class_token() -> None:
@@ -85,3 +91,72 @@ def test_never_raises_on_non_string_phi_value() -> None:
     out = redact_phi_vars({"laudo": {"nested": "clinical"}, "diagnostico": 12345})
     assert out["laudo"] == REDACTED_PHI
     assert out["diagnostico"] == REDACTED_PHI
+
+
+# ---------------------------------------------------------------------------
+# redact_error_message (T3.4 F5) — exception-message backstop before the engine's
+# Cockpit-visible incident store.
+# ---------------------------------------------------------------------------
+
+
+def test_bare_cpf_digit_run_is_redacted() -> None:
+    """An unformatted 11-digit run (a raw CPF, or any other long numeric id) is redacted."""
+    out = redact_error_message(ValueError("cpf invalido: 12345678901"))
+    assert "12345678901" not in out
+    assert REDACTED_DIGITS in out
+
+
+def test_formatted_cpf_is_redacted() -> None:
+    """A canonically-punctuated CPF is redacted even though no single digit run is 11+ long."""
+    out = redact_error_message(ValueError("beneficiario cpf=123.456.789-01 nao encontrado"))
+    assert "123.456.789-01" not in out
+    assert REDACTED_DIGITS in out
+
+
+def test_formatted_cnpj_is_redacted() -> None:
+    out = redact_error_message(ValueError("prestador cnpj=12.345.678/0001-90 invalido"))
+    assert "12.345.678/0001-90" not in out
+    assert REDACTED_DIGITS in out
+
+
+def test_error_class_is_preserved_as_a_stable_prefix() -> None:
+    """Ops must still be able to tell WHAT kind of failure occurred from the redacted message."""
+    out = redact_error_message(ValueError("cpf invalido: 12345678901"))
+    assert out.startswith("ValueError: ")
+
+
+def test_plain_message_with_no_phi_shape_passes_through_readable() -> None:
+    """No false positives: an ordinary message (short ids, prose) is not mangled."""
+    exc = RuntimeError("engine unreachable: connection refused on port 8080")
+    out = redact_error_message(exc)
+    assert out == "RuntimeError: engine unreachable: connection refused on port 8080"
+
+
+def test_plain_string_with_no_exception_has_no_class_prefix() -> None:
+    """A static harness message (not derived from an exception) is passed through un-prefixed."""
+    out = redact_error_message("no handler registered for topic 'operadora.test'")
+    assert out == "no handler registered for topic 'operadora.test'"
+
+
+def test_short_numeric_ids_below_the_digit_run_threshold_survive() -> None:
+    """A 10-digit (or shorter) numeric id is NOT a false-positive match — only 11+ is redacted."""
+    out = redact_error_message(ValueError("task 1234567890 not found"))
+    assert "1234567890" in out
+
+
+def test_long_message_is_capped() -> None:
+    """An unbounded/adversarial message length is capped before reaching the incident store."""
+    out = redact_error_message(ValueError("x" * 2000))
+    assert len(out) < 2000
+    assert out.endswith("...[TRUNCATED]")
+
+
+def test_never_raises_on_a_pathological_input() -> None:
+    """The backstop must never itself raise onto the failure-reporting hot path."""
+
+    class _Unstringable:
+        def __str__(self) -> str:
+            raise RuntimeError("boom")
+
+    out = redact_error_message(_Unstringable())  # type: ignore[arg-type]
+    assert out == "[REDACTED_ERROR]"

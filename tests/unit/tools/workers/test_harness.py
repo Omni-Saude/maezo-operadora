@@ -191,7 +191,7 @@ async def test_fake_transport_records_calls() -> None:
 
     assert transport.completed == [("t1", {"x": 1})]
     assert transport.failures == [("t1", "boom", 2, 500)]
-    assert transport.bpmn_errors == [("t1", "ERR_X")]
+    assert transport.bpmn_errors == [("t1", "ERR_X", "")]
     assert transport.extended == [("t1", 1000)]
     assert transport.unlocked == ["t1"]
     assert transport.closed is True
@@ -354,6 +354,80 @@ async def test_handle_value_error_reports_retries_zero() -> None:
     assert transport.failures[0][2] == 0
 
 
+# ---------------------------------------------------------------------------
+# T3.4 F5: raw exception messages must arrive at the transport (the engine's Cockpit-visible
+# incident store) REDACTED — every `_report_failure` call site, plus the allowlisted-bpmnError
+# path (which bypasses `_report_failure` entirely). Non-hollow: a message WITHOUT PHI-shaped
+# content must still arrive readable (no over-redaction).
+# ---------------------------------------------------------------------------
+
+
+async def test_handle_value_error_with_cpf_arrives_redacted_at_transport() -> None:
+    transport = FakeWorkerTransport()
+    harness = WorkerHarness(transport, worker_id="w")
+
+    async def handler(task: ExternalTask) -> None:
+        raise ValueError("cpf invalido: 123.456.789-01 nao encontrado")
+
+    harness.register("t", handler)
+    await harness._handle(_task(topic="t", retries=3))
+
+    assert len(transport.failures) == 1
+    error_message = transport.failures[0][1]
+    assert "123.456.789-01" not in error_message
+    assert error_message == "ValueError: cpf invalido: [REDACTED_DIGITS] nao encontrado"
+
+
+async def test_handle_permission_error_with_bare_digit_run_arrives_redacted_at_transport() -> None:
+    transport = FakeWorkerTransport()
+    harness = WorkerHarness(transport, worker_id="w")
+
+    async def handler(task: ExternalTask) -> None:
+        raise PermissionError("ERR_DENIAL_NOT_HUMAN beneficiario 12345678901")
+
+    harness.register("t", handler)
+    await harness._handle(_task(topic="t"))
+
+    error_message = transport.failures[0][1]
+    assert "12345678901" not in error_message
+    assert "[REDACTED_DIGITS]" in error_message
+    assert error_message.startswith("PermissionError: ")
+
+
+async def test_handle_transient_error_with_no_phi_shape_passes_through_readable() -> None:
+    """No false positives: a plain transient-error message is forwarded intact (redaction is a
+    backstop, not a lossy default)."""
+    transport = FakeWorkerTransport()
+    harness = WorkerHarness(transport, worker_id="w")
+
+    async def handler(task: ExternalTask) -> None:
+        raise RuntimeError("engine unreachable: connection refused")
+
+    harness.register("t", handler)
+    await harness._handle(_task(topic="t", retries=3))
+
+    assert transport.failures[0][1] == "RuntimeError: engine unreachable: connection refused"
+
+
+async def test_handle_bpmn_error_allowlisted_with_cpf_arrives_redacted_at_transport() -> None:
+    """The allowlisted-bpmnError path calls `transport.handle_bpmn_error` directly — it bypasses
+    `_report_failure` entirely, so it needs its own redaction coverage (T3.4 F5 audit note)."""
+    transport = FakeWorkerTransport()
+    harness = WorkerHarness(transport, worker_id="w", bpmn_error_allowlist=frozenset({"ERR_PROVEN"}))
+
+    async def handler(task: ExternalTask) -> None:
+        raise WorkerBpmnError("ERR_PROVEN", "cliente cpf 987.654.321-00 invalido")
+
+    harness.register("t", handler)
+    await harness._handle(_task(topic="t"))
+
+    assert len(transport.bpmn_errors) == 1
+    _task_id, error_code, error_message = transport.bpmn_errors[0]
+    assert error_code == "ERR_PROVEN"
+    assert "987.654.321-00" not in error_message
+    assert error_message == "WorkerBpmnError: cliente cpf [REDACTED_DIGITS] invalido"
+
+
 async def test_handle_transient_error_decrements_engine_retries() -> None:
     transport = FakeWorkerTransport()
     harness = WorkerHarness(transport, worker_id="w", max_retry_attempts=3)
@@ -441,7 +515,9 @@ async def test_handle_bpmn_error_allowlisted_code_reports_bpmn_error() -> None:
     harness.register("t", handler)
     await harness._handle(_task(topic="t"))
 
-    assert transport.bpmn_errors == [(_task(topic="t").task_id, "ERR_PROVEN")]
+    assert transport.bpmn_errors == [
+        (_task(topic="t").task_id, "ERR_PROVEN", "WorkerBpmnError: modeled failure")
+    ]
     assert transport.failures == []
 
 
@@ -822,6 +898,64 @@ async def test_real_transport_fetch_and_lock_malformed_json_variable_fails_close
     assert len(failure_calls) == 1
     assert failure_calls[0]["workerId"] == "w"
     assert failure_calls[0]["retries"] == 0  # non-transient — immediate incident, never retried
+    await transport.close()
+
+
+async def test_real_transport_malformed_json_decode_failure_redacts_error_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """T3.4 F5: the malformed-`Json`-variable path (`fetch_and_lock`) reports its incident via
+    `self.handle_failure` directly — it bypasses the harness's `_report_failure` chokepoint
+    entirely (it fires before a task is even handed to the dispatch loop), so it needs its own
+    redaction coverage. Forces a PHI-shaped decode failure via monkeypatch (a real
+    `json.JSONDecodeError` never embeds the raw offending text, so this is the only way to
+    exercise a PHI-bearing message on this exact path)."""
+    import maezo.tools.workers.harness as harness_module
+
+    def _boom(entry: dict[str, Any]) -> Any:
+        raise ValueError("cpf invalido: 123.456.789-01 no payload")
+
+    monkeypatch.setattr(harness_module, "_from_camunda_var", _boom)
+
+    failure_calls: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json as _json
+
+        if request.url.path == "/engine-rest/external-task/fetchAndLock":
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": "task-bad-json-2",
+                        "topicName": "t",
+                        "processInstanceId": "proc-7",
+                        "businessKey": "bk-7",
+                        "workerId": "w",
+                        "retries": 3,
+                        "variables": {"payload": {"value": '{"ok": true}', "type": "Json"}},
+                    }
+                ],
+            )
+        if request.url.path == "/engine-rest/external-task/task-bad-json-2/failure":
+            failure_calls.append(_json.loads(request.content))
+            return httpx.Response(204)
+        raise AssertionError(f"unexpected request: {request.url.path}")
+
+    transport = RealTransport("http://engine/engine-rest")
+    transport._client = httpx.AsyncClient(
+        base_url="http://engine/engine-rest", transport=httpx.MockTransport(handler)
+    )
+
+    tasks = await transport.fetch_and_lock(
+        "w", [TopicSubscription("t", 30_000)], max_tasks=5, async_response_timeout_ms=25_000
+    )
+
+    assert tasks == []
+    assert len(failure_calls) == 1
+    error_message = failure_calls[0]["errorMessage"]
+    assert "123.456.789-01" not in error_message
+    assert "[REDACTED_DIGITS]" in error_message
     await transport.close()
 
 
