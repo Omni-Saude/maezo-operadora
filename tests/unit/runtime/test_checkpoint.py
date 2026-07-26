@@ -108,3 +108,46 @@ def test_checkpoint_thread_config_rejects_raw_phi() -> None:
     """The builder fail-closes on a raw-numeric id, before any config is produced."""
     with pytest.raises(ValueError, match="raw phone/CPF-like"):
         checkpoint_thread_config("+5511999998888")
+
+
+# --- DSN normalization (prod-critical: Helm Aurora secret is `postgresql+asyncpg://`) ----------
+
+
+@pytest.mark.asyncio
+async def test_connect_and_setup_normalizes_sqlalchemy_asyncpg_dsn(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The platform `DATABASE_URL` convention is a SQLAlchemy `postgresql+asyncpg://...` DSN (Helm's
+    Aurora ExternalSecret). psycopg — which `AsyncPostgresSaver` connects with — cannot parse the
+    `+asyncpg` token, so `connect_and_setup` MUST strip it (same `normalize_dsn` as the audit sink)
+    BEFORE handing it to the saver — otherwise the checkpointer ProgrammingErrors and fails closed
+    on every prod boot. Proven without a real Postgres by capturing the DSN the saver receives."""
+    captured: dict[str, str] = {}
+
+    class _FakeSaver:
+        async def setup(self) -> None:
+            return None
+
+    class _FakePoolCM:
+        async def __aenter__(self) -> _FakeSaver:
+            return _FakeSaver()
+
+        async def __aexit__(self, *_: object) -> None:
+            return None
+
+    class _FakeAsyncPostgresSaver:
+        @staticmethod
+        def from_conn_string(dsn: str) -> _FakePoolCM:
+            captured["dsn"] = dsn
+            return _FakePoolCM()
+
+    # `connect_and_setup` imports the saver lazily from this module — patch the attribute there.
+    monkeypatch.setattr(
+        "langgraph.checkpoint.postgres.aio.AsyncPostgresSaver", _FakeAsyncPostgresSaver, raising=True
+    )
+
+    ck = await Checkpointer.connect_and_setup("postgresql+asyncpg://u:p@aurora:5432/db")
+    assert captured["dsn"] == "postgresql://u:p@aurora:5432/db"  # +asyncpg token stripped
+    assert ck.conn_string == "postgresql://u:p@aurora:5432/db"  # stored normalized too
+
+    # A plain `postgresql://` DSN passes through unchanged (normalization is a no-op).
+    await Checkpointer.connect_and_setup("postgresql://u:p@host:5432/db")
+    assert captured["dsn"] == "postgresql://u:p@host:5432/db"
