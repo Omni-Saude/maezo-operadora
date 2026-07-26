@@ -84,7 +84,7 @@ FINDINGS (grep/read/direct-execution confirmed — see PR body / evidence-ledger
      it no longer is — `_RECURSO_KAFKA_GAP_REASON`'s own text carried the same stale claim and was
      fixed in the same commit.
 
-  2. Registry drift (recurso-specific, `_RECURSO_UNIMPLEMENTED_TOPIC_REASON` +
+  2. Registry drift (recurso-specific, `_RECURSO_UNIMPLEMENTED_TOPICS` +
      `test_recurso_worker_registry_drift_vs_bpmn`) — the GAPS half RESOLVED by t3.1-recurso-
      batch2 (built, pending live-proof flip); the ORPHANS half is UNCHANGED (still a real,
      documented drift, not this task's scope). Historical: unlike cancel's (now-fixed) 1:1
@@ -275,7 +275,8 @@ _RECONCILE_PAYMENT_TOPIC = "operadora.recurso.reconcile_payment"
 # worker AGORA tem handler registrado em register_recurso_workers E foram provados contra engine
 # real — a lista de drain foi EXPANDIDA para servi-los (notify_sla_risk/escalate_ans_timeout/
 # submit_appeal/track_status raw handlers + reconcile_payment FunctionWorker), permitindo o flip
-# dos 10 xfails _RECURSO_UNIMPLEMENTED_TOPIC_REASON. `reconcile_payment` (ST_ReconcilePayment*)
+# dos 10 xfails que citavam esse gap (motivo dedicado retirado — dead code, zero usos ativos; ver
+# `_RECURSO_UNIMPLEMENTED_TOPICS` acima). `reconcile_payment` (ST_ReconcilePayment*)
 # e uma service task BPMN real (nao orfã); os outros 4 sao boundary/timer/loop tasks.
 _RECURSO_WORKER_TOPICS = [
     _PUBLISH_TOPIC,
@@ -360,32 +361,10 @@ _RECURSO_KAFKA_GAP_REASON = (
     "t3.1-event-gap-recurso-pended (#138): `ST_PublishRecursoPended` (a boundary-free "
     "operadora.events.publish task on Flow_Solicitar_WaitDocs) now emits "
     "agents.events.recurso.pended and was LIVE-PROVEN against a real engine (see the standalone "
-    "note immediately below `_RECURSO_UNIMPLEMENTED_TOPIC_REASON` for the full evidence trail; its "
+    "note below on Finding 1's pended-half resolution for the full evidence trail; its "
     "own xfail reason constant, `_RECURSO_PENDED_PUBLISH_ADDED_REASON`, was retired the same way). "
     "Removed the stale clause here so this constant only describes the ONE gap still open — the "
     "notifications_of_type residual, unrelated to and unaffected by the pended fix."
-)
-
-_RECURSO_UNIMPLEMENTED_TOPIC_REASON = (
-    "v2 gap (recurso-specific, finding 2 — NOT the generic kafka-publish drift) — BUILT, PENDING "
-    "LIVE-PROOF FLIP (t3.1-recurso-batch2): SP-OP-RECURSO-001's BPMN declares 5 "
-    "operadora.recurso.* external-task topics that register_recurso_workers previously had ZERO "
-    "handler for — notify_sla_risk (ST_NotificarRiscoSla), escalate_ans_timeout "
-    "(ST_EscalateAnsTimeout), submit_appeal (ST_SubmitAppeal), track_status (ST_TrackStatus), "
-    "reconcile_payment (ST_ReconcilePaymentDeferido/Parcial) — all 5 now have an implementing "
-    "function + registration in recurso.py (notify_sla_risk/escalate_ans_timeout/submit_appeal/"
-    "track_status as raw async harness.register() handlers threading kafka for their "
-    "notifications_of_type/has_event observability; reconcile_payment mirrors contas.py exactly, "
-    "no kafka)."
-    "\n\nSTALE-PROSE FIX (t3.1-test-hygiene-batch, item 5): this constant used to say 'NOT YET "
-    "LIVE-PROVEN ... _RECURSO_WORKER_TOPICS (drain list) is DELIBERATELY left unexpanded (still the "
-    "pre-fix 4 topics) ... expanding the drain list + running against a live engine + removing this "
-    "mark is the deliberate remaining step.' That is no longer true: LIVE-FLIPPED (wave2a, CIB "
-    "Seven 2.1.0) — `_RECURSO_WORKER_TOPICS` was expanded to all 9 topics (see its own definition "
-    "above) and all 10 xfails this reason covered ran green against a real engine and had their "
-    "marks removed. No test references this constant as an active `pytest.mark.xfail` reason "
-    "anymore; retained purely for the docstring/FINDING-2 prose above and its cross-reference at "
-    "test_happy_path_recorrer_e_deferido's docstring."
 )
 
 # Finding 3 (valor_glosa_aceito TypeError) RESOLVED by t3.1-a2-recurso-valor-glosa — the
@@ -749,8 +728,8 @@ async def test_happy_path_recorrer_e_deferido(
 
     Fails FIRST at the `dossiers` assertion (kafka gap, finding 1 — analyze_request_entry never
     calls kafka.publish) — this fires BEFORE the instance ever completes UT_AnaliseRecursoAnalista
-    with RECORRER. Independently, RECORRER -> ST_SubmitAppeal is ALSO a dead end
-    (`_RECURSO_UNIMPLEMENTED_TOPIC_REASON`, finding 2) — moot here since the earlier assertion
+    with RECORRER. RECORRER -> ST_SubmitAppeal used to ALSO be a dead end (finding 2, RESOLVED by
+    t3.1-recurso-batch2 — see module docstring); moot here regardless, since the earlier assertion
     already fails.
     """
     inst = await start_recurso(glosa_type="administrativa")

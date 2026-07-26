@@ -528,6 +528,36 @@ def publish_completed(variables: dict[str, Any]) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------
+# prepare_approval_dossier — LOCAL STUB dossier (DL-0033; Andre A2A deferred)
+# ---------------------------------------------------------------
+
+
+def prepare_approval_dossier(variables: dict[str, Any]) -> dict[str, Any]:
+    """Prepare the approval dossier for the human alcada User Task — NEUTRAL (DL-0033 local stub).
+
+    Assembling a dossier INSTRUCTS the human approver (UT_AprovacaoAlcada), it NEVER originates the
+    payment decision — mirrors `programa.enroll_beneficiario` ("enrollment is not an adverse
+    effect"). This is the local echo/log stub DL-0033 ratified (`FunctionWorker`, no
+    `DelegationDispatcher`): it closes the BPMN topic orphanage
+    (`operadora.pagto.prepare_approval_dossier`, `ST_PrepareApprovalDossier`, also reached on the
+    GAP-PAGTO-5 `seguir_analise` re-entry) without inventing delegation business-logic before the
+    real Andre A2A wiring (`analytics.actuarial`/`analytics.population`, `pagto_dossier`) lands in
+    the deferred full-A2A task. Fails SAFE (never raises), mirroring the module's neutral idiom.
+    """
+    ordem_id = variables.get("ordem_pagamento_id", "")
+
+    logger.info(
+        "pagto_prepare_approval_dossier",
+        ordem_id=ordem_id,
+    )
+
+    return {
+        "dossier_prepared": True,
+        "data_dossier": "now",
+    }
+
+
+# ---------------------------------------------------------------
 # Custom error
 # ---------------------------------------------------------------
 
@@ -565,8 +595,10 @@ class PagtoError(Exception):
 # assess_admissibility has no distinct spec topic — registered under a
 # function-derived topic for registry completeness. publish_completed folds
 # into the generic events.publish task per BPMN — function-derived topic.
-# Spec topic with NO implementing function today (gap, not fabricated here, Andre A2A-gated —
-# out of scope for t2.5-p2b-round2): prepare_approval_dossier.
+#   prepare_approval_dossier -> operadora.pagto.prepare_approval_dossier (exact spec match, DL-0033
+#     LOCAL STUB; NEUTRAL — instructs UT_AprovacaoAlcada, never decides the payment. The REAL Andre
+#     A2A delegation (analytics.actuarial/analytics.population) is deferred to the full-A2A wiring
+#     task; this stub only closes the BPMN topic orphanage.)
 # ---------------------------------------------------------------
 
 
@@ -603,3 +635,6 @@ def register_pagto_workers(
         FunctionWorker("operadora.pagto.register_payment_refusal", register_payment_refusal)
     )
     harness.register_worker(FunctionWorker("operadora.pagto.publish_completed", publish_completed))
+    harness.register_worker(
+        FunctionWorker("operadora.pagto.prepare_approval_dossier", prepare_approval_dossier)
+    )

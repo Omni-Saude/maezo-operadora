@@ -349,6 +349,38 @@ def register_fallback_commitment(variables: dict[str, Any]) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------
+# prepare_remediation_dossier — LOCAL STUB dossier (DL-0033; Andre A2A deferred)
+# ---------------------------------------------------------------
+
+
+def prepare_remediation_dossier(variables: dict[str, Any]) -> dict[str, Any]:
+    """Prepare the remediation dossier for the human fallback User Task — NEUTRAL (DL-0033 local stub).
+
+    Assembling a dossier INSTRUCTS the human decision (UT_DecisaoFallback), it NEVER originates the
+    remediation/fallback decision — mirrors `programa.enroll_beneficiario` ("enrollment is not an
+    adverse effect"). This is the local echo/log stub DL-0033 ratified (`FunctionWorker`, no
+    `DelegationDispatcher`): it closes the BPMN topic orphanage
+    (`operadora.adequacao.prepare_remediation_dossier`, `ST_PrepareRemediationDossier`, also reached
+    on the GAP-ADEQ-3 `seguir_analise` re-entry) without inventing delegation business-logic before
+    the real Andre A2A wiring (`analytics.population`, `adequacao_dossier`) lands in the deferred
+    full-A2A task. Fails SAFE (never raises), mirroring the module's neutral idiom.
+    """
+    regiao = variables.get("regiao_saude", "")
+    especialidade = variables.get("especialidade", "")
+
+    logger.info(
+        "adequacao_prepare_remediation_dossier",
+        regiao_saude=regiao,
+        especialidade=especialidade,
+    )
+
+    return {
+        "dossier_prepared": True,
+        "data_dossier": "now",
+    }
+
+
+# ---------------------------------------------------------------
 # Custom error
 # ---------------------------------------------------------------
 
@@ -379,8 +411,10 @@ class AdequacaoError(Exception):
 #     t2.5-p2b-round2 closed this gap)
 #   notify_sla_risk -> operadora.adequacao.notify_sla_risk (spec match, informational —
 #     t2.5-p2b-round2 closed this gap)
-# Spec topic with NO implementing function today (gap, not fabricated here, Andre A2A-gated —
-# out of scope for t2.5-p2b-round2): prepare_remediation_dossier.
+#   prepare_remediation_dossier -> operadora.adequacao.prepare_remediation_dossier (exact spec
+#     match, DL-0033 LOCAL STUB; NEUTRAL — instructs UT_DecisaoFallback, never decides. The REAL
+#     Andre A2A delegation (analytics.population, adequacao_dossier) is deferred to the full-A2A
+#     wiring task; this stub only closes the BPMN topic orphanage.)
 # ---------------------------------------------------------------
 
 
@@ -411,3 +445,6 @@ def register_adequacao_workers(
         FunctionWorker("operadora.adequacao.update_monitoring_plan", update_monitoring_plan)
     )
     harness.register_worker(FunctionWorker("operadora.adequacao.notify_sla_risk", notify_sla_risk))
+    harness.register_worker(
+        FunctionWorker("operadora.adequacao.prepare_remediation_dossier", prepare_remediation_dossier)
+    )

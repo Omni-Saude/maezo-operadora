@@ -3,6 +3,12 @@
 **Status:** Proposed (pending implementation T1.8) · **Data:** 2026-07-16 · **Area:** Seguranca / Governanca de Autonomia
 Owner: policy-guardian. Defects: B3 (PEP does not load YAML) / B4 (dual vocabulary; hard-set incomplete).
 Scope: T1.8 acceptance criteria only. Implementation lands after T0.3.
+**Amended by ADR-0034:** the D6/Q4 "flagged follow-up" for async audit + L2 review sampling is
+converted from *deferred* to *descoped* — L2 review sampling is intentionally not in v2 (gap #24).
+Root cause: v2's PEP is never on the request path (`PEP.evaluate` has no runtime callers; `build_pep()`
+is a startup readiness probe only), so autonomy is enforced structurally via BPMN (ADR-0018), not by a
+per-tool-call PEP; an injected sampler would sample nothing. Revisit only if a runtime per-tool-call PEP
+chokepoint is later introduced. ADR-0034 amends, does not supersede.
 
 Zero-trust note: every claim below carries a path:line citation into actual code, verified this session.
 Do not trust docstrings/comments — where a comment asserts behavior, it is flagged as comment-only.
