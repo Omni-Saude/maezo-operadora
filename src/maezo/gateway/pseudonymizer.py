@@ -110,14 +110,22 @@ class Pseudonymizer:
             A keyed Pseudonymizer.
 
         Raises:
-            PseudonymizerKeyMissingError: production mode with an absent/empty key (fail-closed).
+            PseudonymizerKeyMissingError: production mode with an absent/empty/whitespace-only
+                key (fail-closed).
         """
-        if phi_hmac_key:
-            return cls(key=phi_hmac_key.encode("utf-8"))
+        # Normalize ONCE and branch on the normalized value: a whitespace-only env value
+        # (`"   "`, `"\t\n"` — e.g. a mis-populated secret) is NOT a key and must be treated as
+        # ABSENT, or production would silently accept it as real key material (same fail-closed
+        # hardening class as the repo's `_norm_str`/whitespace-bypass fixes). Stripping also
+        # canonicalizes a real key that arrives with a trailing newline from a secret file.
+        normalized_key = phi_hmac_key.strip() if phi_hmac_key else ""
+        if normalized_key:
+            return cls(key=normalized_key.encode("utf-8"))
         if production:
             raise PseudonymizerKeyMissingError(
-                "PHI_HMAC_KEY is absent but the runtime is in production mode: refusing to "
-                "construct a Pseudonymizer that would fall back to a deterministic/reversible "
+                "PHI_HMAC_KEY is absent (or blank/whitespace-only) but the runtime is in "
+                "production mode: refusing to construct a Pseudonymizer that would fall back "
+                "to a deterministic/reversible "
                 "pseudonym (ADR-0035 fail-closed). Provision the vault-synced PHI_HMAC_KEY "
                 "(ExternalSecret `phi-hmac-key`, §6.2) before serving PHI-adjacent traffic."
             )

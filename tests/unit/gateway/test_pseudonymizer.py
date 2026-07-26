@@ -168,6 +168,41 @@ def test_prod_absent_key_fails_closed() -> None:
         Pseudonymizer.from_settings(phi_hmac_key="", production=True, tenant_id="amh")
 
 
+def test_prod_whitespace_only_key_fails_closed() -> None:
+    """SECURITY (ADR-0035): a blank/whitespace-only PHI_HMAC_KEY is NOT a key — prod must treat
+    it as ABSENT and fail closed, not silently accept whitespace as real key material (same
+    hardening class as the repo's `_norm_str`/whitespace-bypass fixes).
+
+    Mutation-mind: revert `from_settings` to branch on raw truthiness (`if phi_hmac_key:`)
+    instead of the normalized value and this test goes RED.
+    """
+    for blank in ("   ", "\t\n", " \r\n "):
+        with pytest.raises(PseudonymizerKeyMissingError):
+            Pseudonymizer.from_settings(phi_hmac_key=blank, production=True, tenant_id="amh")
+
+
+def test_local_whitespace_only_key_uses_dev_fallback_with_warning() -> None:
+    """dev/local + whitespace-only key -> treated as absent: dev fallback + warning, NO raise."""
+    with structlog.testing.capture_logs() as logs:
+        p = Pseudonymizer.from_settings(phi_hmac_key="  \t", production=False, tenant_id="amh")
+    assert any(
+        e.get("event") == "phi_pseudonymizer_dev_fallback_key" and e.get("log_level") == "warning"
+        for e in logs
+    )
+    # Same token as the absent-key dev fallback (whitespace == absent, one canonical dev key).
+    absent = Pseudonymizer.from_settings(phi_hmac_key=None, production=False, tenant_id="amh")
+    assert p.pseudonymize({"cpf": _CPF})["cpf"] == absent.pseudonymize({"cpf": _CPF})["cpf"]
+
+
+def test_key_with_surrounding_whitespace_is_canonicalized() -> None:
+    """A real key that arrives with a trailing newline (classic secret-file artifact) is
+    normalized to the same key material as its clean form — no token drift between a clean and
+    a newline-suffixed injection of the SAME key."""
+    clean = Pseudonymizer.from_settings(phi_hmac_key="vault-key", production=True, tenant_id="amh")
+    newline = Pseudonymizer.from_settings(phi_hmac_key="vault-key\n", production=True, tenant_id="amh")
+    assert clean.pseudonymize({"cpf": _CPF})["cpf"] == newline.pseudonymize({"cpf": _CPF})["cpf"]
+
+
 def test_local_absent_key_deterministic_fallback_with_warning() -> None:
     """dev/local + absent key -> deterministic per-tenant DEV key + loud warning, NO raise."""
     with structlog.testing.capture_logs() as logs:

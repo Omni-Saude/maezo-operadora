@@ -1,9 +1,13 @@
 # ADR-0035: PHI pseudonymizer — keyed HMAC-SHA256, prod fail-closed, dev deterministic [t6-hmac]
 
-**Status:** Proposed (2026-07-26) · **Data:** 2026-07-26 · **Area:** Seguranca (PHI/LGPD)
+**Status:** Accepted (2026-07-26) · **Data:** 2026-07-26 · **Area:** Seguranca (PHI/LGPD)
 
-> Amends ADR-0006 (PHI two-zones); does not supersede it. Authored by an R1 builder; must be
-> R1-verified (author ≠ verifier) before it moves to Accepted.
+> Amends ADR-0006 (PHI two-zones); does not supersede it. Authored by an R1 builder;
+> R1-verified (author ≠ verifier) pelo gatekeeper em 2026-07-26 — verdict PASS (reversibilidade
+> fechada, matriz fail-closed com mutation-RED, side-effect do RUNTIME_MODE no Helm liberado) —
+> movendo o status para Accepted. Fold-back LOW aplicado na mesma verificacao: chave
+> whitespace-only e tratada como AUSENTE (normalizacao unica antes do branch — prod falha
+> fechado tambem para `"   "`/`"\t\n"`; um sufixo de newline numa chave real e canonicalizado).
 
 ## Contexto
 
@@ -38,7 +42,9 @@ Helena, `webhooks/service.py` -> `whatsapp/dispatch.py`), que nao recebia nem a 
    tenant_id)`, espelhando os precedentes mais fortes do repo (a trava `DATABASE_URL` do
    webhook-receiver; `RefusingAnsGatewayTransport`; `inference.py` "no silent fallback"):
    - chave presente -> HMAC com a chave real do cofre;
-   - **producao + chave ausente/vazia -> `PseudonymizerKeyMissingError` (fail-closed)**: um pod de
+   - **producao + chave ausente/vazia/whitespace-only -> `PseudonymizerKeyMissingError`
+     (fail-closed)**: a chave e normalizada (strip) UMA vez antes do branch — whitespace nunca e
+     material de chave; um pod de
      producao NUNCA pode cair num pseudonimo determinista/reversivel;
    - dev/CI + chave ausente -> **chave DEV determinista por-tenant, NAO secreta** + WARNING alto
      (convencao ".env vazia em dev = determinista"). Mesmo o fallback dev e HMAC (nunca SHA-256

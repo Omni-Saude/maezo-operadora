@@ -2,7 +2,7 @@
 
 Provides the security boundary between agents and the outside world:
 - PEP: Policy Enforcement Point evaluating the autonomy matrix (ADR-0005, 0008)
-- Pseudonymizer: PHI pseudonymization via SHA-256 (ADR-0006)
+- Pseudonymizer: PHI pseudonymization via keyed HMAC-SHA256 (ADR-0006, ADR-0035)
 - AuditSink: hash-linked audit chain, anti-fork (ADR-0007, DL-0018)
 - PostgresAuditSink: durable, fail-closed Postgres-backed audit chain (T1.10)
 - CredentialVault: structural separation of agent and human credentials (ADR-0005)
