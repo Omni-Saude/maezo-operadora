@@ -80,8 +80,9 @@ async def test_successful_delegation_routes_audits_and_emits_facts() -> None:
     completed_value = producer.sent[1][1]
     assert b"fhir://Task/done" in completed_value  # output_ref in the completed fact
 
-    # Audited the delegation exactly once, BEFORE the effect.
-    assert len(sink.emitted) == 1
+    # TWO audit rows (T-F completeness, LOW-1): the pre-exec ALLOW admission row, then the terminal
+    # COMPLETED outcome row — the pre-exec row is not itself terminal.
+    assert len(sink.emitted) == 2
     record, dedup_key = sink.emitted[0]
     assert record.agent_id == "helena"  # the chain's originator
     assert record.tenant_id == "amh"
@@ -89,6 +90,13 @@ async def test_successful_delegation_routes_audits_and_emits_facts() -> None:
     assert record.decision == "ALLOW"
     assert record.details["decision_basis"] == "A2A:delegate:allow"
     assert dedup_key == a2a_audit_dedup_key("amh", "t1")
+
+    outcome_record, outcome_key = sink.emitted[1]
+    assert outcome_record.action == "a2a.delegate:rafael:outcome"
+    assert outcome_record.decision == "COMPLETED"
+    assert outcome_record.details["decision_basis"] == "A2A:delegate:completed"
+    assert outcome_key == a2a_audit_outcome_dedup_key("amh", "t1")
+    assert outcome_key != dedup_key  # distinct dedup keys — never collapsed by emit_once
 
 
 async def test_facts_never_carry_phi() -> None:
@@ -109,21 +117,29 @@ async def test_audit_record_details_exclude_payload_meta_synthetic_cpf() -> None
     synthetic_cpf = "123.456.789-01"
     await dispatcher.delegate(_envelope(payload_meta={"cpf_beneficiario": synthetic_cpf}))
 
-    assert len(sink.emitted) == 1
-    record, _ = sink.emitted[0]
-    # The planted CPF must not appear ANYWHERE in the persisted record — not in `details`, not
-    # smuggled into any other field.
-    assert synthetic_cpf not in record.details.values()
-    assert "cpf_beneficiario" not in record.details
-    serialized = str(record.details)
-    assert synthetic_cpf not in serialized
-    assert record.details == {
+    # Both the pre-exec ALLOW row and the terminal COMPLETED row (LOW-1) must be PHI-safe.
+    assert len(sink.emitted) == 2
+    for record, _ in sink.emitted:
+        # The planted CPF must not appear ANYWHERE in the persisted record — not in `details`, not
+        # smuggled into any other field.
+        assert synthetic_cpf not in record.details.values()
+        assert "cpf_beneficiario" not in record.details
+        assert synthetic_cpf not in str(record.details)
+    assert sink.emitted[0][0].details == {
         "task_id": "t1",
         "task_type": "authorization.analyze",
         "chain": ["helena", "rafael"],
         "payload_ref": "fhir://Patient/abc",
         "target": "rafael",
         "decision_basis": "A2A:delegate:allow",
+    }
+    assert sink.emitted[1][0].details == {
+        "task_id": "t1",
+        "task_type": "authorization.analyze",
+        "chain": ["helena", "rafael"],
+        "payload_ref": "fhir://Patient/abc",
+        "target": "rafael",
+        "decision_basis": "A2A:delegate:completed",
     }
 
 
@@ -238,6 +254,41 @@ async def test_handler_error_emits_terminal_outcome_audit_row() -> None:
     assert "helena" in outcome_record.details["detail"]  # structural, PHI-free exception message
 
 
+async def test_success_emits_terminal_completed_outcome_audit_row() -> None:
+    """T-F completeness (LOW-1): a SUCCESSFUL delegation now produces BOTH the pre-exec ALLOW row
+    and a distinct terminal COMPLETED `:outcome` row — symmetric to the handler-error branch — so
+    the durable chain records that the delegation actually finished (not merely that it was
+    admitted). Revert-RED guard: deleting the success-path `_audit_delegation_outcome` call drops
+    this back to a single row and fails here."""
+    synthetic_cpf = "123.456.789-01"
+    handler = FakeAgentHandler(output_ref="fhir://Task/done")
+    dispatcher, sink, _ = build_test_dispatcher(cards=[make_card("rafael")], handlers={"rafael": handler})
+    result = await dispatcher.delegate(_envelope(payload_meta={"cpf_beneficiario": synthetic_cpf}))
+    assert result.success
+
+    assert len(sink.emitted) == 2
+    allow_record, allow_key = sink.emitted[0]
+    outcome_record, outcome_key = sink.emitted[1]
+
+    assert allow_record.decision == "ALLOW"
+    assert allow_key == a2a_audit_dedup_key("amh", "t1")
+
+    assert outcome_record.agent_id == "helena"
+    assert outcome_record.tenant_id == "amh"
+    assert outcome_record.action == "a2a.delegate:rafael:outcome"
+    assert outcome_record.decision == "COMPLETED"
+    assert outcome_record.details["decision_basis"] == "A2A:delegate:completed"
+    assert "detail" not in outcome_record.details  # success carries no exception message
+    assert outcome_key == a2a_audit_outcome_dedup_key("amh", "t1")
+    assert outcome_key != allow_key  # distinct dedup keys — never collapsed by emit_once
+
+    # PHI-safe: the synthetic CPF planted in payload_meta must never reach either row.
+    for record in (allow_record, outcome_record):
+        assert synthetic_cpf not in record.details.values()
+        assert "cpf_beneficiario" not in record.details
+        assert synthetic_cpf not in str(record.details)
+
+
 async def test_audit_sink_failure_propagates_and_handler_never_runs() -> None:
     """FAIL-CLOSED proof (T-F daemon-readiness, W4): audit-before-effect means a durable sink that
     cannot persist ALREADY prevents the handler from ever running — no code change was needed for
@@ -272,7 +323,10 @@ async def test_redelivery_does_not_reaudit_or_reemit_requested() -> None:
     assert first.idempotent_replay is False
     assert second.idempotent_replay is True
     assert handler.call_count == 1
-    assert len(sink.emitted) == 1  # audited exactly once, not once per delivery
+    # Two rows for the FIRST delivery (ALLOW + COMPLETED outcome, LOW-1); the replay re-audits
+    # NOTHING — still two, not four.
+    assert len(sink.emitted) == 2
+    assert [r.decision for r, _ in sink.emitted] == ["ALLOW", "COMPLETED"]
     assert producer.topics() == [TOPIC_REQUESTED, TOPIC_COMPLETED]  # not emitted twice
 
 
@@ -348,15 +402,20 @@ async def test_dispatcher_routes_a_real_authorization_analysis_delegation_to_raf
     assert result.output_ref == "process://AUTH-amh-GUIA-EDGE-1"
     assert result.idempotent_replay is False
 
-    # Surface 1 (T-F): the dispatcher's OWN delegation audit — action/dedup_key exactly as the
-    # design specifies, fired on the dispatcher's audit fake.
-    assert len(sink.emitted) == 1
+    # Surface 1 (T-F): the dispatcher's OWN delegation audit — the pre-exec ALLOW row + the terminal
+    # COMPLETED outcome row (LOW-1), action/dedup_key exactly as the design specifies, fired on the
+    # dispatcher's audit fake.
+    assert len(sink.emitted) == 2
     record, dedup_key = sink.emitted[0]
     assert record.agent_id == "helena"
     assert record.tenant_id == "amh"
     assert record.action == "a2a.delegate:rafael"
     assert record.decision == "ALLOW"
     assert dedup_key == a2a_audit_dedup_key("amh", envelope.task_id)
+    outcome_record, outcome_key = sink.emitted[1]
+    assert outcome_record.action == "a2a.delegate:rafael:outcome"
+    assert outcome_record.decision == "COMPLETED"
+    assert outcome_key == a2a_audit_outcome_dedup_key("amh", envelope.task_id)
 
     # Surface 2 (T-C2): Rafael's OWN process-start audit fired on a DIFFERENT sink instance —
     # never conflated with surface 1 above (design doc §9.3).
@@ -386,7 +445,9 @@ async def test_dispatcher_redelivery_does_not_rerun_the_real_rafael_handler() ->
     assert second.idempotent_replay is True
     assert second.output_ref == first.output_ref == "process://AUTH-amh-GUIA-EDGE-2"
     assert calls == 1  # the real Rafael graph never re-ran on replay
-    assert len(sink.emitted) == 1  # audited exactly once
+    # ALLOW + COMPLETED outcome (LOW-1) for the first delivery; the replay re-audits nothing.
+    assert len(sink.emitted) == 2
+    assert [r.decision for r, _ in sink.emitted] == ["ALLOW", "COMPLETED"]
     assert len(rafael_audit_sink.calls) == 1  # Rafael's own process-start fence, also once
     assert producer.topics() == [TOPIC_REQUESTED, TOPIC_COMPLETED]
 

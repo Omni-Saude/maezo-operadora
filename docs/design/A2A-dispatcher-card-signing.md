@@ -379,12 +379,18 @@ audit fires; when the target's handler raises a `DelegationError` after being al
 cyclic sub-delegation), the dispatcher emitted a `rejected` Kafka fact but no second audit row — an
 ALLOWed-then-internally-failed delegation left no terminal audit record distinguishing it from one
 still silently in flight. `DelegationDispatcher._audit_delegation_outcome` (new) emits a SECOND,
-terminal `emit_once` call in that branch only — scoped narrowly to the handler-error path named in
-the charter ("TERMINAL-REJECTION audit"), not to the success path (which already returns a
-synchronous `output_ref` to the caller and a `completed` fact; it is a continuation of the
-already-audited ALLOW decision, not a new one requiring its own row). `action` gets a `:outcome`
-suffix (`f"a2a.delegate:{target}:outcome"`), `decision="FAILED"` (distinct from the pre-exec
-ALLOW/DENY vocabulary, so a chain reader never mistakes it for a second admission decision), and
+terminal `emit_once` call. **Follow-up (LOW-1): this fires on BOTH terminal outcomes, not the
+handler-error path only.** The original scoping (handler-error only, success left to the
+`completed` Kafka fact) was reconsidered: the `completed` fact is ephemeral OBSERVABILITY, not the
+durable T-F audit, so a successful delegation recorded only the pre-exec ALLOW in the durable chain
+— indistinguishable, in that chain, from one that was allowed then crashed / is still in flight.
+The success branch now emits a terminal `decision="COMPLETED"` outcome row (no `detail`),
+restoring the symmetry the failure branch (`decision="FAILED"`, plus the exception message as
+`detail`) already had. Exactly one terminal outcome fires per `task_id` (success XOR failure), so
+the single `:outcome` dedup key never collides between the two. `action` gets a `:outcome`
+suffix (`f"a2a.delegate:{target}:outcome"`), a TERMINAL-outcome `decision`
+(`COMPLETED`/`FAILED`, distinct from the pre-exec ALLOW/DENY admission vocabulary so a chain reader
+never mistakes it for a second admission decision), and
 `dedup_key = f"{tenant}:a2a:delegate:{task_id}:outcome"` (`a2a_audit_outcome_dedup_key`) — distinct
 from the pre-exec row's key so `emit_once` never collapses the two. Same PHI discipline as the
 existing `_audit_delegation`: `details` excludes `payload_meta`, carries only task_id/task_type/
