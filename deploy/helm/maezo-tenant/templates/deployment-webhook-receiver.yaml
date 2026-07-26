@@ -54,6 +54,20 @@ spec:
                 secretKeyRef:
                   name: maezo-whatsapp-config
                   key: verify-token
+            # Tenant Postgres DSN (ADR-0007, T-C2, T4b) — Helena's in-process dispatch needs this
+            # BOTH to construct the durable audit sink her escalation start (SP-OP-ESCALATION-001)
+            # fails closed on AND to open the durable LangGraph checkpointer (multi-turn state that
+            # survives webhook invocations / receiver restarts — service.py's `_build_dispatcher` /
+            # `_provision_dispatch_checkpointer`). Injected from the SAME Aurora ExternalSecret the
+            # other DATABASE_URL consumers read (deployment-agent-runtime.yaml,
+            # deployment-worker-daemon.yaml) — identical secretName/key, mirror-exact. FAIL-CLOSED:
+            # absent -> `_build_dispatcher` raises -> dispatcher None -> `/webhook` 501 (never an
+            # un-audited escalation start, never a silently-stateless prod dispatch).
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.aurora.secretName }}
+                  key: database-url
             # Kafka producer target (predeploy DB-3) — same secret/key the other
             # Kafka-producing components use (deployment-agent-runtime.yaml,
             # deployment-worker-daemon.yaml, deployment-bridge*.yaml).
