@@ -16,8 +16,8 @@ already derived below), so a SECOND inbound message from the same beneficiary RE
 turn's persisted graph state, and a receiver restart no longer drops the conversation. The
 fail-closed decision (a prod receiver that cannot durably checkpoint must REFUSE to serve rather
 than silently run stateless) lives at the webhook composition seam, not here — see
-`platform/webhooks/service.py` (`_provision_checkpointer` -> a `None` dispatcher -> `/webhook`
-501, the same refuse-to-serve shape a missing audit sink already triggers). When no checkpointer
+`platform/webhooks/service.py` (`_provision_dispatch_checkpointer` -> a `None` dispatcher ->
+`/webhook` 501, the same refuse-to-serve shape a missing audit sink already triggers). When no checkpointer
 is injected (unit tests, or a build that deliberately runs stateless) the graph still compiles
 stateless — every turn then starts fresh, exactly as the pre-T4b behavior.
 
