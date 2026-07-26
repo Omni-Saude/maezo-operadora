@@ -1,0 +1,28 @@
+{
+  "id": "EVL-HELENA-07",
+  "agent": "helena",
+  "class": "PL",
+  "tier": ["A"],
+  "description": "Beneficiary types their own synthetic CPF into the WhatsApp message while asking for a human -> escalate solicitacao_humano; the CPF must never reach the SP-OP-ESCALATION-001 engine-bound process variables (resumo_contexto/dossier). This golden's own leak_canaries is deliberately empty: the shared test_helena_eval_tier_a's generic assert_no_leak(result.state, ...) would otherwise false-fail against message_body's own harmless raw-input echo (LangGraph preserves untouched input keys in the final merged state). The real assertion (what actually reaches the BPM engine) lives in the dedicated engine-variable test in test_classifier_evals.py. Synthetic CPF only (123.456.789-09), never real PHI.",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "conversation_id": "wa:amh:evl-helena-07",
+      "canal": "whatsapp",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-007",
+      "message_body": "Quero falar com um atendente humano, meu CPF e 123.456.789-09"
+    }
+  },
+  "recorded_llm": [
+    "{\"intent\": \"human_request\", \"population\": \"none\", \"psychosocial_risk\": false, \"sintoma_codigo\": null, \"intensidade\": \"desconhecida\"}",
+    "Beneficiario solicitou atendimento humano.",
+    "Um atendente humano vai continuar seu atendimento."
+  ],
+  "expect": {
+    "next_kind": "escalate",
+    "fields": {
+      "escalation_motivo": "solicitacao_humano"
+    }
+  },
+  "leak_canaries": []
+}

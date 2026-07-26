@@ -1,0 +1,45 @@
+{
+  "id": "EVL-MARINA-04",
+  "agent": "marina",
+  "class": "CE",
+  "tier": ["A"],
+  "description": "RECURSO-flagged input (flow=recurso) with RECORRIVEL eligibility and a non-medico-auditor reviewer group -> auto_route AND, critically, `start_process` must anchor SP-OP-RECURSO-001 (never SP-OP-CONTAS-001) -- proven by inspecting the recorded CibSeven process_key directly, not just the business_key string prefix.",
+  "input": {
+    "state": {
+      "flow": "recurso",
+      "tenant_id": "amh",
+      "canal": "portal_tiss",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-MARINA-04",
+      "prestador_id": "PREST-TESTE-001",
+      "numero_guia_tiss": "GUIA-EVL-MARINA-04",
+      "glosa_id": "GLOSA-EVL-MARINA-04",
+      "glosa_type": "administrativa",
+      "glosa_reason_code": "GC-03",
+      "valor_glosado_brl": 300.0,
+      "codigo_procedimento_tuss": "40304361",
+      "cid10": "Z00.0",
+      "documentos_recurso_refs": [],
+      "data_ciencia_glosa": "2026-05-01",
+      "data_recebimento_recurso_iso": "2026-05-10",
+      "glosa_existe": true,
+      "dentro_prazo_recurso": true,
+      "documentacao_recurso_completa": true
+    }
+  },
+  "recorded_llm": [
+    "Recurso administrativo elegivel para seguimento de analise; sem indicativo de merito clinico."
+  ],
+  "dmn_fixture": {
+    "recurso_admissibility": { "roteamento": "SEGUE_ANALISE" },
+    "recurso_sla": { "sla_analise": "7d", "sla_alerta": "3d" },
+    "recurso_eligibility": { "roteamento": "RECORRIVEL", "grupo_revisor": "analista-recurso-glosa" }
+  },
+  "expect": {
+    "fields": {
+      "route": "auto_route",
+      "desfecho": "recurso_segue_analise",
+      "elegibilidade_recurso": "RECORRIVEL"
+    }
+  },
+  "leak_canaries": []
+}

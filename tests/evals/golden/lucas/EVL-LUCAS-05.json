@@ -1,0 +1,36 @@
+{
+  "id": "EVL-LUCAS-05",
+  "agent": "lucas",
+  "class": "GC",
+  "tier": ["A"],
+  "description": "J2 confirmacao_pagamento with a non-conciliated payment (worker pre-resolved status_conciliado=false) -> billing DMN's ESCALAR_HUMANO routes to escalate_human inadimplencia_detectada. Proves Lucas's motivo_categoria is STRUCTURALLY never clinical (MotivoCategoria admits only outro/solicitacao_humano/falha_tecnica -- Lucas is billing/collection, never clinical, L0 hard). Ground-truth note: LucasState carries no raw free-text message field in this graph version, so the design's 'clinical-sounding message' framing is realized here as the structural non-clinical-motivo guarantee on an ordinary escalate_human path, not a literal clinical-text input. Synthetic data only.",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "conversation_id": "wa:amh:evl-lucas-05",
+      "canal": "whatsapp",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-025",
+      "to_hash": "hash-evl-lucas-05",
+      "intencao": "confirmacao_pagamento",
+      "tipo_solicitacao": "status_pagamento",
+      "status_conciliado": false,
+      "ciclos_sem_conciliacao": 2
+    }
+  },
+  "recorded_llm": [
+    "Resumo factual do caso de nao-conciliacao para avaliacao humana.",
+    "Um atendente humano vai continuar seu atendimento em breve."
+  ],
+  "dmn_fixture": {
+    "lucas_billing_admissibility": {"roteamento": "ESCALAR_HUMANO", "motivo": "atraso"},
+    "lucas_escalation_routing": {"roteamento": "COBRANCA_HUMANO"}
+  },
+  "expect": {
+    "fields": {
+      "route": "escalate_human",
+      "motivo_humano": "inadimplencia_detectada",
+      "motivo_categoria": "outro"
+    }
+  },
+  "leak_canaries": []
+}
