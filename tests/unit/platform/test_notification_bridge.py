@@ -2,6 +2,10 @@
 
 TDD London School: tests exercise handoff rules (evaluate) without
 Kafka or CIB Seven. The starter is injected as a spy.
+
+T2.6-7 adds two rules (NIP→ANS-SUBMIT, ans.cron_due→ANS-SUBMIT) — see the dedicated section
+near the bottom of this file for their evaluate()/evaluate_all()/business-key/fenced-starter
+coverage (docs/design/T2.6-ans-submission-rescope.md §1.5/§5 T2.6-7 row).
 """
 
 from typing import Any
@@ -9,10 +13,15 @@ from typing import Any
 import pytest
 
 from maezo.platform.notification_bridge import (
+    PROCESS_KEY_ANS_SUBMIT,
     HandoffEvent,
     HandoffResult,
     NotificationBridge,
+    NotificationBridgeMissingBusinessKeyError,
+    build_cibseven_process_starter,
 )
+from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
+from tests.support.audit_fakes import FakeStartAuditSink
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -47,12 +56,13 @@ def _make_bridge_with_spy() -> tuple[NotificationBridge, StarterSpy]:
 
 
 def test_bridge_initializes_with_default_handoffs() -> None:
-    """NotificationBridge registers the 5 default handoff rules on init."""
+    """NotificationBridge registers the 7 default handoff rules on init (5 pre-T2.6-7 + 2 T2.6-7)."""
     bridge = _make_bridge()
     handoffs = bridge.list_handoffs()
-    # 5 rules: contas.glosa_confirmed, contas.encaminhar_fraude,
-    # fraude.acusacao_registrada (x3: CRED, CANCEL, INADIMPLENCIA)
-    assert len(handoffs) == 5
+    # 7 rules: contas.glosa_confirmed, contas.encaminhar_fraude,
+    # fraude.acusacao_registrada (x3: CRED, CANCEL, INADIMPLENCIA),
+    # nip.handoff_ans_submit, ans.cron_due (T2.6-7).
+    assert len(handoffs) == 7
 
     targets = {h["target_process"] for h in handoffs}
     assert "SP-OP-RECURSO-001" in targets
@@ -60,6 +70,12 @@ def test_bridge_initializes_with_default_handoffs() -> None:
     assert "SP-OP-CRED-001" in targets
     assert "SP-OP-CANCEL-001" in targets
     assert "SP-OP-INADIMPLENCIA-001" in targets
+    assert PROCESS_KEY_ANS_SUBMIT in targets
+
+    ans_submit_event_types = {
+        h["event_type"] for h in handoffs if h["target_process"] == PROCESS_KEY_ANS_SUBMIT
+    }
+    assert ans_submit_event_types == {"nip.handoff_ans_submit", "ans.cron_due"}
 
 
 def test_bridge_register_custom_handoff() -> None:
@@ -71,7 +87,7 @@ def test_bridge_register_custom_handoff() -> None:
         target_process="SP-CUSTOM-001",
         variables_fn=lambda p: {"value": p.get("x", 0)},
     )
-    assert len(bridge.list_handoffs()) == 6
+    assert len(bridge.list_handoffs()) == 8
 
     result = bridge.evaluate(HandoffEvent(event_type="custom.test", payload={"go": True, "x": 42}))
     assert result.handoff_triggered is True
@@ -424,7 +440,7 @@ def test_list_handoffs_returns_all() -> None:
     bridge = _make_bridge()
     handoffs = bridge.list_handoffs()
     assert isinstance(handoffs, list)
-    assert len(handoffs) == 5
+    assert len(handoffs) == 7
     assert all("event_type" in h and "target_process" in h for h in handoffs)
 
 
@@ -458,11 +474,373 @@ def test_get_handoff_unknown_returns_empty() -> None:
 def test_count_handoffs() -> None:
     """count_handoffs returns the number of registered rules."""
     bridge = _make_bridge()
-    assert bridge.count_handoffs() == 5
+    assert bridge.count_handoffs() == 7
     bridge.register_handoff(
         event_type="extra.rule.here",
         predicate=lambda p: True,
         target_process="SP-EXTRA-001",
         variables_fn=lambda p: {},
     )
-    assert bridge.count_handoffs() == 6
+    assert bridge.count_handoffs() == 8
+
+
+# ---------------------------------------------------------------------------
+# T2.6-7 — NIP→ANS-SUBMIT
+# ---------------------------------------------------------------------------
+
+
+def test_nip_handoff_triggers_ans_submit() -> None:
+    """nip.handoff_ans_submit with origem_envio=nip_filing starts SP-OP-ANS-SUBMIT-001."""
+    bridge = _make_bridge()
+    event = HandoffEvent(
+        event_type="nip.handoff_ans_submit",
+        payload={
+            "tenant_id": "amh",
+            "numero_nip_ans": "000000042",
+            "protocolo_ans": "PROTO-TESTE-0001",
+            "decisao_nip": "CONCEDER",
+            "origem_envio": "nip_filing",
+        },
+    )
+    result = bridge.evaluate(event)
+    assert result.evaluated is True
+    assert result.handoff_triggered is True
+    assert result.target_process == PROCESS_KEY_ANS_SUBMIT
+    assert result.variables["origem_envio"] == "nip_filing"
+    assert result.variables["nip_protocolo_origem"] == "PROTO-TESTE-0001"
+    assert result.variables["tenant_id"] == "amh"
+    assert result.variables["numero_nip_ans"] == "000000042"
+    # Fail-closed admissibility facts (never auto-passed; human resolves in
+    # UT_Corrigir*/UT_RevisarEnvioJuridico).
+    assert result.variables["dataset_complete"] is False
+    assert result.variables["schema_valid"] is False
+    assert result.variables["lgpd_anonimizado"] is False
+    # Deterministic BK — contract "Variaveis de saida" protocolo_ans note.
+    assert result.variables["business_key"] == "ANSSUB-amh-nipfiling-000000042"
+
+
+def test_nip_handoff_business_key_is_deterministic_across_redelivery() -> None:
+    """Two identical redeliveries of the same NIP handoff derive the SAME business key
+    (idempotency — never a second SUBMIT instance for the same NIP case)."""
+    bridge = _make_bridge()
+    payload = {
+        "tenant_id": "amh",
+        "numero_nip_ans": "000000099",
+        "protocolo_ans": None,
+        "origem_envio": "nip_filing",
+    }
+    r1 = bridge.evaluate(HandoffEvent(event_type="nip.handoff_ans_submit", payload=dict(payload)))
+    r2 = bridge.evaluate(HandoffEvent(event_type="nip.handoff_ans_submit", payload=dict(payload)))
+    assert r1.variables["business_key"] == r2.variables["business_key"] == "ANSSUB-amh-nipfiling-000000099"
+    # protocolo_ans absent (None) is legitimate (GAP-NIP-6) — nip_protocolo_origem falls back to "".
+    assert r1.variables["nip_protocolo_origem"] == ""
+
+
+def test_nip_handoff_not_triggered_when_origem_envio_not_nip_filing() -> None:
+    """A NIP handoff event with a different/absent origem_envio never starts ANS-SUBMIT."""
+    bridge = _make_bridge()
+    event = HandoffEvent(
+        event_type="nip.handoff_ans_submit",
+        payload={"tenant_id": "amh", "numero_nip_ans": "000000042", "origem_envio": "retransmissao_manual"},
+    )
+    result = bridge.evaluate(event)
+    assert result.handoff_triggered is False
+
+
+def test_nip_handoff_fail_closed_when_numero_nip_ans_missing() -> None:
+    """Malformed trigger (no numero_nip_ans -> no business-key anchor) never starts a process —
+    fail-closed rather than deriving a garbage/collision-prone business key."""
+    bridge = _make_bridge()
+    event = HandoffEvent(
+        event_type="nip.handoff_ans_submit",
+        payload={"tenant_id": "amh", "origem_envio": "nip_filing"},
+    )
+    result = bridge.evaluate(event)
+    assert result.handoff_triggered is False
+    assert "No handoff rule matched" in result.reason
+
+
+def test_nip_handoff_fail_closed_when_numero_nip_ans_blank() -> None:
+    """Blank (whitespace-only) numero_nip_ans is treated as malformed — same fail-closed path."""
+    bridge = _make_bridge()
+    event = HandoffEvent(
+        event_type="nip.handoff_ans_submit",
+        payload={"tenant_id": "amh", "numero_nip_ans": "   ", "origem_envio": "nip_filing"},
+    )
+    result = bridge.evaluate(event)
+    assert result.handoff_triggered is False
+
+
+# ---------------------------------------------------------------------------
+# T2.6-7 — ans.cron_due→ANS-SUBMIT
+# ---------------------------------------------------------------------------
+
+
+def test_cron_due_triggers_ans_submit() -> None:
+    """ans.cron_due (SP-OP-ANS-CRON-001's per-report_type tick) starts SP-OP-ANS-SUBMIT-001."""
+    bridge = _make_bridge()
+    event = HandoffEvent(
+        event_type="ans.cron_due",
+        payload={
+            "type": "ans.cron_due",
+            "report_type": "DIOPS_TRIMESTRAL",
+            "periodicidade": "trimestral",
+            "origem_envio": "calendario",
+            "competencia": "COMPETENCIA_PENDENTE",
+            "ans_cron_reference_date_iso": "2026-07-24",
+        },
+    )
+    result = bridge.evaluate(event)
+    assert result.evaluated is True
+    assert result.handoff_triggered is True
+    assert result.target_process == PROCESS_KEY_ANS_SUBMIT
+    assert result.variables["report_type"] == "DIOPS_TRIMESTRAL"
+    assert result.variables["competencia"] == "COMPETENCIA_PENDENTE"
+    assert result.variables["periodicidade"] == "trimestral"
+    assert result.variables["origem_envio"] == "calendario"
+    assert result.variables["dataset_complete"] is False
+    assert result.variables["schema_valid"] is False
+    assert result.variables["lgpd_anonimizado"] is False
+    assert result.variables["business_key"] == "ANSSUB--DIOPS_TRIMESTRAL-COMPETENCIA_PENDENTE"
+
+
+def test_cron_due_business_key_deterministic_and_scoped_by_report_type() -> None:
+    """Same tenant/competencia sentinel but different report_type -> different business keys
+    (no cross-report_type collision on the shared COMPETENCIA_PENDENTE sentinel)."""
+    bridge = _make_bridge()
+    r1 = bridge.evaluate(
+        HandoffEvent(
+            event_type="ans.cron_due",
+            payload={"report_type": "RN_124_SIP", "competencia": "COMPETENCIA_PENDENTE", "tenant_id": "amh"},
+        )
+    )
+    r2 = bridge.evaluate(
+        HandoffEvent(
+            event_type="ans.cron_due",
+            payload={
+                "report_type": "DIOPS_TRIMESTRAL",
+                "competencia": "COMPETENCIA_PENDENTE",
+                "tenant_id": "amh",
+            },
+        )
+    )
+    assert r1.variables["business_key"] == "ANSSUB-amh-RN_124_SIP-COMPETENCIA_PENDENTE"
+    assert r2.variables["business_key"] == "ANSSUB-amh-DIOPS_TRIMESTRAL-COMPETENCIA_PENDENTE"
+    assert r1.variables["business_key"] != r2.variables["business_key"]
+
+    # Redelivery of the SAME fact reconverges on the SAME business key (idempotent re-tick).
+    r1_again = bridge.evaluate(
+        HandoffEvent(
+            event_type="ans.cron_due",
+            payload={"report_type": "RN_124_SIP", "competencia": "COMPETENCIA_PENDENTE", "tenant_id": "amh"},
+        )
+    )
+    assert r1_again.variables["business_key"] == r1.variables["business_key"]
+
+
+def test_cron_due_missing_competencia_falls_back_to_sentinel() -> None:
+    """A fact missing `competencia` entirely still resolves to the documented sentinel — never
+    a blank/undefined competência reaching the engine's business key."""
+    bridge = _make_bridge()
+    result = bridge.evaluate(
+        HandoffEvent(event_type="ans.cron_due", payload={"report_type": "RN_388_QUALIDADE"})
+    )
+    assert result.handoff_triggered is True
+    assert result.variables["competencia"] == "COMPETENCIA_PENDENTE"
+
+
+def test_cron_due_fail_closed_when_report_type_missing() -> None:
+    """Malformed trigger (no report_type) never starts a process — fail-closed."""
+    bridge = _make_bridge()
+    result = bridge.evaluate(
+        HandoffEvent(event_type="ans.cron_due", payload={"competencia": "COMPETENCIA_PENDENTE"})
+    )
+    assert result.handoff_triggered is False
+
+
+def test_cron_due_fail_closed_when_report_type_blank() -> None:
+    """Blank (whitespace-only) report_type is treated as malformed — same fail-closed path."""
+    bridge = _make_bridge()
+    result = bridge.evaluate(HandoffEvent(event_type="ans.cron_due", payload={"report_type": "  "}))
+    assert result.handoff_triggered is False
+
+
+def test_get_handoff_ans_submit_rules() -> None:
+    """get_handoff surfaces both new T2.6-7 rules independently by event_type."""
+    bridge = _make_bridge()
+    nip_rules = bridge.get_handoff("nip.handoff_ans_submit")
+    assert len(nip_rules) == 1
+    assert nip_rules[0][0] == PROCESS_KEY_ANS_SUBMIT
+
+    cron_rules = bridge.get_handoff("ans.cron_due")
+    assert len(cron_rules) == 1
+    assert cron_rules[0][0] == PROCESS_KEY_ANS_SUBMIT
+
+
+@pytest.mark.asyncio
+async def test_on_event_nip_handoff_executes_via_starter_spy() -> None:
+    """Full pipeline: nip.handoff_ans_submit -> evaluate -> execute via the injected starter."""
+    bridge, spy = _make_bridge_with_spy()
+    results = await bridge.on_event(
+        event_type="nip.handoff_ans_submit",
+        payload={
+            "tenant_id": "amh",
+            "numero_nip_ans": "000000042",
+            "protocolo_ans": "PROTO-TESTE-0001",
+            "origem_envio": "nip_filing",
+        },
+    )
+    assert len(results) == 1
+    assert results[0].handoff_triggered is True
+    assert results[0].target_process == PROCESS_KEY_ANS_SUBMIT
+    assert spy.calls[0][0] == PROCESS_KEY_ANS_SUBMIT
+    assert spy.calls[0][1]["business_key"] == "ANSSUB-amh-nipfiling-000000042"
+
+
+@pytest.mark.asyncio
+async def test_on_event_cron_due_executes_via_starter_spy() -> None:
+    """Full pipeline: ans.cron_due -> evaluate -> execute via the injected starter."""
+    bridge, spy = _make_bridge_with_spy()
+    results = await bridge.on_event(
+        event_type="ans.cron_due",
+        payload={
+            "report_type": "DIOPS_TRIMESTRAL",
+            "competencia": "COMPETENCIA_PENDENTE",
+            "tenant_id": "amh",
+        },
+    )
+    assert len(results) == 1
+    assert results[0].handoff_triggered is True
+    assert results[0].target_process == PROCESS_KEY_ANS_SUBMIT
+    assert spy.calls[0][1]["business_key"] == "ANSSUB-amh-DIOPS_TRIMESTRAL-COMPETENCIA_PENDENTE"
+
+
+# ---------------------------------------------------------------------------
+# T2.6-7 — build_cibseven_process_starter (the fenced-start chokepoint proof)
+# ---------------------------------------------------------------------------
+
+
+class _RecordingCibSevenTransport(FakeCibSevenTransport):
+    """Records every start_process_instance call (the audit surface under proof)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.start_calls: list[tuple[str, str, dict[str, Any]]] = []
+
+    async def start_process_instance(
+        self, process_key: str, business_key: str, variables: dict[str, Any]
+    ) -> Any:
+        self.start_calls.append((process_key, business_key, dict(variables)))
+        return await super().start_process_instance(process_key, business_key, variables)
+
+
+@pytest.mark.asyncio
+async def test_fenced_starter_goes_through_start_process_idempotent_with_sink_and_provenance() -> None:
+    """`build_cibseven_process_starter` funnels the start through `start_process_idempotent`:
+    a durable audit record is emitted BEFORE the engine start, and the engine sees the exact
+    business_key/process_key/variables the matched rule derived."""
+    transport = _RecordingCibSevenTransport()
+    audit_sink = FakeStartAuditSink()
+    starter = build_cibseven_process_starter(transport, audit_sink)
+
+    bridge = NotificationBridge(cibseven_starter=starter)
+    results = await bridge.on_event(
+        event_type="nip.handoff_ans_submit",
+        payload={
+            "tenant_id": "amh",
+            "numero_nip_ans": "000000042",
+            "protocolo_ans": "PROTO-TESTE-0001",
+            "origem_envio": "nip_filing",
+        },
+    )
+
+    assert len(results) == 1
+    result = results[0]
+    assert result.handoff_triggered is True
+    assert "CIB Seven start failed" not in result.reason  # no exception swallowed
+    assert result.process_instance_id  # a real (fake) instance id was returned
+
+    # The durable ADR-0007 audit record was emitted (BEFORE the effect — chokepoint's own
+    # ordering guarantee; we only assert exactly-once here since the ordering itself is the
+    # chokepoint's own tested invariant, not this bridge's).
+    assert len(audit_sink.calls) == 1
+    record, dedup_key = audit_sink.calls[0]
+    assert record.agent_id == "notification_bridge"
+    assert record.action == f"start_process:{PROCESS_KEY_ANS_SUBMIT}"
+    assert "amh" in dedup_key
+    assert PROCESS_KEY_ANS_SUBMIT in dedup_key
+    assert "ANSSUB-amh-nipfiling-000000042" in dedup_key
+
+    # The engine saw the correct process_key/business_key/variables — never a raw/bypassed start.
+    assert len(transport.start_calls) == 1
+    started_process_key, started_bk, started_vars = transport.start_calls[0]
+    assert started_process_key == PROCESS_KEY_ANS_SUBMIT
+    assert started_bk == "ANSSUB-amh-nipfiling-000000042"
+    assert started_vars["origem_envio"] == "nip_filing"
+
+
+@pytest.mark.asyncio
+async def test_fenced_starter_idempotent_hit_never_double_starts() -> None:
+    """A second on_event for the SAME business key (re-tick/redelivery) returns the existing
+    instance — never a second engine start (the chokepoint's `find_active_instance` guard)."""
+    transport = _RecordingCibSevenTransport()
+    audit_sink = FakeStartAuditSink()
+    starter = build_cibseven_process_starter(transport, audit_sink)
+    bridge = NotificationBridge(cibseven_starter=starter)
+
+    payload = {
+        "report_type": "DIOPS_TRIMESTRAL",
+        "competencia": "COMPETENCIA_PENDENTE",
+        "tenant_id": "amh",
+    }
+    first = await bridge.on_event(event_type="ans.cron_due", payload=dict(payload))
+    second = await bridge.on_event(event_type="ans.cron_due", payload=dict(payload))
+
+    assert first[0].handoff_triggered is True
+    assert second[0].handoff_triggered is True
+    # Only ONE engine start — the second call is an idempotent hit
+    # (`find_active_instance` short-circuits `start_process_instance`).
+    assert len(transport.start_calls) == 1
+    assert first[0].process_instance_id == second[0].process_instance_id
+    # The fake audit sink records both calls (a real durable sink additionally dedupes via
+    # `emit_once`'s own exactly-once contract — not re-proven here, that's the chokepoint's own
+    # test suite); what THIS test proves is that the engine effect itself never repeats.
+    assert len(audit_sink.calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_fenced_starter_fails_closed_on_missing_business_key() -> None:
+    """A rule that (hypothetically) omits business_key from its variables never reaches the
+    engine — the starter raises before any transport/audit call, never a garbage-key start."""
+    transport = _RecordingCibSevenTransport()
+    audit_sink = FakeStartAuditSink()
+    starter = build_cibseven_process_starter(transport, audit_sink)
+
+    bridge = NotificationBridge(cibseven_starter=starter)
+    bridge.register_handoff(
+        event_type="broken.rule",
+        predicate=lambda p: True,
+        target_process="SP-OP-ANS-SUBMIT-001",
+        variables_fn=lambda p: {"tenant_id": "amh"},  # no business_key — malformed rule
+    )
+    results = await bridge.on_event(event_type="broken.rule", payload={})
+
+    assert len(results) == 1
+    assert results[0].handoff_triggered is True  # matched & attempted
+    assert results[0].process_instance_id == ""  # but never actually started
+    assert "missing/blank business_key" in results[0].reason
+    assert len(transport.start_calls) == 0
+    assert len(audit_sink.calls) == 0
+
+
+@pytest.mark.asyncio
+async def test_fenced_starter_raises_directly_when_called_standalone() -> None:
+    """The starter callable itself (bypassing execute_handoff's broad except) raises
+    NotificationBridgeMissingBusinessKeyError — proves the fail-closed guard is in the starter,
+    not merely papered over by the bridge's own error handling."""
+    transport = _RecordingCibSevenTransport()
+    audit_sink = FakeStartAuditSink()
+    starter = build_cibseven_process_starter(transport, audit_sink)
+
+    with pytest.raises(NotificationBridgeMissingBusinessKeyError):
+        await starter("SP-OP-ANS-SUBMIT-001", {"tenant_id": "amh"})

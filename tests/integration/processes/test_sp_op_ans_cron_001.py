@@ -91,15 +91,23 @@ see the PR body / evidence-ledger for the full write-up.
   unreachable_from_bpmn` below proves the registration/topic mismatch directly and precisely
   (concrete, always-green evidence, not just prose).
 
-  FINDING #2 (Step-3 fact #3, confirmed by reading `notification_bridge.py` directly): v2's
-  `NotificationBridge._register_default_handoffs` registers EXACTLY 5 rules — CONTAS->RECURSO,
-  CONTAS->FRAUDE, FRAUDE->CRED, FRAUDE->CANCEL, FRAUDE->INADIMPLENCIA — NONE keyed on
-  `event_type="ans.cron_due"` and none targeting `SP-OP-ANS-SUBMIT-001`
-  (`NotificationBridge().get_handoff("ans.cron_due") == []`, asserted statically below). Combined
-  with FINDING #1 (the fact's `ans.cron_due` payload never carries a computed competencia either),
-  this means the `ans.cron_due` fact -> SP-OP-ANS-SUBMIT-001 auto-start choreography the donor's
-  `plan_start` implemented does NOT exist live in v2 today, from EITHER direction (no bridge rule,
-  no competencia to key a business key on even if there were one).
+  FINDING #2 (Step-3 fact #3, originally confirmed by reading `notification_bridge.py` directly;
+  UPDATED by T2.6-7, `docs/design/T2.6-ans-submission-rescope.md` §1.5/§5): v2's
+  `NotificationBridge._register_default_handoffs` used to register EXACTLY 5 rules — CONTAS->
+  RECURSO, CONTAS->FRAUDE, FRAUDE->CRED, FRAUDE->CANCEL, FRAUDE->INADIMPLENCIA — NONE keyed on
+  `event_type="ans.cron_due"` and none targeting `SP-OP-ANS-SUBMIT-001`. T2.6-7 added a 6th/7th
+  rule pair (NIP->ANS-SUBMIT + `ans.cron_due`->ANS-SUBMIT, `count_handoffs() == 7`) — the RULE
+  (predicate + deterministic business-key derivation + variable mapping) now exists and is
+  exercised directly in `tests/unit/platform/test_notification_bridge.py`. What remains ABSENT
+  (this file's own scope, unchanged by T2.6-7) is a LIVE CONSUMER that reads
+  `operadora.notifications.internal` and calls `NotificationBridge.on_event(...)` — nothing in
+  `cron_probe`/`register_ans_cron_workers`/`register_events_workers` wires the drained fact to
+  the bridge, so the seam test below (`test_cron_dispara_fato_e_nao_inicia_submit_automaticamente`)
+  still correctly proves NO SUBMIT instance is auto-started against the real engine — now because
+  no consumer invokes the (existing) rule, not because the rule itself is missing. See
+  `test_notification_bridge_ans_cron_rule_now_wired` below (replaces the old "has no rule" static
+  proof) and the xfail-strict end-to-end coverage T2.6-7 adds for the still-missing live-consumer
+  leg.
 
   ans_calendar DMN taxonomy mismatch (Step-3 fact #4, PRIOR ART — NOT re-ported here): already
   guarded by `tests/integration/dmn/test_dmn_golden_parity.py::test_ans_calendar_domain_mismatch_
@@ -302,19 +310,35 @@ def test_ans_cron_registered_topics_unreachable_from_bpmn() -> None:
     assert not overlap, _ANS_CRON_TOPIC_BINDING_GAP_REASON
 
 
-def test_notification_bridge_has_no_ans_cron_due_rule() -> None:
-    """FINDING #2 (Step-3 fact #3): NotificationBridge nao tem NENHUMA regra para
-    event_type=ans.cron_due (nem para SP-OP-ANS-SUBMIT-001 como target_process)."""
+def test_notification_bridge_ans_cron_rule_now_wired() -> None:
+    """FINDING #2 UPDATED (T2.6-7, `docs/design/T2.6-ans-submission-rescope.md` §1.5/§5):
+    NotificationBridge NOW has exactly one rule for `event_type=ans.cron_due`, targeting
+    SP-OP-ANS-SUBMIT-001 — replaces the pre-T2.6-7 "has no rule" static proof.
+
+    This test intentionally does NOT prove the seam is live end-to-end: no running consumer in
+    this codebase reads `operadora.notifications.internal` and calls
+    `NotificationBridge.on_event(...)` — that is why
+    `test_cron_dispara_fato_e_nao_inicia_submit_automaticamente` above (against the real engine)
+    still correctly observes zero auto-started SP-OP-ANS-SUBMIT-001 instances. The rule's own
+    predicate/business-key/variable-mapping logic is unit-tested against manually constructed
+    events in `tests/unit/platform/test_notification_bridge.py` (no engine needed there either).
+    """
     bridge = NotificationBridge()
-    assert bridge.get_handoff("ans.cron_due") == [], (
-        "NotificationBridge NAO deve ter regra para ans.cron_due hoje (FINDING #2) — se este "
-        "assert falhar, a ponte ans.cron_due -> SP-OP-ANS-SUBMIT-001 foi implementada e os testes "
-        "de seam acima devem ser revisados (seriam candidatos a testar o auto-start de verdade)."
+    rules = bridge.get_handoff("ans.cron_due")
+    assert len(rules) == 1, (
+        f"NotificationBridge deveria ter EXATAMENTE 1 regra para ans.cron_due pos-T2.6-7; encontrado: {rules}"
     )
+    target_process, predicate = rules[0]
+    assert target_process == _PROCESS_KEY_ANS_SUBMIT
+    assert callable(predicate)
+    # Fail-closed: um fato sem report_type nao deveria disparar (nenhuma business key sensata).
+    assert predicate({"report_type": "DIOPS_TRIMESTRAL"}) is True
+    assert predicate({}) is False
+
     targets = {h["target_process"] for h in bridge.list_handoffs()}
-    assert _PROCESS_KEY_ANS_SUBMIT not in targets, (
-        f"NotificationBridge NAO deve ter nenhuma regra visando {_PROCESS_KEY_ANS_SUBMIT} hoje"
-    )
+    assert _PROCESS_KEY_ANS_SUBMIT in targets
+    # Regressao: as 5 regras pre-T2.6-7 continuam intactas + as 2 novas (NIP + cron) = 7.
+    assert bridge.count_handoffs() == 7
 
 
 # ===========================================================================
@@ -339,10 +363,14 @@ async def test_cron_dispara_fato_e_nao_inicia_submit_automaticamente(
     """Executar o TimerStartEvent de um cron per-tipo faz o WORKER REAL (generic events.publish)
     emitir o fato tipado `ans.cron_due` com os valores LITERAIS que o BPMN embute como
     `inputParameter` (FINDING #1c) — mas NENHUMA instancia de SP-OP-ANS-SUBMIT-001 nasce disso
-    automaticamente (FINDING #2): nao existe hoje nem uma regra de bridge para este fato, nem um
-    `plan_start`-equivalente que computaria a business key/competencia real (ver PORT NOTES no
-    docstring do modulo — a asserction de "instancia efetivamente iniciada" do donor foi
-    substituida por esta prova estatica de ausencia, honestamente refletindo v2).
+    automaticamente (FINDING #2, UPDATED por T2.6-7): a `NotificationBridge` GANHOU uma regra para
+    este fato (`ans.cron_due` -> SP-OP-ANS-SUBMIT-001, `notification_bridge.py`), mas nenhum
+    consumidor rodando le `operadora.notifications.internal` e chama `bridge.on_event(...)` — este
+    `cron_probe` drena so `operadora.events.publish` (o publicador generico), nunca invoca a ponte.
+    A conclusao do donor ("nenhuma instancia nasce") permanece verdadeira, agora por essa razao
+    mais estreita (consumidor ausente, nao mais regra ausente) — ver PORT NOTES no docstring do
+    modulo (a asserction de "instancia efetivamente iniciada" do donor foi substituida por esta
+    prova estatica de ausencia, honestamente refletindo v2).
 
     Tecnica de job-execution do test-spec (NUNCA sleep): o timeCycle (R/P1M / R/P3M) agenda o
     primeiro tick adiante; localizamos o job-start pendente e o executamos na marra
