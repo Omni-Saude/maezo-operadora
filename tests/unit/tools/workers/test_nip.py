@@ -193,6 +193,32 @@ def test_handoff_ans_submit_with_protocolo() -> None:
     assert result["protocolo_ans"] == "ANSPROTO-123"
 
 
+def test_handoff_ans_submit_defaults_tenant_id_to_blank() -> None:
+    """T2.6-EB3 part 3: tenant_id defaults to "" fail-closed when the caller supplies none —
+    never fabricated."""
+    result = handoff_ans_submit(numero_nip_ans="NIP-010", protocolo_ans=None)
+    assert result["tenant_id"] == ""
+
+
+def test_handoff_ans_submit_carries_real_tenant_id() -> None:
+    """T2.6-EB3 part 3 — SOURCE fix: the return dict now carries tenant_id (previously always
+    absent, breaking the notification_bridge's downstream ANSSUB business-key/routing)."""
+    result = handoff_ans_submit(
+        numero_nip_ans="NIP-011",
+        protocolo_ans=None,
+        tenant_id="amh",
+    )
+    assert result["tenant_id"] == "amh"
+
+
+def test_handoff_ans_submit_entry_forwards_tenant_id_from_process_variables() -> None:
+    """T2.6-EB3 part 3: handoff_ans_submit_entry reads tenant_id off the process instance's own
+    variables — the SAME place notify_deadline_risk_entry already reads it from."""
+    result = handoff_ans_submit_entry({"numero_nip_ans": "NIP-012", "tenant_id": "amh"})
+    assert result["tenant_id"] == "amh"
+    assert result == handoff_ans_submit("NIP-012", None, "", "", "amh")
+
+
 # ---------------------------------------------------------------------------
 # publish_completed
 # ---------------------------------------------------------------------------

@@ -294,6 +294,25 @@ class FunctionWorker(WorkerBase):
             raise
 
 
+def non_blank(value: Any) -> bool:
+    """True iff `value` is a present, non-blank business-key anchor field (fail-closed).
+
+    Single source of truth for anchor-field validation, shared by the NotificationBridge rule
+    predicates (`platform/notification_bridge.py`) and the fenced-start handoff workers
+    (`contas.start_recurso`, `fraude.start_credenciamento`/`start_contratual`) — EB-4 R1 finding:
+    the workers' plain `bool(str(variables.get(k, "")))` truthiness let WHITESPACE-ONLY and
+    EXPLICIT-`None` anchors slip through (`str(None) == "None"` is truthy; `"   "` is truthy),
+    producing degenerate business keys like `CRED-{tenant}-None` / `RECURSO-{t}-G-   ` instead of
+    the intended refusal.
+
+    Fail-closed semantics: `None`, absent, empty, and whitespace-only are all rejected the same
+    way; any other value round-trips through `str(...).strip()` and passes iff non-empty.
+    """
+    if value is None:
+        return False
+    return bool(str(value).strip())
+
+
 def pick_fields(variables: dict[str, Any], cls: type) -> dict[str, Any]:
     """Explicit field selection: keep only the keys `cls` (a dataclass) actually declares.
 

@@ -171,6 +171,8 @@ import httpx
 import pytest
 import pytest_asyncio
 
+from maezo.gateway.audit_postgres import FreshSinkAuditEmitter
+from maezo.tools.workers.cibseven_engine import FreshClientCibSevenTransport
 from maezo.tools.workers.contas import (
     GlosaAcceptNotHumanError,
     register_contas_workers,
@@ -412,7 +414,7 @@ async def deploy_artifacts(engine: EngineRest) -> str:
 
 @pytest_asyncio.fixture
 async def contas_probe(
-    engine: EngineRest, audit_sink: Any, audit_tenant: str
+    engine: EngineRest, audit_sink: Any, audit_tenant: str, audit_pg: tuple[str, str]
 ) -> AsyncIterator[ContasEngineProbe]:
     """Probe que serve as external tasks com os workers reais de contas."""
     worker_id = f"qa-contas-worker-{uuid.uuid4().hex[:8]}"
@@ -431,7 +433,13 @@ async def contas_probe(
     )
     kafka = FakeKafkaPublisher()
     dmn = CibSevenDmnTransport(CIBSEVEN_BASE_URL, timeout=30.0)
-    register_contas_workers(harness, kafka, dmn=dmn)
+    # EB-4: start_recurso now runs the fenced `start_process_idempotent` chokepoint against
+    # SP-OP-RECURSO-001, so it REQUIRES the engine seam (`engine=`) + a loop-agnostic durable audit
+    # sink (`audit_sink=`, FreshSinkAuditEmitter — the sync worker emits on its own asyncio.run loop,
+    # NOT the harness's pooled sink). Same split the live worker-daemon + the inadimplencia probe use.
+    engine_seam = FreshClientCibSevenTransport(CIBSEVEN_BASE_URL)
+    handoff_audit_sink = FreshSinkAuditEmitter(audit_pg[0], audit_tenant)
+    register_contas_workers(harness, kafka, dmn=dmn, engine=engine_seam, audit_sink=handoff_audit_sink)
     # T3.1 R2: o worker generico operadora.events.publish que todo ST_Publish* deste BPMN usa.
     register_events_workers(harness, kafka)
     # DRIFT GUARD (mirrors cancel's — verbatim style): todo topico contas.* registrado no harness
@@ -709,6 +717,17 @@ async def test_happy_path_recorrer_handoff_recurso(
     immediately followed by `ST_PublishEncaminhadaRecurso` (bpmn:272-283), whose
     `event_payload_vars` (bpmn:278) carry `glosa_id` — folded into the existing `has_event` call.
     """
+    # EB-4: start_recurso runs the fenced start_process_idempotent chokepoint against
+    # SP-OP-RECURSO-001, so its BPMN + DMNs MUST be deployed for the handoff to reach
+    # End_EncaminhadaRecurso (mirrors the inadimplencia->CANCEL handoff test's own downstream deploy;
+    # do NOT rely on cross-test engine leakage).
+    await engine.deploy(
+        _REPO / "spec/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn",
+        _REPO / "spec/processes/dmn/recurso_admissibility.dmn",
+        _REPO / "spec/processes/dmn/recurso_eligibility.dmn",
+        _REPO / "spec/processes/dmn/recurso_sla.dmn",
+        name="SP-OP-RECURSO-001-qa-contas-handoff",
+    )
     inst = await start_contas(categoria_normalizada="valor", has_glosas=True)
     iid = inst["id"]
 

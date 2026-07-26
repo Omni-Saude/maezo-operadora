@@ -3,7 +3,10 @@
 TDD London School: tests verify scheduler dispatch and calendar checks.
 """
 
-from maezo.tools.workers.ans_cron import check_calendar, trigger_submissions
+from typing import Any
+
+from maezo.tools.workers.ans_cron import check_calendar, register_ans_cron_workers, trigger_submissions
+from maezo.tools.workers.harness import FakeWorkerTransport, WorkerHarness
 
 # ---------------------------------------------------------------
 # trigger_submissions
@@ -39,6 +42,45 @@ def test_ans_cron_trigger_different_reports() -> None:
 def test_ans_cron_trigger_unknown_report() -> None:
     result = trigger_submissions({"report_type": "UNKNOWN_REPORT"})
     assert result["periodicidade"] == "P1M"  # default
+
+
+def test_ans_cron_trigger_submission_defaults_tenant_id_to_blank() -> None:
+    """T2.6-EB3 part 3: tenant_id defaults to "" fail-closed for any caller that predates the
+    new keyword-only parameter — no behavior change for existing positional-only callers."""
+    result = trigger_submissions({"report_type": "DIOPS"})
+    assert result["tenant_id"] == ""
+
+
+def test_ans_cron_trigger_submission_carries_tenant_id_when_passed() -> None:
+    """T2.6-EB3 part 3 — worker-signature fix: trigger_submissions now accepts and echoes a
+    tenant_id (source: the deployment's own identity, threaded via register_ans_cron_workers)."""
+    result = trigger_submissions({"report_type": "DIOPS"}, tenant_id="amh")
+    assert result["tenant_id"] == "amh"
+
+
+def test_register_ans_cron_workers_threads_tenant_id_seam() -> None:
+    """T2.6-EB3 part 3: register_ans_cron_workers(harness, tenant_id=...) binds it into
+    trigger_submissions via functools.partial — proven end-to-end through the registry, not just
+    by calling trigger_submissions directly."""
+    harness = WorkerHarness(FakeWorkerTransport(), worker_id="ans-cron-tenant-probe")
+    register_ans_cron_workers(harness, tenant_id="amh")
+
+    worker = harness.registry.get("operadora.ans_cron.trigger_submissions")
+    assert worker is not None
+    result: dict[str, Any] = worker.run({"report_type": "DIOPS"})
+    assert result["tenant_id"] == "amh"
+
+
+def test_register_ans_cron_workers_defaults_tenant_id_to_blank_when_not_passed() -> None:
+    """No seam passed -> "" fail-closed, never fabricated (unchanged behavior for any existing
+    caller of register_ans_cron_workers that doesn't know about this seam yet)."""
+    harness = WorkerHarness(FakeWorkerTransport(), worker_id="ans-cron-tenant-probe-2")
+    register_ans_cron_workers(harness)
+
+    worker = harness.registry.get("operadora.ans_cron.trigger_submissions")
+    assert worker is not None
+    result: dict[str, Any] = worker.run({"report_type": "DIOPS"})
+    assert result["tenant_id"] == ""
 
 
 # ---------------------------------------------------------------

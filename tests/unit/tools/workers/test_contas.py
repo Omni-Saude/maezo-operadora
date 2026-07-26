@@ -3,10 +3,15 @@
 TDD London School: tests exercise the external task contracts.
 """
 
+import asyncio
+
 import pytest
 
+from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport, ProcessInstance, start_dedup_key
 from maezo.tools.workers.contas import (
+    RECURSO_PROCESS_KEY,
     ContasLoteInvalidoError,
+    ContasRecursoSemGlosaError,
     GlosaAcceptInput,
     GlosaAcceptNotHumanError,
     GlosaInput,
@@ -25,6 +30,8 @@ from maezo.tools.workers.contas import (
     start_recurso,
 )
 from maezo.tools.workers.dmn_transport import DmnEvaluationError, FakeDmnTransport
+from maezo.tools.workers.harness import AUDIT_AGENT_ID
+from tests.support.audit_fakes import FakeStartAuditSink
 
 
 def _glosa_reason_normalization_fake(*, categoria_normalizada: str, descricao: str = "") -> FakeDmnTransport:
@@ -368,17 +375,121 @@ def test_notify_sla_risk() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_start_recurso_handoff() -> None:
-    """start_recurso creates handoff payload to SP-OP-RECURSO-001."""
-    result = start_recurso(
-        glosa_id="GLOSA-001",
-        numero_guia_tiss="GUIDE-001",
-        glosa_type="administrativa",
-        documentacao_anexa=True,
-    )
-    assert result["handoff"] == "SP-OP-RECURSO-001"
+def _recurso_vars(**over: object) -> dict[str, object]:
+    base: dict[str, object] = {
+        "tenant_id": "amh",
+        "glosa_id": "GLOSA-001",
+        "numero_guia_tiss": "GUIDE-001",
+        "glosa_type": "administrativa",
+        "documentacao_anexa": True,
+        "numero_lote_tiss": "LOTE-9",
+    }
+    base.update(over)
+    return base
+
+
+def test_start_recurso_starts_recurso_with_exact_business_key_and_payload() -> None:
+    """start_recurso now REALLY starts SP-OP-RECURSO-001 through the fenced chokepoint (was a
+    stub). Asserts the exact business key, the started instance, the carried payload, and the
+    exactly-once ADR-0007 start record (NOT just no-exception)."""
+    engine = FakeCibSevenTransport()
+    sink = FakeStartAuditSink()
+    result = start_recurso(_recurso_vars(secreta_phi="SHOULD-NOT-LEAK"), engine=engine, audit_sink=sink)
+    assert result["handoff"] == RECURSO_PROCESS_KEY
+    assert result["handoff_executado"] is True
     assert result["glosa_existe"] is True
-    assert result["glosa_id"] == "GLOSA-001"
+    assert result["recurso_business_key"] == "RECURSO-amh-GUIDE-001-GLOSA-001"
+    assert result["recurso_already_existed"] is False
+
+    started = asyncio.run(engine.find_active_instance("RECURSO-amh-GUIDE-001-GLOSA-001"))
+    assert started is not None and started.process_key == RECURSO_PROCESS_KEY
+    payload = asyncio.run(engine.get_process_status("RECURSO-amh-GUIDE-001-GLOSA-001")).variables
+    assert payload["glosa_id"] == "GLOSA-001"
+    assert payload["numero_guia_tiss"] == "GUIDE-001"
+    assert payload["glosa_existe"] is True
+    assert "secreta_phi" not in payload  # explicit allowlist, never a passthrough
+
+    assert sink.dedup_keys == [start_dedup_key("amh", RECURSO_PROCESS_KEY, "RECURSO-amh-GUIDE-001-GLOSA-001")]
+    [record] = sink.records
+    assert record.agent_id == AUDIT_AGENT_ID
+    assert record.tenant_id == "amh"
+    assert record.action == f"start_process:{RECURSO_PROCESS_KEY}"
+    assert record.model_id is None and record.prompt_version is None
+    assert record.details["decisao_contas"] == "RECORRER"
+    assert "input_sha256" in record.details
+    assert "glosa_id" not in record.details  # identifiers hash-bound only, never in the clear
+
+
+def test_start_recurso_idempotent_returns_existing_active_instance() -> None:
+    """A RECURSO-001 already active for this glosa is returned unchanged — never a second start."""
+    engine = FakeCibSevenTransport()
+    sink = FakeStartAuditSink()
+    engine.seed_instance(
+        ProcessInstance(
+            instance_id="pre-existing-recurso",
+            process_key=RECURSO_PROCESS_KEY,
+            business_key="RECURSO-amh-GUIDE-001-GLOSA-001",
+            state="ACTIVE",
+            already_existed=True,
+        )
+    )
+    result = start_recurso(_recurso_vars(), engine=engine, audit_sink=sink)
+    assert result["recurso_already_existed"] is True
+    assert result["recurso_instance_id"] == "pre-existing-recurso"
+
+
+def test_start_recurso_fail_closed_when_engine_seam_not_wired() -> None:
+    with pytest.raises(RuntimeError, match="engine seam"):
+        start_recurso(_recurso_vars(), audit_sink=FakeStartAuditSink())
+
+
+def test_start_recurso_fail_closed_when_audit_sink_not_wired() -> None:
+    with pytest.raises(RuntimeError, match="audit sink"):
+        start_recurso(_recurso_vars(), engine=FakeCibSevenTransport())
+
+
+def test_start_recurso_refuses_without_glosa_identity() -> None:
+    """No glosa_id/numero_guia_tiss -> deterministic refusal, never a start under an empty key."""
+    engine = FakeCibSevenTransport()
+    sink = FakeStartAuditSink()
+    with pytest.raises(ContasRecursoSemGlosaError):
+        start_recurso(_recurso_vars(glosa_id="", numero_guia_tiss=""), engine=engine, audit_sink=sink)
+    assert sink.dedup_keys == []  # emit-before-effect: no audit, no start
+
+
+@pytest.mark.parametrize(
+    "over",
+    [
+        {"glosa_id": "   "},  # whitespace-only anchor
+        {"numero_guia_tiss": "\t "},  # whitespace-only anchor
+        {"glosa_id": None},  # explicit None (str(None)=="None" is truthy — must NOT slip through)
+        {"numero_guia_tiss": None},
+        {"tenant_id": ""},  # blank tenant -> RECURSO--GUIA-…-GLOSA-… degenerate key forbidden
+        {"tenant_id": "   "},
+        {"tenant_id": None},
+    ],
+    ids=[
+        "glosa-ws",
+        "guia-ws",
+        "glosa-none",
+        "guia-none",
+        "tenant-empty",
+        "tenant-ws",
+        "tenant-none",
+    ],
+)
+def test_start_recurso_refuses_degenerate_anchors_before_any_engine_call(
+    over: dict[str, object],
+) -> None:
+    """EB-4 R1 finding: whitespace-only / explicit-None anchors and a blank/None tenant_id all
+    refuse (`_non_blank` semantics, shared with the bridge) BEFORE any engine call — no start
+    attempted, no audit emitted, never a degenerate business key like `RECURSO--G-None`."""
+    engine = FakeCibSevenTransport()
+    sink = FakeStartAuditSink()
+    with pytest.raises(ContasRecursoSemGlosaError):
+        start_recurso(_recurso_vars(**over), engine=engine, audit_sink=sink)
+    assert sink.dedup_keys == []  # emit-before-effect: refusal precedes ANY audit/engine call
+    assert sink.records == []
 
 
 # ---------------------------------------------------------------------------

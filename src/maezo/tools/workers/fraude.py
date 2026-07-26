@@ -15,6 +15,7 @@ spec/processes/bpmn/SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn).
 
 from __future__ import annotations
 
+import asyncio
 import functools
 import math
 from typing import TYPE_CHECKING, Any
@@ -22,10 +23,13 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from maezo.gateway.custody import CustodyBundle
-from maezo.tools.workers.base import FunctionWorker
+from maezo.tools.mcp_cibseven.transport import AgentDecisionProvenance, start_process_idempotent
+from maezo.tools.workers.base import FunctionWorker, non_blank
 from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row, require_dmn
+from maezo.tools.workers.harness import AUDIT_AGENT_ID, _resolve_app_version
 
 if TYPE_CHECKING:
+    from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
     from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
 
 logger = structlog.get_logger(__name__)
@@ -38,11 +42,18 @@ ERR_FRAUD_ACCUSATION_NOT_HUMAN = "ERR_FRAUD_ACCUSATION_NOT_HUMAN"
 ERR_CUSTODY_NOT_SEALED = "ERR_CUSTODY_NOT_SEALED"
 ERR_PHI_IN_CUSTODY = "ERR_PHI_IN_CUSTODY"
 ERR_FRAUDE_CASO_INVALIDO = "ERR_FRAUDE_CASO_INVALIDO"
+ERR_FRAUDE_HANDOFF_SEM_ALVO = "ERR_FRAUDE_HANDOFF_SEM_ALVO"
 
 # Decision values
 DECISAO_ACUSAR_FRAUDE = "ACUSAR_FRAUDE"
 DECISAO_ARQUIVAR = "ARQUIVAR"
 DECISAO_MONITORAR = "MONITORAR"
+
+# Downstream handoff process keys (only reached DOWNSTREAM of a human accusation + sealed bundle;
+# each target owns its OWN human-gated adverse User Task — FRAUDE never auto-descredencia/rescinde).
+CRED_PROCESS_KEY = "SP-OP-CRED-001"
+CANCEL_PROCESS_KEY = "SP-OP-CANCEL-001"
+INADIMPLENCIA_PROCESS_KEY = "SP-OP-INADIMPLENCIA-001"
 
 # PHI markers that must NEVER appear in evidence references
 _PHI_MARKERS = frozenset({"cpf", "nome", "nome_social", "endereco", "telefone", "email"})
@@ -679,19 +690,127 @@ def refer_to_legal(variables: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------
 
 
-def start_credenciamento(variables: dict[str, Any]) -> dict[str, Any]:
-    """Initiate SP-OP-CRED-001 for provider de-credentialing.
+def _fenced_start(
+    *,
+    process_key: str,
+    business_key: str,
+    payload: dict[str, Any],
+    decision_basis: dict[str, Any],
+    tenant_id: str,
+    engine: CibSevenTransport | None,
+    audit_sink: AuditStartSink | None,
+    log_event: str,
+) -> tuple[str, bool]:
+    """Shared fenced-start helper for the FRAUDE downstream handoffs (mirrors
+    `inadimplencia.handoff_rescisao`, the merged T-C2 10th start site).
 
-    CRED-001 has its OWN human-gated adverse task.
+    FAIL-CLOSED: a missing engine seam / missing audit sink RAISES (transient -> retry -> incident)
+    — a downstream handoff (CRED/CANCEL/INADIMPLENCIA) can never start un-audited (ADR-0007 L0),
+    and the human's accusation decision can never be silently dropped. Returns
+    `(instance_id, already_existed)`; the business-key idempotency makes a re-delivery an active hit
+    (no double-start, P1-safe).
     """
-    logger.info(
-        "fraude_start_credenciamento",
-        prestador_id=variables.get("prestador_id"),
+    if engine is None:
+        logger.error("fraude_handoff_engine_seam_not_wired", process_key=process_key)
+        raise RuntimeError(
+            f"fraude handoff to {process_key}: engine seam (CibSevenTransport) not wired — cannot "
+            "start; failing closed to a retry/incident (never a silent no-op)"
+        )
+    if audit_sink is None:
+        logger.error("fraude_handoff_audit_sink_not_wired", process_key=process_key)
+        raise RuntimeError(
+            f"fraude handoff to {process_key}: audit sink (AuditStartSink) not wired — cannot emit "
+            "the ADR-0007 start record, so the process is NOT started (fail-closed, "
+            "emit-before-effect); failing to a retry/incident (never an un-audited start)"
+        )
+    provenance = AgentDecisionProvenance(
+        agent_id=AUDIT_AGENT_ID,
+        agent_version=_resolve_app_version(),
+        tenant_id=tenant_id,
+        decision_basis=decision_basis,
+        model_id=None,
+        prompt_version=None,
     )
+    instance = asyncio.run(
+        start_process_idempotent(
+            engine,
+            process_key=process_key,
+            business_key=business_key,
+            variables=payload,
+            audit_sink=audit_sink,
+            provenance=provenance,
+        )
+    )
+    logger.info(
+        log_event,
+        process_key=process_key,
+        business_key=business_key,
+        instance_id=instance.instance_id,
+        already_existed=instance.already_existed,
+    )
+    return instance.instance_id, instance.already_existed
 
+
+def _cred_business_key(tenant_id: str, prestador_id: str) -> str:
+    """`CRED-{tenant}-{prestador_id}` (contract `SP-OP-CRED-001.md`; IDENTICAL to
+    `notification_bridge._cred_business_key`) — one active (des)credenciamento cycle per prestador."""
+    return f"CRED-{tenant_id}-{prestador_id}"
+
+
+def start_credenciamento(
+    variables: dict[str, Any],
+    *,
+    engine: CibSevenTransport | None = None,
+    audit_sink: AuditStartSink | None = None,
+) -> dict[str, Any]:
+    """Handoff: idempotently START SP-OP-CRED-001 for provider de-credentialing.
+
+    Only reached DOWNSTREAM of a human accusation + sealed bundle (BPMN `ST_StartCredenciamento`,
+    entidade_tipo=prestador). CRED-001 owns its OWN human-gated adverse UT — FRAUDE NUNCA
+    auto-descredencia. Starts CRED-001 (business key ``CRED-{tenant}-{prestador_id}``) through the
+    fenced ``start_process_idempotent`` chokepoint (ADR-0007 emit-before-effect, T-C2). Was a stub
+    returning a marker dict (NO start). FAIL-CLOSED on missing engine/audit seam or a missing/
+    blank/None ``tenant_id``/``prestador_id`` anchor (EB-4 R1: validated with the SHARED
+    `non_blank`, the bridge's own semantics — never a degenerate key like ``CRED-{t}-None``)."""
+    # non_blank BEFORE str(): explicit None must refuse, never stringify to the truthy "None".
+    if not (non_blank(variables.get("tenant_id")) and non_blank(variables.get("prestador_id"))):
+        logger.error(
+            "fraude_start_credenciamento_no_prestador",
+            tenant_id=str(variables.get("tenant_id", "")),
+        )
+        raise FraudeError(
+            ERR_FRAUDE_HANDOFF_SEM_ALVO,
+            "start_credenciamento: tenant_id/prestador_id ausente, em branco ou None — nao ha "
+            "ancora de business key para iniciar CRED-001 (recusado, nunca inicia com business "
+            "key vazia/degenerada)",
+        )
+    tenant_id = str(variables.get("tenant_id", ""))
+    prestador_id = str(variables.get("prestador_id", ""))
+    business_key = _cred_business_key(tenant_id, prestador_id)
+    payload: dict[str, Any] = {
+        "tenant_id": tenant_id,
+        "prestador_id": prestador_id,
+        "numero_caso": str(variables.get("numero_caso", "")),
+        "bundle_root": str(variables.get("bundle_root", "")),
+        "origem_encaminhamento": "fraude",
+    }
+    instance_id, already_existed = _fenced_start(
+        process_key=CRED_PROCESS_KEY,
+        business_key=business_key,
+        payload=payload,
+        decision_basis={"origem_encaminhamento": "fraude", "entidade_tipo": "prestador"},
+        tenant_id=tenant_id,
+        engine=engine,
+        audit_sink=audit_sink,
+        log_event="fraude_start_credenciamento",
+    )
     return {
         "handoff_credenciamento": True,
-        "processo_destino": "SP-OP-CRED-001",
+        "handoff_executado": True,
+        "processo_destino": CRED_PROCESS_KEY,
+        "cred_business_key": business_key,
+        "cred_instance_id": instance_id,
+        "cred_already_existed": already_existed,
     }
 
 
@@ -700,20 +819,99 @@ def start_credenciamento(variables: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------
 
 
-def start_contratual(variables: dict[str, Any]) -> dict[str, Any]:
-    """Initiate contract termination for beneficiary/contract fraud.
+def _cancel_business_key(tenant_id: str, numero_contrato: str) -> str:
+    """`CANCEL-{tenant}-{numero_contrato}` (IDENTICAL to `notification_bridge._cancel_business_key`)."""
+    return f"CANCEL-{tenant_id}-{numero_contrato}"
 
-    CANCEL-001/INADIMPLENCIA-001 have their OWN human-gated tasks.
-    """
-    logger.info(
-        "fraude_start_contratual",
-        numero_contrato=variables.get("numero_contrato"),
-    )
 
-    return {
-        "handoff_contratual": True,
-        "processo_destino": "SP-OP-CANCEL-001 / SP-OP-INADIMPLENCIA-001",
+def _inadimplencia_business_key(tenant_id: str, numero_contrato: str) -> str:
+    """`INAD-{tenant}-{numero_contrato}` — DISTINCT prefix from CANCEL for the SAME contract
+    (IDENTICAL to `notification_bridge._inadimplencia_business_key`; the two processes coordinate via
+    topology + a runtime active-instance check, not a shared key)."""
+    return f"INAD-{tenant_id}-{numero_contrato}"
+
+
+def start_contratual(
+    variables: dict[str, Any],
+    *,
+    engine: CibSevenTransport | None = None,
+    audit_sink: AuditStartSink | None = None,
+) -> dict[str, Any]:
+    """Handoff: idempotently START SP-OP-CANCEL-001 (and, for contract fraud, INADIMPLENCIA-001).
+
+    Only reached DOWNSTREAM of a human accusation + sealed bundle (BPMN `ST_StartContratual`,
+    entidade_tipo in {beneficiario, contrato}). CANCEL/INADIMPLENCIA own their OWN human-gated
+    adverse UTs — FRAUDE NUNCA auto-rescinde. Matches the two `notification_bridge` rules for
+    `fraude.acusacao_registrada`: CANCEL for {beneficiario, contrato}; INADIMPLENCIA additionally
+    for {contrato}. Both keyed on ``numero_contrato`` through the fenced chokepoint (ADR-0007). Was a
+    stub returning a marker dict (NO start). FAIL-CLOSED on missing engine/audit seam or a missing/
+    blank/None ``tenant_id``/``numero_contrato`` anchor (EB-4 R1: validated with the SHARED
+    `non_blank`, the bridge's own semantics — never a degenerate key like ``CANCEL-{t}-None``)."""
+    # non_blank BEFORE str(): explicit None must refuse, never stringify to the truthy "None".
+    if not (non_blank(variables.get("tenant_id")) and non_blank(variables.get("numero_contrato"))):
+        logger.error(
+            "fraude_start_contratual_no_contrato",
+            tenant_id=str(variables.get("tenant_id", "")),
+        )
+        raise FraudeError(
+            ERR_FRAUDE_HANDOFF_SEM_ALVO,
+            "start_contratual: tenant_id/numero_contrato ausente, em branco ou None — nao ha "
+            "ancora de business key para iniciar CANCEL/INADIMPLENCIA (recusado, nunca inicia "
+            "com business key vazia/degenerada)",
+        )
+    tenant_id = str(variables.get("tenant_id", ""))
+    numero_contrato = str(variables.get("numero_contrato", ""))
+    entidade_tipo = str(variables.get("entidade_tipo", ""))
+    base_payload: dict[str, Any] = {
+        "tenant_id": tenant_id,
+        "numero_contrato": numero_contrato,
+        "beneficiario_pseudo_id": str(variables.get("beneficiario_pseudo_id", "")),
+        "numero_caso": str(variables.get("numero_caso", "")),
+        "bundle_root": str(variables.get("bundle_root", "")),
+        "origem_encaminhamento": "fraude",
     }
+
+    # CANCEL-001 — always started for the contract/beneficiario rescisao path.
+    cancel_key = _cancel_business_key(tenant_id, numero_contrato)
+    cancel_id, cancel_existed = _fenced_start(
+        process_key=CANCEL_PROCESS_KEY,
+        business_key=cancel_key,
+        payload=base_payload,
+        decision_basis={"origem_encaminhamento": "fraude", "entidade_tipo": entidade_tipo or "contrato"},
+        tenant_id=tenant_id,
+        engine=engine,
+        audit_sink=audit_sink,
+        log_event="fraude_start_contratual_cancel",
+    )
+    result: dict[str, Any] = {
+        "handoff_contratual": True,
+        "handoff_executado": True,
+        "processo_destino": CANCEL_PROCESS_KEY,
+        "cancel_business_key": cancel_key,
+        "cancel_instance_id": cancel_id,
+        "cancel_already_existed": cancel_existed,
+    }
+
+    # INADIMPLENCIA-001 — additionally for a CONTRATO (secondary handoff; mirrors the bridge's
+    # FRAUDE->INADIMPLENCIA rule, entidade_tipo == "contrato"). A beneficiario does not trigger it.
+    if entidade_tipo == "contrato":
+        inad_key = _inadimplencia_business_key(tenant_id, numero_contrato)
+        inad_id, inad_existed = _fenced_start(
+            process_key=INADIMPLENCIA_PROCESS_KEY,
+            business_key=inad_key,
+            payload=base_payload,
+            decision_basis={"origem_encaminhamento": "fraude", "entidade_tipo": "contrato"},
+            tenant_id=tenant_id,
+            engine=engine,
+            audit_sink=audit_sink,
+            log_event="fraude_start_contratual_inadimplencia",
+        )
+        result["processo_destino"] = f"{CANCEL_PROCESS_KEY} / {INADIMPLENCIA_PROCESS_KEY}"
+        result["inadimplencia_business_key"] = inad_key
+        result["inadimplencia_instance_id"] = inad_id
+        result["inadimplencia_already_existed"] = inad_existed
+
+    return result
 
 
 # ---------------------------------------------------------------
@@ -784,6 +982,12 @@ def register_fraude_workers(
     """
     del kafka  # unused — no fraude.py worker declares a Kafka dependency
     dmn = seams.get("dmn")
+    # Fenced-start seams (T-C2, mirrors register_inadimplencia_workers) — threaded into the two
+    # downstream handoff workers ONLY. ABSENT (`None`) -> they RAISE before any engine effect (an
+    # un-audited CRED/CANCEL/INADIMPLENCIA start is structurally impossible, ADR-0007 L0). In the
+    # live daemon: FreshClientCibSevenTransport + FreshSinkAuditEmitter (loop-agnostic).
+    engine: CibSevenTransport | None = seams.get("engine")
+    audit_sink: AuditStartSink | None = seams.get("audit_sink")
     harness.register_worker(FunctionWorker("operadora.fraude.intake", intake))
     harness.register_worker(FunctionWorker("operadora.fraude.gather_evidence", gather_evidence))
     harness.register_worker(
@@ -796,6 +1000,16 @@ def register_fraude_workers(
     )
     harness.register_worker(FunctionWorker("operadora.fraude.notify_sla_risk", notify_sla_risk))
     harness.register_worker(FunctionWorker("operadora.fraude.refer_to_legal", refer_to_legal))
-    harness.register_worker(FunctionWorker("operadora.fraude.start_credenciamento", start_credenciamento))
-    harness.register_worker(FunctionWorker("operadora.fraude.start_contratual", start_contratual))
+    harness.register_worker(
+        FunctionWorker(
+            "operadora.fraude.start_credenciamento",
+            functools.partial(start_credenciamento, engine=engine, audit_sink=audit_sink),
+        )
+    )
+    harness.register_worker(
+        FunctionWorker(
+            "operadora.fraude.start_contratual",
+            functools.partial(start_contratual, engine=engine, audit_sink=audit_sink),
+        )
+    )
     harness.register_worker(FunctionWorker("operadora.fraude.publish_completed", publish_completed))
