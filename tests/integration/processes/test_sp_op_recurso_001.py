@@ -1928,19 +1928,27 @@ async def test_business_key_uma_instancia_por_glosa(
     against the same engine. Minted via `_unique_glosa()` now (mirrors `start_recurso`'s own
     default and every other test in this file).
 
-    STRENGTHENED (same commit, NOT weakened): the one-instance-per-BK invariant is now actually
-    EXERCISED against a real duplicate-start ATTEMPT, not just asserted after a single start. This
-    suite drives SP-OP-RECURSO-001 directly via raw `engine.start_by_key` (module docstring finding
-    7 — recurso.py is not wired through the real idempotency chokepoint,
-    `start_process_idempotent`/mcp_cibseven/transport.py:560, which is how production enforces this
-    invariant for the agent graphs that DO use it: `find_active_instance` BEFORE deciding whether to
-    start, an active hit returned unchanged, never re-started). Since a literal 2nd raw
-    `start_by_key` call does NOT dedupe (proven above — it would falsify this very assertion), this
-    test instead exercises that SAME check-then-act algorithm inline against the fresh BK: query
-    `find_active_instances` first (mirroring the guard's precondition check) and only start again if
-    it comes back empty. The guard's own invariant (already proven by the first start+check above)
-    makes the second branch provably unreachable here — exactly the outcome a caller respecting the
-    "one active instance per business key" contract must observe.
+    CORRECTED (t3.1-followup-nits): the paragraph that used to sit here claimed this test
+    "EXERCISED a real duplicate-start ATTEMPT" — flagged as a docstring overclaim at the t3.1
+    merge gate (docs/evidence-ledger.md t3.1 row: "recurso duplicate-start branch flagged
+    provably-unreachable/docstring-overclaim") and left as a follow-up nit rather than blocking.
+    What actually happens below does NOT drive a second raw `engine.start_by_key` call against the
+    same business key — doing so would in fact create a SECOND active instance (proven in the
+    paragraph above: the engine has no BK-uniqueness enforcement), which would falsify rather than
+    prove the invariant this test wants to demonstrate. Instead, after the one real start, the test
+    manually replays only the CHECK half of the check-then-act algorithm
+    `start_process_idempotent` uses in production (`mcp_cibseven/transport.py:560`:
+    `find_active_instance` BEFORE deciding whether to start) — it calls `find_active_instances`
+    again and only starts a second time `if not guard_check`. Because the precondition
+    (`len(existing) == 1`) is already proven true by the first start+check above, that second-start
+    branch is provably unreachable here (marked `# pragma: no cover`) and never actually runs — no
+    duplicate start, real or simulated, is attempted. What this test DOES prove: `recurso.py` starts
+    processes via raw `engine.start_by_key`, bypassing `start_process_idempotent` entirely (module
+    docstring finding 7), so it cannot rely on that chokepoint's dedup; querying
+    `find_active_instances` a second time against an unchanged BK still returns exactly the one
+    instance from the first start (i.e. the check itself is stable/idempotent). It does NOT prove
+    that a genuine concurrent or duplicate `start_by_key` call against SP-OP-RECURSO-001 is
+    rejected — no such protection exists on this code path, by design of the test above.
     """
     glosa = _unique_glosa()
     guia = "GUIA-TESTE-0001"
@@ -1955,14 +1963,15 @@ async def test_business_key_uma_instancia_por_glosa(
     assert len(existing) == 1
     assert existing[0]["id"] == first["id"]
 
-    # Duplicate-start ATTEMPT with the SAME fresh BK (check-then-act, mirrors
-    # `start_process_idempotent`'s real algorithm): a caller respecting the "one active instance
-    # per business key" invariant queries BEFORE starting again and, finding one, does not start.
+    # Re-check ONLY (no real second start is attempted — see docstring above): replays the CHECK
+    # half of `start_process_idempotent`'s check-then-act algorithm against the SAME fresh BK. The
+    # `if not guard_check` branch below is provably dead given the assert above; it exists purely
+    # to document what a real idempotency guard would do, not to exercise a duplicate start.
     guard_check = await engine.find_active_instances(business_key)
     if not guard_check:  # pragma: no cover - provably unreachable given the assert above
         await start_recurso(numero_guia_tiss=guia, glosa_id=glosa, glosa_type="tecnica")
-    after_duplicate_attempt = await engine.find_active_instances(business_key)
-    assert len(after_duplicate_attempt) == 1, (
-        "duplicate-start ATTEMPT com o MESMO business key nao deve resultar em 2a instancia ativa"
+    after_second_check = await engine.find_active_instances(business_key)
+    assert len(after_second_check) == 1, (
+        "re-checar a mesma BK apos o primeiro start deve continuar reportando 1 instancia ativa"
     )
-    assert after_duplicate_attempt[0]["id"] == first["id"]
+    assert after_second_check[0]["id"] == first["id"]

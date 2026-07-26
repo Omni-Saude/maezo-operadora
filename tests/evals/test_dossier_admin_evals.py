@@ -92,15 +92,15 @@ from __future__ import annotations
 
 import copy
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
-from maezo.agents.beatriz.graph import BeatrizGraph
+from maezo.agents.beatriz.graph import BeatrizGraph, BeatrizState
 from maezo.agents.beatriz.graph import build as beatriz_build
-from maezo.agents.carolina.graph import CarolinaGraph
+from maezo.agents.carolina.graph import CarolinaGraph, CarolinaState
 from maezo.agents.carolina.graph import build as carolina_build
-from maezo.agents.gustavo.graph import GustavoGraph
+from maezo.agents.gustavo.graph import GustavoGraph, GustavoState
 from maezo.agents.gustavo.graph import build as gustavo_build
 from maezo.runtime.inference import InferenceProvider, InferenceSettings
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
@@ -253,7 +253,7 @@ async def test_carolina_eval_tier_b_live_no_leak() -> None:
         audit_sink=FakeStartAuditSink(),
     )
     compiled = graph.compile_graph().compile()
-    result = await compiled.ainvoke(dict(case["input"]["state"]))
+    result = await compiled.ainvoke(cast(CarolinaState, dict(case["input"]["state"])))
     assert_no_leak(result.get("dossier") or {}, case["leak_canaries"])
 
 
@@ -306,7 +306,7 @@ async def test_beatriz_eval_tier_b_live_no_leak() -> None:
     case = _case(BEATRIZ_CASES, "EVL-BEATRIZ-03")
     graph = BeatrizGraph(inference=InferenceProvider(settings=InferenceSettings(provider="anthropic")))
     compiled = graph.compile_graph().compile()
-    result = await compiled.ainvoke(dict(case["input"]["state"]))
+    result = await compiled.ainvoke(cast(BeatrizState, dict(case["input"]["state"])))
     assert_no_leak(result.get("dossier") or {}, case["leak_canaries"])
 
 
@@ -367,5 +367,5 @@ async def test_gustavo_eval_tier_b_live_no_leak() -> None:
         audit_sink=FakeStartAuditSink(),
     )
     compiled = graph.compile_graph().compile()
-    result = await compiled.ainvoke(dict(case["input"]["state"]))
+    result = await compiled.ainvoke(cast(GustavoState, dict(case["input"]["state"])))
     assert_no_leak(result.get("dossier") or {}, case["leak_canaries"])
