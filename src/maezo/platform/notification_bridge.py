@@ -519,13 +519,15 @@ class NotificationBridge:
             },
         )
 
-        # CONTAS→FRAUDE: PHASE-3-DEFERRED handoff. The current CONTAS BPMN emits NO fraude desfecho
-        # (its `agents.events.contas.completed` desfechos are {sem_glosa, encaminhada_recurso,
-        # glosa_aceita_humano, reenviada} — no `encaminhada_fraude`), AND there is no in-flow
-        # `start_fraude` worker. This rule is repointed onto the real completed event with a
-        # (not-yet-emitted) `encaminhada_fraude` desfecho + anchor requirement, so it stays honestly
-        # DORMANT until CONTAS Phase 3 lands the fraude branch. Flagged as a genuine deferred gap,
-        # NOT force-wired here.
+        # CONTAS→FRAUDE: ARMED (commit 9cc8aaa, t4-bridge-arming — Phase 3 landed). The CONTAS
+        # BPMN's `ST_PublishEncaminhadaFraude` now emits `agents.events.contas.completed` with
+        # desfecho=`encaminhada_fraude` (`event_payload_vars: tenant_id,numero_lote_tiss,
+        # prestador_id` — the `prestador_id` anchor this predicate requires IS present), and
+        # `contas.start_fraude` (worker module, ~:623) is the LIVE in-flow worker — the canonical
+        # path per the module preamble above. This bridge rule is the DECOUPLED Kafka-mirror
+        # redundancy: it derives the SAME business key as the in-flow worker (both delegate to
+        # the shared `tools.workers.base.resolve_fraude_numero_caso`), so the two paths CONVERGE
+        # on the SAME FRAUDE-001 instance, never a divergent double-start.
         self.register_handoff(
             event_type=CONTAS_COMPLETED_EVENT,
             predicate=lambda p: (
@@ -588,11 +590,15 @@ class NotificationBridge:
             },
         )
 
-        # FRAUDE→INADIMPLENCIA: secondary handoff for CONTRATO fraud only. Same real completed event
-        # (desfecho=encaminhado_contratual) but ALSO requires `entidade_tipo == "contrato"` — a
-        # discriminator the minimal completed payload does not currently carry, so this rule stays
-        # honestly DORMANT until the source enriches it (named follow-up), matching the in-flow
-        # `start_contratual` worker which starts INADIMPLENCIA only for a contrato.
+        # FRAUDE→INADIMPLENCIA: secondary handoff for CONTRATO fraud only. Same real completed
+        # event (desfecho=encaminhado_contratual) but ALSO requires `entidade_tipo == "contrato"`
+        # — ARMED (commit 9cc8aaa, t4-bridge-arming): the FRAUDE BPMN's
+        # `ST_PublishEncaminhadoContratual` now includes `entidade_tipo` in its
+        # `event_payload_vars` (a real process variable carried since intake — it also drives the
+        # BPMN's own CRED/CONTRATUAL gateway routing), so the real completed-event payload DOES
+        # carry the discriminator this predicate requires. Matches the in-flow `start_contratual`
+        # worker, which starts INADIMPLENCIA only for a contrato — this bridge rule is the
+        # decoupled Kafka-mirror redundancy, converging on the same business key.
         self.register_handoff(
             event_type=FRAUDE_COMPLETED_EVENT,
             predicate=lambda p: (
