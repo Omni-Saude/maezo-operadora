@@ -256,6 +256,79 @@ async def test_publish_direct_notifications_topic_failure_is_swallowed() -> None
 
 
 # ---------------------------------------------------------------------------
+# Per-call posture override (t8-escalation-boundary): best_effort=False FORCES propagate on a
+# topic that is otherwise topic-default best-effort — the ROOT-CAUSE fix for the escalation/lgpd
+# notify swallow. best_effort=None keeps the topic-based default (no existing caller changes).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_notifications_topic_best_effort_false_propagates_on_send_failure() -> None:
+    """The escalation/lgpd notify posture: publishing to `NOTIFICATIONS_TOPIC` (topic-default
+    best-effort) with `best_effort=False` must PROPAGATE a broker-down failure — NOT swallow it —
+    so the escalation handler's `ERR_ESC_NOTIFY_FAILED` boundary / lgpd's harness incident fires.
+    This goes RED against the pre-fix producer (which had no override and always swallowed)."""
+    raw = FakeRawKafkaProducer()
+    raw.always_fail = RuntimeError("broker down")
+    producer = AioKafkaEventsProducer(raw_producer=raw)
+
+    with pytest.raises(RuntimeError, match="broker down"):
+        await producer.publish(
+            NOTIFICATIONS_TOPIC,
+            {"type": "escalation.notify_team", "severity": "grave"},
+            best_effort=False,
+        )
+
+    assert producer.failed_publishes == []  # forced propagate -> not recorded, just raised
+
+
+@pytest.mark.asyncio
+async def test_notifications_topic_best_effort_none_still_swallows() -> None:
+    """`best_effort=None` (default) keeps the topic-based default — `NOTIFICATIONS_TOPIC` stays
+    best-effort for callers that do NOT opt in (e.g. `ans.cron_due`, which has no BPMN fallback)."""
+    raw = FakeRawKafkaProducer()
+    raw.always_fail = RuntimeError("broker down")
+    producer = AioKafkaEventsProducer(raw_producer=raw)
+
+    await producer.publish(NOTIFICATIONS_TOPIC, {"type": "ans.cron_due"}, best_effort=None)  # no raise
+
+    assert producer.failed_publishes == [(NOTIFICATIONS_TOPIC, "RuntimeError('broker down')")]
+
+
+@pytest.mark.asyncio
+async def test_mirror_topic_best_effort_none_still_swallows_primary_and_mirror() -> None:
+    """A mirrored topic (contas.completed) with no override is UNCHANGED: both legs best-effort,
+    a broker-down failure swallowed on both — a Kafka outage must not stall CONTAS at its
+    unconditional, no-gateway `ST_Publish*` step."""
+    raw = FakeRawKafkaProducer()
+    raw.always_fail = RuntimeError("broker down")
+    producer = AioKafkaEventsProducer(raw_producer=raw)
+
+    await producer.publish(_CONTAS_TOPIC, {"tenant_id": "amh", "desfecho": "sem_glosa"})  # no raise
+
+    assert producer.failed_publishes == [
+        (_CONTAS_TOPIC, "RuntimeError('broker down')"),
+        (NOTIFICATIONS_TOPIC, "RuntimeError('broker down')"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_best_effort_false_on_mirror_source_forces_primary_propagate_mirror_stays_swallowed() -> None:
+    """Even on a MIRROR source topic, `best_effort=False` forces the PRIMARY leg to propagate; the
+    mirror leg is ALWAYS best-effort and is never reached once the primary raises (fail-fast on the
+    load-bearing leg). Guards the invariant that the override never weakens the mirror's isolation."""
+    raw = FakeRawKafkaProducer()
+    raw.always_fail = RuntimeError("broker down")
+    producer = AioKafkaEventsProducer(raw_producer=raw)
+
+    with pytest.raises(RuntimeError, match="broker down"):
+        await producer.publish(_CONTAS_TOPIC, {"tenant_id": "amh"}, best_effort=False)
+
+    assert producer.failed_publishes == []  # primary forced-propagate; mirror never recorded
+    assert raw.sent == []
+
+
+# ---------------------------------------------------------------------------
 # scrub_mirror_payload
 # ---------------------------------------------------------------------------
 
