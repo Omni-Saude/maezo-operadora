@@ -19,7 +19,12 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from maezo.tools.mcp_cibseven.transport import AgentDecisionProvenance, start_process_idempotent
-from maezo.tools.workers.base import FunctionWorker, non_blank, pick_fields
+from maezo.tools.workers.base import (
+    FunctionWorker,
+    non_blank,
+    pick_fields,
+    resolve_fraude_numero_caso,
+)
 from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row, require_dmn
 from maezo.tools.workers.harness import AUDIT_AGENT_ID, _resolve_app_version
 
@@ -608,16 +613,13 @@ def _fraude_business_key(tenant_id: str, numero_caso: str) -> str:
 def _fraude_numero_caso_for_handoff(variables: dict[str, Any]) -> str:
     """Resolve the FRAUDE-001 `numero_caso` business-key anchor for the CONTAS→FRAUDE handoff.
 
-    IDENTICAL derivation to `notification_bridge._fraude_numero_caso_for_contas_handoff` (BK
-    convergence is the L0 requirement): use an already-assigned `numero_caso` when the CONTAS
-    process carries one, else fall back to `prestador_id` (the entity under investigation) — so
-    repeated referrals of the SAME prestador converge on the SAME FRAUDE-001 instance instead of
-    minting a fresh, non-deterministic case id on every forward.
+    Thin wrapper over the SHARED `base.resolve_fraude_numero_caso` — see that function's
+    docstring for the full derivation contract. Delegating (rather than re-implementing) is what
+    guarantees a BYTE-IDENTICAL business key with `notification_bridge._fraude_numero_caso_for_
+    contas_handoff` for ALL input types (BK convergence is the L0 requirement), not just
+    coincidentally-matching logic that can silently drift.
     """
-    numero_caso = variables.get("numero_caso")
-    if non_blank(numero_caso):
-        return str(numero_caso)
-    return str(variables.get("prestador_id", ""))
+    return resolve_fraude_numero_caso(variables)
 
 
 def start_fraude(

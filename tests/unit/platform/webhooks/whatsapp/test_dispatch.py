@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
 from typing import Any
 
 import pytest
 from langgraph.checkpoint.memory import InMemorySaver
 
 from maezo.agents.helena.graph import HELENA_INPUT_FIELDS
-from maezo.gateway.pseudonymizer import Pseudonymizer
+from maezo.gateway.pseudonymizer import KEYED_PSEUDONYM_PREFIX, Pseudonymizer
 from maezo.platform.webhooks.whatsapp import dispatch as dispatch_module
 from maezo.platform.webhooks.whatsapp.dispatch import (
     HelenaDispatcher,
@@ -141,6 +142,14 @@ async def test_dispatcher_derives_conversation_id_and_pseudo_id_never_raw_phone(
     assert result["conversation_id"].startswith("wa:amh:")
     phone_hash = result["conversation_id"].split(":", 2)[2]
     assert phone_hash != "5511999999999"  # never the raw number
+    # IRREVERSIBILITY (ADR-0035 extension): the identity is a KEYED HMAC, NOT the reversible
+    # `sha256(tenant:phone)` the old scheme leaked into the persisted conversation/thread id.
+    assert phone_hash.startswith(KEYED_PSEUDONYM_PREFIX)
+    plain_sha256 = hashlib.sha256(b"amh:5511999999999").hexdigest()
+    assert plain_sha256 not in result["conversation_id"]  # a precomputed table cannot recover it
+    # And it IS the keyed HMAC of `tenant:phone` (Pseudonymizer()'s dev key is deterministic).
+    expected = Pseudonymizer().pseudonymize({"telefone": "amh:5511999999999"})["telefone"]
+    assert phone_hash == f"{KEYED_PSEUDONYM_PREFIX}{expected}"
     assert result["beneficiario_pseudo_id"] != phone_hash  # hash-of-a-hash, not identical to it
     assert whatsapp_client.sent, "Helena must reply over WhatsApp using the resolved raw number"
     assert whatsapp_client.sent[0][0] == "5511999999999"
@@ -278,7 +287,11 @@ async def test_dispatch_with_checkpointer_uses_phi_safe_thread_config(
     thread_id = captured["config"]["configurable"]["thread_id"]
     assert thread_id.startswith("wa:amh:")
     assert "5511999999999" not in thread_id  # hashed, never the raw number
-    # And it is exactly what the PHI-safety helper would build (fail-closes on a raw-numeric id).
+    # IRREVERSIBILITY: the PERSISTED thread id (keying the PHI-bearing checkpoint_blobs rows) is a
+    # KEYED HMAC, not the reversible sha256 the old scheme wrote into the durable checkpoint DB.
+    assert thread_id.startswith(f"wa:amh:{KEYED_PSEUDONYM_PREFIX}")
+    assert hashlib.sha256(b"amh:5511999999999").hexdigest() not in thread_id
+    # And it is exactly what the PHI-safety helper would build (fail-closes on an unkeyed id).
     assert captured["config"] == checkpoint_thread_config(thread_id)
 
 

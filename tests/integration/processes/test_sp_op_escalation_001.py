@@ -64,9 +64,10 @@ from typing import Any
 import pytest
 import pytest_asyncio
 
+from maezo.platform.integrations.events_kafka_producer import AioKafkaEventsProducer
 from maezo.tools.workers.escalation import register_escalation_workers
 from maezo.tools.workers.events import register_events_workers
-from maezo.tools.workers.harness import CibSevenWorkerTransport, FakeKafkaPublisher, WorkerHarness
+from maezo.tools.workers.harness import CibSevenWorkerTransport, WorkerHarness
 
 from .conftest import drain_topics
 from .engine_rest import EngineRest
@@ -117,35 +118,86 @@ class DomainEvent:
     fase: str | None = None
 
 
-class _FaultInjectingPublisher:
-    """Publisher que delega ao FakeKafkaPublisher mas pode falhar um TIPO de notificacao OU um
-    TOPICO de evento de dominio.
-
-    Usado por `test_falha_notificacao_usa_fallback`: faz o handler real `notify_team` levantar
-    `ERR_ESC_NOTIFY_FAILED` (o handler real lanca o BPMN error quando `kafka.publish` falha).
-    A falha e armada por TIPO de notificacao (lida do payload `type`), nao pelo topico Kafka,
-    porque team e supervisor publicam no mesmo topico interno.
-
-    `fail_topics` faz o MESMO por TOPICO de saida (o `event_topic` real que o serviceTask
-    ST_Publish* passa a `make_publish_event_handler`).
+class _FaultRawProducer:
+    """A `RawKafkaProducer` (`aiokafka.AIOKafkaProducer`-shaped) double that CAPTURES every
+    successful send and can be ARMED to fail a send by output TOPIC or by notification `type`
+    (decoded from the JSON value). Fed to the REAL `AioKafkaEventsProducer` (see
+    `_FaultInjectingPublisher`) so a fault flows through the PRODUCTION best-effort/propagate logic
+    — never a fake that unconditionally raises.
 
     A falha e STICKY (vale enquanto o tipo/topico estiver armado), nao "1x": o handler real roda
-    sob retry com backoff. Cada teste recebe uma `probe` (e portanto um
-    `_FaultInjectingPublisher`) nova, entao nao ha vazamento entre testes.
+    sob retry com backoff. Cada teste recebe uma `probe` nova, entao nao ha vazamento entre testes.
     """
 
-    def __init__(self, inner: FakeKafkaPublisher) -> None:
-        self._inner = inner
+    def __init__(self) -> None:
+        self.sent: list[tuple[str, dict[str, Any], str | None]] = []
         self.fail_notification_types: set[str] = set()
         self.fail_topics: set[str] = set()
+        self.started = False
+        self.stopped = False
 
-    async def publish(self, topic: str, value: dict[str, Any], *, key: str | None = None) -> None:
+    async def start(self) -> None:
+        self.started = True
+
+    async def stop(self) -> None:
+        self.stopped = True
+
+    async def send_and_wait(self, topic: str, value: bytes, key: bytes | None = None) -> None:
+        import json
+
+        payload = json.loads(value.decode("utf-8"))
         if topic in self.fail_topics:
             raise RuntimeError(f"topico de dominio indisponivel (fault injetada): {topic}")
-        ntype = value.get("type") if isinstance(value, dict) else None
+        ntype = payload.get("type") if isinstance(payload, dict) else None
         if ntype in self.fail_notification_types:
             raise RuntimeError("canal de notificacao indisponivel (fault injetada)")
-        await self._inner.publish(topic, value, key=key)
+        self.sent.append((topic, payload, key.decode("utf-8") if key else None))
+
+
+class _FaultInjectingPublisher:
+    """`KafkaPublisher` that drives the REAL `AioKafkaEventsProducer` over a fault-injecting raw
+    producer — NOT a fake that unconditionally raises (t8-escalation-boundary v2, the NON-HOLLOW
+    discipline the first cut missed).
+
+    Why this matters: team/supervisor notifications publish to `operadora.notifications.internal`,
+    which the real producer lists in `BEST_EFFORT_TOPICS`. Under the producer's DEFAULT posture a
+    faulted publish to that topic is SWALLOWED (returns success) — so the ONLY reason a faulted
+    notify surfaces as `ERR_ESC_NOTIFY_FAILED` here is that `make_notify_team_handler`/
+    `make_notify_supervisor_handler` pass `best_effort=False`. Route the fault through the real
+    producer and this test goes RED the moment that opt-in is dropped (the fallback would silently
+    not fire), which a fake-that-always-raises could never catch. Domain-event topics
+    (escalation.requested/…) are NOT best-effort, so a `fail_topics` fault propagates through the
+    real producer and drives events.py's `ERR_EVENT_PUBLISH_FAILED` exactly as in production.
+
+    A falha e armada por TIPO de notificacao (`fail_notification_types`, lida do payload `type` —
+    team e supervisor publicam no MESMO topico interno) OU por TOPICO de saida (`fail_topics`).
+    """
+
+    def __init__(self) -> None:
+        self._raw = _FaultRawProducer()
+        self._producer = AioKafkaEventsProducer(raw_producer=self._raw)
+
+    @property
+    def fail_notification_types(self) -> set[str]:
+        return self._raw.fail_notification_types
+
+    @property
+    def fail_topics(self) -> set[str]:
+        return self._raw.fail_topics
+
+    @property
+    def published(self) -> list[tuple[str, dict[str, Any], str | None]]:
+        return self._raw.sent
+
+    async def publish(
+        self,
+        topic: str,
+        value: dict[str, Any],
+        *,
+        key: str | None = None,
+        best_effort: bool | None = None,
+    ) -> None:
+        await self._producer.publish(topic, value, key=key, best_effort=best_effort)
 
 
 @dataclass
@@ -153,21 +205,20 @@ class EngineProbe:
     """Driva os workers REAIS de escalation contra o engine e expoe os eventos capturados.
 
     Nao reimplementa worker: registra `register_escalation_workers` num `WorkerHarness` real com
-    um `FakeKafkaPublisher` (via `_FaultInjectingPublisher` para o teste de fallback). `drain()`
-    faz ciclos bounded de fetch-and-lock+handle pelo transporte/handlers reais (shared
-    `drain_topics()` helper — port rule 3).
+    o `_FaultInjectingPublisher` (que dirige o `AioKafkaEventsProducer` REAL sobre um raw producer
+    de falha/captura). `drain()` faz ciclos bounded de fetch-and-lock+handle pelo transporte/
+    handlers reais (shared `drain_topics()` helper — port rule 3).
     """
 
     engine: EngineRest
     harness: WorkerHarness
     transport: CibSevenWorkerTransport
-    kafka: FakeKafkaPublisher
     fault: _FaultInjectingPublisher
     worker_id: str
 
     @property
     def _captured(self) -> list[tuple[str, dict[str, Any], str | None]]:
-        return self.kafka.published
+        return self.fault.published
 
     def _domain_events(self) -> list[DomainEvent]:
         out: list[DomainEvent] = []
@@ -229,8 +280,7 @@ async def probe(engine: EngineRest, audit_sink: Any, audit_tenant: str) -> Async
         bpmn_error_allowlist=frozenset({"ERR_EVENT_PUBLISH_FAILED", "ERR_ESC_NOTIFY_FAILED"}),
         audit_sink=audit_sink,
     )
-    kafka = FakeKafkaPublisher()
-    fault = _FaultInjectingPublisher(kafka)
+    fault = _FaultInjectingPublisher()
     register_escalation_workers(harness, fault)
     # T3.1 R2: the generic operadora.events.publish worker — every ST_Publish* service task in
     # this BPMN routes through it. Internally opts the 4 escalation-only domain-event topics into
@@ -243,7 +293,6 @@ async def probe(engine: EngineRest, audit_sink: Any, audit_tenant: str) -> Async
         engine=engine,
         harness=harness,
         transport=transport,
-        kafka=kafka,
         fault=fault,
         worker_id=worker_id,
     )
@@ -464,20 +513,40 @@ async def test_falha_notificacao_usa_fallback(
 ) -> None:
     """notify_team lanca ERR_ESC_NOTIFY_FAILED => fallback notifica supervisor e UT e criada mesmo assim.
 
-    Falha o CANAL real (publish do FakeKafkaPublisher via _FaultInjectingPublisher) para a notificacao
-    de team. O handler REAL (`make_notify_team_handler`) traduz isso em
-    `WorkerBpmnError(ERR_ESC_NOTIFY_FAILED)` (t8-escalation-boundary) — exercitamos o caminho de erro
-    do worker de verdade, sem injecao sintetica. `BE_FalhaNotificacao` roteia para ST_NotificarFallback
-    (notify_supervisor) e segue para UT_TratarEscalonamento: o escalonamento nunca se perde por falha
-    de canal (fail-SAFE, ADR-0005).
+    <<<<<<< HEAD
+        Falha o CANAL real (publish do FakeKafkaPublisher via _FaultInjectingPublisher) para a notificacao
+        de team. O handler REAL (`make_notify_team_handler`) traduz isso em
+        `WorkerBpmnError(ERR_ESC_NOTIFY_FAILED)` (t8-escalation-boundary) — exercitamos o caminho de erro
+        do worker de verdade, sem injecao sintetica. `BE_FalhaNotificacao` roteia para ST_NotificarFallback
+        (notify_supervisor) e segue para UT_TratarEscalonamento: o escalonamento nunca se perde por falha
+        de canal (fail-SAFE, ADR-0005).
+    =======
+        NON-HOLLOW (t8-escalation-boundary v2): a falha e injetada no raw producer sob o
+        `AioKafkaEventsProducer` REAL (`_FaultInjectingPublisher`), NAO num fake que sempre levanta.
+        Como `operadora.notifications.internal` e um BEST_EFFORT topic, o unico motivo de a falha de
+        `notify_team` virar `ERR_ESC_NOTIFY_FAILED` (em vez de ser engolida) e o handler REAL
+        (`make_notify_team_handler`) publicar com `best_effort=False`. `BE_FalhaNotificacao` roteia para
+        ST_NotificarFallback (notify_supervisor) e segue para UT_TratarEscalonamento. Se o opt-in
+        `best_effort=False` fosse removido, o producer real engoliria a falha e `notified_supervisors`
+        ficaria VAZIO — este assert falha, provando que o teste nao e hollow. Fail-SAFE (ADR-0005).
+    >>>>>>> origin/t8-escalation-notify-boundary-v2
     """
     probe.fault.fail_notification_types.add("escalation.notify_team")
     inst = await start_escalation(motivo_categoria="red_flag_clinico", severidade="grave")
     iid = inst["id"]
 
-    await probe.drain()  # notify_team falha -> fallback notify_supervisor
+    await probe.drain()  # notify_team falha (propaga via producer real) -> fallback notify_supervisor
 
-    assert probe.notified_supervisors  # ST_NotificarFallback executou
+    # NON-HOLLOW discriminator (activity history — imune ao caminho do timer de SLA-ack, que tambem
+    # notifica supervisor e por isso NAO discrimina): o publish de team PROPAGOU, disparando
+    # BE_FalhaNotificacao -> ST_NotificarFallback. No estado hollow (best_effort nao forcado) o
+    # producer real ENGOLIRIA a falha e NENHUMA dessas atividades apareceria -> estes asserts falham
+    # (verificado ao vivo: reverter best_effort=False deixa o suite RED exatamente aqui).
+    ended = await engine.activity_instances_ended(iid)
+    assert "BE_FalhaNotificacao" in ended  # a boundary do ERR_ESC_NOTIFY_FAILED disparou de verdade
+    assert "ST_NotificarFallback" in ended  # o fallback de canal (supervisor) executou
+    assert not probe.notified_teams  # o publish de team falhou de verdade (nao "sucesso silencioso")
+    assert probe.notified_supervisors  # ST_NotificarFallback publicou o supervisor
     # Escalonamento nunca se perde por falha de canal: a User Task existe.
     task = await engine.await_user_task(iid, "UT_TratarEscalonamento")
     assert task.candidate_groups == frozenset({"plantao-clinico"})
@@ -500,6 +569,13 @@ async def test_falha_notificacao_ambos_canais_ainda_cria_ut(
 
     await probe.drain()  # notify_team falha -> fallback -> fallback TAMBEM falha -> boundary continua
 
+    # NON-HOLLOW discriminator: AMBOS os canais PROPAGARAM, disparando BE_FalhaNotificacao ->
+    # ST_NotificarFallback -> BE_NotifFallbackFailed -> UT. No estado hollow o producer engoliria a
+    # falha de team e nenhuma dessas atividades apareceria (o fluxo iria direto para a UT).
+    ended = await engine.activity_instances_ended(iid)
+    assert "BE_FalhaNotificacao" in ended  # falha do canal de team disparou a boundary
+    assert "ST_NotificarFallback" in ended  # o fallback de canal executou (mesmo tendo falhado depois)
+    assert "BE_NotifFallbackFailed" in ended  # a falha do canal de fallback disparou a 2a boundary
     assert not probe.notified_supervisors  # nem o fallback conseguiu publicar
     task = await engine.await_user_task(iid, "UT_TratarEscalonamento")
     assert task.candidate_groups == frozenset({"plantao-clinico"})

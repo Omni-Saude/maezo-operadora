@@ -76,8 +76,12 @@ from maezo.platform.notification_bridge import (
     NotificationBridge,
     build_cibseven_process_starter,
 )
+from maezo.platform.notification_bridge import (
+    _fraude_numero_caso_for_contas_handoff as _bridge_numero_caso,
+)
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport, ProcessInstance
 from maezo.tools.workers.contas import _fraude_business_key as _contas_fraude_bk
+from maezo.tools.workers.contas import _fraude_numero_caso_for_handoff as _worker_numero_caso
 from maezo.tools.workers.contas import _recurso_business_key as _contas_recurso_bk
 from maezo.tools.workers.fraude import _cancel_business_key as _fraude_cancel_bk
 from maezo.tools.workers.fraude import _cred_business_key as _fraude_cred_bk
@@ -550,3 +554,76 @@ def test_pin_in_flow_start_fraude_worker_topic_exists_in_contas_spec() -> None:
         "the in-flow start_fraude worker topic is missing from the CONTAS spec — the Phase-3 "
         "CONTAS→FRAUDE handoff was reverted; update A3 certification"
     )
+
+
+# =================================================================================================
+# PIN 6 (t8-audit-low-cluster) — BYTE-IDENTICAL numero_caso derivation across BOTH call sites, for
+# EVERY input type, not just the string case.
+#
+# `contas._fraude_numero_caso_for_handoff` (the in-flow `start_fraude` worker) and
+# `notification_bridge._fraude_numero_caso_for_contas_handoff` (the decoupled Kafka-mirror rule)
+# both derive the FRAUDE-001 business-key `numero_caso` anchor. Before this pin, the two were
+# independently re-implemented and had DRIFTED for non-string input: the worker used the shared
+# `non_blank` (stringifies-then-checks, so an int/float/bool `numero_caso` is accepted), while the
+# bridge required `isinstance(numero_caso, str)` and fell back to `prestador_id` for anything else
+# — a latent divergent-double-start hazard (`numero_caso` is not a CONTAS process variable today,
+# so unreachable in production, but a real defense-in-depth erosion). Both now delegate to the
+# SAME shared `tools.workers.base.resolve_fraude_numero_caso`, so this test is a real regression
+# fence: it fails RED the moment either call site stops delegating and re-diverges (verified by
+# hand — see the R2 delivery report's mutation-proof — one resolver's body was temporarily reverted
+# to its pre-fix `isinstance(..., str)`-only form and this test went RED; reverted after).
+# =================================================================================================
+
+_NUMERO_CASO_PARITY_CASES: list[tuple[str, Any]] = [
+    ("string", "CASO-777"),
+    ("string-with-whitespace-padding", "  CASO-PAD  "),
+    ("int", 777),
+    ("zero-int", 0),
+    ("float", 3.14),
+    ("bool-true", True),
+    ("bool-false", False),
+    ("none", None),
+    ("absent", "__ABSENT__"),  # sentinel: key omitted from the payload entirely
+    ("empty-string", ""),
+    ("whitespace-only", "   "),
+]
+
+
+@pytest.mark.parametrize(
+    "numero_caso",
+    [case for _, case in _NUMERO_CASO_PARITY_CASES],
+    ids=[label for label, _ in _NUMERO_CASO_PARITY_CASES],
+)
+def test_numero_caso_derivation_byte_identical_across_both_call_sites(numero_caso: Any) -> None:
+    """For every input type/shape, `contas._fraude_numero_caso_for_handoff` and
+    `notification_bridge._fraude_numero_caso_for_contas_handoff` must derive the EXACT SAME
+    string — the business-key anchor both paths feed into `FRAUDE-{tenant}-{numero_caso}` — so
+    the in-flow worker and the bridge's decoupled Kafka-mirror rule always converge on the same
+    FRAUDE-001 instance, never a divergent double-start."""
+    payload: dict[str, Any] = {"prestador_id": "PREST-PARITY-001"}
+    if numero_caso != "__ABSENT__":
+        payload["numero_caso"] = numero_caso
+
+    worker_result = _worker_numero_caso(payload)
+    bridge_result = _bridge_numero_caso(payload)
+
+    assert worker_result == bridge_result, (
+        f"numero_caso derivation DIVERGED for input {numero_caso!r}: "
+        f"contas._fraude_numero_caso_for_handoff={worker_result!r} != "
+        f"notification_bridge._fraude_numero_caso_for_contas_handoff={bridge_result!r} — this is "
+        "exactly the class of drift that produces a DIFFERENT FRAUDE-001 business key on each "
+        "path (divergent double-start hazard)."
+    )
+    assert isinstance(worker_result, str)
+    assert isinstance(bridge_result, str)
+
+
+def test_numero_caso_derivation_non_string_prefers_numero_caso_not_fallback() -> None:
+    """Non-vacuousness proof: a non-string, non-blank `numero_caso` (e.g. an int) must be USED
+    (stringified), not silently discarded in favor of the `prestador_id` fallback — otherwise the
+    parity test above would pass "vacuously" merely because BOTH sides fell back to the same
+    `prestador_id` for every non-string case, without ever actually exercising the numero_caso-wins
+    branch on both sides."""
+    payload = {"numero_caso": 777, "prestador_id": "PREST-SHOULD-NOT-WIN"}
+    assert _worker_numero_caso(payload) == "777"
+    assert _bridge_numero_caso(payload) == "777"

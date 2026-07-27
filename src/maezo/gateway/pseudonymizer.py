@@ -53,6 +53,15 @@ PHI_FIELDS: frozenset[str] = frozenset(
 # "vazia em dev = chave determinística por tenant — NÃO secreta".
 _DEV_FALLBACK_ROOT: bytes = b"maezo-dev-phi-hmac-nonsecret-v2"
 
+#: Marker prefixing a KEYED conversation/thread pseudonym (ADR-0035 extension to the
+#: conversation-id identity). A keyed HMAC-SHA256 hex digest and an UNKEYED sha256 hex digest are
+#: structurally identical (both 64 lowercase hex chars), so a downstream guard cannot tell them
+#: apart by shape alone. Tagging the keyed conversation phone-hash with this marker lets the
+#: checkpoint thread-id guard (`runtime/checkpoint.py::assert_phi_safe_thread_id`) REQUIRE a keyed
+#: form and reject the old reversible `wa:{tenant}:{bare-sha256}` scheme. `_` (not `:`) so it never
+#: collides with the `wa:{tenant}:{hash}` colon split. Bump the version digit on any scheme change.
+KEYED_PSEUDONYM_PREFIX = "hk1_"
+
 
 def _derive_dev_key(tenant_id: str) -> bytes:
     """Deterministic, non-secret per-tenant DEV key (dev/CI only, never production)."""

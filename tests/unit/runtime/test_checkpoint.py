@@ -81,24 +81,46 @@ def test_assert_phi_safe_thread_id_rejects_empty() -> None:
         assert_phi_safe_thread_id("   ")
 
 
+#: A valid 64-char HMAC-SHA256 hex digest (all-hex, contains a-f), tagged keyed with `hk1_`.
+_KEYED = "hk1_" + "deadbeef" * 8  # `hk1_` + exactly 64 hex chars
+
+
 @pytest.mark.parametrize(
     "safe",
     [
-        # hashed conversation id (dispatch.py convention) — hex hash, not all-digits.
+        # KEYED hashed conversation id (dispatch.py convention).
+        f"wa:amh:{_KEYED}",
+        # process business key (helena/graph.py convention) wrapping a keyed conversation id.
+        f"ESC-amh-wa:amh:{_KEYED}",
+    ],
+)
+def test_assert_phi_safe_thread_id_accepts_keyed_conventional_ids(safe: str) -> None:
+    """The platform's KEYED conversation ids / process business keys pass unchanged."""
+    assert assert_phi_safe_thread_id(safe) == safe.strip()
+
+
+@pytest.mark.parametrize(
+    "unkeyed",
+    [
+        # The LEGACY reversible scheme: `wa:{tenant}:{bare-sha256}` with NO `hk1_` marker. This is
+        # the exact identity the fix must now REJECT (it is indistinguishable in shape from a keyed
+        # HMAC, so "not raw-numeric" alone used to let it through — the reversibility bug).
         "wa:amh:deadbeefcafe0123456789abcdef0123456789abcdef0123456789abcdef01",
-        # process business key (helena/graph.py convention).
         "ESC-amh-wa:amh:feedfacecafe00112233445566778899aabbccddeeff",
+        # An arbitrary non-keyed id (a bare process-instance handle carries no keyed pseudonym).
         "amh:proc-instance-42",
     ],
 )
-def test_assert_phi_safe_thread_id_accepts_conventional_ids(safe: str) -> None:
-    """The platform's hashed conversation ids / process business keys pass unchanged."""
-    assert assert_phi_safe_thread_id(safe) == safe.strip()
+def test_assert_phi_safe_thread_id_rejects_unkeyed_hash(unkeyed: str) -> None:
+    """An UNKEYED (reversible) hash — even in the `wa:`/`ESC-` conventional shape — is refused: the
+    guard now REQUIRES the `hk1_` keyed-pseudonym marker (ADR-0035 extension, t9-phi-conversation-id)."""
+    with pytest.raises(ValueError, match="KEYED pseudonym token"):
+        assert_phi_safe_thread_id(unkeyed)
 
 
 def test_checkpoint_thread_config_shape() -> None:
     """`checkpoint_thread_config` builds a langgraph RunnableConfig with the validated thread id."""
-    tid = "wa:amh:deadbeefcafe0123456789abcdef0123456789abcdef0123456789abcdef01"
+    tid = f"wa:amh:{_KEYED}"
     cfg = checkpoint_thread_config(tid, checkpoint_ns="sub")
     assert cfg["configurable"]["thread_id"] == tid
     assert cfg["configurable"]["checkpoint_ns"] == "sub"
@@ -108,6 +130,12 @@ def test_checkpoint_thread_config_rejects_raw_phi() -> None:
     """The builder fail-closes on a raw-numeric id, before any config is produced."""
     with pytest.raises(ValueError, match="raw phone/CPF-like"):
         checkpoint_thread_config("+5511999998888")
+
+
+def test_checkpoint_thread_config_rejects_unkeyed_hash() -> None:
+    """The builder fail-closes on the legacy unkeyed `wa:{tenant}:{sha256}` id (reversibility fix)."""
+    with pytest.raises(ValueError, match="KEYED pseudonym token"):
+        checkpoint_thread_config("wa:amh:deadbeefcafe0123456789abcdef0123456789abcdef0123456789abcdef01")
 
 
 # --- DSN normalization (prod-critical: Helm Aurora secret is `postgresql+asyncpg://`) ----------

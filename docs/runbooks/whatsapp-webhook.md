@@ -104,15 +104,20 @@ is_valid = verify_hub_signature(
 
 ### Phone number pseudonymization
 
-Phone numbers are hashed before any log or Kafka event (ADR-0006 General Zone):
+Phone numbers are pseudonymized with a **keyed HMAC-SHA256** before any log or Kafka event
+(ADR-0006 General Zone; ADR-0035/ADR-0036 keyed identity — a bare `sha256(phone)` is trivially
+reversible over the ~6.7e9 BR-mobile keyspace and is **forbidden** for any persisted identity):
 
 ```python
 from maezo.platform.webhooks.whatsapp.security import hash_phone
 
-phone_hash = hash_phone("+55 11 99999-9999", tenant="amh")
-# Output: SHA-256 hash of "amh:+55 11 99999-9999"
+phone_hash = hash_phone("+55 11 99999-9999", tenant="amh", pseudonymizer=pseudonymizer)
+# Output: "hk1_" + 64-hex HMAC-SHA256(PHI_HMAC_KEY, "amh:+55 11 99999-9999")
 ```
 
+The `pseudonymizer` is built once at the composition root (`webhooks/service.py`) via
+`Pseudonymizer.from_settings`, which **fails closed in production** when `PHI_HMAC_KEY` is
+absent/blank (`PseudonymizerKeyMissingError`) — there is no unkeyed fallback path in prod.
 The raw phone is **never** stored, logged, or sent to Kafka.
 
 ---
@@ -165,7 +170,7 @@ store = RedisIdempotencyStore("redis://localhost:6379")
 {
   "wamid": "wamid.XXXX",
   "tenant": "amh",
-  "phone_number_hash": "sha256hex",
+  "phone_number_hash": "hk1_<64hex> (keyed HMAC-SHA256, ADR-0036)",
   "message_type": "text | audio | image | document | interactive | location",
   "message_body": "...",
   "timestamp_ms": 1718181600000,
@@ -182,7 +187,7 @@ store = RedisIdempotencyStore("redis://localhost:6379")
   "tenant": "amh",
   "status": "sent | delivered | read | failed",
   "timestamp_ms": 1718181600000,
-  "phone_number_hash": "sha256hex",
+  "phone_number_hash": "hk1_<64hex> (keyed HMAC-SHA256, ADR-0036)",
   "error_code": null,
   "error_title": null
 }

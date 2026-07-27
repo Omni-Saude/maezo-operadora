@@ -66,6 +66,16 @@ EVENTOS DE DOMINIO (worker operadora.events.publish):
   fim -> agents.events.nip.completed (payload.desfecho = resolvida_favoravel | negativa_mantida |
          nao_assistencial_respondida)
 
+HANDOFF A ANS-SUBMIT (T2.6-7, arming — cada um dos tres ST_HandoffAns{Manter,Conceder,
+NaoAssistencial} e seguido por um ST_PublishHandoffAnsSubmit{...} dedicado, mesmo worker
+operadora.events.publish): publica type=nip.handoff_ans_submit em operadora.notifications.internal
+(payload: tenant_id, origem_envio=nip_filing, numero_nip_ans, protocolo_ans, revisor_id,
+data_recebimento_nip_iso) — o notifications_bridge consome esse fato e inicia
+SP-OP-ANS-SUBMIT-001 pelo chokepoint fenced start_process_idempotent (business key
+ANSSUB-{tenant}-nipfiling-{numero_nip_ans}, notification_bridge.py's `nip.handoff_ans_submit`
+rule). Mesma forma do fato ans.cron_due (SP-OP-ANS-CRON-001) — publica DIRETO em
+operadora.notifications.internal, sem topico de dominio proprio intermediario.
+
 VARIAVEIS DE ENTRADA: tenant_id, numero_nip_ans, protocolo_ans (opc), beneficiario_pseudo_id
 (ADR-0006), classificacao_nip (assistencial|nao_assistencial), tema_nip, referencia_negativa_original
 (opc), data_recebimento_nip_iso, documentos_refs (json), contesta_negativa (bool), documentacao_suficiente
@@ -428,8 +438,8 @@ worker nao fica orfao.</bpmn:documentation>
     <bpmn:serviceTask id="ST_HandoffAnsManter" name="Handoff filing formal a ANS-SUBMIT (manter)"
                       camunda:type="external" camunda:topic="operadora.nip.handoff_ans_submit">
       <bpmn:documentation>Handoff a SP-OP-ANS-SUBMIT-001 (HITL pre-filing, nao-repudio ADR-0007). NIP-001 nao transmite diretamente a ANS. Payload carrega protocolo_ans/numero_nip_ans + texto_resposta_nip + revisor_id.
-GAP-NIP-4 (resolvido — correcao de contrato): esta instancia TERMINA logo apos este handoff — ANTES de a ANS emitir qualquer protocolo. Por isso NAO ha `protocolo_filing` como variavel de processo de SP-OP-NIP-001 (era um output de contrato estruturalmente inalcancavel; corrigido). O protocolo de filing real e `protocolo_ans`, saida de SP-OP-ANS-SUBMIT-001, correlacionada de volta a esta NIP via `nip_protocolo_origem` (mapeado a partir de protocolo_ans/numero_nip_ans pelo notifications_bridge/consumer.py::_nip_protocolo_origem — ver docs/processes/contracts/SP-OP-NIP-001.md §"Variaveis de saida").
-GAP-NIP-6: protocolo_ans PRESENTE porem vazio/em branco (guard de origem, nao merito) lanca ERR_NIP_PROTOCOLO_INVALIDO — capturado pelo boundary BE_NipProtocoloInvalidoManter, abaixo.</bpmn:documentation>
+GAP-NIP-4 (resolvido — correcao de contrato): esta instancia TERMINA logo apos este handoff (via ST_PublishHandoffAnsSubmitManter, abaixo) — ANTES de a ANS emitir qualquer protocolo. Por isso NAO ha `protocolo_filing` como variavel de processo de SP-OP-NIP-001 (era um output de contrato estruturalmente inalcancavel; corrigido). O protocolo de filing real e `protocolo_ans`, saida de SP-OP-ANS-SUBMIT-001, correlacionada de volta a esta NIP via `nip_protocolo_origem` (mapeado a partir de protocolo_ans/numero_nip_ans pelo notification_bridge.py::_ans_submit_variables_from_nip_handoff — ver docs/processes/contracts/SP-OP-NIP-001.md §"Variaveis de saida").
+GAP-NIP-6: protocolo_ans PRESENTE porem vazio/em branco (guard de origem, nao merito) lanca ERR_NIP_PROTOCOLO_INVALIDO — capturado pelo boundary BE_NipProtocoloInvalidoManter, abaixo. Este worker (`handoff_ans_submit_entry`) NUNCA publica Kafka (`del kafka` — so valida/retorna variaveis); a publicacao real do fato de handoff para o notifications_bridge e responsabilidade do ST_PublishHandoffAnsSubmitManter seguinte, que le as variaveis de saida deste task ja mescladas ao processo (mesmo idioma do ST_Publish* generico usado em todo o BPMN).</bpmn:documentation>
       <bpmn:incoming>Flow_SubmeterManter_Handoff</bpmn:incoming>
       <bpmn:outgoing>Flow_HandoffManter_Pub</bpmn:outgoing>
     </bpmn:serviceTask>
@@ -439,6 +449,19 @@ GAP-NIP-6: protocolo_ans PRESENTE porem vazio/em branco (guard de origem, nao me
       <bpmn:outgoing>Flow_ProtocoloInvalidoManter_End</bpmn:outgoing>
       <bpmn:errorEventDefinition id="EED_NipProtocoloInvalidoManter" errorRef="Error_NipProtocoloInvalido"/>
     </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="ST_PublishHandoffAnsSubmitManter" name="Publicar evento: nip.handoff_ans_submit (manter)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:documentation>T2.6-7 arming: publica o fato de handoff que o notifications_bridge consome (rule `nip.handoff_ans_submit` -> SP-OP-ANS-SUBMIT-001, business key ANSSUB-{tenant}-nipfiling-{numero_nip_ans}). Roda SOMENTE quando ST_HandoffAnsManter completou sem lancar ERR_NIP_PROTOCOLO_INVALIDO (o boundary catch acima intercepta ANTES desta task — nunca publica um handoff invalido). event_payload_vars le as proprias variaveis de saida do handoff worker precedente (ja mescladas ao processo): tenant_id, origem_envio (sempre "nip_filing" aqui), numero_nip_ans, protocolo_ans, revisor_id (setado por UT_RevisaoJuridicaNip/UT_CoordenacaoNip antes de GW_DecisaoNip), data_recebimento_nip_iso.</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">operadora.notifications.internal</camunda:inputParameter>
+          <camunda:inputParameter name="event_type">nip.handoff_ans_submit</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,origem_envio,numero_nip_ans,protocolo_ans,revisor_id,data_recebimento_nip_iso</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_HandoffManter_Pub</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubHandoffManter_PubNegativa</bpmn:outgoing>
+    </bpmn:serviceTask>
     <bpmn:serviceTask id="ST_PublishNegativaMantida" name="Publicar evento: nip.completed (negativa_mantida)"
                       camunda:type="external" camunda:topic="operadora.events.publish">
       <bpmn:extensionElements>
@@ -448,7 +471,7 @@ GAP-NIP-6: protocolo_ans PRESENTE porem vazio/em branco (guard de origem, nao me
           <camunda:inputParameter name="event_payload_vars">tenant_id,numero_nip_ans,revisor_id,referencia_negativa_original</camunda:inputParameter>
         </camunda:inputOutput>
       </bpmn:extensionElements>
-      <bpmn:incoming>Flow_HandoffManter_Pub</bpmn:incoming>
+      <bpmn:incoming>Flow_PubHandoffManter_PubNegativa</bpmn:incoming>
       <bpmn:outgoing>Flow_PubManter_End</bpmn:outgoing>
     </bpmn:serviceTask>
     <bpmn:endEvent id="End_NipNegativaMantida" name="Negativa mantida (L0 — unico adverso)">
@@ -464,7 +487,7 @@ GAP-NIP-6: protocolo_ans PRESENTE porem vazio/em branco (guard de origem, nao me
     </bpmn:serviceTask>
     <bpmn:serviceTask id="ST_HandoffAnsConceder" name="Handoff filing formal a ANS-SUBMIT (conceder)"
                       camunda:type="external" camunda:topic="operadora.nip.handoff_ans_submit">
-      <bpmn:documentation>GAP-NIP-6: protocolo_ans PRESENTE porem vazio/em branco (guard de origem, nao merito) lanca ERR_NIP_PROTOCOLO_INVALIDO — capturado pelo boundary BE_NipProtocoloInvalidoConceder, abaixo.</bpmn:documentation>
+      <bpmn:documentation>GAP-NIP-6: protocolo_ans PRESENTE porem vazio/em branco (guard de origem, nao merito) lanca ERR_NIP_PROTOCOLO_INVALIDO — capturado pelo boundary BE_NipProtocoloInvalidoConceder, abaixo. Este worker NUNCA publica Kafka (`del kafka`) — ST_PublishHandoffAnsSubmitConceder (seguinte) publica o fato de handoff para o notifications_bridge.</bpmn:documentation>
       <bpmn:incoming>Flow_SubmeterConceder_Handoff</bpmn:incoming>
       <bpmn:outgoing>Flow_HandoffConceder_Pub</bpmn:outgoing>
     </bpmn:serviceTask>
@@ -473,6 +496,19 @@ GAP-NIP-6: protocolo_ans PRESENTE porem vazio/em branco (guard de origem, nao me
       <bpmn:outgoing>Flow_ProtocoloInvalidoConceder_End</bpmn:outgoing>
       <bpmn:errorEventDefinition id="EED_NipProtocoloInvalidoConceder" errorRef="Error_NipProtocoloInvalido"/>
     </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="ST_PublishHandoffAnsSubmitConceder" name="Publicar evento: nip.handoff_ans_submit (conceder)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:documentation>T2.6-7 arming: mesmo racional de ST_PublishHandoffAnsSubmitManter (ramo MANTER_NEGATIVA) — ver a documentacao completa la. Roda SOMENTE quando ST_HandoffAnsConceder completou sem ERR_NIP_PROTOCOLO_INVALIDO.</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">operadora.notifications.internal</camunda:inputParameter>
+          <camunda:inputParameter name="event_type">nip.handoff_ans_submit</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,origem_envio,numero_nip_ans,protocolo_ans,revisor_id,data_recebimento_nip_iso</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_HandoffConceder_Pub</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubHandoffConceder_PubResolvida</bpmn:outgoing>
+    </bpmn:serviceTask>
     <bpmn:serviceTask id="ST_PublishResolvidaFavoravel" name="Publicar evento: nip.completed (resolvida_favoravel)"
                       camunda:type="external" camunda:topic="operadora.events.publish">
       <bpmn:extensionElements>
@@ -482,7 +518,7 @@ GAP-NIP-6: protocolo_ans PRESENTE porem vazio/em branco (guard de origem, nao me
           <camunda:inputParameter name="event_payload_vars">tenant_id,numero_nip_ans,revisor_id</camunda:inputParameter>
         </camunda:inputOutput>
       </bpmn:extensionElements>
-      <bpmn:incoming>Flow_HandoffConceder_Pub</bpmn:incoming>
+      <bpmn:incoming>Flow_PubHandoffConceder_PubResolvida</bpmn:incoming>
       <bpmn:outgoing>Flow_PubConceder_End</bpmn:outgoing>
     </bpmn:serviceTask>
     <bpmn:endEvent id="End_NipResolvidaFavoravel" name="NIP resolvida favoravelmente (decisao humana)">
@@ -498,7 +534,7 @@ GAP-NIP-6: protocolo_ans PRESENTE porem vazio/em branco (guard de origem, nao me
     </bpmn:serviceTask>
     <bpmn:serviceTask id="ST_HandoffAnsNaoAssistencial" name="Handoff filing formal a ANS-SUBMIT (nao-assistencial)"
                       camunda:type="external" camunda:topic="operadora.nip.handoff_ans_submit">
-      <bpmn:documentation>GAP-NIP-6: protocolo_ans PRESENTE porem vazio/em branco (guard de origem, nao merito) lanca ERR_NIP_PROTOCOLO_INVALIDO — capturado pelo boundary BE_NipProtocoloInvalidoNaoAssist, abaixo.</bpmn:documentation>
+      <bpmn:documentation>GAP-NIP-6: protocolo_ans PRESENTE porem vazio/em branco (guard de origem, nao merito) lanca ERR_NIP_PROTOCOLO_INVALIDO — capturado pelo boundary BE_NipProtocoloInvalidoNaoAssist, abaixo. Este worker NUNCA publica Kafka (`del kafka`) — ST_PublishHandoffAnsSubmitNaoAssistencial (seguinte) publica o fato de handoff para o notifications_bridge.</bpmn:documentation>
       <bpmn:incoming>Flow_SubmeterNaoAssist_Handoff</bpmn:incoming>
       <bpmn:outgoing>Flow_HandoffNaoAssist_Pub</bpmn:outgoing>
     </bpmn:serviceTask>
@@ -528,6 +564,19 @@ GAP-NIP-6: protocolo_ans PRESENTE porem vazio/em branco (guard de origem, nao me
       <bpmn:incoming>Flow_ProtocoloInvalidoNaoAssist_End</bpmn:incoming>
     </bpmn:endEvent>
 
+    <bpmn:serviceTask id="ST_PublishHandoffAnsSubmitNaoAssistencial" name="Publicar evento: nip.handoff_ans_submit (nao-assistencial)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:documentation>T2.6-7 arming: mesmo racional de ST_PublishHandoffAnsSubmitManter (ramo MANTER_NEGATIVA) — ver a documentacao completa la. Roda SOMENTE quando ST_HandoffAnsNaoAssistencial completou sem ERR_NIP_PROTOCOLO_INVALIDO.</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">operadora.notifications.internal</camunda:inputParameter>
+          <camunda:inputParameter name="event_type">nip.handoff_ans_submit</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,origem_envio,numero_nip_ans,protocolo_ans,revisor_id,data_recebimento_nip_iso</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_HandoffNaoAssist_Pub</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubHandoffNaoAssist_PubNaoAssist</bpmn:outgoing>
+    </bpmn:serviceTask>
     <bpmn:serviceTask id="ST_PublishNaoAssistencialRespondida" name="Publicar evento: nip.completed (nao_assistencial_respondida)"
                       camunda:type="external" camunda:topic="operadora.events.publish">
       <bpmn:extensionElements>
@@ -537,7 +586,7 @@ GAP-NIP-6: protocolo_ans PRESENTE porem vazio/em branco (guard de origem, nao me
           <camunda:inputParameter name="event_payload_vars">tenant_id,numero_nip_ans,revisor_id</camunda:inputParameter>
         </camunda:inputOutput>
       </bpmn:extensionElements>
-      <bpmn:incoming>Flow_HandoffNaoAssist_Pub</bpmn:incoming>
+      <bpmn:incoming>Flow_PubHandoffNaoAssist_PubNaoAssist</bpmn:incoming>
       <bpmn:outgoing>Flow_PubNaoAssist_End</bpmn:outgoing>
     </bpmn:serviceTask>
     <bpmn:endEvent id="End_NipNaoAssistencialRespondida" name="NIP nao-assistencial respondida (decisao humana)">
@@ -606,13 +655,16 @@ GAP-NIP-6: protocolo_ans PRESENTE porem vazio/em branco (guard de origem, nao me
     </bpmn:sequenceFlow>
     <bpmn:sequenceFlow id="Flow_GWDec_NaoAssistencial" name="RESPONDER_NAO_ASSISTENCIAL (default)" sourceRef="GW_DecisaoNip" targetRef="ST_SubmeterRespostaNaoAssistencial"/>
     <bpmn:sequenceFlow id="Flow_SubmeterManter_Handoff" sourceRef="ST_SubmeterRespostaManter" targetRef="ST_HandoffAnsManter"/>
-    <bpmn:sequenceFlow id="Flow_HandoffManter_Pub" sourceRef="ST_HandoffAnsManter" targetRef="ST_PublishNegativaMantida"/>
+    <bpmn:sequenceFlow id="Flow_HandoffManter_Pub" sourceRef="ST_HandoffAnsManter" targetRef="ST_PublishHandoffAnsSubmitManter"/>
+    <bpmn:sequenceFlow id="Flow_PubHandoffManter_PubNegativa" sourceRef="ST_PublishHandoffAnsSubmitManter" targetRef="ST_PublishNegativaMantida"/>
     <bpmn:sequenceFlow id="Flow_PubManter_End" sourceRef="ST_PublishNegativaMantida" targetRef="End_NipNegativaMantida"/>
     <bpmn:sequenceFlow id="Flow_SubmeterConceder_Handoff" sourceRef="ST_SubmeterRespostaConceder" targetRef="ST_HandoffAnsConceder"/>
-    <bpmn:sequenceFlow id="Flow_HandoffConceder_Pub" sourceRef="ST_HandoffAnsConceder" targetRef="ST_PublishResolvidaFavoravel"/>
+    <bpmn:sequenceFlow id="Flow_HandoffConceder_Pub" sourceRef="ST_HandoffAnsConceder" targetRef="ST_PublishHandoffAnsSubmitConceder"/>
+    <bpmn:sequenceFlow id="Flow_PubHandoffConceder_PubResolvida" sourceRef="ST_PublishHandoffAnsSubmitConceder" targetRef="ST_PublishResolvidaFavoravel"/>
     <bpmn:sequenceFlow id="Flow_PubConceder_End" sourceRef="ST_PublishResolvidaFavoravel" targetRef="End_NipResolvidaFavoravel"/>
     <bpmn:sequenceFlow id="Flow_SubmeterNaoAssist_Handoff" sourceRef="ST_SubmeterRespostaNaoAssistencial" targetRef="ST_HandoffAnsNaoAssistencial"/>
-    <bpmn:sequenceFlow id="Flow_HandoffNaoAssist_Pub" sourceRef="ST_HandoffAnsNaoAssistencial" targetRef="ST_PublishNaoAssistencialRespondida"/>
+    <bpmn:sequenceFlow id="Flow_HandoffNaoAssist_Pub" sourceRef="ST_HandoffAnsNaoAssistencial" targetRef="ST_PublishHandoffAnsSubmitNaoAssistencial"/>
+    <bpmn:sequenceFlow id="Flow_PubHandoffNaoAssist_PubNaoAssist" sourceRef="ST_PublishHandoffAnsSubmitNaoAssistencial" targetRef="ST_PublishNaoAssistencialRespondida"/>
     <bpmn:sequenceFlow id="Flow_PubNaoAssist_End" sourceRef="ST_PublishNaoAssistencialRespondida" targetRef="End_NipNaoAssistencialRespondida"/>
     <bpmn:sequenceFlow id="Flow_SolicitarInfo_GWAguardar" sourceRef="ST_SolicitarInfoNip" targetRef="GW_AguardarInfo"/>
     <bpmn:sequenceFlow id="Flow_Aguardar_InfoMsg" sourceRef="GW_AguardarInfo" targetRef="ICE_InfoRecebida"/>
@@ -706,11 +758,14 @@ GAP-NIP-6: protocolo_ans PRESENTE porem vazio/em branco (guard de origem, nao me
       <bpmndi:BPMNShape id="Shape_BE_NipProtocoloInvalidoManter" bpmnElement="BE_NipProtocoloInvalidoManter">
         <dc:Bounds x="2262" y="334" width="36" height="36"/>
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_PublishNegativaMantida" bpmnElement="ST_PublishNegativaMantida">
+      <bpmndi:BPMNShape id="Shape_ST_PublishHandoffAnsSubmitManter" bpmnElement="ST_PublishHandoffAnsSubmitManter">
         <dc:Bounds x="2410" y="272" width="100" height="80"/>
       </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishNegativaMantida" bpmnElement="ST_PublishNegativaMantida">
+        <dc:Bounds x="2590" y="272" width="100" height="80"/>
+      </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_End_NipNegativaMantida" bpmnElement="End_NipNegativaMantida">
-        <dc:Bounds x="2590" y="294" width="36" height="36"/>
+        <dc:Bounds x="2770" y="294" width="36" height="36"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_SubmeterRespostaConceder" bpmnElement="ST_SubmeterRespostaConceder">
         <dc:Bounds x="2050" y="416" width="100" height="80"/>
@@ -721,11 +776,14 @@ GAP-NIP-6: protocolo_ans PRESENTE porem vazio/em branco (guard de origem, nao me
       <bpmndi:BPMNShape id="Shape_BE_NipProtocoloInvalidoConceder" bpmnElement="BE_NipProtocoloInvalidoConceder">
         <dc:Bounds x="2262" y="478" width="36" height="36"/>
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_PublishResolvidaFavoravel" bpmnElement="ST_PublishResolvidaFavoravel">
+      <bpmndi:BPMNShape id="Shape_ST_PublishHandoffAnsSubmitConceder" bpmnElement="ST_PublishHandoffAnsSubmitConceder">
         <dc:Bounds x="2410" y="416" width="100" height="80"/>
       </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishResolvidaFavoravel" bpmnElement="ST_PublishResolvidaFavoravel">
+        <dc:Bounds x="2590" y="416" width="100" height="80"/>
+      </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_End_NipResolvidaFavoravel" bpmnElement="End_NipResolvidaFavoravel">
-        <dc:Bounds x="2590" y="438" width="36" height="36"/>
+        <dc:Bounds x="2770" y="438" width="36" height="36"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_SubmeterRespostaNaoAssistencial" bpmnElement="ST_SubmeterRespostaNaoAssistencial">
         <dc:Bounds x="2050" y="560" width="100" height="80"/>
@@ -739,11 +797,14 @@ GAP-NIP-6: protocolo_ans PRESENTE porem vazio/em branco (guard de origem, nao me
       <bpmndi:BPMNShape id="Shape_End_NipProtocoloInvalido" bpmnElement="End_NipProtocoloInvalido">
         <dc:Bounds x="72" y="714" width="36" height="36"/>
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_PublishNaoAssistencialRespondida" bpmnElement="ST_PublishNaoAssistencialRespondida">
+      <bpmndi:BPMNShape id="Shape_ST_PublishHandoffAnsSubmitNaoAssistencial" bpmnElement="ST_PublishHandoffAnsSubmitNaoAssistencial">
         <dc:Bounds x="2410" y="560" width="100" height="80"/>
       </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishNaoAssistencialRespondida" bpmnElement="ST_PublishNaoAssistencialRespondida">
+        <dc:Bounds x="2590" y="560" width="100" height="80"/>
+      </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_End_NipNaoAssistencialRespondida" bpmnElement="End_NipNaoAssistencialRespondida">
-        <dc:Bounds x="2590" y="582" width="36" height="36"/>
+        <dc:Bounds x="2770" y="582" width="36" height="36"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_SolicitarInfoNip" bpmnElement="ST_SolicitarInfoNip">
         <dc:Bounds x="2050" y="692" width="100" height="80"/>
@@ -891,9 +952,13 @@ GAP-NIP-6: protocolo_ans PRESENTE porem vazio/em branco (guard de origem, nao me
         <di:waypoint x="2330" y="312"/>
         <di:waypoint x="2410" y="312"/>
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_PubManter_End" bpmnElement="Flow_PubManter_End">
+      <bpmndi:BPMNEdge id="Edge_Flow_PubHandoffManter_PubNegativa" bpmnElement="Flow_PubHandoffManter_PubNegativa">
         <di:waypoint x="2510" y="312"/>
         <di:waypoint x="2590" y="312"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubManter_End" bpmnElement="Flow_PubManter_End">
+        <di:waypoint x="2690" y="312"/>
+        <di:waypoint x="2770" y="312"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_SubmeterConceder_Handoff" bpmnElement="Flow_SubmeterConceder_Handoff">
         <di:waypoint x="2150" y="456"/>
@@ -903,9 +968,13 @@ GAP-NIP-6: protocolo_ans PRESENTE porem vazio/em branco (guard de origem, nao me
         <di:waypoint x="2330" y="456"/>
         <di:waypoint x="2410" y="456"/>
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_PubConceder_End" bpmnElement="Flow_PubConceder_End">
+      <bpmndi:BPMNEdge id="Edge_Flow_PubHandoffConceder_PubResolvida" bpmnElement="Flow_PubHandoffConceder_PubResolvida">
         <di:waypoint x="2510" y="456"/>
         <di:waypoint x="2590" y="456"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubConceder_End" bpmnElement="Flow_PubConceder_End">
+        <di:waypoint x="2690" y="456"/>
+        <di:waypoint x="2770" y="456"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_SubmeterNaoAssist_Handoff" bpmnElement="Flow_SubmeterNaoAssist_Handoff">
         <di:waypoint x="2150" y="600"/>
@@ -915,9 +984,13 @@ GAP-NIP-6: protocolo_ans PRESENTE porem vazio/em branco (guard de origem, nao me
         <di:waypoint x="2330" y="600"/>
         <di:waypoint x="2410" y="600"/>
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_PubNaoAssist_End" bpmnElement="Flow_PubNaoAssist_End">
+      <bpmndi:BPMNEdge id="Edge_Flow_PubHandoffNaoAssist_PubNaoAssist" bpmnElement="Flow_PubHandoffNaoAssist_PubNaoAssist">
         <di:waypoint x="2510" y="600"/>
         <di:waypoint x="2590" y="600"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubNaoAssist_End" bpmnElement="Flow_PubNaoAssist_End">
+        <di:waypoint x="2690" y="600"/>
+        <di:waypoint x="2770" y="600"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_SolicitarInfo_GWAguardar" bpmnElement="Flow_SolicitarInfo_GWAguardar">
         <di:waypoint x="2150" y="732"/>

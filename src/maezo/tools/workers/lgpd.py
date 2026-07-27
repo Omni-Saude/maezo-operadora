@@ -614,7 +614,12 @@ def make_notify_sla_risk_handler(kafka: KafkaPublisher | None) -> TaskHandler:
     `bpmn:217-232` nor `bpmn:325-337` carries a `bpmn:boundaryEvent`): a `kafka.publish` failure
     PROPAGATES uncaught, mirroring `make_publish_event_handler`'s non-opt-in path (`events.py`) —
     the harness's normal dispatch ladder (`harness.py` module docstring, design §9) computes the
-    retry/incident, never silently swallowed, never a fabricated success. Both callers are
+    retry/incident, never silently swallowed, never a fabricated success. NON-HOLLOW NOTE
+    (t8-escalation-boundary): this claim was only true in the ABSTRACT until the real producer
+    landed — `_NOTIFICATIONS_TOPIC` is one of `AioKafkaEventsProducer.BEST_EFFORT_TOPICS`, so the
+    producer's DEFAULT posture SWALLOWED the failure one layer below and this docstring lied. The
+    publish now passes `best_effort=False`, forcing the producer to PROPAGATE, which is what makes
+    "PROPAGATES uncaught" actually hold against the real transport. Both callers are
     non-interrupting SIDE branches running IN PARALLEL with the main DSR token (the boundary timer
     does not cancel `UT_RevisaoDpo`; the event subprocess is a separate token from instance start)
     — so a notify failure here is contained to its own side branch and never corrupts/blocks the
@@ -655,7 +660,19 @@ def make_notify_sla_risk_handler(kafka: KafkaPublisher | None) -> TaskHandler:
             )
             return {}
 
-        await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=task.business_key or None)
+        # best_effort=False (t8-escalation-boundary ROOT-CAUSE fix): _NOTIFICATIONS_TOPIC is a
+        # producer BEST_EFFORT topic, so the DEFAULT posture would SWALLOW a broker-down failure
+        # one layer below — silently losing the LGPD Art. 19-II legal-deadline notice while this
+        # handler falsely reported success, directly contradicting this function's own docstring
+        # ("a `kafka.publish` failure PROPAGATES uncaught"). No BPMN error boundary is declared on
+        # either notify_sla_risk service task (verified: neither ST_NotificarRiscoSla nor
+        # ST_NotificarJuridicoBreach carries a bpmn:boundaryEvent), so the root-cause-correct
+        # posture is to PROPAGATE the RAW exception to the harness's retry/incident ladder (never a
+        # modeled bpmnError, never a fabricated success) — both callers are non-interrupting SIDE
+        # branches, so the propagation is contained and never blocks the main DSR token.
+        await kafka.publish(
+            _NOTIFICATIONS_TOPIC, notification, key=task.business_key or None, best_effort=False
+        )
         logger.info(
             "lgpd_notify_sla_risk_sent",
             tenant_id=tenant_id,

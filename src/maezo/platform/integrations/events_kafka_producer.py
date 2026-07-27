@@ -47,16 +47,27 @@ family with a modeled fallback for a publish failure — `_ESCALATION_PUBLISH_BP
 Wiring a REAL producer must not silently change that: a Kafka outage must not newly stall
 CONTAS/FRAUDE/ANS-CRON at their unconditional, no-gateway `ST_Publish*` step (they would sit
 retrying/incidented forever with no operator-visible fallback, unlike escalation's modeled one).
-So `BEST_EFFORT_TOPICS` (= `MIRROR_TOPICS | {NOTIFICATIONS_TOPIC}`) publishes NEVER raise out of
-`publish()`: a broker-down/timeout/send failure is caught, logged LOUDLY (`kafka_publish_failed` /
-`kafka_mirror_publish_failed`, matching `events.py`'s `event_publish_failed` log-event naming
-convention) and recorded on `self.failed_publishes` (in-process, test/observability-introspectable
-counter — this module owns no durable-audit table; the durable ADR-0007 audit chain is the fenced
-START path's job, not this best-effort mirror's), then `publish()` returns normally. Every OTHER
-topic (escalation's 4, and any future one not in this routing table) is UNCHANGED: a send failure
-still propagates, so `events.py`'s existing `except Exception` -> `WorkerBpmnError(
-ERR_EVENT_PUBLISH_FAILED)` boundary-catch machinery for escalation keeps working exactly as before
-this module existed.
+So `BEST_EFFORT_TOPICS` (= `MIRROR_TOPICS | {NOTIFICATIONS_TOPIC}`) publishes never raise out of
+`publish()` BY DEFAULT: a broker-down/timeout/send failure is caught, logged LOUDLY
+(`kafka_publish_failed` / `kafka_mirror_publish_failed`, matching `events.py`'s
+`event_publish_failed` log-event naming convention) and recorded on `self.failed_publishes`
+(in-process, test/observability-introspectable counter — this module owns no durable-audit table;
+the durable ADR-0007 audit chain is the fenced START path's job, not this best-effort mirror's),
+then `publish()` returns normally. Every OTHER topic (escalation's 4, and any future one not in
+this routing table) is UNCHANGED: a send failure still propagates, so `events.py`'s existing
+`except Exception` -> `WorkerBpmnError(ERR_EVENT_PUBLISH_FAILED)` boundary-catch machinery for
+escalation keeps working exactly as before this module existed.
+
+PER-CALL POSTURE OVERRIDE (t8-escalation-boundary — the ROOT-CAUSE fix for the escalation/lgpd
+notify swallow): the topic-based default above is only the DEFAULT. `publish(..., best_effort=...)`
+lets a caller override it, because the criticality of a publish is a property of the CALL, not the
+topic. `best_effort=None` keeps the topic-based default (all existing callers). `best_effort=False`
+FORCES propagate regardless of topic — escalation's `notify_team`/`notify_supervisor` and lgpd's
+`notify_sla_risk` publish to `NOTIFICATIONS_TOPIC` (topic-default best-effort) yet a lost grave
+clinical escalation / LGPD Art. 19 legal-deadline notice must NOT be swallowed here: it must reach
+escalation's modeled `ERR_ESC_NOTIFY_FAILED` boundary or lgpd's harness retry/incident ladder.
+`best_effort=True` forces swallow. The MIRROR leg is ALWAYS best-effort regardless (unchanged) — a
+mirror failure must never break a source BPMN.
 
 PHI/scrub backstop (task's own ask — "if the convention requires one"): the per-domain payload
 `events.py` builds is untouched (BPMN `event_payload_vars` authors already curated it — verified,
@@ -237,12 +248,15 @@ class AioKafkaEventsProducer:
     real/fake seam split in `notifications_bridge.py`.
 
     Routing + fail-safe behavior — see module docstring:
-      - `MIRROR_TOPICS`: publish also mirrors an envelope onto `NOTIFICATIONS_TOPIC`.
-      - `BEST_EFFORT_TOPICS`: publish (primary AND mirror) never raises; a failure is logged +
-        appended to `self.failed_publishes` instead.
+      - `MIRROR_TOPICS`: publish also mirrors an envelope onto `NOTIFICATIONS_TOPIC` (the mirror
+        leg is ALWAYS best-effort).
+      - `BEST_EFFORT_TOPICS`: the primary publish is best-effort BY DEFAULT (never raises; a
+        failure is logged + appended to `self.failed_publishes`) — UNLESS the caller passes
+        `best_effort=False`, which forces propagate (the escalation/lgpd notify callers do).
       - Every other topic: unchanged pre-existing propagate-on-failure behavior (needed so
         SP-OP-ESCALATION-001's `ERR_EVENT_PUBLISH_FAILED` boundary-catch machinery, the one
         family that DOES model a publish-failure fallback, keeps working).
+      - `best_effort` per-call override (see `publish`): the criticality is a property of the CALL.
     """
 
     def __init__(
@@ -294,15 +308,37 @@ class AioKafkaEventsProducer:
         assert self._raw is not None  # narrows for mypy — set immediately above under the lock
         return self._raw
 
-    async def publish(self, topic: str, value: dict[str, Any], *, key: str | None = None) -> None:
-        """`KafkaPublisher.publish` — the ONE seam `events.py`/`lgpd.py` call.
+    async def publish(
+        self,
+        topic: str,
+        value: dict[str, Any],
+        *,
+        key: str | None = None,
+        best_effort: bool | None = None,
+    ) -> None:
+        """`KafkaPublisher.publish` — the ONE seam `events.py`/`lgpd.py`/`escalation.py` call.
 
         Publishes to `topic` (primary). If `topic` is in `MIRROR_TOPICS`, ALSO republishes a
-        scrubbed envelope (`{"type": topic, **scrub_mirror_payload(value)}`) onto
-        `NOTIFICATIONS_TOPIC`. Both legs are independently best-effort when `topic` (respectively
-        `NOTIFICATIONS_TOPIC`) is in `BEST_EFFORT_TOPICS` — see module docstring.
+        scrubbed envelope (`{**scrub_mirror_payload(value), "type": topic}`) onto
+        `NOTIFICATIONS_TOPIC`.
+
+        `best_effort` is the OPTIONAL per-call posture (t8-escalation-boundary — criticality is a
+        property of the CALL, not the topic):
+          - `None` (default): keep the TOPIC-based default (`topic in BEST_EFFORT_TOPICS`), so no
+            existing caller changes behavior — a Kafka outage still must NOT newly stall
+            CONTAS/FRAUDE/ANS-CRON at their unconditional, no-gateway `ST_Publish*` step.
+          - `False`: FORCE propagate-on-failure regardless of topic. This is the ROOT-CAUSE fix
+            for the escalation/lgpd notify swallow: those callers publish to `NOTIFICATIONS_TOPIC`
+            (which is topic-default best-effort), but a lost grave-escalation team notice / LGPD
+            Art. 19 legal-deadline notice must NOT be silently swallowed — it must reach the
+            caller's modeled `ERR_ESC_NOTIFY_FAILED` boundary (escalation) or the harness
+            retry/incident ladder (lgpd).
+          - `True`: FORCE best-effort (swallow) regardless of topic.
+        The MIRROR leg is ALWAYS best-effort (a mirror failure must never break a source BPMN —
+        no BPMN boundary anywhere expects a "mirror publish failed" error).
         """
-        await self._publish_one(topic, value, key=key, best_effort=topic in BEST_EFFORT_TOPICS)
+        primary_best_effort = best_effort if best_effort is not None else (topic in BEST_EFFORT_TOPICS)
+        await self._publish_one(topic, value, key=key, best_effort=primary_best_effort)
 
         if topic in MIRROR_TOPICS:
             # R1 F1: `type` is stamped LAST so the envelope's discriminator always wins — a

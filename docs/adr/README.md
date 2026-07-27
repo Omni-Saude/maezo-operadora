@@ -45,6 +45,7 @@ Regras:
 | 0033 | Identidade de servico do agente — emissao/verificacao do certificado/service-account (metade cert de T-G); espaco de decisao + recomendacao nao-vinculante; amends ADR-0007, nao supersede | Proposed |
 | 0034 | L2 review sampling intencionalmente fora do v2 (descope ratificado, #24); autonomia enforce-ada estruturalmente (ADR-0018), nao por PEP em runtime; amends ADR-0008 + ADR-0025, nao supersede | Accepted |
 | 0035 | PHI pseudonymizer — keyed HMAC-SHA256 (fecha SHA-256 sem chave reversivel); prod fail-closed em `PHI_HMAC_KEY` ausente, dev determinista por-tenant nao-secreto; cutover limpo (sem store persistido); amends ADR-0006, nao supersede (t6-hmac) | Accepted |
+| 0036 | Identidade conversa/thread/business-key com HMAC keyed (fecha reversibilidade residual do ADR-0035 no `hash_phone`/`conversation_id` que o T4b passou a persistir + no Cockpit); trava do thread-id exige marcador keyed `hk1_` (nao mais so "nao-numerico"); fold-in `LogScrubber` fail-closed; cutover limpo; estende ADR-0035 + ADR-0006, nao supersede (t9-phi-conversation-id) | Accepted |
 
 Texto integral e racional estendido: `agent-platform-adrs.md` no projeto de arquitetura
 (serie AP-001..AP-012 mapeia 1:1 para 0001..0012 desta serie).

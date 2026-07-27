@@ -22,12 +22,16 @@ there. Mirroring that DDL into Alembic would fork an upstream-owned schema and d
 library bump — so we await `setup()` once at daemon bootstrap instead (see
 `runtime/agent_runtime/service.py::_provision_checkpointer`).
 
-PHI / THREAD-ID DISCIPLINE (LGPD): `checkpoint_blobs` stores BYTEA channel values that ARE
-PHI-bearing, keyed by `thread_id`. Thread ids must therefore NEVER embed a raw identifier (phone,
-CPF, patient id). The platform convention (webhooks/whatsapp/dispatch.py, helena/graph.py) is a
-hashed `wa:{tenant}:{phone_hash}` conversation id or an `ESC-{tenant}-{conversation_id}` process
-business key — `checkpoint_thread_config` builds a RunnableConfig from one and fail-closes on an
-obviously-raw-numeric id.
+PHI / THREAD-ID DISCIPLINE (LGPD; ADR-0035 extension): `checkpoint_blobs` stores BYTEA channel
+values that ARE PHI-bearing, keyed by `thread_id`. Thread ids must therefore NEVER embed a raw
+identifier (phone, CPF, patient id) NOR a REVERSIBLE unkeyed hash of one. The platform convention
+(webhooks/whatsapp/dispatch.py, helena/graph.py) is a KEYED `wa:{tenant}:hk1_{phone_hash}`
+conversation id — where `phone_hash` is a keyed HMAC-SHA256 pseudonym (ADR-0035), tagged with the
+`hk1_` marker — or an `ESC-{tenant}-{conversation_id}` process business key that wraps one.
+`checkpoint_thread_config` builds a RunnableConfig from one and fail-closes UNLESS the id embeds
+the `hk1_<hex>` keyed-pseudonym token: because a keyed HMAC hex and an unkeyed sha256 hex are
+byte-for-byte indistinguishable, requiring the marker is the only way to reject the legacy
+reversible `wa:{tenant}:{bare-sha256}` identity (not merely a bare raw number).
 """
 
 from __future__ import annotations
@@ -48,22 +52,43 @@ from langgraph.checkpoint.base import (
     CheckpointTuple,
 )
 
+from maezo.gateway.pseudonymizer import KEYED_PSEUDONYM_PREFIX
+
 logger = structlog.get_logger(__name__)
 
 #: A raw phone/CPF-like identifier: an optionally-`+`-prefixed run of >=6 digits with nothing
-#: else. A sha256 hex conversation hash is never all-digits (it carries a-f w.p. ~1), and the
-#: convention ids (`wa:amh:...`, `ESC-amh-...`) carry separators — so this precisely rejects a
-#: bare number leaking into a thread id without false-positiving the real conventions.
+#: else. Kept for a SPECIFIC error message; it is now subsumed by the keyed-token requirement
+#: below (a raw number carries no `hk1_<hex>` token either), but naming the raw-identifier failure
+#: mode explicitly is clearer than a generic "no keyed pseudonym" for the commonest mistake.
 _RAW_NUMERIC_THREAD_ID = re.compile(r"^\+?\d{6,}$")
+
+#: A KEYED conversation/thread pseudonym token: the `hk1_` marker (ADR-0035 extension) followed by
+#: a 64-char HMAC-SHA256 hex digest. `assert_phi_safe_thread_id` REQUIRES this token to appear in
+#: the thread id. This is the crux of the tightening: a keyed HMAC hex and an UNKEYED sha256 hex
+#: are byte-for-byte indistinguishable (both 64 lowercase hex chars), so "not raw-numeric" alone
+#: (the previous gate) still ACCEPTED the reversible `wa:{tenant}:{bare-sha256}` scheme. Requiring
+#: the `hk1_` marker — emitted only by `security.hash_phone` routed through the keyed
+#: `Pseudonymizer` — makes it structurally impossible for an unkeyed hash to be admitted as a
+#: thread id ever again. The token is matched with `.search` (not `.fullmatch`) so it accepts both
+#: a bare `wa:{tenant}:hk1_{hex}` conversation id and an `ESC-{tenant}-wa:{tenant}:hk1_{hex}`
+#: business key that wraps one.
+_KEYED_PSEUDONYM_TOKEN = re.compile(rf"{re.escape(KEYED_PSEUDONYM_PREFIX)}[0-9a-f]{{64}}")
 
 
 def assert_phi_safe_thread_id(thread_id: str) -> str:
-    """Return `thread_id` if it is PHI-safe, else raise (LGPD, T3.4/F4).
+    """Return `thread_id` if it is PHI-safe, else raise (LGPD, T3.4/F4; ADR-0035 extension).
 
-    `checkpoint_blobs` rows are PHI-bearing and keyed by `thread_id`; a raw phone/CPF used as a
-    thread id would write plaintext PHI into a table not designed to hold it. Fail-closed: a
-    bare numeric id is refused. Derive the id from a hashed conversation id / process business
-    key instead (see module docstring).
+    `checkpoint_blobs` rows are PHI-bearing and keyed by `thread_id`, so the id must be an
+    IRREVERSIBLE pseudonym. Two fail-closed checks:
+
+      1. A bare raw phone/CPF-like number is refused (writes plaintext PHI into the table).
+      2. The id MUST embed a KEYED pseudonym token (`hk1_<64-hex>`) — not merely "not a raw
+         number". Because an unkeyed sha256 hex and a keyed HMAC hex are structurally identical,
+         requiring the keyed marker is the ONLY way the guard can reject the legacy reversible
+         `wa:{tenant}:{bare-sha256}` scheme (reversible via a precomputed table over the ~6.7e9
+         BR-mobile keyspace). Derive the id via `security.hash_phone` routed through the keyed
+         `Pseudonymizer` (ADR-0035 / `PHI_HMAC_KEY`): `wa:{tenant}:hk1_{hmac}` or an
+         `ESC-{tenant}-...` business key that wraps one.
     """
     tid = (thread_id or "").strip()
     if not tid:
@@ -71,9 +96,18 @@ def assert_phi_safe_thread_id(thread_id: str) -> str:
     if _RAW_NUMERIC_THREAD_ID.match(tid):
         raise ValueError(
             "thread_id must not be a raw phone/CPF-like number — checkpoint tables are PHI-bearing "
-            "and keyed by thread_id. Derive it from a hashed conversation id "
-            "(wa:{tenant}:{phone_hash}) or a process business key (ESC-{tenant}-...), never a raw "
+            "and keyed by thread_id. Derive it from a KEYED conversation id "
+            "(wa:{tenant}:hk1_{hmac}) or a process business key (ESC-{tenant}-...), never a raw "
             "identifier (LGPD, T3.4/F4)."
+        )
+    if not _KEYED_PSEUDONYM_TOKEN.search(tid):
+        raise ValueError(
+            "thread_id must embed a KEYED pseudonym token (hk1_<hmac-sha256 hex>) — checkpoint "
+            "tables are PHI-bearing and keyed by thread_id, so an UNKEYED sha256 hash (byte-for-"
+            "byte identical in shape to a keyed HMAC, but reversible via a precomputed table over "
+            "the ~6.7e9 BR-mobile keyspace) must never be accepted. Derive the conversation id via "
+            "security.hash_phone routed through the keyed Pseudonymizer (ADR-0035 / PHI_HMAC_KEY): "
+            "wa:{tenant}:hk1_{hmac} or ESC-{tenant}-... that wraps one (LGPD, T3.4/F4)."
         )
     return tid
 
