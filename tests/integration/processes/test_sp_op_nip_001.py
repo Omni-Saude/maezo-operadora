@@ -126,22 +126,34 @@ FINDINGS (see PR body / evidence-ledger for full detail):
          for the exact residual risk and flip procedure.
 
   3. Kafka-publish gap (systemic, SAME class as auth/cancel/escalation residuals — ledger row
-     "T3.1 (events.publish fix)") — STILL OPEN, unchanged by t2.5-p2b-nip-mechanical: every
-     ADR-0026 dict-boundary entry function nip.py registers under an `operadora.nip.*` topic —
-     `instruct_dossier_entry`, `submit_response_entry`, `notify_deadline_risk_entry` (new, BUILT
-     the SAME way — `del kafka  # unused`, deliberately matching this convention rather than
-     fixing the systemic gap, which is out of scope here), `handoff_ans_submit_entry` — never
-     calls `kafka.publish`; `register_nip_workers`'s own docstring says so explicitly. The donor's
-     equivalent handlers published a per-worker notification (`operadora.notifications.internal`)
-     from INSIDE the handler; v2's entry functions only RETURN output variables loaded back onto
-     the process instance by the harness's `complete` call. `nip_probe.notifications_of_type(...)`
-     over any of these topics can therefore never observe an execution, even though the worker
-     itself runs/completes correctly against the live engine (this suite's flow-level assertions
-     for the same tests generally DO pass — see `_NIP_WORKER_KAFKA_GAP_REASON` below for the exact
-     tests this blocks). Distinguish this from `agents.events.nip.*` topics (published via the
-     GENERIC, WORKING `operadora.events.publish` handler, `events.py`) — those DO work and are
-     asserted un-xfailed throughout this suite. NOTE (SUPERSEDED by 2c above): the 2
-     `has_event(_NIP_DEADLINE_RISK)` assertions (`test_prazo_nip_dispara_alerta_nao_interruptivo`,
+     "T3.1 (events.publish fix)") — PARTIALLY CLOSED (t8-nip-ans-handoff-arm, this pass) for
+     `handoff_ans_submit_entry` specifically; STILL OPEN, unchanged, for the other three:
+     `instruct_dossier_entry`, `submit_response_entry`, `notify_deadline_risk_entry` (BUILT the
+     SAME way — `del kafka  # unused`, deliberately matching this convention rather than fixing
+     the systemic gap, out of scope here) never call `kafka.publish`; `register_nip_workers`'s own
+     docstring says so explicitly. The donor's equivalent handlers published a per-worker
+     notification (`operadora.notifications.internal`) from INSIDE the handler; v2's entry
+     functions only RETURN output variables loaded back onto the process instance by the harness's
+     `complete` call. `nip_probe.notifications_of_type(...)` over any of these THREE remaining
+     topics can therefore never observe an execution, even though the worker itself runs/completes
+     correctly against the live engine (this suite's flow-level assertions for the same tests
+     generally DO pass — see `_NIP_WORKER_KAFKA_GAP_REASON` below for the exact tests this still
+     blocks). `handoff_ans_submit_entry` itself is UNCHANGED (still `del kafka` — it never publishes
+     directly) — but each of the three `ST_HandoffAns{Manter,Conceder,NaoAssistencial}` BPMN
+     branches now SPLICES a dedicated `ST_PublishHandoffAnsSubmit{...}` task (generic, WORKING
+     `operadora.events.publish`, `event_type=nip.handoff_ans_submit`) immediately after the handoff
+     worker — the SAME splice shape the Wave-1/wave-4 remedy-B batches used elsewhere (a new
+     `ST_Publish*` task added alongside the original dict-first worker, which keeps its own separate
+     business action) — so `notifications_of_type("nip.handoff_ans_submit")` now DOES observe an
+     execution (`test_handoff_ans_submit_apos_decisao_humana`, below, un-xfailed). This ALSO arms the
+     notification_bridge.py `nip.handoff_ans_submit` rule end-to-end in production (previously a
+     half-armed dead rule: the bridge consumed an event_type nothing ever published — see
+     `test_nip_handoff_end_to_end_starts_ans_submit_via_live_bridge`, which proves the bridge/fenced-
+     starter half genuinely starts a new SP-OP-ANS-SUBMIT-001 instance). Distinguish this from
+     `agents.events.nip.*` topics (published via the GENERIC, WORKING `operadora.events.publish`
+     handler, `events.py`) — those DO work and are asserted un-xfailed throughout this suite. NOTE
+     (SUPERSEDED by 2c above): the 2 `has_event(_NIP_DEADLINE_RISK)` assertions
+     (`test_prazo_nip_dispara_alerta_nao_interruptivo`,
      `test_prazo_ancora_em_data_recebimento_nip_nao_em_attach_da_ut`) are no longer blocked by this
      finding — `agents.events.nip.deadline_risk` now has a real publisher
      (`ST_NotificarRiscoPrazo`/`ST_NotificarRiscoRevisao` converted to `operadora.events.publish`,
@@ -300,8 +312,8 @@ _UT_HUMANAS_MANTER = frozenset({_UT_REVISAO, _UT_COORDENACAO})
 _NIP_WORKER_KAFKA_GAP_REASON = (
     "v2 systemic drift (T3.1 finding 3 — same class as auth/cancel/escalation residuals, ledger "
     "row 'T3.1 (events.publish fix)'): nip.py's ADR-0026 dict-boundary entry functions "
-    "(instruct_dossier_entry/submit_response_entry/notify_deadline_risk_entry/"
-    "handoff_ans_submit_entry — t2.5-p2b-nip-mechanical DELETED classify_nip_entry/route_nip_"
+    "(instruct_dossier_entry/submit_response_entry/notify_deadline_risk_entry — "
+    "t2.5-p2b-nip-mechanical DELETED classify_nip_entry/route_nip_"
     "entry/review_juridico_entry/notify_beneficiario_entry as orphan registrations, and BUILT "
     "notify_deadline_risk_entry the SAME way, `del kafka  # unused`, deliberately matching this "
     "convention rather than fixing it) never call kafka.publish — register_nip_workers's own "
@@ -311,7 +323,15 @@ _NIP_WORKER_KAFKA_GAP_REASON = (
     "never observe an execution, even though the worker itself runs/completes correctly against "
     "the live engine and this test's OTHER (flow-level, agents.events.nip.* via the generic "
     "operadora.events.publish worker) assertions would pass. Fix belongs to the Kafka-producer "
-    "wiring task, not this port (STILL true after t2.5-p2b-nip-mechanical)."
+    "wiring task, not this port (STILL true after t2.5-p2b-nip-mechanical). "
+    "RETAGGED (t8-nip-ans-handoff-arm): `handoff_ans_submit_entry` is NO LONGER covered by this "
+    "reason — SP-OP-NIP-001_Resposta_NIP.bpmn now SPLICES a dedicated "
+    "`ST_PublishHandoffAnsSubmit{Manter,Conceder,NaoAssistencial}` task (generic, WORKING "
+    "`operadora.events.publish`) right after each `ST_HandoffAns{...}`, so "
+    "`notifications_of_type('nip.handoff_ans_submit')` DOES observe an execution now — see "
+    "`test_handoff_ans_submit_apos_decisao_humana`, un-xfailed. This reason still covers "
+    "`nip.instruct_dossier`/`nip.submit_response`/`nip.notify_deadline_risk` (unchanged, no "
+    "splice added for those in this pass)."
 )
 
 _PROTOCOLO_INVALIDO_NOT_BPMN_ERROR_REASON = (
@@ -1758,7 +1778,6 @@ async def test_business_key_uma_instancia_por_nip(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_NIP_WORKER_KAFKA_GAP_REASON, strict=True)
 async def test_handoff_ans_submit_apos_decisao_humana(
     engine: EngineRest,
     nip_probe: NipEngineProbe,
@@ -1767,16 +1786,25 @@ async def test_handoff_ans_submit_apos_decisao_humana(
     """Apos CONCEDER humano, handoff_ans_submit executa com payload de filing (protocolo/numero/revisor).
 
     O filing legalmente vinculante e responsabilidade de SP-OP-ANS-SUBMIT-001 — NIP-001 nao transmite
-    diretamente a ANS. NOTA (Step 3 fact 3 / notification_bridge): a SPEC-WIRED handoff a
-    SP-OP-ANS-SUBMIT-001 via origem_envio="nip_filing" NAO e runtime-wired
-    (notification_bridge.py registra exatamente 5 regras, nenhuma delas SP-OP-ANS-SUBMIT-001, e a
-    ponte nao e instanciada por nenhum consumidor rodando — docs/design/T2.6-ans-submission-rescope.md
-    §1.5/T2.6-7). Este teste, porem, so verifica que o worker nip.py COMPUTA/RETORNA as variaveis de
-    handoff corretas (testavel, em-processo) — NUNCA que uma segunda instancia SP-OP-ANS-SUBMIT-001
-    realmente inicia (isso exigiria a ponte, que nunca sera exercitada aqui); por isso NAO herda um
-    xfail proprio para essa lacuna. O UNICO motivo deste teste falhar em v2 e o gap 3 do docstring do
-    modulo (nip_probe.notifications_of_type nunca observa handoff_ans_submit_entry, que nao chama
-    kafka.publish).
+    diretamente a ANS.
+
+    [t8-nip-ans-handoff-arm] FLIPPED (was xfail(_NIP_WORKER_KAFKA_GAP_REASON, strict=True)): the
+    generic `del kafka` gap on `handoff_ans_submit_entry` itself is UNCHANGED (finding 3 still holds
+    for that entry function in isolation) — but each of the three `ST_HandoffAns{Manter,Conceder,
+    NaoAssistencial}` branches (SP-OP-NIP-001_Resposta_NIP.bpmn) is now followed by a dedicated
+    `ST_PublishHandoffAnsSubmit{...}` service task on the generic, WORKING `operadora.events.publish`
+    topic, publishing `type=nip.handoff_ans_submit` with `event_payload_vars=tenant_id,origem_envio,
+    numero_nip_ans,protocolo_ans,revisor_id,data_recebimento_nip_iso` — read straight off the handoff
+    worker's own output variables (already merged onto the process instance by the time it runs).
+    `nip_probe.notifications_of_type("nip.handoff_ans_submit")` now observes this publish (same
+    mechanism `ST_PublishBreach`/`ST_PublishClassified`/etc. already prove elsewhere in this suite).
+    This closes the PRODUCER half of the NIP→ANS-SUBMIT handoff (notification_bridge.py's
+    `nip.handoff_ans_submit` rule was already fully armed on the CONSUMER side — see
+    `test_nip_handoff_end_to_end_starts_ans_submit_via_live_bridge`, below, which proves the bridge
+    genuinely starts a new SP-OP-ANS-SUBMIT-001 instance). The event is published only when
+    `ST_HandoffAns{...}` completes WITHOUT raising `ERR_NIP_PROTOCOLO_INVALIDO` — the boundary catch
+    intercepts before this task, so a blank `protocolo_ans` never publishes a handoff (unchanged
+    invariant, see `test_protocolo_ans_em_branco_*` below).
     """
     inst = await start_nip(
         classificacao_nip="assistencial",
@@ -1808,30 +1836,41 @@ async def test_handoff_ans_submit_apos_decisao_humana(
 
 # ===========================================================================
 # T2.6-7 — end-to-end: NIP handoff -> live NotificationBridge -> real SP-OP-ANS-SUBMIT-001
-# start (pending live proof; xfail-strict, no docker in this dev environment).
+# start. NOTE: this test has never actually carried the xfail-strict marker the retired reason
+# constant below describes (pre-existing prose/code drift, not introduced by t8-nip-ans-handoff-
+# arm) — pytestmark = pytest.mark.integration already gates the whole file to a live engine; when
+# one is reachable this test is expected to pass outright.
 # ===========================================================================
 
 _T267_NIP_END_TO_END_PENDING_LIVE_PROOF_REASON = (
-    "T2.6-7 (docs/design/T2.6-ans-submission-rescope.md §1.5/§5): notification_bridge.py now "
+    "RETIRED/historical (t8-nip-ans-handoff-arm): this constant is unused by any xfail marker on "
+    "the test below (pre-existing drift — kept here only as documentation of T2.6-7's original "
+    "design intent). T2.6-7 (docs/design/T2.6-ans-submission-rescope.md §1.5/§5): "
+    "notification_bridge.py now "
     "registers a nip.handoff_ans_submit -> SP-OP-ANS-SUBMIT-001 rule with a deterministic "
     "business key (ANSSUB-{tenant}-nipfiling-{numero_nip_ans}) and a fenced starter "
     "(build_cibseven_process_starter -> start_process_idempotent, ADR-0007/T-C2) — both fully "
     "unit-proven against fakes in tests/unit/platform/test_notification_bridge.py. This test "
     "drives the SAME pipeline against the REAL engine end-to-end (NIP concluded -> handoff "
     "computed -> fed into a live NotificationBridge instance -> a genuinely NEW "
-    "SP-OP-ANS-SUBMIT-001 instance). It intentionally still bypasses two separate, "
-    "already-disclosed gaps rather than re-litigating them here: (a) handoff_ans_submit_entry "
-    "does not itself call kafka.publish yet (nip.py module docstring finding 3 / "
-    "_NIP_WORKER_KAFKA_GAP_REASON, xfailed independently on test_handoff_ans_submit_apos_"
-    "decisao_humana above) — this test calls the pure handoff_ans_submit(...) function directly "
-    "with the NIP instance's own known synthetic values instead of observing a published event; "
-    "(b) no production consumer in src/ instantiates NotificationBridge against "
-    "operadora.notifications.internal in a running daemon — this test constructs the bridge "
-    "manually, standing in for that (not-yet-built) consumer. Kept xfail-strict because this "
-    "agent has no docker/live-engine access to actually run and prove it end-to-end (task "
-    "instruction: 'no docker here' / 'pending live proof') — un-xfail only after a real R1 run "
-    "against a live CIB Seven + Postgres stack confirms it, per this design's own R2-build/"
-    "R1-verify tiering."
+    "SP-OP-ANS-SUBMIT-001 instance). At the time this reason was drafted it intentionally still "
+    "bypassed two separate, already-disclosed gaps rather than re-litigating them here: (a) "
+    "[CLOSED by t8-nip-ans-handoff-arm] handoff_ans_submit_entry itself still does not call "
+    "kafka.publish, but SP-OP-NIP-001_Resposta_NIP.bpmn now splices a dedicated "
+    "ST_PublishHandoffAnsSubmit{...} task right after each ST_HandoffAns{...} branch, which DOES "
+    "publish `type=nip.handoff_ans_submit` for a real consumer to observe — see "
+    "test_handoff_ans_submit_apos_decisao_humana above (un-xfailed) and the module docstring "
+    "finding 3. This test still calls the pure handoff_ans_submit(...) function directly with the "
+    "NIP instance's own known synthetic values instead of observing the published event — that "
+    "choice is now redundant with the BPMN-level proof but harmless (it independently exercises "
+    "the bridge's consume+start half in isolation); (b) STILL OPEN — no production consumer in "
+    "src/ instantiates NotificationBridge against operadora.notifications.internal in a running "
+    "daemon — this test constructs the bridge manually, standing in for that (not-yet-built) "
+    "consumer (maezo.platform.integrations.notifications_bridge.main() IS that consumer's "
+    "composition root, but nothing deploys/runs it against a live broker in this dev "
+    "environment). No live docker/engine access in this pass either — this test genuinely runs "
+    "(and is asserted to pass, not xfail) only when a reachable CIB Seven + Postgres stack is "
+    "present, per pytestmark = pytest.mark.integration's own skip/fixture gating."
 )
 
 
