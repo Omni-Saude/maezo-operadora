@@ -342,14 +342,88 @@ async def test_pin_fraude_contratual_beneficiario_arms_cancel_only_inadimplencia
             {"tenant_id": "amh", "numero_caso": "C1", "tier": "alto", "desfecho": "encaminhado_contratual"},
             "SP-OP-CANCEL-001",
         ),
+        # t2-notify-integrity item 3 — TENANT anchor refusals: every per-rule anchor present but
+        # tenant_id absent (or None). The armed pins above all carry tenant_id="amh"; these prove
+        # a tenant-less real-shaped payload never mints the degenerate `{PREFIX}--…` key the
+        # in-flow workers' own tenant guards (ERR_*_SEM_ALVO / shared non_blank) refuse in-flow —
+        # fail-closed SYMMETRY, bridge-side.
+        (
+            CONTAS_COMPLETED_EVENT,
+            {
+                "numero_lote_tiss": "L1",
+                "glosa_id": "G1",
+                "numero_guia_tiss": "GU1",
+                "desfecho": "encaminhada_recurso",
+            },
+            "SP-OP-RECURSO-001",
+        ),
+        (
+            CONTAS_COMPLETED_EVENT,
+            {"numero_lote_tiss": "L1", "prestador_id": "P1", "desfecho": "encaminhada_fraude"},
+            "SP-OP-FRAUDE-001",
+        ),
+        (
+            FRAUDE_COMPLETED_EVENT,
+            {
+                "numero_caso": "C1",
+                "tier": "alto",
+                "prestador_id": "P1",
+                "desfecho": "encaminhado_credenciamento",
+            },
+            "SP-OP-CRED-001",
+        ),
+        (
+            FRAUDE_COMPLETED_EVENT,
+            {
+                "numero_caso": "C1",
+                "tier": "alto",
+                "numero_contrato": "CTR-1",
+                "entidade_tipo": "beneficiario",
+                "desfecho": "encaminhado_contratual",
+            },
+            "SP-OP-CANCEL-001",
+        ),
+        (
+            FRAUDE_COMPLETED_EVENT,
+            {
+                "numero_caso": "C1",
+                "tier": "alto",
+                "numero_contrato": "CTR-1",
+                "entidade_tipo": "contrato",
+                "desfecho": "encaminhado_contratual",
+            },
+            "SP-OP-INADIMPLENCIA-001",
+        ),
+        (
+            CONTAS_COMPLETED_EVENT,
+            {
+                "tenant_id": None,
+                "numero_lote_tiss": "L1",
+                "prestador_id": "P1",
+                "desfecho": "encaminhada_fraude",
+            },
+            "SP-OP-FRAUDE-001",
+        ),
     ],
-    ids=["recurso-no-guia", "fraude-no-prestador", "cred-no-prestador", "cancel-no-contrato"],
+    ids=[
+        "recurso-no-guia",
+        "fraude-no-prestador",
+        "cred-no-prestador",
+        "cancel-no-contrato",
+        "recurso-no-tenant",
+        "fraude-no-tenant",
+        "cred-no-tenant",
+        "cancel-no-tenant",
+        "inadimplencia-no-tenant",
+        "fraude-tenant-none",
+    ],
 )
 async def test_pin_anchor_absent_still_refuses(
     event_type: str, payload: dict[str, Any], forbidden_target: str
 ) -> None:
-    """A completed-event payload missing the fail-closed anchor never starts its downstream
-    process — the armed predicates are still anchor-gated, not tautologies."""
+    """A completed-event payload missing a fail-closed anchor (business-key anchor OR tenant_id)
+    never starts its downstream process — the armed predicates are still anchor-gated, not
+    tautologies."""
     bridge, transport, audit_sink = _fenced_bridge()
     results = await bridge.on_event(event_type=event_type, payload=payload)
     assert all(r.target_process != forbidden_target for r in results)

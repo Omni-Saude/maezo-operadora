@@ -687,6 +687,12 @@ async def test_make_notify_regulatorio_handler_publishes_notification() -> None:
     assert payload["report_type"] == "RN_124_SIP"
     assert payload["deadline_risk"] is False
     assert key == task.business_key
+    # DECIDED KEEP (DL-0038, t2-notify-integrity): notify_regulatorio STAYS topic-default
+    # best-effort BY DESIGN — advisory on both variants (dossie: the MAIN ANS-filing path must
+    # not incident on a ping, engine timers guard the deadline; deadline-risk: the fail-closed
+    # domain-event publish one step downstream incidents a real outage anyway). This pin goes
+    # RED if someone flips the posture.
+    assert kafka.best_effort_calls == [None]
 
 
 async def test_make_notify_regulatorio_handler_deadline_risk_stamps_topic() -> None:

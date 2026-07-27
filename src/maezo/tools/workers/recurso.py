@@ -719,6 +719,15 @@ def make_notify_sla_risk_handler(kafka: KafkaPublisher | None) -> TaskHandler:
     Needs the async Kafka seam for the `notifications_of_type("recurso.notify_sla_risk")`
     observability channel the ported test-spec demands
     (`test_timer_alerta_sla_nao_interruptivo`) — see the module-level rationale above.
+
+    Fail-closed publish posture (t2-notify-integrity item 1): the publish is this task's ONLY
+    effect, so `best_effort=False` forces the producer to PROPAGATE a broker failure instead of
+    silently swallowing it while the handler reports success. No BPMN error boundary is declared
+    on `ST_NotificarRiscoSla` -> RAW propagate to the harness retry/incident ladder (ADR-0030) —
+    byte-for-byte the lgpd `make_notify_sla_risk_handler` posture. Containment: the task is fed
+    ONLY by the NON-interrupting `BT_AlertaSlaRecurso` boundary timer, so the propagation stays on
+    the alert side branch — `UT_AnaliseRecursoAnalista` and the interrupting SLA/P30D ceilings are
+    engine-side and unaffected.
     """
 
     async def handler(task: ExternalTask) -> dict[str, Any]:
@@ -734,7 +743,10 @@ def make_notify_sla_risk_handler(kafka: KafkaPublisher | None) -> TaskHandler:
             "glosa_id": input_data.glosa_id,
             "glosa_type": input_data.glosa_type,
         }
-        await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=task.business_key or None)
+        # best_effort=False — see factory docstring (no boundary declared -> raw propagate).
+        await kafka.publish(
+            _NOTIFICATIONS_TOPIC, notification, key=task.business_key or None, best_effort=False
+        )
         return result
 
     return handler
@@ -873,6 +885,15 @@ def make_submit_appeal_handler(kafka: KafkaPublisher | None) -> TaskHandler:
     test-spec demands (`test_happy_path_escalar_auditor_mantem_recurso`) — contract
     SP-OP-RECURSO-001.md has no distinct Kafka domain-event topic for this worker beyond the
     internal notification (only `protocolo_recurso` as an output VARIABLE).
+
+    Fail-closed publish posture (t2-notify-integrity item 1): this is a MAIN-path fact recording
+    a post-human-decision act (the appeal was interposed after RECORRER/MANTER_RECURSO, carrying
+    the minted `protocolo_recurso`) — losing it silently is unacceptable, so `best_effort=False`
+    forces the producer to PROPAGATE a broker failure. No BPMN error boundary is declared on
+    `ST_SubmitAppeal` -> RAW propagate to the harness retry/incident ladder (ADR-0030); the token
+    is held at this task (before the P5D tracking loop) until the fact is actually published.
+    Retry-safe: `_mint_protocolo_recurso` is deterministic by business key, so a re-dispatch
+    republishes the IDENTICAL fact.
     """
 
     async def handler(task: ExternalTask) -> dict[str, Any]:
@@ -886,7 +907,10 @@ def make_submit_appeal_handler(kafka: KafkaPublisher | None) -> TaskHandler:
             "glosa_id": input_data.glosa_id,
             "protocolo_recurso": result["protocolo_recurso"],
         }
-        await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=task.business_key or None)
+        # best_effort=False — see factory docstring (no boundary declared -> raw propagate).
+        await kafka.publish(
+            _NOTIFICATIONS_TOPIC, notification, key=task.business_key or None, best_effort=False
+        )
         return result
 
     return handler
@@ -941,6 +965,10 @@ def make_track_status_handler(kafka: KafkaPublisher | None) -> TaskHandler:
             "glosa_id": input_data.glosa_id,
             "protocolo_recurso": input_data.protocolo_recurso,
         }
+        # Posture: topic-default best-effort BY DESIGN (DL-0038, t2-notify-integrity keep) — this
+        # publish re-fires EVERY P5D `ICE_AguardarResposta` loop iteration, so a swallowed broker
+        # failure self-heals on the next tick; forcing fail-closed would incident an advisory
+        # re-tick. Deliberately NOT best_effort=False — pinned by test_recurso.py.
         await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=task.business_key or None)
         return result
 

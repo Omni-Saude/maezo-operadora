@@ -226,6 +226,25 @@ def _non_blank(value: Any) -> bool:
     return _shared_non_blank(value)
 
 
+def _anchored(payload: dict[str, Any], *anchor_fields: str) -> bool:
+    """True iff `tenant_id` AND every named business-key anchor field is present/non-blank.
+
+    t2-notify-integrity item 3 (bridge tenant anchor): ALL of the in-flow fenced-start workers
+    (`contas.start_recurso`/`start_fraude`, `fraude.start_credenciamento`/`start_contratual`)
+    guard `tenant_id` via the shared `non_blank` and REFUSE (incident) a tenant-less start — but
+    the bridge's 7 predicates historically checked only their per-rule anchors, so a tenant-less
+    payload minted a degenerate business key (`FRAUDE--{caso}`, `ANSSUB--nipfiling-{nip}`, ...):
+    a tenant-scoping/cockpit orphan whose key DIVERGES from the canonical in-flow key minted after
+    the tenant is fixed — exactly the double-start divergence the convergence design exists to
+    prevent. This ONE shared helper (used by every default rule) restores fail-closed symmetry:
+    no tenant -> the rule stays DORMANT, mirroring the workers' refusal. `tenant_id` is required
+    here structurally (not listed per rule) so no future rule can forget it.
+    """
+    return _non_blank(payload.get("tenant_id")) and all(
+        _non_blank(payload.get(field)) for field in anchor_fields
+    )
+
+
 # ---------------------------------------------------------------------------
 # T2.6-7 variable derivation (NIP handoff + ans.cron_due fact -> SUBMIT seed variables)
 # ---------------------------------------------------------------------------
@@ -284,23 +303,25 @@ def _ans_submit_variables_from_cron_due(payload: dict[str, Any]) -> dict[str, An
     `tests/integration/processes/test_sp_op_ans_cron_001.py`), falling back to the sentinel only
     if the fact is missing it entirely (never silently invents a real period).
 
-    `tenant_id` (EB-3 part 3 — SOURCE partially fixed, HONEST residual boundary):
-    `ans_cron.py`'s `trigger_submissions` now accepts a `tenant_id` KEYWORD parameter threaded
-    in at worker registration (`register_ans_cron_workers(harness, tenant_id=...)`, sourced from
-    the deployment's own `TENANT_ID`/`WorkerRuntimeSettings.tenant_id` — there is no
-    PER-INSTANCE tenant on this TimerStartEvent-triggered process the way there is on a
-    case-driven process like SP-OP-NIP-001; this scheduler is deployment-scoped, not
-    case-scoped). RESIDUAL GAP, NOT fixed here (still a `spec/` edit, still outside this
-    mechanical wiring task's edit authority): `trigger_submissions` itself is UNREACHABLE in the
-    real deployed BPMN today (FINDING #1c — the 5 `SP-OP-ANS-CRON-001-*` process definitions
-    bind `ST_PublishCronDue*` directly to the generic `operadora.events.publish` topic with
-    literal `camunda:inputParameter`s, never to `operadora.ans_cron.trigger_submissions`), and
-    that generic worker's own `event_payload_vars` literal
-    (`report_type,periodicidade,origem_envio,competencia`) does not list `tenant_id` — so the
-    REAL live Kafka fact still omits it until a `spec/` edit adds `tenant_id` to that BPMN
-    literal (`test_sp_op_ans_cron_001.py:428` still correctly documents this live-wire gap).
-    This mapping passes through whatever `tenant_id` key the payload supplies, defaulting to
-    `""` fail-closed when it is genuinely absent — never fabricated here.
+    `tenant_id` (EB-3 part 3 — SOURCE fixed at the generic publisher; t2-notify-integrity item 3
+    follow-up CLOSED the former live-wire residual): `ans_cron.py`'s `trigger_submissions`
+    accepts a `tenant_id` KEYWORD parameter but is UNREACHABLE in the real deployed BPMN
+    (FINDING #1c — the 5 `SP-OP-ANS-CRON-001-*` definitions bind `ST_PublishCronDue*` directly to
+    the generic `operadora.events.publish` topic with literal `camunda:inputParameter`s whose
+    `event_payload_vars` do not list `tenant_id`). The generic publisher
+    (`events.py::make_publish_event_handler`) therefore now stamps the DEPLOYMENT's own tenant
+    (`register_events_workers`' `tenant_id` seam, sourced from
+    `WorkerRuntimeSettings.tenant_id` — the live composition root
+    `worker_runtime/service.py::register_default_workers` already threads it) into any payload
+    the process variables left tenant-less, via `setdefault` (never overriding a
+    process-var-sourced tenant like SP-OP-NIP-001's). Deployment truth, not fabrication: there is
+    no PER-INSTANCE tenant on a TimerStartEvent-triggered scheduler — the per-tenant worker
+    deployment's identity IS the fact's tenant. So the REAL live fact now carries `tenant_id`
+    (`test_sp_op_ans_cron_001.py` pins it) and this rule ARMS under the tenant anchor with a
+    proper `ANSSUB-{tenant}-...` key. HONEST no-seam boundary: a registration WITHOUT the seam
+    (legacy/tests) still emits tenant-less facts — this mapping then defaults to `""` fail-closed
+    and the rule's `_anchored` predicate keeps it DORMANT (never an `ANSSUB--...` orphan);
+    nothing is fabricated here.
     """
     tenant_id = str(payload.get("tenant_id", ""))
     report_type = str(payload.get("report_type", ""))
@@ -492,15 +513,14 @@ class NotificationBridge:
         start them at all; it fail-closed refuses any rule whose variables lack `business_key`.
         """
         # CONTAS→RECURSO: on the REAL `agents.events.contas.completed` (desfecho=encaminhada_recurso)
-        # → start SP-OP-RECURSO-001. Fail-closed anchor requirement (see module reconciliation note):
+        # → start SP-OP-RECURSO-001. Fail-closed anchor requirement (see module reconciliation note
+        # + `_anchored` — tenant_id is required structurally, t2-notify-integrity item 3):
         # `numero_guia_tiss` + `glosa_id` must be present (business-key anchors) or the rule stays
         # dormant against today's minimal completed-event payload — never a divergent-key start.
         self.register_handoff(
             event_type=CONTAS_COMPLETED_EVENT,
             predicate=lambda p: (
-                p.get("desfecho") == "encaminhada_recurso"
-                and _non_blank(p.get("numero_guia_tiss"))
-                and _non_blank(p.get("glosa_id"))
+                p.get("desfecho") == "encaminhada_recurso" and _anchored(p, "numero_guia_tiss", "glosa_id")
             ),
             target_process="SP-OP-RECURSO-001",
             variables_fn=lambda p: {
@@ -530,9 +550,7 @@ class NotificationBridge:
         # on the SAME FRAUDE-001 instance, never a divergent double-start.
         self.register_handoff(
             event_type=CONTAS_COMPLETED_EVENT,
-            predicate=lambda p: (
-                p.get("desfecho") == "encaminhada_fraude" and _non_blank(p.get("prestador_id"))
-            ),
+            predicate=lambda p: p.get("desfecho") == "encaminhada_fraude" and _anchored(p, "prestador_id"),
             target_process="SP-OP-FRAUDE-001",
             variables_fn=lambda p: {
                 "tenant_id": str(p.get("tenant_id", "")),
@@ -554,7 +572,7 @@ class NotificationBridge:
         self.register_handoff(
             event_type=FRAUDE_COMPLETED_EVENT,
             predicate=lambda p: (
-                p.get("desfecho") == "encaminhado_credenciamento" and _non_blank(p.get("prestador_id"))
+                p.get("desfecho") == "encaminhado_credenciamento" and _anchored(p, "prestador_id")
             ),
             target_process="SP-OP-CRED-001",
             variables_fn=lambda p: {
@@ -575,7 +593,7 @@ class NotificationBridge:
         self.register_handoff(
             event_type=FRAUDE_COMPLETED_EVENT,
             predicate=lambda p: (
-                p.get("desfecho") == "encaminhado_contratual" and _non_blank(p.get("numero_contrato"))
+                p.get("desfecho") == "encaminhado_contratual" and _anchored(p, "numero_contrato")
             ),
             target_process="SP-OP-CANCEL-001",
             variables_fn=lambda p: {
@@ -604,7 +622,7 @@ class NotificationBridge:
             predicate=lambda p: (
                 p.get("desfecho") == "encaminhado_contratual"
                 and p.get("entidade_tipo") == "contrato"
-                and _non_blank(p.get("numero_contrato"))
+                and _anchored(p, "numero_contrato")
             ),
             target_process="SP-OP-INADIMPLENCIA-001",
             variables_fn=lambda p: {
@@ -619,28 +637,36 @@ class NotificationBridge:
         )
 
         # NIP→ANS-SUBMIT (T2.6-7): formal NIP response handed off for official filing.
-        # Fail-closed predicate: BOTH the origin marker AND the per-case anchor
-        # (numero_nip_ans, the business-key anchor) must be present/non-blank, or the
-        # handoff does not trigger — a malformed/incomplete event never starts a process
-        # with a garbage/non-deterministic business key. EB-3 part 2: `_non_blank` also
-        # fail-closed rejects an EXPLICIT `None` (not just absent/blank-string), which the
-        # naive `bool(str(...).strip())` idiom would otherwise treat as the non-blank string
-        # `"None"`.
+        # Fail-closed predicate: the origin marker AND the anchors (`tenant_id` structurally via
+        # `_anchored` + numero_nip_ans, the business-key anchors) must be present/non-blank, or
+        # the handoff does not trigger — a malformed/incomplete event never starts a process
+        # with a garbage/non-deterministic business key (t2-notify-integrity item 3: a tenant-less
+        # payload previously minted the literal `ANSSUB--nipfiling-...`-class key `_non_blank`'s
+        # own docstring warns about). EB-3 part 2: `_non_blank` also fail-closed rejects an
+        # EXPLICIT `None` (not just absent/blank-string), which the naive
+        # `bool(str(...).strip())` idiom would otherwise treat as the non-blank string `"None"`.
         self.register_handoff(
             event_type="nip.handoff_ans_submit",
-            predicate=lambda p: p.get("origem_envio") == "nip_filing" and _non_blank(p.get("numero_nip_ans")),
+            predicate=lambda p: p.get("origem_envio") == "nip_filing" and _anchored(p, "numero_nip_ans"),
             target_process=PROCESS_KEY_ANS_SUBMIT,
             variables_fn=_ans_submit_variables_from_nip_handoff,
         )
 
         # ans.cron_due→ANS-SUBMIT (T2.6-7): per-report_type scheduler tick.
         # Fail-closed predicate: report_type must be present/non-blank (no sensible
-        # calendar/business-key derivation without it). EB-3 part 2: `_non_blank` also
-        # fail-closed rejects an EXPLICIT `None` report_type (see `nip.handoff_ans_submit`
-        # rule above for the same hardening rationale).
+        # calendar/business-key derivation without it), plus `tenant_id` structurally via
+        # `_anchored` (t2-notify-integrity item 3 — no more `ANSSUB--{report_type}-...`
+        # degenerate keys). LIVE-WIRE ARMED (item 3 follow-up): the generic publisher now stamps
+        # the deployment tenant into tenant-less payloads (`events.py` `deployment_tenant_id`
+        # seam, setdefault-only — see `_ans_submit_variables_from_cron_due`'s docstring), so the
+        # real monthly tick carries `tenant_id` and this rule fires with a proper
+        # `ANSSUB-{tenant}-...` key; a registration WITHOUT that seam still emits tenant-less
+        # facts and the rule stays honestly DORMANT (fail-closed, never an orphan start). EB-3
+        # part 2: `_non_blank` also fail-closed rejects an EXPLICIT `None` report_type (see
+        # `nip.handoff_ans_submit` rule above).
         self.register_handoff(
             event_type="ans.cron_due",
-            predicate=lambda p: _non_blank(p.get("report_type")),
+            predicate=lambda p: _anchored(p, "report_type"),
             target_process=PROCESS_KEY_ANS_SUBMIT,
             variables_fn=_ans_submit_variables_from_cron_due,
         )

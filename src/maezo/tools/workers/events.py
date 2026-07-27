@@ -142,6 +142,24 @@ EVENTS_BPMN_ERROR_ALLOWLIST: frozenset[str] = frozenset({_ERR_EVENT_PUBLISH_FAIL
 _ANS_CRON_DUE_EVENT_TYPE = "ans.cron_due"
 _ANS_CRON_REFERENCE_DATE_KEY = "ans_cron_reference_date_iso"
 
+#: t2-notify-integrity item 2 (NIP→ANS one-shot handoff durability): event TYPES whose publish is
+#: FAIL-CLOSED — the handler passes `best_effort=False`, overriding the producer's topic-default
+#: best-effort posture for `operadora.notifications.internal`. Criticality is a property of the
+#: EVENT, not the topic: `nip.handoff_ans_submit` fires exactly ONCE per resolved NIP case (no
+#: recurring re-tick, no downstream backstop — the very next task ends the process), and the fact
+#: is the sole trigger for the mandatory SP-OP-ANS-SUBMIT-001 official filing. A broker-down
+#: failure therefore RAW-propagates (SP-OP-NIP-001 declares NO boundary on its
+#: `ST_PublishHandoffAnsSubmit*` tasks, so no `WorkerBpmnError` — the harness retry/incident
+#: ladder holds the token AT the publish task until delivered or incident; that ladder IS the
+#: durability mechanism). Operator retry/replay after an incident is safe: the bridge consumer is
+#: idempotent by business key (`notification_bridge.py`, `start_process_idempotent`'s
+#: `find_active_instance` convergence — a duplicate delivery of the same handoff fact returns the
+#: EXISTING `ANSSUB-{tenant}-nipfiling-{numero_nip_ans}` instance, never a double filing).
+#: `ans.cron_due` deliberately STAYS topic-default best-effort: its BPMN `timeCycle` start events
+#: republish the deterministic fact every period (a lost tick self-heals next month) — pinned by
+#: `test_events.py`.
+FAIL_CLOSED_EVENT_TYPES: frozenset[str] = frozenset({"nip.handoff_ans_submit"})
+
 
 def _parse_payload_vars(raw: Any) -> list[str]:
     """Normalize `event_payload_vars` into a list of variable names.
@@ -163,12 +181,25 @@ def make_publish_event_handler(
     kafka: KafkaPublisher | None,
     *,
     bpmn_error_topics: frozenset[str] = frozenset(),
+    deployment_tenant_id: str = "",
 ) -> TaskHandler:
     """Create the handler for `operadora.events.publish`.
 
     Generic worker: reads `event_topic` + `event_payload_vars` from the task's input variables and
     publishes the resulting payload to `kafka`. Every SP-OP-* BPMN's `ST_Publish*` service tasks
     route through this ONE handler.
+
+    `deployment_tenant_id` (t2-notify-integrity item 3 follow-up — closes EB-3 part 3's
+    documented cron live-wire gap): the worker DEPLOYMENT's own tenant identity
+    (`WorkerRuntimeSettings.tenant_id`, threaded through `register_events_workers`' `**seams`
+    exactly like `register_ans_cron_workers` — the SAME per-tenant-deployment authority every
+    worker's `tenant_id` dataclass field relies on). When set, the handler stamps it into the
+    payload via `setdefault` — ONLY when the process variables did not supply a `tenant_id`
+    (deployment truth for tenant-less facts like SP-OP-ANS-CRON-001's TimerStartEvent ticks,
+    whose BPMN `event_payload_vars` literal cannot carry a per-instance tenant; NEVER an
+    override of a process-var-sourced tenant like SP-OP-NIP-001's). Default `""` = no stamp —
+    legacy/test registrations without the seam are byte-for-byte unchanged (the bridge's tenant
+    anchor then keeps its rules honestly dormant, fail-closed).
 
     Required input variable:
       event_topic: str          — target Kafka topic.
@@ -193,9 +224,20 @@ def make_publish_event_handler(
 
     Output variables (loaded on `complete`, exactly once — see module docstring for the
     `kafka=None` decision):
-      event_published: bool     — whether the event actually reached the publisher.
+      event_published: bool     — whether the event actually reached the WIRE. t2-notify-integrity
+                                   (false-success fix): the producer's best-effort posture used to
+                                   swallow a broker-down failure INTERNALLY, so this handler never
+                                   saw an exception and returned `event_published: True` for a send
+                                   that genuinely failed — the one variable that exists to record
+                                   whether the fact reached the bridge LIED. `KafkaPublisher.publish`
+                                   now returns that delivery bool and this handler reports it
+                                   honestly.
+      event_publish_best_effort_failure: bool — set (True) ONLY when the publish failed but the
+                                   producer swallowed it (best-effort posture); distinguishes that
+                                   swallow from the `kafka=None` no-producer case, which also
+                                   reports `event_published: False` without this flag.
       event_topic: str          — echo of the input var (audit trail).
-    No BPMN gateway routes on either variable (verified — module docstring); these are
+    No BPMN gateway routes on any of these variables (verified — module docstring); these are
     record/audit-trail, never a routing decision.
     """
 
@@ -234,6 +276,13 @@ def make_publish_event_handler(
             if var_name in task.variables:
                 payload[var_name] = task.variables[var_name]
 
+        # Deployment-tenant stamp (t2-notify-integrity item 3 follow-up — see the
+        # `deployment_tenant_id` docstring): setdefault semantics, so a process-var-supplied
+        # tenant_id (even a blank one — the honest upstream value) is NEVER overridden; only a
+        # payload with NO tenant_id key at all gains the deployment's own identity.
+        if deployment_tenant_id:
+            payload.setdefault("tenant_id", deployment_tenant_id)
+
         # res-ans-competencia-sentinel (module docstring): stamp the tick-instant date ONCE, here.
         if event_type == _ANS_CRON_DUE_EVENT_TYPE:
             payload[_ANS_CRON_REFERENCE_DATE_KEY] = datetime.now(UTC).date().isoformat()
@@ -260,11 +309,17 @@ def make_publish_event_handler(
             )
             return {"event_published": False, "event_topic": str(event_topic)}
 
+        # FAIL_CLOSED_EVENT_TYPES (t2-notify-integrity item 2): force propagate for the one-shot
+        # NIP→ANS handoff fact; None keeps the producer's topic-based default for everything else.
+        publish_best_effort: bool | None = (
+            False if event_type is not None and str(event_type) in FAIL_CLOSED_EVENT_TYPES else None
+        )
         try:
-            await kafka.publish(
+            event_delivered = await kafka.publish(
                 str(event_topic),
                 payload,
                 key=task.business_key or None,
+                best_effort=publish_best_effort,
             )
         except Exception as exc:
             logger.error(
@@ -281,6 +336,35 @@ def make_publish_event_handler(
                     f"Falha ao publicar evento {event_topic}: {exc}",
                 ) from exc
             raise  # Pre-existing behavior preserved for every non-opt-in topic (zero regression).
+
+        if not event_delivered:
+            # t2-notify-integrity (false-success fix): the producer SWALLOWED a best-effort
+            # publish failure one layer below — no exception ever reached this handler, but the
+            # send did NOT reach the wire. `event_published` must not lie: report the honest
+            # outcome, with a distinct flag so a swallowed failure is distinguishable from the
+            # `kafka=None` no-producer case. The task still COMPLETES (best-effort posture is the
+            # producer's/caller's deliberate choice for this publish; no BPMN gateway routes on
+            # these markers), but log LOUDLY — key names only, same convention as above.
+            logger.warning(
+                "event_publish_best_effort_failure",
+                event_topic=event_topic,
+                business_key=task.business_key,
+                process_instance_id=task.process_instance_id,
+                payload_keys=sorted(payload.keys()),
+            )
+            _stdlib_logger.warning(
+                "event_publish_best_effort_failure topic=%s business_key=%s "
+                "process_instance_id=%s — best-effort publish failed and was swallowed by the "
+                "producer; event NOT on the wire, completing with event_published=False",
+                event_topic,
+                task.business_key,
+                task.process_instance_id,
+            )
+            return {
+                "event_published": False,
+                "event_publish_best_effort_failure": True,
+                "event_topic": str(event_topic),
+            }
 
         logger.info(
             "event_published",
@@ -308,9 +392,26 @@ def register_events_workers(
     Raw-handler registration (`harness.register`, not `harness.register_worker`) — see module
     docstring for why this module cannot use the `FunctionWorker` dict-first boundary every other
     domain module uses.
+
+    `tenant_id` seam (t2-notify-integrity item 3 follow-up — `**seams` catch-all, mirrors
+    `register_ans_cron_workers`): the deployment's own tenant identity, already threaded by the
+    live composition root (`worker_runtime/service.py::register_default_workers` passes
+    `tenant_id=settings.tenant_id` into `register_all_workers`, whose `**seams` fan into every
+    bootstrap). Consumed here as `make_publish_event_handler`'s `deployment_tenant_id` (see its
+    docstring for the setdefault-only stamping contract). Defaults to `""` fail-closed when the
+    composition root does not pass one — unchanged behavior for every existing caller that does
+    not know about this seam.
     """
-    del seams  # unused — no seam beyond `kafka` is needed by this handler
+    raw_tenant = seams.get("tenant_id")
+    # None-hardened (the same `str(None) == "None"` footgun `_non_blank`'s docstring in
+    # notification_bridge.py documents): an explicit None seam is treated as absent, never the
+    # 4-character string "None" stamped into every payload.
+    deployment_tenant_id = str(raw_tenant).strip() if raw_tenant is not None else ""
     harness.register(
         "operadora.events.publish",
-        make_publish_event_handler(kafka, bpmn_error_topics=_ESCALATION_PUBLISH_BPMN_ERROR_TOPICS),
+        make_publish_event_handler(
+            kafka,
+            bpmn_error_topics=_ESCALATION_PUBLISH_BPMN_ERROR_TOPICS,
+            deployment_tenant_id=deployment_tenant_id,
+        ),
     )

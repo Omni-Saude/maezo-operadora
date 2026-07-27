@@ -461,6 +461,17 @@ def make_request_additional_proof_handler(kafka: KafkaPublisher | None) -> TaskH
     reintroduce the fail-OPEN defect this change closes. No adverse/denial semantics (LGPD Art. 18
     — a subject-rights request is a classic social-engineering exfiltration vector, bpmn:87).
 
+    Fail-closed publish posture (t2-notify-integrity item 1): the publish is this task's ONLY
+    business effect, on the MAIN token path — after it, the instance parks at `GW_AguardarProva`
+    for proof that can only arrive if the titular was actually asked, with a P10D timer
+    (`ICE_PrazoProva`) that kills the DSR as `expirada_identidade` when it never comes. A
+    silently-swallowed publish therefore ends the Art. 18 request unanswered WITH THE RECORD
+    BLAMING THE TITULAR. `kafka.publish(..., best_effort=False)` forces the producer to PROPAGATE
+    a broker failure; no BPMN error boundary is declared on `ST_PedirProvaAdicional`, so the RAW
+    exception rides the harness retry/incident ladder (ADR-0030) — the token is HELD at this task
+    (preventing the un-asked P10D death) until the challenge is actually dispatched or an operator
+    intervenes. Exact twin of `make_notify_sla_risk_handler`'s posture below.
+
     Raw-handler registration (mirrors events.py) because emitting a notification needs the async
     Kafka seam a sync `WorkerBase.execute` boundary cannot reach.
     """
@@ -496,7 +507,15 @@ def make_request_additional_proof_handler(kafka: KafkaPublisher | None) -> TaskH
             )
             return {}
 
-        await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=task.business_key or None)
+        # best_effort=False (t2-notify-integrity item 1): _NOTIFICATIONS_TOPIC is a producer
+        # BEST_EFFORT topic — the default posture would swallow a broker-down failure and this
+        # handler would report success while the titular was never asked for proof (the instance
+        # then dies at ICE_PrazoProva P10D as `expirada_identidade`, blaming the titular). No BPMN
+        # boundary is declared on ST_PedirProvaAdicional -> RAW propagate to the harness
+        # retry/incident ladder (ADR-0030), holding the token AT this task until delivered.
+        await kafka.publish(
+            _NOTIFICATIONS_TOPIC, notification, key=task.business_key or None, best_effort=False
+        )
         logger.info(
             "lgpd_request_additional_proof_sent",
             tenant_id=tenant_id,
@@ -532,6 +551,17 @@ def make_send_response_handler(kafka: KafkaPublisher | None) -> TaskHandler:
     NEGAR_FUNDAMENTADO legal justification, free text) is read ONLY to derive a bounded PRESENCE
     flag (`tem_fundamentacao: bool`) — its raw text is NEVER copied into the notification or
     logged, mirroring #55 R-B's `detalhes_requisicao` exclusion (ADR-0006).
+
+    Fail-closed publish posture (t2-notify-integrity item 1): dispatch IS this task's only job,
+    on the MAIN path's TERMINAL leg — immediately after it, `ST_PublishCompleted` publishes
+    `lgpd_dsr.completed` and the process ends (`End_RequisicaoConcluida`). A silently-swallowed
+    publish means the titular never receives the legally mandated response (including a negativa
+    fundamentada — LGPD Art. 18/19 exposure) while the process reaches TERMINAL with false
+    success; there is no timer, no backstop, no re-tick. `kafka.publish(..., best_effort=False)`
+    forces the producer to PROPAGATE; no BPMN error boundary is declared on `ST_EnviarResposta`,
+    so the RAW exception rides the harness retry/incident ladder (ADR-0030) — the token is held at
+    this task until the response is actually dispatched or an operator intervenes, never a false
+    terminal.
 
     Raw-handler registration (mirrors `make_request_additional_proof_handler`) because emitting a
     notification needs the async Kafka seam a sync `WorkerBase.execute` boundary cannot reach.
@@ -574,7 +604,14 @@ def make_send_response_handler(kafka: KafkaPublisher | None) -> TaskHandler:
             )
             return {}
 
-        await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=task.business_key or None)
+        # best_effort=False (t2-notify-integrity item 1): the default best-effort posture for
+        # _NOTIFICATIONS_TOPIC would swallow a broker-down failure and let the DSR reach a
+        # TERMINAL false success with the titular's legally mandated response never dispatched
+        # (worst of the four audited swallows). No BPMN boundary on ST_EnviarResposta -> RAW
+        # propagate to the harness retry/incident ladder (ADR-0030).
+        await kafka.publish(
+            _NOTIFICATIONS_TOPIC, notification, key=task.business_key or None, best_effort=False
+        )
         logger.info(
             "lgpd_send_response_sent",
             tenant_id=tenant_id,
