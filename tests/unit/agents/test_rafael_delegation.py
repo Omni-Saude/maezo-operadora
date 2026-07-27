@@ -42,7 +42,14 @@ class _FakeInference:
         self._responses = list(responses) if responses else ["dossie factual sintetico"]
         self.calls: list[tuple[str, bool]] = []
 
-    async def generate(self, prompt: str, *, phi: bool = False) -> str:
+    async def generate(
+        self,
+        prompt: str,
+        *,
+        phi: bool = False,
+        agent_id: str | None = None,
+        tenant_id: str | None = None,
+    ) -> str:
         self.calls.append((prompt, phi))
         assert phi is True, "Rafael's dossier LLM call must be phi=True (security_zone: phi)"
         return self._responses.pop(0) if self._responses else ""

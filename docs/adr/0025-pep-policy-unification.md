@@ -1,6 +1,6 @@
 # ADR-0025: PEP ↔ Policy Unification (autonomy-matrix YAML loading + single action vocabulary) [T1.8]
 
-**Status:** Proposed (pending implementation T1.8) · **Data:** 2026-07-16 · **Area:** Seguranca / Governanca de Autonomia
+**Status:** Accepted — ratified by orchestrator (Fable 5) 2026-07-27, recorded as DL-0036 · **Data:** 2026-07-16 · **Area:** Seguranca / Governanca de Autonomia
 Owner: policy-guardian. Defects: B3 (PEP does not load YAML) / B4 (dual vocabulary; hard-set incomplete).
 Scope: T1.8 acceptance criteria only. Implementation lands after T0.3.
 **Amended by ADR-0034:** the D6/Q4 "flagged follow-up" for async audit + L2 review sampling is
@@ -9,6 +9,13 @@ Root cause: v2's PEP is never on the request path (`PEP.evaluate` has no runtime
 is a startup readiness probe only), so autonomy is enforced structurally via BPMN (ADR-0018), not by a
 per-tool-call PEP; an injected sampler would sample nothing. Revisit only if a runtime per-tool-call PEP
 chokepoint is later introduced. ADR-0034 amends, does not supersede.
+**Ratification amendment note (2026-07-27):** implementation is R1-verified on main (`pep.py:71`
+`HARD_ACTIONS` frozen 5, `:287` `load_matrix`, `:317` `_load_matrix_cached`; evidence-ledger T1.8
+`:43` "verified — B4 closed (merged #36)"). Ratifying D1-D6 does **not** resolve Q2 (§6): the
+`analise_recurso` orphan action remains absent from `spec/policies/autonomy/L0-core.yaml`
+(`grep -rn "analise_recurso\|recurso_analysis"` over `pep.py` + `spec/policies/autonomy/` still
+returns 0 hits) — this residual stays open, blocked(external: compliance), tracked separately from
+this ratification.
 
 Zero-trust note: every claim below carries a path:line citation into actual code, verified this session.
 Do not trust docstrings/comments — where a comment asserts behavior, it is flagged as comment-only.

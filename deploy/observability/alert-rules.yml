@@ -149,3 +149,41 @@ groups:
             Dead-letter queue is growing at {{ $value }}/s.
             This indicates a systemic consumer failure.
             Pause producer if necessary and investigate root cause immediately.
+
+  # ---------------------------------------------------------------------------
+  # Lifecycle CronJob Alerts (T2.9 — closes the gap self-documented at
+  # deploy/helm/maezo-tenant/values.yaml `lifecycle.jobs` comment block)
+  # ---------------------------------------------------------------------------
+  - name: maezo_lifecycle
+    rules:
+      # Lifecycle Job failure: expurgo-working / verify-erasure / audit-retention
+      # (deploy/helm/maezo-tenant/templates/cronjob-lifecycle.yaml) ALL currently
+      # refuse and exit 78 by design (T2.8 fail-closed stub) — that non-zero exit is
+      # already visible via `kubectl get jobs`/failedJobsHistory, but had no active
+      # Prometheus alert. This rule makes it loud in the same alerting path as every
+      # other Maezo alert.
+      # Note: uses the standard kube-state-metrics `kube_job_status_failed` metric —
+      # requires a kube-state-metrics scrape target in prometheus.yml (not yet
+      # configured; see the values.yaml comment this rule is pointed at from). Until
+      # that scrape exists, this rule has no series to evaluate; it does not fire
+      # falsely, it simply has nothing to alert on yet — same "not yet wired, not
+      # faked" posture as the DLQ rule above.
+      - alert: MaezoLifecycleJobFailed
+        expr: |
+          kube_job_status_failed{job_name=~"lifecycle-.*"} > 0
+        for: 5m
+        labels:
+          severity: warning
+          category: lifecycle
+          component: lifecycle
+        annotations:
+          summary: "Lifecycle CronJob failed: {{ $labels.job_name }}"
+          description: >
+            Kubernetes Job {{ $labels.job_name }} (a lifecycle-* CronJob —
+            expurgo-working/verify-erasure/audit-retention) reported a failed
+            status. Every lifecycle subcommand is an intentional fail-closed
+            refusal today (exit 78, T2.8/T2.9) — this confirms the failure is
+            visible beyond `kubectl get jobs`. Check pod logs for the precise
+            blocker (ADR-0020/ADR-0029 for audit-retention; the DPO
+            legal-bases/retention matrix, plus the thread_id->fhir_patient_id
+            mapping gap for verify-erasure, for the other two).

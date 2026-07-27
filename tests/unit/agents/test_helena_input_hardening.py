@@ -56,7 +56,14 @@ class _FakeInference:
     def __init__(self, responses: list[str]) -> None:
         self._responses = list(responses)
 
-    async def generate(self, prompt: str, *, phi: bool = False) -> str:
+    async def generate(
+        self,
+        prompt: str,
+        *,
+        phi: bool = False,
+        agent_id: str | None = None,
+        tenant_id: str | None = None,
+    ) -> str:
         return self._responses.pop(0) if self._responses else "DRAFTED_TEXT"
 
 

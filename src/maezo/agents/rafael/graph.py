@@ -563,7 +563,9 @@ class RafaelGraph:
         }
         prompt = f"{dossier_prompt()}\n\nroute={route} motivo_auditor={motivo_auditor}\nfatos={facts}"
         try:
-            narrativa = await self._llm.generate(prompt, phi=True)
+            narrativa = await self._llm.generate(
+                prompt, phi=True, agent_id="rafael", tenant_id=state.get("tenant_id", "")
+            )
         except Exception:  # noqa: BLE001 — LLM failure never blocks the human/auto route.
             narrativa = ""
         return {

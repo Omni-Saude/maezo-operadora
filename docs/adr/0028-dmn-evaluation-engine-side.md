@@ -1,6 +1,15 @@
 # ADR-0028: Avaliacao de DMN em runtime — engine-side (CIB Seven REST), fail-closed
 
-**Status:** Proposed (2026-07-17) · **Data:** 2026-07-17 · **Area:** Regras de negocio / Orquestracao (runtime, B5)
+**Status:** Accepted — ratified retroactively (PR #46 / T1.4, 2026-07-17; formally logged 2026-07-27 as DL-0036) · **Data:** 2026-07-17 · **Area:** Regras de negocio / Orquestracao (runtime, B5)
+
+> **Ratification reconciliation note (2026-07-27):** this Status line was stale "Proposed" despite the
+> evidence-ledger already recording ratification at merge time — `docs/evidence-ledger.md:46`
+> (T1.4, commit `ab7708d`): "ADR-0028 verified + RATIFIED Accepted (merged #46) — live probes:
+> no-match→200 [], Long typing proven, 13-table inventory corrected from plan's 14." T1.5's full
+> cutover (`docs/evidence-ledger.md:54`) independently confirms the design held under implementation
+> (golden parity 75/75 live). No DL row was ever created for this ratification (`grep -n "ADR-0028\b"
+> docs/decisions-log.md` → 0 hits before DL-0036) — this flip backfills that gap; substance is
+> unchanged, only the paperwork (Status line + README row + DL row) is synced to what was already true.
 
 > **Zero-trust note (ground rule 1 — no self-certification).** Every count, path, and line cited below was
 > verified this session against HEAD `ab7708d` (v2) and the READ-ONLY v1 donor `Maezo-Healthcare-Plan`.
