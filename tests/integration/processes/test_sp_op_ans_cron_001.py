@@ -336,8 +336,13 @@ def test_notification_bridge_ans_cron_rule_now_wired() -> None:
     target_process, predicate = rules[0]
     assert target_process == _PROCESS_KEY_ANS_SUBMIT
     assert callable(predicate)
-    # Fail-closed: um fato sem report_type nao deveria disparar (nenhuma business key sensata).
-    assert predicate({"report_type": "DIOPS_TRIMESTRAL"}) is True
+    # Anchor (t2-notify-integrity item 3): a regra agora exige tenant_id ALEM de report_type
+    # (as 7 regras do bridge exigem non_blank(tenant_id) — simetrico com os workers in-flow). Na
+    # producao o tenant chega no fato via o stamp de deployment do publisher generico
+    # (`register_events_workers` -> `make_publish_event_handler`), entao a regra ARMA ao vivo.
+    assert predicate({"tenant_id": "amh", "report_type": "DIOPS_TRIMESTRAL"}) is True
+    # Fail-closed: fato sem tenant_id (ou sem report_type) NAO dispara — nenhuma business key sensata.
+    assert predicate({"report_type": "DIOPS_TRIMESTRAL"}) is False
     assert predicate({}) is False
 
     targets = {h["target_process"] for h in bridge.list_handoffs()}
