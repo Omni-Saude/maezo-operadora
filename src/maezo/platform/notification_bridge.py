@@ -67,6 +67,7 @@ from maezo.tools.mcp_cibseven.transport import (
     start_process_idempotent,
 )
 from maezo.tools.workers.base import non_blank as _shared_non_blank
+from maezo.tools.workers.base import resolve_fraude_numero_caso as _resolve_fraude_numero_caso
 
 logger = structlog.get_logger(__name__)
 
@@ -360,11 +361,14 @@ def _fraude_numero_caso_for_contas_handoff(payload: dict[str, Any]) -> str:
     investigation — which honors the contract's OWN documented idempotency intent ("reenvio do
     mesmo caso... retorna a instancia ativa" for repeated forwards on the SAME prestador) instead
     of minting a fresh, non-deterministic case id on every forward.
+
+    Thin wrapper over the SHARED `maezo.tools.workers.base.resolve_fraude_numero_caso` — see
+    that function's docstring for the full derivation contract. Delegating (rather than
+    re-implementing) is what guarantees a BYTE-IDENTICAL business key with
+    `contas._fraude_numero_caso_for_handoff` for ALL input types (BK convergence is the L0
+    requirement), not just coincidentally-matching logic that can silently drift.
     """
-    numero_caso = payload.get("numero_caso")
-    if isinstance(numero_caso, str) and numero_caso.strip():
-        return numero_caso
-    return str(payload.get("prestador_id", ""))
+    return _resolve_fraude_numero_caso(payload)
 
 
 def _cred_business_key(tenant_id: str, prestador_id: str) -> str:
