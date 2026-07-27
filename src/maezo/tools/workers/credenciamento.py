@@ -12,12 +12,20 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from maezo.tools.workers.base import FunctionWorker
+from maezo.tools.workers.base import FunctionWorker, non_blank
 from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row, require_dmn
 from maezo.tools.workers.harness import WorkerBpmnError
 
 if TYPE_CHECKING:
-    from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
+    from collections.abc import Mapping
+
+    from maezo.a2a import DelegationDispatcher
+    from maezo.tools.workers.harness import (
+        ExternalTask,
+        KafkaPublisher,
+        TaskHandler,
+        WorkerHarness,
+    )
 
 logger = structlog.get_logger(__name__)
 
@@ -465,37 +473,118 @@ def register_credenciamento(variables: dict[str, Any]) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------
-# prepare_dossier — LOCAL STUB dossier (DL-0033; Carolina A2A deferred)
+# prepare_dossier — REAL Carolina A2A delegation (raw async handler; DL-0033 closed, DL-0037)
 # ---------------------------------------------------------------
 
 
-def prepare_dossier(variables: dict[str, Any]) -> dict[str, Any]:
-    """Prepare the analysis dossier for the human-review User Task — NEUTRAL (DL-0033 local stub).
+def make_prepare_dossier_handler(dispatcher: DelegationDispatcher | None) -> TaskHandler:
+    """Create the handler for `operadora.cred.prepare_dossier` — the REAL Carolina A2A delegation.
 
-    Assembling a dossier INSTRUCTS the human decision (UT_AnaliseDescredenciamento /
-    UT_AnaliseCredenciamento), it NEVER originates an adverse effect — mirrors
-    `programa.enroll_beneficiario` ("enrollment is not an adverse effect"; the clinical/adverse
-    decision is separate, human-gated). This is the local echo/log stub DL-0033 ratified
-    (`FunctionWorker`, no `DelegationDispatcher`): it closes the BPMN topic orphanage
-    (`operadora.cred.prepare_dossier`, both `ST_PrepareDossierDescred` and `ST_PrepareDossierCred`,
-    which today open the human User Tasks with NO dossier) without inventing delegation
-    business-logic before the real Carolina A2A wiring (`credentialing.analyze`) lands in the
-    deferred full-A2A task. Fails SAFE (never raises — `.get(..., default)`, no guard), mirroring
-    the module's `notify_prestador`/`notify_doc_pendente` neutral idiom.
+    Serves BOTH `ST_PrepareDossierDescred` and `ST_PrepareDossierCred`. Replaces the DL-0033
+    local stub with `delegate_cred_dossier` -> `DelegationDispatcher.delegate` -> Carolina's REAL
+    graph (`credentialing.analyze`, `agents/carolina/delegation.py`) — the full-A2A wiring
+    DL-0033 explicitly deferred.
+
+    RAW ASYNC HANDLER (DL-0034 precedent, escalation/events/#55 R-B sanctioned form): a
+    `FunctionWorker.execute(dict)` boundary is sync while `dispatcher.delegate` is async — the
+    raw `harness.register()` form runs this handler on the harness's own loop, where the
+    dispatcher's pooled audit sink lives. Populates `_handlers` but NOT the `WorkerRegistry`
+    (see `test_bootstrap_registration.py`'s `raw_handler_topics`).
+
+    FAIL-NEUTRAL-WITH-DISCLOSED-GAP (DL-0037): assembling a dossier INSTRUCTS the human decision
+    (UT_AnaliseDescredenciamento / UT_AnaliseCredenciamento) — it "instrui, nao decide"
+    (SP-OP-CRED-001). A missing dispatcher (degraded runtime: no signing key / no DATABASE_URL),
+    missing business identifiers, a structured rejection or ANY delegation failure therefore
+    returns `{"dossier_prepared": False, "dossier_gap": <bounded reason token>}` + a LOUD log and
+    COMPLETES the task — the human User Task MUST still open; this handler NEVER raises. The gap
+    token is a bounded class token (engine-variable hygiene) — raw error text stays in the log.
     """
-    prestador_id = variables.get("prestador_id", "")
-    direcao = variables.get("direcao", "")
 
-    logger.info(
-        "cred_prepare_dossier",
-        prestador_id=prestador_id,
-        direcao=direcao,
-    )
+    async def handler(task: ExternalTask) -> Mapping[str, Any]:
+        v = task.variables
+        tenant_id = str(v.get("tenant_id", "") or "")
+        prestador_id = str(v.get("prestador_id", "") or "")
+        protocolo_cred = str(v.get("protocolo_cred", "") or "").strip() or None
+        direcao = v.get("direcao", "")
 
-    return {
-        "dossier_prepared": True,
-        "data_dossier": "now",
-    }
+        if dispatcher is None:
+            # Degraded runtime (DL-0037): dispatcher absent at composition (no signing key /
+            # no DATABASE_URL — worker_runtime readiness reports dossier_delegation_ready=false).
+            # The UT still opens; the reviewer sees the disclosed gap instead of a dossier.
+            logger.warning(
+                "cred_prepare_dossier_dispatcher_unavailable",
+                tenant_id=tenant_id,
+                prestador_id=prestador_id,
+                direcao=direcao,
+                business_key=task.business_key,
+            )
+            return {"dossier_prepared": False, "dossier_gap": "dispatcher_unavailable"}
+
+        if not (non_blank(tenant_id) and non_blank(prestador_id)):
+            # No idempotent CRED business key can be derived (EB-4 R1 `non_blank` discipline) —
+            # never delegate with a degenerate task_id; the UT still opens with the gap disclosed.
+            logger.error(
+                "cred_prepare_dossier_missing_identifiers",
+                tenant_id=tenant_id,
+                prestador_id=prestador_id,
+                business_key=task.business_key,
+            )
+            return {"dossier_prepared": False, "dossier_gap": "missing_business_identifiers"}
+
+        from maezo.agents.carolina.delegation import delegate_cred_dossier
+
+        try:
+            result = await delegate_cred_dossier(
+                dispatcher,
+                tenant=tenant_id.strip(),
+                prestador_id=prestador_id.strip(),
+                case_meta=dict(v),
+                protocolo_cred=protocolo_cred,
+            )
+        except Exception as exc:  # noqa: BLE001 — DL-0037: the UT must open; never raise here.
+            logger.error(
+                "cred_prepare_dossier_delegation_failed",
+                tenant_id=tenant_id,
+                prestador_id=prestador_id,
+                business_key=task.business_key,
+                error=str(exc),
+            )
+            return {"dossier_prepared": False, "dossier_gap": "delegation_failed"}
+
+        if not result.success:
+            reason = str(result.rejection_reason or "unknown")
+            logger.error(
+                "cred_prepare_dossier_delegation_rejected",
+                tenant_id=tenant_id,
+                prestador_id=prestador_id,
+                business_key=task.business_key,
+                reason=reason,
+                detail=result.detail,
+            )
+            return {"dossier_prepared": False, "dossier_gap": f"delegation_rejected:{reason}"}
+
+        logger.info(
+            "cred_prepare_dossier_delegated",
+            tenant_id=tenant_id,
+            prestador_id=prestador_id,
+            direcao=direcao,
+            business_key=task.business_key,
+            dossier_ref=result.output_ref,
+            idempotent_replay=result.idempotent_replay,
+        )
+        return {
+            "dossier_prepared": True,
+            "dossier_ref": result.output_ref or "",
+            # UT-FORM SEAM (SME/PO sign-off PENDING): the dossier CONTENT field schema for
+            # UT_AnaliseDescredenciamento/UT_AnaliseCredenciamento is uncontracted — no dossier
+            # field appears in the contract's variable table. `dossier_summary` carries Carolina's
+            # agent-produced bounded summary tokens AS-IS (route/desfecho/motivo/grupo — never the
+            # narrative, never a decision); the full dossier is reachable via `dossier_ref`.
+            # Do NOT invent/extend this schema here — it is the human-gated injection point.
+            "dossier_summary": dict(result.meta),
+        }
+
+    return handler
 
 
 # ---------------------------------------------------------------
@@ -539,11 +628,12 @@ class CredError(Exception):
 #                             NEUTRAL — EXCECAO CLERICAL, no human-gate guard by design)
 #   notify_sla_risk        -> operadora.cred.notify_sla_risk        (exact spec match, T2.5-p2b;
 #                             informational, shared by both directions' boundary timers)
-#   prepare_dossier        -> operadora.cred.prepare_dossier        (exact spec match, DL-0033 LOCAL
-#                             STUB; NEUTRAL — instructs the human UT, never adverse. Both
-#                             ST_PrepareDossierDescred and ST_PrepareDossierCred route here. The REAL
-#                             Carolina A2A delegation (credentialing.analyze) is deferred to the
-#                             full-A2A wiring task; this stub only closes the BPMN topic orphanage.)
+#   make_prepare_dossier_handler -> operadora.cred.prepare_dossier  (exact spec match; RAW async
+#                             handler — the REAL Carolina A2A delegation (credentialing.analyze)
+#                             DL-0033 deferred, now wired. NEUTRAL — instructs the human UT, never
+#                             adverse; dispatcher absent/failed -> disclosed-gap marker, the UT
+#                             still opens (DL-0037). Both ST_PrepareDossierDescred and
+#                             ST_PrepareDossierCred route here.)
 # ---------------------------------------------------------------
 
 
@@ -557,9 +647,16 @@ def register_credenciamento_workers(
     `dmn` (ADR-0028 §1 seam) is threaded into `assess_admissibility` (`cred_admissibility` +
     `cred_route`, T1.5 cutover) via `functools.partial`; no other function here evaluates a
     DMN table.
+
+    `dossier_dispatcher` (dossier-A2A seam, DL-0033 real wiring) is threaded into the
+    `prepare_dossier` RAW async handler — a `DelegationDispatcher` assembled by the
+    worker-runtime composition root (`build_dossier_delegation_dispatcher`). Absent (`None`, the
+    topic-probe default and the degraded-runtime posture) the topic still registers and the
+    handler fail-neutrals with a disclosed gap (DL-0037) — the human UT always still opens.
     """
     del kafka  # unused — no credenciamento.py worker declares a Kafka dependency
     dmn = seams.get("dmn")
+    dossier_dispatcher: DelegationDispatcher | None = seams.get("dossier_dispatcher")
     harness.register_worker(FunctionWorker("operadora.cred.verify_credentials", validate_cred))
     harness.register_worker(
         FunctionWorker(
@@ -574,4 +671,5 @@ def register_credenciamento_workers(
     harness.register_worker(FunctionWorker("operadora.cred.register_cred_denial", register_cred_denial))
     harness.register_worker(FunctionWorker("operadora.cred.register_credenciamento", register_credenciamento))
     harness.register_worker(FunctionWorker("operadora.cred.notify_sla_risk", notify_sla_risk))
-    harness.register_worker(FunctionWorker("operadora.cred.prepare_dossier", prepare_dossier))
+    # RAW handler (NOT register_worker) — needs the async dispatcher seam (module topic-map note).
+    harness.register("operadora.cred.prepare_dossier", make_prepare_dossier_handler(dossier_dispatcher))

@@ -167,6 +167,10 @@ _SAFE_DECISION_BASIS_KEYS: frozenset[str] = frozenset(
         "pagamento_liberado",
         "evento_publicado",
         "event_published",
+        # t2-notify-integrity: bounded bool flag marking a SWALLOWED best-effort publish failure
+        # (`events.py` sets it alongside `event_published=False` so the audit row records the
+        # honest outcome, never a fabricated success).
+        "event_publish_best_effort_failure",
         "notice_sent",
         "admissivel",
         "elegivel",
@@ -781,6 +785,13 @@ class KafkaPublisher(Protocol):
         harness retry/incident (lgpd notify_sla_risk) on a lost notification, so a broker-down
         failure must REACH it instead of being silently swallowed one layer below.
       - `True`: FORCE best-effort (swallow) regardless of topic.
+
+    Return contract (t2-notify-integrity — the false-success fix): `True` = the PRIMARY publish
+    was actually delivered; `False` = the primary send failed but the failure was SWALLOWED
+    (best-effort posture) — the caller's ONLY in-band signal of the swallow, so an output
+    variable like `events.py`'s `event_published` can stop lying about a swallowed failure. A
+    non-best-effort failure raises instead of returning. Mirror-leg outcomes never affect the
+    return value.
     """
 
     async def publish(
@@ -790,7 +801,7 @@ class KafkaPublisher(Protocol):
         *,
         key: str | None = None,
         best_effort: bool | None = None,
-    ) -> None: ...
+    ) -> bool: ...
 
 
 class FakeKafkaPublisher:
@@ -798,6 +809,8 @@ class FakeKafkaPublisher:
 
     Records each call's `best_effort` posture in `best_effort_calls` (parallel to `published`) so
     callers can assert they opted into propagate-on-failure where a lost publish is unacceptable.
+    Always reports delivery (`True`) — a recorded publish IS a delivered publish here; failure
+    modes are exercised by dedicated failing doubles in the individual test modules.
     """
 
     def __init__(self) -> None:
@@ -811,9 +824,10 @@ class FakeKafkaPublisher:
         *,
         key: str | None = None,
         best_effort: bool | None = None,
-    ) -> None:
+    ) -> bool:
         self.published.append((topic, value, key))
         self.best_effort_calls.append(best_effort)
+        return True
 
 
 class FakeAuditSink:

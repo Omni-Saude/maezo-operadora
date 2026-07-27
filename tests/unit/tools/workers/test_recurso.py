@@ -651,6 +651,42 @@ async def test_make_notify_sla_risk_handler_publishes_notification() -> None:
     assert payload["type"] == "recurso.notify_sla_risk"
     assert payload["glosa_id"] == "GLOSA-1"
     assert key == task.business_key
+    # NON-HOLLOW (t2-notify-integrity item 1): forced propagate-on-failure — the coordenacao
+    # alert is this task's only effect; a swallowed failure would fabricate success.
+    assert kafka.best_effort_calls == [False]
+
+
+class _FailingPublisher:
+    """Raising `KafkaPublisher` double (records the posture) — for the raw-propagate pins."""
+
+    def __init__(self) -> None:
+        self.best_effort_calls: list[bool | None] = []
+
+    async def publish(
+        self,
+        topic: str,
+        value: dict,
+        *,
+        key: str | None = None,
+        best_effort: bool | None = None,
+    ) -> bool:
+        del topic, value, key
+        self.best_effort_calls.append(best_effort)
+        raise RuntimeError("kafka unavailable (test)")
+
+
+async def test_make_notify_sla_risk_handler_publish_failure_propagates_raw() -> None:
+    """No BPMN boundary on ST_NotificarRiscoSla -> raw propagate (harness retry/incident,
+    ADR-0030); contained to the non-interrupting BT_AlertaSlaRecurso side branch."""
+    kafka = _FailingPublisher()
+    handler = make_notify_sla_risk_handler(kafka)
+    task = _task(
+        topic="operadora.recurso.notify_sla_risk",
+        variables={"tenant_id": "amh", "glosa_id": "GLOSA-1"},
+    )
+    with pytest.raises(RuntimeError, match="kafka unavailable"):
+        await handler(task)
+    assert kafka.best_effort_calls == [False]
 
 
 async def test_make_notify_sla_risk_handler_fail_closed_default_no_producer() -> None:
@@ -810,6 +846,24 @@ async def test_make_submit_appeal_handler_publishes_notification_and_result() ->
     assert payload["type"] == "recurso.submit_appeal"
     assert payload["protocolo_recurso"] == result["protocolo_recurso"]
     assert key == task.business_key
+    # NON-HOLLOW (t2-notify-integrity item 1): forced propagate-on-failure — a MAIN-path,
+    # post-human-decision fact carrying the minted protocolo; silent loss is unacceptable.
+    assert kafka.best_effort_calls == [False]
+
+
+async def test_make_submit_appeal_handler_publish_failure_propagates_raw() -> None:
+    """No BPMN boundary on ST_SubmitAppeal -> raw propagate (harness retry/incident, ADR-0030);
+    re-dispatch republishes the IDENTICAL fact (deterministic protocolo minting)."""
+    kafka = _FailingPublisher()
+    handler = make_submit_appeal_handler(kafka)
+    task = _task(
+        topic="operadora.recurso.submit_appeal",
+        business_key="RECURSO-amh-G-1-GLOSA-1",
+        variables={"tenant_id": "amh", "numero_guia_tiss": "G-1", "glosa_id": "GLOSA-1"},
+    )
+    with pytest.raises(RuntimeError, match="kafka unavailable"):
+        await handler(task)
+    assert kafka.best_effort_calls == [False]
 
 
 async def test_make_submit_appeal_handler_fail_closed_default_no_producer() -> None:
@@ -853,6 +907,10 @@ async def test_make_track_status_handler_publishes_notification() -> None:
     assert payload["type"] == "recurso.track_status"
     assert payload["protocolo_recurso"] == "RECAPPEAL-X"
     assert key == task.business_key
+    # DECIDED KEEP (DL-0038, t2-notify-integrity): track_status STAYS topic-default best-effort
+    # BY DESIGN — it re-publishes every P5D ICE_AguardarResposta loop iteration, so a swallowed
+    # failure self-heals on the next tick. This pin goes RED if someone flips the posture.
+    assert kafka.best_effort_calls == [None]
 
 
 async def test_make_track_status_handler_fail_closed_default_no_producer() -> None:

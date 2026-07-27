@@ -238,9 +238,9 @@ def _encode_json(value: Mapping[str, Any]) -> bytes:
 
 class AioKafkaEventsProducer:
     """Real `KafkaPublisher` (`maezo.tools.workers.harness.KafkaPublisher` Protocol structural
-    match — `async def publish(self, topic, value, *, key=None) -> None`) backing every
-    `operadora.events.publish`/raw-handler `kafka.publish(...)` call site in this build
-    (`events.py`, `lgpd.py`'s 3 notification handlers, ...).
+    match — `async def publish(self, topic, value, *, key=None, best_effort=None) -> bool`)
+    backing every `operadora.events.publish`/raw-handler `kafka.publish(...)` call site in this
+    build (`events.py`, `lgpd.py`'s 3 notification handlers, ...).
 
     Composition: either constructed with `bootstrap_servers` (production — lazily builds a real
     `aiokafka.AIOKafkaProducer` on first `start()`) or with an injected `raw_producer` (tests —
@@ -315,12 +315,22 @@ class AioKafkaEventsProducer:
         *,
         key: str | None = None,
         best_effort: bool | None = None,
-    ) -> None:
+    ) -> bool:
         """`KafkaPublisher.publish` — the ONE seam `events.py`/`lgpd.py`/`escalation.py` call.
 
         Publishes to `topic` (primary). If `topic` is in `MIRROR_TOPICS`, ALSO republishes a
         scrubbed envelope (`{**scrub_mirror_payload(value), "type": topic}`) onto
         `NOTIFICATIONS_TOPIC`.
+
+        Returns whether the PRIMARY publish was actually delivered (t2-notify-integrity — the
+        false-success fix): `True` = the primary send reached the broker; `False` = the primary
+        send FAILED but the failure was SWALLOWED here (best-effort posture). Before this
+        return existed, a best-effort caller had NO in-band way to see the swallow —
+        `events.py`'s `event_published: True` output variable LIED for a broker-down failure on
+        a `BEST_EFFORT_TOPICS` publish (the one variable that exists to record whether the fact
+        reached the wire). A non-best-effort failure never returns — it raises. The MIRROR
+        leg's outcome never affects the return value (a mirror failure is log/ledger-only, by
+        design — no BPMN anywhere models it).
 
         `best_effort` is the OPTIONAL per-call posture (t8-escalation-boundary — criticality is a
         property of the CALL, not the topic):
@@ -338,7 +348,7 @@ class AioKafkaEventsProducer:
         no BPMN boundary anywhere expects a "mirror publish failed" error).
         """
         primary_best_effort = best_effort if best_effort is not None else (topic in BEST_EFFORT_TOPICS)
-        await self._publish_one(topic, value, key=key, best_effort=primary_best_effort)
+        primary_delivered = await self._publish_one(topic, value, key=key, best_effort=primary_best_effort)
 
         if topic in MIRROR_TOPICS:
             # R1 F1: `type` is stamped LAST so the envelope's discriminator always wins — a
@@ -358,6 +368,7 @@ class AioKafkaEventsProducer:
                 best_effort=True,
                 failure_event="kafka_mirror_publish_failed",
             )
+        return primary_delivered
 
     async def _publish_one(
         self,
@@ -367,7 +378,9 @@ class AioKafkaEventsProducer:
         key: str | None,
         best_effort: bool,
         failure_event: str = "kafka_publish_failed",
-    ) -> None:
+    ) -> bool:
+        """Single-leg send. `True` = delivered; `False` = failed-but-swallowed (best-effort);
+        raises when `best_effort=False`."""
         try:
             producer = await asyncio.wait_for(self._ensure_started(), timeout=self._connect_timeout_s)
             await asyncio.wait_for(
@@ -379,8 +392,9 @@ class AioKafkaEventsProducer:
             if not best_effort:
                 raise
             self.failed_publishes.append((topic, repr(exc)))
-            return
+            return False
         logger.info("kafka_published", topic=topic, key=key)
+        return True
 
     async def close(self) -> None:
         """Best-effort shutdown — never raises (mirrors `AioKafkaBridgeConsumer.stop()`'s

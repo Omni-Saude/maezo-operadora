@@ -261,8 +261,13 @@ async def cron_probe(
     # UNREACHABLE from this BPMN (FINDING #1); NOT in _CRON_WORKER_TOPICS, so cron_probe.drain()
     # never subscribes to either topic key.
     register_ans_cron_workers(harness, kafka)
-    # The ONLY worker this BPMN's tasks actually reach.
-    register_events_workers(harness, kafka)
+    # The ONLY worker this BPMN's tasks actually reach. `tenant_id` seam threaded for production
+    # fidelity (t2-notify-integrity item 3 follow-up): the live composition root
+    # (`worker_runtime/service.py::register_default_workers`) passes `tenant_id=settings.
+    # tenant_id` into every bootstrap's `**seams`; the generic publisher stamps it
+    # (setdefault-only) into payloads the process variables left tenant-less — which is exactly
+    # this BPMN's case (its `event_payload_vars` literal carries no tenant).
+    register_events_workers(harness, kafka, tenant_id=audit_tenant)
     probe = CronEngineProbe(
         engine=engine,
         harness=harness,
@@ -331,8 +336,13 @@ def test_notification_bridge_ans_cron_rule_now_wired() -> None:
     target_process, predicate = rules[0]
     assert target_process == _PROCESS_KEY_ANS_SUBMIT
     assert callable(predicate)
-    # Fail-closed: um fato sem report_type nao deveria disparar (nenhuma business key sensata).
-    assert predicate({"report_type": "DIOPS_TRIMESTRAL"}) is True
+    # Anchor (t2-notify-integrity item 3): a regra agora exige tenant_id ALEM de report_type
+    # (as 7 regras do bridge exigem non_blank(tenant_id) — simetrico com os workers in-flow). Na
+    # producao o tenant chega no fato via o stamp de deployment do publisher generico
+    # (`register_events_workers` -> `make_publish_event_handler`), entao a regra ARMA ao vivo.
+    assert predicate({"tenant_id": "amh", "report_type": "DIOPS_TRIMESTRAL"}) is True
+    # Fail-closed: fato sem tenant_id (ou sem report_type) NAO dispara — nenhuma business key sensata.
+    assert predicate({"report_type": "DIOPS_TRIMESTRAL"}) is False
     assert predicate({}) is False
 
     targets = {h["target_process"] for h in bridge.list_handoffs()}
@@ -355,6 +365,7 @@ async def test_cron_dispara_fato_e_nao_inicia_submit_automaticamente(
     engine: EngineRest,
     deploy_cron_and_submit_artifacts: str,
     cron_probe: CronEngineProbe,
+    audit_tenant: str,
     cron_key: str,
     activity_id: str,
     report_type: str,
@@ -425,5 +436,14 @@ async def test_cron_dispara_fato_e_nao_inicia_submit_automaticamente(
     # ans_cron.py's trigger_submissions (inalcancavel); o worker generico so grava a ancora
     # mecanica (ans_cron_reference_date_iso).
     assert fact["competencia"] == "COMPETENCIA_PENDENTE"
-    assert "tenant_id" not in fact, "o tenant NAO viaja no fato (evento nao inclui tenant_id)"
+    # FLIPPED (t2-notify-integrity item 3 follow-up — fecha o residual live-wire da EB-3 parte 3):
+    # o publicador generico agora CARIMBA o tenant do DEPLOYMENT (seam `tenant_id` do
+    # `register_events_workers`, espelhando `register_default_workers` em producao) num payload
+    # que as variaveis de processo deixaram sem tenant — verdade do deployment, nunca fabricacao
+    # (setdefault: um tenant vindo de variavel de processo jamais e sobrescrito). O fato agora
+    # viaja COM tenant, entao a regra cron→ANSSUB da bridge (que exige a ancora de tenant) arma
+    # com chave `ANSSUB-{tenant}-...` — nunca a degenerada `ANSSUB--...`.
+    assert fact["tenant_id"] == audit_tenant, (
+        "o fato deveria carregar o tenant do deployment (seam tenant_id do register_events_workers)"
+    )
     assert date.fromisoformat(fact["ans_cron_reference_date_iso"])
