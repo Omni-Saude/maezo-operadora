@@ -771,19 +771,49 @@ class KafkaPublisher(Protocol):
     Not exercised by the 3 WorkerBase modules registered today (none declare a Kafka
     dependency) — present so the harness/bootstrap surface matches the donor contract v1's
     process-integration fixtures expect to port against (design §16.1).
+
+    `best_effort` is the OPTIONAL per-call failure posture (t8-escalation-boundary — the
+    criticality of a publish is a property of the CALL, not the topic the producer routes on):
+      - `None` (default): the producer keeps its own topic-based default
+        (`topic in BEST_EFFORT_TOPICS`), so no existing caller changes behavior.
+      - `False`: FORCE propagate-on-failure regardless of topic — the caller has a modeled BPMN
+        boundary (escalation notify_team/notify_supervisor -> ERR_ESC_NOTIFY_FAILED) or needs the
+        harness retry/incident (lgpd notify_sla_risk) on a lost notification, so a broker-down
+        failure must REACH it instead of being silently swallowed one layer below.
+      - `True`: FORCE best-effort (swallow) regardless of topic.
     """
 
-    async def publish(self, topic: str, value: dict[str, Any], *, key: str | None = None) -> None: ...
+    async def publish(
+        self,
+        topic: str,
+        value: dict[str, Any],
+        *,
+        key: str | None = None,
+        best_effort: bool | None = None,
+    ) -> None: ...
 
 
 class FakeKafkaPublisher:
-    """In-memory `KafkaPublisher` double for unit tests. NEVER imported by production code."""
+    """In-memory `KafkaPublisher` double for unit tests. NEVER imported by production code.
+
+    Records each call's `best_effort` posture in `best_effort_calls` (parallel to `published`) so
+    callers can assert they opted into propagate-on-failure where a lost publish is unacceptable.
+    """
 
     def __init__(self) -> None:
         self.published: list[tuple[str, dict[str, Any], str | None]] = []
+        self.best_effort_calls: list[bool | None] = []
 
-    async def publish(self, topic: str, value: dict[str, Any], *, key: str | None = None) -> None:
+    async def publish(
+        self,
+        topic: str,
+        value: dict[str, Any],
+        *,
+        key: str | None = None,
+        best_effort: bool | None = None,
+    ) -> None:
         self.published.append((topic, value, key))
+        self.best_effort_calls.append(best_effort)
 
 
 class FakeAuditSink:

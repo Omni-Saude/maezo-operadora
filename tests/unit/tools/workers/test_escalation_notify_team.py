@@ -34,9 +34,18 @@ class _FailingKafka:
 
     def __init__(self) -> None:
         self.attempts = 0
+        self.best_effort_calls: list[bool | None] = []
 
-    async def publish(self, topic: str, value: dict[str, Any], *, key: str | None = None) -> None:
+    async def publish(
+        self,
+        topic: str,
+        value: dict[str, Any],
+        *,
+        key: str | None = None,
+        best_effort: bool | None = None,
+    ) -> None:
         self.attempts += 1
+        self.best_effort_calls.append(best_effort)
         raise RuntimeError("canal de notificacao indisponivel (unit fault)")
 
 
@@ -90,6 +99,9 @@ async def test_notify_team_publishes_notification_and_returns_routing() -> None:
     assert payload["group"] == "plantao-clinico"
     assert payload["motivo_categoria"] == "red_flag_clinico"
     assert key == "ESC-amh-conv-1"
+    # NON-HOLLOW wiring: the notify publish MUST opt into propagate-on-failure so the real
+    # best-effort-swallowing producer cannot silently drop a grave escalation notice.
+    assert kafka.best_effort_calls == [False]
 
 
 async def test_notify_team_routes_group_by_severity() -> None:
@@ -146,6 +158,7 @@ async def test_notify_team_publish_failure_raises_bpmn_error() -> None:
         await handler(_task(variables={"tenant_id": "amh", "severity": "grave"}))
     assert excinfo.value.error_code == _ERR_ESC_NOTIFY_FAILED
     assert kafka.attempts == 1  # it DID attempt the publish (not a kafka=None short-circuit)
+    assert kafka.best_effort_calls == [False]  # forced propagate — the non-hollow contract
 
 
 # ---------------------------------------------------------------------------
@@ -173,6 +186,7 @@ async def test_notify_supervisor_publishes_notification_on_sla_breach() -> None:
     assert payload["type"] == "escalation.notify_supervisor"
     assert payload["sla_status"] == "breached"
     assert key == "ESC-amh-conv-1"
+    assert kafka.best_effort_calls == [False]  # NON-HOLLOW: forced propagate-on-failure
 
 
 async def test_notify_supervisor_no_human_decision() -> None:
@@ -214,6 +228,7 @@ async def test_notify_supervisor_publish_failure_raises_bpmn_error() -> None:
         )
     assert excinfo.value.error_code == _ERR_ESC_NOTIFY_FAILED
     assert kafka.attempts == 1
+    assert kafka.best_effort_calls == [False]  # forced propagate — the non-hollow contract
 
 
 def test_escalation_bpmn_error_allowlist_is_exactly_notify_failed() -> None:

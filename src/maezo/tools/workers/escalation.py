@@ -47,6 +47,15 @@ technical fail-safe (G2-fs), so it is NOT T-E-gated and is enabled in production
 real publish ATTEMPT that raises drives the boundary. The harness still reports the code as a real
 `bpmnError` only when it is in its `bpmn_error_allowlist`; an un-allowlisted code demotes to a loud
 incident, never a silent scope-end.
+
+NON-HOLLOW DISCIPLINE (t8-escalation-boundary v2 — the crux the first cut missed): both notify
+handlers publish to `operadora.notifications.internal`, which the REAL producer
+(`events_kafka_producer.AioKafkaEventsProducer`) lists in `BEST_EFFORT_TOPICS`. Under the producer's
+DEFAULT (topic-based) posture a broker-down failure on that topic is SWALLOWED one layer below, so
+`kafka.publish` would NEVER raise and this try/except would be dead code (the handler would return
+success while a grave clinical notification silently vanished). The fix passes `best_effort=False`
+on every notify publish, forcing the producer to PROPAGATE — that is what makes the boundary raise
+above real (not just green against a fake that unconditionally raises).
 """
 
 from __future__ import annotations
@@ -170,7 +179,14 @@ def make_notify_team_handler(kafka: KafkaPublisher | None) -> TaskHandler:
             "group": group,
         }
         try:
-            await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=task.business_key or None)
+            # best_effort=False (t8-escalation-boundary ROOT-CAUSE fix): _NOTIFICATIONS_TOPIC is in
+            # the producer's BEST_EFFORT_TOPICS, so the DEFAULT posture would SWALLOW a broker-down
+            # publish failure one layer below and this try/except would never see it (the hollow
+            # bug). Forcing best_effort=False makes the real producer PROPAGATE, so the failure
+            # reaches the except below and the modeled boundary actually fires.
+            await kafka.publish(
+                _NOTIFICATIONS_TOPIC, notification, key=task.business_key or None, best_effort=False
+            )
         except Exception as exc:
             # ADR-0030 Tier-1 (G2-fs): a notify-channel failure is a MODELED fail-safe, NOT an
             # incident. Raise ERR_ESC_NOTIFY_FAILED so `BE_FalhaNotificacao` (attached to
@@ -254,7 +270,12 @@ def make_notify_supervisor_handler(kafka: KafkaPublisher | None) -> TaskHandler:
             "alert_to": "supervisao-atendimento",
         }
         try:
-            await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=task.business_key or None)
+            # best_effort=False (t8-escalation-boundary ROOT-CAUSE fix): force the real producer to
+            # PROPAGATE a broker-down failure on _NOTIFICATIONS_TOPIC (otherwise topic-default
+            # best-effort would swallow it below and this except would never fire).
+            await kafka.publish(
+                _NOTIFICATIONS_TOPIC, notification, key=task.business_key or None, best_effort=False
+            )
         except Exception as exc:
             # ADR-0030 Tier-1 (G2-fs): this handler serves BOTH ST_NotificarSupervisor (SLA breach)
             # AND ST_NotificarFallback (the notify_team channel fallback). On a publish failure raise
