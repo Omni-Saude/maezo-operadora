@@ -12,6 +12,10 @@ M11 worker metrics:
 T1.1 dispatch-outcome metrics (design docs/design/T1.1-runtime-spine.md §13, GAP-XOBS-4):
 - maezo_worker_task_total (Counter) — external-task dispatch outcome by {tenant,topic,outcome}
 - maezo_worker_task_duration_seconds (Histogram) — external-task handler wall-clock latency
+
+T8 LLM token-metering (ADR-0009 single seam, maezo.runtime.inference):
+- maezo_llm_tokens_total (Counter) — token COUNTS consumed by {provider,model,token_type};
+  never a cost/dollar value (pricing is finance-gated — see inference.py's extension-point note)
 """
 
 from __future__ import annotations
@@ -89,6 +93,21 @@ class MetricsCollector:
             registry=self._registry,
         )
 
+        # T8: LLM token-metering (design: single seam in maezo.runtime.inference,
+        # AnthropicInferenceProvider.generate). `provider`/`model` are a small, bounded set
+        # (one provider today, a handful of model ids) — safe Prometheus label cardinality
+        # per ADR-0010 discipline. `token_type` is "input" or "output". Deliberately NO
+        # tenant/agent/thread label here: those are per-instance correlation, which belongs
+        # in the structured log line this metric's emitter also writes (see
+        # maezo.runtime.inference._emit_llm_token_usage), never on a metric label — same
+        # rule `worker_task_total` documents for task/business-key identifiers above.
+        self._llm_tokens = Counter(
+            "maezo_llm_tokens_total",
+            "LLM tokens consumed (COUNTS ONLY, never a cost value) by provider/model/token_type",
+            labelnames=["provider", "model", "token_type"],
+            registry=self._registry,
+        )
+
         logger.info("metrics_collector_initialized")
 
     @property
@@ -144,3 +163,12 @@ class MetricsCollector:
         Same label set as `worker_task_total`.
         """
         return self._worker_task_duration
+
+    @property
+    def llm_tokens(self) -> Counter:
+        """Counter for LLM token consumption (T8, token-metering).
+
+        Labels: provider, model, token_type ("input" | "output"). COUNTS ONLY — never
+        incremented with, or converted to, a cost/dollar value.
+        """
+        return self._llm_tokens

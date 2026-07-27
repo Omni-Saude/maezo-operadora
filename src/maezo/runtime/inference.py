@@ -28,6 +28,21 @@ explicitly marked ``phi_capable`` (today, only :class:`PhiZoneMockProvider`
 A PHI-tagged request against any other provider raises
 :class:`PhiZoneRoutingError` — the caller must route to a human / incident,
 NEVER silently falling back to the general-zone cloud provider.
+
+Token-usage metering (T8): every REAL response that reaches
+:meth:`AnthropicInferenceProvider.generate` passes through
+:func:`_emit_llm_token_usage`, which reads the raw Anthropic SDK's
+``response.usage`` (``input_tokens``/``output_tokens`` — NOT LangChain's
+``AIMessage.usage_metadata`` shape; this codebase's single provider does
+not use LangChain's chat-model wrapper) and emits it through the platform's
+existing structlog + Prometheus mechanisms (:mod:`maezo.platform.observability`)
+— never a parallel logging/telemetry system. Emission is PHI-safe (model id
++ token COUNTS only, never prompt/response content) and fail-safe (a
+metering defect degrades to a skipped emission, never an exception that
+could break or stall the LLM call — see :func:`_emit_llm_token_usage`).
+Mock providers (:class:`NoopInferenceProvider`, :class:`PhiZoneMockProvider`)
+never emit metering: they make no real API call, so there is nothing to
+meter (constraint 3 — never fabricate).
 """
 
 from __future__ import annotations
@@ -146,8 +161,22 @@ class BaseInferenceProvider(ABC):
     is_mock: ClassVar[bool] = False
 
     @abstractmethod
-    async def generate(self, prompt: str) -> str:
-        """Generate a completion for ``prompt``."""
+    async def generate(
+        self,
+        prompt: str,
+        *,
+        agent_id: str | None = None,
+        tenant_id: str | None = None,
+    ) -> str:
+        """Generate a completion for ``prompt``.
+
+        ``agent_id``/``tenant_id`` are OPTIONAL correlation identifiers a caller may
+        supply for observability (T8 token-metering) — see
+        :func:`AnthropicInferenceProvider.generate` for how the real provider uses them.
+        Every concrete provider must accept these kwargs (even the mocks, which ignore
+        them) so :meth:`InferenceProvider.generate` can pass them through uniformly
+        regardless of which concrete provider is active.
+        """
 
     @abstractmethod
     def health_check(self) -> dict[str, str]:
@@ -167,7 +196,15 @@ class NoopInferenceProvider(BaseInferenceProvider):
     phi_capable: ClassVar[bool] = False
     is_mock: ClassVar[bool] = True
 
-    async def generate(self, prompt: str) -> str:
+    async def generate(
+        self,
+        prompt: str,
+        *,
+        agent_id: str | None = None,
+        tenant_id: str | None = None,
+    ) -> str:
+        # agent_id/tenant_id unused: no real API call is made, so there is no token usage
+        # to meter (constraint 3 — never fabricate a real completion or its usage).
         logger.info("inference_noop_generate", prompt_len=len(prompt))
         return f"[noop mock response] Received prompt ({len(prompt)} chars): {prompt[:80]}..."
 
@@ -179,6 +216,97 @@ class NoopInferenceProvider(BaseInferenceProvider):
                 "Set MAEZO_INFERENCE_PROVIDER to a real provider for production."
             ),
         }
+
+
+# ---------------------------------------------------------------------------
+# Token-usage metering (T8) — best-effort, PHI-safe, COUNTS ONLY
+# ---------------------------------------------------------------------------
+
+
+def _emit_llm_token_usage(
+    response: object,
+    *,
+    provider: str,
+    fallback_model: str,
+    agent_id: str | None,
+    tenant_id: str | None,
+) -> None:
+    """Best-effort token-usage metering emission. NEVER raises.
+
+    Called once per real LLM response, from :meth:`AnthropicInferenceProvider.generate`
+    — the single seam every model response passes through (ADR-0009 single-import-point).
+
+    Reads the raw Anthropic SDK's ``response.usage`` (``input_tokens``/``output_tokens``
+    — see the claude-api skill: this is NOT the same shape as LangChain's
+    ``AIMessage.usage_metadata``, which this codebase does not use). If ``usage`` is
+    absent, or present but missing a field, this degrades to a silent skip (plus a debug
+    log) rather than raising — some responses may lack it (a test double, a future SDK
+    response shape, a defensive edge case), and a metering defect must NEVER break or
+    stall the LLM call that already succeeded.
+
+    Emits through the platform's EXISTING structured-logging + telemetry mechanisms —
+    does not invent a parallel one:
+      - structlog: an ``llm_token_usage`` event via this module's own logger (the same
+        structlog instance every other event in this file already uses).
+      - Prometheus: :func:`maezo.platform.observability.record_llm_token_usage`, which
+        increments the ``maezo_llm_tokens_total`` counter (mirrors the
+        ``record_worker_task_outcome`` pattern in the same module).
+
+    PHI-safe by construction: reads only ``response.usage`` (token counts) and
+    ``response.model`` (a model id, e.g. ``"claude-opus-4-8"``) — never
+    ``response.content`` (the actual prompt/response text) and never any tenant PHI.
+
+    COUNTS ONLY. EXTENSION POINT (not built here, deliberately): a future
+    ``compute_cost(usage, pricing_table)`` could turn these counts into a dollar
+    estimate, but pricing values are a finance-gated human decision — this function
+    emits token counts and a model id, never a computed cost.
+    """
+    try:
+        usage = getattr(response, "usage", None)
+        if usage is None:
+            logger.debug("llm_token_usage_absent", provider=provider, model=fallback_model)
+            return
+
+        raw_input = getattr(usage, "input_tokens", None)
+        raw_output = getattr(usage, "output_tokens", None)
+        if not isinstance(raw_input, int) or not isinstance(raw_output, int):
+            logger.debug(
+                "llm_token_usage_incomplete",
+                provider=provider,
+                model=fallback_model,
+                has_input_tokens=raw_input is not None,
+                has_output_tokens=raw_output is not None,
+            )
+            return
+
+        input_tokens: int = raw_input
+        output_tokens: int = raw_output
+        total_tokens = input_tokens + output_tokens
+        model = str(getattr(response, "model", None) or fallback_model)
+
+        logger.info(
+            "llm_token_usage",
+            provider=provider,
+            model=model,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=total_tokens,
+            agent_id=agent_id,
+            tenant_id=tenant_id,
+        )
+
+        # Local import (mirrors tools/workers/harness.py's `_emit_worker_task_outcome`):
+        # avoids a hard import-time dependency of this module on the observability stack.
+        from maezo.platform.observability import record_llm_token_usage  # noqa: PLC0415
+
+        record_llm_token_usage(
+            provider=provider,
+            model=model,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+        )
+    except Exception:  # noqa: BLE001 — defensive: metering must never break/stall an LLM call.
+        logger.debug("llm_token_usage_emit_failed", provider=provider, exc_info=True)
 
 
 class AnthropicInferenceProvider(BaseInferenceProvider):
@@ -239,7 +367,13 @@ class AnthropicInferenceProvider(BaseInferenceProvider):
                 return value
         return ""
 
-    async def generate(self, prompt: str) -> str:
+    async def generate(
+        self,
+        prompt: str,
+        *,
+        agent_id: str | None = None,
+        tenant_id: str | None = None,
+    ) -> str:
         try:
             response = await self._client.messages.create(
                 model=self._model,
@@ -261,6 +395,18 @@ class AnthropicInferenceProvider(BaseInferenceProvider):
             raise InferenceProviderError(
                 "anthropic", f"API error ({exc.status_code}): {exc.message}", retryable=retryable
             ) from exc
+
+        # T8: meter token usage for EVERY response that reaches this point — including a
+        # refusal (still a genuine, billable-or-not API response with its own `usage`).
+        # Best-effort/never-raising by construction (see `_emit_llm_token_usage`), so this
+        # can never turn a successful API call into a failed `generate()` call.
+        _emit_llm_token_usage(
+            response,
+            provider="anthropic",
+            fallback_model=self._model,
+            agent_id=agent_id,
+            tenant_id=tenant_id,
+        )
 
         if response.stop_reason == "refusal":
             raise InferenceProviderError(
@@ -311,7 +457,15 @@ class PhiZoneMockProvider(BaseInferenceProvider):
     phi_capable: ClassVar[bool] = True
     is_mock: ClassVar[bool] = True
 
-    async def generate(self, prompt: str) -> str:
+    async def generate(
+        self,
+        prompt: str,
+        *,
+        agent_id: str | None = None,
+        tenant_id: str | None = None,
+    ) -> str:
+        # agent_id/tenant_id unused: no real API call is made, so there is no token usage
+        # to meter (constraint 3 — never fabricate a real completion or its usage).
         logger.warning(
             "inference_phi_zone_mock_generate",
             message=(
@@ -459,7 +613,14 @@ class InferenceProvider:
         """
         return self._impl.health_check()
 
-    async def generate(self, prompt: str, *, phi: bool = False) -> str:
+    async def generate(
+        self,
+        prompt: str,
+        *,
+        phi: bool = False,
+        agent_id: str | None = None,
+        tenant_id: str | None = None,
+    ) -> str:
         """Generate a response for the given prompt.
 
         Args:
@@ -467,6 +628,14 @@ class InferenceProvider:
             phi: True if this request carries PHI-tagged content that must
                 stay inside the BR-resident PHI zone (ADR-0006/ADR-0017).
                 Defaults to False (general zone).
+            agent_id: Optional caller-supplied correlation id (e.g. which named
+                agent — "helena", "rafael", ...) for token-usage metering (T8).
+                Purely observational: never affects routing or provider selection.
+                Not currently populated by any in-repo caller — see
+                :func:`_emit_llm_token_usage` for how a real provider uses it
+                when supplied.
+            tenant_id: Optional caller-supplied tenant correlation id, same
+                caveats as ``agent_id``.
 
         Returns:
             The generated response string. In noop mode, a deterministic
@@ -489,4 +658,4 @@ class InferenceProvider:
                 "human / incident; NEVER falling back to the general cloud "
                 "provider (ADR-0006/ADR-0017)."
             )
-        return await self._impl.generate(prompt)
+        return await self._impl.generate(prompt, agent_id=agent_id, tenant_id=tenant_id)

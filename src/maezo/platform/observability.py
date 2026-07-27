@@ -4,6 +4,7 @@ Provides:
 - setup_observability(): initializes structured logging and OpenTelemetry tracing
 - WorkerBase instrumentation: worker_execution_time, worker_error_count
 - MetricsCollector extensions for worker metrics (M11)
+- record_llm_token_usage(): LLM token-metering (T8) — COUNTS ONLY, never a cost value
 
 Design decisions (ADR-0010, ADR-0014):
 - OTel with agent semantics: trace per conversation, span per node/tool/LLM call
@@ -215,3 +216,40 @@ def record_worker_task_outcome(
         collector.worker_task_duration.labels(tenant=tenant, topic=topic, outcome=outcome).observe(
             duration_seconds
         )
+
+
+def record_llm_token_usage(
+    *,
+    provider: str,
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+) -> None:
+    """Record LLM token consumption (T8, token-metering).
+
+    Called by `maezo.runtime.inference._emit_llm_token_usage` — reached only from
+    `AnthropicInferenceProvider.generate()`, the single seam every REAL LLM response
+    passes through (ADR-0009). Increments `maezo_llm_tokens_total` once for the
+    `token_type="input"` series and once for `token_type="output"`, each by the actual
+    token count via `Counter.inc(amount)` (not a plain +1), so the metric reflects true
+    consumption volume rather than a call count.
+
+    `provider`/`model` are deliberately the only labels: a small, bounded set (one
+    provider today, a handful of Anthropic model ids), safe Prometheus cardinality per
+    ADR-0010. Per-instance correlation (tenant/agent/thread) is NEVER a label here —
+    same rule `record_worker_task_outcome` documents above for task/business-key
+    identifiers; that granularity belongs in the structured log line the caller also
+    emits (`maezo.runtime.inference._emit_llm_token_usage`'s `llm_token_usage` event).
+
+    COUNTS ONLY — this function never computes or emits a cost/price value. Pricing is a
+    finance-gated human decision (see the EXTENSION POINT note in
+    `maezo.runtime.inference._emit_llm_token_usage`).
+
+    This is the raw typed helper — intentionally NOT wrapped in a defensive try/except
+    here (contrast `record_worker_task_outcome`'s caller, `_emit_worker_task_outcome`):
+    the caller (`_emit_llm_token_usage`) already wraps its entire body, including this
+    call, in a single broad guard, so a second guard here would be redundant.
+    """
+    collector = _get_metrics_collector()
+    collector.llm_tokens.labels(provider=provider, model=model, token_type="input").inc(input_tokens)
+    collector.llm_tokens.labels(provider=provider, model=model, token_type="output").inc(output_tokens)

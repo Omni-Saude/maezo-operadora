@@ -8,7 +8,7 @@ construction + ``messages.create``) — no network I/O. Live-API coverage
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import anthropic
 import httpx
@@ -35,9 +35,36 @@ def _fake_httpx_response(status_code: int) -> httpx.Response:
     return httpx.Response(status_code, request=request, json={"error": {"message": "boom"}})
 
 
-def _fake_message(text: str = "hello from claude", stop_reason: str = "end_turn") -> SimpleNamespace:
+def _fake_usage(input_tokens: object = 100, output_tokens: object = 40) -> SimpleNamespace:
+    """A stand-in for the raw Anthropic SDK's ``Message.usage`` (T8).
+
+    Accepts non-int values too (``object`` typing) so tests can exercise the
+    "present but malformed" degrade-gracefully path (e.g. ``output_tokens=None``).
+    """
+    return SimpleNamespace(input_tokens=input_tokens, output_tokens=output_tokens)
+
+
+def _fake_message(
+    text: str = "hello from claude",
+    stop_reason: str = "end_turn",
+    *,
+    usage: SimpleNamespace | None = None,
+    model: str | None = None,
+) -> SimpleNamespace:
+    """A stand-in for the raw Anthropic SDK's ``Message`` response.
+
+    ``usage``/``model`` default to unset (attribute absent entirely, not merely
+    ``None``) — every pre-existing caller of this helper (the ~20 tests below that
+    predate T8) exercises the "usage absent" metering path unintentionally, which is
+    exactly the case `_emit_llm_token_usage` must degrade gracefully on.
+    """
     block = SimpleNamespace(type="text", text=text)
-    return SimpleNamespace(content=[block], stop_reason=stop_reason)
+    message = SimpleNamespace(content=[block], stop_reason=stop_reason)
+    if usage is not None:
+        message.usage = usage
+    if model is not None:
+        message.model = model
+    return message
 
 
 @pytest.fixture(autouse=True)
@@ -394,3 +421,268 @@ def test_phi_zone_routing_error_is_permission_error() -> None:
 
 def test_inference_config_error_is_value_error() -> None:
     assert issubclass(InferenceConfigError, ValueError)
+
+
+# ---------------------------------------------------------------------------
+# Token-usage metering (T8) — capture at the single seam, PHI-safe, fail-safe
+# ---------------------------------------------------------------------------
+
+
+def _llm_token_samples(collector: object) -> list[object]:
+    """Collect every Prometheus sample for the T8 `maezo_llm_tokens_total` counter."""
+    return [
+        sample
+        for metric in collector.registry.collect()  # type: ignore[attr-defined]
+        for sample in metric.samples
+        if sample.name == "maezo_llm_tokens_total"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_generate_with_usage_emits_correct_prometheus_counts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Mock response WITH usage -> the metering emission carries the right counts.
+
+    Proven against the platform's EXISTING Prometheus telemetry mechanism
+    (`maezo.runtime.metrics.MetricsCollector` / `maezo.platform.observability`), the
+    same one `tests/unit/platform/test_observability.py` already exercises for worker
+    metrics — not a parallel test-only mechanism.
+    """
+    from maezo.runtime.metrics import MetricsCollector
+
+    monkeypatch.setenv("MAEZO_ANTHROPIC_API_KEY", "sk-ant-test")
+    impl = AnthropicInferenceProvider(model="claude-opus-4-8")
+    impl._client.messages.create = AsyncMock(  # type: ignore[method-assign]
+        return_value=_fake_message("hi there", usage=_fake_usage(input_tokens=123, output_tokens=45))
+    )
+
+    collector = MetricsCollector()
+    with patch("maezo.platform.observability._get_metrics_collector", return_value=collector):
+        result = await impl.generate("hello")
+
+    assert result == "hi there"
+    samples = _llm_token_samples(collector)
+    by_type = {s.labels["token_type"]: s for s in samples}  # type: ignore[attr-defined]
+    assert by_type["input"].value == 123  # type: ignore[attr-defined]
+    assert by_type["output"].value == 45  # type: ignore[attr-defined]
+    assert by_type["input"].labels["provider"] == "anthropic"  # type: ignore[attr-defined]
+    assert by_type["input"].labels["model"] == "claude-opus-4-8"  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_generate_with_usage_emits_structured_log_with_total(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The structlog `llm_token_usage` event carries model id, input/output, and total."""
+    monkeypatch.setenv("MAEZO_ANTHROPIC_API_KEY", "sk-ant-test")
+    impl = AnthropicInferenceProvider(model="claude-opus-4-8")
+    impl._client.messages.create = AsyncMock(  # type: ignore[method-assign]
+        return_value=_fake_message(usage=_fake_usage(input_tokens=10, output_tokens=7))
+    )
+    mock_logger = MagicMock()
+    monkeypatch.setattr("maezo.runtime.inference.logger", mock_logger)
+
+    await impl.generate("hello")
+
+    usage_calls = [c for c in mock_logger.info.call_args_list if c.args and c.args[0] == "llm_token_usage"]
+    assert len(usage_calls) == 1
+    kwargs = usage_calls[0].kwargs
+    assert kwargs["provider"] == "anthropic"
+    assert kwargs["model"] == "claude-opus-4-8"
+    assert kwargs["input_tokens"] == 10
+    assert kwargs["output_tokens"] == 7
+    assert kwargs["total_tokens"] == 17
+
+
+@pytest.mark.asyncio
+async def test_generate_prefers_response_model_over_configured_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the API response carries its own `.model`, the emission uses THAT, not the
+    provider's configured model — e.g. a fallback-served request answered by a
+    different model than requested."""
+    monkeypatch.setenv("MAEZO_ANTHROPIC_API_KEY", "sk-ant-test")
+    impl = AnthropicInferenceProvider(model="claude-opus-4-8")
+    impl._client.messages.create = AsyncMock(  # type: ignore[method-assign]
+        return_value=_fake_message(
+            usage=_fake_usage(input_tokens=5, output_tokens=5),
+            model="claude-haiku-4-5",
+        )
+    )
+    mock_logger = MagicMock()
+    monkeypatch.setattr("maezo.runtime.inference.logger", mock_logger)
+
+    await impl.generate("hello")
+
+    usage_calls = [c for c in mock_logger.info.call_args_list if c.args and c.args[0] == "llm_token_usage"]
+    assert usage_calls[0].kwargs["model"] == "claude-haiku-4-5"
+
+
+@pytest.mark.asyncio
+async def test_generate_without_usage_does_not_crash_and_emits_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Mock response WITHOUT usage -> no crash, and NO bogus metering emission.
+
+    `_fake_message()` with no `usage=` kwarg leaves the `.usage` attribute entirely
+    absent (mirrors "some responses lack it" — the exact case the MUST list calls out).
+    """
+    from maezo.runtime.metrics import MetricsCollector
+
+    monkeypatch.setenv("MAEZO_ANTHROPIC_API_KEY", "sk-ant-test")
+    impl = AnthropicInferenceProvider(model="claude-opus-4-8")
+    impl._client.messages.create = AsyncMock(return_value=_fake_message("hi there"))  # type: ignore[method-assign]
+    mock_logger = MagicMock()
+    monkeypatch.setattr("maezo.runtime.inference.logger", mock_logger)
+
+    collector = MetricsCollector()
+    with patch("maezo.platform.observability._get_metrics_collector", return_value=collector):
+        result = await impl.generate("hello")
+
+    assert result == "hi there"  # the actual LLM call was NOT broken or stalled
+    assert _llm_token_samples(collector) == []  # no bogus emission
+    usage_calls = [c for c in mock_logger.info.call_args_list if c.args and c.args[0] == "llm_token_usage"]
+    assert usage_calls == []
+
+
+@pytest.mark.asyncio
+async def test_generate_with_partial_usage_degrades_gracefully(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`usage` present but missing a required field (e.g. output_tokens=None) ->
+    skip the emission, never raise, never emit a bogus/partial count."""
+    from maezo.runtime.metrics import MetricsCollector
+
+    monkeypatch.setenv("MAEZO_ANTHROPIC_API_KEY", "sk-ant-test")
+    impl = AnthropicInferenceProvider(model="claude-opus-4-8")
+    impl._client.messages.create = AsyncMock(  # type: ignore[method-assign]
+        return_value=_fake_message(usage=_fake_usage(input_tokens=10, output_tokens=None))
+    )
+
+    collector = MetricsCollector()
+    with patch("maezo.platform.observability._get_metrics_collector", return_value=collector):
+        result = await impl.generate("hello")
+
+    assert result == "hello from claude"
+    assert _llm_token_samples(collector) == []
+
+
+@pytest.mark.asyncio
+async def test_generate_metering_failure_never_breaks_the_llm_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If the metering recorder itself raises, `generate()` must still succeed.
+
+    Directly proves the hard fail-safe constraint: "metering must NEVER break or
+    stall an LLM call" — simulated here as a defect in the Prometheus recorder
+    (`record_llm_token_usage`), the last thing `_emit_llm_token_usage` calls.
+    """
+    monkeypatch.setenv("MAEZO_ANTHROPIC_API_KEY", "sk-ant-test")
+    impl = AnthropicInferenceProvider(model="claude-opus-4-8")
+    impl._client.messages.create = AsyncMock(  # type: ignore[method-assign]
+        return_value=_fake_message("hi there", usage=_fake_usage())
+    )
+    monkeypatch.setattr(
+        "maezo.platform.observability.record_llm_token_usage",
+        MagicMock(side_effect=RuntimeError("simulated metrics backend outage")),
+    )
+
+    result = await impl.generate("hello")  # must NOT raise
+
+    assert result == "hi there"
+
+
+@pytest.mark.asyncio
+async def test_generate_still_meters_on_refusal(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A refusal response still carries genuine `usage` -> still metered, even though
+    `generate()` goes on to raise `InferenceProviderError` for the refusal itself."""
+    from maezo.runtime.metrics import MetricsCollector
+
+    monkeypatch.setenv("MAEZO_ANTHROPIC_API_KEY", "sk-ant-test")
+    impl = AnthropicInferenceProvider(model="claude-opus-4-8")
+    impl._client.messages.create = AsyncMock(  # type: ignore[method-assign]
+        return_value=_fake_message(
+            "", stop_reason="refusal", usage=_fake_usage(input_tokens=8, output_tokens=0)
+        )
+    )
+
+    collector = MetricsCollector()
+    with (
+        patch("maezo.platform.observability._get_metrics_collector", return_value=collector),
+        pytest.raises(InferenceProviderError, match="refus"),
+    ):
+        await impl.generate("hello")
+
+    by_type = {s.labels["token_type"]: s for s in _llm_token_samples(collector)}  # type: ignore[attr-defined]
+    assert by_type["input"].value == 8  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_generate_passes_through_correlation_ids_when_supplied(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Optional agent_id/tenant_id, when a caller supplies them, reach the structured
+    log event (T8: "whatever correlation id is already available at that seam")."""
+    monkeypatch.setenv("MAEZO_ANTHROPIC_API_KEY", "sk-ant-test")
+    impl = AnthropicInferenceProvider(model="claude-opus-4-8")
+    impl._client.messages.create = AsyncMock(  # type: ignore[method-assign]
+        return_value=_fake_message(usage=_fake_usage())
+    )
+    mock_logger = MagicMock()
+    monkeypatch.setattr("maezo.runtime.inference.logger", mock_logger)
+
+    await impl.generate("hello", agent_id="helena", tenant_id="tenant-amh")
+
+    usage_calls = [c for c in mock_logger.info.call_args_list if c.args and c.args[0] == "llm_token_usage"]
+    assert usage_calls[0].kwargs["agent_id"] == "helena"
+    assert usage_calls[0].kwargs["tenant_id"] == "tenant-amh"
+
+
+@pytest.mark.asyncio
+async def test_generate_correlation_ids_default_to_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When no caller supplies agent_id/tenant_id (today's reality for every in-repo
+    caller), the emission honestly carries None rather than a fabricated value."""
+    monkeypatch.setenv("MAEZO_ANTHROPIC_API_KEY", "sk-ant-test")
+    impl = AnthropicInferenceProvider(model="claude-opus-4-8")
+    impl._client.messages.create = AsyncMock(  # type: ignore[method-assign]
+        return_value=_fake_message(usage=_fake_usage())
+    )
+    mock_logger = MagicMock()
+    monkeypatch.setattr("maezo.runtime.inference.logger", mock_logger)
+
+    await impl.generate("hello")
+
+    usage_calls = [c for c in mock_logger.info.call_args_list if c.args and c.args[0] == "llm_token_usage"]
+    assert usage_calls[0].kwargs["agent_id"] is None
+    assert usage_calls[0].kwargs["tenant_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_facade_generate_passes_correlation_ids_through_to_impl(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The public `InferenceProvider.generate()` facade forwards agent_id/tenant_id to
+    the active concrete provider unchanged (proves the plumbing end-to-end, not just
+    at the `AnthropicInferenceProvider` level)."""
+    monkeypatch.setenv("MAEZO_ANTHROPIC_API_KEY", "sk-ant-test")
+    provider = InferenceProvider(settings=InferenceSettings(provider="anthropic"))
+    generate_mock = AsyncMock(return_value="ok")
+    provider._impl.generate = generate_mock  # type: ignore[attr-defined, method-assign]
+
+    await provider.generate("hello", agent_id="rafael", tenant_id="tenant-x")
+
+    generate_mock.assert_awaited_once_with("hello", agent_id="rafael", tenant_id="tenant-x")
+
+
+@pytest.mark.asyncio
+async def test_noop_and_phi_zone_mock_accept_correlation_kwargs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Mock providers accept the new optional kwargs (uniform ABC signature) without
+    ever fabricating usage — no real API call means nothing to meter."""
+    noop_result = await NoopInferenceProvider().generate("x", agent_id="a", tenant_id="t")
+    phi_result = await PhiZoneMockProvider().generate("x", agent_id="a", tenant_id="t")
+
+    assert "mock" in noop_result.lower()
+    assert "SYNTHETIC" in phi_result
