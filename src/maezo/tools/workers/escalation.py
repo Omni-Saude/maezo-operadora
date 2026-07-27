@@ -31,12 +31,22 @@ the BPMN flow continues UNCONDITIONALLY past the notify task (`Flow_Notificar_UT
 `UT_TratarEscalonamento`); a notification-producer gap must never HANG the escalation. Log LOUDLY,
 never fabricate a publish. NO adverse effect either way.
 
-SCOPE NOTE: raising `ERR_ESC_NOTIFY_FAILED` to drive the `BE_FalhaNotificacao` / `BE_Notif*`
-fallback boundaries is DELIBERATELY out of scope here (ADR-0030 Tier-1, "co-scheduled with the
-Kafka-producer gap" — DL-0034; the ADR-0030 boundary table lists it "Worker raises it today? NO").
-Mirroring #55 R-B, a publish failure propagates the RAW exception (harness failure/retry
-ownership), never a modeled `bpmnError` — adding that modeled raise is a separate,
-`bpmn_error_allowlist`-gated change.
+ERR_ESC_NOTIFY_FAILED (ADR-0030 Tier-1, t8-escalation-boundary — the change DL-0034 deferred): a
+`kafka.publish` FAILURE in either notify handler now raises the MODELED
+`WorkerBpmnError(ERR_ESC_NOTIFY_FAILED)` instead of propagating the raw exception, so
+SP-OP-ESCALATION-001's error boundaries actually fire: `BE_FalhaNotificacao` (on ST_NotificarTime)
+-> supervisor fallback (ST_NotificarFallback) -> UT_TratarEscalonamento; `BE_NotifFallbackFailed`
+(on ST_NotificarFallback) -> UT_TratarEscalonamento even if BOTH channels fail; and
+`BE_NotifSupervisorFailed` (on ST_NotificarSupervisor) -> End_SupervisorAlertado. A notify failure
+therefore fail-SAFEs to a supervisor + the mandatory HITL user task (ADR-0005) — the escalation is
+never silently dropped and never stalls on an incident. ADR-0030 §4 classifies this a NON-adverse
+technical fail-safe (G2-fs), so it is NOT T-E-gated and is enabled in production now
+(`ESCALATION_BPMN_ERROR_ALLOWLIST`, unioned into `worker_runtime/service.py`'s
+`PRODUCTION_BPMN_ERROR_ALLOWLIST`; the boundary-proof gate proves it consumption-covered). The
+`kafka=None` path is UNCHANGED (loud log + complete so the flow still reaches the HITL) — only a
+real publish ATTEMPT that raises drives the boundary. The harness still reports the code as a real
+`bpmnError` only when it is in its `bpmn_error_allowlist`; an un-allowlisted code demotes to a loud
+incident, never a silent scope-end.
 """
 
 from __future__ import annotations
@@ -46,6 +56,8 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 import structlog
+
+from maezo.tools.workers.harness import WorkerBpmnError
 
 if TYPE_CHECKING:
     from maezo.tools.workers.harness import ExternalTask, KafkaPublisher, TaskHandler, WorkerHarness
@@ -76,6 +88,21 @@ _NOTIFY_TEAM_TOPIC = "operadora.escalation.notify_team"
 _NOTIFY_SUPERVISOR_TOPIC = "operadora.escalation.notify_supervisor"
 _NOTIFY_TEAM_NOTIFICATION_TYPE = "escalation.notify_team"
 _NOTIFY_SUPERVISOR_NOTIFICATION_TYPE = "escalation.notify_supervisor"
+
+# ADR-0030 Tier-1 (G2-fs technical fail-safe): the modeled BPMN error a notify handler raises when
+# the notification channel (`kafka.publish`) fails. SP-OP-ESCALATION-001 declares a matching
+# `bpmn:error@errorCode="ERR_ESC_NOTIFY_FAILED"` boundary on every task on the two notify topics
+# (`operadora.escalation.notify_team` / `notify_supervisor`), so it is consumption-covered by the
+# boundary-proof gate's simple rule (both topics are single-family). A notify failure fail-SAFEs to
+# a supervisor + the mandatory HITL user task — never a silent drop, never an incident that stalls.
+_ERR_ESC_NOTIFY_FAILED = "ERR_ESC_NOTIFY_FAILED"
+
+# ADR-0030 §4: NON-adverse technical fail-safe (routes to fallback/HITL, not a regulated/denial
+# outcome) — NOT T-E-gated, so it enables in production directly (Tier-1). Mirrors `events.py`'s
+# `EVENTS_BPMN_ERROR_ALLOWLIST` / auth's `AUTH_BPMN_ERROR_ALLOWLIST`; the boundary-proof gate
+# (`scripts/ci/check_bpmn_error_allowlist.py`) — not this list — is the source of truth, and
+# `worker_runtime/service.py` unions this into `PRODUCTION_BPMN_ERROR_ALLOWLIST`.
+ESCALATION_BPMN_ERROR_ALLOWLIST: frozenset[str] = frozenset({_ERR_ESC_NOTIFY_FAILED})
 
 
 def _resolve_group(severity: str) -> str:
@@ -142,7 +169,28 @@ def make_notify_team_handler(kafka: KafkaPublisher | None) -> TaskHandler:
             "motivo_categoria": motivo,
             "group": group,
         }
-        await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=task.business_key or None)
+        try:
+            await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=task.business_key or None)
+        except Exception as exc:
+            # ADR-0030 Tier-1 (G2-fs): a notify-channel failure is a MODELED fail-safe, NOT an
+            # incident. Raise ERR_ESC_NOTIFY_FAILED so `BE_FalhaNotificacao` (attached to
+            # ST_NotificarTime) routes to the supervisor fallback (ST_NotificarFallback) and STILL
+            # reaches UT_TratarEscalonamento — the mandatory HITL (ADR-0005) is never lost to a
+            # channel glitch. Mirrors `events.py`'s ERR_EVENT_PUBLISH_FAILED raise; the harness
+            # reports it as a real bpmnError only when the code is in its `bpmn_error_allowlist`
+            # (gate-proven — else demoted to a loud incident, never a silent scope-end).
+            logger.error(
+                "escalation_notify_team_failed",
+                tenant_id=tenant_id,
+                severity=severity,
+                group=group,
+                business_key=task.business_key,
+                error=str(exc),
+            )
+            raise WorkerBpmnError(
+                _ERR_ESC_NOTIFY_FAILED,
+                f"Falha ao notificar time humano ({group}): {exc}",
+            ) from exc
         logger.info(
             "escalation_notify_team_sent",
             tenant_id=tenant_id,
@@ -205,7 +253,28 @@ def make_notify_supervisor_handler(kafka: KafkaPublisher | None) -> TaskHandler:
             "severity": severity,
             "alert_to": "supervisao-atendimento",
         }
-        await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=task.business_key or None)
+        try:
+            await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=task.business_key or None)
+        except Exception as exc:
+            # ADR-0030 Tier-1 (G2-fs): this handler serves BOTH ST_NotificarSupervisor (SLA breach)
+            # AND ST_NotificarFallback (the notify_team channel fallback). On a publish failure raise
+            # ERR_ESC_NOTIFY_FAILED so the attached boundary continues the fail-safe route:
+            # `BE_NotifFallbackFailed` -> UT_TratarEscalonamento (the HITL still exists even if BOTH
+            # channels fail); `BE_NotifSupervisorFailed` -> End_SupervisorAlertado (the
+            # non-interruptive branch still ends cleanly; the main case stays open in
+            # UT_TratarEscalonamento). Never an incident that stalls the escalation.
+            logger.error(
+                "escalation_supervisor_notify_failed",
+                tenant_id=tenant_id,
+                sla_status=sla_status,
+                severity=severity,
+                business_key=task.business_key,
+                error=str(exc),
+            )
+            raise WorkerBpmnError(
+                _ERR_ESC_NOTIFY_FAILED,
+                f"Falha ao notificar supervisor: {exc}",
+            ) from exc
         logger.warning(
             "escalation_supervisor_notified",
             tenant_id=tenant_id,

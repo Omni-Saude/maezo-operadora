@@ -42,7 +42,9 @@ _WORKERS_DIR = _REPO_ROOT / "src" / "maezo" / "tools" / "workers"
 # Consumption-covered codes: G1's 3 + T2.8's ERR_DSR_IDENTITY_UNVERIFIED (lgpd verify_identity) +
 # T3.1 P2b's ERR_RECURSO_INVALID_GLOSA (recurso request_documents/analyze_request guards) +
 # t5-workers-f2's ERR_DECRED_NOT_HUMAN / ERR_CRED_DENIAL_NOT_HUMAN (cred adverse guards now raise
-# WorkerBpmnError, mirroring ERR_CANCEL_MANTER_NOT_HUMAN — both T-E-deferred, so tier0 is unchanged).
+# WorkerBpmnError, mirroring ERR_CANCEL_MANTER_NOT_HUMAN — both T-E-deferred, so tier0 is unchanged) +
+# t8-escalation-boundary's ERR_ESC_NOTIFY_FAILED (escalation notify_team/notify_supervisor handlers now
+# raise it on publish failure; G2-fs technical fail-safe, NOT T-E-gated, so it ALSO lands in tier0).
 _G1_COVERED = frozenset(
     {
         "ERR_AUTH_DENIAL_INCOMPLETE",
@@ -52,6 +54,7 @@ _G1_COVERED = frozenset(
         "ERR_RECURSO_INVALID_GLOSA",
         "ERR_DECRED_NOT_HUMAN",
         "ERR_CRED_DENIAL_NOT_HUMAN",
+        "ERR_ESC_NOTIFY_FAILED",
     }
 )
 
@@ -66,7 +69,12 @@ def test_real_tree_passes_and_reproduces_adr_census() -> None:
     assert result.ok, result.render()
     assert result.consumption_covered == _G1_COVERED
     assert result.tier0_enabled == frozenset(
-        {"ERR_EVENT_PUBLISH_FAILED", "ERR_DSR_IDENTITY_UNVERIFIED", "ERR_RECURSO_INVALID_GLOSA"}
+        {
+            "ERR_EVENT_PUBLISH_FAILED",
+            "ERR_DSR_IDENTITY_UNVERIFIED",
+            "ERR_RECURSO_INVALID_GLOSA",
+            "ERR_ESC_NOTIFY_FAILED",
+        }
     )
     assert result.te_deferred == frozenset(
         {
@@ -76,9 +84,9 @@ def test_real_tree_passes_and_reproduces_adr_census() -> None:
             "ERR_CRED_DENIAL_NOT_HUMAN",
         }
     )
-    # ADR-0030 census: 15 distinct external-task boundary codes = 7 covered (t5-workers-f2 added the
-    # two cred adverse guards, T-E-deferred) + 8 dead-model.
-    assert len(result.dead_models) == 8
+    # ADR-0030 census: 15 distinct external-task boundary codes = 8 covered (t8-escalation-boundary
+    # added ERR_ESC_NOTIFY_FAILED, a Tier-1 G2-fs fail-safe -> tier0) + 7 dead-model.
+    assert len(result.dead_models) == 7
     assert len(result.consumption_covered | result.dead_models) == 15
 
 
@@ -86,13 +94,13 @@ def test_real_tree_dead_models_are_warn_only_at_tier0() -> None:
     result = run_gate(_BPMN_DIR, _WORKERS_DIR)
     assert result.ok
     assert not result.violations
-    assert result.warnings  # the 8 dead models are reported, but non-blocking (F5)
+    assert result.warnings  # the 7 dead models are reported, but non-blocking (F5)
 
 
 def test_real_tree_strict_mode_hardens_dead_models_to_failure() -> None:
     result = run_gate(_BPMN_DIR, _WORKERS_DIR, strict_dead_models=True)
     assert not result.ok  # Tier-3 posture: a dead model is a hard failure
-    assert len(result.violations) == 8
+    assert len(result.violations) == 7
     assert not result.warnings
 
 

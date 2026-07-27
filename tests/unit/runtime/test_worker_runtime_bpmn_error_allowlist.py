@@ -45,13 +45,18 @@ def test_production_allowlist_is_exactly_the_non_adverse_failsafes() -> None:
     #     End_IdentidadeInverificavel (a neutral terminal).
     #   - ERR_RECURSO_INVALID_GLOSA (T3.1 P2b): recurso's G2-val origin/consistency guard
     #     (glosa_id absent/empty) routed to End_RecursoGlosaInvalidaOrigem (a neutral terminal).
-    # All three are NON-adverse (not a denial), so none is T-E-gated.
+    #   - ERR_ESC_NOTIFY_FAILED (t8-escalation-boundary, ADR-0030 Tier-1): escalation's G2-fs
+    #     notify-channel fail-safe (notify_team/notify_supervisor publish failure) routed via
+    #     BE_FalhaNotificacao/BE_NotifFallbackFailed/BE_NotifSupervisorFailed to the supervisor
+    #     fallback + the mandatory HITL user task (a neutral, never-silently-dropped route).
+    # All four are NON-adverse (not a denial), so none is T-E-gated.
     assert (
         frozenset(
             {
                 "ERR_EVENT_PUBLISH_FAILED",
                 "ERR_DSR_IDENTITY_UNVERIFIED",
                 "ERR_RECURSO_INVALID_GLOSA",
+                "ERR_ESC_NOTIFY_FAILED",
             }
         )
         == PRODUCTION_BPMN_ERROR_ALLOWLIST

@@ -14,13 +14,30 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from maezo.tools.workers.escalation import (
+    ESCALATION_BPMN_ERROR_ALLOWLIST,
     make_notify_supervisor_handler,
     make_notify_team_handler,
 )
-from maezo.tools.workers.harness import ExternalTask, FakeKafkaPublisher
+from maezo.tools.workers.harness import ExternalTask, FakeKafkaPublisher, WorkerBpmnError
 
 _NOTIFICATIONS_TOPIC = "operadora.notifications.internal"
+_ERR_ESC_NOTIFY_FAILED = "ERR_ESC_NOTIFY_FAILED"
+
+
+class _FailingKafka:
+    """A `KafkaPublisher` whose `publish` always raises — models a dead notification channel
+    (ADR-0030 Tier-1 fault path). Mirrors the integration probe's `_FaultInjectingPublisher`
+    but unconditional, for the unit-level raise assertion."""
+
+    def __init__(self) -> None:
+        self.attempts = 0
+
+    async def publish(self, topic: str, value: dict[str, Any], *, key: str | None = None) -> None:
+        self.attempts += 1
+        raise RuntimeError("canal de notificacao indisponivel (unit fault)")
 
 
 def _task(
@@ -118,6 +135,19 @@ async def test_notify_team_kafka_none_completes_without_publish() -> None:
     assert result["group"] == "plantao-clinico"
 
 
+async def test_notify_team_publish_failure_raises_bpmn_error() -> None:
+    """ADR-0030 Tier-1: a real publish ATTEMPT that FAILS raises the MODELED
+    `WorkerBpmnError(ERR_ESC_NOTIFY_FAILED)` (not the raw exception) so `BE_FalhaNotificacao` fires
+    and routes to the supervisor fallback + the mandatory HITL — never a silent drop / stalling
+    incident. Contrast kafka=None (no attempt), which completes."""
+    kafka = _FailingKafka()
+    handler = make_notify_team_handler(kafka)
+    with pytest.raises(WorkerBpmnError) as excinfo:
+        await handler(_task(variables={"tenant_id": "amh", "severity": "grave"}))
+    assert excinfo.value.error_code == _ERR_ESC_NOTIFY_FAILED
+    assert kafka.attempts == 1  # it DID attempt the publish (not a kafka=None short-circuit)
+
+
 # ---------------------------------------------------------------------------
 # notify_supervisor (serves ST_NotificarSupervisor + ST_NotificarFallback)
 # ---------------------------------------------------------------------------
@@ -166,6 +196,31 @@ async def test_notify_supervisor_kafka_none_completes_without_publish() -> None:
         )
     )
     assert result["status"] == "supervisor_notified"
+
+
+async def test_notify_supervisor_publish_failure_raises_bpmn_error() -> None:
+    """ADR-0030 Tier-1: notify_supervisor serves BOTH ST_NotificarSupervisor and ST_NotificarFallback.
+    A publish ATTEMPT that FAILS raises `WorkerBpmnError(ERR_ESC_NOTIFY_FAILED)` so
+    `BE_NotifFallbackFailed` (double-channel failure) / `BE_NotifSupervisorFailed` (SLA branch) can
+    fire — the HITL/close is never lost to a channel glitch."""
+    kafka = _FailingKafka()
+    handler = make_notify_supervisor_handler(kafka)
+    with pytest.raises(WorkerBpmnError) as excinfo:
+        await handler(
+            _task(
+                topic="operadora.escalation.notify_supervisor",
+                variables={"tenant_id": "amh", "sla_status": "breached", "severity": "grave"},
+            )
+        )
+    assert excinfo.value.error_code == _ERR_ESC_NOTIFY_FAILED
+    assert kafka.attempts == 1
+
+
+def test_escalation_bpmn_error_allowlist_is_exactly_notify_failed() -> None:
+    """The module allowlist constant (unioned into PRODUCTION_BPMN_ERROR_ALLOWLIST) is exactly the
+    one gate-proven, non-T-E-gated notify fail-safe code — the value the boundary-proof gate
+    computes as consumption-covered for this family."""
+    assert frozenset({_ERR_ESC_NOTIFY_FAILED}) == ESCALATION_BPMN_ERROR_ALLOWLIST
 
 
 # ---------------------------------------------------------------------------
