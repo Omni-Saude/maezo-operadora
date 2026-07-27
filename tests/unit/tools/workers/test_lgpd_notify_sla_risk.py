@@ -79,6 +79,8 @@ async def test_notify_sla_risk_ack_phase_publishes_notification() -> None:
     assert payload["titular_pseudo_id"] == "PSEUDO-001"
     assert payload["sla_breach_task_name"] == "UT_RevisaoDpo"
     assert payload["sla_breach_phase"] == "ack"
+    # NON-HOLLOW: forced propagate-on-failure (the LGPD legal-deadline notice must not be swallowed).
+    assert kafka.best_effort_calls == [False]
 
 
 # ---------------------------------------------------------------------------
@@ -173,17 +175,33 @@ async def test_notify_sla_risk_missing_phase_defaults_to_empty_string() -> None:
 
 
 class _FailingPublisher:
-    async def publish(self, topic: str, value: dict[str, Any], *, key: str | None = None) -> None:
+    def __init__(self) -> None:
+        self.best_effort_calls: list[bool | None] = []
+
+    async def publish(
+        self,
+        topic: str,
+        value: dict[str, Any],
+        *,
+        key: str | None = None,
+        best_effort: bool | None = None,
+    ) -> None:
         del topic, value, key
+        self.best_effort_calls.append(best_effort)
         raise RuntimeError("kafka unavailable (test)")
 
 
 async def test_notify_sla_risk_publish_failure_propagates_raw_exception() -> None:
-    handler = make_notify_sla_risk_handler(_FailingPublisher())
+    kafka = _FailingPublisher()
+    handler = make_notify_sla_risk_handler(kafka)
     task = _task(variables={"sla_breach_task_name": "UT_RevisaoDpo", "sla_breach_phase": "ack"})
 
     with pytest.raises(RuntimeError, match="kafka unavailable"):
         await handler(task)
+    # NON-HOLLOW: the publish opts into propagate-on-failure so the REAL best-effort-swallowing
+    # producer cannot silently drop the LGPD Art. 19-II legal-deadline notice (no BPMN boundary is
+    # modeled on either notify_sla_risk task, so the raw exception -> harness incident is intended).
+    assert kafka.best_effort_calls == [False]
 
 
 # ---------------------------------------------------------------------------
