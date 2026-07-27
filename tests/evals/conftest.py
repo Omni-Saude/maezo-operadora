@@ -94,7 +94,14 @@ class ReplayInferenceProvider:
         self.model_id = model_id
         self.calls: list[tuple[str, bool]] = []
 
-    async def generate(self, prompt: str, *, phi: bool = False) -> str:
+    async def generate(
+        self,
+        prompt: str,
+        *,
+        phi: bool = False,
+        agent_id: str | None = None,
+        tenant_id: str | None = None,
+    ) -> str:
         self.calls.append((prompt, phi))
         if phi and not self.phi_capable:
             raise PhiZoneRoutingError(

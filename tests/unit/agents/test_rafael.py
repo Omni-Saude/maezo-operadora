@@ -27,7 +27,14 @@ class _FakeInference:
         self._responses = list(responses) if responses else ["dossie factual sintetico"]
         self.calls: list[tuple[str, bool]] = []
 
-    async def generate(self, prompt: str, *, phi: bool = False) -> str:
+    async def generate(
+        self,
+        prompt: str,
+        *,
+        phi: bool = False,
+        agent_id: str | None = None,
+        tenant_id: str | None = None,
+    ) -> str:
         self.calls.append((prompt, phi))
         return self._responses.pop(0) if self._responses else ""
 
@@ -329,7 +336,14 @@ async def test_dossier_narrative_llm_call_is_phi_tagged() -> None:
 
 async def test_dossier_llm_failure_never_blocks_the_route() -> None:
     class _FailingInference:
-        async def generate(self, prompt: str, *, phi: bool = False) -> str:
+        async def generate(
+            self,
+            prompt: str,
+            *,
+            phi: bool = False,
+            agent_id: str | None = None,
+            tenant_id: str | None = None,
+        ) -> str:
             raise RuntimeError("LLM down")
 
     graph = _graph(inference=_FailingInference())

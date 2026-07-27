@@ -360,7 +360,14 @@ _EDGE_CASE_META: dict[str, Any] = {
 
 
 class _FakeInference:
-    async def generate(self, prompt: str, *, phi: bool = False) -> str:
+    async def generate(
+        self,
+        prompt: str,
+        *,
+        phi: bool = False,
+        agent_id: str | None = None,
+        tenant_id: str | None = None,
+    ) -> str:
         assert phi is True
         return "dossie factual sintetico"
 

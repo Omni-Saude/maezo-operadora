@@ -912,7 +912,9 @@ class MarinaGraph:
         grupo_humano = state.get("grupo_humano") if route == "human_review" else None
         prompt = f"{prompt_text}\n\nflow={flow} route={route} motivo_humano={motivo_humano}\nfatos={facts}"
         try:
-            narrativa = await self._llm.generate(prompt, phi=True)
+            narrativa = await self._llm.generate(
+                prompt, phi=True, agent_id="marina", tenant_id=state.get("tenant_id", "")
+            )
         except Exception:  # noqa: BLE001 — LLM failure never blocks the human/auto route.
             narrativa = ""
 

@@ -1081,7 +1081,9 @@ class AndreGraph:
             f"fatos_agregados={facts}"
         )
         try:
-            narrativa = await self._llm.generate(prompt, phi=True)
+            narrativa = await self._llm.generate(
+                prompt, phi=True, agent_id="andre", tenant_id=state.get("tenant_id", "")
+            )
         except Exception:  # noqa: BLE001 — LLM failure never blocks the human/auto route.
             narrativa = ""
 
