@@ -236,6 +236,44 @@ def test_matrix_gated_subcommands_always_exit_78(
     assert main(["audit-retention"]) == REFUSAL_EXIT_CODE
 
 
+def test_non_utf8_matrix_file_every_subcommand_still_exits_78(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """A non-UTF-8 (cp1252) matrix file must NOT crash main() — every subcommand exits 78.
+
+    UnicodeDecodeError subclasses ValueError, not OSError; if the loader did not
+    catch it explicitly, `main()` would die with a raw traceback (a generic non-78
+    crash) instead of the typed, operator-legible refusal. The matrix-gated
+    subcommands must surface the precise `invalid_encoding` reason; audit-retention
+    keeps its own ADR-grounded message untouched.
+    """
+    matrix_path = tmp_path / "cp1252.yaml"
+    matrix_path.write_bytes(
+        (
+            "categorias:\n"
+            "  - categoria: 'dados_saude_prontuario'\n"
+            "    base_legal: 'confirmar com jurídico'\n"
+            "    retencao: '20 anos'\n"
+            "    acao: 'reter'\n"
+        ).encode("cp1252")
+    )
+    monkeypatch.setenv(MATRIX_PATH_ENV, str(matrix_path))
+
+    assert main(["expurgo-working"]) == REFUSAL_EXIT_CODE
+    err = capsys.readouterr().err
+    assert "expurgo-working refused" in err
+    assert "invalid_encoding" in err
+
+    assert main(["verify-erasure"]) == REFUSAL_EXIT_CODE
+    err = capsys.readouterr().err
+    assert "verify-erasure refused" in err
+    assert "invalid_encoding" in err
+
+    assert main(["audit-retention"]) == REFUSAL_EXIT_CODE
+    err = capsys.readouterr().err
+    assert AUDIT_RETENTION_REFUSAL in err
+
+
 def test_unknown_subcommand_refuses(capsys: pytest.CaptureFixture[str]) -> None:
     """An unknown subcommand refuses (fail-closed default, not fail-open)."""
     code = main(["frobnicate-the-audit-chain"])

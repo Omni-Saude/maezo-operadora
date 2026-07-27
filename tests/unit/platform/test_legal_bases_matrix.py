@@ -2,11 +2,11 @@
 typed seam for the DPO legal-bases/retention matrix (PLANS.md §0.5 item 6).
 
 Covers every fail-closed branch of `load_retention_matrix` (absent path, missing
-file, non-file path, malformed YAML, non-mapping root, missing/non-list/empty
-`categorias`, per-entry schema violations, duplicate categoria, the UNRATIFIED
-placeholder-template guard) plus the one successful, valid-schema parse path — and
-proves the on-disk schema template under `spec/policies/retention/` is itself
-refused (never silently usable).
+file, non-file path, non-UTF-8 encoding, malformed YAML, non-mapping root,
+missing/non-list/empty `categorias`, per-entry schema violations, duplicate
+categoria, the UNRATIFIED placeholder-template guard) plus the one successful,
+valid-schema parse path — and proves the on-disk schema template under
+`spec/policies/retention/` is itself refused (never silently usable).
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ from maezo.platform.lifecycle.legal_bases_matrix import (
     MATRIX_PATH_ENV,
     REASON_EMPTY,
     REASON_FILE_NOT_FOUND,
+    REASON_INVALID_ENCODING,
     REASON_INVALID_SCHEMA,
     REASON_INVALID_YAML,
     REASON_PATH_NOT_SET,
@@ -95,6 +96,32 @@ def test_path_is_a_directory_raises_file_not_found(monkeypatch: pytest.MonkeyPat
     with pytest.raises(RetentionMatrixUnavailableError) as excinfo:
         load_retention_matrix()
     assert excinfo.value.reason == REASON_FILE_NOT_FOUND
+
+
+def test_non_utf8_file_raises_invalid_encoding(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A cp1252-encoded matrix (e.g. Windows tooling, accented 'jurídico') fails CLOSED.
+
+    UnicodeDecodeError subclasses ValueError, NOT OSError — without an explicit catch
+    it would escape `load_retention_matrix` as a raw traceback instead of the typed
+    refusal. Literal cp1252 bytes are written here (í = 0xED), which are not valid
+    UTF-8 in this byte context.
+    """
+    p = tmp_path / "cp1252.yaml"
+    raw = (
+        "categorias:\n"
+        "  - categoria: 'dados_saude_prontuario'\n"
+        "    base_legal: 'confirmar com jurídico'\n"
+        "    retencao: '20 anos'\n"
+        "    acao: 'reter'\n"
+    ).encode("cp1252")
+    assert b"\xed" in raw  # í as a single cp1252 byte — proves this is NOT valid UTF-8 text
+    p.write_bytes(raw)
+    monkeypatch.setenv(MATRIX_PATH_ENV, str(p))
+
+    with pytest.raises(RetentionMatrixUnavailableError) as excinfo:
+        load_retention_matrix()
+    assert excinfo.value.reason == REASON_INVALID_ENCODING
+    assert "UTF-8" in excinfo.value.detail
 
 
 # ---------------------------------------------------------------------------

@@ -15,14 +15,16 @@ schema-only template with placeholder markers lives at
 to silently "succeeding" on placeholder data) so pointing the env var at the template
 by mistake fails closed too.
 
-Deliberately named `legal_bases_matrix.py` (not `retention_matrix.py`) and placed
-inside the `lifecycle` package: `tests/unit/platform/test_lifecycle.py`'s AST scan
+Deliberately named `legal_bases_matrix.py` (not `retention_matrix.py`):
+`tests/unit/platform/test_lifecycle.py`'s AST scan
 (`test_lifecycle_module_does_not_reference_destructive_query`) forbids any import
-whose module path contains the substring "retention" (it is aimed at
-`retention.py`/`RetentionManager`/`retention_query`, the destructive audit-chain
-DELETE path). This module is a completely different concern -- the DPO's per-category
-legal-bases table -- so it is named to avoid that collision rather than work around
-the guard the test enforces.
+whose imported module NAME contains the substring "retention" -- regardless of where
+the module lives (it is aimed at `retention.py`/`RetentionManager`/`retention_query`,
+the destructive audit-chain DELETE path). The NAME choice is what keeps this module
+clear of that guard; it is a completely different concern (the DPO's per-category
+legal-bases table), so it is named to avoid the collision rather than work around
+the guard the test enforces. Placement inside the `lifecycle` package is for
+cohesion (the lifecycle CLI is its only consumer today), not a guard requirement.
 """
 
 from __future__ import annotations
@@ -51,6 +53,7 @@ REQUIRED_ENTRY_FIELDS: tuple[str, str, str, str] = ("categoria", "base_legal", "
 REASON_PATH_NOT_SET = "path_not_set"
 REASON_FILE_NOT_FOUND = "file_not_found"
 REASON_UNREADABLE = "unreadable"
+REASON_INVALID_ENCODING = "invalid_encoding"
 REASON_INVALID_YAML = "invalid_yaml"
 REASON_INVALID_SCHEMA = "invalid_schema"
 REASON_EMPTY = "empty"
@@ -127,9 +130,10 @@ def load_retention_matrix(path: str | Path | None = None) -> RetentionMatrix:
         2. the `MAEZO_RETENTION_MATRIX_PATH` environment variable.
 
     There is NO default matrix and NO fallback path. Every failure mode -- an unset
-    path, a missing/unreadable file, malformed YAML, a schema violation, an empty
-    `categorias` list, or the file being the `UNRATIFIED-DO-NOT-DEPLOY` placeholder
-    template -- raises `RetentionMatrixUnavailableError` with a precise `reason`.
+    path, a missing/unreadable file, a non-UTF-8 encoding, malformed YAML, a schema
+    violation, an empty `categorias` list, or the file being the
+    `UNRATIFIED-DO-NOT-DEPLOY` placeholder template -- raises
+    `RetentionMatrixUnavailableError` with a precise `reason`.
     Nothing in this function invents or defaults a per-category value: the only
     successful outcome is a matrix built entirely from what a human explicitly wrote
     to the file at `path`.
@@ -162,6 +166,16 @@ def load_retention_matrix(path: str | Path | None = None) -> RetentionMatrix:
         raw_text = matrix_path.read_text(encoding="utf-8")
     except OSError as exc:
         raise _fail(REASON_UNREADABLE, f"could not read {matrix_path}: {exc}") from exc
+    except UnicodeDecodeError as exc:
+        # NOT covered by OSError: UnicodeDecodeError subclasses ValueError. Without this
+        # explicit catch, a non-UTF-8 matrix file (e.g. cp1252 from Windows tooling with
+        # accented chars like "jurídico") would escape as a raw traceback instead of a
+        # typed, fail-closed refusal.
+        raise _fail(
+            REASON_INVALID_ENCODING,
+            f"{matrix_path} is not valid UTF-8 ({exc.encoding} decode failed at byte "
+            f"offset {exc.start}: {exc.reason}) -- re-encode the matrix file as UTF-8",
+        ) from exc
 
     try:
         data = yaml.safe_load(raw_text)
