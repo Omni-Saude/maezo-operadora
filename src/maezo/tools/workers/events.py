@@ -181,12 +181,25 @@ def make_publish_event_handler(
     kafka: KafkaPublisher | None,
     *,
     bpmn_error_topics: frozenset[str] = frozenset(),
+    deployment_tenant_id: str = "",
 ) -> TaskHandler:
     """Create the handler for `operadora.events.publish`.
 
     Generic worker: reads `event_topic` + `event_payload_vars` from the task's input variables and
     publishes the resulting payload to `kafka`. Every SP-OP-* BPMN's `ST_Publish*` service tasks
     route through this ONE handler.
+
+    `deployment_tenant_id` (t2-notify-integrity item 3 follow-up — closes EB-3 part 3's
+    documented cron live-wire gap): the worker DEPLOYMENT's own tenant identity
+    (`WorkerRuntimeSettings.tenant_id`, threaded through `register_events_workers`' `**seams`
+    exactly like `register_ans_cron_workers` — the SAME per-tenant-deployment authority every
+    worker's `tenant_id` dataclass field relies on). When set, the handler stamps it into the
+    payload via `setdefault` — ONLY when the process variables did not supply a `tenant_id`
+    (deployment truth for tenant-less facts like SP-OP-ANS-CRON-001's TimerStartEvent ticks,
+    whose BPMN `event_payload_vars` literal cannot carry a per-instance tenant; NEVER an
+    override of a process-var-sourced tenant like SP-OP-NIP-001's). Default `""` = no stamp —
+    legacy/test registrations without the seam are byte-for-byte unchanged (the bridge's tenant
+    anchor then keeps its rules honestly dormant, fail-closed).
 
     Required input variable:
       event_topic: str          — target Kafka topic.
@@ -262,6 +275,13 @@ def make_publish_event_handler(
         for var_name in payload_vars:
             if var_name in task.variables:
                 payload[var_name] = task.variables[var_name]
+
+        # Deployment-tenant stamp (t2-notify-integrity item 3 follow-up — see the
+        # `deployment_tenant_id` docstring): setdefault semantics, so a process-var-supplied
+        # tenant_id (even a blank one — the honest upstream value) is NEVER overridden; only a
+        # payload with NO tenant_id key at all gains the deployment's own identity.
+        if deployment_tenant_id:
+            payload.setdefault("tenant_id", deployment_tenant_id)
 
         # res-ans-competencia-sentinel (module docstring): stamp the tick-instant date ONCE, here.
         if event_type == _ANS_CRON_DUE_EVENT_TYPE:
@@ -372,9 +392,26 @@ def register_events_workers(
     Raw-handler registration (`harness.register`, not `harness.register_worker`) — see module
     docstring for why this module cannot use the `FunctionWorker` dict-first boundary every other
     domain module uses.
+
+    `tenant_id` seam (t2-notify-integrity item 3 follow-up — `**seams` catch-all, mirrors
+    `register_ans_cron_workers`): the deployment's own tenant identity, already threaded by the
+    live composition root (`worker_runtime/service.py::register_default_workers` passes
+    `tenant_id=settings.tenant_id` into `register_all_workers`, whose `**seams` fan into every
+    bootstrap). Consumed here as `make_publish_event_handler`'s `deployment_tenant_id` (see its
+    docstring for the setdefault-only stamping contract). Defaults to `""` fail-closed when the
+    composition root does not pass one — unchanged behavior for every existing caller that does
+    not know about this seam.
     """
-    del seams  # unused — no seam beyond `kafka` is needed by this handler
+    raw_tenant = seams.get("tenant_id")
+    # None-hardened (the same `str(None) == "None"` footgun `_non_blank`'s docstring in
+    # notification_bridge.py documents): an explicit None seam is treated as absent, never the
+    # 4-character string "None" stamped into every payload.
+    deployment_tenant_id = str(raw_tenant).strip() if raw_tenant is not None else ""
     harness.register(
         "operadora.events.publish",
-        make_publish_event_handler(kafka, bpmn_error_topics=_ESCALATION_PUBLISH_BPMN_ERROR_TOPICS),
+        make_publish_event_handler(
+            kafka,
+            bpmn_error_topics=_ESCALATION_PUBLISH_BPMN_ERROR_TOPICS,
+            deployment_tenant_id=deployment_tenant_id,
+        ),
     )

@@ -291,6 +291,152 @@ async def test_publish_failure_on_opt_in_topic_without_allowlist_still_propagate
 
 
 # ---------------------------------------------------------------------------
+# t2-notify-integrity item 3 follow-up — deployment-tenant seam: the handler stamps the worker
+# deployment's own tenant into a payload the process variables left tenant-LESS (setdefault
+# semantics — deployment truth for TimerStartEvent facts like ans.cron_due, never an override of
+# a process-var-sourced tenant like NIP's). Closes EB-3 part 3's documented cron live-wire gap:
+# the fact now reaches the bridge with a tenant, so the cron→ANSSUB rule ARMS under the tenant
+# anchor with a proper ANSSUB-{tenant}-... key.
+# ---------------------------------------------------------------------------
+
+
+async def test_deployment_tenant_stamped_when_process_vars_lack_tenant() -> None:
+    """Cron-shaped publish (no tenant_id process var, BPMN literal doesn't list it) with the
+    deployment seam -> the payload carries the deployment's tenant."""
+    kafka = FakeKafkaPublisher()
+    handler = make_publish_event_handler(kafka, deployment_tenant_id="amh")
+    task = _task(
+        variables={
+            "event_topic": "operadora.notifications.internal",
+            "event_type": "ans.cron_due",
+            "event_payload_vars": "report_type,periodicidade,origem_envio,competencia",
+            "report_type": "DIOPS_TRIMESTRAL",
+            "periodicidade": "trimestral",
+            "origem_envio": "calendario",
+            "competencia": "COMPETENCIA_PENDENTE",
+        }
+    )
+    await handler(task)
+    payload = kafka.published[0][1]
+    assert payload["tenant_id"] == "amh"
+
+
+async def test_deployment_tenant_arms_the_cron_bridge_rule_with_proper_bk() -> None:
+    """CLOSURE PIN: the stamped cron fact, fed to the REAL NotificationBridge, now ARMS the
+    ans.cron_due→ANS-SUBMIT rule under the tenant anchor and mints `ANSSUB-{tenant}-...` — never
+    the degenerate `ANSSUB--...` orphan key the tenant anchor exists to refuse."""
+    from maezo.platform.notification_bridge import HandoffEvent, NotificationBridge
+
+    kafka = FakeKafkaPublisher()
+    handler = make_publish_event_handler(kafka, deployment_tenant_id="amh")
+    task = _task(
+        variables={
+            "event_topic": "operadora.notifications.internal",
+            "event_type": "ans.cron_due",
+            "event_payload_vars": "report_type,periodicidade,origem_envio,competencia",
+            "report_type": "DIOPS_TRIMESTRAL",
+            "periodicidade": "trimestral",
+            "origem_envio": "calendario",
+            "competencia": "COMPETENCIA_PENDENTE",
+        }
+    )
+    await handler(task)
+    fact = kafka.published[0][1]
+
+    bridge = NotificationBridge()
+    result = bridge.evaluate(HandoffEvent(event_type="ans.cron_due", payload=fact))
+    assert result.handoff_triggered is True
+    assert result.variables["business_key"] == "ANSSUB-amh-DIOPS_TRIMESTRAL-COMPETENCIA_PENDENTE"
+    assert "--" not in result.variables["business_key"]
+
+
+async def test_deployment_tenant_never_overrides_process_var_tenant() -> None:
+    """NIP-shaped publish: the process variables supply tenant_id -> the deployment seam NEVER
+    overrides it (setdefault semantics) — the per-instance process truth wins."""
+    kafka = FakeKafkaPublisher()
+    handler = make_publish_event_handler(kafka, deployment_tenant_id="other-deployment")
+    task = _task(
+        variables={
+            "event_topic": "operadora.notifications.internal",
+            "event_type": "nip.handoff_ans_submit",
+            "event_payload_vars": "tenant_id,numero_nip_ans",
+            "tenant_id": "amh",
+            "numero_nip_ans": "000000042",
+        }
+    )
+    await handler(task)
+    assert kafka.published[0][1]["tenant_id"] == "amh"
+
+
+async def test_deployment_tenant_does_not_replace_blank_supplied_tenant() -> None:
+    """A process-var-SUPPLIED blank tenant is the honest upstream value — setdefault leaves it
+    (the bridge's tenant anchor then refuses, fail-closed) rather than papering over it."""
+    kafka = FakeKafkaPublisher()
+    handler = make_publish_event_handler(kafka, deployment_tenant_id="amh")
+    task = _task(
+        variables={
+            "event_topic": "operadora.notifications.internal",
+            "event_payload_vars": "tenant_id,report_type",
+            "tenant_id": "",
+            "report_type": "RN_124_SIP",
+        }
+    )
+    await handler(task)
+    assert kafka.published[0][1]["tenant_id"] == ""
+
+
+async def test_no_deployment_tenant_seam_behavior_unchanged() -> None:
+    """No seam registered (legacy/test registration): no stamp — the payload stays tenant-less
+    and the bridge rule stays dormant-by-anchor (honest fail-closed, byte-for-byte pre-seam)."""
+    kafka = FakeKafkaPublisher()
+    handler = make_publish_event_handler(kafka)  # deployment_tenant_id defaults to ""
+    task = _task(
+        variables={
+            "event_topic": "operadora.notifications.internal",
+            "event_type": "ans.cron_due",
+            "event_payload_vars": "report_type",
+            "report_type": "DIOPS_TRIMESTRAL",
+        }
+    )
+    await handler(task)
+    assert "tenant_id" not in kafka.published[0][1]
+
+
+async def test_register_events_workers_threads_tenant_seam_end_to_end() -> None:
+    """`register_events_workers(harness, kafka, tenant_id=...)` (the exact `**seams` key the live
+    composition root `register_default_workers` already passes) reaches the handler — dispatch
+    through the real harness registration, not just the bare factory."""
+    harness = WorkerHarness(FakeWorkerTransport(), worker_id="probe")
+    kafka = FakeKafkaPublisher()
+    register_events_workers(harness, kafka, tenant_id="amh")
+
+    handler = harness._handlers["operadora.events.publish"]  # type: ignore[attr-defined]  # raw-handler registry, test introspection
+    await handler(
+        _task(
+            variables={
+                "event_topic": "operadora.notifications.internal",
+                "event_type": "ans.cron_due",
+                "event_payload_vars": "report_type",
+                "report_type": "RN_124_SIP",
+            }
+        )
+    )
+    assert kafka.published[0][1]["tenant_id"] == "amh"
+
+
+async def test_register_events_workers_none_tenant_seam_is_treated_as_absent() -> None:
+    """None-hardening (the `str(None) == "None"` footgun): an explicit `tenant_id=None` seam
+    never stamps the 4-character string "None" into payloads — treated exactly like no seam."""
+    harness = WorkerHarness(FakeWorkerTransport(), worker_id="probe")
+    kafka = FakeKafkaPublisher()
+    register_events_workers(harness, kafka, tenant_id=None)
+
+    handler = harness._handlers["operadora.events.publish"]  # type: ignore[attr-defined]  # raw-handler registry, test introspection
+    await handler(_task(variables={"event_topic": "operadora.notifications.internal"}))
+    assert "tenant_id" not in kafka.published[0][1]
+
+
+# ---------------------------------------------------------------------------
 # t2-notify-integrity item 2 — FAIL_CLOSED_EVENT_TYPES: the one-shot `nip.handoff_ans_submit`
 # fact publishes fail-closed (`best_effort=False`, raw propagate — NO WorkerBpmnError:
 # SP-OP-NIP-001 declares no boundary on its publish tasks, the harness retry/incident ladder IS

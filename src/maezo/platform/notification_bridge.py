@@ -303,23 +303,25 @@ def _ans_submit_variables_from_cron_due(payload: dict[str, Any]) -> dict[str, An
     `tests/integration/processes/test_sp_op_ans_cron_001.py`), falling back to the sentinel only
     if the fact is missing it entirely (never silently invents a real period).
 
-    `tenant_id` (EB-3 part 3 — SOURCE partially fixed, HONEST residual boundary):
-    `ans_cron.py`'s `trigger_submissions` now accepts a `tenant_id` KEYWORD parameter threaded
-    in at worker registration (`register_ans_cron_workers(harness, tenant_id=...)`, sourced from
-    the deployment's own `TENANT_ID`/`WorkerRuntimeSettings.tenant_id` — there is no
-    PER-INSTANCE tenant on this TimerStartEvent-triggered process the way there is on a
-    case-driven process like SP-OP-NIP-001; this scheduler is deployment-scoped, not
-    case-scoped). RESIDUAL GAP, NOT fixed here (still a `spec/` edit, still outside this
-    mechanical wiring task's edit authority): `trigger_submissions` itself is UNREACHABLE in the
-    real deployed BPMN today (FINDING #1c — the 5 `SP-OP-ANS-CRON-001-*` process definitions
-    bind `ST_PublishCronDue*` directly to the generic `operadora.events.publish` topic with
-    literal `camunda:inputParameter`s, never to `operadora.ans_cron.trigger_submissions`), and
-    that generic worker's own `event_payload_vars` literal
-    (`report_type,periodicidade,origem_envio,competencia`) does not list `tenant_id` — so the
-    REAL live Kafka fact still omits it until a `spec/` edit adds `tenant_id` to that BPMN
-    literal (`test_sp_op_ans_cron_001.py:428` still correctly documents this live-wire gap).
-    This mapping passes through whatever `tenant_id` key the payload supplies, defaulting to
-    `""` fail-closed when it is genuinely absent — never fabricated here.
+    `tenant_id` (EB-3 part 3 — SOURCE fixed at the generic publisher; t2-notify-integrity item 3
+    follow-up CLOSED the former live-wire residual): `ans_cron.py`'s `trigger_submissions`
+    accepts a `tenant_id` KEYWORD parameter but is UNREACHABLE in the real deployed BPMN
+    (FINDING #1c — the 5 `SP-OP-ANS-CRON-001-*` definitions bind `ST_PublishCronDue*` directly to
+    the generic `operadora.events.publish` topic with literal `camunda:inputParameter`s whose
+    `event_payload_vars` do not list `tenant_id`). The generic publisher
+    (`events.py::make_publish_event_handler`) therefore now stamps the DEPLOYMENT's own tenant
+    (`register_events_workers`' `tenant_id` seam, sourced from
+    `WorkerRuntimeSettings.tenant_id` — the live composition root
+    `worker_runtime/service.py::register_default_workers` already threads it) into any payload
+    the process variables left tenant-less, via `setdefault` (never overriding a
+    process-var-sourced tenant like SP-OP-NIP-001's). Deployment truth, not fabrication: there is
+    no PER-INSTANCE tenant on a TimerStartEvent-triggered scheduler — the per-tenant worker
+    deployment's identity IS the fact's tenant. So the REAL live fact now carries `tenant_id`
+    (`test_sp_op_ans_cron_001.py` pins it) and this rule ARMS under the tenant anchor with a
+    proper `ANSSUB-{tenant}-...` key. HONEST no-seam boundary: a registration WITHOUT the seam
+    (legacy/tests) still emits tenant-less facts — this mapping then defaults to `""` fail-closed
+    and the rule's `_anchored` predicate keeps it DORMANT (never an `ANSSUB--...` orphan);
+    nothing is fabricated here.
     """
     tenant_id = str(payload.get("tenant_id", ""))
     report_type = str(payload.get("report_type", ""))
@@ -654,12 +656,14 @@ class NotificationBridge:
         # Fail-closed predicate: report_type must be present/non-blank (no sensible
         # calendar/business-key derivation without it), plus `tenant_id` structurally via
         # `_anchored` (t2-notify-integrity item 3 — no more `ANSSUB--{report_type}-...`
-        # degenerate keys). HONEST residual (unchanged from EB-3 part 3's note above): the REAL
-        # live cron fact still omits `tenant_id` (the BPMN's `event_payload_vars` literal does not
-        # list it — a `spec/` follow-up), so against today's live wire this rule is DORMANT, which
-        # is the fail-closed intent: better no start than a tenant-orphaned instance invisible to
-        # every tenant-scoped query. EB-3 part 2: `_non_blank` also fail-closed rejects an
-        # EXPLICIT `None` report_type (see `nip.handoff_ans_submit` rule above).
+        # degenerate keys). LIVE-WIRE ARMED (item 3 follow-up): the generic publisher now stamps
+        # the deployment tenant into tenant-less payloads (`events.py` `deployment_tenant_id`
+        # seam, setdefault-only — see `_ans_submit_variables_from_cron_due`'s docstring), so the
+        # real monthly tick carries `tenant_id` and this rule fires with a proper
+        # `ANSSUB-{tenant}-...` key; a registration WITHOUT that seam still emits tenant-less
+        # facts and the rule stays honestly DORMANT (fail-closed, never an orphan start). EB-3
+        # part 2: `_non_blank` also fail-closed rejects an EXPLICIT `None` report_type (see
+        # `nip.handoff_ans_submit` rule above).
         self.register_handoff(
             event_type="ans.cron_due",
             predicate=lambda p: _anchored(p, "report_type"),
