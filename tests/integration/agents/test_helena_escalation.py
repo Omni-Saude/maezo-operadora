@@ -93,7 +93,14 @@ class _FakeInference:
     def __init__(self, responses: list[str]) -> None:
         self._responses = list(responses)
 
-    async def generate(self, prompt: str, *, phi: bool = False) -> str:
+    async def generate(
+        self,
+        prompt: str,
+        *,
+        phi: bool = False,
+        agent_id: str | None = None,
+        tenant_id: str | None = None,
+    ) -> str:
         assert phi is True, "every Helena LLM call must be phi=True (ADR-0006/ADR-0017/T1.7)"
         return self._responses.pop(0) if self._responses else ""
 
@@ -313,7 +320,14 @@ class _RaisingInference:
     """LLM seam that always raises — the verifier's 'LLM exception' live case. `phi=True` is
     still asserted on entry so the PHI-flag discipline check covers this path too."""
 
-    async def generate(self, prompt: str, *, phi: bool = False) -> str:
+    async def generate(
+        self,
+        prompt: str,
+        *,
+        phi: bool = False,
+        agent_id: str | None = None,
+        tenant_id: str | None = None,
+    ) -> str:
         assert phi is True, "every Helena LLM call must be phi=True (ADR-0006/ADR-0017/T1.7)"
         raise RuntimeError("LLM provider unavailable")
 

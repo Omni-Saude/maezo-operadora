@@ -47,7 +47,14 @@ class _FakeInference:
         self._responses = list(responses) if responses else []
         self.calls: list[tuple[str, bool]] = []
 
-    async def generate(self, prompt: str, *, phi: bool = False) -> str:
+    async def generate(
+        self,
+        prompt: str,
+        *,
+        phi: bool = False,
+        agent_id: str | None = None,
+        tenant_id: str | None = None,
+    ) -> str:
         self.calls.append((prompt, phi))
         return self._responses.pop(0) if self._responses else "texto padrao"
 
@@ -56,7 +63,14 @@ class _RaisingInference:
     """LLM seam that always raises — proves every drafting call is best-effort (never blocks
     routing/escalation)."""
 
-    async def generate(self, prompt: str, *, phi: bool = False) -> str:
+    async def generate(
+        self,
+        prompt: str,
+        *,
+        phi: bool = False,
+        agent_id: str | None = None,
+        tenant_id: str | None = None,
+    ) -> str:
         raise RuntimeError("LLM provider unavailable")
 
 

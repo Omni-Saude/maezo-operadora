@@ -703,7 +703,9 @@ class CarolinaGraph:
             f"fatos={facts}"
         )
         try:
-            narrativa = await self._llm.generate(prompt, phi=True)
+            narrativa = await self._llm.generate(
+                prompt, phi=True, agent_id="carolina", tenant_id=state.get("tenant_id", "")
+            )
         except Exception:  # noqa: BLE001 — dossie deterministico minimo se LLM falhar.
             narrativa = ""
         return {

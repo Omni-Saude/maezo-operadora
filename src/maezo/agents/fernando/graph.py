@@ -667,7 +667,9 @@ class FernandoGraph:
         intencao_validated = intencao if intencao in _VALID_INTENCOES else None
         prompt = f"{message_prompt()}\n\nintencao={intencao_validated}\nfatos={facts}"
         try:
-            texto = await self._llm.generate(prompt, phi=True)
+            texto = await self._llm.generate(
+                prompt, phi=True, agent_id="fernando", tenant_id=state.get("tenant_id", "")
+            )
         except Exception:  # noqa: BLE001 — fail-safe default: never leave the beneficiary with nothing.
             texto = "Identificamos uma pendencia em seu contrato. Consulte os canais de regularizacao."
 
@@ -717,7 +719,9 @@ class FernandoGraph:
         }
         prompt = f"{dossier_prompt()}\n\nmotivo={state.get('motivo_humano')}\nfatos={facts}"
         try:
-            narrativa = await self._llm.generate(prompt, phi=True)
+            narrativa = await self._llm.generate(
+                prompt, phi=True, agent_id="fernando", tenant_id=state.get("tenant_id", "")
+            )
         except Exception:  # noqa: BLE001 — LLM failure never blocks the human escalation.
             narrativa = ""
 

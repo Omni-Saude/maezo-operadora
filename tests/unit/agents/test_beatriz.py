@@ -55,7 +55,14 @@ class _FakeInference:
         self._responses = list(responses) if responses else ["narrativa factual sintetica"]
         self.calls: list[tuple[str, bool]] = []
 
-    async def generate(self, prompt: str, *, phi: bool = False) -> str:
+    async def generate(
+        self,
+        prompt: str,
+        *,
+        phi: bool = False,
+        agent_id: str | None = None,
+        tenant_id: str | None = None,
+    ) -> str:
         self.calls.append((prompt, phi))
         return self._responses.pop(0) if self._responses else ""
 
@@ -63,7 +70,14 @@ class _FakeInference:
 class _RaisingInference(_FakeInference):
     """LLM failure double — the graph must degrade, never block the instruction."""
 
-    async def generate(self, prompt: str, *, phi: bool = False) -> str:
+    async def generate(
+        self,
+        prompt: str,
+        *,
+        phi: bool = False,
+        agent_id: str | None = None,
+        tenant_id: str | None = None,
+    ) -> str:
         self.calls.append((prompt, phi))
         raise RuntimeError("provider unavailable")
 
@@ -71,7 +85,14 @@ class _RaisingInference(_FakeInference):
 class _AssertingInference(_FakeInference):
     """Raises on ANY call — for paths that must never reach the LLM at all."""
 
-    async def generate(self, prompt: str, *, phi: bool = False) -> str:
+    async def generate(
+        self,
+        prompt: str,
+        *,
+        phi: bool = False,
+        agent_id: str | None = None,
+        tenant_id: str | None = None,
+    ) -> str:
         raise AssertionError("this path must never call the LLM")
 
 

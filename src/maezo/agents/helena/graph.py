@@ -793,7 +793,9 @@ class HelenaGraph:
         """
         prompt = f"{classify_prompt()}\n\nMensagem do beneficiario:\n{state.get('message_body', '')}"
         try:
-            raw = await self._llm.generate(prompt, phi=True)
+            raw = await self._llm.generate(
+                prompt, phi=True, agent_id="helena", tenant_id=state.get("tenant_id", "")
+            )
         except Exception as exc:  # noqa: BLE001 — classified into a failure reason, never swallowed.
             return None, f"classify LLM call failed: {type(exc).__name__}: {str(exc)[:200]}"
         data = _parse_json_object(raw)
@@ -815,7 +817,9 @@ class HelenaGraph:
             f"mensagem_beneficiario={state.get('message_body', '')}"
         )
         try:
-            return await self._llm.generate(prompt, phi=True)
+            return await self._llm.generate(
+                prompt, phi=True, agent_id="helena", tenant_id=state.get("tenant_id", "")
+            )
         except Exception:  # noqa: BLE001 — fail-safe default: never leave the beneficiary with nothing.
             return "Recebemos sua mensagem. Um profissional humano vai continuar o atendimento em breve."
 
@@ -827,7 +831,9 @@ class HelenaGraph:
             f"mensagem={state.get('message_body', '')}"
         )
         try:
-            text = await self._llm.generate(prompt, phi=True)
+            text = await self._llm.generate(
+                prompt, phi=True, agent_id="helena", tenant_id=state.get("tenant_id", "")
+            )
         except Exception:  # noqa: BLE001 — fail-safe: never block the escalation on a summary.
             text = ""
         return text or f"Encaminhamento automatico ({motivo})."

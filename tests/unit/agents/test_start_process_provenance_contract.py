@@ -29,7 +29,14 @@ from tests.support.audit_fakes import FakeStartAuditSink
 class _FakeInference:
     model_id = "claude-contract-probe"
 
-    async def generate(self, prompt: str, *, phi: bool = False) -> str:
+    async def generate(
+        self,
+        prompt: str,
+        *,
+        phi: bool = False,
+        agent_id: str | None = None,
+        tenant_id: str | None = None,
+    ) -> str:
         return "sintetico"
 
 

@@ -738,7 +738,9 @@ class LucasGraph:
         }
         prompt = f"{message_prompt()}\n\nfatos={facts}"
         try:
-            texto = await self._llm.generate(prompt, phi=True)
+            texto = await self._llm.generate(
+                prompt, phi=True, agent_id="lucas", tenant_id=state.get("tenant_id", "")
+            )
         except Exception:  # noqa: BLE001 — fail-safe default: never leave the beneficiary with nothing.
             texto = "Recebemos sua solicitacao. Em breve enviaremos os detalhes por aqui."
         return {
@@ -781,7 +783,9 @@ class LucasGraph:
         }
         prompt = f"{dossier_prompt()}\n\nmotivo_humano={state.get('motivo_humano')}\nfatos={facts}"
         try:
-            narrativa = await self._llm.generate(prompt, phi=True)
+            narrativa = await self._llm.generate(
+                prompt, phi=True, agent_id="lucas", tenant_id=state.get("tenant_id", "")
+            )
         except Exception:  # noqa: BLE001 — LLM failure never blocks the escalation.
             narrativa = ""
         return {
@@ -801,7 +805,9 @@ class LucasGraph:
         disclosed improvement over the donor). NEVER reveals the pending adverse outcome."""
         prompt = f"{escalation_ack_prompt()}\n\nmotivo_humano={state.get('motivo_humano')}"
         try:
-            return await self._llm.generate(prompt, phi=True)
+            return await self._llm.generate(
+                prompt, phi=True, agent_id="lucas", tenant_id=state.get("tenant_id", "")
+            )
         except Exception:  # noqa: BLE001 — fail-safe default: never leave the beneficiary with nothing.
             return "Recebemos sua solicitacao. Um atendente humano vai continuar por aqui em breve."
 

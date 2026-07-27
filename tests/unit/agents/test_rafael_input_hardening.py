@@ -48,7 +48,14 @@ class _RecordingCibSeven(FakeCibSevenTransport):
 
 
 class _FakeInference:
-    async def generate(self, prompt: str, *, phi: bool = False) -> str:
+    async def generate(
+        self,
+        prompt: str,
+        *,
+        phi: bool = False,
+        agent_id: str | None = None,
+        tenant_id: str | None = None,
+    ) -> str:
         return "NARRATIVA"
 
 

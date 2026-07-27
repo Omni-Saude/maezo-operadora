@@ -222,7 +222,14 @@ class _RaisingInference:
 
     is_mock = True
 
-    async def generate(self, prompt: str, *, phi: bool = False) -> str:
+    async def generate(
+        self,
+        prompt: str,
+        *,
+        phi: bool = False,
+        agent_id: str | None = None,
+        tenant_id: str | None = None,
+    ) -> str:
         raise RuntimeError("simulated LLM garbage/failure (eval-only, never a real model)")
 
 
