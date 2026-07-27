@@ -1,6 +1,28 @@
 # ADR-0030: Worker error semantics vs BPMN error-boundary catches — modeled `WorkerBpmnError`, incident everywhere else [T3.1]
 
-**Status:** Proposed (2026-07-18) · **Data:** 2026-07-18 · **Area:** Orquestracao (runtime spine)
+**Status:** Accepted — ratified by orchestrator (Fable 5) 2026-07-27, recorded as DL-0036 (updates DL-0030) · **Data:** 2026-07-18 · **Area:** Orquestracao (runtime spine)
+
+> **Ratification amendment note (2026-07-27):** the design (Decisao, Option A) is R1-verified PASS on
+> main (`docs/evidence-ledger.md:95`, "VERIFIED — R1 adversarial verification (2 rounds) … round-2
+> re-verify PASS"); Tier-0 (CI boundary-proof gate + allowlist wiring) is independently R1-verified
+> and built (`docs/evidence-ledger.md:98`, "R1 ADVERSARIAL PASS"). **Ratifying the decision does not
+> assert the migration is 100% complete** — it is intentionally phased (per the ADR's own Migration
+> plan): Tier-1 (escalation `ERR_ESC_NOTIFY_FAILED`) build landed per DL-0034 "BUILT 2026-07-26"
+> (`docs/decisions-log.md:11`), but the ADR's own migration table still routes the `ERR_ESC_NOTIFY_FAILED`
+> *raise* itself out of scope, remaining ADR-0030 Tier-1 follow-up; Tier-2 landed for `lgpd`/`recurso`
+> (`docs/evidence-ledger.md:113`) but the remaining Tier-2 families — `cred`, `nip`, `pagto`, `programa`,
+> `reembolso` — have no `*_BPMN_ERROR_ALLOWLIST` export wired into `service.py` yet; Tier-3 is split
+> per family: **`cred` guard-blocks — raise-side migration DONE** (PR #166, commit `0ecacbb`:
+> `credenciamento.py:337` raises `WorkerBpmnError(ERR_DECRED_NOT_HUMAN)` and `:395` raises
+> `WorkerBpmnError(ERR_CRED_DENIAL_NOT_HUMAN)`), with only the production **allowlist enablement
+> pending** (both codes T-E-deferred per §4 — no `CRED_BPMN_ERROR_ALLOWLIST` import in `service.py`);
+> **`inadimplencia` contract-suspension — unmigrated** (`inadimplencia.py:474` still raises the plain
+> coded `InadimplenciaError(ERR_CONTRACT_SUSPENSION_NOT_HUMAN)`, zero migration). T-E (audited refusal)
+> has now landed (`docs/evidence-ledger.md:116`, "T-E AUDITED REFUSAL", 2026-07-24) but that ledger row
+> itself discloses "ZERO allowlist enablements" for the Tier-3 `*_NOT_HUMAN` codes — so the runtime
+> behavior for all Tier-3 codes remains the audited-incident path, unchanged. These remaining Tier-2
+> families + Tier-3 enablements are recorded here as explicit phased follow-ups, not silently folded
+> into "Accepted."
 
 > Draft for the orchestrator/gatekeeper's ratification. Ground rule 2 (author ≠ verifier): authored by
 > process-engine-architect (R1); must be R1-verified before it moves to Accepted. Every citation below

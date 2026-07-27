@@ -1,10 +1,25 @@
 # ADR-0026: Worker standardization — adapter over subclassing
 
-**Status:** Proposed (2026-07-16) · **Data:** 2026-07-16 · **Area:** Orquestracao (runtime spine, B13)
+**Status:** Accepted — ratified by orchestrator (Fable 5) 2026-07-27, recorded as DL-0036 · **Data:** 2026-07-16 · **Area:** Orquestracao (runtime spine, B13)
 
 > Draft for the orchestrator's ratification. Ground rule 2 (author ≠ verifier): this ADR is authored by
 > runtime-spine-engineer (R1) and must be R1-verified before it moves to Accepted. Every count and
 > signature below was verified at HEAD `a0427d2`.
+
+> **Ratification amendment note (2026-07-27):** implementation is R1-verified on main
+> (`docs/evidence-ledger.md:53`, "verified — B13 closed, 16/16 registered 99 topics (merged #52)").
+> **Factual correction, ground-truth count as of ratification:** the original "16 modulos" text below
+> (Decisao §1/§4, and the README row) reflected the T1.2-day snapshot. A **later**, separately-merged
+> task (T3.1 "events.publish fix", `docs/evidence-ledger.md:66`) added a **17th** bootstrap —
+> `register_events_workers` (`src/maezo/tools/workers/events.py`, `bootstrap.py:1-19,45-46`) — a **raw**
+> `harness.register()` handler, not `FunctionWorker`-wrapped, because it needs `task.business_key`/
+> `process_instance_id`, which the dict-first `FunctionWorker` boundary (Decisao §1) does not expose.
+> This is disclosed here as an amendment, not a silent rewrite of Decisao §1/§4's original "16" text:
+> the *adapter* decision (Decisao §1, `FunctionWorker`) still holds for 16 of the 17 modules; the 17th
+> is the escape hatch Decisao's "(D) Hybrid" note on `run_async` already permits in spirit, now named
+> explicitly. `register_all_workers`/`ALL_WORKER_BOOTSTRAPS` (Decisao §4) compose all **17** bootstraps
+> today. Ratifying this ADR's Decisao (adapter over subclassing) does not require re-litigating this
+> count; it is recorded so the "16" in the body/README is understood as historical, not current.
 
 ## Contexto
 

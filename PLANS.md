@@ -5,9 +5,9 @@
 >
 > **O modelo de verdade não é "15 milestones concluídos".** É o modelo **fase/gate (P0–P4 / G0–G4)** com verificação **zero-trust** (todo "done" carrega uma linha de verificador independente + evidência reproduzível). **A fonte de verdade durável e versionada no repositório é:** `docs/evidence-ledger.md` (84 linhas verificadas), `docs/decisions-log.md` (DLs), `docs/adr/` (32 ADRs) e `docs/gates/` (registros de gate). *(O plano detalhado `V2-COMPLETION-PLAN.md` e o prompt de execução do backlog vivem apenas localmente em `docs/prompts/` por decisão do dono — o ledger é a verdade clonável.)*
 >
-> **Orquestrador:** Hive-Mind Queen (Opus / Fable 5) · **Repo:** Omni-Saude/maezo-operadora · **main:** `0e0ec85` (2026-07-19)
+> **Orquestrador:** Hive-Mind Queen (Opus / Fable 5) · **Repo:** Omni-Saude/maezo-operadora · **main:** `8092681` (2026-07-27, PR #171 merged) — *(header 2026-07-19 preservado abaixo; camada de reconciliação nova em §0.5)*
 > **Estratégia:** Keep Brain (`docs/`), Rebuild Spine (`src/`) — **em execução, NÃO concluída.**
-> **STATUS REAL: G0 conditional-pass · G1 FECHADO · G2 / G3 / G4 PENDENTES. ~68–72% do plano-até-produção · ~85% da engenharia agent-controlável. NÃO é produção-ready.**
+> **STATUS REAL (2026-07-27): G0 conditional-pass · G1 FECHADO · G2/G3 SUBSTÂNCIA DE ENGENHARIA COMPLETA (falta a metade humana de sign-off SME) · G4 PENDENTE 0% (externo). ~85–88% do plano-até-produção · ~95% da engenharia agent-controlável. NÃO é produção-ready — o que resta é o teto humano + uma cauda Tier-2 agent-buildable. Detalhe em §0.5.**
 
 ---
 
@@ -19,8 +19,8 @@
 |---|---|---|
 | **G0 — Truth Reset** | **CONDITIONAL-PASS** | Reconhecimento de dispatch a SME externo (o único resíduo) |
 | **G1 — Runtime Spine + Audit** | **✅ FECHADO** (`docs/gates/G1-gate-review.md`) | — (spine + cadeia de auditoria verificados) |
-| **G2 — Gates Reais & Regulatório** | **PENDENTE** | Substância T2.6 (validação XSD/TISS, notification-bridge) **+ ≥12/16 contratos FINAL exigem SMEs externos** (médico-auditor primeiro) — *external-blocked* |
-| **G3 — Test Harness & Audit** | **PENDENTE** | Fase 3 quase não iniciada: T3.2 (evals + lane de CI), T3.3 (chaos/cross-process), T3.4 (auditoria adversarial pré-deploy — ÚLTIMA, gera novo trabalho) |
+| **G2 — Gates Reais & Regulatório** | **SUBSTÂNCIA DE ENGENHARIA COMPLETA · sign-off SME PENDENTE** | *(atualizado 2026-07-27)* T2.6 XSD/TISS fail-closed + notification-bridge LANDARAM (#132/#148/#157/#165); resta **apenas ≥12/16 contratos FINAL via SMEs externos** (médico-auditor primeiro) — *external-blocked* |
+| **G3 — Test Harness & Audit** | **✅ ENGENHARIA FECHADA** | *(atualizado 2026-07-27)* T3.2 evals + lane CI (#149), T3.3 chaos/cross-process (#147/#155/#157), T3.4 auditoria adversarial + remediação (#159) MERGED; + auditoria §3 de 2026-07-27 → PR #171 MERGED |
 | **G4 — Staging & Prod Readiness** | **PENDENTE — 0%** | Inteiramente externo: conta+creds AWS, 6 secrets de produção, designação de DPO + RIPD, provisionamento GHAS, 3 sign-offs de gatekeeper + go/no-go humano |
 
 **Dois gates (G2, G4) não podem ser fechados por agentes** — dependem de humanos/infra externos. Isso limita a conclusão agent-alcançável bem abaixo de 100% do plano.
@@ -40,15 +40,15 @@ Legenda: **✅** verificado-done (gate) · **◑** parcial (código existe, lacu
 | M2 BPMN/DMN Regeneration | **◑** | BPMN/DMN existem + `validate-artifacts` verde; **MAS contratos ainda DRAFT — o gap<5% e a validação por SME NÃO foram feitos** (G2-bloqueado). |
 | M3 Core Runtime | **✅** | G1 fechado; runtime spine verified-complete. |
 | M4 Gateway & Security | **◑** | Cadeia de auditoria real e wired **nesta sessão** (T1.10 wave). PEP/pseudonymizer/vault/custody existem com lacunas — ex.: o gate de identidade LGPD estava **fail-OPEN** (corrigindo #113). |
-| M5 Agent Framework + MCP + A2A | **◑** | 10 grafos de agente reais (B6 fechado). **A2A dispatcher + card-signing NÃO feitos** (backlog P3). Registry de tools (ToolRegistry) inexistente (ADR-0022 stale, T2.4). |
+| M5 Agent Framework + MCP + A2A | **◑→✅** | 10 grafos de agente reais (B6 fechado). **A2A dispatcher + card-signing COMPLETO (#156, 2026-07-27).** Resíduo: ToolRegistry ainda inexistente (ADR-0022 stale, T2.4). |
 | M6 Foundation Processes | **◑** | ESCALATION/AUTH/LGPD com workers; invariante L0 do AUTH provado. LGPD identity fail-open (#113); workers LGPD faltantes (`compile_data_package`/`execute_request`/`send_response`, #55 R-C/R-D/R-F). |
-| M7 Core Compliance | **◑** | Workers existem. Protocolo ANS fabricado removido (#109). Recurso: caminho auditor `ACEITAR_GLOSA` e emissão `recurso.pended` faltantes; 5 tópicos não implementados. |
+| M7 Core Compliance | **◑→✅** | Workers existem. Protocolo ANS fabricado removido (#109). **Recurso: caminho auditor `ACEITAR_GLOSA` (#123) + `recurso.pended` (#138) + 5 tópicos (#128) LANDARAM (2026-07-27).** T2.6 ANS XSD/TISS fail-closed (#132). |
 | M8 Advanced Processes | **◑** | Anti-dupla corrigido real (#108); fraude DMN-input endurecido (#111). Lacunas/workers de família restantes. |
-| M9 Cross-Process Choreography | **◑** | Notification bridge parcial; wiring NIP/cron→SUBMIT aberto (T2.6). |
+| M9 Cross-Process Choreography | **◑→✅** | **Notification bridge ARMADO; CONTAS→RECURSO→FRAUDE live + Kafka producer (#157/#165); NIP/cron→SUBMIT via fenced start (#148) — LANDARAM (2026-07-27).** |
 | M10 Multi-Tenancy & Infra | **◔** | Helm/Terraform passam `lint`/`validate`, mas **NÃO provisionados** — Phase 4 = 0%, external-blocked (AWS/creds/secrets). IaC-only. |
 | M11 Observability | **◔** | Configs podem existir; **sem verificação zero-trust**; não é um gate fechado. |
 | M12 PHI & LGPD Hardening | **◑** | PHI egress NetworkPolicy existe; **o fail-open de identidade provava que não estava completo** (#113). Erasure/retention não totalmente verificados; DPO+RIPD external-blocked. |
-| M13 Production Hardening | **✗** | Chaos/load/DR = P3 T3.3 + P4 — **não iniciado**. |
+| M13 Production Hardening | **✗→◑** | **Chaos/seam-fault + cross-process suites LANDARAM (T3.3, #147/#155/#157, 2026-07-27).** Load/DR reais = P4-externo (ainda não iniciado). |
 | M14 Docs & Handoff | **◔** | Docs existem; handoff operacional formal não feito. |
 
 ### 0.4 Sprints ainda pendentes (resumo — detalhe técnico no prompt de execução em `docs/prompts/`)
@@ -62,6 +62,28 @@ Legenda: **✅** verificado-done (gate) · **◑** parcial (código existe, lacu
 - **G4:** conta+creds AWS + 6 secrets; designação de DPO + RIPD; provisionamento GHAS; 3 gatekeepers + go/no-go humano.
 
 > **Caveat estrutural:** cada fase gerou **1,5–3× as sub-tarefas planejadas** (T1.10 "1 tarefa" virou uma wave de 7; esta sessão sozinha gerou o bug cross-loop anti-dupla, os findings de recurso e a cascata do gitleaks). Leia "~30% restante" como "~30% com cauda longa à direita", não linear.
+
+---
+
+## 0.5 — ATUALIZAÇÃO 2026-07-27 (reconciliação pós-ondas T2–T8; PR #171 merged)
+
+> **Esta camada reconcilia §0 (2026-07-19) contra `origin/main` @ `8092681`.** O ledger durável agora vai até `t8-token-metering`; ADRs até **0036**; decisions-log até **DL-0035**. **Tudo que §0.4 listava como "sprint pendente agent-controlável" LANDOU e está verificado no ledger.** Engenharia agent-controlável ≈ **95%+**; o que resta é o teto humano (Tier-3) + uma cauda Tier-2 agent-buildable. *(Metodologia: reconciliado contra `origin/main`, não contra a árvore local — a local esteve 49 commits atrás e faz varreduras reportarem como "pendente" trabalho já mesclado.)*
+
+**Executado desde 2026-07-19 (merged + ledger-backed):**
+- **G2 substância:** T2.6 XSD/TISS fail-closed (#132) + bridge NIP/cron→SUBMIT (#148); notification-bridge ARMADO EB-3/EB-4 CONTAS→RECURSO→FRAUDE live + A3 (#157) + Kafka producer (#165). LGPD R-F/R-G (#125) + DSR identity fail-closed (#113). Recurso ACEITAR_GLOSA (#123) + 5 tópicos + boundary (#128) + `recurso.pended` (#138). Famílias cred/reembolso/programa/nip/pagto/adequacao/fraude (#126/#129/#130/#133/#136 + #134–#141). Fraude scoring DMNs (#48/#79/#111/#126). Auditoria T-B (#124)/T-E (#131)/T-F+T-G via A2A W1–W4 (#156)/ADR-0033 (#151). **A2A dispatcher + card-signing COMPLETO (#156).**
+- **G3 engenharia FECHADA:** T3.1 integração (#94/#146/#153/#158), T3.2 44 evals + lane CI (#149), T3.3 chaos/cross-process (#147/#155/#157), T3.4 auditoria adversarial + remediação (#159).
+- **Completude de plataforma T4/T5:** checkpoint durável, fix DSN prod, correção de workers, DL-0033/0034, **descope L2-review-sampling ratificado (ADR-0034)**, pytest 9 (#165/#166); **t6** pseudonymizer HMAC + ADR-0035 (#167); **t7** webhook DATABASE_URL (#169).
+- **Auditoria adversarial desta janela → PR #171 MERGED (`8092681`):** escalation notify fail-closed (best-effort→propaga→`ERR_ESC_NOTIFY_FAILED`→fallback→UT), conversation-id PHI com chave HMAC + ADR-0036, handoff NIP→ANS armado, BK-parity numero_caso, LLM token-metering. Cada um dos 5 branches passou por gatekeeper adversarial independente (tier ≥ autor).
+
+**Pendências reais (2026-07-27):**
+- **Tier 1 — FEITO:** PR #171 merged; #170 (versão hollow) curado pelo v2; PRs #172–#176 = bumps dependabot (fora de escopo).
+- **Tier 2 — agent-buildable, decision-gated (o PRÓXIMO orquestrador DECIDE + EXECUTA — ver §0.5.1):** (1) auditoria de postura dos 4 callers de swallow restantes em `operadora.notifications.internal` (`lgpd.request_additional_proof`/`send_response`, `recurso.notify_sla_risk`, `ans_submit.notify_regulatorio`) — mesma forma de perda-silenciosa que a Fix A fechou para escalation; (2) durabilidade do handoff one-shot NIP→ANS (outbox/reconciliação — hoje rides best-effort sem retry natural); (3) predicado bridge CONTAS→FRAUDE sem `non_blank(tenant_id)` (assimetria pré-existente); (4) correlation-ids do token-metering (`agent_id`/`tenant_id` = None hoje); (5) delegação A2A real de dossiê além dos stubs DL-0033 (adequacao `prepare_remediation_dossier`, cred `prepare_dossier`); (6) CronJobs de retenção/expurgo (`expurgo-working`/`verify-erasure`) — construir o seam completo fail-closed; (7) `PopulationFeatureClient` (André); (8) ratificação de ADRs Proposed (0025/0026/0028/0029/0030; há conflito de status em ADR-0028 ledger-vs-arquivo); (9) cauda de xfails por família (~102 sites/~39 constantes em origin/main — lista viva: `git grep '_.*_REASON =' tests/integration/processes/`). **Gated-por-valor (construir o seam, deixar o valor humano):** cost-table USD do LLM (#29 — os counts do metering já landaram), retention-matrix (item 6), módulo fhir-sync (Tasy-contract-gated).
+- **Tier 3 — teto humano (escalate/track SOMENTE — NÃO forçar):** sign-offs SME (contratos DRAFT→FINAL, médico-auditor→jurídico/DPO/regulatório/finanças/PO); AWS + `terraform apply` + billing; 6 secrets de produção (LLM/Tasy/WABA/**PHI_HMAC_KEY**/card-signing); DPA endpoint PHI-BR; DPO + RIPD + retention-matrix; sign-off DMN clínico + validação de personas (Beatriz↔Valentina) + atestação de segurança clínica; atestação ANS + competências reais; GHAS; **valores de teto D-07** (diretoria); parecer ANVISA SaMD (GAP-C10); emissão de cert T-G (ADR-0033); 3 gatekeepers + go/no-go. Detalhe humano: `docs/Tarefas_Pendentes.md`.
+- **Resolvido nesta janela:** edições BPMN obsoletas descartadas (stash-drop aprovado pelo dono, commit 259e6a42e) → main local sincronizado; higiene de branches remotas/locais executada.
+
+### 0.5.1 — AUTORIZAÇÃO AO PRÓXIMO ORQUESTRADOR
+
+> **O próximo orquestrador (Hive-Mind Queen, Fable 5/Opus) está AUTORIZADO a usar deep-think para DECIDIR e EXECUTAR os itens Tier-2 (agent-buildable, decision-gated)** — não apenas registrá-los. Para cada item Tier-2: (1) deep-think da causa-raiz e do design correto (SEM workarounds); (2) decidir se é agent-buildable-agora ou gated-por-valor-humano; (3) se agent-buildable, **desbloquear e EXECUTAR** sob zero-trust VERIFY→GATE (build → gatekeeper adversarial independente, tier ≥ autor → PR → merge on green → byte-check `main`); (4) se gated-por-valor (cost-table USD, retention-matrix, schema Tasy), **construir todo o seam + lógica fail-closed** e deixar SOMENTE o valor/contrato humano como ponto de injeção claramente marcado — **NUNCA inventar o valor**. **Tier-3 (teto humano) permanece escalate/track-only — o orquestrador NÃO deve forçá-lo.** Roteamento inteligente de modelo (R1 opus para L0/PHI/financeiro/segurança/cripto; R2 sonnet para impl/testes/infra; R3 haiku para scans/docs), máxima paralelização dependency-aware, cláusula anti-injeção em todo brief. Fontes autoritativas: `docs/evidence-ledger.md`, `docs/decisions-log.md`, `docs/adr/` (até 0036), `docs/gates/`, e `docs/Tarefas_Pendentes.md` (teto humano).
 
 ---
 
@@ -595,12 +617,12 @@ Com AI swarms coordenados (3-5 agentes em paralelo por milestone), o prazo pode 
 
 | Métrica | Valor | Base |
 |---|---|---|
-| **Progresso — plano até produção (G4)** | **~68–72%** | task-weighted vs §0; P0/P1 done, P4 = 0% |
-| **Progresso — engenharia agent-controlável** | **~85%** | P0/P1 verificados, P2 substância parcial, P3 abrindo |
-| **Gates** | **G0 conditional · G1 FECHADO · G2/G3/G4 pendentes** | `docs/gates/` |
-| Linhas de evidência verificadas (ledger) | **84** | `docs/evidence-ledger.md` |
+| **Progresso — plano até produção (G4)** | **~85–88%** *(2026-07-27)* | task-weighted vs §0; P0/P1/P2/P3 engenharia done, P4 = 0% externo |
+| **Progresso — engenharia agent-controlável** | **~95%** *(2026-07-27)* | P0–P3 verificados; resta a cauda Tier-2 (§0.5) |
+| **Gates** | **G0 conditional · G1 FECHADO · G2/G3 engenharia COMPLETA (sign-off SME pendente) · G4 pendente 0%** | `docs/gates/` + §0.5 |
+| Linhas de evidência verificadas (ledger) | **até `t8-token-metering`** *(origin/main)* | `docs/evidence-ledger.md` |
 | PRs merged (verificados, zero-trust) | **~90+** (9 nesta sessão) | git history + ledger |
-| ADRs | **32** | `docs/adr/` (nem todos Accepted; ex.: ADR-0031 Proposed) |
+| ADRs | **36** *(até ADR-0036)* | `docs/adr/` (nem todos Accepted; 0025/0026/0028/0029/0030 Proposed — ver Tier-2 §0.5) |
 | Testes unitários (lane verde) | **~2076–2091 passed** | CI `lint / type / unit` (sessão 2026-07-19) |
 | Suítes de integração real-engine | **13 famílias portadas + verdes** (`#94`) | lane `integration tests (real engine)` |
 | Agentes AI (grafos reais) | **10** (B6 fechado, R1-verificado) | ledger |
