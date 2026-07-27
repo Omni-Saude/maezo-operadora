@@ -1,7 +1,9 @@
-"""Unit tests for `maezo.tools.workers.lgpd`'s `make_send_response_handler` (#55 R-F, T2.8).
+"""Unit tests for `maezo.tools.workers.lgpd`'s `make_send_response_handler` (#55 R-F, T2.8) and
+`make_request_additional_proof_handler` (#55 R-B — its fail-closed publish-posture pins live here
+too; the R-B handler has no dedicated test module).
 
-No engine — every test drives `make_send_response_handler`/`register_lgpd_workers` directly
-against `ExternalTask` + `FakeKafkaPublisher` (or `kafka=None`), mirroring `test_events.py`'s
+No engine — every test drives the handlers/`register_lgpd_workers` directly against
+`ExternalTask` + `FakeKafkaPublisher` (or `kafka=None`), mirroring `test_events.py`'s
 pattern for `make_publish_event_handler`. The real-engine acceptance tests live under
 `tests/integration/processes/test_sp_op_lgpd_dsr_001.py` (currently `_gap_topic_stub`-served —
 the 3 happy-path xfails there also need DPO-gated R-C/R-D before they can flip).
@@ -11,6 +13,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from maezo.tools.workers.harness import (
     ExternalTask,
     FakeKafkaPublisher,
@@ -19,8 +23,11 @@ from maezo.tools.workers.harness import (
 )
 from maezo.tools.workers.lgpd import (
     _NOTIFICATIONS_TOPIC,
+    _REQUEST_PROOF_NOTIFICATION_TYPE,
+    _REQUEST_PROOF_TOPIC,
     _SEND_RESPONSE_NOTIFICATION_TYPE,
     _SEND_RESPONSE_TOPIC,
+    make_request_additional_proof_handler,
     make_send_response_handler,
     register_lgpd_workers,
 )
@@ -77,6 +84,10 @@ async def test_send_response_publishes_notification_aprovar_envio() -> None:
     assert payload["tipo_requisicao"] == "confirmacao_acesso"
     assert payload["decisao_dsr"] == "APROVAR_ENVIO"
     assert "tem_fundamentacao" not in payload  # only present for NEGAR_FUNDAMENTADO
+    # NON-HOLLOW (t2-notify-integrity item 1): forced propagate-on-failure — the titular's
+    # legally mandated response dispatch must never be silently swallowed (terminal leg,
+    # zero backstop).
+    assert kafka.best_effort_calls == [False]
 
 
 async def test_send_response_executar_e_enviar_has_no_fundamentacao_flag() -> None:
@@ -173,6 +184,107 @@ async def test_send_response_missing_decisao_dsr_still_publishes() -> None:
     payload = kafka.published[0][1]
     assert payload["decisao_dsr"] == ""
     assert "tem_fundamentacao" not in payload
+
+
+# ---------------------------------------------------------------------------
+# Fail-safe on publish failure — propagates RAW (t2-notify-integrity item 1): no BPMN error
+# boundary is declared on ST_EnviarResposta, so a broker failure rides the harness
+# retry/incident ladder; the DSR must never reach End_RequisicaoConcluida with the response
+# undelivered.
+# ---------------------------------------------------------------------------
+
+
+class _FailingPublisher:
+    def __init__(self) -> None:
+        self.best_effort_calls: list[bool | None] = []
+
+    async def publish(
+        self,
+        topic: str,
+        value: dict[str, Any],
+        *,
+        key: str | None = None,
+        best_effort: bool | None = None,
+    ) -> bool:
+        del topic, value, key
+        self.best_effort_calls.append(best_effort)
+        raise RuntimeError("kafka unavailable (test)")
+
+
+async def test_send_response_publish_failure_propagates_raw_exception() -> None:
+    kafka = _FailingPublisher()
+    handler = make_send_response_handler(kafka)
+    task = _task(variables={"decisao_dsr": "APROVAR_ENVIO"})
+
+    with pytest.raises(RuntimeError, match="kafka unavailable"):
+        await handler(task)
+    # NON-HOLLOW: the publish opts into propagate-on-failure so the best-effort-swallowing
+    # producer cannot let the process reach a TERMINAL false success with the titular's
+    # response never dispatched (LGPD Art. 18/19).
+    assert kafka.best_effort_calls == [False]
+
+
+# ---------------------------------------------------------------------------
+# request_additional_proof (#55 R-B) — fail-closed publish posture (t2-notify-integrity item 1)
+# ---------------------------------------------------------------------------
+
+
+def _proof_task(*, variables: dict[str, Any] | None = None) -> ExternalTask:
+    return ExternalTask(
+        task_id="task-proof-1",
+        topic=_REQUEST_PROOF_TOPIC,
+        process_instance_id="proc-1",
+        business_key="DSR-amh-PSEUDO-001-confirmacao_acesso-2026-06-12",
+        worker_id="w-1",
+        variables=variables or {},
+    )
+
+
+async def test_request_additional_proof_publishes_with_forced_propagate() -> None:
+    kafka = FakeKafkaPublisher()
+    handler = make_request_additional_proof_handler(kafka)
+    task = _proof_task(
+        variables={
+            "tenant_id": "amh",
+            "canal": "portal",
+            "titular_pseudo_id": "PSEUDO-001",
+            "tipo_requisicao": "confirmacao_acesso",
+        }
+    )
+
+    result = await handler(task)
+
+    assert result == {}
+    assert len(kafka.published) == 1
+    topic, payload, key = kafka.published[0]
+    assert topic == _NOTIFICATIONS_TOPIC
+    assert key == task.business_key
+    assert payload["type"] == _REQUEST_PROOF_NOTIFICATION_TYPE
+    assert payload["titular_pseudo_id"] == "PSEUDO-001"
+    # NON-HOLLOW (t2-notify-integrity item 1): the challenge ask is this task's ONLY effect on
+    # the MAIN path — a swallowed publish parks the DSR 10 days then kills it as
+    # `expirada_identidade` with the titular never asked.
+    assert kafka.best_effort_calls == [False]
+
+
+async def test_request_additional_proof_publish_failure_propagates_raw_exception() -> None:
+    kafka = _FailingPublisher()
+    handler = make_request_additional_proof_handler(kafka)
+    task = _proof_task(variables={"tenant_id": "amh", "canal": "portal"})
+
+    with pytest.raises(RuntimeError, match="kafka unavailable"):
+        await handler(task)
+    # No BPMN boundary on ST_PedirProvaAdicional -> raw propagate (harness retry/incident,
+    # ADR-0030), holding the token AT the task instead of the un-asked P10D death.
+    assert kafka.best_effort_calls == [False]
+
+
+async def test_request_additional_proof_kafka_none_still_completes() -> None:
+    """kafka=None (no producer wired) is a DIFFERENT deployment reality from a broker failure —
+    unchanged: completes loudly so the flow reaches GW_AguardarProva."""
+    handler = make_request_additional_proof_handler(None)
+    result = await handler(_proof_task(variables={"tenant_id": "amh"}))
+    assert result == {}
 
 
 # ---------------------------------------------------------------------------

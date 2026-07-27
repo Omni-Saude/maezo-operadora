@@ -489,6 +489,14 @@ def make_notify_regulatorio_handler(kafka: KafkaPublisher | None) -> TaskHandler
         }
         if event_topic_deadline_risk:
             notification["event_topic_deadline_risk"] = event_topic_deadline_risk
+        # Posture: topic-default best-effort BY DESIGN (DL-0038, t2-notify-integrity keep) — this
+        # notification is ADVISORY on both variants it serves: (a) dossie (ST_PrepararDossie, the
+        # MAIN ANS-filing path — an incident here would stall the regulatory pipeline for a ping;
+        # UT_RevisarEnvio is engine-created regardless and BT_DueDate*/BT_DeadlineRisk* guard the
+        # deadline engine-side), and (b) deadline-risk (ST_NotificarDeadlineRisk — the
+        # fail-closed `agents.events.anssubmit.deadline_risk` publish one step downstream
+        # incidents the branch on a real broker outage anyway). Deliberately NOT
+        # best_effort=False — pinned by test_ans_submit.py.
         await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=task.business_key or None)
         return result
 
