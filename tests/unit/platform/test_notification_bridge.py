@@ -122,11 +122,12 @@ def test_bridge_register_custom_handoff() -> None:
 
 def test_bridge_contas_to_recurso_triggered() -> None:
     """Handoff CONTAS→RECURSO triggers on the REAL agents.events.contas.completed
-    (desfecho=encaminhada_recurso) with the business-key anchors present."""
+    (desfecho=encaminhada_recurso) with the business-key anchors (incl. tenant) present."""
     bridge = _make_bridge()
     event = HandoffEvent(
         event_type=CONTAS_COMPLETED_EVENT,
         payload={
+            "tenant_id": "amh",
             "desfecho": "encaminhada_recurso",
             "glosa_id": "GLOSA-001",
             "numero_guia_tiss": "GUIA-123",
@@ -152,6 +153,7 @@ def test_bridge_contas_to_recurso_not_triggered_when_not_recorrer() -> None:
     event = HandoffEvent(
         event_type=CONTAS_COMPLETED_EVENT,
         payload={
+            "tenant_id": "amh",
             "desfecho": "reenviada",
             "glosa_id": "GLOSA-001",
             "numero_guia_tiss": "GUIA-123",
@@ -164,11 +166,14 @@ def test_bridge_contas_to_recurso_not_triggered_when_not_recorrer() -> None:
 
 
 def test_bridge_contas_to_recurso_dormant_when_anchor_missing() -> None:
-    """EB-4 fail-closed anchor: the right desfecho but WITHOUT numero_guia_tiss/glosa_id (today's
-    minimal completed payload) stays DORMANT — never a divergent-key start."""
+    """EB-4 fail-closed anchor: the right desfecho (and tenant) but WITHOUT
+    numero_guia_tiss/glosa_id stays DORMANT — never a divergent-key start."""
     bridge = _make_bridge()
     result = bridge.evaluate(
-        HandoffEvent(event_type=CONTAS_COMPLETED_EVENT, payload={"desfecho": "encaminhada_recurso"})
+        HandoffEvent(
+            event_type=CONTAS_COMPLETED_EVENT,
+            payload={"tenant_id": "amh", "desfecho": "encaminhada_recurso"},
+        )
     )
     assert result.handoff_triggered is False
 
@@ -179,13 +184,16 @@ def test_bridge_contas_to_recurso_dormant_when_anchor_missing() -> None:
 
 
 def test_bridge_contas_to_fraude_triggered() -> None:
-    """Handoff CONTAS→FRAUDE (PHASE-3-DEFERRED): fires on the not-yet-emitted
-    desfecho=encaminhada_fraude with prestador_id anchor — proves the rule is correctly ARMED
-    though the current CONTAS BPMN does not yet emit this desfecho."""
+    """Handoff CONTAS→FRAUDE fires on desfecho=encaminhada_fraude with the prestador_id anchor
+    AND tenant_id present (t2-notify-integrity item 3: tenant is a required anchor — the old
+    version of this test pinned a tenant-LESS trigger, which minted the degenerate
+    `FRAUDE--{caso}` business key; that behavior is now fail-closed dormant, see
+    `test_bridge_contas_to_fraude_dormant_without_tenant`)."""
     bridge = _make_bridge()
     event = HandoffEvent(
         event_type=CONTAS_COMPLETED_EVENT,
         payload={
+            "tenant_id": "amh",
             "desfecho": "encaminhada_fraude",
             "analista_id": "auditor-001",
             "numero_lote_tiss": "LOTE-001",
@@ -201,6 +209,29 @@ def test_bridge_contas_to_fraude_triggered() -> None:
     assert result.variables["encaminhado_por_id"] == "auditor-001"
     assert result.variables["prestador_id"] == "PREST-001"
     assert result.variables["evidencia_refs"] == ["ref-1", "ref-2"]
+    assert result.variables["business_key"] == "FRAUDE-amh-PREST-001"  # never FRAUDE--PREST-001
+
+
+def test_bridge_contas_to_fraude_dormant_without_tenant() -> None:
+    """FLIPPED PIN (t2-notify-integrity item 3): the exact tenant-LESS payload the pre-fix test
+    asserted `handoff_triggered is True` for must now stay DORMANT — a blank/absent tenant would
+    mint the degenerate `FRAUDE--{caso}` business key (tenant-scoping orphan + divergent-key
+    double-start hazard vs the canonical in-flow `FRAUDE-{tenant}-{caso}` key). Mirrors
+    `contas.start_fraude`'s own ERR_CONTAS_FRAUDE_SEM_ALVO tenant guard."""
+    bridge = _make_bridge()
+    event = HandoffEvent(
+        event_type=CONTAS_COMPLETED_EVENT,
+        payload={
+            "desfecho": "encaminhada_fraude",
+            "analista_id": "auditor-001",
+            "numero_lote_tiss": "LOTE-001",
+            "prestador_id": "PREST-001",
+            "evidencia_refs": ["ref-1", "ref-2"],
+            "indicadores_presentes": ["score_elevado"],
+        },
+    )
+    result = bridge.evaluate(event)
+    assert result.handoff_triggered is False
 
 
 def test_bridge_contas_to_fraude_not_triggered_when_other_desfecho() -> None:
@@ -208,17 +239,20 @@ def test_bridge_contas_to_fraude_not_triggered_when_other_desfecho() -> None:
     bridge = _make_bridge()
     event = HandoffEvent(
         event_type=CONTAS_COMPLETED_EVENT,
-        payload={"desfecho": "encaminhada_recurso", "prestador_id": "PREST-001"},
+        payload={"tenant_id": "amh", "desfecho": "encaminhada_recurso", "prestador_id": "PREST-001"},
     )
     result = bridge.evaluate(event)
     assert result.target_process != "SP-OP-FRAUDE-001"
 
 
 def test_bridge_contas_to_fraude_dormant_when_anchor_missing() -> None:
-    """The fraude desfecho but no prestador_id anchor -> dormant (fail-closed)."""
+    """The fraude desfecho (and tenant) but no prestador_id anchor -> dormant (fail-closed)."""
     bridge = _make_bridge()
     result = bridge.evaluate(
-        HandoffEvent(event_type=CONTAS_COMPLETED_EVENT, payload={"desfecho": "encaminhada_fraude"})
+        HandoffEvent(
+            event_type=CONTAS_COMPLETED_EVENT,
+            payload={"tenant_id": "amh", "desfecho": "encaminhada_fraude"},
+        )
     )
     assert result.handoff_triggered is False
 
@@ -235,6 +269,7 @@ def test_bridge_fraude_to_cred_triggered() -> None:
     event = HandoffEvent(
         event_type=FRAUDE_COMPLETED_EVENT,
         payload={
+            "tenant_id": "amh",
             "desfecho": "encaminhado_credenciamento",
             "prestador_id": "PREST-001",
             "numero_caso": "FRAUDE-001",
@@ -253,6 +288,7 @@ def test_bridge_fraude_to_cred_not_triggered_when_contratual_desfecho() -> None:
     event = HandoffEvent(
         event_type=FRAUDE_COMPLETED_EVENT,
         payload={
+            "tenant_id": "amh",
             "desfecho": "encaminhado_contratual",
             "numero_contrato": "CTR-001",
         },
@@ -274,6 +310,7 @@ def test_bridge_fraude_to_cancel_triggered() -> None:
     event = HandoffEvent(
         event_type=FRAUDE_COMPLETED_EVENT,
         payload={
+            "tenant_id": "amh",
             "desfecho": "encaminhado_contratual",
             "entidade_tipo": "beneficiario",
             "beneficiario_pseudo_id": "pseudo-b-001",
@@ -295,6 +332,7 @@ def test_bridge_fraude_to_inadimplencia_triggered() -> None:
     event = HandoffEvent(
         event_type=FRAUDE_COMPLETED_EVENT,
         payload={
+            "tenant_id": "amh",
             "desfecho": "encaminhado_contratual",
             "entidade_tipo": "contrato",
             "numero_contrato": "CTR-001",
@@ -325,6 +363,7 @@ def test_evaluate_all_multiple_fraude_handoffs() -> None:
     event = HandoffEvent(
         event_type=FRAUDE_COMPLETED_EVENT,
         payload={
+            "tenant_id": "amh",
             "desfecho": "encaminhado_contratual",
             "entidade_tipo": "contrato",
             "numero_contrato": "CTR-001",
@@ -348,6 +387,7 @@ def test_evaluate_all_single_match() -> None:
     event = HandoffEvent(
         event_type=CONTAS_COMPLETED_EVENT,
         payload={
+            "tenant_id": "amh",
             "desfecho": "encaminhada_recurso",
             "glosa_id": "GLOSA-001",
             "numero_guia_tiss": "GUIA-123",
@@ -497,6 +537,7 @@ async def test_on_event_full_pipeline() -> None:
     results = await bridge.on_event(
         event_type=CONTAS_COMPLETED_EVENT,
         payload={
+            "tenant_id": "amh",
             "desfecho": "encaminhada_recurso",
             "glosa_id": "GLOSA-002",
             "numero_guia_tiss": "GUIA-456",
@@ -519,6 +560,7 @@ async def test_on_event_multiple_handoffs() -> None:
     results = await bridge.on_event(
         event_type=FRAUDE_COMPLETED_EVENT,
         payload={
+            "tenant_id": "amh",
             "desfecho": "encaminhado_contratual",
             "entidade_tipo": "contrato",
             "numero_contrato": "CTR-001",
@@ -559,9 +601,26 @@ def test_get_handoff_returns_rules() -> None:
     _, predicate = recurso[0]
     assert callable(predicate)
     assert (
-        predicate({"desfecho": "encaminhada_recurso", "numero_guia_tiss": "G-1", "glosa_id": "GL-1"}) is True
+        predicate(
+            {
+                "tenant_id": "amh",
+                "desfecho": "encaminhada_recurso",
+                "numero_guia_tiss": "G-1",
+                "glosa_id": "GL-1",
+            }
+        )
+        is True
     )
-    assert predicate({"desfecho": "reenviada", "numero_guia_tiss": "G-1", "glosa_id": "GL-1"}) is False
+    assert (
+        predicate(
+            {"tenant_id": "amh", "desfecho": "reenviada", "numero_guia_tiss": "G-1", "glosa_id": "GL-1"}
+        )
+        is False
+    )
+    # t2-notify-integrity item 3: tenant is a required anchor — same payload minus tenant is dormant.
+    assert (
+        predicate({"desfecho": "encaminhada_recurso", "numero_guia_tiss": "G-1", "glosa_id": "GL-1"}) is False
+    )
 
 
 def test_get_handoff_multiple_rules() -> None:
@@ -699,12 +758,18 @@ def test_nip_handoff_fail_closed_when_numero_nip_ans_is_none() -> None:
 
 
 def test_cron_due_triggers_ans_submit() -> None:
-    """ans.cron_due (SP-OP-ANS-CRON-001's per-report_type tick) starts SP-OP-ANS-SUBMIT-001."""
+    """ans.cron_due (SP-OP-ANS-CRON-001's per-report_type tick) starts SP-OP-ANS-SUBMIT-001.
+
+    t2-notify-integrity item 3: the payload now carries `tenant_id` (a required anchor) — the
+    pre-fix version of this test pinned a tenant-LESS trigger whose asserted business key was the
+    degenerate `ANSSUB--DIOPS_TRIMESTRAL-...` (double-dash = blank tenant segment), exactly the
+    orphan-key class the tenant anchor now refuses."""
     bridge = _make_bridge()
     event = HandoffEvent(
         event_type="ans.cron_due",
         payload={
             "type": "ans.cron_due",
+            "tenant_id": "amh",
             "report_type": "DIOPS_TRIMESTRAL",
             "periodicidade": "trimestral",
             "origem_envio": "calendario",
@@ -723,7 +788,7 @@ def test_cron_due_triggers_ans_submit() -> None:
     assert result.variables["dataset_complete"] is False
     assert result.variables["schema_valid"] is False
     assert result.variables["lgpd_anonimizado"] is False
-    assert result.variables["business_key"] == "ANSSUB--DIOPS_TRIMESTRAL-COMPETENCIA_PENDENTE"
+    assert result.variables["business_key"] == "ANSSUB-amh-DIOPS_TRIMESTRAL-COMPETENCIA_PENDENTE"
 
 
 def test_cron_due_business_key_deterministic_and_scoped_by_report_type() -> None:
@@ -765,17 +830,22 @@ def test_cron_due_missing_competencia_falls_back_to_sentinel() -> None:
     a blank/undefined competência reaching the engine's business key."""
     bridge = _make_bridge()
     result = bridge.evaluate(
-        HandoffEvent(event_type="ans.cron_due", payload={"report_type": "RN_388_QUALIDADE"})
+        HandoffEvent(
+            event_type="ans.cron_due", payload={"tenant_id": "amh", "report_type": "RN_388_QUALIDADE"}
+        )
     )
     assert result.handoff_triggered is True
     assert result.variables["competencia"] == "COMPETENCIA_PENDENTE"
 
 
 def test_cron_due_fail_closed_when_report_type_missing() -> None:
-    """Malformed trigger (no report_type) never starts a process — fail-closed."""
+    """Malformed trigger (no report_type, tenant present) never starts a process — fail-closed."""
     bridge = _make_bridge()
     result = bridge.evaluate(
-        HandoffEvent(event_type="ans.cron_due", payload={"competencia": "COMPETENCIA_PENDENTE"})
+        HandoffEvent(
+            event_type="ans.cron_due",
+            payload={"tenant_id": "amh", "competencia": "COMPETENCIA_PENDENTE"},
+        )
     )
     assert result.handoff_triggered is False
 
@@ -783,7 +853,9 @@ def test_cron_due_fail_closed_when_report_type_missing() -> None:
 def test_cron_due_fail_closed_when_report_type_blank() -> None:
     """Blank (whitespace-only) report_type is treated as malformed — same fail-closed path."""
     bridge = _make_bridge()
-    result = bridge.evaluate(HandoffEvent(event_type="ans.cron_due", payload={"report_type": "  "}))
+    result = bridge.evaluate(
+        HandoffEvent(event_type="ans.cron_due", payload={"tenant_id": "amh", "report_type": "  "})
+    )
     assert result.handoff_triggered is False
 
 
@@ -791,7 +863,9 @@ def test_cron_due_fail_closed_when_report_type_is_none() -> None:
     """EB-3 part 2: an EXPLICIT None report_type is fail-closed rejected (same None-hardening
     rationale as the NIP rule above)."""
     bridge = _make_bridge()
-    result = bridge.evaluate(HandoffEvent(event_type="ans.cron_due", payload={"report_type": None}))
+    result = bridge.evaluate(
+        HandoffEvent(event_type="ans.cron_due", payload={"tenant_id": "amh", "report_type": None})
+    )
     assert result.handoff_triggered is False
 
 
@@ -843,6 +917,94 @@ async def test_on_event_cron_due_executes_via_starter_spy() -> None:
     assert results[0].handoff_triggered is True
     assert results[0].target_process == PROCESS_KEY_ANS_SUBMIT
     assert spy.calls[0][1]["business_key"] == "ANSSUB-amh-DIOPS_TRIMESTRAL-COMPETENCIA_PENDENTE"
+
+
+# ---------------------------------------------------------------------------
+# t2-notify-integrity item 3 — tenant anchor: ALL 7 default rules stay DORMANT on a payload
+# whose per-rule anchors are present but whose tenant_id is absent/blank/None. Restores the
+# fail-closed symmetry with the in-flow fenced-start workers (contas.start_recurso/start_fraude,
+# fraude.start_credenciamento/start_contratual all REFUSE a tenant-less start via the shared
+# non_blank) and kills the degenerate business-key class (`RECURSO--…`, `FRAUDE--…`, `CRED--…`,
+# `CANCEL--…`, `INAD--…`, `ANSSUB--…`) that a tenant-less trigger used to mint.
+# ---------------------------------------------------------------------------
+
+_TENANTLESS_RULE_PAYLOADS: list[tuple[str, str, dict[str, Any]]] = [
+    (
+        "contas-recurso",
+        CONTAS_COMPLETED_EVENT,
+        {"desfecho": "encaminhada_recurso", "numero_guia_tiss": "G-1", "glosa_id": "GL-1"},
+    ),
+    (
+        "contas-fraude",
+        CONTAS_COMPLETED_EVENT,
+        {"desfecho": "encaminhada_fraude", "prestador_id": "PREST-001"},
+    ),
+    (
+        "fraude-cred",
+        FRAUDE_COMPLETED_EVENT,
+        {"desfecho": "encaminhado_credenciamento", "prestador_id": "PREST-001"},
+    ),
+    (
+        "fraude-cancel",
+        FRAUDE_COMPLETED_EVENT,
+        {"desfecho": "encaminhado_contratual", "entidade_tipo": "beneficiario", "numero_contrato": "CTR-1"},
+    ),
+    (
+        "fraude-inadimplencia",
+        FRAUDE_COMPLETED_EVENT,
+        {"desfecho": "encaminhado_contratual", "entidade_tipo": "contrato", "numero_contrato": "CTR-1"},
+    ),
+    (
+        "nip-anssubmit",
+        "nip.handoff_ans_submit",
+        {"origem_envio": "nip_filing", "numero_nip_ans": "000000042"},
+    ),
+    (
+        "cron-anssubmit",
+        "ans.cron_due",
+        {"report_type": "DIOPS_TRIMESTRAL", "competencia": "COMPETENCIA_PENDENTE"},
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "event_type,payload",
+    [(event_type, payload) for _, event_type, payload in _TENANTLESS_RULE_PAYLOADS],
+    ids=[label for label, _, _ in _TENANTLESS_RULE_PAYLOADS],
+)
+@pytest.mark.parametrize(
+    "tenant_value", ["__ABSENT__", "", "   ", None], ids=["absent", "empty", "blank", "none"]
+)
+def test_all_7_rules_dormant_without_tenant_anchor(
+    event_type: str, payload: dict[str, Any], tenant_value: Any
+) -> None:
+    """Every default rule refuses to trigger when tenant_id is absent/empty/whitespace/None even
+    with every per-rule anchor present — no degenerate `{PREFIX}--…` business key can ever reach
+    the fenced starter from a tenant-less event."""
+    bridge = _make_bridge()
+    event_payload = dict(payload)
+    if tenant_value != "__ABSENT__":
+        event_payload["tenant_id"] = tenant_value
+    results = bridge.evaluate_all(HandoffEvent(event_type=event_type, payload=event_payload))
+    assert all(r.handoff_triggered is False for r in results)
+
+
+@pytest.mark.parametrize(
+    "event_type,payload",
+    [(event_type, payload) for _, event_type, payload in _TENANTLESS_RULE_PAYLOADS],
+    ids=[label for label, _, _ in _TENANTLESS_RULE_PAYLOADS],
+)
+def test_all_7_rules_trigger_once_tenant_anchor_present(event_type: str, payload: dict[str, Any]) -> None:
+    """Non-vacuousness twin: the SAME payloads DO trigger with tenant_id added — proving the
+    dormancy above is the tenant anchor's doing, not a broken/unmatchable payload shape."""
+    bridge = _make_bridge()
+    results = bridge.evaluate_all(
+        HandoffEvent(event_type=event_type, payload={**payload, "tenant_id": "amh"})
+    )
+    assert any(r.handoff_triggered is True for r in results)
+    for r in results:
+        if r.handoff_triggered:
+            assert "--" not in r.variables["business_key"]  # no blank-tenant segment, ever
 
 
 # ---------------------------------------------------------------------------
