@@ -7,6 +7,7 @@ import asyncio
 
 import pytest
 
+from maezo.a2a import DelegationResult, RejectionReason
 from maezo.tools.workers.base import FunctionWorker
 from maezo.tools.workers.credenciamento import (
     ERR_CRED_DENIAL_NOT_HUMAN,
@@ -14,10 +15,10 @@ from maezo.tools.workers.credenciamento import (
     ERR_DECRED_NOT_HUMAN,
     CredError,
     assess_admissibility,
+    make_prepare_dossier_handler,
     notify_doc_pendente,
     notify_prestador,
     notify_sla_risk,
-    prepare_dossier,
     register_cred_denial,
     register_credenciamento,
     register_credenciamento_workers,
@@ -658,35 +659,132 @@ def test_register_credenciamento_workers_matches_bpmn_topics() -> None:
     assert cred_topics == _BPMN_CRED_TOPICS
 
 
-def test_register_credenciamento_workers_registers_prepare_dossier_stub() -> None:
-    """DL-0033 (ratified, built in t5): prepare_dossier (Carolina A2A) is now registered as a local
-    stub — the BPMN topic ST_PrepareDossierDescred/ST_PrepareDossierCred is no longer orphaned. The
-    REAL A2A delegation is still deferred to the full-A2A wiring task."""
+def test_register_credenciamento_workers_registers_prepare_dossier_raw_handler() -> None:
+    """DL-0033 real wiring: prepare_dossier is now a RAW async handler (Carolina A2A delegation)
+    — registered via `harness.register()` (NOT the WorkerRegistry), so it populates `_handlers`
+    only. The topic is still always served, dispatcher present or not."""
     harness = WorkerHarness(FakeWorkerTransport(), worker_id="test-worker")
     register_credenciamento_workers(harness, FakeKafkaPublisher(), dmn=FakeDmnTransport())
     assert "operadora.cred.prepare_dossier" in harness.registered_topics
+    assert harness.registry.get("operadora.cred.prepare_dossier") is None  # raw handler
 
 
 # ---------------------------------------------------------------
-# prepare_dossier — DL-0033 LOCAL STUB (NEUTRAL; mirrors programa.enroll_beneficiario)
+# prepare_dossier — REAL Carolina A2A delegation (raw async handler; DL-0033 closed, DL-0037)
 # ---------------------------------------------------------------
 
 
-def test_prepare_dossier_stub() -> None:
-    result = prepare_dossier(
-        {
-            "prestador_id": "P-001",
-            "direcao": "descredenciamento",
-        }
+class _FakeDossierDispatcher:
+    """Records the envelope; returns a programmed `DelegationResult` (or raises)."""
+
+    def __init__(self, result: DelegationResult | None = None, exc: Exception | None = None) -> None:
+        self.envelopes: list = []
+        self._result = result
+        self._exc = exc
+
+    async def delegate(self, envelope) -> DelegationResult:  # noqa: ANN001 — duck-typed fake
+        self.envelopes.append(envelope)
+        if self._exc is not None:
+            raise self._exc
+        assert self._result is not None
+        return self._result
+
+
+def _dossier_task(variables: dict) -> ExternalTask:
+    return ExternalTask(
+        task_id="et-1",
+        topic="operadora.cred.prepare_dossier",
+        process_instance_id="pi-1",
+        business_key="CRED-amh-P-001",
+        worker_id="w-1",
+        variables=variables,
     )
-    assert result["dossier_prepared"] is True
 
 
-def test_prepare_dossier_fails_safe_on_missing_fields() -> None:
-    """NEUTRAL stub — never raises on missing identity (mirrors notify_prestador /
-    programa.enroll_beneficiario `.get(..., default)` idiom)."""
-    result = prepare_dossier({})
+_CRED_DOSSIER_VARS = {
+    "tenant_id": "amh",
+    "prestador_id": "P-001",
+    "direcao": "descredenciamento",
+    "tipo_prestador": "clinica",
+    "licenca_valida": True,
+}
+
+
+async def test_prepare_dossier_delegates_to_carolina_and_returns_real_outputs() -> None:
+    """Dispatcher present -> await delegate -> dossier-real outputs: `dossier_prepared=True`,
+    the `output_ref` reference, and Carolina's agent-produced compact summary AS-IS
+    (`dossier_summary` — the SME/PO-pending UT-form seam). The envelope's task_id is the
+    process business key (Guard 4 keyed to the case)."""
+    dispatcher = _FakeDossierDispatcher(
+        result=DelegationResult.ok(
+            "CRED-amh-P-001",
+            "process://CRED-amh-P-001",
+            meta={"route": "human_review", "grupo_destino": "juridico-rede"},
+        )
+    )
+    handler = make_prepare_dossier_handler(dispatcher)  # type: ignore[arg-type]
+
+    result = await handler(_dossier_task(_CRED_DOSSIER_VARS))
+
+    assert result is not None
     assert result["dossier_prepared"] is True
+    assert result["dossier_ref"] == "process://CRED-amh-P-001"
+    assert result["dossier_summary"] == {"route": "human_review", "grupo_destino": "juridico-rede"}
+    (envelope,) = dispatcher.envelopes
+    assert envelope.task_id == "CRED-amh-P-001"
+    assert envelope.task_type == "credentialing.analyze"
+    assert envelope.target == "carolina"
+    assert envelope.payload_meta["direcao"] == "descredenciamento"
+
+
+async def test_prepare_dossier_without_dispatcher_fail_neutrals_with_disclosed_gap() -> None:
+    """DL-0037 degradation posture: dispatcher absent (degraded runtime) -> the task still
+    COMPLETES (the human UT must open) with `dossier_prepared=False` + the bounded gap token —
+    never a raise, never a fabricated dossier."""
+    handler = make_prepare_dossier_handler(None)
+    result = await handler(_dossier_task(_CRED_DOSSIER_VARS))
+    assert result is not None
+    assert result["dossier_prepared"] is False
+    assert result["dossier_gap"] == "dispatcher_unavailable"
+
+
+async def test_prepare_dossier_missing_identifiers_gap_and_never_delegates() -> None:
+    """No tenant/prestador (incl. whitespace-only, `non_blank` discipline) -> no degenerate
+    CRED task_id is ever delegated; gap marker, UT still opens."""
+    dispatcher = _FakeDossierDispatcher(result=DelegationResult.ok("x", "process://x"))
+    handler = make_prepare_dossier_handler(dispatcher)  # type: ignore[arg-type]
+    result = await handler(_dossier_task({"tenant_id": "amh", "prestador_id": "   "}))
+    assert result is not None
+    assert result["dossier_prepared"] is False
+    assert result["dossier_gap"] == "missing_business_identifiers"
+    assert dispatcher.envelopes == []
+
+
+async def test_prepare_dossier_delegation_failure_fail_neutrals_never_raises() -> None:
+    """ANY delegation exception -> gap marker + loud log; the raw error text stays OUT of the
+    engine variables (bounded class token only)."""
+    handler = make_prepare_dossier_handler(
+        _FakeDossierDispatcher(exc=RuntimeError("pg down: dsn=secret"))  # type: ignore[arg-type]
+    )
+    result = await handler(_dossier_task(_CRED_DOSSIER_VARS))
+    assert result is not None
+    assert result["dossier_prepared"] is False
+    assert result["dossier_gap"] == "delegation_failed"
+    assert "secret" not in str(result.values())
+
+
+async def test_prepare_dossier_structured_rejection_gap_carries_bounded_reason() -> None:
+    handler = make_prepare_dossier_handler(
+        _FakeDossierDispatcher(  # type: ignore[arg-type]
+            result=DelegationResult.rejected(
+                "CRED-amh-P-001", RejectionReason.TASK_TYPE_NOT_ACCEPTED, detail="not accepted"
+            )
+        )
+    )
+    result = await handler(_dossier_task(_CRED_DOSSIER_VARS))
+    assert result is not None
+    assert result["dossier_prepared"] is False
+    assert result["dossier_gap"] == "delegation_rejected:task_type_not_accepted"
 
 
 # ---------------------------------------------------------------------------
