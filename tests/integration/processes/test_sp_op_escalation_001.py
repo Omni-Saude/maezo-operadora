@@ -528,9 +528,16 @@ async def test_falha_notificacao_usa_fallback(
 
     await probe.drain()  # notify_team falha (propaga via producer real) -> fallback notify_supervisor
 
-    # A falha de team NAO foi engolida: nada de notify_team capturado, mas o fallback publicou.
+    # NON-HOLLOW discriminator (activity history — imune ao caminho do timer de SLA-ack, que tambem
+    # notifica supervisor e por isso NAO discrimina): o publish de team PROPAGOU, disparando
+    # BE_FalhaNotificacao -> ST_NotificarFallback. No estado hollow (best_effort nao forcado) o
+    # producer real ENGOLIRIA a falha e NENHUMA dessas atividades apareceria -> estes asserts falham
+    # (verificado ao vivo: reverter best_effort=False deixa o suite RED exatamente aqui).
+    ended = await engine.activity_instances_ended(iid)
+    assert "BE_FalhaNotificacao" in ended  # a boundary do ERR_ESC_NOTIFY_FAILED disparou de verdade
+    assert "ST_NotificarFallback" in ended  # o fallback de canal (supervisor) executou
     assert not probe.notified_teams  # o publish de team falhou de verdade (nao "sucesso silencioso")
-    assert probe.notified_supervisors  # ST_NotificarFallback executou (a boundary disparou)
+    assert probe.notified_supervisors  # ST_NotificarFallback publicou o supervisor
     # Escalonamento nunca se perde por falha de canal: a User Task existe.
     task = await engine.await_user_task(iid, "UT_TratarEscalonamento")
     assert task.candidate_groups == frozenset({"plantao-clinico"})
@@ -553,6 +560,13 @@ async def test_falha_notificacao_ambos_canais_ainda_cria_ut(
 
     await probe.drain()  # notify_team falha -> fallback -> fallback TAMBEM falha -> boundary continua
 
+    # NON-HOLLOW discriminator: AMBOS os canais PROPAGARAM, disparando BE_FalhaNotificacao ->
+    # ST_NotificarFallback -> BE_NotifFallbackFailed -> UT. No estado hollow o producer engoliria a
+    # falha de team e nenhuma dessas atividades apareceria (o fluxo iria direto para a UT).
+    ended = await engine.activity_instances_ended(iid)
+    assert "BE_FalhaNotificacao" in ended  # falha do canal de team disparou a boundary
+    assert "ST_NotificarFallback" in ended  # o fallback de canal executou (mesmo tendo falhado depois)
+    assert "BE_NotifFallbackFailed" in ended  # a falha do canal de fallback disparou a 2a boundary
     assert not probe.notified_supervisors  # nem o fallback conseguiu publicar
     task = await engine.await_user_task(iid, "UT_TratarEscalonamento")
     assert task.candidate_groups == frozenset({"plantao-clinico"})
