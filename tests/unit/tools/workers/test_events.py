@@ -15,6 +15,7 @@ from maezo.tools.workers.events import (
     _ANS_CRON_REFERENCE_DATE_KEY,
     _ESCALATION_PUBLISH_BPMN_ERROR_TOPICS,
     _ESCALATION_REQUESTED_TOPIC,
+    FAIL_CLOSED_EVENT_TYPES,
     _parse_payload_vars,
     make_publish_event_handler,
     register_events_workers,
@@ -287,6 +288,88 @@ async def test_publish_failure_on_opt_in_topic_without_allowlist_still_propagate
     task = _task(variables={"event_topic": _ESCALATION_REQUESTED_TOPIC})
     with pytest.raises(RuntimeError, match="kafka unavailable"):
         await handler(task)
+
+
+# ---------------------------------------------------------------------------
+# t2-notify-integrity item 2 — FAIL_CLOSED_EVENT_TYPES: the one-shot `nip.handoff_ans_submit`
+# fact publishes fail-closed (`best_effort=False`, raw propagate — NO WorkerBpmnError:
+# SP-OP-NIP-001 declares no boundary on its publish tasks, the harness retry/incident ladder IS
+# the durability mechanism); `ans.cron_due` STAYS topic-default best-effort (monthly re-tick).
+# ---------------------------------------------------------------------------
+
+
+def test_fail_closed_event_types_is_exactly_nip_handoff() -> None:
+    assert frozenset({"nip.handoff_ans_submit"}) == FAIL_CLOSED_EVENT_TYPES
+
+
+async def test_nip_handoff_event_type_publishes_fail_closed() -> None:
+    kafka = FakeKafkaPublisher()
+    handler = make_publish_event_handler(kafka)
+    task = _task(
+        business_key="NIP-amh-000000042",
+        variables={
+            "event_topic": "operadora.notifications.internal",
+            "event_type": "nip.handoff_ans_submit",
+            "event_payload_vars": "tenant_id,numero_nip_ans",
+            "tenant_id": "amh",
+            "numero_nip_ans": "000000042",
+        },
+    )
+    result = await handler(task)
+    assert result == {"event_published": True, "event_topic": "operadora.notifications.internal"}
+    assert kafka.best_effort_calls == [False]
+
+
+async def test_ans_cron_due_event_type_stays_topic_default_best_effort() -> None:
+    """PIN: `ans.cron_due` must remain best-effort (best_effort=None -> producer topic default).
+    Its BPMN `timeCycle` start events republish the deterministic fact every period — a lost tick
+    self-heals; forcing fail-closed here would incident the monthly scheduler for a fact the next
+    tick regenerates anyway."""
+    kafka = FakeKafkaPublisher()
+    handler = make_publish_event_handler(kafka)
+    task = _task(variables={"event_topic": "operadora.notifications.internal", "event_type": "ans.cron_due"})
+    await handler(task)
+    assert kafka.best_effort_calls == [None]
+
+
+async def test_untyped_publish_stays_topic_default_best_effort() -> None:
+    """No `event_type` at all -> never fail-closed-forced (the set keys on the event TYPE)."""
+    kafka = FakeKafkaPublisher()
+    handler = make_publish_event_handler(kafka)
+    await handler(_task(variables={"event_topic": "operadora.notifications.internal"}))
+    assert kafka.best_effort_calls == [None]
+
+
+async def test_nip_handoff_publish_failure_propagates_raw_never_bpmn_error() -> None:
+    """A forced-propagate NIP handoff failure RAW-propagates (harness retry/incident ladder holds
+    the token at the publish task) — never a WorkerBpmnError: SP-OP-NIP-001 declares no
+    `ERR_EVENT_PUBLISH_FAILED` boundary on `ST_PublishHandoffAnsSubmit*` and
+    `operadora.notifications.internal` is not an opt-in bpmn_error topic."""
+    handler = make_publish_event_handler(
+        _FailingPublisher(), bpmn_error_topics=_ESCALATION_PUBLISH_BPMN_ERROR_TOPICS
+    )
+    task = _task(
+        variables={
+            "event_topic": "operadora.notifications.internal",
+            "event_type": "nip.handoff_ans_submit",
+        }
+    )
+    with pytest.raises(RuntimeError, match="kafka unavailable"):
+        await handler(task)
+
+
+async def test_nip_handoff_failing_publisher_receives_best_effort_false() -> None:
+    kafka = _FailingPublisher()
+    handler = make_publish_event_handler(kafka)
+    task = _task(
+        variables={
+            "event_topic": "operadora.notifications.internal",
+            "event_type": "nip.handoff_ans_submit",
+        }
+    )
+    with pytest.raises(RuntimeError):
+        await handler(task)
+    assert kafka.best_effort_calls == [False]
 
 
 # ---------------------------------------------------------------------------

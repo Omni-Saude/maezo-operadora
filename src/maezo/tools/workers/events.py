@@ -142,6 +142,24 @@ EVENTS_BPMN_ERROR_ALLOWLIST: frozenset[str] = frozenset({_ERR_EVENT_PUBLISH_FAIL
 _ANS_CRON_DUE_EVENT_TYPE = "ans.cron_due"
 _ANS_CRON_REFERENCE_DATE_KEY = "ans_cron_reference_date_iso"
 
+#: t2-notify-integrity item 2 (NIP→ANS one-shot handoff durability): event TYPES whose publish is
+#: FAIL-CLOSED — the handler passes `best_effort=False`, overriding the producer's topic-default
+#: best-effort posture for `operadora.notifications.internal`. Criticality is a property of the
+#: EVENT, not the topic: `nip.handoff_ans_submit` fires exactly ONCE per resolved NIP case (no
+#: recurring re-tick, no downstream backstop — the very next task ends the process), and the fact
+#: is the sole trigger for the mandatory SP-OP-ANS-SUBMIT-001 official filing. A broker-down
+#: failure therefore RAW-propagates (SP-OP-NIP-001 declares NO boundary on its
+#: `ST_PublishHandoffAnsSubmit*` tasks, so no `WorkerBpmnError` — the harness retry/incident
+#: ladder holds the token AT the publish task until delivered or incident; that ladder IS the
+#: durability mechanism). Operator retry/replay after an incident is safe: the bridge consumer is
+#: idempotent by business key (`notification_bridge.py`, `start_process_idempotent`'s
+#: `find_active_instance` convergence — a duplicate delivery of the same handoff fact returns the
+#: EXISTING `ANSSUB-{tenant}-nipfiling-{numero_nip_ans}` instance, never a double filing).
+#: `ans.cron_due` deliberately STAYS topic-default best-effort: its BPMN `timeCycle` start events
+#: republish the deterministic fact every period (a lost tick self-heals next month) — pinned by
+#: `test_events.py`.
+FAIL_CLOSED_EVENT_TYPES: frozenset[str] = frozenset({"nip.handoff_ans_submit"})
+
 
 def _parse_payload_vars(raw: Any) -> list[str]:
     """Normalize `event_payload_vars` into a list of variable names.
@@ -271,11 +289,17 @@ def make_publish_event_handler(
             )
             return {"event_published": False, "event_topic": str(event_topic)}
 
+        # FAIL_CLOSED_EVENT_TYPES (t2-notify-integrity item 2): force propagate for the one-shot
+        # NIP→ANS handoff fact; None keeps the producer's topic-based default for everything else.
+        publish_best_effort: bool | None = (
+            False if event_type is not None and str(event_type) in FAIL_CLOSED_EVENT_TYPES else None
+        )
         try:
             event_delivered = await kafka.publish(
                 str(event_topic),
                 payload,
                 key=task.business_key or None,
+                best_effort=publish_best_effort,
             )
         except Exception as exc:
             logger.error(
