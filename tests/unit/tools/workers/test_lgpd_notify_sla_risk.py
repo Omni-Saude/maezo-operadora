@@ -185,7 +185,7 @@ class _FailingPublisher:
         *,
         key: str | None = None,
         best_effort: bool | None = None,
-    ) -> None:
+    ) -> bool:
         del topic, value, key
         self.best_effort_calls.append(best_effort)
         raise RuntimeError("kafka unavailable (test)")

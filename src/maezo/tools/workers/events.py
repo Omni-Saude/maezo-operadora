@@ -193,9 +193,20 @@ def make_publish_event_handler(
 
     Output variables (loaded on `complete`, exactly once — see module docstring for the
     `kafka=None` decision):
-      event_published: bool     — whether the event actually reached the publisher.
+      event_published: bool     — whether the event actually reached the WIRE. t2-notify-integrity
+                                   (false-success fix): the producer's best-effort posture used to
+                                   swallow a broker-down failure INTERNALLY, so this handler never
+                                   saw an exception and returned `event_published: True` for a send
+                                   that genuinely failed — the one variable that exists to record
+                                   whether the fact reached the bridge LIED. `KafkaPublisher.publish`
+                                   now returns that delivery bool and this handler reports it
+                                   honestly.
+      event_publish_best_effort_failure: bool — set (True) ONLY when the publish failed but the
+                                   producer swallowed it (best-effort posture); distinguishes that
+                                   swallow from the `kafka=None` no-producer case, which also
+                                   reports `event_published: False` without this flag.
       event_topic: str          — echo of the input var (audit trail).
-    No BPMN gateway routes on either variable (verified — module docstring); these are
+    No BPMN gateway routes on any of these variables (verified — module docstring); these are
     record/audit-trail, never a routing decision.
     """
 
@@ -261,7 +272,7 @@ def make_publish_event_handler(
             return {"event_published": False, "event_topic": str(event_topic)}
 
         try:
-            await kafka.publish(
+            event_delivered = await kafka.publish(
                 str(event_topic),
                 payload,
                 key=task.business_key or None,
@@ -281,6 +292,35 @@ def make_publish_event_handler(
                     f"Falha ao publicar evento {event_topic}: {exc}",
                 ) from exc
             raise  # Pre-existing behavior preserved for every non-opt-in topic (zero regression).
+
+        if not event_delivered:
+            # t2-notify-integrity (false-success fix): the producer SWALLOWED a best-effort
+            # publish failure one layer below — no exception ever reached this handler, but the
+            # send did NOT reach the wire. `event_published` must not lie: report the honest
+            # outcome, with a distinct flag so a swallowed failure is distinguishable from the
+            # `kafka=None` no-producer case. The task still COMPLETES (best-effort posture is the
+            # producer's/caller's deliberate choice for this publish; no BPMN gateway routes on
+            # these markers), but log LOUDLY — key names only, same convention as above.
+            logger.warning(
+                "event_publish_best_effort_failure",
+                event_topic=event_topic,
+                business_key=task.business_key,
+                process_instance_id=task.process_instance_id,
+                payload_keys=sorted(payload.keys()),
+            )
+            _stdlib_logger.warning(
+                "event_publish_best_effort_failure topic=%s business_key=%s "
+                "process_instance_id=%s — best-effort publish failed and was swallowed by the "
+                "producer; event NOT on the wire, completing with event_published=False",
+                event_topic,
+                task.business_key,
+                task.process_instance_id,
+            )
+            return {
+                "event_published": False,
+                "event_publish_best_effort_failure": True,
+                "event_topic": str(event_topic),
+            }
 
         logger.info(
             "event_published",

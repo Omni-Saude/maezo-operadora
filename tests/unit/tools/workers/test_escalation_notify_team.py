@@ -43,7 +43,7 @@ class _FailingKafka:
         *,
         key: str | None = None,
         best_effort: bool | None = None,
-    ) -> None:
+    ) -> bool:
         self.attempts += 1
         self.best_effort_calls.append(best_effort)
         raise RuntimeError("canal de notificacao indisponivel (unit fault)")

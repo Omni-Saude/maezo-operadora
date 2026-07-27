@@ -196,8 +196,8 @@ class _FaultInjectingPublisher:
         *,
         key: str | None = None,
         best_effort: bool | None = None,
-    ) -> None:
-        await self._producer.publish(topic, value, key=key, best_effort=best_effort)
+    ) -> bool:
+        return await self._producer.publish(topic, value, key=key, best_effort=best_effort)
 
 
 @dataclass

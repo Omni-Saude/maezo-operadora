@@ -226,9 +226,40 @@ async def test_kafka_none_never_raises() -> None:
 
 
 class _FailingPublisher:
-    async def publish(self, topic: str, value: dict[str, Any], *, key: str | None = None) -> None:
+    """Raising `KafkaPublisher` double — models a NON-best-effort failure (the exception
+    propagates out of `publish`, mirroring the real producer's propagate posture)."""
+
+    def __init__(self) -> None:
+        self.best_effort_calls: list[bool | None] = []
+
+    async def publish(
+        self,
+        topic: str,
+        value: dict[str, Any],
+        *,
+        key: str | None = None,
+        best_effort: bool | None = None,
+    ) -> bool:
         del topic, value, key
+        self.best_effort_calls.append(best_effort)
         raise RuntimeError("kafka unavailable (test)")
+
+
+class _SwallowingPublisher:
+    """`KafkaPublisher` double modeling the real producer's BEST-EFFORT posture: the send fails,
+    the failure is swallowed internally, and `publish` returns `False` (t2-notify-integrity
+    return contract) — never an exception."""
+
+    async def publish(
+        self,
+        topic: str,
+        value: dict[str, Any],
+        *,
+        key: str | None = None,
+        best_effort: bool | None = None,
+    ) -> bool:
+        del topic, value, key, best_effort
+        return False
 
 
 async def test_publish_failure_on_non_opt_in_topic_propagates_raw_exception() -> None:
@@ -256,6 +287,51 @@ async def test_publish_failure_on_opt_in_topic_without_allowlist_still_propagate
     task = _task(variables={"event_topic": _ESCALATION_REQUESTED_TOPIC})
     with pytest.raises(RuntimeError, match="kafka unavailable"):
         await handler(task)
+
+
+# ---------------------------------------------------------------------------
+# t2-notify-integrity (false-success fix) — a best-effort publish failure SWALLOWED by the
+# producer must surface as `event_published: False` + `event_publish_best_effort_failure: True`,
+# never a fabricated `event_published: True` (the pre-fix lie).
+# ---------------------------------------------------------------------------
+
+
+async def test_best_effort_swallowed_failure_reports_event_published_false() -> None:
+    handler = make_publish_event_handler(_SwallowingPublisher())
+    task = _task(variables={"event_topic": "operadora.notifications.internal", "event_type": "ans.cron_due"})
+    result = await handler(task)
+    assert result == {
+        "event_published": False,
+        "event_publish_best_effort_failure": True,
+        "event_topic": "operadora.notifications.internal",
+    }
+
+
+async def test_best_effort_swallowed_failure_completes_never_raises() -> None:
+    """The swallow posture is the producer's/caller's deliberate choice — the task still
+    COMPLETES (no incident); only the output markers change."""
+    handler = make_publish_event_handler(_SwallowingPublisher())
+    result = await handler(_task(variables={"event_topic": "operadora.notifications.internal"}))
+    assert result["event_published"] is False
+    assert result["event_publish_best_effort_failure"] is True
+
+
+async def test_delivered_publish_has_no_best_effort_failure_flag() -> None:
+    """The flag exists ONLY on the swallowed-failure path — a delivered publish returns the
+    same two-variable shape as before (no rippling output change for the happy path)."""
+    kafka = FakeKafkaPublisher()
+    handler = make_publish_event_handler(kafka)
+    result = await handler(_task(variables={"event_topic": "operadora.notifications.internal"}))
+    assert result == {"event_published": True, "event_topic": "operadora.notifications.internal"}
+    assert "event_publish_best_effort_failure" not in result
+
+
+async def test_kafka_none_path_has_no_best_effort_failure_flag() -> None:
+    """kafka=None (no producer wired) is a DIFFERENT honest-false case — it must not carry the
+    swallowed-failure flag (that flag means 'a real producer swallowed a real send failure')."""
+    handler = make_publish_event_handler(None)
+    result = await handler(_task(variables={"event_topic": "x"}))
+    assert result == {"event_published": False, "event_topic": "x"}
 
 
 # ---------------------------------------------------------------------------
