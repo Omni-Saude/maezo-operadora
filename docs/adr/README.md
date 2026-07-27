@@ -34,12 +34,12 @@ Regras:
 | 0022 | MCP servers registram tools IN-PROCESS no boot; sem Deployments stdio/SSE out-of-process | Accepted |
 | 0023 | Politica de merge — main protegido com required status checks + strict up-to-date | Accepted |
 | 0024 | Idempotencia DURAVEL dos drivers inbound/resume reusa o padrao Postgres | Accepted |
-| 0025 | PEP ↔ Policy Unification — autonomy-matrix YAML loading + single action vocabulary (T1.8) | Proposed |
-| 0026 | Worker standardization — adapter (FunctionWorker) sobre subclassing; 16 modulos registram no WorkerRegistry com retry/metrics (T1.2) | Proposed |
+| 0025 | PEP ↔ Policy Unification — autonomy-matrix YAML loading + single action vocabulary (T1.8) | Accepted |
+| 0026 | Worker standardization — adapter (FunctionWorker) sobre subclassing; 16→17 modulos registram no WorkerRegistry com retry/metrics (T1.2; 17o = raw-handler `events.py`, ver amendment note no ADR) | Accepted |
 | 0027 | Audit Transport — Postgres-first (amends ADR-0007's Kafka assumption) (T1.10) | Accepted |
-| 0028 | Avaliacao de DMN em runtime — engine-side (CIB Seven REST), fail-closed (T1.4) | Proposed |
+| 0028 | Avaliacao de DMN em runtime — engine-side (CIB Seven REST), fail-closed (T1.4) | Accepted |
 | 0029 | Poda de audit_chain via checkpoint assinado + re-anchor; BLOQUEADA ate ADR-0020-amend + este ADR ratificarem (T2.8) | Proposed |
-| 0030 | Semantica de erro de worker vs boundary catches do BPMN — `WorkerBpmnError` modelado (opt-in por codigo gate-proven), incidente para todo o resto (T3.1) | Proposed |
+| 0030 | Semantica de erro de worker vs boundary catches do BPMN — `WorkerBpmnError` modelado (opt-in por codigo gate-proven), incidente para todo o resto (T3.1) | Accepted |
 | 0031 | LGPD DSR identity gate fail-closed em `identidade_verificada is True` + GAP-LGPD-6 raise + #55 R-B request_additional_proof (T2.8) | Proposed |
 | 0032 | Corrige a alegacao de "runtime completo" do ADR-0015 (e do donor v1 PR #17, nao do v2); amends ADR-0015, nao supersede (T3.4) | Accepted |
 | 0033 | Identidade de servico do agente — emissao/verificacao do certificado/service-account (metade cert de T-G); espaco de decisao + recomendacao nao-vinculante; amends ADR-0007, nao supersede | Proposed |
