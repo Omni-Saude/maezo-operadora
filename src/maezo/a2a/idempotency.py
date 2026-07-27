@@ -64,7 +64,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
 
 import asyncpg  # type: ignore[import-untyped]  # no py.typed upstream
@@ -124,6 +125,11 @@ class StoredResult:
 
     Mirrors the relevant fields of `DelegationResult`. Reconstructed on replay to hand the caller
     exactly the prior outcome (with `idempotent_replay=True` set by the dispatcher).
+
+    `meta` (dossier A2A edges): the handler's bounded non-PHI summary tokens
+    (`DelegationResult.meta` — see that docstring). Persisted so a REPLAY returns the SAME shape
+    as the first delivery; rides in the existing `result` jsonb column (additive key — no
+    migration; pre-existing rows decode to `{}`).
     """
 
     task_id: str
@@ -131,6 +137,7 @@ class StoredResult:
     output_ref: str | None = None
     rejection_reason: str | None = None
     detail: str | None = None
+    meta: Mapping[str, str] = field(default_factory=dict)
 
     @classmethod
     def from_result(cls, result: DelegationResult) -> StoredResult:
@@ -142,6 +149,7 @@ class StoredResult:
             output_ref=result.output_ref,
             rejection_reason=str(reason) if reason is not None else None,
             detail=result.detail,
+            meta=dict(result.meta),
         )
 
 
@@ -164,6 +172,7 @@ def _result_payload(stored: StoredResult) -> dict[str, Any]:
         "output_ref": stored.output_ref,
         "rejection_reason": stored.rejection_reason,
         "detail": stored.detail,
+        "meta": dict(stored.meta),
     }
 
 
@@ -182,12 +191,15 @@ def _decode_result(value: Any) -> dict[str, Any]:
 def _row_to_stored(task_id: str, row: Any) -> StoredResult:
     """Map a 'done' `a2a_idempotency` row to a `StoredResult` (pure, testable without a DB)."""
     payload = _decode_result(row["result"])
+    raw_meta = payload.get("meta")
+    meta: dict[str, str] = {str(k): str(v) for k, v in raw_meta.items()} if isinstance(raw_meta, dict) else {}
     return StoredResult(
         task_id=task_id,
         success=bool(payload.get("success", False)),
         output_ref=payload.get("output_ref"),
         rejection_reason=payload.get("rejection_reason"),
         detail=payload.get("detail"),
+        meta=meta,
     )
 
 

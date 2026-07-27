@@ -55,7 +55,11 @@ def test_register_default_workers_registers_all_17_modules() -> None:
 
     assert len(ALL_WORKER_BOOTSTRAPS) == 17
     assert len(harness.registered_topics) > 90
-    assert harness.registry.count() == len(harness.registered_topics) - 11
+    # DL-0033 real A2A wiring (dossier branch): `operadora.cred.prepare_dossier` and
+    # `operadora.adequacao.prepare_remediation_dossier` moved from `FunctionWorker` (dict-first,
+    # in the WorkerRegistry) to RAW async handlers (in `_handlers`, NOT the registry) because they
+    # now `await dispatcher.delegate(...)`. So the raw-handler count grows 11 -> 13.
+    assert harness.registry.count() == len(harness.registered_topics) - 13
 
 
 def test_register_default_workers_topics_match_expected_prefixes() -> None:
@@ -357,12 +361,14 @@ async def test_bring_up_threads_audit_sink_and_engine_and_spawns_when_probe_gree
         audit_sink: Any = None,
         tenant_id: str = "",
         kafka: Any = None,
+        dossier_dispatcher: Any = None,
     ) -> None:
         captured["engine"] = engine
         captured["dmn"] = dmn
         captured["audit_sink"] = audit_sink
         captured["tenant_id"] = tenant_id
         captured["kafka"] = kafka
+        captured["dossier_dispatcher"] = dossier_dispatcher
 
     async def _probe_ok(_sink: Any, _timeout: float) -> bool:
         return True

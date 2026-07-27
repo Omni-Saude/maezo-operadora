@@ -155,6 +155,15 @@ class DelegationResult:
 
     `idempotent_replay=True` indicates this response came from the `task_id` cache (Guard 4): the
     handler did NOT run again.
+
+    `meta` (DL-0033 real-wiring follow-through, dossier A2A edges): the target handler's
+    `HandlerOutput.meta` — bounded, non-PHI `str -> str` summary tokens (route/desfecho class
+    tokens, never a decision, never the dossier body) — propagated back to the ORIGINATOR. This is
+    the ONLY channel from a target handler back to an origin worker; without it the origin could
+    not carry the agent-produced compact summary into its own output variables, and an idempotent
+    REPLAY would return a different (meta-less) shape than the first delivery — an
+    idempotency-semantics break for engine-retried external tasks. Persisted alongside the
+    terminal result (`StoredResult.meta`, `a2a_idempotency.result` jsonb) for exactly that reason.
     """
 
     task_id: str
@@ -163,10 +172,24 @@ class DelegationResult:
     rejection_reason: RejectionReason | None = None
     detail: str | None = None
     idempotent_replay: bool = False
+    meta: Mapping[str, str] = field(default_factory=dict)
 
     @classmethod
-    def ok(cls, task_id: str, output_ref: str, *, replay: bool = False) -> DelegationResult:
-        return cls(task_id=task_id, success=True, output_ref=output_ref, idempotent_replay=replay)
+    def ok(
+        cls,
+        task_id: str,
+        output_ref: str,
+        *,
+        replay: bool = False,
+        meta: Mapping[str, str] | None = None,
+    ) -> DelegationResult:
+        return cls(
+            task_id=task_id,
+            success=True,
+            output_ref=output_ref,
+            idempotent_replay=replay,
+            meta=dict(meta or {}),
+        )
 
     @classmethod
     def rejected(
@@ -192,6 +215,7 @@ def _as_replay(prev: DelegationResult) -> DelegationResult:
         rejection_reason=prev.rejection_reason,
         detail=prev.detail,
         idempotent_replay=True,
+        meta=prev.meta,
     )
 
 
@@ -216,6 +240,7 @@ def _stored_to_result(stored: StoredResult) -> DelegationResult:
         rejection_reason=reason,
         detail=stored.detail,
         idempotent_replay=True,
+        meta=stored.meta,
     )
 
 
@@ -343,7 +368,10 @@ class DelegationDispatcher:
             basis="A2A:delegate:completed",
         )
         await self._emit(envelope, DelegationFactKind.COMPLETED, output_ref=output.output_ref)
-        return DelegationResult.ok(envelope.task_id, output.output_ref)
+        # `output.meta` rides back to the originator (and into the durable idempotency record):
+        # bounded non-PHI summary tokens only — `HandlerOutput.meta`'s own contract. The facts/
+        # audit surfaces above deliberately keep EXCLUDING meta (unchanged posture).
+        return DelegationResult.ok(envelope.task_id, output.output_ref, meta=output.meta)
 
     def _validate(self, envelope: DelegationEnvelope) -> DelegationResult | None:
         """Contract checks. Returns a rejection `DelegationResult`, or None (ok)."""

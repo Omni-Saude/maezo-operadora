@@ -39,6 +39,7 @@ from typing import Any
 
 import structlog
 
+from maezo.a2a import DelegationDispatcher
 from maezo.gateway.audit_postgres import FreshSinkAuditEmitter, PostgresAuditSink
 from maezo.platform.health import CheckResult, build_health_server, create_health_app
 from maezo.platform.integrations.events_kafka_producer import AioKafkaEventsProducer
@@ -152,6 +153,7 @@ def register_default_workers(
     audit_sink: AuditStartSink | None = None,
     tenant_id: str = "",
     kafka: AioKafkaEventsProducer | None = None,
+    dossier_dispatcher: DelegationDispatcher | None = None,
 ) -> None:
     """Register every worker this build serves. The daemon's ONE bootstrap call (STEP B).
 
@@ -196,10 +198,24 @@ def register_default_workers(
     for the domain-completed-event/notifications topics (see that module's docstring for the
     fail-safe discipline and the CONTAS/FRAUDE-completed -> notifications-bridge mirror it applies).
 
+    `dossier_dispatcher` (dossier-A2A seam, DL-0033 real wiring / DL-0037) is the
+    `DelegationDispatcher` assembled by `build_dossier_delegation_dispatcher` at bring-up,
+    threaded into the two RAW async dossier handlers (`credenciamento.prepare_dossier` ->
+    Carolina; `adequacao.prepare_remediation_dossier` -> Andre) via the same `**seams` catch-all.
+    Absent (`None`, the topic-probe default and the DEGRADED-runtime posture — no signing key /
+    no DATABASE_URL) the topics still register and both handlers fail-neutral with a disclosed
+    gap marker; the human User Tasks always still open.
+
     Idempotent (`WorkerHarness.register_worker` replaces on re-registration, same topic).
     """
     register_all_workers(
-        harness, dmn=dmn, engine=engine, audit_sink=audit_sink, tenant_id=tenant_id, kafka=kafka
+        harness,
+        dmn=dmn,
+        engine=engine,
+        audit_sink=audit_sink,
+        tenant_id=tenant_id,
+        kafka=kafka,
+        dossier_dispatcher=dossier_dispatcher,
     )
 
 
@@ -298,6 +314,14 @@ class WorkerState:
     # raised (e.g. bad settings) -> every worker then sees `kafka=None`, the PRE-EXISTING
     # documented behavior (`events.py` module docstring), never a crash.
     kafka_publisher: AioKafkaEventsProducer | None = None
+    # Dossier-A2A seam (DL-0033 real wiring / DL-0037): the worker->Carolina/Andre delegation
+    # dispatcher assembled by `build_dossier_delegation_dispatcher` at bring-up. `None` = DEGRADED
+    # (no signing key in non-local mode / missing DATABASE_URL / assembly failure): the daemon
+    # still RUNS and serves every topic; the two dossier workers fail-neutral with a disclosed
+    # gap marker and `dossier_delegation_ready` reports the degradation LOUDLY (never gates
+    # /readyz — the dossier "instrui, nao decide", so its absence must not stop the human UTs).
+    dossier_dispatcher: DelegationDispatcher | None = None
+    dossier_dispatcher_detail: str = "not assembled (bring-up has not run)"
     harness: WorkerHarness | None = None
     expected_topics: frozenset[str] = field(default_factory=frozenset)
     harness_task: asyncio.Task[None] | None = None
@@ -415,6 +439,27 @@ def build_readiness_checks(state: WorkerState) -> list[Callable[[], Awaitable[Ch
         )
         return CheckResult(name="kafka_ready", healthy=True, detail=detail)
 
+    async def dossier_delegation_ready(_state: WorkerState = state) -> CheckResult:
+        # DL-0037 DEGRADATION POSTURE: reports whether the dossier A2A dispatcher (worker ->
+        # Carolina/Andre) assembled — LOUD operator visibility, but NEVER gates `/readyz`
+        # (always healthy=True, mirroring `kafka_ready`): the dossier only INSTRUCTS the human
+        # User Tasks ("instrui, nao decide"); when the dispatcher is absent the two dossier
+        # workers return the disclosed-gap marker and the UTs still open, so a missing signing
+        # key / degraded assembly must degrade the DOSSIER, never the whole daemon.
+        ready = _state.dossier_dispatcher is not None
+        detail = (
+            "dossier_delegation_ready=true — worker->Carolina/Andre dispatcher assembled "
+            "(cred.prepare_dossier / adequacao.prepare_remediation_dossier delegate for real)"
+            if ready
+            else (
+                "dossier_delegation_ready=false — dossier A2A dispatcher NOT assembled "
+                f"({_state.dossier_dispatcher_detail}); the two dossier workers return "
+                "{'dossier_prepared': False, 'dossier_gap': ...} and the human User Tasks "
+                "still open (DL-0037 fail-neutral-with-disclosed-gap); not a readiness failure"
+            )
+        )
+        return CheckResult(name="dossier_delegation_ready", healthy=True, detail=detail)
+
     async def audit_sink_ready(_state: WorkerState = state) -> CheckResult:
         # FAIL-CLOSED L0 gate (ADR-0007, design §7 T-D / Revision MUST-FIX 2): `/readyz` stays RED
         # until a bounded connectivity probe proves the durable audit sink can reach the tenant
@@ -444,7 +489,14 @@ def build_readiness_checks(state: WorkerState) -> list[Callable[[], Awaitable[Ch
             "(ADR-0007 fail-closed; /readyz stays red)",
         )
 
-    return [engine_reachable, workers_registered, harness_running, kafka_ready, audit_sink_ready]
+    return [
+        engine_reachable,
+        workers_registered,
+        harness_running,
+        kafka_ready,
+        dossier_delegation_ready,
+        audit_sink_ready,
+    ]
 
 
 # --- STEP B: dependency bring-up (bounded, non-fatal) -------------------------------------------
@@ -528,6 +580,52 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
             )
 
     try:
+        # Dossier-A2A dispatcher (DL-0033 real wiring): worker->Carolina/Andre delegation edges,
+        # assembled with the SAME seams built above (pooled audit sink on THIS loop — raw async
+        # handlers run on it; fresh-per-call dmn/engine transports are loop-safe anywhere).
+        # DEGRADATION POSTURE (DL-0037): assembly failure — no signing key in non-local mode
+        # (`_require_signer_or_fail_closed` raises), missing DATABASE_URL/deps, card/registry
+        # failure — is caught HERE: LOUD error, `dossier_dispatcher` stays None, the daemon RUNS,
+        # `dossier_delegation_ready` reports the degradation, and the two dossier workers return
+        # the disclosed-gap marker (the human UTs still open). Unsigned Cards NEVER compose in
+        # non-local mode — degradation, not downgrade.
+        if (
+            state.dmn_transport is not None
+            and state.engine_transport is not None
+            and state.audit_sink is not None
+        ):
+            from maezo.runtime.agent_runtime.a2a_composition import (
+                build_dossier_delegation_dispatcher,
+                worker_runtime_mode_from_env,
+            )
+
+            state.dossier_dispatcher = build_dossier_delegation_dispatcher(
+                tenant=settings.tenant_id,
+                runtime_mode=worker_runtime_mode_from_env(),
+                dmn=state.dmn_transport,
+                cibseven=state.engine_transport,
+                audit_sink=state.audit_sink,
+                database_url=settings.database_url,
+                # Delegation facts ride the no-op FactProducer default (mirrors the auth edge):
+                # the DURABLE T-F record is the injected audit_sink, not a Kafka facts mirror, so
+                # the real events producer is deliberately NOT threaded here.
+            )
+            state.dossier_dispatcher_detail = "assembled"
+        else:
+            state.dossier_dispatcher_detail = (
+                "required seams unavailable (dmn/engine transport or durable audit sink missing "
+                "— DATABASE_URL unset or construction failed)"
+            )
+            logger.error(
+                "dossier_delegation_dispatcher_not_assembled",
+                tenant=settings.tenant_id,
+                detail=state.dossier_dispatcher_detail,
+            )
+    except Exception as exc:  # noqa: BLE001 — DL-0037: degrade the dossier, never the daemon.
+        state.dossier_dispatcher_detail = f"assembly failed: {type(exc).__name__}"
+        logger.error("dossier_delegation_dispatcher_build_failed", tenant=settings.tenant_id, exc_info=True)
+
+    try:
         # FAIL-CLOSED SEAM (design §7 T-C/T-D, reconciled at wave integration): THIS composition
         # root builds the harness ONLY with a durable audit sink. T-C's landed `WorkerHarness`
         # constructor takes `audit_sink: AuditEmitter | None = None` — Optional at CONSTRUCTION
@@ -569,6 +667,9 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
                 else None,
                 tenant_id=settings.tenant_id,
                 kafka=state.kafka_publisher,
+                # Dossier-A2A seam (DL-0033/DL-0037): None when degraded — the raw dossier
+                # handlers then gap-mark instead of delegating; every topic still registers.
+                dossier_dispatcher=state.dossier_dispatcher,
             )
             state.harness = harness
             state.expected_topics = _expected_worker_topics()
@@ -595,6 +696,7 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
         transport=state.transport is not None,
         audit_sink=state.audit_sink is not None,
         audit_sink_ready=state.audit_sink_ready,
+        dossier_delegation_ready=state.dossier_dispatcher is not None,
         workers_registered=(len(state.harness.registered_topics) if state.harness is not None else 0),
         harness_running=state.harness_running(),
     )

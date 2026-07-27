@@ -64,8 +64,12 @@ from maezo.a2a.assembly import (
     card_signing_key_from_env,
 )
 from maezo.a2a.dispatcher import KafkaLike
+from maezo.agents.andre.delegation import make_andre_handler
+from maezo.agents.carolina.delegation import make_carolina_handler
 from maezo.agents.rafael.delegation import make_rafael_handler
 from maezo.runtime.inference import InferenceProvider
+from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
+from maezo.tools.workers.dmn_transport import DmnTransport
 
 from .service import _build_tool_deps
 from .settings import AgentRuntimeSettings
@@ -74,6 +78,13 @@ logger = structlog.get_logger(__name__)
 
 #: The two agents party to this one edge (design doc §5/§9 — Helena originates, Rafael targets).
 _EDGE_AGENT_IDS = ("helena", "rafael")
+
+#: The two TARGET agents of the worker-originated dossier edges (DL-0033 real wiring):
+#: `operadora.cred.prepare_dossier` -> Carolina (`credentialing.analyze`) and
+#: `operadora.adequacao.prepare_remediation_dossier` -> Andre (`analytics.population`). The
+#: ORIGINS are workers (`credenciamento-worker`/`adequacao-worker`), not agents — the dispatcher
+#: validates only the TARGET's Card, so no origin card exists or is needed.
+_DOSSIER_EDGE_AGENT_IDS = ("carolina", "andre")
 
 #: The ONLY non-production `agent_runtime_mode` (settings.py default). Helm injects "kubernetes"
 #: for the deployed daemon (`deployment-agent-runtime.yaml`), so ANY value other than "local" is
@@ -89,13 +100,28 @@ ALLOW_UNSIGNED_CARDS_ENV_VAR = "MAEZO_A2A_ALLOW_UNSIGNED_CARDS"
 
 _TRUTHY = frozenset({"1", "true", "yes", "on"})
 
+#: Worker-daemon prod/dev discriminator for the dossier edge's signer gate. Reuses the GENERIC
+#: `RUNTIME_MODE` env contract already established by the webhook receiver
+#: (`platform/webhooks/whatsapp/settings.py`; its Helm template injects "kubernetes"). The
+#: worker-daemon Helm template (`deployment-worker-daemon.yaml`) injects NO mode variable, so —
+#: unlike the webhook receiver's settings default of "local" — the resolution below FAILS CLOSED:
+#: absent/blank resolves to "production" (any value != "local" is production for
+#: `_require_signer_or_fail_closed`). Dev opts into local EXPLICITLY with `RUNTIME_MODE=local`;
+#: the absence of configuration must never silently become the permissive mode.
+WORKER_RUNTIME_MODE_ENV_VAR = "RUNTIME_MODE"
+
+
+def worker_runtime_mode_from_env() -> str:
+    """Resolve the worker-daemon runtime mode (see `WORKER_RUNTIME_MODE_ENV_VAR` — fail-closed)."""
+    return os.environ.get(WORKER_RUNTIME_MODE_ENV_VAR, "").strip() or "production"
+
 
 def _unsigned_cards_opt_out() -> bool:
     """True only if the EXPLICIT unsigned-cards opt-out env var is set to a truthy value."""
     return os.environ.get(ALLOW_UNSIGNED_CARDS_ENV_VAR, "").strip().lower() in _TRUTHY
 
 
-def _require_signer_or_fail_closed(settings: AgentRuntimeSettings) -> CardSigner | None:
+def _require_signer_or_fail_closed(*, runtime_mode: str, tenant: str, edge: str) -> CardSigner | None:
     """Resolve the Card-signing key, fail-CLOSED when it is absent (F2 — the composition root fix).
 
     The W1 dev fail-safe silently downgraded to UNSIGNED Cards whenever `MAEZO_A2A_CARD_SIGNING_KEY`
@@ -104,7 +130,7 @@ def _require_signer_or_fail_closed(settings: AgentRuntimeSettings) -> CardSigner
     the defect. This gate makes the composition root UN-BYPASSABLE:
 
       - key PRESENT  -> a real `CardSigner` both signs the Cards and gates the registry (unchanged).
-      - key ABSENT + PRODUCTION runtime mode (`agent_runtime_mode != "local"`, e.g. Helm's
+      - key ABSENT + PRODUCTION runtime mode (`runtime_mode != "local"`, e.g. Helm's
         "kubernetes") -> RAISE at startup. The opt-out below is IGNORED here — there is no way to
         compose an unsigned dispatcher in production, mirroring the fail-closed startup precedent of
         `AnthropicInferenceProvider` (absent credential -> raise, "no silent fallback to noop") and
@@ -114,18 +140,24 @@ def _require_signer_or_fail_closed(settings: AgentRuntimeSettings) -> CardSigner
       - key ABSENT + non-production runtime mode + NO opt-out -> RAISE. Even in dev the absence of a
         key is never a SILENT default to unsigned (the auditor's requirement); it must be an
         explicit, deliberate choice.
+
+    Generalized (dossier-A2A wave) from the original AgentRuntimeSettings-only signature so the
+    worker-runtime dossier edge (`build_dossier_delegation_dispatcher`) applies the SAME gate:
+    `runtime_mode` is the caller's prod/dev discriminator (agent-runtime: `agent_runtime_mode`;
+    worker-runtime: `worker_runtime_mode_from_env()` — fail-closed to production when unset);
+    `edge` only labels the error/log for legibility. The gate's logic is unchanged.
     """
     signing_key = card_signing_key_from_env()
     if signing_key is not None:
         return card_signer_from_key(signing_key)
 
-    is_production = settings.agent_runtime_mode != _LOCAL_RUNTIME_MODE
+    is_production = runtime_mode != _LOCAL_RUNTIME_MODE
     if is_production or not _unsigned_cards_opt_out():
         raise RuntimeError(
-            "cannot assemble the A2A Helena->Rafael delegation edge: no Agent Card signing key "
+            f"cannot assemble the A2A {edge} delegation edge: no Agent Card signing key "
             f"({CARD_SIGNING_KEY_ENV_VAR}) is present, so the registry would admit ANY unsigned/"
             "forged Card. Refusing to compose an unsigned dispatcher "
-            f"(agent_runtime_mode={settings.agent_runtime_mode!r}). Provision the vault/KMS key "
+            f"(runtime_mode={runtime_mode!r}). Provision the vault/KMS key "
             "(design doc §6.2), or — in a NON-production runtime ONLY — set "
             f"{ALLOW_UNSIGNED_CARDS_ENV_VAR}=1 to opt into unsigned Cards explicitly. The absence "
             "of a key must never silently downgrade to unsigned Cards (T-G, ADR-0003/0007)."
@@ -133,8 +165,9 @@ def _require_signer_or_fail_closed(settings: AgentRuntimeSettings) -> CardSigner
 
     logger.warning(
         "a2a_card_signing_unsigned_dev_optout",
-        tenant=settings.tenant_id,
-        agent_runtime_mode=settings.agent_runtime_mode,
+        tenant=tenant,
+        runtime_mode=runtime_mode,
+        edge=edge,
         detail=(
             "UNSIGNED Agent Cards: no signing key present and the explicit non-production opt-out "
             f"{ALLOW_UNSIGNED_CARDS_ENV_VAR} is set. The registry will admit unsigned Cards — dev/"
@@ -194,7 +227,9 @@ def build_auth_delegation_dispatcher(
     # anything not validly signed under this exact key (`build_dispatcher`'s `verifier=`). Absent
     # key -> `_require_signer_or_fail_closed` REFUSES to compose (raises) in production, and in dev
     # only proceeds unsigned behind an EXPLICIT opt-out (F2 — no silent downgrade to unsigned).
-    signer = _require_signer_or_fail_closed(settings)
+    signer = _require_signer_or_fail_closed(
+        runtime_mode=settings.agent_runtime_mode, tenant=tenant, edge="Helena->Rafael"
+    )
     cards = build_agent_cards(tenant, _EDGE_AGENT_IDS, signer=signer)
 
     handler: AgentHandler = make_rafael_handler(
@@ -227,6 +262,93 @@ def build_auth_delegation_dispatcher(
         cards=cards,
         handlers={"rafael": handler},
         audit=audit,
+        facts=facts,
+        idempotency=idempotency,
+        verifier=signer,
+    )
+
+
+def build_dossier_delegation_dispatcher(
+    *,
+    tenant: str,
+    runtime_mode: str,
+    dmn: DmnTransport | None,
+    cibseven: CibSevenTransport | None,
+    audit_sink: AuditStartSink | None,
+    database_url: str | None = None,
+    inference: InferenceProvider | None = None,
+    kafka_producer: KafkaLike | None = None,
+) -> DelegationDispatcher:
+    """Assemble the WORKER-RUNTIME dossier delegation edges (DL-0033 real wiring, Option A).
+
+    The first production-ORIGINATED `.delegate()` surface: unlike the Helena->Rafael edge above
+    (assembled in agent-runtime, driven only by tests/a thin driver), this dispatcher is consumed
+    LIVE by the worker daemon's raw async dossier handlers (`operadora.cred.prepare_dossier` ->
+    Carolina `credentialing.analyze`; `operadora.adequacao.prepare_remediation_dossier` -> Andre
+    `analytics.population`, origin-disambiguated into his `adequacao_dossier` flow). Assembled at
+    worker-runtime bring-up (`worker_runtime/service.py` STEP B) and threaded to the two workers
+    via the existing `**seams` bootstrap pattern.
+
+    Deps are INJECTED (not re-built here): the worker daemon already constructs the exact seams
+    both target graphs need — `dmn` (`CibSevenDmnTransport`, fresh-client-per-call, loop-safe),
+    `cibseven` (`FreshClientCibSevenTransport`, ditto) and `audit_sink` (the pooled
+    `PostgresAuditSink` on the daemon's MAIN loop — raw async handlers run on that same loop, so
+    the ONE sink serves the harness's completion audit, the dispatcher's T-F delegation audit AND
+    both graphs' `start_process_idempotent` fence, mirroring the audit-sink-reuse note in this
+    module's docstring). Missing any of the three -> `ValueError` (fail-closed), mirroring
+    `build_auth_delegation_dispatcher`.
+
+    T-G/F2: the SAME `_require_signer_or_fail_closed` key gate as the Helena->Rafael edge —
+    `runtime_mode` comes from `worker_runtime_mode_from_env()` (fail-closed to "production" when
+    unset, since the worker-daemon Helm template injects no mode var). Absent key in non-local
+    mode -> RAISE: unsigned Cards NEVER compose outside explicit local dev. DEGRADATION POSTURE
+    (DL-0037): the worker-runtime composition root CATCHES this raise — the daemon still RUNS
+    (readiness reports `dossier_delegation_ready=false` loudly) and the dossier workers return
+    the neutral disclosed-gap marker; the human User Tasks always still open ("instrui, nao
+    decide").
+
+    Durable Guard 4: `PostgresIdempotencyStore` when `database_url` is present (it always is in
+    the live daemon — the same DSN gates the audit sink, without which the daemon never serves).
+    """
+    if dmn is None or cibseven is None or audit_sink is None:
+        missing = [
+            name
+            for name, value in (("dmn", dmn), ("cibseven", cibseven), ("audit_sink", audit_sink))
+            if value is None
+        ]
+        raise ValueError(
+            f"cannot assemble the A2A dossier delegation edges: {missing} unavailable "
+            "(DATABASE_URL unset disables audit_sink; carolina/andre graph.build(config) "
+            "fail-close without their deps — ADR-0007, T-C2)"
+        )
+
+    signer = _require_signer_or_fail_closed(
+        runtime_mode=runtime_mode, tenant=tenant, edge="worker->Carolina/Andre dossier"
+    )
+    cards = build_agent_cards(tenant, _DOSSIER_EDGE_AGENT_IDS, signer=signer)
+
+    llm = inference or InferenceProvider()
+    carolina_handler: AgentHandler = make_carolina_handler(
+        llm, dmn=dmn, cibseven=cibseven, audit_sink=audit_sink
+    )
+    andre_handler: AgentHandler = make_andre_handler(llm, dmn=dmn, cibseven=cibseven, audit_sink=audit_sink)
+
+    facts = FactProducer(kafka_producer or _NoopKafkaProducer())
+    idempotency = PostgresIdempotencyStore(dsn=database_url, tenant=tenant) if database_url else None
+
+    logger.info(
+        "a2a_dossier_delegation_dispatcher_assembled",
+        tenant=tenant,
+        agents=_DOSSIER_EDGE_AGENT_IDS,
+        runtime_mode=runtime_mode,
+        durable_idempotency=idempotency is not None,
+        card_signing_enforced=signer is not None,
+    )
+    return build_dispatcher(
+        tenant=tenant,
+        cards=cards,
+        handlers={"carolina": carolina_handler, "andre": andre_handler},
+        audit=audit_sink,
         facts=facts,
         idempotency=idempotency,
         verifier=signer,

@@ -11,11 +11,19 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from maezo.tools.workers.base import FunctionWorker
+from maezo.tools.workers.base import FunctionWorker, non_blank
 from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row, require_dmn
 
 if TYPE_CHECKING:
-    from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
+    from collections.abc import Mapping
+
+    from maezo.a2a import DelegationDispatcher
+    from maezo.tools.workers.harness import (
+        ExternalTask,
+        KafkaPublisher,
+        TaskHandler,
+        WorkerHarness,
+    )
 
 logger = structlog.get_logger(__name__)
 
@@ -349,35 +357,128 @@ def register_fallback_commitment(variables: dict[str, Any]) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------
-# prepare_remediation_dossier — LOCAL STUB dossier (DL-0033; Andre A2A deferred)
+# prepare_remediation_dossier — REAL Andre A2A delegation (raw async handler; DL-0033 closed,
+# DL-0037)
 # ---------------------------------------------------------------
 
 
-def prepare_remediation_dossier(variables: dict[str, Any]) -> dict[str, Any]:
-    """Prepare the remediation dossier for the human fallback User Task — NEUTRAL (DL-0033 local stub).
+def make_prepare_remediation_dossier_handler(
+    dispatcher: DelegationDispatcher | None,
+) -> TaskHandler:
+    """Create the handler for `operadora.adequacao.prepare_remediation_dossier` — the REAL Andre
+    A2A delegation.
 
-    Assembling a dossier INSTRUCTS the human decision (UT_DecisaoFallback), it NEVER originates the
-    remediation/fallback decision — mirrors `programa.enroll_beneficiario` ("enrollment is not an
-    adverse effect"). This is the local echo/log stub DL-0033 ratified (`FunctionWorker`, no
-    `DelegationDispatcher`): it closes the BPMN topic orphanage
-    (`operadora.adequacao.prepare_remediation_dossier`, `ST_PrepareRemediationDossier`, also reached
-    on the GAP-ADEQ-3 `seguir_analise` re-entry) without inventing delegation business-logic before
-    the real Andre A2A wiring (`analytics.population`, `adequacao_dossier`) lands in the deferred
-    full-A2A task. Fails SAFE (never raises), mirroring the module's neutral idiom.
+    Serves `ST_PrepareRemediationDossier` (ANALISE_HUMANA branch; also reached on the GAP-ADEQ-3
+    `seguir_analise` re-entry). Replaces the DL-0033 local stub with
+    `delegate_adequacao_dossier` -> `DelegationDispatcher.delegate` -> Andre's REAL graph
+    (SHARED task_type `analytics.population`, disambiguated into his `adequacao_dossier` flow by
+    the `adequacao-worker` origin — `agents/andre/delegation.py`).
+
+    RAW ASYNC HANDLER (DL-0034 precedent): `dispatcher.delegate` is async; the raw
+    `harness.register()` form runs on the harness's own loop. Populates `_handlers` but NOT the
+    `WorkerRegistry` (see `test_bootstrap_registration.py`'s `raw_handler_topics`).
+
+    FAIL-NEUTRAL-WITH-DISCLOSED-GAP (DL-0037): the dossier INSTRUCTS `UT_DecisaoFallback`
+    ("instrui, nao decide" — SP-OP-ADEQUACAO-001). A missing dispatcher, missing cell identity,
+    a structured rejection or ANY delegation failure returns
+    `{"dossier_prepared": False, "dossier_gap": <bounded reason token>}` + a LOUD log and
+    COMPLETES the task — the human UT MUST still open; this handler NEVER raises. The gap token
+    is a bounded class token (engine-variable hygiene) — raw error text stays in the log.
+
+    Idempotency note (disclosed): the delegation `task_id` is the cell key
+    `ADEQ-{tenant}-{regiao}-{especialidade}[-{ciclo}]` — the `seguir_analise` re-entry for the
+    SAME cell/ciclo receives the idempotent REPLAY of the same dossier; a genuinely new
+    evaluation cycle carries a new `ciclo_avaliacao` (a new task_id, a fresh dossier).
     """
-    regiao = variables.get("regiao_saude", "")
-    especialidade = variables.get("especialidade", "")
 
-    logger.info(
-        "adequacao_prepare_remediation_dossier",
-        regiao_saude=regiao,
-        especialidade=especialidade,
-    )
+    async def handler(task: ExternalTask) -> Mapping[str, Any]:
+        v = task.variables
+        tenant_id = str(v.get("tenant_id", "") or "")
+        regiao_saude = str(v.get("regiao_saude", "") or "")
+        especialidade = str(v.get("especialidade", "") or "")
+        ciclo_avaliacao = str(v.get("ciclo_avaliacao", "") or "").strip() or None
 
-    return {
-        "dossier_prepared": True,
-        "data_dossier": "now",
-    }
+        if dispatcher is None:
+            # Degraded runtime (DL-0037): dispatcher absent at composition (no signing key /
+            # no DATABASE_URL — worker_runtime readiness reports dossier_delegation_ready=false).
+            logger.warning(
+                "adequacao_prepare_remediation_dossier_dispatcher_unavailable",
+                tenant_id=tenant_id,
+                regiao_saude=regiao_saude,
+                especialidade=especialidade,
+                business_key=task.business_key,
+            )
+            return {"dossier_prepared": False, "dossier_gap": "dispatcher_unavailable"}
+
+        if not (non_blank(tenant_id) and non_blank(regiao_saude) and non_blank(especialidade)):
+            # No well-formed ADEQ cell key can be derived (EB-4 R1 `non_blank` discipline) —
+            # never delegate with a degenerate task_id; the UT still opens with the gap disclosed.
+            logger.error(
+                "adequacao_prepare_remediation_dossier_missing_cell_identity",
+                tenant_id=tenant_id,
+                regiao_saude=regiao_saude,
+                especialidade=especialidade,
+                business_key=task.business_key,
+            )
+            return {"dossier_prepared": False, "dossier_gap": "missing_business_identifiers"}
+
+        from maezo.agents.andre.delegation import delegate_adequacao_dossier
+
+        try:
+            result = await delegate_adequacao_dossier(
+                dispatcher,
+                tenant=tenant_id.strip(),
+                regiao_saude=regiao_saude.strip(),
+                especialidade=especialidade.strip(),
+                case_meta=dict(v),
+                ciclo_avaliacao=ciclo_avaliacao,
+            )
+        except Exception as exc:  # noqa: BLE001 — DL-0037: the UT must open; never raise here.
+            logger.error(
+                "adequacao_prepare_remediation_dossier_delegation_failed",
+                tenant_id=tenant_id,
+                regiao_saude=regiao_saude,
+                especialidade=especialidade,
+                business_key=task.business_key,
+                error=str(exc),
+            )
+            return {"dossier_prepared": False, "dossier_gap": "delegation_failed"}
+
+        if not result.success:
+            reason = str(result.rejection_reason or "unknown")
+            logger.error(
+                "adequacao_prepare_remediation_dossier_delegation_rejected",
+                tenant_id=tenant_id,
+                regiao_saude=regiao_saude,
+                especialidade=especialidade,
+                business_key=task.business_key,
+                reason=reason,
+                detail=result.detail,
+            )
+            return {"dossier_prepared": False, "dossier_gap": f"delegation_rejected:{reason}"}
+
+        logger.info(
+            "adequacao_prepare_remediation_dossier_delegated",
+            tenant_id=tenant_id,
+            regiao_saude=regiao_saude,
+            especialidade=especialidade,
+            business_key=task.business_key,
+            dossier_ref=result.output_ref,
+            idempotent_replay=result.idempotent_replay,
+        )
+        return {
+            "dossier_prepared": True,
+            "dossier_ref": result.output_ref or "",
+            # UT-FORM SEAM (SME/PO sign-off PENDING): the dossier CONTENT field schema for
+            # UT_DecisaoFallback is uncontracted — no dossier field appears in the contract's
+            # variable table. `dossier_summary` carries Andre's agent-produced bounded summary
+            # tokens AS-IS (route/desfecho/motivo/grupo — never the narrative, never a decision);
+            # the full dossier is reachable via `dossier_ref`. Do NOT invent/extend this schema
+            # here — it is the human-gated injection point.
+            "dossier_summary": dict(result.meta),
+        }
+
+    return handler
 
 
 # ---------------------------------------------------------------
@@ -411,10 +512,11 @@ class AdequacaoError(Exception):
 #     t2.5-p2b-round2 closed this gap)
 #   notify_sla_risk -> operadora.adequacao.notify_sla_risk (spec match, informational —
 #     t2.5-p2b-round2 closed this gap)
-#   prepare_remediation_dossier -> operadora.adequacao.prepare_remediation_dossier (exact spec
-#     match, DL-0033 LOCAL STUB; NEUTRAL — instructs UT_DecisaoFallback, never decides. The REAL
-#     Andre A2A delegation (analytics.population, adequacao_dossier) is deferred to the full-A2A
-#     wiring task; this stub only closes the BPMN topic orphanage.)
+#   make_prepare_remediation_dossier_handler -> operadora.adequacao.prepare_remediation_dossier
+#     (exact spec match; RAW async handler — the REAL Andre A2A delegation (analytics.population,
+#     origin-disambiguated to his adequacao_dossier flow) DL-0033 deferred, now wired. NEUTRAL —
+#     instructs UT_DecisaoFallback, never decides; dispatcher absent/failed -> disclosed-gap
+#     marker, the UT still opens (DL-0037).)
 # ---------------------------------------------------------------
 
 
@@ -429,9 +531,16 @@ def register_adequacao_workers(
     `adequacao_remediation_routing`, T1.5 cutover) via `functools.partial`. `kafka` is accepted
     but unused — no adequacao.py worker declares a Kafka dependency, `update_monitoring_plan`/
     `notify_sla_risk` included (dict-first, mirror the family's existing idiom).
+
+    `dossier_dispatcher` (dossier-A2A seam, DL-0033 real wiring) is threaded into the
+    `prepare_remediation_dossier` RAW async handler — a `DelegationDispatcher` assembled by the
+    worker-runtime composition root (`build_dossier_delegation_dispatcher`). Absent (`None`, the
+    topic-probe default and the degraded-runtime posture) the topic still registers and the
+    handler fail-neutrals with a disclosed gap (DL-0037) — the human UT always still opens.
     """
     del kafka  # unused — no adequacao.py worker declares a Kafka dependency
     dmn = seams.get("dmn")
+    dossier_dispatcher: DelegationDispatcher | None = seams.get("dossier_dispatcher")
     harness.register_worker(FunctionWorker("operadora.adequacao.measure_coverage", measure_gap))
     harness.register_worker(
         FunctionWorker("operadora.adequacao.calculate_gap", functools.partial(route_remediation, dmn=dmn))
@@ -445,6 +554,8 @@ def register_adequacao_workers(
         FunctionWorker("operadora.adequacao.update_monitoring_plan", update_monitoring_plan)
     )
     harness.register_worker(FunctionWorker("operadora.adequacao.notify_sla_risk", notify_sla_risk))
-    harness.register_worker(
-        FunctionWorker("operadora.adequacao.prepare_remediation_dossier", prepare_remediation_dossier)
+    # RAW handler (NOT register_worker) — needs the async dispatcher seam (module topic-map note).
+    harness.register(
+        "operadora.adequacao.prepare_remediation_dossier",
+        make_prepare_remediation_dossier_handler(dossier_dispatcher),
     )

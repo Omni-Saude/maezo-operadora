@@ -5,21 +5,22 @@ TDD London School: tests verify gap measurement and the human-gated fallback com
 
 import pytest
 
+from maezo.a2a import DelegationResult, RejectionReason
 from maezo.tools.workers.adequacao import (
     ERR_FALLBACK_COMMITMENT_NOT_HUMAN,
     AdequacaoError,
     execute_remediation,
+    make_prepare_remediation_dossier_handler,
     measure_gap,
     notify_coordenacao,
     notify_sla_risk,
-    prepare_remediation_dossier,
     register_adequacao_workers,
     register_fallback_commitment,
     route_remediation,
     update_monitoring_plan,
 )
 from maezo.tools.workers.dmn_transport import DmnEvaluationError, FakeDmnTransport
-from maezo.tools.workers.harness import WorkerHarness
+from maezo.tools.workers.harness import ExternalTask, WorkerHarness
 
 
 def _adequacao_fake(*, gap_adequacao: str, roteamento_remediacao: str, motivo: str = "") -> FakeDmnTransport:
@@ -283,24 +284,140 @@ def test_register_adequacao_workers_registers_new_topics() -> None:
     """`update_monitoring_plan`/`notify_sla_risk` are registered on their exact BPMN-declared
     topics -- closes 2 of the 3 registry-drift gaps documented in
     tests/integration/processes/test_sp_op_adequacao_001.py (FINDING 1);
-    `prepare_remediation_dossier` is now a registered DL-0033 local stub (Andre A2A real delegation
-    still deferred, but the BPMN topic is no longer orphaned) -- closing the last drift gap."""
+    `prepare_remediation_dossier` is now the REAL Andre A2A raw async handler (DL-0033 closed) —
+    registered via `harness.register()` (NOT the WorkerRegistry), topic always served."""
     harness = WorkerHarness(None, worker_id="unit-test-adequacao")  # type: ignore[arg-type]
     register_adequacao_workers(harness, None, dmn=FakeDmnTransport())
     topics = set(harness.registered_topics)
     assert "operadora.adequacao.update_monitoring_plan" in topics
     assert "operadora.adequacao.notify_sla_risk" in topics
     assert "operadora.adequacao.prepare_remediation_dossier" in topics
+    assert harness.registry.get("operadora.adequacao.prepare_remediation_dossier") is None  # raw
     adequacao_topics = {t for t in topics if t.startswith("operadora.adequacao.")}
-    assert len(adequacao_topics) == 8  # all 8 BPMN-declared topics now registered (DL-0033 dossier stub)
+    assert len(adequacao_topics) == 8  # all 8 BPMN-declared topics registered (dossier now REAL A2A)
 
 
-def test_prepare_remediation_dossier_stub() -> None:
-    """DL-0033 LOCAL STUB (NEUTRAL; mirrors programa.enroll_beneficiario) — instructs
-    UT_DecisaoFallback, never decides. Fails safe on missing identity."""
-    result = prepare_remediation_dossier({"regiao_saude": "SP-01", "especialidade": "cardiologia"})
+# ---------------------------------------------------------------
+# prepare_remediation_dossier — REAL Andre A2A delegation (raw async handler; DL-0033 closed,
+# DL-0037)
+# ---------------------------------------------------------------
+
+
+class _FakeDossierDispatcher:
+    """Records the envelope; returns a programmed `DelegationResult` (or raises)."""
+
+    def __init__(self, result: DelegationResult | None = None, exc: Exception | None = None) -> None:
+        self.envelopes: list = []
+        self._result = result
+        self._exc = exc
+
+    async def delegate(self, envelope) -> DelegationResult:  # noqa: ANN001 — duck-typed fake
+        self.envelopes.append(envelope)
+        if self._exc is not None:
+            raise self._exc
+        assert self._result is not None
+        return self._result
+
+
+def _dossier_task(variables: dict) -> ExternalTask:
+    return ExternalTask(
+        task_id="et-1",
+        topic="operadora.adequacao.prepare_remediation_dossier",
+        process_instance_id="pi-1",
+        business_key="ADEQ-amh-SP-01-cardiologia",
+        worker_id="w-1",
+        variables=variables,
+    )
+
+
+_ADEQ_DOSSIER_VARS = {
+    "tenant_id": "amh",
+    "regiao_saude": "SP-01",
+    "especialidade": "cardiologia",
+    "gap_adequacao": "GAP_CRITICO",
+    "roteamento_remediacao": "ANALISE_HUMANA",
+}
+
+
+async def test_prepare_remediation_dossier_delegates_to_andre_and_returns_real_outputs() -> None:
+    """Dispatcher present -> await delegate -> dossier-real outputs: `dossier_prepared=True`,
+    the `output_ref` reference, and Andre's agent-produced compact summary AS-IS
+    (`dossier_summary` — the SME/PO-pending UT-form seam). The envelope uses the SHARED
+    `analytics.population` type with the `adequacao-worker` origin (his flow disambiguator) and
+    the cell key as task_id (Guard 4)."""
+    dispatcher = _FakeDossierDispatcher(
+        result=DelegationResult.ok(
+            "ADEQ-amh-SP-01-cardiologia",
+            "process://ADEQ-amh-SP-01-cardiologia",
+            meta={"route": "human_review", "grupo_destino": "gestao-rede"},
+        )
+    )
+    handler = make_prepare_remediation_dossier_handler(dispatcher)  # type: ignore[arg-type]
+
+    result = await handler(_dossier_task(_ADEQ_DOSSIER_VARS))
+
+    assert result is not None
     assert result["dossier_prepared"] is True
-    assert prepare_remediation_dossier({})["dossier_prepared"] is True
+    assert result["dossier_ref"] == "process://ADEQ-amh-SP-01-cardiologia"
+    assert result["dossier_summary"] == {"route": "human_review", "grupo_destino": "gestao-rede"}
+    (envelope,) = dispatcher.envelopes
+    assert envelope.task_id == "ADEQ-amh-SP-01-cardiologia"
+    assert envelope.task_type == "analytics.population"
+    assert envelope.origin == "adequacao-worker"
+    assert envelope.target == "andre"
+    assert envelope.payload_meta["gap_adequacao"] == "GAP_CRITICO"
+
+
+async def test_prepare_remediation_dossier_without_dispatcher_fail_neutrals_with_gap() -> None:
+    """DL-0037 degradation posture: dispatcher absent (degraded runtime) -> the task still
+    COMPLETES (UT_DecisaoFallback must open) with `dossier_prepared=False` + the bounded gap
+    token — never a raise, never a fabricated dossier."""
+    handler = make_prepare_remediation_dossier_handler(None)
+    result = await handler(_dossier_task(_ADEQ_DOSSIER_VARS))
+    assert result is not None
+    assert result["dossier_prepared"] is False
+    assert result["dossier_gap"] == "dispatcher_unavailable"
+
+
+async def test_prepare_remediation_dossier_missing_cell_identity_gap_never_delegates() -> None:
+    """No tenant/regiao/especialidade (incl. whitespace-only, `non_blank` discipline) -> no
+    degenerate ADEQ task_id is ever delegated; gap marker, UT still opens."""
+    dispatcher = _FakeDossierDispatcher(result=DelegationResult.ok("x", "process://x"))
+    handler = make_prepare_remediation_dossier_handler(dispatcher)  # type: ignore[arg-type]
+    result = await handler(_dossier_task({"tenant_id": "amh", "regiao_saude": "  "}))
+    assert result is not None
+    assert result["dossier_prepared"] is False
+    assert result["dossier_gap"] == "missing_business_identifiers"
+    assert dispatcher.envelopes == []
+
+
+async def test_prepare_remediation_dossier_delegation_failure_fail_neutrals_never_raises() -> None:
+    """ANY delegation exception -> gap marker + loud log; raw error text stays OUT of the engine
+    variables (bounded class token only)."""
+    handler = make_prepare_remediation_dossier_handler(
+        _FakeDossierDispatcher(exc=RuntimeError("pg down: dsn=secret"))  # type: ignore[arg-type]
+    )
+    result = await handler(_dossier_task(_ADEQ_DOSSIER_VARS))
+    assert result is not None
+    assert result["dossier_prepared"] is False
+    assert result["dossier_gap"] == "delegation_failed"
+    assert "secret" not in str(result.values())
+
+
+async def test_prepare_remediation_dossier_structured_rejection_gap_bounded_reason() -> None:
+    handler = make_prepare_remediation_dossier_handler(
+        _FakeDossierDispatcher(  # type: ignore[arg-type]
+            result=DelegationResult.rejected(
+                "ADEQ-amh-SP-01-cardiologia",
+                RejectionReason.TASK_TYPE_NOT_ACCEPTED,
+                detail="not accepted",
+            )
+        )
+    )
+    result = await handler(_dossier_task(_ADEQ_DOSSIER_VARS))
+    assert result is not None
+    assert result["dossier_prepared"] is False
+    assert result["dossier_gap"] == "delegation_rejected:task_type_not_accepted"
 
 
 # ---------------------------------------------------------------
