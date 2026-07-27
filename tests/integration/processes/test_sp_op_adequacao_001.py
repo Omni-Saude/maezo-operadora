@@ -241,8 +241,11 @@ _NOTIFY_SLA_TOPIC = "operadora.adequacao.notify_sla_risk"
 
 # Topicos REALMENTE servidos pelos workers registrados no harness (drain generico). Cross-checked
 # against the BPMN's 8 declared operadora.adequacao.* topics in the `adequacao_probe` fixture's
-# drift-guard below — only `_PREPARE_DOSSIER_TOPIC` (FINDING 1, Andre A2A-gated) remains excluded
-# after t2.5-p2b-round2 closed the `update_monitoring_plan`/`notify_sla_risk` gaps.
+# drift-guard below. `_PREPARE_DOSSIER_TOPIC` is NOW drained (t2-dossier-a2a / #178, DL-0033 real
+# wiring): `prepare_remediation_dossier` is a real worker that delegates to Andre when the signed
+# dispatcher is available and otherwise fail-neutral-completes with a disclosed gap marker
+# (DL-0037) — either way the external task COMPLETES and the instance drains, so FINDING 1's
+# dossier xfails flip to real passes (t2.5-p2b-round2 already closed update_monitoring/notify_sla).
 _ADEQUACAO_WORKER_TOPICS = [
     _PUBLISH_TOPIC,
     _MEASURE_TOPIC,
@@ -252,6 +255,7 @@ _ADEQUACAO_WORKER_TOPICS = [
     _REGISTER_FALLBACK_TOPIC,
     _UPDATE_MON_TOPIC,
     _NOTIFY_SLA_TOPIC,
+    _PREPARE_DOSSIER_TOPIC,
 ]
 
 # Topico interno de notificacoes (harness.py) — always empty for this family (FINDING 3).
@@ -292,30 +296,25 @@ _CAMPOS_FALLBACK = {
     "tier": "senior",
 }
 
-# FINDING 1 — registration gap (adequacao.py:271-291/266-267): ST_PrepareRemediationDossier (the
-# SOLE entry point into UT_DecisaoFallback / UT_CoordenacaoRede) has no implementing function, so
-# its topic is excluded from `_ADEQUACAO_WORKER_TOPICS` — the external task is never fetched and
-# sits pending forever. Blocks 9 tests below.
+# FINDING 1 — RESOLVED (worker) / PARTIAL (test asserts): ST_PrepareRemediationDossier now has a
+# real implementing worker (t2-dossier-a2a, PR #178, DL-0033 real wiring): it delegates to Andre
+# `analytics.population` when the signed dispatcher is available and otherwise fail-neutral-completes
+# with a disclosed gap marker (DL-0037) — either way the external task COMPLETES and the instance
+# drains, so `_PREPARE_DOSSIER_TOPIC` is now in `_ADEQUACAO_WORKER_TOPICS` and UT_DecisaoFallback/
+# UT_CoordenacaoRede are reachable again. Verified live (local CIB Seven 2.1.0): 4 of the 9 former
+# dossier xfails now PASS as real tests. The remaining 5 (re-marked below) are NOT blocked by the
+# worker anymore — they still assert the pre-#178 dead `notifications_of_type("adequacao.<worker>")`
+# kafka echo (returns [] now), which needs adaptation to engine-side evidence (activity-history /
+# has_event with the completed desfecho) per the #134-141 event-gap precedent. Distinct, narrower
+# follow-up; the human-decision branch itself is live.
 _MISSING_DOSSIER_WORKER_REASON = (
-    "v2 registration gap (adequacao.py `register_adequacao_workers`), UPDATED t2.5-p2b-round2: "
-    "7 of the 8 `operadora.adequacao.*` topics this BPMN declares are now registered as "
-    "FunctionWorkers (measure_coverage/calculate_gap/notify_rede/start_credenciamento/"
-    "register_fallback_commitment/update_monitoring_plan/notify_sla_risk — the last two closed "
-    "by t2.5-p2b-round2). Only `prepare_remediation_dossier` still has NO implementing function "
-    "(Andre A2A-gated, explicitly out of scope for that PR — adequacao.py's own module comment "
-    "calls this out: 'gap, not fabricated here'). Because "
-    "`prepare_remediation_dossier` (ST_PrepareRemediationDossier, BPMN line 252 — the SOLE entry "
-    "point into the ANALISE_HUMANA branch) has no registered handler, its topic is excluded from "
-    "`_ADEQUACAO_WORKER_TOPICS` (mirrors cancel.py's drift-guard convention), so "
-    "`adequacao_probe.drain()` never even attempts to fetch that external task — it sits pending "
-    "forever and UT_DecisaoFallback (and, by extension, UT_CoordenacaoRede, reachable only via "
-    "UT_DecisaoFallback's own BT_SlaRemediacao boundary timer) never appears. "
-    "`engine.await_user_task(...)` therefore raises `EngineRestError` after ~10s of polling. This "
-    "is a MISSING-WORKER gap, distinct from the systemic operadora.events.publish/kafka.publish "
-    "gaps other T3.1 families document — no Kafka-producer wiring fixes this; "
-    "`prepare_remediation_dossier` needs an actual implementing function (e.g. the Andre A2A "
-    "dossier handoff the BPMN documentation describes) before this human-decision branch is "
-    "reachable again."
+    "PARTIAL (t2-dossier-a2a #178): `prepare_remediation_dossier` is now a REAL worker and the "
+    "external task drains (UT branch live — 4 sibling dossier tests flipped to real passes). This "
+    'test still fails ONLY on a dead `notifications_of_type("adequacao.<worker>")` assert (the '
+    "pre-#178 kafka echo the worker no longer emits — returns []); it needs adaptation to "
+    "engine-side evidence (activity-history / has_event completed-desfecho, per the #134-141 "
+    "event-gap precedent) before it flips. NOT a missing-worker gap; narrower assert-adaptation "
+    "follow-up tracked in PLANS.md §0.5.2 item-9 bucket-1."
 )
 
 # t2.5-p2b-round2: `update_monitoring_plan` is now BUILT and registered (was previously the same
@@ -638,7 +637,6 @@ async def test_nenhum_caminho_automatizado_firma_compromisso_fallback(
     assert checked == len(cenarios)
 
 
-@pytest.mark.xfail(reason=_MISSING_DOSSIER_WORKER_REASON, strict=True)
 async def test_gap_critico_roteia_para_humano_nao_firma_compromisso(
     engine: EngineRest,
     adequacao_probe: AdequacaoEngineProbe,
@@ -841,7 +839,6 @@ async def test_happy_path_compromisso_fallback_humano(
     assert r["tier"] == "senior"
 
 
-@pytest.mark.xfail(reason=_MISSING_DOSSIER_WORKER_REASON, strict=True)
 async def test_humano_encaminhar_cred_nao_firma_compromisso(
     engine: EngineRest,
     adequacao_probe: AdequacaoEngineProbe,
@@ -863,7 +860,6 @@ async def test_humano_encaminhar_cred_nao_firma_compromisso(
     assert not adequacao_probe.notifications_of_type("adequacao.register_fallback_commitment")
 
 
-@pytest.mark.xfail(reason=_MISSING_DOSSIER_WORKER_REASON, strict=True)
 async def test_timer_sla_estourado_coordenacao_assume(
     engine: EngineRest,
     adequacao_probe: AdequacaoEngineProbe,
@@ -988,7 +984,6 @@ async def test_coordenacao_assumir_decisao_roteia_para_gw_decisao_remediacao(
     await _assert_no_adverse_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_MISSING_DOSSIER_WORKER_REASON, strict=True)
 async def test_coordenacao_prorrogar_prazo_reabre_ut_decisao_fallback(
     engine: EngineRest,
     adequacao_probe: AdequacaoEngineProbe,
