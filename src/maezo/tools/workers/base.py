@@ -313,6 +313,39 @@ def non_blank(value: Any) -> bool:
     return bool(str(value).strip())
 
 
+def resolve_fraude_numero_caso(variables: dict[str, Any]) -> str:
+    """Resolve the FRAUDE-001 `numero_caso` business-key anchor for a CONTAS→FRAUDE handoff
+    (contract `SP-OP-FRAUDE-001.md` "Business key (idempotencia)"): use an already-assigned
+    `numero_caso` when present, else fall back to `prestador_id` (the entity under
+    investigation) — so repeated referrals of the SAME prestador converge on the SAME
+    FRAUDE-001 instance instead of minting a fresh, non-deterministic case id on every forward.
+
+    Single source of truth — shared by BOTH derivation sites, so they are byte-identical for
+    EVERY input type (not just the string case):
+    - `contas.start_fraude`'s in-flow worker (`contas._fraude_numero_caso_for_handoff`);
+    - `notification_bridge`'s CONTAS→FRAUDE Kafka-mirror rule
+      (`notification_bridge._fraude_numero_caso_for_contas_handoff`).
+
+    Before this extraction the two sites re-implemented the SAME derivation independently and
+    had drifted: the worker used the shared `non_blank` (accepts any type whose stringified form
+    is non-blank, e.g. an int/float/bool `numero_caso`) while the bridge required
+    `isinstance(numero_caso, str)` — so a non-string `numero_caso` would derive a DIFFERENT
+    business key on each path (worker: `str(numero_caso)`; bridge: the `prestador_id` fallback),
+    a latent divergent-double-start hazard. `numero_caso` is not a CONTAS process variable today
+    (never reachable), but this single implementation makes that class of drift structurally
+    impossible rather than relying on two docstrings staying in sync.
+
+    Uses the SAME `non_blank` anchor-validation semantics as every other business-key field in
+    this repo (fail-closed on `None`/blank/whitespace-only, via the stringified value) — an
+    already-assigned `numero_caso` of ANY type is accepted and stringified; only a blank/None
+    value falls back to `prestador_id`.
+    """
+    numero_caso = variables.get("numero_caso")
+    if non_blank(numero_caso):
+        return str(numero_caso)
+    return str(variables.get("prestador_id", ""))
+
+
 def pick_fields(variables: dict[str, Any], cls: type) -> dict[str, Any]:
     """Explicit field selection: keep only the keys `cls` (a dataclass) actually declares.
 
