@@ -34,6 +34,15 @@ from maezo.platform.lifecycle import (
     REFUSAL_EXIT_CODE,
     main,
 )
+from maezo.platform.lifecycle.legal_bases_matrix import MATRIX_PATH_ENV
+
+_VALID_MATRIX_YAML = """
+categorias:
+  - categoria: "financeiros_faturamento"
+    base_legal: "LGPD art. 16 I; CTN art. 173/174"
+    retencao: "5 anos"
+    acao: "reter"
+"""
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]  # tests/unit/platform -> repo root
 _SRC_MAEZO = _REPO_ROOT / "src" / "maezo"
@@ -94,6 +103,137 @@ def test_verify_erasure_subcommand_refuses(capsys: pytest.CaptureFixture[str]) -
     err = capsys.readouterr().err
     assert "verify-erasure refused" in err
     assert "fail-closed refusal stub" in err
+
+
+# ---------------------------------------------------------------------------
+# Refusal taxonomy: expurgo-working / verify-erasure attempt a REAL matrix load
+# first, so the message distinguishes "matrix absent" from "matrix present but the
+# downstream mechanism is unbuilt" — exit code stays 78 in EVERY case (T2.9).
+# ---------------------------------------------------------------------------
+
+
+def test_expurgo_working_matrix_absent_states_precise_reason(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """With no matrix configured, expurgo-working states the matrix is unavailable."""
+    monkeypatch.delenv(MATRIX_PATH_ENV, raising=False)
+    code = main(["expurgo-working"])
+    assert code == REFUSAL_EXIT_CODE
+    err = capsys.readouterr().err
+    assert "expurgo-working refused" in err
+    assert "fail-closed refusal stub" in err
+    assert "retention matrix" in err.lower()
+    assert "unavailable" in err
+    assert "path_not_set" in err
+
+
+def test_expurgo_working_matrix_present_states_mechanism_unbuilt(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """With a valid, loadable matrix, expurgo-working states the SWEEP itself is unbuilt.
+
+    A present matrix must never look like progress toward a success path — the
+    message must name the actual missing execution mechanism, not just repeat the
+    generic stub notice, and must still exit 78.
+    """
+    matrix_path = tmp_path / "matrix.yaml"
+    matrix_path.write_text(_VALID_MATRIX_YAML, encoding="utf-8")
+    monkeypatch.setenv(MATRIX_PATH_ENV, str(matrix_path))
+
+    code = main(["expurgo-working"])
+    assert code == REFUSAL_EXIT_CODE
+    err = capsys.readouterr().err
+    assert "expurgo-working refused" in err
+    assert "fail-closed refusal stub" in err
+    assert "loaded successfully" in err
+    assert "TTL sweep" in err
+    assert "does not by itself unblock" in err
+    assert "unavailable" not in err  # must NOT reuse the absent-matrix wording
+
+
+def test_verify_erasure_matrix_absent_mentions_erasure_gap(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.delenv(MATRIX_PATH_ENV, raising=False)
+    code = main(["verify-erasure"])
+    assert code == REFUSAL_EXIT_CODE
+    err = capsys.readouterr().err
+    assert "verify-erasure refused" in err
+    assert "fail-closed refusal stub" in err
+    assert "unavailable" in err
+    assert "thread_id" in err
+    assert "fhir_patient_id" in err
+    assert "erasure.py" in err
+
+
+def test_verify_erasure_matrix_present_states_mechanism_and_erasure_gap(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    matrix_path = tmp_path / "matrix.yaml"
+    matrix_path.write_text(_VALID_MATRIX_YAML, encoding="utf-8")
+    monkeypatch.setenv(MATRIX_PATH_ENV, str(matrix_path))
+
+    code = main(["verify-erasure"])
+    assert code == REFUSAL_EXIT_CODE
+    err = capsys.readouterr().err
+    assert "verify-erasure refused" in err
+    assert "loaded successfully" in err
+    assert "ErasureManager" in err
+    assert "thread_id" in err
+    assert "fhir_patient_id" in err
+    assert "does not by itself unblock" in err
+
+
+def test_matrix_absent_vs_present_messages_differ(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The two branches must produce genuinely different text, not a cosmetic tweak."""
+    monkeypatch.delenv(MATRIX_PATH_ENV, raising=False)
+    absent_expurgo = lifecycle._refusal_message("expurgo-working")
+    absent_erasure = lifecycle._refusal_message("verify-erasure")
+
+    matrix_path = tmp_path / "matrix.yaml"
+    matrix_path.write_text(_VALID_MATRIX_YAML, encoding="utf-8")
+    monkeypatch.setenv(MATRIX_PATH_ENV, str(matrix_path))
+    present_expurgo = lifecycle._refusal_message("expurgo-working")
+    present_erasure = lifecycle._refusal_message("verify-erasure")
+
+    assert absent_expurgo != present_expurgo
+    assert absent_erasure != present_erasure
+
+
+def test_audit_retention_unaffected_by_matrix_presence(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """audit-retention's blocker (ADR-0020/0029) is independent of the DPO matrix.
+
+    Even with a fully valid, loadable matrix configured, audit-retention's message
+    must stay EXACTLY the charter-specified ADR-grounded refusal — the matrix is a
+    different, unrelated gate (recon-b §6.4).
+    """
+    matrix_path = tmp_path / "matrix.yaml"
+    matrix_path.write_text(_VALID_MATRIX_YAML, encoding="utf-8")
+    monkeypatch.setenv(MATRIX_PATH_ENV, str(matrix_path))
+
+    code = main(["audit-retention"])
+    assert code == REFUSAL_EXIT_CODE
+    err = capsys.readouterr().err
+    assert AUDIT_RETENTION_REFUSAL in err
+
+
+@pytest.mark.parametrize("matrix_configured", [False, True])
+def test_matrix_gated_subcommands_always_exit_78(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, matrix_configured: bool
+) -> None:
+    """No matrix state (absent or present-and-valid) ever produces a success exit."""
+    if matrix_configured:
+        matrix_path = tmp_path / "matrix.yaml"
+        matrix_path.write_text(_VALID_MATRIX_YAML, encoding="utf-8")
+        monkeypatch.setenv(MATRIX_PATH_ENV, str(matrix_path))
+    else:
+        monkeypatch.delenv(MATRIX_PATH_ENV, raising=False)
+
+    assert main(["expurgo-working"]) == REFUSAL_EXIT_CODE
+    assert main(["verify-erasure"]) == REFUSAL_EXIT_CODE
+    assert main(["audit-retention"]) == REFUSAL_EXIT_CODE
 
 
 def test_unknown_subcommand_refuses(capsys: pytest.CaptureFixture[str]) -> None:

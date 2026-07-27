@@ -42,11 +42,23 @@ DESIGN NOTES
   that binding is not a caller of the destructive query and is unrelated to this
   refusal path. `retention_query()` has zero production callers, a property locked in
   CI by `tests/unit/platform/test_lifecycle.py`.
+- It DOES import `legal_bases_matrix` (this package, `legal_bases_matrix.py`) — a
+  completely different concern: a typed loader for the DPO's per-category
+  legal-bases/retention matrix (PLANS.md §0.5 item 6). `expurgo-working` and
+  `verify-erasure` attempt a real load of that matrix so their refusal message can
+  distinguish "matrix absent" from "matrix present but the downstream execution
+  mechanism (ErasureManager's per-layer deletion, the working-layer TTL sweep) is
+  simply unbuilt". Loading the matrix is read-only and never touches
+  `retention.py`/audit_chain — it has nothing to do with the audit-retention blocker.
 - Importing this module has NO side effect (no work at import time) — matches the
   `gateway` / `webhooks` / `*_runtime` `__main__` convention.
-- Implementing any of these subcommands (especially `audit-retention`) is BLOCKED
-  until BOTH `docs/compliance/ADR-0020-amendment-draft.md` and
-  `docs/adr/0029-audit-chain-pruning-reanchor.md` are ratified. Blocked != done.
+- Implementing `audit-retention` is BLOCKED until BOTH
+  `docs/compliance/ADR-0020-amendment-draft.md` and
+  `docs/adr/0029-audit-chain-pruning-reanchor.md` are ratified. Implementing
+  `expurgo-working`/`verify-erasure` additionally requires a ratified DPO
+  legal-bases/retention matrix (see `legal_bases_matrix.py`) deployed at
+  `MAEZO_RETENTION_MATRIX_PATH`; `verify-erasure` further needs the
+  thread_id→fhir_patient_id mapping design gap (`erasure.py`) closed. Blocked != done.
 """
 
 from __future__ import annotations
@@ -55,6 +67,12 @@ import sys
 from collections.abc import Sequence
 
 import structlog
+
+from .legal_bases_matrix import (
+    MATRIX_PATH_ENV,
+    RetentionMatrixUnavailableError,
+    load_retention_matrix,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -90,16 +108,71 @@ _ADR_POINTERS = (
     "see docs/adr/0029-audit-chain-pruning-reanchor.md and docs/compliance/ADR-0020-amendment-draft.md"
 )
 
+# Schema-only, UNRATIFIED-marked template showing the shape a real matrix must have —
+# pointed at by the matrix-gated refusal messages below so an operator knows where to
+# look, never treated as a usable matrix itself (the loader refuses it explicitly).
+_MATRIX_TEMPLATE_PATH = "spec/policies/retention/UNRATIFIED-retention-matrix.template.yaml"
+
+# `verify-erasure` has a second, independent blocker beyond the matrix: erasure.py's
+# per-layer `_erase_*`/`_verify_*` helpers key on `thread_id`, not `fhir_patient_id` —
+# there is no mapping from one to the other today (erasure.py:196-206). This is a code
+# gap, not a human-ratification gap, and stays true regardless of matrix state.
+_VERIFY_ERASURE_EXTRA = (
+    " verify-erasure is additionally blocked, independent of the matrix, on the "
+    "thread_id→fhir_patient_id mapping design gap in ErasureManager (see erasure.py)."
+)
+
+
+def _matrix_gated_refusal(subcommand: str, mechanism: str, extra: str = "") -> str:
+    """Build the refusal message for a subcommand gated on the DPO retention matrix.
+
+    Attempts a REAL load of the matrix first (via `legal_bases_matrix.py`) so the
+    message states the precise blocker instead of a single undifferentiated stub
+    notice:
+      - matrix unavailable (absent env var, missing file, malformed YAML, invalid
+        schema, empty, or the UNRATIFIED placeholder template) — states the exact
+        `reason`/`detail` from `RetentionMatrixUnavailableError`; or
+      - matrix loads successfully — states that a present matrix does NOT by itself
+        unblock this command, because `mechanism` (the actual execution code) is not
+        implemented either.
+    Either branch still returns a refusal string; `main()` always exits 78 regardless
+    of which branch is taken — a present, valid matrix is never a success path here.
+    """
+    base = (
+        f"{subcommand} refused: the {MODULE_NAME} entrypoint is an intentional "
+        "fail-closed refusal stub (T2.8) — no lifecycle command is implemented. "
+    )
+    try:
+        matrix = load_retention_matrix()
+    except RetentionMatrixUnavailableError as exc:
+        return (
+            f"{base}Blocked on the DPO legal-bases/retention matrix: unavailable "
+            f"({exc.reason}): {exc.detail} Set {MATRIX_PATH_ENV} to a ratified matrix "
+            f"once one exists (schema template: {_MATRIX_TEMPLATE_PATH})."
+            f"{extra}"
+        )
+    return (
+        f"{base}The DPO legal-bases/retention matrix loaded successfully "
+        f"({len(matrix)} categoria(s) from {MATRIX_PATH_ENV}), but {mechanism} is not "
+        f"implemented — a present matrix does not by itself unblock this command."
+        f"{extra}"
+    )
+
 
 def _refusal_message(subcommand: str | None) -> str:
     """Return the operator-facing refusal string for a given (or missing) subcommand."""
     if subcommand == SUBCMD_AUDIT_RETENTION:
         return AUDIT_RETENTION_REFUSAL
-    if subcommand in (SUBCMD_EXPURGO_WORKING, SUBCMD_VERIFY_ERASURE):
-        return (
-            f"{subcommand} refused: the {MODULE_NAME} entrypoint is an intentional "
-            "fail-closed refusal stub (T2.8) — no lifecycle command is implemented. "
-            f"{_ADR_POINTERS}"
+    if subcommand == SUBCMD_EXPURGO_WORKING:
+        return _matrix_gated_refusal(
+            subcommand,
+            mechanism="the working-layer TTL sweep execution",
+        )
+    if subcommand == SUBCMD_VERIFY_ERASURE:
+        return _matrix_gated_refusal(
+            subcommand,
+            mechanism="ErasureManager.erase()/verify()'s per-layer deletion",
+            extra=_VERIFY_ERASURE_EXTRA,
         )
     if subcommand is None:
         return (
@@ -112,6 +185,23 @@ def _refusal_message(subcommand: str | None) -> str:
         "an intentional fail-closed refusal stub (T2.8) — no lifecycle command is "
         f"implemented (known: {', '.join(KNOWN_SUBCOMMANDS)}). {_ADR_POINTERS}"
     )
+
+
+def _blocked_on(subcommand: str | None) -> list[str]:
+    """Return the doc/module pointers relevant to this subcommand's precise blocker."""
+    if subcommand == SUBCMD_AUDIT_RETENTION:
+        return [
+            "docs/compliance/ADR-0020-amendment-draft.md",
+            "docs/adr/0029-audit-chain-pruning-reanchor.md",
+        ]
+    if subcommand == SUBCMD_EXPURGO_WORKING:
+        return [_MATRIX_TEMPLATE_PATH]
+    if subcommand == SUBCMD_VERIFY_ERASURE:
+        return [_MATRIX_TEMPLATE_PATH, "src/maezo/platform/erasure.py"]
+    return [
+        "docs/compliance/ADR-0020-amendment-draft.md",
+        "docs/adr/0029-audit-chain-pruning-reanchor.md",
+    ]
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -139,10 +229,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         subcommand=subcommand,
         exit_code=REFUSAL_EXIT_CODE,
         reason=message,
-        blocked_on=[
-            "docs/compliance/ADR-0020-amendment-draft.md",
-            "docs/adr/0029-audit-chain-pruning-reanchor.md",
-        ],
+        blocked_on=_blocked_on(subcommand),
     )
     # structlog output is configuration-dependent and this entrypoint never configures
     # it; write to stderr unconditionally so the blocker is legible in `kubectl logs`
