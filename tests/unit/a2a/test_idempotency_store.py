@@ -114,7 +114,17 @@ def test_complete_params_success() -> None:
         "output_ref": "process://RECURSO-amh-1",
         "rejection_reason": None,
         "detail": None,
+        "meta": {},
     }
+
+
+def test_complete_params_success_persists_handler_meta() -> None:
+    """Dossier A2A edges: the handler's bounded non-PHI summary tokens (`DelegationResult.meta`)
+    ride in the existing `result` jsonb (additive key, no migration) so a durable REPLAY returns
+    the SAME shape as the first delivery."""
+    result = DelegationResult.ok("t1", "process://CRED-amh-P1", meta={"route": "human_review"})
+    _task_id, result_json = complete_params(result=result)
+    assert json.loads(result_json)["meta"] == {"route": "human_review"}
 
 
 def test_complete_params_rejection() -> None:
@@ -128,6 +138,7 @@ def test_complete_params_rejection() -> None:
         "output_ref": None,
         "rejection_reason": "task_type_not_accepted",
         "detail": "marina does not accept x",
+        "meta": {},
     }
 
 
@@ -138,7 +149,19 @@ def test_result_payload_pure_mapping() -> None:
         "output_ref": "fhir://Task/1",
         "rejection_reason": None,
         "detail": None,
+        "meta": {},
     }
+
+
+def test_row_to_stored_decodes_meta_and_tolerates_its_absence() -> None:
+    """Pre-existing rows (persisted before the `meta` key existed) decode to `{}`; a persisted
+    meta round-trips with values coerced to str."""
+    legacy = _row_to_stored("t1", {"result": json.dumps({"success": True, "output_ref": "x"})})
+    assert legacy.meta == {}
+    with_meta = _row_to_stored(
+        "t2", {"result": json.dumps({"success": True, "output_ref": "x", "meta": {"route": "human_review"}})}
+    )
+    assert with_meta.meta == {"route": "human_review"}
 
 
 def test_decode_result_accepts_dict_passthrough() -> None:
