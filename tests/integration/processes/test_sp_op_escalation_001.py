@@ -94,25 +94,18 @@ _PROCESS_COMPLETED = "agents.events.process_completed"
 # DL-0034 (built in t5-workers-f1): escalation's notify workers were converted from `WorkerBase` to
 # RAW ASYNC KAFKA HANDLERS (`make_notify_team_handler`/`make_notify_supervisor_handler`) that DO call
 # `kafka.publish` (mirror #55 R-B) — so the old "never publishes" gap (formerly
-# `_NOTIFY_KAFKA_GAP_REASON`) is CLOSED and the happy-path notify-observability tests now PASS
-# (markers removed on `test_timer_ack_nao_interruptivo_alerta_supervisor` and
-# `test_falha_publish_requested_nao_bloqueia_roteamento`; live-verified XPASS by the R1 gatekeeper on
-# CIB Seven 2.1.0). What remains UNBUILT is the notify-FAILURE -> fallback path: on a publish failure
-# the handler mirrors #55 R-B (propagates the RAW exception), it does NOT raise the modeled
-# `ERR_ESC_NOTIFY_FAILED` bpmnError that `BE_FalhaNotificacao`/`BE_NotifFallbackFailed` catch — that
-# raise is ADR-0030 Tier-1 (co-scheduled with the Kafka-producer gap), deliberately out of DL-0034
-# scope. So the two tests that ACTIVELY fault the notify channel(s) and depend on that fallback
-# boundary firing still xfail (strict) and self-flag for removal once the Tier-1 boundary is modeled.
-# kafka=None (current prod) still completes fine — no prod-current impact.
-_ESC_NOTIFY_FAIL_FALLBACK_PENDING = (
-    "_ESC_NOTIFY_FAIL_FALLBACK_PENDING: depends on the unbuilt ERR_ESC_NOTIFY_FAILED Tier-1 boundary "
-    "(ADR-0030; co-scheduled with the Kafka-producer gap). DL-0034 (built in t5) wired the notify "
-    "workers to publish (mirror #55 R-B), but on a publish FAILURE the handler propagates the raw "
-    "exception rather than raising the modeled ERR_ESC_NOTIFY_FAILED bpmnError, so the "
-    "notify-failure -> fallback boundary (BE_FalhaNotificacao/BE_NotifFallbackFailed) never fires and "
-    "the flow cannot reach the fallback assertion. XPASSes once the notify-failure -> fallback path "
-    "is modeled; remove this marker then."
-)
+# `_NOTIFY_KAFKA_GAP_REASON`) is CLOSED and the happy-path notify-observability tests PASS (e.g.
+# `test_timer_ack_nao_interruptivo_alerta_supervisor`).
+#
+# t8-escalation-boundary (ADR-0030 Tier-1): the notify-FAILURE -> fallback path is now BUILT too, so
+# the former `_ESC_NOTIFY_FAIL_FALLBACK_PENDING` strict-xfails are REMOVED (this change). On a publish
+# failure `make_notify_team_handler`/`make_notify_supervisor_handler` (escalation.py) now raise the
+# MODELED `WorkerBpmnError(ERR_ESC_NOTIFY_FAILED)`; with that code in the harness allowlist below
+# (mirroring production's `PRODUCTION_BPMN_ERROR_ALLOWLIST` — gate-proven consumption-covered), the
+# harness reports it as a real bpmnError, firing `BE_FalhaNotificacao` -> ST_NotificarFallback ->
+# UT_TratarEscalonamento and `BE_NotifFallbackFailed` -> UT_TratarEscalonamento (double-channel
+# failure). The two tests below that ACTIVELY fault the notify channel(s) now assert the LIVE fallback
+# path (proven on CIB Seven 2.1.0). kafka=None (no producer) still completes fine — no prod impact.
 
 
 @dataclass
@@ -219,17 +212,21 @@ async def probe(engine: EngineRest, audit_sink: Any, audit_tenant: str) -> Async
     transport = CibSevenWorkerTransport(
         os.environ.get("CIBSEVEN_BASE_URL", "http://localhost:8080/engine-rest")
     )
-    # T3.1 R2: ERR_EVENT_PUBLISH_FAILED (GAP-ESC-5) is catchable by SP-OP-ESCALATION-001's own
-    # boundaryEvents (Error_EscPublishFailed) ONLY when it's in the harness's allowlist (harness.py
-    # `_bpmn_error_allowlist` — no code is gate-proven at the PRODUCTION default, empty). This
-    # probe wires the ONE code this family's BPMN declares a matching boundary for, mirroring what
-    # a gate-proven production allowlist for this family would contain.
+    # ADR-0030: SP-OP-ESCALATION-001's boundaryEvents are catchable ONLY when the code is in the
+    # harness's allowlist (harness.py `_bpmn_error_allowlist`). This family's BPMN declares matching
+    # boundaries for TWO codes, BOTH now gate-proven (scripts/ci/check_bpmn_error_allowlist.py) and
+    # wired into the PRODUCTION allowlist (worker_runtime/service.py `PRODUCTION_BPMN_ERROR_ALLOWLIST`):
+    #   - ERR_EVENT_PUBLISH_FAILED (GAP-ESC-5): the 5 ST_Publish* domain-event tasks (events.py).
+    #   - ERR_ESC_NOTIFY_FAILED (t8-escalation-boundary, Tier-1): the 3 notify tasks — notify_team/
+    #     notify_supervisor raise it on a kafka.publish failure (escalation.py), driving
+    #     BE_FalhaNotificacao/BE_NotifFallbackFailed/BE_NotifSupervisorFailed to the supervisor
+    #     fallback + the mandatory HITL. This probe wires exactly what production wires.
     harness = WorkerHarness(
         transport,
         worker_id=worker_id,
         tenant=audit_tenant,
         lock_duration_ms=10_000,
-        bpmn_error_allowlist=frozenset({"ERR_EVENT_PUBLISH_FAILED"}),
+        bpmn_error_allowlist=frozenset({"ERR_EVENT_PUBLISH_FAILED", "ERR_ESC_NOTIFY_FAILED"}),
         audit_sink=audit_sink,
     )
     kafka = FakeKafkaPublisher()
@@ -462,15 +459,17 @@ async def test_supervisor_resolve_apos_breach(
 # --- Escalation / erros: fallback de canal -------------------------------------------
 
 
-@pytest.mark.xfail(reason=_ESC_NOTIFY_FAIL_FALLBACK_PENDING, strict=True)
 async def test_falha_notificacao_usa_fallback(
     engine: EngineRest, probe: EngineProbe, start_escalation: StartEscalation
 ) -> None:
     """notify_team lanca ERR_ESC_NOTIFY_FAILED => fallback notifica supervisor e UT e criada mesmo assim.
 
-    Falha o CANAL real (publish do FakeKafkaPublisher) uma vez para a notificacao de team. O
-    handler REAL (`NotifyTeamWorker`) traduz isso em `ERR_ESC_NOTIFY_FAILED` (BPMN error) —
-    exercitamos o caminho de erro do worker de verdade, sem injecao sintetica.
+    Falha o CANAL real (publish do FakeKafkaPublisher via _FaultInjectingPublisher) para a notificacao
+    de team. O handler REAL (`make_notify_team_handler`) traduz isso em
+    `WorkerBpmnError(ERR_ESC_NOTIFY_FAILED)` (t8-escalation-boundary) — exercitamos o caminho de erro
+    do worker de verdade, sem injecao sintetica. `BE_FalhaNotificacao` roteia para ST_NotificarFallback
+    (notify_supervisor) e segue para UT_TratarEscalonamento: o escalonamento nunca se perde por falha
+    de canal (fail-SAFE, ADR-0005).
     """
     probe.fault.fail_notification_types.add("escalation.notify_team")
     inst = await start_escalation(motivo_categoria="red_flag_clinico", severidade="grave")
@@ -484,14 +483,13 @@ async def test_falha_notificacao_usa_fallback(
     assert task.candidate_groups == frozenset({"plantao-clinico"})
 
 
-@pytest.mark.xfail(reason=_ESC_NOTIFY_FAIL_FALLBACK_PENDING, strict=True)
 async def test_falha_notificacao_ambos_canais_ainda_cria_ut(
     engine: EngineRest, probe: EngineProbe, start_escalation: StartEscalation
 ) -> None:
     """GAP-ESC-5: MESMO se team E o fallback de canal falharem, a User Task ainda e criada.
 
-    `NotifySupervisorWorker` (ST_NotificarFallback) levanta ERR_ESC_NOTIFY_FAILED — o
-    boundaryEvent `BE_NotifFallbackFailed` captura e continua para UT_TratarEscalonamento (mesmo
+    `make_notify_supervisor_handler` (servindo ST_NotificarFallback) levanta ERR_ESC_NOTIFY_FAILED —
+    o boundaryEvent `BE_NotifFallbackFailed` captura e continua para UT_TratarEscalonamento (mesmo
     alvo do caminho feliz). O HITL obrigatorio (ADR-0005) nunca fica preso por um glitch de canal
     duplo.
     """
