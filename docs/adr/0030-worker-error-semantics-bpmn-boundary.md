@@ -11,12 +11,18 @@
 > (`docs/decisions-log.md:11`), but the ADR's own migration table still routes the `ERR_ESC_NOTIFY_FAILED`
 > *raise* itself out of scope, remaining ADR-0030 Tier-1 follow-up; Tier-2 landed for `lgpd`/`recurso`
 > (`docs/evidence-ledger.md:113`) but the remaining Tier-2 families — `cred`, `nip`, `pagto`, `programa`,
-> `reembolso` — have no `*_BPMN_ERROR_ALLOWLIST` export wired into `service.py` yet; Tier-3 (`cred`
-> guard-blocks, `inadimplencia` contract-suspension) is not implemented — T-E (audited refusal) has now
-> landed (`docs/evidence-ledger.md:116`, "T-E AUDITED REFUSAL", 2026-07-24) but that ledger row itself
-> discloses "ZERO allowlist enablements" for the Tier-3 `*_NOT_HUMAN` codes, which remain deferred to
-> per-family enablement follow-ups. These remaining Tier-2 families + Tier-3 guard-blocks are recorded
-> here as explicit phased follow-ups, not silently folded into "Accepted."
+> `reembolso` — have no `*_BPMN_ERROR_ALLOWLIST` export wired into `service.py` yet; Tier-3 is split
+> per family: **`cred` guard-blocks — raise-side migration DONE** (PR #166, commit `0ecacbb`:
+> `credenciamento.py:337` raises `WorkerBpmnError(ERR_DECRED_NOT_HUMAN)` and `:395` raises
+> `WorkerBpmnError(ERR_CRED_DENIAL_NOT_HUMAN)`), with only the production **allowlist enablement
+> pending** (both codes T-E-deferred per §4 — no `CRED_BPMN_ERROR_ALLOWLIST` import in `service.py`);
+> **`inadimplencia` contract-suspension — unmigrated** (`inadimplencia.py:474` still raises the plain
+> coded `InadimplenciaError(ERR_CONTRACT_SUSPENSION_NOT_HUMAN)`, zero migration). T-E (audited refusal)
+> has now landed (`docs/evidence-ledger.md:116`, "T-E AUDITED REFUSAL", 2026-07-24) but that ledger row
+> itself discloses "ZERO allowlist enablements" for the Tier-3 `*_NOT_HUMAN` codes — so the runtime
+> behavior for all Tier-3 codes remains the audited-incident path, unchanged. These remaining Tier-2
+> families + Tier-3 enablements are recorded here as explicit phased follow-ups, not silently folded
+> into "Accepted."
 
 > Draft for the orchestrator/gatekeeper's ratification. Ground rule 2 (author ≠ verifier): authored by
 > process-engine-architect (R1); must be R1-verified before it moves to Accepted. Every citation below
