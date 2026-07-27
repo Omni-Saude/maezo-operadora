@@ -183,11 +183,12 @@ class Harness:
 
         Args:
             state: Initial state dict with 'messages' key.
-            thread_id: PHI-safe checkpoint thread id (a `wa:{tenant}:{phone_hash}` conversation
-                id or an `ESC-{tenant}-...` process business key). REQUIRED when a checkpointer is
-                wired — langgraph cannot persist/resume without one, and this harness fail-closes
-                rather than silently run stateless under a configured checkpointer. Validated
-                PHI-safe via `checkpoint_thread_config` (a raw phone/CPF is refused).
+            thread_id: PHI-safe checkpoint thread id (a KEYED `wa:{tenant}:hk1_{phone_hash}`
+                conversation id or an `ESC-{tenant}-...` process business key). REQUIRED when a
+                checkpointer is wired — langgraph cannot persist/resume without one, and this
+                harness fail-closes rather than silently run stateless under a configured
+                checkpointer. Validated PHI-safe via `checkpoint_thread_config` (a raw phone/CPF
+                AND an unkeyed hash without the `hk1_` keyed-pseudonym marker are both refused).
 
         Returns:
             The final state after graph execution.

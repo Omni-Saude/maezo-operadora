@@ -101,8 +101,9 @@ async def test_connect_and_setup_is_idempotent(pg_dsn: str) -> None:
 
 async def test_checkpoint_round_trip_and_restart_resume(pg_dsn: str) -> None:
     """Run a graph under a PHI-safe thread id, then recover its state from a FRESH connection."""
-    # PHI-safe thread id (hashed conversation id convention; never a raw phone/CPF).
-    thread_id = f"wa:amh:{uuid.uuid4().hex}{uuid.uuid4().hex}"
+    # PHI-safe thread id (KEYED conversation id convention; never a raw phone/CPF, never an unkeyed
+    # hash). The `hk1_` marker is required by `assert_phi_safe_thread_id` (ADR-0035 extension).
+    thread_id = f"wa:amh:hk1_{uuid.uuid4().hex}{uuid.uuid4().hex}"
     cfg = checkpoint_thread_config(thread_id)
 
     # RUN 1 — process instance #1 writes checkpoints.

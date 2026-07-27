@@ -23,10 +23,12 @@ stateless — every turn then starts fresh, exactly as the pre-T4b behavior.
 
 PHI custody note: no persistent, reversible phone-number vault exists in v2 (ADR-0006 general-
 zone pseudonymization is one-way, `gateway/pseudonymizer.py`). Helena's own graph state NEVER
-carries a raw phone number — only a `wa:{tenant}:{phone_hash}` conversation id and a
-`beneficiario_pseudo_id` derived by pseudonymizing that SAME hash a second time (hash-of-a-hash:
-even if `conversation_id` ever leaked, `beneficiario_pseudo_id` is not trivially re-derivable
-from it without also knowing the tenant-salted first hash step). The ONE place the raw number is
+carries a raw phone number — only a `wa:{tenant}:hk1_{phone_hash}` conversation id, where
+`phone_hash` is a KEYED HMAC-SHA256 pseudonym (ADR-0035, derived through the vault-keyed
+`Pseudonymizer` — irreversible without `PHI_HMAC_KEY`, NOT a reversible bare sha256), and a
+`beneficiario_pseudo_id` derived by pseudonymizing that SAME keyed hash a second time
+(hash-of-a-hash: even if `conversation_id` ever leaked, it is already keyed-irreversible, and
+`beneficiario_pseudo_id` is a distinct second keyed derivation). The ONE place the raw number is
 needed — replying over the WhatsApp Cloud API — is handled by `_ScopedWhatsAppSender`, a
 per-turn closure over the raw number THIS SAME request already received; it is never written
 into `HelenaState`, never logged, and never persisted past this one dispatch call.
@@ -150,7 +152,11 @@ class HelenaDispatcher:
         beneficiary RESUMES this turn's persisted state (multi-turn), and a receiver restart does
         not drop the conversation. With no checkpointer the graph compiles stateless (fresh turn
         every time)."""
-        phone_hash = hash_phone(message.from_number, self.tenant_id)
+        # KEYED identity (ADR-0035 extension): `hash_phone` routes through the SAME vault-keyed
+        # `Pseudonymizer` (fail-closed in prod), so `conversation_id` — which is persisted as the
+        # checkpoint `thread_id` and wrapped into the `ESC-{tenant}-...` CIB Seven business key — is
+        # irreversible without `PHI_HMAC_KEY`, not a reversible bare sha256 of the phone.
+        phone_hash = hash_phone(message.from_number, self.tenant_id, self.pseudonymizer)
         conversation_id = f"wa:{self.tenant_id}:{phone_hash}"
         beneficiario_pseudo_id = self.pseudonymizer.pseudonymize({"telefone": phone_hash})["telefone"]
 
@@ -167,11 +173,11 @@ class HelenaDispatcher:
                 "agent_version": "helena@v0",
             }
         )
-        # `conversation_id` (a hashed `wa:{tenant}:{phone_hash}`) IS the checkpoint thread id — it
-        # carries no raw phone/CPF, so `checkpoint_thread_config` (which fail-closes on an
-        # obviously-raw-numeric id) accepts it and the PHI-bearing `checkpoint_blobs` rows keyed by
-        # it stay LGPD-safe. `saver=None` compiles stateless AND yields a None config (the thread
-        # id is only meaningful with a saver attached).
+        # `conversation_id` (a KEYED `wa:{tenant}:hk1_{hmac}`) IS the checkpoint thread id — it
+        # carries no raw phone/CPF AND no reversible unkeyed hash, so `checkpoint_thread_config`
+        # (which fail-closes unless the id embeds the `hk1_` keyed-pseudonym marker) accepts it and
+        # the PHI-bearing `checkpoint_blobs` rows keyed by it stay LGPD-safe. `saver=None` compiles
+        # stateless AND yields a None config (the thread id is only meaningful with a saver attached).
         saver = self.checkpointer.saver if self.checkpointer is not None else None
         compiled = graph.compile(checkpointer=saver)
         thread_config = checkpoint_thread_config(conversation_id) if saver is not None else None
