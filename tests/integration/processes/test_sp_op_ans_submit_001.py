@@ -239,10 +239,13 @@ _RETRANSMIT_TOPIC = "regulatorio.anssubmit.retransmit"
 _TRACK_TOPIC = "regulatorio.anssubmit.track_protocol"
 _NOTIFY_TOPIC = "regulatorio.anssubmit.notify_regulatorio"
 
-# Topicos "servidos" pelo drain generico. `_NOTIFY_TOPIC` NAO tem worker real registrado
-# (FINDING A no docstring do modulo) — listado aqui mesmo assim (mirrors a declaracao do BPMN e a
-# expectativa 1:1 do donor) para que qualquer task que caia nele produza um INCIDENTE alto-falante
-# (harness.py: "no handler registered for topic") em vez de ficar presa sem nunca ser buscada.
+# Topicos "servidos" pelo drain generico. `_NOTIFY_TOPIC` TEM worker real registrado desde
+# t5-workers-f1 (FINDING A, no docstring do modulo, esta RESOLVIDA —
+# `make_notify_regulatorio_handler` via `register_ans_submit_workers`) — listado aqui mesmo assim
+# (mirrors a declaracao do BPMN e a expectativa 1:1 do donor) para consistencia com os outros
+# topicos "servidos" pelo drain generico; se REGREDISSE (worker desregistrado), qualquer task que
+# caisse nele produziria um INCIDENTE alto-falante (harness.py: "no handler registered for
+# topic") em vez de ficar presa sem nunca ser buscada.
 _ANS_SUBMIT_WORKER_TOPICS = [
     _PUBLISH_TOPIC,
     _ASSEMBLE_TOPIC,
@@ -289,30 +292,41 @@ _UT_HUMANAS_APROVACAO = frozenset({_UT_REVISAR, _UT_REVISAR_JURIDICO, _UT_COORDE
 # Terminais de envio efetivo (ato vinculante consumado).
 _ENDS_ENVIO = frozenset({_END_ENVIADO_ACK, _END_ENVIADO_PENDENTE_ACK})
 
-# FINDING A (registration gap — see module docstring for full grep evidence). Also notes FINDING C
-# (systemic per-worker-notification kafka gap) as a compounding cause for any assertion this test
-# would ALSO hit on `notifications_of_type(...)` even if A were fixed.
+# CURRENT cause (T2.6-2, see module docstring): the UNPINNED `ans_probe` fixture always computes
+# `schema_valid=False` (real TissSchemaValidator, no MAEZO_TISS_SCHEMA_VERSION pinned, no vendored
+# XSDs), so the admissibility DMN's `[-, false, -] -> PENDENTE` row fires for EVERY submission and
+# routes to `UT_CorrigirPendenciaEnvio` — pre-empting `GW_Admissibilidade`'s SEGUE_ENVIO/
+# REVISAO_HUMANA branch entirely (upstream of `ST_PrepararDossie`/notify_regulatorio and of
+# `UT_RevisarEnvio`/`UT_RevisarEnvioJuridico`). FINDING A (registration gap, see below) is
+# RESOLVED and no longer the reason these tests block; do not re-cite it as a current cause.
 _NOTIFY_REGULATORIO_GAP_REASON = (
-    "AMENDED t5-workers-f1: FINDING A is RESOLVED — regulatorio.anssubmit.notify_regulatorio is now "
-    "registered by register_ans_submit_workers (raw async handler make_notify_regulatorio_handler). "
-    "The tests that KEEP this reason still strict-xfail on the compounding systemic FINDING C (below), "
-    "NOT the original registration gap; the deadline-risk-only test with no FINDING-C dependency "
-    "(test_timer_deadline_risk_nao_interruptivo_pendencia) had its marker removed — it XPASSes live "
-    "(R1 gatekeeper, CIB Seven 2.1.0). ORIGINAL FINDING A (now historical): T3.1 phase-2 registration "
-    "gap — BPMN topic "
-    "regulatorio.anssubmit.notify_regulatorio (ST_PrepararDossie / ST_NotificarDeadlineRisk, "
-    "spec/processes/bpmn/SP-OP-ANS-SUBMIT-001_Envios_Periodicos_ANS.bpmn) has NO worker registered "
-    "in register_ans_submit_workers (ans_submit.py registers exactly 6 topics — assemble/validate/"
-    "submit/track_protocol/retransmit/publish_completed — confirmed by reading the function; its "
-    "own docstring documents the gap: 'Spec topic with NO implementing function today'). "
-    "harness.py's _handle reports an immediate incident for any task on an unregistered topic, so "
-    "the instance never advances past ST_PrepararDossie (default Flow_GW_Revisao branch) or past "
-    "a shared deadline-risk boundary timer. This is a genuine v1->v2 regression: the donor's own "
-    "worker for this topic is real ('sem stub — todos os topicos teem worker real'). Where this "
-    "test would ALSO assert a per-worker notification (notifications_of_type('anssubmit."
-    "notify_regulatorio'/'anssubmit.submit'/etc.)) even after A is fixed, that assertion hits the "
-    "SEPARATE systemic FINDING C (no ans_submit.py entry function calls kafka.publish; only the "
-    "generic operadora.events.publish handler does) — noted here, not double-marked."
+    "T2.6-2 fail-closed schema-pinning regime (CURRENT cause, not FINDING A — see PORT NOTES below "
+    "for the historical finding): this test runs on the UNPINNED `ans_probe` fixture, so "
+    "`validate_data` resolves a real `TissSchemaValidator()` with no `MAEZO_TISS_SCHEMA_VERSION` "
+    "pinned and no vendored TISS XSDs, which computes `schema_valid=False` unconditionally "
+    "(regardless of report_type or the seeded schema_valid=True in start_ans's default payload). "
+    "The admissibility DMN's `[-, false, -] -> PENDENTE` row therefore fires for EVERY submission on "
+    "this probe, routing to UT_CorrigirPendenciaEnvio and pre-empting GW_Admissibilidade's "
+    "SEGUE_ENVIO/REVISAO_HUMANA branch (-> ST_PrepararDossie -> UT_RevisarEnvio) and the "
+    "nip_filing branch (-> UT_RevisarEnvioJuridico) alike — so any assertion expecting to reach "
+    "UT_RevisarEnvio/UT_RevisarEnvioJuridico (directly or via _drive_to_revisar) never gets there; "
+    "the wait times out/errors before the test's real assertions run. Proven correct-by-contrast by "
+    "the `ans_probe_tiss_pinned`-based `test_tiss_pinned_*` tests, which inject a pinned "
+    "TissSchemaValidator and DO reach SEGUE_ENVIO. "
+    "HISTORICAL — FINDING A (T3.1 phase-2 registration gap, RESOLVED in t5-workers-f1): BPMN topic "
+    "regulatorio.anssubmit.notify_regulatorio (ST_PrepararDossie / ST_NotificarDeadlineRisk) had NO "
+    "worker registered in register_ans_submit_workers, so any task landing there stalled the "
+    "instance on an unregistered-topic incident. This is now FIXED — "
+    "register_ans_submit_workers registers regulatorio.anssubmit.notify_regulatorio via the raw "
+    "async handler make_notify_regulatorio_handler (see the unit regression fence "
+    "test_register_ans_submit_workers_registers_notify_regulatorio) — so FINDING A no longer blocks "
+    "any test, including this one; it is cited here only as historical context for why this reason "
+    "constant predates the T2.6-2 finding above. Where a test would ALSO assert a per-worker "
+    "notification (notifications_of_type('anssubmit.notify_regulatorio'/'anssubmit.submit'/etc.)) "
+    "even after reaching the relevant User Task under a pinned schema, that assertion would "
+    "SEPARATELY hit the still-open systemic FINDING C (no ans_submit.py entry function calls "
+    "kafka.publish; only the generic operadora.events.publish handler does) — noted for completeness, "
+    "not the reason this particular xfail currently fires."
 )
 
 # FINDING B (new — NACK/retry subprocess entirely unreachable). See module docstring for the full
@@ -330,9 +344,10 @@ _SUBMIT_NACK_UNREACHABLE_REASON = (
     "not a harness.WorkerBpmnError, so even a hypothetical NACK entry into the retry subprocess "
     "could not route ERR_ANS_RETRY_ESGOTADO through BE_RetryEsgotado's boundary catch (the harness "
     "classifies bare RuntimeError as transient/engine-retried, never a modeled bpmnError). This "
-    "test is ALSO blocked earlier by FINDING A (_drive_to_revisar never reaches UT_RevisarEnvio) — "
-    "cited together since B is the independent, deeper root cause that would remain even if A were "
-    "fixed."
+    "test is ALSO blocked earlier by the T2.6-2 fail-closed schema-pinning regime (_drive_to_revisar "
+    "never reaches UT_RevisarEnvio on the unpinned ans_probe — see _NOTIFY_REGULATORIO_GAP_REASON "
+    "for the full mechanism; NOT FINDING A, which is resolved) — cited together since B is the "
+    "independent, deeper root cause that would remain even under a pinned schema."
 )
 
 # FINDING D (new — guard genuinely missing in v2, not merely misrouted).
@@ -905,8 +920,10 @@ async def test_happy_path_envio_aprovado_e_acked(
     assert s["revisor_id"] == "revisor-sintetico-001"
     # T2.6-1 (design §2.A): the probe injects the LabeledMock gateway, so the protocol is the
     # deterministic, unmistakably-synthetic `MOCK-ANS-NAO-VINCULATIVO-{business_key}` — NOT the old
-    # fabricated `ANSPROTO-{sha256(time_ns)}`. (This test stays strict-xfail on FINDING A, which
-    # blocks the flow before it reaches submit; the assertion is corrected for when FINDING A lands.)
+    # fabricated `ANSPROTO-{sha256(time_ns)}`. (This test stays strict-xfail on the T2.6-2
+    # fail-closed schema-pinning regime — see _NOTIFY_REGULATORIO_GAP_REASON — which blocks the
+    # flow before it ever reaches UT_RevisarEnvio, let alone submit; NOT FINDING A, which is
+    # resolved. The assertion is corrected for when this test runs under a pinned schema.)
     assert s["protocolo_ans"].startswith(MOCK_ANS_PROTOCOL_PREFIX)
 
 
@@ -987,8 +1004,11 @@ async def test_corrigir_pendencia_reavalia(
 ) -> None:
     """dataset_complete=false => PENDENTE -> UT_CorrigirPendenciaEnvio; corrigido => reavalia.
 
-    Alcanca UT_CorrigirPendenciaEnvio (nao bloqueado), mas a reavaliacao pos-correcao roteia
-    SEGUE_ENVIO/REVISAO_HUMANA -> ST_PrepararDossie -> UT_RevisarEnvio, BLOQUEADO por FINDING A.
+    Alcanca UT_CorrigirPendenciaEnvio (nao bloqueado): a correcao humana so seta
+    `dataset_complete=True` (nao `schema_valid`), e no regime NAO-PINADO `schema_valid`
+    permanece SEMPRE False (T2.6-2 — ver _NOTIFY_REGULATORIO_GAP_REASON), entao a reavaliacao
+    pos-correcao continua roteando PENDENTE em vez de SEGUE_ENVIO/REVISAO_HUMANA ->
+    UT_RevisarEnvio. BLOQUEADO por T2.6-2 (nao mais por FINDING A, que esta resolvida).
     """
     inst = await start_ans(competencia="2026-CORR", dataset_complete=False)
     iid = inst["id"]
@@ -1014,9 +1034,12 @@ async def test_lgpd_nao_anonimizado_roteia_direto_a_revisao_humana(
     ans_probe: AnsEngineProbe,
     start_ans: Callable[..., Any],
 ) -> None:
-    """lgpd_anonimizado=false (com dataset_complete/schema_valid=true) => REVISAO_HUMANA (rule
-    r_revisao_lgpd) => Flow_GW_Revisao (default) => ST_PrepararDossie => UT_RevisarEnvio DIRETO —
-    BLOQUEADO por FINDING A (mesma rota default de ST_PrepararDossie que o happy path).
+    """lgpd_anonimizado=false (com dataset_complete/schema_valid=true SEEDADOS) => intencao e
+    REVISAO_HUMANA (rule r_revisao_lgpd) => Flow_GW_Revisao (default) => ST_PrepararDossie =>
+    UT_RevisarEnvio DIRETO. Na pratica, no regime NAO-PINADO `schema_valid` e recomputado SEMPRE
+    False (T2.6-2 — ver _NOTIFY_REGULATORIO_GAP_REASON), entao o seed `schema_valid=true` e
+    ignorado e a admissibilidade roteia PENDENTE em vez de REVISAO_HUMANA — BLOQUEADO por T2.6-2
+    (nao mais por FINDING A, que esta resolvida).
     """
     inst = await start_ans(competencia="2026-LGPDREV", lgpd_anonimizado=False)
     iid = inst["id"]
@@ -1040,8 +1063,10 @@ async def test_corrigir_pendencia_lgpd_anonimizado_reavalia(
     ans_probe: AnsEngineProbe,
     start_ans: Callable[..., Any],
 ) -> None:
-    """GAP-ANS-5: lgpd_anonimizado=false => REVISAO_HUMANA => UT_RevisarEnvio (BLOQUEADO por
-    FINDING A antes mesmo da primeira UT_RevisarEnvio aparecer)."""
+    """GAP-ANS-5: lgpd_anonimizado=false => intencao e REVISAO_HUMANA => UT_RevisarEnvio, mas
+    BLOQUEADO por T2.6-2 (nao mais FINDING A, que esta resolvida) antes mesmo da primeira
+    UT_RevisarEnvio aparecer — `schema_valid` recomputado sempre False no regime NAO-PINADO
+    pre-empta a admissibilidade para PENDENTE (ver _NOTIFY_REGULATORIO_GAP_REASON)."""
     inst = await start_ans(competencia="2026-CORRLGPD", lgpd_anonimizado=False)
     iid = inst["id"]
 
@@ -1108,7 +1133,9 @@ async def test_dmn_ans_calendar_resolve_due_date(
     start_ans: Callable[..., Any],
 ) -> None:
     """report_type=RN_124_SIP => ans_calendar resolve due_date; ans_sla resolve duracoes; timers
-    existem. NAO relacionado a taxonomia (module docstring) — bloqueado por FINDING A."""
+    existem. NAO relacionado a taxonomia (module docstring) — bloqueado por T2.6-2 (nao mais
+    FINDING A, que esta resolvida): _drive_to_revisar nunca alcanca UT_RevisarEnvio no regime
+    NAO-PINADO (ver _NOTIFY_REGULATORIO_GAP_REASON)."""
     inst = await start_ans(competencia="2026-CAL")
     iid = inst["id"]
 
@@ -1199,8 +1226,9 @@ async def test_coordenacao_assume_e_aprova(
 # ===========================================================================
 # GAP-ANS-4: UT_RevisarEnvioJuridico / UT_CorrigirPendenciaEnvio boundary SLA timers (mirror dos
 # timers de UT_RevisarEnvio). O timer NAO-INTERRUPTIVO converge no MESMO ST_NotificarDeadlineRisk
-# (bloqueado por FINDING A); o timer INTERRUPTIVO vai DIRETO a UT_CoordenacaoEnvioAssume (nao
-# bloqueado).
+# (topico com worker registrado desde t5-workers-f1 — FINDING A resolvida; mas no regime
+# NAO-PINADO a UT_RevisarEnvioJuridico em si e inalcancavel por T2.6-2, ver abaixo); o timer
+# INTERRUPTIVO vai DIRETO a UT_CoordenacaoEnvioAssume (nao afetado).
 # ===========================================================================
 
 
@@ -1211,14 +1239,15 @@ async def test_timer_deadline_risk_nao_interruptivo_juridico(
     start_ans: Callable[..., Any],
 ) -> None:
     """Timer BT_DeadlineRiskJuridico (nao-interruptivo): converge em ST_NotificarDeadlineRisk
-    (topico compartilhado regulatorio.anssubmit.notify_regulatorio) — BLOQUEADO por FINDING A,
-    mesmo a UT_RevisarEnvioJuridico em si NAO precisando de notify_regulatorio para ser criada.
+    (topico compartilhado regulatorio.anssubmit.notify_regulatorio, com worker registrado desde
+    t5-workers-f1 — FINDING A resolvida), mesmo a UT_RevisarEnvioJuridico em si NAO precisando de
+    notify_regulatorio para ser criada.
 
-    T2.6-2: no regime NAO-PINADO este teste agora falha ANTES do FINDING A — sem schema pinado a
-    UT_RevisarEnvioJuridico nunca aparece (fail-closed => UT_CorrigirPendenciaEnvio; ver docstring
-    do modulo), entao o `await_user_task` ja estoura. O strict-xfail continua satisfeito; quando
-    FINDING A for corrigido, este teste precisara TAMBEM do probe pinado
-    (`ans_probe_tiss_pinned` + dataset valido) para alcancar a UT juridica.
+    T2.6-2 (ver _NOTIFY_REGULATORIO_GAP_REASON): no regime NAO-PINADO este teste falha ANTES de
+    UT_RevisarEnvioJuridico sequer aparecer — sem schema pinado, `schema_valid` e sempre False
+    (fail-closed => UT_CorrigirPendenciaEnvio; ver docstring do modulo), entao o
+    `await_user_task` ja estoura. O strict-xfail continua satisfeito; este teste precisara do
+    probe pinado (`ans_probe_tiss_pinned` + dataset valido) para alcancar a UT juridica.
     """
     inst = await start_ans(
         competencia="2026-DLRJUR", origem_envio="nip_filing", nip_protocolo_origem="NIP-TESTE-DLR"
@@ -1351,8 +1380,10 @@ async def test_catch_all_calendar_roteia_para_humano(
     start_ans: Callable[..., Any],
 ) -> None:
     """report_type desconhecido => ans_calendar catch-all (fonte_regulatoria=REVISAO_HUMANA);
-    admissibilidade roteia SEGUE_ENVIO (facts default true) => ST_PrepararDossie => BLOQUEADO por
-    FINDING A."""
+    intencao e admissibilidade SEGUE_ENVIO (demais facts default true) => ST_PrepararDossie =>
+    UT_RevisarEnvio. No regime NAO-PINADO `schema_valid` e recomputado SEMPRE False (T2.6-2 — ver
+    _NOTIFY_REGULATORIO_GAP_REASON) independente do report_type, entao a admissibilidade roteia
+    PENDENTE em vez disso — BLOQUEADO por T2.6-2 (nao mais FINDING A, que esta resolvida)."""
     inst = await start_ans(report_type="RELATORIO_TESTE_INVALIDO", competencia="2026-CATCH")
     iid = inst["id"]
 
@@ -1379,8 +1410,9 @@ async def test_nack_entra_em_retry_e_retransmite_sucesso(
     start_ans: Callable[..., Any],
 ) -> None:
     """submit -> ERR_ANS_PROTOCOLO_NACK (transitorio) => SUB_RetryEnvio; retransmissao OK =>
-    enviado_ack. Bloqueado tanto por FINDING A (UT_RevisarEnvio) quanto por FINDING B (NACK nunca
-    dispara)."""
+    enviado_ack. Bloqueado tanto por T2.6-2 (UT_RevisarEnvio inalcancavel no regime NAO-PINADO —
+    ver _NOTIFY_REGULATORIO_GAP_REASON; nao mais FINDING A, que esta resolvida) quanto por
+    FINDING B (NACK nunca dispara)."""
     inst = await start_ans(competencia="2026-NACK-OK", status_envio="nack")
     iid = inst["id"]
 
@@ -1416,7 +1448,8 @@ async def test_retry_esgotado_roteia_para_humano(
     start_ans: Callable[..., Any],
 ) -> None:
     """Retransmissao sempre NACK => DMN ans_retry_policy esgota o retry => ERR_ANS_RETRY_ESGOTADO
-    => UT_TratarNack (humano) + anssubmit.failed. Bloqueado por FINDING A + FINDING B."""
+    => UT_TratarNack (humano) + anssubmit.failed. Bloqueado por T2.6-2 (nao mais FINDING A, que
+    esta resolvida — ver _NOTIFY_REGULATORIO_GAP_REASON) + FINDING B."""
     inst = await start_ans(competencia="2026-NACK-ESG", status_envio="nack", retransmit_outcome="nack")
     iid = inst["id"]
 
