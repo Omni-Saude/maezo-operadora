@@ -1,0 +1,64 @@
+# =============================================================================
+# UNRATIFIED-DO-NOT-DEPLOY — schema-only template
+# =============================================================================
+#
+# This is NOT the DPO legal-bases/retention matrix. It is a SCHEMA TEMPLATE showing
+# the shape `src/maezo/platform/lifecycle/legal_bases_matrix.py::load_retention_matrix`
+# expects. Every value below is a PLACEHOLDER marker, not a proposed or defensible
+# retention period — do not copy these into a real matrix, do not deploy this file,
+# and do not point `MAEZO_RETENTION_MATRIX_PATH` at it in any environment.
+#
+# The loader itself refuses this exact file: `unratified: true` below is checked
+# explicitly and raises `RetentionMatrixUnavailableError` (reason
+# "unratified_template") rather than silently treating placeholder markers as data.
+#
+# A real matrix must be authored and ratified by the DPO + jurídico (PLANS.md §0.5
+# item 6; recon-b §6.4; starter draft at
+# docs/sme-dispatch/AI-SUGGESTED-ANSWERS-2026-07-25.md §A2) and deployed as a
+# SEPARATE file with `unratified` removed (or set to `false`) and every
+# `PLACEHOLDER-*` value replaced with a human-decided one.
+#
+# Schema:
+#   unratified: true            # MUST be removed/false in a real, deployable matrix
+#   categorias:
+#     - categoria: <str>        # data category identifier (non-empty)
+#       base_legal: <str>       # legal basis to retain/eliminate (non-empty)
+#       retencao: <str>         # retention period/rule, DPO+jurídico-ratified (non-empty)
+#       acao: <str>             # verdict for this category (non-empty)
+#
+# -----------------------------------------------------------------------------
+
+unratified: true
+
+categorias:
+  # One placeholder row per data category named in the DPO's starter draft
+  # (AI-SUGGESTED-ANSWERS-2026-07-25.md §A2) — NONE of the field values below are
+  # ratified; they exist only to show the expected shape.
+  - categoria: "PLACEHOLDER-CATEGORIA-dados_saude_prontuario"
+    base_legal: "PLACEHOLDER-BASE-LEGAL-jurídico-must-confirm"
+    retencao: "PLACEHOLDER-RETENCAO-jurídico-must-confirm"
+    acao: "PLACEHOLDER-ACAO-jurídico-must-confirm"
+  - categoria: "PLACEHOLDER-CATEGORIA-cadastrais_contratuais"
+    base_legal: "PLACEHOLDER-BASE-LEGAL-jurídico-must-confirm"
+    retencao: "PLACEHOLDER-RETENCAO-jurídico-must-confirm"
+    acao: "PLACEHOLDER-ACAO-jurídico-must-confirm"
+  - categoria: "PLACEHOLDER-CATEGORIA-financeiros_faturamento"
+    base_legal: "PLACEHOLDER-BASE-LEGAL-jurídico-must-confirm"
+    retencao: "PLACEHOLDER-RETENCAO-jurídico-must-confirm"
+    acao: "PLACEHOLDER-ACAO-jurídico-must-confirm"
+  - categoria: "PLACEHOLDER-CATEGORIA-regulatorios_ans"
+    base_legal: "PLACEHOLDER-BASE-LEGAL-jurídico-must-confirm"
+    retencao: "PLACEHOLDER-RETENCAO-jurídico-must-confirm"
+    acao: "PLACEHOLDER-ACAO-jurídico-must-confirm"
+  - categoria: "PLACEHOLDER-CATEGORIA-consentimento_revogacao"
+    base_legal: "PLACEHOLDER-BASE-LEGAL-jurídico-must-confirm"
+    retencao: "PLACEHOLDER-RETENCAO-jurídico-must-confirm"
+    acao: "PLACEHOLDER-ACAO-jurídico-must-confirm"
+  - categoria: "PLACEHOLDER-CATEGORIA-auditoria_nao_repudio"
+    base_legal: "PLACEHOLDER-BASE-LEGAL-jurídico-must-confirm"
+    retencao: "PLACEHOLDER-RETENCAO-jurídico-must-confirm"
+    acao: "PLACEHOLDER-ACAO-jurídico-must-confirm"
+  - categoria: "PLACEHOLDER-CATEGORIA-evidencia_fraude"
+    base_legal: "PLACEHOLDER-BASE-LEGAL-jurídico-must-confirm"
+    retencao: "PLACEHOLDER-RETENCAO-jurídico-must-confirm"
+    acao: "PLACEHOLDER-ACAO-jurídico-must-confirm"

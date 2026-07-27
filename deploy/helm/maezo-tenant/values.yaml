@@ -579,11 +579,14 @@ lifecycle:
     # legivel e auto-documentado (Job falho em `kubectl get jobs`/failedJobsHistory + a mensagem-
     # bloqueador nos logs do pod). `suspend: true` seria mais quieto porem ESCONDERIA o sinal e,
     # emparelhado a uma futura implementacao do modulo, viraria uma armadilha silenciosa (basta
-    # des-suspender). NOTA (gap de monitoramento): nao ha scrape kube-state-metrics nem alerta de
-    # CronJob/Job falho hoje (deploy/observability/{prometheus,alert-rules}.yml), entao um alerta de
-    # Job falho e um follow-up conhecido — mas isso argumenta por CORRIGIR o monitoramento, nao por
-    # esconder o job. A recusa explicita e a defesa primaria (o modulo recusa; retention_query fica
-    # sem chamador, travado em CI).
+    # des-suspender). NOTA (gap de monitoramento, T2.9): o alerta `MaezoLifecycleJobFailed` (grupo
+    # `maezo_lifecycle`, deploy/observability/alert-rules.yml) agora existe e casa com o rotulo
+    # `lifecycle-*` destes Jobs — mas ainda depende de um scrape kube-state-metrics (metric
+    # `kube_job_status_failed`) que NAO esta configurado em deploy/observability/prometheus.yml
+    # hoje; sem esse scrape a regra nao tem series para avaliar (nao dispara falso-positivo, so
+    # nao tem o que alertar ainda). Adicionar o scrape kube-state-metrics segue como follow-up. A
+    # recusa explicita continua sendo a defesa primaria (o modulo recusa; retention_query fica sem
+    # chamador, travado em CI).
     - name: audit-retention
       command: "audit-retention"
       schedule: "0 5 1 * *"
