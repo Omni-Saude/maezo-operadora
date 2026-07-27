@@ -48,6 +48,7 @@ from maezo.tools.workers.auth import AUTH_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.bootstrap import ALL_WORKER_BOOTSTRAPS, register_all_workers
 from maezo.tools.workers.cibseven_engine import FreshClientCibSevenTransport
 from maezo.tools.workers.dmn_transport import CibSevenDmnTransport
+from maezo.tools.workers.escalation import ESCALATION_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.events import EVENTS_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.harness import (
     CibSevenWorkerTransport,
@@ -91,8 +92,11 @@ logger = structlog.get_logger(__name__)
 # T-E (audited-refusal) lands. This resolves to `{ERR_EVENT_PUBLISH_FAILED,
 # ERR_DSR_IDENTITY_UNVERIFIED}` (Tier-0 — the non-adverse technical fail-safes: a publish failure
 # routed to retry/fallback; a mechanically-unverifiable LGPD titular routed to a neutral terminal)
-# `| {ERR_RECURSO_INVALID_GLOSA}` (T3.1 P2b, Tier-2 — recurso's origin/consistency (G2-val) guard:
-# `glosa_id` absent/empty at ST_SolicitarDocumentos/ST_PrepararDossie routes to the neutral
+# `| {ERR_ESC_NOTIFY_FAILED}` (t8-escalation-boundary, Tier-1 — escalation's notify-channel fail-safe:
+# a notify_team/notify_supervisor publish failure routes via BE_FalhaNotificacao/BE_NotifFallbackFailed/
+# BE_NotifSupervisorFailed to the supervisor fallback + the mandatory HITL user task; G2-fs, NOT
+# T-E-gated) `| {ERR_RECURSO_INVALID_GLOSA}` (T3.1 P2b, Tier-2 — recurso's origin/consistency (G2-val)
+# guard: `glosa_id` absent/empty at ST_SolicitarDocumentos/ST_PrepararDossie routes to the neutral
 # terminal End_RecursoGlosaInvalidaOrigem; NOT a `*_NOT_HUMAN` guard, so NOT T-E-gated).
 
 
@@ -116,11 +120,16 @@ def _is_te_gated(code: str) -> bool:
 #: NOT T-E-gated and DOES land in Tier-0. `RECURSO_BPMN_ERROR_ALLOWLIST` contributes
 #: `ERR_RECURSO_INVALID_GLOSA` (T3.1 P2b) — a NON-adverse G2-val origin/consistency guard
 #: (glosa_id absent/empty -> End_RecursoGlosaInvalidaOrigem, a neutral terminal), also NOT
-#: T-E-gated, also lands directly (Tier-2, ADR-0030 migration plan). `ERR_CANCEL_MANTER_NOT_HUMAN`
-#: is gate-proven too but its worker exposes no constant (nothing is enabled for it at any tier
-#: until T-E), so there is nothing to import.
+#: T-E-gated, also lands directly (Tier-2, ADR-0030 migration plan). `ESCALATION_BPMN_ERROR_ALLOWLIST`
+#: contributes `ERR_ESC_NOTIFY_FAILED` (t8-escalation-boundary, ADR-0030 Tier-1) — a NON-adverse
+#: technical fail-safe (G2-fs): a notify-channel publish failure routes via BE_FalhaNotificacao/
+#: BE_NotifFallbackFailed/BE_NotifSupervisorFailed to the supervisor fallback + the mandatory HITL
+#: user task (never a silent drop, never a stalling incident), so it is NOT T-E-gated and lands
+#: directly (Tier-1). `ERR_CANCEL_MANTER_NOT_HUMAN` is gate-proven too but its worker exposes no
+#: constant (nothing is enabled for it at any tier until T-E), so there is nothing to import.
 _GATE_PROVEN_BPMN_ERROR_CODES: frozenset[str] = (
     AUTH_BPMN_ERROR_ALLOWLIST
+    | ESCALATION_BPMN_ERROR_ALLOWLIST
     | EVENTS_BPMN_ERROR_ALLOWLIST
     | LGPD_BPMN_ERROR_ALLOWLIST
     | RECURSO_BPMN_ERROR_ALLOWLIST
@@ -128,7 +137,8 @@ _GATE_PROVEN_BPMN_ERROR_CODES: frozenset[str] = (
 
 #: The production allowlist wired into the harness: gate-proven codes MINUS the T-E-gated
 #: business-outcome codes. Resolves to `{ERR_EVENT_PUBLISH_FAILED, ERR_DSR_IDENTITY_UNVERIFIED,
-#: ERR_RECURSO_INVALID_GLOSA}` today (Tier-0 pair + T3.1 P2b's Tier-2 addition).
+#: ERR_RECURSO_INVALID_GLOSA, ERR_ESC_NOTIFY_FAILED}` today (Tier-0 pair + T3.1 P2b's Tier-2 addition
+#: + t8-escalation-boundary's Tier-1 addition).
 PRODUCTION_BPMN_ERROR_ALLOWLIST: frozenset[str] = frozenset(
     code for code in _GATE_PROVEN_BPMN_ERROR_CODES if not _is_te_gated(code)
 )
