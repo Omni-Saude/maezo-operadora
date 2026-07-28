@@ -5,9 +5,9 @@
 >
 > **O modelo de verdade não é "15 milestones concluídos".** É o modelo **fase/gate (P0–P4 / G0–G4)** com verificação **zero-trust** (todo "done" carrega uma linha de verificador independente + evidência reproduzível). **A fonte de verdade durável e versionada no repositório é:** `docs/evidence-ledger.md` (84 linhas verificadas), `docs/decisions-log.md` (DLs), `docs/adr/` (32 ADRs) e `docs/gates/` (registros de gate). *(O plano detalhado `V2-COMPLETION-PLAN.md` e o prompt de execução do backlog vivem apenas localmente em `docs/prompts/` por decisão do dono — o ledger é a verdade clonável.)*
 >
-> **Orquestrador:** Hive-Mind Queen (Opus / Fable 5) · **Repo:** Omni-Saude/maezo-operadora · **main:** `8092681` (2026-07-27, PR #171 merged) — *(header 2026-07-19 preservado abaixo; camada de reconciliação nova em §0.5)*
+> **Orquestrador:** Hive-Mind Queen (Opus / Fable 5) · **Repo:** Omni-Saude/maezo-operadora · **main:** `277f368` (2026-07-27, PR #178 merged — Tier-2 waves A[#177]+B[#178]) — *(header 2026-07-19 preservado abaixo; reconciliação em §0.5; execução Tier-2 em §0.5.2)*
 > **Estratégia:** Keep Brain (`docs/`), Rebuild Spine (`src/`) — **em execução, NÃO concluída.**
-> **STATUS REAL (2026-07-27): G0 conditional-pass · G1 FECHADO · G2/G3 SUBSTÂNCIA DE ENGENHARIA COMPLETA (falta a metade humana de sign-off SME) · G4 PENDENTE 0% (externo). ~85–88% do plano-até-produção · ~95% da engenharia agent-controlável. NÃO é produção-ready — o que resta é o teto humano + uma cauda Tier-2 agent-buildable. Detalhe em §0.5.**
+> **STATUS REAL (2026-07-27): G0 conditional-pass · G1 FECHADO · G2/G3 SUBSTÂNCIA DE ENGENHARIA COMPLETA (falta a metade humana de sign-off SME) · G4 PENDENTE 0% (externo). ~88–90% do plano-até-produção · ~97% da engenharia agent-controlável (Tier-2 §0.5.1: 7 de 9 itens EM MAIN — §0.5.2). NÃO é produção-ready — o que resta é o teto humano + a cauda-de-item-9 (xfail tail, live-engine). Detalhe em §0.5.**
 
 ---
 
@@ -84,6 +84,22 @@ Legenda: **✅** verificado-done (gate) · **◑** parcial (código existe, lacu
 ### 0.5.1 — AUTORIZAÇÃO AO PRÓXIMO ORQUESTRADOR
 
 > **O próximo orquestrador (Hive-Mind Queen, Fable 5/Opus) está AUTORIZADO a usar deep-think para DECIDIR e EXECUTAR os itens Tier-2 (agent-buildable, decision-gated)** — não apenas registrá-los. Para cada item Tier-2: (1) deep-think da causa-raiz e do design correto (SEM workarounds); (2) decidir se é agent-buildable-agora ou gated-por-valor-humano; (3) se agent-buildable, **desbloquear e EXECUTAR** sob zero-trust VERIFY→GATE (build → gatekeeper adversarial independente, tier ≥ autor → PR → merge on green → byte-check `main`); (4) se gated-por-valor (cost-table USD, retention-matrix, schema Tasy), **construir todo o seam + lógica fail-closed** e deixar SOMENTE o valor/contrato humano como ponto de injeção claramente marcado — **NUNCA inventar o valor**. **Tier-3 (teto humano) permanece escalate/track-only — o orquestrador NÃO deve forçá-lo.** Roteamento inteligente de modelo (R1 opus para L0/PHI/financeiro/segurança/cripto; R2 sonnet para impl/testes/infra; R3 haiku para scans/docs), máxima paralelização dependency-aware, cláusula anti-injeção em todo brief. Fontes autoritativas: `docs/evidence-ledger.md`, `docs/decisions-log.md`, `docs/adr/` (até 0036), `docs/gates/`, e `docs/Tarefas_Pendentes.md` (teto humano).
+
+### 0.5.2 — EXECUÇÃO TIER-2 (2026-07-27, sessão Fable5→Opus) — 7 de 9 itens EM MAIN
+
+> A autorização §0.5.1 foi executada: 6 scouts read-only mapearam cada item Tier-2 → matriz de decisão travada → 5 builders worktree-isolados com gatekeepers adversariais independentes (tier ≥ autor, zero-trust) → **2 PRs mesclados em `main` com todos os 15 checks verdes (incl. lane real-engine ~1.5h), byte-check limpo**. O zero-trust pegou 4 defeitos reais antes do merge (imprecisão de governança, regressão de trigger-dormante, crash de encoding, e — na lane real-engine do #178 — um teste de predicado que ainda fixava o contrato pré-anchor; diagnosticado como teste-only, corrigido, re-verde).
+
+| Item §0.5.1 | Entrega | PR | Verificação |
+|---|---|---|---|
+| **4** | correlation-ids agent_id/tenant_id no seam LLM (log-only, cardinality-safe) | **#177** | GK-corr PASS, mutation-proven |
+| **6** | seam RetentionMatrix fail-closed + taxonomia de recusa + alerta (SEM valores humanos inventados) | **#177** | GK-seam REVISE→corrigido |
+| **8** | ratifica ADR-0025/0026/0028/0030→Accepted; DL-0036/37/38; reconcilia PLANS | **#177** | GK-adr REVISE→corrigido |
+| **1+2+3** | notify posture fail-close (perda-silenciosa LGPD/regulatório), fix false-success do producer (bool), durabilidade NIP handoff, anchor tenant nas 7 regras do bridge, stamp deployment-tenant (arma cron→ANSSUB ao vivo) | **#178** | orquestrador R1 (independente do autor) |
+| **5** | delegação A2A de dossiê REAL (Carolina `credentialing.analyze` / André `analytics.population` origin→flow), gate de assinatura fail-closed, degradação DL-0037 (worker nunca levanta; UT humana sempre abre) | **#178** | orquestrador R1 (substância do builder); cauda de bring-up orq-autorada, divulgada |
+| **7** | `PopulationFeatureClient` (André) | — | **TETO HUMANO** (ADR-0019: lake externo + AWS LF-Tags + k-floor DPO) — não construir |
+| **9** | xfail tail (95 strict-xfails vivos, censo recon-f) | — | **PENDENTE** — ver abaixo |
+
+**Item 9 (xfail tail) — o único item agent-buildable restante; precisa de janela de budget nova (builders + ciclos live-engine ~1.5h cada, ou engine local `make dev-stack`).** ⚠️ Cada flip que remove um marcador strict-xfail PRECISA dar XPASS na lane real-engine senão o CI fica VERMELHO — não dá para flipar sem prova ao vivo (a suíte unit local pula testes integration-marked; dependência real, não workaround). **Bucket 1 (33 sites, 3 constantes) DESBLOQUEADO pelo #178** (os stubs DL-0033 viraram workers reais): `adequacao._MISSING_DOSSIER_WORKER_REASON`×9, `cred._CRED_MISSING_WORKERS_REASON`×12, `pagto._PAGTO_ALCADA_WORKER_MISSING_REASON`×12 — flip = adiciona o tópico ao drain-list da suíte + adapta asserts `notifications_of_type` mortos (precedente #134-141) + prova strict-XPASS ao vivo + delegação pagto→André (flow default dele É `pagto_dossier`). **Bucket 2 (18 sites) = teto humano, NÃO tocar** (TISS-XSD SME / DPO-DSR / teto D-07 finanças). **Bucket 3 (44 sites) = migrações ADR-0030 Class-B coded-exc→WorkerBpmnError (nip `_PROTOCOLO_INVALIDO`×3 [boundary BPMN já existe], programa consent-guard×2, cred guard-shape×2) + adaptações Class-A de asserts mortos (auth×6/reembolso×5/nip×2/recurso×1) + Class-C buildable (bug cred `doc_completa`-overwrite×6, pagto ceiling×1).** **Também DIFERIR (teto humano): item 7, ratificação ADR-0029, SQL de erasure por-camada + VALORES da retention-matrix.** Detalhe vivo: memória `maezo-v2-execution-state.md` + `docs/prompts/NEXT-ORCHESTRATOR-HANDOFF.md`.
 
 ---
 
