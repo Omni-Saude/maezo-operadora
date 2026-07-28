@@ -160,20 +160,19 @@ FINDINGS (see PR body / evidence-ledger for full detail):
      2c) independent of the still-open dict-first `notify_deadline_risk_entry` gap. Both tests
      were retagged to `_NIP_DEADLINE_RISK_PUBLISH_ADDED_REASON` (not flipped — pending live-proof).
 
-  4. `ERR_NIP_PROTOCOLO_INVALIDO` never reaches its BPMN boundary catch (nip-specific, NOT the
-     generic kafka-publish gap): nip.py's `NipProtocoloInvalidoError` (nip.py:47-54) is a
-     `ValueError` subclass, NOT `WorkerBpmnError`. `WorkerHarness._handle` (harness.py:916-943 vs
-     :952-954) reports a `WorkerBpmnError` as a real `bpmnError` (subject to the harness's
-     `bpmn_error_allowlist`) but ALWAYS routes `ValueError`-family exceptions straight to
-     `_report_failure`/`transport.handle_failure` (an unconditional engine incident, retries=0) —
-     the allowlist is never even consulted for `ValueError`. The BPMN's three boundary events
-     (`BE_NipProtocoloInvalidoManter`/`Conceder`/`NaoAssist`,
-     SP-OP-NIP-001_Resposta_NIP.bpmn:408-411, 442-445, 477-480) only catch a `bpmnError` matching
-     `errorEventDefinition@errorRef="Error_NipProtocoloInvalido"` — they can NEVER be triggered by
-     `handoff_ans_submit_entry`'s `NipProtocoloInvalidoError`. A blank `protocolo_ans` therefore
-     opens an unrecoverable engine incident on `ST_HandoffAns{Manter,Conceder,NaoAssistencial}`
-     instead of routing to the neutral terminal `End_NipProtocoloInvalido` — the instance never
-     completes. See `_PROTOCOLO_INVALIDO_NOT_BPMN_ERROR_REASON` below (3 tests). NOTE:
+  4. `ERR_NIP_PROTOCOLO_INVALIDO` boundary-catch reachability — src MIGRATION LANDED (item-9
+     bucket-3, ADR-0030 §2), engine flip PENDING LIVE PROOF. `nip.handoff_ans_submit` now raises
+     `WorkerBpmnError(ERR_NIP_PROTOCOLO_INVALIDO)` — the MODELED boundary error — instead of the
+     former `ValueError`-family `NipProtocoloInvalidoError` (which `WorkerHarness._handle` routed
+     straight to an unconditional incident, allowlist never consulted, so the three boundary events
+     `BE_NipProtocoloInvalido{Manter,Conceder,NaoAssist}`,
+     SP-OP-NIP-001_Resposta_NIP.bpmn:408-411, 442-445, 477-480, catching
+     `errorEventDefinition@errorRef="Error_NipProtocoloInvalido"`, could never fire). The code is
+     gate-proven/consumption-covered (G2-val, NOT T-E-gated) and WIRED into production via
+     `nip.NIP_BPMN_ERROR_ALLOWLIST` -> `worker_runtime/service.py`. A blank `protocolo_ans` should
+     now route to the neutral terminal `End_NipProtocoloInvalido` instead of opening an incident.
+     See `_PROTOCOLO_INVALIDO_NOT_BPMN_ERROR_REASON` below (3 tests — still strict-xfail until the
+     boundary flip is proven on a live engine). NOTE:
      `Error_NipNegativaNotHuman` (BPMN line 27) is likewise declared but has NO matching boundary
      event ANYWHERE in the BPMN — but no donor test in this file depends on a boundary catch for
      that guard (the relevant test only asserts NEGATIVE outcomes — the adverse terminal is never
@@ -335,19 +334,18 @@ _NIP_WORKER_KAFKA_GAP_REASON = (
 )
 
 _PROTOCOLO_INVALIDO_NOT_BPMN_ERROR_REASON = (
-    "nip-specific gap (module docstring finding 4 — distinct from the generic events.publish/"
-    "kafka-publish gaps): nip.py's NipProtocoloInvalidoError (nip.py:47-54) is a ValueError "
-    "subclass, NOT WorkerBpmnError. WorkerHarness._handle (harness.py:916-943 vs :952-954) "
-    "reports a WorkerBpmnError as a real bpmnError (subject to bpmn_error_allowlist) but ALWAYS "
-    "routes ValueError-family exceptions straight to _report_failure/transport.handle_failure (an "
-    "unconditional engine incident) — the allowlist is never consulted for ValueError. The "
-    "BPMN's three boundary events (BE_NipProtocoloInvalidoManter/Conceder/NaoAssist, "
-    "SP-OP-NIP-001_Resposta_NIP.bpmn:408-411,442-445,477-480) only catch a bpmnError matching "
-    "errorRef=Error_NipProtocoloInvalido — they can never be triggered by "
-    "handoff_ans_submit_entry's NipProtocoloInvalidoError. A blank protocolo_ans therefore opens "
-    "an unrecoverable engine incident on ST_HandoffAns{Manter,Conceder,NaoAssistencial} instead "
-    "of routing to the neutral terminal End_NipProtocoloInvalido — the instance never completes. "
-    "src/** fix (raising a gate-proven WorkerBpmnError instead) is out of scope for this port."
+    "MIGRATION LANDED (item-9 bucket-3, ADR-0030 §2) — PENDING LIVE-ENGINE XPASS FLIP. The src fix "
+    "is DONE: nip.handoff_ans_submit now raises WorkerBpmnError(ERR_NIP_PROTOCOLO_INVALIDO) — the "
+    "MODELED boundary error — instead of the former ValueError-family NipProtocoloInvalidoError "
+    "(which WorkerHarness._handle routed straight to an unconditional incident, allowlist never "
+    "consulted, so BE_NipProtocoloInvalido{Manter,Conceder,NaoAssist} could never fire). The code "
+    "is gate-proven/consumption-covered by scripts/ci/check_bpmn_error_allowlist.py (G2-val, NOT "
+    "T-E-gated) and WIRED into production via nip.NIP_BPMN_ERROR_ALLOWLIST -> "
+    "worker_runtime/service.py's PRODUCTION_BPMN_ERROR_ALLOWLIST. A blank protocolo_ans should now "
+    "route to the neutral terminal End_NipProtocoloInvalido instead of opening an engine incident. "
+    "This ENGINE test stays strict-xfail ONLY because proving the actual boundary flip (bpmnError -> "
+    "End_NipProtocoloInvalido) requires a live CIB Seven 2.1.0 engine; the marker is removed with "
+    "live-engine XPASS proof in a dedicated follow-up (precedent: auth's removed boundary xfail)."
 )
 
 _NOTIFY_DEADLINE_RISK_UNREGISTERED_REASON = (
@@ -878,11 +876,12 @@ async def test_happy_path_nao_assistencial_respondida(
 
 # ===========================================================================
 # Boundary-error catches (finding 4, GAP-NIP-6, dangling-catch prevention) — guard TECNICO na
-# correlacao com ANS-SUBMIT deveria terminar LIMPO; em v2 ele NUNCA alcanca o boundary catch
-# (NipProtocoloInvalidoError e ValueError, nao WorkerBpmnError — ver
-# _PROTOCOLO_INVALIDO_NOT_BPMN_ERROR_REASON). Um teste por ramo (MANTER/CONCEDER/NAO_ASSISTENCIAL)
-# porque cada um instancia um serviceTask/boundaryEvent DISTINTO (ST_HandoffAnsManter/Conceder/
-# NaoAssistencial), mesmo handler `handoff_ans_submit_entry` serve as tres.
+# correlacao com ANS-SUBMIT deve terminar LIMPO no boundary catch. src MIGRATION LANDED (item-9
+# bucket-3): handoff_ans_submit agora lanca WorkerBpmnError(ERR_NIP_PROTOCOLO_INVALIDO), gate-proven
+# e wired em PRODUCTION_BPMN_ERROR_ALLOWLIST — ver _PROTOCOLO_INVALIDO_NOT_BPMN_ERROR_REASON;
+# strict-xfail ate o flip do boundary ser provado em engine ao vivo. Um teste por ramo
+# (MANTER/CONCEDER/NAO_ASSISTENCIAL) porque cada um instancia um serviceTask/boundaryEvent DISTINTO
+# (ST_HandoffAnsManter/Conceder/NaoAssistencial), mesmo handler `handoff_ans_submit_entry` serve as tres.
 # ===========================================================================
 
 

@@ -5,6 +5,7 @@ TDD London School: tests verify the consent chokepoint and clinical discharge gu
 
 import pytest
 
+from maezo.tools.workers.harness import WorkerBpmnError
 from maezo.tools.workers.programa import (
     ERR_PROGRAM_DISCHARGE_NOT_HUMAN,
     ERR_PROGRAMA_NO_CONSENT,
@@ -60,8 +61,12 @@ def test_programa_consent_gate_happy_path() -> None:
 
 
 def test_programa_consent_gate_blocks_no_consent() -> None:
-    """Without consent, the chokepoint blocks ALL PHI processing."""
-    with pytest.raises(ProgramaError) as excinfo:
+    """Without consent, the chokepoint blocks ALL PHI processing.
+
+    check_consent signals the MODELED boundary error (ADR-0030 §2): a WorkerBpmnError carrying
+    ERR_PROGRAMA_NO_CONSENT so BE_SemConsentimento -> End_SemConsentimento can fire.
+    """
+    with pytest.raises(WorkerBpmnError) as excinfo:
         check_consent(
             {
                 "consentimento_ativo": False,
@@ -69,12 +74,12 @@ def test_programa_consent_gate_blocks_no_consent() -> None:
                 "consent_scope": "programa_cuidado",
             }
         )
-    assert excinfo.value.code == ERR_PROGRAMA_NO_CONSENT
+    assert excinfo.value.error_code == ERR_PROGRAMA_NO_CONSENT
 
 
 def test_programa_consent_gate_blocks_revoked() -> None:
     """Revoked consent (ativo=False) blocks processing."""
-    with pytest.raises(ProgramaError) as excinfo:
+    with pytest.raises(WorkerBpmnError) as excinfo:
         check_consent(
             {
                 "consentimento_ativo": False,
@@ -82,12 +87,12 @@ def test_programa_consent_gate_blocks_revoked() -> None:
                 "consent_scope": "programa_cuidado",
             }
         )
-    assert excinfo.value.code == ERR_PROGRAMA_NO_CONSENT
+    assert excinfo.value.error_code == ERR_PROGRAMA_NO_CONSENT
 
 
 def test_programa_consent_gate_blocks_not_checked() -> None:
     """consent_checked=False means consent was never verified."""
-    with pytest.raises(ProgramaError) as excinfo:
+    with pytest.raises(WorkerBpmnError) as excinfo:
         check_consent(
             {
                 "consentimento_ativo": True,
@@ -95,7 +100,7 @@ def test_programa_consent_gate_blocks_not_checked() -> None:
                 "consent_scope": "programa_cuidado",
             }
         )
-    assert excinfo.value.code == ERR_PROGRAMA_NO_CONSENT
+    assert excinfo.value.error_code == ERR_PROGRAMA_NO_CONSENT
 
 
 @pytest.mark.parametrize("vars_extra", _CONSENT_NON_TRUE_VECTORS)
@@ -114,9 +119,9 @@ def test_programa_consent_gate_fail_closed_rejects_non_true_signal(
         **vars_extra,
     }
 
-    with pytest.raises(ProgramaError) as excinfo:
+    with pytest.raises(WorkerBpmnError) as excinfo:
         check_consent(variables)
-    assert excinfo.value.code == ERR_PROGRAMA_NO_CONSENT
+    assert excinfo.value.error_code == ERR_PROGRAMA_NO_CONSENT
 
 
 # ---------------------------------------------------------------

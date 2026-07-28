@@ -58,6 +58,8 @@ from maezo.tools.workers.harness import (
     WorkerHarness,
 )
 from maezo.tools.workers.lgpd import LGPD_BPMN_ERROR_ALLOWLIST
+from maezo.tools.workers.nip import NIP_BPMN_ERROR_ALLOWLIST
+from maezo.tools.workers.programa import PROGRAMA_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.recurso import RECURSO_BPMN_ERROR_ALLOWLIST
 
 from .settings import WorkerRuntimeSettings
@@ -98,7 +100,11 @@ logger = structlog.get_logger(__name__)
 # BE_NotifSupervisorFailed to the supervisor fallback + the mandatory HITL user task; G2-fs, NOT
 # T-E-gated) `| {ERR_RECURSO_INVALID_GLOSA}` (T3.1 P2b, Tier-2 — recurso's origin/consistency (G2-val)
 # guard: `glosa_id` absent/empty at ST_SolicitarDocumentos/ST_PrepararDossie routes to the neutral
-# terminal End_RecursoGlosaInvalidaOrigem; NOT a `*_NOT_HUMAN` guard, so NOT T-E-gated).
+# terminal End_RecursoGlosaInvalidaOrigem; NOT a `*_NOT_HUMAN` guard, so NOT T-E-gated)
+# `| {ERR_NIP_PROTOCOLO_INVALIDO, ERR_PROGRAMA_NO_CONSENT}` (item-9 bucket-3, Tier-2 — two more
+# non-adverse G2-val origin/consent guards: nip's blank `protocolo_ans` routes to
+# End_NipProtocoloInvalido, programa's failed consent chokepoint routes to End_SemConsentimento;
+# neither is a `*_NOT_HUMAN` guard, so neither is T-E-gated).
 
 
 def _is_te_gated(code: str) -> bool:
@@ -126,20 +132,27 @@ def _is_te_gated(code: str) -> bool:
 #: technical fail-safe (G2-fs): a notify-channel publish failure routes via BE_FalhaNotificacao/
 #: BE_NotifFallbackFailed/BE_NotifSupervisorFailed to the supervisor fallback + the mandatory HITL
 #: user task (never a silent drop, never a stalling incident), so it is NOT T-E-gated and lands
-#: directly (Tier-1). `ERR_CANCEL_MANTER_NOT_HUMAN` is gate-proven too but its worker exposes no
+#: directly (Tier-1). `NIP_BPMN_ERROR_ALLOWLIST` contributes `ERR_NIP_PROTOCOLO_INVALIDO` and
+#: `PROGRAMA_BPMN_ERROR_ALLOWLIST` contributes `ERR_PROGRAMA_NO_CONSENT` (item-9 bucket-3, ADR-0030
+#: Tier-2) — both NON-adverse G2-val origin/consent guards routing to neutral terminals
+#: (End_NipProtocoloInvalido / End_SemConsentimento), NOT `*_NOT_HUMAN`, so NOT T-E-gated; both land
+#: directly. `ERR_CANCEL_MANTER_NOT_HUMAN` is gate-proven too but its worker exposes no
 #: constant (nothing is enabled for it at any tier until T-E), so there is nothing to import.
 _GATE_PROVEN_BPMN_ERROR_CODES: frozenset[str] = (
     AUTH_BPMN_ERROR_ALLOWLIST
     | ESCALATION_BPMN_ERROR_ALLOWLIST
     | EVENTS_BPMN_ERROR_ALLOWLIST
     | LGPD_BPMN_ERROR_ALLOWLIST
+    | NIP_BPMN_ERROR_ALLOWLIST
+    | PROGRAMA_BPMN_ERROR_ALLOWLIST
     | RECURSO_BPMN_ERROR_ALLOWLIST
 )
 
 #: The production allowlist wired into the harness: gate-proven codes MINUS the T-E-gated
 #: business-outcome codes. Resolves to `{ERR_EVENT_PUBLISH_FAILED, ERR_DSR_IDENTITY_UNVERIFIED,
-#: ERR_RECURSO_INVALID_GLOSA, ERR_ESC_NOTIFY_FAILED}` today (Tier-0 pair + T3.1 P2b's Tier-2 addition
-#: + t8-escalation-boundary's Tier-1 addition).
+#: ERR_RECURSO_INVALID_GLOSA, ERR_ESC_NOTIFY_FAILED, ERR_NIP_PROTOCOLO_INVALIDO,
+#: ERR_PROGRAMA_NO_CONSENT}` today (Tier-0 pair + T3.1 P2b's Tier-2 addition + t8-escalation-boundary's
+#: Tier-1 addition + item-9 bucket-3's two Tier-2 G2-val origin/consent guards).
 PRODUCTION_BPMN_ERROR_ALLOWLIST: frozenset[str] = frozenset(
     code for code in _GATE_PROVEN_BPMN_ERROR_CODES if not _is_te_gated(code)
 )

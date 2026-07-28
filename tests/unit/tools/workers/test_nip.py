@@ -7,11 +7,16 @@ import datetime as _dt
 
 import pytest
 
-from maezo.tools.workers.harness import FakeKafkaPublisher, FakeWorkerTransport, WorkerHarness
+from maezo.tools.workers.harness import (
+    FakeKafkaPublisher,
+    FakeWorkerTransport,
+    WorkerBpmnError,
+    WorkerHarness,
+)
 from maezo.tools.workers.nip import (
+    ERR_NIP_PROTOCOLO_INVALIDO,
     NipInput,
     NipNegativaNotHumanError,
-    NipProtocoloInvalidoError,
     NipResponseInput,
     _coerce_anchor_date_iso,
     assemble_response,
@@ -180,12 +185,13 @@ def test_handoff_ans_submit_valid() -> None:
 
 
 def test_handoff_ans_submit_empty_protocolo_raises() -> None:
-    """handoff_ans_submit with empty string raises ERR_NIP_PROTOCOLO_INVALIDO."""
-    with pytest.raises(NipProtocoloInvalidoError):
+    """handoff_ans_submit with empty string raises the MODELED WorkerBpmnError (ADR-0030 §2)."""
+    with pytest.raises(WorkerBpmnError) as excinfo:
         handoff_ans_submit(
             numero_nip_ans="NIP-008",
             protocolo_ans="   ",
         )
+    assert excinfo.value.error_code == ERR_NIP_PROTOCOLO_INVALIDO
 
 
 def test_handoff_ans_submit_with_protocolo() -> None:
@@ -245,9 +251,13 @@ def test_nip_negativa_not_human_is_permission_error() -> None:
     assert issubclass(NipNegativaNotHumanError, PermissionError)
 
 
-def test_nip_protocolo_invalido_is_value_error() -> None:
-    """NipProtocoloInvalidoError must be a subclass of ValueError."""
-    assert issubclass(NipProtocoloInvalidoError, ValueError)
+def test_nip_protocolo_invalido_is_modeled_bpmn_error() -> None:
+    """The blank-protocolo guard signals the MODELED boundary error (ADR-0030 §2): a WorkerBpmnError
+    carrying ERR_NIP_PROTOCOLO_INVALIDO — NOT a ValueError-family exception (which the harness would
+    route straight to an incident, so the boundary could never fire)."""
+    with pytest.raises(WorkerBpmnError) as excinfo:
+        handoff_ans_submit(numero_nip_ans="NIP-010", protocolo_ans=" ")
+    assert excinfo.value.error_code == ERR_NIP_PROTOCOLO_INVALIDO
 
 
 # ---------------------------------------------------------------------------
@@ -275,10 +285,11 @@ def test_submit_response_entry_happy_path() -> None:
 
 
 def test_handoff_ans_submit_entry_raises_on_blank_protocolo() -> None:
-    """Absent (None) protocolo_ans is legitimate; blank/empty raises NipProtocoloInvalidoError
-    (unchanged guard, GAP-NIP-6)."""
-    with pytest.raises(NipProtocoloInvalidoError):
+    """Absent (None) protocolo_ans is legitimate; blank/empty raises the MODELED WorkerBpmnError
+    (ERR_NIP_PROTOCOLO_INVALIDO, ADR-0030 §2 — GAP-NIP-6)."""
+    with pytest.raises(WorkerBpmnError) as excinfo:
         handoff_ans_submit_entry({"numero_nip_ans": "NIP-1", "protocolo_ans": "  "})
+    assert excinfo.value.error_code == ERR_NIP_PROTOCOLO_INVALIDO
 
 
 def test_handoff_ans_submit_entry_allows_absent_protocolo() -> None:
