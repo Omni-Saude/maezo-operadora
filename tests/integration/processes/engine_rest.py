@@ -192,6 +192,17 @@ class EngineRest:
         resp.raise_for_status()
         return {str(a["activityId"]) for a in resp.json()}
 
+    async def activity_instance_count(self, instance_id: str, activity_id: str) -> int:
+        """Quantas VEZES `activity_id` executou na instancia (history NAO deduplica, ao contrario de
+        `activity_instances_ended`) — para asserir re-execucao (ex.: um serviceTask que roda de novo
+        apos um loop-back de gateway). Conta os registros historicos de activity-instance."""
+        resp = await self._client.get(
+            "/history/activity-instance",
+            params={"processInstanceId": instance_id, "activityId": activity_id},
+        )
+        resp.raise_for_status()
+        return len(resp.json())
+
     async def incidents(self, instance_id: str) -> list[dict[str, Any]]:
         """Incidentes ABERTOS da instancia (`GET /incident?processInstanceId=...`).
 
