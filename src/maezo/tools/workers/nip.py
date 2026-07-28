@@ -16,11 +16,33 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from maezo.tools.workers.base import FunctionWorker, pick_fields
+from maezo.tools.workers.harness import WorkerBpmnError
 
 if TYPE_CHECKING:
     from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
 
 logger = structlog.get_logger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Modeled BPMN error codes (ADR-0030 §2)
+# ---------------------------------------------------------------------------
+
+#: `handoff_ans_submit` raises this when `protocolo_ans` arrives present-but-empty/blank — a
+#: TECHNICAL origin/consistency guard (G2-val: the worker never decides the NIP merito, it only
+#: signals bad-at-source correlation data). It is a MODELED boundary error: the three boundary
+#: catches `BE_NipProtocoloInvalido{Manter,Conceder,NaoAssist}` on the
+#: `operadora.nip.handoff_ans_submit` external tasks route to the shared NEUTRO terminal
+#: `End_NipProtocoloInvalido` — never an adverse outcome (the human decision was already fixed by
+#: the preceding User Task). NOT a `*_NOT_HUMAN` guard, so NOT T-E-gated (ADR-0030 §4's
+#: `is_te_gated`: matched only by the `_NOT_HUMAN` suffix or `ERR_AUTH_DENIAL_INCOMPLETE`).
+ERR_NIP_PROTOCOLO_INVALIDO = "ERR_NIP_PROTOCOLO_INVALIDO"
+
+#: Consumption-covered (`scripts/ci/check_bpmn_error_allowlist.py`'s "simple rule"):
+#: `operadora.nip.handoff_ans_submit` is consumed ONLY by SP-OP-NIP-001, which declares this
+#: errorCode on all three of its boundary catches. Mirrors `recurso.RECURSO_BPMN_ERROR_ALLOWLIST`
+#: — unioned into `worker_runtime/service.py`'s `_GATE_PROVEN_BPMN_ERROR_CODES`.
+NIP_BPMN_ERROR_ALLOWLIST: frozenset[str] = frozenset({ERR_NIP_PROTOCOLO_INVALIDO})
 
 
 # ---------------------------------------------------------------------------
@@ -42,16 +64,6 @@ class NipNegativaNotHumanError(PermissionError):
         if self.missing_fields:
             msg += f"; missing: {', '.join(self.missing_fields)}"
         super().__init__(msg)
-
-
-class NipProtocoloInvalidoError(ValueError):
-    """Raised when protocolo_ans is present but empty/blank (ERR_NIP_PROTOCOLO_INVALIDO).
-
-    Absent (None) is legitimate; empty string would corrupt correlation.
-    """
-
-    def __init__(self) -> None:
-        super().__init__("ERR_NIP_PROTOCOLO_INVALIDO: protocolo_ans presente mas vazio/em branco")
 
 
 # ---------------------------------------------------------------------------
@@ -265,9 +277,16 @@ def handoff_ans_submit(
         tenant_id=tenant_id,
     )
 
-    # GAP-NIP-6: absent is fine, empty/blank is invalid
+    # GAP-NIP-6: absent is fine, empty/blank is invalid. MODELED boundary error (ADR-0030 §2) —
+    # WorkerBpmnError, NOT a ValueError-family exception. A ValueError is routed straight to a
+    # fail-closed incident by the harness (allowlist never consulted), so the three
+    # BE_NipProtocoloInvalido{Manter,Conceder,NaoAssist} boundary catches could never fire. Raising
+    # the gate-proven WorkerBpmnError lets them route to the neutral terminal End_NipProtocoloInvalido.
     if protocolo_ans is not None and not protocolo_ans.strip():
-        raise NipProtocoloInvalidoError()
+        raise WorkerBpmnError(
+            ERR_NIP_PROTOCOLO_INVALIDO,
+            "protocolo_ans presente mas vazio/em branco",
+        )
 
     return {
         "handoff": "SP-OP-ANS-SUBMIT-001",
@@ -475,8 +494,8 @@ def handoff_ans_submit_entry(
 ) -> dict[str, Any]:
     """Dict-boundary entry for `operadora.nip.handoff_ans_submit` -> `handoff_ans_submit`.
 
-    Raises `NipProtocoloInvalidoError` (fail-closed) when `protocolo_ans` is present but
-    empty/blank — absent (`None`) is legitimate (GAP-NIP-6) — unchanged guard.
+    Raises `WorkerBpmnError(ERR_NIP_PROTOCOLO_INVALIDO)` (the MODELED boundary error, ADR-0030 §2)
+    when `protocolo_ans` is present but empty/blank — absent (`None`) is legitimate (GAP-NIP-6).
 
     `tenant_id` (T2.6-EB3 part 3): read off `variables` — the SP-OP-NIP-001 process instance's
     own variables, the SAME place `notify_deadline_risk_entry` (above) already reads it from.
