@@ -297,6 +297,7 @@ _CRED_WORKER_TOPICS = [
     _REGISTER_DENIAL_TOPIC,
     _REGISTER_CREDENCIAMENTO_TOPIC,  # T2.5-p2b sync
     _NOTIFY_SLA_TOPIC,  # T2.5-p2b sync
+    _PREPARE_DOSSIER_TOPIC,  # t2-dossier-a2a #178: real worker (Carolina A2A / DL-0037 gap) drains
 ]
 
 # Topico interno de notificacoes (harness.py FakeKafkaPublisher convention)
@@ -354,23 +355,20 @@ _CAMPOS_DENIAL = {
 # ---------------------------------------------------------------------------
 
 _CRED_MISSING_WORKERS_REASON = (
-    "REGISTRY DRIFT (finding 1, T3.1 phase-2 port) — NARROWED by T2.5-p2b: the BPMN declares 9 "
-    "operadora.cred.* topics; register_credenciamento_workers (credenciamento.py) originally "
-    "registered only 5. notify_doc_pendente / register_credenciamento / notify_sla_risk are now "
-    "BUILT and registered (T2.5-p2b, mechanical worker-registry reconciliation) — LIVE-PROVEN "
-    "(wave2a, CIB Seven 2.1.0): a live-engine run CONFIRMED these tests still XFAIL and are NOT "
-    "flippable (notify_doc_pendente/notify_sla_risk are dict-first and never kafka.publish, so "
-    "notifications_of_type(...)/has_event(_CRED_PENDED) stay empty on the systemic kafka gap; the "
-    "descredenciamento/credenciamento tests still stall upstream on the unimplemented "
-    "prepare_dossier). Only "
-    "operadora.cred.prepare_dossier remains genuinely unimplemented (Carolina A2A integration, "
-    "separately gated, explicitly out of scope for T2.5-p2b). ST_PrepareDossierDescred AND "
-    "ST_PrepareDossierCred (BPMN lines 303-309, 498-503) both route through this SAME "
-    "unimplemented topic and both sit immediately upstream of "
-    "UT_AnaliseDescredenciamento/UT_AnaliseCredenciamento — the ONLY two human-decision entry "
-    "points — so any test that needs to reach either User Task still stalls before getting there. "
-    "Not fabricated: the topic is simply absent from _CRED_WORKER_TOPICS because no worker serves "
-    "it. src/** fix (implementing prepare_dossier, Carolina A2A) is out of scope for T2.5-p2b."
+    "PARTIAL (t2-dossier-a2a #178): `prepare_dossier` is now a REAL worker (Carolina A2A / DL-0037 "
+    "gap marker) — ST_PrepareDossierDescred/ST_PrepareDossierCred drain, so UT_AnaliseDescredenciamento "
+    "is reachable and 9 of the 12 former bucket-1 cred tests flipped to real passes (live-proven, CIB "
+    "Seven 2.1.0). This test is one of the 3 DESCREDENCIAMENTO happy-paths that NOW correctly progress "
+    "PAST the dossier to the RN-567 prior-notice cure-window (GW_AguardarNotificacao / ICE_PrazoNotificacao) "
+    "and WAIT there — ST_RegisterDescredenciamento runs but End_PrestadorDescredenciado / "
+    "End_SubstituicaoRegistrada is never reached because the test does not drive the notification-ack / "
+    "advance the cure-window timer to the terminal (a test-completion follow-up: complete the "
+    "prior-notice period). A SECOND residual class (test_documentacao_incompleta / test_direcao_ambigua) "
+    "now reaches its notify/check activity (adapted to engine-side) but still asserts "
+    "has_event(_CRED_PENDED) — the `cred.pended` domain event is not published on this path (the systemic "
+    "events.publish gap, separate from the dossier). BOTH residuals are NEW downstream findings surfaced "
+    "by unblocking the dossier — NOT a missing worker and NOT a dead kafka echo. Tracked in PLANS.md "
+    "§0.5.2 item-9 bucket-1 (cred descredenciamento cure-window + cred.pended event-gap)."
 )
 
 _CRED_DOC_COMPLETA_OVERWRITE_REASON = (
@@ -730,7 +728,6 @@ async def test_credenciamento_licenca_irregular_roteia_para_humano_nunca_auto_ne
     await _assert_no_adverse_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_CRED_MISSING_WORKERS_REASON, strict=True)
 async def test_indicio_irregularidade_roteia_para_humano_nunca_auto_acusa(
     engine: EngineRest,
     cred_probe: CredEngineProbe,
@@ -881,7 +878,6 @@ async def test_happy_path_descredenciamento_com_substituicao(
     assert cred_probe.has_event(_CRED_COMPLETED, desfecho="substituicao_registrada")
 
 
-@pytest.mark.xfail(reason=_CRED_MISSING_WORKERS_REASON, strict=True)
 async def test_happy_path_descredenciamento_manter_vinculo(
     engine: EngineRest,
     cred_probe: CredEngineProbe,
@@ -1204,8 +1200,10 @@ async def test_documentacao_incompleta_pendente_nunca_nega(
 
     await cred_probe.drain()
 
-    assert cred_probe.notifications_of_type("cred.notify_doc_pendente"), (
-        "Worker notify_doc_pendente deve ser executado em PENDENTE_DOCUMENTACAO"
+    # Engine-side (kafka-echo `notifications_of_type` morto pos-#178): o serviceTask
+    # notify_doc_pendente executou. (has_event(_CRED_PENDED) abaixo continua sendo o evento real.)
+    assert "ST_NotifyDocPendente" in await engine.activity_instances_ended(iid), (
+        "Worker notify_doc_pendente (ST_NotifyDocPendente) deve executar em PENDENTE_DOCUMENTACAO"
     )
     assert cred_probe.has_event(_CRED_PENDED), "cred.pended deve ser publicado"
 
@@ -1219,7 +1217,6 @@ async def test_documentacao_incompleta_pendente_nunca_nega(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_CRED_MISSING_WORKERS_REASON, strict=True)
 async def test_prazo_notificacao_expira_vai_para_humano_nao_descredencia(
     engine: EngineRest,
     cred_probe: CredEngineProbe,
@@ -1247,7 +1244,6 @@ async def test_prazo_notificacao_expira_vai_para_humano_nao_descredencia(
     await _assert_no_adverse_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_CRED_MISSING_WORKERS_REASON, strict=True)
 async def test_notificacao_ack_destrava_analise(
     engine: EngineRest,
     cred_probe: CredEngineProbe,
@@ -1284,7 +1280,6 @@ async def test_notificacao_ack_destrava_analise(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_CRED_MISSING_WORKERS_REASON, strict=True)
 async def test_timer_sla_estourado_coordenacao_assume(
     engine: EngineRest,
     cred_probe: CredEngineProbe,
@@ -1351,7 +1346,6 @@ async def test_coordenacao_assume_e_descredencia(
     assert cred_probe.has_event(_CRED_COMPLETED, desfecho="descredenciado")
 
 
-@pytest.mark.xfail(reason=_CRED_MISSING_WORKERS_REASON, strict=True)
 async def test_timer_alerta_sla_nao_interruptivo(
     engine: EngineRest,
     cred_probe: CredEngineProbe,
@@ -1375,8 +1369,9 @@ async def test_timer_alerta_sla_nao_interruptivo(
     await engine.execute_job(job.id)
     await cred_probe.drain()
 
-    assert cred_probe.notifications_of_type("cred.notify_sla_risk"), (
-        "Worker notify_sla_risk deve ser executado no alerta de SLA"
+    # Engine-side (kafka-echo morto pos-#178): o serviceTask notify_sla_risk executou.
+    assert "ST_NotifySlaRisk" in await engine.activity_instances_ended(iid), (
+        "Worker notify_sla_risk (ST_NotifySlaRisk) deve executar no alerta de SLA"
     )
 
     open_keys = {t.task_definition_key for t in await engine.list_user_tasks(iid)}
@@ -1565,9 +1560,10 @@ async def test_direcao_ambigua_roteia_para_co_review_nao_credenciamento_only(
         f"GAP-CRED-4: catch-all ANALISE_HUMANA deve cair no ramo de co-review (ambos os grupos). "
         f"groups={ut.candidate_groups}"
     )
-    assert cred_probe.notifications_of_type("cred.check_prior_notice"), (
+    # Engine-side (kafka-echo morto pos-#178): o serviceTask check_prior_notice executou.
+    assert "ST_CheckPriorNotice" in await engine.activity_instances_ended(iid), (
         "GAP-CRED-6: catch-all ANALISE_HUMANA deve passar pela cure-window RN 567 "
-        "(check_prior_notice), nunca pular"
+        "(ST_CheckPriorNotice), nunca pular"
     )
     assert cred_probe.has_event(_CRED_PENDED)
 
@@ -1609,7 +1605,6 @@ async def test_credenciamento_puro_nunca_roda_check_prior_notice(
     await _assert_no_adverse_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_CRED_MISSING_WORKERS_REASON, strict=True)
 async def test_solicitar_info_descredenciamento_aguarda_e_retoma_ut(
     engine: EngineRest,
     cred_probe: CredEngineProbe,
