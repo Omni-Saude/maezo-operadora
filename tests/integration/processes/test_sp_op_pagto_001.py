@@ -118,66 +118,63 @@ FINDINGS (see PR body / evidence-ledger for full detail):
      half — is preserved verbatim below and the whole test is marked
      `xfail(strict=True)` rather than weakened.
 
-  2. **Missing worker registrations — blocks the entire human-alcada branch
-     (`_PAGTO_ALCADA_WORKER_MISSING_REASON`)** — UPDATED, t2.5-p2b-round2. The BPMN declares 8
-     external-task topics via `camunda:type="external"` (grep-confirmed: `operadora.events.publish`
-     ×7 call sites + `operadora.pagto.{validate_payment_data, calculate_facts,
-     release_low_value_payment, prepare_approval_dossier, notify_sla_risk,
-     release_high_value_payment, register_payment_refusal}`). `register_pagto_workers` originally
-     implemented only 6 topics, 2 of which — `operadora.pagto.assess_admissibility` and
-     `operadora.pagto.publish_completed` — have NO matching BPMN service task at all (orphan
-     registrations: `BRT_PagtoAdmissibility` is a NATIVE businessRuleTask, and every
-     `pagto.completed` publish routes through the generic `operadora.events.publish`, not a
-     dedicated topic — harmless, simply never dispatched for this BPMN; UNCHANGED). t2.5-p2b-round2
-     CLOSED 2 of the 3 originally-missing BPMN-declared topics: `operadora.pagto.notify_sla_risk`
-     and `operadora.pagto.register_payment_refusal` now have real implementing functions (mirror
-     the proven inadimplencia.py/cancel.py/fraude.py/adequacao.py dict-first idiom for the
-     SLA-alert worker; `register_payment_refusal` mirrors `recurso.register_desistencia`'s
-     dual-channel refuse-if-no-human GUARD pattern — decisao_pagamento==RECUSAR OR
-     decisao_admissibilidade==DEVOLVER, both requiring aprovador_id+justificativa_recusa). Only
-     `operadora.pagto.prepare_approval_dossier` remains unimplemented (Andre A2A-gated, explicitly
-     out of scope for that PR). `_PAGTO_WORKER_TOPICS` below is built from what
-     `register_pagto_workers` ACTUALLY registers. Consequence: `ST_PrepareApprovalDossier` STILL
-     sits on the ONLY path from `BRT_PagtoSla` to `UT_AprovacaoAlcada` (BPMN: `BRT_AlcadaRouting`
-     -> `GW_Faixa` -default-> `BRT_PagtoSla` -> `ST_PrepareApprovalDossier` -> `UT_AprovacaoAlcada`)
-     — with no worker to claim it, EVERY test needing `UT_AprovacaoAlcada` (the entire
-     value-driven-candidate-group / human-approval / tier-match / SLA-coordenacao surface — the
-     process's OWN "coracao" per its BPMN documentation) STILL stalls indefinitely;
-     `await_user_task`/`_await_end` time out (`EngineRestError`/a stuck `ended` set missing the
-     expected terminal) — these tests keep the `_PAGTO_ALCADA_WORKER_MISSING_REASON` xfail
-     (reason text updated, mark/strict unchanged). The DEVOLVER branch of
-     `GW_ResolucaoAdmissibilidade` (default), UNLIKE the dossier-gated branch, is NO LONGER
-     blocked by a missing worker — `ST_RegisterPaymentRefusal` does not sit downstream of
-     `ST_PrepareApprovalDossier` at all — see `_PAGTO_REGISTER_REFUSAL_BUILT_REASON` (a
-     HIGH-CONFIDENCE full-pass candidate, flagged for live-engine verification). Two of the
-     affected donor tests (`test_coordenacao_seguir_analise_refaz_dossie_...`,
-     `test_coordenacao_omite_decisao_cai_no_default_...`) ALSO assert
-     `notifications_of_type("pagto.prepare_approval_dossier")`/`("pagto.notify_sla_risk")` — even
-     setting the still-open dossier-registration gap aside, these would face the SAME systemic
-     Kafka-publish gap as every other dict-first module (`register_pagto_workers` itself: `del
-     kafka  # unused — no pagto.py worker declares a Kafka dependency`, unchanged, `notify_sla_risk`/
-     `register_payment_refusal` included) — a doubly-compounded block, but the PRIMARY/first-hit
-     cause for all still-`_PAGTO_ALCADA_WORKER_MISSING_REASON`-marked tests remains the
-     `prepare_approval_dossier` registration gap (the process never even reaches the point where
-     the second gap would matter).
+  2. **Missing worker registrations — blocked the entire human-alcada branch
+     (`_PAGTO_ALCADA_WORKER_MISSING_REASON`)** — RESOLVED, item-9 bucket-1 (live-proven, local CIB
+     Seven 2.1.0). The BPMN declares 8 external-task topics via `camunda:type="external"`
+     (grep-confirmed: `operadora.events.publish` ×7 call sites + `operadora.pagto.
+     {validate_payment_data, calculate_facts, release_low_value_payment, prepare_approval_dossier,
+     notify_sla_risk, release_high_value_payment, register_payment_refusal}`). t2.5-p2b-round2
+     closed 2 of the 3 originally-missing topics (`notify_sla_risk`/`register_payment_refusal`);
+     `operadora.pagto.prepare_approval_dossier` was the LAST one — it was never actually
+     *unregistered* (`register_pagto_workers` always registers a `FunctionWorker` on it, the
+     DL-0033 local echo/log stub), only deliberately EXCLUDED from `_PAGTO_WORKER_TOPICS`'s drain
+     list to keep the downstream xfails valid pending live-engine proof. item-9 bucket-1 added it
+     to the drain list (the stub completes the external task successfully — `dossier_prepared:
+     True` — which is all the mechanical path needs) and removed all 12 `_PAGTO_ALCADA_WORKER_
+     MISSING_REASON` xfail markers: **all 12 flipped to REAL passes on the first fresh-engine run**
+     (verified: 19 passed, 1 xfailed [`test_nenhum_pagamento_acima_teto_auto_libera`, FINDING 1,
+     unrelated], 0 failed) — no genuine downstream residual surfaced for this family (unlike cred's
+     RN-567 cure-window / `cred.pended` gap in the same wave). The 2 `notifications_of_type(
+     "pagto.prepare_approval_dossier")` dead-kafka-echo asserts (dict-first idiom, FINDING 3 — never
+     calls `kafka.publish`) were adapted to `EngineRest.activity_instance_count(iid,
+     "ST_PrepareApprovalDossier")` (proves RE-execution on the `seguir_analise` loop-back; a `set`
+     can't count, mirrors adequacao's `ST_PrepareRemediationDossier` precedent); the
+     `notifications_of_type("pagto.notify_sla_risk")` dead echo was adapted to `"ST_NotificarRiscoSla"
+     in await engine.activity_instances_ended(iid)` (mirrors cred's `notify_sla_risk` adaptation).
+     `_PAGTO_REGISTER_REFUSAL_BUILT_REASON`'s test (`test_admissibilidade_devolver_registra_
+     recusa_humana`) was already unmarked before this wave (its DEVOLVER path never depended on the
+     dossier) and remains green.
+
+     **src/** GAP FLAGGED (NOT fixed here — porting/test-only scope):** unlike
+     `operadora.adequacao.prepare_remediation_dossier`/`operadora.cred.prepare_dossier`
+     (t2-dossier-a2a #178), `operadora.pagto.prepare_approval_dossier` was NOT wired into
+     `build_dossier_delegation_dispatcher` (`runtime/agent_runtime/a2a_composition.py`
+     `_DOSSIER_EDGE_AGENT_IDS = ("carolina", "andre")` — only the adequacao/cred edges exist).
+     `pagto.py`'s `prepare_approval_dossier` remains the ORIGINAL DL-0033 local stub: no
+     `DelegationDispatcher` seam, no `dossier_dispatcher` parameter, not even the DL-0037
+     disclosed-gap-marker shape adequacao's/cred's handlers have — it unconditionally returns
+     `{"dossier_prepared": True, "data_dossier": "now"}` and never attempts delegation. Andre's OWN
+     graph (`agents/andre/graph.py` module docstring) already documents `pagto_dossier` as his
+     DEFAULT/core flow ("convoked by `operadora.pagto.prepare_approval_dossier`") — the CONSUMER
+     side is built and ready; the PRODUCER side (`pagto.py`) was simply never wired to call it. This
+     is a genuine, disclosed src/** gap for a follow-up A2A-wiring task (mirrors adequacao/cred's
+     own DL-0033/DL-0037 real-wiring precedent) — it does not block this suite (the stub's neutral
+     completion is sufficient for every assertion here, since Andre's dossier enrichment only
+     INSTRUCTS the human approver and never originates the payment decision).
 
   3. Kafka-publish systemic gap (cross-family fact, `grep -rn "kafka.publish(" src/maezo/tools/
      workers/*.py` = exactly ONE call site, `events.py:247`): generic-publish-topic domain events
      (`pagto.received`/`routed`/`sla_breached`/`completed`, all via `operadora.events.publish` ->
-     `register_events_workers`) DO work and ARE asserted green in the 3 unmarked tests below.
-     pagto.py's own registered functions (8 after t2.5-p2b-round2, was 6) are dict-first
-     (ADR-0026 §2a) and NEVER call `kafka.publish` directly — matching cancel.py's
-     `_WORKER_KAFKA_GAP_REASON` class; `notify_sla_risk`/`register_payment_refusal` deliberately
-     mirror this SAME no-Kafka idiom (a dedicated systemic Kafka-seam task is queued, out of scope
-     here). None of the 3 tests left unmarked in this file assert a direct (non-generic-publish)
-     worker notification, so this gap is fully absorbed into FINDING 2 above rather than needing
-     its own separate `_REASON` constant for THOSE tests. NOTE (t2.5-p2b-round2): this gap does
-     NOT apply to `test_admissibilidade_devolver_registra_recusa_humana`
-     (`_PAGTO_REGISTER_REFUSAL_BUILT_REASON`) either — its assertions check only the engine's
-     `ended` activity-history set (via the already-fixed generic `operadora.events.publish`
-     path), never a kafka-backed `notifications_of_type(...)` call — which is exactly why that
-     one test is flagged as a HIGH-CONFIDENCE full-pass candidate rather than merely "still
-     blocked, narrower reason" like the dossier-gated tests.
+     `register_events_workers`) DO work and ARE asserted green throughout this file (`has_event`).
+     pagto.py's own registered functions (9 after item-9 bucket-1) are dict-first (ADR-0026 §2a)
+     and NEVER call `kafka.publish` directly — matching cancel.py's `_WORKER_KAFKA_GAP_REASON`
+     class; `notify_sla_risk`/`register_payment_refusal`/`prepare_approval_dossier` all mirror this
+     SAME no-Kafka idiom (a dedicated systemic Kafka-seam task is queued, out of scope here). Every
+     test in this file that used to assert a direct (non-generic-publish) `notifications_of_type(
+     "pagto.<worker>")` call against one of these dict-first workers (the dossier-refaz pair +
+     notify_sla_risk — FINDING 2) has been adapted to engine-side activity-history evidence
+     instead — this gap is fully absorbed into FINDING 2's item-9 bucket-1 resolution rather than
+     needing its own separate `_REASON` constant.
 
   4. Fact #4 (notification_bridge: CONTAS->RECURSO, CONTAS->FRAUDE, FRAUDE->CRED, FRAUDE->CANCEL,
      FRAUDE->INADIMPLENCIA) — N/A for pagto (neither source nor target of any of the 5 rules);
@@ -244,6 +241,7 @@ _RELEASE_HIGH_TOPIC = "operadora.pagto.release_high_value_payment"
 _NOTIFY_SLA_TOPIC = "operadora.pagto.notify_sla_risk"
 _REGISTER_REFUSAL_TOPIC = "operadora.pagto.register_payment_refusal"
 _PUBLISH_COMPLETED_TOPIC = "operadora.pagto.publish_completed"
+_PREPARE_DOSSIER_TOPIC = "operadora.pagto.prepare_approval_dossier"
 
 # Topicos servidos pelos workers REAIS registrados no harness (drain generico) — construido a
 # partir do que `register_pagto_workers` REALMENTE registra, NAO do que o BPMN declara (module
@@ -253,12 +251,23 @@ _PUBLISH_COMPLETED_TOPIC = "operadora.pagto.publish_completed"
 #   - `_NOTIFY_SLA_TOPIC`/`_REGISTER_REFUSAL_TOPIC` are NOW registered (t2.5-p2b-round2 closed
 #     these 2 of the 3 originally-missing topics) — INCLUDED in this list, so the drain genuinely
 #     fetches/completes both external tasks now.
-#   - `operadora.pagto.prepare_approval_dossier` is STILL declared by the BPMN with NO registered
-#     worker (Andre A2A-gated, explicitly out of scope for t2.5-p2b-round2) — deliberately NOT in
-#     this list: subscribing to a topic nothing handles would make `harness._handle` report an
-#     immediate "no handler registered" incident the moment the engine dispatches it; omitting it
-#     instead leaves the task simply unclaimed (the instance stalls cleanly at that service task,
-#     which is exactly the behavior FINDING 2's still-xfailed tests below observe/expect).
+# UPDATED item-9 bucket-1: `_PREPARE_DOSSIER_TOPIC` is NOW INCLUDED. `prepare_approval_dossier` is
+# a registered `FunctionWorker` (pagto.py, DL-0033) — it always was, but this suite deliberately
+# excluded its topic from the drain (see the removed comment in git history) to keep the
+# downstream engine xfails valid pending a dedicated live-engine proof. That proof is THIS change:
+# draining it unblocks ST_PrepareApprovalDossier (the ONLY path from BRT_PagtoSla to
+# UT_AprovacaoAlcada), so the entire value-driven-candidate-group/human-approval surface becomes
+# reachable. IMPORTANT (src-gap finding, see module docstring FINDING 2 update): unlike
+# `operadora.adequacao.prepare_remediation_dossier`/`operadora.cred.prepare_dossier` (t2-dossier-a2a
+# #178), pagto's `prepare_approval_dossier` was NOT wired into `build_dossier_delegation_dispatcher`
+# (`runtime/agent_runtime/a2a_composition.py` `_DOSSIER_EDGE_AGENT_IDS = ("carolina", "andre")` —
+# only the adequacao/cred edges exist) — it remains the ORIGINAL DL-0033 local echo/log stub
+# (`dossier_prepared: True`, no `DelegationDispatcher` seam at all, not even the DL-0037
+# disclosed-gap-marker shape adequacao/cred's handlers have). Andre's OWN graph (`agents/andre/
+# graph.py`) already documents `pagto_dossier` as his DEFAULT/core flow — the consumer is ready,
+# the producer (pagto.py) is not wired to call it. This is a genuine src/** gap (out of scope to
+# fix in this port — the stub still completes the external task successfully, which is all this
+# suite's drain needs to unblock the mechanical path to UT_AprovacaoAlcada).
 _PAGTO_WORKER_TOPICS = [
     _PUBLISH_TOPIC,
     _VALIDATE_TOPIC,
@@ -269,6 +278,7 @@ _PAGTO_WORKER_TOPICS = [
     _NOTIFY_SLA_TOPIC,
     _REGISTER_REFUSAL_TOPIC,
     _PUBLISH_COMPLETED_TOPIC,
+    _PREPARE_DOSSIER_TOPIC,
 ]
 
 _NOTIFICATIONS_TOPIC = "operadora.notifications.internal"
@@ -348,63 +358,15 @@ _CALCULATE_FACTS_CEILING_NOT_PROPAGATED_REASON = (
     "valor<=teto + seed=False break. src/** fix is out of scope for this port."
 )
 
-# FINDING 2 (module docstring): register_pagto_workers implements only 6 of the 8 BPMN-declared
-# operadora.pagto.* external-task topics — operadora.pagto.{prepare_approval_dossier,
-# notify_sla_risk, register_payment_refusal} have NO implementing worker (confirmed by
-# register_pagto_workers' own trailing comment, pagto.py:376-377). ST_PrepareApprovalDossier sits
-# on the ONLY path from BRT_PagtoSla to UT_AprovacaoAlcada, so every test needing that User Task
-# (the process's entire value-driven-candidate-group/human-approval/tier-match/SLA-coordenacao
-# surface) stalls indefinitely; the DEVOLVER admissibility branch similarly stalls at
-# ST_RegisterPaymentRefusal.
-_PAGTO_ALCADA_WORKER_MISSING_REASON = (
-    "v2 registration gap (module docstring FINDING 2), UPDATED t2.5-p2b-round2: the BPMN "
-    "declares operadora.pagto.{prepare_approval_dossier,notify_sla_risk,register_payment_"
-    "refusal} as external-task topics (camunda:type='external'); register_pagto_workers now "
-    "implements 2 of these 3 (notify_sla_risk, register_payment_refusal — t2.5-p2b-round2). Only "
-    "`prepare_approval_dossier` remains unimplemented (Andre A2A-gated, explicitly out of scope "
-    "for that PR). ST_PrepareApprovalDossier is the ONLY path from BRT_PagtoSla to "
-    "UT_AprovacaoAlcada (BPMN: BRT_AlcadaRouting -> GW_Faixa -default-> BRT_PagtoSla -> "
-    "ST_PrepareApprovalDossier -> UT_AprovacaoAlcada) — with no worker to claim it, the external "
-    "task sits unclaimed forever and this test's await_user_task/_await_end call times out "
-    "(EngineRestError) or observes a stuck `ended` set missing the expected terminal, since "
-    "_PAGTO_WORKER_TOPICS deliberately does not subscribe to a topic with no registered handler "
-    "(see its own comment). This STILL blocks every test needing UT_AprovacaoAlcada (the entire "
-    "value-driven-candidate-group / human-approval / tier-match / SLA-coordenacao surface). The "
-    "GW_ResolucaoAdmissibilidade DEVOLVER default branch (ST_RegisterPaymentRefusal) is NO "
-    "LONGER blocked by a missing worker (t2.5-p2b-round2 registered register_payment_refusal, "
-    "which does not sit downstream of ST_PrepareApprovalDossier at all) — see "
-    "`_PAGTO_REGISTER_REFUSAL_BUILT_REASON` for the ONE test on that branch, which now has a "
-    "narrower/different (or possibly no remaining) blocker. src/** fix (implementing "
-    "prepare_approval_dossier) is out of scope for this PR."
-)
-
-# t2.5-p2b-round2: register_payment_refusal is now BUILT and registered. Unlike every OTHER
-# _PAGTO_ALCADA_WORKER_MISSING_REASON-marked test, `test_admissibilidade_devolver_registra_
-# recusa_humana` reaches ST_RegisterPaymentRefusal via the ADMISSIBILIDADE/DEVOLVER channel
-# (UT_AnaliseAdmissibilidade -> GW_ResolucaoAdmissibilidade -> ST_RegisterPaymentRefusal), which
-# is NOT downstream of the still-missing ST_PrepareApprovalDossier/UT_AprovacaoAlcada at all --
-# it is reachable directly from GW_Admissibilidade without ever touching the dossier gate. None
-# of this test's assertions touch a kafka-backed notification (`_ENDS_ADVERSOS`/`ended`-set
-# checks only, via the ALREADY-FIXED generic operadora.events.publish path) -- so, unlike every
-# other xfail in this file, this one has NO KNOWN remaining src-side blocker after
-# t2.5-p2b-round2. HIGH-CONFIDENCE full-pass candidate: flagged prominently in the round-2 report
-# for a human to verify live and then REMOVE this xfail (a strict=True xfail that unexpectedly
-# passes is itself a hard failure -- XPASS(strict) -- so leaving this mark in place is a
-# deliberate, policy-mandated choice pending that live-proof, not an oversight).
-_PAGTO_REGISTER_REFUSAL_BUILT_REASON = (
-    "built, pending live-proof flip (t2.5-p2b-round2): pagto.py's `register_payment_refusal` is "
-    "now implemented and registered on `operadora.pagto.register_payment_refusal` (dual human "
-    "channel: decisao_pagamento==RECUSAR OR decisao_admissibilidade==DEVOLVER, both requiring "
-    "aprovador_id+justificativa_recusa -- refuses ERR_PAYMENT_REFUSAL_NOT_HUMAN otherwise, "
-    "mirrors recurso.register_desistencia's refuse-if-no-human pattern). This test's DEVOLVER "
-    "path (UT_AnaliseAdmissibilidade -> GW_ResolucaoAdmissibilidade -> ST_RegisterPaymentRefusal) "
-    "does NOT depend on ST_PrepareApprovalDossier/UT_AprovacaoAlcada (the still-open "
-    "prepare_approval_dossier gap) at all, and none of its assertions touch a kafka-backed "
-    "notification -- structurally, this test has NO remaining known blocker. Kept as strict "
-    "xfail per policy (mark/strict unchanged pending live-engine proof, NOT flipped here) -- "
-    "if it genuinely passes against a live engine, REMOVE this xfail (an unexpected XPASS under "
-    "strict=True is itself a CI failure)."
-)
+# FINDING 2 (module docstring) HISTORY: register_pagto_workers originally implemented only 6 of
+# the 8 BPMN-declared operadora.pagto.* external-task topics; t2.5-p2b-round2 closed 2 more
+# (notify_sla_risk/register_payment_refusal), leaving only prepare_approval_dossier's topic
+# EXCLUDED from the drain (the worker itself always existed as a DL-0033 local stub — see
+# pagto.py). item-9 bucket-1 (this file) added it to `_PAGTO_WORKER_TOPICS` and removed all 12
+# `_PAGTO_ALCADA_WORKER_MISSING_REASON`-marked xfails below — live-proven, all 12 flipped to real
+# passes (module docstring FINDING 2 has the full detail; both former `_PAGTO_ALCADA_WORKER_
+# MISSING_REASON`/`_PAGTO_REGISTER_REFUSAL_BUILT_REASON` reason constants are now retired — no
+# xfail in this file references either name anymore).
 
 
 # ---------------------------------------------------------------------------
@@ -483,13 +445,10 @@ async def pagto_probe(
     # adequacao.py's fixtures): todo topico operadora.pagto.* registrado no harness DEVE estar na
     # lista de drain — falha AQUI, explicita, se um worker novo ficar fora.
     pagto_registered = {t for t in harness.registered_topics if t.startswith("operadora.pagto.")}
-    # DL-0033 (t5): operadora.pagto.prepare_approval_dossier is now a REGISTERED local stub, but this
-    # probe deliberately does NOT drain it (keeps the engine xfails valid pending a dedicated
-    # live-engine proof that would flip them). Exclude it explicitly; the guard still catches any
-    # OTHER registered-but-undrained worker.
-    missing_from_drain = (
-        pagto_registered - set(_PAGTO_WORKER_TOPICS) - {"operadora.pagto.prepare_approval_dossier"}
-    )
+    # item-9 bucket-1: `_PREPARE_DOSSIER_TOPIC` is now IN `_PAGTO_WORKER_TOPICS` (live-engine proof
+    # done — see the drain-list comment above), so no exclusion is needed here anymore; the guard
+    # catches any OTHER registered-but-undrained worker.
+    missing_from_drain = pagto_registered - set(_PAGTO_WORKER_TOPICS)
     assert not missing_from_drain, (
         f"_PAGTO_WORKER_TOPICS desatualizada — topicos registrados fora do drain: {missing_from_drain}"
     )
@@ -688,7 +647,6 @@ async def test_nenhum_pagamento_acima_teto_auto_libera(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_PAGTO_ALCADA_WORKER_MISSING_REASON, strict=True)
 async def test_gate_admissibilidade_precede_alcada_no_happy_path(
     engine: EngineRest,
     pagto_probe: PagtoEngineProbe,
@@ -826,7 +784,6 @@ async def test_admissibilidade_devolver_registra_recusa_humana(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_PAGTO_ALCADA_WORKER_MISSING_REASON, strict=True)
 @pytest.mark.parametrize(
     ("valor", "grupo_esperado", "faixa_esperada"),
     [
@@ -866,7 +823,6 @@ async def test_valor_dirige_candidate_group(
     await _assert_no_adverse_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_PAGTO_ALCADA_WORKER_MISSING_REASON, strict=True)
 async def test_catchall_conservador_acima_do_maior_tier(
     engine: EngineRest,
     pagto_probe: PagtoEngineProbe,
@@ -922,7 +878,6 @@ async def test_abaixo_do_teto_auto_libera_clerical(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_PAGTO_ALCADA_WORKER_MISSING_REASON, strict=True)
 async def test_happy_path_aprovar_libera_humano(
     engine: EngineRest,
     pagto_probe: PagtoEngineProbe,
@@ -955,7 +910,6 @@ async def test_happy_path_aprovar_libera_humano(
     ), "pagto.completed adverso deve carregar aprovador_id+tier (trilha de auditoria ADR-0007)"
 
 
-@pytest.mark.xfail(reason=_PAGTO_ALCADA_WORKER_MISSING_REASON, strict=True)
 async def test_happy_path_recusar_humano(
     engine: EngineRest,
     pagto_probe: PagtoEngineProbe,
@@ -992,7 +946,6 @@ async def test_happy_path_recusar_humano(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_PAGTO_ALCADA_WORKER_MISSING_REASON, strict=True)
 async def test_tier_insuficiente_nao_libera(
     engine: EngineRest,
     pagto_probe: PagtoEngineProbe,
@@ -1024,7 +977,6 @@ async def test_tier_insuficiente_nao_libera(
     await _assert_no_adverse_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_PAGTO_ALCADA_WORKER_MISSING_REASON, strict=True)
 async def test_aprovar_exige_campos(
     engine: EngineRest,
     pagto_probe: PagtoEngineProbe,
@@ -1056,7 +1008,6 @@ async def test_aprovar_exige_campos(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_PAGTO_ALCADA_WORKER_MISSING_REASON, strict=True)
 async def test_sla_estourado_coordenacao_assume_nunca_auto_libera(
     engine: EngineRest,
     pagto_probe: PagtoEngineProbe,
@@ -1108,7 +1059,6 @@ async def test_sla_estourado_coordenacao_assume_nunca_auto_libera(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(reason=_PAGTO_ALCADA_WORKER_MISSING_REASON, strict=True)
 async def test_coordenacao_prorrogar_prazo_reabre_ut_aprovacao_alcada(
     engine: EngineRest,
     pagto_probe: PagtoEngineProbe,
@@ -1140,7 +1090,6 @@ async def test_coordenacao_prorrogar_prazo_reabre_ut_aprovacao_alcada(
     await _assert_no_adverse_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_PAGTO_ALCADA_WORKER_MISSING_REASON, strict=True)
 async def test_coordenacao_seguir_analise_refaz_dossie_e_reabre_ut_aprovacao_alcada(
     engine: EngineRest,
     pagto_probe: PagtoEngineProbe,
@@ -1150,21 +1099,22 @@ async def test_coordenacao_seguir_analise_refaz_dossie_e_reabre_ut_aprovacao_alc
 
     Distinto de assumir_aprovacao e de prorrogar_prazo: passa de novo por ST_PrepareApprovalDossier
     (prepare_approval_dossier roda >= 2x: dossie inicial + reentrada) antes de UT_AprovacaoAlcada
-    reabrir. Duplamente bloqueado (module docstring FINDING 2): alem de nunca alcancar
-    UT_AprovacaoAlcada pela primeira vez, prepare_approval_dossier tampouco existe como worker
-    Python — mesmo que existisse, o padrao dict-first do modulo nao chama kafka.publish (finding 3).
+    reabrir. item-9 bucket-1: `_PREPARE_DOSSIER_TOPIC` agora drena (o worker sempre existiu, DL-0033
+    local stub — ver module docstring FINDING 2 update); o dict-first idiom nao chama kafka.publish
+    (finding 3), entao a re-execucao e provada via historia de activity-instance (NAO deduplicada,
+    ao contrario de `activity_instances_ended`), nao via `notifications_of_type` (echo morto).
     """
     inst = await start_pagto(valor_pagamento_cents=120_000_000, dentro_teto_l2=False)
     iid = inst["id"]
 
     ut_coord = await _drive_to_coordenacao(engine, pagto_probe, iid)
-    dossies_antes = len(pagto_probe.notifications_of_type("pagto.prepare_approval_dossier"))
+    dossies_antes = await engine.activity_instance_count(iid, "ST_PrepareApprovalDossier")
 
     await engine.complete_task_as_human(ut_coord.id, {"decisao_coordenacao": "seguir_analise"})
     await pagto_probe.drain()
 
     reaberta = await engine.await_user_task(iid, _UT_APROVACAO)
-    dossies_depois = len(pagto_probe.notifications_of_type("pagto.prepare_approval_dossier"))
+    dossies_depois = await engine.activity_instance_count(iid, "ST_PrepareApprovalDossier")
     assert dossies_depois >= dossies_antes + 1, (
         "seguir_analise deve refazer o dossie (ST_PrepareApprovalDossier) antes de reabrir a UT — "
         f"antes={dossies_antes} depois={dossies_depois}"
@@ -1179,7 +1129,6 @@ async def test_coordenacao_seguir_analise_refaz_dossie_e_reabre_ut_aprovacao_alc
     await _assert_no_adverse_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_PAGTO_ALCADA_WORKER_MISSING_REASON, strict=True)
 async def test_coordenacao_omite_decisao_cai_no_default_seguir_analise(
     engine: EngineRest,
     pagto_probe: PagtoEngineProbe,
@@ -1191,13 +1140,15 @@ async def test_coordenacao_omite_decisao_cai_no_default_seguir_analise(
     O hardening default-init (ST_PublishSlaBreach seta decisao_coordenacao="" antes da UT) garante
     que GW_DecisaoCoordenacao avalie as condicoes contra "" e caia no default conservador
     (seguir_analise) -> refaz o dossie -> reabre UT_AprovacaoAlcada. Provamos rota limpa: dossie
-    refeito (>=+1), UT reaberta funcional, sem terminal adverso sem humano.
+    refeito (>=+1), UT reaberta funcional, sem terminal adverso sem humano. item-9 bucket-1: a
+    re-execucao e provada via historia de activity-instance (NAO deduplicada), nao via
+    `notifications_of_type` (echo morto — dict-first idiom, finding 3).
     """
     inst = await start_pagto(valor_pagamento_cents=120_000_000, dentro_teto_l2=False)
     iid = inst["id"]
 
     ut_coord = await _drive_to_coordenacao(engine, pagto_probe, iid)
-    dossies_antes = len(pagto_probe.notifications_of_type("pagto.prepare_approval_dossier"))
+    dossies_antes = await engine.activity_instance_count(iid, "ST_PrepareApprovalDossier")
     assert dossies_antes >= 1
 
     # Completa a UT SEM decisao_coordenacao (nem decisao_pagamento): a exata omissao da colisao.
@@ -1206,7 +1157,7 @@ async def test_coordenacao_omite_decisao_cai_no_default_seguir_analise(
 
     # Sem 500: o gateway roteou pelo default (seguir_analise) -> ST_PrepareApprovalDossier de novo.
     await engine.await_user_task(iid, _UT_APROVACAO)
-    dossies_depois = len(pagto_probe.notifications_of_type("pagto.prepare_approval_dossier"))
+    dossies_depois = await engine.activity_instance_count(iid, "ST_PrepareApprovalDossier")
     assert dossies_depois >= dossies_antes + 1, (
         "omitir decisao_coordenacao deve cair no default seguir_analise (refaz o dossie), nunca 500 — "
         f"antes={dossies_antes} depois={dossies_depois}"
@@ -1214,7 +1165,6 @@ async def test_coordenacao_omite_decisao_cai_no_default_seguir_analise(
     await _assert_no_adverse_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_PAGTO_ALCADA_WORKER_MISSING_REASON, strict=True)
 async def test_alerta_sla_nao_interruptivo_notifica(
     engine: EngineRest,
     pagto_probe: PagtoEngineProbe,
@@ -1222,10 +1172,11 @@ async def test_alerta_sla_nao_interruptivo_notifica(
 ) -> None:
     """Timer NAO-interruptivo de alerta notifica coordenacao-financeira; a UT segue aberta.
 
-    BT_AlertaSlaPagto (disparado via job execution) aciona notify_sla_risk -> End_RiscoSlaNotificado;
-    a aprovacao continua aberta (alerta informativo, nenhum desfecho adverso por timeout). Duplamente
-    bloqueado (module docstring FINDING 2): alem de nunca alcancar UT_AprovacaoAlcada, notify_sla_risk
-    tampouco tem worker registrado.
+    BT_AlertaSlaPagto (disparado via job execution) aciona notify_sla_risk (ST_NotificarRiscoSla) ->
+    End_RiscoSlaNotificado; a aprovacao continua aberta (alerta informativo, nenhum desfecho adverso
+    por timeout). item-9 bucket-1: notify_sla_risk e dict-first (finding 3, nunca chama
+    kafka.publish) — provado via historia do engine (ST_NotificarRiscoSla in ended), nao via
+    `notifications_of_type` (echo morto).
     """
     inst = await start_pagto(valor_pagamento_cents=120_000_000, dentro_teto_l2=False)
     iid = inst["id"]
@@ -1235,10 +1186,10 @@ async def test_alerta_sla_nao_interruptivo_notifica(
     await engine.execute_job(job.id)
     await pagto_probe.drain()
 
-    assert pagto_probe.notifications_of_type("pagto.notify_sla_risk"), (
-        "alerta nao-interruptivo deve notificar coordenacao-financeira"
-    )
     ended = await engine.activity_instances_ended(iid)
+    assert "ST_NotificarRiscoSla" in ended, (
+        "alerta nao-interruptivo deve notificar coordenacao-financeira (ST_NotificarRiscoSla)"
+    )
     assert _END_RISCO_SLA in ended, "alerta nao-interruptivo => End_RiscoSlaNotificado"
     assert not (ended & _ENDS_ADVERSOS), "alerta informativo nunca produz terminal adverso"
     # A UT de aprovacao continua aberta (nao-interruptivo nao cancela a tarefa).
