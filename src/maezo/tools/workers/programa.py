@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from maezo.tools.workers.base import FunctionWorker
+from maezo.tools.workers.harness import WorkerBpmnError
 
 if TYPE_CHECKING:
     from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
@@ -25,6 +26,19 @@ logger = structlog.get_logger(__name__)
 ERR_PROGRAMA_NO_CONSENT = "ERR_PROGRAMA_NO_CONSENT"
 ERR_PROGRAM_DISCHARGE_NOT_HUMAN = "ERR_PROGRAM_DISCHARGE_NOT_HUMAN"
 ERR_PROGRAMA_INSTANCIA_INVALIDA = "ERR_PROGRAMA_INSTANCIA_INVALIDA"
+
+# ADR-0030 §2 modeled BPMN error. `check_consent` (the CHOKEPOINT worker on
+# `operadora.programa.check_consent`) raises `WorkerBpmnError(ERR_PROGRAMA_NO_CONSENT)` so its
+# modeled boundary `BE_SemConsentimento` -> `End_SemConsentimento` (the documented LGPD fail-safe
+# terminal, Invariante A) can fire. Consumption-covered ("simple rule"): the topic is consumed
+# ONLY by SP-OP-PROGRAMA-001, which declares this errorCode on that task's boundary. It is a
+# consent origin/consistency guard (G2-val) — never an adverse action — so NOT a `*_NOT_HUMAN`
+# guard and NOT T-E-gated. Unioned into `worker_runtime/service.py`'s
+# `_GATE_PROVEN_BPMN_ERROR_CODES`. NOTE: `stratify_risk`'s defense-in-depth guard raises the SAME
+# code as a `ProgramaError` (-> ValueError -> incident) DELIBERATELY — `ST_StratifyRisk` carries NO
+# error boundary, so a `WorkerBpmnError` there would silently end the process scope on CIB Seven
+# 2.1.0 (the live-verified hazard); it MUST stay a human-visible incident.
+PROGRAMA_BPMN_ERROR_ALLOWLIST: frozenset[str] = frozenset({ERR_PROGRAMA_NO_CONSENT})
 
 # Decision values
 DECISAO_DESLIGAR_CLINICO = "DESLIGAR_CLINICO"
@@ -55,7 +69,10 @@ def check_consent(variables: dict[str, Any]) -> dict[str, Any]:
             beneficiario=variables.get("beneficiario_pseudo_id"),
             consent_scope=consent_scope,
         )
-        raise ProgramaError(
+        # MODELED boundary error (BE_SemConsentimento -> End_SemConsentimento) — WorkerBpmnError,
+        # NOT a ProgramaError (which FunctionWorker.execute reclassifies to a bare ValueError ->
+        # incident, so the boundary could never fire). ADR-0030 §2; see PROGRAMA_BPMN_ERROR_ALLOWLIST.
+        raise WorkerBpmnError(
             ERR_PROGRAMA_NO_CONSENT,
             f"Consentimento ausente/revogado para escopo '{consent_scope}'",
         )

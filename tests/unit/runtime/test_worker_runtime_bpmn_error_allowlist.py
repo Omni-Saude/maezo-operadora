@@ -49,7 +49,11 @@ def test_production_allowlist_is_exactly_the_non_adverse_failsafes() -> None:
     #     notify-channel fail-safe (notify_team/notify_supervisor publish failure) routed via
     #     BE_FalhaNotificacao/BE_NotifFallbackFailed/BE_NotifSupervisorFailed to the supervisor
     #     fallback + the mandatory HITL user task (a neutral, never-silently-dropped route).
-    # All four are NON-adverse (not a denial), so none is T-E-gated.
+    #   - ERR_NIP_PROTOCOLO_INVALIDO (item-9 bucket-3, Tier-2): nip's G2-val origin/consistency
+    #     guard (blank protocolo_ans) routed to End_NipProtocoloInvalido (a neutral terminal).
+    #   - ERR_PROGRAMA_NO_CONSENT (item-9 bucket-3, Tier-2): programa's G2-val consent chokepoint
+    #     (check_consent) routed to End_SemConsentimento (a neutral LGPD fail-safe terminal).
+    # All six are NON-adverse (not a denial), so none is T-E-gated.
     assert (
         frozenset(
             {
@@ -57,6 +61,8 @@ def test_production_allowlist_is_exactly_the_non_adverse_failsafes() -> None:
                 "ERR_DSR_IDENTITY_UNVERIFIED",
                 "ERR_RECURSO_INVALID_GLOSA",
                 "ERR_ESC_NOTIFY_FAILED",
+                "ERR_NIP_PROTOCOLO_INVALIDO",
+                "ERR_PROGRAMA_NO_CONSENT",
             }
         )
         == PRODUCTION_BPMN_ERROR_ALLOWLIST

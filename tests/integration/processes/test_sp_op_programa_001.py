@@ -121,7 +121,15 @@ FINDINGS (see PR body / evidence-ledger for full detail):
      `test_nenhum_caminho_automatizado_desliga_clinicamente`'s PORT NOTE (below) is updated to
      reflect that its sweep is no longer vacuous.
 
-  2. ROOT CAUSE (programa-specific, distinct from auth/cancel's `WorkerBpmnError` pattern):
+  2. ROOT CAUSE — check_consent leg RESOLVED in src (item-9 bucket-3, ADR-0030 §2): `check_consent`
+     now raises `WorkerBpmnError(ERR_PROGRAMA_NO_CONSENT)`, gate-proven/consumption-covered and wired
+     into `worker_runtime/service.py`'s `PRODUCTION_BPMN_ERROR_ALLOWLIST`, so `BE_SemConsentimento` is
+     REACHABLE the moment a live-engine probe wires that allowlist + the xfail flips (a follow-up; see
+     `_PROGRAMA_CONSENT_GUARD_NOT_BPMN_ERROR_REASON`). The narrative below documents the ORIGINAL
+     (pre-migration) defect and STILL applies verbatim to `register_program_discharge`'s
+     `ERR_PROGRAM_DISCHARGE_NOT_HUMAN` (a T-E-gated adverse guard that correctly stays `ProgramaError`
+     -> incident until T-E). At port time (programa-specific, distinct from auth/cancel's
+     `WorkerBpmnError` pattern):
      programa.py's guard failures can NEVER be reported to the engine as a `bpmnError` — they
      always demote straight to an engine incident, bypassing the BPMN's OWN declared boundary
      catch. Evidence chain: `check_consent`/`_register_program_discharge` raise `ProgramaError`
@@ -358,21 +366,20 @@ _PROGRAMA_MISSING_WORKER_REASON = (
 )
 
 _PROGRAMA_CONSENT_GUARD_NOT_BPMN_ERROR_REASON = (
-    "T3.1 phase-2 finding 2 (programa-specific dispatch gap, distinct from auth/cancel's "
-    "WorkerBpmnError-gated guards): check_consent raises ProgramaError(ERR_PROGRAMA_NO_CONSENT, "
-    "...) (programa.py:55-58) on a failed/revoked consent check. FunctionWorker.execute() "
-    "(base.py:284-294) catches this bespoke .code/.message exception (deliberately, per its own "
-    "class docstring) and re-raises it as a plain ValueError — by the time WorkerHarness._handle "
-    "(harness.py:883) sees it, it is no longer a WorkerBpmnError, so the ONE branch that checks "
-    "bpmn_error_allowlist and can dispatch handle_bpmn_error to the engine (harness.py:916-917) "
-    "never matches; the generic 'except ValueError' branch (harness.py:952-954) fires instead, "
-    "reporting a straight engine incident (retries_override=0). Consequence: the BPMN's own "
-    "BE_SemConsentimento boundary event (BPMN:120-123, errorRef=Error_ProgramaNoConsent / "
-    "errorCode=ERR_PROGRAMA_NO_CONSENT) can NEVER fire for this guard failure under the current "
-    "wiring — End_SemConsentimento (the documented LGPD fail-safe terminal, invariant A) is "
-    "unreachable via the automated gate-fail path; an open incident is produced instead. src/** "
-    "fix (giving FunctionWorker/the harness a path to report a modeled WorkerBpmnError for coded "
-    "exceptions with a matching BPMN boundary) is out of scope for this port."
+    "MIGRATION LANDED (item-9 bucket-3, ADR-0030 §2) — PENDING LIVE-ENGINE XPASS FLIP. The src fix "
+    "is DONE: check_consent (the CHOKEPOINT on operadora.programa.check_consent) now raises "
+    "WorkerBpmnError(ERR_PROGRAMA_NO_CONSENT) — the MODELED boundary error — instead of a bespoke "
+    "ProgramaError (which FunctionWorker.execute reclassified to a bare ValueError -> generic "
+    "incident, so BE_SemConsentimento could never fire). The code is gate-proven/consumption-covered "
+    "by scripts/ci/check_bpmn_error_allowlist.py (G2-val consent origin-guard, NOT T-E-gated) and "
+    "WIRED into production via programa.PROGRAMA_BPMN_ERROR_ALLOWLIST -> worker_runtime/service.py's "
+    "PRODUCTION_BPMN_ERROR_ALLOWLIST. A failed/revoked consent check should now route to the neutral "
+    "LGPD fail-safe terminal End_SemConsentimento (invariant A) instead of opening an incident. "
+    "(NB: stratify_risk's defense-in-depth guard DELIBERATELY still raises ProgramaError -> incident "
+    "— ST_StratifyRisk carries no boundary, so a WorkerBpmnError there would silently end the scope.) "
+    "This ENGINE test stays strict-xfail ONLY because proving the actual boundary flip requires a "
+    "live CIB Seven 2.1.0 engine; the marker is removed with live-engine XPASS proof in a dedicated "
+    "follow-up (precedent: auth's removed boundary xfail)."
 )
 
 
@@ -431,9 +438,11 @@ async def programa_probe(
     """Probe que serve as external tasks com os workers reais de programa."""
     worker_id = f"qa-programa-worker-{uuid.uuid4().hex[:8]}"
     transport = CibSevenWorkerTransport(CIBSEVEN_BASE_URL)
-    # SEM bpmn_error_allowlist (diferente de auth/cancel): nenhum worker de programa.py chega a
-    # levantar um WorkerBpmnError (finding 2 — ProgramaError vira ValueError antes do harness ver
-    # a excecao), entao nao ha codigo nenhum para gatear num allowlist.
+    # SEM bpmn_error_allowlist AINDA: item-9 bucket-3 migrou check_consent para
+    # WorkerBpmnError(ERR_PROGRAMA_NO_CONSENT) (gate-proven, wired em PRODUCTION_BPMN_ERROR_ALLOWLIST),
+    # mas gatear o allowlist DESTE probe + flipar os xfails de consent-guard exige prova em engine ao
+    # vivo (follow-up — ver _PROGRAMA_CONSENT_GUARD_NOT_BPMN_ERROR_REASON). register_program_discharge
+    # segue ProgramaError->incidente (ERR_PROGRAM_DISCHARGE_NOT_HUMAN e T-E-gated).
     # T1.10 wave: emit-before-complete is FAIL-CLOSED (harness.py _emit_audit) — a real
     # PostgresAuditSink (lane PG, migrations 0001->0005) is REQUIRED or the harness refuses
     # to complete. `tenant` scopes the durable audit chain / dedup key to the per-run schema.
