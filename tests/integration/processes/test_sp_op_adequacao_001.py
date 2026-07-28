@@ -797,7 +797,6 @@ async def test_l3_gap_leve_monitora_sem_user_task(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_MISSING_DOSSIER_WORKER_REASON, strict=True)
 async def test_happy_path_compromisso_fallback_humano(
     engine: EngineRest,
     adequacao_probe: AdequacaoEngineProbe,
@@ -830,13 +829,13 @@ async def test_happy_path_compromisso_fallback_humano(
     assert _END_ADVERSO in ended, f"Compromisso humano deve atingir {_END_ADVERSO}. ended={ended}"
     assert adequacao_probe.has_event(_ADEQ_COMPLETED, desfecho="compromisso_fallback_humano")
 
-    registros = adequacao_probe.notifications_of_type("adequacao.register_fallback_commitment")
-    assert registros, "Worker register_fallback_commitment deve ser executado apos decisao humana"
-    r = registros[0]
-    assert r["decisao_remediacao"] == "COMPROMISSO_FALLBACK"
-    assert r["tipo_fallback"] == "reembolso_garantido"
-    assert r["responsavel_id"] == "gestao-rede-sintetico-001"
-    assert r["tier"] == "senior"
+    # Engine-side (o kafka-echo `notifications_of_type` morreu pos-#178): o serviceTask do worker
+    # register_fallback_commitment EXECUTOU apos a decisao humana. A trilha de accountability
+    # (decisao_remediacao/responsavel_id/tier, _CAMPOS_FALLBACK) foi setada pelo humano acima; o
+    # desfecho `compromisso_fallback_humano` (has_event acima) so e alcancado por este caminho.
+    assert "ST_RegisterFallbackCommitment" in ended, (
+        "register_fallback_commitment (ST_RegisterFallbackCommitment) deve executar apos a decisao humana"
+    )
 
 
 async def test_humano_encaminhar_cred_nao_firma_compromisso(
@@ -878,7 +877,6 @@ async def test_timer_sla_estourado_coordenacao_assume(
     await _assert_no_adverse_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_MISSING_DOSSIER_WORKER_REASON, strict=True)
 async def test_coordenacao_assume_e_firma_compromisso_fallback_humano(
     engine: EngineRest,
     adequacao_probe: AdequacaoEngineProbe,
@@ -936,9 +934,13 @@ async def test_coordenacao_assume_e_firma_compromisso_fallback_humano(
     )
     assert adequacao_probe.has_event(_ADEQ_COMPLETED, desfecho="compromisso_fallback_humano")
 
-    registros = adequacao_probe.notifications_of_type("adequacao.register_fallback_commitment")
-    assert registros, "Worker register_fallback_commitment deve ser executado apos decisao da coordenacao"
-    assert registros[0]["responsavel_id"] == "coordenacao-rede-sintetica-001"
+    # Engine-side (kafka-echo morto pos-#178): register_fallback_commitment executou apos a decisao
+    # da coordenacao. responsavel_id=coordenacao-* foi input humano; o desfecho compromisso_fallback_
+    # humano (has_event acima) prova o caminho.
+    assert "ST_RegisterFallbackCommitment" in ended, (
+        "register_fallback_commitment (ST_RegisterFallbackCommitment) deve executar "
+        "apos a decisao da coordenacao"
+    )
 
 
 # ===========================================================================
@@ -954,7 +956,6 @@ async def test_coordenacao_assume_e_firma_compromisso_fallback_humano(
 #                       UT_DecisaoFallback (default/catch-all conservador).
 
 
-@pytest.mark.xfail(reason=_MISSING_DOSSIER_WORKER_REASON, strict=True)
 async def test_coordenacao_assumir_decisao_roteia_para_gw_decisao_remediacao(
     engine: EngineRest,
     adequacao_probe: AdequacaoEngineProbe,
@@ -980,7 +981,8 @@ async def test_coordenacao_assumir_decisao_roteia_para_gw_decisao_remediacao(
         f"assumir_decisao + ENCAMINHAR_CRED deve atingir End_RemediacaoEncaminhada. ended={ended}"
     )
     assert _END_ADVERSO not in ended, "ENCAMINHAR_CRED nao firma compromisso de fallback"
-    assert adequacao_probe.notifications_of_type("adequacao.start_credenciamento")
+    # Engine-side (kafka-echo morto pos-#178): o serviceTask start_credenciamento (L3) executou.
+    assert "ST_StartCredenciamentoL3" in ended
     await _assert_no_adverse_without_human_task(engine, iid)
 
 
@@ -1016,7 +1018,6 @@ async def test_coordenacao_prorrogar_prazo_reabre_ut_decisao_fallback(
     await _assert_no_adverse_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_MISSING_DOSSIER_WORKER_REASON, strict=True)
 async def test_coordenacao_seguir_analise_refaz_dossie_e_reabre_ut_decisao_fallback(
     engine: EngineRest,
     adequacao_probe: AdequacaoEngineProbe,
@@ -1032,14 +1033,17 @@ async def test_coordenacao_seguir_analise_refaz_dossie_e_reabre_ut_decisao_fallb
     iid = inst["id"]
 
     coord = await _drive_to_coordenacao(engine, adequacao_probe, iid)
-    dossies_antes = len(adequacao_probe.notifications_of_type("adequacao.prepare_remediation_dossier"))
+    # Engine-side (kafka-echo morto pos-#178): conta EXECUCOES de ST_PrepareRemediationDossier no
+    # historico (activity_instance_count NAO deduplica, ao contrario de activity_instances_ended) —
+    # e exatamente a re-execucao do dossie no loop-back seguir_analise que este teste prova.
+    dossies_antes = await engine.activity_instance_count(iid, "ST_PrepareRemediationDossier")
     assert dossies_antes >= 1, "dossie inicial deve ter sido preparado antes de UT_DecisaoFallback"
 
     await engine.complete_task_as_human(coord.id, {"decisao_coordenacao": "seguir_analise"})
     await adequacao_probe.drain()
 
     reaberta = await engine.await_user_task(iid, _UT_DECISAO)
-    dossies_depois = len(adequacao_probe.notifications_of_type("adequacao.prepare_remediation_dossier"))
+    dossies_depois = await engine.activity_instance_count(iid, "ST_PrepareRemediationDossier")
     assert dossies_depois >= dossies_antes + 1, (
         "seguir_analise deve refazer o dossie (ST_PrepareRemediationDossier) antes de reabrir a UT — "
         f"antes={dossies_antes} depois={dossies_depois}"
@@ -1055,7 +1059,6 @@ async def test_coordenacao_seguir_analise_refaz_dossie_e_reabre_ut_decisao_fallb
     await _assert_no_adverse_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_MISSING_DOSSIER_WORKER_REASON, strict=True)
 async def test_coordenacao_omite_decisao_cai_no_default_seguir_analise(
     engine: EngineRest,
     adequacao_probe: AdequacaoEngineProbe,
@@ -1074,7 +1077,8 @@ async def test_coordenacao_omite_decisao_cai_no_default_seguir_analise(
     iid = inst["id"]
 
     coord = await _drive_to_coordenacao(engine, adequacao_probe, iid)
-    dossies_antes = len(adequacao_probe.notifications_of_type("adequacao.prepare_remediation_dossier"))
+    # Engine-side (kafka-echo morto pos-#178): conta EXECUCOES historicas de ST_PrepareRemediationDossier.
+    dossies_antes = await engine.activity_instance_count(iid, "ST_PrepareRemediationDossier")
     assert dossies_antes >= 1
 
     # Completa a UT SEM decisao_coordenacao (nem decisao_remediacao): a exata omissao da colisao.
@@ -1083,7 +1087,7 @@ async def test_coordenacao_omite_decisao_cai_no_default_seguir_analise(
 
     # Sem 500: o gateway roteou pelo default (seguir_analise) -> ST_PrepareRemediationDossier de novo.
     reaberta = await engine.await_user_task(iid, _UT_DECISAO)
-    dossies_depois = len(adequacao_probe.notifications_of_type("adequacao.prepare_remediation_dossier"))
+    dossies_depois = await engine.activity_instance_count(iid, "ST_PrepareRemediationDossier")
     assert dossies_depois >= dossies_antes + 1, (
         "omitir decisao_coordenacao deve cair no default seguir_analise (refaz o dossie), nunca 500 — "
         f"antes={dossies_antes} depois={dossies_depois}"
