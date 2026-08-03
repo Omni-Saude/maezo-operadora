@@ -198,7 +198,7 @@ def test_cred_allowlist_constant_is_exactly_the_origin_guard() -> None:
     """CRED_BPMN_ERROR_ALLOWLIST carries ONLY the G2-val origin guard — the two adverse
     *_NOT_HUMAN codes stay T-E-deferred out of it (ADR-0030 §4; L0: never enable a *_NOT_HUMAN
     code outside the T-E enablement)."""
-    assert CRED_BPMN_ERROR_ALLOWLIST == frozenset({ERR_CRED_INVALID_PRESTADOR})
+    assert frozenset({ERR_CRED_INVALID_PRESTADOR}) == CRED_BPMN_ERROR_ALLOWLIST
     assert ERR_DECRED_NOT_HUMAN not in CRED_BPMN_ERROR_ALLOWLIST
     assert ERR_CRED_DENIAL_NOT_HUMAN not in CRED_BPMN_ERROR_ALLOWLIST
 

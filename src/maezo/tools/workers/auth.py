@@ -118,6 +118,7 @@ def _auto_approval_sanctioned(process_vars: dict[str, Any]) -> bool:
     recomendacao = auto.get("recomendacao")
     return isinstance(recomendacao, str) and recomendacao.strip() == "AUTO_APROVAR"
 
+
 # ---------------------------------------------------------------------------
 # AnalyzeRequestWorker
 # ---------------------------------------------------------------------------
@@ -637,7 +638,7 @@ class ConveneJuntaWorker(WorkerBase):
                 "auth_junta_blocked_by_guard",
                 tenant_id=tenant_id,
                 guia=guia,
-                reason="sem evidencia de decisao humana (decisao_auditor != JUNTA_MEDICA e sem human_approved)",
+                reason="sem evidencia de decisao humana (nem JUNTA_MEDICA nem human_approved)",
             )
             return {
                 "status": "blocked_by_guard",
