@@ -3,9 +3,13 @@
 TDD London School: tests verify value-driven tier routing and payment release guard.
 """
 
+import asyncio
+import inspect
+
 import pytest
 
 from maezo.a2a import DelegationResult, RejectionReason
+from maezo.tools.workers import pagto as pagto_module
 from maezo.tools.workers.dmn_transport import DmnEvaluationError, FakeDmnTransport
 from maezo.tools.workers.harness import ExternalTask, WorkerHarness
 from maezo.tools.workers.pagto import (
@@ -828,12 +832,14 @@ class _FakeDossierDispatcher:
         return self._result
 
 
-def _dossier_task(variables: dict) -> ExternalTask:
+def _dossier_task(variables: dict, *, business_key: str = "PAGTO-amh-OP-001") -> ExternalTask:
+    """`business_key` is the ENGINE's authoritative key of the RUNNING instance — the handler
+    threads it verbatim into the delegation (GK-dossier finding 1a)."""
     return ExternalTask(
         task_id="et-1",
         topic="operadora.pagto.prepare_approval_dossier",
         process_instance_id="pi-1",
-        business_key="PAGTO-amh-OP-001",
+        business_key=business_key,
         worker_id="w-1",
         variables=variables,
     )
@@ -936,6 +942,51 @@ async def test_prepare_approval_dossier_delegation_failure_fail_neutrals_never_r
     assert result["dossier_prepared"] is False
     assert result["dossier_gap"] == "delegation_failed"
     assert "secret" not in str(result.values())
+
+
+class _HangingDossierDispatcher:
+    """Never returns — models a wedged dispatcher (pool exhausted, engine/PG unreachable inside
+    Andre's graph). Records whether its pending delegation was CANCELLED by the timeout."""
+
+    def __init__(self) -> None:
+        self.entered = False
+        self.cancelled = False
+
+    async def delegate(self, envelope) -> DelegationResult:  # noqa: ANN001 — duck-typed fake
+        self.entered = True
+        try:
+            await asyncio.Event().wait()  # hangs forever
+        except asyncio.CancelledError:
+            self.cancelled = True
+            raise
+        raise AssertionError("unreachable")  # pragma: no cover
+
+
+async def test_prepare_approval_dossier_timeout_fail_neutrals_and_cancels_the_delegation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """GK-dossier finding 2: a HUNG dispatcher must never hold the external-task lock to expiry
+    (which would let the engine re-deliver the SAME task to another worker alongside this still-
+    awaiting one). The bounded `asyncio.wait_for` fires, CANCELS the pending delegation and the
+    task COMPLETES with the disclosed `delegation_timeout` gap — DL-0037: the UT still opens, and
+    this handler still never raises."""
+    monkeypatch.setattr(pagto_module, "_DOSSIER_DELEGATION_TIMEOUT_S", 0.02)
+    dispatcher = _HangingDossierDispatcher()
+    handler = make_prepare_approval_dossier_handler(dispatcher)  # type: ignore[arg-type]
+
+    result = await handler(_dossier_task(_PAGTO_DOSSIER_VARS))
+
+    assert result == {"dossier_prepared": False, "dossier_gap": "delegation_timeout"}
+    assert dispatcher.entered is True
+    assert dispatcher.cancelled is True  # nothing is left running behind the return
+
+
+def test_dossier_delegation_deadline_is_below_the_external_task_lock() -> None:
+    """The deadline must stay SAFELY under the harness's 30s lock (`WORKER_LOCK_DURATION_MS`) —
+    otherwise the bound buys nothing: the lock would expire first and the engine would re-deliver."""
+    lock_ms = inspect.signature(WorkerHarness.__init__).parameters["lock_duration_ms"].default
+    assert lock_ms == 30_000  # single-sourced against the harness's own default
+    assert 0 < pagto_module._DOSSIER_DELEGATION_TIMEOUT_S <= (lock_ms / 1000) - 5
 
 
 async def test_prepare_approval_dossier_structured_rejection_gap_bounded_reason() -> None:

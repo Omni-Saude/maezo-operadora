@@ -7,6 +7,7 @@ Clones AUTH auto-approval for low-value (dentro_teto_l2).
 
 from __future__ import annotations
 
+import asyncio
 import functools
 from typing import TYPE_CHECKING, Any
 
@@ -550,6 +551,17 @@ def publish_completed(variables: dict[str, Any]) -> dict[str, Any]:
 # prepare_approval_dossier — REAL Andre A2A delegation (raw async handler; DL-0033 closed, DL-0037)
 # ---------------------------------------------------------------
 
+# Deadline for the whole Andre delegation round-trip (GK-dossier finding 2). Deliberately BELOW
+# the external-task LOCK the harness takes on this task (`WorkerHarness(lock_duration_ms=30_000)`
+# / `WORKER_LOCK_DURATION_MS`, `runtime/worker_runtime/settings.py`): a hung dispatcher (wedged
+# pool, unreachable engine/PG inside Andre's graph) would otherwise hold the task past lock
+# expiry, at which point the ENGINE re-delivers the SAME task to another worker while this one is
+# still awaiting — two concurrent in-flight delegations for one `ST_PrepareApprovalDossier`, and
+# a completion that arrives on an expired lock. 20s leaves ~10s of headroom for the completion
+# round-trip. Expiry is DL-0037-shaped: a DISCLOSED gap on a COMPLETED task, never a raise —
+# UT_AprovacaoAlcada still opens, the approver just sees `dossier_gap=delegation_timeout`.
+_DOSSIER_DELEGATION_TIMEOUT_S: float = 20.0
+
 
 def make_prepare_approval_dossier_handler(dispatcher: DelegationDispatcher | None) -> TaskHandler:
     """Create the handler for `operadora.pagto.prepare_approval_dossier` — the REAL Andre A2A
@@ -575,10 +587,16 @@ def make_prepare_approval_dossier_handler(dispatcher: DelegationDispatcher | Non
     payment release is born SOLELY in the human User Task with `decisao_pagamento=APROVAR` +
     tier-match (`release_high_value_payment`, unchanged, this handler NEVER invokes it). A missing
     dispatcher (degraded runtime: no signing key / no DATABASE_URL), missing business identifiers,
-    a structured rejection or ANY delegation failure therefore returns
+    a structured rejection, a DELEGATION TIMEOUT or ANY delegation failure therefore returns
     `{"dossier_prepared": False, "dossier_gap": <bounded reason token>}` + a LOUD log and COMPLETES
     the task — the human UT MUST still open; this handler NEVER raises. The gap token is a bounded
     class token (engine-variable hygiene) — raw error text stays in the log.
+
+    BOUNDED AWAIT (GK-dossier finding 2): the delegation is awaited under
+    `asyncio.wait_for(_DOSSIER_DELEGATION_TIMEOUT_S)` — safely below the 30s external-task lock, so
+    a hung dispatcher can never hold this task to lock expiry (which would let the engine
+    re-deliver the SAME task to another worker alongside this still-awaiting one). Expiry ->
+    `dossier_gap="delegation_timeout"`, task COMPLETED, UT opens.
 
     NO-DUPLICATE-INSTANCE (GK-dossier finding 1, two anchors): this handler runs from INSIDE an
     already-running SP-OP-PAGTO-001 instance, so the delegation must NEVER open a second one
@@ -631,22 +649,39 @@ def make_prepare_approval_dossier_handler(dispatcher: DelegationDispatcher | Non
         from maezo.agents.andre.delegation import delegate_pagto_dossier
 
         try:
-            result = await delegate_pagto_dossier(
-                dispatcher,
-                tenant=tenant_id.strip(),
-                case_meta=dict(v),
-                ordem_pagamento_id=ordem_pagamento_id,
-                numero_lote_tiss=numero_lote_tiss,
-                prestador_id=prestador_id,
-                # The ENGINE's authoritative key of the instance THIS task belongs to (GK-dossier
-                # finding 1a). Threading it verbatim keeps Andre anchored on the SAME case: the
-                # ordem-first derivation DIVERGES from an instance keyed with the contract's
-                # CONTAS variant (`PAGTO-{tenant}-{numero_lote_tiss}-{prestador_id}`, contract
-                # §Business key) whenever an ordem is also in scope, and a diverging key would
-                # miss the idempotency lookup and open a SECOND SP-OP-PAGTO-001 instance — a
-                # duplicated UT_AprovacaoAlcada approval/release path. Blank -> derivation.
-                business_key=str(task.business_key or ""),
+            # BOUNDED AWAIT (GK-dossier finding 2): never hold the external-task lock to expiry.
+            result = await asyncio.wait_for(
+                delegate_pagto_dossier(
+                    dispatcher,
+                    tenant=tenant_id.strip(),
+                    case_meta=dict(v),
+                    ordem_pagamento_id=ordem_pagamento_id,
+                    numero_lote_tiss=numero_lote_tiss,
+                    prestador_id=prestador_id,
+                    # The ENGINE's authoritative key of the instance THIS task belongs to
+                    # (GK-dossier finding 1a). Threading it verbatim keeps Andre anchored on the
+                    # SAME case: the ordem-first derivation DIVERGES from an instance keyed with
+                    # the contract's CONTAS variant
+                    # (`PAGTO-{tenant}-{numero_lote_tiss}-{prestador_id}`, contract §Business key)
+                    # whenever an ordem is also in scope, and a diverging key would miss the
+                    # idempotency lookup and open a SECOND SP-OP-PAGTO-001 instance — a duplicated
+                    # UT_AprovacaoAlcada approval/release path. Blank -> derivation.
+                    business_key=str(task.business_key or ""),
+                ),
+                timeout=_DOSSIER_DELEGATION_TIMEOUT_S,
             )
+        except TimeoutError:
+            # `asyncio.wait_for` CANCELS the pending delegation before raising, so nothing is left
+            # running behind this return. DL-0037: complete the task with the disclosed gap — the
+            # human UT opens on time instead of the lock expiring into an engine re-delivery.
+            logger.error(
+                "pagto_prepare_approval_dossier_delegation_timeout",
+                tenant_id=tenant_id,
+                ordem_pagamento_id=ordem_pagamento_id,
+                business_key=task.business_key,
+                timeout_s=_DOSSIER_DELEGATION_TIMEOUT_S,
+            )
+            return {"dossier_prepared": False, "dossier_gap": "delegation_timeout"}
         except Exception as exc:  # noqa: BLE001 — DL-0037: the UT must open; never raise here.
             logger.error(
                 "pagto_prepare_approval_dossier_delegation_failed",
