@@ -225,11 +225,12 @@ def register_default_workers(
 
     `dossier_dispatcher` (dossier-A2A seam, DL-0033 real wiring / DL-0037) is the
     `DelegationDispatcher` assembled by `build_dossier_delegation_dispatcher` at bring-up,
-    threaded into the two RAW async dossier handlers (`credenciamento.prepare_dossier` ->
-    Carolina; `adequacao.prepare_remediation_dossier` -> Andre) via the same `**seams` catch-all.
-    Absent (`None`, the topic-probe default and the DEGRADED-runtime posture — no signing key /
-    no DATABASE_URL) the topics still register and both handlers fail-neutral with a disclosed
-    gap marker; the human User Tasks always still open.
+    threaded into the THREE RAW async dossier handlers (`credenciamento.prepare_dossier` ->
+    Carolina; `adequacao.prepare_remediation_dossier` -> Andre; `pagto.prepare_approval_dossier`
+    -> Andre) via the same `**seams` catch-all. Absent (`None`, the topic-probe default and the
+    DEGRADED-runtime posture — no signing key / no DATABASE_URL) the topics still register and
+    all three handlers fail-neutral with a disclosed gap marker; the human User Tasks always
+    still open.
 
     Idempotent (`WorkerHarness.register_worker` replaces on re-registration, same topic).
     """
@@ -342,7 +343,8 @@ class WorkerState:
     # Dossier-A2A seam (DL-0033 real wiring / DL-0037): the worker->Carolina/Andre delegation
     # dispatcher assembled by `build_dossier_delegation_dispatcher` at bring-up. `None` = DEGRADED
     # (no signing key in non-local mode / missing DATABASE_URL / assembly failure): the daemon
-    # still RUNS and serves every topic; the two dossier workers fail-neutral with a disclosed
+    # still RUNS and serves every topic; the three dossier workers (cred/adequacao/PAGTO)
+    # fail-neutral with a disclosed
     # gap marker and `dossier_delegation_ready` reports the degradation LOUDLY (never gates
     # /readyz — the dossier "instrui, nao decide", so its absence must not stop the human UTs).
     dossier_dispatcher: DelegationDispatcher | None = None
@@ -468,17 +470,21 @@ def build_readiness_checks(state: WorkerState) -> list[Callable[[], Awaitable[Ch
         # DL-0037 DEGRADATION POSTURE: reports whether the dossier A2A dispatcher (worker ->
         # Carolina/Andre) assembled — LOUD operator visibility, but NEVER gates `/readyz`
         # (always healthy=True, mirroring `kafka_ready`): the dossier only INSTRUCTS the human
-        # User Tasks ("instrui, nao decide"); when the dispatcher is absent the two dossier
-        # workers return the disclosed-gap marker and the UTs still open, so a missing signing
+        # User Tasks ("instrui, nao decide"); when the dispatcher is absent the three dossier
+        # workers (cred/adequacao/PAGTO — the PAYMENT-approval dossier included, so the operator
+        # readiness DETAIL discloses payment-dossier degradation too) return the disclosed-gap
+        # marker and the UTs still open, so a missing signing
         # key / degraded assembly must degrade the DOSSIER, never the whole daemon.
         ready = _state.dossier_dispatcher is not None
         detail = (
             "dossier_delegation_ready=true — worker->Carolina/Andre dispatcher assembled "
-            "(cred.prepare_dossier / adequacao.prepare_remediation_dossier delegate for real)"
+            "(cred.prepare_dossier / adequacao.prepare_remediation_dossier / "
+            "pagto.prepare_approval_dossier delegate for real)"
             if ready
             else (
                 "dossier_delegation_ready=false — dossier A2A dispatcher NOT assembled "
-                f"({_state.dossier_dispatcher_detail}); the two dossier workers return "
+                f"({_state.dossier_dispatcher_detail}); the three dossier workers "
+                "(cred/adequacao/PAGTO) return "
                 "{'dossier_prepared': False, 'dossier_gap': ...} and the human User Tasks "
                 "still open (DL-0037 fail-neutral-with-disclosed-gap); not a readiness failure"
             )
@@ -611,7 +617,8 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
         # DEGRADATION POSTURE (DL-0037): assembly failure — no signing key in non-local mode
         # (`_require_signer_or_fail_closed` raises), missing DATABASE_URL/deps, card/registry
         # failure — is caught HERE: LOUD error, `dossier_dispatcher` stays None, the daemon RUNS,
-        # `dossier_delegation_ready` reports the degradation, and the two dossier workers return
+        # `dossier_delegation_ready` reports the degradation, and the three dossier workers
+        # (cred/adequacao/PAGTO) return
         # the disclosed-gap marker (the human UTs still open). Unsigned Cards NEVER compose in
         # non-local mode — degradation, not downgrade.
         if (
