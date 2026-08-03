@@ -222,8 +222,8 @@ decisão de contrato VERSIONADA e AMH-owned, nunca um ajuste local Maezo): `even
   `*.quarantine.v1` + inbox durável (XRD-10). Os tópicos `agents.events.whatsapp.*` listados na mesma
   cláusula não fazem parte do contrato Tasy e NÃO são tocados por este ADR.
 
-SOBREVIVEM e continuam ancorando ADR-0019/0021/0014/0020 e as 7 cláusulas "TASY write DROP
-(MEMORY/ADR-0013)" dos contratos de processo em `docs/processes/contracts/`:
+SOBREVIVEM e continuam ancorando ADR-0019/0021/0014/0020 e as 7 cláusulas TASY-write-DROP (que
+citam ADR-0013 em formatos variados) dos contratos de processo em `docs/processes/contracts/`:
 **consume-not-duplicate** (o Maezo nunca é producer nem detentor de cópia de registro), **TASY write
 DROP** (nenhuma escrita em sistema de fonte; um comando de fonte, se um dia existir, é adapter
 AMH-owned com approval próprio, fora deste repo) e **nenhuma infra CDC neste repo**. Onde esses
@@ -243,7 +243,7 @@ population-features for publicada (XRG-2), o acesso populacional migra do mecani
 até lá, o mecanismo do ADR-0019 permanece. Na célula AMH o Maezo não recebe credencial
 Athena/Gold-irrestrita (XRD-07).
 
-**ADR-0021 — nota (não supersede).** O StatefulSet HAPI opcional do §3 permanece como opção PORTÁVEL
+**ADR-0021 — nota (não supersede).** O StatefulSet HAPI opcional do §1-§2 permanece como opção PORTÁVEL
 para deployments não-AMH (cliente com FHIR service próprio); na célula AMH fica desabilitado e o
 Maezo não recebe credencial de escrita HAPI nem de lake (XRD-06/07). A cláusula §5 (MSK amh-owned,
 consume-not-duplicate, zero provisionamento de tópico/ACL aqui) segue integralmente válida e passa a
@@ -279,8 +279,12 @@ ADR.
   aceitas para evitar dois rewrites (XRD-11).
 - Janelas de dual-publish/dual-read de no mínimo 30 dias para todo major de contrato, estendíveis até
   reconciliação zero + ensaio de rollback.
-- Sob a proteção de main do ADR-0023 (opção 1), PRs docs-only deste programa pagam o CI completo,
-  incluindo a lane real-engine.
+- PRs docs-only deste programa pagam o CI completo, incluindo a lane real-engine — o `ci.yml`
+  dispara em todo `pull_request` sem path filter (custo aceito; registrado no ADR-0023
+  §Consequencias). Nota de drift verificada em 2026-08-03: a proteção server-side de main que o
+  ADR-0023 prescreve (opção 1, decisão WS-6 do usuário) NÃO está aplicada no remoto neste momento
+  (protection 404, rulesets vazios) — restaurá-la é decisão do dono do repo, fora do escopo deste
+  ADR.
 - O caminho crítico de 12–16 semanas é dominado por APROVAÇÃO (humana e cross-repo), não por
   paralelismo de código; variância esperada vem de aprovadores e ambientes reais, não de engenharia.
 - Trabalho bloqueado até a aceitação (XRG-1) e gates seguintes — mapa compacto de gating por work
@@ -288,9 +292,9 @@ ADR.
   (identidade) · **MZO-030**→XRG-1 (nenhum campo de wire antes de XRG-3) · **MZO-040**→aceitação
   deste ADR + aprovações Médica/ANS/Security · **MZO-050**→XRG-3 (+MZO-010/020/030) ·
   **MZO-060**→MZO-020/030/050 + revisão DBA · **MZO-070**→MZO-040/050/060 + contrato de consent AMH e
-  regras de disposição DPO/médica · **MZO-080**→XRG-3 + AMH-060/070/090/100 · **MZO-090**→XRG-3 +
-  schema de outcome AMH (+MZO-010/030/040/060) · **MZO-100**→XRG-1 + aprovação de topologia SRE ·
-  **MZO-110**→design SRE/Security aprovado + identidades provisionadas pela AMH ·
+  regras de disposição DPO/médica · **MZO-080**→XRG-3 (+MZO-010/030/040) + AMH-060/070/090/100 ·
+  **MZO-090**→XRG-3 + schema de outcome AMH (+MZO-010/030/040/060) · **MZO-100**→XRG-1 + aprovação
+  de topologia SRE · **MZO-110**→design SRE/Security aprovado + identidades provisionadas pela AMH ·
   **MZO-120**→MZO-060/090 + protocolo AMH-110/120 + aprovação DPO de replay ·
   **MZO-130**→MZO-040/060/090 + aprovação de retenção/legal-hold · **MZO-140**→MZO-050/060/090/110/120 ·
   **MZO-150**→MZO-100/110 + CTO/SRE (apply de infra human-gated) · **MZO-160**→MZO-050..150 +
