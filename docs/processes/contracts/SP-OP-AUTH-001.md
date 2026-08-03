@@ -7,8 +7,10 @@
 ## Invariante L0 hard (nao negociavel)
 
 Negativa de cobertura SO nasce nas User Tasks humanas (`UT_AnaliseMedicoAuditor`,
-`UT_CoordenacaoAssume`, `UT_RegistrarParecerJunta`). Nenhuma DMN deste processo possui
-saida de negativa; inelegibilidade/carencia aparentes roteiam para analise humana.
+`UT_CoordenacaoAssume`, `UT_RegistrarParecerJunta`); a decisao carrega `auditor_id` para a
+cadeia de auditoria (ADR-0007) e e essa a proveniencia humana que o guard de
+`operadora.auth.send_denial_notice` exige (`ERR_DENIAL_NOT_HUMAN`). Nenhuma DMN deste processo
+possui saida de negativa; inelegibilidade/carencia aparentes roteiam para analise humana.
 Aprovacao automatica (L2) existe apenas com DMN favoravel + teto do tenant (ADR-0008).
 
 ## Business key (idempotencia)
@@ -49,6 +51,7 @@ Uma instancia por guia TISS; reenvio retorna a instancia ativa.
 | `justificativa_clinica` | string | Obrigatoria se NEGAR |
 | `cid10_referencia` | string | Obrigatoria se NEGAR |
 | `fundamentacao_dut` | string | Obrigatoria se NEGAR |
+| `auditor_id` | string | Id do medico auditor humano que setou `decisao_auditor` (cadeia de auditoria ADR-0007). **Obrigatoria se NEGAR** — e a proveniencia humana que o guard de `operadora.auth.send_denial_notice` consome (`ERR_DENIAL_NOT_HUMAN`). Declarada como `camunda:formField` nas tres User Tasks humanas (`UT_AnaliseMedicoAuditor`, `UT_CoordenacaoAssume`, `UT_RegistrarParecerJunta`); em `UT_RegistrarParecerJunta` e o medico relator do parecer. Espelha `analista_id`/`auditor_id` de SP-OP-RECURSO-001 e SP-OP-REEMBOLSO-001 |
 | `decisao_pendencia` | string | `cancelar_guia` \| `conceder_prazo_extra` \| `seguir_analise` (pendencia expirada — humano) |
 | `numero_autorizacao` | string | Emitida por `operadora.auth.issue_authorization` |
 
@@ -111,6 +114,8 @@ Nota: prazos legais sao em dias uteis; ISO 8601 usa dias corridos — valores co
 | Codigo | Onde | Tratamento |
 |---|---|---|
 | `ERR_AUTH_INVALID_GUIA` | declarado (`Error_AuthGuiaInvalida`) para uso dos workers | worker lanca BPMN error se guia inconsistente na origem; tratamento a detalhar na promocao a FINAL |
+| `ERR_AUTH_DENIAL_INCOMPLETE` | guard do worker `operadora.auth.send_denial_notice` | recusa transmitir uma NEGAR sem `justificativa_clinica` + `cid10_referencia` + `fundamentacao_dut` (RN 395 art. 10). Lanca BPMN error (`Error_AuthDenialIncompleta`), capturado por `BE_NegativaIncompleta` -> `End_FundamentacaoIncompletaBloqueada` (terminal NEUTRO: nada foi enviado) |
+| `ERR_DENIAL_NOT_HUMAN` | guard do worker `operadora.auth.send_denial_notice` | recusa transmitir uma NEGAR sem proveniencia humana: o sinal explicito `human_approved` **ou** um `auditor_id` nao-vazio setado pela User Task humana. Materializa a invariante L0: nenhuma negativa sem User Task humana na trilha (ADR-0007). NAO ha boundary modelado para este codigo — o worker retorna registro `blocked_by_guard`, nao lanca |
 
 ## Pendencias para promocao a FINAL
 
