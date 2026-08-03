@@ -7,6 +7,7 @@ import asyncio
 import inspect
 
 import pytest
+import structlog.testing
 
 from maezo.a2a import DelegationResult, RejectionReason
 from maezo.tools.workers import pagto as pagto_module
@@ -985,6 +986,30 @@ async def test_prepare_approval_dossier_delegation_failure_fail_neutrals_never_r
     assert result["dossier_prepared"] is False
     assert result["dossier_gap"] == "delegation_failed"
     assert "secret" not in str(result.values())
+
+
+async def test_prepare_approval_dossier_failure_log_redacts_phi_shaped_error_text() -> None:
+    """GK-dossier finding 5: the failure log used raw `str(exc)`. This handler sits downstream of
+    PHI-bearing case variables and the exceptions it catches (dispatcher/PG/engine) routinely echo
+    the offending payload — a CPF in a driver error would land VERBATIM in the operator log.
+    `redact_error_message` (T3.4 F5) scrubs it one-way while preserving the error CLASS."""
+    leaky = RuntimeError("insert failed for beneficiario CPF 123.456.789-01 (cns 700123456789012)")
+    handler = make_prepare_approval_dossier_handler(
+        _FakeDossierDispatcher(exc=leaky)  # type: ignore[arg-type]
+    )
+
+    with structlog.testing.capture_logs() as logs:
+        result = await handler(_dossier_task(_PAGTO_DOSSIER_VARS))
+
+    assert result["dossier_gap"] == "delegation_failed"  # DL-0037 posture unchanged
+    (failure_log,) = [e for e in logs if e["event"] == "pagto_prepare_approval_dossier_delegation_failed"]
+    logged = failure_log["error"]
+    assert "123.456.789-01" not in logged
+    assert "700123456789012" not in logged
+    assert "[REDACTED_DIGITS]" in logged
+    assert logged.startswith("RuntimeError: ")  # the error CLASS survives for ops diagnosis
+    # Belt: no PHI-shaped digit run anywhere in the emitted event.
+    assert "123.456.789-01" not in str(logs)
 
 
 class _HangingDossierDispatcher:

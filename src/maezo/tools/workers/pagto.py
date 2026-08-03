@@ -16,6 +16,7 @@ import structlog
 from maezo.tools.workers.base import FunctionWorker, non_blank
 from maezo.tools.workers.ceilings import CeilingResolver
 from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row, require_dmn
+from maezo.tools.workers.phi_vars import redact_error_message
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -700,7 +701,14 @@ def make_prepare_approval_dossier_handler(dispatcher: DelegationDispatcher | Non
                 tenant_id=tenant_id,
                 ordem_pagamento_id=ordem_pagamento_id,
                 business_key=task.business_key,
-                error=str(exc),
+                # GK-dossier finding 5: `str(exc)` put RAW exception text in the log. This handler
+                # sits downstream of PHI-bearing case variables (`case_meta=dict(v)`), and the
+                # exceptions it catches come from the dispatcher/PG/engine layers whose messages
+                # routinely echo the offending payload — a CPF/CNS in a driver error would land
+                # verbatim in the operator log. `redact_error_message` (T3.4 F5) is the SAME
+                # one-way, never-raising backstop the harness applies before an error reaches the
+                # engine's incident store; it preserves the error CLASS for diagnosis.
+                error=redact_error_message(exc),
             )
             return {"dossier_prepared": False, "dossier_gap": "delegation_failed"}
 
