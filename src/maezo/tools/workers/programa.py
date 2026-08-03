@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from maezo.tools.workers.base import FunctionWorker
+from maezo.tools.workers.base import FunctionWorker, reclassify_coded_exception
 from maezo.tools.workers.harness import WorkerBpmnError
 
 if TYPE_CHECKING:
@@ -473,40 +473,24 @@ _NOTIFY_SLA_RISK_NOTIFICATION_TYPE = "programa.notify_sla_risk"
 def _call_guarded(
     fn: Callable[[dict[str, Any]], dict[str, Any]], variables: dict[str, Any]
 ) -> dict[str, Any]:
-    """Call a programa.py guard function with the reclassification `FunctionWorker.execute` applies.
+    """Call a programa.py guard function through `base.reclassify_coded_exception`.
 
     Needed because `stratify_risk`/`proactive_contact` (defense-in-depth `ERR_PROGRAMA_NO_CONSENT`
     guards) are now raw-handler-wrapped (item A/B, Kafka seam) instead of `FunctionWorker`-wrapped
     — without this, their `ProgramaError` would fall through the harness's generic `except
     Exception` branch (`harness.py` `_handle`) as an *unclassified* error (engine-computed retry),
-    NOT the intended never-retried incident. This mirrors `base.FunctionWorker.execute` byte-for-
-    byte (same exception family, same duck-typed `.code`/`.message` check, same
-    `ValueError(f"{code}: {message}")` re-raise) so the harness's existing `except ValueError`
-    branch still routes to `failure(retries=0)` — a guaranteed, never-retried, human-visible
-    incident (ADR-0008) — EXACTLY as it did when these functions were `FunctionWorker`-wrapped.
-    Already-classified exception types (the harness's own `PermissionError`/`ValueError`/
-    `RuntimeError`/`OSError`/`TimeoutError`/`ConnectionError` family) and `WorkerBpmnError` pass
-    through unchanged (`check_consent`'s modeled boundary raise never reaches this helper — it
-    stays `FunctionWorker`-wrapped).
+    NOT the intended never-retried incident.
+
+    GK-w5 finding 3 (single source of truth): this is a THIN wrapper — `reclassify_coded_exception`
+    (`tools/workers/base.py`) is the ONE shared implementation `FunctionWorker.execute` ALSO calls,
+    so both paths reclassify a coded exception (or pass through an already-classified one /
+    `WorkerBpmnError`, which lacks the `.code`/`.message` shape) IDENTICALLY by construction — a
+    future edit to the shared rule can never silently diverge between the two call sites (pinned
+    by `test_reclassify_coded_exception_equivalence` in `tests/unit/tools/workers/
+    test_function_worker.py`). `check_consent`'s modeled `WorkerBpmnError` boundary raise never
+    reaches this helper — it stays `FunctionWorker`-wrapped.
     """
-    try:
-        return fn(variables)
-    except (
-        WorkerBpmnError,
-        PermissionError,
-        ValueError,
-        RuntimeError,
-        OSError,
-        TimeoutError,
-        ConnectionError,
-    ):
-        raise
-    except Exception as exc:  # noqa: BLE001 — reclassified below, mirrors base.FunctionWorker.execute.
-        code = getattr(exc, "code", None)
-        message = getattr(exc, "message", None)
-        if isinstance(code, str) and isinstance(message, str):
-            raise ValueError(f"{code}: {message}") from exc
-        raise
+    return reclassify_coded_exception(lambda: fn(variables))
 
 
 def make_stratify_risk_handler(kafka: KafkaPublisher | None) -> TaskHandler:
