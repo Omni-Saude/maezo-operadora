@@ -82,6 +82,79 @@ def test_validate_cred_empty_docs() -> None:
 
 
 # ---------------------------------------------------------------
+# validate_cred — FACT PRESERVATION (item-9 bucket-3 Class-C, T3.1 phase-2 finding 2):
+# an already-resolved boolean fact is respected, never clobbered by the placeholder.
+# ---------------------------------------------------------------
+
+
+def test_validate_cred_respects_resolved_documentacao_completa_true_with_string_refs() -> None:
+    """The exact overwrite-bug shape: `documentos_refs` as a STRING ref (sibling-family
+    convention) with the fact already resolved True upstream — the pre-fix worker recomputed
+    `isinstance(str, dict)` = False and OVERWROTE the seeded True. The fact must survive."""
+    result = validate_cred(
+        {
+            "prestador_id": "P-010",
+            "documentos_refs": "ref-docs-0001",  # Camunda String, NOT a dict
+            "documentacao_completa": True,  # resolved fact seeded at start
+        }
+    )
+    assert result["documentacao_completa"] is True
+
+
+def test_validate_cred_respects_resolved_documentacao_completa_false() -> None:
+    """A resolved False survives even when the placeholder computation would say True."""
+    result = validate_cred(
+        {
+            "prestador_id": "P-011",
+            "documentos_refs": {"licenca": "ref-lic-001"},  # placeholder would compute True
+            "documentacao_completa": False,
+        }
+    )
+    assert result["documentacao_completa"] is False
+
+
+def test_validate_cred_respects_resolved_licenca_valida_false() -> None:
+    """The fail-OPEN half of the overwrite bug is gone: a resolved `licenca_valida=False` is
+    NEVER overwritten by the hardcoded placeholder True."""
+    result = validate_cred(
+        {
+            "prestador_id": "P-012",
+            "documentos_refs": {"licenca": "ref-lic-001"},
+            "licenca_valida": False,
+        }
+    )
+    assert result["licenca_valida"] is False
+
+
+@pytest.mark.parametrize("junk", ["true", "false", 1, 0, [], {}, None])
+def test_validate_cred_non_boolean_seeded_facts_fall_back_to_computation(junk: object) -> None:
+    """Engine variables arrive untyped: a NON-boolean seeded 'fact' is not a resolved fact —
+    the placeholder computation applies (fail-closed: junk never passes through as the fact)."""
+    result = validate_cred(
+        {
+            "prestador_id": "P-013",
+            "documentos_refs": {"licenca": "ref-lic-001"},
+            "licenca_valida": junk,
+            "documentacao_completa": junk,
+        }
+    )
+    assert result["licenca_valida"] is True  # placeholder fallback
+    assert result["documentacao_completa"] is True  # computed from the non-empty dict
+
+
+def test_validate_cred_absent_facts_keep_placeholder_behavior() -> None:
+    """No resolved facts seeded: the pre-existing placeholder behavior is preserved exactly."""
+    result = validate_cred(
+        {
+            "prestador_id": "P-014",
+            "documentos_refs": "ref-docs-0002",  # string ref, no seeded facts
+        }
+    )
+    assert result["licenca_valida"] is True
+    assert result["documentacao_completa"] is False  # string ref: placeholder cannot resolve it
+
+
+# ---------------------------------------------------------------
 # assess_admissibility
 # ---------------------------------------------------------------
 

@@ -75,13 +75,35 @@ def validate_cred(variables: dict[str, Any]) -> dict[str, Any]:
     """Verify professional registration/CNES validity — FACT only.
 
     NEVER decides to deny or de-credential. TASY write DROP (ADR-0013).
+
+    FACT PRESERVATION (item-9 bucket-3 Class-C — T3.1 phase-2 finding 2, the
+    `documentacao_completa`/`licenca_valida` OVERWRITE bug): an ALREADY-RESOLVED boolean
+    `licenca_valida`/`documentacao_completa` process variable is respected, never clobbered.
+    The pre-fix worker unconditionally returned `licenca_valida=True` (hardcoded placeholder —
+    fail-OPEN whenever the resolved fact was False) and recomputed `documentacao_completa` from
+    the SHAPE of `documentos_refs` (`isinstance(..., dict)`) — but the sibling families'
+    convention carries `documentos_refs` as a Camunda STRING ref, so the recompute was ALWAYS
+    False and, forwarded as real process variables on task complete, OVERWROTE the resolved fact
+    before the native `BRT_Admissibilidade` businessRuleTask evaluated (`cred_admissibility`'s
+    FIRST-hit `r_cred_doc_pendente` row then rerouted every credenciamento-direction scenario to
+    PENDENTE_DOCUMENTACAO). Only an explicit engine BOOLEAN is respected (engine variables
+    arrive untyped — a string/int/None "fact" is NOT a resolved fact and falls back to the
+    placeholder computation); respecting a resolved False is strictly MORE conservative than the
+    old hardcoded True (routes to pendency/human, never away from it).
     """
     documentos = variables.get("documentos_refs", {})
+    seeded_licenca = variables.get("licenca_valida")
+    seeded_doc_completa = variables.get("documentacao_completa")
 
     # Factual check: are documents present and license supposedly valid?
     # In real implementation, this queries external registries.
-    licenca_valida = True  # placeholder — real: query CRM/CNES
-    documentacao_completa = isinstance(documentos, dict) and len(documentos) > 0
+    # placeholder fallback — real: query CRM/CNES; only used when no resolved boolean fact exists.
+    licenca_valida = seeded_licenca if isinstance(seeded_licenca, bool) else True
+    documentacao_completa = (
+        seeded_doc_completa
+        if isinstance(seeded_doc_completa, bool)
+        else isinstance(documentos, dict) and len(documentos) > 0
+    )
 
     logger.info(
         "cred_validate_cred",
