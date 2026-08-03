@@ -564,6 +564,33 @@ def publish_completed(variables: dict[str, Any]) -> dict[str, Any]:
 _DOSSIER_DELEGATION_TIMEOUT_S: float = 20.0
 
 
+def _dossier_topic_variables() -> list[str]:
+    """The EXACT process-variable read-set of `prepare_approval_dossier` (GK-dossier finding 10).
+
+    Fed to `harness.register(..., variables=...)` -> `TopicSubscription.variables` so the engine's
+    `fetchAndLock` returns ONLY these for this topic (least privilege, design §5) instead of the
+    default "every variable of the instance".
+
+    Single-sourced from the delegation layer's own allowlists (the handler reads `tenant_id` and
+    the case identifiers directly, and hands the rest to `build_pagto_dossier_envelope` as
+    `case_meta`, which serializes exactly these) — so the subscription cannot drift from what the
+    handler actually consumes. Imported lazily for the same reason the handler's own
+    `delegate_pagto_dossier` import is lazy: the worker package must not import the agent package
+    at module load.
+    """
+    from maezo.agents.andre.delegation import (
+        _PAGTO_BOOLEAN_META_KEYS,
+        _PAGTO_STRING_META_KEYS,
+    )
+
+    return [
+        "tenant_id",  # ADR-0004 tenant scope — read directly by the handler's guard
+        *_PAGTO_STRING_META_KEYS,  # case identifiers + bounded payment tokens
+        "valor_pagamento_cents",  # INTEGER centavos (ADR-0018 part 2)
+        *_PAGTO_BOOLEAN_META_KEYS,  # worker-pre-resolved facts (validate/calculate_facts)
+    ]
+
+
 def make_prepare_approval_dossier_handler(dispatcher: DelegationDispatcher | None) -> TaskHandler:
     """Create the handler for `operadora.pagto.prepare_approval_dossier` — the REAL Andre A2A
     delegation (the LAST worker-originated dossier edge, closing the #181 gap that adequacao/cred
@@ -857,7 +884,17 @@ def register_pagto_workers(
     )
     harness.register_worker(FunctionWorker("operadora.pagto.publish_completed", publish_completed))
     # RAW handler (NOT register_worker) — needs the async dispatcher seam (module topic-map note).
+    # LEAST PRIVILEGE (GK-dossier finding 10, design §5 `TopicSubscription.variables` seam): the
+    # raw registration used the engine DEFAULT (`variables=None` = return EVERY process variable
+    # of the instance). This handler forwards `case_meta=dict(task.variables)` into an A2A
+    # envelope, so every extra variable the engine hands it is one more thing that has to be
+    # stopped by the delegation-layer allowlist alone. Declaring the exact read-set moves the
+    # boundary UPSTREAM — an un-allowlisted (potentially PHI-bearing) variable is never fetched,
+    # never locked, never in this process's memory. The list is derived from the SAME allowlists
+    # the envelope builder serializes, so it cannot drift from what the handler actually reads
+    # (`test_dossier_topic_variables_match_what_the_handler_reads` single-sources it).
     harness.register(
         "operadora.pagto.prepare_approval_dossier",
         make_prepare_approval_dossier_handler(dossier_dispatcher),
+        variables=_dossier_topic_variables(),
     )

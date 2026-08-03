@@ -1046,6 +1046,48 @@ async def test_prepare_approval_dossier_failure_log_redacts_phi_shaped_error_tex
     assert "123.456.789-01" not in str(logs)
 
 
+def test_dossier_topic_declares_least_privilege_variables() -> None:
+    """GK-dossier finding 10: the raw registration used the engine DEFAULT (`variables=None` =
+    return EVERY process variable). The handler forwards `case_meta=dict(task.variables)` into an
+    A2A envelope, so an un-declared read-set means the delegation-layer allowlist is the ONLY
+    thing standing between a stray (possibly PHI-bearing) process variable and the seam.
+    Declaring the exact read-set moves that boundary upstream — the engine never sends it."""
+    harness = WorkerHarness(None, worker_id="unit-test-pagto")  # type: ignore[arg-type]
+    register_pagto_workers(harness, None, dmn=FakeDmnTransport())
+
+    subs = {s.topic_name: s for s in harness._topic_subscriptions()}
+    declared = subs["operadora.pagto.prepare_approval_dossier"].variables
+    assert declared is not None, "the dossier topic must NOT fall back to 'all variables'"
+    assert "tenant_id" in declared
+    assert {"ordem_pagamento_id", "numero_lote_tiss", "prestador_id"} <= set(declared)
+    assert "valor_pagamento_cents" in declared
+    assert len(declared) == len(set(declared))  # no duplicates on the wire
+
+
+def test_dossier_topic_variables_match_what_the_handler_reads() -> None:
+    """The declared read-set is EXACTLY the union of `tenant_id` and the delegation layer's own
+    pagto allowlists — the same keys `build_pagto_dossier_envelope` serializes. Single-sourced, so
+    adding a key to the envelope without declaring it here (or vice-versa) fails HERE."""
+    from maezo.agents.andre.delegation import _PAGTO_BOOLEAN_META_KEYS, _PAGTO_STRING_META_KEYS
+
+    expected = {
+        "tenant_id",
+        "valor_pagamento_cents",
+        *_PAGTO_STRING_META_KEYS,
+        *_PAGTO_BOOLEAN_META_KEYS,
+    }
+    harness = WorkerHarness(None, worker_id="unit-test-pagto")  # type: ignore[arg-type]
+    register_pagto_workers(harness, None, dmn=FakeDmnTransport())
+    subs = {s.topic_name: s for s in harness._topic_subscriptions()}
+    declared = subs["operadora.pagto.prepare_approval_dossier"].variables
+
+    assert declared is not None
+    assert set(declared) == expected
+    # Nothing outside the declared set can reach the envelope: a free-text variable the engine
+    # would have sent under the old default is not even in the subscription.
+    assert "observacoes_livres" not in expected
+
+
 class _HangingDossierDispatcher:
     """Never returns — models a wedged dispatcher (pool exhausted, engine/PG unreachable inside
     Andre's graph). Records whether its pending delegation was CANCELLED by the timeout."""
