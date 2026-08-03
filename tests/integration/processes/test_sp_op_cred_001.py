@@ -234,6 +234,7 @@ import pytest
 import pytest_asyncio
 
 from maezo.tools.workers.credenciamento import (
+    CRED_BPMN_ERROR_ALLOWLIST,
     ERR_CRED_DENIAL_NOT_HUMAN,
     ERR_DECRED_NOT_HUMAN,
     register_cred_denial,
@@ -365,10 +366,12 @@ _CRED_MISSING_WORKERS_REASON = (
     "advance the cure-window timer to the terminal (a test-completion follow-up: complete the "
     "prior-notice period). A SECOND residual class (test_documentacao_incompleta / test_direcao_ambigua) "
     "now reaches its notify/check activity (adapted to engine-side) but still asserts "
-    "has_event(_CRED_PENDED) — the `cred.pended` domain event is not published on this path (the systemic "
-    "events.publish gap, separate from the dossier). BOTH residuals are NEW downstream findings surfaced "
-    "by unblocking the dossier — NOT a missing worker and NOT a dead kafka echo. Tracked in PLANS.md "
-    "§0.5.2 item-9 bucket-1 (cred descredenciamento cure-window + cred.pended event-gap)."
+    "has_event(_CRED_PENDED) — RESOLVED (item-9 w5+assembly, live-proven): "
+    "ST_PublishCredPendedDoc/ST_PublishCredPendedNotice (the T3.1 remedy-B splice cred never got) "
+    "now publish agents.events.cred.pended and both tests flipped to real passes. The ONLY "
+    "residual this constant still covers is the cure-window class above (3 tests) — a "
+    "test-completion follow-up, NOT a missing worker. Tracked in PLANS.md §0.5.2 item-9 "
+    "(cred descredenciamento cure-window)."
 )
 
 _CRED_DOC_COMPLETA_OVERWRITE_REASON = (
@@ -393,7 +396,11 @@ _CRED_DOC_COMPLETA_OVERWRITE_REASON = (
     "separate task). Descredenciamento-direction tests "
     "are unaffected (r_descred_segue matches on direcao alone). src/** fix (either typing "
     "documentos_refs as Json, or having validate_cred stop clobbering an already-resolved fact) "
-    "is out of scope for this port."
+    "is out of scope for this port. "
+    "RETIRED (item-9 w4+assembly, live-proven): validate_cred now RESPECTS explicit engine "
+    "booleans (fact-preservation fix, credenciamento.py) — the seeded facts survive to "
+    "BRT_Admissibilidade and all 6 tests flipped to real passes on a fresh engine; "
+    "grep-confirmed: zero pytest.mark.xfail call sites reference this constant anymore."
 )
 
 _CRED_INVALID_PRESTADOR_NOT_RAISED_REASON = (
@@ -407,7 +414,12 @@ _CRED_INVALID_PRESTADOR_NOT_RAISED_REASON = (
     "implemented as of T2.5-p2b, which does not change this finding: this test never reaches "
     "notify_doc_pendente at all, since ST_VerifyCredentials — the very first service task after "
     "start — is where the missing raise-site would need to be). "
-    "src/** fix (adding the presence check + raise) is out of scope for this port."
+    "src/** fix (adding the presence check + raise) is out of scope for this port. "
+    "RETIRED (item-9 w4+assembly, live-proven): validate_cred now raises "
+    "WorkerBpmnError(ERR_CRED_INVALID_PRESTADOR) on absent/blank prestador_id (ADR-0030 G2-val "
+    "migration, production allowlist = 7 codes) and this suite's probe mirrors "
+    "credenciamento.CRED_BPMN_ERROR_ALLOWLIST, so BE_PrestadorInvalido fires and the test passes "
+    "for real; zero xfail call sites reference this constant anymore."
 )
 
 _CRED_GUARD_SHAPE_MISMATCH_REASON = (
@@ -496,6 +508,10 @@ async def cred_probe(
         tenant=audit_tenant,
         lock_duration_ms=10_000,
         audit_sink=audit_sink,
+        # ADR-0030: mirror the production allowlist (credenciamento.CRED_BPMN_ERROR_ALLOWLIST ->
+        # service.py's PRODUCTION_BPMN_ERROR_ALLOWLIST) so ERR_CRED_INVALID_PRESTADOR fires the
+        # modeled BE_PrestadorInvalido boundary instead of demoting to an incident.
+        bpmn_error_allowlist=CRED_BPMN_ERROR_ALLOWLIST,
     )
     kafka = FakeKafkaPublisher()
     # ADR-0028 §1 DMN-evaluation seam: assess_admissibility (operadora.cred.check_network_
@@ -700,7 +716,6 @@ async def test_nenhum_caminho_automatizado_descredencia_ou_nega(
     assert checked == 96, f"Esperava 96 combinacoes varridas; varri {checked}"
 
 
-@pytest.mark.xfail(reason=_CRED_DOC_COMPLETA_OVERWRITE_REASON, strict=True)
 async def test_credenciamento_licenca_irregular_roteia_para_humano_nunca_auto_nega(
     engine: EngineRest,
     cred_probe: CredEngineProbe,
@@ -761,7 +776,6 @@ async def test_indicio_irregularidade_roteia_para_humano_nunca_auto_acusa(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_CRED_DOC_COMPLETA_OVERWRITE_REASON, strict=True)
 async def test_happy_path_credenciamento_clerical_neutro(
     engine: EngineRest,
     cred_probe: CredEngineProbe,
@@ -900,7 +914,6 @@ async def test_happy_path_descredenciamento_manter_vinculo(
     assert not cred_probe.notifications_of_type("cred.register_descredenciamento")
 
 
-@pytest.mark.xfail(reason=_CRED_DOC_COMPLETA_OVERWRITE_REASON, strict=True)
 async def test_happy_path_credenciamento_negado_humano(
     engine: EngineRest,
     cred_probe: CredEngineProbe,
@@ -935,7 +948,6 @@ async def test_happy_path_credenciamento_negado_humano(
     assert regs[0]["tier"] == "pleno"
 
 
-@pytest.mark.xfail(reason=_CRED_DOC_COMPLETA_OVERWRITE_REASON, strict=True)
 async def test_happy_path_credenciamento_aprovado_humano(
     engine: EngineRest,
     cred_probe: CredEngineProbe,
@@ -1043,7 +1055,6 @@ async def test_negar_exige_campos_worker_guard(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_CRED_INVALID_PRESTADOR_NOT_RAISED_REASON, strict=True)
 async def test_prestador_id_ausente_termina_limpo_sem_incidente_travado(
     engine: EngineRest,
     cred_probe: CredEngineProbe,
@@ -1166,7 +1177,6 @@ def test_register_cred_denial_recusa_sem_humano() -> None:
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_CRED_MISSING_WORKERS_REASON, strict=True)
 async def test_documentacao_incompleta_pendente_nunca_nega(
     engine: EngineRest,
     cred_probe: CredEngineProbe,
@@ -1536,7 +1546,6 @@ async def test_business_key_uma_instancia_por_prestador(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_CRED_MISSING_WORKERS_REASON, strict=True)
 async def test_direcao_ambigua_roteia_para_co_review_nao_credenciamento_only(
     engine: EngineRest,
     cred_probe: CredEngineProbe,
@@ -1572,7 +1581,6 @@ async def test_direcao_ambigua_roteia_para_co_review_nao_credenciamento_only(
     await _assert_no_adverse_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_CRED_DOC_COMPLETA_OVERWRITE_REASON, strict=True)
 async def test_credenciamento_puro_nunca_roda_check_prior_notice(
     engine: EngineRest,
     cred_probe: CredEngineProbe,
@@ -1658,7 +1666,6 @@ async def test_solicitar_info_descredenciamento_aguarda_e_retoma_ut(
     await _assert_no_adverse_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_CRED_DOC_COMPLETA_OVERWRITE_REASON, strict=True)
 async def test_solicitar_info_credenciamento_aguarda_e_retoma_ut(
     engine: EngineRest,
     cred_probe: CredEngineProbe,

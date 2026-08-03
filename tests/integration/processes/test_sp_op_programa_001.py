@@ -108,12 +108,11 @@ FINDINGS (see PR body / evidence-ledger for full detail):
      stratify_risk` is now implemented and registered (programa.py's `stratify_risk` — a
      fail-closed `care.stratify` delegation stub; echoes a pre-resolved, valid risk band
      unchanged, else defaults to `"alto"`, the DMN's own lowest-autonomy/always-ANALISE_HUMANA
-     row) and moved into `_PROGRAMA_WORKER_TOPICS`. `proactive_contact`/`notify_sla_risk` remain
-     unregistered — a separate, tracked gap, deliberately out of scope for T2.5's task brief.
-     Consequence: the xfails below still marked (see `_PROGRAMA_MISSING_WORKER_REASON`'s updated
-     text for exactly why each one still fails — a compounding finding 2/3/4/5, or a dependency on
-     one of the 2 still-missing workers) are exactly those that genuinely depend on more than the
-     stratify_risk stall. LIVE-VALIDATION CORRECTION (T2.5 P2b, isolated CIB Seven stack): a live
+     row) and moved into `_PROGRAMA_WORKER_TOPICS`. `proactive_contact`/`notify_sla_risk` were the last
+     unregistered topics until item-9 w5 (event-wiring) registered them as raw handlers with a
+     real kafka seam — the final 7 xfails flipped at assembly, live-proven (see
+     `_PROGRAMA_MISSING_WORKER_REASON`'s RETIRED note).
+     LIVE-VALIDATION CORRECTION (T2.5 P2b, isolated CIB Seven stack): a live
      engine run proved that removing the ST_StratifyRisk stall unblocks NINE tests, not one — the
      author's static-inference claim of a single flip was too conservative. All nine
      (test_estratificacao_alta_roteia_para_humano_nunca_desliga + the eight enumerated in
@@ -260,6 +259,12 @@ _MONITOR_PROGRAMA_TOPIC = "operadora.programa.monitor_programa"  # orfao (sem to
 _REGISTER_DISCHARGE_TOPIC = "operadora.programa.register_program_discharge"
 _STOP_PROCESSING_TOPIC = "operadora.programa.stop_processing"
 
+# item-9 w5 (event-wiring): proactive_contact/notify_sla_risk are now REAL registered raw
+# handlers (programa.py items B/C), so their topics join the drain list — the former
+# "_UNREGISTERED" documentation block is retired.
+_PROACTIVE_CONTACT_TOPIC = "operadora.programa.proactive_contact"  # ST_ProactiveContact
+_NOTIFY_SLA_RISK_TOPIC = "operadora.programa.notify_sla_risk"  # ST_NotifySlaRisk
+
 _PROGRAMA_WORKER_TOPICS = [
     _PUBLISH_TOPIC,
     _CHECK_CONSENT_TOPIC,
@@ -268,16 +273,9 @@ _PROGRAMA_WORKER_TOPICS = [
     _MONITOR_PROGRAMA_TOPIC,
     _REGISTER_DISCHARGE_TOPIC,
     _STOP_PROCESSING_TOPIC,
+    _PROACTIVE_CONTACT_TOPIC,
+    _NOTIFY_SLA_RISK_TOPIC,
 ]
-
-# BPMN-declared `operadora.programa.*` topicos SEM worker registrado (finding 1 — registry drift em
-# programa.py, nao neste port; T2.5 fixed ONLY stratify_risk, above — these 2 remain a SEPARATE,
-# out-of-scope gap per T2.5's own task brief). Deliberadamente FORA de `_PROGRAMA_WORKER_TOPICS`/
-# drain(): ver module docstring. Mantidos aqui so para documentar os nomes exatos citados nos
-# xfail reasons.
-# ST_ProactiveContact, BPMN:191
-_PROACTIVE_CONTACT_TOPIC_UNREGISTERED = "operadora.programa.proactive_contact"
-_NOTIFY_SLA_TOPIC_UNREGISTERED = "operadora.programa.notify_sla_risk"  # ST_NotifySlaRisk, BPMN:263
 
 # Topico interno de notificacoes.
 _NOTIFICATIONS_TOPIC = "operadora.notifications.internal"
@@ -365,7 +363,14 @@ _PROGRAMA_MISSING_WORKER_REASON = (
     "(live-proven PASS). The tests STILL bearing this reason are exactly those genuinely depending "
     "on (a)-(d). programa.py's OWN bootstrap docstring already self-documents the "
     "proactive_contact/notify_sla_risk gap as known, not fabricated here. src/** fix "
-    "(implementing/registering proactive_contact/notify_sla_risk workers) is out of scope for T2.5."
+    "(implementing/registering proactive_contact/notify_sla_risk workers) is out of scope for T2.5. "
+    "RETIRED (item-9 w5+assembly, live-proven): every clause is now closed — (a) "
+    "proactive_contact/notify_sla_risk are registered raw handlers and their topics joined "
+    "_PROGRAMA_WORKER_TOPICS, (c) register_programa_workers threads its kafka seam through 4 raw "
+    "handlers publishing operadora.notifications.internal, (d) ST_PublishCompleted carries "
+    "responsavel_clinico_id and ST_PublishProcessingStopped publishes "
+    "agents.events.programa.processing_stopped; all 7 remaining tests flipped to real passes; "
+    "grep-confirmed: zero pytest.mark.xfail call sites reference this constant anymore."
 )
 
 _PROGRAMA_CONSENT_GUARD_NOT_BPMN_ERROR_REASON = (
@@ -690,7 +695,6 @@ async def test_canal_proativo_sem_consent_checked_barra(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_PROGRAMA_MISSING_WORKER_REASON, strict=True)
 async def test_revogacao_interrompe_processamento(
     engine: EngineRest,
     programa_probe: ProgramaEngineProbe,
@@ -738,7 +742,6 @@ async def test_revogacao_interrompe_processamento(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_PROGRAMA_MISSING_WORKER_REASON, strict=True)
 async def test_bridge_correlaciona_revogacao_por_correlation_keys_instancia_unica(
     engine: EngineRest,
     programa_probe: ProgramaEngineProbe,
@@ -941,7 +944,6 @@ async def test_estratificacao_alta_roteia_para_humano_nunca_desliga(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_PROGRAMA_MISSING_WORKER_REASON, strict=True)
 async def test_happy_path_enrollment_elegivel_l3(
     engine: EngineRest,
     programa_probe: ProgramaEngineProbe,
@@ -975,7 +977,6 @@ async def test_happy_path_enrollment_elegivel_l3(
     )
 
 
-@pytest.mark.xfail(reason=_PROGRAMA_MISSING_WORKER_REASON, strict=True)
 async def test_happy_path_nao_elegivel_neutro(
     engine: EngineRest,
     programa_probe: ProgramaEngineProbe,
@@ -1001,7 +1002,6 @@ async def test_happy_path_nao_elegivel_neutro(
     )
 
 
-@pytest.mark.xfail(reason=_PROGRAMA_MISSING_WORKER_REASON, strict=True)
 async def test_happy_path_desligamento_clinico_humano(
     engine: EngineRest,
     programa_probe: ProgramaEngineProbe,
@@ -1124,7 +1124,6 @@ async def test_desligar_exige_campos_worker_guard(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_PROGRAMA_MISSING_WORKER_REASON, strict=True)
 async def test_timer_alerta_sla_nao_interruptivo(
     engine: EngineRest,
     programa_probe: ProgramaEngineProbe,
@@ -1179,7 +1178,6 @@ async def test_timer_sla_estourado_coordenacao_assume(
     await _assert_no_adverse_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_PROGRAMA_MISSING_WORKER_REASON, strict=True)
 async def test_coordenacao_assume_e_desliga(
     engine: EngineRest,
     programa_probe: ProgramaEngineProbe,

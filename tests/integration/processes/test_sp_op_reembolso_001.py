@@ -258,7 +258,12 @@ _REEMBOLSO_VALOR_CENTS_UNPLUMBED_REASON = (
     "This test asserts the human's approved reduced value (8000) reaches the payment via engine "
     "history (get_history_variable) and FAILS until the value is plumbed (Class-C src fix: read "
     "valor_reembolso_aprovado_cents/valor_calculado_tabela_cents at issue_payment or add the "
-    "missing BPMN input mappings)."
+    "missing BPMN input mappings). "
+    "RETIRED (item-9 w7+assembly, live-proven): issue_payment_entry now resolves "
+    "valor_reembolso_aprovado_cents with a fail-closed money guard "
+    "(ERR_REEMBOLSO_VALOR_PAGAMENTO_INVALIDO on absent/float/bool/<=0 — no payment, incident) and "
+    "the marker came off with the money assert passing for real; zero xfail call sites reference "
+    "this constant anymore."
 )
 
 _REEMBOLSO_BUILT_WORKER_PENDING_LIVE_PROOF_REASON = (
@@ -724,7 +729,6 @@ async def test_happy_path_negado_pelo_analista(
     )
 
 
-@pytest.mark.xfail(reason=_REEMBOLSO_VALOR_CENTS_UNPLUMBED_REASON, strict=True)
 async def test_happy_path_aprovado_parcial_pelo_analista(
     engine: EngineRest,
     reembolso_probe: ReembolsoEngineProbe,
@@ -732,8 +736,8 @@ async def test_happy_path_aprovado_parcial_pelo_analista(
 ) -> None:
     """Analista completa APROVAR_PARCIAL (valor menor) => End_ReembolsoParcial (humano-gated, adverso).
 
-    Flow/end-event/eventos passam ao vivo; o assert final (valor 8000 chega ao pagamento via
-    engine history) FALHA — ver _REEMBOLSO_VALOR_CENTS_UNPLUMBED_REASON (src-gap Class-C).
+    Prova engine-side do DINHEIRO incluida: o valor reduzido aprovado (8000) chega ao pagamento
+    (valor_cents no historico — so o worker de pagamento produz essa variavel; era 0 pre-w7).
     """
     inst = await start_reembolso(dentro_teto_l2=False, valor_solicitado_cents=12000)
     iid = inst["id"]
@@ -768,9 +772,8 @@ async def test_happy_path_aprovado_parcial_pelo_analista(
     assert "ST_IssuePaymentParcial" in ended, (
         "issue_payment (ST_IssuePaymentParcial) deve pagar o valor reduzido aprovado"
     )
-    # Prova engine-side do DINHEIRO: o valor reduzido aprovado pelo humano tem de chegar ao
-    # pagamento. HOJE FALHA (=> strict xfail acima): valor_cents nunca e produzido — ver
-    # _REEMBOLSO_VALOR_CENTS_UNPLUMBED_REASON.
+    # Prova engine-side do DINHEIRO (nao-vacua: valor_reembolso_aprovado_cents ja esta no escopo
+    # via UT, mas valor_cents SO existe como output do worker de pagamento — 0 pre-w7).
     assert await engine.get_history_variable(iid, "valor_cents") == 8000, (
         "o pagamento parcial deve receber o valor aprovado (8000), nao 0/None"
     )

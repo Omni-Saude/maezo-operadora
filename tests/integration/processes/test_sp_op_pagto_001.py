@@ -356,6 +356,10 @@ _CALCULATE_FACTS_CEILING_NOT_PROPAGATED_REASON = (
     "combination ever reaches End_PagamentoLiberadoHumano automatically) is untouched by this gap "
     "and holds for all 20 combinations; only the auto-release-independent-of-seed assertions for "
     "valor<=teto + seed=False break. src/** fix is out of scope for this port."
+    "RETIRED (item-9 w4+assembly, live-proven): route_aprovacao now write-backs \"dentro_teto_l2\": "
+    "dentro_teto (the T1.9 AnalyzeRequestWorker idiom), BRT_AlcadaRouting reads the computed fact, "
+    "and this test flipped to a real pass on a fresh engine; zero xfail call sites reference this "
+    "constant anymore."
 )
 
 # FINDING 2 (module docstring) HISTORY: register_pagto_workers originally implemented only 6 of
@@ -573,7 +577,6 @@ async def _drive_to_coordenacao(engine: EngineRest, probe: PagtoEngineProbe, iid
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_CALCULATE_FACTS_CEILING_NOT_PROPAGATED_REASON, strict=True)
 async def test_nenhum_pagamento_acima_teto_auto_libera(
     engine: EngineRest,
     pagto_probe: PagtoEngineProbe,
