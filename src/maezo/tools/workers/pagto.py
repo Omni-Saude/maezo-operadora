@@ -12,12 +12,20 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from maezo.tools.workers.base import FunctionWorker
+from maezo.tools.workers.base import FunctionWorker, non_blank
 from maezo.tools.workers.ceilings import CeilingResolver
 from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row, require_dmn
 
 if TYPE_CHECKING:
-    from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
+    from collections.abc import Mapping
+
+    from maezo.a2a import DelegationDispatcher
+    from maezo.tools.workers.harness import (
+        ExternalTask,
+        KafkaPublisher,
+        TaskHandler,
+        WorkerHarness,
+    )
 
 logger = structlog.get_logger(__name__)
 
@@ -528,33 +536,134 @@ def publish_completed(variables: dict[str, Any]) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------
-# prepare_approval_dossier — LOCAL STUB dossier (DL-0033; Andre A2A deferred)
+# prepare_approval_dossier — REAL Andre A2A delegation (raw async handler; DL-0033 closed, DL-0037)
 # ---------------------------------------------------------------
 
 
-def prepare_approval_dossier(variables: dict[str, Any]) -> dict[str, Any]:
-    """Prepare the approval dossier for the human alcada User Task — NEUTRAL (DL-0033 local stub).
+def make_prepare_approval_dossier_handler(dispatcher: DelegationDispatcher | None) -> TaskHandler:
+    """Create the handler for `operadora.pagto.prepare_approval_dossier` — the REAL Andre A2A
+    delegation (the LAST worker-originated dossier edge, closing the #181 gap that adequacao/cred
+    had already closed in #178).
 
-    Assembling a dossier INSTRUCTS the human approver (UT_AprovacaoAlcada), it NEVER originates the
-    payment decision — mirrors `programa.enroll_beneficiario` ("enrollment is not an adverse
-    effect"). This is the local echo/log stub DL-0033 ratified (`FunctionWorker`, no
-    `DelegationDispatcher`): it closes the BPMN topic orphanage
-    (`operadora.pagto.prepare_approval_dossier`, `ST_PrepareApprovalDossier`, also reached on the
-    GAP-PAGTO-5 `seguir_analise` re-entry) without inventing delegation business-logic before the
-    real Andre A2A wiring (`analytics.actuarial`/`analytics.population`, `pagto_dossier`) lands in
-    the deferred full-A2A task. Fails SAFE (never raises), mirroring the module's neutral idiom.
+    Serves `ST_PrepareApprovalDossier` (the only path from `BRT_PagtoSla` to `UT_AprovacaoAlcada`;
+    also reached on the GAP-PAGTO-5 `seguir_analise` re-entry). Replaces the DL-0033 local echo/log
+    stub with `delegate_pagto_dossier` -> `DelegationDispatcher.delegate` -> Andre's REAL graph.
+    The SHARED task_type `analytics.population` is REUSED (no new type minted); Andre's DEFAULT
+    `pagto_dossier` flow is selected by the `pagto-worker` origin alone — the payment-approval risk
+    dossier his graph documents as convoked here (`agents/andre/delegation.py`,
+    `agents/andre/graph.py`).
+
+    RAW ASYNC HANDLER (DL-0034 precedent, mirrors adequacao/cred): a `FunctionWorker.execute(dict)`
+    boundary is sync while `dispatcher.delegate` is async — the raw `harness.register()` form runs
+    this handler on the harness's own loop, where the dispatcher's pooled audit sink lives.
+    Populates `_handlers` but NOT the `WorkerRegistry` (see `test_bootstrap_registration.py`'s
+    `raw_handler_topics`).
+
+    FAIL-NEUTRAL-WITH-DISCLOSED-GAP (DL-0037): assembling a dossier INSTRUCTS the human approver
+    (UT_AprovacaoAlcada/UT_CoordenacaoAlcada) — it "instrui, nao decide" (SP-OP-PAGTO-001); the
+    payment release is born SOLELY in the human User Task with `decisao_pagamento=APROVAR` +
+    tier-match (`release_high_value_payment`, unchanged, this handler NEVER invokes it). A missing
+    dispatcher (degraded runtime: no signing key / no DATABASE_URL), missing business identifiers,
+    a structured rejection or ANY delegation failure therefore returns
+    `{"dossier_prepared": False, "dossier_gap": <bounded reason token>}` + a LOUD log and COMPLETES
+    the task — the human UT MUST still open; this handler NEVER raises. The gap token is a bounded
+    class token (engine-variable hygiene) — raw error text stays in the log.
+
+    Idempotency note (disclosed): the delegation `task_id` is the payment business key
+    `PAGTO-{tenant}-{ordem_pagamento_id}` (or `PAGTO-{tenant}-{numero_lote_tiss}-{prestador_id}`) —
+    the `seguir_analise` re-entry for the SAME case receives the idempotent REPLAY of the same
+    dossier, never a duplicated release (Andre's `start_process` is business-key idempotent too).
     """
-    ordem_id = variables.get("ordem_pagamento_id", "")
 
-    logger.info(
-        "pagto_prepare_approval_dossier",
-        ordem_id=ordem_id,
-    )
+    async def handler(task: ExternalTask) -> Mapping[str, Any]:
+        v = task.variables
+        tenant_id = str(v.get("tenant_id", "") or "")
+        ordem_pagamento_id = str(v.get("ordem_pagamento_id", "") or "").strip()
+        numero_lote_tiss = str(v.get("numero_lote_tiss", "") or "").strip()
+        prestador_id = str(v.get("prestador_id", "") or "").strip()
 
-    return {
-        "dossier_prepared": True,
-        "data_dossier": "now",
-    }
+        if dispatcher is None:
+            # Degraded runtime (DL-0037): dispatcher absent at composition (no signing key /
+            # no DATABASE_URL — worker_runtime readiness reports dossier_delegation_ready=false).
+            # The UT still opens; the approver sees the disclosed gap instead of a dossier.
+            logger.warning(
+                "pagto_prepare_approval_dossier_dispatcher_unavailable",
+                tenant_id=tenant_id,
+                ordem_pagamento_id=ordem_pagamento_id,
+                business_key=task.business_key,
+            )
+            return {"dossier_prepared": False, "dossier_gap": "dispatcher_unavailable"}
+
+        # A well-formed PAGTO business key needs tenant + (ordem OR lote+prestador) — the SAME
+        # identity `andre.graph._business_key` requires (EB-4 R1 `non_blank` discipline). Without
+        # it, never delegate with a degenerate task_id; the UT still opens with the gap disclosed.
+        has_key = non_blank(ordem_pagamento_id) or (non_blank(numero_lote_tiss) and non_blank(prestador_id))
+        if not (non_blank(tenant_id) and has_key):
+            logger.error(
+                "pagto_prepare_approval_dossier_missing_business_identifiers",
+                tenant_id=tenant_id,
+                ordem_pagamento_id=ordem_pagamento_id,
+                numero_lote_tiss=numero_lote_tiss,
+                prestador_id=prestador_id,
+                business_key=task.business_key,
+            )
+            return {"dossier_prepared": False, "dossier_gap": "missing_business_identifiers"}
+
+        from maezo.agents.andre.delegation import delegate_pagto_dossier
+
+        try:
+            result = await delegate_pagto_dossier(
+                dispatcher,
+                tenant=tenant_id.strip(),
+                case_meta=dict(v),
+                ordem_pagamento_id=ordem_pagamento_id,
+                numero_lote_tiss=numero_lote_tiss,
+                prestador_id=prestador_id,
+            )
+        except Exception as exc:  # noqa: BLE001 — DL-0037: the UT must open; never raise here.
+            logger.error(
+                "pagto_prepare_approval_dossier_delegation_failed",
+                tenant_id=tenant_id,
+                ordem_pagamento_id=ordem_pagamento_id,
+                business_key=task.business_key,
+                error=str(exc),
+            )
+            return {"dossier_prepared": False, "dossier_gap": "delegation_failed"}
+
+        if not result.success:
+            reason = str(result.rejection_reason or "unknown")
+            logger.error(
+                "pagto_prepare_approval_dossier_delegation_rejected",
+                tenant_id=tenant_id,
+                ordem_pagamento_id=ordem_pagamento_id,
+                business_key=task.business_key,
+                reason=reason,
+                detail=result.detail,
+            )
+            return {"dossier_prepared": False, "dossier_gap": f"delegation_rejected:{reason}"}
+
+        logger.info(
+            "pagto_prepare_approval_dossier_delegated",
+            tenant_id=tenant_id,
+            ordem_pagamento_id=ordem_pagamento_id,
+            business_key=task.business_key,
+            dossier_ref=result.output_ref,
+            idempotent_replay=result.idempotent_replay,
+        )
+        return {
+            "dossier_prepared": True,
+            "dossier_ref": result.output_ref or "",
+            # UT-FORM SEAM (SME/PO sign-off PENDING): the dossier CONTENT field schema for
+            # UT_AprovacaoAlcada/UT_CoordenacaoAlcada is uncontracted — no dossier field appears in
+            # the contract's variable table. `dossier_summary` carries Andre's agent-produced
+            # bounded summary tokens AS-IS (route/desfecho/motivo/grupo — never the narrative,
+            # never a decision, never a price/release); the full dossier is reachable via
+            # `dossier_ref`. Do NOT invent/extend this schema here — it is the human-gated
+            # injection point.
+            "dossier_summary": dict(result.meta),
+        }
+
+    return handler
 
 
 # ---------------------------------------------------------------
@@ -595,10 +704,12 @@ class PagtoError(Exception):
 # assess_admissibility has no distinct spec topic — registered under a
 # function-derived topic for registry completeness. publish_completed folds
 # into the generic events.publish task per BPMN — function-derived topic.
-#   prepare_approval_dossier -> operadora.pagto.prepare_approval_dossier (exact spec match, DL-0033
-#     LOCAL STUB; NEUTRAL — instructs UT_AprovacaoAlcada, never decides the payment. The REAL Andre
-#     A2A delegation (analytics.actuarial/analytics.population) is deferred to the full-A2A wiring
-#     task; this stub only closes the BPMN topic orphanage.)
+#   make_prepare_approval_dossier_handler -> operadora.pagto.prepare_approval_dossier (exact spec
+#     match; RAW async handler — the REAL Andre A2A delegation (analytics.population, origin-
+#     disambiguated to his DEFAULT pagto_dossier flow) DL-0033 deferred, now wired (the LAST
+#     dossier edge, closing the #181 gap adequacao/cred closed in #178). NEUTRAL — instructs
+#     UT_AprovacaoAlcada, never decides the payment; dispatcher absent/failed -> disclosed-gap
+#     marker, the UT still opens (DL-0037).)
 # ---------------------------------------------------------------
 
 
@@ -614,9 +725,16 @@ def register_pagto_workers(
     function here evaluates a DMN table. `kafka` is accepted but unused — no pagto.py worker
     declares a Kafka dependency, `notify_sla_risk`/`register_payment_refusal` included
     (dict-first, mirror the family's existing idiom).
+
+    `dossier_dispatcher` (dossier-A2A seam, DL-0033 real wiring) is threaded into the
+    `prepare_approval_dossier` RAW async handler — a `DelegationDispatcher` assembled by the
+    worker-runtime composition root (`build_dossier_delegation_dispatcher`). Absent (`None`, the
+    topic-probe default and the degraded-runtime posture) the topic still registers and the handler
+    fail-neutrals with a disclosed gap (DL-0037) — the human UT always still opens.
     """
     del kafka  # unused — no pagto.py worker declares a Kafka dependency
     dmn = seams.get("dmn")
+    dossier_dispatcher: DelegationDispatcher | None = seams.get("dossier_dispatcher")
     harness.register_worker(FunctionWorker("operadora.pagto.validate_payment_data", validate_pagto))
     harness.register_worker(
         FunctionWorker(
@@ -635,6 +753,8 @@ def register_pagto_workers(
         FunctionWorker("operadora.pagto.register_payment_refusal", register_payment_refusal)
     )
     harness.register_worker(FunctionWorker("operadora.pagto.publish_completed", publish_completed))
-    harness.register_worker(
-        FunctionWorker("operadora.pagto.prepare_approval_dossier", prepare_approval_dossier)
+    # RAW handler (NOT register_worker) — needs the async dispatcher seam (module topic-map note).
+    harness.register(
+        "operadora.pagto.prepare_approval_dossier",
+        make_prepare_approval_dossier_handler(dossier_dispatcher),
     )

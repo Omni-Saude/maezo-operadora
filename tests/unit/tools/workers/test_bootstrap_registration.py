@@ -167,10 +167,13 @@ def test_function_based_module_bootstraps_register_function_workers() -> None:
         # the anssubmit.notify_regulatorio notification), harness.register not register_worker —
         # mirrors recurso's raw handlers above.
         "regulatorio.anssubmit.notify_regulatorio",
-        # DL-0033 real wiring: the two dossier workers are now RAW async handlers (the async
+        # DL-0033 real wiring: the dossier workers are now RAW async handlers (the async
         # DelegationDispatcher seam a FunctionWorker boundary cannot reach — DL-0034 precedent).
         "operadora.cred.prepare_dossier",
         "operadora.adequacao.prepare_remediation_dossier",
+        # pagto's dossier edge (item9-w3): the LAST worker-originated dossier edge, converted from
+        # the DL-0033 local stub to the same raw async Andre delegation as adequacao/cred.
+        "operadora.pagto.prepare_approval_dossier",
     }
     function_topics = [
         t
@@ -202,6 +205,7 @@ def test_raw_handler_module_registers_outside_the_worker_registry() -> None:
         # DL-0033 real wiring: the dossier A2A raw handlers follow the same shape.
         "operadora.cred.prepare_dossier",
         "operadora.adequacao.prepare_remediation_dossier",
+        "operadora.pagto.prepare_approval_dossier",
     ):
         assert topic in harness.registered_topics
         assert harness.registry.get(topic) is None

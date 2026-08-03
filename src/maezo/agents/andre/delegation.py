@@ -8,18 +8,25 @@ half, mirroring the LIVE Helena->Rafael exemplar:
   `delegate_adequacao_dossier`, called by the `operadora.adequacao.prepare_remediation_dossier`
   worker (`tools/workers/adequacao.py`) from INSIDE the running SP-OP-ADEQUACAO-001 instance
   (`ST_PrepareRemediationDossier`, ANALISE_HUMANA branch — also the `seguir_analise` re-entry).
+  A SECOND origin, `build_pagto_dossier_envelope` / `delegate_pagto_dossier`, is called by the
+  `operadora.pagto.prepare_approval_dossier` worker (`tools/workers/pagto.py`,
+  `ST_PrepareApprovalDossier` — also the GAP-PAGTO-5 `seguir_analise` re-entry): it targets
+  Andre's DEFAULT `pagto_dossier` flow via the SAME shared task_type, disambiguated by its
+  `pagto-worker` origin (see the taxonomy note below).
 - TARGET side (mirrors `agents/rafael/delegation.py`): `state_from_envelope` +
   `make_andre_handler` — compiles Andre's REAL graph (`agents.andre.graph.build(config)`,
   fail-closed) and runs it with envelope-materialized state.
 
 TASK-TYPE TAXONOMY (orchestrator decision, this build): the contract names `analytics.population`
-(`SP-OP-ADEQUACAO-001.md`), a type Andre's card ALREADY accepts and PAGTO will also use — no new
-task_type is minted and `spec/agents/andre/agent.yaml` is untouched. The SHARED type is
-disambiguated by `envelope.origin` -> Andre's graph `flow` state key (`_flow_for`):
-`adequacao-worker` -> `flow="adequacao_dossier"`; ANY other origin -> his default
-(`pagto_dossier`). CRITICAL: a state with NO `flow` key silently defaults to `pagto_dossier`
-inside his graph (`graph._flow`), which would treat an adequacao cell as a payment triage — this
-layer therefore sets `flow` EXPLICITLY on every materialized state, never by omission.
+(`SP-OP-ADEQUACAO-001.md`), a type Andre's card ALREADY accepts — the PAGTO edge REUSES the SAME
+type (no new task_type is minted and `spec/agents/andre/agent.yaml` is untouched for either edge).
+The SHARED type is disambiguated by `envelope.origin` -> Andre's graph `flow` state key
+(`_flow_for`): `adequacao-worker` -> `flow="adequacao_dossier"`; `pagto-worker` (and ANY other
+origin) -> his default (`pagto_dossier`). The pagto edge is disambiguated by ORIGIN alone, riding
+the default branch on purpose (`pagto-worker` is deliberately NOT mapped in `_ORIGIN_TO_FLOW`).
+CRITICAL: a state with NO `flow` key silently defaults to `pagto_dossier` inside his graph
+(`graph._flow`), which would treat an adequacao cell as a payment triage — this layer therefore
+sets `flow` EXPLICITLY on every materialized state, never by omission.
 
 Idempotency (Guard 4): the `task_id` IS the adequacao cell/business key
 (`ADEQ-{tenant}-{regiao}-{especialidade}[-{ciclo}]` — `andre.graph._business_key`'s own format).
@@ -70,6 +77,12 @@ TASK_TYPE_POPULATION_ANALYTICS = "analytics.population"
 # The delegation ORIGINATES in the worker runtime — the origin id is what disambiguates the
 # shared task_type into Andre's `adequacao_dossier` flow (`_flow_for`).
 ORIGIN_WORKER = "adequacao-worker"
+# The PAGTO worker's origin. Deliberately NOT added to `_ORIGIN_TO_FLOW`: it must resolve through
+# `_flow_for`'s DEFAULT branch to Andre's own default flow `pagto_dossier` (his graph documents
+# `pagto_dossier` as "convoked by operadora.pagto.prepare_approval_dossier"). The SHARED task_type
+# `analytics.population` is reused — no new task_type is minted and `spec/agents/andre/agent.yaml`
+# stays untouched, exactly as the adequacao edge does.
+ORIGIN_PAGTO_WORKER = "pagto-worker"
 TARGET_AGENT = "andre"
 
 # Default budget for a dossier delegation chain (per the Helena->Rafael exemplar).
@@ -196,6 +209,117 @@ async def delegate_adequacao_dossier(
         especialidade=especialidade,
         case_meta=case_meta,
         ciclo_avaliacao=ciclo_avaliacao,
+        budget=budget,
+    )
+    return await dispatcher.delegate(envelope)
+
+
+# --- PAGTO origin (payment-approval dossier — the DEFAULT `pagto_dossier` flow) ------------------
+
+
+def pagto_task_id(
+    tenant: str,
+    *,
+    ordem_pagamento_id: str = "",
+    numero_lote_tiss: str = "",
+    prestador_id: str = "",
+) -> str:
+    """Idempotent `task_id` == the SP-OP-PAGTO-001 business key (dispatcher Guard 4).
+
+    `PAGTO-{tenant}-{ordem_pagamento_id}` or, when the payment stems from an adjudicated
+    CONTAS-001 account, `PAGTO-{tenant}-{numero_lote_tiss}-{prestador_id}` — the SAME derivation
+    `andre.graph._business_key` uses for the `pagto_dossier` flow (contract SP-OP-PAGTO-001
+    §Business key), so an engine re-delivery (incl. the GAP-PAGTO-5 `seguir_analise` re-entry for
+    the same case) replays the SAME delegation result without re-running Andre.
+    """
+    if ordem_pagamento_id:
+        return f"PAGTO-{tenant}-{ordem_pagamento_id}"
+    return f"PAGTO-{tenant}-{numero_lote_tiss}-{prestador_id}"
+
+
+def build_pagto_dossier_envelope(
+    *,
+    tenant: str,
+    case_meta: dict[str, Any],
+    ordem_pagamento_id: str = "",
+    numero_lote_tiss: str = "",
+    prestador_id: str = "",
+    budget: Budget | None = None,
+) -> DelegationEnvelope:
+    """Build the worker->Andre root envelope for the payment APPROVAL dossier (SP-OP-PAGTO-001).
+
+    The SHARED task_type `analytics.population` targets Andre; `origin=ORIGIN_PAGTO_WORKER` is NOT
+    in `_ORIGIN_TO_FLOW`, so `_flow_for` resolves it to Andre's DEFAULT flow `pagto_dossier` (the
+    payment-approval risk dossier his graph documents as convoked by
+    `operadora.pagto.prepare_approval_dossier`). No new task_type is minted — the shared type is
+    disambiguated by origin ALONE (mirrors the adequacao edge; `spec/agents/andre` untouched).
+
+    `payload_ref` is the case's process reference (`process://PAGTO-...`) — a non-PHI anchor.
+    `case_meta`: the process variables at `ST_PrepareApprovalDossier` time, serialized through the
+    strict pagto allowlists (`_PAGTO_STRING_META_KEYS` + `valor_pagamento_cents` INTEGER-CENTAVOS +
+    `_PAGTO_BOOLEAN_META_KEYS`) — the SAME facts Andre's `pagto_dossier` flow consumes, all
+    worker-pre-resolved (validate_payment_data/calculate_facts). Free text never rides this seam.
+    Applies the anti-loop guards at the root.
+    """
+    task_id = pagto_task_id(
+        tenant,
+        ordem_pagamento_id=ordem_pagamento_id,
+        numero_lote_tiss=numero_lote_tiss,
+        prestador_id=prestador_id,
+    )
+    # Seed the case-identity keys explicitly, then overlay the case_meta allowlists (so the target's
+    # `receive` always has the business key even if `case_meta` is partial — mirrors adequacao).
+    meta: dict[str, str] = {}
+    for key, value in (
+        ("ordem_pagamento_id", ordem_pagamento_id),
+        ("numero_lote_tiss", numero_lote_tiss),
+        ("prestador_id", prestador_id),
+    ):
+        if value:
+            meta[key] = str(value)
+    for key in _PAGTO_STRING_META_KEYS:
+        if key not in meta and case_meta.get(key):
+            meta[key] = str(case_meta[key])
+    if case_meta.get("valor_pagamento_cents") is not None:
+        # INTEGER-CENTAVOS (ADR-0018 part 2 — money never as float/number on the seam).
+        meta["valor_pagamento_cents"] = str(int(case_meta["valor_pagamento_cents"]))
+    for key in _PAGTO_BOOLEAN_META_KEYS:
+        if key in case_meta:
+            meta[key] = "true" if bool(case_meta[key]) else "false"
+    return DelegationEnvelope.root(
+        task_id=task_id,
+        task_type=TASK_TYPE_POPULATION_ANALYTICS,
+        origin=ORIGIN_PAGTO_WORKER,
+        target=TARGET_AGENT,
+        tenant=tenant,
+        budget=budget or _DEFAULT_BUDGET,
+        payload_ref=f"process://{task_id}",
+        payload_meta=meta,
+    )
+
+
+async def delegate_pagto_dossier(
+    dispatcher: DelegationDispatcher,
+    *,
+    tenant: str,
+    case_meta: dict[str, Any],
+    ordem_pagamento_id: str = "",
+    numero_lote_tiss: str = "",
+    prestador_id: str = "",
+    budget: Budget | None = None,
+) -> DelegationResult:
+    """Originate and dispatch the worker->Andre payment-dossier delegation. Idempotent by `task_id`.
+
+    Returns the dispatcher's structured `DelegationResult` (success with `output_ref` = the case's
+    process anchor + `meta` = Andre's bounded routing summary, or a structured rejection — never a
+    raise out of the dispatcher).
+    """
+    envelope = build_pagto_dossier_envelope(
+        tenant=tenant,
+        case_meta=case_meta,
+        ordem_pagamento_id=ordem_pagamento_id,
+        numero_lote_tiss=numero_lote_tiss,
+        prestador_id=prestador_id,
         budget=budget,
     )
     return await dispatcher.delegate(envelope)

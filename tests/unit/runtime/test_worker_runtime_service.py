@@ -55,11 +55,12 @@ def test_register_default_workers_registers_all_17_modules() -> None:
 
     assert len(ALL_WORKER_BOOTSTRAPS) == 17
     assert len(harness.registered_topics) > 90
-    # DL-0033 real A2A wiring (dossier branch): `operadora.cred.prepare_dossier` and
-    # `operadora.adequacao.prepare_remediation_dossier` moved from `FunctionWorker` (dict-first,
-    # in the WorkerRegistry) to RAW async handlers (in `_handlers`, NOT the registry) because they
-    # now `await dispatcher.delegate(...)`. So the raw-handler count grows 11 -> 13.
-    assert harness.registry.count() == len(harness.registered_topics) - 13
+    # DL-0033 real A2A wiring (dossier branch): `operadora.cred.prepare_dossier`,
+    # `operadora.adequacao.prepare_remediation_dossier` and (item9-w3) the LAST edge
+    # `operadora.pagto.prepare_approval_dossier` moved from `FunctionWorker` (dict-first, in the
+    # WorkerRegistry) to RAW async handlers (in `_handlers`, NOT the registry) because they now
+    # `await dispatcher.delegate(...)`. So the raw-handler count grows 11 -> 14 (11 base + 3 dossier).
+    assert harness.registry.count() == len(harness.registered_topics) - 14
 
 
 def test_register_default_workers_topics_match_expected_prefixes() -> None:

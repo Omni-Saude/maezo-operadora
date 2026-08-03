@@ -14,13 +14,16 @@ from dataclasses import replace
 from typing import Any
 
 from maezo.agents.andre.delegation import (
+    ORIGIN_PAGTO_WORKER,
     ORIGIN_WORKER,
     TARGET_AGENT,
     TASK_TYPE_POPULATION_ANALYTICS,
     _flow_for,
     adequacao_task_id,
     build_adequacao_dossier_envelope,
+    build_pagto_dossier_envelope,
     make_andre_handler,
+    pagto_task_id,
     state_from_envelope,
 )
 from maezo.agents.andre.graph import _CALLER_INPUT_FIELDS, build
@@ -198,3 +201,105 @@ async def test_handler_missing_cell_identity_fail_safes_to_human_never_a_payment
     assert output.meta["route"] == "human_review"
     assert output.meta["process_started"] == "False"
     assert not output.output_ref.startswith("process://PAGTO-")  # never a payment key
+
+
+# --- PAGTO origin builder (the DEFAULT `pagto_dossier` flow, shared task_type) -----------------
+
+_PAGTO_CASE_META = {
+    "tipo_pagamento": "prestador_rede",
+    "valor_pagamento_cents": 25_000_000,
+    "moeda": "BRL",
+    "dados_pagamento_validos": True,
+    "lastro_confirmado": True,
+    "dentro_teto_l2": False,
+    "duplicidade_suspeita": False,
+    # Never forwarded (not in the pagto allowlist):
+    "observacoes_livres": "texto livre",
+}
+
+
+def _pagto_envelope(**overrides: Any) -> Any:
+    kwargs: dict[str, Any] = {
+        "tenant": "amh",
+        "case_meta": _PAGTO_CASE_META,
+        "ordem_pagamento_id": "OP-001",
+    }
+    kwargs.update(overrides)
+    return build_pagto_dossier_envelope(**kwargs)
+
+
+def test_pagto_task_id_is_the_payment_business_key() -> None:
+    assert pagto_task_id("amh", ordem_pagamento_id="OP-001") == "PAGTO-amh-OP-001"
+    assert (
+        pagto_task_id("amh", numero_lote_tiss="L9", prestador_id="P3") == "PAGTO-amh-L9-P3"
+    )  # CONTAS-001-adjudicated variant
+
+
+def test_pagto_envelope_reuses_shared_task_type_with_pagto_worker_origin() -> None:
+    """The pagto edge REUSES `analytics.population` (no new task_type minted); the `pagto-worker`
+    origin is what routes it — via `_flow_for`'s DEFAULT branch — to Andre's `pagto_dossier`."""
+    envelope = _pagto_envelope()
+    assert envelope.task_type == TASK_TYPE_POPULATION_ANALYTICS == "analytics.population"
+    assert envelope.origin == ORIGIN_PAGTO_WORKER == "pagto-worker"
+    assert envelope.target == TARGET_AGENT == "andre"
+    assert envelope.task_id == "PAGTO-amh-OP-001"
+    assert envelope.payload_ref == "process://PAGTO-amh-OP-001"
+
+
+def test_pagto_payload_meta_is_a_strict_non_phi_allowlist() -> None:
+    meta = dict(_pagto_envelope().payload_meta)
+    assert meta["ordem_pagamento_id"] == "OP-001"
+    assert meta["tipo_pagamento"] == "prestador_rede"
+    assert meta["valor_pagamento_cents"] == "25000000"  # INTEGER-CENTAVOS as string
+    assert meta["dentro_teto_l2"] == "false"
+    assert meta["dados_pagamento_validos"] == "true"
+    assert "observacoes_livres" not in meta
+    assert all(isinstance(v, str) for v in meta.values())
+
+
+def test_pagto_origin_routes_to_default_pagto_dossier_flow() -> None:
+    assert _flow_for(_pagto_envelope()) == "pagto_dossier"
+
+
+def test_state_from_envelope_sets_pagto_dossier_flow_explicitly_and_materializes_facts() -> None:
+    state = state_from_envelope(_pagto_envelope())
+    assert set(state) <= _CALLER_INPUT_FIELDS
+    assert state["flow"] == "pagto_dossier"  # EXPLICIT — never the graph's missing-key default
+    assert state["tenant_id"] == "amh"
+    assert state["canal"] == "a2a"
+    assert state["ordem_pagamento_id"] == "OP-001"
+    assert state["tipo_pagamento"] == "prestador_rede"
+    assert state["valor_pagamento_cents"] == 25_000_000  # parsed back to INTEGER-CENTAVOS
+    assert state["dados_pagamento_validos"] is True
+    assert state["dentro_teto_l2"] is False
+
+
+def _pagto_dmn(*, faixa_valor: str = "ALCADA_L1", grupo: str = "aprovacao-financeira-l1") -> FakeDmnTransport:
+    dmn = FakeDmnTransport()
+    dmn.register("pagto_admissibility", [{"roteamento": "SEGUE_ROTEAMENTO", "motivo": "test"}])
+    dmn.register("pagto_alcada", [{"faixa_valor": faixa_valor, "grupo_aprovador": grupo, "tier_minimo": 1}])
+    dmn.register("pagto_sla", [{"sla_aprovacao": "P2D", "sla_alerta": "P1D", "fonte": "politica"}])
+    return dmn
+
+
+async def test_handler_pagto_flow_routes_human_starts_process_never_releases() -> None:
+    """The full producer->consumer pagto edge: a `pagto-worker` origin envelope lands in Andre's
+    DEFAULT `pagto_dossier` flow, evaluates the pagto DMN chain, routes an ALCADA_L1 faixa to the
+    human approver (`aprovacao-financeira-l1`, UT_AprovacaoAlcada) and idempotently anchors
+    SP-OP-PAGTO-001 — NEVER an automatic release (L1 hard: the release is born only in the UT)."""
+    handler = make_andre_handler(
+        _FakeInference(),
+        dmn=_pagto_dmn(),
+        cibseven=FakeCibSevenTransport(),
+        audit_sink=FakeStartAuditSink(),
+    )
+    output = await handler(_pagto_envelope())
+
+    assert output.output_ref == "process://PAGTO-amh-OP-001"
+    assert output.meta["route"] == "human_review"
+    assert output.meta["motivo_humano"] == "aprovacao_alcada"
+    assert output.meta["grupo_destino"] == "aprovacao-financeira-l1"
+    assert output.meta["process_started"] == "True"  # pagto flow DOES anchor the process
+    # L1 hard: no release/decision token ever leaves this seam.
+    assert all("decisao" not in str(v).lower() for v in output.meta.values())
+    assert all(str(v).upper() not in {"APROVAR", "RECUSAR", "CANCELAR"} for v in output.meta.values())

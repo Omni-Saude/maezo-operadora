@@ -5,8 +5,9 @@ TDD London School: tests verify value-driven tier routing and payment release gu
 
 import pytest
 
+from maezo.a2a import DelegationResult, RejectionReason
 from maezo.tools.workers.dmn_transport import DmnEvaluationError, FakeDmnTransport
-from maezo.tools.workers.harness import WorkerHarness
+from maezo.tools.workers.harness import ExternalTask, WorkerHarness
 from maezo.tools.workers.pagto import (
     ERR_PAGTO_ORDEM_INVALIDA,
     ERR_PAYMENT_REFUSAL_NOT_HUMAN,
@@ -14,8 +15,8 @@ from maezo.tools.workers.pagto import (
     PagtoError,
     assess_admissibility,
     execute_pagto,
+    make_prepare_approval_dossier_handler,
     notify_sla_risk,
-    prepare_approval_dossier,
     publish_completed,
     register_pagto_workers,
     register_payment_refusal,
@@ -742,21 +743,180 @@ def test_register_payment_refusal_non_exact_alcada_literal_still_refuses(decisio
 
 def test_register_pagto_workers_registers_new_topics() -> None:
     """`notify_sla_risk`/`register_payment_refusal` are registered on their exact BPMN-declared
-    topics; `prepare_approval_dossier` is now a registered DL-0033 local stub (Andre A2A real
-    delegation still deferred, but the BPMN topic is no longer orphaned)."""
+    topics; `prepare_approval_dossier` is now a REAL Andre A2A raw async handler (DL-0033 closed).
+    `registered_topics` reflects `_handlers`, which includes raw `harness.register()` handlers, so
+    the topic is still present (its absence from the WorkerRegistry is asserted in
+    `test_bootstrap_registration.py`)."""
     harness = WorkerHarness(None, worker_id="unit-test-pagto")  # type: ignore[arg-type]
     register_pagto_workers(harness, None, dmn=FakeDmnTransport())
     topics = set(harness.registered_topics)
     assert "operadora.pagto.notify_sla_risk" in topics
     assert "operadora.pagto.register_payment_refusal" in topics
     assert "operadora.pagto.prepare_approval_dossier" in topics
+    # RAW async handler (Andre A2A) — populates `_handlers` only, NOT the WorkerRegistry.
+    assert harness.registry.get("operadora.pagto.prepare_approval_dossier") is None
 
 
-def test_prepare_approval_dossier_stub() -> None:
-    """DL-0033 LOCAL STUB (NEUTRAL; mirrors programa.enroll_beneficiario) — instructs
-    UT_AprovacaoAlcada, never decides. Fails safe on missing identity."""
-    assert prepare_approval_dossier({"ordem_pagamento_id": "OP-001"})["dossier_prepared"] is True
-    assert prepare_approval_dossier({})["dossier_prepared"] is True
+# ---------------------------------------------------------------
+# prepare_approval_dossier — REAL Andre A2A delegation (raw async handler; DL-0033 closed, DL-0037)
+# ---------------------------------------------------------------
+
+
+class _FakeDossierDispatcher:
+    """Records the envelope; returns a programmed `DelegationResult` (or raises)."""
+
+    def __init__(self, result: DelegationResult | None = None, exc: Exception | None = None) -> None:
+        self.envelopes: list = []
+        self._result = result
+        self._exc = exc
+
+    async def delegate(self, envelope) -> DelegationResult:  # noqa: ANN001 — duck-typed fake
+        self.envelopes.append(envelope)
+        if self._exc is not None:
+            raise self._exc
+        assert self._result is not None
+        return self._result
+
+
+def _dossier_task(variables: dict) -> ExternalTask:
+    return ExternalTask(
+        task_id="et-1",
+        topic="operadora.pagto.prepare_approval_dossier",
+        process_instance_id="pi-1",
+        business_key="PAGTO-amh-OP-001",
+        worker_id="w-1",
+        variables=variables,
+    )
+
+
+_PAGTO_DOSSIER_VARS = {
+    "tenant_id": "amh",
+    "ordem_pagamento_id": "OP-001",
+    "tipo_pagamento": "prestador_rede",
+    "valor_pagamento_cents": 25_000_000,
+    "dados_pagamento_validos": True,
+    "lastro_confirmado": True,
+    "dentro_teto_l2": False,
+    # Never forwarded (not in the pagto allowlist):
+    "observacoes_livres": "texto livre com PHI potencial",
+}
+
+
+async def test_prepare_approval_dossier_delegates_to_andre_and_returns_real_outputs() -> None:
+    """Dispatcher present -> await delegate -> real dossier outputs: `dossier_prepared=True`, the
+    `output_ref` reference, and Andre's agent-produced compact summary AS-IS (`dossier_summary` —
+    the SME/PO-pending UT-form seam). The envelope uses the SHARED `analytics.population` type with
+    the `pagto-worker` origin (his DEFAULT-flow disambiguator) and the PAGTO business key as
+    task_id (Guard 4); free text never rides the seam."""
+    dispatcher = _FakeDossierDispatcher(
+        result=DelegationResult.ok(
+            "PAGTO-amh-OP-001",
+            "process://PAGTO-amh-OP-001",
+            meta={"route": "human_review", "grupo_destino": "aprovacao-financeira-l1"},
+        )
+    )
+    handler = make_prepare_approval_dossier_handler(dispatcher)  # type: ignore[arg-type]
+
+    result = await handler(_dossier_task(_PAGTO_DOSSIER_VARS))
+
+    assert result is not None
+    assert result["dossier_prepared"] is True
+    assert result["dossier_ref"] == "process://PAGTO-amh-OP-001"
+    assert result["dossier_summary"] == {"route": "human_review", "grupo_destino": "aprovacao-financeira-l1"}
+    (envelope,) = dispatcher.envelopes
+    assert envelope.task_id == "PAGTO-amh-OP-001"
+    assert envelope.task_type == "analytics.population"
+    assert envelope.origin == "pagto-worker"
+    assert envelope.target == "andre"
+    assert envelope.payload_ref == "process://PAGTO-amh-OP-001"
+    assert envelope.payload_meta["valor_pagamento_cents"] == "25000000"
+    assert envelope.payload_meta["dentro_teto_l2"] == "false"
+    assert "observacoes_livres" not in envelope.payload_meta
+
+
+async def test_prepare_approval_dossier_without_dispatcher_fail_neutrals_with_gap() -> None:
+    """DL-0037 degradation posture: dispatcher absent (degraded runtime) -> the task still
+    COMPLETES (UT_AprovacaoAlcada must open) with `dossier_prepared=False` + the bounded gap
+    token — never a raise, never a fabricated dossier. This is the INTEGRATION-NEUTRAL path (the
+    pagto integration suite registers pagto workers WITHOUT a dispatcher: the task still completes,
+    unblocking the mechanical path to UT_AprovacaoAlcada exactly as the old stub did)."""
+    handler = make_prepare_approval_dossier_handler(None)
+    result = await handler(_dossier_task(_PAGTO_DOSSIER_VARS))
+    assert result is not None
+    assert result["dossier_prepared"] is False
+    assert result["dossier_gap"] == "dispatcher_unavailable"
+
+
+async def test_prepare_approval_dossier_lote_prestador_business_key_delegates() -> None:
+    """The CONTAS-001-adjudicated variant (no ordem) delegates on the lote+prestador business
+    key — the SAME derivation `andre.graph._business_key` uses."""
+    dispatcher = _FakeDossierDispatcher(
+        result=DelegationResult.ok("PAGTO-amh-LOTE-9-PREST-3", "process://PAGTO-amh-LOTE-9-PREST-3")
+    )
+    handler = make_prepare_approval_dossier_handler(dispatcher)  # type: ignore[arg-type]
+    result = await handler(
+        _dossier_task({"tenant_id": "amh", "numero_lote_tiss": "LOTE-9", "prestador_id": "PREST-3"})
+    )
+    assert result["dossier_prepared"] is True
+    (envelope,) = dispatcher.envelopes
+    assert envelope.task_id == "PAGTO-amh-LOTE-9-PREST-3"
+
+
+async def test_prepare_approval_dossier_missing_business_identifiers_gap_never_delegates() -> None:
+    """No ordem and no complete lote+prestador (incl. whitespace-only, `non_blank` discipline) ->
+    no degenerate PAGTO task_id is ever delegated; gap marker, UT still opens."""
+    dispatcher = _FakeDossierDispatcher(result=DelegationResult.ok("x", "process://x"))
+    handler = make_prepare_approval_dossier_handler(dispatcher)  # type: ignore[arg-type]
+    # ordem whitespace-only + lote present but NO prestador -> no complete key -> gap, no delegate.
+    result = await handler(
+        _dossier_task({"tenant_id": "amh", "ordem_pagamento_id": "  ", "numero_lote_tiss": "L9"})
+    )
+    assert result["dossier_prepared"] is False
+    assert result["dossier_gap"] == "missing_business_identifiers"
+    assert dispatcher.envelopes == []
+
+
+async def test_prepare_approval_dossier_delegation_failure_fail_neutrals_never_raises() -> None:
+    """ANY delegation exception -> gap marker + loud log; raw error text stays OUT of the engine
+    variables (bounded class token only)."""
+    handler = make_prepare_approval_dossier_handler(
+        _FakeDossierDispatcher(exc=RuntimeError("pg down: dsn=secret"))  # type: ignore[arg-type]
+    )
+    result = await handler(_dossier_task(_PAGTO_DOSSIER_VARS))
+    assert result["dossier_prepared"] is False
+    assert result["dossier_gap"] == "delegation_failed"
+    assert "secret" not in str(result.values())
+
+
+async def test_prepare_approval_dossier_structured_rejection_gap_bounded_reason() -> None:
+    handler = make_prepare_approval_dossier_handler(
+        _FakeDossierDispatcher(  # type: ignore[arg-type]
+            result=DelegationResult.rejected(
+                "PAGTO-amh-OP-001",
+                RejectionReason.TASK_TYPE_NOT_ACCEPTED,
+                detail="not accepted",
+            )
+        )
+    )
+    result = await handler(_dossier_task(_PAGTO_DOSSIER_VARS))
+    assert result["dossier_prepared"] is False
+    assert result["dossier_gap"] == "delegation_rejected:task_type_not_accepted"
+
+
+async def test_prepare_approval_dossier_never_releases_or_decides() -> None:
+    """L0/L1 hard: the dossier INSTRUCTS, never decides — no release/price/decision marker ever
+    appears in the completion variables (the release is born SOLELY in UT_AprovacaoAlcada)."""
+    dispatcher = _FakeDossierDispatcher(
+        result=DelegationResult.ok(
+            "PAGTO-amh-OP-001", "process://PAGTO-amh-OP-001", meta={"route": "human_review"}
+        )
+    )
+    handler = make_prepare_approval_dossier_handler(dispatcher)  # type: ignore[arg-type]
+    result = await handler(_dossier_task(_PAGTO_DOSSIER_VARS))
+    assert "pagamento_liberado" not in result
+    assert "decisao_pagamento" not in result
+    for value in result.values():
+        assert str(value).upper() not in {"APROVAR", "RECUSAR", "CANCELAR"}
 
 
 # ---------------------------------------------------------------
