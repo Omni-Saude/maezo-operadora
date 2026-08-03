@@ -9,6 +9,7 @@ CRITICAL: Workers must NEVER make adverse decisions (negativa, acusacao).
 from __future__ import annotations
 
 from pathlib import Path
+from xml.etree import ElementTree as ET
 
 import pytest
 
@@ -64,6 +65,33 @@ _HARD_BLOCK = """\
   fraud_accusation:       { level: L0, hard: true }
   contract_termination:   { level: L0, hard: true }
 """
+
+
+# Spec fence (GK-w4) — the human-provenance guard above only works if the MODEL actually asks the
+# human for `auditor_id`. tests/unit/tools/workers/<file> -> parents[4] == repo root (same idiom as
+# test_bootstrap_registration.py). Namespaces mirror scripts/ci/check_bpmn_error_allowlist.py.
+_REPO_ROOT = Path(__file__).resolve().parents[4]
+_AUTH_BPMN = _REPO_ROOT / "spec" / "processes" / "bpmn" / "SP-OP-AUTH-001_Autorizacao_Previa.bpmn"
+_BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+_CAMUNDA_NS = "http://camunda.org/schema/1.0/bpmn"
+
+# The three User Tasks where a NEGAR can be born (SP-OP-AUTH-001 L0 invariant).
+_HUMAN_DECISION_UTS = (
+    "UT_AnaliseMedicoAuditor",
+    "UT_CoordenacaoAssume",
+    "UT_RegistrarParecerJunta",
+)
+
+# The full declared formField set of each of those UTs: the four decision/grounding fields plus
+# `auditor_id`. Pinned as an exact set so neither a silent removal nor a silent rename regresses
+# the model out from under the worker guards.
+_EXPECTED_UT_FORM_FIELDS = {
+    "decisao_auditor",
+    "justificativa_clinica",
+    "cid10_referencia",
+    "fundamentacao_dut",
+    "auditor_id",
+}
 
 
 def _pin_resolver(tmp_path: Path, max_value_brl: int) -> CeilingResolver:
@@ -251,6 +279,78 @@ def test_send_denial_notice_completeness_still_precedes_auditor_id_provenance() 
             }
         )
     assert exc.value.error_code == ERR_AUTH_DENIAL_INCOMPLETE
+
+
+# ---------------------------------------------------------------------------
+# SPEC FENCE (GK-w4 major) — `auditor_id` must be MODELED, not just consumed.
+#
+# The provenance guard above accepts a non-blank `auditor_id` as the ADR-0007 human-accountability
+# evidence. That only holds if SP-OP-AUTH-001 actually asks the human for it: before this fence the
+# three UTs declared exactly four formFields and `auditor_id` appeared nowhere in the BPMN, so a
+# model-conforming Tasklist client submitting only the declared fields had its genuinely-human NEGAR
+# blocked (ERR_DENIAL_NOT_HUMAN), and the variable was start-seedable with no modeled task
+# overwriting it. These tests pin the model so it cannot silently regress under the worker.
+# ---------------------------------------------------------------------------
+
+
+def _ut_form_fields(user_task_id: str) -> dict[str, ET.Element]:
+    """Return {formField id: element} declared by a User Task of the AUTH spec BPMN."""
+    root = ET.parse(_AUTH_BPMN).getroot()
+    for user_task in root.iter(f"{{{_BPMN_NS}}}userTask"):
+        if user_task.get("id") == user_task_id:
+            return {field.get("id", ""): field for field in user_task.iter(f"{{{_CAMUNDA_NS}}}formField")}
+    raise AssertionError(f"userTask {user_task_id!r} not found in {_AUTH_BPMN}")
+
+
+def _field_properties(form_field: ET.Element) -> dict[str, str]:
+    """Return {camunda:property name: value} of a formField."""
+    return {
+        prop.get("name", ""): prop.get("value", "") for prop in form_field.iter(f"{{{_CAMUNDA_NS}}}property")
+    }
+
+
+def test_auth_spec_bpmn_exists() -> None:
+    """Guards the fence below against a silently-vacuous pass (fail loud, never fabricate)."""
+    assert _AUTH_BPMN.is_file(), f"AUTH spec BPMN not found at {_AUTH_BPMN}"
+
+
+@pytest.mark.parametrize("user_task_id", _HUMAN_DECISION_UTS)
+def test_spec_declares_auditor_id_on_every_human_decision_ut(user_task_id: str) -> None:
+    """Each UT where a NEGAR can be born declares `auditor_id` as a string formField."""
+    fields = _ut_form_fields(user_task_id)
+    assert "auditor_id" in fields, (
+        f"{user_task_id} does not declare auditor_id — a model-conforming Tasklist client cannot "
+        "supply the ADR-0007 provenance the send_denial_notice guard requires"
+    )
+    assert fields["auditor_id"].get("type") == "string"
+
+
+@pytest.mark.parametrize("user_task_id", _HUMAN_DECISION_UTS)
+def test_spec_ut_form_field_set_is_exactly_pinned(user_task_id: str) -> None:
+    """Exact formField set per UT — catches a removal OR a rename of any declared field."""
+    assert set(_ut_form_fields(user_task_id)) == _EXPECTED_UT_FORM_FIELDS
+
+
+@pytest.mark.parametrize("user_task_id", _HUMAN_DECISION_UTS)
+def test_spec_auditor_id_is_required_if_negar_and_enforced_by_the_worker(user_task_id: str) -> None:
+    """`auditor_id` carries the file's own conditional-requiredness idiom, pointing at the guard."""
+    props = _field_properties(_ut_form_fields(user_task_id)["auditor_id"])
+    assert props.get("requiredIf") == "decisao_auditor == NEGAR"
+    assert ERR_DENIAL_NOT_HUMAN in props.get("enforcedBy", "")
+    assert "ADR-0007" in props.get("adr", "")
+
+
+@pytest.mark.parametrize("user_task_id", _HUMAN_DECISION_UTS)
+def test_spec_auditor_id_carries_no_unconditional_required_constraint(user_task_id: str) -> None:
+    """No Camunda `required` constraint on auditor_id: it is required only on the NEGAR branch, and
+    an unconditional constraint would wrongly block APROVAR/SOLICITAR_INFO/JUNTA_MEDICA, which share
+    these UTs (the GAP-AUTH-2 rationale in the spec, and the sibling idiom of SP-OP-RECURSO-001 /
+    SP-OP-REEMBOLSO-001: plain string identity field, enforcement in the worker guard)."""
+    constraints = [
+        constraint.get("name")
+        for constraint in _ut_form_fields(user_task_id)["auditor_id"].iter(f"{{{_CAMUNDA_NS}}}constraint")
+    ]
+    assert constraints == []
 
 
 # ---------------------------------------------------------------------------
