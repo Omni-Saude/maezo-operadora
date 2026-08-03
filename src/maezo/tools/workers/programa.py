@@ -7,17 +7,26 @@ Guard: ERR_PROGRAM_DISCHARGE_NOT_HUMAN (L0-hard clinical decision).
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from maezo.tools.workers.base import FunctionWorker
+from maezo.tools.workers.base import FunctionWorker, reclassify_coded_exception
 from maezo.tools.workers.harness import WorkerBpmnError
 
 if TYPE_CHECKING:
-    from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
+    from maezo.tools.workers.harness import ExternalTask, KafkaPublisher, TaskHandler, WorkerHarness
 
 logger = structlog.get_logger(__name__)
+
+# Internal-notification channel (mirrors recurso.py's/lgpd.py's own `_NOTIFICATIONS_TOPIC` — a
+# `type`-discriminated envelope on `operadora.notifications.internal`, NOT a BPMN-declared
+# domain-event topic). Used by the 4 raw-handler workers below (item A/B/C, event-wiring wave)
+# whose Kafka publish needs the async seam a `FunctionWorker`'s sync boundary cannot reach
+# (`WorkerBase`'s own docstring: "Async I/O is handled by the engine/message layer, not by the
+# worker logic").
+_NOTIFICATIONS_TOPIC = "operadora.notifications.internal"
 
 # ---------------------------------------------------------------
 # Error codes
@@ -312,6 +321,16 @@ def _register_program_discharge(variables: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "desligamento_clinico_registrado": True,
+        # GAP-PROG-2 completion (item-9 wave-5, item D): the ONLY source of the adverse
+        # `desfecho=desligamento_clinico_humano` value — BPMN ST_PublishCompleted's own
+        # documentation (SP-OP-PROGRAMA-001_Programas_Cuidado.bpmn:318) claims this worker
+        # "RETORNA desfecho=desligamento_clinico_humano como output var SO no sucesso
+        # pos-guard"; before this fix the key was never actually returned, so
+        # ST_PublishCompleted's `event_desfecho` ternary (BPMN:323) could never resolve the
+        # adverse branch and silently fell through to "". Set ONLY on this success path
+        # (guard-refused calls raise ProgramaError above and never reach here) — never a guess,
+        # never set on a neutral/L3 path.
+        "desfecho": "desligamento_clinico_humano",
     }
 
 
@@ -341,6 +360,79 @@ def stop_processing(variables: dict[str, Any]) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------
+# proactive_contact — item-9 wave-5 item B: ST_ProactiveContact (ELEGIVEL branch, in-zone)
+# ---------------------------------------------------------------
+
+
+def proactive_contact(variables: dict[str, Any]) -> dict[str, Any]:
+    """Contato proativo com o beneficiario (`ST_ProactiveContact`, BPMN:153-162, in-zone).
+
+    Defense-in-depth guard mirrors `stratify_risk`'s EXACT pattern — same invariant (consent for
+    `consent_scope`), same code (`ERR_PROGRAMA_NO_CONSENT`), same `ProgramaError`-not-
+    `WorkerBpmnError` posture: `ST_ProactiveContact` carries no error boundary in the BPMN (re-
+    verified: no `errorEventDefinition` attached to it), so a `WorkerBpmnError` here would
+    silently end the process scope on CIB Seven 2.1.0 (the same live-verified hazard documented
+    on `stratify_risk`/module docstring lines ~37-48) — it MUST stay a human-visible incident.
+    `check_consent` (the CHOKEPOINT) already gates entry to `SUB_Cuidado`; this re-checks the SAME
+    invariant in case the task is ever reached without the gate having passed (D9: "consent_checked
+    exigido antes de qualquer contato").
+
+    Does NOT set `desfecho` — BPMN's own `ST_ProactiveContact` `outputParameter` literal (~157)
+    stamps `desfecho=enrollment_realizado`; this worker only performs the contact.
+    """
+    consentimento_ativo = variables.get("consentimento_ativo") is True
+    consent_checked = variables.get("consent_checked") is True
+    consent_scope = variables.get("consent_scope", "programa_cuidado")
+    beneficiario = variables.get("beneficiario_pseudo_id")
+    programa_id = variables.get("programa_id")
+
+    if not consentimento_ativo or not consent_checked:
+        logger.warning(
+            "programa_proactive_contact_no_consent",
+            beneficiario=beneficiario,
+            consent_scope=consent_scope,
+        )
+        raise ProgramaError(
+            ERR_PROGRAMA_NO_CONSENT,
+            f"proactive_contact recusado: consentimento ausente/revogado para escopo '{consent_scope}'",
+        )
+
+    logger.info(
+        "programa_proactive_contact",
+        beneficiario=beneficiario,
+        programa_id=programa_id,
+    )
+
+    return {
+        "contato_realizado": True,
+    }
+
+
+# ---------------------------------------------------------------
+# notify_sla_risk — item-9 wave-5 item C: ST_NotifySlaRisk (non-interruptive timer alert)
+# ---------------------------------------------------------------
+
+
+def notify_sla_risk(variables: dict[str, Any]) -> dict[str, Any]:
+    """Notify coordenacao-clinica/equipe-cuidado of SLA risk (`ST_NotifySlaRisk`, BPMN:202-205).
+
+    Fed ONLY by the NON-interruptive boundary timer `BT_AlertaSlaPrograma` (`cancelActivity=
+    "false"` on the attached boundary — re-verified against the BPMN) attached to
+    `UT_DecisaoClinica`: informational only. `UT_DecisaoClinica` stays open, no decision is made
+    or altered here — mirrors `recurso.notify_sla_risk`'s (recurso.py:700-713) exact rationale.
+    """
+    logger.info(
+        "programa_notify_sla_risk",
+        beneficiario=variables.get("beneficiario_pseudo_id"),
+        programa_id=variables.get("programa_id"),
+    )
+
+    return {
+        "sla_risk_notified": True,
+    }
+
+
+# ---------------------------------------------------------------
 # Custom error
 # ---------------------------------------------------------------
 
@@ -355,24 +447,204 @@ class ProgramaError(Exception):
 
 
 # ---------------------------------------------------------------
+# item-9 wave-5 — raw-handler Kafka seam (items A/B/C).
+#
+# `stratify_risk`/`stop_processing` (item A, root fix) and the 2 NEW workers `proactive_contact`/
+# `notify_sla_risk` (items B/C) are raw `harness.register()` handlers — mirrors
+# `recurso.make_notify_sla_risk_handler` (recurso.py:716-752) / `lgpd.make_request_additional_
+# proof_handler` (lgpd.py:449-527) — NOT `FunctionWorker`-wrapped: each needs the async Kafka seam
+# a sync `FunctionWorker.execute`/`WorkerBase.execute` boundary cannot reach (`WorkerBase`'s own
+# docstring: "Async I/O is handled by the engine/message layer, not by the worker logic") to
+# publish a `type`-discriminated internal notification (`_NOTIFICATIONS_TOPIC`) observable by
+# `notifications_of_type(...)` (the port's own `ProgramaEngineProbe`, T3.1 R2 finding 4).
+#
+# GK-w5 finding 4 (M11 per-worker metrics disclosure): a raw handler bypasses `WorkerBase.run`
+# entirely, so `record_worker_execution`/`record_worker_error` (`maezo.platform.observability`,
+# M11) never fire for these 4 topics — `WorkerBase.run` is the ONLY place that emits them, and
+# raw handlers never go through it. For `stratify_risk`/`stop_processing` this is a REAL DELTA:
+# they emitted these per-worker metrics while `FunctionWorker`-wrapped (pre-item-A) and no longer
+# do. For `proactive_contact`/`notify_sla_risk` (brand new this wave) there is nothing to regress
+# from. In all 4 cases the harness-level dispatch-outcome metric
+# (`_emit_worker_task_outcome`/`record_worker_task_outcome`, `harness.py`) still fires unconditionally
+# for every topic regardless of handler shape — this is the SAME accepted trade-off already made
+# for recurso's/lgpd's/escalation's own raw handlers (none of them emit per-worker M11 metrics
+# either); not a new gap this wave introduces, just newly disclosed here for programa's 2 MOVED
+# topics.
+# ---------------------------------------------------------------
+
+_STRATIFY_RISK_TOPIC = "operadora.programa.stratify_risk"
+_STOP_PROCESSING_TOPIC = "operadora.programa.stop_processing"
+_PROACTIVE_CONTACT_TOPIC = "operadora.programa.proactive_contact"
+_NOTIFY_SLA_RISK_TOPIC = "operadora.programa.notify_sla_risk"
+
+_STRATIFY_RISK_NOTIFICATION_TYPE = "programa.stratify_risk"
+_STOP_PROCESSING_NOTIFICATION_TYPE = "programa.stop_processing"
+_PROACTIVE_CONTACT_NOTIFICATION_TYPE = "programa.proactive_contact"
+_NOTIFY_SLA_RISK_NOTIFICATION_TYPE = "programa.notify_sla_risk"
+
+
+def _call_guarded(
+    fn: Callable[[dict[str, Any]], dict[str, Any]], variables: dict[str, Any]
+) -> dict[str, Any]:
+    """Call a programa.py guard function through `base.reclassify_coded_exception`.
+
+    Needed because `stratify_risk`/`proactive_contact` (defense-in-depth `ERR_PROGRAMA_NO_CONSENT`
+    guards) are now raw-handler-wrapped (item A/B, Kafka seam) instead of `FunctionWorker`-wrapped
+    — without this, their `ProgramaError` would fall through the harness's generic `except
+    Exception` branch (`harness.py` `_handle`) as an *unclassified* error (engine-computed retry),
+    NOT the intended never-retried incident.
+
+    GK-w5 finding 3 (single source of truth): this is a THIN wrapper — `reclassify_coded_exception`
+    (`tools/workers/base.py`) is the ONE shared implementation `FunctionWorker.execute` ALSO calls,
+    so both paths reclassify a coded exception (or pass through an already-classified one /
+    `WorkerBpmnError`, which lacks the `.code`/`.message` shape) IDENTICALLY by construction — a
+    future edit to the shared rule can never silently diverge between the two call sites (pinned
+    by `test_reclassify_coded_exception_equivalence` in `tests/unit/tools/workers/
+    test_function_worker.py`). `check_consent`'s modeled `WorkerBpmnError` boundary raise never
+    reaches this helper — it stays `FunctionWorker`-wrapped.
+    """
+    return reclassify_coded_exception(lambda: fn(variables))
+
+
+def make_stratify_risk_handler(kafka: KafkaPublisher | None) -> TaskHandler:
+    """Raw-handler factory for `operadora.programa.stratify_risk` (serves `ST_StratifyRisk`).
+
+    Item A (root fix): `stratify_risk` itself (pure function + guard) is UNCHANGED; only the
+    registration wrapping changes so the worker can publish `{"type": "programa.stratify_risk",
+    ...}` to `_NOTIFICATIONS_TOPIC` — the `_PHI_NOTIFICATION_TYPES` invariant the port's test suite
+    checks (a PHI worker's notification must NEVER be observed when consent was refused) depends on
+    this channel existing. `kafka=None` (no producer wired) logs a warning and still returns the
+    result — the task MUST complete either way (never blocks the flow on a missing producer).
+    """
+
+    async def handler(task: ExternalTask) -> dict[str, Any]:
+        result = _call_guarded(stratify_risk, task.variables)
+        if kafka is None:
+            logger.warning("programa_stratify_risk_no_producer", business_key=task.business_key)
+            return result
+        notification = {
+            "type": _STRATIFY_RISK_NOTIFICATION_TYPE,
+            "tenant_id": task.variables.get("tenant_id", ""),
+            "programa_id": task.variables.get("programa_id", ""),
+            "beneficiario_pseudo_id": task.variables.get("beneficiario_pseudo_id", ""),
+            "risco_estratificado": result.get("risco_estratificado"),
+        }
+        # best_effort=False — no BPMN error boundary declared on ST_StratifyRisk -> RAW propagate
+        # to the harness retry/incident ladder (ADR-0030), mirrors recurso/lgpd's own posture.
+        await kafka.publish(
+            _NOTIFICATIONS_TOPIC, notification, key=task.business_key or None, best_effort=False
+        )
+        return result
+
+    return handler
+
+
+def make_stop_processing_handler(kafka: KafkaPublisher | None) -> TaskHandler:
+    """Raw-handler factory for `operadora.programa.stop_processing` (serves `ST_StopProcessing`).
+
+    Item A (root fix): `stop_processing` itself is UNCHANGED; only the registration wrapping
+    changes so the worker can publish `{"type": "programa.stop_processing", ...}` to
+    `_NOTIFICATIONS_TOPIC` — the revogacao-interrompe-processamento invariant the port's test suite
+    checks depends on this channel existing (`notifications_of_type("programa.stop_processing")`).
+    """
+
+    async def handler(task: ExternalTask) -> dict[str, Any]:
+        result = _call_guarded(stop_processing, task.variables)
+        if kafka is None:
+            logger.warning("programa_stop_processing_no_producer", business_key=task.business_key)
+            return result
+        notification = {
+            "type": _STOP_PROCESSING_NOTIFICATION_TYPE,
+            "tenant_id": task.variables.get("tenant_id", ""),
+            "programa_id": task.variables.get("programa_id", ""),
+            "beneficiario_pseudo_id": task.variables.get("beneficiario_pseudo_id", ""),
+        }
+        await kafka.publish(
+            _NOTIFICATIONS_TOPIC, notification, key=task.business_key or None, best_effort=False
+        )
+        return result
+
+    return handler
+
+
+def make_proactive_contact_handler(kafka: KafkaPublisher | None) -> TaskHandler:
+    """Raw-handler factory for `operadora.programa.proactive_contact` (serves `ST_ProactiveContact`).
+
+    Item B (new worker): needs the async Kafka seam for the same
+    `notifications_of_type("programa.proactive_contact")` observability the `_PHI_NOTIFICATION_
+    TYPES` invariant checks (this IS a PHI-touching worker, D9 — contact only proceeds with
+    `consent_checked==true`).
+    """
+
+    async def handler(task: ExternalTask) -> dict[str, Any]:
+        result = _call_guarded(proactive_contact, task.variables)
+        if kafka is None:
+            logger.warning("programa_proactive_contact_no_producer", business_key=task.business_key)
+            return result
+        notification = {
+            "type": _PROACTIVE_CONTACT_NOTIFICATION_TYPE,
+            "tenant_id": task.variables.get("tenant_id", ""),
+            "programa_id": task.variables.get("programa_id", ""),
+            "beneficiario_pseudo_id": task.variables.get("beneficiario_pseudo_id", ""),
+        }
+        await kafka.publish(
+            _NOTIFICATIONS_TOPIC, notification, key=task.business_key or None, best_effort=False
+        )
+        return result
+
+    return handler
+
+
+def make_notify_sla_risk_handler(kafka: KafkaPublisher | None) -> TaskHandler:
+    """Raw-handler factory for `operadora.programa.notify_sla_risk` (serves `ST_NotifySlaRisk`).
+
+    Item C (new worker): informational-only alert (non-interruptive timer) — no guard, so
+    `_call_guarded` is unnecessary here, but the Kafka seam is still needed for
+    `notifications_of_type("programa.notify_sla_risk")` observability. Mirrors
+    `recurso.make_notify_sla_risk_handler`'s rationale (recurso.py:716-752): `UT_DecisaoClinica`
+    stays open, no decision is made or altered.
+    """
+
+    async def handler(task: ExternalTask) -> dict[str, Any]:
+        result = notify_sla_risk(task.variables)
+        if kafka is None:
+            logger.warning("programa_notify_sla_risk_no_producer", business_key=task.business_key)
+            return result
+        notification = {
+            "type": _NOTIFY_SLA_RISK_NOTIFICATION_TYPE,
+            "tenant_id": task.variables.get("tenant_id", ""),
+            "programa_id": task.variables.get("programa_id", ""),
+            "beneficiario_pseudo_id": task.variables.get("beneficiario_pseudo_id", ""),
+        }
+        await kafka.publish(
+            _NOTIFICATIONS_TOPIC, notification, key=task.business_key or None, best_effort=False
+        )
+        return result
+
+    return handler
+
+
+# ---------------------------------------------------------------
 # Bootstrap — FunctionWorker adapter (T1.2/ADR-0026 Decisao §2a).
 #
 # Topic mapping vs spec/processes/bpmn/SP-OP-PROGRAMA-001_Programas_Cuidado.bpmn
 # (excl. shared/out-of-scope `operadora.events.publish`):
-#   check_consent    -> operadora.programa.check_consent (exact spec match, CHOKEPOINT guard)
-#   stratify_risk    -> operadora.programa.stratify_risk (exact spec match; T2.5 — the FIRST
-#     external task after Start_Cuidado, immediately after the consent gate; was a registry gap,
-#     now implemented as a fail-closed delegation stub — see stratify_risk's own docstring)
+#   check_consent    -> operadora.programa.check_consent (exact spec match, CHOKEPOINT guard,
+#     FunctionWorker-wrapped — raises the MODELED WorkerBpmnError, no kafka publish needed)
+#   stratify_risk    -> operadora.programa.stratify_risk (exact spec match; raw handler, item A —
+#     the FIRST external task after Start_Cuidado, immediately after the consent gate)
 #   enroll_beneficiario -> operadora.programa.build_care_plan
-#     (spec match: task name says "care.enroll")
+#     (spec match: task name says "care.enroll"; FunctionWorker-wrapped, no kafka publish)
 #   register_discharge (alias register_program_discharge)
-#     -> operadora.programa.register_program_discharge (exact spec match, GUARDED)
-#   stop_processing  -> operadora.programa.stop_processing (exact spec match)
+#     -> operadora.programa.register_program_discharge (exact spec match, GUARDED,
+#     FunctionWorker-wrapped — ProgramaError -> ValueError -> incident, no kafka publish)
+#   stop_processing  -> operadora.programa.stop_processing (exact spec match; raw handler, item A)
+#   proactive_contact -> operadora.programa.proactive_contact (exact spec match; raw handler,
+#     item B — NEW worker, closes the T2.5-documented registry gap)
+#   notify_sla_risk  -> operadora.programa.notify_sla_risk (exact spec match; raw handler,
+#     item C — NEW worker, closes the T2.5-documented registry gap)
 # monitor_programa has no distinct spec topic — registered under a
 # function-derived topic for registry completeness.
-# Spec topics with NO implementing function today (gap, not fabricated here; T2.5 scope is
-# stratify_risk ONLY — proactive_contact/notify_sla_risk are tracked separately):
-# proactive_contact, notify_sla_risk.
 # ---------------------------------------------------------------
 
 
@@ -381,13 +653,22 @@ def register_programa_workers(
     kafka: KafkaPublisher | None = None,
     **seams: Any,
 ) -> None:
-    """Register the SP-OP-PROGRAMA-001 function workers on `harness`."""
-    del kafka, seams  # unused — no programa.py worker declares a Kafka/other seam dependency
+    """Register the SP-OP-PROGRAMA-001 workers on `harness` — 8 `operadora.programa.*` topics.
+
+    `kafka` is threaded into the 4 raw-handler factories (item A/B/C) that publish an internal
+    notification; the other 4 stay plain `FunctionWorker` entries with no kafka dependency at all
+    (mirrors `recurso.register_recurso_workers`'s split between `FunctionWorker` entries and raw
+    handlers).
+    """
+    del seams  # unused — no other seam dependency (no dmn/etc. threaded into programa.py workers)
     harness.register_worker(FunctionWorker("operadora.programa.check_consent", check_consent))
-    harness.register_worker(FunctionWorker("operadora.programa.stratify_risk", stratify_risk))
     harness.register_worker(FunctionWorker("operadora.programa.build_care_plan", enroll_beneficiario))
     harness.register_worker(FunctionWorker("operadora.programa.monitor_programa", monitor_programa))
     harness.register_worker(
         FunctionWorker("operadora.programa.register_program_discharge", register_program_discharge)
     )
-    harness.register_worker(FunctionWorker("operadora.programa.stop_processing", stop_processing))
+    # Items A/B/C — raw handlers, need the async Kafka seam (module-level rationale above).
+    harness.register(_STRATIFY_RISK_TOPIC, make_stratify_risk_handler(kafka))
+    harness.register(_STOP_PROCESSING_TOPIC, make_stop_processing_handler(kafka))
+    harness.register(_PROACTIVE_CONTACT_TOPIC, make_proactive_contact_handler(kafka))
+    harness.register(_NOTIFY_SLA_RISK_TOPIC, make_notify_sla_risk_handler(kafka))

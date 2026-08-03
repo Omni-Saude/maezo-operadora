@@ -206,10 +206,30 @@ docs/processes/contracts/SP-OP-CRED-001.md.
         </camunda:inputOutput>
       </bpmn:extensionElements>
       <bpmn:incoming>Flow_GW_PendenteDocumentacao</bpmn:incoming>
-      <bpmn:outgoing>Flow_NotifyDoc_WaitInfo</bpmn:outgoing>
+      <bpmn:outgoing>Flow_NotifyDoc_PubPendedDoc</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- item-9 wave-5 (event-wiring, remedy B — mirrors auth's ST_PublishAuthPended byte-for-byte,
+         SP-OP-AUTH-001_Autorizacao_Previa.bpmn:131-136/528-529): ST_NotifyDocPendente is dict-first
+         (ADR-0026, del kafka) and never calls kafka.publish itself; the generic
+         operadora.events.publish worker closes the gap here so agents.events.cred.pended (the
+         cred.pended domain event the module docstring/contract already promise on this branch) can
+         actually reach Kafka. Keeps the pre-existing event_topic_pended extensionElement on
+         ST_NotifyDocPendente AS-IS (source-of-truth literal, informational only). Boundary-free —
+         no WorkerBpmnError this wave (ADR-0030). -->
+    <bpmn:serviceTask id="ST_PublishCredPendedDoc" name="Publicar evento: cred.pended (documentacao)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.cred.pended</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,prestador_id,direcao</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_NotifyDoc_PubPendedDoc</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubPendedDoc_WaitInfo</bpmn:outgoing>
     </bpmn:serviceTask>
     <bpmn:intermediateCatchEvent id="ICE_AguardarInfoDoc" name="Aguardar documentacao do prestador">
-      <bpmn:incoming>Flow_NotifyDoc_WaitInfo</bpmn:incoming>
+      <bpmn:incoming>Flow_PubPendedDoc_WaitInfo</bpmn:incoming>
       <bpmn:outgoing>Flow_InfoReceived_VerifyCred</bpmn:outgoing>
       <bpmn:messageEventDefinition id="MED_AguardarInfoDoc" messageRef="Msg_CredInfoReceived"/>
     </bpmn:intermediateCatchEvent>
@@ -277,13 +297,33 @@ docs/processes/contracts/SP-OP-CRED-001.md.
         </camunda:inputOutput>
       </bpmn:extensionElements>
       <bpmn:incoming>Flow_PriorNotice_CheckNotice</bpmn:incoming>
-      <bpmn:outgoing>Flow_CheckNotice_WaitNotif</bpmn:outgoing>
+      <bpmn:outgoing>Flow_CheckNotice_PubPendedNotice</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- item-9 wave-5 (event-wiring, remedy B — mirrors auth's ST_PublishAuthPended byte-for-byte,
+         SP-OP-AUTH-001_Autorizacao_Previa.bpmn:131-136/528-529): ST_CheckPriorNotice is dict-first
+         (ADR-0026, del kafka) and never calls kafka.publish itself; the generic
+         operadora.events.publish worker closes the gap here so agents.events.cred.pended (the
+         cure-window pended event the module docstring/contract already promise on this branch) can
+         actually reach Kafka. Keeps the pre-existing event_topic_pended extensionElement on
+         ST_CheckPriorNotice AS-IS (source-of-truth literal, informational only). Boundary-free —
+         no WorkerBpmnError this wave (ADR-0030). -->
+    <bpmn:serviceTask id="ST_PublishCredPendedNotice" name="Publicar evento: cred.pended (notificacao previa)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.cred.pended</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,prestador_id,direcao</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_CheckNotice_PubPendedNotice</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubPendedNotice_WaitNotif</bpmn:outgoing>
     </bpmn:serviceTask>
 
     <!-- Corrida: ack da notificacao previa chega OU prazo expira. AMBOS -> dossie+UT humana
          (INVERTE auto-descredenciamento-no-timeout). -->
     <bpmn:eventBasedGateway id="GW_AguardarNotificacao" name="Aguardar notificacao previa (cure-window)">
-      <bpmn:incoming>Flow_CheckNotice_WaitNotif</bpmn:incoming>
+      <bpmn:incoming>Flow_PubPendedNotice_WaitNotif</bpmn:incoming>
       <bpmn:outgoing>Flow_Wait_NotifAck</bpmn:outgoing>
       <bpmn:outgoing>Flow_Wait_PrazoNotif</bpmn:outgoing>
     </bpmn:eventBasedGateway>
@@ -658,7 +698,8 @@ auditoria, ADR-0007).
     <bpmn:sequenceFlow id="Flow_RegCred_PubNetwork" sourceRef="ST_RegisterCredenciamento" targetRef="ST_PublishNetworkCredenciado"/>
     <bpmn:sequenceFlow id="Flow_PubNetwork_PubCompleted" sourceRef="ST_PublishNetworkCredenciado" targetRef="ST_PublishCredenciado"/>
     <bpmn:sequenceFlow id="Flow_PubCredenciado_End" sourceRef="ST_PublishCredenciado" targetRef="End_PrestadorCredenciado"/>
-    <bpmn:sequenceFlow id="Flow_NotifyDoc_WaitInfo" sourceRef="ST_NotifyDocPendente" targetRef="ICE_AguardarInfoDoc"/>
+    <bpmn:sequenceFlow id="Flow_NotifyDoc_PubPendedDoc" sourceRef="ST_NotifyDocPendente" targetRef="ST_PublishCredPendedDoc"/>
+    <bpmn:sequenceFlow id="Flow_PubPendedDoc_WaitInfo" sourceRef="ST_PublishCredPendedDoc" targetRef="ICE_AguardarInfoDoc"/>
     <bpmn:sequenceFlow id="Flow_InfoReceived_VerifyCred" sourceRef="ICE_AguardarInfoDoc" targetRef="ST_VerifyCredentials"/>
     <bpmn:sequenceFlow id="Flow_Route_Sla" sourceRef="BRT_Route" targetRef="BRT_CredSla"/>
     <bpmn:sequenceFlow id="Flow_Sla_GWNatureza" sourceRef="BRT_CredSla" targetRef="GW_Natureza"/>
@@ -670,7 +711,8 @@ auditoria, ADR-0007).
     </bpmn:sequenceFlow>
     <bpmn:sequenceFlow id="Flow_GWNat_Credenciamento" name="ANALISE_CREDENCIAMENTO (default)" sourceRef="GW_Natureza" targetRef="ST_PrepareDossierCred"/>
     <bpmn:sequenceFlow id="Flow_PriorNotice_CheckNotice" sourceRef="BRT_PriorNotice" targetRef="ST_CheckPriorNotice"/>
-    <bpmn:sequenceFlow id="Flow_CheckNotice_WaitNotif" sourceRef="ST_CheckPriorNotice" targetRef="GW_AguardarNotificacao"/>
+    <bpmn:sequenceFlow id="Flow_CheckNotice_PubPendedNotice" sourceRef="ST_CheckPriorNotice" targetRef="ST_PublishCredPendedNotice"/>
+    <bpmn:sequenceFlow id="Flow_PubPendedNotice_WaitNotif" sourceRef="ST_PublishCredPendedNotice" targetRef="GW_AguardarNotificacao"/>
     <bpmn:sequenceFlow id="Flow_Wait_NotifAck" sourceRef="GW_AguardarNotificacao" targetRef="ICE_NotificacaoAck"/>
     <bpmn:sequenceFlow id="Flow_Wait_PrazoNotif" sourceRef="GW_AguardarNotificacao" targetRef="ICE_PrazoNotificacao"/>
     <bpmn:sequenceFlow id="Flow_NotifAck_DossieDescred" sourceRef="ICE_NotificacaoAck" targetRef="ST_PrepareDossierDescred"/>
@@ -767,6 +809,9 @@ auditoria, ADR-0007).
       <bpmndi:BPMNShape id="Shape_ST_NotifyDocPendente" bpmnElement="ST_NotifyDocPendente">
         <dc:Bounds x="1070" y="52" width="100" height="80"/>
       </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishCredPendedDoc" bpmnElement="ST_PublishCredPendedDoc">
+        <dc:Bounds x="1070" y="1050" width="100" height="80"/>
+      </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ICE_AguardarInfoDoc" bpmnElement="ICE_AguardarInfoDoc">
         <dc:Bounds x="1282" y="74" width="36" height="36"/>
       </bpmndi:BPMNShape>
@@ -784,6 +829,9 @@ auditoria, ADR-0007).
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_CheckPriorNotice" bpmnElement="ST_CheckPriorNotice">
         <dc:Bounds x="1740" y="184" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishCredPendedNotice" bpmnElement="ST_PublishCredPendedNotice">
+        <dc:Bounds x="1740" y="1050" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_GW_AguardarNotificacao" bpmnElement="GW_AguardarNotificacao" isMarkerVisible="true">
         <dc:Bounds x="1920" y="199" width="50" height="50"/>
@@ -968,8 +1016,14 @@ auditoria, ADR-0007).
         <di:waypoint x="2510" y="500"/>
         <di:waypoint x="2597" y="500"/>
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_NotifyDoc_WaitInfo" bpmnElement="Flow_NotifyDoc_WaitInfo">
-        <di:waypoint x="1170" y="92"/>
+      <bpmndi:BPMNEdge id="Edge_Flow_NotifyDoc_PubPendedDoc" bpmnElement="Flow_NotifyDoc_PubPendedDoc">
+        <di:waypoint x="1120" y="132"/>
+        <di:waypoint x="1120" y="1050"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubPendedDoc_WaitInfo" bpmnElement="Flow_PubPendedDoc_WaitInfo">
+        <di:waypoint x="1170" y="1090"/>
+        <di:waypoint x="1230" y="1090"/>
+        <di:waypoint x="1230" y="92"/>
         <di:waypoint x="1282" y="92"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_InfoReceived_VerifyCred" bpmnElement="Flow_InfoReceived_VerifyCred">
@@ -1000,8 +1054,14 @@ auditoria, ADR-0007).
         <di:waypoint x="1660" y="224"/>
         <di:waypoint x="1740" y="224"/>
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_CheckNotice_WaitNotif" bpmnElement="Flow_CheckNotice_WaitNotif">
-        <di:waypoint x="1840" y="224"/>
+      <bpmndi:BPMNEdge id="Edge_Flow_CheckNotice_PubPendedNotice" bpmnElement="Flow_CheckNotice_PubPendedNotice">
+        <di:waypoint x="1790" y="264"/>
+        <di:waypoint x="1790" y="1050"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubPendedNotice_WaitNotif" bpmnElement="Flow_PubPendedNotice_WaitNotif">
+        <di:waypoint x="1840" y="1090"/>
+        <di:waypoint x="1900" y="1090"/>
+        <di:waypoint x="1900" y="224"/>
         <di:waypoint x="1920" y="224"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Wait_NotifAck" bpmnElement="Flow_Wait_NotifAck">

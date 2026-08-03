@@ -308,18 +308,29 @@ register_program_discharge). ENROLL/MANTER_ACOMPANHAMENTO sao L3 quando consenti
         </camunda:inputOutput>
       </bpmn:extensionElements>
       <bpmn:incoming>Flow_Revogacao_Stop</bpmn:incoming>
-      <bpmn:outgoing>Flow_Stop_End</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Stop_PubStopped</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="ST_PublishProcessingStopped" name="Publicar evento: programa.processing_stopped" camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:documentation>item-9 wave-5 (event-wiring, T3.1 R2 finding 4 closure): ST_StopProcessing is dict-first (ADR-0026, del kafka) and never calls kafka.publish itself; the generic operadora.events.publish worker closes the gap here, mirroring this same file's other ST_Publish* tasks (ST_PublishConsentBlocked/ST_PublishSlaBreached). event_topic literal matches ST_StopProcessing's own pre-existing event_topic_stopped extensionElement (kept AS-IS, source-of-truth/informational). event_payload_vars mirrors the sibling ST_Publish* tasks in this file. Boundary-free — no WorkerBpmnError this wave (ADR-0030).</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.programa.processing_stopped</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,programa_id,beneficiario_pseudo_id,ciclo</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Stop_PubStopped</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubStopped_End</bpmn:outgoing>
     </bpmn:serviceTask>
     <bpmn:endEvent id="End_ProcessamentoInterrompidoRevogacao" name="Processamento interrompido por revogacao (fail-safe LGPD)">
       <bpmn:documentation>Fail-safe LGPD (NAO adverso): a revogacao parou o tratamento de PHI. So alcancavel via boundary interruptivo msg.programa.consent_revoked -&gt; stop_processing.</bpmn:documentation>
-      <bpmn:incoming>Flow_Stop_End</bpmn:incoming>
+      <bpmn:incoming>Flow_PubStopped_End</bpmn:incoming>
     </bpmn:endEvent>
     <bpmn:serviceTask id="ST_PublishCompleted" name="Publicar evento: programa.completed" camunda:type="external" camunda:topic="operadora.events.publish">
       <bpmn:documentation>Publica programa.completed quando o subprocesso de cuidado completa normalmente. GAP-PROG-2 — resolucao de payload.desfecho (contrato §Topicos), caminho a caminho: (1) ELEGIVEL-L3: ST_ProactiveContact fixa desfecho=enrollment_realizado (outputParameter literal); (2) NAO_ELEGIVEL: BRT_Routing fixa desfecho=nao_elegivel (ternario sobre roteamento.elegivel_programa, sempre setado pela DMN singleResult+catch-all; BRT nao e wait state — nunca avaliado em interrupcao); (3) DESLIGAR_CLINICO registrado: o worker register_program_discharge RETORNA desfecho=desligamento_clinico_humano como output var SO no sucesso pos-guard (harness complete -&gt; variavel de processo) — UNICA fonte do valor adverso; guard recusado (ERR_PROGRAM_DISCHARGE_NOT_HUMAN) nao seta nada e desfecho permanece nao-adverso; (4) ENROLL / MANTER_ACOMPANHAMENTO humanos: GW_Decisao roteia DIRETO a End events (sem task no ramo) — o fallback do event_desfecho abaixo deriva o desfecho NEUTRO de decisao_programa (intencao == desfecho: nao ha registro/guard nesses ramos). O fallback e um inputParameter — avalia SO no start DESTA task (alcancada apenas pela completude normal do SUB_Cuidado; os caminhos de interrupcao/boundary nao passam aqui) — e le apenas identificadores default-inicializados em ST_PublishReceived (desfecho="", decisao_programa="") — nunca "Unknown property" no engine real (regressao run 28603060161). User Tasks NAO tem outputParameters (avaliariam em exits interrompidos).</bpmn:documentation>
       <bpmn:extensionElements>
         <camunda:inputOutput>
           <camunda:inputParameter name="event_topic">agents.events.programa.completed</camunda:inputParameter>
-          <camunda:inputParameter name="event_payload_vars">tenant_id,programa_id,beneficiario_pseudo_id,ciclo,decisao_programa,elegivel_programa</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,programa_id,beneficiario_pseudo_id,ciclo,decisao_programa,elegivel_programa,responsavel_clinico_id</camunda:inputParameter>
           <camunda:inputParameter name="event_desfecho">${desfecho != '' ? desfecho : (decisao_programa == 'ENROLL' ? 'enrollment_realizado' : (decisao_programa == 'MANTER_ACOMPANHAMENTO' ? 'acompanhamento_concluido' : ''))}</camunda:inputParameter>
         </camunda:inputOutput>
       </bpmn:extensionElements>
@@ -337,7 +348,8 @@ register_program_discharge). ENROLL/MANTER_ACOMPANHAMENTO sao L3 quando consenti
     <bpmn:sequenceFlow id="Flow_Sub_PubCompleted" sourceRef="SUB_Cuidado" targetRef="ST_PublishCompleted" />
     <bpmn:sequenceFlow id="Flow_PubCompleted_End" sourceRef="ST_PublishCompleted" targetRef="End_ProgramaConcluido" />
     <bpmn:sequenceFlow id="Flow_Revogacao_Stop" sourceRef="BME_RevogacaoConsentimento" targetRef="ST_StopProcessing" />
-    <bpmn:sequenceFlow id="Flow_Stop_End" sourceRef="ST_StopProcessing" targetRef="End_ProcessamentoInterrompidoRevogacao" />
+    <bpmn:sequenceFlow id="Flow_Stop_PubStopped" sourceRef="ST_StopProcessing" targetRef="ST_PublishProcessingStopped" />
+    <bpmn:sequenceFlow id="Flow_PubStopped_End" sourceRef="ST_PublishProcessingStopped" targetRef="End_ProcessamentoInterrompidoRevogacao" />
   </bpmn:process>
   <bpmndi:BPMNDiagram id="Diagram_SP-OP-PROGRAMA-001">
     <bpmndi:BPMNPlane id="Plane_SP-OP-PROGRAMA-001" bpmnElement="SP-OP-PROGRAMA-001">
@@ -364,6 +376,9 @@ register_program_discharge). ENROLL/MANTER_ACOMPANHAMENTO sao L3 quando consenti
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_StopProcessing" bpmnElement="ST_StopProcessing">
         <dc:Bounds x="160" y="866" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishProcessingStopped" bpmnElement="ST_PublishProcessingStopped">
+        <dc:Bounds x="160" y="1050" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_End_ProcessamentoInterrompidoRevogacao" bpmnElement="End_ProcessamentoInterrompidoRevogacao">
         <dc:Bounds x="372" y="888" width="36" height="36" />
@@ -674,8 +689,14 @@ register_program_discharge). ENROLL/MANTER_ACOMPANHAMENTO sao L3 quando consenti
         <di:waypoint x="210" y="789" />
         <di:waypoint x="210" y="866" />
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_Stop_End" bpmnElement="Flow_Stop_End">
-        <di:waypoint x="260" y="906" />
+      <bpmndi:BPMNEdge id="Edge_Flow_Stop_PubStopped" bpmnElement="Flow_Stop_PubStopped">
+        <di:waypoint x="210" y="946" />
+        <di:waypoint x="210" y="1050" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubStopped_End" bpmnElement="Flow_PubStopped_End">
+        <di:waypoint x="260" y="1090" />
+        <di:waypoint x="310" y="1090" />
+        <di:waypoint x="310" y="906" />
         <di:waypoint x="372" y="906" />
       </bpmndi:BPMNEdge>
     </bpmndi:BPMNPlane>

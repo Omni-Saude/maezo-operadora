@@ -15,7 +15,12 @@ from unittest.mock import patch
 
 import pytest
 
-from maezo.tools.workers.base import FunctionWorker, WorkerBase, pick_fields
+from maezo.tools.workers.base import (
+    FunctionWorker,
+    WorkerBase,
+    pick_fields,
+    reclassify_coded_exception,
+)
 
 # ---------------------------------------------------------------------------
 # FunctionWorker — basic adapter contract
@@ -150,6 +155,95 @@ def test_function_worker_does_not_reclassify_plain_exception_without_code_messag
     worker = FunctionWorker("operadora.test.echo", fn)
     with pytest.raises(KeyError):
         worker.execute({})
+
+
+# ---------------------------------------------------------------------------
+# reclassify_coded_exception — the shared implementation (GK-w5 finding 3, single source of
+# truth). `FunctionWorker.execute` above and `programa._call_guarded` (a raw-handler wrapper
+# needing the SAME reclassification rule, item A/B Kafka seam) both call this ONE function —
+# these tests pin that they cannot silently diverge.
+# ---------------------------------------------------------------------------
+
+
+def test_reclassify_coded_exception_wraps_coded_exception_as_value_error() -> None:
+    def fn() -> dict:
+        raise _CodedError("ERR_X", "detail")
+
+    with pytest.raises(ValueError, match="ERR_X") as exc_info:
+        reclassify_coded_exception(fn)
+    assert exc_info.value.__cause__ is not None
+    assert isinstance(exc_info.value.__cause__, _CodedError)
+
+
+@pytest.mark.parametrize(
+    "exc_type", [PermissionError, ValueError, RuntimeError, OSError, TimeoutError, ConnectionError]
+)
+def test_reclassify_coded_exception_passes_through_harness_classified(exc_type: type) -> None:
+    def fn() -> dict:
+        raise exc_type("already classified")
+
+    with pytest.raises(exc_type, match="already classified"):
+        reclassify_coded_exception(fn)
+
+
+def test_reclassify_coded_exception_passes_through_plain_exception_without_code_message() -> None:
+    def fn() -> dict:
+        raise KeyError("unexpected")
+
+    with pytest.raises(KeyError):
+        reclassify_coded_exception(fn)
+
+
+def test_function_worker_execute_delegates_to_reclassify_coded_exception() -> None:
+    """GK-w5 finding 3: `FunctionWorker.execute` must not hand-roll its own copy of the
+    reclassification rule inline — a lightweight structural pin (fails if `execute` is ever
+    reimplemented without delegating to the shared function)."""
+    assert "reclassify_coded_exception" in FunctionWorker.execute.__code__.co_names
+
+
+def test_function_worker_and_programa_call_guarded_reclassify_identically() -> None:
+    """Cross-module equivalence pin (GK-w5 finding 3): `FunctionWorker.execute` (base.py) and
+    `programa._call_guarded` (raw-handler wrapper, item A/B) must produce BYTE-IDENTICAL
+    ValueError text + `__cause__` chaining for the SAME `ProgramaError` — proving they share ONE
+    implementation, not two independently-maintained copies that could silently diverge."""
+    from maezo.tools.workers import programa
+
+    coded = programa.ProgramaError(programa.ERR_PROGRAMA_NO_CONSENT, "consentimento ausente")
+
+    def raise_coded(variables: dict) -> dict:
+        raise coded
+
+    worker = FunctionWorker("operadora.test.probe", raise_coded)
+    with pytest.raises(ValueError) as fw_exc:
+        worker.execute({})
+
+    with pytest.raises(ValueError) as pg_exc:
+        programa._call_guarded(raise_coded, {})
+
+    expected = f"{programa.ERR_PROGRAMA_NO_CONSENT}: consentimento ausente"
+    assert str(fw_exc.value) == str(pg_exc.value) == expected
+    assert fw_exc.value.__cause__ is coded
+    assert pg_exc.value.__cause__ is coded
+
+
+@pytest.mark.parametrize(
+    "exc_type", [PermissionError, ValueError, RuntimeError, OSError, TimeoutError, ConnectionError]
+)
+def test_function_worker_and_programa_call_guarded_passthrough_identically(exc_type: type) -> None:
+    """The SAME passthrough set (`_HARNESS_CLASSIFIED`, base.py — reached only via the shared
+    `reclassify_coded_exception`) governs BOTH call sites — an already-classified exception type
+    passes through UNCHANGED via either path."""
+    from maezo.tools.workers import programa
+
+    def raise_exc(variables: dict) -> dict:
+        raise exc_type("already classified")
+
+    worker = FunctionWorker("operadora.test.probe", raise_exc)
+    with pytest.raises(exc_type, match="already classified"):
+        worker.execute({})
+
+    with pytest.raises(exc_type, match="already classified"):
+        programa._call_guarded(raise_exc, {})
 
 
 # ---------------------------------------------------------------------------
