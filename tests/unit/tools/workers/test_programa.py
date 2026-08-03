@@ -5,7 +5,13 @@ TDD London School: tests verify the consent chokepoint and clinical discharge gu
 
 import pytest
 
-from maezo.tools.workers.harness import WorkerBpmnError
+from maezo.tools.workers.harness import (
+    ExternalTask,
+    FakeKafkaPublisher,
+    FakeWorkerTransport,
+    WorkerBpmnError,
+    WorkerHarness,
+)
 from maezo.tools.workers.programa import (
     ERR_PROGRAM_DISCHARGE_NOT_HUMAN,
     ERR_PROGRAMA_NO_CONSENT,
@@ -13,12 +19,36 @@ from maezo.tools.workers.programa import (
     ProgramaError,
     check_consent,
     enroll_beneficiario,
+    make_notify_sla_risk_handler,
+    make_proactive_contact_handler,
+    make_stop_processing_handler,
+    make_stratify_risk_handler,
     monitor_programa,
+    notify_sla_risk,
+    proactive_contact,
     register_discharge,
     register_program_discharge,
+    register_programa_workers,
     stop_processing,
     stratify_risk,
 )
+
+
+def _task(
+    *,
+    topic: str = "operadora.programa.probe",
+    business_key: str = "PROG-amh-cronicos-b-001-2026",
+    variables: dict | None = None,
+) -> ExternalTask:
+    return ExternalTask(
+        task_id="task-1",
+        topic=topic,
+        process_instance_id="proc-1",
+        business_key=business_key,
+        worker_id="w-1",
+        variables=variables or {},
+    )
+
 
 # T3.1 (mirrors lgpd.py's ADR-0031 `identidade_verificada` fail-closed matrix): the consent
 # chokepoint (`consentimento_ativo`/`consent_checked`) is pinned to the explicit boolean `True` —
@@ -407,3 +437,288 @@ def test_stop_processing() -> None:
     )
     assert result["processamento_parado"] is True
     assert result["motivo"] == "revogacao_consentimento"
+
+
+# ---------------------------------------------------------------
+# proactive_contact — item-9 wave-5 item B: ST_ProactiveContact (new worker)
+# ---------------------------------------------------------------
+
+
+def test_proactive_contact_happy_path() -> None:
+    result = proactive_contact(_consented_variables())
+    assert result["contato_realizado"] is True
+
+
+def test_proactive_contact_never_sets_desfecho() -> None:
+    """BPMN's own `ST_ProactiveContact` outputParameter literal (~157) stamps
+    `desfecho=enrollment_realizado` — the worker itself must never set it."""
+    result = proactive_contact(_consented_variables())
+    assert "desfecho" not in result
+
+
+def test_proactive_contact_refuses_without_active_consent() -> None:
+    """Defense-in-depth guard mirrors stratify_risk's EXACT pattern (same code, same invariant)."""
+    with pytest.raises(ProgramaError) as excinfo:
+        proactive_contact(_consented_variables(consentimento_ativo=False))
+    assert excinfo.value.code == ERR_PROGRAMA_NO_CONSENT
+
+
+def test_proactive_contact_refuses_without_consent_checked() -> None:
+    with pytest.raises(ProgramaError) as excinfo:
+        proactive_contact(_consented_variables(consent_checked=False))
+    assert excinfo.value.code == ERR_PROGRAMA_NO_CONSENT
+
+
+@pytest.mark.parametrize("vars_extra", _CONSENT_NON_TRUE_VECTORS)
+def test_proactive_contact_fail_closed_rejects_non_true_signal(vars_extra: dict[str, object]) -> None:
+    with pytest.raises(ProgramaError) as excinfo:
+        proactive_contact(_consented_variables(**vars_extra))
+    assert excinfo.value.code == ERR_PROGRAMA_NO_CONSENT
+
+
+def test_proactive_contact_guard_error_is_not_workerbpmnerror_subclass() -> None:
+    """ADR-0030: ST_ProactiveContact carries NO error boundary (re-verified: no
+    `errorEventDefinition` attached to it in the BPMN) — a WorkerBpmnError here would silently
+    end the process scope on CIB Seven 2.1.0. The guard MUST raise a plain ProgramaError, never
+    a WorkerBpmnError (nor any subclass relationship between the two)."""
+    assert not issubclass(ProgramaError, WorkerBpmnError)
+    with pytest.raises(ProgramaError) as excinfo:
+        proactive_contact(_consented_variables(consentimento_ativo=False))
+    assert not isinstance(excinfo.value, WorkerBpmnError)
+
+
+# ---------------------------------------------------------------
+# notify_sla_risk — item-9 wave-5 item C: ST_NotifySlaRisk (new worker)
+# ---------------------------------------------------------------
+
+
+def test_notify_sla_risk_happy_path() -> None:
+    result = notify_sla_risk(
+        {
+            "beneficiario_pseudo_id": "b-001",
+            "programa_id": "cronicos",
+        }
+    )
+    assert result["sla_risk_notified"] is True
+
+
+def test_notify_sla_risk_missing_input_defaults_safe() -> None:
+    """Informational-only alert — a blank input still completes, no exception."""
+    result = notify_sla_risk({})
+    assert result["sla_risk_notified"] is True
+
+
+# ---------------------------------------------------------------
+# Raw-handler Kafka seam (item A root fix + items B/C new workers)
+# ---------------------------------------------------------------
+
+
+async def test_make_stratify_risk_handler_publishes_notification() -> None:
+    kafka = FakeKafkaPublisher()
+    handler = make_stratify_risk_handler(kafka)
+    task = _task(
+        topic="operadora.programa.stratify_risk",
+        variables={
+            "tenant_id": "amh",
+            "programa_id": "cronicos",
+            "beneficiario_pseudo_id": "b-001",
+            "consentimento_ativo": True,
+            "consent_checked": True,
+            "risco_estratificado": "moderado",
+        },
+    )
+    result = await handler(task)
+    assert result["risco_estratificado"] == "moderado"
+    assert len(kafka.published) == 1
+    topic, payload, key = kafka.published[0]
+    assert topic == "operadora.notifications.internal"
+    assert payload["type"] == "programa.stratify_risk"
+    assert payload["tenant_id"] == "amh"
+    assert payload["programa_id"] == "cronicos"
+    assert payload["beneficiario_pseudo_id"] == "b-001"
+    assert payload["risco_estratificado"] == "moderado"
+    assert key == task.business_key
+    # NON-HOLLOW (t2-notify-integrity item 1): forced propagate-on-failure — no BPMN boundary is
+    # declared on ST_StratifyRisk.
+    assert kafka.best_effort_calls == [False]
+
+
+async def test_make_stratify_risk_handler_no_producer_still_completes() -> None:
+    """kafka=None: completes anyway (the task must not block the flow), never fabricates a
+    publish."""
+    handler = make_stratify_risk_handler(None)
+    result = await handler(
+        _task(variables={"consentimento_ativo": True, "consent_checked": True, "risco_estratificado": "alto"})
+    )
+    assert result["risco_estratificado"] == "alto"
+
+
+async def test_make_stratify_risk_handler_no_consent_reclassifies_to_value_error() -> None:
+    """The raw handler must NOT let ProgramaError propagate raw — `FunctionWorker.execute`
+    already reclassified this exact guard to ValueError before this wave; moving to a raw
+    handler (item A) must preserve that classification (`_call_guarded`) so the harness still
+    routes it to `failure(retries=0)` (a never-retried, human-visible incident) instead of the
+    engine-computed-retry path a bare, unclassified exception would take."""
+    kafka = FakeKafkaPublisher()
+    handler = make_stratify_risk_handler(kafka)
+    task = _task(
+        topic="operadora.programa.stratify_risk",
+        variables={"consentimento_ativo": False, "consent_checked": True, "beneficiario_pseudo_id": "b-001"},
+    )
+    with pytest.raises(ValueError, match=ERR_PROGRAMA_NO_CONSENT) as excinfo:
+        await handler(task)
+    assert not isinstance(excinfo.value, WorkerBpmnError)
+    assert not isinstance(excinfo.value, ProgramaError)
+    assert kafka.published == [], "guard refusal must never publish a notification"
+
+
+async def test_make_stop_processing_handler_publishes_notification() -> None:
+    kafka = FakeKafkaPublisher()
+    handler = make_stop_processing_handler(kafka)
+    task = _task(
+        topic="operadora.programa.stop_processing",
+        variables={
+            "tenant_id": "amh",
+            "programa_id": "cronicos",
+            "beneficiario_pseudo_id": "b-001",
+        },
+    )
+    result = await handler(task)
+    assert result["processamento_parado"] is True
+    assert len(kafka.published) == 1
+    topic, payload, key = kafka.published[0]
+    assert topic == "operadora.notifications.internal"
+    assert payload["type"] == "programa.stop_processing"
+    assert payload["tenant_id"] == "amh"
+    assert payload["programa_id"] == "cronicos"
+    assert payload["beneficiario_pseudo_id"] == "b-001"
+    assert key == task.business_key
+    assert kafka.best_effort_calls == [False]
+
+
+async def test_make_stop_processing_handler_no_producer_still_completes() -> None:
+    handler = make_stop_processing_handler(None)
+    result = await handler(_task(variables={"beneficiario_pseudo_id": "b-001"}))
+    assert result["processamento_parado"] is True
+
+
+async def test_make_proactive_contact_handler_publishes_notification() -> None:
+    kafka = FakeKafkaPublisher()
+    handler = make_proactive_contact_handler(kafka)
+    task = _task(
+        topic="operadora.programa.proactive_contact",
+        variables={
+            "tenant_id": "amh",
+            "programa_id": "cronicos",
+            "beneficiario_pseudo_id": "b-001",
+            "consentimento_ativo": True,
+            "consent_checked": True,
+        },
+    )
+    result = await handler(task)
+    assert result["contato_realizado"] is True
+    assert len(kafka.published) == 1
+    topic, payload, key = kafka.published[0]
+    assert topic == "operadora.notifications.internal"
+    assert payload["type"] == "programa.proactive_contact"
+    assert payload["tenant_id"] == "amh"
+    assert payload["programa_id"] == "cronicos"
+    assert payload["beneficiario_pseudo_id"] == "b-001"
+    assert key == task.business_key
+    assert kafka.best_effort_calls == [False]
+
+
+async def test_make_proactive_contact_handler_no_producer_still_completes() -> None:
+    handler = make_proactive_contact_handler(None)
+    result = await handler(_task(variables={"consentimento_ativo": True, "consent_checked": True}))
+    assert result["contato_realizado"] is True
+
+
+async def test_make_proactive_contact_handler_no_consent_reclassifies_to_value_error() -> None:
+    """Same reclassification guarantee as stratify_risk's raw handler (item B new worker)."""
+    kafka = FakeKafkaPublisher()
+    handler = make_proactive_contact_handler(kafka)
+    task = _task(
+        topic="operadora.programa.proactive_contact",
+        variables={"consentimento_ativo": True, "consent_checked": False, "beneficiario_pseudo_id": "b-001"},
+    )
+    with pytest.raises(ValueError, match=ERR_PROGRAMA_NO_CONSENT) as excinfo:
+        await handler(task)
+    assert not isinstance(excinfo.value, WorkerBpmnError)
+    assert not isinstance(excinfo.value, ProgramaError)
+    assert kafka.published == [], "guard refusal must never publish a notification"
+
+
+async def test_make_notify_sla_risk_handler_publishes_notification() -> None:
+    kafka = FakeKafkaPublisher()
+    handler = make_notify_sla_risk_handler(kafka)
+    task = _task(
+        topic="operadora.programa.notify_sla_risk",
+        variables={
+            "tenant_id": "amh",
+            "programa_id": "cronicos",
+            "beneficiario_pseudo_id": "b-001",
+        },
+    )
+    result = await handler(task)
+    assert result["sla_risk_notified"] is True
+    assert len(kafka.published) == 1
+    topic, payload, key = kafka.published[0]
+    assert topic == "operadora.notifications.internal"
+    assert payload["type"] == "programa.notify_sla_risk"
+    assert payload["tenant_id"] == "amh"
+    assert payload["programa_id"] == "cronicos"
+    assert payload["beneficiario_pseudo_id"] == "b-001"
+    assert key == task.business_key
+    assert kafka.best_effort_calls == [False]
+
+
+async def test_make_notify_sla_risk_handler_no_producer_still_completes() -> None:
+    handler = make_notify_sla_risk_handler(None)
+    result = await handler(_task(variables={"beneficiario_pseudo_id": "b-001"}))
+    assert result["sla_risk_notified"] is True
+
+
+# ---------------------------------------------------------------
+# register_programa_workers — 8 operadora.programa.* topics (item A/B/C deltas)
+# ---------------------------------------------------------------
+
+
+def test_register_programa_workers_registers_all_8_topics() -> None:
+    harness = WorkerHarness(FakeWorkerTransport(), worker_id="probe")
+    register_programa_workers(harness, FakeKafkaPublisher())
+    topics = set(harness.registered_topics)
+    for topic in (
+        "operadora.programa.check_consent",
+        "operadora.programa.build_care_plan",
+        "operadora.programa.monitor_programa",
+        "operadora.programa.register_program_discharge",
+        "operadora.programa.stratify_risk",
+        "operadora.programa.stop_processing",
+        "operadora.programa.proactive_contact",
+        "operadora.programa.notify_sla_risk",
+    ):
+        assert topic in topics, f"{topic} not registered by register_programa_workers"
+    assert len(topics) == 8
+
+
+def test_register_programa_workers_raw_handlers_outside_worker_registry() -> None:
+    """item A/B/C's 4 raw handlers populate `_handlers` (dispatch-reachable) but NOT the
+    `WorkerRegistry` — registered via `harness.register()`, not `harness.register_worker()`."""
+    harness = WorkerHarness(FakeWorkerTransport(), worker_id="probe")
+    register_programa_workers(harness, FakeKafkaPublisher())
+    for topic in (
+        "operadora.programa.stratify_risk",
+        "operadora.programa.stop_processing",
+        "operadora.programa.proactive_contact",
+        "operadora.programa.notify_sla_risk",
+    ):
+        assert harness.registry.get(topic) is None
+
+
+def test_register_programa_workers_accepts_kafka_none() -> None:
+    """kafka=None (no producer wired) must not raise at registration time — only the raw
+    handlers themselves log a warning when actually invoked."""
+    harness = WorkerHarness(FakeWorkerTransport(), worker_id="probe")
+    register_programa_workers(harness)
+    assert len(harness.registered_topics) == 8
