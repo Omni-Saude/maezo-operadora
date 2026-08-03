@@ -48,6 +48,7 @@ from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
 from maezo.tools.workers.auth import AUTH_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.bootstrap import ALL_WORKER_BOOTSTRAPS, register_all_workers
 from maezo.tools.workers.cibseven_engine import FreshClientCibSevenTransport
+from maezo.tools.workers.credenciamento import CRED_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.dmn_transport import CibSevenDmnTransport
 from maezo.tools.workers.escalation import ESCALATION_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.events import EVENTS_BPMN_ERROR_ALLOWLIST
@@ -104,7 +105,11 @@ logger = structlog.get_logger(__name__)
 # `| {ERR_NIP_PROTOCOLO_INVALIDO, ERR_PROGRAMA_NO_CONSENT}` (item-9 bucket-3, Tier-2 — two more
 # non-adverse G2-val origin/consent guards: nip's blank `protocolo_ans` routes to
 # End_NipProtocoloInvalido, programa's failed consent chokepoint routes to End_SemConsentimento;
-# neither is a `*_NOT_HUMAN` guard, so neither is T-E-gated).
+# neither is a `*_NOT_HUMAN` guard, so neither is T-E-gated)
+# `| {ERR_CRED_INVALID_PRESTADOR}` (item-9 bucket-3 Class-C, Tier-2 — cred's G2-val origin
+# guard: a blank/non-string `prestador_id` at ST_VerifyCredentials routes via
+# BE_PrestadorInvalido to the neutral terminal End_CredPrestadorInvalido ("fail-safe, nao
+# adverso" per the BPMN's own documentation); NOT a `*_NOT_HUMAN` guard, so NOT T-E-gated).
 
 
 def _is_te_gated(code: str) -> bool:
@@ -136,10 +141,16 @@ def _is_te_gated(code: str) -> bool:
 #: `PROGRAMA_BPMN_ERROR_ALLOWLIST` contributes `ERR_PROGRAMA_NO_CONSENT` (item-9 bucket-3, ADR-0030
 #: Tier-2) — both NON-adverse G2-val origin/consent guards routing to neutral terminals
 #: (End_NipProtocoloInvalido / End_SemConsentimento), NOT `*_NOT_HUMAN`, so NOT T-E-gated; both land
-#: directly. `ERR_CANCEL_MANTER_NOT_HUMAN` is gate-proven too but its worker exposes no
-#: constant (nothing is enabled for it at any tier until T-E), so there is nothing to import.
+#: directly. `CRED_BPMN_ERROR_ALLOWLIST` contributes `ERR_CRED_INVALID_PRESTADOR` (item-9
+#: bucket-3 Class-C, Tier-2) — cred's NON-adverse G2-val origin guard (blank/non-string
+#: `prestador_id` -> End_CredPrestadorInvalido, a neutral "fail-safe, nao adverso" terminal),
+#: NOT `*_NOT_HUMAN`, lands directly; the constant deliberately EXCLUDES cred's two adverse
+#: `*_NOT_HUMAN` guard codes, which stay T-E-deferred. `ERR_CANCEL_MANTER_NOT_HUMAN` is
+#: gate-proven too but its worker exposes no constant (nothing is enabled for it at any tier
+#: until T-E), so there is nothing to import.
 _GATE_PROVEN_BPMN_ERROR_CODES: frozenset[str] = (
     AUTH_BPMN_ERROR_ALLOWLIST
+    | CRED_BPMN_ERROR_ALLOWLIST
     | ESCALATION_BPMN_ERROR_ALLOWLIST
     | EVENTS_BPMN_ERROR_ALLOWLIST
     | LGPD_BPMN_ERROR_ALLOWLIST
@@ -151,8 +162,9 @@ _GATE_PROVEN_BPMN_ERROR_CODES: frozenset[str] = (
 #: The production allowlist wired into the harness: gate-proven codes MINUS the T-E-gated
 #: business-outcome codes. Resolves to `{ERR_EVENT_PUBLISH_FAILED, ERR_DSR_IDENTITY_UNVERIFIED,
 #: ERR_RECURSO_INVALID_GLOSA, ERR_ESC_NOTIFY_FAILED, ERR_NIP_PROTOCOLO_INVALIDO,
-#: ERR_PROGRAMA_NO_CONSENT}` today (Tier-0 pair + T3.1 P2b's Tier-2 addition + t8-escalation-boundary's
-#: Tier-1 addition + item-9 bucket-3's two Tier-2 G2-val origin/consent guards).
+#: ERR_PROGRAMA_NO_CONSENT, ERR_CRED_INVALID_PRESTADOR}` today (Tier-0 pair + T3.1 P2b's Tier-2
+#: addition + t8-escalation-boundary's Tier-1 addition + item-9 bucket-3's three Tier-2 G2-val
+#: origin/consent guards).
 PRODUCTION_BPMN_ERROR_ALLOWLIST: frozenset[str] = frozenset(
     code for code in _GATE_PROVEN_BPMN_ERROR_CODES if not _is_te_gated(code)
 )

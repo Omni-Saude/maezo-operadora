@@ -53,7 +53,10 @@ def test_production_allowlist_is_exactly_the_non_adverse_failsafes() -> None:
     #     guard (blank protocolo_ans) routed to End_NipProtocoloInvalido (a neutral terminal).
     #   - ERR_PROGRAMA_NO_CONSENT (item-9 bucket-3, Tier-2): programa's G2-val consent chokepoint
     #     (check_consent) routed to End_SemConsentimento (a neutral LGPD fail-safe terminal).
-    # All six are NON-adverse (not a denial), so none is T-E-gated.
+    #   - ERR_CRED_INVALID_PRESTADOR (item-9 bucket-3 Class-C, Tier-2): cred's G2-val origin
+    #     guard (blank/non-string prestador_id at verify_credentials) routed to
+    #     End_CredPrestadorInvalido (a neutral "fail-safe, nao adverso" terminal).
+    # All seven are NON-adverse (not a denial), so none is T-E-gated.
     assert (
         frozenset(
             {
@@ -63,6 +66,7 @@ def test_production_allowlist_is_exactly_the_non_adverse_failsafes() -> None:
                 "ERR_ESC_NOTIFY_FAILED",
                 "ERR_NIP_PROTOCOLO_INVALIDO",
                 "ERR_PROGRAMA_NO_CONSENT",
+                "ERR_CRED_INVALID_PRESTADOR",
             }
         )
         == PRODUCTION_BPMN_ERROR_ALLOWLIST

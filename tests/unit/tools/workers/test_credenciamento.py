@@ -10,7 +10,9 @@ import pytest
 from maezo.a2a import DelegationResult, RejectionReason
 from maezo.tools.workers.base import FunctionWorker
 from maezo.tools.workers.credenciamento import (
+    CRED_BPMN_ERROR_ALLOWLIST,
     ERR_CRED_DENIAL_NOT_HUMAN,
+    ERR_CRED_INVALID_PRESTADOR,
     ERR_CRED_REGISTER_INVALID,
     ERR_DECRED_NOT_HUMAN,
     CredError,
@@ -152,6 +154,83 @@ def test_validate_cred_absent_facts_keep_placeholder_behavior() -> None:
     )
     assert result["licenca_valida"] is True
     assert result["documentacao_completa"] is False  # string ref: placeholder cannot resolve it
+
+
+# ---------------------------------------------------------------
+# validate_cred — ORIGIN GUARD (item-9 bucket-3 Class-C, T3.1 phase-2 finding 3 / ADR-0030
+# Tier-2 G2-val): blank/absent/non-string prestador_id raises the MODELED
+# WorkerBpmnError(ERR_CRED_INVALID_PRESTADOR) so BE_PrestadorInvalido ->
+# End_CredPrestadorInvalido (terminal NEUTRO) can fire — previously a DEAD MODEL (declared,
+# boundary-modeled, zero raise-sites).
+# ---------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "bad_vars",
+    [
+        {},  # prestador_id absent entirely
+        {"prestador_id": ""},  # empty
+        {"prestador_id": "   "},  # whitespace-only
+        {"prestador_id": "\t\n"},  # whitespace-only (tabs/newlines)
+        {"prestador_id": None},  # non-string
+        {"prestador_id": 123},  # non-string (engine vars arrive untyped)
+        {"prestador_id": ["P-001"]},  # non-string
+    ],
+)
+def test_validate_cred_invalid_prestador_raises_workerbpmnerror(bad_vars: dict) -> None:
+    """Root-cause proof (mirrors the decred/denial guard-shape proofs): the origin guard raises
+    WorkerBpmnError (a MODELED bpmn error), NOT a CredError (which FunctionWorker reclassifies
+    to a bare ValueError -> incident, boundary unreachable). Fail-closed normalization: blank/
+    whitespace-only/non-string all refuse."""
+    with pytest.raises(WorkerBpmnError) as excinfo:
+        validate_cred({"tenant_id": "amh", "documentos_refs": "ref-x", **bad_vars})
+    assert excinfo.value.error_code == ERR_CRED_INVALID_PRESTADOR
+    assert not isinstance(excinfo.value, CredError)
+
+
+def test_validate_cred_padded_prestador_id_still_passes() -> None:
+    """A whitespace-PADDED but real prestador_id normalizes and passes (exact _norm_str idiom)."""
+    result = validate_cred({"prestador_id": "  P-001  ", "documentos_refs": {"licenca": "r"}})
+    assert result["documentacao_completa"] is True
+
+
+def test_cred_allowlist_constant_is_exactly_the_origin_guard() -> None:
+    """CRED_BPMN_ERROR_ALLOWLIST carries ONLY the G2-val origin guard — the two adverse
+    *_NOT_HUMAN codes stay T-E-deferred out of it (ADR-0030 §4; L0: never enable a *_NOT_HUMAN
+    code outside the T-E enablement)."""
+    assert CRED_BPMN_ERROR_ALLOWLIST == frozenset({ERR_CRED_INVALID_PRESTADOR})
+    assert ERR_DECRED_NOT_HUMAN not in CRED_BPMN_ERROR_ALLOWLIST
+    assert ERR_CRED_DENIAL_NOT_HUMAN not in CRED_BPMN_ERROR_ALLOWLIST
+
+
+def test_validate_cred_guard_reaches_boundary_when_allowlisted() -> None:
+    """ALLOWLISTED (the production posture after this migration): the origin guard routes to
+    handle_bpmn_error (BE_PrestadorInvalido fires -> End_CredPrestadorInvalido), NEVER to a
+    failure/incident — the model is no longer dead."""
+    bpmn_errors, failures = _drive_guard_failure(
+        "operadora.cred.verify_credentials",
+        validate_cred,
+        {"tenant_id": "amh", "prestador_id": ""},
+        allowlist=CRED_BPMN_ERROR_ALLOWLIST,
+    )
+    assert bpmn_errors == [("task-1", ERR_CRED_INVALID_PRESTADOR, bpmn_errors[0][2])]
+    assert failures == []
+
+
+def test_validate_cred_guard_fails_closed_to_incident_when_not_allowlisted() -> None:
+    """MUTATION: NOT allowlisted -> fail-closed retries=0 incident (handle_failure) — never a
+    silent unmodeled bpmnError (CIB Seven silent-drop hazard, harness §9)."""
+    bpmn_errors, failures = _drive_guard_failure(
+        "operadora.cred.verify_credentials",
+        validate_cred,
+        {"tenant_id": "amh", "prestador_id": ""},
+        allowlist=frozenset(),
+    )
+    assert bpmn_errors == []
+    assert len(failures) == 1
+    task_id, _msg, retries, _timeout = failures[0]
+    assert task_id == "task-1"
+    assert retries == 0
 
 
 # ---------------------------------------------------------------
