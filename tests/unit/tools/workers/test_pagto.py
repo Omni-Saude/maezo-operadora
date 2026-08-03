@@ -1047,6 +1047,58 @@ async def test_prepare_approval_dossier_structured_rejection_gap_bounded_reason(
     assert result["dossier_gap"] == "delegation_rejected:task_type_not_accepted"
 
 
+@pytest.mark.parametrize("token", ["dmn_indisponivel", "engine_inacessivel", "contexto_incompleto"])
+async def test_prepare_approval_dossier_discloses_andres_internal_degradation(token: str) -> None:
+    """GK-dossier finding 4: the delegation SUCCEEDED structurally but Andre ran degraded inside.
+    The dossier exists (`dossier_prepared=True`, `dossier_ref` set) AND the degradation is
+    disclosed alongside it as `degraded:<bounded token>` — the human approver must be able to tell
+    an enriched dossier from a degraded one."""
+    dispatcher = _FakeDossierDispatcher(
+        result=DelegationResult.ok(
+            "PAGTO-amh-OP-001",
+            "process://PAGTO-amh-OP-001",
+            meta={"route": "human_review", "degraded": token},
+        )
+    )
+    handler = make_prepare_approval_dossier_handler(dispatcher)  # type: ignore[arg-type]
+
+    result = await handler(_dossier_task(_PAGTO_DOSSIER_VARS))
+
+    assert result["dossier_prepared"] is True  # the dossier DOES exist
+    assert result["dossier_ref"] == "process://PAGTO-amh-OP-001"
+    assert result["dossier_gap"] == f"degraded:{token}"
+
+
+async def test_prepare_approval_dossier_clean_success_has_no_gap() -> None:
+    """No degradation token (or an empty one) -> no `dossier_gap` at all: the disclosure must not
+    fire on the healthy path."""
+    dispatcher = _FakeDossierDispatcher(
+        result=DelegationResult.ok(
+            "PAGTO-amh-OP-001", "process://PAGTO-amh-OP-001", meta={"route": "human_review", "degraded": ""}
+        )
+    )
+    handler = make_prepare_approval_dossier_handler(dispatcher)  # type: ignore[arg-type]
+    result = await handler(_dossier_task(_PAGTO_DOSSIER_VARS))
+    assert result["dossier_prepared"] is True
+    assert "dossier_gap" not in result
+
+
+async def test_prepare_approval_dossier_unbounded_degradation_token_is_clamped() -> None:
+    """Engine-variable hygiene: an unexpected/unbounded token from the target NEVER reaches the
+    engine verbatim — it is clamped to `degraded:unknown` (the gap is still disclosed)."""
+    dispatcher = _FakeDossierDispatcher(
+        result=DelegationResult.ok(
+            "PAGTO-amh-OP-001",
+            "process://PAGTO-amh-OP-001",
+            meta={"degraded": "postgres error: dsn=user:senha@host CPF 123.456.789-01"},
+        )
+    )
+    handler = make_prepare_approval_dossier_handler(dispatcher)  # type: ignore[arg-type]
+    result = await handler(_dossier_task(_PAGTO_DOSSIER_VARS))
+    assert result["dossier_gap"] == "degraded:unknown"
+    assert "senha" not in str(result["dossier_gap"])
+
+
 async def test_prepare_approval_dossier_never_releases_or_decides() -> None:
     """L0/L1 hard: the dossier INSTRUCTS, never decides — no release/price/decision marker ever
     appears in the completion variables (the release is born SOLELY in UT_AprovacaoAlcada)."""

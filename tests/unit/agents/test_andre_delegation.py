@@ -14,6 +14,7 @@ from dataclasses import replace
 from typing import Any
 
 from maezo.agents.andre.delegation import (
+    DEGRADED_TOKENS,
     ORIGIN_PAGTO_WORKER,
     ORIGIN_WORKER,
     TARGET_AGENT,
@@ -27,7 +28,11 @@ from maezo.agents.andre.delegation import (
     state_from_envelope,
 )
 from maezo.agents.andre.graph import _CALLER_INPUT_FIELDS, _business_key, build
-from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport, ProcessInstance
+from maezo.tools.mcp_cibseven.transport import (
+    CibSevenError,
+    FakeCibSevenTransport,
+    ProcessInstance,
+)
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from tests.support.audit_fakes import FakeStartAuditSink
 
@@ -383,6 +388,70 @@ async def test_engine_business_key_anchors_the_live_contas_variant_instance_no_d
     assert cibseven.start_calls == []  # the idempotent lookup HIT — nothing was started
     assert await cibseven.find_active_instance(live_key) is not None
     assert await cibseven.find_active_instance("PAGTO-amh-OP-001") is None  # no duplicate
+
+
+async def test_handler_meta_discloses_dmn_degradation() -> None:
+    """GK-dossier finding 4: an assess-chain DMN unavailable leaves the delegation STRUCTURALLY
+    successful (Andre routes conservatively to a human) but internally degraded — `meta.degraded`
+    discloses the class so the originating worker can flag it to the approver."""
+    handler = make_andre_handler(
+        _FakeInference(),
+        dmn=FakeDmnTransport(),  # nothing registered -> the assess chain fails
+        cibseven=FakeCibSevenTransport(),
+        audit_sink=FakeStartAuditSink(),
+    )
+    output = await handler(_pagto_envelope())
+    assert output.meta["degraded"] == "dmn_indisponivel"
+    assert output.meta["route"] == "human_review"
+
+
+async def test_handler_meta_discloses_engine_degradation_at_the_anchor_step() -> None:
+    """The engine being unreachable at the anchor step is a DIFFERENT degradation class — matched
+    by EQUALITY against `graph.ERROR_START_PROCESS_ENGINE_UNAVAILABLE`, never by text sniffing."""
+
+    class _UnreachableCibSeven(FakeCibSevenTransport):
+        async def start_process_instance(self, *args: Any, **kwargs: Any) -> Any:
+            raise CibSevenError("engine down")
+
+    handler = make_andre_handler(
+        _FakeInference(),
+        dmn=_pagto_dmn(),
+        cibseven=_UnreachableCibSeven(),
+        audit_sink=FakeStartAuditSink(),
+    )
+    # A non-worker origin so the anchor step is actually ATTEMPTED (the worker origin no-ops).
+    output = await handler(replace(_pagto_envelope(), origin="autonomous-originator"))
+    assert output.meta["degraded"] == "engine_inacessivel"
+    assert output.meta["process_started"] == "False"
+
+
+async def test_handler_meta_discloses_missing_runtime_context() -> None:
+    """`receive`'s own fail-safe guards (missing identifiers / unrecognized flow) classify as
+    `contexto_incompleto` — the catch-all bucket, still a BOUNDED token. (A blank TENANT cannot be
+    tested through this seam at all: `DelegationEnvelope` rejects it outright, ADR-0004.)"""
+    handler = make_andre_handler(
+        _FakeInference(),
+        dmn=_pagto_dmn(),
+        cibseven=FakeCibSevenTransport(),
+        audit_sink=FakeStartAuditSink(),
+    )
+    # Envelope stripped of every case identifier -> no idempotent PAGTO key -> fail-safe human.
+    output = await handler(replace(_pagto_envelope(), payload_meta={}))
+    assert output.meta["degraded"] == "contexto_incompleto"
+    assert output.meta["route"] == "human_review"
+
+
+async def test_handler_meta_degraded_is_empty_on_the_healthy_path() -> None:
+    """The disclosure must not fire on a clean run, and it is ALWAYS one of the closed tokens."""
+    handler = make_andre_handler(
+        _FakeInference(),
+        dmn=_pagto_dmn(),
+        cibseven=FakeCibSevenTransport(),
+        audit_sink=FakeStartAuditSink(),
+    )
+    output = await handler(_pagto_envelope())
+    assert output.meta["degraded"] == ""
+    assert output.meta["degraded"] in DEGRADED_TOKENS | {""}
 
 
 async def test_engine_business_key_from_a_foreign_tenant_is_ignored() -> None:

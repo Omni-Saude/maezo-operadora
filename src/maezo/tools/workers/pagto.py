@@ -592,6 +592,14 @@ def make_prepare_approval_dossier_handler(dispatcher: DelegationDispatcher | Non
     the task — the human UT MUST still open; this handler NEVER raises. The gap token is a bounded
     class token (engine-variable hygiene) — raw error text stays in the log.
 
+    DEGRADED-BUT-SUCCESSFUL DISCLOSURE (GK-dossier finding 4): a delegation can succeed
+    structurally while Andre ran DEGRADED inside (DMN unavailable / engine unreachable at the
+    anchor step / missing runtime context). That returns `dossier_prepared=True` (the dossier does
+    exist and is referenced) PLUS `dossier_gap="degraded:<bounded token>"` — the human approver is
+    told how much the dossier is worth instead of seeing a clean success. The token is
+    re-validated against Andre's own CLOSED `DEGRADED_TOKENS` set before it becomes an engine
+    variable.
+
     BOUNDED AWAIT (GK-dossier finding 2): the delegation is awaited under
     `asyncio.wait_for(_DOSSIER_DELEGATION_TIMEOUT_S)` — safely below the 30s external-task lock, so
     a hung dispatcher can never hold this task to lock expiry (which would let the engine
@@ -646,7 +654,11 @@ def make_prepare_approval_dossier_handler(dispatcher: DelegationDispatcher | Non
             )
             return {"dossier_prepared": False, "dossier_gap": "missing_business_identifiers"}
 
-        from maezo.agents.andre.delegation import delegate_pagto_dossier
+        from maezo.agents.andre.delegation import (
+            DEGRADED_META_KEY,
+            DEGRADED_TOKENS,
+            delegate_pagto_dossier,
+        )
 
         try:
             # BOUNDED AWAIT (GK-dossier finding 2): never hold the external-task lock to expiry.
@@ -704,6 +716,15 @@ def make_prepare_approval_dossier_handler(dispatcher: DelegationDispatcher | Non
             )
             return {"dossier_prepared": False, "dossier_gap": f"delegation_rejected:{reason}"}
 
+        # DEGRADED-BUT-SUCCESSFUL (GK-dossier finding 4): the delegation succeeded STRUCTURALLY
+        # (Andre's graph ran, routed and produced a dossier) but he may have been degraded INSIDE
+        # — a DMN in the assess chain unavailable, the engine unreachable at the anchor step, or
+        # runtime context missing. Reporting a clean `dossier_prepared=True` would hide that from
+        # the human approver, who is the one who must weigh how much the dossier is worth. The
+        # dossier IS prepared (True — it exists and is referenced), and the gap is disclosed
+        # ALONGSIDE it. The token is re-validated against Andre's own CLOSED set here, so an
+        # unexpected/unbounded meta value can never become an engine variable.
+        degraded = str(result.meta.get(DEGRADED_META_KEY, "") or "").strip()
         logger.info(
             "pagto_prepare_approval_dossier_delegated",
             tenant_id=tenant_id,
@@ -711,8 +732,9 @@ def make_prepare_approval_dossier_handler(dispatcher: DelegationDispatcher | Non
             business_key=task.business_key,
             dossier_ref=result.output_ref,
             idempotent_replay=result.idempotent_replay,
+            degraded=degraded,
         )
-        return {
+        outputs: dict[str, Any] = {
             "dossier_prepared": True,
             "dossier_ref": result.output_ref or "",
             # UT-FORM SEAM (SME/PO sign-off PENDING): the dossier CONTENT field schema for
@@ -724,6 +746,17 @@ def make_prepare_approval_dossier_handler(dispatcher: DelegationDispatcher | Non
             # injection point.
             "dossier_summary": dict(result.meta),
         }
+        if degraded:
+            token = degraded if degraded in DEGRADED_TOKENS else "unknown"
+            logger.warning(
+                "pagto_prepare_approval_dossier_degraded",
+                tenant_id=tenant_id,
+                ordem_pagamento_id=ordem_pagamento_id,
+                business_key=task.business_key,
+                degraded=token,
+            )
+            outputs["dossier_gap"] = f"degraded:{token}"
+        return outputs
 
     return handler
 

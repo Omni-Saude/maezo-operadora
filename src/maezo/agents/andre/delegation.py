@@ -54,6 +54,7 @@ from maezo.a2a import Budget, DelegationEnvelope, HandlerOutput
 
 from .graph import (
     _CALLER_INPUT_FIELDS,
+    ERROR_START_PROCESS_ENGINE_UNAVAILABLE,
     ORIGIN_PAGTO_WORKER,
     AndreState,
     Flow,
@@ -378,6 +379,44 @@ async def delegate_pagto_dossier(
 
 # --- Target side (mirrors rafael/delegation.py) -------------------------------------------------
 
+#: `HandlerOutput.meta` key carrying Andre's INTERNAL degradation class (GK-dossier finding 4).
+#: A delegation can SUCCEED (structurally: the graph ran, routed and produced a dossier) while
+#: Andre was degraded inside — a DMN in the assess chain unavailable, the engine unreachable at
+#: the anchor step, or runtime context missing. Without this key the originating worker reported a
+#: clean `dossier_prepared=True` and the human approver could not tell an enriched dossier from a
+#: degraded one. The value is ALWAYS from `DEGRADED_TOKENS` (or ""), never free text.
+DEGRADED_META_KEY = "degraded"
+
+#: CLOSED set of degradation class tokens. Exported so the originating worker can re-validate the
+#: token it disclosed as an engine variable instead of trusting whatever meta arrives.
+DEGRADED_DMN = "dmn_indisponivel"
+DEGRADED_ENGINE = "engine_inacessivel"
+DEGRADED_CONTEXT = "contexto_incompleto"
+DEGRADED_TOKENS: frozenset[str] = frozenset({DEGRADED_DMN, DEGRADED_ENGINE, DEGRADED_CONTEXT})
+
+
+def _degradation_token(result: dict[str, Any]) -> str:
+    """Classify Andre's terminal state into a BOUNDED degradation token (or `""` = not degraded).
+
+    Ordered, first match wins; all three inputs are already bounded/class-shaped, and the only
+    free-text one (`error`) is matched by EQUALITY against `graph`'s own constant, never sniffed:
+
+    - `dmn_error` set, or `motivo_humano == "dmn_indisponivel"` -> `dmn_indisponivel` (a DMN in
+      the assess chain failed; his conservative route stands in for the missing decision).
+    - `error == ERROR_START_PROCESS_ENGINE_UNAVAILABLE` -> `engine_inacessivel` (the anchor step
+      could not reach the engine).
+    - any other `error` -> `contexto_incompleto` (his `receive` guards: missing tenant/cohort/cell
+      identity/payment key, or an unrecognized flow).
+
+    NEVER a decision, a price or PHI — a class token only.
+    """
+    if result.get("dmn_error") or result.get("motivo_humano") == DEGRADED_DMN:
+        return DEGRADED_DMN
+    error = str(result.get("error") or "")
+    if not error:
+        return ""
+    return DEGRADED_ENGINE if error == ERROR_START_PROCESS_ENGINE_UNAVAILABLE else DEGRADED_CONTEXT
+
 
 def _as_bool(value: Any) -> bool:
     """`payload_meta` is `Mapping[str, str]` (A2A) — normalize "true"/"false" strings to bool."""
@@ -503,6 +542,10 @@ def make_andre_handler(
                 "motivo_humano": str(result.get("motivo_humano") or ""),
                 "grupo_destino": str(result.get("grupo_humano") or ""),
                 "process_started": str(result.get("process_started", False)),
+                # GK-dossier finding 4: a STRUCTURALLY successful delegation can still have run
+                # degraded inside. Disclose the class so the originator can flag it to the human
+                # approver instead of reporting a clean dossier. "" = not degraded.
+                DEGRADED_META_KEY: _degradation_token(result),
             },
         )
 

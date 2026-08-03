@@ -263,6 +263,11 @@ PROCESS_KEY_PAGTO = "SP-OP-PAGTO-001"
 # `adequacao_dossier` no-op, which is flow-scoped rather than origin-scoped).
 ORIGIN_PAGTO_WORKER = "pagto-worker"
 
+# The EXACT `error` text `start_process` records when the engine is unreachable. A module
+# constant (not an inline literal) so `delegation._degradation_token` can classify it by EQUALITY
+# — never by sniffing substrings out of free text (GK-dossier finding 4).
+ERROR_START_PROCESS_ENGINE_UNAVAILABLE = "start_process indisponivel (engine inacessivel)"
+
 
 # --- Injected seams (Protocols) ---------------------------------------------------------------
 
@@ -977,7 +982,7 @@ class AndreGraph:
             return {
                 "process_started": False,
                 "business_key": business_key,
-                "error": "start_process indisponivel (engine inacessivel)",
+                "error": ERROR_START_PROCESS_ENGINE_UNAVAILABLE,
             }
         return {
             "process_started": True,
