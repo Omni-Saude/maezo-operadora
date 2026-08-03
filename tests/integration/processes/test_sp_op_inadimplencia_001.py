@@ -226,15 +226,16 @@ _CAMPOS_SUSP = {
 # SlaBreach/Suspenso/RescisaoHandoff/Mantido — none for notify_sla_risk), and notify_sla_risk itself
 # never publishes. The donor's `notifications_of_type("inadimplencia.notify_sla_risk")` internal-
 # notification channel therefore has NO v2 equivalent the kafka probe can see. This is DISTINCT from
-# the anti-dupla seam (this PR's scope): wiring `engine=` does NOT make this event observable. Kept
-# xfail; a follow-up could re-express it against engine history (ST_NotificarRiscoSla ended) — a
-# separate stale-donor-assertion adaptation outside GAP-INAD-1.
+# the anti-dupla seam (that PR's scope): wiring `engine=` does NOT make this event observable.
+# RETIRED (item-9 wave-3): the re-expression against engine history (ST_NotificarRiscoSla ended)
+# happened — live-proven PASS on a fresh engine (suite 24 passed); the marker was removed and
+# grep-confirmed: zero pytest.mark.xfail call sites reference this constant anymore.
 _NOTIFY_SLA_RISK_UNOBSERVABLE_REASON = (
     "v2 stale-donor-assertion (NOT the anti-dupla seam): notify_sla_risk is dict-first and its "
     "BT_AlertaSla path has no ST_Publish task, so it emits NO event the FakeKafka probe can observe "
     "— `notifications_of_type('inadimplencia.notify_sla_risk')` is always empty in v2. Wiring the "
-    "`engine=` seam does not change this. Re-expressing against engine history (ST_NotificarRiscoSla "
-    "ended) is a separate follow-up outside this GAP-INAD-1 anti-dupla-seam PR."
+    "`engine=` seam does not change this. RETIRED (item-9 wave-3): re-expressed against engine "
+    "history (ST_NotificarRiscoSla ended), live-proven PASS; zero xfail call sites remain."
 )
 
 # SP-OP-INADIMPLENCIA-001.md:109's "produz" obligation for agents.events.inadimplencia.notified
@@ -888,13 +889,17 @@ async def test_suspensao_prossegue_sem_cancel_ativo(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_NOTIFY_SLA_RISK_UNOBSERVABLE_REASON, strict=True)
 async def test_timer_alerta_sla_nao_interruptivo(
     engine: EngineRest,
     inad_probe: InadEngineProbe,
     start_inad: Callable[..., Any],
 ) -> None:
-    """Timer BT_AlertaSla (nao-interruptivo): notify_sla_risk recebe task; UT segue aberta."""
+    """Timer BT_AlertaSla (nao-interruptivo): notify_sla_risk recebe task; UT segue aberta.
+
+    LIVE-PROVEN flip (item-9 w3): notify_sla_risk is dict-first and its BT_AlertaSla path has no
+    ST_Publish task, so `notifications_of_type('inadimplencia.notify_sla_risk')` is always empty —
+    re-expressed against engine history (ST_NotificarRiscoSla ended), per the reason's own note.
+    """
     inst = await start_inad()
     iid = inst["id"]
 
@@ -904,8 +909,8 @@ async def test_timer_alerta_sla_nao_interruptivo(
     await engine.execute_job(job.id)
     await inad_probe.drain()
 
-    assert inad_probe.notifications_of_type("inadimplencia.notify_sla_risk"), (
-        "Worker notify_sla_risk deve ser executado no alerta de SLA"
+    assert "ST_NotificarRiscoSla" in await engine.activity_instances_ended(iid), (
+        "Worker notify_sla_risk (ST_NotificarRiscoSla) deve ser executado no alerta de SLA"
     )
     open_keys = {t.task_definition_key for t in await engine.list_user_tasks(iid)}
     assert _UT_ANALISE in open_keys, "Timer nao-interruptivo nao deve cancelar a User Task"

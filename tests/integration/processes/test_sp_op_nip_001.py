@@ -171,8 +171,8 @@ FINDINGS (see PR body / evidence-ledger for full detail):
      gate-proven/consumption-covered (G2-val, NOT T-E-gated) and WIRED into production via
      `nip.NIP_BPMN_ERROR_ALLOWLIST` -> `worker_runtime/service.py`. A blank `protocolo_ans` should
      now route to the neutral terminal `End_NipProtocoloInvalido` instead of opening an incident.
-     See `_PROTOCOLO_INVALIDO_NOT_BPMN_ERROR_REASON` below (3 tests — still strict-xfail until the
-     boundary flip is proven on a live engine). NOTE:
+     See `_PROTOCOLO_INVALIDO_NOT_BPMN_ERROR_REASON` below (RETIRED — item-9 wave-3 wired the
+     probe allowlist and live-proved all 3 boundary tests on a fresh engine; markers removed). NOTE:
      `Error_NipNegativaNotHuman` (BPMN line 27) is likewise declared but has NO matching boundary
      event ANYWHERE in the BPMN — but no donor test in this file depends on a boundary catch for
      that guard (the relevant test only asserts NEGATIVE outcomes — the adverse terminal is never
@@ -220,6 +220,7 @@ from maezo.tools.mcp_cibseven.transport import CibSevenHttpTransport
 from maezo.tools.workers.events import register_events_workers
 from maezo.tools.workers.harness import CibSevenWorkerTransport, FakeKafkaPublisher, WorkerHarness
 from maezo.tools.workers.nip import (
+    NIP_BPMN_ERROR_ALLOWLIST,
     NipNegativaNotHumanError,
     handoff_ans_submit,
     register_nip_workers,
@@ -345,7 +346,10 @@ _PROTOCOLO_INVALIDO_NOT_BPMN_ERROR_REASON = (
     "route to the neutral terminal End_NipProtocoloInvalido instead of opening an engine incident. "
     "This ENGINE test stays strict-xfail ONLY because proving the actual boundary flip (bpmnError -> "
     "End_NipProtocoloInvalido) requires a live CIB Seven 2.1.0 engine; the marker is removed with "
-    "live-engine XPASS proof in a dedicated follow-up (precedent: auth's removed boundary xfail)."
+    "live-engine XPASS proof in a dedicated follow-up (precedent: auth's removed boundary xfail). "
+    "RETIRED (item-9 wave-3): that follow-up is DONE — the probe wires nip.NIP_BPMN_ERROR_ALLOWLIST "
+    "and all 3 boundary tests were live-proven PASS on a fresh engine (suite 30 passed); "
+    "grep-confirmed: zero pytest.mark.xfail call sites reference this constant anymore."
 )
 
 _NOTIFY_DEADLINE_RISK_UNREGISTERED_REASON = (
@@ -484,6 +488,12 @@ async def nip_probe(engine: EngineRest, audit_sink: Any, audit_tenant: str) -> A
         tenant=audit_tenant,
         lock_duration_ms=10_000,
         audit_sink=audit_sink,
+        # item-9 bucket-3 (ADR-0030 §2): nip.handoff_ans_submit now raises the MODELED boundary
+        # error WorkerBpmnError(ERR_NIP_PROTOCOLO_INVALIDO). The integration probe must mirror
+        # PRODUCTION_BPMN_ERROR_ALLOWLIST (nip.NIP_BPMN_ERROR_ALLOWLIST) so a blank protocolo_ans
+        # routes to End_NipProtocoloInvalido via BE_NipProtocoloInvalido{Manter,Conceder,NaoAssist}
+        # instead of demoting to an unconditional incident.
+        bpmn_error_allowlist=NIP_BPMN_ERROR_ALLOWLIST,
     )
     kafka = FakeKafkaPublisher()
     register_nip_workers(harness, kafka)
@@ -738,7 +748,6 @@ async def test_tema_desconhecido_fail_safe_juridico(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_NIP_WORKER_KAFKA_GAP_REASON, strict=True)
 async def test_happy_path_negativa_mantida_pelo_humano(
     engine: EngineRest,
     nip_probe: NipEngineProbe,
@@ -760,9 +769,11 @@ async def test_happy_path_negativa_mantida_pelo_humano(
     ut = await _drive_to_revisao(engine, nip_probe, iid)
     assert "juridico-regulatorio" in ut.candidate_groups
 
-    # Dossie de Gustavo deve ter sido preparado pelo worker real
-    dossiers = nip_probe.notifications_of_type("nip.instruct_dossier")
-    assert dossiers, "Worker instruct_dossier (Gustavo) deve ter sido executado"
+    # Dossie de Gustavo deve ter sido preparado pelo worker real. instruct_dossier_entry never
+    # echoes to Kafka (ADR-0026 `del kafka`) — observe engine-side via ST_InstruirDossie history.
+    assert "ST_InstruirDossie" in await engine.activity_instances_ended(iid), (
+        "Worker instruct_dossier (Gustavo/ST_InstruirDossie) deve ter sido executado"
+    )
 
     await engine.complete_task_as_human(
         ut.id,
@@ -782,14 +793,14 @@ async def test_happy_path_negativa_mantida_pelo_humano(
     assert _END_NEGATIVA_MANTIDA in ended, f"Manter humano deve atingir End_NipNegativaMantida. ended={ended}"
     assert nip_probe.has_event(_NIP_COMPLETED, desfecho="negativa_mantida")
 
-    # HARD GUARDRAIL: submit_response REGISTRA decisao do humano — verificar campos.
-    submits = nip_probe.notifications_of_type("nip.submit_response")
-    assert submits, "Worker submit_response deve ser executado apos manter humano"
-    s = submits[0]
-    assert s["decisao_nip"] == "MANTER_NEGATIVA"
-    assert s["revisor_id"] == "revisor-sintetico-001"
+    # HARD GUARDRAIL: submit_response REGISTRA decisao do humano. Its entry function never echoes
+    # to Kafka (ADR-0026) — observe engine-side via ST_SubmeterRespostaManter (MANTER branch).
+    assert "ST_SubmeterRespostaManter" in ended, (
+        "Worker submit_response (ST_SubmeterRespostaManter) deve ser executado apos manter humano"
+    )
 
-    # Handoff a ANS-SUBMIT executado com payload de filing.
+    # Handoff a ANS-SUBMIT executado com payload de filing
+    # (notification LIVE via ST_PublishHandoffAnsSubmitManter).
     handoffs = nip_probe.notifications_of_type("nip.handoff_ans_submit")
     assert handoffs, "Worker handoff_ans_submit deve ser executado"
     assert handoffs[0]["revisor_id"] == "revisor-sintetico-001"
@@ -885,7 +896,6 @@ async def test_happy_path_nao_assistencial_respondida(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_PROTOCOLO_INVALIDO_NOT_BPMN_ERROR_REASON, strict=True)
 async def test_protocolo_ans_em_branco_manter_termina_em_protocolo_invalido(
     engine: EngineRest,
     nip_probe: NipEngineProbe,
@@ -928,18 +938,18 @@ async def test_protocolo_ans_em_branco_manter_termina_em_protocolo_invalido(
         "Guard de correlacao nunca deve deixar a instancia alcancar o terminal adverso"
     )
     # submit_response JA rodou (precede o handoff na sequencia) — mas o handoff foi recusado
-    # ANTES de publicar, entao nip.completed (negativa_mantida) NUNCA foi emitido.
-    assert nip_probe.notifications_of_type("nip.submit_response"), (
-        "submit_response precede o handoff no flow — deve ter executado"
+    # ANTES de publicar, entao nip.completed (negativa_mantida) NUNCA foi emitido. submit_response's
+    # Kafka echo is dead (ADR-0026) — observe engine-side via ST_SubmeterRespostaManter.
+    assert "ST_SubmeterRespostaManter" in ended, (
+        "submit_response (ST_SubmeterRespostaManter) precede o handoff no flow — deve ter executado"
     )
     assert not nip_probe.notifications_of_type("nip.handoff_ans_submit"), (
-        "Guard recusa ANTES de publicar o registro do handoff"
+        "Guard recusa ANTES de publicar o registro do handoff (ST_PublishHandoffAnsSubmitManter nunca roda)"
     )
     assert not nip_probe.has_event(_NIP_COMPLETED, desfecho="negativa_mantida")
     await _assert_no_manter_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_PROTOCOLO_INVALIDO_NOT_BPMN_ERROR_REASON, strict=True)
 async def test_protocolo_ans_em_branco_conceder_termina_em_protocolo_invalido(
     engine: EngineRest,
     nip_probe: NipEngineProbe,
@@ -982,7 +992,6 @@ async def test_protocolo_ans_em_branco_conceder_termina_em_protocolo_invalido(
     await _assert_no_manter_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_PROTOCOLO_INVALIDO_NOT_BPMN_ERROR_REASON, strict=True)
 async def test_protocolo_ans_em_branco_nao_assistencial_termina_em_protocolo_invalido(
     engine: EngineRest,
     nip_probe: NipEngineProbe,
@@ -1271,7 +1280,6 @@ async def test_dmn_nip_classification_assistencial_contesta_negativa(
     assert nip_probe.has_event(_NIP_RECEIVED), "nip.received deve ser publicado"
 
 
-@pytest.mark.xfail(reason=_NIP_WORKER_KAFKA_GAP_REASON, strict=True)
 async def test_a2a_start_via_nip_instruct(
     engine: EngineRest,
     nip_probe: NipEngineProbe,
@@ -1316,10 +1324,13 @@ async def test_a2a_start_via_nip_instruct(
 
     active = await engine.find_active_instances(business_key)
     assert active, "Mensagem nip.instruct deve iniciar uma instancia"
+    iid = active[0]["id"]
 
     await nip_probe.drain()
-    dossiers = nip_probe.notifications_of_type("nip.instruct_dossier")
-    assert dossiers, "instruct_dossier (Gustavo) deve ser convocado no start A2A"
+    # instruct_dossier_entry never echoes to Kafka (ADR-0026) — observe engine-side via history.
+    assert "ST_InstruirDossie" in await engine.activity_instances_ended(iid), (
+        "instruct_dossier (Gustavo/ST_InstruirDossie) deve ser convocado no start A2A"
+    )
     assert nip_probe.has_event(_NIP_RECEIVED), "nip.received deve ser publicado no start A2A"
 
 

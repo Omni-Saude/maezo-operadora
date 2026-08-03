@@ -124,7 +124,8 @@ FINDINGS (see PR body / evidence-ledger for full detail):
   2. ROOT CAUSE — check_consent leg RESOLVED in src (item-9 bucket-3, ADR-0030 §2): `check_consent`
      now raises `WorkerBpmnError(ERR_PROGRAMA_NO_CONSENT)`, gate-proven/consumption-covered and wired
      into `worker_runtime/service.py`'s `PRODUCTION_BPMN_ERROR_ALLOWLIST`, so `BE_SemConsentimento` is
-     REACHABLE the moment a live-engine probe wires that allowlist + the xfail flips (a follow-up; see
+     REACHABLE — and item-9 wave-3 DID wire the probe allowlist and flipped both consent tests,
+     live-proven PASS on a fresh engine (see the RETIRED note on
      `_PROGRAMA_CONSENT_GUARD_NOT_BPMN_ERROR_REASON`). The narrative below documents the ORIGINAL
      (pre-migration) defect and STILL applies verbatim to `register_program_discharge`'s
      `ERR_PROGRAM_DISCHARGE_NOT_HUMAN` (a T-E-gated adverse guard that correctly stays `ProgramaError`
@@ -234,7 +235,7 @@ import pytest_asyncio
 
 from maezo.tools.workers.events import register_events_workers
 from maezo.tools.workers.harness import CibSevenWorkerTransport, FakeKafkaPublisher, WorkerHarness
-from maezo.tools.workers.programa import register_programa_workers
+from maezo.tools.workers.programa import PROGRAMA_BPMN_ERROR_ALLOWLIST, register_programa_workers
 
 from .conftest import CIBSEVEN_BASE_URL, drain_topics
 from .engine_rest import EngineRest
@@ -343,9 +344,11 @@ _PROGRAMA_MISSING_WORKER_REASON = (
     "(out of scope for T2.5 — a separate, tracked gap), and every test below depends on at least "
     "one of: (a) one of those 2 still-missing workers directly (e.g. any assertion reaching "
     "ST_ProactiveContact/End_EnrollmentRealizado, or notify_sla_risk's timer-fired notification), "
-    "(b) finding 2 below (check_consent's ERR_PROGRAMA_NO_CONSENT — and, by the same mechanism, "
-    "stratify_risk's own defense-in-depth guard — reclassify to ValueError before the harness ever "
-    "sees a WorkerBpmnError, so BE_SemConsentimento's boundary catch never fires), (c) the "
+    "(b) RESOLVED (item-9 wave-3, live-proven): check_consent now raises "
+    "WorkerBpmnError(ERR_PROGRAMA_NO_CONSENT) and this suite's probe mirrors "
+    "programa.PROGRAMA_BPMN_ERROR_ALLOWLIST, so BE_SemConsentimento fires (the 2 consent tests "
+    "flipped; stratify_risk's defense-in-depth guard DELIBERATELY stays ProgramaError -> incident "
+    "— no boundary on its task), (c) the "
     "Kafka-producer-wiring systemic gap (module docstring finding 4 / this reason's prior text: "
     "programa.py's dict-first functions, stratify_risk included, never call kafka.publish, so any "
     "notifications_of_type('programa.*') assertion can never observe an execution), or (d) finding "
@@ -379,7 +382,11 @@ _PROGRAMA_CONSENT_GUARD_NOT_BPMN_ERROR_REASON = (
     "— ST_StratifyRisk carries no boundary, so a WorkerBpmnError there would silently end the scope.) "
     "This ENGINE test stays strict-xfail ONLY because proving the actual boundary flip requires a "
     "live CIB Seven 2.1.0 engine; the marker is removed with live-engine XPASS proof in a dedicated "
-    "follow-up (precedent: auth's removed boundary xfail)."
+    "follow-up (precedent: auth's removed boundary xfail). "
+    "RETIRED (item-9 wave-3): that follow-up is DONE — the probe wires "
+    "programa.PROGRAMA_BPMN_ERROR_ALLOWLIST and both consent tests were live-proven PASS on a "
+    "fresh engine (16 passed + 7 xfailed); grep-confirmed: zero pytest.mark.xfail call sites "
+    "reference this constant anymore."
 )
 
 
@@ -438,11 +445,12 @@ async def programa_probe(
     """Probe que serve as external tasks com os workers reais de programa."""
     worker_id = f"qa-programa-worker-{uuid.uuid4().hex[:8]}"
     transport = CibSevenWorkerTransport(CIBSEVEN_BASE_URL)
-    # SEM bpmn_error_allowlist AINDA: item-9 bucket-3 migrou check_consent para
-    # WorkerBpmnError(ERR_PROGRAMA_NO_CONSENT) (gate-proven, wired em PRODUCTION_BPMN_ERROR_ALLOWLIST),
-    # mas gatear o allowlist DESTE probe + flipar os xfails de consent-guard exige prova em engine ao
-    # vivo (follow-up — ver _PROGRAMA_CONSENT_GUARD_NOT_BPMN_ERROR_REASON). register_program_discharge
-    # segue ProgramaError->incidente (ERR_PROGRAM_DISCHARGE_NOT_HUMAN e T-E-gated).
+    # item-9 bucket-3 (ADR-0030 §2): check_consent (the PHI chokepoint) now raises the MODELED
+    # boundary error WorkerBpmnError(ERR_PROGRAMA_NO_CONSENT). Mirror PRODUCTION_BPMN_ERROR_ALLOWLIST
+    # (programa.PROGRAMA_BPMN_ERROR_ALLOWLIST) in this probe so a failed/revoked consent routes to the
+    # LGPD fail-safe terminal End_SemConsentimento (BE_SemConsentimento -> ST_PublishConsentBlocked)
+    # instead of demoting to an unconditional incident. register_program_discharge stays
+    # ProgramaError->incident (ERR_PROGRAM_DISCHARGE_NOT_HUMAN is T-E-gated, deliberately not here).
     # T1.10 wave: emit-before-complete is FAIL-CLOSED (harness.py _emit_audit) — a real
     # PostgresAuditSink (lane PG, migrations 0001->0005) is REQUIRED or the harness refuses
     # to complete. `tenant` scopes the durable audit chain / dedup key to the per-run schema.
@@ -452,6 +460,7 @@ async def programa_probe(
         tenant=audit_tenant,
         lock_duration_ms=10_000,
         audit_sink=audit_sink,
+        bpmn_error_allowlist=PROGRAMA_BPMN_ERROR_ALLOWLIST,
     )
     kafka = FakeKafkaPublisher()
     register_programa_workers(harness, kafka)
@@ -611,7 +620,6 @@ async def _correlate_message_by_keys(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_PROGRAMA_CONSENT_GUARD_NOT_BPMN_ERROR_REASON, strict=True)
 async def test_chokepoint_consentimento_nenhum_phi_sem_consentimento(
     engine: EngineRest,
     programa_probe: ProgramaEngineProbe,
@@ -643,7 +651,6 @@ async def test_chokepoint_consentimento_nenhum_phi_sem_consentimento(
     await _assert_no_adverse_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_PROGRAMA_CONSENT_GUARD_NOT_BPMN_ERROR_REASON, strict=True)
 async def test_canal_proativo_sem_consent_checked_barra(
     engine: EngineRest,
     programa_probe: ProgramaEngineProbe,
@@ -666,6 +673,11 @@ async def test_canal_proativo_sem_consent_checked_barra(
 
     assert _END_SEM_CONSENTIMENTO in ended, (
         f"Canal proativo sem consent_checked => End_SemConsentimento. ended={ended}"
+    )
+    # Prova engine-side (nao-vacua — o eco kafka e sempre [] enquanto programa.py nao publica):
+    # nenhuma atividade de PHI pode ter entrado no historico da instancia barrada.
+    assert not ({"ST_StratifyRisk", "ST_BuildCarePlan", "ST_ProactiveContact"} & ended), (
+        f"Nenhum serviceTask de PHI pode executar sem consent_checked (D9). ended={ended}"
     )
     for ntype in _PHI_NOTIFICATION_TYPES:
         assert not programa_probe.notifications_of_type(ntype), (
