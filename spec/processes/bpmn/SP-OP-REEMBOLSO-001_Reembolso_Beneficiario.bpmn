@@ -373,6 +373,7 @@ prazos DRAFT/verify). A decisao sai em nome do analista (assignee na trilha de a
     <!-- Aprovado (integral) pelo analista/auditor -->
     <bpmn:serviceTask id="ST_IssuePaymentAnalista" name="Emitir pagamento do reembolso (decisao humana)"
                       camunda:type="external" camunda:topic="operadora.reembolso.issue_payment">
+      <bpmn:documentation>Paga valor_reembolso_aprovado_cents — o valor efetivamente aprovado pelo humano (APROVAR integral) na User Task (contrato SP-OP-REEMBOLSO-001, "Variaveis de saida"). Sem inputParameter: o valor ja esta no escopo do processo, setado pela User Task; o worker NUNCA recalcula nem cai de volta em valor_calculado_tabela_cents (pagar valor calculado no lugar do aprovado seria reducao/majoracao originada por maquina — L0 hard). Valor ausente/invalido => ERR_REEMBOLSO_VALOR_PAGAMENTO_INVALIDO (incidente, sem pagamento) — nao ha boundary de erro aqui por design.</bpmn:documentation>
       <bpmn:incoming>Flow_GWDec_Aprovar</bpmn:incoming>
       <bpmn:outgoing>Flow_IssueAnalista_Pub</bpmn:outgoing>
     </bpmn:serviceTask>
