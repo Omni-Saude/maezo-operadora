@@ -976,6 +976,24 @@ async def test_prepare_approval_dossier_missing_business_identifiers_gap_never_d
     assert dispatcher.envelopes == []
 
 
+@pytest.mark.parametrize("tenant_id", ["  ", "", "\t\n"])
+async def test_prepare_approval_dossier_blank_tenant_gap_never_delegates(tenant_id: str) -> None:
+    """GK-dossier finding 7 (RED proof for the tenant half of the worker's guard): a blank/
+    whitespace-only `tenant_id` with an OTHERWISE VALID ordem must still gap out. Without the
+    tenant there is no tenant-scoped business key (ADR-0004) — a delegation would carry a
+    degenerate `PAGTO--OP-001` anchor. DL-0037: the task completes, UT_AprovacaoAlcada opens."""
+    dispatcher = _FakeDossierDispatcher(result=DelegationResult.ok("x", "process://x"))
+    handler = make_prepare_approval_dossier_handler(dispatcher)  # type: ignore[arg-type]
+
+    result = await handler(
+        _dossier_task({**_PAGTO_DOSSIER_VARS, "tenant_id": tenant_id, "ordem_pagamento_id": "OP-001"})
+    )
+
+    assert result["dossier_prepared"] is False
+    assert result["dossier_gap"] == "missing_business_identifiers"
+    assert dispatcher.envelopes == []  # never even attempted
+
+
 async def test_prepare_approval_dossier_delegation_failure_fail_neutrals_never_raises() -> None:
     """ANY delegation exception -> gap marker + loud log; raw error text stays OUT of the engine
     variables (bounded class token only)."""
