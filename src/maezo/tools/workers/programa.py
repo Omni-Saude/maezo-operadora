@@ -457,6 +457,19 @@ class ProgramaError(Exception):
 # docstring: "Async I/O is handled by the engine/message layer, not by the worker logic") to
 # publish a `type`-discriminated internal notification (`_NOTIFICATIONS_TOPIC`) observable by
 # `notifications_of_type(...)` (the port's own `ProgramaEngineProbe`, T3.1 R2 finding 4).
+#
+# GK-w5 finding 4 (M11 per-worker metrics disclosure): a raw handler bypasses `WorkerBase.run`
+# entirely, so `record_worker_execution`/`record_worker_error` (`maezo.platform.observability`,
+# M11) never fire for these 4 topics — `WorkerBase.run` is the ONLY place that emits them, and
+# raw handlers never go through it. For `stratify_risk`/`stop_processing` this is a REAL DELTA:
+# they emitted these per-worker metrics while `FunctionWorker`-wrapped (pre-item-A) and no longer
+# do. For `proactive_contact`/`notify_sla_risk` (brand new this wave) there is nothing to regress
+# from. In all 4 cases the harness-level dispatch-outcome metric
+# (`_emit_worker_task_outcome`/`record_worker_task_outcome`, `harness.py`) still fires unconditionally
+# for every topic regardless of handler shape — this is the SAME accepted trade-off already made
+# for recurso's/lgpd's/escalation's own raw handlers (none of them emit per-worker M11 metrics
+# either); not a new gap this wave introduces, just newly disclosed here for programa's 2 MOVED
+# topics.
 # ---------------------------------------------------------------
 
 _STRATIFY_RISK_TOPIC = "operadora.programa.stratify_risk"
