@@ -257,6 +257,56 @@ def test_route_aprovacao_dmn_unwired_raises_dmn_evaluation_error() -> None:
 
 
 # ---------------------------------------------------------------
+# route_aprovacao — ceiling-fact PROPAGATION (item-9 bucket-3 Class-C, module FINDING 1 of
+# test_sp_op_pagto_001): the COMPUTED dentro_teto_l2 must be returned as an output variable so
+# the NATIVE BRT_AlcadaRouting reads the resolver's fail-closed fact, never the raw start seed.
+# ---------------------------------------------------------------
+
+
+class _NeverWithinCeilingResolver:
+    """Test double: the resolver refuses the ceiling (e.g. value above teto / unloadable matrix)."""
+
+    def within_l2_ceiling(self, *, tenant: str, action: str, param: str, value_cents: int) -> bool:
+        del tenant, action, param, value_cents
+        return False
+
+
+def test_route_aprovacao_propagates_computed_ceiling_fact_overriding_false_seed() -> None:
+    """Seed dentro_teto_l2=False + resolver says WITHIN -> the returned output variable is the
+    COMPUTED True (pre-fix: the key was absent, so the seed survived into BRT_AlcadaRouting and
+    a within-ceiling payment failed to auto-release)."""
+    fake = _pagto_alcada_fake(faixa_valor="DENTRO_TETO_L2", grupo_aprovador="", tier_minimo=0)
+    result = route_aprovacao(
+        {"valor_pagamento_cents": 5_000_000, "dentro_teto_l2": False},
+        _AlwaysWithinCeilingResolver(),  # type: ignore[arg-type]
+        dmn=fake,
+    )
+    assert result["dentro_teto_l2"] is True
+
+
+def test_route_aprovacao_propagates_computed_ceiling_fact_overriding_true_seed() -> None:
+    """Seed dentro_teto_l2=True + resolver says NOT within -> the returned output variable is the
+    COMPUTED False (fail-closed: an inflated seed can never smuggle a payment into the
+    auto-release band; L1 direction of the same propagation)."""
+    fake = _pagto_alcada_fake(
+        faixa_valor="ALCADA_L1", grupo_aprovador="aprovacao-financeira-l1", tier_minimo=1
+    )
+    result = route_aprovacao(
+        {"valor_pagamento_cents": 15_000_000, "dentro_teto_l2": True},
+        _NeverWithinCeilingResolver(),  # type: ignore[arg-type]
+        dmn=fake,
+    )
+    assert result["dentro_teto_l2"] is False
+    # And the DMN evaluation itself received the computed fact, not the seed.
+    assert fake.calls == [
+        (
+            "pagto_alcada",
+            {"valor_pagamento_cents": 15_000_000, "dentro_teto_l2": False, "tipo_pagamento": ""},
+        )
+    ]
+
+
+# ---------------------------------------------------------------
 # execute_pagto — low-value auto
 # ---------------------------------------------------------------
 

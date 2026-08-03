@@ -221,6 +221,17 @@ def route_aprovacao(
         # untouched (out of the ADR-0028 migration table — a safety GUARD, not a routing
         # decision — same non-touch boundary as the ceiling resolver, T1.9).
         "tier_minimo": row.get("tier_minimo"),
+        # Write the COMPUTED ceiling fact back (item-9 bucket-3 Class-C — module FINDING 1 of
+        # test_sp_op_pagto_001, v2 regression): `BRT_AlcadaRouting` is a NATIVE
+        # businessRuleTask (camunda:decisionRef="pagto_alcada", no external topic) that reads
+        # whatever `dentro_teto_l2` PROCESS VARIABLE is already set — without this write-back
+        # it evaluated the RAW start seed, so the CeilingResolver's fail-closed computation
+        # never reached the live routing decision (a within-ceiling payment seeded
+        # dentro_teto_l2=False fell to the ANALISE_HUMANA catch-all instead of auto-release).
+        # Mirrors auth.AnalyzeRequestWorker's own `dentro_teto_l2` write-back and the donor's
+        # calculate_facts design intent (design T1.9 §1.4/§2.4): the engine receives the
+        # policy-computed fact, never the inbound boolean.
+        "dentro_teto_l2": dentro_teto,
     }
 
 
