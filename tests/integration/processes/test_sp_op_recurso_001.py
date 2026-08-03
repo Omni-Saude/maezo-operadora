@@ -365,6 +365,11 @@ _RECURSO_KAFKA_GAP_REASON = (
     "own xfail reason constant, `_RECURSO_PENDED_PUBLISH_ADDED_REASON`, was retired the same way). "
     "Removed the stale clause here so this constant only describes the ONE gap still open — the "
     "notifications_of_type residual, unrelated to and unaffected by the pended fix."
+    "\n\nRETIRED (item-9 wave-3): the last remaining call site (analyze_request's dossie echo) was "
+    "adapted to engine-side evidence (ST_PrepararDossie in activity history) and live-proven PASS "
+    "on a fresh engine (suite 34 passed); grep-confirmed: zero pytest.mark.xfail call sites "
+    "reference this constant anymore. The notifications_of_type('recurso.<fn>') channel itself "
+    "remains dead until the kafka-producer wiring task lands."
 )
 
 # Finding 3 (valor_glosa_aceito TypeError) RESOLVED by t3.1-a2-recurso-valor-glosa — the

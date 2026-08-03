@@ -171,8 +171,8 @@ FINDINGS (see PR body / evidence-ledger for full detail):
      gate-proven/consumption-covered (G2-val, NOT T-E-gated) and WIRED into production via
      `nip.NIP_BPMN_ERROR_ALLOWLIST` -> `worker_runtime/service.py`. A blank `protocolo_ans` should
      now route to the neutral terminal `End_NipProtocoloInvalido` instead of opening an incident.
-     See `_PROTOCOLO_INVALIDO_NOT_BPMN_ERROR_REASON` below (3 tests — still strict-xfail until the
-     boundary flip is proven on a live engine). NOTE:
+     See `_PROTOCOLO_INVALIDO_NOT_BPMN_ERROR_REASON` below (RETIRED — item-9 wave-3 wired the
+     probe allowlist and live-proved all 3 boundary tests on a fresh engine; markers removed). NOTE:
      `Error_NipNegativaNotHuman` (BPMN line 27) is likewise declared but has NO matching boundary
      event ANYWHERE in the BPMN — but no donor test in this file depends on a boundary catch for
      that guard (the relevant test only asserts NEGATIVE outcomes — the adverse terminal is never
@@ -220,6 +220,7 @@ from maezo.tools.mcp_cibseven.transport import CibSevenHttpTransport
 from maezo.tools.workers.events import register_events_workers
 from maezo.tools.workers.harness import CibSevenWorkerTransport, FakeKafkaPublisher, WorkerHarness
 from maezo.tools.workers.nip import (
+    NIP_BPMN_ERROR_ALLOWLIST,
     NipNegativaNotHumanError,
     handoff_ans_submit,
     register_nip_workers,
@@ -345,7 +346,10 @@ _PROTOCOLO_INVALIDO_NOT_BPMN_ERROR_REASON = (
     "route to the neutral terminal End_NipProtocoloInvalido instead of opening an engine incident. "
     "This ENGINE test stays strict-xfail ONLY because proving the actual boundary flip (bpmnError -> "
     "End_NipProtocoloInvalido) requires a live CIB Seven 2.1.0 engine; the marker is removed with "
-    "live-engine XPASS proof in a dedicated follow-up (precedent: auth's removed boundary xfail)."
+    "live-engine XPASS proof in a dedicated follow-up (precedent: auth's removed boundary xfail). "
+    "RETIRED (item-9 wave-3): that follow-up is DONE — the probe wires nip.NIP_BPMN_ERROR_ALLOWLIST "
+    "and all 3 boundary tests were live-proven PASS on a fresh engine (suite 30 passed); "
+    "grep-confirmed: zero pytest.mark.xfail call sites reference this constant anymore."
 )
 
 _NOTIFY_DEADLINE_RISK_UNREGISTERED_REASON = (
@@ -489,7 +493,7 @@ async def nip_probe(engine: EngineRest, audit_sink: Any, audit_tenant: str) -> A
         # PRODUCTION_BPMN_ERROR_ALLOWLIST (nip.NIP_BPMN_ERROR_ALLOWLIST) so a blank protocolo_ans
         # routes to End_NipProtocoloInvalido via BE_NipProtocoloInvalido{Manter,Conceder,NaoAssist}
         # instead of demoting to an unconditional incident.
-        bpmn_error_allowlist=frozenset({"ERR_NIP_PROTOCOLO_INVALIDO"}),
+        bpmn_error_allowlist=NIP_BPMN_ERROR_ALLOWLIST,
     )
     kafka = FakeKafkaPublisher()
     register_nip_workers(harness, kafka)

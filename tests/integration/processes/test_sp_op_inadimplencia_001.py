@@ -226,15 +226,16 @@ _CAMPOS_SUSP = {
 # SlaBreach/Suspenso/RescisaoHandoff/Mantido — none for notify_sla_risk), and notify_sla_risk itself
 # never publishes. The donor's `notifications_of_type("inadimplencia.notify_sla_risk")` internal-
 # notification channel therefore has NO v2 equivalent the kafka probe can see. This is DISTINCT from
-# the anti-dupla seam (this PR's scope): wiring `engine=` does NOT make this event observable. Kept
-# xfail; a follow-up could re-express it against engine history (ST_NotificarRiscoSla ended) — a
-# separate stale-donor-assertion adaptation outside GAP-INAD-1.
+# the anti-dupla seam (that PR's scope): wiring `engine=` does NOT make this event observable.
+# RETIRED (item-9 wave-3): the re-expression against engine history (ST_NotificarRiscoSla ended)
+# happened — live-proven PASS on a fresh engine (suite 24 passed); the marker was removed and
+# grep-confirmed: zero pytest.mark.xfail call sites reference this constant anymore.
 _NOTIFY_SLA_RISK_UNOBSERVABLE_REASON = (
     "v2 stale-donor-assertion (NOT the anti-dupla seam): notify_sla_risk is dict-first and its "
     "BT_AlertaSla path has no ST_Publish task, so it emits NO event the FakeKafka probe can observe "
     "— `notifications_of_type('inadimplencia.notify_sla_risk')` is always empty in v2. Wiring the "
-    "`engine=` seam does not change this. Re-expressing against engine history (ST_NotificarRiscoSla "
-    "ended) is a separate follow-up outside this GAP-INAD-1 anti-dupla-seam PR."
+    "`engine=` seam does not change this. RETIRED (item-9 wave-3): re-expressed against engine "
+    "history (ST_NotificarRiscoSla ended), live-proven PASS; zero xfail call sites remain."
 )
 
 # SP-OP-INADIMPLENCIA-001.md:109's "produz" obligation for agents.events.inadimplencia.notified

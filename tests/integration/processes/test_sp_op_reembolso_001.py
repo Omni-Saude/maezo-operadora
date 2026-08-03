@@ -243,7 +243,22 @@ _REEMBOLSO_WORKER_KAFKA_GAP_REASON = (
     "LIVE-PROVEN (wave2a, CIB Seven 2.1.0): test_happy_path_aprovado_pelo_analista + "
     "test_timer_alerta_sla_nao_interruptivo were retagged here from "
     "_REEMBOLSO_BUILT_WORKER_PENDING_LIVE_PROOF_REASON after a live run confirmed they fail on "
-    "notifications_of_type('reembolso.analyze_request'/'reembolso.notify_sla_risk') — NOT flippable."
+    "notifications_of_type('reembolso.analyze_request'/'reembolso.notify_sla_risk'). "
+    "RETIRED (wave-3, live-proven 22p+1xf): the dead kafka echoes were adapted to engine-side "
+    "evidence (activity history / live ST_Publish* has_event fields) and the markers removed — "
+    "grep-confirmed: zero pytest.mark.xfail call sites reference this constant anymore."
+)
+
+_REEMBOLSO_VALOR_CENTS_UNPLUMBED_REASON = (
+    "SRC-GAP (GK-flips finding 1, wave-3): issue_payment_entry reads "
+    "variables.get('valor_cents', 0) but NOTHING produces valor_cents — calculate_amount returns "
+    "valor_calculado_tabela_cents, the BPMN maps valor_reembolso_aprovado_cents only on "
+    "ST_IssuePaymentAuto (the parcial/analista branches have NO input mapping), and the start "
+    "seeds don't include it => process_payment issues valor_cents=0 on ALL THREE payment paths. "
+    "This test asserts the human's approved reduced value (8000) reaches the payment via engine "
+    "history (get_history_variable) and FAILS until the value is plumbed (Class-C src fix: read "
+    "valor_reembolso_aprovado_cents/valor_calculado_tabela_cents at issue_payment or add the "
+    "missing BPMN input mappings)."
 )
 
 _REEMBOLSO_BUILT_WORKER_PENDING_LIVE_PROOF_REASON = (
@@ -638,9 +653,9 @@ async def test_happy_path_aprovado_pelo_analista(
 ) -> None:
     """dentro_teto_l2=false => analise humana; analista completa APROVAR => End_ReembolsoAprovadoAnalista.
 
-    analyze_request is now a REAL worker (T2.5-P2B) — mark kept pending live proof; the dossie
-    assertion (`notifications_of_type('reembolso.analyze_request')`) is still expected to hit the
-    systemic kafka gap (finding 1) since the entry function never calls kafka.publish.
+    FLIPPED (wave-3, live-proven): analyze_request is a REAL worker (T2.5-P2B); the dead
+    kafka-echo dossie assertion was adapted to engine-side evidence (ST_PrepararDossie in
+    activity history) and the strict-xfail marker removed.
     """
     inst = await start_reembolso(dentro_teto_l2=False)
     iid = inst["id"]
@@ -698,7 +713,9 @@ async def test_happy_path_negado_pelo_analista(
     ended = await _await_end(engine, iid)
     await _assert_no_adverse_without_human_task(engine, iid)
     assert _END_NEGADO in ended, f"Negativa humana deve atingir End_ReembolsoNegado. ended={ended}"
-    assert reembolso_probe.has_event(_REEMBOLSO_COMPLETED, desfecho="negado_analista")
+    assert reembolso_probe.has_event(
+        _REEMBOLSO_COMPLETED, desfecho="negado_analista", analista_id="analista-sintetico-001"
+    )
 
     # Engine-side (kafka-echo morto pos-#178): send_reembolso_denial executou apos a negativa humana
     # (decisao/analista foram inputs humanos acima; desfecho negado_analista via has_event acima).
@@ -707,12 +724,17 @@ async def test_happy_path_negado_pelo_analista(
     )
 
 
+@pytest.mark.xfail(reason=_REEMBOLSO_VALOR_CENTS_UNPLUMBED_REASON, strict=True)
 async def test_happy_path_aprovado_parcial_pelo_analista(
     engine: EngineRest,
     reembolso_probe: ReembolsoEngineProbe,
     start_reembolso: Callable[..., Any],
 ) -> None:
-    """Analista completa APROVAR_PARCIAL (valor menor) => End_ReembolsoParcial (humano-gated, adverso)."""
+    """Analista completa APROVAR_PARCIAL (valor menor) => End_ReembolsoParcial (humano-gated, adverso).
+
+    Flow/end-event/eventos passam ao vivo; o assert final (valor 8000 chega ao pagamento via
+    engine history) FALHA — ver _REEMBOLSO_VALOR_CENTS_UNPLUMBED_REASON (src-gap Class-C).
+    """
     inst = await start_reembolso(dentro_teto_l2=False, valor_solicitado_cents=12000)
     iid = inst["id"]
 
@@ -735,15 +757,22 @@ async def test_happy_path_aprovado_parcial_pelo_analista(
     await _assert_no_adverse_without_human_task(engine, iid)
     assert _END_PARCIAL in ended, f"APROVAR_PARCIAL => End_ReembolsoParcial. ended={ended}"
     assert _END_NEGADO not in ended
-    assert reembolso_probe.has_event(_REEMBOLSO_COMPLETED, desfecho="aprovado_parcial")
+    assert reembolso_probe.has_event(
+        _REEMBOLSO_COMPLETED, desfecho="aprovado_parcial", analista_id="analista-sintetico-001"
+    )
 
-    # Engine-side (kafka-echo morto pos-#178): ambos os serviceTasks executaram (o valor reduzido
-    # 8000 foi input humano; desfecho aprovado_parcial via has_event acima).
+    # Engine-side (kafka-echo morto pos-#178): ambos os serviceTasks executaram.
     assert "ST_ComunicarReducao" in ended, (
         "send_reembolso_denial (ST_ComunicarReducao) deve comunicar a reducao"
     )
     assert "ST_IssuePaymentParcial" in ended, (
         "issue_payment (ST_IssuePaymentParcial) deve pagar o valor reduzido aprovado"
+    )
+    # Prova engine-side do DINHEIRO: o valor reduzido aprovado pelo humano tem de chegar ao
+    # pagamento. HOJE FALHA (=> strict xfail acima): valor_cents nunca e produzido — ver
+    # _REEMBOLSO_VALOR_CENTS_UNPLUMBED_REASON.
+    assert await engine.get_history_variable(iid, "valor_cents") == 8000, (
+        "o pagamento parcial deve receber o valor aprovado (8000), nao 0/None"
     )
 
 
@@ -1050,9 +1079,9 @@ async def test_timer_alerta_sla_nao_interruptivo(
 ) -> None:
     """Timer BT_AlertaSla (nao-interruptivo): notify_sla_risk recebe task; UT segue aberta.
 
-    notify_sla_risk is now a REAL worker (T2.5-P2B) — mark kept pending live proof; the
-    `notifications_of_type('reembolso.notify_sla_risk')` assertion is still expected to hit the
-    systemic kafka gap (finding 1) since the entry function never calls kafka.publish.
+    FLIPPED (wave-3, live-proven): notify_sla_risk is a REAL worker (T2.5-P2B); the dead
+    kafka-echo assertion was adapted to engine-side evidence (ST_NotificarRiscoSla in activity
+    history, UT ainda aberta) and the strict-xfail marker removed.
     """
     inst = await start_reembolso(dentro_teto_l2=False)
     iid = inst["id"]
