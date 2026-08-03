@@ -61,7 +61,7 @@ def test_register_default_workers_registers_all_17_modules() -> None:
 
     assert len(ALL_WORKER_BOOTSTRAPS) == 17
     assert len(harness.registered_topics) > 90
-# DL-0033 real A2A wiring (dossier branch): `operadora.cred.prepare_dossier`,
+    # DL-0033 real A2A wiring (dossier branch): `operadora.cred.prepare_dossier`,
     # `operadora.adequacao.prepare_remediation_dossier` and (item9-w3) the LAST edge
     # `operadora.pagto.prepare_approval_dossier` moved from `FunctionWorker` (dict-first, in the
     # WorkerRegistry) to RAW async handlers (in `_handlers`, NOT the registry) because they now

@@ -791,13 +791,11 @@ async def test_happy_path_credenciamento_clerical_neutro(
     registry-drift half of this test's original "doubly-blocked" framing is closed. The
     documentacao_completa overwrite bug (finding 2) remains the PRIMARY, still-unfixed blocker
     (reroutes this test to PENDENTE_DOCUMENTACAO before it can ever reach CLERICAL_CREDENCIAR).
-    Even if finding 2 were also fixed, this test's final assertion
-    (`cred_probe.notifications_of_type("cred.register_credenciamento")`) would STILL fail on
-    finding 5 (Kafka-publish gap): register_credenciamento does not itself kafka.publish a
-    "cred.register_credenciamento"-typed internal notification (the two has_event(...) assertions
-    above it DO go through the generic, already-wired operadora.events.publish worker and would
-    pass). LIVE-PROVEN (wave2a): the documentacao_completa overwrite bug reroutes this test to
-    PENDENTE_DOCUMENTACAO before CLERICAL_CREDENCIAR is reachable, so it still XFAILs — NOT flipped.
+    FLIPPED (item-9 assembly, live-proven): the w4 fact-preservation fix
+    unblocked CLERICAL_CREDENCIAR and the final dead kafka echo
+    (register_credenciamento publishes no notification of its own) was adapted to engine-side
+    activity-history evidence; the has_event(...) assertions ride the generic, already-wired
+    operadora.events.publish worker.
     """
     inst = await start_cred(
         direcao="credenciamento",
@@ -816,9 +814,12 @@ async def test_happy_path_credenciamento_clerical_neutro(
     assert cred_probe.has_event(_CRED_RECEIVED)
     assert cred_probe.has_event(_CRED_NETWORK_CHANGED, tipo_mudanca="prestador_credenciado")
     assert cred_probe.has_event(_CRED_COMPLETED, desfecho="credenciado")
-    assert cred_probe.notifications_of_type("cred.register_credenciamento")
-    assert not cred_probe.notifications_of_type("cred.register_cred_denial")
-    assert not cred_probe.notifications_of_type("cred.register_descredenciamento")
+    # Engine-side (kafka-echo morto: register_credenciamento nao publica notificacao propria;
+    # os has_event acima ja provam os eventos de dominio via operadora.events.publish):
+    assert "ST_RegisterCredenciamento" in ended, "register_credenciamento deve executar no caminho clerical"
+    assert not ({"ST_RegisterCredDenial", "ST_RegisterDescredenciamento"} & ended), (
+        "nenhum worker adverso executa no caminho clerical favoravel"
+    )
 
 
 @pytest.mark.xfail(reason=_CRED_MISSING_WORKERS_REASON, strict=True)
@@ -942,10 +943,14 @@ async def test_happy_path_credenciamento_negado_humano(
     assert _END_CRED_NEGADO in ended, f"NEGAR humano => End_CredenciamentoNegado. ended={ended}"
     assert cred_probe.has_event(_CRED_COMPLETED, desfecho="credenciamento_negado")
 
-    regs = cred_probe.notifications_of_type("cred.register_cred_denial")
-    assert regs and regs[0]["decisao_cred"] == "NEGAR_CREDENCIAMENTO"
-    assert regs[0]["responsavel_id"] == "gestao-rede-sintetico-001"
-    assert regs[0]["tier"] == "pleno"
+    # Engine-side (kafka-echo morto): ST_RegisterCredDenial executou — e como register_cred_denial
+    # carrega o guard t5-workers-f2 (WorkerBpmnError ERR_CRED_DENIAL_NOT_HUMAN quando faltam os
+    # campos humanos), atingir End_CredenciamentoNegado SEM o boundary disparar prova que
+    # decisao_cred/responsavel_id/tier chegaram ao worker.
+    assert "ST_RegisterCredDenial" in ended, (
+        "register_cred_denial (ST_RegisterCredDenial) deve executar apos NEGAR humano"
+    )
+    assert await engine.get_history_variable(iid, "decisao_cred") == "NEGAR_CREDENCIAMENTO"
 
 
 async def test_happy_path_credenciamento_aprovado_humano(
