@@ -54,10 +54,27 @@ logger = structlog.get_logger(__name__)
 # REACHABLE the moment T-E flips the allowlist (exactly the `ERR_CANCEL_MANTER_NOT_HUMAN` posture).
 ERR_DECRED_NOT_HUMAN = "ERR_DECRED_NOT_HUMAN"
 ERR_CRED_DENIAL_NOT_HUMAN = "ERR_CRED_DENIAL_NOT_HUMAN"
+#: `validate_cred` raises this when `prestador_id` arrives absent/blank/non-string — a TECHNICAL
+#: origin/consistency guard (G2-val, ADR-0030 §2 + migration Tier-2: the worker never decides to
+#: deny/de-credential, it only signals bad-at-source identity data — T3.1 phase-2 finding 3, the
+#: dead-model gap: the code was declared here and the boundary modeled, but no worker ever raised
+#: it). MODELED boundary error: `BE_PrestadorInvalido` (Error_CredPrestadorInvalido) on
+#: `ST_VerifyCredentials` routes to the NEUTRO terminal `End_CredPrestadorInvalido` — the BPMN's
+#: own documentation: "Fail-safe de validacao (NAO adverso) ... Nenhum efeito adverso automatico
+#: (ADR-0018)". NOT a `*_NOT_HUMAN` guard, so NOT T-E-gated (ADR-0030 §4).
+ERR_CRED_INVALID_PRESTADOR = "ERR_CRED_INVALID_PRESTADOR"
 # Clerical (favorable-direction) input-validation code — NOT a modeled boundary error; a genuine
 # bad-input failure that correctly stays a `CredError` -> ValueError -> incident (no boundary to fire).
-ERR_CRED_INVALID_PRESTADOR = "ERR_CRED_INVALID_PRESTADOR"
 ERR_CRED_REGISTER_INVALID = "ERR_CRED_REGISTER_INVALID"
+
+#: Consumption-covered (`scripts/ci/check_bpmn_error_allowlist.py`'s "simple rule"):
+#: `operadora.cred.verify_credentials` is consumed ONLY by SP-OP-CRED-001, which declares this
+#: errorCode on `BE_PrestadorInvalido`. Mirrors `nip.NIP_BPMN_ERROR_ALLOWLIST` /
+#: `programa.PROGRAMA_BPMN_ERROR_ALLOWLIST` (#181, the item-9 bucket-3 precedent) — unioned into
+#: `worker_runtime/service.py`'s `_GATE_PROVEN_BPMN_ERROR_CODES`. The two adverse `*_NOT_HUMAN`
+#: codes above are DELIBERATELY excluded: they stay T-E-deferred (ADR-0030 §4) and reach
+#: production only via the T-E enablement, never via this constant.
+CRED_BPMN_ERROR_ALLOWLIST: frozenset[str] = frozenset({ERR_CRED_INVALID_PRESTADOR})
 
 # Decision values
 DECISAO_DESCREDENCIAR = "DESCREDENCIAR"
@@ -75,13 +92,76 @@ def validate_cred(variables: dict[str, Any]) -> dict[str, Any]:
     """Verify professional registration/CNES validity — FACT only.
 
     NEVER decides to deny or de-credential. TASY write DROP (ADR-0013).
+
+    ORIGIN GUARD (item-9 bucket-3 Class-C — T3.1 phase-2 finding 3, ADR-0030 Tier-2 G2-val):
+    a blank/absent/non-string `prestador_id` raises the MODELED
+    `WorkerBpmnError(ERR_CRED_INVALID_PRESTADOR)` — caught by `BE_PrestadorInvalido` on
+    `ST_VerifyCredentials` and routed to the NEUTRO terminal `End_CredPrestadorInvalido`
+    ("fail-safe, nao adverso"). Checked BEFORE any fact resolution: a request whose provider
+    identity is inconsistent at the source cannot be processed at all.
+
+    FACT PRESERVATION (item-9 bucket-3 Class-C — T3.1 phase-2 finding 2, the
+    `documentacao_completa`/`licenca_valida` OVERWRITE bug): an ALREADY-RESOLVED boolean
+    `licenca_valida`/`documentacao_completa` process variable is respected, never clobbered.
+    The pre-fix worker unconditionally returned `licenca_valida=True` (hardcoded placeholder —
+    fail-OPEN whenever the resolved fact was False) and recomputed `documentacao_completa` from
+    the SHAPE of `documentos_refs` (`isinstance(..., dict)`) — but the sibling families'
+    convention carries `documentos_refs` as a Camunda STRING ref, so the recompute was ALWAYS
+    False and, forwarded as real process variables on task complete, OVERWROTE the resolved fact
+    before the native `BRT_Admissibilidade` businessRuleTask evaluated (`cred_admissibility`'s
+    FIRST-hit `r_cred_doc_pendente` row then rerouted every credenciamento-direction scenario to
+    PENDENTE_DOCUMENTACAO). Only an explicit engine BOOLEAN is respected (engine variables
+    arrive untyped — a string/int/None "fact" is NOT a resolved fact and falls back to the
+    placeholder computation); respecting a resolved False is strictly MORE conservative than the
+    old hardcoded True (routes to pendency/human, never away from it).
+
+    LOOP-BACK CONTRACT (GK-w4 finding 3 — the corollary of FACT PRESERVATION above): the
+    PENDENTE_DOCUMENTACAO branch loops back through here. `ST_NotifyDocPendente` ->
+    `ICE_AguardarInfoDoc` waits for `msg.cred.info_received` and its outgoing flow
+    (`Flow_InfoReceived_VerifyCred`) re-triggers `ST_VerifyCredentials`, i.e. this function.
+    Because a resolved boolean is now RESPECTED and never re-derived from `documentos_refs`, the
+    correlation payload of `msg.cred.info_received` MUST carry a boolean
+    `documentacao_completa=True` for the pendency to clear. Sending only the documents (e.g. an
+    updated `documentos_refs`) leaves the previously-resolved `documentacao_completa=False`
+    standing, `cred_admissibility`'s FIRST-hit `r_cred_doc_pendente` row re-routes to
+    PENDENTE_DOCUMENTACAO, and the instance re-enters the same wait — a pendency loop, not a
+    self-heal. This is deliberate and fail-safe (the loop is neutral: no denial, no
+    de-credentialing, and the human User Tasks remain the only adverse path), but it makes the
+    correlation payload part of the contract rather than an implementation detail — see the
+    `msg.cred.info_received` row in docs/processes/contracts/SP-OP-CRED-001.md.
     """
+    prestador_id = _norm_str(variables.get("prestador_id", ""))
+    if not prestador_id:
+        logger.error(
+            "cred_prestador_invalido_na_origem",
+            tenant_id=variables.get("tenant_id"),
+            direcao=variables.get("direcao"),
+        )
+        # MODELED boundary error (BE_PrestadorInvalido -> End_CredPrestadorInvalido, terminal
+        # NEUTRO "fail-safe, nao adverso") — WorkerBpmnError, not CredError; ADR-0030 §2 Tier-2
+        # (G2-val), the nip/programa #181 precedent. A CredError would be reclassified to a bare
+        # ValueError -> generic failure(retries=0) incident stalling the mainline at the very
+        # first service task; the gate-proven WorkerBpmnError routes to the clean terminal.
+        # Fail-closed normalization: blank/whitespace-only/non-string prestador_id all refuse.
+        raise WorkerBpmnError(
+            ERR_CRED_INVALID_PRESTADOR,
+            "prestador_id ausente/vazio na origem — solicitacao inconsistente; "
+            "validacao barrou (fail-safe, nao adverso; ADR-0018)",
+        )
+
     documentos = variables.get("documentos_refs", {})
+    seeded_licenca = variables.get("licenca_valida")
+    seeded_doc_completa = variables.get("documentacao_completa")
 
     # Factual check: are documents present and license supposedly valid?
     # In real implementation, this queries external registries.
-    licenca_valida = True  # placeholder — real: query CRM/CNES
-    documentacao_completa = isinstance(documentos, dict) and len(documentos) > 0
+    # placeholder fallback — real: query CRM/CNES; only used when no resolved boolean fact exists.
+    licenca_valida = seeded_licenca if isinstance(seeded_licenca, bool) else True
+    documentacao_completa = (
+        seeded_doc_completa
+        if isinstance(seeded_doc_completa, bool)
+        else isinstance(documentos, dict) and len(documentos) > 0
+    )
 
     logger.info(
         "cred_validate_cred",
@@ -614,7 +694,8 @@ class CredError(Exception):
 #
 # Topic mapping vs spec/processes/bpmn/SP-OP-CRED-001_Descredenciamento.bpmn
 # (excl. shared/out-of-scope `operadora.events.publish`):
-#   validate_cred          -> operadora.cred.verify_credentials     (exact spec match)
+#   validate_cred          -> operadora.cred.verify_credentials     (exact spec match; raises the
+#                             MODELED ERR_CRED_INVALID_PRESTADOR origin-guard, ADR-0030 Tier-2)
 #   assess_admissibility   -> operadora.cred.check_network_criteria (spec match: RN 566 criteria
 #                             classification)
 #   notify_prestador       -> operadora.cred.check_prior_notice     (spec match: RN 567 prior-notice

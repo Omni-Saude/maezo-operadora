@@ -48,6 +48,7 @@ from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
 from maezo.tools.workers.auth import AUTH_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.bootstrap import ALL_WORKER_BOOTSTRAPS, register_all_workers
 from maezo.tools.workers.cibseven_engine import FreshClientCibSevenTransport
+from maezo.tools.workers.credenciamento import CRED_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.dmn_transport import CibSevenDmnTransport
 from maezo.tools.workers.escalation import ESCALATION_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.events import EVENTS_BPMN_ERROR_ALLOWLIST
@@ -104,7 +105,11 @@ logger = structlog.get_logger(__name__)
 # `| {ERR_NIP_PROTOCOLO_INVALIDO, ERR_PROGRAMA_NO_CONSENT}` (item-9 bucket-3, Tier-2 — two more
 # non-adverse G2-val origin/consent guards: nip's blank `protocolo_ans` routes to
 # End_NipProtocoloInvalido, programa's failed consent chokepoint routes to End_SemConsentimento;
-# neither is a `*_NOT_HUMAN` guard, so neither is T-E-gated).
+# neither is a `*_NOT_HUMAN` guard, so neither is T-E-gated)
+# `| {ERR_CRED_INVALID_PRESTADOR}` (item-9 bucket-3 Class-C, Tier-2 — cred's G2-val origin
+# guard: a blank/non-string `prestador_id` at ST_VerifyCredentials routes via
+# BE_PrestadorInvalido to the neutral terminal End_CredPrestadorInvalido ("fail-safe, nao
+# adverso" per the BPMN's own documentation); NOT a `*_NOT_HUMAN` guard, so NOT T-E-gated).
 
 
 def _is_te_gated(code: str) -> bool:
@@ -136,10 +141,16 @@ def _is_te_gated(code: str) -> bool:
 #: `PROGRAMA_BPMN_ERROR_ALLOWLIST` contributes `ERR_PROGRAMA_NO_CONSENT` (item-9 bucket-3, ADR-0030
 #: Tier-2) — both NON-adverse G2-val origin/consent guards routing to neutral terminals
 #: (End_NipProtocoloInvalido / End_SemConsentimento), NOT `*_NOT_HUMAN`, so NOT T-E-gated; both land
-#: directly. `ERR_CANCEL_MANTER_NOT_HUMAN` is gate-proven too but its worker exposes no
-#: constant (nothing is enabled for it at any tier until T-E), so there is nothing to import.
+#: directly. `CRED_BPMN_ERROR_ALLOWLIST` contributes `ERR_CRED_INVALID_PRESTADOR` (item-9
+#: bucket-3 Class-C, Tier-2) — cred's NON-adverse G2-val origin guard (blank/non-string
+#: `prestador_id` -> End_CredPrestadorInvalido, a neutral "fail-safe, nao adverso" terminal),
+#: NOT `*_NOT_HUMAN`, lands directly; the constant deliberately EXCLUDES cred's two adverse
+#: `*_NOT_HUMAN` guard codes, which stay T-E-deferred. `ERR_CANCEL_MANTER_NOT_HUMAN` is
+#: gate-proven too but its worker exposes no constant (nothing is enabled for it at any tier
+#: until T-E), so there is nothing to import.
 _GATE_PROVEN_BPMN_ERROR_CODES: frozenset[str] = (
     AUTH_BPMN_ERROR_ALLOWLIST
+    | CRED_BPMN_ERROR_ALLOWLIST
     | ESCALATION_BPMN_ERROR_ALLOWLIST
     | EVENTS_BPMN_ERROR_ALLOWLIST
     | LGPD_BPMN_ERROR_ALLOWLIST
@@ -151,8 +162,9 @@ _GATE_PROVEN_BPMN_ERROR_CODES: frozenset[str] = (
 #: The production allowlist wired into the harness: gate-proven codes MINUS the T-E-gated
 #: business-outcome codes. Resolves to `{ERR_EVENT_PUBLISH_FAILED, ERR_DSR_IDENTITY_UNVERIFIED,
 #: ERR_RECURSO_INVALID_GLOSA, ERR_ESC_NOTIFY_FAILED, ERR_NIP_PROTOCOLO_INVALIDO,
-#: ERR_PROGRAMA_NO_CONSENT}` today (Tier-0 pair + T3.1 P2b's Tier-2 addition + t8-escalation-boundary's
-#: Tier-1 addition + item-9 bucket-3's two Tier-2 G2-val origin/consent guards).
+#: ERR_PROGRAMA_NO_CONSENT, ERR_CRED_INVALID_PRESTADOR}` today (Tier-0 pair + T3.1 P2b's Tier-2
+#: addition + t8-escalation-boundary's Tier-1 addition + item-9 bucket-3's three Tier-2 G2-val
+#: origin/consent guards).
 PRODUCTION_BPMN_ERROR_ALLOWLIST: frozenset[str] = frozenset(
     code for code in _GATE_PROVEN_BPMN_ERROR_CODES if not _is_te_gated(code)
 )
@@ -213,11 +225,12 @@ def register_default_workers(
 
     `dossier_dispatcher` (dossier-A2A seam, DL-0033 real wiring / DL-0037) is the
     `DelegationDispatcher` assembled by `build_dossier_delegation_dispatcher` at bring-up,
-    threaded into the two RAW async dossier handlers (`credenciamento.prepare_dossier` ->
-    Carolina; `adequacao.prepare_remediation_dossier` -> Andre) via the same `**seams` catch-all.
-    Absent (`None`, the topic-probe default and the DEGRADED-runtime posture — no signing key /
-    no DATABASE_URL) the topics still register and both handlers fail-neutral with a disclosed
-    gap marker; the human User Tasks always still open.
+    threaded into the THREE RAW async dossier handlers (`credenciamento.prepare_dossier` ->
+    Carolina; `adequacao.prepare_remediation_dossier` -> Andre; `pagto.prepare_approval_dossier`
+    -> Andre) via the same `**seams` catch-all. Absent (`None`, the topic-probe default and the
+    DEGRADED-runtime posture — no signing key / no DATABASE_URL) the topics still register and
+    all three handlers fail-neutral with a disclosed gap marker; the human User Tasks always
+    still open.
 
     Idempotent (`WorkerHarness.register_worker` replaces on re-registration, same topic).
     """
@@ -330,7 +343,8 @@ class WorkerState:
     # Dossier-A2A seam (DL-0033 real wiring / DL-0037): the worker->Carolina/Andre delegation
     # dispatcher assembled by `build_dossier_delegation_dispatcher` at bring-up. `None` = DEGRADED
     # (no signing key in non-local mode / missing DATABASE_URL / assembly failure): the daemon
-    # still RUNS and serves every topic; the two dossier workers fail-neutral with a disclosed
+    # still RUNS and serves every topic; the three dossier workers (cred/adequacao/PAGTO)
+    # fail-neutral with a disclosed
     # gap marker and `dossier_delegation_ready` reports the degradation LOUDLY (never gates
     # /readyz — the dossier "instrui, nao decide", so its absence must not stop the human UTs).
     dossier_dispatcher: DelegationDispatcher | None = None
@@ -456,17 +470,21 @@ def build_readiness_checks(state: WorkerState) -> list[Callable[[], Awaitable[Ch
         # DL-0037 DEGRADATION POSTURE: reports whether the dossier A2A dispatcher (worker ->
         # Carolina/Andre) assembled — LOUD operator visibility, but NEVER gates `/readyz`
         # (always healthy=True, mirroring `kafka_ready`): the dossier only INSTRUCTS the human
-        # User Tasks ("instrui, nao decide"); when the dispatcher is absent the two dossier
-        # workers return the disclosed-gap marker and the UTs still open, so a missing signing
+        # User Tasks ("instrui, nao decide"); when the dispatcher is absent the three dossier
+        # workers (cred/adequacao/PAGTO — the PAYMENT-approval dossier included, so the operator
+        # readiness DETAIL discloses payment-dossier degradation too) return the disclosed-gap
+        # marker and the UTs still open, so a missing signing
         # key / degraded assembly must degrade the DOSSIER, never the whole daemon.
         ready = _state.dossier_dispatcher is not None
         detail = (
             "dossier_delegation_ready=true — worker->Carolina/Andre dispatcher assembled "
-            "(cred.prepare_dossier / adequacao.prepare_remediation_dossier delegate for real)"
+            "(cred.prepare_dossier / adequacao.prepare_remediation_dossier / "
+            "pagto.prepare_approval_dossier delegate for real)"
             if ready
             else (
                 "dossier_delegation_ready=false — dossier A2A dispatcher NOT assembled "
-                f"({_state.dossier_dispatcher_detail}); the two dossier workers return "
+                f"({_state.dossier_dispatcher_detail}); the three dossier workers "
+                "(cred/adequacao/PAGTO) return "
                 "{'dossier_prepared': False, 'dossier_gap': ...} and the human User Tasks "
                 "still open (DL-0037 fail-neutral-with-disclosed-gap); not a readiness failure"
             )
@@ -599,7 +617,8 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
         # DEGRADATION POSTURE (DL-0037): assembly failure — no signing key in non-local mode
         # (`_require_signer_or_fail_closed` raises), missing DATABASE_URL/deps, card/registry
         # failure — is caught HERE: LOUD error, `dossier_dispatcher` stays None, the daemon RUNS,
-        # `dossier_delegation_ready` reports the degradation, and the two dossier workers return
+        # `dossier_delegation_ready` reports the degradation, and the three dossier workers
+        # (cred/adequacao/PAGTO) return
         # the disclosed-gap marker (the human UTs still open). Unsigned Cards NEVER compose in
         # non-local mode — degradation, not downgrade.
         if (

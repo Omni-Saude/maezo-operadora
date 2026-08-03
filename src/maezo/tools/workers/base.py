@@ -4,6 +4,9 @@ Provides:
 - WorkerBase: base class with structlog logger, error handling, retry
 - WorkerRegistry: registration/retrieval by external task topic
 - FunctionWorker: adapter wrapping dict-first/typed-I/O entry functions (T1.2/ADR-0026)
+- reclassify_coded_exception: the shared coded-exception -> ValueError reclassification rule
+  (ADR-0026 §5) — `FunctionWorker.execute` and any raw-handler wrapper needing the SAME rule
+  (e.g. `programa._call_guarded`, GK-w5 finding 3) both call this ONE implementation
 - pick_fields: fail-closed explicit field selection for dict->dataclass marshalling
 - ERR_*_NOT_HUMAN: guard constants preventing automatic adverse actions
 
@@ -229,7 +232,7 @@ class WorkerBase(ABC):
 #: Exception types the harness (`tools/workers/harness.py:_handle`) already classifies
 #: correctly on its own: `PermissionError` family -> `failure(retries=0)` (L0 guard, never
 #: retried); `ValueError` family -> `failure(retries=0)` (bad/immutable input); the transient
-#: infra family -> engine-side computed retry. `FunctionWorker.execute` never intercepts these.
+#: infra family -> engine-side computed retry. `reclassify_coded_exception` never intercepts these.
 _HARNESS_CLASSIFIED: tuple[type[Exception], ...] = (
     PermissionError,
     ValueError,
@@ -238,6 +241,43 @@ _HARNESS_CLASSIFIED: tuple[type[Exception], ...] = (
     TimeoutError,
     ConnectionError,
 )
+
+
+def reclassify_coded_exception(fn: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+    """Call `fn()`, reclassifying a "coded" guard exception into `ValueError` (ADR-0026 §5).
+
+    GK-w5 finding 3 (single source of truth): this is the ONE shared implementation of the
+    reclassification rule — `FunctionWorker.execute` (below) and `programa._call_guarded`
+    (`tools/workers/programa.py`, item A/B raw-handler Kafka seam) both call THIS function rather
+    than each hand-rolling their own copy of `_HARNESS_CLASSIFIED` + the duck-typed `.code`/
+    `.message` check. A future edit to the classified tuple or the reclassify rule now changes
+    behavior for every caller identically, with no risk of silent divergence.
+
+    Six of the 16 worker modules (adequacao/credenciamento/fraude/inadimplencia/pagto/programa)
+    raise a bespoke `Exception` subclass with a `.code`/`.message` pair for their GATED (human-
+    decision or custody-integrity) failures — e.g. `AdequacaoError(ERR_FALLBACK_COMMITMENT_NOT_
+    HUMAN, ...)` — rather than subclassing `PermissionError`/`ValueError` (ADR-0026 census,
+    "Heterogeneous error classes"). Left alone, the harness's generic `except Exception` branch
+    would treat these as *unclassified* and apply the **transient, engine-retried** outcome —
+    retrying an L0 guard could drive an adverse action (ADR-0008), so this is a fail-closed defect
+    on the registry path. Any such "coded" exception (duck-typed: not already one of
+    `_HARNESS_CLASSIFIED`, but exposing string `.code` and `.message` attributes) is re-raised as a
+    `ValueError(f"{code}: {message}")` (chained via `from exc`), which the harness's EXISTING
+    classification already routes to `failure(retries=0)` — an engine-guaranteed, human-visible
+    incident, never retried. Already-`_HARNESS_CLASSIFIED` exceptions (and anything else lacking
+    the `.code`/`.message` shape, e.g. `WorkerBpmnError` — it carries `.error_code`, not `.code`)
+    pass through UNCHANGED via the trailing bare `raise`.
+    """
+    try:
+        return fn()
+    except _HARNESS_CLASSIFIED:
+        raise
+    except Exception as exc:  # noqa: BLE001 — reclassified below, see docstring.
+        code = getattr(exc, "code", None)
+        message = getattr(exc, "message", None)
+        if isinstance(code, str) and isinstance(message, str):
+            raise ValueError(f"{code}: {message}") from exc
+        raise
 
 
 class FunctionWorker(WorkerBase):
@@ -253,21 +293,11 @@ class FunctionWorker(WorkerBase):
     transient faults only (pass `max_retries>1` explicitly to opt in).
 
     Error reclassification (ADR-0026 Decisao §5 — the `classify_worker_error` provision,
-    implemented here rather than in the harness so no harness/dispatch code changes): six of the
-    16 modules (adequacao/credenciamento/fraude/inadimplencia/pagto/programa) raise a bespoke
-    ``Exception`` subclass with a ``.code``/``.message`` pair for their GATED (human-decision or
-    custody-integrity) failures — e.g. ``AdequacaoError(ERR_FALLBACK_COMMITMENT_NOT_HUMAN, ...)``
-    — rather than subclassing ``PermissionError``/``ValueError`` (ADR-0026 census, "Heterogeneous
-    error classes"). Left alone, the harness's generic `except Exception` branch would treat
-    these as *unclassified* and apply the **transient, engine-retried** outcome — retrying an L0
-    guard could drive an adverse action (ADR-0008), so this is a fail-closed defect on the
-    registry path. `execute()` therefore re-raises any such "coded" exception (duck-typed: not
-    already one of `_HARNESS_CLASSIFIED`, but exposing string `.code` and `.message` attributes)
-    as a `ValueError`, which the harness's EXISTING classification already routes to
-    `failure(retries=0)` — an engine-guaranteed, human-visible incident, never retried. The
-    module's own exception type/tests are untouched (this only affects the FunctionWorker/harness
-    dispatch path); the metrics `error_type` label reports `ValueError` for these, a deliberate,
-    documented trade-off for correctness.
+    implemented here rather than in the harness so no harness/dispatch code changes): `execute()`
+    delegates to the module-level `reclassify_coded_exception` (its own docstring has the full
+    rationale) — the metrics `error_type` label reports `ValueError` for a reclassified coded
+    exception, a deliberate, documented trade-off for correctness. The module's own exception
+    type/tests are untouched (this only affects the FunctionWorker/harness dispatch path).
     """
 
     def __init__(
@@ -282,16 +312,7 @@ class FunctionWorker(WorkerBase):
         self._fn = fn
 
     def execute(self, process_vars: dict[str, Any]) -> dict[str, Any]:
-        try:
-            return self._fn(process_vars)
-        except _HARNESS_CLASSIFIED:
-            raise
-        except Exception as exc:  # noqa: BLE001 — reclassified below, see class docstring.
-            code = getattr(exc, "code", None)
-            message = getattr(exc, "message", None)
-            if isinstance(code, str) and isinstance(message, str):
-                raise ValueError(f"{code}: {message}") from exc
-            raise
+        return reclassify_coded_exception(lambda: self._fn(process_vars))
 
 
 def non_blank(value: Any) -> bool:

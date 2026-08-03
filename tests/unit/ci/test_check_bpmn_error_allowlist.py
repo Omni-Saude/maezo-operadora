@@ -47,7 +47,9 @@ _WORKERS_DIR = _REPO_ROOT / "src" / "maezo" / "tools" / "workers"
 # raise it on publish failure; G2-fs technical fail-safe, NOT T-E-gated, so it ALSO lands in tier0) +
 # item-9 bucket-3's ERR_NIP_PROTOCOLO_INVALIDO (nip handoff_ans_submit) / ERR_PROGRAMA_NO_CONSENT
 # (programa check_consent) — both G2-val origin/consent guards now raise WorkerBpmnError, NOT
-# T-E-gated, so they ALSO land in tier0.
+# T-E-gated, so they ALSO land in tier0 + item-9 bucket-3 Class-C's ERR_CRED_INVALID_PRESTADOR
+# (cred validate_cred / verify_credentials origin guard, previously a DEAD MODEL: declared +
+# boundary-modeled but zero raise-sites) — G2-val, NOT T-E-gated, also lands in tier0.
 _G1_COVERED = frozenset(
     {
         "ERR_AUTH_DENIAL_INCOMPLETE",
@@ -60,6 +62,7 @@ _G1_COVERED = frozenset(
         "ERR_ESC_NOTIFY_FAILED",
         "ERR_NIP_PROTOCOLO_INVALIDO",
         "ERR_PROGRAMA_NO_CONSENT",
+        "ERR_CRED_INVALID_PRESTADOR",
     }
 )
 
@@ -81,6 +84,7 @@ def test_real_tree_passes_and_reproduces_adr_census() -> None:
             "ERR_ESC_NOTIFY_FAILED",
             "ERR_NIP_PROTOCOLO_INVALIDO",
             "ERR_PROGRAMA_NO_CONSENT",
+            "ERR_CRED_INVALID_PRESTADOR",
         }
     )
     assert result.te_deferred == frozenset(
@@ -91,10 +95,10 @@ def test_real_tree_passes_and_reproduces_adr_census() -> None:
             "ERR_CRED_DENIAL_NOT_HUMAN",
         }
     )
-    # ADR-0030 census: 15 distinct external-task boundary codes = 10 covered (item-9 bucket-3 added
-    # ERR_NIP_PROTOCOLO_INVALIDO + ERR_PROGRAMA_NO_CONSENT, two Tier-2 G2-val guards -> tier0) +
-    # 5 dead-model.
-    assert len(result.dead_models) == 5
+    # ADR-0030 census: 15 distinct external-task boundary codes = 11 covered (item-9 bucket-3
+    # added ERR_NIP_PROTOCOLO_INVALIDO + ERR_PROGRAMA_NO_CONSENT, then Class-C added
+    # ERR_CRED_INVALID_PRESTADOR — three Tier-2 G2-val guards -> tier0) + 4 dead-model.
+    assert len(result.dead_models) == 4
     assert len(result.consumption_covered | result.dead_models) == 15
 
 
@@ -102,13 +106,13 @@ def test_real_tree_dead_models_are_warn_only_at_tier0() -> None:
     result = run_gate(_BPMN_DIR, _WORKERS_DIR)
     assert result.ok
     assert not result.violations
-    assert result.warnings  # the 5 dead models are reported, but non-blocking (F5)
+    assert result.warnings  # the 4 dead models are reported, but non-blocking (F5)
 
 
 def test_real_tree_strict_mode_hardens_dead_models_to_failure() -> None:
     result = run_gate(_BPMN_DIR, _WORKERS_DIR, strict_dead_models=True)
     assert not result.ok  # Tier-3 posture: a dead model is a hard failure
-    assert len(result.violations) == 5
+    assert len(result.violations) == 4
     assert not result.warnings
 
 

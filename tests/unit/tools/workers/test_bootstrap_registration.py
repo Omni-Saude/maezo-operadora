@@ -152,6 +152,11 @@ def test_function_based_module_bootstraps_register_function_workers() -> None:
     recurso's 4 NEW raw handlers (`notify_sla_risk`/`escalate_ans_timeout`/`submit_appeal`/
     `track_status`, Finding 2 — need the async Kafka seam for their test-spec-demanded
     `notifications_of_type`/domain-event observability; recurso.py's module-level rationale).
+
+    item-9 wave-5 (event-wiring): `raw_handler_topics` also excludes programa's 4 raw handlers —
+    `stratify_risk`/`stop_processing` (item A, root fix — moved off `FunctionWorker` so they can
+    publish an internal notification) and the 2 NEW workers `proactive_contact`/`notify_sla_risk`
+    (items B/C) — same async-Kafka-seam rationale, programa.py's own module-level docstring.
     """
     harness = _fresh_harness()
     register_all_workers(harness)
@@ -167,10 +172,18 @@ def test_function_based_module_bootstraps_register_function_workers() -> None:
         # the anssubmit.notify_regulatorio notification), harness.register not register_worker —
         # mirrors recurso's raw handlers above.
         "regulatorio.anssubmit.notify_regulatorio",
-        # DL-0033 real wiring: the two dossier workers are now RAW async handlers (the async
+        # DL-0033 real wiring: the dossier workers are now RAW async handlers (the async
         # DelegationDispatcher seam a FunctionWorker boundary cannot reach — DL-0034 precedent).
         "operadora.cred.prepare_dossier",
         "operadora.adequacao.prepare_remediation_dossier",
+        # pagto's dossier edge (item9-w3): the LAST worker-originated dossier edge, converted from
+        # the DL-0033 local stub to the same raw async Andre delegation as adequacao/cred.
+        "operadora.pagto.prepare_approval_dossier",
+        # item-9 wave-5: programa's 4 raw handlers (module-level rationale above).
+        "operadora.programa.stratify_risk",
+        "operadora.programa.stop_processing",
+        "operadora.programa.proactive_contact",
+        "operadora.programa.notify_sla_risk",
     }
     function_topics = [
         t
@@ -187,7 +200,9 @@ def test_function_based_module_bootstraps_register_function_workers() -> None:
 def test_raw_handler_module_registers_outside_the_worker_registry() -> None:
     """`events` (T3.1 R2) populates `_handlers` (dispatch-reachable) but NOT `WorkerRegistry` —
     it is registered via `harness.register()`, not `harness.register_worker()`. Recurso's 4 NEW
-    raw handlers (Finding 2, T3.1 P2b) follow the SAME shape."""
+    raw handlers (Finding 2, T3.1 P2b) follow the SAME shape. item-9 wave-5: programa's 4 raw
+    handlers (`stratify_risk`/`stop_processing`/`proactive_contact`/`notify_sla_risk`) follow the
+    SAME shape too (module-level rationale in programa.py)."""
     harness = _fresh_harness()
     register_all_workers(harness)
 
@@ -202,6 +217,12 @@ def test_raw_handler_module_registers_outside_the_worker_registry() -> None:
         # DL-0033 real wiring: the dossier A2A raw handlers follow the same shape.
         "operadora.cred.prepare_dossier",
         "operadora.adequacao.prepare_remediation_dossier",
+        "operadora.pagto.prepare_approval_dossier",
+        # item-9 wave-5: programa's 4 raw handlers (module-level rationale above).
+        "operadora.programa.stratify_risk",
+        "operadora.programa.stop_processing",
+        "operadora.programa.proactive_contact",
+        "operadora.programa.notify_sla_risk",
     ):
         assert topic in harness.registered_topics
         assert harness.registry.get(topic) is None

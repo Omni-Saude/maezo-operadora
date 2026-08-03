@@ -10,7 +10,9 @@ import pytest
 from maezo.a2a import DelegationResult, RejectionReason
 from maezo.tools.workers.base import FunctionWorker
 from maezo.tools.workers.credenciamento import (
+    CRED_BPMN_ERROR_ALLOWLIST,
     ERR_CRED_DENIAL_NOT_HUMAN,
+    ERR_CRED_INVALID_PRESTADOR,
     ERR_CRED_REGISTER_INVALID,
     ERR_DECRED_NOT_HUMAN,
     CredError,
@@ -79,6 +81,156 @@ def test_validate_cred_empty_docs() -> None:
         }
     )
     assert result["documentacao_completa"] is False
+
+
+# ---------------------------------------------------------------
+# validate_cred — FACT PRESERVATION (item-9 bucket-3 Class-C, T3.1 phase-2 finding 2):
+# an already-resolved boolean fact is respected, never clobbered by the placeholder.
+# ---------------------------------------------------------------
+
+
+def test_validate_cred_respects_resolved_documentacao_completa_true_with_string_refs() -> None:
+    """The exact overwrite-bug shape: `documentos_refs` as a STRING ref (sibling-family
+    convention) with the fact already resolved True upstream — the pre-fix worker recomputed
+    `isinstance(str, dict)` = False and OVERWROTE the seeded True. The fact must survive."""
+    result = validate_cred(
+        {
+            "prestador_id": "P-010",
+            "documentos_refs": "ref-docs-0001",  # Camunda String, NOT a dict
+            "documentacao_completa": True,  # resolved fact seeded at start
+        }
+    )
+    assert result["documentacao_completa"] is True
+
+
+def test_validate_cred_respects_resolved_documentacao_completa_false() -> None:
+    """A resolved False survives even when the placeholder computation would say True."""
+    result = validate_cred(
+        {
+            "prestador_id": "P-011",
+            "documentos_refs": {"licenca": "ref-lic-001"},  # placeholder would compute True
+            "documentacao_completa": False,
+        }
+    )
+    assert result["documentacao_completa"] is False
+
+
+def test_validate_cred_respects_resolved_licenca_valida_false() -> None:
+    """The fail-OPEN half of the overwrite bug is gone: a resolved `licenca_valida=False` is
+    NEVER overwritten by the hardcoded placeholder True."""
+    result = validate_cred(
+        {
+            "prestador_id": "P-012",
+            "documentos_refs": {"licenca": "ref-lic-001"},
+            "licenca_valida": False,
+        }
+    )
+    assert result["licenca_valida"] is False
+
+
+@pytest.mark.parametrize("junk", ["true", "false", 1, 0, [], {}, None])
+def test_validate_cred_non_boolean_seeded_facts_fall_back_to_computation(junk: object) -> None:
+    """Engine variables arrive untyped: a NON-boolean seeded 'fact' is not a resolved fact —
+    the placeholder computation applies (fail-closed: junk never passes through as the fact)."""
+    result = validate_cred(
+        {
+            "prestador_id": "P-013",
+            "documentos_refs": {"licenca": "ref-lic-001"},
+            "licenca_valida": junk,
+            "documentacao_completa": junk,
+        }
+    )
+    assert result["licenca_valida"] is True  # placeholder fallback
+    assert result["documentacao_completa"] is True  # computed from the non-empty dict
+
+
+def test_validate_cred_absent_facts_keep_placeholder_behavior() -> None:
+    """No resolved facts seeded: the pre-existing placeholder behavior is preserved exactly."""
+    result = validate_cred(
+        {
+            "prestador_id": "P-014",
+            "documentos_refs": "ref-docs-0002",  # string ref, no seeded facts
+        }
+    )
+    assert result["licenca_valida"] is True
+    assert result["documentacao_completa"] is False  # string ref: placeholder cannot resolve it
+
+
+# ---------------------------------------------------------------
+# validate_cred — ORIGIN GUARD (item-9 bucket-3 Class-C, T3.1 phase-2 finding 3 / ADR-0030
+# Tier-2 G2-val): blank/absent/non-string prestador_id raises the MODELED
+# WorkerBpmnError(ERR_CRED_INVALID_PRESTADOR) so BE_PrestadorInvalido ->
+# End_CredPrestadorInvalido (terminal NEUTRO) can fire — previously a DEAD MODEL (declared,
+# boundary-modeled, zero raise-sites).
+# ---------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "bad_vars",
+    [
+        {},  # prestador_id absent entirely
+        {"prestador_id": ""},  # empty
+        {"prestador_id": "   "},  # whitespace-only
+        {"prestador_id": "\t\n"},  # whitespace-only (tabs/newlines)
+        {"prestador_id": None},  # non-string
+        {"prestador_id": 123},  # non-string (engine vars arrive untyped)
+        {"prestador_id": ["P-001"]},  # non-string
+    ],
+)
+def test_validate_cred_invalid_prestador_raises_workerbpmnerror(bad_vars: dict) -> None:
+    """Root-cause proof (mirrors the decred/denial guard-shape proofs): the origin guard raises
+    WorkerBpmnError (a MODELED bpmn error), NOT a CredError (which FunctionWorker reclassifies
+    to a bare ValueError -> incident, boundary unreachable). Fail-closed normalization: blank/
+    whitespace-only/non-string all refuse."""
+    with pytest.raises(WorkerBpmnError) as excinfo:
+        validate_cred({"tenant_id": "amh", "documentos_refs": "ref-x", **bad_vars})
+    assert excinfo.value.error_code == ERR_CRED_INVALID_PRESTADOR
+    assert not isinstance(excinfo.value, CredError)
+
+
+def test_validate_cred_padded_prestador_id_still_passes() -> None:
+    """A whitespace-PADDED but real prestador_id normalizes and passes (exact _norm_str idiom)."""
+    result = validate_cred({"prestador_id": "  P-001  ", "documentos_refs": {"licenca": "r"}})
+    assert result["documentacao_completa"] is True
+
+
+def test_cred_allowlist_constant_is_exactly_the_origin_guard() -> None:
+    """CRED_BPMN_ERROR_ALLOWLIST carries ONLY the G2-val origin guard — the two adverse
+    *_NOT_HUMAN codes stay T-E-deferred out of it (ADR-0030 §4; L0: never enable a *_NOT_HUMAN
+    code outside the T-E enablement)."""
+    assert frozenset({ERR_CRED_INVALID_PRESTADOR}) == CRED_BPMN_ERROR_ALLOWLIST
+    assert ERR_DECRED_NOT_HUMAN not in CRED_BPMN_ERROR_ALLOWLIST
+    assert ERR_CRED_DENIAL_NOT_HUMAN not in CRED_BPMN_ERROR_ALLOWLIST
+
+
+def test_validate_cred_guard_reaches_boundary_when_allowlisted() -> None:
+    """ALLOWLISTED (the production posture after this migration): the origin guard routes to
+    handle_bpmn_error (BE_PrestadorInvalido fires -> End_CredPrestadorInvalido), NEVER to a
+    failure/incident — the model is no longer dead."""
+    bpmn_errors, failures = _drive_guard_failure(
+        "operadora.cred.verify_credentials",
+        validate_cred,
+        {"tenant_id": "amh", "prestador_id": ""},
+        allowlist=CRED_BPMN_ERROR_ALLOWLIST,
+    )
+    assert bpmn_errors == [("task-1", ERR_CRED_INVALID_PRESTADOR, bpmn_errors[0][2])]
+    assert failures == []
+
+
+def test_validate_cred_guard_fails_closed_to_incident_when_not_allowlisted() -> None:
+    """MUTATION: NOT allowlisted -> fail-closed retries=0 incident (handle_failure) — never a
+    silent unmodeled bpmnError (CIB Seven silent-drop hazard, harness §9)."""
+    bpmn_errors, failures = _drive_guard_failure(
+        "operadora.cred.verify_credentials",
+        validate_cred,
+        {"tenant_id": "amh", "prestador_id": ""},
+        allowlist=frozenset(),
+    )
+    assert bpmn_errors == []
+    assert len(failures) == 1
+    task_id, _msg, retries, _timeout = failures[0]
+    assert task_id == "task-1"
+    assert retries == 0
 
 
 # ---------------------------------------------------------------

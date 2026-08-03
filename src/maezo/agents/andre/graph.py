@@ -255,6 +255,19 @@ DMN_PAGTO_SLA = "pagto_sla"
 
 PROCESS_KEY_PAGTO = "SP-OP-PAGTO-001"
 
+# Origin id of the `operadora.pagto.prepare_approval_dossier` worker (GK-dossier finding 1b).
+# SINGLE SOURCE OF TRUTH — `agents.andre.delegation` re-exports this symbol (it cannot be defined
+# there: this module must not import the delegation layer, which imports THIS one). A delegation
+# carrying this origin comes from INSIDE an ALREADY-RUNNING SP-OP-PAGTO-001 instance, so
+# `start_process` structurally refuses to start a second one (same rationale as the
+# `adequacao_dossier` no-op, which is flow-scoped rather than origin-scoped).
+ORIGIN_PAGTO_WORKER = "pagto-worker"
+
+# The EXACT `error` text `start_process` records when the engine is unreachable. A module
+# constant (not an inline literal) so `delegation._degradation_token` can classify it by EQUALITY
+# — never by sniffing substrings out of free text (GK-dossier finding 4).
+ERROR_START_PROCESS_ENGINE_UNAVAILABLE = "start_process indisponivel (engine inacessivel)"
+
 
 # --- Injected seams (Protocols) ---------------------------------------------------------------
 
@@ -328,6 +341,15 @@ class AndreState(TypedDict, total=False):
     # Runtime identifiers / task origin.
     tenant_id: str
     canal: str  # a2a | calendario | portal
+    # The ENGINE's authoritative business key, threaded verbatim by a delegation that originates
+    # INSIDE an already-running instance (`ExternalTask.business_key` -> envelope -> here).
+    # `_business_key` prefers it over its own derivation so an instance keyed with the contract's
+    # CONTAS variant (`PAGTO-{tenant}-{lote}-{prestador}`) is never shadowed by an ordem-first
+    # derivation (GK-dossier finding 1a). Tenant-scoped at use site — never trusted blindly.
+    engine_business_key: str
+    # `DelegationEnvelope.origin` of the inbound A2A hop (`""` for a direct/local invocation).
+    # `start_process` refuses to start when it is `ORIGIN_PAGTO_WORKER` (finding 1b).
+    delegation_origin: str
 
     # --- pagto_dossier inputs (contract SP-OP-PAGTO-001 §Variaveis de entrada) ---
     ordem_pagamento_id: str
@@ -414,10 +436,18 @@ def _flow(state: AndreState) -> str:
 def _business_key(state: AndreState) -> str:
     """Idempotent business key of the case, dispatched by `flow`.
 
-    - `pagto_dossier` (default): `PAGTO-{tenant}-{ordem_pagamento_id}` (or, when the payment
-      stems from an adjudicated CONTAS-001 account:
-      `PAGTO-{tenant}-{numero_lote_tiss}-{prestador_id}`). The idempotent start consults the key
-      before creating — avoids a DUPLICATED release (contract §Business key).
+    - `pagto_dossier` (default): the ENGINE's own `engine_business_key` VERBATIM when the caller
+      threaded one (a delegation from inside a running instance knows the authoritative key);
+      otherwise derived as `PAGTO-{tenant}-{ordem_pagamento_id}` (or, when the payment stems from
+      an adjudicated CONTAS-001 account: `PAGTO-{tenant}-{numero_lote_tiss}-{prestador_id}`).
+      The idempotent start consults the key before creating — avoids a DUPLICATED release
+      (contract §Business key). GK-dossier finding 1a: the derivation is ordem-FIRST, so for an
+      instance keyed with the CONTAS variant while an `ordem_pagamento_id` is ALSO in scope the
+      derived key DIVERGES from the live one and the idempotent start would miss its own
+      instance; the threaded engine key closes that duplicate-instance window.
+      TENANT SCOPE (never trusted blindly): the threaded key is honored ONLY when it carries this
+      state's own `PAGTO-{tenant}-` prefix — a planted/foreign key falls back to the derivation
+      and can therefore never anchor another tenant's case (ADR-0004).
     - `adequacao_dossier`: `ADEQ-{tenant}-{regiao}-{especialidade}[-{ciclo}]` — the SAME cell
       format SP-OP-ADEQUACAO-001 itself uses; ANCHORS only (Andre never starts that process).
       Never a malformed PAGTO key for a non-payment flow. The ciclo segment enters only when
@@ -439,6 +469,9 @@ def _business_key(state: AndreState) -> str:
         return f"ADEQ-{tenant}-" + "-".join(segments)
     if flow != "pagto_dossier":
         return ""
+    engine_key = str(state.get("engine_business_key", "") or "").strip()
+    if engine_key and engine_key.startswith(f"PAGTO-{tenant}-"):
+        return engine_key
     ordem = state.get("ordem_pagamento_id", "")
     if ordem:
         return f"PAGTO-{tenant}-{ordem}"
@@ -459,6 +492,8 @@ _CALLER_INPUT_FIELDS: frozenset[str] = frozenset(
         "flow",
         "tenant_id",
         "canal",
+        "engine_business_key",
+        "delegation_origin",
         "ordem_pagamento_id",
         "numero_lote_tiss",
         "prestador_id",
@@ -886,14 +921,35 @@ class AndreGraph:
         when the delegation arrives — starting a second instance would duplicate the cell; the
         `ADEQ-` business key only anchors the dossier) and for any unrecognized flow.
 
-        Idempotent business key (the start consults the key before creating — a resend, or the
-        normal delegation from INSIDE an already-running PAGTO instance, returns the active
-        instance untouched; avoids a DUPLICATED payment release). A start failure never loses
-        the case: it records the error and keeps the routing. NEVER releases a payment "on the
-        side".
+        TWO ANCHORS keep this method from ever creating a SECOND live SP-OP-PAGTO-001 instance
+        (GK-dossier finding 1 — the duplicate `UT_AprovacaoAlcada` approval/release path):
+
+        1. ORIGIN NO-OP (belt): a delegation whose `delegation_origin` is `ORIGIN_PAGTO_WORKER`
+           was originated by `operadora.pagto.prepare_approval_dossier` from INSIDE an
+           already-running instance (`ST_PrepareApprovalDossier`, incl. the GAP-PAGTO-5
+           `seguir_analise` re-entry) — it must NEVER start one, exactly like the flow-scoped
+           `adequacao_dossier` no-op above; the key only ANCHORS the dossier. `start_process`
+           stays fully functional for every OTHER origin of the `pagto_dossier` flow (an
+           autonomous/foreign originator legitimately opens the case).
+        2. ENGINE-KEY IDEMPOTENCY (braces): the business key prefers the ENGINE's own threaded
+           `engine_business_key` over the ordem-first derivation (`_business_key`), so the
+           `start_process_idempotent` lookup consults the SAME key the live instance carries
+           (the CONTAS variant `PAGTO-{tenant}-{lote}-{prestador}` included) instead of a
+           diverging one that would miss it and start a duplicate.
+
+        Idempotent business key (the start consults the key before creating — a resend returns
+        the active instance untouched; avoids a DUPLICATED payment release). A start failure
+        never loses the case: it records the error and keeps the routing. NEVER releases a
+        payment "on the side".
         """
         if _flow(state) != "pagto_dossier":
             return {}
+        if state.get("delegation_origin") == ORIGIN_PAGTO_WORKER:
+            # Anchor 1 — the instance is ALREADY running; the dossier only instructs its UT.
+            return {
+                "process_started": False,
+                "process_ref": {"start_skipped": "delegation_from_running_instance"},
+            }
         if state.get("error") and not state.get("business_key"):
             return {"process_started": False}
 
@@ -926,7 +982,7 @@ class AndreGraph:
             return {
                 "process_started": False,
                 "business_key": business_key,
-                "error": "start_process indisponivel (engine inacessivel)",
+                "error": ERROR_START_PROCESS_ENGINE_UNAVAILABLE,
             }
         return {
             "process_started": True,

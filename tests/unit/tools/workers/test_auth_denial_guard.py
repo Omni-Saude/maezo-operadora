@@ -9,6 +9,7 @@ CRITICAL: Workers must NEVER make adverse decisions (negativa, acusacao).
 from __future__ import annotations
 
 from pathlib import Path
+from xml.etree import ElementTree as ET
 
 import pytest
 
@@ -36,10 +37,14 @@ _COMPLETE_DENIAL_FUNDAMENTACAO = {
 }
 
 # T3.1 (mirrors ADR-0031's `identidade_verificada` fail-closed matrix, test_lgpd_erasure.py):
-# `human_approved` is now pinned to the explicit boolean `True` — NOT bare truthiness. Absent /
-# False / None / any truthy junk (string incl. whitespace-only, int, list, dict) must NEVER be
-# read as human approval. Shared vectors reused across issue_authorization / send_denial_notice /
-# convene_junta's own parametrized fail-closed tests below.
+# the EXPLICIT `human_approved` signal is pinned to the boolean `True` — NOT bare truthiness.
+# Absent / False / None / any truthy junk (string incl. whitespace-only, int, list, dict) must
+# NEVER be read as human approval. Shared vectors reused across issue_authorization /
+# send_denial_notice / convene_junta's own parametrized fail-closed tests below — each test
+# supplies NO other provenance evidence (no decisao_auditor route literal, no auditor_id, no
+# auto_aprovacao sanction), so the explicit-signal channel is proven fail-closed in isolation
+# (item-9 bucket-3 Class-C: the guards now ALSO derive provenance from the real human-decision
+# evidence — covered by their own dedicated tests below).
 _HUMAN_APPROVED_NON_TRUE_VECTORS: list[dict[str, object]] = [
     {},  # human_approved absent
     {"human_approved": False},  # explicit False
@@ -60,6 +65,33 @@ _HARD_BLOCK = """\
   fraud_accusation:       { level: L0, hard: true }
   contract_termination:   { level: L0, hard: true }
 """
+
+
+# Spec fence (GK-w4) — the human-provenance guard above only works if the MODEL actually asks the
+# human for `auditor_id`. tests/unit/tools/workers/<file> -> parents[4] == repo root (same idiom as
+# test_bootstrap_registration.py). Namespaces mirror scripts/ci/check_bpmn_error_allowlist.py.
+_REPO_ROOT = Path(__file__).resolve().parents[4]
+_AUTH_BPMN = _REPO_ROOT / "spec" / "processes" / "bpmn" / "SP-OP-AUTH-001_Autorizacao_Previa.bpmn"
+_BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+_CAMUNDA_NS = "http://camunda.org/schema/1.0/bpmn"
+
+# The three User Tasks where a NEGAR can be born (SP-OP-AUTH-001 L0 invariant).
+_HUMAN_DECISION_UTS = (
+    "UT_AnaliseMedicoAuditor",
+    "UT_CoordenacaoAssume",
+    "UT_RegistrarParecerJunta",
+)
+
+# The full declared formField set of each of those UTs: the four decision/grounding fields plus
+# `auditor_id`. Pinned as an exact set so neither a silent removal nor a silent rename regresses
+# the model out from under the worker guards.
+_EXPECTED_UT_FORM_FIELDS = {
+    "decisao_auditor",
+    "justificativa_clinica",
+    "cid10_referencia",
+    "fundamentacao_dut",
+    "auditor_id",
+}
 
 
 def _pin_resolver(tmp_path: Path, max_value_brl: int) -> CeilingResolver:
@@ -89,17 +121,18 @@ def test_send_denial_notice_guard_prevents_automatic_denial() -> None:
     """send_denial_notice MUST refuse to send denial without human authorization.
 
     The ERR_DENIAL_NOT_HUMAN guard prevents automatic adverse actions. Dossier is COMPLETE so the
-    T3.1 completeness guard passes and this exercises the human_approved guard specifically.
+    T3.1 completeness guard passes and this exercises the human-provenance guard specifically:
+    NO explicit human_approved AND NO auditor_id accountability -> blocked.
     """
     worker = SendDenialNoticeWorker()
 
-    # Simulate a denial attempt without human approval marker (but with complete fundamentacao).
+    # Simulate a denial attempt without any human provenance (but with complete fundamentacao).
     process_vars = {
         "tenant_id": "amh",
         "beneficiario_pseudo_id": "pseudo-abc",
         "decisao_auditor": "NEGAR",
         **_COMPLETE_DENIAL_FUNDAMENTACAO,
-        # Note: NO human_approved flag
+        # Note: NO human_approved flag and NO auditor_id
     }
 
     result = worker.run(process_vars)
@@ -179,6 +212,145 @@ def test_send_denial_notice_fail_closed_rejects_non_true_human_approved(
 
     assert result["status"] == "blocked_by_guard"
     assert result["error_code"] == ERR_DENIAL_NOT_HUMAN
+
+
+# ---------------------------------------------------------------------------
+# send_denial_notice — human-provenance derivation via auditor_id (item-9 bucket-3 Class-C:
+# the human_approved threading fix. The live NEGAR payloads of the human UTs carry auditor_id
+# — the ADR-0007 accountability field — and nothing in the model ever sets human_approved.)
+# ---------------------------------------------------------------------------
+
+
+def test_send_denial_notice_allows_with_auditor_id_accountability() -> None:
+    """The exact live human-NEGAR shape (UT payload: NEGAR + grounding + auditor_id, NO
+    human_approved flag) transmits — and threads the resolved provenance back."""
+    worker = SendDenialNoticeWorker()
+
+    result = worker.run(
+        {
+            "tenant_id": "amh",
+            "decisao_auditor": "NEGAR",
+            **_COMPLETE_DENIAL_FUNDAMENTACAO,
+            "auditor_id": "dr-auditor-sintetico-001",
+        }
+    )
+
+    assert result["status"] == "notice_sent"
+    assert result["error_code"] is None
+    assert result["human_approved"] is True  # threaded provenance (engine-visible)
+    # PHI egress unchanged: clinical fields still redacted one-way.
+    for field in _REQUIRED_DENIAL_FIELDS:
+        assert result[field] == REDACTED_PHI
+
+
+@pytest.mark.parametrize(
+    "bad_auditor_id",
+    ["", "   ", "\t\n", None, 123, True, ["dr-x"], {"id": "dr-x"}],
+)
+def test_send_denial_notice_fail_closed_rejects_junk_auditor_id(bad_auditor_id: object) -> None:
+    """FAIL-CLOSED: whitespace-only/non-string auditor_id normalizes to "" and is NEVER read as
+    human accountability (mirrors the sibling guards' _norm_str discipline) — blocked."""
+    worker = SendDenialNoticeWorker()
+
+    result = worker.run(
+        {
+            "tenant_id": "amh",
+            "decisao_auditor": "NEGAR",
+            **_COMPLETE_DENIAL_FUNDAMENTACAO,
+            "auditor_id": bad_auditor_id,
+        }
+    )
+
+    assert result["status"] == "blocked_by_guard"
+    assert result["error_code"] == ERR_DENIAL_NOT_HUMAN
+
+
+def test_send_denial_notice_completeness_still_precedes_auditor_id_provenance() -> None:
+    """Ordering preserved: an INCOMPLETE NEGAR raises ERR_AUTH_DENIAL_INCOMPLETE even with full
+    auditor_id accountability — provenance never licenses an ungrounded denial."""
+    worker = SendDenialNoticeWorker()
+    with pytest.raises(WorkerBpmnError) as exc:
+        worker.execute(
+            {
+                "tenant_id": "amh",
+                "decisao_auditor": "NEGAR",
+                "auditor_id": "dr-auditor-sintetico-001",
+                # grounding fields MISSING
+            }
+        )
+    assert exc.value.error_code == ERR_AUTH_DENIAL_INCOMPLETE
+
+
+# ---------------------------------------------------------------------------
+# SPEC FENCE (GK-w4 major) — `auditor_id` must be MODELED, not just consumed.
+#
+# The provenance guard above accepts a non-blank `auditor_id` as the ADR-0007 human-accountability
+# evidence. That only holds if SP-OP-AUTH-001 actually asks the human for it: before this fence the
+# three UTs declared exactly four formFields and `auditor_id` appeared nowhere in the BPMN, so a
+# model-conforming Tasklist client submitting only the declared fields had its genuinely-human NEGAR
+# blocked (ERR_DENIAL_NOT_HUMAN), and the variable was start-seedable with no modeled task
+# overwriting it. These tests pin the model so it cannot silently regress under the worker.
+# ---------------------------------------------------------------------------
+
+
+def _ut_form_fields(user_task_id: str) -> dict[str, ET.Element]:
+    """Return {formField id: element} declared by a User Task of the AUTH spec BPMN."""
+    root = ET.parse(_AUTH_BPMN).getroot()
+    for user_task in root.iter(f"{{{_BPMN_NS}}}userTask"):
+        if user_task.get("id") == user_task_id:
+            return {field.get("id", ""): field for field in user_task.iter(f"{{{_CAMUNDA_NS}}}formField")}
+    raise AssertionError(f"userTask {user_task_id!r} not found in {_AUTH_BPMN}")
+
+
+def _field_properties(form_field: ET.Element) -> dict[str, str]:
+    """Return {camunda:property name: value} of a formField."""
+    return {
+        prop.get("name", ""): prop.get("value", "") for prop in form_field.iter(f"{{{_CAMUNDA_NS}}}property")
+    }
+
+
+def test_auth_spec_bpmn_exists() -> None:
+    """Guards the fence below against a silently-vacuous pass (fail loud, never fabricate)."""
+    assert _AUTH_BPMN.is_file(), f"AUTH spec BPMN not found at {_AUTH_BPMN}"
+
+
+@pytest.mark.parametrize("user_task_id", _HUMAN_DECISION_UTS)
+def test_spec_declares_auditor_id_on_every_human_decision_ut(user_task_id: str) -> None:
+    """Each UT where a NEGAR can be born declares `auditor_id` as a string formField."""
+    fields = _ut_form_fields(user_task_id)
+    assert "auditor_id" in fields, (
+        f"{user_task_id} does not declare auditor_id — a model-conforming Tasklist client cannot "
+        "supply the ADR-0007 provenance the send_denial_notice guard requires"
+    )
+    assert fields["auditor_id"].get("type") == "string"
+
+
+@pytest.mark.parametrize("user_task_id", _HUMAN_DECISION_UTS)
+def test_spec_ut_form_field_set_is_exactly_pinned(user_task_id: str) -> None:
+    """Exact formField set per UT — catches a removal OR a rename of any declared field."""
+    assert set(_ut_form_fields(user_task_id)) == _EXPECTED_UT_FORM_FIELDS
+
+
+@pytest.mark.parametrize("user_task_id", _HUMAN_DECISION_UTS)
+def test_spec_auditor_id_is_required_if_negar_and_enforced_by_the_worker(user_task_id: str) -> None:
+    """`auditor_id` carries the file's own conditional-requiredness idiom, pointing at the guard."""
+    props = _field_properties(_ut_form_fields(user_task_id)["auditor_id"])
+    assert props.get("requiredIf") == "decisao_auditor == NEGAR"
+    assert ERR_DENIAL_NOT_HUMAN in props.get("enforcedBy", "")
+    assert "ADR-0007" in props.get("adr", "")
+
+
+@pytest.mark.parametrize("user_task_id", _HUMAN_DECISION_UTS)
+def test_spec_auditor_id_carries_no_unconditional_required_constraint(user_task_id: str) -> None:
+    """No Camunda `required` constraint on auditor_id: it is required only on the NEGAR branch, and
+    an unconditional constraint would wrongly block APROVAR/SOLICITAR_INFO/JUNTA_MEDICA, which share
+    these UTs (the GAP-AUTH-2 rationale in the spec, and the sibling idiom of SP-OP-RECURSO-001 /
+    SP-OP-REEMBOLSO-001: plain string identity field, enforcement in the worker guard)."""
+    constraints = [
+        constraint.get("name")
+        for constraint in _ut_form_fields(user_task_id)["auditor_id"].iter(f"{{{_CAMUNDA_NS}}}constraint")
+    ]
+    assert constraints == []
 
 
 # ---------------------------------------------------------------------------
@@ -622,8 +794,10 @@ def test_issue_authorization_emits_tiss_authorization() -> None:
     assert result["numero_autorizacao"].startswith("AUTH-")
 
 
-def test_issue_authorization_only_with_human_approval() -> None:
-    """issue_authorization only issues when human_approved flag is present."""
+def test_issue_authorization_issues_on_human_aprovar_decision_alone() -> None:
+    """human_approved threading (item-9 bucket-3 Class-C): the exact live human-APROVAR shape —
+    the UT completes with ONLY decisao_auditor=APROVAR (nothing in the model ever sets a
+    human_approved flag) — issues, and threads the resolved provenance back as True."""
     worker = IssueAuthorizationWorker()
 
     result = worker.run(
@@ -631,7 +805,58 @@ def test_issue_authorization_only_with_human_approval() -> None:
             "tenant_id": "amh",
             "numero_guia_tiss": "G12345",
             "decisao_auditor": "APROVAR",
-            # no human_approved
+            # no human_approved flag — decisao_auditor IS the human evidence (UT-only variable)
+        }
+    )
+
+    assert result["status"] == "authorized"
+    assert result["numero_autorizacao"].startswith("AUTH-")
+    assert result["human_approved"] is True  # threaded provenance (engine-visible)
+
+
+def test_issue_authorization_issues_on_modeled_auto_l2_sanction() -> None:
+    """The modeled ST_EmitirAutorizacaoAuto route: no human exists by design — the DMN sanction
+    (`auto_aprovacao.recomendacao == AUTO_APROVAR`, the exact Flow_GW_AutoAprovar condition)
+    licenses the FAVORABLE L2 issuance (ADR-0008); the threaded provenance is truthfully False."""
+    worker = IssueAuthorizationWorker()
+
+    result = worker.run(
+        {
+            "tenant_id": "amh",
+            "numero_guia_tiss": "G12345",
+            "auto_aprovacao": {"recomendacao": "AUTO_APROVAR", "motivo": "dut+teto+rede ok"},
+            # no decisao_auditor (no UT on this route), no human_approved
+        }
+    )
+
+    assert result["status"] == "authorized"
+    assert result["numero_autorizacao"].startswith("AUTH-")
+    assert result["human_approved"] is False  # truthful: no human decided the auto-L2 issuance
+
+
+@pytest.mark.parametrize(
+    "junk_auto",
+    [
+        "AUTO_APROVAR",  # raw string, not the DMN result map
+        {"recomendacao": "ANALISE_HUMANA"},  # the DMN's own catch-all — NOT a sanction
+        {"recomendacao": ""},
+        {"recomendacao": 1},
+        {"recomendacao": None},
+        {"outra_chave": "AUTO_APROVAR"},
+        ["AUTO_APROVAR"],
+        None,
+    ],
+)
+def test_issue_authorization_fail_closed_rejects_junk_auto_sanction(junk_auto: object) -> None:
+    """FAIL-CLOSED parse of the auto sanction: only a Mapping whose recomendacao is exactly
+    AUTO_APROVAR sanctions — junk shapes never license an issuance."""
+    worker = IssueAuthorizationWorker()
+
+    result = worker.run(
+        {
+            "tenant_id": "amh",
+            "numero_guia_tiss": "G12345",
+            "auto_aprovacao": junk_auto,
         }
     )
 
@@ -639,14 +864,58 @@ def test_issue_authorization_only_with_human_approval() -> None:
     assert result["error_code"] == ERR_DENIAL_NOT_HUMAN
 
 
+def test_issue_authorization_blocked_without_any_sanction_evidence() -> None:
+    """No decisao_auditor, no human_approved, no auto sanction -> blocked (fail-closed)."""
+    worker = IssueAuthorizationWorker()
+
+    result = worker.run(
+        {
+            "tenant_id": "amh",
+            "numero_guia_tiss": "G12345",
+        }
+    )
+
+    assert result["status"] == "blocked_by_guard"
+    assert result["error_code"] == ERR_DENIAL_NOT_HUMAN
+
+
+@pytest.mark.parametrize(
+    "vars_extra",
+    [
+        {},
+        {"human_approved": True},  # explicit flag never converts a NEGAR into a grant
+        {"auto_aprovacao": {"recomendacao": "AUTO_APROVAR"}},  # stale auto sanction neither
+        {"human_approved": True, "auto_aprovacao": {"recomendacao": "AUTO_APROVAR"}},
+    ],
+)
+def test_issue_authorization_never_issues_on_negar(vars_extra: dict[str, object]) -> None:
+    """Defense-in-depth (L0 hard): decisao_auditor=NEGAR NEVER issues an authorization — not
+    even with the explicit flag or a residual auto sanction present."""
+    worker = IssueAuthorizationWorker()
+
+    result = worker.run(
+        {
+            "tenant_id": "amh",
+            "numero_guia_tiss": "G12345",
+            "decisao_auditor": "NEGAR",
+            **vars_extra,
+        }
+    )
+
+    assert result["status"] == "blocked_by_guard"
+    assert result["error_code"] == ERR_DENIAL_NOT_HUMAN
+    assert "numero_autorizacao" not in result
+
+
 @pytest.mark.parametrize("vars_extra", _HUMAN_APPROVED_NON_TRUE_VECTORS)
 def test_issue_authorization_fail_closed_rejects_non_true_human_approved(
     vars_extra: dict[str, object],
 ) -> None:
-    """FAIL-CLOSED (T3.1): issue_authorization only accepts the literal `human_approved is True`.
+    """FAIL-CLOSED (T3.1): the EXPLICIT signal channel only accepts `human_approved is True`.
 
-    Absent/False/None/truthy-junk (string incl. whitespace-only, int, list, dict) must NEVER be
-    read as human approval — closes the fail-OPEN class this change fixes.
+    No decisao_auditor route literal and no auto sanction are supplied, so the explicit-flag
+    channel is exercised in isolation: absent/False/None/truthy-junk (string incl.
+    whitespace-only, int, list, dict) must NEVER be read as human approval.
     """
     worker = IssueAuthorizationWorker()
 
@@ -654,7 +923,6 @@ def test_issue_authorization_fail_closed_rejects_non_true_human_approved(
         {
             "tenant_id": "amh",
             "numero_guia_tiss": "G12345",
-            "decisao_auditor": "APROVAR",
             **vars_extra,
         }
     )
@@ -718,15 +986,73 @@ def test_convene_junta_convokes_junta() -> None:
     assert result["junta_group"] == "junta-medica"
 
 
-def test_convene_junta_guard_blocks_without_human() -> None:
-    """convene_junta must not convene without human authorization."""
+def test_convene_junta_convokes_on_human_junta_decision_alone() -> None:
+    """human_approved threading (item-9 bucket-3 Class-C): the exact live shape — the auditor UT
+    completes with ONLY decisao_auditor=JUNTA_MEDICA (the literal Flow_GWDec_Junta requires;
+    nothing in the model ever sets a human_approved flag) — convokes."""
     worker = ConveneJuntaWorker()
 
     result = worker.run(
         {
             "tenant_id": "amh",
             "decisao_auditor": "JUNTA_MEDICA",
-            # no human_approved
+            # no human_approved flag — decisao_auditor IS the human evidence (UT-only variable)
+            "numero_guia_tiss": "G12345",
+        }
+    )
+
+    assert result["status"] == "junta_convened"
+    assert result["junta_group"] == "junta-medica"
+
+
+def test_convene_junta_never_writes_human_approved_back() -> None:
+    """POISONING FENCE: convene_junta runs BEFORE UT_RegistrarParecerJunta — it must NEVER
+    persist a human_approved process variable (a worker-written True would let a downstream
+    junta-NEGAR lacking auditor_id slip send_denial_notice's explicit-signal channel)."""
+    worker = ConveneJuntaWorker()
+
+    result = worker.run(
+        {
+            "tenant_id": "amh",
+            "decisao_auditor": "JUNTA_MEDICA",
+            "human_approved": True,
+            "numero_guia_tiss": "G12345",
+        }
+    )
+
+    assert result["status"] == "junta_convened"
+    assert "human_approved" not in result
+
+
+def test_convene_junta_guard_blocks_without_human() -> None:
+    """convene_junta must not convene without human-decision evidence: no JUNTA_MEDICA decision
+    literal (a decisao that never routes here) and no explicit human_approved -> blocked."""
+    worker = ConveneJuntaWorker()
+
+    result = worker.run(
+        {
+            "tenant_id": "amh",
+            "decisao_auditor": "SOLICITAR_INFO",  # not the junta decision; no human_approved
+            "numero_guia_tiss": "G12345",
+        }
+    )
+
+    assert result["status"] == "blocked_by_guard"
+    assert result["error_code"] == ERR_DENIAL_NOT_HUMAN
+
+
+@pytest.mark.parametrize(
+    "junk_decisao", ["", "   ", "junta_medica", "JUNTA_MEDICA_X", None, 1, ["JUNTA_MEDICA"]]
+)
+def test_convene_junta_fail_closed_rejects_junk_decisao(junk_decisao: object) -> None:
+    """FAIL-CLOSED: only the exact JUNTA_MEDICA literal (strip-normalized, no case folding) is
+    human-decision evidence — junk/case-variant/non-string decisao blocks."""
+    worker = ConveneJuntaWorker()
+
+    result = worker.run(
+        {
+            "tenant_id": "amh",
+            "decisao_auditor": junk_decisao,
             "numero_guia_tiss": "G12345",
         }
     )
@@ -739,17 +1065,16 @@ def test_convene_junta_guard_blocks_without_human() -> None:
 def test_convene_junta_fail_closed_rejects_non_true_human_approved(
     vars_extra: dict[str, object],
 ) -> None:
-    """FAIL-CLOSED (T3.1): convene_junta only accepts the literal `human_approved is True`.
+    """FAIL-CLOSED (T3.1): the EXPLICIT signal channel only accepts `human_approved is True`.
 
-    Absent/False/None/truthy-junk (string incl. whitespace-only, int, list, dict) must NEVER be
-    read as human approval — closes the fail-OPEN class this change fixes.
+    No JUNTA_MEDICA decision literal is supplied, so the explicit-flag channel is exercised in
+    isolation: absent/False/None/truthy-junk must NEVER be read as human approval.
     """
     worker = ConveneJuntaWorker()
 
     result = worker.run(
         {
             "tenant_id": "amh",
-            "decisao_auditor": "JUNTA_MEDICA",
             "numero_guia_tiss": "G12345",
             **vars_extra,
         }

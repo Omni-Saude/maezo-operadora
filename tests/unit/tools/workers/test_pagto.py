@@ -3,10 +3,16 @@
 TDD London School: tests verify value-driven tier routing and payment release guard.
 """
 
-import pytest
+import asyncio
+import inspect
 
+import pytest
+import structlog.testing
+
+from maezo.a2a import DelegationResult, RejectionReason
+from maezo.tools.workers import pagto as pagto_module
 from maezo.tools.workers.dmn_transport import DmnEvaluationError, FakeDmnTransport
-from maezo.tools.workers.harness import WorkerHarness
+from maezo.tools.workers.harness import ExternalTask, WorkerHarness
 from maezo.tools.workers.pagto import (
     ERR_PAGTO_ORDEM_INVALIDA,
     ERR_PAYMENT_REFUSAL_NOT_HUMAN,
@@ -14,8 +20,8 @@ from maezo.tools.workers.pagto import (
     PagtoError,
     assess_admissibility,
     execute_pagto,
+    make_prepare_approval_dossier_handler,
     notify_sla_risk,
-    prepare_approval_dossier,
     publish_completed,
     register_pagto_workers,
     register_payment_refusal,
@@ -253,6 +259,56 @@ def test_pagto_alcada_divergence_dentro_teto_but_above_dmn_hardcoded_gate() -> N
 def test_route_aprovacao_dmn_unwired_raises_dmn_evaluation_error() -> None:
     with pytest.raises(DmnEvaluationError):
         route_aprovacao({"valor_pagamento_cents": 100, "dentro_teto_l2": True}, dmn=None)
+
+
+# ---------------------------------------------------------------
+# route_aprovacao — ceiling-fact PROPAGATION (item-9 bucket-3 Class-C, module FINDING 1 of
+# test_sp_op_pagto_001): the COMPUTED dentro_teto_l2 must be returned as an output variable so
+# the NATIVE BRT_AlcadaRouting reads the resolver's fail-closed fact, never the raw start seed.
+# ---------------------------------------------------------------
+
+
+class _NeverWithinCeilingResolver:
+    """Test double: the resolver refuses the ceiling (e.g. value above teto / unloadable matrix)."""
+
+    def within_l2_ceiling(self, *, tenant: str, action: str, param: str, value_cents: int) -> bool:
+        del tenant, action, param, value_cents
+        return False
+
+
+def test_route_aprovacao_propagates_computed_ceiling_fact_overriding_false_seed() -> None:
+    """Seed dentro_teto_l2=False + resolver says WITHIN -> the returned output variable is the
+    COMPUTED True (pre-fix: the key was absent, so the seed survived into BRT_AlcadaRouting and
+    a within-ceiling payment failed to auto-release)."""
+    fake = _pagto_alcada_fake(faixa_valor="DENTRO_TETO_L2", grupo_aprovador="", tier_minimo=0)
+    result = route_aprovacao(
+        {"valor_pagamento_cents": 5_000_000, "dentro_teto_l2": False},
+        _AlwaysWithinCeilingResolver(),  # type: ignore[arg-type]
+        dmn=fake,
+    )
+    assert result["dentro_teto_l2"] is True
+
+
+def test_route_aprovacao_propagates_computed_ceiling_fact_overriding_true_seed() -> None:
+    """Seed dentro_teto_l2=True + resolver says NOT within -> the returned output variable is the
+    COMPUTED False (fail-closed: an inflated seed can never smuggle a payment into the
+    auto-release band; L1 direction of the same propagation)."""
+    fake = _pagto_alcada_fake(
+        faixa_valor="ALCADA_L1", grupo_aprovador="aprovacao-financeira-l1", tier_minimo=1
+    )
+    result = route_aprovacao(
+        {"valor_pagamento_cents": 15_000_000, "dentro_teto_l2": True},
+        _NeverWithinCeilingResolver(),  # type: ignore[arg-type]
+        dmn=fake,
+    )
+    assert result["dentro_teto_l2"] is False
+    # And the DMN evaluation itself received the computed fact, not the seed.
+    assert fake.calls == [
+        (
+            "pagto_alcada",
+            {"valor_pagamento_cents": 15_000_000, "dentro_teto_l2": False, "tipo_pagamento": ""},
+        )
+    ]
 
 
 # ---------------------------------------------------------------
@@ -742,21 +798,422 @@ def test_register_payment_refusal_non_exact_alcada_literal_still_refuses(decisio
 
 def test_register_pagto_workers_registers_new_topics() -> None:
     """`notify_sla_risk`/`register_payment_refusal` are registered on their exact BPMN-declared
-    topics; `prepare_approval_dossier` is now a registered DL-0033 local stub (Andre A2A real
-    delegation still deferred, but the BPMN topic is no longer orphaned)."""
+    topics; `prepare_approval_dossier` is now a REAL Andre A2A raw async handler (DL-0033 closed).
+    `registered_topics` reflects `_handlers`, which includes raw `harness.register()` handlers, so
+    the topic is still present (its absence from the WorkerRegistry is asserted in
+    `test_bootstrap_registration.py`)."""
     harness = WorkerHarness(None, worker_id="unit-test-pagto")  # type: ignore[arg-type]
     register_pagto_workers(harness, None, dmn=FakeDmnTransport())
     topics = set(harness.registered_topics)
     assert "operadora.pagto.notify_sla_risk" in topics
     assert "operadora.pagto.register_payment_refusal" in topics
     assert "operadora.pagto.prepare_approval_dossier" in topics
+    # RAW async handler (Andre A2A) — populates `_handlers` only, NOT the WorkerRegistry.
+    assert harness.registry.get("operadora.pagto.prepare_approval_dossier") is None
 
 
-def test_prepare_approval_dossier_stub() -> None:
-    """DL-0033 LOCAL STUB (NEUTRAL; mirrors programa.enroll_beneficiario) — instructs
-    UT_AprovacaoAlcada, never decides. Fails safe on missing identity."""
-    assert prepare_approval_dossier({"ordem_pagamento_id": "OP-001"})["dossier_prepared"] is True
-    assert prepare_approval_dossier({})["dossier_prepared"] is True
+# ---------------------------------------------------------------
+# prepare_approval_dossier — REAL Andre A2A delegation (raw async handler; DL-0033 closed, DL-0037)
+# ---------------------------------------------------------------
+
+
+class _FakeDossierDispatcher:
+    """Records the envelope; returns a programmed `DelegationResult` (or raises)."""
+
+    def __init__(self, result: DelegationResult | None = None, exc: Exception | None = None) -> None:
+        self.envelopes: list = []
+        self._result = result
+        self._exc = exc
+
+    async def delegate(self, envelope) -> DelegationResult:  # noqa: ANN001 — duck-typed fake
+        self.envelopes.append(envelope)
+        if self._exc is not None:
+            raise self._exc
+        assert self._result is not None
+        return self._result
+
+
+def _dossier_task(variables: dict, *, business_key: str = "PAGTO-amh-OP-001") -> ExternalTask:
+    """`business_key` is the ENGINE's authoritative key of the RUNNING instance — the handler
+    threads it verbatim into the delegation (GK-dossier finding 1a)."""
+    return ExternalTask(
+        task_id="et-1",
+        topic="operadora.pagto.prepare_approval_dossier",
+        process_instance_id="pi-1",
+        business_key=business_key,
+        worker_id="w-1",
+        variables=variables,
+    )
+
+
+_PAGTO_DOSSIER_VARS = {
+    "tenant_id": "amh",
+    "ordem_pagamento_id": "OP-001",
+    "tipo_pagamento": "prestador_rede",
+    "valor_pagamento_cents": 25_000_000,
+    "dados_pagamento_validos": True,
+    "lastro_confirmado": True,
+    "dentro_teto_l2": False,
+    # Never forwarded (not in the pagto allowlist):
+    "observacoes_livres": "texto livre com PHI potencial",
+}
+
+
+async def test_prepare_approval_dossier_delegates_to_andre_and_returns_real_outputs() -> None:
+    """Dispatcher present -> await delegate -> real dossier outputs: `dossier_prepared=True`, the
+    `output_ref` reference, and Andre's agent-produced compact summary AS-IS (`dossier_summary` —
+    the SME/PO-pending UT-form seam). The envelope uses the SHARED `analytics.population` type with
+    the `pagto-worker` origin (his DEFAULT-flow disambiguator) and the PAGTO business key as
+    task_id (Guard 4); free text never rides the seam."""
+    dispatcher = _FakeDossierDispatcher(
+        result=DelegationResult.ok(
+            "PAGTO-amh-OP-001",
+            "process://PAGTO-amh-OP-001",
+            meta={"route": "human_review", "grupo_destino": "aprovacao-financeira-l1"},
+        )
+    )
+    handler = make_prepare_approval_dossier_handler(dispatcher)  # type: ignore[arg-type]
+
+    result = await handler(_dossier_task(_PAGTO_DOSSIER_VARS))
+
+    assert result is not None
+    assert result["dossier_prepared"] is True
+    assert result["dossier_ref"] == "process://PAGTO-amh-OP-001"
+    assert result["dossier_summary"] == {"route": "human_review", "grupo_destino": "aprovacao-financeira-l1"}
+    (envelope,) = dispatcher.envelopes
+    assert envelope.task_id == "PAGTO-amh-OP-001"
+    assert envelope.task_type == "analytics.population"
+    assert envelope.origin == "pagto-worker"
+    assert envelope.target == "andre"
+    assert envelope.payload_ref == "process://PAGTO-amh-OP-001"
+    assert envelope.payload_meta["valor_pagamento_cents"] == "25000000"
+    assert envelope.payload_meta["dentro_teto_l2"] == "false"
+    assert "observacoes_livres" not in envelope.payload_meta
+
+
+async def test_prepare_approval_dossier_without_dispatcher_fail_neutrals_with_gap() -> None:
+    """DL-0037 degradation posture: dispatcher absent (degraded runtime) -> the task still
+    COMPLETES (UT_AprovacaoAlcada must open) with `dossier_prepared=False` + the bounded gap
+    token — never a raise, never a fabricated dossier. This is the INTEGRATION-NEUTRAL path (the
+    pagto integration suite registers pagto workers WITHOUT a dispatcher: the task still completes,
+    unblocking the mechanical path to UT_AprovacaoAlcada exactly as the old stub did)."""
+    handler = make_prepare_approval_dossier_handler(None)
+    result = await handler(_dossier_task(_PAGTO_DOSSIER_VARS))
+    assert result is not None
+    assert result["dossier_prepared"] is False
+    assert result["dossier_gap"] == "dispatcher_unavailable"
+
+
+async def test_prepare_approval_dossier_lote_prestador_business_key_delegates() -> None:
+    """The CONTAS-001-adjudicated variant (no ordem) delegates on the lote+prestador business
+    key — the SAME derivation `andre.graph._business_key` uses, and the SAME key the running
+    instance carries (threaded verbatim from `task.business_key`, GK-dossier finding 1a)."""
+    dispatcher = _FakeDossierDispatcher(
+        result=DelegationResult.ok("PAGTO-amh-LOTE-9-PREST-3", "process://PAGTO-amh-LOTE-9-PREST-3")
+    )
+    handler = make_prepare_approval_dossier_handler(dispatcher)  # type: ignore[arg-type]
+    result = await handler(
+        _dossier_task(
+            {"tenant_id": "amh", "numero_lote_tiss": "LOTE-9", "prestador_id": "PREST-3"},
+            business_key="PAGTO-amh-LOTE-9-PREST-3",
+        )
+    )
+    assert result["dossier_prepared"] is True
+    (envelope,) = dispatcher.envelopes
+    assert envelope.task_id == "PAGTO-amh-LOTE-9-PREST-3"
+
+
+async def test_prepare_approval_dossier_threads_the_engine_business_key_verbatim() -> None:
+    """GK-dossier finding 1a, PRODUCER half. The running instance is keyed with the contract's
+    CONTAS variant while an `ordem_pagamento_id` is ALSO in scope: the ordem-first derivation
+    would mint `PAGTO-amh-OP-001`, diverge from the live instance's key, miss Andre's idempotency
+    lookup and open a SECOND SP-OP-PAGTO-001 instance. The handler threads `task.business_key`
+    verbatim, so the envelope anchors the LIVE case and carries it on to his graph."""
+    dispatcher = _FakeDossierDispatcher(
+        result=DelegationResult.ok("PAGTO-amh-L9-P3", "process://PAGTO-amh-L9-P3")
+    )
+    handler = make_prepare_approval_dossier_handler(dispatcher)  # type: ignore[arg-type]
+
+    result = await handler(
+        _dossier_task(
+            {**_PAGTO_DOSSIER_VARS, "numero_lote_tiss": "L9", "prestador_id": "P3"},
+            business_key="PAGTO-amh-L9-P3",  # the ENGINE's authoritative key
+        )
+    )
+
+    assert result["dossier_prepared"] is True
+    (envelope,) = dispatcher.envelopes
+    assert envelope.task_id == "PAGTO-amh-L9-P3"  # NOT the ordem-first `PAGTO-amh-OP-001`
+    assert envelope.payload_ref == "process://PAGTO-amh-L9-P3"
+    assert envelope.payload_meta["engine_business_key"] == "PAGTO-amh-L9-P3"
+
+
+async def test_prepare_approval_dossier_blank_engine_key_falls_back_to_the_derivation() -> None:
+    """A blank `task.business_key` (no engine key in scope) is not fatal — the pre-existing
+    derivation still produces the anchor, and no `engine_business_key` rides the seam."""
+    dispatcher = _FakeDossierDispatcher(
+        result=DelegationResult.ok("PAGTO-amh-OP-001", "process://PAGTO-amh-OP-001")
+    )
+    handler = make_prepare_approval_dossier_handler(dispatcher)  # type: ignore[arg-type]
+    result = await handler(_dossier_task(_PAGTO_DOSSIER_VARS, business_key=""))
+    assert result["dossier_prepared"] is True
+    (envelope,) = dispatcher.envelopes
+    assert envelope.task_id == "PAGTO-amh-OP-001"
+    assert "engine_business_key" not in envelope.payload_meta
+
+
+async def test_prepare_approval_dossier_missing_business_identifiers_gap_never_delegates() -> None:
+    """No ordem and no complete lote+prestador (incl. whitespace-only, `non_blank` discipline) ->
+    no degenerate PAGTO task_id is ever delegated; gap marker, UT still opens."""
+    dispatcher = _FakeDossierDispatcher(result=DelegationResult.ok("x", "process://x"))
+    handler = make_prepare_approval_dossier_handler(dispatcher)  # type: ignore[arg-type]
+    # ordem whitespace-only + lote present but NO prestador -> no complete key -> gap, no delegate.
+    result = await handler(
+        _dossier_task({"tenant_id": "amh", "ordem_pagamento_id": "  ", "numero_lote_tiss": "L9"})
+    )
+    assert result["dossier_prepared"] is False
+    assert result["dossier_gap"] == "missing_business_identifiers"
+    assert dispatcher.envelopes == []
+
+
+async def test_prepare_approval_dossier_float_money_gaps_never_truncates() -> None:
+    """GK-dossier finding 8, worker half: a non-int `valor_pagamento_cents` reaching this handler
+    raises out of the envelope builder and lands on the DL-0037 path — a DISCLOSED gap on a
+    COMPLETED task. The approver sees the real number in the process variables instead of a
+    dossier silently routed on a TRUNCATED `1234`."""
+    dispatcher = _FakeDossierDispatcher(result=DelegationResult.ok("x", "process://x"))
+    handler = make_prepare_approval_dossier_handler(dispatcher)  # type: ignore[arg-type]
+
+    result = await handler(_dossier_task({**_PAGTO_DOSSIER_VARS, "valor_pagamento_cents": 1234.99}))
+
+    assert result["dossier_prepared"] is False
+    assert result["dossier_gap"] == "delegation_failed"
+    assert dispatcher.envelopes == []  # nothing was delegated on a truncated value
+    assert "1234" not in str(result.values())
+
+
+@pytest.mark.parametrize("tenant_id", ["  ", "", "\t\n"])
+async def test_prepare_approval_dossier_blank_tenant_gap_never_delegates(tenant_id: str) -> None:
+    """GK-dossier finding 7 (RED proof for the tenant half of the worker's guard): a blank/
+    whitespace-only `tenant_id` with an OTHERWISE VALID ordem must still gap out. Without the
+    tenant there is no tenant-scoped business key (ADR-0004) — a delegation would carry a
+    degenerate `PAGTO--OP-001` anchor. DL-0037: the task completes, UT_AprovacaoAlcada opens."""
+    dispatcher = _FakeDossierDispatcher(result=DelegationResult.ok("x", "process://x"))
+    handler = make_prepare_approval_dossier_handler(dispatcher)  # type: ignore[arg-type]
+
+    result = await handler(
+        _dossier_task({**_PAGTO_DOSSIER_VARS, "tenant_id": tenant_id, "ordem_pagamento_id": "OP-001"})
+    )
+
+    assert result["dossier_prepared"] is False
+    assert result["dossier_gap"] == "missing_business_identifiers"
+    assert dispatcher.envelopes == []  # never even attempted
+
+
+async def test_prepare_approval_dossier_delegation_failure_fail_neutrals_never_raises() -> None:
+    """ANY delegation exception -> gap marker + loud log; raw error text stays OUT of the engine
+    variables (bounded class token only)."""
+    handler = make_prepare_approval_dossier_handler(
+        _FakeDossierDispatcher(exc=RuntimeError("pg down: dsn=secret"))  # type: ignore[arg-type]
+    )
+    result = await handler(_dossier_task(_PAGTO_DOSSIER_VARS))
+    assert result["dossier_prepared"] is False
+    assert result["dossier_gap"] == "delegation_failed"
+    assert "secret" not in str(result.values())
+
+
+async def test_prepare_approval_dossier_failure_log_redacts_phi_shaped_error_text() -> None:
+    """GK-dossier finding 5: the failure log used raw `str(exc)`. This handler sits downstream of
+    PHI-bearing case variables and the exceptions it catches (dispatcher/PG/engine) routinely echo
+    the offending payload — a CPF in a driver error would land VERBATIM in the operator log.
+    `redact_error_message` (T3.4 F5) scrubs it one-way while preserving the error CLASS."""
+    leaky = RuntimeError("insert failed for beneficiario CPF 123.456.789-01 (cns 700123456789012)")
+    handler = make_prepare_approval_dossier_handler(
+        _FakeDossierDispatcher(exc=leaky)  # type: ignore[arg-type]
+    )
+
+    with structlog.testing.capture_logs() as logs:
+        result = await handler(_dossier_task(_PAGTO_DOSSIER_VARS))
+
+    assert result["dossier_gap"] == "delegation_failed"  # DL-0037 posture unchanged
+    (failure_log,) = [e for e in logs if e["event"] == "pagto_prepare_approval_dossier_delegation_failed"]
+    logged = failure_log["error"]
+    assert "123.456.789-01" not in logged
+    assert "700123456789012" not in logged
+    assert "[REDACTED_DIGITS]" in logged
+    assert logged.startswith("RuntimeError: ")  # the error CLASS survives for ops diagnosis
+    # Belt: no PHI-shaped digit run anywhere in the emitted event.
+    assert "123.456.789-01" not in str(logs)
+
+
+def test_dossier_topic_declares_least_privilege_variables() -> None:
+    """GK-dossier finding 10: the raw registration used the engine DEFAULT (`variables=None` =
+    return EVERY process variable). The handler forwards `case_meta=dict(task.variables)` into an
+    A2A envelope, so an un-declared read-set means the delegation-layer allowlist is the ONLY
+    thing standing between a stray (possibly PHI-bearing) process variable and the seam.
+    Declaring the exact read-set moves that boundary upstream — the engine never sends it."""
+    harness = WorkerHarness(None, worker_id="unit-test-pagto")  # type: ignore[arg-type]
+    register_pagto_workers(harness, None, dmn=FakeDmnTransport())
+
+    subs = {s.topic_name: s for s in harness._topic_subscriptions()}
+    declared = subs["operadora.pagto.prepare_approval_dossier"].variables
+    assert declared is not None, "the dossier topic must NOT fall back to 'all variables'"
+    assert "tenant_id" in declared
+    assert {"ordem_pagamento_id", "numero_lote_tiss", "prestador_id"} <= set(declared)
+    assert "valor_pagamento_cents" in declared
+    assert len(declared) == len(set(declared))  # no duplicates on the wire
+
+
+def test_dossier_topic_variables_match_what_the_handler_reads() -> None:
+    """The declared read-set is EXACTLY the union of `tenant_id` and the delegation layer's own
+    pagto allowlists — the same keys `build_pagto_dossier_envelope` serializes. Single-sourced, so
+    adding a key to the envelope without declaring it here (or vice-versa) fails HERE."""
+    from maezo.agents.andre.delegation import _PAGTO_BOOLEAN_META_KEYS, _PAGTO_STRING_META_KEYS
+
+    expected = {
+        "tenant_id",
+        "valor_pagamento_cents",
+        *_PAGTO_STRING_META_KEYS,
+        *_PAGTO_BOOLEAN_META_KEYS,
+    }
+    harness = WorkerHarness(None, worker_id="unit-test-pagto")  # type: ignore[arg-type]
+    register_pagto_workers(harness, None, dmn=FakeDmnTransport())
+    subs = {s.topic_name: s for s in harness._topic_subscriptions()}
+    declared = subs["operadora.pagto.prepare_approval_dossier"].variables
+
+    assert declared is not None
+    assert set(declared) == expected
+    # Nothing outside the declared set can reach the envelope: a free-text variable the engine
+    # would have sent under the old default is not even in the subscription.
+    assert "observacoes_livres" not in expected
+
+
+class _HangingDossierDispatcher:
+    """Never returns — models a wedged dispatcher (pool exhausted, engine/PG unreachable inside
+    Andre's graph). Records whether its pending delegation was CANCELLED by the timeout."""
+
+    def __init__(self) -> None:
+        self.entered = False
+        self.cancelled = False
+
+    async def delegate(self, envelope) -> DelegationResult:  # noqa: ANN001 — duck-typed fake
+        self.entered = True
+        try:
+            await asyncio.Event().wait()  # hangs forever
+        except asyncio.CancelledError:
+            self.cancelled = True
+            raise
+        raise AssertionError("unreachable")  # pragma: no cover
+
+
+async def test_prepare_approval_dossier_timeout_fail_neutrals_and_cancels_the_delegation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """GK-dossier finding 2: a HUNG dispatcher must never hold the external-task lock to expiry
+    (which would let the engine re-deliver the SAME task to another worker alongside this still-
+    awaiting one). The bounded `asyncio.wait_for` fires, CANCELS the pending delegation and the
+    task COMPLETES with the disclosed `delegation_timeout` gap — DL-0037: the UT still opens, and
+    this handler still never raises."""
+    monkeypatch.setattr(pagto_module, "_DOSSIER_DELEGATION_TIMEOUT_S", 0.02)
+    dispatcher = _HangingDossierDispatcher()
+    handler = make_prepare_approval_dossier_handler(dispatcher)  # type: ignore[arg-type]
+
+    result = await handler(_dossier_task(_PAGTO_DOSSIER_VARS))
+
+    assert result == {"dossier_prepared": False, "dossier_gap": "delegation_timeout"}
+    assert dispatcher.entered is True
+    assert dispatcher.cancelled is True  # nothing is left running behind the return
+
+
+def test_dossier_delegation_deadline_is_below_the_external_task_lock() -> None:
+    """The deadline must stay SAFELY under the harness's 30s lock (`WORKER_LOCK_DURATION_MS`) —
+    otherwise the bound buys nothing: the lock would expire first and the engine would re-deliver."""
+    lock_ms = inspect.signature(WorkerHarness.__init__).parameters["lock_duration_ms"].default
+    assert lock_ms == 30_000  # single-sourced against the harness's own default
+    assert 0 < pagto_module._DOSSIER_DELEGATION_TIMEOUT_S <= (lock_ms / 1000) - 5
+
+
+async def test_prepare_approval_dossier_structured_rejection_gap_bounded_reason() -> None:
+    handler = make_prepare_approval_dossier_handler(
+        _FakeDossierDispatcher(  # type: ignore[arg-type]
+            result=DelegationResult.rejected(
+                "PAGTO-amh-OP-001",
+                RejectionReason.TASK_TYPE_NOT_ACCEPTED,
+                detail="not accepted",
+            )
+        )
+    )
+    result = await handler(_dossier_task(_PAGTO_DOSSIER_VARS))
+    assert result["dossier_prepared"] is False
+    assert result["dossier_gap"] == "delegation_rejected:task_type_not_accepted"
+
+
+@pytest.mark.parametrize("token", ["dmn_indisponivel", "engine_inacessivel", "contexto_incompleto"])
+async def test_prepare_approval_dossier_discloses_andres_internal_degradation(token: str) -> None:
+    """GK-dossier finding 4: the delegation SUCCEEDED structurally but Andre ran degraded inside.
+    The dossier exists (`dossier_prepared=True`, `dossier_ref` set) AND the degradation is
+    disclosed alongside it as `degraded:<bounded token>` — the human approver must be able to tell
+    an enriched dossier from a degraded one."""
+    dispatcher = _FakeDossierDispatcher(
+        result=DelegationResult.ok(
+            "PAGTO-amh-OP-001",
+            "process://PAGTO-amh-OP-001",
+            meta={"route": "human_review", "degraded": token},
+        )
+    )
+    handler = make_prepare_approval_dossier_handler(dispatcher)  # type: ignore[arg-type]
+
+    result = await handler(_dossier_task(_PAGTO_DOSSIER_VARS))
+
+    assert result["dossier_prepared"] is True  # the dossier DOES exist
+    assert result["dossier_ref"] == "process://PAGTO-amh-OP-001"
+    assert result["dossier_gap"] == f"degraded:{token}"
+
+
+async def test_prepare_approval_dossier_clean_success_has_no_gap() -> None:
+    """No degradation token (or an empty one) -> no `dossier_gap` at all: the disclosure must not
+    fire on the healthy path."""
+    dispatcher = _FakeDossierDispatcher(
+        result=DelegationResult.ok(
+            "PAGTO-amh-OP-001", "process://PAGTO-amh-OP-001", meta={"route": "human_review", "degraded": ""}
+        )
+    )
+    handler = make_prepare_approval_dossier_handler(dispatcher)  # type: ignore[arg-type]
+    result = await handler(_dossier_task(_PAGTO_DOSSIER_VARS))
+    assert result["dossier_prepared"] is True
+    assert "dossier_gap" not in result
+
+
+async def test_prepare_approval_dossier_unbounded_degradation_token_is_clamped() -> None:
+    """Engine-variable hygiene: an unexpected/unbounded token from the target NEVER reaches the
+    engine verbatim — it is clamped to `degraded:unknown` (the gap is still disclosed)."""
+    dispatcher = _FakeDossierDispatcher(
+        result=DelegationResult.ok(
+            "PAGTO-amh-OP-001",
+            "process://PAGTO-amh-OP-001",
+            meta={"degraded": "postgres error: dsn=user:senha@host CPF 123.456.789-01"},
+        )
+    )
+    handler = make_prepare_approval_dossier_handler(dispatcher)  # type: ignore[arg-type]
+    result = await handler(_dossier_task(_PAGTO_DOSSIER_VARS))
+    assert result["dossier_gap"] == "degraded:unknown"
+    assert "senha" not in str(result["dossier_gap"])
+
+
+async def test_prepare_approval_dossier_never_releases_or_decides() -> None:
+    """L0/L1 hard: the dossier INSTRUCTS, never decides — no release/price/decision marker ever
+    appears in the completion variables (the release is born SOLELY in UT_AprovacaoAlcada)."""
+    dispatcher = _FakeDossierDispatcher(
+        result=DelegationResult.ok(
+            "PAGTO-amh-OP-001", "process://PAGTO-amh-OP-001", meta={"route": "human_review"}
+        )
+    )
+    handler = make_prepare_approval_dossier_handler(dispatcher)  # type: ignore[arg-type]
+    result = await handler(_dossier_task(_PAGTO_DOSSIER_VARS))
+    assert "pagamento_liberado" not in result
+    assert "decisao_pagamento" not in result
+    for value in result.values():
+        assert str(value).upper() not in {"APROVAR", "RECUSAR", "CANCELAR"}
 
 
 # ---------------------------------------------------------------

@@ -145,22 +145,24 @@ FINDINGS (see PR body / evidence-ledger for full detail):
      recusa_humana`) was already unmarked before this wave (its DEVOLVER path never depended on the
      dossier) and remains green.
 
-     **src/** GAP FLAGGED (NOT fixed here — porting/test-only scope):** unlike
-     `operadora.adequacao.prepare_remediation_dossier`/`operadora.cred.prepare_dossier`
-     (t2-dossier-a2a #178), `operadora.pagto.prepare_approval_dossier` was NOT wired into
-     `build_dossier_delegation_dispatcher` (`runtime/agent_runtime/a2a_composition.py`
-     `_DOSSIER_EDGE_AGENT_IDS = ("carolina", "andre")` — only the adequacao/cred edges exist).
-     `pagto.py`'s `prepare_approval_dossier` remains the ORIGINAL DL-0033 local stub: no
-     `DelegationDispatcher` seam, no `dossier_dispatcher` parameter, not even the DL-0037
-     disclosed-gap-marker shape adequacao's/cred's handlers have — it unconditionally returns
-     `{"dossier_prepared": True, "data_dossier": "now"}` and never attempts delegation. Andre's OWN
-     graph (`agents/andre/graph.py` module docstring) already documents `pagto_dossier` as his
-     DEFAULT/core flow ("convoked by `operadora.pagto.prepare_approval_dossier`") — the CONSUMER
-     side is built and ready; the PRODUCER side (`pagto.py`) was simply never wired to call it. This
-     is a genuine, disclosed src/** gap for a follow-up A2A-wiring task (mirrors adequacao/cred's
-     own DL-0033/DL-0037 real-wiring precedent) — it does not block this suite (the stub's neutral
-     completion is sufficient for every assertion here, since Andre's dossier enrichment only
-     INSTRUCTS the human approver and never originates the payment decision).
+     **src/** GAP — NOW CLOSED (was: "GAP FLAGGED (NOT fixed here — porting/test-only scope)"):**
+     the gap this docstring used to flag — `operadora.pagto.prepare_approval_dossier` NOT wired
+     into `build_dossier_delegation_dispatcher`, `pagto.py` still serving the ORIGINAL DL-0033
+     local echo/log stub (`{"dossier_prepared": True, "data_dossier": "now"}`, no
+     `DelegationDispatcher` seam, not even the DL-0037 disclosed-gap-marker shape adequacao's and
+     cred's handlers had) — was closed by the pagto dossier-A2A wiring wave. `pagto.py`'s handler
+     is now the REAL Andre delegation (a raw async handler taking the `dossier_dispatcher` seam,
+     `analytics.population` origin-disambiguated to his DEFAULT `pagto_dossier` flow), matching the
+     adequacao/cred precedent (#178).
+
+     WHAT THIS SUITE SEES IS UNCHANGED, which is why nothing below moved: this suite registers the
+     pagto workers WITHOUT a dispatcher, so the handler takes its DL-0037 degraded branch and
+     completes the task with `{"dossier_prepared": False, "dossier_gap": "dispatcher_unavailable"}`
+     — a neutral completion, exactly as the old stub's was. The mechanical path
+     `ST_PrepareApprovalDossier -> UT_AprovacaoAlcada` is unblocked either way, and Andre's dossier
+     enrichment only INSTRUCTS the human approver and never originates the payment decision, so
+     every assertion here still holds. A live end-to-end proof WITH a real dispatcher belongs to a
+     dedicated A2A lane, not to this process suite.
 
   3. Kafka-publish systemic gap (cross-family fact, `grep -rn "kafka.publish(" src/maezo/tools/
      workers/*.py` = exactly ONE call site, `events.py:247`): generic-publish-topic domain events
@@ -257,17 +259,15 @@ _PREPARE_DOSSIER_TOPIC = "operadora.pagto.prepare_approval_dossier"
 # downstream engine xfails valid pending a dedicated live-engine proof. That proof is THIS change:
 # draining it unblocks ST_PrepareApprovalDossier (the ONLY path from BRT_PagtoSla to
 # UT_AprovacaoAlcada), so the entire value-driven-candidate-group/human-approval surface becomes
-# reachable. IMPORTANT (src-gap finding, see module docstring FINDING 2 update): unlike
-# `operadora.adequacao.prepare_remediation_dossier`/`operadora.cred.prepare_dossier` (t2-dossier-a2a
-# #178), pagto's `prepare_approval_dossier` was NOT wired into `build_dossier_delegation_dispatcher`
-# (`runtime/agent_runtime/a2a_composition.py` `_DOSSIER_EDGE_AGENT_IDS = ("carolina", "andre")` —
-# only the adequacao/cred edges exist) — it remains the ORIGINAL DL-0033 local echo/log stub
-# (`dossier_prepared: True`, no `DelegationDispatcher` seam at all, not even the DL-0037
-# disclosed-gap-marker shape adequacao/cred's handlers have). Andre's OWN graph (`agents/andre/
-# graph.py`) already documents `pagto_dossier` as his DEFAULT/core flow — the consumer is ready,
-# the producer (pagto.py) is not wired to call it. This is a genuine src/** gap (out of scope to
-# fix in this port — the stub still completes the external task successfully, which is all this
-# suite's drain needs to unblock the mechanical path to UT_AprovacaoAlcada).
+# reachable. IMPORTANT (see module docstring FINDING 2 — the src-gap this comment used to flag is
+# now CLOSED): pagto's `prepare_approval_dossier` is no longer the DL-0033 local echo/log stub; it
+# is the REAL Andre A2A delegation, wired through `build_dossier_delegation_dispatcher` like
+# `operadora.adequacao.prepare_remediation_dossier`/`operadora.cred.prepare_dossier` (#178). What
+# this drain sees is UNCHANGED: this suite registers the pagto workers with NO dispatcher, so the
+# handler takes its DL-0037 degraded branch (`dossier_prepared: False`,
+# `dossier_gap: dispatcher_unavailable`) and still COMPLETES the external task — a neutral
+# completion exactly like the old stub's, which is all this drain needs to unblock the mechanical
+# path to UT_AprovacaoAlcada.
 _PAGTO_WORKER_TOPICS = [
     _PUBLISH_TOPIC,
     _VALIDATE_TOPIC,
@@ -355,7 +355,11 @@ _CALCULATE_FACTS_CEILING_NOT_PROPAGATED_REASON = (
     "valor alone. The L1 no-adverse-without-human half of this same test (no seed/value "
     "combination ever reaches End_PagamentoLiberadoHumano automatically) is untouched by this gap "
     "and holds for all 20 combinations; only the auto-release-independent-of-seed assertions for "
-    "valor<=teto + seed=False break. src/** fix is out of scope for this port."
+    "valor<=teto + seed=False break. src/** fix is out of scope for this port. "
+    'RETIRED (item-9 w4+assembly, live-proven): route_aprovacao now write-backs "dentro_teto_l2": '
+    "dentro_teto (the T1.9 AnalyzeRequestWorker idiom), BRT_AlcadaRouting reads the computed fact, "
+    "and this test flipped to a real pass on a fresh engine; zero xfail call sites reference this "
+    "constant anymore."
 )
 
 # FINDING 2 (module docstring) HISTORY: register_pagto_workers originally implemented only 6 of
@@ -573,7 +577,6 @@ async def _drive_to_coordenacao(engine: EngineRest, probe: PagtoEngineProbe, iid
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_CALCULATE_FACTS_CEILING_NOT_PROPAGATED_REASON, strict=True)
 async def test_nenhum_pagamento_acima_teto_auto_libera(
     engine: EngineRest,
     pagto_probe: PagtoEngineProbe,

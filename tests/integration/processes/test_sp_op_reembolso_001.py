@@ -243,7 +243,27 @@ _REEMBOLSO_WORKER_KAFKA_GAP_REASON = (
     "LIVE-PROVEN (wave2a, CIB Seven 2.1.0): test_happy_path_aprovado_pelo_analista + "
     "test_timer_alerta_sla_nao_interruptivo were retagged here from "
     "_REEMBOLSO_BUILT_WORKER_PENDING_LIVE_PROOF_REASON after a live run confirmed they fail on "
-    "notifications_of_type('reembolso.analyze_request'/'reembolso.notify_sla_risk') — NOT flippable."
+    "notifications_of_type('reembolso.analyze_request'/'reembolso.notify_sla_risk'). "
+    "RETIRED (wave-3, live-proven 22p+1xf): the dead kafka echoes were adapted to engine-side "
+    "evidence (activity history / live ST_Publish* has_event fields) and the markers removed — "
+    "grep-confirmed: zero pytest.mark.xfail call sites reference this constant anymore."
+)
+
+_REEMBOLSO_VALOR_CENTS_UNPLUMBED_REASON = (
+    "SRC-GAP (GK-flips finding 1, wave-3): issue_payment_entry reads "
+    "variables.get('valor_cents', 0) but NOTHING produces valor_cents — calculate_amount returns "
+    "valor_calculado_tabela_cents, the BPMN maps valor_reembolso_aprovado_cents only on "
+    "ST_IssuePaymentAuto (the parcial/analista branches have NO input mapping), and the start "
+    "seeds don't include it => process_payment issues valor_cents=0 on ALL THREE payment paths. "
+    "This test asserts the human's approved reduced value (8000) reaches the payment via engine "
+    "history (get_history_variable) and FAILS until the value is plumbed (Class-C src fix: read "
+    "valor_reembolso_aprovado_cents/valor_calculado_tabela_cents at issue_payment or add the "
+    "missing BPMN input mappings). "
+    "RETIRED (item-9 w7+assembly, live-proven): issue_payment_entry now resolves "
+    "valor_reembolso_aprovado_cents with a fail-closed money guard "
+    "(ERR_REEMBOLSO_VALOR_PAGAMENTO_INVALIDO on absent/float/bool/<=0 — no payment, incident) and "
+    "the marker came off with the money assert passing for real; zero xfail call sites reference "
+    "this constant anymore."
 )
 
 _REEMBOLSO_BUILT_WORKER_PENDING_LIVE_PROOF_REASON = (
@@ -631,7 +651,6 @@ async def test_happy_path_aprovacao_automatica_l2_com_teto_positivo(
     assert not reembolso_probe.notifications_of_type("reembolso.send_reembolso_denial")
 
 
-@pytest.mark.xfail(reason=_REEMBOLSO_WORKER_KAFKA_GAP_REASON, strict=True)
 async def test_happy_path_aprovado_pelo_analista(
     engine: EngineRest,
     reembolso_probe: ReembolsoEngineProbe,
@@ -639,9 +658,9 @@ async def test_happy_path_aprovado_pelo_analista(
 ) -> None:
     """dentro_teto_l2=false => analise humana; analista completa APROVAR => End_ReembolsoAprovadoAnalista.
 
-    analyze_request is now a REAL worker (T2.5-P2B) — mark kept pending live proof; the dossie
-    assertion (`notifications_of_type('reembolso.analyze_request')`) is still expected to hit the
-    systemic kafka gap (finding 1) since the entry function never calls kafka.publish.
+    FLIPPED (wave-3, live-proven): analyze_request is a REAL worker (T2.5-P2B); the dead
+    kafka-echo dossie assertion was adapted to engine-side evidence (ST_PrepararDossie in
+    activity history) and the strict-xfail marker removed.
     """
     inst = await start_reembolso(dentro_teto_l2=False)
     iid = inst["id"]
@@ -649,8 +668,10 @@ async def test_happy_path_aprovado_pelo_analista(
     ut = await _drive_to_analista(engine, reembolso_probe, iid)
     assert "analise-reembolso" in ut.candidate_groups
 
-    dossiers = reembolso_probe.notifications_of_type("reembolso.analyze_request")
-    assert dossiers, "Worker analyze_request deve ter sido executado"
+    # Engine-side (kafka-echo `notifications_of_type` morto pos-#178): o serviceTask analyze_request executou.
+    assert "ST_PrepararDossie" in await engine.activity_instances_ended(iid), (
+        "Worker analyze_request (ST_PrepararDossie) deve ter sido executado"
+    )
 
     await engine.complete_task_as_human(
         ut.id,
@@ -666,11 +687,11 @@ async def test_happy_path_aprovado_pelo_analista(
     assert _END_ANALISTA in ended, f"APROVAR => End_ReembolsoAprovadoAnalista. ended={ended}"
     assert not (ended & _END_ADVERSOS)
     assert reembolso_probe.has_event(_REEMBOLSO_COMPLETED, desfecho="aprovado_analista")
-    pagamentos = reembolso_probe.notifications_of_type("reembolso.issue_payment")
-    assert pagamentos, "issue_payment deve ser executado na aprovacao do analista"
+    assert "ST_IssuePaymentAnalista" in ended, (
+        "issue_payment (ST_IssuePaymentAnalista) deve executar na aprovacao do analista"
+    )
 
 
-@pytest.mark.xfail(reason=_REEMBOLSO_WORKER_KAFKA_GAP_REASON, strict=True)
 async def test_happy_path_negado_pelo_analista(
     engine: EngineRest,
     reembolso_probe: ReembolsoEngineProbe,
@@ -697,22 +718,27 @@ async def test_happy_path_negado_pelo_analista(
     ended = await _await_end(engine, iid)
     await _assert_no_adverse_without_human_task(engine, iid)
     assert _END_NEGADO in ended, f"Negativa humana deve atingir End_ReembolsoNegado. ended={ended}"
-    assert reembolso_probe.has_event(_REEMBOLSO_COMPLETED, desfecho="negado_analista")
+    assert reembolso_probe.has_event(
+        _REEMBOLSO_COMPLETED, desfecho="negado_analista", analista_id="analista-sintetico-001"
+    )
 
-    denials = reembolso_probe.notifications_of_type("reembolso.send_reembolso_denial")
-    assert denials, "Worker send_reembolso_denial deve ser executado apos negativa humana"
-    d = denials[0]
-    assert d["decisao_reembolso"] == "NEGAR"
-    assert d["analista_id"] == "analista-sintetico-001"
+    # Engine-side (kafka-echo morto pos-#178): send_reembolso_denial executou apos a negativa humana
+    # (decisao/analista foram inputs humanos acima; desfecho negado_analista via has_event acima).
+    assert "ST_EnviarNegativa" in ended, (
+        "send_reembolso_denial (ST_EnviarNegativa) deve executar apos negativa humana"
+    )
 
 
-@pytest.mark.xfail(reason=_REEMBOLSO_WORKER_KAFKA_GAP_REASON, strict=True)
 async def test_happy_path_aprovado_parcial_pelo_analista(
     engine: EngineRest,
     reembolso_probe: ReembolsoEngineProbe,
     start_reembolso: Callable[..., Any],
 ) -> None:
-    """Analista completa APROVAR_PARCIAL (valor menor) => End_ReembolsoParcial (humano-gated, adverso)."""
+    """Analista completa APROVAR_PARCIAL (valor menor) => End_ReembolsoParcial (humano-gated, adverso).
+
+    Prova engine-side do DINHEIRO incluida: o valor reduzido aprovado (8000) chega ao pagamento
+    (valor_cents no historico — so o worker de pagamento produz essa variavel; era 0 pre-w7).
+    """
     inst = await start_reembolso(dentro_teto_l2=False, valor_solicitado_cents=12000)
     iid = inst["id"]
 
@@ -735,17 +761,24 @@ async def test_happy_path_aprovado_parcial_pelo_analista(
     await _assert_no_adverse_without_human_task(engine, iid)
     assert _END_PARCIAL in ended, f"APROVAR_PARCIAL => End_ReembolsoParcial. ended={ended}"
     assert _END_NEGADO not in ended
-    assert reembolso_probe.has_event(_REEMBOLSO_COMPLETED, desfecho="aprovado_parcial")
+    assert reembolso_probe.has_event(
+        _REEMBOLSO_COMPLETED, desfecho="aprovado_parcial", analista_id="analista-sintetico-001"
+    )
 
-    denials = reembolso_probe.notifications_of_type("reembolso.send_reembolso_denial")
-    assert denials, "send_reembolso_denial deve comunicar a reducao (guard satisfeito)"
-    assert denials[0]["decisao_reembolso"] == "APROVAR_PARCIAL"
-    pagamentos = reembolso_probe.notifications_of_type("reembolso.issue_payment")
-    assert pagamentos, "issue_payment deve pagar o valor reduzido aprovado"
-    assert any(p.get("valor_reembolso_aprovado_cents") in (8000, "8000") for p in pagamentos)
+    # Engine-side (kafka-echo morto pos-#178): ambos os serviceTasks executaram.
+    assert "ST_ComunicarReducao" in ended, (
+        "send_reembolso_denial (ST_ComunicarReducao) deve comunicar a reducao"
+    )
+    assert "ST_IssuePaymentParcial" in ended, (
+        "issue_payment (ST_IssuePaymentParcial) deve pagar o valor reduzido aprovado"
+    )
+    # Prova engine-side do DINHEIRO (nao-vacua: valor_reembolso_aprovado_cents ja esta no escopo
+    # via UT, mas valor_cents SO existe como output do worker de pagamento — 0 pre-w7).
+    assert await engine.get_history_variable(iid, "valor_cents") == 8000, (
+        "o pagamento parcial deve receber o valor aprovado (8000), nao 0/None"
+    )
 
 
-@pytest.mark.xfail(reason=_REEMBOLSO_WORKER_KAFKA_GAP_REASON, strict=True)
 async def test_revisao_auditor_medico_decide_merito(
     engine: EngineRest,
     reembolso_probe: ReembolsoEngineProbe,
@@ -779,8 +812,10 @@ async def test_revisao_auditor_medico_decide_merito(
     await _assert_no_adverse_without_human_task(engine, iid)
     assert _END_NEGADO in ended, f"Negativa do auditor deve atingir End_ReembolsoNegado. ended={ended}"
     assert _UT_AUDITOR in ended, "UT_RevisaoAuditorMedico deve estar no historico"
-    denials = reembolso_probe.notifications_of_type("reembolso.send_reembolso_denial")
-    assert denials and denials[0]["auditor_id"] == "auditor-sintetico-001"
+    # Engine-side (kafka-echo morto pos-#178): send_reembolso_denial executou apos a negativa do auditor.
+    assert "ST_EnviarNegativa" in ended, (
+        "send_reembolso_denial (ST_EnviarNegativa) deve executar apos negativa do auditor"
+    )
 
 
 # ===========================================================================
@@ -1040,7 +1075,6 @@ async def test_pendencia_expira_decisao_humana_nunca_auto_nega(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_REEMBOLSO_WORKER_KAFKA_GAP_REASON, strict=True)
 async def test_timer_alerta_sla_nao_interruptivo(
     engine: EngineRest,
     reembolso_probe: ReembolsoEngineProbe,
@@ -1048,9 +1082,9 @@ async def test_timer_alerta_sla_nao_interruptivo(
 ) -> None:
     """Timer BT_AlertaSla (nao-interruptivo): notify_sla_risk recebe task; UT segue aberta.
 
-    notify_sla_risk is now a REAL worker (T2.5-P2B) — mark kept pending live proof; the
-    `notifications_of_type('reembolso.notify_sla_risk')` assertion is still expected to hit the
-    systemic kafka gap (finding 1) since the entry function never calls kafka.publish.
+    FLIPPED (wave-3, live-proven): notify_sla_risk is a REAL worker (T2.5-P2B); the dead
+    kafka-echo assertion was adapted to engine-side evidence (ST_NotificarRiscoSla in activity
+    history, UT ainda aberta) and the strict-xfail marker removed.
     """
     inst = await start_reembolso(dentro_teto_l2=False)
     iid = inst["id"]
@@ -1061,8 +1095,10 @@ async def test_timer_alerta_sla_nao_interruptivo(
     await engine.execute_job(job.id)
     await reembolso_probe.drain()
 
-    sla_alerts = reembolso_probe.notifications_of_type("reembolso.notify_sla_risk")
-    assert sla_alerts, "Worker notify_sla_risk deve ser executado no alerta de SLA"
+    # Engine-side (kafka-echo morto pos-#178): notify_sla_risk executou (UT segue aberta abaixo).
+    assert "ST_NotificarRiscoSla" in await engine.activity_instances_ended(iid), (
+        "Worker notify_sla_risk (ST_NotificarRiscoSla) deve executar no alerta de SLA"
+    )
 
     open_keys = {t.task_definition_key for t in await engine.list_user_tasks(iid)}
     assert _UT_ANALISTA in open_keys, "Timer nao-interruptivo nao deve cancelar a User Task"

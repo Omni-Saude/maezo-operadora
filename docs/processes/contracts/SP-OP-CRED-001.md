@@ -104,7 +104,7 @@ Convencao `{dominio}.{contexto}.{acao}` (registro central em `config/topic_regis
 | External task | `operadora.cred.register_credenciamento` | consome (worker) | registra credenciamento aprovado (neutro); emite `network_changed` |
 | External task | `operadora.cred.notify_sla_risk` | consome (worker) | alerta `coordenacao-rede` (timer nao-interruptivo) |
 | Message BPMN | `msg.cred.notification_ack` | recebe | correlacao por business key — confirmacao da notificacao previa, destrava o gateway de prazo (cure-window) |
-| Message BPMN | `msg.cred.info_received` | recebe | correlacao por business key — documentacao solicitada pelo humano chegou, destrava reavaliacao |
+| Message BPMN | `msg.cred.info_received` | recebe | correlacao por business key — documentacao solicitada pelo humano chegou, destrava reavaliacao. **Payload de correlacao:** para o ramo `PENDENTE_DOCUMENTACAO` (`ICE_AguardarInfoDoc` → `ST_VerifyCredentials`) a mensagem DEVE carregar o boolean `documentacao_completa=true` — `verify_credentials` RESPEITA um boolean ja resolvido e nao o re-deriva de `documentos_refs`, entao enviar so os documentos deixa o `documentacao_completa=false` anterior de pe, `cred_admissibility` (FIRST, `r_cred_doc_pendente`) re-roteia a `PENDENTE_DOCUMENTACAO` e a instancia volta a mesma espera (loop de pendencia neutro — sem negativa nem descredenciamento automatico) |
 
 ## DMN referenciadas
 

@@ -15,11 +15,35 @@ CRITICAL (ADR-0008, L0 hard):
 - Workers with ERR_AUTH_DENIAL_NOT_HUMAN guard: send_denial_notice,
   issue_authorization (when decisao=NEGAR).
 - Auto-approval (L2) exists only with DMN favorable + teto do tenant.
+
+HUMAN-PROVENANCE DERIVATION (item-9 bucket-3 Class-C — the `human_approved` threading fix,
+T3.1 R2 finding `_ACTION_WORKER_KAFKA_GAP_REASON`): the v2 action-worker guards demanded a bare
+`human_approved is True` process variable that NOTHING in the model ever sets (no BPMN
+inputParameter/expression — `grep human_approved SP-OP-AUTH-001_*.bpmn` = 0 hits), so the guards
+were UNSATISFIABLE: the modeled auto-L2 issuance and every genuinely-human APROVAR/JUNTA/NEGAR
+route dead-ended in a blocked_by_guard record and `numero_autorizacao` was never populated.
+The guards now derive human provenance from the ENGINE-VISIBLE human-decision evidence — the
+same idiom every sibling family's gated worker uses (cred/pagto/recurso ground their guards in
+the decision literal + accountability fields, never a phantom flag):
+- `decisao_auditor` is set ONLY by the three human User Tasks (formData enum on
+  UT_AnaliseMedicoAuditor / UT_CoordenacaoAssume / UT_RegistrarParecerJunta;
+  GW_DecisaoAuditor's default fail-closes invalid/absent to End_ErrDecisaoInvalida) — it IS the
+  human decision.
+- the L2 auto-issuance route is sanctioned by BRT_AutoApproval's OWN result variable
+  (`auto_aprovacao.recomendacao == 'AUTO_APROVAR'` — the exact condition Flow_GW_AutoAprovar
+  reads); issuing a favorable authorization on that modeled route is L2 by design (ADR-0008),
+  not an adverse act.
+- an explicit `human_approved is True` remains accepted as the strongest signal (unchanged
+  fail-closed pin: ONLY the boolean True — never truthy junk).
+The resolved provenance is threaded back into the issuing/denial outputs as an engine-visible
+`human_approved` variable; `convene_junta` deliberately does NOT write it (it runs BEFORE
+UT_RegistrarParecerJunta — a worker-persisted True would poison the downstream denial guard).
 """
 
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 from maezo.tools.workers.base import (
@@ -61,6 +85,39 @@ AUTH_BPMN_ERROR_ALLOWLIST: frozenset[str] = frozenset({ERR_AUTH_DENIAL_INCOMPLET
 
 if TYPE_CHECKING:
     from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
+
+
+def _norm_decision(value: Any) -> str:
+    """Normalize `decisao_auditor` for guard checks — FAIL-CLOSED.
+
+    Mirrors `pagto._norm_str`/`credenciamento._norm_str`: a `str` normalizes to `.strip()`
+    (whitespace-only becomes "" — no decision); a NON-string (None, int, bool, list, dict —
+    engine variables arrive untyped) normalizes to "" (never a truthy pass-through, never an
+    AttributeError incident). Exact literal comparison downstream — no case folding.
+    """
+    if isinstance(value, str):
+        return value.strip()
+    return ""
+
+
+def _auto_approval_sanctioned(process_vars: dict[str, Any]) -> bool:
+    """True iff BRT_AutoApproval's DMN result sanctions the modeled L2 auto route — FAIL-CLOSED.
+
+    `auto_aprovacao` is BRT_AutoApproval's `camunda:resultVariable` (singleResult map) — the
+    SAME variable `Flow_GW_AutoAprovar`'s condition reads
+    (`${auto_aprovacao.recomendacao == 'AUTO_APROVAR'}`). Sanction requires a Mapping whose
+    `recomendacao` is exactly the string `AUTO_APROVAR`; anything else — variable absent, a raw
+    JSON string, a non-mapping, a non-string/padded-junk recomendacao, any other route value
+    (`ANALISE_HUMANA` is the DMN's own catch-all) — is NO sanction. Negativa automatica is not a
+    possible DMN output (the BPMN's own documentation); this helper still never sanctions
+    anything but the exact favorable literal.
+    """
+    auto = process_vars.get("auto_aprovacao")
+    if not isinstance(auto, Mapping):
+        return False
+    recomendacao = auto.get("recomendacao")
+    return isinstance(recomendacao, str) and recomendacao.strip() == "AUTO_APROVAR"
+
 
 # ---------------------------------------------------------------------------
 # AnalyzeRequestWorker
@@ -220,8 +277,21 @@ class RequestDocumentsWorker(WorkerBase):
 class IssueAuthorizationWorker(WorkerBase):
     """External task: operadora.auth.issue_authorization
 
-    Emite autorizacao TISS com numero unico.
-    Guard: ERR_AUTH_DENIAL_NOT_HUMAN — requires human_approved flag.
+    Emite autorizacao TISS com numero unico — um ato FAVORAVEL (concessao), nunca adverso.
+    Serve AMBAS as service tasks modeladas: `ST_EmitirAutorizacaoAuto` (rota L2 auto,
+    engine-gated por `Flow_GW_AutoAprovar`) e `ST_EmitirAutorizacaoAuditor` (rota humana,
+    engine-gated por `Flow_GWDec_Aprovar`, `${decisao_auditor == 'APROVAR'}`).
+
+    Guard (human_approved threading, item-9 bucket-3 Class-C — module docstring): emite SOMENTE
+    com evidencia de sancao em UM dos dois canais modelados:
+    - canal HUMANO: `decisao_auditor == 'APROVAR'` (setado SO nas User Tasks humanas) OU o sinal
+      explicito `human_approved is True` (pin fail-closed inalterado — apenas o boolean True);
+    - canal AUTO (L2, ADR-0008): `auto_aprovacao.recomendacao == 'AUTO_APROVAR'` — a sancao do
+      proprio DMN `auth_auto_approval` que roteou a instancia ate aqui (fail-closed parse).
+    Defesa-em-profundidade: `decisao_auditor == 'NEGAR'` NUNCA emite — nem com human_approved
+    explicito, nem com sancao auto residual (o worker jamais converte uma negativa em concessao).
+    A proveniencia resolvida e' THREADED de volta como variavel engine-visivel `human_approved`
+    (True no canal humano; False na emissao auto-L2 — verdadeiro e auditavel, ADR-0007).
     """
 
     def __init__(self) -> None:
@@ -230,34 +300,53 @@ class IssueAuthorizationWorker(WorkerBase):
     def execute(self, process_vars: dict[str, Any]) -> dict[str, Any]:
         """Issue a TISS authorization.
 
-        Guard: must have human_approved=True.
-        Only issues for APROVAR decisions (never NEGAR).
+        Guard: human channel (decisao_auditor == APROVAR, or the explicit `human_approved is
+        True` signal) OR the modeled L2 auto sanction (auto_aprovacao.recomendacao ==
+        AUTO_APROVAR). NEVER issues for NEGAR.
 
         Args:
-            process_vars: Must include numero_guia_tiss, decisao_auditor, human_approved.
+            process_vars: Must include numero_guia_tiss and the route's sanction evidence
+                          (decisao_auditor / human_approved / auto_aprovacao).
 
         Returns:
-            Dict with authorization number or guard block.
+            Dict with authorization number (+ threaded human_approved provenance) or guard block.
         """
         tenant_id = process_vars.get("tenant_id", "")
         guia = process_vars.get("numero_guia_tiss", "unknown")
-        # FAIL-CLOSED (T3.1, mirrors lgpd.ValidateIdentityWorker / ADR-0031): aprovacao confirmada
-        # SO com sinal explicito `human_approved is True`. Ausente/False/lixo (string truthy como
-        # "true"/" ", int 1, list/dict) -> False -> guard bloqueia a emissao.
-        human_approved = process_vars.get("human_approved") is True
+        decisao = _norm_decision(process_vars.get("decisao_auditor"))
+        # FAIL-CLOSED (T3.1, mirrors lgpd.ValidateIdentityWorker / ADR-0031): sinal explicito SO
+        # com `human_approved is True`. Ausente/False/lixo (string truthy como "true"/" ", int 1,
+        # list/dict) -> nunca lido como aprovacao humana.
+        human_approved = process_vars.get("human_approved") is True or decisao == "APROVAR"
+        auto_sanctioned = _auto_approval_sanctioned(process_vars)
 
-        # Guard: require human approval for authorization issuance
-        if not human_approved:
+        # Defense-in-depth: uma decisao humana NEGAR jamais vira emissao — bloqueia ANTES de
+        # qualquer canal de sancao (nem o sinal explicito nem uma sancao auto residual passam).
+        if decisao == "NEGAR":
             self.logger.warning(
                 "auth_issue_blocked_by_guard",
                 tenant_id=tenant_id,
                 guia=guia,
-                reason="human_approved flag missing",
+                reason="decisao_auditor=NEGAR nunca emite autorizacao (L0 hard)",
             )
             return {
                 "status": "blocked_by_guard",
                 "error_code": ERR_DENIAL_NOT_HUMAN,
-                "mensagem": "Autorizacao requer aprovacao humana (L0 hard)",
+                "mensagem": "Autorizacao jamais emitida sobre decisao NEGAR (L0 hard)",
+            }
+
+        # Guard: exige o canal humano OU a sancao do DMN da rota auto-L2 modelada.
+        if not (human_approved or auto_sanctioned):
+            self.logger.warning(
+                "auth_issue_blocked_by_guard",
+                tenant_id=tenant_id,
+                guia=guia,
+                reason="sem evidencia de decisao humana (decisao_auditor/human_approved) nem sancao auto-L2",
+            )
+            return {
+                "status": "blocked_by_guard",
+                "error_code": ERR_DENIAL_NOT_HUMAN,
+                "mensagem": "Autorizacao requer aprovacao humana ou sancao auto-L2 modelada (L0 hard)",
             }
 
         # Issue authorization
@@ -268,6 +357,8 @@ class IssueAuthorizationWorker(WorkerBase):
             tenant_id=tenant_id,
             guia=guia,
             numero_autorizacao=auth_number,
+            human_approved=human_approved,
+            auto_sanctioned=auto_sanctioned,
         )
 
         return {
@@ -275,6 +366,9 @@ class IssueAuthorizationWorker(WorkerBase):
             "numero_autorizacao": auth_number,
             "error_code": None,
             "event": "agents.events.auth.completed",
+            # Threaded provenance (engine-visible, ADR-0007): True SO no canal humano; a emissao
+            # auto-L2 registra False — verdadeiro (nenhum humano decidiu) e nunca fabricado.
+            "human_approved": human_approved,
         }
 
 
@@ -327,10 +421,18 @@ class SendDenialNoticeWorker(WorkerBase):
        decidir completude = incompleto = negar a transmissao). O codigo esta em
        `AUTH_BPMN_ERROR_ALLOWLIST` para o harness o despachar como `bpmnError` (nao incidente).
 
-    2. NEGATIVA-NAO-HUMANA (ERR_DENIAL_NOT_HUMAN) — guard v2 pre-existente, INALTERADO (finding
-       separado `_ACTION_WORKER_KAFKA_GAP_REASON`, fora do escopo deste PR): uma NEGAR sem
-       `human_approved` e bloqueada. RETORNA um registro (nao levanta) — o BPMN nao declara boundary
-       para este codigo, entao ele nao pode virar um `bpmnError`.
+    2. NEGATIVA-NAO-HUMANA (ERR_DENIAL_NOT_HUMAN) — human_approved threading (item-9 bucket-3
+       Class-C, module docstring): uma NEGAR sem PROVENIENCIA HUMANA e bloqueada. Evidencia
+       aceita (fail-closed, qualquer UMA): o sinal explicito `human_approved is True` (pin
+       inalterado — apenas o boolean True) OU um `auditor_id` nao-vazio (o campo de
+       accountability ADR-0007 que as UTs humanas carregam na decisao NEGAR — espelha o idioma
+       responsavel_id/aprovador_id dos guards adversos irmaos cred/pagto/recurso; whitespace-only/
+       non-string normaliza para "" e refusa). O guard v2 original exigia um `human_approved` que
+       NADA no modelo seta (unsatisfiable — a negativa genuinamente humana tambem bloqueava);
+       a derivacao ancora o guard na evidencia real da decisao humana sem NUNCA abrir caminho
+       automatizado (um fluxo sem UT humana nao tem auditor_id nem o sinal explicito). RETORNA um
+       registro (nao levanta) — o BPMN nao declara boundary para este codigo, entao ele nao pode
+       virar um `bpmnError`.
 
     EGRESS PHI (ADR-0006): a negativa carrega texto livre clinico (justificativa_clinica /
     cid10_referencia / fundamentacao_dut — nomes-PHI, `phi_vars.PHI_PROCESS_VARS`). Antes de
@@ -350,14 +452,15 @@ class SendDenialNoticeWorker(WorkerBase):
     def execute(self, process_vars: dict[str, Any]) -> dict[str, Any]:
         """Send denial (or approval) notice.
 
-        Guards (NEGAR path, in order): completeness (raises `ERR_AUTH_DENIAL_INCOMPLETE`), then the
-        pre-existing `human_approved` guard. Clinical PHI in the emitted denial payload is redacted
-        one-way before return.
+        Guards (NEGAR path, in order): completeness (raises `ERR_AUTH_DENIAL_INCOMPLETE`), then
+        the human-provenance guard (explicit `human_approved is True` OR non-blank `auditor_id` —
+        the ADR-0007 accountability evidence). Clinical PHI in the emitted denial payload is
+        redacted one-way before return.
 
         Args:
             process_vars: Must include decisao_auditor; for NEGAR, the three grounding fields
-                          (justificativa_clinica, cid10_referencia, fundamentacao_dut) and
-                          human_approved.
+                          (justificativa_clinica, cid10_referencia, fundamentacao_dut) and the
+                          human provenance (human_approved or auditor_id).
 
         Returns:
             Dict with notice status and optional error code (clinical fields redacted).
@@ -367,10 +470,13 @@ class SendDenialNoticeWorker(WorkerBase):
         """
         tenant_id = process_vars.get("tenant_id", "")
         decisao = process_vars.get("decisao_auditor", "")
-        # FAIL-CLOSED (T3.1, mirrors lgpd.ValidateIdentityWorker / ADR-0031): aprovacao confirmada
-        # SO com sinal explicito `human_approved is True`. Ausente/False/lixo (string truthy como
-        # "true"/" ", int 1, list/dict) -> False -> GUARD 2 bloqueia o envio.
-        human_approved = process_vars.get("human_approved") is True
+        # PROVENIENCIA HUMANA (human_approved threading, item-9 bucket-3 Class-C): o sinal
+        # explicito `human_approved is True` (pin fail-closed inalterado — apenas o boolean True)
+        # OU o campo de accountability `auditor_id` nao-vazio (ADR-0007; setado SO nos payloads
+        # NEGAR das UTs humanas — whitespace-only/non-string normaliza para "" e refusa).
+        auditor_id = process_vars.get("auditor_id")
+        auditor_id = auditor_id.strip() if isinstance(auditor_id, str) else ""
+        human_approved = process_vars.get("human_approved") is True or bool(auditor_id)
 
         if decisao == "NEGAR":
             # GUARD 1 — COMPLETUDE (fail-closed, checado PRIMEIRO). None/""/whitespace = ausente.
@@ -389,12 +495,12 @@ class SendDenialNoticeWorker(WorkerBase):
                     "negativa formal NAO transmitida (RN 395 art. 10, L0 hard ADR-0005).",
                 )
 
-            # GUARD 2 — human_approved (INALTERADO; retorna registro, nao levanta).
+            # GUARD 2 — proveniencia humana (derivada acima; retorna registro, nao levanta).
             if not human_approved:
                 self.logger.error(
                     "auth_denial_blocked_by_guard",
                     tenant_id=tenant_id,
-                    reason="NEGAR sem aprovacao humana (L0 hard)",
+                    reason="NEGAR sem aprovacao humana (sem human_approved e sem auditor_id — L0 hard)",
                 )
                 return {
                     "status": "blocked_by_guard",
@@ -411,6 +517,9 @@ class SendDenialNoticeWorker(WorkerBase):
                 "notice_type": "denial",
                 "error_code": None,
                 "event": "agents.events.auth.completed",
+                # Threaded provenance (engine-visible, ADR-0007): uma negativa transmitida carrega
+                # a proveniencia humana resolvida — este ramo so e' alcancavel com evidencia humana.
+                "human_approved": True,
                 "justificativa_clinica": process_vars.get("justificativa_clinica", ""),
                 "cid10_referencia": process_vars.get("cid10_referencia", ""),
                 "fundamentacao_dut": process_vars.get("fundamentacao_dut", ""),
@@ -484,10 +593,20 @@ class NotifySlaRiskWorker(WorkerBase):
 class ConveneJuntaWorker(WorkerBase):
     """External task: operadora.auth.convene_junta
 
-    Convoca junta medica (RN 424).
-    Guard: ERR_AUTH_DENIAL_NOT_HUMAN — requires human authorization.
+    Convoca junta medica (RN 424) — ato PROCEDIMENTAL (abre a User Task humana
+    UT_RegistrarParecerJunta), nunca adverso. Alcancado SO via `Flow_GWDec_Junta`
+    (`${decisao_auditor == 'JUNTA_MEDICA'}` — decisao humana da UT do auditor/coordenacao).
 
-    Only convokes when decisao_auditor == JUNTA_MEDICA and human_approved.
+    Guard (human_approved threading, item-9 bucket-3 Class-C — module docstring): convoca com a
+    evidencia da decisao humana `decisao_auditor == 'JUNTA_MEDICA'` (o proprio literal que a
+    gateway humana exigiu) OU o sinal explicito `human_approved is True` (pin fail-closed
+    inalterado). O guard v2 original exigia um `human_approved` que nada seta (unsatisfiable).
+
+    NUNCA escreve `human_approved` na saida: este worker roda ANTES de
+    UT_RegistrarParecerJunta — um True persistido por worker envenenaria o canal do sinal
+    explicito do guard da negativa a jusante (uma junta-NEGAR sem auditor_id passaria pelo flag
+    stale). Proveniencia e' derivada onde consumida, jamais fabricada por worker em ramo
+    nao-terminal.
     """
 
     def __init__(self) -> None:
@@ -496,29 +615,30 @@ class ConveneJuntaWorker(WorkerBase):
     def execute(self, process_vars: dict[str, Any]) -> dict[str, Any]:
         """Convokes a medical board.
 
-        Guard: requires human_approved=True.
+        Guard: decisao_auditor == JUNTA_MEDICA (the human decision that routed here) or the
+        explicit `human_approved is True` signal.
 
         Args:
-            process_vars: Must include decisao_auditor, human_approved.
+            process_vars: Must include decisao_auditor (or human_approved).
 
         Returns:
-            Dict with junta status or guard block.
+            Dict with junta status or guard block (never writes human_approved back).
         """
         tenant_id = process_vars.get("tenant_id", "")
         guia = process_vars.get("numero_guia_tiss", "unknown")
-        decisao = process_vars.get("decisao_auditor", "")
-        # FAIL-CLOSED (T3.1, mirrors lgpd.ValidateIdentityWorker / ADR-0031): aprovacao confirmada
-        # SO com sinal explicito `human_approved is True`. Ausente/False/lixo (string truthy como
-        # "true"/" ", int 1, list/dict) -> False -> guard bloqueia a convocacao.
-        human_approved = process_vars.get("human_approved") is True
+        decisao = _norm_decision(process_vars.get("decisao_auditor"))
+        # PROVENIENCIA HUMANA (fail-closed): o literal exato JUNTA_MEDICA (setado SO nas UTs
+        # humanas; formData enum + gateway fail-closed) OU o sinal explicito `human_approved is
+        # True`. Lixo (string truthy, int, list, dict) em qualquer canal -> bloqueia.
+        human_approved = process_vars.get("human_approved") is True or decisao == "JUNTA_MEDICA"
 
-        # Guard: require human approval
+        # Guard: require human decision evidence
         if not human_approved:
             self.logger.warning(
                 "auth_junta_blocked_by_guard",
                 tenant_id=tenant_id,
                 guia=guia,
-                reason="human_approved flag missing",
+                reason="sem evidencia de decisao humana (nem JUNTA_MEDICA nem human_approved)",
             )
             return {
                 "status": "blocked_by_guard",

@@ -79,11 +79,17 @@ logger = structlog.get_logger(__name__)
 #: The two agents party to this one edge (design doc §5/§9 — Helena originates, Rafael targets).
 _EDGE_AGENT_IDS = ("helena", "rafael")
 
-#: The two TARGET agents of the worker-originated dossier edges (DL-0033 real wiring):
-#: `operadora.cred.prepare_dossier` -> Carolina (`credentialing.analyze`) and
-#: `operadora.adequacao.prepare_remediation_dossier` -> Andre (`analytics.population`). The
-#: ORIGINS are workers (`credenciamento-worker`/`adequacao-worker`), not agents — the dispatcher
-#: validates only the TARGET's Card, so no origin card exists or is needed.
+#: The two TARGET agents of the worker-originated dossier edges (DL-0033 real wiring). Carolina
+#: serves ONE edge; Andre serves TWO, both on the SHARED `analytics.population` task_type,
+#: disambiguated by ORIGIN into his flow (`agents/andre/delegation.py::_flow_for`):
+#:   `operadora.cred.prepare_dossier`               -> Carolina (`credentialing.analyze`)
+#:   `operadora.adequacao.prepare_remediation_dossier` -> Andre, `adequacao-worker` origin ->
+#:        his `adequacao_dossier` flow
+#:   `operadora.pagto.prepare_approval_dossier`     -> Andre, `pagto-worker` origin -> his DEFAULT
+#:        `pagto_dossier` flow (added this wave — the AGENT set is unchanged, Andre's handler and
+#:        card already accept the shared type; only a THIRD origin now routes to him)
+#: The ORIGINS are workers (`credenciamento-worker`/`adequacao-worker`/`pagto-worker`), not
+#: agents — the dispatcher validates only the TARGET's Card, so no origin card exists or is needed.
 _DOSSIER_EDGE_AGENT_IDS = ("carolina", "andre")
 
 #: The ONLY non-production `agent_runtime_mode` (settings.py default). Helm injects "kubernetes"
@@ -285,9 +291,13 @@ def build_dossier_delegation_dispatcher(
     (assembled in agent-runtime, driven only by tests/a thin driver), this dispatcher is consumed
     LIVE by the worker daemon's raw async dossier handlers (`operadora.cred.prepare_dossier` ->
     Carolina `credentialing.analyze`; `operadora.adequacao.prepare_remediation_dossier` -> Andre
-    `analytics.population`, origin-disambiguated into his `adequacao_dossier` flow). Assembled at
-    worker-runtime bring-up (`worker_runtime/service.py` STEP B) and threaded to the two workers
-    via the existing `**seams` bootstrap pattern.
+    `analytics.population`, origin-disambiguated into his `adequacao_dossier` flow; and
+    `operadora.pagto.prepare_approval_dossier` -> Andre on the SAME shared type,
+    `pagto-worker`-origin-disambiguated into his DEFAULT `pagto_dossier` flow). Assembled at
+    worker-runtime bring-up (`worker_runtime/service.py` STEP B) and threaded to the three workers
+    via the existing `**seams` bootstrap pattern. Adding the pagto edge required NO change to this
+    root's agent set or handler map — Andre's card already accepts `analytics.population` and his
+    handler routes by origin, so the third edge is served by construction.
 
     Deps are INJECTED (not re-built here): the worker daemon already constructs the exact seams
     both target graphs need — `dmn` (`CibSevenDmnTransport`, fresh-client-per-call, loop-safe),

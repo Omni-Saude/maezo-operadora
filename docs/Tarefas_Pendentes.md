@@ -173,14 +173,23 @@ implicava (o consumer nunca foi escrito).
   Helm atual o canal WhatsApp da Helena **não serve em produção**, e o checkpointer segue **dormente**.
   Fix já **enfileirado** (religar o deployment com `DATABASE_URL`, espelhando
   `deployment-agent-runtime.yaml`): PR mecânico pequeno, fora do escopo do #167.
-- **DL-0033 (dossiês A2A Carolina/André).** Os 3 workers de dossiê sem função implementadora
+- **DL-0033 (dossiês A2A Carolina/André) — ✅ RESOLVIDO pelo wiring real (DL-0037); resta só o
+  merge da última borda.** Os 3 workers de dossiê sem função implementadora
   (`operadora.cred.prepare_dossier`, `operadora.pagto.prepare_approval_dossier`,
   `operadora.adequacao.prepare_remediation_dossier`) ganharam stubs locais neutros (espelhando
   `programa.enroll_beneficiario`, sem `DelegationDispatcher`) — **construídos, em `main` (PR #166;
-  DL-0033 ACEITO)**. A integração A2A real até Carolina/André segue **deliberadamente deferida** a
-  uma tarefa futura de wiring completo — não é urgente, só um follow-up sinalizado (não confundir
-  com o marco histórico M5 já concluído; o brief do orquestrador reusa o rótulo para essa tarefa
-  futura).
+  DL-0033 ACEITO)**. O texto anterior desta linha dizia que a integração A2A real até
+  Carolina/André seguia "deliberadamente deferida": **não segue mais.** As bordas `cred` e
+  `adequacao` foram religadas à delegação A2A REAL (envelope assinado via `DelegationDispatcher`)
+  em **PR #178**, e a borda `pagto` — a última das três, delegação para André pelo `task_type`
+  compartilhado `analytics.population` desambiguado por `envelope.origin` → fluxo `pagto_dossier`
+  — na cadeia item-9 wave-3 (`d5e7571`), **ainda não em `main`**. Nenhum dos três é mais um stub
+  local: os stubs permanecem apenas como o degradado-padrão quando não há dispatcher. Semântica
+  em degradação (DL-0037, agora emendada para cobrir os três): fail-neutral-com-gap-disclosed —
+  `{"dossier_prepared": false, "dossier_gap": <token>}`, log LOUD, external task COMPLETADA e a
+  User Task humana SEMPRE abre, com ou sem dossiê. Pendência remanescente: só o merge da borda
+  `pagto` em `main` (não confundir com o marco histórico M5 já concluído; o brief do orquestrador
+  reusa o rótulo).
 - **`ERR_ESC_NOTIFY_FAILED` (Tier-1, boundary de fallback de escalation).** Os workers
   `notify_team`/`notify_supervisor` (`tools/workers/escalation.py`) foram convertidos para handlers
   Kafka assíncronos reais — **em `main` (DL-0034 ACEITO, PR #166)** — a notificação agora

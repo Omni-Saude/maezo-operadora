@@ -248,21 +248,33 @@ Contrato completo: docs/processes/contracts/SP-OP-AUTH-001.md.
       <bpmn:documentation><![CDATA[
 HITL L0 hard (RN 259 / ADR-0005): UNICO ponto onde negativa pode nascer. Saidas:
 decisao_auditor in {APROVAR, NEGAR, SOLICITAR_INFO, JUNTA_MEDICA};
-NEGAR exige justificativa_clinica, cid10_referencia e fundamentacao_dut (campos obrigatorios).
+NEGAR exige justificativa_clinica, cid10_referencia, fundamentacao_dut e auditor_id (campos
+obrigatorios — validacao de formulario + guards do worker send_denial_notice:
+ERR_AUTH_DENIAL_INCOMPLETE para a fundamentacao, ERR_DENIAL_NOT_HUMAN para a proveniencia).
 SLA: `sla.sla_analise` (DMN auth_sla; RN 259/RN 395 — valores DRAFT/verify).
-A decisao sai em nome do medico auditor (assignee registrado na trilha de auditoria, ADR-0007).
+A decisao sai em nome do medico auditor (auditor_id na trilha de auditoria, ADR-0007 — espelha
+analista_id/auditor_id de SP-OP-RECURSO-001 e SP-OP-REEMBOLSO-001).
 ]]></bpmn:documentation>
       <bpmn:extensionElements>
         <!-- GAP-AUTH-2 (defesa-em-profundidade UX, NAO enforcement): formData estrutura o formulario
              do auditor. `decisao_auditor` e enum (as 4 saidas do contrato) + required (uma decisao
-             SEMPRE deve ser tomada). Os 3 campos de fundamentacao clinica sao declarados aqui para
-             que a Tasklist os apresente; ficam marcados required-if-NEGAR via `camunda:properties`
-             (label `requiredIf`). A requiredness CONDICIONAL-por-decisao NAO e expressavel em
-             constraints de formData do Camunda (constraint `required` seria incondicional e barraria
-             indevidamente APROVAR/SOLICITAR_INFO/JUNTA_MEDICA, que compartilham esta UT) — por isso o
-             ENFORCEMENT real permanece no guard do worker send_denial_notice (ERR_AUTH_DENIAL_INCOMPLETE,
-             capturado pelo boundary BE_NegativaIncompleta). Este formData e UX-level; NAO enfraquece o
-             guard do worker (ADR-0018). Conteudo clinico dos campos: DRAFT — ver docs/review-queue.md. -->
+             SEMPRE deve ser tomada). Os 3 campos de fundamentacao clinica + `auditor_id` sao
+             declarados aqui para que a Tasklist os apresente; ficam marcados required-if-NEGAR via
+             `camunda:properties` (label `requiredIf`). A requiredness CONDICIONAL-por-decisao NAO e
+             expressavel em constraints de formData do Camunda (constraint `required` seria
+             incondicional e barraria indevidamente APROVAR/SOLICITAR_INFO/JUNTA_MEDICA, que
+             compartilham esta UT) — por isso o ENFORCEMENT real permanece nos guards do worker
+             send_denial_notice (ERR_AUTH_DENIAL_INCOMPLETE, capturado pelo boundary
+             BE_NegativaIncompleta; ERR_DENIAL_NOT_HUMAN para a proveniencia humana). Este formData e
+             UX-level; NAO enfraquece o guard do worker (ADR-0018).
+             `auditor_id` (ADR-0007, GK-w4): o campo de accountability que a UT humana PRODUZ e o
+             guard de proveniencia CONSOME. Sem esta declaracao um cliente Tasklist conforme ao
+             modelo submeteria so os 4 campos declarados e a negativa genuinamente humana seria
+             bloqueada (ERR_DENIAL_NOT_HUMAN), alem de deixar a variavel start-seedable sem nenhuma
+             task modelada que a sobrescreva. Mesmo idioma de SP-OP-RECURSO-001 (analista_id/
+             auditor_id) e SP-OP-REEMBOLSO-001 (analista_id|auditor_id): campo de identidade string,
+             enforcement no guard do worker. Conteudo clinico dos campos: DRAFT — ver
+             docs/review-queue.md. -->
         <camunda:formData>
           <camunda:formField id="decisao_auditor" label="Decisao do auditor" type="enum">
             <camunda:value id="APROVAR" name="Aprovar autorizacao"/>
@@ -290,6 +302,13 @@ A decisao sai em nome do medico auditor (assignee registrado na trilha de audito
             <camunda:properties>
               <camunda:property name="requiredIf" value="decisao_auditor == NEGAR"/>
               <camunda:property name="enforcedBy" value="worker send_denial_notice guard ERR_AUTH_DENIAL_INCOMPLETE"/>
+            </camunda:properties>
+          </camunda:formField>
+          <camunda:formField id="auditor_id" label="Id do medico auditor responsavel (obrigatorio se NEGAR)" type="string">
+            <camunda:properties>
+              <camunda:property name="requiredIf" value="decisao_auditor == NEGAR"/>
+              <camunda:property name="enforcedBy" value="worker send_denial_notice guard ERR_DENIAL_NOT_HUMAN"/>
+              <camunda:property name="adr" value="ADR-0007 — identidade do decisor humano na trilha de auditoria"/>
             </camunda:properties>
           </camunda:formField>
         </camunda:formData>
@@ -334,10 +353,12 @@ A decisao sai em nome do medico auditor (assignee registrado na trilha de audito
     </bpmn:serviceTask>
     <bpmn:userTask id="UT_CoordenacaoAssume" name="Coordenacao de auditoria medica assume"
                    camunda:candidateGroups="coordenacao-auditoria-medica">
-      <bpmn:documentation>Escalation path do SLA: caso reatribuido. Mesmas saidas e mesmos campos obrigatorios da analise do auditor (continua decisao medica humana).</bpmn:documentation>
+      <bpmn:documentation>Escalation path do SLA: caso reatribuido. Mesmas saidas e mesmos campos obrigatorios da analise do auditor (continua decisao medica humana) — inclusive auditor_id, a identidade do decisor humano na trilha de auditoria (ADR-0007).</bpmn:documentation>
       <!-- GAP-AUTH-3 (M2a): formData estrutural identico ao de UT_AnaliseMedicoAuditor —
            coordenacao produz as mesmas saidas contratuais (decisao_auditor, justificativa_clinica,
-           cid10_referencia, fundamentacao_dut). Enforcement real no guard do worker (ADR-0018). -->
+           cid10_referencia, fundamentacao_dut, auditor_id). Enforcement real nos guards do worker
+           (ADR-0018): ERR_AUTH_DENIAL_INCOMPLETE (fundamentacao) e ERR_DENIAL_NOT_HUMAN
+           (proveniencia via auditor_id, ADR-0007 — GK-w4). -->
       <bpmn:extensionElements>
         <camunda:formData>
           <camunda:formField id="decisao_auditor" label="Decisao do auditor" type="enum">
@@ -366,6 +387,13 @@ A decisao sai em nome do medico auditor (assignee registrado na trilha de audito
             <camunda:properties>
               <camunda:property name="requiredIf" value="decisao_auditor == NEGAR"/>
               <camunda:property name="enforcedBy" value="worker send_denial_notice guard ERR_AUTH_DENIAL_INCOMPLETE"/>
+            </camunda:properties>
+          </camunda:formField>
+          <camunda:formField id="auditor_id" label="Id do medico auditor responsavel (obrigatorio se NEGAR)" type="string">
+            <camunda:properties>
+              <camunda:property name="requiredIf" value="decisao_auditor == NEGAR"/>
+              <camunda:property name="enforcedBy" value="worker send_denial_notice guard ERR_DENIAL_NOT_HUMAN"/>
+              <camunda:property name="adr" value="ADR-0007 — identidade do decisor humano na trilha de auditoria"/>
             </camunda:properties>
           </camunda:formField>
         </camunda:formData>
@@ -465,10 +493,12 @@ A decisao sai em nome do medico auditor (assignee registrado na trilha de audito
     </bpmn:serviceTask>
     <bpmn:userTask id="UT_RegistrarParecerJunta" name="Registrar parecer da junta medica"
                    camunda:candidateGroups="junta-medica">
-      <bpmn:documentation>DRAFT — fluxo de junta simplificado; detalhar com juridico/regulatorio (prazos e desempate RN 424). Saida: decisao_auditor in {APROVAR, NEGAR} (parecer vinculante).</bpmn:documentation>
+      <bpmn:documentation>DRAFT — fluxo de junta simplificado; detalhar com juridico/regulatorio (prazos e desempate RN 424). Saida: decisao_auditor in {APROVAR, NEGAR} (parecer vinculante) + auditor_id, a identidade do medico relator do parecer na trilha de auditoria (ADR-0007).</bpmn:documentation>
       <!-- GAP-AUTH-3 (M2a): formData estrutural para junta medica. decisao_auditor restrito a
            {APROVAR, NEGAR} (parecer vinculante, sem SOLICITAR_INFO nem JUNTA_MEDICA recursiva).
-           Se NEGAR, exige justificativa_clinica, cid10_referencia e fundamentacao_dut. -->
+           Se NEGAR, exige justificativa_clinica, cid10_referencia, fundamentacao_dut e auditor_id
+           (este ultimo e a proveniencia humana que o guard ERR_DENIAL_NOT_HUMAN consome — GK-w4;
+           uma junta-NEGAR sem auditor_id nao seria transmitida). -->
       <bpmn:extensionElements>
         <camunda:formData>
           <camunda:formField id="decisao_auditor" label="Parecer da junta medica" type="enum">
@@ -495,6 +525,13 @@ A decisao sai em nome do medico auditor (assignee registrado na trilha de audito
             <camunda:properties>
               <camunda:property name="requiredIf" value="decisao_auditor == NEGAR"/>
               <camunda:property name="enforcedBy" value="worker send_denial_notice guard ERR_AUTH_DENIAL_INCOMPLETE"/>
+            </camunda:properties>
+          </camunda:formField>
+          <camunda:formField id="auditor_id" label="Id do medico auditor responsavel (obrigatorio se NEGAR)" type="string">
+            <camunda:properties>
+              <camunda:property name="requiredIf" value="decisao_auditor == NEGAR"/>
+              <camunda:property name="enforcedBy" value="worker send_denial_notice guard ERR_DENIAL_NOT_HUMAN"/>
+              <camunda:property name="adr" value="ADR-0007 — identidade do decisor humano (relator do parecer) na trilha de auditoria"/>
             </camunda:properties>
           </camunda:formField>
         </camunda:formData>

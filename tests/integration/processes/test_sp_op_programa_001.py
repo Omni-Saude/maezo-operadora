@@ -108,12 +108,11 @@ FINDINGS (see PR body / evidence-ledger for full detail):
      stratify_risk` is now implemented and registered (programa.py's `stratify_risk` — a
      fail-closed `care.stratify` delegation stub; echoes a pre-resolved, valid risk band
      unchanged, else defaults to `"alto"`, the DMN's own lowest-autonomy/always-ANALISE_HUMANA
-     row) and moved into `_PROGRAMA_WORKER_TOPICS`. `proactive_contact`/`notify_sla_risk` remain
-     unregistered — a separate, tracked gap, deliberately out of scope for T2.5's task brief.
-     Consequence: the xfails below still marked (see `_PROGRAMA_MISSING_WORKER_REASON`'s updated
-     text for exactly why each one still fails — a compounding finding 2/3/4/5, or a dependency on
-     one of the 2 still-missing workers) are exactly those that genuinely depend on more than the
-     stratify_risk stall. LIVE-VALIDATION CORRECTION (T2.5 P2b, isolated CIB Seven stack): a live
+     row) and moved into `_PROGRAMA_WORKER_TOPICS`. `proactive_contact`/`notify_sla_risk` were the last
+     unregistered topics until item-9 w5 (event-wiring) registered them as raw handlers with a
+     real kafka seam — the final 7 xfails flipped at assembly, live-proven (see
+     `_PROGRAMA_MISSING_WORKER_REASON`'s RETIRED note).
+     LIVE-VALIDATION CORRECTION (T2.5 P2b, isolated CIB Seven stack): a live
      engine run proved that removing the ST_StratifyRisk stall unblocks NINE tests, not one — the
      author's static-inference claim of a single flip was too conservative. All nine
      (test_estratificacao_alta_roteia_para_humano_nunca_desliga + the eight enumerated in
@@ -124,7 +123,8 @@ FINDINGS (see PR body / evidence-ledger for full detail):
   2. ROOT CAUSE — check_consent leg RESOLVED in src (item-9 bucket-3, ADR-0030 §2): `check_consent`
      now raises `WorkerBpmnError(ERR_PROGRAMA_NO_CONSENT)`, gate-proven/consumption-covered and wired
      into `worker_runtime/service.py`'s `PRODUCTION_BPMN_ERROR_ALLOWLIST`, so `BE_SemConsentimento` is
-     REACHABLE the moment a live-engine probe wires that allowlist + the xfail flips (a follow-up; see
+     REACHABLE — and item-9 wave-3 DID wire the probe allowlist and flipped both consent tests,
+     live-proven PASS on a fresh engine (see the RETIRED note on
      `_PROGRAMA_CONSENT_GUARD_NOT_BPMN_ERROR_REASON`). The narrative below documents the ORIGINAL
      (pre-migration) defect and STILL applies verbatim to `register_program_discharge`'s
      `ERR_PROGRAM_DISCHARGE_NOT_HUMAN` (a T-E-gated adverse guard that correctly stays `ProgramaError`
@@ -234,7 +234,7 @@ import pytest_asyncio
 
 from maezo.tools.workers.events import register_events_workers
 from maezo.tools.workers.harness import CibSevenWorkerTransport, FakeKafkaPublisher, WorkerHarness
-from maezo.tools.workers.programa import register_programa_workers
+from maezo.tools.workers.programa import PROGRAMA_BPMN_ERROR_ALLOWLIST, register_programa_workers
 
 from .conftest import CIBSEVEN_BASE_URL, drain_topics
 from .engine_rest import EngineRest
@@ -259,6 +259,12 @@ _MONITOR_PROGRAMA_TOPIC = "operadora.programa.monitor_programa"  # orfao (sem to
 _REGISTER_DISCHARGE_TOPIC = "operadora.programa.register_program_discharge"
 _STOP_PROCESSING_TOPIC = "operadora.programa.stop_processing"
 
+# item-9 w5 (event-wiring): proactive_contact/notify_sla_risk are now REAL registered raw
+# handlers (programa.py items B/C), so their topics join the drain list — the former
+# "_UNREGISTERED" documentation block is retired.
+_PROACTIVE_CONTACT_TOPIC = "operadora.programa.proactive_contact"  # ST_ProactiveContact
+_NOTIFY_SLA_RISK_TOPIC = "operadora.programa.notify_sla_risk"  # ST_NotifySlaRisk
+
 _PROGRAMA_WORKER_TOPICS = [
     _PUBLISH_TOPIC,
     _CHECK_CONSENT_TOPIC,
@@ -267,16 +273,9 @@ _PROGRAMA_WORKER_TOPICS = [
     _MONITOR_PROGRAMA_TOPIC,
     _REGISTER_DISCHARGE_TOPIC,
     _STOP_PROCESSING_TOPIC,
+    _PROACTIVE_CONTACT_TOPIC,
+    _NOTIFY_SLA_RISK_TOPIC,
 ]
-
-# BPMN-declared `operadora.programa.*` topicos SEM worker registrado (finding 1 — registry drift em
-# programa.py, nao neste port; T2.5 fixed ONLY stratify_risk, above — these 2 remain a SEPARATE,
-# out-of-scope gap per T2.5's own task brief). Deliberadamente FORA de `_PROGRAMA_WORKER_TOPICS`/
-# drain(): ver module docstring. Mantidos aqui so para documentar os nomes exatos citados nos
-# xfail reasons.
-# ST_ProactiveContact, BPMN:191
-_PROACTIVE_CONTACT_TOPIC_UNREGISTERED = "operadora.programa.proactive_contact"
-_NOTIFY_SLA_TOPIC_UNREGISTERED = "operadora.programa.notify_sla_risk"  # ST_NotifySlaRisk, BPMN:263
 
 # Topico interno de notificacoes.
 _NOTIFICATIONS_TOPIC = "operadora.notifications.internal"
@@ -307,6 +306,10 @@ _MSG_CONSENT_REVOKED = "msg.programa.consent_revoked"
 _MSG_INFO_RECEIVED = "msg.programa.info_received"
 
 # Workers de PHI que NUNCA podem executar sem consentimento (chokepoint A).
+# NB (assembly-GK finding 4): stratify_risk/proactive_contact are OBSERVABLE negatives (their w5
+# raw handlers publish these types), but build_care_plan has NO notification publisher, so its
+# negative is structurally vacuous — every consent-blocked site carries a non-vacuous engine-side
+# backstop (`not ({ST_...} & ended)`) that does the real PHI-negative proof.
 _PHI_NOTIFICATION_TYPES = frozenset(
     {"programa.stratify_risk", "programa.build_care_plan", "programa.proactive_contact"}
 )
@@ -343,9 +346,11 @@ _PROGRAMA_MISSING_WORKER_REASON = (
     "(out of scope for T2.5 — a separate, tracked gap), and every test below depends on at least "
     "one of: (a) one of those 2 still-missing workers directly (e.g. any assertion reaching "
     "ST_ProactiveContact/End_EnrollmentRealizado, or notify_sla_risk's timer-fired notification), "
-    "(b) finding 2 below (check_consent's ERR_PROGRAMA_NO_CONSENT — and, by the same mechanism, "
-    "stratify_risk's own defense-in-depth guard — reclassify to ValueError before the harness ever "
-    "sees a WorkerBpmnError, so BE_SemConsentimento's boundary catch never fires), (c) the "
+    "(b) RESOLVED (item-9 wave-3, live-proven): check_consent now raises "
+    "WorkerBpmnError(ERR_PROGRAMA_NO_CONSENT) and this suite's probe mirrors "
+    "programa.PROGRAMA_BPMN_ERROR_ALLOWLIST, so BE_SemConsentimento fires (the 2 consent tests "
+    "flipped; stratify_risk's defense-in-depth guard DELIBERATELY stays ProgramaError -> incident "
+    "— no boundary on its task), (c) the "
     "Kafka-producer-wiring systemic gap (module docstring finding 4 / this reason's prior text: "
     "programa.py's dict-first functions, stratify_risk included, never call kafka.publish, so any "
     "notifications_of_type('programa.*') assertion can never observe an execution), or (d) finding "
@@ -362,7 +367,14 @@ _PROGRAMA_MISSING_WORKER_REASON = (
     "(live-proven PASS). The tests STILL bearing this reason are exactly those genuinely depending "
     "on (a)-(d). programa.py's OWN bootstrap docstring already self-documents the "
     "proactive_contact/notify_sla_risk gap as known, not fabricated here. src/** fix "
-    "(implementing/registering proactive_contact/notify_sla_risk workers) is out of scope for T2.5."
+    "(implementing/registering proactive_contact/notify_sla_risk workers) is out of scope for T2.5. "
+    "RETIRED (item-9 w5+assembly, live-proven): every clause is now closed — (a) "
+    "proactive_contact/notify_sla_risk are registered raw handlers and their topics joined "
+    "_PROGRAMA_WORKER_TOPICS, (c) register_programa_workers threads its kafka seam through 4 raw "
+    "handlers publishing operadora.notifications.internal, (d) ST_PublishCompleted carries "
+    "responsavel_clinico_id and ST_PublishProcessingStopped publishes "
+    "agents.events.programa.processing_stopped; all 7 remaining tests flipped to real passes; "
+    "grep-confirmed: zero pytest.mark.xfail call sites reference this constant anymore."
 )
 
 _PROGRAMA_CONSENT_GUARD_NOT_BPMN_ERROR_REASON = (
@@ -379,7 +391,11 @@ _PROGRAMA_CONSENT_GUARD_NOT_BPMN_ERROR_REASON = (
     "— ST_StratifyRisk carries no boundary, so a WorkerBpmnError there would silently end the scope.) "
     "This ENGINE test stays strict-xfail ONLY because proving the actual boundary flip requires a "
     "live CIB Seven 2.1.0 engine; the marker is removed with live-engine XPASS proof in a dedicated "
-    "follow-up (precedent: auth's removed boundary xfail)."
+    "follow-up (precedent: auth's removed boundary xfail). "
+    "RETIRED (item-9 wave-3): that follow-up is DONE — the probe wires "
+    "programa.PROGRAMA_BPMN_ERROR_ALLOWLIST and both consent tests were live-proven PASS on a "
+    "fresh engine (16 passed + 7 xfailed); grep-confirmed: zero pytest.mark.xfail call sites "
+    "reference this constant anymore."
 )
 
 
@@ -438,11 +454,12 @@ async def programa_probe(
     """Probe que serve as external tasks com os workers reais de programa."""
     worker_id = f"qa-programa-worker-{uuid.uuid4().hex[:8]}"
     transport = CibSevenWorkerTransport(CIBSEVEN_BASE_URL)
-    # SEM bpmn_error_allowlist AINDA: item-9 bucket-3 migrou check_consent para
-    # WorkerBpmnError(ERR_PROGRAMA_NO_CONSENT) (gate-proven, wired em PRODUCTION_BPMN_ERROR_ALLOWLIST),
-    # mas gatear o allowlist DESTE probe + flipar os xfails de consent-guard exige prova em engine ao
-    # vivo (follow-up — ver _PROGRAMA_CONSENT_GUARD_NOT_BPMN_ERROR_REASON). register_program_discharge
-    # segue ProgramaError->incidente (ERR_PROGRAM_DISCHARGE_NOT_HUMAN e T-E-gated).
+    # item-9 bucket-3 (ADR-0030 §2): check_consent (the PHI chokepoint) now raises the MODELED
+    # boundary error WorkerBpmnError(ERR_PROGRAMA_NO_CONSENT). Mirror PRODUCTION_BPMN_ERROR_ALLOWLIST
+    # (programa.PROGRAMA_BPMN_ERROR_ALLOWLIST) in this probe so a failed/revoked consent routes to the
+    # LGPD fail-safe terminal End_SemConsentimento (BE_SemConsentimento -> ST_PublishConsentBlocked)
+    # instead of demoting to an unconditional incident. register_program_discharge stays
+    # ProgramaError->incident (ERR_PROGRAM_DISCHARGE_NOT_HUMAN is T-E-gated, deliberately not here).
     # T1.10 wave: emit-before-complete is FAIL-CLOSED (harness.py _emit_audit) — a real
     # PostgresAuditSink (lane PG, migrations 0001->0005) is REQUIRED or the harness refuses
     # to complete. `tenant` scopes the durable audit chain / dedup key to the per-run schema.
@@ -452,6 +469,7 @@ async def programa_probe(
         tenant=audit_tenant,
         lock_duration_ms=10_000,
         audit_sink=audit_sink,
+        bpmn_error_allowlist=PROGRAMA_BPMN_ERROR_ALLOWLIST,
     )
     kafka = FakeKafkaPublisher()
     register_programa_workers(harness, kafka)
@@ -611,7 +629,6 @@ async def _correlate_message_by_keys(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_PROGRAMA_CONSENT_GUARD_NOT_BPMN_ERROR_REASON, strict=True)
 async def test_chokepoint_consentimento_nenhum_phi_sem_consentimento(
     engine: EngineRest,
     programa_probe: ProgramaEngineProbe,
@@ -643,7 +660,6 @@ async def test_chokepoint_consentimento_nenhum_phi_sem_consentimento(
     await _assert_no_adverse_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_PROGRAMA_CONSENT_GUARD_NOT_BPMN_ERROR_REASON, strict=True)
 async def test_canal_proativo_sem_consent_checked_barra(
     engine: EngineRest,
     programa_probe: ProgramaEngineProbe,
@@ -667,6 +683,11 @@ async def test_canal_proativo_sem_consent_checked_barra(
     assert _END_SEM_CONSENTIMENTO in ended, (
         f"Canal proativo sem consent_checked => End_SemConsentimento. ended={ended}"
     )
+    # Prova engine-side (nao-vacua — o eco kafka e sempre [] enquanto programa.py nao publica):
+    # nenhuma atividade de PHI pode ter entrado no historico da instancia barrada.
+    assert not ({"ST_StratifyRisk", "ST_BuildCarePlan", "ST_ProactiveContact"} & ended), (
+        f"Nenhum serviceTask de PHI pode executar sem consent_checked (D9). ended={ended}"
+    )
     for ntype in _PHI_NOTIFICATION_TYPES:
         assert not programa_probe.notifications_of_type(ntype), (
             f"Worker de PHI '{ntype}' NUNCA executa sem consent_checked no canal proativo (D9)"
@@ -678,7 +699,6 @@ async def test_canal_proativo_sem_consent_checked_barra(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_PROGRAMA_MISSING_WORKER_REASON, strict=True)
 async def test_revogacao_interrompe_processamento(
     engine: EngineRest,
     programa_probe: ProgramaEngineProbe,
@@ -726,7 +746,6 @@ async def test_revogacao_interrompe_processamento(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_PROGRAMA_MISSING_WORKER_REASON, strict=True)
 async def test_bridge_correlaciona_revogacao_por_correlation_keys_instancia_unica(
     engine: EngineRest,
     programa_probe: ProgramaEngineProbe,
@@ -929,7 +948,6 @@ async def test_estratificacao_alta_roteia_para_humano_nunca_desliga(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_PROGRAMA_MISSING_WORKER_REASON, strict=True)
 async def test_happy_path_enrollment_elegivel_l3(
     engine: EngineRest,
     programa_probe: ProgramaEngineProbe,
@@ -963,7 +981,6 @@ async def test_happy_path_enrollment_elegivel_l3(
     )
 
 
-@pytest.mark.xfail(reason=_PROGRAMA_MISSING_WORKER_REASON, strict=True)
 async def test_happy_path_nao_elegivel_neutro(
     engine: EngineRest,
     programa_probe: ProgramaEngineProbe,
@@ -989,7 +1006,6 @@ async def test_happy_path_nao_elegivel_neutro(
     )
 
 
-@pytest.mark.xfail(reason=_PROGRAMA_MISSING_WORKER_REASON, strict=True)
 async def test_happy_path_desligamento_clinico_humano(
     engine: EngineRest,
     programa_probe: ProgramaEngineProbe,
@@ -1112,7 +1128,6 @@ async def test_desligar_exige_campos_worker_guard(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_PROGRAMA_MISSING_WORKER_REASON, strict=True)
 async def test_timer_alerta_sla_nao_interruptivo(
     engine: EngineRest,
     programa_probe: ProgramaEngineProbe,
@@ -1167,7 +1182,6 @@ async def test_timer_sla_estourado_coordenacao_assume(
     await _assert_no_adverse_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_PROGRAMA_MISSING_WORKER_REASON, strict=True)
 async def test_coordenacao_assume_e_desliga(
     engine: EngineRest,
     programa_probe: ProgramaEngineProbe,

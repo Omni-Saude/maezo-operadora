@@ -7,17 +7,27 @@ Clones AUTH auto-approval for low-value (dentro_teto_l2).
 
 from __future__ import annotations
 
+import asyncio
 import functools
 from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from maezo.tools.workers.base import FunctionWorker
+from maezo.tools.workers.base import FunctionWorker, non_blank
 from maezo.tools.workers.ceilings import CeilingResolver
 from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row, require_dmn
+from maezo.tools.workers.phi_vars import redact_error_message
 
 if TYPE_CHECKING:
-    from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
+    from collections.abc import Mapping
+
+    from maezo.a2a import DelegationDispatcher
+    from maezo.tools.workers.harness import (
+        ExternalTask,
+        KafkaPublisher,
+        TaskHandler,
+        WorkerHarness,
+    )
 
 logger = structlog.get_logger(__name__)
 
@@ -170,6 +180,25 @@ def route_aprovacao(
     (`valor_pagamento_cents=15_000_000, dentro_teto_l2=True` -> DMN returns `ALCADA_L1`, not
     `DENTRO_TETO_L2`) before this cutover; flagged for finance sign-off (the DMN's own
     description already requires it).
+
+    WRITE-BACK ASYMMETRY vs the modeled task (GK-w4 finding 6 — DISCLOSED, deliberate, not a
+    regression): this function is bound to `operadora.pagto.calculate_facts`, and
+    `ST_CalculateFacts`'s BPMN documentation describes a broader echo than what is returned here.
+    The model says the task echoes `valor_pagamento_cents` (long/int64) AND the three booleans
+    `pagto_admissibility` reads (`dados_pagamento_validos` / `lastro_confirmado` /
+    `duplicidade_suspeita`) with fail-closed defaults `false`/`false`/`true` when absent. The
+    return below writes back only `dentro_teto_l2` (plus the routing outputs `faixa_valor` /
+    `grupo_aprovador` / `tier_minimo`) — the MINIMAL fix that item-9 bucket-3 Class-C needed to
+    make `BRT_AlcadaRouting`'s native read of `dentro_teto_l2` see the policy-computed fact
+    instead of the raw start seed. Broadening the echo was intentionally left out of that fix's
+    blast radius.
+    The residual gap is fail-safe in the adverse direction: `BRT_PagtoAdmissibility` runs
+    downstream of this task and `pagto_admissibility` is `hitPolicy="FIRST"` with a catch-all row
+    (`r_catchall`, `-`/`-`/`-`) returning `ANALISE_HUMANA` ("Admissibilidade ambigua / fato
+    ausente ... NUNCA auto-libera"). An unechoed/absent admissibility fact therefore routes to a
+    human, never to an automatic release. `valor_pagamento_cents` is likewise only read, never
+    re-originated, so not echoing it cannot change its value. Closing the asymmetry (echo the
+    three booleans with the modeled defaults, echo the normalized cents) is deferred, not denied.
     """
     resolver = resolver if resolver is not None else CeilingResolver()
 
@@ -213,6 +242,17 @@ def route_aprovacao(
         # untouched (out of the ADR-0028 migration table — a safety GUARD, not a routing
         # decision — same non-touch boundary as the ceiling resolver, T1.9).
         "tier_minimo": row.get("tier_minimo"),
+        # Write the COMPUTED ceiling fact back (item-9 bucket-3 Class-C — module FINDING 1 of
+        # test_sp_op_pagto_001, v2 regression): `BRT_AlcadaRouting` is a NATIVE
+        # businessRuleTask (camunda:decisionRef="pagto_alcada", no external topic) that reads
+        # whatever `dentro_teto_l2` PROCESS VARIABLE is already set — without this write-back
+        # it evaluated the RAW start seed, so the CeilingResolver's fail-closed computation
+        # never reached the live routing decision (a within-ceiling payment seeded
+        # dentro_teto_l2=False fell to the ANALISE_HUMANA catch-all instead of auto-release).
+        # Mirrors auth.AnalyzeRequestWorker's own `dentro_teto_l2` write-back and the donor's
+        # calculate_facts design intent (design T1.9 §1.4/§2.4): the engine receives the
+        # policy-computed fact, never the inbound boolean.
+        "dentro_teto_l2": dentro_teto,
     }
 
 
@@ -528,33 +568,251 @@ def publish_completed(variables: dict[str, Any]) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------
-# prepare_approval_dossier — LOCAL STUB dossier (DL-0033; Andre A2A deferred)
+# prepare_approval_dossier — REAL Andre A2A delegation (raw async handler; DL-0033 closed, DL-0037)
 # ---------------------------------------------------------------
 
+# Deadline for the whole Andre delegation round-trip (GK-dossier finding 2). Deliberately BELOW
+# the external-task LOCK the harness takes on this task (`WorkerHarness(lock_duration_ms=30_000)`
+# / `WORKER_LOCK_DURATION_MS`, `runtime/worker_runtime/settings.py`): a hung dispatcher (wedged
+# pool, unreachable engine/PG inside Andre's graph) would otherwise hold the task past lock
+# expiry, at which point the ENGINE re-delivers the SAME task to another worker while this one is
+# still awaiting — two concurrent in-flight delegations for one `ST_PrepareApprovalDossier`, and
+# a completion that arrives on an expired lock. 20s leaves ~10s of headroom for the completion
+# round-trip. Expiry is DL-0037-shaped: a DISCLOSED gap on a COMPLETED task, never a raise —
+# UT_AprovacaoAlcada still opens, the approver just sees `dossier_gap=delegation_timeout`.
+_DOSSIER_DELEGATION_TIMEOUT_S: float = 20.0
 
-def prepare_approval_dossier(variables: dict[str, Any]) -> dict[str, Any]:
-    """Prepare the approval dossier for the human alcada User Task — NEUTRAL (DL-0033 local stub).
 
-    Assembling a dossier INSTRUCTS the human approver (UT_AprovacaoAlcada), it NEVER originates the
-    payment decision — mirrors `programa.enroll_beneficiario` ("enrollment is not an adverse
-    effect"). This is the local echo/log stub DL-0033 ratified (`FunctionWorker`, no
-    `DelegationDispatcher`): it closes the BPMN topic orphanage
-    (`operadora.pagto.prepare_approval_dossier`, `ST_PrepareApprovalDossier`, also reached on the
-    GAP-PAGTO-5 `seguir_analise` re-entry) without inventing delegation business-logic before the
-    real Andre A2A wiring (`analytics.actuarial`/`analytics.population`, `pagto_dossier`) lands in
-    the deferred full-A2A task. Fails SAFE (never raises), mirroring the module's neutral idiom.
+def _dossier_topic_variables() -> list[str]:
+    """The EXACT process-variable read-set of `prepare_approval_dossier` (GK-dossier finding 10).
+
+    Fed to `harness.register(..., variables=...)` -> `TopicSubscription.variables` so the engine's
+    `fetchAndLock` returns ONLY these for this topic (least privilege, design §5) instead of the
+    default "every variable of the instance".
+
+    Single-sourced from the delegation layer's own allowlists (the handler reads `tenant_id` and
+    the case identifiers directly, and hands the rest to `build_pagto_dossier_envelope` as
+    `case_meta`, which serializes exactly these) — so the subscription cannot drift from what the
+    handler actually consumes. Imported lazily for the same reason the handler's own
+    `delegate_pagto_dossier` import is lazy: the worker package must not import the agent package
+    at module load.
     """
-    ordem_id = variables.get("ordem_pagamento_id", "")
-
-    logger.info(
-        "pagto_prepare_approval_dossier",
-        ordem_id=ordem_id,
+    from maezo.agents.andre.delegation import (
+        _PAGTO_BOOLEAN_META_KEYS,
+        _PAGTO_STRING_META_KEYS,
     )
 
-    return {
-        "dossier_prepared": True,
-        "data_dossier": "now",
-    }
+    return [
+        "tenant_id",  # ADR-0004 tenant scope — read directly by the handler's guard
+        *_PAGTO_STRING_META_KEYS,  # case identifiers + bounded payment tokens
+        "valor_pagamento_cents",  # INTEGER centavos (ADR-0018 part 2)
+        *_PAGTO_BOOLEAN_META_KEYS,  # worker-pre-resolved facts (validate/calculate_facts)
+    ]
+
+
+def make_prepare_approval_dossier_handler(dispatcher: DelegationDispatcher | None) -> TaskHandler:
+    """Create the handler for `operadora.pagto.prepare_approval_dossier` — the REAL Andre A2A
+    delegation (the LAST worker-originated dossier edge, closing the #181 gap that adequacao/cred
+    had already closed in #178).
+
+    Serves `ST_PrepareApprovalDossier` (the only path from `BRT_PagtoSla` to `UT_AprovacaoAlcada`;
+    also reached on the GAP-PAGTO-5 `seguir_analise` re-entry). Replaces the DL-0033 local echo/log
+    stub with `delegate_pagto_dossier` -> `DelegationDispatcher.delegate` -> Andre's REAL graph.
+    The SHARED task_type `analytics.population` is REUSED (no new type minted); Andre's DEFAULT
+    `pagto_dossier` flow is selected by the `pagto-worker` origin alone — the payment-approval risk
+    dossier his graph documents as convoked here (`agents/andre/delegation.py`,
+    `agents/andre/graph.py`).
+
+    RAW ASYNC HANDLER (DL-0034 precedent, mirrors adequacao/cred): a `FunctionWorker.execute(dict)`
+    boundary is sync while `dispatcher.delegate` is async — the raw `harness.register()` form runs
+    this handler on the harness's own loop, where the dispatcher's pooled audit sink lives.
+    Populates `_handlers` but NOT the `WorkerRegistry` (see `test_bootstrap_registration.py`'s
+    `raw_handler_topics`).
+
+    FAIL-NEUTRAL-WITH-DISCLOSED-GAP (DL-0037): assembling a dossier INSTRUCTS the human approver
+    (UT_AprovacaoAlcada/UT_CoordenacaoAlcada) — it "instrui, nao decide" (SP-OP-PAGTO-001); the
+    payment release is born SOLELY in the human User Task with `decisao_pagamento=APROVAR` +
+    tier-match (`release_high_value_payment`, unchanged, this handler NEVER invokes it). A missing
+    dispatcher (degraded runtime: no signing key / no DATABASE_URL), missing business identifiers,
+    a structured rejection, a DELEGATION TIMEOUT or ANY delegation failure therefore returns
+    `{"dossier_prepared": False, "dossier_gap": <bounded reason token>}` + a LOUD log and COMPLETES
+    the task — the human UT MUST still open; this handler NEVER raises. The gap token is a bounded
+    class token (engine-variable hygiene) — raw error text stays in the log.
+
+    DEGRADED-BUT-SUCCESSFUL DISCLOSURE (GK-dossier finding 4): a delegation can succeed
+    structurally while Andre ran DEGRADED inside (DMN unavailable / engine unreachable at the
+    anchor step / missing runtime context). That returns `dossier_prepared=True` (the dossier does
+    exist and is referenced) PLUS `dossier_gap="degraded:<bounded token>"` — the human approver is
+    told how much the dossier is worth instead of seeing a clean success. The token is
+    re-validated against Andre's own CLOSED `DEGRADED_TOKENS` set before it becomes an engine
+    variable.
+
+    BOUNDED AWAIT (GK-dossier finding 2): the delegation is awaited under
+    `asyncio.wait_for(_DOSSIER_DELEGATION_TIMEOUT_S)` — safely below the 30s external-task lock, so
+    a hung dispatcher can never hold this task to lock expiry (which would let the engine
+    re-deliver the SAME task to another worker alongside this still-awaiting one). Expiry ->
+    `dossier_gap="delegation_timeout"`, task COMPLETED, UT opens.
+
+    NO-DUPLICATE-INSTANCE (GK-dossier finding 1, two anchors): this handler runs from INSIDE an
+    already-running SP-OP-PAGTO-001 instance, so the delegation must NEVER open a second one
+    (a second instance = a second `UT_AprovacaoAlcada` approval/release path). (a) `task.business_key`
+    — the ENGINE's authoritative key — is threaded verbatim into the delegation, so Andre's
+    idempotent start consults the key the LIVE instance carries instead of its own ordem-first
+    derivation (which diverges for the contract's CONTAS variant
+    `PAGTO-{tenant}-{numero_lote_tiss}-{prestador_id}`); (b) his `start_process` structurally
+    no-ops for this worker's `pagto-worker` origin regardless of the key.
+
+    Idempotency note (disclosed): the delegation `task_id` IS that business key — the
+    `seguir_analise` re-entry for the SAME case receives the idempotent REPLAY of the same
+    dossier, never a duplicated release.
+    """
+
+    async def handler(task: ExternalTask) -> Mapping[str, Any]:
+        v = task.variables
+        tenant_id = str(v.get("tenant_id", "") or "")
+        ordem_pagamento_id = str(v.get("ordem_pagamento_id", "") or "").strip()
+        numero_lote_tiss = str(v.get("numero_lote_tiss", "") or "").strip()
+        prestador_id = str(v.get("prestador_id", "") or "").strip()
+
+        if dispatcher is None:
+            # Degraded runtime (DL-0037): dispatcher absent at composition (no signing key /
+            # no DATABASE_URL — worker_runtime readiness reports dossier_delegation_ready=false).
+            # The UT still opens; the approver sees the disclosed gap instead of a dossier.
+            logger.warning(
+                "pagto_prepare_approval_dossier_dispatcher_unavailable",
+                tenant_id=tenant_id,
+                ordem_pagamento_id=ordem_pagamento_id,
+                business_key=task.business_key,
+            )
+            return {"dossier_prepared": False, "dossier_gap": "dispatcher_unavailable"}
+
+        # A well-formed PAGTO business key needs tenant + (ordem OR lote+prestador) — the SAME
+        # identity `andre.graph._business_key` requires (EB-4 R1 `non_blank` discipline). Without
+        # it, never delegate with a degenerate task_id; the UT still opens with the gap disclosed.
+        has_key = non_blank(ordem_pagamento_id) or (non_blank(numero_lote_tiss) and non_blank(prestador_id))
+        if not (non_blank(tenant_id) and has_key):
+            logger.error(
+                "pagto_prepare_approval_dossier_missing_business_identifiers",
+                tenant_id=tenant_id,
+                ordem_pagamento_id=ordem_pagamento_id,
+                numero_lote_tiss=numero_lote_tiss,
+                prestador_id=prestador_id,
+                business_key=task.business_key,
+            )
+            return {"dossier_prepared": False, "dossier_gap": "missing_business_identifiers"}
+
+        from maezo.agents.andre.delegation import (
+            DEGRADED_META_KEY,
+            DEGRADED_TOKENS,
+            delegate_pagto_dossier,
+        )
+
+        try:
+            # BOUNDED AWAIT (GK-dossier finding 2): never hold the external-task lock to expiry.
+            result = await asyncio.wait_for(
+                delegate_pagto_dossier(
+                    dispatcher,
+                    tenant=tenant_id.strip(),
+                    case_meta=dict(v),
+                    ordem_pagamento_id=ordem_pagamento_id,
+                    numero_lote_tiss=numero_lote_tiss,
+                    prestador_id=prestador_id,
+                    # The ENGINE's authoritative key of the instance THIS task belongs to
+                    # (GK-dossier finding 1a). Threading it verbatim keeps Andre anchored on the
+                    # SAME case: the ordem-first derivation DIVERGES from an instance keyed with
+                    # the contract's CONTAS variant
+                    # (`PAGTO-{tenant}-{numero_lote_tiss}-{prestador_id}`, contract §Business key)
+                    # whenever an ordem is also in scope, and a diverging key would miss the
+                    # idempotency lookup and open a SECOND SP-OP-PAGTO-001 instance — a duplicated
+                    # UT_AprovacaoAlcada approval/release path. Blank -> derivation.
+                    business_key=str(task.business_key or ""),
+                ),
+                timeout=_DOSSIER_DELEGATION_TIMEOUT_S,
+            )
+        except TimeoutError:
+            # `asyncio.wait_for` CANCELS the pending delegation before raising, so nothing is left
+            # running behind this return. DL-0037: complete the task with the disclosed gap — the
+            # human UT opens on time instead of the lock expiring into an engine re-delivery.
+            logger.error(
+                "pagto_prepare_approval_dossier_delegation_timeout",
+                tenant_id=tenant_id,
+                ordem_pagamento_id=ordem_pagamento_id,
+                business_key=task.business_key,
+                timeout_s=_DOSSIER_DELEGATION_TIMEOUT_S,
+            )
+            return {"dossier_prepared": False, "dossier_gap": "delegation_timeout"}
+        except Exception as exc:  # noqa: BLE001 — DL-0037: the UT must open; never raise here.
+            logger.error(
+                "pagto_prepare_approval_dossier_delegation_failed",
+                tenant_id=tenant_id,
+                ordem_pagamento_id=ordem_pagamento_id,
+                business_key=task.business_key,
+                # GK-dossier finding 5: `str(exc)` put RAW exception text in the log. This handler
+                # sits downstream of PHI-bearing case variables (`case_meta=dict(v)`), and the
+                # exceptions it catches come from the dispatcher/PG/engine layers whose messages
+                # routinely echo the offending payload — a CPF/CNS in a driver error would land
+                # verbatim in the operator log. `redact_error_message` (T3.4 F5) is the SAME
+                # one-way, never-raising backstop the harness applies before an error reaches the
+                # engine's incident store; it preserves the error CLASS for diagnosis.
+                error=redact_error_message(exc),
+            )
+            return {"dossier_prepared": False, "dossier_gap": "delegation_failed"}
+
+        if not result.success:
+            reason = str(result.rejection_reason or "unknown")
+            logger.error(
+                "pagto_prepare_approval_dossier_delegation_rejected",
+                tenant_id=tenant_id,
+                ordem_pagamento_id=ordem_pagamento_id,
+                business_key=task.business_key,
+                reason=reason,
+                detail=result.detail,
+            )
+            return {"dossier_prepared": False, "dossier_gap": f"delegation_rejected:{reason}"}
+
+        # DEGRADED-BUT-SUCCESSFUL (GK-dossier finding 4): the delegation succeeded STRUCTURALLY
+        # (Andre's graph ran, routed and produced a dossier) but he may have been degraded INSIDE
+        # — a DMN in the assess chain unavailable, the engine unreachable at the anchor step, or
+        # runtime context missing. Reporting a clean `dossier_prepared=True` would hide that from
+        # the human approver, who is the one who must weigh how much the dossier is worth. The
+        # dossier IS prepared (True — it exists and is referenced), and the gap is disclosed
+        # ALONGSIDE it. The token is re-validated against Andre's own CLOSED set here, so an
+        # unexpected/unbounded meta value can never become an engine variable.
+        degraded = str(result.meta.get(DEGRADED_META_KEY, "") or "").strip()
+        logger.info(
+            "pagto_prepare_approval_dossier_delegated",
+            tenant_id=tenant_id,
+            ordem_pagamento_id=ordem_pagamento_id,
+            business_key=task.business_key,
+            dossier_ref=result.output_ref,
+            idempotent_replay=result.idempotent_replay,
+            degraded=degraded,
+        )
+        outputs: dict[str, Any] = {
+            "dossier_prepared": True,
+            "dossier_ref": result.output_ref or "",
+            # UT-FORM SEAM (SME/PO sign-off PENDING): the dossier CONTENT field schema for
+            # UT_AprovacaoAlcada/UT_CoordenacaoAlcada is uncontracted — no dossier field appears in
+            # the contract's variable table. `dossier_summary` carries Andre's agent-produced
+            # bounded summary tokens AS-IS (route/desfecho/motivo/grupo — never the narrative,
+            # never a decision, never a price/release); the full dossier is reachable via
+            # `dossier_ref`. Do NOT invent/extend this schema here — it is the human-gated
+            # injection point.
+            "dossier_summary": dict(result.meta),
+        }
+        if degraded:
+            token = degraded if degraded in DEGRADED_TOKENS else "unknown"
+            logger.warning(
+                "pagto_prepare_approval_dossier_degraded",
+                tenant_id=tenant_id,
+                ordem_pagamento_id=ordem_pagamento_id,
+                business_key=task.business_key,
+                degraded=token,
+            )
+            outputs["dossier_gap"] = f"degraded:{token}"
+        return outputs
+
+    return handler
 
 
 # ---------------------------------------------------------------
@@ -595,10 +853,12 @@ class PagtoError(Exception):
 # assess_admissibility has no distinct spec topic — registered under a
 # function-derived topic for registry completeness. publish_completed folds
 # into the generic events.publish task per BPMN — function-derived topic.
-#   prepare_approval_dossier -> operadora.pagto.prepare_approval_dossier (exact spec match, DL-0033
-#     LOCAL STUB; NEUTRAL — instructs UT_AprovacaoAlcada, never decides the payment. The REAL Andre
-#     A2A delegation (analytics.actuarial/analytics.population) is deferred to the full-A2A wiring
-#     task; this stub only closes the BPMN topic orphanage.)
+#   make_prepare_approval_dossier_handler -> operadora.pagto.prepare_approval_dossier (exact spec
+#     match; RAW async handler — the REAL Andre A2A delegation (analytics.population, origin-
+#     disambiguated to his DEFAULT pagto_dossier flow) DL-0033 deferred, now wired (the LAST
+#     dossier edge, closing the #181 gap adequacao/cred closed in #178). NEUTRAL — instructs
+#     UT_AprovacaoAlcada, never decides the payment; dispatcher absent/failed -> disclosed-gap
+#     marker, the UT still opens (DL-0037).)
 # ---------------------------------------------------------------
 
 
@@ -614,9 +874,16 @@ def register_pagto_workers(
     function here evaluates a DMN table. `kafka` is accepted but unused — no pagto.py worker
     declares a Kafka dependency, `notify_sla_risk`/`register_payment_refusal` included
     (dict-first, mirror the family's existing idiom).
+
+    `dossier_dispatcher` (dossier-A2A seam, DL-0033 real wiring) is threaded into the
+    `prepare_approval_dossier` RAW async handler — a `DelegationDispatcher` assembled by the
+    worker-runtime composition root (`build_dossier_delegation_dispatcher`). Absent (`None`, the
+    topic-probe default and the degraded-runtime posture) the topic still registers and the handler
+    fail-neutrals with a disclosed gap (DL-0037) — the human UT always still opens.
     """
     del kafka  # unused — no pagto.py worker declares a Kafka dependency
     dmn = seams.get("dmn")
+    dossier_dispatcher: DelegationDispatcher | None = seams.get("dossier_dispatcher")
     harness.register_worker(FunctionWorker("operadora.pagto.validate_payment_data", validate_pagto))
     harness.register_worker(
         FunctionWorker(
@@ -635,6 +902,18 @@ def register_pagto_workers(
         FunctionWorker("operadora.pagto.register_payment_refusal", register_payment_refusal)
     )
     harness.register_worker(FunctionWorker("operadora.pagto.publish_completed", publish_completed))
-    harness.register_worker(
-        FunctionWorker("operadora.pagto.prepare_approval_dossier", prepare_approval_dossier)
+    # RAW handler (NOT register_worker) — needs the async dispatcher seam (module topic-map note).
+    # LEAST PRIVILEGE (GK-dossier finding 10, design §5 `TopicSubscription.variables` seam): the
+    # raw registration used the engine DEFAULT (`variables=None` = return EVERY process variable
+    # of the instance). This handler forwards `case_meta=dict(task.variables)` into an A2A
+    # envelope, so every extra variable the engine hands it is one more thing that has to be
+    # stopped by the delegation-layer allowlist alone. Declaring the exact read-set moves the
+    # boundary UPSTREAM — an un-allowlisted (potentially PHI-bearing) variable is never fetched,
+    # never locked, never in this process's memory. The list is derived from the SAME allowlists
+    # the envelope builder serializes, so it cannot drift from what the handler actually reads
+    # (`test_dossier_topic_variables_match_what_the_handler_reads` single-sources it).
+    harness.register(
+        "operadora.pagto.prepare_approval_dossier",
+        make_prepare_approval_dossier_handler(dossier_dispatcher),
+        variables=_dossier_topic_variables(),
     )
