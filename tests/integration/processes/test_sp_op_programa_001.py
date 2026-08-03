@@ -306,6 +306,10 @@ _MSG_CONSENT_REVOKED = "msg.programa.consent_revoked"
 _MSG_INFO_RECEIVED = "msg.programa.info_received"
 
 # Workers de PHI que NUNCA podem executar sem consentimento (chokepoint A).
+# NB (assembly-GK finding 4): stratify_risk/proactive_contact are OBSERVABLE negatives (their w5
+# raw handlers publish these types), but build_care_plan has NO notification publisher, so its
+# negative is structurally vacuous — every consent-blocked site carries a non-vacuous engine-side
+# backstop (`not ({ST_...} & ended)`) that does the real PHI-negative proof.
 _PHI_NOTIFICATION_TYPES = frozenset(
     {"programa.stratify_risk", "programa.build_care_plan", "programa.proactive_contact"}
 )
