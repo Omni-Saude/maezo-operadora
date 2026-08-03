@@ -114,6 +114,21 @@ def validate_cred(variables: dict[str, Any]) -> dict[str, Any]:
     arrive untyped — a string/int/None "fact" is NOT a resolved fact and falls back to the
     placeholder computation); respecting a resolved False is strictly MORE conservative than the
     old hardcoded True (routes to pendency/human, never away from it).
+
+    LOOP-BACK CONTRACT (GK-w4 finding 3 — the corollary of FACT PRESERVATION above): the
+    PENDENTE_DOCUMENTACAO branch loops back through here. `ST_NotifyDocPendente` ->
+    `ICE_AguardarInfoDoc` waits for `msg.cred.info_received` and its outgoing flow
+    (`Flow_InfoReceived_VerifyCred`) re-triggers `ST_VerifyCredentials`, i.e. this function.
+    Because a resolved boolean is now RESPECTED and never re-derived from `documentos_refs`, the
+    correlation payload of `msg.cred.info_received` MUST carry a boolean
+    `documentacao_completa=True` for the pendency to clear. Sending only the documents (e.g. an
+    updated `documentos_refs`) leaves the previously-resolved `documentacao_completa=False`
+    standing, `cred_admissibility`'s FIRST-hit `r_cred_doc_pendente` row re-routes to
+    PENDENTE_DOCUMENTACAO, and the instance re-enters the same wait — a pendency loop, not a
+    self-heal. This is deliberate and fail-safe (the loop is neutral: no denial, no
+    de-credentialing, and the human User Tasks remain the only adverse path), but it makes the
+    correlation payload part of the contract rather than an implementation detail — see the
+    `msg.cred.info_received` row in docs/processes/contracts/SP-OP-CRED-001.md.
     """
     prestador_id = _norm_str(variables.get("prestador_id", ""))
     if not prestador_id:
