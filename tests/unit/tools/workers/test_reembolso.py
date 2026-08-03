@@ -18,6 +18,7 @@ from maezo.tools.workers.reembolso import (
     ReembolsoDenialNotHumanError,
     ReembolsoInput,
     ReembolsoProtocoloInvalidoError,
+    ReembolsoValorPagamentoInvalidoError,
     analyze_request,
     analyze_request_entry,
     calculate_amount_entry,
@@ -516,6 +517,65 @@ def test_process_payment() -> None:
     assert result["valor_cents"] == 35000
 
 
+def test_process_payment_echoes_contract_output_variable() -> None:
+    """The paid amount is written back under its CONTRACT name (SP-OP-REEMBOLSO-001
+    §"Variaveis de saida": `valor_reembolso_aprovado_cents`), so the value that actually moved
+    is observable in engine history/`reembolso.completed` — not only under the internal
+    `valor_cents` key."""
+    result = process_payment("REEMB-009", 8000, "BEN-PSEUDO-002")
+    assert result["valor_reembolso_aprovado_cents"] == 8000
+    assert result["valor_cents"] == 8000
+
+
+# --- process_payment: fail-closed money guard (ADR-0018 integer-centavos) -------------------
+
+
+def test_process_payment_refuses_missing_amount() -> None:
+    """No amount => NO payment. Fail-closed: never a fabricated R$0,00 comprovante."""
+    with pytest.raises(ReembolsoValorPagamentoInvalidoError) as exc:
+        process_payment("REEMB-009", None, "BEN-PSEUDO-002")  # type: ignore[arg-type]
+    assert str(exc.value).startswith("ERR_REEMBOLSO_VALOR_PAGAMENTO_INVALIDO")
+
+
+def test_process_payment_refuses_zero_amount() -> None:
+    """`0` is the exact shape of the pre-fix defect (`variables.get("valor_cents", 0)`): a
+    payment issued for money that never moved. Refused."""
+    with pytest.raises(ReembolsoValorPagamentoInvalidoError):
+        process_payment("REEMB-009", 0, "BEN-PSEUDO-002")
+
+
+def test_process_payment_refuses_negative_amount() -> None:
+    with pytest.raises(ReembolsoValorPagamentoInvalidoError):
+        process_payment("REEMB-009", -8000, "BEN-PSEUDO-002")
+
+
+@pytest.mark.parametrize("valor", [8000.0, 80.5])
+def test_process_payment_refuses_float_amount(valor: float) -> None:
+    """Money is integer centavos ONLY (ADR-0018) — a float NEVER round-trips to a payment,
+    not even an integral one (8000.0). No rounding, no coercion: refuse."""
+    with pytest.raises(ReembolsoValorPagamentoInvalidoError):
+        process_payment("REEMB-009", valor, "BEN-PSEUDO-002")  # type: ignore[arg-type]
+
+
+def test_process_payment_refuses_bool_amount() -> None:
+    """`True` is an `int` in Python — the guard must reject it explicitly."""
+    with pytest.raises(ReembolsoValorPagamentoInvalidoError):
+        process_payment("REEMB-009", True, "BEN-PSEUDO-002")  # type: ignore[arg-type]
+
+
+def test_process_payment_refuses_string_amount() -> None:
+    """A String-typed money variable is itself an ADR-0018 typing defect (`_to_camunda_var`
+    types every int as Integer/Long) — refuse, never parse."""
+    with pytest.raises(ReembolsoValorPagamentoInvalidoError):
+        process_payment("REEMB-009", "8000", "BEN-PSEUDO-002")  # type: ignore[arg-type]
+
+
+def test_valor_pagamento_invalido_is_value_error() -> None:
+    """`ValueError` family => harness reports `failure(retries=0)` => engine incident, never a
+    silent retry and never a bpmnError (`ST_IssuePayment*` has NO error boundary event)."""
+    assert issubclass(ReembolsoValorPagamentoInvalidoError, ValueError)
+
+
 # ---------------------------------------------------------------------------
 # send_reembolso_denial — GUARD tests
 # ---------------------------------------------------------------------------
@@ -693,11 +753,114 @@ def test_calculate_amount_entry_round_trips_calculate_value() -> None:
 
 
 def test_issue_payment_entry_round_trips_process_payment() -> None:
-    variables = {"protocolo_reembolso": "REEMB-1", "valor_cents": 30000, "beneficiario_pseudo_id": "B-1"}
+    variables = {
+        "protocolo_reembolso": "REEMB-1",
+        "valor_reembolso_aprovado_cents": 30000,
+        "beneficiario_pseudo_id": "B-1",
+    }
     direct = process_payment("REEMB-1", 30000, "B-1")
     result = issue_payment_entry(variables)
     assert result["payment_issued"] == direct["payment_issued"]
     assert result["valor_cents"] == direct["valor_cents"]
+
+
+# --- issue_payment_entry: the amount each of the THREE payment paths must pay ---------------
+# One topic (`operadora.reembolso.issue_payment`) serves three BPMN service tasks. Contract
+# SP-OP-REEMBOLSO-001 §"Variaveis de saida": `valor_reembolso_aprovado_cents` = "Valor
+# efetivamente aprovado (humano em APROVAR/APROVAR_PARCIAL; = valor_calculado_tabela_cents no
+# caminho automatico)" — ONE variable, three producers.
+
+
+def test_issue_payment_entry_auto_path_pays_calculated_amount() -> None:
+    """ST_IssuePaymentAuto (AUTO_APROVAR, L2 integral): the BPMN inputParameter
+    `valor_reembolso_aprovado_cents = ${calculo.valor_calculado_tabela_cents}` has already
+    resolved when the task is fetched, so the worker sees the calculated amount."""
+    variables = {
+        "protocolo_reembolso": "REEMB-AUTO",
+        "beneficiario_pseudo_id": "B-1",
+        # As delivered by the BPMN input mapping on ST_IssuePaymentAuto.
+        "valor_reembolso_aprovado_cents": 12000,
+        "valor_solicitado_cents": 12000,
+    }
+    result = issue_payment_entry(variables)
+    assert result["payment_issued"] is True
+    assert result["valor_cents"] == 12000
+    assert result["valor_reembolso_aprovado_cents"] == 12000
+
+
+def test_issue_payment_entry_analista_path_pays_human_approved_amount() -> None:
+    """ST_IssuePaymentAnalista (human APROVAR): pays the value the human set in the User Task."""
+    variables = {
+        "protocolo_reembolso": "REEMB-ANALISTA",
+        "beneficiario_pseudo_id": "B-1",
+        "decisao_reembolso": "APROVAR",
+        "valor_reembolso_aprovado_cents": 12000,
+        "analista_id": "analista-sintetico-001",
+    }
+    result = issue_payment_entry(variables)
+    assert result["valor_cents"] == 12000
+
+
+def test_issue_payment_entry_parcial_path_pays_reduced_human_amount() -> None:
+    """ST_IssuePaymentParcial (human APROVAR_PARCIAL): pays the REDUCED value the human set —
+    8000 of a 12000 request (the exact shape the live parcial suite asserts). Pre-fix this path
+    issued 0."""
+    variables = {
+        "protocolo_reembolso": "REEMB-PARCIAL",
+        "beneficiario_pseudo_id": "B-1",
+        "decisao_reembolso": "APROVAR_PARCIAL",
+        "valor_solicitado_cents": 12000,
+        "valor_reembolso_aprovado_cents": 8000,
+        "analista_id": "analista-sintetico-001",
+    }
+    result = issue_payment_entry(variables)
+    assert result["valor_cents"] == 8000
+    assert result["valor_reembolso_aprovado_cents"] == 8000
+
+
+def test_issue_payment_entry_approved_overrides_calculated() -> None:
+    """PRECEDENCE: the human-approved value wins over the table-calculated one. A parcial
+    reduction (8000) must NEVER be paid at the calculated 12000."""
+    variables = {
+        "protocolo_reembolso": "REEMB-PARCIAL",
+        "beneficiario_pseudo_id": "B-1",
+        "valor_calculado_tabela_cents": 12000,
+        "valor_reembolso_aprovado_cents": 8000,
+    }
+    assert issue_payment_entry(variables)["valor_cents"] == 8000
+
+
+def test_issue_payment_entry_never_falls_back_to_calculated_amount() -> None:
+    """NO fallback to `valor_calculado_tabela_cents`: paying a machine-calculated amount no
+    human approved would originate a reduction/overpayment in the worker — the L0-hard
+    violation this process exists to prevent (contract §"Invariante L0 hard")."""
+    variables = {
+        "protocolo_reembolso": "REEMB-ANALISTA",
+        "beneficiario_pseudo_id": "B-1",
+        "decisao_reembolso": "APROVAR",
+        "valor_calculado_tabela_cents": 12000,
+    }
+    with pytest.raises(ReembolsoValorPagamentoInvalidoError):
+        issue_payment_entry(variables)
+
+
+def test_issue_payment_entry_refuses_orphan_valor_cents_variable() -> None:
+    """Regression fence for the fixed defect: `valor_cents` is produced by NOTHING in this
+    process (not by calculate_amount, not by any BPMN mapping, not by the start seeds). It must
+    never be the amount source again."""
+    variables = {
+        "protocolo_reembolso": "REEMB-1",
+        "beneficiario_pseudo_id": "B-1",
+        "valor_cents": 30000,
+    }
+    with pytest.raises(ReembolsoValorPagamentoInvalidoError):
+        issue_payment_entry(variables)
+
+
+def test_issue_payment_entry_refuses_when_amount_absent() -> None:
+    """Nothing resolvable => incident, never a R$0,00 payment (the pre-fix behaviour)."""
+    with pytest.raises(ReembolsoValorPagamentoInvalidoError):
+        issue_payment_entry({"protocolo_reembolso": "REEMB-1", "beneficiario_pseudo_id": "B-1"})
 
 
 def test_send_reembolso_denial_entry_guards_missing_human_decision() -> None:

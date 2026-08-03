@@ -62,6 +62,30 @@ class ReembolsoProtocoloInvalidoError(ValueError):
         )
 
 
+class ReembolsoValorPagamentoInvalidoError(ValueError):
+    """Raised when the amount to pay cannot be determined (ERR_REEMBOLSO_VALOR_PAGAMENTO_INVALIDO).
+
+    Fail-closed money guard for `process_payment`: the reimbursement amount is integer BRL
+    centavos (ADR-0018 / contract SP-OP-REEMBOLSO-001 §"Variaveis de entrada": "inteiro — nunca
+    `number`"). Absent, non-`int`, `float`, `bool` or `<= 0` => NO payment is issued.
+
+    A `ValueError` subclass DELIBERATELY (mirrors `ReembolsoProtocoloInvalidoError`): the harness
+    routes the `ValueError` family to `failure(retries=0)` — an immediate, human-visible engine
+    incident, never a silent retry (`harness.py` §9). It is NOT a `WorkerBpmnError`: none of the
+    three `ST_IssuePayment*` tasks carries an error boundary event (BPMN `attachedToRef`: only
+    `ST_CheckCoverage` and `UT_AnaliseReembolso`), and an unmodeled `bpmnError` silently ENDS the
+    process scope on CIB Seven 2.1.0 instead of opening an incident (ADR-0030 §2) — i.e. it would
+    quietly close a reimbursement that was never paid.
+    """
+
+    def __init__(self, detail: str = "") -> None:
+        super().__init__(
+            f"ERR_REEMBOLSO_VALOR_PAGAMENTO_INVALIDO: {detail}"
+            if detail
+            else "ERR_REEMBOLSO_VALOR_PAGAMENTO_INVALIDO"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Input / Output types
 # ---------------------------------------------------------------------------
@@ -364,8 +388,25 @@ def process_payment(
 ) -> dict[str, Any]:
     """Issue reimbursement payment (CNAB/conciliation).
 
-    Only executes for approved reimbursements (APROVAR or AUTO_APROVAR).
+    Only executes for approved reimbursements (AUTO_APROVAR, APROVAR or APROVAR_PARCIAL).
+
+    `valor_cents` is the EFFECTIVELY APPROVED amount in integer BRL centavos —
+    `valor_reembolso_aprovado_cents` (contract SP-OP-REEMBOLSO-001 §"Variaveis de saida");
+    `issue_payment_entry` documents how each of the three payment paths produces it.
+
+    FAIL-CLOSED (`_require_valor_pagamento_cents`): an absent / non-`int` / `float` / `bool` /
+    `<= 0` amount raises `ReembolsoValorPagamentoInvalidoError` BEFORE any comprovante is minted.
+    The amount is never rounded, coerced or defaulted: when the correct amount cannot be
+    determined the safe outcome is NO payment plus an engine incident — a fabricated payment
+    (notably the R$0,00 one a `0` default produces) would mint a `comprovante_pagamento_ref` for
+    money that never moved and close the process at a neutral terminal, hiding the defect.
+
+    The paid amount is echoed back BOTH as `valor_cents` (internal key, kept) and under its
+    contract output name `valor_reembolso_aprovado_cents`, so the value that actually moved is
+    observable in engine history and in the `reembolso.completed` trail (ADR-0007).
     """
+    valor_cents = _require_valor_pagamento_cents(valor_cents)
+
     logger.info(
         "reembolso.process_payment.start",
         protocolo_reembolso=protocolo_reembolso,
@@ -381,6 +422,7 @@ def process_payment(
         "payment_issued": True,
         "protocolo_reembolso": protocolo_reembolso,
         "valor_cents": valor_cents,
+        "valor_reembolso_aprovado_cents": valor_cents,
         "comprovante_pagamento_ref": comprovante_ref,
         "beneficiario_pseudo_id": beneficiario_pseudo_id,
     }
@@ -464,6 +506,44 @@ def publish_completed(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _require_valor_pagamento_cents(valor_cents: Any) -> int:
+    """Fail-closed resolution of the amount to pay — integer BRL centavos ONLY (ADR-0018).
+
+    Money in this contract is `integer` centavos ("inteiro — nunca `number`", contract
+    SP-OP-REEMBOLSO-001 §"Variaveis de entrada"; the DMN shape rule §4-bis-A forbids `number`
+    outright), and `harness._to_camunda_var` types every Python `int` as `Integer`/`Long` — so a
+    `float`, a `str` or a missing value arriving here is a TYPING DEFECT upstream, not a value to
+    salvage. Each rejection returns the SAME safe outcome: no payment, and a `ValueError` the
+    harness turns into an engine incident (`failure(retries=0)`).
+
+    Rejected, in order: `None`/absent; `bool` (which is an `int` in Python and would otherwise
+    pay 1 centavo); `float` (including integral ones like `8000.0` — no rounding is ever applied
+    to money); any other non-`int` type; and `<= 0` (a zero or negative "payment" is never a
+    payment).
+    """
+    if valor_cents is None:
+        raise ReembolsoValorPagamentoInvalidoError("valor_reembolso_aprovado_cents ausente")
+    if isinstance(valor_cents, bool):
+        raise ReembolsoValorPagamentoInvalidoError(
+            "valor_reembolso_aprovado_cents booleano — esperado integer-centavos"
+        )
+    if isinstance(valor_cents, float):
+        raise ReembolsoValorPagamentoInvalidoError(
+            f"valor_reembolso_aprovado_cents float ({valor_cents!r}) — dinheiro e centavos "
+            "INTEIROS (ADR-0018); nenhum arredondamento e aplicado"
+        )
+    if not isinstance(valor_cents, int):
+        raise ReembolsoValorPagamentoInvalidoError(
+            f"valor_reembolso_aprovado_cents tipo invalido ({type(valor_cents).__name__}) — "
+            "esperado integer-centavos"
+        )
+    if valor_cents <= 0:
+        raise ReembolsoValorPagamentoInvalidoError(
+            f"valor_reembolso_aprovado_cents <= 0 ({valor_cents}) — nenhum pagamento e emitido"
+        )
+    return valor_cents
 
 
 def _compute_table_value(
@@ -609,10 +689,47 @@ def notify_sla_risk_entry(
 
 
 def issue_payment_entry(variables: dict[str, Any], *, kafka: KafkaPublisher | None = None) -> dict[str, Any]:
-    """Dict-boundary entry for `operadora.reembolso.issue_payment` -> `process_payment`."""
+    """Dict-boundary entry for `operadora.reembolso.issue_payment` -> `process_payment`.
+
+    AMOUNT RESOLUTION — the paid amount is ALWAYS `valor_reembolso_aprovado_cents`, defined by
+    contract SP-OP-REEMBOLSO-001 §"Variaveis de saida" as "Valor efetivamente aprovado (humano em
+    APROVAR/APROVAR_PARCIAL; = `valor_calculado_tabela_cents` no caminho automatico)". ONE topic
+    serves the BPMN's THREE payment tasks, and all three resolve to that single variable:
+
+    - `ST_IssuePaymentAuto` (AUTO_APROVAR, L2 — integral): the BPMN itself derives it, via the
+      inputParameter `valor_reembolso_aprovado_cents = ${calculo.valor_calculado_tabela_cents}`
+      (contract §`reembolso_auto_approval`: the automatic path produces ONLY integral approval,
+      `= valor_calculado_tabela_cents` and, by construction of the `dentro_tabela` gate,
+      `= valor_solicitado_cents`).
+    - `ST_IssuePaymentAnalista` (human APROVAR): the value the human set in `UT_AnaliseReembolso`
+      / `UT_RevisaoAuditorMedico` / `UT_CoordenacaoReembolso` — already in process scope.
+    - `ST_IssuePaymentParcial` (human APROVAR_PARCIAL): the human's REDUCED value, re-validated
+      upstream on `Flow_Reducao_IssuePay` by `ST_ComunicarReducao`'s `send_reembolso_denial`
+      guard (`0 < valor_reembolso_aprovado_cents < valor_solicitado_cents`), which runs BEFORE
+      this task — so a parcial payment can only ever be reached with a valid reduced amount.
+
+    PRECEDENCE: the approved value OVERRIDES the calculated one, and `valor_calculado_tabela_cents`
+    is NEVER read here — not even as a fallback. On the automatic path the override is already
+    applied by the model (approved := calculated). On the two human paths, substituting the
+    machine-calculated value for a missing human one would pay an amount NO human approved:
+    silently less (a reduction) or more (an overpayment) than the human decision — the L0-hard
+    violation this process exists to prevent (contract §"Invariante L0 hard": "reducao = adverso =
+    humano"; ADR-0018). `valor_cents` — the variable this entry read before this fix — is produced
+    by NOTHING in this process (not by `calculate_amount_entry`, which returns
+    `valor_calculado_tabela_cents`; not by any BPMN mapping; not by the start seeds), so every
+    payment path was issuing the `0` default.
+
+    FAIL-CLOSED: an unresolvable amount raises `ReembolsoValorPagamentoInvalidoError` in
+    `process_payment` and NO payment is issued (see that guard's docstring for why an incident,
+    not a `bpmnError`, is the safe report here).
+    """
     del kafka  # unused — process_payment emits no domain event itself
     protocolo_reembolso = variables.get("protocolo_reembolso", "")
-    valor_cents = variables.get("valor_cents", 0)
+    # Deliberately `Any` (not `int | None`): this is the untyped engine dict boundary — whatever
+    # the engine delivered is handed UNCOERCED to `process_payment`, whose money guard is the one
+    # place that decides what is payable (mirrors send_reembolso_denial_entry, where the entry
+    # only marshals and the typed function holds the guard).
+    valor_cents: Any = variables.get("valor_reembolso_aprovado_cents")
     beneficiario_pseudo_id = variables.get("beneficiario_pseudo_id", "")
     return process_payment(protocolo_reembolso, valor_cents, beneficiario_pseudo_id)
 
