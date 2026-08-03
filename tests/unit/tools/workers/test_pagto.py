@@ -905,17 +905,60 @@ async def test_prepare_approval_dossier_without_dispatcher_fail_neutrals_with_ga
 
 async def test_prepare_approval_dossier_lote_prestador_business_key_delegates() -> None:
     """The CONTAS-001-adjudicated variant (no ordem) delegates on the lote+prestador business
-    key — the SAME derivation `andre.graph._business_key` uses."""
+    key — the SAME derivation `andre.graph._business_key` uses, and the SAME key the running
+    instance carries (threaded verbatim from `task.business_key`, GK-dossier finding 1a)."""
     dispatcher = _FakeDossierDispatcher(
         result=DelegationResult.ok("PAGTO-amh-LOTE-9-PREST-3", "process://PAGTO-amh-LOTE-9-PREST-3")
     )
     handler = make_prepare_approval_dossier_handler(dispatcher)  # type: ignore[arg-type]
     result = await handler(
-        _dossier_task({"tenant_id": "amh", "numero_lote_tiss": "LOTE-9", "prestador_id": "PREST-3"})
+        _dossier_task(
+            {"tenant_id": "amh", "numero_lote_tiss": "LOTE-9", "prestador_id": "PREST-3"},
+            business_key="PAGTO-amh-LOTE-9-PREST-3",
+        )
     )
     assert result["dossier_prepared"] is True
     (envelope,) = dispatcher.envelopes
     assert envelope.task_id == "PAGTO-amh-LOTE-9-PREST-3"
+
+
+async def test_prepare_approval_dossier_threads_the_engine_business_key_verbatim() -> None:
+    """GK-dossier finding 1a, PRODUCER half. The running instance is keyed with the contract's
+    CONTAS variant while an `ordem_pagamento_id` is ALSO in scope: the ordem-first derivation
+    would mint `PAGTO-amh-OP-001`, diverge from the live instance's key, miss Andre's idempotency
+    lookup and open a SECOND SP-OP-PAGTO-001 instance. The handler threads `task.business_key`
+    verbatim, so the envelope anchors the LIVE case and carries it on to his graph."""
+    dispatcher = _FakeDossierDispatcher(
+        result=DelegationResult.ok("PAGTO-amh-L9-P3", "process://PAGTO-amh-L9-P3")
+    )
+    handler = make_prepare_approval_dossier_handler(dispatcher)  # type: ignore[arg-type]
+
+    result = await handler(
+        _dossier_task(
+            {**_PAGTO_DOSSIER_VARS, "numero_lote_tiss": "L9", "prestador_id": "P3"},
+            business_key="PAGTO-amh-L9-P3",  # the ENGINE's authoritative key
+        )
+    )
+
+    assert result["dossier_prepared"] is True
+    (envelope,) = dispatcher.envelopes
+    assert envelope.task_id == "PAGTO-amh-L9-P3"  # NOT the ordem-first `PAGTO-amh-OP-001`
+    assert envelope.payload_ref == "process://PAGTO-amh-L9-P3"
+    assert envelope.payload_meta["engine_business_key"] == "PAGTO-amh-L9-P3"
+
+
+async def test_prepare_approval_dossier_blank_engine_key_falls_back_to_the_derivation() -> None:
+    """A blank `task.business_key` (no engine key in scope) is not fatal — the pre-existing
+    derivation still produces the anchor, and no `engine_business_key` rides the seam."""
+    dispatcher = _FakeDossierDispatcher(
+        result=DelegationResult.ok("PAGTO-amh-OP-001", "process://PAGTO-amh-OP-001")
+    )
+    handler = make_prepare_approval_dossier_handler(dispatcher)  # type: ignore[arg-type]
+    result = await handler(_dossier_task(_PAGTO_DOSSIER_VARS, business_key=""))
+    assert result["dossier_prepared"] is True
+    (envelope,) = dispatcher.envelopes
+    assert envelope.task_id == "PAGTO-amh-OP-001"
+    assert "engine_business_key" not in envelope.payload_meta
 
 
 async def test_prepare_approval_dossier_missing_business_identifiers_gap_never_delegates() -> None:

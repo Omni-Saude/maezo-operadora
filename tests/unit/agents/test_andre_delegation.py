@@ -26,8 +26,8 @@ from maezo.agents.andre.delegation import (
     pagto_task_id,
     state_from_envelope,
 )
-from maezo.agents.andre.graph import _CALLER_INPUT_FIELDS, build
-from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
+from maezo.agents.andre.graph import _CALLER_INPUT_FIELDS, _business_key, build
+from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport, ProcessInstance
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from tests.support.audit_fakes import FakeStartAuditSink
 
@@ -282,15 +282,34 @@ def _pagto_dmn(*, faixa_valor: str = "ALCADA_L1", grupo: str = "aprovacao-financ
     return dmn
 
 
-async def test_handler_pagto_flow_routes_human_starts_process_never_releases() -> None:
-    """The full producer->consumer pagto edge: a `pagto-worker` origin envelope lands in Andre's
-    DEFAULT `pagto_dossier` flow, evaluates the pagto DMN chain, routes an ALCADA_L1 faixa to the
-    human approver (`aprovacao-financeira-l1`, UT_AprovacaoAlcada) and idempotently anchors
-    SP-OP-PAGTO-001 — NEVER an automatic release (L1 hard: the release is born only in the UT)."""
+class _RecordingCibSeven(FakeCibSevenTransport):
+    """Records every `start_process_instance` attempt — the RED proof for the origin no-op."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.start_calls: list[str] = []
+
+    async def start_process_instance(
+        self, process_key: str, business_key: str, variables: dict[str, Any]
+    ) -> Any:
+        self.start_calls.append(business_key)
+        return await super().start_process_instance(process_key, business_key, variables)
+
+
+async def test_handler_pagto_worker_origin_routes_human_but_never_starts_a_second_instance() -> None:
+    """GK-dossier finding 1b (was: this test asserted `process_started == "True"` and so PINNED the
+    duplicate-instance defect). The `pagto-worker` origin means the delegation was originated by
+    `operadora.pagto.prepare_approval_dossier` from INSIDE an ALREADY-RUNNING SP-OP-PAGTO-001
+    instance — Andre must NEVER start a second one (a second instance = a second
+    `UT_AprovacaoAlcada` approval/release path). The dossier still lands in his DEFAULT
+    `pagto_dossier` flow, evaluates the pagto DMN chain and routes the ALCADA_L1 faixa to the human
+    approver (`aprovacao-financeira-l1`) — the business key only ANCHORS. NEVER an automatic
+    release (L1 hard: the release is born only in the UT)."""
+    cibseven = _RecordingCibSeven()
     handler = make_andre_handler(
         _FakeInference(),
         dmn=_pagto_dmn(),
-        cibseven=FakeCibSevenTransport(),
+        cibseven=cibseven,
         audit_sink=FakeStartAuditSink(),
     )
     output = await handler(_pagto_envelope())
@@ -299,7 +318,81 @@ async def test_handler_pagto_flow_routes_human_starts_process_never_releases() -
     assert output.meta["route"] == "human_review"
     assert output.meta["motivo_humano"] == "aprovacao_alcada"
     assert output.meta["grupo_destino"] == "aprovacao-financeira-l1"
-    assert output.meta["process_started"] == "True"  # pagto flow DOES anchor the process
+    # RED PROOF: the start was never even ATTEMPTED — not merely deduped downstream.
+    assert output.meta["process_started"] == "False"
+    assert cibseven.start_calls == []
     # L1 hard: no release/decision token ever leaves this seam.
     assert all("decisao" not in str(v).lower() for v in output.meta.values())
     assert all(str(v).upper() not in {"APROVAR", "RECUSAR", "CANCELAR"} for v in output.meta.values())
+
+
+async def test_handler_pagto_flow_still_starts_the_process_for_a_non_worker_origin() -> None:
+    """The origin no-op is SCOPED: `start_process` stays fully functional for every OTHER origin of
+    the `pagto_dossier` flow (an autonomous/foreign originator legitimately opens the case)."""
+    cibseven = _RecordingCibSeven()
+    handler = make_andre_handler(
+        _FakeInference(),
+        dmn=_pagto_dmn(),
+        cibseven=cibseven,
+        audit_sink=FakeStartAuditSink(),
+    )
+    output = await handler(replace(_pagto_envelope(), origin="autonomous-originator"))
+
+    assert output.meta["process_started"] == "True"
+    assert cibseven.start_calls == ["PAGTO-amh-OP-001"]
+
+
+async def test_engine_business_key_anchors_the_live_contas_variant_instance_no_duplicate() -> None:
+    """GK-dossier finding 1a. The live instance is keyed with the contract's CONTAS variant
+    (`PAGTO-{tenant}-{numero_lote_tiss}-{prestador_id}`, SP-OP-PAGTO-001 §Business key) while an
+    `ordem_pagamento_id` is ALSO in scope — the ordem-FIRST derivation would mint
+    `PAGTO-amh-OP-001`, miss `start_process_idempotent`'s exact-match lookup and start a SECOND
+    live instance. Threading the ENGINE's authoritative key makes the lookup hit its OWN instance:
+    exactly one instance, `already_existed=True`, and no start attempt at all.
+
+    Uses a non-worker origin deliberately: this proves the KEY anchor (brace) in isolation, with
+    the origin no-op (belt) out of the way."""
+    live_key = "PAGTO-amh-L9-P3"
+    cibseven = _RecordingCibSeven()
+    cibseven.seed_instance(
+        ProcessInstance(
+            instance_id="pi-live-1",
+            process_key="SP-OP-PAGTO-001",
+            business_key=live_key,
+            state="ACTIVE",
+        )
+    )
+    handler = make_andre_handler(
+        _FakeInference(),
+        dmn=_pagto_dmn(),
+        cibseven=cibseven,
+        audit_sink=FakeStartAuditSink(),
+    )
+    envelope = _pagto_envelope(
+        ordem_pagamento_id="OP-001",  # ordem ALSO in scope — the divergence trigger
+        numero_lote_tiss="L9",
+        prestador_id="P3",
+        business_key=live_key,
+    )
+    assert envelope.task_id == live_key  # the engine key wins over the ordem-first derivation
+
+    output = await handler(replace(envelope, origin="autonomous-originator"))
+
+    assert output.output_ref == f"process://{live_key}"
+    assert output.meta["process_started"] == "True"
+    assert cibseven.start_calls == []  # the idempotent lookup HIT — nothing was started
+    assert await cibseven.find_active_instance(live_key) is not None
+    assert await cibseven.find_active_instance("PAGTO-amh-OP-001") is None  # no duplicate
+
+
+async def test_engine_business_key_from_a_foreign_tenant_is_ignored() -> None:
+    """ADR-0004: a threaded key that does not carry THIS tenant's `PAGTO-{tenant}-` prefix is not
+    trusted — the derivation takes over, so a planted key can never anchor another tenant's case."""
+    assert (
+        pagto_task_id("amh", ordem_pagamento_id="OP-001", business_key="PAGTO-outra-op-X")
+        == "PAGTO-amh-OP-001"
+    )
+    envelope = _pagto_envelope(business_key="PAGTO-outra-op-X")
+    assert envelope.task_id == "PAGTO-amh-OP-001"
+    assert "engine_business_key" not in envelope.payload_meta
+    assert _business_key(state_from_envelope(envelope)) == "PAGTO-amh-OP-001"
