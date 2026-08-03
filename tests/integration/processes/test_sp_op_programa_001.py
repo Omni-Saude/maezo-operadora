@@ -438,11 +438,12 @@ async def programa_probe(
     """Probe que serve as external tasks com os workers reais de programa."""
     worker_id = f"qa-programa-worker-{uuid.uuid4().hex[:8]}"
     transport = CibSevenWorkerTransport(CIBSEVEN_BASE_URL)
-    # SEM bpmn_error_allowlist AINDA: item-9 bucket-3 migrou check_consent para
-    # WorkerBpmnError(ERR_PROGRAMA_NO_CONSENT) (gate-proven, wired em PRODUCTION_BPMN_ERROR_ALLOWLIST),
-    # mas gatear o allowlist DESTE probe + flipar os xfails de consent-guard exige prova em engine ao
-    # vivo (follow-up — ver _PROGRAMA_CONSENT_GUARD_NOT_BPMN_ERROR_REASON). register_program_discharge
-    # segue ProgramaError->incidente (ERR_PROGRAM_DISCHARGE_NOT_HUMAN e T-E-gated).
+    # item-9 bucket-3 (ADR-0030 §2): check_consent (the PHI chokepoint) now raises the MODELED
+    # boundary error WorkerBpmnError(ERR_PROGRAMA_NO_CONSENT). Mirror PRODUCTION_BPMN_ERROR_ALLOWLIST
+    # (programa.PROGRAMA_BPMN_ERROR_ALLOWLIST) in this probe so a failed/revoked consent routes to the
+    # LGPD fail-safe terminal End_SemConsentimento (BE_SemConsentimento -> ST_PublishConsentBlocked)
+    # instead of demoting to an unconditional incident. register_program_discharge stays
+    # ProgramaError->incident (ERR_PROGRAM_DISCHARGE_NOT_HUMAN is T-E-gated, deliberately not here).
     # T1.10 wave: emit-before-complete is FAIL-CLOSED (harness.py _emit_audit) — a real
     # PostgresAuditSink (lane PG, migrations 0001->0005) is REQUIRED or the harness refuses
     # to complete. `tenant` scopes the durable audit chain / dedup key to the per-run schema.
@@ -452,6 +453,7 @@ async def programa_probe(
         tenant=audit_tenant,
         lock_duration_ms=10_000,
         audit_sink=audit_sink,
+        bpmn_error_allowlist=frozenset({"ERR_PROGRAMA_NO_CONSENT"}),
     )
     kafka = FakeKafkaPublisher()
     register_programa_workers(harness, kafka)
@@ -611,7 +613,6 @@ async def _correlate_message_by_keys(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_PROGRAMA_CONSENT_GUARD_NOT_BPMN_ERROR_REASON, strict=True)
 async def test_chokepoint_consentimento_nenhum_phi_sem_consentimento(
     engine: EngineRest,
     programa_probe: ProgramaEngineProbe,
@@ -643,7 +644,6 @@ async def test_chokepoint_consentimento_nenhum_phi_sem_consentimento(
     await _assert_no_adverse_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_PROGRAMA_CONSENT_GUARD_NOT_BPMN_ERROR_REASON, strict=True)
 async def test_canal_proativo_sem_consent_checked_barra(
     engine: EngineRest,
     programa_probe: ProgramaEngineProbe,

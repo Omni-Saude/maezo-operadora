@@ -718,7 +718,6 @@ async def test_inelegibilidade_roteia_para_humano_nao_nega(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_RECURSO_KAFKA_GAP_REASON, strict=True)
 async def test_happy_path_recorrer_e_deferido(
     engine: EngineRest,
     recurso_probe: RecursoEngineProbe,
@@ -726,11 +725,11 @@ async def test_happy_path_recorrer_e_deferido(
 ) -> None:
     """RECORRER => submit_appeal; msg.recurso.resposta_recebida (deferido) => reconcile + deferido.
 
-    Fails FIRST at the `dossiers` assertion (kafka gap, finding 1 — analyze_request_entry never
-    calls kafka.publish) — this fires BEFORE the instance ever completes UT_AnaliseRecursoAnalista
-    with RECORRER. RECORRER -> ST_SubmitAppeal used to ALSO be a dead end (finding 2, RESOLVED by
-    t3.1-recurso-batch2 — see module docstring); moot here regardless, since the earlier assertion
-    already fails.
+    LIVE-PROVEN flip (item-9 w3). analyze_request_entry/reconcile_payment_entry discard their Kafka
+    seam (ADR-0026 `del kafka`), so `notifications_of_type(...)` over those is a dead echo — observed
+    engine-side via ST_PrepararDossie / ST_ReconcilePaymentDeferido history. submit_appeal is a RAW
+    handler (make_submit_appeal_handler) that DOES publish `recurso.submit_appeal` — its notification
+    assert stays as-is (per-worker, not uniform).
     """
     inst = await start_recurso(glosa_type="administrativa")
     iid = inst["id"]
@@ -738,8 +737,9 @@ async def test_happy_path_recorrer_e_deferido(
     ut = await _drive_to_analista(engine, recurso_probe, iid)
     assert "analista-recurso-glosa" in ut.candidate_groups
 
-    dossiers = recurso_probe.notifications_of_type("recurso.analyze_request")
-    assert dossiers, "Worker analyze_request (Marina) deve ter sido executado"
+    assert "ST_PrepararDossie" in await engine.activity_instances_ended(iid), (
+        "Worker analyze_request (Marina/ST_PrepararDossie) deve ter sido executado"
+    )
 
     await engine.complete_task_as_human(ut.id, {"decisao_recurso": "RECORRER"})
     await recurso_probe.drain()
@@ -765,8 +765,10 @@ async def test_happy_path_recorrer_e_deferido(
     assert _END_DEFERIDO in ended, f"deferido => End_RecursoDeferido. ended={ended}"
     assert not (ended & _ENDS_ADVERSOS)
     assert recurso_probe.has_event(_RECURSO_COMPLETED, desfecho="deferido")
-    reconcilia = recurso_probe.notifications_of_type("recurso.reconcile_payment")
-    assert reconcilia, "Worker reconcile_payment deve ser executado no deferimento"
+    # reconcile_payment_entry discards Kafka (ADR-0026 `del kafka`) — observe engine-side.
+    assert "ST_ReconcilePaymentDeferido" in ended, (
+        "Worker reconcile_payment (ST_ReconcilePaymentDeferido) deve ser executado no deferimento"
+    )
 
 
 async def test_happy_path_recurso_indeferido_pela_operadora(
