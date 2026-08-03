@@ -279,6 +279,21 @@ def test_programa_discharge_happy_path() -> None:
     assert result["desligamento_clinico_registrado"] is True
 
 
+def test_programa_discharge_sets_desfecho_desligamento_clinico_humano() -> None:
+    """GAP-PROG-2 completion (item-9 wave-5, item D): the ONLY producer of the adverse
+    `desfecho=desligamento_clinico_humano` value that ST_PublishCompleted's `event_desfecho`
+    ternary (BPMN:323) depends on — set ONLY on this success path, never on a guard refusal."""
+    result = register_program_discharge(
+        {
+            "decisao_programa": "DESLIGAR_CLINICO",
+            "motivo_desligamento_clinico": "Alta apos conclusao do ciclo terapeutico",
+            "referencia_clinica": "Protocolo HCPA 2023",
+            "responsavel_clinico_id": "med-001",
+        }
+    )
+    assert result["desfecho"] == "desligamento_clinico_humano"
+
+
 def test_programa_discharge_rejects_enroll() -> None:
     """ENROLL is not DESLIGAR — guard must reject."""
     with pytest.raises(ProgramaError) as excinfo:

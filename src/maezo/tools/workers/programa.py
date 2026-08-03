@@ -321,6 +321,16 @@ def _register_program_discharge(variables: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "desligamento_clinico_registrado": True,
+        # GAP-PROG-2 completion (item-9 wave-5, item D): the ONLY source of the adverse
+        # `desfecho=desligamento_clinico_humano` value — BPMN ST_PublishCompleted's own
+        # documentation (SP-OP-PROGRAMA-001_Programas_Cuidado.bpmn:318) claims this worker
+        # "RETORNA desfecho=desligamento_clinico_humano como output var SO no sucesso
+        # pos-guard"; before this fix the key was never actually returned, so
+        # ST_PublishCompleted's `event_desfecho` ternary (BPMN:323) could never resolve the
+        # adverse branch and silently fell through to "". Set ONLY on this success path
+        # (guard-refused calls raise ProgramaError above and never reach here) — never a guess,
+        # never set on a neutral/L3 path.
+        "desfecho": "desligamento_clinico_humano",
     }
 
 
