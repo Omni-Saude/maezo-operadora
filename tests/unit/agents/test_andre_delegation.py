@@ -295,6 +295,22 @@ def test_pagto_envelope_normalizes_the_tenant_and_the_identity_keys() -> None:
     assert _business_key(state) == "PAGTO-amh-L9-P3"  # target derives the SAME key
 
 
+@pytest.mark.parametrize("valor", [1234.99, "25000000", 25_000_000.0, True])
+def test_pagto_envelope_rejects_non_integer_money(valor: Any) -> None:
+    """GK-dossier finding 8: money is INTEGER CENTAVOS (ADR-0018 part 2) and is never coerced.
+    The old `int(...)` TRUNCATED — `1234.99` silently became `1234` and Andre's faixa/alcada
+    routing ran on a value the process never had. Even a float that happens to be whole
+    (`25_000_000.0`) and a `bool` (an `int` subclass) are refused: the type is the contract."""
+    with pytest.raises(ValueError, match="INTEGER centavos"):
+        _pagto_envelope(case_meta={**_PAGTO_CASE_META, "valor_pagamento_cents": valor})
+
+
+def test_pagto_envelope_accepts_integer_money_unchanged() -> None:
+    envelope = _pagto_envelope(case_meta={**_PAGTO_CASE_META, "valor_pagamento_cents": 1234})
+    assert envelope.payload_meta["valor_pagamento_cents"] == "1234"
+    assert state_from_envelope(envelope)["valor_pagamento_cents"] == 1234
+
+
 def test_pagto_envelope_reuses_shared_task_type_with_pagto_worker_origin() -> None:
     """The pagto edge REUSES `analytics.population` (no new task_type minted); the `pagto-worker`
     origin is what routes it — via `_flow_for`'s DEFAULT branch — to Andre's `pagto_dossier`."""

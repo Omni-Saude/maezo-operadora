@@ -339,8 +339,19 @@ def build_pagto_dossier_envelope(
         if key not in meta and str(case_meta.get(key) or "").strip():
             meta[key] = str(case_meta[key]).strip()
     if case_meta.get("valor_pagamento_cents") is not None:
-        # INTEGER-CENTAVOS (ADR-0018 part 2 — money never as float/number on the seam).
-        meta["valor_pagamento_cents"] = str(int(case_meta["valor_pagamento_cents"]))
+        # INTEGER-CENTAVOS (ADR-0018 part 2 — money never as float/number on the seam). REJECTS a
+        # non-int rather than coercing (GK-dossier finding 8): the old `int(...)` TRUNCATED, so a
+        # `1234.99` reaching this builder became `1234` and Andre's faixa/alcada routing ran on a
+        # value the process never had — silently, on the money path. A `bool` is an `int` subclass
+        # and is refused too. The worker's own `except` turns this into a DISCLOSED gap (DL-0037:
+        # the UT still opens and the approver sees the real number), never a truncated dossier.
+        valor = case_meta["valor_pagamento_cents"]
+        if not isinstance(valor, int) or isinstance(valor, bool):
+            raise ValueError(
+                "valor_pagamento_cents must be INTEGER centavos (ADR-0018 part 2) — got "
+                f"{type(valor).__name__}; money is never truncated onto this seam"
+            )
+        meta["valor_pagamento_cents"] = str(valor)
     for key in _PAGTO_BOOLEAN_META_KEYS:
         if key in case_meta:
             meta[key] = "true" if bool(case_meta[key]) else "false"

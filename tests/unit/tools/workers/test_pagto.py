@@ -976,6 +976,22 @@ async def test_prepare_approval_dossier_missing_business_identifiers_gap_never_d
     assert dispatcher.envelopes == []
 
 
+async def test_prepare_approval_dossier_float_money_gaps_never_truncates() -> None:
+    """GK-dossier finding 8, worker half: a non-int `valor_pagamento_cents` reaching this handler
+    raises out of the envelope builder and lands on the DL-0037 path — a DISCLOSED gap on a
+    COMPLETED task. The approver sees the real number in the process variables instead of a
+    dossier silently routed on a TRUNCATED `1234`."""
+    dispatcher = _FakeDossierDispatcher(result=DelegationResult.ok("x", "process://x"))
+    handler = make_prepare_approval_dossier_handler(dispatcher)  # type: ignore[arg-type]
+
+    result = await handler(_dossier_task({**_PAGTO_DOSSIER_VARS, "valor_pagamento_cents": 1234.99}))
+
+    assert result["dossier_prepared"] is False
+    assert result["dossier_gap"] == "delegation_failed"
+    assert dispatcher.envelopes == []  # nothing was delegated on a truncated value
+    assert "1234" not in str(result.values())
+
+
 @pytest.mark.parametrize("tenant_id", ["  ", "", "\t\n"])
 async def test_prepare_approval_dossier_blank_tenant_gap_never_delegates(tenant_id: str) -> None:
     """GK-dossier finding 7 (RED proof for the tenant half of the worker's guard): a blank/
