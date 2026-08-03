@@ -580,10 +580,18 @@ def make_prepare_approval_dossier_handler(dispatcher: DelegationDispatcher | Non
     the task — the human UT MUST still open; this handler NEVER raises. The gap token is a bounded
     class token (engine-variable hygiene) — raw error text stays in the log.
 
-    Idempotency note (disclosed): the delegation `task_id` is the payment business key
-    `PAGTO-{tenant}-{ordem_pagamento_id}` (or `PAGTO-{tenant}-{numero_lote_tiss}-{prestador_id}`) —
-    the `seguir_analise` re-entry for the SAME case receives the idempotent REPLAY of the same
-    dossier, never a duplicated release (Andre's `start_process` is business-key idempotent too).
+    NO-DUPLICATE-INSTANCE (GK-dossier finding 1, two anchors): this handler runs from INSIDE an
+    already-running SP-OP-PAGTO-001 instance, so the delegation must NEVER open a second one
+    (a second instance = a second `UT_AprovacaoAlcada` approval/release path). (a) `task.business_key`
+    — the ENGINE's authoritative key — is threaded verbatim into the delegation, so Andre's
+    idempotent start consults the key the LIVE instance carries instead of its own ordem-first
+    derivation (which diverges for the contract's CONTAS variant
+    `PAGTO-{tenant}-{numero_lote_tiss}-{prestador_id}`); (b) his `start_process` structurally
+    no-ops for this worker's `pagto-worker` origin regardless of the key.
+
+    Idempotency note (disclosed): the delegation `task_id` IS that business key — the
+    `seguir_analise` re-entry for the SAME case receives the idempotent REPLAY of the same
+    dossier, never a duplicated release.
     """
 
     async def handler(task: ExternalTask) -> Mapping[str, Any]:
@@ -630,6 +638,14 @@ def make_prepare_approval_dossier_handler(dispatcher: DelegationDispatcher | Non
                 ordem_pagamento_id=ordem_pagamento_id,
                 numero_lote_tiss=numero_lote_tiss,
                 prestador_id=prestador_id,
+                # The ENGINE's authoritative key of the instance THIS task belongs to (GK-dossier
+                # finding 1a). Threading it verbatim keeps Andre anchored on the SAME case: the
+                # ordem-first derivation DIVERGES from an instance keyed with the contract's
+                # CONTAS variant (`PAGTO-{tenant}-{numero_lote_tiss}-{prestador_id}`, contract
+                # §Business key) whenever an ordem is also in scope, and a diverging key would
+                # miss the idempotency lookup and open a SECOND SP-OP-PAGTO-001 instance — a
+                # duplicated UT_AprovacaoAlcada approval/release path. Blank -> derivation.
+                business_key=str(task.business_key or ""),
             )
         except Exception as exc:  # noqa: BLE001 — DL-0037: the UT must open; never raise here.
             logger.error(

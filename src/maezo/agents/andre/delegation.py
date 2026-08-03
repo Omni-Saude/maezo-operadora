@@ -54,6 +54,7 @@ from maezo.a2a import Budget, DelegationEnvelope, HandlerOutput
 
 from .graph import (
     _CALLER_INPUT_FIELDS,
+    ORIGIN_PAGTO_WORKER,
     AndreState,
     Flow,
     PatientSummaryReader,
@@ -77,12 +78,17 @@ TASK_TYPE_POPULATION_ANALYTICS = "analytics.population"
 # The delegation ORIGINATES in the worker runtime — the origin id is what disambiguates the
 # shared task_type into Andre's `adequacao_dossier` flow (`_flow_for`).
 ORIGIN_WORKER = "adequacao-worker"
-# The PAGTO worker's origin. Deliberately NOT added to `_ORIGIN_TO_FLOW`: it must resolve through
-# `_flow_for`'s DEFAULT branch to Andre's own default flow `pagto_dossier` (his graph documents
-# `pagto_dossier` as "convoked by operadora.pagto.prepare_approval_dossier"). The SHARED task_type
-# `analytics.population` is reused — no new task_type is minted and `spec/agents/andre/agent.yaml`
-# stays untouched, exactly as the adequacao edge does.
-ORIGIN_PAGTO_WORKER = "pagto-worker"
+
+# `ORIGIN_PAGTO_WORKER` (the PAGTO worker's origin) is IMPORTED from `graph.py` above and
+# re-exported here — `graph.py` is the single source of truth because HIS `start_process` is what
+# compares against it (GK-dossier finding 1b: a delegation carrying this origin came from INSIDE
+# an already-running SP-OP-PAGTO-001 instance, so no second instance may ever be started), and
+# this module imports graph, never the reverse. It is deliberately NOT in `_ORIGIN_TO_FLOW`: it
+# must resolve through `_flow_for`'s DEFAULT branch to Andre's own default flow `pagto_dossier`
+# (his graph documents `pagto_dossier` as "convoked by operadora.pagto.prepare_approval_dossier").
+# The SHARED task_type `analytics.population` is reused — no new task_type is minted and
+# `spec/agents/andre/agent.yaml` stays untouched, exactly as the adequacao edge does.
+
 TARGET_AGENT = "andre"
 
 # Default budget for a dossier delegation chain (per the Helena->Rafael exemplar).
@@ -223,18 +229,42 @@ def pagto_task_id(
     ordem_pagamento_id: str = "",
     numero_lote_tiss: str = "",
     prestador_id: str = "",
+    business_key: str = "",
 ) -> str:
     """Idempotent `task_id` == the SP-OP-PAGTO-001 business key (dispatcher Guard 4).
 
-    `PAGTO-{tenant}-{ordem_pagamento_id}` or, when the payment stems from an adjudicated
-    CONTAS-001 account, `PAGTO-{tenant}-{numero_lote_tiss}-{prestador_id}` — the SAME derivation
+    The ENGINE's authoritative `business_key` VERBATIM when the caller threaded one and it
+    carries this tenant's `PAGTO-{tenant}-` prefix (GK-dossier finding 1a — the running
+    instance's own key, which for a CONTAS-001-adjudicated payment is the
+    `PAGTO-{tenant}-{numero_lote_tiss}-{prestador_id}` variant even when an `ordem_pagamento_id`
+    is also in scope). Otherwise DERIVED: `PAGTO-{tenant}-{ordem_pagamento_id}` or
+    `PAGTO-{tenant}-{numero_lote_tiss}-{prestador_id}` — the SAME derivation
     `andre.graph._business_key` uses for the `pagto_dossier` flow (contract SP-OP-PAGTO-001
     §Business key), so an engine re-delivery (incl. the GAP-PAGTO-5 `seguir_analise` re-entry for
     the same case) replays the SAME delegation result without re-running Andre.
+
+    GUARDS ITSELF (GK-dossier finding 6, EB-4 R1 `non_blank` discipline): a blank/whitespace-only
+    tenant, or no ordem AND no complete lote+prestador, raises `ValueError` instead of minting a
+    degenerate key like `PAGTO-amh--`. The pagto worker's own `except` turns that into a DISCLOSED
+    gap (DL-0037: the human UT still opens) — the guard is here so no future caller can bypass it.
     """
-    if ordem_pagamento_id:
-        return f"PAGTO-{tenant}-{ordem_pagamento_id}"
-    return f"PAGTO-{tenant}-{numero_lote_tiss}-{prestador_id}"
+    tenant = str(tenant or "").strip()
+    if not tenant:
+        raise ValueError("pagto_task_id requires a non-blank tenant (ADR-0004 tenant scope)")
+    engine_key = str(business_key or "").strip()
+    if engine_key and engine_key.startswith(f"PAGTO-{tenant}-"):
+        return engine_key
+    ordem = str(ordem_pagamento_id or "").strip()
+    lote = str(numero_lote_tiss or "").strip()
+    prestador = str(prestador_id or "").strip()
+    if ordem:
+        return f"PAGTO-{tenant}-{ordem}"
+    if not (lote and prestador):
+        raise ValueError(
+            "pagto_task_id requires a non-blank ordem_pagamento_id, or a complete "
+            "numero_lote_tiss + prestador_id pair (no degenerate PAGTO business key)"
+        )
+    return f"PAGTO-{tenant}-{lote}-{prestador}"
 
 
 def build_pagto_dossier_envelope(
@@ -244,6 +274,7 @@ def build_pagto_dossier_envelope(
     ordem_pagamento_id: str = "",
     numero_lote_tiss: str = "",
     prestador_id: str = "",
+    business_key: str = "",
     budget: Budget | None = None,
 ) -> DelegationEnvelope:
     """Build the worker->Andre root envelope for the payment APPROVAL dossier (SP-OP-PAGTO-001).
@@ -260,16 +291,30 @@ def build_pagto_dossier_envelope(
     `_PAGTO_BOOLEAN_META_KEYS`) — the SAME facts Andre's `pagto_dossier` flow consumes, all
     worker-pre-resolved (validate_payment_data/calculate_facts). Free text never rides this seam.
     Applies the anti-loop guards at the root.
+
+    `business_key` (GK-dossier finding 1a) is the ENGINE's authoritative key for the RUNNING
+    instance (`ExternalTask.business_key`), threaded verbatim by the pagto worker. It becomes the
+    `task_id`/`payload_ref` anchor AND rides `payload_meta["engine_business_key"]` so
+    `state_from_envelope` can hand it to Andre's graph, whose `start_process` then consults the
+    SAME key the live instance carries instead of its own ordem-first derivation (which diverges
+    for the contract's CONTAS variant and would start a SECOND SP-OP-PAGTO-001 instance — a
+    duplicate `UT_AprovacaoAlcada` approval/release path). Blank -> pure derivation, as before.
+    A business key is NOT PHI: it is the same `PAGTO-{tenant}-...` token already in `payload_ref`.
     """
     task_id = pagto_task_id(
         tenant,
         ordem_pagamento_id=ordem_pagamento_id,
         numero_lote_tiss=numero_lote_tiss,
         prestador_id=prestador_id,
+        business_key=business_key,
     )
     # Seed the case-identity keys explicitly, then overlay the case_meta allowlists (so the target's
     # `receive` always has the business key even if `case_meta` is partial — mirrors adequacao).
     meta: dict[str, str] = {}
+    # The ENGINE's key travels as its own meta entry (NOT one of the case allowlists): the target
+    # side seeds it into `engine_business_key`, which `graph._business_key` prefers verbatim.
+    if task_id == str(business_key or "").strip():
+        meta["engine_business_key"] = task_id
     for key, value in (
         ("ordem_pagamento_id", ordem_pagamento_id),
         ("numero_lote_tiss", numero_lote_tiss),
@@ -306,9 +351,14 @@ async def delegate_pagto_dossier(
     ordem_pagamento_id: str = "",
     numero_lote_tiss: str = "",
     prestador_id: str = "",
+    business_key: str = "",
     budget: Budget | None = None,
 ) -> DelegationResult:
     """Originate and dispatch the worker->Andre payment-dossier delegation. Idempotent by `task_id`.
+
+    `business_key` is the ENGINE's authoritative key of the RUNNING instance the caller sits in
+    (`ExternalTask.business_key`) — threaded verbatim so Andre anchors the SAME case and never
+    starts a duplicate one (GK-dossier finding 1a; see `build_pagto_dossier_envelope`).
 
     Returns the dispatcher's structured `DelegationResult` (success with `output_ref` = the case's
     process anchor + `meta` = Andre's bounded routing summary, or a structured rejection — never a
@@ -320,6 +370,7 @@ async def delegate_pagto_dossier(
         ordem_pagamento_id=ordem_pagamento_id,
         numero_lote_tiss=numero_lote_tiss,
         prestador_id=prestador_id,
+        business_key=business_key,
         budget=budget,
     )
     return await dispatcher.delegate(envelope)
@@ -362,7 +413,15 @@ def state_from_envelope(envelope: DelegationEnvelope) -> AndreState:
         "flow": flow,
         "tenant_id": envelope.tenant,
         "canal": "a2a",
+        # GK-dossier finding 1b: the graph's `start_process` refuses to start SP-OP-PAGTO-001 when
+        # the delegation came from INSIDE a running instance (`pagto-worker`). Always seeded (the
+        # graph reads a bounded comparison only), never inferred at the graph layer.
+        "delegation_origin": envelope.origin,
     }
+    if meta.get("engine_business_key"):
+        # GK-dossier finding 1a: the ENGINE's authoritative key wins over the graph's ordem-first
+        # derivation (tenant-prefix-checked there — a foreign key falls back to the derivation).
+        raw["engine_business_key"] = str(meta["engine_business_key"])
     if flow == "adequacao_dossier":
         for key in _ADEQ_STRING_META_KEYS:
             if meta.get(key):
