@@ -180,6 +180,25 @@ def route_aprovacao(
     (`valor_pagamento_cents=15_000_000, dentro_teto_l2=True` -> DMN returns `ALCADA_L1`, not
     `DENTRO_TETO_L2`) before this cutover; flagged for finance sign-off (the DMN's own
     description already requires it).
+
+    WRITE-BACK ASYMMETRY vs the modeled task (GK-w4 finding 6 — DISCLOSED, deliberate, not a
+    regression): this function is bound to `operadora.pagto.calculate_facts`, and
+    `ST_CalculateFacts`'s BPMN documentation describes a broader echo than what is returned here.
+    The model says the task echoes `valor_pagamento_cents` (long/int64) AND the three booleans
+    `pagto_admissibility` reads (`dados_pagamento_validos` / `lastro_confirmado` /
+    `duplicidade_suspeita`) with fail-closed defaults `false`/`false`/`true` when absent. The
+    return below writes back only `dentro_teto_l2` (plus the routing outputs `faixa_valor` /
+    `grupo_aprovador` / `tier_minimo`) — the MINIMAL fix that item-9 bucket-3 Class-C needed to
+    make `BRT_AlcadaRouting`'s native read of `dentro_teto_l2` see the policy-computed fact
+    instead of the raw start seed. Broadening the echo was intentionally left out of that fix's
+    blast radius.
+    The residual gap is fail-safe in the adverse direction: `BRT_PagtoAdmissibility` runs
+    downstream of this task and `pagto_admissibility` is `hitPolicy="FIRST"` with a catch-all row
+    (`r_catchall`, `-`/`-`/`-`) returning `ANALISE_HUMANA` ("Admissibilidade ambigua / fato
+    ausente ... NUNCA auto-libera"). An unechoed/absent admissibility fact therefore routes to a
+    human, never to an automatic release. `valor_pagamento_cents` is likewise only read, never
+    re-originated, so not echoing it cannot change its value. Closing the asymmetry (echo the
+    three booleans with the modeled defaults, echo the normalized cents) is deferred, not denied.
     """
     resolver = resolver if resolver is not None else CeilingResolver()
 
