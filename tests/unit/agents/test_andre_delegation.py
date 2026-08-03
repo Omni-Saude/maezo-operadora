@@ -13,6 +13,8 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Any
 
+import pytest
+
 from maezo.agents.andre.delegation import (
     DEGRADED_TOKENS,
     ORIGIN_PAGTO_WORKER,
@@ -238,6 +240,59 @@ def test_pagto_task_id_is_the_payment_business_key() -> None:
     assert (
         pagto_task_id("amh", numero_lote_tiss="L9", prestador_id="P3") == "PAGTO-amh-L9-P3"
     )  # CONTAS-001-adjudicated variant
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"tenant": "", "ordem_pagamento_id": "OP-001"},
+        {"tenant": "   ", "ordem_pagamento_id": "OP-001"},
+        {"tenant": "amh"},  # no ordem, no lote/prestador at all
+        {"tenant": "amh", "ordem_pagamento_id": "  "},  # whitespace-only
+        {"tenant": "amh", "numero_lote_tiss": "L9"},  # lote without prestador
+        {"tenant": "amh", "prestador_id": "P3"},  # prestador without lote
+        {"tenant": "amh", "numero_lote_tiss": "L9", "prestador_id": "  "},
+    ],
+)
+def test_pagto_task_id_refuses_to_mint_a_degenerate_key(kwargs: dict[str, Any]) -> None:
+    """GK-dossier finding 6: `PAGTO-amh--`-class outputs are STRUCTURALLY impossible. The builder
+    guards itself (EB-4 R1 `non_blank` discipline) instead of trusting every caller to pre-check —
+    the pagto worker's own `except` turns the raise into a DISCLOSED gap (DL-0037, the UT opens)."""
+    tenant = kwargs.pop("tenant")
+    with pytest.raises(ValueError, match="pagto_task_id requires"):
+        pagto_task_id(tenant, **kwargs)
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"tenant": "  ", "ordem_pagamento_id": "OP-001"},
+        {"tenant": "amh", "ordem_pagamento_id": ""},
+        {"tenant": "amh", "ordem_pagamento_id": "  ", "numero_lote_tiss": "L9"},
+    ],
+)
+def test_pagto_envelope_builder_enforces_the_same_guards(kwargs: dict[str, Any]) -> None:
+    """The ENVELOPE builder is not a way around the key guard — it raises for the same inputs, so
+    no degenerate `payload_ref`/`task_id` can ever reach the dispatcher."""
+    with pytest.raises(ValueError, match="pagto_task_id requires"):
+        _pagto_envelope(**kwargs)
+
+
+def test_pagto_envelope_normalizes_the_tenant_and_the_identity_keys() -> None:
+    """A padded tenant must not split the identity: the envelope's `tenant` is the SAME normalized
+    token the key was built from, otherwise the target would seed `tenant_id=" amh "` and derive a
+    DIFFERENT business key (`PAGTO- amh -...`) — the finding-1 divergence from the other side.
+    Whitespace-only identity values are omitted, never forwarded as blank-but-truthy."""
+    envelope = _pagto_envelope(tenant=" amh ", ordem_pagamento_id=" OP-001 ")
+    assert envelope.task_id == "PAGTO-amh-OP-001"
+    assert envelope.tenant == "amh"
+    assert envelope.payload_meta["ordem_pagamento_id"] == "OP-001"
+
+    padded = _pagto_envelope(ordem_pagamento_id="  ", numero_lote_tiss="L9", prestador_id="P3")
+    assert padded.task_id == "PAGTO-amh-L9-P3"
+    assert "ordem_pagamento_id" not in padded.payload_meta  # never a blank-but-truthy value
+    state = state_from_envelope(padded)
+    assert _business_key(state) == "PAGTO-amh-L9-P3"  # target derives the SAME key
 
 
 def test_pagto_envelope_reuses_shared_task_type_with_pagto_worker_origin() -> None:

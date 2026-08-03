@@ -302,6 +302,13 @@ def build_pagto_dossier_envelope(
     duplicate `UT_AprovacaoAlcada` approval/release path). Blank -> pure derivation, as before.
     A business key is NOT PHI: it is the same `PAGTO-{tenant}-...` token already in `payload_ref`.
     """
+    # GUARDS ITSELF (GK-dossier finding 6): `pagto_task_id` raises on a blank tenant or a missing
+    # identifier — this builder must NOT be a way around that, so it calls the guard FIRST and
+    # anchors the envelope on the SAME normalized tenant. Passing the RAW `tenant` to
+    # `DelegationEnvelope.root` would let `PAGTO-{stripped}-...` ride an envelope whose
+    # `envelope.tenant` still has the surrounding whitespace — the target's `state_from_envelope`
+    # would seed THAT into `tenant_id` and `graph._business_key` would then derive a DIFFERENT key
+    # (`PAGTO- amh -...`), reopening the finding-1 divergence from the other side.
     task_id = pagto_task_id(
         tenant,
         ordem_pagamento_id=ordem_pagamento_id,
@@ -309,6 +316,7 @@ def build_pagto_dossier_envelope(
         prestador_id=prestador_id,
         business_key=business_key,
     )
+    tenant = str(tenant).strip()
     # Seed the case-identity keys explicitly, then overlay the case_meta allowlists (so the target's
     # `receive` always has the business key even if `case_meta` is partial — mirrors adequacao).
     meta: dict[str, str] = {}
@@ -316,16 +324,20 @@ def build_pagto_dossier_envelope(
     # side seeds it into `engine_business_key`, which `graph._business_key` prefers verbatim.
     if task_id == str(business_key or "").strip():
         meta["engine_business_key"] = task_id
+    # NON-BLANK discipline (GK-dossier finding 6): the identity keys ride STRIPPED, and a
+    # whitespace-only one is omitted entirely rather than forwarded. A blank-but-truthy `"  "`
+    # would otherwise reach the target's state and, since `graph._business_key` is ordem-FIRST,
+    # derive `PAGTO-{tenant}-  ` — a degenerate key that anchors nothing (and a fresh instance).
     for key, value in (
         ("ordem_pagamento_id", ordem_pagamento_id),
         ("numero_lote_tiss", numero_lote_tiss),
         ("prestador_id", prestador_id),
     ):
-        if value:
-            meta[key] = str(value)
+        if str(value or "").strip():
+            meta[key] = str(value).strip()
     for key in _PAGTO_STRING_META_KEYS:
-        if key not in meta and case_meta.get(key):
-            meta[key] = str(case_meta[key])
+        if key not in meta and str(case_meta.get(key) or "").strip():
+            meta[key] = str(case_meta[key]).strip()
     if case_meta.get("valor_pagamento_cents") is not None:
         # INTEGER-CENTAVOS (ADR-0018 part 2 — money never as float/number on the seam).
         meta["valor_pagamento_cents"] = str(int(case_meta["valor_pagamento_cents"]))
