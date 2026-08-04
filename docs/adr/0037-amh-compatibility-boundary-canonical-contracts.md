@@ -1,6 +1,6 @@
 # ADR-0037: Fronteira de compatibilidade AMH — contratos canônicos AMH-owned; supersede PARCIAL do ADR-0013 (MZO-000)
 
-**Status:** Proposed — HUMAN-GATED per docs/prompts/EXECUTE_AMH_COMPATIBILITY_PLAN.md §5: aceitação requer ratificação humana explícita (Arquitetos Principais Maezo+AMH e CTO; DPO/Legal para cláusulas de identidade/consentimento XRD-05; Security para XRD-11/12; stewards de dados AMH para XRD-03/04). Nenhuma auto-certificação de agente ou orquestrador move este status. · **Data:** 2026-08-03 · **Area:** Integracao / Dados / Fronteira de plataforma
+**Status:** Accepted — ratificado por Rodrigo (repo owner) 2026-08-03, autoridade humana do stop point §5 do execution prompt; registrado como DL-0040. A aceitação fecha a METADE MAEZO do gate XRG-1 — o gate XRG-1 só fecha por completo com o ADR companheiro (AMH-000) aceito no repo amh-data-platform. Os gates operacionais §5 downstream (DPO/Legal em valores de identidade/consent, Security em designs, stewards em inventário de fonte, aprovações Médica/ANS de MZO-040) permanecem exigíveis nas waves de implementação. · **Data:** 2026-08-03 · **Area:** Integracao / Dados / Fronteira de plataforma
 
 > **Gate humano — override explícito da prática de ratificação autônoma deste repo.** Existe precedente
 > de flip Proposed→Accepted pelo orquestrador sob autoridade autônoma vigente (ADR-0032; DL-0036).
@@ -10,6 +10,8 @@
 > fixação de propriedade de capacidade XRD-01). A aceitação deste ADR constitui a metade Maezo do gate
 > XRG-1 do plano de compatibilidade e exige os aprovadores nomeados na linha de Status acima; nenhum
 > agente, orquestrador ou gatekeeper automatizado pode mover este Status.
+
+> **Ratificação registrada (2026-08-03):** o gate humano acima foi CUMPRIDO — ratificação explícita do dono do repositório na sessão de orquestração de 2026-08-03, exercendo os papéis de aprovação nomeados; paperwork executado por agente sob instrução direta (DL-0040). Nenhum conteúdo decisório do ADR foi alterado nesta ratificação.
 
 Owner: boundary-adr-author (MZO-000, Wave 0). Escopo: docs-only — nenhuma edição de `src/`, `spec/`,
 `tests/`, `deploy/` ou evidence-ledger. Planos citados: `docs/prompts/AMH_COMPATIBILITY_TECHNICAL_PLAN.md`
