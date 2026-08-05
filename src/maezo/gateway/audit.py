@@ -159,14 +159,20 @@ class AuditRecord:
             `{"version": ..., "id": ..., "deploymentId": ...}` shape, and
             `tests/integration/dmn/test_dmn_golden_parity.py` /
             `tests/unit/gateway/test_audit_dmn_versions.py` for a populated example evaluated
-            against the live engine. What remains a genuine follow-up (NOT T1.5's scope): no
-            production code path yet constructs an `AuditRecord` FROM a worker/agent decision at
-            all (`emit()` has no caller in `src/` today — grep confirms it) — that end-to-end
-            worker-to-audit-chain wiring is a separate, larger integration task. Until it lands,
-            this remains an explicit non-null empty structure (`{}`) for any `AuditRecord` that
-            doesn't yet have a real caller, never a fabricated value — the `dmn_versions` column
-            is `NOT NULL DEFAULT '{}'::jsonb` precisely to make "no DMN provenance yet"
-            representable without lying about it.
+            against the live engine. STALE as of T1.5 (2026-07-17, PR #56, when this paragraph was
+            written): "no production code path yet constructs an `AuditRecord` FROM a worker/agent
+            decision" was true then but not since T1.10, one day later. Real production callers
+            today: `WorkerHarness._build_audit_record`/`_emit_audit` (worker completion, T-C,
+            `harness.py:1201`/`:1232`) and `_build_refusal_record`/`_audit_guard_refusal` (guard
+            refusal, T-E, PR #131, `harness.py:1264`/`:1300`) — both fed by the real
+            `collect_dmn_versions()` collector (`_audit_ctx.py`), so this field carries genuine DMN
+            provenance for those records, not `{}`; `A2ADispatcher._audit_delegation`/
+            `_audit_delegation_outcome` (A2A delegation, PR #156, `a2a/dispatcher.py:402`/`:483`);
+            and `build_start_audit_record` (agent process-start provenance, T-C2,
+            `mcp_cibseven/transport.py:514`, emitted at `:599`). A2A delegation records never set
+            `dmn_versions` (no DMN table is consulted for a delegation decision) — for those records
+            the `NOT NULL DEFAULT '{}'::jsonb` column default remains the correct, honest value; it
+            is no longer, though, evidence that nothing calls `emit()` in production.
         model_id: LLM model identifier, when the action involved one.
         prompt_version: Prompt template version, when applicable.
         prev_hash: SHA-256 hash of the previous record in the chain.

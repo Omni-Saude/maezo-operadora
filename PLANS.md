@@ -109,6 +109,29 @@ Legenda: **✅** verificado-done (gate) · **◑** parcial (código existe, lacu
 
 ---
 
+## 0.6 — Programa de compatibilidade AMH (AMH-compat) — registrado 2026-08-05
+
+> **Este documento não tinha, até este registro, nenhuma menção ao programa AMH-compat — lacuna de rastreio corrigida agora; §0/§0.5 não são reabertos.** Governado pela **ADR-0037** (Accepted, ratificado pelo dono do repositório em 2026-08-03, DL-0040): supersede PARCIAL o ADR-0013 (clausulas 1, 2 [wire dev-JSON], 3, 4, 5; princípios consume-not-duplicate/TASY-write-DROP re-ancorados) e AMENDS o ADR-0034 (XRD-09, chokepoint por chamada). Detalhe completo: `docs/adr/0037-*.md`; decisões: DL-0039 (draft)/DL-0040 (ratificação)/DL-0041 (XRG-3) em `docs/decisions-log.md`; ledger: rows `mzo-000`/`mzo-000-ratify`/`mzo-010`/`mzo-030` em `docs/evidence-ledger.md`.
+
+**Gates cross-repo (plano §6.3 do ADR-0037) — os três FECHADOS:**
+- **XRG-1 (ownership).** Metade Maezo: ADR-0037 Accepted (DL-0040, `b6de8d2`, PR #188). Metade AMH: ADR-042 do repo `amh-data-platform`, Accepted na mesma data (2026-08-03), registrando explicitamente que a aceitação fecha XRG-1 por completo com o Maezo ADR-0037 já Accepted.
+- **XRG-2 (publicação).** A AMH publicou o contract manifest canônico + artefatos; evidence id **`XRG2-AMH-DEV-GHA-30991849241`** (publicação Glue real, run não-dry-run), verificado independentemente 2× antes do pin (DL-0041).
+- **XRG-3 (pin do consumidor).** Fechado por este repo — **MZO-010** (PR #190).
+
+**Work packages landados (Wave 0-1):**
+- **MZO-000** — a própria ADR-0037 (draft + ratificação humana): PRs #187/#188.
+- **MZO-010** — pin imutável `config/integrations/amh/contracts.lock.json` + gate fail-closed `make verify-amh-contract-pin` + contract tests (`tests/contract/amh/`): PR #190.
+- **MZO-030** — `src/maezo/ports/` — cinco seams `typing.Protocol` ERP-neutros (`WorkItemSource`, `ConsentDecisionSource`, `ClinicalContextPort`, `PopulationFeaturePort`, `OutcomePublisherPort`): PR #191.
+
+**Bloqueado em portões humanos NOMEADOS — isto NÃO é trabalho agendado, é teto humano:**
+- **MZO-020** (objetos de valor de identidade portável) — aguarda sign-off **DPO/Legal**.
+- **MZO-040** (`ActionExecutionGateway`) — aguarda aprovações **Médica, ANS e Security**.
+- DL-0040 registra explicitamente que a ratificação da ADR-0037 NÃO fechou esses dois portões.
+
+**Próxima dependência:** **MZO-050** (adapters AMH de work-item/consent) está bloqueado atrás de **MZO-020** — isto é, atrás do portão DPO/Legal, não de capacidade de engenharia (mapa de gating na seção "Consequências" do ADR-0037).
+
+---
+
 ## 1. Objetivo
 
 Reconstruir a plataforma Maezo usando `docs/` como especificação canônica: 15 processos BPMN, 10 agentes AI, gateway de segurança, multi-tenancy e observabilidade — até **produção verificada (G4)**.
