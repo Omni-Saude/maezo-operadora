@@ -3,8 +3,17 @@
 Per ADR-0007 (dual engine+Kafka audit), all domain events are published to
 Kafka topics following the convention: {dominio}.{contexto}.{acao}
 
+Per ADR-0037 XRD-04 (AMH compatibility boundary), the pinned AMH boundary topics
+(`config/integrations/amh/contracts.lock.json`) extend that convention with an explicit version
+segment and, for the amh-to-maezo direction, a `.quarantine.v{N}` dead-letter suffix:
+{dominio}.{contexto}.{acao}.v{N}[.quarantine.v{N}], where {acao} may be kebab-case (e.g.
+`work-items`). This is a WIDER SHAPE of the same convention, not a per-name allowlist — it admits
+any topic following that structure, not only the three currently pinned names, so a future
+AMH-side version bump under the same shape does not require another registry change.
+
 The TopicRegistry enforces:
-- Topics must follow the 3-segment convention (or the special agents.audit topic).
+- Topics must follow the 3-segment convention (or the special agents.audit topic), OR the
+  versioned boundary-topic convention above.
 - No duplicate topic registrations (warns on overwrite).
 - Topics registered here are referenced by the PEP (Policy Enforcement Point)
   and the audit gateway for dual-publishing.
@@ -29,6 +38,22 @@ logger = structlog.get_logger(__name__)
 
 # Convention: {dominio}.{contexto}.{acao}
 _TOPIC_PATTERN: re.Pattern[str] = re.compile(r"^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$")
+
+# Versioned boundary-topic convention (ADR-0037 XRD-04): {dominio}.{contexto}.{acao}.v{N}, with an
+# OPTIONAL ".quarantine.v{N}" dead-letter suffix. {dominio}/{contexto} keep the original
+# [a-z][a-z0-9_]* shape (no hyphens — unchanged strictness); {acao} may be kebab-case (hyphen
+# separated, no leading/trailing/doubled hyphen) to admit nouns like "work-items". This is the
+# shape every pinned AMH boundary topic uses — see
+# config/integrations/amh/contracts.lock.json:topics[].name/.quarantine and the lock-anchored proof
+# in tests/unit/platform/test_topic_registry.py::TestAmhBoundaryTopicsFromLock.
+_VERSIONED_BOUNDARY_TOPIC_PATTERN: re.Pattern[str] = re.compile(
+    r"^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*\.v[0-9]+"
+    r"(?:\.quarantine\.v[0-9]+)?$"
+)
+
+# Kafka's own hard limit on a topic name (org.apache.kafka.common.internals.Topic,
+# TOPIC_MAX_NAME_LENGTH). Rejected outright, independent of the shape checks below.
+_MAX_TOPIC_NAME_LENGTH = 249
 
 # Reserved prefixes
 _RESERVED_PREFIXES: frozenset[str] = frozenset({"agents.events", "agents.audit"})
@@ -85,6 +110,8 @@ class TopicRegistry:
     Enforces:
     - Topics must follow {dominio}.{contexto}.{acao} (or be agents.audit).
     - Reserved prefixes (agents.events, agents.audit) must be used correctly.
+    - OR the versioned boundary-topic convention (ADR-0037 XRD-04):
+      {dominio}.{contexto}.{acao}.v{N}[.quarantine.v{N}], acao may be kebab-case.
     - PII zone awareness (zona_geral vs zona_phi, ADR-0006).
 
     Usage:
@@ -190,13 +217,22 @@ class TopicRegistry:
         """Validate a topic name against the naming convention.
 
         Rules:
-        - Must be a non-empty string.
+        - Must be a non-empty string, and at most _MAX_TOPIC_NAME_LENGTH characters (Kafka's own
+          hard limit).
         - agents.audit is a special single-segment topic (allowed).
-        - All other topics must match {dominio}.{contexto}.{acao}.
-        - Each segment must start with [a-z] and contain only [a-z0-9_].
+        - agents.events.* / agents.audit.* reserved-prefix topics (3- or 4-segment).
+        - The generic {dominio}.{contexto}.{acao} convention: each segment must start with
+          [a-z] and contain only [a-z0-9_].
+        - OR the versioned boundary-topic convention (ADR-0037 XRD-04):
+          {dominio}.{contexto}.{acao}.v{N}[.quarantine.v{N}], where {acao} may be kebab-case.
         """
         if not topic or not isinstance(topic, str):
             raise TopicValidationError(topic, "Topic name must be a non-empty string")
+
+        if len(topic) > _MAX_TOPIC_NAME_LENGTH:
+            raise TopicValidationError(
+                topic, f"Topic name exceeds the {_MAX_TOPIC_NAME_LENGTH}-character Kafka limit"
+            )
 
         # Special topics
         if topic in _SPECIAL_TOPICS:
@@ -223,13 +259,16 @@ class TopicRegistry:
                         return
                     raise TopicValidationError(topic, f"Reserved prefix '{prefix}' used with invalid suffix")
 
-        # Standard 3-segment convention
-        if not _TOPIC_PATTERN.match(topic):
-            raise TopicValidationError(
-                topic,
-                "Topic must follow convention {dominio}.{contexto}.{acao} "
-                "with segments matching [a-z][a-z0-9_]*",
-            )
+        # Standard 3-segment convention, OR the versioned boundary-topic convention (ADR-0037 XRD-04).
+        if _TOPIC_PATTERN.match(topic) or _VERSIONED_BOUNDARY_TOPIC_PATTERN.match(topic):
+            return
+
+        raise TopicValidationError(
+            topic,
+            "Topic must follow convention {dominio}.{contexto}.{acao} with segments matching "
+            "[a-z][a-z0-9_]*, or the versioned boundary-topic convention "
+            "{dominio}.{contexto}.{acao}.v{N}[.quarantine.v{N}] (acao may be kebab-case)",
+        )
 
     @staticmethod
     def validate(topic: str) -> bool:
