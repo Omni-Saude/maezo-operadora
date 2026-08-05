@@ -45,7 +45,7 @@ dependencies = [
     "opentelemetry-exporter-otlp-proto-grpc>=1.25,<2.0",
     "prometheus-client>=0.20,<1.0",
     # --- Seguranca / LGPD ---
-    "cryptography>=48.0.1,<50",
+    "cryptography>=50.0.0,<51",
     "greenlet>=3.5.3",
     # --- Inferencia LLM (ADR-0009; single import point: maezo.runtime.inference) ---
     "anthropic>=0.40,<1.0",         # T1.7: real provider behind InferenceProvider
