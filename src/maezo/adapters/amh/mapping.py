@@ -70,7 +70,20 @@ owner makes WITHIN a major and not across one. So `1.0.0`, an earlier `1.x` and 
 `1.x` are all readable (unknown added fields are ignored, per decision 3), while `2.0.0` — or
 anything whose major is not the pin's — is refused closed: a v2 event arriving on a v1 topic is
 either a misrouted producer or a contract break, and both are quarantine cases, never
-best-effort-parse cases.
+best-effort-parse cases. The version is parsed by the ONE validator this adapter has,
+`contract.parse_semver`, which is ASCII-only and rejects leading zeros — see `_check_schema_version`.
+
+**7-10. `AmhMappingError` is the ONLY exception this module raises — no exception of another type
+may leave it.** `maezo.ports.errors` states the rule without qualification: "No adapter exception may
+cross a port boundary". A `TypeError`, `ValueError` or `OverflowError` escaping here would not merely
+skip the closed `PortFailureReason` taxonomy; in phase B it would wedge the consumer loop on a single
+poison delivery instead of quarantining it, converting fail-closed into fail-crash. Four conversions
+implement that, each documented at its site: **(7)** non-finite floats are refused rather than hashed
+into non-JSON `NaN`/`Infinity` bytes, and **(8)** a payload value the canonical JSON form cannot
+represent (Avro `bytes`/`decimal`/`timestamp-millis` decode to exactly those Python types) is refused
+— both in `canonical_payload_hash`; **(9)** an epoch-millis value that is legal for the wire's `long`
+but outside `datetime`'s range is refused in `millis_to_utc`/`_to_utc`; **(10)** a sub-millisecond
+instant on egress is refused rather than silently truncated in `utc_to_millis`.
 """
 
 from __future__ import annotations
@@ -81,7 +94,7 @@ from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any, Final
 
-from maezo.adapters.amh.contract import AmhAdapterError, AmhContractPin
+from maezo.adapters.amh.contract import AmhAdapterError, AmhContractPin, parse_semver
 from maezo.ports.consent import CanonicalConsentEvent, ConsentDecision
 from maezo.ports.envelope import ENVELOPE_FIELD_ORDER, SourcePosition
 from maezo.ports.outcomes import CanonicalOutcome
@@ -150,8 +163,35 @@ def canonical_payload_hash(payload: Mapping[str, Any]) -> str:
     empirically-established form (see decision 2 in the module docstring; the non-ASCII fixtures are
     the discriminating evidence, and the same spelling is used by
     `tests/contract/amh/test_contract_pin.py`).
+
+    **`allow_nan=False` (decision 7).** Python's default emits the bare tokens `NaN`, `Infinity` and
+    `-Infinity`, which are NOT JSON (RFC 8259 has no such literals). A payload carrying one would hash
+    "successfully" here over bytes no conforming producer could have produced, so the recomputation
+    would be comparing against a canonical form the other side cannot reach — a silent
+    disagreement dressed as a match. Refused instead.
+
+    **The input is DECODED, not necessarily JSON-typed (decision 8).** The module contract says
+    "parsed JSON, or Avro decoded to a dict by phase B", and Avro's `bytes`, `decimal` and
+    `timestamp-millis` decode to `bytes`, `Decimal` and `datetime` — precisely the Python types
+    `json.dumps` cannot serialise. Left uncaught, that is a bare `TypeError` crossing a port boundary,
+    which `maezo.ports.errors` forbids outright. It is refused as a contract violation instead: a
+    payload the pinned canonical form cannot express has no hash to compare, so the delivery must be
+    quarantined, not parsed on best effort.
+
+    Raises:
+        AmhMappingError: the payload contains a value the canonical JSON form cannot represent
+            (an unserialisable type, a non-comparable key set, or a non-finite float).
     """
-    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    try:
+        encoded = json.dumps(
+            payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+        )
+    except (TypeError, ValueError):
+        # `from None`: the underlying message can quote a key name or a repr of wire data, and nothing
+        # from the payload may reach a log, a trace or quarantine metadata (decision 5).
+        raise AmhMappingError(
+            PAYLOAD_KEY, "payload contains a value the canonical JSON form cannot represent"
+        ) from None
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
@@ -163,32 +203,79 @@ def millis_to_utc(value: object, *, field: str) -> datetime:
     `datetime`, a float and a numeric string — see decision 1: an ambiguous instant is refused, never
     guessed.
 
+    **The legal `long` range is WIDER than `datetime` (decision 9).** The wire type is a millis
+    `long`, so every value up to `2**63-1` is schema-conformant, while `datetime` stops at year 9999.
+    The epoch arithmetic therefore raises `OverflowError` for a whole band of LEGAL wire values
+    (year 10000 onwards, and again once the day count exceeds `timedelta`'s own limit). That is an
+    adapter exception crossing a port boundary, which `maezo.ports.errors` forbids — and in phase B
+    one poison timestamp would wedge the consumer loop instead of quarantining the delivery, turning
+    fail-closed into fail-crash. It is refused as a contract violation instead.
+
     Raises:
-        AmhMappingError: the value is not a millis integer or a tz-aware datetime.
+        AmhMappingError: the value is not a millis integer or a tz-aware datetime, or it is an
+            epoch-millis value outside the representable instant range.
     """
     if isinstance(value, datetime):
         if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
             raise AmhMappingError(field, "naive datetime — a timestamp must carry its timezone")
-        return value.astimezone(UTC)
+        return _to_utc(value, field=field)
     # `bool` is an `int` subclass; `True` must not read as 1ms past the epoch.
     if isinstance(value, bool) or not isinstance(value, int):
         raise AmhMappingError(
             field, f"expected an epoch-millis integer or tz-aware datetime, got {type(value).__name__}"
         )
-    return _EPOCH + timedelta(milliseconds=value)
+    try:
+        return _EPOCH + timedelta(milliseconds=value)
+    except (OverflowError, OSError):
+        # `from None`: the chained OverflowError text carries a day count computed FROM the wire value
+        # (`days=1157407407`), which decision 5 keeps out of every rendered form of the refusal.
+        raise AmhMappingError(field, "epoch-millis value outside the representable instant range") from None
+
+
+def _to_utc(value: datetime, *, field: str) -> datetime:
+    """Normalise an aware `datetime` to UTC, refusing the offsets that overflow the `datetime` range.
+
+    `astimezone` shifts the wall clock by the offset, so an instant within ~14h of `datetime.min`/
+    `datetime.max` carrying a non-UTC offset raises `OverflowError` — reachable from BOTH directions
+    (Avro `timestamp-millis` on ingress, a caller-supplied `CanonicalOutcome` on egress).
+    """
+    try:
+        return value.astimezone(UTC)
+    except (OverflowError, OSError):
+        raise AmhMappingError(
+            field, "instant outside the representable range once normalised to UTC"
+        ) from None
 
 
 def utc_to_millis(value: datetime, *, field: str) -> int:
     """Convert a tz-aware `datetime` back to the pinned epoch-millis wire form.
 
+    **Sub-millisecond precision is REFUSED, not truncated (decision 10).** The pinned wire type is a
+    millis `long`, so a finer instant cannot be represented. Truncating it silently — which is what
+    `delta // timedelta(milliseconds=1)` did — has two failure modes worth refusing over: the emitted
+    event would carry an `occurred_at` that is NOT the instant the canonical outcome was audited with
+    (so `map_outcome(outcome_to_wire(o)) != o`, and an outbox reconciler comparing the two finds a
+    divergence this adapter created), and floor division rounds toward −∞, so a pre-epoch instant
+    truncates AWAY from zero while a post-epoch one truncates toward it — a sign-dependent skew nobody
+    declared. This is the same posture as the naive-datetime refusal directly above: on this boundary
+    an instant is never silently altered, and a caller that wants millis truncates deliberately.
+
     Raises:
         AmhMappingError: the datetime is naive (refusing to invent a timezone on egress, exactly as
-            on ingress).
+            on ingress), carries sub-millisecond precision, or lies outside the range representable
+            once normalised to UTC.
     """
     if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
         raise AmhMappingError(field, "naive datetime — a timestamp must carry its timezone")
-    delta = value.astimezone(UTC) - _EPOCH
-    return delta // timedelta(milliseconds=1)
+    delta = _to_utc(value, field=field) - _EPOCH
+    millis, remainder = divmod(delta, timedelta(milliseconds=1))
+    if remainder:
+        raise AmhMappingError(
+            field,
+            "sub-millisecond precision — the pinned wire form is epoch millis, and truncating would "
+            "silently alter the instant",
+        )
+    return millis
 
 
 # ---------------------------------------------------------------------------
@@ -196,17 +283,26 @@ def utc_to_millis(value: datetime, *, field: str) -> int:
 # ---------------------------------------------------------------------------
 
 
-def _require_present(event: Mapping[str, Any], field: str) -> Any:
+#: Which HALF of the event a refusal is about. The two halves are genuinely different things — the
+#: envelope is the boundary's frozen 28-field baseline, the payload is the record body — and an
+#: operator triaging a quarantined delivery has to look in the right one. A missing consent-body field
+#: reported as an absent *envelope* field points at the wrong half of the event, so the container is
+#: named explicitly rather than assumed (LOW-7).
+_ENVELOPE_CONTAINER: Final[str] = "envelope"
+_PAYLOAD_CONTAINER: Final[str] = "payload"
+
+
+def _require_present(event: Mapping[str, Any], field: str, *, container: str = _ENVELOPE_CONTAINER) -> Any:
     if field not in event:
-        raise AmhMappingError(field, "required envelope field absent")
+        raise AmhMappingError(field, f"required {container} field absent")
     value = event[field]
     if value is None:
-        raise AmhMappingError(field, "required envelope field is null")
+        raise AmhMappingError(field, f"required {container} field is null")
     return value
 
 
-def _require_str(event: Mapping[str, Any], field: str) -> str:
-    value = _require_present(event, field)
+def _require_str(event: Mapping[str, Any], field: str, *, container: str = _ENVELOPE_CONTAINER) -> str:
+    value = _require_present(event, field, container=container)
     if not isinstance(value, str):
         raise AmhMappingError(field, f"expected a string, got {type(value).__name__}")
     if not value:
@@ -231,8 +327,8 @@ def _optional_str(event: Mapping[str, Any], field: str) -> str | None:
     return value
 
 
-def _require_int(event: Mapping[str, Any], field: str) -> int:
-    value = _require_present(event, field)
+def _require_int(event: Mapping[str, Any], field: str, *, container: str = _ENVELOPE_CONTAINER) -> int:
+    value = _require_present(event, field, container=container)
     # `bool` first: it is an `int` subclass, so `True` would otherwise read as the integer 1.
     if isinstance(value, bool) or not isinstance(value, int):
         raise AmhMappingError(field, f"expected an integer, got {type(value).__name__}")
@@ -275,11 +371,19 @@ def _require_payload(event: Mapping[str, Any]) -> Mapping[str, Any]:
 
 
 def _check_schema_version(version: str, *, pin: AmhContractPin) -> None:
-    """Refuse an unknown MAJOR; accept any MINOR/PATCH within the pinned major (decision 6)."""
-    parts = version.split(".")
-    if len(parts) != 3 or not all(p.isdigit() for p in parts):
+    """Refuse an unknown MAJOR; accept any MINOR/PATCH within the pinned major (decision 6).
+
+    Uses `contract.parse_semver` — the ONE version validator this adapter has (LOW-6). The
+    hand-rolled `split(".")` + `str.isdigit()` form it replaces disagreed with the pin loader's on
+    three inputs it accepted and should not have (`01.0.0`, fullwidth `１.０.０`, `1.0.٠`), and on a
+    fourth it turned into a bare `ValueError`: `"²".isdigit()` is `True` while `int("²")` raises, so
+    `"².0.0"` escaped the AmhMappingError contract entirely — the same port-boundary leak as the
+    overflow above. `maezo.agents` already made exactly this `isdigit()` correction.
+    """
+    parsed = parse_semver(version)
+    if parsed is None:
         raise AmhMappingError("canonical_schema_version", "not a MAJOR.MINOR.PATCH version")
-    major = int(parts[0])
+    major = parsed[0]
     if major != pin.canonical_schema_major:
         raise AmhMappingError(
             "canonical_schema_version",
@@ -408,6 +512,11 @@ def project_consent_decision(event: CanonicalConsentEvent) -> ConsentDecision:
     the contract manifest's authority, so reading it here would invent contract semantics this repo
     does not own (ADR-0037 XRD-04).
 
+    Every field read here is a PAYLOAD field, so the refusals say so (`container="payload"`): an
+    operator told that a "required envelope field" was absent would go looking in the wrong half of a
+    quarantined event, and the envelope of a consent event carrying no `purpose` key is perfectly
+    well-formed.
+
     Raises:
         AmhMappingError: the consent body is missing a required field, `consent_revision` is not an
             integer, `decided_at` is not a valid instant, or `decision` is a token outside the closed
@@ -417,16 +526,18 @@ def project_consent_decision(event: CanonicalConsentEvent) -> ConsentDecision:
     if not isinstance(payload, Mapping):  # pragma: no cover - the port type guarantees a Mapping
         raise AmhMappingError(PAYLOAD_KEY, "expected an object")
 
-    purpose = _require_str(payload, "purpose")
-    decision_token = _require_str(payload, "decision")
+    purpose = _require_str(payload, "purpose", container=_PAYLOAD_CONTAINER)
+    decision_token = _require_str(payload, "decision", container=_PAYLOAD_CONTAINER)
     if decision_token not in CONSENT_DECISION_TOKENS:
         raise AmhMappingError(
             "decision",
             f"token outside the closed projection {sorted(CONSENT_DECISION_TOKENS)} — refusing to "
             "infer a consent bit from an unrecognised decision",
         )
-    revision = _require_int(payload, "consent_revision")
-    decided_at = millis_to_utc(_require_present(payload, "decided_at"), field="decided_at")
+    revision = _require_int(payload, "consent_revision", container=_PAYLOAD_CONTAINER)
+    decided_at = millis_to_utc(
+        _require_present(payload, "decided_at", container=_PAYLOAD_CONTAINER), field="decided_at"
+    )
 
     return ConsentDecision(
         consent_decision_ref=event.consent_decision_ref,
