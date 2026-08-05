@@ -110,6 +110,14 @@ jobs:
       - name: Start-process fence gate (ADR-0007/T-C2)
         run: make check-start-process-fence
 
+      # MZO-010 / XRG-3: the AMH contract is AMH-owned; this repo holds only the immutable pin
+      # (config/integrations/amh/contracts.lock.json) plus the AMH-published, digest-gated fixture
+      # bytes. ADR-0037 XRD-04 requires a divergent digest, an absent schema, a wrong topic or a
+      # downgraded version to fail closed BEFORE merge. stdlib-only, no network — it verifies bytes
+      # already in the tree. Belt-and-suspenders with the consumer tests in tests/contract/amh/.
+      - name: AMH contract pin gate (ADR-0037 XRD-04)
+        run: make verify-amh-contract-pin
+
   # ── Reativado em M13: o módulo maezo.platform.validation.cli está implementado
   # (construído em M2/M9). make validate-signoff funciona.
   # ✅ Passa em CI (greenfield stub, exit 0).

@@ -1,5 +1,5 @@
 .PHONY: setup lint type test test-integration evals validate-artifacts validate-signoff \
-        check-bpmn-error-allowlist check-start-process-fence \
+        check-bpmn-error-allowlist check-start-process-fence verify-amh-contract-pin \
         deploy-artifacts dev-stack dev-observability tf-validate localstack-up tf-smoke helm-lint
 
 LOCALSTACK_COMPOSE := deploy/terraform/localstack/docker-compose.localstack.yml
@@ -58,6 +58,17 @@ check-start-process-fence: ## T3.4 F1: nenhuma chamada direta a start_process_in
 	# hand-rolled a /process-definition/key/{key}/start) fora do allowlist pinado (a propria
 	# transport.py + o decorator cibseven_engine.py) falha o gate, apontando para a fence.
 	uv run python scripts/ci/check_start_process_fence.py
+
+verify-amh-contract-pin: ## ADR-0037 XRD-04 (MZO-010/XRG-3): pin imutavel do contrato AMH intacto, completo e nao-regressivo
+	# XRD-04 verbatim: "Digest divergente, schema ausente, topico errado ou versao rebaixada falham
+	# fail-closed antes de merge/deploy de adapter." A AMH e a UNICA dona dos schemas canonicos; este
+	# repo guarda so o pin (config/integrations/amh/contracts.lock.json) + as fixtures publicadas pela
+	# AMH, gated por digest em tests/contract/amh/fixtures/. O gate recomputa cada sha256 vendorizado,
+	# recusa arquivo nao-listado, e confere catalogo congelado (3 topicos + quarentena, 5 artefatos,
+	# 3 version-IDs Glue, envelope de 28 campos na ordem congelada, vocabulario source_product fechado).
+	# stdlib-only e SEM rede — verifica bytes que ja estao na arvore. Modos de steward (--candidate,
+	# --manifest) em `python scripts/ci/verify_amh_contract_pin.py --help`.
+	uv run python scripts/ci/verify_amh_contract_pin.py
 
 deploy-artifacts: ## deploy spec/processes/{bpmn,dmn} no engine CIB Seven (idempotente; requer `make dev-stack` de pe)
 	# T1.3: POST /deployment/create multipart (enable-duplicate-filtering + deploy-changed-only)

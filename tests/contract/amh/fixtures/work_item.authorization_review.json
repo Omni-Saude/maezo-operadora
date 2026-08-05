@@ -1,0 +1,44 @@
+{
+  "event_id": "0a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d",
+  "event_type": "work_item.created",
+  "canonical_schema_version": "1.0.0",
+  "occurred_at": 1785837600000,
+  "ingested_at": 1785837690000,
+  "source_vendor": "philips",
+  "source_product": "tasy_hospital",
+  "source_instance": "tasy-hospital-01",
+  "source_tenant": "amh_landing",
+  "source_entity": "authorization_request",
+  "protected_source_record_ref": "amh:srr:v1:k01:3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f",
+  "source_position": {
+    "kind": "scn",
+    "value": "128734650912",
+    "transaction_ref": null
+  },
+  "amh_tenant": "austa_hospital",
+  "legal_entity": "99000001",
+  "portable_subject_ref": "amh:psr:v1:1b2f3a4c-5d6e-4f70-8a9b-0c1d2e3f4a5b",
+  "amh_mpi_ref": null,
+  "beneficiary_ref": null,
+  "correlation_id": "c0ffee00-1111-4222-8333-444455556666",
+  "causation_id": "0a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d",
+  "idempotency_key": "wi:austa_hospital:authorization_review:wf-8c1e2d3f4a5b:1",
+  "consent_decision_ref": "amh:cdr:v1:7c1de0aa-2b3c-4d5e-8f90-1a2b3c4d5e6f",
+  "purpose_of_use": "sharing_amh_internal",
+  "data_classification": "confidential",
+  "trace_id": "0af7651916cd43dd8448eb211c80319c",
+  "producer_version": "1.0.0+g0000000",
+  "contract_manifest_digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "payload_hash": "890a66b593adf2a88d4398555c82a917c505ad1f2066cf307700d571f59ccfe4",
+  "replay_count": 0,
+  "payload": {
+    "workflow_type": "authorization_review",
+    "workflow_business_ref": "wf-8c1e2d3f4a5b",
+    "priority": "urgent",
+    "due_at": 1785974400000,
+    "action_summary": "Revisão de autorização pendente de decisão do payer.",
+    "context_refs": [
+      "amh:ctx:v1:aa11bb22-cc33-4d44-8e55-ff6677889900"
+    ]
+  }
+}

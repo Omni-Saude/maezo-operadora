@@ -1,0 +1,42 @@
+{
+  "event_id": "2b3c4d5e-6f70-4181-9293-a4b5c6d7e8f9",
+  "event_type": "consent.granted",
+  "canonical_schema_version": "1.0.0",
+  "occurred_at": 1785834000000,
+  "ingested_at": 1785834090000,
+  "source_vendor": "philips",
+  "source_product": "tasy_hospital",
+  "source_instance": "tasy-hospital-01",
+  "source_tenant": "amh_landing",
+  "source_entity": "consent_capture",
+  "protected_source_record_ref": "amh:srr:v1:k01:3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f",
+  "source_position": {
+    "kind": "scn",
+    "value": "128734670001",
+    "transaction_ref": null
+  },
+  "amh_tenant": "austa_hospital",
+  "legal_entity": "99000001",
+  "portable_subject_ref": "amh:psr:v1:1b2f3a4c-5d6e-4f70-8a9b-0c1d2e3f4a5b",
+  "amh_mpi_ref": "amh:mpr:v1:3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f",
+  "beneficiary_ref": null,
+  "correlation_id": "abadcafe-3333-4444-8555-666677778888",
+  "causation_id": "2b3c4d5e-6f70-4181-9293-a4b5c6d7e8f9",
+  "idempotency_key": "consent:austa_hospital:analytics:analytics:1",
+  "consent_decision_ref": "amh:cdr:v1:7c1de0aa-2b3c-4d5e-8f90-1a2b3c4d5e6f",
+  "purpose_of_use": "sharing_amh_internal",
+  "data_classification": "confidential",
+  "trace_id": "0af7651916cd43dd8448eb211c80319c",
+  "producer_version": "1.0.0+g0000000",
+  "contract_manifest_digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "payload_hash": "763b4f104243e761c4e10955ab6ecddedcdb3498188e738516587d1afcab84fd",
+  "replay_count": 0,
+  "payload": {
+    "purpose": "analytics",
+    "scope": "analytics",
+    "consent_revision": 1,
+    "decision": "granted",
+    "decided_at": 1785834000000,
+    "expires_at": null
+  }
+}

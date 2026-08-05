@@ -1,0 +1,224 @@
+{
+  "lock_format": {
+    "_comment": [
+      "AMH-OWNED CONTRACT — MAEZO STORES ONLY THIS IMMUTABLE PIN (ADR-0037 XRD-04).",
+      "The canonical Avro/OpenAPI schemas and the contract manifest are owned and edited",
+      "EXCLUSIVELY in Omni-Saude/amh-data-platform. This repository never holds an editable",
+      "copy of any of them (ADR-0037, 'Proibicoes imutaveis' #4) — it holds this pin and",
+      "nothing else: the AMH commit, the manifest digest, every artifact/fixture digest, the",
+      "Glue schema-version IDs and the frozen envelope shape.",
+      "THIS FILE IS NOT HAND-EDITABLE. It changes only via (1) a NEW AMH publication that",
+      "moves the XRG-2 gate (new manifest bytes, new evidence_id, new Glue publication run)",
+      "and (2) a NEW independent XRG-3 verification recorded under xrg3_verification. Any",
+      "other edit — including 'fixing' a digest so a gate turns green — is a contract breach.",
+      "Enforcement: scripts/ci/verify_amh_contract_pin.py (fail-closed CI gate, default mode",
+      "needs no network) plus the consumer contract tests in tests/contract/amh/.",
+      "Array order mirrors the order declared by the published AMH manifest (topics,",
+      "artifacts, fixtures); object keys are sorted. fixtures[].role mirrors the manifest's",
+      "valid/invalid role; the value 'readme' is a Maezo-local structural label for the one",
+      "fixture entry the manifest declares without a role. fixtures[].vendored_path is",
+      "Maezo-local plumbing (where the digest-gated bytes live in this repo), not contract",
+      "substance."
+    ],
+    "gate": "XRG-3",
+    "governing_adr": "docs/adr/0037-amh-compatibility-boundary-canonical-contracts.md",
+    "name": "amh-contracts-lock",
+    "version": "1.0.0",
+    "work_package": "MZO-010"
+  },
+  "provenance": {
+    "amh_commit_sha": "09a0a282e69f49aa9c6944b25afb35eee65fcc9c",
+    "amh_manifest_commit_sha": "17972442b26aa31a304d5374b2493b260881c1d3",
+    "amh_repo": "Omni-Saude/amh-data-platform",
+    "canonical_schema_version": "1.0.0",
+    "compatibility_mode": "BACKWARD",
+    "contract_name": "amh-maezo-boundary",
+    "evidence_id": "XRG2-AMH-DEV-GHA-30991849241",
+    "status": "PUBLISHED"
+  },
+  "manifest_pin": {
+    "byte_size": 9441,
+    "git_blob_sha": "76fbc9bd030395e1c1b796fe4821fc60556a2d35",
+    "path": "schemas/contracts/maezo/v1/contract-manifest.yaml",
+    "prepublication_sha256": "78756b5353b8287cb8752ce50a0de6c78990e959f31e4072b2286634ef3fd1cf",
+    "sha256": "946266fb9ab10d27c01768e78fb3b673cba3db71680f652b10ccd0798065b126"
+  },
+  "compatibility_report": {
+    "dry_run_id": "github-actions-run-30991698917",
+    "dry_run_run_id": "30991698917",
+    "evidence_artifact_id": "8924396642",
+    "provider_contract_tests": "90 passed",
+    "result": "PASSED"
+  },
+  "glue_registration": {
+    "environment": "dev",
+    "publication_run_id": "30991849241",
+    "published_at_utc": "2026-08-05T09:07:40Z",
+    "region": "sa-east-1",
+    "registry_name": "amh-fhir-dev",
+    "schema_version_ids": {
+      "amh_maezo_consent": "953bfaed-dc45-4e34-90f0-f97bcd2bb765",
+      "amh_maezo_work_item": "76c0d475-59d3-4f45-94fc-fed3947ba84b",
+      "maezo_amh_outcome": "707702c7-e697-4438-a443-2f660d2813c7"
+    },
+    "schema_version_status": "AVAILABLE"
+  },
+  "topics": [
+    {
+      "direction": "amh-to-maezo",
+      "major_version": 1,
+      "name": "amh.maezo.work-items.v1",
+      "quarantine": "amh.maezo.work-items.v1.quarantine.v1",
+      "schema_path": "schemas/avro/integration/maezo/v1/amh_maezo_work_item.avsc"
+    },
+    {
+      "direction": "amh-to-maezo",
+      "major_version": 1,
+      "name": "amh.maezo.consent.v1",
+      "quarantine": "amh.maezo.consent.v1.quarantine.v1",
+      "schema_path": "schemas/avro/integration/maezo/v1/amh_maezo_consent.avsc"
+    },
+    {
+      "direction": "maezo-to-amh",
+      "major_version": 1,
+      "name": "maezo.amh.outcomes.v1",
+      "quarantine": "maezo.amh.outcomes.v1.quarantine.v1",
+      "schema_path": "schemas/avro/integration/maezo/v1/maezo_amh_outcome.avsc"
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "schemas/avro/integration/maezo/v1/amh_maezo_work_item.avsc",
+      "sha256": "b52fa765a5cdbab756970db6c153f702712d33e9edc6b5122738e51859cf3ad3"
+    },
+    {
+      "path": "schemas/avro/integration/maezo/v1/amh_maezo_consent.avsc",
+      "sha256": "f0228c2dbcff7ca05cbd886dce76a007a21db7433d885f2ba62d41e874994826"
+    },
+    {
+      "path": "schemas/avro/integration/maezo/v1/maezo_amh_outcome.avsc",
+      "sha256": "1feab48c19e10dacd15288e28b87990075b24765ab988623ebeeb40947b3a718"
+    },
+    {
+      "path": "schemas/openapi/maezo/v1/subject-context.openapi.yaml",
+      "sha256": "84bb8abd69a830d12175748a9f1296225f13670c2744b9aa43b352f7d7bc53d3"
+    },
+    {
+      "path": "schemas/openapi/maezo/v1/population-features.openapi.yaml",
+      "sha256": "b36e1acfd6c26e7a05a51a3399a5025a58a4456911071f412e62a69bde4b5c7f"
+    }
+  ],
+  "fixtures": [
+    {
+      "path": "schemas/contracts/maezo/v1/fixtures/README.md",
+      "role": "readme",
+      "sha256": "d00717d9495e15f1ad132b92946e95b2b9eb335ff0c74aec97f94308f3421982",
+      "vendored_path": "tests/contract/amh/fixtures/README.md"
+    },
+    {
+      "path": "schemas/contracts/maezo/v1/fixtures/work_item.authorization_review.json",
+      "role": "valid",
+      "sha256": "e88070c9b3aef4e27d925e7541a973db760224912782603d30aa7aa7be3910a3",
+      "vendored_path": "tests/contract/amh/fixtures/work_item.authorization_review.json"
+    },
+    {
+      "path": "schemas/contracts/maezo/v1/fixtures/work_item.eligibility_check.json",
+      "role": "valid",
+      "sha256": "3cf684c5d71b193b469109d7e5be23aa136dc27136a06c9cdd2b2774242625a5",
+      "vendored_path": "tests/contract/amh/fixtures/work_item.eligibility_check.json"
+    },
+    {
+      "path": "schemas/contracts/maezo/v1/fixtures/work_item.bad-source-product.invalid.json",
+      "role": "invalid",
+      "sha256": "506ca8f4c3ff026d4dfbac1fe9c54a60a871f362514c0ad5b0913c6ed1786b21",
+      "vendored_path": "tests/contract/amh/fixtures/work_item.bad-source-product.invalid.json"
+    },
+    {
+      "path": "schemas/contracts/maezo/v1/fixtures/consent.granted.json",
+      "role": "valid",
+      "sha256": "dd4405b9a7f19d4a864f14ab3b767d84d6f7faf9ed2574cc0394417c96001c76",
+      "vendored_path": "tests/contract/amh/fixtures/consent.granted.json"
+    },
+    {
+      "path": "schemas/contracts/maezo/v1/fixtures/consent.revoked.json",
+      "role": "valid",
+      "sha256": "29e1db2fd2b52bf21d30962373fdfba9f5aa3f68dae2f5568d9731bdaf3f93d8",
+      "vendored_path": "tests/contract/amh/fixtures/consent.revoked.json"
+    },
+    {
+      "path": "schemas/contracts/maezo/v1/fixtures/consent.missing-consent-decision-ref.invalid.json",
+      "role": "invalid",
+      "sha256": "d4b75c31a06d6077e8547d9e40bd6ae50e47150896ec236bfcf83a63ab927adf",
+      "vendored_path": "tests/contract/amh/fixtures/consent.missing-consent-decision-ref.invalid.json"
+    },
+    {
+      "path": "schemas/contracts/maezo/v1/fixtures/outcome.revision-1.json",
+      "role": "valid",
+      "sha256": "d766abc360df2de463ecfa2cda370c749d21986eddf69387ae7ee8eacd5bff47",
+      "vendored_path": "tests/contract/amh/fixtures/outcome.revision-1.json"
+    },
+    {
+      "path": "schemas/contracts/maezo/v1/fixtures/outcome.revision-2.json",
+      "role": "valid",
+      "sha256": "09b778d9e68300a73fe7b226bfe2edd5d24494e0bf932ae853cd9fb7ab95f2fb",
+      "vendored_path": "tests/contract/amh/fixtures/outcome.revision-2.json"
+    },
+    {
+      "path": "schemas/contracts/maezo/v1/fixtures/outcome.non-integer-revision.invalid.json",
+      "role": "invalid",
+      "sha256": "e55da70d8c40603745ca071cb4f103b4ef01d6b06319f4f801ecb28dee3e84e7",
+      "vendored_path": "tests/contract/amh/fixtures/outcome.non-integer-revision.invalid.json"
+    }
+  ],
+  "envelope": {
+    "canonical_schema_version": "1.0.0",
+    "field_count": 28,
+    "field_order": [
+      "event_id",
+      "event_type",
+      "canonical_schema_version",
+      "occurred_at",
+      "ingested_at",
+      "source_vendor",
+      "source_product",
+      "source_instance",
+      "source_tenant",
+      "source_entity",
+      "protected_source_record_ref",
+      "source_position",
+      "amh_tenant",
+      "legal_entity",
+      "portable_subject_ref",
+      "amh_mpi_ref",
+      "beneficiary_ref",
+      "correlation_id",
+      "causation_id",
+      "idempotency_key",
+      "consent_decision_ref",
+      "purpose_of_use",
+      "data_classification",
+      "trace_id",
+      "producer_version",
+      "contract_manifest_digest",
+      "payload_hash",
+      "replay_count"
+    ],
+    "payload_hash_canonicalization": "sha256 hex of the canonical JSON form of the payload field: UTF-8, sorted keys, compact separators (\",\", \":\")",
+    "source_product_vocabulary": [
+      "tasy_hospital",
+      "tasy_healthcare_plan"
+    ]
+  },
+  "xrg3_verification": {
+    "verification_method": [
+      "manifest + artifacts fetched from the remote at both SHAs via the GitHub API",
+      "all 15 artifact/fixture digests recomputed and matched",
+      "Glue schema version IDs matched against publication run 30991849241 logs",
+      "dry-run 30991849241/30991698917 job topology verified (publish job skipped in the dry run, executed in the publication)",
+      "MAEZO_PUBLISH_ENABLED absent from repo variables post-publication",
+      "evidence artifact 8924396642 (xrg2-evidence-dev-09a0a282...) recomputed digests match"
+    ],
+    "verified_at_utc": "2026-08-05T09:31:00Z",
+    "verified_by": "maezo-orchestrator (Claude Fable 5) — independent XRG-2 preflight, session 2026-08-05"
+  }
+}
