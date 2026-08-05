@@ -249,7 +249,12 @@ _ISO_UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 _SEMVER_COMPONENT = r"(0|[1-9][0-9]{0,8})"
 _SEMVER_RE = re.compile(rf"^{_SEMVER_COMPONENT}\.{_SEMVER_COMPONENT}\.{_SEMVER_COMPONENT}$")
 #: Trailing `.vN` major suffix on a topic (or quarantine topic) name.
-_TOPIC_MAJOR_RE = re.compile(r"\.v(\d+)$")
+# Bounded digit run, mirroring _SEMVER_RE below and the adapter's equivalent: an unbounded
+# `\d+` matches an arbitrarily long run that then blows CPython's 4300-digit int()
+# conversion limit inside topic_major(), so a crafted pin made this gate die on a bare
+# ValueError instead of reporting a violation. It still exited non-zero, i.e. it failed
+# closed by accident rather than by design, and the operator lost the violation report.
+_TOPIC_MAJOR_RE = re.compile(r"\.v(\d{1,9})$")
 
 _MISSING = object()
 
