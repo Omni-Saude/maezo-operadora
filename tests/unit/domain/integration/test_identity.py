@@ -2,18 +2,28 @@
 
 Grouped by the property under test:
 
-  1. CONSTRUCTION — the five value objects accept plausible opaque references and are frozen.
+  1. CONSTRUCTION — the five value objects accept plausible opaque references and are frozen, and
+     every MULTI-FIELD type is keyword-only, so the transposition its docstring claims `kw_only`
+     prevents cannot be built either statically or at runtime.
   2. SHAPE VALIDATION — emptiness, whitespace, control characters, length bounds, charset, edges;
      and the bare-`str`-as-scope refusal, which is the defect MZO-020 removes.
   3. FORBIDDEN RAW-ID FORMATS — the four recognisable raw identifier shapes, each rejected with its
      OWN reason and as `ForbiddenRawIdentifierError`, never as a charset complaint. Checked on every
-     string component of every type, because a hole in one slot is a hole in the boundary.
+     string component of every type, because a hole in one slot is a hole in the boundary — including
+     the UNDERSCORE-punctuated CPF/CNS forms, `_` being the only plausible group separator inside the
+     permitted charset. Also pins what the rules do NOT refuse, against the module's own docstring:
+     the exact-length trade-off is deliberate, so the documented claim must match it.
   4. NO VALUE IN ANY ERROR MESSAGE — an exception message is a log line, a trace and a metric label
      (ADR-0037 immutable prohibition 5), so a rejected raw identifier must not be echoed into one.
+     That covers caller-supplied mapping KEYS as well as values: `from_canonical_mapping` takes an
+     untrusted `Mapping`, and a CPF-keyed dict is a real shape in Brazilian source systems.
   5. SERIALIZATION ROUND TRIP — the repo's ONE canonical recipe (UTF-8, sorted keys, compact
      separators), the same recipe as `AgentCard.signing_payload`, `DelegationFact.to_value` and the
      contract pin's `envelope.payload_hash_canonicalization`. Keys are checked against the names
-     ADR-0037 itself publishes, so no wire format is invented here.
+     ADR-0037 itself publishes, so no wire format is invented here. Re-validation on the
+     deserialization path is asserted for EVERY type and EVERY component slot each one carries —
+     a single-type assertion leaves a validation-skipping `from_canonical_mapping` unfenced in the
+     other four, and for `WorkflowBusinessRef` that breaks prohibition 6's two-separator arity.
   6. CROSS-COMPANY INEQUALITY — the safety property: same local value + different company tenant is
      a DIFFERENT value, in `==`, in `hash()`, and in sets and dicts.
   7. BUSINESS KEY — immutable prohibition 6's shape composed from the ADR's own template string,
@@ -38,6 +48,7 @@ from __future__ import annotations
 import ast
 import dataclasses
 import importlib
+import inspect
 import json
 import sys
 from collections.abc import Callable, Mapping
@@ -180,6 +191,68 @@ def test_portable_subject_ref_derives_its_company_tenant_from_its_legal_entity()
     assert "company_tenant" not in {f.name for f in dataclasses.fields(subject)}
 
 
+# Every type carrying MORE THAN ONE field, derived rather than listed so a new multi-field type is
+# fenced the moment it appears. `CompanyTenantRef` is deliberately absent: it is single-field, so it
+# takes its value positionally and there is nothing to transpose.
+_MULTI_FIELD_FACTORIES: tuple[tuple[str, Callable[[], Any]], ...] = tuple(
+    (label, factory) for label, factory in _ALL_FACTORIES if len(dataclasses.fields(factory())) > 1
+)
+
+
+def test_the_multi_field_sweep_is_not_vacuous() -> None:
+    """Non-vacuity pin for the two `kw_only` fences below: four of the five types are multi-field, and
+    the one that is not is `CompanyTenantRef`."""
+    assert len(_MULTI_FIELD_FACTORIES) == 4
+    single = {label for label, _ in _ALL_FACTORIES} - {label for label, _ in _MULTI_FIELD_FACTORIES}
+    assert single == {"CompanyTenantRef"}
+    assert len(dataclasses.fields(COMPANY_A)) == 1
+
+
+@pytest.mark.parametrize(("label", "factory"), _MULTI_FIELD_FACTORIES)
+def test_every_multi_field_type_takes_its_fields_keyword_only(label: str, factory: Callable[[], Any]) -> None:
+    """`kw_only=True` is a SAFETY property here, not a style choice, so it needs a fence of its own.
+
+    `CompanyTenantRef`'s docstring already claims it: "transposing a company tenant with a legal
+    entity is precisely the silent failure this package exists to prevent". Nothing enforced the
+    claim. `mypy --strict` covers `src/maezo` only — the same reason `_require_scope` exists as a
+    RUNTIME check — so an adapter decoding untyped wire data gets no protection from the type checker.
+    """
+    cls = type(factory())
+    parameters = list(inspect.signature(cls).parameters.values())
+    assert len(parameters) > 1, label
+    offenders = [p.name for p in parameters if p.kind is not inspect.Parameter.KEYWORD_ONLY]
+    assert not offenders, f"{label} accepts positional field(s) {offenders} — kw_only was dropped"
+
+
+@pytest.mark.parametrize(("label", "factory"), _MULTI_FIELD_FACTORIES)
+def test_a_multi_field_type_refuses_positional_construction_at_runtime(
+    label: str, factory: Callable[[], Any]
+) -> None:
+    """The runtime form of the same fence, with the ARGUMENTS IN THE DECLARED ORDER — so it fails even
+    for a mutant where every positional value happens to be shape-valid.
+
+    Without it, `WorkflowBusinessRef(COMPANY_A, "G-2026-0001", "autorizacao")` silently composes the
+    TRANSPOSED business key `operadora-amh:G-2026-0001:autorizacao` and every shape rule is satisfied,
+    because `workflow_type` and `workflow_business_ref` are both opaque strings.
+    """
+    instance = factory()
+    values = [getattr(instance, field.name) for field in dataclasses.fields(instance)]
+    assert len(values) > 1, label
+    with pytest.raises(TypeError, match="positional argument"):
+        type(instance)(*values)
+
+
+def test_a_transposed_workflow_business_ref_cannot_be_built_positionally() -> None:
+    """The concrete silent failure, spelled out: the transposition that `kw_only` prevents is between
+    two slots that are BOTH opaque strings, so no shape rule can catch it afterwards — the composed
+    prohibition-6 key is simply wrong, and `owns_business_key` affirms the wrong key."""
+    with pytest.raises(TypeError, match="positional argument"):
+        WorkflowBusinessRef(COMPANY_A, "G-2026-0001", "autorizacao")
+    correct = WorkflowBusinessRef(company_tenant=COMPANY_A, workflow_type="autorizacao", value="G-2026-0001")
+    assert correct.business_key == "operadora-amh:autorizacao:G-2026-0001"
+    assert not correct.owns_business_key("operadora-amh:G-2026-0001:autorizacao")
+
+
 # ==================================================================================================
 # 2. SHAPE VALIDATION
 # ==================================================================================================
@@ -280,8 +353,16 @@ _FORBIDDEN_RAW_IDS: tuple[tuple[str, str, str], ...] = (
     ("CPF-like, bare 11-digit run", "12345678901", "CPF-like 11-digit"),
     ("CPF-like, dot/dash punctuated", "123.456.789-01", "CPF-like 11-digit"),
     ("CPF-like, space punctuated", "123 456 789 01", "CPF-like 11-digit"),
+    # `_` is the ONLY plausible group separator inside PERMITTED_CHARACTERS, so it is the one a
+    # caller can actually get past the charset rule. Leaving it unstripped before the digit-run test
+    # made every underscore-punctuated CPF/CNS constructible in all eight component slots.
+    ("CPF-like, UNDERSCORE punctuated", "123_456_789_01", "CPF-like 11-digit"),
+    ("CPF-like, underscore between every digit", "1_2_3_4_5_6_7_8_9_0_1", "CPF-like 11-digit"),
+    ("CPF-like, underscore mixed with dot/dash", "123_456.789-01", "CPF-like 11-digit"),
     ("CNS-like, bare 15-digit run", "123456789012345", "CNS-like 15-digit"),
     ("CNS-like, space punctuated", "123 4567 8901 2345", "CNS-like 15-digit"),
+    ("CNS-like, UNDERSCORE punctuated", "123_4567_8901_2345", "CNS-like 15-digit"),
+    ("CNS-like, underscore between every digit", "1_2_3_4_5_6_7_8_9_0_1_2_3_4_5", "CNS-like 15-digit"),
     ("FHIR reference, Patient/<id>", "Patient/abc123", "FHIR resource reference"),
     ("FHIR reference, lowercased", "patient/abc123", "FHIR resource reference"),
     ("FHIR reference, embedded in a URL", "https://amh.internal/fhir/Patient/abc123", "FHIR resource"),
@@ -339,6 +420,133 @@ def test_the_raw_id_rule_does_not_swallow_legitimate_opaque_values(value: str) -
     assert CompanyTenantRef(value).value == value
 
 
+_UNDERSCORE_PUNCTUATED_RAW_IDS: tuple[tuple[str, str], ...] = (
+    ("123_456_789_01", "CPF-like 11-digit"),
+    ("1_2_3_4_5_6_7_8_9_0_1", "CPF-like 11-digit"),
+    ("123_456.789-01", "CPF-like 11-digit"),
+    ("123_4567_8901_2345", "CNS-like 15-digit"),
+    ("1_2_3_4_5_6_7_8_9_0_1_2_3_4_5", "CNS-like 15-digit"),
+)
+
+
+@pytest.mark.parametrize(("label", "slot"), _COMPONENT_SLOTS)
+@pytest.mark.parametrize(("value", "expected_reason"), _UNDERSCORE_PUNCTUATED_RAW_IDS)
+def test_an_underscore_punctuated_cpf_or_cns_is_refused_in_every_slot(
+    label: str, slot: Callable[[str], object], value: str, expected_reason: str
+) -> None:
+    """`_` is a PERMITTED component character, which makes it the one group separator a caller can
+    write a national identifier with and still pass the charset rule. So it must be stripped before
+    the digit-run test exactly as `.`, `-`, `/` and whitespace are — otherwise every underscore-
+    punctuated CPF and CNS is representable in every slot of every type, including the first
+    component of a prohibition-6 business key."""
+    with pytest.raises(ForbiddenRawIdentifierError) as excinfo:
+        slot(value)
+    assert expected_reason in str(excinfo.value), label
+
+
+@pytest.mark.parametrize(("value", "expected_reason"), _UNDERSCORE_PUNCTUATED_RAW_IDS)
+def test_an_underscore_punctuated_raw_id_cannot_reach_a_composed_business_key(
+    value: str, expected_reason: str
+) -> None:
+    """The consequence that makes the underscore hole a boundary defect rather than a cosmetic one: an
+    accepted value becomes the FIRST component of `{company_tenant_ref}:{workflow_type}:
+    {workflow_business_ref}`, and `owns_business_key` then affirms the key as this reference's own."""
+    # The company-tenant slot: the raw id is refused while the SCOPE is being built, before a
+    # `WorkflowBusinessRef` can exist to compose a key from it.
+    with pytest.raises(ForbiddenRawIdentifierError) as excinfo:
+        CompanyTenantRef(value)
+    assert expected_reason in str(excinfo.value)
+
+    # The two opaque string slots of the business key itself.
+    for slot in ("workflow_type", "value"):
+        kwargs: dict[str, Any] = {
+            "company_tenant": COMPANY_A,
+            "workflow_type": "autorizacao",
+            "value": "G-2026-0001",
+        }
+        kwargs[slot] = value
+        with pytest.raises(ForbiddenRawIdentifierError) as excinfo:
+            WorkflowBusinessRef(**kwargs)
+        assert expected_reason in str(excinfo.value), slot
+
+    # And no path composes a key containing it.
+    composed = _workflow(COMPANY_A).business_key
+    assert value not in composed
+    assert composed.count(BUSINESS_KEY_SEPARATOR) == 2
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "Patient/abc123",  # start-anchored
+        "fhir/Patient/abc123",  # `/` lead-in
+        ".Patient/abc123",  # `.` lead-in — a permitted character
+        "-Patient/abc123",  # `-` lead-in
+        "_Patient/abc123",  # `_` lead-in
+        "ref.Coverage/abc123",
+    ],
+)
+def test_a_fhir_reference_after_a_non_alphanumeric_lead_in_still_gets_the_fhir_reason(
+    value: str,
+) -> None:
+    """These were already REFUSED (`/` is outside the charset); the defect was that the refusal blamed
+    the charset instead of naming the FHIR shape, which is the less actionable of the two reasons.
+    Widening the lead-in to "not preceded by an alphanumeric" cannot make anything acceptable."""
+    with pytest.raises(ForbiddenRawIdentifierError) as excinfo:
+        CompanyTenantRef(value)
+    assert "FHIR resource reference" in str(excinfo.value)
+
+
+@pytest.mark.parametrize("value", ["xPatient/abc123", "MyPractitioner/abc123"])
+def test_a_mid_word_resource_name_is_not_reported_as_a_fhir_reference(value: str) -> None:
+    """The precision half: `xPatient` is a word, not a resource name, so the accurate reason for
+    refusing it is the charset rule. Still refused either way — `/` is not permitted."""
+    with pytest.raises(IdentityShapeError) as excinfo:
+        CompanyTenantRef(value)
+    assert "outside the permitted charset" in str(excinfo.value)
+    assert not isinstance(excinfo.value, ForbiddenRawIdentifierError)
+
+
+# Values that the exact-length digit-run strategy does NOT refuse. The strategy is correct and stays:
+# an "any embedded 11-digit run" rule would reject roughly a fifth of legitimate 32-hex opaque
+# references by chance. But the module docstring must say so, because a DPO/Legal reader quoting a
+# heading of "No raw identifier is representable" would be misled about the guarantee they hold.
+_DOCUMENTED_STILL_REPRESENTABLE: tuple[str, ...] = (
+    "subject-12345678901",
+    "id_12345678901",
+    "cpf12345678901",
+    "012345678901",
+    "123456789010",
+    "Patient_abc123",
+    "Patient-abc123",
+)
+
+
+@pytest.mark.parametrize("value", _DOCUMENTED_STILL_REPRESENTABLE)
+def test_the_docstring_lists_every_value_the_raw_id_rules_still_admit(value: str) -> None:
+    """Pins the module's DOCUMENTED guarantee to its ACTUAL one, in both directions.
+
+    An overclaiming docstring is a real defect in a package whose DPO/Legal gate was granted for
+    identity semantics specifically: the paragraph is what a reviewer quotes. So each value here must
+    (a) really construct — proving the exact-length trade-off is what the code does — and (b) be named
+    in the docstring, so the text cannot quietly drift back to an absolute claim the code never made.
+    """
+    doc = importlib.import_module("maezo.domain.integration.identity").__doc__ or ""
+    assert CompanyTenantRef(value).value == value
+    assert value in doc, f"{value!r} constructs but the module docstring does not admit it"
+
+
+def test_the_module_docstring_makes_no_absolute_non_representability_claim() -> None:
+    """The claim itself. `PERMITTED_CHARACTERS` plus four named shapes is a FLOOR, and the docstring
+    must present it as one — the heading a reader quotes has to match what the code delivers."""
+    doc = importlib.import_module("maezo.domain.integration.identity").__doc__ or ""
+    assert "No raw identifier is representable" not in doc
+    assert "not a completeness claim" in doc
+    # And the two things it DOES guarantee are still stated.
+    assert "refused by name" in doc
+    assert "PERMITTED_CHARACTERS" in doc
+
+
 def test_no_constructor_accepts_a_raw_identifier_under_any_name() -> None:
     """`PortableSubjectRef` wraps the AMH-minted reference and nothing else: there is no alternative
     constructor (`from_cpf`, `from_mpi`, `from_fhir`, ...) that would let one in through the side."""
@@ -364,8 +572,12 @@ def test_a_rejected_raw_identifier_never_appears_in_the_error_message(
         CompanyTenantRef(value)
     message = str(excinfo.value)
     assert value not in message
-    # Nor the value with its punctuation stripped (the form the check actually computed).
-    assert value.replace(".", "").replace("-", "").replace(" ", "").replace("/", "") not in message
+    # Nor the value with its punctuation stripped (the form the check actually computed) — including
+    # `_`, which is one of the separators the compaction step removes.
+    compact = value
+    for separator in (".", "_", "-", " ", "/"):
+        compact = compact.replace(separator, "")
+    assert compact not in message
 
 
 @pytest.mark.parametrize("value", ["ab cd", "ab:cd", "operação", "x" * (MAX_COMPONENT_LENGTH + 1)])
@@ -381,6 +593,85 @@ def test_the_process_definition_key_refusal_never_echoes_the_rejected_key() -> N
     with pytest.raises(IdentityShapeError) as excinfo:
         require_payer_process_definition_key("hospital-cell-12345678901")
     assert "12345678901" not in str(excinfo.value)
+
+
+# CPF-shaped and PHI-shaped MAPPING KEYS. `from_canonical_mapping` is public API over an untrusted
+# `Mapping`, and a dict keyed by CPF is a real shape in Brazilian source systems — so a caller-supplied
+# KEY is exactly as untrusted as a caller-supplied VALUE, and prohibition 5 covers both.
+_DISCLOSURE_PROBE_KEYS: tuple[str, ...] = (
+    "12345678901",
+    "123.456.789-01",
+    "123_456_789_01",
+    "cpf_12345678901",
+    "Patient/abc123",
+    "paciente_nome_completo",
+)
+
+
+@pytest.mark.parametrize(("label", "factory"), _ALL_FACTORIES)
+@pytest.mark.parametrize("probe_key", _DISCLOSURE_PROBE_KEYS)
+def test_an_unexpected_canonical_mapping_key_is_never_echoed_into_the_error_message(
+    label: str, factory: Callable[[], Any], probe_key: str
+) -> None:
+    """`_exact_keys` must disclose NOTHING caller-controlled. Naming the EXPECTED keys is fine — they
+    are this module's own `CANONICAL_KEYS` constants — but echoing the key set the caller handed over
+    puts arbitrary caller text, and therefore possibly a raw CPF, into a message that becomes a log
+    line, a stack trace and a metric label (immutable prohibition 5).
+
+    An error that helpfully quoted the offending key would defeat the check that produced it, exactly
+    as one that quoted the offending value would.
+    """
+    cls = type(factory())
+    good = factory().as_canonical_mapping()
+
+    # As the SOLE key, and alongside a legitimate one — the message must not carry it either way.
+    for mapping in ({probe_key: "operadora-x"}, {**good, probe_key: "operadora-x"}):
+        with pytest.raises(IdentityShapeError) as excinfo:
+            cls.from_canonical_mapping(mapping)
+        message = str(excinfo.value)
+        assert probe_key not in message, message
+        compact = probe_key
+        for separator in (".", "_", "-", " ", "/"):
+            compact = compact.replace(separator, "")
+        assert compact not in message, message
+        # It still tells the caller what IS required — the module's own key names, and how many keys
+        # are missing or unexpected. A non-disclosing message is not a useless one.
+        assert "do not match the required keys" in message
+        for required in cls.CANONICAL_KEYS:
+            assert required in message
+
+
+@pytest.mark.parametrize(("label", "factory"), _ALL_FACTORIES)
+def test_a_missing_canonical_key_is_named_because_the_module_owns_that_name(
+    label: str, factory: Callable[[], Any]
+) -> None:
+    """The other half of MAJOR 2: non-disclosure must not become silence. Which EXPECTED keys are
+    missing is derived from `CANONICAL_KEYS`, never from caller input, so naming them discloses
+    nothing and is what makes the refusal actionable."""
+    cls = type(factory())
+    good = factory().as_canonical_mapping()
+    for dropped in list(good):
+        with pytest.raises(IdentityShapeError) as excinfo:
+            cls.from_canonical_mapping({k: v for k, v in good.items() if k != dropped})
+        assert dropped in str(excinfo.value), label
+
+
+@pytest.mark.parametrize(("label", "factory"), _ALL_FACTORIES)
+@pytest.mark.parametrize("not_a_mapping", [None, 7, "company_tenant_ref", ["company_tenant_ref"], object()])
+def test_from_canonical_mapping_refuses_a_non_mapping_as_an_identity_shape_error(
+    label: str, factory: Callable[[], Any], not_a_mapping: object
+) -> None:
+    """Fail closed with the module's OWN exception type. These already failed — with a bare `TypeError`
+    or `AttributeError` from deep inside `_exact_keys` — so a caller's `except IdentityShapeError`
+    around a deserialization boundary missed them, and a `list` whose single element happened to match
+    the required key even got past `_exact_keys` before failing on subscript.
+
+    The refusal names the TYPE it got, never the object: `repr()` of a caller-supplied object is
+    caller-controlled text (prohibition 5).
+    """
+    cls = type(factory())
+    with pytest.raises(IdentityShapeError, match="must be a Mapping"):
+        cls.from_canonical_mapping(not_a_mapping)
 
 
 # ==================================================================================================
@@ -457,17 +748,86 @@ def test_from_canonical_mapping_fails_closed_on_a_key_set_that_is_not_exact(
         cls.from_canonical_mapping({**mapping, "amh_mpi_ref": "surprise-01"})
 
 
-def test_from_canonical_mapping_revalidates_every_component() -> None:
-    """Deserialization is not a trust boundary bypass: a raw identifier arriving inside a canonical
-    mapping is refused exactly as one arriving through the constructor."""
-    with pytest.raises(ForbiddenRawIdentifierError):
-        PortableSubjectRef.from_canonical_mapping(
+# (label, cls, a known-good canonical mapping, ONE key of it) for EVERY component slot of EVERY type
+# — derived from the factories and from `as_canonical_mapping()` itself, so a sixth type or a sixth
+# component cannot be added without appearing here.
+_CANONICAL_SLOT_CASES: tuple[tuple[str, type[Any], dict[str, str], str], ...] = tuple(
+    (f"{label}.{key}", type(factory()), dict(factory().as_canonical_mapping()), key)
+    for label, factory in _ALL_FACTORIES
+    for key in sorted(factory().as_canonical_mapping())
+)
+
+# The raw shapes pushed through every deserialization slot. One per refusal branch, plus the
+# underscore-punctuated form, so a slot that skipped re-validation cannot hide behind a shape the
+# constructor path happens to catch elsewhere.
+_REVALIDATION_PROBES: tuple[str, ...] = (
+    "12345678901",  # bare CPF-like run
+    "123_456_789_01",  # underscore-punctuated CPF-like run
+    "123456789012345",  # bare CNS-like run
+    "123_4567_8901_2345",  # underscore-punctuated CNS-like run
+    "Patient/abc123",  # FHIR resource reference
+    "fhir:abc123",  # `fhir:` URI
+)
+
+
+def test_the_canonical_slot_sweep_covers_every_component_of_every_type() -> None:
+    """NON-VACUITY GUARD for the sweep below. The re-validation assertion is only worth what its case
+    list covers: asserting it for one type and one slot (as an earlier revision did) leaves a
+    validation-skipping `from_canonical_mapping` in any of the other four types entirely unfenced."""
+    covered = {(label, key) for label, _cls, _mapping, key in _CANONICAL_SLOT_CASES}
+    expected = {(f"{label}.{key}", key) for label, keys in _EXPECTED_CANONICAL_KEYS.items() for key in keys}
+    assert covered == expected
+    assert len(_CANONICAL_SLOT_CASES) == 11  # 1 + 2 + 3 + 3 + 2 slots across the five types
+    assert {cls for _label, cls, _mapping, _key in _CANONICAL_SLOT_CASES} == set(_ALL_TYPES)
+
+
+@pytest.mark.parametrize(
+    ("label", "cls", "good_mapping", "slot"),
+    _CANONICAL_SLOT_CASES,
+    ids=[case[0] for case in _CANONICAL_SLOT_CASES],
+)
+def test_from_canonical_mapping_revalidates_every_component_of_every_type(
+    label: str, cls: type[Any], good_mapping: dict[str, str], slot: str
+) -> None:
+    """Deserialization is not a trust-boundary bypass: a raw identifier arriving inside a canonical
+    mapping is refused exactly as one arriving through the constructor — in EVERY type and EVERY slot.
+
+    Asserted per-slot rather than once, because `from_canonical_mapping` re-enters validation only by
+    going back through the constructors. A version that built its instance any other way would
+    round-trip happily and still let a raw identifier — or, for `WorkflowBusinessRef`, a `:` that
+    breaks prohibition 6's two-separator arity — straight into the payer domain.
+    """
+    # Negative control: the untampered mapping really does deserialize, so the raises below are not
+    # passing because the whole case is malformed.
+    assert cls.from_canonical_mapping(good_mapping) is not None, label
+
+    for probe in _REVALIDATION_PROBES:
+        with pytest.raises(ForbiddenRawIdentifierError):
+            cls.from_canonical_mapping({**good_mapping, slot: probe})
+
+    # And the plain shape rules too — charset, whitespace and the length ceiling.
+    for probe in ("bad value with spaces", "with:colon", "x" * (MAX_COMPONENT_LENGTH + 1), "a", ""):
+        with pytest.raises(IdentityShapeError):
+            cls.from_canonical_mapping({**good_mapping, slot: probe})
+
+
+def test_a_deserialized_business_key_cannot_break_prohibition_6s_two_separator_arity() -> None:
+    """The concrete consequence of a `WorkflowBusinessRef.from_canonical_mapping` that skips
+    re-validation: `:` reaches a component, the composed key grows extra separators, and
+    `owns_business_key` still affirms it. Prohibition 6's arity is "by construction" only while the
+    deserialization path is part of that construction."""
+    with pytest.raises(IdentityShapeError, match="outside the permitted charset"):
+        WorkflowBusinessRef.from_canonical_mapping(
             {
-                "company_tenant_ref": "operadora-amh",
-                "legal_entity": "entidade-0001",
-                "portable_subject_ref": "12345678901",
+                "company_tenant_ref": "a:b",
+                "workflow_type": "c:d",
+                "workflow_business_ref": "G-1",
             }
         )
+    # The legitimate neighbour still composes exactly two separators.
+    restored = WorkflowBusinessRef.from_canonical_mapping(_workflow(COMPANY_A).as_canonical_mapping())
+    assert restored.business_key.count(BUSINESS_KEY_SEPARATOR) == 2
+    assert restored.owns_business_key(_workflow(COMPANY_A).business_key)
 
 
 def test_no_type_defines_str_that_would_collapse_a_scoped_reference() -> None:
@@ -701,11 +1061,19 @@ def test_no_two_of_the_five_types_ever_compare_equal() -> None:
     instances = [
         CompanyTenantRef(same_value),
         LegalEntityRef(company_tenant=CompanyTenantRef(same_value), value=same_value),
+        PortableSubjectRef(
+            legal_entity=LegalEntityRef(company_tenant=CompanyTenantRef(same_value), value=same_value),
+            value=same_value,
+        ),
         WorkflowBusinessRef(
             company_tenant=CompanyTenantRef(same_value), workflow_type=same_value, value=same_value
         ),
         SourceProvenanceRef(source_instance=same_value, source_tenant=same_value),
     ]
+    # Non-vacuity: the sweep must cover ALL five concepts. Omitting one (PortableSubjectRef was
+    # omitted) leaves the concept whose confusion matters most entirely outside the assertion.
+    assert {type(i) for i in instances} == set(_ALL_TYPES)
+    assert len(instances) == 5
     for left in instances:
         for right in instances:
             if type(left) is not type(right):
@@ -1136,8 +1504,6 @@ def test_no_domain_value_type_has_a_phi_shaped_field() -> None:
 def test_no_public_callable_has_a_phi_shaped_parameter() -> None:
     """Same probe over the PARAMETERS of every public callable in the module — a PHI-shaped argument
     would let a caller push identifying data in even though no value type holds it."""
-    import inspect
-
     module = importlib.import_module("maezo.domain.integration.identity")
     offenders: dict[str, list[str]] = {}
     for name, obj in vars(module).items():

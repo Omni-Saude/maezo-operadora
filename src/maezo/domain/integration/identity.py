@@ -31,22 +31,39 @@ infrastructure import — the module is standard-library-only, enforced by an AS
 `tests/unit/domain/integration/test_identity.py` (the same technique as
 `tests/unit/ports/test_ports_purity.py`).
 
-**No raw identifier is representable.** `PortableSubjectRef` wraps the AMH-minted opaque reference
-and nothing else; only the AMH maps it to a source record, a beneficiary, a per-tenant MPI or a FHIR
-identifier (XRD-05). Four recognisable RAW identifier shapes are refused by name, as
-`ForbiddenRawIdentifierError` and never as a charset complaint, so a caller reading the error learns
-WHY the value is unwelcome rather than being nudged to re-encode it:
+**Four recognisable raw-identifier shapes are refused by name, and the charset bounds the rest.**
+Read this section as exactly that claim, and NOT as an absolute non-representability claim — an
+earlier revision of this docstring headed it that way and was wrong. `PortableSubjectRef` wraps the
+AMH-minted opaque reference and nothing else; only the AMH maps it to a source record, a beneficiary,
+a per-tenant MPI or a FHIR identifier (XRD-05).
 
-    1. a bare CPF-like 11-digit run  (also in its `.`/`-`/space-punctuated forms)
+What this module GUARANTEES is two things. (a) These four RAW identifier shapes are refused by name,
+as `ForbiddenRawIdentifierError` and never as a charset complaint, so a caller reading the error
+learns WHY the value is unwelcome rather than being nudged to re-encode it:
+
+    1. a bare CPF-like 11-digit run  (also in its `.`/`_`/`-`/`/`/space-punctuated forms)
     2. a bare CNS-like 15-digit run  (likewise)
     3. a FHIR resource reference such as `Patient/<id>`
     4. a `fhir:` URI
 
+(b) `PERMITTED_CHARACTERS` is the real bound on the space of representable values, and it is the
+narrow half of this boundary: no `:`, no `/`, no whitespace, no control character, no non-ASCII code
+point.
+
+What this module does NOT guarantee, stated plainly because a DPO/Legal reader may quote this
+paragraph: the digit-run rules match the EXACT length of the WHOLE compacted value (see
+`_RAW_NUMERIC_ID_LABELS`), so an 11-digit run carrying any affix, or a run of another length, IS
+representable. `subject-12345678901`, `id_12345678901`, `cpf12345678901`, `012345678901`,
+`123456789010`, `Patient_abc123` and `Patient-abc123` all construct successfully today. That
+trade-off is deliberate and is the right one: an "any embedded 11-digit run" rule would reject
+roughly a fifth of legitimate 32-hex opaque references by chance, and a check that fires on plausible
+opaque values is a check that gets switched off within a week. Keeping raw identifiers out of the
+payer core is the AMH boundary's job (XRD-04/XRD-05); these four shapes are the FLOOR that catches
+what a well-meaning adapter would otherwise pass through silently, not a completeness claim.
+
 Naming `Patient` and `fhir:` in a rejection list is not FHIR vocabulary in the sense ADR-0037
 prohibition 2 bans: nothing here can construct, read or interpret a FHIR reference — the names exist
-only so the refusal can state its reason. The list is a floor, not a claim of completeness: the
-positive charset rule is what actually keeps the space small, and these four shapes are called out
-because they are the ones a well-meaning adapter would otherwise pass through silently.
+only so the refusal can state its reason.
 
 **Cross-company inequality is a safety property.** Two references with the same local value under
 different company tenants are DIFFERENT values: they never compare equal, never hash equal, and a
@@ -138,14 +155,24 @@ _FHIR_URI_SCHEME: Final[re.Pattern[str]] = re.compile(r"\Afhir:", re.IGNORECASE)
 # Case-insensitive because a sloppy caller writing `patient/123` is making exactly the mistake this
 # check exists to name. Every value that matches would also fail the charset rule (`/` is excluded);
 # this pattern's only job is to make the REASON accurate.
+#
+# The lead-in is a negative lookbehind on alphanumerics rather than `(?:\A|[/:])`, so any
+# non-alphanumeric lead-in (`.Patient/abc`, `-Patient/abc`, `_Patient/abc`) also gets the accurate
+# reason instead of a vaguer charset complaint, while a mid-word occurrence (`xPatient/abc`) still
+# does not — `xPatient` is a word, not a resource name. This can only change which REASON a rejection
+# carries, never whether it happens: `/` is outside `PERMITTED_CHARACTERS`, so every string this
+# pattern can match is refused either way.
 _FHIR_RESOURCE_REFERENCE: Final[re.Pattern[str]] = re.compile(
-    r"(?:\A|[/:])(?:Patient|Person|RelatedPerson|Practitioner|Coverage|Encounter)/\S+",
+    r"(?<![A-Za-z0-9])(?:Patient|Person|RelatedPerson|Practitioner|Coverage|Encounter)/\S+",
     re.IGNORECASE,
 )
 
-# `.`, `-`, `/` and whitespace are the separators a punctuated national identifier is written with
-# (`123.456.789-01`). Stripped before the digit-run test so the punctuated forms are caught too.
-_DIGIT_GROUP_NOISE: Final[re.Pattern[str]] = re.compile(r"[.\-/\s]")
+# `.`, `_`, `-`, `/` and whitespace are the separators a punctuated national identifier is written
+# with (`123.456.789-01`). Stripped before the digit-run test so the punctuated forms are caught too.
+# `_` belongs here for one reason: it is a member of `PERMITTED_CHARACTERS`, so it is the only
+# plausible group separator a caller can actually get PAST the charset rule. Leaving it unstripped
+# let `123_456_789_01` and `123_4567_8901_2345` through every component slot.
+_DIGIT_GROUP_NOISE: Final[re.Pattern[str]] = re.compile(r"[._\-/\s]")
 
 _RAW_NUMERIC_ID_LABELS: Final[dict[int, str]] = {11: "CPF-like", 15: "CNS-like"}
 """Digit-run lengths refused outright. Deliberately EXACT lengths of the WHOLE value rather than a
@@ -281,11 +308,35 @@ def _exact_keys(mapping: Mapping[str, str], expected: tuple[str, ...]) -> None:
 
     A missing key would silently drop a scope; an unexpected key means the caller is holding a
     different shape than it thinks. Neither is a round trip.
+
+    The refusal message names only THIS MODULE'S OWN key constants and counts. It never echoes an
+    unexpected key NAME: `from_canonical_mapping` is public API over an untrusted `Mapping`,
+    CPF-keyed dicts are a real shape in Brazilian source systems, and under immutable prohibition 5
+    an exception message is a log line, a trace and a metric label. The same reasoning that keeps a
+    rejected VALUE out of a message keeps a caller-supplied KEY out of it.
+
+    A non-`Mapping` is refused here too, as `IdentityShapeError` rather than as a bare `TypeError`
+    escaping from `set()` or `[]`, so a caller guarding a deserialization boundary with
+    `except IdentityShapeError` actually catches it.
     """
-    if set(mapping) != set(expected):
+    if not isinstance(mapping, Mapping):
         raise IdentityShapeError(
-            f"canonical mapping keys {sorted(mapping)} do not match the required keys {sorted(expected)}"
+            f"canonical mapping must be a Mapping, got {type(mapping).__name__} — a canonical form "
+            "is a keyed mapping, not an arbitrary object"
         )
+    present = set(mapping)
+    required = set(expected)
+    if present == required:
+        return
+    missing = sorted(required - present)
+    unexpected = len(present - required)
+    raise IdentityShapeError(
+        f"canonical mapping keys do not match the required keys {sorted(required)}: "
+        f"{len(missing)} missing ({missing}) and {unexpected} unexpected. The unexpected key NAMES "
+        "are withheld from this message on purpose — a canonical mapping arrives from an untrusted "
+        "caller, so an unexpected key is caller-controlled text and may itself be a raw identifier "
+        "(immutable prohibition 5 — no raw source id in keys, logs, traces or metrics)."
+    )
 
 
 @dataclass(frozen=True, slots=True)
