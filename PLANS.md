@@ -123,12 +123,14 @@ Legenda: **✅** verificado-done (gate) · **◑** parcial (código existe, lacu
 - **MZO-010** — pin imutável `config/integrations/amh/contracts.lock.json` + gate fail-closed `make verify-amh-contract-pin` + contract tests (`tests/contract/amh/`): PR #190.
 - **MZO-030** — `src/maezo/ports/` — cinco seams `typing.Protocol` ERP-neutros (`WorkItemSource`, `ConsentDecisionSource`, `ClinicalContextPort`, `PopulationFeaturePort`, `OutcomePublisherPort`): PR #191.
 
-**Bloqueado em portões humanos NOMEADOS — isto NÃO é trabalho agendado, é teto humano:**
-- **MZO-020** (objetos de valor de identidade portável) — aguarda sign-off **DPO/Legal**.
-- **MZO-040** (`ActionExecutionGateway`) — aguarda aprovações **Médica, ANS e Security**.
-- DL-0040 registra explicitamente que a ratificação da ADR-0037 NÃO fechou esses dois portões.
+**Portões humanos NOMEADOS — isto NÃO é trabalho agendado, é teto humano:**
+- **MZO-020** (objetos de valor de identidade portável) — portão **DPO/Legal DESCARREGADO em 2026-08-05**: aprovação de **Lucas (Diretor Jurídico e de Compliance)** e **Rodrigo (CEO / dono do repositório)**, declarada pelo dono na sessão de orquestração; registrada como **DL-0042**. O work package passa a ser executável.
+- **MZO-040** (`ActionExecutionGateway`) — **AINDA BLOQUEADO**: aguarda aprovações **Médica, ANS e Security** (nenhuma concedida; DL-0042 não as alcança).
+- DL-0040 registra que a ratificação da ADR-0037 NÃO fechou nenhum destes dois portões — o do MZO-020 caiu por ato humano próprio e posterior, não por consequência da ADR.
 
-**Próxima dependência:** **MZO-050** (adapters AMH de work-item/consent) está bloqueado atrás de **MZO-020** — isto é, atrás do portão DPO/Legal, não de capacidade de engenharia (mapa de gating na seção "Consequências" do ADR-0037).
+**Próxima dependência:** **MZO-050** (adapters AMH de work-item/consent) depende de MZO-010/020/030 + XRG-3 (mapa de gating na seção "Consequências" do ADR-0037) — com o portão do MZO-020 descarregado, deixa de haver bloqueio humano nesta perna da cadeia.
+
+> **Achado de conformidade em aberto, levantado durante o MZO-020 (decisão do dono, não corrigido aqui).** O esquema de chaves CIB **em produção diverge da proibição 6 da ADR-0037 na FORMA**: as business keys são unidas por hífen e com prefixo à frente (p.ex. `ANSSUB-{tenant}-{report_type}-{competencia}`, `RECURSO-{tenant}-{numero_guia_tiss}-{glosa_id}`), não `{company_tenant_ref}:{workflow_type}:{workflow_business_ref}`; e as process-definition keys são `SP-OP-<DOMAIN>-<NNN>` (15 chaves congeladas em `src/maezo/tools/process_allowlist.py`), não `maezo-payer-*`. Além disso, várias dessas business keys **embutem identificadores de registro de fonte** (`numero_guia_tiss`, `numero_contrato`, `prestador_id`), o que tensiona a proibição 5 ("nenhum ID cru de fonte em keys") de forma independente do MZO-020. Reconciliar isto muda chaves de engine JÁ IMPLANTADAS — exige janela de dual-read/redeploy ou emenda da ADR-0037. Nada foi alterado: registrado para decisão humana.
 
 ---
 
