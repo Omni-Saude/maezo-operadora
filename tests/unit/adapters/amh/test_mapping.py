@@ -1,0 +1,811 @@
+"""Unit tests for the pure AMH wire<->canonical mapping (MZO-050a, ADR-0037).
+
+The digest-gated AMH fixtures are the source of truth for wire SHAPE and are driven directly in
+`tests/contract/amh/test_amh_mapping_fixtures.py`. This file covers the LOGIC around them: each
+refusal path, the timestamp conversion algebra, the vocabulary and version gates, the
+unknown-extra-field decision, and the non-disclosure guarantee — using a synthetic event built from
+the fixture shape so a case can mutate one field at a time without touching the immutable fixtures.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from collections.abc import Mapping
+from datetime import UTC, datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from maezo.adapters.amh.contract import CONTRACT_PIN_RELATIVE_PATH, AmhAdapterError, load_contract_pin
+from maezo.adapters.amh.mapping import (
+    CONSENT_DECISION_TOKENS,
+    OPTIONAL_ENVELOPE_FIELDS,
+    AmhMappingError,
+    canonical_payload_hash,
+    map_consent_event,
+    map_outcome,
+    map_work_item,
+    millis_to_utc,
+    outcome_to_wire,
+    project_consent_decision,
+    utc_to_millis,
+)
+from maezo.ports.envelope import ENVELOPE_FIELD_ORDER, SourcePosition
+
+REPO_ROOT = Path(__file__).resolve().parents[4]
+FIXTURES = REPO_ROOT / "tests/contract/amh/fixtures"
+
+#: A value that must NEVER appear in an exception. Shaped like the PHI/raw-source-id classes ADR-0037
+#: immutable prohibition #5 bans from keys, logs, traces and quarantine metadata.
+PHI_SENTINEL = "SENTINEL-CPF-12345678901-JOAO-DA-SILVA-1980-01-01"
+
+
+@pytest.fixture(scope="module")
+def pin() -> Any:
+    return load_contract_pin(REPO_ROOT / CONTRACT_PIN_RELATIVE_PATH)
+
+
+def _fixture(name: str) -> dict[str, Any]:
+    parsed: dict[str, Any] = json.loads((FIXTURES / name).read_text(encoding="utf-8"))
+    return parsed
+
+
+def _work_item_event() -> dict[str, Any]:
+    return _fixture("work_item.authorization_review.json")
+
+
+def _consent_event() -> dict[str, Any]:
+    return _fixture("consent.granted.json")
+
+
+def _outcome_event() -> dict[str, Any]:
+    return _fixture("outcome.revision-1.json")
+
+
+def _rehash(event: dict[str, Any]) -> dict[str, Any]:
+    """Recompute `payload_hash` after a deliberate payload edit, so a test can isolate the field it is
+    actually exercising instead of tripping the hash check first."""
+    event["payload_hash"] = canonical_payload_hash(event["payload"])
+    return event
+
+
+# ---------------------------------------------------------------------------
+# Timestamps (decision 1)
+# ---------------------------------------------------------------------------
+
+
+def test_millis_convert_to_tz_aware_utc() -> None:
+    result = millis_to_utc(1785837600000, field="occurred_at")
+    assert result.tzinfo is not None
+    assert result.utcoffset() == timedelta(0)
+    assert result == datetime(2026, 8, 4, 10, 0, 0, tzinfo=UTC)
+
+
+def test_millisecond_precision_is_exact_not_float_rounded() -> None:
+    """`fromtimestamp(n / 1000)` loses precision at present-day epochs; integer arithmetic does not."""
+    for millis in (1785837600001, 1785837600123, 1785837600999):
+        result = millis_to_utc(millis, field="occurred_at")
+        assert utc_to_millis(result, field="occurred_at") == millis
+
+
+def test_epoch_and_pre_epoch_millis_round_trip() -> None:
+    assert millis_to_utc(0, field="occurred_at") == datetime(1970, 1, 1, tzinfo=UTC)
+    assert utc_to_millis(millis_to_utc(-1000, field="occurred_at"), field="occurred_at") == -1000
+
+
+def test_aware_datetime_is_accepted_and_normalised_to_utc() -> None:
+    """Phase B's Avro `timestamp-millis` logical type decodes to an aware datetime."""
+    brasilia = timezone(timedelta(hours=-3))
+    aware = datetime(2026, 8, 4, 7, 0, 0, tzinfo=brasilia)
+    result = millis_to_utc(aware, field="occurred_at")
+    assert result == datetime(2026, 8, 4, 10, 0, 0, tzinfo=UTC)
+    assert result.utcoffset() == timedelta(0)
+
+
+def test_naive_datetime_is_refused_not_assumed_utc() -> None:
+    """Guessing a timezone is how an audit trail acquires a silent offset error."""
+    with pytest.raises(AmhMappingError) as exc:
+        millis_to_utc(datetime(2026, 8, 4, 10, 0, 0), field="occurred_at")  # noqa: DTZ001
+    assert exc.value.field == "occurred_at"
+    assert "naive" in exc.value.reason
+
+
+@pytest.mark.parametrize(
+    "value", ["1785837600000", 1785837600.0, None, True, False, [], {}, "2026-08-04T10:00:00Z"]
+)
+def test_ambiguous_timestamp_forms_are_refused(value: object) -> None:
+    """A numeric string, a float and a bool are all refused rather than coerced. `True`/`False` matter
+    specifically: `bool` is an `int` subclass, so an unguarded check would read `True` as 1ms."""
+    with pytest.raises(AmhMappingError):
+        millis_to_utc(value, field="ingested_at")
+
+
+def test_naive_datetime_is_refused_on_egress_too() -> None:
+    with pytest.raises(AmhMappingError, match="naive"):
+        utc_to_millis(datetime(2026, 8, 4, 10, 0, 0), field="occurred_at")  # noqa: DTZ001
+
+
+def test_mapped_event_timestamps_are_tz_aware(pin: Any) -> None:
+    item = map_work_item(_work_item_event(), pin=pin)
+    assert item.occurred_at.tzinfo is not None
+    assert item.ingested_at.tzinfo is not None
+    assert item.occurred_at.utcoffset() == timedelta(0)
+
+
+# ---------------------------------------------------------------------------
+# payload_hash (decision 2)
+# ---------------------------------------------------------------------------
+
+
+def test_payload_hash_mismatch_is_refused(pin: Any) -> None:
+    event = _work_item_event()
+    event["payload"]["priority"] = "routine"  # payload changed, declared hash left stale
+    with pytest.raises(AmhMappingError) as exc:
+        map_work_item(event, pin=pin)
+    assert exc.value.field == "payload_hash"
+
+
+def test_payload_hash_is_sensitive_to_key_addition_and_removal(pin: Any) -> None:
+    added = _work_item_event()
+    added["payload"]["unexpected_key"] = "x"
+    with pytest.raises(AmhMappingError, match="payload_hash"):
+        map_work_item(added, pin=pin)
+
+    removed = _work_item_event()
+    del removed["payload"]["priority"]
+    with pytest.raises(AmhMappingError, match="payload_hash"):
+        map_work_item(removed, pin=pin)
+
+
+def test_canonicalisation_is_key_order_independent() -> None:
+    """Sorted keys means a producer's key order cannot change the hash."""
+    a = {"b": 1, "a": 2, "c": {"z": 1, "y": 2}}
+    b = {"c": {"y": 2, "z": 1}, "a": 2, "b": 1}
+    assert canonical_payload_hash(a) == canonical_payload_hash(b)
+
+
+def test_canonicalisation_uses_compact_separators() -> None:
+    """A space after `:` or `,` would change every hash — pin the exact byte form."""
+    assert canonical_payload_hash({"a": 1, "b": 2}) == canonical_payload_hash(json.loads('{"a":1,"b":2}'))
+    assert canonical_payload_hash({"a": 1, "b": 2}) == hashlib.sha256(b'{"a":1,"b":2}').hexdigest()
+
+
+def test_non_ascii_is_hashed_unescaped() -> None:
+    """The empirical finding, pinned as a unit fact: `ensure_ascii=False`. Under `ensure_ascii=True`
+    the `\\uXXXX` escapes change the bytes, and the fixtures' declared hashes stop reproducing."""
+    payload = {"action_summary": "Revisão"}
+    unescaped = hashlib.sha256('{"action_summary":"Revisão"}'.encode()).hexdigest()
+    escaped = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+    ).hexdigest()
+    assert canonical_payload_hash(payload) == unescaped
+    assert canonical_payload_hash(payload) != escaped
+
+
+# ---------------------------------------------------------------------------
+# source_product vocabulary
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("value", ["tasy", "TASY_HOSPITAL", "tasy_hospital ", "philips", ""])
+def test_source_product_outside_the_closed_vocabulary_is_refused(pin: Any, value: str) -> None:
+    event = _work_item_event()
+    event["source_product"] = value
+    with pytest.raises(AmhMappingError) as exc:
+        map_work_item(event, pin=pin)
+    assert exc.value.field == "source_product"
+
+
+@pytest.mark.parametrize("value", ["tasy_hospital", "tasy_healthcare_plan"])
+def test_both_pinned_source_products_are_accepted(pin: Any, value: str) -> None:
+    event = _work_item_event()
+    event["source_product"] = value
+    assert map_work_item(event, pin=pin).source_product == value
+
+
+# ---------------------------------------------------------------------------
+# Schema version (decision 6)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("version", ["1.0.0", "1.0.1", "1.1.0", "1.4.2", "1.99.99"])
+def test_any_minor_or_patch_within_the_pinned_major_is_accepted(pin: Any, version: str) -> None:
+    """BACKWARD compatibility is the contract owner's promise WITHIN a major. `1.1.0` is the "later
+    compatible minor" case; with a pin at 1.0.0 every listed version shares the pinned major."""
+    event = _work_item_event()
+    event["canonical_schema_version"] = version
+    assert map_work_item(event, pin=pin).canonical_schema_version == version
+
+
+def test_a_prior_compatible_minor_is_accepted_against_a_forward_pin(tmp_path: Path) -> None:
+    """The other direction the plan names explicitly: a pin that has moved to 1.2.0 must still read a
+    producer still emitting the earlier compatible minor 1.1.0."""
+    raw = json.loads((REPO_ROOT / CONTRACT_PIN_RELATIVE_PATH).read_text(encoding="utf-8"))
+    raw["provenance"]["canonical_schema_version"] = "1.2.0"
+    raw["envelope"]["canonical_schema_version"] = "1.2.0"
+    forward = tmp_path / "contracts.lock.json"
+    forward.write_text(json.dumps(raw), encoding="utf-8")
+    forward_pin = load_contract_pin(forward)
+
+    event = _work_item_event()
+    event["canonical_schema_version"] = "1.1.0"
+    assert map_work_item(event, pin=forward_pin).canonical_schema_version == "1.1.0"
+
+
+@pytest.mark.parametrize("version", ["2.0.0", "0.9.0", "3.1.4"])
+def test_an_unknown_major_is_refused_closed(pin: Any, version: str) -> None:
+    """A v2 event on a v1 topic is a misrouted producer or a contract break — both quarantine cases,
+    never best-effort-parse cases."""
+    event = _work_item_event()
+    event["canonical_schema_version"] = version
+    with pytest.raises(AmhMappingError) as exc:
+        map_work_item(event, pin=pin)
+    assert exc.value.field == "canonical_schema_version"
+    assert "unknown major" in exc.value.reason
+
+
+@pytest.mark.parametrize("version", ["1.0", "v1.0.0", "1.0.0-rc1", "1.0.0.0", "abc", "1.a.0"])
+def test_a_malformed_schema_version_is_refused(pin: Any, version: str) -> None:
+    event = _work_item_event()
+    event["canonical_schema_version"] = version
+    with pytest.raises(AmhMappingError, match="canonical_schema_version"):
+        map_work_item(event, pin=pin)
+
+
+# ---------------------------------------------------------------------------
+# Required / optional / unknown fields (decision 3)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("field", sorted(set(ENVELOPE_FIELD_ORDER) - OPTIONAL_ENVELOPE_FIELDS))
+def test_every_required_envelope_field_is_enforced(pin: Any, field: str) -> None:
+    """All 26 required fields, one test each — a missing required field is a contract violation the
+    ADAPTER must report, never something a default silently papers over."""
+    event = _work_item_event()
+    del event[field]
+    with pytest.raises(AmhMappingError) as exc:
+        map_work_item(event, pin=pin)
+    assert exc.value.field.startswith(field)
+
+
+@pytest.mark.parametrize("field", sorted(set(ENVELOPE_FIELD_ORDER) - OPTIONAL_ENVELOPE_FIELDS))
+def test_a_null_required_envelope_field_is_refused(pin: Any, field: str) -> None:
+    event = _work_item_event()
+    event[field] = None
+    with pytest.raises(AmhMappingError) as exc:
+        map_work_item(event, pin=pin)
+    assert exc.value.field.startswith(field)
+
+
+@pytest.mark.parametrize("field", sorted(OPTIONAL_ENVELOPE_FIELDS))
+def test_optional_fields_accept_null_and_absence_alike(pin: Any, field: str) -> None:
+    explicit_null = _work_item_event()
+    explicit_null[field] = None
+    assert getattr(map_work_item(explicit_null, pin=pin), field) is None
+
+    absent = _work_item_event()
+    absent.pop(field, None)
+    assert getattr(map_work_item(absent, pin=pin), field) is None
+
+
+def test_optional_field_present_is_carried_verbatim(pin: Any) -> None:
+    event = _consent_event()
+    mapped = map_consent_event(event, pin=pin)
+    assert mapped.amh_mpi_ref == event["amh_mpi_ref"]
+
+
+def test_unknown_extra_envelope_field_is_ignored_not_rejected(pin: Any) -> None:
+    """DECISION 3, the BACKWARD half: the pin declares `compatibility_mode: BACKWARD`, so a compatible
+    MINOR may add a field and an Avro reader ignores writer fields it does not declare. Rejecting
+    would make the first compatible publication a total intake outage."""
+    event = _work_item_event()
+    event["a_field_a_future_compatible_minor_added"] = "some value"
+    event["another_added_object"] = {"nested": [1, 2, 3]}
+    item = map_work_item(event, pin=pin)
+    assert item.event_id == event["event_id"]
+
+
+def test_unknown_extra_envelope_field_is_not_carried_into_the_domain(pin: Any) -> None:
+    """DECISION 3, the minimum-data half: ignored means DROPPED, not stashed. Widening a canonical
+    value type with a field no port declares would smuggle contract-owner shape into the payer core
+    and put data in the domain no consent decision authorised."""
+    event = _work_item_event()
+    event["a_field_a_future_compatible_minor_added"] = PHI_SENTINEL
+    item = map_work_item(event, pin=pin)
+
+    assert not hasattr(item, "a_field_a_future_compatible_minor_added")
+    import dataclasses
+
+    field_names = {f.name for f in dataclasses.fields(item)}
+    assert field_names == set(ENVELOPE_FIELD_ORDER) | {"payload"}
+    assert PHI_SENTINEL not in repr(item), "the dropped field leaked into the canonical value"
+
+
+def test_payload_is_copied_verbatim_and_never_widened(pin: Any) -> None:
+    event = _work_item_event()
+    item = map_work_item(event, pin=pin)
+    assert item.payload == event["payload"]
+
+
+@pytest.mark.parametrize("field", ["event_id", "portable_subject_ref", "idempotency_key", "trace_id"])
+def test_a_non_string_reference_is_refused(pin: Any, field: str) -> None:
+    event = _work_item_event()
+    event[field] = 12345
+    with pytest.raises(AmhMappingError) as exc:
+        map_work_item(event, pin=pin)
+    assert exc.value.field == field
+
+
+def test_an_empty_required_string_is_refused(pin: Any) -> None:
+    event = _work_item_event()
+    event["portable_subject_ref"] = ""
+    with pytest.raises(AmhMappingError, match="portable_subject_ref"):
+        map_work_item(event, pin=pin)
+
+
+@pytest.mark.parametrize("value", ["0", 1.5, True, None, "many"])
+def test_a_non_integer_replay_count_is_refused(pin: Any, value: object) -> None:
+    event = _work_item_event()
+    event["replay_count"] = value
+    with pytest.raises(AmhMappingError, match="replay_count"):
+        map_work_item(event, pin=pin)
+
+
+def test_missing_payload_is_refused(pin: Any) -> None:
+    event = _work_item_event()
+    del event["payload"]
+    with pytest.raises(AmhMappingError, match="payload"):
+        map_work_item(event, pin=pin)
+
+
+@pytest.mark.parametrize("value", ["a string", 42, [1, 2], None])
+def test_a_non_object_payload_is_refused(pin: Any, value: object) -> None:
+    event = _work_item_event()
+    event["payload"] = value
+    with pytest.raises(AmhMappingError, match="payload"):
+        map_work_item(event, pin=pin)
+
+
+# ---------------------------------------------------------------------------
+# source_position: 1 wire field -> 3 canonical values
+# ---------------------------------------------------------------------------
+
+
+def test_source_position_maps_onto_the_three_field_shape(pin: Any) -> None:
+    event = _work_item_event()
+    item = map_work_item(event, pin=pin)
+    assert item.source_position == SourcePosition(kind="scn", value="128734650912", transaction_ref=None)
+
+
+def test_source_position_transaction_ref_is_carried_when_present(pin: Any) -> None:
+    event = _work_item_event()
+    event["source_position"]["transaction_ref"] = "amh:txn:v1:abc"
+    assert map_work_item(event, pin=pin).source_position.transaction_ref == "amh:txn:v1:abc"
+
+
+@pytest.mark.parametrize("field", ["kind", "value"])
+def test_a_missing_source_position_subfield_is_refused(pin: Any, field: str) -> None:
+    event = _work_item_event()
+    del event["source_position"][field]
+    with pytest.raises(AmhMappingError) as exc:
+        map_work_item(event, pin=pin)
+    assert exc.value.field == f"source_position.{field}", "the refusal must name the nested field"
+
+
+@pytest.mark.parametrize("value", ["scn:128", 42, None, []])
+def test_a_non_object_source_position_is_refused(pin: Any, value: object) -> None:
+    event = _work_item_event()
+    event["source_position"] = value
+    with pytest.raises(AmhMappingError, match="source_position"):
+        map_work_item(event, pin=pin)
+
+
+# ---------------------------------------------------------------------------
+# No reference is parsed (decision 4)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "protected_source_record_ref",
+        "portable_subject_ref",
+        "consent_decision_ref",
+        "correlation_id",
+        "causation_id",
+        "idempotency_key",
+        "trace_id",
+        "amh_tenant",
+        "legal_entity",
+    ],
+)
+def test_references_are_opaque_and_copied_verbatim(pin: Any, field: str) -> None:
+    """DL-0040 / ADR-0037 XRD-05: identity semantics are DPO/Legal-gated and still OPEN. A value with
+    no `:` at all, a wrong prefix or an unexpected shape must pass through untouched — this adapter
+    validates PRESENCE and STRING-NESS, never FORMAT."""
+    for opaque in ("no-colons-at-all", "totally:different:prefix:v9", "x", "a" * 500, "::::"):
+        event = _work_item_event()
+        event[field] = opaque
+        assert getattr(map_work_item(event, pin=pin), field) == opaque
+
+
+def test_a_reference_is_never_split_or_normalised(pin: Any) -> None:
+    event = _work_item_event()
+    event["portable_subject_ref"] = "  amh:psr:v1:PADDED  "
+    # Copied verbatim — no strip(), no case fold, no split on ':'.
+    assert map_work_item(event, pin=pin).portable_subject_ref == "  amh:psr:v1:PADDED  "
+
+
+# ---------------------------------------------------------------------------
+# Consent projection
+# ---------------------------------------------------------------------------
+
+
+def test_consent_grant_projects_to_granted_true(pin: Any) -> None:
+    decision = project_consent_decision(map_consent_event(_consent_event(), pin=pin))
+    assert decision.granted is True
+    assert decision.consent_revision == 1
+    assert decision.decided_at == datetime(2026, 8, 4, 9, 0, tzinfo=UTC)
+    assert decision.decided_at.tzinfo is not None
+
+
+def test_consent_revoke_projects_to_granted_false(pin: Any) -> None:
+    decision = project_consent_decision(map_consent_event(_fixture("consent.revoked.json"), pin=pin))
+    assert decision.granted is False
+    assert decision.consent_revision == 2
+
+
+def test_consent_decision_purpose_comes_from_the_body_not_the_envelope(pin: Any) -> None:
+    """The decision that would break the consent gate if taken the other way. The envelope's
+    `purpose_of_use` is why the EVENT was shared (`sharing_amh_internal`); the decision's purpose is
+    what the subject authorised (`analytics`). The producer's own idempotency_key
+    (`consent:{tenant}:{purpose}:{scope}:{revision}`) is built from the PAYLOAD purpose."""
+    event = _consent_event()
+    assert event["purpose_of_use"] == "sharing_amh_internal"
+    assert event["payload"]["purpose"] == "analytics"
+    assert "analytics" in event["idempotency_key"]
+
+    decision = project_consent_decision(map_consent_event(event, pin=pin))
+    assert decision.purpose_of_use == "analytics"
+    assert decision.purpose_of_use != event["purpose_of_use"]
+
+
+def test_consent_decision_echoes_subject_and_decision_ref_from_the_envelope(pin: Any) -> None:
+    event = _consent_event()
+    decision = project_consent_decision(map_consent_event(event, pin=pin))
+    assert decision.portable_subject_ref == event["portable_subject_ref"]
+    assert decision.consent_decision_ref == event["consent_decision_ref"]
+
+
+def test_an_unknown_decision_token_is_refused_never_defaulted(pin: Any) -> None:
+    """Fail-closed, and specifically NOT defaulted to `granted=False`: `maezo.ports.consent` states a
+    `granted=False` decision is a successful read of a REAL decision, materially different from a
+    refusal. Inventing one would write a consent DENIAL no subject ever made into the audit trail."""
+    for token in ("expired", "pending", "GRANTED", "withdrawn", "granted "):
+        event = _consent_event()
+        event["payload"]["decision"] = token
+        _rehash(event)
+        with pytest.raises(AmhMappingError) as exc:
+            project_consent_decision(map_consent_event(event, pin=pin))
+        assert exc.value.field == "decision", token
+        assert "closed projection" in exc.value.reason, token
+
+
+def test_an_empty_or_mistyped_decision_token_is_refused(pin: Any) -> None:
+    """The adjacent shapes, which are refused one step EARLIER (on string-ness) rather than by the
+    closed projection — still refused, never defaulted."""
+    for token in ("", None, 1, True, ["granted"]):
+        event = _consent_event()
+        event["payload"]["decision"] = token
+        _rehash(event)
+        with pytest.raises(AmhMappingError) as exc:
+            project_consent_decision(map_consent_event(event, pin=pin))
+        assert exc.value.field == "decision", token
+
+
+def test_the_closed_consent_projection_matches_the_observed_fixture_tokens() -> None:
+    assert CONSENT_DECISION_TOKENS == {"granted": True, "revoked": False}
+
+
+@pytest.mark.parametrize("field", ["purpose", "decision", "consent_revision", "decided_at"])
+def test_a_missing_consent_body_field_is_refused(pin: Any, field: str) -> None:
+    event = _consent_event()
+    del event["payload"][field]
+    _rehash(event)
+    with pytest.raises(AmhMappingError) as exc:
+        project_consent_decision(map_consent_event(event, pin=pin))
+    assert exc.value.field == field
+
+
+@pytest.mark.parametrize("value", ["1", 1.5, True, None])
+def test_a_non_integer_consent_revision_is_refused(pin: Any, value: object) -> None:
+    """XRD-10 mandates a business-revision guard on the consuming side; a revision that is not an
+    integer cannot be compared, so it is refused rather than coerced."""
+    event = _consent_event()
+    event["payload"]["consent_revision"] = value
+    _rehash(event)
+    with pytest.raises(AmhMappingError, match="consent_revision"):
+        project_consent_decision(map_consent_event(event, pin=pin))
+
+
+def test_consent_decision_exposes_no_scope() -> None:
+    """Scope-to-authorisation mapping is the contract manifest's authority (ADR-0037 XRD-04), so the
+    projection must not invent one even though the wire carries `scope`."""
+    import dataclasses
+
+    from maezo.ports.consent import ConsentDecision
+
+    names = {f.name for f in dataclasses.fields(ConsentDecision)}
+    assert "scope" not in names
+
+
+# ---------------------------------------------------------------------------
+# Outcome egress
+# ---------------------------------------------------------------------------
+
+
+def test_outcome_round_trips_to_the_pinned_wire_form(pin: Any) -> None:
+    original = _outcome_event()
+    wire = outcome_to_wire(map_outcome(original, pin=pin), pin=pin)
+    assert wire == original
+
+
+def test_outcome_wire_form_emits_the_pinned_field_order_with_payload_last(pin: Any) -> None:
+    wire = outcome_to_wire(map_outcome(_outcome_event(), pin=pin), pin=pin)
+    assert list(wire) == [*ENVELOPE_FIELD_ORDER, "payload"]
+
+
+def test_outcome_egress_emits_timestamps_as_millis_integers(pin: Any) -> None:
+    wire = outcome_to_wire(map_outcome(_outcome_event(), pin=pin), pin=pin)
+    assert isinstance(wire["occurred_at"], int)
+    assert not isinstance(wire["occurred_at"], bool)
+    assert wire["occurred_at"] == _outcome_event()["occurred_at"]
+
+
+def test_outcome_egress_emits_source_position_as_the_nested_object(pin: Any) -> None:
+    wire = outcome_to_wire(map_outcome(_outcome_event(), pin=pin), pin=pin)
+    assert wire["source_position"] == {
+        "kind": "scn",
+        "value": "128734660544",
+        "transaction_ref": None,
+    }
+
+
+def test_outcome_egress_refuses_a_payload_hash_that_does_not_bind_its_payload(pin: Any) -> None:
+    """DL-0038 applied to egress: do not emit an event you have not verified. `payload_hash` is a
+    caller-supplied field, so an outcome CAN be built self-contradicting — publishing it would hand
+    the consumer a CONTRACT_VIOLATION that originated here."""
+    import dataclasses
+
+    outcome = map_outcome(_outcome_event(), pin=pin)
+    tampered = dataclasses.replace(outcome, payload={**outcome.payload, "outcome_status": "denied"})
+    with pytest.raises(AmhMappingError) as exc:
+        outcome_to_wire(tampered, pin=pin)
+    assert exc.value.field == "payload_hash"
+
+
+def test_outcome_egress_refuses_an_unknown_major(pin: Any) -> None:
+    import dataclasses
+
+    outcome = dataclasses.replace(map_outcome(_outcome_event(), pin=pin), canonical_schema_version="2.0.0")
+    with pytest.raises(AmhMappingError, match="canonical_schema_version"):
+        outcome_to_wire(outcome, pin=pin)
+
+
+def test_outcome_egress_refuses_a_source_product_outside_the_vocabulary(pin: Any) -> None:
+    import dataclasses
+
+    outcome = dataclasses.replace(map_outcome(_outcome_event(), pin=pin), source_product="tasy")
+    with pytest.raises(AmhMappingError, match="source_product"):
+        outcome_to_wire(outcome, pin=pin)
+
+
+def test_outcome_egress_refuses_a_naive_timestamp(pin: Any) -> None:
+    import dataclasses
+
+    outcome = dataclasses.replace(
+        map_outcome(_outcome_event(), pin=pin),
+        occurred_at=datetime(2026, 8, 4, 10, 0, 0),  # noqa: DTZ001
+    )
+    with pytest.raises(AmhMappingError, match="naive"):
+        outcome_to_wire(outcome, pin=pin)
+
+
+def test_outcome_egress_returns_a_detached_payload_copy(pin: Any) -> None:
+    """The emitted mapping must not alias the canonical value's payload — a later mutation of the wire
+    dict would otherwise silently rewrite an already-audited canonical outcome."""
+    outcome = map_outcome(_outcome_event(), pin=pin)
+    wire = outcome_to_wire(outcome, pin=pin)
+    wire["payload"]["outcome_status"] = "mutated"
+    assert outcome.payload["outcome_status"] == "returned_for_information"
+
+
+# ---------------------------------------------------------------------------
+# Non-disclosure (decision 5)
+# ---------------------------------------------------------------------------
+
+
+#: Envelope fields whose value is structurally constrained (a semver, a closed vocabulary token, a
+#: millis integer, a nested object). The sentinel cannot be planted in these without changing WHICH
+#: check fires, so each is broken by its own case below instead.
+_STRUCTURED_FIELDS: frozenset[str] = frozenset(
+    {
+        "canonical_schema_version",
+        "source_product",
+        "occurred_at",
+        "ingested_at",
+        "replay_count",
+        "source_position",
+    }
+)
+
+
+def _phi_laden_event() -> dict[str, Any]:
+    """A work item with the sentinel planted in every FREE-FORM slot — i.e. every opaque reference and
+    the whole payload — while the structurally-constrained fields stay valid so that a case can choose
+    exactly which refusal path it exercises."""
+    event = _work_item_event()
+    for field in ENVELOPE_FIELD_ORDER:
+        if field not in _STRUCTURED_FIELDS:
+            event[field] = PHI_SENTINEL
+    event["source_position"] = {
+        "kind": "scn",
+        "value": PHI_SENTINEL,
+        "transaction_ref": PHI_SENTINEL,
+    }
+    event["payload"] = {"action_summary": PHI_SENTINEL, "workflow_business_ref": PHI_SENTINEL}
+    return event
+
+
+def _failure_cases(pin: Any) -> list[tuple[str, Any]]:
+    """One callable per distinct refusal path. Each event carries the sentinel in its free-form fields
+    AND its payload, so whichever path fires has PHI-shaped data in hand at the moment it refuses."""
+    cases: list[tuple[str, Any]] = []
+
+    bad_product = _phi_laden_event()
+    bad_product["source_product"] = "tasy"  # outside the closed vocabulary
+    cases.append(("source_product vocabulary", lambda: map_work_item(bad_product, pin=pin)))
+
+    bad_major = _phi_laden_event()
+    bad_major["canonical_schema_version"] = "2.0.0"
+    cases.append(("unknown major", lambda: map_work_item(bad_major, pin=pin)))
+
+    bad_semver = _phi_laden_event()
+    bad_semver["canonical_schema_version"] = PHI_SENTINEL
+    cases.append(("malformed schema version", lambda: map_work_item(bad_semver, pin=pin)))
+
+    bad_hash = _phi_laden_event()
+    bad_hash["source_product"] = "tasy_hospital"
+    cases.append(("payload_hash mismatch", lambda: map_work_item(bad_hash, pin=pin)))
+
+    missing = _phi_laden_event()
+    del missing["consent_decision_ref"]
+    cases.append(("missing required field", lambda: map_work_item(missing, pin=pin)))
+
+    null_field = _phi_laden_event()
+    null_field["legal_entity"] = None
+    cases.append(("null required field", lambda: map_work_item(null_field, pin=pin)))
+
+    mistyped = _phi_laden_event()
+    mistyped["portable_subject_ref"] = {"cpf": PHI_SENTINEL}
+    cases.append(("mistyped reference", lambda: map_work_item(mistyped, pin=pin)))
+
+    bad_ts = _phi_laden_event()
+    bad_ts["occurred_at"] = PHI_SENTINEL
+    cases.append(("bad timestamp", lambda: map_work_item(bad_ts, pin=pin)))
+
+    naive_ts = _phi_laden_event()
+    naive_ts["occurred_at"] = datetime(2026, 8, 4, 10, 0, 0)  # noqa: DTZ001
+    cases.append(("naive timestamp", lambda: map_work_item(naive_ts, pin=pin)))
+
+    bad_count = _phi_laden_event()
+    bad_count["replay_count"] = PHI_SENTINEL
+    cases.append(("non-integer replay_count", lambda: map_work_item(bad_count, pin=pin)))
+
+    bad_position = _phi_laden_event()
+    bad_position["source_position"] = {"kind": PHI_SENTINEL}
+    cases.append(("missing source_position subfield", lambda: map_work_item(bad_position, pin=pin)))
+
+    scalar_position = _phi_laden_event()
+    scalar_position["source_position"] = PHI_SENTINEL
+    cases.append(("non-object source_position", lambda: map_work_item(scalar_position, pin=pin)))
+
+    bad_payload = _phi_laden_event()
+    bad_payload["payload"] = PHI_SENTINEL
+    cases.append(("non-object payload", lambda: map_work_item(bad_payload, pin=pin)))
+
+    no_payload = _phi_laden_event()
+    del no_payload["payload"]
+    cases.append(("missing payload", lambda: map_work_item(no_payload, pin=pin)))
+
+    bad_decision = _consent_event()
+    bad_decision["payload"]["decision"] = PHI_SENTINEL
+    _rehash(bad_decision)
+    cases.append(
+        (
+            "unknown consent decision token",
+            lambda: project_consent_decision(map_consent_event(bad_decision, pin=pin)),
+        )
+    )
+
+    bad_revision = _consent_event()
+    bad_revision["payload"]["consent_revision"] = PHI_SENTINEL
+    _rehash(bad_revision)
+    cases.append(
+        (
+            "non-integer consent revision",
+            lambda: project_consent_decision(map_consent_event(bad_revision, pin=pin)),
+        )
+    )
+
+    return cases
+
+
+def test_no_exception_discloses_a_wire_value(pin: Any) -> None:
+    """ADR-0037 immutable prohibition #5. This is the direct counter-example to
+    `MalformedBridgeMessageError` in `src/maezo/platform/integrations/notifications_bridge.py`, which
+    interpolates the whole raw message into its text (`f"...: {raw!r}"`) AND retains it as
+    `self.raw`. On this boundary that text reaches logs, traces and quarantine metadata."""
+    cases = _failure_cases(pin)
+    assert len(cases) >= 16, "non-vacuity: every distinct refusal path must be covered"
+
+    for label, call in cases:
+        with pytest.raises(AmhMappingError) as exc:
+            call()
+        error = exc.value
+        for rendered in (str(error), repr(error), repr(error.args), error.reason, error.field):
+            assert PHI_SENTINEL not in rendered, f"{label}: value disclosed in {rendered!r}"
+
+
+def test_exceptions_retain_no_reference_to_the_event(pin: Any) -> None:
+    """The other half of the bridge hazard: it kept `self.raw`. An exception object that holds the
+    event would leak it through any handler that logs `exc.__dict__` or a traceback frame dump."""
+    for label, call in _failure_cases(pin):
+        with pytest.raises(AmhMappingError) as exc:
+            call()
+        stored = vars(exc.value)
+        assert set(stored) == {"field", "reason"}, f"{label}: unexpected attributes {sorted(stored)}"
+        for value in stored.values():
+            assert isinstance(value, str), f"{label}: non-string attribute retained"
+            assert PHI_SENTINEL not in value, f"{label}: sentinel retained on the exception"
+
+
+def test_the_sentinel_would_actually_be_caught_if_disclosed(pin: Any) -> None:
+    """NON-VACUITY for the two tests above: they are `assert sentinel not in text` assertions, which
+    pass trivially if the sentinel never reaches the code under test. Prove the sentinel IS present in
+    the events being rejected, and that the same assertion FAILS against a deliberately-disclosing
+    exception of the hazardous shape."""
+    bad_product = _phi_laden_event()
+    serialised = json.dumps(bad_product, default=str)
+    assert serialised.count(PHI_SENTINEL) >= 20, (
+        "the sentinel is barely present in the event under test, so 'not in the message' proves "
+        f"little (found {serialised.count(PHI_SENTINEL)} occurrences)"
+    )
+
+    # The hazardous shape, spelled out: this is what notifications_bridge does.
+    class _DisclosingError(Exception):
+        def __init__(self, raw: Mapping[str, Any]) -> None:
+            self.raw = raw
+            super().__init__(f"malformed message: {raw!r}")
+
+    leaky = _DisclosingError(bad_product)
+    assert PHI_SENTINEL in str(leaky), "the non-disclosure assertion cannot detect a leak"
+    assert PHI_SENTINEL in repr(vars(leaky))
+
+
+def test_mapping_error_is_an_adapter_error() -> None:
+    assert issubclass(AmhMappingError, AmhAdapterError)
+
+
+def test_mapping_error_exposes_the_field_name_for_operator_triage(pin: Any) -> None:
+    """Non-disclosure must not become non-diagnosability: the field NAME is not data, and an operator
+    needs it to route a quarantined event."""
+    event = _work_item_event()
+    event["source_product"] = "tasy"
+    with pytest.raises(AmhMappingError) as exc:
+        map_work_item(event, pin=pin)
+    assert exc.value.field == "source_product"
+    assert "source_product" in str(exc.value)
+    assert "tasy_hospital" in str(exc.value), "the PINNED vocabulary is public and aids triage"

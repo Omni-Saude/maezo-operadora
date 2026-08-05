@@ -97,6 +97,15 @@ packages = ["src/maezo"]
 # points at the shipped maezo/spec/ tree.
 [tool.hatch.build.targets.wheel.force-include]
 "spec/policies/autonomy" = "maezo/spec/policies/autonomy"
+# ADR-0037 XRD-04 / MZO-050a (same load-bearing shape as the line above): the AMH contract pin is
+# the ONE contract artifact this repo may hold, it lives in config/ (outside src/maezo), and
+# maezo.adapters.amh.contract reads it at composition time to decide fail-closed whether the
+# boundary may run at all. Without this force-include the pin would not reach a container and every
+# packaged deployment of the adapter would refuse to start with "pin file not found" — the same
+# bricking failure mode the autonomy matrix had. Runtime discovery is
+# `resolve_contract_pin_path()`, which checks the repo checkout, then this package-adjacent copy,
+# with $MAEZO_AMH_CONTRACT_PIN overriding both.
+"config/integrations/amh" = "maezo/config/integrations/amh"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
