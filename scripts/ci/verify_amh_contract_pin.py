@@ -230,9 +230,31 @@ _GIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 _RUN_ID_RE = re.compile(r"^[0-9]+$")
 _ISO_UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
-_SEMVER_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
+#: STRICT semver, byte-identical to `maezo.adapters.amh.contract._SEMVER_RE` — asserted equal by
+#: `tests/contract/amh/test_amh_contract_loader.py`, which is what stops the two copies drifting.
+#:
+#: **The gate must be the STRICTEST layer, not a looser one.** `^(\d+)\.(\d+)\.(\d+)$` was looser than
+#: the adapter's pattern on two axes: bare `\d` in a `str` pattern matches every Unicode decimal digit
+#: (so it read fullwidth `１.０.０` as a version), and it allowed leading zeros. Adapter-accepts was a
+#: strict SUBSET of gate-accepts, so no legitimate pin was ever wedged — but the asymmetry pointed the
+#: wrong way: CI could go GREEN on a pin the adapter would then refuse at boot, which is later than
+#: ADR-0037 XRD-04 wants ("falham fail-closed antes de merge/deploy de adapter"). The explicit
+#: `[0-9]`/`[1-9]` classes are what enforce ASCII here; there is no `re.ASCII` flag because against
+#: explicit classes it would be inert.
+#:
+#: `{0,8}` bounds each component to nine digits. Not cosmetic: `parse_semver` below feeds the captured
+#: groups to `int()`, and CPython refuses `int(s)` past `sys.int_max_str_digits`, so an unbounded `*`
+#: let a MATCHING string raise `ValueError` out of the gate. Same bound, same reason, as the adapter's
+#: `MAX_SEMVER_COMPONENT_DIGITS`.
+_SEMVER_COMPONENT = r"(0|[1-9][0-9]{0,8})"
+_SEMVER_RE = re.compile(rf"^{_SEMVER_COMPONENT}\.{_SEMVER_COMPONENT}\.{_SEMVER_COMPONENT}$")
 #: Trailing `.vN` major suffix on a topic (or quarantine topic) name.
-_TOPIC_MAJOR_RE = re.compile(r"\.v(\d+)$")
+# Bounded digit run, mirroring _SEMVER_RE below and the adapter's equivalent: an unbounded
+# `\d+` matches an arbitrarily long run that then blows CPython's 4300-digit int()
+# conversion limit inside topic_major(), so a crafted pin made this gate die on a bare
+# ValueError instead of reporting a violation. It still exited non-zero, i.e. it failed
+# closed by accident rather than by design, and the operator lost the violation report.
+_TOPIC_MAJOR_RE = re.compile(r"\.v(\d{1,9})$")
 
 _MISSING = object()
 

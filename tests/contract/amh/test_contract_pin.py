@@ -44,6 +44,7 @@ from scripts.ci.verify_amh_contract_pin import (
     FROZEN_SOURCE_PRODUCT_VOCABULARY,
     FROZEN_TOPICS,
     load_lock,
+    topic_major,
     verify_candidate,
     verify_lock,
     verify_manifest,
@@ -767,3 +768,30 @@ def test_invalid_fixtures_all_still_parse_as_json() -> None:
     """They are semantically invalid, not syntactically broken — the consumer must reach the rule."""
     for entry in fixtures_by_role(read_lock(), "invalid"):
         assert isinstance(load_fixture(entry), dict)
+
+
+def test_a_topic_major_past_the_int_conversion_limit_is_a_violation_not_a_crash() -> None:
+    """The gate's own `topic_major` must REPORT a malformed major, never die computing it.
+
+    `_TOPIC_MAJOR_RE` bounds the digit run for one reason: an unbounded `\\d+` matches an
+    arbitrarily long run, and `int()` then hits CPython's 4300-digit conversion limit. A crafted pin
+    made THIS GATE raise a bare `ValueError` — it still exited non-zero, so it failed closed by
+    accident rather than by design, and the operator lost the violation report, which is the whole
+    artifact the gate exists to produce.
+
+    Mirrors the adapter-side pin in `tests/unit/adapters/amh/test_mapping.py`
+    (`test_a_schema_version_past_the_int_conversion_limit_is_refused`): the two implementations of
+    this rule must not drift, and until this test existed only the adapter's half was pinned.
+    """
+    # The real pinned names still resolve, so the bound did not cost anything real.
+    assert topic_major("amh.maezo.work-items.v1") == 1
+    assert topic_major("amh.maezo.consent.v1.quarantine.v1") == 1
+    assert topic_major("maezo.amh.outcomes.v1") == 1
+
+    # A 9-digit major is still a major; 10 digits is no longer recognised as one.
+    assert topic_major("x.y.z.v" + "9" * 9) == int("9" * 9)
+    assert topic_major("x.y.z.v" + "9" * 10) is None
+
+    # The crash case: far past the interpreter's int() limit. `None` is a reportable violation
+    # ("no trailing .vN major"); an exception would be the defect this pins.
+    assert topic_major("x.y.z.v" + "9" * 5000) is None
