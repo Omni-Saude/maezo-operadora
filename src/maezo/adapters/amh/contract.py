@@ -47,9 +47,13 @@ the `MAEZO_AMH_CONTRACT_PIN` env override taking precedence (same posture as `MA
 `maezo.agents.resolve_spec_dir`: an explicit-but-wrong override is a configuration error, never a
 silent fallback).
 
-**No PHI here.** The pin carries digests, topic names and vocabulary — no subject data of any kind —
-so violation text may quote pinned values for the operator. That licence stops at this module: see
-`maezo.adapters.amh.mapping`, where the values are wire data and nothing may be quoted.
+**No PHI here, but the echo is BOUNDED.** The pin carries digests, topic names and vocabulary — no
+subject data of any kind — so violation text may quote pinned values for the operator. That licence
+stops at this module: see `maezo.adapters.amh.mapping`, where the values are wire data and nothing may
+be quoted. It is also bounded, because `$MAEZO_AMH_CONTRACT_PIN` can point at ANY readable JSON: every
+pin-derived value and JSON path goes through `_echo`/`_bounded` (`MAX_ECHOED_PIN_VALUE_CHARS`), so a
+misconfigured override cannot paste an arbitrary file's strings into a log line unbounded. Below the
+bound the rendering is byte-identical to `repr`, so a correct pin's violations are unchanged.
 """
 
 from __future__ import annotations
@@ -161,6 +165,33 @@ FROZEN_CONTRACT_NAME: Final[str] = "amh-maezo-boundary"
 FROZEN_COMPATIBILITY_MODE: Final[str] = "BACKWARD"
 FROZEN_TOPIC_MAJOR: Final[int] = 1
 
+#: Glue's own verdict on the three published schema versions. The ONE frozen constant the CI gate
+#: carried that this loader did not (`_check_equals(... "glue_registration.schema_version_status",
+#: FROZEN_SCHEMA_VERSION_STATUS)`), which made the runtime loader accept a pin declaring `PENDING` or
+#: `FAILURE` that the gate refuses. A schema version that is not `AVAILABLE` cannot be resolved by
+#: phase B's decoder at all, so a pin claiming otherwise describes a registry state in which this
+#: adapter cannot read a single event.
+FROZEN_SCHEMA_VERSION_STATUS: Final[str] = "AVAILABLE"
+
+#: The provider-side compatibility run's verdict. Same reasoning: the whole unknown-field tolerance in
+#: `maezo.adapters.amh.mapping` (decision 3) rests on BACKWARD compatibility having been DEMONSTRATED,
+#: not merely declared. A pin carrying `FAILED` here says the demonstration did not pass — the gate
+#: refuses it (`_check_equals(... "compatibility_report.result", "PASSED")`) and so must the loader.
+FROZEN_COMPATIBILITY_RESULT: Final[str] = "PASSED"
+
+#: Evidence sections the pin must still carry. The gate's `REQUIRED_SECTIONS` says why in its own
+#: words: "a pin that has quietly lost its compatibility evidence or its XRG-3 record is not a pin".
+#: Deleting either section is a strictly EASIER edit than tampering with a value inside it, and before
+#: this the loader read a pin with both sections deleted as valid.
+REQUIRED_EVIDENCE_SECTIONS: Final[tuple[str, ...]] = ("compatibility_report", "xrg3_verification")
+
+#: Longest pin-derived value echoed into a violation string. Violation text quotes pin content by
+#: design (there is no PHI in a pin — see the module docstring), but `$MAEZO_AMH_CONTRACT_PIN` can
+#: point at ANY readable JSON, and an unbounded echo would let a misconfigured override paste an
+#: arbitrary file's strings into a log line. Comfortably above every legitimate pinned value (the
+#: longest is a 64-hex digest), so a correct pin's violations read exactly as before.
+MAX_ECHOED_PIN_VALUE_CHARS: Final[int] = 120
+
 #: The canonical schema version this adapter was written against. A pin declaring a LOWER version is
 #: the "versao rebaixada" XRD-04 refuses: the running code would be newer than the contract it
 #: claims to serve. A higher version is accepted here (the pin moved forward); whether a given EVENT
@@ -180,7 +211,15 @@ _SHA256_RE: Final[re.Pattern[str]] = re.compile(r"^[0-9a-f]{64}$")
 _UUID_RE: Final[re.Pattern[str]] = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 )
-_SEMVER_RE: Final[re.Pattern[str]] = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
+#: STRICT semver: ASCII digits only, and no leading zeros. `re.ASCII` matters — bare `\d` in a `str`
+#: pattern also matches every Unicode decimal digit, so the previous spelling read fullwidth `１.０.０`
+#: and Arabic-Indic `1.0.٠` as version 1.0.0. `01.0.0` is likewise refused: semver forbids leading
+#: zeros, and accepting it would let two spellings of one version compare unequal as strings while
+#: comparing equal as tuples — a divergence between the loader's downgrade check (tuple) and the
+#: `provenance` vs `envelope` cross-check (string equality) in the SAME file.
+_SEMVER_RE: Final[re.Pattern[str]] = re.compile(
+    r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$", re.ASCII
+)
 _TOPIC_MAJOR_RE: Final[re.Pattern[str]] = re.compile(r"\.v(\d+)$")
 
 
@@ -287,10 +326,10 @@ class AmhContractPin:
         the contract owner guarantees compatibility WITHIN a major (every topic is `.v1` and the pin
         declares `major_version: 1`), and guarantees nothing across one.
         """
-        parsed = _parse_semver(self.canonical_schema_version)
+        parsed = parse_semver(self.canonical_schema_version)
         if parsed is None:  # pragma: no cover - load_contract_pin refuses a non-semver version
             raise AmhContractPinError(
-                [f"canonical_schema_version is not semver: {self.canonical_schema_version!r}"]
+                [f"canonical_schema_version is not semver: {_echo(self.canonical_schema_version)}"]
             )
         return parsed[0]
 
@@ -300,14 +339,14 @@ class AmhContractPin:
         for entry in self.topics:
             if entry.name == name:
                 return entry
-        raise AmhContractPinError([f"topic {name!r} is not in the pinned catalogue"])
+        raise AmhContractPinError([f"topic {_echo(name)} is not in the pinned catalogue"])
 
     def glue_schema_version_id(self, schema_key: str) -> str:
         """The pinned Glue schema-version id for `schema_key` (e.g. `amh_maezo_work_item`)."""
         try:
             return self.glue.schema_version_ids[schema_key]
         except KeyError:
-            raise AmhContractPinError([f"no pinned Glue schema-version id for {schema_key!r}"]) from None
+            raise AmhContractPinError([f"no pinned Glue schema-version id for {_echo(schema_key)}"]) from None
 
     def is_known_source_product(self, value: object) -> bool:
         """Membership in the CLOSED `source_product` vocabulary ("Nenhum outro valor de
@@ -320,13 +359,42 @@ class AmhContractPin:
 # ---------------------------------------------------------------------------
 
 
-def _parse_semver(value: object) -> tuple[int, int, int] | None:
+def parse_semver(value: object) -> tuple[int, int, int] | None:
+    """`MAJOR.MINOR.PATCH` -> the integer triple, or `None` when `value` is not a strict semver.
+
+    **The ONE version validator in `maezo.adapters.amh`.** `maezo.adapters.amh.mapping` imports this
+    rather than keeping its own: two validators for one grammar drifted apart on four inputs
+    (`01.0.0`, `１.０.０`, `1.0.٠` accepted by both when they should be refused, and `².0.0` raising a
+    bare `ValueError` out of the mapping copy because `"²".isdigit()` is `True` while `int("²")` is
+    not). Total by construction — it never raises, so a caller cannot leak an exception by using it.
+    """
     if not isinstance(value, str):
         return None
     match = _SEMVER_RE.match(value)
     if match is None:
         return None
     return (int(match.group(1)), int(match.group(2)), int(match.group(3)))
+
+
+def _echo(value: object, limit: int = MAX_ECHOED_PIN_VALUE_CHARS) -> str:
+    """`repr(value)` for a violation message, bounded to `limit` characters.
+
+    Below the bound the output is EXACTLY `repr(value)`, so every legitimate violation reads as it did
+    before; above it the tail is replaced by an explicit elision marker naming the true length, which
+    is what an operator needs in order to know the value was long rather than mangled.
+    """
+    return _bounded(repr(value), limit)
+
+
+def _bounded(text: str, limit: int = MAX_ECHOED_PIN_VALUE_CHARS) -> str:
+    """`text` truncated to `limit` characters with an explicit elision marker naming the true length.
+
+    Applied to the JSON PATHS the placeholder walk reports as well as to values: a path is assembled
+    from the scanned file's own keys, so `$.<64KB key>` is just as unbounded as a 64KB value.
+    """
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit]}...<{len(text)} chars, elided>"
 
 
 def _topic_major(name: object) -> int | None:
@@ -361,7 +429,7 @@ def _get(obj: object, dotted: str) -> object | None:
 def _require_str(violations: list[str], root: object, dotted: str) -> str:
     value = _get(root, dotted)
     if not isinstance(value, str) or not value.strip():
-        violations.append(f"{dotted}: required non-empty string, got {value!r}")
+        violations.append(f"{dotted}: required non-empty string, got {_echo(value)}")
         return ""
     return value
 
@@ -442,18 +510,18 @@ def _check_provenance(violations: list[str], raw: object) -> None:
     status = _require_str(violations, raw, "provenance.status")
     if status and status != FROZEN_STATUS:
         violations.append(
-            f"provenance.status: must be {FROZEN_STATUS!r}, got {status!r} — an adapter never runs "
+            f"provenance.status: must be {FROZEN_STATUS!r}, got {_echo(status)} — an adapter never runs "
             "against an unpublished contract"
         )
 
     name = _require_str(violations, raw, "provenance.contract_name")
     if name and name != FROZEN_CONTRACT_NAME:
-        violations.append(f"provenance.contract_name: must be {FROZEN_CONTRACT_NAME!r}, got {name!r}")
+        violations.append(f"provenance.contract_name: must be {FROZEN_CONTRACT_NAME!r}, got {_echo(name)}")
 
     mode = _require_str(violations, raw, "provenance.compatibility_mode")
     if mode and mode != FROZEN_COMPATIBILITY_MODE:
         violations.append(
-            f"provenance.compatibility_mode: must be {FROZEN_COMPATIBILITY_MODE!r}, got {mode!r}"
+            f"provenance.compatibility_mode: must be {FROZEN_COMPATIBILITY_MODE!r}, got {_echo(mode)}"
         )
 
     _require_str(violations, raw, "provenance.amh_commit_sha")
@@ -461,10 +529,10 @@ def _check_provenance(violations: list[str], raw: object) -> None:
 
     prov_version = _get(raw, "provenance.canonical_schema_version")
     env_version = _get(raw, "envelope.canonical_schema_version")
-    parsed = _parse_semver(prov_version)
+    parsed = parse_semver(prov_version)
     if parsed is None:
         violations.append(
-            f"provenance.canonical_schema_version: must be MAJOR.MINOR.PATCH, got {prov_version!r}"
+            f"provenance.canonical_schema_version: must be MAJOR.MINOR.PATCH, got {_echo(prov_version)}"
         )
     elif parsed < MINIMUM_CANONICAL_SCHEMA_VERSION:
         violations.append(
@@ -475,12 +543,44 @@ def _check_provenance(violations: list[str], raw: object) -> None:
     if prov_version != env_version:
         violations.append(
             "provenance.canonical_schema_version != envelope.canonical_schema_version "
-            f"({prov_version!r} vs {env_version!r})"
+            f"({_echo(prov_version)} vs {_echo(env_version)})"
         )
 
 
+def _check_evidence(violations: list[str], raw: object) -> None:
+    """The pin's published EVIDENCE, not just its declarations (LOW-3 / gate parity).
+
+    Everything else in this file checks what the pin CLAIMS about the contract. These three checks are
+    about whether the claim was demonstrated: the compatibility run passed, and the XRG-3 verification
+    record is still attached. Both sections are trivially deletable from a JSON file, and without these
+    checks the loader read a pin with either one removed — or with `result: FAILED` — as valid, while
+    `scripts/ci/verify_amh_contract_pin.py` refuses all three. A runtime loader that is a strict SUBSET
+    of the CI gate is a loader that will one day boot against a pin CI would have rejected.
+    """
+    for section in REQUIRED_EVIDENCE_SECTIONS:
+        if not isinstance(_get(raw, section), dict):
+            violations.append(
+                f"{section}: required evidence section absent or not an object — a pin that has lost "
+                "its compatibility evidence or its XRG-3 record is not a pin"
+            )
+
+    result = _get(raw, "compatibility_report.result")
+    if result is not None and result != FROZEN_COMPATIBILITY_RESULT:
+        violations.append(
+            f"compatibility_report.result: must be {FROZEN_COMPATIBILITY_RESULT!r}, got {_echo(result)} — "
+            "the BACKWARD tolerance in maezo.adapters.amh.mapping rests on compatibility having been "
+            "demonstrated, not merely declared"
+        )
+
+    # The XRG-3 record must be more than an empty object: the gate requires both of these strings.
+    if isinstance(_get(raw, "xrg3_verification"), dict):
+        _require_str(violations, raw, "xrg3_verification.verified_at_utc")
+        _require_str(violations, raw, "xrg3_verification.verified_by")
+
+
 def _check_placeholders(violations: list[str], raw: object) -> None:
-    for trail, value in _iter_strings(raw):
+    for raw_trail, value in _iter_strings(raw):
+        trail = _bounded(raw_trail)
         upper = value.upper()
         for token in PLACEHOLDER_SUBSTRINGS:
             if token in upper:
@@ -492,7 +592,7 @@ def _check_placeholders(violations: list[str], raw: object) -> None:
 def _check_manifest(violations: list[str], raw: object) -> None:
     digest = _require_str(violations, raw, "manifest_pin.sha256")
     if digest and _SHA256_RE.match(digest) is None:
-        violations.append(f"manifest_pin.sha256: not a 64-hex sha256, got {digest!r}")
+        violations.append(f"manifest_pin.sha256: not a 64-hex sha256, got {_echo(digest)}")
     _require_str(violations, raw, "manifest_pin.path")
 
 
@@ -507,13 +607,13 @@ def _check_envelope(violations: list[str], raw: object) -> None:
             got = order[index] if index < len(order) else "<absent>"
             want = expected[index] if index < len(expected) else "<absent>"
             if got != want:
-                detail += f"; first divergence at index {index}: expected {want!r}, got {got!r}"
+                detail += f"; first divergence at index {index}: expected {want!r}, got {_echo(got)}"
                 break
         violations.append(detail)
 
     count = _get(raw, "envelope.field_count")
     if not isinstance(count, int) or isinstance(count, bool):
-        violations.append(f"envelope.field_count: must be an integer, got {count!r}")
+        violations.append(f"envelope.field_count: must be an integer, got {_echo(count)}")
     elif count != len(FROZEN_ENVELOPE_FIELD_ORDER):
         violations.append(f"envelope.field_count: must be {len(FROZEN_ENVELOPE_FIELD_ORDER)}, got {count}")
 
@@ -521,14 +621,14 @@ def _check_envelope(violations: list[str], raw: object) -> None:
     if not isinstance(vocabulary, list) or tuple(vocabulary) != FROZEN_SOURCE_PRODUCT_VOCABULARY:
         violations.append(
             "envelope.source_product_vocabulary: must be exactly "
-            f"{list(FROZEN_SOURCE_PRODUCT_VOCABULARY)}, got {vocabulary!r}"
+            f"{list(FROZEN_SOURCE_PRODUCT_VOCABULARY)}, got {_echo(vocabulary)}"
         )
 
     canonicalization = _require_str(violations, raw, "envelope.payload_hash_canonicalization")
     if canonicalization and "sorted keys" not in canonicalization:
         violations.append(
             "envelope.payload_hash_canonicalization: the pinned canonicalisation no longer declares "
-            f"sorted keys ({canonicalization!r}) — the recomputation in maezo.adapters.amh.mapping "
+            f"sorted keys ({_echo(canonicalization)}) — the recomputation in maezo.adapters.amh.mapping "
             "would no longer reproduce a producer's hash"
         )
 
@@ -549,12 +649,12 @@ def _check_topics(violations: list[str], raw: object) -> list[TopicPin]:
             violations.append(f"topics[{index}]: missing/invalid name")
             continue
         if name in by_name:
-            violations.append(f"topics: duplicate topic name {name!r}")
+            violations.append(f"topics: duplicate topic name {_echo(name)}")
         by_name[name] = entry
 
     expected_names = {t[0] for t in FROZEN_TOPICS}
     for unexpected in sorted(set(by_name) - expected_names):
-        violations.append(f"topics: {unexpected!r} is not in the ADR-0037 frozen catalogue")
+        violations.append(f"topics: {_echo(unexpected)} is not in the ADR-0037 frozen catalogue")
 
     pins: list[TopicPin] = []
     for name, direction, schema_path, quarantine in FROZEN_TOPICS:
@@ -564,23 +664,27 @@ def _check_topics(violations: list[str], raw: object) -> list[TopicPin]:
             continue
         if entry.get("direction") != direction:
             violations.append(
-                f"topics[{name}].direction: expected {direction!r}, got {entry.get('direction')!r}"
+                f"topics[{name}].direction: expected {direction!r}, got {_echo(entry.get('direction'))}"
             )
         if entry.get("schema_path") != schema_path:
             violations.append(
-                f"topics[{name}].schema_path: expected {schema_path!r}, got {entry.get('schema_path')!r}"
+                f"topics[{name}].schema_path: expected {schema_path!r}, got {_echo(entry.get('schema_path'))}"
             )
         if entry.get("quarantine") != quarantine:
             violations.append(
-                f"topics[{name}].quarantine: expected {quarantine!r}, got {entry.get('quarantine')!r}"
+                f"topics[{name}].quarantine: expected {quarantine!r}, got {_echo(entry.get('quarantine'))}"
             )
         major = entry.get("major_version")
         if major != FROZEN_TOPIC_MAJOR:
-            violations.append(f"topics[{name}].major_version: expected {FROZEN_TOPIC_MAJOR}, got {major!r}")
+            violations.append(
+                f"topics[{name}].major_version: expected {FROZEN_TOPIC_MAJOR}, got {_echo(major)}"
+            )
         for label in ("name", "quarantine"):
             suffix_major = _topic_major(entry.get(label))
             if suffix_major is None:
-                violations.append(f"topics[{name}].{label}: {entry.get(label)!r} has no trailing .vN major")
+                violations.append(
+                    f"topics[{name}].{label}: {_echo(entry.get(label))} has no trailing .vN major"
+                )
             elif suffix_major != FROZEN_TOPIC_MAJOR:
                 violations.append(
                     f"topics[{name}].{label}: major v{suffix_major}, expected v{FROZEN_TOPIC_MAJOR}"
@@ -605,6 +709,12 @@ def _check_glue(violations: list[str], raw: object) -> GlueRegistryPin:
     region = _require_str(violations, raw, "glue_registration.region")
     registry = _require_str(violations, raw, "glue_registration.registry_name")
     status = _require_str(violations, raw, "glue_registration.schema_version_status")
+    if status and status != FROZEN_SCHEMA_VERSION_STATUS:
+        violations.append(
+            f"glue_registration.schema_version_status: must be {FROZEN_SCHEMA_VERSION_STATUS!r}, got "
+            f"{_echo(status)} — phase B's decoder cannot resolve a writer schema whose registry "
+            "version is not available"
+        )
 
     ids_raw = _get(raw, "glue_registration.schema_version_ids")
     ids: dict[str, str] = {}
@@ -612,7 +722,7 @@ def _check_glue(violations: list[str], raw: object) -> GlueRegistryPin:
         violations.append("glue_registration.schema_version_ids: must be an object")
     else:
         for unexpected in sorted(set(ids_raw) - set(FROZEN_GLUE_SCHEMA_KEYS)):
-            violations.append(f"glue_registration.schema_version_ids: unknown key {unexpected!r}")
+            violations.append(f"glue_registration.schema_version_ids: unknown key {_echo(unexpected)}")
         seen: dict[str, str] = {}
         for key in FROZEN_GLUE_SCHEMA_KEYS:
             value = ids_raw.get(key)
@@ -620,7 +730,9 @@ def _check_glue(violations: list[str], raw: object) -> GlueRegistryPin:
                 violations.append(f"glue_registration.schema_version_ids: missing key {key!r}")
                 continue
             if not isinstance(value, str) or _UUID_RE.match(value) is None:
-                violations.append(f"glue_registration.schema_version_ids.{key}: not a UUID, got {value!r}")
+                violations.append(
+                    f"glue_registration.schema_version_ids.{key}: not a UUID, got {_echo(value)}"
+                )
                 continue
             if value in seen:
                 violations.append(
@@ -654,7 +766,7 @@ def _digest_map(violations: list[str], raw: object, section: str, *, key: str) -
             violations.append(f"{section}[{index}].{key}: missing/invalid")
             continue
         if not isinstance(digest, str) or _SHA256_RE.match(digest) is None:
-            violations.append(f"{section}[{index}].sha256: not a 64-hex sha256, got {digest!r}")
+            violations.append(f"{section}[{index}].sha256: not a 64-hex sha256, got {_echo(digest)}")
             continue
         out[path] = digest
     return out
@@ -663,7 +775,7 @@ def _digest_map(violations: list[str], raw: object, section: str, *, key: str) -
 def _check_artifacts(violations: list[str], raw: object) -> dict[str, str]:
     digests = _digest_map(violations, raw, "artifacts", key="path")
     for unexpected in sorted(set(digests) - set(FROZEN_ARTIFACT_PATHS)):
-        violations.append(f"artifacts: {unexpected!r} is not in the ADR-0037 frozen catalogue")
+        violations.append(f"artifacts: {_echo(unexpected)} is not in the ADR-0037 frozen catalogue")
     for path in FROZEN_ARTIFACT_PATHS:
         if path not in digests:
             violations.append(f"artifacts: frozen artifact absent -> {path}")
@@ -713,6 +825,7 @@ def load_contract_pin(path: Path | None = None) -> AmhContractPin:
 
     violations: list[str] = []
     _check_provenance(violations, raw)
+    _check_evidence(violations, raw)
     _check_placeholders(violations, raw)
     _check_manifest(violations, raw)
     _check_envelope(violations, raw)
@@ -751,21 +864,26 @@ __all__ = [
     "CONTRACT_PIN_RELATIVE_PATH",
     "FROZEN_ARTIFACT_PATHS",
     "FROZEN_COMPATIBILITY_MODE",
+    "FROZEN_COMPATIBILITY_RESULT",
     "FROZEN_CONTRACT_NAME",
     "FROZEN_ENVELOPE_FIELD_ORDER",
     "FROZEN_GLUE_SCHEMA_KEYS",
+    "FROZEN_SCHEMA_VERSION_STATUS",
     "FROZEN_SOURCE_PRODUCT_VOCABULARY",
     "FROZEN_STATUS",
     "FROZEN_TOPICS",
     "FROZEN_TOPIC_MAJOR",
     "MAEZO_AMH_CONTRACT_PIN_ENV",
+    "MAX_ECHOED_PIN_VALUE_CHARS",
     "MINIMUM_CANONICAL_SCHEMA_VERSION",
     "PLACEHOLDER_SUBSTRINGS",
+    "REQUIRED_EVIDENCE_SECTIONS",
     "AmhAdapterError",
     "AmhContractPin",
     "AmhContractPinError",
     "GlueRegistryPin",
     "TopicPin",
     "load_contract_pin",
+    "parse_semver",
     "resolve_contract_pin_path",
 ]

@@ -45,6 +45,9 @@ from scripts.ci.verify_amh_contract_pin import (
     FROZEN_GLUE_SCHEMA_KEYS as GATE_GLUE_SCHEMA_KEYS,
 )
 from scripts.ci.verify_amh_contract_pin import (
+    FROZEN_SCHEMA_VERSION_STATUS as GATE_SCHEMA_VERSION_STATUS,
+)
+from scripts.ci.verify_amh_contract_pin import (
     FROZEN_SOURCE_PRODUCT_VOCABULARY as GATE_SOURCE_PRODUCT_VOCABULARY,
 )
 from scripts.ci.verify_amh_contract_pin import (
@@ -58,6 +61,9 @@ from scripts.ci.verify_amh_contract_pin import (
 )
 from scripts.ci.verify_amh_contract_pin import (
     PLACEHOLDER_SUBSTRINGS as GATE_PLACEHOLDER_SUBSTRINGS,
+)
+from scripts.ci.verify_amh_contract_pin import (
+    REQUIRED_SECTIONS as GATE_REQUIRED_SECTIONS,
 )
 
 from maezo.adapters.amh import contract as loader
@@ -96,6 +102,27 @@ def test_loader_and_ci_gate_agree_on_artifacts_glue_keys_and_scalars() -> None:
     assert loader.FROZEN_CONTRACT_NAME == GATE_CONTRACT_NAME
     assert loader.FROZEN_COMPATIBILITY_MODE == GATE_COMPATIBILITY_MODE
     assert loader.FROZEN_TOPIC_MAJOR == GATE_TOPIC_MAJOR
+
+
+def test_loader_and_ci_gate_agree_on_the_glue_schema_version_status() -> None:
+    """The one frozen constant the loader used to OMIT (MZO-050a repair, LOW-3), which is exactly how a
+    gap between the two copies looks before it is closed: not a disagreement, an absence."""
+    assert loader.FROZEN_SCHEMA_VERSION_STATUS == GATE_SCHEMA_VERSION_STATUS
+
+
+def test_loader_and_ci_gate_agree_on_the_compatibility_result() -> None:
+    """The gate spells this one as a literal inside `check_formats` rather than as a module constant, so
+    the drift guard has to read the gate's SOURCE. If the gate ever promotes it to a constant or changes
+    the expected verdict, this fails and someone reconciles the two deliberately."""
+    gate_source = (REPO_ROOT / "scripts/ci/verify_amh_contract_pin.py").read_text(encoding="utf-8")
+    assert f'"compatibility_report.result", "{loader.FROZEN_COMPATIBILITY_RESULT}"' in gate_source
+
+
+def test_loader_and_ci_gate_agree_on_the_required_evidence_sections() -> None:
+    """The loader checks a SUBSET of the gate's `REQUIRED_SECTIONS` — the two evidence sections it can
+    verify without the artifact bytes — and that subset must really be a subset."""
+    assert set(loader.REQUIRED_EVIDENCE_SECTIONS) <= set(GATE_REQUIRED_SECTIONS)
+    assert set(loader.REQUIRED_EVIDENCE_SECTIONS) == {"compatibility_report", "xrg3_verification"}
 
 
 def test_loader_and_ci_gate_agree_on_the_placeholder_tokens() -> None:

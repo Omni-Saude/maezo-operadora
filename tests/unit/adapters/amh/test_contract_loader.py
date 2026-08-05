@@ -19,13 +19,19 @@ from typing import Any
 
 import pytest
 
+from maezo.adapters.amh import contract as contract_module
 from maezo.adapters.amh.contract import (
     CONTRACT_PIN_RELATIVE_PATH,
+    FROZEN_COMPATIBILITY_RESULT,
     FROZEN_ENVELOPE_FIELD_ORDER,
+    FROZEN_SCHEMA_VERSION_STATUS,
     MAEZO_AMH_CONTRACT_PIN_ENV,
+    REQUIRED_EVIDENCE_SECTIONS,
     AmhAdapterError,
     AmhContractPinError,
+    _default_pin_path_candidates,
     load_contract_pin,
+    parse_semver,
     resolve_contract_pin_path,
 )
 
@@ -388,6 +394,166 @@ def test_canonicalisation_declaration_losing_sorted_keys_is_refused(tmp_path: Pa
         load_contract_pin(path)
 
 
+# ---------------------------------------------------------------------------
+# Gate parity: the four pin states the loader used to accept and CI refuses
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("status", ["PENDING", "FAILURE", "DELETING", "available", ""])
+def test_a_glue_schema_version_status_other_than_available_is_refused(tmp_path: Path, status: str) -> None:
+    """LOW-3. `FROZEN_SCHEMA_VERSION_STATUS` was the ONE frozen constant the CI gate carried and the
+    runtime loader did not, so the loader booted happily against a pin declaring a registry state in
+    which phase B's decoder cannot resolve a single writer schema."""
+    path = _mutated(tmp_path, lambda p: p["glue_registration"].__setitem__("schema_version_status", status))
+    with pytest.raises(AmhContractPinError) as exc:
+        load_contract_pin(path)
+    assert any("schema_version_status" in v for v in exc.value.violations), exc.value.violations
+
+
+@pytest.mark.parametrize("result", ["FAILED", "PENDING", "passed", ""])
+def test_a_compatibility_report_that_did_not_pass_is_refused(tmp_path: Path, result: str) -> None:
+    """LOW-3. The unknown-extra-field tolerance in `maezo.adapters.amh.mapping` (decision 3) rests on
+    BACKWARD compatibility having been DEMONSTRATED. A pin carrying `FAILED` says it was not."""
+    path = _mutated(tmp_path, lambda p: p["compatibility_report"].__setitem__("result", result))
+    with pytest.raises(AmhContractPinError) as exc:
+        load_contract_pin(path)
+    assert any("compatibility_report.result" in v for v in exc.value.violations), exc.value.violations
+
+
+@pytest.mark.parametrize("section", ["compatibility_report", "xrg3_verification"])
+def test_a_deleted_evidence_section_is_refused(tmp_path: Path, section: str) -> None:
+    """LOW-3, the easier attack. Tampering with a value inside a section is more work than deleting the
+    section, and before this the loader read a pin with either one removed as valid — while the gate says
+    in its own words that "a pin that has quietly lost its compatibility evidence or its XRG-3 record is
+    not a pin"."""
+    path = _mutated(tmp_path, lambda p: p.pop(section))
+    with pytest.raises(AmhContractPinError) as exc:
+        load_contract_pin(path)
+    assert any(section in v and "evidence section absent" in v for v in exc.value.violations), (
+        exc.value.violations
+    )
+
+
+@pytest.mark.parametrize("replacement", [{}, [], "PASSED", None, 42])
+def test_an_evidence_section_that_is_not_a_populated_object_is_refused(
+    tmp_path: Path, replacement: object
+) -> None:
+    """Emptying a section is the same attack as deleting it, one level down: an empty
+    `xrg3_verification: {}` carries no verification record at all."""
+    path = _mutated(tmp_path, lambda p: p.__setitem__("xrg3_verification", replacement))
+    with pytest.raises(AmhContractPinError) as exc:
+        load_contract_pin(path)
+    assert any("xrg3_verification" in v for v in exc.value.violations), exc.value.violations
+
+
+@pytest.mark.parametrize("field", ["verified_at_utc", "verified_by"])
+def test_an_xrg3_record_missing_a_required_string_is_refused(tmp_path: Path, field: str) -> None:
+    """Both strings the gate's `REQUIRED_STRING_FIELDS` demands of the section."""
+    path = _mutated(tmp_path, lambda p: p["xrg3_verification"].pop(field))
+    with pytest.raises(AmhContractPinError, match=f"xrg3_verification.{field}"):
+        load_contract_pin(path)
+
+
+def test_the_real_pin_satisfies_every_new_evidence_check() -> None:
+    """NON-VACUITY for all of the above: the committed pin passes, so these are real comparisons rather
+    than an unconditional refusal that would have bricked every deployment."""
+    pin = load_contract_pin(REAL_PIN)
+    assert pin.glue.schema_version_status == FROZEN_SCHEMA_VERSION_STATUS
+    raw = _real_pin_dict()
+    assert raw["compatibility_report"]["result"] == FROZEN_COMPATIBILITY_RESULT
+    for section in REQUIRED_EVIDENCE_SECTIONS:
+        assert isinstance(raw[section], dict) and raw[section]
+
+
+def test_digest_recomputation_remains_out_of_scope_and_is_stated_as_such(tmp_path: Path) -> None:
+    """The ONE gate check deliberately NOT duplicated here, recorded so it is a known boundary rather
+    than an oversight: a tampered-but-well-formed `fixtures[].sha256` is accepted, because recomputing it
+    needs the artifact BYTES and `schemas/` is not in the wheel (only `config/integrations/amh/` is
+    force-included). The gate recomputes; the runtime loader validates SHAPE only. Structural malformation
+    IS still caught — see `test_malformed_artifact_digest_is_refused`."""
+    path = _mutated(tmp_path, lambda p: p["fixtures"][0].__setitem__("sha256", "0" * 64))
+    pin = load_contract_pin(path)
+    assert "0" * 64 in pin.fixture_digests.values()
+
+
+# ---------------------------------------------------------------------------
+# Strict semver (ONE validator, shared with maezo.adapters.amh.mapping)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("version", ["01.0.0", "1.00.0", "１.０.０", "1.0.٠", "1.0.0 ", " 1.0.0"])
+def test_a_non_strict_semver_in_the_pin_is_refused(tmp_path: Path, version: str) -> None:
+    """LOW-6. `\\d` in a `str` pattern matches every Unicode decimal digit, so the previous regex read
+    fullwidth `１.０.０` and Arabic-Indic `1.0.٠` as version 1.0.0; leading zeros were accepted too. That
+    matters inside this file: the downgrade check compares TUPLES while the provenance/envelope
+    cross-check compares STRINGS, so two spellings of one version could pass one and fail the other."""
+
+    def mutate(p: dict[str, Any]) -> None:
+        p["provenance"]["canonical_schema_version"] = version
+        p["envelope"]["canonical_schema_version"] = version
+
+    with pytest.raises(AmhContractPinError, match="MAJOR.MINOR.PATCH"):
+        load_contract_pin(_mutated(tmp_path, mutate))
+
+
+def test_parse_semver_is_total_and_strict() -> None:
+    """The shared validator never raises — a caller cannot leak an exception by using it — and it agrees
+    with the mapping layer because it IS the mapping layer's validator."""
+    from maezo.adapters.amh import mapping
+
+    assert mapping.parse_semver is parse_semver
+    assert parse_semver("1.0.0") == (1, 0, 0)
+    assert parse_semver("0.0.0") == (0, 0, 0)
+    assert parse_semver("1.10.20") == (1, 10, 20)
+    for rejected in ("01.0.0", "１.０.０", "1.0.٠", "².0.0", "1.0", "v1", "", None, 1.0, ["1", "0", "0"]):
+        assert parse_semver(rejected) is None, rejected
+
+
+# ---------------------------------------------------------------------------
+# Bounded echo of pin content
+# ---------------------------------------------------------------------------
+
+
+def test_a_short_pin_value_is_echoed_exactly_as_repr(tmp_path: Path) -> None:
+    """The bound must be invisible to every legitimate pin: below it the rendering is byte-identical to
+    `repr`, which is what keeps the existing violation texts unchanged."""
+    path = _mutated(tmp_path, lambda p: p["provenance"].__setitem__("status", "DRAFT"))
+    with pytest.raises(AmhContractPinError) as exc:
+        load_contract_pin(path)
+    assert any("got 'DRAFT'" in v for v in exc.value.violations), exc.value.violations
+
+
+def test_an_absurdly_long_pin_value_is_bounded_in_the_violation(tmp_path: Path) -> None:
+    """`$MAEZO_AMH_CONTRACT_PIN` can point at ANY readable JSON, so an unbounded echo would let a
+    misconfigured override paste an arbitrary file's strings into a log line. Bounded, with the true
+    length named so an operator knows the value was long rather than mangled."""
+    huge = "Z" * 50_000
+    path = _mutated(tmp_path, lambda p: p["provenance"].__setitem__("status", huge))
+    with pytest.raises(AmhContractPinError) as exc:
+        load_contract_pin(path)
+
+    offending = [v for v in exc.value.violations if "provenance.status" in v]
+    assert offending, exc.value.violations
+    for violation in offending:
+        assert len(violation) < 1000, f"unbounded echo: {len(violation)} chars"
+        assert huge not in violation
+    assert any("chars, elided" in v for v in offending)
+    assert len(str(exc.value)) < 5000
+
+
+def test_an_absurdly_long_json_path_is_bounded_too(tmp_path: Path) -> None:
+    """The placeholder walk reports a JSON PATH assembled from the scanned file's own KEYS, so `$.<64KB
+    key>` is exactly as unbounded as a 64KB value. This is the half a value-only bound would have missed."""
+    path = _mutated(tmp_path, lambda p: p["provenance"].__setitem__("Q" * 50_000, "CHANGEME"))
+    with pytest.raises(AmhContractPinError) as exc:
+        load_contract_pin(path)
+    offending = [v for v in exc.value.violations if "placeholder" in v]
+    assert offending, exc.value.violations
+    for violation in offending:
+        assert len(violation) < 1000, f"unbounded echo: {len(violation)} chars"
+        assert "Q" * 50_000 not in violation
+
+
 def test_violations_are_collected_not_masked(tmp_path: Path) -> None:
     """Non-masking: one load reports the COMPLETE violation set, mirroring the CI gate's design."""
 
@@ -422,6 +588,58 @@ def test_pin_error_is_an_adapter_error() -> None:
 def test_default_resolution_finds_the_repo_checkout_pin(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(MAEZO_AMH_CONTRACT_PIN_ENV, raising=False)
     assert resolve_contract_pin_path() == REAL_PIN
+
+
+def test_both_layout_candidates_are_offered_for_a_normal_repo_layout() -> None:
+    """G07, the positive half. The two candidates are the repo checkout (`parents[4]`) and the
+    package-adjacent wheel copy (`parents[2]`), and they are computed by unpinned index arithmetic — so
+    pin WHAT they are as well as that neither raises."""
+    candidates = _default_pin_path_candidates()
+    parents = Path(contract_module.__file__ or "").resolve().parents
+    assert candidates == (
+        parents[4] / CONTRACT_PIN_RELATIVE_PATH,
+        parents[2] / CONTRACT_PIN_RELATIVE_PATH,
+    )
+    assert candidates[0] == REAL_PIN
+
+
+@pytest.mark.parametrize(
+    ("module_file", "expected_candidates"),
+    [
+        ("/pkg/maezo/adapters/amh/contract.py", 2),  # 5 parents: both candidates
+        ("/a/b/c/contract.py", 1),  # 4 parents: only the parents[2] candidate
+        ("/a/b/contract.py", 1),  # 3 parents: only the parents[2] candidate
+        ("/a/contract.py", 0),  # 2 parents: neither
+        ("/contract.py", 0),  # 1 parent: neither
+    ],
+    ids=["deep", "four", "three", "two", "one"],
+)
+def test_a_layout_too_shallow_for_a_candidate_omits_it_instead_of_raising(
+    monkeypatch: pytest.MonkeyPatch, module_file: str, expected_candidates: int
+) -> None:
+    """G07, the surviving-mutant half. `parents[4]` / `parents[2]` are unpinned index arithmetic guarded
+    by `len(parents) > 4` / `> 2`; delete either guard and the corresponding shallow layout raises a bare
+    `IndexError` out of the adapter instead of the fail-closed `AmhContractPinError` an operator can act
+    on. Each depth here is chosen to be the one that trips exactly one of the two guards."""
+    monkeypatch.setattr(contract_module, "__file__", module_file)
+    candidates = _default_pin_path_candidates()  # must not raise IndexError
+    assert len(candidates) == expected_candidates
+    assert all(c.name == "contracts.lock.json" for c in candidates)
+
+
+@pytest.mark.parametrize("module_file", ["/a/contract.py", "/contract.py"])
+def test_a_layout_with_no_candidate_at_all_fails_closed_not_with_an_indexerror(
+    monkeypatch: pytest.MonkeyPatch, module_file: str
+) -> None:
+    """The consequence that makes the guards load-bearing: with no candidate the resolver must raise the
+    ADAPTER's own fail-closed error (which a port maps to CONTRACT_VIOLATION), never an `IndexError`
+    escaping the boundary."""
+    monkeypatch.setattr(contract_module, "__file__", module_file)
+    monkeypatch.delenv(MAEZO_AMH_CONTRACT_PIN_ENV, raising=False)
+    with pytest.raises(AmhContractPinError) as exc:
+        resolve_contract_pin_path()
+    assert "not found at any default candidate" in str(exc.value)
+    assert MAEZO_AMH_CONTRACT_PIN_ENV in str(exc.value), "the refusal must tell the operator how to fix it"
 
 
 def test_env_override_is_honoured(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
