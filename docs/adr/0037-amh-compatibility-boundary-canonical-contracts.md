@@ -129,7 +129,11 @@ decisões de propriedade AMH são endossadas, não decididas aqui.
    opaco e estável dentro de `{amh_tenant, legal_entity}`; só a AMH o mapeia para registro de fonte,
    beneficiário, MPI per-tenant e identificadores FHIR. Nenhum ID cru de paciente/beneficiário/MPI
    entra no domínio Maezo; merges viram aliases AMH, sem rewrite destrutivo de referências de
-   processo. (Cláusula gated por DPO/Legal.)
+   processo. (Cláusula gated por DPO/Legal — **portão DESCARREGADO em 2026-08-05**: aprovação de
+   Lucas, Diretor Jurídico e de Compliance, e de Rodrigo, CEO e dono do repositório, declarada pelo
+   dono na sessão de orquestração; registrada em **DL-0042** e implementada por **MZO-020**. O
+   descarregamento vale SÓ para esta cláusula: as aprovações Médica/ANS/Security do MZO-040
+   permanecem ABERTAS.)
 
 6. **XRD-06 — FHIR.** Só a AMH escreve no HAPI. O Maezo lê contexto clínico exclusivamente via um
    `ClinicalContextPort` read-only sobre a API subject-context; na célula AMH não recebe credencial
