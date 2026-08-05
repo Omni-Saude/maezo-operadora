@@ -211,16 +211,49 @@ _SHA256_RE: Final[re.Pattern[str]] = re.compile(r"^[0-9a-f]{64}$")
 _UUID_RE: Final[re.Pattern[str]] = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 )
-#: STRICT semver: ASCII digits only, and no leading zeros. `re.ASCII` matters — bare `\d` in a `str`
-#: pattern also matches every Unicode decimal digit, so the previous spelling read fullwidth `１.０.０`
-#: and Arabic-Indic `1.0.٠` as version 1.0.0. `01.0.0` is likewise refused: semver forbids leading
-#: zeros, and accepting it would let two spellings of one version compare unequal as strings while
-#: comparing equal as tuples — a divergence between the loader's downgrade check (tuple) and the
-#: `provenance` vs `envelope` cross-check (string equality) in the SAME file.
+#: Longest digit run ONE semver component may carry. This bound is not cosmetic and not a style
+#: choice: CPython refuses `int(s)` for a decimal string longer than `sys.int_max_str_digits` (4300 by
+#: default, and an embedder may lower it to 640), raising a bare `ValueError`. An unbounded `[0-9]*`
+#: therefore let the regex match a digit run that `parse_semver`'s own `int()` could not convert, so
+#: `parse_semver("1"*4301 + ".0.0")` raised out of a function whose docstring promised totality — and
+#: through it out of BOTH `load_contract_pin` and `maezo.adapters.amh.mapping._check_schema_version`,
+#: where the wire `canonical_schema_version` is an Avro `string` and a 5000-digit major is
+#: schema-conformant. Bounding the PATTERN (rather than guarding the `int()`) is what makes the
+#: totality provable by inspection: nine digits is 999_999_999, past any version a contract can
+#: reach, and orders of magnitude below the smallest limit CPython permits.
+MAX_SEMVER_COMPONENT_DIGITS: Final[int] = 9
+
+#: One strict semver component: `0`, or a leading non-zero digit followed by at most
+#: `MAX_SEMVER_COMPONENT_DIGITS - 1` more. Built from the constant so the bound and the pattern cannot
+#: drift apart.
+_SEMVER_COMPONENT: Final[str] = rf"(0|[1-9][0-9]{{0,{MAX_SEMVER_COMPONENT_DIGITS - 1}}})"
+
+#: STRICT semver: ASCII digits only, no leading zeros, and each component bounded (above).
+#:
+#: **The EXPLICIT `[0-9]`/`[1-9]` classes are what enforce ASCII-only — not a flag.** This pattern
+#: previously carried `re.ASCII` with a comment claiming the flag "matters"; it did not. `re.ASCII`
+#: only changes what the class ESCAPES `\d`, `\w`, `\s` and `\b` mean, and this pattern contains none
+#: of them, so the flag was provably inert (a mutation deleting it survived because it was a no-op).
+#: The flag is gone; the character classes remain and are the whole mechanism. Do NOT "simplify"
+#: `[0-9]` back to `\d` believing a flag protects you: bare `\d` in a `str` pattern matches every
+#: Unicode decimal digit, which is how an earlier spelling read fullwidth `１.０.０` and Arabic-Indic
+#: `1.0.٠` as version 1.0.0.
+#:
+#: `01.0.0` is likewise refused: semver forbids leading zeros, and accepting it would let two
+#: spellings of one version compare unequal as strings while comparing equal as tuples — a divergence
+#: between the loader's downgrade check (tuple) and the `provenance` vs `envelope` cross-check
+#: (string equality) in the SAME file.
 _SEMVER_RE: Final[re.Pattern[str]] = re.compile(
-    r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$", re.ASCII
+    rf"^{_SEMVER_COMPONENT}\.{_SEMVER_COMPONENT}\.{_SEMVER_COMPONENT}$"
 )
-_TOPIC_MAJOR_RE: Final[re.Pattern[str]] = re.compile(r"\.v(\d+)$")
+
+#: Trailing `.vN` major suffix on a topic (or quarantine) name. `{1,MAX_SEMVER_COMPONENT_DIGITS}`
+#: rather than `+` for exactly the reason above: `_topic_major` feeds the captured group to `int()`,
+#: and `topics[0].quarantine = "q.v" + "1"*5000` made that `int()` raise a bare `ValueError` out of
+#: `load_contract_pin`. The bound is semantics-preserving for every input that did not already crash
+#: — a major longer than nine digits now fails to match and is reported as "no trailing .vN major"
+#: instead of as a major mismatch, and both are violations that abort the load.
+_TOPIC_MAJOR_RE: Final[re.Pattern[str]] = re.compile(rf"\.v(\d{{1,{MAX_SEMVER_COMPONENT_DIGITS}}})$")
 
 
 # ---------------------------------------------------------------------------
@@ -366,7 +399,17 @@ def parse_semver(value: object) -> tuple[int, int, int] | None:
     rather than keeping its own: two validators for one grammar drifted apart on four inputs
     (`01.0.0`, `１.０.０`, `1.0.٠` accepted by both when they should be refused, and `².0.0` raising a
     bare `ValueError` out of the mapping copy because `"²".isdigit()` is `True` while `int("²")` is
-    not). Total by construction — it never raises, so a caller cannot leak an exception by using it.
+    not).
+
+    **Total — and the totality is now actually true.** This docstring previously claimed "it never
+    raises, so a caller cannot leak an exception by using it" while the function DID raise: the
+    component pattern was `[0-9]*`, unbounded, so a matching digit run could exceed CPython's
+    `sys.int_max_str_digits` and `int(match.group(1))` raised a bare `ValueError`
+    (`parse_semver("1"*4301 + ".0.0")`). The claim was load-bearing — consolidating the mapping layer
+    onto this single validator was justified partly on it — so the fix is in the GRAMMAR, not in a
+    `try`: `MAX_SEMVER_COMPONENT_DIGITS` bounds every component to nine digits, which is why the three
+    `int()` calls below cannot raise. The three exits are `None`, `None`, and a triple; there is no
+    fourth.
     """
     if not isinstance(value, str):
         return None
@@ -405,15 +448,29 @@ def _topic_major(name: object) -> int | None:
 
 
 def _iter_strings(node: object, trail: str = "$") -> Iterator[tuple[str, str]]:
-    """Yield `(json-path, value)` for every string anywhere in the parsed pin."""
-    if isinstance(node, str):
-        yield (trail, node)
-    elif isinstance(node, dict):
-        for key, value in node.items():
-            yield from _iter_strings(value, f"{trail}.{key}")
-    elif isinstance(node, list):
-        for index, value in enumerate(node):
-            yield from _iter_strings(value, f"{trail}[{index}]")
+    """Yield `(json-path, value)` for every string anywhere in the parsed pin, depth-first.
+
+    **ITERATIVE (explicit stack), not recursive — and the difference is a fail-closed guarantee.**
+    `json.loads` recurses in C with its own much larger budget: it parses ~9997 levels of nesting on a
+    default interpreter, while a Python-level recursive walk of the SAME object dies past ~1000. So the
+    recursive spelling raised a bare `RecursionError` out of `load_contract_pin` for any pin file
+    nested deeper than about a thousand levels — a file `json.loads` had just accepted without
+    complaint, and `$MAEZO_AMH_CONTRACT_PIN` can point at any readable JSON. An explicit stack makes
+    that impossible by construction rather than caught after the fact, which is the right shape for a
+    walk whose depth is attacker-chosen.
+
+    `reversed(...)` on each level's children preserves the recursive version's pre-order, insertion-
+    order yield sequence, so the ORDER violations are reported in is unchanged.
+    """
+    stack: list[tuple[object, str]] = [(node, trail)]
+    while stack:
+        current, path = stack.pop()
+        if isinstance(current, str):
+            yield (path, current)
+        elif isinstance(current, dict):
+            stack.extend(reversed([(value, f"{path}.{key}") for key, value in current.items()]))
+        elif isinstance(current, list):
+            stack.extend(reversed([(value, f"{path}[{index}]") for index, value in enumerate(current)]))
 
 
 def _get(obj: object, dotted: str) -> object | None:
@@ -437,6 +494,28 @@ def _require_str(violations: list[str], root: object, dotted: str) -> str:
 # ---------------------------------------------------------------------------
 # Path resolution
 # ---------------------------------------------------------------------------
+
+
+def _is_existing_file(path: Path) -> bool:
+    """`path.is_file()`, made total. The ONE place this adapter asks the filesystem about a path.
+
+    **`Path.is_file()` looks total and is not.** It swallows only the errnos its own `_ignore_error`
+    list names (`ENOENT`, `ENOTDIR`, `EBADF`, `ELOOP`, `EINVAL`) plus `ValueError`, and RE-RAISES every
+    other `OSError`. So an overlong path component (`ENAMETOOLONG`, trivially reachable from
+    `$MAEZO_AMH_CONTRACT_PIN`) or an untraversable parent directory (`EACCES`) raised a bare `OSError`
+    out of `resolve_contract_pin_path` AND out of `load_contract_pin` — from a line that reads as a
+    pure predicate, which is exactly why it was not guarded.
+
+    A path this process cannot `stat` names no pin it can verify, so `False` is the honest answer and
+    the fail-closed one: every caller below turns `False` into an `AmhContractPinError` naming the
+    path(s) it tried, and none of them proceeds on an unverified pin. The cost is that the violation
+    says "not found" where the cause was a permission or a length; the alternative was a bare stdlib
+    exception crossing the boundary, which `maezo.ports.errors` forbids outright.
+    """
+    try:
+        return path.is_file()
+    except (OSError, ValueError):
+        return False
 
 
 def _default_pin_path_candidates() -> tuple[Path, ...]:
@@ -472,12 +551,30 @@ def resolve_contract_pin_path() -> Path:
     candidate it tried, which is what an operator debugging a container needs.
 
     Raises:
-        AmhContractPinError: the override is missing, or no default candidate exists.
+        AmhContractPinError: the override is missing, cannot be resolved to a path at all, or no
+            default candidate exists. Never a bare stdlib exception — see the guard below.
     """
     override = os.environ.get(MAEZO_AMH_CONTRACT_PIN_ENV)
     if override:
-        path = Path(override).expanduser().resolve()
-        if not path.is_file():
+        # The guard is `Exception` DELIBERATELY, and the body earns it: it is three stdlib calls on an
+        # operator-supplied string and contains none of this module's own logic, so the broad catch
+        # cannot mask a bug of ours. Its raise set is genuinely not enumerable from the docs and is
+        # platform-dependent — `expanduser()` raises `RuntimeError("Could not determine home
+        # directory.")` for `~nosuchuser`, `resolve()` raises `ValueError("embedded null byte")` for a
+        # NUL and `OSError(ENAMETOOLONG)` for an overlong component, and Windows adds its own — while
+        # this function's DECLARED contract is `AmhContractPinError`. Enumerating the types we happened
+        # to think of is precisely the habit that left four escapes in this file.
+        try:
+            path = Path(override).expanduser().resolve()
+        except Exception as exc:
+            raise AmhContractPinError(
+                [
+                    f"${MAEZO_AMH_CONTRACT_PIN_ENV} is not resolvable to a filesystem path "
+                    f"({type(exc).__name__}: {_bounded(str(exc))}); an explicit override must point "
+                    "at the pin JSON"
+                ]
+            ) from exc
+        if not _is_existing_file(path):
             raise AmhContractPinError(
                 [
                     f"pin file not found at {path} (resolved from ${MAEZO_AMH_CONTRACT_PIN_ENV}); "
@@ -488,7 +585,7 @@ def resolve_contract_pin_path() -> Path:
 
     candidates = _default_pin_path_candidates()
     for candidate in candidates:
-        if candidate.is_file():
+        if _is_existing_file(candidate):
             return candidate
 
     raise AmhContractPinError(
@@ -810,16 +907,31 @@ def load_contract_pin(path: Path | None = None) -> AmhContractPin:
     """
     pin_path = path if path is not None else resolve_contract_pin_path()
 
-    if not pin_path.is_file():
+    if not _is_existing_file(pin_path):
         raise AmhContractPinError([f"pin file not found: {pin_path}"])
     try:
         text = pin_path.read_text(encoding="utf-8")
     except OSError as exc:
         raise AmhContractPinError([f"{pin_path}: unreadable ({exc})"]) from exc
+    except UnicodeDecodeError as exc:
+        # NOT an `OSError`: `UnicodeDecodeError` is a `ValueError`, so the clause above never saw it
+        # and a pin file carrying one invalid UTF-8 byte raised a bare `UnicodeDecodeError` out of the
+        # loader. The pin is DECLARED UTF-8 (`encoding="utf-8"` above is the contract, not a hint), so
+        # bytes that are not UTF-8 are a refusal like any other, not a crash.
+        raise AmhContractPinError([f"{pin_path}: not valid UTF-8 ({_bounded(str(exc))})"]) from exc
     try:
         raw = json.loads(text)
     except json.JSONDecodeError as exc:
         raise AmhContractPinError([f"{pin_path}: not valid JSON ({exc})"]) from exc
+    except (ValueError, RecursionError) as exc:
+        # Two things `json.loads` raises that are NOT `JSONDecodeError`, both reachable from a file:
+        # a `RecursionError` on nesting past its C recursion budget, and a plain `ValueError` for an
+        # integer LITERAL longer than `sys.int_max_str_digits` (`{"n": <5000 digits>}` — well-formed
+        # JSON that CPython declines to convert). The clause above matched neither, so both crossed the
+        # boundary bare. `JSONDecodeError` is itself a `ValueError`, so this clause must stay SECOND.
+        raise AmhContractPinError(
+            [f"{pin_path}: not parseable as JSON ({type(exc).__name__}: {_bounded(str(exc))})"]
+        ) from exc
     if not isinstance(raw, dict):
         raise AmhContractPinError([f"{pin_path}: top level must be a JSON object"])
 
@@ -875,6 +987,7 @@ __all__ = [
     "FROZEN_TOPIC_MAJOR",
     "MAEZO_AMH_CONTRACT_PIN_ENV",
     "MAX_ECHOED_PIN_VALUE_CHARS",
+    "MAX_SEMVER_COMPONENT_DIGITS",
     "MINIMUM_CANONICAL_SCHEMA_VERSION",
     "PLACEHOLDER_SUBSTRINGS",
     "REQUIRED_EVIDENCE_SECTIONS",

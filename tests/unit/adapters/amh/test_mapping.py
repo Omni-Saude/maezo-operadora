@@ -9,17 +9,25 @@ the fixture shape so a case can mutate one field at a time without touching the 
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
+import sys
 from collections.abc import Mapping
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone, tzinfo
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from maezo.adapters.amh.contract import CONTRACT_PIN_RELATIVE_PATH, AmhAdapterError, load_contract_pin
+from maezo.adapters.amh.contract import (
+    CONTRACT_PIN_RELATIVE_PATH,
+    MAX_SEMVER_COMPONENT_DIGITS,
+    AmhAdapterError,
+    load_contract_pin,
+    parse_semver,
+)
 from maezo.adapters.amh.mapping import (
     CONSENT_DECISION_TOKENS,
     OPTIONAL_ENVELOPE_FIELDS,
@@ -31,6 +39,7 @@ from maezo.adapters.amh.mapping import (
     millis_to_utc,
     outcome_to_wire,
     project_consent_decision,
+    truncate_to_wire_millis,
     utc_to_millis,
 )
 from maezo.ports.envelope import ENVELOPE_FIELD_ORDER, SourcePosition
@@ -1238,3 +1247,267 @@ def test_mapping_error_exposes_the_field_name_for_operator_triage(pin: Any) -> N
     assert exc.value.field == "source_product"
     assert "source_product" in str(exc.value)
     assert "tasy_hospital" in str(exc.value), "the PINNED vocabulary is public and aids triage"
+
+
+# ---------------------------------------------------------------------------
+# Round-2 regressions: the remaining port-boundary escapes
+#
+# Every one is the SAME defect as MAJOR-2 above, found again where the round-1 repair did not sweep.
+# Each closure is pinned individually here; the EXHAUSTIVENESS proof — that no other stdlib call on
+# either public path can escape — lives in `test_no_foreign_exception_escapes.py`.
+# ---------------------------------------------------------------------------
+
+
+def test_a_lone_surrogate_in_the_payload_is_refused_not_encoded() -> None:
+    """`json.dumps` was guarded and `encoded.encode("utf-8")` on the NEXT LINE was not — the `try`
+    closed one line early, so a `UnicodeEncodeError` crossed the port boundary.
+
+    Reachable from ordinary JSON wire bytes: `json.loads` accepts `"\\ud800"` without complaint, and
+    `ensure_ascii=False` (decision 2, upheld) is what carries it verbatim into the encode. Refused
+    rather than forced through with `errors="surrogatepass"`: that would invent a canonical form for a
+    character UTF-8 cannot express, and AMH's own canonicalisation is not proven to match, so the hash
+    would be compared against a producer hash that cannot exist."""
+    payload = json.loads('{"a": "\\ud800"}')
+    assert payload == {"a": "\ud800"}, "the surrogate must survive json.loads for this to be the case"
+    with pytest.raises(AmhMappingError) as exc:
+        canonical_payload_hash(payload)
+    assert exc.value.field == "payload"
+    assert "UTF-8" in exc.value.reason and "surrogate" in exc.value.reason
+    assert exc.value.__cause__ is None, "no chained message: it quotes the offending character"
+    assert exc.value.__suppress_context__ is True
+
+
+def test_a_lone_surrogate_is_refused_through_the_real_mapping_path(pin: Any) -> None:
+    """Non-vacuity: reachable from a port implementation, not only from the hash helper.
+
+    No `_rehash` here, deliberately — the helper computes the canonical hash, which is exactly the call
+    that refuses, so a rehash could not be reached. The declared `payload_hash` is left as the fixture's
+    and the refusal happens inside `_check_payload_hash` before any comparison."""
+    event = {**_work_item_event(), "payload": json.loads('{"a": "\\ud800"}')}
+    with pytest.raises(AmhMappingError) as exc:
+        map_work_item(event, pin=pin)
+    assert exc.value.field == "payload"
+    assert "UTF-8" in exc.value.reason, "the surrogate refusal, not a hash MISMATCH"
+
+
+def test_a_surrogate_is_distinguished_from_an_unserialisable_type() -> None:
+    """The two refusals must not collapse into one reason: a lone surrogate is a producer ENCODING
+    fault and an `avro bytes` value is a payload TYPE fault, and an operator triaging a quarantined
+    delivery acts differently on each."""
+    with pytest.raises(AmhMappingError) as surrogate:
+        canonical_payload_hash({"a": "\ud800"})
+    with pytest.raises(AmhMappingError) as unserialisable:
+        canonical_payload_hash({"a": b"\x00"})
+    assert surrogate.value.reason != unserialisable.value.reason
+
+
+def _nested_dict(depth: int) -> dict[str, Any]:
+    root: dict[str, Any] = {}
+    current = root
+    for _ in range(depth):
+        nxt: dict[str, Any] = {}
+        current["a"] = nxt
+        current = nxt
+    return root
+
+
+def test_a_payload_nested_past_the_encoder_depth_is_refused() -> None:
+    """`RecursionError` is neither a `TypeError` nor a `ValueError`, so the original two-type guard did
+    not hold it. JSON ingress happens to be self-limiting (`json.loads` and `json.dumps` share a
+    budget), but the module contract admits an Avro-decoded dict and Avro nesting has no such gate."""
+    with pytest.raises(AmhMappingError) as exc:
+        canonical_payload_hash(_nested_dict(20_000))
+    assert exc.value.field == "payload"
+    assert "cannot represent" in exc.value.reason
+
+
+def test_a_shallow_payload_still_hashes_so_the_depth_guard_is_not_a_blanket_refusal() -> None:
+    """Non-vacuity in the other direction: the guard must not have turned legitimate nesting into a
+    refusal. 100 levels is far beyond anything the fixtures carry and must still hash."""
+    assert len(canonical_payload_hash(_nested_dict(100))) == 64
+
+
+class _RaisingTzinfo(tzinfo):
+    """A `tzinfo` whose `utcoffset` raises a foreign exception carrying a PHI-shaped message."""
+
+    def utcoffset(self, dt: datetime | None) -> timedelta | None:
+        raise RuntimeError(PHI_SENTINEL)
+
+
+class _WrongTypeTzinfo(tzinfo):
+    """A `tzinfo` returning a non-`timedelta`. Passes the `is not None` offset check and fails inside
+    `astimezone` — one layer DEEPER than the call the round-2 finding named, which is why the fix
+    needed a second clause in `_to_utc` and not only the offset helper."""
+
+    def utcoffset(self, dt: datetime | None) -> Any:
+        return PHI_SENTINEL
+
+
+@pytest.mark.parametrize("tz_factory", [_RaisingTzinfo, _WrongTypeTzinfo], ids=["raises", "wrong type"])
+def test_a_hostile_tzinfo_cannot_leak_through_any_timestamp_entry_point(tz_factory: Any) -> None:
+    """`value.tzinfo.utcoffset(value)` ran outside any guard in BOTH `millis_to_utc` and
+    `utc_to_millis`, so a foreign exception propagated verbatim. That makes it the last DISCLOSURE
+    channel on this boundary, not merely a type violation: the exception's MESSAGE crossed too, and
+    decision 5 forbids that whatever the type."""
+    hostile = datetime(2026, 8, 4, 10, 0, tzinfo=tz_factory())
+    for label, call in (
+        ("millis_to_utc", lambda: millis_to_utc(hostile, field="occurred_at")),
+        ("utc_to_millis", lambda: utc_to_millis(hostile, field="occurred_at")),
+        ("truncate_to_wire_millis", lambda: truncate_to_wire_millis(hostile)),
+    ):
+        with pytest.raises(AmhMappingError) as exc:
+            call()
+        assert exc.value.field == "occurred_at", label
+        assert PHI_SENTINEL not in str(exc.value), f"{label} disclosed the foreign message"
+        assert PHI_SENTINEL not in repr(vars(exc.value)), f"{label} retained the foreign message"
+        assert exc.value.__cause__ is None, label
+
+
+def test_a_hostile_tzinfo_is_refused_on_the_real_egress_path(pin: Any) -> None:
+    """Non-vacuity: reachable through `outcome_to_wire`, i.e. from a port implementation."""
+    outcome = dataclasses.replace(
+        map_outcome(_outcome_event(), pin=pin),
+        occurred_at=datetime(2026, 8, 4, 10, 0, tzinfo=_RaisingTzinfo()),
+    )
+    with pytest.raises(AmhMappingError) as exc:
+        outcome_to_wire(outcome, pin=pin)
+    assert exc.value.field == "occurred_at"
+    assert PHI_SENTINEL not in str(exc.value)
+
+
+def test_a_mistyped_outcome_timestamp_is_refused_on_egress(pin: Any) -> None:
+    """`CanonicalOutcome` is a plain frozen dataclass with NO runtime validation, so a caller can hand
+    `outcome_to_wire` an `occurred_at` that is not a datetime at all — and `.tzinfo` on an int was a
+    bare `AttributeError`. Refused for the same reason egress already refuses a caller-supplied
+    `payload_hash` that does not bind its own payload: it treats its caller as fallible."""
+    outcome = dataclasses.replace(map_outcome(_outcome_event(), pin=pin), occurred_at=1785837600000)
+    with pytest.raises(AmhMappingError) as exc:
+        outcome_to_wire(outcome, pin=pin)
+    assert exc.value.field == "occurred_at"
+    assert "tz-aware datetime" in exc.value.reason
+
+
+def test_a_schema_version_past_the_int_conversion_limit_is_refused(pin: Any) -> None:
+    """The wire `canonical_schema_version` is an Avro `string`, so a 5000-digit major is
+    schema-CONFORMANT — and the old unbounded `[0-9]*` let the regex match a digit run that
+    `parse_semver`'s own `int()` then refused, raising a bare `ValueError` through `map_work_item`."""
+    over_limit = "1" * (sys.get_int_max_str_digits() + 1)
+    event = {**_work_item_event(), "canonical_schema_version": f"{over_limit}.0.0"}
+    with pytest.raises(AmhMappingError) as exc:
+        map_work_item(event, pin=pin)
+    assert exc.value.field == "canonical_schema_version"
+    assert "MAJOR.MINOR.PATCH" in exc.value.reason
+
+
+def test_a_version_at_the_component_bound_is_accepted_and_one_past_it_is_not(pin: Any) -> None:
+    """The bound is a real edge, not a vague "big number" refusal, so pin exactly nine digits and
+    exactly ten. Both are refused HERE but for DIFFERENT reasons (an unknown major vs an unparseable
+    version), so assert the reason rather than merely that it raised."""
+    nine = "9" * MAX_SEMVER_COMPONENT_DIGITS
+    assert parse_semver(f"{nine}.0.0") == (int(nine), 0, 0)
+    assert parse_semver(f"9{nine}.0.0") is None
+
+    with pytest.raises(AmhMappingError) as at_bound:
+        map_work_item({**_work_item_event(), "canonical_schema_version": f"{nine}.0.0"}, pin=pin)
+    assert "unknown major" in at_bound.value.reason, "nine digits parses; the major is simply not 1"
+
+    with pytest.raises(AmhMappingError) as past_bound:
+        map_work_item({**_work_item_event(), "canonical_schema_version": f"9{nine}.0.0"}, pin=pin)
+    assert "MAJOR.MINOR.PATCH" in past_bound.value.reason
+
+
+# ---------------------------------------------------------------------------
+# truncate_to_wire_millis — the sanctioned way to satisfy the sub-millisecond refusal
+# ---------------------------------------------------------------------------
+
+
+def test_the_sub_millisecond_refusal_is_still_in_force() -> None:
+    """Decision 10 is UPHELD. The helper below exists so a caller can COMPLY with it, never to soften
+    it — assert the refusal first so a later reading of these tests cannot mistake one for the other."""
+    with pytest.raises(AmhMappingError) as exc:
+        utc_to_millis(datetime(2026, 8, 4, 10, 0, 0, 1, tzinfo=UTC), field="occurred_at")
+    assert "sub-millisecond" in exc.value.reason
+
+
+def test_truncate_makes_a_clock_instant_publishable() -> None:
+    """The gap the helper closes: only ~0.07% of `datetime.now(UTC)` instants are millis-exact, so a
+    phase-B publisher stamping an outcome from the clock is refused ~999 times in 1000. With no
+    exported operation, each call site improvises its own truncation and re-creates the skew."""
+    now = datetime.now(UTC)
+    assert utc_to_millis(truncate_to_wire_millis(now), field="occurred_at") == (
+        (now - datetime(1970, 1, 1, tzinfo=UTC)) // timedelta(milliseconds=1)
+    )
+
+
+@pytest.mark.parametrize(
+    ("label", "value", "expected_millis"),
+    [
+        ("post-epoch", datetime(2026, 8, 4, 10, 0, 0, 999_999, tzinfo=UTC), 1785837600999),
+        ("already exact", datetime(2026, 8, 4, 10, 0, 0, 1000, tzinfo=UTC), 1785837600001),
+        ("epoch itself", datetime(1970, 1, 1, tzinfo=UTC), 0),
+        ("1us before the epoch", datetime(1969, 12, 31, 23, 59, 59, 999_999, tzinfo=UTC), -1),
+        ("well before the epoch", datetime(1960, 6, 1, 12, 0, 0, 1, tzinfo=UTC), -302443200000),
+    ],
+)
+def test_truncation_goes_toward_the_past_on_both_sides_of_the_epoch(
+    label: str, value: datetime, expected_millis: int
+) -> None:
+    """The DIRECTION is the whole reason this is exported rather than left to each call site. A
+    toward-zero reading of the same floor division truncates a pre-epoch instant AWAY from the epoch
+    and a post-epoch one TOWARD it — the sign-dependent skew decision 10 refused to commit silently.
+    Floor-toward-the-past is identical in sign, which is what makes it one sentence to a publisher.
+
+    `1969-12-31T23:59:59.999999Z` is the discriminating vector: floor gives -1 (one millisecond BEFORE
+    the epoch); toward-zero would give 0."""
+    truncated = truncate_to_wire_millis(value)
+    assert utc_to_millis(truncated, field="occurred_at") == expected_millis, label
+    assert truncated <= value, "truncation never moves an instant forward"
+    assert value - truncated < timedelta(milliseconds=1), "it moves it less than one millisecond"
+
+
+def test_truncation_is_idempotent_and_normalises_to_utc() -> None:
+    brasilia = timezone(timedelta(hours=-3))
+    once = truncate_to_wire_millis(datetime(2026, 8, 4, 7, 0, 0, 500_500, tzinfo=brasilia))
+    assert once.utcoffset() == timedelta(0), "the result is UTC, like every other timestamp here"
+    assert truncate_to_wire_millis(once) == once
+    assert utc_to_millis(once, field="occurred_at") == 1785837600500
+
+
+def test_truncation_refuses_a_naive_datetime_exactly_as_egress_does() -> None:
+    """A caller must be able to route both refusals identically, so the helper is not a laxer door into
+    the boundary than `utc_to_millis` itself."""
+    with pytest.raises(AmhMappingError) as exc:
+        truncate_to_wire_millis(datetime(2026, 8, 4, 10, 0))
+    assert "naive datetime" in exc.value.reason
+
+
+def test_truncating_at_the_datetime_bounds_cannot_overflow_because_the_grid_is_aligned() -> None:
+    """Flooring moves an instant EARLIER, so the obvious worry is a value within 1ms of `datetime.min`
+    flooring underneath it. It cannot, and the reason is arithmetic rather than a guard: `_EPOCH -
+    datetime.min` is exactly 719162 days — a whole number of milliseconds — and `datetime.min` carries
+    microsecond 0, so `datetime.min` sits exactly ON the epoch-millisecond grid.
+
+    This test exists because the first version of the helper carried a `try/except OverflowError` here,
+    and that guard was DEAD CODE: no input could reach it. The proof is pinned instead, so a later
+    change to `_EPOCH` that broke the alignment fails here rather than silently reintroducing the
+    overflow the removed guard was pretending to cover."""
+    assert (datetime(1970, 1, 1, tzinfo=UTC) - datetime.min.replace(tzinfo=UTC)) % timedelta(
+        milliseconds=1
+    ) == timedelta(0), "the epoch-millisecond grid must stay aligned with datetime.min"
+
+    floor_of_min = truncate_to_wire_millis(datetime.min.replace(tzinfo=UTC) + timedelta(microseconds=500))
+    assert floor_of_min == datetime.min.replace(tzinfo=UTC), "floors ONTO datetime.min, never below it"
+
+    ceiling = truncate_to_wire_millis(datetime.max.replace(tzinfo=UTC))
+    assert ceiling <= datetime.max.replace(tzinfo=UTC)
+    assert truncate_to_wire_millis(datetime.min.replace(tzinfo=UTC)) == datetime.min.replace(tzinfo=UTC)
+
+
+def test_truncate_is_exported_from_the_package_not_just_the_module() -> None:
+    """A helper the docstrings tell callers to reach for must be importable the way callers import."""
+    import maezo.adapters.amh as amh_pkg
+    from maezo.adapters.amh import mapping as mapping_module
+
+    assert "truncate_to_wire_millis" in mapping_module.__all__
+    assert "truncate_to_wire_millis" in amh_pkg.__all__
+    assert amh_pkg.truncate_to_wire_millis is truncate_to_wire_millis

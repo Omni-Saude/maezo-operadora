@@ -55,6 +55,7 @@ from maezo.adapters.amh.mapping import (
     millis_to_utc,
     outcome_to_wire,
     project_consent_decision,
+    truncate_to_wire_millis,
     utc_to_millis,
 )
 from maezo.adapters.amh.settings import AmhAdapterSettings
@@ -76,5 +77,6 @@ __all__ = [
     "outcome_to_wire",
     "project_consent_decision",
     "resolve_contract_pin_path",
+    "truncate_to_wire_millis",
     "utc_to_millis",
 ]
