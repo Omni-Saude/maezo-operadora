@@ -23,9 +23,13 @@ These tests are hermetic: no network, no engine, no broker.
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
+from scripts.ci.verify_amh_contract_pin import (
+    _SEMVER_RE as GATE_SEMVER_RE,
+)
 from scripts.ci.verify_amh_contract_pin import (
     DEFAULT_LOCK_PATH,
 )
@@ -64,6 +68,9 @@ from scripts.ci.verify_amh_contract_pin import (
 )
 from scripts.ci.verify_amh_contract_pin import (
     REQUIRED_SECTIONS as GATE_REQUIRED_SECTIONS,
+)
+from scripts.ci.verify_amh_contract_pin import (
+    parse_semver as gate_parse_semver,
 )
 
 from maezo.adapters.amh import contract as loader
@@ -131,6 +138,71 @@ def test_loader_and_ci_gate_agree_on_the_placeholder_tokens() -> None:
 
 def test_loader_and_ci_gate_agree_on_the_pin_path() -> None:
     assert loader.CONTRACT_PIN_RELATIVE_PATH == DEFAULT_LOCK_PATH
+
+
+# ---------------------------------------------------------------------------
+# The CI gate must be the STRICTEST layer, not a looser one
+# ---------------------------------------------------------------------------
+
+
+def test_loader_and_ci_gate_share_one_strict_semver_grammar() -> None:
+    """The gate was LOOSER than the adapter on two axes — bare `\\d` (every Unicode decimal digit) and
+    leading zeros — so adapter-accepts was a strict SUBSET of gate-accepts.
+
+    That direction is SAFE (no legitimate pin is wedged, and the committed pin is all `1.0.0`) but it
+    points the wrong way: CI could go GREEN on a pin the adapter then refuses at boot, which is later
+    than ADR-0037 XRD-04 wants — "falham fail-closed ANTES de merge/deploy de adapter". Byte-equality is
+    asserted rather than mere subset-ness, because a subset assertion would let the two drift apart again
+    in the safe direction and quietly restore exactly this gap."""
+    assert GATE_SEMVER_RE.pattern == loader._SEMVER_RE.pattern
+    assert GATE_SEMVER_RE.flags == loader._SEMVER_RE.flags
+
+
+def test_the_two_semver_validators_agree_on_every_adversarial_spelling() -> None:
+    """Pattern equality is the mechanism; agreement on VALUES is the property that matters. Every
+    spelling here is one the two copies used to disagree on, or one that used to crash a copy."""
+    over_limit = "1" * 4301
+    for spelling in (
+        "1.0.0",
+        "0.0.0",
+        "1.10.20",
+        "999999999.0.0",
+        "01.0.0",
+        "1.00.0",
+        "1.0.00",
+        "１.０.０",
+        "1.0.٠",
+        "².0.0",
+        "1.0",
+        "v1.0.0",
+        "1.0.0 ",
+        " 1.0.0",
+        "",
+        f"{over_limit}.0.0",
+        f"1.{over_limit}.0",
+        "1000000000.0.0",
+    ):
+        assert gate_parse_semver(spelling) == loader.parse_semver(spelling), spelling
+
+
+def test_neither_semver_validator_raises_on_a_digit_run_past_the_int_limit() -> None:
+    """Both copies fed an unbounded `\\d+`/`[0-9]*` capture to `int()`, and CPython refuses
+    `int(str)` past `sys.int_max_str_digits`. Both had to be bounded, not just the adapter's: a gate
+    that CRASHES is failing closed by accident rather than by design, and its violation report is the
+    thing an operator reads."""
+    over_limit = "1" * (sys.get_int_max_str_digits() + 1)
+    assert gate_parse_semver(f"{over_limit}.0.0") is None
+    assert loader.parse_semver(f"{over_limit}.0.0") is None
+
+
+def test_the_committed_pin_is_accepted_by_the_tightened_grammar() -> None:
+    """Non-vacuity for the tightening: the real pin must still pass, in both copies, or the gate is
+    strict in a way that wedges the contract it exists to protect."""
+    lock = _lock()
+    for dotted in ("provenance", "envelope"):
+        version = lock[dotted]["canonical_schema_version"]
+        assert loader.parse_semver(version) == (1, 0, 0), dotted
+        assert gate_parse_semver(version) == (1, 0, 0), dotted
 
 
 # ---------------------------------------------------------------------------

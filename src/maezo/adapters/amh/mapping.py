@@ -73,17 +73,33 @@ either a misrouted producer or a contract break, and both are quarantine cases, 
 best-effort-parse cases. The version is parsed by the ONE validator this adapter has,
 `contract.parse_semver`, which is ASCII-only and rejects leading zeros — see `_check_schema_version`.
 
-**7-10. `AmhMappingError` is the ONLY exception this module raises — no exception of another type
+**7-13. `AmhMappingError` is the ONLY exception this module raises — no exception of another type
 may leave it.** `maezo.ports.errors` states the rule without qualification: "No adapter exception may
 cross a port boundary". A `TypeError`, `ValueError` or `OverflowError` escaping here would not merely
 skip the closed `PortFailureReason` taxonomy; in phase B it would wedge the consumer loop on a single
-poison delivery instead of quarantining it, converting fail-closed into fail-crash. Four conversions
-implement that, each documented at its site: **(7)** non-finite floats are refused rather than hashed
-into non-JSON `NaN`/`Infinity` bytes, and **(8)** a payload value the canonical JSON form cannot
-represent (Avro `bytes`/`decimal`/`timestamp-millis` decode to exactly those Python types) is refused
-— both in `canonical_payload_hash`; **(9)** an epoch-millis value that is legal for the wire's `long`
+poison delivery instead of quarantining it, converting fail-closed into fail-crash. The conversions
+that implement it, each documented at its site: **(7)** non-finite floats are refused rather than
+hashed into non-JSON `NaN`/`Infinity` bytes; **(8)** a payload value the canonical JSON form cannot
+represent (Avro `bytes`/`decimal`/`timestamp-millis` decode to exactly those Python types) is refused;
+**(11)** payload text UTF-8 cannot encode — an unpaired surrogate, which `json.loads` accepts and
+`ensure_ascii=False` then carries into `str.encode` — is refused rather than forced through with
+`errors="surrogatepass"`; **(12)** nesting deeper than `json.dumps` can walk is refused (7, 8, 11 and
+12 all in `canonical_payload_hash`); **(9)** an epoch-millis value that is legal for the wire's `long`
 but outside `datetime`'s range is refused in `millis_to_utc`/`_to_utc`; **(10)** a sub-millisecond
-instant on egress is refused rather than silently truncated in `utc_to_millis`.
+instant on egress is refused rather than silently truncated in `utc_to_millis`, with
+`truncate_to_wire_millis` exported as the one sanctioned way to comply; **(13)** anything a foreign
+`tzinfo.utcoffset` raises is converted in `_carries_utc_offset`/`_to_utc`.
+
+**The method, because a list of conversions is not a guarantee.** Two adversarial rounds found the
+same defect four more times, and the diagnosis was about HOW the guards were chosen: placed at the
+call the author happened to be thinking about, rather than derived from "every stdlib call that runs on
+this data". Decision 11 sat one line below decision 8's own correct fix. So the invariant is asserted
+by test rather than by this docstring —
+`tests/unit/adapters/amh/test_no_foreign_exception_escapes.py` fuzzes hostile-but-in-contract values
+through every public entry point of BOTH modules and asserts the only exception type ever observed is
+`AmhAdapterError`, and it additionally walks the AST to prove that no escape-prone stdlib primitive is
+called outside a `try` without a written justification. That second half is what would have caught
+decision 11 mechanically.
 """
 
 from __future__ import annotations
@@ -178,21 +194,75 @@ def canonical_payload_hash(payload: Mapping[str, Any]) -> str:
     payload the pinned canonical form cannot express has no hash to compare, so the delivery must be
     quarantined, not parsed on best effort.
 
+    **Unpaired surrogates are REFUSED, not encoded (decision 11).** `ensure_ascii=False` is the
+    empirically-established form above, and it is what makes the surrogate reachable: it puts the
+    payload's text into the JSON string verbatim, so `str.encode("utf-8")` — not `json.dumps` — is
+    where a lone `\\ud800` fails. `json.loads` accepts `"\\ud800"` happily, so this arrives from
+    ordinary JSON wire bytes. It is refused rather than smoothed over with `errors="surrogatepass"`:
+    that would invent a canonical form for a byte sequence UTF-8 has no encoding for, and AMH's own
+    canonicalisation is NOT proven to do the same, so a hash computed that way would be compared
+    against a producer hash that cannot exist. A payload the pinned canonical form cannot express is a
+    quarantine case, exactly as for the unserialisable types above.
+
+    **`RecursionError` is in the guard (decision 12).** `json.dumps` recurses per nesting level and
+    dies past ~1000 on a default interpreter. JSON INGRESS happens to be self-limiting (`json.loads`
+    and `json.dumps` share a budget, so anything parsed can be re-serialised), but the module contract
+    admits an Avro-decoded dict, and Avro nesting passes through no such gate. `RecursionError` is not
+    a `ValueError` or a `TypeError`, so the original two-type guard did not hold it.
+
     Raises:
         AmhMappingError: the payload contains a value the canonical JSON form cannot represent
-            (an unserialisable type, a non-comparable key set, or a non-finite float).
+            (an unserialisable type, a non-comparable key set, a non-finite float, or nesting deeper
+            than the encoder can walk), or text that is not encodable as UTF-8.
     """
+    # The `try` spans the encode and the digest, not just `json.dumps`. It used to close one line
+    # early, which is the whole of decision 11's defect: the author guarded the call they were
+    # thinking about instead of every call that runs on payload bytes.
     try:
         encoded = json.dumps(
             payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
         )
-    except (TypeError, ValueError):
+        digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+    except UnicodeEncodeError:
+        # BEFORE the ValueError clause: `UnicodeEncodeError` IS a `ValueError`, and an operator triaging
+        # a quarantined delivery needs these two apart — a lone surrogate is a producer ENCODING fault,
+        # an `avro bytes` value is a payload TYPE fault. `from None`: the chained message quotes the
+        # offending character and its position (decision 5).
+        raise AmhMappingError(
+            PAYLOAD_KEY, "payload text is not encodable as UTF-8 (unpaired surrogate)"
+        ) from None
+    except (TypeError, ValueError, RecursionError):
         # `from None`: the underlying message can quote a key name or a repr of wire data, and nothing
         # from the payload may reach a log, a trace or quarantine metadata (decision 5).
         raise AmhMappingError(
             PAYLOAD_KEY, "payload contains a value the canonical JSON form cannot represent"
         ) from None
-    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+    return digest
+
+
+def _carries_utc_offset(value: datetime, *, field: str) -> bool:
+    """Whether `value` declares a usable UTC offset — the ONE place foreign `tzinfo` code is called.
+
+    **Why the guard is `Exception` and that is the derived answer, not a shrug.** `value.tzinfo` is an
+    arbitrary object: on ingress whatever the decoder attached, on egress whatever the caller
+    constructed its `CanonicalOutcome` with. `tzinfo.utcoffset` is therefore arbitrary code, and its
+    raise set is unbounded by definition — the stdlib base class raises `NotImplementedError`, a
+    subclass returning a non-`timedelta` produces `TypeError` and one returning an out-of-±24h offset
+    produces `ValueError` (both from `astimezone`, not from here), and a subclass may simply raise
+    anything at all. Naming the types we can think of is exactly the mistake that left `RuntimeError`
+    escaping this line from BOTH `millis_to_utc` and `utc_to_millis`. The body is one foreign call and
+    none of this module's own logic, so `Exception` masks nothing of ours; `BaseException` is
+    deliberately NOT caught, because `KeyboardInterrupt` and `SystemExit` must still stop a consumer.
+
+    This is also the last DISCLOSURE channel on the boundary: a foreign exception propagating verbatim
+    carries its MESSAGE across, and decision 5 forbids that independently of the type — the gatekeeper
+    leaked a `RuntimeError("PHI-SHAPED-SECRET")` through both call sites. `from None` and a fixed reason
+    token close it.
+    """
+    try:
+        return value.tzinfo is not None and value.tzinfo.utcoffset(value) is not None
+    except Exception:
+        raise AmhMappingError(field, "timezone offset could not be determined") from None
 
 
 def millis_to_utc(value: object, *, field: str) -> datetime:
@@ -216,7 +286,7 @@ def millis_to_utc(value: object, *, field: str) -> datetime:
             epoch-millis value outside the representable instant range.
     """
     if isinstance(value, datetime):
-        if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
+        if not _carries_utc_offset(value, field=field):
             raise AmhMappingError(field, "naive datetime — a timestamp must carry its timezone")
         return _to_utc(value, field=field)
     # `bool` is an `int` subclass; `True` must not read as 1ms past the epoch.
@@ -238,6 +308,14 @@ def _to_utc(value: datetime, *, field: str) -> datetime:
     `astimezone` shifts the wall clock by the offset, so an instant within ~14h of `datetime.min`/
     `datetime.max` carrying a non-UTC offset raises `OverflowError` — reachable from BOTH directions
     (Avro `timestamp-millis` on ingress, a caller-supplied `CanonicalOutcome` on egress).
+
+    Two clauses, because the two failures are genuinely different and an operator must be able to tell
+    them apart. `OverflowError`/`OSError` is stdlib arithmetic with a KNOWN raise set, so it keeps its
+    precise reason. Everything else comes out of the `tzinfo.utcoffset` call `astimezone` makes
+    internally — foreign code again (see `_carries_utc_offset`), which the offset check upstream cannot
+    pre-validate because it only tests `is not None` and never inspects the returned type. A subclass
+    returning `"nonsense"` or `timedelta(days=2)` therefore reaches HERE, and produced a bare
+    `TypeError`/`ValueError` before this clause existed.
     """
     try:
         return value.astimezone(UTC)
@@ -245,6 +323,8 @@ def _to_utc(value: datetime, *, field: str) -> datetime:
         raise AmhMappingError(
             field, "instant outside the representable range once normalised to UTC"
         ) from None
+    except Exception:
+        raise AmhMappingError(field, "timezone offset could not be determined") from None
 
 
 def utc_to_millis(value: datetime, *, field: str) -> int:
@@ -260,14 +340,31 @@ def utc_to_millis(value: datetime, *, field: str) -> int:
     declared. This is the same posture as the naive-datetime refusal directly above: on this boundary
     an instant is never silently altered, and a caller that wants millis truncates deliberately.
 
+    **"Deliberately" now means `truncate_to_wire_millis`, and that matters more than it looks.** Only
+    ~0.07% of the instants `datetime.now(UTC)` produces are millis-exact, so a phase-B publisher that
+    stamped an outcome from the clock would be refused ~999 times in 1000. Leaving the guidance as one
+    docstring clause invited every call site to improvise its own `.replace(microsecond=...)` — which is
+    how the sign-dependent skew this refusal centralised away gets re-created N times over, once per
+    improvisation. So the compliant operation is EXPORTED, with its rounding direction stated, and the
+    refusal here is the thing that forces callers to it.
+
     Raises:
-        AmhMappingError: the datetime is naive (refusing to invent a timezone on egress, exactly as
-            on ingress), carries sub-millisecond precision, or lies outside the range representable
-            once normalised to UTC.
+        AmhMappingError: the value is not a `datetime` at all, is naive (refusing to invent a timezone
+            on egress, exactly as on ingress), carries sub-millisecond precision, or lies outside the
+            range representable once normalised to UTC.
     """
-    if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
+    # The annotation says `datetime`, but `CanonicalOutcome` is a plain frozen dataclass with no runtime
+    # validation, so `outcome_to_wire` can be handed one whose `occurred_at` is an int — and `.tzinfo`
+    # on an int is a bare `AttributeError` crossing the boundary. Refused instead, for the same reason
+    # `outcome_to_wire` already refuses a caller-supplied `payload_hash` that does not bind its own
+    # payload: egress treats its caller as fallible rather than trusting an unvalidated dataclass.
+    if not isinstance(value, datetime):
+        raise AmhMappingError(field, f"expected a tz-aware datetime, got {type(value).__name__}")
+    if not _carries_utc_offset(value, field=field):
         raise AmhMappingError(field, "naive datetime — a timestamp must carry its timezone")
     delta = _to_utc(value, field=field) - _EPOCH
+    # `divmod(timedelta, timedelta)` cannot raise here: the divisor is a non-zero literal, so the one
+    # exception it has (`ZeroDivisionError`) is unreachable.
     millis, remainder = divmod(delta, timedelta(milliseconds=1))
     if remainder:
         raise AmhMappingError(
@@ -276,6 +373,52 @@ def utc_to_millis(value: datetime, *, field: str) -> int:
             "silently alter the instant",
         )
     return millis
+
+
+def truncate_to_wire_millis(value: datetime, *, field: str = "occurred_at") -> datetime:
+    """Drop sub-millisecond precision from an aware instant — the SANCTIONED way to satisfy egress.
+
+    `utc_to_millis` refuses a finer-than-millisecond instant rather than truncating it (decision 10,
+    upheld), and the pinned wire type is a millis `long`, so something has to truncate. This is that
+    something: ONE implementation, with its direction written down, instead of a `.replace(microsecond=…)`
+    improvised at each call site.
+
+    **Direction: toward the PAST, on BOTH sides of the epoch.** The result is the latest millisecond
+    boundary at or before `value` — floor on the epoch-millis number line, never "toward zero". That
+    distinction IS the point: `divmod`/`//` on a `timedelta` floors toward −∞, so a *toward-zero*
+    reading of the same code truncates a pre-epoch instant away from the epoch and a post-epoch one
+    toward it. Stating floor-toward-the-past makes the behaviour identical in sign and describable in
+    one sentence, which is what a phase-B publisher needs in order to reason about the instant it
+    actually emitted.
+
+    The result is normalised to UTC — the same instant, in the tz-aware UTC form every other timestamp
+    on this boundary already carries (`millis_to_utc` returns UTC too). It is not a round trip through
+    the caller's original zone, because re-entering foreign `tzinfo` code to get back there would add a
+    failure mode for a cosmetic gain.
+
+    Guaranteed: `utc_to_millis(truncate_to_wire_millis(v)) == (v - EPOCH) // 1ms` for every `v` this
+    function accepts, and calling it twice changes nothing (idempotent).
+
+    Raises:
+        AmhMappingError: the value is not a `datetime`, is naive, or lies outside the representable
+            range once normalised to UTC — the same three refusals as `utc_to_millis`, so a caller can
+            route both identically.
+    """
+    if not isinstance(value, datetime):
+        raise AmhMappingError(field, f"expected a tz-aware datetime, got {type(value).__name__}")
+    if not _carries_utc_offset(value, field=field):
+        raise AmhMappingError(field, "naive datetime — a timestamp must carry its timezone")
+    # The reconstruction below needs NO overflow guard, and the reason is a proof rather than a hope.
+    # Flooring moves the instant EARLIER, so the obvious worry is a value within 1ms of `datetime.min`
+    # flooring underneath it. It cannot: `_EPOCH - datetime.min` is exactly 719162 days, a whole number
+    # of milliseconds, and `datetime.min.microsecond` is 0 — so `datetime.min` sits exactly ON the
+    # epoch-millisecond grid, and the floor of any instant at or above it is also at or above it.
+    # `_to_utc` has already refused anything outside the range, so `millis` is in range by construction
+    # and `millis * 1ms` is the original delta rounded down, which is likewise in `timedelta`'s range.
+    # A `try` here would have been dead code, and dead defensive code is indistinguishable from a guard
+    # that matters until someone tests it.
+    millis = (_to_utc(value, field=field) - _EPOCH) // timedelta(milliseconds=1)
+    return _EPOCH + millis * timedelta(milliseconds=1)
 
 
 # ---------------------------------------------------------------------------
@@ -609,5 +752,6 @@ __all__ = [
     "millis_to_utc",
     "outcome_to_wire",
     "project_consent_decision",
+    "truncate_to_wire_millis",
     "utc_to_millis",
 ]

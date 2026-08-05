@@ -12,6 +12,7 @@ token, envelope-order drift, missing Glue id).
 from __future__ import annotations
 
 import json
+import re
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -26,6 +27,7 @@ from maezo.adapters.amh.contract import (
     FROZEN_ENVELOPE_FIELD_ORDER,
     FROZEN_SCHEMA_VERSION_STATUS,
     MAEZO_AMH_CONTRACT_PIN_ENV,
+    MAX_SEMVER_COMPONENT_DIGITS,
     REQUIRED_EVIDENCE_SECTIONS,
     AmhAdapterError,
     AmhContractPinError,
@@ -507,6 +509,173 @@ def test_parse_semver_is_total_and_strict() -> None:
     assert parse_semver("1.10.20") == (1, 10, 20)
     for rejected in ("01.0.0", "１.０.０", "1.0.٠", "².0.0", "1.0", "v1", "", None, 1.0, ["1", "0", "0"]):
         assert parse_semver(rejected) is None, rejected
+
+
+def test_parse_semver_totality_is_true_even_past_the_int_conversion_limit() -> None:
+    """The docstring's totality claim was FALSE and load-bearing: consolidating the mapping layer onto
+    this one validator was justified partly on it, and the unbounded `[0-9]*` let the regex match a
+    digit run `int()` refuses (`sys.int_max_str_digits`, 4300 by default). `parse_semver("1"*4301 +
+    ".0.0")` raised a bare `ValueError` — out of BOTH `load_contract_pin` and the mapping layer.
+
+    The fix is in the GRAMMAR, not in a `try`, which is what makes the totality provable by
+    inspection: every component is bounded to `MAX_SEMVER_COMPONENT_DIGITS`, so `int()` cannot fail."""
+    over = "1" * (sys.get_int_max_str_digits() + 1)
+    assert parse_semver(f"{over}.0.0") is None
+    assert parse_semver(f"1.{over}.0") is None
+    assert parse_semver(f"1.0.{over}") is None
+    assert parse_semver("9" * 4301) is None
+
+
+def test_the_semver_component_bound_is_an_exact_edge() -> None:
+    """Bounded, not merely "small": exactly `MAX_SEMVER_COMPONENT_DIGITS` digits parses and one more
+    does not, in every one of the three positions."""
+    nine = "9" * MAX_SEMVER_COMPONENT_DIGITS
+    ten = f"9{nine}"
+    assert parse_semver(f"{nine}.{nine}.{nine}") == (int(nine), int(nine), int(nine))
+    for spelling in (f"{ten}.0.0", f"0.{ten}.0", f"0.0.{ten}"):
+        assert parse_semver(spelling) is None, spelling
+    assert MAX_SEMVER_COMPONENT_DIGITS < 640, (
+        "640 is the lowest sys.int_max_str_digits CPython accepts, so the bound must stay below it or "
+        "the totality proof stops holding on an embedder that lowers the limit"
+    )
+
+
+def test_the_ascii_only_guarantee_comes_from_the_character_classes_not_a_flag() -> None:
+    """The pattern used to carry `re.ASCII` with a comment claiming the flag "matters". It did not:
+    `re.ASCII` only changes what `\\d`, `\\w`, `\\s` and `\\b` mean, and the pattern contains none of
+    them — so the flag was provably inert and a mutation deleting it survived because it was a no-op.
+
+    This test pins the guarantee to its real mechanism, so a future "simplification" of `[0-9]` back to
+    `\\d` fails HERE rather than silently re-admitting fullwidth and Arabic-Indic digits."""
+    assert not contract_module._SEMVER_RE.flags & re.ASCII, (
+        "the flag is gone on purpose — it was inert against explicit classes, and keeping an inert "
+        "flag is what made a reader believe it was the protection"
+    )
+    assert "\\d" not in contract_module._SEMVER_RE.pattern, (
+        "no bare `\\d` in this pattern: in a `str` pattern it matches every Unicode decimal digit"
+    )
+    for unicode_digits in ("１.０.０", "1.0.٠", "٣.٠.٠", "1.٢.0", "².0.0"):
+        assert parse_semver(unicode_digits) is None, unicode_digits
+
+
+def test_a_topic_major_past_the_int_conversion_limit_is_a_violation_not_a_crash(tmp_path: Path) -> None:
+    """`_topic_major` fed an unbounded `\\d+` capture to `int()`, so a quarantine name carrying a
+    5000-digit major raised a bare `ValueError` out of the loader. Same root cause as the semver one,
+    a different call — which is exactly why the sweep had to be systematic rather than per-finding."""
+    over = "1" * (sys.get_int_max_str_digits() + 1)
+    path = _mutated(tmp_path, lambda p: p["topics"][0].__setitem__("quarantine", f"q.v{over}"))
+    with pytest.raises(AmhContractPinError) as exc:
+        load_contract_pin(path)
+    assert any("quarantine" in v for v in exc.value.violations), exc.value.violations
+
+
+# ---------------------------------------------------------------------------
+# The read/parse layer: what `read_text` and `json.loads` raise that is not what was caught
+# ---------------------------------------------------------------------------
+
+
+def test_a_pin_file_that_is_not_valid_utf8_is_refused(tmp_path: Path) -> None:
+    """`UnicodeDecodeError` is a `ValueError`, NOT an `OSError`, so the `except OSError` on `read_text`
+    never saw it and one invalid byte crashed the loader. The pin is DECLARED UTF-8 — `encoding="utf-8"`
+    is the contract, not a hint — so non-UTF-8 bytes are a refusal like any other."""
+    path = tmp_path / "contracts.lock.json"
+    path.write_bytes(b'{"provenance": {"status": "PUBLISH\xffED"}}')
+    with pytest.raises(AmhContractPinError) as exc:
+        load_contract_pin(path)
+    assert any("not valid UTF-8" in v for v in exc.value.violations), exc.value.violations
+
+
+def test_a_pin_file_nested_past_the_json_parser_budget_is_refused(tmp_path: Path) -> None:
+    """`json.loads` raises `RecursionError`, which is not a `JSONDecodeError`."""
+    path = tmp_path / "contracts.lock.json"
+    path.write_text("[" * 200_000 + "]" * 200_000, encoding="utf-8")
+    with pytest.raises(AmhContractPinError) as exc:
+        load_contract_pin(path)
+    assert any("not parseable as JSON" in v for v in exc.value.violations), exc.value.violations
+
+
+def test_a_pin_file_with_an_integer_literal_past_the_int_limit_is_refused(tmp_path: Path) -> None:
+    """Well-formed JSON that CPython declines to convert: `json.loads` raises a plain `ValueError`, not
+    a `JSONDecodeError`, so the original clause did not hold it either."""
+    path = tmp_path / "contracts.lock.json"
+    over = "1" * (sys.get_int_max_str_digits() + 1)
+    path.write_text(f'{{"envelope": {{"field_count": {over}}}}}', encoding="utf-8")
+    with pytest.raises(AmhContractPinError) as exc:
+        load_contract_pin(path)
+    assert any("not parseable as JSON" in v for v in exc.value.violations), exc.value.violations
+
+
+@pytest.mark.parametrize("depth", [1_200, 5_000, 9_900])
+def test_the_placeholder_walk_survives_nesting_json_loads_accepts(tmp_path: Path, depth: int) -> None:
+    """The gap that made the recursive walk unsafe: `json.loads` parses ~10x deeper than a Python-level
+    walk of the SAME object survives (~9997 vs ~1000), so every depth in this band is a file the parser
+    accepts and the walker used to die on — a bare `RecursionError` out of `load_contract_pin`.
+
+    Fixed by making `_iter_strings` ITERATIVE, so the failure is impossible rather than caught. These
+    depths must produce a normal fail-closed refusal (the nested key is not in the frozen catalogue)."""
+    base = REAL_PIN.read_text(encoding="utf-8").rstrip().rstrip("}").rstrip()
+    nested = '{"a":' * depth + '"x"' + "}" * depth
+    path = tmp_path / "contracts.lock.json"
+    path.write_text(f'{base},\n"extra_nest": {nested}\n}}', encoding="utf-8")
+    load_contract_pin(path)  # an unknown EXTRA top-level key is not itself a violation
+
+
+def test_the_placeholder_walk_still_reports_paths_in_source_order(tmp_path: Path) -> None:
+    """Making the walk iterative must not have reversed the order violations are reported in — an
+    explicit LIFO stack yields children backwards unless they are pushed reversed."""
+    path = _mutated(
+        tmp_path,
+        lambda p: p.__setitem__("probe", ["TBD-first", {"k": "PLACEHOLDER-second"}, "CHANGEME-third"]),
+    )
+    with pytest.raises(AmhContractPinError) as exc:
+        load_contract_pin(path)
+    paths = [v.split(":")[0] for v in exc.value.violations if v.startswith("$.probe")]
+    assert paths == ["$.probe[0]", "$.probe[1].k", "$.probe[2]"], exc.value.violations
+
+
+# ---------------------------------------------------------------------------
+# Path resolution: `expanduser` / `resolve` / `is_file` are not the total calls they look like
+# ---------------------------------------------------------------------------
+
+
+def test_an_unresolvable_home_directory_override_is_a_refusal_not_a_crash(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`Path.expanduser()` raises `RuntimeError("Could not determine home directory.")` for a `~user`
+    it cannot resolve — a type nothing in this module was catching."""
+    monkeypatch.setenv(MAEZO_AMH_CONTRACT_PIN_ENV, "~nosuchuser4711/contracts.lock.json")
+    with pytest.raises(AmhContractPinError) as exc:
+        resolve_contract_pin_path()
+    assert any("not resolvable to a filesystem path" in v for v in exc.value.violations)
+    assert any(MAEZO_AMH_CONTRACT_PIN_ENV in v for v in exc.value.violations), (
+        "the refusal must still tell the operator which knob is wrong"
+    )
+
+
+def test_an_overlong_override_path_is_a_refusal_not_a_crash(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`Path.is_file()` LOOKS total and is not: it swallows only the errnos in its own `_ignore_error`
+    list (ENOENT/ENOTDIR/EBADF/ELOOP/EINVAL) and re-raises everything else — so `ENAMETOOLONG` came
+    straight out of a line that reads as a pure predicate, which is why it was never guarded."""
+    monkeypatch.setenv(MAEZO_AMH_CONTRACT_PIN_ENV, "/tmp/" + "x" * 5_000 + ".json")
+    with pytest.raises(AmhContractPinError) as exc:
+        resolve_contract_pin_path()
+    assert exc.value.violations
+
+
+def test_an_overlong_explicit_path_is_a_refusal_not_a_crash() -> None:
+    """The same `is_file()` trap on the OTHER call site — `load_contract_pin(path)` — because the fix
+    had to be a choke point, not a guard at the one place the finding happened to name."""
+    with pytest.raises(AmhContractPinError) as exc:
+        load_contract_pin(Path("/tmp/" + "x" * 5_000 + ".json"))
+    assert any("not found" in v for v in exc.value.violations), exc.value.violations
+
+
+def test_a_path_with_an_embedded_nul_is_a_refusal_not_a_crash() -> None:
+    """`Path.is_file()` does catch `ValueError`, so this one already worked — pinned so the choke-point
+    helper cannot regress it while fixing the errno case above."""
+    with pytest.raises(AmhContractPinError) as exc:
+        load_contract_pin(Path("a\x00b.json"))
+    assert exc.value.violations
 
 
 # ---------------------------------------------------------------------------
