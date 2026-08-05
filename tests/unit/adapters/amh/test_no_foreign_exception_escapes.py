@@ -481,6 +481,11 @@ class TestEveryEntryPointConverts:
         assert expected <= set(_OBSERVED), f"never exercised: {sorted(expected - set(_OBSERVED))}"
         assert len(_HOSTILE_ATOMS) >= 35, "the hostile corpus shrank — atoms are removed deliberately"
         assert len(_JSON_SAFE_ATOMS) >= 15
+        # PER-DIMENSION floor, not just the global sum. A single global total cannot notice the loss
+        # of an entire injection dimension: emptying `_PIN_INJECTION_PATHS` removes only 18x18=324
+        # of ~5.5k observations, so the sum stays above its threshold and the pin-path dimension
+        # disappears in silence. Found by mutating this file, not by reading it.
+        assert len(_PIN_INJECTION_PATHS) >= 15, "the pin-injection dimension shrank"
         assert sum(_OBSERVED.values()) >= 5_000, _OBSERVED
 
 
@@ -745,4 +750,14 @@ def test_the_environment_matches_the_assumptions_the_bounds_rest_on() -> None:
     relationship rather than trusting a comment."""
     assert sys.get_int_max_str_digits() > contract_mod.MAX_SEMVER_COMPONENT_DIGITS
     assert contract_mod.MAX_SEMVER_COMPONENT_DIGITS < 640
+
+    # The OTHER proof this package rests on, asserted rather than left as a comment in the source:
+    # `truncate_to_wire_millis` has NO underflow guard because `datetime.min` sits exactly ON the
+    # epoch-millisecond grid, so a floor can never land below it. That is arithmetic on two
+    # interpreter constants — but if it were ever false, the missing guard would become a live
+    # OverflowError escape, so the premise is pinned here where a future reader can falsify it.
+    epoch_to_min = datetime(1970, 1, 1, tzinfo=UTC) - datetime.min.replace(tzinfo=UTC)
+    assert epoch_to_min == timedelta(days=719162)
+    assert epoch_to_min % timedelta(milliseconds=1) == timedelta(0)
+    assert datetime.min.microsecond == 0
     assert os.sep  # sanity: the platform is a real one
