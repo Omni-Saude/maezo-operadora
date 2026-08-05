@@ -372,6 +372,42 @@ _FORBIDDEN_RAW_IDS: tuple[tuple[str, str, str], ...] = (
 )
 
 
+@pytest.mark.parametrize(
+    "value",
+    [
+        "2026_0000001",  # a grouped business reference that compacts to 11 digits
+        "12345_678901",  # same, grouped differently
+        "20260_00000_00001",  # compacts to 15 digits
+    ],
+)
+def test_a_grouped_non_identifier_that_compacts_to_11_or_15_digits_is_refused(value: str) -> None:
+    """Pins the ACCEPTED COST of stripping separators before the digit-run test.
+
+    These are not identifiers, and they are refused anyway, because the rule cannot tell a grouped
+    reference from a grouped CPF/CNS once the separators come out. That is symmetric with the `.`/`-`
+    forms, which already behaved this way before `_` joined the stripped class. Pinned so the cost is
+    a documented property rather than a surprise a future caller reports as a bug.
+    """
+    with pytest.raises(ForbiddenRawIdentifierError):
+        CompanyTenantRef(value)
+
+
+@pytest.mark.parametrize("candidate", [None, 7, [], object(), b"maezo-payer-x"])
+def test_a_non_str_process_definition_key_is_refused_as_an_identity_shape_error(
+    candidate: object,
+) -> None:
+    """A non-`str` must not escape as `AttributeError`/`TypeError`.
+
+    One exception type across the module's whole surface is the point: a caller's
+    `except IdentityShapeError` has to catch every malformed input, and `False` would be
+    indistinguishable from "a well-formed string that simply is not a payer key".
+    """
+    with pytest.raises(IdentityShapeError):
+        is_payer_process_definition_key(candidate)  # type: ignore[arg-type]
+    with pytest.raises(IdentityShapeError):
+        require_payer_process_definition_key(candidate)  # type: ignore[arg-type]
+
+
 @pytest.mark.parametrize(("label", "value", "expected_reason"), _FORBIDDEN_RAW_IDS)
 def test_each_forbidden_raw_id_format_is_refused_with_its_own_dedicated_reason(
     label: str, value: str, expected_reason: str
@@ -530,6 +566,11 @@ def test_the_docstring_lists_every_value_the_raw_id_rules_still_admit(value: str
     identity semantics specifically: the paragraph is what a reviewer quotes. So each value here must
     (a) really construct — proving the exact-length trade-off is what the code does — and (b) be named
     in the docstring, so the text cannot quietly drift back to an absolute claim the code never made.
+
+    IF YOU ARE HERE BECAUSE THIS TEST WENT RED: read the failure before treating it as a regression.
+    Direction (a) fails when the raw-id rule got STRICTER and now refuses a value the docstring still
+    advertises as representable. That is usually an improvement, not a break — the fix is to delete
+    the value from BOTH this table and the docstring paragraph, not to loosen the rule.
     """
     doc = importlib.import_module("maezo.domain.integration.identity").__doc__ or ""
     assert CompanyTenantRef(value).value == value

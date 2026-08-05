@@ -172,6 +172,13 @@ _FHIR_RESOURCE_REFERENCE: Final[re.Pattern[str]] = re.compile(
 # `_` belongs here for one reason: it is a member of `PERMITTED_CHARACTERS`, so it is the only
 # plausible group separator a caller can actually get PAST the charset rule. Leaving it unstripped
 # let `123_456_789_01` and `123_4567_8901_2345` through every component slot.
+#
+# ACCEPTED COST, stated rather than discovered later: stripping a separator means any value whose
+# compacted form is exactly 11 or 15 digits is refused, even when it was never an identifier —
+# `2026_0000001` and `12345_678901` are refused as CPF-like. This is symmetric with the `.`/`-`
+# forms, which behaved this way before `_` joined them (`2026.0000001` was already refused), and it
+# is the unavoidable price of catching the punctuated identifier. A caller that needs grouped
+# digits in a reference must group them to a length that is not 11 or 15, or not group them.
 _DIGIT_GROUP_NOISE: Final[re.Pattern[str]] = re.compile(r"[._\-/\s]")
 
 _RAW_NUMERIC_ID_LABELS: Final[dict[int, str]] = {11: "CPF-like", 15: "CNS-like"}
@@ -570,7 +577,14 @@ def is_payer_process_definition_key(candidate: str) -> bool:
 
     Built from the SAME component rule the composer uses, so predicate and composer cannot drift:
     every key `payer_process_definition_key` produces satisfies this, and nothing else does.
+
+    A non-`str` candidate is refused as `IdentityShapeError`, not returned as `False`: this is the
+    same posture `_validate_component` takes, and it keeps one exception type across the module's
+    whole surface so a caller's `except IdentityShapeError` cannot miss a malformed input. Returning
+    `False` would be indistinguishable from "a well-formed string that is not a payer key".
     """
+    if not isinstance(candidate, str):
+        raise IdentityShapeError(f"process-definition key must be a str; got {type(candidate).__name__}")
     if not candidate.startswith(PAYER_PROCESS_DEFINITION_KEY_PREFIX):
         return False
     try:
