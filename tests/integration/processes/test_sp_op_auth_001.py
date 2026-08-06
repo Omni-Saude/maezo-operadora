@@ -159,6 +159,9 @@ _ISSUE_AUTH_TOPIC = "operadora.auth.issue_authorization"
 _DENIAL_TOPIC = "operadora.auth.send_denial_notice"
 _NOTIFY_SLA_TOPIC = "operadora.auth.notify_sla_risk"
 _JUNTA_TOPIC = "operadora.auth.convene_junta"
+# GAP-AUTH-4: o validador deterministico que roda ANTES de BRT_AutoApproval. Sem ele na lista
+# de drain a task nunca e servida e o token trava — nenhuma instancia alcanca UT/terminal.
+_VALIDATE_CRITERIA_TOPIC = "operadora.auth.validate_auto_criteria"
 
 # Tópicos servidos pelos workers REAIS registrados no harness (drain genérico).
 # `_ANALYZE_TOPIC` é deliberadamente EXCLUÍDO: ver `_AnalyzeRequestStub` abaixo (donor fixture,
@@ -170,6 +173,7 @@ _AUTH_WORKER_TOPICS = [
     _DENIAL_TOPIC,
     _NOTIFY_SLA_TOPIC,
     _JUNTA_TOPIC,
+    _VALIDATE_CRITERIA_TOPIC,
 ]
 
 _NOTIFICATIONS_TOPIC = "operadora.notifications.internal"
