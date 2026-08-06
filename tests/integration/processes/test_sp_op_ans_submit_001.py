@@ -207,7 +207,6 @@ import pytest_asyncio
 
 from maezo.tools.workers.ans_gateway import MOCK_ANS_PROTOCOL_PREFIX, LabeledMockAnsGatewayTransport
 from maezo.tools.workers.ans_submit import (
-    AnsDatasetIncompletoError,
     AnsSubmitNotHumanError,
     assemble_entry,
     register_ans_submit_workers,
@@ -215,7 +214,12 @@ from maezo.tools.workers.ans_submit import (
 )
 from maezo.tools.workers.dmn_transport import CibSevenDmnTransport
 from maezo.tools.workers.events import register_events_workers
-from maezo.tools.workers.harness import CibSevenWorkerTransport, FakeKafkaPublisher, WorkerHarness
+from maezo.tools.workers.harness import (
+    CibSevenWorkerTransport,
+    FakeKafkaPublisher,
+    WorkerBpmnError,
+    WorkerHarness,
+)
 from maezo.tools.workers.tiss_schema import TissSchemaValidator
 
 from .conftest import CIBSEVEN_BASE_URL, drain_topics
@@ -333,21 +337,34 @@ _NOTIFY_REGULATORIO_GAP_REASON = (
 # two-part evidence (no NACK branch in transmit_to_ans; AnsRetryEsgotadoError is a bare
 # RuntimeError, not a WorkerBpmnError, so BE_RetryEsgotado could not fire even hypothetically).
 _SUBMIT_NACK_UNREACHABLE_REASON = (
-    "T3.1 phase-2 FINDING B (new): ans_submit.py's transmit_to_ans has no status_envio parameter "
-    "and no NACK-producing branch — once the human-approval guard passes it unconditionally "
-    "returns status_envio='enviado'. The donor's seeded status_envio='nack' override is silently "
-    "dropped by pick_fields (not a field of AnsSubmissionData/AnsSubmitDecision). Consequence: "
-    "BE_SubmitNack (boundary on ST_SubmeterEnvio, errorRef Error_AnsProtocoloNack) never fires, so "
-    "the entire SUB_RetryEnvio subprocess (ST_RetransmitirEnvio/BRT_RetryPolicy/ICE_Backoff/"
-    "End_RetryOk/End_RetryEsgotado/BE_RetryEsgotado/ST_PublishFailed/UT_TratarNack) is dead code "
-    "from a live-engine perspective. Independently: AnsRetryEsgotadoError is a bare RuntimeError, "
-    "not a harness.WorkerBpmnError, so even a hypothetical NACK entry into the retry subprocess "
-    "could not route ERR_ANS_RETRY_ESGOTADO through BE_RetryEsgotado's boundary catch (the harness "
-    "classifies bare RuntimeError as transient/engine-retried, never a modeled bpmnError). This "
-    "test is ALSO blocked earlier by the T2.6-2 fail-closed schema-pinning regime (_drive_to_revisar "
-    "never reaches UT_RevisarEnvio on the unpinned ans_probe — see _NOTIFY_REGULATORIO_GAP_REASON "
-    "for the full mechanism; NOT FINDING A, which is resolved) — cited together since B is the "
-    "independent, deeper root cause that would remain even under a pinned schema."
+    "PARCIALMENTE RESOLVIDO (2026-08-06) — a causa profunda FOI corrigida; restam DOIS "
+    "bloqueios nomeados abaixo, nenhum deles fabricavel. RESOLVIDO: o mock de gateway agora "
+    "honra `requested_outcome`, `transmit_to_ans` levanta "
+    "WorkerBpmnError(ERR_ANS_PROTOCOLO_NACK) numa recusa, a familia ganhou "
+    "ANS_SUBMIT_BPMN_ERROR_ALLOWLIST unida a PRODUCTION_BPMN_ERROR_ALLOWLIST, e "
+    "`retry_attempt` passou a INCREMENTAR (sem isso `BRT_RetryPolicy` relia um contador "
+    "congelado, o catch-all `> 3` nunca disparava e SUB_RetryEnvio fazia loop INFINITO — "
+    "defeito real achado durante esta correcao). Tambem removida a `AnsRetryEsgotadoError`: "
+    "ERR_ANS_RETRY_ESGOTADO e lancado pelo MODELO (error end event `End_RetryEsgotado` dentro "
+    "do subprocess), nunca por um worker — a excecao antiga, sendo RuntimeError (familia "
+    "transiente do harness), fazia o engine RE-TENTAR ST_RetransmitirEnvio e o token nunca "
+    "chegava ao `GW_RetransmissaoOk`/`BRT_RetryPolicy`. "
+    "BLOQUEIO 1 (canal de variaveis): num NACK `transmit_to_ans` LEVANTA, entao "
+    "`protocolo_ans` nunca e escrito em escopo; `WorkerBpmnError` nao tem canal de variaveis "
+    "no call site do harness (`_handle` passa so error_code/error_message, embora "
+    "`WorkerTransport.handle_bpmn_error` aceite `variables`) — `ST_RetransmitirEnvio` cai "
+    "entao no guard fail-closed de `protocolo_ans` em branco e vira incidente. Passar "
+    "variaveis pelo WorkerBpmnError e mudanca transversal do harness com implicacoes de "
+    "redacao de PHI para TODO worker — decisao humana/orquestrador, nao deste pacote. "
+    "BLOQUEIO 2 (semantica externa): `GW_RetransmissaoOk` le "
+    "`${status_envio == 'retransmitido'}`, valor que NENHUM worker emite. Emitir sucesso de "
+    "retransmissao sem chamada real de gateway seria FABRICACAO — o contrato lista a "
+    "semantica precisa de ACK/NACK e a politica de retransmissao como dependencia externa em "
+    "aberto (AWS-blocked, issue #16). "
+    "NOTA: o regime de schema-pinning NAO e mais um bloqueio — `ans_probe_tiss_pinned` ja "
+    "existe, escreve um XSD de fixture em tmp_path e NAO exige XSD real nem SME; trocar estes "
+    "2 testes para o probe pinado e trabalho de teste, valido assim que os bloqueios 1/2 "
+    "cairem."
 )
 
 # FINDING D (new — guard genuinely missing in v2, not merely misrouted).
@@ -1541,19 +1558,21 @@ def test_err_ans_submit_not_human_recusa_sem_aprovacao() -> None:
     assert result["synthetic"] is True and result["vinculativo"] is False
 
 
-@pytest.mark.xfail(reason=_ASSEMBLE_FAILURE_GUARD_MISSING_REASON, strict=True)
 def test_assemble_dataset_incompleto_roteia_a_humano() -> None:
     """Worker assemble com dataset_assembly_failed=true => ERR_ANS_DATASET_INCOMPLETO.
 
-    FINDING D (module docstring): v2's `assemble_entry`/`prepare_submission` has NO
-    `dataset_assembly_failed` field/check at all — this raise never happens in v2, unlike the
-    donor's `make_assemble_handler`. Kept as an honest xfail (never raises -> `pytest.raises`
-    itself fails -> expected xfail) rather than deleted, per port rule 2.
+    FLIPPED (2026-08-06): `AnsSubmitInput` ganhou `dataset_assembly_failed` e
+    `prepare_submission` passou a levantar o erro MODELADO. A excecao e
+    `WorkerBpmnError(ERR_ANS_DATASET_INCOMPLETO)` — NAO `AnsDatasetIncompletoError`
+    (um `ValueError`, que o harness demote a incidente cru e perde a rota modelada).
+    O boundary `BE_AssembleDatasetIncompleto` em `ST_AssembleDataset` (novo) roteia a
+    `UT_CorrigirPendenciaEnvio` — humano, nunca auto-rejeita (contrato :198).
     """
     kafka = FakeKafkaPublisher()
 
-    with pytest.raises(AnsDatasetIncompletoError):
+    with pytest.raises(WorkerBpmnError) as exc:
         assemble_entry({"dataset_assembly_failed": True}, kafka=kafka)
+    assert exc.value.error_code == "ERR_ANS_DATASET_INCOMPLETO"
 
 
 # ===========================================================================
