@@ -69,8 +69,13 @@ def test_register_default_workers_registers_all_17_modules() -> None:
     # item-9 wave-5 (event-wiring): programa's 4 raw handlers — `stratify_risk`/`stop_processing`
     # (item A, root fix: MOVED off `FunctionWorker` so they can publish an internal notification)
     # and the 2 NEW workers `proactive_contact`/`notify_sla_risk` (items B/C) — same async-Kafka-
-    # seam rationale (programa.py's own module docstring). Raw-handler count = 11 + 3 + 4 = 18.
-    assert harness.registry.count() == len(harness.registered_topics) - 18
+    # seam rationale (programa.py's own module docstring).
+    # item-9 notify-wiring fix: `operadora.adequacao.update_monitoring_plan` MOVED off
+    # `FunctionWorker` onto a raw handler too, so it can publish an internal notification
+    # (`register_adequacao_workers` used to `del kafka # unused`) — same async-Kafka-seam
+    # rationale (adequacao.py's own module docstring).
+    # Raw-handler count = 11 + 3 + 4 + 1 = 19.
+    assert harness.registry.count() == len(harness.registered_topics) - 19
 
 
 def test_register_default_workers_topics_match_expected_prefixes() -> None:
