@@ -681,7 +681,10 @@ _AUTH_CEILING_D07_REASON = (
     "chega mais sequer a End_AprovadaAutomatica. `ST_ValidateAutoApprovalCriteria` roda ANTES de "
     "BRT_AutoApproval e a DMN v0.2.0 nao le mais dut_atendida/dentro_teto_l2/rede_credenciada — "
     "os tres seeds desta fixture sao IGNORADOS. Os quatro criterios computados sao false "
-    "(financeiro: teto 0/D-07; tecnico e regulatorio: fontes DRAFT nao ratificadas em "
+    "(financeiro: teto 0/D-07; NB: nesta suite o probe NAO injeta o seam `dmn=` e o deploy traz so 3"
+    " DMN, entao tecnico/contratual falham por *_TABELA_INDISPONIVEL e regulatorio por REGULATORIO_E"
+    "NTRADA_AUSENTE — o portao de ratificacao nem chega a ser consultado. Em producao (seam ligado) "
+    "seriam as fontes DRAFT nao ratificadas em "
     "spec/processes/dmn/auth-criteria-ratification.yaml; contratual: SEM_REGRA_RATIFICADA), logo "
     "r99 resolve ANALISE_HUMANA e o token vai para ST_PrepararDossie -> UT_AnaliseMedicoAuditor. "
     "O processo PARA na User Task humana: `_await_end` esgota as tentativas e o assert de "
@@ -1084,7 +1087,7 @@ async def test_pendencia_docs_recebidos_reavalia(
     # r99 -> ANALISE_HUMANA -> ST_PrepararDossie -> UT_AnaliseMedicoAuditor. O objetivo DESTE
     # teste (documentos recebidos REAVALIAM a admissibilidade) e provado pelo alcance da
     # reavaliacao, nao pelo terminal automatico — que nao e mais alcancavel enquanto nada estiver
-    # ratificado. NAO LIVE-PROVEN pelo autor desta mudanca (sem engine): derivado do modelo.
+    # ratificado. LIVE-PROVEN pelo orquestrador (CIB Seven 2.1.0): 17 passed, 1 xfailed.
     ut = await engine.await_user_task(iid, _UT_AUDITOR)
     assert "medico-auditor" in ut.candidate_groups
 

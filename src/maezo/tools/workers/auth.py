@@ -71,6 +71,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+import structlog
+
 from maezo.platform.observability import record_worker_error
 from maezo.tools.workers.auth_criteria import CriteriaSources, criteria_sources
 from maezo.tools.workers.base import (
@@ -83,6 +85,8 @@ from maezo.tools.workers.ceilings import CeilingResolver
 from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row
 from maezo.tools.workers.harness import WorkerBpmnError
 from maezo.tools.workers.phi_vars import redact_phi_vars
+
+_MODULE_LOGGER = structlog.get_logger(__name__)
 
 # Governance ceiling for AUTH L2 auto-approval (design T1.9 §2.4). The teto VALUE lives in
 # the autonomy matrix (`authorization_approval.max_value_brl`, L0-core.yaml:22 +
@@ -783,6 +787,15 @@ def _dut_criteria_inputs(criteria_key: str, process_vars: dict[str, Any]) -> dic
     null, which every one of these FIRST-hit-policy tables resolves through its conservative
     catch-all -> `dut_atendida=false` -> human review. Fail-closed by construction.
     """
+    # GK-criteria finding 5: um `dut_ref` mapeado para uma tabela AUSENTE deste dict
+    # encaminharia {} silenciosamente para a DMN. O manifesto e vendido ao SME como
+    # "mudanca de dados", entao a exigencia das DUAS edicoes tem de ser ruidosa.
+    if criteria_key not in _DUT_CRITERIA_DECLARED_INPUTS:
+        _MODULE_LOGGER.warning(
+            "auth_dut_criteria_inputs_nao_declarados",
+            criteria_key=criteria_key,
+            motivo="mapeamento no manifesto sem entrada em _DUT_CRITERIA_DECLARED_INPUTS",
+        )
     declared = _DUT_CRITERIA_DECLARED_INPUTS.get(criteria_key, ())
     return {name: process_vars[name] for name in declared if name in process_vars}
 

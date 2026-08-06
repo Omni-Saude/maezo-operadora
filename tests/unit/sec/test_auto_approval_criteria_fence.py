@@ -294,3 +294,28 @@ def test_shipped_manifest_ratifies_nothing() -> None:
     data: dict[str, Any] = yaml.safe_load(_RATIFICATION.read_text(encoding="utf-8"))
     ratified = [k for k, v in data["fontes"].items() if v.get("ratificado") is True]
     assert ratified == [], f"unexpectedly ratified rule sources: {ratified}"
+
+
+def test_rede_credenciada_declarada_como_criterio_sem_cobertura() -> None:
+    """GK-criteria finding 2/5b: `rede_credenciada` nao e coberto por nenhum criterio hoje.
+
+    Antes deste portao ele era um dos tres booleanos SEMEADOS que a DMN lia; agora simplesmente
+    nao participa. Isso e fail-closed HOJE (nada auto-aprova), mas quando `auth_criteria_contratual`
+    for ratificado a aprovacao automatica poderia ser concedida a um prestador FORA DA REDE sem que
+    criterio algum tivesse dito nada. Declarar em prosa nao basta — o manifesto e o arquivo que o
+    SME OBRIGATORIAMENTE toca, entao a declaracao vive la e este teste impede que suma em silencio.
+    """
+    import yaml
+
+    manifest = yaml.safe_load(_RATIFICATION.read_text(encoding="utf-8"))
+    nao_cobertos = manifest.get("criterios_nao_cobertos") or {}
+    assert "rede_credenciada" in nao_cobertos, (
+        "rede_credenciada deixou de ser declarado como criterio sem cobertura — se uma fonte de "
+        "credenciamento de rede passou a existir, remova a entrada E ligue o criterio; se nao, "
+        "a entrada tem de continuar aqui."
+    )
+    entry = nao_cobertos["rede_credenciada"]
+    assert entry.get("bloqueia_ratificacao_de") == "auth_criteria_contratual", (
+        "a entrada precisa dizer QUAL ratificacao ela bloqueia, senao o SME nao a ve no momento certo"
+    )
+    assert str(entry.get("revisor_necessario", "")).strip(), "sem revisor nomeado a entrada e inerte"

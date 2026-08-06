@@ -36,8 +36,11 @@
 #
 # The FINANCIAL criterion is deliberately NOT listed here: its source is not a DMN table but the
 # governance autonomy matrix (`spec/policies/autonomy/L0-core.yaml` +
-# `tenants-amh.yaml`, `authorization_approval.max_value_brl`), which is already a ratified,
-# CODEOWNERS-gated governance artifact resolved through `CeilingResolver`. Its current value is
+# `tenants-amh.yaml`, `authorization_approval.max_value_brl`), resolved through `CeilingResolver`.
+# NB (GK-criteria finding 1, corrigido 2026-08-06): a afirmacao anterior de que essa matriz ja era
+# "CODEOWNERS-gated" era FALSA — `.github/CODEOWNERS` nao cobria `spec/policies/autonomy/` nem
+# ESTE arquivo. Ambos foram adicionados ao CODEOWNERS no mesmo commit, entao a frase agora e
+# verdadeira; nao a repita sem verificar o CODEOWNERS. Its current value is
 # 0 (decision D-07 open) which, by `within_l2_ceiling`'s own fail-closed rule, authorises
 # nothing. Listing it here would imply this file governs it; it does not.
 #
@@ -138,3 +141,23 @@ fontes:
 mapeamento_dut_criteria:
   DUT-BARIATRICA-001: dut_criteria_bariatrica
   DUT-PET-CT-ONCOLOGIA-001: dut_criteria_oncologia_pet_ct
+
+# ---------------------------------------------------------------------------
+# CRITERIOS SEM COBERTURA (GK-criteria finding 2 / 5b)
+# ---------------------------------------------------------------------------
+# Fatos que a rota automatica NOMINALMENTE exigia e que HOJE nenhum criterio verifica. Declarados
+# aqui — e nao so em prosa — porque este e o arquivo que o SME OBRIGATORIAMENTE toca para ratificar
+# qualquer fonte: sem isto, ao ratificar `auth_criteria_contratual` com milestones/KPIs ele poderia
+# abrir aprovacao automatica para um prestador FORA DA REDE sem que nenhum criterio tivesse dito
+# nada — exatamente a patologia "ausencia de validacao lida como PASS implicito" que este portao
+# fechou, apenas adiada. Pinado por `tests/unit/sec/test_auto_approval_criteria_fence.py`.
+#
+# NAO existe aqui um "criterio Python sempre-falso" de proposito: isso tornaria a aprovacao
+# automatica impossivel sem mudanca de codigo (destruindo a propriedade "ratificar = mudanca de
+# DADOS") e convidaria alguem a inverter uma constante sem fonte por tras.
+criterios_nao_cobertos:
+  rede_credenciada:
+    motivo: "Nenhuma fonte de credenciamento de rede legivel por maquina existe no repositorio."
+    pertence_a: auth_criteria_contratual   # um credenciamento E um fato contratual
+    revisor_necessario: "medico auditor + juridico/contratos"
+    bloqueia_ratificacao_de: auth_criteria_contratual
