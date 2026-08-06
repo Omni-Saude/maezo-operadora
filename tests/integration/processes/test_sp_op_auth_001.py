@@ -673,9 +673,17 @@ _AUTH_CEILING_D07_REASON = (
     "decisao_auditor=APROVAR emite normalmente acima do teto automatico (e para isso que a "
     "revisao humana existe), pinado por 5 testes unitarios. FLIP quando o D-07 definir um teto "
     "real para o tenant: a emissao automatica passa a funcionar, limitada por esse teto. "
-    "RESIDUO ABERTO (GAP-AUTH-4, portao Medico/ANS, NAO fechado por esta mitigacao): o "
-    "GW_AutoAprovacao ainda roteia sobre dut_atendida/dentro_teto_l2/rede_credenciada SEMEADOS no "
-    "payload de start, entao o processo continua anunciando uma aprovacao que nao emitiu."
+    "SUPERSEDED / AGORA DUPLAMENTE GATEADO (portao de criterios GAP-AUTH-4): esta instancia nao "
+    "chega mais sequer a End_AprovadaAutomatica. `ST_ValidateAutoApprovalCriteria` roda ANTES de "
+    "BRT_AutoApproval e a DMN v0.2.0 nao le mais dut_atendida/dentro_teto_l2/rede_credenciada — "
+    "os tres seeds desta fixture sao IGNORADOS. Os quatro criterios computados sao false "
+    "(financeiro: teto 0/D-07; tecnico e regulatorio: fontes DRAFT nao ratificadas em "
+    "spec/processes/dmn/auth-criteria-ratification.yaml; contratual: SEM_REGRA_RATIFICADA), logo "
+    "r99 resolve ANALISE_HUMANA e o token vai para ST_PrepararDossie -> UT_AnaliseMedicoAuditor. "
+    "O processo PARA na User Task humana: `_await_end` esgota as tentativas e o assert de "
+    "End_AprovadaAutomatica falha. FLIP so quando D-07 definir teto >= R$180 **E** as fontes "
+    "clinicas/regulatorias/contratuais forem ratificadas — nao mais so o D-07. NAO LIVE-PROVEN "
+    "pelo autor desta mudanca (sem engine): a razao acima e derivada estruturalmente do modelo."
 )
 
 
@@ -1057,12 +1065,24 @@ async def test_pendencia_docs_recebidos_reavalia(
         )
 
     await auth_probe.drain()
-    ended = await _await_end(engine, iid)
+    # GAP-AUTH-4 (portao de criterios): a reavaliacao apos os documentos passa agora por
+    # ST_ValidateAutoApprovalCriteria antes de BRT_AutoApproval. Com teto 0 (D-07) e as fontes
+    # clinicas/regulatorias/contratuais DRAFT/nao ratificadas, os quatro criterios sao false ->
+    # r99 -> ANALISE_HUMANA -> ST_PrepararDossie -> UT_AnaliseMedicoAuditor. O objetivo DESTE
+    # teste (documentos recebidos REAVALIAM a admissibilidade) e provado pelo alcance da
+    # reavaliacao, nao pelo terminal automatico — que nao e mais alcancavel enquanto nada estiver
+    # ratificado. NAO LIVE-PROVEN pelo autor desta mudanca (sem engine): derivado do modelo.
+    ut = await engine.await_user_task(iid, _UT_AUDITOR)
+    assert "medico-auditor" in ut.candidate_groups
 
-    assert _END_AUTO in ended, (
-        f"Apos docs recebidos (todos inputs ok), deve atingir End_AprovadaAutomatica. ended={ended}"
+    ended = await engine.activity_instances_ended(iid)
+    assert "ST_ValidateAutoApprovalCriteria" in ended, (
+        f"a reavaliacao deve passar pelo portao de criterios. ended={ended}"
     )
-    assert auth_probe.has_event(_AUTH_COMPLETED, desfecho="aprovada_automatica")
+    assert _END_AUTO not in ended, (
+        "com teto 0 (D-07) e fontes nao ratificadas, NADA auto-aprova — a reavaliacao roteia para "
+        f"analise humana. ended={ended}"
+    )
 
 
 async def test_pendencia_expira_decisao_humana(
