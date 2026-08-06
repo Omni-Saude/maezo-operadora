@@ -14,15 +14,25 @@ from xml.etree import ElementTree as ET
 import pytest
 
 from maezo.tools.workers.auth import (
+    _CEILING_BLOCK_RESOLVER,
+    _CEILING_BLOCK_TENANT,
+    _CEILING_BLOCK_TETO,
+    _CEILING_BLOCK_VALOR,
     _REQUIRED_DENIAL_FIELDS,
+    AUTH_BPMN_ERROR_ALLOWLIST,
     AnalyzeRequestWorker,
     ConveneJuntaWorker,
     IssueAuthorizationWorker,
     NotifySlaRiskWorker,
     RequestDocumentsWorker,
     SendDenialNoticeWorker,
+    _ceiling_valor_cents,
 )
-from maezo.tools.workers.base import ERR_AUTH_DENIAL_INCOMPLETE, ERR_DENIAL_NOT_HUMAN
+from maezo.tools.workers.base import (
+    ERR_AUTH_AUTO_CEILING_NOT_AUTHORIZED,
+    ERR_AUTH_DENIAL_INCOMPLETE,
+    ERR_DENIAL_NOT_HUMAN,
+)
 from maezo.tools.workers.ceilings import CeilingResolver
 from maezo.tools.workers.harness import WorkerBpmnError
 from maezo.tools.workers.phi_vars import REDACTED_PHI
@@ -104,6 +114,20 @@ def _pin_resolver(tmp_path: Path, max_value_brl: int) -> CeilingResolver:
         encoding="utf-8",
     )
     return CeilingResolver(core_path=core)
+
+
+#: Synthetic teto used by every AUTO-channel issuance test (the shipped matrix is at the D-07
+#: `max_value_brl: 0`, which refuses — see the ceiling-gate section). Never edits shipped policy.
+_AUTO_CEILING_BRL = 500
+#: R$100 -> 10_000 cents, comfortably within the R$500 (50_000 cents) synthetic teto.
+_AUTO_VALOR_WITHIN_BRL = 100.0
+#: R$1000 -> 100_000 cents, ABOVE the R$500 synthetic teto.
+_AUTO_VALOR_ABOVE_BRL = 1000.0
+
+
+def _auto_issue_worker(tmp_path: Path, max_value_brl: int = _AUTO_CEILING_BRL) -> IssueAuthorizationWorker:
+    """IssueAuthorizationWorker with its ceiling pinned to a synthetic matrix (never the shipped one)."""
+    return IssueAuthorizationWorker(resolver=_pin_resolver(tmp_path, max_value_brl))
 
 
 # ---------------------------------------------------------------------------
@@ -814,16 +838,22 @@ def test_issue_authorization_issues_on_human_aprovar_decision_alone() -> None:
     assert result["human_approved"] is True  # threaded provenance (engine-visible)
 
 
-def test_issue_authorization_issues_on_modeled_auto_l2_sanction() -> None:
+def test_issue_authorization_issues_on_modeled_auto_l2_sanction(tmp_path: Path) -> None:
     """The modeled ST_EmitirAutorizacaoAuto route: no human exists by design — the DMN sanction
     (`auto_aprovacao.recomendacao == AUTO_APROVAR`, the exact Flow_GW_AutoAprovar condition)
-    licenses the FAVORABLE L2 issuance (ADR-0008); the threaded provenance is truthfully False."""
-    worker = IssueAuthorizationWorker()
+    licenses the FAVORABLE L2 issuance (ADR-0008); the threaded provenance is truthfully False.
+
+    The ceiling is now ALSO load-bearing on this channel, so the worker is pinned to a synthetic
+    matrix with a real teto and the request carries a value within it. (Under the shipped D-07
+    `max_value_brl: 0` this same shape is refused — see the ceiling-gate section below.)
+    """
+    worker = _auto_issue_worker(tmp_path)
 
     result = worker.run(
         {
             "tenant_id": "amh",
             "numero_guia_tiss": "G12345",
+            "valor_estimado_brl": _AUTO_VALOR_WITHIN_BRL,
             "auto_aprovacao": {"recomendacao": "AUTO_APROVAR", "motivo": "dut+teto+rede ok"},
             # no decisao_auditor (no UT on this route), no human_approved
         }
@@ -975,20 +1005,22 @@ _FLAT_AUTO_SANCTION_REFUSAL_VECTORS: list[object] = [
 ]
 
 
-def test_issue_authorization_issues_on_flattened_auto_l2_sanction() -> None:
+def test_issue_authorization_issues_on_flattened_auto_l2_sanction(tmp_path: Path) -> None:
     """THE FIX: the engine-delivered shape of the modeled auto-L2 route issues.
 
     `ST_EmitirAutorizacaoAuto`'s task-local `camunda:inputParameter` delivers
     `auto_aprovacao_recomendacao` as a plain String — the ONLY sanction evidence the worker can
     rely on receiving, since the `auto_aprovacao` Map itself arrives opaque. No human exists on
-    this route by design (ADR-0008 L2), so the threaded provenance is truthfully False.
+    this route by design (ADR-0008 L2), so the threaded provenance is truthfully False. The
+    tenant ceiling (pinned here to a real teto) must ALSO admit the value.
     """
-    worker = IssueAuthorizationWorker()
+    worker = _auto_issue_worker(tmp_path)
 
     result = worker.run(
         {
             "tenant_id": "amh",
             "numero_guia_tiss": "G12345",
+            "valor_estimado_brl": _AUTO_VALOR_WITHIN_BRL,
             "auto_aprovacao_recomendacao": "AUTO_APROVAR",
             # no decisao_auditor (no UT on this route), no human_approved
         }
@@ -1001,17 +1033,18 @@ def test_issue_authorization_issues_on_flattened_auto_l2_sanction() -> None:
 
 @pytest.mark.parametrize("opaque_auto", _OPAQUE_AUTO_APROVACAO_VECTORS)
 def test_issue_authorization_flattened_sanction_survives_opaque_auto_aprovacao(
-    opaque_auto: object,
+    opaque_auto: object, tmp_path: Path
 ) -> None:
     """The live failing shape, end to end: the DMN Map arrives UNUSABLE and the flattened String
     carries the sanction. This is exactly the state
     `test_happy_path_aprovacao_automatica_l2` hits on the real engine."""
-    worker = IssueAuthorizationWorker()
+    worker = _auto_issue_worker(tmp_path)
 
     result = worker.run(
         {
             "tenant_id": "amh",
             "numero_guia_tiss": "G12345",
+            "valor_estimado_brl": _AUTO_VALOR_WITHIN_BRL,
             "auto_aprovacao": opaque_auto,
             "auto_aprovacao_recomendacao": "AUTO_APROVAR",
         }
@@ -1179,6 +1212,478 @@ def test_spec_flattened_sanction_variable_is_write_only_by_the_auto_input_mappin
     assert hits == [("spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn", 1)], (
         f"{_AUTO_SANCTION_FLAT_VAR} must occur exactly once in spec/ (the auto input mapping); got {hits}"
     )
+
+
+# ---------------------------------------------------------------------------
+# issue_authorization — TENANT CEILING GATE at the ISSUANCE chokepoint (GAP-AUTH-4 mitigation)
+#
+# Before this change the governance ceiling was DECORATIVE on the automatic route: BRT_AutoApproval
+# decides AUTO_APROVAR from `dut_atendida`/`dentro_teto_l2`/`rede_credenciada` taken VERBATIM from
+# the process start payload, and `CeilingResolver` is never consulted there (its only AUTH caller,
+# AnalyzeRequestWorker on ST_PrepararDossie, sits on the HUMAN branch AFTER the gateway). So
+# `authorization_approval.max_value_brl` — whose shipped value is 0, meaning "no automatic approval
+# authorized until D-07 is decided" — was enforced by nothing.
+#
+# IssueAuthorizationWorker now verifies the ceiling at the one place an authorization is minted,
+# on the AUTOMATIC channel ONLY. GAP-AUTH-4 itself stays OPEN: the DMN still decides on seeded
+# facts, and the value this gate compares comes from that same unverified payload.
+# ---------------------------------------------------------------------------
+
+
+class _RaisingResolver:
+    """Resolver seam that FAILS. The worker must refuse — never issue on uncertainty."""
+
+    def within_l2_ceiling(self, **_kwargs: object) -> bool:
+        raise RuntimeError("autonomy matrix unavailable (synthetic)")
+
+
+class _FixedResolver:
+    """Resolver seam returning a fixed value — used to pin that only the literal `True` licenses."""
+
+    def __init__(self, value: object) -> None:
+        self._value = value
+
+    def within_l2_ceiling(self, **_kwargs: object) -> object:
+        return self._value
+
+
+#: The exact modeled auto-channel shape (flattened DMN sanction, no human evidence at all).
+_AUTO_SANCTION_VARS: dict[str, object] = {"auto_aprovacao_recomendacao": "AUTO_APROVAR"}
+
+#: Every `valor_estimado_brl` the issuance chokepoint must refuse to trust, under a POSITIVE teto
+#: (so the refusal can only come from the value, never from the ceiling being 0). Stricter than
+#: AnalyzeRequestWorker's derivation on purpose: there an untrusted value routes to human review,
+#: here it would MINT an authorization number.
+_UNTRUSTWORTHY_VALOR_VECTORS: list[object] = [
+    None,  # explicitly unset
+    "",  # blank string
+    "   ",  # whitespace-only
+    "nao-e-numero",  # unparseable string
+    True,  # bool — a subclass of int; would otherwise coerce to R$1,00
+    False,  # bool
+    -1,  # negative
+    -0.01,  # negative centavo
+    -1000.0,  # negative, would sit "within" every positive teto
+    float("nan"),  # not a number
+    float("inf"),  # non-finite
+    float("-inf"),  # non-finite
+    1e308,  # finite, but centavos overflow to +inf
+    [100],  # list
+    {"brl": 100},  # dict
+    b"100",  # bytes
+]
+
+#: Every `tenant_id` shape that must refuse: the ceiling is a PER-TENANT governance fact, so
+#: without a tenant there is no ceiling to satisfy.
+_ABSENT_TENANT_VECTORS: list[dict[str, object]] = [
+    {},  # key absent entirely
+    {"tenant_id": ""},
+    {"tenant_id": "   "},
+    {"tenant_id": None},
+    {"tenant_id": 123},
+    {"tenant_id": ["amh"]},
+]
+
+
+def test_issue_authorization_auto_channel_refused_at_ceiling_zero(tmp_path: Path) -> None:
+    """THE CHANGE: at the shipped D-07 state (`max_value_brl: 0` = no automatic approval
+    authorized), the DMN-sanctioned automatic route is REFUSED — it mints NO numero_autorizacao.
+
+    Before this change the same shape issued a real TISS authorization number with the ceiling
+    consulted by nothing.
+    """
+    worker = _auto_issue_worker(tmp_path, max_value_brl=0)
+
+    result = worker.run(
+        {
+            "tenant_id": "amh",
+            "numero_guia_tiss": "G12345",
+            "valor_estimado_brl": _AUTO_VALOR_WITHIN_BRL,
+            **_AUTO_SANCTION_VARS,
+        }
+    )
+
+    assert result["status"] == "blocked_by_guard"
+    assert result["error_code"] == ERR_AUTH_AUTO_CEILING_NOT_AUTHORIZED
+    assert "numero_autorizacao" not in result
+    # Engine-visible evidence: the COMPUTED fact + a bounded reason token, so an auditor reading
+    # process history can see WHY issuance was refused.
+    assert result["dentro_teto_l2"] is False
+    assert result["motivo_bloqueio_teto"] == _CEILING_BLOCK_TETO
+
+
+def test_issue_authorization_auto_channel_issues_when_the_ceiling_admits_the_value(
+    tmp_path: Path,
+) -> None:
+    """With a REAL teto (the post-D-07 state), automatic issuance works and is bounded by it —
+    and the COMPUTED ceiling fact is written back as engine-visible evidence."""
+    worker = _auto_issue_worker(tmp_path, max_value_brl=_AUTO_CEILING_BRL)
+
+    result = worker.run(
+        {
+            "tenant_id": "amh",
+            "numero_guia_tiss": "G12345",
+            "valor_estimado_brl": _AUTO_VALOR_WITHIN_BRL,
+            **_AUTO_SANCTION_VARS,
+        }
+    )
+
+    assert result["status"] == "authorized"
+    assert result["numero_autorizacao"].startswith("AUTH-")
+    assert result["human_approved"] is False
+    assert result["dentro_teto_l2"] is True
+
+
+def test_issue_authorization_auto_channel_refused_above_the_ceiling(tmp_path: Path) -> None:
+    """A DMN-sanctioned automatic issuance ABOVE the tenant teto is refused (the teto binds)."""
+    worker = _auto_issue_worker(tmp_path, max_value_brl=_AUTO_CEILING_BRL)
+
+    result = worker.run(
+        {
+            "tenant_id": "amh",
+            "numero_guia_tiss": "G12345",
+            "valor_estimado_brl": _AUTO_VALOR_ABOVE_BRL,
+            **_AUTO_SANCTION_VARS,
+        }
+    )
+
+    assert result["status"] == "blocked_by_guard"
+    assert result["error_code"] == ERR_AUTH_AUTO_CEILING_NOT_AUTHORIZED
+    assert result["motivo_bloqueio_teto"] == _CEILING_BLOCK_TETO
+    assert "numero_autorizacao" not in result
+
+
+def test_issue_authorization_auto_channel_issues_exactly_at_the_ceiling(tmp_path: Path) -> None:
+    """The teto is INCLUSIVE (`value_cents <= ceiling_brl * 100`, mirroring the DMN row) — a value
+    exactly AT the ceiling issues. Pins the boundary so a future off-by-one is caught."""
+    worker = _auto_issue_worker(tmp_path, max_value_brl=_AUTO_CEILING_BRL)
+
+    result = worker.run(
+        {
+            "tenant_id": "amh",
+            "numero_guia_tiss": "G12345",
+            "valor_estimado_brl": float(_AUTO_CEILING_BRL),
+            **_AUTO_SANCTION_VARS,
+        }
+    )
+
+    assert result["status"] == "authorized"
+    assert result["dentro_teto_l2"] is True
+
+
+@pytest.mark.parametrize("valor", _UNTRUSTWORTHY_VALOR_VECTORS)
+def test_issue_authorization_auto_channel_fail_closed_on_untrustworthy_valor(
+    valor: object, tmp_path: Path
+) -> None:
+    """FAIL-CLOSED matrix (value): under a POSITIVE teto, every untrustworthy `valor_estimado_brl`
+    REFUSES — missing/None/blank/unparseable/bool/negative/non-finite/overflowing/wrong-type.
+    Never issue on uncertainty."""
+    worker = _auto_issue_worker(tmp_path, max_value_brl=_AUTO_CEILING_BRL)
+
+    result = worker.run(
+        {
+            "tenant_id": "amh",
+            "numero_guia_tiss": "G12345",
+            "valor_estimado_brl": valor,
+            **_AUTO_SANCTION_VARS,
+        }
+    )
+
+    assert result["status"] == "blocked_by_guard"
+    assert result["error_code"] == ERR_AUTH_AUTO_CEILING_NOT_AUTHORIZED
+    assert result["motivo_bloqueio_teto"] == _CEILING_BLOCK_VALOR
+    assert "numero_autorizacao" not in result
+
+
+def test_issue_authorization_auto_channel_fail_closed_when_valor_absent_entirely(
+    tmp_path: Path,
+) -> None:
+    """The key not being present at all is the same refusal as an unusable value."""
+    worker = _auto_issue_worker(tmp_path, max_value_brl=_AUTO_CEILING_BRL)
+
+    result = worker.run({"tenant_id": "amh", "numero_guia_tiss": "G12345", **_AUTO_SANCTION_VARS})
+
+    assert result["status"] == "blocked_by_guard"
+    assert result["error_code"] == ERR_AUTH_AUTO_CEILING_NOT_AUTHORIZED
+    assert result["motivo_bloqueio_teto"] == _CEILING_BLOCK_VALOR
+
+
+@pytest.mark.parametrize("tenant_vars", _ABSENT_TENANT_VECTORS)
+def test_issue_authorization_auto_channel_fail_closed_without_tenant(
+    tenant_vars: dict[str, object], tmp_path: Path
+) -> None:
+    """FAIL-CLOSED matrix (tenant): the ceiling is a PER-TENANT governance fact — absent/blank/
+    non-string tenant means there is no ceiling to satisfy, so the automatic channel refuses."""
+    worker = _auto_issue_worker(tmp_path, max_value_brl=_AUTO_CEILING_BRL)
+
+    result = worker.run(
+        {
+            "numero_guia_tiss": "G12345",
+            "valor_estimado_brl": _AUTO_VALOR_WITHIN_BRL,
+            **_AUTO_SANCTION_VARS,
+            **tenant_vars,
+        }
+    )
+
+    assert result["status"] == "blocked_by_guard"
+    assert result["error_code"] == ERR_AUTH_AUTO_CEILING_NOT_AUTHORIZED
+    assert result["motivo_bloqueio_teto"] == _CEILING_BLOCK_TENANT
+    assert "numero_autorizacao" not in result
+
+
+def test_issue_authorization_auto_channel_fail_closed_when_resolver_raises() -> None:
+    """FAIL-CLOSED matrix (resolver error): a resolver that raises must never issue.
+
+    `CeilingResolver` swallows its own config failures to ceiling 0, but the worker must not
+    DEPEND on that — any seam failure is uncertainty, and uncertainty refuses.
+    """
+    worker = IssueAuthorizationWorker(resolver=_RaisingResolver())
+
+    result = worker.run(
+        {
+            "tenant_id": "amh",
+            "numero_guia_tiss": "G12345",
+            "valor_estimado_brl": _AUTO_VALOR_WITHIN_BRL,
+            **_AUTO_SANCTION_VARS,
+        }
+    )
+
+    assert result["status"] == "blocked_by_guard"
+    assert result["error_code"] == ERR_AUTH_AUTO_CEILING_NOT_AUTHORIZED
+    assert result["motivo_bloqueio_teto"] == _CEILING_BLOCK_RESOLVER
+    assert "numero_autorizacao" not in result
+
+
+@pytest.mark.parametrize("truthy_non_bool", [1, "True", [1], {"ok": 1}, 0.5])
+def test_issue_authorization_auto_channel_requires_a_literal_true_from_the_resolver(
+    truthy_non_bool: object,
+) -> None:
+    """FAIL-CLOSED: only the boolean `True` licenses an automatic issuance — a truthy non-bool
+    verdict (a stub, a future resolver returning a tri-state) never does."""
+    worker = IssueAuthorizationWorker(resolver=_FixedResolver(truthy_non_bool))
+
+    result = worker.run(
+        {
+            "tenant_id": "amh",
+            "numero_guia_tiss": "G12345",
+            "valor_estimado_brl": _AUTO_VALOR_WITHIN_BRL,
+            **_AUTO_SANCTION_VARS,
+        }
+    )
+
+    assert result["status"] == "blocked_by_guard"
+    assert result["error_code"] == ERR_AUTH_AUTO_CEILING_NOT_AUTHORIZED
+    assert result["motivo_bloqueio_teto"] == _CEILING_BLOCK_TETO
+
+
+# --- THE HUMAN CHANNEL MUST BE UNAFFECTED (the most important pins in this batch) --------------
+# Exceeding the AUTOMATIC ceiling is precisely what human review exists for. If the ceiling gated
+# the human leg, a tenant at the D-07 `max_value_brl: 0` could never issue ANY authorization at
+# all — care delivery would stop. These pin that it does not.
+
+
+def test_issue_authorization_human_channel_issues_at_ceiling_zero(tmp_path: Path) -> None:
+    """A human auditor's APROVAR issues at ceiling 0 — with NO value and NO tenant either.
+
+    The ceiling is never consulted on this leg, so none of its fail-closed vectors can block a
+    human decision.
+    """
+    worker = _auto_issue_worker(tmp_path, max_value_brl=0)
+
+    result = worker.run({"numero_guia_tiss": "G12345", "decisao_auditor": "APROVAR"})
+
+    assert result["status"] == "authorized"
+    assert result["numero_autorizacao"].startswith("AUTH-")
+    assert result["human_approved"] is True
+    # No ceiling fact is fabricated on a leg where no ceiling was computed.
+    assert "dentro_teto_l2" not in result
+    assert "motivo_bloqueio_teto" not in result
+
+
+def test_issue_authorization_human_channel_issues_far_above_the_ceiling(tmp_path: Path) -> None:
+    """A human APROVAR on a value FAR above the automatic teto still issues — that is the whole
+    point of routing high-value requests to a human."""
+    worker = _auto_issue_worker(tmp_path, max_value_brl=_AUTO_CEILING_BRL)
+
+    result = worker.run(
+        {
+            "tenant_id": "amh",
+            "numero_guia_tiss": "G12345",
+            "valor_estimado_brl": 9_999_999.99,
+            "decisao_auditor": "APROVAR",
+        }
+    )
+
+    assert result["status"] == "authorized"
+    assert result["human_approved"] is True
+    assert "dentro_teto_l2" not in result
+
+
+def test_issue_authorization_human_channel_unaffected_by_a_failing_resolver() -> None:
+    """Even a completely broken ceiling seam cannot block a human-decided issuance."""
+    worker = IssueAuthorizationWorker(resolver=_RaisingResolver())
+
+    result = worker.run(
+        {
+            "tenant_id": "amh",
+            "numero_guia_tiss": "G12345",
+            "decisao_auditor": "APROVAR",
+        }
+    )
+
+    assert result["status"] == "authorized"
+    assert result["human_approved"] is True
+
+
+def test_issue_authorization_explicit_human_signal_issues_at_ceiling_zero(tmp_path: Path) -> None:
+    """The explicit `human_approved is True` signal is the human channel too — ungated."""
+    worker = _auto_issue_worker(tmp_path, max_value_brl=0)
+
+    result = worker.run(
+        {
+            "tenant_id": "amh",
+            "numero_guia_tiss": "G12345",
+            "valor_estimado_brl": _AUTO_VALOR_ABOVE_BRL,
+            "human_approved": True,
+        }
+    )
+
+    assert result["status"] == "authorized"
+    assert result["human_approved"] is True
+    assert "dentro_teto_l2" not in result
+
+
+def test_issue_authorization_human_decision_wins_over_a_residual_auto_sanction(
+    tmp_path: Path,
+) -> None:
+    """A human APROVAR carrying a residual auto sanction is the HUMAN channel
+    (`auto_sanctioned and not human_approved` is False) — the ceiling is not consulted."""
+    worker = _auto_issue_worker(tmp_path, max_value_brl=0)
+
+    result = worker.run(
+        {
+            "tenant_id": "amh",
+            "numero_guia_tiss": "G12345",
+            "valor_estimado_brl": _AUTO_VALOR_ABOVE_BRL,
+            "decisao_auditor": "APROVAR",
+            **_AUTO_SANCTION_VARS,
+        }
+    )
+
+    assert result["status"] == "authorized"
+    assert result["human_approved"] is True
+    assert "dentro_teto_l2" not in result
+
+
+# --- NEGAR still hard-blocks FIRST, before any channel (unchanged L0 hard) ----------------------
+
+
+@pytest.mark.parametrize(
+    "vars_extra",
+    [
+        {},
+        {"human_approved": True},
+        {"auto_aprovacao_recomendacao": "AUTO_APROVAR"},
+        {"auto_aprovacao": {"recomendacao": "AUTO_APROVAR"}},
+        {"human_approved": True, "auto_aprovacao_recomendacao": "AUTO_APROVAR"},
+    ],
+)
+def test_issue_authorization_negar_blocks_before_the_ceiling_gate(
+    vars_extra: dict[str, object], tmp_path: Path
+) -> None:
+    """ORDERING: a NEGAR is refused with ERR_DENIAL_NOT_HUMAN — the L0-hard code — BEFORE any
+    channel (and therefore before the ceiling gate) is consulted. The ceiling code must NEVER
+    appear on a NEGAR, whatever the teto or the value."""
+    worker = _auto_issue_worker(tmp_path, max_value_brl=0)
+
+    result = worker.run(
+        {
+            "tenant_id": "amh",
+            "numero_guia_tiss": "G12345",
+            "decisao_auditor": "NEGAR",
+            "valor_estimado_brl": _AUTO_VALOR_WITHIN_BRL,
+            **vars_extra,
+        }
+    )
+
+    assert result["status"] == "blocked_by_guard"
+    assert result["error_code"] == ERR_DENIAL_NOT_HUMAN
+    assert result["error_code"] != ERR_AUTH_AUTO_CEILING_NOT_AUTHORIZED
+    assert "numero_autorizacao" not in result
+    assert "motivo_bloqueio_teto" not in result
+
+
+def test_issue_authorization_unsanctioned_route_still_blocks_with_the_not_human_code(
+    tmp_path: Path,
+) -> None:
+    """ORDERING: no sanction at all is still ERR_DENIAL_NOT_HUMAN ("no modeled sanction"), never
+    the ceiling code ("sanctioned, but the teto does not authorize") — the two refusals stay
+    distinguishable in logs and audit."""
+    worker = _auto_issue_worker(tmp_path, max_value_brl=0)
+
+    result = worker.run(
+        {
+            "tenant_id": "amh",
+            "numero_guia_tiss": "G12345",
+            "valor_estimado_brl": _AUTO_VALOR_WITHIN_BRL,
+        }
+    )
+
+    assert result["status"] == "blocked_by_guard"
+    assert result["error_code"] == ERR_DENIAL_NOT_HUMAN
+
+
+# --- the value derivation, and the boundary-hazard fences --------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (100, 10_000),
+        (100.0, 10_000),
+        (0, 0),  # a zero value is TRUSTWORTHY; whether it issues is the teto's call
+        (0.0, 0),
+        ("100.50", 10_050),
+        (0.005, 0),  # sub-centavo: rounds to the nearest int (Python banker's rounding)
+        (0.015, 2),  # ... and 1.5 centavos rounds up to 2 under the same rule
+        (None, None),
+        (True, None),
+        (False, None),
+        (-1, None),
+        (float("nan"), None),
+        (float("inf"), None),
+        ("abc", None),
+        ([1], None),
+    ],
+)
+def test_ceiling_valor_cents_matrix(raw: object, expected: int | None) -> None:
+    """The value derivation in isolation: centavos as an int, or None => REFUSE."""
+    assert _ceiling_valor_cents(raw) == expected
+
+
+def test_ceiling_code_is_distinct_and_never_bpmn_allowlisted() -> None:
+    """`ST_EmitirAutorizacaoAuto` has NO error boundary event, so this refusal must never become a
+    `bpmnError` (an unmodeled one silently ENDS the process scope — ADR-0030 hazard). It is a
+    RETURNED record, and its code is deliberately absent from the harness allowlist and distinct
+    from the not-human refusal."""
+    assert ERR_AUTH_AUTO_CEILING_NOT_AUTHORIZED != ERR_DENIAL_NOT_HUMAN
+    assert ERR_AUTH_AUTO_CEILING_NOT_AUTHORIZED not in AUTH_BPMN_ERROR_ALLOWLIST
+    assert set(AUTH_BPMN_ERROR_ALLOWLIST) == {ERR_AUTH_DENIAL_INCOMPLETE}
+
+
+def test_spec_auto_issuance_task_has_no_error_boundary_event() -> None:
+    """MODEL FENCE behind the RETURN-don't-raise decision: neither issuance serviceTask carries an
+    error boundary event, so there is nothing to catch a `bpmnError` raised there."""
+    root = ET.parse(_AUTH_BPMN).getroot()
+    attached = {
+        boundary.get("attachedToRef")
+        for boundary in root.iter(f"{{{_BPMN_NS}}}boundaryEvent")
+        if boundary.find(f"{{{_BPMN_NS}}}errorEventDefinition") is not None
+    }
+    assert "ST_EmitirAutorizacaoAuto" not in attached
+    assert "ST_EmitirAutorizacaoAuditor" not in attached
+    # The file's ONLY error boundary is the modeled incomplete-denial one.
+    assert attached == {"ST_EnviarNegativaFormal"}
 
 
 # ---------------------------------------------------------------------------

@@ -16,6 +16,16 @@ CRITICAL (ADR-0008, L0 hard):
   issue_authorization (when decisao=NEGAR).
 - Auto-approval (L2) exists only with DMN favorable + teto do tenant.
 
+TETO LOAD-BEARING NA EMISSAO (GAP-AUTH-4, mitigacao parcial): a segunda metade daquela ultima
+linha — "+ teto do tenant" — era DECORATIVA na rota automatica: nenhum worker computava o teto
+antes de `BRT_AutoApproval` (o unico chamador de `CeilingResolver` em AUTH, `AnalyzeRequestWorker`
+em `ST_PrepararDossie`, esta na perna HUMANA, depois do gateway). `IssueAuthorizationWorker` agora
+verifica o teto no PONTO DE EMISSAO, **exclusivamente no canal automatico**, e recusa emitir
+(`ERR_AUTH_AUTO_CEILING_NOT_AUTHORIZED`, retornado — nunca lancado) quando ele nao autoriza. O
+canal humano segue intocado por design. O GAP-AUTH-4 permanece ABERTO (portao Medico/ANS): a DMN
+continua decidindo sobre fatos semeados no start — ver a docstring de `IssueAuthorizationWorker`
+para o desfecho observavel de hoje sob `max_value_brl: 0`.
+
 HUMAN-PROVENANCE DERIVATION (item-9 bucket-3 Class-C — the `human_approved` threading fix,
 T3.1 R2 finding `_ACTION_WORKER_KAFKA_GAP_REASON`): the v2 action-worker guards demanded a bare
 `human_approved is True` process variable that NOTHING in the model ever sets (no BPMN
@@ -44,11 +54,13 @@ UT_RegistrarParecerJunta — a worker-persisted True would poison the downstream
 
 from __future__ import annotations
 
+import math
 import uuid
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 from maezo.tools.workers.base import (
+    ERR_AUTH_AUTO_CEILING_NOT_AUTHORIZED,
     ERR_AUTH_DENIAL_INCOMPLETE,
     ERR_DENIAL_NOT_HUMAN,
     WorkerBase,
@@ -62,6 +74,14 @@ from maezo.tools.workers.phi_vars import redact_phi_vars
 # tenants-amh.yaml overlay), resolved via the SAME loader the PEP uses.
 _CEILING_ACTION = "authorization_approval"
 _CEILING_PARAM = "max_value_brl"
+
+# Bounded, non-PHI reason tokens written back as engine-visible evidence when the AUTOMATIC
+# issuance channel is refused by the ceiling gate (`IssueAuthorizationWorker`). They tell an
+# auditor reading process history WHICH fail-closed vector fired, without any free text.
+_CEILING_BLOCK_TENANT: str = "TENANT_AUSENTE"
+_CEILING_BLOCK_VALOR: str = "VALOR_AUSENTE_OU_INVALIDO"
+_CEILING_BLOCK_TETO: str = "TETO_NAO_AUTORIZA"
+_CEILING_BLOCK_RESOLVER: str = "RESOLVER_INDISPONIVEL"
 
 # ANS-required grounding fields for a *negativa fundamentada* (RN 395 art. 10). These are exactly
 # the three fields SP-OP-AUTH-001 marks `requiredIf="decisao_auditor == NEGAR"` +
@@ -83,6 +103,11 @@ _REQUIRED_DENIAL_FIELDS: tuple[str, ...] = (
 # `bpmn:error@errorCode` + boundary event (`BE_NegativaIncompleta` on `ST_EnviarNegativaFormal`)
 # in SP-OP-AUTH-001. `ERR_DENIAL_NOT_HUMAN` is deliberately NOT allowlisted: the BPMN declares no
 # boundary for it, so it must stay a fail-closed incident, never a silently-ended scope.
+# `ERR_AUTH_AUTO_CEILING_NOT_AUTHORIZED` is likewise NOT allowlisted, and is never RAISED at all:
+# `ST_EmitirAutorizacaoAuto` (the only task the ceiling gate can fire on) declares NO boundary
+# event — the file's only boundary is `BE_NegativaIncompleta` on `ST_EnviarNegativaFormal` — so a
+# `bpmnError` there would silently end the process scope (ADR-0030 live-verified hazard). The
+# ceiling refusal is a RETURNED `blocked_by_guard` record, like `ERR_DENIAL_NOT_HUMAN`.
 AUTH_BPMN_ERROR_ALLOWLIST: frozenset[str] = frozenset({ERR_AUTH_DENIAL_INCOMPLETE})
 
 if TYPE_CHECKING:
@@ -157,6 +182,32 @@ def _auto_approval_sanctioned(process_vars: dict[str, Any]) -> bool:
         return False
     recomendacao = auto.get("recomendacao")
     return isinstance(recomendacao, str) and recomendacao.strip() == _AUTO_SANCTION_LITERAL
+
+
+def _ceiling_valor_cents(value: Any) -> int | None:
+    """Centavos (`int`) from `valor_estimado_brl` for the ceiling check — FAIL-CLOSED, or None.
+
+    None means "this value cannot be trusted as a money amount" and the ONLY safe reading of that
+    at the issuance chokepoint is REFUSE. Rejected: absent/None; `bool` (a subclass of `int` —
+    `True` would otherwise coerce to R$1,00); anything that is not an `int`/`float`/`str` (the
+    engine's only money-carrying wire types are Long/Double/String — a `bytes`, a list or a dict
+    is not a value this gate may guess at, even where `float()` happens to accept it); an
+    unparseable string; NaN and +/-inf (and any value whose centavos overflow to inf); and any
+    NEGATIVE amount (nonsense input that would trivially sit "within" every positive teto).
+
+    Deliberately STRICTER than `AnalyzeRequestWorker`'s derivation (auth.py, `execute`), which
+    only rejects absent/non-numeric: there, an untrusted value routes the request to human review
+    (safe); here, an untrusted value would MINT an authorization number (unsafe).
+    """
+    if isinstance(value, bool) or not isinstance(value, int | float | str):
+        return None
+    try:
+        cents = float(value) * 100.0
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(cents) or cents < 0:
+        return None
+    return round(cents)
 
 
 # ---------------------------------------------------------------------------
@@ -335,21 +386,95 @@ class IssueAuthorizationWorker(WorkerBase):
     explicito, nem com sancao auto residual (o worker jamais converte uma negativa em concessao).
     A proveniencia resolvida e' THREADED de volta como variavel engine-visivel `human_approved`
     (True no canal humano; False na emissao auto-L2 — verdadeiro e auditavel, ADR-0007).
+
+    PORTAO DE TETO (GAP-AUTH-4, mitigacao no PONTO DE EMISSAO) — **SO no canal AUTOMATICO**:
+    quando a sancao vem do DMN e NAO ha decisao humana (`auto_sanctioned and not human_approved`),
+    o worker ainda verifica o teto de autonomia do tenant
+    (`CeilingResolver.within_l2_ceiling(action=authorization_approval, param=max_value_brl)` — a
+    MESMA chamada que `AnalyzeRequestWorker` ja faz em `ST_PrepararDossie`) e RECUSA emitir se ele
+    nao autorizar. Fail-closed em todo vetor: tenant em branco, `valor_estimado_brl`
+    ausente/nao-numerico/negativo/nao-finito, resolver indisponivel — todos RECUSAM
+    (`ERR_AUTH_AUTO_CEILING_NOT_AUTHORIZED`). O fato COMPUTADO (`dentro_teto_l2`) e o token de
+    motivo (`motivo_bloqueio_teto`) voltam como variaveis engine-visiveis, para que a recusa seja
+    legivel no historico do processo (idioma de `AnalyzeRequestWorker`: escrever de volta o fato
+    computado, nunca o inbound).
+
+    O canal HUMANO NAO E' AFETADO: um `decisao_auditor == 'APROVAR'` (e a rota da junta) emite
+    independentemente do teto — exceder o teto AUTOMATICO e' exatamente para o que a analise
+    humana existe (ADR-0008). Gatear a perna humana quebraria a entrega assistencial.
+
+    O QUE ISTO **NAO** FECHA (GAP-AUTH-4 continua ABERTO, portao Medico/ANS): `BRT_AutoApproval`
+    continua decidindo `AUTO_APROVAR` sobre `dut_atendida`/`dentro_teto_l2`/`rede_credenciada`
+    SEMEADOS no payload de start, e o proprio `valor_estimado_brl` que este portao compara vem do
+    mesmo payload nao-verificado. Com o `max_value_brl: 0` de hoje (estado D-07 em
+    `L0-core.yaml`/`tenants-amh.yaml` = "nenhuma aprovacao automatica autorizada"), a rota
+    automatica alcanca `End_AprovadaAutomatica` e publica `desfecho=aprovada_automatica` SEM
+    emitir `numero_autorizacao` — o MESMO desfecho observavel de antes desta mudanca, mas agora
+    por um motivo principiado, logado e auditavel (o teto nao autoriza) em vez de um descasamento
+    acidental de tipagem de variavel. Essa inconsistencia residual — o processo anuncia uma
+    aprovacao que nao emitiu — E' o GAP-AUTH-4 e permanece aberta. Quando o D-07 definir um teto
+    real, a emissao automatica passa a funcionar, limitada por esse teto.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, resolver: CeilingResolver | None = None) -> None:
         super().__init__(topic="operadora.auth.issue_authorization")
+        # Ceiling resolver — mesma costura de injecao de `AnalyzeRequestWorker` (construtor com
+        # default). Injetavel para testes; o default resolve a matriz real de
+        # `spec/policies/autonomy` (L0-core + overlay do tenant), via o MESMO loader do PEP.
+        self._resolver = resolver if resolver is not None else CeilingResolver()
+
+    def _auto_ceiling_verdict(self, process_vars: dict[str, Any]) -> tuple[bool, str]:
+        """`(autoriza, motivo_token)` do teto para o canal AUTOMATICO — FAIL-CLOSED.
+
+        Recusa (False) em: tenant ausente/branco/nao-string; `valor_estimado_brl` que
+        `_ceiling_valor_cents` nao consegue confiar; qualquer excecao do resolver; e o veredito
+        negativo do proprio teto (que ja e fail-closed: teto 0 => False, mesmo para valor 0).
+        Aceita SO um `True` booleano do resolver — um stub que devolva "truthy" nao abre emissao.
+        """
+        tenant = process_vars.get("tenant_id")
+        tenant = tenant.strip() if isinstance(tenant, str) else ""
+        if not tenant:
+            return False, _CEILING_BLOCK_TENANT
+
+        valor_cents = _ceiling_valor_cents(process_vars.get("valor_estimado_brl"))
+        if valor_cents is None:
+            return False, _CEILING_BLOCK_VALOR
+
+        try:
+            within = self._resolver.within_l2_ceiling(
+                tenant=tenant,
+                action=_CEILING_ACTION,
+                param=_CEILING_PARAM,
+                value_cents=valor_cents,
+            )
+        except Exception as exc:  # noqa: BLE001 - fail-closed: resolver indisponivel nunca emite
+            self.logger.error(
+                "auth_issue_ceiling_resolver_failed",
+                tenant_id=tenant,
+                error=str(exc),
+            )
+            return False, _CEILING_BLOCK_RESOLVER
+
+        if within is not True:
+            return False, _CEILING_BLOCK_TETO
+        return True, ""
 
     def execute(self, process_vars: dict[str, Any]) -> dict[str, Any]:
         """Issue a TISS authorization.
 
-        Guard: human channel (decisao_auditor == APROVAR, or the explicit `human_approved is
-        True` signal) OR the modeled L2 auto sanction (auto_aprovacao.recomendacao ==
-        AUTO_APROVAR). NEVER issues for NEGAR.
+        Guard order: (1) `decisao_auditor == NEGAR` hard-blocks BEFORE any channel is consulted;
+        (2) a modeled sanction is required — human channel (decisao_auditor == APROVAR, or the
+        explicit `human_approved is True` signal) OR the L2 auto sanction
+        (auto_aprovacao.recomendacao == AUTO_APROVAR); (3) on the AUTOMATIC channel ONLY
+        (sanctioned by the DMN with no human decision), the tenant governance ceiling must also
+        admit `valor_estimado_brl`, else the issuance is refused with
+        `ERR_AUTH_AUTO_CEILING_NOT_AUTHORIZED`. The human channel never reaches (3).
 
         Args:
             process_vars: Must include numero_guia_tiss and the route's sanction evidence
-                          (decisao_auditor / human_approved / auto_aprovacao).
+                          (decisao_auditor / human_approved / auto_aprovacao). On the automatic
+                          channel it must ALSO carry `tenant_id` and a trustworthy
+                          `valor_estimado_brl` (both fail-closed).
 
         Returns:
             Dict with authorization number (+ threaded human_approved provenance) or guard block.
@@ -392,6 +517,41 @@ class IssueAuthorizationWorker(WorkerBase):
                 "mensagem": "Autorizacao requer aprovacao humana ou sancao auto-L2 modelada (L0 hard)",
             }
 
+        # PORTAO DE TETO — canal AUTOMATICO **apenas** (GAP-AUTH-4, mitigacao no ponto de emissao).
+        # `auto_sanctioned and not human_approved` E' a definicao do canal auto: com decisao humana
+        # (APROVAR/junta) o teto NAO se aplica — exceder o teto automatico e' exatamente o que a
+        # analise humana resolve. Rodar aqui, e nao antes do gateway, nao fecha o GAP-AUTH-4 (a DMN
+        # continua decidindo sobre fatos semeados no start); torna o teto LOAD-BEARING no unico
+        # ponto onde uma autorizacao nasce.
+        auto_channel = auto_sanctioned and not human_approved
+        dentro_teto: bool | None = None
+        if auto_channel:
+            dentro_teto, motivo_teto = self._auto_ceiling_verdict(process_vars)
+            if not dentro_teto:
+                self.logger.warning(
+                    "auth_issue_blocked_by_ceiling",
+                    tenant_id=tenant_id,
+                    guia=guia,
+                    motivo=motivo_teto,
+                    reason=(
+                        "emissao AUTOMATICA nao autorizada pelo teto do tenant "
+                        f"({_CEILING_ACTION}.{_CEILING_PARAM}) — canal humano nao e' afetado"
+                    ),
+                )
+                return {
+                    "status": "blocked_by_guard",
+                    "error_code": ERR_AUTH_AUTO_CEILING_NOT_AUTHORIZED,
+                    "mensagem": (
+                        "Emissao automatica recusada: o teto de autonomia do tenant "
+                        f"({_CEILING_ACTION}.{_CEILING_PARAM}) nao autoriza este valor. "
+                        "A analise humana permanece disponivel e nao e' limitada por este teto."
+                    ),
+                    # Evidencia engine-visivel (idioma de AnalyzeRequestWorker: escrever de volta
+                    # o FATO computado) — o auditor le no historico POR QUE nao houve emissao.
+                    "dentro_teto_l2": False,
+                    "motivo_bloqueio_teto": motivo_teto,
+                }
+
         # Issue authorization
         auth_number = f"AUTH-{tenant_id}-{guia}-{uuid.uuid4().hex[:8]}"
 
@@ -410,7 +570,7 @@ class IssueAuthorizationWorker(WorkerBase):
             auto_sanctioned=auto_sanctioned and not human_approved,
         )
 
-        return {
+        issued: dict[str, Any] = {
             "status": "authorized",
             "numero_autorizacao": auth_number,
             "error_code": None,
@@ -419,6 +579,11 @@ class IssueAuthorizationWorker(WorkerBase):
             # auto-L2 registra False — verdadeiro (nenhum humano decidiu) e nunca fabricado.
             "human_approved": human_approved,
         }
+        if dentro_teto is not None:
+            # SO o canal automatico computou o teto — escrever o fato na perna humana seria
+            # fabricar uma verificacao que nao aconteceu (o teto nao se aplica la).
+            issued["dentro_teto_l2"] = dentro_teto
+        return issued
 
 
 # ---------------------------------------------------------------------------

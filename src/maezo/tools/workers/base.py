@@ -44,6 +44,32 @@ fundamentacao_dut). Because it is spec-modeled, it is registered in the auth har
 `bpmn_error_allowlist` (`AUTH_BPMN_ERROR_ALLOWLIST`) so the harness dispatches it as a real
 `bpmnError` instead of demoting it to a fail-closed incident (harness.py `_bpmn_error_allowlist`)."""
 
+ERR_AUTH_AUTO_CEILING_NOT_AUTHORIZED: str = "ERR_AUTH_AUTO_CEILING_NOT_AUTHORIZED"
+"""Guard: an AUTOMATIC authorization issuance whose value the tenant ceiling does not authorize.
+
+Returned (never raised — see below) by `IssueAuthorizationWorker` on the AUTOMATIC channel only
+(`auto_aprovacao.recomendacao == AUTO_APROVAR` and NO human decision), when
+`CeilingResolver.within_l2_ceiling(action="authorization_approval", param="max_value_brl")` does
+not admit `valor_estimado_brl` for the tenant — including every fail-closed vector (blank tenant,
+missing/non-numeric/negative/non-finite value, resolver unavailable). It makes the governance
+ceiling load-bearing at the ISSUANCE chokepoint, where until now it was decorative on that route
+(GAP-AUTH-4).
+
+DISTINCT FROM `ERR_DENIAL_NOT_HUMAN` on purpose: that code means "no modeled sanction at all";
+this one means "the route was sanctioned by the DMN but the tenant's autonomy ceiling does not
+authorize an AUTOMATIC issuance of this value" — a different governance fact, so log/audit
+readers can tell them apart.
+
+The HUMAN channel is NEVER gated by this code: `decisao_auditor == 'APROVAR'` (and the junta
+route) issues regardless of the ceiling — exceeding the automatic ceiling is precisely what human
+review exists for (ADR-0008 L2 vs human decision).
+
+NOT a BPMN error and deliberately NOT in any `bpmn_error_allowlist`: `ST_EmitirAutorizacaoAuto`
+declares NO error boundary event, and an unmodeled `bpmnError` silently ends the process scope on
+CIB Seven 2.1.0 (ADR-0030 hazard). The refusal is therefore a RETURNED
+`{"status": "blocked_by_guard", "error_code": ...}` record, exactly like `ERR_DENIAL_NOT_HUMAN`
+in the same worker."""
+
 ERR_ESCALATION_NOT_HUMAN: str = "ERR_ESCALATION_NOT_HUMAN"
 """Guard: automatic escalation closing is FORBIDDEN. Only human supervisors may resolve."""
 
