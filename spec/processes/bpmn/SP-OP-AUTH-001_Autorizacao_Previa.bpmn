@@ -195,15 +195,26 @@ Contrato completo: docs/processes/contracts/SP-OP-AUTH-001.md.
       <bpmn:incoming>Flow_GW_SegueAnalise</bpmn:incoming>
       <bpmn:incoming>Flow_GWPend_SegueAnalise</bpmn:incoming>
       <bpmn:incoming>Flow_GWPend_PrazoExtra</bpmn:incoming>
-      <bpmn:outgoing>Flow_Sla_AutoApproval</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Sla_ValidateCriteria</bpmn:outgoing>
     </bpmn:businessRuleTask>
+
+    <!-- GAP-AUTH-4: o worker deterministico roda ANTES de BRT_AutoApproval, exatamente como
+         SP-OP-REEMBOLSO-001 roda ST_CalculateAmount antes da sua BRT_AutoApproval
+         (GAP-REEMBOLSO-5). Sem esta task, os fatos que a DMN consome chegavam SEMEADOS no
+         payload de start e nenhum codigo os verificava na rota automatica. -->
+    <bpmn:serviceTask id="ST_ValidateAutoApprovalCriteria" name="Validar criterios de aprovacao automatica (worker deterministico)"
+                      camunda:type="external" camunda:topic="operadora.auth.validate_auto_criteria">
+      <bpmn:documentation>PORTAO DE CRITERIOS (GAP-AUTH-4). Worker DETERMINISTICO (nunca LLM) que COMPUTA os quatro criterios que BRT_AutoApproval passa a consumir: criterio_tecnico_ok (DMN dut_rol_coverage + a dut_criteria_* do procedimento), criterio_financeiro_ok (CeilingResolver.within_l2_ceiling sobre authorization_approval.max_value_brl), criterio_regulatorio_ok (DMN carencia_check) e criterio_contratual_ok (DMN auth_criteria_contratual). Escreve tambem auto_criteria_verificado=true — PROVA DE EXECUCAO que a regra r1 da DMN exige: pular esta task faz o token cair no catch-all -> ANALISE_HUMANA. Evidencia limitada e nao-PHI em auto_criteria_falhas / auto_criteria_shadow / motivo_bloqueio_criterios. PORTAO DE RATIFICACAO: as tabelas clinicas/regulatorias/contratuais sao SINTETICAS/DRAFT — um criterio so pode contribuir com PASS se sua fonte estiver ratificada em spec/processes/dmn/auth-criteria-ratification.yaml; fonte DRAFT devolve false com *_FONTE_NAO_RATIFICADA independentemente do que a tabela computou, e o que ela TERIA decidido fica registrado em modo SOMBRA para o revisor medico/ANS ratificar contra dados reais. NUNCA nega (L0 hard): todo caminho fail-closed leva a ANALISE_HUMANA. NAO declara boundary de erro, e o worker NUNCA levanta bpmnError (ADR-0030 — um bpmnError nao modelado encerra o escopo em silencio no CIB Seven 2.1.0); falha do proprio validador devolve os quatro criterios false + VALIDADOR_INDISPONIVEL, porque um incidente ESTAGNARIA o pedido de autorizacao, pior para o cuidado que a revisao humana.</bpmn:documentation>
+      <bpmn:incoming>Flow_Sla_ValidateCriteria</bpmn:incoming>
+      <bpmn:outgoing>Flow_ValidateCriteria_AutoApproval</bpmn:outgoing>
+    </bpmn:serviceTask>
 
     <bpmn:businessRuleTask id="BRT_AutoApproval" name="Avaliar aprovacao automatica (DMN auth_auto_approval)"
                            camunda:decisionRef="auth_auto_approval"
                            camunda:mapDecisionResult="singleResult"
                            camunda:resultVariable="auto_aprovacao">
-      <bpmn:documentation>L2 (ADR-0008): so AUTO_APROVAR com DUT atendida + dentro do teto do tenant + rede credenciada. Catch-all da DMN = ANALISE_HUMANA (fail-safe). Negativa automatica NAO e saida possivel. GAP-AUTH-4 (ABERTO): dut_atendida/dentro_teto_l2/rede_credenciada chegam SEMEADOS NO START — nenhum worker os computa antes desta BRT. CeilingResolver/within_l2_ceiling NAO roda nesta rota (o unico chamador em AUTH e AnalyzeRequestWorker, em ST_PrepararDossie, na perna ANALISE_HUMANA *depois* do GW_AutoAprovacao), portanto o teto do tenant e DECORATIVO na aprovacao automatica e decidir o D-07 NAO fecha isto. Contraste: SP-OP-REEMBOLSO-001 roda o calculo ANTES da sua BRT (GAP-REEMBOLSO-5). Remedio = worker deterministico antes de BRT_AutoApproval (classe MZO-040, portao Medico/ANS). Promocao de SP-OP-AUTH-001 de DRAFT para FINAL esta vinculada ao fechamento deste gap.</bpmn:documentation>
-      <bpmn:incoming>Flow_Sla_AutoApproval</bpmn:incoming>
+      <bpmn:documentation>L2 (ADR-0008): so AUTO_APROVAR quando os QUATRO criterios computados por ST_ValidateAutoApprovalCriteria forem true (tecnico, financeiro, regulatorio, contratual) E auto_criteria_verificado for true. Catch-all da DMN = ANALISE_HUMANA (fail-safe). Negativa automatica NAO e saida possivel. carater_atendimento continua como input (hoje "-" na regra r1) para que um SME possa diferenciar urgencia/emergencia sem mudanca de codigo — ADR-0012 mantem a politica de combinacao na DMN. GAP-AUTH-4 (FECHADO ESTRUTURALMENTE): antes, dut_atendida/dentro_teto_l2/rede_credenciada chegavam SEMEADOS NO START e nenhum worker os computava nesta rota; agora nenhum fato semeado alcanca esta BRT — o worker sobrescreve os quatro criterios em TODO caminho, inclusive na degradacao, e a exigencia de auto_criteria_verificado=true e a cerca contra pular o validador. O que permanece ABERTO e' de DADOS, nao de estrutura: as tabelas clinicas/regulatorias/contratuais sao SINTETICAS e NAO ratificadas, e authorization_approval.max_value_brl e 0 (D-07) — logo HOJE nada auto-aprova e todo pedido vai para analise humana, por quatro motivos explicitos e auditaveis. Cada criterio passa a valer sozinho conforme sua fonte for ratificada/populada, sem mudanca de codigo. Contraste/precedente: SP-OP-REEMBOLSO-001 roda o calculo ANTES da sua BRT (GAP-REEMBOLSO-5).</bpmn:documentation>
+      <bpmn:incoming>Flow_ValidateCriteria_AutoApproval</bpmn:incoming>
       <bpmn:outgoing>Flow_AutoApproval_GW</bpmn:outgoing>
     </bpmn:businessRuleTask>
 
@@ -583,7 +594,11 @@ analista_id/auditor_id de SP-OP-RECURSO-001 e SP-OP-REEMBOLSO-001).
     </bpmn:sequenceFlow>
     <bpmn:sequenceFlow id="Flow_GWPend_SegueAnalise" name="seguir_analise (default)" sourceRef="GW_PendenciaExpirada" targetRef="BRT_SlaAnalise"/>
     <bpmn:sequenceFlow id="Flow_PubCancelada_End" sourceRef="ST_PublishCancelada" targetRef="End_CanceladaPendencia"/>
-    <bpmn:sequenceFlow id="Flow_Sla_AutoApproval" sourceRef="BRT_SlaAnalise" targetRef="BRT_AutoApproval"/>
+    <!-- GAP-AUTH-4: BRT_SlaAnalise -> ST_ValidateAutoApprovalCriteria -> BRT_AutoApproval. O
+         worker computa os criterios ANTES da BRT que os consome (precedente GAP-REEMBOLSO-5:
+         Flow_BRTCalc_Calc / Flow_Calc_AutoApproval em SP-OP-REEMBOLSO-001). -->
+    <bpmn:sequenceFlow id="Flow_Sla_ValidateCriteria" sourceRef="BRT_SlaAnalise" targetRef="ST_ValidateAutoApprovalCriteria"/>
+    <bpmn:sequenceFlow id="Flow_ValidateCriteria_AutoApproval" sourceRef="ST_ValidateAutoApprovalCriteria" targetRef="BRT_AutoApproval"/>
     <bpmn:sequenceFlow id="Flow_AutoApproval_GW" sourceRef="BRT_AutoApproval" targetRef="GW_AutoAprovacao"/>
     <bpmn:sequenceFlow id="Flow_GW_AutoAprovar" name="AUTO_APROVAR (L2)" sourceRef="GW_AutoAprovacao" targetRef="ST_EmitirAutorizacaoAuto">
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${auto_aprovacao.recomendacao == 'AUTO_APROVAR'}</bpmn:conditionExpression>
@@ -674,34 +689,37 @@ analista_id/auditor_id de SP-OP-RECURSO-001 e SP-OP-REEMBOLSO-001).
         <dc:Bounds x="1446" y="292" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_End_CanceladaPendencia" bpmnElement="End_CanceladaPendencia">
-        <dc:Bounds x="1658" y="314" width="36" height="36"/>
+        <dc:Bounds x="1838" y="314" width="36" height="36"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_BRT_SlaAnalise" bpmnElement="BRT_SlaAnalise">
         <dc:Bounds x="1446" y="160" width="100" height="80"/>
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_BRT_AutoApproval" bpmnElement="BRT_AutoApproval">
+      <bpmndi:BPMNShape id="Shape_ST_ValidateAutoApprovalCriteria" bpmnElement="ST_ValidateAutoApprovalCriteria">
         <dc:Bounds x="1626" y="160" width="100" height="80"/>
       </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BRT_AutoApproval" bpmnElement="BRT_AutoApproval">
+        <dc:Bounds x="1806" y="160" width="100" height="80"/>
+      </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_GW_AutoAprovacao" bpmnElement="GW_AutoAprovacao" isMarkerVisible="true">
-        <dc:Bounds x="1806" y="175" width="50" height="50"/>
+        <dc:Bounds x="1986" y="175" width="50" height="50"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_EmitirAutorizacaoAuto" bpmnElement="ST_EmitirAutorizacaoAuto">
-        <dc:Bounds x="1936" y="160" width="100" height="80"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_PublishAprovadaAuto" bpmnElement="ST_PublishAprovadaAuto">
         <dc:Bounds x="2116" y="160" width="100" height="80"/>
       </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishAprovadaAuto" bpmnElement="ST_PublishAprovadaAuto">
+        <dc:Bounds x="2296" y="160" width="100" height="80"/>
+      </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_End_AprovadaAutomatica" bpmnElement="End_AprovadaAutomatica">
-        <dc:Bounds x="2303" y="182" width="36" height="36"/>
+        <dc:Bounds x="2483" y="182" width="36" height="36"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_PrepararDossie" bpmnElement="ST_PrepararDossie">
-        <dc:Bounds x="1936" y="292" width="100" height="80"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_UT_AnaliseMedicoAuditor" bpmnElement="UT_AnaliseMedicoAuditor">
         <dc:Bounds x="2116" y="292" width="100" height="80"/>
       </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT_AnaliseMedicoAuditor" bpmnElement="UT_AnaliseMedicoAuditor">
+        <dc:Bounds x="2296" y="292" width="100" height="80"/>
+      </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_BT_AlertaSla" bpmnElement="BT_AlertaSla">
-        <dc:Bounds x="2131" y="354" width="36" height="36"/>
+        <dc:Bounds x="2311" y="354" width="36" height="36"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_NotificarRiscoSla" bpmnElement="ST_NotificarRiscoSla">
         <dc:Bounds x="40" y="160" width="100" height="80"/>
@@ -710,7 +728,7 @@ analista_id/auditor_id de SP-OP-RECURSO-001 e SP-OP-REEMBOLSO-001).
         <dc:Bounds x="252" y="182" width="36" height="36"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_BT_SlaAnalise" bpmnElement="BT_SlaAnalise">
-        <dc:Bounds x="2164" y="354" width="36" height="36"/>
+        <dc:Bounds x="2344" y="354" width="36" height="36"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_PublishSlaBreach" bpmnElement="ST_PublishSlaBreach">
         <dc:Bounds x="40" y="292" width="100" height="80"/>
@@ -719,41 +737,41 @@ analista_id/auditor_id de SP-OP-RECURSO-001 e SP-OP-REEMBOLSO-001).
         <dc:Bounds x="220" y="292" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_GW_DecisaoAuditor" bpmnElement="GW_DecisaoAuditor" isMarkerVisible="true">
-        <dc:Bounds x="2296" y="307" width="50" height="50"/>
+        <dc:Bounds x="2476" y="307" width="50" height="50"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_EmitirAutorizacaoAuditor" bpmnElement="ST_EmitirAutorizacaoAuditor">
-        <dc:Bounds x="2426" y="292" width="100" height="80"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_ST_PublishAprovadaAuditor" bpmnElement="ST_PublishAprovadaAuditor">
         <dc:Bounds x="2606" y="292" width="100" height="80"/>
       </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishAprovadaAuditor" bpmnElement="ST_PublishAprovadaAuditor">
+        <dc:Bounds x="2786" y="292" width="100" height="80"/>
+      </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_End_AprovadaAuditor" bpmnElement="End_AprovadaAuditor">
-        <dc:Bounds x="2786" y="314" width="36" height="36"/>
+        <dc:Bounds x="2966" y="314" width="36" height="36"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_EnviarNegativaFormal" bpmnElement="ST_EnviarNegativaFormal">
-        <dc:Bounds x="2426" y="436" width="100" height="80"/>
+        <dc:Bounds x="2606" y="436" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_BE_NegativaIncompleta" bpmnElement="BE_NegativaIncompleta">
-        <dc:Bounds x="2458" y="498" width="36" height="36"/>
+        <dc:Bounds x="2638" y="498" width="36" height="36"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_End_FundamentacaoIncompletaBloqueada" bpmnElement="End_FundamentacaoIncompletaBloqueada">
         <dc:Bounds x="72" y="458" width="36" height="36"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_PublishNegada" bpmnElement="ST_PublishNegada">
-        <dc:Bounds x="2606" y="436" width="100" height="80"/>
+        <dc:Bounds x="2786" y="436" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_End_NegadaAuditor" bpmnElement="End_NegadaAuditor">
-        <dc:Bounds x="2786" y="458" width="36" height="36"/>
+        <dc:Bounds x="2966" y="458" width="36" height="36"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_ConvocarJunta" bpmnElement="ST_ConvocarJunta">
-        <dc:Bounds x="2426" y="568" width="100" height="80"/>
+        <dc:Bounds x="2606" y="568" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_UT_RegistrarParecerJunta" bpmnElement="UT_RegistrarParecerJunta">
-        <dc:Bounds x="2606" y="568" width="100" height="80"/>
+        <dc:Bounds x="2786" y="568" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <!-- GAP-AUTH-3 (M2a): DI para o terminal de erro fail-safe -->
       <bpmndi:BPMNShape id="Shape_End_ErrDecisaoInvalida" bpmnElement="End_ErrDecisaoInvalida">
-        <dc:Bounds x="2786" y="644" width="36" height="36"/>
+        <dc:Bounds x="2966" y="644" width="36" height="36"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNEdge id="Edge_Flow_Start_PubReceived" bpmnElement="Flow_Start_PubReceived">
         <di:waypoint x="108" y="80"/>
@@ -839,41 +857,45 @@ analista_id/auditor_id de SP-OP-RECURSO-001 e SP-OP-REEMBOLSO-001).
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_PubCancelada_End" bpmnElement="Flow_PubCancelada_End">
         <di:waypoint x="1546" y="332"/>
-        <di:waypoint x="1658" y="332"/>
+        <di:waypoint x="1838" y="332"/>
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_Sla_AutoApproval" bpmnElement="Flow_Sla_AutoApproval">
+      <bpmndi:BPMNEdge id="Edge_Flow_Sla_ValidateCriteria" bpmnElement="Flow_Sla_ValidateCriteria">
         <di:waypoint x="1546" y="200"/>
         <di:waypoint x="1626" y="200"/>
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_AutoApproval_GW" bpmnElement="Flow_AutoApproval_GW">
+      <bpmndi:BPMNEdge id="Edge_Flow_ValidateCriteria_AutoApproval" bpmnElement="Flow_ValidateCriteria_AutoApproval">
         <di:waypoint x="1726" y="200"/>
         <di:waypoint x="1806" y="200"/>
       </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_AutoApproval_GW" bpmnElement="Flow_AutoApproval_GW">
+        <di:waypoint x="1906" y="200"/>
+        <di:waypoint x="1986" y="200"/>
+      </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_GW_AutoAprovar" bpmnElement="Flow_GW_AutoAprovar">
-        <di:waypoint x="1856" y="200"/>
-        <di:waypoint x="1936" y="200"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_GW_AnaliseHumana" bpmnElement="Flow_GW_AnaliseHumana">
-        <di:waypoint x="1856" y="200"/>
-        <di:waypoint x="1896" y="200"/>
-        <di:waypoint x="1896" y="332"/>
-        <di:waypoint x="1936" y="332"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_EmitirAuto_Pub" bpmnElement="Flow_EmitirAuto_Pub">
         <di:waypoint x="2036" y="200"/>
         <di:waypoint x="2116" y="200"/>
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_PubAuto_End" bpmnElement="Flow_PubAuto_End">
-        <di:waypoint x="2216" y="200"/>
-        <di:waypoint x="2303" y="200"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_Dossie_UTAuditor" bpmnElement="Flow_Dossie_UTAuditor">
-        <di:waypoint x="2036" y="332"/>
+      <bpmndi:BPMNEdge id="Edge_Flow_GW_AnaliseHumana" bpmnElement="Flow_GW_AnaliseHumana">
+        <di:waypoint x="2036" y="200"/>
+        <di:waypoint x="2076" y="200"/>
+        <di:waypoint x="2076" y="332"/>
         <di:waypoint x="2116" y="332"/>
       </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_EmitirAuto_Pub" bpmnElement="Flow_EmitirAuto_Pub">
+        <di:waypoint x="2216" y="200"/>
+        <di:waypoint x="2296" y="200"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubAuto_End" bpmnElement="Flow_PubAuto_End">
+        <di:waypoint x="2396" y="200"/>
+        <di:waypoint x="2483" y="200"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Dossie_UTAuditor" bpmnElement="Flow_Dossie_UTAuditor">
+        <di:waypoint x="2216" y="332"/>
+        <di:waypoint x="2296" y="332"/>
+      </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Alerta_Notify" bpmnElement="Flow_Alerta_Notify">
-        <di:waypoint x="2149" y="390"/>
-        <di:waypoint x="2149" y="450"/>
+        <di:waypoint x="2329" y="390"/>
+        <di:waypoint x="2329" y="450"/>
         <di:waypoint x="40" y="450"/>
         <di:waypoint x="40" y="200"/>
       </bpmndi:BPMNEdge>
@@ -882,8 +904,8 @@ analista_id/auditor_id de SP-OP-RECURSO-001 e SP-OP-REEMBOLSO-001).
         <di:waypoint x="252" y="200"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_SlaEstourado_Pub" bpmnElement="Flow_SlaEstourado_Pub">
-        <di:waypoint x="2182" y="390"/>
-        <di:waypoint x="2182" y="450"/>
+        <di:waypoint x="2362" y="390"/>
+        <di:waypoint x="2362" y="450"/>
         <di:waypoint x="40" y="450"/>
         <di:waypoint x="40" y="332"/>
       </bpmndi:BPMNEdge>
@@ -892,72 +914,72 @@ analista_id/auditor_id de SP-OP-RECURSO-001 e SP-OP-REEMBOLSO-001).
         <di:waypoint x="220" y="332"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_UTAuditor_GW" bpmnElement="Flow_UTAuditor_GW">
-        <di:waypoint x="2216" y="332"/>
-        <di:waypoint x="2296" y="332"/>
+        <di:waypoint x="2396" y="332"/>
+        <di:waypoint x="2476" y="332"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_UTCoord_GW" bpmnElement="Flow_UTCoord_GW">
         <di:waypoint x="320" y="332"/>
-        <di:waypoint x="2296" y="332"/>
+        <di:waypoint x="2476" y="332"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Aprovar" bpmnElement="Flow_GWDec_Aprovar">
-        <di:waypoint x="2346" y="332"/>
-        <di:waypoint x="2426" y="332"/>
+        <di:waypoint x="2526" y="332"/>
+        <di:waypoint x="2606" y="332"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Negar" bpmnElement="Flow_GWDec_Negar">
-        <di:waypoint x="2346" y="332"/>
-        <di:waypoint x="2386" y="332"/>
-        <di:waypoint x="2386" y="476"/>
-        <di:waypoint x="2426" y="476"/>
+        <di:waypoint x="2526" y="332"/>
+        <di:waypoint x="2566" y="332"/>
+        <di:waypoint x="2566" y="476"/>
+        <di:waypoint x="2606" y="476"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_GWDec_SolicitarInfo" bpmnElement="Flow_GWDec_SolicitarInfo">
-        <di:waypoint x="2321" y="357"/>
-        <di:waypoint x="2321" y="417"/>
+        <di:waypoint x="2501" y="357"/>
+        <di:waypoint x="2501" y="417"/>
         <di:waypoint x="710" y="417"/>
         <di:waypoint x="710" y="200"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Junta" bpmnElement="Flow_GWDec_Junta">
-        <di:waypoint x="2346" y="332"/>
-        <di:waypoint x="2386" y="332"/>
-        <di:waypoint x="2386" y="608"/>
-        <di:waypoint x="2426" y="608"/>
+        <di:waypoint x="2526" y="332"/>
+        <di:waypoint x="2566" y="332"/>
+        <di:waypoint x="2566" y="608"/>
+        <di:waypoint x="2606" y="608"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_EmitirAuditor_Pub" bpmnElement="Flow_EmitirAuditor_Pub">
-        <di:waypoint x="2526" y="332"/>
-        <di:waypoint x="2606" y="332"/>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_PubAuditor_End" bpmnElement="Flow_PubAuditor_End">
         <di:waypoint x="2706" y="332"/>
         <di:waypoint x="2786" y="332"/>
       </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubAuditor_End" bpmnElement="Flow_PubAuditor_End">
+        <di:waypoint x="2886" y="332"/>
+        <di:waypoint x="2966" y="332"/>
+      </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Negativa_Pub" bpmnElement="Flow_Negativa_Pub">
-        <di:waypoint x="2526" y="476"/>
-        <di:waypoint x="2606" y="476"/>
+        <di:waypoint x="2706" y="476"/>
+        <di:waypoint x="2786" y="476"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_NegativaIncompleta_End" bpmnElement="Flow_NegativaIncompleta_End">
-        <di:waypoint x="2476" y="534"/>
-        <di:waypoint x="2476" y="594"/>
+        <di:waypoint x="2656" y="534"/>
+        <di:waypoint x="2656" y="594"/>
         <di:waypoint x="72" y="594"/>
         <di:waypoint x="72" y="476"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_PubNegada_End" bpmnElement="Flow_PubNegada_End">
-        <di:waypoint x="2706" y="476"/>
-        <di:waypoint x="2786" y="476"/>
+        <di:waypoint x="2886" y="476"/>
+        <di:waypoint x="2966" y="476"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Convocar_UTJunta" bpmnElement="Flow_Convocar_UTJunta">
-        <di:waypoint x="2526" y="608"/>
-        <di:waypoint x="2606" y="608"/>
+        <di:waypoint x="2706" y="608"/>
+        <di:waypoint x="2786" y="608"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Junta_GWDec" bpmnElement="Flow_Junta_GWDec">
-        <di:waypoint x="2656" y="648"/>
-        <di:waypoint x="2656" y="708"/>
-        <di:waypoint x="2296" y="708"/>
-        <di:waypoint x="2296" y="332"/>
+        <di:waypoint x="2836" y="648"/>
+        <di:waypoint x="2836" y="708"/>
+        <di:waypoint x="2476" y="708"/>
+        <di:waypoint x="2476" y="332"/>
       </bpmndi:BPMNEdge>
       <!-- GAP-AUTH-3 (M2a): DI edge para o terminal de erro fail-safe -->
       <bpmndi:BPMNEdge id="Edge_Flow_GWDec_Invalida" bpmnElement="Flow_GWDec_Invalida">
-        <di:waypoint x="2321" y="357"/>
-        <di:waypoint x="2321" y="662"/>
-        <di:waypoint x="2786" y="662"/>
+        <di:waypoint x="2501" y="357"/>
+        <di:waypoint x="2501" y="662"/>
+        <di:waypoint x="2966" y="662"/>
       </bpmndi:BPMNEdge>
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>

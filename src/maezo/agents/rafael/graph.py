@@ -426,10 +426,26 @@ class RafaelGraph:
                 "desfecho": "nao_requer",
             }
 
+        # GAP-AUTH-4: `auth_auto_approval` v0.2.0 no longer reads `dut_atendida`/
+        # `dentro_teto_l2`/`rede_credenciada`; it reads the four criteria a DETERMINISTIC worker
+        # (`operadora.auth.validate_auto_criteria`, `ST_ValidateAutoApprovalCriteria`) computes,
+        # plus `auto_criteria_verificado` — proof that the worker RAN. This agent does not run
+        # that worker and MUST NOT: computing coverage/ceiling/carencia facts is exactly the
+        # deterministic work ADR-0005/ADR-0018 keep out of an LLM graph (Rafael consumes DMN
+        # results, never computes the facts they consume).
+        #
+        # Consequence, stated plainly: unless the deterministic worker has already written these
+        # variables into the state Rafael was handed, `auto_criteria_verificado` is False and the
+        # table's catch-all resolves to ANALISE_HUMANA. **The execution fence applies to the
+        # agent route too** — Rafael cannot recommend an automatic approval on facts nobody
+        # verified. That is the intended behaviour, not a regression; the previous shape let this
+        # graph feed the table three unverified booleans straight from its own state.
         auto_in = {
-            "dut_atendida": bool(state.get("dut_atendida", False)),
-            "dentro_teto_l2": bool(state.get("dentro_teto_l2", False)),
-            "rede_credenciada": bool(state.get("rede_credenciada", False)),
+            "auto_criteria_verificado": state.get("auto_criteria_verificado") is True,
+            "criterio_tecnico_ok": state.get("criterio_tecnico_ok") is True,
+            "criterio_financeiro_ok": state.get("criterio_financeiro_ok") is True,
+            "criterio_regulatorio_ok": state.get("criterio_regulatorio_ok") is True,
+            "criterio_contratual_ok": state.get("criterio_contratual_ok") is True,
             "carater_atendimento": str(state.get("carater_atendimento", "eletivo")),
         }
         auto_result = await self._evaluate_dmn(DMN_AUTO_APPROVAL, auto_in)
