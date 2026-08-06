@@ -79,10 +79,15 @@ FINDINGS (see PR body / evidence-ledger for full detail):
      end-to-end by `test_negativa_incompleta_bloqueada_pelo_guard` below (T3.1 R3: former
      strict-xfail XPASSED against a real CIB Seven engine — boundary catch, blocked notice, empty
      incident — marker flipped, test now runs as a normal pass).
-     `test_happy_path_negada_pelo_auditor`'s notification-side redaction assertion remains
-     documented-not-asserted only because that test is still blocked upstream by
-     `_ACTION_WORKER_KAFKA_GAP_REASON` (the worker's notification never reaches
-     `auth_probe.notifications_of_type` at all).
+     `test_happy_path_negada_pelo_auditor`'s redaction assertion is ASSERTED again as of item-9
+     auth Class-A (finding 5 below): it was re-expressed OFF the dead notification channel and
+     ONTO engine history. `SendDenialNoticeWorker.execute()` returns `redact_phi_vars(notice)`,
+     and the harness writes a worker's whole return dict back as PROCESS VARIABLES
+     (`WorkerHarness._handle` -> `transport.complete(..., dict(out_vars))`), so the redacted
+     clinical fields OVERWRITE the raw values the User Task set — making
+     `engine.get_history_variable(iid, "cid10_referencia") == REDACTED_PHI` a stronger proof of
+     the one-way redaction than the donor's probe echo ever was (the engine's own record, not a
+     copy the worker handed the fake publisher).
   4. T3.1 Wave 1 remedy B (event-gap design doc §2.3, THIS PR): `test_pendencia_docs_recebidos_
      reavalia` and `test_solicitar_info_volta_para_pendencia` each asserted BOTH
      `has_event(_AUTH_PENDED)` (C1 — no publish task existed) AND
@@ -94,6 +99,19 @@ FINDINGS (see PR body / evidence-ledger for full detail):
      adapted to `has_event(..., prestador_id=...)` per the #108/#123 precedent. Split into their
      own `_AUTH_PENDED_PUBLISH_ADDED_REASON` xfail reason — kept xfail (not flipped) pending a
      live engine run (no docker/engine in this pass); see that constant's docstring for detail.
+  5. item-9 auth Class-A (THIS batch): the LAST 6 `_ACTION_WORKER_KAFKA_GAP_REASON` strict-xfails
+     are adapted and their markers removed. Two independent things closed at different times:
+     (a) the reason's `human_approved` clause is STALE — f271db9 (#185, "the src prerequisite of
+     the 6 _ACTION_WORKER_KAFKA_GAP_REASON flips") reworked the three action-worker guards to
+     derive human provenance from ENGINE-VISIBLE evidence (`decisao_auditor` literal /
+     `auditor_id` / the DMN's own `auto_aprovacao.recomendacao`), so `numero_autorizacao` DOES
+     populate now and the `human_approved` threading is itself observable in engine history;
+     (b) the reason's `kafka.publish` clause is STILL TRUE (re-verified: `grep -n "kafka.publish("
+     src/maezo/tools/workers/auth.py` = 0 hits), so each dead `notifications_of_type(...)` echo
+     was RE-EXPRESSED against engine-side evidence — `activity_instances_ended` for the exact
+     BPMN serviceTask id that carries the worker's topic ON THAT TEST'S BRANCH, plus
+     `get_history_variable` for every field value the echo used to carry. NOTHING was weakened:
+     see each test body for the id -> topic -> path citation and the per-field recovery.
 """
 
 from __future__ import annotations
@@ -117,6 +135,7 @@ from maezo.tools.workers.harness import (
     TopicSubscription,
     WorkerHarness,
 )
+from maezo.tools.workers.phi_vars import REDACTED_PHI
 
 from .conftest import CIBSEVEN_BASE_URL, drain_topics
 from .engine_rest import EngineRest
@@ -171,6 +190,34 @@ _END_FUNDAMENTACAO_INCOMPLETA = "End_FundamentacaoIncompletaBloqueada"
 
 _UT_HUMANAS_NEGATIVA = frozenset({_UT_AUDITOR, _UT_COORDENACAO, _UT_JUNTA})
 
+# BPMN serviceTask ids of the auth ACTION workers (item-9 auth Class-A). These are the engine-side
+# execution proof that replaced the structurally-dead `notifications_of_type(...)` echoes (module
+# docstring finding 5). Each id was read off
+# `spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn` and is paired here with the
+# `camunda:topic` it declares and the ONE sequence flow that can reach it — because a single worker
+# topic may back MORE THAN ONE serviceTask on different branches, and asserting the wrong branch's
+# id would silently prove nothing (issue_authorization is exactly that case here):
+#
+#   ST_EmitirAutorizacaoAuto     topic operadora.auth.issue_authorization
+#                                <- Flow_GW_AutoAprovar   (GW_AutoAprovacao,
+#                                   ${auto_aprovacao.recomendacao == 'AUTO_APROVAR'}) -> auto L2 only
+#   ST_EmitirAutorizacaoAuditor  topic operadora.auth.issue_authorization
+#                                <- Flow_GWDec_Aprovar    (GW_DecisaoAuditor,
+#                                   ${decisao_auditor == 'APROVAR'})                  -> human only
+#   ST_EnviarNegativaFormal      topic operadora.auth.send_denial_notice  (the ONLY task on it)
+#                                <- Flow_GWDec_Negar      (${decisao_auditor == 'NEGAR'})
+#   ST_NotificarRiscoSla         topic operadora.auth.notify_sla_risk     (the ONLY task on it)
+#                                <- Flow_Alerta_Notify    (BT_AlertaSla, cancelActivity="false",
+#                                   attachedToRef=UT_AnaliseMedicoAuditor)
+#   ST_ConvocarJunta             topic operadora.auth.convene_junta       (the ONLY task on it)
+#                                <- Flow_GWDec_Junta      (${decisao_auditor == 'JUNTA_MEDICA'})
+_ST_EMITIR_AUTO = "ST_EmitirAutorizacaoAuto"
+_ST_EMITIR_AUDITOR = "ST_EmitirAutorizacaoAuditor"
+_ST_NEGATIVA_FORMAL = "ST_EnviarNegativaFormal"
+_ST_NOTIFICAR_SLA = "ST_NotificarRiscoSla"
+_ST_CONVOCAR_JUNTA = "ST_ConvocarJunta"
+_END_RISCO_SLA_NOTIFICADO = "End_RiscoSlaNotificado"
+
 # CORRECTION to the pre-T3.1-R2 D-07 finding (live-verified, evidence below — NOT re-asserted
 # as a live xfail cause anywhere in this file): the original finding claimed D-07's 0 ceiling
 # (ceilings.py fail-closed) blocks End_AprovadaAutomatica for `test_happy_path_aprovacao_
@@ -185,8 +232,11 @@ _UT_HUMANAS_NEGATIVA = frozenset({_UT_AUDITOR, _UT_COORDENACAO, _UT_JUNTA})
 # `dentro_teto_l2` input directly) — the D-07 ceiling computation is simply never exercised by
 # either test's path. D-07 remains a genuine, OPEN config gap (0 ceiling in both
 # `spec/policies/autonomy/{L0-core,tenants-amh}.yaml`) — just not the blocker THESE 2 tests hit;
-# both are now blocked by `_ACTION_WORKER_KAFKA_GAP_REASON` below instead (see the PR body for
-# the full writeup — this correction is evidence, not fabricated).
+# both were then blocked by `_ACTION_WORKER_KAFKA_GAP_REASON` below instead (see the PR body for
+# the full writeup — this correction is evidence, not fabricated). CORRECTION-TO-THE-CORRECTION
+# (item-9 auth Class-A): `test_pendencia_docs_recebidos_reavalia` was already un-xfailed by
+# wave2b2 and `test_happy_path_aprovacao_automatica_l2` is un-xfailed in THIS batch — neither is
+# blocked by that constant anymore.
 
 # NEW findings, live-confirmed AFTER T3.1 R2's events.publish fix (drift, NOT the publish gap —
 # these tests progress far enough now to hit a SEPARATE, pre-existing v2 gap): auth.py's action
@@ -195,14 +245,13 @@ _UT_HUMANAS_NEGATIVA = frozenset({_UT_AUDITOR, _UT_COORDENACAO, _UT_JUNTA})
 # `kafka.publish` — mirrors the SAME systemic pattern found in escalation.py
 # (NotifyTeamWorker/NotifySupervisorWorker, see that suite's `_NOTIFY_KAFKA_GAP_REASON`).
 # Consequence: `auth_probe.notifications_of_type(...)` (backed by `FakeKafkaPublisher.published`)
-# can NEVER observe any of these workers' executions, and (separately, IssueAuthorizationWorker/
-# SendDenialNoticeWorker/ConveneJuntaWorker) their internal `human_approved` guard ALSO always
-# blocks — `human_approved` is never set anywhere (not by any BPMN inputParameter/expression, not
-# by this suite's `complete_task_as_human(...)` payloads; `grep human_approved
-# spec/processes/bpmn/SP-OP-AUTH-001_*.bpmn` returns zero hits) — so `numero_autorizacao` is
-# never populated on the APROVAR path either. Independent of the `operadora.events.publish` gap
-# T3.1 R2 fixes; `src/**` fix (wiring these workers to call kafka.publish / threading
-# `human_approved`) is out of scope for this PR.
+# can NEVER observe any of these workers' executions. This clause is STILL TRUE and re-verified
+# for item-9 auth Class-A (`grep -n "kafka.publish(" src/maezo/tools/workers/auth.py` = 0 hits);
+# it is why every echo below had to be RE-EXPRESSED against engine history rather than simply
+# un-xfailed. The constant's SECOND clause — that `human_approved` is never set anywhere, so
+# IssueAuthorizationWorker/SendDenialNoticeWorker/ConveneJuntaWorker's own internal guard always
+# blocks and `numero_autorizacao` is never populated — is STALE as of f271db9 (#185); see the
+# RETIRED note on the constant.
 _ACTION_WORKER_KAFKA_GAP_REASON = (
     "v2 drift (finding, T3.1 R2 — NOT the events.publish gap, which this PR fixes): auth.py's "
     "action WorkerBase classes (IssueAuthorizationWorker/SendDenialNoticeWorker/"
@@ -215,6 +264,27 @@ _ACTION_WORKER_KAFKA_GAP_REASON = (
     "numero_autorizacao is never populated either. Live-confirmed (docker compose core, CIB "
     "Seven 2.1.0) after the events.publish fix landed. Not a fixture bug; src/** fix is out of "
     "scope for this PR."
+    "\n\nRETIRED (item-9 auth Class-A): this constant has ZERO pytest.mark.xfail call sites — the "
+    "last 6 were removed in that batch. Exactly what closed, and what did not:\n"
+    "  * CLAUSE 2 (human_approved) is FALSE as of f271db9 (#185, 'the src prerequisite of the 6 "
+    "_ACTION_WORKER_KAFKA_GAP_REASON flips'): the three action-worker guards no longer demand the "
+    "phantom flag. issue_authorization now accepts decisao_auditor=='APROVAR' OR the modeled L2 "
+    "sanction auto_aprovacao.recomendacao=='AUTO_APROVAR' (and NEVER issues on NEGAR); "
+    "send_denial_notice GUARD 2 accepts a non-blank auditor_id (ADR-0007), which the three human "
+    "UTs now carry as a modeled formField; convene_junta accepts decisao_auditor=='JUNTA_MEDICA'. "
+    "numero_autorizacao therefore DOES populate, and the resolved provenance is threaded back as "
+    "an engine-visible human_approved variable — so this batch could assert provenance and value, "
+    "not merely execution.\n"
+    "  * CLAUSE 1 (kafka.publish) is STILL TRUE and re-verified at flip time: auth.py's action "
+    "workers publish NO internal notification, so operadora.notifications.internal — and with it "
+    "auth_probe.notifications_of_type(...) — stays structurally always-empty for this family "
+    "until the kafka-producer wiring task lands. Every echo was adapted, none was 'fixed': each "
+    "dead notifications_of_type(...) call was replaced by engine.activity_instances_ended(iid) "
+    "membership for the exact serviceTask id carrying that worker's camunda:topic on the branch "
+    "the test exercises, and each dropped FIELD assertion by engine.get_history_variable(iid, "
+    "...) on the same variable the worker read or wrote. Do NOT re-point a future test at "
+    "notifications_of_type for auth — it will silently assert nothing.\n"
+    "Live proof of the 6 flips is orchestrator-owned and NOT claimed here."
 )
 
 # T3.1 Wave 1 remedy B (event-gap design doc §2.3): CLOSES the C1 half of the gap for the 2 tests
@@ -453,7 +523,6 @@ async def _assert_no_denial_without_human_task(engine: EngineRest, iid: str) -> 
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_ACTION_WORKER_KAFKA_GAP_REASON, strict=True)
 async def test_invariant_nenhum_caminho_automatizado_produz_negativa(
     engine: EngineRest,
     auth_probe: AuthEngineProbe,
@@ -506,10 +575,44 @@ async def test_invariant_nenhum_caminho_automatizado_produz_negativa(
     ended_c = await _await_end(engine, inst_c["id"])
     await _assert_no_denial_without_human_task(engine, inst_c["id"])
     assert _END_NEGADA in ended_c, f"Negativa humana deve atingir End_NegadaAuditor. ended={ended_c}"
-    denials = auth_probe.notifications_of_type("auth.send_denial_notice")
-    assert denials, "Worker send_denial_notice deve ter sido executado apos negativa humana"
-    assert denials[0]["decisao_auditor"] == "NEGAR"
-    assert denials[0]["auditor_id"] == "auditor-sintetico-teste"
+    # item-9 auth Class-A — the L0 leg of this invariant. The donor's three asserts rode
+    # `auth_probe.notifications_of_type("auth.send_denial_notice")`, a channel that is
+    # structurally always-empty in v2 (SendDenialNoticeWorker never calls kafka.publish —
+    # re-verified at flip time). Re-expressed against the ENGINE, assert-for-assert, with NO
+    # field dropped:
+    #   1. execution proof (was: `assert denials`) -> ST_EnviarNegativaFormal in engine history.
+    #      That is the ONLY serviceTask in the BPMN carrying camunda:topic
+    #      `operadora.auth.send_denial_notice`, and its only inbound flow is Flow_GWDec_Negar
+    #      (`${decisao_auditor == 'NEGAR'}` off GW_DecisaoAuditor) — the exact branch this leg
+    #      drives. No other branch can put it in history.
+    #   2. `denials[0]["decisao_auditor"] == "NEGAR"` -> the engine's own record of the SAME
+    #      variable the worker read. The echo was a copy the worker handed the fake publisher;
+    #      the history variable is the engine's, and it is the value GW_DecisaoAuditor actually
+    #      routed on.
+    #   3. `denials[0]["auditor_id"] == "auditor-sintetico-teste"` -> likewise. This field is not
+    #      decorative here: post-f271db9 it IS the human-provenance evidence
+    #      SendDenialNoticeWorker's GUARD 2 consumes (`bool(auditor_id)`), so asserting its exact
+    #      value asserts the identity the L0 guard accepted.
+    #   4. STRENGTHENED (new, no donor equivalent): `human_approved is True` in history. The
+    #      worker writes that variable ONLY on the branch that actually TRANSMITS the denial
+    #      (auth.py `notice = {... "human_approved": True ...}`); the refusal branch returns
+    #      `{status: blocked_by_guard, error_code: ERR_DENIAL_NOT_HUMAN}` with no such key, and
+    #      RETURNS rather than raises — so the token reaches End_NegadaAuditor either way and
+    #      reaching the terminal alone would NOT prove the guard passed. This assert closes that
+    #      hole: it proves the negativa was transmitted WITH human provenance, which is precisely
+    #      what this L0 invariant exists to protect. Nothing else on this instance's path writes
+    #      `human_approved` (IssueAuthorizationWorker is unreachable on a NEGAR branch;
+    #      ConveneJuntaWorker deliberately never writes it; the events.publish handler only
+    #      outputs event_published/event_publish_best_effort_failure/event_topic).
+    assert _ST_NEGATIVA_FORMAL in ended_c, (
+        f"send_denial_notice (ST_EnviarNegativaFormal) deve ter executado apos negativa humana. "
+        f"ended={ended_c}"
+    )
+    assert await engine.get_history_variable(inst_c["id"], "decisao_auditor") == "NEGAR"
+    assert await engine.get_history_variable(inst_c["id"], "auditor_id") == "auditor-sintetico-teste"
+    assert await engine.get_history_variable(inst_c["id"], "human_approved") is True, (
+        "negativa transmitida deve carregar proveniencia humana (GUARD 2 aprovado, nao bloqueado)"
+    )
     results.append(("negativa_humana_com_ut", "ok"))
 
     inst_d = await start_auth(beneficiario_ativo=False, dut_atendida=False)
@@ -542,7 +645,6 @@ async def test_invariant_nenhum_caminho_automatizado_produz_negativa(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_ACTION_WORKER_KAFKA_GAP_REASON, strict=True)
 async def test_happy_path_aprovacao_automatica_l2(
     engine: EngineRest,
     auth_probe: AuthEngineProbe,
@@ -550,10 +652,10 @@ async def test_happy_path_aprovacao_automatica_l2(
 ) -> None:
     """Aprovacao automatica L2: DUT ok + teto ok + rede ok => End_AprovadaAutomatica.
 
-    T3.1 R2: End_AprovadaAutomatica IS reached now (publish-topic gap fixed) — this test's D-07
-    ceiling path is never exercised (`_ACTION_WORKER_KAFKA_GAP_REASON`'s D-07 correction note),
-    so the ONLY remaining failure is `issued = auth_probe.notifications_of_type(...)`:
-    `IssueAuthorizationWorker` never calls `kafka.publish` (module docstring finding).
+    T3.1 R2: End_AprovadaAutomatica IS reached (publish-topic gap fixed) and this test's D-07
+    ceiling path is never exercised (`_ACTION_WORKER_KAFKA_GAP_REASON`'s D-07 correction note).
+    item-9 auth Class-A: the `notifications_of_type("auth.issue_authorization")` echo is
+    re-expressed engine-side (see body) and the strict-xfail removed.
     """
     inst = await start_auth(
         dut_atendida=True, dentro_teto_l2=True, rede_credenciada=True, carater_atendimento="eletivo"
@@ -570,8 +672,37 @@ async def test_happy_path_aprovacao_automatica_l2(
     assert auth_probe.has_event(_AUTH_RECEIVED)
     assert auth_probe.has_event(_AUTH_COMPLETED, desfecho="aprovada_automatica")
 
-    issued = auth_probe.notifications_of_type("auth.issue_authorization")
-    assert issued, "Worker issue_authorization deve ser executado na aprovacao automatica"
+    # item-9 auth Class-A. Old: `issued = auth_probe.notifications_of_type("auth.issue_
+    # authorization"); assert issued` — dead channel (IssueAuthorizationWorker never calls
+    # kafka.publish). BRANCH DISCRIMINATION MATTERS HERE: `operadora.auth.issue_authorization`
+    # backs TWO serviceTasks. `ST_EmitirAutorizacaoAuto` is reachable ONLY via Flow_GW_AutoAprovar
+    # (`${auto_aprovacao.recomendacao == 'AUTO_APROVAR'}` off GW_AutoAprovacao) — the modeled L2
+    # route this test drives; `ST_EmitirAutorizacaoAuditor` is reachable ONLY via Flow_GWDec_Aprovar
+    # (`${decisao_auditor == 'APROVAR'}` off GW_DecisaoAuditor), which needs a human User Task.
+    # Asserting the auto id AND the absence of the auditor id proves the L2 route specifically —
+    # a bare "some issue_authorization task ran" would not.
+    assert _ST_EMITIR_AUTO in ended, (
+        f"issue_authorization deve ter executado em ST_EmitirAutorizacaoAuto (rota L2). ended={ended}"
+    )
+    assert _ST_EMITIR_AUDITOR not in ended, (
+        f"rota auto-L2 NAO passa por ST_EmitirAutorizacaoAuditor (rota humana). ended={ended}"
+    )
+    # The worker ISSUED rather than blocking: `numero_autorizacao` is written ONLY by
+    # IssueAuthorizationWorker's success branch (the guard-block branch returns
+    # {status: blocked_by_guard, error_code: ERR_DENIAL_NOT_HUMAN} and no number). On this route
+    # the sanction channel is the DMN's own result — auth.py `_auto_approval_sanctioned` requires
+    # `auto_aprovacao` to be a Mapping whose `recomendacao` is exactly 'AUTO_APROVAR', the SAME
+    # variable Flow_GW_AutoAprovar's condition reads.
+    assert await engine.get_history_variable(iid, "numero_autorizacao"), (
+        "IssueAuthorizationWorker deve ter emitido (numero_autorizacao em historia), nao bloqueado"
+    )
+    # L0/ADR-0007 provenance, threaded back by the worker: the auto-L2 route records
+    # human_approved=False — TRUTHFUL (no human decided) and never fabricated. Asserting False
+    # (not just "present") is what keeps an automated issuance from ever masquerading as a human
+    # one in the audit trail.
+    assert await engine.get_history_variable(iid, "human_approved") is False, (
+        "emissao auto-L2 deve registrar human_approved=False (nenhum humano decidiu, ADR-0007)"
+    )
 
     auto_facts = [
         e["payload"]
@@ -579,10 +710,11 @@ async def test_happy_path_aprovacao_automatica_l2(
         if e["payload"].get("desfecho") == "aprovada_automatica"
     ]
     assert auto_facts, "Deve haver um fato auth.completed com desfecho=aprovada_automatica"
+    # Live channel (ST_PublishAprovadaAuto's event_payload_vars carries numero_autorizacao) —
+    # unchanged donor assert, now reachable because the f271db9 guard rework lets the worker issue.
     assert auto_facts[0].get("numero_autorizacao"), "numero_autorizacao ausente do fato aprovada_automatica"
 
 
-@pytest.mark.xfail(reason=_ACTION_WORKER_KAFKA_GAP_REASON, strict=True)
 async def test_happy_path_aprovada_pelo_auditor(
     engine: EngineRest,
     auth_probe: AuthEngineProbe,
@@ -607,8 +739,28 @@ async def test_happy_path_aprovada_pelo_auditor(
     assert _END_NEGADA not in ended
     assert auth_probe.has_event(_AUTH_COMPLETED, desfecho="aprovada_auditor")
 
-    issued = auth_probe.notifications_of_type("auth.issue_authorization")
-    assert issued, "Worker issue_authorization deve ser executado na aprovacao pelo auditor"
+    # item-9 auth Class-A. Old: `issued = auth_probe.notifications_of_type("auth.issue_
+    # authorization"); assert issued` — dead channel. Same two-serviceTask hazard as the auto-L2
+    # test, mirrored: here the HUMAN id must be present and the AUTO id absent.
+    # `ST_EmitirAutorizacaoAuditor` (topic operadora.auth.issue_authorization) is reachable ONLY
+    # via Flow_GWDec_Aprovar, `${decisao_auditor == 'APROVAR'}` off GW_DecisaoAuditor — the flow
+    # this test's `complete_task_as_human(ut.id, {"decisao_auditor": "APROVAR"})` selects.
+    assert _ST_EMITIR_AUDITOR in ended, (
+        f"issue_authorization deve ter executado em ST_EmitirAutorizacaoAuditor. ended={ended}"
+    )
+    assert _ST_EMITIR_AUTO not in ended, (
+        f"rota humana NAO passa por ST_EmitirAutorizacaoAuto (rota L2 auto). ended={ended}"
+    )
+    assert await engine.get_history_variable(iid, "numero_autorizacao"), (
+        "IssueAuthorizationWorker deve ter emitido (numero_autorizacao em historia), nao bloqueado"
+    )
+    # L0/ADR-0007 provenance: on the human channel the guard resolves via decisao_auditor ==
+    # 'APROVAR' (auth.py: `human_approved = process_vars.get("human_approved") is True or decisao
+    # == "APROVAR"`) and the worker threads True back. This is the assert that distinguishes a
+    # human-sanctioned authorization from the auto-L2 one above (which records False).
+    assert await engine.get_history_variable(iid, "human_approved") is True, (
+        "emissao pelo auditor deve registrar human_approved=True (canal humano, ADR-0007)"
+    )
 
     auditor_facts = [
         e["payload"]
@@ -619,7 +771,6 @@ async def test_happy_path_aprovada_pelo_auditor(
     assert auditor_facts[0].get("numero_autorizacao"), "numero_autorizacao ausente do fato aprovada_auditor"
 
 
-@pytest.mark.xfail(reason=_ACTION_WORKER_KAFKA_GAP_REASON, strict=True)
 async def test_happy_path_negada_pelo_auditor(
     engine: EngineRest,
     auth_probe: AuthEngineProbe,
@@ -665,19 +816,45 @@ async def test_happy_path_negada_pelo_auditor(
     assert fact.get("numero_guia_tiss"), "referencia (numero_guia_tiss) deve permanecer no fato"
     assert fact.get("_business_key"), "payload_ref (_business_key) deve permanecer no fato"
 
-    denials = auth_probe.notifications_of_type("auth.send_denial_notice")
-    assert denials, "Worker send_denial_notice deve ser executado apos negativa humana"
-    d = denials[0]
-    assert d["decisao_auditor"] == "NEGAR"
-    assert d["auditor_id"] == "dr-auditor-sintetico-001"
-    # FINDING 3, FIXED on this branch (module docstring): `SendDenialNoticeWorker.execute()` now
-    # redacts these clinical fields one-way (`phi_vars.redact_phi_vars` -> `[REDACTED_PHI]`) in its
-    # emitted variables (unit-proven adversarially). The donor's notification-side assertion
-    # (`d["cid10_referencia"] == REDACTED_PHI`) still cannot run here: this test remains blocked
-    # upstream by `_ACTION_WORKER_KAFKA_GAP_REASON` (the worker never calls kafka.publish, so `d`
-    # is never observed). Re-add that assertion when the kafka-gap fix lands.
-    assert d["business_key"], "payload_ref (business_key) deve permanecer na notificacao"
-    assert d["numero_guia_tiss"], "numero_guia_tiss (referencia da guia) deve permanecer"
+    # item-9 auth Class-A. Old block (all five asserts rode the always-empty
+    # `auth_probe.notifications_of_type("auth.send_denial_notice")`):
+    #     assert denials; d = denials[0]
+    #     assert d["decisao_auditor"] == "NEGAR"
+    #     assert d["auditor_id"] == "dr-auditor-sintetico-001"
+    #     assert d["business_key"]; assert d["numero_guia_tiss"]
+    # Recovery, field by field — nothing dropped:
+    #   * execution proof -> ST_EnviarNegativaFormal in engine history. Only serviceTask on topic
+    #     `operadora.auth.send_denial_notice`; only inbound flow is Flow_GWDec_Negar
+    #     (`${decisao_auditor == 'NEGAR'}`).
+    #   * decisao_auditor / auditor_id -> engine history variables (the engine's record of the
+    #     exact values the worker read; auditor_id is what GUARD 2 consumes post-f271db9).
+    #   * `d["business_key"]` and `d["numero_guia_tiss"]` (payload_ref + guia reference survive
+    #     the egress) are ALREADY asserted above on the LIVE events.publish channel, against the
+    #     same instance's auth.completed fact: `fact.get("_business_key")` and
+    #     `fact.get("numero_guia_tiss")`. Those two donor obligations are covered there, on a
+    #     channel that actually carries data, so they are not re-asserted here.
+    assert _ST_NEGATIVA_FORMAL in ended, (
+        f"send_denial_notice (ST_EnviarNegativaFormal) deve ter executado apos negativa humana. ended={ended}"
+    )
+    assert await engine.get_history_variable(iid, "decisao_auditor") == "NEGAR"
+    assert await engine.get_history_variable(iid, "auditor_id") == "dr-auditor-sintetico-001"
+    assert await engine.get_history_variable(iid, "human_approved") is True, (
+        "negativa transmitida deve carregar proveniencia humana (GUARD 2 aprovado, nao bloqueado)"
+    )
+    # FINDING 3 (module docstring), donor assertion RESTORED — it was documented-not-asserted only
+    # because the notification `d` was never observable. It is assertable engine-side:
+    # `SendDenialNoticeWorker.execute()` returns `redact_phi_vars(notice)`, and the harness writes
+    # a worker's whole return dict back as process variables (`_handle` ->
+    # `transport.complete(..., dict(out_vars))`), so the one-way class token OVERWRITES the raw
+    # clinical value this test's User Task submitted. Reading it back from engine history proves
+    # the redaction where it actually matters — in the general-zone variable store (ADR-0006,
+    # GAP-XPHI-1) — rather than in a copy handed to a fake publisher. Nothing downstream rewrites
+    # it: ST_PublishNegada's handler only outputs event_published/…/event_topic.
+    assert await engine.get_history_variable(iid, "cid10_referencia") == REDACTED_PHI, (
+        "PHI clinico deve sair redigido (uma via) da variavel de engine apos send_denial_notice"
+    )
+    assert await engine.get_history_variable(iid, "justificativa_clinica") == REDACTED_PHI
+    assert await engine.get_history_variable(iid, "fundamentacao_dut") == REDACTED_PHI
 
     await _assert_no_denial_without_human_task(engine, iid)
 
@@ -864,7 +1041,6 @@ async def test_pendencia_expira_decisao_humana(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_ACTION_WORKER_KAFKA_GAP_REASON, strict=True)
 async def test_timer_alerta_sla_nao_interruptivo(
     engine: EngineRest,
     auth_probe: AuthEngineProbe,
@@ -884,8 +1060,23 @@ async def test_timer_alerta_sla_nao_interruptivo(
     await engine.execute_job(job.id)
     await auth_probe.drain()
 
-    sla_alerts = auth_probe.notifications_of_type("auth.notify_sla_risk")
-    assert sla_alerts, "Worker notify_sla_risk deve ser executado no alerta de SLA"
+    # item-9 auth Class-A. Old: `sla_alerts = auth_probe.notifications_of_type(
+    # "auth.notify_sla_risk"); assert sla_alerts` — dead channel (NotifySlaRiskWorker never calls
+    # kafka.publish; it is also the one worker in this batch with NO guard, so execution is the
+    # whole obligation and no field assert was dropped). `ST_NotificarRiscoSla` is the ONLY
+    # serviceTask carrying `operadora.auth.notify_sla_risk`, and its only inbound flow is
+    # Flow_Alerta_Notify from BT_AlertaSla — the NON-INTERRUPTING boundary timer
+    # (cancelActivity="false") attached to UT_AnaliseMedicoAuditor that this test fires by hand.
+    # `End_RiscoSlaNotificado` is asserted too: the alert branch must run to its own terminal,
+    # which — together with the surviving open-UT assert below — is what "nao-interruptivo"
+    # actually means (a parallel token completed while the User Task stayed open).
+    ended_sla = await engine.activity_instances_ended(iid)
+    assert _ST_NOTIFICAR_SLA in ended_sla, (
+        f"notify_sla_risk (ST_NotificarRiscoSla) deve ter executado no alerta de SLA. ended={ended_sla}"
+    )
+    assert _END_RISCO_SLA_NOTIFICADO in ended_sla, (
+        f"ramo do alerta deve terminar em End_RiscoSlaNotificado. ended={ended_sla}"
+    )
 
     open_keys = {t.task_definition_key for t in await engine.list_user_tasks(iid)}
     assert _UT_AUDITOR in open_keys, "Timer nao-interruptivo nao deve cancelar a User Task"
@@ -1019,7 +1210,6 @@ async def test_coordenacao_assume_e_nega(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_ACTION_WORKER_KAFKA_GAP_REASON, strict=True)
 async def test_junta_medica_parecer_aprova(
     engine: EngineRest,
     auth_probe: AuthEngineProbe,
@@ -1037,8 +1227,25 @@ async def test_junta_medica_parecer_aprova(
     await engine.complete_task_as_human(ut.id, {"decisao_auditor": "JUNTA_MEDICA"})
     await auth_probe.drain()
 
-    juntas = auth_probe.notifications_of_type("auth.convene_junta")
-    assert juntas, "Worker convene_junta deve ser executado"
+    # item-9 auth Class-A. Old: `juntas = auth_probe.notifications_of_type("auth.convene_junta");
+    # assert juntas` — dead channel. `ST_ConvocarJunta` is the ONLY serviceTask carrying
+    # `operadora.auth.convene_junta`, and its only inbound flow is Flow_GWDec_Junta
+    # (`${decisao_auditor == 'JUNTA_MEDICA'}` off GW_DecisaoAuditor) — the exact literal this test
+    # submits. `junta_group` is the value proof that the worker CONVENED rather than blocking:
+    # ConveneJuntaWorker writes it only on its success branch (the guard-block branch returns
+    # {status: blocked_by_guard, error_code: ERR_DENIAL_NOT_HUMAN} and RETURNS, so the token would
+    # still reach UT_RegistrarParecerJunta and the terminal alone would prove nothing). Note the
+    # worker deliberately does NOT write `human_approved` here (it runs BEFORE the junta's own User
+    # Task; a worker-persisted True would poison the downstream denial guard) — so provenance is
+    # asserted via the decision literal + junta_group, never via a flag that must not exist yet.
+    ended_junta = await engine.activity_instances_ended(iid)
+    assert _ST_CONVOCAR_JUNTA in ended_junta, (
+        f"convene_junta (ST_ConvocarJunta) deve ter executado. ended={ended_junta}"
+    )
+    assert await engine.get_history_variable(iid, "decisao_auditor") == "JUNTA_MEDICA"
+    assert await engine.get_history_variable(iid, "junta_group") == "junta-medica", (
+        "ConveneJuntaWorker deve ter convocado (junta_group em historia), nao bloqueado pelo guard"
+    )
 
     ut_junta = await engine.await_user_task(iid, _UT_JUNTA)
     assert "junta-medica" in ut_junta.candidate_groups
