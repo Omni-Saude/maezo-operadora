@@ -698,9 +698,13 @@ async def test_happy_path_aprovacao_automatica_l2(
     # The worker ISSUED rather than blocking: `numero_autorizacao` is written ONLY by
     # IssueAuthorizationWorker's success branch (the guard-block branch returns
     # {status: blocked_by_guard, error_code: ERR_DENIAL_NOT_HUMAN} and no number). On this route
-    # the sanction channel is the DMN's own result — auth.py `_auto_approval_sanctioned` requires
-    # `auto_aprovacao` to be a Mapping whose `recomendacao` is exactly 'AUTO_APROVAR', the SAME
-    # variable Flow_GW_AutoAprovar's condition reads.
+    # the sanction channel is the DMN's own result. LIVE-PROVEN DEFECT + FIX (item-9 auth Class-A):
+    # the worker used to require `auto_aprovacao` to be a Mapping, but that variable is an engine
+    # Object (BRT_AutoApproval mapDecisionResult=singleResult) and fetchAndLock does not
+    # deserialize it — so the gateway routed here on the DMN sanction while the worker refused,
+    # completing End_AprovadaAutomatica with NO numero_autorizacao. Fixed by a task-local
+    # inputParameter flattening ${auto_aprovacao.recomendacao} into a String for THIS task only
+    # (activity-local => not start-seedable); the Mapping branch is kept belt-and-braces.
     # GK-auth finding 4 — DIAGNOSTIC ORDER: `numero_autorizacao` is absent on the guard-block
     # branch, so reading it first raises EngineRestError (opaque) instead of AssertionError. The
     # worker writes `status` on BOTH branches ("authorized" vs "blocked_by_guard", auth.py:333/347
