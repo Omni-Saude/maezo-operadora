@@ -774,7 +774,11 @@ async def test_l3_gap_moderado_encaminha_credenciamento_sem_user_task(
 
     assert _END_ENCAMINHADA in ended, f"Deve atingir End_RemediacaoEncaminhada (L3). ended={ended}"
     assert not await engine.list_user_tasks(iid), "Handoff a credenciamento L3 nao cria User Task"
-    assert adequacao_probe.notifications_of_type("adequacao.start_credenciamento")
+    # Engine-side (eco kafka morto: start_credenciamento e dict-first e nao publica —
+    # `notifications_of_type` e estruturalmente sempre []). O handoff L3 executou:
+    assert "ST_StartCredenciamentoL3" in ended, (
+        "start_credenciamento (ST_StartCredenciamentoL3) deve executar no handoff L3"
+    )
     assert adequacao_probe.has_event(_ADEQ_COMPLETED, desfecho="encaminhada_credenciamento")
     assert adequacao_probe.has_event(_ADEQ_GAP_DETECTED, gap_adequacao="GAP_MODERADO")
 
@@ -805,7 +809,10 @@ async def test_l3_gap_leve_monitora_sem_user_task(
     assert _END_MONITORAMENTO in ended, f"Deve atingir End_MonitoramentoAtualizado (L3). ended={ended}"
     assert not await engine.list_user_tasks(iid), "Caminho monitorar L3 nao cria User Task"
     assert adequacao_probe.notifications_of_type("adequacao.update_monitoring_plan")
-    assert adequacao_probe.notifications_of_type("adequacao.notify_rede")
+    # Engine-side (eco kafka morto: notify_rede e dict-first e nao publica). A notificacao
+    # de update_monitoring_plan ACIMA e prova viva (esse worker foi ligado ao kafka); esta
+    # atividade e provada pelo historico do engine:
+    assert "ST_NotifyRedeL3" in ended, "notify_rede (ST_NotifyRedeL3) deve executar no ramo MONITORAR"
     assert adequacao_probe.has_event(_ADEQ_COMPLETED, desfecho="monitoramento_atualizado")
 
 
