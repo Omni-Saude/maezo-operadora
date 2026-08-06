@@ -24,26 +24,73 @@
 # format: mapping of decision id -> justification string.
 version: 1
 orphans:
+  # --- SP-OP-AUTH-001 auto-approval criteria gate (GAP-AUTH-4 / GAP-AUTH-3) -------------
+  # These 6 were RE-CLASSIFIED (not removed) when the criteria gate landed. They are no
+  # longer UNWIRED: `operadora.auth.validate_auto_criteria` (ST_ValidateAutoApprovalCriteria,
+  # between BRT_SlaAnalise and BRT_AutoApproval) evaluates every one of them engine-side via
+  # the ADR-0028 `dmn=` worker seam. They stay listed here because `crossref.py` defines an
+  # orphan purely as "no BPMN businessRuleTask decisionRef" — worker-consumed tables are
+  # therefore PERMANENT orphans from its perspective, exactly like the 7 fraude_scoring
+  # tables below. REMOVING them would make `make validate-artifacts` fail closed on an
+  # unlisted orphan; the honest record is this justification, not deletion.
+  #
+  # This also closes GAP-AUTH-3: docs/review-queue.md used to claim the 5 DUT/carencia tables
+  # were already wired "via Rafael's mcp-dmn". They were not — Rafael's graph
+  # (`agents/rafael/graph.py:91-93`) references only auth_admissibility / auth_sla /
+  # auth_auto_approval, and `grep -rn 'dut_rol_coverage|dut_criteria|carencia_check' src/`
+  # returned ZERO hits before this change. Now they really are consumed.
+  #
+  # RATIFICATION: being wired does NOT make them load-bearing. Each contributes a PASS only
+  # when ratified in `auth-criteria-ratification.yaml`; all six are DRAFT/synthetic today, so
+  # each yields false with a `*_FONTE_NAO_RATIFICADA` token while the validator records what
+  # it WOULD have decided in shadow mode.
   carencia_check: >-
-    DRAFT synthetic carencia (waiting-period) rules; no SP-OP BPMN currently
-    evaluates carencia via a dedicated businessRuleTask at this granularity
-    (auth_admissibility's carencia_cumprida input is worker-precomputed) —
-    pending wiring.
+    Worker-consumed via DmnTransport (ADR-0028 dmn= seam) by
+    operadora.auth.validate_auto_criteria — the REGULATORIO criterion of the
+    SP-OP-AUTH-001 auto-approval gate. PERMANENT orphan from crossref's
+    BPMN-decisionRef-only perspective, not a pending-wiring gap. Content
+    (carencia/CPT deadlines) is SYNTHETIC/DRAFT and NOT ratified in
+    auth-criteria-ratification.yaml, so it can only produce shadow evidence
+    today — never a PASS (docs/review-queue.md; juridico/regulatorio review).
   dut_criteria_bariatrica: >-
-    Clinical DUT/ROL criteria for bariatric procedures; drafted ahead of the
-    SP-OP-AUTH-001 branch that will call it — pending wiring + medical/legal
-    review (docs/review-queue.md).
+    Worker-consumed via DmnTransport (ADR-0028 dmn= seam) by
+    operadora.auth.validate_auto_criteria — the procedure-specific half of the
+    TECNICO criterion, selected from dut_rol_coverage's dut_ref through the
+    SME-declared mapeamento_dut_criteria in auth-criteria-ratification.yaml.
+    PERMANENT orphan from crossref's perspective. Clinical content SYNTHETIC/
+    DRAFT and NOT ratified — shadow evidence only (docs/review-queue.md).
   dut_criteria_oncologia_pet_ct: >-
-    Clinical DUT/ROL criteria for oncology PET-CT; drafted ahead of the
-    SP-OP-AUTH-001 branch that will call it — pending wiring + medical/legal
-    review (docs/review-queue.md).
+    Worker-consumed via DmnTransport (ADR-0028 dmn= seam) by
+    operadora.auth.validate_auto_criteria — the procedure-specific half of the
+    TECNICO criterion, selected from dut_rol_coverage's dut_ref through the
+    SME-declared mapeamento_dut_criteria in auth-criteria-ratification.yaml.
+    PERMANENT orphan from crossref's perspective. Clinical content SYNTHETIC/
+    DRAFT and NOT ratified — shadow evidence only (docs/review-queue.md).
   dut_criteria_terapias_especiais: >-
-    Clinical DUT/ROL criteria for special therapies; drafted ahead of the
-    SP-OP-AUTH-001 branch that will call it — pending wiring + medical/legal
-    review (docs/review-queue.md).
+    Worker-consumed via DmnTransport (ADR-0028 dmn= seam) by
+    operadora.auth.validate_auto_criteria — the procedure-specific half of the
+    TECNICO criterion. NOTE: no dut_ref is mapped to this table yet
+    (mapeamento_dut_criteria is deliberately incomplete — deciding that every
+    terapia ocupacional/fono/psicoterapia falls under the TEA/neurodesenvolvimento
+    DUT is a CLINICAL judgement reserved to the medico auditor), so it is
+    reachable only once an SME declares the mapping. PERMANENT orphan from
+    crossref's perspective; content SYNTHETIC/DRAFT and NOT ratified.
   dut_rol_coverage: >-
-    Rol-coverage lookup drafted ahead of the SP-OP-AUTH-001 branch that will
-    call it — pending wiring + medical/legal review (docs/review-queue.md).
+    Worker-consumed via DmnTransport (ADR-0028 dmn= seam) by
+    operadora.auth.validate_auto_criteria — the entry point of the TECNICO
+    criterion (no_rol / requer_dut / dut_ref). PERMANENT orphan from crossref's
+    BPMN-decisionRef-only perspective, not a pending-wiring gap. TUSS codes are
+    SYNTHETIC and the table is NOT ratified in auth-criteria-ratification.yaml,
+    so it can only produce shadow evidence today — never a PASS
+    (docs/review-queue.md; medico auditor + juridico/regulatorio review).
+  auth_criteria_contratual: >-
+    Worker-consumed via DmnTransport (ADR-0028 dmn= seam) by
+    operadora.auth.validate_auto_criteria — the CONTRATUAL criterion. Created
+    with the criteria gate as an honest EMPTY seam: a single catch-all rule
+    returning false / SEM_REGRA_RATIFICADA. No contractual milestone, rule or
+    KPI has been invented; the table is the versioned place for an SME to put
+    real ones. PERMANENT orphan from crossref's perspective; NOT ratified
+    (juridico/contratos + financas + medico auditor — docs/review-queue.md).
   lucas_billing_admissibility: >-
     Agent-consumed: evaluated directly by the Lucas agent via
     mcp-dmn.evaluate (agents/lucas/graph.py), not through a BPMN

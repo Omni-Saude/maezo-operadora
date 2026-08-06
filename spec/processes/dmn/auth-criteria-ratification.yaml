@@ -1,0 +1,140 @@
+# Ratification manifest for the SP-OP-AUTH-001 auto-approval criteria gate (GAP-AUTH-4).
+#
+# WHY THIS FILE EXISTS
+# --------------------
+# `operadora.auth.validate_auto_criteria` (src/maezo/tools/workers/auth.py) computes four
+# criteria — tecnico / financeiro / regulatorio / contratual — and feeds the COMPUTED booleans
+# to `auth_auto_approval.dmn`. Three of the four are decided by DMN tables whose clinical /
+# regulatory / contractual content is SYNTHETIC and DRAFT (docs/review-queue.md, "Phase 1 —
+# DUT/ROL/Carencia DMN set"). Wiring them naively would let SYNTHETIC rules grant REAL
+# authorizations — strictly worse than the unverified start-payload seeds they replace, because
+# it would LOOK validated.
+#
+# THE RULE THIS FILE ENFORCES (mirrors the DPO retention-matrix loader,
+# src/maezo/platform/lifecycle/legal_bases_matrix.py, which REFUSES its own unratified
+# template rather than "succeeding" on placeholder data):
+#
+#     A criterion may contribute a PASS only if its rule source is RATIFIED here.
+#     A DRAFT / unlisted / malformed source yields `false` with a `*_FONTE_NAO_RATIFICADA`
+#     token, REGARDLESS of what the table computes.
+#
+# The validator still EVALUATES unratified tables and records what they WOULD have decided in
+# the bounded, non-PHI `auto_criteria_shadow` variable (shadow mode) — so the medico-auditor /
+# ANS reviewer ratifies against real outcome data instead of reviewing rules in the abstract.
+# Shadow output NEVER influences the verdict.
+#
+# HOW TO RATIFY (a DATA change — no code change, no redeploy of Python)
+# --------------------------------------------------------------------
+# Set, for the decision id in question, ALL THREE of:
+#   ratificado:    true                       # the boolean literal true — nothing else counts
+#   revisor:       "<who ratified it>"        # non-empty; ADR-0007 accountability
+#   ratificado_em: "YYYY-MM-DD"               # non-empty; when
+# Any of the three missing/blank/non-true => NOT ratified (fail-closed). The loader
+# (`maezo.tools.workers.auth_criteria`) never defaults a source to ratified, and swallows every
+# load error into "nothing is ratified" — a manifest problem can only route to human review,
+# never open an automatic approval.
+#
+# The FINANCIAL criterion is deliberately NOT listed here: its source is not a DMN table but the
+# governance autonomy matrix (`spec/policies/autonomy/L0-core.yaml` +
+# `tenants-amh.yaml`, `authorization_approval.max_value_brl`), which is already a ratified,
+# CODEOWNERS-gated governance artifact resolved through `CeilingResolver`. Its current value is
+# 0 (decision D-07 open) which, by `within_l2_ceiling`'s own fail-closed rule, authorises
+# nothing. Listing it here would imply this file governs it; it does not.
+#
+# The `unratified: true` root key (absent below, deliberately) is the retention-matrix
+# template guard, mirrored: a copy of this file marked `unratified: true` is REFUSED WHOLESALE
+# by the loader (zero ratified sources), so pointing the manifest path at a placeholder by
+# mistake also fails closed.
+
+version: 1
+
+# ---------------------------------------------------------------------------------------------
+# fontes — per-decision-table ratification status.
+# STATUS TODAY: nothing is ratified. Every table below is DRAFT with SYNTHETIC content and is
+# registered as such in docs/review-queue.md. Consequence: the tecnico, regulatorio and
+# contratual criteria all evaluate FALSE with `*_FONTE_NAO_RATIFICADA`, and (with the financial
+# ceiling at 0) NOTHING auto-approves — every request routes to human review. That is the same
+# safe outcome as before this gate existed, but now for four explicit, auditable, per-criterion
+# reasons instead of an unverified seed.
+# ---------------------------------------------------------------------------------------------
+fontes:
+  dut_rol_coverage:
+    ratificado: false
+    revisor: "medico auditor + juridico/regulatorio"
+    ratificado_em: null
+    observacao: >-
+      Mapeamento TUSS->ROL/DUT com codigos TUSS SINTETICOS. Verificar contra a tabela TUSS
+      vigente publicada pela ANS e contra RN 465/2021 + RN 473/2021 + RN 643/2025 antes de
+      ratificar. Enquanto DRAFT: criterio TECNICO = false (TECNICO_FONTE_NAO_RATIFICADA).
+
+  dut_criteria_bariatrica:
+    ratificado: false
+    revisor: "medico auditor + cirurgiao bariatrico + juridico/regulatorio"
+    ratificado_em: null
+    observacao: >-
+      Limiares clinicos SINTETICOS (IMC 35/40, tentativas previas, avaliacao multidisciplinar).
+      Verificar DUT ANS vigente + CFM 2.131/2015 e atualizacoes.
+
+  dut_criteria_oncologia_pet_ct:
+    ratificado: false
+    revisor: "medico auditor + oncologista/nucleo-medicina + juridico/regulatorio"
+    ratificado_em: null
+    observacao: >-
+      Finalidades e lista de neoplasias elegiveis SINTETICAS. Verificar DUT ANS PET-CT vigente.
+      Indicacoes neurologicas/cardiologicas NAO cobertas (DUT separada, SME adicional).
+
+  dut_criteria_terapias_especiais:
+    ratificado: false
+    revisor: "medico auditor + neuropediatra/psiquiatra infantil + juridico/regulatorio"
+    ratificado_em: null
+    observacao: >-
+      Modalidades e limites de sessoes/mes SINTETICOS. Verificar DUT ANS + Lei 12.764/2012 +
+      Lei 14.254/2021 + RN 465/2021.
+
+  carencia_check:
+    ratificado: false
+    revisor: "juridico/regulatorio + medico auditor"
+    ratificado_em: null
+    observacao: >-
+      TODOS os prazos sao SINTETICOS (urgencia 1d, parto 300d, eletivo 180d, CPT 730d).
+      Verificar Lei 9.656/1998 art. 11/12/35-C + RN 195/2009 + RN 259/2011 + consolidacoes ANS.
+      Portabilidade de carencia (RN 186/2009) NAO implementada. Enquanto DRAFT: criterio
+      REGULATORIO = false (REGULATORIO_FONTE_NAO_RATIFICADA).
+
+  auth_criteria_contratual:
+    ratificado: false
+    revisor: "juridico/contratos + financas + medico auditor (criterios de KPI assistencial)"
+    ratificado_em: null
+    observacao: >-
+      COSTURA VAZIA E HONESTA: a tabela existe com UMA unica regra catch-all que devolve
+      false / SEM_REGRA_RATIFICADA. NENHUMA regra contratual, milestone ou KPI foi inventada.
+      Ratificar somente DEPOIS que um SME popular a tabela com regras reais de plano/produto/
+      contrato/KPI. Enquanto vazia, ratificar este id NAO abre nada (a unica regra devolve
+      false) — mas mantem-se `false` aqui por honestidade de estado.
+
+# ---------------------------------------------------------------------------------------------
+# mapeamento_dut_criteria — dut_ref (emitido por `dut_rol_coverage`) -> tabela dut_criteria_*.
+#
+# ROTEAMENTO (plumbing), NAO REGRA: `docs/review-queue.md` ja declara que "a selecao da
+# `dut_criteria_*` por classe do procedimento e plumbing; a REGRA fica na DMN". Este mapeamento
+# vive aqui — e nao em Python — para que um SME possa corrigi-lo/completa-lo sem mudanca de
+# codigo, exatamente como a ratificacao.
+#
+# A chave e' o TOKEN do `dut_ref` (primeiro campo antes do espaco: `dut_rol_coverage` emite
+# p.ex. "DUT-BARIATRICA-001 DRAFT/verify" -> chave "DUT-BARIATRICA-001").
+#
+# DELIBERADAMENTE INCOMPLETO. Somente as duas correspondencias que os NOMES das proprias tabelas
+# tornam inequivocas estao declaradas. Um `dut_ref` com `requer_dut=true` e SEM entrada aqui
+# resolve FECHADO: criterio TECNICO = false com `TECNICO_PROCEDIMENTO_NAO_MAPEADO` (analise
+# humana). Adivinhar qual tabela de criterios clinicos se aplica a um DUT seria inventar um
+# julgamento clinico — proibido (invariante "nunca inventar um valor clinico/regulatorio").
+#
+# PENDENTE DE SME (medico auditor): DUT-TERAPIA-OCUPACIONAL-001, DUT-FONOAUDIOLOGIA-001,
+# DUT-PSICOTERAPIA-001 — `dut_criteria_terapias_especiais` cobre TEA/neurodesenvolvimento, e
+# nao esta estabelecido que TODA terapia ocupacional/fono/psicoterapia caia sob aquela DUT.
+# Tambem pendentes: DUT-ONCOLOGIA-QUIMIO-001, DUT-ONCOLOGIA-RT-001, DUT-CINTILOGRAFIA-OSSEA-001,
+# DUT-OPME-*, DUT-ALTA-COMPLEXIDADE-ANALISE-HUMANA.
+# ---------------------------------------------------------------------------------------------
+mapeamento_dut_criteria:
+  DUT-BARIATRICA-001: dut_criteria_bariatrica
+  DUT-PET-CT-ONCOLOGIA-001: dut_criteria_oncologia_pet_ct

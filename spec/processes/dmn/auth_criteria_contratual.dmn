@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_auth_criteria_contratual"
+             name="Criterio contratual da aprovacao automatica (milestones/regras/KPI)"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    auth_criteria_contratual v0.1.0 — status: DRAFT — **COSTURA VAZIA, DELIBERADAMENTE**.
+    REQUER revisao humana antes de qualquer deploy (docs/review-queue.md):
+    revisor: juridico/contratos + financas + medico auditor (criterios de KPI assistencial).
+
+    O QUE ESTA TABELA E'. O mandato do dono exige que toda aprovacao automatica atenda tambem
+    criterios CONTRATUAIS — milestones, regras e KPIs de plano/produto/prestador. Nenhum desses
+    dados existe hoje em SP-OP-AUTH-001: nao ha variavel de plano, produto, termos contratuais
+    nem meta de KPI em lugar nenhum do processo, e os KPIs declarados em
+    `spec/agents/rafael/agent.yaml` (auto_approval_rate, human_routing_precision,
+    false_denial_rate) sao prosa aspiracional sem codigo que os compute.
+
+    Esta tabela e' o LUGAR VERSIONADO onde essas regras vao aterrissar — nao uma regra inventada.
+    Ela tem UMA unica regra, catch-all, que devolve `criterio_contratual_ok = false` com o motivo
+    `SEM_REGRA_RATIFICADA`. Inventar aqui um "milestone" ou uma "meta de KPI" plausivel seria
+    fabricar um valor contratual, o que e' proibido (invariante: nunca inventar um valor
+    clinico/regulatorio/contratual — a regra e' SEMPRE do SME/dono).
+
+    INVARIANTE L0 HARD: esta tabela NAO possui saida de negativa. `criterio_contratual_ok=false`
+    significa "nao ha base contratual ratificada para aprovar AUTOMATICAMENTE" — o pedido segue
+    para o medico auditor humano, que decide. Nunca negativa automatica (ADR-0005/0008).
+
+    Inputs (ambos ja existentes no contrato de SP-OP-AUTH-001 — nenhuma variavel nova foi
+    inventada para esta tabela):
+      - tenant_id (string): operadora/tenant. Regras contratuais sao, por natureza, por
+        tenant/plano — este e' o eixo por onde um SME vai comecar.
+      - categoria_procedimento (string): consulta|exame_simples|exame_especial|terapia|
+        internacao|opme|alta_complexidade.
+
+    Outputs:
+      - criterio_contratual_ok: boolean — true SOMENTE sob uma regra contratual RATIFICADA.
+      - motivo: string — token/justificativa da regra que decidiu.
+
+    COMO POPULAR (SME): (1) adicionar as regras reais ACIMA do catch-all r99 (hitPolicy FIRST —
+    a primeira regra que casar vence, e o catch-all so' e' alcancado quando nenhuma casa);
+    (2) adicionar os inputs de plano/produto/KPI que essas regras exigirem, e as variaveis
+    correspondentes ao contrato do processo (docs/processes/contracts/SP-OP-AUTH-001.md);
+    (3) ratificar `auth_criteria_contratual` em
+    `spec/processes/dmn/auth-criteria-ratification.yaml`. ENQUANTO NAO RATIFICADA, o worker
+    `operadora.auth.validate_auto_criteria` ignora o resultado desta tabela e devolve
+    `criterio_contratual_ok=false` com `CONTRATUAL_FONTE_NAO_RATIFICADA` — mas registra em modo
+    SOMBRA o que ela TERIA decidido, para o revisor ratificar contra dados reais.
+
+    Consumida por: `operadora.auth.validate_auto_criteria` via a costura `dmn=` de worker
+    (ADR-0028, `tools/workers/dmn_transport.py`) — NUNCA por um businessRuleTask do BPMN. E'
+    por isso que ela figura como orfa PERMANENTE em `orphans-allowlist.yaml` (mesmo idioma das
+    7 tabelas de fraude_scoring), e nao como "pending wiring".
+  </description>
+
+  <decision id="auth_criteria_contratual"
+            name="Criterio contratual (milestones/regras/KPI) — DRAFT vazio"
+            camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_auth_criteria_contratual" hitPolicy="FIRST">
+
+      <input id="in_tenant" label="Tenant/operadora (tenant_id)">
+        <inputExpression id="ie_tenant" typeRef="string">
+          <text>tenant_id</text>
+        </inputExpression>
+      </input>
+
+      <input id="in_categoria" label="Categoria do procedimento (categoria_procedimento)">
+        <inputExpression id="ie_categoria" typeRef="string">
+          <text>categoria_procedimento</text>
+        </inputExpression>
+      </input>
+
+      <output id="out_contratual_ok" label="criterio_contratual_ok" name="criterio_contratual_ok" typeRef="boolean"/>
+      <output id="out_motivo"        label="motivo"                 name="motivo"                 typeRef="string"/>
+
+      <!-- ===================================================================
+           (regras contratuais reais entram AQUI, acima do catch-all)
+           =================================================================== -->
+
+      <!-- ===================================================================
+           CATCH-ALL r99 — a UNICA regra desta tabela hoje.
+           Nenhuma regra contratual/milestone/KPI foi ratificada, logo nenhuma
+           aprovacao automatica pode se apoiar no criterio contratual.
+           Encaminha para analise humana; NUNCA nega (L0 hard / ADR-0005).
+           =================================================================== -->
+      <rule id="r99">
+        <description>CATCH-ALL: nenhuma regra contratual/milestone/KPI ratificada existe. criterio_contratual_ok=false -> analise humana (medico auditor). Nunca negativa automatica.</description>
+        <inputEntry id="r99i1"><text>-</text></inputEntry>
+        <inputEntry id="r99i2"><text>-</text></inputEntry>
+        <outputEntry id="r99o1"><text>false</text></outputEntry>
+        <outputEntry id="r99o2"><text>"SEM_REGRA_RATIFICADA"</text></outputEntry>
+      </rule>
+
+    </decisionTable>
+  </decision>
+</definitions>
