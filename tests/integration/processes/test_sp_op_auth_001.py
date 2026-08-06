@@ -30,10 +30,10 @@ test_invariant_nenhum_caminho_automatizado_produz_negativa:
 
 PORT NOTES (fixture adaptation only — port rule 1; logic/assertions verbatim from donor):
   - import paths -> v2 `maezo.tools.workers.auth`/`harness`; `FakeKafkaPublisher` moved to
-    `harness.py` (T1.1). `phi_vars.REDACTED_PHI` does NOT exist anywhere on v2 main (grep across
-    `src/` returns zero hits) — see finding 3 below; the import is dropped and the PHI-redaction
-    assertions in `test_happy_path_negada_pelo_auditor` are adapted to document that gap instead
-    of asserting a symbol that cannot resolve.
+    `harness.py` (T1.1). `phi_vars.REDACTED_PHI` DOES exist on v2 main
+    (`src/maezo/tools/workers/phi_vars.py`) — see findings 3 and 5; item-9 auth Class-A RESTORED
+    the import and the donor's PHI-redaction assertions in `test_happy_path_negada_pelo_auditor`,
+    which now prove one-way redaction in the engine's own variable store.
   - artifact paths -> `spec/processes/{bpmn,dmn}/**` (constraint 5).
   - `_AUTH_WORKER_TOPICS` / `_AnalyzeRequestStub` / `drain_analyze()` kept VERBATIM: v1's
     `operadora.auth.analyze_request` is deliberately excluded from the generic drain (donor
@@ -67,7 +67,9 @@ FINDINGS (see PR body / evidence-ledger for full detail):
      `valor_estimado_brl`, so `End_AprovadaAutomatica` (L2 auto-approval) is UNREACHABLE under
      the current tenant policy config — a genuine, documented v2 config gap, independent of the
      (now-fixed) publish-topic gap, affecting the 2 tests that assert the auto-approval terminal;
-     those keep a `_CEILING_D07_REASON` xfail.
+     those two tests are no longer xfailed — item-9 auth Class-A
+     removed the last markers in this file (D-07 never had its own constant here; it was prose
+     only). The config gap itself is unchanged and human-gated (D-07, finance).
   3. `phi_vars.REDACTED_PHI`, FIXED (T3.1 auth-denial-hardening, THIS branch): v2 now has
      `maezo.tools.workers.phi_vars` (one-way, class-token port of the donor's module — no
      reversible pseudonymizer branch at this engine/Kafka-facing edge), and
@@ -97,8 +99,9 @@ FINDINGS (see PR body / evidence-ledger for full detail):
      `Flow_Solicitar_WaitDocs`, mirroring `ST_PublishReceived`), closing the C1 half for both
      tests (reached via either route into `ST_SolicitarDocumentos`); the C2 half of each is
      adapted to `has_event(..., prestador_id=...)` per the #108/#123 precedent. Split into their
-     own `_AUTH_PENDED_PUBLISH_ADDED_REASON` xfail reason — kept xfail (not flipped) pending a
-     live engine run (no docker/engine in this pass); see that constant's docstring for detail.
+     own `_AUTH_PENDED_PUBLISH_ADDED_REASON` reason — since RETIRED: those flips were live-proven
+     on a real CIB Seven 2.1.0 engine and the constant now has ZERO call sites (see its RETIRED
+     note).
   5. item-9 auth Class-A (THIS batch): the LAST 6 `_ACTION_WORKER_KAFKA_GAP_REASON` strict-xfails
      are adapted and their markers removed. Two independent things closed at different times:
      (a) the reason's `human_approved` clause is STALE — f271db9 (#185, "the src prerequisite of
@@ -318,7 +321,10 @@ _AUTH_PENDED_PUBLISH_ADDED_REASON = (
     "ST_SolicitarDocumentos -> ST_PublishAuthPended -> GW_AguardarDocs -> ICE_DocsRecebidos fired) "
     "AND SOLICITAR_INFO (UT_AnaliseMedicoAuditor -> ST_SolicitarDocumentos -> ST_PublishAuthPended); "
     "a third traversal proved ICE_PrazoPendencia still fires downstream of the splice. 0 sibling "
-    "regressions. Constant retained for the docstring prose above."
+    "regressions. "
+    "RETIRED (item-9 auth Class-A): those flips were live-proven and this constant now has ZERO "
+    "pytest.mark.xfail call sites — grep-confirmed; the file carries no xfail markers at all. "
+    "Retained only for the module-docstring prose above."
 )
 
 # T3.1 R3 (flip, THIS branch): the ERR_AUTH_DENIAL_INCOMPLETE guard is IMPLEMENTED and now
@@ -580,7 +586,9 @@ async def test_invariant_nenhum_caminho_automatizado_produz_negativa(
     # structurally always-empty in v2 (SendDenialNoticeWorker never calls kafka.publish —
     # re-verified at flip time). Re-expressed against the ENGINE, assert-for-assert, with NO
     # field dropped:
-    #   1. execution proof (was: `assert denials`) -> ST_EnviarNegativaFormal in engine history.
+    #   1. ramo ALCANCADO (was: `assert denials`) -> ST_EnviarNegativaFormal no historico. NB:
+    #      activity_instances_ended NAO filtra `finished`, entao prova ALCANCE, nao conclusao —
+    #      as provas de VALOR abaixo é que sao load-bearing (GK-auth finding 3).
     #      That is the ONLY serviceTask in the BPMN carrying camunda:topic
     #      `operadora.auth.send_denial_notice`, and its only inbound flow is Flow_GWDec_Negar
     #      (`${decisao_auditor == 'NEGAR'}` off GW_DecisaoAuditor) — the exact branch this leg
@@ -693,6 +701,13 @@ async def test_happy_path_aprovacao_automatica_l2(
     # the sanction channel is the DMN's own result — auth.py `_auto_approval_sanctioned` requires
     # `auto_aprovacao` to be a Mapping whose `recomendacao` is exactly 'AUTO_APROVAR', the SAME
     # variable Flow_GW_AutoAprovar's condition reads.
+    # GK-auth finding 4 — DIAGNOSTIC ORDER: `numero_autorizacao` is absent on the guard-block
+    # branch, so reading it first raises EngineRestError (opaque) instead of AssertionError. The
+    # worker writes `status` on BOTH branches ("authorized" vs "blocked_by_guard", auth.py:333/347
+    # vs :365), so assert it FIRST — a blocked issuance then names itself.
+    assert await engine.get_history_variable(iid, "status") == "authorized", (
+        "IssueAuthorizationWorker deve ter EMITIDO (status=authorized), nao bloqueado pelo guard"
+    )
     assert await engine.get_history_variable(iid, "numero_autorizacao"), (
         "IssueAuthorizationWorker deve ter emitido (numero_autorizacao em historia), nao bloqueado"
     )
@@ -750,6 +765,13 @@ async def test_happy_path_aprovada_pelo_auditor(
     )
     assert _ST_EMITIR_AUTO not in ended, (
         f"rota humana NAO passa por ST_EmitirAutorizacaoAuto (rota L2 auto). ended={ended}"
+    )
+    # GK-auth finding 4 — DIAGNOSTIC ORDER: `numero_autorizacao` is absent on the guard-block
+    # branch, so reading it first raises EngineRestError (opaque) instead of AssertionError. The
+    # worker writes `status` on BOTH branches ("authorized" vs "blocked_by_guard", auth.py:333/347
+    # vs :365), so assert it FIRST — a blocked issuance then names itself.
+    assert await engine.get_history_variable(iid, "status") == "authorized", (
+        "IssueAuthorizationWorker deve ter EMITIDO (status=authorized), nao bloqueado pelo guard"
     )
     assert await engine.get_history_variable(iid, "numero_autorizacao"), (
         "IssueAuthorizationWorker deve ter emitido (numero_autorizacao em historia), nao bloqueado"
@@ -1071,6 +1093,11 @@ async def test_timer_alerta_sla_nao_interruptivo(
     # which — together with the surviving open-UT assert below — is what "nao-interruptivo"
     # actually means (a parallel token completed while the User Task stayed open).
     ended_sla = await engine.activity_instances_ended(iid)
+    # GK-auth finding 5: prova de IDENTIDADE do worker — `alert_to` só é escrito por
+    # NotifySlaRiskWorker (auth.py:581); sem isto, o unico sinal seria "a task completou".
+    assert await engine.get_history_variable(iid, "alert_to") == "coordenacao-auditoria-medica", (
+        "NotifySlaRiskWorker (nao apenas 'algo') deve ter servido o topico notify_sla_risk"
+    )
     assert _ST_NOTIFICAR_SLA in ended_sla, (
         f"notify_sla_risk (ST_NotificarRiscoSla) deve ter executado no alerta de SLA. ended={ended_sla}"
     )
