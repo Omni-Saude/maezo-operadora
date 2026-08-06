@@ -122,7 +122,7 @@ Contrato completo: docs/processes/contracts/SP-OP-ADEQUACAO-001.md.
         </camunda:inputOutput>
       </bpmn:extensionElements>
       <bpmn:incoming>Flow_BrtGap_CalcGap</bpmn:incoming>
-      <bpmn:outgoing>Flow_CalcGap_PubGap</bpmn:outgoing>
+      <bpmn:outgoing>Flow_CalcGap_TemGap</bpmn:outgoing>
     </bpmn:serviceTask>
 
     <!-- DMN: mede a severidade do gap (sem saida que comprometa caixa). mapDecisionResult=singleResult
@@ -154,6 +154,7 @@ PROMOCAO DE SAIDAS (engine-correct): mapDecisionResult=singleResult guarda o obj
                            camunda:resultVariable="routing">
       <bpmn:documentation>Dominio de roteamento EXATAMENTE {MONITORAR, ENCAMINHAR_CREDENCIAMENTO, ANALISE_HUMANA}. Por design NAO existe saida COMPROMETER/GARANTIR/CONTRATAR (ADR-0018). dados_geo_completos=false / GAP_CRITICO -> ANALISE_HUMANA. Catch-all -> ANALISE_HUMANA. resultVariable singleResult: o gateway le `routing.roteamento_remediacao`.</bpmn:documentation>
       <bpmn:incoming>Flow_PubGap_BrtRouting</bpmn:incoming>
+      <bpmn:incoming>Flow_TemGap_Conforme</bpmn:incoming>
       <bpmn:outgoing>Flow_BrtRouting_BrtSla</bpmn:outgoing>
     </bpmn:businessRuleTask>
 
@@ -177,6 +178,12 @@ PROMOCAO DE SAIDAS (engine-correct): mapDecisionResult=singleResult guarda o obj
     </bpmn:exclusiveGateway>
 
     <!-- Ramo L3 CONFORME: rede dentro dos tempos/distancias RN 259 — fim neutro -->
+    <bpmn:exclusiveGateway id="GW_TemGap" name="Ha gap? (nao publica gap_detected em CONFORME)" default="Flow_TemGap_Conforme">
+      <bpmn:incoming>Flow_CalcGap_TemGap</bpmn:incoming>
+      <bpmn:outgoing>Flow_TemGap_PubGap</bpmn:outgoing>
+      <bpmn:outgoing>Flow_TemGap_Conforme</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
     <bpmn:serviceTask id="ST_PublishGapDetected" name="Publicar evento: adequacao.gap_detected"
                       camunda:type="external" camunda:topic="operadora.events.publish">
       <bpmn:documentation>GAP-ADEQ (2026-08-06): ST_CalculateGap DOCUMENTAVA publicar agents.events.adequacao.gap_detected, mas seu topico e o worker da familia (dict-first, nao publica) — o evento nunca saia. Esta task generica (mesmo idioma de ST_PublishReceived/ST_PublishConforme) o publica de fato, DEPOIS de BRT_AdequacaoGap para que gap_adequacao ja carregue a severidade.</bpmn:documentation>
@@ -186,7 +193,7 @@ PROMOCAO DE SAIDAS (engine-correct): mapDecisionResult=singleResult guarda o obj
           <camunda:inputParameter name="event_payload_vars">tenant_id,regiao_saude,especialidade,gap_adequacao</camunda:inputParameter>
         </camunda:inputOutput>
       </bpmn:extensionElements>
-      <bpmn:incoming>Flow_CalcGap_PubGap</bpmn:incoming>
+      <bpmn:incoming>Flow_TemGap_PubGap</bpmn:incoming>
       <bpmn:outgoing>Flow_PubGap_BrtRouting</bpmn:outgoing>
     </bpmn:serviceTask>
 
@@ -407,7 +414,11 @@ ST_PrepareRemediationDossier (dossie e refeito por Andre antes de reabrir UT_Dec
     <bpmn:sequenceFlow id="Flow_PubReceived_Measure" sourceRef="ST_PublishReceived" targetRef="ST_MeasureCoverage"/>
     <bpmn:sequenceFlow id="Flow_Measure_BrtGap" sourceRef="ST_MeasureCoverage" targetRef="BRT_AdequacaoGap"/>
     <bpmn:sequenceFlow id="Flow_BrtGap_CalcGap" sourceRef="BRT_AdequacaoGap" targetRef="ST_CalculateGap"/>
-    <bpmn:sequenceFlow id="Flow_CalcGap_PubGap" sourceRef="ST_CalculateGap" targetRef="ST_PublishGapDetected"/>
+    <bpmn:sequenceFlow id="Flow_CalcGap_TemGap" sourceRef="ST_CalculateGap" targetRef="GW_TemGap"/>
+    <bpmn:sequenceFlow id="Flow_TemGap_PubGap" sourceRef="GW_TemGap" targetRef="ST_PublishGapDetected">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${gap_adequacao != 'CONFORME'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_TemGap_Conforme" sourceRef="GW_TemGap" targetRef="BRT_RemediationRouting"/>
     <bpmn:sequenceFlow id="Flow_PubGap_BrtRouting" sourceRef="ST_PublishGapDetected" targetRef="BRT_RemediationRouting"/>
     <bpmn:sequenceFlow id="Flow_BrtRouting_BrtSla" sourceRef="BRT_RemediationRouting" targetRef="BRT_AdequacaoSla"/>
     <bpmn:sequenceFlow id="Flow_BrtSla_GWRouting" sourceRef="BRT_AdequacaoSla" targetRef="GW_Roteamento"/>
@@ -471,8 +482,11 @@ ST_PrepareRemediationDossier (dossie e refeito por Andre antes de reabrir UT_Dec
       <bpmndi:BPMNShape id="Shape_ST_MeasureCoverage" bpmnElement="ST_MeasureCoverage">
         <dc:Bounds x="400" y="40" width="100" height="80"/>
       </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_TemGap" bpmnElement="GW_TemGap">
+        <dc:Bounds x="885" y="60" width="40" height="40"/>
+      </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_PublishGapDetected" bpmnElement="ST_PublishGapDetected">
-        <dc:Bounds x="810" y="190" width="100" height="80"/>
+        <dc:Bounds x="855" y="190" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_CalculateGap" bpmnElement="ST_CalculateGap">
         <dc:Bounds x="760" y="40" width="100" height="80"/>
@@ -577,13 +591,21 @@ ST_PrepareRemediationDossier (dossie e refeito por Andre antes de reabrir UT_Dec
         <di:waypoint x="680" y="80"/>
         <di:waypoint x="760" y="80"/>
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_Flow_CalcGap_PubGap" bpmnElement="Flow_CalcGap_PubGap">
+      <bpmndi:BPMNEdge id="Edge_Flow_CalcGap_TemGap" bpmnElement="Flow_CalcGap_TemGap">
         <di:waypoint x="860" y="80"/>
-        <di:waypoint x="860" y="230"/>
+        <di:waypoint x="885" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_TemGap_PubGap" bpmnElement="Flow_TemGap_PubGap">
+        <di:waypoint x="905" y="100"/>
+        <di:waypoint x="905" y="190"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_TemGap_Conforme" bpmnElement="Flow_TemGap_Conforme">
+        <di:waypoint x="925" y="80"/>
+        <di:waypoint x="940" y="80"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_PubGap_BrtRouting" bpmnElement="Flow_PubGap_BrtRouting">
-        <di:waypoint x="910" y="230"/>
-        <di:waypoint x="940" y="80"/>
+        <di:waypoint x="955" y="230"/>
+        <di:waypoint x="990" y="120"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_BrtRouting_BrtSla" bpmnElement="Flow_BrtRouting_BrtSla">
         <di:waypoint x="1040" y="80"/>

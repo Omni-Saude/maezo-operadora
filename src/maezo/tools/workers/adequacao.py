@@ -128,6 +128,16 @@ def measure_gap(variables: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------
 
 
+# GAP-ADEQ-INVERSAO (decisao do dono, 2026-08-06): tetos LIDOS da propria tabela deployada
+# `adequacao_gap.dmn`, regra `r_eletivo_leve` (`tempo <= 60`, `distancia <= 50.0`). NAO sao valores
+# novos nem inventados — sao o unico teto de acesso eletivo que a tabela ja declara. Servem apenas
+# para RECUSAR agir sobre um CONFORME que a propria tabela produziu por queda no `r_conforme` sem
+# teto (que precede nenhuma regra `*_critico` eletiva por tempo/distancia).
+_ELETIVO_LEVE_TEMPO_MAX_MIN = 60
+_ELETIVO_LEVE_DISTANCIA_MAX_KM = 50.0
+_MOTIVO_CONFORME_RECUSADO = "CONFORME_RECUSADO_ACESSO_ACIMA_DO_TETO_LEVE"
+
+
 def route_remediation(variables: dict[str, Any], *, dmn: DmnTransport | None = None) -> dict[str, Any]:
     """Classify gap severity and route remediation — NEVER commits to fallback.
 
@@ -150,7 +160,12 @@ def route_remediation(variables: dict[str, Any], *, dmn: DmnTransport | None = N
     old Python keyed off `prestadores>=1 and tempo<=90`). Values stay within the same neutral
     closed set with no adverse output on either path — both `CONFORME` and `GAP_LEVE` route to
     the SAME `MONITORAR` remediation (live-verified), so this divergence has zero effect on the
-    downstream remediation action.
+    downstream remediation action. **CORRIGIDO 2026-08-06 (GK-adequacao finding 2): essa ultima
+    frase e FALSA no nivel do BPMN** — `GW_Roteamento` distingue os dois
+    (`MONITORAR && gap_adequacao == 'CONFORME'` vai a `ST_PublishConforme`/`End_AdequacaoConforme`,
+    SEM plano de monitoramento e SEM alerta; `MONITORAR && != 'CONFORME'` vai a
+    `ST_UpdateMonitoringPlanL3`). Mesmo valor de roteamento, ramos e efeitos colaterais
+    DIFERENTES. Ver o fail-safe abaixo.
     """
     tempo = variables.get("tempo_acesso_apurado_min", 0)
     distancia = variables.get("distancia_apurada_km", 0.0)
@@ -184,6 +199,31 @@ def route_remediation(variables: dict[str, Any], *, dmn: DmnTransport | None = N
     route_row = first_row(route_rows, "adequacao_remediation_routing", variables)
     roteamento = str(route_row.get("roteamento_remediacao", "ANALISE_HUMANA"))
     route_motivo = str(route_row.get("motivo", motivo))
+
+    # FAIL-SAFE (GAP-ADEQ-INVERSAO): a tabela deployada tem `r_conforme` SEM teto de
+    # tempo/distancia, colocado DEPOIS de `r_eletivo_leve` sob hitPolicy=FIRST — logo um acesso
+    # eletivo ARBITRARIAMENTE ruim (ex.: 200min/80km) NAO casa o `r_eletivo_leve` e cai em
+    # CONFORME, terminando em End_AdequacaoConforme SEM plano de monitoramento e SEM alerta a
+    # gestao-rede. Antes da preservacao de fatos isso ficava mascarado (o worker sobrescrevia
+    # 45min/15.5km e o caso virava GAP_LEVE, monitorado). Aqui NAO reescrevemos o veredito da DMN
+    # (`gap_adequacao` continua o que ela disse — auditavel); recusamos AGIR sobre ele: o
+    # roteamento vai para ANALISE_HUMANA. Mesma forma da aplicacao do teto na emissao de
+    # autorizacao: nao se corrige a tabela, torna-se o limite que ela ja declara efetivo.
+    # A correcao definitiva (ordem/tetos das regras) e do portao REGULATORIO — RN 259.
+    conforme_contradito = gap_adequacao == "CONFORME" and (
+        int(tempo) > _ELETIVO_LEVE_TEMPO_MAX_MIN or float(distancia) > _ELETIVO_LEVE_DISTANCIA_MAX_KM
+    )
+    if conforme_contradito:
+        logger.warning(
+            "adequacao_conforme_recusado_por_acesso",
+            gap_adequacao_dmn=gap_adequacao,
+            tempo_acesso_apurado_min=int(tempo),
+            distancia_apurada_km=float(distancia),
+            roteamento_dmn=roteamento,
+            motivo=_MOTIVO_CONFORME_RECUSADO,
+        )
+        roteamento = "ANALISE_HUMANA"
+        route_motivo = _MOTIVO_CONFORME_RECUSADO
 
     logger.info(
         "adequacao_route_remediation",

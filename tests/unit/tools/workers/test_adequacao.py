@@ -249,7 +249,14 @@ def test_adequacao_gap_conforme_reachable_beyond_leve_gate() -> None:
     on tempo/distancia) matches. Also documents a DMN-content quirk (not patched, per
     constraint 5): CONFORME's row does not itself gate on tempo/distancia, so this specific
     case (tempo=70min) reads as MORE severe than the tempo=45min GAP_LEVE case yet is labeled
-    CONFORME — flagged for spec-side review, not fixed here."""
+    CONFORME — flagged for spec-side review, not fixed here.
+
+    FAIL-SAFE (decisao do dono, 2026-08-06): o veredito da DMN continua CONFORME (nao reescrevemos
+    a tabela), MAS o worker RECUSA agir sobre ele quando o acesso medido excede o teto que a
+    propria tabela declara em `r_eletivo_leve` (60min/50km) — o roteamento vira ANALISE_HUMANA em
+    vez de MONITORAR. Sem isto, este caso (70min) terminava em End_AdequacaoConforme SEM plano de
+    monitoramento e SEM alerta a gestao-rede, pior que o comportamento anterior a preservacao de
+    fatos."""
     fake = _adequacao_fake(gap_adequacao="CONFORME", roteamento_remediacao="MONITORAR")
     result = route_remediation(
         {
@@ -262,7 +269,64 @@ def test_adequacao_gap_conforme_reachable_beyond_leve_gate() -> None:
         },
         dmn=fake,
     )
+    # veredito da DMN preservado e auditavel...
     assert result["gap_adequacao"] == "CONFORME"
+    # ...mas NAO se age sobre ele: 70min excede o teto eletivo da propria tabela (60min).
+    assert result["roteamento_remediacao"] == "ANALISE_HUMANA"
+    assert result["motivo"] == "CONFORME_RECUSADO_ACESSO_ACIMA_DO_TETO_LEVE"
+
+
+def test_conforme_dentro_do_teto_leve_nao_e_recusado() -> None:
+    """Contra-prova de nao-vacuidade: CONFORME DENTRO do teto (45min/10km) segue MONITORAR.
+
+    Sem este teste o fail-safe poderia recusar tudo e ainda parecer correto."""
+    fake = _adequacao_fake(gap_adequacao="CONFORME", roteamento_remediacao="MONITORAR")
+    result = route_remediation(
+        {
+            "tipo_carater": "eletivo",
+            "tempo_acesso_apurado_min": 45,
+            "distancia_apurada_km": 10.0,
+            "prestadores_disponiveis": 2,
+            "cobertura_geo_suficiente": True,
+            "dados_geo_completos": True,
+        },
+        dmn=fake,
+    )
+    assert result["gap_adequacao"] == "CONFORME"
+    assert result["roteamento_remediacao"] == "MONITORAR"
+
+
+def test_conforme_recusado_tambem_por_distancia() -> None:
+    """A recusa dispara pelo teto de DISTANCIA tambem, nao so pelo de tempo."""
+    fake = _adequacao_fake(gap_adequacao="CONFORME", roteamento_remediacao="MONITORAR")
+    result = route_remediation(
+        {
+            "tipo_carater": "eletivo",
+            "tempo_acesso_apurado_min": 30,
+            "distancia_apurada_km": 80.0,
+            "prestadores_disponiveis": 2,
+            "cobertura_geo_suficiente": True,
+            "dados_geo_completos": True,
+        },
+        dmn=fake,
+    )
+    assert result["roteamento_remediacao"] == "ANALISE_HUMANA"
+
+
+def test_gap_leve_acima_do_teto_nao_e_afetado_pelo_fail_safe() -> None:
+    """O fail-safe so alcanca CONFORME — um GAP_LEVE segue seu roteamento normal."""
+    fake = _adequacao_fake(gap_adequacao="GAP_LEVE", roteamento_remediacao="MONITORAR")
+    result = route_remediation(
+        {
+            "tipo_carater": "eletivo",
+            "tempo_acesso_apurado_min": 200,
+            "distancia_apurada_km": 90.0,
+            "prestadores_disponiveis": 2,
+            "cobertura_geo_suficiente": True,
+            "dados_geo_completos": True,
+        },
+        dmn=fake,
+    )
     assert result["roteamento_remediacao"] == "MONITORAR"
 
 
