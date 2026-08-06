@@ -390,6 +390,22 @@ def _register_descredenciamento(variables: dict[str, Any]) -> dict[str, Any]:
     absent; a whitespace-PADDED exact `decisao_cred` literal still passes (case variants/
     substrings still refuse — exact `!=` match, no folding). `tem_beneficiarios_vinculados`
     is a boolean routing FACT, not a human-typed string — untouched.
+
+    GATEWAY FACT ECHO (GW_Substituicao, BPMN lines 430-438): `plano_substituicao` is an OPTIONAL
+    UT field (only obligatory when `tem_beneficiarios_vinculados`, per the guard above), so it is
+    ABSENT from process scope on the pure descredenciado path — the BPMN's own inline comment
+    documents that referencing it directly in the gateway's JUEL condition would throw "Cannot
+    resolve identifier" and stall the instance. This worker therefore echoes a guaranteed-in-scope
+    FLAT boolean `tem_plano_substituicao` (idiom mirrored from SP-OP-FRAUDE-001's
+    `destino_referral_cred`/`destino_referral_contratual` flat gateway facts, null-safe `== true`
+    JUEL), derived from the ALREADY-normalized `plano_substituicao` above: `bool(plano_substituicao)`
+    — a non-blank string is `True`; absent/`None`/blank/whitespace-only/non-string junk (int, list,
+    dict, bool — `_norm_str` maps every non-string to `""`) is `False`. FAIL-SAFE DIRECTION: `False`
+    (plain de-accreditation) is the conservative reading for junk input, not `True` (substitution
+    registered) — a substitution wrongly claimed on malformed input would falsely signal continuity
+    of care to beneficiaries who in fact have none, whereas the reverse (a real plan misread as
+    absent) merely falls through to the plain de-accreditation terminal without inventing a false
+    assurance. Same direction `_norm_str` already fails closed in, elsewhere in this module.
     """
     decisao = _norm_str(variables.get("decisao_cred", ""))
     responsavel_id = _norm_str(variables.get("responsavel_id", ""))
@@ -424,16 +440,20 @@ def _register_descredenciamento(variables: dict[str, Any]) -> dict[str, Any]:
         # error-codes section above and cancel.confirm_maintained_decision for the rationale.
         raise WorkerBpmnError(ERR_DECRED_NOT_HUMAN, "; ".join(errors))
 
+    tem_plano_substituicao = bool(plano_substituicao)
+
     logger.info(
         "cred_prestador_descredenciado",
         prestador_id=variables.get("prestador_id"),
         responsavel_id=responsavel_id,
+        tem_plano_substituicao=tem_plano_substituicao,
     )
 
     return {
         "descredenciamento_registrado": True,
         "network_changed": True,
         "data_efeito_iso": variables.get("data_efeito_iso", ""),
+        "tem_plano_substituicao": tem_plano_substituicao,
     }
 
 

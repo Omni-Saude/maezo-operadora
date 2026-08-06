@@ -177,6 +177,10 @@ _SAFE_DECISION_BASIS_KEYS: frozenset[str] = frozenset(
         # engine history, not in the non-repudiable chain. Both are bounded non-PHI tokens.
         "dentro_teto_l2",
         "motivo_bloqueio_teto",
+        # GK-cred finding 5: o fato que ESCOLHE entre o terminal adverso e o de substituicao
+        # so vivia no historico do engine — a linha nao-repudiavel de um descredenciamento nao
+        # registrava qual rotulo foi aplicado. Booleano limitado, nao-PHI.
+        "tem_plano_substituicao",
         "admissivel",
         "elegivel",
     }
