@@ -195,8 +195,14 @@ class AnsRetryPolicy:
     #: write the incremented loop counter into the instance — the DMN's own description assigns
     #: that job to this worker ("O worker regulatorio.anssubmit.retransmit incrementa
     #: `retry_attempt` (contador tecnico de loop)"), and `BRT_RetryPolicy` then re-evaluates the
-    #: SAME table on it. Without the increment `GW_ContinuarRetry` never reaches the DMN's
-    #: `> 3` catch-all and `SUB_RetryEnvio` loops forever.
+    #: SAME table on it. DEFEITO REAL pre-mudanca (narrativa corrigida por GK-ans finding 1,
+    #: provada base-vs-HEAD): `retry_attempt` NUNCA era escrito no escopo do processo — nem pelo
+    #: BPMN, nem por `start_ans`, nem pelo retorno do worker — logo `BRT_RetryPolicy` avaliava
+    #: sobre uma variavel ausente e caia no catch-all `-` (que casa QUALQUER valor), retornando
+    #: `continue_retry=false`. NAO havia loop infinito: o worker levantava
+    #: `AnsRetryEsgotadoError` (RuntimeError => familia TRANSIENTE do harness) ja na PRIMEIRA
+    #: retransmissao, a external task nunca completava e o terminal modelado de esgotamento era
+    #: inalcancavel.
     retry_attempt: int = 0
 
 
@@ -803,9 +809,13 @@ def retransmit_entry(
     The DMN's own description assigns the increment to this worker ("O worker
     regulatorio.anssubmit.retransmit incrementa `retry_attempt`"), and it is what makes the modeled
     loop terminate: `BRT_RetryPolicy` re-evaluates on the incremented counter until the table's
-    `> 3` catch-all returns `continue_retry=false`, which routes `GW_ContinuarRetry` to
-    `End_RetryEsgotado` -> `BE_RetryEsgotado` -> `UT_TratarNack`. Without it the counter would stay
-    frozen at its entry value and `SUB_RetryEnvio` would loop forever.
+    catch-all returns `continue_retry=false`, which routes `GW_ContinuarRetry` to
+    `End_RetryEsgotado` -> `BE_RetryEsgotado` -> `UT_TratarNack`. CORRECAO DE NARRATIVA (GK-ans
+    finding 1): sem o incremento NAO havia "loop infinito" — `retry_attempt` nunca chegava ao
+    escopo do processo, entao o catch-all `-` casava sempre e o esgotamento era imediato; o que
+    de fato quebrava a rota era o `AnsRetryEsgotadoError` (familia transiente) levantado na
+    primeira retransmissao, que impedia a task de completar. O incremento importa porque
+    `BRT_RetryPolicy` precisa de um contador REAL em escopo (contrato :157).
 
     Exhaustion is REPORTED (`continue_retry=false`), never raised — see `retry_submission`.
     """

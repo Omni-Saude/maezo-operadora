@@ -207,6 +207,7 @@ import pytest_asyncio
 
 from maezo.tools.workers.ans_gateway import MOCK_ANS_PROTOCOL_PREFIX, LabeledMockAnsGatewayTransport
 from maezo.tools.workers.ans_submit import (
+    ANS_SUBMIT_BPMN_ERROR_ALLOWLIST,
     AnsSubmitNotHumanError,
     assemble_entry,
     register_ans_submit_workers,
@@ -361,22 +362,19 @@ _SUBMIT_NACK_UNREACHABLE_REASON = (
     "retransmissao sem chamada real de gateway seria FABRICACAO — o contrato lista a "
     "semantica precisa de ACK/NACK e a politica de retransmissao como dependencia externa em "
     "aberto (AWS-blocked, issue #16). "
+    "BLOQUEIO 3 (FINDING C, eco kafka morto — a convencao deste modulo exige declara-lo): NENHUMA "
+    "entry function de ans_submit chama kafka.publish (`retransmit_entry` tem `del kafka`; so "
+    "`make_notify_regulatorio_handler` publica, com type `anssubmit.notify_regulatorio`), entao "
+    "`notifications_of_type('anssubmit.retransmit')` e estruturalmente sempre [] e os asserts de "
+    "`len(retransmits) >= 2`/`retry_attempt` nao podem passar. Bloqueio 2 vale so para "
+    "test_nack_entra_em_retry_e_retransmite_sucesso (o de esgotamento QUER o ramo default). "
     "NOTA: o regime de schema-pinning NAO e mais um bloqueio — `ans_probe_tiss_pinned` ja "
     "existe, escreve um XSD de fixture em tmp_path e NAO exige XSD real nem SME; trocar estes "
-    "2 testes para o probe pinado e trabalho de teste, valido assim que os bloqueios 1/2 "
-    "cairem."
+    "2 testes para o probe pinado e trabalho de teste — mas NAO basta: exige tambem os "
+    "bloqueios 1, 2 E 3 resolvidos."
 )
 
 # FINDING D (new — guard genuinely missing in v2, not merely misrouted).
-_ASSEMBLE_FAILURE_GUARD_MISSING_REASON = (
-    "T3.1 phase-2 FINDING D (new): the donor's assemble worker raises ERR_ANS_DATASET_INCOMPLETO "
-    "when dataset_assembly_failed=True (montagem falhou na origem). v2's AnsSubmitInput dataclass "
-    "(ans_submit.py) has NO dataset_assembly_failed field at all, and prepare_submission/"
-    "assemble_entry never raise AnsDatasetIncompletoError for ANY input shape — that exception is "
-    "raised ONLY by track_protocol_entry/retransmit_entry, for an unrelated condition (blank "
-    "protocolo_ans). The assembly-failure guard itself is MISSING in v2, not misrouted like "
-    "FINDING A/B; src/** fix (adding the field + the raise) is out of scope for this porting task."
-)
 
 
 @dataclass
@@ -446,7 +444,7 @@ def _build_ans_probe(
         worker_id=worker_id,
         tenant=audit_tenant,
         lock_duration_ms=10_000,
-        bpmn_error_allowlist=frozenset({"ERR_ANS_PROTOCOLO_NACK", "ERR_ANS_RETRY_ESGOTADO"}),
+        bpmn_error_allowlist=ANS_SUBMIT_BPMN_ERROR_ALLOWLIST,
         # T1.10 wave: emit-before-complete is fail-closed — real lane PostgresAuditSink required.
         audit_sink=audit_sink,
     )
