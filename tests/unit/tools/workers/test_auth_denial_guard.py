@@ -932,6 +932,256 @@ def test_issue_authorization_fail_closed_rejects_non_true_human_approved(
 
 
 # ---------------------------------------------------------------------------
+# issue_authorization — the FLATTENED auto-L2 sanction channel (item-9 auto-L2 defect)
+#
+# Live-proven defect (CIB Seven 2.1.0): GW_AutoAprovacao routed on
+# `${auto_aprovacao.recomendacao == 'AUTO_APROVAR'}` — the DMN DID sanction — yet the worker
+# refused (`auth_issue_blocked_by_guard reason='sem evidencia ...'`) and `numero_autorizacao`
+# was never written, while the process still published `auth.completed
+# desfecho=aprovada_automatica`. `auto_aprovacao` is BRT_AutoApproval's `singleResult`
+# resultVariable: a JAVA Map, delivered over `fetchAndLock` as a NON-deserialized `Object`
+# value (`deserializeValues` defaults to false and `CibSevenWorkerTransport.fetch_and_lock`
+# sends no flag; `_from_camunda_var` only re-decodes `type == "Json"`), so the worker never
+# saw a `Mapping`. ST_EmitirAutorizacaoAuto now flattens the sanction into a plain String via
+# a TASK-LOCAL `camunda:inputParameter` (mirroring SP-OP-REEMBOLSO-001's ST_IssuePaymentAuto).
+# ---------------------------------------------------------------------------
+
+#: Whatever CIB Seven actually hands over for a non-deserialized `Object` variable, the worker
+#: must treat as "no sanction". A base64 java-serialization blob is the shape observed on the
+#: live engine; the other vectors cover the neighbouring possibilities (already-JSON-encoded
+#: string, None) so the guard is proven independent of which one the engine picks.
+_OPAQUE_AUTO_APROVACAO_VECTORS: list[object] = [
+    "rO0ABXNyADdvcmcuY2FtdW5kYS5icG0uZG1uLmVuZ2luZS5pbXBsLkRtbkRlY2lzaW9u",  # java-serialized blob
+    '{"recomendacao":"AUTO_APROVAR"}',  # JSON re-encoded but NOT decoded (type != "Json")
+    None,  # not returned at all
+]
+
+#: Every value of the flattened channel that must NEVER sanction an issuance. `AUTO_APROVAR` is
+#: the ONLY accepted literal (surrounding whitespace tolerated, exactly as the pre-existing
+#: Mapping branch already tolerated it) — no case folding, no prefix/substring match, no
+#: non-`str` type, and no re-entry of the Mapping shape through the flattened name.
+_FLAT_AUTO_SANCTION_REFUSAL_VECTORS: list[object] = [
+    "",  # blank
+    "   ",  # whitespace-only
+    "ANALISE_HUMANA",  # the DMN's own catch-all
+    "auto_aprovar",  # case-folded — not the literal
+    "AUTO_APROVAR_PARCIAL",  # prefix junk
+    "NAO_AUTO_APROVAR",  # suffix junk
+    True,  # bool, not str
+    1,  # int, not str
+    None,  # explicitly unset
+    ["AUTO_APROVAR"],  # list
+    {"recomendacao": "AUTO_APROVAR"},  # the Mapping shape under the FLAT name — wrong channel
+]
+
+
+def test_issue_authorization_issues_on_flattened_auto_l2_sanction() -> None:
+    """THE FIX: the engine-delivered shape of the modeled auto-L2 route issues.
+
+    `ST_EmitirAutorizacaoAuto`'s task-local `camunda:inputParameter` delivers
+    `auto_aprovacao_recomendacao` as a plain String — the ONLY sanction evidence the worker can
+    rely on receiving, since the `auto_aprovacao` Map itself arrives opaque. No human exists on
+    this route by design (ADR-0008 L2), so the threaded provenance is truthfully False.
+    """
+    worker = IssueAuthorizationWorker()
+
+    result = worker.run(
+        {
+            "tenant_id": "amh",
+            "numero_guia_tiss": "G12345",
+            "auto_aprovacao_recomendacao": "AUTO_APROVAR",
+            # no decisao_auditor (no UT on this route), no human_approved
+        }
+    )
+
+    assert result["status"] == "authorized"
+    assert result["numero_autorizacao"].startswith("AUTH-")
+    assert result["human_approved"] is False
+
+
+@pytest.mark.parametrize("opaque_auto", _OPAQUE_AUTO_APROVACAO_VECTORS)
+def test_issue_authorization_flattened_sanction_survives_opaque_auto_aprovacao(
+    opaque_auto: object,
+) -> None:
+    """The live failing shape, end to end: the DMN Map arrives UNUSABLE and the flattened String
+    carries the sanction. This is exactly the state
+    `test_happy_path_aprovacao_automatica_l2` hits on the real engine."""
+    worker = IssueAuthorizationWorker()
+
+    result = worker.run(
+        {
+            "tenant_id": "amh",
+            "numero_guia_tiss": "G12345",
+            "auto_aprovacao": opaque_auto,
+            "auto_aprovacao_recomendacao": "AUTO_APROVAR",
+        }
+    )
+
+    assert result["status"] == "authorized"
+    assert result["numero_autorizacao"].startswith("AUTH-")
+    assert result["human_approved"] is False
+
+
+@pytest.mark.parametrize("flat_value", _FLAT_AUTO_SANCTION_REFUSAL_VECTORS)
+def test_issue_authorization_fail_closed_rejects_junk_flattened_sanction(flat_value: object) -> None:
+    """FAIL-CLOSED on the flattened channel: only the exact `AUTO_APROVAR` literal sanctions.
+
+    Regression pin against a future widening of the accepted value set (these all block on the
+    pre-fix code too — trivially, since it accepted nothing on this channel).
+    """
+    worker = IssueAuthorizationWorker()
+
+    result = worker.run(
+        {
+            "tenant_id": "amh",
+            "numero_guia_tiss": "G12345",
+            "auto_aprovacao_recomendacao": flat_value,
+        }
+    )
+
+    assert result["status"] == "blocked_by_guard"
+    assert result["error_code"] == ERR_DENIAL_NOT_HUMAN
+    assert "numero_autorizacao" not in result
+
+
+def test_issue_authorization_blocked_when_flattened_sanction_absent_entirely() -> None:
+    """Absent (never delivered) is refusal — the new channel adds no default-open."""
+    worker = IssueAuthorizationWorker()
+
+    result = worker.run({"tenant_id": "amh", "numero_guia_tiss": "G12345"})
+
+    assert result["status"] == "blocked_by_guard"
+    assert result["error_code"] == ERR_DENIAL_NOT_HUMAN
+
+
+def test_issue_authorization_never_issues_on_negar_with_flattened_sanction() -> None:
+    """L0 hard, unchanged: a NEGAR is blocked BEFORE any sanction channel is consulted — the new
+    flattened channel is no exception (a residual auto sanction never converts a negativa)."""
+    worker = IssueAuthorizationWorker()
+
+    result = worker.run(
+        {
+            "tenant_id": "amh",
+            "numero_guia_tiss": "G12345",
+            "decisao_auditor": "NEGAR",
+            "auto_aprovacao_recomendacao": "AUTO_APROVAR",
+            "human_approved": True,
+        }
+    )
+
+    assert result["status"] == "blocked_by_guard"
+    assert result["error_code"] == ERR_DENIAL_NOT_HUMAN
+    assert "numero_autorizacao" not in result
+
+
+def test_issue_authorization_human_route_unaffected_by_the_new_channel() -> None:
+    """The human route (`ST_EmitirAutorizacaoAuditor`, `${decisao_auditor == 'APROVAR'}`) issues
+    with NO flattened variable present, and still threads `human_approved=True`."""
+    worker = IssueAuthorizationWorker()
+
+    result = worker.run(
+        {
+            "tenant_id": "amh",
+            "numero_guia_tiss": "G12345",
+            "decisao_auditor": "APROVAR",
+        }
+    )
+
+    assert result["status"] == "authorized"
+    assert result["human_approved"] is True
+
+
+# ---------------------------------------------------------------------------
+# Spec fence for the flattened auto-L2 sanction channel — the model half of the fix.
+#
+# The worker guard above is only satisfiable if the MODEL actually flattens the DMN result into
+# `ST_EmitirAutorizacaoAuto`. These pin that wiring (and its non-spoofability) so it cannot
+# silently regress out from under the worker — the same failure mode that produced the original
+# phantom `human_approved` guard.
+# ---------------------------------------------------------------------------
+
+#: The task-local input mapping created by the fix, and the expression it must read.
+_AUTO_SANCTION_FLAT_VAR = "auto_aprovacao_recomendacao"
+_AUTO_SANCTION_EXPRESSION = "${auto_aprovacao.recomendacao}"
+
+#: The two serviceTasks bound to `operadora.auth.issue_authorization` (auto route / human route).
+_ST_EMITIR_AUTO = "ST_EmitirAutorizacaoAuto"
+_ST_EMITIR_AUDITOR = "ST_EmitirAutorizacaoAuditor"
+
+
+def _service_task_input_parameters(service_task_id: str) -> dict[str, str]:
+    """Return {camunda:inputParameter name: text} declared by a serviceTask of the AUTH spec BPMN."""
+    root = ET.parse(_AUTH_BPMN).getroot()
+    for service_task in root.iter(f"{{{_BPMN_NS}}}serviceTask"):
+        if service_task.get("id") == service_task_id:
+            return {
+                inp.get("name", ""): (inp.text or "").strip()
+                for inp in service_task.iter(f"{{{_CAMUNDA_NS}}}inputParameter")
+            }
+    raise AssertionError(f"serviceTask {service_task_id!r} not found in {_AUTH_BPMN}")
+
+
+def test_spec_flattens_the_dmn_sanction_into_the_auto_issuance_task() -> None:
+    """`ST_EmitirAutorizacaoAuto` declares the task-local flattening input mapping.
+
+    Without it the worker's auto-L2 channel is UNSATISFIABLE on a real engine (the `Object`-typed
+    DMN Map never arrives as a `Mapping`) and every automatic approval silently fails to issue.
+    """
+    params = _service_task_input_parameters(_ST_EMITIR_AUTO)
+
+    assert params.get(_AUTO_SANCTION_FLAT_VAR) == _AUTO_SANCTION_EXPRESSION, (
+        f"{_ST_EMITIR_AUTO} must flatten the DMN sanction into {_AUTO_SANCTION_FLAT_VAR}; got {params}"
+    )
+
+
+def test_spec_flattened_input_reads_the_same_term_as_the_gateway_condition() -> None:
+    """The flattened input and `Flow_GW_AutoAprovar`'s condition read the SAME DMN term.
+
+    The sanction the worker consumes is therefore, by construction, the sanction the engine
+    itself just routed on — not a second, independently-settable fact.
+    """
+    root = ET.parse(_AUTH_BPMN).getroot()
+    conditions = [
+        (flow.findtext(f"{{{_BPMN_NS}}}conditionExpression") or "").strip()
+        for flow in root.iter(f"{{{_BPMN_NS}}}sequenceFlow")
+        if flow.get("id") == "Flow_GW_AutoAprovar"
+    ]
+
+    assert conditions == ["${auto_aprovacao.recomendacao == 'AUTO_APROVAR'}"], (
+        f"Flow_GW_AutoAprovar condition changed: {conditions}"
+    )
+    # Same term (`auto_aprovacao.recomendacao`) on both sides.
+    assert _AUTO_SANCTION_EXPRESSION[2:-1] in conditions[0]
+
+
+def test_spec_auditor_issuance_task_carries_no_auto_sanction_mapping() -> None:
+    """The HUMAN route is untouched: `ST_EmitirAutorizacaoAuditor` declares no input mapping at
+    all, so its `${decisao_auditor == 'APROVAR'}` gate remains its only sanction."""
+    assert _service_task_input_parameters(_ST_EMITIR_AUDITOR) == {}
+
+
+def test_spec_flattened_sanction_variable_is_write_only_by_the_auto_input_mapping() -> None:
+    """NON-SPOOFABILITY: nothing else in the spec tree writes or asks for the sanction name.
+
+    It appears EXACTLY once across `spec/` — as the `camunda:inputParameter` on
+    `ST_EmitirAutorizacaoAuto` — so it is never a User Task formField (no human can submit it),
+    never a DMN input/output, and never a documented start variable. Being a task-LOCAL mapping,
+    the engine re-evaluates it from `auto_aprovacao` on every entry into that task, shadowing any
+    process-scope homonym a `start_process` payload might have seeded.
+    """
+    spec_root = _REPO_ROOT / "spec"
+    hits = sorted(
+        (path.relative_to(_REPO_ROOT).as_posix(), text.count(_AUTO_SANCTION_FLAT_VAR))
+        for path, text in ((p, p.read_text(encoding="utf-8")) for p in spec_root.rglob("*") if p.is_file())
+        if _AUTO_SANCTION_FLAT_VAR in text
+    )
+
+    assert hits == [("spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn", 1)], (
+        f"{_AUTO_SANCTION_FLAT_VAR} must occur exactly once in spec/ (the auto input mapping); got {hits}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # notify_sla_risk
 # ---------------------------------------------------------------------------
 

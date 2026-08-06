@@ -29,10 +29,12 @@ the decision literal + accountability fields, never a phantom flag):
   UT_AnaliseMedicoAuditor / UT_CoordenacaoAssume / UT_RegistrarParecerJunta;
   GW_DecisaoAuditor's default fail-closes invalid/absent to End_ErrDecisaoInvalida) — it IS the
   human decision.
-- the L2 auto-issuance route is sanctioned by BRT_AutoApproval's OWN result variable
-  (`auto_aprovacao.recomendacao == 'AUTO_APROVAR'` — the exact condition Flow_GW_AutoAprovar
-  reads); issuing a favorable authorization on that modeled route is L2 by design (ADR-0008),
-  not an adverse act.
+- the L2 auto-issuance route is sanctioned by BRT_AutoApproval's OWN result — the exact term
+  Flow_GW_AutoAprovar's condition reads (`auto_aprovacao.recomendacao == 'AUTO_APROVAR'`),
+  delivered to the worker FLATTENED as the task-local String `auto_aprovacao_recomendacao`
+  (item-9 auto-L2 fix — the raw `singleResult` Map does not survive `fetchAndLock`; see
+  `_auto_approval_sanctioned`); issuing a favorable authorization on that modeled route is L2 by
+  design (ADR-0008), not an adverse act.
 - an explicit `human_approved is True` remains accepted as the strongest signal (unchanged
   fail-closed pin: ONLY the boolean True — never truthy junk).
 The resolved provenance is threaded back into the issuing/denial outputs as an engine-visible
@@ -100,23 +102,61 @@ def _norm_decision(value: Any) -> str:
     return ""
 
 
+#: The ONE favorable literal `auth_auto_approval` can emit. `ANALISE_HUMANA` is the DMN's own
+#: catch-all; negativa is not a possible output of that table at all (L0 hard).
+_AUTO_SANCTION_LITERAL = "AUTO_APROVAR"
+
+#: The FLATTENED auto-L2 sanction: a plain String, TASK-LOCAL to `ST_EmitirAutorizacaoAuto`,
+#: produced by that task's `camunda:inputParameter auto_aprovacao_recomendacao =
+#: ${auto_aprovacao.recomendacao}` — the exact term `Flow_GW_AutoAprovar`'s condition just
+#: evaluated. Mirrors SP-OP-REEMBOLSO-001's `ST_IssuePaymentAuto`
+#: (`valor_reembolso_aprovado_cents = ${calculo.valor_calculado_tabela_cents}`), the repo's
+#: existing idiom for handing a DMN `singleResult` field to an external worker.
+_AUTO_SANCTION_FLAT_VAR = "auto_aprovacao_recomendacao"
+
+
 def _auto_approval_sanctioned(process_vars: dict[str, Any]) -> bool:
     """True iff BRT_AutoApproval's DMN result sanctions the modeled L2 auto route — FAIL-CLOSED.
 
-    `auto_aprovacao` is BRT_AutoApproval's `camunda:resultVariable` (singleResult map) — the
-    SAME variable `Flow_GW_AutoAprovar`'s condition reads
-    (`${auto_aprovacao.recomendacao == 'AUTO_APROVAR'}`). Sanction requires a Mapping whose
-    `recomendacao` is exactly the string `AUTO_APROVAR`; anything else — variable absent, a raw
-    JSON string, a non-mapping, a non-string/padded-junk recomendacao, any other route value
-    (`ANALISE_HUMANA` is the DMN's own catch-all) — is NO sanction. Negativa automatica is not a
-    possible DMN output (the BPMN's own documentation); this helper still never sanctions
-    anything but the exact favorable literal.
+    ROOT CAUSE THIS CLOSES (item-9, live-caught on CIB Seven 2.1.0): `auto_aprovacao` is
+    BRT_AutoApproval's `camunda:resultVariable` under `mapDecisionResult="singleResult"` — a
+    JAVA Map, stored as an `Object`-typed variable. `fetchAndLock`'s per-topic
+    `deserializeValues` defaults to FALSE and `CibSevenWorkerTransport.fetch_and_lock` sends no
+    such flag (harness.py `fetch_and_lock`), while `_from_camunda_var` re-decodes ONLY
+    `type == "Json"` — so the Map reaches this worker as an opaque, non-`Mapping` value. The
+    engine's own `GW_AutoAprovacao` had already routed on
+    `${auto_aprovacao.recomendacao == 'AUTO_APROVAR'}` (JUEL, evaluated engine-side on the LIVE
+    object), so the DMN HAD sanctioned — yet this guard refused, `numero_autorizacao` was never
+    written, and the process still published `auth.completed desfecho=aprovada_automatica`.
+
+    THE CHANNEL, in order:
+      1. `auto_aprovacao_recomendacao` — the flattened String the model now delivers
+         (`_AUTO_SANCTION_FLAT_VAR`). This is the channel that actually works on a real engine.
+      2. `auto_aprovacao` as a real `Mapping` — belt-and-braces, kept verbatim for the in-process
+         fixtures and for any engine/config that DOES deserialize the Map.
+    Both require exactly the literal `AUTO_APROVAR` (surrounding whitespace tolerated — the
+    pre-existing Mapping-branch semantics, applied identically to the flat branch; no case
+    folding, no prefix match). Anything else — absent, blank, wrong literal, wrong type,
+    `ANALISE_HUMANA` — is NO sanction. The accepted value set is UNCHANGED; only the delivery
+    shape widened.
+
+    NOT SPOOFABLE AT START: `auto_aprovacao_recomendacao` is an activity-LOCAL variable written
+    by the input mapping on every entry into `ST_EmitirAutorizacaoAuto`, from `auto_aprovacao`,
+    which BRT_AutoApproval (the ONLY predecessor of `GW_AutoAprovacao`) always overwrites first.
+    A local variable shadows any process-scope homonym a `start_process` payload could seed, so
+    the auto route reads the engine's own freshly-computed sanction and nothing else. The only
+    other task on this topic — `ST_EmitirAutorizacaoAuditor` — declares no input mapping and is
+    reachable only behind `${decisao_auditor == 'APROVAR'}`, which already sanctions issuance
+    through the human channel, so a seeded homonym cannot open any path that gate did not.
     """
+    flat = process_vars.get(_AUTO_SANCTION_FLAT_VAR)
+    if isinstance(flat, str) and flat.strip() == _AUTO_SANCTION_LITERAL:
+        return True
     auto = process_vars.get("auto_aprovacao")
     if not isinstance(auto, Mapping):
         return False
     recomendacao = auto.get("recomendacao")
-    return isinstance(recomendacao, str) and recomendacao.strip() == "AUTO_APROVAR"
+    return isinstance(recomendacao, str) and recomendacao.strip() == _AUTO_SANCTION_LITERAL
 
 
 # ---------------------------------------------------------------------------
@@ -286,8 +326,11 @@ class IssueAuthorizationWorker(WorkerBase):
     com evidencia de sancao em UM dos dois canais modelados:
     - canal HUMANO: `decisao_auditor == 'APROVAR'` (setado SO nas User Tasks humanas) OU o sinal
       explicito `human_approved is True` (pin fail-closed inalterado — apenas o boolean True);
-    - canal AUTO (L2, ADR-0008): `auto_aprovacao.recomendacao == 'AUTO_APROVAR'` — a sancao do
-      proprio DMN `auth_auto_approval` que roteou a instancia ate aqui (fail-closed parse).
+    - canal AUTO (L2, ADR-0008): a sancao do proprio DMN `auth_auto_approval` que roteou a
+      instancia ate aqui, entregue ACHATADA pelo `camunda:inputParameter` LOCAL de
+      `ST_EmitirAutorizacaoAuto` (`auto_aprovacao_recomendacao = ${auto_aprovacao.recomendacao}`
+      — mesmo termo da condicao de `Flow_GW_AutoAprovar`); parse fail-closed, ver
+      `_auto_approval_sanctioned`.
     Defesa-em-profundidade: `decisao_auditor == 'NEGAR'` NUNCA emite — nem com human_approved
     explicito, nem com sancao auto residual (o worker jamais converte uma negativa em concessao).
     A proveniencia resolvida e' THREADED de volta como variavel engine-visivel `human_approved`

@@ -216,6 +216,12 @@ Contrato completo: docs/processes/contracts/SP-OP-AUTH-001.md.
     <!-- Aprovacao automatica (L2) -->
     <bpmn:serviceTask id="ST_EmitirAutorizacaoAuto" name="Emitir autorizacao (guia TISS)"
                       camunda:type="external" camunda:topic="operadora.auth.issue_authorization">
+      <bpmn:documentation>Canal de sancao auto-L2 (item-9): `auto_aprovacao` e' o resultVariable de BRT_AutoApproval (mapDecisionResult=singleResult) — um Map JAVA, entregue ao external task como valor Object NAO desserializado (fetchAndLock: deserializeValues default=false), nunca como objeto estruturado. O worker recebia um opaco e falhava FECHADO (auth_issue_blocked_by_guard) mesmo com a DMN tendo sancionado. O inputParameter abaixo ACHATA a sancao para uma String simples, LOCAL a esta task, avaliada pelo motor a partir da MESMA expressao que Flow_GW_AutoAprovar acabou de avaliar. Espelha ST_IssuePaymentAuto de SP-OP-REEMBOLSO-001 (`valor_reembolso_aprovado_cents = ${calculo.valor_calculado_tabela_cents}`). NAO-SPOOFAVEL: variavel LOCAL da activity — sombreia qualquer homonima de escopo de processo (inclusive semeada no start) e e' reescrita a cada entrada na task a partir de auto_aprovacao, que por sua vez so' existe apos BRT_AutoApproval (unico predecessor de GW_AutoAprovacao).</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="auto_aprovacao_recomendacao">${auto_aprovacao.recomendacao}</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
       <bpmn:incoming>Flow_GW_AutoAprovar</bpmn:incoming>
       <bpmn:outgoing>Flow_EmitirAuto_Pub</bpmn:outgoing>
     </bpmn:serviceTask>
