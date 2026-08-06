@@ -790,13 +790,19 @@ async def test_l3_gap_leve_monitora_sem_user_task(
 ) -> None:
     """Gap leve => routing=MONITORAR -> atualiza plano + notifica rede -> End_MonitoramentoAtualizado.
 
-    v2: o roteamento da DMN esta CORRETO aqui (GAP_LEVE, coincidentemente inalterado pelo override
-    de measure_gap — ver FINDING 2) mas ST_UpdateMonitoringPlanL3 nao tem worker registrado
-    (FINDING 1) — a instancia nunca completa.
+    SEMENTE ALINHADA (2026-08-06, live-proven): com a preservacao de fatos, `tempo=75` passou a
+    chegar INTACTO na DMN — e 75 > 60 esta FORA do portao de `r_eletivo_leve`, caindo no
+    `r_conforme` sem teto (a inversao de ordem descrita em
+    `_ADEQUACAO_GAP_RULE_ORDER_INVERSION_REASON`), logo a instancia atingia
+    `End_AdequacaoConforme`. Antes da correcao o worker sobrescrevia tempo=45 e mascarava isso.
+    O ALVO deste teste e o ROTEAMENTO (GAP_LEVE -> ramo MONITORAR, sem User Task), nao a
+    classificacao; portanto a semente foi alinhada para dentro do portao leve (45min, valor que a
+    tabela deployada de fato classifica GAP_LEVE). Isto NAO pina a inversao: a inversao e o
+    `r_conforme` sem teto, e continua registrada e xfailada no teste de CONFORME.
     """
     inst = await start_adequacao(
         tipo_carater="eletivo",
-        tempo_acesso_apurado_min=75,
+        tempo_acesso_apurado_min=45,
         distancia_apurada_km=20.0,
         prestadores_disponiveis=3,
         cobertura_geo_suficiente=True,
