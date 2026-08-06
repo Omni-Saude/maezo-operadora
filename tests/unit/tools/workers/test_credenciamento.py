@@ -629,6 +629,84 @@ def test_decred_non_exact_decisao_literal_still_refuses(decision: str) -> None:
     assert excinfo.value.error_code == ERR_DECRED_NOT_HUMAN
 
 
+# ---------------------------------------------------------------
+# register_descredenciamento — `tem_plano_substituicao` gateway-fact echo
+#
+# GW_Substituicao (spec/processes/bpmn/SP-OP-CRED-001_Descredenciamento.bpmn:436-740) routes on
+# `${tem_plano_substituicao == true}`. `plano_substituicao` itself is OPTIONAL (absent from
+# process scope on the pure descredenciado path -- the BPMN's own inline comment documents that
+# referencing it directly would throw "Cannot resolve identifier" and stall the gateway), so
+# `register_descredenciamento` must ALWAYS echo a guaranteed-in-scope flat boolean, on every
+# DESCREDENCIAR path (with a plan, without one, blank, and non-string junk).
+# ---------------------------------------------------------------
+
+
+def test_decred_echoes_tem_plano_substituicao_true_when_plan_present() -> None:
+    """A non-blank plano_substituicao string -> tem_plano_substituicao True (RN 567 branch)."""
+    result = register_descredenciamento(
+        _decred_baseline(plano_substituicao="Substituto equivalente HOSP-EQUIV-0002")
+    )
+    assert result["tem_plano_substituicao"] is True
+
+
+def test_decred_echoes_tem_plano_substituicao_false_when_plan_absent() -> None:
+    """No plano_substituicao at all (tem_beneficiarios_vinculados=False, so the guard does not
+    require it) -> tem_plano_substituicao False (plain de-accreditation branch)."""
+    result = register_descredenciamento(
+        _decred_baseline(tem_beneficiarios_vinculados=False, plano_substituicao=None)
+    )
+    assert result["tem_plano_substituicao"] is False
+
+
+@pytest.mark.parametrize("whitespace", _WHITESPACE_VARIANTS)
+def test_decred_echoes_tem_plano_substituicao_false_when_plan_blank(whitespace: str) -> None:
+    """Whitespace-only plano_substituicao normalizes to '' -> tem_plano_substituicao False."""
+    result = register_descredenciamento(
+        _decred_baseline(tem_beneficiarios_vinculados=False, plano_substituicao=whitespace)
+    )
+    assert result["tem_plano_substituicao"] is False
+
+
+@pytest.mark.parametrize("junk", _NON_STRING_VARIANTS)
+def test_decred_echoes_tem_plano_substituicao_false_for_non_string_junk(junk: object) -> None:
+    """FAIL-SAFE DIRECTION: non-string junk (int/list/dict/bool) in plano_substituicao normalizes
+    to '' (via `_norm_str`, same as every other accountability field in this module) ->
+    tem_plano_substituicao False, i.e. the CONSERVATIVE 'plain de-accreditation' reading -- never
+    the substitution-registered reading. A falsely-claimed substitution plan would signal
+    continuity of care to beneficiaries who in fact have none; the reverse (a real plan misread as
+    absent) merely falls through to the plain de-accreditation terminal without inventing a false
+    assurance. tem_beneficiarios_vinculados=False so the guard itself does not also reject this
+    input for an unrelated reason (isolates the fact under test)."""
+    result = register_descredenciamento(
+        _decred_baseline(tem_beneficiarios_vinculados=False, plano_substituicao=junk)
+    )
+    assert result["tem_plano_substituicao"] is False
+
+
+def test_decred_pre_existing_return_keys_values_unchanged() -> None:
+    """REGRESSION PIN (not a RED proof -- this passes on pre-change code too): the 3
+    pre-existing return keys/values are untouched by the fix. Deliberately does NOT assert on
+    `tem_plano_substituicao` (that is covered by the dedicated echo tests above) -- this test's
+    only job is proving the fix is additive, never a replacement of prior behavior."""
+    result = register_descredenciamento(_decred_baseline(data_efeito_iso="2026-08-06"))
+    assert result["descredenciamento_registrado"] is True
+    assert result["network_changed"] is True
+    assert result["data_efeito_iso"] == "2026-08-06"
+
+
+def test_decred_happy_path_return_keys_unchanged_plus_new_fact() -> None:
+    """RED proof (fails on pre-change code: KeyError/mismatch on `tem_plano_substituicao`,
+    absent from the pre-fix return dict): the full return shape, old keys AND the new fact
+    together, pinned by exact equality."""
+    result = register_descredenciamento(_decred_baseline())
+    assert result == {
+        "descredenciamento_registrado": True,
+        "network_changed": True,
+        "data_efeito_iso": "",
+        "tem_plano_substituicao": True,
+    }
+
+
 def _cred_denial_baseline(**overrides: object) -> dict[str, object]:
     """Happy-path baseline for register_cred_denial."""
     base: dict[str, object] = {
