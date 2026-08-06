@@ -477,7 +477,9 @@ def test_degradation_returns_all_false_with_the_validador_indisponivel_token() -
     assert result["status"] == "validator_unavailable"
     assert result["auto_criteria_verificado"] is True
     assert result["motivo_bloqueio_criterios"] == "VALIDADOR_INDISPONIVEL"
-    assert set(result["auto_criteria_falhas"]) == {"VALIDADOR_INDISPONIVEL"}
+    # ONE token, not four copies: the same failure across all four criteria must not read as
+    # four distinct problems in process history.
+    assert result["auto_criteria_falhas"] == ["VALIDADOR_INDISPONIVEL"]
     for key in (
         "criterio_tecnico_ok",
         "criterio_financeiro_ok",

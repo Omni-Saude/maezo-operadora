@@ -879,8 +879,12 @@ def _criteria_result(
     falhas: list[str] = []
     sombra: list[str] = []
     for name in _CRITERIA_ORDER:
-        falhas.extend(outcomes[name].falhas)
-        sombra.extend(outcomes[name].sombra)
+        # Order-preserving DEDUP: the degradation path assigns the SAME
+        # `VALIDADOR_INDISPONIVEL` token to all four criteria, and a list repeating it four
+        # times reads as four distinct problems to whoever inspects process history. Order is
+        # `_CRITERIA_ORDER`, so `falhas[0]` (the audit token) stays deterministic.
+        falhas.extend(t for t in outcomes[name].falhas if t not in falhas)
+        sombra.extend(t for t in outcomes[name].sombra if t not in sombra)
     return {
         "status": status,
         "criterio_tecnico_ok": tecnico.ok,
