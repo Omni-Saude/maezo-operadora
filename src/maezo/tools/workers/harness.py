@@ -179,6 +179,19 @@ _SAFE_DECISION_BASIS_KEYS: frozenset[str] = frozenset(
         "motivo_bloqueio_teto",
         "admissivel",
         "elegivel",
+        # GAP-AUTH-4 criteria gate (`auth.ValidateAutoCriteriaWorker`), for exactly the reason
+        # GK-ceiling finding 3 added the two keys above: without these, a request refused by the
+        # auto-approval criteria writes an audit row reading `decision=COMPLETE` with NO evidence
+        # of WHY — the four per-criterion verdicts would live only in engine history, never in
+        # the non-repudiable ADR-0007 chain. All five are booleans; `motivo_bloqueio_criterios`
+        # is a single bounded token from a closed enum (the `auto_criteria_falhas` LIST cannot
+        # travel here — `_is_bounded_token` admits scalars only, by design).
+        "criterio_tecnico_ok",
+        "criterio_financeiro_ok",
+        "criterio_regulatorio_ok",
+        "criterio_contratual_ok",
+        "auto_criteria_verificado",
+        "motivo_bloqueio_criterios",
     }
 )
 

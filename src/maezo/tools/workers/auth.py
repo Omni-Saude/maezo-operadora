@@ -3,6 +3,7 @@
 Provides BPMN external task handlers for the Autorizacao Previa process.
 
 Workers:
+- ValidateAutoCriteriaWorker: portao de criterios da aprovacao automatica (GAP-AUTH-4)
 - AnalyzeRequestWorker: convoca Rafael, monta dossie de analise
 - RequestDocumentsWorker: pendencia ao prestador
 - IssueAuthorizationWorker: emite autorizacao TISS
@@ -16,15 +17,25 @@ CRITICAL (ADR-0008, L0 hard):
   issue_authorization (when decisao=NEGAR).
 - Auto-approval (L2) exists only with DMN favorable + teto do tenant.
 
-TETO LOAD-BEARING NA EMISSAO (GAP-AUTH-4, mitigacao parcial): a segunda metade daquela ultima
-linha — "+ teto do tenant" — era DECORATIVA na rota automatica: nenhum worker computava o teto
-antes de `BRT_AutoApproval` (o unico chamador de `CeilingResolver` em AUTH, `AnalyzeRequestWorker`
-em `ST_PrepararDossie`, esta na perna HUMANA, depois do gateway). `IssueAuthorizationWorker` agora
-verifica o teto no PONTO DE EMISSAO, **exclusivamente no canal automatico**, e recusa emitir
-(`ERR_AUTH_AUTO_CEILING_NOT_AUTHORIZED`, retornado — nunca lancado) quando ele nao autoriza. O
-canal humano segue intocado por design. O GAP-AUTH-4 permanece ABERTO (portao Medico/ANS): a DMN
-continua decidindo sobre fatos semeados no start — ver a docstring de `IssueAuthorizationWorker`
-para o desfecho observavel de hoje sob `max_value_brl: 0`.
+PORTAO DE CRITERIOS (GAP-AUTH-4 — fechamento ESTRUTURAL). Aquela ultima linha era DECORATIVA na
+rota automatica: `BRT_AutoApproval` decidia `AUTO_APROVAR` sobre `dut_atendida`/`dentro_teto_l2`/
+`rede_credenciada` SEMEADOS no payload de start, sem nenhum codigo computando qualquer um deles
+antes da gateway (o unico chamador de `CeilingResolver` em AUTH, `AnalyzeRequestWorker` em
+`ST_PrepararDossie`, esta na perna HUMANA, DEPOIS do gateway). A patologia raiz: **ausencia de
+validacao lia-se como PASS implicito.**
+
+`ValidateAutoCriteriaWorker` (`ST_ValidateAutoApprovalCriteria`, entre `BRT_SlaAnalise` e
+`BRT_AutoApproval` — espelha `BRT_Calculo → ST_CalculateAmount → BRT_AutoApproval` de
+SP-OP-REEMBOLSO-001) inverte isso: COMPUTA quatro criterios — tecnico (DUT/ROL), financeiro
+(teto do tenant), regulatorio (carencia/CPT) e contratual (milestones/regras/KPI) — e escreve
+`auto_criteria_verificado`, que a regra r1 da DMN reescrita EXIGE. Pular o validador faz o token
+cair no catch-all -> `ANALISE_HUMANA`. As tabelas clinicas sao SINTETICAS: um criterio so pode
+contribuir com um PASS se sua fonte estiver RATIFICADA
+(`spec/processes/dmn/auth-criteria-ratification.yaml`) — ver a docstring da classe.
+
+`IssueAuthorizationWorker` mantem, em defesa-em-profundidade, a verificacao de teto no PONTO DE
+EMISSAO (`ERR_AUTH_AUTO_CEILING_NOT_AUTHORIZED`, retornado — nunca lancado), exclusivamente no
+canal automatico; o canal humano segue intocado por design.
 
 HUMAN-PROVENANCE DERIVATION (item-9 bucket-3 Class-C — the `human_approved` threading fix,
 T3.1 R2 finding `_ACTION_WORKER_KAFKA_GAP_REASON`): the v2 action-worker guards demanded a bare
@@ -57,8 +68,11 @@ from __future__ import annotations
 import math
 import uuid
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from maezo.platform.observability import record_worker_error
+from maezo.tools.workers.auth_criteria import CriteriaSources, criteria_sources
 from maezo.tools.workers.base import (
     ERR_AUTH_AUTO_CEILING_NOT_AUTHORIZED,
     ERR_AUTH_DENIAL_INCOMPLETE,
@@ -66,6 +80,7 @@ from maezo.tools.workers.base import (
     WorkerBase,
 )
 from maezo.tools.workers.ceilings import CeilingResolver
+from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row
 from maezo.tools.workers.harness import WorkerBpmnError
 from maezo.tools.workers.phi_vars import redact_phi_vars
 
@@ -213,6 +228,674 @@ def _ceiling_valor_cents(value: Any) -> int | None:
     # posture is "never issue on uncertainty". `ceil` can never deny a legitimate value: it only
     # moves amounts already STRICTLY above an integer centavo up to the next one.
     return math.ceil(cents)
+
+
+# ===========================================================================
+# ValidateAutoCriteriaWorker — the GAP-AUTH-4 criteria gate
+# ===========================================================================
+
+#: DMN decision keys the criteria gate evaluates through the ADR-0028 `dmn=` worker seam.
+#: NONE of these is a BPMN businessRuleTask decisionRef (they stay listed in
+#: `spec/processes/dmn/orphans-allowlist.yaml` as PERMANENT, worker-consumed orphans — the same
+#: shape the 7 `fraude_scoring/*` tables already use).
+_DMN_DUT_ROL_COVERAGE = "dut_rol_coverage"
+_DMN_CARENCIA_CHECK = "carencia_check"
+_DMN_CRITERIA_CONTRATUAL = "auth_criteria_contratual"
+
+#: Bounded, non-PHI FAILURE tokens. Closed enum — free text NEVER appears in
+#: `auto_criteria_falhas`. Every one matches `harness._ENUM_TOKEN_RE`
+#: (`^[A-Za-z][A-Za-z0-9_]{0,39}$`) so the primary one can travel in the clear into the durable
+#: ADR-0007 audit chain via `motivo_bloqueio_criterios`.
+#: FINANCEIRO — source is the governance autonomy matrix (already ratified, CODEOWNERS-gated).
+_FIN_TENANT_AUSENTE = "FINANCEIRO_TENANT_AUSENTE"
+_FIN_VALOR_INVALIDO = "FINANCEIRO_VALOR_INVALIDO"
+_FIN_RESOLVER_INDISPONIVEL = "FINANCEIRO_RESOLVER_INDISPONIVEL"
+_FIN_TETO_NAO_AUTORIZA = "FINANCEIRO_TETO_NAO_AUTORIZA"
+#: TECNICO — DUT/ROL coverage + the procedure-specific clinical criteria table.
+_TEC_FONTE_NAO_RATIFICADA = "TECNICO_FONTE_NAO_RATIFICADA"
+_TEC_ENTRADA_AUSENTE = "TECNICO_ENTRADA_AUSENTE"
+_TEC_TABELA_INDISPONIVEL = "TECNICO_TABELA_INDISPONIVEL"
+_TEC_PROCEDIMENTO_NAO_MAPEADO = "TECNICO_PROCEDIMENTO_NAO_MAPEADO"
+_TEC_FORA_DO_ROL = "TECNICO_FORA_DO_ROL"
+_TEC_DUT_NAO_ATENDIDA = "TECNICO_DUT_NAO_ATENDIDA"
+#: REGULATORIO — carencia/CPT.
+_REG_FONTE_NAO_RATIFICADA = "REGULATORIO_FONTE_NAO_RATIFICADA"
+_REG_ENTRADA_AUSENTE = "REGULATORIO_ENTRADA_AUSENTE"
+_REG_TABELA_INDISPONIVEL = "REGULATORIO_TABELA_INDISPONIVEL"
+_REG_CARENCIA_NAO_CUMPRIDA = "REGULATORIO_CARENCIA_NAO_CUMPRIDA"
+#: CONTRATUAL — milestones/regras/KPI.
+_CON_FONTE_NAO_RATIFICADA = "CONTRATUAL_FONTE_NAO_RATIFICADA"
+_CON_TABELA_INDISPONIVEL = "CONTRATUAL_TABELA_INDISPONIVEL"
+_CON_SEM_FONTE = "CONTRATUAL_SEM_FONTE"
+#: DEGRADATION — the validator itself could not run to completion (design §6).
+_VALIDADOR_INDISPONIVEL = "VALIDADOR_INDISPONIVEL"
+
+#: Bounded, non-PHI SHADOW tokens: what an UNRATIFIED table WOULD have decided, recorded as
+#: ratification evidence for the medico-auditor/ANS reviewer WITHOUT ever influencing the
+#: verdict (design §3). Never emitted for a ratified source — once ratified the table's verdict
+#: IS the verdict, so a shadow of it would be noise.
+_SOMBRA_APROVARIA = "_SOMBRA_APROVARIA"
+_SOMBRA_REPROVARIA = "_SOMBRA_REPROVARIA"
+_SOMBRA_INDETERMINADO = "_SOMBRA_INDETERMINADO"
+
+#: Deterministic scan order for `motivo_bloqueio_criterios` — the SINGLE bounded token that
+#: reaches the durable audit chain (`harness._SAFE_DECISION_BASIS_KEYS` admits scalars only, so
+#: the `auto_criteria_falhas` LIST cannot travel there; this mirrors `motivo_bloqueio_teto`).
+_CRITERIA_ORDER: tuple[str, ...] = ("tecnico", "financeiro", "regulatorio", "contratual")
+
+#: Failure tokens that mean "a mechanism was unavailable", as opposed to "the rule said no".
+#: These — and ONLY these — also increment the `maezo_worker_error_count_total` metric
+#: (`platform.observability.record_worker_error`), so a validator/engine/config outage is
+#: VISIBLE in monitoring instead of silently degrading every request to human review. The
+#: label set is this closed enum, so metric cardinality stays bounded.
+_UNAVAILABILITY_TOKENS: frozenset[str] = frozenset(
+    {
+        _VALIDADOR_INDISPONIVEL,
+        _FIN_RESOLVER_INDISPONIVEL,
+        _TEC_TABELA_INDISPONIVEL,
+        _REG_TABELA_INDISPONIVEL,
+        _CON_TABELA_INDISPONIVEL,
+    }
+)
+
+
+def _as_bool(value: Any) -> bool | None:
+    """A DMN boolean output as a real `bool`, or None (=> indeterminate => fail closed).
+
+    FAIL-CLOSED and deliberately strict: only the Python literals `True`/`False` count. A
+    string `"true"`, an int `1`, `None`, or any other shape means the table did not give this
+    gate a boolean it may act on — the caller treats that as "criterion not met", never as a
+    truthy pass-through. Mirrors the `human_approved is True` pin idiom used throughout auth.
+    """
+    return value if isinstance(value, bool) else None
+
+
+def _nonblank_str(value: Any) -> str | None:
+    """`value.strip()` when it is a non-blank `str`, else None. Engine variables arrive untyped."""
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+@dataclass(frozen=True)
+class _CriterionOutcome:
+    """One criterion's verdict plus its bounded evidence.
+
+    Attributes:
+        ok: True ONLY when the criterion is satisfied AND its rule source is ratified.
+        falhas: bounded failure tokens explaining an `ok=False` (empty when ok).
+        sombra: bounded shadow tokens — what an UNRATIFIED table would have decided. Recorded
+            as evidence only; `ok` is computed without ever consulting it.
+    """
+
+    ok: bool
+    falhas: tuple[str, ...] = ()
+    sombra: tuple[str, ...] = ()
+
+
+class ValidateAutoCriteriaWorker(WorkerBase):
+    """External task: `operadora.auth.validate_auto_criteria` (`ST_ValidateAutoApprovalCriteria`).
+
+    THE DEFECT THIS CLOSES (GAP-AUTH-4). `BRT_AutoApproval` used to grant `AUTO_APROVAR` on
+    `dut_atendida ∧ dentro_teto_l2 ∧ rede_credenciada` — three booleans that arrived SEEDED in
+    the start payload with **no code computing any of them on the automatic route**. The only
+    AUTH caller of `CeilingResolver` (`AnalyzeRequestWorker`, `ST_PrepararDossie`) sits on the
+    HUMAN leg, *after* `GW_AutoAprovacao`. The root pathology was that **absence of validation
+    read as an implicit PASS**. This worker inverts that: it runs BETWEEN `BRT_SlaAnalise` and
+    `BRT_AutoApproval` (mirroring SP-OP-REEMBOLSO-001's `BRT_Calculo → ST_CalculateAmount →
+    BRT_AutoApproval`, GAP-REEMBOLSO-5) and COMPUTES four criteria the rewired DMN now requires:
+
+      - `criterio_tecnico_ok`      — `dut_rol_coverage` (+ the procedure-specific
+                                     `dut_criteria_*` table when the coverage row demands a DUT)
+      - `criterio_financeiro_ok`   — `CeilingResolver.within_l2_ceiling`
+                                     (`authorization_approval.max_value_brl`)
+      - `criterio_regulatorio_ok`  — `carencia_check` (carencia/CPT)
+      - `criterio_contratual_ok`   — `auth_criteria_contratual` (milestones/regras/KPI)
+
+    plus `auto_criteria_verificado: True` — PROOF OF EXECUTION, which rule r1 of the rewired
+    `auth_auto_approval.dmn` requires. That flag is the fence GAP-AUTH-4 lacked: skip this task
+    and the token falls to the DMN catch-all -> `ANALISE_HUMANA` -> human review.
+
+    THE RATIFICATION GATE (the safety crux). Three of the four criteria are decided by DMN
+    tables whose clinical/regulatory/contractual content is SYNTHETIC and DRAFT. Wiring them
+    naively would let synthetic rules grant REAL authorizations — strictly worse than the
+    unverified seeds, because it would *look* validated. So: **a criterion may contribute a PASS
+    only if its rule source is RATIFIED** in `spec/processes/dmn/auth-criteria-ratification.yaml`
+    (`auth_criteria.py`, mirroring the DPO retention-matrix loader that refuses its own
+    unratified template). A DRAFT source yields `false` with `*_FONTE_NAO_RATIFICADA`,
+    **regardless of what the table computes**.
+
+    SHADOW MODE. Unratified tables are still EVALUATED, and what they *would* have decided is
+    recorded in `auto_criteria_shadow` as bounded, non-PHI tokens — so the medico-auditor/ANS
+    reviewer ratifies against real outcome data instead of reviewing rules in the abstract.
+    Shadow output is written AFTER every verdict is computed and is never read back:
+    `_CriterionOutcome.ok` is derived without consulting `.sombra` anywhere.
+
+    OBSERVABLE BEHAVIOUR TODAY — stated plainly. With `authorization_approval.max_value_brl: 0`
+    (decision D-07 open) and every clinical table DRAFT/unratified, **all four criteria are
+    false and NOTHING auto-approves: every request routes to human review.** That is the same
+    safe outcome as before this worker existed — but now for four explicit, auditable,
+    per-criterion reasons instead of an unverified seed, and each criterion switches on
+    independently as its source is ratified/populated, with NO code change.
+
+    INVARIANTS.
+      1. NEVER auto-denies. This gate chooses auto-approve vs human review; no deny output
+         exists here or downstream in `auth_auto_approval.dmn` (L0 hard, ADR-0005/0008).
+      2. FAIL-CLOSED on unknown/unverifiable/unratified — always toward human review.
+      3. DETERMINISTIC, never an LLM. Rafael keeps consuming DMN results, never computing them.
+      4. NEVER invents a clinical/regulatory/contractual VALUE. Ceilings, DUT/ROL, carencia,
+         plan terms and KPI targets stay SME/owner data; the dut_ref -> criteria-table routing
+         is SME-declared in the manifest, not guessed here.
+      5. COMPUTED OVERWRITES SEEDED: all five criteria variables are written on EVERY path
+         (including degradation), so a start-payload homonym is always destroyed.
+      6. NEVER raises a `WorkerBpmnError`. `ST_ValidateAutoApprovalCriteria` declares NO error
+         boundary event (the AUTH file's only boundary is `BE_NegativaIncompleta` on
+         `ST_EnviarNegativaFormal`), and an unmodeled `bpmnError` silently ENDS the process
+         scope on CIB Seven 2.1.0 (ADR-0030, live-verified). This worker only RETURNS.
+
+    DEGRADATION (design §6) — fail-safe AND visible. An unexpected error anywhere returns all
+    four criteria false plus `VALIDADOR_INDISPONIVEL`, with an `error` log line, a
+    `maezo_worker_error_count_total` increment and an audit token. It is deliberately NOT an
+    incident: an incident would STALL a care-authorization request, which is worse for the
+    beneficiary than routing it to a human auditor. Same reasoning `ceilings.py` documents for
+    `CeilingResolver` swallowing a config failure to `False`.
+    """
+
+    def __init__(
+        self,
+        resolver: CeilingResolver | None = None,
+        dmn: DmnTransport | None = None,
+        sources: CriteriaSources | None = None,
+    ) -> None:
+        # max_retries=1: every branch here is DETERMINISTIC (a DMN no-match, an unratified
+        # source, a missing input) — an in-process retry with sleeps changes nothing and only
+        # delays the request. Transient engine faults degrade to human review by design (above),
+        # so there is nothing for the retry loop to rescue either.
+        super().__init__(topic="operadora.auth.validate_auto_criteria", max_retries=1)
+        # Same injection seam as `AnalyzeRequestWorker`/`IssueAuthorizationWorker`: the default
+        # resolves the REAL `spec/policies/autonomy` matrix through the same loader the PEP uses.
+        self._resolver = resolver if resolver is not None else CeilingResolver()
+        # ADR-0028 `dmn=` seam, threaded from `register_auth_workers(**seams)`. Deliberately NOT
+        # guarded with `require_dmn`: that raises `DmnEvaluationError` -> transient -> engine
+        # retry -> incident, and an incident here stalls the authorization. An unwired seam
+        # instead fails each DMN-backed criterion closed with its own `*_TABELA_INDISPONIVEL`.
+        self._dmn = dmn
+        # Injectable for tests; production reads the cached manifest (`criteria_sources()`).
+        self._sources_override = sources
+
+    # -- rule sources -------------------------------------------------------------------
+
+    def _sources(self) -> CriteriaSources:
+        return self._sources_override if self._sources_override is not None else criteria_sources()
+
+    def _evaluate_dmn(self, decision_key: str, variables: dict[str, Any]) -> dict[str, Any]:
+        """Evaluate one decision table engine-side. Raises on ANY failure — callers fail closed.
+
+        Deliberately thin: `evaluate_sync` records the authoritative `DmnVersion` into the audit
+        collector (ADR-0028 §5) and `first_row` turns an empty result into `DmnNoResultError`
+        rather than the fail-OPEN `{}` the dead local evaluator used to return.
+        """
+        if self._dmn is None:
+            raise RuntimeError(f"dmn transport seam not wired for `{self.topic}` (ADR-0028)")
+        rows, _version = evaluate_sync(self._dmn, decision_key, variables)
+        return first_row(rows, decision_key, variables)
+
+    # -- criterion: FINANCEIRO ----------------------------------------------------------
+
+    def _criterio_financeiro(self, process_vars: dict[str, Any]) -> _CriterionOutcome:
+        """Tenant governance ceiling — the ONE criterion whose source is already ratified.
+
+        `authorization_approval.max_value_brl` lives in the CODEOWNERS-gated autonomy matrix
+        (`spec/policies/autonomy/L0-core.yaml` + `tenants-amh.yaml`), resolved through the SAME
+        `CeilingResolver.within_l2_ceiling(action, param)` call `AnalyzeRequestWorker` already
+        makes — so there is no DMN table to ratify and no shadow to record. Its value is 0 today
+        (decision D-07 open), and `within_l2_ceiling` fail-closes a 0 ceiling to False even for a
+        0-value request: nothing is financially eligible for automatic approval until the
+        diretoria sets a real teto.
+
+        Centavos come from `_ceiling_valor_cents` — the STRICT derivation already in this module
+        (rejects bool, non-numeric, unparseable, NaN/inf, negative; CEILs rather than rounds, so
+        it can never fail OPEN across the teto boundary). Reused deliberately: a second
+        derivation would be a second place for the rounding defect GK-ceiling found.
+        """
+        tenant = _nonblank_str(process_vars.get("tenant_id"))
+        if tenant is None:
+            return _CriterionOutcome(ok=False, falhas=(_FIN_TENANT_AUSENTE,))
+
+        valor_cents = _ceiling_valor_cents(process_vars.get("valor_estimado_brl"))
+        if valor_cents is None:
+            return _CriterionOutcome(ok=False, falhas=(_FIN_VALOR_INVALIDO,))
+
+        try:
+            within = self._resolver.within_l2_ceiling(
+                tenant=tenant,
+                action=_CEILING_ACTION,
+                param=_CEILING_PARAM,
+                value_cents=valor_cents,
+            )
+        except Exception as exc:  # noqa: BLE001 - fail-closed: resolver down never auto-approves
+            self.logger.error("auth_auto_criteria_resolver_failed", tenant_id=tenant, error=str(exc))
+            return _CriterionOutcome(ok=False, falhas=(_FIN_RESOLVER_INDISPONIVEL,))
+
+        # `is not True` (not `not within`): a stub/resolver returning a truthy non-bool must not
+        # open an automatic approval — the same pin `IssueAuthorizationWorker` applies.
+        if within is not True:
+            return _CriterionOutcome(ok=False, falhas=(_FIN_TETO_NAO_AUTORIZA,))
+        return _CriterionOutcome(ok=True)
+
+    # -- criterion: TECNICO -------------------------------------------------------------
+
+    def _criterio_tecnico(self, process_vars: dict[str, Any], sources: CriteriaSources) -> _CriterionOutcome:
+        """DUT/ROL coverage, plus the procedure-specific clinical criteria table when required.
+
+        Steps, each failing closed:
+          1. `codigo_procedimento_tuss` must be a non-blank string (the coverage table's key).
+          2. evaluate `dut_rol_coverage` -> `no_rol` / `requer_dut` / `dut_ref`.
+          3. `no_rol=true` (outside the ANS Rol) -> not technically eligible for AUTOMATIC
+             approval. This is NOT a denial: the request goes to the medico auditor, who may
+             still approve it (the table itself carries the same L0-hard invariant).
+          4. `requer_dut=true` -> resolve the procedure's `dut_criteria_*` table through the
+             SME-declared `mapeamento_dut_criteria`. An unmapped ref fails closed
+             (`TECNICO_PROCEDIMENTO_NAO_MAPEADO`) — guessing which clinical criteria table
+             applies to a DUT would be inventing a clinical judgement.
+          5. RATIFICATION LAST: the verdict from steps 3-4 becomes the criterion ONLY if EVERY
+             table consulted is ratified. Otherwise the criterion is false with
+             `TECNICO_FONTE_NAO_RATIFICADA` and the would-be verdict is recorded as shadow.
+        """
+        codigo = _nonblank_str(process_vars.get("codigo_procedimento_tuss"))
+        if codigo is None:
+            return _CriterionOutcome(ok=False, falhas=(_TEC_ENTRADA_AUSENTE,))
+        categoria = _nonblank_str(process_vars.get("categoria_procedimento")) or ""
+
+        try:
+            cobertura = self._evaluate_dmn(
+                _DMN_DUT_ROL_COVERAGE,
+                {"codigo_procedimento_tuss": codigo, "categoria_procedimento": categoria},
+            )
+        except Exception as exc:  # noqa: BLE001 - fail-closed: unreachable table never approves
+            self.logger.error("auth_auto_criteria_dmn_failed", decision=_DMN_DUT_ROL_COVERAGE, error=str(exc))
+            return _CriterionOutcome(ok=False, falhas=(_TEC_TABELA_INDISPONIVEL,))
+
+        consulted = [_DMN_DUT_ROL_COVERAGE]
+        no_rol = _as_bool(cobertura.get("no_rol"))
+        requer_dut = _as_bool(cobertura.get("requer_dut"))
+
+        # The would-be verdict, computed WITHOUT any reference to ratification.
+        would: bool | None
+        motivo: tuple[str, ...]
+        if no_rol is None or requer_dut is None:
+            would, motivo = None, (_TEC_TABELA_INDISPONIVEL,)
+        elif no_rol:
+            would, motivo = False, (_TEC_FORA_DO_ROL,)
+        elif not requer_dut:
+            would, motivo = True, ()
+        else:
+            criteria_key = sources.criteria_table_for(cobertura.get("dut_ref"))
+            if criteria_key is None:
+                would, motivo = None, (_TEC_PROCEDIMENTO_NAO_MAPEADO,)
+            else:
+                consulted.append(criteria_key)
+                try:
+                    # The clinical inputs are whatever the specific table declares; they reach
+                    # this worker as ordinary process variables. Passing the whole variable map
+                    # is NOT an option (PHI egress + wrong-type coercion, dmn_transport's
+                    # `_to_camunda_vars` caveat), so only the table's own declared inputs are
+                    # forwarded — resolved from the table itself, never a hardcoded list here.
+                    criteria_row = self._evaluate_dmn(
+                        criteria_key, _dut_criteria_inputs(criteria_key, process_vars)
+                    )
+                except Exception as exc:  # noqa: BLE001 - fail-closed
+                    self.logger.error("auth_auto_criteria_dmn_failed", decision=criteria_key, error=str(exc))
+                    return _CriterionOutcome(ok=False, falhas=(_TEC_TABELA_INDISPONIVEL,))
+                atendida = _as_bool(criteria_row.get("dut_atendida"))
+                if atendida is None:
+                    would, motivo = None, (_TEC_TABELA_INDISPONIVEL,)
+                elif atendida:
+                    would, motivo = True, ()
+                else:
+                    would, motivo = False, (_TEC_DUT_NAO_ATENDIDA,)
+
+        return _gate_on_ratification(
+            would=would,
+            motivo=motivo,
+            consulted=consulted,
+            sources=sources,
+            unratified_token=_TEC_FONTE_NAO_RATIFICADA,
+            shadow_prefix="TECNICO",
+        )
+
+    # -- criterion: REGULATORIO ---------------------------------------------------------
+
+    def _criterio_regulatorio(
+        self, process_vars: dict[str, Any], sources: CriteriaSources
+    ) -> _CriterionOutcome:
+        """Carencia / CPT via `carencia_check`.
+
+        INPUTS THAT DO NOT EXIST YET — stated plainly. `carencia_check` declares
+        `tipo_procedimento`, `dias_desde_adesao` and `cpt_declarada`, and its own description
+        says they are "pre-computados por worker deterministico". NONE of the three is in
+        SP-OP-AUTH-001's start contract today: `dias_desde_adesao` needs the beneficiary's
+        contract start date from cadastro data behind the AMH boundary (MZO-050b, blocked), and
+        deriving `tipo_procedimento` from `carater_atendimento`/`categoria_procedimento` is a
+        REGULATORY mapping (which carencia period applies, including `parto`, which cannot be
+        derived from either field) that `docs/review-queue.md` explicitly flags for SME
+        validation. Inventing it here would violate "never invent a regulatory value".
+
+        So this criterion reads the three inputs directly and fails closed with
+        `REGULATORIO_ENTRADA_AUSENTE` when they are absent — which is the state today. That is
+        a correct outcome, not a stub: the seam is real, the table is really evaluated the
+        moment the inputs exist, and until then the request routes to a human.
+
+        The inbound `carencia_cumprida` seed is deliberately NOT consulted and NOT overwritten:
+        it is a DIFFERENT variable with a different (unverified) provenance, consumed upstream
+        by `auth_admissibility`. This gate publishes its own unambiguous `criterio_regulatorio_ok`
+        rather than silently redefining a homonym that other readers already interpret.
+        """
+        tipo = _nonblank_str(process_vars.get("tipo_procedimento"))
+        dias_raw = process_vars.get("dias_desde_adesao")
+        # bool is a subclass of int — `True` must never coerce to "1 day since enrolment".
+        dias = dias_raw if isinstance(dias_raw, int) and not isinstance(dias_raw, bool) else None
+        cpt = _as_bool(process_vars.get("cpt_declarada"))
+        if tipo is None or dias is None or cpt is None or dias < 0:
+            return _CriterionOutcome(ok=False, falhas=(_REG_ENTRADA_AUSENTE,))
+
+        try:
+            row = self._evaluate_dmn(
+                _DMN_CARENCIA_CHECK,
+                {"tipo_procedimento": tipo, "dias_desde_adesao": dias, "cpt_declarada": cpt},
+            )
+        except Exception as exc:  # noqa: BLE001 - fail-closed
+            self.logger.error("auth_auto_criteria_dmn_failed", decision=_DMN_CARENCIA_CHECK, error=str(exc))
+            return _CriterionOutcome(ok=False, falhas=(_REG_TABELA_INDISPONIVEL,))
+
+        cumprida = _as_bool(row.get("carencia_cumprida"))
+        would: bool | None
+        motivo: tuple[str, ...]
+        if cumprida is None:
+            would, motivo = None, (_REG_TABELA_INDISPONIVEL,)
+        elif cumprida:
+            would, motivo = True, ()
+        else:
+            would, motivo = False, (_REG_CARENCIA_NAO_CUMPRIDA,)
+
+        return _gate_on_ratification(
+            would=would,
+            motivo=motivo,
+            consulted=[_DMN_CARENCIA_CHECK],
+            sources=sources,
+            unratified_token=_REG_FONTE_NAO_RATIFICADA,
+            shadow_prefix="REGULATORIO",
+        )
+
+    # -- criterion: CONTRATUAL ----------------------------------------------------------
+
+    def _criterio_contratual(
+        self, process_vars: dict[str, Any], sources: CriteriaSources
+    ) -> _CriterionOutcome:
+        """Contractual milestones / rules / KPIs via `auth_criteria_contratual`.
+
+        That table is an honest EMPTY seam today: ONE catch-all rule returning
+        `criterio_contratual_ok=false` / `motivo="SEM_REGRA_RATIFICADA"`. No contractual
+        milestone, rule or KPI target was invented — none exists anywhere in the repo to read
+        (SP-OP-AUTH-001 carries no plan/product/contract-terms variable at all, and the KPIs in
+        `spec/agents/rafael/agent.yaml` are aspirational prose with zero computing code). When
+        the table reports that it has no ratified rule, `CONTRATUAL_SEM_FONTE` records exactly
+        that — distinguishable in the audit trail from "a contractual rule was evaluated and
+        said no".
+        """
+        tenant = _nonblank_str(process_vars.get("tenant_id")) or ""
+        categoria = _nonblank_str(process_vars.get("categoria_procedimento")) or ""
+        try:
+            row = self._evaluate_dmn(
+                _DMN_CRITERIA_CONTRATUAL,
+                {"tenant_id": tenant, "categoria_procedimento": categoria},
+            )
+        except Exception as exc:  # noqa: BLE001 - fail-closed
+            self.logger.error(
+                "auth_auto_criteria_dmn_failed", decision=_DMN_CRITERIA_CONTRATUAL, error=str(exc)
+            )
+            return _CriterionOutcome(ok=False, falhas=(_CON_TABELA_INDISPONIVEL,))
+
+        ok_raw = _as_bool(row.get("criterio_contratual_ok"))
+        sem_fonte = _nonblank_str(row.get("motivo")) == "SEM_REGRA_RATIFICADA"
+        would: bool | None
+        motivo: tuple[str, ...]
+        if ok_raw is None:
+            would, motivo = None, (_CON_TABELA_INDISPONIVEL,)
+        elif ok_raw:
+            would, motivo = True, ()
+        else:
+            would, motivo = False, ((_CON_SEM_FONTE,) if sem_fonte else ())
+
+        return _gate_on_ratification(
+            would=would,
+            motivo=motivo,
+            consulted=[_DMN_CRITERIA_CONTRATUAL],
+            sources=sources,
+            unratified_token=_CON_FONTE_NAO_RATIFICADA,
+            shadow_prefix="CONTRATUAL",
+        )
+
+    # -- entry point --------------------------------------------------------------------
+
+    def execute(self, process_vars: dict[str, Any]) -> dict[str, Any]:
+        """Compute the four auto-approval criteria and the proof-of-execution flag.
+
+        Args:
+            process_vars: SP-OP-AUTH-001 variables. Reads `tenant_id`, `valor_estimado_brl`
+                (financeiro); `codigo_procedimento_tuss`, `categoria_procedimento` (+ the
+                clinical inputs the selected `dut_criteria_*` table declares) (tecnico);
+                `tipo_procedimento`, `dias_desde_adesao`, `cpt_declarada` (regulatorio).
+
+        Returns:
+            The four `criterio_*_ok` booleans, `auto_criteria_verificado=True`, the bounded
+            `auto_criteria_falhas` / `auto_criteria_shadow` lists and the single bounded
+            `motivo_bloqueio_criterios` audit token. NEVER raises, NEVER emits a `bpmnError`,
+            and NEVER produces a denial.
+        """
+        try:
+            return self._evaluate_criteria(process_vars)
+        except Exception as exc:  # noqa: BLE001 - degradation (design §6): fail-safe AND visible
+            # Fail-safe, not an incident: an incident stalls a care-authorization request, which
+            # is worse for the beneficiary than routing it to a human auditor (mirrors DL-0037's
+            # fail-neutral-with-disclosed-gap). Logged at error, metered, and audited.
+            self.logger.error(
+                "auth_auto_criteria_validator_unavailable",
+                tenant_id=process_vars.get("tenant_id", ""),
+                guia=process_vars.get("numero_guia_tiss", "unknown"),
+                error=str(exc),
+                error_type=type(exc).__name__,
+                reason=(
+                    "validador de criterios indisponivel — todos os criterios FALSE, "
+                    "encaminha para analise humana (nunca negativa automatica)"
+                ),
+            )
+            self._record_unavailability(_VALIDADOR_INDISPONIVEL)
+            return _criteria_result(
+                tecnico=_CriterionOutcome(ok=False, falhas=(_VALIDADOR_INDISPONIVEL,)),
+                financeiro=_CriterionOutcome(ok=False, falhas=(_VALIDADOR_INDISPONIVEL,)),
+                regulatorio=_CriterionOutcome(ok=False, falhas=(_VALIDADOR_INDISPONIVEL,)),
+                contratual=_CriterionOutcome(ok=False, falhas=(_VALIDADOR_INDISPONIVEL,)),
+                status="validator_unavailable",
+            )
+
+    def _record_unavailability(self, token: str) -> None:
+        """Increment the worker-error metric for a MECHANISM failure (never a business "no").
+
+        Swallows its own failure: a metrics backend problem must not turn into the incident this
+        whole degradation path exists to avoid.
+        """
+        try:
+            record_worker_error(type(self).__name__, self.topic, token)
+        except Exception as exc:  # noqa: BLE001 - observability must never break the gate
+            self.logger.warning("auth_auto_criteria_metric_failed", error=str(exc))
+
+    def _evaluate_criteria(self, process_vars: dict[str, Any]) -> dict[str, Any]:
+        sources = self._sources()
+        tecnico = self._criterio_tecnico(process_vars, sources)
+        financeiro = self._criterio_financeiro(process_vars)
+        regulatorio = self._criterio_regulatorio(process_vars, sources)
+        contratual = self._criterio_contratual(process_vars, sources)
+
+        result = _criteria_result(
+            tecnico=tecnico,
+            financeiro=financeiro,
+            regulatorio=regulatorio,
+            contratual=contratual,
+            status="criteria_validated",
+        )
+        for token in result["auto_criteria_falhas"]:
+            if token in _UNAVAILABILITY_TOKENS:
+                self._record_unavailability(token)
+
+        # Non-PHI by construction: only bounded tokens and booleans are logged — never a TUSS
+        # code, a value, or any clinical input (ADR-0006).
+        log = self.logger.info if result["auto_criteria_falhas"] == [] else self.logger.warning
+        log(
+            "auth_auto_criteria_validated",
+            tenant_id=process_vars.get("tenant_id", ""),
+            guia=process_vars.get("numero_guia_tiss", "unknown"),
+            criterio_tecnico_ok=tecnico.ok,
+            criterio_financeiro_ok=financeiro.ok,
+            criterio_regulatorio_ok=regulatorio.ok,
+            criterio_contratual_ok=contratual.ok,
+            falhas=result["auto_criteria_falhas"],
+            sombra=result["auto_criteria_shadow"],
+        )
+        return result
+
+
+def _dut_criteria_inputs(criteria_key: str, process_vars: dict[str, Any]) -> dict[str, Any]:
+    """Forward ONLY the inputs the selected `dut_criteria_*` table declares.
+
+    Explicit per-table input lists, transcribed 1:1 from each table's own `inputExpression`
+    `<text>` elements (`spec/processes/dmn/dut_criteria_*.dmn`). Two reasons this is an
+    allowlist rather than "pass the whole variable map":
+
+      - PHI egress (ADR-0006): the AUTH variable map carries `justificativa_clinica`,
+        `cid10_referencia`, `fundamentacao_dut` and `beneficiario_pseudo_id`; none of them is a
+        declared input of any criteria table and none may be shipped to the DMN endpoint.
+      - wrong-type coercion: `dmn_transport._to_camunda_vars` types by PYTHON runtime type and
+        does not validate against the declared `typeRef`, so forwarding unrelated variables
+        risks a rule matching on a wrong-typed value (that function's own documented caveat).
+
+    A value absent from `process_vars` is simply not forwarded; the DMN then evaluates it as
+    null, which every one of these FIRST-hit-policy tables resolves through its conservative
+    catch-all -> `dut_atendida=false` -> human review. Fail-closed by construction.
+    """
+    declared = _DUT_CRITERIA_DECLARED_INPUTS.get(criteria_key, ())
+    return {name: process_vars[name] for name in declared if name in process_vars}
+
+
+#: Declared inputs per clinical criteria table — transcribed from the tables' own
+#: `inputExpression` texts. Adding a table means adding its row here AND a
+#: `mapeamento_dut_criteria` entry in the ratification manifest.
+_DUT_CRITERIA_DECLARED_INPUTS: dict[str, tuple[str, ...]] = {
+    "dut_criteria_bariatrica": (
+        "imc",
+        "imc_acima_35_com_comorbidade",
+        "imc_acima_40",
+        "tentativas_previas_tratamento_clinico",
+        "sem_contraindicacao_cirurgica",
+        "avaliacao_multidisciplinar_completa",
+    ),
+    "dut_criteria_oncologia_pet_ct": (
+        "diagnostico_oncologico_confirmado",
+        "finalidade_pet_ct",
+        "tipo_neoplasia_elegivel",
+        "exames_convencionais_inconclusivos",
+        "solicita_oncologista_ou_nucleo",
+    ),
+    "dut_criteria_terapias_especiais": (
+        "diagnostico_tea_ou_neurodesenvolvimento",
+        "tipo_terapia",
+        "avaliacao_multidisciplinar_completa",
+        "solicitante_habilitado",
+        "sessoes_mensais_solicitadas",
+        "plano_terapeutico_documentado",
+    ),
+}
+
+
+def _gate_on_ratification(
+    *,
+    would: bool | None,
+    motivo: tuple[str, ...],
+    consulted: list[str],
+    sources: CriteriaSources,
+    unratified_token: str,
+    shadow_prefix: str,
+) -> _CriterionOutcome:
+    """THE RATIFICATION GATE — the single place a DMN verdict becomes (or fails to become) a PASS.
+
+    `would` is what the table(s) computed, derived with ZERO reference to ratification. This
+    function is the only thing that turns it into a criterion:
+
+      - every consulted table RATIFIED  -> the criterion IS `would` (None => false, plus the
+        structural token that produced the None); no shadow (a ratified table's verdict is the
+        verdict, so shadowing it would be noise).
+      - ANY consulted table UNRATIFIED  -> the criterion is FALSE with `*_FONTE_NAO_RATIFICADA`,
+        **regardless of what `would` says** — including `would=True`. The would-be verdict is
+        preserved as a bounded shadow token instead. This is the whole point: a synthetic table
+        must never be able to grant a real authorization.
+
+    Structural tokens (`*_TABELA_INDISPONIVEL`, `*_PROCEDIMENTO_NAO_MAPEADO`) are kept alongside
+    `*_FONTE_NAO_RATIFICADA` because they describe a DIFFERENT problem (a mechanism gap the SME
+    must fix in the manifest or the ops team in the engine) from an unratified rule.
+    """
+    ratified = all(sources.is_ratified(key) for key in consulted)
+    if ratified:
+        return _CriterionOutcome(ok=bool(would), falhas=() if would else motivo)
+
+    if would is True:
+        sombra = (f"{shadow_prefix}{_SOMBRA_APROVARIA}",)
+    elif would is False:
+        sombra = (f"{shadow_prefix}{_SOMBRA_REPROVARIA}",)
+    else:
+        sombra = (f"{shadow_prefix}{_SOMBRA_INDETERMINADO}",)
+    return _CriterionOutcome(ok=False, falhas=(unratified_token, *motivo), sombra=sombra)
+
+
+def _criteria_result(
+    *,
+    tecnico: _CriterionOutcome,
+    financeiro: _CriterionOutcome,
+    regulatorio: _CriterionOutcome,
+    contratual: _CriterionOutcome,
+    status: str,
+) -> dict[str, Any]:
+    """Assemble the engine-visible output. The ONLY writer of the five criteria variables.
+
+    `auto_criteria_verificado` is `True` on EVERY path — including degradation. It attests
+    "the validator ran", not "the criteria passed"; conflating the two would let an outage
+    quietly satisfy the DMN's execution fence.
+    """
+    outcomes = {
+        "tecnico": tecnico,
+        "financeiro": financeiro,
+        "regulatorio": regulatorio,
+        "contratual": contratual,
+    }
+    falhas: list[str] = []
+    sombra: list[str] = []
+    for name in _CRITERIA_ORDER:
+        falhas.extend(outcomes[name].falhas)
+        sombra.extend(outcomes[name].sombra)
+    return {
+        "status": status,
+        "criterio_tecnico_ok": tecnico.ok,
+        "criterio_financeiro_ok": financeiro.ok,
+        "criterio_regulatorio_ok": regulatorio.ok,
+        "criterio_contratual_ok": contratual.ok,
+        # PROOF OF EXECUTION — rule r1 of `auth_auto_approval.dmn` requires it true.
+        "auto_criteria_verificado": True,
+        "auto_criteria_falhas": falhas,
+        "auto_criteria_shadow": sombra,
+        # The single bounded token that reaches the durable ADR-0007 chain (lists cannot —
+        # `harness._is_bounded_token` admits scalars only). First failure in `_CRITERIA_ORDER`;
+        # "" when everything passed.
+        "motivo_bloqueio_criterios": falhas[0] if falhas else "",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -882,10 +1565,12 @@ class ConveneJuntaWorker(WorkerBase):
 
 # ---------------------------------------------------------------------------
 # Bootstrap — donor contract (T1.2/ADR-0026 Decisao §3): class modules register
-# directly, one WorkerBase() instance per topic. auth.py's 6 classes take no
-# constructor args (none declares a Kafka dependency today) — `kafka`/`seams`
-# are accepted for signature parity with the other 15 register_<domain>_workers
-# bootstraps and `register_all_workers` (ADR-0026 Decisao §4), unused here.
+# directly, one WorkerBase() instance per topic. `kafka` stays accepted for
+# signature parity with the other 15 register_<domain>_workers bootstraps and
+# `register_all_workers` (ADR-0026 Decisao §4) and is unused here; `seams` is no
+# longer discarded — `ValidateAutoCriteriaWorker` consumes the `dmn=` transport
+# (ADR-0028), threaded from `worker_runtime/service.py`'s `register_all_workers(
+# ..., dmn=dmn)`.
 # ---------------------------------------------------------------------------
 
 
@@ -894,8 +1579,15 @@ def register_auth_workers(
     kafka: KafkaPublisher | None = None,
     **seams: Any,
 ) -> None:
-    """Register the 6 SP-OP-AUTH-001 `WorkerBase` workers on `harness`."""
-    del kafka, seams  # unused — no auth.py worker declares a Kafka/other seam dependency
+    """Register the 7 SP-OP-AUTH-001 `WorkerBase` workers on `harness`.
+
+    `ValidateAutoCriteriaWorker` takes the ADR-0028 `dmn=` seam. An ABSENT seam is NOT a
+    registration failure: the worker fails each DMN-backed criterion closed with its own
+    `*_TABELA_INDISPONIVEL` token (-> human review). Refusing to register, or raising here,
+    would leave `ST_ValidateAutoApprovalCriteria` unserved and STALL every authorization
+    request — the outcome design §6 exists to prevent.
+    """
+    del kafka  # unused — no auth.py worker declares a Kafka dependency
     for worker_cls in (
         AnalyzeRequestWorker,
         RequestDocumentsWorker,
@@ -905,3 +1597,4 @@ def register_auth_workers(
         ConveneJuntaWorker,
     ):
         harness.register_worker(worker_cls())
+    harness.register_worker(ValidateAutoCriteriaWorker(dmn=seams.get("dmn")))

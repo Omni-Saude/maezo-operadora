@@ -184,9 +184,7 @@ def _parse(raw_text: str, manifest_path: Path) -> CriteriaSources:
     if raw_map is None:
         raw_map = {}
     if not isinstance(raw_map, dict):
-        return _refuse(
-            "invalid_schema", f"{manifest_path}: 'mapeamento_dut_criteria' must be a mapping"
-        )
+        return _refuse("invalid_schema", f"{manifest_path}: 'mapeamento_dut_criteria' must be a mapping")
     dut_map = {
         str(ref).strip(): str(table).strip()
         for ref, table in raw_map.items()
