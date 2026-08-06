@@ -149,6 +149,19 @@ docs/processes/contracts/SP-OP-ANS-SUBMIT-001.md.
       <bpmn:outgoing>Flow_Assemble_Validate</bpmn:outgoing>
     </bpmn:serviceTask>
 
+    <!-- Boundary error: montagem do dataset falhou na origem -> humano corrige (NUNCA auto-rejeita).
+         Fecha a promessa que a documentacao de ST_AssembleDataset e o contrato (§Codigos de erro,
+         ERR_ANS_DATASET_INCOMPLETO: "roteia a UT_CorrigirPendenciaEnvio (humano), nunca auto-rejeita
+         o envio") ja faziam mas que nenhum boundary implementava. Interruptivo (default): sem dataset
+         nao ha o que validar nem enviar, entao o token NAO deve seguir a ST_ValidateSchema. Destino
+         e a MESMA User Task do ramo PENDENTE, logo herda os boundary timers de prazo ja existentes
+         (BT_DeadlineRiskPendencia/BT_DueDatePendencia) e o loop de reavaliacao por BRT_Calendario —
+         nenhuma instancia trava sem escalada. -->
+    <bpmn:boundaryEvent id="BE_AssembleDatasetIncompleto" name="Montagem do dataset falhou na origem" attachedToRef="ST_AssembleDataset">
+      <bpmn:outgoing>Flow_AssembleIncompleto_Corrigir</bpmn:outgoing>
+      <bpmn:errorEventDefinition id="EED_AssembleDatasetIncompleto" errorRef="Error_AnsDatasetIncompleto"/>
+    </bpmn:boundaryEvent>
+
     <!-- Valida schema XSD/TISS do dataset montado -->
     <bpmn:serviceTask id="ST_ValidateSchema" name="Validar schema XSD/TISS do dataset"
                       camunda:type="external" camunda:topic="regulatorio.anssubmit.validate">
@@ -193,6 +206,7 @@ docs/processes/contracts/SP-OP-ANS-SUBMIT-001.md.
       <bpmn:documentation>Dataset incompleto / schema invalido -> pendencia (PENDENTE da DMN, via Flow_GW_Pendente); o humano corrige e marca dataset_complete/schema_valid=true. Tambem alcancada via Flow_GWDec_Corrigir quando um humano em UT_RevisarEnvio/UT_RevisarEnvioJuridico completa com decisao_envio=CORRIGIR_PENDENCIA — inclusive no caso de dataset nao confirmado anonimizado (lgpd_anonimizado=false roteia PRIMEIRO a REVISAO_HUMANA/UT_RevisarEnvio, NAO diretamente aqui, pois e um julgamento de revisao e nao um erro de pipeline — ver GW_Admissibilidade/ans_submission_admissibility rule r_revisao_lgpd); se for esse o motivo da correcao, o humano SO marca lgpd_anonimizado=true apos confirmar que o dataset referenciado por dataset_ref esta de fato agregado/anonimizado (ADR-0006) — GAP-ANS-5: nenhum worker calcula isto automaticamente (mcp-regdata, a fonte de um atestado real, esta AWS-blocked, issue #16; regulatorio.anssubmit.assemble apenas ecoa o fato fail-closed, preservando a correcao humana no loop de reavaliacao). O fluxo reavalia o calendario e a admissibilidade. Inelegibilidade de dados roteia a humano, NUNCA auto-rejeita o envio. GAP-ANS-4: guardada pelos MESMOS boundary timers de UT_RevisarEnvio (BT_DeadlineRiskPendencia/BT_DueDatePendencia, `sla.sla_alerta`/`sla.sla_analise` ja resolvidos por BRT_AnsSla ANTES de GW_Admissibilidade) — sem eles, um dataset nunca corrigido travava a instancia indefinidamente no prazo de calendario (nenhum timer, nenhuma escalada).</bpmn:documentation>
       <bpmn:incoming>Flow_GW_Pendente</bpmn:incoming>
       <bpmn:incoming>Flow_GWDec_Corrigir</bpmn:incoming>
+      <bpmn:incoming>Flow_AssembleIncompleto_Corrigir</bpmn:incoming>
       <bpmn:outgoing>Flow_Corrigir_Calendar</bpmn:outgoing>
     </bpmn:userTask>
 
@@ -586,6 +600,7 @@ em nome do revisor (assignee na trilha de auditoria, ADR-0007).
     <bpmn:sequenceFlow id="Flow_Calendar_Sla" sourceRef="BRT_Calendario" targetRef="BRT_AnsSla"/>
     <bpmn:sequenceFlow id="Flow_Sla_Assemble" sourceRef="BRT_AnsSla" targetRef="ST_AssembleDataset"/>
     <bpmn:sequenceFlow id="Flow_Assemble_Validate" sourceRef="ST_AssembleDataset" targetRef="ST_ValidateSchema"/>
+    <bpmn:sequenceFlow id="Flow_AssembleIncompleto_Corrigir" sourceRef="BE_AssembleDatasetIncompleto" targetRef="UT_CorrigirPendenciaEnvio"/>
     <bpmn:sequenceFlow id="Flow_Validate_Generated" sourceRef="ST_ValidateSchema" targetRef="ST_PublishGenerated"/>
     <bpmn:sequenceFlow id="Flow_Generated_Admiss" sourceRef="ST_PublishGenerated" targetRef="BRT_Admissibilidade"/>
     <bpmn:sequenceFlow id="Flow_Admiss_GW" sourceRef="BRT_Admissibilidade" targetRef="GW_Admissibilidade"/>
@@ -654,6 +669,9 @@ em nome do revisor (assignee na trilha de auditoria, ADR-0007).
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_AssembleDataset" bpmnElement="ST_AssembleDataset">
         <dc:Bounds x="1492" y="52" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BE_AssembleDatasetIncompleto" bpmnElement="BE_AssembleDatasetIncompleto">
+        <dc:Bounds x="1540" y="114" width="36" height="36"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_ValidateSchema" bpmnElement="ST_ValidateSchema">
         <dc:Bounds x="1672" y="52" width="100" height="80"/>
@@ -849,6 +867,12 @@ em nome do revisor (assignee na trilha de auditoria, ADR-0007).
       <bpmndi:BPMNEdge id="Edge_Flow_Sla_Assemble" bpmnElement="Flow_Sla_Assemble">
         <di:waypoint x="1412" y="92"/>
         <di:waypoint x="1492" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_AssembleIncompleto_Corrigir" bpmnElement="Flow_AssembleIncompleto_Corrigir">
+        <di:waypoint x="1558" y="150"/>
+        <di:waypoint x="1558" y="210"/>
+        <di:waypoint x="2702" y="210"/>
+        <di:waypoint x="2702" y="132"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_Assemble_Validate" bpmnElement="Flow_Assemble_Validate">
         <di:waypoint x="1592" y="92"/>
