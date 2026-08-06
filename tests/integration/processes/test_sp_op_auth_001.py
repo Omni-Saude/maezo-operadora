@@ -687,10 +687,12 @@ async def test_happy_path_aprovacao_automatica_l2(
 ) -> None:
     """Aprovacao automatica L2: DUT ok + teto ok + rede ok => End_AprovadaAutomatica.
 
-    T3.1 R2: End_AprovadaAutomatica IS reached (publish-topic gap fixed) and this test's D-07
-    ceiling path is never exercised (`_ACTION_WORKER_KAFKA_GAP_REASON`'s D-07 correction note).
-    item-9 auth Class-A: the `notifications_of_type("auth.issue_authorization")` echo is
-    re-expressed engine-side (see body) and the strict-xfail removed.
+    End_AprovadaAutomatica IS reached, and the `notifications_of_type("auth.issue_authorization")`
+    echo is re-expressed engine-side (see body). XFAILED (strict) since the GAP-AUTH-4 mitigation:
+    the auto channel now consults the tenant teto and the shipped matrix sets
+    `authorization_approval.max_value_brl: 0`, so issuance is refused BY GOVERNANCE — see
+    `_AUTH_CEILING_D07_REASON`. This fixture seeds `valor_estimado_brl: "180.00"`, so the marker
+    flips when D-07 sets a teto >= R$180 (not merely "any real teto").
     """
     inst = await start_auth(
         dut_atendida=True, dentro_teto_l2=True, rede_credenciada=True, carater_atendimento="eletivo"

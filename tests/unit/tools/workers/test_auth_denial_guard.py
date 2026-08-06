@@ -1644,7 +1644,10 @@ def test_issue_authorization_unsanctioned_route_still_blocks_with_the_not_human_
         (0, 0),  # a zero value is TRUSTWORTHY; whether it issues is the teto's call
         (0.0, 0),
         ("100.50", 10_050),
-        (0.005, 0),  # sub-centavo: rounds to the nearest int (Python banker's rounding)
+        # GK-ceiling finding 2: sub-centavo amounts CEIL, never round. Pinning 1 (not 0) pins the
+        # FAIL-CLOSED direction: a value fractionally above the teto must not round back onto it
+        # and issue. `ceil` can only move an amount already strictly above an integer centavo.
+        (0.005, 1),
         (0.015, 2),  # ... and 1.5 centavos rounds up to 2 under the same rule
         (None, None),
         (True, None),

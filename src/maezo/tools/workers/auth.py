@@ -207,7 +207,12 @@ def _ceiling_valor_cents(value: Any) -> int | None:
         return None
     if not math.isfinite(cents) or cents < 0:
         return None
-    return round(cents)
+    # GK-ceiling finding 2: CEIL, never round. `round()` fails in the PERMISSIVE direction across
+    # the teto boundary — at a R$500 teto, 500.001/500.004/500.005 all round to exactly 50000 and
+    # would ISSUE. Tiny in money (<= R$0.005) but it is the wrong direction for a function whose
+    # posture is "never issue on uncertainty". `ceil` can never deny a legitimate value: it only
+    # moves amounts already STRICTLY above an integer centavo up to the next one.
+    return math.ceil(cents)
 
 
 # ---------------------------------------------------------------------------

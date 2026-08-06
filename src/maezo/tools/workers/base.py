@@ -52,7 +52,16 @@ Returned (never raised — see below) by `IssueAuthorizationWorker` on the AUTOM
 `CeilingResolver.within_l2_ceiling(action="authorization_approval", param="max_value_brl")` does
 not admit `valor_estimado_brl` for the tenant — including every fail-closed vector (blank tenant,
 missing/non-numeric/negative/non-finite value, resolver unavailable). It makes the governance
-ceiling load-bearing at the ISSUANCE chokepoint, where until now it was decorative on that route
+ceiling load-bearing at the ISSUANCE chokepoint, where until now it was decorative on that route.
+CAVEAT (GK-ceiling finding 1) — this is a MITIGATION, not a fence: the auto channel is
+discriminated by `auto_sanctioned and not human_approved`, and nothing in the AUTH BPMN ever
+sets `human_approved`. There is no start-variable allowlist, so a caller able to force the auto
+route (already requires seeding dut_atendida/dentro_teto_l2/rede_credenciada) can seed
+`human_approved: true` or `decisao_auditor: 'APROVAR'` and skip this check entirely. It grants
+nothing beyond the pre-mitigation baseline (which issued unconditionally on the auto sanction),
+and discriminating on the activity-local variable instead would risk ceiling-gating a
+HUMAN-approved issuance — care denial, the worse error. Only the MZO-040 pre-gateway worker
+plus narrowing DEFAULT_ALLOWED_PROCESS_KEYS closes it (GAP-AUTH-4)
 (GAP-AUTH-4).
 
 DISTINCT FROM `ERR_DENIAL_NOT_HUMAN` on purpose: that code means "no modeled sanction at all";

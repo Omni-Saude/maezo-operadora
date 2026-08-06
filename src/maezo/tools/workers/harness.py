@@ -172,6 +172,11 @@ _SAFE_DECISION_BASIS_KEYS: frozenset[str] = frozenset(
         # honest outcome, never a fabricated success).
         "event_publish_best_effort_failure",
         "notice_sent",
+        # GK-ceiling finding 3: without these, a ceiling-refused issuance writes an audit row
+        # reading `decision=COMPLETE` with NO guard evidence — the refusal was visible only in
+        # engine history, not in the non-repudiable chain. Both are bounded non-PHI tokens.
+        "dentro_teto_l2",
+        "motivo_bloqueio_teto",
         "admissivel",
         "elegivel",
     }
