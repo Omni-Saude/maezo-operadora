@@ -370,17 +370,17 @@ _CRED_MISSING_WORKERS_REASON = (
     "ST_PublishCredPendedDoc/ST_PublishCredPendedNotice (the T3.1 remedy-B splice cred never got) "
     "now publish agents.events.cred.pended and both tests flipped to real passes. The ONLY "
     "residual this constant still covers is the cure-window class above (3 tests). "
-    "**DIAGNOSTICO CORRIGIDO (2026-08-06) — a frase anterior (\"test-completion follow-up: o teste "
-    "nao dirige o ack/timer\") era FALSA, e estava repetida em 3 lugares (esta razao, PLANS.md e a "
+    '**DIAGNOSTICO CORRIGIDO (2026-08-06) — a frase anterior ("test-completion follow-up: o teste '
+    'nao dirige o ack/timer") era FALSA, e estava repetida em 3 lugares (esta razao, PLANS.md e a '
     "memoria de handoff do orquestrador).** Os 3 testes JA disparam o timer (`_drive_to_descred` "
-    "chama `await_timer_job(\"ICE_PrazoNotificacao\")` + `execute_job`), e um irmao NAO-xfail que "
+    'chama `await_timer_job("ICE_PrazoNotificacao")` + `execute_job`), e um irmao NAO-xfail que '
     "passa (`test_happy_path_descredenciamento_manter_vinculo`) usa o MESMO helper e atinge seu "
     "terminal — logo o cure-window nunca foi o bloqueio. O defeito REAL era de src: o gateway "
     "`GW_Substituicao` roteia por `${tem_plano_substituicao == true}`, variavel que aparecia "
     "exatamente 2x no repo inteiro (ambas DENTRO do BPMN — a condicao e um comentario) e que "
     "NENHUM worker setava; o proprio comentario do BPMN especifica que `register_descredenciamento` "
-    "deve ecoa-la como booleano FLAT e avisa que sem ela a instancia trava no gateway (\"Cannot "
-    "resolve identifier\"). CORRIGIDO no worker; os 3 marcadores foram removidos e live-provados."
+    'deve ecoa-la como booleano FLAT e avisa que sem ela a instancia trava no gateway ("Cannot '
+    'resolve identifier"). CORRIGIDO no worker; os 3 marcadores foram removidos e live-provados.'
 )
 
 _CRED_DOC_COMPLETA_OVERWRITE_REASON = (
@@ -858,11 +858,19 @@ async def test_happy_path_descredenciamento_humano(
     assert cred_probe.has_event(_CRED_NETWORK_CHANGED, tipo_mudanca="prestador_descredenciado")
     assert cred_probe.has_event(_CRED_COMPLETED, desfecho="descredenciado")
 
-    regs = cred_probe.notifications_of_type("cred.register_descredenciamento")
-    assert regs, "Worker register_descredenciamento deve ser executado apos decisao humana"
-    assert regs[0]["decisao_cred"] == "DESCREDENCIAR"
-    assert regs[0]["responsavel_id"] == "juridico-rede-sintetico-001"
-    assert regs[0]["tier"] == "senior"
+    # Engine-side (eco kafka morto: credenciamento.py nao chama kafka.publish em NENHUM worker —
+    # `notifications_of_type` e estruturalmente sempre []). ST_RegisterDescredenciamento executou;
+    # e como register_descredenciamento carrega o guard ERR_DECRED_NOT_HUMAN (exige decisao_cred +
+    # responsavel_id + fundamentacao + referencia_regulatoria), atingir End_PrestadorDescredenciado
+    # SEM o guard bloquear ja prova que os campos humanos chegaram ao worker. Os valores exatos sao
+    # asseridos a partir do historico do engine.
+    assert "ST_RegisterDescredenciamento" in ended, (
+        "register_descredenciamento deve executar apos a decisao humana"
+    )
+    assert await engine.get_history_variable(iid, "decisao_cred") == "DESCREDENCIAR"
+    assert await engine.get_history_variable(iid, "responsavel_id") == "juridico-rede-sintetico-001"
+    assert await engine.get_history_variable(iid, "tier") == "senior"
+    assert await engine.get_history_variable(iid, "descredenciamento_registrado") is True
 
 
 async def test_happy_path_descredenciamento_com_substituicao(
