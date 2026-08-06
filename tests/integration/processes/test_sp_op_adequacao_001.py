@@ -657,7 +657,6 @@ async def test_gap_critico_roteia_para_humano_nao_firma_compromisso(
     await _assert_no_adverse_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_MEASURE_GAP_OVERRIDES_SEEDED_FACTS_REASON, strict=True)
 async def test_dados_incompletos_roteia_para_humano(
     engine: EngineRest,
     adequacao_probe: AdequacaoEngineProbe,
@@ -690,7 +689,27 @@ async def test_dados_incompletos_roteia_para_humano(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_MEASURE_GAP_OVERRIDES_SEEDED_FACTS_REASON, strict=True)
+_ADEQUACAO_GAP_RULE_ORDER_INVERSION_REASON = (
+    "REGULATORIO (RN 259) — inversao de ordem de regra na `adequacao_gap.dmn` DEPLOYADA, NAO um "
+    "defeito de codigo e NAO fechavel por engenharia. hitPolicy=FIRST: `r_eletivo_leve` "
+    "(tipo_carater=eletivo, tempo<=60, distancia<=50, prestadores>0, cobertura=true -> GAP_LEVE) "
+    "PRECEDE `r_conforme`, que nao tem NENHUM teto de tempo/distancia (wildcards) e exige apenas "
+    "prestadores>0 + cobertura=true. Consequencia verificada e ja pinada em unit "
+    "(`test_adequacao_gap_leve` tempo=45 -> GAP_LEVE vs "
+    "`test_adequacao_gap_conforme_reachable_beyond_leve_gate` tempo=70 -> CONFORME): para "
+    "atendimento ELETIVO, um acesso MELHOR le GAP_LEVE enquanto um acesso PIOR le CONFORME — e, "
+    "como `r_conforme` nao tem teto, um tempo/distancia ARBITRARIAMENTE ruim continua lendo "
+    "CONFORME (as duas regras `*_critico` gateiam so em urgencia_emergencia). Este teste semeia "
+    "tempo=30/distancia=10.0 (acesso bom) e exige CONFORME: com a tabela deployada isso e "
+    "inalcancavel. Deslocar o cenario para tempo>60 so para ficar verde PINARIA a inversao como "
+    "comportamento esperado — recusado deliberadamente. ADR-0028 §7 ja decidiu 'a DMN vence, nao "
+    "se corrige aqui'; os thresholds sao DRAFT e de dono REGULATORIO "
+    "(docs/review-queue.md + SP-OP-ADEQUACAO-001.md). FLIP quando o portao regulatorio decidir a "
+    "ordem/os tetos das regras."
+)
+
+
+@pytest.mark.xfail(reason=_ADEQUACAO_GAP_RULE_ORDER_INVERSION_REASON, strict=True)
 async def test_l3_conforme_atinge_neutro_sem_user_task(
     engine: EngineRest,
     adequacao_probe: AdequacaoEngineProbe,
@@ -726,7 +745,6 @@ async def test_l3_conforme_atinge_neutro_sem_user_task(
     )
 
 
-@pytest.mark.xfail(reason=_MEASURE_GAP_OVERRIDES_SEEDED_FACTS_REASON, strict=True)
 async def test_l3_gap_moderado_encaminha_credenciamento_sem_user_task(
     engine: EngineRest,
     adequacao_probe: AdequacaoEngineProbe,
@@ -761,7 +779,6 @@ async def test_l3_gap_moderado_encaminha_credenciamento_sem_user_task(
     assert adequacao_probe.has_event(_ADEQ_GAP_DETECTED, gap_adequacao="GAP_MODERADO")
 
 
-@pytest.mark.xfail(reason=_MISSING_MONITORING_WORKER_REASON, strict=True)
 async def test_l3_gap_leve_monitora_sem_user_task(
     engine: EngineRest,
     adequacao_probe: AdequacaoEngineProbe,
