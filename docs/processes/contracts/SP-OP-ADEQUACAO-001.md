@@ -140,7 +140,7 @@ Convencao `{dominio}.{contexto}.{acao}` (registro central em `config/topic_regis
 |---|---|---|---|
 | Kafka | `agents.events.cred.network_changed` | **consome (start via `network_change_bridge`)** | **HARMONIZADO (GAP-XPROC-2)** — mudanca de rede dispara avaliacao de adequacao da celula afetada; a ponte de runtime correlaciona por `tenant_id`+`regiao_saude`+`especialidade` e inicia com `gatilho=mudanca_rede` (bk `ADEQ-{tenant}-{regiao}-{especialidade}-{ciclo}`; DLQ `agents.events.cred.network_changed.bridge.dlq`) |
 | Kafka | `agents.events.adequacao.received` | produz | apos start (avaliacao de adequacao iniciada) |
-| Kafka | `agents.events.adequacao.gap_detected` | produz | gap de adequacao detectado (payload `gap_adequacao`, `regiao_saude`, `especialidade`; **sem PHI**) |
+| Kafka | `agents.events.adequacao.gap_detected` | produz | gap de adequacao detectado (payload `gap_adequacao`, `regiao_saude`, `especialidade`; **sem PHI**) (payload: `tenant_id`, `regiao_saude`, `especialidade`, `gap_adequacao`; publicado por `ST_PublishGapDetected` SOMENTE quando `gap_adequacao != CONFORME`) |
 | Kafka | `agents.events.adequacao.sla_breached` | produz | SLA de remediacao estourado |
 | Kafka | `agents.events.adequacao.completed` | produz | fim (payload.desfecho = `conforme` \| `monitoramento_atualizado` \| `encaminhada_credenciamento` \| `compromisso_fallback_humano`) |
 | External task | `operadora.events.publish` | consome (worker) | publicador generico de eventos de dominio (reuso) |

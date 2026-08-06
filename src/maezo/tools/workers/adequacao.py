@@ -323,6 +323,11 @@ def update_monitoring_plan(variables: dict[str, Any]) -> dict[str, Any]:
 _UPDATE_MONITORING_PLAN_NOTIFICATION_TYPE = "adequacao.update_monitoring_plan"
 
 
+# GK-adequacao finding 3 (divulgacao): mover `update_monitoring_plan` de `FunctionWorker`
+# para raw handler contorna `WorkerBase.run`, entao as metricas M11 POR WORKER
+# (`record_worker_execution`/`record_worker_error`) deixam de ser emitidas para este topico.
+# O `_emit_worker_task_outcome` do harness continua disparando. Mesmo trade-off ja aceito e
+# divulgado em programa.py para os seus 4 raw handlers.
 def make_update_monitoring_plan_handler(kafka: KafkaPublisher | None) -> TaskHandler:
     """Raw-handler factory for `operadora.adequacao.update_monitoring_plan` (serves
     `ST_UpdateMonitoringPlanL3`).
