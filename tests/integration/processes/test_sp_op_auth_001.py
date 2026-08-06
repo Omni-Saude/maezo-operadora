@@ -659,6 +659,27 @@ async def test_invariant_nenhum_caminho_automatizado_produz_negativa(
 # ===========================================================================
 
 
+_AUTH_CEILING_D07_REASON = (
+    "VALUE-GATED (D-07, financeiro) — NAO e defeito de engenharia. Desde a mitigacao GAP-AUTH-4 "
+    "no chokepoint de emissao (item-9 auth Class-A), IssueAuthorizationWorker consulta "
+    "CeilingResolver.within_l2_ceiling no CANAL AUTOMATICO antes de emitir. A matriz de "
+    "governanca traz `authorization_approval.max_value_brl: 0` em spec/policies/autonomy/"
+    "{L0-core,tenants-amh}.yaml — 0 significa 'aprovacao automatica NAO autorizada ate o D-07 ser "
+    "decidido' — e within_l2_ceiling e fail-closed em teto 0 (False mesmo para value_cents == 0). "
+    "Logo a rota automatica RECUSA emitir por decisao de governanca deliberada: o processo atinge "
+    "End_AprovadaAutomatica e publica desfecho=aprovada_automatica, mas nao ha numero_autorizacao "
+    "(status=blocked_by_guard, ERR_AUTH_AUTO_CEILING_NOT_AUTHORIZED, motivo_bloqueio_teto="
+    "TETO_NAO_AUTORIZA, dentro_teto_l2=False no historico). O canal HUMANO nao e afetado — "
+    "decisao_auditor=APROVAR emite normalmente acima do teto automatico (e para isso que a "
+    "revisao humana existe), pinado por 5 testes unitarios. FLIP quando o D-07 definir um teto "
+    "real para o tenant: a emissao automatica passa a funcionar, limitada por esse teto. "
+    "RESIDUO ABERTO (GAP-AUTH-4, portao Medico/ANS, NAO fechado por esta mitigacao): o "
+    "GW_AutoAprovacao ainda roteia sobre dut_atendida/dentro_teto_l2/rede_credenciada SEMEADOS no "
+    "payload de start, entao o processo continua anunciando uma aprovacao que nao emitiu."
+)
+
+
+@pytest.mark.xfail(reason=_AUTH_CEILING_D07_REASON, strict=True)
 async def test_happy_path_aprovacao_automatica_l2(
     engine: EngineRest,
     auth_probe: AuthEngineProbe,
