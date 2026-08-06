@@ -1068,7 +1068,11 @@ async def test_pendencia_docs_recebidos_reavalia(
             f"Correlacao msg.auth.docs_received falhou [{resp.status_code}]: {resp.text[:200]}"
         )
 
-    await auth_probe.drain()
+    # A reavaliacao atravessa MAIS tasks que antes (ST_ValidateAutoApprovalCriteria foi inserido
+    # antes de BRT_AutoApproval), e um unico drain() serve so uma rodada de fetch&lock por topico
+    # — sem rodadas extras o token para no validador e a UT nunca aparece. Live-proven.
+    for _ in range(3):
+        await auth_probe.drain()
     # GAP-AUTH-4 (portao de criterios): a reavaliacao apos os documentos passa agora por
     # ST_ValidateAutoApprovalCriteria antes de BRT_AutoApproval. Com teto 0 (D-07) e as fontes
     # clinicas/regulatorias/contratuais DRAFT/nao ratificadas, os quatro criterios sao false ->
