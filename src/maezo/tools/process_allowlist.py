@@ -42,6 +42,18 @@ KNOWN_PROCESS_KEYS: Final[frozenset[str]] = frozenset(
 )
 
 # Default allowed keys for every tenant (equals KNOWN_PROCESS_KEYS in Phase 0-3)
+#
+# ⚠️ GAP-AUTH-4 / GK-autol2 finding 2 — THIS DEFAULT IS NOW LOAD-BEARING, and it was not before.
+# `docs/review-queue.md` already carries an SME recommendation that Phase 0/1 restrict
+# agent-startable keys to {SP-OP-ESCALATION-001, SP-OP-LGPD-DSR-001}, on the reasoning that
+# "iniciar AUTH-001 por agente nao deveria ser L2". That recommendation was INERT while the
+# SP-OP-AUTH-001 auto route minted nothing (it published desfecho=aprovada_automatica with no
+# numero_autorizacao). Since item-9 auth Class-A the route emits a REAL TISS numero_autorizacao,
+# decided by `dut_atendida`/`dentro_teto_l2`/`rede_credenciada` taken verbatim from the start
+# payload (GAP-AUTH-4: no worker computes them, and the tenant ceiling is not consulted on this
+# route). Consequence: this frozenset is the only place that decides whether an agent can open
+# that route at all. Narrowing it is a behaviour change with its own blast radius — recorded for
+# the owner/SME decision, deliberately NOT changed here.
 DEFAULT_ALLOWED_PROCESS_KEYS: Final[frozenset[str]] = KNOWN_PROCESS_KEYS
 
 # Regex for valid process key format: SP-OP-<DOMAIN>-<NNN>

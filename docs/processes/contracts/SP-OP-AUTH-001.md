@@ -32,16 +32,41 @@ Uma instancia por guia TISS; reenvio retorna a instancia ativa.
 | `codigo_procedimento_tuss` | string | sim | Procedimento TUSS |
 | `categoria_procedimento` | string | sim | `consulta` \| `exame_simples` \| `exame_especial` \| `terapia` \| `internacao` \| `opme` \| `alta_complexidade` |
 | `carater_atendimento` | string | sim | `urgencia` \| `eletivo` |
-| `valor_estimado_brl` | number | sim | Valor estimado |
+| `valor_estimado_brl` | number | sim | Valor estimado. Consumido por `AnalyzeRequestWorker` (computa `dentro_teto_l2` na perna humana) e — desde a mitigacao GAP-AUTH-4 — pelo guard de teto de `issue_authorization` no canal AUTOMATICO (ausente/nao-numerico/negativo => recusa emitir). Continua **semeado no start e nao verificado** (GAP-AUTH-4) |
 | `cid10` | string | nao | CID-10 informado |
 | `documentos_refs` | json | sim | Referencias de anexos TISS (pode ser vazio) |
 | `requer_autorizacao` | boolean | sim | Pre-resolvido por worker (catalogo do tenant) |
 | `documentacao_completa` | boolean | sim | Pre-resolvido por worker |
 | `beneficiario_ativo` | boolean | sim | Pre-resolvido por worker (cadastro) |
 | `carencia_cumprida` | boolean | sim | Pre-resolvido por worker (contagem de carencia) |
-| `dut_atendida` | boolean | sim* | Pre-resolvido por worker DUT/ROL (*antes de `BRT_AutoApproval`) |
-| `dentro_teto_l2` | boolean | sim* | Pre-resolvido: `valor_estimado_brl <= teto do tenant` (tenants-amh.yaml) |
-| `rede_credenciada` | boolean | sim* | Pre-resolvido por worker |
+| `dut_atendida` | boolean | sim* | **GAP-AUTH-4: SEMEADO NO START, nao verificado.** Nenhum worker o computa antes de `BRT_AutoApproval` |
+| `dentro_teto_l2` | boolean | sim* | **GAP-AUTH-4: SEMEADO NO START, nao verificado.** `CeilingResolver`/`within_l2_ceiling` NAO roda nesta rota — o teto (`tenants-amh.yaml`) e DECORATIVO na aprovacao automatica; decidir o D-07 NAO fecha isto |
+| `rede_credenciada` | boolean | sim* | **GAP-AUTH-4: SEMEADO NO START, nao verificado.** Nenhum worker o computa antes de `BRT_AutoApproval` |
+
+> **GAP-AUTH-4 (aberto, registrado 2026-08-05).** Na rota automatica os tres fatos acima chegam do
+> payload de start e a DMN `auth_auto_approval` decide `AUTO_APROVAR` sobre eles sem verificacao.
+> Contraste: SP-OP-REEMBOLSO-001 computa o teto ANTES da sua BRT (GAP-REEMBOLSO-5). Remedio =
+> worker determinístico antes de `BRT_AutoApproval` (classe MZO-040 — portão Médico/ANS).
+> **A promoção deste contrato de DRAFT para FINAL está vinculada ao fechamento deste gap.**
+>
+> **Mitigação parcial (2026-08-05) — o teto passou a ser LOAD-BEARING no ponto de emissão, o gap
+> continua ABERTO.** `operadora.auth.issue_authorization` agora verifica
+> `authorization_approval.max_value_brl` (via `CeilingResolver.within_l2_ceiling`, a MESMA chamada
+> que `AnalyzeRequestWorker` faz em `ST_PrepararDossie`) **antes de emitir, exclusivamente no canal
+> AUTOMÁTICO** (sanção do DMN sem decisão humana), e recusa emitir quando o teto não autoriza —
+> `ERR_AUTH_AUTO_CEILING_NOT_AUTHORIZED`, fail-closed em tenant ausente / `valor_estimado_brl`
+> ausente-inválido-negativo / resolver indisponível. **O canal humano NÃO é afetado:** um
+> `decisao_auditor == 'APROVAR'` (e a rota da junta) emite independentemente do teto — exceder o
+> teto automático é exatamente para o que a análise humana existe. Isto **não fecha** o
+> GAP-AUTH-4: `BRT_AutoApproval` continua decidindo sobre `dut_atendida`/`dentro_teto_l2`/
+> `rede_credenciada` semeados no start, e o próprio `valor_estimado_brl` comparado vem do mesmo
+> payload não verificado. **Consequência observável HOJE** (`max_value_brl: 0`, estado D-07): a
+> rota automática alcança `End_AprovadaAutomatica` e publica `desfecho=aprovada_automatica`
+> **sem emitir `numero_autorizacao`** — o mesmo desfecho observável de antes, agora por um motivo
+> principiado, logado e auditável (o teto não autoriza) em vez de um descasamento acidental de
+> tipagem. Essa inconsistência residual — o processo anuncia uma aprovação que não emitiu — É o
+> GAP-AUTH-4 e permanece aberta para o portão Médico/ANS. Decidido o D-07 com um teto real, a
+> emissão automática passa a funcionar, limitada por esse teto.
 
 ## Variaveis de saida
 
@@ -53,7 +78,9 @@ Uma instancia por guia TISS; reenvio retorna a instancia ativa.
 | `fundamentacao_dut` | string | Obrigatoria se NEGAR |
 | `auditor_id` | string | Id do medico auditor humano que setou `decisao_auditor` (cadeia de auditoria ADR-0007). **Obrigatoria se NEGAR** — e a proveniencia humana que o guard de `operadora.auth.send_denial_notice` consome (`ERR_DENIAL_NOT_HUMAN`). Declarada como `camunda:formField` nas tres User Tasks humanas (`UT_AnaliseMedicoAuditor`, `UT_CoordenacaoAssume`, `UT_RegistrarParecerJunta`); em `UT_RegistrarParecerJunta` e o medico relator do parecer. Espelha `analista_id`/`auditor_id` de SP-OP-RECURSO-001 e SP-OP-REEMBOLSO-001 |
 | `decisao_pendencia` | string | `cancelar_guia` \| `conceder_prazo_extra` \| `seguir_analise` (pendencia expirada — humano) |
-| `numero_autorizacao` | string | Emitida por `operadora.auth.issue_authorization` |
+| `numero_autorizacao` | string | Emitida por `operadora.auth.issue_authorization`. **Ausente** quando o guard de teto recusa a emissao automatica (ver `ERR_AUTH_AUTO_CEILING_NOT_AUTHORIZED`) |
+| `dentro_teto_l2` | boolean | Fato COMPUTADO escrito de volta pelos workers que o resolvem: `analyze_request` (sempre) e `issue_authorization` **so no canal automatico** (nunca na perna humana — la o teto nao e' consultado e escreve-lo seria fabricar uma verificacao) |
+| `motivo_bloqueio_teto` | string | Token limitado (`TENANT_AUSENTE` \| `VALOR_AUSENTE_OU_INVALIDO` \| `TETO_NAO_AUTORIZA` \| `RESOLVER_INDISPONIVEL`), escrito SO na recusa de teto de `issue_authorization` — evidencia engine-visivel de QUAL vetor fail-closed disparou |
 
 ## Topicos
 
@@ -116,6 +143,7 @@ Nota: prazos legais sao em dias uteis; ISO 8601 usa dias corridos — valores co
 | `ERR_AUTH_INVALID_GUIA` | declarado (`Error_AuthGuiaInvalida`) para uso dos workers | worker lanca BPMN error se guia inconsistente na origem; tratamento a detalhar na promocao a FINAL |
 | `ERR_AUTH_DENIAL_INCOMPLETE` | guard do worker `operadora.auth.send_denial_notice` | recusa transmitir uma NEGAR sem `justificativa_clinica` + `cid10_referencia` + `fundamentacao_dut` (RN 395 art. 10). Lanca BPMN error (`Error_AuthDenialIncompleta`), capturado por `BE_NegativaIncompleta` -> `End_FundamentacaoIncompletaBloqueada` (terminal NEUTRO: nada foi enviado) |
 | `ERR_DENIAL_NOT_HUMAN` | guard do worker `operadora.auth.send_denial_notice` | recusa transmitir uma NEGAR sem proveniencia humana: o sinal explicito `human_approved` **ou** um `auditor_id` nao-vazio setado pela User Task humana. Materializa a invariante L0: nenhuma negativa sem User Task humana na trilha (ADR-0007). NAO ha boundary modelado para este codigo — o worker retorna registro `blocked_by_guard`, nao lanca |
+| `ERR_AUTH_AUTO_CEILING_NOT_AUTHORIZED` | guard do worker `operadora.auth.issue_authorization`, **canal AUTOMATICO apenas** (`ST_EmitirAutorizacaoAuto`) | recusa EMITIR quando o teto de autonomia do tenant (`authorization_approval.max_value_brl`, resolvido por `CeilingResolver.within_l2_ceiling`) nao autoriza o `valor_estimado_brl`. Fail-closed em todos os vetores (tenant ausente/branco/nao-string; valor ausente/nao-numerico/bool/negativo/nao-finito; resolver indisponivel). Distinto de `ERR_DENIAL_NOT_HUMAN` de proposito: aquele significa "sem sancao modelada", este significa "sancionado pela DMN, mas o teto nao autoriza emissao AUTOMATICA". **O canal HUMANO nunca e' gateado por este codigo** (`decisao_auditor == 'APROVAR'` e a rota da junta emitem independentemente do teto). NAO ha boundary modelado em `ST_EmitirAutorizacaoAuto` (o unico boundary do arquivo e' `BE_NegativaIncompleta`), entao o worker RETORNA registro `blocked_by_guard` com `dentro_teto_l2=false` + `motivo_bloqueio_teto` como evidencia engine-visivel — nunca lanca (um `bpmnError` nao modelado encerra silenciosamente o escopo, ADR-0030) |
 
 ## Pendencias para promocao a FINAL
 
