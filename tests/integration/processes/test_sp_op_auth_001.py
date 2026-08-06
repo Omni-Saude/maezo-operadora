@@ -1068,11 +1068,16 @@ async def test_pendencia_docs_recebidos_reavalia(
             f"Correlacao msg.auth.docs_received falhou [{resp.status_code}]: {resp.text[:200]}"
         )
 
-    # A reavaliacao atravessa MAIS tasks que antes (ST_ValidateAutoApprovalCriteria foi inserido
-    # antes de BRT_AutoApproval), e um unico drain() serve so uma rodada de fetch&lock por topico
-    # — sem rodadas extras o token para no validador e a UT nunca aparece. Live-proven.
-    for _ in range(3):
+    # A reavaliacao agora termina no ramo HUMANO (o portao de criterios recusa auto-aprovacao
+    # enquanto nada esta ratificado), e o ramo humano passa por ST_PrepararDossie — cujo topico
+    # `_ANALYZE_TOPIC` e DELIBERADAMENTE excluido de `_AUTH_WORKER_TOPICS` e servido pelo
+    # `_AnalyzeRequestStub` via o drain_analyze() SEPARADO. Antes deste portao este teste
+    # terminava no terminal AUTOMATICO e nunca precisava do stub. Idioma identico ao dos testes
+    # que ja alcancam UT_AnaliseMedicoAuditor (drain_analyze() + drain()).
+    for _ in range(2):
         await auth_probe.drain()
+        await auth_probe.drain_analyze()
+    await auth_probe.drain()
     # GAP-AUTH-4 (portao de criterios): a reavaliacao apos os documentos passa agora por
     # ST_ValidateAutoApprovalCriteria antes de BRT_AutoApproval. Com teto 0 (D-07) e as fontes
     # clinicas/regulatorias/contratuais DRAFT/nao ratificadas, os quatro criterios sao false ->
