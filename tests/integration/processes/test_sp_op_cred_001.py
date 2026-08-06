@@ -380,7 +380,8 @@ _CRED_MISSING_WORKERS_REASON = (
     "exatamente 2x no repo inteiro (ambas DENTRO do BPMN — a condicao e um comentario) e que "
     "NENHUM worker setava; o proprio comentario do BPMN especifica que `register_descredenciamento` "
     'deve ecoa-la como booleano FLAT e avisa que sem ela a instancia trava no gateway ("Cannot '
-    'resolve identifier"). CORRIGIDO no worker; os 3 marcadores foram removidos e live-provados.'
+    'resolve identifier"). CORRIGIDO no worker; os 3 marcadores foram removidos e live-provados. '
+    "grep-confirmed: zero pytest.mark.xfail call sites reference this constant anymore."
 )
 
 _CRED_DOC_COMPLETA_OVERWRITE_REASON = (
