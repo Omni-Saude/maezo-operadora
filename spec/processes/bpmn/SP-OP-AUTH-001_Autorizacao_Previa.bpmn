@@ -202,7 +202,7 @@ Contrato completo: docs/processes/contracts/SP-OP-AUTH-001.md.
                            camunda:decisionRef="auth_auto_approval"
                            camunda:mapDecisionResult="singleResult"
                            camunda:resultVariable="auto_aprovacao">
-      <bpmn:documentation>L2 (ADR-0008): so AUTO_APROVAR com DUT atendida + dentro do teto do tenant + rede credenciada. Catch-all da DMN = ANALISE_HUMANA (fail-safe). Negativa automatica NAO e saida possivel.</bpmn:documentation>
+      <bpmn:documentation>L2 (ADR-0008): so AUTO_APROVAR com DUT atendida + dentro do teto do tenant + rede credenciada. Catch-all da DMN = ANALISE_HUMANA (fail-safe). Negativa automatica NAO e saida possivel. GAP-AUTH-4 (ABERTO): dut_atendida/dentro_teto_l2/rede_credenciada chegam SEMEADOS NO START — nenhum worker os computa antes desta BRT. CeilingResolver/within_l2_ceiling NAO roda nesta rota (o unico chamador em AUTH e AnalyzeRequestWorker, em ST_PrepararDossie, na perna ANALISE_HUMANA *depois* do GW_AutoAprovacao), portanto o teto do tenant e DECORATIVO na aprovacao automatica e decidir o D-07 NAO fecha isto. Contraste: SP-OP-REEMBOLSO-001 roda o calculo ANTES da sua BRT (GAP-REEMBOLSO-5). Remedio = worker deterministico antes de BRT_AutoApproval (classe MZO-040, portao Medico/ANS). Promocao de SP-OP-AUTH-001 de DRAFT para FINAL esta vinculada ao fechamento deste gap.</bpmn:documentation>
       <bpmn:incoming>Flow_Sla_AutoApproval</bpmn:incoming>
       <bpmn:outgoing>Flow_AutoApproval_GW</bpmn:outgoing>
     </bpmn:businessRuleTask>

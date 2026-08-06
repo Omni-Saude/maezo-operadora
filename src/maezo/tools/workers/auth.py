@@ -401,7 +401,13 @@ class IssueAuthorizationWorker(WorkerBase):
             guia=guia,
             numero_autorizacao=auth_number,
             human_approved=human_approved,
-            auto_sanctioned=auto_sanctioned,
+            # GK finding 3: um `auto_aprovacao_recomendacao` semeado no start sobrevive na perna
+            # HUMANA (o input mapping so existe na task auto), o que fazia este campo de auditoria
+            # ler True numa emissao decidida por humano. Nao ha alargamento de emissao (a task
+            # humana so e alcancavel por `decisao_auditor == 'APROVAR'`, que ja poe human_approved),
+            # mas a TRILHA precisa ser verdadeira: sancao-auto so e reportada quando NAO ha decisao
+            # humana.
+            auto_sanctioned=auto_sanctioned and not human_approved,
         )
 
         return {

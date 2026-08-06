@@ -233,8 +233,14 @@ _END_RISCO_SLA_NOTIFICADO = "End_RiscoSlaNotificado"
 # never call `drain_analyze()`. Their `start_auth(dentro_teto_l2=True, ...)` seed survives
 # untouched into `BRT_AutoApproval`'s DMN evaluation (`auth_auto_approval.dmn` reads the flat
 # `dentro_teto_l2` input directly) — the D-07 ceiling computation is simply never exercised by
-# either test's path. D-07 remains a genuine, OPEN config gap (0 ceiling in both
-# `spec/policies/autonomy/{L0-core,tenants-amh}.yaml`) — just not the blocker THESE 2 tests hit;
+# either test's path. **GAP-AUTH-4 (corrigido aqui — a caracterizacao anterior estava ERRADA).**
+# Isto NAO e um "config gap" que decidir o D-07 resolve: `within_l2_ceiling` NUNCA e invocado
+# nesta rota (o unico chamador de CeilingResolver em AUTH e AnalyzeRequestWorker, em
+# ST_PrepararDossie, na perna ANALISE_HUMANA *depois* do GW_AutoAprovacao). Definir um teto real
+# no D-07 nao muda NADA aqui — BRT_AutoApproval continua consumindo `dut_atendida`/
+# `dentro_teto_l2`/`rede_credenciada` SEMEADOS NO START, sem verificacao. O teto e DECORATIVO na
+# rota automatica. Remedio (fora de escopo, classe MZO-040/Medical-ANS): um worker que compute
+# esses fatos ANTES de BRT_AutoApproval — e o que SP-OP-REEMBOLSO-001 ja faz (GAP-REEMBOLSO-5).
 # both were then blocked by `_ACTION_WORKER_KAFKA_GAP_REASON` below instead (see the PR body for
 # the full writeup — this correction is evidence, not fabricated). CORRECTION-TO-THE-CORRECTION
 # (item-9 auth Class-A): `test_pendencia_docs_recebidos_reavalia` was already un-xfailed by

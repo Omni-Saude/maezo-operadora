@@ -39,9 +39,15 @@ Uma instancia por guia TISS; reenvio retorna a instancia ativa.
 | `documentacao_completa` | boolean | sim | Pre-resolvido por worker |
 | `beneficiario_ativo` | boolean | sim | Pre-resolvido por worker (cadastro) |
 | `carencia_cumprida` | boolean | sim | Pre-resolvido por worker (contagem de carencia) |
-| `dut_atendida` | boolean | sim* | Pre-resolvido por worker DUT/ROL (*antes de `BRT_AutoApproval`) |
-| `dentro_teto_l2` | boolean | sim* | Pre-resolvido: `valor_estimado_brl <= teto do tenant` (tenants-amh.yaml) |
-| `rede_credenciada` | boolean | sim* | Pre-resolvido por worker |
+| `dut_atendida` | boolean | sim* | **GAP-AUTH-4: SEMEADO NO START, nao verificado.** Nenhum worker o computa antes de `BRT_AutoApproval` |
+| `dentro_teto_l2` | boolean | sim* | **GAP-AUTH-4: SEMEADO NO START, nao verificado.** `CeilingResolver`/`within_l2_ceiling` NAO roda nesta rota — o teto (`tenants-amh.yaml`) e DECORATIVO na aprovacao automatica; decidir o D-07 NAO fecha isto |
+| `rede_credenciada` | boolean | sim* | **GAP-AUTH-4: SEMEADO NO START, nao verificado.** Nenhum worker o computa antes de `BRT_AutoApproval` |
+
+> **GAP-AUTH-4 (aberto, registrado 2026-08-05).** Na rota automatica os tres fatos acima chegam do
+> payload de start e a DMN `auth_auto_approval` decide `AUTO_APROVAR` sobre eles sem verificacao.
+> Contraste: SP-OP-REEMBOLSO-001 computa o teto ANTES da sua BRT (GAP-REEMBOLSO-5). Remedio =
+> worker determinístico antes de `BRT_AutoApproval` (classe MZO-040 — portão Médico/ANS).
+> **A promoção deste contrato de DRAFT para FINAL está vinculada ao fechamento deste gap.**
 
 ## Variaveis de saida
 
