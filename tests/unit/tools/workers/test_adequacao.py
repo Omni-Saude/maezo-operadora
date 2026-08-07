@@ -11,6 +11,7 @@ from maezo.tools.workers.adequacao import (
     AdequacaoError,
     execute_remediation,
     make_prepare_remediation_dossier_handler,
+    make_update_monitoring_plan_handler,
     measure_gap,
     notify_coordenacao,
     notify_sla_risk,
@@ -20,7 +21,7 @@ from maezo.tools.workers.adequacao import (
     update_monitoring_plan,
 )
 from maezo.tools.workers.dmn_transport import DmnEvaluationError, FakeDmnTransport
-from maezo.tools.workers.harness import ExternalTask, WorkerHarness
+from maezo.tools.workers.harness import ExternalTask, FakeKafkaPublisher, WorkerHarness
 
 
 def _adequacao_fake(*, gap_adequacao: str, roteamento_remediacao: str, motivo: str = "") -> FakeDmnTransport:
@@ -66,6 +67,154 @@ def test_measure_gap_insufficient_data() -> None:
 
 
 # ---------------------------------------------------------------
+# measure_gap — FACT PRESERVATION (mirrors credenciamento.validate_cred's fix, the identical
+# defect class: an already-resolved fact on `variables` must be ECHOED, never clobbered by the
+# placeholder/re-derivation before BRT_AdequacaoGap evaluates it).
+# ---------------------------------------------------------------
+
+
+def test_measure_gap_preserves_resolved_tempo_acesso() -> None:
+    """An explicit, correctly-typed (int, non-bool) `tempo_acesso_apurado_min` is echoed
+    through unchanged -- NOT clobbered by the hardcoded 45min placeholder."""
+    result = measure_gap(
+        {"regiao_saude": "R-001", "especialidade": "cardiologia", "tempo_acesso_apurado_min": 12}
+    )
+    assert result["tempo_acesso_apurado_min"] == 12
+
+
+def test_measure_gap_tempo_acesso_absent_falls_back_to_placeholder() -> None:
+    result = measure_gap({"regiao_saude": "R-001", "especialidade": "cardiologia"})
+    assert result["tempo_acesso_apurado_min"] == 45
+
+
+@pytest.mark.parametrize("wrong_type", [True, False, "12", 12.0, None, [12], {"v": 12}])
+def test_measure_gap_tempo_acesso_wrong_type_falls_back_to_placeholder(wrong_type: object) -> None:
+    """A wrong-typed `tempo_acesso_apurado_min` (incl. `bool` -- a subclass of `int` in Python,
+    but NEVER a valid numeric measurement here) is NOT treated as a resolved fact -- falls back
+    to the placeholder, exactly like absent."""
+    result = measure_gap(
+        {"regiao_saude": "R-001", "especialidade": "cardiologia", "tempo_acesso_apurado_min": wrong_type}
+    )
+    assert result["tempo_acesso_apurado_min"] == 45
+
+
+def test_measure_gap_preserves_resolved_distancia_apurada() -> None:
+    """An explicit, correctly-typed (float) `distancia_apurada_km` is echoed through unchanged
+    -- NOT clobbered by the hardcoded 15.5km placeholder."""
+    result = measure_gap(
+        {"regiao_saude": "R-001", "especialidade": "cardiologia", "distancia_apurada_km": 3.2}
+    )
+    assert result["distancia_apurada_km"] == 3.2
+
+
+def test_measure_gap_distancia_apurada_absent_falls_back_to_placeholder() -> None:
+    result = measure_gap({"regiao_saude": "R-001", "especialidade": "cardiologia"})
+    assert result["distancia_apurada_km"] == 15.5
+
+
+@pytest.mark.parametrize("wrong_type", [True, False, "3.2", 3, None, [3.2], {"v": 3.2}])
+def test_measure_gap_distancia_apurada_wrong_type_falls_back_to_placeholder(wrong_type: object) -> None:
+    """A wrong-typed `distancia_apurada_km` (incl. `bool`, and incl. a plain `int` -- the
+    contract types this field `double`, never `number`/`integer`) falls back to the placeholder,
+    exactly like absent."""
+    result = measure_gap(
+        {"regiao_saude": "R-001", "especialidade": "cardiologia", "distancia_apurada_km": wrong_type}
+    )
+    assert result["distancia_apurada_km"] == 15.5
+
+
+def test_measure_gap_preserves_resolved_cobertura_geo_suficiente_true() -> None:
+    """An already-resolved `cobertura_geo_suficiente=True` is respected even when the
+    prestadores-derived heuristic would say otherwise (prestadores<2 -> heuristic False)."""
+    result = measure_gap(
+        {
+            "regiao_saude": "R-001",
+            "especialidade": "cardiologia",
+            "prestadores_disponiveis": 0,
+            "cobertura_geo_suficiente": True,
+        }
+    )
+    assert result["cobertura_geo_suficiente"] is True
+
+
+def test_measure_gap_preserves_resolved_cobertura_geo_suficiente_false() -> None:
+    """An already-resolved `cobertura_geo_suficiente=False` is respected even when the
+    prestadores-derived heuristic would say otherwise (prestadores>=2 -> heuristic True) --
+    the FIX must be strictly MORE conservative than the pre-fix always-recompute behavior,
+    never less."""
+    result = measure_gap(
+        {
+            "regiao_saude": "R-001",
+            "especialidade": "cardiologia",
+            "prestadores_disponiveis": 5,
+            "cobertura_geo_suficiente": False,
+        }
+    )
+    assert result["cobertura_geo_suficiente"] is False
+
+
+@pytest.mark.parametrize("wrong_type", ["true", 1, 0, None, [], {}])
+def test_measure_gap_cobertura_geo_suficiente_wrong_type_falls_back_to_derivation(wrong_type: object) -> None:
+    result = measure_gap(
+        {
+            "regiao_saude": "R-001",
+            "especialidade": "cardiologia",
+            "prestadores_disponiveis": 5,
+            "cobertura_geo_suficiente": wrong_type,
+        }
+    )
+    assert result["cobertura_geo_suficiente"] is True  # prestadores=5 >= 2 -> derived True
+
+
+def test_measure_gap_preserves_resolved_dados_geo_completos_true() -> None:
+    """An already-resolved `dados_geo_completos=True` is respected even when regiao/especialidade
+    are blank (the shape-derivation heuristic would say False)."""
+    result = measure_gap({"regiao_saude": "", "especialidade": "", "dados_geo_completos": True})
+    assert result["dados_geo_completos"] is True
+
+
+def test_measure_gap_preserves_resolved_dados_geo_completos_false() -> None:
+    """An already-resolved `dados_geo_completos=False` is respected even when regiao/especialidade
+    are both present (the shape-derivation heuristic would say True)."""
+    result = measure_gap(
+        {"regiao_saude": "R-001", "especialidade": "cardiologia", "dados_geo_completos": False}
+    )
+    assert result["dados_geo_completos"] is False
+
+
+@pytest.mark.parametrize("wrong_type", ["true", 1, 0, None, [], {}])
+def test_measure_gap_dados_geo_completos_wrong_type_falls_back_to_derivation(wrong_type: object) -> None:
+    result = measure_gap(
+        {"regiao_saude": "R-001", "especialidade": "cardiologia", "dados_geo_completos": wrong_type}
+    )
+    assert result["dados_geo_completos"] is True  # regiao and especialidade both present -> True
+
+
+def test_measure_gap_all_four_facts_preserved_simultaneously_prestadores_unaffected() -> None:
+    """All four previously-clobbered facts respected at once; `prestadores_disponiveis`
+    (already preserved pre-fix) and the unrelated identity fields stay unchanged -- pins that
+    the fix touches ONLY the four clobbered keys."""
+    result = measure_gap(
+        {
+            "regiao_saude": "R-002",
+            "especialidade": "ortopedia",
+            "tempo_acesso_apurado_min": 8,
+            "distancia_apurada_km": 1.1,
+            "cobertura_geo_suficiente": False,
+            "dados_geo_completos": False,
+            "prestadores_disponiveis": 7,
+        }
+    )
+    assert result == {
+        "tempo_acesso_apurado_min": 8,
+        "distancia_apurada_km": 1.1,
+        "prestadores_disponiveis": 7,
+        "cobertura_geo_suficiente": False,
+        "dados_geo_completos": False,
+    }
+
+
+# ---------------------------------------------------------------
 # route_remediation
 # ---------------------------------------------------------------
 
@@ -100,7 +249,14 @@ def test_adequacao_gap_conforme_reachable_beyond_leve_gate() -> None:
     on tempo/distancia) matches. Also documents a DMN-content quirk (not patched, per
     constraint 5): CONFORME's row does not itself gate on tempo/distancia, so this specific
     case (tempo=70min) reads as MORE severe than the tempo=45min GAP_LEVE case yet is labeled
-    CONFORME — flagged for spec-side review, not fixed here."""
+    CONFORME — flagged for spec-side review, not fixed here.
+
+    FAIL-SAFE (decisao do dono, 2026-08-06): o veredito da DMN continua CONFORME (nao reescrevemos
+    a tabela), MAS o worker RECUSA agir sobre ele quando o acesso medido excede o teto que a
+    propria tabela declara em `r_eletivo_leve` (60min/50km) — o roteamento vira ANALISE_HUMANA em
+    vez de MONITORAR. Sem isto, este caso (70min) terminava em End_AdequacaoConforme SEM plano de
+    monitoramento e SEM alerta a gestao-rede, pior que o comportamento anterior a preservacao de
+    fatos."""
     fake = _adequacao_fake(gap_adequacao="CONFORME", roteamento_remediacao="MONITORAR")
     result = route_remediation(
         {
@@ -113,7 +269,64 @@ def test_adequacao_gap_conforme_reachable_beyond_leve_gate() -> None:
         },
         dmn=fake,
     )
+    # veredito da DMN preservado e auditavel...
     assert result["gap_adequacao"] == "CONFORME"
+    # ...mas NAO se age sobre ele: 70min excede o teto eletivo da propria tabela (60min).
+    assert result["roteamento_remediacao"] == "ANALISE_HUMANA"
+    assert result["motivo"] == "CONFORME_RECUSADO_ACESSO_ACIMA_DO_TETO_LEVE"
+
+
+def test_conforme_dentro_do_teto_leve_nao_e_recusado() -> None:
+    """Contra-prova de nao-vacuidade: CONFORME DENTRO do teto (45min/10km) segue MONITORAR.
+
+    Sem este teste o fail-safe poderia recusar tudo e ainda parecer correto."""
+    fake = _adequacao_fake(gap_adequacao="CONFORME", roteamento_remediacao="MONITORAR")
+    result = route_remediation(
+        {
+            "tipo_carater": "eletivo",
+            "tempo_acesso_apurado_min": 45,
+            "distancia_apurada_km": 10.0,
+            "prestadores_disponiveis": 2,
+            "cobertura_geo_suficiente": True,
+            "dados_geo_completos": True,
+        },
+        dmn=fake,
+    )
+    assert result["gap_adequacao"] == "CONFORME"
+    assert result["roteamento_remediacao"] == "MONITORAR"
+
+
+def test_conforme_recusado_tambem_por_distancia() -> None:
+    """A recusa dispara pelo teto de DISTANCIA tambem, nao so pelo de tempo."""
+    fake = _adequacao_fake(gap_adequacao="CONFORME", roteamento_remediacao="MONITORAR")
+    result = route_remediation(
+        {
+            "tipo_carater": "eletivo",
+            "tempo_acesso_apurado_min": 30,
+            "distancia_apurada_km": 80.0,
+            "prestadores_disponiveis": 2,
+            "cobertura_geo_suficiente": True,
+            "dados_geo_completos": True,
+        },
+        dmn=fake,
+    )
+    assert result["roteamento_remediacao"] == "ANALISE_HUMANA"
+
+
+def test_gap_leve_acima_do_teto_nao_e_afetado_pelo_fail_safe() -> None:
+    """O fail-safe so alcanca CONFORME — um GAP_LEVE segue seu roteamento normal."""
+    fake = _adequacao_fake(gap_adequacao="GAP_LEVE", roteamento_remediacao="MONITORAR")
+    result = route_remediation(
+        {
+            "tipo_carater": "eletivo",
+            "tempo_acesso_apurado_min": 200,
+            "distancia_apurada_km": 90.0,
+            "prestadores_disponiveis": 2,
+            "cobertura_geo_suficiente": True,
+            "dados_geo_completos": True,
+        },
+        dmn=fake,
+    )
     assert result["roteamento_remediacao"] == "MONITORAR"
 
 
@@ -253,6 +466,86 @@ def test_update_monitoring_plan_never_commits_fallback() -> None:
 
 
 # ---------------------------------------------------------------
+# make_update_monitoring_plan_handler — item-9 notify-wiring fix: `register_adequacao_workers`
+# used to `del kafka  # unused`; this raw handler publishes a `_NOTIFICATIONS_TOPIC` notification.
+# ---------------------------------------------------------------
+
+
+def _monitoring_plan_task(variables: dict) -> ExternalTask:
+    return ExternalTask(
+        task_id="et-mp-1",
+        topic="operadora.adequacao.update_monitoring_plan",
+        process_instance_id="pi-1",
+        business_key="ADEQ-amh-R-001-cardiologia-2026-Q3",
+        worker_id="w-1",
+        variables=variables,
+    )
+
+
+async def test_make_update_monitoring_plan_handler_publishes_notification() -> None:
+    kafka = FakeKafkaPublisher()
+    handler = make_update_monitoring_plan_handler(kafka)
+    task = _monitoring_plan_task(
+        {
+            "tenant_id": "amh",
+            "regiao_saude": "R-001",
+            "especialidade": "cardiologia",
+            "gap_adequacao": "GAP_LEVE",
+        }
+    )
+
+    result = await handler(task)
+
+    assert result["plano_monitoramento_atualizado"] is True
+    assert result["celula"] == "R-001:cardiologia"
+    assert result["gap_adequacao"] == "GAP_LEVE"
+    assert len(kafka.published) == 1
+    topic, payload, key = kafka.published[0]
+    assert topic == "operadora.notifications.internal"
+    assert payload == {
+        "type": "adequacao.update_monitoring_plan",
+        "tenant_id": "amh",
+        "regiao_saude": "R-001",
+        "especialidade": "cardiologia",
+        "gap_adequacao": "GAP_LEVE",
+    }
+    assert key == task.business_key
+    assert kafka.best_effort_calls == [False]
+
+
+async def test_make_update_monitoring_plan_handler_payload_is_non_phi() -> None:
+    """Payload carries only cell identity (tenant/regiao/especialidade) + gap classification --
+    no beneficiary identifier anywhere (this process carries none at all, ADR-0006)."""
+    kafka = FakeKafkaPublisher()
+    handler = make_update_monitoring_plan_handler(kafka)
+    await handler(
+        _monitoring_plan_task(
+            {
+                "tenant_id": "amh",
+                "regiao_saude": "R-001",
+                "especialidade": "cardiologia",
+                "gap_adequacao": "GAP_CRITICO",
+            }
+        )
+    )
+    _, payload, _ = kafka.published[0]
+    assert set(payload.keys()) == {"type", "tenant_id", "regiao_saude", "especialidade", "gap_adequacao"}
+
+
+async def test_make_update_monitoring_plan_handler_no_producer_still_completes() -> None:
+    """`kafka=None` -- no producer wired -- logs a warning and the task STILL completes; the L3
+    monitoring-plan update itself is never blocked by a missing producer."""
+    handler = make_update_monitoring_plan_handler(None)
+    result = await handler(
+        _monitoring_plan_task(
+            {"regiao_saude": "R-001", "especialidade": "cardiologia", "gap_adequacao": "GAP_LEVE"}
+        )
+    )
+    assert result["plano_monitoramento_atualizado"] is True
+    assert result["celula"] == "R-001:cardiologia"
+
+
+# ---------------------------------------------------------------
 # notify_sla_risk — informational, never adverse (t2.5-p2b-round2)
 # ---------------------------------------------------------------
 
@@ -285,7 +578,10 @@ def test_register_adequacao_workers_registers_new_topics() -> None:
     topics -- closes 2 of the 3 registry-drift gaps documented in
     tests/integration/processes/test_sp_op_adequacao_001.py (FINDING 1);
     `prepare_remediation_dossier` is now the REAL Andre A2A raw async handler (DL-0033 closed) —
-    registered via `harness.register()` (NOT the WorkerRegistry), topic always served."""
+    registered via `harness.register()` (NOT the WorkerRegistry), topic always served.
+    `update_monitoring_plan` is ALSO now a raw handler (item-9 notify-wiring fix — the
+    `del kafka # unused` gap) — registers with `kafka=None` too, so the topic is always served
+    even with no producer wired."""
     harness = WorkerHarness(None, worker_id="unit-test-adequacao")  # type: ignore[arg-type]
     register_adequacao_workers(harness, None, dmn=FakeDmnTransport())
     topics = set(harness.registered_topics)
@@ -293,8 +589,28 @@ def test_register_adequacao_workers_registers_new_topics() -> None:
     assert "operadora.adequacao.notify_sla_risk" in topics
     assert "operadora.adequacao.prepare_remediation_dossier" in topics
     assert harness.registry.get("operadora.adequacao.prepare_remediation_dossier") is None  # raw
+    assert harness.registry.get("operadora.adequacao.update_monitoring_plan") is None  # raw (item-9)
+    assert harness.registry.get("operadora.adequacao.notify_sla_risk") is not None  # still FunctionWorker
     adequacao_topics = {t for t in topics if t.startswith("operadora.adequacao.")}
     assert len(adequacao_topics) == 8  # all 8 BPMN-declared topics registered (dossier now REAL A2A)
+
+
+async def test_register_adequacao_workers_update_monitoring_plan_publishes_via_wired_kafka() -> None:
+    """End-to-end registration-level pin: `register_adequacao_workers(harness, kafka)` wires the
+    SAME kafka producer into `update_monitoring_plan`'s raw handler -- dispatching the registered
+    handler for the topic actually publishes (not just a unit-level check on the factory)."""
+    harness = WorkerHarness(None, worker_id="unit-test-adequacao")  # type: ignore[arg-type]
+    kafka = FakeKafkaPublisher()
+    register_adequacao_workers(harness, kafka, dmn=FakeDmnTransport())
+    handler = harness._handlers["operadora.adequacao.update_monitoring_plan"]  # type: ignore[attr-defined]  # raw-handler registry, test introspection
+    result = await handler(
+        _monitoring_plan_task(
+            {"regiao_saude": "R-001", "especialidade": "cardiologia", "gap_adequacao": "GAP_LEVE"}
+        )
+    )
+    assert result["plano_monitoramento_atualizado"] is True
+    assert len(kafka.published) == 1
+    assert kafka.published[0][1]["type"] == "adequacao.update_monitoring_plan"
 
 
 # ---------------------------------------------------------------

@@ -27,6 +27,15 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
+# Internal-notification channel (mirrors programa.py's/recurso.py's/lgpd.py's own
+# `_NOTIFICATIONS_TOPIC` — a `type`-discriminated envelope on `operadora.notifications.internal`,
+# NOT a BPMN-declared domain-event topic). Used by the `update_monitoring_plan` raw handler below
+# (the item-9 notify-wiring gap: `register_adequacao_workers` used to `del kafka  # unused`)
+# whose Kafka publish needs the async seam a `FunctionWorker`'s sync boundary cannot reach
+# (`WorkerBase`'s own docstring: "Async I/O is handled by the engine/message layer, not by the
+# worker logic").
+_NOTIFICATIONS_TOPIC = "operadora.notifications.internal"
+
 # ---------------------------------------------------------------
 # Error codes
 # ---------------------------------------------------------------
@@ -47,17 +56,54 @@ def measure_gap(variables: dict[str, Any]) -> dict[str, Any]:
     """Measure geographic coverage gap (FACT only — NEVER decides commitment).
 
     Computes: tempo_acesso_apurado_min, distancia_apurada_km,
-    prestadores_disponiveis, cobertura_geo_suficiente.
+    prestadores_disponiveis, cobertura_geo_suficiente, dados_geo_completos.
+
+    FACT PRESERVATION (mirrors `credenciamento.validate_cred`'s FACT PRESERVATION fix — the
+    IDENTICAL defect class): the pre-fix worker unconditionally overwrote
+    `tempo_acesso_apurado_min`/`distancia_apurada_km` with hardcoded placeholders and
+    RE-DERIVED `cobertura_geo_suficiente`/`dados_geo_completos` from OTHER variables — clobbering
+    any already-resolved fact on the process BEFORE `BRT_AdequacaoGap`
+    (`operadora.adequacao.calculate_gap`, the task that runs immediately after this one) could
+    evaluate it. The BPMN's own task documentation says this worker "apura/ECOA" these facts
+    (echo, not overwrite). An explicit, correctly-typed resolved value already on `variables` is
+    now respected (echoed through unchanged); anything else (absent, wrong type) falls back to
+    the SAME placeholder computation as before (real implementation: query geo-location / network
+    DB) — `prestadores_disponiveis` was already preserved this way pre-fix and is unchanged here.
+
+    Type-appropriate isinstance guards (engine variables arrive untyped): `tempo_acesso_apurado_min`
+    is contract-typed `integer` (SP-OP-ADEQUACAO-001.md:108, ADR-0018 parte 2 "numeros nunca como
+    number") — only a Python `int` counts, and `bool` is explicitly EXCLUDED even though `bool` is
+    a subclass of `int` in Python (`isinstance(True, int) is True`) — a boolean must NEVER be
+    accepted as a numeric measurement. `distancia_apurada_km` is contract-typed `double`
+    (SP-OP-ADEQUACAO-001.md:109) — only a Python `float` counts (an `int` distance is a WRONG type
+    here, not a resolved fact — falls back to the placeholder, same as absent).
+    `cobertura_geo_suficiente`/`dados_geo_completos` are booleans — only `bool` counts, mirroring
+    `credenciamento.validate_cred`'s `isinstance(seeded_licenca, bool)` exactly.
     """
     regiao = variables.get("regiao_saude", "")
     especialidade = variables.get("especialidade", "")
 
-    # Placeholder: real implementation queries geo-location / network DB
-    tempo_acesso = 45  # minutes
-    distancia = 15.5  # km
+    seeded_tempo = variables.get("tempo_acesso_apurado_min")
+    seeded_distancia = variables.get("distancia_apurada_km")
+    seeded_cobertura = variables.get("cobertura_geo_suficiente")
+    seeded_dados_completos = variables.get("dados_geo_completos")
+
+    # Placeholder fallback — real implementation queries geo-location / network DB; only used
+    # when no resolved fact of the CORRECT type exists on `variables` (FACT PRESERVATION above).
+    tempo_placeholder = 45  # minutes
+    distancia_placeholder = 15.5  # km
     prestadores = variables.get("prestadores_disponiveis", 3)
-    cobertura_suficiente = prestadores >= 2
-    dados_completos = bool(regiao and especialidade)
+
+    tempo_acesso = (
+        seeded_tempo
+        if isinstance(seeded_tempo, int) and not isinstance(seeded_tempo, bool)
+        else tempo_placeholder
+    )
+    distancia = seeded_distancia if isinstance(seeded_distancia, float) else distancia_placeholder
+    cobertura_suficiente = seeded_cobertura if isinstance(seeded_cobertura, bool) else prestadores >= 2
+    dados_completos = (
+        seeded_dados_completos if isinstance(seeded_dados_completos, bool) else bool(regiao and especialidade)
+    )
 
     logger.info(
         "adequacao_measure_gap",
@@ -82,6 +128,16 @@ def measure_gap(variables: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------
 
 
+# GAP-ADEQ-INVERSAO (decisao do dono, 2026-08-06): tetos LIDOS da propria tabela deployada
+# `adequacao_gap.dmn`, regra `r_eletivo_leve` (`tempo <= 60`, `distancia <= 50.0`). NAO sao valores
+# novos nem inventados — sao o unico teto de acesso eletivo que a tabela ja declara. Servem apenas
+# para RECUSAR agir sobre um CONFORME que a propria tabela produziu por queda no `r_conforme` sem
+# teto (que precede nenhuma regra `*_critico` eletiva por tempo/distancia).
+_ELETIVO_LEVE_TEMPO_MAX_MIN = 60
+_ELETIVO_LEVE_DISTANCIA_MAX_KM = 50.0
+_MOTIVO_CONFORME_RECUSADO = "CONFORME_RECUSADO_ACESSO_ACIMA_DO_TETO_LEVE"
+
+
 def route_remediation(variables: dict[str, Any], *, dmn: DmnTransport | None = None) -> dict[str, Any]:
     """Classify gap severity and route remediation — NEVER commits to fallback.
 
@@ -104,7 +160,12 @@ def route_remediation(variables: dict[str, Any], *, dmn: DmnTransport | None = N
     old Python keyed off `prestadores>=1 and tempo<=90`). Values stay within the same neutral
     closed set with no adverse output on either path — both `CONFORME` and `GAP_LEVE` route to
     the SAME `MONITORAR` remediation (live-verified), so this divergence has zero effect on the
-    downstream remediation action.
+    downstream remediation action. **CORRIGIDO 2026-08-06 (GK-adequacao finding 2): essa ultima
+    frase e FALSA no nivel do BPMN** — `GW_Roteamento` distingue os dois
+    (`MONITORAR && gap_adequacao == 'CONFORME'` vai a `ST_PublishConforme`/`End_AdequacaoConforme`,
+    SEM plano de monitoramento e SEM alerta; `MONITORAR && != 'CONFORME'` vai a
+    `ST_UpdateMonitoringPlanL3`). Mesmo valor de roteamento, ramos e efeitos colaterais
+    DIFERENTES. Ver o fail-safe abaixo.
     """
     tempo = variables.get("tempo_acesso_apurado_min", 0)
     distancia = variables.get("distancia_apurada_km", 0.0)
@@ -138,6 +199,31 @@ def route_remediation(variables: dict[str, Any], *, dmn: DmnTransport | None = N
     route_row = first_row(route_rows, "adequacao_remediation_routing", variables)
     roteamento = str(route_row.get("roteamento_remediacao", "ANALISE_HUMANA"))
     route_motivo = str(route_row.get("motivo", motivo))
+
+    # FAIL-SAFE (GAP-ADEQ-INVERSAO): a tabela deployada tem `r_conforme` SEM teto de
+    # tempo/distancia, colocado DEPOIS de `r_eletivo_leve` sob hitPolicy=FIRST — logo um acesso
+    # eletivo ARBITRARIAMENTE ruim (ex.: 200min/80km) NAO casa o `r_eletivo_leve` e cai em
+    # CONFORME, terminando em End_AdequacaoConforme SEM plano de monitoramento e SEM alerta a
+    # gestao-rede. Antes da preservacao de fatos isso ficava mascarado (o worker sobrescrevia
+    # 45min/15.5km e o caso virava GAP_LEVE, monitorado). Aqui NAO reescrevemos o veredito da DMN
+    # (`gap_adequacao` continua o que ela disse — auditavel); recusamos AGIR sobre ele: o
+    # roteamento vai para ANALISE_HUMANA. Mesma forma da aplicacao do teto na emissao de
+    # autorizacao: nao se corrige a tabela, torna-se o limite que ela ja declara efetivo.
+    # A correcao definitiva (ordem/tetos das regras) e do portao REGULATORIO — RN 259.
+    conforme_contradito = gap_adequacao == "CONFORME" and (
+        int(tempo) > _ELETIVO_LEVE_TEMPO_MAX_MIN or float(distancia) > _ELETIVO_LEVE_DISTANCIA_MAX_KM
+    )
+    if conforme_contradito:
+        logger.warning(
+            "adequacao_conforme_recusado_por_acesso",
+            gap_adequacao_dmn=gap_adequacao,
+            tempo_acesso_apurado_min=int(tempo),
+            distancia_apurada_km=float(distancia),
+            roteamento_dmn=roteamento,
+            motivo=_MOTIVO_CONFORME_RECUSADO,
+        )
+        roteamento = "ANALISE_HUMANA"
+        route_motivo = _MOTIVO_CONFORME_RECUSADO
 
     logger.info(
         "adequacao_route_remediation",
@@ -232,6 +318,58 @@ def update_monitoring_plan(variables: dict[str, Any]) -> dict[str, Any]:
         "celula": f"{regiao}:{especialidade}",
         "gap_adequacao": gap,
     }
+
+
+_UPDATE_MONITORING_PLAN_NOTIFICATION_TYPE = "adequacao.update_monitoring_plan"
+
+
+# GK-adequacao finding 3 (divulgacao): mover `update_monitoring_plan` de `FunctionWorker`
+# para raw handler contorna `WorkerBase.run`, entao as metricas M11 POR WORKER
+# (`record_worker_execution`/`record_worker_error`) deixam de ser emitidas para este topico.
+# O `_emit_worker_task_outcome` do harness continua disparando. Mesmo trade-off ja aceito e
+# divulgado em programa.py para os seus 4 raw handlers.
+def make_update_monitoring_plan_handler(kafka: KafkaPublisher | None) -> TaskHandler:
+    """Raw-handler factory for `operadora.adequacao.update_monitoring_plan` (serves
+    `ST_UpdateMonitoringPlanL3`).
+
+    `register_adequacao_workers` previously `del kafka  # unused` — no adequacao.py worker ever
+    declared a Kafka dependency, so `update_monitoring_plan` (the ONLY topic in this family whose
+    BPMN documentation implies a downstream-observable side effect, GAP-ADEQ-6) silently never
+    published anything. This closes that gap — mirrors `programa.make_notify_sla_risk_handler`/
+    `recurso.make_notify_sla_risk_handler`'s exact idiom (a raw `harness.register()` handler is
+    needed for the async Kafka seam a sync `FunctionWorker.execute` boundary cannot reach;
+    `update_monitoring_plan` itself, the pure function above, is UNCHANGED).
+
+    NEUTRAL, non-PHI payload — `tenant_id`/`regiao_saude`/`especialidade`/`gap_adequacao` (the
+    cell identity + the SAME 3 input fields the pure function already reads off `variables`, plus
+    the pure function's own `gap_adequacao` passthrough); this process carries no beneficiary
+    identifier at all (geography is region/municipio granularity only — ADR-0006).
+    `best_effort=False`: no BPMN error boundary is declared on `ST_UpdateMonitoringPlanL3` -> RAW
+    propagate a broker failure to the harness retry/incident ladder (ADR-0030) instead of silently
+    swallowing it, mirroring every sibling `_NOTIFICATIONS_TOPIC` publisher in this codebase.
+    `kafka=None` (no producer wired) logs a warning and still completes the task — the L3
+    monitoring-plan update itself is NEVER blocked by a missing producer.
+    """
+
+    async def handler(task: ExternalTask) -> dict[str, Any]:
+        result = update_monitoring_plan(task.variables)
+        if kafka is None:
+            logger.warning("adequacao_update_monitoring_plan_no_producer", business_key=task.business_key)
+            return result
+        notification = {
+            "type": _UPDATE_MONITORING_PLAN_NOTIFICATION_TYPE,
+            "tenant_id": task.variables.get("tenant_id", ""),
+            "regiao_saude": task.variables.get("regiao_saude", ""),
+            "especialidade": task.variables.get("especialidade", ""),
+            "gap_adequacao": result.get("gap_adequacao", ""),
+        }
+        # best_effort=False — see factory docstring (no boundary declared -> raw propagate).
+        await kafka.publish(
+            _NOTIFICATIONS_TOPIC, notification, key=task.business_key or None, best_effort=False
+        )
+        return result
+
+    return handler
 
 
 # ---------------------------------------------------------------
@@ -508,8 +646,10 @@ class AdequacaoError(Exception):
 #   execute_remediation -> operadora.adequacao.start_credenciamento (spec match: CRED-001 handoff)
 #   register_fallback_commitment -> operadora.adequacao.register_fallback_commitment
 #     (exact spec match, GUARDED)
-#   update_monitoring_plan -> operadora.adequacao.update_monitoring_plan (spec match, NEUTRAL —
-#     t2.5-p2b-round2 closed this gap)
+#   make_update_monitoring_plan_handler -> operadora.adequacao.update_monitoring_plan (spec
+#     match, NEUTRAL — t2.5-p2b-round2 closed the registry-drift gap; RAW async handler now
+#     publishes a `_NOTIFICATIONS_TOPIC` notification too — closes the item-9 `del kafka # unused`
+#     notify-wiring gap, GAP-ADEQ-6)
 #   notify_sla_risk -> operadora.adequacao.notify_sla_risk (spec match, informational —
 #     t2.5-p2b-round2 closed this gap)
 #   make_prepare_remediation_dossier_handler -> operadora.adequacao.prepare_remediation_dossier
@@ -528,9 +668,10 @@ def register_adequacao_workers(
     """Register the SP-OP-ADEQUACAO-001 function workers on `harness`.
 
     `dmn` (ADR-0028 §1 seam) is threaded into `route_remediation` (`adequacao_gap` +
-    `adequacao_remediation_routing`, T1.5 cutover) via `functools.partial`. `kafka` is accepted
-    but unused — no adequacao.py worker declares a Kafka dependency, `update_monitoring_plan`/
-    `notify_sla_risk` included (dict-first, mirror the family's existing idiom).
+    `adequacao_remediation_routing`, T1.5 cutover) via `functools.partial`. `kafka` is threaded
+    into the `update_monitoring_plan` RAW handler (item-9 notify-wiring fix — this used to be
+    `del kafka  # unused`; `update_monitoring_plan` is the ONLY adequacao.py worker with a Kafka
+    dependency, `notify_sla_risk` stays plain `FunctionWorker`-wrapped, no publish).
 
     `dossier_dispatcher` (dossier-A2A seam, DL-0033 real wiring) is threaded into the
     `prepare_remediation_dossier` RAW async handler — a `DelegationDispatcher` assembled by the
@@ -538,7 +679,6 @@ def register_adequacao_workers(
     topic-probe default and the degraded-runtime posture) the topic still registers and the
     handler fail-neutrals with a disclosed gap (DL-0037) — the human UT always still opens.
     """
-    del kafka  # unused — no adequacao.py worker declares a Kafka dependency
     dmn = seams.get("dmn")
     dossier_dispatcher: DelegationDispatcher | None = seams.get("dossier_dispatcher")
     harness.register_worker(FunctionWorker("operadora.adequacao.measure_coverage", measure_gap))
@@ -550,8 +690,10 @@ def register_adequacao_workers(
     harness.register_worker(
         FunctionWorker("operadora.adequacao.register_fallback_commitment", register_fallback_commitment)
     )
-    harness.register_worker(
-        FunctionWorker("operadora.adequacao.update_monitoring_plan", update_monitoring_plan)
+    # RAW handler (NOT register_worker) — needs the async Kafka seam (module topic-map note).
+    harness.register(
+        "operadora.adequacao.update_monitoring_plan",
+        make_update_monitoring_plan_handler(kafka),
     )
     harness.register_worker(FunctionWorker("operadora.adequacao.notify_sla_risk", notify_sla_risk))
     # RAW handler (NOT register_worker) — needs the async dispatcher seam (module topic-map note).

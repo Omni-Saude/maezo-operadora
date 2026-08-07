@@ -157,6 +157,12 @@ def test_function_based_module_bootstraps_register_function_workers() -> None:
     `stratify_risk`/`stop_processing` (item A, root fix — moved off `FunctionWorker` so they can
     publish an internal notification) and the 2 NEW workers `proactive_contact`/`notify_sla_risk`
     (items B/C) — same async-Kafka-seam rationale, programa.py's own module-level docstring.
+
+    item-9 notify-wiring fix (adequacao): `raw_handler_topics` also excludes
+    `operadora.adequacao.update_monitoring_plan` — moved off `FunctionWorker` onto a raw handler
+    so it can publish an internal notification too (`register_adequacao_workers` used to
+    `del kafka # unused`); same async-Kafka-seam rationale, adequacao.py's own module-level
+    docstring.
     """
     harness = _fresh_harness()
     register_all_workers(harness)
@@ -184,6 +190,8 @@ def test_function_based_module_bootstraps_register_function_workers() -> None:
         "operadora.programa.stop_processing",
         "operadora.programa.proactive_contact",
         "operadora.programa.notify_sla_risk",
+        # item-9 notify-wiring fix (adequacao, module-level rationale above).
+        "operadora.adequacao.update_monitoring_plan",
     }
     function_topics = [
         t
@@ -202,7 +210,9 @@ def test_raw_handler_module_registers_outside_the_worker_registry() -> None:
     it is registered via `harness.register()`, not `harness.register_worker()`. Recurso's 4 NEW
     raw handlers (Finding 2, T3.1 P2b) follow the SAME shape. item-9 wave-5: programa's 4 raw
     handlers (`stratify_risk`/`stop_processing`/`proactive_contact`/`notify_sla_risk`) follow the
-    SAME shape too (module-level rationale in programa.py)."""
+    SAME shape too (module-level rationale in programa.py). item-9 notify-wiring fix:
+    `operadora.adequacao.update_monitoring_plan` follows the SAME shape (module-level rationale
+    in adequacao.py)."""
     harness = _fresh_harness()
     register_all_workers(harness)
 
@@ -223,6 +233,8 @@ def test_raw_handler_module_registers_outside_the_worker_registry() -> None:
         "operadora.programa.stop_processing",
         "operadora.programa.proactive_contact",
         "operadora.programa.notify_sla_risk",
+        # item-9 notify-wiring fix (adequacao, module-level rationale above).
+        "operadora.adequacao.update_monitoring_plan",
     ):
         assert topic in harness.registered_topics
         assert harness.registry.get(topic) is None

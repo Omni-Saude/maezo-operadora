@@ -657,7 +657,6 @@ async def test_gap_critico_roteia_para_humano_nao_firma_compromisso(
     await _assert_no_adverse_without_human_task(engine, iid)
 
 
-@pytest.mark.xfail(reason=_MEASURE_GAP_OVERRIDES_SEEDED_FACTS_REASON, strict=True)
 async def test_dados_incompletos_roteia_para_humano(
     engine: EngineRest,
     adequacao_probe: AdequacaoEngineProbe,
@@ -690,7 +689,29 @@ async def test_dados_incompletos_roteia_para_humano(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_MEASURE_GAP_OVERRIDES_SEEDED_FACTS_REASON, strict=True)
+_ADEQUACAO_GAP_RULE_ORDER_INVERSION_REASON = (
+    "REGULATORIO (RN 259) — inversao de ordem de regra na `adequacao_gap.dmn` DEPLOYADA, NAO um "
+    "defeito de codigo e NAO fechavel por engenharia. hitPolicy=FIRST: `r_eletivo_leve` "
+    "(tipo_carater=eletivo, tempo<=60, distancia<=50, prestadores>0, cobertura=true -> GAP_LEVE) "
+    "PRECEDE `r_conforme`, que nao tem NENHUM teto de tempo/distancia (wildcards) e exige apenas "
+    "prestadores>0 + cobertura=true. Consequencia verificada e ja pinada em unit "
+    "(a prova VIVA e `tests/integration/dmn/test_dmn_golden_parity.py::test_adequacao_gap_parity`, "
+    "params ('eletivo',45,10.0,2,True,'GAP_LEVE') e ('eletivo',70,10.0,2,True,'CONFORME') — os "
+    "testes unitarios homonimos usam FakeDmnTransport com a resposta pre-registrada e passariam "
+    "mesmo se a tabela fosse corrigida): para "
+    "atendimento ELETIVO, um acesso MELHOR le GAP_LEVE enquanto um acesso PIOR le CONFORME — e, "
+    "como `r_conforme` nao tem teto, um tempo/distancia ARBITRARIAMENTE ruim continua lendo "
+    "CONFORME (as duas regras `*_critico` gateiam so em urgencia_emergencia). Este teste semeia "
+    "tempo=30/distancia=10.0 (acesso bom) e exige CONFORME: com a tabela deployada isso e "
+    "inalcancavel. Deslocar o cenario para tempo>60 so para ficar verde PINARIA a inversao como "
+    "comportamento esperado — recusado deliberadamente. ADR-0028 §7 ja decidiu 'a DMN vence, nao "
+    "se corrige aqui'; os thresholds sao DRAFT e de dono REGULATORIO "
+    "(docs/review-queue.md + SP-OP-ADEQUACAO-001.md). FLIP quando o portao regulatorio decidir a "
+    "ordem/os tetos das regras."
+)
+
+
+@pytest.mark.xfail(reason=_ADEQUACAO_GAP_RULE_ORDER_INVERSION_REASON, strict=True)
 async def test_l3_conforme_atinge_neutro_sem_user_task(
     engine: EngineRest,
     adequacao_probe: AdequacaoEngineProbe,
@@ -726,7 +747,6 @@ async def test_l3_conforme_atinge_neutro_sem_user_task(
     )
 
 
-@pytest.mark.xfail(reason=_MEASURE_GAP_OVERRIDES_SEEDED_FACTS_REASON, strict=True)
 async def test_l3_gap_moderado_encaminha_credenciamento_sem_user_task(
     engine: EngineRest,
     adequacao_probe: AdequacaoEngineProbe,
@@ -756,12 +776,15 @@ async def test_l3_gap_moderado_encaminha_credenciamento_sem_user_task(
 
     assert _END_ENCAMINHADA in ended, f"Deve atingir End_RemediacaoEncaminhada (L3). ended={ended}"
     assert not await engine.list_user_tasks(iid), "Handoff a credenciamento L3 nao cria User Task"
-    assert adequacao_probe.notifications_of_type("adequacao.start_credenciamento")
+    # Engine-side (eco kafka morto: start_credenciamento e dict-first e nao publica —
+    # `notifications_of_type` e estruturalmente sempre []). O handoff L3 executou:
+    assert "ST_StartCredenciamentoL3" in ended, (
+        "start_credenciamento (ST_StartCredenciamentoL3) deve executar no handoff L3"
+    )
     assert adequacao_probe.has_event(_ADEQ_COMPLETED, desfecho="encaminhada_credenciamento")
     assert adequacao_probe.has_event(_ADEQ_GAP_DETECTED, gap_adequacao="GAP_MODERADO")
 
 
-@pytest.mark.xfail(reason=_MISSING_MONITORING_WORKER_REASON, strict=True)
 async def test_l3_gap_leve_monitora_sem_user_task(
     engine: EngineRest,
     adequacao_probe: AdequacaoEngineProbe,
@@ -769,13 +792,19 @@ async def test_l3_gap_leve_monitora_sem_user_task(
 ) -> None:
     """Gap leve => routing=MONITORAR -> atualiza plano + notifica rede -> End_MonitoramentoAtualizado.
 
-    v2: o roteamento da DMN esta CORRETO aqui (GAP_LEVE, coincidentemente inalterado pelo override
-    de measure_gap — ver FINDING 2) mas ST_UpdateMonitoringPlanL3 nao tem worker registrado
-    (FINDING 1) — a instancia nunca completa.
+    SEMENTE ALINHADA (2026-08-06, live-proven): com a preservacao de fatos, `tempo=75` passou a
+    chegar INTACTO na DMN — e 75 > 60 esta FORA do portao de `r_eletivo_leve`, caindo no
+    `r_conforme` sem teto (a inversao de ordem descrita em
+    `_ADEQUACAO_GAP_RULE_ORDER_INVERSION_REASON`), logo a instancia atingia
+    `End_AdequacaoConforme`. Antes da correcao o worker sobrescrevia tempo=45 e mascarava isso.
+    O ALVO deste teste e o ROTEAMENTO (GAP_LEVE -> ramo MONITORAR, sem User Task), nao a
+    classificacao; portanto a semente foi alinhada para dentro do portao leve (45min, valor que a
+    tabela deployada de fato classifica GAP_LEVE). Isto NAO pina a inversao: a inversao e o
+    `r_conforme` sem teto, e continua registrada e xfailada no teste de CONFORME.
     """
     inst = await start_adequacao(
         tipo_carater="eletivo",
-        tempo_acesso_apurado_min=75,
+        tempo_acesso_apurado_min=45,
         distancia_apurada_km=20.0,
         prestadores_disponiveis=3,
         cobertura_geo_suficiente=True,
@@ -788,7 +817,10 @@ async def test_l3_gap_leve_monitora_sem_user_task(
     assert _END_MONITORAMENTO in ended, f"Deve atingir End_MonitoramentoAtualizado (L3). ended={ended}"
     assert not await engine.list_user_tasks(iid), "Caminho monitorar L3 nao cria User Task"
     assert adequacao_probe.notifications_of_type("adequacao.update_monitoring_plan")
-    assert adequacao_probe.notifications_of_type("adequacao.notify_rede")
+    # Engine-side (eco kafka morto: notify_rede e dict-first e nao publica). A notificacao
+    # de update_monitoring_plan ACIMA e prova viva (esse worker foi ligado ao kafka); esta
+    # atividade e provada pelo historico do engine:
+    assert "ST_NotifyRedeL3" in ended, "notify_rede (ST_NotifyRedeL3) deve executar no ramo MONITORAR"
     assert adequacao_probe.has_event(_ADEQ_COMPLETED, desfecho="monitoramento_atualizado")
 
 
