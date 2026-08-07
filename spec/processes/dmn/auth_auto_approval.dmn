@@ -6,25 +6,71 @@
              name="Aprovacao automatica de autorizacao (L2)"
              namespace="http://maezo.health/dmn/operadora">
   <description>
-    auth_auto_approval v0.1.0 — status: DRAFT (criterios DUT/teto requerem SME medico
-    auditor + compliance; docs/review-queue.md). Consumida por SP-OP-AUTH-001 e mcp-dmn.
-    Implementa ADR-0008 authorization_approval (L2: requires dmn_favorable, teto por
-    tenant). INVARIANTE: saidas possiveis sao APENAS {AUTO_APROVAR, ANALISE_HUMANA} —
-    negativa nao e saida desta tabela (L0 hard). Catch-all = ANALISE_HUMANA (fail-safe:
-    nunca auto-aprovar por omissao).
-    dut_atendida e dentro_teto_l2 sao pre-computados por worker deterministico
-    (avaliacao DUT/ROL + teto do tenant em tenants-amh.yaml) — nunca por LLM.
+    auth_auto_approval v0.2.0 — status: DRAFT (a politica de COMBINACAO dos criterios requer
+    SME medico auditor + compliance; docs/review-queue.md). Consumida por SP-OP-AUTH-001
+    (BRT_AutoApproval) e pelo grafo do Rafael. Implementa ADR-0008 authorization_approval
+    (L2). INVARIANTE L0 HARD: as saidas possiveis sao APENAS {AUTO_APROVAR, ANALISE_HUMANA} —
+    negativa NAO e saida desta tabela. Catch-all = ANALISE_HUMANA (fail-safe: nunca
+    auto-aprovar por omissao).
+
+    v0.2.0 — REESCRITA PELO PORTAO DE CRITERIOS (GAP-AUTH-4). Ate a v0.1.0 esta tabela decidia
+    sobre `dut_atendida`/`dentro_teto_l2`/`rede_credenciada`, e a descricao afirmava que eram
+    "pre-computados por worker deterministico". ERA FALSO no modelo: nenhum codigo computava
+    qualquer um deles na rota automatica — chegavam SEMEADOS no payload de start
+    (`BRT_SlaAnalise -> BRT_AutoApproval -> GW_AutoAprovacao`; o unico chamador de
+    `CeilingResolver` em AUTH esta na perna HUMANA, depois da gateway). A afirmacao agora e'
+    verdadeira: `ST_ValidateAutoApprovalCriteria` (topico
+    `operadora.auth.validate_auto_criteria`) roda IMEDIATAMENTE ANTES desta BRT e escreve os
+    cinco inputs booleanos abaixo em TODO caminho de execucao, inclusive na degradacao —
+    nenhum fato semeado sobrevive ate aqui.
+
+    Inputs (TODOS computados por worker deterministico, NUNCA por LLM):
+      - auto_criteria_verificado: boolean — PROVA DE EXECUCAO do validador. E' a CERCA que
+        faltava: quem pular `ST_ValidateAutoApprovalCriteria` nao satisfaz r1 e cai no
+        catch-all -> ANALISE_HUMANA. Nunca escrito pelo modelo nem por nenhum outro worker.
+      - criterio_tecnico_ok: boolean — DUT/ROL (DMN dut_rol_coverage + a dut_criteria_* do
+        procedimento quando a cobertura exige DUT).
+      - criterio_financeiro_ok: boolean — teto de autonomia do tenant
+        (authorization_approval.max_value_brl, via CeilingResolver.within_l2_ceiling).
+      - criterio_regulatorio_ok: boolean — carencia/CPT (DMN carencia_check).
+      - criterio_contratual_ok: boolean — milestones/regras/KPI contratuais
+        (DMN auth_criteria_contratual).
+      - carater_atendimento: string — `urgencia` | `eletivo`. MANTIDO deliberadamente, e hoje
+        marcado "-" (don't care) na regra r1: e' o eixo por onde um SME podera diferenciar
+        urgencia/emergencia (RN 259) SEM mudanca de codigo — a politica de combinacao fica na
+        DMN (ADR-0012), nao no worker. PERGUNTA ABERTA ao portao Medico/ANS: hoje uma urgencia
+        auto-aprova sob exatamente os mesmos fatos de um eletivo. Intencional?
+
+    RATIFICACAO DAS FONTES. Os criterios tecnico/regulatorio/contratual vem de tabelas cujo
+    conteudo e' SINTETICO/DRAFT. O worker so' devolve `true` para um criterio se a fonte dele
+    estiver ratificada em `spec/processes/dmn/auth-criteria-ratification.yaml`; fonte DRAFT
+    devolve `false` com um token `*_FONTE_NAO_RATIFICADA`, INDEPENDENTE do que a tabela
+    computou (e registra em modo SOMBRA o que ela teria decidido). Esta tabela nao conhece
+    ratificacao — ela so' combina os quatro booleanos ja gateados.
+
+    DESFECHO OBSERVAVEL HOJE, sem exagero: com `max_value_brl: 0` (D-07 em aberto) e TODAS as
+    tabelas clinicas DRAFT/nao ratificadas, os quatro criterios sao false — NADA auto-aprova,
+    todo pedido vai para analise humana. E' o MESMO desfecho seguro de antes, agora por quatro
+    motivos explicitos, per-criterio e auditaveis (`auto_criteria_falhas`,
+    `motivo_bloqueio_criterios` na cadeia ADR-0007) em vez de um fato semeado nao verificado.
+    Cada criterio passa a valer sozinho conforme sua fonte for ratificada/populada.
   </description>
   <decision id="auth_auto_approval" name="Aprovacao automatica (L2)" camunda:historyTimeToLive="P180D">
     <decisionTable id="dt_auth_auto_approval" hitPolicy="FIRST">
-      <input id="in_dut" label="DUT/ROL atendida (dut_atendida)">
-        <inputExpression id="ie_dut" typeRef="boolean"><text>dut_atendida</text></inputExpression>
+      <input id="in_verificado" label="Validador de criterios executou (auto_criteria_verificado)">
+        <inputExpression id="ie_verificado" typeRef="boolean"><text>auto_criteria_verificado</text></inputExpression>
       </input>
-      <input id="in_teto" label="Dentro do teto L2 do tenant (dentro_teto_l2)">
-        <inputExpression id="ie_teto" typeRef="boolean"><text>dentro_teto_l2</text></inputExpression>
+      <input id="in_tecnico" label="Criterio tecnico DUT/ROL (criterio_tecnico_ok)">
+        <inputExpression id="ie_tecnico" typeRef="boolean"><text>criterio_tecnico_ok</text></inputExpression>
       </input>
-      <input id="in_rede" label="Prestador da rede credenciada (rede_credenciada)">
-        <inputExpression id="ie_rede" typeRef="boolean"><text>rede_credenciada</text></inputExpression>
+      <input id="in_financeiro" label="Criterio financeiro / teto do tenant (criterio_financeiro_ok)">
+        <inputExpression id="ie_financeiro" typeRef="boolean"><text>criterio_financeiro_ok</text></inputExpression>
+      </input>
+      <input id="in_regulatorio" label="Criterio regulatorio / carencia (criterio_regulatorio_ok)">
+        <inputExpression id="ie_regulatorio" typeRef="boolean"><text>criterio_regulatorio_ok</text></inputExpression>
+      </input>
+      <input id="in_contratual" label="Criterio contratual / milestones-KPI (criterio_contratual_ok)">
+        <inputExpression id="ie_contratual" typeRef="boolean"><text>criterio_contratual_ok</text></inputExpression>
       </input>
       <input id="in_carater" label="Carater de atendimento (carater_atendimento)">
         <inputExpression id="ie_carater" typeRef="string"><text>carater_atendimento</text></inputExpression>
@@ -32,49 +78,26 @@
       <output id="out_recomendacao" label="recomendacao" name="recomendacao" typeRef="string"/>
       <output id="out_motivo" label="motivo" name="motivo" typeRef="string"/>
       <rule id="r1">
-        <description>Exemplo sintetico: exame eletivo do Paciente Teste 001, DUT ok, R$ 180 (abaixo do teto), rede propria</description>
+        <description>UNICA regra favoravel: o validador executou E os QUATRO criterios foram atendidos. carater_atendimento e' don't-care hoje (ver descricao — eixo reservado ao SME para diferenciar urgencia).</description>
         <inputEntry id="r1i1"><text>true</text></inputEntry>
         <inputEntry id="r1i2"><text>true</text></inputEntry>
         <inputEntry id="r1i3"><text>true</text></inputEntry>
-        <inputEntry id="r1i4"><text>-</text></inputEntry>
+        <inputEntry id="r1i4"><text>true</text></inputEntry>
+        <inputEntry id="r1i5"><text>true</text></inputEntry>
+        <inputEntry id="r1i6"><text>-</text></inputEntry>
         <outputEntry id="r1o1"><text>"AUTO_APROVAR"</text></outputEntry>
-        <outputEntry id="r1o2"><text>"DMN favoravel: DUT atendida, dentro do teto L2, rede credenciada"</text></outputEntry>
+        <outputEntry id="r1o2"><text>"Criterios verificados por worker deterministico: tecnico, financeiro, regulatorio e contratual atendidos (fontes ratificadas)"</text></outputEntry>
       </rule>
-      <rule id="r2">
-        <description>DUT nao atendida -> medico auditor (nunca negativa automatica)</description>
-        <inputEntry id="r2i1"><text>false</text></inputEntry>
-        <inputEntry id="r2i2"><text>-</text></inputEntry>
-        <inputEntry id="r2i3"><text>-</text></inputEntry>
-        <inputEntry id="r2i4"><text>-</text></inputEntry>
-        <outputEntry id="r2o1"><text>"ANALISE_HUMANA"</text></outputEntry>
-        <outputEntry id="r2o2"><text>"DUT/ROL nao atendida — requer medico auditor (L0 hard)"</text></outputEntry>
-      </rule>
-      <rule id="r3">
-        <description>Acima do teto L2 do tenant -> medico auditor</description>
-        <inputEntry id="r3i1"><text>true</text></inputEntry>
-        <inputEntry id="r3i2"><text>false</text></inputEntry>
-        <inputEntry id="r3i3"><text>-</text></inputEntry>
-        <inputEntry id="r3i4"><text>-</text></inputEntry>
-        <outputEntry id="r3o1"><text>"ANALISE_HUMANA"</text></outputEntry>
-        <outputEntry id="r3o2"><text>"Valor acima do teto L2 do tenant"</text></outputEntry>
-      </rule>
-      <rule id="r4">
-        <description>Fora da rede credenciada (reembolso/excecao) -> medico auditor</description>
-        <inputEntry id="r4i1"><text>true</text></inputEntry>
-        <inputEntry id="r4i2"><text>true</text></inputEntry>
-        <inputEntry id="r4i3"><text>false</text></inputEntry>
-        <inputEntry id="r4i4"><text>-</text></inputEntry>
-        <outputEntry id="r4o1"><text>"ANALISE_HUMANA"</text></outputEntry>
-        <outputEntry id="r4o2"><text>"Prestador fora da rede credenciada"</text></outputEntry>
-      </rule>
-      <rule id="r5">
-        <description>Catch-all FAIL-SAFE: nunca auto-aprovar por omissao</description>
-        <inputEntry id="r5i1"><text>-</text></inputEntry>
-        <inputEntry id="r5i2"><text>-</text></inputEntry>
-        <inputEntry id="r5i3"><text>-</text></inputEntry>
-        <inputEntry id="r5i4"><text>-</text></inputEntry>
-        <outputEntry id="r5o1"><text>"ANALISE_HUMANA"</text></outputEntry>
-        <outputEntry id="r5o2"><text>"Combinacao nao mapeada — analise humana por seguranca"</text></outputEntry>
+      <rule id="r99">
+        <description>CATCH-ALL FAIL-SAFE (L0 hard): qualquer criterio nao atendido, qualquer fonte nao ratificada, o validador indisponivel, OU o validador nao ter executado (auto_criteria_verificado ausente/false — a cerca do GAP-AUTH-4) -> medico auditor. NUNCA negativa automatica; o motivo per-criterio esta em auto_criteria_falhas.</description>
+        <inputEntry id="r99i1"><text>-</text></inputEntry>
+        <inputEntry id="r99i2"><text>-</text></inputEntry>
+        <inputEntry id="r99i3"><text>-</text></inputEntry>
+        <inputEntry id="r99i4"><text>-</text></inputEntry>
+        <inputEntry id="r99i5"><text>-</text></inputEntry>
+        <inputEntry id="r99i6"><text>-</text></inputEntry>
+        <outputEntry id="r99o1"><text>"ANALISE_HUMANA"</text></outputEntry>
+        <outputEntry id="r99o2"><text>"Criterios de aprovacao automatica nao atendidos ou nao verificados — analise humana (ver auto_criteria_falhas)"</text></outputEntry>
       </rule>
     </decisionTable>
   </decision>

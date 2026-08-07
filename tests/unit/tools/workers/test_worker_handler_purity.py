@@ -63,6 +63,11 @@ _INFRA_MODULES: frozenset[str] = frozenset(
         "base",  # WorkerBase/FunctionWorker/registry scaffolding
         "bootstrap",  # composition root (register_all_workers)
         "ceilings",  # governance-ceiling resolver (policy loader, no engine/PHI)
+        # GAP-AUTH-4 criteria gate: the RATIFICATION-manifest loader
+        # (`spec/processes/dmn/auth-criteria-ratification.yaml`). Structurally identical to
+        # `ceilings` above — a local, deterministic YAML policy loader with no engine client, no
+        # PHI and no worker registration; consumed by `auth.ValidateAutoCriteriaWorker` only.
+        "auth_criteria",
         "phi_vars",  # one-way PHI redaction helper
         "_audit_ctx",  # per-task DMN-version collector (T-B)
         # T-D (merged in the T1.10 wave alongside this arch-test): the fresh-client-per-call

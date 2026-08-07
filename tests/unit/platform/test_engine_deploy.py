@@ -110,21 +110,23 @@ class TestCollectArtifacts:
 
         assert [p.name for p in artifacts] == ["a.bpmn", "b.bpmn", "y.dmn", "z.dmn"]
 
-    def test_real_spec_tree_yields_16_bpmn_and_61_dmn(self) -> None:
+    def test_real_spec_tree_yields_16_bpmn_and_62_dmn(self) -> None:
         """Sanity-checks the artifact census against the committed spec/ tree.
 
         T1.3 acceptance was 16 BPMN + 54 DMN; T2.7 (artifact phase) added the
         7 ported fraude_scoring decision tables (upcoding_complexity_ceiling,
         unbundling_partial_bundles, phantom_no_diagnosis,
         phantom_suspicious_prefix, frequency_zscore_threshold,
-        provider_peer_deviation, risk_thresholds) — 54 + 7 = 61.
+        provider_peer_deviation, risk_thresholds) — 54 + 7 = 61. The GAP-AUTH-4
+        criteria gate added `auth_criteria_contratual` (the honest EMPTY contractual
+        seam consumed by `operadora.auth.validate_auto_criteria`) — 61 + 1 = 62.
         """
         processes_dir = resolve_spec_processes_dir()
         artifacts = collect_artifacts(processes_dir)
         bpmn = [p for p in artifacts if p.suffix == ".bpmn"]
         dmn = [p for p in artifacts if p.suffix == ".dmn"]
         assert len(bpmn) == 16
-        assert len(dmn) == 61
+        assert len(dmn) == 62
 
     def test_empty_tree_raises(self, tmp_path: Path) -> None:
         with pytest.raises(EngineDeployError, match="nothing to deploy"):

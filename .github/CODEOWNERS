@@ -7,3 +7,14 @@
 /src/maezo/tools/process_allowlist.py  @rodrigotaquino @Omni-Saude/security
 /src/maezo/policies/process_allowlist.yaml  @rodrigotaquino @Omni-Saude/security
 /config/artifact_signoff.yaml              @rodrigotaquino @Omni-Saude/security
+
+# GAP-AUTH-4 (auto-approval criteria gate) — flipping three fields in the ratification manifest is
+# the SINGLE act that turns a synthetic DRAFT clinical table into live authority to auto-approve
+# real care. The design's whole point is that ratifying is a DATA change with no code and no
+# redeploy — which is exactly why the data needs the reviewer the code path would otherwise have
+# had. The fence test is a tripwire, not a required reviewer (one PR can edit both).
+/spec/processes/dmn/auth-criteria-ratification.yaml  @rodrigotaquino @Omni-Saude/security
+# Teto financeiro (D-07) + matriz de autonomia: valores de governanca que tornam a aprovacao
+# automatica possivel. Antes desta linha o proprio manifesto os descrevia como "CODEOWNERS-gated",
+# o que era FALSO (GK-criteria finding 1).
+/spec/policies/autonomy/  @rodrigotaquino @Omni-Saude/security
