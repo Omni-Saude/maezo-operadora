@@ -156,15 +156,24 @@ async def test_human_review_auth_request_reaches_medico_auditor_task(
         await cibseven.close()
 
 
-async def test_auto_approve_path_starts_process_without_reaching_human_task(
+async def test_agent_seeded_facts_no_longer_open_the_auto_approval_route(
     engine_base_url: str, engine_client: httpx.AsyncClient, audit_sink: Any
 ) -> None:
-    """Structural counterpoint (no worker probe needed — `GW_AutoAprovacao` routes straight to
-    `ST_EmitirAutorizacaoAuto`, bypassing `ST_PrepararDossie`/`UT_AnaliseMedicoAuditor`
-    entirely): Rafael's own `route` is `auto_approve`, and the process starts, when the DMN says
-    AUTO_APROVAR. This does NOT assert the auto-issuance completes (that needs
-    `operadora.auth.issue_authorization` serviced, out of this suite's scope) — only that Rafael
-    correctly originates the process for the L2 path without ever touching the human task."""
+    """GAP-AUTH-4: um AGENTE NAO consegue mais originar aprovacao automatica — e isso e o ponto.
+
+    Antes do portao de criterios, semear `dut_atendida`/`dentro_teto_l2`/`rede_credenciada=True`
+    no estado do Rafael bastava para a DMN devolver AUTO_APROVAR e o `route` dele virar
+    `auto_approve`. Agora `auth_auto_approval` le APENAS os criterios COMPUTADOS pelo worker
+    deterministico `operadora.auth.validate_auto_criteria` mais a flag de execucao
+    `auto_criteria_verificado` — nenhum dos quais existe no `RafaelState` (ele CONSOME fatos,
+    nunca os computa; docstring do proprio grafo). Logo a avaliacao do Rafael cai no catch-all
+    r99 -> ANALISE_HUMANA -> `route == "human_auditor"`.
+
+    Este teste passou a PINAR essa propriedade de seguranca: os mesmos tres booleanos semeados
+    que antes abriam a rota automatica agora NAO abrem. O processo ainda e originado (a
+    autorizacao segue seu curso, com decisao humana), e o dossie continua sem decisao de
+    cobertura. A aprovacao automatica real so ocorre dentro do processo, apos o validador
+    deterministico — e hoje nada auto-aprova, pois nenhuma fonte esta ratificada."""
     numero_guia = f"IT-RAFAEL-AUTO-{_RUN_ID}"
     business_key = f"AUTH-amh-{numero_guia}"
 
@@ -198,7 +207,12 @@ async def test_auto_approve_path_starts_process_without_reaching_human_task(
             }
         )
 
-        assert result["route"] == "auto_approve"
+        # A propriedade de seguranca: fatos SEMEADOS por um agente nao concedem mais a rota
+        # automatica. (Antes do GAP-AUTH-4 este assert era `== "auto_approve"`.)
+        assert result["route"] == "human_auditor", (
+            "um agente nao pode originar aprovacao automatica: `auth_auto_approval` so le os "
+            "criterios COMPUTADOS pelo worker deterministico + auto_criteria_verificado"
+        )
         assert result["process_started"] is True
         assert result["dossier"]["decisao_cobertura"] is None
 
