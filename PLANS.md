@@ -5,7 +5,7 @@
 >
 > **O modelo de verdade não é "15 milestones concluídos".** É o modelo **fase/gate (P0–P4 / G0–G4)** com verificação **zero-trust** (todo "done" carrega uma linha de verificador independente + evidência reproduzível). **A fonte de verdade durável e versionada no repositório é:** `docs/evidence-ledger.md` (84 linhas verificadas), `docs/decisions-log.md` (DLs), `docs/adr/` (32 ADRs) e `docs/gates/` (registros de gate). *(O plano detalhado `V2-COMPLETION-PLAN.md` e o prompt de execução do backlog vivem apenas localmente em `docs/prompts/` por decisão do dono — o ledger é a verdade clonável.)*
 >
-> **Orquestrador:** Hive-Mind Queen (Opus / Fable 5) · **Repo:** Omni-Saude/maezo-operadora · **main:** `277f368` (2026-07-27, PR #178 merged — Tier-2 waves A[#177]+B[#178]) — *(header 2026-07-19 preservado abaixo; reconciliação em §0.5; execução Tier-2 em §0.5.2)*
+> **Orquestrador:** Hive-Mind Queen (Opus / Fable 5) · **Repo:** Omni-Saude/maezo-operadora · **main:** `85c9618` (2026-08-07 — PRs #199/#200/#197/#198: cred gateway fact · adequacao fact-preservation + fail-safe · ans_submit NACK/assemble + ADR-0030 · **portão de critérios de aprovação automática**) — *(header 2026-07-19 preservado abaixo; reconciliação em §0.5; execução Tier-2 em §0.5.2)*
 > **Estratégia:** Keep Brain (`docs/`), Rebuild Spine (`src/`) — **em execução, NÃO concluída.**
 > **STATUS REAL (2026-07-27): G0 conditional-pass · G1 FECHADO · G2/G3 SUBSTÂNCIA DE ENGENHARIA COMPLETA (falta a metade humana de sign-off SME) · G4 PENDENTE 0% (externo). ~88–90% do plano-até-produção · ~97% da engenharia agent-controlável (Tier-2 §0.5.1: 7 de 9 itens EM MAIN — §0.5.2). NÃO é produção-ready — o que resta é o teto humano + a cauda-de-item-9 (xfail tail, live-engine). Detalhe em §0.5.**
 
@@ -108,6 +108,63 @@ Legenda: **✅** verificado-done (gate) · **◑** parcial (código existe, lacu
 > - **WAVES 3-7 + ASSEMBLY (2026-08-03, sessão Fable5 — o assembly-PR desta linha):** 6 branches construídos em paralelo (worktrees pré-criados pelo orquestrador), CADA UM gatekept por revisor opus independente (zero-trust), defeitos corrigidos, e o conjunto montado numa cadeia linear + 2 merges com prova live per-suite em engine fresh (receita 8GB-host da memória): **w3 engine-flips** (nip 30p / recurso 34p / inadimplencia 24p / programa / reembolso — 13 flips + allowlists de probe importadas do src); **w3 pagto-dossier** (delegação A2A real do dossiê de pagto — o GK pegou um BLOCKER financeiro: business_key re-derivada podia iniciar uma 2ª instância SP-OP-PAGTO-001 = duplicate-release; corrigido com key do engine + no-op de origem, +timeout DL-0037, +redação, +money-int estrito — 10 findings, 10 commits); **w4 Class-C** (cred fact-preservation doc_completa, pagto dentro_teto_l2 write-back, migração ADR-0030 ERR_CRED_INVALID_PRESTADOR [allowlist prod = 7 códigos], auth guards ancorados em evidência humana real); **w46** (auditor_id modelado como formField nas 3 UTs do AUTH + contrato — o GK provou que a variável não era modelada; signoff-gate verificado self-serve p/ contratos DRAFT); **w5 event-wiring** (programa: seam kafka religado [4 raw handlers], workers proactive_contact/notify_sla_risk NOVOS, splices BPMN processing_stopped + cred.pended ×2 [remédio-B T3.1 que cred nunca recebeu], reclassify_coded_exception single-source em base.py); **w7 valor_cents** (GK-descoberta: pagamentos emitiam R$0,00 nos 3 caminhos — issue_payment lia variável que NADA produzia; agora resolve valor_reembolso_aprovado_cents com guard fail-closed de dinheiro). **18 marcadores XPASS-mandatórios flipados NA ÁRVORE MONTADA e provados ao vivo: cred 26p+5xf · pagto 20p+0xf (COMPLETO) · programa 23p+0xf (COMPLETO) · reembolso 22p+1xf (só D-07) · auth 12p+6xf (sem regressão).** Assembly-GK consolidado: 21 findings das 4 rodadas rastreados FECHADOS com evidência, aritmética de merge recomputada independente, replay per-branch = zero hunks perdidos. Zero-trust pegou 6+ defeitos reais nesta arco (duplicate-payment, R$0,00-payment, auditor_id não-modelado, XPASS landmines ×2 rodadas, colisão de worktree).
 
 ---
+
+## 0.5.3 — Portão de critérios de aprovação automática + cauda item-9 (2026-08-07, LANDADO)
+
+> **main `85c9618`.** Quatro PRs, cada um live-provado em CIB Seven 2.1.0 real, cada um com gatekeeper
+> R1 independente (≠ autor) que devolveu REVISE, e cada um byte-checado delta-vs-delta no merge.
+
+**MANDATO DO DONO (2026-08-06):** *toda aprovação automática tem de cumprir critérios técnico,
+teto financeiro, regulatório e marcos/regras/KPIs contratuais; o agente PODE validar e sinalizar o
+que não cumprir um ou mais.*
+
+- **#198 `auth-auto-criteria-gate` (PRINCIPAL) — fecha GAP-AUTH-4 estruturalmente e GAP-AUTH-3.**
+  Novo worker determinístico `operadora.auth.validate_auto_criteria` (`ST_ValidateAutoApprovalCriteria`,
+  inserido entre `BRT_SlaAnalise` e `BRT_AutoApproval`, espelhando o precedente do REEMBOLSO) computa
+  quatro critérios + `auto_criteria_verificado`. A DMN `auth_auto_approval` passou a ler **apenas** os
+  critérios COMPUTADOS + essa flag — exigi-la é a cerca que faltava: pular o validador cai no
+  catch-all → ANÁLISE HUMANA. **Portão de RATIFICAÇÃO** (`spec/processes/dmn/auth-criteria-ratification.yaml`,
+  agora CODEOWNERS-gated junto com `spec/policies/autonomy/`): uma tabela clínica DRAFT/sintética
+  **nunca** concede PASS, por mais que a tabela diga sim — espelha o loader da matriz de retenção que
+  recusa o próprio template não ratificado. **Shadow mode** grava o que a tabela DRAFT *teria* decidido
+  (dado real para o SME ratificar), sem nunca influenciar o veredito. **Efeito hoje: nada auto-aprova**
+  — mesmo resultado seguro de antes, mas por quatro razões auditáveis por critério em vez de três
+  booleanos semeados no payload de start. Cada critério ativa sozinho quando sua fonte for ratificada,
+  **sem mudança de código**.
+- **#199 `cred-substituicao-fact`** — descredenciamento travava em `GW_Substituicao`, que roteia por
+  `${tem_plano_substituicao == true}`: variável com **2 ocorrências no repo inteiro, ambas dentro do
+  BPMN**, que worker nenhum setava. Estava arquivado (aqui, no texto do xfail e na memória do
+  orquestrador) como "follow-up de completar o teste" — diagnóstico ERRADO nas três fontes.
+- **#200 `adequacao-fact-preservation`** — `measure_gap` sobrescrevia quatro fatos que o próprio BPMN
+  diz que ele "ecoa"; `update_monitoring_plan` não publicava; e `ST_CalculateGap` **documentava**
+  publicar `agents.events.adequacao.gap_detected` mas seu tópico é worker que não publica (evento
+  nunca saía). Inclui o **fail-safe ratificado pelo dono** — ver §0.5.4.
+- **#197 `ans-submit-nack-assemble`** — NACK tornou-se produzível em dev/test e **impossível em
+  produção**; `AnsRetryEsgotadoError` (família TRANSIENTE do harness) impedia o token de avançar e foi
+  removida (o MODELO lança `ERR_ANS_RETRY_ESGOTADO`, não um worker); guarda de montagem ganhou o
+  boundary modelado que o contrato já especificava; família iniciou sua migração ADR-0030.
+
+**Censo de strict-xfail: 95 → 36 → 24.** O que resta é majoritariamente teto humano (TISS-XSD ×14,
+DPO ×3, T-E ×2, D-07, AMH).
+
+## 0.5.4 — Achados que precisam de decisão HUMANA (nenhuma engenharia adicional é possível)
+
+1. **RN 259 — inversão de ordem de regra em `adequacao_gap.dmn` (ABERTO).** `hitPolicy=FIRST` com
+   `r_eletivo_leve` ANTES de `r_conforme`, e `r_conforme` **não tem teto algum** de tempo/distância:
+   um acesso eletivo **arbitrariamente ruim** lê CONFORME (as regras `*_critico` por tempo/distância
+   gateiam só em `urgencia_emergencia`). **Mitigado em RUNTIME** pelo fail-safe ratificado pelo dono —
+   o worker preserva o veredito da DMN (auditável) mas **recusa AGIR** sobre um CONFORME que as
+   medições contradizem, usando o teto que a própria tabela declara (60min/50km), roteando a humano.
+   **A TABELA CONTINUA ERRADA**; ordem/tetos são do dono regulatório. ADR-0028 §7 mantém "a DMN vence,
+   não se corrige em engenharia".
+2. **Critério regulatório não computável.** `carencia_check` precisa de `tipo_procedimento`/
+   `dias_desde_adesao`/`cpt_declarada`; nenhum está no contrato de start e `dias_desde_adesao` exige
+   cadastro atrás da fronteira AMH (MZO-050b bloqueado). Falha fechado com
+   `REGULATORIO_ENTRADA_AUSENTE` — a costura existe e ativa no dia em que o dado existir.
+3. **`rede_credenciada` sem critério algum.** Nenhuma fonte de credenciamento legível por máquina
+   existe. Declarado em `criterios_nao_cobertos` **dentro do manifesto que o SME obrigatoriamente
+   abre para ratificar** e pinado por teste de cerca — senão, ratificar `auth_criteria_contratual`
+   abriria aprovação automática para prestador FORA DA REDE sem que critério nenhum dissesse nada.
 
 ## 0.6 — Programa de compatibilidade AMH (AMH-compat) — registrado 2026-08-05
 
