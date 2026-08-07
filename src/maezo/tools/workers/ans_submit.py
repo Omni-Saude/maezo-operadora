@@ -15,9 +15,15 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from maezo.tools.workers.ans_gateway import AnsGatewayTransport, resolve_ans_gateway
+from maezo.tools.workers.ans_gateway import (
+    ANS_OUTCOME_ENVIADO,
+    ANS_OUTCOME_NACK,
+    AnsGatewayTransport,
+    resolve_ans_gateway,
+)
 from maezo.tools.workers.base import FunctionWorker, pick_fields
 from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row, require_dmn
+from maezo.tools.workers.harness import WorkerBpmnError
 from maezo.tools.workers.tiss_schema import TissSchemaValidator
 
 if TYPE_CHECKING:
@@ -29,6 +35,54 @@ logger = structlog.get_logger(__name__)
 # per-worker notifications to (`operadora.notifications.internal`; observed in tests via
 # `notifications_of_type(...)`). notify_regulatorio is the one ans_submit worker that emits one.
 _NOTIFICATIONS_TOPIC = "operadora.notifications.internal"
+
+
+# ---------------------------------------------------------------------------
+# ADR-0030 modeled BPMN errors (this family's Tier-0 migration)
+# ---------------------------------------------------------------------------
+#
+# Codes this module raises as `WorkerBpmnError`, i.e. as MODELED bpmn errors dispatched to a spec
+# boundary rather than demoted to an incident. Both are proven consumption-covered by
+# `scripts/ci/check_bpmn_error_allowlist.py` (clause (b)): each is declared on an EXTERNAL service
+# task boundary, in the ONLY process that consumes that topic, and each routes to a NEUTRAL /
+# human-remediation terminal — never an adverse one:
+#
+#   ERR_ANS_PROTOCOLO_NACK      `BE_SubmitNack` on `ST_SubmeterEnvio` (`regulatorio.anssubmit.
+#                               submit`) -> `SUB_RetryEnvio` (bounded retry/backoff) -> on
+#                               exhaustion `BE_RetryEsgotado` -> `ST_PublishFailed` ->
+#                               `UT_TratarNack` (human, `regulatorio-ans`) ->
+#                               `End_FalhaRetransmissao`. Technical transmission fail-safe, not a
+#                               business outcome: nothing is denied to anyone, the filing is
+#                               retried and then handed to a human. Never `*_NOT_HUMAN`.
+#   ERR_ANS_DATASET_INCOMPLETO  `BE_AssembleDatasetIncompleto` on `ST_AssembleDataset`
+#                               (`regulatorio.anssubmit.assemble`) -> `UT_CorrigirPendenciaEnvio`
+#                               (human, `regulatorio-ans`) -> `BRT_Calendario` (the process
+#                               re-evaluates). Origin-data guard routed to human remediation; the
+#                               contract is explicit that it "roteia a UT_CorrigirPendenciaEnvio
+#                               (humano), **nunca** auto-rejeita o envio".
+#
+# Neither is T-E-gated (`is_te_gated`): neither ends in `_NOT_HUMAN` nor is a denial-block code, so
+# both land in `PRODUCTION_BPMN_ERROR_ALLOWLIST` directly (see `runtime/worker_runtime/service.py`).
+#
+# DELIBERATELY ABSENT — `ERR_ANS_RETRY_ESGOTADO`. It is thrown by the MODEL, not by a worker:
+# `End_RetryEsgotado` (an error END event inside `SUB_RetryEnvio`) throws `Error_AnsRetryEsgotado`
+# to `BE_RetryEsgotado` on the subprocess. The contract says so ("lancado pelo `End_RetryEsgotado`
+# quando a DMN `ans_retry_policy` retorna `continue_retry=false`") and so does the DMN's own
+# description ("o subprocess emite ERR_ANS_RETRY_ESGOTADO"). No worker raises it, so it does not
+# belong in a *worker* allowlist — and it could not be admitted anyway: its only boundary is
+# attached to a `subProcess`, not to an external service task, so the boundary-proof gate's census
+# (external-task boundaries only) does not see it and would FAIL any `WorkerBpmnError` raise of it
+# under clause (b). See `retry_submission` for why the worker must stay out of that decision.
+_ERR_ANS_PROTOCOLO_NACK = "ERR_ANS_PROTOCOLO_NACK"
+_ERR_ANS_DATASET_INCOMPLETO = "ERR_ANS_DATASET_INCOMPLETO"
+
+#: Unioned into `worker_runtime/service.py`'s `PRODUCTION_BPMN_ERROR_ALLOWLIST` — mirrors
+#: `RECURSO_BPMN_ERROR_ALLOWLIST` / `LGPD_BPMN_ERROR_ALLOWLIST` / `AUTH_BPMN_ERROR_ALLOWLIST`. The
+#: boundary-proof gate, not this list, is the source of truth; this constant only wires the proven
+#: set into the runtime.
+ANS_SUBMIT_BPMN_ERROR_ALLOWLIST: frozenset[str] = frozenset(
+    {_ERR_ANS_PROTOCOLO_NACK, _ERR_ANS_DATASET_INCOMPLETO}
+)
 
 
 # ---------------------------------------------------------------------------
@@ -59,11 +113,25 @@ class AnsDatasetIncompletoError(ValueError):
         super().__init__(f"ERR_ANS_DATASET_INCOMPLETO: {detail}" if detail else "ERR_ANS_DATASET_INCOMPLETO")
 
 
-class AnsRetryEsgotadoError(RuntimeError):
-    """Raised when retry policy is exhausted (ERR_ANS_RETRY_ESGOTADO)."""
-
-    def __init__(self, attempt: int = 0) -> None:
-        super().__init__(f"ERR_ANS_RETRY_ESGOTADO: exhausted after {attempt} attempts")
+# NOTE — there is deliberately NO `AnsRetryEsgotadoError` (removed).
+#
+# Retry exhaustion is a MODELED OUTCOME owned by the engine, not a worker exception. Inside
+# `SUB_RetryEnvio`, `BRT_RetryPolicy` evaluates the `ans_retry_policy` DMN and `GW_ContinuarRetry`
+# routes `retry.continue_retry == false` to `End_RetryEsgotado`, an error END event that THROWS
+# `Error_AnsRetryEsgotado` to `BE_RetryEsgotado` on the subprocess -> `ST_PublishFailed` ->
+# `UT_TratarNack` (human). Both the contract ("lancado pelo `End_RetryEsgotado`") and the DMN's own
+# description ("o subprocess emite ERR_ANS_RETRY_ESGOTADO") name the model as the thrower.
+#
+# The old `AnsRetryEsgotadoError(RuntimeError)` raised by `retry_submission` did not merely fail to
+# reach that boundary — it PREVENTED it. `RuntimeError` is the harness's TRANSIENT family, so the
+# raise made `ST_RetransmitirEnvio` fail and be engine-retried; the token never advanced to
+# `GW_RetransmissaoOk` -> `BRT_RetryPolicy` -> `GW_ContinuarRetry`, so the model's own exhaustion
+# terminal was unreachable *because* the worker was raising. Nor could it be repaired by swapping in
+# `WorkerBpmnError("ERR_ANS_RETRY_ESGOTADO")`: that code's only boundary is attached to a
+# `subProcess`, and `scripts/ci/check_bpmn_error_allowlist.py` censuses EXTERNAL-TASK boundaries
+# only, so such a raise fails clause (b) as an uncatalogued code.
+#
+# `retry_submission` therefore reports the policy and lets the model route (see its docstring).
 
 
 # ---------------------------------------------------------------------------
@@ -85,6 +153,15 @@ class AnsSubmitInput:
     schema_valid: bool = False
     lgpd_anonimizado: bool = False
     dataset_ref: str = ""
+    #: Origin-side assembly failure: the upstream regulatory-data source could not produce the
+    #: dataset at all (distinct from `dataset_complete=False`, which is a resolved FACT about a
+    #: dataset that DOES exist and is routed by the admissibility DMN). True makes
+    #: `prepare_submission` raise `ERR_ANS_DATASET_INCOMPLETO` -> `BE_AssembleDatasetIncompleto` ->
+    #: `UT_CorrigirPendenciaEnvio`. Defaults False = fail-OPEN would be wrong here, but False is the
+    #: correct default: the flag asserts a FAILURE, so absence means "no failure reported", and the
+    #: dataset then still faces the unchanged `dataset_complete`/`schema_valid` fail-closed checks
+    #: downstream. Nothing auto-rejects the filing on either path.
+    dataset_assembly_failed: bool = False
 
 
 @dataclass
@@ -114,6 +191,19 @@ class AnsRetryPolicy:
 
     backoff: str = ""
     continue_retry: bool = False
+    #: The attempt number this policy was evaluated for. Echoed back so `retransmit_entry` can
+    #: write the incremented loop counter into the instance — the DMN's own description assigns
+    #: that job to this worker ("O worker regulatorio.anssubmit.retransmit incrementa
+    #: `retry_attempt` (contador tecnico de loop)"), and `BRT_RetryPolicy` then re-evaluates the
+    #: SAME table on it. DEFEITO REAL pre-mudanca (narrativa corrigida por GK-ans finding 1,
+    #: provada base-vs-HEAD): `retry_attempt` NUNCA era escrito no escopo do processo — nem pelo
+    #: BPMN, nem por `start_ans`, nem pelo retorno do worker — logo `BRT_RetryPolicy` avaliava
+    #: sobre uma variavel ausente e caia no catch-all `-` (que casa QUALQUER valor), retornando
+    #: `continue_retry=false`. NAO havia loop infinito: o worker levantava
+    #: `AnsRetryEsgotadoError` (RuntimeError => familia TRANSIENTE do harness) ja na PRIMEIRA
+    #: retransmissao, a external task nunca completava e o terminal modelado de esgotamento era
+    #: inalcancavel.
+    retry_attempt: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -126,7 +216,33 @@ def prepare_submission(input_data: AnsSubmitInput) -> AnsSubmissionData:
 
     Assembles an anonymized dataset (Zona Geral, ADR-0006).
     Delegates to mcp-regdata.assemble.
+
+    **Assembly-failure guard (`ERR_ANS_DATASET_INCOMPLETO`).** `dataset_assembly_failed=True` means
+    the origin could not produce the dataset, so there is nothing to validate or file: this raises
+    `WorkerBpmnError(ERR_ANS_DATASET_INCOMPLETO)`, which `BE_AssembleDatasetIncompleto` catches on
+    `ST_AssembleDataset` and routes to `UT_CorrigirPendenciaEnvio` (human) — the routing the
+    contract already specifies ("roteia a `UT_CorrigirPendenciaEnvio` (humano), **nunca**
+    auto-rejeita o envio") and the task's own BPMN documentation already promised. It is a MODELED
+    bpmn error, deliberately NOT `AnsDatasetIncompletoError`: that `ValueError` would demote to a
+    raw incident and lose the modeled human-remediation route. `AnsDatasetIncompletoError` keeps
+    serving its two unrelated call sites (`track_protocol_entry`/`retransmit_entry`, blank
+    `protocolo_ans`), whose topics carry NO boundary for this code — incident is right there.
     """
+    if input_data.dataset_assembly_failed:
+        logger.warning(
+            "ans_submit.prepare_submission.assembly_failed",
+            tenant_id=input_data.tenant_id,
+            report_type=input_data.report_type,
+            competencia=input_data.competencia,
+        )
+        raise WorkerBpmnError(
+            _ERR_ANS_DATASET_INCOMPLETO,
+            f"{_ERR_ANS_DATASET_INCOMPLETO}: montagem do dataset regulatorio falhou na origem "
+            f"(dataset_assembly_failed=True) — report_type={input_data.report_type!r} "
+            f"competencia={input_data.competencia!r}; roteia a UT_CorrigirPendenciaEnvio (humano), "
+            "nunca auto-rejeita o envio",
+        )
+
     logger.info(
         "ans_submit.prepare_submission.start",
         tenant_id=input_data.tenant_id,
@@ -221,6 +337,7 @@ def transmit_to_ans(
     *,
     gateway: AnsGatewayTransport | None = None,
     business_key: str = "",
+    requested_outcome: str = "",
 ) -> dict[str, Any]:
     """Transmit the official filing to ANS — GUARDED adverse effect.
 
@@ -238,6 +355,22 @@ def transmit_to_ans(
     inject `LabeledMockAnsGatewayTransport` (deterministic `MOCK-ANS-NAO-VINCULATIVO-{business_key}`).
     The `ERR_ANS_SUBMIT_NOT_HUMAN` guard fires FIRST, before any gateway touch — orthogonal to the
     gateway and unchanged.
+
+    **NACK branch (`ERR_ANS_PROTOCOLO_NACK`).** When the gateway reports `status_envio="nack"` the
+    filing was REFUSED by ANS, so no `submitted=True` result may be returned: this raises
+    `WorkerBpmnError(ERR_ANS_PROTOCOLO_NACK)`, the MODELED error `BE_SubmitNack` catches on
+    `ST_SubmeterEnvio` to enter `SUB_RetryEnvio` (contract §Codigos de erro: "lancado pelo worker
+    `regulatorio.anssubmit.submit` APOS o guard humano, num NACK transitorio"). The refusal reason
+    travels in the error MESSAGE because `WorkerBpmnError` has no variables channel at the harness
+    call site (`harness.py` `_handle` passes only `error_code`/`error_message`).
+
+    `requested_outcome` is the dev/test-only NACK directive forwarded verbatim to the gateway; only
+    `LabeledMockAnsGatewayTransport` honors it. In production the gateway is
+    `RefusingAnsGatewayTransport`, which raises before reading it — so this parameter CANNOT induce
+    a NACK, nor any other outcome, on a production-wired worker.
+
+    Any gateway-reported status that is neither `enviado` nor `nack` is rejected fail-closed
+    (`ValueError` -> incident) rather than being treated as an accepted filing.
     """
     logger.info(
         "ans_submit.transmit_to_ans.start",
@@ -267,7 +400,34 @@ def transmit_to_ans(
         competencia=submission.competencia,
         dataset_ref=submission.dataset_ref,
         revisor_id=decision.revisor_id,
+        requested_outcome=requested_outcome,
     )
+
+    if protocol.status_envio == ANS_OUTCOME_NACK:
+        # ANS REFUSED the filing. Never return `submitted=True`; raise the MODELED bpmn error so
+        # BE_SubmitNack routes the instance into SUB_RetryEnvio (bounded retry -> human).
+        logger.warning(
+            "ans_submit.transmit_to_ans.nack",
+            protocolo_ans=protocol.protocolo_ans,
+            nack_motivo=protocol.nack_motivo,
+            report_type=submission.report_type,
+            competencia=submission.competencia,
+        )
+        raise WorkerBpmnError(
+            _ERR_ANS_PROTOCOLO_NACK,
+            f"{_ERR_ANS_PROTOCOLO_NACK}: ANS recusou o envio (NACK) — "
+            f"protocolo_ans={protocol.protocolo_ans!r} nack_motivo={protocol.nack_motivo!r} "
+            f"business_key={business_key!r}",
+        )
+    if protocol.status_envio != ANS_OUTCOME_ENVIADO:
+        # Fail-closed: an unrecognized gateway status is NOT an accepted filing. Reaching here
+        # means a transport returned a status this worker cannot interpret — an incident, never a
+        # silent `submitted=True`.
+        raise ValueError(
+            f"status_envio desconhecido do gateway ANS: {protocol.status_envio!r} "
+            f"(esperado {ANS_OUTCOME_ENVIADO!r} ou {ANS_OUTCOME_NACK!r}); "
+            f"business_key={business_key!r} — recusa fail-closed, nenhum envio registrado"
+        )
 
     result = {
         "submitted": True,
@@ -339,6 +499,14 @@ def retry_submission(
     against attempts 1-3 and the catch-all before this cutover (T1.5 PR body / evidence
     ledger). `report_type`/`competencia` are accepted for call-site compatibility (unused by
     this decision — the table keys only on `retry_attempt`).
+
+    **Exhaustion does NOT raise here.** `continue_retry=false` is REPORTED, not enforced: the engine
+    owns the routing. `BRT_RetryPolicy` re-evaluates this same table inside `SUB_RetryEnvio` and
+    `GW_ContinuarRetry` sends the false branch to `End_RetryEsgotado`, which throws
+    `Error_AnsRetryEsgotado` to `BE_RetryEsgotado` -> `ST_PublishFailed` -> `UT_TratarNack` (human).
+    Raising from this worker would fail the external task instead of completing it, so the token
+    would never reach that gateway at all — see the module-level note where `AnsRetryEsgotadoError`
+    used to live for the full evidence.
     """
     del report_type, competencia  # unused by ans_retry_policy — kept for call-site compatibility
     logger.info(
@@ -352,17 +520,16 @@ def retry_submission(
     result = AnsRetryPolicy(
         backoff=str(row.get("backoff", "")),
         continue_retry=bool(row.get("continue_retry", False)),
+        retry_attempt=retry_attempt,
     )
 
     logger.info(
         "ans_submit.retry_submission.complete",
         backoff=result.backoff,
         continue_retry=result.continue_retry,
+        retry_attempt=result.retry_attempt,
         dmn_decision_version=version.version,
     )
-
-    if not result.continue_retry:
-        raise AnsRetryEsgotadoError(attempt=retry_attempt)
 
     return result
 
@@ -588,12 +755,24 @@ def submit_entry(
     `register_ans_submit_workers`'s `**seams`. Production injects nothing → `resolve_ans_gateway`
     picks `RefusingAnsGatewayTransport` (refuses, fail-closed); dev/test inject
     `LabeledMockAnsGatewayTransport`.
+
+    An inbound `status_envio` process variable is forwarded to the gateway as `requested_outcome` —
+    the dev/test NACK directive. It is NOT part of `AnsSubmissionData`/`AnsSubmitDecision` ON
+    PURPOSE: adding it to `AnsSubmissionData` would make `assemble_entry` write `status_envio=""`
+    back into the instance and CLOBBER the seeded value one task earlier. Reading it straight off
+    the variable dict here keeps the seam narrow (only this entry function looks at it) and leaves
+    every other worker's output untouched. Forwarding is safe in production regardless: the
+    production gateway refuses before reading the directive (see `transmit_to_ans`).
     """
     del kafka  # unused — transmit_to_ans emits no domain event itself (publish_completed does)
     submission = AnsSubmissionData(**pick_fields(variables, AnsSubmissionData))
     decision = AnsSubmitDecision(**pick_fields(variables, AnsSubmitDecision))
     return transmit_to_ans(
-        submission, decision, gateway=ans_gateway, business_key=_ans_business_key(variables)
+        submission,
+        decision,
+        gateway=ans_gateway,
+        business_key=_ans_business_key(variables),
+        requested_outcome=str(variables.get("status_envio") or ""),
     )
 
 
@@ -621,21 +800,35 @@ def retransmit_entry(
 ) -> dict[str, Any]:
     """Dict-boundary entry for `regulatorio.anssubmit.retransmit` -> `retry_submission`.
 
-    Fail-closed: missing/blank `protocolo_ans` raises `AnsDatasetIncompletoError`. Exhaustion
-    raises `AnsRetryEsgotadoError` (`RuntimeError` family) unchanged — the harness's existing
-    transient classification applies (engine-side retry, incident at 0). `dmn` unwired raises
-    `DmnEvaluationError` (`require_dmn`, ADR-0028) — also transient/engine-retried.
+    Fail-closed: missing/blank `protocolo_ans` raises `AnsDatasetIncompletoError`. `dmn` unwired
+    raises `DmnEvaluationError` (`require_dmn`, ADR-0028) — transient/engine-retried.
+
+    **Owns the loop counter.** The inbound `retry_attempt` is the number of retransmissions already
+    performed (absent/0 on entry to `SUB_RetryEnvio`); this invocation IS attempt `n+1`, so the
+    incremented value is what the policy is evaluated for and what is written back to the instance.
+    The DMN's own description assigns the increment to this worker ("O worker
+    regulatorio.anssubmit.retransmit incrementa `retry_attempt`"), and it is what makes the modeled
+    loop terminate: `BRT_RetryPolicy` re-evaluates on the incremented counter until the table's
+    catch-all returns `continue_retry=false`, which routes `GW_ContinuarRetry` to
+    `End_RetryEsgotado` -> `BE_RetryEsgotado` -> `UT_TratarNack`. CORRECAO DE NARRATIVA (GK-ans
+    finding 1): sem o incremento NAO havia "loop infinito" — `retry_attempt` nunca chegava ao
+    escopo do processo, entao o catch-all `-` casava sempre e o esgotamento era imediato; o que
+    de fato quebrava a rota era o `AnsRetryEsgotadoError` (familia transiente) levantado na
+    primeira retransmissao, que impedia a task de completar. O incremento importa porque
+    `BRT_RetryPolicy` precisa de um contador REAL em escopo (contrato :157).
+
+    Exhaustion is REPORTED (`continue_retry=false`), never raised — see `retry_submission`.
     """
     del kafka  # unused — retry_submission emits no domain event
     protocolo_ans = variables.get("protocolo_ans", "")
     if not isinstance(protocolo_ans, str) or not protocolo_ans.strip():
         raise AnsDatasetIncompletoError("protocolo_ans ausente/invalido para retransmit")
-    retry_attempt = variables.get("retry_attempt", 0)
+    attempt = int(variables.get("retry_attempt") or 0) + 1
     report_type = variables.get("report_type", "")
     competencia = variables.get("competencia", "")
     result = retry_submission(
         protocolo_ans,
-        retry_attempt,
+        attempt,
         report_type,
         competencia,
         dmn=require_dmn(dmn, "regulatorio.anssubmit.retransmit"),

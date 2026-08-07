@@ -45,6 +45,7 @@ from maezo.platform.health import CheckResult, build_health_server, create_healt
 from maezo.platform.integrations.events_kafka_producer import AioKafkaEventsProducer
 from maezo.platform.observability import get_metrics_collector
 from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
+from maezo.tools.workers.ans_submit import ANS_SUBMIT_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.auth import AUTH_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.bootstrap import ALL_WORKER_BOOTSTRAPS, register_all_workers
 from maezo.tools.workers.cibseven_engine import FreshClientCibSevenTransport
@@ -147,9 +148,19 @@ def _is_te_gated(code: str) -> bool:
 #: NOT `*_NOT_HUMAN`, lands directly; the constant deliberately EXCLUDES cred's two adverse
 #: `*_NOT_HUMAN` guard codes, which stay T-E-deferred. `ERR_CANCEL_MANTER_NOT_HUMAN` is
 #: gate-proven too but its worker exposes no constant (nothing is enabled for it at any tier
-#: until T-E), so there is nothing to import.
+#: until T-E), so there is nothing to import. `ANS_SUBMIT_BPMN_ERROR_ALLOWLIST` contributes
+#: `ERR_ANS_PROTOCOLO_NACK` and `ERR_ANS_DATASET_INCOMPLETO` (t2-ans-submit, the ANS family's
+#: ADR-0030 migration) — both NON-adverse and routed to human remediation rather than to any
+#: adverse terminal: a NACK enters `SUB_RetryEnvio` (bounded retry) and, if exhausted, reaches
+#: `UT_TratarNack`; an origin-side assembly failure reaches `UT_CorrigirPendenciaEnvio` and the
+#: process re-evaluates. Neither denies anything to a beneficiario/prestador (this process is
+#: operadora -> regulador and has no adverse output at all), neither is `*_NOT_HUMAN`, so neither is
+#: T-E-gated and both land directly. `ERR_ANS_RETRY_ESGOTADO` is deliberately NOT here: it is thrown
+#: by the MODEL (`End_RetryEsgotado` inside `SUB_RetryEnvio`), not by a worker — see the note in
+#: `tools/workers/ans_submit.py`.
 _GATE_PROVEN_BPMN_ERROR_CODES: frozenset[str] = (
-    AUTH_BPMN_ERROR_ALLOWLIST
+    ANS_SUBMIT_BPMN_ERROR_ALLOWLIST
+    | AUTH_BPMN_ERROR_ALLOWLIST
     | CRED_BPMN_ERROR_ALLOWLIST
     | ESCALATION_BPMN_ERROR_ALLOWLIST
     | EVENTS_BPMN_ERROR_ALLOWLIST

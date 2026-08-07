@@ -49,7 +49,12 @@ _WORKERS_DIR = _REPO_ROOT / "src" / "maezo" / "tools" / "workers"
 # (programa check_consent) — both G2-val origin/consent guards now raise WorkerBpmnError, NOT
 # T-E-gated, so they ALSO land in tier0 + item-9 bucket-3 Class-C's ERR_CRED_INVALID_PRESTADOR
 # (cred validate_cred / verify_credentials origin guard, previously a DEAD MODEL: declared +
-# boundary-modeled but zero raise-sites) — G2-val, NOT T-E-gated, also lands in tier0.
+# boundary-modeled but zero raise-sites) — G2-val, NOT T-E-gated, also lands in tier0 +
+# t2-ans-submit's ERR_ANS_PROTOCOLO_NACK (ans_submit transmit_to_ans, previously a DEAD MODEL:
+# BE_SubmitNack was modeled but no worker could produce a NACK) and ERR_ANS_DATASET_INCOMPLETO
+# (ans_submit prepare_submission, previously declared at definitions level with NO boundary at all —
+# that branch adds BE_AssembleDatasetIncompleto on ST_AssembleDataset). Both are non-adverse
+# technical/origin fail-safes routed to human remediation, NOT T-E-gated, so both land in tier0.
 _G1_COVERED = frozenset(
     {
         "ERR_AUTH_DENIAL_INCOMPLETE",
@@ -63,6 +68,8 @@ _G1_COVERED = frozenset(
         "ERR_NIP_PROTOCOLO_INVALIDO",
         "ERR_PROGRAMA_NO_CONSENT",
         "ERR_CRED_INVALID_PRESTADOR",
+        "ERR_ANS_PROTOCOLO_NACK",
+        "ERR_ANS_DATASET_INCOMPLETO",
     }
 )
 
@@ -85,6 +92,8 @@ def test_real_tree_passes_and_reproduces_adr_census() -> None:
             "ERR_NIP_PROTOCOLO_INVALIDO",
             "ERR_PROGRAMA_NO_CONSENT",
             "ERR_CRED_INVALID_PRESTADOR",
+            "ERR_ANS_PROTOCOLO_NACK",
+            "ERR_ANS_DATASET_INCOMPLETO",
         }
     )
     assert result.te_deferred == frozenset(
@@ -95,24 +104,25 @@ def test_real_tree_passes_and_reproduces_adr_census() -> None:
             "ERR_CRED_DENIAL_NOT_HUMAN",
         }
     )
-    # ADR-0030 census: 15 distinct external-task boundary codes = 11 covered (item-9 bucket-3
-    # added ERR_NIP_PROTOCOLO_INVALIDO + ERR_PROGRAMA_NO_CONSENT, then Class-C added
-    # ERR_CRED_INVALID_PRESTADOR — three Tier-2 G2-val guards -> tier0) + 4 dead-model.
-    assert len(result.dead_models) == 4
-    assert len(result.consumption_covered | result.dead_models) == 15
+    # ADR-0030 census: 16 distinct external-task boundary codes = 13 covered + 3 dead-model.
+    # t2-ans-submit moved the needle twice: ERR_ANS_PROTOCOLO_NACK went dead-model -> covered (the
+    # worker can now produce a NACK), and ERR_ANS_DATASET_INCOMPLETO is a NEW boundary (+1 to the
+    # census total) that arrives already covered — so 15 -> 16 total and 4 -> 3 dead models.
+    assert len(result.dead_models) == 3
+    assert len(result.consumption_covered | result.dead_models) == 16
 
 
 def test_real_tree_dead_models_are_warn_only_at_tier0() -> None:
     result = run_gate(_BPMN_DIR, _WORKERS_DIR)
     assert result.ok
     assert not result.violations
-    assert result.warnings  # the 4 dead models are reported, but non-blocking (F5)
+    assert result.warnings  # the 3 dead models are reported, but non-blocking (F5)
 
 
 def test_real_tree_strict_mode_hardens_dead_models_to_failure() -> None:
     result = run_gate(_BPMN_DIR, _WORKERS_DIR, strict_dead_models=True)
     assert not result.ok  # Tier-3 posture: a dead model is a hard failure
-    assert len(result.violations) == 4
+    assert len(result.violations) == 3
     assert not result.warnings
 
 

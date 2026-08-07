@@ -9,6 +9,9 @@ from pathlib import Path
 import pytest
 
 from maezo.tools.workers.ans_gateway import (
+    ANS_OUTCOME_ENVIADO,
+    ANS_OUTCOME_NACK,
+    MOCK_ANS_NACK_MOTIVO,
     MOCK_ANS_PROTOCOL_PREFIX,
     AnsGatewayUnavailableError,
     LabeledMockAnsGatewayTransport,
@@ -17,9 +20,9 @@ from maezo.tools.workers.ans_gateway import (
     resolve_ans_gateway,
 )
 from maezo.tools.workers.ans_submit import (
+    ANS_SUBMIT_BPMN_ERROR_ALLOWLIST,
     AnsDatasetIncompletoError,
     AnsNotifyRegulatorioInput,
-    AnsRetryEsgotadoError,
     AnsSubmissionData,
     AnsSubmitDecision,
     AnsSubmitInput,
@@ -46,6 +49,7 @@ from maezo.tools.workers.harness import (
     ExternalTask,
     FakeKafkaPublisher,
     FakeWorkerTransport,
+    WorkerBpmnError,
     WorkerHarness,
 )
 from maezo.tools.workers.tiss_schema import TissSchemaValidator
@@ -317,6 +321,231 @@ def test_transmit_to_ans_success_labeled_mock() -> None:
 
 
 # ---------------------------------------------------------------------------
+# NACK (ERR_ANS_PROTOCOLO_NACK) — deterministically inducible in dev/test, IMPOSSIBLE in prod.
+# BPMN: BE_SubmitNack on ST_SubmeterEnvio -> SUB_RetryEnvio -> ... -> UT_TratarNack (human).
+# ---------------------------------------------------------------------------
+
+
+def _approved_submission() -> tuple[AnsSubmissionData, AnsSubmitDecision]:
+    return (
+        AnsSubmissionData(dataset_ref="ds-1", report_type="RN_124_SIP", competencia="2026-06"),
+        AnsSubmitDecision(decisao_envio="APROVAR_ENVIO", revisor_id="reg-001"),
+    )
+
+
+def test_transmit_to_ans_nack_raises_allowlisted_bpmn_error() -> None:
+    """A NACK from the gateway raises the MODELED, ALLOWLISTED ERR_ANS_PROTOCOLO_NACK.
+
+    This is the whole point of the NACK capability: `WorkerBpmnError` with a code the harness's
+    `bpmn_error_allowlist` admits is what makes BE_SubmitNack fire instead of the instance ending
+    silently (the CIB Seven 2.1.0 hazard) or incidenting.
+    """
+    submission, decision = _approved_submission()
+    with pytest.raises(WorkerBpmnError) as exc:
+        transmit_to_ans(
+            submission,
+            decision,
+            gateway=LabeledMockAnsGatewayTransport(),
+            business_key="ANSSUB-amh-RN_124_SIP-2026-06",
+            requested_outcome=ANS_OUTCOME_NACK,
+        )
+    assert exc.value.error_code == "ERR_ANS_PROTOCOLO_NACK"
+    assert exc.value.error_code in ANS_SUBMIT_BPMN_ERROR_ALLOWLIST
+    # The refusal reason must travel in the message — WorkerBpmnError has no variables channel.
+    assert MOCK_ANS_NACK_MOTIVO in str(exc.value)
+
+
+def test_submit_entry_seeded_status_envio_nack_drives_the_nack_branch() -> None:
+    """The seeded `status_envio="nack"` process variable reaches the gateway (it used to be
+    silently dropped by pick_fields, which is why the NACK was unproducible)."""
+    with pytest.raises(WorkerBpmnError) as exc:
+        submit_entry(
+            {
+                "tenant_id": "amh",
+                "report_type": "RN_124_SIP",
+                "competencia": "2026-06",
+                "dataset_ref": "ds-1",
+                "decisao_envio": "APROVAR_ENVIO",
+                "revisor_id": "reg-001",
+                "status_envio": "nack",
+            },
+            ans_gateway=LabeledMockAnsGatewayTransport(),
+        )
+    assert exc.value.error_code == "ERR_ANS_PROTOCOLO_NACK"
+
+
+def test_nack_is_opt_in_only_default_still_succeeds() -> None:
+    """Purely additive: with no directive the mock still returns the accepted filing."""
+    submission, decision = _approved_submission()
+    result = transmit_to_ans(
+        submission, decision, gateway=LabeledMockAnsGatewayTransport(), business_key="bk-1"
+    )
+    assert result["submitted"] is True
+    assert result["status_envio"] == ANS_OUTCOME_ENVIADO
+
+
+def test_nacked_protocol_is_still_unmistakably_synthetic() -> None:
+    """A mock NACK must not look like a real ANS refusal any more than a mock ACK looks like a
+    real filing — same MOCK- prefix, same synthetic/vinculativo flags, mock-labelled motivo."""
+    protocol = LabeledMockAnsGatewayTransport().submit(
+        business_key="bk-1",
+        report_type="RN_124_SIP",
+        competencia="2026-06",
+        dataset_ref="ds-1",
+        revisor_id="reg-001",
+        requested_outcome=ANS_OUTCOME_NACK,
+    )
+    assert protocol.status_envio == ANS_OUTCOME_NACK
+    assert protocol.protocolo_ans.startswith(MOCK_ANS_PROTOCOL_PREFIX)
+    assert not protocol.protocolo_ans.startswith("ANSPROTO-")
+    assert protocol.synthetic is True
+    assert protocol.vinculativo is False
+    assert protocol.nack_motivo == MOCK_ANS_NACK_MOTIVO
+
+
+def test_production_transports_cannot_be_steered_into_a_nack() -> None:
+    """PRODUCTION SAFETY: neither production-shaped transport honors `requested_outcome` — both
+    refuse unconditionally, so no NACK (and no protocol at all) can be induced on them."""
+    for transport in (RefusingAnsGatewayTransport(), RealAnsGatewayTransport()):
+        with pytest.raises(AnsGatewayUnavailableError):
+            transport.submit(
+                business_key="bk-1",
+                report_type="RN_124_SIP",
+                competencia="2026-06",
+                dataset_ref="ds-1",
+                revisor_id="reg-001",
+                requested_outcome=ANS_OUTCOME_NACK,
+            )
+
+
+def test_prod_wiring_refuses_even_when_a_nack_is_requested() -> None:
+    """END-TO-END PRODUCTION FENCE: `submit_entry` with NO injected gateway is the production
+    wiring (`register_all_workers` passes no `ans_gateway`). Even with the NACK directive seeded it
+    resolves to RefusingAnsGatewayTransport and refuses — it can neither file nor fabricate a NACK.
+    """
+    with pytest.raises(AnsGatewayUnavailableError):
+        submit_entry(
+            {
+                "tenant_id": "amh",
+                "report_type": "RN_124_SIP",
+                "competencia": "2026-06",
+                "dataset_ref": "ds-1",
+                "decisao_envio": "APROVAR_ENVIO",
+                "revisor_id": "reg-001",
+                "status_envio": "nack",
+            }
+        )
+
+
+def test_human_guard_still_fires_before_any_nack_can_be_requested() -> None:
+    """The NACK directive must not become a way around the HITL pre-filing guard: with no human
+    approval the refusal is still ERR_ANS_SUBMIT_NOT_HUMAN, raised before the gateway is touched."""
+    with pytest.raises(AnsSubmitNotHumanError):
+        submit_entry(
+            {"report_type": "RN_124_SIP", "status_envio": "nack"},
+            ans_gateway=LabeledMockAnsGatewayTransport(),
+        )
+
+
+def test_unknown_gateway_status_fails_closed_not_treated_as_a_filing() -> None:
+    """Fail-closed: a transport returning an uninterpretable status must incident, never yield
+    `submitted=True`. Guards a future RealAnsGatewayTransport against silent fail-open."""
+
+    class _WeirdStatusTransport:
+        def submit(self, **_kwargs: object) -> object:
+            from maezo.tools.workers.ans_gateway import AnsProtocol
+
+            return AnsProtocol(protocolo_ans="X-1", status_envio="talvez", synthetic=False, vinculativo=True)
+
+    submission, decision = _approved_submission()
+    with pytest.raises(ValueError, match="status_envio desconhecido"):
+        transmit_to_ans(submission, decision, gateway=_WeirdStatusTransport(), business_key="bk-1")  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# Assembly-failure guard (ERR_ANS_DATASET_INCOMPLETO) — BE_AssembleDatasetIncompleto on
+# ST_AssembleDataset -> UT_CorrigirPendenciaEnvio (human). NEVER auto-rejects the filing.
+# ---------------------------------------------------------------------------
+
+
+def test_prepare_submission_raises_allowlisted_code_on_assembly_failure() -> None:
+    inp = AnsSubmitInput(
+        tenant_id="amh",
+        report_type="RN_124_SIP",
+        competencia="2026-06",
+        dataset_ref="DATASET-TESTE-0001",
+        dataset_assembly_failed=True,
+    )
+    with pytest.raises(WorkerBpmnError) as exc:
+        prepare_submission(inp)
+    assert exc.value.error_code == "ERR_ANS_DATASET_INCOMPLETO"
+    assert exc.value.error_code in ANS_SUBMIT_BPMN_ERROR_ALLOWLIST
+
+
+def test_assemble_entry_raises_on_assembly_failure_variable() -> None:
+    with pytest.raises(WorkerBpmnError) as exc:
+        assemble_entry(
+            {
+                "tenant_id": "amh",
+                "report_type": "RN_124_SIP",
+                "competencia": "2026-06",
+                "dataset_assembly_failed": True,
+            }
+        )
+    assert exc.value.error_code == "ERR_ANS_DATASET_INCOMPLETO"
+
+
+def test_assemble_guard_does_not_fire_otherwise() -> None:
+    """The guard is narrow: only an explicit origin-side assembly failure trips it. An absent flag,
+    an explicit False, and an incomplete-but-existing dataset all still assemble normally — those
+    route through the admissibility DMN, not through this boundary."""
+    assert assemble_entry({"report_type": "RN_124_SIP", "competencia": "2026-06"})["dataset_ref"]
+    assert assemble_entry(
+        {"report_type": "RN_124_SIP", "competencia": "2026-06", "dataset_assembly_failed": False}
+    )["dataset_ref"]
+    # dataset_complete=False is NOT an assembly failure — it is a routable fact.
+    incomplete = assemble_entry(
+        {"report_type": "RN_124_SIP", "competencia": "2026-06", "dataset_complete": False}
+    )
+    assert incomplete["dataset_complete"] is False
+
+
+def test_assemble_failure_is_a_modeled_error_not_the_valueerror_family() -> None:
+    """It must be a `WorkerBpmnError`, NOT `AnsDatasetIncompletoError`: the ValueError family
+    demotes to a raw incident and loses the modeled route to UT_CorrigirPendenciaEnvio."""
+    with pytest.raises(WorkerBpmnError):
+        prepare_submission(AnsSubmitInput(report_type="X", dataset_assembly_failed=True))
+    # ...while the unrelated blank-protocolo_ans call sites keep their ValueError classification.
+    with pytest.raises(AnsDatasetIncompletoError):
+        track_protocol_entry({"protocolo_ans": "  "})
+
+
+# ---------------------------------------------------------------------------
+# ADR-0030 allowlist constant — exactly the intended codes, nothing more.
+# ---------------------------------------------------------------------------
+
+
+def test_ans_submit_allowlist_is_exactly_the_two_modeled_codes() -> None:
+    """Census fence. ERR_ANS_RETRY_ESGOTADO is deliberately ABSENT: it is thrown by the MODEL
+    (End_RetryEsgotado inside SUB_RetryEnvio), no worker raises it, and its only boundary is
+    attached to a subProcess rather than an external task — so the boundary-proof gate could not
+    admit a worker raise of it. ERR_ANS_SUBMIT_NOT_HUMAN is absent too: it has no boundary at all
+    and stays a PermissionError -> incident (and would be T-E-gated regardless).
+    """
+    assert (
+        frozenset({"ERR_ANS_PROTOCOLO_NACK", "ERR_ANS_DATASET_INCOMPLETO"}) == ANS_SUBMIT_BPMN_ERROR_ALLOWLIST
+    )
+
+
+def test_ans_submit_allowlist_carries_no_te_gated_code() -> None:
+    """Neither code is a `*_NOT_HUMAN` guard or a denial-block code, so both may be enabled
+    pre-T-E (ADR-0030 §4)."""
+    from maezo.tools.workers.harness import is_guard_refusal_code
+
+    assert not any(is_guard_refusal_code(c) for c in ANS_SUBMIT_BPMN_ERROR_ALLOWLIST)
+
+
+# ---------------------------------------------------------------------------
 # AnsGatewayTransport triple (T2.6-1, design §2.A) — Refusing prod-default / LabeledMock /
 # Real creds-blocked; NO fabricated protocol anywhere.
 # ---------------------------------------------------------------------------
@@ -483,12 +712,19 @@ def test_retry_submission_attempt_3() -> None:
     assert result.continue_retry is True
 
 
-def test_retry_submission_exhausted() -> None:
-    """Retry attempt > 3 -> DMN catch-all (continue_retry=false) -> raises ERR_ANS_RETRY_ESGOTADO."""
+def test_retry_submission_exhausted_reports_never_raises() -> None:
+    """Retry attempt > 3 -> DMN catch-all (continue_retry=false) is REPORTED, never raised.
+
+    The engine owns the exhaustion route (`BRT_RetryPolicy` -> `GW_ContinuarRetry` ->
+    `End_RetryEsgotado` -> `BE_RetryEsgotado` -> `UT_TratarNack`). A raise here would fail the
+    external task and strand the token on `ST_RetransmitirEnvio`, making the modeled terminal
+    unreachable — the exact defect this replaced.
+    """
     fake = _ans_retry_policy_fake(backoff="", continue_retry=False)
-    with pytest.raises(AnsRetryEsgotadoError) as exc:
-        retry_submission("ANSPROTO-1", retry_attempt=4, dmn=fake)
-    assert "exhausted" in str(exc.value).lower()
+    result = retry_submission("ANSPROTO-1", retry_attempt=4, dmn=fake)
+    assert result.continue_retry is False
+    assert result.backoff == ""
+    assert result.retry_attempt == 4
 
 
 def test_retry_submission_dmn_unwired_raises_dmn_evaluation_error() -> None:
@@ -524,9 +760,19 @@ def test_ans_dataset_incompleto_is_value_error() -> None:
     assert issubclass(AnsDatasetIncompletoError, ValueError)
 
 
-def test_ans_retry_esgotado_is_runtime_error() -> None:
-    """AnsRetryEsgotadoError must be a subclass of RuntimeError."""
-    assert issubclass(AnsRetryEsgotadoError, RuntimeError)
+def test_no_worker_side_retry_esgotado_exception_exists() -> None:
+    """Retry exhaustion is MODEL-owned — no worker exception may re-introduce it.
+
+    `End_RetryEsgotado` (an error END event inside `SUB_RetryEnvio`) throws
+    `Error_AnsRetryEsgotado` to `BE_RetryEsgotado`; the contract and the `ans_retry_policy` DMN
+    description both name the subprocess as the thrower. The removed `AnsRetryEsgotadoError`
+    (a `RuntimeError`, i.e. the harness's TRANSIENT family) actively PREVENTED that route: it
+    failed `ST_RetransmitirEnvio` instead of completing it, so the token never advanced to
+    `GW_RetransmissaoOk` -> `BRT_RetryPolicy` -> `GW_ContinuarRetry`. This fence keeps it gone.
+    """
+    import maezo.tools.workers.ans_submit as ans_submit_module
+
+    assert not hasattr(ans_submit_module, "AnsRetryEsgotadoError")
 
 
 # ---------------------------------------------------------------------------
@@ -615,12 +861,32 @@ def test_retransmit_entry_happy_path_round_trips_retry_submission() -> None:
     assert result["continue_retry"] == direct.continue_retry
 
 
-def test_retransmit_entry_raises_ans_retry_esgotado_when_exhausted() -> None:
-    """Transient/RuntimeError-family — the harness's existing classification (T1.1 §9) computes
-    an engine-side retry decrement, never a fail-closed retries=0 short-circuit."""
+def test_retransmit_entry_reports_exhaustion_without_raising() -> None:
+    """Exhaustion COMPLETES the external task with continue_retry=False so the engine can route it.
+
+    `GW_ContinuarRetry` reads `${retry.continue_retry == true}` off `BRT_RetryPolicy`'s own
+    evaluation; the worker must complete for the token to ever reach that gateway.
+    """
     fake = _ans_retry_policy_fake(backoff="", continue_retry=False)
-    with pytest.raises(AnsRetryEsgotadoError):
-        retransmit_entry({"protocolo_ans": "ANSPROTO-1", "retry_attempt": 4}, dmn=fake)
+    result = retransmit_entry({"protocolo_ans": "ANSPROTO-1", "retry_attempt": 4}, dmn=fake)
+    assert result["continue_retry"] is False
+    assert result["retry_attempt"] == 5
+
+
+def test_retransmit_entry_increments_the_loop_counter() -> None:
+    """The worker owns `retry_attempt` (DMN description) — without the increment the modeled
+    `SUB_RetryEnvio` loop never reaches the table's `> 3` catch-all and spins forever."""
+    fake = _ans_retry_policy_fake(backoff="PT5M", continue_retry=True)
+    # Absent counter (first entry into SUB_RetryEnvio) => this invocation is attempt 1.
+    first = retransmit_entry({"protocolo_ans": "ANSPROTO-1"}, dmn=fake)
+    assert first["retry_attempt"] == 1
+    assert fake.calls == [("ans_retry_policy", {"retry_attempt": 1})]
+
+    # ...and each subsequent pass advances by exactly one, which is what BRT_RetryPolicy re-reads.
+    fake_2 = _ans_retry_policy_fake(backoff="PT30M", continue_retry=True)
+    second = retransmit_entry({"protocolo_ans": "ANSPROTO-1", "retry_attempt": 1}, dmn=fake_2)
+    assert second["retry_attempt"] == 2
+    assert fake_2.calls == [("ans_retry_policy", {"retry_attempt": 2})]
 
 
 def test_publish_completed_entry_round_trips_publish_completed() -> None:
