@@ -2,12 +2,12 @@
 Class A row A2).
 
 Every agent graph starts its own downstream BPMN process through the IDENTICAL chokepoint —
-`start_process_idempotent` (`maezo.tools.mcp_cibseven.transport:560`) — never
+`start_process_idempotent` (`maezo.tools.mcp_cibseven.transport.py:1052` — its `def`) — never
 `start_process_instance` directly (module docstring: "the SINGLE agent-side effect chokepoint").
 Grepping every `start_process_idempotent(` call site under `src/maezo/agents/` gives the full
 enumeration this suite proves a representative-and-complete matrix against:
 
-    rafael      -> SP-OP-AUTH-001          (agents/rafael/graph.py:493)
+    rafael      -> SP-OP-AUTH-001          (agents/rafael/graph.py:509)
     helena      -> SP-OP-ESCALATION-001    (agents/helena/graph.py:673)
     lucas       -> SP-OP-ESCALATION-001    (agents/lucas/graph.py:639 — SAME process/key format
                                              as helena; see the format-parity test below)
@@ -18,7 +18,7 @@ enumeration this suite proves a representative-and-complete matrix against:
     marina      -> SP-OP-RECURSO-001       (agents/marina/graph.py:704, flow=recurso)
     andre       -> SP-OP-PAGTO-001         (agents/andre/graph.py:986, flow=pagto_dossier)
     carolina    -> SP-OP-CRED-001          (agents/carolina/graph.py:626)
-    fernando    -> SP-OP-INADIMPLENCIA-001 (agents/fernando/graph.py:548 — the agent's OWN
+    fernando    -> SP-OP-INADIMPLENCIA-001 (agents/fernando/graph.py:560 — the agent's OWN
                                              submission start; DISTINCT from A1's
                                              inadimplencia-WORKER handoff into CANCEL-001)
 

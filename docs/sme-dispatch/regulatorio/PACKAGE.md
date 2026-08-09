@@ -93,9 +93,13 @@ doesn't replace it.
      "qualidade", and NIP is event-driven, not a periodic timer). For each, state the correct
      in-force norm and cadence, or confirm the timer should be dropped.
   2. **Confirm the competência-derivation mapping** (for the surviving timers): the implemented
-     rule (`_ans_cron_competencia`) assumes the calendar period (month/quarter) **immediately
-     prior** to the anchor month — is that the correct regulatory mapping, or should it be the
-     period containing the anchor?
+     rule (`_ans_cron_competencia`) assumes the calendar period (month/quarter/**year**, per
+     periodicidade) **immediately prior** to the anchor month — is that the correct regulatory
+     mapping, or should it be the period containing the anchor? **Annual case (P12M —
+     `QUALIFICACAO`/`RN_388_QUALIDADE`, contingent on it surviving Q1's re-derivation above):**
+     the prior calendar year is represented `"YYYY-01"` (not bare `"YYYY"`), for format-
+     consistency with the monthly/quarterly `"YYYY-MM"` competências (`ans_cron.py`'s
+     `_compute_competencia`) — confirm this representation is acceptable, or state the correct one.
   3. Confirm this scheduler requires no ANS filing of its own (it only dispatches surviving
      obligations to SP-OP-ANS-SUBMIT-001, which carries the actual HITL pre-filing gate).
 

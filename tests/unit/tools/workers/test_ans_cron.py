@@ -138,17 +138,19 @@ def test_compute_competencia_p3m_table(month: int, expected_p1m: str, expected_p
 @pytest.mark.parametrize("month", [m for m, _, _ in _COMPETENCIA_TABLE])
 def test_compute_competencia_p12m_table_is_always_the_prior_calendar_year(month: int) -> None:
     """P12M (annual) REGRESSION PIN: every month of the year resolves to the previous calendar
-    YEAR, "YYYY" — never a month within it. Pre-fix, P12M had no dedicated branch and fell
-    through to the P1M (monthly) logic, so QUALIFICACAO got the previous MONTH instead of the
-    previous YEAR — wrong period unit entirely, every month of the year."""
-    assert _compute_competencia(f"2026-{month:02d}-15", "P12M") == "2025"
+    YEAR, represented "YYYY-01" — shape-consistent with the "YYYY-MM" of P1M/P3M, never a bare
+    "YYYY" (see ans_cron.py's `_compute_competencia` P12M branch for the shape-consistency
+    rationale) — and never a month WITHIN that year. Pre-fix, P12M had no dedicated branch and
+    fell through to the P1M (monthly) logic, so QUALIFICACAO got the previous MONTH instead of
+    the previous YEAR — wrong period unit entirely, every month of the year."""
+    assert _compute_competencia(f"2026-{month:02d}-15", "P12M") == "2025-01"
 
 
 def test_compute_competencia_p12m_year_boundary() -> None:
     """The P12M year rollback is unconditional on month — pinned explicitly at both ends of the
     year (January and December of the same reference year still both resolve to year-1)."""
-    assert _compute_competencia("2026-01-01", "P12M") == "2025"
-    assert _compute_competencia("2026-12-31", "P12M") == "2025"
+    assert _compute_competencia("2026-01-01", "P12M") == "2025-01"
+    assert _compute_competencia("2026-12-31", "P12M") == "2025-01"
 
 
 def test_compute_competencia_unmapped_periodicidade_defaults_to_monthly() -> None:

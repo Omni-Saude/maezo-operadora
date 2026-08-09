@@ -332,9 +332,10 @@ class DuplicateManifestKeyError(yaml.YAMLError):
     """A mapping key is declared twice in the manifest."""
 
 
-#: The tag PyYAML's resolver gives a plain `<<` key (`Resolver.add_implicit_resolver`) — the ONE
-#: signal that distinguishes "this manifest used a YAML merge key" from any other unsupported-tag
-#: `ConstructorError` (see `_RefusingDuplicatesLoader`'s docstring and `_parse`'s dedicated catch).
+#: The tag PyYAML's resolver gives a plain `<<` key (`Resolver.add_implicit_resolver`), tested
+#: below as a SUBSTRING of `exc.problem` to tell a merge-related `ConstructorError` apart from any
+#: other unsupported-tag one (see `_RefusingDuplicatesLoader`'s docstring and `_parse`'s dedicated
+#: catch) — narrowed by tag substring, not proven exclusive to a genuine `<<` key.
 _MERGE_KEY_TAG: Final[str] = "tag:yaml.org,2002:merge"
 
 
@@ -363,6 +364,14 @@ class _RefusingDuplicatesLoader(yaml.SafeLoader):
     refusing (rather than teaching this loader to special-case `<<`) keeps the duplicate-key guard
     simple and keeps a manifest author from combining the two features in a way nobody has
     reviewed the interaction of.
+
+    DISCRIMINATOR PRECISION (V3 GK REVISE): `_parse`'s catch tells this case apart from any other
+    unsupported-tag `ConstructorError` by a SUBSTRING test on `exc.problem` (`_MERGE_KEY_TAG in
+    exc.problem`) — narrowed by tag substring, not proven exclusive to `<<`. A value explicitly
+    tagged `!!merge` (never used as a `<<` key) carries the identical tag and so ALSO reports
+    `merge_key_unsupported`. Fail-closed identical in both cases, so nothing observable regresses
+    — a documentation-precision gap (the "distinguishes a merge key" framing overstated it), not a
+    behavioral one; pinned by a dedicated collision test in test_action_execution_gateway.py.
     """
 
     def construct_mapping(self, node: MappingNode, deep: bool = False) -> dict[Any, Any]:

@@ -258,10 +258,21 @@ linha `ACAO_NAO_MAPEADA` por dispatch, contra tráfego real. **Essa é a lista d
     que tente usar âncoras no manifesto receba uma mensagem honesta ("inline os valores") em vez de
     caçar um erro de sintaxe que não existe. Comportamento fail-closed **inalterado**: `<<` continua
     recusado, `_EMPTY_APPROVALS` continua o resultado; só o token de razão na linha de log
-    `action_approvals_manifest_unavailable` ficou preciso. Ampliar o loader para de fato RESOLVER
-    `<<` continua fora de escopo desta correção — mesma postura da nota de SCOPE na docstring de
-    `_RefusingDuplicatesLoader` (a classe de achado do `auth_criteria` também não foi estendida
-    aqui).
+    `action_approvals_manifest_unavailable` ficou mais específico. Ampliar o loader para de fato
+    RESOLVER `<<` continua fora de escopo desta correção — mesma postura da nota de SCOPE na
+    docstring de `_RefusingDuplicatesLoader` (a classe de achado do `auth_criteria` também não foi
+    estendida aqui).
+    **Precisão do discriminador (V3 GK REVISE):** o corte (`_parse`, `gateway/action_execution.py:406`)
+    é um teste de SUBSTRING sobre `exc.problem` (`_MERGE_KEY_TAG in exc.problem`) — narrowed by tag
+    substring, não comprovadamente exclusivo do uso de `<<`. Um valor explicitamente marcado
+    `!!merge` (nunca usado como chave `<<`, logo nunca um merge de fato) carrega a MESMA tag
+    `tag:yaml.org,2002:merge` e também recebe `merge_key_unsupported` — an explicitly merge-tagged
+    value also reports this reason; fail-closed identical in both cases (nada observável regride:
+    `degraded`/`unresolved`/nada aprovado nos dois casos). Isto é lacuna de PRECISÃO DOCUMENTAL (a
+    afirmação anterior de que o token "ficou preciso" superestimava o corte), não comportamental —
+    fixado em teste dedicado (`test_a_merge_tagged_value_also_gets_merge_key_unsupported`,
+    `tests/unit/gateway/test_action_execution_gateway.py`), documentando a colisão, não a
+    corrigindo.
 
 ---
 

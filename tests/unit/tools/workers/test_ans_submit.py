@@ -845,8 +845,9 @@ def test_ans_business_key_returns_stripped_explicit_key() -> None:
     assert _ans_business_key({"business_key": "\tANSSUB-amh-SIP-2026-06\n"}) == "ANSSUB-amh-SIP-2026-06"
     # unpadded key is unaffected (idempotent strip)
     assert _ans_business_key({"business_key": "ANSSUB-amh-SIP-2026-06"}) == "ANSSUB-amh-SIP-2026-06"
-    # whitespace-only key reads as ABSENT (same as pre-fix) -> reconstructed from parts, also
-    # already-stripped by construction
+    # whitespace-only key reads as ABSENT (same as pre-fix) -> reconstructed from parts. The
+    # parts here are already clean, so this alone does not prove the reconstruct branch strips
+    # them too — see test_ans_business_key_strips_reconstructed_parts below for that.
     whitespace_only = {
         "business_key": "   ",
         "tenant_id": "amh",
@@ -854,6 +855,26 @@ def test_ans_business_key_returns_stripped_explicit_key() -> None:
         "competencia": "2026-06",
     }
     assert _ans_business_key(whitespace_only) == "ANSSUB-amh-SIP-2026-06"
+
+
+def test_ans_business_key_strips_reconstructed_parts() -> None:
+    """`_ans_business_key`'s reconstruct branch (no usable explicit `business_key`) strips EACH
+    part (`tenant_id`/`report_type`/`competencia`) individually before joining them — mirrors the
+    explicit-key `.strip()` above so the two paths are equally immune to whitespace padding.
+
+    Pre-fix, the reconstruct branch built the key from unstripped parts: a padded `tenant_id`
+    of `"  amh  "` etc. produced the interior-whitespace key `"ANSSUB-  amh  - SIP - 2026-06 "`
+    instead of the clean `"ANSSUB-amh-SIP-2026-06"` — a DIFFERENT string than the same logical
+    identity's clean form, silently breaking the retransmit idempotency this function's docstring
+    promises (same hazard the explicit-key `.strip()` fix above already closed for that path).
+    """
+    padded_parts = {
+        "business_key": "",
+        "tenant_id": "  amh  ",
+        "report_type": " SIP ",
+        "competencia": " 2026-06 ",
+    }
+    assert _ans_business_key(padded_parts) == "ANSSUB-amh-SIP-2026-06"
 
 
 def test_submit_entry_retransmit_key_stability_with_padded_engine_key() -> None:

@@ -44,7 +44,9 @@ def _compute_competencia(reference_date_iso: str, periodicidade: str) -> str:
       - P3M (quarterly): the most recently CLOSED quarter's start month, "YYYY-MM" — e.g. a
         reference date anywhere in Apr/May/Jun (all of Q2, still open) resolves to the SAME
         "YYYY-01" (Q1, the quarter that already ended), never "YYYY-04" (Q2 itself).
-      - P12M (annual):   the previous calendar year in full, "YYYY" — never a month within it.
+      - P12M (annual):   the previous calendar year in full, represented "YYYY-01" — shape-
+        consistent with the "YYYY-MM" of the branches above (never bare "YYYY"; see the branch
+        below for why).
       - anything else:   treated as P1M (pre-existing default for an unmapped periodicidade).
 
     DRAFT/verify regulatorio: mapeamento confirmado com ANS.
@@ -58,7 +60,17 @@ def _compute_competencia(reference_date_iso: str, periodicidade: str) -> str:
         # Annual: the previous calendar year, in full. Pre-fix this fell through to the monthly
         # branch below and returned the previous MONTH for an annual report — wrong period unit
         # entirely, not merely off by a quarter.
-        return f"{ref_date.year - 1:04d}"
+        #
+        # Representation: "YYYY-01" (4-digit year + literal "-01"), NOT bare "YYYY". Chosen for
+        # SHAPE-CONSISTENCY with the P1M/P3M "YYYY-MM" above — this value flows unvalidated into
+        # the ANSSUB-{tenant}-{report_type}-{competencia} business key (ans_submit.py's
+        # `_ans_business_key`, notification_bridge.py's `_ans_cron_business_key`) alongside every
+        # other report_type's "YYYY-MM" competencia; a bare 4-char value would be the one outlier
+        # shape in that key, with no format-normalizing consumer between here and the key string. No
+        # in-repo convention was found expecting bare-year (grepped competencia format usages and
+        # ANSSUB key tests). Still DRAFT/verify regulatorio like the mapping itself — see
+        # docs/review-queue.md and docs/sme-dispatch/regulatorio/PACKAGE.md (annual/P12M case).
+        return f"{ref_date.year - 1:04d}-01"
 
     if periodicidade == "P3M":
         # Quarterly: the most recently CLOSED quarter — computed the SAME way regardless of

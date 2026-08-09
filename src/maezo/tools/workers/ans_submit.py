@@ -740,9 +740,9 @@ def _ans_business_key(variables: dict[str, Any]) -> str:
     bk = variables.get("business_key")
     if isinstance(bk, str) and bk.strip():
         return bk.strip()
-    tenant_id = str(variables.get("tenant_id", ""))
-    report_type = str(variables.get("report_type", ""))
-    competencia = str(variables.get("competencia", ""))
+    tenant_id = str(variables.get("tenant_id", "")).strip()
+    report_type = str(variables.get("report_type", "")).strip()
+    competencia = str(variables.get("competencia", "")).strip()
     return f"ANSSUB-{tenant_id}-{report_type}-{competencia}"
 
 
