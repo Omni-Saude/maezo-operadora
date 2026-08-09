@@ -18,3 +18,16 @@
 # automatica possivel. Antes desta linha o proprio manifesto os descrevia como "CODEOWNERS-gated",
 # o que era FALSO (GK-criteria finding 1).
 /spec/policies/autonomy/  @rodrigotaquino @Omni-Saude/security
+
+# RN 259 / adequacao_gap — a correcao da tabela conhecida-errada (PLANS.md:150-159 §0.5.4 item 1:
+# `hitPolicy=FIRST` com `r_eletivo_leve` antes de `r_conforme`, e `r_conforme` SEM teto algum de
+# tempo/distancia, logo um acesso eletivo arbitrariamente ruim le CONFORME). Sao os DOIS arquivos
+# do unico ato humano de ativacao, e ambos precisam do revisor regulatorio/compliance:
+#   - o manifesto candidato: ratifica-lo e uma mudanca de DADOS, sem codigo e sem redeploy — e
+#     exatamente por isso os dados precisam do revisor que o caminho de codigo teria tido;
+#   - a TABELA VIVA: per ADR-0028 (docs/adr/0028-...:214-216) "a DMN vence; se a propria DMN esta
+#     errada, corrige-se em spec" — a edicao da tabela e o ato do DONO REGULATORIO, nunca da
+#     engenharia. Antes destas duas linhas, `/spec/processes/dmn/` so era coberto para
+#     `auth-criteria-ratification.yaml`.
+/spec/processes/dmn/adequacao-gap-shadow-candidate.yaml  @rodrigotaquino @Omni-Saude/security
+/spec/processes/dmn/adequacao_gap.dmn                    @rodrigotaquino @Omni-Saude/security

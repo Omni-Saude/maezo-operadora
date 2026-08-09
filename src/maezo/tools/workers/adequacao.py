@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from maezo.tools.workers.adequacao_shadow import record_shadow_divergence
 from maezo.tools.workers.base import FunctionWorker, non_blank
 from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row, require_dmn
 
@@ -138,6 +139,48 @@ _ELETIVO_LEVE_DISTANCIA_MAX_KM = 50.0
 _MOTIVO_CONFORME_RECUSADO = "CONFORME_RECUSADO_ACESSO_ACIMA_DO_TETO_LEVE"
 
 
+def _record_gap_shadow(
+    *,
+    gap_adequacao: str,
+    tempo: int,
+    distancia: float,
+    prestadores: int,
+    cobertura: bool,
+    tipo_carater: str,
+) -> None:
+    """SHADOW SEAM — observation only, structurally incapable of changing anything here.
+
+    Records what the CANDIDATE rule set (`spec/processes/dmn/adequacao-gap-shadow-candidate.yaml`,
+    the correction the REGULATORY OWNER must ratify and apply — PLANS.md:150-159) WOULD have
+    verdicted, when that diverges from the live DMN verdict. Same idea as
+    `auth.ValidateAutoApprovalCriteria`'s `auto_criteria_shadow`: the reviewer ratifies against real
+    outcome data instead of reviewing rules in the abstract.
+
+    THREE INDEPENDENT REASONS THIS CANNOT INFLUENCE THE VERDICT OR THE ROUTE, so that a regression
+    has to defeat all three:
+      1. it returns `None`, and the caller never binds its result to anything;
+      2. it writes no engine variable — `route_remediation`'s returned dict is assembled without
+         reference to it;
+      3. EVERY exception is swallowed here, so even a broken evaluator degrades to a log line.
+    Pinned by `test_adequacao_shadow.py` (neutralised/raising/absent evaluator -> identical
+    outcomes across a behaviour matrix).
+
+    NEVER a correction of the table: per ADR-0028 (docs/adr/0028-dmn-evaluation-engine-side.md:
+    214-216) the DMN wins and engineering never patches it back.
+    """
+    try:
+        record_shadow_divergence(
+            gap_adequacao_dmn=gap_adequacao,
+            tipo_carater=tipo_carater,
+            tempo_acesso_apurado_min=tempo,
+            distancia_apurada_km=distancia,
+            prestadores_disponiveis=prestadores,
+            cobertura_geo_suficiente=cobertura,
+        )
+    except Exception as exc:  # noqa: BLE001 — reason 3 above: shadow never disturbs the worker.
+        logger.warning("adequacao_gap_shadow_falhou", error=str(exc))
+
+
 def route_remediation(variables: dict[str, Any], *, dmn: DmnTransport | None = None) -> dict[str, Any]:
     """Classify gap severity and route remediation — NEVER commits to fallback.
 
@@ -199,6 +242,19 @@ def route_remediation(variables: dict[str, Any], *, dmn: DmnTransport | None = N
     route_row = first_row(route_rows, "adequacao_remediation_routing", variables)
     roteamento = str(route_row.get("roteamento_remediacao", "ANALISE_HUMANA"))
     route_motivo = str(route_row.get("motivo", motivo))
+
+    # SHADOW (observation only — see `_record_gap_shadow`): what the CANDIDATE rule set
+    # (spec/processes/dmn/adequacao-gap-shadow-candidate.yaml) would have verdicted. Returns None,
+    # binds nothing, writes no engine variable, swallows every exception. Placed HERE so it observes
+    # the DMN's own verdict, before the fail-safe below touches the routing.
+    _record_gap_shadow(
+        gap_adequacao=gap_adequacao,
+        tempo=int(tempo),
+        distancia=float(distancia),
+        prestadores=int(prestadores),
+        cobertura=bool(cobertura),
+        tipo_carater=tipo_carater,
+    )
 
     # FAIL-SAFE (GAP-ADEQ-INVERSAO): a tabela deployada tem `r_conforme` SEM teto de
     # tempo/distancia, colocado DEPOIS de `r_eletivo_leve` sob hitPolicy=FIRST — logo um acesso

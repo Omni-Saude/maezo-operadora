@@ -68,6 +68,14 @@ _INFRA_MODULES: frozenset[str] = frozenset(
         # `ceilings` above — a local, deterministic YAML policy loader with no engine client, no
         # PHI and no worker registration; consumed by `auth.ValidateAutoCriteriaWorker` only.
         "auth_criteria",
+        # RN 259 `adequacao_gap` CANDIDATE shadow: the ratification-manifest loader
+        # (`spec/processes/dmn/adequacao-gap-shadow-candidate.yaml`) + the pure evaluation of the
+        # candidate rule set. Structurally identical to `auth_criteria` directly above — a local,
+        # deterministic YAML loader with no engine client, no PHI and no worker registration;
+        # consumed by `adequacao.route_remediation` only, and there ONLY as an observation seam
+        # that returns None and cannot influence the verdict or the routing
+        # (`adequacao._record_gap_shadow`; proved by test_adequacao_shadow.py section 6).
+        "adequacao_shadow",
         "phi_vars",  # one-way PHI redaction helper
         "_audit_ctx",  # per-task DMN-version collector (T-B)
         # T-D (merged in the T1.10 wave alongside this arch-test): the fresh-client-per-call
