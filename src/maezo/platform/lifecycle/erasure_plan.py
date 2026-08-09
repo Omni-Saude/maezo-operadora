@@ -841,9 +841,14 @@ def _probe(
     # Runtime belt-and-suspenders, alongside the static AST guard in test_lifecycle.py: even a
     # `PersistenceLayer` built outside `PERSISTENCE_LAYERS` (the `_layers` override seam exists
     # for exactly this in tests) cannot reach the counter with anything but a count probe.
-    assert layer.count_statement.startswith("SELECT count(*)"), (
-        f"refusing to execute a non-SELECT-count statement for {layer.tabela!r}: {layer.count_statement!r}"
-    )
+    # An explicit `if/raise` on purpose, NOT `assert`: `assert` is stripped under `python -O`
+    # (`__debug__` becomes False), which would silently defeat this exact guard in the highest-
+    # risk scenario — GK N-1.
+    if not layer.count_statement.startswith("SELECT count(*)"):
+        raise ValueError(
+            f"refusing to execute a non-SELECT-count statement for {layer.tabela!r}: "
+            f"{layer.count_statement!r}"
+        )
     params: Mapping[str, str] = {"tenant_id": tenant_id, "subject_ref": subject_ref}
     try:
         count = counter(layer.count_statement, params)

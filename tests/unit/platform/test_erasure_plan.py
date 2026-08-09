@@ -324,6 +324,10 @@ def test_a_non_select_count_statement_is_refused_at_probe_time() -> None:
     """Runtime belt-and-suspenders alongside the static AST guard in test_lifecycle.py: even
     a `PersistenceLayer` built outside `PERSISTENCE_LAYERS` — the `_layers` override seam
     exists for exactly this — cannot reach the counter with a non-count statement.
+
+    An explicit `ValueError`, not `AssertionError` — GK N-1: `assert` is stripped under
+    `python -O`, which would silently defeat this exact guard in the highest-risk scenario.
+    See `test_the_probe_guard_survives_python_dash_o_optimize` below for the `-O` proof.
     """
     poisoned = ep.PersistenceLayer(
         camada="trabalho",
@@ -341,7 +345,7 @@ def test_a_non_select_count_statement_is_refused_at_probe_time() -> None:
         calls.append(statement)
         return 1
 
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError, match="non-SELECT-count statement"):
         ep.dry_run(
             subject_ref=_SENTINEL_REF,
             subject_ref_kind=ep.SubjectRefKind.FHIR_PATIENT_ID,
@@ -350,6 +354,48 @@ def test_a_non_select_count_statement_is_refused_at_probe_time() -> None:
             _layers=[poisoned],
         )
     assert calls == [], "the poisoned statement must never reach the counter"
+
+
+def test_the_probe_guard_survives_python_dash_o_optimize() -> None:
+    """GK N-1, direct proof: under `python -O` (`__debug__ = False`, all `assert` statements
+    compiled to no-ops), the poisoned-statement guard must still fire. Run as a subprocess
+    with `-O` rather than monkeypatching `__debug__` (which cannot be changed at runtime) —
+    this is the only way to actually exercise the optimize flag.
+    """
+    script = (
+        "from maezo.platform.lifecycle import erasure_plan as ep\n"
+        "assert __debug__ is False, 'this proof requires -O'\n"
+        "poisoned = ep.PersistenceLayer(\n"
+        "    camada='trabalho', tabela='agent_memory', migracao='test-only',\n"
+        "    identificacao='test-only', resolucao=ep.IdentityResolution.PONTE_AUSENTE,\n"
+        "    ordem=1, subject_column='fhir_patient_id',\n"
+        "    count_statement='DELETE FROM agent_memory WHERE fhir_patient_id = :subject_ref',\n"
+        ")\n"
+        "calls = []\n"
+        "try:\n"
+        "    ep.dry_run(\n"
+        "        subject_ref='pat-sentinel-must-not-leak-0001',\n"
+        "        subject_ref_kind=ep.SubjectRefKind.FHIR_PATIENT_ID,\n"
+        "        tenant_id='t1',\n"
+        "        counter=lambda statement, params: calls.append(statement) or 1,\n"
+        "        _layers=[poisoned],\n"
+        "    )\n"
+        "except ValueError as exc:\n"
+        "    assert 'non-SELECT-count statement' in str(exc)\n"
+        "    assert calls == [], 'poisoned statement reached the counter under -O'\n"
+        "    print('GUARD_SURVIVED_-O')\n"
+        "else:\n"
+        "    raise SystemExit('GUARD DID NOT FIRE UNDER -O — regressed to assert-strippable')\n"
+    )
+    result = subprocess.run(  # noqa: S603 — fixed argv, no shell
+        [sys.executable, "-O", "-c", script],
+        cwd=str(_REPO_ROOT),
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, f"stdout={result.stdout!r} stderr={result.stderr!r}"
+    assert "GUARD_SURVIVED_-O" in result.stdout
 
 
 def test_the_layers_override_seam_still_works_for_a_well_formed_layer() -> None:
@@ -532,12 +578,17 @@ def test_artifact_and_code_enumerate_the_same_relations() -> None:
 
 
 # F-4: broadened past the exact literal "CREATE TABLE IF NOT EXISTS " — case-insensitive,
-# "IF NOT EXISTS" optional, identifier optionally double-quoted — PLUS a second, independent
-# pass for Alembic's own `op.create_table("name", ...)` API. Every migration today uses raw
-# SQL via `op.execute(...)`, so the second pass is currently vacuous on THIS chain, but a
-# future migration reaching for the ORM-level API must not go unseen by this scan.
+# "IF NOT EXISTS" optional, identifier optionally double-quoted, an optional table-type
+# modifier (UNLOGGED / TEMP[ORARY] / GLOBAL TEMP / LOCAL TEMP) and an optional schema
+# qualifier (`schema.table`, capturing only the table component) — PLUS a second,
+# independent pass for Alembic's own `op.create_table("name", ...)` API. Every migration
+# today uses plain `CREATE TABLE IF NOT EXISTS` via raw SQL (`op.execute(...)`), so both
+# the modifier/schema branches and the `op.create_table` pass are currently vacuous on
+# THIS chain, but neither shape may go unseen by this scan once a future migration reaches
+# for them.
 _CREATE_TABLE_SQL_RE = re.compile(
-    r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[\"']?(\w+)[\"']?",
+    r"CREATE\s+(?:(?:UNLOGGED|TEMP(?:ORARY)?|GLOBAL|LOCAL)\s+)*TABLE\s+"
+    r"(?:IF\s+NOT\s+EXISTS\s+)?(?:[\"']?\w+[\"']?\.)?[\"']?(\w+)",
     re.IGNORECASE,
 )
 _OP_CREATE_TABLE_RE = re.compile(r"op\.create_table\(\s*[\"'](\w+)[\"']")
@@ -590,6 +641,70 @@ def test_the_create_table_scan_catches_case_and_quoting_variants(tmp_path: Path)
     text = scratch.read_text("utf-8")
     found = set(_CREATE_TABLE_SQL_RE.findall(text)) | set(_OP_CREATE_TABLE_RE.findall(text))
     assert found == {"another_future_relation"}
+
+
+@pytest.mark.parametrize(
+    ("label", "sql", "expected_table"),
+    [
+        ("UNLOGGED", "CREATE UNLOGGED TABLE fast_scratch (id uuid primary key);", "fast_scratch"),
+        ("TEMP", "CREATE TEMP TABLE session_cache (id uuid primary key);", "session_cache"),
+        (
+            "TEMPORARY + IF NOT EXISTS",
+            "CREATE TEMPORARY TABLE IF NOT EXISTS session_cache_2 (id uuid primary key);",
+            "session_cache_2",
+        ),
+        ("GLOBAL TEMP", "CREATE GLOBAL TEMP TABLE gt_relation (id uuid primary key);", "gt_relation"),
+        ("LOCAL TEMP", "CREATE LOCAL TEMP TABLE lt_relation (id uuid primary key);", "lt_relation"),
+        (
+            "schema-qualified",
+            "CREATE TABLE IF NOT EXISTS public.schema_qualified_relation (id uuid primary key);",
+            "schema_qualified_relation",
+        ),
+        (
+            "schema-qualified + quoted",
+            'CREATE TABLE "public"."quoted_schema_qualified" (id uuid primary key);',
+            "quoted_schema_qualified",
+        ),
+    ],
+)
+def test_the_create_table_scan_catches_table_modifiers_and_schema_qualification(
+    tmp_path: Path, label: str, sql: str, expected_table: str
+) -> None:
+    """Negative control, on a SCRATCH file per shape: PostgreSQL table-type modifiers
+    (UNLOGGED / TEMP[ORARY] / GLOBAL TEMP / LOCAL TEMP) and a schema-qualified identifier
+    (`schema.table`, capturing only the table component) must all still be found — none of
+    these shapes matched the prior (already-broadened) pattern.
+    """
+    scratch = tmp_path / f"0097_{label.replace(' ', '_').replace('+', 'and')}.py"
+    scratch.write_text(f'op.execute("""\n    {sql}\n""")\n', encoding="utf-8")
+    text = scratch.read_text("utf-8")
+    found = set(_CREATE_TABLE_SQL_RE.findall(text)) | set(_OP_CREATE_TABLE_RE.findall(text))
+    assert found == {expected_table}
+
+
+# The pre-widening pattern (plain "CREATE TABLE [IF NOT EXISTS] identifier", no modifier or
+# schema-qualification branches), kept ONLY as a regression baseline for the test below.
+_PRE_WIDENING_CREATE_TABLE_SQL_RE = re.compile(
+    r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[\"']?(\w+)[\"']?",
+    re.IGNORECASE,
+)
+
+
+def test_the_broadened_regex_still_matches_every_real_migration_table_unchanged() -> None:
+    """Regression guard for the F-4 optional widening (GK N-1 follow-up): the new pattern's
+    extra branches (modifiers, schema-qualification) must add and remove NOTHING on the REAL
+    migration chain versus the narrower pre-widening pattern — only new, previously-unseen
+    shapes (proven by the parametrized scratch tests above) should ever light up the new
+    branches.
+    """
+    widened: set[str] = set()
+    baseline: set[str] = set()
+    for source in sorted(_MIGRATIONS.glob("0*.py")):
+        text = source.read_text("utf-8")
+        widened.update(_CREATE_TABLE_SQL_RE.findall(text))
+        baseline.update(_PRE_WIDENING_CREATE_TABLE_SQL_RE.findall(text))
+    assert widened, "non-vacuity: the scan must find tables"
+    assert widened == baseline
 
 
 def test_each_enumerated_relation_cites_its_source() -> None:
