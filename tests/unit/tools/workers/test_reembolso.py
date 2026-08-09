@@ -310,6 +310,35 @@ def test_calculate_value_within_ceiling_when_configured(tmp_path: Path) -> None:
     assert calculate_value(at_boundary, resolver=above_resolver).dentro_teto_l2 is False
 
 
+def test_calculate_value_sem_tabela_with_positive_ceiling_is_vacuously_within(tmp_path: Path) -> None:
+    """SEM_TABELA feeds the ceiling check a reference value of 0 — vacuously within ANY positive ceiling.
+
+    `dentro_teto_l2` compares the reference-TABLE value against the tenant ceiling
+    (`within_l2_ceiling`, ceilings.py). For SEM_TABELA that reference value is 0 by
+    construction (no table row), so `0 <= ceiling_brl * 100` is True for any positive
+    ceiling — `dentro_teto_l2=True`. This does NOT change routing: the DMN's ONLY
+    AUTO_APROVAR rule (`r_auto`, `spec/processes/dmn/reembolso_coverage.dmn:122-123,133-136`)
+    requires `dentro_tabela=true` too, and SEM_TABELA FORCES `dentro_tabela=False` — so the
+    request still falls through to ANALISE_HUMANA. Anticipated by
+    `docs/design/T1.9-ceiling-enforcement.md:219-222`.
+    """
+    resolver = _pin_resolver(tmp_path, max_value_brl=350)
+    inp = ReembolsoInput(
+        tenant_id="amh",
+        protocolo_reembolso="REEMB-M2-SEMTABELA-CEILING",
+        codigo_procedimento_tuss="10101012",
+        categoria_procedimento="categoria_que_nao_existe",
+        tipo_reembolso="livre_escolha",
+        valor_solicitado_cents=999999,
+    )
+
+    calculo = calculate_value(inp, resolver=resolver)
+    assert calculo.fonte_tabela == "SEM_TABELA"
+    assert calculo.valor_calculado_tabela_cents == 0
+    assert calculo.dentro_tabela is False
+    assert calculo.dentro_teto_l2 is True  # vacuous — gated shut by dentro_tabela=False above
+
+
 # ---------------------------------------------------------------------------
 # calculate_value — M-2: money + audit-trail honesty
 #
@@ -535,7 +564,7 @@ def test_calculate_value_known_categoria_behaviour_is_unchanged() -> None:
     """REGRESSION PIN: the valid, known-categoria path computes exactly what it did pre-fix.
 
     The M-2 fix must be invisible to a well-formed request. These are the pre-fix values of the
-    three original tests (`test_calculate_value_consulta`, `..._dentro_tabela`, `..._fora_tabela`,
+    four original tests (`test_calculate_value_consulta`, `..._dentro_tabela`, `..._fora_tabela`,
     `..._urgencia_multiplier`), asserted here together so a future change to the lookup cannot
     quietly move money on the legitimate path.
     """

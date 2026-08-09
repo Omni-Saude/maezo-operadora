@@ -50,6 +50,8 @@ _CEILING_PARAM = "max_value_brl"
 # situation. The previous `"TUSS-REFERENCIA"` matched nothing anywhere in the repo (it was
 # this module's only occurrence) AND was written unconditionally, including over values the
 # TUSS table never produced.
+#: NEW token, worker-side generalisation of the DMN's per-categoria family (`TABELA_REFERENCIA_CONSULTA`
+#: / `_EXAME` / `_TERAPIA` — `reembolso_calculo.dmn:46,54,62,70`); the DMN ships no generic hit token.
 _FONTE_TABELA_REFERENCIA = "TABELA_REFERENCIA"
 #: Table value ADJUSTED by `_MULTIPLO_ACESSO` — a distinct token because the resulting
 #: amount is NOT a value the reference table contains.
@@ -346,7 +348,10 @@ def calculate_value(
     (``reembolso_auto_approval.max_value_brl``) via the CeilingResolver — the inbound
     ``input_data.dentro_teto_l2`` is NEVER read on this path (design T1.9 §2.3, defect B3).
     ``resolver`` is injectable for tests; the default resolves the ceiling from the real
-    ``spec/policies/autonomy`` matrix.
+    ``spec/policies/autonomy`` matrix. With ``SEM_TABELA`` the reference value fed to the
+    ceiling check is 0, so under a positive ceiling ``dentro_teto_l2`` reads True — that
+    ceiling fact is VACUOUS for this case and is gated shut by ``dentro_tabela=False``
+    (the DMN's ``reembolso_auto_approval`` AUTO_APROVAR rule requires both true).
 
     HONEST PROVENANCE (defect M-2). The three facts this function writes into the ADR-0007
     audit chain — ``dentro_tabela``, ``multiplo_tabela_aplicado``, ``fonte_tabela`` — now
