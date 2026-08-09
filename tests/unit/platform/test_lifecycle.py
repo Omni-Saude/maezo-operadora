@@ -21,6 +21,7 @@ These tests assert:
 from __future__ import annotations
 
 import ast
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -319,6 +320,25 @@ def test_all_known_subcommands_refuse() -> None:
 
 _FORBIDDEN_SYMBOLS = frozenset({"retention_query", "RetentionManager"})
 
+# F-2: the ORIGINAL guard matched only the literal substring "DELETE " (trailing space). That
+# missed: any OTHER destructive verb (UPDATE/INSERT/DROP/TRUNCATE/ALTER — including the
+# packet's own §4.1 `ANONIMIZAR` shape, which is an UPDATE, not a DELETE); "DELETE" followed
+# by anything other than a space (a newline in a multi-line string, e.g. "DELETE\nFROM x");
+# and it never had a chance against "DELETE" split across `+`-concatenated literals in the
+# first place, since it only ever tested ONE Constant node at a time. Word-boundary regex
+# fixes the first two; `_erasure_plan_statement_shape_offenses` below (a POSITIVE allowlist,
+# not a blocklist, and the only one of the two that folds `+`-concatenation) fixes the third.
+_DESTRUCTIVE_VERBS = ("DELETE", "UPDATE", "INSERT", "DROP", "TRUNCATE", "ALTER")
+_DESTRUCTIVE_VERB_RE = re.compile(r"\b(?:" + "|".join(_DESTRUCTIVE_VERBS) + r")\b")
+
+# F-2, second layer: scoped to erasure_plan.py specifically (where the real SELECT count(*)
+# probes are authored). Any string that LOOKS like the opening of a SQL statement must be
+# EXACTLY a `SELECT count(*)` probe. "Looks like" is deliberately checked against the FOLDED
+# value of `+`-joined string literals too (see `_fold_str_concat`), because a keyword split
+# across concatenated fragments (`"DEL" + "ETE " + "FROM " + tabela`) never spells the verb
+# in any single Constant node — a per-Constant keyword scan, however broad, cannot see it.
+_STATEMENT_SHAPE_RE = re.compile(r"^\s*(?:SELECT|INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE)\b", re.IGNORECASE)
+
 
 def _docstring_nodes(tree: ast.AST) -> set[int]:
     """Return id()s of the Constant nodes that are module/class/function docstrings."""
@@ -353,13 +373,10 @@ def _code_offenses(path: Path) -> list[str]:
             offenses.append(f"name {node.id}")
         elif isinstance(node, ast.Attribute) and node.attr in _FORBIDDEN_SYMBOLS:
             offenses.append(f"attribute .{node.attr}")
-        elif (
-            isinstance(node, ast.Constant)
-            and isinstance(node.value, str)
-            and id(node) not in docstring_ids
-            and "DELETE " in node.value.upper()
-        ):
-            offenses.append("DELETE string literal in code")
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstring_ids:
+            match = _DESTRUCTIVE_VERB_RE.search(node.value.upper())
+            if match is not None:
+                offenses.append(f"destructive verb {match.group()!r} in string literal")
     return offenses
 
 
@@ -367,15 +384,71 @@ def test_lifecycle_module_does_not_reference_destructive_query() -> None:
     """The lifecycle sources must NOT import or call the destructive DELETE path.
 
     Nothing in this module may import `retention`/`RetentionManager`/`retention_query`
-    or build a `DELETE` in code — the refusal must be reachable without ever loading the
-    destructive query. (The docstring is allowed to NAME them to explain the ban.)
+    or build a `DELETE`/`UPDATE`/`INSERT`/`DROP`/`TRUNCATE`/`ALTER` in code — the refusal
+    must be reachable without ever loading the destructive query. (The docstring is allowed
+    to NAME them to explain the ban.)
     """
     for source in sorted(_LIFECYCLE_DIR.glob("*.py")):
         offenses = _code_offenses(source)
         assert offenses == [], (
-            f"{source.relative_to(_REPO_ROOT)} touches the destructive DELETE path in "
+            f"{source.relative_to(_REPO_ROOT)} touches a destructive statement verb in "
             f"code: {offenses} — the refusal entrypoint must never reference it"
         )
+
+
+def _fold_str_concat(node: ast.expr) -> str | None:
+    """Fold a chain of `+`-joined string literals into its compile-time value.
+
+    Returns None for anything that is not provably a string literal or a `+` of two such
+    (recursively) — in particular, `ast.parse` does NOT fold `+`-BinOp string concatenation
+    into a single Constant the way it folds ADJACENT literals ("a" "b"), so a keyword split
+    across `+`-joined fragments survives as separate Constant nodes unless this is done
+    explicitly.
+    """
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left = _fold_str_concat(node.left)
+        right = _fold_str_concat(node.right)
+        if left is not None and right is not None:
+            return left + right
+    return None
+
+
+def _erasure_plan_statement_shape_offenses(path: Path) -> list[str]:
+    """F-2, second layer: every statement-shaped string constant in erasure_plan.py — plain
+    or `+`-concatenated — must start with exactly `SELECT count(*)`. A positive allowlist,
+    not a blocklist, so it does not need to name every destructive verb to be complete.
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    docstring_ids = _docstring_nodes(tree)
+    offenses: list[str] = []
+    for node in ast.walk(tree):
+        candidate: str | None = None
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            if id(node) in docstring_ids:
+                continue
+            candidate = node.value
+        elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+            candidate = _fold_str_concat(node)
+        if candidate is None:
+            continue
+        if _STATEMENT_SHAPE_RE.match(candidate) and not candidate.startswith("SELECT count(*)"):
+            offenses.append(candidate)
+    return offenses
+
+
+def test_erasure_plan_statement_shaped_constants_are_select_count_only() -> None:
+    """Defense in depth, scoped to erasure_plan.py: any string that looks like it OPENS a SQL
+    statement must be exactly a `SELECT count(*)` probe — including a keyword split across
+    `+`-concatenated literals, which the destructive-verb scan above cannot see because no
+    single Constant node in that shape ever spells the verb.
+    """
+    offenses = _erasure_plan_statement_shape_offenses(_LIFECYCLE_DIR / "erasure_plan.py")
+    assert offenses == [], (
+        f"erasure_plan.py contains a statement-shaped string that is not a "
+        f"`SELECT count(*)` probe: {offenses}"
+    )
 
 
 def test_retention_query_has_no_production_caller() -> None:
