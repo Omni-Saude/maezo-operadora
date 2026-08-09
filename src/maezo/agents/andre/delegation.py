@@ -63,6 +63,7 @@ from .graph import (
     _business_key,
     build,
 )
+from .keys import adequacao_business_key, pagto_business_key
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -146,12 +147,22 @@ def adequacao_task_id(
     """Idempotent `task_id` == the adequacao cell key (dispatcher Guard 4).
 
     `ADEQ-{tenant}-{regiao}-{especialidade}` or, with an evaluation cycle,
-    `ADEQ-{tenant}-{regiao}-{especialidade}-{ciclo}` — the SAME cell format
-    `andre.graph._business_key` anchors (and SP-OP-ADEQUACAO-001 itself uses).
+    `ADEQ-{tenant}-{regiao}-{especialidade}-{ciclo}` — the SAME cell format SP-OP-ADEQUACAO-001
+    itself uses.
+
+    M-8: "the SAME cell format `andre.graph._business_key` anchors" used to be asserted here and
+    was FALSE — this site did not strip its segments and did not drop empty ones, while the graph
+    did both, so the two composed DIFFERENT keys for the same cell. Both now delegate to the one
+    strict, position-preserving composer (`keys.adequacao_business_key`), which additionally
+    REFUSES an empty segment instead of dropping it (the drop made
+    `(R-001, "2026-Q3", "")` and `(R-001, "", "2026-Q3")` collide on one key).
+
+    Raises:
+        ValueError: blank tenant/regiao/especialidade, or a supplied-but-blank `ciclo_avaliacao`.
+            The adequacao worker's own `except` turns that into a DISCLOSED gap that still opens
+            the human UT (`tools/workers/adequacao.py:565-583`, DL-0037).
     """
-    if ciclo_avaliacao:
-        return f"ADEQ-{tenant}-{regiao_saude}-{especialidade}-{ciclo_avaliacao}"
-    return f"ADEQ-{tenant}-{regiao_saude}-{especialidade}"
+    return adequacao_business_key(tenant, regiao_saude, especialidade, ciclo_avaliacao)
 
 
 def build_adequacao_dossier_envelope(
@@ -248,24 +259,19 @@ def pagto_task_id(
     tenant, or no ordem AND no complete lote+prestador, raises `ValueError` instead of minting a
     degenerate key like `PAGTO-amh--`. The pagto worker's own `except` turns that into a DISCLOSED
     gap (DL-0037: the human UT still opens) — the guard is here so no future caller can bypass it.
+
+    M-8: the derivation is now literally SHARED with `andre.graph._business_key` via
+    `keys.pagto_business_key` rather than re-implemented. The graph's copy normalised NOTHING, so
+    a whitespace-padded or non-`str` `ordem_pagamento_id` composed a DIFFERENT key there than
+    here, and a fully blank case minted `PAGTO-{tenant}--` instead of refusing.
     """
-    tenant = str(tenant or "").strip()
-    if not tenant:
-        raise ValueError("pagto_task_id requires a non-blank tenant (ADR-0004 tenant scope)")
-    engine_key = str(business_key or "").strip()
-    if engine_key and engine_key.startswith(f"PAGTO-{tenant}-"):
-        return engine_key
-    ordem = str(ordem_pagamento_id or "").strip()
-    lote = str(numero_lote_tiss or "").strip()
-    prestador = str(prestador_id or "").strip()
-    if ordem:
-        return f"PAGTO-{tenant}-{ordem}"
-    if not (lote and prestador):
-        raise ValueError(
-            "pagto_task_id requires a non-blank ordem_pagamento_id, or a complete "
-            "numero_lote_tiss + prestador_id pair (no degenerate PAGTO business key)"
-        )
-    return f"PAGTO-{tenant}-{lote}-{prestador}"
+    return pagto_business_key(
+        tenant,
+        ordem_pagamento_id=ordem_pagamento_id,
+        numero_lote_tiss=numero_lote_tiss,
+        prestador_id=prestador_id,
+        business_key=business_key,
+    )
 
 
 def build_pagto_dossier_envelope(
@@ -517,6 +523,32 @@ def state_from_envelope(envelope: DelegationEnvelope) -> AndreState:
     return cast("AndreState", raw)
 
 
+#: `output_ref` when the run produced NO valid business key at all — i.e. `receive` fail-safed to
+#: human review because the case lacked its flow's minimum identifiers. Honest placeholder: there
+#: is no case/cell to reference. It is NOT a `process://` anchor, so no consumer can mistake it
+#: for one, and (M-8) it replaces the previous behaviour of re-deriving a DEGENERATE key such as
+#: `process://ADEQ-{tenant}-` on exactly this path — a malformed anchor is worse than none.
+OUTPUT_REF_SEM_CHAVE = "sem-chave://contexto-incompleto"
+
+
+def _resolved_business_key(state: AndreState, result: dict[str, Any]) -> str:
+    """The run's business key, or `""` when no VALID key exists — never a degenerate one.
+
+    Prefers the key the graph itself resolved (`receive` sets it for every flow that has one).
+    Falls back to re-deriving from the inbound state only as a belt, and swallows the strict
+    composers' `ValueError` (`andre/keys.py`): reaching that fallback means `receive` already
+    fail-safed this case to human review for want of identifiers, so there is nothing to compose
+    and the honest answer is "no key".
+    """
+    resolved = str(result.get("business_key") or "")
+    if resolved:
+        return resolved
+    try:
+        return _business_key(state)
+    except ValueError:
+        return ""
+
+
 def make_andre_handler(
     inference: InferenceProvider,
     *,
@@ -552,13 +584,13 @@ def make_andre_handler(
     async def handler(envelope: DelegationEnvelope) -> HandlerOutput:
         state = state_from_envelope(envelope)
         result: dict[str, Any] = await compiled.ainvoke(state)
-        business_key = result.get("business_key") or _business_key(state)
+        business_key = _resolved_business_key(state, result)
         # GUARDRAIL: output_ref is the case/cell reference — never a payment release, a price, or
         # a remediation decision. The dossier (whose `decisao_pagamento`/`preco_recomendado`/
         # `fhir_patient_id` are structurally always None, `graph.py`'s own guardrails) is
         # deliberately NOT forwarded here at all — meta carries ONLY bounded routing class tokens.
         return HandlerOutput(
-            output_ref=f"process://{business_key}",
+            output_ref=f"process://{business_key}" if business_key else OUTPUT_REF_SEM_CHAVE,
             meta={
                 "route": str(result.get("route", "human_review")),
                 "desfecho": str(result.get("desfecho", "")),

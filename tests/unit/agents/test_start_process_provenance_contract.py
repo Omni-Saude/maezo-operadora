@@ -20,6 +20,7 @@ from typing import Any
 
 import pytest
 
+from maezo.gateway.audit import EmitOnceOutcome
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport, ProcessInstance
 from maezo.tools.workers.dmn_transport import DmnVersion
 from maezo.tools.workers.phi_vars import REDACTED_PHI
@@ -174,9 +175,10 @@ async def test_every_agent_start_emits_phi_safe_provenance_before_effect(
             return await super().start_process_instance(*a, **k)
 
     class _OrderingSink(FakeStartAuditSink):
-        async def emit_once(self, record: Any, *, dedup_key: str) -> str:
+        # B-3: spy on `emit_once_status` — the method the chokepoint actually calls now.
+        async def emit_once_status(self, record: Any, *, dedup_key: str) -> EmitOnceOutcome:
             events.append("emit")
-            return await super().emit_once(record, dedup_key=dedup_key)
+            return await super().emit_once_status(record, dedup_key=dedup_key)
 
     sink = _OrderingSink()
     graph = _graph_class(agent_id, class_name)(

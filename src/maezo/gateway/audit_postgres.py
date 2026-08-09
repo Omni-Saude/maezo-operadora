@@ -59,7 +59,7 @@ from typing import TYPE_CHECKING, Any
 import asyncpg  # type: ignore[import-untyped]  # no py.typed upstream
 import structlog
 
-from maezo.gateway.audit import GENESIS_PREV_HASH, AuditRecord
+from maezo.gateway.audit import GENESIS_PREV_HASH, AuditRecord, EmitOnceOutcome
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -293,6 +293,17 @@ class PostgresAuditSink:
         return record.record_hash
 
     async def emit_once(self, record: AuditRecord, *, dedup_key: str) -> str:
+        """Hash-only view of `emit_once_status` — UNCHANGED contract for every existing caller.
+
+        Returns the persisted (or deduped-prior) `record_hash`, discarding the dedup FLAG. Callers
+        that need the flag (an effect gate, not just a double-audit guard) must call
+        `emit_once_status` — see `EmitOnceOutcome` and `mcp_cibseven.transport.
+        start_process_idempotent`. All the guarantees documented on `emit_once_status` hold here
+        verbatim; this wrapper adds nothing but the narrowing.
+        """
+        return (await self.emit_once_status(record, dedup_key=dedup_key)).record_hash
+
+    async def emit_once_status(self, record: AuditRecord, *, dedup_key: str) -> EmitOnceOutcome:
         """Idempotently persist `record` as the next chain link, keyed on `dedup_key`. FAIL-CLOSED.
 
         The exactly-once wrapper around `emit()` for effects the engine may re-deliver: it claims
@@ -302,11 +313,11 @@ class PostgresAuditSink:
 
           - **First emit for a key** → reads the tail, chains `record` onto it, claims the key
             (storing the new `record_hash`), inserts the chain link — all in one committed
-            transaction. Returns the new `record_hash` (identical to `emit()`).
+            transaction. Returns `EmitOnceOutcome(record_hash=<new hash>, deduped=False)`.
           - **Second emit for the same key** (engine re-delivery of the same effect) → the claim
             already exists, so this is a NO-OP: NO second chain link is written, and the PRIOR
-            link's `record_hash` is returned. Not an error — a re-delivered effect legitimately
-            maps to the audit row already written for it.
+            link's `record_hash` is returned as `EmitOnceOutcome(..., deduped=True)`. Not an
+            error — a re-delivered effect legitimately maps to the audit row already written for it.
           - **Crash between claim and chain-insert** → both roll back together (one transaction),
             so re-delivery re-emits cleanly: no dangling claim to suppress the retry (no gap), no
             orphan chain link for the retry to duplicate (no duplicate). This is the property the
@@ -329,6 +340,15 @@ class PostgresAuditSink:
         does); on a dedup no-op the record is NOT chained (there is no new link) and the returned
         hash is the prior link's, read from the claim row.
 
+        EFFECT-GATE GUARANTEE (what `deduped` buys, beyond the double-audit guard): the claim
+        lookup, the claim INSERT and the chain INSERT all run under ONE `pg_advisory_xact_lock`
+        on the tenant, inside ONE transaction. Concurrent callers for the same
+        `(tenant, dedup_key)` are therefore SERIALIZED, and exactly ONE of them can ever observe
+        `deduped=False`. A caller may thus treat `deduped=False` as "I hold the exclusive right to
+        perform this effect" and `deduped=True` as "someone already committed to it" — a real
+        mutual-exclusion gate, not a check-then-act. `mcp_cibseven.transport.
+        start_process_idempotent` relies on exactly this for its strict process families.
+
         Raises `AuditPersistenceError` (chaining the original DB error) on ANY failure — an
         unauditable effect must not proceed as if it had been audited.
         """
@@ -347,7 +367,7 @@ class PostgresAuditSink:
                         dedup_key=dedup_key,
                         record_hash=prior_hash,
                     )
-                    return prior_hash
+                    return EmitOnceOutcome(record_hash=prior_hash, deduped=True)
 
                 # 2. First time for this effect — chain the record onto the current tail.
                 tail = await self._fetch_tail(conn)
@@ -394,7 +414,7 @@ class PostgresAuditSink:
             dedup_key=dedup_key,
             record_hash=record.record_hash,
         )
-        return record.record_hash
+        return EmitOnceOutcome(record_hash=record.record_hash, deduped=False)
 
     async def _insert_chain_row(self, conn: asyncpg.Connection, record: AuditRecord) -> None:
         """Insert `record` as a chain row on `conn`. Caller owns the advisory-locked transaction.
@@ -484,9 +504,19 @@ class FreshSinkAuditEmitter:
 
     async def emit_once(self, record: AuditRecord, *, dedup_key: str) -> str:
         """Durable exactly-once emit via a fresh, per-call `PostgresAuditSink`. FAIL-CLOSED."""
+        return (await self.emit_once_status(record, dedup_key=dedup_key)).record_hash
+
+    async def emit_once_status(self, record: AuditRecord, *, dedup_key: str) -> EmitOnceOutcome:
+        """`emit_once` plus the durable dedup FLAG — satisfies `DedupReportingAuditSink` (B-3).
+
+        Forwarded rather than dropped so this adapter can front a STRICT-family process start
+        (`mcp_cibseven.transport._START_DEDUP_POLICY`). An adapter that exposed only the hash
+        would make such a start fail closed at the gate probe — correct, but a latent trap for
+        whichever seam is wired through here next; the delegate already computes the flag.
+        """
         sink = PostgresAuditSink(self._dsn, self._tenant_id)
         try:
-            return await sink.emit_once(record, dedup_key=dedup_key)
+            return await sink.emit_once_status(record, dedup_key=dedup_key)
         finally:
             await sink.aclose()
 

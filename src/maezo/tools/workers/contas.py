@@ -153,13 +153,26 @@ class GlosaTriageResult:
 
 @dataclass
 class GlosaAcceptInput:
-    """Input for register_glosa_accept — the gated adverse effect."""
+    """Input for register_glosa_accept — the gated adverse effect.
+
+    The first five fields are the HUMAN decision from `UT_AnalistaContas`
+    (`SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn:140-153`) and are what the L0 guard
+    validates. The trailing three are the PROCESS-INSTANCE ANCHORS declared as contract inputs by
+    the same BPMN (`:43-46`); they are read-only context, NEVER validated by the guard, and exist
+    solely so `glosa_id` can be derived DETERMINISTICALLY instead of from the wall clock (M-9).
+    `register_glosa_accept_entry` selects them from the process variables via `pick_fields`, so
+    adding them here is all the wiring they need.
+    """
 
     decisao_contas: str = ""
     justificativa_glosa: str = ""
     codigo_glosa_aceito: str = ""
     valor_glosa_aceito_brl: float = 0.0
     analista_id: str = ""
+    # --- process-instance anchors (M-9 determinism scope; not guarded, not decided on) ---
+    tenant_id: str = ""
+    numero_lote_tiss: str = ""
+    numero_guia_tiss: str = ""
 
 
 @dataclass
@@ -423,7 +436,7 @@ def register_glosa_accept(input_data: GlosaAcceptInput) -> GlosaAcceptResult:
     if missing:
         raise GlosaAcceptNotHumanError(missing_fields=missing)
 
-    glosa_id = f"GLOSA-{input_data.analista_id}-{_timestamp_hash()}"
+    glosa_id = _glosa_id(input_data)
 
     logger.info(
         "contas.register_glosa_accept.complete",
@@ -495,6 +508,17 @@ def start_recurso(
     business-key-idempotent process start (its dedup makes re-delivery return the SAME active
     instance), and the business key is a DETERMINISTIC function of process variables (no
     wall-clock/uuid) — so this worker is exempt from the "no mid-handler external effect" rule.
+
+    M-9 (the caveat this claim used to hide): "no wall-clock/uuid" was true of the composition
+    HERE but not of its INPUT. `glosa_id` reaches this worker as a process variable, and the one
+    site in this module that MINTS it (`register_glosa_accept`) derived it from `time.time_ns()`,
+    so a re-delivered acceptance produced a new `glosa_id` and therefore a new RECURSO business
+    key. That mint is now deterministic (`_glosa_id`), which makes the claim above true end to
+    end for the in-module path. NOT ASSERTED HERE: on the RECORRER branch `glosa_id` is supplied
+    EXTERNALLY (the analyst's `UT_AnalistaContas` form / the origin system — see
+    `tests/integration/processes/test_sp_op_contas_001.py:759`), and this worker cannot vouch for
+    an identifier it did not mint. That is why SP-OP-RECURSO-001 is classified NON-strict in
+    `mcp_cibseven.transport._START_DEDUP_POLICY`.
 
     FAIL-CLOSED (never a silent no-op):
       - missing engine seam (``engine is None`` — composition root not wired) raises (transient);
@@ -821,13 +845,79 @@ def _extract_cents(linha: dict[str, Any], prefix: str) -> int:
     return 0
 
 
-def _timestamp_hash() -> str:
-    """Generate a short unique hash for IDs."""
-    import hashlib
-    import time
+#: Field order of the `glosa_id` digest. FROZEN — reordering or adding a field changes every id
+#: this worker has ever minted, which would orphan any `RECURSO-{tenant}-{guia}-{glosa_id}` anchor
+#: already in flight. Append-only, and only with a migration story.
+_GLOSA_ID_DIGEST_FIELDS: tuple[str, ...] = (
+    "tenant_id",
+    "numero_lote_tiss",
+    "numero_guia_tiss",
+    "codigo_glosa_aceito",
+    "valor_glosa_aceito_brl",
+    "analista_id",
+)
 
-    raw = f"{time.time_ns()}"
-    return hashlib.sha256(raw.encode()).hexdigest()[:12].upper()
+
+def _glosa_id(input_data: GlosaAcceptInput) -> str:
+    """`GLOSA-{analista_id}-{sha256(contract facts)[:12]}` — DETERMINISTIC (M-9).
+
+    WAS `GLOSA-{analista}-{sha256(time.time_ns())[:12]}`. That made this worker a P1 (handler
+    purity) violation: the engine re-delivers an external task on lock-expiry / failure-with-
+    retries, and every re-delivery of the SAME human acceptance minted a DIFFERENT `glosa_id` —
+    a fresh identity for one decision. `glosa_id` is not an inert output: it is a BUSINESS-KEY
+    ANCHOR for SP-OP-RECURSO-001 (`RECURSO-{tenant}-{numero_guia_tiss}-{glosa_id}` —
+    `_recurso_business_key` below, `platform/notification_bridge.py:360-364`,
+    `agents/marina/graph.py:325`), so a drifting value is a duplicate-instance hazard by
+    construction, and it contradicted `start_recurso`'s own docstring claim that its business key
+    is "a DETERMINISTIC function of process variables (no wall-clock/uuid)".
+
+    HOW THE IDENTITY IS SCOPED, AND WHY THAT IS SOUND RATHER THAN INVENTED. There is NO per-glosa
+    instance identifier anywhere in the contract facts: `codigo_glosa_aceito` is a TISS REASON
+    CODE (a class token, reusable across lines), and `UT_AnalistaContas` records a single
+    aggregate acceptance — one `codigo`, one `valor`, one `justificativa` — with no reference to
+    which glosa LINE it applies to (`SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn:140-153`).
+    So this id does NOT claim to identify "a glosa"; it identifies THIS ACCEPTANCE, and it is
+    scoped by the process instance that owns it. That scope is sufficient because the ACEITAR
+    branch is TERMINAL: `Flow_GWDec_Aceitar -> ST_RegisterGlosaAccept -> ST_PublishGlosaAceita ->
+    End_GlosaAceitaHumano` (same file, `:221-239`) never loops back, so at most ONE acceptance
+    exists per CONTAS-001 instance, and the instance anchors (tenant + lote + guia, contract
+    inputs at `:43-46`) separate any two acceptances that are genuinely distinct.
+
+    Determinism holds because every digest input is either a process variable or a completed User
+    Task output — the engine replays both unchanged on re-delivery. Blank anchors degrade the
+    SCOPE, never the determinism (a degenerate instance with no lote and no guia could not have
+    had a business key either); they are deliberately NOT guarded here, because widening this L0
+    worker's refusal set is a decision for the humans who own the guard, not a side effect of an
+    idempotency fix.
+
+    `analista_id` stays in the CLEAR prefix exactly as before (ADR-0007 attribution: the decision
+    is in the analyst's name) and is ALSO inside the digest, so two analysts accepting identical
+    facts never collide.
+    """
+    import hashlib
+
+    raw = "|".join(
+        f"{field}={_digest_token(getattr(input_data, field, ''))}" for field in _GLOSA_ID_DIGEST_FIELDS
+    )
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12].upper()
+    return f"GLOSA-{input_data.analista_id}-{digest}"
+
+
+def _digest_token(value: Any) -> str:
+    """Canonical string form of a digest input — numerically STABLE across engine round-trips.
+
+    A monetary amount can reach a handler as `150` on one delivery and `150.0` on the next
+    (engine `Double`/`Long` decoding, the same int/float boundary `_to_camunda_vars` handles in
+    the other direction). Naive `str()` would then digest to two different ids for one decision —
+    reintroducing exactly the drift this derivation exists to remove. Every real number is
+    therefore rendered through `float`, and `bool` is excluded (it is an `int` subclass, and
+    `True`/`1.0` must not alias).
+    """
+    if isinstance(value, bool):
+        return str(value)
+    if isinstance(value, (int, float)):
+        return repr(float(value))
+    return str(value or "").strip()
 
 
 # ---------------------------------------------------------------------------

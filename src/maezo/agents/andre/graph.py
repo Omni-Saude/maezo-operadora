@@ -177,6 +177,7 @@ from maezo.tools.workers.dmn_transport import (
     first_row,
 )
 
+from .keys import adequacao_business_key, is_blank, pagto_business_key
 from .prompts import DOSSIER_PROMPT_VERSION, SYSTEM_PROMPT_VERSION, dossier_prompt
 
 # --- Domain enums (mirror the SP-OP-PAGTO-001 contract + deployed DMN schema) ------------------
@@ -451,31 +452,37 @@ def _business_key(state: AndreState) -> str:
     - `adequacao_dossier`: `ADEQ-{tenant}-{regiao}-{especialidade}[-{ciclo}]` — the SAME cell
       format SP-OP-ADEQUACAO-001 itself uses; ANCHORS only (Andre never starts that process).
       Never a malformed PAGTO key for a non-payment flow. The ciclo segment enters only when
-      present so the key never ends in an empty segment.
+      PRESENT AND NON-BLANK, and is REFUSED (never dropped) when blank.
     - any other flow: no business key (nothing to start/anchor).
+
+    M-8: both families are now composed by the SHARED strict composers in `andre/keys.py`, which
+    `andre/delegation.py` also uses — the two sites used to diverge (this one stripped segments
+    and DROPPED empty ones; delegation did neither), and the drop made two distinct adequacao
+    cells collide on one key. Segment-dropping is gone: an empty required segment now raises.
+    Both `_business_key` call sites in this module are pre-guarded by `receive` (which routes a
+    case without the flow's minimum identifiers to conservative human review before reaching
+    here), so a raise from these composers is a genuine programming error, never a routing path.
     """
     tenant = state.get("tenant_id", "")
     flow = _flow(state)
     if flow == "adequacao_dossier":
-        segments = [
-            seg
-            for seg in (
-                str(state.get("regiao_saude", "")).strip(),
-                str(state.get("especialidade", "")).strip(),
-                str(state.get("ciclo_avaliacao", "")).strip(),
-            )
-            if seg
-        ]
-        return f"ADEQ-{tenant}-" + "-".join(segments)
+        ciclo = state.get("ciclo_avaliacao")
+        return adequacao_business_key(
+            tenant,
+            state.get("regiao_saude", ""),
+            state.get("especialidade", ""),
+            # Blank/absent ciclo -> None: the 3-segment cell key. NEVER an empty 4th segment.
+            ciclo if not is_blank(ciclo) else None,
+        )
     if flow != "pagto_dossier":
         return ""
-    engine_key = str(state.get("engine_business_key", "") or "").strip()
-    if engine_key and engine_key.startswith(f"PAGTO-{tenant}-"):
-        return engine_key
-    ordem = state.get("ordem_pagamento_id", "")
-    if ordem:
-        return f"PAGTO-{tenant}-{ordem}"
-    return f"PAGTO-{tenant}-{state.get('numero_lote_tiss', '')}-{state.get('prestador_id', '')}"
+    return pagto_business_key(
+        tenant,
+        ordem_pagamento_id=state.get("ordem_pagamento_id", ""),
+        numero_lote_tiss=state.get("numero_lote_tiss", ""),
+        prestador_id=state.get("prestador_id", ""),
+        business_key=state.get("engine_business_key", ""),
+    )
 
 
 # --- State sanitization (mandatory hardening — closes the caller-planted-output class) ---------
@@ -621,7 +628,7 @@ class AndreGraph:
         """
         sanitized = _output_field_resets()
         flow = _flow(state)
-        if not state.get("tenant_id"):
+        if is_blank(state.get("tenant_id")):
             return {
                 **sanitized,
                 **self._route_human("ambiguidade", {}, _GRUPO_CONSERVADOR),
@@ -639,7 +646,10 @@ class AndreGraph:
             # Needs the cell IDENTITY (regiao x especialidade) for a well-formed adequacao anchor
             # key. Without it there is no valid `ADEQ-...` -> fail-safe human (NEVER a malformed
             # payment key).
-            if not (state.get("regiao_saude") and state.get("especialidade")):
+            # M-8: `is_blank` (not truthiness) — a WHITESPACE-ONLY identifier used to pass this
+            # guard and then compose a degenerate/colliding anchor. The strict composer would now
+            # raise on it, so the fail-safe routing must catch it FIRST.
+            if is_blank(state.get("regiao_saude")) or is_blank(state.get("especialidade")):
                 return {
                     **sanitized,
                     **self._route_human("ambiguidade", {}, _GRUPO_GESTAO_REDE),
@@ -648,8 +658,10 @@ class AndreGraph:
             return {**sanitized, "business_key": _business_key(state)}
         if flow == "pagto_dossier":
             # Needs the ordem (or lote+prestador) for the idempotent PAGTO business key.
-            has_key = bool(state.get("ordem_pagamento_id")) or (
-                bool(state.get("numero_lote_tiss")) and bool(state.get("prestador_id"))
+            # M-8: `is_blank` (not truthiness) — same whitespace hole as the adequacao guard
+            # above; a padded id used to slip through and mint `PAGTO-{t}- 123 `.
+            has_key = not is_blank(state.get("ordem_pagamento_id")) or not (
+                is_blank(state.get("numero_lote_tiss")) or is_blank(state.get("prestador_id"))
             )
             if not has_key:
                 return {

@@ -259,7 +259,7 @@ def test_pagto_task_id_refuses_to_mint_a_degenerate_key(kwargs: dict[str, Any]) 
     guards itself (EB-4 R1 `non_blank` discipline) instead of trusting every caller to pre-check —
     the pagto worker's own `except` turns the raise into a DISCLOSED gap (DL-0037, the UT opens)."""
     tenant = kwargs.pop("tenant")
-    with pytest.raises(ValueError, match="pagto_task_id requires"):
+    with pytest.raises(ValueError, match="pagto business key requires"):
         pagto_task_id(tenant, **kwargs)
 
 
@@ -274,7 +274,7 @@ def test_pagto_task_id_refuses_to_mint_a_degenerate_key(kwargs: dict[str, Any]) 
 def test_pagto_envelope_builder_enforces_the_same_guards(kwargs: dict[str, Any]) -> None:
     """The ENVELOPE builder is not a way around the key guard — it raises for the same inputs, so
     no degenerate `payload_ref`/`task_id` can ever reach the dispatcher."""
-    with pytest.raises(ValueError, match="pagto_task_id requires"):
+    with pytest.raises(ValueError, match="pagto business key requires"):
         _pagto_envelope(**kwargs)
 
 
