@@ -1,0 +1,309 @@
+# CANDIDATE (shadow) record for `triage_redflag_pediatric` — M-7 (CLINICAL).
+#
+# ############################################################################################
+# # THIS CANDIDATE PROPOSES **NO RULE CHANGE**. Its entire content is ACHADOS for the         #
+# # pediatrician. `regras_candidatas` below is the LIVE TABLE, rule for rule, cell for cell,  #
+# # motivo for motivo — so that "nothing was changed" is a MACHINE-CHECKED FACT and not a     #
+# # sentence someone has to trust. Every hole recorded here would require asserting a         #
+# # clinical threshold or a clinical disposition that this table does not contain, and        #
+# # INVENTING CLINICAL CONTENT IS FORBIDDEN.                                                  #
+# ############################################################################################
+#
+# THIS FILE IS NOT A DEPLOYABLE ARTIFACT. `.yaml`, never `.dmn`: every artifact-selection path
+# globs `*.dmn` / `*.bpmn` ONLY (`collect_artifacts`, src/maezo/platform/deploy/engine_deploy.py:140;
+# the validation CLI, src/maezo/platform/validation/cli.py:103). Pinned by
+# tests/unit/platform/test_engine_deploy.py::test_real_spec_tree_yields_16_bpmn_and_62_dmn and by
+# tests/unit/spec/test_triage_redflag_shadow_candidates.py.
+# NO WORKER WIRING IN THIS WAVE — nothing in `src/` reads this file.
+#
+# WHAT THE TABLE IS. `triage_redflag_pediatric.dmn` is consumed by Helena via `mcp-dmn.evaluate`
+# (:13; the table selected by population at src/maezo/agents/helena/graph.py:135-140, :737-749).
+# The LLM NEVER decides a red flag: it classifies symptoms into normalized codes and THIS TABLE
+# decides (triage_redflag_adult.dmn:11-13). `red_flag=true` fires SP-OP-ESCALATION-001 immediately.
+# Its own header already says: "CONTEUDO CLINICO: DRAFT — requer validacao de pediatra antes de
+# qualquer deploy" (:9-10), and docs/review-queue.md:11 carries it.
+#
+# THE DECLARED SCHEMA THIS FILE REASONS FROM (cited, not invented). The family's common schema is
+# declared once, in `triage_redflag_adult.dmn:16-20`:
+#     inputs  {sintoma_codigo: string, intensidade: string [leve|moderada|grave|desconhecida]}
+#             + one population field
+#     outputs {red_flag: boolean, prioridade: string [P1|P2|-],
+#              conduta: string [ESCALATE_EMERGENCY|ESCALATE_NURSE|CONTINUE], motivo: string}
+#     "Fail-safe: intensidade 'grave' de QUALQUER sintoma nao mapeado escala para enfermagem."
+# This table incorporates it by reference — "Schema comum triage_redflag_* (ver
+# triage_redflag_adult)" (:11). Everything below is derived from that declaration and from this
+# table's own eight rules. Nothing else.
+#
+# WHO MAY ACT ON THIS: ADR-0028 (docs/adr/0028-dmn-evaluation-engine-side.md:214-216) — engineering
+# NEVER corrects the table. The owner is the PEDIATRICIAN (docs/review-queue.md:11), and the
+# correction is a spec DATA change.
+#
+# =================================================================================================
+# ACTIVATION PATH — the SINGLE human act (ADR-0028 §7)
+# =================================================================================================
+# Because this candidate proposes no rule change, ratifying it means something narrower and more
+# useful than usual: the pediatrician RECORDS THAT THE ACHADOS BELOW WERE READ AND DISPOSITIONED.
+#
+# 1. The PEDIATRICIAN reviews `achados` and RATIFIES by setting ALL THREE of `ratificado: true`,
+#    a non-placeholder `revisor`, a non-placeholder `ratificado_em`. Any missing / blank /
+#    `PLACEHOLDER_*` value => NOT ratified (fail-closed).
+# 2. The PEDIATRICIAN then edits `spec/processes/dmn/triage_redflag_pediatric.dmn` DIRECTLY for
+#    whichever ACHADO they choose to close, supplying the clinical band and disposition. THERE IS
+#    NOTHING HERE TO PASTE — that is the point: the missing content is clinical.
+# 3. Ratifying this file alone changes nothing anywhere.
+#
+# REVIEWER GATE: `.github/CODEOWNERS` covers BOTH this file and the live table.
+# =================================================================================================
+
+version: 1
+status: DRAFT
+alvo: spec/processes/dmn/triage_redflag_pediatric.dmn
+decisao_alvo: triage_redflag_pediatric
+proposta: NENHUMA_MUDANCA_DE_REGRA
+norma_regente: >-
+  NENHUMA norma externa e nenhum criterio clinico externo e invocado. A base e o schema comum
+  declarado em triage_redflag_adult.dmn:16-20 e as oito regras da propria tabela alvo.
+
+ratificado: false
+revisor: "PLACEHOLDER_DONO_CLINICO — medico pediatra (docs/review-queue.md:11)"
+ratificado_em: "PLACEHOLDER_YYYY-MM-DD"
+
+modo_operacao: sombra
+
+# =================================================================================================
+# WHY NO REORDERING IS PROPOSED — a provable property, not a judgement call
+# =================================================================================================
+# Live rules in FIRST-hit order (hitPolicy :17), with their severity:
+#
+#   1 r1 (:31-40) "febre"                  -            idade_meses < 3  -> P1 / ESCALATE_EMERGENCY
+#   2 r2 (:41-49) "dificuldade_respiratoria" -          -                -> P1 / ESCALATE_EMERGENCY
+#   3 r3 (:50-58) "petequias_febre"        -            -                -> P1 / ESCALATE_EMERGENCY
+#   4 r4 (:59-67) "convulsao"              -            -                -> P1 / ESCALATE_EMERGENCY
+#   5 r5 (:68-76) "letargia"               -            -                -> P1 / ESCALATE_EMERGENCY
+#   6 r6 (:77-85) "sinais_desidratacao"    "grave","moderada"  -         -> P2 / ESCALATE_NURSE
+#   7 r7 (:86-95) -                        "grave"      -                -> P2 / ESCALATE_NURSE
+#   8 r8 (:96-104) -                       -            -                -> false / CONTINUE
+#
+# The rules are already ordered by NON-INCREASING severity, under the severity order the family's
+# own output domains declare (adult:18-19): ESCALATE_EMERGENCY/P1 > ESCALATE_NURSE/P2 >
+# CONTINUE/"-". Under FIRST-hit that means: FOR EVERY INPUT, THE VERDICT THE TABLE EMITS IS THE
+# MOST SEVERE VERDICT AMONG ALL RULES THAT MATCH THAT INPUT. No permutation of these eight rules
+# can escalate any input further than the live order already does.
+#
+# That is why the M-7 mandate ("reorder existing rules / tighten bands using values already in the
+# table") yields NOTHING here: there is no masking to undo. The defects are BAND HOLES, and every
+# one of them is a missing clinical statement, not a misplaced row.
+# (Proven by exhaustion in tests/unit/spec/test_triage_redflag_shadow_candidates.py.)
+
+# =================================================================================================
+# ACHADOS — for the pediatrician. Each carries repro vectors derived from the live artifact.
+# NONE of them is closed here. Closing any of them requires clinical content this table lacks.
+# =================================================================================================
+achados:
+
+  - id: ACHADO-P1-lacuna-da-faixa-de-febre-acima-de-3-meses
+    gravidade_relativa: a mais consequente das lacunas desta tabela
+    regra_afetada: r1 (triage_redflag_pediatric.dmn:31-40)
+    achado: >-
+      `r1` e a UNICA regra desta tabela que menciona febre, e ela so alcanca `idade_meses < 3`
+      (:35) — o que a sua propria motivo confirma: "Febre em lactente menor de 3 meses" (:39).
+      Para 3 meses ou mais, NENHUMA regra de febre existe: a avaliacao cai no fail-safe r7 (se
+      a intensidade for exatamente "grave") ou no catch-all r8 (caso contrario), e r8 emite
+      `red_flag=false` / `CONTINUE`.
+    vetores_repro:
+      - entrada: {sintoma_codigo: febre, intensidade: moderada, idade_meses: 4}
+        regra_viva: r8
+        saida_viva: {red_flag: false, prioridade: "-", conduta: CONTINUE}
+        leitura: "febre moderada em lactente de 4 meses NAO gera red flag algum"
+      - entrada: {sintoma_codigo: febre, intensidade: leve, idade_meses: 11}
+        regra_viva: r8
+        saida_viva: {red_flag: false, prioridade: "-", conduta: CONTINUE}
+      - entrada: {sintoma_codigo: febre, intensidade: grave, idade_meses: 4}
+        regra_viva: r7
+        saida_viva: {red_flag: true, prioridade: P2, conduta: ESCALATE_NURSE}
+        leitura: "so escala por ser 'grave', pelo fail-safe generico — nao por ser febre em crianca"
+      - entrada: {sintoma_codigo: febre, intensidade: moderada, idade_meses: 2}
+        regra_viva: r1
+        saida_viva: {red_flag: true, prioridade: P1, conduta: ESCALATE_EMERGENCY}
+        leitura: "contraste: o MESMO quadro dois meses antes e emergencia"
+    porque_nao_foi_fechado: >-
+      Fechar exigiria declarar (a) a(s) faixa(s) etaria(s) acima de 3 meses e (b) a conduta de cada
+      uma. Nem o numero nem a conduta existem em lugar nenhum desta tabela. Sao CONTEUDO CLINICO
+      PEDIATRICO. Inventa-los seria exatamente o que este arquivo proibe a si mesmo.
+    o_que_a_familia_mostra_sem_decidir_nada: >-
+      A tabela adulta expressa uma regra de febre com banda etaria — r8 (triage_redflag_adult.dmn:
+      103-112): `"febre"` + `"grave","moderada"` + `idade_anos >= 65` -> P2 / ESCALATE_NURSE.
+      Isso mostra a FORMA que uma regra dessas tem nesta familia; NAO diz qual banda nem qual
+      conduta a pediatria exige. A banda e a conduta seguem sendo do pediatra.
+
+  - id: ACHADO-P2-intensidade-desconhecida-nao-escala
+    regras_afetadas: r6 (:77-85), r7 (:86-95), r8 (:96-104)
+    achado: >-
+      O dominio declarado de `intensidade` inclui QUATRO valores: [leve|moderada|grave|desconhecida]
+      (triage_redflag_adult.dmn:17). O valor `desconhecida` — que e uma declaracao explicita de
+      IGNORANCIA sobre a gravidade — nao aparece em regra nenhuma desta tabela. Consequencia: para
+      um sintoma cuja regra exige intensidade (r6), uma intensidade "desconhecida" desce ate o
+      catch-all e le `red_flag=false`. O fail-safe r7 nao ajuda: ele exige a string exata "grave"
+      (:89).
+    vetores_repro:
+      - entrada: {sintoma_codigo: sinais_desidratacao, intensidade: desconhecida, idade_meses: 8}
+        regra_viva: r8
+        saida_viva: {red_flag: false, prioridade: "-", conduta: CONTINUE}
+      - entrada: {sintoma_codigo: sinais_desidratacao, intensidade: moderada, idade_meses: 8}
+        regra_viva: r6
+        saida_viva: {red_flag: true, prioridade: P2, conduta: ESCALATE_NURSE}
+        leitura: "o MESMO sintoma com gravidade conhecida escala; com gravidade DESCONHECIDA, nao"
+    porque_nao_foi_fechado: >-
+      A disposicao de uma intensidade desconhecida (escalar como se fosse grave? pedir
+      reclassificacao? seguir a jornada?) e decisao clinica/assistencial. Nada nesta tabela nem no
+      schema comum a declara.
+
+  - id: ACHADO-P3-sintoma-nao-mapeado-so-escala-em-grave
+    regra_afetada: r7 (:86-95)
+    achado: >-
+      O fail-safe cobre APENAS `intensidade = "grave"` — e o proprio schema comum o descreve assim
+      ("intensidade 'grave' de QUALQUER sintoma nao mapeado escala para enfermagem",
+      triage_redflag_adult.dmn:20). Logo qualquer sintoma fora dos seis codigos mapeados, relatado
+      como "moderada", termina em `red_flag=false`. Isto NAO e um defeito escondido — e o escopo
+      declarado do fail-safe. Registrado para que o pediatra confirme que o escopo declarado e o
+      escopo desejado em pediatria, onde o degrau clinico entre "moderada" e "grave" e relatado por
+      um cuidador, nao medido.
+    vetores_repro:
+      - entrada: {sintoma_codigo: vomitos_persistentes, intensidade: moderada, idade_meses: 6}
+        regra_viva: r8
+        saida_viva: {red_flag: false, prioridade: "-", conduta: CONTINUE}
+      - entrada: {sintoma_codigo: vomitos_persistentes, intensidade: grave, idade_meses: 6}
+        regra_viva: r7
+        saida_viva: {red_flag: true, prioridade: P2, conduta: ESCALATE_NURSE}
+
+  - id: ACHADO-P4-tabela-sem-limite-superior-de-idade
+    regra_afetada: description (:11-12) vs r2-r5 (:41-76)
+    achado: >-
+      A descricao declara "Aplicavel quando o caso relatado e de menor de 12 anos" (:12), mas
+      NENHUMA regra le `idade_meses` exceto r1 — r2..r5 tem wildcard na coluna etaria. A tabela nao
+      se recusa a triar um caso fora da sua populacao; quem seleciona a tabela e Helena, por
+      `population` (helena/graph.py:737-749). E uma fronteira de ROTEAMENTO, nao desta tabela.
+    porque_nao_foi_fechado: >-
+      Acrescentar um teto etario a esta tabela mudaria o desfecho de casos que hoje escalam
+      (por exemplo `convulsao` num caso mal roteado) — potencialmente para MENOS escalonamento.
+      Nao se toca. FINDING, para o pediatra e para quem revisa a classificacao populacional.
+
+  - id: ACHADO-P5-prioridade-hifen-como-valor
+    regra_afetada: r8 (:96-104), saida `prioridade` (:101)
+    achado: >-
+      O catch-all emite a STRING `"-"` como `prioridade` — que e o valor declarado no dominio
+      [P1|P2|-] (triage_redflag_adult.dmn:18), portanto correto, mas graficamente identico ao
+      wildcard de inputEntry. Sem efeito comportamental; registrado como risco de leitura para
+      quem revisar a tabela ou escrever um consumidor.
+
+# =================================================================================================
+# `regras_candidatas` — THE LIVE TABLE, VERBATIM. This is the proposal: no change.
+# Inputs (:18-26): sintoma_codigo / intensidade / idade_meses.
+# Outputs (:27-30): red_flag / prioridade / conduta / motivo.
+# Every cell, INCLUDING every `motivo` string, is copied from the live rule named in `origem` —
+# deliberately WITHOUT the `CANDIDATO —` prefix the other candidates in this wave use, so that
+# equivalence to the live table is TOTAL and testable on all four outputs.
+# =================================================================================================
+regras_candidatas:
+
+  - ordem: 1
+    id: r1
+    candidato: true
+    origem: "PRESERVADA verbatim de r1 (triage_redflag_pediatric.dmn:31-40)"
+    entradas: {sintoma_codigo: '"febre"', intensidade: "-", idade_meses: "< 3"}
+    saidas:
+      red_flag: true
+      prioridade: P1
+      conduta: ESCALATE_EMERGENCY
+      motivo: "Febre em lactente menor de 3 meses: emergencia pediatrica"
+
+  - ordem: 2
+    id: r2
+    candidato: true
+    origem: "PRESERVADA verbatim de r2 (triage_redflag_pediatric.dmn:41-49)"
+    entradas: {sintoma_codigo: '"dificuldade_respiratoria"', intensidade: "-", idade_meses: "-"}
+    saidas:
+      red_flag: true
+      prioridade: P1
+      conduta: ESCALATE_EMERGENCY
+      motivo: "Esforco respiratorio em crianca (tiragem, gemencia, cianose)"
+
+  - ordem: 3
+    id: r3
+    candidato: true
+    origem: "PRESERVADA verbatim de r3 (triage_redflag_pediatric.dmn:50-58)"
+    entradas: {sintoma_codigo: '"petequias_febre"', intensidade: "-", idade_meses: "-"}
+    saidas:
+      red_flag: true
+      prioridade: P1
+      conduta: ESCALATE_EMERGENCY
+      motivo: "Febre com petequias: suspeita de doenca meningococica"
+
+  - ordem: 4
+    id: r4
+    candidato: true
+    origem: "PRESERVADA verbatim de r4 (triage_redflag_pediatric.dmn:59-67)"
+    entradas: {sintoma_codigo: '"convulsao"', intensidade: "-", idade_meses: "-"}
+    saidas:
+      red_flag: true
+      prioridade: P1
+      conduta: ESCALATE_EMERGENCY
+      motivo: "Crise convulsiva"
+
+  - ordem: 5
+    id: r5
+    candidato: true
+    origem: "PRESERVADA verbatim de r5 (triage_redflag_pediatric.dmn:68-76)"
+    entradas: {sintoma_codigo: '"letargia"', intensidade: "-", idade_meses: "-"}
+    saidas:
+      red_flag: true
+      prioridade: P1
+      conduta: ESCALATE_EMERGENCY
+      motivo: "Crianca letargica/irresponsiva"
+
+  - ordem: 6
+    id: r6
+    candidato: true
+    origem: "PRESERVADA verbatim de r6 (triage_redflag_pediatric.dmn:77-85)"
+    entradas: {sintoma_codigo: '"sinais_desidratacao"', intensidade: '"grave","moderada"', idade_meses: "-"}
+    saidas:
+      red_flag: true
+      prioridade: P2
+      conduta: ESCALATE_NURSE
+      motivo: "Sinais de desidratacao (vomitos/diarreia, diurese reduzida)"
+
+  - ordem: 7
+    id: r7
+    candidato: true
+    origem: "PRESERVADA verbatim de r7 (triage_redflag_pediatric.dmn:86-95)"
+    entradas: {sintoma_codigo: "-", intensidade: '"grave"', idade_meses: "-"}
+    saidas:
+      red_flag: true
+      prioridade: P2
+      conduta: ESCALATE_NURSE
+      motivo: "Sintoma pediatrico nao mapeado com intensidade grave — fail-safe"
+
+  - ordem: 8
+    id: r8
+    candidato: true
+    origem: "PRESERVADA verbatim de r8 (triage_redflag_pediatric.dmn:96-104)"
+    entradas: {sintoma_codigo: "-", intensidade: "-", idade_meses: "-"}
+    saidas:
+      red_flag: false
+      prioridade: "-"
+      conduta: CONTINUE
+      motivo: "Sem criterio de red flag pediatrico"
+
+# =================================================================================================
+# EQUIVALENCE — total, by construction
+# =================================================================================================
+equivalencia_provada:
+  enunciado: >-
+    Candidato e tabela viva sao IDENTICOS em todas as quatro saidas, para toda entrada. Zero
+    vetores de divergencia — por construcao, e nao por coincidencia.
+  verificacao: >-
+    Provado por exaustao em tests/unit/spec/test_triage_redflag_shadow_candidates.py sobre a grade
+    completa de sintoma_codigo (os 6 mapeados + codigos fora do dominio) x intensidade (os 4
+    declarados + um valor fora do dominio) x idade_meses (0..13 mais fronteiras), com AMBAS as
+    tabelas lidas dos artefatos pelo mesmo leitor FIRST-hit. O mesmo modulo prova a propriedade de
+    severidade maxima que justifica a ausencia de reordenacao.

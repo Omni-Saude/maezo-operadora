@@ -1,0 +1,392 @@
+# CANDIDATE (shadow) rule set for `upcoding_complexity_ceiling` — M-6: the catch-all breaks the
+# family convention its own six siblings declare.
+# =================================================================================================
+# THIS FILE IS NOT A DEPLOYABLE ARTIFACT. It is DATA describing a PROPOSED correction to
+# `spec/processes/dmn/upcoding_complexity_ceiling.dmn`. It carries the `.yaml` extension
+# deliberately: every artifact-selection path in this repository globs `*.dmn` / `*.bpmn` ONLY.
+#
+#   - deploy  : `collect_artifacts` — `dmn_dir.glob("*.dmn")`
+#               (src/maezo/platform/deploy/engine_deploy.py:140)
+#   - validate: the same `*.dmn` glob (src/maezo/platform/validation/cli.py:103;
+#               `make validate-artifacts`, Makefile:26-42)
+#   Pinned twice:
+#     - tests/unit/platform/test_engine_deploy.py::test_real_spec_tree_yields_16_bpmn_and_62_dmn;
+#     - tests/unit/spec/test_upcoding_ceiling_shadow_candidate.py::
+#       test_candidate_manifest_is_invisible_to_artifact_deployment.
+#
+# NO WORKER WIRING IN THIS WAVE. Nothing in `src/` reads this file — pinned by
+# `test_no_src_consumer_of_the_candidate_manifests`.
+#
+# =================================================================================================
+# WHY THIS FILE EXISTS
+# -------------------
+# `upcoding_complexity_ceiling` is one of the SEVEN `fraude_scoring/*` tables the worker
+# `operadora.fraude.score_indicators` evaluates and aggregates
+# (src/maezo/tools/workers/fraude.py:150-158). The other six share ONE structure, stated in each of
+# their own rule descriptions:
+#
+#   (i)  indicator rules with positive scores;
+#   (ii) an EXPLICIT "indicador ausente" rule with a POSITIVE condition -> score 0, label "none";
+#   (iii) a terminal catch-all -> score 10, label "<decision_id>_indeterminado", motivo
+#         "Indicador moderado: <input> desconhecido — requer avaliacao na montagem do dossie".
+#
+#   risk_thresholds.dmn                 (ii) r_risk_low        :56-62   (iii) r_catchall :63-69
+#   frequency_zscore_threshold.dmn      (ii) r_zscore_normal   :56-63   (iii) r_catchall :64-71
+#   phantom_no_diagnosis.dmn            (ii) r_both_present    :43-50
+#                                            r_no_tuss         :51-58   (iii) r_catchall :59-66
+#   phantom_suspicious_prefix.dmn       (ii) r_normal_prefix   :50-56   (iii) r_catchall :57-63
+#   provider_peer_deviation.dmn         (ii) r_normal_deviation:49-56   (iii) r_catchall :57-64
+#   unbundling_partial_bundles.dmn      (ii) r_complete_bundle :41-48
+#                                            r_no_bundle       :49-56   (iii) r_catchall :57-64
+#
+# `upcoding_complexity_ceiling.dmn` IS THE ONLY ONE OF THE SEVEN WITH NO (ii) RULE. Its catch-all
+# (:69-76) does double duty for BOTH populations at once — its own description says so: "dentro do
+# teto de complexidade / NAO MAPEADO" (:70) — and it resolves that ambiguity in the permissive
+# direction: score `0` (:73), label `"none"` (:74).
+#
+# CONSEQUENCE: an encounter whose `encounter_class` is outside the three literals the table declares
+# ("ambulatorio" :39/:55, "pronto_socorro" :47, "internacao" :63) contributes `0` to
+# `score_indicadores` and NOTHING to `indicadores_presentes` — i.e. it is indistinguishable, in the
+# dossier, from an encounter that was affirmatively checked and found within its ceiling. In the
+# other six tables the same situation contributes `10` and a `..._indeterminado` label, which is
+# what puts the unknown in front of the human assembling the dossier.
+#
+# THE SOURCE OF EVERY VALUE THIS FILE PROPOSES
+# --------------------------------------------
+#   - `10`, `"upcoding_complexity_ceiling_indeterminado"` and the motivo wording: the SIBLING
+#     TABLES' OWN catch-alls, cited line-by-line above. Nothing invented; the label follows the
+#     family's own `<decision_id>_indeterminado` naming (six instances).
+#   - `< 2`, `<= 3`, `<= 4`: the exact set-complements of the live table's OWN ceilings
+#     `> 2` (:40), `= 2` (:56), `> 3` (:48), `> 4` (:64). No new tier number appears anywhere.
+#   - `0` / `"none"` for the within-ceiling rules: the live table's own catch-all outputs
+#     (:73-:74), preserved for the population that catch-all was also serving.
+#
+# WHO MAY ACT ON THIS
+# -------------------
+# ADR-0028 (docs/adr/0028-dmn-evaluation-engine-side.md:214-216): engineering NEVER corrects the
+# table. The correction is the OWNER's act — medico-auditor + auditoria especial + financas, per
+# docs/review-queue.md:200 — and it is a spec DATA change.
+#
+# =================================================================================================
+# ACTIVATION PATH — the SINGLE human act (ADR-0028 §7)
+# =================================================================================================
+# 1. The OWNER reviews `regras_candidatas` and RATIFIES by setting ALL THREE of `ratificado: true`,
+#    a non-placeholder `revisor` and a non-placeholder `ratificado_em`. Any missing/blank/
+#    `PLACEHOLDER_*` value => NOT ratified (fail-closed).
+# 2. The OWNER applies `regras_candidatas` to the LIVE TABLE
+#    `spec/processes/dmn/upcoding_complexity_ceiling.dmn`. PER ADR-0028 THE LIVE-TABLE EDIT IS THE
+#    OWNER'S ACT.
+# 3. Only after step 2 does runtime behaviour change.
+#
+# REVIEWER GATE: `.github/CODEOWNERS` covers BOTH this file and the live table.
+#
+# =================================================================================================
+
+version: 1
+status: DRAFT
+alvo: spec/processes/dmn/upcoding_complexity_ceiling.dmn
+decisao_alvo: upcoding_complexity_ceiling
+norma_regente: >-
+  NENHUMA norma externa. A base e a CONVENCAO DECLARADA PELA PROPRIA FAMILIA de tabelas
+  fraude_scoring/* (as seis irmas listadas no cabecalho, cada uma com catch-all
+  10 / "<decision_id>_indeterminado"), somada aos tetos que a propria tabela alvo declara.
+  Os scores continuam SINTETICOS e pendentes de SME (docs/review-queue.md:200).
+
+# --- RATIFICATION BLOCK -------------------------------------------------------------------------
+ratificado: false
+revisor: "PLACEHOLDER_DONO_DA_TABELA — medico-auditor + auditoria especial + financas (docs/review-queue.md:200)"
+ratificado_em: "PLACEHOLDER_YYYY-MM-DD"
+
+modo_operacao: sombra
+
+# =================================================================================================
+# THE DEFECT, STATED AS A REACHABILITY FACT ABOUT THE LIVE TABLE
+# =================================================================================================
+# Columns (:28-33): encounter_class / code_tier. Outputs (:34-36): indicador_score /
+# indicador_label / motivo. hitPolicy FIRST (:27). Live rules in order:
+#
+#   1 r_ambulatorio_tier3    (:37-44) "ambulatorio"    tier > 2  -> 30 / upcoding_complexity_ceiling
+#   2 r_ps_tier4             (:45-52) "pronto_socorro" tier > 3  -> 30 / upcoding_complexity_ceiling
+#   3 r_ambulatorio_tier2    (:53-60) "ambulatorio"    tier = 2  -> 15 / ..._borderline
+#   4 r_internacao_hightier  (:61-68) "internacao"     tier > 4  -> 15 / ..._borderline
+#   5 r_catchall             (:69-76) wildcards                  ->  0 / "none"
+#
+# FACT: rule 5 is the ONLY rule reachable for any `encounter_class` outside
+# {"ambulatorio", "pronto_socorro", "internacao"} — including the empty string — and it emits the
+# SAME `0`/`"none"` it emits for a genuinely within-ceiling encounter. The two populations the
+# catch-all's own description names ("dentro do teto" and "nao mapeado", :70) are therefore
+# INDISTINGUISHABLE downstream.
+#
+# DOWNSTREAM EFFECT OF THE `"none"` LABEL: `_evaluate_scoring_chain` drops exactly the literal
+# "none" from `indicadores_presentes` (fraude.py:344-346, `_NO_INDICATOR_LABEL` :218). So an
+# unmapped encounter class leaves NO trace at all in the dossier's indicator list.
+#
+# THIS IS ALREADY LIVE-ENGINE-VERIFIED IN THIS REPOSITORY — the defect is not a projection.
+# `tests/integration/dmn/test_fraude_scoring_chain.py::test_scenario_a_no_signal_falls_to_catchalls`
+# (:110-132) evaluates the seven tables against the REAL engine with NO evidence signal attached
+# and pins `score_indicadores == 75` (:113) with SIX labels (:114-127). `upcoding_complexity_ceiling`
+# is the ONE MISSING LABEL of the seven, and its contribution to that 75 is ZERO — exactly this
+# defect, on a live engine, already committed. (The 75 also embeds a SEPARATE, already-flagged
+# anomaly: `phantom_suspicious_prefix`'s `starts with(...)` on an absent input hits its 25-point row
+# instead of its catch-all — see the comment at :117-125 of that module. Not this table's defect and
+# not touched here.)
+
+# =================================================================================================
+# FURTHER FINDINGS — recorded for the owner; nothing here is applied by engineering.
+# =================================================================================================
+achados_adicionais:
+
+  - id: ACHADO-1-comentario-do-worker-e-falso-hoje
+    local: src/maezo/tools/workers/fraude.py:216-218
+    classe: comentario que descreve a convencao que a tabela alvo quebra
+    achado: >-
+      O worker documenta `_NO_INDICATOR_LABEL = "none"` como "Neutral label every table emits on its
+      catch-all/no-indicator row". A metade "no-indicator row" e verdadeira nas sete tabelas; a
+      metade "catch-all" e verdadeira em UMA SO — justamente `upcoding_complexity_ceiling`. Nas
+      outras seis o catch-all emite `<decision_id>_indeterminado`, que NAO e filtrado e portanto
+      aparece em `indicadores_presentes`. Aplicar este candidato torna o comentario correto para as
+      sete. Registrado como ACHADO (nao alterado): mexer no worker seria wiring, fora do escopo
+      desta onda.
+
+  - id: ACHADO-2-efeito-no-score-agregado-e-no-roteamento
+    local: fraude_indicadores.dmn:40-79
+    classe: consequencia a jusante que o dono precisa aceitar conscientemente
+    achado: >-
+      `score_indicadores` e a SOMA dos sete `indicador_score` (fraude.py:332-347) e alimenta
+      `fraude_indicadores`, cujas faixas sao `>= 50` -> PRIORITARIA (:43), `>= 20` -> APROFUNDADA
+      (:51) e `< 20` -> LEVE (:67). Elevar o catch-all de 0 para 10 acrescenta +10 ao total de todo
+      caso com `encounter_class` nao mapeado, o que pode cruzar a fronteira de 20 (LEVE ->
+      APROFUNDADA) ou a de 50 (APROFUNDADA -> PRIORITARIA).
+    direcao_do_efeito: >-
+      SEMPRE na direcao de MAIS investigacao humana, NUNCA de menos. E `fraude_indicadores` nao
+      emite veredito: seu invariante L0 declarado (:12-15) e que ela define INTENSIDADE DE
+      INVESTIGACAO, nunca acusacao — a acusacao so nasce na User Task humana. Ainda assim, o dono
+      deve aceitar o efeito explicitamente: e volume de investigacao.
+
+  - id: ACHADO-3-input-ausente-cai-no-catchall-e-por-isso-o-catchall-importa
+    local: fraude.py:230-307, :186-197, :241-242; tests/integration/dmn/test_fraude_scoring_chain.py:110-132
+    classe: consequencia direta do defeito, com evidencia de motor real
+    achado: >-
+      `_collect_scoring_inputs` OMITE deliberadamente qualquer sinal ausente ou nao coercivel,
+      apoiado no comentario "the table's own missing-input catch-all row handles the absence
+      conservatively" (fraude.py:241-242). O cenario A do teste de integracao CONFIRMA no motor
+      real que a ausencia de TODOS os sinais realmente cai nos catch-alls (:110-132) — e e
+      exatamente por isso que o valor do catch-all desta tabela importa: enquanto as seis irmas
+      devolvem 10/indeterminado, esta devolve 0/"none" e desaparece do dossie.
+    limite_do_que_este_arquivo_afirma: >-
+      O cenario A cobre a ausencia SIMULTANEA de todos os sinais. Este arquivo NAO generaliza dai
+      uma semantica de nulo para toda combinacao (por exemplo `encounter_class` presente com
+      `code_tier` ausente), e por isso o CORPUS DE DIVERGENCIA usa apenas valores PRESENTES, onde
+      o comportamento e inequivoco. O que se pode afirmar sem risco: sob o candidato, um
+      `code_tier` que nao satisfaz nenhuma faixa declarada cai no catch-all 10/indeterminado —
+      isto e, o candidato e no minimo tao conservador quanto a tabela viva em qualquer leitura de
+      semantica de nulo.
+
+  - id: ACHADO-3B-o-que-quebra-quando-o-dono-aplicar
+    local: tests/integration/dmn/test_fraude_scoring_chain.py:110-132
+    classe: consequencia operacional da aplicacao — para quem executar o passo 2
+    achado: >-
+      Aplicar este candidato a tabela viva MUDA a expectativa do cenario A do teste de integracao:
+      `score_indicadores` passa de 75 para 85 (+10, exatamente o catch-all desta tabela) e
+      `indicadores_presentes` ganha `"upcoding_complexity_ceiling_indeterminado"` como SETIMO
+      rotulo. Nenhum outro cenario muda: B e C usam `encounter_class="ambulatorio"`
+      (:59, :73), uma classe declarada, e portanto sao provados equivalentes. O delta de +10 e
+      derivado dos artefatos e pinado em
+      tests/unit/spec/test_upcoding_ceiling_shadow_candidate.py, para nao virar surpresa.
+
+  - id: ACHADO-4-tier-2-de-pronto-socorro-e-de-internacao
+    regras_afetadas: r_ambulatorio_tier2 (:53-60) vs r_ps_tier4 (:45-52) / r_internacao_hightier (:61-68)
+    classe: assimetria entre classes de encontro — registrada, NAO alterada
+    achado: >-
+      Existe uma faixa "borderline" (score 15) para `ambulatorio` (tier exatamente 2) e para
+      `internacao` (tier > 4), mas NENHUMA para `pronto_socorro`: la o salto e direto de 0 (tier
+      <= 3) para 30 (tier > 3). Se o pronto-socorro deveria ter uma faixa borderline — e em que
+      tier — e conteudo de auditoria medica. O candidato NAO inventa uma. FINDING, NAO FIX.
+
+  - id: ACHADO-5-tabela-ainda-listada-como-orfa
+    local: spec/processes/dmn/orphans-allowlist.yaml:118
+    classe: metadado desatualizado
+    achado: >-
+      A tabela continua na allowlist de orfaos com a justificativa "ate o wiring do worker
+      operadora.fraude.score_indicators — T2.7 fase 2", mas esse wiring EXISTE
+      (fraude.py:150-158, :1036). Sem efeito comportamental; registrado para higiene de metadado.
+      Vale para as sete tabelas da familia, nao so para esta.
+
+# =================================================================================================
+# THE OPEN DECISION THE CANDIDATE DELIBERATELY DOES NOT MAKE
+# =================================================================================================
+decisao_pendente_do_dono:
+  - id: DECISAO-A-o-valor-10-e-um-valor-da-familia-nao-desta-tabela
+    pergunta: >-
+      O score do "indeterminado" desta tabela deve ser 10, como nas outras seis, ou outro valor?
+    porque_nao_foi_decidido_aqui: >-
+      `10` e o unico valor citavel: e o que as seis irmas usam, sem excecao. Escolher qualquer
+      outro seria inventar um score. Se o dono julgar que um upcoding indeterminado pesa
+      diferente de um z-score indeterminado, essa e UMA celula a mudar (`indicador_score` da
+      ordem 8) e o mascaramento continua fechado em qualquer caso.
+  - id: DECISAO-B-manter-ou-nao-as-regras-dentro-do-teto
+    pergunta: >-
+      As tres regras "dentro do teto" (ordens 5-7) devem existir, ou o catch-all deveria continuar
+      cobrindo os dois casos?
+    porque_nao_foi_decidido_aqui: >-
+      Elas sao a peca (ii) da convencao da familia — sem elas, elevar o catch-all para 10
+      pontuaria +10 TODO encontro conforme, o que tornaria o indicador inutil. Sao, portanto,
+      necessarias para que a correcao seja a da familia e nao uma mudanca de severidade geral.
+      Registrado como decisao porque e a parte do diff que ACRESCENTA linhas.
+
+# =================================================================================================
+# `regras_candidatas` — hitPolicy FIRST, evaluated top to bottom.
+# Inputs/outputs are EXACTLY the live table's own (:28-36). NO new input, NO new output, NO new
+# tier number, NO new score.
+#
+# THE WHOLE DIFF THE OWNER APPLIES: keep rules 1-4 exactly as they are; INSERT three "dentro do
+# teto" rows (ordens 5-7) carrying the live catch-all's own `0`/`"none"` outputs; and change the
+# catch-all's three output cells to the family's `10` / `..._indeterminado` / "Indicador moderado".
+# =================================================================================================
+regras_candidatas:
+
+  - ordem: 1
+    id: c_ambulatorio_tier3
+    candidato: true
+    origem: "PRESERVADA verbatim (entradas e saidas; motivo com prefixo CANDIDATO) de r_ambulatorio_tier3 (upcoding_complexity_ceiling.dmn:37-44)"
+    entradas:
+      encounter_class: '"ambulatorio"'
+      code_tier: "> 2"
+    saidas:
+      indicador_score: 30
+      indicador_label: upcoding_complexity_ceiling
+      motivo: "CANDIDATO — Indicador: complexidade de codigo acima do esperado para ambulatorio (tier 3+) — fato de montagem de dossie, NUNCA veredito"
+
+  - ordem: 2
+    id: c_ps_tier4
+    candidato: true
+    origem: "PRESERVADA verbatim de r_ps_tier4 (upcoding_complexity_ceiling.dmn:45-52)"
+    entradas:
+      encounter_class: '"pronto_socorro"'
+      code_tier: "> 3"
+    saidas:
+      indicador_score: 30
+      indicador_label: upcoding_complexity_ceiling
+      motivo: "CANDIDATO — Indicador: complexidade excessiva para pronto-socorro (tier 4+) — fato de montagem de dossie"
+
+  - ordem: 3
+    id: c_ambulatorio_tier2
+    candidato: true
+    origem: "PRESERVADA verbatim de r_ambulatorio_tier2 (upcoding_complexity_ceiling.dmn:53-60)"
+    entradas:
+      encounter_class: '"ambulatorio"'
+      code_tier: "2"
+    saidas:
+      indicador_score: 15
+      indicador_label: upcoding_complexity_ceiling_borderline
+      motivo: "CANDIDATO — Indicador moderado: ambulatorio com complexidade tier 2 no limite — fato de montagem de dossie"
+
+  - ordem: 4
+    id: c_internacao_hightier
+    candidato: true
+    origem: "PRESERVADA verbatim de r_internacao_hightier (upcoding_complexity_ceiling.dmn:61-68)"
+    entradas:
+      encounter_class: '"internacao"'
+      code_tier: "> 4"
+    saidas:
+      indicador_score: 15
+      indicador_label: upcoding_complexity_ceiling_borderline
+      motivo: "CANDIDATO — Indicador moderado: internacao com tier muito alto — fato de montagem de dossie"
+
+  # ---- ordens 5-7: AS TRES REGRAS NOVAS — a peca (ii) da convencao da familia. ------------------
+  # Cada uma e o COMPLEMENTO EXATO dos tetos que a propria tabela declara para aquela classe de
+  # encontro, com as saidas que o proprio catch-all vivo ja usava (0 / "none", :73-74).
+  - ordem: 5
+    id: c_ambulatorio_dentro_teto
+    candidato: true
+    regra_nova: true
+    origem_da_faixa: "`< 2` = complemento exato de `> 2` (:40) UNIAO `= 2` (:56). O numero 2 e o da propria tabela."
+    origem_das_saidas: "0 / \"none\" — as saidas do proprio r_catchall vivo (:73-74), preservadas para a populacao 'dentro do teto' que ele tambem servia."
+    modelo_na_familia: "r_zscore_normal (frequency_zscore_threshold.dmn:56-63) e r_risk_low (risk_thresholds.dmn:56-62)"
+    entradas:
+      encounter_class: '"ambulatorio"'
+      code_tier: "< 2"
+    saidas:
+      indicador_score: 0
+      indicador_label: none
+      motivo: "CANDIDATO — Sem indicador de upcoding: ambulatorio com complexidade dentro do teto declarado — fato de montagem de dossie"
+
+  - ordem: 6
+    id: c_ps_dentro_teto
+    candidato: true
+    regra_nova: true
+    origem_da_faixa: "`<= 3` = complemento exato de `> 3` (:48). O numero 3 e o da propria tabela."
+    origem_das_saidas: "identica a ordem 5"
+    entradas:
+      encounter_class: '"pronto_socorro"'
+      code_tier: "<= 3"
+    saidas:
+      indicador_score: 0
+      indicador_label: none
+      motivo: "CANDIDATO — Sem indicador de upcoding: pronto-socorro com complexidade dentro do teto declarado — fato de montagem de dossie"
+
+  - ordem: 7
+    id: c_internacao_dentro_teto
+    candidato: true
+    regra_nova: true
+    origem_da_faixa: "`<= 4` = complemento exato de `> 4` (:64). O numero 4 e o da propria tabela."
+    origem_das_saidas: "identica a ordem 5"
+    entradas:
+      encounter_class: '"internacao"'
+      code_tier: "<= 4"
+    saidas:
+      indicador_score: 0
+      indicador_label: none
+      motivo: "CANDIDATO — Sem indicador de upcoding: internacao com complexidade dentro do teto declarado — fato de montagem de dossie"
+
+  - ordem: 8
+    id: c_catchall
+    candidato: true
+    origem: "r_catchall (upcoding_complexity_ceiling.dmn:69-76) — entradas preservadas; AS TRES SAIDAS ALTERADAS"
+    celulas_alteradas:
+      indicador_score: "viva 0 (:73) -> candidata 10"
+      indicador_label: "viva \"none\" (:74) -> candidata \"upcoding_complexity_ceiling_indeterminado\""
+      motivo: "viva 'Sem indicador de upcoding: complexidade dentro do esperado' (:75) -> a formula 'Indicador moderado: ... desconhecido — requer avaliacao na montagem do dossie' das seis irmas"
+    origem_de_cada_valor: >-
+      10 e o score do catch-all das SEIS irmas (risk_thresholds.dmn:66,
+      frequency_zscore_threshold.dmn:68, phantom_no_diagnosis.dmn:63,
+      phantom_suspicious_prefix.dmn:60, provider_peer_deviation.dmn:61,
+      unbundling_partial_bundles.dmn:61). O rotulo segue a nomenclatura
+      `<decision_id>_indeterminado` das mesmas seis. NENHUM valor novo.
+    entradas:
+      encounter_class: "-"
+      code_tier: "-"
+    saidas:
+      indicador_score: 10
+      indicador_label: upcoding_complexity_ceiling_indeterminado
+      motivo: "CANDIDATO — Indicador moderado: classe de encontro ou nivel de complexidade desconhecido — requer avaliacao na montagem do dossie"
+
+# =================================================================================================
+# EQUIVALENCE PROOF — what changes, and what provably does not
+# =================================================================================================
+equivalencia_provada:
+  enunciado: >-
+    Para `encounter_class` IN {"ambulatorio", "pronto_socorro", "internacao"} e qualquer `code_tier`
+    inteiro, candidato e tabela viva emitem `indicador_score` e `indicador_label` IDENTICOS. A
+    divergencia e EXATAMENTE o complemento: todo `encounter_class` fora desses tres literais
+    (incluindo a string vazia) passa de 0/"none" para 10/"upcoding_complexity_ceiling_indeterminado".
+  o_que_nao_e_comparado: >-
+    `motivo` NAO entra na comparacao: toda regra candidata o reescreve com o prefixo `CANDIDATO —`
+    (a mesma convencao do precedente W3), logo e texto de proveniencia, nunca sinal de divergencia.
+  esboco: >-
+    Para cada classe declarada, as regras de indicador (ordens 1-4) particionam a faixa "acima do
+    teto" e a regra nova correspondente (ordens 5-7) e o complemento EXATO dessa faixa — logo a
+    uniao cobre todo o inteiro e o catch-all e inalcancavel para as tres classes. Fora delas,
+    nenhuma regra 1-7 casa e o catch-all e o unico alcancavel, nas duas tabelas.
+  verificacao: >-
+    Provado por exaustao no modulo de teste (tests/unit/spec/test_upcoding_ceiling_shadow_candidate.py)
+    sobre a grade de encounter_class (os 3 declarados + literais fora do dominio + string vazia) x
+    code_tier de -1 a 8, com AMBAS as tabelas lidas dos artefatos pelo mesmo leitor FIRST-hit.
+
+# =================================================================================================
+# EVIDENCE THE OWNER RATIFIES AGAINST
+# =================================================================================================
+# tests/unit/spec/test_upcoding_ceiling_shadow_candidate.py enumerates the divergence corpus, PINS
+# THE FAMILY CONVENTION by reading the six sibling tables' catch-alls off their own artifacts (so
+# the "10 / _indeterminado" claim is derived, not asserted), and pins that ratifying this file
+# cannot enforce it.

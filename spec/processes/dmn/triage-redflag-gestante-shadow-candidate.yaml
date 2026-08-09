@@ -1,0 +1,327 @@
+# CANDIDATE (shadow) record for `triage_redflag_gestante` — M-7 (CLINICAL).
+#
+# ############################################################################################
+# # THIS CANDIDATE PROPOSES **NO RULE CHANGE**. Its entire content is ACHADOS for the         #
+# # obstetrician. `regras_candidatas` below is the LIVE TABLE, rule for rule, cell for cell,  #
+# # motivo for motivo — so that "nothing was changed" is a MACHINE-CHECKED FACT and not a     #
+# # sentence someone has to trust. Every hole recorded here would require asserting an        #
+# # obstetric threshold or an obstetric disposition that this table does not contain, and     #
+# # INVENTING CLINICAL CONTENT IS FORBIDDEN.                                                  #
+# ############################################################################################
+#
+# THIS FILE IS NOT A DEPLOYABLE ARTIFACT. `.yaml`, never `.dmn`: every artifact-selection path
+# globs `*.dmn` / `*.bpmn` ONLY (`collect_artifacts`, src/maezo/platform/deploy/engine_deploy.py:140;
+# the validation CLI, src/maezo/platform/validation/cli.py:103). Pinned by
+# tests/unit/platform/test_engine_deploy.py::test_real_spec_tree_yields_16_bpmn_and_62_dmn and by
+# tests/unit/spec/test_triage_redflag_shadow_candidates.py.
+# NO WORKER WIRING IN THIS WAVE — nothing in `src/` reads this file.
+#
+# WHAT THE TABLE IS. `triage_redflag_gestante.dmn` is consumed by Helena via `mcp-dmn.evaluate`
+# (:13; the table selected by population at src/maezo/agents/helena/graph.py:135-140, :737-749).
+# The LLM NEVER decides a red flag: it classifies symptoms into normalized codes and THIS TABLE
+# decides (triage_redflag_adult.dmn:11-13). `red_flag=true` fires SP-OP-ESCALATION-001 immediately.
+# Its own header already says: "CONTEUDO CLINICO: DRAFT — requer validacao de obstetra antes de
+# qualquer deploy" (:9-10), and docs/review-queue.md:12 carries it.
+#
+# THE DECLARED SCHEMA THIS FILE REASONS FROM (cited, not invented). The family's common schema is
+# declared once, in `triage_redflag_adult.dmn:16-20`:
+#     inputs  {sintoma_codigo: string, intensidade: string [leve|moderada|grave|desconhecida]}
+#             + one population field
+#     outputs {red_flag: boolean, prioridade: string [P1|P2|-],
+#              conduta: string [ESCALATE_EMERGENCY|ESCALATE_NURSE|CONTINUE], motivo: string}
+#     "Fail-safe: intensidade 'grave' de QUALQUER sintoma nao mapeado escala para enfermagem."
+# This table incorporates it by reference — "Schema comum triage_redflag_* (ver
+# triage_redflag_adult)" (:11). Everything below is derived from that declaration and from this
+# table's own eight rules. Nothing else.
+#
+# WHO MAY ACT ON THIS: ADR-0028 (docs/adr/0028-dmn-evaluation-engine-side.md:214-216) — engineering
+# NEVER corrects the table. The owner is the OBSTETRICIAN (docs/review-queue.md:12), and the
+# correction is a spec DATA change.
+#
+# =================================================================================================
+# ACTIVATION PATH — the SINGLE human act (ADR-0028 §7)
+# =================================================================================================
+# Because this candidate proposes no rule change, ratifying it means something narrower and more
+# useful than usual: the obstetrician RECORDS THAT THE ACHADOS BELOW WERE READ AND DISPOSITIONED.
+#
+# 1. The OBSTETRICIAN reviews `achados` and RATIFIES by setting ALL THREE of `ratificado: true`,
+#    a non-placeholder `revisor`, a non-placeholder `ratificado_em`. Any missing / blank /
+#    `PLACEHOLDER_*` value => NOT ratified (fail-closed).
+# 2. The OBSTETRICIAN then edits `spec/processes/dmn/triage_redflag_gestante.dmn` DIRECTLY for
+#    whichever ACHADO they choose to close, supplying the obstetric band and disposition. THERE IS
+#    NOTHING HERE TO PASTE — that is the point: the missing content is clinical.
+# 3. Ratifying this file alone changes nothing anywhere.
+#
+# REVIEWER GATE: `.github/CODEOWNERS` covers BOTH this file and the live table.
+# =================================================================================================
+
+version: 1
+status: DRAFT
+alvo: spec/processes/dmn/triage_redflag_gestante.dmn
+decisao_alvo: triage_redflag_gestante
+proposta: NENHUMA_MUDANCA_DE_REGRA
+norma_regente: >-
+  NENHUMA norma externa e nenhum criterio clinico externo e invocado. A base e o schema comum
+  declarado em triage_redflag_adult.dmn:16-20 e as oito regras da propria tabela alvo.
+
+ratificado: false
+revisor: "PLACEHOLDER_DONO_CLINICO — medico obstetra (docs/review-queue.md:12)"
+ratificado_em: "PLACEHOLDER_YYYY-MM-DD"
+
+modo_operacao: sombra
+
+# =================================================================================================
+# WHY NO REORDERING IS PROPOSED — a provable property, not a judgement call
+# =================================================================================================
+# Live rules in FIRST-hit order (hitPolicy :17), with their severity:
+#
+#   1 r1 (:31-40) "sangramento_vaginal"         -       IG -      -> P1 / ESCALATE_EMERGENCY
+#   2 r2 (:41-50) "cefaleia_alteracao_visual"   -       IG >= 20  -> P1 / ESCALATE_EMERGENCY
+#   3 r3 (:51-59) "movimentos_fetais_reduzidos" -       IG >= 26  -> P1 / ESCALATE_EMERGENCY
+#   4 r4 (:60-68) "perda_liquido"               -       IG <  37  -> P1 / ESCALATE_EMERGENCY
+#   5 r5 (:69-77) "contracoes_regulares"        -       IG <  37  -> P1 / ESCALATE_EMERGENCY
+#   6 r6 (:78-86) "febre"        "grave","moderada"     IG -      -> P2 / ESCALATE_NURSE
+#   7 r7 (:87-96) -              "grave"                IG -      -> P2 / ESCALATE_NURSE
+#   8 r8 (:97-105) -             -                      IG -      -> false / CONTINUE
+#
+# The rules are already ordered by NON-INCREASING severity, under the severity order the family's
+# own output domains declare (adult:18-19): ESCALATE_EMERGENCY/P1 > ESCALATE_NURSE/P2 >
+# CONTINUE/"-". Under FIRST-hit that means: FOR EVERY INPUT, THE VERDICT THE TABLE EMITS IS THE
+# MOST SEVERE VERDICT AMONG ALL RULES THAT MATCH THAT INPUT. No permutation of these eight rules
+# can escalate any input further than the live order already does.
+#
+# That is why the M-7 mandate ("reorder existing rules / tighten bands using values already in the
+# table") yields NOTHING here: there is no masking to undo. The defects are BAND HOLES, and every
+# one of them is a missing obstetric statement, not a misplaced row.
+# (Proven by exhaustion in tests/unit/spec/test_triage_redflag_shadow_candidates.py.)
+#
+# A NOTE ON "TIGHTENING BANDS": the three gestational bands this table declares (`>= 20`, `>= 26`,
+# `< 37`) could be WIDENED with values already present — e.g. replacing `< 37` with the wildcard
+# `-`. That is deliberately NOT proposed: each of those rules states its own clinical scope in its
+# own `motivo` ("rotura prematura de membranas PRE-TERMO" :67; "trabalho de parto PRE-TERMO" :76;
+# "3o trimestre" :58; "apos 20 semanas" :42). Widening the band would make the rule fire outside
+# the condition its own text names, i.e. it would silently re-label a different clinical entity.
+# The bands are recorded as ACHADOS instead.
+
+# =================================================================================================
+# ACHADOS — for the obstetrician. Each carries repro vectors derived from the live artifact.
+# NONE of them is closed here. Closing any of them requires clinical content this table lacks.
+# =================================================================================================
+achados:
+
+  - id: ACHADO-G1-termo-sem-regra-perda-de-liquido-e-contracoes
+    regras_afetadas: r4 (:60-68), r5 (:69-77)
+    achado: >-
+      As duas regras que cobrem perda de liquido e contracoes regulares param em `IG < 37`
+      (:63, :72) e as suas proprias motivos declaram o escopo "pre-termo" (:67, :76). De 37 semanas
+      em diante NAO HA REGRA para nenhum dos dois sintomas: a avaliacao cai no fail-safe r7 (se a
+      intensidade for exatamente "grave") ou no catch-all r8 -> `red_flag=false` / `CONTINUE`.
+    vetores_repro:
+      - entrada: {sintoma_codigo: perda_liquido, intensidade: moderada, idade_gestacional_semanas: 38}
+        regra_viva: r8
+        saida_viva: {red_flag: false, prioridade: "-", conduta: CONTINUE}
+      - entrada: {sintoma_codigo: contracoes_regulares, intensidade: moderada, idade_gestacional_semanas: 40}
+        regra_viva: r8
+        saida_viva: {red_flag: false, prioridade: "-", conduta: CONTINUE}
+      - entrada: {sintoma_codigo: perda_liquido, intensidade: moderada, idade_gestacional_semanas: 36}
+        regra_viva: r4
+        saida_viva: {red_flag: true, prioridade: P1, conduta: ESCALATE_EMERGENCY}
+        leitura: "contraste: duas semanas antes o mesmo relato e emergencia"
+    porque_nao_foi_fechado: >-
+      Qual e a conduta a termo para perda de liquido e para contracoes regulares — e se e a mesma
+      dos dois — e conteudo obstetrico. Nao existe nesta tabela. Alargar `< 37` para `-` faria a
+      regra disparar fora do quadro que a sua propria motivo nomeia ("pre-termo"), o que seria
+      inventar conteudo clinico por omissao.
+
+  - id: ACHADO-G2-pre-eclampsia-abaixo-de-20-semanas
+    regra_afetada: r2 (:41-50)
+    achado: >-
+      A suspeita de pre-eclampsia so e avaliada a partir de `IG >= 20` (:45), consistente com a
+      descricao da propria regra ("Cefaleia + alteracao visual APOS 20 SEMANAS", :42). Abaixo de 20
+      semanas o mesmo par de sintomas nao tem regra: r7 (se "grave") ou r8.
+    vetores_repro:
+      - entrada: {sintoma_codigo: cefaleia_alteracao_visual, intensidade: moderada, idade_gestacional_semanas: 19}
+        regra_viva: r8
+        saida_viva: {red_flag: false, prioridade: "-", conduta: CONTINUE}
+      - entrada: {sintoma_codigo: cefaleia_alteracao_visual, intensidade: grave, idade_gestacional_semanas: 19}
+        regra_viva: r7
+        saida_viva: {red_flag: true, prioridade: P2, conduta: ESCALATE_NURSE}
+        leitura: "escala, mas como sintoma generico grave (P2/enfermagem), nao como P1/emergencia"
+    porque_nao_foi_fechado: >-
+      Se cefaleia com alteracao visual antes de 20 semanas deve escalar — e para qual prioridade —
+      e julgamento obstetrico. FINDING, NAO FIX.
+
+  - id: ACHADO-G3-movimentos-fetais-abaixo-de-26-semanas
+    regra_afetada: r3 (:51-59)
+    achado: >-
+      Reducao de movimentos fetais so e avaliada a partir de `IG >= 26` (:54), coerente com a
+      motivo da regra ("3o trimestre", :58). Abaixo disso, sem regra.
+    vetores_repro:
+      - entrada: {sintoma_codigo: movimentos_fetais_reduzidos, intensidade: moderada, idade_gestacional_semanas: 25}
+        regra_viva: r8
+        saida_viva: {red_flag: false, prioridade: "-", conduta: CONTINUE}
+      - entrada: {sintoma_codigo: movimentos_fetais_reduzidos, intensidade: moderada, idade_gestacional_semanas: 26}
+        regra_viva: r3
+        saida_viva: {red_flag: true, prioridade: P1, conduta: ESCALATE_EMERGENCY}
+        leitura: "a fronteira e exata: 25 -> nenhum red flag, 26 -> emergencia"
+    porque_nao_foi_fechado: >-
+      Idem ACHADO-G2: a banda e a conduta abaixo de 26 semanas sao conteudo obstetrico.
+
+  - id: ACHADO-G4-intensidade-desconhecida-nao-escala
+    regras_afetadas: r6 (:78-86), r7 (:87-96), r8 (:97-105)
+    achado: >-
+      O dominio declarado de `intensidade` inclui QUATRO valores: [leve|moderada|grave|desconhecida]
+      (triage_redflag_adult.dmn:17). O valor `desconhecida` — declaracao explicita de IGNORANCIA
+      sobre a gravidade — nao aparece em regra nenhuma. Consequencia: febre com intensidade
+      "desconhecida" desce ate o catch-all e le `red_flag=false`; o fail-safe r7 nao ajuda porque
+      exige a string exata "grave" (:90).
+    vetores_repro:
+      - entrada: {sintoma_codigo: febre, intensidade: desconhecida, idade_gestacional_semanas: 30}
+        regra_viva: r8
+        saida_viva: {red_flag: false, prioridade: "-", conduta: CONTINUE}
+      - entrada: {sintoma_codigo: febre, intensidade: moderada, idade_gestacional_semanas: 30}
+        regra_viva: r6
+        saida_viva: {red_flag: true, prioridade: P2, conduta: ESCALATE_NURSE}
+    porque_nao_foi_fechado: >-
+      A disposicao de uma intensidade desconhecida e decisao clinica/assistencial; nada nesta
+      tabela nem no schema comum a declara. Vale identicamente para a tabela pediatrica
+      (ACHADO-P2 do candidato irmao) — e portanto uma questao de FAMILIA, nao de uma tabela.
+
+  - id: ACHADO-G5-sintoma-nao-mapeado-so-escala-em-grave
+    regra_afetada: r7 (:87-96)
+    achado: >-
+      O fail-safe obstetrico cobre APENAS `intensidade = "grave"`, exatamente como o schema comum
+      declara (triage_redflag_adult.dmn:20). Qualquer sintoma gestacional fora dos seis codigos
+      mapeados, relatado como "moderada", termina em `red_flag=false`. Escopo declarado, registrado
+      para confirmacao — nao defeito escondido.
+    vetores_repro:
+      - entrada: {sintoma_codigo: dor_abdominal, intensidade: moderada, idade_gestacional_semanas: 30}
+        regra_viva: r8
+        saida_viva: {red_flag: false, prioridade: "-", conduta: CONTINUE}
+      - entrada: {sintoma_codigo: dor_abdominal, intensidade: grave, idade_gestacional_semanas: 30}
+        regra_viva: r7
+        saida_viva: {red_flag: true, prioridade: P2, conduta: ESCALATE_NURSE}
+    nota: >-
+      `dor_abdominal` E um codigo mapeado na tabela ADULTA (triage_redflag_adult.dmn:113-121,
+      "grave" -> P2) mas NAO nesta. A lista de codigos por populacao e conteudo clinico; registrado
+      para que o obstetra confirme a cobertura de codigos, nao para que alguem a complete aqui.
+
+  - id: ACHADO-G6-prioridade-hifen-como-valor
+    regra_afetada: r8 (:97-105), saida `prioridade` (:102)
+    achado: >-
+      O catch-all emite a STRING `"-"` como `prioridade` — valor declarado no dominio [P1|P2|-]
+      (triage_redflag_adult.dmn:18), portanto correto, mas graficamente identico ao wildcard de
+      inputEntry. Sem efeito comportamental; risco de leitura para revisores e consumidores.
+
+# =================================================================================================
+# `regras_candidatas` — THE LIVE TABLE, VERBATIM. This is the proposal: no change.
+# Inputs (:18-26): sintoma_codigo / intensidade / idade_gestacional_semanas.
+# Outputs (:27-30): red_flag / prioridade / conduta / motivo.
+# Every cell, INCLUDING every `motivo` string, is copied from the live rule named in `origem` —
+# deliberately WITHOUT the `CANDIDATO —` prefix the other candidates in this wave use, so that
+# equivalence to the live table is TOTAL and testable on all four outputs.
+# =================================================================================================
+regras_candidatas:
+
+  - ordem: 1
+    id: r1
+    candidato: true
+    origem: "PRESERVADA verbatim de r1 (triage_redflag_gestante.dmn:31-40)"
+    entradas: {sintoma_codigo: '"sangramento_vaginal"', intensidade: "-", idade_gestacional_semanas: "-"}
+    saidas:
+      red_flag: true
+      prioridade: P1
+      conduta: ESCALATE_EMERGENCY
+      motivo: "Sangramento vaginal na gestacao"
+
+  - ordem: 2
+    id: r2
+    candidato: true
+    origem: "PRESERVADA verbatim de r2 (triage_redflag_gestante.dmn:41-50)"
+    entradas: {sintoma_codigo: '"cefaleia_alteracao_visual"', intensidade: "-", idade_gestacional_semanas: ">= 20"}
+    saidas:
+      red_flag: true
+      prioridade: P1
+      conduta: ESCALATE_EMERGENCY
+      motivo: "Suspeita de pre-eclampsia (cefaleia + escotomas/visao turva)"
+
+  - ordem: 3
+    id: r3
+    candidato: true
+    origem: "PRESERVADA verbatim de r3 (triage_redflag_gestante.dmn:51-59)"
+    entradas: {sintoma_codigo: '"movimentos_fetais_reduzidos"', intensidade: "-", idade_gestacional_semanas: ">= 26"}
+    saidas:
+      red_flag: true
+      prioridade: P1
+      conduta: ESCALATE_EMERGENCY
+      motivo: "Reducao de movimentos fetais no 3o trimestre"
+
+  - ordem: 4
+    id: r4
+    candidato: true
+    origem: "PRESERVADA verbatim de r4 (triage_redflag_gestante.dmn:60-68)"
+    entradas: {sintoma_codigo: '"perda_liquido"', intensidade: "-", idade_gestacional_semanas: "< 37"}
+    saidas:
+      red_flag: true
+      prioridade: P1
+      conduta: ESCALATE_EMERGENCY
+      motivo: "Suspeita de rotura prematura de membranas pre-termo"
+
+  - ordem: 5
+    id: r5
+    candidato: true
+    origem: "PRESERVADA verbatim de r5 (triage_redflag_gestante.dmn:69-77)"
+    entradas: {sintoma_codigo: '"contracoes_regulares"', intensidade: "-", idade_gestacional_semanas: "< 37"}
+    saidas:
+      red_flag: true
+      prioridade: P1
+      conduta: ESCALATE_EMERGENCY
+      motivo: "Trabalho de parto pre-termo"
+
+  - ordem: 6
+    id: r6
+    candidato: true
+    origem: "PRESERVADA verbatim de r6 (triage_redflag_gestante.dmn:78-86)"
+    entradas: {sintoma_codigo: '"febre"', intensidade: '"grave","moderada"', idade_gestacional_semanas: "-"}
+    saidas:
+      red_flag: true
+      prioridade: P2
+      conduta: ESCALATE_NURSE
+      motivo: "Febre na gestacao: avaliacao de enfermagem"
+
+  - ordem: 7
+    id: r7
+    candidato: true
+    origem: "PRESERVADA verbatim de r7 (triage_redflag_gestante.dmn:87-96)"
+    entradas: {sintoma_codigo: "-", intensidade: '"grave"', idade_gestacional_semanas: "-"}
+    saidas:
+      red_flag: true
+      prioridade: P2
+      conduta: ESCALATE_NURSE
+      motivo: "Sintoma gestacional nao mapeado com intensidade grave — fail-safe"
+
+  - ordem: 8
+    id: r8
+    candidato: true
+    origem: "PRESERVADA verbatim de r8 (triage_redflag_gestante.dmn:97-105)"
+    entradas: {sintoma_codigo: "-", intensidade: "-", idade_gestacional_semanas: "-"}
+    saidas:
+      red_flag: false
+      prioridade: "-"
+      conduta: CONTINUE
+      motivo: "Sem criterio de red flag gestacional"
+
+# =================================================================================================
+# EQUIVALENCE — total, by construction
+# =================================================================================================
+equivalencia_provada:
+  enunciado: >-
+    Candidato e tabela viva sao IDENTICOS em todas as quatro saidas, para toda entrada. Zero
+    vetores de divergencia — por construcao, e nao por coincidencia.
+  verificacao: >-
+    Provado por exaustao em tests/unit/spec/test_triage_redflag_shadow_candidates.py sobre a grade
+    completa de sintoma_codigo (os 6 mapeados + codigos fora do dominio) x intensidade (os 4
+    declarados + um valor fora do dominio) x idade_gestacional_semanas (fronteiras 19/20/25/26/
+    36/37 e vizinhancas), com AMBAS as tabelas lidas dos artefatos pelo mesmo leitor FIRST-hit.
+    O mesmo modulo prova a propriedade de severidade maxima que justifica a ausencia de
+    reordenacao.

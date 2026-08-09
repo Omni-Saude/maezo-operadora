@@ -1,0 +1,476 @@
+# CANDIDATE (shadow) rule set for `carencia_check` — M-5: the CPT block masks the urgency ladder.
+# =================================================================================================
+# THIS FILE IS NOT A DEPLOYABLE ARTIFACT. It is DATA describing a PROPOSED correction to
+# `spec/processes/dmn/carencia_check.dmn`. It carries the `.yaml` extension deliberately: every
+# artifact-selection path in this repository globs `*.dmn` / `*.bpmn` ONLY, so nothing here can
+# reach the engine.
+#
+#   - deploy  : `collect_artifacts` — `dmn_dir.glob("*.dmn")`
+#               (src/maezo/platform/deploy/engine_deploy.py:140)
+#   - validate: the same `*.dmn` glob (src/maezo/platform/validation/cli.py:103;
+#               `make validate-artifacts`, Makefile:26-42)
+#   Pinned twice, in two different modules:
+#     - tests/unit/platform/test_engine_deploy.py::test_real_spec_tree_yields_16_bpmn_and_62_dmn;
+#     - tests/unit/spec/test_carencia_check_shadow_candidate.py::
+#       test_candidate_manifest_is_invisible_to_artifact_deployment.
+#
+# NO WORKER WIRING IN THIS WAVE. Nothing in `src/` reads this file — pinned by
+# `test_no_src_consumer_of_the_candidate_manifests`. The candidate is evaluated ONLY by the
+# divergence-evidence tests, through `tests/support/dmn_first_hit.py`.
+#
+# =================================================================================================
+# WHY THIS FILE EXISTS
+# -------------------
+# `spec/processes/dmn/carencia_check.dmn` is `hitPolicy="FIRST"` (:59) and opens with the CPT block
+# (:83-108). `r01` (:89-97) gates ONLY on `dias_desde_adesao < 730` (:92) and `cpt_declarada = true`
+# (:93); its `tipo_procedimento` column is the WILDCARD `-` (:91). Every other rule of the table
+# — including the urgency ladder `r03`/`r04` (:115-134) — requires `cpt_declarada = false`
+# (:119, :130, :145, :156, :171, :182, :199, :210, :223).
+#
+# CONSEQUENCE: whenever a CPT is declared, `tipo_procedimento` is IRRELEVANT. The 24h/1-day urgency
+# period the table declares for itself (description :19-20; rules `r03`/`r04`) is UNREACHABLE, and
+# an urgency/emergency case reads the 24-month CPT period instead.
+#
+# THE REPRO (mission M-5, reproduced from the artifact in the test module):
+#   tipo_procedimento="urgencia_emergencia", dias_desde_adesao=30, cpt_declarada=true
+#     LIVE      -> r01: carencia_cumprida=false, prazo_restante_dias=700  (= 730 - 30, :95)
+#     CANDIDATE -> c_urgencia_cumprida: carencia_cumprida=true, prazo_restante_dias=0
+#   The candidate's numbers are the table's OWN: `>= 1` and `0` come verbatim from `r04` (:129,
+#   :132). NO day-count is invented anywhere in this file.
+#
+# THE REGULATORY BASIS THE SME RATIFIES AGAINST — CITED, NOT APPLIED
+# ------------------------------------------------------------------
+# Two provisions, quoted here as the BASIS FOR THE OWNER'S REVIEW (this file does not adjudicate
+# them, and engineering does not act on them):
+#
+#   - Lei 9.656/1998, art. 12, V — the maximum waiting periods a plan may fix, of which the
+#     urgency/emergency maximum is TWENTY-FOUR HOURS;
+#   - Lei 9.656/1998, art. 35-C — urgency and emergency care is of COMPULSORY coverage;
+#   - Lei 9.656/1998, art. 11 — CPT (cobertura parcial temporaria) for a pre-existing condition
+#     restricts, for up to 24 months, ELECTIVE HIGH-COMPLEXITY care (surgical procedures,
+#     high-technology beds and high-complexity procedures related to the declared condition).
+#
+# THE TABLE ITSELF ALREADY CITES ALL THREE — in its own description: urgency "24 horas — DRAFT/verify
+# (Lei 9.656/1998 art. 35-C; RN 259/2011 art. 7)" (:19-20) and CPT "24 meses — DRAFT/verify (Lei
+# 9.656/1998 art. 11; RN 162/2007)" (:24-25). What the table does NOT do is ORDER them accordingly.
+#
+# CITATION DISCREPANCY, RECORDED NOT RESOLVED: the table's description cites "Lei 9.656/1998 art. 12
+# II" for the waiting-period list (:18, :21) while the mission brief and this file cite art. 12, V.
+# The table's own header already marks every one of these citations "DRAFT/verify ... texto vigente"
+# (:17-18, :26-27). Reconciling the exact inciso/alinea against the text in force is PART OF THE
+# SME'S RATIFICATION; this file does not pick a winner. See ACHADO-4.
+#
+# WHAT THE CANDIDATE CONTRADICTS — SAID PLAINLY
+# ---------------------------------------------
+# The live table declares, in a block comment above the CPT rules: "CPT tem precedencia sobre
+# qualquer outro prazo de carencia ordinario." (:85). The candidate CONTRADICTS that premise for
+# ONE `tipo_procedimento` — `urgencia_emergencia` — and for that one only. That contradiction is
+# exactly what the SME ratifies (or refuses) against art. 12, V + art. 35-C. Engineering does not
+# settle it; this file makes it a one-cell, reviewable proposal instead of an invisible behaviour.
+#
+# RUNTIME STATE TODAY (unchanged by this file) — the mitigation, stated without exaggeration
+# --------------------------------------------------------------------------------------------
+# `carencia_check` has exactly ONE consumer in the repository: `_criterio_regulatorio`
+# (src/maezo/tools/workers/auth.py:573-632), the REGULATORIO criterion of
+# `operadora.auth.validate_auto_criteria`. Today:
+#
+#   1. THE TABLE IS NEVER EVALUATED. None of its three inputs (`tipo_procedimento`,
+#      `dias_desde_adesao`, `cpt_declarada`) exists in SP-OP-AUTH-001's start contract, so the
+#      criterion fails closed with `REGULATORIO_ENTRADA_AUSENTE` BEFORE the DMN call
+#      (auth.py:598-604). Already recorded as open residue (4) in docs/review-queue.md:23.
+#   2. EVEN IF THE INPUTS EXISTED, the ratification gate `_gate_on_ratification`
+#      (auth.py:833-869) forces `criterio_regulatorio_ok = false` with
+#      `REGULATORIO_FONTE_NAO_RATIFICADA` while `carencia_check` is `ratificado: false` in
+#      `spec/processes/dmn/auth-criteria-ratification.yaml:97-105` — REGARDLESS of what the table
+#      computed. The would-be verdict survives only as a bounded SHADOW token.
+#   3. WITH THAT CRITERION FALSE, NOTHING AUTO-APPROVES. `auth_auto_approval` v0.2.0 r1 requires all
+#      four criteria plus `auto_criteria_verificado`; the request routes to human analysis
+#      (docs/review-queue.md:23). In Rafael's graph the auto-approval table is only reached when
+#      `auth_admissibility` resolves the NON-TERMINAL `SEGUE_ANALISE`
+#      (src/maezo/agents/rafael/graph.py:386-391); `PENDENTE_DOCUMENTACAO` and any DMN error route
+#      to `human_auditor` directly (graph.py:382-390, :411-414).
+#   4. AND THE TABLE'S OWN L0 HARD INVARIANT STANDS: `carencia_cumprida=false` NEVER denies
+#      automatically — it feeds the medical auditor (:13-15).
+#
+# THE TABLE IS STILL WRONG. The mitigation is that nothing consumes it yet, not that the ordering is
+# acceptable. This file exists so that fixing it is a paste, not a project.
+#
+# WHO MAY ACT ON THIS
+# -------------------
+# ADR-0028 (docs/adr/0028-dmn-evaluation-engine-side.md:214-216) — "If the DMN itself is wrong, fix
+# forward IN SPEC, never patch the Python back." Engineering NEVER corrects the table. The
+# correction is the REGULATORY OWNER's act (juridico/regulatorio + medico auditor, per
+# docs/review-queue.md:103), and it is a spec DATA change.
+#
+# =================================================================================================
+# ACTIVATION PATH — the SINGLE human act (ADR-0028 §7)
+# =================================================================================================
+# 1. The REGULATORY OWNER reviews `regras_candidatas` below against the provisions in force (plus
+#    `decisao_pendente_do_dono`) and RATIFIES by setting ALL THREE of:
+#
+#        ratificado:    true
+#        revisor:       "<who ratified it>"       # non-empty, non-placeholder; ADR-0007
+#        ratificado_em: "YYYY-MM-DD"
+#
+#    Any of the three missing / blank / left at its `PLACEHOLDER_*` value => NOT ratified.
+#
+# 2. The REGULATORY OWNER applies `regras_candidatas` to the LIVE TABLE
+#    `spec/processes/dmn/carencia_check.dmn` (rule order + the `cpt_declarada` column of the two
+#    urgency rules). PER ADR-0028 THE LIVE-TABLE EDIT IS THE OWNER'S ACT.
+#
+# 3. Only after step 2 does runtime behaviour change — and even then only once the three inputs
+#    exist AND `carencia_check` is ratified in `auth-criteria-ratification.yaml` (see item 2 of the
+#    runtime-state note above). Ratifying THIS file alone changes nothing anywhere.
+#
+# REVIEWER GATE: `.github/CODEOWNERS` covers BOTH this file and the live `carencia_check.dmn`.
+#
+# =================================================================================================
+
+version: 1
+status: DRAFT
+alvo: spec/processes/dmn/carencia_check.dmn
+decisao_alvo: carencia_check
+norma_regente: >-
+  Lei 9.656/1998 art. 12, V (prazo maximo de 24 horas para urgencia e emergencia) + art. 35-C
+  (cobertura obrigatoria de urgencia/emergencia), contra art. 11 (CPT — restricao de ate 24 meses
+  para procedimentos eletivos de alta complexidade ligados a doenca/lesao preexistente). CITADAS
+  COMO BASE DE RATIFICACAO DO SME, nao aplicadas por este arquivo. A propria tabela ja cita as tres
+  (carencia_check.dmn:19-20, :24-25) e marca todas como DRAFT/verify (:26-27).
+
+# --- RATIFICATION BLOCK -------------------------------------------------------------------------
+ratificado: false
+revisor: "PLACEHOLDER_DONO_REGULATORIO — juridico/regulatorio + medico auditor (docs/review-queue.md:103)"
+ratificado_em: "PLACEHOLDER_YYYY-MM-DD"
+
+modo_operacao: sombra
+
+# =================================================================================================
+# THE DEFECT, STATED AS A REACHABILITY FACT ABOUT THE LIVE TABLE
+# =================================================================================================
+# Columns, in declaration order (:61-77): tipo_procedimento / dias_desde_adesao / cpt_declarada.
+# Outputs (:79-81): carencia_cumprida / prazo_restante_dias / fonte. Live rules in order:
+#
+#   1  r01 (:89-97)  tipo `-`               dias < 730   cpt true   -> false / 730-dias / CPT
+#   2  r02 (:100-108) tipo `-`              dias >= 730  cpt true   -> true  / 0        / CPT
+#   3  r03 (:115-123) "urgencia_emergencia" dias < 1     cpt false  -> false / 1
+#   4  r04 (:126-134) "urgencia_emergencia" dias >= 1    cpt false  -> true  / 0
+#   5  r05 (:141-149) "parto"               dias < 300   cpt false  -> false / 300-dias
+#   6  r06 (:152-160) "parto"               dias >= 300  cpt false  -> true  / 0
+#   7  r07 (:167-175) "eletivo"             dias < 180   cpt false  -> false / 180-dias
+#   8  r08 (:178-186) "eletivo"             dias >= 180  cpt false  -> true  / 0
+#   9  r09 (:195-203) "alta_complexidade"   dias < 180   cpt false  -> false / 180-dias
+#  10  r10 (:206-214) "alta_complexidade"   dias >= 180  cpt false  -> true  / 0
+#  11  r11 (:219-227) "outros"              dias `-`     cpt false  -> false / -1
+#  12  r99 (:234-242) all wildcards                                 -> false / -1
+#
+# TWO REACHABILITY FACTS FOLLOW DIRECTLY:
+#   (A) rules 3..11 are ALL unreachable when `cpt_declarada = true` — rows 1/2 partition the whole
+#       integer range of `dias_desde_adesao` (`< 730` OR `>= 730`) with a wildcard on the procedure
+#       type, so nothing below them can ever be reached in that half-space;
+#   (B) the L0-HARD catch-all `r99` (:234-242) is therefore ALSO unreachable for the entire
+#       `cpt_declarada = true` half-space. Same masking class as the W3 finding. See ACHADO-3 —
+#       the candidate does NOT close (B), because closing it requires a legal judgement.
+
+# =================================================================================================
+# FURTHER FINDINGS — recorded for the owner; nothing here is applied by engineering.
+# =================================================================================================
+achados_adicionais:
+
+  - id: ACHADO-1-parto-tambem-mascarado-pelo-bloco-cpt
+    regras_afetadas: r01/r02 (:89-108) vs r05/r06 (:141-160)
+    classe: mesmo mascaramento, outro tipo_procedimento
+    achado: >-
+      Com `cpt_declarada=true`, o prazo de parto (300 dias, :144) tambem e substituido pelo prazo
+      CPT (730 dias). Exemplo: tipo="parto", dias=250, cpt=true -> r01: false / prazo 480; pelas
+      proprias regras de parto seria false / prazo 50. Os dois dizem `carencia_cumprida=false`,
+      mas o prazo informado ao auditor difere em 430 dias.
+    porque_nao_foi_alterado: >-
+      Se o parto tambem escapa a CPT e leitura do escopo do art. 11 (que fala em procedimentos
+      cirurgicos / leitos de alta tecnologia / procedimentos de alta complexidade LIGADOS a doenca
+      preexistente). Este arquivo nao adjudica esse escopo. O candidato altera SOMENTE
+      `urgencia_emergencia`, onde a base (art. 12, V + art. 35-C) e uma regra de prazo maximo e de
+      cobertura obrigatoria, nao uma questao de escopo de procedimento. FINDING, NAO FIX.
+
+  - id: ACHADO-2-eletivo-e-alta-complexidade-sob-cpt
+    regras_afetadas: r01/r02 vs r07..r10 (:167-214)
+    classe: nao e mascaramento — registrado por completude
+    achado: >-
+      Para "eletivo" e "alta_complexidade" a precedencia da CPT e coerente com a leitura do art. 11
+      citada acima, e o input `cpt_declarada` ja e documentado como especifico da solicitacao
+      ("Cobertura Parcial Temporaria declarada PARA A CONDICAO/PROCEDIMENTO solicitado", :38-40) —
+      ou seja, a vinculacao a doenca preexistente e resolvida A MONTANTE, por um worker
+      deterministico, nao por esta tabela. Nada a mudar aqui; registrado para que o SME confirme
+      que essa resolucao a montante realmente existira quando os inputs existirem (hoje nao
+      existem — auth.py:578-591).
+
+  - id: ACHADO-3-catchall-l0-inalcancavel-sob-cpt
+    regra_afetada: r99 (:234-242)
+    classe: fail-safe declarado L0 HARD, inalcancavel em metade do espaco
+    achado: >-
+      O catch-all e declarado "OBRIGATORIO L0 HARD" (:230-232) para "combinacao nao mapeada ou dados
+      ausentes ... portabilidade, migracao, tipo desconhecido". Como r01/r02 particionam todo
+      `dias_desde_adesao` com wildcard no tipo, NENHUMA entrada com `cpt_declarada=true` chega la —
+      inclusive um `tipo_procedimento` fora do dominio declarado (:30-33) ou a string vazia.
+    porque_nao_foi_alterado: >-
+      Fechar isso exigiria decidir a quais `tipo_procedimento` a CPT se aplica, isto e, adjudicar o
+      escopo do art. 11 — e o mesmo julgamento juridico do ACHADO-1. O candidato reduz o buraco
+      (urgencia deixa de cair no bloco CPT) mas NAO o elimina: com cpt=true e tipo fora do dominio,
+      o candidato tambem devolve a regra CPT. DITO EXPLICITAMENTE PARA NAO SER CONFUNDIDO COM UM
+      CONSERTO COMPLETO.
+
+  - id: ACHADO-4-citacao-do-inciso-divergente
+    regra_afetada: description (:18, :21)
+    classe: discrepancia de citacao, nao de comportamento
+    achado: >-
+      A descricao da tabela cita "Lei 9.656/1998 art. 12 II" para a lista de prazos (e "art. 12 II
+      'a'" para o parto), enquanto a base usada nesta revisao e o art. 12, V. Nenhum comportamento
+      depende disso, mas a citacao e o que o SME vai conferir contra o texto vigente — e a propria
+      tabela ja marca todas as suas citacoes como "DRAFT/verify" (:17-18, :26-27). Registrado para
+      que a ratificacao reconcilie inciso/alinea; ESTE ARQUIVO NAO ESCOLHE QUAL ESTA CERTO.
+
+  - id: ACHADO-5-portabilidade-continua-fora-da-tabela
+    regra_afetada: description (:50-53)
+    classe: lacuna que a propria tabela declara
+    achado: >-
+      A tabela declara que a portabilidade de carencia (RN 186/2009) NAO esta implementada e que
+      esses casos "devem ser encaminhados ao medico auditor" — mas nao ha input de portabilidade,
+      logo nao ha regra que os separe: um beneficiario com portabilidade e avaliado como se nao
+      tivesse. O candidato nao muda isso (exigiria um input novo, o que este arquivo nao faz).
+      Ja registrado em docs/review-queue.md:103,107.
+
+# =================================================================================================
+# THE OPEN DECISION THE CANDIDATE DELIBERATELY DOES NOT MAKE
+# =================================================================================================
+decisao_pendente_do_dono:
+  - id: DECISAO-A-escopo-da-precedencia-da-cpt
+    pergunta: >-
+      A CPT deixa de preceder SOMENTE `urgencia_emergencia`, ou tambem `parto` e os tipos nao
+      mapeados?
+    porque_nao_foi_decidido_aqui: >-
+      Responder exige adjudicar o escopo do art. 11 (quais procedimentos a CPT pode restringir),
+      que e julgamento juridico. O candidato move apenas o caso em que a base e um prazo maximo
+      explicito e uma cobertura obrigatoria explicita (art. 12, V + art. 35-C).
+    opcoes_para_o_dono:
+      - "(a) manter como proposto: so `urgencia_emergencia` precede o bloco CPT."
+      - "(b) mover tambem `parto` (r05/r06) para antes do bloco CPT, com o mesmo alargamento de
+         `cpt_declarada` para `-` — sem inventar prazo: os 300 dias sao os da propria r05 (:144)."
+      - "(c) restringir o bloco CPT a um conjunto POSITIVO de `tipo_procedimento`
+         (ex.: {\"eletivo\",\"alta_complexidade\"}), de modo que os tipos nao mapeados voltem a
+         alcancar o catch-all L0 (fecha o ACHADO-3)."
+    nao_e_uma_recomendacao: >-
+      O candidato implementa (a) por ser a unica opcao cuja base este arquivo consegue citar sem
+      adjudicar escopo. Se o dono escolher (b) e/ou (c), as edicoes sao localizadas e obvias.
+
+# =================================================================================================
+# `regras_candidatas` — hitPolicy FIRST, evaluated top to bottom.
+# Inputs/outputs are EXACTLY the live table's own. NO new input, NO new output, NO NEW DAY-COUNT:
+# every number below is copied from the live rule named in `origem`.
+#
+# THE WHOLE DIFF THE OWNER APPLIES: move `r03`/`r04` from positions 3-4 to positions 1-2, and change
+# their `cpt_declarada` cell from `false` to the wildcard `-`. Nothing else. Every other rule keeps
+# its cells and its RELATIVE order.
+# =================================================================================================
+regras_candidatas:
+
+  - ordem: 1
+    id: c_urgencia_nao_cumprida
+    candidato: true
+    origem: "r03 (carencia_check.dmn:115-123) — MOVIDA da posicao 3 para a 1; UMA celula alterada"
+    celula_alterada:
+      coluna: cpt_declarada
+      viva: "false   # carencia_check.dmn:119"
+      candidata: "-"
+    origem_do_prazo: "`< 1` e `1` sao os proprios valores de r03 (:118, :121) — as 24h que a tabela declara (:19-20). NENHUM numero novo."
+    entradas:
+      tipo_procedimento: '"urgencia_emergencia"'
+      dias_desde_adesao: "< 1"
+      cpt_declarada: "-"
+    saidas:
+      carencia_cumprida: false
+      prazo_restante_dias: 1
+      fonte: "CANDIDATO — Urgencia/emergencia: prazo de 24h (1 dia SINTETICO) ainda nao cumprido; precede a CPT (base a ratificar: Lei 9.656/1998 art. 12, V + art. 35-C). Encaminhar medico auditor. Nunca negativa automatica. DRAFT/verify."
+
+  - ordem: 2
+    id: c_urgencia_cumprida
+    candidato: true
+    origem: "r04 (carencia_check.dmn:126-134) — MOVIDA da posicao 4 para a 2; UMA celula alterada"
+    celula_alterada:
+      coluna: cpt_declarada
+      viva: "false   # carencia_check.dmn:130"
+      candidata: "-"
+    origem_do_prazo: "`>= 1` e `0` sao os proprios valores de r04 (:129, :132). NENHUM numero novo."
+    entradas:
+      tipo_procedimento: '"urgencia_emergencia"'
+      dias_desde_adesao: ">= 1"
+      cpt_declarada: "-"
+    saidas:
+      carencia_cumprida: true
+      prazo_restante_dias: 0
+      fonte: "CANDIDATO — Urgencia/emergencia: carencia de 24h aparentemente cumprida; precede a CPT (base a ratificar: Lei 9.656/1998 art. 12, V + art. 35-C; a CPT do art. 11 restringe o eletivo de alta complexidade). DRAFT/verify."
+
+  - ordem: 3
+    id: c_cpt_nao_cumprida
+    candidato: true
+    origem: "PRESERVADA verbatim (entradas e saidas; fonte com prefixo CANDIDATO) de r01 (carencia_check.dmn:89-97)"
+    nota: "Agora precedida pelas duas regras de urgencia — deixa de alcancar `urgencia_emergencia`."
+    entradas:
+      tipo_procedimento: "-"
+      dias_desde_adesao: "< 730"
+      cpt_declarada: "true"
+    saidas:
+      carencia_cumprida: false
+      prazo_restante_dias: "730 - dias_desde_adesao"
+      fonte: "CANDIDATO — CPT declarada: prazo de 24 meses (730 dias SINTETICO) ainda nao cumprido. Encaminhar medico auditor. Nunca negativa automatica. DRAFT/verify Lei 9.656/1998 art. 11 + RN 162/2007."
+
+  - ordem: 4
+    id: c_cpt_cumprida
+    candidato: true
+    origem: "PRESERVADA verbatim (entradas e saidas; fonte com prefixo CANDIDATO) de r02 (carencia_check.dmn:100-108)"
+    entradas:
+      tipo_procedimento: "-"
+      dias_desde_adesao: ">= 730"
+      cpt_declarada: "true"
+    saidas:
+      carencia_cumprida: true
+      prazo_restante_dias: 0
+      fonte: "CANDIDATO — CPT: prazo de 24 meses (730 dias SINTETICO) aparentemente cumprido. DRAFT/verify Lei 9.656/1998 art. 11 + RN 162/2007."
+
+  - ordem: 5
+    id: c_parto_nao_cumprida
+    candidato: true
+    origem: "PRESERVADA verbatim de r05 (carencia_check.dmn:141-149)"
+    entradas:
+      tipo_procedimento: '"parto"'
+      dias_desde_adesao: "< 300"
+      cpt_declarada: "false"
+    saidas:
+      carencia_cumprida: false
+      prazo_restante_dias: "300 - dias_desde_adesao"
+      fonte: "CANDIDATO — Parto: prazo de 300 dias (SINTETICO) ainda nao cumprido. Encaminhar medico auditor. Nunca negativa automatica. DRAFT/verify Lei 9.656/1998 art. 12 II a."
+
+  - ordem: 6
+    id: c_parto_cumprida
+    candidato: true
+    origem: "PRESERVADA verbatim de r06 (carencia_check.dmn:152-160)"
+    entradas:
+      tipo_procedimento: '"parto"'
+      dias_desde_adesao: ">= 300"
+      cpt_declarada: "false"
+    saidas:
+      carencia_cumprida: true
+      prazo_restante_dias: 0
+      fonte: "CANDIDATO — Parto: carencia de 300 dias aparentemente cumprida. DRAFT/verify Lei 9.656/1998 art. 12 II a + texto vigente ANS."
+
+  - ordem: 7
+    id: c_eletivo_nao_cumprida
+    candidato: true
+    origem: "PRESERVADA verbatim de r07 (carencia_check.dmn:167-175)"
+    entradas:
+      tipo_procedimento: '"eletivo"'
+      dias_desde_adesao: "< 180"
+      cpt_declarada: "false"
+    saidas:
+      carencia_cumprida: false
+      prazo_restante_dias: "180 - dias_desde_adesao"
+      fonte: "CANDIDATO — Eletivo: prazo de 180 dias (SINTETICO) ainda nao cumprido. Encaminhar medico auditor. Nunca negativa automatica. DRAFT/verify RN 195/2009 + RN 259/2011 + consolidacoes."
+
+  - ordem: 8
+    id: c_eletivo_cumprida
+    candidato: true
+    origem: "PRESERVADA verbatim de r08 (carencia_check.dmn:178-186)"
+    entradas:
+      tipo_procedimento: '"eletivo"'
+      dias_desde_adesao: ">= 180"
+      cpt_declarada: "false"
+    saidas:
+      carencia_cumprida: true
+      prazo_restante_dias: 0
+      fonte: "CANDIDATO — Eletivo: carencia de 180 dias aparentemente cumprida. DRAFT/verify RN 195/2009 + RN 259/2011 + texto vigente ANS."
+
+  - ordem: 9
+    id: c_alta_complexidade_nao_cumprida
+    candidato: true
+    origem: "PRESERVADA verbatim de r09 (carencia_check.dmn:195-203)"
+    entradas:
+      tipo_procedimento: '"alta_complexidade"'
+      dias_desde_adesao: "< 180"
+      cpt_declarada: "false"
+    saidas:
+      carencia_cumprida: false
+      prazo_restante_dias: "180 - dias_desde_adesao"
+      fonte: "CANDIDATO — Alta complexidade: prazo de 180 dias (SINTETICO/verify) ainda nao cumprido. Encaminhar medico auditor. Nunca negativa automatica. DRAFT/verify RN 195/2009 + RN 465/2021."
+
+  - ordem: 10
+    id: c_alta_complexidade_cumprida
+    candidato: true
+    origem: "PRESERVADA verbatim de r10 (carencia_check.dmn:206-214)"
+    entradas:
+      tipo_procedimento: '"alta_complexidade"'
+      dias_desde_adesao: ">= 180"
+      cpt_declarada: "false"
+    saidas:
+      carencia_cumprida: true
+      prazo_restante_dias: 0
+      fonte: "CANDIDATO — Alta complexidade: carencia de 180 dias aparentemente cumprida. DRAFT/verify prazo especifico com juridico; confirmar contra RN 465/2021 + contrato."
+
+  - ordem: 11
+    id: c_outros
+    candidato: true
+    origem: "PRESERVADA verbatim de r11 (carencia_check.dmn:219-227)"
+    entradas:
+      tipo_procedimento: '"outros"'
+      dias_desde_adesao: "-"
+      cpt_declarada: "false"
+    saidas:
+      carencia_cumprida: false
+      prazo_restante_dias: -1
+      fonte: "CANDIDATO — Tipo de procedimento nao mapeado nesta tabela: prazo de carencia desconhecido (-1 indica indeterminado). Encaminhar medico auditor e juridico. Nunca negativa automatica."
+
+  - ordem: 12
+    id: c_catchall
+    candidato: true
+    origem: "PRESERVADA verbatim de r99 (carencia_check.dmn:234-242)"
+    nota: "Continua inalcancavel para cpt_declarada=true — ver ACHADO-3. O candidato NAO fecha isso."
+    entradas:
+      tipo_procedimento: "-"
+      dias_desde_adesao: "-"
+      cpt_declarada: "-"
+    saidas:
+      carencia_cumprida: false
+      prazo_restante_dias: -1
+      fonte: "CANDIDATO — CATCH-ALL FAIL-SAFE: combinacao nao mapeada nesta tabela DRAFT (pode incluir portabilidade, migracao de plano, tipo especial): encaminhar medico auditor + juridico. Nunca negativa automatica (L0 hard)."
+
+# =================================================================================================
+# EQUIVALENCE PROOF — what changes, and what provably does not
+# =================================================================================================
+equivalencia_provada:
+  enunciado: >-
+    Candidato e tabela viva divergem EXATAMENTE quando
+    `tipo_procedimento = "urgencia_emergencia"` E `cpt_declarada = true`. Fora desse subespaco cada
+    entrada casa a MESMA regra viva (via a coluna `origem` de cada regra candidata) e emite
+    `carencia_cumprida` e `prazo_restante_dias` identicos.
+  o_que_nao_e_comparado: >-
+    `fonte` NAO entra em nenhuma comparacao: TODA regra candidata reescreve `fonte` com o prefixo
+    `CANDIDATO —` (a mesma convencao que o precedente W3 usa em `motivo`), logo ela e texto de
+    proveniencia, nunca sinal de divergencia. O sinal equivalente e QUAL regra viva o candidato
+    alcanca — medido explicitamente no teste.
+  tres_classes_de_divergencia:
+    - "dias_desde_adesao >= 1 e < 730: viva false / 730-dias (r01) vs candidato true / 0 — INVERSAO DO BOOLEANO."
+    - "dias_desde_adesao < 1 (isto e, 0): viva false / 730 (r01) vs candidato false / 1 — mesmo booleano, prazo diferente."
+    - "dias_desde_adesao >= 730: viva true / 0 (r02) vs candidato true / 0 — MESMOS numeros, mas a regra
+       alcancada passa de r02 (CPT) para r04 (urgencia): muda a fundamentacao registrada, nao o desfecho."
+  verificacao: >-
+    Provado por exaustao no modulo de teste (tests/unit/spec/test_carencia_check_shadow_candidate.py)
+    sobre a grade completa de tipo_procedimento (os 5 declarados + a string vazia + um literal fora
+    do dominio) x um conjunto de `dias_desde_adesao` que inclui todas as fronteiras da tabela
+    (0, 1, 2, 179, 180, 181, 299, 300, 301, 729, 730, 731) x cpt_declarada, com AMBAS as tabelas
+    lidas dos artefatos pelo mesmo leitor FIRST-hit. O mesmo modulo prova que o candidato e MONOTONO
+    a favor do beneficiario: nunca transforma uma carencia cumprida em nao cumprida, e nunca alonga
+    um prazo informado.
+
+# =================================================================================================
+# EVIDENCE THE OWNER RATIFIES AGAINST
+# =================================================================================================
+# tests/unit/spec/test_carencia_check_shadow_candidate.py enumerates the divergence corpus
+# (including the mission repro: urgencia + 30 dias + CPT), pins the two masking facts (A) and (B)
+# above as properties of the live artifact, and pins that ratifying this file cannot enforce it.

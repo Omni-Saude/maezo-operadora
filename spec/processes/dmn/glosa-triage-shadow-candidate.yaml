@@ -1,0 +1,413 @@
+# CANDIDATE (shadow) rule set for `glosa_triage` — M-4: the permissive terminal at position 1.
+# =================================================================================================
+# THIS FILE IS NOT A DEPLOYABLE ARTIFACT. It is DATA describing a PROPOSED correction to
+# `spec/processes/dmn/glosa_triage.dmn`. It carries the `.yaml` extension deliberately: every
+# artifact-selection path in this repository globs `*.dmn` / `*.bpmn` ONLY, so nothing here can
+# reach the engine.
+#
+#   - deploy  : `collect_artifacts` — `dmn_dir.glob("*.dmn")`
+#               (src/maezo/platform/deploy/engine_deploy.py:140)
+#   - validate: the same `*.dmn` glob (src/maezo/platform/validation/cli.py:103;
+#               `make validate-artifacts`, Makefile:26-42 — the W3 manifest cites 26-45, which
+#               overshoots into the next target; re-derived here)
+#   Pinned twice, in two different modules — exactly as for the W3 precedent
+#   (`adequacao-gap-shadow-candidate.yaml`):
+#     - tests/unit/platform/test_engine_deploy.py::test_real_spec_tree_yields_16_bpmn_and_62_dmn —
+#       the artifact census against the REAL spec/ tree stays 16 BPMN + 62 DMN with this file
+#       present (it would fail if the glob ever picked this file up);
+#     - tests/unit/spec/test_glosa_triage_shadow_candidate.py::
+#       test_candidate_manifest_is_invisible_to_artifact_deployment — names THIS file and asserts
+#       `collect_artifacts` excludes it, while the live table it corrects IS included.
+#
+# NO WORKER WIRING IN THIS WAVE. Unlike the W3 precedent, NOTHING in `src/` reads this file. There
+# is no shadow evaluator module, no telemetry, no worker call — pinned by
+# `test_no_src_consumer_of_the_candidate_manifests`. The candidate is evaluated ONLY by the
+# divergence-evidence tests, through the shared fail-closed reader `tests/support/dmn_first_hit.py`.
+#
+# =================================================================================================
+# WHY THIS FILE EXISTS
+# -------------------
+# `spec/processes/dmn/glosa_triage.dmn` has a rule-ORDER + rule-SCOPE defect of the same class as
+# the W3 finding: a PERMISSIVE rule sits at position 1 and its condition is a NEGATIVE set, so it
+# preempts the conservative fail-safe the table itself declares.
+#
+# `r_sem_glosa` (glosa_triage.dmn:53-62) is row 1 under `hitPolicy="FIRST"` (:35) and gates
+# `categoria_normalizada` on `not("tecnica","clinica")` (:56). A negative set admits EVERY literal
+# outside those two — including `"desconhecida"`, which is precisely the value the UPSTREAM table
+# emits for an unmapped TISS reason code, and which that table's own description declares must go
+# to a human:
+#
+#   glosa_reason_normalization.dmn:13-15 — "Codigo desconhecido -> categoria_normalizada=
+#   'desconhecida' (rota conservadora a humano A JUSANTE NA GLOSA_TRIAGE, nunca aceite automatico)"
+#
+# The live `glosa_triage` does not honour that declaration. And `glosa_triage`'s OWN catch-all says
+# the same thing in its own words: "Catch-all FAIL-SAFE: qualquer ambiguidade/inelegibilidade/
+# CATEGORIA DESCONHECIDA -> analise humana. NUNCA aceite." (:94) — a fail-safe that `r_sem_glosa`
+# makes unreachable for the whole {conforme=true, divergencia=false, docs=true} subspace.
+#
+# GOVERNING SOURCE: this file cites NO external norm and INVENTS NO value. Its entire basis is the
+# two tables' own declared vocabulary and their own declared dispositions, plus the closed domain
+# the BPMN itself states for `categoria_normalizada`
+# (SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn:106 — "{tecnica, administrativa, clinica,
+# valor, documental, desconhecida}").
+#
+# WHY IT MATTERS: `SEM_GLOSA` IS A TERMINAL, HUMAN-FREE END STATE
+# --------------------------------------------------------------
+# In the BPMN, `SEM_GLOSA` leaves the triage gateway straight to `ST_PublishSemGlosa` ->
+# `End_SemGlosa` (bpmn:292-294, :90-104): the process ENDS, publishing `desfecho=sem_glosa`, with NO
+# user task. Every other routing value (`RECORRER`, `ANALISE_HUMANA`) is the default flow into
+# `ST_PrepareTriageDossier` -> `UT_AnalistaContas` (bpmn:295-296). So the defect is not a label: it
+# closes a case with ZERO human review.
+#
+# HOW OFTEN: `desconhecida` IS THE WORKER'S OWN DEFAULT
+# ----------------------------------------------------
+# `contas.prepare_triage_dossier` reads
+# `categoria_normalizada = reason_analysis.get("categoria_normalizada", "desconhecida")`
+# (src/maezo/tools/workers/contas.py:373) and sends it to the table (:374-384). The defective
+# subspace is therefore reached not only by a genuinely unmapped TISS reason code, but by ANY
+# upstream analysis result that omits the key.
+#
+# WHO MAY ACT ON THIS
+# -------------------
+# ADR-0028 (docs/adr/0028-dmn-evaluation-engine-side.md:214-216) — "spec/ is the single source of
+# truth. On any Python/DMN divergence, the DMN wins; ... If the DMN itself is wrong, fix forward IN
+# SPEC, never patch the Python back." Engineering therefore NEVER corrects the table. The correction
+# is the OWNER's act (auditoria-contas + compliance, per docs/review-queue.md:266), and it is a spec
+# DATA change, not a code change.
+#
+# =================================================================================================
+# ACTIVATION PATH — the SINGLE human act (ADR-0028 §7)
+# =================================================================================================
+# 1. The OWNER reviews `regras_candidatas` below (plus `decisao_pendente_do_dono`) and RATIFIES by
+#    setting ALL THREE of:
+#
+#        ratificado:    true                      # the boolean literal true — nothing else counts
+#        revisor:       "<who ratified it>"       # non-empty, non-placeholder; ADR-0007
+#        ratificado_em: "YYYY-MM-DD"              # non-empty, non-placeholder
+#
+#    Any of the three missing / blank / left at its `PLACEHOLDER_*` value => NOT ratified
+#    (fail-closed). The loader never defaults to ratified and swallows every load error into
+#    "not ratified" (tests/support/dmn_first_hit.py::load_candidate_ratification).
+#
+# 2. The OWNER applies `regras_candidatas` to the LIVE TABLE `spec/processes/dmn/glosa_triage.dmn`
+#    (rule order + the `categoria_normalizada` column of `r_sem_glosa`). PER ADR-0028 (:214-216)
+#    THE LIVE-TABLE EDIT ITSELF IS THE OWNER'S ACT. It is a spec DATA change: no Python changes, no
+#    worker redeploy.
+#
+# 3. Only after step 2 does runtime behaviour change. Step 1 alone changes NOTHING: there is no
+#    consumer of this file at all (see the "NO WORKER WIRING" note above), and the shared evaluator
+#    refuses to run in an enforcing mode while `ratificado: false`.
+#
+# REVIEWER GATE: `.github/CODEOWNERS` covers BOTH this file and the live `glosa_triage.dmn`
+# (added in the same commit that created this file).
+#
+# =================================================================================================
+
+version: 1
+status: DRAFT
+alvo: spec/processes/dmn/glosa_triage.dmn
+decisao_alvo: glosa_triage
+norma_regente: >-
+  NENHUMA norma externa e invocada. A base e o vocabulario e as disposicoes DECLARADOS pelas
+  proprias tabelas: o dominio fechado de `categoria_normalizada`
+  (glosa_reason_normalization.dmn:31-72 e SP-OP-CONTAS-001_...bpmn:106) e o fail-safe que a
+  glosa_triage declara para "categoria desconhecida" (glosa_triage.dmn:94).
+
+# --- RATIFICATION BLOCK — the three fields of step 1 above. -------------------------------------
+# The two `PLACEHOLDER_*` values are MACHINE-DETECTABLE: the loader treats any value containing the
+# token `PLACEHOLDER` as blank, so a half-finished edit (flag flipped, identity left as shipped)
+# reads as NOT ratified rather than as an anonymous ratification.
+ratificado: false
+revisor: "PLACEHOLDER_DONO_DA_TABELA — auditoria-contas + compliance (docs/review-queue.md:266)"
+ratificado_em: "PLACEHOLDER_YYYY-MM-DD"
+
+# --- OPERATING MODE -----------------------------------------------------------------------------
+# `sombra` is the ONLY mode that exists. There is no consumer of this file in `src/` at all, and the
+# shared evaluator RAISES `EnforcementNotRatifiedError` if anything asks it to run in an enforcing
+# mode while `ratificado` is not the literal `true`.
+modo_operacao: sombra
+
+# =================================================================================================
+# THE DEFECT, STATED AS A REACHABILITY FACT ABOUT THE LIVE TABLE
+# =================================================================================================
+# Read directly off spec/processes/dmn/glosa_triage.dmn (hitPolicy=FIRST, :35). Columns, in
+# declaration order (:36-50): tipo_item / categoria_normalizada / item_conforme_tabela /
+# divergencia_valor / documentacao_anexa. Live rules in evaluation order:
+#
+#   1 r_sem_glosa         (:53-62)  cat not("tecnica","clinica") AND conforme=true AND
+#                                   divergencia=false AND docs=true          -> SEM_GLOSA
+#   2 r_tecnica_humano    (:63-72)  cat in {"tecnica","clinica"}              -> ANALISE_HUMANA
+#   3 r_documental_humano (:73-82)  cat in {"documental","administrativa"}
+#                                   AND docs=false                            -> ANALISE_HUMANA
+#   4 r_valor_recorrer    (:83-92)  cat="valor" AND conforme=true AND
+#                                   divergencia=true AND docs=true            -> RECORRER
+#   5 r_catchall          (:93-102) all wildcards                             -> ANALISE_HUMANA
+#
+# CONSEQUENCE:
+#   for categoria_normalizada NOT IN {tecnica, clinica, documental, administrativa, valor}
+#   — i.e. "desconhecida" and EVERY literal outside the declared domain —
+#   with conforme=true, divergencia=false, docs=true,
+#       row 1 matches and the table emits SEM_GLOSA,
+#   so the catch-all that the table's own text (:94) reserves for "categoria desconhecida" is
+#   UNREACHABLE on exactly the inputs it names.
+#
+# THE REPRO (mission M-4, reproduced from the artifact in the test module):
+#   categoria_normalizada="desconhecida", item_conforme_tabela=true, divergencia_valor=false,
+#   documentacao_anexa=true  ->  LIVE: SEM_GLOSA (r_sem_glosa)  /  CANDIDATE: ANALISE_HUMANA
+#   (c_catchall). `tipo_item` is irrelevant — it is `-` in every rule (see ACHADO-3).
+
+# =================================================================================================
+# FURTHER FINDINGS — recorded for the owner; nothing here is applied by engineering.
+# Each is derived only from the live tables' own text and their own declared semantics.
+# =================================================================================================
+achados_adicionais:
+
+  - id: ACHADO-1-reordenar-sozinho-nao-fecha-o-buraco
+    regra_afetada: r_sem_glosa (glosa_triage.dmn:53-62)
+    classe: refutacao do conserto ingenuo
+    achado: >-
+      Mover `r_sem_glosa` para DEPOIS das tres regras especificas NAO fecha o defeito. Com
+      categoria="desconhecida", conforme=true, divergencia=false e docs=true, nenhuma das tres
+      regras especificas casa (r_tecnica_humano exige cat in {tecnica,clinica}; r_documental_humano
+      exige docs=false; r_valor_recorrer exige cat="valor" e divergencia=true), entao a avaliacao
+      chega em `r_sem_glosa` e `not("tecnica","clinica")` continua admitindo "desconhecida" ->
+      SEM_GLOSA. O que fecha o buraco e trocar o conjunto NEGATIVO por um conjunto POSITIVO
+      fechado. O candidato faz AS DUAS COISAS (ver `regras_candidatas` e
+      `equivalencia_provada`), mas a reordenacao e defesa em profundidade, nao o conserto.
+
+  - id: ACHADO-2-contrato-entre-tabelas-quebrado
+    regras_afetadas: glosa_reason_normalization.r_catchall (:67-72) vs glosa_triage.r_sem_glosa (:53-62)
+    classe: declaracao a montante que a tabela a jusante nao honra
+    achado: >-
+      `glosa_reason_normalization` declara, na sua propria descricao (:13-15), que
+      `categoria_normalizada="desconhecida"` e uma "rota conservadora a humano A JUSANTE NA
+      GLOSA_TRIAGE, nunca aceite automatico". A glosa_triage viva quebra essa declaracao: para
+      {conforme=true, divergencia=false, docs=true} ela devolve SEM_GLOSA, que no BPMN e um
+      end-state terminal sem humano nenhum (bpmn:292-294 -> :90-104). O defeito e, portanto,
+      verificavel sem recorrer a nenhuma fonte externa: uma tabela contradiz a outra.
+
+  - id: ACHADO-3-tipo-item-e-input-decorativo
+    regra_afetada: input `tipo_item` (glosa_triage.dmn:36-38)
+    classe: coluna declarada e nunca usada
+    achado: >-
+      `tipo_item` e `-` (wildcard) em TODAS as cinco regras (:55, :65, :75, :85, :95). A coluna
+      existe no schema, o worker a preenche (contas.py:378, a partir de um parametro `tipo_item`
+      que ele proprio recebe com default `""`, contas.py:347) e nenhuma regra a le. Mesma classe
+      de defeito que GAP-CANCEL-2 (`dentro_prazo` promovido de input decorativo a gate real —
+      docs/review-queue.md:276).
+    porque_nao_foi_alterado: >-
+      Decidir QUAL valor de `tipo_item` deve gatear O QUE (material/OPME vs taxa vs diaria vs
+      honorario) e conteudo de auditoria de contas. Inventar essa gateagem seria inventar regra de
+      negocio. FINDING, NAO FIX.
+
+  - id: ACHADO-4-documental-administrativa-com-anexos
+    regras_afetadas: r_documental_humano (:73-82) e r_sem_glosa (:53-62)
+    classe: complemento nao declarado de uma regra especifica
+    achado: >-
+      `r_documental_humano` cobre {documental, administrativa} SOMENTE com `documentacao_anexa=false`
+      (:79). O complemento — as mesmas categorias COM anexos presentes — nao tem regra propria: hoje
+      cai em `r_sem_glosa` (se conforme=true e divergencia=false) e sai SEM_GLOSA. Isso e
+      exatamente a pergunta ja aberta em docs/review-queue.md:266 ("Confirmar que a lista de
+      exclusao (tecnica/clinica) e suficiente — ou se `documental`/`administrativa` tambem deveriam
+      ser excluidas do auto-SEM_GLOSA").
+    nota: >-
+      Um exemplo concreto do desconforto: o reason_code "SEM_AUTORIZACAO" normaliza para
+      "documental" (glosa_reason_normalization.dmn:57-59), e `documentacao_anexa` significa
+      "Documentacao/anexos TISS presentes" (glosa_triage.dmn:48) — anexos presentes NAO sao a mesma
+      coisa que autorizacao previa existente. O candidato PRESERVA o comportamento de hoje aqui de
+      proposito (ver DECISAO-A); nao o endossa.
+    porque_nao_foi_alterado: >-
+      Excluir `documental`/`administrativa` do conjunto positivo tornaria o candidato mais
+      conservador, mas mudaria o desfecho de casos que NAO fazem parte do defeito M-4. Essa e a
+      pergunta que a fila de revisao ja enderecou ao dono. DECISAO DO DONO, nao da engenharia.
+
+  - id: ACHADO-5-catchall-tem-duas-populacoes
+    regra_afetada: r_catchall (:93-102)
+    classe: fail-safe que so e alcancado por acidente de ordem
+    achado: >-
+      A descricao do catch-all (:94) promete cobrir tres coisas distintas: ambiguidade,
+      inelegibilidade aparente e categoria desconhecida. Hoje ele so recebe a PRIMEIRA delas de
+      forma confiavel (combinacoes que nenhuma regra especifica cobre, como cat="valor" com
+      divergencia=true e docs=false). A terceira — categoria desconhecida — e capturada antes por
+      `r_sem_glosa` sempre que os tres booleanos sao favoraveis. O candidato devolve a terceira
+      populacao ao catch-all; a segunda ("inelegibilidade aparente") continua sem regra propria e
+      depende de a categoria "clinica" (que cobre CARENCIA/EXCLUSAO_CONTRATUAL/BENEFICIARIO_INATIVO,
+      glosa_reason_normalization.dmn:63) chegar corretamente da normalizacao.
+
+# =================================================================================================
+# THE OPEN DECISION THE CANDIDATE DELIBERATELY DOES NOT MAKE
+# =================================================================================================
+decisao_pendente_do_dono:
+  - id: DECISAO-A-largura-do-conjunto-positivo
+    pergunta: >-
+      Quais categorias, entre as SEIS declaradas ({tecnica, clinica, documental, administrativa,
+      valor, desconhecida}), podem legitimamente terminar em SEM_GLOSA quando item_conforme=true,
+      divergencia_valor=false e documentacao_anexa=true?
+    o_que_o_candidato_escolheu: >-
+      Exatamente {documental, administrativa, valor} — que e o MENOR conjunto positivo que
+      PRESERVA integralmente o comportamento de hoje para toda categoria declarada, mudando apenas
+      o que o defeito M-4 exige mudar. Nao e uma opiniao de auditoria: e a escolha minimal.
+    porque_nao_foi_decidido_aqui: >-
+      Estreitar mais (retirar `documental`/`administrativa`, ACHADO-4) seria uma decisao de
+      auditoria de contas sobre o que "anexos presentes" refuta — a pergunta que
+      docs/review-queue.md:266 ja endereca ao dono. Alargar (manter "desconhecida" dentro) e o
+      proprio defeito.
+    consequencia_de_cada_opcao: >-
+      (a) manter {documental, administrativa, valor}: o unico desfecho que muda em relacao a hoje e
+      o das categorias fora do dominio declarado -> ANALISE_HUMANA;
+      (b) estreitar para {valor}: alem de (a), toda glosa documental/administrativa com anexos
+      presentes passa a ir a humano — mais conservador, mais volume na UT_AnalistaContas;
+      (c) estreitar para {} (remover a regra): SEM_GLOSA deixa de ter produtor nesta tabela e o
+      end-state `End_SemGlosa` so e alcancavel pelo ramo `has_glosas == false` (bpmn:282-284).
+    nao_e_uma_recomendacao: >-
+      O candidato implementa (a) porque e a unica opcao expressavel SEM tomar a decisao de
+      auditoria que a fila de revisao ja atribuiu ao dono.
+
+# =================================================================================================
+# `regras_candidatas` — the corrected rule set. hitPolicy FIRST, evaluated top to bottom.
+# EVERY rule is a CANDIDATE. Inputs/outputs are EXACTLY the live table's own (:36-52):
+# tipo_item / categoria_normalizada / item_conforme_tabela / divergencia_valor / documentacao_anexa
+# -> roteamento (closed set {SEM_GLOSA, RECORRER, ANALISE_HUMANA}, :12-13) + motivo. NO new input,
+# NO new output, NO new value. In particular the L0 HARD invariant is untouched: there is still no
+# ACEITAR/CONFIRMAR outcome anywhere, and the candidate emits a strict subset of the same three
+# routing values.
+#
+# ORDERING PRINCIPLE APPLIED: SPECIFIC BEFORE PERMISSIVE — the three rules with narrow, positive
+# conditions precede the permissive `c_sem_glosa`, and the only wildcard-only rule is the
+# conservative catch-all, LAST. The RELATIVE order of the three preserved specific rules is the live
+# table's own.
+#
+# THE WHOLE DIFF THE OWNER APPLIES: move row 1 to row 4, and replace its `categoria_normalizada`
+# cell `not("tecnica","clinica")` with `"documental","administrativa","valor"`. Nothing else.
+# =================================================================================================
+regras_candidatas:
+
+  - ordem: 1
+    id: c_tecnica_humano
+    candidato: true
+    origem: "PRESERVADA verbatim (entradas e roteamento; motivo com prefixo CANDIDATO) de r_tecnica_humano (glosa_triage.dmn:63-72)"
+    entradas:
+      tipo_item: "-"
+      categoria_normalizada: '"tecnica","clinica"'
+      item_conforme_tabela: "-"
+      divergencia_valor: "-"
+      documentacao_anexa: "-"
+    saidas:
+      roteamento: ANALISE_HUMANA
+      motivo: "CANDIDATO — Glosa tecnico-clinica — analise humana obrigatoria (L0 hard; sem auto-route sem sign-off de compliance)"
+
+  - ordem: 2
+    id: c_documental_humano
+    candidato: true
+    origem: "PRESERVADA verbatim (entradas e roteamento; motivo com prefixo CANDIDATO) de r_documental_humano (glosa_triage.dmn:73-82)"
+    entradas:
+      tipo_item: "-"
+      categoria_normalizada: '"documental","administrativa"'
+      item_conforme_tabela: "-"
+      divergencia_valor: "-"
+      documentacao_anexa: "false"
+    saidas:
+      roteamento: ANALISE_HUMANA
+      motivo: "CANDIDATO — Pendencia documental/administrativa (anexos ausentes) — analise humana obrigatoria (L0 hard)"
+
+  - ordem: 3
+    id: c_valor_recorrer
+    candidato: true
+    origem: "PRESERVADA verbatim (entradas e roteamento; motivo com prefixo CANDIDATO) de r_valor_recorrer (glosa_triage.dmn:83-92)"
+    entradas:
+      tipo_item: "-"
+      categoria_normalizada: '"valor"'
+      item_conforme_tabela: "true"
+      divergencia_valor: "true"
+      documentacao_anexa: "true"
+    saidas:
+      roteamento: RECORRER
+      motivo: "CANDIDATO — Divergencia de valor com item conforme e documentado — candidata a recurso (decisao final na UT humana)"
+
+  # ---- ordem 4: A UNICA CELULA ALTERADA DA TABELA (mais a mudanca de posicao). ------------------
+  - ordem: 4
+    id: c_sem_glosa
+    candidato: true
+    origem: "r_sem_glosa (glosa_triage.dmn:53-62) — MOVIDA da posicao 1 para a 4 e com UMA celula alterada"
+    celula_alterada:
+      coluna: categoria_normalizada
+      viva: 'not("tecnica","clinica")   # glosa_triage.dmn:56'
+      candidata: '"documental","administrativa","valor"'
+    origem_do_conjunto_positivo: >-
+      Os tres literais sao COPIADOS do dominio fechado que as proprias tabelas declaram
+      ({tecnica, administrativa, clinica, valor, documental, desconhecida} —
+      SP-OP-CONTAS-001_...bpmn:106; produzidos em glosa_reason_normalization.dmn:34,40,46,52,58,64,70),
+      subtraindo (i) os dois que a tabela viva JA exclui, `tecnica`/`clinica` (:56), e (ii)
+      `desconhecida`, que a tabela de origem declara como "rota conservadora a humano a jusante na
+      glosa_triage" (glosa_reason_normalization.dmn:13-15) e que o proprio catch-all desta tabela
+      nomeia como "categoria desconhecida -> analise humana" (:94). NENHUM literal novo.
+    origem_da_sintaxe: >-
+      A disjuncao FEEL de literais entre virgulas e o idioma da propria tabela
+      (`"tecnica","clinica"` :66; `"documental","administrativa"` :76) e da tabela de normalizacao,
+      que usa disjuncoes de ate cinco literais (glosa_reason_normalization.dmn:33,45,51,57).
+    posicao: >-
+      Movida para DEPOIS das tres regras especificas (principio "especifico antes de permissivo").
+      Sob o conjunto positivo isto e PROVADAMENTE neutro — ver `equivalencia_provada` — e existe
+      como defesa em profundidade: se o dono um dia alargar o conjunto positivo, a regra permissiva
+      ja nao preempta nenhuma regra especifica.
+    entradas:
+      tipo_item: "-"
+      categoria_normalizada: '"documental","administrativa","valor"'
+      item_conforme_tabela: "true"
+      divergencia_valor: "false"
+      documentacao_anexa: "true"
+    saidas:
+      roteamento: SEM_GLOSA
+      motivo: "CANDIDATO — Item conforme tabela, sem divergencia de valor, com documentacao, categoria em conjunto declarado — sem glosa candidata"
+
+  - ordem: 5
+    id: c_catchall
+    candidato: true
+    origem: "PRESERVADA verbatim (entradas e roteamento; motivo com prefixo CANDIDATO) de r_catchall (glosa_triage.dmn:93-102)"
+    nota: >-
+      Agora efetivamente alcancavel para a populacao que a sua propria descricao nomeia
+      ("categoria desconhecida"), inclusive para o default `"desconhecida"` que o worker envia
+      quando a normalizacao nao devolve a chave (contas.py:373).
+    entradas:
+      tipo_item: "-"
+      categoria_normalizada: "-"
+      item_conforme_tabela: "-"
+      divergencia_valor: "-"
+      documentacao_anexa: "-"
+    saidas:
+      roteamento: ANALISE_HUMANA
+      motivo: "CANDIDATO — Combinacao nao mapeada / glosa candidata ambigua / categoria desconhecida — analise humana por seguranca (L0 hard)"
+
+# =================================================================================================
+# EQUIVALENCE PROOF — what changes, and what provably does not
+# =================================================================================================
+equivalencia_provada:
+  enunciado: >-
+    Sobre TODO o espaco de entrada, candidato e tabela viva divergem EXATAMENTE quando
+    `categoria_normalizada` esta FORA de {tecnica, clinica, documental, administrativa, valor} E
+    item_conforme_tabela=true E divergencia_valor=false E documentacao_anexa=true. Nesse subespaco:
+    viva -> SEM_GLOSA (terminal, sem humano); candidato -> ANALISE_HUMANA (c_catchall). Em todo o
+    resto do espaco os dois emitem o MESMO `roteamento`.
+  o_que_nao_e_comparado: >-
+    `motivo` NAO entra na comparacao: toda regra candidata o reescreve com o prefixo `CANDIDATO —`
+    (a mesma convencao do precedente W3), logo e texto de proveniencia, nunca sinal de divergencia.
+  esboco: >-
+    (i) A condicao de `c_sem_glosa` e um SUBCONJUNTO estrito da de `r_sem_glosa` (o conjunto
+    positivo esta contido em not({tecnica,clinica})), logo nao casar `r_sem_glosa` implica nao
+    casar `c_sem_glosa`; (ii) quando `c_sem_glosa` casa, nenhuma das tres regras especificas que
+    passaram a precede-la casa (c_tecnica_humano exige cat in {tecnica,clinica}; c_documental_humano
+    exige docs=false; c_valor_recorrer exige divergencia=true) — por isso a reordenacao e neutra;
+    (iii) quando `r_sem_glosa` casa mas `c_sem_glosa` nao, sobra exatamente o subespaco do
+    enunciado, que no candidato desce ate o catch-all.
+  verificacao: >-
+    Provado por exaustao no modulo de teste (tests/unit/spec/test_glosa_triage_shadow_candidate.py)
+    sobre a grade completa de tipo_item x categoria x 3 booleanos, com AMBAS as tabelas lidas dos
+    artefatos (XML vivo e este YAML) pelo mesmo leitor FIRST-hit.
+
+# =================================================================================================
+# EVIDENCE THE OWNER RATIFIES AGAINST
+# =================================================================================================
+# tests/unit/spec/test_glosa_triage_shadow_candidate.py enumerates, as a table-driven test, every
+# input where the LIVE table says SEM_GLOSA and this candidate says ANALISE_HUMANA — including the
+# mission repro and the worker's own `"desconhecida"` default. The same module proves the
+# equivalence statement above by exhaustion, and pins that ratifying this file cannot enforce it.

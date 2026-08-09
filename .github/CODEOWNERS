@@ -58,3 +58,42 @@
 # ULTIMO-match: se a linha de diretorio for algum dia estreitada, este arquivo nao pode perder
 # o revisor em silencio. Mesmo precedente de action-approvals.yaml acima.
 /spec/policies/retention/erasure-plan.template.yaml  @rodrigotaquino @Omni-Saude/security
+
+# ------------------------------------------------------------------------------------------------
+# W4 shadow candidates — as quatro tabelas irmas conhecidas-erradas da auditoria de calculo.
+# Mesmo desenho do par RN 259 / adequacao_gap acima, e pela mesma razao: sao sempre DOIS arquivos
+# no unico ato humano de ativacao, e os dois precisam do revisor que o caminho de codigo teria tido:
+#   - o manifesto candidato: ratifica-lo e uma mudanca de DADOS, sem codigo e sem redeploy;
+#   - a TABELA VIVA: per ADR-0028 (docs/adr/0028-...:214-216) "a DMN vence; se a propria DMN esta
+#     errada, corrige-se em spec" — a edicao da tabela e o ato do DONO, nunca da engenharia.
+# NOTA HONESTA SOBRE COMPETENCIA: os donos competentes destas tabelas sao os nomeados em
+# docs/review-queue.md (auditoria-contas+compliance; juridico/regulatorio+medico auditor;
+# medico-auditor+auditoria especial+financas; pediatra; obstetra). NAO existem handles de time para
+# esses papeis nesta org hoje — `.github/CODEOWNERS` so conhece @rodrigotaquino e
+# @Omni-Saude/security (grep). Estas linhas garantem que UM revisor humano existe e e requerido;
+# elas NAO codificam a competencia de dominio. Nao repetir a afirmacao sem reler este comentario.
+#
+# M-4 glosa_triage — `r_sem_glosa` (row 1) gateia `categoria_normalizada` num conjunto NEGATIVO
+# `not("tecnica","clinica")`, que admite `"desconhecida"` — o valor que a tabela a montante declara
+# como "rota conservadora a humano a jusante na glosa_triage" (glosa_reason_normalization.dmn:13-15)
+# e que o proprio catch-all desta tabela nomeia (:94). SEM_GLOSA e end-state TERMINAL sem humano.
+/spec/processes/dmn/glosa-triage-shadow-candidate.yaml   @rodrigotaquino @Omni-Saude/security
+/spec/processes/dmn/glosa_triage.dmn                     @rodrigotaquino @Omni-Saude/security
+# M-5 carencia_check — o bloco CPT (r01/r02) precede e mascara a escada de urgencia (r03/r04) com
+# wildcard em `tipo_procedimento`: urgencia + CPT le o prazo de 24 MESES em vez das 24 HORAS que a
+# propria tabela declara. Base de ratificacao: Lei 9.656/1998 art. 12, V + art. 35-C vs art. 11.
+/spec/processes/dmn/carencia-check-shadow-candidate.yaml @rodrigotaquino @Omni-Saude/security
+/spec/processes/dmn/carencia_check.dmn                   @rodrigotaquino @Omni-Saude/security
+# M-6 upcoding_complexity_ceiling — unica das 7 tabelas fraude_scoring/* cujo catch-all emite
+# 0/"none" (as outras seis emitem 10/"<id>_indeterminado"), tornando "nao mapeado" indistinguivel
+# de "dentro do teto" no dossie.
+/spec/processes/dmn/upcoding-complexity-ceiling-shadow-candidate.yaml @rodrigotaquino @Omni-Saude/security
+/spec/processes/dmn/upcoding_complexity_ceiling.dmn                   @rodrigotaquino @Omni-Saude/security
+# M-7 (CLINICO) triage_redflag_gestante / _pediatric — os dois candidatos NAO propoem mudanca de
+# regra alguma: sao registros de ACHADO (lacunas de banda que so um obstetra/pediatra pode fechar).
+# Continuam CODEOWNERS-gated porque ratifica-los e o registro humano de que os achados foram lidos,
+# e porque a tabela viva e onde o conteudo clinico faltante sera escrito.
+/spec/processes/dmn/triage-redflag-gestante-shadow-candidate.yaml  @rodrigotaquino @Omni-Saude/security
+/spec/processes/dmn/triage_redflag_gestante.dmn                    @rodrigotaquino @Omni-Saude/security
+/spec/processes/dmn/triage-redflag-pediatric-shadow-candidate.yaml @rodrigotaquino @Omni-Saude/security
+/spec/processes/dmn/triage_redflag_pediatric.dmn                   @rodrigotaquino @Omni-Saude/security
