@@ -204,13 +204,18 @@ achados_adicionais:
       tier — e conteudo de auditoria medica. O candidato NAO inventa uma. FINDING, NAO FIX.
 
   - id: ACHADO-5-tabela-ainda-listada-como-orfa
-    local: spec/processes/dmn/orphans-allowlist.yaml:118
+    local: spec/processes/dmn/upcoding_complexity_ceiling.dmn:11-12 (e o :11 das seis irmas)
     classe: metadado desatualizado
     achado: >-
-      A tabela continua na allowlist de orfaos com a justificativa "ate o wiring do worker
-      operadora.fraude.score_indicators — T2.7 fase 2", mas esse wiring EXISTE
-      (fraude.py:150-158, :1036). Sem efeito comportamental; registrado para higiene de metadado.
-      Vale para as sete tabelas da familia, nao so para esta.
+      O comentario de proveniencia no cabecalho XML de cada uma das sete tabelas fraude_scoring/*
+      ainda diz "ORFAO DELIBERADO (orphans-allowlist.yaml) ate o wiring do worker
+      operadora.fraude.score_indicators — T2.7 fase 2", mas esse wiring EXISTE (fraude.py:150-158,
+      :1036). A allowlist em si (orphans-allowlist.yaml:118-133, e o mesmo texto espelhado nas
+      seis irmas) JA ESTA corrigida: descreve a mesma tabela como "Worker-consumed via DmnTransport
+      since T2.7 phase 2 ... PERMANENT orphan ... not a pending-wiring gap", nunca como pendente.
+      Sem efeito comportamental; registrado para higiene de metadado. Vale para as sete tabelas da
+      familia — mas so para os cabecalhos .dmn, que ainda carregam a proveniencia desatualizada; a
+      allowlist ja foi corrigida.
 
 # =================================================================================================
 # THE OPEN DECISION THE CANDIDATE DELIBERATELY DOES NOT MAKE

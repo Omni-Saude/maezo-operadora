@@ -21,6 +21,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import yaml
 
 from maezo.platform.deploy.engine_deploy import collect_artifacts, resolve_spec_processes_dir
 from tests.support.dmn_first_hit import (
@@ -314,6 +315,40 @@ def test_candidate_columns_are_exactly_the_live_tables_own(manifest: str, live: 
     assert candidate.input_names == table.input_names
     assert candidate.output_names == table.output_names
     assert len(set(candidate.rule_ids())) == len(candidate.rules), "duplicate candidate rule id"
+
+
+def test_read_candidate_table_raises_when_a_rules_entradas_grows_a_column_the_live_table_lacks(
+    tmp_path: Path,
+) -> None:
+    """Anti-defang pin for the `entradas`-keys guard (`dmn_first_hit.py:332-335`).
+
+    `test_candidate_columns_are_exactly_the_live_tables_own` only asserts `candidate.input_names ==
+    table.input_names` — but `read_candidate_table` ALWAYS returns `live.input_names` verbatim
+    (`dmn_first_hit.py:351`), copied from the `live` table it was passed, never derived from what the
+    manifest actually declared. That equality is therefore tautological: it would keep passing even
+    if the guard that inspects each rule's `entradas` keys were gutted. This test exercises the guard
+    directly, on a scratch manifest, independent of that tautology: a rule whose `entradas` carries
+    one column beyond the live table's own MUST raise, never silently pass.
+    """
+    live = read_live_table(DMN_DIR / "glosa_triage.dmn")
+    grown_entradas = dict.fromkeys(live.input_names, "-")
+    grown_entradas["coluna_extra_que_a_tabela_viva_nao_tem"] = "-"
+    manifest = {
+        "regras_candidatas": [
+            {
+                "ordem": 1,
+                "id": "r_grown_column",
+                "candidato": True,
+                "entradas": grown_entradas,
+                "saidas": dict.fromkeys(live.output_names, "PLACEHOLDER"),
+            }
+        ],
+    }
+    path = tmp_path / "grown-column-shadow-candidate.yaml"
+    path.write_text(yaml.safe_dump(manifest, allow_unicode=True, sort_keys=False), encoding="utf-8")
+
+    with pytest.raises(UnreadableEntryError):
+        read_candidate_table(path, live)
 
 
 @pytest.mark.parametrize(("manifest", "live"), sorted(CANDIDATES.items()))
