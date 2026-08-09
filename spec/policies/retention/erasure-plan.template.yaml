@@ -1,0 +1,379 @@
+# =============================================================================
+# DRAFT — UNRATIFIED — NENHUMA DECISAO DE ELIMINACAO FOI TOMADA NESTE ARQUIVO
+# =============================================================================
+#
+# Este arquivo enumera, camada por camada, ONDE dados de um titular podem residir
+# na persistencia do Maezo, e reserva um espaco VAZIO para a decisao do DPO sobre
+# cada uma. A ESTRUTURA (tabela, migracao que a criou, como as linhas do titular
+# sao identificadas, ordem de operacoes) e um FATO derivado do schema e esta
+# preenchida. A DECISAO (`decisao_dpo`), a BASE LEGAL (`base_legal`) e o PRAZO
+# (`retencao`) sao do DPO + juridico e estao TODOS como placeholders explicitos.
+#
+# NENHUM AGENTE, ORQUESTRADOR OU GATEKEEPER AUTOMATIZADO PODE PREENCHER ESSES
+# CAMPOS. Fabricar uma decisao de DPO neste repositorio e um evento de compliance,
+# nao um conflito de merge.
+#
+# -----------------------------------------------------------------------------
+# O QUE ESTE ARQUIVO NAO E
+# -----------------------------------------------------------------------------
+#
+# * NAO e a matriz de bases legais/retencao por CATEGORIA de dado. Essa e outra
+#   coisa, tem outro schema e outro carregador:
+#   `spec/policies/retention/UNRATIFIED-retention-matrix.template.yaml` +
+#   `src/maezo/platform/lifecycle/legal_bases_matrix.py`. As duas se encontram na
+#   ratificacao (uma categoria da matriz cobre uma ou mais linhas daqui), mas sao
+#   artefatos independentes e nenhuma ratifica a outra.
+# * NAO habilita eliminacao. `ErasureManager.erase()`/`verify()`
+#   (`src/maezo/platform/erasure.py:152`/`:187`) levantam
+#   `ErasureNotImplementedError` SEMPRE, hoje, e este arquivo nao muda isso. Ver
+#   "As duas chaves" abaixo.
+# * NAO contem SQL executavel. As sentencas de eliminacao/anonimizacao parametrizadas
+#   vivem no PACOTE DE REVISAO (`docs/reviews/adr-0029-erasure-packet.md`), como
+#   DOCUMENTO. O unico SQL que existe em codigo e `SELECT count(*)` — o dry-run.
+#
+# -----------------------------------------------------------------------------
+# AS DUAS CHAVES (mesmo idioma de MZO-060 / spec/policies/amh/inbox-ratification.yaml)
+# -----------------------------------------------------------------------------
+#
+#   Chave A — ESTE ARQUIVO ratificado (`ratificado: true` + `dpo_review: APPROVED`
+#             + toda `decisao_dpo`/`base_legal`/`retencao` preenchida).
+#             Vira `load_erasure_plan()` de recusa para sucesso, SEM MUDANCA DE
+#             CODIGO e sem redeploy.
+#   Chave B — o MECANISMO DE EXECUCAO existir. Nao existe: `ErasureManager` recusa,
+#             e as duas pontes de identidade (`titular_pseudo_id`->`fhir_patient_id`,
+#             `thread_id`->`fhir_patient_id`) nao existem em lugar nenhum da arvore
+#             (`src/maezo/tools/workers/lgpd.py:293-294`,
+#             `src/maezo/platform/erasure.py:196-206`).
+#
+# AS DUAS SAO INDEPENDENTES. Ratificar este arquivo NAO liga nada: o modo de
+# execucao continua recusado, agora por um motivo diferente e mais honesto
+# (`execution_mechanism_absent` em vez de `plan_unratified`). Isso e deliberado —
+# a ratificacao do DPO e um ato de GOVERNANCA e nao pode ser, sozinha, o gatilho
+# de um efeito destrutivo.
+#
+# -----------------------------------------------------------------------------
+# SCHEMA (o carregador recusa em qualquer desvio — `erasure_plan.py`)
+# -----------------------------------------------------------------------------
+#
+#   ratificado:  false | true      # DEVE ser o BOOLEANO true, nunca a string "true"
+#   status:      DRAFT | RATIFICADO
+#   dpo_review:  PENDENTE | APPROVED
+#   dpo_reviewer / dpo_review_date / evidence_ref / notes:  <str> humanos
+#   review_packet: <str> caminho do pacote revisado
+#   camadas:                       # uma entrada por RELACAO persistente
+#     - camada:   <str>            # familia (trabalho/episodica/semantica/auditoria/...)
+#       tabela:   <str>            # nome da relacao
+#       decisao_dpo:  <str>        # ELIMINAR | ANONIMIZAR | RETER_COM_BASE_LEGAL
+#       base_legal:   <str>        # base legal quando a decisao e reter/anonimizar
+#       retencao:     <str>        # prazo/regra de retencao
+#
+# O carregador exige as cinco chaves acima em TODA entrada, recusa qualquer valor
+# que ainda pareca placeholder (PENDENTE/PENDING/PLACEHOLDER/TODO/TBD/XXX) e recusa
+# quando o conjunto de `tabela` diverge do que o codigo enumera — um plano que nao
+# cobre exatamente as relacoes conhecidas nao e um plano. Os demais campos de cada
+# entrada abaixo (`migracao`, `identificacao`, `resolucao_identidade`, `ordem`,
+# `tensao`, `notas`) sao DOCUMENTACAO para o revisor; o carregador os ignora, e o
+# codigo carrega a sua propria copia dos fatos estruturais para que os dois nao
+# possam divergir silenciosamente (teste de anti-drift em
+# `tests/unit/platform/test_erasure_plan.py`).
+#
+# -----------------------------------------------------------------------------
+# VOCABULARIO de `resolucao_identidade` (fato estrutural, nao decisao)
+# -----------------------------------------------------------------------------
+#
+#   RESOLVIVEL              — ha coluna que identifica o titular e ela e alcancavel
+#                             a partir da referencia que o processo DSR carrega.
+#   PONTE_AUSENTE           — ha coluna de titular, mas a referencia do processo
+#                             (`titular_pseudo_id`) nao chega ate ela: falta a ponte.
+#   SEM_COLUNA_DE_TITULAR   — a relacao guarda dados do titular, mas nao em coluna
+#                             identificavel (jsonb, chave derivada, digest).
+#   SEM_REFERENCIA_TITULAR  — a relacao provadamente nao guarda referencia de titular.
+#   NAO_PROVISIONADA        — a relacao nao e criada por este repositorio.
+#   RETIRADA                — a relacao existiu e foi removida por uma migracao.
+#
+# =============================================================================
+
+status: DRAFT
+ratificado: false
+dpo_review: PENDENTE
+
+# --- Campos humanos. Todo valor e um placeholder explicito e detectavel. ---
+dpo_reviewer: PENDENTE-IDENTIDADE-DO-DPO
+dpo_review_date: PENDENTE-AAAA-MM-DD
+evidence_ref: PENDENTE-LINHA-DO-EVIDENCE-LEDGER
+notes: PENDENTE-NOTAS-DO-DPO
+review_packet: docs/reviews/adr-0029-erasure-packet.md
+
+# =============================================================================
+# CAMADAS
+# =============================================================================
+# `ordem` e ordem LOGICA de operacoes, nao restricao do banco: NAO EXISTE NENHUMA
+# FOREIGN KEY em nenhuma das sete migracoes (verificado por varredura; ver o pacote
+# de revisao secao 4). Nada no banco impede a ordem errada — a ordem e um
+# compromisso do procedimento, e por isso e revisavel aqui.
+# =============================================================================
+
+camadas:
+
+  # ---------------------------------------------------------------------------
+  # CAMADA DE TRABALHO (working) — checkpointer LangGraph
+  # ---------------------------------------------------------------------------
+  - camada: trabalho
+    tabela: checkpoints
+    migracao: "NENHUMA — provisionada por PostgresSaver.setup()/.asetup(), nao por Alembic (0006_retire_dead_checkpoint_tables.py:14-23,25-35)"
+    identificacao: "thread_id + checkpoint_ns — NAO ha coluna fhir_patient_id (erasure.py:196-206)"
+    resolucao_identidade: NAO_PROVISIONADA
+    ordem: 1
+    tensao: null
+    notas: >-
+      0006:29-35 registra que este repositorio nao chama .setup() nem .asetup() em
+      lugar nenhum, logo a relacao nao existe em nenhum ambiente provisionado por
+      este codigo. Se um dia existir, a eliminacao por titular exige a ponte
+      thread_id->fhir_patient_id, que nao existe.
+    decisao_dpo: PENDENTE
+    base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
+    retencao: PENDENTE-RETENCAO-DPO-JURIDICO
+
+  - camada: trabalho
+    tabela: checkpoint_blobs
+    migracao: "NENHUMA — PostgresSaver.setup()/.asetup() (0006:19-21)"
+    identificacao: "(thread_id, checkpoint_ns, channel, version) — BYTEA portador de PHI, sem coluna de titular"
+    resolucao_identidade: NAO_PROVISIONADA
+    ordem: 2
+    tensao: null
+    notas: >-
+      0006:19-21 descreve esta relacao como PHI-bearing (valores de canal em BYTEA).
+      E a relacao de maior risco da camada de trabalho e a que menos tem chave de
+      titular.
+    decisao_dpo: PENDENTE
+    base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
+    retencao: PENDENTE-RETENCAO-DPO-JURIDICO
+
+  - camada: trabalho
+    tabela: checkpoint_writes
+    migracao: "NENHUMA — PostgresSaver.setup()/.asetup() (0006:22-23)"
+    identificacao: "(thread_id, checkpoint_ns, checkpoint_id, task_id, idx)"
+    resolucao_identidade: NAO_PROVISIONADA
+    ordem: 3
+    tensao: null
+    notas: "Escritas pendentes em BYTEA; mesma ausencia de chave de titular."
+    decisao_dpo: PENDENTE
+    base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
+    retencao: PENDENTE-RETENCAO-DPO-JURIDICO
+
+  - camada: trabalho
+    tabela: checkpoint_migrations
+    migracao: "NENHUMA — PostgresSaver.setup()/.asetup() (0006:17)"
+    identificacao: "nenhuma — versionamento interno do saver"
+    resolucao_identidade: SEM_REFERENCIA_TITULAR
+    ordem: 4
+    tensao: null
+    notas: "Enumerada para nao-vacuidade: as quatro relacoes do saver estao aqui."
+    decisao_dpo: PENDENTE
+    base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
+    retencao: PENDENTE-RETENCAO-DPO-JURIDICO
+
+  - camada: trabalho
+    tabela: agent_checkpoints
+    migracao: "0001_schema_agents.py:33-43 (criada); 0006_retire_dead_checkpoint_tables.py:69 (removida)"
+    identificacao: "(thread_id, checkpoint_ns, checkpoint_id)"
+    resolucao_identidade: RETIRADA
+    ordem: 5
+    tensao: null
+    notas: >-
+      Relacao morta. 0006 documenta que nada jamais leu ou escreveu nela e que o
+      comentario de 0001 chamando-a de "schema do langgraph" era falso no dia em que
+      foi escrito. Enumerada porque erasure.py citou este nome por engano
+      (corrigido em 0006/erasure.py) e um revisor pode procura-lo.
+    decisao_dpo: PENDENTE
+    base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
+    retencao: PENDENTE-RETENCAO-DPO-JURIDICO
+
+  - camada: trabalho
+    tabela: agent_checkpoint_writes
+    migracao: "0001_schema_agents.py:48-58 (criada); 0006_retire_dead_checkpoint_tables.py:68 (removida)"
+    identificacao: "(thread_id, checkpoint_ns, checkpoint_id, task_id, idx)"
+    resolucao_identidade: RETIRADA
+    ordem: 6
+    tensao: null
+    notas: "Mesma situacao da linha acima."
+    decisao_dpo: PENDENTE
+    base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
+    retencao: PENDENTE-RETENCAO-DPO-JURIDICO
+
+  # ---------------------------------------------------------------------------
+  # CAMADA EPISODICA e SEMANTICA — a MESMA tabela (ver notas)
+  # ---------------------------------------------------------------------------
+  - camada: episodica
+    tabela: agent_memory
+    migracao: "0001_schema_agents.py:63-75; indice por titular em 0001:82-86 (parcial, WHERE fhir_patient_id IS NOT NULL)"
+    identificacao: "tenant_id = :tenant_id AND fhir_patient_id = :subject_ref — coluna real, porem NULLABLE (0001:69)"
+    resolucao_identidade: PONTE_AUSENTE
+    ordem: 7
+    tensao: null
+    notas: >-
+      E a UNICA tabela do encadeamento Alembic com coluna de titular alem de
+      erasure_log. Duas consequencias que o DPO precisa ver: (a) fhir_patient_id e
+      NULLABLE, entao linhas de memoria episodica gravadas sem ele NAO sao alcancadas
+      por nenhum predicado por titular e ficam orfas de qualquer eliminacao; (b) a
+      coluna `embedding vector(1536)` (0001:72) esta NESTA MESMA LINHA, logo a camada
+      semantica nao e uma tabela separada — ver a entrada agent_memory.embedding
+      abaixo, que existe para tornar a decisao explicita, nao para nomear outra relacao.
+    decisao_dpo: PENDENTE
+    base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
+    retencao: PENDENTE-RETENCAO-DPO-JURIDICO
+
+  - camada: semantica
+    tabela: agent_memory.embedding
+    migracao: "0001_schema_agents.py:72 (coluna vector(1536)); extensao pgvector em 0001:28"
+    identificacao: "a mesma linha da entrada episodica — nao ha relacao propria"
+    resolucao_identidade: PONTE_AUSENTE
+    ordem: 8
+    tensao: null
+    notas: >-
+      NAO E UMA TABELA. E uma COLUNA de agent_memory, listada separadamente porque a
+      escolha do DPO pode divergir da linha acima: anular so o embedding (ANONIMIZAR)
+      preserva a linha episodica, e eliminar a linha episodica leva o embedding junto.
+      Registro do desvio de documentacao: `erasure.py:240-242` descreve
+      `DELETE FROM semantic.embeddings WHERE fhir_patient_id = :pid OR source_ref ...`
+      e `erasure.py:224-225` descreve `episodes.transcripts`/`episodes.decisions` —
+      NENHUMA dessas quatro relacoes existe em nenhuma das sete migracoes. Sao
+      docstrings ilustrativas, nao schema, e um revisor que as tome por schema
+      concluira que a cobertura e maior do que e.
+    decisao_dpo: PENDENTE
+    base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
+    retencao: PENDENTE-RETENCAO-DPO-JURIDICO
+
+  # ---------------------------------------------------------------------------
+  # AUDITORIA / NAO-REPUDIO (ADR-0007) — onde vive a tensao
+  # ---------------------------------------------------------------------------
+  - camada: auditoria
+    tabela: audit_chain
+    migracao: "0002_audit_chain.py:27-51; UNIQUE(prev_record_hash) em 0002:44-50"
+    identificacao: "NENHUMA coluna de titular. O vinculo, quando existe, esta dentro de decision_basis jsonb (0002:36) e resumido em input_hash (0002:35)"
+    resolucao_identidade: SEM_COLUNA_DE_TITULAR
+    ordem: 9
+    tensao: CADEIA_DE_HASH
+    notas: >-
+      A tensao central. O preimage de record_hash inclui `details` (a coluna
+      decision_basis) e `input_hash` (audit.py:266-284), e o sucessor guarda esse
+      hash em prev_record_hash. Portanto ELIMINAR uma linha e ANONIMIZAR um campo
+      dentro de decision_basis quebram a cadeia EXATAMENTE do mesmo jeito — anonimizar
+      nao e a saida barata que parece. Ver secao 5 do pacote de revisao para as opcoes
+      que a ADR-0029 ja nomeia e por que nenhuma delas cobre eliminacao por titular.
+    decisao_dpo: PENDENTE
+    base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
+    retencao: PENDENTE-RETENCAO-DPO-JURIDICO
+
+  - camada: auditoria
+    tabela: audit_emit_dedup
+    migracao: "0005_audit_emit_dedup.py:59-67"
+    identificacao: "(tenant, dedup_key) — dedup_key e derivado do evento, nao do titular"
+    resolucao_identidade: SEM_COLUNA_DE_TITULAR
+    ordem: 10
+    tensao: null
+    notas: >-
+      Guarda record_hash (0005:62), que e um digest. Eliminar linhas daqui reabre a
+      janela de emissao duplicada na cadeia — o efeito e sobre exatamente-uma-vez, nao
+      sobre o titular.
+    decisao_dpo: PENDENTE
+    base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
+    retencao: PENDENTE-RETENCAO-DPO-JURIDICO
+
+  - camada: custodia
+    tabela: custody_bundles
+    migracao: "0004_custody_erasure.py:31-45; indices 0004:47-58"
+    identificacao: "evidence_refs jsonb (0004:36) = ponteiros pseudonimizados (custody.py:11); process_instance_id (0004:37)"
+    resolucao_identidade: SEM_COLUNA_DE_TITULAR
+    ordem: 11
+    tensao: CADEIA_DE_HASH
+    notas: >-
+      bundle_root e uma raiz de Merkle sobre evidence_refs ordenados
+      (custody.py:36-67) e a linha guarda audit_record_hash (0004:41), o vinculo de
+      volta para a cadeia. Mexer em evidence_refs invalida bundle_root
+      (custody.py:73-86 recomputa e compara), e a ADR-0020 define o bundle como
+      PROJECAO sobre a cadeia, nao como fork — entao a integridade dele herda a tensao
+      da linha audit_chain.
+    decisao_dpo: PENDENTE
+    base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
+    retencao: PENDENTE-RETENCAO-DPO-JURIDICO
+
+  - camada: registro_de_eliminacao
+    tabela: erasure_log
+    migracao: "0004_custody_erasure.py:64-79; indice (tenant_id, fhir_patient_id) em 0004:82-84"
+    identificacao: "tenant_id = :tenant_id AND fhir_patient_id = :subject_ref — coluna NOT NULL (0004:67)"
+    resolucao_identidade: PONTE_AUSENTE
+    ordem: 12
+    tensao: AUTORREFERENCIA
+    notas: >-
+      Esta tabela E a prova de que a eliminacao aconteceu, e guarda o
+      fhir_patient_id do titular em coluna NOT NULL. Elimina-la junto com o resto
+      apaga a evidencia do proprio atendimento ao direito do titular; nao elimina-la
+      mantem um identificador do titular depois da eliminacao. Nao ha terceira via
+      obvia, e a escolha e do DPO — por isso a entrada existe.
+    decisao_dpo: PENDENTE
+    base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
+    retencao: PENDENTE-RETENCAO-DPO-JURIDICO
+
+  # ---------------------------------------------------------------------------
+  # IDEMPOTENCIA — retencao protege contra RE-MATERIALIZACAO
+  # ---------------------------------------------------------------------------
+  - camada: idempotencia
+    tabela: a2a_idempotency
+    migracao: "0003_a2a_idempotency.py:32-45"
+    identificacao: "(task_id, tenant) — task_id identifica a DELEGACAO; result jsonb (0003:39) pode carregar conteudo derivado"
+    resolucao_identidade: SEM_COLUNA_DE_TITULAR
+    ordem: 13
+    tensao: REMATERIALIZACAO
+    notas: >-
+      Eliminar a linha de idempotencia faz uma tarefa ja processada voltar a ser
+      elegivel: uma re-entrega re-executaria o trabalho e poderia re-materializar
+      justamente o dado que a eliminacao removeu. Reter e, aqui, uma propriedade que
+      PROTEGE a eliminacao — mesmo raciocinio registrado para amh_inbox no pacote
+      MZO-060 secao 7.3. O campo `result` e o unico que pode conter conteudo derivado
+      e merece decisao propria do DPO.
+    decisao_dpo: PENDENTE
+    base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
+    retencao: PENDENTE-RETENCAO-DPO-JURIDICO
+
+  - camada: idempotencia
+    tabela: driver_idempotency
+    migracao: "0003_a2a_idempotency.py:61-67; indice por expiracao 0003:69-72"
+    identificacao: "key text PRIMARY KEY (0003:62) — chave derivada de negocio, nao coluna de titular"
+    resolucao_identidade: SEM_COLUNA_DE_TITULAR
+    ordem: 14
+    tensao: REMATERIALIZACAO
+    notas: >-
+      Unica tabela do encadeamento com expiracao propria (expires_at, 0003:64), entao
+      ja tem um prazo de fato — que NAO e uma decisao de retencao ratificada, e a
+      diferenca importa. Atencao do DPO: `key` e uma chave de NEGOCIO, e DL-0043
+      perna (c) / ADR-0035 tratam exatamente do risco de PHI dentro de chaves de
+      negocio persistidas; enquanto
+      `spec/policies/privacy/phi-business-key-remediation.yaml` nao estiver ratificado,
+      a forma dessa chave nao esta decidida.
+    decisao_dpo: PENDENTE
+    base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
+    retencao: PENDENTE-RETENCAO-DPO-JURIDICO
+
+  # ---------------------------------------------------------------------------
+  # FRONTEIRA AMH
+  # ---------------------------------------------------------------------------
+  - camada: inbox_amh
+    tabela: amh_inbox
+    migracao: "0007_amh_inbox.py:127-229"
+    identificacao: "nenhuma — cinco campos de envelope com referencia de sujeito sao excluidos por construcao"
+    resolucao_identidade: SEM_REFERENCIA_TITULAR
+    ordem: 15
+    tensao: REMATERIALIZACAO
+    notas: >-
+      A analise coluna a coluna ja foi feita e revisada: `docs/reviews/
+      mzo-060-dba-review-packet.md` secao 7.1-7.3. Resumo: nao ha coluna de payload,
+      e portable_subject_ref / amh_mpi_ref / beneficiary_ref / consent_decision_ref /
+      protected_source_record_ref sao excluidos por construcao, com teste de sentinela
+      lendo de volta do Postgres. A entrada existe aqui para que a AUSENCIA de alvo
+      seja uma afirmacao ratificada e nao um esquecimento — e porque a decisao de
+      RETER estas linhas e o que impede uma re-entrega de re-materializar o dado
+      eliminado (mesma logica de a2a_idempotency).
+    decisao_dpo: PENDENTE
+    base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
+    retencao: PENDENTE-RETENCAO-DPO-JURIDICO

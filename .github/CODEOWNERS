@@ -46,3 +46,15 @@
 # Listed explicitly (not just under the directory line) because CODEOWNERS resolves LAST-match:
 # if the directory line is ever narrowed, this file must not silently lose its security owner.
 /spec/policies/autonomy/action-approvals.yaml  @rodrigotaquino @Omni-Saude/security
+# ADR-0029 / LGPD art. 18 VI — o plano de eliminacao por camada. Preencher `decisao_dpo`,
+# `base_legal` e `retencao` de cada relacao e flipar `ratificado: true` + `dpo_review: APPROVED`
+# e o UNICO ato que transforma a enumeracao estrutural (fato de schema, ja escrita) em decisao
+# de eliminacao/anonimizacao/retencao sobre dado de titular. Mesma logica das linhas acima: a
+# ratificacao e uma mudanca de DADOS, sem codigo e sem redeploy — e exatamente por isso o dado
+# precisa do revisor que o caminho de codigo teria tido. O diretorio cobre tambem o template da
+# matriz de bases legais, que ate aqui nao tinha dono declarado.
+/spec/policies/retention/  @rodrigotaquino @Omni-Saude/security
+# Listado explicitamente (nao so pela linha de diretorio) porque CODEOWNERS resolve por
+# ULTIMO-match: se a linha de diretorio for algum dia estreitada, este arquivo nao pode perder
+# o revisor em silencio. Mesmo precedente de action-approvals.yaml acima.
+/spec/policies/retention/erasure-plan.template.yaml  @rodrigotaquino @Omni-Saude/security
