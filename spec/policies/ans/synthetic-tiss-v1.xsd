@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ============================================================================
+  SYNTHETIC ARTIFACT — NOT the real ANS Padrão-TISS XSD.
+  ============================================================================
+
+  This file is a hand-written, structure-only stand-in for the real ANS
+  "Padrão TISS" (Componente de Comunicação, RN 501/2022) XSD set. It exists
+  ONLY to prove the T2.6-2 TISS-schema-pin ratification GATE end-to-end
+  (src/maezo/tools/workers/tiss_schema_pin.py) while the real, ANS-published
+  schema is an open SME-gated external dependency (see
+  docs/design/T2.6-ans-submission-rescope.md §2.B/§7 — exact padrão-TISS
+  version + whether every report type even flows through TISS XSD are open
+  regulatory questions).
+
+  Every element name, the target namespace, and every field below are
+  INVENTED for this repo's own test/structure purposes. NONE of them is a
+  real TISS wire field, real TISS element name, or real ANS namespace —
+  copying any of this into a production payload or presenting it as
+  authoritative TISS content would be a fabrication. Do not do that.
+
+  This artifact is referenced by spec/policies/ans/tiss-schema-pin.yaml,
+  which is DRAFT (`ratificado: false`, `status: DRAFT`,
+  `schema_artifact.synthetic: true`) — the ratification gate in
+  tiss_schema_pin.py REFUSES to validate anything against this file (or any
+  other) until an SME:
+    1. replaces this file with the real, ANS-published XSD (or vendors it
+       alongside and repoints `schema_artifact.xsd_filename`), AND
+    2. flips `schema_artifact.synthetic` to `false`, AND
+    3. fills `ratificado: true` + `status: RATIFIED` + `revisor` +
+       `ratificado_em` in the pin manifest.
+
+  Deliberately NOT reusing the (also synthetic, also non-normative) fixture
+  shape already inlined in tests/unit/tools/workers/test_tiss_schema.py —
+  that one exists only inside a test module for the ALREADY-WIRED
+  `TissSchemaValidator` (tools/workers/tiss_schema.py, unrelated dark-build
+  scope, unchanged by this file). This is a separate, repo-committed
+  artifact for a separate, NOT-yet-wired ratification gate — see the module
+  docstring "SCOPING DECISION" in tiss_schema_pin.py for why the two seams
+  are intentionally kept apart this wave.
+  ============================================================================
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:tiss="urn:maezo:synthetic:tiss-schema-pin:v1"
+           targetNamespace="urn:maezo:synthetic:tiss-schema-pin:v1"
+           elementFormDefault="qualified">
+
+  <xs:annotation>
+    <xs:documentation>
+      SYNTHETIC — structure-only. See the file-header XML comment above.
+      Root element LoteGuiasSintetico models, in miniature, the four
+      violation classes the T2.6-2 TISS-schema-pin gate's test suite proves
+      (tests/unit/tools/workers/test_tiss_schema_pin.py): a missing required
+      scalar element, a wrong-typed element, a cardinality (occurs-count)
+      violation, and a namespace mismatch.
+    </xs:documentation>
+  </xs:annotation>
+
+  <xs:element name="LoteGuiasSintetico">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="numeroLoteSintetico" type="xs:string" minOccurs="1" maxOccurs="1"/>
+        <xs:element name="competenciaSintetica" type="xs:string" minOccurs="1" maxOccurs="1"/>
+        <xs:element name="totalGuiasSintetico" type="xs:integer" minOccurs="1" maxOccurs="1"/>
+        <xs:element name="guiaSintetica" type="xs:string" minOccurs="1" maxOccurs="2"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+
+</xs:schema>

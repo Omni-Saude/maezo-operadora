@@ -1,0 +1,109 @@
+# =============================================================================
+# spec/policies/ans/tiss-schema-pin.yaml — DRAFT, nada ratificado
+# =============================================================================
+#
+# WHY THIS FILE EXISTS
+# ---------------------
+# T2.6-2 TISS-schema-pin gate (dark build — calibration example: a validator
+# blocked on an SME-supplied schema, built ahead of time against a synthetic
+# schema injected as an artifact). This manifest is the ratification-gated
+# artifact registry `src/maezo/tools/workers/tiss_schema_pin.py::load_tiss_schema_pin`
+# reads. It is a SEPARATE, NOT-yet-wired seam from the already-shipped, already-
+# wired `TissSchemaValidator` (tools/workers/tiss_schema.py +
+# `MAEZO_TISS_SCHEMA_VERSION`), which `ans_submit.validate_data` already calls
+# today — this file does not change that validator, and nothing in this wave
+# wires THIS gate into `ans_submit.py`. See tiss_schema_pin.py's module
+# docstring "SCOPING DECISION" for the full reasoning.
+#
+# THE RULE THIS FILE ENFORCES (mirrors spec/processes/dmn/auth-criteria-
+# ratification.yaml — GAP-AUTH-4 — and the DPO retention-matrix loader,
+# src/maezo/platform/lifecycle/legal_bases_matrix.py, which REFUSES its own
+# unratified template rather than "succeeding" on placeholder data):
+#
+#     This pin may be used to validate a real payload ONLY if ALL FOUR of the
+#     independent gates below agree it is ready. ANY ONE of them still saying
+#     "not ready" REFUSES the whole pin — the loader raises a typed
+#     `TissSchemaPinUnavailableError`, never a silent pass, never a partial
+#     read of the other three.
+#
+#       1. `status`                    MUST equal the literal string "RATIFIED"
+#       2. `ratificado`                MUST be the boolean literal `true`
+#       3. `revisor` + `ratificado_em` MUST both be non-blank strings
+#       4. `schema_artifact.synthetic` MUST be the boolean literal `false`
+#
+# Gate 1 and gate 2 are DELIBERATELY REDUNDANT with each other (belt-and-
+# suspenders, mirrors the retention-matrix template's `unratified: true` root
+# guard running independently of every other check). This is load-bearing:
+# forging `ratificado: true` on this exact shipped file WITHOUT also changing
+# `status` away from `"DRAFT"` must still refuse — proven by
+# `tests/unit/tools/workers/test_tiss_schema_pin.py::
+# test_forged_ratificado_true_with_status_still_draft_refuses`. Gate 4 is what
+# operationalizes "activation = SME replaces the synthetic XSD with the real
+# one": flipping `ratificado`/`status`/`revisor`/`ratificado_em` alone, while
+# `schema_artifact.synthetic` stays `true`, still refuses — the pin must not
+# become "ratified" while it still points at a structure-only stand-in.
+#
+# HOW TO RATIFY (a DATA change — no code change, no redeploy of Python)
+# -----------------------------------------------------------------------
+#   1. SME (regulatório/TISS) vendors the real ANS Padrão-TISS XSD (RN
+#      501/2022 — exact version SME-gated, see
+#      docs/design/T2.6-ans-submission-rescope.md §2.B/§7) into this
+#      directory (or another reviewed path) and repoints
+#      `schema_artifact.xsd_filename` at it.
+#   2. Set `schema_artifact.synthetic: false`.
+#   3. Set `status: RATIFIED`, `ratificado: true`, `revisor: "<who>"`,
+#      `ratificado_em: "YYYY-MM-DD"`.
+# All four are CODEOWNERS-gated (.github/CODEOWNERS) — the same reviewer the
+# GAP-AUTH-4 manifest and the MZO-040 approval records already require, for
+# the same reason: ratifying is a DATA change with no code and no redeploy,
+# which is exactly why the data needs the reviewer the code path would
+# otherwise have had.
+#
+# WHAT RATIFYING THIS FILE DOES **NOT** DO
+# -----------------------------------------
+# It does not, by itself, wire TISS-schema-pin validation into
+# `ans_submit.validate_data`/`validate_entry`, and it does not flip any of
+# the 14 `_NOTIFY_REGULATORIO_GAP_REASON` strict-xfails in
+# `tests/integration/processes/test_sp_op_ans_submit_001.py` (those block on
+# the ALREADY-WIRED, unpinned `TissSchemaValidator` — an unrelated, already-
+# shipped mechanism). Deciding HOW (or whether) this gate's outcome folds
+# into the live worker, and how it reconciles with `MAEZO_TISS_SCHEMA_VERSION`,
+# is explicitly deferred to a future, separately reviewed change — see
+# tiss_schema_pin.py.
+
+version: 1
+
+# DRAFT | RATIFIED — independent of `ratificado` on purpose (gate 1 above).
+status: DRAFT
+
+ratificado: false
+revisor: null
+ratificado_em: null
+
+schema_artifact:
+  # Resolved relative to THIS file's own directory (spec/policies/ans/) —
+  # deliberately NOT the `<spec>/schemas/tiss/<version>/<report_type>.xsd`
+  # layout `tools/workers/tiss_schema.py` resolves via `resolve_spec_dir()`;
+  # this pin governs exactly ONE artifact, not a per-report-type set. See
+  # tiss_schema_pin.py module docstring for why the two resolution schemes
+  # are kept separate this wave.
+  xsd_filename: "synthetic-tiss-v1.xsd"
+  # true while this pin is DRAFT. The SME flips this to `false` in the SAME
+  # commit that swaps in the real XSD — gate 4 above.
+  synthetic: true
+  # Machine placeholders — SME-filled at ratification time, mirroring the
+  # PLACEHOLDER-* convention in
+  # spec/policies/retention/UNRATIFIED-retention-matrix.template.yaml. Not
+  # enforced by the loader beyond "present" — informational/audit fields,
+  # not additional gates (the four gates above are the only enforcement).
+  sha256: "PLACEHOLDER-SHA256-sme-must-fill-when-real-xsd-lands"
+  padrao_tiss_versao: "PLACEHOLDER-VERSAO-sme-must-confirm-RN-501-2022"
+  report_type: "PLACEHOLDER-REPORT-TYPE-structure-only-not-a-real-enum-member"
+
+observacao: >-
+  DRAFT. O XSD referenciado (synthetic-tiss-v1.xsd) e SINTETICO — nao e o
+  schema real publicado pela ANS (Padrao TISS / Componente de Comunicacao,
+  RN 501/2022). Nao usar para decidir nenhum envio real. Ativacao exige SME
+  regulatorio-TISS: substituir o XSD sintetico pelo XSD real + preencher
+  ratificado/status/revisor/ratificado_em + schema_artifact.synthetic=false
+  (ver comentario no topo deste arquivo).
