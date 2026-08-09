@@ -10,8 +10,9 @@ Four invariants:
 1.  **Chain integrity.** `0007` revises `0006`, is the head, and no other migration claims either
     slot. A forked chain is the failure mode where `alembic upgrade head` picks one branch and an
     operator believes it applied the other.
-2.  **PHI posture.** The six subject-linkable envelope fields, and any payload column, are ABSENT
-    from the DDL — with a non-vacuity half asserting the columns that must be PRESENT.
+2.  **PHI posture.** The five subject-linkable envelope fields are ABSENT from the DDL, and so is
+    any payload column (the payload was never an envelope field — `CanonicalEnvelope` has none) —
+    with a non-vacuity half asserting the columns that must be PRESENT.
 3.  **The refusal vocabulary cannot drift.** The `quarantine_reason` CHECK set must EQUAL
     `maezo.ports.errors.PortFailureReason`. A member added to the enum without the migration is a
     row the consumer can construct and the database will reject at runtime; a value in the CHECK
@@ -199,7 +200,10 @@ def test_quarantine_reason_check_equals_the_port_failure_taxonomy() -> None:
         re.DOTALL,
     )
     assert match is not None, "the quarantine-reason vocabulary CHECK is missing from 0007"
-    checked = set(re.findall(r"'([a-z_]+)'", match.group(1)))
+    # `[a-z0-9_]`, NOT `[a-z_]`: a digit-bearing token like `oauth2_expired` would otherwise be
+    # split into fragments that match neither side, and the set comparison would go on passing
+    # while the DDL and the enum had actually drifted. Mutation-proved.
+    checked = set(re.findall(r"'([a-z0-9_]+)'", match.group(1)))
     expected = {reason.value for reason in PortFailureReason}
     assert checked == expected, (
         f"DDL vocabulary drifted from PortFailureReason: only-in-DDL={sorted(checked - expected)}, "

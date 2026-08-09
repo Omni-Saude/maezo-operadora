@@ -43,12 +43,31 @@ review only concerns the first.
 | **A. Schema exists** | applying migration `0007` in an environment | not applied anywhere |
 | **B. Repository may operate** | a DBA editing `spec/policies/amh/inbox-ratification.yaml` | `ratificado: false`, `dba_review: PENDING` |
 
-Applying the migration on its own activates nothing: `build_amh_inbox_repository` loads the
-ratification artifact FIRST and lets its refusal propagate, and `PostgresAmhInbox` cannot be
-constructed without an `InboxRatification` — an object that itself refuses to exist unless the
-artifact literally said `ratificado: true` (the boolean) and `dba_review: APPROVED`. There is no
-degraded mode and no flag a caller can pass. Consequently **an unratified inbox cannot report
-settlement success, because no object capable of reporting it can be built.**
+Applying the migration on its own activates nothing, and it is worth being exact about WHY, because
+an earlier draft of this packet overstated it.
+
+* **`spec/policies/amh/inbox-ratification.yaml` is the switch.** It ships as a DRAFT with every
+  human field an explicit placeholder.
+* **`build_amh_inbox_repository` is the digest-binding path.** It calls `load_inbox_ratification`
+  FIRST and lets the refusal propagate, so a caller that checks nothing still gets nothing out of
+  an unratified deployment. That loader is the only place an approval is bound to a FILE and to the
+  exact bytes of migration `0007`.
+* **`InboxRatification` is a capability, not an oracle.** It refuses to exist unless `ratificado`
+  is the boolean `true` and `dba_review` is `APPROVED` — but it is a dataclass, so a caller CAN
+  build one by hand without reading any artifact. Its `__post_init__` checks those two human
+  switches and nothing else.
+* **`PostgresAmhInbox.__init__` is the second lock, and it re-checks four properties**, not two:
+  the two switches (which catches an instance forged past `__post_init__` via `object.__setattr__`)
+  plus `migration_revision` and `migration_sha256`, the latter re-derived from the migration file
+  on every construction. This closes the hole the bullet above opens: until this re-check existed,
+  `InboxRatification(migration_revision="0001", migration_sha256="deadbeef", …)` produced a
+  repository that recorded and SETTLED rows against a live PostgreSQL 16.14 — an `ack` licensed by
+  an "approval" covering DDL nobody had reviewed. Pinned by
+  `test_amh_inbox_live_pg.py::test_a_hand_built_ratification_cannot_settle_rows_on_a_real_server`.
+
+The guarantee the reviewer can rely on is therefore: **no repository can operate against migration
+`0007` unless a DBA edited the artifact AND the DDL on disk still hashes to what they approved** —
+and every route to a repository, sanctioned or hand-rolled, is checked against the second half.
 
 Separately, **nothing consumes the inbox at all**: MZO-050b (the consumer) is a separately gated
 work package, `maezo.adapters.amh` still ships no `consumer.py`, and no composition root —
@@ -312,12 +331,40 @@ Worth reviewing now because it is a property of THIS schema:
   followed by an increment — a **row-level** lock on one dedup key inside one short transaction.
   There is no advisory lock and no table-level lock. Two replicas processing different events
   never contend; two replicas processing the SAME event contend on exactly that one row.
-* There is one reachable race the API reports rather than hides: `ON CONFLICT DO NOTHING` returns
-  nothing for a conflicting insert that is still uncommitted, AND that row is not yet visible to
-  the follow-up `SELECT`. The repository returns `InboxRecordOutcome.CONCURRENT` for that state
-  instead of guessing. The caller's correct response is to retry the delivery later.
+* **`ON CONFLICT DO NOTHING` does not return early on an in-flight conflict — it WAITS.** An
+  earlier draft of this packet said the opposite, and the correction matters to a DBA more than the
+  original claim did. Postgres implements `ON CONFLICT` with *speculative insertion*: when the
+  arbiter index finds a conflicting tuple belonging to a transaction that is still in progress, the
+  inserting backend BLOCKS on that transaction's xid until it commits or aborts. Measured on
+  PostgreSQL 16.14 with a writer deliberately holding its transaction open for 5s: the second
+  `record` call waited ~4.4s and then resolved as `DUPLICATE` (the first writer committed) or
+  `RECORDED` (it rolled back). Two replicas racing the same event therefore serialise; they do not
+  both fail fast.
+* **`InboxRecordOutcome.CONCURRENT` is therefore DEFENSIVE, not the outcome of that race.** At
+  READ COMMITTED the follow-up `SELECT` takes a fresh snapshot and necessarily sees the row the
+  INSERT just waited for, so the "insert declined AND row invisible" state is not reachable via
+  concurrency. Raising the isolation level does not reach it either: at REPEATABLE READ and
+  SERIALIZABLE the INSERT itself raises `could not serialize access due to concurrent update`
+  (`ExecCheckTupleVisible`) rather than silently declining — verified on the same server. What
+  remains reachable is the row being DELETED between the two statements, which no code in this
+  repository does. The branch is kept so that a future isolation-level or SQL change fails honestly
+  instead of silently, and the docstring now says so rather than claiming a race it does not have.
+* **The wait is UNBOUNDED, and that is the operational disclosure in this section.** The asyncpg
+  pool is created with `min_size`/`max_size`/`setup` only — **no `command_timeout`** — and nothing
+  in this repository issues `SET lock_timeout` or `SET statement_timeout`, so both are the server
+  default (verified `'0'` on the repository's own pooled session). The ceiling on a `record` call
+  is therefore *another replica's transaction duration*, including the pathological case of a
+  replica that inserted and then stalled. Whether to cap it, and at what value, is **decision D-6
+  in §8** — deliberately left to the reviewer rather than chosen unilaterally in code, because the
+  right number depends on the deployment's connection budget and on how a capped call is retried.
 * Lifecycle transitions are single-row `UPDATE`s keyed on the primary key.
 * `pending` is a bounded (`LIMIT`) index scan; it takes no locks beyond MVCC snapshot semantics.
+* **Quarantine is terminal, so a second `nack` carrying a DIFFERENT reason cannot overwrite the
+  first.** That is intended, but it used to be invisible: the call returned `ALREADY` and dropped
+  the caller's reason. `mark_quarantined` now returns `InboxQuarantineResult`, which carries the
+  reason and topic ACTUALLY stored alongside the outcome (`reason_diverged` is the one-line test),
+  and logs the divergence. No extra query is charged for it — the values ride along on the
+  `RETURNING` clause and on the status read that already disambiguated the zero-row `UPDATE`.
 
 ---
 
@@ -341,10 +388,19 @@ alembic -x tenant=<schema> current
 # 2. Roll back 0007 only.
 alembic -x tenant=<schema> downgrade 0006
 
-# 3. Verify.
-psql -c "SELECT to_regclass('<schema>.amh_inbox');"        -- expect NULL
-psql -c "SELECT version_num FROM <schema>_alembic_version;" -- expect 0006
+# 3. Verify. The version table is created UNQUALIFIED under the migration's search_path, so it
+#    lands INSIDE the tenant schema and is named "<schema>_alembic_version" there. A psql session
+#    has a different search_path, so the query must be schema-qualified (or set the path first).
+psql -c "SELECT to_regclass('<schema>.amh_inbox');"                    -- expect NULL
+psql -c 'SELECT version_num FROM "<schema>"."<schema>_alembic_version";' -- expect 0006
+#    equivalently:
+psql -c 'SET search_path TO "<schema>"; SELECT version_num FROM "<schema>_alembic_version";'
 ```
+
+**Running `alembic` at all.** `alembic.ini` ships `sqlalchemy.url =
+postgresql+asyncpg://maezo:maezo@postgres:5432/maezo`; the host `postgres` is the compose service
+name and resolves ONLY inside the compose network, so these commands are run from inside the app
+container (or with `sqlalchemy.url` overridden for the target database).
 
 **Data-loss statement, plainly.** Rolling back destroys the settlement facts recorded in
 `amh_inbox`. Because the row is what makes an `ack` durable, rolling back while a consumer is
@@ -386,17 +442,24 @@ basis for that claim so a reviewer can check it rather than take it.
 
 ### 7.3 What is deliberately NOT stored
 
-Six envelope fields are excluded by construction. `_stored_row` in the repository is the single
-function that reads envelope fields, and it names 18 — none of these:
+**FIVE envelope fields are excluded by construction, and there is no payload column at all.** Those
+are two different facts and an earlier draft ran them together as "six envelope fields".
+`maezo.ports.envelope.CanonicalEnvelope` has **28** fields; `payload` is not one of them, so the
+event body is not an excluded field — it is data this repository never receives and never has a
+column for.
 
-| Excluded field | Reason |
+`_stored_row` in the repository is the single function that reads envelope fields. It reads **16**
+of the 28 and fills **18 columns**: 17 from those 16 (`source_position` supplies both
+`source_position_kind` and `source_position_value`) plus `inbox_stream`, which comes from the
+caller's `stream` argument rather than from the envelope. None of the five below is among them:
+
+| Excluded envelope field | Reason |
 |---|---|
 | `protected_source_record_ref` | raw source-record reference — ADR-0037 immutable prohibition #5, verbatim |
 | `portable_subject_ref` | the subject reference itself — XRD-05, DPO/Legal-gated (DL-0040/DL-0042 scope) |
 | `amh_mpi_ref` | master-patient-index reference |
 | `beneficiary_ref` | beneficiary reference |
 | `consent_decision_ref` | names a decision taken FOR ONE SUBJECT, hence subject-linkable |
-| the event `payload` | see below |
 
 **No payload bytes are stored, and that is a boundary decision rather than an omission.** The 0004
 custody/erasure precedent (`custody_bundles` + `erasure_log`) exists for data this repository IS
@@ -424,8 +487,10 @@ contract).
 
 * `tests/unit/platform/test_migration_0007_amh_inbox.py` fails if any forbidden identifier appears
   in the emitted DDL, and fails if the expected column set shrinks (non-vacuity).
-* `tests/unit/platform/integrations/test_amh_inbox.py` plants a sentinel in all six excluded
-  envelope fields and asserts it reaches no bind parameter.
+* `tests/unit/platform/integrations/test_amh_inbox.py` plants a sentinel in all five excluded
+  envelope fields and asserts it reaches no bind parameter — and separately asserts that
+  `CanonicalEnvelope` still has no `payload` field and `_INSERT_COLUMNS` no payload column, so the
+  two claims above cannot quietly become one.
 * `tests/unit/platform/integrations/test_amh_inbox_live_pg.py` reads the persisted rows back OUT of
   Postgres and asserts the sentinel is absent there too.
 
@@ -440,11 +505,65 @@ intended behaviour: a changed migration must be re-reviewed.
 
 | # | Decision | Author's position |
 |---|---|---|
-| **D-1** | Should `idempotency_key` be UNIQUE (`amh_tenant`, `idempotency_key`)? | **Not yet.** The pinned contract declares no uniqueness scope for the field, and asserting one would be this repository inventing contract semantics XRD-04 reserves to the AMH. If the contract owner publishes that scope, add the constraint in a follow-up migration and drop `ix_amh_inbox_idempotency`, which it subsumes. |
+| **D-1** | Should `idempotency_key` be UNIQUE (`amh_tenant`, `idempotency_key`)? | **Not yet.** The pinned contract declares no uniqueness scope for the field, and asserting one would be this repository inventing contract semantics XRD-04 reserves to the AMH. If the contract owner publishes that scope, add the constraint in a follow-up migration and drop `ix_amh_inbox_idempotency`, which it subsumes. Concretely, what "not yet" costs today: **two different `event_id`s sharing one `idempotency_key` are both RECORDED and are independently settleable** — the key is a triage INDEX, not a dedup mechanism. Deduplication is `(contract_manifest_digest, event_id)` and nothing else. |
 | **D-2** | Add a retention index (e.g. on `settled_at`) now, or later under `CONCURRENTLY`? | **Author deferred it**, because the retention policy it would serve (MZO-130) is human-gated and unratified. The counter-argument — that adding it later means `CREATE INDEX CONCURRENTLY` on a large table — is legitimate and is the reviewer's to weigh. |
 | **D-3** | `text` vs `varchar(n)` for the digest/reference columns. | **`text`.** Matches every existing table in this chain (0002–0005), and Postgres stores them identically; a length cap would encode an assumption about reference formats that XRD-05 has not settled. |
 | **D-4** | Should terminal rows be partitioned or archived out (e.g. monthly range partitioning on `received_at`)? | **Not at this scale, not yet.** Partitioning would complicate the primary-key/dedup guarantee (the partition key would have to join the PK). Revisit with MZO-130 and real volume figures. |
 | **D-5** | Per-tenant application vs a single shared schema. | Follows the existing platform convention unchanged (schema-per-tenant, `alembic -x tenant=<schema>`). Flagged only so the reviewer confirms the operational runbook covers every tenant schema. |
+| **D-6** | Should the inbox pool impose a `command_timeout` (and/or a session `lock_timeout`) on the unbounded speculative-insertion wait described in §5.2? | **Author set nothing, on purpose.** See below — this is the reviewer's number to pick, not the author's. |
+
+### D-6 in full — the unbounded wait
+
+**The property.** When two replicas `record` the SAME event, the second one's `INSERT ... ON
+CONFLICT DO NOTHING` blocks on the first one's transaction until it commits or aborts (§5.2). The
+pool is created with `min_size=1, max_size=10, setup=<search_path>` and **no `command_timeout`**;
+no `SET lock_timeout` or `SET statement_timeout` is issued anywhere, so both are the server default
+(verified `'0'` — unlimited — on the repository's own pooled session). A replica that inserts and
+then stalls can hold every other replica's matching `record` call for as long as it stalls, up to
+exhausting the 10-connection pool.
+
+**Why no timeout was set in code.** A cap is a *policy*, and picking one silently would decide two
+things that are not the author's to decide: how long a legitimate settlement transaction may take
+in this deployment, and what a capped call does next (an `asyncio.TimeoutError` from
+`command_timeout` aborts the call mid-transaction and must be turned into a retry the consumer
+understands — that is MZO-050b design, and inventing it here would prejudge it).
+
+**Suggested range, offered as input.** `lock_timeout` in the **2s–10s** band is the usual shape for
+a short OLTP write path like this one: comfortably above a healthy `record` (single-digit
+milliseconds) and well below the pool-exhaustion horizon. `command_timeout` on the pool would be a
+blunter instrument — it bounds the whole call rather than just the lock acquisition — so if only
+one is chosen, `lock_timeout` is the more precise. **Trade-off:** too low turns ordinary contention
+between replicas processing the same redelivery into spurious failures the consumer must retry
+(and each retry re-enters the same queue); too high, or absent, means one stalled writer's
+transaction is the real ceiling. Setting either is a code change plus an update to this decision
+and to `test_amh_inbox_live_pg.py::test_this_repositorys_own_pool_declares_no_lock_or_statement_timeout`,
+which currently pins the "unset" state so it cannot change unnoticed.
+
+---
+
+## 8b. One consequence for MZO-050b, recorded now rather than discovered later
+
+Not a schema question — flagged here because it is a decision the DBA's ratification makes
+reachable, and because the fix, if anyone reaches for the wrong one, is an architecture change.
+
+The consumer's settlement surface is the `AmhInbox` Protocol in
+`src/maezo/platform/integrations/amh_inbox.py`, i.e. under `maezo.platform`. `maezo.adapters.amh`
+is fenced against importing any `maezo.*` outside `maezo.ports` and its own package
+(`tests/unit/adapters/amh/test_adapter_purity.py`, `_ALLOWED_MAEZO_PREFIXES`), and that fence walks
+the AST, so an `if TYPE_CHECKING:` import does not evade it either. **The MZO-050b consumer can
+therefore never IMPORT `AmhInbox`.**
+
+This is not a blocker, and it must not be treated as a reason to relax the fence:
+
+* **Composition-root injection works today.** `Protocol` is STRUCTURAL. A composition root builds a
+  `PostgresAmhInbox` and hands it to the consumer; the consumer annotates the collaborator with a
+  shape it is allowed to name, and the object satisfies it without either side importing the other.
+* **The follow-up, if MZO-050b wants the annotation to name this exact surface**, is to declare the
+  Protocol port-side under `maezo/ports/` — where the adapter IS allowed to import from — and have
+  `PostgresAmhInbox` satisfy it. That is a port addition, reviewable on its own merits.
+* **What is never the answer** is adding `maezo.platform` to `_ALLOWED_MAEZO_PREFIXES`. The fence
+  is what keeps the AMH adapter free of SQL, brokers and platform internals; widening it for a type
+  annotation would trade the boundary for a convenience.
 
 ---
 
@@ -462,11 +581,21 @@ port, discarded afterwards) in the authoring worktree on 2026-08-09:
 | `pg_dump --schema-only --table=amh_inbox` | §3.2 above, verbatim |
 | Lock inventory during migration | §5.1 above — every `AccessExclusiveLock` on a newly-created relation only |
 | Repository behaviour on live PG | `RECORDED` → `DUPLICATE` (count 1→2) → `CONFLICT` on mutated `payload_hash` (count unchanged) → `CONFLICT` on cross-tenant replay; `PROCESSED`→`SETTLED`→`ALREADY`; quarantine of a settled row `REFUSED_TERMINAL`; settle of a quarantined row `REFUSED_TERMINAL`; settle of an unrecorded event `NOT_FOUND`; `pending` excludes terminal rows and is tenant-scoped |
+| Speculative-insertion contention (§5.2) | writer A holds an uncommitted insert; B's `record` BLOCKS on it (~4.4s against a 5s hold) and then resolves `DUPLICATE` if A committed / `RECORDED` if A rolled back — never `CONCURRENT`. At REPEATABLE READ and SERIALIZABLE the same sequence raises `could not serialize access due to concurrent update` from the INSERT itself |
+| Pool timeout disclosure (D-6) | `SHOW lock_timeout` / `SHOW statement_timeout` on the repository's OWN pooled session → `'0'` / `'0'`; the pool is created with no `command_timeout` |
+| Digest binding as a repository property | a hand-built `InboxRatification(migration_revision="0001", migration_sha256="deadbeef", …)` — which `__post_init__` accepts — is refused by `PostgresAmhInbox.__init__` (`migration_revision_mismatch`, then `migration_digest_mismatch` once the revision is corrected), and accepted with the real digest. Before the re-check it built a repository that `record`ed and `mark_settled` **applied** on this server |
+| Divergent quarantine referral | a second `nack` carrying `TIMEOUT` for a row already quarantined `CONTRACT_VIOLATION` returns `ALREADY` **with `stored_reason='contract_violation'` and `reason_diverged=True`**; the row read back from Postgres is unchanged |
 | CHECK constraints vs out-of-band writes | free-text `quarantine_reason`, unknown `status`, unknown `inbox_stream`, `SETTLED` with NULL `settled_at`, `settled_at` with non-`SETTLED` status, negative `replay_count` — all rejected, each by its named constraint |
 | PHI sentinel read back from Postgres | absent from every column of every persisted row |
 | `EXPLAIN` on the pending scan | `Index Scan using ix_amh_inbox_pending` |
 | Packaged-deployment probe | wheel built, installed into a disposable venv with no repo checkout: the ratification artifact resolves package-adjacent (`site-packages/maezo/spec/policies/amh/…`), the migration digest computes from `site-packages/maezo/platform/migrations/versions/0007_amh_inbox.py`, and the shipped DRAFT still refuses (`not_ratified`) |
-| Gate suite | `pytest tests/unit` (5135 passed, 41 skipped), `ruff check`, `ruff format --check`, `mypy --strict`, `make validate-artifacts`, `verify-amh-contract-pin`, `check-bpmn-error-allowlist`, `check-start-process-fence` — all green |
+| Gate suite | `pytest tests/unit` **5152 passed / 41 skipped WITH a reachable Postgres**; **5130 passed / 63 skipped without one** (same 5193 total — the 22-test live file skips loudly rather than passing). Plus `ruff check`, `ruff format --check`, `mypy --strict`, `make validate-artifacts`, `verify-amh-contract-pin`, `check-bpmn-error-allowlist`, `check-start-process-fence` — all green |
+
+**Reading the two test counts.** The higher count is not a better run, it is a DIFFERENT one: the
+22 tests in `test_amh_inbox_live_pg.py` need a Postgres on the suite's dedicated port (default
+`5647`, override `MAEZO_TEST_AMH_INBOX_DATABASE_URL`). CI without a database reports the lower
+count and 22 extra skips, each naming the missing server. A reviewer checking these numbers should
+confirm which of the two they are looking at before concluding anything is missing.
 
 **Packaging note for the release engineer.** `spec/policies/amh` is force-included into the wheel
 (`pyproject.toml`), on the same precedent as the autonomy matrix (ADR-0025 D2) and the AMH contract
@@ -485,7 +614,7 @@ Ratifying is a **YAML edit**. It requires no code change, no new deployment of c
 migration edit. The exact steps:
 
 **Step 1 — review.** Read §3 (DDL), §4 (indexes), §5 (locks), §6 (rollback), §7 (erasure) and
-decide D-1..D-5 in §8. If any decision changes the DDL, amend
+decide D-1..D-6 in §8. If any decision changes the DDL, amend
 `src/maezo/platform/migrations/versions/0007_amh_inbox.py` first and re-run the proof in §9.
 
 **Step 2 — compute the digest of the migration you are approving.**
@@ -539,6 +668,7 @@ conflict.
 | D-3 (`text` vs `varchar(n)`) | **PENDING** |
 | D-4 (partitioning) | **PENDING** |
 | D-5 (per-tenant rollout runbook) | **PENDING** |
+| D-6 (`lock_timeout` / `command_timeout` on the inbox pool) | **PENDING** |
 | `migration_sha256` approved | **PENDING** |
 | Conditions attached | **PENDING** |
 | Evidence-ledger row | **PENDING** |

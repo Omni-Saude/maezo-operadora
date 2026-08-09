@@ -38,6 +38,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
+import time
 import uuid
 from collections.abc import AsyncIterator, Iterator
 from datetime import UTC, datetime
@@ -50,11 +51,14 @@ import yaml
 
 from maezo.gateway.audit_postgres import normalize_dsn
 from maezo.platform.integrations.amh_inbox import (
+    _INSERT_SQL,
     AmhInboxUnavailableError,
+    InboxRatification,
     InboxRecordOutcome,
     InboxSettleOutcome,
     InboxStream,
     PostgresAmhInbox,
+    _stored_row,
     build_amh_inbox_repository,
     migration_digest,
 )
@@ -305,6 +309,45 @@ def test_the_shipped_draft_refuses_even_with_a_live_database(pg_dsn: str, tenant
     assert excinfo.value.reason == "not_ratified"
 
 
+async def test_a_hand_built_ratification_cannot_settle_rows_on_a_real_server(
+    pg_dsn: str, tenant_schema: str
+) -> None:
+    """The defect this test was written FROM, pinned where it actually happened.
+
+    `InboxRatification` is a dataclass and `__post_init__` checks only the two human switches, so
+    one built by hand with `migration_revision="0001"` and `migration_sha256="deadbeef"` used to
+    produce a repository that recorded and SETTLED rows against this very database — an `ack`
+    licensed by an approval covering DDL nobody had ever seen. The constructor's digest re-check is
+    what stops it, and a live server is where the claim is worth anything.
+    """
+    forged = InboxRatification(
+        status="RATIFIED",
+        ratificado=True,
+        dba_review="APPROVED",
+        dba_reviewer="not a DBA",
+        dba_review_date="1999-01-01",
+        evidence_ref="none",
+        notes="hand-built, bound to nothing",
+        migration_revision="0001",
+        migration_sha256="deadbeef",
+        review_packet="p.md",
+    )
+    with pytest.raises(AmhInboxUnavailableError) as excinfo:
+        PostgresAmhInbox(dsn=pg_dsn, tenant=tenant_schema, ratification=forged)
+    assert excinfo.value.reason == "migration_revision_mismatch"
+
+    object.__setattr__(forged, "migration_revision", "0007")
+    with pytest.raises(AmhInboxUnavailableError) as excinfo:
+        PostgresAmhInbox(dsn=pg_dsn, tenant=tenant_schema, ratification=forged)
+    assert excinfo.value.reason == "migration_digest_mismatch"
+
+    # Non-vacuity: with the REAL digest the same object builds, so the refusal above is the digest
+    # check doing its job rather than the constructor being broken.
+    object.__setattr__(forged, "migration_sha256", migration_digest())
+    repo = PostgresAmhInbox(dsn=pg_dsn, tenant=tenant_schema, ratification=forged)
+    await repo.aclose()
+
+
 # ===========================================================================
 # 3. Dedup + conflict detection
 # ===========================================================================
@@ -332,6 +375,78 @@ async def test_record_is_idempotent_and_detects_a_mutated_replay(inbox: Postgres
     assert await inbox.is_duplicate(contract_manifest_digest=_DIGEST, event_id="never") is False
 
 
+@pytest.mark.parametrize(
+    ("label", "rollback", "expected"),
+    [
+        ("commit", False, InboxRecordOutcome.DUPLICATE),
+        ("rollback", True, InboxRecordOutcome.RECORDED),
+    ],
+)
+async def test_a_conflicting_uncommitted_insert_makes_record_wait_not_return_concurrent(
+    inbox: PostgresAmhInbox, pg_dsn: str, tenant_schema: str, label: str, rollback: bool, expected: Any
+) -> None:
+    """The concurrency claim this module's docs used to get backwards, measured instead of assumed.
+
+    `ON CONFLICT DO NOTHING` does NOT return nothing for an in-flight conflicting insert: Postgres
+    speculative insertion BLOCKS on the conflicting transaction's xid until it ends, and only then
+    resolves — DUPLICATE if that writer committed, RECORDED if it rolled back. `CONCURRENT` is
+    therefore not the outcome of this race at READ COMMITTED, which is what the docstrings now say.
+
+    The other half, stated because it is the DBA's problem and not this test's: the wait is
+    UNBOUNDED. This pool sets no `lock_timeout` and no `command_timeout`, so the ceiling is another
+    replica's transaction. Packet decision D-6.
+    """
+    event_id = f"evt-race-{label}"
+    hold_seconds = 2.0
+
+    async def hold_uncommitted(started: asyncio.Event) -> None:
+        conn = await asyncpg.connect(normalize_dsn(pg_dsn))
+        try:
+            await conn.execute(f'SET search_path TO "{tenant_schema}"')
+            tx = conn.transaction()
+            await tx.start()
+            await conn.fetchrow(_INSERT_SQL, *_stored_row(_envelope(event_id), InboxStream.WORK_ITEM))
+            started.set()
+            await asyncio.sleep(hold_seconds)
+            await (tx.rollback() if rollback else tx.commit())
+        finally:
+            await conn.close()
+
+    started = asyncio.Event()
+    holder = asyncio.create_task(hold_uncommitted(started))
+    await asyncio.wait_for(started.wait(), timeout=10.0)
+
+    began = time.monotonic()
+    result = await inbox.record(_envelope(event_id), stream=InboxStream.WORK_ITEM)
+    waited = time.monotonic() - began
+    await holder
+
+    assert result.outcome is expected, f"expected {expected} after the other writer {label}d"
+    assert result.outcome is not InboxRecordOutcome.CONCURRENT
+    assert waited > hold_seconds / 2, (
+        f"record() returned in {waited:.2f}s — it did NOT block on the conflicting transaction, so "
+        "the speculative-insertion wait this suite documents is not happening"
+    )
+
+
+async def test_this_repositorys_own_pool_declares_no_lock_or_statement_timeout(
+    inbox: PostgresAmhInbox,
+) -> None:
+    """Disclosure, not a defence: the unbounded wait above is a property the DBA has to decide on.
+
+    Read through the repository's OWN pool (`setup=` runs on every acquire), so this is the session
+    a `record` call actually runs in — not a fresh connection that merely shares the server default.
+    Asserted rather than described so that setting a timeout becomes a deliberate change to this
+    test and to packet decision D-6, instead of a behaviour change nobody reviewed.
+    """
+    pool = await inbox._ensure_pool()  # noqa: SLF001 - the session under test IS the pool's
+    async with pool.acquire() as conn:
+        lock_timeout = await conn.fetchval("SHOW lock_timeout")
+        statement_timeout = await conn.fetchval("SHOW statement_timeout")
+    assert lock_timeout == "0", f"lock_timeout is {lock_timeout!r} — update packet D-6"
+    assert statement_timeout == "0", f"statement_timeout is {statement_timeout!r} — update packet D-6"
+
+
 # ===========================================================================
 # 4. Monotonic lifecycle, enforced by the database
 # ===========================================================================
@@ -347,31 +462,89 @@ async def test_settlement_is_idempotent_and_terminal(inbox: PostgresAmhInbox) ->
     # THE `ack` idempotency guarantee, durably: a second ack of the same handle succeeds again.
     assert await inbox.mark_settled(**key) is InboxSettleOutcome.ALREADY
     # And a settled row is never rewritten into a quarantine.
-    assert (
-        await inbox.mark_quarantined(**key, reason=PortFailureReason.CONTRACT_VIOLATION)
-        is InboxSettleOutcome.REFUSED_TERMINAL
-    )
+    refused = await inbox.mark_quarantined(**key, reason=PortFailureReason.CONTRACT_VIOLATION)
+    assert refused.outcome is InboxSettleOutcome.REFUSED_TERMINAL
+    # The biconditional CHECK keeps a SETTLED row's quarantine columns NULL, so there is no stored
+    # referral to report — and none is invented.
+    assert refused.stored_reason is None
+    assert refused.reason_diverged is False
 
 
 async def test_quarantine_is_terminal_and_never_becomes_a_settlement(inbox: PostgresAmhInbox) -> None:
     await inbox.record(_envelope("evt-quar"), stream=InboxStream.CONSENT)
     key = {"contract_manifest_digest": _DIGEST, "event_id": "evt-quar"}
 
-    assert (
-        await inbox.mark_quarantined(
-            **key,
-            reason=PortFailureReason.CONTRACT_VIOLATION,
-            quarantine_topic="amh.maezo.consent.v1.quarantine.v1",
-        )
-        is InboxSettleOutcome.APPLIED
+    applied = await inbox.mark_quarantined(
+        **key,
+        reason=PortFailureReason.CONTRACT_VIOLATION,
+        quarantine_topic="amh.maezo.consent.v1.quarantine.v1",
     )
-    assert (
-        await inbox.mark_quarantined(**key, reason=PortFailureReason.CONTRACT_VIOLATION)
-        is InboxSettleOutcome.ALREADY
-    )
+    assert applied.outcome is InboxSettleOutcome.APPLIED
+    assert applied.stored_reason == "contract_violation"
+    assert applied.stored_topic == "amh.maezo.consent.v1.quarantine.v1"
+
+    again = await inbox.mark_quarantined(**key, reason=PortFailureReason.CONTRACT_VIOLATION)
+    assert again.outcome is InboxSettleOutcome.ALREADY
+    assert again.reason_diverged is False
+
     # The invariant that matters: a quarantined event can never come back as a settlement, so
     # `ack` can never report success for something that was routed to quarantine.
     assert await inbox.mark_settled(**key) is InboxSettleOutcome.REFUSED_TERMINAL
+
+
+async def test_a_second_nack_with_a_divergent_reason_is_reported_not_dropped(
+    inbox: PostgresAmhInbox, pg_dsn: str, tenant_schema: str
+) -> None:
+    """Quarantine is terminal, so the second reason is DISCARDED — the bug was not saying so.
+
+    Two `nack`s classifying the same event differently is a real disagreement between deliveries
+    (or between replicas). Returning bare `ALREADY` told the caller its `TIMEOUT` had been applied
+    when `CONTRACT_VIOLATION` was on the row — a retryable classification silently standing in for
+    an unretryable one.
+    """
+    await inbox.record(_envelope("evt-quar-diverge"), stream=InboxStream.WORK_ITEM)
+    key = {"contract_manifest_digest": _DIGEST, "event_id": "evt-quar-diverge"}
+
+    first = await inbox.mark_quarantined(
+        **key,
+        reason=PortFailureReason.CONTRACT_VIOLATION,
+        quarantine_topic="amh.maezo.work_item.v1.quarantine.v1",
+    )
+    assert first.outcome is InboxSettleOutcome.APPLIED
+
+    second = await inbox.mark_quarantined(
+        **key, reason=PortFailureReason.TIMEOUT, quarantine_topic="somewhere.else"
+    )
+    assert second.outcome is InboxSettleOutcome.ALREADY
+    assert second.requested_reason is PortFailureReason.TIMEOUT
+    assert second.stored_reason == "contract_violation", "the STORED reason must be reported back"
+    assert second.stored_topic == "amh.maezo.work_item.v1.quarantine.v1"
+    assert second.reason_diverged is True
+
+    # And the row really was not rewritten — read it back out of Postgres.
+    conn = await asyncpg.connect(normalize_dsn(pg_dsn))
+    try:
+        await conn.execute(f'SET search_path TO "{tenant_schema}"')
+        row = await conn.fetchrow(
+            "SELECT quarantine_reason, quarantine_topic FROM amh_inbox WHERE event_id = $1",
+            "evt-quar-diverge",
+        )
+    finally:
+        await conn.close()
+    assert row["quarantine_reason"] == "contract_violation"
+    assert row["quarantine_topic"] == "amh.maezo.work_item.v1.quarantine.v1"
+
+
+async def test_quarantining_an_unrecorded_event_is_not_found(inbox: PostgresAmhInbox) -> None:
+    """Never an upsert, and nothing is invented to report."""
+    result = await inbox.mark_quarantined(
+        contract_manifest_digest=_DIGEST,
+        event_id="evt-quar-ghost",
+        reason=PortFailureReason.TIMEOUT,
+    )
+    assert result.outcome is InboxSettleOutcome.NOT_FOUND
+    assert result.stored_reason is None
+    assert result.reason_diverged is False
 
 
 async def test_settling_an_unrecorded_event_is_not_found_never_an_upsert(

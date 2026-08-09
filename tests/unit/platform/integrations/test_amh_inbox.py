@@ -13,15 +13,26 @@ Three things are proved here, and the third is the one the DBA gate rests on:
     placeholder markers.
 
 3.  **An unratified inbox can never report settlement success**, and the proof is structural
-    rather than behavioural: the only public constructor requires an `InboxRatification`, and an
-    `InboxRatification` cannot be constructed for anything but a real ratification. A caller
-    therefore has no path — not a flag, not a default argument, not a subclass — to an object on
-    which `mark_settled` could be called at all. The forged-capability test closes the last door
-    by bypassing `__post_init__` with `object.__setattr__` and showing the constructor still
-    refuses.
+    rather than behavioural — but the structure is not "an `InboxRatification` can only come from
+    an artifact". It cannot: `InboxRatification` is a dataclass and a caller can build one by
+    hand. What is true, and what these tests pin, is a three-part guarantee:
 
-Plus the PHI fence on `_stored_row` (planted sentinel in all six excluded envelope fields, and the
-positive non-vacuity half), and the ratified-fixture test proving activation needs NO code change.
+    * `build_amh_inbox_repository` -> `load_inbox_ratification` is THE digest-binding path — the
+      only route that binds an approval to a file and to the exact migration bytes on disk;
+    * `spec/policies/amh/inbox-ratification.yaml` is the SWITCH, and it is a DRAFT;
+    * `PostgresAmhInbox.__init__` is the SECOND LOCK and re-checks four properties — the two human
+      switches (catching an instance forged past `__post_init__` with `object.__setattr__`) AND
+      `migration_revision` + `migration_sha256` against the migration file. That second pair
+      matters because it is exactly what a hand-built `InboxRatification` supplies unchecked: a
+      dataclass carrying `migration_revision="0001", migration_sha256="deadbeef"` used to build a
+      repository that recorded and settled rows against a real server.
+
+    So there is no flag, no default argument, no subclass and no hand-built dataclass that yields
+    an object on which `mark_settled` can be called against DDL nobody approved.
+
+Plus the PHI fence on `_stored_row` (planted sentinel in all five excluded envelope fields — the
+payload is not a sixth, `CanonicalEnvelope` has none — and the positive non-vacuity half), and the
+ratified-fixture test proving activation needs NO code change.
 
 No Postgres is touched by this file. The SQL is exercised for real by the live-PG proof recorded in
 `docs/reviews/mzo-060-dba-review-packet.md`; here the DB-free surface is what is under test.
@@ -61,6 +72,7 @@ from maezo.platform.integrations.amh_inbox import (
     REQUIRED_RATIFICATION_FIELDS,
     AmhInbox,
     AmhInboxUnavailableError,
+    InboxQuarantineResult,
     InboxRatification,
     InboxRecordOutcome,
     InboxSettleOutcome,
@@ -74,6 +86,7 @@ from maezo.platform.integrations.amh_inbox import (
     resolve_ratification_path,
 )
 from maezo.ports.envelope import CanonicalEnvelope, SourcePosition
+from maezo.ports.errors import PortFailureReason
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _DRAFT_ARTIFACT = _REPO_ROOT / INBOX_RATIFICATION_RELATIVE_PATH
@@ -109,7 +122,11 @@ def _write(tmp_path: Path, mapping: dict[str, Any], name: str = "ratified.yaml")
 
 
 def _envelope(**overrides: Any) -> CanonicalEnvelope:
-    """A canonical envelope whose six EXCLUDED fields all carry the PHI sentinel."""
+    """A canonical envelope whose five EXCLUDED fields all carry the PHI sentinel.
+
+    Five, not six: `CanonicalEnvelope` has no `payload` field to plant one in — the event body is
+    excluded by there being no such field and no such column, not by this function skipping it.
+    """
     fields: dict[str, Any] = {
         "event_id": "evt-0001",
         "event_type": "work_item.created",
@@ -316,6 +333,75 @@ def test_a_forged_ratification_is_still_refused_by_the_constructor() -> None:
     assert excinfo.value.reason == REASON_UNRATIFIED_REPOSITORY
 
 
+def test_a_hand_built_ratification_naming_other_ddl_is_refused_by_the_constructor() -> None:
+    """THE second lock's digest half. `InboxRatification` is a dataclass — anyone can build one.
+
+    `__post_init__` checks only the two HUMAN switches, so a hand-built instance carrying an
+    arbitrary `migration_revision`/`migration_sha256` passes it. Nothing then re-checked those two
+    fields, and `PostgresAmhInbox` accepted the object: the resulting repository recorded and
+    settled rows on a live Postgres while claiming an approval for revision `0001` and the digest
+    `deadbeef`. The constructor now re-derives the digest from the migration file and refuses.
+    """
+    forged = InboxRatification(
+        status=RATIFIED_STATUS,
+        ratificado=True,
+        dba_review=APPROVED_DBA_REVIEW,
+        dba_reviewer="Ana Souza",
+        dba_review_date="2026-08-09",
+        evidence_ref="mzo-060",
+        notes="ok",
+        migration_revision="0001",
+        migration_sha256="deadbeef",
+        review_packet="p.md",
+    )
+    with pytest.raises(AmhInboxUnavailableError) as excinfo:
+        PostgresAmhInbox(dsn=_DSN, tenant="public", ratification=forged)
+    assert excinfo.value.reason == REASON_MIGRATION_REVISION_MISMATCH
+
+
+def test_a_hand_built_ratification_with_the_right_revision_but_a_wrong_digest_is_refused() -> None:
+    """Revision alone is not the binding — the DIGEST is, and it is re-derived from disk here."""
+    forged = InboxRatification(
+        status=RATIFIED_STATUS,
+        ratificado=True,
+        dba_review=APPROVED_DBA_REVIEW,
+        dba_reviewer="Ana Souza",
+        dba_review_date="2026-08-09",
+        evidence_ref="mzo-060",
+        notes="ok",
+        migration_revision=INBOX_MIGRATION_REVISION,
+        migration_sha256="deadbeef",
+        review_packet="p.md",
+    )
+    with pytest.raises(AmhInboxUnavailableError) as excinfo:
+        PostgresAmhInbox(dsn=_DSN, tenant="public", ratification=forged)
+    assert excinfo.value.reason == REASON_MIGRATION_DIGEST_MISMATCH
+    assert "deadbeef" in str(excinfo.value)
+
+
+def test_the_constructor_digest_check_survives_object_setattr_laundering() -> None:
+    """A ratification loaded from a REAL artifact, then mutated to name other DDL, is still refused.
+
+    Closes the door `dataclasses.replace` does not: `object.__setattr__` skips `__post_init__`, so
+    the only thing standing between a laundered digest and a working repository is the constructor.
+    """
+    ratified = InboxRatification(**_ratified_mapping())  # type: ignore[arg-type]
+    PostgresAmhInbox(dsn=_DSN, tenant="public", ratification=ratified)  # non-vacuity: this works
+
+    object.__setattr__(ratified, "migration_sha256", "f" * 64)
+    with pytest.raises(AmhInboxUnavailableError) as excinfo:
+        PostgresAmhInbox(dsn=_DSN, tenant="public", ratification=ratified)
+    assert excinfo.value.reason == REASON_MIGRATION_DIGEST_MISMATCH
+
+
+def test_the_constructor_digest_check_tolerates_case_and_whitespace() -> None:
+    """Same normalisation the loader applies — a pasted `shasum` digest must not fail the lock."""
+    ratified = InboxRatification(**_ratified_mapping())  # type: ignore[arg-type]
+    object.__setattr__(ratified, "migration_sha256", f"  {migration_digest().upper()}  ")
+    repo = PostgresAmhInbox(dsn=_DSN, tenant="public", ratification=ratified)
+    assert repo.ratification is ratified
+
+
 def test_dataclasses_replace_cannot_downgrade_a_ratification() -> None:
     """`dataclasses.replace` re-runs `__post_init__`, so it is not a laundering path either."""
     ratified = InboxRatification(**_ratified_mapping())  # type: ignore[arg-type]
@@ -507,7 +593,7 @@ def test_digest_comparison_tolerates_case_and_whitespace(tmp_path: Path) -> None
 
 
 def test_stored_row_never_carries_a_subject_bearing_field() -> None:
-    """THE PHI fence. Six excluded envelope fields all carry a sentinel; none may reach a param."""
+    """THE PHI fence. Five excluded envelope fields all carry a sentinel; none may reach a param."""
     from maezo.platform.integrations.amh_inbox import _stored_row
 
     params = _stored_row(_envelope(), InboxStream.WORK_ITEM)
@@ -517,7 +603,11 @@ def test_stored_row_never_carries_a_subject_bearing_field() -> None:
 
 
 def test_stored_row_projects_the_expected_18_columns_in_order() -> None:
-    """Non-vacuity for the fence above: an empty/short projection must not read as 'clean'."""
+    """Non-vacuity for the fence above: an empty/short projection must not read as 'clean'.
+
+    18 COLUMNS, from 16 envelope fields plus the `stream` argument: `source_position` supplies two
+    columns (`kind`, `value`), and `inbox_stream` comes from the argument, not from the envelope.
+    """
     from maezo.platform.integrations.amh_inbox import _INSERT_COLUMNS, _stored_row
 
     params = _stored_row(_envelope(), InboxStream.CONSENT)
@@ -532,11 +622,14 @@ def test_stored_row_projects_the_expected_18_columns_in_order() -> None:
     assert params[13] == 0  # replay_count
 
 
-def test_stored_row_excluded_fields_are_the_six_named_ones() -> None:
+def test_stored_row_excluded_fields_are_the_five_named_ones_and_there_is_no_payload_column() -> None:
     """Names the exclusion set explicitly, so widening it silently is not possible.
 
     The sentinel test above proves no EXCLUDED value leaks; this proves the exclusion set is the
-    one the migration docstring and the DBA packet promise, field for field.
+    one the migration docstring and the DBA packet promise, field for field — and that the five
+    really are ENVELOPE fields, which is what makes excluding them a decision rather than a
+    coincidence. `payload` is asserted separately, because it is not an envelope field at all:
+    `CanonicalEnvelope` has none, and neither does the table.
     """
     from maezo.platform.integrations.amh_inbox import _INSERT_COLUMNS
 
@@ -546,9 +639,15 @@ def test_stored_row_excluded_fields_are_the_six_named_ones() -> None:
         "amh_mpi_ref",
         "beneficiary_ref",
         "consent_decision_ref",
-        "payload",
     }
+    envelope_fields = {field.name for field in dataclasses.fields(CanonicalEnvelope)}
+    assert len(envelope_fields) == 28, f"CanonicalEnvelope shape drifted: {len(envelope_fields)}"
+    assert excluded <= envelope_fields, "the exclusion set must name real envelope fields"
     assert excluded.isdisjoint(_INSERT_COLUMNS)
+
+    assert "payload" not in envelope_fields, "the envelope gained a payload — re-argue the fence"
+    assert "payload" not in _INSERT_COLUMNS
+
     # And the non-excluded envelope fields we DO claim to store really are stored.
     assert {"contract_manifest_digest", "event_id", "amh_tenant", "payload_hash"} <= set(_INSERT_COLUMNS)
 
@@ -662,3 +761,80 @@ def test_insert_sql_is_idempotent_on_the_xrd10_dedup_key() -> None:
 
     assert "ON CONFLICT (contract_manifest_digest, event_id) DO NOTHING" in _INSERT_SQL
     assert _INSERT_SQL.count("$") == 18
+
+
+async def test_the_pool_is_created_without_a_command_timeout_and_that_is_disclosed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A conflicting in-flight insert makes `record` WAIT, and nothing here caps that wait.
+
+    Postgres speculative insertion blocks on the conflicting transaction's xid, so the ceiling on a
+    `record` call is another replica's transaction. Whether to impose one is the DBA's call (packet
+    D-6), so the code deliberately sets NOTHING — and this test pins that, so imposing a timeout
+    later is a reviewed change rather than a silent one.
+    """
+    captured: dict[str, Any] = {}
+
+    async def _fake_create_pool(dsn: str, **kwargs: Any) -> str:
+        captured.update(kwargs)
+        captured["dsn"] = dsn
+        return "pool-sentinel"
+
+    monkeypatch.setattr("asyncpg.create_pool", _fake_create_pool)
+    repo = build_amh_inbox_repository(
+        dsn=_DSN, tenant="public", ratification_path=_write(tmp_path, _ratified_mapping())
+    )
+    assert await repo._ensure_pool() == "pool-sentinel"  # noqa: SLF001
+    assert "command_timeout" not in captured, (
+        "the pool now sets a command_timeout — that is packet decision D-6 and must be recorded there"
+    )
+    assert "timeout" not in captured
+    assert captured["max_size"] == 10
+
+
+def test_quarantine_sql_returns_the_stored_referral_not_just_the_status() -> None:
+    """A caller cannot detect a dropped reason it is never shown."""
+    from maezo.platform.integrations.amh_inbox import (
+        _MARK_QUARANTINED_SQL,
+        _SELECT_QUARANTINE_STATE_SQL,
+    )
+
+    assert "RETURNING status, quarantine_reason, quarantine_topic" in _MARK_QUARANTINED_SQL
+    assert "quarantine_reason" in _SELECT_QUARANTINE_STATE_SQL
+    assert "quarantine_topic" in _SELECT_QUARANTINE_STATE_SQL
+
+
+def test_quarantine_result_reports_a_divergent_reason_as_divergent() -> None:
+    """`ALREADY` + a DIFFERENT stored reason is the case that used to vanish silently."""
+    diverged = InboxQuarantineResult(
+        outcome=InboxSettleOutcome.ALREADY,
+        requested_reason=PortFailureReason.TIMEOUT,
+        stored_reason=str(PortFailureReason.CONTRACT_VIOLATION),
+        stored_topic="amh.maezo.work_item.v1.quarantine.v1",
+    )
+    assert diverged.reason_diverged is True
+    assert diverged.stored_reason == "contract_violation"
+
+
+@pytest.mark.parametrize(
+    ("outcome", "stored_reason"),
+    [
+        # Same reason: an ordinary idempotent re-nack, not a divergence.
+        (InboxSettleOutcome.ALREADY, str(PortFailureReason.TIMEOUT)),
+        # Applied by this very call, so the stored reason IS the requested one.
+        (InboxSettleOutcome.APPLIED, str(PortFailureReason.TIMEOUT)),
+        # No row, and a SETTLED row keeps its quarantine columns NULL (biconditional CHECK).
+        (InboxSettleOutcome.NOT_FOUND, None),
+        (InboxSettleOutcome.REFUSED_TERMINAL, None),
+    ],
+)
+def test_quarantine_result_does_not_cry_divergence_otherwise(
+    outcome: InboxSettleOutcome, stored_reason: str | None
+) -> None:
+    """Non-vacuity for the flag: it must not fire on the states that are NOT a dropped reason."""
+    result = InboxQuarantineResult(
+        outcome=outcome,
+        requested_reason=PortFailureReason.TIMEOUT,
+        stored_reason=stored_reason,
+    )
+    assert result.reason_diverged is False

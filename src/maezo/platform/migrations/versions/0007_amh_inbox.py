@@ -42,15 +42,18 @@ PHI posture: no subject-linkable column, therefore no erasure cascade target
 --------------------------------------------------------------------------------------------
 ADR-0037 immutable prohibition #5 forbids PHI and raw source identifiers in keys, logs, traces,
 metrics and quarantine metadata. Every column below is either a digest, a closed vocabulary
-token, an opaque correlation reference, a timestamp or a counter. SIX envelope fields are
-DELIBERATELY ABSENT and must stay absent:
+token, an opaque correlation reference, a timestamp or a counter. FIVE of the canonical envelope's
+28 fields are DELIBERATELY ABSENT and must stay absent:
 
     protected_source_record_ref   raw source-record reference (prohibition #5, verbatim)
     portable_subject_ref          the subject reference itself (XRD-05, DPO/Legal-gated)
     amh_mpi_ref                   master-patient-index reference
     beneficiary_ref               beneficiary reference
     consent_decision_ref          names a decision taken FOR ONE SUBJECT -> subject-linkable
-    payload                       the event body
+
+The event body is not a sixth entry on that list, because it was never an envelope field:
+`maezo.ports.envelope.CanonicalEnvelope` has no `payload`, and this table has NO PAYLOAD COLUMN at
+all — see the next section for why that is a boundary decision rather than an oversight.
 
 `tests/unit/platform/test_migration_0007_amh_inbox.py` pins that absence structurally, and
 `maezo.platform.integrations.amh_inbox._stored_row` — the one function that projects an envelope

@@ -17,7 +17,7 @@ never a committed offset.
    anything until `spec/policies/amh/inbox-ratification.yaml` says a DBA approved the schema. The
    refusal is not a flag a caller can pass around: `PostgresAmhInbox` cannot be constructed
    without an `InboxRatification`, and `InboxRatification.__post_init__` refuses to exist unless
-   the artifact literally said `ratificado: true` + `dba_review: APPROVED`. An unratified inbox
+   `ratificado` is the boolean `true` and `dba_review` is `APPROVED`. An unratified inbox
    therefore cannot report settlement success, because no object able to report it can be built.
 
 That is the same refusal shape as `maezo.platform.lifecycle.legal_bases_matrix`, which refuses its
@@ -25,27 +25,56 @@ own `UNRATIFIED-*.template.yaml` rather than treating placeholder markers as dat
 this module follows down to the `REASON_*` taxonomy and the "no default, no fallback, no partial
 load" posture.
 
+**Where the guarantee actually lives, stated precisely.** `InboxRatification` checks the two HUMAN
+switches and nothing else — it is a dataclass, so a caller CAN hand-build one without reading any
+artifact at all. What binds an approval to a file and to specific DDL is
+`build_amh_inbox_repository` -> `load_inbox_ratification`: that is the digest-binding path, and the
+artifact on disk is the switch. `PostgresAmhInbox.__init__` is the SECOND lock and re-checks all
+four properties (the two switches plus `migration_revision` and `migration_sha256`), so a
+hand-built or forged ratification naming other DDL yields a refusal rather than a working
+repository. Before that re-check existed, `InboxRatification(migration_revision="0001",
+migration_sha256="deadbeef", ...)` built a repository that recorded and settled rows on a live
+server.
+
 **Activation requires NO code change.** Ratifying is a YAML edit plus applying migration 0007. The
-digest binding below is what keeps that from being a loophole: a ratified artifact must carry the
-sha256 of the migration file it approved, so a ratification cannot silently carry over to DDL the
-reviewer never saw.
+digest binding is what keeps that from being a loophole: a ratified artifact must carry the sha256
+of the migration file it approved, so a ratification cannot silently carry over to DDL the reviewer
+never saw.
+
+**A typing consequence MZO-050b inherits, recorded here rather than discovered there.** The
+`AmhInbox` Protocol below lives under `maezo.platform`, and `maezo.adapters.amh` is fenced against
+importing any `maezo.*` outside `maezo.ports` and its own package
+(`tests/unit/adapters/amh/test_adapter_purity.py`, `_ALLOWED_MAEZO_PREFIXES`). The consumer can
+therefore NEVER write `from maezo.platform.integrations.amh_inbox import AmhInbox` — not even under
+`if TYPE_CHECKING`, since that fence walks the AST and sees guarded imports too. Composition-root
+INJECTION still works, because `Protocol` is structural: the root builds a `PostgresAmhInbox` and
+hands it to the consumer, which annotates the collaborator with a shape it is allowed to name. If
+MZO-050b wants the annotation to name this exact surface, the follow-up is to declare the Protocol
+port-side under `maezo/ports/` and have this class satisfy it — never to relax the fence.
 
 **PHI posture.** `_stored_row` is the ONE function that projects a `CanonicalEnvelope` onto stored
-columns, and it names 18 fields — none of which is `protected_source_record_ref`,
-`portable_subject_ref`, `amh_mpi_ref`, `beneficiary_ref`, `consent_decision_ref` or the payload.
-No event body is persisted at all: the AMH is the lake of record (ADR-0019) and the surviving
-ADR-0013 principle is consume-not-duplicate, so a payload column here would make this repository a
-second copy of record of AMH-owned data. `payload_hash` is kept instead — a non-reversible digest
-that lets a replay carrying MUTATED content be DETECTED (`InboxRecordOutcome.CONFLICT`) instead of
-silently deduplicated. Quarantine referrals carry only a closed `PortFailureReason` token and a
-pinned topic NAME, never a payload or an upstream error body (ADR-0037 immutable prohibition #5,
-and `WorkItemSource.nack`'s own contract).
+columns. It fills 18 columns: 17 of them from 16 of the envelope's 28 fields (`source_position`
+contributes two, `kind` and `value`), and the 18th (`inbox_stream`) from the `stream` ARGUMENT, not
+from the envelope. FIVE envelope fields are deliberately never read —
+`protected_source_record_ref`, `portable_subject_ref`, `amh_mpi_ref`, `beneficiary_ref`,
+`consent_decision_ref`. The event body is not a sixth: `CanonicalEnvelope` has no `payload` field
+and this schema has no payload column, so no event body is persisted at all. That is a boundary
+decision: the AMH is the lake of record (ADR-0019) and the surviving ADR-0013 principle is
+consume-not-duplicate, so a payload column here would make this repository a second copy of record
+of AMH-owned data. `payload_hash` is kept instead — a non-reversible digest that lets a replay
+carrying MUTATED content be DETECTED (`InboxRecordOutcome.CONFLICT`) instead of silently
+deduplicated. Quarantine referrals carry only a closed `PortFailureReason` token and a pinned topic
+NAME, never a payload or an upstream error body (ADR-0037 immutable prohibition #5, and
+`WorkItemSource.nack`'s own contract).
 
 **Honest results only (DL-0038).** Every operation reports what it OBSERVED. `record` distinguishes
-a fresh dedup row from a consistent duplicate from a key collision carrying different content from
-another writer's uncommitted insert; `mark_settled` distinguishes a settlement it applied from one
-that was already there from a refusal to overwrite the opposite terminal state. There is no
-"assume it worked" branch anywhere in this file.
+a fresh dedup row from a consistent duplicate from a key collision carrying different content;
+`mark_settled` distinguishes a settlement it applied from one that was already there from a refusal
+to overwrite the opposite terminal state; `mark_quarantined` returns the reason ACTUALLY STORED, so
+a second `nack` carrying a DIVERGENT reason is detectable instead of silently dropped. There is no
+"assume it worked" branch anywhere in this file — and the one branch that turned out to be
+defensive rather than reachable (`InboxRecordOutcome.CONCURRENT`) says so in its own docstring
+instead of claiming a race it does not have.
 """
 
 from __future__ import annotations
@@ -488,9 +517,25 @@ class InboxRecordOutcome(StrEnum):
     caller must quarantine (`PortFailureReason.CONTRACT_VIOLATION`). No state was mutated."""
 
     CONCURRENT = "concurrent"
-    """Another writer holds an UNCOMMITTED row for this dedup key, so its state cannot be read.
-    Postgres `ON CONFLICT DO NOTHING` returns nothing for an in-flight conflicting insert AND the
-    row is not yet visible, so this is a real, reachable state — reported rather than guessed at.
+    """DEFENSIVE. The dedup row could not be read back after `ON CONFLICT DO NOTHING` declined to
+    insert it.
+
+    This is deliberately NOT described as the in-flight-writer race it was originally written for,
+    because that race resolves elsewhere. Measured on PostgreSQL 16.14: an `INSERT ... ON CONFLICT
+    DO NOTHING` whose conflict is another transaction's UNCOMMITTED insert does not return
+    immediately — Postgres speculative insertion BLOCKS on that transaction's xid until it ends
+    (observed: ~4.4s of wait against a writer holding for 5s). If the other writer commits, the
+    follow-up `SELECT` — a fresh snapshot at READ COMMITTED — sees the committed row and the
+    outcome is `DUPLICATE`/`CONFLICT`; if it rolls back, this call's own insert proceeds and the
+    outcome is `RECORDED`. So at READ COMMITTED (asyncpg's default, and this repository's) that
+    race never lands here. Raising the isolation level does not land here either: at REPEATABLE
+    READ and SERIALIZABLE the INSERT itself raises `could not serialize access due to concurrent
+    update` rather than silently declining (`ExecCheckTupleVisible`).
+
+    What is left reachable is a row that vanished BETWEEN the two statements — i.e. a `DELETE` by a
+    writer that is not this repository (this repository issues none; a future MZO-130 pruner would
+    be one). The branch is kept because the alternative is guessing, and because an isolation-level
+    or SQL change that DID make the state reachable would then fail honestly instead of silently.
     Retrying the same delivery later is the caller's correct response."""
 
 
@@ -523,6 +568,35 @@ class InboxRecordResult:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class InboxQuarantineResult:
+    """The result of `mark_quarantined`: what happened, AND the referral actually on the row.
+
+    `InboxSettleOutcome` alone cannot answer the question a second `nack` raises. A row that is
+    already `QUARANTINED` returns `ALREADY` whatever reason the caller passed, so a caller
+    quarantining for `TIMEOUT` a row already quarantined as `CONTRACT_VIOLATION` would have its
+    reason silently dropped and be told the operation succeeded. Returning the STORED reason makes
+    that divergence detectable by the caller instead of invisible.
+
+    `stored_reason` is the raw column value (the DDL CHECK constrains it to the `PortFailureReason`
+    value set, so it parses — but this type reports what was read, it does not coerce it).
+    """
+
+    outcome: InboxSettleOutcome
+    requested_reason: PortFailureReason
+    stored_reason: str | None = None
+    stored_topic: str | None = None
+
+    @property
+    def reason_diverged(self) -> bool:
+        """True iff the row was ALREADY quarantined under a reason different from the one asked for."""
+        return (
+            self.outcome is InboxSettleOutcome.ALREADY
+            and self.stored_reason is not None
+            and self.stored_reason != str(self.requested_reason)
+        )
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class PendingInboxEntry:
     """One unsettled row from `pending`. Carries no subject reference and no payload."""
 
@@ -541,8 +615,9 @@ class PendingInboxEntry:
 # ---------------------------------------------------------------------------
 
 #: Columns `record` writes, in bind order. `status`, `received_at`, `last_seen_at` and
-#: `redelivery_count` take their DDL defaults. The SIX subject-bearing envelope fields are absent
-#: here and must stay absent — `tests/unit/platform/integrations/test_amh_inbox.py` pins that.
+#: `redelivery_count` take their DDL defaults. The FIVE subject-bearing envelope fields are absent
+#: here and must stay absent, and there is no payload column at all —
+#: `tests/unit/platform/integrations/test_amh_inbox.py` pins both.
 _INSERT_COLUMNS: Final[tuple[str, ...]] = (
     "contract_manifest_digest",
     "event_id",
@@ -611,7 +686,14 @@ _MARK_QUARANTINED_SQL: Final[str] = (
     "quarantine_reason = $3, quarantine_topic = $4 "
     "WHERE contract_manifest_digest = $1 AND event_id = $2 "
     "AND status IN ('RECEIVED', 'PROCESSED') "
-    "RETURNING status"
+    "RETURNING status, quarantine_reason, quarantine_topic"
+)
+
+# Read the referral a zero-row quarantine UPDATE did NOT overwrite, so the caller can see that its
+# reason was not the one stored rather than being told `ALREADY` and nothing else.
+_SELECT_QUARANTINE_STATE_SQL: Final[str] = (
+    "SELECT status, quarantine_reason, quarantine_topic FROM amh_inbox "
+    "WHERE contract_manifest_digest = $1 AND event_id = $2"
 )
 
 _PENDING_SQL: Final[str] = (
@@ -670,10 +752,15 @@ def _require_aware(field: str, value: object) -> datetime:
 def _stored_row(envelope: CanonicalEnvelope, stream: InboxStream) -> tuple[object, ...]:
     """Project a canonical envelope onto the 18 stored columns, in `_INSERT_COLUMNS` order.
 
-    THE PHI FENCE. This is the only function in the repository that reads envelope fields, and it
-    names exactly the 18 non-subject-linkable ones. `protected_source_record_ref`,
-    `portable_subject_ref`, `amh_mpi_ref`, `beneficiary_ref`, `consent_decision_ref` and the
-    payload are never read, so they cannot reach a bind parameter, a log line or a stored row.
+    THE PHI FENCE. This is the only function in the repository that reads envelope fields. It reads
+    16 of the envelope's 28 — all non-subject-linkable — and fills 17 columns with them
+    (`source_position` supplies both `source_position_kind` and `source_position_value`); the 18th
+    column, `inbox_stream`, comes from the `stream` argument rather than from the envelope.
+
+    The FIVE subject-bearing fields — `protected_source_record_ref`, `portable_subject_ref`,
+    `amh_mpi_ref`, `beneficiary_ref`, `consent_decision_ref` — are never read, so they cannot reach
+    a bind parameter, a log line or a stored row. The event body is not a sixth exclusion:
+    `CanonicalEnvelope` has no `payload` field and `amh_inbox` has no payload column.
 
     Pure and DB-free, so the fence is testable without Postgres — including with a planted
     sentinel in every excluded field.
@@ -727,6 +814,11 @@ class AmhInbox(Protocol):
     Structural (`typing.Protocol`), so a consumer depends on the SHAPE and an in-memory fake or a
     replay harness satisfies it without inheriting anything. Every method reports what it OBSERVED
     — none of them has an "assume it worked" branch.
+
+    Structural is not a stylistic preference here, it is the only thing that can work: this
+    Protocol lives under `maezo.platform`, which `maezo.adapters.amh` is fenced from importing, so
+    the MZO-050b consumer can be HANDED an implementation by a composition root but can never name
+    this type. See the module docstring for the port-side follow-up.
     """
 
     async def record(self, envelope: CanonicalEnvelope, *, stream: InboxStream) -> InboxRecordResult: ...
@@ -744,7 +836,7 @@ class AmhInbox(Protocol):
         event_id: str,
         reason: PortFailureReason,
         quarantine_topic: str | None = None,
-    ) -> InboxSettleOutcome: ...
+    ) -> InboxQuarantineResult: ...
 
     async def pending(self, *, amh_tenant: str, limit: int = 100) -> tuple[PendingInboxEntry, ...]: ...
 
@@ -759,8 +851,20 @@ class PostgresAmhInbox:
 
     The `ratification` argument is a required, keyword-only capability, not a flag: there is no
     constructor signature that produces a working repository without one, and `InboxRatification`
-    itself cannot exist unratified. The re-check in `__init__` is the second lock — it catches an
-    instance forged past `__post_init__` (e.g. by `object.__setattr__` on the frozen dataclass).
+    itself cannot exist with `ratificado` false or `dba_review` unapproved.
+
+    `__init__` is the SECOND lock, and it re-checks FOUR properties, not two. The two human
+    switches catch an instance forged past `__post_init__` (e.g. by `object.__setattr__` on the
+    frozen dataclass). The `migration_revision` and `migration_sha256` re-checks catch the other
+    half: `InboxRatification` is a dataclass, so those two fields are only ever validated against
+    the migration on disk by `load_inbox_ratification` — a caller who builds the dataclass DIRECTLY
+    (a plausible test double, a hand-rolled composition root) supplies whatever revision and digest
+    it likes and never touches the artifact. That was live-provable: before this re-check,
+    `InboxRatification(migration_revision="0001", migration_sha256="deadbeef", ...)` produced a
+    repository that recorded and settled rows against real Postgres. Re-checking here makes the
+    digest binding a property of the REPOSITORY rather than of one route into it — the artifact
+    remains the switch, and `build_amh_inbox_repository` remains the only path that binds an
+    approval to a FILE.
     """
 
     def __init__(
@@ -777,6 +881,24 @@ class PostgresAmhInbox:
                 "PostgresAmhInbox was handed a ratification that does not carry a DBA approval "
                 f"(ratificado={ratification.ratificado!r}, "
                 f"dba_review={_bounded(str(ratification.dba_review))!r})",
+            )
+        if ratification.migration_revision != INBOX_MIGRATION_REVISION:
+            raise _fail(
+                REASON_MIGRATION_REVISION_MISMATCH,
+                "PostgresAmhInbox was handed a ratification for migration revision "
+                f"{_bounded(str(ratification.migration_revision))!r}, but this repository speaks "
+                f"revision {INBOX_MIGRATION_REVISION!r}",
+            )
+        # Recomputed from disk on every construction, deliberately: the value carried on the
+        # dataclass is only as trustworthy as whoever built it, while this one is the DDL the
+        # process would actually be operating against.
+        actual_digest = migration_digest()
+        if str(ratification.migration_sha256).strip().lower() != actual_digest:
+            raise _fail(
+                REASON_MIGRATION_DIGEST_MISMATCH,
+                "PostgresAmhInbox was handed a ratification whose migration_sha256 is "
+                f"{_bounded(str(ratification.migration_sha256))!r}, but {migration_file_path()} "
+                f"hashes to {actual_digest!r} — the approval does not cover the DDL on disk",
             )
         # Validates the tenant as a schema identifier (anti-injection) — the same rule the audit
         # sink, the checkpointer and the A2A idempotency store use. This string is interpolated
@@ -812,7 +934,14 @@ class PostgresAmhInbox:
         Returns `RECORDED` for a fresh row, `DUPLICATE` for a consistent redelivery (whose
         `redelivery_count` this call increments), `CONFLICT` when the dedup key already carries a
         different `amh_tenant` or `payload_hash` (no state mutated — the caller must quarantine),
-        and `CONCURRENT` when another writer's insert for the same key is still uncommitted.
+        and `CONCURRENT` only in the defensive case described on `InboxRecordOutcome.CONCURRENT`.
+
+        **Contention, stated rather than left to be discovered.** A conflicting insert that is
+        still UNCOMMITTED does not make this call return quickly: Postgres speculative insertion
+        BLOCKS until the other transaction commits or rolls back, and this pool sets no
+        `lock_timeout` and no `command_timeout`, so the wait is unbounded and is bounded in
+        practice only by the other replica's transaction. Whether to cap it is the DBA's call —
+        see decision D-6 in `docs/reviews/mzo-060-dba-review-packet.md`.
         """
         params = _stored_row(envelope, stream)
         pool = await self._ensure_pool()
@@ -829,8 +958,11 @@ class PostgresAmhInbox:
                 _SELECT_FOR_UPDATE_SQL, envelope.contract_manifest_digest, envelope.event_id
             )
             if existing is None:
-                # `ON CONFLICT DO NOTHING` swallowed a conflict whose row is not yet visible: a
-                # concurrent, uncommitted insert of the same dedup key. Reported, never guessed at.
+                # DEFENSIVE, not the in-flight race this used to claim: at READ COMMITTED the
+                # INSERT above has already WAITED out any conflicting transaction, and this SELECT
+                # takes a fresh snapshot, so a concurrent writer resolves as DUPLICATE/CONFLICT or
+                # as RECORDED. Reaching here means the row went away between the two statements —
+                # a DELETE by something that is not this repository. Reported, never guessed at.
                 logger.warning(
                     "amh_inbox_record_concurrent",
                     contract_manifest_digest=envelope.contract_manifest_digest,
@@ -926,20 +1058,65 @@ class PostgresAmhInbox:
         event_id: str,
         reason: PortFailureReason,
         quarantine_topic: str | None = None,
-    ) -> InboxSettleOutcome:
-        """RECEIVED|PROCESSED -> QUARANTINED, recording the referral.
+    ) -> InboxQuarantineResult:
+        """RECEIVED|PROCESSED -> QUARANTINED, recording the referral AND reporting what is stored.
 
         `reason` is a closed `PortFailureReason` token and `quarantine_topic` is the pinned
         quarantine topic NAME the caller routed to. Nothing else is recorded: no payload, no
         upstream error body, no subject reference (ADR-0037 immutable prohibition #5).
+
+        Terminal rows are never rewritten, so a row already `QUARANTINED` yields `ALREADY` and this
+        call's `reason` is DISCARDED. That is correct — quarantine is terminal — but reporting only
+        `ALREADY` would hide it, so the result also carries the reason and topic actually on the
+        row (`InboxQuarantineResult.reason_diverged` is the one-line test). A divergence means two
+        different `nack`s classified the same event differently; it is logged here and is the
+        caller's to reconcile, not this repository's to resolve by overwriting.
         """
-        return await self._transition(
-            _MARK_QUARANTINED_SQL,
-            contract_manifest_digest=contract_manifest_digest,
-            event_id=event_id,
-            target=InboxStatus.QUARANTINED,
-            extra=(str(reason), quarantine_topic),
+        pool = await self._ensure_pool()
+        async with pool.acquire() as conn, conn.transaction():
+            updated = await conn.fetchrow(
+                _MARK_QUARANTINED_SQL,
+                contract_manifest_digest,
+                event_id,
+                str(reason),
+                quarantine_topic,
+            )
+            if updated is not None:
+                return InboxQuarantineResult(
+                    outcome=InboxSettleOutcome.APPLIED,
+                    requested_reason=reason,
+                    stored_reason=updated["quarantine_reason"],
+                    stored_topic=updated["quarantine_topic"],
+                )
+            current = await conn.fetchrow(_SELECT_QUARANTINE_STATE_SQL, contract_manifest_digest, event_id)
+
+        if current is None:
+            return InboxQuarantineResult(outcome=InboxSettleOutcome.NOT_FOUND, requested_reason=reason)
+        if current["status"] != str(InboxStatus.QUARANTINED):
+            # The other terminal state (SETTLED). Its CHECK constraints keep the quarantine columns
+            # NULL, so there is nothing stored to report — only the refusal.
+            return InboxQuarantineResult(
+                outcome=InboxSettleOutcome.REFUSED_TERMINAL,
+                requested_reason=reason,
+                stored_reason=current["quarantine_reason"],
+                stored_topic=current["quarantine_topic"],
+            )
+
+        result = InboxQuarantineResult(
+            outcome=InboxSettleOutcome.ALREADY,
+            requested_reason=reason,
+            stored_reason=current["quarantine_reason"],
+            stored_topic=current["quarantine_topic"],
         )
+        if result.reason_diverged:
+            logger.warning(
+                "amh_inbox_quarantine_reason_divergent",
+                contract_manifest_digest=contract_manifest_digest,
+                tenant=self._tenant,
+                stored_reason=result.stored_reason,
+                requested_reason=str(reason),
+            )
+        return result
 
     async def pending(self, *, amh_tenant: str, limit: int = 100) -> tuple[PendingInboxEntry, ...]:
         """Oldest-first scan of rows that are recorded but NOT terminal, for one contract tenant."""
@@ -1018,6 +1195,7 @@ __all__ = [
     "REQUIRED_RATIFICATION_FIELDS",
     "AmhInbox",
     "AmhInboxUnavailableError",
+    "InboxQuarantineResult",
     "InboxRatification",
     "InboxRecordOutcome",
     "InboxRecordResult",
