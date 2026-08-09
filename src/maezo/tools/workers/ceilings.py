@@ -20,6 +20,9 @@ auto-approves):
     ``within_l2_ceiling == False``. This is the D-07 state for AUTH/REEMBOLSO
     (``max_value_brl=0`` in ``L0-core.yaml`` and ``tenants-amh.yaml`` until the diretoria
     sets a real teto): every AUTO_APROVAR route falls through to ANALISE_HUMANA;
+  - a VALUE that is not a non-negative ``int`` of centavos forces ``within_l2_ceiling ==
+    False`` — see :func:`_is_valid_value_cents`. The ceiling clamp above guards the teto
+    side of the comparison; this guards the VALUE side, which until now was compared raw;
   - if the matrix cannot be loaded (missing/malformed file, overlay referencing an
     unknown action, unresolvable ``spec/`` directory), the resolver resolves ceiling 0
     → False. Nothing auto-releases when governance config is unavailable. This is the
@@ -52,6 +55,46 @@ logger = structlog.get_logger(__name__)
 #: mechanism (``resolve_spec_dir``) — the SAME resolution the PEP factory uses, never a
 #: second scheme.
 _AUTONOMY_CORE_PATH_ENV = "AUTONOMY_CORE_PATH"
+
+
+def _is_valid_value_cents(value: object) -> bool:
+    """True iff ``value`` is a trustworthy money amount for the teto comparison — else deny.
+
+    B-1 (blocker, money, fail-OPEN): :meth:`CeilingResolver.within_l2_ceiling` compared the
+    caller's ``value_cents`` RAW — no type check, no lower bound. Three live consequences, all on
+    the wrong side of the ceiling:
+
+    - a ``bool`` is an ``int`` in Python, so ``True`` compared as 1 centavo and sat "within" every
+      positive teto;
+    - a NEGATIVE amount trivially satisfied ``value <= teto`` and read as within-ceiling — a
+      nonsense amount that no teto can meaningfully admit;
+    - a non-numeric value (an engine ``String`` variable passes through
+      ``harness._from_camunda_var`` as a Python ``str``, and a ``Json`` one as a ``list``/``dict``)
+      raised an UNCAUGHT ``TypeError`` from the ``<=`` — the ceiling check crashed instead of
+      denying, and the failure mode depended on which caller happened to wrap it.
+
+    This is the SAME vector set ``auth._ceiling_valor_cents`` (auth.py) already rejects at the
+    AUTH issuance chokepoint; the guard is GENERALIZED here so every consumer of the shared
+    primitive inherits it, rather than each chokepoint re-deriving it.
+
+    ACCEPTS ``int`` only, ``>= 0`` — the type this module's own contract already declares
+    (module docstring: "Money is centavos as an int (``long`` at the engine boundary), never
+    ``number``/float"; ADR-0018 parte 2). ``float`` is rejected outright, integral ones (``8000.0``)
+    included — money is never rounded here, mirroring
+    ``reembolso._require_valor_pagamento_cents``'s identical refusal. ``NaN``/``+-inf`` are
+    rejected as a subcase of that (they exist only as floats), so no non-finite value can ever
+    reach the comparison.
+
+    ``0`` IS valid and IS within any positive teto — the "zero-value payment" defect class is
+    closed at the MONEY chokepoints (``pagto._valor_pagamento_cents_or_none``,
+    ``reembolso._require_valor_pagamento_cents``), which is where "0 is not a payment" is a
+    meaningful statement. Here the question is only "is this amount within the teto", and it is.
+    A teto of 0 still denies 0 (fail-closed, D-07) — that guard is unchanged.
+    """
+    # bool BEFORE int: `isinstance(True, int)` is True.
+    if isinstance(value, bool) or not isinstance(value, int):
+        return False
+    return value >= 0
 
 
 def _default_core_path() -> str:
@@ -170,13 +213,36 @@ class CeilingResolver:
     def within_l2_ceiling(self, *, tenant: str, action: str, param: str, value_cents: int) -> bool:
         """True iff ``value_cents`` is within the resolved teto (``value_cents <= ceiling_brl * 100``).
 
-        FAIL-CLOSED: ceiling 0 (absent / D-07 not set / invalid, already normalised by
-        :meth:`ceiling_brl`) => False, even for ``value_cents == 0``. The COMPUTED boolean
-        is fed to the auto-approval DMN as ``dentro_teto_l2``, overriding any inbound value.
-        The teto VALUE comes from the governance matrix (never hard-coded); the RULE that
-        consumes ``dentro_teto_l2`` lives in the DMN (ADR-0012) — here we resolve only the
-        FACT.
+        FAIL-CLOSED on BOTH sides of the comparison:
+
+        - the TETO side: ceiling 0 (absent / D-07 not set / invalid, already normalised by
+          :meth:`ceiling_brl`) => False, even for ``value_cents == 0``;
+        - the VALUE side (B-1): anything that is not a non-negative ``int`` of centavos =>
+          False, never a raised ``TypeError`` and never a permissive comparison. The parameter
+          is ANNOTATED ``int``, but every caller ultimately sources it from untyped engine
+          process variables, so the annotation is an intent declaration and
+          :func:`_is_valid_value_cents` is the enforcement. See that function for the vectors.
+
+        The COMPUTED boolean is fed to the auto-approval DMN as ``dentro_teto_l2``, overriding
+        any inbound value. The teto VALUE comes from the governance matrix (never hard-coded);
+        the RULE that consumes ``dentro_teto_l2`` lives in the DMN (ADR-0012) — here we resolve
+        only the FACT.
+
+        The INCLUSIVE boundary at exactly the teto is UNCHANGED (``<=``; module docstring, and
+        the DMN mirrors it with ``<= 10000000``) — this guard only rejects values that were never
+        legitimate money in the first place.
         """
+        if not _is_valid_value_cents(value_cents):
+            # No raw value in the log: an untrusted `value_cents` can be any object off the wire.
+            # The TYPE is what diagnoses the upstream typing defect; the amount adds nothing.
+            logger.warning(
+                "ceiling_value_cents_rejected",
+                tenant=tenant,
+                action=action,
+                param=param,
+                value_type=type(value_cents).__name__,
+            )
+            return False
         ceiling_brl = self.ceiling_brl(tenant=tenant, action=action, param=param)
         if ceiling_brl == 0:
             return False

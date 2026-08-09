@@ -37,6 +37,54 @@ logger = structlog.get_logger(__name__)
 _CEILING_ACTION = "high_value_payment"
 _CEILING_PARAM = "threshold_brl"
 
+# The `valor_pagamento_cents` fed to `pagto_alcada` when the inbound amount is NOT a trustworthy
+# money value (B-1) — SCOPED to THIS FUNCTION's OWN in-process DMN call (the `evaluate_sync` call
+# inside `route_aprovacao` below, used only to compute the `faixa_valor`/`grupo_aprovador`/
+# `tier_minimo` THIS function returns/logs). NOT a fabricated payment amount: with
+# `dentro_teto_l2=False` forced alongside it, the DMN's own rows decide the route and 0 matches
+# NONE of the value bands — `r_dentro_teto_l2` requires `dentro_teto_l2=true` (pagto_alcada.dmn:65),
+# and the three ALCADA ranges all start ABOVE 10000000 (dmn:74,84,94) — so the token lands on
+# `r_catchall` (dmn:102-111), whose own description names this exact case: "dentro_teto_l2
+# inconsistente ou inputs nao mapeados -> tier mais alto (comite-financeiro / ANALISE_HUMANA).
+# NUNCA auto-libera."
+#
+# Route-EQUIVALENCE (pinned by test): for THIS function's OWN call, every value this worker
+# rejects either cannot be sent to the engine at all (str/float/bool/None/list — `long`-typed
+# input) or is an int <= 0, and EVERY int <= 0 lands on the SAME `r_catchall` row that 0 does.
+# Normalising to 0 therefore changes no routing outcome for this call's rejected vector — it only
+# makes the input well-typed.
+#
+# NOT THE WHOLE PICTURE: the ENGINE independently RE-EVALUATES `pagto_alcada` downstream, natively,
+# at `BRT_AlcadaRouting` (bpmn:180-205) — from the RAW, UNECHOED `valor_pagamento_cents` process
+# variable, never from `_VALOR_CENTS_ROTA_CONSERVADORA` (this function does not write
+# `valor_pagamento_cents` back — see the WRITE-BACK ASYMMETRY note on `route_aprovacao`, below). See
+# that function's docstring ("THE ENGINE-SIDE GUARANTEE" paragraph) for what actually survives to
+# `BRT_AlcadaRouting`'s own re-evaluation.
+#
+# This value is NEVER written back as a process variable: `route_aprovacao` does not echo
+# `valor_pagamento_cents` (see the WRITE-BACK ASYMMETRY note on the function), so the engine's own
+# `valor_pagamento_cents` — whatever malformed thing it is — stays visible to the human approver.
+_VALOR_CENTS_ROTA_CONSERVADORA = 0
+
+#: Bounded, non-PHI rejection tokens for `_valor_pagamento_cents_or_none` (log only — no engine
+#: variable is minted for them; see the DISCLOSED note on `route_aprovacao`).
+_VALOR_AUSENTE = "ausente"
+_VALOR_BOOLEANO = "booleano"
+_VALOR_FLOAT = "float"
+_VALOR_TIPO_INVALIDO = "tipo_invalido"
+_VALOR_NAO_POSITIVO = "nao_positivo"
+_VALOR_ACIMA_LONG_MAX = "acima_long_max"
+
+#: Java `long` (int64) upper bound (MINOR-2) — `pagto_alcada`'s `valor_pagamento_cents` input
+#: declares `typeRef="long"` (spec/processes/dmn/pagto_alcada.dmn:50, ADR-0018 parte 2), and CIB
+#: Seven/Camunda's engine `Long` variable type IS Java's signed 64-bit `long`. A Python `int` fits
+#: Python's arbitrary precision but an `int` above this bound is NOT representable as that
+#: typeRef — forwarding it to `evaluate_sync` risks a `DmnEvaluationError` at the engine (retries ->
+#: incident), the exact failure mode this function's fail-NEUTRAL posture (ADR-0030) exists to
+#: avoid. Rejected the same way any other non-`long` shape is, via `_VALOR_ACIMA_LONG_MAX`, never
+#: forwarded.
+_JAVA_LONG_MAX = 2**63 - 1
+
 # ---------------------------------------------------------------
 # Error codes
 # ---------------------------------------------------------------
@@ -150,6 +198,65 @@ def assess_admissibility(variables: dict[str, Any], *, dmn: DmnTransport | None 
 # ---------------------------------------------------------------
 
 
+def _valor_pagamento_cents_or_none(valor_cents: Any) -> tuple[int | None, str]:
+    """Fail-closed resolution of `valor_pagamento_cents` — integer BRL centavos ONLY (ADR-0018).
+
+    Returns `(centavos, "")` when the amount is trustworthy, or `(None, <bounded token>)` when it
+    is not. B-1 (blocker, money, fail-OPEN) — pre-fix this function did not exist and the amount
+    was read as `variables.get("valor_pagamento_cents", 0)`, so:
+
+    - an ABSENT amount silently became 0, `within_l2_ceiling(0)` was True under the R$100k teto,
+      and `pagto_alcada`'s `r_dentro_teto_l2` (`0 <= 10000000` + `dentro_teto_l2=true`) routed the
+      order to DENTRO_TETO_L2 -> `ST_ReleaseLowValue` -> `execute_pagto` EXECUTED a payment for an
+      order that never carried an amount. The contract makes the field REQUIRED
+      (docs/processes/contracts/SP-OP-PAGTO-001.md:69, "sim") — absent is a defect, not a default;
+    - a NEGATIVE amount passed both the ceiling check and the DMN's `<= 10000000` row;
+    - a `str` (an engine `String` variable passes through `harness._from_camunda_var` verbatim)
+      raised an UNCAUGHT `TypeError` inside the ceiling comparison.
+
+    Mirrors `reembolso._require_valor_pagamento_cents` vector-for-vector, PLUS one bound reembolso's
+    helper does not need (reembolso's contract never asserts a `long` typeRef) — rejected, in
+    order: `None`/absent; `bool` (an `int` in Python; would otherwise route on 1 centavo); `float`
+    (integral ones like `8000.0` included — money is never rounded, and NaN/+-inf are rejected as
+    a subcase since they exist only as floats); any other non-`int` type; an `int` ABOVE the Java
+    `long` (int64) upper bound (`_JAVA_LONG_MAX = 2**63-1`) that `pagto_alcada`'s
+    `valor_pagamento_cents` input declares as its `typeRef` (dmn:50, ADR-0018 parte 2) — MINOR-2:
+    oversize is not representable on the wire and would risk a `DmnEvaluationError` at the engine
+    (retries -> incident) instead of the conservative catch-all this function otherwise
+    guarantees; and `<= 0` (a zero or negative "payment" is not a payment).
+
+    DELIBERATE DIVERGENCE from the reembolso mirror — it RAISES, this RETURNS. `ST_CalculateFacts`
+    (spec/processes/bpmn/SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn:115-120) declares NO error
+    boundary event (the file's only boundaries are `BE_PagtoOrdemInvalida` on
+    `ST_ValidatePaymentData`:105-108 and the two SLA boundaries on `UT_AprovacaoAlcada`:294,310), so
+    this task must fail NEUTRALLY on two independent grounds: (a) this function is
+    `FunctionWorker`-registered, so any raise reclassifies to `ValueError` ->
+    `failure(retries=0)` -> an incident (ADR-0030 Layer 1), allowlist-independent; (b) even a
+    `WorkerBpmnError` would find no admitting code — `PRODUCTION_BPMN_ERROR_ALLOWLIST`
+    (`src/maezo/runtime/worker_runtime/service.py:179-181`, wired at `:697`) admits only codes
+    proven consumption-covered against `spec/**` boundaries, `ST_CalculateFacts` has none, and no
+    `PAGTO_BPMN_ERROR_ALLOWLIST` exists (grep=0) — so the caller routes conservatively through the
+    DMN's own catch-all instead of raising. The SAME posture
+    `IssueAuthorizationWorker`'s ceiling gate takes at the equally boundary-less
+    `ST_EmitirAutorizacaoAuto` (`spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn:228`) —
+    `auth.py:1235-1258` also RETURNS a fail-neutral guard-blocked payload instead of raising, for
+    the identical reason.
+    """
+    if valor_cents is None:
+        return None, _VALOR_AUSENTE
+    if isinstance(valor_cents, bool):
+        return None, _VALOR_BOOLEANO
+    if isinstance(valor_cents, float):
+        return None, _VALOR_FLOAT
+    if not isinstance(valor_cents, int):
+        return None, _VALOR_TIPO_INVALIDO
+    if valor_cents > _JAVA_LONG_MAX:
+        return None, _VALOR_ACIMA_LONG_MAX
+    if valor_cents <= 0:
+        return None, _VALOR_NAO_POSITIVO
+    return valor_cents, ""
+
+
 def route_aprovacao(
     variables: dict[str, Any],
     resolver: CeilingResolver | None = None,
@@ -168,6 +275,55 @@ def route_aprovacao(
     ``dentro_teto_l2`` is NEVER read (design T1.9 §1.4, unchanged, `dmn=` does not touch this).
     The resolver's boolean is then fed to the DMN as `dentro_teto_l2` — the engine, not this
     function, decides the resulting `faixa_valor`/`grupo_aprovador`/`tier_minimo`.
+
+    MONEY IS REQUIRED, NOT DEFAULTED (B-1 — blocker, fail-OPEN, closed here). The amount is
+    resolved through `_valor_pagamento_cents_or_none` (integer centavos only; see there for the
+    rejected vectors and the pre-fix live path from an ABSENT amount to an EXECUTED payment). When
+    it cannot be trusted, this function does NOT raise (`ST_CalculateFacts` declares no error
+    boundary — ADR-0030; two independent grounds close it: this function is
+    `FunctionWorker`-registered, so any raise reclassifies to `ValueError` ->
+    `failure(retries=0)` -> an incident (ADR-0030 Layer 1), allowlist-independent, and even a
+    `WorkerBpmnError` would find no admitting code — `PRODUCTION_BPMN_ERROR_ALLOWLIST`
+    (`src/maezo/runtime/worker_runtime/service.py:179-181`, wired at `:697`) admits only codes
+    proven consumption-covered against `spec/**` boundaries, `ST_CalculateFacts` has none, and no
+    `PAGTO_BPMN_ERROR_ALLOWLIST` exists — grep=0) and
+    does NOT invent a route: it forces `dentro_teto_l2=False`, which structurally closes the
+    auto-release band FOR THIS FUNCTION'S OWN in-process DMN call (`r_dentro_teto_l2` requires
+    `true` — spec/processes/dmn/pagto_alcada.dmn:65), and hands that call
+    `_VALOR_CENTS_ROTA_CONSERVADORA`, which matches none of the three ALCADA ranges (dmn:74,84,94)
+    — so THIS call's own `faixa`/`grupo`/`tier_minimo` (returned/logged below) land on the table's
+    OWN conservative catch-all `r_catchall` (dmn:102-111) — `ANALISE_HUMANA` / `comite-financeiro` /
+    `tier_minimo=4`, the highest human band — whose description names this exact case
+    ("dentro_teto_l2 inconsistente ou inputs nao mapeados ... NUNCA auto-libera").
+
+    THE ENGINE-SIDE GUARANTEE (precise — NOT the same claim as the paragraph above, which is scoped
+    to this function's OWN call). From here the token continues down
+    `Flow_CalculateFacts_Admissibility` through the intermediate tasks `BRT_PagtoAdmissibility` +
+    `GW_Admissibilidade` (bpmn:458-463) before reaching the native `BRT_AlcadaRouting`
+    businessRuleTask (`camunda:decisionRef="pagto_alcada"`, bpmn:180-205), which RE-EVALUATES the
+    SAME table from the RAW, UNECHOED `valor_pagamento_cents` process variable (this function never
+    writes `valor_pagamento_cents` back — WRITE-BACK ASYMMETRY, below) and OVERWRITES
+    `faixa_valor`/`grupo_aprovador`/`tier_minimo` via its own `outputParameter`s (bpmn:195-200).
+    `dentro_teto_l2=False` IS written back by this function (below), and that closes
+    `r_dentro_teto_l2` for `BRT_AlcadaRouting` too — auto-release stays structurally impossible
+    either way. But the engine's `faixa_valor`/`tier_minimo` are RECOMPUTED from the raw amount and
+    are AT MINIMUM a human band, not necessarily the SAME human band `tier_minimo=4` above: tier 4
+    (`r_catchall`) is guaranteed only when the raw amount is null/0/negative; a rejected `float`
+    that happens to fall inside an ALCADA range yields THAT band's lower tier instead
+    (`ALCADA_L1`/`L2`/`L3`, tier 1-3); a rejected `str`/`bool` raw amount may cause
+    `BRT_AlcadaRouting` itself to incident on the DMN's `long`-typed input (dmn:50) — the SAME
+    failure class a malformed engine variable was already exposed to pre-fix, not a regression this
+    function introduces or resolves.
+
+    DISCLOSED (deliberate, in the WRITE-BACK ASYMMETRY family below): the rejection is recorded in
+    the operator log with a bounded non-PHI token, NOT as a new engine variable. Minting one would
+    add an undeclared variable to a contracted process (the contract's variable table is
+    human-gated) — the engine-visible evidence today is the route itself (`dentro_teto_l2=false`,
+    reliably written back by this function, below — plus `faixa_valor`/`grupo_aprovador`/
+    `tier_minimo` as RE-COMPUTED by `BRT_AlcadaRouting` from the raw amount, per "THE ENGINE-SIDE
+    GUARANTEE" above: AT MINIMUM a human band, with `tier_minimo=4` guaranteed only for a
+    null/0/negative raw amount) plus the untouched, still-visible `valor_pagamento_cents` the
+    approver at comite-financeiro reads. Closing this is deferred, not denied.
 
     golden-parity divergence found + DMN wins (documented, not patched — ADR-0028 §7): the
     deployed table's `DENTRO_TETO_L2` row ALSO requires `valor_pagamento_cents <= 10_000_000`
@@ -202,21 +358,43 @@ def route_aprovacao(
     """
     resolver = resolver if resolver is not None else CeilingResolver()
 
-    valor_cents = variables.get("valor_pagamento_cents", 0)
-    # COMPUTE the auto-release fact from policy: value within `high_value_payment.threshold_brl`.
-    # A config problem / unloadable matrix => False => routes to a human alcada band.
-    dentro_teto = resolver.within_l2_ceiling(
-        tenant=variables.get("tenant_id", ""),
-        action=_CEILING_ACTION,
-        param=_CEILING_PARAM,
-        value_cents=valor_cents,
-    )
+    # ONE normalized money fact for BOTH consumers (B-1): pre-fix the resolver received the RAW
+    # `valor_cents` while the DMN received `int(valor_cents)` — two different readings of one fact
+    # from one variable, and the only place they could disagree was on exactly the malformed
+    # inputs that must not route at all.
+    raw_valor = variables.get("valor_pagamento_cents")
+    valor_cents, motivo_valor = _valor_pagamento_cents_or_none(raw_valor)
+
+    if valor_cents is None:
+        # FAIL-CLOSED, fail-NEUTRAL (ADR-0030 — `ST_CalculateFacts` has no error boundary): never
+        # raise, never guess an amount. `dentro_teto_l2=False` structurally closes the auto-release
+        # band (`r_dentro_teto_l2` requires `true`, pagto_alcada.dmn:65) and the conservative token
+        # lands the DMN on its OWN catch-all row -> ANALISE_HUMANA / comite-financeiro / tier 4.
+        # The route is the MODEL's, not this function's.
+        logger.error(
+            "pagto_valor_pagamento_invalido",
+            motivo=motivo_valor,
+            valor_tipo=type(raw_valor).__name__,
+            ordem_id=variables.get("ordem_pagamento_id"),
+        )
+        dentro_teto = False
+        valor_dmn = _VALOR_CENTS_ROTA_CONSERVADORA
+    else:
+        # COMPUTE the auto-release fact from policy: value within `high_value_payment.threshold_brl`.
+        # A config problem / unloadable matrix => False => routes to a human alcada band.
+        dentro_teto = resolver.within_l2_ceiling(
+            tenant=variables.get("tenant_id", ""),
+            action=_CEILING_ACTION,
+            param=_CEILING_PARAM,
+            value_cents=valor_cents,
+        )
+        valor_dmn = valor_cents
 
     rows, version = evaluate_sync(
         require_dmn(dmn, "operadora.pagto.calculate_facts"),
         "pagto_alcada",
         {
-            "valor_pagamento_cents": int(valor_cents),
+            "valor_pagamento_cents": valor_dmn,
             "dentro_teto_l2": dentro_teto,
             "tipo_pagamento": variables.get("tipo_pagamento", ""),
         },
@@ -227,7 +405,8 @@ def route_aprovacao(
 
     logger.info(
         "pagto_route_aprovacao",
-        valor_cents=valor_cents,
+        valor_cents=valor_dmn,
+        motivo_valor=motivo_valor,
         faixa_valor=faixa,
         grupo_aprovador=grupo,
         dmn_decision_version=version.version,
