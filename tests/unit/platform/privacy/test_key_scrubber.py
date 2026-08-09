@@ -265,14 +265,42 @@ def _logger_call_keywords() -> list[tuple[str, int, str, str]]:
     return out
 
 
-#: The ONLY `**mapping` expressions a logger call in `src/` may unpack. A `**` argument defeats
-#: the name-based sweep below by construction (the field names are decided at runtime), so rather
-#: than trust it, each one is pinned here and has to be reviewed for the anchor-naming rule ONCE.
-#: `_contract_identity_log_fields` is reviewed: it returns `{"numero_contrato": ...}` only when a
-#: real contract number exists and `{"matricula_beneficiario": ...}` otherwise, so every name it
-#: can emit is either non-PHI or in `PHI_KEY_ANCHOR_LOG_FIELDS`.
+#: The ONLY `**mapping` expressions a logger call in `src/` may unpack, as
+#: `"<path relative to src/maezo>::<expression>"`. A `**` argument defeats the name-based sweep
+#: below by construction (the field names are decided at runtime), so rather than trust it, each
+#: one is pinned here and has to be reviewed for the anchor-naming rule ONCE.
+#:
+#: SCOPED BY FILE, deliberately. An expression alone is not a safe key: `**event` is a bare local
+#: name that any future module could reuse, and allowlisting the string `"event"` would disarm
+#: this fence repo-wide instead of for the one reviewed site. Line numbers are excluded on
+#: purpose — they churn on every edit above the call and would make this a maintenance tax
+#: without adding safety.
 _ALLOWED_LOGGER_KWARG_UNPACKS: frozenset[str] = frozenset(
-    {"_contract_identity_log_fields(numero_contrato, matricula_beneficiario)"}
+    {
+        # Reviewed: returns `{"numero_contrato": ...}` only when a real contract number exists and
+        # `{"matricula_beneficiario": ...}` otherwise, so every name it can emit is either non-PHI
+        # or in `PHI_KEY_ANCHOR_LOG_FIELDS`. (DL-0043 leg (c), MAJOR-3.)
+        "tools/workers/inadimplencia.py::"
+        "_contract_identity_log_fields(numero_contrato, matricula_beneficiario)",
+        # Reviewed (W3 adequacao-shadow, landed on main after this fence was written — the fence
+        # caught it as an un-reviewed unpack exactly as designed). `event` is the return of
+        # `adequacao_shadow.shadow_divergence_event`, a CLOSED dict literal (adequacao_shadow.py,
+        # the single `return {...}` in that function) with 8 statically-written keys: the two
+        # verdicts (`gap_adequacao_dmn`, `gap_adequacao_candidato`), the candidate rule id
+        # (`regra_candidata`), and the five rule inputs (`tipo_carater`,
+        # `tempo_acesso_apurado_min`, `distancia_apurada_km`, `prestadores_disponiveis`,
+        # `cobertura_geo_suficiente`). No merge, no computed key, no `**` of its own — so the set
+        # of names it can emit is statically enumerable, which is what makes reviewing it once
+        # sound. None is a business-key or PHI-anchor name, and no beneficiary identifier exists
+        # in that process at all (ADR-0006); cell identity is deliberately omitted, and W3's
+        # repair removed the constant `candidato_ratificado`. Independently verified by W3's own
+        # gatekeeper, and pinned at the emission site by
+        # `tests/unit/tools/workers/test_adequacao_shadow.py::
+        # test_worker_divergence_log_line_carries_no_identifier`, which proves a `regiao_saude`/
+        # `especialidade`/`tenant_id` present on `route_remediation`'s `variables` never reaches
+        # the line.
+        "tools/workers/adequacao_shadow.py::event",
+    }
 )
 
 
@@ -285,14 +313,16 @@ def test_logger_kwarg_unpacks_are_pinned_so_the_sweep_cannot_be_bypassed() -> No
     without it, the fix for the original defect (which itself introduced a `**` unpack) would
     have quietly disarmed the fence that was added to catch it.
     """
+    src_root = Path(__file__).resolve().parents[4] / "src" / "maezo"
     unpacks = {
-        f"{path}:{lineno}  **{value}"
+        f"{Path(path).relative_to(src_root).as_posix()}::{value}    (line {lineno})"
         for path, lineno, name, value in _logger_call_keywords()
-        if name == "**" and value not in _ALLOWED_LOGGER_KWARG_UNPACKS
+        if name == "**"
+        and f"{Path(path).relative_to(src_root).as_posix()}::{value}" not in _ALLOWED_LOGGER_KWARG_UNPACKS
     }
     assert not unpacks, (
         "un-reviewed `**mapping` on a logger call — every field name it can emit must obey the "
-        "anchor-naming rule; review it and add the expression to "
+        "anchor-naming rule; review it and add the `<relpath>::<expression>` key to "
         "_ALLOWED_LOGGER_KWARG_UNPACKS:\n" + "\n".join(sorted(unpacks))
     )
 
