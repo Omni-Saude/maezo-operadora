@@ -150,11 +150,38 @@ mapeamento_dut_criteria:
 # qualquer fonte: sem isto, ao ratificar `auth_criteria_contratual` com milestones/KPIs ele poderia
 # abrir aprovacao automatica para um prestador FORA DA REDE sem que nenhum criterio tivesse dito
 # nada — exatamente a patologia "ausencia de validacao lida como PASS implicito" que este portao
-# fechou, apenas adiada. Pinado por `tests/unit/sec/test_auto_approval_criteria_fence.py`.
+# fechou, apenas adiada.
+#
+# ESTA SECAO E EXECUTAVEL, NAO DOCUMENTAL (defeito M-3, corrigido 2026-08-09). Ate entao o loader
+# so lia `unratified` / `fontes` / `mapeamento_dut_criteria`, e o unico "teste" afirmava o TEXTO
+# deste arquivo: a declaracao abaixo era INERTE — flipar `auth_criteria_contratual` para
+# `ratificado: true` abria a rota automatica assim mesmo. Hoje
+# `maezo.tools.workers.auth_criteria` le `bloqueia_ratificacao_de` e SUPRIME a ratificacao da
+# fonte nomeada: `is_ratified` devolve false por mais completos que estejam
+# `ratificado`/`revisor`/`ratificado_em`, o criterio sai `false` com
+# `CONTRATUAL_FONTE_NAO_RATIFICADA` + o token de sombra correspondente, e a supressao e' logada
+# em `auth_criteria_ratification_suppressed` (sem PHI). Pinado em runtime por
+# `tests/unit/sec/test_auto_approval_criteria_fence.py` e por
+# `tests/unit/tools/workers/test_auth_auto_criteria.py`.
+#
+# COMO RESOLVER (continua sendo mudanca de DADOS, sem mudanca de codigo): quando existir uma fonte
+# de credenciamento de rede legivel por maquina E ela estiver ligada a um criterio, REMOVA a
+# entrada correspondente abaixo (ou a secao inteira, se nao sobrar nenhuma) no mesmo commit —
+# CODEOWNERS-gated — e a ratificacao daquela fonte passa a valer. Enquanto a entrada existir, a
+# ratificacao fica suprimida.
+#
+# CUIDADOS DE ESCRITA (o loader FALHA FECHADO, recusando o manifesto INTEIRO — nada ratificado —
+# em vez de ignorar a entrada, porque uma declaracao ilegivel nao se distingue de uma apagada):
+#   - cada entrada tem de ser um mapa e nomear em `bloqueia_ratificacao_de` uma (ou uma lista de)
+#     fonte(s) que exista(m) em `fontes:` acima. Um id com typo NAO e' ignorado: recusa o arquivo.
+#   - `bloqueia_ratificacao_de` ausente/vazio tambem recusa — um criterio sem cobertura que nao
+#     nomeia o que bloqueia e' exatamente a declaracao inerte que este mecanismo existe para
+#     impedir.
 #
 # NAO existe aqui um "criterio Python sempre-falso" de proposito: isso tornaria a aprovacao
 # automatica impossivel sem mudanca de codigo (destruindo a propriedade "ratificar = mudanca de
-# DADOS") e convidaria alguem a inverter uma constante sem fonte por tras.
+# DADOS") e convidaria alguem a inverter uma constante sem fonte por tras. O bloqueio acima e' o
+# oposto: mora nos DADOS, e some com os DADOS.
 criterios_nao_cobertos:
   rede_credenciada:
     motivo: "Nenhuma fonte de credenciamento de rede legivel por maquina existe no repositorio."

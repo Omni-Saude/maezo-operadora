@@ -17,6 +17,7 @@ posture: prove the property against the REAL artifacts, never a fixture copy of 
 from __future__ import annotations
 
 import ast
+import copy
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,8 @@ import pytest
 import yaml
 
 from maezo.tools.workers import auth
+from maezo.tools.workers.auth_criteria import load_criteria_sources
+from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from maezo.tools.workers.harness import (
     _ENUM_TOKEN_RE,
     _SAFE_DECISION_BASIS_KEYS,
@@ -304,9 +307,11 @@ def test_rede_credenciada_declarada_como_criterio_sem_cobertura() -> None:
     for ratificado a aprovacao automatica poderia ser concedida a um prestador FORA DA REDE sem que
     criterio algum tivesse dito nada. Declarar em prosa nao basta — o manifesto e o arquivo que o
     SME OBRIGATORIAMENTE toca, entao a declaracao vive la e este teste impede que suma em silencio.
-    """
-    import yaml
 
+    ESTAS AFIRMACOES SAO SOBRE O TEXTO do manifesto, e por si so NAO provam nada em runtime — era
+    exatamente esse o defeito M-3 (a declaracao existia e o loader nao a lia). A ultima afirmacao
+    fecha a distancia: o mesmo arquivo, lido pelo loader real, tem de SUPRIMIR aquela fonte.
+    """
     manifest = yaml.safe_load(_RATIFICATION.read_text(encoding="utf-8"))
     nao_cobertos = manifest.get("criterios_nao_cobertos") or {}
     assert "rede_credenciada" in nao_cobertos, (
@@ -319,3 +324,99 @@ def test_rede_credenciada_declarada_como_criterio_sem_cobertura() -> None:
         "a entrada precisa dizer QUAL ratificacao ela bloqueia, senao o SME nao a ve no momento certo"
     )
     assert str(entry.get("revisor_necessario", "")).strip(), "sem revisor nomeado a entrada e inerte"
+    assert dict(load_criteria_sources(_RATIFICATION).blocked_by_uncovered) == {
+        "auth_criteria_contratual": ("rede_credenciada",)
+    }, "a declaracao acima tem de chegar ao runtime — senao volta a ser texto inerte (M-3)"
+
+
+class _AlwaysWithinCeiling:
+    """Stand-in for `CeilingResolver`: the financial criterion is not what is under test here."""
+
+    def within_l2_ceiling(self, **_kwargs: Any) -> bool:
+        return True
+
+
+def _all_green_worker(manifest: Path) -> auth.ValidateAutoCriteriaWorker:
+    """A validator whose every table returns its FAVOURABLE verdict, over `manifest`.
+
+    So the ONLY thing that can keep a criterion false is the ratification gate itself.
+    """
+    dmn = FakeDmnTransport()
+    dmn.register("dut_rol_coverage", [{"no_rol": False, "requer_dut": False, "dut_ref": "NAO_APLICA"}])
+    dmn.register("carencia_check", [{"carencia_cumprida": True, "prazo_restante_dias": 0}])
+    dmn.register("auth_criteria_contratual", [{"criterio_contratual_ok": True, "motivo": "OK"}])
+    return auth.ValidateAutoCriteriaWorker(
+        resolver=_AlwaysWithinCeiling(),  # type: ignore[arg-type]
+        dmn=dmn,
+        sources=load_criteria_sources(manifest),
+    )
+
+
+_GREEN_VARS: dict[str, Any] = {
+    "tenant_id": "amh",
+    "numero_guia_tiss": "GUIA-FENCE",
+    "valor_estimado_brl": 180.0,
+    "codigo_procedimento_tuss": "10101012",
+    "categoria_procedimento": "consulta",
+    "tipo_procedimento": "eletivo",
+    "dias_desde_adesao": 400,
+    "cpt_declarada": False,
+}
+
+
+def test_um_criterio_sem_cobertura_impede_o_pass_mesmo_com_a_fonte_ratificada(
+    tmp_path: Path, auto_approval_table: ET.Element
+) -> None:
+    """RUNTIME ENFORCEMENT do defeito M-3, contra o manifesto REAL.
+
+    Cenario: um SME faz exatamente a "mudanca de dados" que o desenho promete — flipa TODAS as
+    fontes do arquivo real para `ratificado: true` com revisor e data — e esquece (ou nao ve) a
+    entrada `criterios_nao_cobertos: rede_credenciada`. Antes desta correcao isso abria aprovacao
+    automatica para um prestador FORA DA REDE sem que nenhum criterio tivesse dito nada. Agora
+    `criterio_contratual_ok` sai FALSE, e a unica regra favoravel de `auth_auto_approval.dmn`
+    exige `true` nele — logo a DMN NAO pode emitir `AUTO_APROVAR`.
+    """
+    forjado = copy.deepcopy(yaml.safe_load(_RATIFICATION.read_text(encoding="utf-8")))
+    for fonte in forjado["fontes"].values():
+        fonte.update({"ratificado": True, "revisor": "SME", "ratificado_em": "2026-08-09"})
+    path = tmp_path / "auth-criteria-ratification.yaml"
+    path.write_text(yaml.safe_dump(forjado, allow_unicode=True), encoding="utf-8")
+
+    result = _all_green_worker(path).execute(dict(_GREEN_VARS))
+
+    assert result["criterio_contratual_ok"] is False
+    assert "CONTRATUAL_FONTE_NAO_RATIFICADA" in result["auto_criteria_falhas"]
+    # ...e so ele: os outros tres passam, o que prova que a recusa vem do bloqueio declarado e
+    # nao de algum outro criterio falhando antes.
+    assert result["criterio_tecnico_ok"] is True
+    assert result["criterio_financeiro_ok"] is True
+    assert result["criterio_regulatorio_ok"] is True
+
+    # A ligacao com a DMN, lida da tabela REAL: a regra favoravel exige `true` em cada um dos
+    # booleanos calculados, e este resultado falha exatamente um deles.
+    favourable = next(
+        r for r in _rules(auto_approval_table) if '"AUTO_APROVAR"' in _entry_texts(r, "outputEntry")
+    )
+    exigidos = [
+        name
+        for name, entry in zip(_EXPECTED_DMN_INPUTS, _entry_texts(favourable, "inputEntry"), strict=False)
+        if entry == "true"
+    ]
+    assert "criterio_contratual_ok" in exigidos
+    assert [name for name in exigidos if result[name] is not True] == ["criterio_contratual_ok"]
+
+
+def test_remover_a_entrada_sem_cobertura_torna_a_ratificacao_efetiva(tmp_path: Path) -> None:
+    """O caminho de resolucao, sem mudanca de codigo: com uma fonte de credenciamento real e a
+    entrada removida do YAML (CODEOWNERS-gated), a MESMA ratificacao passa a valer. Sem este
+    teste a supressao acima poderia ser um `return False` disfarcado."""
+    forjado = copy.deepcopy(yaml.safe_load(_RATIFICATION.read_text(encoding="utf-8")))
+    for fonte in forjado["fontes"].values():
+        fonte.update({"ratificado": True, "revisor": "SME", "ratificado_em": "2026-08-09"})
+    forjado.pop("criterios_nao_cobertos")
+    path = tmp_path / "auth-criteria-ratification.yaml"
+    path.write_text(yaml.safe_dump(forjado, allow_unicode=True), encoding="utf-8")
+
+    result = _all_green_worker(path).execute(dict(_GREEN_VARS))
+    assert result["criterio_contratual_ok"] is True
+    assert result["auto_criteria_falhas"] == []
