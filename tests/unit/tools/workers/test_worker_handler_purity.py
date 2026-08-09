@@ -119,7 +119,14 @@ _NONDETERMINISM_BASELINE: dict[str, str] = {
     # / Real creds-blocked) — see `test_ans_submit_protocolo_th_corequisite_landed_deterministic`.
     "auth": "dossier_ref / auth_number = uuid4 — latent (output vars of a no-network handler); "
     "must become deterministic before any real keyed external effect (P1).",
-    "contas": "time_ns()-derived id — latent; same P1 caveat.",
+    # `contas` REMOVED (M-9): `glosa_id = GLOSA-{analista}-sha256(time_ns())` is now
+    # `_glosa_id(input_data)` — a sha256 over the acceptance's own contract facts + process-
+    # instance anchors. F3 MINOR-5: it was LATENT, exactly like its baseline neighbours — the
+    # minted value never reaches the `RECURSO-{tenant}-{guia}-{glosa_id}` anchor (ACEITAR is
+    # terminal, its published `event_payload_vars` exclude `glosa_id`, and RECORRER's `glosa_id`
+    # is externally supplied; full derivation in `contas._glosa_id`'s docstring). Fixed because a
+    # latent non-deterministic identifier is worth removing, not because a live path consumed it.
+    # Pinned by `test_contas_glosa_id_m9_landed_deterministic` below.
     "inadimplencia": "dossier_ref = uuid4 — latent; same P1 caveat.",
     "lgpd": "package_ref = uuid4 — latent; same P1 caveat.",
     "recurso": "protocolo = sha256(time_ns()) — latent; same P1 caveat.",
@@ -222,4 +229,29 @@ def test_ans_submit_protocolo_th_corequisite_landed_deterministic() -> None:
     assert "time.time_ns" not in _nondeterministic_calls(tree), (
         "ans_submit still mints a non-deterministic identifier — T2.6-1 removed the fabricated "
         "sha256(time_ns) protocol; nothing in this module may re-introduce time_ns/uuid/random."
+    )
+
+
+def test_contas_glosa_id_m9_landed_deterministic() -> None:
+    """M-9 LANDED: `contas` no longer mints `glosa_id` from the wall clock.
+
+    `glosa_id = GLOSA-{analista}-sha256(time.time_ns())[:12]` became `_glosa_id(input_data)` — a
+    sha256 over the acceptance's OWN contract facts plus the process-instance anchors, so an
+    engine re-delivery of the same `UT_AnalistaContas` decision reproduces the SAME id.
+
+    LIKE its baseline neighbours, this one was LATENT (F3 MINOR-5 — an earlier revision claimed
+    the opposite). `glosa_id` does anchor `RECURSO-{tenant}-{numero_guia_tiss}-{glosa_id}`, but
+    the value minted HERE never reaches that key: the ACEITAR branch that mints it is terminal,
+    its published `event_payload_vars` exclude `glosa_id`, and the RECORRER branch's `glosa_id`
+    comes from outside this worker (derivation with BPMN/bridge line cites in
+    `contas._glosa_id`'s docstring; `start_recurso`'s M-9 note says the same). Mirrors the
+    `ans_submit` pin above: a regression trips BOTH this pin and the baseline fence (which would
+    then flag `contas` as NEW).
+    """
+    assert "contas" not in _NONDETERMINISM_BASELINE
+    path = _domain_worker_modules()["contas"]
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    assert not _nondeterministic_calls(tree), (
+        "contas re-introduced a non-deterministic identifier source — M-9 made `glosa_id` a pure "
+        "function of the contract facts; nothing in this module may use time_ns/uuid/random."
     )

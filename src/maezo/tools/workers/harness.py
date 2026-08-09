@@ -71,7 +71,7 @@ from typing import Any, NamedTuple, Protocol, runtime_checkable
 import httpx
 import structlog
 
-from maezo.gateway.audit import AuditRecord, hash_input
+from maezo.gateway.audit import AuditRecord, EmitOnceOutcome, hash_input
 from maezo.tools.workers._audit_ctx import collect_dmn_versions
 from maezo.tools.workers.base import WorkerBase, WorkerRegistry
 from maezo.tools.workers.phi_vars import redact_error_message
@@ -870,6 +870,18 @@ class FakeAuditSink:
         self.always_fail: BaseException | None = None
 
     async def emit_once(self, record: AuditRecord, *, dedup_key: str) -> str:
+        return (await self.emit_once_status(record, dedup_key=dedup_key)).record_hash
+
+    async def emit_once_status(self, record: AuditRecord, *, dedup_key: str) -> EmitOnceOutcome:
+        """Mirrors `PostgresAuditSink.emit_once_status`, INCLUDING the dedup FLAG.
+
+        The flag is what makes the claim an effect gate rather than only a double-audit guard
+        (`mcp_cibseven.transport.start_process_idempotent`, B-3) — a fake that reported only the
+        hash would let a strict-family test pass while the real gate was dead, so this double
+        carries the same bit the durable sink does. Single-threaded by construction (no lock
+        needed): `asyncio` gives this coroutine exclusive execution between awaits, which is the
+        same mutual exclusion the real sink gets from `pg_advisory_xact_lock`.
+        """
         if self.always_fail is not None:
             raise self.always_fail
         if self.fail_next is not None:
@@ -877,11 +889,12 @@ class FakeAuditSink:
             raise exc
         prior = self._by_key.get(dedup_key)
         if prior is not None:
-            return prior  # dedup no-op: no second chain link, prior identity returned
+            # dedup no-op: no second chain link, prior identity returned
+            return EmitOnceOutcome(record_hash=prior, deduped=True)
         self.emitted.append((record, dedup_key))
         record_hash = record.record_hash or record._compute_hash()
         self._by_key[dedup_key] = record_hash
-        return record_hash
+        return EmitOnceOutcome(record_hash=record_hash, deduped=False)
 
 
 # --------------------------------------------------------------------------------------------

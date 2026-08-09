@@ -129,6 +129,34 @@ def _normalize_jsonb_value(value: Any, *, path: str) -> Any:
     return value
 
 
+@dataclass(frozen=True, slots=True)
+class EmitOnceOutcome:
+    """The OUTCOME of an exactly-once emit — the durable dedup-claim result, made OBSERVABLE.
+
+    `emit_once()` returns a bare `str` (the chain-link hash) and therefore CANNOT tell its caller
+    whether this call WROTE the link or merely re-read a PRIOR claim: both paths return a hash.
+    That lost bit is load-bearing for any caller that wants the durable `audit_emit_dedup` claim
+    (`platform/migrations/versions/0005_audit_emit_dedup.py`, `PRIMARY KEY (tenant, dedup_key)`)
+    to act as an ATOMIC EFFECT GATE rather than only as a double-audit guard — notably
+    `mcp_cibseven.transport.start_process_idempotent`, whose engine-side `find_active_instance`
+    check is a non-atomic TOCTOU read that also cannot see a COMPLETED instance.
+
+    `deduped=False` — this call inserted the chain link and CLAIMED `dedup_key`; the caller is the
+    single winner and MAY proceed with the effect.
+    `deduped=True`  — the claim already existed (a concurrent racer or an earlier delivery already
+    committed to this effect); `record_hash` is the PRIOR link's identity and the caller MUST NOT
+    repeat a non-repeatable effect.
+
+    Because the claim + the chain insert commit in ONE per-tenant advisory-locked transaction
+    (`PostgresAuditSink.emit_once_status`), exactly one concurrent caller can ever observe
+    `deduped=False` for a given `(tenant, dedup_key)`. That is the property that makes this a real
+    mutual-exclusion gate and not another check-then-act.
+    """
+
+    record_hash: str
+    deduped: bool
+
+
 @dataclass
 class AuditRecord:
     """A single entry in the audit hash chain (ADR-0007 tuple).

@@ -64,6 +64,7 @@ from maezo.tools.mcp_cibseven.transport import (
     AgentDecisionProvenance,
     AuditStartSink,
     CibSevenTransport,
+    ProcessInstance,
     start_process_idempotent,
 )
 from maezo.tools.workers.base import CANCEL_KEY_FAMILY as _CANCEL_KEY_FAMILY
@@ -154,6 +155,15 @@ class HandoffResult:
     variables: dict[str, Any] = field(default_factory=dict)
     process_instance_id: str = ""
     reason: str = ""
+    #: F3 MAJOR-2 — the start chokepoint's TYPED verdict for this handoff (a `StartOutcome` value,
+    #: or `""` when no start was attempted / the injected starter cannot report one).
+    #:
+    #: `process_instance_id` alone was structurally unable to distinguish a fresh start from an
+    #: idempotent replay from a strict-gate refusal — and when the chokepoint had no id to give it
+    #: returned `""`, which `execute_handoff` stamped onto an otherwise "complete"-looking result
+    #: (`:801`/`:965`). A consumer branches on THIS field; the blank-id fail-closed guard in
+    #: `execute_handoff` makes the empty-id shape unreachable rather than merely unlikely.
+    start_outcome: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -820,7 +830,7 @@ class NotificationBridge:
         )
 
         try:
-            instance_id = await self._starter(result.target_process, result.variables)
+            started = await self._starter(result.target_process, result.variables)
         except Exception as exc:
             logger.error(
                 "notification_bridge.handoff_failed",
@@ -829,11 +839,36 @@ class NotificationBridge:
             )
             raise NotificationBridgeHandoffFailedError(result.target_process, exc) from exc
 
-        result.process_instance_id = str(instance_id)
+        # F3 MAJOR-2. The fenced starter (`build_cibseven_process_starter`) returns the whole
+        # `ProcessInstance`, so the chokepoint's TYPED outcome reaches `HandoffResult` instead of
+        # being flattened to an id (and, on a strict gate hit, to a BLANK id that still looked
+        # like a completed handoff). The `str` shape is still accepted — `_noop_starter` and the
+        # test/dev spies use it — and is honestly reported as "outcome unknown" (`""`).
+        if isinstance(started, ProcessInstance):
+            result.process_instance_id = started.instance_id
+            result.start_outcome = started.start_outcome.value
+        else:
+            result.process_instance_id = str(started)
+            result.start_outcome = ""
+        if not result.process_instance_id.strip():
+            # FAIL-CLOSED: a triggered handoff with no instance id is not a completed handoff. The
+            # fenced starter can no longer produce one (the chokepoint raises instead), so this
+            # guards a non-conforming injected starter rather than the fence itself.
+            blank = ValueError(
+                "starter returned a blank process instance id — refusing to report a "
+                "handoff as complete without one (fail-closed)"
+            )
+            logger.error(
+                "notification_bridge.handoff_blank_instance_id",
+                target_process=result.target_process,
+                start_outcome=result.start_outcome,
+            )
+            raise NotificationBridgeHandoffFailedError(result.target_process, blank) from blank
         logger.info(
             "notification_bridge.handoff_complete",
             target_process=result.target_process,
             instance_id=result.process_instance_id,
+            start_outcome=result.start_outcome,
         )
         return result
 
@@ -951,7 +986,7 @@ def build_cibseven_process_starter(
     *,
     agent_id: str = "notification_bridge",
     agent_version: str = "notification_bridge@v1",
-) -> Callable[[str, dict[str, Any]], Awaitable[str]]:
+) -> Callable[[str, dict[str, Any]], Awaitable[ProcessInstance]]:
     """Build a `cibseven_starter` for `NotificationBridge` that goes through the FENCED
     process-start chokepoint (`start_process_idempotent`, ADR-0007/T-C2) — never a raw,
     un-audited engine POST.
@@ -972,9 +1007,19 @@ def build_cibseven_process_starter(
     `decision_basis` carries ONLY bounded class tokens (`trigger`, `target_process`) — no
     resolvable business identifier or free text, per `AgentDecisionProvenance`'s PHI discipline;
     the chokepoint's own `redact_phi_vars`/`input_sha256` backstop applies regardless.
+
+    RETURNS THE WHOLE `ProcessInstance`, not just its id (F3 MAJOR-2). Flattening to an id here
+    was what stranded the chokepoint's outcome behind a log line and let a blank id reach
+    `HandoffResult.process_instance_id`. `execute_handoff` accepts both shapes, so a `str`-returning
+    test/dev starter still works — it just reports `start_outcome=""` (unknown), honestly.
+
+    STRICT-CAPABLE BY CONSTRUCTION. `process_key` comes from the matched rule, so this starter can
+    front ANY family, strict included, even though none of the 7 rules registered today targets
+    the one strict family (`SP-OP-PAGTO-001` — see `_START_DEDUP_POLICY`'s table). If a future rule
+    does, the gate applies here unchanged and its refusal arrives as a typed `start_outcome`.
     """
 
-    async def _start(process_key: str, variables: dict[str, Any]) -> str:
+    async def _start(process_key: str, variables: dict[str, Any]) -> ProcessInstance:
         business_key = variables.get("business_key")
         if not isinstance(business_key, str) or not business_key.strip():
             raise NotificationBridgeMissingBusinessKeyError(process_key)
@@ -986,7 +1031,7 @@ def build_cibseven_process_starter(
             tenant_id=tenant_id,
             decision_basis={"trigger": "notification_bridge", "target_process": process_key},
         )
-        instance = await start_process_idempotent(
+        return await start_process_idempotent(
             transport,
             process_key=process_key,
             business_key=business_key,
@@ -994,6 +1039,5 @@ def build_cibseven_process_starter(
             audit_sink=audit_sink,
             provenance=provenance,
         )
-        return instance.instance_id
 
     return _start

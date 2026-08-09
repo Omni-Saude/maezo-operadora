@@ -33,7 +33,7 @@ from pathlib import Path
 import asyncpg  # type: ignore[import-untyped]
 import pytest
 
-from maezo.gateway.audit import AuditRecord
+from maezo.gateway.audit import AuditRecord, EmitOnceOutcome
 from maezo.gateway.audit_postgres import (
     _COLUMNS,
     _DEDUP_CLAIM_SQL,
@@ -1029,9 +1029,11 @@ async def test_fresh_sink_emitter_delegates_and_closes(monkeypatch: pytest.Monke
         def __init__(self, dsn: str, tenant_id: str, *, pool: object | None = None) -> None:
             events.append(("init", (dsn, tenant_id)))
 
-        async def emit_once(self, record: AuditRecord, *, dedup_key: str) -> str:
+        async def emit_once_status(self, record: AuditRecord, *, dedup_key: str) -> EmitOnceOutcome:
+            # The adapter forwards `emit_once_status` (B-3: it must carry the dedup FLAG through,
+            # not just the hash), so the delegate double implements THAT method.
             events.append(("emit", (record, dedup_key)))
-            return "hash-1"
+            return EmitOnceOutcome(record_hash="hash-1", deduped=False)
 
         async def aclose(self) -> None:
             events.append(("aclose", None))
@@ -1063,7 +1065,7 @@ async def test_fresh_sink_emitter_failure_propagates_and_still_closes(
         def __init__(self, dsn: str, tenant_id: str, *, pool: object | None = None) -> None:
             pass
 
-        async def emit_once(self, record: AuditRecord, *, dedup_key: str) -> str:
+        async def emit_once_status(self, record: AuditRecord, *, dedup_key: str) -> EmitOnceOutcome:
             raise AuditPersistenceError("durable write failed")
 
         async def aclose(self) -> None:

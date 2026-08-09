@@ -31,9 +31,11 @@ masquerading as "nothing to do".
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from enum import StrEnum
 from typing import Any, Protocol, runtime_checkable
 
 import httpx
@@ -48,7 +50,7 @@ import structlog
 # neither pulls `asyncpg` (the durable sink is duck-typed via the `AuditStartSink` Protocol below,
 # concrete-typed only under TYPE_CHECKING) — so a consumer of the read/transport primitives pays
 # no new heavyweight cost.
-from maezo.gateway.audit import AuditRecord, hash_input
+from maezo.gateway.audit import AuditRecord, EmitOnceOutcome, hash_input
 from maezo.tools.workers.phi_vars import redact_phi_vars
 
 logger = structlog.get_logger(__name__)
@@ -78,6 +80,35 @@ class CibSevenVariableDecodeError(CibSevenError):
     returning the raw JSON string or dropping the offending variable)."""
 
 
+class StartOutcome(StrEnum):
+    """WHAT `start_process_idempotent` DID — the typed field a consumer branches on (F3 MAJOR-2).
+
+    `already_existed` is a single bool AND it is transport-reported, so it cannot express the one
+    distinction that matters on a money key: "a live instance exists" vs "an instance already ran
+    to completion and I REFUSED to start a second one". Reporting the latter as a success (or as a
+    bare log line the caller cannot see) is the fail-silent-success class this enum closes.
+
+    Only `start_process_idempotent` stamps a value other than `UNREPORTED`, and it ASSERTS it from
+    its own control flow — never copies it from the transport. A raw
+    `find_active_instance`/`start_process_instance` result therefore stays `UNREPORTED`, which is
+    honest: no gate verdict was computed for it.
+    """
+
+    #: THIS call performed the engine start. The only value that means "a new instance exists
+    #: because of me" — the one a caller reporting a caused effect may treat as success.
+    STARTED = "STARTED"
+    #: A LIVE instance for this business key already existed; nothing was started. The instance id
+    #: is the live one.
+    ALREADY_ACTIVE = "ALREADY_ACTIVE"
+    #: STRICT gate hit: the durable claim exists AND the engine's HISTORY proves an instance for
+    #: this key already ran and is no longer active. Nothing was started, and nothing ever will be
+    #: for this key. The instance id is the HISTORIC one (real, never blank).
+    ALREADY_COMPLETED = "ALREADY_COMPLETED"
+    #: Not produced by the chokepoint — the default for an instance built directly by a transport
+    #: method, where no gate verdict exists.
+    UNREPORTED = "UNREPORTED"
+
+
 @dataclass(frozen=True, slots=True)
 class ProcessInstance:
     """A process instance as returned by `start_process_instance`/`find_active_instance`."""
@@ -87,6 +118,9 @@ class ProcessInstance:
     business_key: str
     state: str  # "ACTIVE" | "COMPLETED" | "SUSPENDED" | "EXTERNALLY_TERMINATED"
     already_existed: bool = False  # True on an idempotent hit (pre-existing active instance)
+    #: F3 MAJOR-2 — the chokepoint's own verdict (see `StartOutcome`). Transport-built instances
+    #: leave it `UNREPORTED`; `start_process_idempotent` always stamps a real value.
+    start_outcome: StartOutcome = StartOutcome.UNREPORTED
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,6 +161,31 @@ class CibSevenTransport(Protocol):
     async def get_process_status(self, business_key: str) -> ProcessStatus: ...
 
     async def close(self) -> None: ...
+
+
+@runtime_checkable
+class HistoryQueryingTransport(Protocol):
+    """A `CibSevenTransport` that can also answer "did an instance for this key EVER exist?".
+
+    `find_active_instance` is `active=true` only, so it is BLIND to a COMPLETED/terminated
+    instance. That blindness is what made the strict start gate dishonest: a durable dedup claim
+    with no active instance was reported as "already started" with a BLANK instance id, and a
+    caller could not tell that from a real start (F3 BLOCKER-1).
+
+    The engine's own history IS the durable "the start was committed" record — written by the
+    engine, in the same transaction as the instance creation. Querying it turns the strict gate's
+    ambiguous case into two decidable ones (see `_resolve_strict_dedup_hit`), which is why this is
+    a required seam for a strict family rather than a nice-to-have.
+
+    A SEPARATE Protocol (not a new method on `CibSevenTransport`) for the same reason
+    `DedupReportingAuditSink` is separate from `AuditStartSink`: every existing implementer and
+    test double keeps type-checking, and `start_process_idempotent` probes with `isinstance` and
+    FAILS CLOSED for strict families when the seam is absent.
+    """
+
+    async def find_any_instance(
+        self, business_key: str, *, process_key: str = ""
+    ) -> ProcessInstance | None: ...
 
 
 def _to_camunda_vars(variables: dict[str, Any]) -> dict[str, Any]:
@@ -231,6 +290,53 @@ class CibSevenHttpTransport:
             state="ACTIVE",
             already_existed=True,
         )
+
+    async def find_any_instance(self, business_key: str, *, process_key: str = "") -> ProcessInstance | None:
+        """Query the engine's HISTORY for ANY instance with this business key — active OR finished.
+
+        `HistoryQueryingTransport` implementation (F3 BLOCKER-1). Same endpoint
+        `get_process_status` already falls back to (`:406-413`); unlike `find_active_instance` it
+        carries NO `active=true`, so a COMPLETED / EXTERNALLY_TERMINATED / SUSPENDED instance is
+        visible. The returned `state` is the engine's own historic state token, verbatim.
+
+        `process_key` (optional) is applied CLIENT-SIDE against each item's `processDefinitionKey`
+        rather than as a query parameter: it makes the answer match the dedup key's
+        `(process_key, business_key)` tuple exactly, with zero risk of an engine build rejecting or
+        silently ignoring an unrecognised query param. Items whose `processDefinitionKey` the
+        engine did not report are NOT filtered out (absence of evidence is not a mismatch) —
+        conservative on purpose: over-matching here REFUSES a start, under-matching would permit a
+        duplicate one.
+
+        Raises `CibSevenError` on an unreachable/non-2xx engine, exactly like its siblings —
+        NEVER `None`, which the strict gate would read as "no instance ever existed".
+        """
+        try:
+            resp = await self._client.get(
+                "/history/process-instance", params={"processInstanceBusinessKey": business_key}
+            )
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise CibSevenError(
+                f"CIB Seven history query failed [{exc.response.status_code}] for business_key "
+                f"`{business_key}`"
+            ) from exc
+        except httpx.RequestError as exc:
+            raise CibSevenError(
+                f"CIB Seven unreachable querying history for business_key `{business_key}`: {exc}"
+            ) from exc
+
+        for item in resp.json() or []:
+            item_key = str(item.get("processDefinitionKey", ""))
+            if process_key and item_key and item_key != process_key:
+                continue
+            return ProcessInstance(
+                instance_id=str(item["id"]),
+                process_key=item_key or process_key,
+                business_key=business_key,
+                state=str(item.get("state", "UNKNOWN")),
+                already_existed=True,
+            )
+        return None
 
     async def start_process_instance(
         self,
@@ -387,6 +493,19 @@ class FakeCibSevenTransport:
             return inst
         return None
 
+    async def find_any_instance(self, business_key: str, *, process_key: str = "") -> ProcessInstance | None:
+        """`HistoryQueryingTransport` double: this fake's `_instances` map IS its history — an
+        instance seeded/started here is never forgotten, so a COMPLETED one stays visible exactly
+        as the engine's `/history/process-instance` keeps it. Mirrors `CibSevenHttpTransport`'s
+        client-side `process_key` filter (an instance whose `process_key` is blank is not filtered
+        out — absence of evidence is not a mismatch)."""
+        inst = self._instances.get(business_key)
+        if inst is None:
+            return None
+        if process_key and inst.process_key and inst.process_key != process_key:
+            return None
+        return inst
+
     async def start_process_instance(
         self,
         process_key: str,
@@ -458,6 +577,25 @@ class AuditStartSink(Protocol):
     """
 
     async def emit_once(self, record: AuditRecord, *, dedup_key: str) -> str: ...
+
+
+@runtime_checkable
+class DedupReportingAuditSink(Protocol):
+    """An `AuditStartSink` that also REPORTS its durable dedup-claim outcome (B-3 effect gate).
+
+    `emit_once` returns a bare hash on BOTH paths (fresh insert / prior claim), so a caller cannot
+    tell them apart — the bit that turns the durable `audit_emit_dedup` claim from a double-AUDIT
+    guard into a double-EFFECT gate. `emit_once_status` returns it explicitly.
+
+    `PostgresAuditSink` (the production sink) satisfies this structurally. It is a SEPARATE
+    Protocol rather than a new required method on `AuditStartSink` so that every existing
+    emit-only sink/fake keeps type-checking; `start_process_idempotent` probes for it with
+    `isinstance` and FAILS CLOSED for strict process families when it is absent (see
+    `_STRICT_START_DEDUP_PROCESS_KEYS`) — a sink that cannot report dedup status must never
+    silently degrade a payment gate back to the TOCTOU-only behaviour.
+    """
+
+    async def emit_once_status(self, record: AuditRecord, *, dedup_key: str) -> EmitOnceOutcome: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -557,6 +695,360 @@ def start_dedup_key(tenant_id: str, process_key: str, business_key: str) -> str:
     return f"{tenant_id}:start:{process_key}:{business_key}"
 
 
+class StartDedupGateUnavailableError(RuntimeError):
+    """A STRICT-family start was asked for behind a seam that cannot evaluate the gate.
+
+    Either the audit sink cannot report its dedup claim (`DedupReportingAuditSink`) or the
+    transport cannot query engine history (`HistoryQueryingTransport`). Both are gate inputs; a
+    strict start with either missing is UN-GATEABLE, so it must not run at all.
+
+    Deliberately NOT a `CibSevenError`: the agent graphs all catch `CibSevenError` and degrade to
+    ``{"process_started": False, "error": "start_process indisponivel"}``, which would report an
+    ENGINE outage for what is actually a mis-wired durable gate — and, worse, would look like a
+    routine transient. This raise propagates and fails the turn, exactly like
+    `AuditPersistenceError` does for the emit itself (fail-closed: no un-gated payment start).
+
+    Raised BEFORE the durable claim is written, so a mis-wired call never leaves a claim behind.
+    """
+
+
+class StartClaimWithoutInstanceError(RuntimeError):
+    """STRICT family: the durable claim exists, but the engine has NO instance for this key — at
+    all, not even in history. The gate cannot decide, so it refuses, LOUDLY (F3 BLOCKER-1).
+
+    WHAT THIS STATE MEANS. The claim is written before the engine POST (ADR-0007 emit-before-
+    effect), so exactly two histories produce it, and NOTHING durable distinguishes them:
+
+      A. The POST never took effect (engine down / 4xx / lost request). The intended start never
+         happened, and retrying is correct.
+      B. A concurrent racer holds the claim and its POST is STILL IN FLIGHT. Retrying would create
+         a SECOND instance — for `SP-OP-PAGTO-001`, a second payment release.
+
+    Guessing "A" (auto-restart) is the duplicate-payment defect wearing a recovery costume, and
+    guessing "B" (report a phantom success) is the fail-silent-success this whole gate exists to
+    kill. So the honest third answer is: STOP and make it visible. A human reads the engine and
+    either starts the instance manually or clears the one named claim row — both decisions this
+    module has no evidence to make. The message therefore carries the exact `dedup_key`.
+
+    Deliberately NOT a `CibSevenError` (same reasoning as `StartDedupGateUnavailableError`): this
+    is not an engine outage and must never be swallowed into a routine transient. It is also NOT
+    retryable-by-shrugging — every retry lands here again until a human resolves it, which is the
+    point: a wedged payment order that SAYS it is wedged, never one that quietly reports success.
+
+    Closing this residual for real needs the cross-system atomicity the MZO-060 inbox (XRD-10)
+    buys; it cannot be closed inside this module without an outbox.
+    """
+
+    def __init__(self, *, process_key: str, business_key: str, dedup_key: str) -> None:
+        super().__init__(
+            f"process_key={process_key!r} business_key={business_key!r}: a durable start claim "
+            f"EXISTS (dedup_key={dedup_key!r}) but the engine reports no instance for this key — "
+            "neither active nor in history. Either the intended start never took effect or a "
+            "concurrent start is still in flight; nothing durable distinguishes the two, so this "
+            "STRICT family refuses to start (a wrong guess here is a duplicate money effect). "
+            "OPERATOR: confirm against the engine, then either start the instance manually or "
+            "delete that single audit_emit_dedup row to re-arm the gate"
+        )
+        self.process_key = process_key
+        self.business_key = business_key
+        self.dedup_key = dedup_key
+
+
+#: B-3 per-process START-DEDUP STRICTNESS. `True` = the durable `audit_emit_dedup` claim is a
+#: PERMANENT gate: once a start has been committed for a business key, that key is NEVER started
+#: again, not even after the instance COMPLETED. `False` = today's behaviour is preserved (the
+#: claim still deduplicates the AUDIT row, but only `find_active_instance` gates the effect, so a
+#: COMPLETED key can legitimately be restarted).
+#:
+#: WHY THIS IS A MAP AND NOT A BLANKET RULE: a permanent dedup CHANGES RESTART SEMANTICS. Business
+#: keys that embed a cycle/competencia component are re-startable BY CONSTRUCTION (the next cycle
+#: mints a new key), but several keys here do NOT carry one and a legitimate re-run across time is
+#: plausible — turning the gate on for those would SILENTLY SWALLOW a legitimate second case.
+#: Each key below is classified from its composer, with evidence; unknown keys default to
+#: NON-strict (never a surprise gate) and log a warning so the omission is visible.
+#:
+#: ┌ STRICT ────────────────────────────────────────────────────────────────────────────────────
+#: `SP-OP-PAGTO-001` — MONEY RELEASE. Key `PAGTO-{tenant}-{ordem_pagamento_id}` or
+#:   `PAGTO-{tenant}-{numero_lote_tiss}-{prestador_id}`, composed by the single shared composer
+#:   `agents/andre/keys.py:pagto_business_key` (`keys.py:115`, M-8) through its two call sites
+#:   `agents/andre/graph.py:480-486` and `agents/andre/delegation.py:269-275`. NO cycle component,
+#:   and none is possible: a payment order is settled ONCE. Restarting a COMPLETED key is a
+#:   RE-RELEASE of an already-paid order — the duplicate-payment defect this gate exists for.
+#:   THE ONE START SITE TODAY: `agents/andre/graph.py:986` (`PROCESS_KEY_PAGTO`, `graph.py:258`).
+#:   `platform/notification_bridge.py` does NOT start PAGTO — its rule set is exactly 7
+#:   (`_register_default_handoffs`, `:513`): CONTAS→RECURSO `:535`, CONTAS→FRAUDE `:564`,
+#:   FRAUDE→CRED `:587`, FRAUDE→CANCEL `:608`, FRAUDE→INADIMPLENCIA `:637`, and the two
+#:   ANS-SUBMIT rules `:661`/`:680`. A FUTURE rule targeting PAGTO would route through
+#:   `build_cibseven_process_starter` (`notification_bridge.py:952`) and hence through this gate;
+#:   that is a capability of the fenced starter, not a live start site (F3 MAJOR-3 — the earlier
+#:   revision cited `notification_bridge.py:958` as if it were one).
+#: └────────────────────────────────────────────────────────────────────────────────────────────
+#:
+#: ┌ NON-STRICT (classified — legitimate re-run across time, or genuinely ambiguous) ───────────
+#: `SP-OP-INADIMPLENCIA-001` — key `INAD-{tenant}-{numero_contrato}` (`agents/fernando/graph.py:
+#:   290-298`), started at `agents/fernando/graph.py:548`. A contract that cured a delinquency can
+#:   go delinquent AGAIN; the key repeats by design. Gating would block the second, real case.
+#: `SP-OP-ESCALATION-001` — key `ESC-{tenant}-{conversation_id}` (`agents/helena/graph.py:304-306`,
+#:   `agents/lucas/graph.py:313-316`), started at `agents/helena/graph.py:673` /
+#:   `agents/lucas/graph.py:639`. A conversation legitimately escalates again after an earlier
+#:   escalation closed.
+#: `SP-OP-CRED-001` — key `CRED-{tenant}-{prestador}` or `CRED-{tenant}-{prestador}-{protocolo}`
+#:   (`agents/carolina/graph.py:286-297`), started at `agents/carolina/graph.py:626` and, for the
+#:   fraude handoff, `tools/workers/fraude.py:735` via `_cred_business_key` (`fraude.py:754`).
+#:   AMBIGUOUS: the `-{protocolo}` variant IS per-request, but the bare variant repeats across
+#:   RECREDENCIAMENTO cycles — gating it would block a periodic re-accreditation. Human call.
+#: `SP-OP-FRAUDE-001` — key `FRAUDE-{tenant}-{numero_caso|prestador_id}` (contract, quoted at
+#:   `spec/processes/bpmn/SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn:260`), started at
+#:   `tools/workers/contas.py:750` and `tools/workers/fraude.py:735`. AMBIGUOUS: keyed by
+#:   `numero_caso` it is one-shot, but the `prestador_id` fallback repeats — a genuinely NEW fraud
+#:   case against the same provider must still open. Human call.
+#: `SP-OP-CANCEL-001` — key from `_cancel_business_key(tenant, numero_contrato, matricula)`
+#:   (`tools/workers/inadimplencia.py:619`), started at `tools/workers/inadimplencia.py:646`.
+#:   AMBIGUOUS: rescisao is adverse and near-terminal, but a contract reinstated after a cancelled
+#:   rescisao could legitimately be re-processed. Human call.
+#: `SP-OP-CONTAS-001` — key `CONTAS-{tenant}-{lote}` / `CONTAS-{tenant}-{guia}-{conta}`
+#:   (`agents/marina/graph.py:311-332`), started at `agents/marina/graph.py:704`. AMBIGUOUS: the
+#:   contract says a re-sent lote must NOT create a new instance
+#:   (`SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn:32-34`), which argues STRICT — but that
+#:   text is about the ACTIVE instance, and corrections are modelled as a boundary message on the
+#:   running instance (`BME_LinhasAtualizadas`, same file `:190`), not as a restart. Human call.
+#: `SP-OP-RECURSO-001` — key `RECURSO-{tenant}-{numero_guia_tiss}-{glosa_id}`
+#:   (`tools/workers/contas.py:475-481`, `platform/notification_bridge.py:370-374`,
+#:   `agents/marina/graph.py:325`), started at `tools/workers/contas.py:596` and
+#:   `agents/marina/graph.py:704`. AMBIGUOUS and CLOSE TO STRICT: one recurso per glosa per guia,
+#:   and a duplicate filing is a real harm — but `glosa_id` is externally supplied on this path
+#:   (see M-9 note in `tools/workers/contas.py`), so its stability is not this module's to assert.
+#:   Human call.
+#: `SP-OP-AUTH-001` — key `AUTH-{tenant}-{numero_guia_tiss}` (`agents/rafael/graph.py:167-169`),
+#:   started at `agents/rafael/graph.py:509`. AMBIGUOUS: a TISS guia is normally one-shot, but
+#:   whether a re-submitted/reopened guia may reuse its number is a MEDICAL/ANS semantics question,
+#:   explicitly out of an engineering agent's authority. Human call.
+#: `SP-OP-ANS-SUBMIT-001` — key `ANSSUB-{tenant}-{report_type}-{competencia}`
+#:   (`agents/gustavo/graph.py:303-311`), started at `agents/gustavo/graph.py:697`. CYCLE-SCOPED
+#:   (competencia), so a new period already mints a new key — but a RETIFICACAO for an already
+#:   submitted competencia is a real ANS workflow; gating it would block a regulatory correction.
+#: `SP-OP-NIP-001` — key `NIP-{tenant}-{numero_nip_ans}` (`agents/gustavo/graph.py:311`), started
+#:   at `agents/gustavo/graph.py:697`. AMBIGUOUS (ANS protocol-number reuse semantics). Human call.
+#: `SP-OP-PROGRAMA-001` — key `PROG-{tenant}-{programa}-{benef}-{ciclo}`
+#:   (`agents/valentina/graph.py:277-288`), started at `agents/valentina/graph.py:648`.
+#:   CYCLE-SCOPED (`ciclo`): a new enrolment cycle already mints a new key, so the gate would be
+#:   harmless — left off only because it buys nothing today.
+#: └────────────────────────────────────────────────────────────────────────────────────────────
+#:
+#: OPERATIONAL CO-REQUISITES (must be settled before the STRICT gate can be trusted in
+#: production). NEITHER is enforced in code here.
+#:
+#: 1. DBA — `audit_emit_dedup` RETENTION. The table is documented as SWEEPABLE, its claims needing
+#:    only to "outlive the engine's re-delivery window"
+#:    (`platform/migrations/versions/0005_audit_emit_dedup.py:30-36`). A STRICT key's claim is now
+#:    the PERMANENT record that a start was COMMITTED TO — if the retention sweep deletes it, the
+#:    gate silently reverts to the TOCTOU-only behaviour and a COMPLETED payment key becomes
+#:    re-startable again. STRICT-family claims MUST be excluded from the by-age sweep (or retained
+#:    for the full audit-chain horizon). Direction of failure: SILENT, toward a duplicate payment.
+#: 2. DBA/ENGINE — CIB Seven HISTORY retention. `_resolve_strict_dedup_hit` reads the engine's
+#:    history as the proof that the claimed start actually took effect. If the engine's history
+#:    cleanup removes a finished `SP-OP-PAGTO-001` instance while its claim survives, the gate can
+#:    no longer tell "already paid" from "never started" and raises
+#:    `StartClaimWithoutInstanceError`. Direction of failure: LOUD, toward an operator ticket —
+#:    the safe direction, but PAGTO history SHOULD outlive the claim to avoid the noise. (The two
+#:    horizons are ordered: claim retention <= history retention keeps the gate quiet AND safe.)
+_START_DEDUP_POLICY: Mapping[str, bool] = {
+    "SP-OP-PAGTO-001": True,
+    "SP-OP-INADIMPLENCIA-001": False,
+    "SP-OP-ESCALATION-001": False,
+    "SP-OP-CRED-001": False,
+    "SP-OP-FRAUDE-001": False,
+    "SP-OP-CANCEL-001": False,
+    "SP-OP-CONTAS-001": False,
+    "SP-OP-RECURSO-001": False,
+    "SP-OP-AUTH-001": False,
+    "SP-OP-ANS-SUBMIT-001": False,
+    "SP-OP-NIP-001": False,
+    "SP-OP-PROGRAMA-001": False,
+}
+
+
+def is_strict_start_dedup(process_key: str) -> bool:
+    """True iff `process_key`'s durable start claim is a PERMANENT gate (`_START_DEDUP_POLICY`).
+
+    An UNCLASSIFIED key defaults to `False` — today's behaviour — and logs a warning rather than
+    guessing: a surprise permanent gate on a flow that legitimately re-runs across cycles would
+    silently swallow real cases, which is the worse failure of the two.
+    """
+    strict = _START_DEDUP_POLICY.get(process_key)
+    if strict is None:
+        logger.warning(
+            "cibseven_start_dedup_policy_unclassified",
+            process_key=process_key,
+            defaulted_to="non_strict",
+        )
+        return False
+    return strict
+
+
+#: Bounded re-poll of the engine when a STRICT dedup hit finds no instance yet (see
+#: `_resolve_strict_dedup_hit`). Deliberately SMALL: the window being absorbed is one concurrent
+#: racer's in-flight POST, not an engine outage (which raises `CibSevenError` from the query
+#: itself). Worst case adds `(attempts - 1) * delay` to a path that performs NO effect. Raising
+#: these buys quieter false alarms, never more safety — the safety comes from never starting.
+_STRICT_GATE_RESOLVE_ATTEMPTS = 3
+_STRICT_GATE_RESOLVE_DELAY_S = 0.2
+
+
+def _require_strict_gate_seams(
+    transport: CibSevenTransport,
+    audit_sink: AuditStartSink,
+    *,
+    process_key: str,
+) -> None:
+    """Both STRICT-gate inputs must be present, checked BEFORE anything durable is written.
+
+    The gate needs two facts a non-strict start does not: whether the durable claim was already
+    held (`DedupReportingAuditSink.emit_once_status`) and whether the engine EVER ran an instance
+    for this key (`HistoryQueryingTransport.find_any_instance`). Missing either makes a strict
+    start un-gateable, and a silent degradation to the TOCTOU-only path is exactly the
+    duplicate-payment behaviour this module exists to prevent.
+
+    Checked up front so a mis-wired composition root fails BEFORE the claim is written — a raise
+    after the claim would leave an orphan claim that wedges the key
+    (`StartClaimWithoutInstanceError`) on every later, correctly-wired retry.
+    """
+    if not isinstance(audit_sink, DedupReportingAuditSink):
+        raise StartDedupGateUnavailableError(
+            f"process_key={process_key!r} is a STRICT start-dedup family but the injected audit "
+            f"sink {type(audit_sink).__name__!r} does not implement `emit_once_status` — the "
+            "durable dedup claim cannot be observed, so the start CANNOT be gated. Refusing to "
+            "start (fail-closed: an un-gated start of a strict family risks a duplicate effect)"
+        )
+    if not isinstance(transport, HistoryQueryingTransport):
+        raise StartDedupGateUnavailableError(
+            f"process_key={process_key!r} is a STRICT start-dedup family but the injected "
+            f"transport {type(transport).__name__!r} does not implement `find_any_instance` — a "
+            "dedup hit could then only be resolved against `active=true`, which cannot see a "
+            "COMPLETED instance, so a claim with no live instance would be indistinguishable from "
+            "a start that never happened. Refusing to start (fail-closed)"
+        )
+
+
+async def _emit_start_record_once(
+    audit_sink: AuditStartSink,
+    record: AuditRecord,
+    *,
+    dedup_key: str,
+) -> EmitOnceOutcome | None:
+    """Emit the durable start record exactly-once; return the dedup OUTCOME when observable.
+
+    Returns `None` when the injected sink can only report a hash (`emit_once`) — legal for
+    NON-strict families, where the claim remains a double-audit guard only. A STRICT family can
+    never reach that branch: `_require_strict_gate_seams` has already refused such a sink.
+    """
+    if isinstance(audit_sink, DedupReportingAuditSink):
+        return await audit_sink.emit_once_status(record, dedup_key=dedup_key)
+    await audit_sink.emit_once(record, dedup_key=dedup_key)
+    return None
+
+
+async def _resolve_strict_dedup_hit(
+    transport: CibSevenTransport,
+    *,
+    process_key: str,
+    business_key: str,
+    dedup_key: str,
+    record_hash: str,
+) -> ProcessInstance:
+    """A STRICT family's durable claim already existed — decide what that PROVES, honestly.
+
+    THE DEFECT THIS REPLACES (F3 BLOCKER-1). The claim is written BEFORE the engine POST, so "a
+    claim exists" is evidence that a start was *committed to*, NOT that one *happened*. The
+    previous revision treated the two as the same thing and, finding no ACTIVE instance, returned
+    a synthetic instance with `instance_id=""` and `already_existed=True` — which
+    `agents/andre/graph.py` then reported as `process_started: True` and `delegation.py` shipped
+    over A2A. If the engine POST had failed, EVERY retry took that branch: the payment order was
+    never started and the system reported success on every attempt, forever. Fail-silent-success.
+
+    THE FIX: ask the engine's HISTORY, which is the record of what actually happened — written by
+    the engine itself, transactionally with the instance, so (unlike a Maezo-side "start
+    completed" row) there is no crash window between the effect and its record.
+
+      1. ACTIVE instance      -> it is live. Report it, `ALREADY_ACTIVE`, real id.
+      2. HISTORIC instance    -> the start DID happen and has finished. This is the permanent gate
+                                 doing its job on an already-paid order: refuse, `ALREADY_COMPLETED`,
+                                 real (historic) id and the engine's own state token.
+      3. NOTHING, anywhere    -> undecidable (see `StartClaimWithoutInstanceError`). RAISE.
+
+    Case 3 is why this does NOT auto-restart on "no instance found", tempting as it looks: a
+    concurrent racer that already won the claim may simply not have POSTed yet, and restarting
+    into that window is a second payment. The engine query cannot distinguish it; nothing durable
+    here can. So the residual is a LOUD wedge, never a silent one and never a false success.
+
+    BOUNDED RE-POLL before case 3. The single most likely producer of case 3 is benign: a
+    near-simultaneous re-delivery whose WINNER is mid-POST, microseconds from making the answer
+    obvious. So the lookups are retried `_STRICT_GATE_RESOLVE_ATTEMPTS` times spaced
+    `_STRICT_GATE_RESOLVE_DELAY_S` apart. This DECIDES NOTHING — it only waits for evidence to
+    arrive, and it never starts anything on any attempt, so it cannot trade safety for quiet. Its
+    only purpose is to keep a routine duplicate delivery from raising an operator-facing error
+    that would train on-call to ignore the one that matters. A winner slower than the whole window
+    (or one that died) still lands in case 3, correctly.
+    """
+    for attempt in range(_STRICT_GATE_RESOLVE_ATTEMPTS):
+        if attempt:
+            await asyncio.sleep(_STRICT_GATE_RESOLVE_DELAY_S)
+
+        active = await transport.find_active_instance(business_key)
+        if active is not None:
+            logger.info(
+                "cibseven_start_dedup_gate_hit",
+                process_key=process_key,
+                business_key=business_key,
+                instance_id=active.instance_id,
+                engine_state="ACTIVE",
+                attempt=attempt,
+            )
+            # `already_existed`/`start_outcome` are asserted HERE rather than trusted from the
+            # transport: the durable claim is what proves this instance pre-existed, and a caller
+            # reading either to decide whether it just caused a payment must not depend on a
+            # transport implementation remembering to set them.
+            return replace(active, already_existed=True, start_outcome=StartOutcome.ALREADY_ACTIVE)
+
+        # `_require_strict_gate_seams` already guaranteed this for every strict caller — re-checked
+        # (never `assert`ed: `python -O` strips asserts, and this one gates money) so a future
+        # direct caller of this helper fails closed instead of `AttributeError`-ing mid-gate.
+        if not isinstance(transport, HistoryQueryingTransport):
+            raise StartDedupGateUnavailableError(
+                f"process_key={process_key!r}: strict dedup hit cannot be resolved — transport "
+                f"{type(transport).__name__!r} does not implement `find_any_instance` (fail-closed)"
+            )
+        historic = await transport.find_any_instance(business_key, process_key=process_key)
+        if historic is not None:
+            outcome = (
+                StartOutcome.ALREADY_ACTIVE if historic.state == "ACTIVE" else StartOutcome.ALREADY_COMPLETED
+            )
+            logger.warning(
+                "cibseven_start_dedup_gate_blocked_completed",
+                process_key=process_key,
+                business_key=business_key,
+                instance_id=historic.instance_id,
+                engine_state=historic.state,
+                dedup_record_hash=record_hash,
+                attempt=attempt,
+                reason="durable claim + engine history PROVE this key already started — refusing to restart",
+            )
+            return replace(historic, already_existed=True, start_outcome=outcome)
+
+    logger.error(
+        "cibseven_start_claim_without_instance",
+        process_key=process_key,
+        business_key=business_key,
+        dedup_key=dedup_key,
+        dedup_record_hash=record_hash,
+        attempts=_STRICT_GATE_RESOLVE_ATTEMPTS,
+        reason="claim exists but engine has NO instance (active or historic) — undecidable, wedged loudly",
+    )
+    raise StartClaimWithoutInstanceError(
+        process_key=process_key, business_key=business_key, dedup_key=dedup_key
+    )
+
+
 async def start_process_idempotent(
     transport: CibSevenTransport,
     *,
@@ -576,31 +1068,100 @@ async def start_process_idempotent(
     enumerated list of call sites did (design SHOULD-FIX 3).
 
     Fail-closed ordering (design §4.2 — audit BEFORE effect):
-      1. Emit the durable, PHI-safe provenance record via `emit_once` (idempotent on
+      0. STRICT FAMILIES ONLY — verify both gate seams exist (`_require_strict_gate_seams`)
+         BEFORE writing anything durable, so a mis-wired root never leaves an orphan claim.
+      1. Emit the durable, PHI-safe provenance record via `emit_once_status` (idempotent on
          `start_dedup_key`). This RAISES `AuditPersistenceError` on any durability failure — and,
          being neither a `CibSevenError` nor caught by the agents' `except CibSevenError`, it
          propagates and fails the turn. No process is ever started without a preceding durable
          audit row.
-      2. `find_active_instance` — an active hit is returned unchanged (`already_existed=True`),
-         never re-started (the "one active instance per business key" invariant).
-      3. Otherwise start the instance.
+      2. STRICT FAMILIES (B-3, `_START_DEDUP_POLICY`) — a `deduped=True` outcome means a start for
+         this `(tenant, process_key, business_key)` was ALREADY COMMITTED TO, so this call must
+         start nothing. `_resolve_strict_dedup_hit` then asks the ENGINE what actually happened:
+         live instance -> report it; historic instance -> refuse (`ALREADY_COMPLETED`); no
+         instance at all -> `StartClaimWithoutInstanceError` (undecidable, wedged LOUDLY).
+      3. `find_active_instance` — an active hit is returned unchanged, never re-started (the "one
+         active instance per business key" invariant).
+      4. Otherwise start the instance.
 
-    Idempotency & no-double: on re-delivery the same business key yields `emit_once` →
-    ``ALREADY_AUDITED`` (no second chain link) AND `find_active_instance` → the existing instance
-    (no second start). The process start is itself business-key-idempotent, so it is P1-safe (no
-    double-effect); the emit dedup closes the double-audit window. Emitting slightly ahead of the
-    (idempotent) start is the fail-closed choice: the record attests the agent's decision to start;
-    the start is the mechanical realization the idempotency guard makes safe to repeat.
+    Every return carries a `StartOutcome` this function ASSERTS from its own control flow (F3
+    MAJOR-2) — the typed field a caller branches on. `already_existed` alone cannot express
+    "refused because it already ran", and a log line is not a return value.
+
+    B-3 — WHY THE ENGINE ACTIVE QUERY IS NOT ENOUGH (the duplicate-payment class this closes). The
+    pre-B-3 code discarded the `emit_once` result and relied SOLELY on step 3, which has two
+    holes:
+      * TOCTOU. `find_active_instance` is a plain GET (`:265-271`); two concurrent callers with
+        the same business key can BOTH read "no active instance" and BOTH start. The durable
+        claim has no such window — the lookup, the claim and the chain insert share one
+        per-tenant advisory-locked transaction (`PostgresAuditSink.emit_once_status`), so exactly
+        one racer can observe `deduped=False`.
+      * `active=true`. A COMPLETED instance is invisible to that query, so a re-delivered start
+        for an already-FINISHED business key looked brand new. For `SP-OP-PAGTO-001` that is a
+        re-release of an already-paid order.
+    Both engine queries are RETAINED as secondary checks — they are the only source of the
+    instance id, which the claim (which stores only a record hash) cannot supply.
+
+    F3 BLOCKER-1 — WHY THE CLAIM IS NOT ENOUGH EITHER. A claim proves an agent COMMITTED to a
+    start, not that the engine performed one: it is written at step 1, the POST happens at step 4.
+    Reading it as proof of a start is what made a failed engine POST report success forever (see
+    `_resolve_strict_dedup_hit`). The claim is the MUTUAL-EXCLUSION token; the engine's history is
+    the RECORD OF THE EFFECT. Neither substitutes for the other, and this function uses each for
+    exactly what it proves.
+
+    RESIDUAL, recorded not hidden (XRD-10 / MZO-060): claim-write and engine-start are two
+    systems with no shared transaction, so the window between them is real. It is not closed here
+    — no outbox is built — it is made UNDECIDABLE-AND-LOUD (`StartClaimWithoutInstanceError`)
+    instead of decidable-and-wrong. A crash inside that window wedges exactly one business key,
+    visibly, for a human; it never releases a payment twice and never claims one was released.
+
+    SEMANTIC CAUTION. Making the claim permanent CHANGES RESTART SEMANTICS, so it is applied per
+    process key via `_START_DEDUP_POLICY`, whose comment block carries the full per-caller
+    classification with file:line evidence. Unclassified keys keep today's behaviour. Read that
+    block — and its two operational co-requisites (`audit_emit_dedup` retention AND engine history
+    retention) — before adding a key.
+
+    Idempotency & no-double: on re-delivery the same business key yields a dedup outcome (no
+    second chain link) AND, for non-strict families, `find_active_instance` → the existing
+    instance (no second start). Emitting slightly ahead of the start is the fail-closed choice:
+    the record attests the agent's decision to start; for strict families that record is now also
+    the exclusive right to perform it.
     """
+    strict = is_strict_start_dedup(process_key)
+    # 0. Both strict-gate seams, checked BEFORE the claim exists (see `_require_strict_gate_seams`).
+    if strict:
+        _require_strict_gate_seams(transport, audit_sink, process_key=process_key)
+
     # 1. FAIL-CLOSED durable provenance BEFORE any engine effect (ADR-0007 invariant).
     record = build_start_audit_record(
         provenance, process_key=process_key, business_key=business_key, variables=variables
     )
-    await audit_sink.emit_once(
-        record, dedup_key=start_dedup_key(provenance.tenant_id, process_key, business_key)
-    )
+    dedup_key = start_dedup_key(provenance.tenant_id, process_key, business_key)
+    outcome = await _emit_start_record_once(audit_sink, record, dedup_key=dedup_key)
 
-    # 2. Idempotency: an active instance is returned unchanged, never double-started.
+    # 2. B-3 ATOMIC GATE: the durable claim already existed -> a start was already committed to for
+    #    this key. For a STRICT family that is FINAL — never start again, not even if the engine
+    #    reports nothing active (which is precisely the COMPLETED-instance hole).
+    if strict and outcome is not None and outcome.deduped:
+        return await _resolve_strict_dedup_hit(
+            transport,
+            process_key=process_key,
+            business_key=business_key,
+            dedup_key=dedup_key,
+            record_hash=outcome.record_hash,
+        )
+
+    if outcome is not None and outcome.deduped:
+        # Non-strict family: the claim deduped the AUDIT row only. Recorded so the observation is
+        # never invisible again (the B-3 defect was exactly this value being discarded).
+        logger.info(
+            "cibseven_start_audit_deduped_not_gated",
+            process_key=process_key,
+            business_key=business_key,
+            dedup_record_hash=outcome.record_hash,
+        )
+
+    # 3. Idempotency: an active instance is returned unchanged, never double-started.
     existing = await transport.find_active_instance(business_key)
     if existing is not None:
         logger.info(
@@ -609,14 +1170,33 @@ async def start_process_idempotent(
             business_key=business_key,
             instance_id=existing.instance_id,
         )
-        return existing
+        return replace(existing, start_outcome=StartOutcome.ALREADY_ACTIVE)
 
-    # 3. Start the instance (the effect — gated behind the durable audit above).
-    instance = await transport.start_process_instance(process_key, business_key, variables)
+    # 4. Start the instance (the effect — gated behind the durable audit above).
+    try:
+        instance = await transport.start_process_instance(process_key, business_key, variables)
+    except CibSevenError:
+        if strict:
+            # The claim is now an ORPHAN: held by this (failed) attempt, with no engine instance
+            # behind it. Announced HERE, at the moment it is created, rather than only on the next
+            # retry — the operator gets the exact key to resolve without waiting for a re-delivery.
+            # The claim is deliberately NOT released: a POST that timed out may still have taken
+            # effect, and releasing on that guess is a duplicate payment. `CibSevenError` is
+            # re-raised unchanged so the caller's existing engine-outage handling is untouched
+            # (an honest `process_started: False` — the process really was not started).
+            logger.error(
+                "cibseven_start_claim_orphaned",
+                process_key=process_key,
+                business_key=business_key,
+                dedup_key=dedup_key,
+                reason="engine start FAILED after the durable claim was written — this key is now "
+                "wedged until an operator resolves it (see StartClaimWithoutInstanceError)",
+            )
+        raise
     logger.info(
         "cibseven_process_started",
         process_key=process_key,
         business_key=business_key,
         instance_id=instance.instance_id,
     )
-    return instance
+    return replace(instance, start_outcome=StartOutcome.STARTED)

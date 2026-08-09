@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 
-from maezo.gateway.audit import AuditRecord, hash_input
+from maezo.gateway.audit import AuditRecord, EmitOnceOutcome, hash_input
 from maezo.gateway.audit_postgres import AuditPersistenceError
 from maezo.tools.mcp_cibseven.transport import (
     AgentDecisionProvenance,
@@ -115,9 +115,12 @@ async def test_emits_exactly_once_before_starting() -> None:
             return await super().start_process_instance(*a, **k)
 
     class _OrderingSink(FakeStartAuditSink):
-        async def emit_once(self, record: AuditRecord, *, dedup_key: str) -> str:
+        # B-3: the chokepoint now calls `emit_once_status` (it needs the dedup FLAG, not just the
+        # hash), so the ordering spy hooks THAT method — hooking `emit_once` would silently record
+        # nothing and this ordering assertion would stop testing anything.
+        async def emit_once_status(self, record: AuditRecord, *, dedup_key: str) -> EmitOnceOutcome:
             events.append("emit")
-            return await super().emit_once(record, dedup_key=dedup_key)
+            return await super().emit_once_status(record, dedup_key=dedup_key)
 
     sink = _OrderingSink()
     inst = await _start(_OrderingTransport(), sink)

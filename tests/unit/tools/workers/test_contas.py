@@ -4,6 +4,7 @@ TDD London School: tests exercise the external task contracts.
 """
 
 import asyncio
+from typing import Any
 
 import pytest
 
@@ -17,6 +18,7 @@ from maezo.tools.workers.contas import (
     GlosaAcceptInput,
     GlosaAcceptNotHumanError,
     GlosaInput,
+    _recurso_business_key,
     analyze_reason,
     analyze_reason_entry,
     calculate_impact,
@@ -359,6 +361,127 @@ def test_glosa_accept_success() -> None:
     result = register_glosa_accept(inp)
     assert result.registered is True
     assert result.glosa_id.startswith("GLOSA-")
+
+
+# ---------------------------------------------------------------------------
+# M-9 — glosa_id is DETERMINISTIC (was sha256(time.time_ns()))
+#
+# `glosa_id` is not an inert output: it anchors SP-OP-RECURSO-001's business key
+# `RECURSO-{tenant}-{numero_guia_tiss}-{glosa_id}` (`contas._recurso_business_key`,
+# `platform/notification_bridge._recurso_business_key`, `agents/marina/graph._business_key`).
+# A wall-clock mint meant every engine RE-DELIVERY of the same human acceptance produced a new
+# id -> a new recurso business key -> a duplicate RECURSO instance for one glosa.
+# ---------------------------------------------------------------------------
+
+
+def _accept(**overrides: Any) -> GlosaAcceptInput:
+    base: dict[str, Any] = {
+        "decisao_contas": "ACEITAR_GLOSA",
+        "justificativa_glosa": "item fora da tabela pactuada",
+        "codigo_glosa_aceito": "1401",
+        "valor_glosa_aceito_brl": 150.0,
+        "analista_id": "analista-123",
+        "tenant_id": "amh",
+        "numero_lote_tiss": "LOTE-9",
+        "numero_guia_tiss": "GUIA-7",
+    }
+    base.update(overrides)
+    return GlosaAcceptInput(**base)
+
+
+def test_glosa_id_is_stable_across_redelivery_of_the_same_acceptance() -> None:
+    """THE M-9 defect. The engine re-delivers an external task on lock-expiry / retry with the
+    SAME variables; the id must therefore be the same on every delivery."""
+    first = register_glosa_accept(_accept()).glosa_id
+    second = register_glosa_accept(_accept()).glosa_id
+
+    assert first == second
+    assert first.startswith("GLOSA-analista-123-")
+
+
+def test_the_recurso_business_key_no_longer_drifts_across_redelivery() -> None:
+    """The consequence that made this a duplicate-instance defect rather than a cosmetic one."""
+    keys = {
+        _recurso_business_key("amh", "GUIA-7", register_glosa_accept(_accept()).glosa_id) for _ in range(3)
+    }
+    assert len(keys) == 1
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"codigo_glosa_aceito": "1402"},
+        {"valor_glosa_aceito_brl": 151.0},
+        {"analista_id": "analista-999"},
+        {"tenant_id": "outra"},
+        {"numero_lote_tiss": "LOTE-10"},
+        {"numero_guia_tiss": "GUIA-8"},
+    ],
+)
+def test_a_genuinely_different_acceptance_gets_a_different_id(override: dict[str, Any]) -> None:
+    """Determinism must not collapse DISTINCT acceptances onto one id — that would silently merge
+    two providers' glosas onto one recurso anchor, the opposite harm."""
+    assert register_glosa_accept(_accept()).glosa_id != register_glosa_accept(_accept(**override)).glosa_id
+
+
+def test_the_analista_stays_attributable_in_the_clear() -> None:
+    """ADR-0007: the acceptance is recorded in the analyst's name. Unchanged by M-9."""
+    assert register_glosa_accept(_accept(analista_id="ana-7")).glosa_id.startswith("GLOSA-ana-7-")
+
+
+def test_numeric_amount_digests_identically_whether_delivered_as_int_or_float() -> None:
+    """An engine round-trip can present `150` where it earlier presented `150.0` (Long/Double
+    decoding). Naive `str()` would then digest to two ids for ONE decision — re-introducing the
+    very drift this fix removes."""
+    assert (
+        register_glosa_accept(_accept(valor_glosa_aceito_brl=150)).glosa_id
+        == register_glosa_accept(_accept(valor_glosa_aceito_brl=150.0)).glosa_id
+    )
+
+
+def test_blank_instance_anchors_degrade_scope_but_never_determinism() -> None:
+    """The anchors are context, NOT new guard fields: a case that lacks them still registers (the
+    L0 guard set is unchanged) and still mints a STABLE id."""
+    bare = _accept(tenant_id="", numero_lote_tiss="", numero_guia_tiss="")
+    result = register_glosa_accept(bare)
+
+    assert result.registered is True
+    assert result.glosa_id == register_glosa_accept(bare).glosa_id
+
+
+def test_the_new_anchor_fields_are_not_part_of_the_l0_guard() -> None:
+    """Widening an L0 refusal set is a human decision, not a side effect of an idempotency fix."""
+    result = register_glosa_accept(_accept(tenant_id="", numero_guia_tiss=""))
+    assert result.registered is True
+
+
+def test_entry_selects_the_anchors_from_the_process_variables() -> None:
+    """`pick_fields` is the whole wiring: the anchors arrive as ordinary process variables, so the
+    entry function and the typed function agree."""
+    variables = {
+        "decisao_contas": "ACEITAR_GLOSA",
+        "justificativa_glosa": "erro de tabela",
+        "codigo_glosa_aceito": "COD-1",
+        "valor_glosa_aceito_brl": 100.0,
+        "analista_id": "analista-1",
+        "tenant_id": "amh",
+        "numero_lote_tiss": "LOTE-1",
+        "numero_guia_tiss": "GUIA-1",
+        "beneficiario_pseudo_id": "IGNORED-not-a-field",
+    }
+    from_entry = register_glosa_accept_entry(variables)
+    typed = register_glosa_accept(
+        GlosaAcceptInput(**{k: v for k, v in variables.items() if k != "beneficiario_pseudo_id"})
+    )
+
+    assert from_entry["glosa_id"] == typed.glosa_id
+    # The anchors genuinely participate: dropping them changes the id.
+    assert (
+        from_entry["glosa_id"]
+        != register_glosa_accept_entry({k: v for k, v in variables.items() if k != "numero_guia_tiss"})[
+            "glosa_id"
+        ]
+    )
 
 
 # ---------------------------------------------------------------------------

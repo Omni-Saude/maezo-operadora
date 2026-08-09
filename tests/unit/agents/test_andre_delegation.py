@@ -19,9 +19,11 @@ from maezo.agents.andre.delegation import (
     DEGRADED_TOKENS,
     ORIGIN_PAGTO_WORKER,
     ORIGIN_WORKER,
+    START_OUTCOME_META_KEY,
     TARGET_AGENT,
     TASK_TYPE_POPULATION_ANALYTICS,
     _flow_for,
+    _start_outcome_token,
     adequacao_task_id,
     build_adequacao_dossier_envelope,
     build_pagto_dossier_envelope,
@@ -34,6 +36,7 @@ from maezo.tools.mcp_cibseven.transport import (
     CibSevenError,
     FakeCibSevenTransport,
     ProcessInstance,
+    StartOutcome,
 )
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from tests.support.audit_fakes import FakeStartAuditSink
@@ -259,7 +262,7 @@ def test_pagto_task_id_refuses_to_mint_a_degenerate_key(kwargs: dict[str, Any]) 
     guards itself (EB-4 R1 `non_blank` discipline) instead of trusting every caller to pre-check —
     the pagto worker's own `except` turns the raise into a DISCLOSED gap (DL-0037, the UT opens)."""
     tenant = kwargs.pop("tenant")
-    with pytest.raises(ValueError, match="pagto_task_id requires"):
+    with pytest.raises(ValueError, match="pagto business key requires"):
         pagto_task_id(tenant, **kwargs)
 
 
@@ -274,7 +277,7 @@ def test_pagto_task_id_refuses_to_mint_a_degenerate_key(kwargs: dict[str, Any]) 
 def test_pagto_envelope_builder_enforces_the_same_guards(kwargs: dict[str, Any]) -> None:
     """The ENVELOPE builder is not a way around the key guard — it raises for the same inputs, so
     no degenerate `payload_ref`/`task_id` can ever reach the dispatcher."""
-    with pytest.raises(ValueError, match="pagto_task_id requires"):
+    with pytest.raises(ValueError, match="pagto business key requires"):
         _pagto_envelope(**kwargs)
 
 
@@ -415,7 +418,50 @@ async def test_handler_pagto_flow_still_starts_the_process_for_a_non_worker_orig
     output = await handler(replace(_pagto_envelope(), origin="autonomous-originator"))
 
     assert output.meta["process_started"] == "True"
+    assert output.meta[START_OUTCOME_META_KEY] == StartOutcome.STARTED.value
     assert cibseven.start_calls == ["PAGTO-amh-OP-001"]
+
+
+async def test_a2a_meta_carries_the_honest_outcome_when_the_strict_gate_refuses() -> None:
+    """F3 BLOCKER-1, at the A2A boundary. The originator used to receive
+    `process_started == "True"` for an order the strict gate had REFUSED to restart — a
+    fail-silent-success shipped over the wire. It now receives the honest bool AND the typed token
+    that explains it, so it can tell "settled earlier" from "running now"."""
+    audit_sink = FakeStartAuditSink()
+    cibseven = _RecordingCibSeven()
+    handler = make_andre_handler(_FakeInference(), dmn=_pagto_dmn(), cibseven=cibseven, audit_sink=audit_sink)
+    envelope = replace(_pagto_envelope(), origin="autonomous-originator")
+
+    first = await handler(envelope)
+    assert first.meta["process_started"] == "True"
+
+    # The payment instance finishes; the SAME delegation is re-delivered.
+    cibseven.seed_instance(
+        ProcessInstance(
+            instance_id="fake-PAGTO-amh-OP-001",
+            process_key="SP-OP-PAGTO-001",
+            business_key="PAGTO-amh-OP-001",
+            state="COMPLETED",
+        )
+    )
+    second = await handler(replace(envelope, origin="autonomous-originator"))
+
+    assert second.meta["process_started"] == "False"
+    assert second.meta[START_OUTCOME_META_KEY] == StartOutcome.ALREADY_COMPLETED.value
+    assert cibseven.start_calls == ["PAGTO-amh-OP-001"], "no second payment instance"
+
+
+async def test_a2a_meta_start_outcome_is_a_closed_token_set() -> None:
+    """The meta value is re-VALIDATED against `StartOutcome` on the way out, so this cross-agent
+    wire key can only ever carry a token the originator can branch on — never state text."""
+    for token, expected in (
+        (StartOutcome.ALREADY_COMPLETED.value, StartOutcome.ALREADY_COMPLETED.value),
+        ("something_invented", ""),
+        (None, ""),
+    ):
+        assert _start_outcome_token({"process_ref": {"start_outcome": token}}) == expected
+    assert _start_outcome_token({}) == ""
+    assert _start_outcome_token({"process_ref": "not-a-dict"}) == ""
 
 
 async def test_engine_business_key_anchors_the_live_contas_variant_instance_no_duplicate() -> None:

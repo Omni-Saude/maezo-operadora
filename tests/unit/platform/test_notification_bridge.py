@@ -23,7 +23,7 @@ from maezo.platform.notification_bridge import (
     NotificationBridgeMissingBusinessKeyError,
     build_cibseven_process_starter,
 )
-from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
+from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport, StartOutcome
 from tests.support.audit_fakes import FakeStartAuditSink
 
 # EB-4 event_type reconciliation — the REAL emitted domain events the bridge now consumes
@@ -1142,6 +1142,79 @@ async def test_fenced_starter_raises_directly_when_called_standalone() -> None:
 
     with pytest.raises(NotificationBridgeMissingBusinessKeyError):
         await starter("SP-OP-ANS-SUBMIT-001", {"tenant_id": "amh"})
+
+
+# ---------------------------------------------------------------------------
+# F3 MAJOR-2 — the chokepoint's typed outcome must survive the starter seam
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_handoff_result_carries_the_typed_start_outcome() -> None:
+    """`process_instance_id` cannot distinguish a fresh start from an idempotent replay from a
+    strict-gate refusal, so `HandoffResult` carries the chokepoint's own `StartOutcome` token.
+
+    The fenced starter returns the whole `ProcessInstance` for exactly this reason — flattening it
+    to an id here is what once let a blank id reach a "complete"-looking result.
+    """
+    transport = _RecordingCibSevenTransport()
+    audit_sink = FakeStartAuditSink()
+    starter = build_cibseven_process_starter(transport, audit_sink)
+    bridge = NotificationBridge(cibseven_starter=starter)
+
+    payload = {
+        "report_type": "DIOPS_TRIMESTRAL",
+        "competencia": "COMPETENCIA_PENDENTE",
+        "tenant_id": "amh",
+    }
+    first = await bridge.on_event(event_type="ans.cron_due", payload=dict(payload))
+    second = await bridge.on_event(event_type="ans.cron_due", payload=dict(payload))
+
+    assert first[0].start_outcome == StartOutcome.STARTED.value
+    assert second[0].start_outcome == StartOutcome.ALREADY_ACTIVE.value
+    assert len(transport.start_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_str_returning_starter_reports_an_unknown_outcome_not_a_fake_one() -> None:
+    """Back-compat without a lie: a legacy/dev starter returning a bare id still works, and the
+    outcome is reported as UNKNOWN (`""`) rather than guessed as a start."""
+    calls: list[str] = []
+
+    async def _legacy_starter(process_key: str, variables: dict[str, Any]) -> str:
+        calls.append(process_key)
+        return f"legacy-{process_key}"
+
+    bridge = NotificationBridge(cibseven_starter=_legacy_starter)
+    results = await bridge.on_event(
+        event_type="ans.cron_due",
+        payload={"report_type": "DIOPS_TRIMESTRAL", "competencia": "X", "tenant_id": "amh"},
+    )
+
+    assert calls == [PROCESS_KEY_ANS_SUBMIT]
+    assert results[0].process_instance_id == f"legacy-{PROCESS_KEY_ANS_SUBMIT}"
+    assert results[0].start_outcome == ""
+
+
+@pytest.mark.asyncio
+async def test_a_blank_instance_id_is_never_reported_as_a_completed_handoff() -> None:
+    """FAIL-CLOSED (F3 MAJOR-2, the `process_instance_id=""` latency). A triggered handoff whose
+    starter yields no instance id is NOT a completed handoff — it raises, so a Kafka consumer
+    cannot ack a message whose process was never identified."""
+
+    async def _blank_starter(process_key: str, variables: dict[str, Any]) -> str:
+        return "   "
+
+    bridge = NotificationBridge(cibseven_starter=_blank_starter)
+
+    with pytest.raises(NotificationBridgeHandoffFailedError) as exc_info:
+        await bridge.on_event(
+            event_type="ans.cron_due",
+            payload={"report_type": "DIOPS_TRIMESTRAL", "competencia": "X", "tenant_id": "amh"},
+        )
+
+    assert isinstance(exc_info.value.__cause__, ValueError)
+    assert "blank process instance id" in str(exc_info.value.__cause__)
 
 
 # ---------------------------------------------------------------------------
