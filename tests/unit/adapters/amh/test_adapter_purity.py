@@ -296,7 +296,7 @@ _SYNTHETIC_VIOLATIONS: tuple[tuple[str, str, set[str], set[str], set[str], set[s
         set(),
     ),
     (
-        "maezo.domain — DPO-gated identity semantics, unmerged branch",
+        "maezo.domain — DPO-gated identity semantics, leaf-of-application fence",
         "from maezo.domain.identity import SubjectRef\n",
         set(),
         set(),
