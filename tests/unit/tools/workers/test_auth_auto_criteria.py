@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import structlog.testing
 import yaml
 
 from maezo.tools.workers.auth import ValidateAutoCriteriaWorker
@@ -631,6 +632,322 @@ def test_env_override_selects_the_manifest(tmp_path: Path, monkeypatch: pytest.M
 @pytest.mark.parametrize("ref", [None, 42, "", "   ", ["DUT-BARIATRICA-001"]])
 def test_criteria_table_lookup_fails_closed_on_junk_refs(ref: Any) -> None:
     assert load_criteria_sources(_REAL_MANIFEST).criteria_table_for(ref) is None
+
+
+# ---------------------------------------------------------------------------------------------
+# CRITERIOS SEM COBERTURA — an uncovered fact suppresses the ratification it names (M-3)
+#
+# The manifest declares `rede_credenciada` uncovered and `bloqueia_ratificacao_de:
+# auth_criteria_contratual`. Until this was enforced the declaration was INERT: an SME doing the
+# exact data-change activation the design advertises (flip `auth_criteria_contratual` to
+# ratified) would have opened automatic approval for an OUT-OF-NETWORK provider with no criterion
+# objecting — GAP-AUTH-4's "absence reads as PASS" pathology, merely deferred.
+# ---------------------------------------------------------------------------------------------
+
+_COMPLETE_RATIFICATION = {"ratificado": True, "revisor": "juridico/contratos", "ratificado_em": "2026-08-09"}
+
+_REDE_UNCOVERED = {
+    "rede_credenciada": {
+        "motivo": "Nenhuma fonte de credenciamento de rede legivel por maquina existe.",
+        "pertence_a": "auth_criteria_contratual",
+        "revisor_necessario": "medico auditor + juridico/contratos",
+        "bloqueia_ratificacao_de": "auth_criteria_contratual",
+    }
+}
+
+
+def _fully_ratified_manifest(tmp_path: Path, uncovered: Any = _REDE_UNCOVERED) -> Path:
+    """Every source ratified as accountably as the manifest can express it.
+
+    So the ONLY thing that can hold `auth_criteria_contratual` back is the uncovered-criterion
+    block — which is exactly the state an SME reaches by following the documented ratification
+    procedure without noticing the `criterios_nao_cobertos` entry.
+    """
+    payload: dict[str, Any] = {"fontes": {src: dict(_COMPLETE_RATIFICATION) for src in _ALL_SOURCES}}
+    if uncovered is not None:
+        payload["criterios_nao_cobertos"] = uncovered
+    return _write(tmp_path, payload)
+
+
+def test_an_uncovered_criterion_suppresses_an_otherwise_complete_ratification(tmp_path: Path) -> None:
+    """THE M-3 CRUX. `ratificado: true` + revisor + date, and it still is NOT ratified."""
+    sources = load_criteria_sources(_fully_ratified_manifest(tmp_path))
+
+    assert sources.is_ratified("auth_criteria_contratual") is False
+    # ...and ONLY that source: a block is not a global kill switch.
+    assert sources.is_ratified("carencia_check") is True
+    assert sources.is_ratified("dut_rol_coverage") is True
+    # The raw claim is preserved next to the suppression — an auditor needs to see that a human
+    # DID flip it, not just that the gate said no.
+    assert "auth_criteria_contratual" in sources.ratified
+    assert sources.blocked_by_uncovered["auth_criteria_contratual"] == ("rede_credenciada",)
+
+
+@pytest.mark.parametrize("uncovered", [None, {}])
+def test_resolving_the_uncovered_criterion_makes_the_same_ratification_effective(
+    tmp_path: Path, uncovered: Any
+) -> None:
+    """The documented resolution path, with NO code change: supply the missing source, then drop
+    the `criterios_nao_cobertos` entry (or the whole section) in the CODEOWNERS-gated manifest.
+    Identical `fontes` block; the only difference is the declaration."""
+    sources = load_criteria_sources(_fully_ratified_manifest(tmp_path, uncovered=uncovered))
+    assert sources.is_ratified("auth_criteria_contratual") is True
+    assert sources.blocked_by_uncovered == {}
+
+
+def test_a_blocked_source_cannot_pass_the_worker_even_when_the_table_approves(tmp_path: Path) -> None:
+    """Runtime enforcement, end to end: the contractual table returns its FAVOURABLE verdict and
+    the manifest ratifies every source — the criterion is still false, so `auth_auto_approval`
+    rule r1 (all five booleans true) cannot fire. The would-be verdict survives only as shadow."""
+    worker = _worker(
+        dmn=_dmn(contratual_ok=True, contratual_motivo="OK"),
+        sources=load_criteria_sources(_fully_ratified_manifest(tmp_path)),
+    )
+    result = worker.execute(_vars())
+
+    assert result["criterio_contratual_ok"] is False
+    assert "CONTRATUAL_FONTE_NAO_RATIFICADA" in result["auto_criteria_falhas"]
+    assert "CONTRATUAL_SOMBRA_APROVARIA" in result["auto_criteria_shadow"]
+    assert result["motivo_bloqueio_criterios"] == "CONTRATUAL_FONTE_NAO_RATIFICADA"
+    # Every OTHER criterion passes, which is what makes this a real fence rather than a
+    # side-effect of something else failing first.
+    assert result["criterio_tecnico_ok"] is True
+    assert result["criterio_financeiro_ok"] is True
+    assert result["criterio_regulatorio_ok"] is True
+
+
+def test_lifting_the_block_lets_the_same_request_reach_a_full_pass(tmp_path: Path) -> None:
+    """Non-vacuity of the test above: identical worker, identical tables, the only delta is the
+    removed `criterios_nao_cobertos` entry — and now all five booleans are true."""
+    worker = _worker(
+        dmn=_dmn(contratual_ok=True, contratual_motivo="OK"),
+        sources=load_criteria_sources(_fully_ratified_manifest(tmp_path, uncovered=None)),
+    )
+    result = worker.execute(_vars())
+    assert result["auto_criteria_falhas"] == []
+    assert result["criterio_contratual_ok"] is True
+
+
+def test_a_hand_built_sources_object_is_never_more_permissive_than_a_loaded_one() -> None:
+    """The suppression is a property of `CriteriaSources` itself, not of the loading path: a
+    caller cannot assemble one that reports a blocked source as ratified."""
+    sources = CriteriaSources(
+        ratified=frozenset(_ALL_SOURCES),
+        dut_criteria_by_ref={},
+        blocked_by_uncovered={"auth_criteria_contratual": ("rede_credenciada",)},
+    )
+    assert sources.is_ratified("auth_criteria_contratual") is False
+    result = _worker(dmn=_dmn(contratual_ok=True), sources=sources).execute(_vars())
+    assert result["criterio_contratual_ok"] is False
+    assert "CONTRATUAL_FONTE_NAO_RATIFICADA" in result["auto_criteria_falhas"]
+
+
+def test_the_shipped_manifest_blocks_the_contratual_source() -> None:
+    """The real file, read through the loader: the declaration is load-bearing, not prose."""
+    sources = load_criteria_sources(_REAL_MANIFEST)
+    assert dict(sources.blocked_by_uncovered) == {"auth_criteria_contratual": ("rede_credenciada",)}
+    assert sources.is_ratified("auth_criteria_contratual") is False
+
+
+def test_bloqueia_ratificacao_de_accepts_a_list_of_sources(tmp_path: Path) -> None:
+    """One uncovered fact may gate several sources without a code change."""
+    path = _write(
+        tmp_path,
+        {
+            "fontes": {src: dict(_COMPLETE_RATIFICATION) for src in _ALL_SOURCES},
+            "criterios_nao_cobertos": {
+                "rede_credenciada": {
+                    "bloqueia_ratificacao_de": ["auth_criteria_contratual", "carencia_check"]
+                }
+            },
+        },
+    )
+    sources = load_criteria_sources(path)
+    assert sources.is_ratified("auth_criteria_contratual") is False
+    assert sources.is_ratified("carencia_check") is False
+    assert sources.is_ratified("dut_rol_coverage") is True
+
+
+@pytest.mark.parametrize(
+    "uncovered",
+    [
+        "not-a-mapping",
+        ["rede_credenciada"],
+        {"rede_credenciada": "not-a-mapping"},
+        {"rede_credenciada": {"motivo": "x"}},  # names nothing => inert => refused
+        {"rede_credenciada": {"bloqueia_ratificacao_de": None}},
+        {"rede_credenciada": {"bloqueia_ratificacao_de": "   "}},
+        {"rede_credenciada": {"bloqueia_ratificacao_de": []}},
+        {"rede_credenciada": {"bloqueia_ratificacao_de": ["auth_criteria_contratual", None]}},
+        {"rede_credenciada": {"bloqueia_ratificacao_de": 42}},
+        # a TYPO in the target must not silently evaporate the block
+        {"rede_credenciada": {"bloqueia_ratificacao_de": "auth_criteria_contratuall"}},
+        {"": {"bloqueia_ratificacao_de": "auth_criteria_contratual"}},
+    ],
+)
+def test_an_unreadable_uncovered_declaration_refuses_the_whole_manifest(
+    tmp_path: Path, uncovered: Any
+) -> None:
+    """Fail TOWARD suppression. A declaration the loader cannot read is indistinguishable from
+    one someone deleted, and deletion is the reviewed act that LIFTS a block — so a malformed
+    one must not resolve the same way. It degrades to `_EMPTY_SOURCES` (nothing ratified,
+    nothing mapped), the same conservatism every other loader failure mode already uses."""
+    path = _write(
+        tmp_path,
+        {
+            "fontes": {src: dict(_COMPLETE_RATIFICATION) for src in _ALL_SOURCES},
+            "mapeamento_dut_criteria": {"DUT-BARIATRICA-001": "dut_criteria_bariatrica"},
+            "criterios_nao_cobertos": uncovered,
+        },
+    )
+    sources = load_criteria_sources(path)
+    assert sources.ratified == frozenset()
+    assert sources.criteria_table_for("DUT-BARIATRICA-001") is None
+    assert sources.is_ratified("auth_criteria_contratual") is False
+
+
+# ---------------------------------------------------------------------------------------------
+# GK-criteria minor-1 — the section-key fail-open. Before this fix, a mistyped or duplicated
+# `criterios_nao_cobertos:` KEY never reached `_blocked_sources` at all: `data.get(...)` (or
+# stock PyYAML's silent last-wins) made the whole block disappear as if it had been legitimately
+# removed, so the exact same forged-manifest scenario as
+# `test_an_uncovered_criterion_suppresses_an_otherwise_complete_ratification` would have silently
+# RATIFIED `auth_criteria_contratual` instead of blocking it.
+# ---------------------------------------------------------------------------------------------
+
+
+def test_a_mistyped_uncovered_section_name_refuses_the_whole_manifest(tmp_path: Path) -> None:
+    """A trailing typo (`criterios_nao_cobertoss`) is an unrecognized top-level key. Before the
+    fix this would have been silently ignored — `criterios_nao_cobertos` reads as absent, the
+    block vanishes, and `auth_criteria_contratual` ends up RATIFIED with nothing blocking it. Now
+    the whole manifest is refused instead."""
+    path = _write(
+        tmp_path,
+        {
+            "fontes": {src: dict(_COMPLETE_RATIFICATION) for src in _ALL_SOURCES},
+            "criterios_nao_cobertoss": _REDE_UNCOVERED,  # typo: trailing extra 's'
+        },
+    )
+    sources = load_criteria_sources(path)
+    assert sources.ratified == frozenset()
+    assert sources.is_ratified("auth_criteria_contratual") is False
+    assert sources.is_ratified("carencia_check") is False
+
+
+def test_an_unrelated_unknown_top_level_key_also_refuses_the_whole_manifest(tmp_path: Path) -> None:
+    """Not just a typo of the specific `criterios_nao_cobertos` name — ANY key outside the closed
+    set {version, fontes, mapeamento_dut_criteria, criterios_nao_cobertos} refuses wholesale."""
+    path = _write(
+        tmp_path,
+        {
+            "fontes": {"carencia_check": dict(_COMPLETE_RATIFICATION)},
+            "alguma_chave_nao_prevista": "x",
+        },
+    )
+    assert load_criteria_sources(path).ratified == frozenset()
+
+
+def test_a_duplicate_uncovered_section_key_refuses_the_whole_manifest(tmp_path: Path) -> None:
+    """PyYAML's stock behaviour on a duplicate mapping key is silent last-wins: only the SECOND
+    `criterios_nao_cobertos:` block would survive parsing, and it blocks `carencia_check` —
+    NOT `auth_criteria_contratual`, whose block was in the FIRST (discarded) occurrence. Left
+    unguarded, that means `auth_criteria_contratual` would end up ratified with nothing blocking
+    it, purely because of where in the file the block happened to be duplicated.
+    `_DuplicateKeySafeLoader` raises on the duplicate instead, and `_parse` refuses the whole
+    manifest — exactly like any other malformed YAML."""
+    path = tmp_path / "manifest.yaml"
+    path.write_text(
+        "fontes:\n"
+        "  auth_criteria_contratual:\n"
+        "    ratificado: true\n"
+        "    revisor: juridico\n"
+        "    ratificado_em: '2026-08-09'\n"
+        "  carencia_check:\n"
+        "    ratificado: true\n"
+        "    revisor: juridico\n"
+        "    ratificado_em: '2026-08-09'\n"
+        "criterios_nao_cobertos:\n"
+        "  rede_credenciada:\n"
+        "    bloqueia_ratificacao_de: auth_criteria_contratual\n"
+        "criterios_nao_cobertos:\n"
+        "  outro_criterio:\n"
+        "    bloqueia_ratificacao_de: carencia_check\n",
+        encoding="utf-8",
+    )
+    # Sanity: prove the premise — stock PyYAML really does silently drop the first occurrence,
+    # so without the custom loader this scenario WOULD have unblocked `auth_criteria_contratual`.
+    stock = yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert stock["criterios_nao_cobertos"] == {
+        "outro_criterio": {"bloqueia_ratificacao_de": "carencia_check"}
+    }
+
+    sources = load_criteria_sources(path)
+    assert sources.ratified == frozenset()
+    assert sources.is_ratified("auth_criteria_contratual") is False
+    assert sources.is_ratified("carencia_check") is False
+
+
+def test_manifest_without_the_uncovered_section_still_resolves(tmp_path: Path) -> None:
+    """The new top-level-key allowlist must not turn the OPTIONAL, legitimately-absent
+    `criterios_nao_cobertos` section into a requirement: a manifest that simply never had
+    anything uncovered — no typo, no accident, just nothing to declare — still loads and
+    ratifies normally. This is the documented resolution path staying intact."""
+    path = _write(
+        tmp_path,
+        {
+            "version": 1,
+            "fontes": {"carencia_check": dict(_COMPLETE_RATIFICATION)},
+            "mapeamento_dut_criteria": {"DUT-BARIATRICA-001": "dut_criteria_bariatrica"},
+        },
+    )
+    sources = load_criteria_sources(path)
+    assert sources.is_ratified("carencia_check") is True
+    assert sources.blocked_by_uncovered == {}
+    assert sources.criteria_table_for("DUT-BARIATRICA-001") == "dut_criteria_bariatrica"
+
+
+def test_unratified_false_is_tolerated_per_retention_template_precedent(tmp_path: Path) -> None:
+    """GK-criteria minor-3. The retention-matrix template this loader mirrors documents a real,
+    DEPLOYED file as having `unratified` "removed (or set to `false`)"
+    (`spec/policies/retention/UNRATIFIED-retention-matrix.template.yaml:18,22`), and
+    `legal_bases_matrix.py`'s own loader (line 191) checks only `is True` — so `unratified: false`
+    must not be refused as an unrecognized top-level key. A manifest carrying it, with the
+    `criterios_nao_cobertos` block still intact, resolves exactly as it would without the key at
+    all: nothing about ratification or the M-3 suppression changes."""
+    path = _write(
+        tmp_path,
+        {
+            "unratified": False,
+            "fontes": {src: dict(_COMPLETE_RATIFICATION) for src in _ALL_SOURCES},
+            "criterios_nao_cobertos": _REDE_UNCOVERED,
+        },
+    )
+    sources = load_criteria_sources(path)
+    assert sources.is_ratified("auth_criteria_contratual") is False
+    assert sources.blocked_by_uncovered == {"auth_criteria_contratual": ("rede_credenciada",)}
+    # ...and every OTHER source ratifies normally — `unratified: false` changed nothing.
+    assert sources.is_ratified("carencia_check") is True
+    assert sources.is_ratified("dut_rol_coverage") is True
+
+
+def test_unratified_true_still_refuses_with_the_specific_template_reason(tmp_path: Path) -> None:
+    """Non-regression for the allowlist change above: now that `unratified` is a RECOGNIZED
+    top-level key, `unratified: true` must still refuse via its own specific
+    `"unratified_template"` reason — not fall through to the generic `"unknown_top_level_key"`
+    one, and not be silently accepted just because the key is on the allowlist."""
+    path = _write(
+        tmp_path,
+        {
+            "unratified": True,
+            "fontes": {"carencia_check": dict(_COMPLETE_RATIFICATION)},
+        },
+    )
+    with structlog.testing.capture_logs() as logs:
+        sources = load_criteria_sources(path)
+
+    assert sources.ratified == frozenset()
+    (refusal,) = [e for e in logs if e["event"] == "auth_criteria_manifest_unavailable"]
+    assert refusal["reason"] == "unratified_template"
 
 
 def test_dmn_evaluation_error_is_the_fake_transports_unregistered_signal() -> None:
