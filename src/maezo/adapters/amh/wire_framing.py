@@ -72,6 +72,15 @@ from typing import Final, Protocol, runtime_checkable
 
 from maezo.adapters.amh.contract import AmhAdapterError, AmhContractPin
 
+#: Sentinel: no `wire_framing` key exists in the pinned manifest at all — distinct from a key that
+#: exists with value `None` (JSON `null`), which `dict.get`'s own missing-default would otherwise
+#: produce identically. `select_wire_framing_codec` needs this distinction to render the correct one
+#: of `WireFramingUndeclaredError`'s two messages ("no key is present" vs "key is present but not
+#: usable"). Declared here, ahead of `WireFramingUndeclaredError`, because it is also that
+#: exception's `__init__` default parameter value — a forward reference would not resolve at class
+#: body evaluation time.
+_WIRE_FRAMING_KEY_ABSENT: Final[object] = object()
+
 # ---------------------------------------------------------------------------
 # Exceptions
 # ---------------------------------------------------------------------------
@@ -88,7 +97,16 @@ class WireFramingError(AmhAdapterError):
 
 
 class WireFramingUndeclaredError(WireFramingError):
-    """The pinned AMH manifest does not declare a `wire_framing`.
+    """The pinned AMH manifest does not declare a usable `wire_framing`.
+
+    **Two distinct causes, two distinct messages.** `select_wire_framing_codec` raises this both when
+    the `wire_framing` key is ABSENT from the manifest and when it is PRESENT but not a usable
+    declaration (not a string, or a blank one) — those are different facts about the manifest, and
+    conflating them into one wording ("no key is present") was itself a bug when the key WAS present:
+    it told a reader to go looking for a key that was already there. `declared` (default: the
+    `_WIRE_FRAMING_KEY_ABSENT` sentinel, meaning "absent") carries which case this instance is, and
+    the message echoes `type(declared)` in the present-but-unusable case so a reader sees exactly what
+    kind of value the manifest actually held.
 
     **The manifest-declaration-blocker, made visible and testable.** ADR-0037 forbids inventing wire
     shape (see the module docstring's "Why 'undeclared' is a fact, not a guess"), and the Avro/Glue
@@ -97,15 +115,22 @@ class WireFramingUndeclaredError(WireFramingError):
     decode waiting in production.
     """
 
-    def __init__(self, *, manifest_path: Path) -> None:
+    def __init__(self, *, manifest_path: Path, declared: object = _WIRE_FRAMING_KEY_ABSENT) -> None:
         self.manifest_path = manifest_path
+        self.declared = declared
+        if declared is _WIRE_FRAMING_KEY_ABSENT:
+            detail = f"no {WIRE_FRAMING_MANIFEST_KEY!r} key is present"
+        else:
+            detail = (
+                f"the {WIRE_FRAMING_MANIFEST_KEY!r} key is present but not usable (a non-empty "
+                f"string is required; got {type(declared).__name__})"
+            )
         super().__init__(
-            f"AMH wire framing is UNDECLARED in the pinned manifest ({manifest_path}); no "
-            f"{WIRE_FRAMING_MANIFEST_KEY!r} key is present. Refusing to guess the Avro/Glue frame "
-            "layout (ADR-0037: this repo never invents a wire field outside the frozen baseline) — "
-            "this is a manifest-declaration-blocker on the AMH steward side, not a Maezo defect. See "
-            "GlueSchemaRegistryCandidateCodec for the CANDIDATE framing proposed pending AMH "
-            "ratification (never selected by default)."
+            f"AMH wire framing is UNDECLARED in the pinned manifest ({manifest_path}); {detail}. "
+            "Refusing to guess the Avro/Glue frame layout (ADR-0037: this repo never invents a wire "
+            "field outside the frozen baseline) — this is a manifest-declaration-blocker on the AMH "
+            "steward side, not a Maezo defect. See GlueSchemaRegistryCandidateCodec for the CANDIDATE "
+            "framing proposed pending AMH ratification (never selected by default)."
         )
 
 
@@ -202,8 +227,24 @@ class WireFramingCodec(Protocol):
 WIRE_FRAMING_MANIFEST_KEY: Final[str] = "wire_framing"
 
 
-def _read_manifest_declaration(pin: AmhContractPin) -> object | None:
-    """Best-effort re-read of `pin.source_path`'s top-level `wire_framing` key, or `None`.
+def _read_manifest_declaration(pin: AmhContractPin) -> object:
+    """Best-effort re-read of `pin.source_path`'s top-level `wire_framing` key.
+
+    Returns `_WIRE_FRAMING_KEY_ABSENT` when the key genuinely is not present in the manifest, or the
+    second read could not be trusted at all (see below) — never when it merely holds an unusable
+    value. Otherwise returns whatever JSON value the key holds VERBATIM, including `None` for an
+    explicit `"wire_framing": null`: the sentinel exists precisely so that case stays distinguishable
+    from "no key at all", since `dict.get`'s own missing-default would otherwise collapse both to the
+    identical Python `None`. `select_wire_framing_codec` relies on this distinction for its two
+    differently-worded refusals.
+
+    **Caller shape is checked first, before either read is attempted.** `pin` must be the verified
+    `AmhContractPin` `load_contract_pin` returns, with a `pathlib.Path` `source_path` — anything else
+    (a bare `None`/string/mapping in place of `pin`, or a pin whose `source_path` was replaced with a
+    non-`Path`) raises `WireFramingError` here rather than reaching the read below and surfacing a
+    bare `AttributeError` from `pin.source_path.read_text(...)`. `AmhContractPin` carries no runtime
+    field validation of its own (same "annotation is not validation" posture as `mapping.py`), so this
+    guard is this module's only defense against that shape.
 
     `pin` was already loaded and strictly validated by `load_contract_pin` before reaching here, so
     `pin.source_path` names known-good JSON — this re-reads it rather than threading a raw dict through
@@ -211,17 +252,45 @@ def _read_manifest_declaration(pin: AmhContractPin) -> object | None:
     (`tests/unit/adapters/amh/test_no_foreign_exception_escapes.py`); widening it for one
     not-yet-existent key would require extending that harness in lockstep for a field the pin does not
     carry today. Any failure on this second read (the file vanished, changed to non-UTF-8, or stopped
-    parsing between the two reads) is treated as "undeclared" rather than raised: a `wire_framing` this
+    parsing between the two reads) is treated as "absent" rather than raised: a `wire_framing` this
     function cannot confirm is not one this module may act on, so the fail-closed outcome is identical
-    either way — and no bare `OSError`/`ValueError`/`RecursionError` escapes this boundary.
+    either way — and no bare `OSError`/`ValueError`/`RecursionError`/`AttributeError`/`TypeError`
+    escapes this boundary.
+
+    **The divergence this design accepts.** Between `load_contract_pin`'s read (which produced `pin`)
+    and this function's re-read, the file at `pin.source_path` can change to a DIFFERENT, STILL-VALID
+    pin — not just vanish or corrupt. `load_contract_pin` validated one snapshot of the file;
+    `select_wire_framing_codec` then trusts whatever `wire_framing` value a LATER snapshot declares,
+    read here. Two reads of one file at two different instants are two sources of truth, not one: a
+    caller holding a `pin` object built from snapshot A can end up selecting a codec that was only
+    ever declared in snapshot B. This is a real race between two reads of the same path, not a
+    hypothetical — neither this function nor `load_contract_pin` locks, hashes, or otherwise ties the
+    second read back to the first.
+
+    **Phase-B intent (not implemented in this dark build).** The fix is to stop re-reading entirely:
+    thread `wire_framing` through `contract.py` as a validated field on `AmhContractPin` itself,
+    populated once by `load_contract_pin` from the SAME parse it already performs, and delete this
+    second read. That belongs at activation, when `contract.py`'s closed, exhaustively-fuzzed surface
+    is next deliberately extended for phase B — not smuggled into this seam-only commit. Recorded here
+    so the divergence above is not silently carried forward as "acceptable" past that point.
     """
+    if not isinstance(pin, AmhContractPin):
+        raise WireFramingError(
+            "select_wire_framing_codec requires the verified AmhContractPin load_contract_pin "
+            f"returns; got {type(pin).__name__}"
+        )
+    if not isinstance(pin.source_path, Path):
+        raise WireFramingError(
+            "the pin's source_path must be a pathlib.Path (load_contract_pin's own invariant); got "
+            f"{type(pin.source_path).__name__}"
+        )
     try:
         raw = json.loads(pin.source_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError, RecursionError):
-        return None
+    except (OSError, ValueError, RecursionError, AttributeError, TypeError):
+        return _WIRE_FRAMING_KEY_ABSENT
     if not isinstance(raw, dict):
-        return None
-    return raw.get(WIRE_FRAMING_MANIFEST_KEY)
+        return _WIRE_FRAMING_KEY_ABSENT
+    return raw.get(WIRE_FRAMING_MANIFEST_KEY, _WIRE_FRAMING_KEY_ABSENT)
 
 
 def select_wire_framing_codec(pin: AmhContractPin) -> WireFramingCodec:
@@ -234,14 +303,18 @@ def select_wire_framing_codec(pin: AmhContractPin) -> WireFramingCodec:
         The codec instance for the declared `wire_framing` vocabulary token.
 
     Raises:
+        WireFramingError: `pin` is not the verified `AmhContractPin` `load_contract_pin` returns, or
+            its `source_path` is not a `pathlib.Path`.
         WireFramingUndeclaredError: the pin carries no `wire_framing` key, or the key is present but
             not a non-empty string. This is the state of the REAL pinned manifest today.
         WireFramingUnknownDeclarationError: the pin declares a `wire_framing` value with no codec
             registered for it.
     """
     declared = _read_manifest_declaration(pin)
-    if not isinstance(declared, str) or not declared.strip():
+    if declared is _WIRE_FRAMING_KEY_ABSENT:
         raise WireFramingUndeclaredError(manifest_path=pin.source_path)
+    if not isinstance(declared, str) or not declared.strip():
+        raise WireFramingUndeclaredError(manifest_path=pin.source_path, declared=declared)
     factory = _WIRE_FRAMING_CODECS.get(declared)
     if factory is None:
         raise WireFramingUnknownDeclarationError(declared, known=tuple(sorted(_WIRE_FRAMING_CODECS)))
@@ -294,7 +367,7 @@ class GlueSchemaRegistryCandidateCodec:
         1       1     compression byte     (0 = none, decoded; 5 = zlib, REFUSED — no decompressor
                                              wired, so a compressed frame fails closed rather than
                                              silently returning compressed bytes as if they were Avro)
-        2       17    schema-version id, a 16-byte UUID
+        2       16    schema-version id, a 16-byte UUID
         18      ...   the Avro-encoded envelope, returned verbatim as `DecodedFrame.avro_payload`
 
     **Fail-closed against an unpinned schema.** `decode` additionally refuses a structurally valid

@@ -15,6 +15,7 @@ Three things this suite proves, matching the mission's own acceptance criteria:
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import uuid
 from pathlib import Path
@@ -72,6 +73,11 @@ def test_select_wire_framing_codec_refuses_the_real_pinned_manifest() -> None:
     assert excinfo.value.manifest_path == REAL_PIN
     assert isinstance(excinfo.value, AmhAdapterError)
     assert WIRE_FRAMING_MANIFEST_KEY in str(excinfo.value)
+    # The ABSENT phrasing, not the present-but-unusable one: the real pin genuinely has no key at
+    # all (see test_the_real_pin_does_not_declare_wire_framing above), so the message must say so
+    # rather than "is present but not usable" — the two causes get distinct wording (finding 2).
+    assert "no 'wire_framing' key is present" in str(excinfo.value)
+    assert "present but not usable" not in str(excinfo.value)
 
 
 def test_select_wire_framing_codec_refusal_is_a_wire_framing_error() -> None:
@@ -104,11 +110,16 @@ def test_select_wire_framing_codec_treats_a_non_string_declaration_as_undeclared
     tmp_path: Path, declared: object
 ) -> None:
     """A `wire_framing` key that is present but not a real string is refused the SAME way as absent —
-    fail-closed either way, never a type error and never a best-effort string coercion."""
+    fail-closed either way, never a type error and never a best-effort string coercion. But the
+    MESSAGE must say the key is present (not absent) and echo the received type — distinct from the
+    "no key at all" wording asserted against the real pin above (finding 2)."""
     path = _write_pin(tmp_path, lambda raw: raw.__setitem__(WIRE_FRAMING_MANIFEST_KEY, declared))
     pin = load_contract_pin(path)
-    with pytest.raises(WireFramingUndeclaredError):
+    with pytest.raises(WireFramingUndeclaredError) as excinfo:
         select_wire_framing_codec(pin)
+    assert "present but not usable" in str(excinfo.value)
+    assert type(declared).__name__ in str(excinfo.value)
+    assert "no 'wire_framing' key is present" not in str(excinfo.value)
 
 
 def test_select_wire_framing_codec_returns_the_glue_candidate_when_declared(tmp_path: Path) -> None:
@@ -131,6 +142,41 @@ def test_select_wire_framing_codec_is_unaffected_by_an_unrelated_extra_top_level
     pin = load_contract_pin(path)
     with pytest.raises(WireFramingUndeclaredError):
         select_wire_framing_codec(pin)
+
+
+# ---------------------------------------------------------------------------
+# select_wire_framing_codec: hostile `pin` shapes (finding 1 — proven AttributeError leaks)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "hostile_pin",
+    [None, "x", {}, [], 123],
+    ids=["none", "string", "empty-dict", "list", "int"],
+)
+def test_select_wire_framing_codec_refuses_a_non_amh_contract_pin_argument(hostile_pin: Any) -> None:
+    """`pin` that is not the verified `AmhContractPin` `load_contract_pin` returns must convert to a
+    typed `WireFramingError`, not a bare `AttributeError` from `pin.source_path`."""
+    with pytest.raises(WireFramingError) as excinfo:
+        select_wire_framing_codec(hostile_pin)  # type: ignore[arg-type]
+    assert "AmhContractPin" in str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    ("label", "bad_source_path"),
+    [("string", "not-a-path"), ("none", None), ("int", 123), ("bytes", b"/tmp/x")],
+    ids=["string", "none", "int", "bytes"],
+)
+def test_select_wire_framing_codec_refuses_a_pin_whose_source_path_is_not_a_path(
+    label: str, bad_source_path: Any
+) -> None:
+    """The narrower proven-leak shape: a REAL pin whose `source_path` was corrupted to a non-`Path`
+    (e.g. by a caller building `AmhContractPin` fields itself rather than via `load_contract_pin`)."""
+    pin = load_contract_pin(REAL_PIN)
+    mutated = dataclasses.replace(pin, source_path=bad_source_path)
+    with pytest.raises(WireFramingError) as excinfo:
+        select_wire_framing_codec(mutated)
+    assert "source_path" in str(excinfo.value)
 
 
 # ---------------------------------------------------------------------------
@@ -208,7 +254,7 @@ def test_decode_and_encode_agree_on_which_ids_are_pinned(
 # 3. Malformed frames -> the typed error, never a bare stdlib exception
 # ---------------------------------------------------------------------------
 
-_18_BYTE_ID = uuid.uuid4().bytes
+_SCHEMA_ID_BYTES = uuid.uuid4().bytes
 
 
 @pytest.mark.parametrize(
@@ -217,9 +263,9 @@ _18_BYTE_ID = uuid.uuid4().bytes
         ("empty bytes", b""),
         ("one byte", b"\x03"),
         ("17 bytes (one short of the header)", bytes([3, 0]) + b"\x00" * 15),
-        ("wrong header version", bytes([9, 0]) + _18_BYTE_ID),
-        ("zlib compression byte", bytes([3, 5]) + _18_BYTE_ID + b"body"),
-        ("unrecognised compression byte", bytes([3, 7]) + _18_BYTE_ID + b"body"),
+        ("wrong header version", bytes([9, 0]) + _SCHEMA_ID_BYTES),
+        ("zlib compression byte", bytes([3, 5]) + _SCHEMA_ID_BYTES + b"body"),
+        ("unrecognised compression byte", bytes([3, 7]) + _SCHEMA_ID_BYTES + b"body"),
         ("header only, no schema id or body", bytes([3, 0])),
         ("string instead of bytes", "not-bytes"),
         ("int instead of bytes", 12345),
@@ -303,7 +349,7 @@ def test_no_hostile_decode_or_encode_input_ever_escapes_as_a_bare_stdlib_excepti
         object(),
         3.14,
         b"\x03\x00" + b"\x00" * 16,  # valid header, zero-filled UUID: not pinned -> refused
-        b"\x03\x05" + _18_BYTE_ID + b"x",  # zlib flagged
+        b"\x03\x05" + _SCHEMA_ID_BYTES + b"x",  # zlib flagged
         2**256,
         (1, 2, 3),
     )
