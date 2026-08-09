@@ -48,10 +48,10 @@
 # RUNTIME STATE TODAY (unchanged by this file)
 # --------------------------------------------
 # The live table is runtime-MITIGATED, not fixed, by the owner-ratified fail-safe in
-# `route_remediation` (src/maezo/tools/workers/adequacao.py:203-226): the DMN verdict is PRESERVED
+# `route_remediation` (src/maezo/tools/workers/adequacao.py:259-282): the DMN verdict is PRESERVED
 # verbatim and auditable, but the worker REFUSES TO ACT on a `CONFORME` the measurements contradict,
 # using the 60min/50km ceiling THE TABLE ITSELF DECLARES
-# (src/maezo/tools/workers/adequacao.py:136-137), routing to `ANALISE_HUMANA`.
+# (src/maezo/tools/workers/adequacao.py:137-138), routing to `ANALISE_HUMANA`.
 # THE TABLE IS STILL WRONG. This file exists so that fixing it is a paste, not a project.
 #
 # =================================================================================================
@@ -111,7 +111,7 @@ modo_operacao: sombra
 # =================================================================================================
 # Read directly off spec/processes/dmn/adequacao_gap.dmn (hitPolicy=FIRST, line 32), for the input
 # shapes the worker actually sends (it coerces every input to a non-null int/float/bool —
-# src/maezo/tools/workers/adequacao.py:184-187), the live rules in evaluation order are:
+# src/maezo/tools/workers/adequacao.py:227-230), the live rules in evaluation order are:
 #
 #   1 r_urgencia_critico            (:50-59)  urgencia_emergencia AND tempo > 30        -> GAP_CRITICO
 #   2 r_urgencia_distancia_critico  (:60-69)  urgencia_emergencia AND distancia > 30.0  -> GAP_CRITICO
@@ -153,14 +153,14 @@ achados_adicionais:
       nao mapeado ou a string vazia — o fail-safe declarado e INALCANCAVEL: a combinacao nao coberta
       le CONFORME em vez de GAP_CRITICO.
     exemplo_concreto: >-
-      `route_remediation` usa `variables.get("tipo_carater", "")` (adequacao.py:175): um processo
+      `route_remediation` usa `variables.get("tipo_carater", "")` (adequacao.py:218): um processo
       iniciado SEM `tipo_carater` envia `""` a tabela. Com prestadores>0 e cobertura=true isso cai
       em `r_conforme` -> CONFORME, exatamente o oposto do GAP_CRITICO que a descricao da tabela
       promete para uma combinacao nao coberta.
     consequencia_no_bpmn: >-
       CONFORME -> MONITORAR (adequacao_remediation_routing.dmn:49-54) e, no BPMN, o ramo
       `MONITORAR && gap_adequacao == 'CONFORME'` termina em End_AdequacaoConforme SEM plano de
-      monitoramento e SEM alerta (registrado em adequacao.py:163-168, GK-adequacao finding 2).
+      monitoramento e SEM alerta (registrado em adequacao.py:207-212, GK-adequacao finding 2).
 
   - id: ACHADO-2-assimetria-eletivo-vs-urgencia
     regras_afetadas: r_urgencia_leve (:100-109) vs r_eletivo_leve (:90-99) vs r_conforme (:110-119)
@@ -252,7 +252,7 @@ regras_candidatas:
   - ordem: 1
     id: c_urgencia_tempo_acima_teto
     candidato: true
-    origem: "PRESERVADA verbatim de r_urgencia_critico (adequacao_gap.dmn:50-59); teto 30 em :53"
+    origem: "PRESERVADA verbatim (entradas e gap_adequacao; motivo reescrito com prefixo CANDIDATO) de r_urgencia_critico (adequacao_gap.dmn:50-59); teto 30 em :53"
     entradas:
       tipo_carater: '"urgencia_emergencia"'
       tempo_acesso_apurado_min: "> 30"
@@ -266,7 +266,7 @@ regras_candidatas:
   - ordem: 2
     id: c_urgencia_distancia_acima_teto
     candidato: true
-    origem: "PRESERVADA verbatim de r_urgencia_distancia_critico (adequacao_gap.dmn:60-69); teto 30.0 em :64"
+    origem: "PRESERVADA verbatim (entradas e gap_adequacao; motivo reescrito com prefixo CANDIDATO) de r_urgencia_distancia_critico (adequacao_gap.dmn:60-69); teto 30.0 em :64"
     entradas:
       tipo_carater: '"urgencia_emergencia"'
       tempo_acesso_apurado_min: "-"
@@ -280,7 +280,7 @@ regras_candidatas:
   - ordem: 3
     id: c_zero_prestadores_critico
     candidato: true
-    origem: "PRESERVADA verbatim de r_zero_prestadores_critico (adequacao_gap.dmn:70-79)"
+    origem: "PRESERVADA verbatim (entradas e gap_adequacao; motivo reescrito com prefixo CANDIDATO) de r_zero_prestadores_critico (adequacao_gap.dmn:70-79)"
     entradas:
       tipo_carater: "-"
       tempo_acesso_apurado_min: "-"
@@ -294,7 +294,7 @@ regras_candidatas:
   - ordem: 4
     id: c_cobertura_insuficiente
     candidato: true
-    origem: "PRESERVADA verbatim de r_cobertura_insuficiente (adequacao_gap.dmn:80-89)"
+    origem: "PRESERVADA verbatim (entradas e gap_adequacao; motivo reescrito com prefixo CANDIDATO) de r_cobertura_insuficiente (adequacao_gap.dmn:80-89)"
     entradas:
       tipo_carater: "-"
       tempo_acesso_apurado_min: "-"
@@ -313,13 +313,13 @@ regras_candidatas:
     origem_do_teto: >-
       60 minutos — copiado de r_eletivo_leve (adequacao_gap.dmn:93, `<= 60`), o UNICO teto de tempo
       de acesso eletivo que a tabela declara; e o mesmo numero que o fail-safe ratificado pelo dono
-      ja usa em runtime (_ELETIVO_LEVE_TEMPO_MAX_MIN, src/maezo/tools/workers/adequacao.py:136).
+      ja usa em runtime (_ELETIVO_LEVE_TEMPO_MAX_MIN, src/maezo/tools/workers/adequacao.py:137).
     origem_da_severidade: >-
       GAP_CRITICO — a disposicao conservadora que a PROPRIA tabela declara para uma combinacao que
       nenhuma regra especifica cobre (r_catchall, adequacao_gap.dmn:120-129, e a
       `<description>` :22-23). NAO e uma severidade nova nem uma leitura de RN 259. E, na pratica,
       o mesmo desfecho do fail-safe de runtime, que roteia esses casos a ANALISE_HUMANA
-      (adequacao.py:216-226) — para onde GAP_CRITICO tambem roteia
+      (adequacao.py:272-282) — para onde GAP_CRITICO tambem roteia
       (adequacao_remediation_routing.dmn: GAP_CRITICO -> ANALISE_HUMANA).
       ABERTO AO DONO: se o dono julgar que o eletivo fora do teto e GAP_MODERADO e nao GAP_CRITICO,
       esta e a unica celula a mudar; o mascaramento fica fechado nos dois casos.
@@ -344,7 +344,7 @@ regras_candidatas:
     origem_do_teto: >-
       50.0 km — copiado de r_eletivo_leve (adequacao_gap.dmn:94, `<= 50.0`), o UNICO teto de
       distancia de acesso eletivo que a tabela declara; mesmo numero do fail-safe ratificado
-      (_ELETIVO_LEVE_DISTANCIA_MAX_KM, src/maezo/tools/workers/adequacao.py:137).
+      (_ELETIVO_LEVE_DISTANCIA_MAX_KM, src/maezo/tools/workers/adequacao.py:138).
     origem_da_severidade: "identica a c_eletivo_tempo_acima_teto (ordem 5)"
     entradas:
       tipo_carater: '"eletivo"'
@@ -359,7 +359,7 @@ regras_candidatas:
   - ordem: 7
     id: c_eletivo_leve
     candidato: true
-    origem: "PRESERVADA verbatim de r_eletivo_leve (adequacao_gap.dmn:90-99)"
+    origem: "PRESERVADA verbatim (entradas e gap_adequacao; motivo reescrito com prefixo CANDIDATO) de r_eletivo_leve (adequacao_gap.dmn:90-99)"
     nota: >-
       Inalterada, mas agora precedida pelos seus proprios tetos (ordens 5 e 6), de modo que a
       alternativa a casar esta regra deixou de ser CONFORME e passou a ser GAP_CRITICO.
@@ -376,7 +376,7 @@ regras_candidatas:
   - ordem: 8
     id: c_urgencia_leve
     candidato: true
-    origem: "PRESERVADA verbatim de r_urgencia_leve (adequacao_gap.dmn:100-109)"
+    origem: "PRESERVADA verbatim (entradas e gap_adequacao; motivo reescrito com prefixo CANDIDATO) de r_urgencia_leve (adequacao_gap.dmn:100-109)"
     entradas:
       tipo_carater: '"urgencia_emergencia"'
       tempo_acesso_apurado_min: "<= 30"
@@ -394,11 +394,11 @@ regras_candidatas:
   - ordem: 9
     id: c_catchall
     candidato: true
-    origem: "PRESERVADA verbatim de r_catchall (adequacao_gap.dmn:120-129)"
+    origem: "PRESERVADA verbatim (entradas e gap_adequacao; motivo reescrito com prefixo CANDIDATO) de r_catchall (adequacao_gap.dmn:120-129)"
     nota: >-
       Agora efetivamente ALCANCAVEL (ACHADO-1): sem `r_conforme` a precede-lo, qualquer
       `tipo_carater` fora dos dois literais declarados — inclusive a string vazia que o worker envia
-      quando a variavel esta ausente (adequacao.py:175) — chega ao fail-safe conservador que a
+      quando a variavel esta ausente (adequacao.py:218) — chega ao fail-safe conservador que a
       descricao da tabela sempre prometeu.
     entradas:
       tipo_carater: "-"

@@ -5,7 +5,7 @@ WRONG and the finding is OPEN and human-gated: `hitPolicy=FIRST` with `r_eletivo
 BEFORE `r_conforme` (:110-119), and `r_conforme` carries NO time/distance ceiling at all
 (wildcards at :112-114) — so an ARBITRARILY BAD elective access reads `CONFORME`
 (PLANS.md:150-159 §0.5.4 item 1; docs/review-queue.md:160). It is runtime-MITIGATED by the
-owner-ratified fail-safe in `adequacao.route_remediation` (adequacao.py:203-226), which preserves
+owner-ratified fail-safe in `adequacao.route_remediation` (adequacao.py:259-282), which preserves
 the DMN verdict but REFUSES TO ACT on a `CONFORME` the measurements contradict.
 
 WHAT THIS MODULE IS. A pure evaluation of the CANDIDATE rule set declared in
@@ -89,10 +89,10 @@ URGENCIA_TEMPO_MAX_MIN = 30
 #: `> 30.0` / `<= 30.0` — urgencia_emergencia distance ceiling (adequacao_gap.dmn:64 and :104).
 URGENCIA_DISTANCIA_MAX_KM = 30.0
 #: `<= 60` — the ONLY elective time ceiling the table declares (adequacao_gap.dmn:93); the same
-#: number the owner-ratified runtime fail-safe already uses (adequacao.py:136).
+#: number the owner-ratified runtime fail-safe already uses (adequacao.py:137).
 ELETIVO_TEMPO_MAX_MIN = 60
 #: `<= 50.0` — the ONLY elective distance ceiling the table declares (adequacao_gap.dmn:94); same
-#: number as the fail-safe (adequacao.py:137).
+#: number as the fail-safe (adequacao.py:138).
 ELETIVO_DISTANCIA_MAX_KM = 50.0
 
 #: The two `tipo_carater` literals the live table declares (adequacao_gap.dmn:52,62,92,102).
@@ -195,7 +195,7 @@ def evaluate_candidate(
 
     Args:
         tipo_carater: `"eletivo"` | `"urgencia_emergencia"`; anything else (including `""`, which
-            is what the worker sends when the variable is absent — adequacao.py:175) reaches the
+            is what the worker sends when the variable is absent — adequacao.py:218) reaches the
             conservative catch-all, which is exactly ACHADO-1 in the manifest.
         tempo_acesso_apurado_min: measured access time in minutes (contract type `integer`).
         distancia_apurada_km: measured distance in km (contract type `double`).
@@ -406,10 +406,18 @@ def shadow_divergence_event(
     """The bounded, non-PHI divergence record — or `None` when the two verdicts agree.
 
     Returns `None` (never raises) on ANY problem, because the only caller is a worker whose verdict
-    must not depend on this. The mapping contains ONLY: the two verdicts, the candidate rule id,
-    the five rule inputs, and the ratification flag. No beneficiary identifier exists in this
-    process at all (ADR-0006), and the cell identity is deliberately omitted — a divergence is a
-    property of the RULE SET, not of a cell.
+    must not depend on this. The mapping contains ONLY: the two verdicts, the candidate rule id, and
+    the five rule inputs. No beneficiary identifier exists in this process at all (ADR-0006), and the
+    cell identity is deliberately omitted — a divergence is a property of the RULE SET, not of a
+    cell.
+
+    Deliberately OMITS ratification state: `candidato_ratificado` is constant `False` for every
+    event this can ever emit (the manifest ships unratified, and there is no path that flips it
+    while the worker is running — ratifying is a DATA change to a file this process only reads at
+    call time, via a cached loader). A field whose value is always the same is not evidence; it also
+    cost a sync YAML load (via `candidate_ratification()`) on the FIRST divergence of the process's
+    lifetime, on the worker's own call path. If ratification state is ever needed here, read it from
+    the manifest directly rather than re-adding the call this removed.
     """
     try:
         candidato = evaluate_candidate(
@@ -430,7 +438,6 @@ def shadow_divergence_event(
             "distancia_apurada_km": distancia_apurada_km,
             "prestadores_disponiveis": prestadores_disponiveis,
             "cobertura_geo_suficiente": cobertura_geo_suficiente,
-            "candidato_ratificado": candidate_ratification().ratificado,
         }
     except Exception as exc:  # noqa: BLE001 — shadow observation may never disturb a caller
         logger.warning("adequacao_gap_shadow_indisponivel", error=str(exc))
@@ -449,7 +456,7 @@ def record_shadow_divergence(
     """Emit the divergence event if there is one. Returns `None` ALWAYS; never raises.
 
     The house structured-logging seam (`structlog`), the same one the fail-safe itself uses
-    (`adequacao_conforme_recusado_por_acesso`, adequacao.py:217-224). Deliberately NOT a metric: a
+    (`adequacao_conforme_recusado_por_acesso`, adequacao.py:274-280). Deliberately NOT a metric: a
     metric would need a label set, and the useful labels here are the measurements themselves.
     """
     event = shadow_divergence_event(

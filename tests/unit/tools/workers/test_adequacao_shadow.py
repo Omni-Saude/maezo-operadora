@@ -99,7 +99,17 @@ def _matches(entry: str, value: Any) -> bool:
     if text == "-":
         return True
     if text.startswith('"') and text.endswith('"'):
-        return value == text[1:-1]
+        inner = text[1:-1]
+        if '"' in inner.replace('\\"', ""):
+            # A second, unescaped quote inside the literal is not a single string — it is a FEEL
+            # comma-disjunction (e.g. `"eletivo","urgencia_emergencia"`), which this reader does not
+            # support. Refuse rather than silently comparing `value` against the mangled literal
+            # (which would just read as a permanent non-match, i.e. False for every input).
+            raise UnreadableEntryError(
+                f"unsupported DMN input entry (quoted literal contains an unescaped '\"' — "
+                f"comma-disjunction?): {entry!r}"
+            )
+        return value == inner
     if text in ("true", "false"):
         return value is (text == "true")
     for op in (">=", "<=", ">", "<"):
@@ -190,10 +200,23 @@ def test_live_reader_reproduces_the_live_engine_verified_pair() -> None:
     assert worse == "CONFORME" and better != "CONFORME"
 
 
-def test_live_reader_refuses_an_entry_shape_it_cannot_parse() -> None:
-    """Non-vacuity for the refusal itself — an unreadable entry must never read as 'no match'."""
+@pytest.mark.parametrize(
+    "entry",
+    [
+        "[1..10]",
+        'not("eletivo")',
+        '"a","b"',
+    ],
+)
+def test_live_reader_refuses_an_entry_shape_it_cannot_parse(entry: str) -> None:
+    """Non-vacuity for the refusal itself — an unreadable entry must never read as 'no match'.
+
+    `'"a","b"'` is the FEEL comma-disjunction shape (e.g. `"eletivo","urgencia_emergencia"`): it
+    both starts AND ends with `"`, so a reader that only checked those two characters would read it
+    as a (wrong) single-string literal and silently return `False` instead of refusing.
+    """
     with pytest.raises(UnreadableEntryError):
-        _matches("[1..10]", 5)
+        _matches(entry, 5)
 
 
 # =================================================================================================
@@ -257,7 +280,7 @@ _DIVERGENCIAS: tuple[tuple[str, dict[str, Any], str, str, str], ...] = (
     ),
     (
         "ACHADO-1: tipo_carater='' (what the worker sends when the variable is absent, "
-        "adequacao.py:175) masks the table's OWN declared conservative catch-all",
+        "adequacao.py:218) masks the table's OWN declared conservative catch-all",
         {
             "tipo_carater": "",
             "tempo_acesso_apurado_min": 300,
@@ -575,7 +598,7 @@ def test_manifest_cites_its_governing_norm_and_the_open_finding(manifest: dict[s
         "docs/adr/0028-dmn-evaluation-engine-side.md:214-216",  # the DMN wins / owner's act
         "adequacao_gap.dmn:93",  # the 60min ceiling's source line
         "adequacao_gap.dmn:94",  # the 50km ceiling's source line
-        "src/maezo/tools/workers/adequacao.py:136",  # the ratified fail-safe's own constant
+        "src/maezo/tools/workers/adequacao.py:137",  # the ratified fail-safe's own constant
     ):
         assert citation in text, f"missing in-repo citation: {citation}"
     # Findings recorded as comments/data, not fixes.
@@ -853,7 +876,6 @@ def test_worker_emits_the_divergence_event_and_still_routes_by_the_fail_safe() -
     assert divergences[0]["gap_adequacao_dmn"] == "CONFORME"
     assert divergences[0]["gap_adequacao_candidato"] == "GAP_CRITICO"
     assert divergences[0]["regra_candidata"] == "c_eletivo_tempo_acima_teto"
-    assert divergences[0]["candidato_ratificado"] is False
 
     assert result["gap_adequacao"] == "CONFORME"  # the DMN verdict is preserved and auditable
     assert result["roteamento_remediacao"] == "ANALISE_HUMANA"  # the OWNER-RATIFIED fail-safe
@@ -914,7 +936,6 @@ def test_divergence_event_carries_no_identifier_and_no_cell_identity() -> None:
         "distancia_apurada_km",
         "prestadores_disponiveis",
         "cobertura_geo_suficiente",
-        "candidato_ratificado",
     }
     forbidden = (
         "cpf",
