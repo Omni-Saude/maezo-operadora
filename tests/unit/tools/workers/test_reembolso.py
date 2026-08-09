@@ -3,6 +3,7 @@
 TDD London School: tests exercise the external task contracts.
 """
 
+import dataclasses
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,7 @@ from maezo.tools.workers.harness import (
     WorkerHarness,
 )
 from maezo.tools.workers.reembolso import (
+    _BASE_VALUES_CENTS,
     ReembolsoDenialInput,
     ReembolsoDenialNotHumanError,
     ReembolsoInput,
@@ -40,6 +42,10 @@ from maezo.tools.workers.reembolso import (
     validate_reembolso,
 )
 
+# tests/unit/tools/workers/<file> -> parents[4] == repo root (same idiom as
+# test_auth_denial_guard.py / test_auth_auto_criteria.py).
+_REPO_ROOT = Path(__file__).resolve().parents[4]
+
 # Synthetic-core helper (mirrors test_ceilings) — pins the reembolso ceiling in isolation so
 # these tests do not depend on the D-07 value in the real spec matrix.
 _HARD_BLOCK = """\
@@ -52,7 +58,13 @@ _HARD_BLOCK = """\
 
 
 def _pin_resolver(tmp_path: Path, max_value_brl: int) -> CeilingResolver:
-    """Return a CeilingResolver pinned to a synthetic core with a given reembolso ceiling."""
+    """Return a CeilingResolver pinned to a synthetic core with a given reembolso ceiling.
+
+    ``tmp_path`` may be a not-yet-created SUBDIRECTORY of the fixture: the matrix load is
+    ``lru_cache``d by resolved path, so a test that needs two different ceilings must pin them
+    to two different paths.
+    """
+    tmp_path.mkdir(parents=True, exist_ok=True)
     core = tmp_path / "L0-core.yaml"
     core.write_text(
         "version: 1\nactions:\n"
@@ -268,35 +280,313 @@ def test_calculate_value_ignores_inbound_dentro_teto_l2(tmp_path: Path) -> None:
 def test_calculate_value_within_ceiling_when_configured(tmp_path: Path) -> None:
     """A real positive ceiling computes dentro_teto_l2=True, config-driven, at the inclusive boundary.
 
-    Ceiling R$500 (50000 cents). An unknown category makes valor_calculado == valor_solicitado,
-    so the boundary can be exercised directly: 50000 -> within (True), 50001 -> above (False).
-    (The AUTO_APROVAR routing on a True fact is the native DMN `reembolso_auto_approval`,
-    BRT_AutoApproval — engine-side, not this worker.)
-    """
-    resolver = _pin_resolver(tmp_path, max_value_brl=500)
+    The ceiling is compared against the REFERENCE-TABLE value, not the requested amount, so the
+    boundary is walked by moving the ceiling around a fixed table value: `consulta` = 35000
+    cents, ceiling R$350 -> 35000 <= 35000 within (True); ceiling R$349 -> 35000 > 34900 above
+    (False). (The AUTO_APROVAR routing on a True fact is the native DMN
+    `reembolso_auto_approval`, BRT_AutoApproval — engine-side, not this worker.)
 
+    M-2 NOTE — this test previously drove the boundary with `categoria_procedimento=""`, whose
+    docstring read "an unknown category makes valor_calculado == valor_solicitado". That was the
+    M-2 defect itself, load-bearing in the test suite: the unknown-categoria fallback to the
+    claimant's own figure. It also asserted `dentro_tabela is True` for a categoria that is in no
+    table. Both are now impossible; the ceiling property under test is unchanged and is exercised
+    against a real table row.
+    """
     at_boundary = ReembolsoInput(
         tenant_id="amh",
         protocolo_reembolso="REEMB-T19-3a",
         codigo_procedimento_tuss="10101012",
-        categoria_procedimento="",  # unknown -> valor_calculado == valor_solicitado
+        categoria_procedimento="consulta",  # real table row: 35000 cents
         tipo_reembolso="livre_escolha",
-        valor_solicitado_cents=50000,
+        valor_solicitado_cents=30000,
     )
-    calculo_ok = calculate_value(at_boundary, resolver=resolver)
+    calculo_ok = calculate_value(at_boundary, resolver=_pin_resolver(tmp_path / "at", max_value_brl=350))
+    assert calculo_ok.valor_calculado_tabela_cents == 35000
     assert calculo_ok.dentro_tabela is True
     assert calculo_ok.dentro_teto_l2 is True
 
-    above = ReembolsoInput(
-        tenant_id="amh",
-        protocolo_reembolso="REEMB-T19-3b",
-        codigo_procedimento_tuss="10101012",
-        categoria_procedimento="",
-        tipo_reembolso="livre_escolha",
-        valor_solicitado_cents=50001,
+    above_resolver = _pin_resolver(tmp_path / "above", max_value_brl=349)
+    assert calculate_value(at_boundary, resolver=above_resolver).dentro_teto_l2 is False
+
+
+# ---------------------------------------------------------------------------
+# calculate_value — M-2: money + audit-trail honesty
+#
+# The three facts calculate_value writes into the ADR-0007 audit chain
+# (`dentro_tabela`, `multiplo_tabela_aplicado`, `fonte_tabela`) must describe what the
+# lookup ACTUALLY did. The defect: an unknown/misspelled categoria fell back to the
+# claimant's own `valor_solicitado_cents`, making the "reference table value" equal the
+# request, so `valor_solicitado <= valor_calculado` was unconditionally True — a fabricated
+# corroboration presented to the human reviewer as a verified fact — while
+# `multiplo_tabela_aplicado` was hardcoded 1.0 (hiding the 1.5 uplift) and `fonte_tabela`
+# was hardcoded "TUSS-REFERENCIA" (labelling an invented value as a TUSS table reading).
+# ---------------------------------------------------------------------------
+
+#: `(categoria, tipo_reembolso, valor_solicitado_cents)` ->
+#: `(valor_calculado, dentro_tabela, multiplo, fonte)`.
+_CALCULO_CASES: list[tuple[str, str, str, int, int, bool, float, str]] = [
+    # -- known categoria, no multiplier: plain table hit -------------------------------
+    ("known/at-table", "consulta", "livre_escolha", 35000, 35000, True, 1.0, "TABELA_REFERENCIA"),
+    ("known/below-table", "consulta", "livre_escolha", 30000, 35000, True, 1.0, "TABELA_REFERENCIA"),
+    ("known/above-table", "consulta", "livre_escolha", 50000, 35000, False, 1.0, "TABELA_REFERENCIA"),
+    ("known/exame_simples", "exame_simples", "livre_escolha", 8000, 8000, True, 1.0, "TABELA_REFERENCIA"),
+    ("known/opme", "opme", "livre_escolha", 300000, 300000, True, 1.0, "TABELA_REFERENCIA"),
+    # case-insensitivity is pre-existing behaviour and stays a table hit
+    ("known/uppercase", "CONSULTA", "livre_escolha", 30000, 35000, True, 1.0, "TABELA_REFERENCIA"),
+    # -- known categoria + 1.5 multiplier: adjusted, and SAID to be adjusted -----------
+    (
+        "mult/urgencia",
+        "consulta",
+        "urgencia_emergencia",
+        50000,
+        52500,
+        True,
+        1.5,
+        "TABELA_REFERENCIA_MULTIPLICADA",
+    ),
+    ("mult/fora_rede", "consulta", "fora_rede", 50000, 52500, True, 1.5, "TABELA_REFERENCIA_MULTIPLICADA"),
+    # the uplift raises the reference value but does NOT rubber-stamp any amount
+    (
+        "mult/above-even-uplifted",
+        "consulta",
+        "urgencia_emergencia",
+        52501,
+        52500,
+        False,
+        1.5,
+        "TABELA_REFERENCIA_MULTIPLICADA",
+    ),
+    (
+        "mult/internacao",
+        "internacao",
+        "fora_rede",
+        750000,
+        750000,
+        True,
+        1.5,
+        "TABELA_REFERENCIA_MULTIPLICADA",
+    ),
+    # -- unknown categoria: fail closed, no fallback to the claimant's own figure ------
+    ("unknown/typo", "consuta", "livre_escolha", 999999, 0, False, 0.0, "SEM_TABELA"),
+    ("unknown/absent", "quimioterapia", "livre_escolha", 500000, 0, False, 0.0, "SEM_TABELA"),
+    # a padded categoria misses the table (`.lower()` only, no strip) and fails CLOSED
+    ("unknown/padded", " consulta ", "livre_escolha", 30000, 0, False, 0.0, "SEM_TABELA"),
+    # the multiplier never resurrects a categoria that has no table row
+    ("unknown/with-multiplier", "consuta", "urgencia_emergencia", 999999, 0, False, 0.0, "SEM_TABELA"),
+    # -- empty categoria: same refusal --------------------------------------------------
+    ("empty/blank", "", "livre_escolha", 50000, 0, False, 0.0, "SEM_TABELA"),
+    # THE ZERO TRAP: `0 <= 0` would read True on arithmetic alone. dentro_tabela is a claim
+    # about the reference table, and there is no table row here, so it must be False.
+    ("empty/zero-request", "", "livre_escolha", 0, 0, False, 0.0, "SEM_TABELA"),
+    ("unknown/zero-request", "consuta", "urgencia_emergencia", 0, 0, False, 0.0, "SEM_TABELA"),
+]
+
+
+@pytest.mark.parametrize(
+    ("label", "categoria", "tipo", "solicitado", "valor", "tabela", "multiplo", "fonte"),
+    _CALCULO_CASES,
+    ids=[case[0] for case in _CALCULO_CASES],
+)
+def test_calculate_value_table_driven_facts(
+    label: str,
+    categoria: str,
+    tipo: str,
+    solicitado: int,
+    valor: int,
+    tabela: bool,
+    multiplo: float,
+    fonte: str,
+) -> None:
+    """Every (categoria, tipo) case writes exactly the facts its computation supports."""
+    result = calculate_value(
+        ReembolsoInput(
+            tenant_id="amh",
+            protocolo_reembolso=f"REEMB-M2-{label}",
+            codigo_procedimento_tuss="10101012",
+            categoria_procedimento=categoria,
+            tipo_reembolso=tipo,
+            valor_solicitado_cents=solicitado,
+        )
     )
-    calculo_above = calculate_value(above, resolver=resolver)
-    assert calculo_above.dentro_teto_l2 is False
+    assert result.valor_calculado_tabela_cents == valor, label
+    assert result.dentro_tabela is tabela, label
+    assert result.multiplo_tabela_aplicado == multiplo, label
+    assert result.fonte_tabela == fonte, label
+    # money stays integer centavos end-to-end (ADR-0018): never a float, never a bool
+    assert type(result.valor_calculado_tabela_cents) is int, label
+    assert result.valor_solicitado_cents == solicitado, label
+
+
+@pytest.mark.parametrize(
+    ("label", "categoria", "tipo", "solicitado", "valor", "tabela", "multiplo", "fonte"),
+    _CALCULO_CASES,
+    ids=[case[0] for case in _CALCULO_CASES],
+)
+def test_calculate_value_audit_facts_match_the_computation(
+    label: str,
+    categoria: str,
+    tipo: str,
+    solicitado: int,
+    valor: int,
+    tabela: bool,
+    multiplo: float,
+    fonte: str,
+) -> None:
+    """AUDIT CHAIN (ADR-0007): the written facts must be internally consistent, not just correct.
+
+    Asserted as INVARIANTS over whatever was computed, so they keep biting if the table values
+    or the multiplier are ever re-tuned — the M-2 failure mode was precisely a fact that
+    contradicted the arithmetic that produced it.
+    """
+    del valor, tabela, multiplo, fonte  # this test re-derives them; the case row is the input
+    result = calculate_value(
+        ReembolsoInput(
+            tenant_id="amh",
+            protocolo_reembolso=f"REEMB-M2-AUDIT-{label}",
+            codigo_procedimento_tuss="10101012",
+            categoria_procedimento=categoria,
+            tipo_reembolso=tipo,
+            valor_solicitado_cents=solicitado,
+        )
+    )
+
+    if result.fonte_tabela == "SEM_TABELA":
+        # A refusal claims nothing: no value, no multiplier, and NEVER a within-table verdict.
+        assert result.valor_calculado_tabela_cents == 0, label
+        assert result.multiplo_tabela_aplicado == 0.0, label
+        assert result.dentro_tabela is False, label
+        # the defect's signature: the reference value must NOT be the claimant's own figure
+        assert result.valor_calculado_tabela_cents != result.valor_solicitado_cents or solicitado == 0, (
+            f"{label}: SEM_TABELA echoed valor_solicitado_cents back as the reference value"
+        )
+    else:
+        # A table hit: the recorded value must equal base * the recorded multiplier, and the
+        # recorded provenance must match whether a multiplier was really applied.
+        base = _BASE_VALUES_CENTS[categoria.lower()]
+        assert result.valor_calculado_tabela_cents == int(base * result.multiplo_tabela_aplicado), label
+        multiplicado = result.multiplo_tabela_aplicado != 1.0
+        assert result.fonte_tabela == (
+            "TABELA_REFERENCIA_MULTIPLICADA" if multiplicado else "TABELA_REFERENCIA"
+        ), label
+        # dentro_tabela is the honest comparison against that same recorded value
+        assert result.dentro_tabela is (solicitado <= result.valor_calculado_tabela_cents), label
+
+    # `fonte_tabela` is never blank and never the retired label that lied about provenance
+    assert result.fonte_tabela, label
+    assert result.fonte_tabela != "TUSS-REFERENCIA", label
+
+
+def test_calculate_value_unknown_categoria_never_corroborates_the_claim() -> None:
+    """THE M-2 REGRESSION: an unknown categoria must not make the claim self-verifying.
+
+    Pre-fix, `base_values.get(categoria.lower(), valor_solicitado_cents)` set the reference
+    value TO the requested amount, so `dentro_tabela` was True for ANY amount whatsoever — a
+    R$ 1.000.000 request under a misspelled categoria was reported to the human reviewer as
+    within the reference table. Swept across magnitudes to prove there is no amount at which
+    the fallback survives.
+    """
+    for amount in (1, 5000, 999_999, 100_000_000):
+        result = calculate_value(
+            ReembolsoInput(
+                tenant_id="amh",
+                protocolo_reembolso="REEMB-M2-NOFALLBACK",
+                codigo_procedimento_tuss="10101012",
+                categoria_procedimento="categoria_que_nao_existe",
+                tipo_reembolso="livre_escolha",
+                valor_solicitado_cents=amount,
+            )
+        )
+        assert result.dentro_tabela is False, amount
+        assert result.valor_calculado_tabela_cents == 0, amount
+        assert result.valor_calculado_tabela_cents != amount, amount
+        assert result.fonte_tabela == "SEM_TABELA", amount
+
+
+def test_calculate_value_sem_tabela_token_matches_the_dmn_catch_all() -> None:
+    """The refusal token is the DMN's, not this module's invention.
+
+    `spec/processes/dmn/reembolso_calculo.dmn` rule `r_catchall` emits
+    `valor_calculado_tabela_cents=0`, `multiplo_tabela_aplicado=0.0`, `fonte_tabela="SEM_TABELA"`,
+    and the contract + test-spec pin that same triple ("Catch-all (procedimento sem tabela) ->
+    valor_calculado_tabela_cents = 0 + fonte_tabela = 'SEM_TABELA', o que forca dentro_tabela=false
+    -> ANALISE_HUMANA"). The worker must speak the SAME token for the SAME situation, so the two
+    producers of this fact cannot disagree in the audit chain.
+    """
+    dmn = _REPO_ROOT / "spec" / "processes" / "dmn" / "reembolso_calculo.dmn"
+    catch_all = dmn.read_text(encoding="utf-8")
+    assert '"SEM_TABELA"' in catch_all, "DMN catch-all token moved — the worker must follow it"
+
+    result = calculate_value(
+        ReembolsoInput(
+            tenant_id="amh",
+            protocolo_reembolso="REEMB-M2-TOKEN",
+            categoria_procedimento="sem_row_na_tabela",
+            tipo_reembolso="livre_escolha",
+            valor_solicitado_cents=12345,
+        )
+    )
+    assert result.fonte_tabela == "SEM_TABELA"
+    assert result.valor_calculado_tabela_cents == 0
+    assert result.multiplo_tabela_aplicado == 0.0
+
+
+def test_calculate_value_known_categoria_behaviour_is_unchanged() -> None:
+    """REGRESSION PIN: the valid, known-categoria path computes exactly what it did pre-fix.
+
+    The M-2 fix must be invisible to a well-formed request. These are the pre-fix values of the
+    three original tests (`test_calculate_value_consulta`, `..._dentro_tabela`, `..._fora_tabela`,
+    `..._urgencia_multiplier`), asserted here together so a future change to the lookup cannot
+    quietly move money on the legitimate path.
+    """
+    base = ReembolsoInput(
+        tenant_id="amh",
+        protocolo_reembolso="REEMB-M2-REGRESSION",
+        codigo_procedimento_tuss="10101012",
+        categoria_procedimento="consulta",
+        tipo_reembolso="livre_escolha",
+    )
+
+    # consulta reference value: R$ 350,00 — unchanged
+    at_table = calculate_value(dataclasses.replace(base, valor_solicitado_cents=35000))
+    assert at_table.valor_calculado_tabela_cents == 35000
+    # below table -> within; above table -> not within
+    assert calculate_value(dataclasses.replace(base, valor_solicitado_cents=30000)).dentro_tabela is True
+    assert calculate_value(dataclasses.replace(base, valor_solicitado_cents=50000)).dentro_tabela is False
+    # urgencia/emergencia still applies 1.5x to the same base: 35000 * 1.5 = 52500
+    urgencia = calculate_value(
+        dataclasses.replace(base, tipo_reembolso="urgencia_emergencia", valor_solicitado_cents=50000)
+    )
+    assert urgencia.valor_calculado_tabela_cents == 52500
+    # ...and now SAYS so, where it used to report 1.0 / "TUSS-REFERENCIA"
+    assert urgencia.multiplo_tabela_aplicado == 1.5
+    assert urgencia.fonte_tabela == "TABELA_REFERENCIA_MULTIPLICADA"
+
+
+def test_calculate_amount_entry_marshals_the_honest_facts() -> None:
+    """The engine-boundary entry carries all three facts out to the process scope.
+
+    `calculate_amount_entry` is what `ST_CalculateAmount` actually invokes; the facts only
+    reach `BRT_AutoApproval` (which gates AUTO_APROVAR on `dentro_tabela`) and the human dossie
+    if they survive `dataclasses.asdict`.
+    """
+    out = calculate_amount_entry(
+        {
+            "tenant_id": "amh",
+            "protocolo_reembolso": "REEMB-M2-ENTRY",
+            "codigo_procedimento_tuss": "10101012",
+            "categoria_procedimento": "categoria_desconhecida",
+            "tipo_reembolso": "urgencia_emergencia",
+            "valor_solicitado_cents": 777000,
+            # a seeded within-table claim must not survive either
+            "dentro_tabela": True,
+        }
+    )
+    assert out["dentro_tabela"] is False
+    assert out["valor_calculado_tabela_cents"] == 0
+    assert out["multiplo_tabela_aplicado"] == 0.0
+    assert out["fonte_tabela"] == "SEM_TABELA"
+    assert out["valor_solicitado_cents"] == 777000
 
 
 # ---------------------------------------------------------------------------
