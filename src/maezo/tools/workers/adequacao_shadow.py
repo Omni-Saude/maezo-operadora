@@ -5,7 +5,7 @@ WRONG and the finding is OPEN and human-gated: `hitPolicy=FIRST` with `r_eletivo
 BEFORE `r_conforme` (:110-119), and `r_conforme` carries NO time/distance ceiling at all
 (wildcards at :112-114) — so an ARBITRARILY BAD elective access reads `CONFORME`
 (PLANS.md:150-159 §0.5.4 item 1; docs/review-queue.md:160). It is runtime-MITIGATED by the
-owner-ratified fail-safe in `adequacao.route_remediation` (adequacao.py:338-362), which preserves
+owner-ratified fail-safe in `adequacao.route_remediation` (adequacao.py:338-371), which preserves
 the DMN verdict but REFUSES TO ACT on a `CONFORME` the measurements contradict.
 
 WHAT THIS MODULE IS. A pure evaluation of the CANDIDATE rule set declared in
@@ -456,7 +456,7 @@ def record_shadow_divergence(
     """Emit the divergence event if there is one. Returns `None` ALWAYS; never raises.
 
     The house structured-logging seam (`structlog`), the same one the fail-safe itself uses
-    (`adequacao_conforme_recusado_por_acesso`, adequacao.py:353-360). Deliberately NOT a metric: a
+    (`adequacao_conforme_recusado_por_acesso`, adequacao.py:362-369). Deliberately NOT a metric: a
     metric would need a label set, and the useful labels here are the measurements themselves.
     """
     event = shadow_divergence_event(

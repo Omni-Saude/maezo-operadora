@@ -124,7 +124,7 @@ full detail):
      (adequacao.py:38-69) is an explicitly-labeled placeholder ("real implementation queries
      geo-location / network DB", line 47) that OVERWRITES every geo-fact the donor's fixture seeds
      at process start, before `BRT_AdequacaoGap` ever evaluates the DMN: `tempo_acesso_apurado_min`/
-     `distancia_apurada_km` are hardcoded to 45/15.5 (lines 48-49); `cobertura_geo_suficiente` is
+     `distancia_apurada_km` fall back to 45/15.5 if absent/mistyped; `cobertura_geo_suficiente` is
      DERIVED as `prestadores_disponiveis >= 2` (line 51, ignoring any seeded value);
      `dados_geo_completos` is DERIVED as `bool(regiao_saude and especialidade)` (line 52) — ALWAYS
      `True` in this suite, since `start_adequacao` always supplies non-empty `regiao_saude`/
@@ -132,7 +132,7 @@ full detail):
      `adequacao_gap` rule-order divergence (adequacao.py:90-99; unit-proven,
      `tests/unit/tools/workers/test_adequacao.py::test_adequacao_gap_conforme_now_leve`): the
      deployed table's `GAP_LEVE` row precedes `CONFORME`'s for `tipo_carater="eletivo"` whenever
-     `tempo<=60`/`distancia<=50` — BOTH always true given the hardcoded 45/15.5. This makes (a)
+     `tempo<=60`/`distancia<=50` — both true whenever measure_gap falls back to 45/15.5. This makes (a)
      `dados_geo_completos=False` untestable via any start-seeded scenario (always overwritten
      True — the "dados incompletos -> ANALISE_HUMANA" DMN branch is unreachable through the live
      `measure_gap` worker); (b) `gap_adequacao=CONFORME` unreachable for `tipo_carater="eletivo"`
@@ -352,7 +352,7 @@ _MEASURE_GAP_OVERRIDES_SEEDED_FACTS_REASON = (
     "them directly (mirrors test_sp_op_cancel_001.py/test_sp_op_contas_001.py) — is invalidated "
     "for these specific facts: `ST_MeasureCoverage` runs BEFORE `BRT_AdequacaoGap` and its real "
     "(explicitly placeholder) implementation OVERWRITES every one of them first. "
-    "tempo_acesso_apurado_min/distancia_apurada_km are hardcoded to 45/15.5 (lines 48-49, "
+    "tempo_acesso_apurado_min/distancia_apurada_km fall back to 45/15.5 if absent/mistyped (lines 48-49, "
     "'Placeholder: real implementation queries geo-location / network DB'); "
     "cobertura_geo_suficiente is DERIVED as prestadores_disponiveis >= 2 (line 51, ignoring any "
     "seeded value); dados_geo_completos is DERIVED as bool(regiao_saude and especialidade) (line "
@@ -361,7 +361,7 @@ _MEASURE_GAP_OVERRIDES_SEEDED_FACTS_REASON = (
     "rule-order divergence (adequacao.py lines 90-99; unit-proven, "
     "tests/unit/tools/workers/test_adequacao.py::test_adequacao_gap_conforme_now_leve): the "
     "deployed table's GAP_LEVE row precedes CONFORME's for tipo_carater='eletivo' whenever "
-    "tempo<=60/distancia<=50 — BOTH always true given the hardcoded 45/15.5. Consequences: (a) "
+    "tempo<=60/distancia<=50 — both true whenever measure_gap falls back to 45/15.5. Consequences: (a) "
     "dados_geo_completos=False can never reach the DMN (always overwritten True) — the "
     "ANALISE_HUMANA-via-incomplete-data branch is untestable via any start-seeded scenario; (b) "
     "gap_adequacao=CONFORME is unreachable for tipo_carater='eletivo' (this suite's fixture "
@@ -721,7 +721,7 @@ async def test_l3_conforme_atinge_neutro_sem_user_task(
 
     Caminho L3 autonomo: NENHUMA User Task; adequacao.completed desfecho=conforme.
 
-    v2: CONFORME e INALCANCAVEL para tipo_carater="eletivo" com measure_gap's hardcoded tempo=45/
+    v2: CONFORME e INALCANCAVEL para tipo_carater="eletivo" quando measure_gap recai no placeholder tempo=45/
     distancia=15.5 (ambos dentro dos thresholds de GAP_LEVE, que precede CONFORME no FIRST-hit da
     adequacao_gap) — a instancia cai em GAP_LEVE/MONITORAR em vez disso, e trava la (FINDING 1,
     `_MISSING_MONITORING_WORKER_REASON`, que tambem se aplicaria mesmo se a rota estivesse certa).

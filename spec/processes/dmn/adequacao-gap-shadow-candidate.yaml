@@ -48,7 +48,7 @@
 # RUNTIME STATE TODAY (unchanged by this file)
 # --------------------------------------------
 # The live table is runtime-MITIGATED, not fixed, by the owner-ratified fail-safe in
-# `route_remediation` (src/maezo/tools/workers/adequacao.py:338-362): the DMN verdict is PRESERVED
+# `route_remediation` (src/maezo/tools/workers/adequacao.py:338-371): the DMN verdict is PRESERVED
 # verbatim and auditable, but the worker REFUSES TO ACT on a `CONFORME` the measurements contradict,
 # using the 60min/50km ceiling THE TABLE ITSELF DECLARES
 # (src/maezo/tools/workers/adequacao.py:182-183), routing to `ANALISE_HUMANA`.
@@ -56,9 +56,9 @@
 # 2026-08-09 — that fail-safe gained TWO MORE BRANCHES, same shape (preserve the verdict, refuse to
 # act), still NOT a table edit:
 #   - `tipo_carater` outside the closed vocabulary the table declares
-#     (src/maezo/tools/workers/adequacao.py:410-422) — the RUNTIME leg of ACHADO-1 below;
+#     (src/maezo/tools/workers/adequacao.py:419-431) — the RUNTIME leg of ACHADO-1 below;
 #   - measurements indistinguishable from the pair `measure_gap` fabricates
-#     (src/maezo/tools/workers/adequacao.py:424-439).
+#     (src/maezo/tools/workers/adequacao.py:433-448).
 # THE TABLE IS STILL WRONG. This file exists so that fixing it is a paste, not a project.
 #
 # =================================================================================================
@@ -172,16 +172,27 @@ achados_adicionais:
     perna_de_runtime: >-
       A PERNA DE RUNTIME deste achado esta FECHADA; a perna de TABELA continua ABERTA e e do dono.
       `route_remediation` ganhou um ramo irmao do fail-safe ratificado
-      (src/maezo/tools/workers/adequacao.py:410-422): quando `tipo_carater` nao e um dos DOIS
+      (src/maezo/tools/workers/adequacao.py:419-431): quando `tipo_carater` nao e um dos DOIS
       literais que a tabela declara — vocabulario lido das proprias inputEntries de `in_tipo_carater`
       (adequacao_gap.dmn:52, :62, :92, :102; as rows :72, :82, :112, :122 curingam a coluna e nao
       declaram literal), transcrito em adequacao.py:200 — um veredito CONFORME e tratado como
       CONTRADITO: o veredito da DMN e PRESERVADO verbatim (auditavel) e apenas a ACAO e recusada,
       com `motivo` proprio `CONFORME_RECUSADO_CARATER_FORA_DO_VOCABULARIO` e roteamento
-      `ANALISE_HUMANA`. Cobre `""` (o que o worker envia quando a variavel esta ausente,
-      adequacao.py:297), whitespace-only, token nao mapeado e valor nao-string. O
-      `exemplo_concreto` acima — sem `tipo_carater`, dentro dos tetos — hoje termina em humano,
-      nao em End_AdequacaoConforme.
+      `ANALISE_HUMANA`. A checagem e por IGUALDADE EXATA de string (`carater_literal`, SEM
+      strip()) — a DMN compara FEEL literals exatamente, entao um literal com padding de espaco ja
+      nao bate nenhuma row da tabela e cai no mesmo buraco que este ramo fecha. Cobre, precisamente,
+      cinco classes: (1) `""` — o que o worker envia quando a variavel esta ausente
+      (adequacao.py:297); (2) whitespace-only (ex.: "   "); (3) LITERAIS COM PADDING que colidiriam
+      com um dos dois literais validos apos um strip() (ex.: " eletivo ", "\turgencia_emergencia") —
+      corrigido 2026-08-09 (F-1, GK REVISE): a checagem anterior usava `_norm_str` (que faz
+      strip() antes de comparar) e por isso ACEITAVA esses literais indevidamente como se fossem o
+      literal exato — o MESMO buraco M-1 que este ramo existe para fechar, so que para tokens
+      padded em vez de token ausente; (4) token nao mapeado (ex.: "ambulatorial", "Eletivo" com
+      maiuscula, substrings como "eletivo_ambulatorial"); (5) valor nao-string (coagido para `""`
+      via `isinstance`, nunca comparado diretamente — um `list`, por exemplo, levantaria
+      `TypeError: unhashable type` num `frozenset` se comparado sem coercao). O `exemplo_concreto`
+      acima — sem `tipo_carater`, dentro dos tetos — hoje termina em humano, nao em
+      End_AdequacaoConforme.
     perna_de_tabela_continua_do_dono: >-
       NADA nesta tabela mudou e nada aqui e recomendacao de mudar. O ramo de runtime nao emite
       GAP_CRITICO, nao reordena regra nenhuma e nao cria vocabulario: ele so recusa AGIR. Enquanto
@@ -348,7 +359,7 @@ regras_candidatas:
       nenhuma regra especifica cobre (r_catchall, adequacao_gap.dmn:120-129, e a
       `<description>` :22-23). NAO e uma severidade nova nem uma leitura de RN 259. E, na pratica,
       o mesmo desfecho do fail-safe de runtime, que roteia esses casos a ANALISE_HUMANA
-      (adequacao.py:352-362) — para onde GAP_CRITICO tambem roteia
+      (adequacao.py:361-371) — para onde GAP_CRITICO tambem roteia
       (adequacao_remediation_routing.dmn: GAP_CRITICO -> ANALISE_HUMANA).
       ABERTO AO DONO: se o dono julgar que o eletivo fora do teto e GAP_MODERADO e nao GAP_CRITICO,
       esta e a unica celula a mudar; o mascaramento fica fechado nos dois casos.

@@ -411,7 +411,7 @@ def test_route_remediation_dmn_unwired_raises_dmn_evaluation_error() -> None:
 # ---------------------------------------------------------------
 # route_remediation — M-1: the two BLIND SPOTS of the owner-ratified fail-safe
 #
-# The ratified branch (adequacao.py:352-362) only ever fires on ELECTIVE-GRADE ceilings
+# The ratified branch (adequacao.py:361-371) only ever fires on ELECTIVE-GRADE ceilings
 # (60min/50km, `_ELETIVO_LEVE_*`), for EVERY `tipo_carater`. Two families slip past it while the
 # DMN still says CONFORME -> `GW_Roteamento` sends `MONITORAR && CONFORME` to
 # `ST_PublishConforme`/`End_AdequacaoConforme`: NO monitoring plan, NO alert.
@@ -460,6 +460,22 @@ _M1_MATRIX: tuple[tuple[str, Any, int, float, str, str], ...] = (
     ),
     ("carater string vazia explicita", "", 45, 40.0, "ANALISE_HUMANA", _MOTIVO_CARATER),
     ("carater whitespace-only", "   ", 45, 40.0, "ANALISE_HUMANA", _MOTIVO_CARATER),
+    (
+        "carater com padding de espaco ' eletivo ' — strip() bateria 'eletivo'; match EXATO nao (F-1)",
+        " eletivo ",
+        45,
+        40.0,
+        "ANALISE_HUMANA",
+        _MOTIVO_CARATER,
+    ),
+    (
+        "carater tab-prefixado '\\turgencia_emergencia' — strip() bateria; match EXATO nao (F-1)",
+        "\turgencia_emergencia",
+        45,
+        40.0,
+        "ANALISE_HUMANA",
+        _MOTIVO_CARATER,
+    ),
     (
         "carater token desconhecido 'ambulatorial'",
         "ambulatorial",
@@ -619,7 +635,8 @@ def test_m1_nao_toca_nenhuma_rota_diferente_de_conforme(
 def test_m1_carater_desconhecido_emite_log_com_vocabulario_declarado() -> None:
     """The refusal is AUDITABLE: the operator log names the offending token and the closed
     vocabulary it was checked against — the evidence that replaces the engine variable this
-    deliberately does not mint."""
+    deliberately does not mint. RAW token via `repr()` (F-1, GK REVISE: not `_norm_str`), so the
+    log is never silently normalized into something that reads as in-vocabulary."""
     with structlog.testing.capture_logs() as logs:
         route_remediation(
             {
@@ -631,10 +648,30 @@ def test_m1_carater_desconhecido_emite_log_com_vocabulario_declarado() -> None:
             dmn=_adequacao_fake(gap_adequacao="CONFORME", roteamento_remediacao="MONITORAR"),
         )
     entry = next(e for e in logs if e["event"] == "adequacao_conforme_recusado_por_carater_desconhecido")
-    assert entry["tipo_carater"] == "ambulatorial"
+    assert entry["tipo_carater"] == repr("ambulatorial")
     assert entry["vocabulario_declarado"] == ["eletivo", "urgencia_emergencia"]
     assert entry["gap_adequacao_dmn"] == "CONFORME"
     assert entry["roteamento_dmn"] == "MONITORAR"
+    assert entry["motivo"] == _MOTIVO_CARATER
+
+
+def test_m1_carater_com_padding_loga_o_padding_visivel() -> None:
+    """F-1 (GK REVISE): a padded offender must print VISIBLY padded in the log — `repr()`, never
+    `_norm_str`'s strip() — so a reviewer can see the exact token the exact-match guard refused,
+    not a normalized look-alike of a valid vocabulary word."""
+    with structlog.testing.capture_logs() as logs:
+        route_remediation(
+            {
+                **_M1_BASE,
+                "tipo_carater": " eletivo ",
+                "tempo_acesso_apurado_min": 45,
+                "distancia_apurada_km": 40.0,
+            },
+            dmn=_adequacao_fake(gap_adequacao="CONFORME", roteamento_remediacao="MONITORAR"),
+        )
+    entry = next(e for e in logs if e["event"] == "adequacao_conforme_recusado_por_carater_desconhecido")
+    assert entry["tipo_carater"] == "' eletivo '"
+    assert entry["tipo_carater"] != "eletivo", "must never normalize to look in-vocabulary"
     assert entry["motivo"] == _MOTIVO_CARATER
 
 

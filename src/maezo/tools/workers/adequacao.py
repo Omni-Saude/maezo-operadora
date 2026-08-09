@@ -349,6 +349,15 @@ def route_remediation(variables: dict[str, Any], *, dmn: DmnTransport | None = N
     conforme_contradito = conforme and (
         int(tempo) > _ELETIVO_LEVE_TEMPO_MAX_MIN or float(distancia) > _ELETIVO_LEVE_DISTANCIA_MAX_KM
     )
+    # F-1 (GK REVISE): EXACT-match coercion, not `_norm_str`'s strip(). The DMN compares FEEL
+    # literals exactly, so a padded token (" eletivo ") is ALREADY out-of-vocabulary at the table
+    # (misses every literal row, falls through the `-` wildcards straight to `r_conforme`/
+    # `r_catchall`) — stripping it here before the vocabulary check would silently ACCEPT what the
+    # table itself refuses, reopening the exact M-1 hole this fail-safe closes. Non-strings coerce
+    # to "" (a bare `in` check against a non-hashable member, e.g. a `list`, raises `TypeError:
+    # unhashable type` on a `frozenset`) — same fail-closed outcome as `_norm_str`, without
+    # trimming whitespace that the table would never trim either.
+    carater_literal = tipo_carater if isinstance(tipo_carater, str) else ""
     if conforme_contradito:
         logger.warning(
             "adequacao_conforme_recusado_por_acesso",
@@ -383,7 +392,7 @@ def route_remediation(variables: dict[str, Any], *, dmn: DmnTransport | None = N
     #     curinga em tipo_carater/tempo/distancia e torna essa promessa inalcancavel. Ja RECORDADO
     #     como ACHADO-1 no candidato W3 (spec/processes/dmn/adequacao-gap-shadow-candidate.yaml);
     #     esta e a perna de RUNTIME do mesmo achado. Fail-closed tambem para carater NAO-string
-    #     (variaveis do engine chegam sem tipo): `_norm_str` devolve "" e "" nao esta no
+    #     (variaveis do engine chegam sem tipo): `carater_literal` vira "" e "" nao esta no
     #     vocabulario. NAO alteramos o que foi enviado a DMN — a normalizacao vive so aqui.
     #
     # (b) MEDIDAS INDISTINGUIVEIS DO PLACEHOLDER. `measure_gap` fabrica o PAR 45min/15.5km quando
@@ -407,11 +416,11 @@ def route_remediation(variables: dict[str, Any], *, dmn: DmnTransport | None = N
     #     candidato (uma regra CONFORME com teto), reavaliar este `and`.
     #
     #     A visibilidade na ORIGEM e o warning `adequacao_medidas_fabricadas` em `measure_gap`.
-    elif conforme and _norm_str(tipo_carater) not in _TIPO_CARATER_VOCABULARIO:
+    elif conforme and carater_literal not in _TIPO_CARATER_VOCABULARIO:
         logger.warning(
             "adequacao_conforme_recusado_por_carater_desconhecido",
             gap_adequacao_dmn=gap_adequacao,
-            tipo_carater=_norm_str(tipo_carater),
+            tipo_carater=repr(tipo_carater),
             vocabulario_declarado=sorted(_TIPO_CARATER_VOCABULARIO),
             tempo_acesso_apurado_min=int(tempo),
             distancia_apurada_km=float(distancia),
