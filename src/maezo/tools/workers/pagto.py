@@ -229,11 +229,14 @@ def _valor_pagamento_cents_or_none(valor_cents: Any) -> tuple[int | None, str]:
     (spec/processes/bpmn/SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn:115-120) declares NO error
     boundary event (the file's only boundaries are `BE_PagtoOrdemInvalida` on
     `ST_ValidatePaymentData`:105-108 and the two SLA boundaries on `UT_AprovacaoAlcada`:294,310), so
-    this task must fail NEUTRALLY per ADR-0030's own consequence, not a house-style preference: the
-    production `bpmn_error_allowlist` is `frozenset()` (`runtime/worker_runtime/service.py:288-301`)
-    and every `WorkerBpmnError` whose code is not gate-proven demotes to `failure(retries=0)` -> an
-    incident (docs/adr/0030-worker-error-semantics-bpmn-boundary.md:79-89) — so the caller routes
-    conservatively through the DMN's own catch-all instead of raising. The SAME posture
+    this task must fail NEUTRALLY on two independent grounds: (a) this function is
+    `FunctionWorker`-registered, so any raise reclassifies to `ValueError` ->
+    `failure(retries=0)` -> an incident (ADR-0030 Layer 1), allowlist-independent; (b) even a
+    `WorkerBpmnError` would find no admitting code — `PRODUCTION_BPMN_ERROR_ALLOWLIST`
+    (`src/maezo/runtime/worker_runtime/service.py:179-181`, wired at `:697`) admits only codes
+    proven consumption-covered against `spec/**` boundaries, `ST_CalculateFacts` has none, and no
+    `PAGTO_BPMN_ERROR_ALLOWLIST` exists (grep=0) — so the caller routes conservatively through the
+    DMN's own catch-all instead of raising. The SAME posture
     `IssueAuthorizationWorker`'s ceiling gate takes at the equally boundary-less
     `ST_EmitirAutorizacaoAuto` (`spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn:228`) —
     `auth.py:1235-1258` also RETURNS a fail-neutral guard-blocked payload instead of raising, for
@@ -277,9 +280,13 @@ def route_aprovacao(
     resolved through `_valor_pagamento_cents_or_none` (integer centavos only; see there for the
     rejected vectors and the pre-fix live path from an ABSENT amount to an EXECUTED payment). When
     it cannot be trusted, this function does NOT raise (`ST_CalculateFacts` declares no error
-    boundary — ADR-0030, docs/adr/0030-worker-error-semantics-bpmn-boundary.md:79-89: the
-    production `bpmn_error_allowlist` is `frozenset()`, `runtime/worker_runtime/service.py:288-301`
-    — so an unproven `WorkerBpmnError` would demote to `failure(retries=0)` -> an incident) and
+    boundary — ADR-0030; two independent grounds close it: this function is
+    `FunctionWorker`-registered, so any raise reclassifies to `ValueError` ->
+    `failure(retries=0)` -> an incident (ADR-0030 Layer 1), allowlist-independent, and even a
+    `WorkerBpmnError` would find no admitting code — `PRODUCTION_BPMN_ERROR_ALLOWLIST`
+    (`src/maezo/runtime/worker_runtime/service.py:179-181`, wired at `:697`) admits only codes
+    proven consumption-covered against `spec/**` boundaries, `ST_CalculateFacts` has none, and no
+    `PAGTO_BPMN_ERROR_ALLOWLIST` exists — grep=0) and
     does NOT invent a route: it forces `dentro_teto_l2=False`, which structurally closes the
     auto-release band FOR THIS FUNCTION'S OWN in-process DMN call (`r_dentro_teto_l2` requires
     `true` — spec/processes/dmn/pagto_alcada.dmn:65), and hands that call
