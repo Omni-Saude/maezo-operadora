@@ -55,6 +55,17 @@ must agree — one deliberately redundant with another (belt-and-suspenders: for
 true` while `status` stays `"DRAFT"` still refuses; flipping ratification without also swapping the
 XSD still refuses) — before `load_tiss_schema_pin` returns anything instead of raising.
 
+GK REVISE (post-GK-review repair) added TWO further, independent ARTIFACT-INTEGRITY gates that sit
+below those four human-intent gates — both proven forgeable before this repair, both closed by
+comparing the manifest's claims against the ARTIFACT ITSELF rather than trusting fields beside it:
+gate 5, `schema_artifact.sha256` must equal a digest re-derived from the XSD's actual bytes on disk
+on every load (`REASON_ARTIFACT_DIGEST_MISMATCH` on mismatch — MAJOR-1: a ratified pin previously
+survived an in-place XSD swap, a placeholder sha256, and an arbitrary "deadbeef"); gate 6, the XSD's
+own parsed `targetNamespace` must not start with `_SYNTHETIC_NAMESPACE_PREFIX`
+(`REASON_ARTIFACT_SELF_DECLARES_SYNTHETIC` — MAJOR-2: a forged manifest with
+`schema_artifact.synthetic: false` previously loaded while ratifying the verbatim SYNTHETIC XSD).
+Both gates 5 and 6 are checked only once gates 1-4 already agree the pin is ratified.
+
 FAIL-CLOSED SPLIT: RAISE vs RETURN. This module deliberately uses BOTH failure shapes the two
 studied precedents use, for two DIFFERENT kinds of failure:
 
@@ -94,6 +105,7 @@ instead of "not started".
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 from collections.abc import Hashable
@@ -124,6 +136,7 @@ _RATIFICADO_EM = "ratificado_em"
 _SCHEMA_ARTIFACT = "schema_artifact"
 _SYNTHETIC = "synthetic"
 _XSD_FILENAME = "xsd_filename"
+_SHA256 = "sha256"
 _PADRAO_TISS_VERSAO = "padrao_tiss_versao"
 _REPORT_TYPE = "report_type"
 
@@ -133,6 +146,29 @@ _REPORT_TYPE = "report_type"
 _KNOWN_TOP_LEVEL_KEYS = frozenset(
     {"version", _STATUS, _RATIFICADO, _REVISOR, _RATIFICADO_EM, _SCHEMA_ARTIFACT, "observacao"}
 )
+
+#: MINOR-4 (GK REVISE): the SAME wholesale-refusal fence as `_KNOWN_TOP_LEVEL_KEYS`, but for the
+#: NESTED `schema_artifact` mapping — the top-level fence does not recurse, so a typo'd nested key
+#: (e.g. `sintetico:` for `synthetic:`) previously sat unread beside an otherwise fully-ratified-
+#: looking `schema_artifact` instead of refusing the whole manifest.
+_KNOWN_SCHEMA_ARTIFACT_KEYS = frozenset(
+    {_XSD_FILENAME, _SYNTHETIC, _SHA256, _PADRAO_TISS_VERSAO, _REPORT_TYPE}
+)
+
+#: Placeholder-value markers this loader refuses on `schema_artifact.sha256` (MAJOR-1, GK REVISE)
+#: — mirrors `amh_inbox.py`'s `PLACEHOLDER_MARKERS`/`_looks_like_placeholder` exactly,
+#: reimplemented locally rather than imported: this module already avoids a cross-package import
+#: for `_local_name` below for the same stated reason (an odd cross-package import from one
+#: worker-seam module into a sibling worker-seam module for one small helper).
+_PLACEHOLDER_MARKERS: tuple[str, ...] = ("PENDING", "PLACEHOLDER", "TODO", "TBD", "XXX")
+
+#: MAJOR-2 (GK REVISE): a ratified XSD whose OWN declared `targetNamespace` starts with this
+#: prefix self-identifies as a synthetic stand-in — every synthetic fixture in this repo (the
+#: shipped `spec/policies/ans/synthetic-tiss-v1.xsd` and this test suite's own fixtures) declares
+#: a `targetNamespace` starting with exactly this string. `schema_artifact.synthetic=false` is the
+#: manifest's OWN claim about itself; this constant is what lets the loader check that claim
+#: against the artifact instead of trusting it unconditionally.
+_SYNTHETIC_NAMESPACE_PREFIX = "urn:maezo:synthetic"
 
 # Precise, distinguishable failure reasons (mirrors legal_bases_matrix.py's REASON_* taxonomy) —
 # callers/telemetry can tell "manifest absent" from "malformed" from "not yet ratified" apart from
@@ -149,6 +185,14 @@ REASON_ACCOUNTABILITY_INCOMPLETE = "accountability_incomplete"
 REASON_ARTIFACT_STILL_SYNTHETIC = "artifact_still_synthetic"
 REASON_ARTIFACT_MISSING = "artifact_missing"
 REASON_ARTIFACT_MALFORMED = "artifact_malformed"
+#: MAJOR-1 (GK REVISE): `schema_artifact.sha256` does not match the XSD's actual bytes on disk —
+#: a ratified pin that only bound itself to a FILENAME survived an in-place swap of that file's
+#: content; this is the reason a re-derived-from-disk digest mismatch reports.
+REASON_ARTIFACT_DIGEST_MISMATCH = "artifact_digest_mismatch"
+#: MAJOR-2 (GK REVISE): the ratified XSD's own `targetNamespace` starts with
+#: `_SYNTHETIC_NAMESPACE_PREFIX` — the artifact self-identifies as synthetic regardless of what
+#: `schema_artifact.synthetic` claims.
+REASON_ARTIFACT_SELF_DECLARES_SYNTHETIC = "artifact_self_declares_synthetic"
 
 
 class TissSchemaPinUnavailableError(Exception):
@@ -183,14 +227,20 @@ class TissSchemaPinUnavailableError(Exception):
 class TissSchemaPin:
     """An immutable, already-ratified view of the TISS-schema-pin manifest.
 
-    Returned ONLY when every gate in `load_tiss_schema_pin`'s docstring passes — its mere
-    existence is proof the referenced XSD is no longer the synthetic placeholder as far as the
-    manifest's own fields declare (this loader does not itself inspect the XSD's bytes for
-    "realness"; `schema_artifact.sha256` in the manifest is the SME's own future integrity pin,
-    informational only, not enforced here).
+    Returned ONLY when every gate in `load_tiss_schema_pin`'s docstring passes — INCLUDING the two
+    artifact-integrity gates added by GK REVISE: `sha256` is re-derived from the XSD's actual
+    bytes on disk on every load and MUST match the manifest's own claimed
+    `schema_artifact.sha256` (MAJOR-1 — a mismatch raises `REASON_ARTIFACT_DIGEST_MISMATCH`), and
+    the XSD's own parsed `targetNamespace` MUST NOT self-identify as a synthetic stand-in (MAJOR-2
+    — `_SYNTHETIC_NAMESPACE_PREFIX`; a self-declaring artifact raises
+    `REASON_ARTIFACT_SELF_DECLARES_SYNTHETIC` even when `schema_artifact.synthetic` claims
+    `false`). A `TissSchemaPin`'s mere existence is therefore proof the referenced XSD is bound to
+    this exact ratification by its own reviewed CONTENT — not merely by filename, and not merely
+    by the manifest's own unverified self-declaration.
     """
 
     xsd_path: Path
+    sha256: str
     padrao_tiss_versao: str | None
     report_type: str | None
     revisor: str
@@ -245,6 +295,21 @@ def _manifest_default_path() -> Path:
 
 def _is_nonblank_str(value: Any) -> bool:
     return isinstance(value, str) and bool(value.strip())
+
+
+def _looks_like_placeholder(value: str) -> str | None:
+    """Return the placeholder marker `value` still carries, or `None` if it looks filled-in.
+
+    MAJOR-1 (GK REVISE) — mirrors `amh_inbox.py`'s `_looks_like_placeholder` exactly. Applied to
+    `schema_artifact.sha256` only: a literal placeholder string (the shipped manifest's own
+    `"PLACEHOLDER-SHA256-sme-must-fill-when-real-xsd-lands"`, or any value containing one of
+    `_PLACEHOLDER_MARKERS`) is not a digest, regardless of whether it happens to be non-blank.
+    """
+    upper = value.upper()
+    for marker in _PLACEHOLDER_MARKERS:
+        if marker in upper:
+            return marker
+    return None
 
 
 class _DuplicateKeySafeLoader(yaml.SafeLoader):
@@ -328,12 +393,28 @@ def _parse(data: object, manifest_path: Path) -> TissSchemaPin:
             "ratificado=true but who/when is absent is NOT a ratification",
         )
 
-    # Gate 4 — schema_artifact.synthetic must be the boolean literal False: this is what
-    # operationalizes "activation = SME replaces the synthetic XSD with the real one". Flipping
-    # ratification alone, with the artifact still flagged synthetic, still refuses.
+    # Gate 4a — schema_artifact must be a mapping, and (MINOR-4, GK REVISE) every key inside it
+    # must be RECOGNIZED. The top-level unknown-key fence above does not recurse, so a typo'd
+    # nested key (e.g. `sintetico:` for `synthetic:`) previously sat unread beside an otherwise
+    # fully-ratified-looking `schema_artifact` instead of refusing the whole manifest.
     schema_artifact = data.get(_SCHEMA_ARTIFACT)
     if not isinstance(schema_artifact, dict):
         raise _fail(REASON_INVALID_SCHEMA, f"{manifest_path}: '{_SCHEMA_ARTIFACT}' must be a mapping")
+
+    unknown_schema_artifact_keys = sorted(
+        str(k) for k in schema_artifact if k not in _KNOWN_SCHEMA_ARTIFACT_KEYS
+    )
+    if unknown_schema_artifact_keys:
+        raise _fail(
+            REASON_INVALID_SCHEMA,
+            f"{manifest_path}: unrecognized {_SCHEMA_ARTIFACT} key(s) {unknown_schema_artifact_keys} "
+            f"(known: {sorted(_KNOWN_SCHEMA_ARTIFACT_KEYS)}) — refusing the whole manifest rather "
+            "than risk a mistyped or unexpected nested key silently going unread",
+        )
+
+    # Gate 4b — schema_artifact.synthetic must be the boolean literal False: this is what
+    # operationalizes "activation = SME replaces the synthetic XSD with the real one". Flipping
+    # ratification alone, with the artifact still flagged synthetic, still refuses.
     if schema_artifact.get(_SYNTHETIC) is not False:
         raise _fail(
             REASON_ARTIFACT_STILL_SYNTHETIC,
@@ -348,9 +429,87 @@ def _parse(data: object, manifest_path: Path) -> TissSchemaPin:
             f"{manifest_path}: {_SCHEMA_ARTIFACT}.{_XSD_FILENAME} must be a non-empty string",
         )
 
-    xsd_path = manifest_path.parent / str(xsd_filename)
+    # MINOR-3 (GK REVISE): xsd_filename must be a BARE filename inside this manifest's own
+    # CODEOWNERS-gated directory. A `../../`-style probe previously LOADED a file outside that
+    # directory (the naive `manifest_path.parent / xsd_filename` join never rejected traversal).
+    # Reject path separators / '..' segments in the STRING outright, AND independently assert the
+    # RESOLVED path is still contained in `manifest_path.parent` — belt-and-suspenders: the string
+    # check alone cannot see a symlink placed inside the directory whose TARGET escapes it.
+    xsd_filename_str = str(xsd_filename)
+    if "/" in xsd_filename_str or "\\" in xsd_filename_str or ".." in xsd_filename_str:
+        raise _fail(
+            REASON_INVALID_SCHEMA,
+            f"{manifest_path}: {_SCHEMA_ARTIFACT}.{_XSD_FILENAME} {xsd_filename_str!r} must be a "
+            "bare filename inside this manifest's own directory — no path separators, no '..' "
+            "traversal segments",
+        )
+
+    manifest_dir = manifest_path.parent.resolve()
+    xsd_path = (manifest_path.parent / xsd_filename_str).resolve()
+    if xsd_path.parent != manifest_dir:
+        raise _fail(
+            REASON_INVALID_SCHEMA,
+            f"{manifest_path}: {_SCHEMA_ARTIFACT}.{_XSD_FILENAME} resolves to {xsd_path}, outside "
+            f"this manifest's own directory {manifest_dir} — refusing",
+        )
     if not xsd_path.is_file():
         raise _fail(REASON_ARTIFACT_MISSING, f"ratified pin names a missing XSD file: {xsd_path}")
+
+    # Gate 5 — schema_artifact.sha256 (MAJOR-1, GK REVISE): binds this ratification to the XSD's
+    # actual BYTES, not merely its filename. Proven live-forgeable before this repair: a ratified
+    # pin survived an in-place swap of the XSD's content after ratification, a literal placeholder
+    # sha256, and an arbitrary non-matching string ("deadbeef") — none of those mean "the
+    # ratification covers this exact artifact". Mirrors amh_inbox.py's `migration_digest()` +
+    # `load_inbox_ratification`'s re-derive-and-compare (the W2 standard for binding a human
+    # approval to bytes, not a name): recomputed from disk on EVERY load, never trusted as-is.
+    sha256_value = schema_artifact.get(_SHA256)
+    if not _is_nonblank_str(sha256_value):
+        raise _fail(
+            REASON_INVALID_SCHEMA,
+            f"{manifest_path}: {_SCHEMA_ARTIFACT}.{_SHA256} must be a non-empty string",
+        )
+    placeholder_marker = _looks_like_placeholder(str(sha256_value))
+    if placeholder_marker is not None:
+        raise _fail(
+            REASON_INVALID_SCHEMA,
+            f"{manifest_path}: {_SCHEMA_ARTIFACT}.{_SHA256} still carries the placeholder marker "
+            f"{placeholder_marker!r} — a half-filled digest is not a ratification",
+        )
+
+    try:
+        xsd_bytes = xsd_path.read_bytes()
+    except OSError as exc:
+        raise _fail(REASON_ARTIFACT_MISSING, f"could not read ratified XSD at {xsd_path}: {exc}") from exc
+
+    actual_digest = hashlib.sha256(xsd_bytes).hexdigest()
+    if str(sha256_value).strip().lower() != actual_digest:
+        raise _fail(
+            REASON_ARTIFACT_DIGEST_MISMATCH,
+            f"{manifest_path}: {_SCHEMA_ARTIFACT}.{_SHA256} is {str(sha256_value)!r} but {xsd_path} "
+            f"hashes to {actual_digest!r} — the ratification does not cover the XSD on disk",
+        )
+
+    # Gate 6 — the XSD's OWN declared targetNamespace must not self-identify as synthetic
+    # (MAJOR-2, GK REVISE). Proven live-forgeable before this repair: a forged manifest with
+    # `schema_artifact.synthetic: false` ratifying the verbatim SYNTHETIC XSD (all other gates
+    # forged too) loaded. Every synthetic fixture in this repo declares
+    # `targetNamespace="urn:maezo:synthetic:..."` precisely so this check can catch exactly that
+    # forgery: the artifact self-identifies, so check it instead of trusting the flag beside it.
+    try:
+        xsd_root = etree.fromstring(xsd_bytes)
+    except etree.XMLSyntaxError as exc:
+        raise _fail(
+            REASON_ARTIFACT_MALFORMED, f"ratified XSD at {xsd_path} is not well-formed XML: {exc}"
+        ) from exc
+    target_namespace = xsd_root.get("targetNamespace") or ""
+    if target_namespace.startswith(_SYNTHETIC_NAMESPACE_PREFIX):
+        raise _fail(
+            REASON_ARTIFACT_SELF_DECLARES_SYNTHETIC,
+            f"{manifest_path}: ratified XSD at {xsd_path} declares targetNamespace "
+            f"{target_namespace!r}, which self-identifies as a synthetic stand-in (starts with "
+            f"{_SYNTHETIC_NAMESPACE_PREFIX!r}) — {_SCHEMA_ARTIFACT}.{_SYNTHETIC}=false does not "
+            "override what the artifact itself declares",
+        )
 
     padrao_tiss_versao = schema_artifact.get(_PADRAO_TISS_VERSAO)
     report_type = schema_artifact.get(_REPORT_TYPE)
@@ -359,11 +518,13 @@ def _parse(data: object, manifest_path: Path) -> TissSchemaPin:
         "tiss_schema_pin_ratified_and_loaded",
         path=str(manifest_path),
         xsd_path=str(xsd_path),
+        xsd_sha256=actual_digest,
         revisor=str(revisor),
         ratificado_em=str(ratificado_em),
     )
     return TissSchemaPin(
         xsd_path=xsd_path,
+        sha256=actual_digest,
         padrao_tiss_versao=padrao_tiss_versao if isinstance(padrao_tiss_versao, str) else None,
         report_type=report_type if isinstance(report_type, str) else None,
         revisor=str(revisor),
@@ -421,12 +582,21 @@ def load_tiss_schema_pin(path: str | Path | None = None) -> TissSchemaPin:
 
 
 @lru_cache(maxsize=8)
-def _compile_schema(xsd_path: str) -> etree.XMLSchema | None:
-    """Parse + compile the ratified XSD (cached by resolved path — mirrors `tiss_schema.py`'s
-    `_load_schema_cached`: schemas are static vendored/ratified files). `None` on any load
-    failure — the caller (`TissSchemaPinValidator.validate`) turns that into a RAISE
-    (`REASON_ARTIFACT_MALFORMED`), not a return, because a ratified-but-broken artifact is a
+def _compile_schema(xsd_path: str, digest: str) -> etree.XMLSchema | None:
+    """Parse + compile the ratified XSD (cached by resolved path AND CONTENT DIGEST — MAJOR-1, GK
+    REVISE: keying on `digest` too, not merely `xsd_path`, means an in-place XSD swap followed by
+    a legitimate re-ratification (new bytes + a correctly re-derived sha256, same filename) always
+    forces a fresh compile. Before this repair the cache was keyed on `xsd_path` alone, so a STALE
+    compiled `XMLSchema` object from a prior ratification's bytes could silently persist across a
+    re-ratification within the same long-lived process — the digest gate in `_parse` refuses a
+    swap that ISN'T also re-ratified, but does not by itself stop this in-process cache from
+    serving pre-swap compiled state for a swap that IS. `digest` does not otherwise participate in
+    the compile (the file is still read fresh from `xsd_path`); it exists only to widen the key.
+
+    `None` on any load failure — the caller (`TissSchemaPinValidator.validate`) turns that into a
+    RAISE (`REASON_ARTIFACT_MALFORMED`), not a return, because a ratified-but-broken artifact is a
     governance/availability failure, not a payload outcome (module docstring, RAISE-vs-RETURN)."""
+    del digest  # only widens the lru_cache key; the compile itself reads xsd_path fresh
     try:
         return etree.XMLSchema(etree.parse(xsd_path))
     except OSError as exc:
@@ -532,18 +702,43 @@ class TissSchemaPinValidator:
     def __init__(self, *, manifest_path: str | Path | None = None) -> None:
         self._manifest_path = manifest_path
 
-    def validate(self, *, dataset_ref: str) -> TissSchemaPinValidationResult:
-        """Validate `dataset_ref`'s XML against the ratified pin's XSD.
+    def validate(self, *, report_type: str, dataset_ref: str) -> TissSchemaPinValidationResult:
+        """Validate `dataset_ref`'s XML against the ratified pin's XSD — but ONLY after confirming
+        `report_type` matches the report_type the ratified pin itself declares
+        (`schema_artifact.report_type`; MINOR-5, GK REVISE option 1).
+
+        `TissSchemaPin` always carried `report_type`, but neither this method nor
+        `tiss_schema_pin_gate_entry` used to read it: a direct future adoption would have silently
+        dropped the report-type discrimination the ALREADY-WIRED sibling seam has —
+        `tiss_schema.py`'s `TissSchemaValidator.validate` resolves a DIFFERENT XSD per
+        `(version, report_type)` (`xsd_path = schema_root / version / f"{report_type}.xsd"`) — so
+        validating a `report_type="internacao"` dataset against a pin ratified for
+        `report_type="SP/SADT"` must not silently "pass" just because both happen to share one
+        pinned XSD file. Mirrors that sibling's RETURN-not-RAISE posture for a report_type/schema
+        mismatch (`TissSchemaValidator.validate` rule 2: "No vendored XSD for (version,
+        report_type) -> schema_valid=False") — a report_type mismatch against this pin is an
+        ORDINARY per-call outcome, not a governance/availability failure: the pin itself is
+        perfectly available, just not applicable to THIS report_type.
 
         Raises `TissSchemaPinUnavailableError` if the pin is not ratified, or is ratified but its
         artifact is missing/malformed — the caller MUST treat this as UNAVAILABLE, never as a
         PASS (see `tiss_schema_pin_gate_entry` for the documented, not-yet-wired consumption
-        contract). Once the pin IS available, every payload-level outcome (missing/malformed XML,
-        schema-valid, schema-invalid-with-diagnostics) is a RETURNED result, never a raise.
+        contract). Once the pin IS available, every payload-level outcome (report_type mismatch,
+        missing/malformed XML, schema-valid, schema-invalid-with-diagnostics) is a RETURNED
+        result, never a raise.
         """
         pin = load_tiss_schema_pin(self._manifest_path)  # raises TissSchemaPinUnavailableError
 
-        schema = _compile_schema(str(pin.xsd_path))
+        if report_type != pin.report_type:
+            return TissSchemaPinValidationResult(
+                schema_valid=False,
+                diagnostics=(
+                    TissSchemaPinDiagnostic(kind="report_type_incompativel_com_pin", element=None, line=None),
+                ),
+                schema_version=pin.padrao_tiss_versao,
+            )
+
+        schema = _compile_schema(str(pin.xsd_path), pin.sha256)
         if schema is None:
             raise _fail(REASON_ARTIFACT_MALFORMED, f"could not compile ratified XSD at {pin.xsd_path}")
 
@@ -609,11 +804,14 @@ def tiss_schema_pin_gate_entry(
 ) -> dict[str, Any]:
     """DEMONSTRATION dict-boundary entry — traces how `ans_submit.py` WOULD consume this gate.
 
-    Reads `dataset_ref` off `variables` — the same field `AnsSubmissionData.dataset_ref` carries
-    (see `ans_submit.validate_entry`). `pin_validator=None` (the default a real registration would
-    pass in production) resolves a fresh `TissSchemaPinValidator()`; dev/test inject one pinned at
-    a fixture manifest path, mirroring the `tiss_validator`/`ans_gateway` `**seams` convention
-    already used by `register_ans_submit_workers`.
+    Reads `dataset_ref` AND `report_type` off `variables` — the same fields
+    `AnsSubmissionData.dataset_ref`/`AnsSubmissionData.report_type` carry (see
+    `ans_submit.validate_entry`; `report_type` is threaded through per MINOR-5, GK REVISE —
+    without it, this demonstration would silently drop the report-type discrimination
+    `TissSchemaPinValidator.validate` now enforces). `pin_validator=None` (the default a real
+    registration would pass in production) resolves a fresh `TissSchemaPinValidator()`; dev/test
+    inject one pinned at a fixture manifest path, mirroring the `tiss_validator`/`ans_gateway`
+    `**seams` convention already used by `register_ans_submit_workers`.
 
     **The UNAVAILABLE contract.** On `TissSchemaPinUnavailableError` (unratified pin, or any other
     refusal `load_tiss_schema_pin` raises) this function returns — it does NOT re-raise past this
@@ -634,8 +832,9 @@ def tiss_schema_pin_gate_entry(
     """
     validator = pin_validator if pin_validator is not None else TissSchemaPinValidator()
     dataset_ref = str(variables.get("dataset_ref") or "")
+    report_type = str(variables.get("report_type") or "")
     try:
-        result = validator.validate(dataset_ref=dataset_ref)
+        result = validator.validate(report_type=report_type, dataset_ref=dataset_ref)
     except TissSchemaPinUnavailableError as exc:
         return {
             "tiss_schema_pin_available": False,
