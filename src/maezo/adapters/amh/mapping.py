@@ -472,12 +472,22 @@ def _optional_str(event: Mapping[str, Any], field: str) -> str | None:
 
 
 def _require_int(event: Mapping[str, Any], field: str, *, container: str = _ENVELOPE_CONTAINER) -> int:
+    """A required non-negative integer field: `replay_count` (a count) and `consent_revision` (a
+    monotonic revision number, `maezo.ports.consent`) are the two callers, and neither has a
+    negative value in its domain — a count cannot be negative, and a revision-number sequence has
+    no negative member. Refusing negative here is schema conformance only (the same class of check
+    as the bool/non-int rejection below): it is stateless and knows nothing of any PREVIOUS
+    revision seen for a subject — the out-of-order/monotonicity guard XRD-10 mandates is a
+    consumer-side concern (MZO-050b), deliberately not built here.
+    """
     value = _require_present(event, field, container=container)
     # `bool` first: it is an `int` subclass, so `True` would otherwise read as the integer 1.
     if isinstance(value, bool) or not isinstance(value, int):
         raise AmhMappingError(field, f"expected an integer, got {type(value).__name__}")
     # The annotation makes the isinstance narrowing of an `Any` explicit for mypy strict.
     narrowed: int = value
+    if narrowed < 0:
+        raise AmhMappingError(field, "negative integer not permitted")
     return narrowed
 
 

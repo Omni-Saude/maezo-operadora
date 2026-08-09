@@ -453,6 +453,88 @@ def test_a_duplicate_nested_key_is_refused_too(tmp_path: Path) -> None:
     assert load_action_approvals(path).degraded is True
 
 
+def test_a_merge_key_is_refused_with_a_dedicated_reason_not_invalid_yaml(tmp_path: Path) -> None:
+    """W5 GK MINOR (item 6): a YAML merge key (`<<: *anchor`) trips the SAME underlying
+    `ConstructorError` PyYAML raises for a genuinely unsupported tag — but the manifest is
+    well-formed YAML, not malformed. It must get its OWN reason, `merge_key_unsupported`, never
+    the generic `invalid_yaml` a ratifier reaching for an anchor would have to puzzle over (there
+    is no syntax error to find). Fail-closed SHAPE is unchanged either way — degraded, unresolved,
+    nothing approved — only the log's `reason` token differs.
+    """
+    path = tmp_path / "action-approvals.yaml"
+    path.write_text(
+        "version: 1\nstatus: RATIFICADO\nmodo: enforcing\n"
+        "base: &base\n"
+        "  dominios_exigidos: [medica, ans, seguranca]\n"
+        "acoes:\n"
+        f"  {_CLASS}:\n"
+        "    <<: *base\n"
+        "    descricao: fixture\n",
+        encoding="utf-8",
+    )
+    with structlog.testing.capture_logs() as logs:
+        approvals = load_action_approvals(path)
+
+    assert approvals.degraded is True
+    assert approvals.mode == MODE_UNRESOLVED
+    assert approvals.approved == frozenset()
+
+    unavailable = [e for e in logs if e.get("event") == "action_approvals_manifest_unavailable"]
+    assert len(unavailable) == 1, logs
+    assert unavailable[0]["reason"] == "merge_key_unsupported"
+    assert unavailable[0]["reason"] != "invalid_yaml"
+
+
+def test_an_unrelated_unsupported_tag_still_gets_the_generic_invalid_yaml_reason(tmp_path: Path) -> None:
+    """Contrast case: an unrelated unsupported YAML tag (never a merge key) still raises the SAME
+    `ConstructorError` class, but must keep the generic `invalid_yaml` reason — that document
+    really is one this loader cannot make sense of, unlike a `<<` merge key.
+
+    NOT proof the merge-key carve-out is narrow to `<<` itself — the discriminator is a substring
+    test on `exc.problem` (`_MERGE_KEY_TAG in exc.problem`), so it is narrowed by TAG, not by
+    `<<`-key-usage specifically; see `test_a_merge_tagged_value_also_gets_merge_key_unsupported`
+    below for the pinned collision (V3 GK REVISE — the earlier "proven NARROW" docstring here
+    overstated this)."""
+    path = tmp_path / "action-approvals.yaml"
+    path.write_text(
+        "version: 1\nstatus: RATIFICADO\nmodo: enforcing\nacoes: !!python/object/apply:builtins.list []\n",
+        encoding="utf-8",
+    )
+    with structlog.testing.capture_logs() as logs:
+        approvals = load_action_approvals(path)
+
+    assert approvals.degraded is True
+    unavailable = [e for e in logs if e.get("event") == "action_approvals_manifest_unavailable"]
+    assert len(unavailable) == 1, logs
+    assert unavailable[0]["reason"] == "invalid_yaml"
+
+
+def test_a_merge_tagged_value_also_gets_merge_key_unsupported(tmp_path: Path) -> None:
+    """COLLISION, DOCUMENTED NOT FIXED (V3 GK REVISE): the `merge_key_unsupported` discriminator
+    (`_MERGE_KEY_TAG in exc.problem`, `action_execution.py:406`) is a SUBSTRING test on the tag
+    name, not a check that a `<<` key specifically was used. A value explicitly tagged `!!merge`
+    — never used as a `<<` key, so never a real merge — carries the identical
+    `tag:yaml.org,2002:merge` tag PyYAML puts in `exc.problem` for a genuine `<<` key, and so ALSO
+    reports `merge_key_unsupported`. This is NOT re-engineered here: fail-closed shape is identical
+    either way (degraded, unresolved, nothing approved), so the collision is a documentation-
+    precision gap, not a behavioral one — pinned here so it stays honest, not "proven narrow"."""
+    path = tmp_path / "action-approvals.yaml"
+    path.write_text(
+        "version: 1\nstatus: RATIFICADO\nmodo: enforcing\ndescricao: !!merge fixture\n",
+        encoding="utf-8",
+    )
+    with structlog.testing.capture_logs() as logs:
+        approvals = load_action_approvals(path)
+
+    assert approvals.degraded is True
+    assert approvals.mode == MODE_UNRESOLVED
+    assert approvals.approved == frozenset()
+
+    unavailable = [e for e in logs if e.get("event") == "action_approvals_manifest_unavailable"]
+    assert len(unavailable) == 1, logs
+    assert unavailable[0]["reason"] == "merge_key_unsupported"
+
+
 # ---------------------------------------------------------------------------------------------
 # (e) THE DEPLOYMENT OVERRIDE MAY NOT ENFORCE ON ITS OWN
 # ---------------------------------------------------------------------------------------------

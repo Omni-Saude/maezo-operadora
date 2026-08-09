@@ -27,6 +27,7 @@ from maezo.tools.workers.ans_submit import (
     AnsSubmitDecision,
     AnsSubmitInput,
     AnsSubmitNotHumanError,
+    _ans_business_key,
     assemble_entry,
     handle_nack,
     make_notify_regulatorio_handler,
@@ -829,6 +830,77 @@ def test_submit_entry_happy_path() -> None:
     # Deterministic synthetic protocol keyed on the derived business key.
     assert result["protocolo_ans"] == f"{MOCK_ANS_PROTOCOL_PREFIX}ANSSUB-amh-SIP-2026-06"
     assert result["synthetic"] is True and result["vinculativo"] is False
+
+
+def test_ans_business_key_returns_stripped_explicit_key() -> None:
+    """`_ans_business_key` returns the STRIPPED explicit `business_key` (item 2 fix) — mirrors
+    `recurso.py`'s `_mint_protocolo_recurso` sibling (`business_key.strip() or f"RECURSO-..."`).
+
+    Pre-fix this tested `bk.strip()` for non-blankness but then returned the UNSTRIPPED `bk` — a
+    whitespace-padded engine business key would derive a DIFFERENT synthetic protocol than its
+    stripped form, silently breaking the BPMN `:461` retransmit idempotency this function's
+    docstring promises.
+    """
+    assert _ans_business_key({"business_key": "  ANSSUB-amh-SIP-2026-06  "}) == "ANSSUB-amh-SIP-2026-06"
+    assert _ans_business_key({"business_key": "\tANSSUB-amh-SIP-2026-06\n"}) == "ANSSUB-amh-SIP-2026-06"
+    # unpadded key is unaffected (idempotent strip)
+    assert _ans_business_key({"business_key": "ANSSUB-amh-SIP-2026-06"}) == "ANSSUB-amh-SIP-2026-06"
+    # whitespace-only key reads as ABSENT (same as pre-fix) -> reconstructed from parts. The
+    # parts here are already clean, so this alone does not prove the reconstruct branch strips
+    # them too — see test_ans_business_key_strips_reconstructed_parts below for that.
+    whitespace_only = {
+        "business_key": "   ",
+        "tenant_id": "amh",
+        "report_type": "SIP",
+        "competencia": "2026-06",
+    }
+    assert _ans_business_key(whitespace_only) == "ANSSUB-amh-SIP-2026-06"
+
+
+def test_ans_business_key_strips_reconstructed_parts() -> None:
+    """`_ans_business_key`'s reconstruct branch (no usable explicit `business_key`) strips EACH
+    part (`tenant_id`/`report_type`/`competencia`) individually before joining them — mirrors the
+    explicit-key `.strip()` above so the two paths are equally immune to whitespace padding.
+
+    Pre-fix, the reconstruct branch built the key from unstripped parts: a padded `tenant_id`
+    of `"  amh  "` etc. produced the interior-whitespace key `"ANSSUB-  amh  - SIP - 2026-06 "`
+    instead of the clean `"ANSSUB-amh-SIP-2026-06"` — a DIFFERENT string than the same logical
+    identity's clean form, silently breaking the retransmit idempotency this function's docstring
+    promises (same hazard the explicit-key `.strip()` fix above already closed for that path).
+    """
+    padded_parts = {
+        "business_key": "",
+        "tenant_id": "  amh  ",
+        "report_type": " SIP ",
+        "competencia": " 2026-06 ",
+    }
+    assert _ans_business_key(padded_parts) == "ANSSUB-amh-SIP-2026-06"
+
+
+def test_submit_entry_retransmit_key_stability_with_padded_engine_key() -> None:
+    """RETRANSMIT-KEY STABILITY (item 2): a retransmit carrying the SAME logical business key,
+    whitespace-padded by the engine on the second delivery, mints the IDENTICAL synthetic
+    protocol as the clean first delivery — otherwise a merely-padded retransmit would look like a
+    brand-new submission to `LabeledMockAnsGatewayTransport`, defeating the BPMN `:461`
+    idempotency `_ans_business_key`'s docstring promises.
+    """
+    variables = {
+        "tenant_id": "amh",
+        "report_type": "SIP",
+        "competencia": "2026-06",
+        "decisao_envio": "APROVAR_ENVIO",
+        "revisor_id": "revisor-1",
+    }
+    clean = submit_entry(
+        {**variables, "business_key": "ANSSUB-amh-SIP-2026-06"},
+        ans_gateway=LabeledMockAnsGatewayTransport(),
+    )
+    padded_retransmit = submit_entry(
+        {**variables, "business_key": "  ANSSUB-amh-SIP-2026-06  "},
+        ans_gateway=LabeledMockAnsGatewayTransport(),
+    )
+    assert clean["protocolo_ans"] == padded_retransmit["protocolo_ans"]
+    assert clean["protocolo_ans"] == f"{MOCK_ANS_PROTOCOL_PREFIX}ANSSUB-amh-SIP-2026-06"
 
 
 def test_track_protocol_entry_raises_on_missing_protocolo() -> None:

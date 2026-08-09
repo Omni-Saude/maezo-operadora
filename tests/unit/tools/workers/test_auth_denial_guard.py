@@ -711,6 +711,90 @@ def test_auth_absent_valor_estimado_fails_closed(tmp_path: Path) -> None:
     assert result_ok["status"] == "auto_approved"
 
 
+@pytest.mark.parametrize(
+    "bad_valor",
+    [
+        pytest.param(True, id="bool-true"),
+        pytest.param(False, id="bool-false"),
+        pytest.param(-100.0, id="negative-float"),
+        pytest.param(-0.01, id="negative-fraction"),
+        pytest.param(float("nan"), id="nan"),
+        pytest.param(float("inf"), id="positive-inf-float"),
+        pytest.param(float("-inf"), id="negative-inf-float"),
+        pytest.param("inf", id="inf-string"),
+        pytest.param("-inf", id="negative-inf-string"),
+        pytest.param("1e400", id="overflowing-string-literal"),
+        pytest.param(1e400, id="overflowing-float-literal"),
+    ],
+)
+def test_auth_analyze_request_ceiling_derivation_rejects_untrustworthy_valor(
+    tmp_path: Path, bad_valor: object
+) -> None:
+    """`AnalyzeRequestWorker.execute` now shares `_ceiling_valor_cents` (item 1 fix): bool,
+    negative, NaN, and +-inf (float AND string forms, plus a string literal that overflows float
+    parsing straight to inf) never reach `within_l2_ceiling` — `teto_ok` goes straight to False
+    and the request routes to human review, never auto-approves.
+
+    REGRESSION PIN: pre-fix, this call site used a bare `round(float(raw) * 100)`. For
+    `"inf"`/`"1e400"`/`1e400` that raised an UNCAUGHT `OverflowError` (`round()` cannot convert a
+    float infinity to an int, and that exception type was not in the local
+    `except (TypeError, ValueError)`), crashing the worker instead of routing to human review.
+    This test's mere completion without raising IS the crash-regression pin; the assertions below
+    pin the fail-closed outcome for every vector, crash-prone or not.
+    """
+    worker = AnalyzeRequestWorker(resolver=_pin_resolver(tmp_path, max_value_brl=500))
+    base_vars = {
+        "tenant_id": "amh",
+        "numero_guia_tiss": "G12345",
+        "dut_atendida": True,
+        "rede_credenciada": True,
+        "beneficiario_ativo": True,
+        "carencia_cumprida": True,
+        "documentacao_completa": True,
+        "valor_estimado_brl": bad_valor,
+    }
+
+    result = worker.run(base_vars)  # must not raise
+
+    assert result["status"] != "auto_approved"
+    assert result["status"] == "dossier_created"
+    assert result["dentro_teto_l2"] is False
+
+
+def test_auth_analyze_request_ceiling_derivation_ceils_never_rounds_at_the_boundary(
+    tmp_path: Path,
+) -> None:
+    """GK-ceiling finding 2, now proven through `AnalyzeRequestWorker.execute` itself (item 1):
+    a value fractionally ABOVE the teto must not round back onto it and auto-approve.
+
+    Pre-fix, `round(500.001 * 100)` == 50000 — rounds DOWN onto the R$500 (50000 centavo)
+    boundary — so the request would have auto-approved at R$500.001 against a R$500 teto.
+    Post-fix, the shared `_ceiling_valor_cents` CEILs: `math.ceil(50000.1)` == 50001, one centavo
+    ABOVE the teto, so the request correctly routes to human review instead.
+    """
+    worker = AnalyzeRequestWorker(resolver=_pin_resolver(tmp_path, max_value_brl=500))
+    base_vars = {
+        "tenant_id": "amh",
+        "numero_guia_tiss": "G12345",
+        "dut_atendida": True,
+        "rede_credenciada": True,
+        "beneficiario_ativo": True,
+        "carencia_cumprida": True,
+        "documentacao_completa": True,
+    }
+
+    # exactly at the teto (500.00 BRL -> 50000 centavos, inclusive boundary) -> auto-approves
+    at_boundary = worker.run({**base_vars, "valor_estimado_brl": 500.0})
+    assert at_boundary["status"] == "auto_approved"
+    assert at_boundary["dentro_teto_l2"] is True
+
+    # a fraction of a centavo above the teto CEILs to 50001 and denies — pre-fix this rounded
+    # back down to exactly 50000 and wrongly auto-approved.
+    just_above = worker.run({**base_vars, "valor_estimado_brl": 500.001})
+    assert just_above["status"] == "dossier_created"
+    assert just_above["dentro_teto_l2"] is False
+
+
 def test_analyze_request_requires_human_for_non_auto() -> None:
     """analyze_request routes to human analysis when auto conditions not met."""
     worker = AnalyzeRequestWorker()
