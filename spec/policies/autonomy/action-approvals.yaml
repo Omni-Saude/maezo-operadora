@@ -1,0 +1,376 @@
+# Approval records for the `ActionExecutionGateway` (MZO-040 / ADR-0037 XRD-09).
+#
+# WHY THIS FILE EXISTS
+# --------------------
+# `PLANS.md` §0.6 records MZO-040 as BLOCKED on three human approvals — **Médica, ANS e
+# Security** — none of which has been granted (DL-0042 unloaded the DPO/Legal gate for MZO-020
+# and explicitly does NOT reach these three). ADR-0037 XRD-09 re-introduces the per-call
+# chokepoint that ADR-0034 descoped, and says so with an explicit condition: the clause "só
+# produz efeito com a aceitação deste ADR + evidência MZO-040 entregue".
+#
+# So MZO-040 cannot be "built when approved" — the approvers would be approving a project
+# description. This file inverts that: the gateway is BUILT and WIRED IN SHADOW, every action
+# class DENIES in enforcement terms, and the approvers ratify against the shadow evidence the
+# running system produces. Ratifying is a DATA change in this file — no Python change, no
+# redeploy of the gateway.
+#
+# THE RULE THIS FILE ENFORCES (mirrors two existing loaders in this repo:
+# `src/maezo/platform/lifecycle/legal_bases_matrix.py`, the DPO retention matrix that REFUSES its
+# own unratified template rather than "succeeding" on placeholder data; and
+# `src/maezo/tools/workers/auth_criteria.py`, the GAP-AUTH-4 ratification gate):
+#
+#     An action class may be ALLOWED only if (a) this file's `status` is exactly `RATIFICADO`,
+#     (b) the class is declared below, and (c) EVERY domain in its `dominios_exigidos` carries a
+#     complete approval block. Anything else — DRAFT status, a missing class, an unmapped topic,
+#     a blank/PENDENTE accountability field, a malformed file — is a DENY.
+#
+# A `status: DRAFT` file can NEVER produce an ALLOW, in ANY mode, even if every `aprovado` below
+# reads `true`. That forgery shape is pinned by
+# `tests/unit/sec/test_action_execution_fence.py::test_draft_file_can_never_allow_even_when_forged`.
+#
+# HOW TO RATIFY (the exact human act — see docs/reviews/mzo-040-approval-packet.md)
+# --------------------------------------------------------------------------------
+#  1. Each approver fills THEIR OWN domain block, for each action class they are attesting:
+#         aprovado:      true                    # the boolean literal true — nothing else counts
+#         aprovador:     "<name, role>"          # ADR-0007 accountability: WHO
+#         data:          "YYYY-MM-DD"            # WHEN
+#         evidencia_ref: "<what they reviewed>"  # AGAINST WHAT (a shadow-telemetry window, a
+#                                                # report path, a meeting record — never blank)
+#     The literal string `PENDENTE` is the machine-detectable placeholder: a field left as
+#     `PENDENTE` (or blank, or null) means NOT approved, even alongside `aprovado: true`.
+#     A partial fill reads as an unfinished edit and is refused — never a ratification.
+#  2. Complete `mapeamento_topicos` for every topic that must be gated (see the note there).
+#  3. Set `status: RATIFICADO`.
+#  4. Set `modo: enforcing`.
+# Steps 3 and 4 are the switch. Until BOTH happen, execution is byte-for-byte unchanged.
+#
+# NO AGENT MAY FILL ANY BLOCK BELOW. A forged approval is a compliance event, not a bug.
+# Every `aprovado` here is `false` and every accountability field is `PENDENTE` — that is not a
+# placeholder awaiting cleanup, it is the honest recorded state of the three open gates.
+#
+# CODEOWNERS: covered by `/spec/policies/autonomy/` AND by an explicit last-match line for this
+# file in `.github/CODEOWNERS` (@rodrigotaquino @Omni-Saude/security).
+#
+# The `unratified: true` root key (absent below, deliberately) is the retention-matrix template
+# guard, mirrored: a copy of this file marked `unratified: true` is REFUSED WHOLESALE, so
+# pointing the loader at a placeholder by mistake also fails closed.
+
+version: 1
+
+# ---------------------------------------------------------------------------------------------
+# status — DRAFT | RATIFICADO. Anything other than the exact literal `RATIFICADO` means NOTHING
+# below can be approved, regardless of what the per-domain blocks say. This is the outer fence.
+# ---------------------------------------------------------------------------------------------
+status: DRAFT
+
+# ---------------------------------------------------------------------------------------------
+# modo — shadow | enforcing.
+#
+#   shadow     the gateway EVALUATES every choked call and emits structured, non-PHI telemetry
+#              (`action_execution_gateway_shadow`: action_class, would_allow/would_deny, reason,
+#              mode, tenant, topic) and NEVER alters execution. This is today's value.
+#   enforcing  a DENY blocks the call: the external task is refused fail-closed (audited refusal
+#              + engine incident, retries=0 — the same shape as every other guard in this repo,
+#              per ADR-0008/ADR-0030 §4), so it lands in front of a human and never silently
+#              proceeds nor silently disappears.
+#
+# Flipping this field is a human act with NO code change. Flipping it while `status` is DRAFT
+# denies EVERY class — that direction is safe, and deliberately so.
+#
+# BEFORE FLIPPING, read `mapeamento_topicos` below: an unmapped topic DENIES under enforcement.
+# ---------------------------------------------------------------------------------------------
+modo: shadow
+
+# ---------------------------------------------------------------------------------------------
+# acoes — the action classes.
+#
+# Derived from ADR-0037 XRD-09 ("todo read/tool/efeito externo") and from the LIVE runtime
+# surfaces in this repo. Every class below carries at least one real `superficies` referent with
+# a `file:line` in the tree; no class was invented to round out a taxonomy.
+#
+# `dominios_exigidos` is `[medica, ans, seguranca]` for EVERY class, because `PLANS.md` §0.6
+# states the MZO-040 gate as Médica + ANS + Security without per-class differentiation, and
+# DL-0042 states the exclusion the same way. NARROWING a class's required set (e.g. deciding
+# that payment issuance needs no medical attestation) is itself a governance decision and a
+# CODEOWNERS-gated edit to this file BY A HUMAN — an agent must never make it. The loader
+# rejects an empty `dominios_exigidos` and any domain outside the code-frozen set
+# {medica, ans, seguranca} (`src/maezo/gateway/action_execution.py`), so "approve by emptying
+# the requirement list" is not a reachable forgery.
+#
+# `superficies[].choked` records whether the surface flows through the chokepoint the gateway is
+# wired at TODAY (`WorkerHarness._handle`, src/maezo/tools/workers/harness.py). It is
+# DOCUMENTATION, not policy — the loader never reads it. It exists so an approver knows, per
+# class, whether shadow telemetry will actually give them evidence, or whether the surface is
+# still unwired. `choked: false` classes are listed because XRD-09 names them and ADR-0037's
+# ADR-0022 note requires `mcp_fhir` to route through this gateway; they will produce NO shadow
+# evidence until that wiring lands, and the approval packet says so explicitly.
+# ---------------------------------------------------------------------------------------------
+acoes:
+
+  autorizacao_emissao:
+    descricao: >-
+      Emissão de uma autorização prévia — o ato que abre cobertura para um procedimento.
+      Efeito assistencial e financeiro direto sobre o beneficiário e o prestador.
+    superficies:
+      - referencia: "src/maezo/tools/workers/auth.py:1125"
+        detalhe: "IssueAuthorizationWorker — topic operadora.auth.issue_authorization"
+        choked: true
+    dominios_exigidos: [medica, ans, seguranca]
+    aprovacoes:
+      medica:    { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+      ans:       { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+      seguranca: { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+
+  negativa_notificacao:
+    descricao: >-
+      Emissão da NOTIFICAÇÃO de uma negativa já decidida por humano. A negativa em si é L0 hard
+      (`authorization_denial`, L0-core.yaml:7) e nasce só em User Task; esta classe cobre o ato
+      externo de comunicá-la — o gatilho de prazo e de recurso (RN 259, NIP).
+    superficies:
+      - referencia: "src/maezo/tools/workers/auth.py:1369"
+        detalhe: "SendDenialNoticeWorker — topic operadora.auth.send_denial_notice"
+        choked: true
+      - referencia: "src/maezo/tools/workers/reembolso.py:813"
+        detalhe: "topic operadora.reembolso.send_reembolso_denial (GUARDED)"
+        choked: true
+    dominios_exigidos: [medica, ans, seguranca]
+    aprovacoes:
+      medica:    { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+      ans:       { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+      seguranca: { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+
+  submissao_regulatoria_ans:
+    descricao: >-
+      Submissão oficial a um canal da ANS (envio, retransmissão, resposta de NIP, recurso).
+      Efeito regulatório externo com prazo legal; corresponde a `ans_official_submission`
+      (L0-core.yaml:14, L1).
+    superficies:
+      - referencia: "src/maezo/tools/workers/ans_submit.py:900"
+        detalhe: "topic regulatorio.anssubmit.submit"
+        choked: true
+      - referencia: "src/maezo/tools/workers/ans_submit.py:911"
+        detalhe: "topic regulatorio.anssubmit.retransmit"
+        choked: true
+      - referencia: "src/maezo/tools/workers/nip.py:552"
+        detalhe: "topic operadora.nip.submit_response (GUARDED)"
+        choked: true
+      - referencia: "src/maezo/tools/workers/recurso.py:1090"
+        detalhe: "topic operadora.recurso.submit_appeal (raw handler)"
+        choked: true
+    dominios_exigidos: [medica, ans, seguranca]
+    aprovacoes:
+      medica:    { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+      ans:       { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+      seguranca: { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+
+  pagamento_emissao:
+    descricao: >-
+      Liberação de pagamento (prestador ou reembolso ao beneficiário). Efeito financeiro
+      irreversível; o teto L2 correspondente é `high_value_payment` (L0-core.yaml:21).
+    superficies:
+      - referencia: "src/maezo/tools/workers/pagto.py:896"
+        detalhe: "topic operadora.pagto.release_low_value_payment"
+        choked: true
+      - referencia: "src/maezo/tools/workers/pagto.py:898"
+        detalhe: "topic operadora.pagto.release_high_value_payment"
+        choked: true
+      - referencia: "src/maezo/tools/workers/reembolso.py:808"
+        detalhe: "topic operadora.reembolso.issue_payment"
+        choked: true
+    dominios_exigidos: [medica, ans, seguranca]
+    aprovacoes:
+      medica:    { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+      ans:       { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+      seguranca: { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+
+  vinculo_contratual_mudanca:
+    descricao: >-
+      Mudança do vínculo contratual de um beneficiário ou prestador — suspensão, efetivação de
+      cancelamento, notificação de rescisão, descredenciamento. Corresponde a
+      `contract_termination` (L0-core.yaml:13, L0 hard) e `provider_decredenciamento`
+      (`provider_decredentialing`, L0-core.yaml:19, L1).
+    superficies:
+      - referencia: "src/maezo/tools/workers/inadimplencia.py:753"
+        detalhe: "topic operadora.inadimplencia.register_contract_suspension (GUARDED)"
+        choked: true
+      - referencia: "src/maezo/tools/workers/cancel.py:731"
+        detalhe: "topic operadora.cancel.effectuate_member_request"
+        choked: true
+      - referencia: "src/maezo/tools/workers/cancel.py:737"
+        detalhe: "topic operadora.cancel.send_cancellation_notice (GUARDED)"
+        choked: true
+      - referencia: "src/maezo/tools/workers/credenciamento.py:770"
+        detalhe: "topic operadora.cred.register_descredenciamento (GUARDED)"
+        choked: true
+    dominios_exigidos: [medica, ans, seguranca]
+    aprovacoes:
+      medica:    { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+      ans:       { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+      seguranca: { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+
+  acusacao_fraude_registro:
+    descricao: >-
+      Registro de uma acusação de fraude ou encaminhamento ao jurídico. `fraud_accusation` é L0
+      hard — "nunca acusa sozinha" (L0-core.yaml:12); a decisão nasce em User Task humana e esta
+      classe cobre o ato de registrá-la/encaminhá-la.
+    superficies:
+      - referencia: "src/maezo/tools/workers/fraude.py:999"
+        detalhe: "topic operadora.fraude.register_fraud_accusation"
+        choked: true
+      - referencia: "src/maezo/tools/workers/fraude.py:1002"
+        detalhe: "topic operadora.fraude.refer_to_legal"
+        choked: true
+    dominios_exigidos: [medica, ans, seguranca]
+    aprovacoes:
+      medica:    { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+      ans:       { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+      seguranca: { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+
+  comunicacao_beneficiario:
+    descricao: >-
+      Contato externo dirigido ao beneficiário (mensagem proativa, resposta de DSR LGPD, pedido
+      de prova adicional). Toca o titular diretamente e é a superfície natural de vazamento de
+      PHI para fora da plataforma.
+    superficies:
+      - referencia: "src/maezo/tools/workers/programa.py:673"
+        detalhe: "topic operadora.programa.proactive_contact (raw handler)"
+        choked: true
+      - referencia: "src/maezo/tools/workers/lgpd.py:765"
+        detalhe: "topic operadora.lgpd.send_response (raw handler)"
+        choked: true
+      - referencia: "src/maezo/tools/workers/lgpd.py:763"
+        detalhe: "topic operadora.lgpd.request_additional_proof (raw handler)"
+        choked: true
+      - referencia: "src/maezo/tools/mcp_whatsapp/server.py:111"
+        detalhe: "WhatsAppServer.send_message — chamada direta do grafo do agente"
+        choked: false
+    dominios_exigidos: [medica, ans, seguranca]
+    aprovacoes:
+      medica:    { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+      ans:       { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+      seguranca: { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+
+  inicio_processo_regulatorio:
+    descricao: >-
+      Início de uma instância de processo regulatório SP-OP-* a partir de outro processo ou de um
+      agente. Não é um efeito no mundo externo, mas cria obrigação de prazo regulatório; já tem
+      fence próprio (allowlist ADR-0016) e auditoria de start (T-C2).
+    superficies:
+      - referencia: "src/maezo/tools/workers/contas.py:1055"
+        detalhe: "topic operadora.contas.start_recurso"
+        choked: true
+      - referencia: "src/maezo/tools/workers/contas.py:1061"
+        detalhe: "topic operadora.contas.start_fraude"
+        choked: true
+      - referencia: "src/maezo/tools/workers/adequacao.py:689"
+        detalhe: "topic operadora.adequacao.start_credenciamento"
+        choked: true
+      - referencia: "src/maezo/tools/workers/fraude.py:1005"
+        detalhe: "topic operadora.fraude.start_credenciamento"
+        choked: true
+      - referencia: "src/maezo/tools/workers/fraude.py:1011"
+        detalhe: "topic operadora.fraude.start_contratual"
+        choked: true
+      - referencia: "src/maezo/tools/workers/inadimplencia.py:757"
+        detalhe: "topic operadora.inadimplencia.handoff_rescisao"
+        choked: true
+      - referencia: "src/maezo/tools/workers/nip.py:562"
+        detalhe: "topic operadora.nip.handoff_ans_submit"
+        choked: true
+      - referencia: "src/maezo/tools/mcp_cibseven/transport.py:560"
+        detalhe: "start_process_idempotent — start iniciado por agente"
+        choked: false
+    dominios_exigidos: [medica, ans, seguranca]
+    aprovacoes:
+      medica:    { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+      ans:       { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+      seguranca: { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+
+  leitura_phi_clinica:
+    descricao: >-
+      Leitura de dado clínico PHI via FHIR (`read_phi_data`, L0-core.yaml:42, L3). XRD-09 põe
+      "todo READ" no escopo do gateway, e a nota do ADR-0037 sobre o ADR-0022 diz explicitamente
+      que o `mcp_fhir` DEVE rotear por este gateway quando o MZO-040 aterrissar.
+      SEM EVIDÊNCIA DE SOMBRA HOJE: nenhuma dessas superfícies passa pelo chokepoint atual.
+    superficies:
+      - referencia: "src/maezo/tools/mcp_fhir/server.py:88"
+        detalhe: "FhirServer.read_resource — chamada direta do grafo do agente"
+        choked: false
+      - referencia: "src/maezo/tools/mcp_fhir/server.py:118"
+        detalhe: "FhirServer.search_resources — chamada direta do grafo do agente"
+        choked: false
+    dominios_exigidos: [medica, ans, seguranca]
+    aprovacoes:
+      medica:    { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+      ans:       { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+      seguranca: { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+
+  delegacao_a2a:
+    descricao: >-
+      Delegação agente-a-agente por envelope assinado. O contrato A2A é "instrui, não decide",
+      mas a delegação atravessa fronteira de agente e carrega contexto — é um efeito de tool no
+      sentido do XRD-09.
+      SEM EVIDÊNCIA DE SOMBRA HOJE: não passa pelo chokepoint atual.
+    superficies:
+      - referencia: "src/maezo/a2a/dispatcher.py:277"
+        detalhe: "A2ADispatcher.delegate"
+        choked: false
+    dominios_exigidos: [medica, ans, seguranca]
+    aprovacoes:
+      medica:    { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+      ans:       { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+      seguranca: { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+
+# ---------------------------------------------------------------------------------------------
+# mapeamento_topicos — external-task topic -> action class.
+#
+# ROTEAMENTO (plumbing), NÃO REGRA — vive aqui, e não em Python, pelo mesmo motivo que o
+# `mapeamento_dut_criteria` do manifesto GAP-AUTH-4: para que um humano possa completá-lo sem
+# mudança de código, exatamente como a ratificação.
+#
+# DELIBERADAMENTE INCOMPLETO. Só estão mapeados os tópicos cujo efeito externo é inequívoco a
+# partir do próprio worker (os `superficies[].choked: true` acima). Os ~80 tópicos restantes de
+# `spec/processes/bpmn/**` — cálculo, triagem, leitura de fatos, notificações internas de SLA —
+# NÃO estão mapeados, e classificá-los é decisão humana, não inferência de agente.
+#
+# CONSEQUÊNCIA SOB `modo: enforcing`: um tópico NÃO mapeado é DENY, com o motivo
+# `ACAO_NAO_MAPEADA` (ADR-0037 XRD-09: "ação/política desconhecida ... negam"). Isto é
+# intencional e é a razão pela qual completar este mapa faz parte do ato de ratificação — não
+# de um follow-up. Sob `modo: shadow` (hoje), cada tópico não mapeado emite exatamente uma linha
+# de telemetria `ACAO_NAO_MAPEADA`, e essa telemetria É a lista de trabalho para completar o
+# mapa contra tráfego real.
+# ---------------------------------------------------------------------------------------------
+mapeamento_topicos:
+  operadora.auth.issue_authorization: autorizacao_emissao
+
+  operadora.auth.send_denial_notice: negativa_notificacao
+  operadora.reembolso.send_reembolso_denial: negativa_notificacao
+
+  regulatorio.anssubmit.submit: submissao_regulatoria_ans
+  regulatorio.anssubmit.retransmit: submissao_regulatoria_ans
+  operadora.nip.submit_response: submissao_regulatoria_ans
+  operadora.recurso.submit_appeal: submissao_regulatoria_ans
+
+  operadora.pagto.release_low_value_payment: pagamento_emissao
+  operadora.pagto.release_high_value_payment: pagamento_emissao
+  operadora.reembolso.issue_payment: pagamento_emissao
+
+  operadora.inadimplencia.register_contract_suspension: vinculo_contratual_mudanca
+  operadora.cancel.effectuate_member_request: vinculo_contratual_mudanca
+  operadora.cancel.send_cancellation_notice: vinculo_contratual_mudanca
+  operadora.cred.register_descredenciamento: vinculo_contratual_mudanca
+
+  operadora.fraude.register_fraud_accusation: acusacao_fraude_registro
+  operadora.fraude.refer_to_legal: acusacao_fraude_registro
+
+  operadora.programa.proactive_contact: comunicacao_beneficiario
+  operadora.lgpd.send_response: comunicacao_beneficiario
+  operadora.lgpd.request_additional_proof: comunicacao_beneficiario
+
+  operadora.contas.start_recurso: inicio_processo_regulatorio
+  operadora.contas.start_fraude: inicio_processo_regulatorio
+  operadora.adequacao.start_credenciamento: inicio_processo_regulatorio
+  operadora.fraude.start_credenciamento: inicio_processo_regulatorio
+  operadora.fraude.start_contratual: inicio_processo_regulatorio
+  operadora.inadimplencia.handoff_rescisao: inicio_processo_regulatorio
+  operadora.nip.handoff_ans_submit: inicio_processo_regulatorio

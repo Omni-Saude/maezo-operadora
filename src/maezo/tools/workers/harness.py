@@ -71,6 +71,8 @@ from typing import Any, NamedTuple, Protocol, runtime_checkable
 import httpx
 import structlog
 
+from maezo.gateway.action_execution import Decision as ActionDecision
+from maezo.gateway.action_execution import evaluate_worker_task
 from maezo.gateway.audit import AuditRecord, EmitOnceOutcome, hash_input
 from maezo.tools.workers._audit_ctx import collect_dmn_versions
 from maezo.tools.workers.base import WorkerBase, WorkerRegistry
@@ -135,6 +137,14 @@ _DENIAL_BLOCK_CODES: frozenset[str] = frozenset({"ERR_AUTH_DENIAL_INCOMPLETE"})
 #: parseable `ERR_*` prefix. A `PermissionError` is ALWAYS the guard family in this harness (module
 #: docstring §"Guard errors"), so it is audited unconditionally — the specific code is best-effort.
 _GUARD_REFUSAL_FALLBACK_CODE: str = "ERR_GUARD_NOT_HUMAN"
+
+#: MZO-040 (ADR-0037 XRD-09): the guard code recorded when the `ActionExecutionGateway` blocks a
+#: dispatch. It is INERT today — reachable only when a human sets `modo: enforcing` in
+#: `spec/policies/autonomy/action-approvals.yaml`, which no code change can do. Deliberately NOT in
+#: any `*_BPMN_ERROR_ALLOWLIST`: an enforced denial takes the audited-refusal + fail-closed incident
+#: path (retries=0), the always-human-visible outcome ADR-0008/ADR-0030 §4 prescribe for a guard —
+#: never a modeled boundary, never a silent clean end, never a retry.
+_ACTION_GATE_REFUSAL_CODE: str = "ERR_ACTION_GATEWAY_NOT_HUMAN"
 
 #: Extracts the leading `ERR_*` code token from a refusal exception message. The codebase convention
 #: is `"ERR_<DOMAIN>_<CONDITION>: <detail>"` — the `*NotHumanError` classes (`recurso.py:42`,
@@ -1378,6 +1388,31 @@ class WorkerHarness:
                 guard_code=guard_code,
             )
 
+    # -- action-execution gateway (MZO-040, ADR-0037 XRD-09) — SHADOW ---------------------------
+
+    def _evaluate_action_gate(self, task: ExternalTask) -> ActionDecision | None:
+        """Evaluate this dispatch against the `ActionExecutionGateway`. NEVER raises.
+
+        SHADOW TODAY. `spec/policies/autonomy/action-approvals.yaml` ships `modo: shadow` and
+        `status: DRAFT`, so the returned `Decision.enforced` is False for every call and `_handle`
+        ignores the verdict entirely — the only observable effect is one structured, non-PHI
+        telemetry line per dispatch (`action_execution_gateway_shadow`). That inertness is proven,
+        not asserted: `tests/unit/gateway/test_action_execution_gateway.py` runs the choked path
+        with the gateway neutralized and with it live, and asserts identical transport outcomes.
+
+        Enforcement is a DATA act: a human sets `status: RATIFICADO` + `modo: enforcing` in the
+        CODEOWNERS-gated manifest after the Médica/ANS/Security blocks are filled. No code change,
+        no redeploy — which is exactly why this method must never be the thing that decides.
+
+        Returns None only if the gateway itself is unusable in a way `evaluate_worker_task` could
+        not classify; None means "no opinion" and leaves dispatch untouched.
+        """
+        try:
+            return evaluate_worker_task(topic=task.topic, tenant=self._tenant)
+        except Exception:  # noqa: BLE001 — belt-and-suspenders; the gateway is already total.
+            logger.error("action_gateway_evaluate_failed", topic=task.topic, exc_info=True)
+            return None
+
     async def _handle(self, task: ExternalTask) -> None:
         handler = self._handlers.get(task.topic)
         started_at = time.perf_counter()
@@ -1402,6 +1437,33 @@ class WorkerHarness:
                 # handler run; `evaluate_sync` populates it in-thread via the ContextVar bridge
                 # (design §3.2). Reset-per-task in `collect_dmn_versions`'s `finally`.
                 with collect_dmn_versions() as dmn_versions:
+                    # MZO-040 (ADR-0037 XRD-09): the per-call chokepoint, evaluated BEFORE the
+                    # handler runs — the handler IS where the external effect happens, so a
+                    # denial must pre-empt it, not follow it. In SHADOW (today, always)
+                    # `enforced` is False and this branch is dead: the gateway only observes.
+                    # Under `modo: enforcing` a denial takes the guard path — audited refusal
+                    # then a fail-closed incident (retries=0, never retried per ADR-0008) — so
+                    # the call lands in front of a human instead of proceeding or vanishing.
+                    action_gate = self._evaluate_action_gate(task)
+                    if action_gate is not None and action_gate.enforced and not action_gate.allow:
+                        await self._audit_guard_refusal(
+                            task,
+                            guard_code=_ACTION_GATE_REFUSAL_CODE,
+                            dmn_versions=dict(dmn_versions),
+                        )
+                        logger.error(
+                            "action_gateway_denied_enforcing",
+                            task_id=task.task_id,
+                            topic=task.topic,
+                            action_class=action_gate.action_class or "NAO_MAPEADA",
+                            reason=action_gate.reason,
+                        )
+                        outcome = await self._report_failure(
+                            task,
+                            f"{_ACTION_GATE_REFUSAL_CODE}: {action_gate.reason}",
+                            retries_override=0,
+                        )
+                        return
                     out_vars = await handler(task)
                 # T-C (ADR-0007, L0): audit-BEFORE-complete. Build the PHI-safe record, then emit
                 # it durably + exactly-once. A failure here (missing sink OR DB error) raises and

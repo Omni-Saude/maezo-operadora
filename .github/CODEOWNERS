@@ -38,3 +38,11 @@
 # Cockpit. Mesma logica da linha acima: a mudanca e de DADOS, sem codigo e sem redeploy — por
 # isso o dado precisa do revisor que o caminho de codigo teria tido.
 /spec/policies/privacy/   @rodrigotaquino @Omni-Saude/security
+# MZO-040 (ADR-0037 XRD-09) — the ActionExecutionGateway approval records. Filling a domain block
+# and flipping `status: RATIFICADO` + `modo: enforcing` is the SINGLE act that turns an inert
+# shadow gateway into a live per-call enforcement chokepoint over every external effect. Same
+# design point as the GAP-AUTH-4 manifest above: activation is a DATA change with no code and no
+# redeploy, which is precisely why the data needs the reviewer the code path would have had.
+# Listed explicitly (not just under the directory line) because CODEOWNERS resolves LAST-match:
+# if the directory line is ever narrowed, this file must not silently lose its security owner.
+/spec/policies/autonomy/action-approvals.yaml  @rodrigotaquino @Omni-Saude/security
