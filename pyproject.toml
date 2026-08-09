@@ -106,6 +106,14 @@ packages = ["src/maezo"]
 # `resolve_contract_pin_path()`, which checks the repo checkout, then this package-adjacent copy,
 # with $MAEZO_AMH_CONTRACT_PIN overriding both.
 "config/integrations/amh" = "maezo/config/integrations/amh"
+# MZO-060 (ADR-0037 XRD-10), same load-bearing shape as the two lines above: the AMH inbox's DBA
+# ratification artifact lives in spec/ and `maezo.platform.integrations.amh_inbox` resolves it at
+# construction time to decide fail-closed whether the durable inbox may run at all. Without this
+# force-include the artifact would never reach a container, so a packaged deployment could never be
+# activated even AFTER a DBA ratifies — the same bricking failure mode the autonomy matrix and the
+# contract pin each had. Runtime discovery is `resolve_ratification_path()`, which checks the repo
+# checkout, then this package-adjacent copy, with $MAEZO_AMH_INBOX_RATIFICATION overriding both.
+"spec/policies/amh" = "maezo/spec/policies/amh"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

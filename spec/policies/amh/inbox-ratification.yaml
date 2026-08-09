@@ -1,0 +1,72 @@
+# =============================================================================
+# DRAFT — UNRATIFIED — THE AMH DURABLE INBOX IS INERT UNTIL A DBA RATIFIES THIS FILE
+# =============================================================================
+#
+# This file is the SWITCH for work package MZO-060 (ADR-0037 XRD-10): the durable
+# AMH inbox whose settled row is the only thing that may licence
+# `maezo.ports.work_items.WorkItemSource.ack` to report success.
+#
+# While `ratificado` is not literally `true` and `dba_review` is not literally
+# `APPROVED`, `maezo.platform.integrations.amh_inbox.load_inbox_ratification`
+# REFUSES to return a ratification and
+# `maezo.platform.integrations.amh_inbox.build_amh_inbox_repository` REFUSES to
+# construct a repository at all. There is no degraded mode, no read-only mode and
+# no "warn and continue": an unratified inbox can never report settlement success,
+# because no object capable of reporting it can be built. That refusal is proven by
+# `tests/unit/platform/integrations/test_amh_inbox.py`.
+#
+# Ratifying this file requires NO code change and NO deployment of new code. The
+# exact act is written out in `docs/reviews/mzo-060-dba-review-packet.md`
+# ("The ratification act"); in summary a DBA must:
+#
+#   1. review the DDL of `src/maezo/platform/migrations/versions/0007_amh_inbox.py`
+#      (reproduced verbatim in the packet, with index plan, lock analysis and
+#      rollback procedure);
+#   2. compute that migration file's sha256 and write it into `migration_sha256`
+#      below, which BINDS the ratification to the exact bytes reviewed — if the
+#      migration is later edited, the digest stops matching and the loader refuses
+#      again, so a ratification can never silently carry over to different DDL;
+#   3. replace every `PENDING-*` placeholder with a real value (the loader refuses
+#      any value that still looks like a placeholder — a half-filled ratification
+#      is not a ratification);
+#   4. set `ratificado: true`, `dba_review: APPROVED`, `status: RATIFIED`.
+#
+# NOBODY BUT A DBA MAY DO THIS. No agent, no orchestrator and no automated
+# gatekeeper may flip these fields; doing so would fabricate an approval, which in
+# this repository is a compliance event, not a merge conflict.
+#
+# Applying migration 0007 does NOT activate anything on its own: the table is dark
+# until this file says otherwise, and nothing in `src/` reads or writes `amh_inbox`
+# outside the repository module gated by this file. Migration 0007 and this
+# ratification are therefore two independent switches, and BOTH must be thrown.
+#
+# -----------------------------------------------------------------------------
+# Schema (every field below is REQUIRED; the loader refuses on a missing one)
+#
+#   status:            DRAFT | RATIFIED         (must be RATIFIED to operate)
+#   ratificado:        false | true             (must be the BOOLEAN true, not "true")
+#   dba_review:        PENDING | APPROVED       (must be APPROVED to operate)
+#   dba_reviewer:      <str> human identity of the reviewing DBA
+#   dba_review_date:   <str> ISO-8601 date of the review
+#   migration_revision:<str> alembic revision this ratification covers
+#   migration_sha256:  <str> sha256 (64 lowercase hex) of that migration file
+#   review_packet:     <str> repo-relative path to the reviewed packet
+#   evidence_ref:      <str> evidence-ledger row id recording the ratification
+#   notes:             <str> the reviewer's own notes / conditions
+# -----------------------------------------------------------------------------
+
+status: DRAFT
+ratificado: false
+dba_review: PENDING
+
+# --- Human fields. Every value is an explicit, machine-detectable placeholder. ---
+dba_reviewer: PENDING-DBA-IDENTITY
+dba_review_date: PENDING-YYYY-MM-DD
+evidence_ref: PENDING-EVIDENCE-LEDGER-ROW-ID
+notes: PENDING-DBA-NOTES
+
+# --- Machine facts. Filled in already; the digest is the reviewer's to compute. ---
+migration_revision: "0007"
+# `shasum -a 256 src/maezo/platform/migrations/versions/0007_amh_inbox.py`
+migration_sha256: PENDING-SHA256-OF-MIGRATION-0007
+review_packet: docs/reviews/mzo-060-dba-review-packet.md
