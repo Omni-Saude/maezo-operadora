@@ -805,6 +805,106 @@ def test_an_unreadable_uncovered_declaration_refuses_the_whole_manifest(
     assert sources.is_ratified("auth_criteria_contratual") is False
 
 
+# ---------------------------------------------------------------------------------------------
+# GK-criteria minor-1 — the section-key fail-open. Before this fix, a mistyped or duplicated
+# `criterios_nao_cobertos:` KEY never reached `_blocked_sources` at all: `data.get(...)` (or
+# stock PyYAML's silent last-wins) made the whole block disappear as if it had been legitimately
+# removed, so the exact same forged-manifest scenario as
+# `test_an_uncovered_criterion_suppresses_an_otherwise_complete_ratification` would have silently
+# RATIFIED `auth_criteria_contratual` instead of blocking it.
+# ---------------------------------------------------------------------------------------------
+
+
+def test_a_mistyped_uncovered_section_name_refuses_the_whole_manifest(tmp_path: Path) -> None:
+    """A trailing typo (`criterios_nao_cobertoss`) is an unrecognized top-level key. Before the
+    fix this would have been silently ignored — `criterios_nao_cobertos` reads as absent, the
+    block vanishes, and `auth_criteria_contratual` ends up RATIFIED with nothing blocking it. Now
+    the whole manifest is refused instead."""
+    path = _write(
+        tmp_path,
+        {
+            "fontes": {src: dict(_COMPLETE_RATIFICATION) for src in _ALL_SOURCES},
+            "criterios_nao_cobertoss": _REDE_UNCOVERED,  # typo: trailing extra 's'
+        },
+    )
+    sources = load_criteria_sources(path)
+    assert sources.ratified == frozenset()
+    assert sources.is_ratified("auth_criteria_contratual") is False
+    assert sources.is_ratified("carencia_check") is False
+
+
+def test_an_unrelated_unknown_top_level_key_also_refuses_the_whole_manifest(tmp_path: Path) -> None:
+    """Not just a typo of the specific `criterios_nao_cobertos` name — ANY key outside the closed
+    set {version, fontes, mapeamento_dut_criteria, criterios_nao_cobertos} refuses wholesale."""
+    path = _write(
+        tmp_path,
+        {
+            "fontes": {"carencia_check": dict(_COMPLETE_RATIFICATION)},
+            "alguma_chave_nao_prevista": "x",
+        },
+    )
+    assert load_criteria_sources(path).ratified == frozenset()
+
+
+def test_a_duplicate_uncovered_section_key_refuses_the_whole_manifest(tmp_path: Path) -> None:
+    """PyYAML's stock behaviour on a duplicate mapping key is silent last-wins: only the SECOND
+    `criterios_nao_cobertos:` block would survive parsing, and it blocks `carencia_check` —
+    NOT `auth_criteria_contratual`, whose block was in the FIRST (discarded) occurrence. Left
+    unguarded, that means `auth_criteria_contratual` would end up ratified with nothing blocking
+    it, purely because of where in the file the block happened to be duplicated.
+    `_DuplicateKeySafeLoader` raises on the duplicate instead, and `_parse` refuses the whole
+    manifest — exactly like any other malformed YAML."""
+    path = tmp_path / "manifest.yaml"
+    path.write_text(
+        "fontes:\n"
+        "  auth_criteria_contratual:\n"
+        "    ratificado: true\n"
+        "    revisor: juridico\n"
+        "    ratificado_em: '2026-08-09'\n"
+        "  carencia_check:\n"
+        "    ratificado: true\n"
+        "    revisor: juridico\n"
+        "    ratificado_em: '2026-08-09'\n"
+        "criterios_nao_cobertos:\n"
+        "  rede_credenciada:\n"
+        "    bloqueia_ratificacao_de: auth_criteria_contratual\n"
+        "criterios_nao_cobertos:\n"
+        "  outro_criterio:\n"
+        "    bloqueia_ratificacao_de: carencia_check\n",
+        encoding="utf-8",
+    )
+    # Sanity: prove the premise — stock PyYAML really does silently drop the first occurrence,
+    # so without the custom loader this scenario WOULD have unblocked `auth_criteria_contratual`.
+    stock = yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert stock["criterios_nao_cobertos"] == {
+        "outro_criterio": {"bloqueia_ratificacao_de": "carencia_check"}
+    }
+
+    sources = load_criteria_sources(path)
+    assert sources.ratified == frozenset()
+    assert sources.is_ratified("auth_criteria_contratual") is False
+    assert sources.is_ratified("carencia_check") is False
+
+
+def test_manifest_without_the_uncovered_section_still_resolves(tmp_path: Path) -> None:
+    """The new top-level-key allowlist must not turn the OPTIONAL, legitimately-absent
+    `criterios_nao_cobertos` section into a requirement: a manifest that simply never had
+    anything uncovered — no typo, no accident, just nothing to declare — still loads and
+    ratifies normally. This is the documented resolution path staying intact."""
+    path = _write(
+        tmp_path,
+        {
+            "version": 1,
+            "fontes": {"carencia_check": dict(_COMPLETE_RATIFICATION)},
+            "mapeamento_dut_criteria": {"DUT-BARIATRICA-001": "dut_criteria_bariatrica"},
+        },
+    )
+    sources = load_criteria_sources(path)
+    assert sources.is_ratified("carencia_check") is True
+    assert sources.blocked_by_uncovered == {}
+    assert sources.criteria_table_for("DUT-BARIATRICA-001") == "dut_criteria_bariatrica"
+
+
 def test_dmn_evaluation_error_is_the_fake_transports_unregistered_signal() -> None:
     """Guards the negative-path fixtures above: an unregistered key really does raise."""
     with pytest.raises(DmnEvaluationError):

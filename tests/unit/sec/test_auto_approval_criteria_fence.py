@@ -397,9 +397,12 @@ def test_um_criterio_sem_cobertura_impede_o_pass_mesmo_com_a_fonte_ratificada(
     favourable = next(
         r for r in _rules(auto_approval_table) if '"AUTO_APROVAR"' in _entry_texts(r, "outputEntry")
     )
+    # strict=True: with strict=False a 7th DMN input would silently be TRUNCATED off the zip
+    # instead of failing this test directly (GK-criteria minor-2) — today's arity is exactly 6
+    # names / 6 entries (_EXPECTED_DMN_INPUTS), so the lengths must match exactly.
     exigidos = [
         name
-        for name, entry in zip(_EXPECTED_DMN_INPUTS, _entry_texts(favourable, "inputEntry"), strict=False)
+        for name, entry in zip(_EXPECTED_DMN_INPUTS, _entry_texts(favourable, "inputEntry"), strict=True)
         if entry == "true"
     ]
     assert "criterio_contratual_ok" in exigidos

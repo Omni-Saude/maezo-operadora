@@ -50,7 +50,7 @@ That is not a placeholder — it is the honest recorded state (`docs/review-queu
 from __future__ import annotations
 
 import os
-from collections.abc import Mapping
+from collections.abc import Hashable, Mapping
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -59,6 +59,7 @@ from typing import Any
 
 import structlog
 import yaml
+from yaml.constructor import ConstructorError as _YamlConstructorError
 
 from maezo.agents import resolve_spec_dir
 
@@ -83,6 +84,51 @@ _RATIFIED_AT = "ratificado_em"
 #: the manifest's own — this loader enforces the declaration the SME already reads there.
 _UNCOVERED_SECTION = "criterios_nao_cobertos"
 _BLOCKS_RATIFICATION_OF = "bloqueia_ratificacao_de"
+
+#: The COMPLETE, closed set of top-level keys `_parse` understands (verified against the shipped
+#: manifest: `version`, `fontes`, `mapeamento_dut_criteria`, `criterios_nao_cobertos` — nothing
+#: else). GK-criteria minor-1: without this allowlist, a mistyped section name such as
+#: `criterios_nao_cobertoss:` is not "an unknown key" to PyYAML at all — it is simply absent
+#: under its correct name, so `data.get(_UNCOVERED_SECTION)` returns `None` and the whole
+#: `criterios_nao_cobertos` block evaporates with NO error, exactly as if it had been
+#: deliberately (and correctly) removed. Any key outside this set now refuses the manifest
+#: WHOLESALE — the same `_refuse(...)` path an unknown `bloqueia_ratificacao_de` target already
+#: takes — instead of the typo silently reading as "nothing to enforce here".
+_KNOWN_TOP_LEVEL_KEYS = frozenset({"version", "fontes", "mapeamento_dut_criteria", _UNCOVERED_SECTION})
+
+
+class _DuplicateKeySafeLoader(yaml.SafeLoader):
+    """`yaml.SafeLoader` that RAISES on a duplicate mapping key instead of silently last-wins.
+
+    GK-criteria minor-1's second half: stock PyYAML resolves a duplicate key (at ANY mapping
+    depth — a second top-level `criterios_nao_cobertos:`, or a repeated decision id inside
+    `fontes:`) by silently keeping the LAST occurrence and discarding every earlier one, with no
+    warning. For this manifest that is fail-OPEN: a duplicated `criterios_nao_cobertos:` can
+    make the M-3 suppression block vanish exactly as completely as a typo'd key does, and
+    nothing above would ever see it happen.
+
+    This loader closes that by raising `yaml.constructor.ConstructorError` (a `yaml.YAMLError`
+    subclass) the moment a duplicate key is constructed. `_parse`'s existing
+    `except yaml.YAMLError` catches it and refuses the manifest wholesale — the identical
+    fail-closed outcome as any other malformed-YAML case, no new except clause required.
+
+    SCOPED TO THIS LOADER ONLY: no other `yaml.safe_load`/`yaml.load` call in the repository is
+    affected; this class is never registered as a replacement for `yaml.SafeLoader` generally.
+    """
+
+    def construct_mapping(self, node: yaml.MappingNode, deep: bool = False) -> dict[Hashable, Any]:
+        seen: set[Any] = set()
+        for key_node, _value_node in node.value:
+            key = self.construct_object(key_node, deep=deep)
+            if key in seen:
+                raise _YamlConstructorError(
+                    "while constructing a mapping",
+                    node.start_mark,
+                    f"found duplicate key: {key!r}",
+                    key_node.start_mark,
+                )
+            seen.add(key)
+        return super().construct_mapping(node, deep=deep)
 
 
 def _manifest_default_path() -> str:
@@ -195,9 +241,20 @@ def _blocked_sources(raw: Any, declared: frozenset[str]) -> Mapping[str, tuple[s
         this enforcement exists to prevent.
       - an UNKNOWN target (a typo like `auth_criteria_contratuall`) is refused rather than
         ignored, because ignoring it would silently evaporate the block — fail-open by typo.
-      - the section being ABSENT/null is fine and means "nothing is blocked": that is the
-        documented resolution path (remove the entry once the missing source exists), and the
-        entry's continued PRESENCE in the shipped manifest is pinned separately by
+
+    WHAT THIS FUNCTION DOES NOT GUARD (GK-criteria minor-1, closed one level up instead): a typo
+    in the SECTION'S OWN NAME (`criterios_nao_cobertoss:`) or a DUPLICATE `criterios_nao_cobertos:`
+    key never reach this function at all — `raw` would simply be absent/`None`, indistinguishable
+    from the section never having been written. Both are refused wholesale by `_parse` BEFORE it
+    calls this function: an unknown key via `_KNOWN_TOP_LEVEL_KEYS`, a duplicate via the
+    duplicate-key-raising `_DuplicateKeySafeLoader` (both scoped to this loader only). This
+    function only ever sees a single, ALREADY-recognized `criterios_nao_cobertos` mapping — or
+    its legitimate absence:
+
+      - the section being ABSENT/null is fine and means "nothing is blocked": that IS the
+        documented, still-UNguarded resolution path (remove the entry once the missing source
+        exists — deliberately distinct from it vanishing BY ACCIDENT, which is what minor-1
+        closed). The entry's continued PRESENCE in the shipped manifest is pinned separately by
         `tests/unit/sec/test_auto_approval_criteria_fence.py`.
     """
     if raw is None:
@@ -223,8 +280,10 @@ def _blocked_sources(raw: Any, declared: frozenset[str]) -> Mapping[str, tuple[s
 def _parse(raw_text: str, manifest_path: Path) -> CriteriaSources:
     """Parse an already-read manifest into `CriteriaSources`. NEVER raises; refuses instead."""
     try:
-        data = yaml.safe_load(raw_text)
+        data = yaml.load(raw_text, Loader=_DuplicateKeySafeLoader)
     except yaml.YAMLError as exc:
+        # Catches BOTH stock malformed YAML and `_DuplicateKeySafeLoader`'s duplicate-key raise
+        # (GK-criteria minor-1) — a `yaml.constructor.ConstructorError` is a `yaml.YAMLError`.
         return _refuse("invalid_yaml", f"malformed YAML in {manifest_path}: {exc}")
 
     if not isinstance(data, dict):
@@ -235,12 +294,28 @@ def _parse(raw_text: str, manifest_path: Path) -> CriteriaSources:
 
     # Template guard, mirrored from `load_retention_matrix` (legal_bases_matrix.py): a copy of
     # the manifest marked `unratified: true` is refused WHOLESALE, so pointing the path at a
-    # placeholder by mistake also fails closed instead of half-loading.
+    # placeholder by mistake also fails closed instead of half-loading. Checked BEFORE the
+    # unknown-top-level-key guard below so this specific, documented placeholder marker keeps
+    # its own precise refusal reason rather than being masked by the generic one.
     if data.get("unratified") is True:
         return _refuse(
             "unratified_template",
             f"{manifest_path} is marked 'unratified: true' (placeholder template) — a "
             "human-ratified manifest must replace it; treating every source as NOT ratified",
+        )
+
+    # GK-criteria minor-1: a top-level key outside the closed set — a mistyped section name
+    # (`criterios_nao_cobertoss:`) chief among them — is refused WHOLESALE rather than silently
+    # ignored, for the same reason an unknown `bloqueia_ratificacao_de` target is refused below:
+    # a declaration this loader cannot recognise is indistinguishable from one that was never
+    # written, and the two must not resolve the same way.
+    unknown_keys = sorted(str(k) for k in data if k not in _KNOWN_TOP_LEVEL_KEYS)
+    if unknown_keys:
+        return _refuse(
+            "unknown_top_level_key",
+            f"{manifest_path}: unrecognized top-level key(s) {unknown_keys} — refusing the "
+            f"whole manifest (known keys: {sorted(_KNOWN_TOP_LEVEL_KEYS)}) rather than risk a "
+            "mistyped or unexpected section silently vanishing every block it declares",
         )
 
     raw_fontes = data.get("fontes")

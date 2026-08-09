@@ -178,6 +178,24 @@ mapeamento_dut_criteria:
 #     nomeia o que bloqueia e' exatamente a declaracao inerte que este mecanismo existe para
 #     impedir.
 #
+# O QUE E' GUARDADO HOJE UM NIVEL ACIMA, NO NOME/UNICIDADE DA PROPRIA CHAVE `criterios_nao_
+# cobertos:` (GK-criteria minor-1, corrigido 2026-08-09 — a redacao acima cobria so o CONTEUDO da
+# secao e superestimava o que estava protegido; esta secao existe para nao repetir o exagero):
+#   - um TYPO no nome da secao (`criterios_nao_cobertoss:`) e' uma CHAVE DE TOPO DESCONHECIDA para
+#     `maezo.tools.workers.auth_criteria._parse`, que so reconhece {version, fontes,
+#     mapeamento_dut_criteria, criterios_nao_cobertos}. Qualquer outra chave de topo recusa o
+#     manifesto INTEIRO — o mesmo caminho de uma `bloqueia_ratificacao_de` com alvo desconhecido —
+#     em vez de a secao evaporar em silencio como se tivesse sido removida de proposito.
+#   - uma chave `criterios_nao_cobertos:` DUPLICADA no YAML tambem recusa: o parser usa um
+#     `SafeLoader` (`_DuplicateKeySafeLoader`, escopado so a este loader) que levanta erro em
+#     chave de mapa duplicada — em vez do comportamento padrao do PyYAML, onde a ULTIMA ocorrencia
+#     vence e as anteriores desaparecem sem aviso.
+#   - O QUE CONTINUA SEM GUARDA, DE PROPOSITO: a REMOCAO legitima da secao inteira — ausencia
+#     unica, sem typo nem duplicata — continua resolvendo para "nada bloqueado" e e' o caminho de
+#     resolucao DOCUMENTADO acima ("COMO RESOLVER"). Nao ha, e nao deve haver, protecao contra
+#     REMOVER `criterios_nao_cobertos` intencionalmente — so contra ela sumir POR ACIDENTE.
+#     Pinado em runtime por `tests/unit/tools/workers/test_auth_auto_criteria.py`.
+#
 # NAO existe aqui um "criterio Python sempre-falso" de proposito: isso tornaria a aprovacao
 # automatica impossivel sem mudanca de codigo (destruindo a propriedade "ratificar = mudanca de
 # DADOS") e convidaria alguem a inverter uma constante sem fonte por tras. O bloqueio acima e' o
