@@ -46,8 +46,11 @@ false success `ErasureManager` was made to refuse.
 
 Placement: inside `maezo.platform.lifecycle` on purpose. That package's sources are scanned
 by `tests/unit/platform/test_lifecycle.py`, which forbids any import naming the destructive
-audit-chain path and forbids a DELETE string literal in code. Living under that scanner is a
-structural guarantee that this module's SQL surface stays `SELECT count(*)` and nothing else.
+audit-chain path and forbids DELETE/UPDATE/INSERT/DROP/TRUNCATE/ALTER as a whole word in any
+string literal in code — plus, scoped to this module specifically, a positive check that
+every statement-shaped string constant (plain or `+`-concatenated) starts with exactly
+`SELECT count(*)`. Living under that scanner is a structural guarantee that this module's SQL
+surface stays `SELECT count(*)` and nothing else.
 """
 
 from __future__ import annotations
@@ -125,6 +128,7 @@ DECISION_VOCABULARY: Final[tuple[str, ...]] = (
 )
 
 APPROVED_REVIEW: Final = "APPROVED"
+RATIFICADO_STATUS: Final = "RATIFICADO"
 
 # Precise, distinguishable refusal reasons — the packet and the CLI both cite them verbatim.
 REASON_PATH_OVERRIDE_UNUSABLE: Final = "path_override_unusable"
@@ -136,6 +140,7 @@ REASON_INVALID_SCHEMA: Final = "invalid_schema"
 REASON_EMPTY: Final = "empty"
 REASON_NOT_RATIFIED: Final = "not_ratified"
 REASON_DPO_REVIEW_PENDING: Final = "dpo_review_pending"
+REASON_STATUS_NOT_RATIFICADO: Final = "status_not_ratificado"
 REASON_PLACEHOLDER_VALUE: Final = "placeholder_value"
 REASON_UNKNOWN_DECISION: Final = "unknown_decision"
 REASON_LAYER_SET_MISMATCH: Final = "layer_set_mismatch"
@@ -672,11 +677,16 @@ def load_erasure_plan(path: str | Path | None = None) -> ErasurePlan:
 
     Every failure mode — a missing/unreadable/mis-encoded/malformed artifact, a schema
     violation, `ratificado` that is not the boolean `true`, a `dpo_review` that is not
-    `APPROVED`, any value still carrying a placeholder marker, a verdict outside the closed
-    vocabulary, or a relation set that differs from this module's enumeration — raises
-    `ErasurePlanUnavailableError` with a precise `reason`. Nothing here defaults, infers or
-    invents a human value: the only successful outcome is a plan built entirely from what a
-    DPO explicitly wrote.
+    `APPROVED`, a `status` that is not `RATIFICADO`, any value still carrying a placeholder
+    marker, a verdict outside the closed vocabulary, or a relation set that differs from this
+    module's enumeration — raises `ErasurePlanUnavailableError` with a precise `reason`.
+    Nothing here defaults, infers or invents a human value: the only successful outcome is a
+    plan built entirely from what a DPO explicitly wrote.
+
+    Three switches gate ratification independently — `ratificado` (bool), `dpo_review`
+    (`APPROVED`) and `status` (`RATIFICADO`) — deliberately redundant with each other. A DPO
+    could otherwise leave `status: DRAFT` unedited while flipping the other two, and the
+    artifact would read as ratified while its own headline field still said it was a draft.
 
     The layer-set equality check is what stops a ratification from silently carrying over: a
     migration that adds a relation makes the shipped plan incomplete, and the plan refuses
@@ -710,6 +720,18 @@ def load_erasure_plan(path: str | Path | None = None) -> ErasurePlan:
         raise _fail(
             REASON_DPO_REVIEW_PENDING,
             f"{plan_path}: dpo_review is {dpo_review!r}, not {APPROVED_REVIEW!r}",
+        )
+    # A third, independent switch. Without this check `status` reached only
+    # `_require_clean_str` below — a non-empty, non-placeholder string — so a plan left as
+    # `status: DRAFT` while `ratificado: true` and `dpo_review: APPROVED` were both flipped
+    # would load as ratified. `status` itself must say RATIFICADO too.
+    status = data["status"]
+    if status != RATIFICADO_STATUS:
+        raise _fail(
+            REASON_STATUS_NOT_RATIFICADO,
+            f"{plan_path}: status is {status!r}, not {RATIFICADO_STATUS!r} — ratificado=true "
+            f"and dpo_review={APPROVED_REVIEW!r} are not sufficient on their own; the status "
+            "field itself must also read RATIFICADO or this artifact is still a DRAFT",
         )
 
     scalars = {
@@ -816,6 +838,12 @@ def _probe(
             "no counter supplied; this module opens no connection of its own",
         )
 
+    # Runtime belt-and-suspenders, alongside the static AST guard in test_lifecycle.py: even a
+    # `PersistenceLayer` built outside `PERSISTENCE_LAYERS` (the `_layers` override seam exists
+    # for exactly this in tests) cannot reach the counter with anything but a count probe.
+    assert layer.count_statement.startswith("SELECT count(*)"), (
+        f"refusing to execute a non-SELECT-count statement for {layer.tabela!r}: {layer.count_statement!r}"
+    )
     params: Mapping[str, str] = {"tenant_id": tenant_id, "subject_ref": subject_ref}
     try:
         count = counter(layer.count_statement, params)
@@ -839,7 +867,7 @@ def dry_run(
     counter: Callable[[str, Mapping[str, str]], int] | None = None,
     plan: ErasurePlan | None = None,
     mode: ErasureRunMode = ErasureRunMode.DRY_RUN,
-    layers: Sequence[PersistenceLayer] = PERSISTENCE_LAYERS,
+    _layers: Sequence[PersistenceLayer] = PERSISTENCE_LAYERS,
 ) -> ErasureDryRunReport:
     """Report WHAT WOULD BE TOUCHED per persistence layer, as counts only.
 
@@ -849,7 +877,8 @@ def dry_run(
     never logged, never returned and never interpolated into SQL text.
 
     Args:
-        subject_ref: The titular reference. Never stored or logged.
+        subject_ref: The titular reference. Never stored or logged. Blank/whitespace-only is
+            refused whenever `counter` is also supplied — see Raises.
         subject_ref_kind: Which kind of reference `subject_ref` is. A `TITULAR_PSEUDO_ID`
             yields `NOT_COUNTED_IDENTITY_BRIDGE_ABSENT` everywhere — the true state today.
         tenant_id: Tenant scope, bound as a parameter.
@@ -858,19 +887,32 @@ def dry_run(
         plan: A ratified plan, if one loaded. Without it every finding carries
             `DECISION_PENDING`.
         mode: Must be `DRY_RUN`; anything else is refused before any probe runs.
-        layers: The relations to probe. Defaults to the full enumeration; overridable so a
-            test can exercise one relation without re-declaring the set.
+        _layers: The relations to probe. Defaults to the full enumeration; leading underscore
+            because this is a TEST seam, not a production parameter — overridable so a test can
+            exercise one relation (or a deliberately poisoned one) without re-declaring the set.
 
     Returns:
         An `ErasureDryRunReport` with one finding per relation, in enumeration order.
 
     Raises:
         ErasureExecutionRefusedError: if `mode` is not `DRY_RUN`.
+        ValueError: if `counter` is supplied and `subject_ref` is blank or whitespace-only. A
+            count issued against an empty reference would come back as an ordinary `COUNTED`
+            result — indistinguishable from a genuine zero — instead of surfacing the missing
+            input it actually is; refusing up front keeps that false-success class out of the
+            report entirely, on the same reasoning as `NOT_COUNTED_IDENTITY_BRIDGE_ABSENT`.
     """
     assert_dry_run_only(mode, plan)
 
+    if counter is not None and not subject_ref.strip():
+        raise ValueError(
+            "counter supplied but subject_ref is blank/whitespace-only — refusing to probe: "
+            "a count against an empty reference would read as a confirmed COUNTED result "
+            "instead of the missing input it actually is"
+        )
+
     findings: list[LayerFinding] = []
-    for layer in sorted(layers, key=lambda item: item.ordem):
+    for layer in sorted(_layers, key=lambda item: item.ordem):
         status, count, detail = _probe(
             layer,
             subject_ref=subject_ref,

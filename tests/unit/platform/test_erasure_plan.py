@@ -158,6 +158,9 @@ def test_env_override_pointing_nowhere_refuses_rather_than_falling_back(
         ({"ratificado": "true"}, ep.REASON_NOT_RATIFIED),
         ({"ratificado": 1}, ep.REASON_NOT_RATIFIED),
         ({"dpo_review": "PENDENTE"}, ep.REASON_DPO_REVIEW_PENDING),
+        # F-1: `status` is a THIRD independent switch. ratificado=true + dpo_review=APPROVED
+        # alone must NOT be enough while status is still left as DRAFT.
+        ({"status": "DRAFT"}, ep.REASON_STATUS_NOT_RATIFICADO),
         ({"dpo_reviewer": "PENDENTE-IDENTIDADE-DO-DPO"}, ep.REASON_PLACEHOLDER_VALUE),
         ({"evidence_ref": "TBD"}, ep.REASON_PLACEHOLDER_VALUE),
         ({"camadas": []}, ep.REASON_EMPTY),
@@ -270,6 +273,100 @@ def test_execute_mode_refuses_before_any_probe_is_issued() -> None:
             mode=ep.ErasureRunMode.EXECUTE,
         )
     assert calls == []
+
+
+# ---------------------------------------------------------------------------
+# F-6: a blank subject_ref must never reach a real counter
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("blank", ["", "   ", "\t\n"])
+def test_a_blank_subject_ref_with_a_counter_is_refused(blank: str) -> None:
+    """A count issued against an empty reference would read as an ordinary COUNTED result —
+    indistinguishable from a genuine zero — instead of surfacing the missing input it actually
+    is. The refusal must happen before the counter is ever reached.
+    """
+    calls: list[str] = []
+
+    def counter(statement: str, params: Mapping[str, str]) -> int:
+        calls.append(statement)
+        return 1
+
+    with pytest.raises(ValueError, match="blank"):
+        ep.dry_run(
+            subject_ref=blank,
+            subject_ref_kind=ep.SubjectRefKind.FHIR_PATIENT_ID,
+            tenant_id="t1",
+            counter=counter,
+        )
+    assert calls == []
+
+
+def test_a_blank_subject_ref_without_a_counter_is_not_an_error() -> None:
+    """No counter means nothing is ever probed regardless of subject_ref — the CLI's own
+    inert path (no counter, subject_ref defaulting to "" when the env var is unset) must
+    keep working exactly as before.
+    """
+    report = ep.dry_run(
+        subject_ref="",
+        subject_ref_kind=ep.SubjectRefKind.FHIR_PATIENT_ID,
+        tenant_id="t1",
+    )
+    assert all(f.status is not ep.LayerFindingStatus.COUNTED for f in report.findings)
+
+
+# ---------------------------------------------------------------------------
+# F-7: the counter can never receive anything but a SELECT count(*) probe
+# ---------------------------------------------------------------------------
+
+
+def test_a_non_select_count_statement_is_refused_at_probe_time() -> None:
+    """Runtime belt-and-suspenders alongside the static AST guard in test_lifecycle.py: even
+    a `PersistenceLayer` built outside `PERSISTENCE_LAYERS` — the `_layers` override seam
+    exists for exactly this — cannot reach the counter with a non-count statement.
+    """
+    poisoned = ep.PersistenceLayer(
+        camada="trabalho",
+        tabela="agent_memory",
+        migracao="test-only, not a real migration citation",
+        identificacao="test-only",
+        resolucao=ep.IdentityResolution.PONTE_AUSENTE,
+        ordem=1,
+        subject_column="fhir_patient_id",
+        count_statement="DELETE FROM agent_memory WHERE fhir_patient_id = :subject_ref",
+    )
+    calls: list[str] = []
+
+    def counter(statement: str, params: Mapping[str, str]) -> int:
+        calls.append(statement)
+        return 1
+
+    with pytest.raises(AssertionError):
+        ep.dry_run(
+            subject_ref=_SENTINEL_REF,
+            subject_ref_kind=ep.SubjectRefKind.FHIR_PATIENT_ID,
+            tenant_id="t1",
+            counter=counter,
+            _layers=[poisoned],
+        )
+    assert calls == [], "the poisoned statement must never reach the counter"
+
+
+def test_the_layers_override_seam_still_works_for_a_well_formed_layer() -> None:
+    """The `_layers` seam itself is not the thing under test above — prove it still probes a
+    single, well-formed override correctly (only the poisoned SHAPE is refused).
+    """
+    only_agent_memory = next(layer for layer in ep.PERSISTENCE_LAYERS if layer.tabela == "agent_memory")
+    report = ep.dry_run(
+        subject_ref=_SENTINEL_REF,
+        subject_ref_kind=ep.SubjectRefKind.FHIR_PATIENT_ID,
+        tenant_id="t1",
+        counter=lambda statement, params: 5,
+        _layers=[only_agent_memory],
+    )
+    assert len(report.findings) == 1
+    assert report.findings[0].status is ep.LayerFindingStatus.COUNTED
+    assert report.findings[0].row_count == 5
 
 
 # ---------------------------------------------------------------------------
@@ -434,13 +531,65 @@ def test_artifact_and_code_enumerate_the_same_relations() -> None:
     assert from_artifact == set(ep.KNOWN_TABLES)
 
 
+# F-4: broadened past the exact literal "CREATE TABLE IF NOT EXISTS " — case-insensitive,
+# "IF NOT EXISTS" optional, identifier optionally double-quoted — PLUS a second, independent
+# pass for Alembic's own `op.create_table("name", ...)` API. Every migration today uses raw
+# SQL via `op.execute(...)`, so the second pass is currently vacuous on THIS chain, but a
+# future migration reaching for the ORM-level API must not go unseen by this scan.
+_CREATE_TABLE_SQL_RE = re.compile(
+    r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[\"']?(\w+)[\"']?",
+    re.IGNORECASE,
+)
+_OP_CREATE_TABLE_RE = re.compile(r"op\.create_table\(\s*[\"'](\w+)[\"']")
+
+
 def test_the_enumeration_covers_every_table_the_migration_chain_creates() -> None:
     """Non-vacuity: a future migration adding a table fails this until it is enumerated."""
     created: set[str] = set()
     for source in sorted(_MIGRATIONS.glob("0*.py")):
-        created.update(re.findall(r"CREATE TABLE IF NOT EXISTS (\w+)", source.read_text("utf-8")))
+        text = source.read_text("utf-8")
+        created.update(_CREATE_TABLE_SQL_RE.findall(text))
+        created.update(_OP_CREATE_TABLE_RE.findall(text))
     assert created, "non-vacuity: the scan must find tables"
     assert created <= set(ep.KNOWN_TABLES), f"unenumerated: {sorted(created - set(ep.KNOWN_TABLES))}"
+
+
+def test_the_create_table_scan_also_catches_the_op_create_table_api_shape(tmp_path: Path) -> None:
+    """Negative control, on a SCRATCH file OUTSIDE the real migrations directory: a table
+    created via `op.create_table(...)` (the Alembic ORM-level API, unused today but not
+    forbidden) must be found by the same scan that finds raw-SQL CREATE TABLE.
+    """
+    scratch = tmp_path / "0099_hypothetical.py"
+    scratch.write_text(
+        "def upgrade() -> None:\n"
+        "    op.create_table(\n"
+        '        "a_future_relation_this_module_never_heard_of",\n'
+        '        sa.Column("id", sa.Integer(), primary_key=True),\n'
+        "    )\n",
+        encoding="utf-8",
+    )
+    text = scratch.read_text("utf-8")
+    found = set(_CREATE_TABLE_SQL_RE.findall(text)) | set(_OP_CREATE_TABLE_RE.findall(text))
+    assert found == {"a_future_relation_this_module_never_heard_of"}
+
+
+def test_the_create_table_scan_catches_case_and_quoting_variants(tmp_path: Path) -> None:
+    """Negative control, on a SCRATCH file: lowercase `create table`, no `IF NOT EXISTS`, and
+    a double-quoted identifier must all still be found — the old exact-literal match missed
+    every one of these shapes.
+    """
+    scratch = tmp_path / "0098_hypothetical_variants.py"
+    scratch.write_text(
+        'op.execute("""\n'
+        '    create table "another_future_relation" (\n'
+        "        id uuid primary key\n"
+        "    );\n"
+        '""")\n',
+        encoding="utf-8",
+    )
+    text = scratch.read_text("utf-8")
+    found = set(_CREATE_TABLE_SQL_RE.findall(text)) | set(_OP_CREATE_TABLE_RE.findall(text))
+    assert found == {"another_future_relation"}
 
 
 def test_each_enumerated_relation_cites_its_source() -> None:
@@ -454,6 +603,75 @@ def test_the_artifact_rows_cite_a_migration_and_carry_a_resolution() -> None:
     for layer in _shipped_raw()["camadas"]:
         assert str(layer["migracao"]).strip()
         assert layer["resolucao_identidade"] in vocabulary, layer["tabela"]
+
+
+# F-3: the SET-equality check above (`test_artifact_and_code_enumerate_the_same_relations`)
+# is not enough — a relation could keep the right `tabela` while carrying a
+# `resolucao_identidade` or `ordem` the code enumeration disagrees with, and the SET check
+# would still pass. Both are pinned per relation here, factored into a reusable helper so the
+# negative-control test below can prove the check actually fails closed instead of trusting
+# it by inspection.
+def _resolution_and_order_drift(camadas: list[dict[str, Any]]) -> list[str]:
+    """Return one message per relation where the artifact disagrees with the code
+    enumeration on `resolucao_identidade` or `ordem`. Empty means the two halves agree
+    exactly, on both fields, for every relation.
+    """
+    by_tabela = {layer.tabela: layer for layer in ep.PERSISTENCE_LAYERS}
+    mismatches: list[str] = []
+    for entry in camadas:
+        tabela = entry["tabela"]
+        layer = by_tabela.get(tabela)
+        if layer is None:
+            mismatches.append(f"{tabela}: unknown to the code enumeration")
+            continue
+        if entry["resolucao_identidade"] != layer.resolucao.value:
+            mismatches.append(
+                f"{tabela}: resolucao_identidade={entry['resolucao_identidade']!r} != "
+                f"code {layer.resolucao.value!r}"
+            )
+        if entry["ordem"] != layer.ordem:
+            mismatches.append(f"{tabela}: ordem={entry['ordem']!r} != code {layer.ordem!r}")
+    return mismatches
+
+
+def test_the_artifact_resolution_and_order_match_the_code_exactly() -> None:
+    """Anti-drift, per relation and on BOTH fields — not just the relation-name set."""
+    mismatches = _resolution_and_order_drift(_shipped_raw()["camadas"])
+    assert mismatches == [], mismatches
+
+
+def test_a_resolution_drift_is_actually_caught_by_the_check_above(tmp_path: Path) -> None:
+    """Negative control, on a SCRATCH COPY (never the shipped artifact): flip one relation's
+    `resolucao_identidade` and prove `_resolution_and_order_drift` actually fails closed
+    instead of passing vacuously. `audit_chain` is `SEM_COLUNA_DE_TITULAR` in the code; this
+    mutates the scratch copy to the structurally different `RESOLVIVEL`.
+    """
+    data = _shipped_raw()
+    for layer in data["camadas"]:
+        if layer["tabela"] == "audit_chain":
+            layer["resolucao_identidade"] = "RESOLVIVEL"
+    mutated_path = tmp_path / "mutated-artifact.yaml"
+    mutated_path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+    reloaded = yaml.safe_load(mutated_path.read_text(encoding="utf-8"))
+
+    mismatches = _resolution_and_order_drift(reloaded["camadas"])
+    assert any(m.startswith("audit_chain:") and "resolucao_identidade" in m for m in mismatches), mismatches
+
+
+def test_an_ordem_drift_is_actually_caught_by_the_check_above(tmp_path: Path) -> None:
+    """Negative control, on a SCRATCH COPY: flip one relation's `ordem` and prove the same
+    check catches an ordering drift too, independent of `resolucao_identidade`.
+    """
+    data = _shipped_raw()
+    for layer in data["camadas"]:
+        if layer["tabela"] == "erasure_log":
+            layer["ordem"] = 999
+    mutated_path = tmp_path / "mutated-ordem.yaml"
+    mutated_path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+    reloaded = yaml.safe_load(mutated_path.read_text(encoding="utf-8"))
+
+    mismatches = _resolution_and_order_drift(reloaded["camadas"])
+    assert any(m.startswith("erasure_log:") and "ordem" in m for m in mismatches), mismatches
 
 
 # ---------------------------------------------------------------------------

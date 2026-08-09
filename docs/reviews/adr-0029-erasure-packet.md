@@ -78,7 +78,7 @@ migration that adds a relation fails CI until a DPO decides for it too.
 | 8 | semântica | `agent_memory.embedding` | `0001:72` (coluna `vector(1536)`); extensão `0001:28` | a MESMA linha da #7 | `PONTE_AUSENTE` |
 | 9 | auditoria | `audit_chain` | `0002:27-51` | **nenhuma coluna**; vínculo dentro de `decision_basis` jsonb (`0002:36`) | `SEM_COLUNA_DE_TITULAR` |
 | 10 | auditoria | `audit_emit_dedup` | `0005:59-67` | `(tenant, dedup_key)` — derivado do evento | `SEM_COLUNA_DE_TITULAR` |
-| 11 | custódia | `custody_bundles` | `0004:31-45` | `evidence_refs` jsonb (`0004:36`) — ponteiros pseudonimizados (`custody.py:11`) | `SEM_COLUNA_DE_TITULAR` |
+| 11 | custódia | `custody_bundles` | `0004:31-45` | `evidence_refs` jsonb (`0004:36`) — ponteiros pseudonimizados (`src/maezo/gateway/custody.py:11`) | `SEM_COLUNA_DE_TITULAR` |
 | 12 | registro | `erasure_log` | `0004:64-79`; índice `0004:82-84` | `tenant_id` + `fhir_patient_id` (**NOT NULL**, `0004:67`) | `PONTE_AUSENTE` |
 | 13 | idempotência | `a2a_idempotency` | `0003:32-45` | `(task_id, tenant)`; `result` jsonb (`0003:39`) | `SEM_COLUNA_DE_TITULAR` |
 | 14 | idempotência | `driver_idempotency` | `0003:61-67` | `key` text PK (`0003:62`) — chave de NEGÓCIO | `SEM_COLUNA_DE_TITULAR` |
@@ -131,9 +131,13 @@ is precisely why the order is written down here to be reviewed.
 For each relation: what is retained today, how the titular's rows would be identified, and the
 statement each of the three verdicts would require. **Every statement below is a DOCUMENT.** None of
 it exists in code: the module holds `SELECT count(*)` and nothing else, structurally guaranteed by
-the AST guard in `tests/unit/platform/test_lifecycle.py`, which forbids a destructive literal
-anywhere in the `lifecycle` package. Values are bound (`:tenant_id`, `:subject_ref`) and never
-interpolated, so no reference ever appears in SQL text — asserted by
+two checks in `tests/unit/platform/test_lifecycle.py`: an AST guard that forbids
+`DELETE`/`UPDATE`/`INSERT`/`DROP`/`TRUNCATE`/`ALTER` as a whole word in any string literal
+anywhere in the `lifecycle` package, and — scoped to `erasure_plan.py` specifically — a positive
+check that every string constant shaped like the opening of a SQL statement (plain or
+`+`-concatenated) is exactly a `SELECT count(*)` probe, closing the gap a per-literal keyword
+scan alone cannot: a verb split across concatenated fragments. Values are bound (`:tenant_id`,
+`:subject_ref`) and never interpolated, so no reference ever appears in SQL text — asserted by
 `test_a_patient_reference_counts_exactly_the_subject_bearing_relations`.
 
 ### 4.1 `agent_memory` — camada episódica (#7) · `decisao_dpo: PENDENTE`
@@ -219,15 +223,15 @@ Não há sentença aqui. As opções e por que nenhuma delas é uma eliminação
 ### 4.5 `custody_bundles` (#11) · `decisao_dpo: PENDENTE`
 
 **Hoje:** retenção indefinida. `bundle_root` é raiz de Merkle sobre `evidence_refs` ordenados
-(`custody.py:36-67`), `UNIQUE` em `0004:43`, e `audit_record_hash` (`0004:41`) é o vínculo de volta
-para a cadeia.
+(`src/maezo/gateway/custody.py:36-70`), `UNIQUE` em `0004:43`, e `audit_record_hash` (`0004:41`) é
+o vínculo de volta para a cadeia.
 
 ```sql
 -- ELIMINAR   (herda a tensão da cadeia — o bundle é PROJEÇÃO sobre ela, ADR-0020, não um fork)
 DELETE FROM custody_bundles
  WHERE tenant_id = :tenant_id AND id = ANY(:bundle_ids);
 
--- ANONIMIZAR (INVALIDA bundle_root: verify_bundle() recomputa e compara, custody.py:73-86)
+-- ANONIMIZAR (INVALIDA bundle_root: verify_bundle() recomputa e compara, src/maezo/gateway/custody.py:73-86)
 UPDATE custody_bundles
    SET evidence_refs = '[]'::jsonb, evidence_count = 0
  WHERE tenant_id = :tenant_id AND id = ANY(:bundle_ids);
@@ -359,8 +363,8 @@ jurídico/regulatório** (`:224`) — ou seja, o número que hoje aparece como r
 não é uma decisão ratificada.
 
 **`custody_bundles` herda esta seção.** ADR-0020 define o bundle como PROJEÇÃO sobre a cadeia, não
-como fork; a integridade dele (`custody.py:73-86`) depende dos mesmos `evidence_refs` que uma
-anonimização mexeria.
+como fork; a integridade dele (`src/maezo/gateway/custody.py:73-86`) depende dos mesmos
+`evidence_refs` que uma anonimização mexeria.
 
 **`decisao_dpo` para `audit_chain` e `custody_bundles`: PENDENTE.** Este pacote não escolhe. Se a
 escolha for `ELIMINAR`, ela é hoje **inexequível** pelo mecanismo ratificado, e isso precisa ser
@@ -479,6 +483,14 @@ eliminação segue recusada — agora por `execution_mechanism_absent`.
 **Somente o DPO (com jurídico).** Nenhum agente, orquestrador ou gatekeeper automatizado pode
 preencher estes campos ou flipar `ratificado`. Fabricar uma aprovação neste repositório é um evento
 de compliance, não um conflito de merge.
+
+**Precisão sobre o que o mecanismo de fato garante.** `.github/CODEOWNERS` (`:56`, `:60`) roteia a
+revisão técnica de qualquer PR que toque este arquivo para `@rodrigotaquino` e
+`@Omni-Saude/security` — isso É o que o roteador aplica: um gate de aprovação de PR no GitHub. Ele
+NÃO verifica se quem aprova é o DPO ou o jurídico, nem confere a alegação de identidade contra a
+lista de aprovadores. Essa identidade — quem foi o DPO revisor, quando, com que veredito — é apenas
+REGISTRADA nos campos `dpo_reviewer`/`dpo_review_date` do próprio artefato e na linha correspondente
+de `docs/evidence-ledger.md`; nada no CODEOWNERS a impõe.
 
 ### Registro de ratificação — A SER PREENCHIDO PELO DPO
 
