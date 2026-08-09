@@ -311,6 +311,46 @@ def test_auth_behaviour_through_the_shared_primitive_is_unchanged_for_valid_ints
         assert resolver.within_l2_ceiling(**_KW, value_cents=value) is expected, value
 
 
+def test_reembolso_behaviour_through_the_shared_primitive_is_unchanged_for_valid_ints(
+    tmp_path: Path,
+) -> None:
+    """REEMBOLSO REGRESSION PIN (MINOR-3): the guard is generalized to the shared primitive, so
+    REEMBOLSO inherits it via `calculate_value`'s `within_l2_ceiling(value_cents=valor_calculado)`
+    call (reembolso.py:272-277), where `valor_calculado` comes from `_compute_table_value`
+    (reembolso.py:549-579).
+
+    For every VALID int, REEMBOLSO's outcome is byte-identical to pre-fix — a MAPPED
+    `categoria_procedimento` always yields an int `base` (the `base_values` dict is all int
+    literals; the urgencia/emergencia multiplier is `int(base * 1.5)`), and `max(base, 0)` of an
+    int is an int.
+
+    The path that CAN newly see the guard is an UNMAPPED `categoria_procedimento`
+    (reembolso.py:571, `base_values.get(..., valor_solicitado_cents)`): `_compute_table_value` then
+    returns `valor_solicitado_cents` AS-IS (nothing type-checks it — `ReembolsoInput.
+    valor_solicitado_cents` is annotated `int` but a dataclass does not enforce that at
+    construction) through `max(base, 0)`, which passes a `bool`/`float` straight through unchanged
+    (`max(True, 0) is True`; `max(8000.5, 0) is 8000.5`) into `calculate_value`'s
+    `within_l2_ceiling(value_cents=...)` call. Pre-fix that primitive was fail-OPEN for exactly
+    these shapes; post-fix it now safely fails CLOSED — routing the request to `ANALISE_HUMANA`
+    instead of silently admitting a non-integer-money value into a "within teto" comparison. No
+    legitimate REEMBOLSO path (a MAPPED categoria, always int) can newly be denied.
+
+    Tests the SHARED PRIMITIVE's contract only, not `_compute_table_value` internals — a sibling
+    branch (F5) reworks that function; this pin is written to survive a rebase over it.
+    """
+    core = _write_core(tmp_path, "  reembolso_auto_approval: { level: L2, params: { max_value_brl: 500 } }\n")
+    resolver = CeilingResolver(core_path=core)
+    kw = {"tenant": "amh", "action": REEMBOLSO_ACTION, "param": REEMBOLSO_PARAM}
+
+    for value, expected in ((0, True), (1, True), (49_999, True), (50_000, True), (50_001, False)):
+        assert resolver.within_l2_ceiling(**kw, value_cents=value) is expected, value
+    # The bool/float shapes an UNMAPPED categoria_procedimento can pass straight through
+    # `_compute_table_value`'s `max(base, 0)` (reembolso.py:571,579) now safely fail closed.
+    bad_shapes: tuple[Any, ...] = (True, False, 8000.5, -0.0)
+    for bad_value in bad_shapes:
+        assert resolver.within_l2_ceiling(**kw, value_cents=bad_value) is False, bad_value
+
+
 def test_is_valid_value_cents_vector_table() -> None:
     """The guard predicate itself — the single place every caller's rejection set is defined."""
     for ok in (0, 1, 50_000, 5_000_000_000, 10**30):

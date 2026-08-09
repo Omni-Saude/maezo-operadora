@@ -187,6 +187,43 @@ def _matches(entry: str, value: int) -> bool:
     raise AssertionError(f"unsupported unary test {entry!r} — extend this matcher deliberately")
 
 
+def _matches_boolean(entry: str, value: bool) -> bool:  # noqa: FBT001
+    """Minimal FEEL matcher for the unary-test forms `pagto_alcada`'s boolean column uses.
+
+    MINOR-1: mirrors `_matches` above — deliberately narrow, an unrecognised form RAISES instead of
+    silently `continue`-ing past it. Pre-fix, the caller's `teto_entry != "-" and teto_entry !=
+    "false"` check treated ANY other literal (e.g. a future finance edit adding `not(true)`) as
+    "does not match" via a bare `continue` — masking the fact that the matcher never actually
+    understood the new form. A future rule using an unrecognised boolean unary test now FAILS this
+    fence loudly instead of being silently skipped.
+    """
+    entry = entry.strip()
+    if entry == "-":
+        return True
+    if entry in ("true", "false"):
+        return (entry == "true") == value
+    raise AssertionError(f"unsupported boolean unary test {entry!r} — extend this matcher deliberately")
+
+
+def _first_hit(table: ET.Element, *, valor: int, dentro_teto: bool) -> ET.Element:  # noqa: FBT001
+    """Replay FIRST-hit policy over the REAL rules for one (valor, dentro_teto_l2) input pair.
+
+    Shared by the sweep in `test_no_rule_can_yield_dentro_teto_l2_when_the_gate_is_pinned_false`
+    below — the same replay `test_conservative_amount_token_lands_on_the_tables_own_catch_all` does
+    for the ONE token this worker actually forwards, generalised to an arbitrary valor.
+    """
+    for rule in _rules(table):
+        valor_entry, teto_entry, _tipo_entry = _entry_texts(rule, "inputEntry")
+        if not _matches(valor_entry, valor):
+            continue
+        if not _matches_boolean(teto_entry, dentro_teto):
+            continue
+        return rule
+    raise AssertionError(
+        f"no rule matched valor={valor} dentro_teto_l2={dentro_teto} — table lost its catch-all"
+    )
+
+
 def test_conservative_amount_token_lands_on_the_tables_own_catch_all(alcada_table: ET.Element) -> None:
     """DERIVES the conservative route by replaying FIRST-hit over the real rules.
 
@@ -201,8 +238,8 @@ def test_conservative_amount_token_lands_on_the_tables_own_catch_all(alcada_tabl
         valor_entry, teto_entry, tipo_entry = _entry_texts(rule, "inputEntry")
         if not _matches(valor_entry, _VALOR_CENTS_ROTA_CONSERVADORA):
             continue
-        if teto_entry != "-" and teto_entry != "false":
-            continue  # the boolean gate: `true` cannot match our False
+        if not _matches_boolean(teto_entry, False):
+            continue  # the boolean gate: MINOR-1 — RAISES on an unrecognised form, never skips it
         assert tipo_entry == "-", "tipo_pagamento became discriminating — re-derive this route"
         winner = rule
         break
@@ -232,3 +269,71 @@ def test_no_rule_can_release_a_payment(alcada_table: ET.Element) -> None:
     for rule in _rules(alcada_table):
         faixa = _entry_texts(rule, "outputEntry")[0].upper()
         assert not any(token in faixa for token in forbidden), (rule.get("id"), faixa)
+
+
+# ---------------------------------------------------------------------------------------------
+# 3. GK-recommended fence (MAJOR-1): the END-TO-END property the whole process depends on — not
+#    just the ONE token this worker forwards, but that `dentro_teto_l2=False` closes DENTRO_TETO_L2
+#    for ANY valor, because `BRT_AlcadaRouting` (bpmn:180-205) re-evaluates this SAME table
+#    natively from the raw, unechoed `valor_pagamento_cents` (see pagto.py `route_aprovacao`'s
+#    "THE ENGINE-SIDE GUARANTEE" docstring paragraph).
+# ---------------------------------------------------------------------------------------------
+
+
+def test_no_rule_can_yield_dentro_teto_l2_when_the_boolean_gate_is_pinned_false(
+    alcada_table: ET.Element,
+) -> None:
+    """Structural half: a rule producing DENTRO_TETO_L2 can NEVER match with `dentro_teto_l2=False`.
+
+    This is valor-INDEPENDENT: a rule's boolean-column unary test alone decides whether it can ever
+    fire once `dentro_teto_l2` is pinned False, regardless of what `valor_pagamento_cents` is. Since
+    `test_the_auto_release_band_structurally_requires_dentro_teto_l2_true` already proves exactly
+    ONE rule produces DENTRO_TETO_L2, and `_matches_boolean` (MINOR-1) RAISES rather than silently
+    skips an unrecognised form, this replays EVERY rule's boolean gate for real instead of trusting
+    that single rule count to stay true forever.
+    """
+    for rule in _rules(alcada_table):
+        faixa = _entry_texts(rule, "outputEntry")[0]
+        if faixa != f'"{_AUTO_BAND}"':
+            continue
+        _valor_entry, teto_entry, _tipo_entry = _entry_texts(rule, "inputEntry")
+        assert not _matches_boolean(teto_entry, False), (
+            rule.get("id"),
+            "a DENTRO_TETO_L2 rule can still fire with dentro_teto_l2=False",
+        )
+
+
+def test_no_rule_can_yield_dentro_teto_l2_across_the_full_value_domain_when_pinned_false(
+    alcada_table: ET.Element,
+) -> None:
+    """End-to-end replay (GK-recommended fence, MAJOR-1): sweeps the value domain, not just the ONE
+    conservative token this worker forwards, and asserts the FIRST-hit winner is never DENTRO_TETO_L2.
+
+    `test_conservative_amount_token_lands_on_the_tables_own_catch_all` only proves this for
+    `_VALOR_CENTS_ROTA_CONSERVADORA` (0) — the single value `route_aprovacao` actually sends for a
+    REJECTED amount. But `BRT_AlcadaRouting` re-evaluates from the engine's RAW, unechoed amount,
+    which can be ANY int (a legitimately ACCEPTED valor with `dentro_teto_l2` independently False —
+    e.g. a config problem on the resolver side — reaches this same table too). This sweep covers:
+    negative, zero, every ALCADA boundary and boundary+1, and a value far beyond the highest
+    configured tier — proving the property the whole process depends on, not one input vector.
+    """
+    sweep = [
+        -10_000_000,
+        -1,
+        0,
+        1,
+        10_000_000,  # DENTRO_TETO_L2's own upper boundary — WOULD win it if dentro_teto_l2 were true
+        10_000_001,
+        50_000_000,
+        50_000_001,
+        200_000_000,
+        200_000_001,
+        1_000_000_000,
+        1_000_000_001,
+        5_000_000_000,
+        2**63 - 1,
+    ]
+    for valor in sweep:
+        winner = _first_hit(alcada_table, valor=valor, dentro_teto=False)
+        faixa = _entry_texts(winner, "outputEntry")[0]
+        assert faixa != f'"{_AUTO_BAND}"', (valor, winner.get("id"), faixa)

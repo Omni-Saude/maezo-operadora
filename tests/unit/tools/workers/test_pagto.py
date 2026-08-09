@@ -366,6 +366,12 @@ _INVALID_VALORES = [
     pytest.param(-math.inf, "float", id="negative-inf"),
     pytest.param([5000], "tipo_invalido", id="list"),
     pytest.param({"value": 5000}, "tipo_invalido", id="dict"),
+    # MINOR-2: an int ABOVE the Java `long` (int64) upper bound that `pagto_alcada`'s
+    # `valor_pagamento_cents` input declares as its typeRef (dmn:50, ADR-0018 parte 2) — not
+    # representable on the wire, so it is rejected the same way any other non-`long` shape is,
+    # never forwarded to the DMN as-is.
+    pytest.param(2**63, "acima_long_max", id="above-int64-long-max"),
+    pytest.param(10**20, "acima_long_max", id="way-above-int64-long-max"),
 ]
 
 
@@ -474,7 +480,7 @@ def test_absent_valor_with_a_permissive_ceiling_is_the_exact_pre_fix_bypass() ->
 
 @pytest.mark.parametrize(
     "valor",
-    [1, 85_000, 5_000_000, 9_999_999, 10_000_000, 10_000_001, 5_000_000_000, 10**20],
+    [1, 85_000, 5_000_000, 9_999_999, 10_000_000, 10_000_001, 5_000_000_000, 2**63 - 1],
 )
 def test_valid_valor_is_forwarded_unchanged_to_both_resolver_and_dmn(valor: int) -> None:
     """Item 3 — ONE normalized int reaches BOTH consumers.
@@ -482,7 +488,11 @@ def test_valid_valor_is_forwarded_unchanged_to_both_resolver_and_dmn(valor: int)
     Pre-fix the resolver got the RAW `valor_cents` while the DMN got `int(valor_cents)` — two
     readings of one fact from one variable, differing on exactly the malformed inputs that must
     not route at all. Boundary-exact (10_000_000, the DMN's hardcoded R$100k gate) and
-    boundary+1 are included, as are amounts beyond int32 (money is `long`).
+    boundary+1 are included, as are amounts beyond int32 (money is `long`) up to and INCLUDING the
+    Java `long` (int64) upper bound itself (`2**63-1`, MINOR-2) — the boundary is inclusive; one
+    above it (`2**63`) is covered by `_INVALID_VALORES`'s `above-int64-long-max`/
+    `way-above-int64-long-max` vectors instead (formerly `10**20` sat here as a "valid" amount —
+    flipped to expect rejection, since it exceeds the DMN's `long`-typed input, dmn:50).
     """
     resolver = _RecordingCeilingResolver()
     fake = _pagto_alcada_fake(faixa_valor="DENTRO_TETO_L2", grupo_aprovador="", tier_minimo=0)
@@ -522,8 +532,8 @@ def test_valid_valor_still_reaches_the_auto_release_band() -> None:
 
 
 def test_valor_guard_vector_table() -> None:
-    """The guard predicate itself — accepted set is exactly the positive ints."""
-    for ok in (1, 85_000, 10_000_000, 5_000_000_000):
+    """The guard predicate itself — accepted set is exactly the positive ints up to the int64 bound."""
+    for ok in (1, 85_000, 10_000_000, 5_000_000_000, 2**63 - 1):
         assert pagto_module._valor_pagamento_cents_or_none(ok) == (ok, "")
     for bad, motivo in (
         (None, "ausente"),
@@ -536,6 +546,11 @@ def test_valor_guard_vector_table() -> None:
         (b"5000", "tipo_invalido"),
         ([1], "tipo_invalido"),
         (Decimal("8000"), "tipo_invalido"),
+        # MINOR-2: above the Java `long` (int64) upper bound `pagto_alcada`'s `valor_pagamento_cents`
+        # typeRef declares (dmn:50) — the boundary itself (2**63-1, above) stays valid; one above it
+        # is rejected as a distinct bounded motivo, not folded into `tipo_invalido` (it IS an `int`).
+        (2**63, "acima_long_max"),
+        (10**20, "acima_long_max"),
         (0, "nao_positivo"),
         (-1, "nao_positivo"),
     ):
