@@ -280,7 +280,7 @@ _DIVERGENCIAS: tuple[tuple[str, dict[str, Any], str, str, str], ...] = (
     ),
     (
         "ACHADO-1: tipo_carater='' (what the worker sends when the variable is absent, "
-        "adequacao.py:218) masks the table's OWN declared conservative catch-all",
+        "adequacao.py:297) masks the table's OWN declared conservative catch-all",
         {
             "tipo_carater": "",
             "tempo_acesso_apurado_min": 300,
@@ -598,7 +598,7 @@ def test_manifest_cites_its_governing_norm_and_the_open_finding(manifest: dict[s
         "docs/adr/0028-dmn-evaluation-engine-side.md:214-216",  # the DMN wins / owner's act
         "adequacao_gap.dmn:93",  # the 60min ceiling's source line
         "adequacao_gap.dmn:94",  # the 50km ceiling's source line
-        "src/maezo/tools/workers/adequacao.py:137",  # the ratified fail-safe's own constant
+        "src/maezo/tools/workers/adequacao.py:182",  # the ratified fail-safe's own constant
     ):
         assert citation in text, f"missing in-repo citation: {citation}"
     # Findings recorded as comments/data, not fixes.
