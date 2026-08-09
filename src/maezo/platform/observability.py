@@ -81,10 +81,20 @@ def _build_key_scrubber() -> Any | None:
     Returns None (no processor, byte-identical logging) whenever the effective policy mode is
     `off` — which is the shipped state. When the policy IS active the pseudonymizer is built
     through `Pseudonymizer.from_settings`, so the ADR-0035 fail-closed key rule is inherited: a
-    production runtime with no `PHI_HMAC_KEY` RAISES here rather than installing a scrubber that
-    would pseudonymize with a publicly-known dev key. That raise is the correct outcome — an
-    operator who ratified `scrub_only` without provisioning the key must find out at boot, not
-    from a log archive.
+    runtime with no `PHI_HMAC_KEY` raises `PseudonymizerKeyMissingError` here rather than
+    installing a scrubber that would pseudonymize with a publicly-known dev key.
+
+    WHERE THAT RAISE ACTUALLY SURFACES — NOT here, and not at boot, TODAY. It is a direct
+    consequence of the gap recorded just above: with no composition root calling
+    `setup_observability`, nothing in production ever reaches this function, so this raise is
+    UNREACHABLE in production and no daemon "fails at boot" on it. The one production-reachable
+    construction of the same pseudonymizer is `key_scrubber.egress_message_key`, called by the
+    `operadora.events.publish` worker handler — so an operator who ratifies `scrub_only` without
+    provisioning `PHI_HMAC_KEY` finds out on the FIRST publish external task after the restart,
+    as a raw `PseudonymizerKeyMissingError` on the harness retry/incident ladder (that handler
+    hoists the call out of its publish-`try` precisely so the fault is not re-labelled as a Kafka
+    publish failure). The boot-time reading becomes true only once a composition root wires this
+    bootstrap — which is the same pre-requisite the manifest already carries.
     """
     from maezo.platform.privacy.phi_key_policy import phi_key_policy  # noqa: PLC0415 — lazy
 
@@ -274,8 +284,22 @@ def record_phi_business_key_mint(*, family: str, modo: str, anchor: str) -> None
     """Record ONE business-key mint by derivation anchor (DL-0043 leg (c) shadow telemetry).
 
     Called by `maezo.tools.workers.base.mint_contract_business_key` — the single composer every
-    CANCEL/INAD business key is minted through. Increments
+    CANCEL/INAD business key is MINTED through. Increments
     `maezo_phi_business_key_mint_total{family, modo, anchor}`.
+
+    THAT CLAIM, ENUMERATED (it was false before this repair, and a claim of completeness has to
+    be checkable). The six mint sites, all routed through `mint_contract_business_key`:
+    `inadimplencia._cancel_business_key`, `fernando.graph._business_key`,
+    `fraude._cancel_business_key`, `fraude._inadimplencia_business_key`,
+    `notification_bridge._cancel_business_key`, `notification_bridge._inadimplencia_business_key`.
+    The last four called the bare formatter `base.contract_business_key` directly until this
+    repair, so the `anchor="contrato"` series under-counted by every fraude-handoff and
+    bridge-rule start. Pinned by `test_phi_key_flag_behavior.py::
+    test_no_cancel_inad_key_is_minted_outside_the_shared_mint_composer`.
+
+    NOT counted, deliberately: `base.contract_business_key_forms`, which composes the same
+    strings to QUERY for pre-existing instances (the anti-dupla-terminacao guard). It mints
+    nothing, so counting it would inflate the very number the owner ratifies against.
 
     THE POINT. While the remediation policy is `off` (today), the `anchor="matricula"` series is
     a running count of keys that WOULD have been pseudonymized under `pseudo_keys` — i.e. how

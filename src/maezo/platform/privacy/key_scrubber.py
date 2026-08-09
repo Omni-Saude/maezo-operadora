@@ -87,10 +87,32 @@ def egress_pseudonymizer() -> Pseudonymizer:
     Built from the environment because the seams that need it (`structlog.configure`,
     `events.publish`'s producer call) are not composition roots and have no settings object in
     hand. `Pseudonymizer.from_settings` still decides the key, so ADR-0035 is INHERITED: a
-    production runtime with no `PHI_HMAC_KEY` RAISES rather than returning a dev-keyed instance.
+    production runtime with no `PHI_HMAC_KEY` RAISES `PseudonymizerKeyMissingError` rather than
+    returning a dev-keyed instance.
 
     Only ever called when `phi_key_policy().scrubbing_enabled` — under the shipped `off` policy
     this function never runs, so an unprovisioned key cannot break a daemon today.
+
+    WHERE THAT RAISE ACTUALLY SURFACES (re-derived from the call graph, not assumed). This
+    function has exactly two callers in `src/`:
+
+      * `egress_message_key` below — reached from the `operadora.events.publish` handler
+        (`tools/workers/events.py::make_publish_event_handler`). This is the ONLY
+        production-reachable one today, so under a ratified `scrub_only` with no provisioned key
+        the failure appears on the FIRST publish external task after the restart. That handler
+        deliberately calls `egress_message_key` OUTSIDE its publish-`try`, so the raise propagates
+        RAW to the harness retry/incident ladder instead of being caught and re-labelled
+        `event_publish_failed` / `WorkerBpmnError(ERR_EVENT_PUBLISH_FAILED)`.
+      * `observability._build_key_scrubber` — reachable ONLY from `setup_observability`, which has
+        NO production caller today (repo-wide sweep: only tests call it). The "operator finds out
+        at BOOT" reading of ADR-0035 is therefore NOT what happens in production; it becomes true
+        only once a composition root wires that bootstrap.
+
+    Blast radius is the whole `operadora.events.publish` topic set, not just CANCEL/INAD:
+    `egress_message_key` constructs this pseudonymizer as an ARGUMENT, before
+    `pseudonymize_message_key` gets to decide the family is out of scope. That is fail-closed and
+    deliberate — an unprovisioned key under an active policy must stop the egress, not
+    half-cover it — but it means the first affected task need not be a CANCEL/INAD one.
     """
     runtime_mode = os.environ.get("RUNTIME_MODE") or os.environ.get("AGENT_RUNTIME_MODE") or ""
     return Pseudonymizer.from_settings(

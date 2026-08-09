@@ -47,6 +47,146 @@ def test_default_resolution_finds_the_shipped_manifest_and_is_off() -> None:
 
 
 # ---------------------------------------------------------------------------
+# The `pseudo_keys` pre-requisite block — ratification must not proceed unaware
+# ---------------------------------------------------------------------------
+#
+# `pseudo_keys` DECLARES that guards dual-read the legacy and pseudo key forms. Exactly ONE
+# consumer does (`inadimplencia._query_ja_em_rescisao_cancel` via `contract_business_key_forms`,
+# the anti-dupla-TERMINACAO guard). The START side does not: `start_process_idempotent` takes a
+# single business key for both `find_active_instance` and `start_dedup_key`. Ratifying the mode
+# as if the dual-read were universal DOUBLE-STARTS SP-OP-INADIMPLENCIA-001/SP-OP-CANCEL-001. The
+# manifest therefore has to carry those gaps in machine-readable form, and these tests make
+# deleting or quietly "closing" them a failing change rather than an invisible one.
+
+_REQUIRED_PREREQ_IDS = frozenset(
+    {
+        "start_idempotency_dual_read",
+        "start_dedup_key_dual_read",
+        "beneficiario_pseudo_id_no_handoff",
+    }
+)
+
+
+def _shipped_manifest_data() -> dict[str, object]:
+    import yaml
+
+    data = yaml.safe_load(_SHIPPED_MANIFEST.read_text(encoding="utf-8"))
+    assert isinstance(data, dict)
+    return data
+
+
+def test_manifest_declares_the_unmet_pseudo_keys_prerequisites() -> None:
+    """The three known-open gaps are NAMED in the artifact, each with its adverse effect."""
+    prereqs = _shipped_manifest_data().get("pre_requisitos_pseudo_keys")
+    assert isinstance(prereqs, list) and prereqs, (
+        "the manifest must carry a `pre_requisitos_pseudo_keys` block — without it a ratifier "
+        "reading only the `modo` comment would believe the dual-read is universal"
+    )
+    by_id = {item["id"]: item for item in prereqs if isinstance(item, dict) and "id" in item}
+    missing = _REQUIRED_PREREQ_IDS - set(by_id)
+    assert not missing, f"pre-requisite(s) dropped from the manifest: {sorted(missing)}"
+    for prereq_id in sorted(_REQUIRED_PREREQ_IDS):
+        item = by_id[prereq_id]
+        assert item["atendido"] is False, (
+            f"{prereq_id} is recorded as met — if the CODE really closed it, this test and the "
+            f"docstrings in base.contract_business_key_forms / PhiKeyMode.PSEUDO_KEYS must be "
+            f"updated in the SAME change; flipping the flag alone is the failure mode this pins"
+        )
+        assert str(item.get("onde", "")).strip(), f"{prereq_id}: `onde` (file::symbol) is required"
+        assert str(item.get("efeito_se_ratificado_sem_isto", "")).strip(), (
+            f"{prereq_id}: the adverse effect must be stated, not left to the reader"
+        )
+
+
+def test_pseudo_keys_is_not_ratified_while_a_prerequisite_is_unmet() -> None:
+    """THE fence: the shipped artifact may not be in force as `pseudo_keys` with gaps open.
+
+    Deliberately stated over the DECLARED mode plus the ratification block rather than over the
+    resolved policy: `load_phi_key_policy` would report `off` for a DRAFT anyway, which would
+    make this test pass for the wrong reason the moment someone flipped `status`.
+    """
+    data = _shipped_manifest_data()
+    prereqs = data.get("pre_requisitos_pseudo_keys")
+    assert isinstance(prereqs, list)
+    unmet = [i["id"] for i in prereqs if isinstance(i, dict) and i.get("atendido") is False]
+    if not unmet:
+        return  # every gap closed — the mode becomes ratifiable and this fence stops applying
+    ratificacao = data.get("ratificacao")
+    assert isinstance(ratificacao, dict)
+    in_force = (
+        str(data.get("status", "")).strip().upper() == "RATIFICADO" and ratificacao.get("ratificado") is True
+    )
+    assert not (in_force and str(data.get("modo", "")).strip().lower() == "pseudo_keys"), (
+        f"`modo: pseudo_keys` ratified while these pre-requisites are unmet: {sorted(unmet)} — "
+        f"each one is a documented double-start / double-audit exposure"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Duplicate top-level keys: a document that reads one way and loads another
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [("off", "pseudo_keys"), ("pseudo_keys", "off")],
+)
+def test_a_duplicated_modo_key_refuses_the_whole_manifest(tmp_path: Path, first: str, second: str) -> None:
+    """`yaml.safe_load` keeps the LAST duplicate silently — so both orders must be refused.
+
+    `off` then `pseudo_keys` is the forgery: a reviewer reading top-down sees the inert default
+    and the file activates the mode. `pseudo_keys` then `off` is the mirror hazard: a
+    ratification the reviewer believes they granted is silently inert. Neither document says what
+    it appears to say, so neither is trusted.
+    """
+    manifest = tmp_path / "m.yaml"
+    manifest.write_text(
+        f'version: 1\nstatus: RATIFICADO\nmodo: "{first}"\nratificacao:\n  ratificado: true\n'
+        f'  revisor: "r"\n  ratificado_em: "2026-01-01"\nmodo: "{second}"\n',
+        encoding="utf-8",
+    )
+    policy = load_phi_key_policy(manifest)
+    assert policy.modo is PhiKeyMode.OFF
+    assert policy.ratificado is False
+    assert policy.motivo == "chave_duplicada"
+
+
+@pytest.mark.parametrize("key_block", ["status: RATIFICADO", "unratified: false"])
+def test_any_duplicated_top_level_key_refuses_the_manifest(tmp_path: Path, key_block: str) -> None:
+    """Not just `modo`: `status` decides whether ANY mode is in force, and a duplicated
+    `unratified` would let a template marker be visually present but load away."""
+    manifest = tmp_path / "m.yaml"
+    manifest.write_text(
+        f"version: 1\n{key_block}\nstatus: DRAFT\nmodo: pseudo_keys\nratificacao:\n"
+        f'  ratificado: true\n  revisor: "r"\n  ratificado_em: "2026-01-01"\n{key_block}\n',
+        encoding="utf-8",
+    )
+    assert load_phi_key_policy(manifest).motivo == "chave_duplicada"
+
+
+def test_duplicate_keys_nested_in_a_block_are_not_this_gates_business(tmp_path: Path) -> None:
+    """Scope pin: the check is the document ROOT only. Nothing nested can flip the mode, and
+    widening it would change `yaml.safe_load` semantics for a file this loader does not own."""
+    manifest = tmp_path / "m.yaml"
+    manifest.write_text(
+        "version: 1\nstatus: RATIFICADO\nmodo: scrub_only\nratificacao:\n  ratificado: true\n"
+        '  revisor: "r"\n  revisor: "outro"\n  ratificado_em: "2026-01-01"\n',
+        encoding="utf-8",
+    )
+    policy = load_phi_key_policy(manifest)
+    assert policy.modo is PhiKeyMode.SCRUB_ONLY
+    assert policy.ratificado is True
+
+
+def test_the_shipped_manifest_has_no_duplicate_top_level_keys() -> None:
+    """The artifact itself must pass its own gate — otherwise it silently loads as `off` for a
+    reason nobody intended, and the DRAFT/off pin above would be true by accident."""
+    from maezo.platform.privacy.phi_key_policy import _duplicate_top_level_keys
+
+    assert _duplicate_top_level_keys(_SHIPPED_MANIFEST.read_text(encoding="utf-8")) == ()
+
+
+# ---------------------------------------------------------------------------
 # THE forgery shape: a DRAFT manifest that declares an active mode
 # ---------------------------------------------------------------------------
 

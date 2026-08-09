@@ -28,7 +28,7 @@ from maezo.tools.workers.base import (
     CANCEL_KEY_FAMILY,
     INADIMPLENCIA_KEY_FAMILY,
     FunctionWorker,
-    contract_business_key,
+    mint_contract_business_key,
     non_blank,
 )
 from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row, require_dmn
@@ -831,18 +831,46 @@ def _cancel_business_key(tenant_id: str, numero_contrato: str) -> str:
     NO matricula fallback here — this handoff already refused a blank `numero_contrato` above.
     That asymmetry with `inadimplencia._cancel_business_key` (which DOES fall back) is exactly
     what defeated the anti-dupla-terminacao guard (B-2): the two composers mint different keys
-    for the same contract. They now share `base.contract_business_key`, and the guard sweeps
+    for the same contract. They now share `base.mint_contract_business_key`, and the guard sweeps
     every derivable form via `base.contract_business_key_forms`, so the asymmetry is visible in
     one place instead of being an invisible mismatch between two f-strings.
+
+    WHY THE MINT COMPOSER AND NOT THE BARE FORMATTER (DL-0043 counter completeness). This used to
+    call `base.contract_business_key` directly, which bypassed the shadow counter — so the
+    `anchor="contrato"` series under-counted by exactly the CANCEL keys minted on the fraude
+    handoff path. Routing through `mint_contract_business_key` with an EMPTY
+    `matricula_beneficiario` makes the series complete without changing a byte of output: the
+    caller (`start_contratual`) refuses a blank/None `numero_contrato` with `non_blank` BEFORE
+    reaching here, so `resolve_contract_identity` always short-circuits on the truthy contract
+    number and returns `(numero_contrato, "contrato")` — the same string
+    `contract_business_key(family, tenant_id, numero_contrato)` returned, in every policy mode
+    (the `pseudo_keys` branch is unreachable when a contract number is present). Calling this
+    helper DIRECTLY with a blank `numero_contrato` would still produce the identical degenerate
+    string, but would record `anchor="matricula"` for a matricula that is not there; that input
+    is refused upstream and never occurs in production.
     """
-    return contract_business_key(CANCEL_KEY_FAMILY, tenant_id, numero_contrato)
+    return mint_contract_business_key(
+        CANCEL_KEY_FAMILY,
+        tenant_id,
+        numero_contrato=numero_contrato,
+        matricula_beneficiario="",
+    )
 
 
 def _inadimplencia_business_key(tenant_id: str, numero_contrato: str) -> str:
     """`INAD-{tenant}-{numero_contrato}` — DISTINCT prefix from CANCEL for the SAME contract
     (IDENTICAL to `notification_bridge._inadimplencia_business_key`; the two processes coordinate via
-    topology + a runtime active-instance check, not a shared key)."""
-    return contract_business_key(INADIMPLENCIA_KEY_FAMILY, tenant_id, numero_contrato)
+    topology + a runtime active-instance check, not a shared key).
+
+    Same `mint_contract_business_key` routing, and the same byte-identity argument, as
+    `_cancel_business_key` above — this is the INAD half of the DL-0043 counter completeness fix.
+    """
+    return mint_contract_business_key(
+        INADIMPLENCIA_KEY_FAMILY,
+        tenant_id,
+        numero_contrato=numero_contrato,
+        matricula_beneficiario="",
+    )
 
 
 def start_contratual(

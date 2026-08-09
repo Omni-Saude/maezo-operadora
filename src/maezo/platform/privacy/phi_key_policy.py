@@ -23,9 +23,9 @@ INERT until that act happens.
 THE RULE. The declared `modo` takes effect ONLY when the manifest is fully ratified:
 `status: RATIFICADO` AND `ratificacao.ratificado is True` AND non-blank `revisor` AND non-blank
 `ratificado_em`. Anything else — DRAFT, a partial ratification, a missing file, malformed YAML,
-an `unratified: true` template marker, an unknown mode token — resolves to `PhiKeyMode.OFF`,
-which is today's behavior byte-for-byte. A DRAFT manifest declaring `modo: pseudo_keys` is
-therefore `off`; the loader never promotes a draft.
+an `unratified: true` template marker, an unknown mode token, a DUPLICATED top-level key —
+resolves to `PhiKeyMode.OFF`, which is today's behavior byte-for-byte. A DRAFT manifest declaring
+`modo: pseudo_keys` is therefore `off`; the loader never promotes a draft.
 
 PRECEDENT MIRRORED. `maezo.tools.workers.auth_criteria.load_criteria_sources` (itself mirroring
 `maezo.platform.lifecycle.legal_bases_matrix.load_retention_matrix`): same `unratified: true`
@@ -80,8 +80,21 @@ class PhiKeyMode(StrEnum):
         CANCEL/INAD families only (a documented partitioning change — see the manifest).
     PSEUDO_KEYS
         SCRUB_ONLY plus: new mints use `beneficiario_pseudo_id` (the valentina precedent) instead
-        of `matricula_beneficiario`, while every guard/query DUAL-READS the legacy and pseudo
-        forms for the migration window.
+        of `matricula_beneficiario`.
+
+        THE DUAL-READ IS PARTIAL, AND NAMING IT PRECISELY IS THE POINT. Exactly ONE consumer
+        dual-reads today: the CANCEL anti-dupla-terminacao correlation guard
+        (`inadimplencia._query_ja_em_rescisao_cancel` via `base.contract_business_key_forms`).
+        The START side does NOT: `transport.start_process_idempotent` takes a SINGLE business key
+        for both `find_active_instance` and `start_dedup_key`, so an instance live under the
+        legacy matricula form would be invisible to a start keyed on the pseudo form — a double
+        start of SP-OP-INADIMPLENCIA-001 / SP-OP-CANCEL-001, plus a second audit row because the
+        dedup key moved with the mint. `beneficiario_pseudo_id` is also absent from
+        `inadimplencia._HANDOFF_CARRY_KEYS`, so the handoff payload does not even carry the new
+        anchor forward. These are recorded as UNMET pre-requisites in the manifest's
+        `pre_requisitos_pseudo_keys` block, and `MODE IS NOT RATIFIABLE` until they are closed.
+        Ratifying this mode as if the dual-read were universal is the failure this docstring
+        exists to prevent.
     """
 
     OFF = "off"
@@ -187,6 +200,44 @@ def _is_ratified(data: dict[str, Any]) -> tuple[bool, str]:
     return True, ""
 
 
+def _duplicate_top_level_keys(raw_text: str) -> tuple[str, ...]:
+    """Top-level keys declared MORE THAN ONCE, in document order. Empty tuple when clean.
+
+    WHY THIS GATE EXISTS. `yaml.safe_load` resolves a duplicate mapping key by silently keeping
+    the LAST occurrence. On THIS artifact that is a forgery shape that needs no forger: a file
+    whose visible top reads `status: DRAFT` / `modo: "off"` can carry a second `status:
+    RATIFICADO` / `modo: pseudo_keys` further down and really activate the mode, while a human
+    reading top-down — and a reviewer diffing only the block they were pointed at — sees the
+    inert declaration. The reverse order is just as bad: it would silently DEACTIVATE a
+    ratification the reviewer believes they granted. Either way the document does not say what it
+    appears to say, so it is refused WHOLESALE (-> OFF), in both orders. Refusing is safe by
+    construction: the fail-closed direction of this flag is "do nothing".
+
+    Uses `yaml.compose` — the node graph, which PRESERVES duplicates — rather than a
+    `SafeLoader.construct_mapping` override, so the check is scoped exactly to this loader and to
+    the document ROOT. Nested duplicates inside `ratificacao`/`escopo` are not this gate's
+    business (none of them can flip the mode), and no other YAML consumer in the repo changes
+    behaviour. Malformed YAML returns `()` here: `_parse`'s own `safe_load` already reported it
+    as `invalid_yaml`, and this function must never be the thing that raises.
+    """
+    try:
+        root = yaml.compose(raw_text, Loader=yaml.SafeLoader)
+    except yaml.YAMLError:
+        return ()
+    if not isinstance(root, yaml.MappingNode):
+        return ()
+    seen: set[str] = set()
+    duplicated: list[str] = []
+    for key_node, _value_node in root.value:
+        if not isinstance(key_node, yaml.ScalarNode):
+            continue
+        key = str(key_node.value)
+        if key in seen and key not in duplicated:
+            duplicated.append(key)
+        seen.add(key)
+    return tuple(duplicated)
+
+
 def _parse(raw_text: str, manifest_path: Path) -> PhiKeyPolicy:
     """Parse an already-read manifest. NEVER raises; demotes to OFF instead."""
     try:
@@ -196,6 +247,15 @@ def _parse(raw_text: str, manifest_path: Path) -> PhiKeyPolicy:
 
     if not isinstance(data, dict):
         return _off("invalid_schema", f"{manifest_path}: root must be a mapping")
+
+    # Duplicate-key guard (see `_duplicate_top_level_keys`): a document that reads one way and
+    # loads another is refused before ANY field of it is trusted.
+    duplicated = _duplicate_top_level_keys(raw_text)
+    if duplicated:
+        return _off(
+            "chave_duplicada",
+            f"{manifest_path}: top-level key(s) declared more than once: {sorted(duplicated)}",
+        )
 
     # Template guard, mirrored from `load_retention_matrix`/`load_criteria_sources`: a copy marked
     # `unratified: true` is refused WHOLESALE, so pointing the path at a placeholder also fails
@@ -242,8 +302,8 @@ def load_phi_key_policy(path: str | Path | None = None) -> PhiKeyPolicy:
     `<spec>/policies/privacy/phi-business-key-remediation.yaml` (via `resolve_spec_dir`).
 
     Every failure mode (unresolvable spec dir, missing file, non-file path, unreadable, non-UTF-8,
-    malformed YAML, wrong schema, unknown `modo`, `unratified: true`, DRAFT status, incomplete
-    ratification) returns an OFF policy plus one `warning` log line.
+    malformed YAML, wrong schema, DUPLICATE top-level key, unknown `modo`, `unratified: true`,
+    DRAFT status, incomplete ratification) returns an OFF policy plus one `warning` log line.
     """
     raw_path = path if path is not None else os.environ.get(PHI_KEY_POLICY_PATH_ENV)
     if not raw_path:

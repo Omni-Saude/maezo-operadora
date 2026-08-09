@@ -68,7 +68,7 @@ from maezo.tools.mcp_cibseven.transport import (
 )
 from maezo.tools.workers.base import CANCEL_KEY_FAMILY as _CANCEL_KEY_FAMILY
 from maezo.tools.workers.base import INADIMPLENCIA_KEY_FAMILY as _INADIMPLENCIA_KEY_FAMILY
-from maezo.tools.workers.base import contract_business_key as _shared_contract_business_key
+from maezo.tools.workers.base import mint_contract_business_key as _shared_mint_contract_business_key
 from maezo.tools.workers.base import non_blank as _shared_non_blank
 from maezo.tools.workers.base import resolve_fraude_numero_caso as _resolve_fraude_numero_caso
 
@@ -408,19 +408,42 @@ def _cancel_business_key(tenant_id: str, numero_contrato: str) -> str:
     """`CANCEL-{tenant_id}-{numero_contrato}` (contract `SP-OP-CANCEL-001.md` "Business key
     (idempotencia)") — one active cancelamento/rescisao instance per contract.
 
-    Delegates to the SHARED `base.contract_business_key` (the third of the three CANCEL
+    Delegates to the SHARED `base.mint_contract_business_key` (the third of the three CANCEL
     composers). NO matricula fallback here — this rule's predicate already requires a non-blank
     `numero_contrato`. `inadimplencia`'s composer DOES fall back, which is why the
-    anti-dupla-terminacao guard now sweeps every derivable form rather than one (B-2)."""
-    return _shared_contract_business_key(_CANCEL_KEY_FAMILY, tenant_id, numero_contrato)
+    anti-dupla-terminacao guard now sweeps every derivable form rather than one (B-2).
+
+    WHY THE MINT COMPOSER AND NOT THE BARE FORMATTER (DL-0043 counter completeness). This used to
+    call `base.contract_business_key` directly, which bypassed the shadow counter — so the
+    `anchor="contrato"` series under-counted by exactly the CANCEL keys minted on this bridge
+    path (and this path really does start SP-OP-CANCEL-001: `_register_default_handoffs`'
+    FRAUDE->CANCEL rule below). Routing through `mint_contract_business_key` with an EMPTY
+    `matricula_beneficiario` completes the series without changing a byte of output: the rule's
+    `variables_fn` runs ONLY after `_anchored(p, "numero_contrato")` passed, so the argument is
+    always a non-blank string and `resolve_contract_identity` short-circuits on it, returning
+    `(numero_contrato, "contrato")` in every policy mode."""
+    return _shared_mint_contract_business_key(
+        _CANCEL_KEY_FAMILY,
+        tenant_id,
+        numero_contrato=numero_contrato,
+        matricula_beneficiario="",
+    )
 
 
 def _inadimplencia_business_key(tenant_id: str, numero_contrato: str) -> str:
     """`INAD-{tenant_id}-{numero_contrato}` (contract `SP-OP-INADIMPLENCIA-001.md` "Business key
     (idempotencia) — coordenada com CANCEL-001") — a prefix DISTINCT from CANCEL for the SAME
     contract (the two processes coordinate via topology + a runtime active-instance check, not
-    via a shared business key — see the contract's own "Coordenacao com CANCEL-001" note)."""
-    return _shared_contract_business_key(_INADIMPLENCIA_KEY_FAMILY, tenant_id, numero_contrato)
+    via a shared business key — see the contract's own "Coordenacao com CANCEL-001" note).
+
+    Same `mint_contract_business_key` routing, and the same byte-identity argument, as
+    `_cancel_business_key` above — the INAD half of the DL-0043 counter completeness fix."""
+    return _shared_mint_contract_business_key(
+        _INADIMPLENCIA_KEY_FAMILY,
+        tenant_id,
+        numero_contrato=numero_contrato,
+        matricula_beneficiario="",
+    )
 
 
 # ---------------------------------------------------------------------------

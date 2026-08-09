@@ -90,11 +90,18 @@ status: DRAFT
 #                outra familia (RECURSO/CRED/FRAUDE/PROG/ESC/DSR/ANS...).
 #
 #   pseudo_keys  scrub_only MAIS: novas cunhagens usam `beneficiario_pseudo_id` (o precedente
-#                valentina) no lugar de `matricula_beneficiario`. TODOS os guards/queries
-#                passam a DUAL-READ (forma legada + forma pseudo) durante a janela de migracao,
-#                para que uma instancia viva sob a forma antiga continue visivel. Se o
-#                `beneficiario_pseudo_id` estiver ausente/em branco, a cunhagem CAI DE VOLTA
-#                para o comportamento legado (nunca cunha key vazia/degenerada).
+#                valentina) no lugar de `matricula_beneficiario`. Se o `beneficiario_pseudo_id`
+#                estiver ausente/em branco, a cunhagem CAI DE VOLTA para o comportamento legado
+#                (nunca cunha key vazia/degenerada).
+#
+#                O DUAL-READ HOJE E PARCIAL — LEIA `pre_requisitos_pseudo_keys` ABAIXO ANTES DE
+#                RATIFICAR. Existe UM unico consumidor que faz dual-read (forma legada + forma
+#                pseudo): o guard de anti-dupla-terminacao do CANCEL
+#                (`inadimplencia._query_ja_em_rescisao_cancel`, via
+#                `base.contract_business_key_forms`). Nenhum outro. Em especial, o lado de START
+#                NAO faz dual-read. Uma versao anterior deste bloco dizia "TODOS os
+#                guards/queries" — isso era FALSO, e ratificar com base nisso produziria
+#                DUPLA-ABERTURA de processo. O detalhe verificado esta no bloco abaixo.
 #
 # ESTADO DE HOJE: `off`. Trocar este valor sozinho nao faz nada — ver `status`/`ratificacao`.
 #
@@ -143,3 +150,82 @@ escopo:
     - DSR         # JA usa titular_pseudo_id
     - ESC         # ancorada em pseudonimo keyed de telefone (hk1_)
     - ANS         # ancorada em report_type/competencia/numero_nip_ans
+
+# ---------------------------------------------------------------------------------------------
+# pre_requisitos_pseudo_keys — O QUE AINDA NAO EXISTE NO CODIGO.
+#
+# `modo: pseudo_keys` NAO E RATIFICAVEL ENQUANTO ESTE BLOCO TIVER ITEM `atendido: false`.
+# Isto nao e uma ressalva de estilo: cada item abaixo, se ratificado como esta, produz um efeito
+# ADVERSO concreto e nomeado. Verificado no codigo (arquivo:simbolo), nao inferido.
+#
+# `scrub_only` NAO depende deste bloco (nenhuma identidade persistida muda de forma); o
+# pre-requisito de `scrub_only` e o do bloco `modo` acima (composition root chamando o bootstrap
+# do structlog) mais o provisionamento de `PHI_HMAC_KEY` — ver `evidencia.efeitos_observaveis`.
+# ---------------------------------------------------------------------------------------------
+pre_requisitos_pseudo_keys:
+  - id: start_idempotency_dual_read
+    atendido: false
+    onde: >-
+      src/maezo/tools/mcp_cibseven/transport.py::start_process_idempotent — recebe UM unico
+      `business_key` e o usa em `find_active_instance`. Chamadores afetados:
+      src/maezo/agents/fernando/graph.py::FernandoGraph.start_process (SP-OP-INADIMPLENCIA-001) e
+      src/maezo/tools/workers/inadimplencia.py::handoff_rescisao (SP-OP-CANCEL-001).
+    efeito_se_ratificado_sem_isto: >-
+      DUPLA ABERTURA. Uma instancia ja viva sob a forma legada `INAD-{tenant}-{matricula}` fica
+      INVISIVEL para um start keyed em `INAD-{tenant}-{pseudo_id}`; o engine abre uma SEGUNDA
+      instancia do mesmo caso. O guard que faz dual-read (o de anti-dupla-TERMINACAO) nao cobre
+      isto — ele roda depois, e para outra decisao.
+  - id: start_dedup_key_dual_read
+    atendido: false
+    onde: >-
+      src/maezo/tools/mcp_cibseven/transport.py::start_dedup_key —
+      `f"{tenant}:start:{process_key}:{business_key}"`, derivado da MESMA key unica.
+    efeito_se_ratificado_sem_isto: >-
+      DUPLO REGISTRO DE AUDITORIA. A dedup key muda junto com a cunhagem, entao `emit_once` NAO
+      retorna ALREADY_AUDITED para o mesmo caso logico: grava uma segunda linha de start na
+      cadeia ADR-0007 como se fosse uma decisao nova.
+  - id: beneficiario_pseudo_id_no_handoff
+    atendido: false
+    onde: >-
+      src/maezo/tools/workers/inadimplencia.py::_HANDOFF_CARRY_KEYS — carrega
+      `matricula_beneficiario`, NAO carrega `beneficiario_pseudo_id`.
+    efeito_se_ratificado_sem_isto: >-
+      DEGRADACAO SILENCIOSA. O payload do handoff INADIMPLENCIA->CANCEL nao leva a ancora nova,
+      entao o CANCEL-001 iniciado por esse caminho volta a cunhar pela matricula (o fallback
+      deliberado de `resolve_contract_identity`) — a remediacao parece ativa e nao cobre este
+      fluxo. Sem efeito adverso de processo, mas invalida a metrica como prova de cobertura.
+  - id: dual_read_escopo_atual
+    atendido: true
+    onde: >-
+      src/maezo/tools/workers/inadimplencia.py::_query_ja_em_rescisao_cancel via
+      src/maezo/tools/workers/base.py::contract_business_key_forms — UNICO consumidor com
+      dual-read hoje (guard de anti-dupla-terminacao do CANCEL). Registrado aqui como `true`
+      para que o escopo REAL do dual-read seja legivel ao lado do que falta.
+    efeito_se_ratificado_sem_isto: nao se aplica (ja atendido)
+
+# ---------------------------------------------------------------------------------------------
+# evidencia — o que muda de OBSERVAVEL quando o codigo desta remediacao roda. Registrado aqui
+# porque um ratificador que le so a metrica nao veria estes dois efeitos, e ambos ja ocorrem
+# HOJE, sob `modo: off`.
+# ---------------------------------------------------------------------------------------------
+evidencia:
+  metrica_principal: >-
+    maezo_phi_business_key_mint_total{family, modo, anchor} — a serie `anchor="matricula"` e a
+    contagem de keys que HOJE carregam matricula crua. Labels sao vocabulario fechado, sem
+    conteudo. Cunhagem coberta pelos SEIS compositores CANCEL/INAD, todos roteados por
+    `base.mint_contract_business_key` (inadimplencia, fernando.graph, fraude x2,
+    notification_bridge x2) — antes desta correcao os quatro ultimos cunhavam pelo formatador
+    cru e a serie `anchor="contrato"` subcontava.
+  efeitos_observaveis:
+    - campo_novo_em_warning: >-
+        `cancel_business_key_form_count` — campo NOVO na linha WARNING
+        `inadimplencia_cancel_correlation_unavailable` (reason=engine_seam_not_wired), em
+        src/maezo/tools/workers/inadimplencia.py::_query_ja_em_rescisao_cancel. E a contagem de
+        formas de key varridas pelo guard; conteudo-livre (um inteiro). Quem tiver alerta/parse
+        fixo nessa linha vera um campo a mais.
+    - log_info_novo_no_primeiro_mint: >-
+        `metrics_collector_initialized` — linha INFO emitida por
+        src/maezo/runtime/metrics.py::MetricsCollector.__init__ na PRIMEIRA cunhagem de key de um
+        processo que ainda nao tenha tocado o coletor global (a telemetria-sombra e lazy, via
+        `observability._get_metrics_collector`). Uma vez por processo, sem conteudo. Ja acontece
+        sob `modo: off` — a telemetria-sombra e a unica coisa que roda nesse modo.

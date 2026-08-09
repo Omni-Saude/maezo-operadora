@@ -233,3 +233,105 @@ def test_every_key_bearing_log_field_in_src_is_covered() -> None:
     assert not uncovered, (
         f"key-bearing field names not covered by BUSINESS_KEY_LOG_FIELDS: {sorted(uncovered)}"
     )
+
+
+def _logger_call_keywords() -> list[tuple[str, int, str, str]]:
+    """Every `<logger>.<level>(...)` keyword in `src/maezo`, as (path, lineno, name, value src).
+
+    AST, not regex: the defect this feeds is about the RELATIONSHIP between a kwarg's NAME and
+    its VALUE expression, which a textual sweep cannot see (the previous pin's
+    `\\b([a-z_]*business_key)\\s*=` only ever looked at names).
+
+    A `**mapping` argument has no static name, so it is reported here as the pseudo-name `"**"`
+    with the unpacked EXPRESSION as its value — the caller decides what to do with it. It is not
+    dropped: silently skipping it would leave the sweep bypassable by one refactor.
+    """
+    import ast
+
+    levels = {"debug", "info", "warning", "error", "critical", "exception", "log"}
+    src = Path(__file__).resolve().parents[4] / "src" / "maezo"
+    out: list[tuple[str, int, str, str]] = []
+    for path in sorted(src.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+                continue
+            if node.func.attr not in levels:
+                continue
+            if "log" not in ast.unparse(node.func.value).lower():
+                continue  # not a logger receiver (e.g. `math.log`, a domain `.error` attribute)
+            for kw in node.keywords:
+                out.append((str(path), node.lineno, kw.arg or "**", ast.unparse(kw.value)))
+    return out
+
+
+#: The ONLY `**mapping` expressions a logger call in `src/` may unpack. A `**` argument defeats
+#: the name-based sweep below by construction (the field names are decided at runtime), so rather
+#: than trust it, each one is pinned here and has to be reviewed for the anchor-naming rule ONCE.
+#: `_contract_identity_log_fields` is reviewed: it returns `{"numero_contrato": ...}` only when a
+#: real contract number exists and `{"matricula_beneficiario": ...}` otherwise, so every name it
+#: can emit is either non-PHI or in `PHI_KEY_ANCHOR_LOG_FIELDS`.
+_ALLOWED_LOGGER_KWARG_UNPACKS: frozenset[str] = frozenset(
+    {"_contract_identity_log_fields(numero_contrato, matricula_beneficiario)"}
+)
+
+
+def test_logger_kwarg_unpacks_are_pinned_so_the_sweep_cannot_be_bypassed() -> None:
+    """`logger.info(event, **built_fields)` hides its field NAMES from every static sweep.
+
+    So the escape hatch is enumerated instead of trusted: a new `**` unpack on a logger call is a
+    failing change until someone reviews it against the anchor-naming rule and adds it here. This
+    is what keeps `test_no_logger_kwarg_smuggles_a_phi_anchor_under_a_non_anchor_name` honest —
+    without it, the fix for the original defect (which itself introduced a `**` unpack) would
+    have quietly disarmed the fence that was added to catch it.
+    """
+    unpacks = {
+        f"{path}:{lineno}  **{value}"
+        for path, lineno, name, value in _logger_call_keywords()
+        if name == "**" and value not in _ALLOWED_LOGGER_KWARG_UNPACKS
+    }
+    assert not unpacks, (
+        "un-reviewed `**mapping` on a logger call — every field name it can emit must obey the "
+        "anchor-naming rule; review it and add the expression to "
+        "_ALLOWED_LOGGER_KWARG_UNPACKS:\n" + "\n".join(sorted(unpacks))
+    )
+
+
+def test_no_logger_kwarg_smuggles_a_phi_anchor_under_a_non_anchor_name() -> None:
+    """A PHI anchor may only travel under a field name the scrubber's anchor set covers.
+
+    THE DEFECT THIS PINS (real, found in `src/`, not hypothetical):
+    `inadimplencia.handoff_rescisao` logged
+    ``numero_contrato=numero_contrato or matricula_beneficiario`` on three lines — a raw
+    `PHI_PROCESS_VARS` matricula under a NON-PHI field name, on the same lines whose
+    `cancel_business_key` IS scrubbed. `scrub_only` would have closed the key and left the anchor
+    itself in the clear one kwarg to the left.
+
+    The fix is NOT to add `numero_contrato` to `PHI_KEY_ANCHOR_LOG_FIELDS`: a contract number is
+    not a person's identifier and analysts search logs by it, so scrubbing it would destroy the
+    field that has to stay legible. The fix is that the fallback value travels under its own
+    name. This sweep enforces exactly that rule, so the next site to try the shortcut fails here.
+    """
+    offenders = [
+        f"{path}:{lineno}  {name}={value}"
+        for path, lineno, name, value in _logger_call_keywords()
+        if "matricula" in value.lower()
+        and name not in PHI_KEY_ANCHOR_LOG_FIELDS
+        # `**` unpacks carry no static name; they are pinned by the test above instead.
+        and name != "**"
+    ]
+    assert not offenders, (
+        "logger kwarg(s) carrying a PHI anchor under a name the scrubber does not cover — log "
+        "the value under its own `matricula_beneficiario=`/`matricula=` name instead of widening "
+        "PHI_KEY_ANCHOR_LOG_FIELDS:\n" + "\n".join(offenders)
+    )
+
+
+def test_the_anchor_set_is_not_quietly_widened_to_cover_a_non_phi_field() -> None:
+    """The other half of the rule above: the anchor set must stay the two PHI names.
+
+    Without this, the sweep is trivially satisfiable by adding `numero_contrato` (or any other
+    business identifier) to `PHI_KEY_ANCHOR_LOG_FIELDS` — which would scrub the field operators
+    depend on and hide the very leak the sweep exists to find.
+    """
+    assert frozenset({"matricula_beneficiario", "matricula"}) == PHI_KEY_ANCHOR_LOG_FIELDS

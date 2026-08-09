@@ -567,6 +567,34 @@ _HANDOFF_CARRY_KEYS = (
 )
 
 
+def _contract_identity_log_fields(numero_contrato: str, matricula_beneficiario: str) -> dict[str, str]:
+    """The contract-identity kwargs for a `handoff_rescisao` log line, under CORRECT field names.
+
+    DL-0043 leg (c). The three `handoff_rescisao` log lines used to carry
+    ``numero_contrato=numero_contrato or matricula_beneficiario`` — a raw `PHI_PROCESS_VARS`
+    matricula travelling under a NON-PHI field name, on the very same line whose
+    `cancel_business_key` IS covered by the scrubber. `BusinessKeyScrubber`'s anchor set
+    (`key_scrubber.PHI_KEY_ANCHOR_LOG_FIELDS`) covers `matricula_beneficiario`/`matricula` and
+    deliberately does NOT cover `numero_contrato`: a contract number is not a person's
+    identifier, and an analyst legitimately searches logs by it. Adding it to the anchor set
+    would scrub the one field that has to stay legible — so the FALLBACK value has to travel
+    under its own name instead.
+
+    The two keys are mutually exclusive by construction: `numero_contrato` is emitted only when a
+    real contract number exists, `matricula_beneficiario` only when the fallback is what
+    identifies the contract. So under `scrub_only` exactly the PHI-bearing case is scrubbed, and
+    a contract-numbered case reads identically to before. Callers reach this only downstream of
+    the `not (numero_contrato or matricula_beneficiario)` refusal, so the returned value is never
+    a blank identity.
+
+    Pinned by `tests/unit/platform/privacy/test_key_scrubber.py::
+    test_no_logger_kwarg_smuggles_a_phi_anchor_under_a_non_anchor_name`.
+    """
+    if numero_contrato:
+        return {"numero_contrato": numero_contrato}
+    return {"matricula_beneficiario": matricula_beneficiario}
+
+
 def handoff_rescisao(
     variables: dict[str, Any],
     *,
@@ -640,7 +668,7 @@ def handoff_rescisao(
         # -> engine-computed retry -> incident (mirrors require_dmn's unwired-seam posture).
         logger.error(
             "inadimplencia_handoff_rescisao_engine_seam_not_wired",
-            numero_contrato=numero_contrato or matricula_beneficiario,
+            **_contract_identity_log_fields(numero_contrato, matricula_beneficiario),
         )
         raise RuntimeError(
             "handoff_rescisao: engine seam (CibSevenTransport) not wired — cannot start CANCEL-001; "
@@ -654,7 +682,7 @@ def handoff_rescisao(
         # incident, never a silent no-op and never an un-audited start.
         logger.error(
             "inadimplencia_handoff_rescisao_audit_sink_not_wired",
-            numero_contrato=numero_contrato or matricula_beneficiario,
+            **_contract_identity_log_fields(numero_contrato, matricula_beneficiario),
         )
         raise RuntimeError(
             "handoff_rescisao: audit sink (AuditStartSink) not wired — cannot emit the ADR-0007 "
@@ -703,7 +731,7 @@ def handoff_rescisao(
 
     logger.info(
         "inadimplencia_handoff_rescisao",
-        numero_contrato=numero_contrato or matricula_beneficiario,
+        **_contract_identity_log_fields(numero_contrato, matricula_beneficiario),
         cancel_business_key=cancel_business_key,
         cancel_instance_id=instance.instance_id,
         cancel_already_existed=instance.already_existed,

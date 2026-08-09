@@ -91,6 +91,12 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
+# MODULE-SCOPE deliberately (not a lazy in-function import): the handler's `egress_message_key`
+# call sits OUTSIDE its publish-`try` (see the comment at that call), so an ImportError here must
+# surface at import time as an import failure — never as a mid-dispatch exception the publish
+# error path could re-label. `key_scrubber` imports `gateway.{log_scrubber,pseudonymizer}` only,
+# and defers `phi_key_policy` lazily inside the function body, so there is no cycle back into
+# `tools.workers`.
 from maezo.platform.privacy.key_scrubber import egress_message_key
 from maezo.tools.workers.harness import ExternalTask, WorkerBpmnError
 
@@ -315,17 +321,32 @@ def make_publish_event_handler(
         publish_best_effort: bool | None = (
             False if event_type is not None and str(event_type) in FAIL_CLOSED_EVENT_TYPES else None
         )
+        # DL-0043 leg (c): the Kafka MESSAGE KEY is a raw business key, which for the CANCEL/INAD
+        # families can be `{FAMILY}-{tenant}-{matricula_beneficiario}` — a `PHI_PROCESS_VARS`
+        # value on the wire AND in the broker's own partition metadata. `egress_message_key`
+        # returns it UNCHANGED under the shipped (`off`) policy, and pseudonymizes only those two
+        # families once `scrub_only` is ratified (a documented partitioning change — see the
+        # manifest).
+        #
+        # THE PLACEMENT IS LOAD-BEARING — this call is deliberately ABOVE the `try` below. Under a
+        # RATIFIED `scrub_only` with no `PHI_HMAC_KEY` provisioned it raises
+        # `PseudonymizerKeyMissingError` (ADR-0035, inherited via `Pseudonymizer.from_settings`),
+        # which is a CONFIGURATION fault of the ratification, not a broker fault. Inside the
+        # `try`, the catch-all `except Exception` would have logged it as `event_publish_failed`
+        # (naming Kafka as the culprit) and, for the four allowlisted SP-OP-ESCALATION-001 topics,
+        # converted it into `WorkerBpmnError(ERR_EVENT_PUBLISH_FAILED)` — a MODELED business error
+        # routed to a boundary whose retry/fallback would re-enter the same unprovisioned-key
+        # raise forever, under a Kafka-shaped diagnosis. Hoisted, it propagates RAW to the harness
+        # ladder (retry/incident) with its own type and message intact, which is what an operator
+        # who ratified the flag without provisioning the key needs to see. Under the shipped
+        # (`off`) policy this line cannot raise at all: `egress_message_key` returns the key
+        # untouched without ever constructing a pseudonymizer.
+        message_key = egress_message_key(task.business_key) or None
         try:
             event_delivered = await kafka.publish(
                 str(event_topic),
                 payload,
-                # DL-0043 leg (c): the Kafka MESSAGE KEY is a raw business key, which for the
-                # CANCEL/INAD families can be `{FAMILY}-{tenant}-{matricula_beneficiario}` — a
-                # `PHI_PROCESS_VARS` value on the wire AND in the broker's own partition
-                # metadata. `egress_message_key` returns it UNCHANGED under the shipped (`off`)
-                # policy, and pseudonymizes only those two families once `scrub_only` is
-                # ratified (a documented partitioning change — see the manifest).
-                key=egress_message_key(task.business_key) or None,
+                key=message_key,
                 best_effort=publish_best_effort,
             )
         except Exception as exc:

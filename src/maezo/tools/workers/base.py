@@ -511,6 +511,17 @@ def mint_contract_business_key(
     returned string is byte-identical to the pre-existing
     ``f"{family}-{tenant}-{numero_contrato or matricula_beneficiario}"``; the only added
     behaviour is one content-free counter increment recording WHICH anchor was used.
+
+    "SINGLE MINT PATH" IS AN ENUMERATED CLAIM, NOT A SLOGAN. Six sites mint a CANCEL/INAD key and
+    all six call this function: `inadimplencia._cancel_business_key`,
+    `fernando.graph._business_key`, `fraude._cancel_business_key`,
+    `fraude._inadimplencia_business_key`, `notification_bridge._cancel_business_key`,
+    `notification_bridge._inadimplencia_business_key`. The last four reached
+    `contract_business_key` directly until the DL-0043 repair, which is exactly how the
+    `anchor="contrato"` series came to under-count. `contract_business_key_forms` below still
+    calls the bare formatter on purpose: it QUERIES, it does not mint, and counting a query would
+    corrupt the owner's evidence. Pinned by `test_phi_key_flag_behavior.py::
+    test_no_cancel_inad_key_is_minted_outside_the_shared_mint_composer`.
     """
     contrato, anchor = resolve_contract_identity(
         numero_contrato=numero_contrato,
@@ -555,7 +566,20 @@ def contract_business_key_forms(
       2. the `matricula_beneficiario` form — the individual/familiar-plan fallback;
       3. the `beneficiario_pseudo_id` form — ONLY under a ratified `modo: pseudo_keys`, which is
          the DUAL-READ half of the migration window: new mints move to the pseudo form while
-         guards keep seeing instances that are still live under the legacy forms.
+         this guard keeps seeing instances that are still live under the legacy forms.
+
+    THE SCOPE OF THAT DUAL-READ, STATED HONESTLY. This function is the repo's ONLY dual-reading
+    key consumer, and it has exactly ONE caller:
+    `inadimplencia._query_ja_em_rescisao_cancel`, the CANCEL anti-dupla-terminacao correlation
+    guard. Nothing else dual-reads. In particular the START-side idempotency does NOT:
+    `mcp_cibseven.transport.start_process_idempotent` takes a SINGLE `business_key` and uses it
+    for both `find_active_instance` and `start_dedup_key`, so under `pseudo_keys` an instance
+    already live under the legacy (matricula) form is invisible to a start keyed on the pseudo
+    form, and its dedup key changes too (no ``ALREADY_AUDITED``). That is a real double-start
+    exposure for SP-OP-INADIMPLENCIA-001 (`fernando.graph.start_process`) and SP-OP-CANCEL-001
+    (`inadimplencia.handoff_rescisao`), and it is why the manifest lists start-side dual-read as
+    an UNMET pre-requisite of `pseudo_keys` rather than as something this function already
+    covers. Under `scrub_only` and `off` the exposure does not exist (no mint changes form).
 
     Returns an EMPTY tuple when no anchor at all is derivable — callers MUST treat that as
     "cannot rule out a rescisao" and fail closed, exactly as before. Anchor truthiness uses the

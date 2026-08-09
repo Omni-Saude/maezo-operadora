@@ -237,6 +237,64 @@ def test_shadow_counter_records_the_pseudo_anchor_once_ratified(tmp_path: Path) 
     assert after - before == 1
 
 
+def test_the_four_repointed_composers_now_feed_the_shadow_counter(tmp_path: Path) -> None:
+    """COUNTER COMPLETENESS: `fraude` and the bridge used to bypass the counter entirely.
+
+    Both minted through the bare formatter `base.contract_business_key`, so every CANCEL started
+    by the fraude handoff and by the bridge's FRAUDE->CANCEL rule was missing from
+    `anchor="contrato"`. The observability docstring nonetheless called
+    `mint_contract_business_key` "the single composer every CANCEL/INAD key is minted through".
+    Four mints, four increments — and the output is unchanged (asserted alongside, so a future
+    "fix" cannot buy the counter at the cost of a different key).
+    """
+    cancel = {"family": "CANCEL", "modo": "off", "anchor": "contrato"}
+    inad = {"family": "INAD", "modo": "off", "anchor": "contrato"}
+    with phi_key_mode(tmp_path, "off"):
+        cancel_before, inad_before = _sample_value(cancel), _sample_value(inad)
+        assert fraude_cancel_key(_TENANT, _CONTRATO) == f"CANCEL-{_TENANT}-{_CONTRATO}"
+        assert bridge_cancel_key(_TENANT, _CONTRATO) == f"CANCEL-{_TENANT}-{_CONTRATO}"
+        assert fraude_inad_key(_TENANT, _CONTRATO) == f"INAD-{_TENANT}-{_CONTRATO}"
+        assert bridge_inad_key(_TENANT, _CONTRATO) == f"INAD-{_TENANT}-{_CONTRATO}"
+        assert _sample_value(cancel) - cancel_before == 2
+        assert _sample_value(inad) - inad_before == 2
+
+
+def test_no_cancel_inad_key_is_minted_outside_the_shared_mint_composer() -> None:
+    """The claim "the single composer every CANCEL/INAD key is minted through", made checkable.
+
+    `base.contract_business_key` is the bare formatter — it mints without counting. Exactly two
+    call sites in `src/` may use it, both inside `base.py` itself: `mint_contract_business_key`
+    (which counts) and `contract_business_key_forms` (which QUERIES for pre-existing instances
+    and must NOT count — inflating the mint series would corrupt the owner's evidence). Any other
+    module reaching for it is a silently uncounted mint, which is precisely how the
+    `anchor="contrato"` series came to under-count before this repair.
+    """
+    import ast
+
+    src = Path(__file__).resolve().parents[4] / "src" / "maezo"
+    offenders: list[str] = []
+    for path in sorted(src.rglob("*.py")):
+        if path.name == "base.py" and path.parent.name == "workers":
+            continue  # the composer's own module — the two sanctioned call sites live here
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            name = node.func.attr if isinstance(node.func, ast.Attribute) else None
+            if isinstance(node.func, ast.Name):
+                name = node.func.id
+            # The bridge aliases the import, so match the resolved tail rather than the literal.
+            if name is not None and name.endswith("contract_business_key"):
+                if name.startswith(("mint_", "_shared_mint_")):
+                    continue
+                offenders.append(f"{path}:{node.lineno}  {name}(...)")
+    assert not offenders, (
+        "CANCEL/INAD key minted through the bare formatter instead of "
+        "`mint_contract_business_key` — this mint would never reach the DL-0043 shadow counter:\n"
+        + "\n".join(offenders)
+    )
+
+
 def test_shadow_counter_labels_are_a_closed_vocabulary_with_no_content(tmp_path: Path) -> None:
     """A per-instance label here would recreate, in Prometheus, the very leak being measured."""
     with phi_key_mode(tmp_path, "off"):
