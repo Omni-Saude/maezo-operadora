@@ -62,8 +62,10 @@ declares no parameters on the feature-set listing and only the identifier on the
 is kept as a PAYER-SIDE LGPD purpose-discipline invariant, so that no code path in the payer core
 can read the population catalogue without having named why.
 
-**References are opaque.** `feature_set_ref` is a `str` with NO format defined here — same DL-0040
-posture as every other reference in this package.
+**References are opaque.** `feature_set_ref` is a `str` with NO format defined here — DL-0040/
+DL-0042, same posture as every other reference in this package: ADR-0037 XRD-05 gated identity/
+reference semantics on DPO/Legal, DL-0040 opened that gate and DL-0042 discharged it on
+2026-08-05 — discharged on opaque refs, not on a prefix vocabulary.
 """
 
 from __future__ import annotations

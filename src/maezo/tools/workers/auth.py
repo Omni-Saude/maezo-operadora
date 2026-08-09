@@ -1234,12 +1234,14 @@ class IssueAuthorizationWorker(WorkerBase):
                 "mensagem": "Autorizacao requer aprovacao humana ou sancao auto-L2 modelada (L0 hard)",
             }
 
-        # PORTAO DE TETO — canal AUTOMATICO **apenas** (GAP-AUTH-4, mitigacao no ponto de emissao).
-        # `auto_sanctioned and not human_approved` E' a definicao do canal auto: com decisao humana
-        # (APROVAR/junta) o teto NAO se aplica — exceder o teto automatico e' exatamente o que a
-        # analise humana resolve. Rodar aqui, e nao antes do gateway, nao fecha o GAP-AUTH-4 (a DMN
-        # continua decidindo sobre fatos semeados no start); torna o teto LOAD-BEARING no unico
-        # ponto onde uma autorizacao nasce.
+        # PORTAO DE TETO — canal AUTOMATICO **apenas** (GAP-AUTH-4 fechado estruturalmente por #198
+        # `auth-auto-criteria-gate`; ver module docstring acima). `auto_sanctioned and not
+        # human_approved` E' a definicao do canal auto: com decisao humana (APROVAR/junta) o teto
+        # NAO se aplica — exceder o teto automatico e' exatamente o que a analise humana resolve.
+        # Rodar aqui, no ponto de emissao, e' DEFESA-EM-PROFUNDIDADE: `criterio_financeiro_ok` ja
+        # gateia o teto ANTES da BRT via este MESMO `CeilingResolver` (ST_ValidateAutoApprovalCriteria);
+        # esta segunda checagem torna o teto LOAD-BEARING tambem no unico ponto onde uma
+        # autorizacao efetivamente nasce.
         auto_channel = auto_sanctioned and not human_approved
         dentro_teto: bool | None = None
         if auto_channel:

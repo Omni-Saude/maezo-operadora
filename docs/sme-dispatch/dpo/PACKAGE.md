@@ -112,7 +112,7 @@ not blocked:
   independent R1 adversarial reproduction on a live CIB Seven 2.1.0 engine,
   `docs/evidence-ledger.md` T2.8 row, 2026-07-19). **#55 R-F (`send_response`) and R-G
   (`notify_sla_risk`) are now BUILT and MERGED (#125,** `make_send_response_handler`
-  `lgpd.py:479` / `make_notify_sla_risk_handler` `lgpd.py:558`, registered `lgpd.py:670-674`):
+  `lgpd.py:538` / `make_notify_sla_risk_handler` `lgpd.py:635`, registered `lgpd.py:738-768`):
   R-G is live-proven — its two SLA-phase tests (P7D ack via `ST_NotificarRiscoSla`, P15D
   resolution via `ST_NotificarJuridicoBreach`, discriminated by `sla_breach_phase`) flipped; R-F
   is built AND live-verified (`lgpd_send_response_sent decisao=APROVAR_ENVIO` observed on the
@@ -120,7 +120,7 @@ not blocked:
   pending DPO sign-off on the full DSR merit flow — a governance gate, not a src gap
   (`tests/integration/processes/test_sp_op_lgpd_dsr_001.py:245-250`): un-shadowing R-F genuinely
   flips a happy-path test, and a known assert-key mismatch is tracked for that moment (the worker
-  emits `tem_fundamentacao`, `lgpd.py:516`; the test asserts `has_fundamentacao`, test `:553`).
+  emits `tem_fundamentacao`, `lgpd.py:586`; the test asserts `has_fundamentacao`, test `:569`).
   (An earlier revision of this addendum, written against pre-#125 main, correctly recorded
   R-F/R-G as unbuilt at that time.) Only R-C/R-D remain unbuilt — exactly the two topics this
   addendum's questions cover. Separately, the **producer policy** — which channels/proof types

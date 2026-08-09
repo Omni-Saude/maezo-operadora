@@ -234,6 +234,13 @@ _LGPD_MISSING_WORKER_STUB_REASON = (
     "ALSO wired for send_response, but that shadow is a DELIBERATE governance re-shadow of a "
     "real, built worker — NOT a missing-worker gap; see "
     "`_LGPD_SEND_RESPONSE_DPO_MERIT_GATE_REASON` below."
+    "\n\nDOCUMENTARY-ONLY (repair sweep, 2026-08-09): this constant has ZERO "
+    "pytest.mark.xfail call sites in this module — grep-confirmed. The substance above is still "
+    "accurate (compile_data_package/execute_request remain genuinely unserved by any v2 worker), "
+    "but no test currently binds a strict-xfail to this reason; the module docstring's finding-2 "
+    "paragraph cites it by name for that substance, not as an active xfail marker. Kept as a "
+    "named constant (rather than folded into a plain comment) so that citation stays a valid "
+    "reference."
 )
 
 _LGPD_SEND_RESPONSE_DPO_MERIT_GATE_REASON = (
@@ -244,11 +251,11 @@ _LGPD_SEND_RESPONSE_DPO_MERIT_GATE_REASON = (
     "deliberately RE-SHADOWS it with the finding-2 gap stub (`_gap_topic_stub` on `_SEND_TOPIC`) "
     "anyway, so these 3 happy-path tests stay strict-xfailed pending DPO sign-off on the full "
     "DSR merit flow — a governance decision, not an engineering one (see the T2.8 note above, "
-    "module lines ~238-250; `PLANS.md:147-148`'s 'Censo de strict-xfail ... DPO x3' counts "
+    "module lines ~254-266; `PLANS.md:147-148`'s 'Censo de strict-xfail ... DPO x3' counts "
     "exactly these 3; and `docs/sme-dispatch/dpo/PACKAGE.md:113-123`, which tracks this as the "
     "open DPO question). Un-shadowing R-F would XPASS this family: a known assert-key mismatch "
     "is already tracked for that moment (the worker emits `tem_fundamentacao` — lgpd.py:586 — "
-    "while `test_negativa_fundamentada_e_decisao_humana` asserts `has_fundamentacao`, line 553)."
+    "while `test_negativa_fundamentada_e_decisao_humana` asserts `has_fundamentacao`, line 569)."
 )
 
 # T2.8 batch1 (#55 R-G): `make_notify_sla_risk_handler` EXISTS in src/maezo/tools/workers/lgpd.py.
