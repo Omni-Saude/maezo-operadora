@@ -153,6 +153,7 @@ from maezo.tools.mcp_cibseven.transport import (
     CibSevenTransport,
     start_process_idempotent,
 )
+from maezo.tools.workers.base import INADIMPLENCIA_KEY_FAMILY, mint_contract_business_key
 from maezo.tools.workers.dmn_transport import (
     DmnEvaluationError,
     DmnNoResultError,
@@ -292,10 +293,21 @@ def _business_key(state: FernandoState) -> str:
     to `matricula_beneficiario` when there is no contract number (individual/familiar plans),
     matching the BPMN's own documented variant (`spec/processes/bpmn/
     SP-OP-INADIMPLENCIA-001_Suspensao_Rescisao.bpmn`'s `<bpmn:documentation>`, "BUSINESS KEY").
+
+    That fallback is the SECOND of the two sites DL-0043 leg (c) records: `matricula_beneficiario`
+    is a `PHI_PROCESS_VARS` name (`tools/workers/phi_vars.py`) minted raw into a durable business
+    key. Minting now goes through the shared `base.mint_contract_business_key`, which is
+    byte-identical under the shipped (`off`) privacy policy, records the content-free DL-0043
+    shadow counter, and switches to `beneficiario_pseudo_id` (the `PROG-...` precedent this repo
+    already follows in `valentina/graph.py`) only under a RATIFIED `modo: pseudo_keys`.
     """
-    tenant = state.get("tenant_id", "")
-    contrato = state.get("numero_contrato") or state.get("matricula_beneficiario", "")
-    return f"INAD-{tenant}-{contrato}"
+    return mint_contract_business_key(
+        INADIMPLENCIA_KEY_FAMILY,
+        state.get("tenant_id", ""),
+        numero_contrato=state.get("numero_contrato") or "",
+        matricula_beneficiario=state.get("matricula_beneficiario", ""),
+        beneficiario_pseudo_id=state.get("beneficiario_pseudo_id", ""),
+    )
 
 
 def _motivo_categoria(motivo: MotivoHumano) -> MotivoCategoria:

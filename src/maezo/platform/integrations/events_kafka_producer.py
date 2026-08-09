@@ -164,15 +164,45 @@ MIRROR_PAYLOAD_ALLOWLIST: frozenset[str] = frozenset(
 )
 
 
+#: The one allowlist entry the DL-0043 privacy policy can REVOKE. `_business_key` is the raw
+#: engine business key, which for the CANCEL/INAD families can be
+#: `CANCEL-{tenant}-{matricula_beneficiario}` — a `PHI_PROCESS_VARS` value riding a mirrored
+#: Kafka envelope. Under a ratified `scrub_only`/`pseudo_keys` it stops being allowlisted and is
+#: dropped by the existing backstop (which already logs dropped key NAMES, never values).
+#: Dropping rather than pseudonymizing is deliberate: no bridge rule reads `_business_key` — the
+#: reconciled rules each DERIVE their own `business_key` from the payload's anchor fields
+#: (`notification_bridge._{recurso,fraude,cred,cancel,inadimplencia}_business_key`) — so removing
+#: it costs nothing downstream, whereas a pseudonymized value would look like a usable key.
+_POLICY_REVOCABLE_ALLOWLIST_KEYS: frozenset[str] = frozenset({"_business_key"})
+
+
+def _effective_mirror_allowlist() -> frozenset[str]:
+    """`MIRROR_PAYLOAD_ALLOWLIST`, minus whatever the privacy policy revokes.
+
+    Returns the constant UNCHANGED under the shipped (`off`) policy — the mirrored envelope is
+    byte-identical to before DL-0043.
+    """
+    from maezo.platform.privacy.phi_key_policy import phi_key_policy  # noqa: PLC0415 — lazy
+
+    if phi_key_policy().scrubbing_enabled:
+        return MIRROR_PAYLOAD_ALLOWLIST - _POLICY_REVOCABLE_ALLOWLIST_KEYS
+    return MIRROR_PAYLOAD_ALLOWLIST
+
+
 def scrub_mirror_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
     """Allowlist backstop applied ONLY to the envelope mirrored onto `NOTIFICATIONS_TOPIC`.
 
-    Drops every key not in `MIRROR_PAYLOAD_ALLOWLIST`. Logs the dropped key NAMES only (never
+    Drops every key not in the effective allowlist. Logs the dropped key NAMES only (never
     values — mirrors `events.py`'s `payload_keys=sorted(payload.keys())` convention) at DEBUG,
     so an unexpectedly-dropped field is visible without ever putting a value in a log line.
+
+    The effective allowlist is `MIRROR_PAYLOAD_ALLOWLIST` under the shipped privacy policy and
+    `MIRROR_PAYLOAD_ALLOWLIST - {"_business_key"}` once `scrub_only` is ratified — see
+    `_POLICY_REVOCABLE_ALLOWLIST_KEYS`.
     """
-    kept = {k: v for k, v in payload.items() if k in MIRROR_PAYLOAD_ALLOWLIST}
-    dropped = sorted(set(payload.keys()) - MIRROR_PAYLOAD_ALLOWLIST)
+    allowlist = _effective_mirror_allowlist()
+    kept = {k: v for k, v in payload.items() if k in allowlist}
+    dropped = sorted(set(payload.keys()) - allowlist)
     if dropped:
         logger.debug("kafka_mirror_payload_scrubbed", dropped_keys=dropped)
     return kept

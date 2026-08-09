@@ -31,3 +31,10 @@
 #     `auth-criteria-ratification.yaml`.
 /spec/processes/dmn/adequacao-gap-shadow-candidate.yaml  @rodrigotaquino @Omni-Saude/security
 /spec/processes/dmn/adequacao_gap.dmn                    @rodrigotaquino @Omni-Saude/security
+# DL-0043 leg (c) — PHI em business keys. Ratificar
+# `spec/policies/privacy/phi-business-key-remediation.yaml` (status: RATIFICADO + os tres campos
+# de `ratificacao`) e o UNICO ato que muda o formato de identidade PERSISTIDA de um beneficiario:
+# chave de negocio no engine, chave de dedup em Postgres, particionamento Kafka, busca no
+# Cockpit. Mesma logica da linha acima: a mudanca e de DADOS, sem codigo e sem redeploy — por
+# isso o dado precisa do revisor que o caminho de codigo teria tido.
+/spec/policies/privacy/   @rodrigotaquino @Omni-Saude/security

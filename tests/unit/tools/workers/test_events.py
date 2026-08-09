@@ -7,10 +7,12 @@ live under `tests/integration/processes/test_sp_op_{escalation,auth,cancel}_001.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
 
+from maezo.gateway.pseudonymizer import PseudonymizerKeyMissingError
 from maezo.tools.workers.events import (
     _ANS_CRON_REFERENCE_DATE_KEY,
     _ESCALATION_PUBLISH_BPMN_ERROR_TOPICS,
@@ -28,6 +30,7 @@ from maezo.tools.workers.harness import (
     WorkerBpmnError,
     WorkerHarness,
 )
+from tests.support.privacy_policy import phi_key_mode
 
 # `asyncio_mode = "auto"` (pyproject.toml) collects async def tests automatically.
 
@@ -278,6 +281,56 @@ async def test_publish_failure_on_opt_in_topic_raises_bpmn_error() -> None:
     with pytest.raises(WorkerBpmnError) as exc:
         await handler(task)
     assert exc.value.error_code == "ERR_EVENT_PUBLISH_FAILED"
+
+
+async def test_unprovisioned_phi_key_under_scrub_only_propagates_raw_not_as_a_bpmn_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """DL-0043: a ratification WITHOUT `PHI_HMAC_KEY` is a config fault, never a Kafka fault.
+
+    The message-key call (`egress_message_key`) sits ABOVE the publish-`try` for exactly this
+    reason. Had it stayed inside, this `PseudonymizerKeyMissingError` would have been swallowed by
+    the catch-all, logged as `event_publish_failed` (blaming the broker), and — on THIS topic,
+    which is in the SP-OP-ESCALATION-001 opt-in set — converted into
+    `WorkerBpmnError(ERR_EVENT_PUBLISH_FAILED)`: a MODELED business error whose boundary
+    retry/fallback would re-enter the same missing-key raise forever while every diagnosis pointed
+    at Kafka. The assertion is therefore two-sided: the raw error type propagates, AND it is not a
+    `WorkerBpmnError`.
+    """
+    monkeypatch.delenv("RUNTIME_MODE", raising=False)
+    monkeypatch.delenv("AGENT_RUNTIME_MODE", raising=False)
+    monkeypatch.delenv("PHI_HMAC_KEY", raising=False)
+    kafka = FakeKafkaPublisher()
+    handler = make_publish_event_handler(kafka, bpmn_error_topics=_ESCALATION_PUBLISH_BPMN_ERROR_TOPICS)
+    task = _task(
+        business_key="CANCEL-amh-mat-99",  # the individual/familiar-plan (PHI-bearing) form
+        variables={"event_topic": _ESCALATION_REQUESTED_TOPIC},
+    )
+    with phi_key_mode(tmp_path, "scrub_only"), pytest.raises(PseudonymizerKeyMissingError) as exc:
+        await handler(task)
+    assert not isinstance(exc.value, WorkerBpmnError)
+    # ...and the publish was never attempted: the fault is upstream of the broker entirely.
+    assert not kafka.published
+
+
+async def test_unprovisioned_phi_key_is_inert_under_the_shipped_off_policy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The inertness proof for the test above: today's shipped policy cannot break this handler.
+
+    Under `off`, `egress_message_key` returns the key untouched WITHOUT building a pseudonymizer,
+    so an unprovisioned `PHI_HMAC_KEY` changes nothing and the raw business key is still the Kafka
+    message key (byte-identical partitioning).
+    """
+    monkeypatch.delenv("RUNTIME_MODE", raising=False)
+    monkeypatch.delenv("AGENT_RUNTIME_MODE", raising=False)
+    monkeypatch.delenv("PHI_HMAC_KEY", raising=False)
+    kafka = FakeKafkaPublisher()
+    handler = make_publish_event_handler(kafka)
+    task = _task(business_key="CANCEL-amh-mat-99", variables={"event_topic": "x"})
+    with phi_key_mode(tmp_path, "off"):
+        await handler(task)
+    assert kafka.published[0][2] == "CANCEL-amh-mat-99"
 
 
 async def test_publish_failure_on_opt_in_topic_without_allowlist_still_propagates_raw() -> None:
