@@ -16,9 +16,10 @@ campo de wire além deste baseline": mirroring the pinned names verbatim is the 
 inventing a sibling or a local alias would be the violation. No Avro/Kafka/Glue/FHIR/AWS TYPE
 appears anywhere in this package — see `tests/unit/ports/test_ports_purity.py`.
 
-**Every reference is OPAQUE, with NO format defined here (DL-0040 open gate).** ADR-0037 XRD-05
-(identity) is explicitly gated on DPO/Legal, and DL-0040 records that gate as still OPEN —
-identity/consent value semantics are MZO-020's DPO-gated scope. Consequently this module defines
+**Every reference is OPAQUE, with NO format defined here (DL-0040/DL-0042).** ADR-0037 XRD-05
+(identity) is explicitly gated on DPO/Legal; DL-0040 opened that gate and DL-0042 discharged it
+on 2026-08-05 — identity/consent value semantics remain MZO-020's DPO-gated scope. Consequently
+this module defines
 NO parsing, NO prefix vocabulary, NO regex and NO structural validation for
 `portable_subject_ref`, `amh_mpi_ref`, `beneficiary_ref`, `protected_source_record_ref`,
 `consent_decision_ref`, `correlation_id`, `causation_id`, `idempotency_key` or `trace_id`. They

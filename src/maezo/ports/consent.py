@@ -18,7 +18,8 @@ therefore exposes NO scope field and NO scope interpretation: it answers only th
 payer-core consumer actually asks — "is there an authorising decision for this subject and this
 purpose, which decision reference is it, and at which revision". Adding a scope vocabulary here
 would be inventing contract semantics this repo does not own (ADR-0037 XRD-04) and pre-empting
-the DPO/Legal gate that DL-0040 records as still OPEN for identity/consent values (MZO-020).
+the DPO/Legal gate for identity/consent values (MZO-020) that DL-0040 opened and DL-0042
+discharged on 2026-08-05.
 
 **`consent_decision_ref` is opaque.** It is the token a protected read hands back as its
 authorising reference (see `maezo.ports.clinical_context` /

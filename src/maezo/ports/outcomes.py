@@ -29,9 +29,9 @@ open or join a transaction, and it does not retry (retry is caller/outbox policy
 (`maezo.amh.outcomes.v1`) and its quarantine sibling are pinned INFRASTRUCTURE identifiers and are
 deliberately absent from this seam; binding them is MZO-050+/MZO-090 adapter scope, still gated.
 
-**Opaque references (DL-0040 open gate).** No reference on the envelope or in the outcome payload
+**Opaque references (DL-0040/DL-0042).** No reference on the envelope or in the outcome payload
 is parsed, validated or given structure here — identity semantics remain MZO-020's DPO/Legal-gated
-scope, still OPEN.
+scope; DL-0040 opened that gate and DL-0042 discharged it on 2026-08-05.
 """
 
 from __future__ import annotations

@@ -783,9 +783,10 @@ def test_a_non_object_source_position_is_refused(pin: Any, value: object) -> Non
     ],
 )
 def test_references_are_opaque_and_copied_verbatim(pin: Any, field: str) -> None:
-    """DL-0040 / ADR-0037 XRD-05: identity semantics are DPO/Legal-gated and still OPEN. A value with
-    no `:` at all, a wrong prefix or an unexpected shape must pass through untouched — this adapter
-    validates PRESENCE and STRING-NESS, never FORMAT."""
+    """DL-0040 / DL-0042 / ADR-0037 XRD-05: identity semantics are DPO/Legal-gated; DL-0040 opened
+    that gate and DL-0042 discharged it on 2026-08-05. A value with no `:` at all, a wrong prefix
+    or an unexpected shape must pass through untouched — this adapter validates PRESENCE and
+    STRING-NESS, never FORMAT."""
     for opaque in ("no-colons-at-all", "totally:different:prefix:v9", "x", "a" * 500, "::::"):
         event = _work_item_event()
         event[field] = opaque

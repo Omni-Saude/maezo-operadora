@@ -219,20 +219,36 @@ _SYNTH_DETALHES = f"Meu CPF e {_SYNTH_CPF}, nome {_SYNTH_NOME}, quero copia dos 
 # --- xfail reasons (distinct, well-named per finding — constraint-critical) ------------------
 
 _LGPD_MISSING_WORKER_STUB_REASON = (
-    "v2 registry gap (finding 2, the dominant finding for this family): register_lgpd_workers "
-    "registers 6 topics (verify_identity/assess_request/execute_export/execute_rectification/"
-    "execute_erasure/publish_completed) but the BPMN declares a DIFFERENT set of 6 external-task "
-    "topics (verify_identity/request_additional_proof/compile_data_package/execute_request/"
-    "send_response/notify_sla_risk) — the intersection is exactly ONE topic (verify_identity). "
-    "lgpd.py's own bootstrap docstring documents this: 'only operadora.lgpd.verify_identity "
-    "matches a camunda:topic ... today'. A test-fixture-only completion stub (_gap_topic_stub, "
-    "mirrors test_sp_op_reembolso_001.py's own) is wired for the 5 unserved BPMN topics so the "
-    "flow can progress past ST_CompilarPacote/ST_PedirProvaAdicional/ST_ExecutarRequisicao/"
-    "ST_EnviarResposta/ST_NotificarRiscoSla — but the stub completes with NO output and never "
-    "calls kafka.publish, so any assertion that a REAL worker ran for one of these 5 topics "
-    "(notifications_of_type(...) truthy) correctly still fails. src/** fix (implementing these 5 "
-    "workers, or renaming the existing 5 dead-registered classes to match the BPMN's topics) is "
-    "out of scope for this port."
+    "v2 registry gap (finding 2), NARROWED since T2.8/#125: register_lgpd_workers now ALSO "
+    "registers real raw-handler workers for request_additional_proof (#55 R-B), send_response "
+    "(#55 R-F) and notify_sla_risk (#55 R-G) — see lgpd.py:738-768 — so verify_identity is no "
+    "longer the only BPMN topic served by a real worker (it no longer intersects with a set of "
+    "6; 4 of the 6 BPMN topics now have a real v2 worker). What remains GENUINELY unserved by "
+    "any v2 worker is compile_data_package (#55 R-C) and execute_request (#55 R-D): a test-"
+    "fixture-only completion stub (_gap_topic_stub, mirrors test_sp_op_reembolso_001.py's own) "
+    "is wired for ST_CompilarPacote/ST_ExecutarRequisicao so the flow can progress past them, "
+    "but the stub completes with NO output and never calls kafka.publish, so any assertion that "
+    "a REAL worker ran for one of these 2 topics (notifications_of_type(...) truthy) correctly "
+    "still fails. src/** fix (building #55 R-C/R-D, or renaming the existing dead-registered "
+    "classes to match the BPMN's topics) is out of scope for this port. `_gap_topic_stub` is "
+    "ALSO wired for send_response, but that shadow is a DELIBERATE governance re-shadow of a "
+    "real, built worker — NOT a missing-worker gap; see "
+    "`_LGPD_SEND_RESPONSE_DPO_MERIT_GATE_REASON` below."
+)
+
+_LGPD_SEND_RESPONSE_DPO_MERIT_GATE_REASON = (
+    "Governance gate (human ceiling), NOT a src/** gap. `operadora.lgpd.send_response` (#55 R-F) "
+    "IS a real, merged worker (`make_send_response_handler`, lgpd.py:538, registered via "
+    "`register_lgpd_workers`, lgpd.py:738-768, #125) and is live-verified on a real CIB Seven "
+    "engine ('lgpd_send_response_sent decisao=APROVAR_ENVIO' observed, T2.8). `lgpd_probe` "
+    "deliberately RE-SHADOWS it with the finding-2 gap stub (`_gap_topic_stub` on `_SEND_TOPIC`) "
+    "anyway, so these 3 happy-path tests stay strict-xfailed pending DPO sign-off on the full "
+    "DSR merit flow — a governance decision, not an engineering one (see the T2.8 note above, "
+    "module lines ~238-250; `PLANS.md:147-148`'s 'Censo de strict-xfail ... DPO x3' counts "
+    "exactly these 3; and `docs/sme-dispatch/dpo/PACKAGE.md:113-123`, which tracks this as the "
+    "open DPO question). Un-shadowing R-F would XPASS this family: a known assert-key mismatch "
+    "is already tracked for that moment (the worker emits `tem_fundamentacao` — lgpd.py:586 — "
+    "while `test_negativa_fundamentada_e_decisao_humana` asserts `has_fundamentacao`, line 553)."
 )
 
 # T2.8 batch1 (#55 R-G): `make_notify_sla_risk_handler` EXISTS in src/maezo/tools/workers/lgpd.py.
@@ -354,7 +370,7 @@ async def lgpd_probe(
     # ALSO has a real handler registered here, but the probe deliberately RE-SHADOWS it with the
     # gap stub below: the three DPO-gated happy-path xfails stay xfailed pending DPO sign-off on the
     # full DSR merit flow (governance gate, not a src gap — R-F is built and live-verified). See the
-    # module-level note above `_LGPD_MISSING_WORKER_STUB_REASON`.
+    # module-level note above `_LGPD_SEND_RESPONSE_DPO_MERIT_GATE_REASON`.
     register_lgpd_workers(harness, kafka)
     # T3.1 R2: the generic operadora.events.publish worker every ST_Publish* service task in this
     # BPMN routes through — mirrors escalation's/auth's own register_phase0_workers composition.
@@ -462,7 +478,7 @@ async def _correlate(
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_LGPD_MISSING_WORKER_STUB_REASON, strict=True)
+@pytest.mark.xfail(reason=_LGPD_SEND_RESPONSE_DPO_MERIT_GATE_REASON, strict=True)
 async def test_happy_path_acesso_dados_saude_aprovado(
     engine: EngineRest,
     lgpd_probe: LgpdEngineProbe,
@@ -491,7 +507,7 @@ async def test_happy_path_acesso_dados_saude_aprovado(
     lgpd_probe.assert_no_phi()
 
 
-@pytest.mark.xfail(reason=_LGPD_MISSING_WORKER_STUB_REASON, strict=True)
+@pytest.mark.xfail(reason=_LGPD_SEND_RESPONSE_DPO_MERIT_GATE_REASON, strict=True)
 async def test_happy_path_correcao_executa_e_envia(
     engine: EngineRest,
     lgpd_probe: LgpdEngineProbe,
@@ -520,7 +536,7 @@ async def test_happy_path_correcao_executa_e_envia(
     lgpd_probe.assert_no_phi()
 
 
-@pytest.mark.xfail(reason=_LGPD_MISSING_WORKER_STUB_REASON, strict=True)
+@pytest.mark.xfail(reason=_LGPD_SEND_RESPONSE_DPO_MERIT_GATE_REASON, strict=True)
 async def test_negativa_fundamentada_e_decisao_humana(
     engine: EngineRest,
     lgpd_probe: LgpdEngineProbe,
