@@ -48,10 +48,17 @@
 # RUNTIME STATE TODAY (unchanged by this file)
 # --------------------------------------------
 # The live table is runtime-MITIGATED, not fixed, by the owner-ratified fail-safe in
-# `route_remediation` (src/maezo/tools/workers/adequacao.py:259-282): the DMN verdict is PRESERVED
+# `route_remediation` (src/maezo/tools/workers/adequacao.py:338-371): the DMN verdict is PRESERVED
 # verbatim and auditable, but the worker REFUSES TO ACT on a `CONFORME` the measurements contradict,
 # using the 60min/50km ceiling THE TABLE ITSELF DECLARES
-# (src/maezo/tools/workers/adequacao.py:137-138), routing to `ANALISE_HUMANA`.
+# (src/maezo/tools/workers/adequacao.py:182-183), routing to `ANALISE_HUMANA`.
+#
+# 2026-08-09 — that fail-safe gained TWO MORE BRANCHES, same shape (preserve the verdict, refuse to
+# act), still NOT a table edit:
+#   - `tipo_carater` outside the closed vocabulary the table declares
+#     (src/maezo/tools/workers/adequacao.py:419-431) — the RUNTIME leg of ACHADO-1 below;
+#   - measurements indistinguishable from the pair `measure_gap` fabricates
+#     (src/maezo/tools/workers/adequacao.py:433-448).
 # THE TABLE IS STILL WRONG. This file exists so that fixing it is a paste, not a project.
 #
 # =================================================================================================
@@ -111,7 +118,7 @@ modo_operacao: sombra
 # =================================================================================================
 # Read directly off spec/processes/dmn/adequacao_gap.dmn (hitPolicy=FIRST, line 32), for the input
 # shapes the worker actually sends (it coerces every input to a non-null int/float/bool —
-# src/maezo/tools/workers/adequacao.py:227-230), the live rules in evaluation order are:
+# src/maezo/tools/workers/adequacao.py:306-309), the live rules in evaluation order are:
 #
 #   1 r_urgencia_critico            (:50-59)  urgencia_emergencia AND tempo > 30        -> GAP_CRITICO
 #   2 r_urgencia_distancia_critico  (:60-69)  urgencia_emergencia AND distancia > 30.0  -> GAP_CRITICO
@@ -153,14 +160,47 @@ achados_adicionais:
       nao mapeado ou a string vazia — o fail-safe declarado e INALCANCAVEL: a combinacao nao coberta
       le CONFORME em vez de GAP_CRITICO.
     exemplo_concreto: >-
-      `route_remediation` usa `variables.get("tipo_carater", "")` (adequacao.py:218): um processo
+      `route_remediation` usa `variables.get("tipo_carater", "")` (adequacao.py:297): um processo
       iniciado SEM `tipo_carater` envia `""` a tabela. Com prestadores>0 e cobertura=true isso cai
       em `r_conforme` -> CONFORME, exatamente o oposto do GAP_CRITICO que a descricao da tabela
       promete para uma combinacao nao coberta.
     consequencia_no_bpmn: >-
       CONFORME -> MONITORAR (adequacao_remediation_routing.dmn:49-54) e, no BPMN, o ramo
       `MONITORAR && gap_adequacao == 'CONFORME'` termina em End_AdequacaoConforme SEM plano de
-      monitoramento e SEM alerta (registrado em adequacao.py:207-212, GK-adequacao finding 2).
+      monitoramento e SEM alerta (registrado em adequacao.py:270-274, GK-adequacao finding 2).
+    perna_de_runtime_fechada_em: "2026-08-09"
+    perna_de_runtime: >-
+      A PERNA DE RUNTIME deste achado esta FECHADA; a perna de TABELA continua ABERTA e e do dono.
+      `route_remediation` ganhou um ramo irmao do fail-safe ratificado
+      (src/maezo/tools/workers/adequacao.py:419-431): quando `tipo_carater` nao e um dos DOIS
+      literais que a tabela declara — vocabulario lido das proprias inputEntries de `in_tipo_carater`
+      (adequacao_gap.dmn:52, :62, :92, :102; as rows :72, :82, :112, :122 curingam a coluna e nao
+      declaram literal), transcrito em adequacao.py:200 — um veredito CONFORME e tratado como
+      CONTRADITO: o veredito da DMN e PRESERVADO verbatim (auditavel) e apenas a ACAO e recusada,
+      com `motivo` proprio `CONFORME_RECUSADO_CARATER_FORA_DO_VOCABULARIO` e roteamento
+      `ANALISE_HUMANA`. A checagem e por IGUALDADE EXATA de string (`carater_literal`, SEM
+      strip()) — a DMN compara FEEL literals exatamente, entao um literal com padding de espaco ja
+      nao bate nenhuma row da tabela e cai no mesmo buraco que este ramo fecha. Cobre, precisamente,
+      cinco classes: (1) `""` — o que o worker envia quando a variavel esta ausente
+      (adequacao.py:297); (2) whitespace-only (ex.: "   "); (3) LITERAIS COM PADDING que colidiriam
+      com um dos dois literais validos apos um strip() (ex.: " eletivo ", "\turgencia_emergencia") —
+      corrigido 2026-08-09 (F-1, GK REVISE): a checagem anterior usava `_norm_str` (que faz
+      strip() antes de comparar) e por isso ACEITAVA esses literais indevidamente como se fossem o
+      literal exato — o MESMO buraco M-1 que este ramo existe para fechar, so que para tokens
+      padded em vez de token ausente; (4) token nao mapeado (ex.: "ambulatorial", "Eletivo" com
+      maiuscula, substrings como "eletivo_ambulatorial"); (5) valor nao-string (coagido para `""`
+      via `isinstance`, nunca comparado diretamente — um `list`, por exemplo, levantaria
+      `TypeError: unhashable type` num `frozenset` se comparado sem coercao). O `exemplo_concreto`
+      acima — sem `tipo_carater`, dentro dos tetos — hoje termina em humano, nao em
+      End_AdequacaoConforme.
+    perna_de_tabela_continua_do_dono: >-
+      NADA nesta tabela mudou e nada aqui e recomendacao de mudar. O ramo de runtime nao emite
+      GAP_CRITICO, nao reordena regra nenhuma e nao cria vocabulario: ele so recusa AGIR. Enquanto
+      `r_conforme` (adequacao_gap.dmn:110-119) preceder o catch-all com curinga em tipo_carater, a
+      tabela CONTINUA respondendo CONFORME a uma combinacao nao coberta — inclusive para todo
+      consumidor da DMN que nao seja este worker (mcp-dmn, avaliacao direta, futuros processos).
+      A correcao definitiva segue sendo `c_catchall` alcancavel, via ordem 9 de
+      `regras_candidatas`, aplicada pelo dono.
 
   - id: ACHADO-2-assimetria-eletivo-vs-urgencia
     regras_afetadas: r_urgencia_leve (:100-109) vs r_eletivo_leve (:90-99) vs r_conforme (:110-119)
@@ -313,13 +353,13 @@ regras_candidatas:
     origem_do_teto: >-
       60 minutos — copiado de r_eletivo_leve (adequacao_gap.dmn:93, `<= 60`), o UNICO teto de tempo
       de acesso eletivo que a tabela declara; e o mesmo numero que o fail-safe ratificado pelo dono
-      ja usa em runtime (_ELETIVO_LEVE_TEMPO_MAX_MIN, src/maezo/tools/workers/adequacao.py:137).
+      ja usa em runtime (_ELETIVO_LEVE_TEMPO_MAX_MIN, src/maezo/tools/workers/adequacao.py:182).
     origem_da_severidade: >-
       GAP_CRITICO — a disposicao conservadora que a PROPRIA tabela declara para uma combinacao que
       nenhuma regra especifica cobre (r_catchall, adequacao_gap.dmn:120-129, e a
       `<description>` :22-23). NAO e uma severidade nova nem uma leitura de RN 259. E, na pratica,
       o mesmo desfecho do fail-safe de runtime, que roteia esses casos a ANALISE_HUMANA
-      (adequacao.py:272-282) — para onde GAP_CRITICO tambem roteia
+      (adequacao.py:361-371) — para onde GAP_CRITICO tambem roteia
       (adequacao_remediation_routing.dmn: GAP_CRITICO -> ANALISE_HUMANA).
       ABERTO AO DONO: se o dono julgar que o eletivo fora do teto e GAP_MODERADO e nao GAP_CRITICO,
       esta e a unica celula a mudar; o mascaramento fica fechado nos dois casos.
@@ -344,7 +384,7 @@ regras_candidatas:
     origem_do_teto: >-
       50.0 km — copiado de r_eletivo_leve (adequacao_gap.dmn:94, `<= 50.0`), o UNICO teto de
       distancia de acesso eletivo que a tabela declara; mesmo numero do fail-safe ratificado
-      (_ELETIVO_LEVE_DISTANCIA_MAX_KM, src/maezo/tools/workers/adequacao.py:138).
+      (_ELETIVO_LEVE_DISTANCIA_MAX_KM, src/maezo/tools/workers/adequacao.py:183).
     origem_da_severidade: "identica a c_eletivo_tempo_acima_teto (ordem 5)"
     entradas:
       tipo_carater: '"eletivo"'
@@ -398,7 +438,7 @@ regras_candidatas:
     nota: >-
       Agora efetivamente ALCANCAVEL (ACHADO-1): sem `r_conforme` a precede-lo, qualquer
       `tipo_carater` fora dos dois literais declarados — inclusive a string vazia que o worker envia
-      quando a variavel esta ausente (adequacao.py:218) — chega ao fail-safe conservador que a
+      quando a variavel esta ausente (adequacao.py:297) — chega ao fail-safe conservador que a
       descricao da tabela sempre prometeu.
     entradas:
       tipo_carater: "-"

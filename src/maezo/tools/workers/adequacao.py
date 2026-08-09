@@ -52,6 +52,20 @@ DECISAO_COMPROMISSO_FALLBACK = "COMPROMISSO_FALLBACK"
 # measure_gap — geo-analysis (FACT, no decision)
 # ---------------------------------------------------------------
 
+# FABRICATED-MEASUREMENT PLACEHOLDERS. `measure_gap` has no geo/network DB behind it yet, so when no
+# correctly-typed fact is seeded it FABRICATES these two numbers (the pre-existing behaviour — see
+# `measure_gap`'s own "Placeholder fallback" note). Promoted from function locals to module
+# constants for ONE reason: `route_remediation`'s fail-safe has to be able to recognise a
+# measurement that is INDISTINGUISHABLE from what this module fabricates, and the two sites must not
+# be able to drift apart. Changing a value here changes both sites at once, by construction.
+#
+# WHY THE PAIR MATTERS (this is the M-1 blind spot): 45min/15.5km sits INSIDE the elective ceiling
+# the table declares (60min/50.0km, `_ELETIVO_LEVE_*` below), so a fabricated measurement can never
+# trip the owner-ratified ceiling branch — it lands in exactly the band that reads CONFORME and
+# terminates at `End_AdequacaoConforme` with NO monitoring plan and NO alert.
+_TEMPO_PLACEHOLDER_MIN = 45  # minutes
+_DISTANCIA_PLACEHOLDER_KM = 15.5  # km
+
 
 def measure_gap(variables: dict[str, Any]) -> dict[str, Any]:
     """Measure geographic coverage gap (FACT only — NEVER decides commitment).
@@ -80,6 +94,15 @@ def measure_gap(variables: dict[str, Any]) -> dict[str, Any]:
     here, not a resolved fact — falls back to the placeholder, same as absent).
     `cobertura_geo_suficiente`/`dados_geo_completos` are booleans — only `bool` counts, mirroring
     `credenciamento.validate_cred`'s `isinstance(seeded_licenca, bool)` exactly.
+
+    FABRICATION IS NO LONGER SILENT (M-1). The placeholder fallback is KEPT — removing it would
+    change what this task completes with, and the geo/network query that replaces it does not exist
+    yet — but whenever either number is fabricated, a `adequacao_medidas_fabricadas` WARNING is
+    emitted naming which of the two it was. This is the origin-side half of the M-1 fix; the
+    action-side half is `route_remediation`'s placeholder-contradiction branch, which refuses to act
+    on a `CONFORME` resting on a measurement indistinguishable from these placeholders. NO new
+    engine variable is minted (the contract's variable tables are human-gated) — see the log call
+    site for the full mechanism note and the `pagto.py` precedent.
     """
     regiao = variables.get("regiao_saude", "")
     especialidade = variables.get("especialidade", "")
@@ -91,20 +114,42 @@ def measure_gap(variables: dict[str, Any]) -> dict[str, Any]:
 
     # Placeholder fallback — real implementation queries geo-location / network DB; only used
     # when no resolved fact of the CORRECT type exists on `variables` (FACT PRESERVATION above).
-    tempo_placeholder = 45  # minutes
-    distancia_placeholder = 15.5  # km
     prestadores = variables.get("prestadores_disponiveis", 3)
 
-    tempo_acesso = (
-        seeded_tempo
-        if isinstance(seeded_tempo, int) and not isinstance(seeded_tempo, bool)
-        else tempo_placeholder
-    )
-    distancia = seeded_distancia if isinstance(seeded_distancia, float) else distancia_placeholder
+    tempo_fabricado = not (isinstance(seeded_tempo, int) and not isinstance(seeded_tempo, bool))
+    distancia_fabricada = not isinstance(seeded_distancia, float)
+
+    tempo_acesso = _TEMPO_PLACEHOLDER_MIN if tempo_fabricado else seeded_tempo
+    distancia = _DISTANCIA_PLACEHOLDER_KM if distancia_fabricada else seeded_distancia
     cobertura_suficiente = seeded_cobertura if isinstance(seeded_cobertura, bool) else prestadores >= 2
     dados_completos = (
         seeded_dados_completos if isinstance(seeded_dados_completos, bool) else bool(regiao and especialidade)
     )
+
+    if tempo_fabricado or distancia_fabricada:
+        # VISIBILITY LEG 1 of 2 (M-1): the fabrication is announced AT ITS ORIGIN, loudly, instead
+        # of being silently indistinguishable from a real geo/network reading. Deliberately a
+        # `warning`, not `info`: a measurement nobody measured is an operational defect, not
+        # routine progress. LEG 2 is `route_remediation`'s own placeholder-contradiction branch,
+        # which refuses to ACT on a CONFORME resting on these numbers.
+        #
+        # NOT an engine variable, and that is the deliberate choice (M-1 mechanism note). Minting
+        # `medidas_fabricadas` would add an UNDECLARED variable to a contracted process, whose
+        # variable tables are human-gated — SP-OP-ADEQUACAO-001.md:100-113 (entrada) and :123-133
+        # (saida) declare neither it nor any equivalent flag. Same call, same reasoning, already
+        # taken and disclosed in `pagto.calculate_facts` (pagto.py:318-326: "Minting one would add
+        # an undeclared variable to a contracted process (the contract's variable table is
+        # human-gated)"). The operator log carries the evidence; the fail-safe carries the refusal.
+        # Declaring the variable is the contract owner's act — deferred, not denied.
+        logger.warning(
+            "adequacao_medidas_fabricadas",
+            regiao_saude=regiao,
+            especialidade=especialidade,
+            tempo_fabricado=tempo_fabricado,
+            distancia_fabricada=distancia_fabricada,
+            tempo_acesso_min=tempo_acesso,
+            distancia_km=distancia,
+        )
 
     logger.info(
         "adequacao_measure_gap",
@@ -137,6 +182,24 @@ def measure_gap(variables: dict[str, Any]) -> dict[str, Any]:
 _ELETIVO_LEVE_TEMPO_MAX_MIN = 60
 _ELETIVO_LEVE_DISTANCIA_MAX_KM = 50.0
 _MOTIVO_CONFORME_RECUSADO = "CONFORME_RECUSADO_ACESSO_ACIMA_DO_TETO_LEVE"
+
+# M-1 (blind spot of the ratified fail-safe above). VOCABULARIO FECHADO de `tipo_carater`, LIDO da
+# tabela deployada `adequacao_gap.dmn` — nao inventado. A coluna de entrada `in_tipo_carater`
+# (adequacao_gap.dmn:33-35) e literalizada em exatamente 4 das 8 rows, com apenas DOIS literais
+# distintos:
+#     "urgencia_emergencia" -> adequacao_gap.dmn:52 (r_urgencia_critico),
+#                              :62 (r_urgencia_distancia_critico),
+#                              :102 (r_urgencia_leve)
+#     "eletivo"             -> adequacao_gap.dmn:92 (r_eletivo_leve)
+# As outras 4 rows curinga a coluna (`-`): :72 (r_zero_prestadores_critico),
+# :82 (r_cobertura_insuficiente), :112 (r_conforme), :122 (r_catchall) — curinga NAO declara
+# literal. Logo o vocabulario que a tabela declara e, exaustivamente, {eletivo,
+# urgencia_emergencia}. Corroborado (nao derivado dai) pelo dominio do proprio contrato,
+# docs/processes/contracts/SP-OP-ADEQUACAO-001.md:113, e pela transcricao do shadow
+# (adequacao_shadow.TIPO_ELETIVO/TIPO_URGENCIA, adequacao_shadow.py:99-100).
+_TIPO_CARATER_VOCABULARIO: frozenset[str] = frozenset({"eletivo", "urgencia_emergencia"})
+_MOTIVO_CONFORME_CARATER_DESCONHECIDO = "CONFORME_RECUSADO_CARATER_FORA_DO_VOCABULARIO"
+_MOTIVO_CONFORME_MEDIDAS_FABRICADAS = "CONFORME_RECUSADO_MEDIDAS_INDISTINGUIVEIS_DE_PLACEHOLDER"
 
 
 def _record_gap_shadow(
@@ -209,6 +272,22 @@ def route_remediation(variables: dict[str, Any], *, dmn: DmnTransport | None = N
     SEM plano de monitoramento e SEM alerta; `MONITORAR && != 'CONFORME'` vai a
     `ST_UpdateMonitoringPlanL3`). Mesmo valor de roteamento, ramos e efeitos colaterais
     DIFERENTES. Ver o fail-safe abaixo.
+
+    TRES CONTRADICOES, UMA SO FORMA (M-1). O fail-safe abaixo tem hoje tres ramos, todos gateados
+    em `gap_adequacao == "CONFORME"`, todos preservando o veredito da DMN e recusando apenas AGIR
+    sobre ele, e todos com o mesmo destino (`ANALISE_HUMANA`) sob `motivo` DISTINTOS:
+      1. `_MOTIVO_CONFORME_RECUSADO` — acesso acima do teto eletivo que a tabela declara (ramo
+         RATIFICADO PELO DONO em 2026-08-06; inalterado por M-1);
+      2. `_MOTIVO_CONFORME_CARATER_DESCONHECIDO` — `tipo_carater` fora do vocabulario fechado que a
+         tabela declara ({eletivo, urgencia_emergencia}), inclusive a string vazia que este proprio
+         `variables.get("tipo_carater", "")` produz quando a variavel esta ausente;
+      3. `_MOTIVO_CONFORME_MEDIDAS_FABRICADAS` — medidas indistinguiveis dos placeholders que
+         `measure_gap` fabrica quando nao ha fato tipado semeado.
+    Os ramos 2 e 3 sao `elif` do ramo 1: alcancam SO o que o ramo ratificado ja deixava passar.
+    NENHUM alcanca um veredito != CONFORME. A tabela NAO e tocada em nenhum dos tres (ADR-0028): a
+    correcao definitiva de ordem/tetos/vocabulario continua sendo do portao REGULATORIO — o
+    conjunto candidato ja a descreve em spec/processes/dmn/adequacao-gap-shadow-candidate.yaml
+    (ACHADO-1 e a perna de TABELA do mesmo defeito que o ramo 2 fecha em runtime).
     """
     tempo = variables.get("tempo_acesso_apurado_min", 0)
     distancia = variables.get("distancia_apurada_km", 0.0)
@@ -266,9 +345,19 @@ def route_remediation(variables: dict[str, Any], *, dmn: DmnTransport | None = N
     # roteamento vai para ANALISE_HUMANA. Mesma forma da aplicacao do teto na emissao de
     # autorizacao: nao se corrige a tabela, torna-se o limite que ela ja declara efetivo.
     # A correcao definitiva (ordem/tetos das regras) e do portao REGULATORIO — RN 259.
-    conforme_contradito = gap_adequacao == "CONFORME" and (
+    conforme = gap_adequacao == "CONFORME"
+    conforme_contradito = conforme and (
         int(tempo) > _ELETIVO_LEVE_TEMPO_MAX_MIN or float(distancia) > _ELETIVO_LEVE_DISTANCIA_MAX_KM
     )
+    # F-1 (GK REVISE): EXACT-match coercion, not `_norm_str`'s strip(). The DMN compares FEEL
+    # literals exactly, so a padded token (" eletivo ") is ALREADY out-of-vocabulary at the table
+    # (misses every literal row, falls through the `-` wildcards straight to `r_conforme`/
+    # `r_catchall`) — stripping it here before the vocabulary check would silently ACCEPT what the
+    # table itself refuses, reopening the exact M-1 hole this fail-safe closes. Non-strings coerce
+    # to "" (a bare `in` check against a non-hashable member, e.g. a `list`, raises `TypeError:
+    # unhashable type` on a `frozenset`) — same fail-closed outcome as `_norm_str`, without
+    # trimming whitespace that the table would never trim either.
+    carater_literal = tipo_carater if isinstance(tipo_carater, str) else ""
     if conforme_contradito:
         logger.warning(
             "adequacao_conforme_recusado_por_acesso",
@@ -280,6 +369,83 @@ def route_remediation(variables: dict[str, Any], *, dmn: DmnTransport | None = N
         )
         roteamento = "ANALISE_HUMANA"
         route_motivo = _MOTIVO_CONFORME_RECUSADO
+
+    # M-1 — DUAS CEGUEIRAS do fail-safe ratificado acima, fechadas com a MESMA forma (preserva o
+    # veredito da DMN, recusa AGIR sobre ele) e SEM tocar na tabela.
+    #
+    # ORDEM DELIBERADA: os dois ramos abaixo sao `elif` do ramo ratificado, entao so alcancam
+    # entradas em que ele JA ESTAVA SILENCIOSO. Nenhuma entrada que ele hoje recusa muda de
+    # roteamento nem de `motivo` — o diff e estritamente aditivo sobre o artefato ratificado.
+    # Nenhum dos dois alcanca um veredito != CONFORME (todos gateados por `conforme`), entao as
+    # rotas de urgencia/GAP_* seguem byte-identicas.
+    #
+    # (a) CARATER FORA DO VOCABULARIO. O ramo ratificado aplica o teto ELETIVO (60min/50km) a
+    #     QUALQUER carater. Quando o carater nao e um dos dois literais que a tabela declara
+    #     (`_TIPO_CARATER_VOCABULARIO`), nao existe teto aplicavel: escolher o eletivo seria
+    #     assumir que o caso e eletivo, e escolher o de urgencia (30min/30km) seria inventar o
+    #     enquadramento pelo lado oposto. Entao 45min/40km com `tipo_carater=""` — precisamente o
+    #     que o processo envia quando a variavel esta ausente (`variables.get(..., "")` acima) —
+    #     lia CONFORME e terminava em `End_AdequacaoConforme` SEM plano de monitoramento e SEM
+    #     alerta, enquanto as MESMAS medidas sob `urgencia_emergencia` sao GAP_CRITICO. A propria
+    #     `<description>` da tabela promete GAP_CRITICO para "combinacao nao coberta"
+    #     (adequacao_gap.dmn:22-23, :121), mas `r_conforme` (:110-119) precede o catch-all com
+    #     curinga em tipo_carater/tempo/distancia e torna essa promessa inalcancavel. Ja RECORDADO
+    #     como ACHADO-1 no candidato W3 (spec/processes/dmn/adequacao-gap-shadow-candidate.yaml);
+    #     esta e a perna de RUNTIME do mesmo achado. Fail-closed tambem para carater NAO-string
+    #     (variaveis do engine chegam sem tipo): `carater_literal` vira "" e "" nao esta no
+    #     vocabulario. NAO alteramos o que foi enviado a DMN — a normalizacao vive so aqui.
+    #
+    # (b) MEDIDAS INDISTINGUIVEIS DO PLACEHOLDER. `measure_gap` fabrica o PAR 45min/15.5km quando
+    #     nao ha nenhum fato tipado semeado (`_TEMPO_PLACEHOLDER_MIN`/`_DISTANCIA_PLACEHOLDER_KM`),
+    #     e esse par cai DENTRO do teto eletivo — logo o ramo ratificado nunca o alcanca. Um
+    #     CONFORME apoiado em numero que ninguem mediu nao e conformidade apurada. A afirmacao e
+    #     literalmente "indistinguivel", nao "fabricado": quando esta tarefa roda, `measure_gap` ja
+    #     escreveu o fato de volta ao processo, entao o worker NAO consegue mais separar uma medida
+    #     real de 45min+15.5km de uma fabricada. Recusar e o lado conservador da assimetria (falso
+    #     positivo = uma celula CONFORME revista por humano; falso negativo = uma celula sem
+    #     monitoramento).
+    #
+    #     SUB-INCLUSAO DECLARADA: `and`, nao `or` — exige o PAR exato. A fabricacao dos dois campos
+    #     e independente (um pode vir semeado e o outro nao), entao o meio-termo (so o tempo, ou so
+    #     a distancia, fabricado) NAO cai aqui. `or` foi rejeitado por custo/beneficio explicito:
+    #     na TABELA VIVA os dois casos meio-fabricados sao inalcancaveis como CONFORME
+    #     (eletivo dentro do teto casa `r_eletivo_leve` primeiro, adequacao_gap.dmn:90-99; urgencia
+    #     nunca chega a CONFORME, ACHADO-2 do candidato), sobrando so a rota de carater
+    #     branco/desconhecido — que o ramo (a) ja fecha. `or` compraria zero cobertura real hoje e
+    #     recusaria toda medida GENUINA de 45min. Se o dono adotar a DECISAO-A opcao (a) do
+    #     candidato (uma regra CONFORME com teto), reavaliar este `and`.
+    #
+    #     A visibilidade na ORIGEM e o warning `adequacao_medidas_fabricadas` em `measure_gap`.
+    elif conforme and carater_literal not in _TIPO_CARATER_VOCABULARIO:
+        logger.warning(
+            "adequacao_conforme_recusado_por_carater_desconhecido",
+            gap_adequacao_dmn=gap_adequacao,
+            tipo_carater=repr(tipo_carater),
+            vocabulario_declarado=sorted(_TIPO_CARATER_VOCABULARIO),
+            tempo_acesso_apurado_min=int(tempo),
+            distancia_apurada_km=float(distancia),
+            roteamento_dmn=roteamento,
+            motivo=_MOTIVO_CONFORME_CARATER_DESCONHECIDO,
+        )
+        roteamento = "ANALISE_HUMANA"
+        route_motivo = _MOTIVO_CONFORME_CARATER_DESCONHECIDO
+
+    elif conforme and (
+        int(tempo) == _TEMPO_PLACEHOLDER_MIN and float(distancia) == _DISTANCIA_PLACEHOLDER_KM
+    ):
+        logger.warning(
+            "adequacao_conforme_recusado_por_medidas_fabricadas",
+            gap_adequacao_dmn=gap_adequacao,
+            tipo_carater=_norm_str(tipo_carater),
+            tempo_acesso_apurado_min=int(tempo),
+            distancia_apurada_km=float(distancia),
+            tempo_placeholder_min=_TEMPO_PLACEHOLDER_MIN,
+            distancia_placeholder_km=_DISTANCIA_PLACEHOLDER_KM,
+            roteamento_dmn=roteamento,
+            motivo=_MOTIVO_CONFORME_MEDIDAS_FABRICADAS,
+        )
+        roteamento = "ANALISE_HUMANA"
+        route_motivo = _MOTIVO_CONFORME_MEDIDAS_FABRICADAS
 
     logger.info(
         "adequacao_route_remediation",

@@ -3,7 +3,10 @@
 TDD London School: tests verify gap measurement and the human-gated fallback commitment.
 """
 
+from typing import Any
+
 import pytest
+import structlog
 
 from maezo.a2a import DelegationResult, RejectionReason
 from maezo.tools.workers.adequacao import (
@@ -403,6 +406,391 @@ def test_adequacao_gap_dados_incompletos() -> None:
 def test_route_remediation_dmn_unwired_raises_dmn_evaluation_error() -> None:
     with pytest.raises(DmnEvaluationError):
         route_remediation({"tipo_carater": "eletivo"}, dmn=None)
+
+
+# ---------------------------------------------------------------
+# route_remediation — M-1: the two BLIND SPOTS of the owner-ratified fail-safe
+#
+# The ratified branch (adequacao.py:361-371) only ever fires on ELECTIVE-GRADE ceilings
+# (60min/50km, `_ELETIVO_LEVE_*`), for EVERY `tipo_carater`. Two families slip past it while the
+# DMN still says CONFORME -> `GW_Roteamento` sends `MONITORAR && CONFORME` to
+# `ST_PublishConforme`/`End_AdequacaoConforme`: NO monitoring plan, NO alert.
+#
+#   (a) `tipo_carater` blank or outside the closed vocabulary the table declares
+#       ({eletivo, urgencia_emergencia} — adequacao_gap.dmn:52,62,92,102; the other four rows
+#       wildcard the column at :72,:82,:112,:122). `{tipo_carater: "", 45min, 40km}` read CONFORME
+#       and published silently, while the SAME measurements under `urgencia_emergencia` are
+#       GAP_CRITICO.
+#   (b) measurements indistinguishable from the pair `measure_gap` FABRICATES when nothing typed
+#       is seeded (45min + 15.5km) — a pair that sits inside the elective ceiling by construction,
+#       so the ratified branch can never reach it.
+#
+# Both preserve the DMN verdict (auditable) and refuse only to ACT — same shape as the ratified
+# branch. The TABLE is untouched (ADR-0028): its correction is the regulatory owner's act, already
+# described as ACHADO-1 in spec/processes/dmn/adequacao-gap-shadow-candidate.yaml.
+# ---------------------------------------------------------------
+
+_MOTIVO_TETO = "CONFORME_RECUSADO_ACESSO_ACIMA_DO_TETO_LEVE"
+_MOTIVO_CARATER = "CONFORME_RECUSADO_CARATER_FORA_DO_VOCABULARIO"
+_MOTIVO_PLACEHOLDER = "CONFORME_RECUSADO_MEDIDAS_INDISTINGUIVEIS_DE_PLACEHOLDER"
+
+#: Everything the two blind-spot branches do NOT key off, held constant so each row varies only
+#: `tipo_carater` and the two measurements. `prestadores>0` + `cobertura=true` is exactly the
+#: subspace where the live table's gateless `r_conforme` (adequacao_gap.dmn:110-119) matches.
+_M1_BASE: dict[str, Any] = {
+    "prestadores_disponiveis": 2,
+    "cobertura_geo_suficiente": True,
+    "dados_geo_completos": True,
+}
+
+#: (label, tipo_carater overlay, tempo, distancia, expected roteamento, expected motivo).
+#: `_ABSENT` means the key is not present on `variables` at all — the real "process started without
+#: tipo_carater" shape, which `variables.get("tipo_carater", "")` turns into `""`.
+_ABSENT = object()
+
+_M1_MATRIX: tuple[tuple[str, Any, int, float, str, str], ...] = (
+    # --- (a) carater fora do vocabulario: TODOS recusados, com o token proprio ------------------
+    (
+        "carater AUSENTE + medidas dentro do teto eletivo (o caso M-1 do enunciado)",
+        _ABSENT,
+        45,
+        40.0,
+        "ANALISE_HUMANA",
+        _MOTIVO_CARATER,
+    ),
+    ("carater string vazia explicita", "", 45, 40.0, "ANALISE_HUMANA", _MOTIVO_CARATER),
+    ("carater whitespace-only", "   ", 45, 40.0, "ANALISE_HUMANA", _MOTIVO_CARATER),
+    (
+        "carater com padding de espaco ' eletivo ' — strip() bateria 'eletivo'; match EXATO nao (F-1)",
+        " eletivo ",
+        45,
+        40.0,
+        "ANALISE_HUMANA",
+        _MOTIVO_CARATER,
+    ),
+    (
+        "carater tab-prefixado '\\turgencia_emergencia' — strip() bateria; match EXATO nao (F-1)",
+        "\turgencia_emergencia",
+        45,
+        40.0,
+        "ANALISE_HUMANA",
+        _MOTIVO_CARATER,
+    ),
+    (
+        "carater token desconhecido 'ambulatorial'",
+        "ambulatorial",
+        45,
+        40.0,
+        "ANALISE_HUMANA",
+        _MOTIVO_CARATER,
+    ),
+    ("carater variante de caixa 'Eletivo'", "Eletivo", 45, 40.0, "ANALISE_HUMANA", _MOTIVO_CARATER),
+    (
+        "carater substring 'eletivo_ambulatorial'",
+        "eletivo_ambulatorial",
+        45,
+        40.0,
+        "ANALISE_HUMANA",
+        _MOTIVO_CARATER,
+    ),
+    ("carater nao-string None (engine sem tipo)", None, 45, 40.0, "ANALISE_HUMANA", _MOTIVO_CARATER),
+    ("carater nao-string int", 0, 45, 40.0, "ANALISE_HUMANA", _MOTIVO_CARATER),
+    ("carater nao-string list (nao-hashavel)", ["eletivo"], 45, 40.0, "ANALISE_HUMANA", _MOTIVO_CARATER),
+    # --- CONTRA-PROVA: os dois literais DECLARADOS passam intactos -------------------------------
+    (
+        "eletivo dentro do teto — medida genuina, CONFORME preservado",
+        "eletivo",
+        45,
+        40.0,
+        "MONITORAR",
+        "m-dmn",
+    ),
+    ("eletivo no limite exato do teto (60/50.0)", "eletivo", 60, 50.0, "MONITORAR", "m-dmn"),
+    ("urgencia_emergencia — rota byte-identica", "urgencia_emergencia", 20, 10.0, "MONITORAR", "m-dmn"),
+    ("urgencia_emergencia no limite do teto eletivo", "urgencia_emergencia", 60, 50.0, "MONITORAR", "m-dmn"),
+    # --- (b) medidas indistinguiveis do par fabricado --------------------------------------------
+    (
+        "PAR placeholder exato (45 + 15.5) sob carater declarado",
+        "eletivo",
+        45,
+        15.5,
+        "ANALISE_HUMANA",
+        _MOTIVO_PLACEHOLDER,
+    ),
+    (
+        "PAR placeholder exato sob urgencia_emergencia",
+        "urgencia_emergencia",
+        45,
+        15.5,
+        "ANALISE_HUMANA",
+        _MOTIVO_PLACEHOLDER,
+    ),
+    # --- SUB-INCLUSAO DECLARADA do ramo (b): meio-placeholder NAO e recusado ---------------------
+    ("meio-placeholder: so o tempo (45 + 10.0)", "eletivo", 45, 10.0, "MONITORAR", "m-dmn"),
+    ("meio-placeholder: so a distancia (20 + 15.5)", "eletivo", 20, 15.5, "MONITORAR", "m-dmn"),
+    # --- PRECEDENCIA: o ramo RATIFICADO continua vencendo os dois novos --------------------------
+    (
+        "teto E carater desconhecido -> vence o token RATIFICADO",
+        "",
+        300,
+        400.0,
+        "ANALISE_HUMANA",
+        _MOTIVO_TETO,
+    ),
+    (
+        "teto E carater eletivo -> token RATIFICADO (inalterado)",
+        "eletivo",
+        70,
+        10.0,
+        "ANALISE_HUMANA",
+        _MOTIVO_TETO,
+    ),
+    (
+        "carater desconhecido E par placeholder -> vence o token de CARATER",
+        "",
+        45,
+        15.5,
+        "ANALISE_HUMANA",
+        _MOTIVO_CARATER,
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    ("label", "carater", "tempo", "distancia", "esperado_roteamento", "esperado_motivo"), _M1_MATRIX
+)
+def test_m1_conforme_contraditado_por_carater_ou_medidas_fabricadas(
+    label: str,
+    carater: Any,
+    tempo: int,
+    distancia: float,
+    esperado_roteamento: str,
+    esperado_motivo: str,
+) -> None:
+    """TABLE-DRIVEN. The DMN says CONFORME/MONITORAR in every row; only the routing decision and
+    the `motivo` token differ. The verdict itself is asserted preserved in EVERY row — that is the
+    whole shape of this fail-safe family: never rewrite the table's answer, only refuse to act."""
+    variables: dict[str, Any] = dict(_M1_BASE)
+    variables["tempo_acesso_apurado_min"] = tempo
+    variables["distancia_apurada_km"] = distancia
+    if carater is not _ABSENT:
+        variables["tipo_carater"] = carater
+
+    fake = _adequacao_fake(gap_adequacao="CONFORME", roteamento_remediacao="MONITORAR", motivo="m-dmn")
+    result = route_remediation(variables, dmn=fake)
+
+    # O veredito da DMN e PRESERVADO e auditavel em todas as linhas — inclusive nas recusadas.
+    assert result["gap_adequacao"] == "CONFORME", label
+    assert result["roteamento_remediacao"] == esperado_roteamento, label
+    assert result["motivo"] == esperado_motivo, label
+
+
+def test_m1_matriz_nao_e_vacua() -> None:
+    """NON-VACUITY: the matrix must exercise BOTH outcomes and all three refusal tokens, otherwise
+    a fail-safe that refused everything (or nothing) would still read as passing."""
+    roteamentos = {row[4] for row in _M1_MATRIX}
+    motivos = {row[5] for row in _M1_MATRIX}
+    assert roteamentos == {"ANALISE_HUMANA", "MONITORAR"}
+    assert {_MOTIVO_TETO, _MOTIVO_CARATER, _MOTIVO_PLACEHOLDER, "m-dmn"} == motivos
+    assert len({_MOTIVO_TETO, _MOTIVO_CARATER, _MOTIVO_PLACEHOLDER}) == 3, "tokens must be distinct"
+
+
+@pytest.mark.parametrize(
+    ("gap", "route"),
+    [
+        ("GAP_LEVE", "MONITORAR"),
+        ("GAP_MODERADO", "ENCAMINHAR_CREDENCIAMENTO"),
+        ("GAP_CRITICO", "ANALISE_HUMANA"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("carater", "tempo", "distancia"),
+    [
+        ("", 45, 40.0),  # blind spot (a) inputs
+        ("ambulatorial", 45, 40.0),  # blind spot (a) inputs
+        ("eletivo", 45, 15.5),  # blind spot (b) inputs
+        ("", 45, 15.5),  # both blind spots at once
+    ],
+)
+def test_m1_nao_toca_nenhuma_rota_diferente_de_conforme(
+    gap: str, route: str, carater: str, tempo: int, distancia: float
+) -> None:
+    """The two new branches are gated on `gap_adequacao == "CONFORME"`. Fed the EXACT inputs that
+    trigger them, every non-CONFORME verdict keeps the DMN's own routing and its own `motivo`."""
+    fake = _adequacao_fake(gap_adequacao=gap, roteamento_remediacao=route, motivo="m-dmn")
+    result = route_remediation(
+        {
+            **_M1_BASE,
+            "tipo_carater": carater,
+            "tempo_acesso_apurado_min": tempo,
+            "distancia_apurada_km": distancia,
+        },
+        dmn=fake,
+    )
+    assert result["gap_adequacao"] == gap
+    assert result["roteamento_remediacao"] == route
+    assert result["motivo"] == "m-dmn"
+
+
+def test_m1_carater_desconhecido_emite_log_com_vocabulario_declarado() -> None:
+    """The refusal is AUDITABLE: the operator log names the offending token and the closed
+    vocabulary it was checked against — the evidence that replaces the engine variable this
+    deliberately does not mint. RAW token via `repr()` (F-1, GK REVISE: not `_norm_str`), so the
+    log is never silently normalized into something that reads as in-vocabulary."""
+    with structlog.testing.capture_logs() as logs:
+        route_remediation(
+            {
+                **_M1_BASE,
+                "tipo_carater": "ambulatorial",
+                "tempo_acesso_apurado_min": 45,
+                "distancia_apurada_km": 40.0,
+            },
+            dmn=_adequacao_fake(gap_adequacao="CONFORME", roteamento_remediacao="MONITORAR"),
+        )
+    entry = next(e for e in logs if e["event"] == "adequacao_conforme_recusado_por_carater_desconhecido")
+    assert entry["tipo_carater"] == repr("ambulatorial")
+    assert entry["vocabulario_declarado"] == ["eletivo", "urgencia_emergencia"]
+    assert entry["gap_adequacao_dmn"] == "CONFORME"
+    assert entry["roteamento_dmn"] == "MONITORAR"
+    assert entry["motivo"] == _MOTIVO_CARATER
+
+
+def test_m1_carater_com_padding_loga_o_padding_visivel() -> None:
+    """F-1 (GK REVISE): a padded offender must print VISIBLY padded in the log — `repr()`, never
+    `_norm_str`'s strip() — so a reviewer can see the exact token the exact-match guard refused,
+    not a normalized look-alike of a valid vocabulary word."""
+    with structlog.testing.capture_logs() as logs:
+        route_remediation(
+            {
+                **_M1_BASE,
+                "tipo_carater": " eletivo ",
+                "tempo_acesso_apurado_min": 45,
+                "distancia_apurada_km": 40.0,
+            },
+            dmn=_adequacao_fake(gap_adequacao="CONFORME", roteamento_remediacao="MONITORAR"),
+        )
+    entry = next(e for e in logs if e["event"] == "adequacao_conforme_recusado_por_carater_desconhecido")
+    assert entry["tipo_carater"] == "' eletivo '"
+    assert entry["tipo_carater"] != "eletivo", "must never normalize to look in-vocabulary"
+    assert entry["motivo"] == _MOTIVO_CARATER
+
+
+def test_m1_medidas_fabricadas_emite_log_com_os_placeholders() -> None:
+    """Same auditability for blind spot (b): the log carries both the measurement and the
+    placeholder it is indistinguishable from, so a reviewer can tell the two branches apart."""
+    with structlog.testing.capture_logs() as logs:
+        route_remediation(
+            {
+                **_M1_BASE,
+                "tipo_carater": "eletivo",
+                "tempo_acesso_apurado_min": 45,
+                "distancia_apurada_km": 15.5,
+            },
+            dmn=_adequacao_fake(gap_adequacao="CONFORME", roteamento_remediacao="MONITORAR"),
+        )
+    entry = next(e for e in logs if e["event"] == "adequacao_conforme_recusado_por_medidas_fabricadas")
+    assert entry["tempo_acesso_apurado_min"] == 45
+    assert entry["distancia_apurada_km"] == 15.5
+    assert entry["tempo_placeholder_min"] == 45
+    assert entry["distancia_placeholder_km"] == 15.5
+    assert entry["motivo"] == _MOTIVO_PLACEHOLDER
+
+
+def test_m1_cadeia_real_measure_gap_para_route_remediation() -> None:
+    """END TO END through the two workers, with NOTHING seeded — the exact production shape that
+    produced the blind spot: `measure_gap` fabricates 45/15.5, the process carries no
+    `tipo_carater`, the table says CONFORME. Pre-fix this published conformity with no monitoring
+    plan and no alert; now it routes to a human with the verdict preserved."""
+    fatos = measure_gap({"regiao_saude": "R-001", "especialidade": "cardiologia"})
+    assert fatos["tempo_acesso_apurado_min"] == 45
+    assert fatos["distancia_apurada_km"] == 15.5
+
+    result = route_remediation(
+        {**fatos, "dados_geo_completos": True},
+        dmn=_adequacao_fake(gap_adequacao="CONFORME", roteamento_remediacao="MONITORAR"),
+    )
+    assert result["gap_adequacao"] == "CONFORME"
+    assert result["roteamento_remediacao"] == "ANALISE_HUMANA"
+    assert result["motivo"] == _MOTIVO_CARATER
+
+
+def test_m1_cadeia_real_medidas_fabricadas_com_carater_declarado() -> None:
+    """The SAME chain with a properly declared `tipo_carater` — so blind spot (a) cannot be what
+    catches it. Nothing typed is seeded, `measure_gap` fabricates the pair, and the refusal comes
+    from blind spot (b) alone: a CONFORME resting on numbers nobody measured."""
+    fatos = measure_gap({"regiao_saude": "R-001", "especialidade": "cardiologia", "tipo_carater": "eletivo"})
+    result = route_remediation(
+        {**fatos, "tipo_carater": "eletivo", "dados_geo_completos": True},
+        dmn=_adequacao_fake(gap_adequacao="CONFORME", roteamento_remediacao="MONITORAR"),
+    )
+    assert result["gap_adequacao"] == "CONFORME"
+    assert result["roteamento_remediacao"] == "ANALISE_HUMANA"
+    assert result["motivo"] == _MOTIVO_PLACEHOLDER
+
+
+# ---------------------------------------------------------------
+# measure_gap — M-1: fabricated measurements are no longer silent
+# ---------------------------------------------------------------
+
+_EVENTO_FABRICADAS = "adequacao_medidas_fabricadas"
+
+
+def test_measure_gap_avisa_quando_fabrica_as_duas_medidas() -> None:
+    with structlog.testing.capture_logs() as logs:
+        measure_gap({"regiao_saude": "R-001", "especialidade": "cardiologia"})
+    entry = next(e for e in logs if e["event"] == _EVENTO_FABRICADAS)
+    assert entry["tempo_fabricado"] is True
+    assert entry["distancia_fabricada"] is True
+    assert entry["log_level"] == "warning"
+
+
+@pytest.mark.parametrize(
+    ("seed", "tempo_fabricado", "distancia_fabricada"),
+    [
+        ({"tempo_acesso_apurado_min": 20}, False, True),
+        ({"distancia_apurada_km": 3.5}, True, False),
+    ],
+)
+def test_measure_gap_avisa_qual_das_duas_medidas_fabricou(
+    seed: dict[str, Any], tempo_fabricado: bool, distancia_fabricada: bool
+) -> None:
+    """The warning must DISCRIMINATE — a flag that is always `True` would carry no information."""
+    with structlog.testing.capture_logs() as logs:
+        measure_gap({"regiao_saude": "R-001", "especialidade": "cardiologia", **seed})
+    entry = next(e for e in logs if e["event"] == _EVENTO_FABRICADAS)
+    assert entry["tempo_fabricado"] is tempo_fabricado
+    assert entry["distancia_fabricada"] is distancia_fabricada
+
+
+def test_measure_gap_silencioso_quando_ambas_as_medidas_sao_fatos_semeados() -> None:
+    """NON-VACUITY: a warning that always fires would be noise, not evidence."""
+    with structlog.testing.capture_logs() as logs:
+        result = measure_gap(
+            {
+                "regiao_saude": "R-001",
+                "especialidade": "cardiologia",
+                "tempo_acesso_apurado_min": 20,
+                "distancia_apurada_km": 3.5,
+            }
+        )
+    assert [e for e in logs if e["event"] == _EVENTO_FABRICADAS] == []
+    assert result["tempo_acesso_apurado_min"] == 20
+    assert result["distancia_apurada_km"] == 3.5
+
+
+def test_measure_gap_nao_declara_variavel_de_processo_nova() -> None:
+    """MECHANISM PIN (M-1). The fabricated-measurement signal is an operator LOG line, NOT an
+    engine variable: minting one would add an undeclared variable to a contracted process, whose
+    variable tables are human-gated (SP-OP-ADEQUACAO-001.md:100-113 entrada, :123-133 saida;
+    same call already disclosed in pagto.py:318-326). The returned key set must stay exactly the
+    five facts the contract declares."""
+    assert set(measure_gap({"regiao_saude": "R-001", "especialidade": "cardiologia"})) == {
+        "tempo_acesso_apurado_min",
+        "distancia_apurada_km",
+        "prestadores_disponiveis",
+        "cobertura_geo_suficiente",
+        "dados_geo_completos",
+    }
 
 
 # ---------------------------------------------------------------
