@@ -279,7 +279,7 @@ row satisfies `ix_amh_inbox_pending`'s predicate, so that `UPDATE` cannot be HOT
 must maintain the index. That is the price of keeping the pending index proportional to in-flight
 work rather than to history, and it is charged once per event (at settlement), not per read.
 
-**Row width.** 20 `text` + 2 `integer` + 5 `timestamptz` columns; the text values are digests
+**Row width.** 18 `text` + 2 `integer` + 7 `timestamptz` columns; the text values are digests
 (64 chars), opaque references and closed-vocabulary tokens. No large object, no `jsonb`, no
 `bytea`. Expect a narrow, TOAST-free heap row; the table's growth is driven by event volume
 alone.

@@ -81,7 +81,6 @@ from __future__ import annotations
 
 import hashlib
 import os
-from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
@@ -1014,12 +1013,16 @@ class PostgresAmhInbox:
         contract_manifest_digest: str,
         event_id: str,
         target: InboxStatus,
-        extra: Sequence[object] = (),
     ) -> InboxSettleOutcome:
-        """Apply a conditional transition and DISAMBIGUATE a zero-row result honestly."""
+        """Apply a conditional transition and DISAMBIGUATE a zero-row result honestly.
+
+        Only for the no-extra-parameter transitions (`mark_processed`, `mark_settled`).
+        `mark_quarantined` binds a reason and topic and reports the STORED referral, so it has its
+        own body rather than threading extra parameters through here.
+        """
         pool = await self._ensure_pool()
         async with pool.acquire() as conn, conn.transaction():
-            updated = await conn.fetchrow(sql, contract_manifest_digest, event_id, *extra)
+            updated = await conn.fetchrow(sql, contract_manifest_digest, event_id)
             if updated is not None:
                 return InboxSettleOutcome.APPLIED
             current = await conn.fetchval(_SELECT_STATUS_SQL, contract_manifest_digest, event_id)
