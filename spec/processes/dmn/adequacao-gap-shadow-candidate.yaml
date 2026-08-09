@@ -1,0 +1,420 @@
+# CANDIDATE (shadow) rule set for `adequacao_gap` — RN 259 rule-order inversion.
+# =================================================================================================
+# THIS FILE IS NOT A DEPLOYABLE ARTIFACT. It is DATA describing a PROPOSED correction to
+# `spec/processes/dmn/adequacao_gap.dmn`. It carries the `.yaml` extension deliberately: every
+# artifact-selection path in this repository globs `*.dmn` / `*.bpmn` ONLY, so nothing here can
+# reach the engine.
+#
+#   - deploy  : `collect_artifacts` — `dmn_dir.glob("*.dmn")`
+#               (src/maezo/platform/deploy/engine_deploy.py:140; `make deploy-artifacts` ->
+#               `python -m maezo.platform.deploy`, Makefile:73-80)
+#   - validate: the same `*.dmn` glob (src/maezo/platform/validation/cli.py:103;
+#               `make validate-artifacts`, Makefile:26-45)
+#   Pinned twice, in two different modules:
+#     - tests/unit/platform/test_engine_deploy.py::test_real_spec_tree_yields_16_bpmn_and_62_dmn —
+#       the artifact census against the REAL spec/ tree stays 16 BPMN + 62 DMN with this file
+#       present (it would fail if the glob ever picked this file up);
+#     - tests/unit/tools/workers/test_adequacao_shadow.py::
+#       test_candidate_manifest_is_invisible_to_artifact_deployment — names THIS file and asserts
+#       `collect_artifacts` excludes it, while the live table it corrects IS included.
+#
+# =================================================================================================
+# WHY THIS FILE EXISTS
+# -------------------
+# `spec/processes/dmn/adequacao_gap.dmn` is KNOWN WRONG and the defect is recorded as an OPEN
+# human-gated finding:
+#
+#   PLANS.md:150-159 (§0.5.4 item 1) — "RN 259 — inversao de ordem de regra em `adequacao_gap.dmn`
+#   (ABERTO)": `hitPolicy=FIRST` with `r_eletivo_leve` BEFORE `r_conforme`, and `r_conforme` has no
+#   time/distance ceiling at all, so an ARBITRARILY BAD elective access reads CONFORME. Same finding
+#   in docs/review-queue.md:160 (with the live-verified minimal pair).
+#
+# GOVERNING NORM: RN 259/2011 (ANS — garantia de atendimento: MAXIMUM ACCESS TIMES AND DISTANCES to
+# the assistance network), cited as the process's regulatory trigger in
+# docs/processes/contracts/SP-OP-ADEQUACAO-001.md:5 and as this table's own governing norm in
+# spec/processes/dmn/adequacao_gap.dmn:6,10-11. Every RN 259 numeric threshold in this repository is
+# still marked `DRAFT/verify` against the norm in force (contract line 274: "Sign-off regulatorio dos
+# thresholds de tempo/distancia (`adequacao_gap`) contra RN 259"). THIS FILE INVENTS NO THRESHOLD:
+# every number below is copied from a line of the live table or of the owner-ratified runtime
+# fail-safe, each cited inline.
+#
+# WHO MAY ACT ON THIS
+# -------------------
+# ADR-0028 (docs/adr/0028-dmn-evaluation-engine-side.md:214-216) — "spec/ is the single source of
+# truth. On any Python/DMN divergence, the DMN wins; ... If the DMN itself is wrong, fix forward IN
+# SPEC, never patch the Python back." Engineering therefore NEVER corrects the table. The correction
+# is the REGULATORY OWNER's act, and it is a spec DATA change, not a code change.
+#
+# RUNTIME STATE TODAY (unchanged by this file)
+# --------------------------------------------
+# The live table is runtime-MITIGATED, not fixed, by the owner-ratified fail-safe in
+# `route_remediation` (src/maezo/tools/workers/adequacao.py:259-282): the DMN verdict is PRESERVED
+# verbatim and auditable, but the worker REFUSES TO ACT on a `CONFORME` the measurements contradict,
+# using the 60min/50km ceiling THE TABLE ITSELF DECLARES
+# (src/maezo/tools/workers/adequacao.py:137-138), routing to `ANALISE_HUMANA`.
+# THE TABLE IS STILL WRONG. This file exists so that fixing it is a paste, not a project.
+#
+# =================================================================================================
+# ACTIVATION PATH — the SINGLE human act
+# =================================================================================================
+# 1. The REGULATORY OWNER reviews `regras_candidatas` below against RN 259 in force (plus the
+#    open decision in `decisao_pendente_do_dono`), and RATIFIES by setting ALL THREE of:
+#
+#        ratificado:    true                      # the boolean literal true — nothing else counts
+#        revisor:       "<who ratified it>"       # non-empty, non-placeholder; ADR-0007
+#        ratificado_em: "YYYY-MM-DD"              # non-empty, non-placeholder
+#
+#    Any of the three missing / blank / left at its `PLACEHOLDER_*` value => NOT ratified
+#    (fail-closed). The loader (`maezo.tools.workers.adequacao_shadow`) never defaults to ratified
+#    and swallows every load error into "not ratified".
+#
+# 2. The REGULATORY OWNER applies `regras_candidatas` to the LIVE TABLE
+#    `spec/processes/dmn/adequacao_gap.dmn` (rule order + input entries + output entries). PER
+#    ADR-0028 (:214-216) THE LIVE-TABLE EDIT ITSELF IS THE OWNER'S ACT — engineering does not make
+#    it, and never "corrects" the table on the owner's behalf. It is a spec DATA change: no Python
+#    changes, no worker redeploy.
+#
+# 3. Only after step 2 does the runtime behaviour change (the engine evaluates the deployed table).
+#    Step 1 alone changes NOTHING at runtime today: there is no enforcing consumer of this file
+#    (see `modo_operacao`), and the shadow evaluator refuses to run in an enforcing mode while
+#    `ratificado: false`.
+#
+# REVIEWER GATE: `.github/CODEOWNERS` covers BOTH this file and the live `adequacao_gap.dmn`
+# (added in the same commit that created this file — before it, `/spec/processes/dmn/` was covered
+# only for `auth-criteria-ratification.yaml`; do not repeat the claim without re-reading CODEOWNERS).
+#
+# =================================================================================================
+
+version: 1
+status: DRAFT
+alvo: spec/processes/dmn/adequacao_gap.dmn
+decisao_alvo: adequacao_gap
+norma_regente: "RN 259/2011 (ANS) — garantia de atendimento: tempos e distancias maximas de acesso"
+
+# --- RATIFICATION BLOCK — the three fields of step 1 above. -------------------------------------
+# The two `PLACEHOLDER_*` values are MACHINE-DETECTABLE: the loader treats any value that contains
+# the token `PLACEHOLDER` as blank, so a half-finished edit (flag flipped, identity left as shipped)
+# reads as NOT ratified rather than as an anonymous ratification.
+ratificado: false
+revisor: "PLACEHOLDER_DONO_REGULATORIO — regulatorio/compliance + SME gestao-rede (docs/review-queue.md:160)"
+ratificado_em: "PLACEHOLDER_YYYY-MM-DD"
+
+# --- OPERATING MODE -----------------------------------------------------------------------------
+# `sombra` is the ONLY mode that exists. There is no enforcing consumer of this file in the
+# repository today, and the evaluator REFUSES (raises `EnforcementNotRatifiedError`) if anything
+# asks it to run in an enforcing mode while `ratificado` is not the literal `true`. Ratifying does
+# not by itself create an enforcing consumer either — see the activation path, step 3.
+modo_operacao: sombra
+
+# =================================================================================================
+# THE DEFECT, STATED AS A REACHABILITY FACT ABOUT THE LIVE TABLE
+# =================================================================================================
+# Read directly off spec/processes/dmn/adequacao_gap.dmn (hitPolicy=FIRST, line 32), for the input
+# shapes the worker actually sends (it coerces every input to a non-null int/float/bool —
+# src/maezo/tools/workers/adequacao.py:227-230), the live rules in evaluation order are:
+#
+#   1 r_urgencia_critico            (:50-59)  urgencia_emergencia AND tempo > 30        -> GAP_CRITICO
+#   2 r_urgencia_distancia_critico  (:60-69)  urgencia_emergencia AND distancia > 30.0  -> GAP_CRITICO
+#   3 r_zero_prestadores_critico    (:70-79)  prestadores = 0                           -> GAP_CRITICO
+#   4 r_cobertura_insuficiente      (:80-89)  cobertura_geo_suficiente = false           -> GAP_MODERADO
+#   5 r_eletivo_leve                (:90-99)  eletivo AND tempo<=60 AND dist<=50.0 AND
+#                                             prestadores>0 AND cobertura=true          -> GAP_LEVE
+#   6 r_urgencia_leve               (:100-109) urgencia_emergencia AND tempo<=30 AND dist<=30.0 AND
+#                                             prestadores>0 AND cobertura=true          -> GAP_LEVE
+#   7 r_conforme                    (:110-119) prestadores>0 AND cobertura=true          -> CONFORME
+#                                             (wildcard `-` on tipo_carater, tempo AND distancia
+#                                              — :112,:113,:114 — i.e. NO CEILING OF ANY KIND)
+#   8 r_catchall                    (:120-129) all wildcards                             -> GAP_CRITICO
+#
+# CONSEQUENCE (this is the ABERTO finding, PLANS.md:152-159):
+#   for tipo_carater = "eletivo", with prestadores>0 and cobertura=true,
+#       CONFORME is reachable IF AND ONLY IF (tempo > 60 OR distancia > 50.0)
+#   — i.e. `CONFORME` is emitted EXACTLY on the inputs that EXCEED the elective ceiling the table
+#   itself declares, and NEVER on the inputs that satisfy it (those match r_eletivo_leve first).
+#   The two `*_critico` time/distance rules cannot catch it: both gate on
+#   `tipo_carater = "urgencia_emergencia"` (:52, :62).
+
+# =================================================================================================
+# FURTHER FINDINGS — the SAME masking class, in the OTHER rules of the live table.
+# FINDINGS, NOT FIXES. Recorded for the regulatory owner; nothing here is applied by engineering.
+# Each is derived only from the live table's own text and its own declared semantics.
+# =================================================================================================
+achados_adicionais:
+
+  - id: ACHADO-1-catchall-mascarado
+    regra_afetada: r_catchall (adequacao_gap.dmn:120-129)
+    classe: mesma classe de mascaramento (regra geral sem teto precede o fail-safe declarado)
+    achado: >-
+      A propria `<description>` da tabela (adequacao_gap.dmn:22-23) declara o catch-all como o
+      FAIL-SAFE conservador para "dados insuficientes / combinacao nao coberta" -> GAP_CRITICO.
+      Mas `r_conforme` (:110-119) o PRECEDE com wildcard em tipo_carater, tempo e distancia, e so
+      exige `prestadores_disponiveis > 0` e `cobertura_geo_suficiente = true`. Para todo o subespaco
+      {prestadores>0 e cobertura=true} — que inclui QUALQUER `tipo_carater`, inclusive um literal
+      nao mapeado ou a string vazia — o fail-safe declarado e INALCANCAVEL: a combinacao nao coberta
+      le CONFORME em vez de GAP_CRITICO.
+    exemplo_concreto: >-
+      `route_remediation` usa `variables.get("tipo_carater", "")` (adequacao.py:218): um processo
+      iniciado SEM `tipo_carater` envia `""` a tabela. Com prestadores>0 e cobertura=true isso cai
+      em `r_conforme` -> CONFORME, exatamente o oposto do GAP_CRITICO que a descricao da tabela
+      promete para uma combinacao nao coberta.
+    consequencia_no_bpmn: >-
+      CONFORME -> MONITORAR (adequacao_remediation_routing.dmn:49-54) e, no BPMN, o ramo
+      `MONITORAR && gap_adequacao == 'CONFORME'` termina em End_AdequacaoConforme SEM plano de
+      monitoramento e SEM alerta (registrado em adequacao.py:207-212, GK-adequacao finding 2).
+
+  - id: ACHADO-2-assimetria-eletivo-vs-urgencia
+    regras_afetadas: r_urgencia_leve (:100-109) vs r_eletivo_leve (:90-99) vs r_conforme (:110-119)
+    classe: mesma classe (a mesma regra geral sem teto, vista pelo outro lado)
+    achado: >-
+      Para `tipo_carater = "urgencia_emergencia"` com prestadores>0 e cobertura=true, CONFORME e
+      INALCANCAVEL: dentro do teto (tempo<=30, dist<=30.0) `r_urgencia_leve` casa primeiro
+      (GAP_LEVE); fora do teto, `r_urgencia_critico`/`r_urgencia_distancia_critico` casam antes
+      (GAP_CRITICO). Combinando com o achado principal: o acesso de urgencia PERFEITO nunca e
+      rotulado CONFORME (recebe GAP_LEVE, logo plano de monitoramento), enquanto o acesso eletivo
+      ARBITRARIAMENTE RUIM e rotulado CONFORME (logo NENHUM plano de monitoramento). A tabela
+      entrega mais atencao ao melhor caso e nenhuma ao pior.
+
+  - id: ACHADO-3-conforme-duplica-as-regras-leve
+    regra_afetada: r_conforme (adequacao_gap.dmn:110-119)
+    classe: condicao declarada em prosa que as inputEntries nao implementam
+    achado: >-
+      A `<description>` de `r_conforme` (:111) declara "Celula plenamente coberta: ao menos 1
+      prestador, cobertura geografica ok, DENTRO DOS THRESHOLDS". As duas primeiras condicoes estao
+      nas inputEntries (:115, :116); a terceira — "dentro dos thresholds" — NAO ESTA (:112-114 sao
+      wildcards). Ou seja: o teto que falta e um teto que a propria regra JA DIZ TER. E, se ele
+      fosse escrito, a condicao resultante seria IDENTICA a de `r_eletivo_leve` / `r_urgencia_leve`
+      (mesmos tetos, mesmos `prestadores>0` + `cobertura=true`), que emitem GAP_LEVE. A tabela, no
+      seu proprio texto, NAO declara nenhuma condicao que distinga CONFORME de GAP_LEVE.
+      Consequencia direta para o candidato: ver `decisao_pendente_do_dono`.
+
+  - id: ACHADO-4-assimetria-de-posicao-dos-tetos
+    regras_afetadas: r_urgencia_critico/r_urgencia_distancia_critico (:50-69) vs r_cobertura_insuficiente (:80-89)
+    classe: ordenacao (nao e mascaramento — registrado por completude, e deliberadamente NAO alterado)
+    achado: >-
+      Os dois tetos de URGENCIA precedem `r_cobertura_insuficiente`, logo uma urgencia fora do teto
+      COM cobertura insuficiente le GAP_CRITICO. As duas regras de teto ELETIVO que este candidato
+      acrescenta ficam DEPOIS de `r_cobertura_insuficiente` (para nao mudar a severidade de nenhum
+      caso que ja e coberto hoje), logo um eletivo fora do teto COM cobertura insuficiente continua
+      lendo GAP_MODERADO, e nao GAP_CRITICO. A assimetria e real.
+    porque_nao_foi_alterado: >-
+      Movimentar os tetos eletivos para antes de `r_cobertura_insuficiente` mudaria a severidade de
+      casos que NAO fazem parte do defeito ABERTO, e a escolha entre GAP_MODERADO e GAP_CRITICO
+      nessa interseccao e regulatoria. Nao ha mascaramento envolvido: GAP_MODERADO roteia para
+      ENCAMINHAR_CREDENCIAMENTO (adequacao_remediation_routing.dmn), um caminho de remediacao real,
+      e nao para o end-state silencioso de conformidade. FINDING, NAO FIX.
+
+# =================================================================================================
+# THE OPEN DECISION THE CANDIDATE DELIBERATELY DOES NOT MAKE
+# =================================================================================================
+decisao_pendente_do_dono:
+  - id: DECISAO-A-conforme-sem-condicao-distintiva
+    pergunta: >-
+      Qual condicao separa CONFORME de GAP_LEVE?
+    porque_nao_foi_decidido_aqui: >-
+      ACHADO-3: a tabela nao declara nenhuma. Escolher uma exigiria afirmar um valor de RN 259 que
+      NAO existe neste repositorio — proibido (invariante "nunca inventar um valor
+      clinico/regulatorio"). Em particular, NAO se assume que o teto de 30min/30km, que a tabela
+      gateia exclusivamente em `urgencia_emergencia` (:52, :62), tambem seja o teto de conformidade
+      do eletivo.
+    consequencia_da_omissao_no_candidato: >-
+      O conjunto candidato abaixo NAO CONTEM NENHUMA REGRA QUE EMITA `CONFORME` — a regra
+      `r_conforme` da tabela viva e removida, nao "consertada". Aplicado a tabela viva, isso torna
+      inalcancaveis: `r_conforme_monitorar` (adequacao_remediation_routing.dmn:49-54) e o
+      end-state `End_AdequacaoConforme` do BPMN
+      (docs/processes/contracts/SP-OP-ADEQUACAO-001.md:43). `CONFORME` continua no dominio fechado
+      de `gap_adequacao` (adequacao_gap.dmn:16), apenas sem produtor.
+    opcoes_para_o_dono:
+      - "(a) Declarar o teto de conformidade (um valor RN 259) e adicionar uma regra CONFORME
+         gateada por tipo_carater ANTES das regras `*_leve` correspondentes."
+      - "(b) Aceitar que o end-state de conformidade e aposentado e que o piso da tabela passa a ser
+         GAP_LEVE (monitoramento L3) — mais conservador, sem end-state silencioso."
+    nao_e_uma_recomendacao: >-
+      O candidato implementa (b) apenas porque (b) e a unica opcao expressavel SEM inventar um
+      numero. Isso NAO e uma recomendacao regulatoria. Se o dono escolher (a), a unica edicao
+      necessaria e acrescentar a(s) regra(s) CONFORME com o teto que ele declarar.
+
+# =================================================================================================
+# `regras_candidatas` — the corrected rule set. hitPolicy FIRST, evaluated top to bottom.
+# EVERY rule is a CANDIDATE. Inputs/outputs are EXACTLY the live table's own
+# (adequacao_gap.dmn:33-49): tipo_carater / tempo_acesso_apurado_min / distancia_apurada_km /
+# prestadores_disponiveis / cobertura_geo_suficiente -> gap_adequacao (closed set
+# {CONFORME, GAP_LEVE, GAP_MODERADO, GAP_CRITICO}, :16) + motivo. NO new input, NO new output,
+# NO new value, NO new number.
+#
+# ORDERING PRINCIPLE APPLIED: SPECIFIC BEFORE GENERAL — every ceiling rule precedes the
+# within-band rule it gates, and the only wildcard-only rule is the conservative catch-all, LAST.
+# MINIMALITY: the RELATIVE order of every PRESERVED rule is the live table's own. The whole diff the
+# owner applies is INSERT TWO ROWS (ordem 5 and 6) and DELETE ONE ROW (`r_conforme`). Re-ranking a
+# preserved pair would silently change severities that are not part of the defect — see ACHADO-4.
+# =================================================================================================
+regras_candidatas:
+
+  - ordem: 1
+    id: c_urgencia_tempo_acima_teto
+    candidato: true
+    origem: "PRESERVADA verbatim (entradas e gap_adequacao; motivo reescrito com prefixo CANDIDATO) de r_urgencia_critico (adequacao_gap.dmn:50-59); teto 30 em :53"
+    entradas:
+      tipo_carater: '"urgencia_emergencia"'
+      tempo_acesso_apurado_min: "> 30"
+      distancia_apurada_km: "-"
+      prestadores_disponiveis: "-"
+      cobertura_geo_suficiente: "-"
+    saidas:
+      gap_adequacao: GAP_CRITICO
+      motivo: "CANDIDATO — Urgencia/emergencia com tempo de acesso acima do teto declarado (30min)"
+
+  - ordem: 2
+    id: c_urgencia_distancia_acima_teto
+    candidato: true
+    origem: "PRESERVADA verbatim (entradas e gap_adequacao; motivo reescrito com prefixo CANDIDATO) de r_urgencia_distancia_critico (adequacao_gap.dmn:60-69); teto 30.0 em :64"
+    entradas:
+      tipo_carater: '"urgencia_emergencia"'
+      tempo_acesso_apurado_min: "-"
+      distancia_apurada_km: "> 30.0"
+      prestadores_disponiveis: "-"
+      cobertura_geo_suficiente: "-"
+    saidas:
+      gap_adequacao: GAP_CRITICO
+      motivo: "CANDIDATO — Urgencia/emergencia com distancia acima do teto declarado (30km)"
+
+  - ordem: 3
+    id: c_zero_prestadores_critico
+    candidato: true
+    origem: "PRESERVADA verbatim (entradas e gap_adequacao; motivo reescrito com prefixo CANDIDATO) de r_zero_prestadores_critico (adequacao_gap.dmn:70-79)"
+    entradas:
+      tipo_carater: "-"
+      tempo_acesso_apurado_min: "-"
+      distancia_apurada_km: "-"
+      prestadores_disponiveis: "0"
+      cobertura_geo_suficiente: "-"
+    saidas:
+      gap_adequacao: GAP_CRITICO
+      motivo: "CANDIDATO — Zero prestadores disponiveis na celula: falha total de cobertura"
+
+  - ordem: 4
+    id: c_cobertura_insuficiente
+    candidato: true
+    origem: "PRESERVADA verbatim (entradas e gap_adequacao; motivo reescrito com prefixo CANDIDATO) de r_cobertura_insuficiente (adequacao_gap.dmn:80-89)"
+    entradas:
+      tipo_carater: "-"
+      tempo_acesso_apurado_min: "-"
+      distancia_apurada_km: "-"
+      prestadores_disponiveis: "-"
+      cobertura_geo_suficiente: "false"
+    saidas:
+      gap_adequacao: GAP_MODERADO
+      motivo: "CANDIDATO — Cobertura geografica insuficiente (dimensionamento)"
+
+  # ---- ordem 5 e 6: AS DUAS REGRAS NOVAS. Fecham exatamente o buraco de PLANS.md:152-159. -------
+  - ordem: 5
+    id: c_eletivo_tempo_acima_teto
+    candidato: true
+    regra_nova: true
+    origem_do_teto: >-
+      60 minutos — copiado de r_eletivo_leve (adequacao_gap.dmn:93, `<= 60`), o UNICO teto de tempo
+      de acesso eletivo que a tabela declara; e o mesmo numero que o fail-safe ratificado pelo dono
+      ja usa em runtime (_ELETIVO_LEVE_TEMPO_MAX_MIN, src/maezo/tools/workers/adequacao.py:137).
+    origem_da_severidade: >-
+      GAP_CRITICO — a disposicao conservadora que a PROPRIA tabela declara para uma combinacao que
+      nenhuma regra especifica cobre (r_catchall, adequacao_gap.dmn:120-129, e a
+      `<description>` :22-23). NAO e uma severidade nova nem uma leitura de RN 259. E, na pratica,
+      o mesmo desfecho do fail-safe de runtime, que roteia esses casos a ANALISE_HUMANA
+      (adequacao.py:272-282) — para onde GAP_CRITICO tambem roteia
+      (adequacao_remediation_routing.dmn: GAP_CRITICO -> ANALISE_HUMANA).
+      ABERTO AO DONO: se o dono julgar que o eletivo fora do teto e GAP_MODERADO e nao GAP_CRITICO,
+      esta e a unica celula a mudar; o mascaramento fica fechado nos dois casos.
+    posicao: >-
+      Inserida DEPOIS de c_cobertura_insuficiente (ordem 4) de proposito, para nao alterar a
+      severidade de nenhum caso ja coberto hoje. Isso cria uma assimetria com os tetos de urgencia,
+      que precedem a regra de cobertura — registrada em ACHADO-4 e deliberadamente NAO corrigida.
+    entradas:
+      tipo_carater: '"eletivo"'
+      tempo_acesso_apurado_min: "> 60"
+      distancia_apurada_km: "-"
+      prestadores_disponiveis: "-"
+      cobertura_geo_suficiente: "-"
+    saidas:
+      gap_adequacao: GAP_CRITICO
+      motivo: "CANDIDATO — Eletivo com tempo de acesso acima do teto que a tabela declara (60min)"
+
+  - ordem: 6
+    id: c_eletivo_distancia_acima_teto
+    candidato: true
+    regra_nova: true
+    origem_do_teto: >-
+      50.0 km — copiado de r_eletivo_leve (adequacao_gap.dmn:94, `<= 50.0`), o UNICO teto de
+      distancia de acesso eletivo que a tabela declara; mesmo numero do fail-safe ratificado
+      (_ELETIVO_LEVE_DISTANCIA_MAX_KM, src/maezo/tools/workers/adequacao.py:138).
+    origem_da_severidade: "identica a c_eletivo_tempo_acima_teto (ordem 5)"
+    entradas:
+      tipo_carater: '"eletivo"'
+      tempo_acesso_apurado_min: "-"
+      distancia_apurada_km: "> 50.0"
+      prestadores_disponiveis: "-"
+      cobertura_geo_suficiente: "-"
+    saidas:
+      gap_adequacao: GAP_CRITICO
+      motivo: "CANDIDATO — Eletivo com distancia acima do teto que a tabela declara (50km)"
+
+  - ordem: 7
+    id: c_eletivo_leve
+    candidato: true
+    origem: "PRESERVADA verbatim (entradas e gap_adequacao; motivo reescrito com prefixo CANDIDATO) de r_eletivo_leve (adequacao_gap.dmn:90-99)"
+    nota: >-
+      Inalterada, mas agora precedida pelos seus proprios tetos (ordens 5 e 6), de modo que a
+      alternativa a casar esta regra deixou de ser CONFORME e passou a ser GAP_CRITICO.
+    entradas:
+      tipo_carater: '"eletivo"'
+      tempo_acesso_apurado_min: "<= 60"
+      distancia_apurada_km: "<= 50.0"
+      prestadores_disponiveis: "> 0"
+      cobertura_geo_suficiente: "true"
+    saidas:
+      gap_adequacao: GAP_LEVE
+      motivo: "CANDIDATO — Eletivo com acesso dentro do teto declarado — gap leve; monitorar (L3)"
+
+  - ordem: 8
+    id: c_urgencia_leve
+    candidato: true
+    origem: "PRESERVADA verbatim (entradas e gap_adequacao; motivo reescrito com prefixo CANDIDATO) de r_urgencia_leve (adequacao_gap.dmn:100-109)"
+    entradas:
+      tipo_carater: '"urgencia_emergencia"'
+      tempo_acesso_apurado_min: "<= 30"
+      distancia_apurada_km: "<= 30.0"
+      prestadores_disponiveis: "> 0"
+      cobertura_geo_suficiente: "true"
+    saidas:
+      gap_adequacao: GAP_LEVE
+      motivo: "CANDIDATO — Urgencia/emergencia com acesso dentro do teto declarado — gap leve; monitorar"
+
+  # `r_conforme` (adequacao_gap.dmn:110-119) NAO TEM SUCESSORA AQUI — ver DECISAO-A e ACHADO-3.
+  # Removida, nao "consertada": escrever o teto que a sua propria descricao promete a tornaria
+  # identica a c_eletivo_leve / c_urgencia_leve, e nada na tabela distingue CONFORME de GAP_LEVE.
+
+  - ordem: 9
+    id: c_catchall
+    candidato: true
+    origem: "PRESERVADA verbatim (entradas e gap_adequacao; motivo reescrito com prefixo CANDIDATO) de r_catchall (adequacao_gap.dmn:120-129)"
+    nota: >-
+      Agora efetivamente ALCANCAVEL (ACHADO-1): sem `r_conforme` a precede-lo, qualquer
+      `tipo_carater` fora dos dois literais declarados — inclusive a string vazia que o worker envia
+      quando a variavel esta ausente (adequacao.py:218) — chega ao fail-safe conservador que a
+      descricao da tabela sempre prometeu.
+    entradas:
+      tipo_carater: "-"
+      tempo_acesso_apurado_min: "-"
+      distancia_apurada_km: "-"
+      prestadores_disponiveis: "-"
+      cobertura_geo_suficiente: "-"
+    saidas:
+      gap_adequacao: GAP_CRITICO
+      motivo: "CANDIDATO — Combinacao nao mapeada / dados geo insuficientes — gap critico por seguranca"
+
+# =================================================================================================
+# EVIDENCE THE OWNER RATIFIES AGAINST
+# =================================================================================================
+# tests/unit/tools/workers/test_adequacao_shadow.py enumerates, as a table-driven test, the inputs
+# where the LIVE table says CONFORME and this candidate says gap — including the elective access at
+# 120min/100km named in the mission, and the empty-`tipo_carater` case of ACHADO-1. The same test
+# module pins that the Python evaluator matches THIS FILE rule-for-rule (ids, thresholds, outputs
+# and order), so this file — not the Python — is the source of truth for the candidate.
