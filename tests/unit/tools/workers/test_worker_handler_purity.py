@@ -113,10 +113,12 @@ _NONDETERMINISM_BASELINE: dict[str, str] = {
     "must become deterministic before any real keyed external effect (P1).",
     # `contas` REMOVED (M-9): `glosa_id = GLOSA-{analista}-sha256(time_ns())` is now
     # `_glosa_id(input_data)` — a sha256 over the acceptance's own contract facts + process-
-    # instance anchors. It was NOT latent like its baseline neighbours: `glosa_id` anchors
-    # `RECURSO-{tenant}-{numero_guia_tiss}-{glosa_id}`, so a re-delivery minting a new value was
-    # a live duplicate-instance hazard. Pinned by
-    # `test_contas_glosa_id_m9_landed_deterministic` below.
+    # instance anchors. F3 MINOR-5: it was LATENT, exactly like its baseline neighbours — the
+    # minted value never reaches the `RECURSO-{tenant}-{guia}-{glosa_id}` anchor (ACEITAR is
+    # terminal, its published `event_payload_vars` exclude `glosa_id`, and RECORRER's `glosa_id`
+    # is externally supplied; full derivation in `contas._glosa_id`'s docstring). Fixed because a
+    # latent non-deterministic identifier is worth removing, not because a live path consumed it.
+    # Pinned by `test_contas_glosa_id_m9_landed_deterministic` below.
     "inadimplencia": "dossier_ref = uuid4 — latent; same P1 caveat.",
     "lgpd": "package_ref = uuid4 — latent; same P1 caveat.",
     "recurso": "protocolo = sha256(time_ns()) — latent; same P1 caveat.",
@@ -229,10 +231,14 @@ def test_contas_glosa_id_m9_landed_deterministic() -> None:
     sha256 over the acceptance's OWN contract facts plus the process-instance anchors, so an
     engine re-delivery of the same `UT_AnalistaContas` decision reproduces the SAME id.
 
-    Unlike its baseline neighbours this one was NOT latent: `glosa_id` is a business-key anchor
-    for SP-OP-RECURSO-001 (`RECURSO-{tenant}-{numero_guia_tiss}-{glosa_id}`), so a drifting value
-    was already a duplicate-instance hazard. Mirrors the `ans_submit` pin above: a regression
-    trips BOTH this pin and the baseline fence (which would then flag `contas` as NEW).
+    LIKE its baseline neighbours, this one was LATENT (F3 MINOR-5 — an earlier revision claimed
+    the opposite). `glosa_id` does anchor `RECURSO-{tenant}-{numero_guia_tiss}-{glosa_id}`, but
+    the value minted HERE never reaches that key: the ACEITAR branch that mints it is terminal,
+    its published `event_payload_vars` exclude `glosa_id`, and the RECORRER branch's `glosa_id`
+    comes from outside this worker (derivation with BPMN/bridge line cites in
+    `contas._glosa_id`'s docstring; `start_recurso`'s M-9 note says the same). Mirrors the
+    `ans_submit` pin above: a regression trips BOTH this pin and the baseline fence (which would
+    then flag `contas` as NEW).
     """
     assert "contas" not in _NONDETERMINISM_BASELINE
     path = _domain_worker_modules()["contas"]

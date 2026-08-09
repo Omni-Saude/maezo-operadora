@@ -51,6 +51,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, cast
 
 from maezo.a2a import Budget, DelegationEnvelope, HandlerOutput
+from maezo.tools.mcp_cibseven.transport import StartOutcome
 
 from .graph import (
     _CALLER_INPUT_FIELDS,
@@ -423,6 +424,32 @@ DEGRADED_ENGINE = "engine_inacessivel"
 DEGRADED_CONTEXT = "contexto_incompleto"
 DEGRADED_TOKENS: frozenset[str] = frozenset({DEGRADED_DMN, DEGRADED_ENGINE, DEGRADED_CONTEXT})
 
+#: `HandlerOutput.meta` key carrying the PAGTO start's typed outcome (F3 BLOCKER-1/MAJOR-2).
+#: `process_started` is a bool and therefore CANNOT distinguish "I started SP-OP-PAGTO-001" from
+#: "an instance was already live" from "the strict gate refused because this order already ran" —
+#: yet an A2A originator deciding whether a payment case is live, duplicated, or already settled
+#: needs exactly that. The value is always a `StartOutcome` token (or "" when no start was
+#: attempted: the non-`pagto_dossier` flows, the ORIGIN_PAGTO_WORKER no-op, and the error bails).
+#: A bounded class token, never PHI and never a value — same discipline as `DEGRADED_META_KEY`.
+START_OUTCOME_META_KEY = "start_outcome"
+
+
+def _start_outcome_token(result: dict[str, Any]) -> str:
+    """Read the chokepoint's typed verdict out of `process_ref`, validated against `StartOutcome`.
+
+    Re-VALIDATED rather than passed through: `process_ref` is graph state, and meta is a
+    cross-agent wire surface — an unrecognised value is dropped to `""` (no start attested) rather
+    than shipped, so this key can only ever carry a token the originator can branch on.
+    """
+    process_ref = result.get("process_ref")
+    if not isinstance(process_ref, dict):
+        return ""
+    token = str(process_ref.get("start_outcome") or "")
+    return token if token in _START_OUTCOME_TOKENS else ""
+
+
+_START_OUTCOME_TOKENS: frozenset[str] = frozenset(o.value for o in StartOutcome)
+
 
 def _degradation_token(result: dict[str, Any]) -> str:
     """Classify Andre's terminal state into a BOUNDED degradation token (or `""` = not degraded).
@@ -597,6 +624,10 @@ def make_andre_handler(
                 "motivo_humano": str(result.get("motivo_humano") or ""),
                 "grupo_destino": str(result.get("grupo_humano") or ""),
                 "process_started": str(result.get("process_started", False)),
+                # F3 BLOCKER-1: `process_started` alone once shipped a hard-coded True even when
+                # the strict gate had REFUSED to start an already-settled payment order. The bool
+                # is now honest, and this token carries WHICH outcome produced it.
+                START_OUTCOME_META_KEY: _start_outcome_token(result),
                 # GK-dossier finding 4: a STRUCTURALLY successful delegation can still have run
                 # degraded inside. Disclose the class so the originator can flag it to the human
                 # approver instead of reporting a clean dossier. "" = not degraded.

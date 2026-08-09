@@ -34,7 +34,13 @@ from maezo.agents.andre.graph import (
     _business_key,
     build,
 )
-from maezo.tools.mcp_cibseven.transport import CibSevenError, FakeCibSevenTransport, ProcessInstance
+from maezo.tools.mcp_cibseven.transport import (
+    CibSevenError,
+    FakeCibSevenTransport,
+    ProcessInstance,
+    StartClaimWithoutInstanceError,
+    StartOutcome,
+)
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from tests.support.audit_fakes import FakeStartAuditSink
 
@@ -1120,6 +1126,78 @@ async def test_start_process_error_without_business_key_short_circuits() -> None
     )
     assert result == {"process_started": False}
     assert cibseven.started_variables == []
+
+
+# ---------------------------------------------------------------------------
+# F3 BLOCKER-1 — start_process must never report a start it did not cause
+# ---------------------------------------------------------------------------
+
+
+async def test_start_process_reports_the_typed_outcome_for_a_fresh_start() -> None:
+    """`process_started` is now DERIVED, not hard-coded, and the token that produced it travels
+    with it so the caller never has to re-derive the distinction from `already_existed`."""
+    graph = _graph(cibseven=_RecordingCibSeven())
+    result = await graph.start_process(_pagto_state(route="auto_route", business_key="PAGTO-amh-1"))
+
+    assert result["process_started"] is True
+    assert result["process_ref"]["start_outcome"] == StartOutcome.STARTED.value
+
+
+async def test_start_process_reports_already_active_as_live_not_as_a_new_start() -> None:
+    cibseven = FakeCibSevenTransport()
+    cibseven.seed_instance(
+        ProcessInstance(
+            instance_id="live-1",
+            process_key="SP-OP-PAGTO-001",
+            business_key="PAGTO-amh-1",
+            state="ACTIVE",
+        )
+    )
+    graph = _graph(cibseven=cibseven)
+
+    result = await graph.start_process(_pagto_state(business_key="PAGTO-amh-1", route="human_review"))
+
+    # A live instance exists for this key, so the case IS live — but it was not started here.
+    assert result["process_started"] is True
+    assert result["process_ref"]["start_outcome"] == StartOutcome.ALREADY_ACTIVE.value
+
+
+async def test_start_process_never_reports_started_for_an_already_settled_order() -> None:
+    """THE F3 BLOCKER, at the reporting site. The strict gate refuses to restart an already-paid
+    order; `graph.py` used to answer that refusal with a hard-coded `process_started: True` and a
+    blank instance id, and `delegation.py` shipped it over A2A as a success."""
+    audit_sink = FakeStartAuditSink()
+    cibseven = FakeCibSevenTransport()
+    graph = _graph(cibseven=cibseven, audit_sink=audit_sink)
+    state = _pagto_state(business_key="PAGTO-amh-1", route="human_review")
+
+    first = await graph.start_process(state)
+    assert first["process_started"] is True
+
+    # The engine finishes the payment instance; a re-delivery arrives.
+    cibseven.seed_instance(
+        ProcessInstance(
+            instance_id=first["process_ref"]["instance_id"],
+            process_key="SP-OP-PAGTO-001",
+            business_key="PAGTO-amh-1",
+            state="COMPLETED",
+        )
+    )
+    second = await graph.start_process(state)
+
+    assert second["process_started"] is False, "an already-settled order was reported as started"
+    assert second["process_ref"]["start_outcome"] == StartOutcome.ALREADY_COMPLETED.value
+    assert second["process_ref"]["instance_id"], "the refusal must still name the real instance"
+
+
+async def test_start_process_does_not_swallow_an_undecidable_strict_gate_hit() -> None:
+    """`StartClaimWithoutInstanceError` is deliberately NOT a `CibSevenError`, so the graph's
+    `except CibSevenError` cannot turn a wedged payment key into a routine "engine unavailable"
+    (which a caller would retry forever while believing nothing was wrong)."""
+    graph = _graph(cibseven=FakeCibSevenTransport(), audit_sink=FakeStartAuditSink(already_audited=True))
+
+    with pytest.raises(StartClaimWithoutInstanceError):
+        await graph.start_process(_pagto_state(business_key="PAGTO-amh-1", route="human_review"))
 
 
 # ---------------------------------------------------------------------------

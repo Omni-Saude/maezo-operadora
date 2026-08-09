@@ -37,7 +37,11 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from maezo.tools.mcp_cibseven.transport import CibSevenHttpTransport
+from maezo.tools.mcp_cibseven.transport import (
+    CibSevenError,
+    CibSevenHttpTransport,
+    HistoryQueryingTransport,
+)
 
 if TYPE_CHECKING:
     from maezo.tools.mcp_cibseven.transport import (
@@ -84,6 +88,24 @@ class FreshClientCibSevenTransport:
         inner = self._new_transport()
         try:
             return await inner.find_active_instance(business_key)
+        finally:
+            await inner.close()
+
+    async def find_any_instance(self, business_key: str, *, process_key: str = "") -> ProcessInstance | None:
+        """`HistoryQueryingTransport` delegation — a decorator that DROPPED this capability would
+        silently downgrade any strict start routed through the worker daemon into a fail-closed
+        refusal (`StartDedupGateUnavailableError`), because `start_process_idempotent` probes the
+        OUTER transport. Production's inner is always `CibSevenHttpTransport`, which implements it;
+        a test `transport_factory` injecting a history-blind double raises here rather than
+        `AttributeError`-ing mid-gate."""
+        inner = self._new_transport()
+        try:
+            if not isinstance(inner, HistoryQueryingTransport):
+                raise CibSevenError(
+                    f"inner transport {type(inner).__name__!r} does not implement "
+                    "`find_any_instance` — cannot answer the engine-history question"
+                )
+            return await inner.find_any_instance(business_key, process_key=process_key)
         finally:
             await inner.close()
 

@@ -168,6 +168,7 @@ from maezo.tools.mcp_cibseven.transport import (
     AuditStartSink,
     CibSevenError,
     CibSevenTransport,
+    StartOutcome,
     start_process_idempotent,
 )
 from maezo.tools.workers.dmn_transport import (
@@ -996,13 +997,23 @@ class AndreGraph:
                 "business_key": business_key,
                 "error": ERROR_START_PROCESS_ENGINE_UNAVAILABLE,
             }
+        # F3 BLOCKER-1 — HONEST REPORTING. `process_started` used to be a hard-coded `True` for
+        # every non-raising return, including the strict dedup gate's "I refused to start this".
+        # It is now derived from the chokepoint's own typed verdict: True iff a live instance
+        # exists for this key because of, or at the time of, this call (STARTED / ALREADY_ACTIVE);
+        # False for ALREADY_COMPLETED, where the order was settled by an EARLIER instance and this
+        # call caused nothing. `start_outcome` (a bounded class token, PHI-safe) travels with it so
+        # a consumer branches on the outcome instead of re-deriving it from `already_existed`,
+        # which cannot tell "live" from "already finished". The undecidable case does not reach
+        # here at all — `StartClaimWithoutInstanceError` is not a `CibSevenError` and propagates.
         return {
-            "process_started": True,
+            "process_started": instance.start_outcome is not StartOutcome.ALREADY_COMPLETED,
             "business_key": business_key,
             "process_ref": {
                 "instance_id": instance.instance_id,
                 "state": instance.state,
                 "already_existed": instance.already_existed,
+                "start_outcome": instance.start_outcome.value,
             },
         }
 

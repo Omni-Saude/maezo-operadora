@@ -864,12 +864,36 @@ def _glosa_id(input_data: GlosaAcceptInput) -> str:
     WAS `GLOSA-{analista}-{sha256(time.time_ns())[:12]}`. That made this worker a P1 (handler
     purity) violation: the engine re-delivers an external task on lock-expiry / failure-with-
     retries, and every re-delivery of the SAME human acceptance minted a DIFFERENT `glosa_id` —
-    a fresh identity for one decision. `glosa_id` is not an inert output: it is a BUSINESS-KEY
-    ANCHOR for SP-OP-RECURSO-001 (`RECURSO-{tenant}-{numero_guia_tiss}-{glosa_id}` —
-    `_recurso_business_key` below, `platform/notification_bridge.py:360-364`,
-    `agents/marina/graph.py:325`), so a drifting value is a duplicate-instance hazard by
-    construction, and it contradicted `start_recurso`'s own docstring claim that its business key
-    is "a DETERMINISTIC function of process variables (no wall-clock/uuid)".
+    a fresh identity for one decision — and it contradicted `start_recurso`'s own docstring claim
+    that its business key is "a DETERMINISTIC function of process variables (no wall-clock/uuid)".
+
+    SCOPE OF THE HAZARD — LATENT, NOT LIVE (F3 MINOR-5, correcting an earlier revision of this
+    docstring that called it "a duplicate-instance hazard by construction" via the RECURSO anchor).
+    `glosa_id` IS the `RECURSO-{tenant}-{numero_guia_tiss}-{glosa_id}` business-key anchor
+    (`_recurso_business_key` below, `platform/notification_bridge.py:370-374`,
+    `agents/marina/graph.py:325`) — but the value MINTED HERE provably never reaches one:
+
+      1. This mint runs only on the ACEITAR branch (`ST_RegisterGlosaAccept`), which is TERMINAL:
+         `Flow_GWDec_Aceitar -> ST_RegisterGlosaAccept -> ST_PublishGlosaAceita ->
+         End_GlosaAceitaHumano` (`spec/processes/bpmn/
+         SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn:221-239`) — it never loops back to the
+         RECORRER branch that starts RECURSO-001.
+      2. The event that branch publishes carries `event_payload_vars =
+         tenant_id,numero_lote_tiss,codigo_glosa_aceito,analista_id` (same file, `:231`) — no
+         `glosa_id`. The bridge's CONTAS→RECURSO rule additionally requires
+         `desfecho == "encaminhada_recurso"` plus a `glosa_id` anchor
+         (`platform/notification_bridge.py:530-551`), and that desfecho is published only by
+         `ST_PublishEncaminhadaRecurso` on the RECORRER branch (BPMN `:207-217`).
+      3. On that RECORRER branch `glosa_id` is supplied EXTERNALLY (the analyst's
+         `UT_AnalistaContas` form / the origin system) — `start_recurso`'s M-9 note says exactly
+         this, and it is why SP-OP-RECURSO-001 stays NON-strict in `_START_DEDUP_POLICY`.
+
+    So the drift was a HANDLER-PURITY defect of the same latent class as its
+    `_NONDETERMINISM_BASELINE` neighbours (`auth`, `inadimplencia`, `lgpd`, `recurso`,
+    `reembolso`): a non-deterministic identifier in an output variable, dangerous the moment any
+    keyed external effect starts consuming it, not a live duplicate-instance path today. Fixing it
+    is still right — it removes the latency instead of documenting it — but the claim is scoped to
+    what the wiring proves.
 
     HOW THE IDENTITY IS SCOPED, AND WHY THAT IS SOUND RATHER THAN INVENTED. There is NO per-glosa
     instance identifier anywhere in the contract facts: `codigo_glosa_aceito` is a TISS REASON
