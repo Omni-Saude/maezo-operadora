@@ -161,7 +161,7 @@ def adequacao_task_id(
     Raises:
         ValueError: blank tenant/regiao/especialidade, or a supplied-but-blank `ciclo_avaliacao`.
             The adequacao worker's own `except` turns that into a DISCLOSED gap that still opens
-            the human UT (`tools/workers/adequacao.py:722-740`, DL-0037).
+            the human UT (`tools/workers/adequacao.py:731-749`, DL-0037).
     """
     return adequacao_business_key(tenant, regiao_saude, especialidade, ciclo_avaliacao)
 

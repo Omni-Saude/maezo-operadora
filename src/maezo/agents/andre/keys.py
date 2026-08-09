@@ -25,7 +25,7 @@ shape with an empty middle, so no two distinct cells can ever compose to the sam
 Refusing (rather than minting a degenerate key) is the house discipline already applied at
 `tools/workers/base.py:non_blank` and by the pre-existing `pagto_task_id` guard (EB-4 R1): callers
 wrap the composer and turn a `ValueError` into a DISCLOSED gap that still opens the human User
-Task (`tools/workers/adequacao.py:722-740`, DL-0037) — never a silent bad key.
+Task (`tools/workers/adequacao.py:731-749`, DL-0037) — never a silent bad key.
 
 Leaf module by design: it imports nothing from `graph.py` or `delegation.py` (delegation.py
 already imports graph.py, so anything shared must sit below both).
