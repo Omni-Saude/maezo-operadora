@@ -730,10 +730,16 @@ def _ans_business_key(variables: dict[str, Any]) -> str:
     present; otherwise reconstructs it from `tenant_id`/`report_type`/`competencia`. This is the key
     the `LabeledMockAnsGatewayTransport` derives its deterministic protocol from — so a retransmit
     for the same competência yields the same synthetic protocol (BPMN `:461` idempotency).
+
+    Returns the STRIPPED key (mirrors `recurso.py`'s `_mint_protocolo_recurso` sibling:
+    `business_key.strip() or f"RECURSO-..."`) — an engine business key can arrive
+    whitespace-padded, and returning it unstripped would make a padded vs. unpadded transmit of
+    the SAME logical key derive two different synthetic protocols, breaking the retransmit
+    idempotency this docstring promises.
     """
     bk = variables.get("business_key")
     if isinstance(bk, str) and bk.strip():
-        return bk
+        return bk.strip()
     tenant_id = str(variables.get("tenant_id", ""))
     report_type = str(variables.get("report_type", ""))
     competencia = str(variables.get("competencia", ""))

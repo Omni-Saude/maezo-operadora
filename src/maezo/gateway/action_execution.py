@@ -66,7 +66,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import Any, Final
 
 import structlog
 import yaml
@@ -332,6 +332,12 @@ class DuplicateManifestKeyError(yaml.YAMLError):
     """A mapping key is declared twice in the manifest."""
 
 
+#: The tag PyYAML's resolver gives a plain `<<` key (`Resolver.add_implicit_resolver`) — the ONE
+#: signal that distinguishes "this manifest used a YAML merge key" from any other unsupported-tag
+#: `ConstructorError` (see `_RefusingDuplicatesLoader`'s docstring and `_parse`'s dedicated catch).
+_MERGE_KEY_TAG: Final[str] = "tag:yaml.org,2002:merge"
+
+
 class _RefusingDuplicatesLoader(yaml.SafeLoader):
     """`SafeLoader` that REFUSES duplicate mapping keys instead of silently last-one-wins.
 
@@ -345,6 +351,18 @@ class _RefusingDuplicatesLoader(yaml.SafeLoader):
     (`yaml.safe_load` there is still last-one-wins), but that loader is deliberately NOT changed
     here — widening this is its own decision, on its own review. This class is private to this
     module for exactly that reason.
+
+    SIDE EFFECT (W5 GK finding, MINOR): a YAML merge key (`<<: *anchor`) is REFUSED too, though not
+    on purpose and not for the duplicate-key reason. `construct_mapping` below walks `node.value`
+    and calls `construct_object` on every raw key node BEFORE `SafeConstructor.construct_mapping`
+    gets to run its own `flatten_mapping` step, which is what normally resolves `<<` — so
+    `construct_object` reaches the merge key's OWN node first and finds no registered constructor
+    for its `tag:yaml.org,2002:merge` tag. The document is well-formed YAML, not malformed, so
+    `_parse` gives this its own `merge_key_unsupported` reason (never the generic `invalid_yaml`)
+    — an honest message for a future ratifier reaching for an anchor. Fail-closed either way:
+    refusing (rather than teaching this loader to special-case `<<`) keeps the duplicate-key guard
+    simple and keeps a manifest author from combining the two features in a way nobody has
+    reviewed the interaction of.
     """
 
     def construct_mapping(self, node: MappingNode, deep: bool = False) -> dict[Any, Any]:
@@ -375,6 +393,19 @@ def _parse(raw_text: str, manifest_path: Path, *, override_sourced: bool = False
         data = yaml.load(raw_text, Loader=_RefusingDuplicatesLoader)  # noqa: S506 - hardened SafeLoader
     except DuplicateManifestKeyError as exc:
         return _refuse("duplicate_key", f"{manifest_path}: {exc}")
+    except yaml.constructor.ConstructorError as exc:
+        if exc.problem is not None and _MERGE_KEY_TAG in exc.problem:
+            # See `_RefusingDuplicatesLoader`'s docstring (W5 GK finding, MINOR): a `<<` merge key
+            # trips the SAME "no constructor for this tag" error PyYAML raises for a genuinely
+            # unsupported tag, but the document itself is well-formed — so this gets its own
+            # honest reason instead of the generic `invalid_yaml` a ratifier would have to
+            # puzzle over (there is no syntax error to find).
+            return _refuse(
+                "merge_key_unsupported",
+                f"{manifest_path}: YAML merge keys ('<<: *anchor') are not supported by the "
+                f"duplicate-key-refusing manifest loader — inline the values instead: {exc}",
+            )
+        return _refuse("invalid_yaml", f"malformed YAML in {manifest_path}: {exc}")
     except yaml.YAMLError as exc:
         return _refuse("invalid_yaml", f"malformed YAML in {manifest_path}: {exc}")
 

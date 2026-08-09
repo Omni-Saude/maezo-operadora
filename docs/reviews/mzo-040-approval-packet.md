@@ -247,6 +247,21 @@ linha `ACAO_NAO_MAPEADA` por dispatch, contra tráfego real. **Essa é a lista d
    `lru_cache` só paga a partir do segundo. Nada disso altera um resultado observável; tudo isso
    pode aparecer num percentil de latência ou num teste sensível a tempo, e por isso está
    declarado.
+10. **Merge keys YAML (`<<: *anchor`) não são suportados pelo loader — MINOR do GK W5, corrigido
+    só na telemetria.** `_RefusingDuplicatesLoader.construct_mapping` (`gateway/action_execution.py`)
+    varre as chaves brutas do nó ANTES de `flatten_mapping` — o passo do `SafeConstructor` do
+    PyYAML que resolve `<<` — rodar, então um merge key bate no mesmo `ConstructorError` ("no
+    constructor for this tag") de uma tag genuinamente desconhecida — mas o documento em si é YAML
+    bem-formado, não malformado. `_parse` agora reconhece esse caso especificamente (pela tag
+    `tag:yaml.org,2002:merge` no `.problem` da exceção) e devolve a razão DEDICADA
+    `merge_key_unsupported`, nunca mais o `invalid_yaml` genérico — para que um futuro ratificador
+    que tente usar âncoras no manifesto receba uma mensagem honesta ("inline os valores") em vez de
+    caçar um erro de sintaxe que não existe. Comportamento fail-closed **inalterado**: `<<` continua
+    recusado, `_EMPTY_APPROVALS` continua o resultado; só o token de razão na linha de log
+    `action_approvals_manifest_unavailable` ficou preciso. Ampliar o loader para de fato RESOLVER
+    `<<` continua fora de escopo desta correção — mesma postura da nota de SCOPE na docstring de
+    `_RefusingDuplicatesLoader` (a classe de achado do `auth_criteria` também não foi estendida
+    aqui).
 
 ---
 

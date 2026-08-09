@@ -35,10 +35,17 @@ _REPORT_PERIODICIDADE: dict[str, str] = {
 
 
 def _compute_competencia(reference_date_iso: str, periodicidade: str) -> str:
-    """Compute the competencia (YYYY-MM) from the reference date.
+    """Compute the competencia from the reference date, per `periodicidade` (`_REPORT_PERIODICIDADE`).
 
-    The competencia is the calendar period IMMEDIATELY BEFORE the reference date's month.
-    For quarterly: the quarter ending before the reference month.
+    The competencia is the calendar period IMMEDIATELY BEFORE — i.e. already CLOSED as of — the
+    reference date. The still-OPEN period containing the reference date is never itself a valid
+    answer (it has not finished yet):
+      - P1M (monthly):   the previous month, "YYYY-MM".
+      - P3M (quarterly): the most recently CLOSED quarter's start month, "YYYY-MM" — e.g. a
+        reference date anywhere in Apr/May/Jun (all of Q2, still open) resolves to the SAME
+        "YYYY-01" (Q1, the quarter that already ended), never "YYYY-04" (Q2 itself).
+      - P12M (annual):   the previous calendar year in full, "YYYY" — never a month within it.
+      - anything else:   treated as P1M (pre-existing default for an unmapped periodicidade).
 
     DRAFT/verify regulatorio: mapeamento confirmado com ANS.
     """
@@ -47,30 +54,35 @@ def _compute_competencia(reference_date_iso: str, periodicidade: str) -> str:
     except (ValueError, TypeError):
         return "COMPETENCIA_PENDENTE"
 
+    if periodicidade == "P12M":
+        # Annual: the previous calendar year, in full. Pre-fix this fell through to the monthly
+        # branch below and returned the previous MONTH for an annual report — wrong period unit
+        # entirely, not merely off by a quarter.
+        return f"{ref_date.year - 1:04d}"
+
     if periodicidade == "P3M":
-        # Quarterly: compute the previous quarter
-        month = ref_date.month
-        quarter_month = ((month - 1) // 3) * 3 + 1
-        if quarter_month == month:
-            # If we're exactly at quarter start, go back one quarter
-            quarter_month = ((month - 4) // 3) * 3 + 1
-            if quarter_month < 1:
-                quarter_month = 10
-                year = ref_date.year - 1
-            else:
-                year = ref_date.year
-        else:
-            year = ref_date.year
-        return f"{year:04d}-{quarter_month:02d}"
-    else:
-        # Monthly: previous month
-        if ref_date.month == 1:
+        # Quarterly: the most recently CLOSED quarter — computed the SAME way regardless of
+        # which of the 3 months of the current quarter the reference date falls in. Pre-fix, only
+        # the FIRST month of a quarter (Jan/Apr/Jul/Oct) took this "go back one quarter" step;
+        # the other 8 months returned the CURRENT, still-open quarter's own start month instead
+        # (a `quarter_month == month` special-case that only ever matched the first month).
+        quarter_start = ((ref_date.month - 1) // 3) * 3 + 1  # start month of the CURRENT quarter
+        prev_quarter_start = quarter_start - 3
+        if prev_quarter_start < 1:
+            prev_quarter_start += 12
             year = ref_date.year - 1
-            month = 12
         else:
             year = ref_date.year
-            month = ref_date.month - 1
-        return f"{year:04d}-{month:02d}"
+        return f"{year:04d}-{prev_quarter_start:02d}"
+
+    # P1M (monthly) and anything else (pre-existing default): the previous month.
+    if ref_date.month == 1:
+        year = ref_date.year - 1
+        month = 12
+    else:
+        year = ref_date.year
+        month = ref_date.month - 1
+    return f"{year:04d}-{month:02d}"
 
 
 # ---------------------------------------------------------------

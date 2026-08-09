@@ -99,7 +99,7 @@ async def test_helena_classify_passes_agent_id_and_state_tenant_id_to_generate()
 async def test_andre_auto_route_passes_agent_id_and_state_tenant_id_to_generate() -> None:
     """Andre's `auto_route` node calls `_build_dossier` -> `self._llm.generate(...)`
     (andre/graph.py) — must pass `agent_id="andre"` (the literal `source_agent_id`,
-    andre/graph.py:1036) and `tenant_id=state["tenant_id"]` (never hardcoded)."""
+    andre/graph.py:1164) and `tenant_id=state["tenant_id"]` (never hardcoded)."""
     inference = _CapturingInference(["narrativa sintetica"])
     graph = AndreGraph(
         inference=inference,

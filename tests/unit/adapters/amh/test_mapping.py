@@ -714,6 +714,25 @@ def test_a_non_integer_replay_count_is_refused(pin: Any, value: object) -> None:
         map_work_item(event, pin=pin)
 
 
+@pytest.mark.parametrize("value", [-1, -2, -(2**63)])
+def test_a_negative_replay_count_is_refused(pin: Any, value: int) -> None:
+    """Item 4 fix: `_require_int` refuses a negative value. `replay_count` is a COUNT
+    (`maezo.ports.envelope`) — a count has no negative member, so a negative wire value is a
+    schema violation, not merely an implausible one."""
+    event = _work_item_event()
+    event["replay_count"] = value
+    with pytest.raises(AmhMappingError, match="replay_count") as exc:
+        map_work_item(event, pin=pin)
+    assert exc.value.field == "replay_count"
+
+
+def test_zero_replay_count_is_the_valid_boundary(pin: Any) -> None:
+    """0 is NOT negative — the boundary the item 4 fix must not newly reject."""
+    event = _work_item_event()
+    event["replay_count"] = 0
+    assert map_work_item(event, pin=pin).replay_count == 0
+
+
 def test_missing_payload_is_refused(pin: Any) -> None:
     event = _work_item_event()
     del event["payload"]
@@ -930,6 +949,33 @@ def test_a_non_integer_consent_revision_is_refused(pin: Any, value: object) -> N
     _rehash(event)
     with pytest.raises(AmhMappingError, match="consent_revision"):
         project_consent_decision(map_consent_event(event, pin=pin))
+
+
+@pytest.mark.parametrize("value", [-1, -2, -(2**63)])
+def test_a_negative_consent_revision_is_refused(pin: Any, value: int) -> None:
+    """Item 4 fix: `_require_int` refuses a negative value. `consent_revision` is the contract's
+    MONOTONIC revision (`maezo.ports.consent`) — a revision-number sequence has no negative
+    member, so a negative wire value is a schema violation on its own, independent of any prior
+    revision seen for the subject.
+
+    This is stateless schema conformance ONLY — NOT the out-of-order/monotonicity guard XRD-10
+    mandates on the consuming side (MZO-050b), which is deliberately not built here.
+    """
+    event = _consent_event()
+    event["payload"]["consent_revision"] = value
+    _rehash(event)
+    with pytest.raises(AmhMappingError, match="consent_revision") as exc:
+        project_consent_decision(map_consent_event(event, pin=pin))
+    assert exc.value.field == "consent_revision"
+
+
+def test_zero_consent_revision_is_the_valid_boundary(pin: Any) -> None:
+    """0 is NOT negative — the boundary the item 4 fix must not newly reject."""
+    event = _consent_event()
+    event["payload"]["consent_revision"] = 0
+    _rehash(event)
+    decision = project_consent_decision(map_consent_event(event, pin=pin))
+    assert decision.consent_revision == 0
 
 
 def test_consent_decision_exposes_no_scope() -> None:

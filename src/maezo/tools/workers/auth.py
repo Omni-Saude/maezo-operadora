@@ -214,9 +214,17 @@ def _ceiling_valor_cents(value: Any) -> int | None:
     unparseable string; NaN and +/-inf (and any value whose centavos overflow to inf); and any
     NEGATIVE amount (nonsense input that would trivially sit "within" every positive teto).
 
-    Deliberately STRICTER than `AnalyzeRequestWorker`'s derivation (auth.py, `execute`), which
-    only rejects absent/non-numeric: there, an untrusted value routes the request to human review
-    (safe); here, an untrusted value would MINT an authorization number (unsafe).
+    Shared by every ceiling-consuming call site — `_criterio_financeiro`,
+    `AnalyzeRequestWorker.execute` (`ST_PrepararDossie`), and
+    `IssueAuthorizationWorker._auto_ceiling_verdict` (`ST_EmitirAutorizacaoAuto`) — rather than
+    re-derived per site. `AnalyzeRequestWorker.execute` used to have its own laxer, ad hoc
+    derivation (`round()` instead of `ceil()`, no bool/NaN/inf/negative rejection, and an
+    uncaught `OverflowError` on `valor_estimado_brl="inf"`); that was a second place for the
+    GK-ceiling rounding defect (finding 2, below) to recur in, so it now reuses this function
+    too. Safe to share even though one consumer only routes to human review on rejection (dossier
+    path, fail-closed to `teto_ok=False`) while another would otherwise MINT an authorization
+    number: this function's rejection set is a strict superset of what either call site needs, so
+    the stricter shared behaviour never opens a path either consumer would have kept closed.
     """
     if isinstance(value, bool) or not isinstance(value, int | float | str):
         return None
@@ -959,15 +967,16 @@ class AnalyzeRequestWorker(WorkerBase):
         # Check L2 auto-approval conditions
         dut_ok = process_vars.get("dut_atendida", False)
         # COMPUTE the ceiling fact from policy (design T1.9 §2.4, defect B3). NEVER read the
-        # inbound `dentro_teto_l2`. FAIL-CLOSED: a missing/None/non-numeric
-        # `valor_estimado_brl` yields teto_ok=False (route to human) — never a default 0
-        # that would read as "within ceiling" under a positive teto (fail-OPEN). This is an
-        # intentional hardening divergence from v1's `_as_float` default-0.0.
+        # inbound `dentro_teto_l2`. FAIL-CLOSED via the shared `_ceiling_valor_cents` (rejects
+        # missing/bool/non-numeric/unparseable/NaN/+-inf/negative `valor_estimado_brl`, and CEILs
+        # rather than rounds) — never a default 0 that would read as "within ceiling" under a
+        # positive teto (fail-OPEN), and never the permissive `round()` this used to do locally
+        # (a second place for the GK-ceiling rounding defect to recur in, and one that could raise
+        # an uncaught `OverflowError` on `valor_estimado_brl="inf"`). This is an intentional
+        # hardening divergence from v1's `_as_float` default-0.0. Any rejection here only ever
+        # routes the request to human review (safe) — never denies, never crashes.
         raw_valor = process_vars.get("valor_estimado_brl")
-        try:
-            valor_cents = round(float(raw_valor) * 100) if raw_valor is not None else None
-        except (TypeError, ValueError):
-            valor_cents = None
+        valor_cents = _ceiling_valor_cents(raw_valor)
         if valor_cents is None:
             teto_ok = False
         else:

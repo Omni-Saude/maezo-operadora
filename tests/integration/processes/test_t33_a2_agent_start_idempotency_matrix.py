@@ -16,7 +16,7 @@ enumeration this suite proves a representative-and-complete matrix against:
     valentina   -> SP-OP-PROGRAMA-001      (agents/valentina/graph.py:648)
     marina      -> SP-OP-CONTAS-001        (agents/marina/graph.py:704, flow=contas)
     marina      -> SP-OP-RECURSO-001       (agents/marina/graph.py:704, flow=recurso)
-    andre       -> SP-OP-PAGTO-001         (agents/andre/graph.py:917, flow=pagto_dossier)
+    andre       -> SP-OP-PAGTO-001         (agents/andre/graph.py:986, flow=pagto_dossier)
     carolina    -> SP-OP-CRED-001          (agents/carolina/graph.py:626)
     fernando    -> SP-OP-INADIMPLENCIA-001 (agents/fernando/graph.py:548 — the agent's OWN
                                              submission start; DISTINCT from A1's

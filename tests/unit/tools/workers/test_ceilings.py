@@ -297,14 +297,15 @@ def test_auth_behaviour_through_the_shared_primitive_is_unchanged_for_valid_ints
     """AUTH REGRESSION PIN: the guard is generalized to the shared primitive, so AUTH inherits it.
 
     For every VALID int, AUTH's outcome must be byte-identical to pre-fix. AUTH reaches this
-    primitive with `math.ceil(...)`/`round(...)` results — always `int`, and (from
-    `_ceiling_valor_cents`) always `>= 0` — so no legitimate AUTH path can newly be denied.
+    primitive with `_ceiling_valor_cents(...)` results — always `int`, and always `>= 0` — so no
+    legitimate AUTH path can newly be denied.
 
-    The one AUTH call site that CAN newly see False is `AnalyzeRequestWorker.execute`, whose
-    `round(float(raw) * 100)` derivation does not reject a NEGATIVE `valor_estimado_brl`. That
-    tightens `teto_ok` to False for a negative amount, which routes the request to HUMAN REVIEW —
-    the safe branch, and the same branch it already takes for an absent/non-numeric amount. No
-    denial-of-care path is opened.
+    All three AUTH call sites (`_criterio_financeiro`, `AnalyzeRequestWorker.execute`,
+    `IssueAuthorizationWorker._auto_ceiling_verdict`) now share `_ceiling_valor_cents`, so a
+    NEGATIVE (or bool/NaN/inf/unparseable) `valor_estimado_brl` is rejected before it ever
+    reaches this primitive — `valor_cents=None` -> `teto_ok=False` directly. That still routes
+    the request to HUMAN REVIEW, the same safe branch it already takes for an absent/non-numeric
+    amount. No denial-of-care path is opened.
     """
     resolver = _generous_resolver(tmp_path)
     for value, expected in ((0, True), (1, True), (49_999, True), (50_000, True), (50_001, False)):
