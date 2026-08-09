@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import structlog.testing
 import yaml
 
 from maezo.tools.workers.auth import ValidateAutoCriteriaWorker
@@ -903,6 +904,50 @@ def test_manifest_without_the_uncovered_section_still_resolves(tmp_path: Path) -
     assert sources.is_ratified("carencia_check") is True
     assert sources.blocked_by_uncovered == {}
     assert sources.criteria_table_for("DUT-BARIATRICA-001") == "dut_criteria_bariatrica"
+
+
+def test_unratified_false_is_tolerated_per_retention_template_precedent(tmp_path: Path) -> None:
+    """GK-criteria minor-3. The retention-matrix template this loader mirrors documents a real,
+    DEPLOYED file as having `unratified` "removed (or set to `false`)"
+    (`spec/policies/retention/UNRATIFIED-retention-matrix.template.yaml:18,22`), and
+    `legal_bases_matrix.py`'s own loader (line 191) checks only `is True` — so `unratified: false`
+    must not be refused as an unrecognized top-level key. A manifest carrying it, with the
+    `criterios_nao_cobertos` block still intact, resolves exactly as it would without the key at
+    all: nothing about ratification or the M-3 suppression changes."""
+    path = _write(
+        tmp_path,
+        {
+            "unratified": False,
+            "fontes": {src: dict(_COMPLETE_RATIFICATION) for src in _ALL_SOURCES},
+            "criterios_nao_cobertos": _REDE_UNCOVERED,
+        },
+    )
+    sources = load_criteria_sources(path)
+    assert sources.is_ratified("auth_criteria_contratual") is False
+    assert sources.blocked_by_uncovered == {"auth_criteria_contratual": ("rede_credenciada",)}
+    # ...and every OTHER source ratifies normally — `unratified: false` changed nothing.
+    assert sources.is_ratified("carencia_check") is True
+    assert sources.is_ratified("dut_rol_coverage") is True
+
+
+def test_unratified_true_still_refuses_with_the_specific_template_reason(tmp_path: Path) -> None:
+    """Non-regression for the allowlist change above: now that `unratified` is a RECOGNIZED
+    top-level key, `unratified: true` must still refuse via its own specific
+    `"unratified_template"` reason — not fall through to the generic `"unknown_top_level_key"`
+    one, and not be silently accepted just because the key is on the allowlist."""
+    path = _write(
+        tmp_path,
+        {
+            "unratified": True,
+            "fontes": {"carencia_check": dict(_COMPLETE_RATIFICATION)},
+        },
+    )
+    with structlog.testing.capture_logs() as logs:
+        sources = load_criteria_sources(path)
+
+    assert sources.ratified == frozenset()
+    (refusal,) = [e for e in logs if e["event"] == "auth_criteria_manifest_unavailable"]
+    assert refusal["reason"] == "unratified_template"
 
 
 def test_dmn_evaluation_error_is_the_fake_transports_unregistered_signal() -> None:

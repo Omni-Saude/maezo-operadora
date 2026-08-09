@@ -86,15 +86,29 @@ _UNCOVERED_SECTION = "criterios_nao_cobertos"
 _BLOCKS_RATIFICATION_OF = "bloqueia_ratificacao_de"
 
 #: The COMPLETE, closed set of top-level keys `_parse` understands (verified against the shipped
-#: manifest: `version`, `fontes`, `mapeamento_dut_criteria`, `criterios_nao_cobertos` — nothing
-#: else). GK-criteria minor-1: without this allowlist, a mistyped section name such as
-#: `criterios_nao_cobertoss:` is not "an unknown key" to PyYAML at all — it is simply absent
-#: under its correct name, so `data.get(_UNCOVERED_SECTION)` returns `None` and the whole
+#: manifest: `version`, `fontes`, `mapeamento_dut_criteria`, `criterios_nao_cobertos`; plus
+#: `unratified`, see below). GK-criteria minor-1: without this allowlist, a mistyped section name
+#: such as `criterios_nao_cobertoss:` is not "an unknown key" to PyYAML at all — it is simply
+#: absent under its correct name, so `data.get(_UNCOVERED_SECTION)` returns `None` and the whole
 #: `criterios_nao_cobertos` block evaporates with NO error, exactly as if it had been
 #: deliberately (and correctly) removed. Any key outside this set now refuses the manifest
 #: WHOLESALE — the same `_refuse(...)` path an unknown `bloqueia_ratificacao_de` target already
 #: takes — instead of the typo silently reading as "nothing to enforce here".
-_KNOWN_TOP_LEVEL_KEYS = frozenset({"version", "fontes", "mapeamento_dut_criteria", _UNCOVERED_SECTION})
+#:
+#: `unratified` IS allowlisted, not treated as unknown (GK-criteria minor-3): the retention-matrix
+#: template this loader mirrors documents that key as legitimate in a real, DEPLOYED file too —
+#: "removed (or set to `false`)" in a real, deployable matrix
+#: (`spec/policies/retention/UNRATIFIED-retention-matrix.template.yaml:18,22`) — and
+#: `legal_bases_matrix.py`'s own loader (line 191) checks only `is True`, silently tolerating
+#: `unratified: false` the same way. This does NOT weaken the template guard: in `_parse`, the
+#: `data.get("unratified") is True` check runs BEFORE this allowlist is ever consulted, so
+#: `unratified: true` keeps refusing with its own specific `"unratified_template"` reason exactly
+#: as before. Only `unratified: false` (or any other non-`True` value) changes behaviour: it now
+#: passes through to be evaluated normally instead of being refused as an "unknown top-level key"
+#: it explicitly is not.
+_KNOWN_TOP_LEVEL_KEYS = frozenset(
+    {"version", "fontes", "mapeamento_dut_criteria", _UNCOVERED_SECTION, "unratified"}
+)
 
 
 class _DuplicateKeySafeLoader(yaml.SafeLoader):
@@ -295,8 +309,9 @@ def _parse(raw_text: str, manifest_path: Path) -> CriteriaSources:
     # Template guard, mirrored from `load_retention_matrix` (legal_bases_matrix.py): a copy of
     # the manifest marked `unratified: true` is refused WHOLESALE, so pointing the path at a
     # placeholder by mistake also fails closed instead of half-loading. Checked BEFORE the
-    # unknown-top-level-key guard below so this specific, documented placeholder marker keeps
-    # its own precise refusal reason rather than being masked by the generic one.
+    # unknown-top-level-key guard below (even though `unratified` is itself allowlisted there,
+    # GK-criteria minor-3) so this specific, documented placeholder marker always keeps its own
+    # precise `"unratified_template"` refusal reason rather than the generic one.
     if data.get("unratified") is True:
         return _refuse(
             "unratified_template",
