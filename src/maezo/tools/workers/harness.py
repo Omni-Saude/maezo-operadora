@@ -1396,13 +1396,16 @@ class WorkerHarness:
         SHADOW TODAY. `spec/policies/autonomy/action-approvals.yaml` ships `modo: shadow` and
         `status: DRAFT`, so the returned `Decision.enforced` is False for every call and `_handle`
         ignores the verdict entirely — the only observable effect is one structured, non-PHI
-        telemetry line per dispatch (`action_execution_gateway_shadow`). That inertness is proven,
-        not asserted: `tests/unit/gateway/test_action_execution_gateway.py` runs the choked path
-        with the gateway neutralized and with it live, and asserts identical transport outcomes.
+        telemetry line per dispatch (`action_execution_gateway_shadow`; the event is named
+        `action_execution_gateway_enforced` once a decision actually blocks). That inertness is
+        proven, not asserted: `tests/unit/gateway/test_action_execution_gateway.py` runs the choked
+        path with the gateway neutralized and with it live, asserting identical transport outcomes.
 
         Enforcement is a DATA act: a human sets `status: RATIFICADO` + `modo: enforcing` in the
-        CODEOWNERS-gated manifest after the Médica/ANS/Security blocks are filled. No code change,
-        no redeploy — which is exactly why this method must never be the thing that decides.
+        CODEOWNERS-LISTED manifest (listed, not gated — `main` carries no server-side protection
+        today, so the listing requests a reviewer rather than requiring one; owner finding recorded
+        in evidence-ledger row `mzo-000`) after the Médica/ANS/Security blocks are filled. No code
+        change, no redeploy — which is exactly why this method must never be the thing that decides.
 
         Returns None only if the gateway itself is unusable in a way `evaluate_worker_task` could
         not classify; None means "no opinion" and leaves dispatch untouched.

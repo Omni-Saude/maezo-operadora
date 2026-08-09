@@ -48,8 +48,17 @@
 # Every `aprovado` here is `false` and every accountability field is `PENDENTE` — that is not a
 # placeholder awaiting cleanup, it is the honest recorded state of the three open gates.
 #
-# CODEOWNERS: covered by `/spec/policies/autonomy/` AND by an explicit last-match line for this
-# file in `.github/CODEOWNERS` (@rodrigotaquino @Omni-Saude/security).
+# CODEOWNERS-LISTED (not gated): covered by `/spec/policies/autonomy/` AND by an explicit
+# last-match line for this file in `.github/CODEOWNERS` (@rodrigotaquino @Omni-Saude/security).
+# Server-side enforcement is NOT currently active on `main` (branch protection 404, rulesets
+# empty), so the listing REQUESTS a security reviewer without being able to REQUIRE one — the
+# owner finding is already recorded in evidence-ledger row `mzo-000` (restoration is the owner's
+# decision). What actually fails CI if this file is deleted or broken is the FENCE TEST
+# (`tests/unit/sec/test_action_execution_fence.py`), which `.github/workflows/ci.yml:61` runs.
+#
+# The loader ALSO refuses duplicate mapping keys in this file: YAML's default is last-one-wins, so
+# a second `status:` further down would read as ratified while the reviewed diff still shows the
+# first, honest value. A duplicated key is a load failure here, never a silent override.
 #
 # The `unratified: true` root key (absent below, deliberately) is the retention-matrix template
 # guard, mirrored: a copy of this file marked `unratified: true` is REFUSED WHOLESALE, so
@@ -72,10 +81,18 @@ status: DRAFT
 #   enforcing  a DENY blocks the call: the external task is refused fail-closed (audited refusal
 #              + engine incident, retries=0 — the same shape as every other guard in this repo,
 #              per ADR-0008/ADR-0030 §4), so it lands in front of a human and never silently
-#              proceeds nor silently disappears.
+#              proceeds nor silently disappears. The telemetry event is then named
+#              `action_execution_gateway_enforced` (the `mode` field is still emitted too).
 #
 # Flipping this field is a human act with NO code change. Flipping it while `status` is DRAFT
 # denies EVERY class — that direction is safe, and deliberately so.
+#
+# ⚠ A TYPO IN THIS FIELD SILENTLY TURNS THE GATE OFF. `enforcing ` (trailing space), `Enforcing`,
+# `enforce`, a quoted `"enforcing"` written as a YAML block scalar, etc. do NOT match the literal:
+# the mode resolves to `unresolved`, which NEVER enforces. That direction is deliberately safe
+# (nothing blocks by accident), but it means a failed ratification looks EXACTLY like a working
+# shadow deployment from the outside. After flipping, verify against telemetry — `mode` must read
+# `enforcing`, and the event name must be `action_execution_gateway_enforced`.
 #
 # BEFORE FLIPPING, read `mapeamento_topicos` below: an unmapped topic DENIES under enforcement.
 # ---------------------------------------------------------------------------------------------
@@ -91,11 +108,13 @@ modo: shadow
 # `dominios_exigidos` is `[medica, ans, seguranca]` for EVERY class, because `PLANS.md` §0.6
 # states the MZO-040 gate as Médica + ANS + Security without per-class differentiation, and
 # DL-0042 states the exclusion the same way. NARROWING a class's required set (e.g. deciding
-# that payment issuance needs no medical attestation) is itself a governance decision and a
-# CODEOWNERS-gated edit to this file BY A HUMAN — an agent must never make it. The loader
-# rejects an empty `dominios_exigidos` and any domain outside the code-frozen set
-# {medica, ans, seguranca} (`src/maezo/gateway/action_execution.py`), so "approve by emptying
-# the requirement list" is not a reachable forgery.
+# that payment issuance needs no medical attestation) is itself a governance decision for A HUMAN
+# on a reviewed PR — an agent must never make it — and the loader does not even accept it as data:
+# it requires `set(dominios_exigidos) == {medica, ans, seguranca}` EXACTLY. An empty list, a
+# subset (`[medica]`), a repeat that fakes cardinality (`[medica, medica, medica]`) and any domain
+# outside the code-frozen set all DENY, with distinct reasons
+# (`src/maezo/gateway/action_execution.py`). "Approve by shrinking the requirement list" is not a
+# reachable forgery.
 #
 # `superficies[].choked` records whether the surface flows through the chokepoint the gateway is
 # wired at TODAY (`WorkerHarness._handle`, src/maezo/tools/workers/harness.py). It is

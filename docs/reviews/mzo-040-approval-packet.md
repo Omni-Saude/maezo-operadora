@@ -4,7 +4,12 @@
 **Aprovações exigidas:** **Médica**, **ANS**, **Security** — as três ABERTAS (`PLANS.md` §0.6;
 DL-0042 descarregou o portão DPO/Legal do MZO-020 e diz em termos que **não alcança** estas três).
 **Artefato que os aprovadores tocam:** `spec/policies/autonomy/action-approvals.yaml`
-(CODEOWNERS: `@rodrigotaquino @Omni-Saude/security`).
+— **CODEOWNERS-LISTED** (`@rodrigotaquino @Omni-Saude/security`), **não CODEOWNERS-gated**: a
+proteção server-side do `main` **não está ativa hoje** (branch protection 404 + rulesets vazios,
+verificado contra o remoto), então a entrada CODEOWNERS **pede** um revisor de segurança sem
+conseguir **exigi-lo**. Esse achado do dono já está registrado na row `mzo-000` do
+`docs/evidence-ledger.md` (restaurar a proteção é decisão do dono, não deste wave). Ver §6,
+resíduo 2.
 
 > **Nenhum bloco de aprovação abaixo pode ser preenchido por um agente.** Todos os campos estão
 > como `PENDENTE` e todos os `aprovado` estão `false`. Isso não é um placeholder aguardando
@@ -68,8 +73,12 @@ prossegue **e não desaparece**.
 Cada classe exige **os três** domínios. Isso vem de `PLANS.md` §0.6 e do DL-0042, que enunciam o
 portão como Médica + ANS + Security sem diferenciação por classe. **Estreitar** o conjunto exigido
 de uma classe (p.ex. decidir que pagamento não precisa de atestação médica) é decisão de governança
-e uma edição humana CODEOWNERS-gated — um agente nunca a faz. O loader recusa
-`dominios_exigidos` vazio e qualquer domínio fora do conjunto congelado em código.
+para um HUMANO em PR revisada — um agente nunca a faz — e o loader **não a aceita nem como dado**:
+ele exige `set(dominios_exigidos) == {medica, ans, seguranca}` EXATAMENTE. Lista vazia
+(`DOMINIOS_EXIGIDOS_VAZIO`), subconjunto `[medica]` e repetição que finge cardinalidade
+`[medica, medica, medica]` (ambos `DOMINIOS_INCOMPLETOS`) e domínio fora do conjunto congelado
+(`DOMINIO_DESCONHECIDO`) **negam**, cada um com razão distinta. Isso é no-op para o arquivo
+implantado, que declara os três em todas as classes.
 
 - **Médica** atesta que, para cada classe, o gate por-chamada é o lugar CERTO para interromper um
   efeito assistencial, e que interrompê-lo (incidente → auditor médico) é clinicamente mais seguro
@@ -85,7 +94,9 @@ e uma edição humana CODEOWNERS-gated — um agente nunca a faz. O loader recus
 
 ## 4. O ato exato de ratificação
 
-Quatro passos, todos no mesmo arquivo, todos em uma PR revisada pelo CODEOWNER de segurança:
+Quatro passos, todos no mesmo arquivo, todos em uma PR que **deve** ser revisada pelo CODEOWNER de
+segurança — "deve" como disciplina de processo, **não** como bloqueio server-side (ver o cabeçalho
+e o resíduo 2 da §6):
 
 1. **Cada aprovador preenche o SEU bloco**, por classe que atesta:
    ```yaml
@@ -112,6 +123,24 @@ DRAFT **nega tudo** — direção deliberadamente segura.
 **no próximo restart do daemon**, não ao vivo. Registrado aqui para que ninguém espere um flip
 quente.
 
+### Duas armadilhas afiadas — leia antes de virar o modo
+
+1. **`Decision.allow` sem `Decision.enforced` é uma cilada de integração.** `allow` é o veredito
+   *em termos de enforcement*; `enforced` diz se ele **vale**. Todo call site novo tem de testar
+   **os dois** (`if decision is not None and decision.enforced and not decision.allow:` — a forma
+   usada em `WorkerHarness._handle`). Um call site que olhe só `allow` começa a **bloquear em
+   sombra** — ou seja, o wave inteiro deixa de ser inerte no momento em que alguém liga a segunda
+   superfície da §7. É uma costura afiada por desenho (o par `allow`/`enforced` é o que torna a
+   sombra provável), e é por isso que ela está documentada aqui e não apenas no docstring.
+2. **Um erro de digitação em `modo` desliga o portão em silêncio.** `enforcing ` (espaço à
+   direita), `Enforcing`, `enforce` ou qualquer não-literal resolve para `unresolved`, que **nunca
+   aplica**. A direção é deliberadamente segura — nada bloqueia por acidente — mas a consequência
+   é que **uma ratificação malsucedida é indistinguível, de fora, de um deployment de sombra
+   saudável**. Depois de virar o modo, **verifique na telemetria**: `mode` tem de ler `enforcing`
+   e o nome do evento tem de ser `action_execution_gateway_enforced` (em sombra é
+   `action_execution_gateway_shadow`). O mesmo vale para `status`: só o literal exato
+   `RATIFICADO` conta.
+
 ---
 
 ## 5. AVISO OPERACIONAL — o mapa de tópicos está deliberadamente incompleto
@@ -134,35 +163,90 @@ linha `ACAO_NAO_MAPEADA` por dispatch, contra tráfego real. **Essa é a lista d
 
 ## 6. Resíduos declarados (Security deve ler esta seção antes de assinar)
 
-1. **Degradação por remoção do arquivo em runtime.** O loader falha fechado num manifesto ausente
+1. **`MAEZO_ACTION_APPROVALS_PATH` — o override de deployment troca o registro governado.** Uma
+   variável de ambiente aponta o loader para QUALQUER arquivo. Isso é **mais forte** do que o
+   resíduo de remoção abaixo: não degrada, **substitui** — um manifesto que nenhum CODEOWNER viu
+   pode declarar o que quiser, sem uma única edição no arquivo listado no CODEOWNERS.
+   **FECHADO NESTE REPARO, na perna que importa:** um manifesto vindo do override e lendo
+   `modo: enforcing` resolve para `shadow_override` e **nunca** aplica, a menos que o operador
+   também exporte `MAEZO_ACTION_APPROVALS_ALLOW_OVERRIDE_ENFORCEMENT=1` (o literal exato) — que é
+   o caminho legítimo de **rollout encenado**. Assim, "trocar o manifesto" e "ligar o enforcement"
+   passam a ser **dois atos deliberados e auditáveis em separado**, nunca um. Todo load vindo do
+   override emite uma linha `error` (`action_approvals_manifest_path_overridden`) com o caminho
+   resolvido e se o enforcement foi permitido; e um ALLOW lido de um manifesto override sem o
+   flag carrega o token distinto `OVERRIDE_NAO_ENFORCAVEL`, para não ser confundido com uma
+   aprovação governada. **O QUE PERMANECE ABERTO:** quem controla o ambiente do processo ainda
+   pode setar as DUAS variáveis. Isso é irredutível em código — é uma fronteira de deployment
+   (quem edita o Deployment/ConfigMap), e o remédio é de plataforma: restringir quem altera env do
+   worker e alertar sobre essas duas linhas de log. **Decisão do dono/Security.** Os testes NÃO
+   usam o override (usam o parâmetro `path` explícito), então ele permanece uma superfície
+   exclusivamente de deployment.
+2. **CODEOWNERS aqui é LISTAGEM, não portão.** O `main` deste repositório **não tem proteção
+   server-side** (branch protection 404, rulesets vazios — verificado contra o remoto; achado do
+   dono já registrado na row `mzo-000` do `docs/evidence-ledger.md`). Logo a entrada CODEOWNERS do
+   manifesto **pede** revisor de segurança e **não consegue exigi-lo**: um push direto em `main`
+   pode ratificar sem revisão. O que de fato bloqueia hoje é (a) o **fence test**
+   (`tests/unit/sec/test_action_execution_fence.py`, executado por `.github/workflows/ci.yml:61`),
+   que quebra se o arquivo for apagado, alterado para não-DRAFT ou tiver bloco preenchido; e (b)
+   as regras fail-closed do próprio loader. Restaurar a proteção do `main` (prescrição da ADR-0023)
+   é **decisão do dono** e não foi feita aqui.
+3. **Degradação por remoção do arquivo em runtime.** O loader falha fechado num manifesto ausente
    retornando `modo: unresolved`, que **não aplica**. Antes do flip isso é idêntico a hoje; DEPOIS
    do flip, apagar o arquivo implantado reverteria silenciosamente para sombra. No repositório o
-   buraco está fechado (`test_shipped_manifest_exists_and_is_wellformed` + CODEOWNERS: apagar o
-   arquivo quebra CI). O caso runtime-only (editar o ConfigMap implantado) **permanece aberto**.
-   Remédio nomeado e NÃO construído aqui: um check de readiness em
-   `runtime/worker_runtime/service.py` que recusa o boot quando o manifesto está inutilizável
+   buraco está fechado por `test_shipped_manifest_exists_and_is_wellformed`: **é o FENCE TEST que
+   quebra o CI** ao apagar o arquivo (`.github/workflows/ci.yml:61` roda `pytest tests/`) — **não**
+   o CODEOWNERS, que aqui só pede um revisor (resíduo 2). O caso runtime-only (editar o ConfigMap
+   implantado) **permanece aberto**. Remédio nomeado e NÃO construído aqui: um check de readiness
+   em `runtime/worker_runtime/service.py` que recusa o boot quando o manifesto está inutilizável
    ("um PEP que não consegue gatear não deve subir", `gateway/pep.py`). Não foi construído porque
    muda comportamento de boot, e este wave é provadamente inerte. **Decisão do dono/Security.**
-2. **Erro interno do gateway degrada para sombra, não para negação.** `evaluate` é total (pura,
+4. **Erro interno do gateway degrada para sombra, não para negação.** `evaluate` é total (pura,
    sobre dados congelados já validados) e o loader nunca levanta, então este caminho exige um bug
    de programação. Quando ocorre, `evaluate_worker_task` fixa o VEREDITO em DENY e resolve o modo
    a partir do manifesto já cacheado — então não falha aberto sob `enforcing`. Se nem isso for
    possível, o modo resolve para `unresolved` e o dispatch segue, com log `error` alto. Julgamento
    deliberado: travar toda tarefa externa por um bug do gateway é pior, para uma operadora sob
    prazo ANS, do que uma degradação ruidosa.
-3. **Duas classes sem evidência de sombra.** `leitura_phi_clinica` e `delegacao_a2a` estão
+5. **Duas classes sem evidência de sombra.** `leitura_phi_clinica` e `delegacao_a2a` estão
    declaradas porque a XRD-09 as nomeia e a nota da ADR-0037 sobre a ADR-0022 exige que o
    `mcp_fhir` roteie por este gateway — mas **nenhuma das duas passa pelo chokepoint atual**.
    Aprová-las hoje seria aprovar sem evidência. Plano de wiring na §7.
-4. **Escopo NÃO implementado da XRD-09.** A cláusula pede "política + consent + teto de autonomia +
+6. **Escopo NÃO implementado da XRD-09.** A cláusula pede "política + consent + teto de autonomia +
    audit-before-effect + regras de revisão humana". Este wave entrega **apenas** o eixo de
    aprovação de classe de ação. Consent, teto (`CeilingResolver`) e a composição com o PEP **não**
    estão implementados aqui; o parâmetro `context` de `evaluate()` é o seam que eles usarão. Isto
    está declarado para que ninguém leia o gateway como cobertura completa da XRD-09.
-5. **A telemetria não carrega business key** — deliberado, e o contraste explícito com o achado do
+7. **A telemetria não carrega business key** — deliberado, e o contraste explícito com o achado do
    DL-0043 (business keys SÃO logadas em `recurso.py`, e o `LogScrubber` não está ligado). A linha
-   `action_execution_gateway_shadow` carrega apenas `topic`, `action_class`, `decision`, `reason`,
-   `mode`, `tenant` — todos tokens limitados e não-PHI.
+   `action_execution_gateway_shadow` (ou `..._enforced`, quando a decisão de fato bloqueia) carrega
+   apenas `topic`, `action_class`, `decision`, `reason`, `mode`, `tenant` — todos tokens limitados
+   e não-PHI.
+8. **`tenant` hifenizado colapsa para `INVALIDO` na telemetria — documentado, NÃO alterado.** A
+   dimensão `tenant` passa pelo mesmo regex de token limitado do resto da linha
+   (`^[A-Za-z][A-Za-z0-9_]{0,39}$`, espelhado de `harness._ENUM_TOKEN_RE`), e o hífen **não está
+   nele**. Um deployment cujo tenant id seja `omni-saude` emite `tenant=INVALIDO` em **toda** linha
+   do gateway: a telemetria continua não-PHI e continua correta sobre a DECISÃO, mas **não pode ser
+   fatiada por tenant** — e, se vários tenants forem hifenizados, todos colapsam no mesmo valor.
+   Alargar o regex é decisão de PHI (o que passa a poder viajar em claro num campo de log), não de
+   formatação, então o comportamento está **fixado em teste**
+   (`test_a_hyphenated_tenant_collapses_to_invalido_in_telemetry`) e divulgado aqui em vez de ser
+   mudado por um agente. **Decisão do dono/Security** se o rollout de sombra precisar do corte por
+   tenant.
+9. **O que a prova de inércia NÃO cobre.** A igualdade da §9 compara `completed` / `failures` /
+   `bpmn_errors` / `unlocked` do transporte e `(action, decision, details, dmn_versions)` de cada
+   linha de auditoria. Fora do escopo, por omissão consciente: (a) **`transport.extended`** — as
+   extensões de lock não entram na comparação (o caminho choked destes fixtures não as exercita,
+   mas um dispatch lento em produção as exercita); (b) **as chaves de dedup/idempotência** dos
+   registros de auditoria — comparam-se os campos citados, não o hash nem a chave de emissão
+   exactly-once; (c) **tempo**. O gateway é inerte em termos de RESULTADO, **não** em termos de
+   LATÊNCIA. Medido nesta árvore (`timeit`, 20 000 dispatches, tópico mapeado): **~4 µs** só a
+   decisão e **~31 µs por dispatch** com a cadeia real de processors do structlog renderizando —
+   ou seja, o custo é dominado pela **linha de log**, não pela avaliação (o GK mediu ~46 µs na
+   máquina dele; mesma ordem de grandeza, mesma conclusão). Além disso, no PRIMEIRO dispatch de
+   cada processo há um `read_text` **síncrono** do manifesto **dentro do laço de dispatch** — o
+   `lru_cache` só paga a partir do segundo. Nada disso altera um resultado observável; tudo isso
+   pode aparecer num percentil de latência ou num teste sensível a tempo, e por isso está
+   declarado.
 
 ---
 
@@ -203,13 +287,21 @@ YAML é o registro.
 
 ## 9. Verificação (o que foi realmente executado)
 
-- `uv run python -m pytest tests/unit -q` — **5081 passed, 41 skipped** (com este wave: 66 testes
-  novos).
+Números do **build W5 + reparo pós-gatekeeper** (2026-08-09, rodados nesta árvore):
+
+- `uv run python -m pytest tests/unit -q` — **5111 passed, 41 skipped**, medido nesta árvore após o
+  reparo. O build W5 reportava 5081 → **+30 testes** no reparo (contagem conferida uma a uma).
 - `uv run ruff format --check src tests` — 409 arquivos, limpo. `uv run ruff check src tests` — limpo.
 - `uv run mypy src` — **Success: no issues found in 179 source files** (strict).
 - `make validate-artifacts` — **OK, 0 errors**.
 - `make check-bpmn-error-allowlist` — **PASS** (3 warnings dead-model pré-existentes, inalterados).
-- `make check-start-process-fence` — **PASS**.
+- `make check-start-process-fence` — **PASS** (179 arquivos).
+- **NÃO provado em engine ao vivo** por nenhum dos autores.
+
+**Não-vacuidade das cercas novas do reparo**, provada por 4 mutantes dirigidos (revertidos): remover
+a igualdade de conjunto de `dominios_exigidos` → 6 falhas; remover a recusa de enforcement do
+override → 10 falhas; fixar o nome do evento em `..._shadow` → 1 falha; voltar a `yaml.safe_load` →
+3 falhas.
 
 **Prova de inércia** (`tests/unit/gateway/test_action_execution_gateway.py`): o caminho choked é
 executado com o gateway vivo e com ele **removido do caminho**, e os resultados observáveis —
@@ -217,4 +309,15 @@ executado com o gateway vivo e com ele **removido do caminho**, e os resultados 
 dmn_versions)` de cada linha de auditoria — são comparados por igualdade. Um segundo teste inspeciona
 a decisão diretamente (DENY, não aplicada), porque um gateway inerte e um gateway ausente são
 indistinguíveis do transporte, e sem isso a prova de inércia passaria também se o wiring tivesse
-virado no-op.
+virado no-op. **O que essa igualdade NÃO cobre está no resíduo 9 da §6** (`transport.extended`,
+chaves de dedup, tempo).
+
+**Prova de alcançabilidade por DADO** (`test_enforcement_is_reachable_from_data_alone_and_refuses_real_tasks`):
+a afirmação central deste pacote — "ratificar é uma mudança de DADOS e nada mais" — é provada a
+partir do dado, não de um veredito injetado. O único insumo é o ARQUIVO de manifesto
+(`status: RATIFICADO` + `modo: enforcing`, blocos ainda não assinados), o loader real o interpreta,
+o `evaluate` real decide, e **duas tarefas reais em dois tópicos diferentes** são recusadas com a
+forma de guard prescrita (handler nunca executa, `retries=0`, linha de auditoria `REFUSED` com
+`guard_code=ERR_ACTION_GATEWAY_NOT_HUMAN`). O controle correspondente
+(`test_the_same_data_in_shadow_leaves_both_tasks_untouched`) usa o manifesto **idêntico** com
+`modo: shadow` e vê as duas tarefas completarem — isolando o único campo que carrega o interruptor.

@@ -1,6 +1,6 @@
 """Behavioural proofs for the `ActionExecutionGateway` (MZO-040, ADR-0037 XRD-09).
 
-Four claims, in the order they matter:
+Five claims, in the order they matter:
 
   (a) SHADOW IS INERT — the choked path produces byte-identical outcomes with the gateway live
       and with it neutralized. This is the claim that makes wiring an unapproved gateway into the
@@ -9,6 +9,9 @@ Four claims, in the order they matter:
   (c) ENFORCING + ONE CLASS APPROVED allows that class and ONLY that class.
   (d) A DRAFT FILE CAN NEVER ALLOW — including the explicit forgery shape where every `aprovado`
       reads `true` and `modo` reads `enforcing` while `status` is still DRAFT.
+  (e) THE DEPLOYMENT OVERRIDE CANNOT ENFORCE — a manifest reached through
+      `MAEZO_ACTION_APPROVALS_PATH` never passed a reviewer, so it may only enforce when a second,
+      explicit companion env flag says so. Default: shadow-only.
 
 Sibling of `tests/unit/sec/test_action_execution_fence.py`, which asserts the same properties
 against the REAL shipped manifest rather than fixtures.
@@ -16,18 +19,26 @@ against the REAL shipped manifest rather than fixtures.
 
 from __future__ import annotations
 
+import functools
 from pathlib import Path
 from typing import Any
 
 import pytest
+import structlog
 import yaml
 
 from maezo.gateway import action_execution
 from maezo.gateway.action_execution import (
     APPROVER_DOMAINS,
+    EVENT_ENFORCED,
+    EVENT_SHADOW,
+    MANIFEST_PATH_ENV,
     MODE_ENFORCING,
     MODE_SHADOW,
+    MODE_SHADOW_OVERRIDE,
     MODE_UNRESOLVED,
+    OVERRIDE_ENFORCEMENT_ENABLED,
+    OVERRIDE_ENFORCEMENT_ENV,
     REASON_ACTION_UNDECLARED,
     REASON_ACTION_UNMAPPED,
     REASON_APPROVAL_INCOMPLETE,
@@ -35,12 +46,15 @@ from maezo.gateway.action_execution import (
     REASON_APPROVED,
     REASON_DOMAIN_UNKNOWN,
     REASON_DOMAINS_EMPTY,
+    REASON_DOMAINS_INCOMPLETE,
     REASON_MANIFEST_DRAFT,
     REASON_MANIFEST_UNAVAILABLE,
+    REASON_OVERRIDE_NOT_ENFORCEABLE,
     ActionExecutionGateway,
     evaluate_worker_task,
     load_action_approvals,
 )
+from maezo.tools.workers import harness as harness_module
 from maezo.tools.workers.base import FunctionWorker
 from maezo.tools.workers.harness import (
     ExternalTask,
@@ -111,6 +125,21 @@ def _clear_manifest_cache() -> Any:
     action_execution._load_cached.cache_clear()
     yield
     action_execution._load_cached.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def _no_ambient_env_override() -> Any:
+    """No ambient deployment override may leak into these proofs, in either direction.
+
+    The path override and its enforcement companion are DEPLOYMENT surfaces; every test in this
+    file drives the loader through the explicit `path` argument instead, and the few that do
+    exercise the override set it themselves. Clearing both here means a developer with either
+    variable exported cannot turn a real failure green (or a real pass red).
+    """
+    with pytest.MonkeyPatch.context() as mp:
+        mp.delenv(MANIFEST_PATH_ENV, raising=False)
+        mp.delenv(OVERRIDE_ENFORCEMENT_ENV, raising=False)
+        yield
 
 
 # ---------------------------------------------------------------------------------------------
@@ -278,6 +307,56 @@ def test_dropping_a_required_domain_from_the_list_cannot_approve_the_class(tmp_p
 
 
 # ---------------------------------------------------------------------------------------------
+# CARDINALITY of `dominios_exigidos` — a KNOWN domain set is not a COMPLETE one
+# ---------------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "required",
+    [
+        ["medica"],
+        ["ans"],
+        ["seguranca"],
+        ["medica", "ans"],
+        ["medica", "medica", "medica"],
+        ["ans", "ans"],
+    ],
+    ids=["medica", "ans", "seguranca", "two-of-three", "medica-x3", "ans-x2"],
+)
+def test_a_partial_domain_set_cannot_approve_a_class(tmp_path: Path, required: list[str]) -> None:
+    """The hole the vocabulary check alone left open: `dominios_exigidos: [medica]` + one block.
+
+    Every entry here is a VALID domain, so the unknown-domain fence never fires; what is wrong is
+    the CARDINALITY. Without set-equality, one approver's signature would have granted the class,
+    and `[medica, medica, medica]` would have counted a single attestation three times. The gate
+    is Médica + ANS + Security (`PLANS.md` §0.6, DL-0042) — all three, once each.
+    """
+    manifest = _manifest(status="RATIFICADO", modo=MODE_ENFORCING, approved_classes=frozenset({_CLASS}))
+    manifest["acoes"][_CLASS]["dominios_exigidos"] = required
+    # The blocks named by the shortened list ARE fully signed — the record is internally
+    # consistent, and would have read as approved before this fence existed.
+    decision = _gateway(tmp_path, manifest).evaluate(_CLASS)
+    assert decision.allow is False, f"{required} approved a class with fewer than three domains"
+    assert decision.reason == REASON_DOMAINS_INCOMPLETE
+
+
+def test_declaring_all_three_domains_leaves_the_approval_path_unchanged(tmp_path: Path) -> None:
+    """The cardinality fence is a NO-OP for a well-formed record — including in a shuffled order."""
+    manifest = _manifest(status="RATIFICADO", modo=MODE_ENFORCING, approved_classes=frozenset({_CLASS}))
+    manifest["acoes"][_CLASS]["dominios_exigidos"] = ["seguranca", "medica", "ans"]
+    decision = _gateway(tmp_path, manifest).evaluate(_CLASS)
+    assert decision.allow is True
+    assert decision.reason == REASON_APPROVED
+
+
+def test_an_unknown_domain_still_reports_unknown_not_incomplete(tmp_path: Path) -> None:
+    """Vocabulary is checked BEFORE cardinality: `[marketing]` is a different mistake from `[medica]`."""
+    manifest = _manifest(status="RATIFICADO", modo=MODE_ENFORCING, approved_classes=frozenset({_CLASS}))
+    manifest["acoes"][_CLASS]["dominios_exigidos"] = ["marketing"]
+    assert _gateway(tmp_path, manifest).evaluate(_CLASS).reason == REASON_DOMAIN_UNKNOWN
+
+
+# ---------------------------------------------------------------------------------------------
 # Loader fail-closed modes — never raises, never defaults to approved, never turns enforcement on
 # ---------------------------------------------------------------------------------------------
 
@@ -330,6 +409,165 @@ def test_a_wellformed_but_empty_manifest_approves_nothing(tmp_path: Path) -> Non
 
 def test_a_directory_path_fails_closed(tmp_path: Path) -> None:
     assert load_action_approvals(tmp_path).degraded is True
+
+
+@pytest.mark.parametrize(
+    ("raw", "shadowed"),
+    [
+        ("version: 1\nstatus: DRAFT\nmodo: shadow\nstatus: RATIFICADO\n", "status"),
+        ("version: 1\nstatus: RATIFICADO\nmodo: shadow\nmodo: enforcing\n", "modo"),
+    ],
+    ids=["status-shadowed", "modo-shadowed"],
+)
+def test_a_duplicate_top_level_key_is_refused_instead_of_last_one_wins(
+    tmp_path: Path, raw: str, shadowed: str
+) -> None:
+    """YAML's default is LAST-one-wins; for a governance record that is a silent override.
+
+    A reviewer reading the diff sees `status: DRAFT` near the top and approves; twenty lines down a
+    second `status: RATIFICADO` is what `yaml.safe_load` would actually keep. The manifest's whole
+    security property is "what the reviewer saw is what the loader sees", so a duplicated key is a
+    LOAD FAILURE here — fail-closed, like every other unusable-manifest shape.
+    """
+    path = tmp_path / "action-approvals.yaml"
+    path.write_text(raw, encoding="utf-8")
+    approvals = load_action_approvals(path)
+    assert approvals.degraded is True, f"the second `{shadowed}` silently won"
+    assert approvals.mode == MODE_UNRESOLVED
+    assert approvals.approved == frozenset()
+
+
+def test_a_duplicate_nested_key_is_refused_too(tmp_path: Path) -> None:
+    """The same shadowing one level down — a second `aprovacoes:` block under one class."""
+    path = tmp_path / "action-approvals.yaml"
+    path.write_text(
+        "version: 1\nstatus: RATIFICADO\nmodo: enforcing\n"
+        "acoes:\n"
+        f"  {_CLASS}:\n"
+        "    dominios_exigidos: [medica, ans, seguranca]\n"
+        "    aprovacoes: {}\n"
+        "    aprovacoes:\n"
+        "      medica: {aprovado: true}\n",
+        encoding="utf-8",
+    )
+    assert load_action_approvals(path).degraded is True
+
+
+# ---------------------------------------------------------------------------------------------
+# (e) THE DEPLOYMENT OVERRIDE MAY NOT ENFORCE ON ITS OWN
+# ---------------------------------------------------------------------------------------------
+
+
+def test_the_env_override_cannot_enforce_without_the_companion_flag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """THE BYPASS, closed. A runtime env var alone must never start blocking care-affecting calls.
+
+    `MAEZO_ACTION_APPROVALS_PATH` swaps the governed manifest for a file no CODEOWNER ever saw —
+    and with `main` carrying no server-side protection, the CODEOWNERS listing on the shipped file
+    is advisory anyway. So an override-sourced manifest reading `status: RATIFICADO` + `modo:
+    enforcing` resolves to `shadow_override`: it still EVALUATES (that is the override's legitimate
+    use — previewing a candidate record), it never ENFORCES, and the ALLOW it produces carries a
+    reason token that cannot be mistaken for a governed approval.
+    """
+    path = _write(
+        tmp_path, _manifest(status="RATIFICADO", modo=MODE_ENFORCING, approved_classes=frozenset({_CLASS}))
+    )
+    monkeypatch.setenv(MANIFEST_PATH_ENV, str(path))
+
+    approvals = load_action_approvals()  # no explicit path -> the env override is what resolves
+    assert approvals.mode == MODE_SHADOW_OVERRIDE
+    assert approvals.approved == frozenset({_CLASS}), "evaluation still runs; only enforcement is withheld"
+
+    gateway = ActionExecutionGateway(approvals)
+    allowed = gateway.evaluate(_CLASS)
+    assert allowed.allow is True
+    assert allowed.enforced is False, "an env var alone turned enforcement ON — the bypass is open"
+    assert allowed.reason == REASON_OVERRIDE_NOT_ENFORCEABLE
+
+    denied = gateway.evaluate(_OTHER_CLASS)
+    assert denied.enforced is False
+    assert denied.reason == REASON_APPROVAL_PENDING, "denial reasons stay precise under the override"
+
+
+def test_the_env_override_enforces_only_with_the_explicit_companion_flag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The staged-rollout path: TWO deliberate, separately auditable env acts, never one."""
+    path = _write(
+        tmp_path, _manifest(status="RATIFICADO", modo=MODE_ENFORCING, approved_classes=frozenset({_CLASS}))
+    )
+    monkeypatch.setenv(MANIFEST_PATH_ENV, str(path))
+    monkeypatch.setenv(OVERRIDE_ENFORCEMENT_ENV, OVERRIDE_ENFORCEMENT_ENABLED)
+
+    gateway = ActionExecutionGateway(load_action_approvals())
+    assert gateway.mode == MODE_ENFORCING
+    allowed = gateway.evaluate(_CLASS)
+    assert (allowed.allow, allowed.enforced, allowed.reason) == (True, True, REASON_APPROVED)
+    assert gateway.evaluate(_OTHER_CLASS).enforced is True
+
+
+@pytest.mark.parametrize("flag", ["", " ", "0", "true", "True", "yes", "1 ", "01"])
+def test_only_the_exact_companion_literal_restores_enforcement(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, flag: str
+) -> None:
+    """The repo's fail-closed pin idiom applied to the flag: truthy junk is NOT authorisation."""
+    path = _write(
+        tmp_path, _manifest(status="RATIFICADO", modo=MODE_ENFORCING, approved_classes=frozenset({_CLASS}))
+    )
+    monkeypatch.setenv(MANIFEST_PATH_ENV, str(path))
+    monkeypatch.setenv(OVERRIDE_ENFORCEMENT_ENV, flag)
+    assert load_action_approvals().mode == MODE_SHADOW_OVERRIDE
+
+
+def test_the_companion_flag_alone_grants_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """No override in play: the companion flag is inert, and the explicit-path seam is untouched."""
+    monkeypatch.setenv(OVERRIDE_ENFORCEMENT_ENV, OVERRIDE_ENFORCEMENT_ENABLED)
+    gateway = _gateway(
+        tmp_path,
+        _manifest(status="RATIFICADO", modo=MODE_ENFORCING, approved_classes=frozenset({_CLASS})),
+    )
+    assert gateway.mode == MODE_ENFORCING
+    assert gateway.evaluate(_CLASS).reason == REASON_APPROVED
+
+
+def test_the_override_fence_is_narrow_a_shadow_override_stays_shadow(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only the ENFORCEMENT leg is withheld — an override declaring `shadow` is reported as shadow."""
+    path = _write(
+        tmp_path, _manifest(status="RATIFICADO", modo=MODE_SHADOW, approved_classes=frozenset({_CLASS}))
+    )
+    monkeypatch.setenv(MANIFEST_PATH_ENV, str(path))
+    gateway = ActionExecutionGateway(load_action_approvals())
+    assert gateway.mode == MODE_SHADOW
+    assert gateway.evaluate(_CLASS).reason == REASON_APPROVED
+
+
+def test_an_override_sourced_load_is_logged_at_error_level_with_the_verdict(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Swapping the governed record must leave a trace legible without reading the manifest."""
+    path = _write(tmp_path, _manifest(status="RATIFICADO", modo=MODE_ENFORCING))
+    monkeypatch.setenv(MANIFEST_PATH_ENV, str(path))
+    with structlog.testing.capture_logs() as logs:
+        load_action_approvals()
+    overridden = [e for e in logs if e.get("event") == "action_approvals_manifest_path_overridden"]
+    assert len(overridden) == 1
+    assert overridden[0]["log_level"] == "error"
+    assert overridden[0]["path"] == str(path)
+    assert overridden[0]["enforcement_permitted"] is False
+    assert any(e.get("event") == "action_approvals_override_enforcement_refused" for e in logs)
+
+
+def test_the_shipped_no_override_path_emits_no_override_logs() -> None:
+    """The production resolution is unchanged: no override log, no enforcement withheld."""
+    with structlog.testing.capture_logs() as logs:
+        approvals = load_action_approvals()
+    assert approvals.mode == MODE_SHADOW, "the shipped manifest resolves exactly as before"
+    events = {e.get("event") for e in logs}
+    assert "action_approvals_manifest_path_overridden" not in events
+    assert "action_approvals_override_enforcement_refused" not in events
 
 
 @pytest.mark.parametrize("modo", ["ENFORCING", "enforce", "", None, True])
@@ -507,3 +745,130 @@ async def test_a_gateway_that_explodes_cannot_crash_dispatch(monkeypatch: pytest
     await _harness(transport, sink)._handle(_task())
     assert len(transport.completed) == 1
     assert transport.failures == []
+
+
+# ---------------------------------------------------------------------------------------------
+# Telemetry: the EVENT NAME tracks the mode, not only the `mode=` field
+# ---------------------------------------------------------------------------------------------
+
+
+def test_the_telemetry_event_name_tracks_the_mode(tmp_path: Path) -> None:
+    """A shadow observation and a call that actually blocked are different EVENTS, not one event
+    with a field.
+
+    Log routing, alerting and dashboards key on the event name long before anything parses
+    `mode=`; emitting `..._shadow` for a dispatch that was really refused would make the first
+    enforced denial in production invisible to every alert built on the shadow rollout. The `mode`
+    field is still emitted, so nothing that filtered on it stops working.
+    """
+    shipped_path = _write(tmp_path, _manifest(status="RATIFICADO", modo=MODE_SHADOW))
+    with structlog.testing.capture_logs() as shadow_logs:
+        shadow = evaluate_worker_task(topic=_TOPIC, tenant="fixture", path=shipped_path)
+    assert shadow.enforced is False
+    shadow_lines = [e for e in shadow_logs if e.get("event") in (EVENT_SHADOW, EVENT_ENFORCED)]
+    assert [e["event"] for e in shadow_lines] == [EVENT_SHADOW]
+    assert shadow_lines[0]["mode"] == MODE_SHADOW, "the `mode` field must survive the rename"
+
+    action_execution._load_cached.cache_clear()
+    enforcing_path = _write(
+        tmp_path, _manifest(status="RATIFICADO", modo=MODE_ENFORCING), name="enforcing.yaml"
+    )
+    with structlog.testing.capture_logs() as enforced_logs:
+        enforced = evaluate_worker_task(topic=_TOPIC, tenant="fixture", path=enforcing_path)
+    assert enforced.enforced is True
+    enforced_lines = [e for e in enforced_logs if e.get("event") in (EVENT_SHADOW, EVENT_ENFORCED)]
+    assert [e["event"] for e in enforced_lines] == [EVENT_ENFORCED]
+    assert enforced_lines[0]["mode"] == MODE_ENFORCING
+    assert enforced_lines[0]["decision"] == "WOULD_DENY"
+    assert enforced_lines[0]["reason"] == REASON_APPROVAL_PENDING
+
+
+def test_a_hyphenated_tenant_collapses_to_invalido_in_telemetry(tmp_path: Path) -> None:
+    """Documented, not silently lost: the tenant dimension is a bounded token, and `-` is not in it.
+
+    `_TOKEN_RE` is `^[A-Za-z][A-Za-z0-9_]{0,39}$`, so a deployment whose tenant id is `omni-saude`
+    emits `tenant=INVALIDO` on every gateway line — the telemetry is still non-PHI and still
+    correct about the DECISION, but it cannot be sliced per tenant. Widening the regex is a PHI
+    decision, not a formatting one, so the behaviour is pinned and disclosed in the approval packet
+    instead of being changed here.
+    """
+    path = _write(tmp_path, _manifest(status="RATIFICADO", modo=MODE_SHADOW))
+    with structlog.testing.capture_logs() as logs:
+        evaluate_worker_task(topic=_TOPIC, tenant="omni-saude", path=path)
+    line = next(e for e in logs if e.get("event") == EVENT_SHADOW)
+    assert line["tenant"] == "INVALIDO"
+
+
+# ---------------------------------------------------------------------------------------------
+# DATA-REACHABILITY: enforcement reached from the MANIFEST, with no patched `Decision`
+# ---------------------------------------------------------------------------------------------
+
+
+async def test_enforcement_is_reachable_from_data_alone_and_refuses_real_tasks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """END-TO-END, no monkeypatched verdict: a ratified+enforcing MANIFEST refuses real dispatches.
+
+    The two `_enforcing_*` tests above hand the harness a hand-built `Decision`, which proves the
+    branch is wired but NOT that a human editing the YAML can ever reach it. Here the only thing
+    supplied is the manifest FILE (through the explicit `path` seam — not the env override, which
+    by design cannot enforce): the real loader parses it, the real `evaluate` decides, and two real
+    tasks on two different topics are refused with the guard shape ADR-0008/ADR-0030 §4 prescribe.
+
+    This is the claim the approvers are actually being asked to trust — "ratifying is a data change
+    and nothing else" — so it is proved from the data end, not from a stubbed verdict.
+    """
+    path = _write(tmp_path, _manifest(status="RATIFICADO", modo=MODE_ENFORCING))
+    monkeypatch.setattr(
+        harness_module, "evaluate_worker_task", functools.partial(evaluate_worker_task, path=path)
+    )
+
+    ran: list[str] = []
+
+    def _recording_handler(topic: str) -> Any:
+        def _run(variables: dict[str, Any]) -> dict[str, Any]:
+            ran.append(topic)
+            return {"ok": True}
+
+        return _run
+
+    transport = FakeWorkerTransport()
+    sink = FakeAuditSink()
+    harness = WorkerHarness(transport, worker_id="w-1", tenant="fixture", audit_sink=sink)
+    for topic in (_TOPIC, _OTHER_TOPIC):
+        harness.register_worker(FunctionWorker(topic, _recording_handler(topic)))
+
+    for index, topic in enumerate((_TOPIC, _OTHER_TOPIC)):
+        await harness._handle(_task(topic, task_id=f"task-{index}"))
+
+    assert ran == [], "the handler ran — the effect was NOT pre-empted"
+    assert transport.completed == []
+    assert [(task_id, retries) for task_id, _msg, retries, _timeout in transport.failures] == [
+        ("task-0", 0),
+        ("task-1", 0),
+    ], "an enforced denial is a guard: never retried (ADR-0008)"
+    assert [r.decision for r, _ in sink.emitted] == ["REFUSED", "REFUSED"]
+    assert {r.details["guard_code"] for r, _ in sink.emitted} == {"ERR_ACTION_GATEWAY_NOT_HUMAN"}
+
+
+async def test_the_same_data_in_shadow_leaves_both_tasks_untouched(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The control for the test above: byte-identical manifest, `modo: shadow`, nothing refused.
+
+    Isolates the ONE field that carries the switch. If this failed, the previous test would prove
+    only "the fixture denies", not "flipping `modo` is what turns denial into refusal".
+    """
+    manifest = _manifest(status="RATIFICADO", modo=MODE_SHADOW)
+    path = _write(tmp_path, manifest)
+    monkeypatch.setattr(
+        harness_module, "evaluate_worker_task", functools.partial(evaluate_worker_task, path=path)
+    )
+    transport = FakeWorkerTransport()
+    sink = FakeAuditSink()
+    harness = _harness(transport, sink)
+    for index, topic in enumerate((_TOPIC, _OTHER_TOPIC)):
+        await harness._handle(_task(topic, task_id=f"task-{index}"))
+    assert len(transport.completed) == 2
+    assert transport.failures == []
+    assert [r.decision for r, _ in sink.emitted] == ["COMPLETE", "COMPLETE"]

@@ -14,9 +14,13 @@ asking three approvers to sign a project description. So it is built, wired in S
 action class DENIES in enforcement terms until a human writes an approval record. The approvers
 then ratify against the shadow telemetry the running system produces.
 
-THE RECORD IS DATA. `spec/policies/autonomy/action-approvals.yaml` (CODEOWNERS-gated). Ratifying
-is a data change: fill the per-domain blocks, complete the topic map, set `status: RATIFICADO`,
-set `modo: enforcing`. No Python change, no redeploy of this module.
+THE RECORD IS DATA. `spec/policies/autonomy/action-approvals.yaml` — CODEOWNERS-LISTED, which is
+NOT the same as gated: server-side branch protection is not currently active on `main` (protection
+404 + rulesets empty), so a CODEOWNERS entry requests a reviewer without being able to require one.
+That owner finding is already recorded in evidence-ledger row `mzo-000`; restoring protection is
+the owner's decision, not this module's. Ratifying is a data change: fill the per-domain blocks,
+complete the topic map, set `status: RATIFICADO`, set `modo: enforcing`. No Python change, no
+redeploy of this module.
 
 PRECEDENTS MIRRORED — both live in this repo, and this module follows both deliberately:
 
@@ -34,9 +38,18 @@ mode. `evaluate()` then returns `allow=False` (a DENY in enforcement terms) with
 reason, while `enforced` is False — so a broken manifest cannot silently *enable* enforcement
 either. The residual that this leaves (deleting the deployed file after the flip downgrades
 enforcement to shadow) is closed in-repo by
-`tests/unit/sec/test_action_execution_fence.py::test_shipped_manifest_exists_and_is_wellformed`
-(a CODEOWNERS-gated deletion fails CI) and is disclosed, with its named runtime remedy, in
-`docs/reviews/mzo-040-approval-packet.md`.
+`tests/unit/sec/test_action_execution_fence.py::test_shipped_manifest_exists_and_is_wellformed`:
+it is the FENCE TEST that fails CI on a deletion — `.github/workflows/ci.yml:61` runs
+`pytest tests/` on every PR — not CODEOWNERS, which here only requests a reviewer. The residual is
+disclosed, with its named runtime remedy, in `docs/reviews/mzo-040-approval-packet.md`.
+
+THE DEPLOYMENT OVERRIDE IS NOT AN ENFORCEMENT SURFACE. `MAEZO_ACTION_APPROVALS_PATH` can point
+this loader at a manifest that no CODEOWNER ever saw. That is legitimate for staging a candidate
+record, and it must never be a way to turn live enforcement on: an override-sourced manifest
+reading `modo: enforcing` resolves to `shadow_override` (never enforces) UNLESS the operator also
+sets `MAEZO_ACTION_APPROVALS_ALLOW_OVERRIDE_ENFORCEMENT=1`, which is the deliberate staged-rollout
+act. Every override-sourced load emits an `error` line naming the resolved path and whether
+enforcement was permitted.
 
 NO PHI. Nothing in this module reads, logs or stores a business key, a payload variable, or any
 free text. The only values that reach telemetry are the topic, the action class, a bounded reason
@@ -57,15 +70,25 @@ from typing import Any
 
 import structlog
 import yaml
+from yaml.nodes import MappingNode
 
 from maezo.agents import resolve_spec_dir
 
 logger = structlog.get_logger(__name__)
 
-#: Narrow env override for the manifest path — a test-pinning hook and an operator escape hatch,
-#: mirroring `auth_criteria.MANIFEST_PATH_ENV`. When unset the default resolves through the single
-#: T0.3 mechanism (`resolve_spec_dir`), the SAME resolution `pep.py` uses for the autonomy matrix.
+#: Narrow env override for the manifest path — a DEPLOYMENT-ONLY escape hatch, mirroring
+#: `auth_criteria.MANIFEST_PATH_ENV`. When unset the default resolves through the single T0.3
+#: mechanism (`resolve_spec_dir`), the SAME resolution `pep.py` uses for the autonomy matrix.
+#: Tests do NOT use it — they pass the `path` argument — so this stays a deployment surface only.
 MANIFEST_PATH_ENV = "MAEZO_ACTION_APPROVALS_PATH"
+
+#: The companion flag WITHOUT which an override-sourced manifest may never enforce. Set to the
+#: exact literal "1" (the fail-closed pin idiom: truthy junk is refused). Its whole purpose is to
+#: make "swap the manifest and turn enforcement on" TWO deliberate, separately auditable acts
+#: instead of one env var — because the path override bypasses the CODEOWNERS-listed file entirely
+#: and, with `main` unprotected, that listing is advisory anyway.
+OVERRIDE_ENFORCEMENT_ENV = "MAEZO_ACTION_APPROVALS_ALLOW_OVERRIDE_ENFORCEMENT"
+OVERRIDE_ENFORCEMENT_ENABLED = "1"
 
 #: The three approver domains, CODE-FROZEN. `PLANS.md` §0.6 and DL-0042 both state the MZO-040
 #: gate as Médica + ANS + Security; this set is not editable from the manifest, mirroring
@@ -91,6 +114,11 @@ MODE_ENFORCING = "enforcing"
 #: The mode of a manifest that could not be loaded or whose `modo` is not one of the two literals.
 #: Never enforces (a broken file must not silently switch enforcement ON) and never allows.
 MODE_UNRESOLVED = "unresolved"
+#: The mode an ENFORCING manifest resolves to when it was sourced from `MANIFEST_PATH_ENV` and the
+#: `OVERRIDE_ENFORCEMENT_ENV` companion flag is absent. Evaluation still runs (so the override
+#: keeps its legitimate use — previewing what a candidate record WOULD decide), but `enforced` is
+#: False, so a runtime env var alone can never start blocking calls.
+MODE_SHADOW_OVERRIDE = "shadow_override"
 
 # -- Reason vocabulary: a CLOSED enum of bounded, non-PHI tokens (design mirror of the
 # `_ENUM_TOKEN_RE` discipline in `tools/workers/harness.py`). Every one is safe in the clear.
@@ -101,9 +129,17 @@ REASON_ACTION_UNMAPPED = "ACAO_NAO_MAPEADA"
 REASON_ACTION_UNDECLARED = "ACAO_NAO_DECLARADA"
 REASON_DOMAINS_EMPTY = "DOMINIOS_EXIGIDOS_VAZIO"
 REASON_DOMAIN_UNKNOWN = "DOMINIO_DESCONHECIDO"
+#: `dominios_exigidos` is a subset of the code-frozen set rather than the whole of it — vocabulary
+#: is right, CARDINALITY is wrong. `[medica]`, or `[medica, medica, medica]`, is not three
+#: attestations; without this the class would be approved by one domain's signature.
+REASON_DOMAINS_INCOMPLETE = "DOMINIOS_INCOMPLETOS"
 REASON_APPROVAL_PENDING = "APROVACAO_PENDENTE"
 REASON_APPROVAL_INCOMPLETE = "APROVACAO_INCOMPLETA"
 REASON_INTERNAL_ERROR = "GATEWAY_ERRO_INTERNO"
+#: Carried INSTEAD OF `APROVADO` by an ALLOW read out of an override-sourced manifest whose
+#: enforcement was refused. The verdict is still "would allow", but the operator must not read it
+#: as a live enforcement decision — that is exactly the confusion this token exists to prevent.
+REASON_OVERRIDE_NOT_ENFORCEABLE = "OVERRIDE_NAO_ENFORCAVEL"
 
 #: Same shape as `harness._ENUM_TOKEN_RE`, restated locally rather than imported: `maezo.gateway`
 #: must not depend on `maezo.tools` (the dependency runs the other way — the harness imports
@@ -126,7 +162,8 @@ class Decision:
         allow: The ENFORCEMENT-TERMS verdict. False means "this call would be blocked". It is
             False for every class today, because nothing is approved.
         reason: One bounded token from the closed `REASON_*` enum above. Never free text.
-        mode: `shadow` | `enforcing` | `unresolved`, as resolved from the manifest.
+        mode: `shadow` | `enforcing` | `unresolved` | `shadow_override`, as resolved from the
+            manifest AND from how the manifest was sourced.
     """
 
     action_class: str | None
@@ -136,7 +173,11 @@ class Decision:
 
     @property
     def enforced(self) -> bool:
-        """True iff a DENY must actually block. False in shadow and on an unresolved manifest."""
+        """True iff a DENY must actually block.
+
+        False in shadow, on an unresolved manifest, and on `shadow_override` — the ONE literal
+        that grants enforcement is `enforcing`, and only the loader can resolve to it.
+        """
         return self.mode == MODE_ENFORCING
 
     @property
@@ -150,7 +191,7 @@ class ActionApprovals:
     """An immutable, already-validated view of the approval manifest.
 
     Attributes:
-        mode: `shadow` | `enforcing` | `unresolved`.
+        mode: `shadow` | `enforcing` | `unresolved` | `shadow_override`.
         approved: action classes whose EVERY required domain carries a complete approval block.
             EMPTY whenever `status` is not exactly `RATIFICADO`, and empty on any load failure.
         declared: action classes declared in `acoes`, approved or not. Used to tell
@@ -161,8 +202,9 @@ class ActionApprovals:
         denial_reasons: declared-but-unapproved class -> the PRECISE bounded reason it is denied
             (`MANIFESTO_NAO_RATIFICADO` when the whole file is DRAFT; otherwise
             `APROVACAO_INCOMPLETA` / `DOMINIOS_EXIGIDOS_VAZIO` / `DOMINIO_DESCONHECIDO` /
-            `APROVACAO_PENDENTE`). Computed once at load; this is what an approver reads in the
-            shadow telemetry, so "nobody signed yet" never looks like "the record is broken".
+            `DOMINIOS_INCOMPLETOS` / `APROVACAO_PENDENTE`). Computed once at load; this is what an
+            approver reads in the shadow telemetry, so "nobody signed yet" never looks like "the
+            record is broken".
         degraded: True when the manifest could not be loaded/parsed at all.
     """
 
@@ -239,6 +281,21 @@ def _class_is_approved(action_class: str, entry: Any) -> bool:
     if any(not isinstance(d, str) or d not in APPROVER_DOMAINS for d in required):
         logger.warning("action_approval_domain_unknown", action_class=action_class, required=required)
         return False
+    # CARDINALITY, not just vocabulary. Every entry being a KNOWN domain is not the same as every
+    # REQUIRED domain being present: `dominios_exigidos: [medica]` would have approved the class on
+    # one signature, and `[medica, medica, medica]` would have looked like three. The gate is
+    # Médica + ANS + Security (`PLANS.md` §0.6, DL-0042) — set equality is what states that. A
+    # no-op for the shipped file, which declares all three for every class (and the fence test
+    # `test_every_class_requires_all_three_approver_domains` already asserts it).
+    if set(required) != APPROVER_DOMAINS:
+        logger.warning(
+            "action_approval_domains_incomplete",
+            action_class=action_class,
+            required=sorted({d for d in required if isinstance(d, str)}),
+            detail="`dominios_exigidos` must be exactly the three code-frozen domains — a subset "
+            "(or a repeat of one) is not coverage",
+        )
+        return False
     blocks = entry.get("aprovacoes")
     if not isinstance(blocks, dict):
         return False
@@ -254,6 +311,8 @@ def _class_denial_reason(action_class: str, entry: Any) -> str:
         return REASON_DOMAINS_EMPTY
     if any(not isinstance(d, str) or d not in APPROVER_DOMAINS for d in required):
         return REASON_DOMAIN_UNKNOWN
+    if set(required) != APPROVER_DOMAINS:
+        return REASON_DOMAINS_INCOMPLETE
     blocks = entry.get("aprovacoes") if isinstance(entry.get("aprovacoes"), dict) else {}
     for domain in required:
         block = blocks.get(domain) if isinstance(blocks, dict) else None
@@ -269,10 +328,53 @@ def _manifest_default_path() -> str:
     return str(resolve_spec_dir() / "policies" / "autonomy" / "action-approvals.yaml")
 
 
-def _parse(raw_text: str, manifest_path: Path) -> ActionApprovals:
+class DuplicateManifestKeyError(yaml.YAMLError):
+    """A mapping key is declared twice in the manifest."""
+
+
+class _RefusingDuplicatesLoader(yaml.SafeLoader):
+    """`SafeLoader` that REFUSES duplicate mapping keys instead of silently last-one-wins.
+
+    YAML's default is that the LAST duplicate wins, so a manifest carrying `status: DRAFT` …
+    `status: RATIFICADO`, or a second `aprovacoes:` block further down, would parse cleanly and
+    read as ratified while the reviewed diff still shows the honest first value. For a record whose
+    whole security property is "what the reviewer saw is what the loader sees", silent shadowing is
+    unacceptable: refuse instead.
+
+    SCOPE: the same CLASS of finding applies to the `auth_criteria` ratification manifest
+    (`yaml.safe_load` there is still last-one-wins), but that loader is deliberately NOT changed
+    here — widening this is its own decision, on its own review. This class is private to this
+    module for exactly that reason.
+    """
+
+    def construct_mapping(self, node: MappingNode, deep: bool = False) -> dict[Any, Any]:
+        seen: set[Any] = set()
+        for key_node, _value_node in node.value:
+            key = self.construct_object(key_node, deep=deep)
+            try:
+                duplicated = key in seen
+            except TypeError:  # unhashable key — the base constructor rejects it below
+                continue
+            if duplicated:
+                raise DuplicateManifestKeyError(
+                    f"duplicate key {key!r} at line {key_node.start_mark.line + 1} — YAML would "
+                    "silently keep the LAST one; a governance record may not be shadowed"
+                )
+            seen.add(key)
+        return super().construct_mapping(node, deep=deep)
+
+
+def _override_enforcement_permitted() -> bool:
+    """True iff the operator explicitly authorised an OVERRIDE-sourced manifest to enforce."""
+    return os.environ.get(OVERRIDE_ENFORCEMENT_ENV) == OVERRIDE_ENFORCEMENT_ENABLED
+
+
+def _parse(raw_text: str, manifest_path: Path, *, override_sourced: bool = False) -> ActionApprovals:
     """Parse an already-read manifest. NEVER raises; refuses into `_EMPTY_APPROVALS` instead."""
     try:
-        data = yaml.safe_load(raw_text)
+        data = yaml.load(raw_text, Loader=_RefusingDuplicatesLoader)  # noqa: S506 - hardened SafeLoader
+    except DuplicateManifestKeyError as exc:
+        return _refuse("duplicate_key", f"{manifest_path}: {exc}")
     except yaml.YAMLError as exc:
         return _refuse("invalid_yaml", f"malformed YAML in {manifest_path}: {exc}")
 
@@ -297,6 +399,21 @@ def _parse(raw_text: str, manifest_path: Path) -> ActionApprovals:
             "action_approvals_mode_unresolved",
             path=str(manifest_path),
             detail="'modo' must be exactly 'shadow' or 'enforcing' — refusing to guess; nothing enforces",
+        )
+    # THE OVERRIDE FENCE. A manifest reached through `MANIFEST_PATH_ENV` never passed the reviewer
+    # the shipped file's CODEOWNERS listing asks for, so it may not switch enforcement on by
+    # itself. Evaluation still runs (that is the override's legitimate use — previewing a candidate
+    # record against real traffic); only the ENFORCEMENT leg is withheld, and only a second,
+    # explicit env act restores it. Deliberately narrow: an override in `shadow` is untouched.
+    if override_sourced and mode == MODE_ENFORCING and not _override_enforcement_permitted():
+        mode = MODE_SHADOW_OVERRIDE
+        logger.error(
+            "action_approvals_override_enforcement_refused",
+            path=str(manifest_path),
+            override_env=MANIFEST_PATH_ENV,
+            companion_env=OVERRIDE_ENFORCEMENT_ENV,
+            detail="manifest came from the path override and declares 'enforcing'; enforcement is "
+            f"WITHHELD (mode={MODE_SHADOW_OVERRIDE}) until {OVERRIDE_ENFORCEMENT_ENV}=1 is also set",
         )
 
     raw_acoes = data.get("acoes")
@@ -365,13 +482,35 @@ def load_action_approvals(path: str | Path | None = None) -> ActionApprovals:
     Path resolution: the explicit `path` argument > `MAEZO_ACTION_APPROVALS_PATH` >
     `<spec>/policies/autonomy/action-approvals.yaml` (via `resolve_spec_dir`).
 
+    ONLY the middle one is an "override" for enforcement purposes. An explicit `path` is a
+    composition-root/test seam chosen in code; the env var is a runtime string that no reviewer
+    saw, so a manifest loaded from it cannot enforce without `OVERRIDE_ENFORCEMENT_ENV=1` as well,
+    and its every load is logged at `error` level with the resolved path and that verdict.
+
     Every failure mode (unresolvable spec dir, missing file, non-file path, unreadable, non-UTF-8,
-    malformed YAML, wrong schema, `unratified: true` marker) returns an `ActionApprovals` with
-    zero approved classes and `mode=unresolved` — which neither allows anything nor turns
-    enforcement on — plus one `error` log line. See the module docstring for why this swallows
-    where the retention-matrix precedent raises.
+    malformed YAML, duplicate mapping key, wrong schema, `unratified: true` marker) returns an
+    `ActionApprovals` with zero approved classes and `mode=unresolved` — which neither allows
+    anything nor turns enforcement on — plus one `error` log line. See the module docstring for
+    why this swallows where the retention-matrix precedent raises.
     """
-    raw_path = path if path is not None else os.environ.get(MANIFEST_PATH_ENV)
+    raw_path = path
+    override_sourced = False
+    if raw_path is None:
+        env_path = os.environ.get(MANIFEST_PATH_ENV)
+        if env_path:
+            raw_path = env_path
+            override_sourced = True
+            # EVERY override-sourced load says so, loudly, naming the file and whether it was
+            # allowed to enforce — an operator swapping the governed record must leave a trace
+            # that is legible without reading the manifest.
+            logger.error(
+                "action_approvals_manifest_path_overridden",
+                path=env_path,
+                override_env=MANIFEST_PATH_ENV,
+                enforcement_permitted=_override_enforcement_permitted(),
+                detail="the CODEOWNERS-listed manifest was NOT used; this path was supplied by the "
+                "runtime environment",
+            )
     if not raw_path:
         try:
             raw_path = _manifest_default_path()
@@ -393,7 +532,7 @@ def load_action_approvals(path: str | Path | None = None) -> ActionApprovals:
     except OSError as exc:
         return _refuse("unreadable", f"could not read {manifest_path}: {exc}")
 
-    return _parse(raw_text, manifest_path)
+    return _parse(raw_text, manifest_path, override_sourced=override_sourced)
 
 
 @lru_cache(maxsize=8)
@@ -469,7 +608,11 @@ class ActionExecutionGateway:
 
         name = action_class.strip()
         if name in approvals.approved:
-            return Decision(name, allow=True, reason=REASON_APPROVED, mode=mode)
+            # An ALLOW read out of an override-sourced manifest whose enforcement was withheld is
+            # still "would allow" — but it is NOT the same fact as an approved class in the
+            # governed record, and the telemetry must not let the two look alike.
+            reason = REASON_OVERRIDE_NOT_ENFORCEABLE if mode == MODE_SHADOW_OVERRIDE else REASON_APPROVED
+            return Decision(name, allow=True, reason=reason, mode=mode)
         if name not in approvals.declared:
             return Decision(name, allow=False, reason=REASON_ACTION_UNDECLARED, mode=mode)
         reason = approvals.denial_reasons.get(name, REASON_APPROVAL_PENDING)
@@ -481,8 +624,17 @@ def _fail_closed_decision(mode: str) -> Decision:
     return Decision(None, allow=False, reason=REASON_INTERNAL_ERROR, mode=mode)
 
 
-def evaluate_worker_task(*, topic: str, tenant: str = "unknown") -> Decision:
-    """Evaluate one external-task dispatch and emit the SHADOW telemetry. NEVER raises.
+#: Telemetry event names, chosen by MODE rather than only carried as a field. A shadow line and a
+#: line that actually blocked a care-affecting call are different events for an operator: log
+#: routing, alerting and dashboards key on the event name long before anyone parses `mode=`.
+#: Both names are kept stable, and `mode=` is still emitted, so nothing that filtered on the field
+#: stops working.
+EVENT_SHADOW = "action_execution_gateway_shadow"
+EVENT_ENFORCED = "action_execution_gateway_enforced"
+
+
+def evaluate_worker_task(*, topic: str, tenant: str = "unknown", path: str | Path | None = None) -> Decision:
+    """Evaluate one external-task dispatch and emit the telemetry line. NEVER raises.
 
     This is the single entry point the worker chokepoint calls. It classifies the topic, decides,
     and emits exactly one structured log line per call carrying ONLY bounded, non-PHI tokens:
@@ -490,21 +642,28 @@ def evaluate_worker_task(*, topic: str, tenant: str = "unknown") -> Decision:
     No business key, no payload variable, no free text ever reaches this line — the deliberate
     contrast with DL-0043's finding that business keys ARE logged elsewhere in this repo.
 
+    Args:
+        topic: the external-task topic being dispatched.
+        tenant: telemetry dimension only; never influences the verdict.
+        path: explicit manifest path — the composition-root/test seam, mirroring
+            `load_action_approvals(path)`. Production passes None and resolves the shipped file.
+            NOT the env override, which is a deployment surface and cannot enforce on its own.
+
     Returns a `Decision` whose `enforced` is True only when a human has set `modo: enforcing` in
     the manifest. In shadow the caller must ignore `allow` entirely.
     """
     try:
-        approvals = action_approvals()
+        approvals = action_approvals(path)
         gateway = ActionExecutionGateway(approvals)
         action_class = gateway.classify(topic)
         decision = gateway.evaluate(action_class, {"tenant": tenant})
-        _log_shadow(decision, topic=topic, tenant=tenant)
+        _log_decision(decision, topic=topic, tenant=tenant)
     except Exception:  # noqa: BLE001 — a gateway bug must never crash dispatch; see below.
         # Fail closed on the VERDICT while resolving the mode from the already-cached manifest, so
         # an internal error cannot fail OPEN once a human has flipped to `enforcing`. The cached
         # accessor is a dict read after the first successful load, so this second call is safe.
         try:
-            mode = action_approvals().mode
+            mode = action_approvals(path).mode
         except Exception:  # noqa: BLE001 — nothing left to trust; refuse to claim enforcement.
             mode = MODE_UNRESOLVED
         logger.error("action_execution_gateway_internal_error", topic=topic, mode=mode, exc_info=True)
@@ -512,10 +671,10 @@ def evaluate_worker_task(*, topic: str, tenant: str = "unknown") -> Decision:
     return decision
 
 
-def _log_shadow(decision: Decision, *, topic: str, tenant: str) -> None:
+def _log_decision(decision: Decision, *, topic: str, tenant: str) -> None:
     """Emit the one telemetry line. Every field is a bounded, non-PHI token or is dropped."""
     logger.info(
-        "action_execution_gateway_shadow",
+        EVENT_ENFORCED if decision.enforced else EVENT_SHADOW,
         topic=topic if _is_bounded_topic(topic) else "TOPICO_INVALIDO",
         action_class=decision.action_class or "NAO_MAPEADA",
         decision=decision.telemetry_decision,

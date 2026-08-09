@@ -14,8 +14,12 @@ The claims pinned here:
      carries at least one real `file:line` runtime referent that EXISTS in the tree;
   5. every topic in `mapeamento_topicos` is a real BPMN external-task topic AND maps to a declared
      class — a typo here would silently un-gate an effect under enforcement;
-  6. the manifest path is CODEOWNERS-covered — the whole design rests on ratification being a
-     reviewed DATA change;
+  6. the manifest path is CODEOWNERS-LISTED — the whole design rests on ratification being a
+     reviewed DATA change. NOTE the honest limit of that claim: `main` carries no server-side
+     branch protection today (protection 404 + rulesets empty; owner finding recorded in
+     evidence-ledger row `mzo-000`), so the listing REQUESTS a security reviewer and cannot
+     REQUIRE one. What is actually enforced is (1) this test file, run by
+     `.github/workflows/ci.yml:61`, and (2) the loader's own fail-closed rules;
   7. the reason vocabulary is a closed set of bounded, non-PHI tokens.
 """
 
@@ -73,9 +77,10 @@ def test_shipped_manifest_exists_and_is_wellformed(manifest: dict[str, Any]) -> 
 
     The loader fails closed on an absent manifest by design (it must not brick every external
     task), which means an in-repo deletion would be INVISIBLE at runtime once someone has flipped
-    to `enforcing`. This assertion is the tripwire that closes that gap on the repo side; the
-    residual runtime-only case (editing the deployed config) is disclosed in
-    `docs/reviews/mzo-040-approval-packet.md`.
+    to `enforcing`. THIS ASSERTION is the tripwire that closes that gap on the repo side — it is
+    the fence test that fails CI on a deletion (`.github/workflows/ci.yml:61` runs `pytest
+    tests/`), not CODEOWNERS, which can only request a reviewer. The residual runtime-only case
+    (editing the deployed config) is disclosed in `docs/reviews/mzo-040-approval-packet.md`.
     """
     assert _MANIFEST.is_file()
     assert isinstance(manifest, dict)
@@ -179,6 +184,36 @@ def test_every_class_requires_all_three_approver_domains(manifest: dict[str, Any
     for name, entry in manifest["acoes"].items():
         assert set(entry["dominios_exigidos"]) == set(APPROVER_DOMAINS), name
         assert set(entry["aprovacoes"]) == set(APPROVER_DOMAINS), name
+        # Cardinality, not just coverage: the loader enforces set-equality, so a repeat like
+        # `[medica, medica, medica]` would deny. Assert the shipped record has no repeats either,
+        # so the file and the loader agree on what "three attestations" means.
+        assert len(entry["dominios_exigidos"]) == len(APPROVER_DOMAINS), name
+
+
+def test_the_shipped_domain_sets_are_usable_by_the_loader_not_just_wellformed(tmp_path: Path) -> None:
+    """The cardinality fence must be a NO-OP on the real record — proved through the LOADER.
+
+    On the shipped file every class denies with `MANIFESTO_NAO_RATIFICADO`, which says nothing
+    about the domain lists (the status fence short-circuits before they are read). So flip status
+    alone — blocks still unsigned — and assert every class now denies with `APROVACAO_PENDENTE`:
+    "waiting for humans", never `DOMINIOS_INCOMPLETOS` / `DOMINIOS_EXIGIDOS_VAZIO` /
+    `DOMINIO_DESCONHECIDO`, which would mean the record is malformed rather than merely unratified
+    and would leave an approver reading broken telemetry without being told.
+    """
+    data = yaml.safe_load(_MANIFEST.read_text(encoding="utf-8"))
+    data["status"] = STATUS_RATIFIED
+    path = tmp_path / "status-only.yaml"
+    path.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+
+    approvals = load_action_approvals(path)
+    assert approvals.approved == frozenset()
+    assert set(approvals.declared) == set(data["acoes"])
+    unusable = sorted(
+        f"{name}: {reason}"
+        for name, reason in approvals.denial_reasons.items()
+        if reason != action_execution.REASON_APPROVAL_PENDING
+    )
+    assert unusable == [], f"classes whose `dominios_exigidos` the loader cannot use: {unusable}"
 
 
 _REFERENCE_RE = re.compile(r"^(?P<path>[\w./_-]+):(?P<line>\d+)$")
@@ -268,12 +303,18 @@ def test_the_map_is_deliberately_partial_and_unmapped_topics_fail_closed(
 # ---------------------------------------------------------------------------------------------
 
 
-def test_the_manifest_path_is_codeowners_gated() -> None:
+def test_the_manifest_path_is_codeowners_listed() -> None:
     """Ratification is a DATA change with no code and no redeploy — so the data needs a reviewer.
 
     The same reasoning `.github/CODEOWNERS` already records for the GAP-AUTH-4 manifest, and the
     same finding (GK-criteria finding 1) that caught a FALSE "CODEOWNERS-gated" claim once before:
     do not repeat the claim without checking the file.
+
+    WHAT THIS DOES AND DOES NOT PROVE. It proves the entry EXISTS and names the security owner —
+    nothing more. `main` has no server-side branch protection today (protection 404 + rulesets
+    empty; owner finding in evidence-ledger row `mzo-000`), so nothing server-side compels that
+    review to happen. The claim in the docs is therefore "CODEOWNERS-LISTED", not "gated", and
+    this test is named for what it checks.
     """
     owners = _CODEOWNERS.read_text(encoding="utf-8")
     lines = [
