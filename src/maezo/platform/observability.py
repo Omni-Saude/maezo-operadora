@@ -16,7 +16,7 @@ Design decisions (ADR-0010, ADR-0014):
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import structlog
 from opentelemetry import trace
@@ -56,6 +56,51 @@ def get_metrics_collector() -> MetricsCollector:
 
 
 # ---------------------------------------------------------------------------
+# Business-key log scrubbing (DL-0043 leg (c)) — POLICY-GATED, inert by default
+# ---------------------------------------------------------------------------
+
+
+def _build_key_scrubber() -> Any | None:
+    """Build the `BusinessKeyScrubber` structlog processor, or None when the policy is inert.
+
+    DL-0043 leg (c). `LogScrubber` has existed in `maezo.gateway` since ADR-0006 but was NEVER
+    wired into `structlog.configure` — its own docstring says so. This is the wire, and it is
+    deliberately gated on `spec/policies/privacy/phi-business-key-remediation.yaml`: the reason
+    the scrubber matters here is that business keys can carry `matricula_beneficiario`, and
+    whether that gets pseudonymized is the OWNER's call, not this function's.
+
+    KNOWN GAP, RECORDED NOT PAPERED OVER: `setup_observability` has NO production caller today
+    (repo-wide sweep — only tests call it), so the daemons run structlog's DEFAULT configuration,
+    which renders every kwarg to stdout just the same. Installing the scrubber here is the right
+    SEAM, but ratifying `scrub_only` without also invoking this bootstrap from each daemon's
+    composition root would close the Kafka/mirror egress and NOT the log egress. The manifest
+    carries this as an explicit ratification pre-requisite; wiring the composition roots is a
+    separate change because it also changes log FORMATTING, which is not byte-identical and
+    therefore not something this flag may do silently.
+
+    Returns None (no processor, byte-identical logging) whenever the effective policy mode is
+    `off` — which is the shipped state. When the policy IS active the pseudonymizer is built
+    through `Pseudonymizer.from_settings`, so the ADR-0035 fail-closed key rule is inherited: a
+    production runtime with no `PHI_HMAC_KEY` RAISES here rather than installing a scrubber that
+    would pseudonymize with a publicly-known dev key. That raise is the correct outcome — an
+    operator who ratified `scrub_only` without provisioning the key must find out at boot, not
+    from a log archive.
+    """
+    from maezo.platform.privacy.phi_key_policy import phi_key_policy  # noqa: PLC0415 — lazy
+
+    policy = phi_key_policy()
+    if not policy.scrubbing_enabled:
+        return None
+
+    from maezo.platform.privacy.key_scrubber import (  # noqa: PLC0415 — lazy
+        BusinessKeyScrubber,
+        egress_pseudonymizer,
+    )
+
+    return BusinessKeyScrubber(egress_pseudonymizer())
+
+
+# ---------------------------------------------------------------------------
 # setup_observability
 # ---------------------------------------------------------------------------
 
@@ -87,13 +132,19 @@ def setup_observability(
     """
     # --- Structlog configuration ---
     log_level = os.environ.get("MAEZO_LOG_LEVEL", "INFO").upper()
+    scrubber = _build_key_scrubber()
+    processors: list[Any] = [
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.processors.StackInfoRenderer(),
+        structlog.processors.format_exc_info,
+    ]
+    if scrubber is not None:
+        # Scrub LAST before rendering: every earlier processor may still ADD fields to the
+        # event dict, so a scrubber placed before them would miss whatever they contribute.
+        processors.append(scrubber)
+    processors.append(structlog.dev.ConsoleRenderer())
     structlog.configure(
-        processors=[
-            structlog.processors.TimeStamper(fmt="iso"),
-            structlog.processors.StackInfoRenderer(),
-            structlog.processors.format_exc_info,
-            structlog.dev.ConsoleRenderer(),
-        ],
+        processors=processors,
         wrapper_class=structlog.stdlib.BoundLogger,
         context_class=dict,
         logger_factory=structlog.PrintLoggerFactory(),
@@ -102,6 +153,7 @@ def setup_observability(
     structlog.get_logger(__name__).info(
         "observability_structlog_configured",
         log_level=log_level,
+        key_scrubber_installed=scrubber is not None,
     )
 
     # --- OpenTelemetry configuration ---
@@ -216,6 +268,31 @@ def record_worker_task_outcome(
         collector.worker_task_duration.labels(tenant=tenant, topic=topic, outcome=outcome).observe(
             duration_seconds
         )
+
+
+def record_phi_business_key_mint(*, family: str, modo: str, anchor: str) -> None:
+    """Record ONE business-key mint by derivation anchor (DL-0043 leg (c) shadow telemetry).
+
+    Called by `maezo.tools.workers.base.mint_contract_business_key` — the single composer every
+    CANCEL/INAD business key is minted through. Increments
+    `maezo_phi_business_key_mint_total{family, modo, anchor}`.
+
+    THE POINT. While the remediation policy is `off` (today), the `anchor="matricula"` series is
+    a running count of keys that WOULD have been pseudonymized under `pseudo_keys` — i.e. how
+    many individual/familiar-plan beneficiaries had their `matricula_beneficiario` minted into a
+    durable business key. That count, and not an argument, is what the owner ratifies against.
+
+    CONTENT-FREE. All three labels are closed vocabularies (`family` in {CANCEL, INAD}, `modo`
+    in {off, scrub_only, pseudo_keys}, `anchor` in {contrato, matricula, pseudo}). NEVER pass a
+    tenant id, a business key, or a matricula here — same rule `record_worker_task_outcome` and
+    `record_llm_token_usage` document above. A per-instance identifier on this metric would
+    recreate, in Prometheus, exactly the leak the metric exists to measure.
+
+    This is the raw typed helper; the caller wraps it in a defensive guard (telemetry must never
+    raise into a key mint) — see `base._record_key_mint`.
+    """
+    collector = _get_metrics_collector()
+    collector.phi_business_key_mint.labels(family=family, modo=modo, anchor=anchor).inc()
 
 
 def record_llm_token_usage(

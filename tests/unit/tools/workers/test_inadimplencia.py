@@ -805,6 +805,146 @@ def test_resolve_facts_default_engine_is_fail_closed_true() -> None:
 
 
 # ---------------------------------------------------------------
+# B-2 — the guard must sweep EVERY derivable CANCEL business-key form
+#
+# THE DEFECT. `_query_ja_em_rescisao_cancel` used to query exactly one key:
+# `CANCEL-{tenant}-{numero_contrato or matricula}`. But `fraude.start_contratual` and the
+# notification bridge's `cancel.*` rule both mint `CANCEL-{tenant}-{numero_contrato}` with NO
+# matricula fallback. For a contract carrying BOTH identifiers, an active CANCEL-001 started
+# under the OTHER form was invisible to the guard, which then reported "no rescisao in flight"
+# and let the independent suspension proceed — a double termination.
+#
+# These tests seed a live CANCEL instance under each form in turn, with BOTH identifiers present,
+# and require the guard to find it either way. The `matricula`-form case is the one that fails
+# against the pre-fix single-key query.
+# ---------------------------------------------------------------
+
+
+_BOTH_IDS: dict[str, Any] = {
+    "tenant_id": "t1",
+    "numero_contrato": "C-123",
+    "matricula_beneficiario": "mat-99",
+}
+
+
+def test_b2_guard_finds_a_cancel_started_under_the_contract_form() -> None:
+    """The form `fraude`/`notification_bridge` mint (no matricula fallback)."""
+    fake = FakeCibSevenTransport()
+    _seed_active_cancel(fake, "CANCEL-t1-C-123")
+    assert resolve_facts(dict(_BOTH_IDS), engine=fake)["ja_em_rescisao_cancel"] is True
+
+
+def test_b2_guard_finds_a_cancel_started_under_the_matricula_form() -> None:
+    """THE B-2 REGRESSION. Both identifiers present, the live instance is keyed on the matricula
+    form (what `inadimplencia`'s own handoff would mint for a plan whose contract number arrived
+    later or blank). Pre-fix this returned False and the suspension proceeded alongside a live
+    rescisao."""
+    fake = FakeCibSevenTransport()
+    _seed_active_cancel(fake, "CANCEL-t1-mat-99")
+    assert resolve_facts(dict(_BOTH_IDS), engine=fake)["ja_em_rescisao_cancel"] is True
+
+
+def test_b2_guard_blocks_the_suspension_end_to_end_under_the_matricula_form() -> None:
+    """Not just the FACT: the adverse effect it guards is actually refused."""
+    fake = FakeCibSevenTransport()
+    _seed_active_cancel(fake, "CANCEL-t1-mat-99")
+    facts = resolve_facts(dict(_BOTH_IDS), engine=fake)
+    with pytest.raises(InadimplenciaError) as excinfo:
+        register_contract_suspension({**_VALID_SUSPENSION_HUMAN_FIELDS, **_BOTH_IDS, **facts})
+    assert excinfo.value.code == ERR_CONTRACT_SUSPENSION_NOT_HUMAN
+
+
+def test_b2_guard_queries_every_derivable_form() -> None:
+    """The sweep is exhaustive, not merely two-of-three by luck."""
+    queried: list[str] = []
+
+    class _RecordingTransport:
+        async def find_active_instance(self, business_key: str) -> ProcessInstance | None:
+            queried.append(business_key)
+            return None
+
+    assert resolve_facts(dict(_BOTH_IDS), engine=_RecordingTransport())["ja_em_rescisao_cancel"] is False
+    assert queried == ["CANCEL-t1-C-123", "CANCEL-t1-mat-99"]
+
+
+def test_b2_guard_deduplicates_identical_forms() -> None:
+    """When both anchors are the same string there is one form, and one query — no wasted call."""
+    queried: list[str] = []
+
+    class _RecordingTransport:
+        async def find_active_instance(self, business_key: str) -> ProcessInstance | None:
+            queried.append(business_key)
+            return None
+
+    resolve_facts(
+        {"tenant_id": "t1", "numero_contrato": "SAME", "matricula_beneficiario": "SAME"},
+        engine=_RecordingTransport(),
+    )
+    assert queried == ["CANCEL-t1-SAME"]
+
+
+def test_b2_guard_permits_only_when_no_form_has_a_live_instance() -> None:
+    """The conservative direction has a floor: a genuinely clean contract still proceeds."""
+    fake = FakeCibSevenTransport()
+    _seed_active_cancel(fake, "CANCEL-t1-SOMEONE-ELSE")
+    facts = resolve_facts(dict(_BOTH_IDS), engine=fake)
+    assert facts["ja_em_rescisao_cancel"] is False
+    assert (
+        register_contract_suspension({**_VALID_SUSPENSION_HUMAN_FIELDS, **_BOTH_IDS, **facts})[
+            "suspensao_registrada"
+        ]
+        is True
+    )
+
+
+def test_b2_guard_fails_closed_when_any_form_query_raises() -> None:
+    """An error on the SECOND form must block just as an error on the first does — the guard
+    never concludes 'no rescisao' from a set of queries it could not complete."""
+
+    class _RaisesOnMatriculaForm:
+        async def find_active_instance(self, business_key: str) -> ProcessInstance | None:
+            if business_key.endswith("mat-99"):
+                raise CibSevenError("engine unreachable")
+            return None
+
+    facts = resolve_facts(dict(_BOTH_IDS), engine=_RaisesOnMatriculaForm())
+    assert facts["ja_em_rescisao_cancel"] is True
+
+
+@pytest.mark.parametrize("modo", ["off", "scrub_only", "pseudo_keys"])
+def test_b2_dual_form_sweep_is_unconditional_across_every_policy_mode(tmp_path: Any, modo: str) -> None:
+    """(d) The B-2 fix is a DEFECT FIX, not a flag-gated feature: it holds in every mode.
+
+    `pseudo_keys` additionally dual-reads the `beneficiario_pseudo_id` form — a superset, never a
+    replacement — so an instance still live under a legacy form stays visible through the
+    migration window.
+    """
+    from tests.support.privacy_policy import phi_key_mode
+
+    fake = FakeCibSevenTransport()
+    _seed_active_cancel(fake, "CANCEL-t1-mat-99")
+    with phi_key_mode(tmp_path, modo):
+        facts = resolve_facts({**_BOTH_IDS, "beneficiario_pseudo_id": "hk1_abc"}, engine=fake)
+    assert facts["ja_em_rescisao_cancel"] is True
+
+
+def test_pseudo_keys_mode_dual_reads_the_legacy_and_pseudo_forms(tmp_path: Any) -> None:
+    """Under `pseudo_keys` the guard queries legacy AND pseudo forms, in that order."""
+    from tests.support.privacy_policy import phi_key_mode
+
+    queried: list[str] = []
+
+    class _RecordingTransport:
+        async def find_active_instance(self, business_key: str) -> ProcessInstance | None:
+            queried.append(business_key)
+            return None
+
+    with phi_key_mode(tmp_path, "pseudo_keys"):
+        resolve_facts({**_BOTH_IDS, "beneficiario_pseudo_id": "hk1_abc"}, engine=_RecordingTransport())
+    assert queried == ["CANCEL-t1-C-123", "CANCEL-t1-mat-99", "CANCEL-t1-hk1_abc"]
+
+
+# ---------------------------------------------------------------
 # prepare_dossier — INSTRUCTS, never originates an adverse decision
 # ---------------------------------------------------------------
 

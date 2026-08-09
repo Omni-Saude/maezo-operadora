@@ -1,0 +1,145 @@
+# === Politica de privacidade — remediacao de PHI em BUSINESS KEYS (DL-0043 leg (c)) ===
+#
+# O QUE ESTE ARQUIVO E
+# --------------------
+# Um FLAG de governanca, nao uma decisao ja tomada. Ele existe para que a decisao do DONO
+# ("matricula_beneficiario pode continuar a ser cunhada crua dentro de business keys?") seja um
+# ato de DADOS explicito, auditavel e revisado — nunca um efeito colateral de um commit.
+#
+# O FATO QUE O ORIGINOU (verificado no codigo, nao inferido)
+# ---------------------------------------------------------
+#   * `matricula_beneficiario` esta declarado em `PHI_PROCESS_VARS`
+#     (src/maezo/tools/workers/phi_vars.py) — ou seja, a casa ja o classificou como Zona PHI.
+#   * Ainda assim ele e cunhado CRU dentro de duas business keys:
+#       - `CANCEL-{tenant}-{numero_contrato OR matricula_beneficiario}`
+#         (src/maezo/tools/workers/inadimplencia.py::_cancel_business_key)
+#       - `INAD-{tenant}-{numero_contrato OR matricula_beneficiario}`
+#         (src/maezo/agents/fernando/graph.py::_business_key)
+#     O fallback so ocorre em planos individuais/familiares (sem numero de contrato) — isto e,
+#     exatamente a populacao de pessoa fisica.
+#   * Essa key SAI do processo sem redacao: linhas de log structlog, variavel de processo do
+#     engine, payload Kafka (`_business_key`), CHAVE DE MENSAGEM Kafka, allowlist do espelho de
+#     notificacoes e a chave de dedup persistida em Postgres.
+#   * Precedente da propria casa para a forma CORRETA: `PROG-...-{beneficiario_pseudo_id}`
+#     (src/maezo/agents/valentina/graph.py) e `DSR-...-{titular_pseudo_id}`.
+#
+# ESTE ARQUIVO NAO CORRIGE NADA SOZINHO. Enquanto `modo` efetivo for `off` (o estado de hoje,
+# e o default), o comportamento em runtime e BYTE-IDENTICO ao anterior a esta politica. O que o
+# codigo faz enquanto isso e CONTAR (sem conteudo) quantas cunhagens de key TERIAM sido
+# pseudonimizadas — a evidencia que o dono precisa para decidir (metrica
+# `maezo_phi_business_key_mint_total{anchor="matricula"}`).
+#
+# COMO ATIVAR (uma mudanca de DADOS — sem mudanca de codigo, sem redeploy de Python)
+# ---------------------------------------------------------------------------------
+# Preencher, TODOS, os quatro campos abaixo:
+#   status:                    RATIFICADO      # literal; qualquer outra coisa => modo efetivo off
+#   ratificacao.ratificado:    true            # o literal booleano true — nada mais conta
+#   ratificacao.revisor:       "<quem ratificou>"   # nao-vazio; prestacao de contas (ADR-0007)
+#   ratificacao.ratificado_em: "YYYY-MM-DD"          # nao-vazio; quando
+# ...e so entao `modo` passa a valer. Faltando/em branco/nao-true qualquer um dos quatro, o modo
+# efetivo e `off` — INDEPENDENTE do que `modo` diga. Um arquivo em DRAFT declarando
+# `modo: pseudo_keys` resolve para `off` (o carregador nunca promove um rascunho).
+#
+# Mesmo guard de template dos precedentes (`legal_bases_matrix.load_retention_matrix`,
+# `auth_criteria.load_criteria_sources`): a chave raiz `unratified: true` (ausente abaixo,
+# deliberadamente) faz o arquivo inteiro ser RECUSADO — apontar o caminho para um placeholder
+# por engano tambem falha fechado.
+#
+# CODEOWNERS: este diretorio (`/spec/policies/privacy/`) e coberto em `.github/CODEOWNERS`
+# (@rodrigotaquino + @Omni-Saude/security), pela mesma razao que `/spec/policies/autonomy/`:
+# virar o flag e o UNICO ato que muda o formato de identidade persistida de um beneficiario —
+# a mudanca de dado precisa do revisor que o caminho de codigo teria tido.
+
+version: 1
+
+# ---------------------------------------------------------------------------------------------
+# status — DRAFT | RATIFICADO. Porta dura: em DRAFT, `modo` NAO vale (resolve para `off`).
+# ESTADO DE HOJE: DRAFT. Nada foi decidido; nada esta ativo.
+# ---------------------------------------------------------------------------------------------
+status: DRAFT
+
+# ---------------------------------------------------------------------------------------------
+# modo — o que o codigo faz QUANDO ratificado. DECLARACAO, nao efeito.
+#
+#   off          (default) Comportamento de hoje, byte-identico. A key continua sendo cunhada
+#                como hoje; nenhum scrubber e instalado; a chave Kafka e a de hoje. A UNICA
+#                coisa que roda e a telemetria-sombra (contagem sem conteudo).
+#
+#   PRE-REQUISITO DE `scrub_only` (VERIFICADO, NAO ASSUMIDO): o scrubber e instalado em
+#                `platform/observability.py::setup_observability`, e HOJE NENHUM composition root
+#                CHAMA essa funcao (varredura do repo: so testes a chamam). Os daemons rodam com
+#                a configuracao PADRAO do structlog, que renderiza todos os kwargs em stdout do
+#                mesmo jeito. Portanto ratificar `scrub_only` SEM tambem chamar
+#                `setup_observability` (ou instalar o processador) no bootstrap de cada daemon
+#                fecha (b) e (c) e NAO fecha (a). Isso e um item de checklist do dono, nao um
+#                detalhe: e a diferenca entre a politica funcionar e parecer funcionar.
+#
+#   scrub_only   Nao muda NENHUMA identidade persistida (nenhuma migracao). Fecha as saidas:
+#                  (a) instala o `LogScrubber`/`BusinessKeyScrubber` em `structlog.configure`
+#                      cobrindo os nomes de campo que carregam key (`business_key`,
+#                      `cancel_business_key`, `_business_key`, ...) + `matricula_beneficiario`;
+#                  (b) remove `_business_key` da allowlist do envelope espelhado em
+#                      `operadora.notifications.internal`;
+#                  (c) pseudonimiza a CHAVE DE MENSAGEM Kafka para as familias CANCEL/INAD.
+#                ATENCAO — (c) MUDA O PARTICIONAMENTO Kafka dessas duas familias: a chave passa
+#                de `CANCEL-{tenant}-{id}` para `CANCEL-hk1_{hmac}`, entao a particao muda. A
+#                ordenacao POR CHAVE continua garantida (o HMAC e deterministico: a mesma key
+#                logica cai sempre na mesma particao), mas mensagens em voo publicadas antes e
+#                depois da virada podem ficar em particoes diferentes. Virar este flag exige
+#                janela de drenagem dos topicos afetados. Nao ha mudanca de chave para nenhuma
+#                outra familia (RECURSO/CRED/FRAUDE/PROG/ESC/DSR/ANS...).
+#
+#   pseudo_keys  scrub_only MAIS: novas cunhagens usam `beneficiario_pseudo_id` (o precedente
+#                valentina) no lugar de `matricula_beneficiario`. TODOS os guards/queries
+#                passam a DUAL-READ (forma legada + forma pseudo) durante a janela de migracao,
+#                para que uma instancia viva sob a forma antiga continue visivel. Se o
+#                `beneficiario_pseudo_id` estiver ausente/em branco, a cunhagem CAI DE VOLTA
+#                para o comportamento legado (nunca cunha key vazia/degenerada).
+#
+# ESTADO DE HOJE: `off`. Trocar este valor sozinho nao faz nada — ver `status`/`ratificacao`.
+#
+# ASPAS SAO INTENCIONAIS. Em YAML 1.1 um `off` SEM aspas resolve para o booleano `false` (idem
+# `on`/`yes`/`no`). O carregador trata esse caso explicitamente, entao desaspar nao muda o
+# significado — mas a forma com aspas e a que le como o token que e.
+# ---------------------------------------------------------------------------------------------
+modo: "off"
+
+# ---------------------------------------------------------------------------------------------
+# ratificacao — quem decidiu e quando (ADR-0007). Placeholders detectaveis por maquina:
+# `ratificado: false` + `revisor`/`ratificado_em` nulos = "ninguem decidiu ainda", nao um
+# preenchimento parcial esquecido.
+# ---------------------------------------------------------------------------------------------
+ratificacao:
+  ratificado: false
+  revisor: null
+  ratificado_em: null
+  observacao: >-
+    DECISAO DO DONO, NAO DA ENGENHARIA. Sao tres perguntas distintas e uma delas nao e tecnica:
+    (1) LGPD/DPO — `matricula_beneficiario` dentro de uma business key persistida (Postgres de
+    dedup, tabelas do CIB Seven, retencao de logs, retencao de topico Kafka) e um identificador
+    pessoal em repouso fora da Zona PHI; isso e aceitavel sob a base legal declarada?
+    (2) OPERACAO/ANS — a key e visivel no Cockpit e e o que um analista usa para achar o caso;
+    pseudonimizar quebra essa busca por matricula e exige um caminho de reconciliacao.
+    (3) MIGRACAO — instancias JA VIVAS sob a forma legada nao mudam de key; por isso
+    `pseudo_keys` e dual-read, e por isso a janela de migracao precisa de uma data-limite
+    definida por quem opera, nao por quem programa.
+    Enquanto isto estiver `false`, o unico efeito e a telemetria-sombra.
+
+# ---------------------------------------------------------------------------------------------
+# escopo — as familias de business key afetadas. Informativo/auditavel: o codigo trata
+# CANCEL e INAD porque sao as UNICAS duas com fallback para `matricula_beneficiario`
+# (verificado por varredura de todos os compositores de key em src/). Listado aqui para que uma
+# terceira familia com o mesmo defeito seja uma adicao visivel, nunca silenciosa.
+# ---------------------------------------------------------------------------------------------
+escopo:
+  familias:
+    - CANCEL      # inadimplencia._cancel_business_key (fallback matricula)
+    - INAD        # fernando.graph._business_key (fallback matricula)
+  nao_afetadas:
+    - RECURSO     # ancorada em numero_guia_tiss/glosa_id
+    - CRED        # ancorada em prestador_id
+    - FRAUDE      # ancorada em numero_caso/prestador_id
+    - PROG        # JA usa beneficiario_pseudo_id (o precedente correto)
+    - DSR         # JA usa titular_pseudo_id
+    - ESC         # ancorada em pseudonimo keyed de telefone (hk1_)
+    - ANS         # ancorada em report_type/competencia/numero_nip_ans

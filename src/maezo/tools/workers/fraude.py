@@ -24,7 +24,13 @@ import structlog
 
 from maezo.gateway.custody import CustodyBundle
 from maezo.tools.mcp_cibseven.transport import AgentDecisionProvenance, start_process_idempotent
-from maezo.tools.workers.base import FunctionWorker, non_blank
+from maezo.tools.workers.base import (
+    CANCEL_KEY_FAMILY,
+    INADIMPLENCIA_KEY_FAMILY,
+    FunctionWorker,
+    contract_business_key,
+    non_blank,
+)
 from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row, require_dmn
 from maezo.tools.workers.harness import AUDIT_AGENT_ID, _resolve_app_version
 
@@ -820,15 +826,23 @@ def start_credenciamento(
 
 
 def _cancel_business_key(tenant_id: str, numero_contrato: str) -> str:
-    """`CANCEL-{tenant}-{numero_contrato}` (IDENTICAL to `notification_bridge._cancel_business_key`)."""
-    return f"CANCEL-{tenant_id}-{numero_contrato}"
+    """`CANCEL-{tenant}-{numero_contrato}` (IDENTICAL to `notification_bridge._cancel_business_key`).
+
+    NO matricula fallback here — this handoff already refused a blank `numero_contrato` above.
+    That asymmetry with `inadimplencia._cancel_business_key` (which DOES fall back) is exactly
+    what defeated the anti-dupla-terminacao guard (B-2): the two composers mint different keys
+    for the same contract. They now share `base.contract_business_key`, and the guard sweeps
+    every derivable form via `base.contract_business_key_forms`, so the asymmetry is visible in
+    one place instead of being an invisible mismatch between two f-strings.
+    """
+    return contract_business_key(CANCEL_KEY_FAMILY, tenant_id, numero_contrato)
 
 
 def _inadimplencia_business_key(tenant_id: str, numero_contrato: str) -> str:
     """`INAD-{tenant}-{numero_contrato}` — DISTINCT prefix from CANCEL for the SAME contract
     (IDENTICAL to `notification_bridge._inadimplencia_business_key`; the two processes coordinate via
     topology + a runtime active-instance check, not a shared key)."""
-    return f"INAD-{tenant_id}-{numero_contrato}"
+    return contract_business_key(INADIMPLENCIA_KEY_FAMILY, tenant_id, numero_contrato)
 
 
 def start_contratual(

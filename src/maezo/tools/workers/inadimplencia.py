@@ -15,7 +15,12 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from maezo.tools.mcp_cibseven.transport import AgentDecisionProvenance, start_process_idempotent
-from maezo.tools.workers.base import FunctionWorker
+from maezo.tools.workers.base import (
+    CANCEL_KEY_FAMILY,
+    FunctionWorker,
+    contract_business_key_forms,
+    mint_contract_business_key,
+)
 from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row, require_dmn
 from maezo.tools.workers.harness import AUDIT_AGENT_ID, _resolve_app_version
 
@@ -48,7 +53,12 @@ CANCEL_PROCESS_KEY = "SP-OP-CANCEL-001"
 # ---------------------------------------------------------------
 
 
-def _cancel_business_key(tenant_id: str, numero_contrato: str, matricula_beneficiario: str) -> str:
+def _cancel_business_key(
+    tenant_id: str,
+    numero_contrato: str,
+    matricula_beneficiario: str,
+    beneficiario_pseudo_id: str = "",
+) -> str:
     """Business key of the SP-OP-CANCEL-001 instance that would be terminating THIS contract.
 
     Same identity scheme both processes derive (docs/processes/harmonization-inadimplencia-cancel.md
@@ -56,9 +66,20 @@ def _cancel_business_key(tenant_id: str, numero_contrato: str, matricula_benefic
     falling back to ``matricula_beneficiario`` when there is no contract number (individual/familiar
     plans) — mirrors ``fernando.graph._business_key`` exactly. An ACTIVE instance under this key means
     a rescisao/suspensao is already in flight in CANCEL-001 for this same ``contract_termination``.
+
+    Delegates to the SHARED `base.mint_contract_business_key` — the ONE composer for this family
+    (`fraude`, `notification_bridge` and `fernando.graph` now delegate to it too), so the minted
+    string and the forms the guard below queries cannot drift apart. Output is byte-identical to
+    the previous f-string under the shipped (`off`) privacy policy; see that function for the
+    `pseudo_keys` behaviour and the DL-0043 shadow counter it records.
     """
-    contrato = numero_contrato or matricula_beneficiario
-    return f"CANCEL-{tenant_id}-{contrato}"
+    return mint_contract_business_key(
+        CANCEL_KEY_FAMILY,
+        tenant_id,
+        numero_contrato=numero_contrato,
+        matricula_beneficiario=matricula_beneficiario,
+        beneficiario_pseudo_id=beneficiario_pseudo_id,
+    )
 
 
 def _query_ja_em_rescisao_cancel(
@@ -67,24 +88,43 @@ def _query_ja_em_rescisao_cancel(
     tenant_id: str,
     numero_contrato: str,
     matricula_beneficiario: str,
+    beneficiario_pseudo_id: str = "",
 ) -> bool:
     """REAL cross-process query: is a live SP-OP-CANCEL-001 instance already terminating this contract?
 
     Anti-dupla-terminacao (GAP-INAD-1, docs/processes/harmonization-inadimplencia-cancel.md §1): keys
-    the engine by ``CANCEL-{tenant}-{contrato}`` (the CANCEL-001 business key — the process that OWNS
-    the rescisao terminal) via the same ``CibSevenTransport.find_active_instance`` seam the agent graphs
-    use for start-time idempotency. Read-only (TASY write DROP, ADR-0013); a FACT, never a decision.
+    the engine by the CANCEL-001 business key (the process that OWNS the rescisao terminal) via the
+    same ``CibSevenTransport.find_active_instance`` seam the agent graphs use for start-time
+    idempotency. Read-only (TASY write DROP, ADR-0013); a FACT, never a decision.
+
+    B-2 (confirmed blocker, fixed here): this used to query exactly ONE key form —
+    ``CANCEL-{tenant}-{numero_contrato or matricula}``. But `fraude.start_contratual` and
+    `notification_bridge`'s `cancel.*` rule both mint ``CANCEL-{tenant}-{numero_contrato}`` with NO
+    matricula fallback. For a contract carrying BOTH identifiers the two composers produce DIFFERENT
+    keys, so a CANCEL-001 instance started under the other form was INVISIBLE to this query: the
+    guard reported "no rescisao in flight" while one was live, and the independent suspension went
+    ahead — a double termination, which is the single thing this guard exists to prevent.
+
+    It now queries EVERY derivable form (`base.contract_business_key_forms`, the single-source
+    sweep of all CANCEL composers) and blocks on a hit in ANY of them. Finding MORE instances is
+    strictly the conservative direction — it can only refuse an adverse effect, never permit one.
 
     FAIL CLOSED (ADR-0018, defense in depth): returns ``True`` (BLOCK the suspension) whenever the
     correlation CANNOT be confirmed — no engine seam wired, no contract identity to key on, or any
-    transport/engine error. "Inability to decide = do not suspend": the guard NEVER presumes the
-    absence of an in-flight rescisao it could not positively rule out. Returns ``False`` (suspension
-    may proceed) ONLY when the engine positively confirms no active CANCEL-001 instance exists.
+    transport/engine error on ANY of the forms. "Inability to decide = do not suspend": the guard
+    NEVER presumes the absence of an in-flight rescisao it could not positively rule out. Returns
+    ``False`` (suspension may proceed) ONLY when the engine positively confirms that NO form has an
+    active CANCEL-001 instance.
     """
-    contrato = numero_contrato or matricula_beneficiario
-    cancel_business_key = _cancel_business_key(tenant_id, numero_contrato, matricula_beneficiario)
+    cancel_business_key_forms = contract_business_key_forms(
+        CANCEL_KEY_FAMILY,
+        tenant_id,
+        numero_contrato=numero_contrato,
+        matricula_beneficiario=matricula_beneficiario,
+        beneficiario_pseudo_id=beneficiario_pseudo_id,
+    )
 
-    if not contrato:
+    if not cancel_business_key_forms:
         # No contract identity -> cannot key the correlation query -> cannot rule out a rescisao.
         logger.warning(
             "inadimplencia_cancel_correlation_unavailable",
@@ -98,21 +138,25 @@ def _query_ja_em_rescisao_cancel(
         logger.warning(
             "inadimplencia_cancel_correlation_unavailable",
             reason="engine_seam_not_wired",
-            cancel_business_key=cancel_business_key,
+            cancel_business_key=cancel_business_key_forms[0],
+            cancel_business_key_form_count=len(cancel_business_key_forms),
         )
         return True
 
-    try:
-        instance = asyncio.run(engine.find_active_instance(cancel_business_key))
-    except Exception as exc:  # noqa: BLE001 — engine/transport error -> fail closed (block, route human).
-        logger.warning(
-            "inadimplencia_cancel_correlation_query_failed",
-            error=str(exc),
-            cancel_business_key=cancel_business_key,
-        )
-        return True
+    for cancel_business_key in cancel_business_key_forms:
+        try:
+            instance = asyncio.run(engine.find_active_instance(cancel_business_key))
+        except Exception as exc:  # noqa: BLE001 — engine/transport error -> fail closed (block).
+            logger.warning(
+                "inadimplencia_cancel_correlation_query_failed",
+                error=str(exc),
+                cancel_business_key=cancel_business_key,
+            )
+            return True
+        if instance is not None:
+            return True
 
-    return instance is not None
+    return False
 
 
 # ---------------------------------------------------------------
@@ -158,6 +202,7 @@ def resolve_facts(variables: dict[str, Any], *, engine: CibSevenTransport | None
         tenant_id=str(variables.get("tenant_id", "")),
         numero_contrato=str(variables.get("numero_contrato", "")),
         matricula_beneficiario=str(variables.get("matricula_beneficiario", "")),
+        beneficiario_pseudo_id=str(variables.get("beneficiario_pseudo_id", "")),
     )
 
     logger.info(
@@ -575,6 +620,7 @@ def handoff_rescisao(
     tenant_id = str(variables.get("tenant_id", ""))
     numero_contrato = str(variables.get("numero_contrato", ""))
     matricula_beneficiario = str(variables.get("matricula_beneficiario", ""))
+    beneficiario_pseudo_id = str(variables.get("beneficiario_pseudo_id", ""))
 
     if not (numero_contrato or matricula_beneficiario):
         # No contract identity -> cannot key CANCEL-001 -> refuse (deterministic bad input).
@@ -616,7 +662,9 @@ def handoff_rescisao(
             "failing to a retry/incident (never a silent no-op, never an un-audited start)"
         )
 
-    cancel_business_key = _cancel_business_key(tenant_id, numero_contrato, matricula_beneficiario)
+    cancel_business_key = _cancel_business_key(
+        tenant_id, numero_contrato, matricula_beneficiario, beneficiario_pseudo_id
+    )
     payload: dict[str, Any] = {
         "tipo_solicitacao": "inadimplencia",
         "origem_solicitacao": "operadora",  # handoff origin (harmonization §2)

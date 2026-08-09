@@ -407,6 +407,178 @@ def resolve_fraude_numero_caso(variables: dict[str, Any]) -> str:
     return str(variables.get("prestador_id", ""))
 
 
+# ---------------------------------------------------------------------------
+# Contract-anchored business keys — the SINGLE composer for the CANCEL / INAD families
+# (B-2 anti-dupla-terminacao fix + DL-0043 leg (c) flag seam)
+# ---------------------------------------------------------------------------
+
+#: Family prefix of SP-OP-CANCEL-001's business key (`CANCEL-{tenant}-{contract identity}`).
+CANCEL_KEY_FAMILY: str = "CANCEL"
+
+#: Family prefix of SP-OP-INADIMPLENCIA-001's business key — DISTINCT from CANCEL over the SAME
+#: contract identity (the two processes coordinate via topology + a runtime active-instance
+#: check, not a shared key; `docs/processes/harmonization-inadimplencia-cancel.md` §1).
+INADIMPLENCIA_KEY_FAMILY: str = "INAD"
+
+#: Bounded anchor tokens for the DL-0043 shadow counter. `matricula` is the PHI-bearing one.
+_ANCHOR_CONTRATO = "contrato"
+_ANCHOR_MATRICULA = "matricula"
+_ANCHOR_PSEUDO = "pseudo"
+
+
+def contract_business_key(family: str, tenant_id: str, contrato: str) -> str:
+    """`{family}-{tenant_id}-{contrato}` — the ONE place a contract-anchored key is formatted.
+
+    Byte-identical to the four f-strings it replaces (`inadimplencia._cancel_business_key`,
+    `fraude._cancel_business_key`/`_inadimplencia_business_key`,
+    `notification_bridge._cancel_business_key`/`_inadimplencia_business_key`,
+    `fernando.graph._business_key`). Extracted for the same reason `resolve_fraude_numero_caso`
+    was: two sites that re-implement one derivation eventually drift, and a drifted business key
+    is a divergent double start / an invisible active instance.
+    """
+    return f"{family}-{tenant_id}-{contrato}"
+
+
+def _record_key_mint(family: str, modo: str, anchor: str) -> None:
+    """Emit the DL-0043 shadow counter. NEVER raises into a key mint (telemetry is not the job).
+
+    Same defensive posture as `harness._emit_worker_task_outcome`: a metrics/registry problem
+    must never be able to fail — or worse, silently alter — a business-key derivation.
+    """
+    try:
+        from maezo.platform.observability import record_phi_business_key_mint  # noqa: PLC0415
+
+        record_phi_business_key_mint(family=family, modo=modo, anchor=anchor)
+    except Exception:  # noqa: BLE001 — telemetry is best-effort; a key mint must never fail on it
+        structlog.get_logger(__name__).debug(
+            "phi_business_key_mint_metric_failed", family=family, anchor=anchor
+        )
+
+
+def resolve_contract_identity(
+    *,
+    numero_contrato: str,
+    matricula_beneficiario: str,
+    beneficiario_pseudo_id: str = "",
+) -> tuple[str, str]:
+    """Resolve the identity segment a contract-anchored key is minted FROM, plus its anchor token.
+
+    Precedence, and why:
+
+    1. ``numero_contrato`` — the contract's own identifier, not a person's. Always preferred;
+       unchanged from day one, and unaffected by any policy mode.
+    2. ``beneficiario_pseudo_id`` — ONLY under a RATIFIED `modo: pseudo_keys`
+       (`spec/policies/privacy/phi-business-key-remediation.yaml`). This is the house's own
+       correct precedent (`PROG-{tenant}-{programa}-{beneficiario_pseudo_id}-{ciclo}`,
+       `agents/valentina/graph.py`; `DSR-...-{titular_pseudo_id}`).
+    3. ``matricula_beneficiario`` — today's fallback for individual/familiar plans. It is a
+       `PHI_PROCESS_VARS` name (`tools/workers/phi_vars.py`), which is precisely the finding
+       DL-0043 leg (c) records: the house classifies this value as Zona PHI and still mints it
+       raw into a durable, egressing business key.
+
+    Step 2 is INERT until a human ratifies the manifest, and step 2 falls through to step 3
+    whenever the pseudo id is absent — a blank `beneficiario_pseudo_id` never mints a degenerate
+    `CANCEL-{tenant}-` key, it keeps the legacy anchor. So under the shipped policy this function
+    returns exactly what `numero_contrato or matricula_beneficiario` returned before it existed.
+
+    PLAIN TRUTHINESS, NOT `non_blank`, is deliberate here. `non_blank` would additionally reject
+    a whitespace-only anchor — a genuine improvement in isolation, but it would make the GUARD
+    query a different set of keys than the MINTERS mint (they all used `or`), which is the exact
+    class of drift this extraction exists to remove. Tightening the anchor rule is a separate,
+    visible change to make once, in this one function, for mint and query together.
+    """
+    if numero_contrato:
+        return numero_contrato, _ANCHOR_CONTRATO
+
+    from maezo.platform.privacy.phi_key_policy import phi_key_policy  # noqa: PLC0415 — lazy
+
+    if phi_key_policy().pseudo_keys_enabled and beneficiario_pseudo_id:
+        return beneficiario_pseudo_id, _ANCHOR_PSEUDO
+    return matricula_beneficiario, _ANCHOR_MATRICULA
+
+
+def mint_contract_business_key(
+    family: str,
+    tenant_id: str,
+    *,
+    numero_contrato: str,
+    matricula_beneficiario: str,
+    beneficiario_pseudo_id: str = "",
+) -> str:
+    """Mint a contract-anchored business key AND record the DL-0043 shadow counter.
+
+    The single mint path for the CANCEL and INAD families. Under the shipped (`off`) policy the
+    returned string is byte-identical to the pre-existing
+    ``f"{family}-{tenant}-{numero_contrato or matricula_beneficiario}"``; the only added
+    behaviour is one content-free counter increment recording WHICH anchor was used.
+    """
+    contrato, anchor = resolve_contract_identity(
+        numero_contrato=numero_contrato,
+        matricula_beneficiario=matricula_beneficiario,
+        beneficiario_pseudo_id=beneficiario_pseudo_id,
+    )
+    from maezo.platform.privacy.phi_key_policy import phi_key_policy  # noqa: PLC0415 — lazy
+
+    _record_key_mint(family, phi_key_policy().modo.value, anchor)
+    return contract_business_key(family, tenant_id, contrato)
+
+
+def contract_business_key_forms(
+    family: str,
+    tenant_id: str,
+    *,
+    numero_contrato: str,
+    matricula_beneficiario: str,
+    beneficiario_pseudo_id: str = "",
+) -> tuple[str, ...]:
+    """EVERY business key form under which an active instance for this contract could exist.
+
+    THIS IS THE B-2 FIX (anti-dupla-terminacao, confirmed blocker). The CANCEL business key is
+    minted by THREE composers that do NOT agree on the anchor:
+
+      * `inadimplencia._cancel_business_key`      -> `CANCEL-{t}-{numero_contrato OR matricula}`
+      * `fraude._cancel_business_key`             -> `CANCEL-{t}-{numero_contrato}` (no fallback)
+      * `notification_bridge._cancel_business_key`-> `CANCEL-{t}-{numero_contrato}` (no fallback)
+
+    while `inadimplencia._query_ja_em_rescisao_cancel` queried ONLY the first form. For a contract
+    carrying BOTH a `numero_contrato` and a `matricula_beneficiario`, a CANCEL-001 instance
+    started by fraude/the bridge under the contract form is invisible to a query keyed on the
+    matricula form, and vice versa — so the guard that exists to stop a double termination
+    returns "no active rescisao" while one is live, and the independent suspension proceeds.
+
+    The fix is to query the FULL set of derivable forms and treat a hit on ANY of them as an
+    active rescisao. Finding MORE instances is strictly the conservative direction: it can only
+    BLOCK an adverse effect that would otherwise have proceeded, never permit one.
+
+    Returned forms, in stable order (deduped, blank anchors dropped):
+      1. the `numero_contrato` form  — what fraude / the bridge mint;
+      2. the `matricula_beneficiario` form — the individual/familiar-plan fallback;
+      3. the `beneficiario_pseudo_id` form — ONLY under a ratified `modo: pseudo_keys`, which is
+         the DUAL-READ half of the migration window: new mints move to the pseudo form while
+         guards keep seeing instances that are still live under the legacy forms.
+
+    Returns an EMPTY tuple when no anchor at all is derivable — callers MUST treat that as
+    "cannot rule out a rescisao" and fail closed, exactly as before. Anchor truthiness uses the
+    SAME plain-`or` rule the minters use (see `resolve_contract_identity`): the guard must query
+    the keys that are actually mintable, not a tidier set.
+    """
+    anchors = [numero_contrato, matricula_beneficiario]
+
+    from maezo.platform.privacy.phi_key_policy import phi_key_policy  # noqa: PLC0415 — lazy
+
+    if phi_key_policy().pseudo_keys_enabled:
+        anchors.append(beneficiario_pseudo_id)
+
+    forms: list[str] = []
+    for anchor in anchors:
+        if not anchor:
+            continue
+        key = contract_business_key(family, tenant_id, anchor)
+        if key not in forms:
+            forms.append(key)
+    return tuple(forms)
+
+
 def pick_fields(variables: dict[str, Any], cls: type) -> dict[str, Any]:
     """Explicit field selection: keep only the keys `cls` (a dataclass) actually declares.
 

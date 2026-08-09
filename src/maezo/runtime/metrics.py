@@ -108,6 +108,25 @@ class MetricsCollector:
             registry=self._registry,
         )
 
+        # DL-0043 leg (c): SHADOW telemetry for the PHI-in-business-keys remediation flag. Counts
+        # business-key MINTS by which anchor the key was derived from — it is the owner's
+        # evidence for deciding whether to ratify `spec/policies/privacy/
+        # phi-business-key-remediation.yaml`. The `anchor="matricula"` series is exactly "how
+        # many keys we minted today that WOULD have been pseudonymized under `pseudo_keys`".
+        #
+        # CONTENT-FREE BY CONSTRUCTION. Every label is a closed vocabulary: `family` in
+        # {CANCEL, INAD}, `modo` in {off, scrub_only, pseudo_keys}, `anchor` in
+        # {contrato, matricula, pseudo}. NO tenant, NO business key, NO matricula — the same rule
+        # `worker_task_total` and `llm_tokens` document above, and the reason this counter can
+        # exist at all while the thing it measures is PHI.
+        self._phi_business_key_mint = Counter(
+            "maezo_phi_business_key_mint_total",
+            "Business-key mints by family and derivation anchor (DL-0043 shadow telemetry; "
+            "COUNTS ONLY — never any key, tenant or matricula content)",
+            labelnames=["family", "modo", "anchor"],
+            registry=self._registry,
+        )
+
         logger.info("metrics_collector_initialized")
 
     @property
@@ -172,3 +191,13 @@ class MetricsCollector:
         incremented with, or converted to, a cost/dollar value.
         """
         return self._llm_tokens
+
+    @property
+    def phi_business_key_mint(self) -> Counter:
+        """Counter for business-key mints by derivation anchor (DL-0043 shadow telemetry).
+
+        Labels: family ("CANCEL" | "INAD"), modo ("off" | "scrub_only" | "pseudo_keys"),
+        anchor ("contrato" | "matricula" | "pseudo"). COUNTS ONLY — no key, tenant or
+        matricula value ever reaches this metric.
+        """
+        return self._phi_business_key_mint

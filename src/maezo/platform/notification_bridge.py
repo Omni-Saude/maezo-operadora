@@ -66,6 +66,9 @@ from maezo.tools.mcp_cibseven.transport import (
     CibSevenTransport,
     start_process_idempotent,
 )
+from maezo.tools.workers.base import CANCEL_KEY_FAMILY as _CANCEL_KEY_FAMILY
+from maezo.tools.workers.base import INADIMPLENCIA_KEY_FAMILY as _INADIMPLENCIA_KEY_FAMILY
+from maezo.tools.workers.base import contract_business_key as _shared_contract_business_key
 from maezo.tools.workers.base import non_blank as _shared_non_blank
 from maezo.tools.workers.base import resolve_fraude_numero_caso as _resolve_fraude_numero_caso
 
@@ -403,8 +406,13 @@ def _cred_business_key(tenant_id: str, prestador_id: str) -> str:
 
 def _cancel_business_key(tenant_id: str, numero_contrato: str) -> str:
     """`CANCEL-{tenant_id}-{numero_contrato}` (contract `SP-OP-CANCEL-001.md` "Business key
-    (idempotencia)") — one active cancelamento/rescisao instance per contract."""
-    return f"CANCEL-{tenant_id}-{numero_contrato}"
+    (idempotencia)") — one active cancelamento/rescisao instance per contract.
+
+    Delegates to the SHARED `base.contract_business_key` (the third of the three CANCEL
+    composers). NO matricula fallback here — this rule's predicate already requires a non-blank
+    `numero_contrato`. `inadimplencia`'s composer DOES fall back, which is why the
+    anti-dupla-terminacao guard now sweeps every derivable form rather than one (B-2)."""
+    return _shared_contract_business_key(_CANCEL_KEY_FAMILY, tenant_id, numero_contrato)
 
 
 def _inadimplencia_business_key(tenant_id: str, numero_contrato: str) -> str:
@@ -412,7 +420,7 @@ def _inadimplencia_business_key(tenant_id: str, numero_contrato: str) -> str:
     (idempotencia) — coordenada com CANCEL-001") — a prefix DISTINCT from CANCEL for the SAME
     contract (the two processes coordinate via topology + a runtime active-instance check, not
     via a shared business key — see the contract's own "Coordenacao com CANCEL-001" note)."""
-    return f"INAD-{tenant_id}-{numero_contrato}"
+    return _shared_contract_business_key(_INADIMPLENCIA_KEY_FAMILY, tenant_id, numero_contrato)
 
 
 # ---------------------------------------------------------------------------

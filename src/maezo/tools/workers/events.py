@@ -91,6 +91,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from maezo.platform.privacy.key_scrubber import egress_message_key
 from maezo.tools.workers.harness import ExternalTask, WorkerBpmnError
 
 if TYPE_CHECKING:
@@ -318,7 +319,13 @@ def make_publish_event_handler(
             event_delivered = await kafka.publish(
                 str(event_topic),
                 payload,
-                key=task.business_key or None,
+                # DL-0043 leg (c): the Kafka MESSAGE KEY is a raw business key, which for the
+                # CANCEL/INAD families can be `{FAMILY}-{tenant}-{matricula_beneficiario}` — a
+                # `PHI_PROCESS_VARS` value on the wire AND in the broker's own partition
+                # metadata. `egress_message_key` returns it UNCHANGED under the shipped (`off`)
+                # policy, and pseudonymizes only those two families once `scrub_only` is
+                # ratified (a documented partitioning change — see the manifest).
+                key=egress_message_key(task.business_key) or None,
                 best_effort=publish_best_effort,
             )
         except Exception as exc:
