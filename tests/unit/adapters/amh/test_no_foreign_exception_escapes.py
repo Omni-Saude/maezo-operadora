@@ -50,6 +50,7 @@ import pytest
 
 from maezo.adapters.amh import contract as contract_mod
 from maezo.adapters.amh import mapping as mapping_mod
+from maezo.adapters.amh import wire_framing as wire_framing_mod
 from maezo.adapters.amh.contract import (
     CONTRACT_PIN_RELATIVE_PATH,
     MAEZO_AMH_CONTRACT_PIN_ENV,
@@ -69,6 +70,7 @@ from maezo.adapters.amh.mapping import (
     truncate_to_wire_millis,
     utc_to_millis,
 )
+from maezo.adapters.amh.wire_framing import select_wire_framing_codec
 from maezo.ports.envelope import ENVELOPE_FIELD_ORDER
 
 REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[4]
@@ -452,6 +454,37 @@ class TestEveryEntryPointConverts:
             "resolve_contract_pin_path", f"override={override[:40]!r}", resolve_contract_pin_path
         )
 
+    @pytest.mark.parametrize(
+        ("label", "hostile_pin"),
+        [("none", None), ("string", "not-a-pin"), ("empty dict", {}), ("list", []), ("int", 123)],
+        ids=["none", "string", "empty-dict", "list", "int"],
+    )
+    def test_select_wire_framing_codec_over_hostile_pin_shapes(self, label: str, hostile_pin: Any) -> None:
+        """`select_wire_framing_codec`'s own hostile corpus: a `pin` argument that is not the verified
+        `AmhContractPin` `load_contract_pin` returns must convert, not raise a bare `AttributeError`
+        from `pin.source_path` (`wire_framing.py`'s shape guard)."""
+        _assert_converts(
+            "select_wire_framing_codec",
+            f"pin={label}",
+            lambda p=hostile_pin: select_wire_framing_codec(p),
+        )
+
+    def test_select_wire_framing_codec_over_a_pin_with_a_hostile_source_path(self, pin: Any) -> None:
+        """Same class of leak, narrower: a REAL `AmhContractPin` whose `source_path` has been
+        corrupted to a non-`Path` — the other proven-leak shape the shape guard closes."""
+        for label, bad_source_path in [
+            ("string", "not-a-path"),
+            ("none", None),
+            ("int", 123),
+            ("bytes", b"/tmp/x"),
+        ]:
+            mutated = dataclasses.replace(pin, source_path=bad_source_path)
+            _assert_converts(
+                "select_wire_framing_codec",
+                f"source_path={label}",
+                lambda m=mutated: select_wire_framing_codec(m),
+            )
+
     def test_corpus_is_not_vacuous(self, request: pytest.FixtureRequest) -> None:
         """Every entry point above must have been exercised, and the corpus must be broad enough that
         no single-atom mistake shrinks it silently.
@@ -477,6 +510,7 @@ class TestEveryEntryPointConverts:
             "outcome_to_wire",
             "load_contract_pin",
             "resolve_contract_pin_path",
+            "select_wire_framing_codec",
         }
         assert expected <= set(_OBSERVED), f"never exercised: {sorted(expected - set(_OBSERVED))}"
         assert len(_HOSTILE_ATOMS) >= 35, "the hostile corpus shrank — atoms are removed deliberately"
@@ -506,9 +540,10 @@ def test_public_surface_is_covered_by_the_corpus() -> None:
         "load_contract_pin",
         "parse_semver",
         "resolve_contract_pin_path",
+        "select_wire_framing_codec",
     }
     exported_callables: set[str] = set()
-    for module in (mapping_mod, contract_mod):
+    for module in (mapping_mod, contract_mod, wire_framing_mod):
         for name in module.__all__:
             obj = getattr(module, name)
             if callable(obj) and not isinstance(obj, type):
@@ -658,7 +693,7 @@ def _walk_calls(node: ast.AST, module: str, function: str, in_try: bool) -> Iter
 
 def _scan() -> list[_CallSite]:
     sites: list[_CallSite] = []
-    for module in (contract_mod, mapping_mod):
+    for module in (contract_mod, mapping_mod, wire_framing_mod):
         path = Path(module.__file__ or "")
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         sites.extend(_walk_calls(tree, path.stem, "<module>", False))
@@ -685,7 +720,7 @@ class TestNoEscapeProneCallIsUnguarded:
         sites = _scan()
         assert len(sites) >= 15, f"the AST scan found only {len(sites)} escape-prone calls: {sites}"
         assert any(site.guarded for site in sites), "no guarded call found — the scan is broken"
-        assert {site.module for site in sites} == {"contract", "mapping"}
+        assert {site.module for site in sites} == {"contract", "mapping", "wire_framing"}
 
     def test_every_watched_primitive_is_actually_present(self) -> None:
         """A stale entry in `_ESCAPE_PRONE` is a rule that guards nothing. Catch the drift here rather

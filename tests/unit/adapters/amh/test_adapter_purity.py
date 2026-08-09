@@ -58,15 +58,18 @@ import pytest
 
 import maezo.adapters.amh as amh_pkg
 
-# The EXACT module set of the package. Phase A ships THREE layers plus the package surface; the
-# absent `consumer.py` is deliberate (see the package docstring: `ack` durability needs the MZO-060
-# inbox, which does not exist). Adding a module must be a deliberate edit here.
+# The EXACT module set of the package. Phase A ships THREE layers; MZO-050b adds a FOURTH, the
+# wire-framing codec seam (still a dark build — no broker, no Avro decode, no new dependency, see
+# _FORBIDDEN_PHASE_A_ROOTS below, which `wire_framing.py` must also clear). The absent `consumer.py` is
+# deliberate (see the package docstring: `ack` durability needs the MZO-060 inbox, which does not
+# exist). Adding a module must be a deliberate edit here.
 _EXPECTED_MODULES: frozenset[str] = frozenset(
     {
         "__init__",  # public surface (re-exports only) + the "why no consumer" record
         "contract",  # fail-closed runtime loader for the immutable pin
         "mapping",  # decoded wire event <-> canonical port value types
         "settings",  # env-driven configuration, declared not wired
+        "wire_framing",  # MZO-050b: pluggable wire-framing codec seam, fails closed on an undeclared pin
     }
 )
 
@@ -214,7 +217,7 @@ def test_adapter_modules_discovered() -> None:
         f"{sorted(_EXPECTED_MODULES)}. Adding a module changes the adapter's shape — update "
         "_EXPECTED_MODULES in the same commit."
     )
-    assert len(mods) == 4, f"expected exactly 4 phase-A modules, found {sorted(mods)}"
+    assert len(mods) == 5, f"expected exactly 5 modules (phase A + the MZO-050b seam), found {sorted(mods)}"
     assert "consumer" not in mods, (
         "consumer.py exists — phase A must NOT ship a consumer: WorkItemSource.ack may only report "
         "success on DURABLE settlement (ADR-0037 XRD-10: Kafka offsets never represent business "
