@@ -5,6 +5,8 @@ TDD London School: tests verify value-driven tier routing and payment release gu
 
 import asyncio
 import inspect
+import math
+from decimal import Decimal
 
 import pytest
 import structlog.testing
@@ -309,6 +311,235 @@ def test_route_aprovacao_propagates_computed_ceiling_fact_overriding_true_seed()
             {"valor_pagamento_cents": 15_000_000, "dentro_teto_l2": False, "tipo_pagamento": ""},
         )
     ]
+
+
+# ---------------------------------------------------------------
+# route_aprovacao — B-1: the amount is REQUIRED, never defaulted (blocker, money, fail-OPEN)
+#
+# Pre-fix live path, end to end: `variables.get("valor_pagamento_cents", 0)` turned an ABSENT
+# amount into 0 -> `within_l2_ceiling(0)` was True under the real R$100k teto -> `pagto_alcada`'s
+# `r_dentro_teto_l2` (`0 <= 10000000` AND `dentro_teto_l2=true`, dmn:64-65) matched ->
+# `faixa_valor=DENTRO_TETO_L2` -> `ST_ReleaseLowValue` -> `execute_pagto` EXECUTED a payment for
+# an order that never carried an amount. Negative amounts took the same path; a `str` crashed the
+# ceiling comparison with an uncaught TypeError.
+#
+# The FakeDmnTransport replays whatever row it was registered with regardless of input, so these
+# tests assert the INPUTS handed to the DMN (`fake.calls`) — the only thing this worker decides.
+# That those inputs land on the table's conservative catch-all is proven structurally against the
+# real DMN/BPMN in tests/unit/sec/test_pagto_valor_fence.py.
+# ---------------------------------------------------------------
+
+
+class _RecordingCeilingResolver:
+    """Records every `value_cents` the worker hands the resolver; always answers WITHIN.
+
+    Answering True is the adversarial setting: if the worker ever consults the resolver for an
+    untrusted amount, this double opens the auto-release band — so any leak shows up as a
+    DENTRO_TETO_L2-shaped DMN input rather than being masked by a conservative double.
+    """
+
+    def __init__(self) -> None:
+        self.seen: list[object] = []
+
+    def within_l2_ceiling(self, *, tenant: str, action: str, param: str, value_cents: int) -> bool:
+        del tenant, action, param
+        self.seen.append(value_cents)
+        return True
+
+
+#: Every amount the worker must refuse. `_ABSENT` is a sentinel meaning "key not in variables".
+_ABSENT = object()
+_INVALID_VALORES = [
+    pytest.param(_ABSENT, "ausente", id="absent"),
+    pytest.param(None, "ausente", id="none"),
+    pytest.param(0, "nao_positivo", id="zero"),
+    pytest.param(-1, "nao_positivo", id="negative-one"),
+    pytest.param(-5_000_000, "nao_positivo", id="negative-large"),
+    pytest.param(True, "booleano", id="bool-true"),
+    pytest.param(False, "booleano", id="bool-false"),
+    pytest.param("5000", "tipo_invalido", id="numeric-string"),
+    pytest.param("abc", "tipo_invalido", id="non-numeric-string"),
+    pytest.param(8000.0, "float", id="integral-float"),
+    pytest.param(8000.5, "float", id="fractional-float"),
+    pytest.param(math.nan, "float", id="nan"),
+    pytest.param(math.inf, "float", id="positive-inf"),
+    pytest.param(-math.inf, "float", id="negative-inf"),
+    pytest.param([5000], "tipo_invalido", id="list"),
+    pytest.param({"value": 5000}, "tipo_invalido", id="dict"),
+]
+
+
+def _vars_with_valor(valor: object) -> dict[str, object]:
+    base: dict[str, object] = {"tenant_id": "amh", "ordem_pagamento_id": "OP-B1"}
+    if valor is not _ABSENT:
+        base["valor_pagamento_cents"] = valor
+    return base
+
+
+@pytest.mark.parametrize(("valor", "motivo"), _INVALID_VALORES)
+def test_invalid_valor_never_reaches_the_auto_release_band(valor: object, motivo: str) -> None:
+    """B-1 core assertion: no untrusted amount can produce `dentro_teto_l2=True`.
+
+    The resolver double answers WITHIN for anything it is asked — and it is never asked, because
+    the guard rejects the amount before the ceiling is ever consulted. `dentro_teto_l2=False`
+    structurally closes `r_dentro_teto_l2` (dmn:65 requires `true`), so the auto-release band is
+    unreachable no matter what the ceiling would have said.
+    """
+    del motivo  # shared parametrisation; the reason token is asserted by the sibling test
+    resolver = _RecordingCeilingResolver()
+    fake = _pagto_alcada_fake(
+        faixa_valor="ANALISE_HUMANA", grupo_aprovador="comite-financeiro", tier_minimo=4
+    )
+
+    result = route_aprovacao(_vars_with_valor(valor), resolver, dmn=fake)  # type: ignore[arg-type]
+
+    assert resolver.seen == [], "the ceiling was consulted for an amount that is not money"
+    assert result["dentro_teto_l2"] is False
+    assert fake.calls == [
+        ("pagto_alcada", {"valor_pagamento_cents": 0, "dentro_teto_l2": False, "tipo_pagamento": ""})
+    ]
+
+
+@pytest.mark.parametrize(("valor", "motivo"), _INVALID_VALORES)
+def test_invalid_valor_is_fail_neutral_and_logs_a_bounded_reason(valor: object, motivo: str) -> None:
+    """Fail-CLOSED but fail-NEUTRAL (ADR-0030): rejection RETURNS, never raises.
+
+    `ST_CalculateFacts` declares no error boundary event, so a raise here would become an engine
+    incident that STALLS the order rather than routing it to a human — and a `WorkerBpmnError`
+    would silently end the scope. The refusal is recorded with a bounded, non-PHI token.
+    """
+    fake = _pagto_alcada_fake(
+        faixa_valor="ANALISE_HUMANA", grupo_aprovador="comite-financeiro", tier_minimo=4
+    )
+    with structlog.testing.capture_logs() as logs:
+        result = route_aprovacao(_vars_with_valor(valor), _RecordingCeilingResolver(), dmn=fake)  # type: ignore[arg-type]
+
+    assert result["faixa_valor"] == "ANALISE_HUMANA"
+    rejections = [entry for entry in logs if entry["event"] == "pagto_valor_pagamento_invalido"]
+    assert len(rejections) == 1, logs
+    assert rejections[0]["motivo"] == motivo
+    assert rejections[0]["log_level"] == "error"
+
+
+@pytest.mark.parametrize(("valor", "motivo"), _INVALID_VALORES)
+def test_invalid_valor_produces_identical_dmn_input_route_equivalence(valor: object, motivo: str) -> None:
+    """Route-EQUIVALENCE of the conservative token (`_VALOR_CENTS_ROTA_CONSERVADORA`).
+
+    Normalising a rejected amount to 0 is not a fabricated payment: every rejected vector either
+    cannot be sent to a `long`-typed DMN input at all, or is an int <= 0 — and EVERY int <= 0
+    lands on the same `r_catchall` row that 0 does (the three ALCADA ranges all start above
+    10000000). So the normalisation changes no routing outcome for any rejected vector; it only
+    makes the input well-typed. Pinned by asserting one identical DMN input dict for all of them.
+    """
+    del motivo  # shared parametrisation; the reason token is asserted by the sibling test
+    fake = _pagto_alcada_fake(
+        faixa_valor="ANALISE_HUMANA", grupo_aprovador="comite-financeiro", tier_minimo=4
+    )
+    route_aprovacao(_vars_with_valor(valor), _RecordingCeilingResolver(), dmn=fake)  # type: ignore[arg-type]
+    assert fake.calls[0][1] == {
+        "valor_pagamento_cents": 0,
+        "dentro_teto_l2": False,
+        "tipo_pagamento": "",
+    }
+
+
+def test_invalid_valor_route_cannot_be_executed_as_an_auto_release() -> None:
+    """The downstream half: the faixa this refusal routes to is REFUSED by `execute_pagto`.
+
+    `execute_pagto` (the `ST_ReleaseLowValue` worker — the thing that pre-fix actually paid) only
+    releases on `faixa_valor == "DENTRO_TETO_L2"`. Feeding it the conservative route proves the
+    money path is closed end-to-end within this module, not just at the routing decision.
+    """
+    assert execute_pagto({"faixa_valor": "ANALISE_HUMANA"})["pagamento_executado"] is False
+
+
+def test_absent_valor_with_a_permissive_ceiling_is_the_exact_pre_fix_bypass() -> None:
+    """The regression canary, in the exact shape the defect had.
+
+    Pre-fix, THIS input (no amount + a ceiling that admits 0) produced `dentro_teto_l2=True` and a
+    DMN input of `valor_pagamento_cents=0`, which matches `r_dentro_teto_l2` (`0 <= 10000000` +
+    `true`) and releases. Post-fix the ceiling is never consulted and the DMN sees `False`.
+    """
+    resolver = _AlwaysWithinCeilingResolver()
+    fake = _pagto_alcada_fake(
+        faixa_valor="ANALISE_HUMANA", grupo_aprovador="comite-financeiro", tier_minimo=4
+    )
+    result = route_aprovacao({"tenant_id": "amh"}, resolver, dmn=fake)  # type: ignore[arg-type]
+    assert result["dentro_teto_l2"] is False
+    assert fake.calls[0][1]["dentro_teto_l2"] is False
+
+
+# --- valid amounts are UNCHANGED, and both consumers see the SAME int -------------------------
+
+
+@pytest.mark.parametrize(
+    "valor",
+    [1, 85_000, 5_000_000, 9_999_999, 10_000_000, 10_000_001, 5_000_000_000, 10**20],
+)
+def test_valid_valor_is_forwarded_unchanged_to_both_resolver_and_dmn(valor: int) -> None:
+    """Item 3 — ONE normalized int reaches BOTH consumers.
+
+    Pre-fix the resolver got the RAW `valor_cents` while the DMN got `int(valor_cents)` — two
+    readings of one fact from one variable, differing on exactly the malformed inputs that must
+    not route at all. Boundary-exact (10_000_000, the DMN's hardcoded R$100k gate) and
+    boundary+1 are included, as are amounts beyond int32 (money is `long`).
+    """
+    resolver = _RecordingCeilingResolver()
+    fake = _pagto_alcada_fake(faixa_valor="DENTRO_TETO_L2", grupo_aprovador="", tier_minimo=0)
+
+    route_aprovacao(
+        {"tenant_id": "amh", "valor_pagamento_cents": valor},
+        resolver,  # type: ignore[arg-type]
+        dmn=fake,
+    )
+
+    assert resolver.seen == [valor], "resolver saw a different amount than the caller supplied"
+    assert fake.calls[0][1]["valor_pagamento_cents"] == valor
+    assert type(fake.calls[0][1]["valor_pagamento_cents"]) is int
+    assert resolver.seen[0] == fake.calls[0][1]["valor_pagamento_cents"], "resolver/DMN disagree"
+
+
+def test_valid_valor_still_reaches_the_auto_release_band() -> None:
+    """NO legitimate auto-release is newly blocked — the guard only rejects non-money.
+
+    Net-safety check in the other direction: a well-formed low-value payment under a ceiling that
+    admits it still computes `dentro_teto_l2=True` and hands the DMN the DENTRO_TETO_L2-shaped
+    input, exactly as before.
+    """
+    fake = _pagto_alcada_fake(faixa_valor="DENTRO_TETO_L2", grupo_aprovador="", tier_minimo=0)
+    result = route_aprovacao(
+        {"tenant_id": "amh", "valor_pagamento_cents": 85_000},
+        _AlwaysWithinCeilingResolver(),  # type: ignore[arg-type]
+        dmn=fake,
+    )
+    assert result["dentro_teto_l2"] is True
+    assert result["faixa_valor"] == "DENTRO_TETO_L2"
+    assert fake.calls[0][1] == {
+        "valor_pagamento_cents": 85_000,
+        "dentro_teto_l2": True,
+        "tipo_pagamento": "",
+    }
+
+
+def test_valor_guard_vector_table() -> None:
+    """The guard predicate itself — accepted set is exactly the positive ints."""
+    for ok in (1, 85_000, 10_000_000, 5_000_000_000):
+        assert pagto_module._valor_pagamento_cents_or_none(ok) == (ok, "")
+    for bad, motivo in (
+        (None, "ausente"),
+        (True, "booleano"),
+        (False, "booleano"),
+        (8000.0, "float"),
+        (math.nan, "float"),
+        (math.inf, "float"),
+        ("5000", "tipo_invalido"),
+        (b"5000", "tipo_invalido"),
+        ([1], "tipo_invalido"),
+        (Decimal("8000"), "tipo_invalido"),
+        (0, "nao_positivo"),
+        (-1, "nao_positivo"),
+    ):
+        assert pagto_module._valor_pagamento_cents_or_none(bad) == (None, motivo), bad
 
 
 # ---------------------------------------------------------------
