@@ -104,6 +104,11 @@ de processo e citada como autoridade do esquema em `inadimplencia.py:52-58` (con
 - Os artefatos implantados concordam: `spec/processes/bpmn/*.bpmn` declara **20 `process id` distintos,
   todos `SP-OP-*`** (as 15 da allowlist + `SP-OP-ANS-CRON-001-DIOPS` / `-RN124SIP` / `-RN209` /
   `-RN388` / `-RN424TISS`). **Zero** com prefixo `maezo-payer-`.
+  **Atencao — as cinco ultimas nao sao "as 15 mais cinco iguais":** elas nao casam a regex de `:60`
+  (que exige terminacao em tres digitos) e nao estao em `KNOWN_PROCESS_KEYS`. A superficie implantada
+  (20) e a superficie que o realizador do ADR-0016 aceita (15) **ja divergem hoje**, antes e
+  independentemente deste ADR. Ver "Achado colateral (superficie ADR-0016)" em "Consequencias" — este
+  ADR e o primeiro documento a registrar a comparacao, e **nao a fecha**.
 - Varredura do repo: a string `maezo-payer` **nao ocorre em nenhum `.bpmn`, `.yaml`/`.yml` ou modulo
   `src/` de producao** — a UNICA ocorrencia de codigo e a constante
   `PAYER_PROCESS_DEFINITION_KEY_PREFIX: Final[str] = "maezo-payer-"` em
@@ -111,8 +116,13 @@ de processo e citada como autoridade do esquema em `inadimplencia.py:52-58` (con
   do ADR (`identity.py:140` separador `":"`; `identity.py:466-496`
   `WorkflowBusinessRef.business_key` compondo
   `{company_tenant_ref}:{workflow_type}:{workflow_business_ref}`) e **nao tem nenhum chamador de
-  producao** — so re-export em `src/maezo/domain/integration/__init__.py:10-22` e
-  `src/maezo/domain/__init__.py:7`.
+  producao** — so o re-export em `src/maezo/domain/integration/__init__.py:10-22`.
+  `src/maezo/domain/__init__.py:7` **nao e re-export**: e uma linha de DOCSTRING que apenas MENCIONA o
+  caminho do subpacote, num modulo que declara literalmente "Deliberately NOT a re-export surface"
+  (`src/maezo/domain/__init__.py:9-10`) e expoe `__all__: list[str] = []` (`:15`). Corrigido aqui
+  porque a citacao original estava errada — e a correcao **REFORCA** a conclusao de zero chamadores de
+  producao: nem sequer existe superficie publica em `maezo.domain` por onde o objeto de valor do
+  MZO-020 pudesse ser alcancado sem import pelo caminho proprio do subpacote.
 
 **Consequencia factual, sem exagero:** hoje **nenhuma** business key e **nenhuma** process-definition
 key implantada satisfaz a FORMA da proibicao 6, e o MZO-020 entregou o objeto de valor que a satisfaz
@@ -161,8 +171,17 @@ escolher a Opcao 1):
 > `{PREFIXO_DOMINIO}-{company_tenant_ref}-{workflow_business_ref...}`, unida por hifen, com o prefixo
 > de dominio a frente — a convencao ja documentada em
 > `src/maezo/tools/mcp_cibseven/transport.py:14` e realizada pelos compositores citados no §2 deste
-> ADR-0038. As process-definition keys tem a forma `SP-OP-<DOMAIN>-<NNN>`, conforme a regex e o
-> universo congelado de `src/maezo/tools/process_allowlist.py:60,21-42` (ADR-0016).
+> ADR-0038. As process-definition keys tem a forma `SP-OP-<DOMAIN>-<NNN>[-<VARIANTE>]`, onde o tronco
+> `SP-OP-<DOMAIN>-<NNN>` e exatamente a regex e o universo congelado de 15 chaves de
+> `src/maezo/tools/process_allowlist.py:60,21-42` (ADR-0016), e o sufixo `-<VARIANTE>` e OPCIONAL, com
+> universo **congelado no conjunto hoje implantado e em mais nenhum**: as cinco variantes de
+> `SP-OP-ANS-CRON-001` declaradas em
+> `spec/processes/bpmn/SP-OP-ANS-CRON-001_Agendador_Envios_ANS.bpmn:49,81,113,145,177`
+> (`-RN124SIP`, `-RN209`, `-RN388`, `-RN424TISS`, `-DIOPS`). **Nenhuma variante nova e autorizada por
+> esta emenda**; criar outra exige ADR proprio. O sufixo existe aqui por um motivo e so um: sem ele
+> esta clausula de grandfathering deixaria de fora 5 dos 20 `process id` implantados — ver o
+> "Achado colateral (superficie ADR-0016)" em "Consequencias", que registra a divergencia entre esta
+> forma e a regex do ADR-0016 **sem fecha-la**.
 >
 > **(6.2) Semantica — INALTERADA e integralmente exigivel.** Business keys permanecem **opacas**
 > (nenhum significado de negocio derivavel por quem nao possui o mapeamento), **escopadas por tenant**
@@ -170,8 +189,48 @@ escolher a Opcao 1):
 > cross-tenant continua estrutural), e **livres de PHI e de identificador cru de registro de fonte**
 > (proibicao 5, `0037:210-211`, permanece **integralmente em vigor e NAO e emendada aqui**). O
 > `workflow_type` da forma original nao desaparece: e o `{PREFIXO_DOMINIO}`, movido de posicao.
-> Nenhuma garantia de opacidade, de tenancy ou de PHI e afrouxada por esta emenda — **so a ORDEM e o
-> SEPARADOR dos componentes mudam**.
+> Nenhuma garantia de **opacidade** e nenhuma garantia de **PHI** e afrouxada por esta emenda. A
+> garantia de **tenancy**, ao contrario, **NAO sobrevive intacta a troca de separador** — ver (6.2.1),
+> que e parte normativa desta clausula e nao uma nota de rodape.
+>
+> **(6.2.1) Fronteira de componente — ENDURECIMENTO EXIGIDO, hoje NAO satisfeito em nenhum sitio.**
+> A forma unida por `:` do ADR-0037 tem exatamente dois separadores **por construcao**, porque
+> `src/maezo/domain/integration/identity.py:134-138` exclui deliberadamente `:` de
+> `PERMITTED_CHARACTERS` (que admite `.`, `_` e `-`) — e e exatamente por isso que a POSSE de uma key
+> pode ser decidida por RECOMPOSICAO em vez de split (`identity.py:86-91`,
+> `WorkflowBusinessRef.owns_business_key`). A forma hifen-primeiro de (6.1) **nao herda essa
+> propriedade**: `-` e, ao mesmo tempo, o separador E um caractere legal de componente. Com
+> `tenant_id = "tenant-x"` e `numero_contrato = "C1"`, `_cancel_business_key`
+> (`src/maezo/platform/notification_bridge.py:404-407`) produz `CANCEL-tenant-x-C1`, que e
+> **indistinguivel** do par (`tenant`, `x-C1`). Arity fixa por prefixo nao resolve: ambas as leituras
+> produzem 4 tokens.
+>
+> Isto nao e hipotese de laboratorio. (i) Literais de tenant COM hifen ja existem neste repo —
+> `tests/unit/runtime/test_inference.py:673` (`tenant-x`),
+> `tests/unit/agents/test_token_correlation.py:83,110,135,149`
+> (`tenant-helena-canary`, `tenant-andre-canary`, `tenant-alpha`, `tenant-beta`),
+> `tests/unit/tools/workers/test_events.py:357` (`other-deployment`). (ii) **Nenhum** sitio de
+> producao valida o charset de `tenant_id` nem o dos componentes de id antes de compor. (iii) O
+> impacto e de ISOLAMENTO, nao cosmetico: a business key e a chave de busca do start idempotente
+> (`src/maezo/tools/mcp_cibseven/transport.py:206-230`, `find_active_instance`), logo uma colisao de
+> fronteira pode devolver a instancia VIVA DE OUTRO TENANT e fazer o chamador tratar como
+> "ja em andamento" um processo que nao e dele.
+>
+> Portanto, sob a Opcao 1, (6.1) so entrega tenancy **estrutural** se acompanhada do seguinte
+> requisito: **nenhum componente de uma business key pode conter o separador `-`** (equivalentemente:
+> `company_tenant_ref` e cada `{id}` restritos a um charset que exclua `-`), verificado no ponto de
+> composicao. Este ADR **declara o requisito e NAO o implementa** — e docs-only, e o requisito
+> descreve um estado que **ainda nao existe**. Os sitios que precisariam do check sao os ~25
+> compositores do §2 (os 7 workers; os 7 de `notification_bridge.py:184,198,364,370,401,407,415`; os
+> ~11 de grafos/delegacoes de agente), **nenhum dos quais o faz hoje**. Enquanto o endurecimento nao
+> existir, a ambiguidade de fronteira de componente e um **residual ABERTO nomeado desta emenda**
+> ("Residual aberto: fronteira de componente", registrado em "Consequencias"), no mesmo nivel de
+> honestidade da perna (c) — e a Opcao 1 **nao deve ser lida como entregando isolamento cross-tenant
+> estrutural** ate que ele exista.
+>
+> Precedente interno de que `:` foi escolhido justamente por isto: a identidade de
+> conversa/checkpoint deste MESMO repo usa `wa:{tenant}:{hash}`
+> (`src/maezo/runtime/checkpoint.py:28`) — separador `:`, e por isso imune a tenants com hifen.
 >
 > **(6.3) Divida explicitamente NAO quitada por esta emenda.** As keys implantadas hoje **violam** a
 > proibicao 5 em (6.2): `RECURSO-*` embute `numero_guia_tiss`/`glosa_id`, `CRED-*` embute
@@ -197,11 +256,20 @@ celula payer; nenhum compartilhamento de engine database ou de chaves de process
 **integral e inalterado** — o que muda e apenas a grafia do namespace, nunca a exigencia de
 isolamento.
 
-**Efeito no codigo se ratificada:** **NENHUM**. Nenhum worker, BPMN, allowlist ou chave de engine
-muda. O objeto de valor do MZO-020 (`identity.py`) permanece valido para a fronteira AMH mas deixa de
-ser o alvo de migracao das keys internas; o alinhamento do seu
-`PAYER_PROCESS_DEFINITION_KEY_PREFIX`/separador com a forma emendada vira follow-up de codigo com
-gatekeeper proprio, **nao autorizado por este ADR**.
+**Efeito no codigo se ratificada:** **IMEDIATO: NENHUM.** Nenhum worker, BPMN, allowlist ou chave de
+engine muda, e nenhuma instancia viva e tocada. O objeto de valor do MZO-020 (`identity.py`)
+permanece valido para a fronteira AMH mas deixa de ser o alvo de migracao das keys internas; o
+alinhamento do seu `PAYER_PROCESS_DEFINITION_KEY_PREFIX`/separador com a forma emendada vira
+follow-up de codigo com gatekeeper proprio, **nao autorizado por este ADR**.
+
+**Mas "efeito imediato nenhum" NAO e "divida nenhuma"**, e a diferenca esta declarada em vez de
+escondida: a Opcao 1 **cria dois follow-ups obrigatorios**, ambos com gatekeeper proprio e **nenhum
+deles autorizado por esta ratificacao** — (i) o endurecimento de fronteira de componente de
+**(6.2.1)**, sem o qual (6.1) nao entrega a tenancy estrutural que (6.2) promete; (ii) a
+reconciliacao entre o sufixo `-<VARIANTE>` de (6.1) e a regex do ADR-0016
+(`process_allowlist.py:60`), que hoje divergem — ver "Achado colateral (superficie ADR-0016)" em
+"Consequencias". Quem escolher a Opcao 1 esta escolhendo **zero mudanca hoje mais dois itens de
+divida nomeados**, nao um estado final limpo.
 
 ### Opcao 2 — manter a forma congelada e agendar uma janela de migracao dual-read
 
@@ -213,7 +281,9 @@ sob uma **janela de dual-read** com **alias legado explicito** e **sem rewrite d
 mecanismo que a clausula de rollback do MZO-020 preve, conforme registrado em DL-0043
 (`docs/decisions-log.md:10`: "a propria clausula de rollback do MZO-020 preve alias legado explicito,
 sem rewrite destrutivo"), e coerente com o principio ja adotado em XRD-05 para merges de identidade
-("merges viram aliases AMH, **sem rewrite destrutivo de referencias de processo**", `0037:131`) e com
+("merges viram aliases AMH, **sem rewrite destrutivo de referencias de processo**",
+`0037:131-132` — a citacao anterior dizia `0037:131`, mas a ultima palavra do trecho citado
+("processo") esta em `0037:132`) e com
 as janelas de dual-publish/dual-read de no minimo 30 dias que o proprio ADR-0037 aceita como
 consequencia negativa (`0037:286-287`).
 
@@ -242,18 +312,30 @@ consequencia negativa (`0037:286-287`).
 
 Fundamentos verificados, nesta ordem:
 
-1. **A divergencia e de FORMA, nao de seguranca.** As tres garantias que a proibicao 6 existe para
-   produzir — opacidade, escopo de tenant, ausencia de PHI/ID cru — sao **ortogonais a ordem e ao
-   separador dos componentes**. As formas vivas ja carregam o tenant como componente obrigatorio; a
-   unica garantia genuinamente nao cumprida hoje (ausencia de ID cru/PHI) **nao e cumprida por
-   nenhuma das duas formas** e e a perna (c), separada.
+1. **A divergencia e majoritariamente de FORMA — mas NAO inteiramente, e a excecao esta declarada.**
+   DUAS das tres garantias que a proibicao 6 existe para produzir — **opacidade** e **ausencia de
+   PHI/ID cru** — sao de fato ortogonais a ordem e ao separador dos componentes. A terceira,
+   **escopo de tenant, NAO e ortogonal ao separador**: na forma congelada o `:` esta fora do charset
+   permitido (`identity.py:134-138`), o que da dois separadores por construcao e permite decidir
+   posse por recomposicao (`identity.py:86-91`); na forma hifen-primeiro o `-` e separador E
+   caractere legal de componente, a fronteira `{tenant}`/`{id}` deixa de ser decidivel, e a colisao
+   pode devolver a instancia viva de OUTRO tenant no start idempotente (`transport.py:206-230`) — ver
+   **(6.2.1)**. As formas vivas carregam o tenant como componente obrigatorio, mas **nao como
+   componente delimitado**; a Opcao 1 so entrega tenancy estrutural com o endurecimento de fronteira
+   que (6.2.1) EXIGE e que este ADR nao implementa nem encontra implementado em nenhum dos ~25
+   compositores. A garantia genuinamente nao cumprida por NENHUMA das duas formas (ausencia de ID
+   cru/PHI) continua sendo a perna (c), separada. **Este fundamento e, portanto, mais fraco do que
+   uma leitura de "so muda a ordem e o separador" sugeriria** — e o dono deve pesa-lo assim.
 2. **A forma viva e mais antiga, mais amplamente realizada e ja documentada como contrato** — 20
    process ids em BPMN implantada, ~25 compositores, a convencao em `transport.py:14` e as
    `<bpmn:documentation>` dos contratos de processo. A forma do ADR tem **um** realizador
    (`identity.py`) e **zero chamadores de producao**.
-3. **A Opcao 1 tem raio de explosao ZERO**; a Opcao 2 mexe em idempotencia de start e em correlacao de
-   mensagem de processos regulatorios ANS/LGPD vivos, para um ganho de conformidade que a propria
-   Opcao 2 nao entrega (item 4 acima).
+3. **A Opcao 1 tem raio de explosao IMEDIATO zero** (nenhuma instancia viva tocada), contra a Opcao 2,
+   que mexe em idempotencia de start e em correlacao de mensagem de processos regulatorios ANS/LGPD
+   vivos, para um ganho de conformidade que a propria Opcao 2 nao entrega (item 4 acima). **Ressalva
+   que este fundamento nao pode omitir:** "raio imediato zero" nao e "sem divida" — a Opcao 1 deixa
+   em aberto o endurecimento de (6.2.1) e a reconciliacao da regex do ADR-0016 com o sufixo
+   `-<VARIANTE>` de (6.1), ambos nomeados em "Efeito no codigo se ratificada" e em "Consequencias".
 4. **A proibicao 6 foi escrita na Wave 0** (MZO-000, 2026-08-03), antes de qualquer reconhecimento
    dos compositores implantados — DL-0043 registra que a divergencia so foi descoberta em 2026-08-05,
    quando o autor do MZO-020 foi implementar a clausula. E uma clausula escrita sem o fato, nao um
@@ -308,10 +390,15 @@ congelado, proibicoes 1-5 — permanecem **integralmente vigentes e nao tocadas*
 **proibicao 5 nao e emendada**.
 
 **ADR-0016 — nota (nao supersede, nao emenda).** O `process_allowlist.py` e o realizador do ADR-0016
-(allowlist de `process_key` + invariante de pseudonimizacao). A Opcao 1 alinha o ADR-0037 ao que o
-ADR-0016 ja enforca, **sem tocar** o ADR-0016 nem o arquivo. A Opcao 2, se escolhida, **exigiria**
-alterar o realizador do ADR-0016 (regex `:60` + universo `:21-42`) — o que seria trabalho proprio, com
-gatekeeper proprio, nunca consequencia automatica desta ratificacao.
+(allowlist de `process_key` + invariante de pseudonimizacao). A Opcao 1 alinha o ADR-0037 ao que esta
+**implantado**, **sem tocar** o ADR-0016 nem o arquivo. **Precisao devida:** nao e exato dizer que a
+Opcao 1 alinha o ADR-0037 "ao que o ADR-0016 ja enforca" — a forma de (6.1) admite o sufixo
+`-<VARIANTE>` e portanto e **mais larga** que a regex `:60`, que exige terminacao em tres digitos.
+Essa largura e deliberada e minima: sem ela, (6.1) deixaria de fora 5 dos 20 `process id`
+implantados. A divergencia resultante entre (6.1) e `:60,21-42` esta registrada como
+"Achado colateral (superficie ADR-0016)" em "Consequencias" e **nao e fechada aqui**. A Opcao 2, se
+escolhida, **exigiria** alterar o realizador do ADR-0016 (regex `:60` + universo `:21-42`) — o que
+seria trabalho proprio, com gatekeeper proprio, nunca consequencia automatica desta ratificacao.
 
 **ADR-0006 / ADR-0035 / ADR-0036 — nota.** A perna (c) de DL-0043 (PHI em keys) vive no eixo destes
 ADRs (duas zonas de PHI; pseudonimizador HMAC keyed; identidade conversa/thread/business-key keyed).
@@ -329,8 +416,14 @@ acao unilateral).
   conformidade contra um alvo contraditorio.
 - O achado aberto de DL-0043/PLANS §0.6 deixa de ser uma divergencia indefinida e passa a ser uma
   decisao com duas opcoes fechadas, custo declarado e um ato humano de uma palavra.
-- Sob a Opcao 1: o repo para de carregar uma proibicao imutavel que **100%** da sua superficie
-  implantada viola na forma — um estado que corroi o valor de sinal de todas as outras proibicoes.
+- Sob a Opcao 1: o repo para de carregar uma proibicao imutavel que **100% da sua superficie
+  implantada viola na forma HOJE** (20/20 `process id` sao `SP-OP-*` e zero comecam por
+  `maezo-payer-`; todos os ~25 compositores de business key sao hifen-primeiro) — um estado que
+  corroi o valor de sinal de todas as outras proibicoes. **A cobertura da emenda so e total porque
+  (6.1) foi redigida com o sufixo `-<VARIANTE>`:** a forma `SP-OP-<DOMAIN>-<NNN>` sozinha cobriria
+  **15 dos 20** `process id` implantados, deixando as cinco variantes de `SP-OP-ANS-CRON-001` (**25%
+  da superficie**) a violar a propria clausula redigida para abenco-las. Esta correcao foi feita
+  depois de a redacao original ter afirmado cobertura total sem verificar as cinco.
 
 **Negativas (aceitas):**
 - **Sob a Opcao 1:** o compromisso de FORMA feito no ADR-0037 muda seis dias apos ratificacao humana;
@@ -347,6 +440,44 @@ acao unilateral).
 - Este ADR e docs-only e nao entrega nenhuma verificacao de runtime; ele nao pode ser citado como
   evidencia de conformidade de nenhuma key.
 
+### Achados colaterais e residuais nomeados desta emenda
+
+Estes DOIS itens sao produto de verificacao propria feita ao redigir (6.1)/(6.2). Nenhum e fechado
+por este ADR; ambos sao registrados **para o dono**, nomeados descritivamente e sem cunhar ID no
+registro `GAP-*` — esse registro nao e deste ADR para escrever.
+
+**1. Achado colateral (superficie ADR-0016) — as cinco variantes `SP-OP-ANS-CRON-001-*` seriam
+RECUSADAS pela allowlist.** A regex do ADR-0016 (`src/maezo/tools/process_allowlist.py:60`,
+`^SP-OP-[A-Z]+(?:-[A-Z]+)*-[0-9]{3}$`) exige que a chave TERMINE em tres digitos. Os cinco
+`<bpmn:process id>` implantados em
+`spec/processes/bpmn/SP-OP-ANS-CRON-001_Agendador_Envios_ANS.bpmn:49,81,113,145,177` terminam em
+`-RN124SIP`, `-RN209`, `-RN388`, `-RN424TISS` e `-DIOPS` — **nenhum casa a regex** (verificado
+executando a propria regex contra as cinco strings), e **nenhum esta em `KNOWN_PROCESS_KEYS`**
+(`:21-42`, 15 chaves). Portanto, se qualquer uma delas fosse um dia roteada por
+`ensure_allowed`, `process_allowlist.py:131-135` levantaria `ProcessKeyNotAllowedError` com
+`reason="invalid format; must match SP-OP-<DOMAIN>-<NNN>"`.
+
+*Escopo honesto deste achado — e uma lacuna LATENTE, nao um defeito vivo:* as cinco sao disparadas
+por `TimerStartEvent` dentro do engine (10 `timerEventDefinition` na mesma BPMN), nao por uma chamada
+de start que passe pela allowlist; e, verificado nesta worktree, **`process_allowlist` nao tem
+nenhum importador em `src/`** (o unico importador do repo e
+`tests/unit/tools/test_process_allowlist.py`). Nada quebra hoje. O que se registra e que a superficie
+implantada e a superficie que o realizador do ADR-0016 aceita **ja divergem**, independentemente da
+opcao escolhida — este ADR e apenas o primeiro documento a fazer a comparacao. **Fecha-la e trabalho
+do ADR-0016, com gatekeeper proprio, e NAO e autorizado por esta ratificacao.**
+
+**2. Residual aberto: fronteira de componente (ambiguidade `-` separador vs `-` de conteudo).**
+Detalhado em **(6.2.1)**. Em uma linha: a forma hifen-primeiro nao delimita seus componentes, o
+`-` e legal dentro de `tenant_id` e dos ids, nenhum dos ~25 compositores valida charset, e a business
+key e a chave de busca do start idempotente (`transport.py:206-230`) — logo uma colisao de fronteira
+pode devolver a instancia viva de OUTRO tenant. **Consequencia para o dono:** sob a Opcao 1, a frase
+"isolamento cross-tenant continua estrutural" de (6.2) **so se torna verdadeira apos** o endurecimento
+que (6.2.1) exige e que este ADR nao implementa. Ate la, o item permanece ABERTO ao lado da perna (c)
+— com a diferenca de que a perna (c) e uma questao de privacidade e esta e uma questao de
+**isolamento**. Sob a Opcao 2 o item nao surge: o `:` esta fora de `PERMITTED_CHARACTERS`
+(`identity.py:134-138`), logo a forma congelada delimita por construcao. **Este e o unico ponto do
+documento em que a Opcao 2 e tecnicamente superior a Opcao 1**, e esta registrado como tal.
+
 ## Limites de verificacao (declarados, nao inferidos)
 
 1. **A clausula de rollback do MZO-020 nao e verificavel neste repo.** O mecanismo "dual-read com alias
@@ -354,10 +485,21 @@ acao unilateral).
    original vive nos planos de execucao sob `docs/prompts/`, que e **gitignored** (`.gitignore:43`,
    conforme `0037:16-21`) e **nao existe nesta worktree**. A citacao da Opcao 2 e, portanto,
    **de segunda mao via DL-0043** — nao ha `file:line` primario a oferecer, e nenhum foi inventado.
-2. **O lado AMH nao foi verificado.** Nao foi inspecionado se o repo `amh-data-platform` (ou o ADR-042
-   que fecha XRG-1 do lado deles) referencia literalmente a forma `{a}:{b}:{c}` ou o prefixo
-   `maezo-payer-`. Se referenciar, a Opcao 1 exige uma emenda companheira do lado AMH. **Isto e uma
-   pergunta em aberto para o dono, nao um fato estabelecido por este ADR.**
+2. **O lado AMH nao foi verificado — o repo `amh-data-platform` permanece EXPLICITAMENTE NAO
+   VERIFICADO.** Nao foi inspecionado se aquele repo (ou o ADR-042 que fecha XRG-1 do lado deles)
+   referencia literalmente a forma `{a}:{b}:{c}` ou o prefixo `maezo-payer-`. Se referenciar, a Opcao
+   1 exige uma emenda companheira do lado AMH. **Isto continua sendo uma pergunta em aberto para o
+   dono, nao um fato estabelecido por este ADR.**
+
+   **Verificacao NEGATIVA parcial, feita no unico material AMH que existe NESTE repo** (nao substitui
+   a inspecao do repo AMH, apenas estreita a pergunta): buscando `business_key`, `businessKey` e
+   `maezo-payer` em `config/integrations/amh/contracts.lock.json` (a baseline de envelope congelada) e
+   em toda a arvore `tests/contract/amh/` (`test_amh_contract_loader.py`,
+   `test_amh_mapping_fixtures.py`, `test_contract_pin.py`, `fixtures/`), o resultado e **ZERO
+   ocorrencia** dos tres termos, em ambos os alvos. Ou seja: **nenhuma superficie AMH pinada neste
+   repo menciona business key nem o prefixo `maezo-payer-`** — o envelope congelado nao os carrega.
+   Isto e evidencia a favor de que a forma das keys internas Maezo nao atravessa a fronteira (coerente
+   com (6.4)), e **nao** e prova sobre o conteudo do repo `amh-data-platform`, que ninguem abriu.
 3. **Nao foi estabelecido** que uma key portando `matricula_beneficiario` chegue hoje a uma linha de
    log — o mesmo limite honesto que DL-0043 ja declara. Os sitios de log de business key verificados
    (`src/maezo/tools/workers/recurso.py:737,813,903,961` — quatro `logger.warning(...,
