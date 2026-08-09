@@ -40,7 +40,8 @@ package (the same technique as `tests/unit/tools/workers/test_worker_handler_pur
    not an escaping `asyncio.TimeoutError`. No port retries internally — retry is caller policy.
 5. *Opaque references, no PHI.* Every reference is a `str` this package never parses, prefixes or
    validates, and no value type carries a patient-identifying field name. Identity semantics are
-   MZO-020's DPO/Legal-gated scope, which DL-0040 records as still OPEN.
+   MZO-020's DPO/Legal-gated scope; DL-0040 opened that gate and DL-0042 discharged it on
+   2026-08-05 (approvers Lucas — Diretor Jurídico e de Compliance — and Rodrigo — CEO).
 
 **Not in this package (deliberately).** No adapter, no consumer, no mapping, no client, no
 `maezo.domain`. Only the seams.

@@ -49,9 +49,10 @@ types are refused strictly — tolerance applies only to additions, which is pre
 promises.
 
 **4. NO reference is parsed.** Every `*_ref`, id and key is copied verbatim as an opaque `str`. No
-prefix vocabulary, no splitting on `:`, no regex, no length check — DL-0040 records the DPO/Legal
-gate on identity semantics as still OPEN (ADR-0037 XRD-05), and `maezo.ports.envelope` is explicit
-that "a downstream package that starts splitting one of them on `:` is pre-empting a decision the
+prefix vocabulary, no splitting on `:`, no regex, no length check — DL-0040 opened the DPO/Legal
+gate on identity semantics (ADR-0037 XRD-05) and DL-0042 discharged it on 2026-08-05; DL-0042
+discharged the gate on opaque refs, not on a prefix vocabulary, and `maezo.ports.envelope` is
+explicit that "a downstream package that starts splitting one of them on `:` is pre-empting a decision the
 DPO has not made". The one thing checked about a reference is PRESENCE and STRING-NESS, which is
 schema conformance, not identity semantics. `maezo.domain` is deliberately not imported.
 

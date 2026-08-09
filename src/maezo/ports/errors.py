@@ -35,9 +35,10 @@ non-PHI token (same posture as `DelegationResult.detail` and ADR-0037's immutabl
 no PHI nor raw source id in keys, logs, traces, metrics or quarantine metadata). Adapters MUST
 NOT copy payload content, patient-identifying data, or an upstream error body into it.
 
-**Identity semantics are NOT defined here (DL-0040 open gate).** ADR-0037 XRD-05 is explicitly
-"(Cláusula gated por DPO/Legal)" and DL-0040 records that the §5 downstream gates — DPO/Legal on
-identity/consent values (MZO-020) — remain OPEN. Nothing in this package parses, validates,
+**Identity semantics are NOT defined here (DL-0040/DL-0042).** ADR-0037 XRD-05 is explicitly
+"(Cláusula gated por DPO/Legal)"; DL-0040 opened that gate and DL-0042 discharged it on 2026-08-05
+for identity/consent values (MZO-020) specifically — the OTHER §5 downstream gates (e.g.
+Médica/ANS/Security on MZO-040) remain OPEN. Nothing in this package parses, validates,
 prefixes or otherwise ascribes structure to any reference string.
 """
 

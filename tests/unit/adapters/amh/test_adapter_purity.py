@@ -12,8 +12,10 @@ enforces the three things that must hold for THIS package, at THIS phase:
         exists to decouple from. This layer never relaxes, in any phase.
 
   (ii)  **No dependency inversion.** `maezo.adapters.amh` may import `maezo.ports` (the seams it
-        serves) and itself. It may NOT import `maezo.domain` — which is on an unmerged branch and
-        whose identity semantics are DL-0040/DPO-gated — nor reach back into `maezo.tools`,
+        serves) and itself. It may NOT import `maezo.domain` — this adapter is a leaf of the
+        application and does no reference-parsing (`mapping.py` design decision 4: "NO reference
+        is parsed"; `maezo.domain` is merged at base, ledger row `mzo-020` — the fence is
+        architectural, not a branch-merge artefact) — nor reach back into `maezo.tools`,
         `maezo.runtime`, `maezo.agents`, `maezo.gateway`, `maezo.a2a` or `maezo.platform`. An adapter
         is a leaf of the application, not a peer of it.
 
@@ -114,8 +116,10 @@ _FORBIDDEN_PHASE_A_ROOTS: frozenset[str] = frozenset(
 )
 
 # (ii) `maezo` subpackages this adapter may never import. `domain` is listed FIRST because it is the
-# one the brief names explicitly: it lives on an unmerged branch and carries the DPO-gated identity
-# semantics (DL-0040), so a reference-parsing dependency here would pre-empt a decision nobody made.
+# one the brief names explicitly: this adapter is a leaf of the application and does no
+# reference-parsing (`mapping.py` design decision 4: "NO reference is parsed"), so a dependency on
+# `maezo.domain`'s parsed identity value objects here would be unearned — not a branch-merge
+# artefact: `maezo.domain` is merged at base (ledger row `mzo-020`).
 _FORBIDDEN_MAEZO_SUBPACKAGES: frozenset[str] = frozenset(
     {"domain", "tools", "runtime", "agents", "gateway", "a2a", "platform"}
 )
@@ -292,7 +296,7 @@ _SYNTHETIC_VIOLATIONS: tuple[tuple[str, str, set[str], set[str], set[str], set[s
         set(),
     ),
     (
-        "maezo.domain — DPO-gated identity semantics, unmerged branch",
+        "maezo.domain — DPO-gated identity semantics, leaf-of-application fence",
         "from maezo.domain.identity import SubjectRef\n",
         set(),
         set(),

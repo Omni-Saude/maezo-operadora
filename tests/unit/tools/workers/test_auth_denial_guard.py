@@ -1217,16 +1217,19 @@ def test_spec_flattened_sanction_variable_is_write_only_by_the_auto_input_mappin
 # ---------------------------------------------------------------------------
 # issue_authorization — TENANT CEILING GATE at the ISSUANCE chokepoint (GAP-AUTH-4 mitigation)
 #
-# Before this change the governance ceiling was DECORATIVE on the automatic route: BRT_AutoApproval
-# decides AUTO_APROVAR from `dut_atendida`/`dentro_teto_l2`/`rede_credenciada` taken VERBATIM from
-# the process start payload, and `CeilingResolver` is never consulted there (its only AUTH caller,
-# AnalyzeRequestWorker on ST_PrepararDossie, sits on the HUMAN branch AFTER the gateway). So
-# `authorization_approval.max_value_brl` — whose shipped value is 0, meaning "no automatic approval
-# authorized until D-07 is decided" — was enforced by nothing.
+# Before #198 (`auth-auto-criteria-gate`) the governance ceiling was DECORATIVE on the automatic
+# route: BRT_AutoApproval decided AUTO_APROVAR from `dut_atendida`/`dentro_teto_l2`/`rede_credenciada`
+# taken VERBATIM from the process start payload, and `CeilingResolver` was never consulted there
+# (its only AUTH caller, AnalyzeRequestWorker on ST_PrepararDossie, sits on the HUMAN branch AFTER
+# the gateway). So `authorization_approval.max_value_brl` — whose shipped value is 0, meaning "no
+# automatic approval authorized until D-07 is decided" — was enforced by nothing.
 #
-# IssueAuthorizationWorker now verifies the ceiling at the one place an authorization is minted,
-# on the AUTOMATIC channel ONLY. GAP-AUTH-4 itself stays OPEN: the DMN still decides on seeded
-# facts, and the value this gate compares comes from that same unverified payload.
+# #198 closed that gap structurally: `ST_ValidateAutoApprovalCriteria` now computes the quintet
+# (`auto_criteria_verificado` + four `criterio_*_ok`, including `criterio_financeiro_ok` via this
+# SAME `CeilingResolver`) BEFORE `BRT_AutoApproval`, and `auth_auto_approval.dmn` v0.2.0 reads only
+# that computed quintet — no seeded fact reaches the decision anymore. IssueAuthorizationWorker's
+# check below is now DEFENSE-IN-DEPTH: a second, independent enforcement of the same ceiling at
+# the one place an authorization is actually minted, not the sole mitigation for an open gap.
 # ---------------------------------------------------------------------------
 
 

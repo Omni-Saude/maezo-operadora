@@ -14,8 +14,10 @@ consumer and codec is MZO-050+ adapter scope (still gated) — not this package.
 
 **Delivery handles are opaque.** `WorkItemDelivery.delivery_ref` is an adapter-minted handle whose
 ONLY sanctioned use is being handed straight back to `ack`/`nack`. This module defines no format,
-no prefix and no parsing for it (same DL-0040 posture as every other reference in this package;
-identity/reference semantics remain MZO-020's DPO-gated scope).
+no prefix and no parsing for it (DL-0040/DL-0042, same posture as every other reference in this
+package: ADR-0037 XRD-05 gated identity/reference semantics on DPO/Legal, DL-0040 opened that
+gate and DL-0042 discharged it on 2026-08-05 — discharged on opaque refs, not on a prefix
+vocabulary, so identity/reference value semantics remain MZO-020's DPO-gated scope).
 
 **Acknowledgement semantics (deterministic, by contract).**
 

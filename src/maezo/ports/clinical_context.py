@@ -43,9 +43,9 @@ forbids the import root outright), no resource-id parsing, no `Patient/…` refe
 The port speaks subject references and opaque coded summaries; how those map onto a clinical
 record standard is entirely the adapter's problem (MZO-050+, gated).
 
-**Subject references are opaque (DL-0040 open gate).** `portable_subject_ref` is a `str` with NO
-format defined, validated or assumed here. Identity semantics are MZO-020's DPO/Legal-gated scope
-and DL-0040 records that gate as still OPEN.
+**Subject references are opaque (DL-0040/DL-0042).** `portable_subject_ref` is a `str` with NO
+format defined, validated or assumed here. Identity semantics are MZO-020's DPO/Legal-gated scope;
+DL-0040 opened that gate and DL-0042 discharged it on 2026-08-05.
 """
 
 from __future__ import annotations

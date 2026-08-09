@@ -1108,17 +1108,29 @@ class IssueAuthorizationWorker(WorkerBase):
     independentemente do teto — exceder o teto AUTOMATICO e' exatamente para o que a analise
     humana existe (ADR-0008). Gatear a perna humana quebraria a entrega assistencial.
 
-    O QUE ISTO **NAO** FECHA (GAP-AUTH-4 continua ABERTO, portao Medico/ANS): `BRT_AutoApproval`
-    continua decidindo `AUTO_APROVAR` sobre `dut_atendida`/`dentro_teto_l2`/`rede_credenciada`
-    SEMEADOS no payload de start, e o proprio `valor_estimado_brl` que este portao compara vem do
-    mesmo payload nao-verificado. Com o `max_value_brl: 0` de hoje (estado D-07 em
-    `L0-core.yaml`/`tenants-amh.yaml` = "nenhuma aprovacao automatica autorizada"), a rota
-    automatica alcanca `End_AprovadaAutomatica` e publica `desfecho=aprovada_automatica` SEM
-    emitir `numero_autorizacao` — o MESMO desfecho observavel de antes desta mudanca, mas agora
-    por um motivo principiado, logado e auditavel (o teto nao autoriza) em vez de um descasamento
-    acidental de tipagem de variavel. Essa inconsistencia residual — o processo anuncia uma
-    aprovacao que nao emitiu — E' o GAP-AUTH-4 e permanece aberta. Quando o D-07 definir um teto
-    real, a emissao automatica passa a funcionar, limitada por esse teto.
+    GAP-AUTH-4 — FECHADO ESTRUTURALMENTE (#198 `auth-auto-criteria-gate`, 2026-08-07;
+    `docs/evidence-ledger.md` row `auth-auto-criteria-gate`): `BRT_AutoApproval` NAO decide mais
+    sobre `dut_atendida`/`dentro_teto_l2`/`rede_credenciada` semeados no payload de start — esses
+    tres booleanos nao sao mais lidos por esta DMN. `ST_ValidateAutoApprovalCriteria` (topico
+    `operadora.auth.validate_auto_criteria`), inserido entre `BRT_SlaAnalise` e
+    `BRT_AutoApproval`, computa quatro criterios deterministicos (tecnico/DUT-ROL,
+    financeiro/teto do tenant via este MESMO `CeilingResolver`, regulatorio/carencia,
+    contratual/milestones-KPI) e escreve `auto_criteria_verificado` em TODO caminho de execucao,
+    inclusive na degradacao; `auth_auto_approval.dmn` v0.2.0 exige o quinteto inteiro
+    (`auto_criteria_verificado` + os quatro `criterio_*_ok`) na UNICA regra favoravel — pular o
+    validador cai no catch-all fail-safe -> ANALISE_HUMANA (ver
+    `spec/processes/dmn/auth_auto_approval.dmn:58-101`; module docstring `auth.py:17-42`).
+
+    DESFECHO OBSERVAVEL HOJE (governanca pendente, nao mais um gap estrutural): os criterios
+    tecnico/regulatorio/contratual leem de tabelas SINTETICAS/DRAFT (portao de RATIFICACAO em
+    `spec/processes/dmn/auth-criteria-ratification.yaml` — fonte nao-ratificada devolve `false`
+    independente do que a tabela computou) e o criterio financeiro herda o `max_value_brl: 0` de
+    hoje (estado D-07 em aberto). Logo os quatro criterios sao false e NENHUM pedido auto-aprova
+    — o MESMO desfecho seguro de antes, agora por motivos explicitos e auditaveis
+    (`auto_criteria_falhas`) em vez de uma checagem ausente. Quando o SME ratificar as fontes e o
+    D-07 definir um teto real, a emissao automatica passa a funcionar, ainda limitada pela
+    verificacao de teto no PONTO DE EMISSAO acima (defesa-em-profundidade, inalterada por esta
+    nota).
     """
 
     def __init__(self, resolver: CeilingResolver | None = None) -> None:
@@ -1222,12 +1234,14 @@ class IssueAuthorizationWorker(WorkerBase):
                 "mensagem": "Autorizacao requer aprovacao humana ou sancao auto-L2 modelada (L0 hard)",
             }
 
-        # PORTAO DE TETO — canal AUTOMATICO **apenas** (GAP-AUTH-4, mitigacao no ponto de emissao).
-        # `auto_sanctioned and not human_approved` E' a definicao do canal auto: com decisao humana
-        # (APROVAR/junta) o teto NAO se aplica — exceder o teto automatico e' exatamente o que a
-        # analise humana resolve. Rodar aqui, e nao antes do gateway, nao fecha o GAP-AUTH-4 (a DMN
-        # continua decidindo sobre fatos semeados no start); torna o teto LOAD-BEARING no unico
-        # ponto onde uma autorizacao nasce.
+        # PORTAO DE TETO — canal AUTOMATICO **apenas** (GAP-AUTH-4 fechado estruturalmente por #198
+        # `auth-auto-criteria-gate`; ver module docstring acima). `auto_sanctioned and not
+        # human_approved` E' a definicao do canal auto: com decisao humana (APROVAR/junta) o teto
+        # NAO se aplica — exceder o teto automatico e' exatamente o que a analise humana resolve.
+        # Rodar aqui, no ponto de emissao, e' DEFESA-EM-PROFUNDIDADE: `criterio_financeiro_ok` ja
+        # gateia o teto ANTES da BRT via este MESMO `CeilingResolver` (ST_ValidateAutoApprovalCriteria);
+        # esta segunda checagem torna o teto LOAD-BEARING tambem no unico ponto onde uma
+        # autorizacao efetivamente nasce.
         auto_channel = auto_sanctioned and not human_approved
         dentro_teto: bool | None = None
         if auto_channel:
