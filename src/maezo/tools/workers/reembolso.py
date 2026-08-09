@@ -33,6 +33,108 @@ _CEILING_PARAM = "max_value_brl"
 
 
 # ---------------------------------------------------------------------------
+# Reference-table lookup — value, multiplier, and HONEST provenance (defect M-2)
+# ---------------------------------------------------------------------------
+#
+# PROVENANCE VOCABULARY. `fonte_tabela` is a free-form string at the engine boundary
+# (`reembolso_calculo.dmn` declares it `typeRef="string"`), but the vocabulary is NOT this
+# module's to invent — it belongs to the DMN that owns this decision, and these tokens are
+# the shape that DMN already ships:
+#   * `spec/processes/dmn/reembolso_calculo.dmn` rules `r_consulta`/`r_exame_*`/`r_terapia`
+#     emit `TABELA_REFERENCIA_*` with `multiplo_tabela_aplicado = 1.0` for a real table hit;
+#   * its catch-all `r_catchall` emits `SEM_TABELA` with value `0` and multiplo `0.0`.
+# `SEM_TABELA` in particular is pinned in three places outside this module — the contract
+# (`docs/processes/contracts/SP-OP-REEMBOLSO-001.md`), the test spec, and an engine-side
+# assertion (`tests/integration/processes/test_sp_op_reembolso_001.py`, "reembolso_calculo
+# deve ter catch-all SEM_TABELA") — so the worker MUST speak the same token for the same
+# situation. The previous `"TUSS-REFERENCIA"` matched nothing anywhere in the repo (it was
+# this module's only occurrence) AND was written unconditionally, including over values the
+# TUSS table never produced.
+#: NEW token, worker-side generalisation of the DMN's per-categoria family (`TABELA_REFERENCIA_CONSULTA`
+#: / `_EXAME` / `_TERAPIA` — `reembolso_calculo.dmn:46,54,62,70`); the DMN ships no generic hit token.
+_FONTE_TABELA_REFERENCIA = "TABELA_REFERENCIA"
+#: Table value ADJUSTED by `_MULTIPLO_ACESSO` — a distinct token because the resulting
+#: amount is NOT a value the reference table contains.
+_FONTE_TABELA_MULTIPLICADA = "TABELA_REFERENCIA_MULTIPLICADA"
+#: Categoria absent from the reference table. Mirrors the DMN catch-all exactly.
+_FONTE_SEM_TABELA = "SEM_TABELA"
+
+#: No table row => no multiplier was applied to anything (DMN `r_catchall` emits 0.0).
+_MULTIPLO_SEM_TABELA = 0.0
+#: Plain table hit (DMN table-hit rows all emit 1.0).
+_MULTIPLO_NEUTRO = 1.0
+
+# ---------------------------------------------------------------------------
+# DEBT — ADR-0012 (DMN e a fonte unica de regra de negocio deterministica).
+#
+# `_BASE_VALUES_CENTS` and `_MULTIPLO_ACESSO` below are BUSINESS RULES living in Python.
+# ADR-0012 says a deterministic business rule belongs in a versioned DMN consumed both by
+# the agents (`mcp-dmn`) and by the process (`businessRuleTask`) — not in a worker. The
+# authoritative table for this decision already exists and already declares all three
+# outputs: `spec/processes/dmn/reembolso_calculo.dmn` (BRT_Calculo), which per
+# GAP-REEMBOLSO-5 runs BEFORE this worker precisely so its result is available here.
+#
+# NOT MIGRATED IN THIS CHANGE — deliberately. This change fixes the audit-trail honesty
+# defect (M-2) only; moving the money rule into DMN changes WHICH AMOUNTS ARE COMPUTED and
+# needs the regulatorio/atuarial sign-off the DMN itself is already blocked on
+# (`reembolso_calculo.dmn` is DRAFT: "multiplo/limite por categoria/segmentacao requer
+# sign-off de regulatorio + atuarial"). Recorded in `docs/review-queue.md`, not fixed here.
+# Precedent for the eventual migration: PAGTO's `_FAIXA_TIER_MINIMO` dict, which left
+# Python for `pagto_alcada.dmn` under this same ADR (review-queue, Wave-1 tetos).
+#
+# Two divergences the reviewer must see, both PRE-EXISTING and untouched here:
+#  1. these values DISAGREE with the DMN's for the same categoria (consulta 35000 here vs
+#     12000 there; exame_especial 45000 vs 25000), and `internacao`/`opme`/
+#     `alta_complexidade` have no DMN row at all — under the DMN they resolve SEM_TABELA;
+#  2. `ST_CalculateAmount` carries NO inputParameter mapping `calculo.*` into this worker
+#     and `ReembolsoInput` has no field for it, so this worker RE-ORIGINATES the reference
+#     value from the shadow table below instead of reading the DMN output the BPMN
+#     documentation says it reads.
+# Values are SYNTHETIC/representative centavos — DRAFT/verify against the tabela de
+# reembolso vigente before any deploy.
+# ---------------------------------------------------------------------------
+_BASE_VALUES_CENTS: dict[str, int] = {
+    "consulta": 35000,  # R$ 350.00
+    "exame_simples": 8000,  # R$ 80.00
+    "exame_especial": 45000,  # R$ 450.00
+    "terapia": 15000,  # R$ 150.00
+    "internacao": 500000,  # R$ 5,000.00
+    "opme": 300000,  # R$ 3,000.00
+    "alta_complexidade": 800000,  # R$ 8,000.00
+}
+
+#: Access-condition uplift for urgencia/emergencia and fora-de-rede. ADR-0012 debt (above).
+_MULTIPLO_ACESSO = 1.5
+#: The `tipo_reembolso` values that attract `_MULTIPLO_ACESSO`. ADR-0012 debt (above).
+_TIPOS_COM_MULTIPLICADOR: frozenset[str] = frozenset({"urgencia_emergencia", "fora_rede"})
+
+
+@dataclass(frozen=True)
+class _TabelaLookup:
+    """What the reference-table lookup ACTUALLY found — the three facts, kept together.
+
+    Bundling them is the point: value, multiplier and provenance are produced by one
+    decision and must not be able to drift apart on their way into the audit chain (the
+    M-2 defect was exactly that drift — a value from one branch, a multiplier and a source
+    label hardcoded from another).
+    """
+
+    valor_calculado_tabela_cents: int
+    multiplo_tabela_aplicado: float
+    fonte_tabela: str
+
+    @property
+    def categoria_na_tabela(self) -> bool:
+        """True iff the categoria was found in the reference table.
+
+        Derived from ``fonte_tabela`` rather than stored, so the flag the fail-closed
+        ``dentro_tabela`` gate reads can never contradict the provenance token the audit
+        chain records.
+        """
+        return self.fonte_tabela != _FONTE_SEM_TABELA
+
+
+# ---------------------------------------------------------------------------
 # Error types
 # ---------------------------------------------------------------------------
 
@@ -246,7 +348,26 @@ def calculate_value(
     (``reembolso_auto_approval.max_value_brl``) via the CeilingResolver — the inbound
     ``input_data.dentro_teto_l2`` is NEVER read on this path (design T1.9 §2.3, defect B3).
     ``resolver`` is injectable for tests; the default resolves the ceiling from the real
-    ``spec/policies/autonomy`` matrix.
+    ``spec/policies/autonomy`` matrix. With ``SEM_TABELA`` the reference value fed to the
+    ceiling check is 0, so under a positive ceiling ``dentro_teto_l2`` reads True — that
+    ceiling fact is VACUOUS for this case and is gated shut by ``dentro_tabela=False``
+    (the DMN's ``reembolso_auto_approval`` AUTO_APROVAR rule requires both true).
+
+    HONEST PROVENANCE (defect M-2). The three facts this function writes into the ADR-0007
+    audit chain — ``dentro_tabela``, ``multiplo_tabela_aplicado``, ``fonte_tabela`` — now
+    describe what the lookup ACTUALLY did:
+
+    - a categoria absent from the reference table resolves to ``SEM_TABELA`` / value 0 /
+      multiplo 0.0 and FORCES ``dentro_tabela=False``. It no longer falls back to the
+      claimant's own ``valor_solicitado_cents``, which used to make the "reference table
+      value" equal the request and therefore made ``dentro_tabela`` unconditionally True —
+      a fabricated corroboration shown to the human reviewer as a verified fact;
+    - ``multiplo_tabela_aplicado`` carries the multiplier that was really applied (1.5 /
+      1.0 / 0.0), not a hardcoded 1.0;
+    - ``fonte_tabela`` distinguishes a plain table hit from a multiplier-adjusted one, so a
+      value the table never contained is never labelled as if it came straight from it.
+
+    See :func:`_lookup_tabela_referencia` for the token vocabulary and its DMN origin.
     """
     resolver = resolver if resolver is not None else CeilingResolver()
 
@@ -256,16 +377,23 @@ def calculate_value(
         valor_solicitado_cents=input_data.valor_solicitado_cents,
     )
 
-    # Compute table value based on procedure category
-    # In production, this consults the TUSS table / tenant config
-    valor_calculado = _compute_table_value(
+    # Reference-table lookup: value + the multiplier really applied + where it came from.
+    # In production this consults the TUSS table / tenant config (see the ADR-0012 debt note
+    # on `_BASE_VALUES_CENTS`).
+    lookup = _lookup_tabela_referencia(
         input_data.codigo_procedimento_tuss,
         input_data.categoria_procedimento,
         input_data.tipo_reembolso,
-        input_data.valor_solicitado_cents,
     )
+    valor_calculado = lookup.valor_calculado_tabela_cents
 
-    dentro_tabela = input_data.valor_solicitado_cents <= valor_calculado
+    # FAIL-CLOSED (M-2): `dentro_tabela` asserts "the claimed amount is within the REFERENCE
+    # TABLE". With no table row there is nothing to be within, so the claim is False by
+    # construction — never merely by arithmetic. Keeping the `<=` alone would also read True
+    # for a `valor_solicitado_cents=0` request against the SEM_TABELA value of 0. This is the
+    # posture the DMN catch-all and the BPMN already prescribe: "fora de tabela (SEM_TABELA)
+    # -> dentro_tabela=false -> analise humana" (ST_CalculateAmount documentation).
+    dentro_tabela = lookup.categoria_na_tabela and input_data.valor_solicitado_cents <= valor_calculado
     # COMPUTE the ceiling fact from policy — compares the reference-table value (centavos)
     # against `reembolso_auto_approval.max_value_brl` (per L0-core.yaml:28). Ceiling 0
     # (D-07) or any config problem => False => the request routes to ANALISE_HUMANA.
@@ -281,14 +409,16 @@ def calculate_value(
         valor_solicitado_cents=input_data.valor_solicitado_cents,
         dentro_tabela=dentro_tabela,
         dentro_teto_l2=dentro_teto,
-        multiplo_tabela_aplicado=1.0,
-        fonte_tabela="TUSS-REFERENCIA",
+        multiplo_tabela_aplicado=lookup.multiplo_tabela_aplicado,
+        fonte_tabela=lookup.fonte_tabela,
     )
 
     logger.info(
         "reembolso.calculate_value.complete",
         valor_calculado=result.valor_calculado_tabela_cents,
         dentro_tabela=result.dentro_tabela,
+        multiplo_tabela_aplicado=result.multiplo_tabela_aplicado,
+        fonte_tabela=result.fonte_tabela,
     )
     return result
 
@@ -546,46 +676,73 @@ def _require_valor_pagamento_cents(valor_cents: Any) -> int:
     return valor_cents
 
 
-def _compute_table_value(
+def _lookup_tabela_referencia(
     codigo_procedimento_tuss: str,
     categoria_procedimento: str,
     tipo_reembolso: str,
-    valor_solicitado_cents: int,
-) -> int:
-    """Compute reference table value for a procedure.
+) -> _TabelaLookup:
+    """Look the procedure up in the reference table — value, multiplier applied, provenance.
 
-    In production, consults TUSS table and tenant-specific multipliers.
-    For now, returns a reasonable reference value based on category.
+    FAIL-CLOSED (defect M-2): a categoria that is NOT in the table resolves to
+    ``SEM_TABELA`` / 0 / 0.0. It does NOT fall back to ``valor_solicitado_cents``. That
+    fallback used to make the "reference table value" identical to the amount the claimant
+    asked for, so the downstream ``valor_solicitado_cents <= valor_calculado_tabela_cents``
+    comparison was True for every unknown or misspelled categoria — and that manufactured
+    True travelled into the ADR-0007 audit chain and onto the human reviewer's dossie
+    (``analyze_request``) as a corroborated fact. Refusing to answer is the honest outcome:
+    the request routes to ANALISE_HUMANA with the reason visible in ``fonte_tabela``.
+
+    ``codigo_procedimento_tuss`` is accepted and deliberately unused: the stub keys on
+    categoria only. It is kept in the signature because the real TUSS lookup this stands in
+    for is keyed by the TUSS code (see the ADR-0012 debt note on `_BASE_VALUES_CENTS`), and
+    dropping it would erase that seam from the call site.
+
+    Matching is ``.lower()`` only, exactly as before — NOT stripped. A whitespace-padded
+    categoria therefore misses the table and fails CLOSED to SEM_TABELA rather than being
+    silently normalised into a table hit; widening what counts as a known categoria is a
+    data-quality decision for the humans in the review-queue row, not for this stub.
     """
-    # Stub multipliers by category (cents)
-    base_values: dict[str, int] = {
-        "consulta": 35000,  # R$ 350.00
-        "exame_simples": 8000,  # R$ 80.00
-        "exame_especial": 45000,  # R$ 450.00
-        "terapia": 15000,  # R$ 150.00
-        "internacao": 500000,  # R$ 5,000.00
-        "opme": 300000,  # R$ 3,000.00
-        "alta_complexidade": 800000,  # R$ 8,000.00
-    }
+    del codigo_procedimento_tuss  # unused — the stub table is keyed by categoria (see docstring)
 
-    base = base_values.get(categoria_procedimento.lower(), valor_solicitado_cents)
+    base = _BASE_VALUES_CENTS.get(categoria_procedimento.lower())
 
-    # Urgencia/emergencia may have higher multipliers
-    if tipo_reembolso in ("urgencia_emergencia", "fora_rede"):
-        base = int(base * 1.5)
+    if base is None:
+        return _TabelaLookup(
+            valor_calculado_tabela_cents=0,
+            multiplo_tabela_aplicado=_MULTIPLO_SEM_TABELA,
+            fonte_tabela=_FONTE_SEM_TABELA,
+        )
 
-    # Return max of base or solicited (for within-table check)
-    # For a real implementation, this would be the exact table value
-    return max(base, 0)
+    if tipo_reembolso in _TIPOS_COM_MULTIPLICADOR:
+        # The value below is the table value ADJUSTED — the table never contained it, so it
+        # is not labelled as a plain table hit.
+        return _TabelaLookup(
+            valor_calculado_tabela_cents=int(base * _MULTIPLO_ACESSO),
+            multiplo_tabela_aplicado=_MULTIPLO_ACESSO,
+            fonte_tabela=_FONTE_TABELA_MULTIPLICADA,
+        )
+
+    return _TabelaLookup(
+        valor_calculado_tabela_cents=base,
+        multiplo_tabela_aplicado=_MULTIPLO_NEUTRO,
+        fonte_tabela=_FONTE_TABELA_REFERENCIA,
+    )
 
 
 # ---------------------------------------------------------------------------
 # Dict-boundary entry functions (T1.2/ADR-0026 §2b) — one per external-task
 # topic. Explicit field selection -> typed dataclass -> the UNCHANGED typed
 # function above -> dataclasses.asdict (or pass through when already a flat
-# dict). The typed functions/guards are byte-identical — in particular
-# `calculate_value`/`_compute_table_value` (T1.9: propagate, never re-originate
-# `dentro_teto_l2`) are wrapped, not modified; `tests/unit/sec/
+# dict). The entry functions are pure marshalling: they hold no guard and derive
+# no fact of their own.
+#
+# HISTORY NOTE (kept honest): the T1.2 build wrapped the typed functions
+# byte-identically. That is no longer literally true of `calculate_value` /
+# `_lookup_tabela_referencia` (ex-`_compute_table_value`), which the M-2 fix
+# rewrote for audit-trail honesty. The T1.9 invariant they were called out for
+# is UNCHANGED and still holds: `dentro_teto_l2` is originated ONLY by
+# `CeilingResolver.within_l2_ceiling`, never re-originated from the inbound
+# payload or from a boolean expression — `tests/unit/sec/
 # test_dentro_teto_source.py` stays green.
 #
 # Topic mapping vs spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn
