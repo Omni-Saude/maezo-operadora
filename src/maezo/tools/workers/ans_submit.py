@@ -8,6 +8,7 @@ UT_RevisarEnvio with decisao_envio == APROVAR_ENVIO set by a human.
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import functools
 from dataclasses import dataclass
@@ -21,7 +22,7 @@ from maezo.tools.workers.ans_gateway import (
     AnsGatewayTransport,
     resolve_ans_gateway,
 )
-from maezo.tools.workers.base import FunctionWorker, pick_fields
+from maezo.tools.workers.base import FunctionWorker, pick_fields, reclassify_coded_exception
 from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row, require_dmn
 from maezo.tools.workers.harness import WorkerBpmnError
 from maezo.tools.workers.tiss_schema import TissSchemaValidator
@@ -75,6 +76,14 @@ _NOTIFICATIONS_TOPIC = "operadora.notifications.internal"
 # under clause (b). See `retry_submission` for why the worker must stay out of that decision.
 _ERR_ANS_PROTOCOLO_NACK = "ERR_ANS_PROTOCOLO_NACK"
 _ERR_ANS_DATASET_INCOMPLETO = "ERR_ANS_DATASET_INCOMPLETO"
+
+#: `status_envio` value that marks a SUCCESSFUL retransmission inside `SUB_RetryEnvio`. One of the
+#: four values the contract declares for this process variable (`enviado | ack | nack |
+#: retransmitido`, `docs/processes/contracts/SP-OP-ANS-SUBMIT-001.md:73`) and the exact literal
+#: `GW_RetransmissaoOk`'s success condition tests (`${status_envio == 'retransmitido'}`,
+#: `Flow_GWOk_EndOk`). Emitted ONLY by `retransmit_to_ans`, only on a gateway-accepted
+#: retransmission — never a default, never fabricated.
+_STATUS_ENVIO_RETRANSMITIDO = "retransmitido"
 
 #: Unioned into `worker_runtime/service.py`'s `PRODUCTION_BPMN_ERROR_ALLOWLIST` — mirrors
 #: `RECURSO_BPMN_ERROR_ALLOWLIST` / `LGPD_BPMN_ERROR_ALLOWLIST` / `AUTH_BPMN_ERROR_ALLOWLIST`. The
@@ -331,6 +340,33 @@ def validate_data(
     return result
 
 
+def _require_human_approval(decision: AnsSubmitDecision) -> None:
+    """ERR_ANS_SUBMIT_NOT_HUMAN — the ONE implementation of the pre-filing HITL guard.
+
+    Raises `AnsSubmitNotHumanError` (a `PermissionError`, routed straight to an engine incident by
+    `harness._handle`, never retried per ADR-0008) unless a HUMAN recorded `decisao_envio ==
+    APROVAR_ENVIO` AND a `revisor_id`.
+
+    Shared by BOTH transmitting call sites so they cannot drift: `transmit_to_ans`
+    (`ST_SubmeterEnvio`) and `retransmit_to_ans` (`ST_RetransmitirEnvio`). The BPMN requires exactly
+    that of the retry leg — "Mesmo guard nao-repudio (ERR_ANS_SUBMIT_NOT_HUMAN): a retransmissao
+    reusa decisao_envio=APROVAR_ENVIO + revisor_id ja setados pelo humano e NUNCA re-autoriza"
+    (`ST_RetransmitirEnvio` documentation) — and so does the contract's own integration row
+    ("reusa APROVAR_ENVIO+revisor_id (mesmo guard ERR_ANS_SUBMIT_NOT_HUMAN)",
+    `docs/processes/contracts/SP-OP-ANS-SUBMIT-001.md:99`). REUSE is not re-authorization: the guard
+    reads the human decision already in process scope; nothing here can set it.
+    """
+    missing: list[str] = []
+
+    if decision.decisao_envio != "APROVAR_ENVIO":
+        missing.append("decisao_envio != APROVAR_ENVIO")
+    if not decision.revisor_id.strip():
+        missing.append("revisor_id")
+
+    if missing:
+        raise AnsSubmitNotHumanError(missing_fields=missing)
+
+
 def transmit_to_ans(
     submission: AnsSubmissionData,
     decision: AnsSubmitDecision,
@@ -360,9 +396,12 @@ def transmit_to_ans(
     filing was REFUSED by ANS, so no `submitted=True` result may be returned: this raises
     `WorkerBpmnError(ERR_ANS_PROTOCOLO_NACK)`, the MODELED error `BE_SubmitNack` catches on
     `ST_SubmeterEnvio` to enter `SUB_RetryEnvio` (contract §Codigos de erro: "lancado pelo worker
-    `regulatorio.anssubmit.submit` APOS o guard humano, num NACK transitorio"). The refusal reason
-    travels in the error MESSAGE because `WorkerBpmnError` has no variables channel at the harness
-    call site (`harness.py` `_handle` passes only `error_code`/`error_message`).
+    `regulatorio.anssubmit.submit` APOS o guard humano, num NACK transitorio"). Since t9-nack-vars
+    the raise ALSO carries `protocolo_ans`/`status_envio` through `WorkerBpmnError`'s allowlisted
+    variables channel (`harness.screen_bpmn_error_variables`) — without it those two never reach
+    process scope (a raising worker never `complete`s) and `ST_RetransmitirEnvio` fail-closes on a
+    blank `protocolo_ans`, turning the modeled retry route into an incident. The free-text refusal
+    REASON still travels in the error MESSAGE only (the channel admits bounded tokens, never prose).
 
     `requested_outcome` is the dev/test-only NACK directive forwarded verbatim to the gateway; only
     `LabeledMockAnsGatewayTransport` honors it. In production the gateway is
@@ -379,15 +418,7 @@ def transmit_to_ans(
         revisor_id=decision.revisor_id,
     )
 
-    missing: list[str] = []
-
-    if decision.decisao_envio != "APROVAR_ENVIO":
-        missing.append("decisao_envio != APROVAR_ENVIO")
-    if not decision.revisor_id.strip():
-        missing.append("revisor_id")
-
-    if missing:
-        raise AnsSubmitNotHumanError(missing_fields=missing)
+    _require_human_approval(decision)
 
     import time
 
@@ -418,6 +449,25 @@ def transmit_to_ans(
             f"{_ERR_ANS_PROTOCOLO_NACK}: ANS recusou o envio (NACK) — "
             f"protocolo_ans={protocol.protocolo_ans!r} nack_motivo={protocol.nack_motivo!r} "
             f"business_key={business_key!r}",
+            # t9-nack-vars: o canal de variaveis do WorkerBpmnError (harness.py
+            # `screen_bpmn_error_variables` — allowlist de chaves + valor limitado). SO estas duas,
+            # ambas declaradas pelo contrato/BPMN:
+            #   protocolo_ans — contrato :72; BPMN `ST_SubmeterEnvio` ("Emite protocolo_ans +
+            #     status_envio=enviado"). CARREGA A ROTA: `ST_RetransmitirEnvio` (destino do
+            #     `BE_SubmitNack` via `SUB_RetryEnvio`) recusa fail-closed com `protocolo_ans` em
+            #     branco, entao sem este canal o ramo modelado de retry vira incidente — era o
+            #     BLOQUEIO 1 do xfail que este pacote fecha.
+            #   status_envio — contrato :73, conjunto FECHADO `enviado|ack|nack|retransmitido`.
+            #     Estado honesto do envio apos a recusa; sem ele o escopo fica com o valor anterior
+            #     (ou sem variavel nenhuma em producao) enquanto o token ja esta em retry.
+            # `nack_motivo` fica FORA de proposito: o contrato o escopa a retransmissao
+            # ("preenchido apenas em retransmissao", :75) — a razao da recusa viaja na MENSAGEM do
+            # erro (redigida por `redact_error_message` antes do Cockpit), nunca inventando
+            # variavel de processo que o modelo nao declara neste ponto.
+            variables={
+                "protocolo_ans": protocol.protocolo_ans,
+                "status_envio": protocol.status_envio,
+            },
         )
     if protocol.status_envio != ANS_OUTCOME_ENVIADO:
         # Fail-closed: an unrecognized gateway status is NOT an accepted filing. Reaching here
@@ -481,6 +531,108 @@ def handle_nack(
         "retry_attempt": retry_attempt,
         "status": "nack",
     }
+
+
+def retransmit_to_ans(
+    submission: AnsSubmissionData,
+    decision: AnsSubmitDecision,
+    *,
+    gateway: AnsGatewayTransport | None = None,
+    business_key: str = "",
+    requested_outcome: str = "",
+) -> dict[str, Any]:
+    """Retransmit the filing to ANS inside `SUB_RetryEnvio` — GUARDED, and it COMPLETES on a NACK.
+
+    This is the missing half of `ST_RetransmitirEnvio`. Its BPMN documentation is explicit that the
+    task RETRANSMITS and ECHOES the outcome: "Worker de retransmissao (regulatorio.anssubmit.
+    retransmit). … Incrementa retry_attempt (contador de loop) e ecoa status_envio (retransmitido em
+    sucesso, nack se ainda falha) + nack_motivo" (`ST_RetransmitirEnvio` documentation). Until
+    t9-nack-vars the worker only evaluated the retry-policy DMN and never touched the gateway, so
+    NO worker emitted `status_envio='retransmitido'` — and `GW_RetransmissaoOk`'s success condition
+    `${status_envio == 'retransmitido'}` (`Flow_GWOk_EndOk`) was unsatisfiable by construction. That
+    was BLOQUEIO 2 of the NACK xfail.
+
+    **Why it must NOT raise on a NACK** (the difference from `transmit_to_ans`). Inside the
+    subprocess the NACK is the EXPECTED, modeled outcome: `GW_RetransmissaoOk`'s default flow
+    `Flow_GWOk_Policy` routes it to `BRT_RetryPolicy` -> `GW_ContinuarRetry` -> `ICE_Backoff` (loop)
+    or `End_RetryEsgotado` (exhaustion -> `BE_RetryEsgotado` -> `UT_TratarNack`, human). A worker
+    that raised here would fail the external task instead of completing it, so the token would
+    never reach that gateway at all — the exact defect the removed `AnsRetryEsgotadoError` caused
+    (see the module-level note where it used to live). So: NACK -> `status_envio='nack'` +
+    `nack_motivo`, RETURNED.
+
+    Guard: `_require_human_approval` — the SAME `ERR_ANS_SUBMIT_NOT_HUMAN` guard, reusing (never
+    re-authorizing) the human decision already in scope, as the BPMN/contract require.
+
+    Gateway: the same `AnsGatewayTransport` seam `transmit_to_ans` uses, with the same fail-closed
+    default. PRODUCTION injects nothing -> `RefusingAnsGatewayTransport` -> `AnsGatewayUnavailableError`
+    -> incident, so a production retransmission REFUSES rather than fabricating a filing outcome.
+    That is not a regression of a working path: the production `ST_SubmeterEnvio` refuses first, so
+    `SUB_RetryEnvio` is unreachable in production anyway (real ANS connectivity is AWS-blocked,
+    issue #16) — the retry leg simply fails closed the same way the submit leg already does.
+
+    `requested_outcome` is the dev/test-only outcome directive, forwarded verbatim; only
+    `LabeledMockAnsGatewayTransport` honors it (exact same posture as `transmit_to_ans`'s). It is a
+    SEPARATE variable from the submit leg's (`retransmit_outcome` vs `status_envio`, see
+    `retransmit_entry`) so a test can seed "submit NACKs, retransmission succeeds" — the very shape
+    `Flow_GWOk_EndOk` exists to model.
+
+    An unrecognized gateway status is rejected fail-closed (`ValueError` -> incident), never treated
+    as a successful retransmission.
+    """
+    logger.info(
+        "ans_submit.retransmit_to_ans.start",
+        report_type=submission.report_type,
+        decisao_envio=decision.decisao_envio,
+        revisor_id=decision.revisor_id,
+    )
+
+    _require_human_approval(decision)
+
+    protocol = resolve_ans_gateway(gateway).submit(
+        business_key=business_key,
+        report_type=submission.report_type,
+        competencia=submission.competencia,
+        dataset_ref=submission.dataset_ref,
+        revisor_id=decision.revisor_id,
+        requested_outcome=requested_outcome,
+    )
+
+    if protocol.status_envio not in (ANS_OUTCOME_ENVIADO, ANS_OUTCOME_NACK):
+        raise ValueError(
+            f"status_envio desconhecido do gateway ANS na retransmissao: {protocol.status_envio!r} "
+            f"(esperado {ANS_OUTCOME_ENVIADO!r} ou {ANS_OUTCOME_NACK!r}); "
+            f"business_key={business_key!r} — recusa fail-closed, nenhuma retransmissao registrada"
+        )
+
+    retransmitida = protocol.status_envio == ANS_OUTCOME_ENVIADO
+    # The engine-facing vocabulary of the retry subprocess is `retransmitido`, not `enviado`: it is
+    # the value `Flow_GWOk_EndOk` tests and one of the four the contract declares for this variable
+    # (`enviado|ack|nack|retransmitido`, docs/processes/contracts/SP-OP-ANS-SUBMIT-001.md:73). The
+    # gateway speaks only `enviado`/`nack` (it does not know it is inside a retry), so the mapping
+    # belongs here — at the one place that knows which BPMN leg it is serving.
+    status_envio = _STATUS_ENVIO_RETRANSMITIDO if retransmitida else ANS_OUTCOME_NACK
+
+    result = {
+        "retransmitido": retransmitida,
+        "protocolo_ans": protocol.protocolo_ans,
+        "status_envio": status_envio,
+        "nack_motivo": protocol.nack_motivo,
+        "synthetic": protocol.synthetic,
+        "vinculativo": protocol.vinculativo,
+        "report_type": submission.report_type,
+        "competencia": submission.competencia,
+        "revisor_id": decision.revisor_id,
+    }
+
+    logger.info(
+        "ans_submit.retransmit_to_ans.complete",
+        protocolo_ans=protocol.protocolo_ans,
+        status_envio=status_envio,
+        synthetic=protocol.synthetic,
+        vinculativo=protocol.vinculativo,
+    )
+    return result
 
 
 def retry_submission(
@@ -576,6 +728,12 @@ def publish_completed(
 
 _NOTIFY_REGULATORIO_TOPIC = "regulatorio.anssubmit.notify_regulatorio"
 _NOTIFY_REGULATORIO_NOTIFICATION_TYPE = "anssubmit.notify_regulatorio"
+
+#: `ST_RetransmitirEnvio`'s topic + the typed notification `make_retransmit_handler` publishes on
+#: `operadora.notifications.internal`. Second ans_submit worker to emit one (after
+#: notify_regulatorio) — the retry leg was otherwise unobservable on the notification bus.
+_RETRANSMIT_TOPIC = "regulatorio.anssubmit.retransmit"
+_RETRANSMIT_NOTIFICATION_TYPE = "anssubmit.retransmit"
 
 
 @dataclass
@@ -684,7 +842,12 @@ def make_notify_regulatorio_handler(kafka: KafkaPublisher | None) -> TaskHandler
 #   transmit_to_ans      -> regulatorio.anssubmit.submit          (exact spec match, GUARDED)
 #   handle_nack          -> regulatorio.anssubmit.track_protocol  (spec match: "Correlacionar
 #                            status do protocolo ANS")
-#   retry_submission      -> regulatorio.anssubmit.retransmit      (exact spec match)
+#   retransmit_to_ans    -> regulatorio.anssubmit.retransmit      (exact spec match, GUARDED —
+#     + retry_submission for the loop counter/policy). Registered as a RAW ASYNC handler
+#     (`make_retransmit_handler`, the name the contract itself uses at :157), NOT via
+#     `register_worker`: it publishes the `anssubmit.retransmit` notification the sync
+#     `FunctionWorker.execute` boundary cannot reach. `retransmit_entry` stays the sync
+#     dict-boundary core the handler wraps (unit-testable without an event loop).
 # publish_completed has no distinct spec topic (folds into the generic
 # events.publish task per BPMN) — function-derived topic.
 #   notify_regulatorio -> regulatorio.anssubmit.notify_regulatorio (shared by 2
@@ -803,43 +966,175 @@ def retransmit_entry(
     *,
     kafka: KafkaPublisher | None = None,
     dmn: DmnTransport | None = None,
+    ans_gateway: AnsGatewayTransport | None = None,
 ) -> dict[str, Any]:
-    """Dict-boundary entry for `regulatorio.anssubmit.retransmit` -> `retry_submission`.
+    """Dict-boundary core for `regulatorio.anssubmit.retransmit` (`ST_RetransmitirEnvio`).
 
-    Fail-closed: missing/blank `protocolo_ans` raises `AnsDatasetIncompletoError`. `dmn` unwired
-    raises `DmnEvaluationError` (`require_dmn`, ADR-0028) — transient/engine-retried.
+    Does the TWO things the BPMN task's own documentation assigns it. The BPMN documentation lists
+    them retransmit-first; the CODE runs them policy-first, because the policy is the reversible
+    half and the gateway call is not (see the ordering comment in the body — GK-t9 F2). The BPMN
+    lists an obligation set, not a sequence, and nothing in either half reads the other's result, so
+    the two orders are observationally identical except under failure — where only this one is safe:
 
-    **Owns the loop counter.** The inbound `retry_attempt` is the number of retransmissions already
-    performed (absent/0 on entry to `SUB_RetryEnvio`); this invocation IS attempt `n+1`, so the
-    incremented value is what the policy is evaluated for and what is written back to the instance.
-    The DMN's own description assigns the increment to this worker ("O worker
-    regulatorio.anssubmit.retransmit incrementa `retry_attempt`"), and it is what makes the modeled
-    loop terminate: `BRT_RetryPolicy` re-evaluates on the incremented counter until the table's
-    catch-all returns `continue_retry=false`, which routes `GW_ContinuarRetry` to
-    `End_RetryEsgotado` -> `BE_RetryEsgotado` -> `UT_TratarNack`. CORRECAO DE NARRATIVA (GK-ans
-    finding 1): sem o incremento NAO havia "loop infinito" — `retry_attempt` nunca chegava ao
-    escopo do processo, entao o catch-all `-` casava sempre e o esgotamento era imediato; o que
-    de fato quebrava a rota era o `AnsRetryEsgotadoError` (familia transiente) levantado na
-    primeira retransmissao, que impedia a task de completar. O incremento importa porque
-    `BRT_RetryPolicy` precisa de um contador REAL em escopo (contrato :157).
+      1. **Owns the loop counter + reports the policy** (`retry_submission`). The inbound
+         `retry_attempt` is the number of retransmissions already performed (absent/0 on entry to
+         `SUB_RetryEnvio`); this invocation IS attempt `n+1`, so the incremented value is what the
+         policy is evaluated for and what is written back to the instance. The DMN's own
+         description assigns the increment to this worker ("O worker regulatorio.anssubmit.
+         retransmit incrementa `retry_attempt`"; contract :157 says the same), and it is what makes
+         the modeled loop terminate: `BRT_RetryPolicy` re-evaluates on the incremented counter until
+         the catch-all returns `continue_retry=false`, routing `GW_ContinuarRetry` to
+         `End_RetryEsgotado` -> `BE_RetryEsgotado` -> `UT_TratarNack`.
+      2. **Retransmits** (`retransmit_to_ans`) — the guarded gateway call that emits
+         `status_envio='retransmitido'` on success (or `'nack'` + `nack_motivo` if ANS refuses
+         again). Added by t9-nack-vars: before it, this entry evaluated only the DMN and never
+         touched the gateway, so `GW_RetransmissaoOk`'s `${status_envio == 'retransmitido'}` had no
+         emitter anywhere in the fleet (BLOQUEIO 2 of the NACK xfail).
 
-    Exhaustion is REPORTED (`continue_retry=false`), never raised — see `retry_submission`.
+    The policy is evaluated UNCONDITIONALLY, including on a successful retransmission where the
+    token goes to `End_RetryOk` and no one reads it. Deliberate: it keeps `require_dmn`'s
+    fail-closed contract (an unwired DMN seam is a wiring defect on EVERY invocation, not only the
+    unlucky ones) and keeps the completion's variable shape constant, at the cost of one read-only
+    decision evaluation. `BRT_RetryPolicy` re-evaluates the same table independently and writes
+    under its own `retry` result variable, so the two never collide.
+
+    Fail-closed: missing/blank `protocolo_ans` raises `AnsDatasetIncompletoError`; `dmn` unwired
+    raises `DmnEvaluationError` (`require_dmn`, ADR-0028); the human-approval guard and the gateway
+    refusal are `retransmit_to_ans`'s. Exhaustion is REPORTED (`continue_retry=false`), never raised
+    — see `retry_submission`.
+
+    CORRECAO DE NARRATIVA (GK-ans finding 1): sem o incremento NAO havia "loop infinito" —
+    `retry_attempt` nunca chegava ao escopo do processo, entao o catch-all `-` casava sempre e o
+    esgotamento era imediato; o que de fato quebrava a rota era o `AnsRetryEsgotadoError` (familia
+    transiente) levantado na primeira retransmissao, que impedia a task de completar.
+
+    `retransmit_outcome` is the dev/test-only outcome directive for the RETRY leg, forwarded to the
+    gateway as `requested_outcome`. It is a DIFFERENT variable from the submit leg's `status_envio`
+    (`submit_entry`) precisely so a test can seed "submit NACKs, retransmission succeeds" without
+    the retry inheriting the submit's directive and nacking forever. Production is unaffected for
+    the same reason the submit-side directive is: `resolve_ans_gateway(None)` picks the refusing
+    transport, which raises before reading it.
     """
-    del kafka  # unused — retry_submission emits no domain event
+    del kafka  # unused here — the notification is published by `make_retransmit_handler` (async seam)
     protocolo_ans = variables.get("protocolo_ans", "")
     if not isinstance(protocolo_ans, str) or not protocolo_ans.strip():
         raise AnsDatasetIncompletoError("protocolo_ans ausente/invalido para retransmit")
     attempt = int(variables.get("retry_attempt") or 0) + 1
-    report_type = variables.get("report_type", "")
-    competencia = variables.get("competencia", "")
-    result = retry_submission(
+    # Resolve the DMN seam BEFORE the side-effecting gateway call, not after. An unwired seam is a
+    # WIRING defect whose `DmnEvaluationError` is transient/engine-retried — resolving it late would
+    # mean every retry re-transmits to ANS before failing again on the same missing seam. Fail fast,
+    # on the cheap check, so a mis-wired deployment never touches the regulator.
+    dmn_transport = require_dmn(dmn, _RETRANSMIT_TOPIC)
+
+    submission = AnsSubmissionData(**pick_fields(variables, AnsSubmissionData))
+    decision = AnsSubmitDecision(**pick_fields(variables, AnsSubmitDecision))
+
+    # ORDER IS LOAD-BEARING (GK-t9 F2): everything that can fail on its own goes BEFORE the
+    # irreversible gateway call, so a redelivery cannot duplicate a transmission to the regulator.
+    # `require_dmn` is only the CHEAP half of the DMN seam — it proves a transport was injected, not
+    # that the engine answers. The ROUND-TRIP (`evaluate_sync` -> HTTP -> `first_row`) can fail for
+    # reasons the cheap check cannot see: engine down, decision key undeployed, empty result set.
+    # All of those raise `DmnEvaluationError`, which is transient/engine-retried, so with the round
+    # trip AFTER the gateway call the external task fails and CIB Seven redelivers it — and the
+    # retransmission runs a second time. `LabeledMockAnsGatewayTransport` is deterministic by
+    # business key (BPMN `:461`), but the real regulator is not: a duplicate filing is a regulatory
+    # fact that cannot be taken back. Evaluating first is free of that hazard because
+    # `retry_submission` is a pure function of `(protocolo_ans, attempt)` — both read off the
+    # INBOUND variables above — and never reads the retransmission result, so nothing about the
+    # policy depends on the gateway having been called.
+    #
+    # ONE knock-on, stated rather than glossed: `_require_human_approval` lives INSIDE
+    # `retransmit_to_ans`, so an unapproved retransmission now performs the (read-only, PHI-free)
+    # DMN evaluation before it refuses. The guard still refuses, and still refuses BEFORE anything
+    # reaches the regulator — the only cost is one wasted decision evaluation on the refused path,
+    # which is the same price the docstring already accepts on the successful-retransmission path.
+    policy = retry_submission(
         protocolo_ans,
         attempt,
-        report_type,
-        competencia,
-        dmn=require_dmn(dmn, "regulatorio.anssubmit.retransmit"),
+        submission.report_type,
+        submission.competencia,
+        dmn=dmn_transport,
     )
-    return dataclasses.asdict(result)
+
+    retransmission = retransmit_to_ans(
+        submission,
+        decision,
+        gateway=ans_gateway,
+        business_key=_ans_business_key(variables),
+        requested_outcome=str(variables.get("retransmit_outcome") or ""),
+    )
+
+    # RESIDUAL WINDOW, stated honestly: this reorder shrinks the at-least-once window, it does NOT
+    # close it. Everything after the gateway call is still exposed — the typed Kafka notification
+    # published by `make_retransmit_handler` and the harness's own `complete` (plus its audit emit).
+    # A crash or a transport error in any of those still fails the task, still redelivers it, and
+    # still re-transmits. Closing THAT window needs idempotency at the gateway (a per-(business_key,
+    # attempt) transmission key the regulator or an outbox dedupes on), which is a separate,
+    # unbuilt piece of work — not something call ordering inside this function can provide.
+    return {**dataclasses.asdict(policy), **retransmission}
+
+
+def make_retransmit_handler(
+    kafka: KafkaPublisher | None,
+    *,
+    dmn: DmnTransport | None = None,
+    ans_gateway: AnsGatewayTransport | None = None,
+) -> TaskHandler:
+    """Raw-handler factory for `regulatorio.anssubmit.retransmit` — the name the CONTRACT already
+    uses for this worker ("contador de loop (incrementado pelo worker `make_retransmit_handler`)",
+    `docs/processes/contracts/SP-OP-ANS-SUBMIT-001.md:157`).
+
+    Raw async handler rather than a `FunctionWorker`, for the SAME reason
+    `make_notify_regulatorio_handler` is: it must publish the `anssubmit.retransmit` typed
+    notification to `operadora.notifications.internal`, and the sync `FunctionWorker.execute`
+    boundary cannot reach `await kafka.publish`. That publish is what closes BLOQUEIO 3 (FINDING C)
+    for this topic — the retry leg was previously unobservable on the notification bus, so a
+    retransmission that DID happen looked identical to one that never ran.
+
+    `reclassify_coded_exception` (`base.py`, the ONE shared implementation — GK-w5 finding 3) is
+    applied around the sync core exactly as `FunctionWorker.execute` would have: leaving the
+    registry path drops that reclassification, and `AnsGatewayUnavailableError` (a coded `Exception`,
+    NOT `_HARNESS_CLASSIFIED`) would then fall into the harness's generic branch and be treated as
+    TRANSIENT — engine-retried instead of raising an immediate incident. Retrying cannot conjure ANS
+    credentials, so that would be a fail-closed regression; this call keeps the classification
+    byte-identical to the `FunctionWorker` it replaces.
+
+    kafka=None (fail-closed, evidenced — same decision as `make_notify_regulatorio_handler`):
+    completes the external task ANYWAY, logging LOUDLY instead of fabricating a publish. The
+    notification is ADVISORY: `GW_RetransmissaoOk`/`BRT_RetryPolicy` route on the PROCESS VARIABLES
+    this handler returns, never on the notification, so a lost ping cannot misroute the retry loop.
+    Publish posture is the topic default (best-effort) for the same reason.
+    """
+
+    async def handler(task: ExternalTask) -> dict[str, Any]:
+        result = await asyncio.to_thread(
+            reclassify_coded_exception,
+            lambda: retransmit_entry(task.variables, dmn=dmn, ans_gateway=ans_gateway),
+        )
+        if kafka is None:
+            logger.warning(
+                "ans_submit_retransmit_no_producer",
+                business_key=task.business_key,
+                retry_attempt=result.get("retry_attempt"),
+            )
+            return result
+        notification = {
+            "type": _RETRANSMIT_NOTIFICATION_TYPE,
+            "tenant_id": str(task.variables.get("tenant_id") or ""),
+            "report_type": result.get("report_type", ""),
+            "competencia": result.get("competencia", ""),
+            # The three fields the retry leg is judged by: WHICH attempt, WHAT the ANS said, and
+            # WHOSE human approval was reused (never re-obtained — `_require_human_approval`).
+            "retry_attempt": result.get("retry_attempt"),
+            "status_envio": result.get("status_envio", ""),
+            "decisao_envio": str(task.variables.get("decisao_envio") or ""),
+            "revisor_id": result.get("revisor_id", ""),
+            "continue_retry": result.get("continue_retry"),
+        }
+        await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=task.business_key or None)
+        return result
+
+    return handler
 
 
 def publish_completed_entry(
@@ -860,28 +1155,33 @@ def register_ans_submit_workers(
 ) -> None:
     """Register the SP-OP-ANS-SUBMIT-001 workers on `harness`.
 
-    Six dict-boundary `FunctionWorker` entries (assemble/validate/submit/track_protocol/
-    retransmit/publish_completed) PLUS one raw async handler
-    (`make_notify_regulatorio_handler` on `regulatorio.anssubmit.notify_regulatorio`, via
-    `harness.register` not `register_worker` — it emits the `anssubmit.notify_regulatorio`
-    notification the sync `FunctionWorker` boundary cannot; mirrors recurso's raw handlers).
+    FIVE dict-boundary `FunctionWorker` entries (assemble/validate/submit/track_protocol/
+    publish_completed) PLUS TWO raw async handlers registered via `harness.register` rather than
+    `register_worker`, because each must publish a typed notification the sync `FunctionWorker`
+    boundary cannot reach (mirrors recurso's raw handlers):
+      - `make_notify_regulatorio_handler` on `regulatorio.anssubmit.notify_regulatorio`
+        (`anssubmit.notify_regulatorio`);
+      - `make_retransmit_handler` on `regulatorio.anssubmit.retransmit` (`anssubmit.retransmit`) —
+        moved off `FunctionWorker` by t9-nack-vars; the contract already names this factory (:157).
 
     `kafka` is accepted (donor contract, ADR-0026 §2) and threaded to every entry function via
-    `functools.partial` for signature parity with modules that DO emit domain events; none of
-    these entry functions calls `kafka.publish` today (the typed functions only DESCRIBE the
-    event to publish — see `publish_completed_entry` — a genuine `kafka.publish` fan-out would
-    need an async seam distinct from these sync entry points; not fabricated here).
+    `functools.partial` for signature parity with modules that DO emit domain events; none of the
+    five `FunctionWorker` entry functions calls `kafka.publish` (the typed functions only DESCRIBE
+    the event to publish — see `publish_completed_entry` — a genuine `kafka.publish` fan-out needs
+    the async seam only the two raw handlers have; not fabricated in the sync entries).
 
     `dmn` (ADR-0028 §1 seam) is threaded ONLY into `retransmit_entry` — the sole function here
     that evaluates a DMN table (`ans_retry_policy`, T1.5 cutover); every other entry function
     ignores it (dict `**seams` passthrough, not a hand-maintained per-module signature).
 
-    `ans_gateway` (T2.6-1 seam, design §2.A) is the ANS protocol-issuance transport threaded ONLY
-    into `submit_entry`. PRODUCTION injects nothing here (`register_all_workers` passes no
-    `ans_gateway`), so `submit_entry` receives `None` and `resolve_ans_gateway` fails closed to
-    `RefusingAnsGatewayTransport` — production refuses to issue a protocol (never fabricates) until
-    real ANS credentials are wired. Dev/test/integration explicitly inject
-    `LabeledMockAnsGatewayTransport`.
+    `ans_gateway` (T2.6-1 seam, design §2.A) is the ANS protocol-issuance transport threaded into
+    the TWO functions that transmit to ANS: `submit_entry` (`ST_SubmeterEnvio`) and, since
+    t9-nack-vars, `retransmit_entry` (`ST_RetransmitirEnvio` — whose BPMN documentation always
+    required it to retransmit and echo `status_envio`). PRODUCTION injects nothing here
+    (`register_all_workers` passes no `ans_gateway`), so both receive `None` and
+    `resolve_ans_gateway` fails closed to `RefusingAnsGatewayTransport` — production refuses to
+    issue a protocol on EITHER leg (never fabricates) until real ANS credentials are wired.
+    Dev/test/integration explicitly inject `LabeledMockAnsGatewayTransport`.
 
     `tiss_validator` (T2.6-2 seam, design §2.B) is the TISS/XSD validation resolver threaded
     ONLY into `validate_entry`. PRODUCTION injects nothing here, so `validate_data` resolves a
@@ -914,12 +1214,6 @@ def register_ans_submit_workers(
     )
     harness.register_worker(
         FunctionWorker(
-            "regulatorio.anssubmit.retransmit",
-            functools.partial(retransmit_entry, kafka=kafka, dmn=dmn),
-        )
-    )
-    harness.register_worker(
-        FunctionWorker(
             "regulatorio.anssubmit.publish_completed",
             functools.partial(publish_completed_entry, kafka=kafka),
         )
@@ -932,4 +1226,14 @@ def register_ans_submit_workers(
     harness.register(
         _NOTIFY_REGULATORIO_TOPIC,
         make_notify_regulatorio_handler(kafka),
+    )
+    # retransmit: raw async handler (NOT register_worker) since t9-nack-vars — it publishes the
+    # `anssubmit.retransmit` notification the sync FunctionWorker boundary cannot reach, and the
+    # contract already names this factory (`make_retransmit_handler`, :157). `ans_gateway` is now
+    # threaded here too: the task RETRANSMITS (BPMN `ST_RetransmitirEnvio` documentation), which
+    # was the missing emitter of `status_envio='retransmitido'`. PRODUCTION still injects nothing
+    # -> `resolve_ans_gateway` fails closed to the Refusing transport.
+    harness.register(
+        _RETRANSMIT_TOPIC,
+        make_retransmit_handler(kafka, dmn=dmn, ans_gateway=ans_gateway),
     )

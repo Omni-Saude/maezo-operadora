@@ -5,6 +5,7 @@ TDD London School: tests exercise the external task contracts.
 
 import functools
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -14,6 +15,7 @@ from maezo.tools.workers.ans_gateway import (
     MOCK_ANS_NACK_MOTIVO,
     MOCK_ANS_PROTOCOL_PREFIX,
     AnsGatewayUnavailableError,
+    AnsProtocol,
     LabeledMockAnsGatewayTransport,
     RealAnsGatewayTransport,
     RefusingAnsGatewayTransport,
@@ -31,6 +33,7 @@ from maezo.tools.workers.ans_submit import (
     assemble_entry,
     handle_nack,
     make_notify_regulatorio_handler,
+    make_retransmit_handler,
     notify_regulatorio,
     prepare_submission,
     publish_completed,
@@ -52,6 +55,7 @@ from maezo.tools.workers.harness import (
     FakeWorkerTransport,
     WorkerBpmnError,
     WorkerHarness,
+    screen_bpmn_error_variables,
 )
 from maezo.tools.workers.tiss_schema import TissSchemaValidator
 
@@ -352,8 +356,40 @@ def test_transmit_to_ans_nack_raises_allowlisted_bpmn_error() -> None:
         )
     assert exc.value.error_code == "ERR_ANS_PROTOCOLO_NACK"
     assert exc.value.error_code in ANS_SUBMIT_BPMN_ERROR_ALLOWLIST
-    # The refusal reason must travel in the message — WorkerBpmnError has no variables channel.
+    # The free-text refusal REASON travels in the message: the variables channel admits bounded
+    # tokens only, never prose.
     assert MOCK_ANS_NACK_MOTIVO in str(exc.value)
+
+
+def test_transmit_to_ans_nack_carries_exactly_the_two_declared_variables() -> None:
+    """t9-nack-vars: the NACK raise carries `protocolo_ans`/`status_envio` through
+    `WorkerBpmnError`'s allowlisted variables channel.
+
+    Load-bearing, not cosmetic: a raising worker never `complete`s, so without this channel neither
+    variable reaches process scope, and `ST_RetransmitirEnvio` — where `BE_SubmitNack` routes via
+    `SUB_RetryEnvio` — fail-closes on a blank `protocolo_ans`, turning the MODELED retry route into
+    an incident. Exactly two keys, both declared by the contract (:72 / :73); `nack_motivo` is
+    excluded on purpose (the contract scopes it to the retransmission leg, :75).
+    """
+    submission, decision = _approved_submission()
+    with pytest.raises(WorkerBpmnError) as exc:
+        transmit_to_ans(
+            submission,
+            decision,
+            gateway=LabeledMockAnsGatewayTransport(),
+            business_key="ANSSUB-amh-RN_124_SIP-2026-06",
+            requested_outcome=ANS_OUTCOME_NACK,
+        )
+
+    assert exc.value.variables == {
+        "protocolo_ans": f"{MOCK_ANS_PROTOCOL_PREFIX}ANSSUB-amh-RN_124_SIP-2026-06",
+        "status_envio": ANS_OUTCOME_NACK,
+    }
+    # ...and the payload SURVIVES the harness screen intact — a raise the harness would refuse
+    # (demoting the modeled boundary to an incident) is worse than no channel at all.
+    screened = screen_bpmn_error_variables(exc.value.variables)
+    assert screened.refused_keys == ()
+    assert screened.accepted == exc.value.variables
 
 
 def test_submit_entry_seeded_status_envio_nack_drives_the_nack_branch() -> None:
@@ -923,12 +959,26 @@ def test_retransmit_entry_raises_on_missing_protocolo() -> None:
         retransmit_entry({"retry_attempt": 1})
 
 
+#: The human approval `ST_RetransmitirEnvio` REUSES (never re-obtains) — BPMN
+#: `ST_RetransmitirEnvio` documentation / contract :99. Since t9-nack-vars the retransmit worker
+#: actually transmits, so it runs the same `ERR_ANS_SUBMIT_NOT_HUMAN` guard the submit leg does and
+#: every retransmit test must carry the decision a human already recorded upstream.
+_RETRANSMIT_APROVADO: dict[str, Any] = {
+    "decisao_envio": "APROVAR_ENVIO",
+    "revisor_id": "revisor-sintetico-001",
+}
+
+
 def test_retransmit_entry_happy_path_round_trips_retry_submission() -> None:
-    variables = {"protocolo_ans": "ANSPROTO-1", "retry_attempt": 1}
+    variables = {"protocolo_ans": "ANSPROTO-1", "retry_attempt": 1, **_RETRANSMIT_APROVADO}
     direct = retry_submission(
         "ANSPROTO-1", 1, dmn=_ans_retry_policy_fake(backoff="PT5M", continue_retry=True)
     )
-    result = retransmit_entry(variables, dmn=_ans_retry_policy_fake(backoff="PT5M", continue_retry=True))
+    result = retransmit_entry(
+        variables,
+        dmn=_ans_retry_policy_fake(backoff="PT5M", continue_retry=True),
+        ans_gateway=LabeledMockAnsGatewayTransport(),
+    )
     assert result["backoff"] == direct.backoff
     assert result["continue_retry"] == direct.continue_retry
 
@@ -940,7 +990,11 @@ def test_retransmit_entry_reports_exhaustion_without_raising() -> None:
     evaluation; the worker must complete for the token to ever reach that gateway.
     """
     fake = _ans_retry_policy_fake(backoff="", continue_retry=False)
-    result = retransmit_entry({"protocolo_ans": "ANSPROTO-1", "retry_attempt": 4}, dmn=fake)
+    result = retransmit_entry(
+        {"protocolo_ans": "ANSPROTO-1", "retry_attempt": 4, **_RETRANSMIT_APROVADO},
+        dmn=fake,
+        ans_gateway=LabeledMockAnsGatewayTransport(),
+    )
     assert result["continue_retry"] is False
     assert result["retry_attempt"] == 5
 
@@ -949,16 +1003,248 @@ def test_retransmit_entry_increments_the_loop_counter() -> None:
     """The worker owns `retry_attempt` (DMN description) — without the increment the modeled
     `SUB_RetryEnvio` loop never reaches the table's `> 3` catch-all and spins forever."""
     fake = _ans_retry_policy_fake(backoff="PT5M", continue_retry=True)
+    gateway = LabeledMockAnsGatewayTransport()
     # Absent counter (first entry into SUB_RetryEnvio) => this invocation is attempt 1.
-    first = retransmit_entry({"protocolo_ans": "ANSPROTO-1"}, dmn=fake)
+    first = retransmit_entry(
+        {"protocolo_ans": "ANSPROTO-1", **_RETRANSMIT_APROVADO}, dmn=fake, ans_gateway=gateway
+    )
     assert first["retry_attempt"] == 1
     assert fake.calls == [("ans_retry_policy", {"retry_attempt": 1})]
 
     # ...and each subsequent pass advances by exactly one, which is what BRT_RetryPolicy re-reads.
     fake_2 = _ans_retry_policy_fake(backoff="PT30M", continue_retry=True)
-    second = retransmit_entry({"protocolo_ans": "ANSPROTO-1", "retry_attempt": 1}, dmn=fake_2)
+    second = retransmit_entry(
+        {"protocolo_ans": "ANSPROTO-1", "retry_attempt": 1, **_RETRANSMIT_APROVADO},
+        dmn=fake_2,
+        ans_gateway=gateway,
+    )
     assert second["retry_attempt"] == 2
     assert fake_2.calls == [("ans_retry_policy", {"retry_attempt": 2})]
+
+
+# ---------------------------------------------------------------------------
+# retransmit_to_ans / make_retransmit_handler — t9-nack-vars. `ST_RetransmitirEnvio`
+# is the ONLY emitter of `status_envio='retransmitido'`, the literal
+# `GW_RetransmissaoOk`'s success condition (`Flow_GWOk_EndOk`) tests. Before this
+# it had no emitter anywhere in the fleet and the modeled success leg of the retry
+# subprocess was unsatisfiable by construction.
+# ---------------------------------------------------------------------------
+
+
+def test_retransmit_emits_the_literal_gw_retransmissao_ok_reads() -> None:
+    """Gateway accepts => `status_envio='retransmitido'` (NOT the gateway's own `enviado`).
+
+    The mapping lives in `retransmit_to_ans` because only it knows which BPMN leg it serves; the
+    gateway speaks `enviado`/`nack` and does not know it is inside `SUB_RetryEnvio`.
+    """
+    result = retransmit_entry(
+        {"protocolo_ans": "ANSPROTO-1", **_RETRANSMIT_APROVADO},
+        dmn=_ans_retry_policy_fake(backoff="PT5M", continue_retry=True),
+        ans_gateway=LabeledMockAnsGatewayTransport(),
+    )
+    assert result["status_envio"] == "retransmitido"
+    assert result["retransmitido"] is True
+    assert result["nack_motivo"] == ""
+
+
+def test_retransmit_nack_completes_with_nack_never_raises() -> None:
+    """A NACK on the retry leg is the MODELED default flow (`Flow_GWOk_Policy` -> BRT_RetryPolicy).
+
+    It must COMPLETE the external task with `status_envio='nack'`, never raise: a raise fails the
+    task and strands the token on `ST_RetransmitirEnvio`, exactly the defect the removed
+    `AnsRetryEsgotadoError` caused.
+    """
+    result = retransmit_entry(
+        {"protocolo_ans": "ANSPROTO-1", "retransmit_outcome": "nack", **_RETRANSMIT_APROVADO},
+        dmn=_ans_retry_policy_fake(backoff="PT5M", continue_retry=True),
+        ans_gateway=LabeledMockAnsGatewayTransport(),
+    )
+    assert result["status_envio"] == "nack"
+    assert result["retransmitido"] is False
+    assert result["nack_motivo"] == MOCK_ANS_NACK_MOTIVO
+
+
+def test_retransmit_reuses_the_human_guard_and_never_re_authorizes() -> None:
+    """Same `ERR_ANS_SUBMIT_NOT_HUMAN` guard as the submit leg (BPMN `ST_RetransmitirEnvio` /
+    contract :99). A retransmission with no human decision in scope REFUSES — it cannot mint one."""
+    for missing in ({}, {"decisao_envio": "APROVAR_ENVIO"}, {"revisor_id": "revisor-sintetico-001"}):
+        with pytest.raises(AnsSubmitNotHumanError):
+            retransmit_entry(
+                {"protocolo_ans": "ANSPROTO-1", **missing},
+                dmn=_ans_retry_policy_fake(backoff="PT5M", continue_retry=True),
+                ans_gateway=LabeledMockAnsGatewayTransport(),
+            )
+
+
+def test_retransmit_production_default_gateway_refuses_never_fabricates() -> None:
+    """No injected gateway (the PRODUCTION wiring) => `RefusingAnsGatewayTransport` => refusal.
+
+    The retry leg fails closed exactly like the submit leg; it never invents a retransmission
+    outcome to satisfy `GW_RetransmissaoOk`.
+    """
+    with pytest.raises(AnsGatewayUnavailableError):
+        retransmit_entry(
+            {"protocolo_ans": "ANSPROTO-1", **_RETRANSMIT_APROVADO},
+            dmn=_ans_retry_policy_fake(backoff="PT5M", continue_retry=True),
+        )
+
+
+def test_retransmit_dmn_seam_is_resolved_before_touching_the_gateway() -> None:
+    """`require_dmn` fires BEFORE the side-effecting gateway call.
+
+    `DmnEvaluationError` is transient/engine-retried, so a late check would re-transmit to ANS on
+    every redelivery before failing again on the same missing seam.
+    """
+
+    class _ExplodingGateway:
+        def submit(self, **_kwargs: Any) -> Any:
+            raise AssertionError("gateway must not be reached when the DMN seam is unwired")
+
+    with pytest.raises(DmnEvaluationError):
+        retransmit_entry(
+            {"protocolo_ans": "ANSPROTO-1", **_RETRANSMIT_APROVADO},
+            dmn=None,
+            ans_gateway=_ExplodingGateway(),  # type: ignore[arg-type]
+        )
+
+
+class _CountingAnsGateway:
+    """Records every `submit` so a test can assert the regulator was NOT touched."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    def submit(self, **kwargs: Any) -> AnsProtocol:
+        self.calls.append(kwargs)
+        return AnsProtocol(
+            protocolo_ans=f"MOCK-CONTADO-{kwargs.get('business_key', '')}",
+            status_envio="enviado",
+            synthetic=True,
+            vinculativo=False,
+            nack_motivo="",
+        )
+
+
+def test_retransmit_dmn_round_trip_runs_before_the_gateway_side_effect() -> None:
+    """GK-t9 F2: the DMN ROUND-TRIP — not just `require_dmn` — precedes the gateway call.
+
+    `require_dmn` only proves a transport was INJECTED. The round trip
+    (`evaluate_sync` -> engine -> `first_row`) fails for reasons the cheap check cannot see: engine
+    down, decision key undeployed, empty result set. All raise `DmnEvaluationError`, which is
+    transient and engine-retried — so with the round trip AFTER the gateway call, the external task
+    fails, CIB Seven redelivers it, and the filing is transmitted to ANS a SECOND time. A duplicate
+    regulatory transmission cannot be taken back, so the reversible half runs first.
+
+    Wired-but-failing is exactly what an unregistered `FakeDmnTransport` key gives us (its
+    `evaluate` raises on an unregistered decision), which is why this test is not a duplicate of
+    `test_retransmit_dmn_seam_is_resolved_before_touching_the_gateway` (that one passes `dmn=None`
+    and never reaches the round trip at all).
+    """
+    gateway = _CountingAnsGateway()
+    dmn = FakeDmnTransport()  # WIRED — but `ans_retry_policy` is deliberately NOT registered
+
+    with pytest.raises(DmnEvaluationError):
+        retransmit_entry(
+            {"protocolo_ans": "ANSPROTO-1", "retry_attempt": 1, **_RETRANSMIT_APROVADO},
+            dmn=dmn,
+            ans_gateway=gateway,  # type: ignore[arg-type]
+        )
+
+    assert dmn.calls == [("ans_retry_policy", {"retry_attempt": 2})]  # the round trip was attempted
+    assert gateway.calls == []  # ...and the regulator was never touched
+
+
+def test_retransmit_policy_is_independent_of_the_retransmission_result() -> None:
+    """The reorder is only safe because `retry_submission` never reads the retransmission.
+
+    It is a pure function of `(protocolo_ans, retry_attempt)`, both read off the INBOUND variables,
+    so an accepted and a refused retransmission evaluate the DMN with the IDENTICAL input — which is
+    what makes running it first observationally identical to running it second (except under
+    failure, where only first is safe).
+    """
+    variables = {"protocolo_ans": "ANSPROTO-1", "retry_attempt": 2, **_RETRANSMIT_APROVADO}
+
+    accepted_dmn = _ans_retry_policy_fake(backoff="PT2H", continue_retry=True)
+    accepted = retransmit_entry(
+        dict(variables), dmn=accepted_dmn, ans_gateway=LabeledMockAnsGatewayTransport()
+    )
+
+    nacked_dmn = _ans_retry_policy_fake(backoff="PT2H", continue_retry=True)
+    nacked = retransmit_entry(
+        {**variables, "retransmit_outcome": "nack"},
+        dmn=nacked_dmn,
+        ans_gateway=LabeledMockAnsGatewayTransport(),
+    )
+
+    assert accepted_dmn.calls == nacked_dmn.calls == [("ans_retry_policy", {"retry_attempt": 3})]
+    assert accepted["status_envio"] == "retransmitido"
+    assert nacked["status_envio"] == "nack"
+    # ...and the policy fields the engine routes on are byte-identical across the two outcomes.
+    for field in ("backoff", "continue_retry", "retry_attempt"):
+        assert accepted[field] == nacked[field]
+
+
+async def test_make_retransmit_handler_publishes_the_typed_notification() -> None:
+    """BLOQUEIO 3 (FINDING C) for this topic: the retry leg is now observable on the notification
+    bus. The 4 fields the integration suite judges the loop by must be present and honest."""
+    kafka = FakeKafkaPublisher()
+    handler = make_retransmit_handler(
+        kafka,
+        dmn=_ans_retry_policy_fake(backoff="PT5M", continue_retry=True),
+        ans_gateway=LabeledMockAnsGatewayTransport(),
+    )
+    task = ExternalTask(
+        task_id="t-retransmit-1",
+        topic="regulatorio.anssubmit.retransmit",
+        process_instance_id="pi-1",
+        business_key="ANSSUB-amh-RN_124_SIP-2026-01",
+        worker_id="w-1",
+        variables={
+            "protocolo_ans": "ANSPROTO-1",
+            "tenant_id": "amh",
+            "report_type": "RN_124_SIP",
+            "competencia": "2026-01",
+            **_RETRANSMIT_APROVADO,
+        },
+    )
+
+    result = await handler(task)
+
+    assert result["status_envio"] == "retransmitido"
+    assert len(kafka.published) == 1
+    topic, notification, key = kafka.published[0]
+    assert topic == "operadora.notifications.internal"
+    assert key == "ANSSUB-amh-RN_124_SIP-2026-01"
+    assert notification["type"] == "anssubmit.retransmit"
+    assert notification["retry_attempt"] == 1
+    assert notification["status_envio"] == "retransmitido"
+    assert notification["decisao_envio"] == "APROVAR_ENVIO"
+    assert notification["revisor_id"] == "revisor-sintetico-001"
+
+
+async def test_make_retransmit_handler_reclassifies_the_coded_gateway_exception() -> None:
+    """Leaving the `FunctionWorker` registry path must NOT lose the ADR-0026 §5 reclassification.
+
+    `AnsGatewayUnavailableError` is a coded `Exception`, not `_HARNESS_CLASSIFIED`. Unreclassified,
+    `harness._handle` would treat it as UNCLASSIFIED -> engine-retried; retrying cannot provision
+    ANS credentials, so it must surface as a `ValueError` -> `failure(retries=0)` incident.
+    """
+    handler = make_retransmit_handler(
+        None,  # no producer: the publish is advisory, the classification is not
+        dmn=_ans_retry_policy_fake(backoff="PT5M", continue_retry=True),
+        ans_gateway=None,  # production wiring -> RefusingAnsGatewayTransport
+    )
+    task = ExternalTask(
+        task_id="t-retransmit-2",
+        topic="regulatorio.anssubmit.retransmit",
+        process_instance_id="pi-2",
+        business_key="ANSSUB-amh-RN_124_SIP-2026-01",
+        worker_id="w-1",
+        variables={"protocolo_ans": "ANSPROTO-1", **_RETRANSMIT_APROVADO},
+    )
+
+    with pytest.raises(ValueError, match="ERR_ANS_GATEWAY_UNAVAILABLE"):
+        await handler(task)
 
 
 def test_publish_completed_entry_round_trips_publish_completed() -> None:

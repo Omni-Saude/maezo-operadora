@@ -109,8 +109,11 @@ class AnsProtocol:
 
     `status_envio` is either `ANS_OUTCOME_ENVIADO` (accepted) or `ANS_OUTCOME_NACK` (refused by
     ANS). `nack_motivo` is populated ONLY on a NACK and carries the refusal reason through to the
-    `ERR_ANS_PROTOCOLO_NACK` error message (`WorkerBpmnError` has no variables channel, so the
-    message is the only place it can travel — see `ans_submit.transmit_to_ans`).
+    `ERR_ANS_PROTOCOLO_NACK` error MESSAGE — `WorkerBpmnError`'s variables channel (t9-nack-vars)
+    admits only allowlisted, bounded tokens, so free-text prose like a refusal reason still travels
+    in the message and nowhere else (see `ans_submit.transmit_to_ans`). On the RETRANSMISSION leg
+    `nack_motivo` IS a process variable (contract SP-OP-ANS-SUBMIT-001.md:75 "preenchido apenas em
+    retransmissao"), written there by `ans_submit.retransmit_to_ans`'s normal completion.
     """
 
     protocolo_ans: str
