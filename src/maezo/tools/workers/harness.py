@@ -274,6 +274,24 @@ _MAX_BASIS_INT: int = 1_000_000
 #: DELIBERATELY ABSENT — `nack_motivo`: the contract scopes it to the retransmission leg
 #: ("preenchido apenas em retransmissao", :75), so the submit-side raise has no contract line to
 #: cite for writing it, and this channel never invents process state.
+#:
+#: ADDING A KEY (F5, review rule). Every NEW key needs its OWN provenance argument on its own
+#: merits — the contract/BPMN line that already declares the variable, the branch that reads it, and
+#: why its CONTENT is safe to write into process scope. The value guard below does NOT supply that
+#: argument: `_is_bounded_error_variable` is a SHAPE control (scalar string, bounded charset,
+#: bounded length), not a CONTENT control. A CPF, a CNS, a matricula and a prontuario number are all
+#: perfectly bounded tokens — they would sail through the shape gate. What keeps them out is that no
+#: one wrote a provenance paragraph for them here. "It passes the regex" is never the argument.
+#:
+#: KNOWN SCOPE LIMIT (F6, recorded follow-up — NOT closed by this channel). The screen is
+#: TOPIC-AGNOSTIC: the allowlist is fleet-wide, so ANY worker on ANY topic may write ANY allowlisted
+#: key, even one whose own contract never declares it (e.g. a pagamento worker could write
+#: `protocolo_ans`). The blast radius is bounded — two contract-declared, non-identifying keys — so
+#: this is a precision gap, not a leak. The tightening is a per-(topic, variable-key) gate, and the
+#: fleet already has the precedent to copy: `scripts/ci/check_bpmn_error_allowlist.py` gates
+#: (topic, errorCode) pairs against the deployed BPMN, and the same static shape would gate
+#: (topic, variable-key) against each contract's declared variables. Deferred deliberately: the
+#: per-topic table is only worth its maintenance cost once this channel has more than one raiser.
 _SAFE_BPMN_ERROR_VARIABLE_KEYS: frozenset[str] = frozenset({"protocolo_ans", "status_envio"})
 
 #: Value-side guard for the bpmn-error variables channel. WIDER than `_ENUM_TOKEN_RE` by exactly
@@ -366,20 +384,30 @@ def _is_bounded_token(value: Any) -> bool:
 def _is_bounded_error_variable(value: Any) -> bool:
     """True iff `value` is safe to write into process scope through the bpmn-error channel.
 
-    Same shape as `_is_bounded_token` (scalars only — a dict/list/float/None can never travel), one
-    axis wider on strings: `_ERROR_VAR_TOKEN_RE` admits `-`/`.` so a minted, contract-declared
-    identifier like `protocolo_ans` fits, which the enum-only regex rejects. Deliberately NOT
-    reusing `_is_bounded_token`: widening THAT predicate would also widen `decision_basis`, and the
-    audit chain's rule that minted identifiers are hashed rather than stored in the clear must not
-    move because an unrelated channel needed hyphens.
+    STRINGS ONLY, matching `_ERROR_VAR_TOKEN_RE`. Everything else — `bool`, `int`, `float`, `None`,
+    dicts, lists — is refused.
+
+    Why string-only rather than "scalars, like `_is_bounded_token`". Both allowlisted keys are
+    contract-declared STRING fields (`protocolo_ans`, a minted identifier, :72; `status_envio`, a
+    closed enum `enviado|ack|nack|retransmitido`, :73), so a `bool`/`int` under either key is a
+    worker DEFECT, not a payload this channel should faithfully deliver. Accepting it would write a
+    Boolean/Integer typed variable into process scope where the model reads a String — for
+    `status_envio` that silently falsifies `GW_RetransmissaoOk`'s `${status_envio ==
+    'retransmitido'}` (never true, but never an incident either), which is precisely the
+    subtly-wrong-route failure this screen exists to convert into a loud refusal. Refusing types the
+    contract does not declare keeps the guard aligned with the declared shape; when an allowlisted
+    key with a numeric/boolean contract type is eventually added, THAT key's provenance argument is
+    where the widening gets made and justified.
+
+    Related-but-distinct: `_ERROR_VAR_TOKEN_RE` is one axis wider than `_ENUM_TOKEN_RE` (it admits
+    `-`/`.`) so a minted identifier like `MOCK-ANS-NAO-VINCULATIVO-...` fits, which the enum regex
+    rejects on the hyphens. Deliberately NOT reusing `_is_bounded_token`: widening THAT predicate
+    would also widen `decision_basis`, and the audit chain's rule that minted identifiers are hashed
+    rather than stored in the clear must not move because an unrelated channel needed hyphens.
     """
-    if isinstance(value, bool):
-        return True
-    if isinstance(value, int):  # note: bool is handled above (bool is a subclass of int)
-        return -_MAX_BASIS_INT <= value <= _MAX_BASIS_INT
     if isinstance(value, str):
         return bool(_ERROR_VAR_TOKEN_RE.match(value))
-    return False  # dicts/lists/floats/None -> never through the error channel
+    return False  # bools/ints/floats/None/dicts/lists -> never through the error channel
 
 
 def build_decision_basis(variables: Mapping[str, Any], out_vars: Mapping[str, Any] | None) -> dict[str, Any]:

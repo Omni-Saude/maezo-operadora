@@ -970,14 +970,13 @@ def retransmit_entry(
 ) -> dict[str, Any]:
     """Dict-boundary core for `regulatorio.anssubmit.retransmit` (`ST_RetransmitirEnvio`).
 
-    Does the TWO things the BPMN task's own documentation assigns it, in order:
+    Does the TWO things the BPMN task's own documentation assigns it. The BPMN documentation lists
+    them retransmit-first; the CODE runs them policy-first, because the policy is the reversible
+    half and the gateway call is not (see the ordering comment in the body — GK-t9 F2). The BPMN
+    lists an obligation set, not a sequence, and nothing in either half reads the other's result, so
+    the two orders are observationally identical except under failure — where only this one is safe:
 
-      1. **Retransmits** (`retransmit_to_ans`) — the guarded gateway call that emits
-         `status_envio='retransmitido'` on success (or `'nack'` + `nack_motivo` if ANS refuses
-         again). Added by t9-nack-vars: before it, this entry evaluated only the DMN and never
-         touched the gateway, so `GW_RetransmissaoOk`'s `${status_envio == 'retransmitido'}` had no
-         emitter anywhere in the fleet (BLOQUEIO 2 of the NACK xfail).
-      2. **Owns the loop counter + reports the policy** (`retry_submission`). The inbound
+      1. **Owns the loop counter + reports the policy** (`retry_submission`). The inbound
          `retry_attempt` is the number of retransmissions already performed (absent/0 on entry to
          `SUB_RetryEnvio`); this invocation IS attempt `n+1`, so the incremented value is what the
          policy is evaluated for and what is written back to the instance. The DMN's own
@@ -986,6 +985,11 @@ def retransmit_entry(
          the modeled loop terminate: `BRT_RetryPolicy` re-evaluates on the incremented counter until
          the catch-all returns `continue_retry=false`, routing `GW_ContinuarRetry` to
          `End_RetryEsgotado` -> `BE_RetryEsgotado` -> `UT_TratarNack`.
+      2. **Retransmits** (`retransmit_to_ans`) — the guarded gateway call that emits
+         `status_envio='retransmitido'` on success (or `'nack'` + `nack_motivo` if ANS refuses
+         again). Added by t9-nack-vars: before it, this entry evaluated only the DMN and never
+         touched the gateway, so `GW_RetransmissaoOk`'s `${status_envio == 'retransmitido'}` had no
+         emitter anywhere in the fleet (BLOQUEIO 2 of the NACK xfail).
 
     The policy is evaluated UNCONDITIONALLY, including on a successful retransmission where the
     token goes to `End_RetryOk` and no one reads it. Deliberate: it keeps `require_dmn`'s
@@ -1024,6 +1028,34 @@ def retransmit_entry(
 
     submission = AnsSubmissionData(**pick_fields(variables, AnsSubmissionData))
     decision = AnsSubmitDecision(**pick_fields(variables, AnsSubmitDecision))
+
+    # ORDER IS LOAD-BEARING (GK-t9 F2): everything that can fail on its own goes BEFORE the
+    # irreversible gateway call, so a redelivery cannot duplicate a transmission to the regulator.
+    # `require_dmn` is only the CHEAP half of the DMN seam — it proves a transport was injected, not
+    # that the engine answers. The ROUND-TRIP (`evaluate_sync` -> HTTP -> `first_row`) can fail for
+    # reasons the cheap check cannot see: engine down, decision key undeployed, empty result set.
+    # All of those raise `DmnEvaluationError`, which is transient/engine-retried, so with the round
+    # trip AFTER the gateway call the external task fails and CIB Seven redelivers it — and the
+    # retransmission runs a second time. `LabeledMockAnsGatewayTransport` is deterministic by
+    # business key (BPMN `:461`), but the real regulator is not: a duplicate filing is a regulatory
+    # fact that cannot be taken back. Evaluating first is free of that hazard because
+    # `retry_submission` is a pure function of `(protocolo_ans, attempt)` — both read off the
+    # INBOUND variables above — and never reads the retransmission result, so nothing about the
+    # policy depends on the gateway having been called.
+    #
+    # ONE knock-on, stated rather than glossed: `_require_human_approval` lives INSIDE
+    # `retransmit_to_ans`, so an unapproved retransmission now performs the (read-only, PHI-free)
+    # DMN evaluation before it refuses. The guard still refuses, and still refuses BEFORE anything
+    # reaches the regulator — the only cost is one wasted decision evaluation on the refused path,
+    # which is the same price the docstring already accepts on the successful-retransmission path.
+    policy = retry_submission(
+        protocolo_ans,
+        attempt,
+        submission.report_type,
+        submission.competencia,
+        dmn=dmn_transport,
+    )
+
     retransmission = retransmit_to_ans(
         submission,
         decision,
@@ -1032,13 +1064,13 @@ def retransmit_entry(
         requested_outcome=str(variables.get("retransmit_outcome") or ""),
     )
 
-    policy = retry_submission(
-        protocolo_ans,
-        attempt,
-        submission.report_type,
-        submission.competencia,
-        dmn=dmn_transport,
-    )
+    # RESIDUAL WINDOW, stated honestly: this reorder shrinks the at-least-once window, it does NOT
+    # close it. Everything after the gateway call is still exposed — the typed Kafka notification
+    # published by `make_retransmit_handler` and the harness's own `complete` (plus its audit emit).
+    # A crash or a transport error in any of those still fails the task, still redelivers it, and
+    # still re-transmits. Closing THAT window needs idempotency at the gateway (a per-(business_key,
+    # attempt) transmission key the regulator or an outbox dedupes on), which is a separate,
+    # unbuilt piece of work — not something call ordering inside this function can provide.
     return {**dataclasses.asdict(policy), **retransmission}
 
 

@@ -15,6 +15,7 @@ from maezo.tools.workers.ans_gateway import (
     MOCK_ANS_NACK_MOTIVO,
     MOCK_ANS_PROTOCOL_PREFIX,
     AnsGatewayUnavailableError,
+    AnsProtocol,
     LabeledMockAnsGatewayTransport,
     RealAnsGatewayTransport,
     RefusingAnsGatewayTransport,
@@ -1105,6 +1106,82 @@ def test_retransmit_dmn_seam_is_resolved_before_touching_the_gateway() -> None:
             dmn=None,
             ans_gateway=_ExplodingGateway(),  # type: ignore[arg-type]
         )
+
+
+class _CountingAnsGateway:
+    """Records every `submit` so a test can assert the regulator was NOT touched."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    def submit(self, **kwargs: Any) -> AnsProtocol:
+        self.calls.append(kwargs)
+        return AnsProtocol(
+            protocolo_ans=f"MOCK-CONTADO-{kwargs.get('business_key', '')}",
+            status_envio="enviado",
+            synthetic=True,
+            vinculativo=False,
+            nack_motivo="",
+        )
+
+
+def test_retransmit_dmn_round_trip_runs_before_the_gateway_side_effect() -> None:
+    """GK-t9 F2: the DMN ROUND-TRIP — not just `require_dmn` — precedes the gateway call.
+
+    `require_dmn` only proves a transport was INJECTED. The round trip
+    (`evaluate_sync` -> engine -> `first_row`) fails for reasons the cheap check cannot see: engine
+    down, decision key undeployed, empty result set. All raise `DmnEvaluationError`, which is
+    transient and engine-retried — so with the round trip AFTER the gateway call, the external task
+    fails, CIB Seven redelivers it, and the filing is transmitted to ANS a SECOND time. A duplicate
+    regulatory transmission cannot be taken back, so the reversible half runs first.
+
+    Wired-but-failing is exactly what an unregistered `FakeDmnTransport` key gives us (its
+    `evaluate` raises on an unregistered decision), which is why this test is not a duplicate of
+    `test_retransmit_dmn_seam_is_resolved_before_touching_the_gateway` (that one passes `dmn=None`
+    and never reaches the round trip at all).
+    """
+    gateway = _CountingAnsGateway()
+    dmn = FakeDmnTransport()  # WIRED — but `ans_retry_policy` is deliberately NOT registered
+
+    with pytest.raises(DmnEvaluationError):
+        retransmit_entry(
+            {"protocolo_ans": "ANSPROTO-1", "retry_attempt": 1, **_RETRANSMIT_APROVADO},
+            dmn=dmn,
+            ans_gateway=gateway,  # type: ignore[arg-type]
+        )
+
+    assert dmn.calls == [("ans_retry_policy", {"retry_attempt": 2})]  # the round trip was attempted
+    assert gateway.calls == []  # ...and the regulator was never touched
+
+
+def test_retransmit_policy_is_independent_of_the_retransmission_result() -> None:
+    """The reorder is only safe because `retry_submission` never reads the retransmission.
+
+    It is a pure function of `(protocolo_ans, retry_attempt)`, both read off the INBOUND variables,
+    so an accepted and a refused retransmission evaluate the DMN with the IDENTICAL input — which is
+    what makes running it first observationally identical to running it second (except under
+    failure, where only first is safe).
+    """
+    variables = {"protocolo_ans": "ANSPROTO-1", "retry_attempt": 2, **_RETRANSMIT_APROVADO}
+
+    accepted_dmn = _ans_retry_policy_fake(backoff="PT2H", continue_retry=True)
+    accepted = retransmit_entry(
+        dict(variables), dmn=accepted_dmn, ans_gateway=LabeledMockAnsGatewayTransport()
+    )
+
+    nacked_dmn = _ans_retry_policy_fake(backoff="PT2H", continue_retry=True)
+    nacked = retransmit_entry(
+        {**variables, "retransmit_outcome": "nack"},
+        dmn=nacked_dmn,
+        ans_gateway=LabeledMockAnsGatewayTransport(),
+    )
+
+    assert accepted_dmn.calls == nacked_dmn.calls == [("ans_retry_policy", {"retry_attempt": 3})]
+    assert accepted["status_envio"] == "retransmitido"
+    assert nacked["status_envio"] == "nack"
+    # ...and the policy fields the engine routes on are byte-identical across the two outcomes.
+    for field in ("backoff", "continue_retry", "retry_attempt"):
+        assert accepted[field] == nacked[field]
 
 
 async def test_make_retransmit_handler_publishes_the_typed_notification() -> None:
