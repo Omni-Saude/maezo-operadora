@@ -4,6 +4,8 @@ The four sibling known-wrong tables of the calc audit each got a candidate manif
 merged W3 precedent (`adequacao-gap-shadow-candidate.yaml` + `adequacao_shadow.py`). This module
 pins the properties that must hold for ALL of them at once:
 
+  0. THE ROSTER IS THE DISK — every property below is parametrized over the hardcoded roster, so a
+     manifest that never joins it is checked by NOTHING. A disk-derived census closes that.
   1. THE READER ITSELF is fail-closed — an entry shape it cannot parse RAISES, never reads as
      "no match". Without this, every divergence corpus in the sibling modules would be worthless.
   2. INVISIBLE TO THE ENGINE — no artifact-selection path can pick a candidate up.
@@ -66,6 +68,38 @@ W3_MANIFEST = "adequacao-gap-shadow-candidate.yaml"
 #: 7: the live-table binding is a property of every ratifiable candidate in the repository, whatever
 #: wave shipped it, so it is the one section that must not stop at this wave's five.
 ALL_CANDIDATES: dict[str, str] = {W3_MANIFEST: "adequacao_gap.dmn", **CANDIDATES}
+
+#: The filename shape every candidate manifest has. The census below globs it off disk, so the glob
+#: and the roster are the two halves of one fact and cannot drift apart silently.
+CANDIDATE_GLOB = "*-shadow-candidate.yaml"
+
+
+# =================================================================================================
+# 0. THE ROSTER IS THE DISK
+# =================================================================================================
+
+
+def test_the_roster_is_exactly_the_candidate_manifests_on_disk() -> None:
+    """CENSUS. `CANDIDATES`/`ALL_CANDIDATES` are hardcoded, and every property in this module is
+    parametrized over one of them — so a manifest that never joins the roster is checked by NOTHING
+    here: it could ship with no `tabela_viva` binding at all, no CODEOWNERS line and no refusal
+    coverage, and this suite would stay entirely green. Deriving the set from disk is what makes the
+    roster a claim about the repository instead of a claim about itself; it is the same disk-derived
+    census as the 62-DMN/16-BPMN pin in section 2-3 below.
+    """
+    on_disk = {path.name for path in DMN_DIR.glob(CANDIDATE_GLOB)}
+    roster = set(ALL_CANDIDATES)
+    strangers = sorted(on_disk - roster)
+    absent = sorted(roster - on_disk)
+    assert on_disk == roster, (
+        f"the shadow-candidate roster and {DMN_DIR.name}/{CANDIDATE_GLOB} have come apart — "
+        f"on disk but NOT in ALL_CANDIDATES: {strangers}; in ALL_CANDIDATES but NOT on disk: {absent}. "
+        "A new candidate manifest must do BOTH of these, or it is governed by nothing: "
+        "(1) JOIN THE ROSTER in this module — add it to `CANDIDATES` mapped to the live `.dmn` it "
+        "corrects (or to `ALL_CANDIDATES` directly if, like the W3 manifest, it already has a `src/` "
+        "consumer); and (2) DECLARE `tabela_viva: {path, sha256}` in the manifest itself, binding it "
+        "to the bytes of that live table. Deleting a manifest means removing it from the roster too."
+    )
 
 
 # =================================================================================================

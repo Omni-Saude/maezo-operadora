@@ -31,9 +31,16 @@ THE THREE GATES.
   1b. LIVE-TABLE BINDING (ratification integrity). Gate 1 establishes that a human ratified; it says
      nothing about WHAT they ratified. A candidate is only meaningful against the exact table text it
      was authored and reviewed against, so the manifest declares `tabela_viva: {path, sha256}` and
-     this loader RE-DERIVES that sha256 from the live table's bytes ON EVERY LOAD, refusing (back to
-     NOT ratified) on any mismatch. Same standard, same reason, as `amh_inbox.migration_digest()` +
-     `load_inbox_ratification`'s re-derive-and-compare and `tiss_schema_pin`'s gate 5
+     `load_candidate_ratification` RE-DERIVES that sha256 from the live table's bytes on every call,
+     refusing (back to NOT ratified) on any mismatch. NOT once per evaluation, though: the enforcing
+     path reaches the loader through the `@lru_cache`d `candidate_ratification()` accessor, so in a
+     long-running process the digest is re-derived ONCE PER PATH AND THEN CACHED UNTIL RESTART — the
+     same restart-to-refresh trade-off `auth_criteria.criteria_sources` documents, and fail-closed in
+     the same direction (a table edited under a running daemon is caught at the next restart, and a
+     ratification never takes effect earlier than one either). A caller that must see the current
+     bytes calls `load_candidate_ratification` directly. Same standard, same reason, as
+     `amh_inbox.migration_digest()` + `load_inbox_ratification`'s re-derive-and-compare and
+     `tiss_schema_pin`'s gate 5
      (`REASON_ARTIFACT_DIGEST_MISMATCH`): binding a human approval to BYTES, never to a filename —
      otherwise an in-place edit of `adequacao_gap.dmn` would silently inherit a ratification given to
      the previous content. Checked AFTER gates on `ratificado`/`revisor`/`ratificado_em` on purpose:
@@ -41,6 +48,17 @@ THE THREE GATES.
      half-finished ratification actually failed. The test-time half of the same binding (which breaks
      the build TODAY, while the shipped manifest is still unratified and this gate therefore inert)
      lives in `tests/unit/spec/test_shadow_candidates_common.py` and covers all six manifests.
+
+     KNOWN GAP, NOT CLOSED HERE (recorded so it is not lost): `yaml.safe_load` resolves a DUPLICATE
+     top-level key by LAST-WINS, silently. A manifest carrying two `tabela_viva:` blocks therefore
+     binds by the LAST one while a reviewer reading top-down may well have read the FIRST — and the
+     same is true of `ratificado`/`revisor`/`ratificado_em`. This is a property of every ratifiable
+     YAML artifact in the repo, not of this module: `spec/processes/dmn/auth-criteria-ratification.yaml`,
+     `spec/policies/ans/tiss-schema-pin.yaml` and the six `spec/processes/dmn/*-shadow-candidate.yaml`
+     manifests all share it. Closing it properly means ONE duplicate-key-rejecting loader for the family
+     (a `yaml.SafeLoader` subclass overriding `construct_mapping`), which is deliberately out of this
+     change's scope; the manifests carry an explicit "never duplicate this key" warning beside the
+     binding block in the meantime.
 
   2. SHADOW. `shadow_divergence_event` compares the candidate verdict with the LIVE verdict and
      returns a bounded, non-PHI event mapping when they differ — verdicts, the five rule inputs,
@@ -308,6 +326,15 @@ def evaluate_for_enforcement(
             today, its state after any load failure, and its state whenever the manifest's
             `tabela_viva` binding no longer matches the live table's bytes (gate 1b), so a
             ratification can never be enforced against table content nobody reviewed.
+
+    DIVERGENCE FROM THE TEST-SIDE SEAM, stated so a consumer catches the right type: a stale binding
+    surfaces HERE as `EnforcementNotRatifiedError` (this loader is fail-closed and never raises, so a
+    binding failure collapses into "not ratified"), whereas the sibling seam
+    `tests.support.dmn_first_hit.evaluate_for_enforcement` raises the distinct `LiveTableBindingError`
+    — which is NOT a subclass of this one. The asymmetry is deliberate: the test seam must be able to
+    say WHICH gate shut in order to pin the two failures apart, while a production caller must never
+    act on a candidate for any reason and so needs exactly one refusal type. Catch
+    `EnforcementNotRatifiedError` against this module; catch `LiveTableBindingError` against that helper.
     """
     status = candidate_ratification(manifest_path)
     if not status.ratificado:

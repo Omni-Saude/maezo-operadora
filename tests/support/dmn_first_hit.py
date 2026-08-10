@@ -529,6 +529,15 @@ def verify_live_table_binding(manifest_path: Path) -> LiveTableBinding:
 
 # -------------------------------------------------------------------------------------------------
 # Ratification gate — the same shape as `adequacao_shadow.load_candidate_ratification`
+#
+# "Same shape" means the same three fields and the same fail-closed strictness; it does NOT mean the
+# same exception on a broken live-table binding: this seam raises `LiveTableBindingError` (a distinct
+# type, NOT a subclass) where `adequacao_shadow.evaluate_for_enforcement` collapses the same failure
+# into `EnforcementNotRatifiedError`, because that loader is fail-closed and turns every binding
+# problem into "not ratified". The divergence is deliberate — here the two gates must be
+# distinguishable so their tests cannot pass for each other's reason — so a consumer of THIS helper
+# must catch `LiveTableBindingError`, and a consumer of the src module must catch
+# `EnforcementNotRatifiedError`; neither type catches the other.
 # -------------------------------------------------------------------------------------------------
 
 
