@@ -49,6 +49,11 @@ system of record for durable retry/incident state:
   that computes/verifies this allowlist against ``spec/processes/bpmn/**`` is a follow-up (T1.1
   design §9 "Design requirement (fail-closed gate)"); this module implements the runtime-side
   refusal only.
+- A ``WorkerBpmnError`` may ALSO carry ``variables`` — an allowlisted, bounded output channel for a
+  worker that raises (and therefore never ``complete``s, so its normal output channel is not taken).
+  The payload is screened at the harness call site (``screen_bpmn_error_variables``): explicit key
+  allowlist + value boundedness, refusal ALL-OR-NOTHING, and dropped with a loud log on any
+  demotion (a ``failure`` report has no variables channel). See ``WorkerBpmnError``.
 
 Idempotency: handlers MUST be idempotent (same task_id -> same result) — the explicit-unlock
 drain (design §8) can cause the engine to re-deliver a task whose handler already ran.
@@ -222,6 +227,107 @@ _ENUM_TOKEN_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,39}$")
 #: chain; money amounts are not allowlisted keys anyway.
 _MAX_BASIS_INT: int = 1_000_000
 
+# --------------------------------------------------------------------------------------------
+# `WorkerBpmnError` VARIABLES channel (t9-nack-vars) — allowlisted, bounded, fail-closed
+# --------------------------------------------------------------------------------------------
+#
+# Why this channel exists. A worker that raises `WorkerBpmnError` NEVER completes, so its normal
+# output-variable channel (`complete(variables=...)`) is not taken — nothing it computed reaches
+# process scope. When the MODELED boundary that catches the error routes into a branch whose next
+# worker has a fail-closed guard on one of those variables, the modeled route degrades into an
+# incident. That is not hypothetical: SP-OP-ANS-SUBMIT-001's `ST_SubmeterEnvio` raises
+# `ERR_ANS_PROTOCOLO_NACK` on an ANS refusal, `BE_SubmitNack` routes to `SUB_RetryEnvio`, and
+# `ST_RetransmitirEnvio`'s worker refuses fail-closed on a blank `protocolo_ans` — a variable the
+# raising worker HAD in hand and could not hand over. `WorkerTransport.handle_bpmn_error` has
+# always ACCEPTED `variables`; only the harness call site never passed any.
+#
+# Why it is not a passthrough. `complete()` is a worker's declared, per-topic output surface,
+# already scoped by `TopicSubscription.variables` on the read side and reviewed per worker. An
+# ERROR payload is different in kind: it is built on an exceptional path, from exception-adjacent
+# state, and error paths are exactly where raw source values leak (the same reason
+# `redact_error_message` exists for `error_message`). Opening a second, unreviewed write path into
+# process scope for EVERY worker in the fleet — which is what threading `variables` through
+# `_handle` does — is only safe if the payload is constrained. So this channel follows the SAME
+# two-part discipline `build_decision_basis` uses: an explicit KEY allowlist plus a value-side
+# boundedness guard. A worker cannot smuggle arbitrary (or PHI-bearing) content through a BPMN
+# error, no matter what it puts in the dict.
+#
+# Refusal semantics: ALL-OR-NOTHING (see `screen_bpmn_error_variables`).
+
+#: Explicit ALLOWLIST of variable names a `WorkerBpmnError` may write into process scope. Each key
+#: MUST be a variable the consuming BPMN/contract already declares — this channel exists to deliver
+#: state the model is already modeled around, never to introduce new process state through a side
+#: door. Curated minimally (two keys today); every addition is a reviewed act, not a default.
+#:
+#:   `protocolo_ans`  SP-OP-ANS-SUBMIT-001. Declared process variable (contract
+#:                    `docs/processes/contracts/SP-OP-ANS-SUBMIT-001.md:72`; BPMN
+#:                    `ST_SubmeterEnvio` documentation "Emite protocolo_ans + status_envio=enviado"
+#:                    and the `event_payload_vars` of `ST_PublishSubmitted`/`ST_PublishRetransmitido`).
+#:                    LOAD-BEARING on the NACK route: `ST_RetransmitirEnvio`'s worker refuses
+#:                    fail-closed on a blank one. NOT a patient identifier — an ANS protocol keys a
+#:                    COMPETENCE-level regulatory batch (`ANSSUB-{tenant}-{report_type}-{competencia}`),
+#:                    carries no beneficiary, and the model already publishes it to Kafka.
+#:   `status_envio`   SP-OP-ANS-SUBMIT-001. Declared process variable with a CLOSED value set
+#:                    (`enviado|ack|nack|retransmitido`, contract :73); read as a routing condition
+#:                    by `GW_RetransmissaoOk` (`${status_envio == 'retransmitido'}`). A bounded enum.
+#:
+#: DELIBERATELY ABSENT — `nack_motivo`: the contract scopes it to the retransmission leg
+#: ("preenchido apenas em retransmissao", :75), so the submit-side raise has no contract line to
+#: cite for writing it, and this channel never invents process state.
+_SAFE_BPMN_ERROR_VARIABLE_KEYS: frozenset[str] = frozenset({"protocolo_ans", "status_envio"})
+
+#: Value-side guard for the bpmn-error variables channel. WIDER than `_ENUM_TOKEN_RE` by exactly
+#: one axis — it admits `-` and `.` inside the token — because the allowlisted keys include a
+#: minted protocol identifier (`MOCK-ANS-NAO-VINCULATIVO-ANSSUB-amh-RN_124_SIP-2026-01`), which the
+#: enum regex rejects on the hyphens. It still refuses everything that makes free text free text:
+#: whitespace, `,`/`;`/`:`/`/`/`@`, quotes, newlines, and anything over the length cap. It is NOT a
+#: PHI detector (no regex is) — the KEY allowlist above is the primary control; this is the
+#: defence-in-depth second gate that keeps an allowlisted key from carrying a paragraph.
+_ERROR_VAR_TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.\-]{0,127}$")
+
+
+class BpmnErrorVariables(NamedTuple):
+    """Result of screening a `WorkerBpmnError.variables` payload.
+
+    `refused_keys` NON-EMPTY means the whole payload is REFUSED — `accepted` is then meaningless
+    and must not be sent. See `screen_bpmn_error_variables` for why refusal is all-or-nothing.
+    """
+
+    accepted: dict[str, Any]
+    refused_keys: tuple[str, ...]
+
+
+def screen_bpmn_error_variables(variables: Mapping[str, Any] | None) -> BpmnErrorVariables:
+    """Screen a `WorkerBpmnError.variables` payload against the allowlist + value guard.
+
+    Two gates, both fail-closed: the key MUST be in `_SAFE_BPMN_ERROR_VARIABLE_KEYS`, AND the value
+    MUST pass `_is_bounded_error_variable`. A key failing EITHER gate is reported in `refused_keys`.
+
+    **Refusal is ALL-OR-NOTHING, by design.** The tempting alternative — drop the offending entries
+    and send the rest — is the worse failure mode here: the modeled boundary would still fire, but
+    into a scope that is missing exactly the variable the branch needed, producing a subtly-wrong
+    route or a downstream fail-closed guard trip whose incident points at the WRONG worker. A
+    partial payload is how this channel would silently misbehave, so the harness refuses the
+    bpmnError entirely instead (demoting to `failure(retries=0)` — a loud, human-visible incident
+    naming the offending KEYS, never their values).
+
+    Only key NAMES are ever reported/logged. A refused VALUE is never echoed anywhere: the reason
+    it was refused is precisely that nothing is known about what it contains.
+
+    `None`/empty input screens clean to an empty payload — the backward-compatible case (every
+    `WorkerBpmnError` raised before this channel existed, and every one raised without it since).
+    """
+    if not variables:
+        return BpmnErrorVariables(accepted={}, refused_keys=())
+    accepted: dict[str, Any] = {}
+    refused: list[str] = []
+    for key in sorted(variables):
+        if key not in _SAFE_BPMN_ERROR_VARIABLE_KEYS or not _is_bounded_error_variable(variables[key]):
+            refused.append(key)
+        else:
+            accepted[key] = variables[key]
+    return BpmnErrorVariables(accepted=accepted, refused_keys=tuple(refused))
+
 
 def _resolve_app_version(override: str | None = None) -> str:
     """Resolve `AuditRecord.agent_version` — the deployed service version (ADR-0007 "sob-qual-versao").
@@ -255,6 +361,25 @@ def _is_bounded_token(value: Any) -> bool:
     if isinstance(value, str):
         return bool(_ENUM_TOKEN_RE.match(value))
     return False  # dicts/lists/floats/None/identifiers -> never in the clear
+
+
+def _is_bounded_error_variable(value: Any) -> bool:
+    """True iff `value` is safe to write into process scope through the bpmn-error channel.
+
+    Same shape as `_is_bounded_token` (scalars only — a dict/list/float/None can never travel), one
+    axis wider on strings: `_ERROR_VAR_TOKEN_RE` admits `-`/`.` so a minted, contract-declared
+    identifier like `protocolo_ans` fits, which the enum-only regex rejects. Deliberately NOT
+    reusing `_is_bounded_token`: widening THAT predicate would also widen `decision_basis`, and the
+    audit chain's rule that minted identifiers are hashed rather than stored in the clear must not
+    move because an unrelated channel needed hyphens.
+    """
+    if isinstance(value, bool):
+        return True
+    if isinstance(value, int):  # note: bool is handled above (bool is a subclass of int)
+        return -_MAX_BASIS_INT <= value <= _MAX_BASIS_INT
+    if isinstance(value, str):
+        return bool(_ERROR_VAR_TOKEN_RE.match(value))
+    return False  # dicts/lists/floats/None -> never through the error channel
 
 
 def build_decision_basis(variables: Mapping[str, Any], out_vars: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -343,11 +468,34 @@ class WorkerBpmnError(Exception):
 
     Reported as `bpmnError` ONLY when `error_code` is in the harness's `bpmn_error_allowlist`
     (module docstring) — otherwise demoted to `failure(retries=0)`.
+
+    `variables` (OPTIONAL, t9-nack-vars) is the allowlisted output channel for a raising worker: a
+    worker that raises never `complete`s, so without it nothing it computed reaches process scope
+    and a modeled boundary can route into a branch whose next worker fail-closes on the missing
+    variable. The payload is NOT trusted here — it is screened at the harness call site
+    (`screen_bpmn_error_variables`: explicit key allowlist + value boundedness, refusal is
+    all-or-nothing). Two rules a raising worker must know:
+
+      1. A payload that fails screening REFUSES the whole bpmnError — the harness demotes to
+         `failure(retries=0)` (loud incident naming the offending keys), it does NOT send a
+         partial payload.
+      2. On DEMOTION for any reason (code not in the `bpmn_error_allowlist`, or a screening
+         refusal) the variables are DROPPED with a loud log. A `failure` report has no variables
+         channel on the External Task REST contract — there is nowhere for them to go — so this is
+         a fact about the engine's API, not a policy choice. The demotion itself is already the
+         human-visible incident.
     """
 
-    def __init__(self, error_code: str, message: str = "") -> None:
+    def __init__(
+        self,
+        error_code: str,
+        message: str = "",
+        *,
+        variables: Mapping[str, Any] | None = None,
+    ) -> None:
         super().__init__(message or error_code)
         self.error_code = error_code
+        self.variables: dict[str, Any] | None = dict(variables) if variables else None
 
 
 class WorkerFailureError(Exception):  # noqa: N818 — domain name predates the *Error suffix convention.
@@ -726,6 +874,11 @@ class FakeWorkerTransport:
     `(task_id, error_code, error_message)` — widened (T3.4 F5) so tests can assert the harness
     redacts `error_message` before it reaches this chokepoint too (the allowlisted-bpmnError path
     bypasses `_report_failure` entirely, so it needs its own coverage).
+
+    `.bpmn_error_variables` is the PARALLEL list of the `variables` payload each `bpmn_errors`
+    entry carried (t9-nack-vars) — a separate list rather than a 5th tuple element on purpose:
+    widening the tuple would break every existing 3-tuple assertion in the suite for a channel most
+    of them do not exercise (same shape as `FakeKafkaPublisher.best_effort_calls`).
     """
 
     def __init__(self, tasks: list[ExternalTask] | None = None) -> None:
@@ -733,6 +886,7 @@ class FakeWorkerTransport:
         self.completed: list[tuple[str, dict[str, Any]]] = []
         self.failures: list[tuple[str, str, int, int]] = []
         self.bpmn_errors: list[tuple[str, str, str]] = []
+        self.bpmn_error_variables: list[dict[str, Any] | None] = []
         self.unlocked: list[str] = []
         self.extended: list[tuple[str, int]] = []
         self.closed: bool = False
@@ -784,6 +938,7 @@ class FakeWorkerTransport:
         variables: dict[str, Any] | None = None,
     ) -> None:
         self.bpmn_errors.append((task_id, error_code, error_message))
+        self.bpmn_error_variables.append(dict(variables) if variables is not None else None)
 
     async def extend_lock(self, task_id: str, worker_id: str, *, new_duration_ms: int) -> None:
         self.extended.append((task_id, new_duration_ms))
@@ -1499,22 +1654,14 @@ class WorkerHarness:
                     await self._audit_guard_refusal(
                         task, guard_code=exc.error_code, dmn_versions=dict(dmn_versions)
                     )
-                if exc.error_code in self._bpmn_error_allowlist:
-                    outcome = "bpmn_error"
-                    await self._transport.handle_bpmn_error(
-                        task.task_id,
-                        self._worker_id,
-                        error_code=exc.error_code,
-                        # T3.4 F5: this call bypasses `_report_failure` (it is the ALLOWLISTED
-                        # bpmn-error path, not a failure report), so it needs its own redaction —
-                        # `error_message` is still `str(exc)`-derived and still Cockpit-visible.
-                        error_message=redact_error_message(exc),
-                    )
-                else:
+                screened = screen_bpmn_error_variables(exc.variables)
+                if exc.error_code not in self._bpmn_error_allowlist:
                     # Live-verified hazard (design §9): an unmodeled bpmnError silently ends the
                     # process with NO incident on CIB Seven 2.1.0. Demote to a fail-closed
                     # incident instead of risking a silent drop, and log loudly so this shows up
                     # in on-call triage even without the CI-side boundary-proof gate.
+                    # Checked FIRST so the log always names the PRIMARY cause: an uncatalogued code
+                    # is a modelling defect regardless of what its payload looks like.
                     _stdlib_logger.error(
                         "bpmn_error_code_not_gate_proven_demoted_to_failure "
                         "task_id=%s topic=%s error_code=%s",
@@ -1527,6 +1674,65 @@ class WorkerHarness:
                         task_id=task.task_id,
                         topic=task.topic,
                         error_code=exc.error_code,
+                    )
+                    if exc.variables:
+                        # t9-nack-vars demotion rule: a `failure` report has NO variables channel
+                        # on the External Task REST contract, so the payload cannot follow the
+                        # demoted outcome anywhere. It is dropped — LOUDLY, naming only the KEYS,
+                        # so a worker author debugging "my variable never reached scope" finds the
+                        # reason in the log instead of inferring it. (Only key names: an unscreened
+                        # payload's VALUES are exactly what this channel refuses to trust.)
+                        _stdlib_logger.error(
+                            "bpmn_error_variables_dropped_on_demotion "
+                            "task_id=%s topic=%s error_code=%s dropped_keys=%s",
+                            task.task_id,
+                            task.topic,
+                            exc.error_code,
+                            ",".join(sorted(exc.variables)),
+                        )
+                        logger.error(
+                            "bpmn_error_variables_dropped_on_demotion",
+                            task_id=task.task_id,
+                            topic=task.topic,
+                            error_code=exc.error_code,
+                            dropped_keys=sorted(exc.variables),
+                        )
+                    outcome = await self._report_failure(task, exc, retries_override=0)
+                elif not screened.refused_keys:
+                    outcome = "bpmn_error"
+                    await self._transport.handle_bpmn_error(
+                        task.task_id,
+                        self._worker_id,
+                        error_code=exc.error_code,
+                        # T3.4 F5: this call bypasses `_report_failure` (it is the ALLOWLISTED
+                        # bpmn-error path, not a failure report), so it needs its own redaction —
+                        # `error_message` is still `str(exc)`-derived and still Cockpit-visible.
+                        error_message=redact_error_message(exc),
+                        # t9-nack-vars: the SCREENED payload only (allowlisted keys, bounded
+                        # values). `None` when the worker passed none — byte-identical to every
+                        # pre-channel raise, so no existing worker's wire call changes.
+                        variables=screened.accepted or None,
+                    )
+                else:
+                    # The payload failed screening. Refusing is ALL-OR-NOTHING (see
+                    # `screen_bpmn_error_variables`): a partial payload would fire the modeled
+                    # boundary into a scope missing exactly what the branch needed. Demote to a
+                    # fail-closed incident naming the offending KEYS (never their values — the
+                    # reason they were refused is that nothing is known about their contents).
+                    _stdlib_logger.error(
+                        "bpmn_error_variables_refused_demoted_to_failure "
+                        "task_id=%s topic=%s error_code=%s refused_keys=%s",
+                        task.task_id,
+                        task.topic,
+                        exc.error_code,
+                        ",".join(screened.refused_keys),
+                    )
+                    logger.error(
+                        "bpmn_error_variables_refused_demoted_to_failure",
+                        task_id=task.task_id,
+                        topic=task.topic,
+                        error_code=exc.error_code,
+                        refused_keys=list(screened.refused_keys),
                     )
                     outcome = await self._report_failure(task, exc, retries_override=0)
             except WorkerFailureError as exc:

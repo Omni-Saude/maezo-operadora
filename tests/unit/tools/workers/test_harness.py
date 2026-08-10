@@ -30,6 +30,7 @@ from maezo.tools.workers.harness import (
     WorkerHarness,
     WorkerTransport,
     _to_camunda_var,
+    screen_bpmn_error_variables,
 )
 
 # `asyncio_mode = "auto"` (pyproject.toml) collects async def tests automatically — no
@@ -553,6 +554,167 @@ async def test_handle_bpmn_error_default_allowlist_is_empty() -> None:
 
     assert transport.bpmn_errors == []
     assert transport.failures[0][2] == 0
+
+
+# ---------------------------------------------------------------------------
+# `WorkerBpmnError` VARIABLES channel (t9-nack-vars). A worker that raises never `complete`s, so
+# without this channel nothing it computed reaches process scope and a modeled boundary can route
+# into a branch whose next worker fail-closes on the missing variable (live case:
+# SP-OP-ANS-SUBMIT-001's ERR_ANS_PROTOCOLO_NACK -> SUB_RetryEnvio -> ST_RetransmitirEnvio's blank
+# `protocolo_ans` guard). The channel is allowlisted + bounded + fail-closed; these tests pin all
+# four of those properties, since the allowlist is the ONLY thing standing between an exceptional
+# code path and an unreviewed write into process scope for every worker in the fleet.
+# ---------------------------------------------------------------------------
+
+
+async def test_bpmn_error_without_variables_sends_none_backward_compatible() -> None:
+    """Every pre-channel raise must hit the wire byte-identically: `variables=None`, not `{}`.
+
+    `{}` is not equivalent — `CibSevenWorkerTransport.handle_bpmn_error` only adds the `variables`
+    key to the payload when the mapping is truthy, so a caller that started sending `{}` would keep
+    the same wire bytes only by accident. Pinning `None` keeps the intent explicit.
+    """
+    transport = FakeWorkerTransport()
+    harness = WorkerHarness(transport, worker_id="w", bpmn_error_allowlist=frozenset({"ERR_PROVEN"}))
+
+    async def handler(task: ExternalTask) -> None:
+        raise WorkerBpmnError("ERR_PROVEN", "modeled failure")
+
+    harness.register("t", handler)
+    await harness._handle(_task(topic="t"))
+
+    assert transport.bpmn_error_variables == [None]
+    assert transport.failures == []
+
+
+async def test_bpmn_error_allowlisted_variables_reach_the_transport() -> None:
+    """The two allowlisted keys travel through to the engine on an allowlisted code."""
+    transport = FakeWorkerTransport()
+    harness = WorkerHarness(transport, worker_id="w", bpmn_error_allowlist=frozenset({"ERR_PROVEN"}))
+
+    async def handler(task: ExternalTask) -> None:
+        raise WorkerBpmnError(
+            "ERR_PROVEN",
+            "modeled failure",
+            variables={
+                "protocolo_ans": "MOCK-ANS-NAO-VINCULATIVO-ANSSUB-amh-RN_124_SIP-2026-01",
+                "status_envio": "nack",
+            },
+        )
+
+    harness.register("t", handler)
+    await harness._handle(_task(topic="t"))
+
+    assert transport.bpmn_error_variables == [
+        {
+            "protocolo_ans": "MOCK-ANS-NAO-VINCULATIVO-ANSSUB-amh-RN_124_SIP-2026-01",
+            "status_envio": "nack",
+        }
+    ]
+    assert transport.failures == []
+
+
+async def test_bpmn_error_disallowed_key_refuses_the_whole_bpmn_error() -> None:
+    """A key OUTSIDE the allowlist REFUSES the entire bpmnError — it is not silently dropped.
+
+    All-or-nothing on purpose: sending the surviving subset would fire the modeled boundary into a
+    scope missing exactly what the branch needed, producing a subtly-wrong route (or an incident
+    blamed on the WRONG worker). Refusal makes the payload defect the visible incident.
+    """
+    transport = FakeWorkerTransport()
+    harness = WorkerHarness(transport, worker_id="w", bpmn_error_allowlist=frozenset({"ERR_PROVEN"}))
+
+    async def handler(task: ExternalTask) -> None:
+        raise WorkerBpmnError(
+            "ERR_PROVEN",
+            "modeled failure",
+            variables={"status_envio": "nack", "cpf_beneficiario": "98765432100"},
+        )
+
+    harness.register("t", handler)
+    await harness._handle(_task(topic="t"))
+
+    assert transport.bpmn_errors == []  # refused: NOT partially sent
+    assert len(transport.failures) == 1
+    assert transport.failures[0][2] == 0  # immediate incident, never retried
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "cliente recusado pela operadora",  # free text (spaces)
+        "linha1\nlinha2",  # newline
+        "a" * 129,  # over the length cap
+        "-leading-punctuation",  # must start alphanumeric
+        {"nested": "object"},  # non-scalar
+        ["a", "b"],  # non-scalar
+        None,  # non-scalar
+        3.14,  # float
+        10_000_000,  # over the integer bound
+    ],
+)
+async def test_bpmn_error_unbounded_value_under_an_allowlisted_key_is_refused(value: Any) -> None:
+    """The value guard is the defence-in-depth second gate: an ALLOWLISTED key cannot smuggle
+    free text, a non-scalar, or an out-of-bound number through the channel."""
+    transport = FakeWorkerTransport()
+    harness = WorkerHarness(transport, worker_id="w", bpmn_error_allowlist=frozenset({"ERR_PROVEN"}))
+
+    async def handler(task: ExternalTask) -> None:
+        raise WorkerBpmnError("ERR_PROVEN", "modeled failure", variables={"status_envio": value})
+
+    harness.register("t", handler)
+    await harness._handle(_task(topic="t"))
+
+    assert transport.bpmn_errors == []
+    assert transport.failures[0][2] == 0
+
+
+async def test_bpmn_error_variables_dropped_on_allowlist_demotion() -> None:
+    """DEMOTION semantics: an uncatalogued code demotes to `failure(retries=0)` and the variables
+    are DROPPED — the External Task `failure` contract has no variables channel, so there is
+    nowhere for them to go. The demotion incident is the human-visible signal."""
+    transport = FakeWorkerTransport()
+    harness = WorkerHarness(transport, worker_id="w", bpmn_error_allowlist=frozenset())
+
+    async def handler(task: ExternalTask) -> None:
+        raise WorkerBpmnError("ERR_NOT_PROVEN", "unmodeled", variables={"status_envio": "nack"})
+
+    harness.register("t", handler)
+    await harness._handle(_task(topic="t"))
+
+    assert transport.bpmn_errors == []
+    assert transport.bpmn_error_variables == []
+    assert len(transport.failures) == 1
+    assert transport.failures[0][2] == 0
+
+
+async def test_bpmn_error_screening_reports_only_key_names_never_values(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A refused VALUE is never echoed to the logs. The reason it was refused is precisely that
+    nothing is known about its contents — logging it would be the leak the screen exists to stop."""
+    transport = FakeWorkerTransport()
+    harness = WorkerHarness(transport, worker_id="w", bpmn_error_allowlist=frozenset({"ERR_PROVEN"}))
+
+    async def handler(task: ExternalTask) -> None:
+        raise WorkerBpmnError("ERR_PROVEN", "modeled failure", variables={"nome_paciente": "Maria da Silva"})
+
+    harness.register("t", handler)
+    with caplog.at_level("ERROR"):
+        await harness._handle(_task(topic="t"))
+
+    logged = caplog.text
+    assert "nome_paciente" in logged  # the KEY names the defect for the on-call human
+    assert "Maria da Silva" not in logged  # ...the VALUE never travels
+
+
+def test_screen_bpmn_error_variables_is_pure_and_total() -> None:
+    """Direct coverage of the screen itself, including the empty/None backward-compatible cases."""
+    assert screen_bpmn_error_variables(None) == ({}, ())
+    assert screen_bpmn_error_variables({}) == ({}, ())
+    assert screen_bpmn_error_variables({"status_envio": "nack"}) == ({"status_envio": "nack"}, ())
+    # refused keys are reported SORTED, so an incident line is stable across dict orderings
+    assert screen_bpmn_error_variables({"zeta": 1, "alfa": 2}).refused_keys == ("alfa", "zeta")
 
 
 async def test_handle_never_raises_out_of_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
