@@ -142,6 +142,14 @@ ratificado: false
 revisor: "PLACEHOLDER_DONO_REGULATORIO — juridico/regulatorio + medico auditor (docs/review-queue.md:103)"
 ratificado_em: "PLACEHOLDER_YYYY-MM-DD"
 
+# --- BINDING DA RATIFICACAO AO CONTEUDO DA TABELA VIVA ------------------------------------------
+# `sha256` e o digest dos BYTES de `path` NESTE COMMIT, re-derivado do disco a cada rodada de teste
+# (`tests/unit/spec/test_shadow_candidates_common.py`): editar a tabela viva quebra o build ate o
+# candidato ser reautorado, de modo que a ratificacao acima nunca sobreviva ao texto que ela revisou.
+tabela_viva:
+  path: spec/processes/dmn/carencia_check.dmn
+  sha256: "2fb3aafe2a5953ffea95b57e1a9aaf04bf4e48899896be790d0dcd921cc85a21"
+
 modo_operacao: sombra
 
 # =================================================================================================

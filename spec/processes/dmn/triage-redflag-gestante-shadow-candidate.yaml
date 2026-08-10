@@ -68,6 +68,12 @@ ratificado: false
 revisor: "PLACEHOLDER_DONO_CLINICO — medico obstetra (docs/review-queue.md:12)"
 ratificado_em: "PLACEHOLDER_YYYY-MM-DD"
 
+# Digest dos BYTES da tabela viva neste commit, re-derivado do disco a cada rodada de teste: editar
+# a tabela quebra o build, entao a ratificacao acima nunca acompanha um conteudo que ninguem leu.
+tabela_viva:
+  path: spec/processes/dmn/triage_redflag_gestante.dmn
+  sha256: "2c3d908c9846602d8412afc06b2bf37d562a3aa7d2c02d65df02df599006f871"
+
 modo_operacao: sombra
 
 # =================================================================================================

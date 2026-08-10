@@ -121,6 +121,14 @@ ratificado: false
 revisor: "PLACEHOLDER_DONO_DA_TABELA — auditoria-contas + compliance (docs/review-queue.md:266)"
 ratificado_em: "PLACEHOLDER_YYYY-MM-DD"
 
+# --- BINDING DA RATIFICACAO AO CONTEUDO DA TABELA VIVA ------------------------------------------
+# `sha256` e o digest dos BYTES de `path` NESTE COMMIT, re-derivado do disco a cada rodada de teste
+# (`tests/unit/spec/test_shadow_candidates_common.py`): editar a tabela viva quebra o build ate o
+# candidato ser reautorado, de modo que a ratificacao acima nunca sobreviva ao texto que ela revisou.
+tabela_viva:
+  path: spec/processes/dmn/glosa_triage.dmn
+  sha256: "2a954b64053d2f3d4114dff6f9987c98d4f95d24d52d112a34fe97d3a85b3e41"
+
 # --- OPERATING MODE -----------------------------------------------------------------------------
 # `sombra` is the ONLY mode that exists. There is no consumer of this file in `src/` at all, and the
 # shared evaluator RAISES `EnforcementNotRatifiedError` if anything asks it to run in an enforcing
