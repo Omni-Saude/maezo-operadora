@@ -38,6 +38,7 @@ import yaml
 from maezo.tools.workers.tiss_schema_pin import (
     REASON_ACCOUNTABILITY_INCOMPLETE,
     REASON_ARTIFACT_DIGEST_MISMATCH,
+    REASON_ARTIFACT_MALFORMED,
     REASON_ARTIFACT_MISSING,
     REASON_ARTIFACT_SELF_DECLARES_SYNTHETIC,
     REASON_ARTIFACT_STILL_SYNTHETIC,
@@ -140,6 +141,41 @@ _MALFORMED_XML = f"""<?xml version="1.0" encoding="UTF-8"?>
 <tiss:LoteGuiasSintetico xmlns:tiss="{_NS}">
   <tiss:numeroLoteSintetico>LOTE-0001</tiss:numeroLoteSintetico>
 """  # unclosed
+
+#: Gate 6 load-time malformed-ARTIFACT fixture (tiss_schema_pin.py:498-503) — the ratified XSD's
+#: OWN bytes are not well-formed XML (unclosed `<xs:element>` tag). Distinct from `_MALFORMED_XML`
+#: above, which is a malformed PAYLOAD validated against an otherwise-good schema (an ordinary,
+#: RETURNED `xml_malformado` outcome) — this fixture is the SCHEMA ARTIFACT itself failing to
+#: parse at load time, which is a governance/availability failure (RAISES, never returns).
+_MALFORMED_XSD_BYTES = """<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           targetNamespace="urn:maezo:ratified-fixture:tiss-schema-pin:v1-malformed-xsd-bytes">
+  <xs:element name="LoteGuiasSintetico">
+    <xs:complexType>
+      <xs:sequence>
+"""  # unclosed — not well-formed XML, so `etree.fromstring` raises XMLSyntaxError in `_parse`
+
+#: Validate-time compile-failure fixture (tiss_schema_pin.py:584-610 `_compile_schema`, raised via
+#: :741-743). Well-formed XML, non-synthetic `targetNamespace` (so it clears gate 6's
+#: well-formedness AND self-declared-synthetic checks in `_parse` and is accepted as a ratified
+#: pin) — but it references an UNDEFINED type (`tiss:TipoInexistente`), which is not a legal XSD
+#: content model: `etree.XMLSchema(...)` fails to COMPILE it, distinct from the load-time
+#: well-formedness failure above.
+_INVALID_CONTENT_MODEL_NS = "urn:maezo:ratified-fixture:tiss-schema-pin:v1-invalid-content-model"
+_INVALID_CONTENT_MODEL_XSD = f"""<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:tiss="{_INVALID_CONTENT_MODEL_NS}"
+           targetNamespace="{_INVALID_CONTENT_MODEL_NS}"
+           elementFormDefault="qualified">
+  <xs:element name="LoteGuiasSintetico">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="numeroLoteSintetico" type="tiss:TipoInexistente" minOccurs="1" maxOccurs="1"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+</xs:schema>
+"""
 
 
 # ---------------------------------------------------------------------------------------------
@@ -528,6 +564,28 @@ def test_compiled_schema_cache_keyed_on_digest_not_stale_after_reratification(
 
 
 # ---------------------------------------------------------------------------------------------
+# Gate 6, load-time half (tiss_schema_pin.py:498-503) — the ratified XSD's own bytes must be
+# well-formed XML. Previously untested (close-out-sprint-09-08-26): `REASON_ARTIFACT_MALFORMED`
+# had ZERO coverage anywhere in this file despite PR #218's own body disclosing the gap.
+# ---------------------------------------------------------------------------------------------
+
+
+def test_ratified_manifest_with_malformed_xsd_bytes_raises_artifact_malformed(tmp_path: Path) -> None:
+    """A fully-ratified manifest (status/ratificado/accountability/synthetic=false all correct,
+    sha256 the REAL digest of the BROKEN bytes via `_AUTO_SHA256` — so gate 5's digest check
+    agrees the ratification covers exactly these bytes) whose XSD is NOT well-formed XML (an
+    unclosed `<xs:element>`) must raise `REASON_ARTIFACT_MALFORMED` at LOAD time
+    (`etree.fromstring` inside `_parse`, tiss_schema_pin.py:498-503) — before any payload is ever
+    considered. Distinct from every digest-mismatch test above (well-formed bytes, WRONG claimed
+    digest): here the digest is genuinely correct, and it is the artifact's own well-formedness
+    that fails."""
+    manifest_path = _write_pin_manifest(tmp_path, xsd_content=_MALFORMED_XSD_BYTES)
+    with pytest.raises(TissSchemaPinUnavailableError) as exc:
+        load_tiss_schema_pin(path=manifest_path)
+    assert exc.value.reason == REASON_ARTIFACT_MALFORMED
+
+
+# ---------------------------------------------------------------------------------------------
 # MAJOR-2 (GK REVISE) — the XSD's OWN targetNamespace is checked against
 # `_SYNTHETIC_NAMESPACE_PREFIX`; a manifest's `schema_artifact.synthetic: false` self-declaration
 # is not, by itself, evidence. GK proved a forged manifest (all four gates forged) ratifying the
@@ -737,6 +795,38 @@ def test_validator_reusable_across_multiple_datasets(tmp_path: Path) -> None:
     )
     assert ok.schema_valid is True
     assert bad.schema_valid is False
+
+
+# ---------------------------------------------------------------------------------------------
+# Gate 6, validate-time half (`_compile_schema` tiss_schema_pin.py:584-610, raised via :741-743)
+# — a ratified XSD that IS well-formed XML and does NOT self-declare synthetic (so it clears
+# BOTH `_parse` gate-6 checks and loads as a genuine `TissSchemaPin`) but is not a LEGAL XSD
+# content model. Previously untested (close-out-sprint-09-08-26), same as the load-time half
+# above: `REASON_ARTIFACT_MALFORMED` had ZERO coverage anywhere in this file.
+# ---------------------------------------------------------------------------------------------
+
+
+def test_ratified_pin_with_uncompilable_schema_raises_artifact_malformed_on_validate(
+    tmp_path: Path,
+) -> None:
+    """The manifest and its XSD both LOAD successfully as a ratified `TissSchemaPin` (well-formed
+    XML, non-synthetic `targetNamespace` — `load_tiss_schema_pin` itself does not compile the
+    schema, only `_parse` well-formedness via `etree.fromstring`), but the XSD references an
+    UNDEFINED type (`tiss:TipoInexistente`) — not a legal XSD content model. `_compile_schema`
+    (tiss_schema_pin.py:584-610) catches `etree.XMLSchemaParseError` and returns `None`;
+    `TissSchemaPinValidator.validate` (:741-743) turns that `None` into a RAISE of the SAME
+    `REASON_ARTIFACT_MALFORMED`, never a `TissSchemaPinValidationResult` — a ratified-but-broken
+    artifact is a governance/availability failure, not an ordinary payload outcome (module
+    docstring, RAISE-vs-RETURN)."""
+    manifest_path = _write_pin_manifest(tmp_path, xsd_content=_INVALID_CONTENT_MODEL_XSD)
+    pin = load_tiss_schema_pin(path=manifest_path)  # loads fine: well-formed, non-synthetic
+    assert isinstance(pin, TissSchemaPin)
+
+    validator = TissSchemaPinValidator(manifest_path=manifest_path)
+    dataset_ref = _write_xml(tmp_path, "irrelevant.xml", _VALID_XML)
+    with pytest.raises(TissSchemaPinUnavailableError) as exc:
+        validator.validate(report_type=_FIXTURE_REPORT_TYPE, dataset_ref=dataset_ref)
+    assert exc.value.reason == REASON_ARTIFACT_MALFORMED
 
 
 # ---------------------------------------------------------------------------------------------
