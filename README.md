@@ -30,7 +30,7 @@ Plataforma **agents-first** completa para operadoras de saúde (payer). Reconstr
 | MCP Servers | 6 | CIB Seven, DMN, FHIR, WhatsApp, Memory, Process Allowlist |
 | Testes | CI workflow | Unitários cobrindo workers, gateway, agents, platform, tools (veja CI para count atual) |
 | Código fonte | ~10K LOC | Arquivos Python em `src/maezo/` (veja a árvore para count atual) |
-| Documentação | ~205K palavras | 16 contratos SP-OP, 24 ADRs, 34 DLs, 8 runbooks |
+| Documentação | ~205K palavras | 16 contratos SP-OP, 38 ADRs (34 Accepted + 4 Proposed), 45 DLs, 8 runbooks |
 
 ### Princípios inegociáveis
 
@@ -59,8 +59,8 @@ make type   → Success: no issues found (mypy --strict; veja CI para output atu
 | Workers implementados | 16 (15 processos + registry) |
 | MCP servers | 6 |
 | Agentes AI | 10 (2 com graph.py completo) |
-| ADRs | 24 (todos Accepted) |
-| DLs (Decisions Log) | 34 |
+| ADRs | 38 (34 Accepted, 4 Proposed) |
+| DLs (Decisions Log) | 45 |
 | Contratos SP-OP | 16 |
 | Runbooks | 8 |
 
@@ -135,10 +135,10 @@ src/maezo/
 | Documento | Conteúdo |
 |-----------|----------|
 | [docs/architecture/overview.md](docs/architecture/overview.md) | Visão arquitetural completa |
-| [docs/adr/](docs/adr/) | 24 ADRs (0001–0024) |
+| [docs/adr/](docs/adr/) | 38 ADRs (0001–0038; 34 Accepted, 4 Proposed) |
 | [docs/processes/catalog.md](docs/processes/catalog.md) | Catálogo de 15 processos SP-OP |
 | [docs/processes/contracts/](docs/processes/contracts/) | 16 contratos — ~1000 regras de negócio |
-| [docs/decisions-log.md](docs/decisions-log.md) | 34 decisões operacionais |
+| [docs/decisions-log.md](docs/decisions-log.md) | 45 decisões operacionais |
 | [docs/runbooks/](docs/runbooks/) | 8 runbooks operacionais |
 | [AGENTS.md](AGENTS.md) | Guia para desenvolvimento assistido por IA |
 | [PLANS.md](PLANS.md) | Plano de implementação greenfield |
