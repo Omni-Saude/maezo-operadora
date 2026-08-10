@@ -45,7 +45,7 @@
 | #98 | feat(audit): provenance+sink fence at start_process_idempotent chokepoint (T-C2) [T1.10] | src/maezo/platform |
 | #101 | feat(audit): wave integration — live-validated fail-closed audit-emit unit [T1.10] | src/maezo/gateway; src/maezo/platform; src/maezo/tools/workers |
 | #102 | fix(dmn-transport): type list/dict as Json in _to_camunda_vars [T1.5] | src/maezo/tools/workers |
-| #103 | feat(workers): ADR-0030 Tier-0 boundary-proof gate + production bpmn_error_allowlist [T3.1] | src/maezo/tools/workers |
+| #103 | feat(workers): ADR-0030 Tier-0 boundary-proof gate + production bpmn_error_allowlist [T3.1] | scripts/ci/check_bpmn_error_allowlist.py; src/maezo/runtime; src/maezo/tools/workers |
 | #109 | feat(ans-submit): AnsGatewayTransport triple — remove fabricated ANS protocol [T2.6] | src/maezo/tools/workers |
 | #110 | fix(recurso): parse valor_glosa_aceito monetary String before <=0 guard [t3.1-a2] | src/maezo/tools/workers |
 | #111 | fix(dmn-input): coerce-or-drop fraude numeric scoring inputs + drop tuss_codes footgun [t1.5] | src/maezo/tools/workers |
@@ -91,13 +91,13 @@
 | #208 | auth: criterios_nao_cobertos passa a ser ENFORCED — ratificar contratual sem fonte de rede não abre auto-aprovação (fix M-3) | spec/processes/dmn; src/maezo/tools/workers |
 | #209 | pagto: guard de dinheiro fail-closed + lower bound no CeilingResolver (fix BLOCKER B-1 — classe zero-value-payment) | src/maezo/tools/workers |
 | #210 | PHI em business keys: fix B-2 (guard dual-form) + remediação DL-0043 leg(c) atrás de flag ratificável (dark build) | spec/policies; src/maezo/platform; src/maezo/tools/workers |
-| #211 | MZO-040: ActionExecutionGateway em SHADOW no chokepoint universal — aprovações Médica/ANS/Security viram DADO (dark build) | spec/policies; src/maezo/gateway; src/maezo/tools/workers |
+| #211 | MZO-040: ActionExecutionGateway em SHADOW no chokepoint universal — aprovações Médica/ANS/Security viram DADO (dark build) | .github/CODEOWNERS; spec/policies; src/maezo/gateway; src/maezo/tools/workers |
 | #212 | Idempotência de start de processo: fecha a classe do pagamento duplicado (fix BLOCKER B-3 + M-8 + M-9) | src/maezo/gateway; src/maezo/platform; src/maezo/tools/workers |
 | #213 | MZO-060: inbox durável AMH (migração 0007 + repositório + packet DBA) — dark build, DBA revisa em vez de autorar | spec/policies; src/maezo/platform |
 | #214 | Bundle de minors da auditoria: guard de centavos AUTH unificado, competência ANS corrigida, strip de business key, consent_revision negativo, citações | src/maezo/gateway; src/maezo/tools/workers |
 | #215 | adequacao M-1: fail-safe fecha o ponto cego de tipo_carater em branco/desconhecido (leg de runtime do achado do W3) | spec/processes/dmn; src/maezo/tools/workers |
 | #216 | ADR-0029 dark build: esqueleto de erasure LGPD por camada + plano de revisão do DPO (fail-closed, inerte) | spec/policies; src/maezo/platform |
-| #217 | Shadows DMN M-4/5/6/7: candidatos ratificáveis para as 4 tabelas irmãs com a mesma classe de inversão do adequacao_gap | spec/processes/dmn |
+| #217 | Shadows DMN M-4/5/6/7: candidatos ratificáveis para as 4 tabelas irmãs com a mesma classe de inversão do adequacao_gap | .github/CODEOWNERS; spec/processes/dmn |
 | #218 | TISS-XSD: seam de pin de schema ratificável (dark build, inerte) — o validador lxml já existe; o gate é a ratificação | spec/policies; src/maezo/tools/workers |
 | #221 | Binding de digest de ratificação para os 6 candidatos DMN: tabela_viva {path, sha256} — uma ratificação nunca sobrevive em silêncio à edição da tabela que revisou | spec/processes/dmn; src/maezo/tools/workers |
 
