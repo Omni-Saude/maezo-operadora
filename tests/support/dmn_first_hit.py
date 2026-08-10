@@ -29,6 +29,7 @@ claim about what a Camunda-7-family engine does when an input VARIABLE IS ABSENT
 
 from __future__ import annotations
 
+import hashlib
 import re
 import xml.etree.ElementTree as ET
 from collections.abc import Mapping
@@ -58,6 +59,24 @@ RATIFIED_BY = "revisor"
 RATIFIED_AT = "ratificado_em"
 PLACEHOLDER_MARKER = "PLACEHOLDER"
 
+#: LIVE-TABLE BINDING. Ratifying answers "did a human approve"; it does not answer "approve WHAT".
+#: Every candidate manifest declares `tabela_viva: {path, sha256}` — the live table it was authored
+#: and reviewed against, identified by the DIGEST OF ITS BYTES. `verify_live_table_binding`
+#: re-derives that digest from disk, so editing a live table breaks the build until the candidate is
+#: re-authored against the new content, and a ratification can never silently carry over. Same
+#: standard as `amh_inbox.migration_digest()` and `tiss_schema_pin`'s gate 5 — bind to bytes, never
+#: to a filename. The `src/`-side half of this binding exists only for the W3 manifest (the only one
+#: with a `src/` consumer): `maezo.tools.workers.adequacao_shadow` re-checks it at LOAD time too.
+LIVE_TABLE_BLOCK = "tabela_viva"
+LIVE_TABLE_PATH = "path"
+LIVE_TABLE_SHA256 = "sha256"
+_KNOWN_LIVE_TABLE_KEYS = frozenset({LIVE_TABLE_PATH, LIVE_TABLE_SHA256})
+#: The one directory a candidate may bind to — its own. `spec/processes/dmn/<bare filename>.dmn`.
+LIVE_TABLE_RELDIR = "spec/processes/dmn"
+#: Lowercase hex sha256 and nothing else — which is also the placeholder guard for this field: no
+#: string containing `PLACEHOLDER` can match it.
+_SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
+
 #: `"a"` | `"a","b"` | `"a", "b"` — a quoted literal or a FEEL comma-disjunction of quoted literals.
 _QUOTED_LIST = re.compile(r'^"[^"]*"(?:\s*,\s*"[^"]*")*$')
 #: `not( <quoted list> )` — FEEL negation of a literal disjunction.
@@ -70,6 +89,15 @@ _INT_LITERAL = re.compile(r"^-?\d+$")
 
 class UnreadableEntryError(RuntimeError):
     """An entry shape this reader does not understand — NEVER silently treated as a match."""
+
+
+class LiveTableBindingError(RuntimeError):
+    """A candidate manifest's `tabela_viva` binding does not hold against the live table on disk.
+
+    Deliberately NOT an `UnreadableEntryError`: that one means "this reader does not understand a
+    grammar". This one means "the ratification record and the table content have come apart" — a
+    governance-integrity failure, which must never be confused with a parsing problem.
+    """
 
 
 class EnforcementNotRatifiedError(RuntimeError):
@@ -124,6 +152,20 @@ class Verdict:
 
     regra: str
     saidas: dict[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class LiveTableBinding:
+    """A VERIFIED binding: the manifest, the live table it declares, and that table's actual digest.
+
+    Only ever constructed by `verify_live_table_binding`, and only after the declared sha256 has
+    been compared against a digest RE-DERIVED from the table's bytes — so an instance's existence is
+    itself the proof that the candidate (and any ratification of it) covers the table on disk.
+    """
+
+    manifest: Path
+    live_table: Path
+    sha256: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -389,7 +431,113 @@ def evaluate(table: DecisionTable, values: Mapping[str, Any]) -> Verdict:
 
 
 # -------------------------------------------------------------------------------------------------
+# Live-table binding — the ratification record is bound to the table's BYTES, not to its name
+# -------------------------------------------------------------------------------------------------
+
+
+def live_table_digest(path: Path) -> str:
+    """sha256 (lowercase hex) of a live table's bytes on disk. Re-derived, never cached."""
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def verify_live_table_binding(manifest_path: Path) -> LiveTableBinding:
+    """Check a manifest's `tabela_viva` block against the live table's ACTUAL bytes. RAISES on any
+    failure — a binding that cannot be confirmed is never "probably fine".
+
+    The block must exist (an optional binding is a forgettable one), carry exactly `{path, sha256}`,
+    declare the SAME path as the manifest's own `alvo` (so the two declarations cannot drift), name
+    a `.dmn` file directly inside `spec/processes/dmn/` (no traversal, no other directory — checked
+    both as a STRING and against the RESOLVED path, since the string check alone cannot see a
+    symlink), and declare a lowercase-hex sha256 equal to the digest re-derived here from that
+    file's bytes.
+
+    The live table is always read from the REAL `spec/processes/dmn/` tree (`DMN_DIR`), never
+    relative to `manifest_path`: a scratch copy of a manifest in `tmp_path` must be checked against
+    the same table the committed manifest binds to, or a forged copy could bind itself to a forged
+    table sitting beside it.
+
+    Raises:
+        LiveTableBindingError: on every failure mode above, including the digest mismatch a live
+            table edit produces.
+    """
+    data = load_manifest(manifest_path)
+    block = data.get(LIVE_TABLE_BLOCK)
+    if not isinstance(block, dict):
+        raise LiveTableBindingError(
+            f"{manifest_path.name}: `{LIVE_TABLE_BLOCK}` must be a mapping declaring the live table "
+            f"this candidate was authored against (got {type(block).__name__}) — without it a "
+            "ratification would silently carry over to edited table content"
+        )
+
+    unknown = sorted(str(key) for key in block if key not in _KNOWN_LIVE_TABLE_KEYS)
+    if unknown:
+        raise LiveTableBindingError(
+            f"{manifest_path.name}: `{LIVE_TABLE_BLOCK}` has unrecognized key(s) {unknown} "
+            f"(known: {sorted(_KNOWN_LIVE_TABLE_KEYS)})"
+        )
+
+    declared_path = block.get(LIVE_TABLE_PATH)
+    if not isinstance(declared_path, str) or not declared_path.strip():
+        raise LiveTableBindingError(
+            f"{manifest_path.name}: `{LIVE_TABLE_BLOCK}.{LIVE_TABLE_PATH}` must be a non-empty string"
+        )
+    if declared_path != data.get("alvo"):
+        raise LiveTableBindingError(
+            f"{manifest_path.name}: `{LIVE_TABLE_BLOCK}.{LIVE_TABLE_PATH}` is {declared_path!r} but "
+            f"`alvo` is {data.get('alvo')!r} — a candidate binds to the table it targets, not another"
+        )
+
+    directory, _, filename = declared_path.rpartition("/")
+    if (
+        directory != LIVE_TABLE_RELDIR
+        or not filename.endswith(".dmn")
+        or filename in ("", ".dmn")
+        or ".." in filename
+        or "\\" in filename
+    ):
+        raise LiveTableBindingError(
+            f"{manifest_path.name}: `{LIVE_TABLE_BLOCK}.{LIVE_TABLE_PATH}` is {declared_path!r}, must "
+            f"be a bare `.dmn` filename directly inside {LIVE_TABLE_RELDIR}/"
+        )
+
+    live_table = (DMN_DIR / filename).resolve()
+    if live_table.parent != DMN_DIR.resolve() or not live_table.is_file():
+        raise LiveTableBindingError(
+            f"{manifest_path.name}: `{LIVE_TABLE_BLOCK}.{LIVE_TABLE_PATH}` resolves to {live_table}, "
+            f"which is not a file inside {DMN_DIR}"
+        )
+
+    declared_sha = block.get(LIVE_TABLE_SHA256)
+    if not isinstance(declared_sha, str) or not _SHA256_HEX.match(declared_sha.strip().lower()):
+        raise LiveTableBindingError(
+            f"{manifest_path.name}: `{LIVE_TABLE_BLOCK}.{LIVE_TABLE_SHA256}` is not a lowercase hex "
+            "sha256 — a blank or placeholder digest is not a binding"
+        )
+
+    actual = live_table_digest(live_table)
+    if declared_sha.strip().lower() != actual:
+        raise LiveTableBindingError(
+            f"{manifest_path.name}: `{LIVE_TABLE_BLOCK}.{LIVE_TABLE_SHA256}` is "
+            f"{declared_sha.strip().lower()!r} but {live_table.name} hashes to {actual!r} — the live "
+            "table changed after this candidate was authored. The candidate (and any ratification of "
+            "it) covers the OLD content: re-author it against the new table and have the owner "
+            "review it again. Updating the digest alone would defeat the entire point of this field."
+        )
+
+    return LiveTableBinding(manifest=manifest_path, live_table=live_table, sha256=actual)
+
+
+# -------------------------------------------------------------------------------------------------
 # Ratification gate — the same shape as `adequacao_shadow.load_candidate_ratification`
+#
+# "Same shape" means the same three fields and the same fail-closed strictness; it does NOT mean the
+# same exception on a broken live-table binding: this seam raises `LiveTableBindingError` (a distinct
+# type, NOT a subclass) where `adequacao_shadow.evaluate_for_enforcement` collapses the same failure
+# into `EnforcementNotRatifiedError`, because that loader is fail-closed and turns every binding
+# problem into "not ratified". The divergence is deliberate — here the two gates must be
+# distinguishable so their tests cannot pass for each other's reason — so a consumer of THIS helper
+# must catch `LiveTableBindingError`, and a consumer of the src module must catch
+# `EnforcementNotRatifiedError`; neither type catches the other.
 # -------------------------------------------------------------------------------------------------
 
 
@@ -433,6 +581,11 @@ def evaluate_for_enforcement(manifest_path: Path, live: DecisionTable, values: M
     Ratifying is NECESSARY BUT NOT SUFFICIENT for live behaviour to change: the engine evaluates
     the DEPLOYED table, so the owner must also apply the rules to the live `.dmn` — which per
     ADR-0028 §7 is the owner's act.
+
+    A ratified manifest whose `tabela_viva` binding no longer holds is refused too
+    (`LiveTableBindingError`), and the binding is checked AFTER the ratification gate on purpose: an
+    unratified manifest binds nothing, so reporting a digest problem first would say the wrong thing
+    about which gate is actually shut.
     """
     status = load_candidate_ratification(manifest_path)
     if not status.ratificado:
@@ -441,4 +594,5 @@ def evaluate_for_enforcement(manifest_path: Path, live: DecisionTable, values: M
             f"({RATIFIED_FLAG}/{RATIFIED_BY}/{RATIFIED_AT}) and apply the rules to the live table; "
             "per ADR-0028 the live-table edit is the regulatory/clinical owner's act, never engineering's."
         )
+    verify_live_table_binding(manifest_path)
     return evaluate(read_candidate_table(manifest_path, live), values)

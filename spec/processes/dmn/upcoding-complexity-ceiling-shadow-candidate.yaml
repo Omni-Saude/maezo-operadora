@@ -97,6 +97,19 @@ ratificado: false
 revisor: "PLACEHOLDER_DONO_DA_TABELA — medico-auditor + auditoria especial + financas (docs/review-queue.md:200)"
 ratificado_em: "PLACEHOLDER_YYYY-MM-DD"
 
+# --- BINDING DA RATIFICACAO AO CONTEUDO DA TABELA VIVA ------------------------------------------
+# `sha256` e o digest dos BYTES de `path` NESTE COMMIT, re-derivado do disco a cada rodada de teste
+# (`tests/unit/spec/test_shadow_candidates_common.py`): editar a tabela viva quebra o build ate o
+# candidato ser reautorado, de modo que a ratificacao acima nunca sobreviva ao texto que ela revisou.
+# ATENCAO (YAML): chave duplicada resolve por ULTIMA ocorrencia, em silencio. Se este arquivo
+# passar a ter dois blocos `tabela_viva:` (ou dois `ratificado:`), o parser liga o ULTIMO enquanto
+# o revisor pode ter lido o PRIMEIRO. NUNCA duplique estas chaves. Consideracao valida para toda a
+# familia de artefatos ratificaveis — ver a nota `KNOWN GAP` em
+# src/maezo/tools/workers/adequacao_shadow.py (docstring do modulo, porta 1b).
+tabela_viva:
+  path: spec/processes/dmn/upcoding_complexity_ceiling.dmn
+  sha256: "489501749ee60ee14d264fcaf009c325880c8819401a23c65d8ace1a4bea1ca6"
+
 modo_operacao: sombra
 
 # =================================================================================================

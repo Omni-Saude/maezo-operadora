@@ -75,6 +75,10 @@
 #    (fail-closed). The loader (`maezo.tools.workers.adequacao_shadow`) never defaults to ratified
 #    and swallows every load error into "not ratified".
 #
+#    QUARTO PORTAO, NAO-HUMANO: mesmo com os tres campos preenchidos, o loader recusa (volta a NAO
+#    ratificado) se `tabela_viva.sha256` deixar de bater com os bytes da tabela viva no disco — uma
+#    ratificacao vale para o conteudo que o dono leu, e nao para uma edicao posterior da tabela.
+#
 # 2. The REGULATORY OWNER applies `regras_candidatas` to the LIVE TABLE
 #    `spec/processes/dmn/adequacao_gap.dmn` (rule order + input entries + output entries). PER
 #    ADR-0028 (:214-216) THE LIVE-TABLE EDIT ITSELF IS THE OWNER'S ACT — engineering does not make
@@ -105,6 +109,21 @@ norma_regente: "RN 259/2011 (ANS) — garantia de atendimento: tempos e distanci
 ratificado: false
 revisor: "PLACEHOLDER_DONO_REGULATORIO — regulatorio/compliance + SME gestao-rede (docs/review-queue.md:160)"
 ratificado_em: "PLACEHOLDER_YYYY-MM-DD"
+
+# --- BINDING DA RATIFICACAO AO CONTEUDO DA TABELA VIVA ------------------------------------------
+# `sha256` e o digest dos BYTES de `path` NESTE COMMIT. Ele e RE-DERIVADO DO DISCO a cada carga
+# (`maezo.tools.workers.adequacao_shadow.load_candidate_ratification`) e a cada rodada de teste
+# (`tests/unit/spec/test_shadow_candidates_common.py`): se a tabela viva for editada, o digest deixa
+# de bater e a ratificacao acima NAO acompanha o novo conteudo — o candidato tem de ser reautorado e
+# rerrevisado contra a tabela editada. Uma ratificacao vale para o texto que o revisor leu, so.
+# ATENCAO (YAML): chave duplicada resolve por ULTIMA ocorrencia, em silencio. Se este arquivo
+# passar a ter dois blocos `tabela_viva:` (ou dois `ratificado:`), o parser liga o ULTIMO enquanto
+# o revisor pode ter lido o PRIMEIRO. NUNCA duplique estas chaves. Consideracao valida para toda a
+# familia de artefatos ratificaveis — ver a nota `KNOWN GAP` em
+# src/maezo/tools/workers/adequacao_shadow.py (docstring do modulo, porta 1b).
+tabela_viva:
+  path: spec/processes/dmn/adequacao_gap.dmn
+  sha256: "6a9ad266a8680388d532515b0543fb3713ace01e9d711d17f2245d797400fad8"
 
 # --- OPERATING MODE -----------------------------------------------------------------------------
 # `sombra` is the ONLY mode that exists. There is no enforcing consumer of this file in the
