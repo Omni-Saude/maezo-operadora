@@ -94,6 +94,15 @@ _INFRA_MODULES: frozenset[str] = frozenset(
         # workers. Replaced ans_submit's `validate_data` echo-stub with real
         # `lxml.etree.XMLSchema` validation.
         "tiss_schema",
+        # T2.6-2 TISS-schema-pin gate — DARK BUILD, NOT wired this wave (see that module's
+        # docstring "SCOPING DECISION"). Structurally identical to `auth_criteria`/`tiss_schema`
+        # directly above: a local, deterministic YAML ratification-manifest loader + XSD
+        # validator, no network client, no PHI, no worker registration. `ans_submit.py` does not
+        # import it (pinned by
+        # test_tiss_schema_pin.py::test_tiss_schema_pin_not_imported_or_referenced_by_ans_submit);
+        # its one demonstration consumption function (`tiss_schema_pin_gate_entry`) is exercised
+        # only by that module's own tests, never registered on any harness/topic.
+        "tiss_schema_pin",
     }
 )
 

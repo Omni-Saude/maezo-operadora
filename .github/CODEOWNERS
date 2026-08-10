@@ -97,3 +97,15 @@
 /spec/processes/dmn/triage_redflag_gestante.dmn                    @rodrigotaquino @Omni-Saude/security
 /spec/processes/dmn/triage-redflag-pediatric-shadow-candidate.yaml @rodrigotaquino @Omni-Saude/security
 /spec/processes/dmn/triage_redflag_pediatric.dmn                   @rodrigotaquino @Omni-Saude/security
+
+# T2.6-2 TISS-schema-pin ratification gate (dark build; NOT wired into any live worker this wave
+# — see src/maezo/tools/workers/tiss_schema_pin.py module docstring "SCOPING DECISION"). The pin
+# (`tiss-schema-pin.yaml`) ships DRAFT/`ratificado: false` against an explicitly-labeled SYNTHETIC
+# XSD (`synthetic-tiss-v1.xsd` — structure-only, NOT the real ANS Padrão-TISS schema). Flipping
+# `status: RATIFIED` + `ratificado: true` + `revisor` + `ratificado_em` + swapping in the real
+# XSD + `schema_artifact.synthetic: false` is the SINGLE act that would let a future, separately
+# reviewed wiring change treat TISS/XSD validation as available. Same design point as the
+# GAP-AUTH-4 manifest and the MZO-040 approval records above: activation is a DATA change with no
+# code and no redeploy, which is precisely why the data needs the reviewer the code path would
+# have had.
+/spec/policies/ans/  @rodrigotaquino @Omni-Saude/security

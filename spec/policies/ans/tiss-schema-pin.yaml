@@ -1,0 +1,147 @@
+# =============================================================================
+# spec/policies/ans/tiss-schema-pin.yaml — DRAFT, nada ratificado
+# =============================================================================
+#
+# WHY THIS FILE EXISTS
+# ---------------------
+# T2.6-2 TISS-schema-pin gate (dark build — calibration example: a validator
+# blocked on an SME-supplied schema, built ahead of time against a synthetic
+# schema injected as an artifact). This manifest is the ratification-gated
+# artifact registry `src/maezo/tools/workers/tiss_schema_pin.py::load_tiss_schema_pin`
+# reads. It is a SEPARATE, NOT-yet-wired seam from the already-shipped, already-
+# wired `TissSchemaValidator` (tools/workers/tiss_schema.py +
+# `MAEZO_TISS_SCHEMA_VERSION`), which `ans_submit.validate_data` already calls
+# today — this file does not change that validator, and nothing in this wave
+# wires THIS gate into `ans_submit.py`. See tiss_schema_pin.py's module
+# docstring "SCOPING DECISION" for the full reasoning.
+#
+# THE RULE THIS FILE ENFORCES (mirrors spec/processes/dmn/auth-criteria-
+# ratification.yaml — GAP-AUTH-4 — and the DPO retention-matrix loader,
+# src/maezo/platform/lifecycle/legal_bases_matrix.py, which REFUSES its own
+# unratified template rather than "succeeding" on placeholder data):
+#
+#     This pin may be used to validate a real payload ONLY if ALL SIX of the
+#     independent gates below agree it is ready. ANY ONE of them still saying
+#     "not ready" REFUSES the whole pin — the loader raises a typed
+#     `TissSchemaPinUnavailableError`, never a silent pass, never a partial
+#     read of the others.
+#
+#       1. `status`                    MUST equal the literal string "RATIFIED"
+#       2. `ratificado`                MUST be the boolean literal `true`
+#       3. `revisor` + `ratificado_em` MUST both be non-blank strings
+#       4. `schema_artifact.synthetic` MUST be the boolean literal `false`
+#       5. `schema_artifact.sha256`    MUST equal a digest RE-DERIVED from the
+#                                       XSD's actual bytes on disk (not merely
+#                                       asserted — the loader recomputes it on
+#                                       every load and compares; GK REVISE)
+#       6. the XSD's own `targetNamespace` MUST NOT self-declare synthetic
+#                                       (must not start with `urn:maezo:
+#                                       synthetic` — GK REVISE)
+#
+# Gate 1 and gate 2 are DELIBERATELY REDUNDANT with each other (belt-and-
+# suspenders, mirrors the retention-matrix template's `unratified: true` root
+# guard running independently of every other check). This is load-bearing:
+# forging `ratificado: true` on this exact shipped file WITHOUT also changing
+# `status` away from `"DRAFT"` must still refuse — proven by
+# `tests/unit/tools/workers/test_tiss_schema_pin.py::
+# test_forged_ratificado_true_with_status_still_draft_refuses`. Gate 4 is what
+# operationalizes "activation = SME replaces the synthetic XSD with the real
+# one": flipping `ratificado`/`status`/`revisor`/`ratificado_em` alone, while
+# `schema_artifact.synthetic` stays `true`, still refuses — the pin must not
+# become "ratified" while it still points at a structure-only stand-in. Gates
+# 5 and 6 are ARTIFACT-INTEGRITY checks, added after a review found gate 4
+# alone insufficient: a ratified pin previously survived an in-place XSD swap
+# after ratification (gate 5 closes this — the digest binds ratification to
+# BYTES, not a filename) and a forged `synthetic: false` ratifying the
+# verbatim synthetic XSD previously loaded (gate 6 closes this — the artifact
+# self-identifies via its own namespace, so the loader checks that instead of
+# trusting the flag beside it).
+#
+# HOW TO RATIFY (a DATA change — no code change, no redeploy of Python)
+# -----------------------------------------------------------------------
+#   1. SME (regulatório/TISS) vendors the real ANS Padrão-TISS XSD (RN
+#      501/2022 — exact version SME-gated, see
+#      docs/design/T2.6-ans-submission-rescope.md §2.B/§7) into this
+#      directory (or another reviewed path) and repoints
+#      `schema_artifact.xsd_filename` at it.
+#   2. Set `schema_artifact.synthetic: false`.
+#   3. Compute `sha256sum <the vendored XSD file>` and set
+#      `schema_artifact.sha256` to that hex digest (gate 5 — see the comment
+#      on that field below: this is the hash of the EXACT file bytes the
+#      reviewer in step 4 is signing off on, not a placeholder).
+#   4. Set `status: RATIFIED`, `ratificado: true`, `revisor: "<who>"`,
+#      `ratificado_em: "YYYY-MM-DD"`.
+# All four fields in step 4 (plus steps 1-3 that precede them) are CODEOWNERS-
+# gated (.github/CODEOWNERS) — the same reviewer the GAP-AUTH-4 manifest and
+# the MZO-040 approval records already require, for the same reason:
+# ratifying is a DATA change with no code and no redeploy, which is exactly
+# why the data needs the reviewer the code path would otherwise have had.
+#
+# WHAT RATIFYING THIS FILE DOES **NOT** DO
+# -----------------------------------------
+# It does not, by itself, wire TISS-schema-pin validation into
+# `ans_submit.validate_data`/`validate_entry`, and it does not flip any of
+# the 14 `_NOTIFY_REGULATORIO_GAP_REASON` strict-xfails in
+# `tests/integration/processes/test_sp_op_ans_submit_001.py` (those block on
+# the ALREADY-WIRED, unpinned `TissSchemaValidator` — an unrelated, already-
+# shipped mechanism). Deciding HOW (or whether) this gate's outcome folds
+# into the live worker, and how it reconciles with `MAEZO_TISS_SCHEMA_VERSION`,
+# is explicitly deferred to a future, separately reviewed change — see
+# tiss_schema_pin.py.
+
+version: 1
+
+# DRAFT | RATIFIED — independent of `ratificado` on purpose (gate 1 above).
+status: DRAFT
+
+ratificado: false
+revisor: null
+ratificado_em: null
+
+schema_artifact:
+  # Resolved relative to THIS file's own directory (spec/policies/ans/) —
+  # deliberately NOT the `<spec>/schemas/tiss/<version>/<report_type>.xsd`
+  # layout `tools/workers/tiss_schema.py` resolves via `resolve_spec_dir()`;
+  # this pin governs exactly ONE artifact, not a per-report-type set. See
+  # tiss_schema_pin.py module docstring for why the two resolution schemes
+  # are kept separate this wave.
+  xsd_filename: "synthetic-tiss-v1.xsd"
+  # true while this pin is DRAFT. The SME flips this to `false` in the SAME
+  # commit that swaps in the real XSD — gate 4 above.
+  synthetic: true
+  # NOT informational — this is GATE 5 (GK REVISE). The DPO/SME fills this
+  # with the sha256 hex digest of the EXACT XSD file bytes being reviewed and
+  # ratified in THIS commit (`sha256sum <file>`), not a placeholder and not a
+  # value computed ahead of time from a draft copy. The loader
+  # (`tiss_schema_pin.py::_parse`) re-derives the digest from the XSD on disk
+  # on EVERY load and REFUSES (`REASON_ARTIFACT_DIGEST_MISMATCH`) if it does
+  # not match this field exactly — so a later in-place edit to the XSD file
+  # (accidental or otherwise) that is not accompanied by a re-ratification of
+  # this field un-ratifies the pin automatically. A placeholder value (or any
+  # value containing "PLACEHOLDER"/"TODO"/"TBD"/"PENDING"/"XXX") is refused
+  # outright (`REASON_INVALID_SCHEMA`), even before the digest is compared.
+  sha256: "PLACEHOLDER-SHA256-sme-must-fill-when-real-xsd-lands"
+  # Machine placeholder — SME-filled at ratification time, mirroring the
+  # PLACEHOLDER-* convention in
+  # spec/policies/retention/UNRATIFIED-retention-matrix.template.yaml. Not
+  # enforced by the loader beyond "present" — purely informational/audit,
+  # never gated or compared against anything.
+  padrao_tiss_versao: "PLACEHOLDER-VERSAO-sme-must-confirm-RN-501-2022"
+  # NOT purely informational once wired — `TissSchemaPinValidator.validate`
+  # (MINOR-5, GK REVISE) compares its OWN `report_type` argument against this
+  # field and refuses the validation (not the ratification itself — this
+  # field is not one of the six load-time gates above) whenever they don't
+  # match, mirroring how the already-wired `tiss_schema.py` seam resolves a
+  # DIFFERENT XSD per report_type. Still not enforced at `load_tiss_schema_
+  # pin` time — a blank/placeholder value here simply means every future
+  # `.validate()` call refuses on a report_type mismatch until this is filled
+  # with the real value the vendored XSD in `xsd_filename` actually covers.
+  report_type: "PLACEHOLDER-REPORT-TYPE-structure-only-not-a-real-enum-member"
+
+observacao: >-
+  DRAFT. O XSD referenciado (synthetic-tiss-v1.xsd) e SINTETICO — nao e o
+  schema real publicado pela ANS (Padrao TISS / Componente de Comunicacao,
+  RN 501/2022). Nao usar para decidir nenhum envio real. Ativacao exige SME
+  regulatorio-TISS: substituir o XSD sintetico pelo XSD real + preencher
+  ratificado/status/revisor/ratificado_em + schema_artifact.synthetic=false
+  (ver comentario no topo deste arquivo).
