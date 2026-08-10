@@ -639,6 +639,72 @@ async def test_generate_passes_through_correlation_ids_when_supplied(
     assert usage_calls[0].kwargs["tenant_id"] == "tenant-amh"
 
 
+# The exact, PHI-safe field set the `llm_token_usage` structlog event may carry (T8
+# module docstring: "model id + token COUNTS only, never prompt/completion content").
+# Keep this in sync with the `logger.info("llm_token_usage", ...)` call in
+# `maezo.runtime.inference._emit_llm_token_usage` — any drift is exactly what
+# `test_llm_token_usage_event_field_set_is_pinned` below exists to catch.
+_LLM_TOKEN_USAGE_ALLOWED_FIELDS = frozenset(
+    {"provider", "model", "input_tokens", "output_tokens", "total_tokens", "agent_id", "tenant_id"}
+)
+
+
+@pytest.mark.asyncio
+async def test_llm_token_usage_event_field_set_is_pinned(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin the exact field set of the `llm_token_usage` event — PHI-safety, not vibes.
+
+    This is a positive allow-list check, not a "no content-shaped key" heuristic: it
+    fails on ANY field-set drift, added or removed, forcing a reviewer to look at
+    `_LLM_TOKEN_USAGE_ALLOWED_FIELDS` (and this docstring) before widening what the
+    event is allowed to carry. A field like `content`/`prompt`/`response_text` would
+    fail this test the moment it's added — mutation-verified: temporarily adding
+    `content="x"` to the `logger.info(...)` call in `_emit_llm_token_usage` flips this
+    RED (extra key not in the allow-list); reverting flips it back GREEN.
+    """
+    monkeypatch.setenv("MAEZO_ANTHROPIC_API_KEY", "sk-ant-test")
+    impl = AnthropicInferenceProvider(model="claude-opus-4-8")
+    impl._client.messages.create = AsyncMock(  # type: ignore[method-assign]
+        return_value=_fake_message(usage=_fake_usage(input_tokens=10, output_tokens=7))
+    )
+    mock_logger = MagicMock()
+    monkeypatch.setattr("maezo.runtime.inference.logger", mock_logger)
+
+    await impl.generate("hello", agent_id="helena", tenant_id="tenant-amh")
+
+    usage_calls = [c for c in mock_logger.info.call_args_list if c.args and c.args[0] == "llm_token_usage"]
+    assert len(usage_calls) == 1
+    actual_fields = frozenset(usage_calls[0].kwargs)
+    assert actual_fields == _LLM_TOKEN_USAGE_ALLOWED_FIELDS, (
+        f"llm_token_usage event field set changed: {sorted(actual_fields)}. If this is an "
+        "intentional, reviewed addition, confirm the new field is a count/id — NEVER "
+        "prompt/completion content — before updating _LLM_TOKEN_USAGE_ALLOWED_FIELDS."
+    )
+
+
+@pytest.mark.asyncio
+async def test_noop_and_phi_zone_mock_providers_emit_no_metering(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mock providers' usage shape (T8, constraint 3): NO metering emission at all.
+
+    `NoopInferenceProvider` and `PhiZoneMockProvider` make no real API call, so there
+    is no real `usage` to report — the module docstring is explicit that they "never
+    emit metering". Proven against both channels: no `llm_token_usage` structlog event
+    and no `maezo_llm_tokens_total` Prometheus sample, for either mock provider.
+    """
+    from maezo.runtime.metrics import MetricsCollector
+
+    mock_logger = MagicMock()
+    monkeypatch.setattr("maezo.runtime.inference.logger", mock_logger)
+    collector = MetricsCollector()
+
+    with patch("maezo.platform.observability._get_metrics_collector", return_value=collector):
+        await NoopInferenceProvider().generate("x", agent_id="a", tenant_id="t")
+        await PhiZoneMockProvider().generate("x", agent_id="a", tenant_id="t")
+
+    usage_calls = [c for c in mock_logger.info.call_args_list if c.args and c.args[0] == "llm_token_usage"]
+    assert usage_calls == []
+    assert _llm_token_samples(collector) == []
+
+
 @pytest.mark.asyncio
 async def test_generate_correlation_ids_default_to_none(monkeypatch: pytest.MonkeyPatch) -> None:
     """When no caller supplies agent_id/tenant_id (today's reality for every in-repo
