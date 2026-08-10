@@ -42,3 +42,11 @@ CHECKPOINT.md
 # contracts, compliance, gates, design, sme-dispatch) stays tracked + on GitHub + CI-readable.
 docs/prompts/
 docs/audits/
+
+# Orchestrator machine-state handoff — deliberately local-only, never enters the repo (rewritten
+# every session; see MEMORY.md orchestrator-operating-model / v2-execution-state notes).
+/handoff.yaml
+
+# Owner's private working file — not for GitHub/CI (docs/reports/ itself stays tracked; only this
+# one file is excluded).
+docs/reports/amh-integration-forensics-summary.md
