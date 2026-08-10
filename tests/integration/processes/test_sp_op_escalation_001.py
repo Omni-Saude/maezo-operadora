@@ -513,23 +513,15 @@ async def test_falha_notificacao_usa_fallback(
 ) -> None:
     """notify_team lanca ERR_ESC_NOTIFY_FAILED => fallback notifica supervisor e UT e criada mesmo assim.
 
-    <<<<<<< HEAD
-        Falha o CANAL real (publish do FakeKafkaPublisher via _FaultInjectingPublisher) para a notificacao
-        de team. O handler REAL (`make_notify_team_handler`) traduz isso em
-        `WorkerBpmnError(ERR_ESC_NOTIFY_FAILED)` (t8-escalation-boundary) — exercitamos o caminho de erro
-        do worker de verdade, sem injecao sintetica. `BE_FalhaNotificacao` roteia para ST_NotificarFallback
-        (notify_supervisor) e segue para UT_TratarEscalonamento: o escalonamento nunca se perde por falha
-        de canal (fail-SAFE, ADR-0005).
-    =======
-        NON-HOLLOW (t8-escalation-boundary v2): a falha e injetada no raw producer sob o
-        `AioKafkaEventsProducer` REAL (`_FaultInjectingPublisher`), NAO num fake que sempre levanta.
-        Como `operadora.notifications.internal` e um BEST_EFFORT topic, o unico motivo de a falha de
-        `notify_team` virar `ERR_ESC_NOTIFY_FAILED` (em vez de ser engolida) e o handler REAL
-        (`make_notify_team_handler`) publicar com `best_effort=False`. `BE_FalhaNotificacao` roteia para
-        ST_NotificarFallback (notify_supervisor) e segue para UT_TratarEscalonamento. Se o opt-in
-        `best_effort=False` fosse removido, o producer real engoliria a falha e `notified_supervisors`
-        ficaria VAZIO — este assert falha, provando que o teste nao e hollow. Fail-SAFE (ADR-0005).
-    >>>>>>> origin/t8-escalation-notify-boundary-v2
+    NON-HOLLOW (t8-escalation-boundary v2): a falha e injetada no raw producer sob o
+    `AioKafkaEventsProducer` REAL (`_FaultInjectingPublisher`), NAO num fake que sempre levanta.
+    Como `operadora.notifications.internal` e um topico `BEST_EFFORT`, o unico motivo de a falha de
+    `notify_team` virar `ERR_ESC_NOTIFY_FAILED` (em vez de ser engolida) e o handler REAL
+    (`make_notify_team_handler`) publicar com `best_effort=False`. `BE_FalhaNotificacao` roteia para
+    ST_NotificarFallback (notify_supervisor) e segue para UT_TratarEscalonamento: o escalonamento
+    nunca se perde por falha de canal (fail-SAFE, ADR-0005). Se o opt-in `best_effort=False` fosse
+    removido, o producer real engoliria a falha e `notified_supervisors` ficaria VAZIO — este assert
+    falha, provando que o teste nao e hollow.
     """
     probe.fault.fail_notification_types.add("escalation.notify_team")
     inst = await start_escalation(motivo_categoria="red_flag_clinico", severidade="grave")
