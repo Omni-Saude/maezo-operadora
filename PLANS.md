@@ -189,6 +189,52 @@ DPO ×3, T-E ×2, D-07, AMH).
 
 > **Achado de conformidade em aberto, levantado durante o MZO-020 (decisão do dono, não corrigido aqui).** O esquema de chaves CIB **em produção diverge da proibição 6 da ADR-0037 na FORMA**: as business keys são unidas por hífen e com prefixo à frente (p.ex. `ANSSUB-{tenant}-{report_type}-{competencia}`, `RECURSO-{tenant}-{numero_guia_tiss}-{glosa_id}`), não `{company_tenant_ref}:{workflow_type}:{workflow_business_ref}`; e as process-definition keys são `SP-OP-<DOMAIN>-<NNN>` (15 chaves congeladas em `src/maezo/tools/process_allowlist.py`), não `maezo-payer-*`. Além disso, várias dessas business keys **embutem identificadores de registro de fonte** (`numero_guia_tiss`, `numero_contrato`, `prestador_id`), o que tensiona a proibição 5 ("nenhum ID cru de fonte em keys") de forma independente do MZO-020. Reconciliar isto muda chaves de engine JÁ IMPLANTADAS — exige janela de dual-read/redeploy ou emenda da ADR-0037. Nada foi alterado: registrado para decisão humana.
 
+## 0.7 — Sprint 09-08-26 "dark-build offense" (2026-08-09) — execução em duas ondas
+
+> Mandato: `docs/prompts/09-08-26_sprint.md` (analyze-AND-build: todo portão humano deixa de
+> bloquear um projeto e passa a bloquear um switch — build merged, testado, inerte até ratificação,
+> ativação = mudança de DADO). Cada PR passou a cadeia zero-trust completa (scouts → autor →
+> verificação do orquestrador → gatekeeper adversarial ≠ autor → repair por agente ≠ autor →
+> re-veredito do MESMO GK → prova live em CIB Seven → squash pinado ao SHA revisado → byte-check).
+
+**Fase 1 (auditoria de fundação):** conformance AMH 15/15 CLEAN (digests recomputados contra o
+commit pinado), matriz de interferência CLEAN, calc-audit achou **4 BLOCKER + 9 MAJOR** — todos
+corrigidos e mergeados na onda 1. O achado central: **B-3 idempotência de start** — o claim durável
+tratado como "start aconteceu" reintroduzia a classe de falso-sucesso do DL-0038 (pedido PAGTO
+nunca iniciado reportando `process_started: True` para sempre); reproduzido AO VIVO pelo GK antes
+do merge e redesenhado (`StartOutcome` resolvido contra evidência do engine, recusa tipada).
+
+**Onda 1 — 11 PRs em main (união verificada: 5718 unit passed):** `f8f5da6` #203 ADR-0038
+(DL-0044) → `d0328cd` #204 shadow RN259 → `0a66ee1` #205 reembolso M-2 → `7e48cd4` #206 codec seam
+MZO-050b → `bda30de` #208 criterios M-3 → `e4912bc` #207 sweep+backfill → `2bcb628` #209 pagto B-1
+→ `dc319ae` #210 PHI flag+B-2 → `410d671` #212 idempotência B-3 → `3a0ccea` #211 gateway MZO-040
+em sombra (DL-0045) → `c78833f` #213 inbox MZO-060.
+
+**Onda 2 — 5 builds gatekept + live-proven; estado no fechamento da sessão (22:35Z):**
+- **Mergeados pelo orquestrador:** #214 minors (`662a75c`, revisado `ab32ac1…`, byte-check 0-diff)
+  · #215 fail-safe de `tipo_carater` em adequacao (`fe282dd`, revisado `3267737…`).
+- **Mergeados PELO DONO:** #202 dependabot (`1b97054`, classe user-gated) · **#216 esqueleto de
+  erasure LGPD (`f7b1bf4`, 22:26Z; revisado `6b347ce…`)** — byte-check post-hoc da sessão: os 5
+  arquivos substantivos idênticos ao SHA revisado; bloco CODEOWNERS + 5 rows de review-queue
+  presentes na main.
+- **Trem fechado pelo orquestrador #2 (2026-08-09/10):** #217 shadows DMN M-4/5/6/7 (squash
+  `b9054df`, revisado `50f2690…`) → #218 pin TISS-XSD 6-gates (squash `79bb620`, revisado
+  `15ffb61…`). Ambos: rebase na worktree viva (conflito SÓ em CODEOWNERS/review-queue — união
+  keep-all com verificação de integridade linha-a-linha contra os DOIS lados), byte-check
+  patch-vs-patch IDÊNTICO fora dos dois arquivos de append, merge acelerado sancionado
+  (lane de engine PASS no SHA revisado + fast checks re-disparados verdes no head rebasado —
+  justificativa registrada no corpo de cada squash), byte-check pós-merge 0-diff.
+
+**Repo irmão (AMH):** PR **#149** aberto — addendum `wire_framing` CANDIDATE no contract manifest
+deles (proposta; mergear é ato do steward, nunca nosso). Bloqueado por 2 falhas PRÉ-existentes do
+workstream steward-ui deles, diagnosticadas com evidência em comentário no PR.
+
+**Rastreio pendente (PR de close-out):** rows de evidence-ledger das PRs da onda 2 (#214–#218 não
+carregaram rows — backfill), citações fantasma `notifications_bridge/consumer.py` ×5,
+`transport:560`→`transport.py:1052` ×2 no packet MZO-040, cross-ref trimestral `YYYY-Qn`, nuance
+ACHADO-5, teste negativo gate-6 XSD. Registro de decisões desta sprint: DL-0044 (ADR-0038) e
+DL-0045 (qualificação MZO-040) em `docs/decisions-log.md`.
+
 ---
 
 ## 1. Objetivo
