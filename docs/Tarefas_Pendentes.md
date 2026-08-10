@@ -26,6 +26,30 @@
 > abaixo com 🔧) — o código ainda não existe porque falta uma decisão/ratificação, não credenciais.
 >
 > Convenção de severidade: 🔴 bloqueia go-live · 🟡 necessário antes de PHI real · 🟢 melhoria/operacional.
+>
+> **Atualização 2026-08-10 (reconciliação de ground-truth; base `main`@`091abd8`, ~50 PRs desde a
+> última atualização deste doc em 2026-07-26 @ `9871555`).** Quatro frentes fecharam desde então:
+> (1) um **programa de quatro tracks** (#197 NACK do ANS-SUBMIT, #198 portão de critérios de
+> auto-aprovação AUTH, #199 preservação de fato em CRED, #200 preservação de fato em ADEQUACAO); (2)
+> o **arco item-9 de flips de strict-xfail em engine real** (#177–#196, incl. as waves 3-7
+> assembly-PR #185 e o fechamento Class-A de AUTH #196); (3) o **programa de compatibilidade AMH**
+> (`ADR-0037` Accepted — DL-0040 — supersede PARCIAL do ADR-0013 e AMENDS o ADR-0034; work packages
+> MZO-000/010/020/030/040/050a/050b/060; os três gates cross-repo **XRG-1/2/3 estão TODOS
+> FECHADOS**; detalhe: PLANS.md §0.6); e (4) o **sprint 09-08-26 "dark-build offense"** — **19 PRs,
+> #203–#221, todos mergeados** — que converteu praticamente todo portão humano *acelerável* (aquele
+> que só precisa que alguém ratifique um DADO, não escreva código) num switch fail-closed: build
+> mergeado, testado, **INERTE até ratificação**, ativação = mudança de dado, nunca de Python.
+> Detalhe completo: PLANS.md §0.5.3 (portão de critérios de auto-aprovação + cauda item-9), §0.5.4
+> (achados que exigem decisão humana), §0.6 (programa AMH-compat) e §0.7 (sprint dark-build).
+>
+> **Censo de strict-xfail hoje: exatamente 24**, nenhum defeito de engenharia — todos VALUE-GATED ou
+> teto humano nomeado no próprio `reason=` do teste: 14 TISS-XSD/SME
+> (`_NOTIFY_REGULATORIO_GAP_REASON`, `tests/integration/processes/test_sp_op_ans_submit_001.py`), 3
+> DPO/LGPD-DSR (`test_sp_op_lgpd_dsr_001.py:488,517,546`), 2 NACK do ANS-SUBMIT
+> (`test_sp_op_ans_submit_001.py:1426,1464`, `_SUBMIT_NACK_UNREACHABLE_REASON` — **em fechamento
+> (build ao vivo nesta sessão; PR #226 aberto, cadeia completa autor R1 → GK R1 REVISE → repair → delta PASS com re-prova live)**), 2 T-E de guard-shape em CRED
+> (`test_sp_op_cred_001.py:1005,1037`), 2 tetos D-07 financeiro (`test_sp_op_auth_001.py:697`,
+> `test_sp_op_reembolso_001.py:627`), 1 RN 259 (`test_sp_op_adequacao_001.py:714`).
 
 ---
 
@@ -154,65 +178,105 @@ implicava (o consumer nunca foi escrito).
 |---|---|---|
 | **Endpoint PHI BR-resident** | Mecanismo **não é mais** `BR_INFERENCE_ENDPOINT`/`config/inference_routing.yaml` (esse arquivo/env não existem no v2). Hoje: `MAEZO_INFERENCE_PROVIDER` seleciona o provider (`runtime/inference.py:118`, default `"noop"`); chamadas com `phi_capable=True` só funcionam com `PhiZoneMockProvider` (`:295`/`:311`) ou levantam `PhiZoneRoutingError` (`:88`) — **continua fail-closed em substância**, só a citação de env/arquivo estava obsoleta. Falta o **contrato DPA** (§3.1) para existir um provider real. | #2 |
 | **CIB Seven/HAPI in-cluster** | Sem mudanças, confirmado ainda preciso: `--set cibSeven.inCluster.enabled=true` + `fhir.inCluster.enabled=true` (`values.yaml:434`/`:467`, default `false` → usa URL externa; manifests StatefulSet reais e não-triviais, ADR-0021). | #14 |
-| **Anexos episódicos S3 / Tasy Oracle / Avro** | **Reframe crítico.** O Helm aponta o deployment fhir-sync para `python -m maezo.platform.integrations.fhir_sync` (`deployment-fhir-sync.yaml`) — **esse módulo não existe**; `src/maezo/platform/integrations/` só tem `notifications_bridge.py` + `events_kafka_producer.py`. O footgun operacional (default `fhirSync.enabled: true`, que crash-loopava qualquer deploy real em `ModuleNotFoundError`) foi **corrigido em `main` (PR #166, `0ecacbb`)** — default agora `false` em `values.yaml` + 3 overlays, opt-in intacto. Construir o consumer real (S3/`boto3`, driver Oracle, Avro/Schema Registry) continua sendo trabalho de escopo grande, gated em contrato Tasy — **não é mais "só setar env vars"**. | #20/#25/#33 |
-| **Token-metering / custo USD do LLM** | `_COST_PER_1K_TOKENS_USD` **não existe em lugar nenhum** do código, e a premissa de que "os tokens já são emitidos reais" é falsa: `AnthropicInferenceProvider.generate()` (`runtime/inference.py:242-278`) nunca lê `response.usage`. Antes de preencher qualquer tabela de preço é preciso **construir o próprio metering de tokens** — escopo maior que o item original sugeria. | #29 |
+| **Anexos episódicos S3 / Tasy Oracle / Avro** | **Reframe crítico.** O Helm aponta o deployment fhir-sync para `python -m maezo.platform.integrations.fhir_sync` (`deployment-fhir-sync.yaml`) — **esse módulo não existe**; `src/maezo/platform/integrations/` só tem `notifications_bridge.py`, `events_kafka_producer.py` e `amh_inbox.py` (adicionado pelo PR #213, MZO-060) — nenhum deles é o consumer fhir-sync. O footgun operacional (default `fhirSync.enabled: true`, que crash-loopava qualquer deploy real em `ModuleNotFoundError`) foi **corrigido em `main` (PR #166, `0ecacbb`)** — default agora `false` em `values.yaml` + 3 overlays, opt-in intacto. Construir o consumer real (S3/`boto3`, driver Oracle, Avro/Schema Registry) continua sendo trabalho de escopo grande, gated em contrato Tasy — **não é mais "só setar env vars"**. | #20/#25/#33 |
+| **Token-metering / custo USD do LLM** | **Metade de captura ✅ RESOLVIDA (T8, PR #171) — reframe do texto anterior, que já estava obsoleto quando escrito.** `_emit_llm_token_usage()` (`runtime/inference.py:226-309`, chamada de `AnthropicInferenceProvider.generate()` em `:370-424`) lê `response.usage.input_tokens`/`.output_tokens` de toda resposta Anthropic real e emite (a) o evento structlog `llm_token_usage` (`provider`, `model`, `input_tokens`, `output_tokens`, `total_tokens`, `agent_id`, `tenant_id` — PHI-safe por construção, nunca lê `response.content`) e (b) o contador Prometheus `maezo_llm_tokens_total` via `record_llm_token_usage()` (`platform/observability.py:322`); providers mock/noop deliberadamente não emitem nada. `_COST_PER_1K_TOKENS_USD` **continua não existindo em lugar nenhum** — a metade que falta é só a **humana**: finanças define preço/tiers antes de existir qualquer tabela USD (nenhum código adicional necessário para a captura). Um branch de hardening (fence de campo obrigatório + prova de não-metering para mocks) está aberto como **PR #222** ("Cerca de PHI no metering de tokens LLM: conjunto de campos do evento `llm_token_usage` pinado + prova de zero-emissão dos providers mock"), ainda não mergeado. | #29 |
 | **L2 ReviewQueue + sample_rate** | ✅ **RESOLVIDO por decisão arquitetural — removido do pending.** `ADR-0034` (Accepted, em `main` via PR #166) ratifica o descope: o `PEP.evaluate` do v2 tem **zero chamadores em runtime** (só usado como probe de `/readyz`; `gateway/pep.py:412`, confirmado por grep exaustivo) — não existe chokepoint por-tool-call para uma amostra L2 disparar. A garantia HITL é estrutural (BPMN no-denial 5 partes + DMN + tetos fail-closed + cadeia de auditoria, ADR-0018), não um PEP async com sampling como no donor v1. Pré-condição de revisita registrada na própria ADR (só reabre se um chokepoint PEP por-tool-call for introduzido). | #24 → ADR-0034 |
 | **CronJob `verify-erasure`** | **Reframe crítico — a premissa "só alimentar o segredo" está errada.** Ver §3.2: o próprio entrypoint do CronJob recusa incondicionalmente (exit 78) e `ErasureManager` levanta `ErasureNotImplementedError` por design (T3.4-F3) — nada aqui liga com o conteúdo do segredo `ERASED_PATIENT_IDS`. Bloqueado em ratificação DPO da matriz de retenção, não em dado operacional. | #5 |
 | **`PopulationFeatureClient` (André)** | Sem mudanças: `andre/graph.py:555` `population: PopulationFeatureClient \| None = None`, docstring confirma "PORT-PENDING (WB.4, mcp-datalake) — population=None is a supported configuration". | — |
 | **Ingress + TLS** | Sem mudanças: `ingress.enabled=true` + `certificateArn` (`values.yaml:204`). | — |
 
-**🔧 Novos itens agent-buildable-mas-decision-gated (não construídos, mas o código-alvo é pequeno assim que a decisão vier):**
-- **Webhook-receiver sem `DATABASE_URL` (resíduo real pós-#167).** O deployment
-  `deployment-webhook-receiver.yaml` já recebe `RUNTIME_MODE` e `PHI_HMAC_KEY` (fiados pelo #167),
-  mas **ainda não recebe `DATABASE_URL`** — declara só
-  `TENANT_ID`/`WHATSAPP_*`/`KAFKA_BOOTSTRAP_SERVERS`/`RUNTIME_MODE`/`PHI_HMAC_KEY`. O dispatcher da
-  Helena (`platform/webhooks/service.py:_build_dispatcher`) **exige** `DATABASE_URL` — tanto para o
-  sink de auditoria durável ADR-0007 (fence T-C2 antes de qualquer start de escalonamento) quanto
-  para o checkpointer durável t4b; sem ele o build **levanta** (fail-closed), `_bring_up_dependencies`
-  captura, `state.dispatcher` fica `None` e `/webhook` degrada para **501** — ou seja, com o template
-  Helm atual o canal WhatsApp da Helena **não serve em produção**, e o checkpointer segue **dormente**.
-  Fix já **enfileirado** (religar o deployment com `DATABASE_URL`, espelhando
-  `deployment-agent-runtime.yaml`): PR mecânico pequeno, fora do escopo do #167.
-- **DL-0033 (dossiês A2A Carolina/André) — ✅ RESOLVIDO pelo wiring real (DL-0037); resta só o
-  merge da última borda.** Os 3 workers de dossiê sem função implementadora
+**✅ Itens que eram "agent-buildable-mas-decision-gated" e RESOLVERAM desde 2026-07-26:**
+- **Webhook-receiver sem `DATABASE_URL` — ✅ RESOLVIDO.** O deployment
+  `deployment-webhook-receiver.yaml:66-70` agora injeta `DATABASE_URL` a partir do MESMO
+  ExternalSecret Aurora que `deployment-agent-runtime.yaml`/`deployment-worker-daemon.yaml` leem
+  (`.Values.aurora.secretName` / chave `database-url`, mirror-exact, comentário inline documenta o
+  fail-closed: ausente ⇒ `_build_dispatcher` levanta ⇒ dispatcher `None` ⇒ `/webhook` 501). O
+  dispatcher da Helena (`platform/webhooks/service.py:_build_dispatcher`, `:88-102`) continua
+  **exigindo** `DATABASE_URL` (`ValueError` explícito se ausente) — mas agora o template Helm
+  entrega o valor. O canal WhatsApp da Helena e o checkpointer durável t4b deixam de estar
+  dormentes assim que o chart for aplicado. Nenhuma ação humana restante aqui além de aplicar o
+  chart (§6.2).
+- **DL-0033 (dossiês A2A Carolina/André) — ✅ RESOLVIDO por completo; as TRÊS bordas estão
+  religadas.** Os 3 workers de dossiê sem função implementadora
   (`operadora.cred.prepare_dossier`, `operadora.pagto.prepare_approval_dossier`,
-  `operadora.adequacao.prepare_remediation_dossier`) ganharam stubs locais neutros (espelhando
-  `programa.enroll_beneficiario`, sem `DelegationDispatcher`) — **construídos, em `main` (PR #166;
-  DL-0033 ACEITO)**. O texto anterior desta linha dizia que a integração A2A real até
-  Carolina/André seguia "deliberadamente deferida": **não segue mais.** As bordas `cred` e
-  `adequacao` foram religadas à delegação A2A REAL (envelope assinado via `DelegationDispatcher`)
-  em **PR #178**, e a borda `pagto` — a última das três, delegação para André pelo `task_type`
-  compartilhado `analytics.population` desambiguado por `envelope.origin` → fluxo `pagto_dossier`
-  — na cadeia item-9 wave-3 (`d5e7571`), **ainda não em `main`**. Nenhum dos três é mais um stub
-  local: os stubs permanecem apenas como o degradado-padrão quando não há dispatcher. Semântica
-  em degradação (DL-0037, agora emendada para cobrir os três): fail-neutral-com-gap-disclosed —
-  `{"dossier_prepared": false, "dossier_gap": <token>}`, log LOUD, external task COMPLETADA e a
-  User Task humana SEMPRE abre, com ou sem dossiê. Pendência remanescente: só o merge da borda
-  `pagto` em `main` (não confundir com o marco histórico M5 já concluído; o brief do orquestrador
-  reusa o rótulo).
-- **`ERR_ESC_NOTIFY_FAILED` (Tier-1, boundary de fallback de escalation).** Os workers
-  `notify_team`/`notify_supervisor` (`tools/workers/escalation.py`) foram convertidos para handlers
-  Kafka assíncronos reais — **em `main` (DL-0034 ACEITO, PR #166)** — a notificação agora
-  **acontece de fato** (provado live). O que falta é o `raise` do `ERR_ESC_NOTIFY_FAILED` que
-  dispara os boundaries de fallback `BE_FalhaNotificacao`/`BE_NotifFallbackFailed` quando o publish
-  falha; os dois xfails correspondentes
-  (`tests/integration/processes/test_sp_op_escalation_001.py:465` e `:487`) seguem `strict=True`.
-  Está classificado como ADR-0030 Tier-1, co-agendado com o gap sistêmico de producer Kafka
-  por-worker (não o `events.publish` genérico, já corrigido em T4).
-- **DMN DUT×4 + `carencia_check`** — ver §1.6 e §2.1 (gated em sign-off médico-auditor, não em código).
+  `operadora.adequacao.prepare_remediation_dossier`) foram religados à delegação A2A REAL (envelope
+  assinado via `DelegationDispatcher`). As bordas `cred` e `adequacao` fecharam no PR #178; a
+  última — `pagto`, delegação para André pelo `task_type` compartilhado `analytics.population`,
+  desambiguado por `envelope.origin` — fechou na wave item-9 (`make_prepare_approval_dossier_handler`,
+  `tools/workers/pagto.py:792`; documentado como terceira origem em
+  `runtime/agent_runtime/a2a_composition.py:82-93`; `agents/andre/delegation.py:104` fixa
+  `_DEFAULT_FLOW: Flow = "pagto_dossier"`, `:484-492 _flow_for` roteia QUALQUER origem que não seja
+  `adequacao-worker` para esse default). Nenhum dos três é mais um stub local: os stubs permanecem
+  apenas como o degradado-padrão quando não há dispatcher (fail-neutral-com-gap-disclosed, DL-0037
+  — `{"dossier_prepared": false, "dossier_gap": <token>}`, log LOUD, User Task humana SEMPRE abre,
+  com ou sem dossiê). Sem pendência remanescente de código.
+- **`ERR_ESC_NOTIFY_FAILED` (Tier-1, boundary de fallback de escalation) — ✅ RESOLVIDO.** Os
+  workers `notify_team`/`notify_supervisor` (`tools/workers/escalation.py`) já eram handlers Kafka
+  assíncronos reais (PR #166); o `raise WorkerBpmnError(ERR_ESC_NOTIFY_FAILED)` que dispara os
+  boundaries de fallback `BE_FalhaNotificacao`/`BE_NotifFallbackFailed` numa falha de publish agora
+  está construído (`escalation.py:206-209` e `:295-298`). Os dois strict-xfails correspondentes
+  foram **removidos** (a suíte documenta a remoção inline, `test_sp_op_escalation_001.py:102`) e os
+  dois testes agora afirmam o caminho de fallback AO VIVO. Limpeza correlata: PR #220 removeu
+  marcadores de conflito git pré-existentes que tinham sobrevivido na docstring de
+  `test_falha_notificacao_usa_fallback` (achado factual — a descrição concorrente em `HEAD` estava
+  incorreta sobre o uso de `FakeKafkaPublisher` naquele arquivo).
+- **DMN DUT×4 + `carencia_check`** — ver §1.6 e §2.1 (gated em sign-off médico-auditor, não em
+  código).
 
-### 1.5 🔴 Revisão de código pré-lançamento (lista `review-before-launch` — DESATUALIZADA, precisa de extensão)
-A lista de 2026-06-14 (§5 do [relatório](reports/autonomous-completion-report.md)) só cobre #67–#86
-(12 PRs). Pelo critério do próprio documento ("toca invariantes verificados § Seção 3, ou caminhos
-CODEOWNERS"), **múltiplos PRs de #89–#166 também tocam invariantes e ainda não foram enumerados**
-nessa lista formal — a lista está **incompleta**, não errada no que já lista. Exemplos que a equipe
-deveria adicionar ao escopo de revisão pré-go-live (não exaustivo — enumerar a lista completa é
-trabalho agent-buildable, a revisão em si é humana):
-- **#156** (A2A W1–W4 completo: assinatura de card, dispatcher, enforcement fail-closed T-G/T-F).
-- **#157** (bridge EB-3/EB-4: CONTAS→RECURSO→FRAUDE ao vivo).
-- **#159** (T3.4 remediação: honestidade de erasure, A2A fail-closed, schema de checkpoint, PHI redaction backstop).
-- **#165** (T4: persistência de checkpoint em prod, bridge armado + CONTAS→FRAUDE Phase-3, kafka producer, pytest 9).
-- **#166** (T5: fix crítico de DSN de checkpoint, correções de workers ANS/nip/cred, DL-0033/0034, descope L2 — mergeado, `0ecacbb`).
+**🔧 Novos switches "dark-build" do sprint 09-08-26 (PLANS.md §0.7) — código mergeado, testado,
+INERTE; ativação = ato humano de DADO, nunca de Python:**
+- **MZO-040 `ActionExecutionGateway` (programa AMH-compat) — aprovações Médica + ANS + Security.**
+  `src/maezo/gateway/action_execution.py` (loader fail-closed + `evaluate` total) está ligado em
+  **SOMBRA** no chokepoint por-chamada `WorkerHarness._handle` (PR #211); o registro de aprovações
+  é DADO em `spec/policies/autonomy/action-approvals.yaml` (10 classes × 3 domínios = 30 blocos,
+  **todos `aprovado: false`/`PENDENTE`**); pacote de evidência em
+  `docs/reviews/mzo-040-approval-packet.md`. Nada foi aprovado e nada é bloqueado (a inércia é
+  provada por teste: caminho executado com e sem o gateway, observáveis idênticos). Ratificar é
+  preencher os blocos + `status: RATIFICADO` + `modo: enforcing`, sem mudança de código — ato dos
+  aprovadores **Médica** (§2), **ANS/regulatório** (§3.4/§5) e **Security** (§1, resíduos na §6 do
+  pacote). Detalhe: PLANS.md §0.6.
+- **MZO-060 inbox durável AMH — DBA revisa, não autora.** Migração `0007_amh_inbox` (idempotência
+  por `(tenant, idempotency_key/event_id)`, lifecycle RECEIVED→PROCESSED→SETTLED, provada
+  up→down→up em PostgreSQL 16 real, zero PHI) + repositório fail-closed que recusa operar sem
+  artefato ratificado (`spec/policies/amh/inbox-ratification.yaml`) e re-deriva o digest da
+  migração do disco a cada construção (PR #213). Pacote DBA:
+  `docs/reviews/mzo-060-dba-review-packet.md` — DDL verbatim, plano de índices, análise de
+  locks/contention, rollback executável, decisões abertas D-1..D-6. Ratificar: DBA computa o
+  `sha256` da migração no tree mergeado, preenche `migration_sha256` + `dba_review: APPROVED` +
+  `ratificado: true` e decide D-1..D-6 — sem mudança de código.
+- **TISS-XSD — pin de schema ratificável (SME troca pelo XSD real).** Seam separado e inerte
+  (`src/maezo/tools/workers/tiss_schema_pin.py` + `spec/policies/ans/tiss-schema-pin.yaml` +
+  `spec/policies/ans/synthetic-tiss-v1.xsd`, PR #218) construído e provado inteiramente contra um
+  XSD **SINTÉTICO** rotulado como tal — o validador `lxml` já-shipado T2.6-2
+  (`tools/workers/tiss_schema.py`) continua sendo o que `ans_submit.py` chama hoje, sem mudança.
+  Ratificar: SME substitui o XSD sintético pelo Padrão-TISS ANS real publicado + confirma a versão
+  exata no manifesto — sem mudança de código no validador.
+- **DMN shadow candidates M-4..M-7 + RN 259 — digest binding (#221).** RN 259
+  (`adequacao_gap.dmn`, PR #204, MERGEADO) e as 4 tabelas irmãs da mesma classe de inversão de
+  regra — `glosa_triage` (M-4), `carencia_check` (M-5), `upcoding_complexity_ceiling` (M-6),
+  `triage_redflag_gestante`/`triage_redflag_pediatric` (M-7, 2 tabelas) — têm cada uma um MANIFESTO
+  candidato `.yaml` ao lado da tabela viva (DADO, nunca artefato deployável; PR #217). Desde o
+  PR #221, cada manifesto carrega `tabela_viva: {path, sha256}` — uma ratificação **nunca sobrevive
+  em silêncio** a uma edição da tabela que revisou: se o `sha256` gravado deixar de bater com os
+  bytes da tabela viva no disco, o manifesto degrada para `ratificado: false` mesmo que o campo
+  literal ainda diga `true`. Nenhum dos 6 manifestos está ratificado hoje. Detalhe: §2.1 e
+  `docs/review-queue.md` (linha da RN 259 + seção W4).
+- **D-07 — tetos de auto-aprovação AUTH/REEMBOLSO (financeiro).** Ver §4.
+
+### 1.5 🔴 Revisão de código pré-lançamento (lista `review-before-launch` — agora ENUMERADA por completo)
+**Correção de framing: a versão anterior deste item dizia "exemplos, não exaustivo" — isso não é
+mais verdade.** A enumeração completa foi feita (critério do relatório de 2026-06-14, "toca
+invariantes verificados § Seção 3, ou caminhos CODEOWNERS") e vive em
+[`docs/reports/review-before-launch-extension.md`](reports/review-before-launch-extension.md):
+**63 dos 122 PRs mergeados no intervalo #89–#221** tocam invariante/CODEOWNERS e entram no escopo
+formal de revisão pré-go-live; **11 números de PR do intervalo nunca foram mergeados** (fechados
+sem merge: #145, #150, #152, #154, #161, #163, #164, #175, #182, #183, #184); os 59 PRs restantes
+são docs-only/test-only/dependências. Método: `gh pr list`/`gh pr view --json files` por PR,
+classificado contra as superfícies CODEOWNERS (`src/maezo/policies/`, `spec/policies/`,
+`spec/processes/dmn/`, `docs/adr/`, allowlists de processo, `config/artifact_signoff.yaml`) mais as
+categorias review-relevant de gateway/platform/workers/BPMN — detalhe completo do critério no
+arquivo linkado. 5 linhas sorteadas da tabela foram re-verificadas nesta reconciliação via
+`gh pr view N --json files` (#93, #132, #148, #171, #209): título e arquivos batem 5/5.
 
 Lista original (#65–#88), ainda válida: #67 (egress), #68 (TLS prod), #69 (allowlist), #72 (PHI/LGPD
 + cadeia de auditoria), #73 (credencial), #76 (assinatura de card), #77 (BR-region), #78
@@ -264,6 +328,19 @@ produto, então nada foi de fato enviado para revisão ainda. Um médico-auditor
 (critérios, *thresholds*, hit-policies) e promover de `intentional_draft` → assinado.
 Fila de revisão: `docs/review-queue.md`.
 
+**Novo (2026-08-10) — candidatos shadow para 6 tabelas DMN conhecidas-erradas, com binding de
+digest.** RN 259 (`adequacao_gap.dmn`, PR #204, MERGEADO — inversão de ordem `hitPolicy=FIRST`
+entre `r_eletivo_leve`/`r_conforme`) e as 4 tabelas irmãs `glosa_triage` (M-4), `carencia_check`
+(M-5), `upcoding_complexity_ceiling` (M-6), `triage_redflag_gestante`/`triage_redflag_pediatric`
+(M-7, 2 tabelas) têm cada uma um manifesto candidato `.yaml` DADO (nunca artefato deployável, o
+glob de deploy/validação só pega `*.dmn`/`*.bpmn`) ao lado da tabela viva (PR #217). Desde o
+PR #221 cada manifesto carrega `tabela_viva: {path, sha256}`, re-derivado do disco a cada carga: se
+a tabela viva for editada depois de uma ratificação, o `sha256` deixa de bater e o manifesto
+degrada para `ratificado: false` mesmo com o campo literal ainda `true` — uma ratificação nunca
+sobrevive em silêncio à edição da tabela que revisou. Nenhum dos 6 manifestos está ratificado hoje;
+detalhe por tabela (achados, base regulatória citada, revisor esperado) em `docs/review-queue.md`
+(linha da RN 259 + seção "W4 — shadow candidates").
+
 ### 2.2 🔴 Validar as personas dos agentes
 Sem mudanças de substância. Confirmar o mapa de personas (esp. **Beatriz↔Valentina** — fraude↔cuidado,
 ainda marcado DRAFT em `docs/reports/phase3-plan.md §4` — nota: o path mudou de
@@ -303,8 +380,29 @@ atualizada.** Não é "definir o processo que alimenta `ERASED_PATIENT_IDS` para
 SQL por camada depende da **ratificação DPO da matriz de bases-legais/retenção**
 (`erasure.py` docstring); (b) o mapeamento `titular_pseudo_id → fhir_patient_id` segue não resolvido
 (`lgpd.py:380-382`). Construir a cascata de DELETE antes dessa ratificação reintroduziria exatamente
-o defeito de "falso sucesso" que T3.4-F3 fechou — **nada aqui é agent-buildable hoje**. Ação humana
-necessária: DPO ratifica a matriz de retenção/bases-legais (ver `docs/review-queue.md` T2.9).
+o defeito de "falso sucesso" que T3.4-F3 fechou.
+
+**Atualização 2026-08-10 (PR #216, ADR-0029 dark build) — "nada aqui é agent-buildable" fica
+PARCIALMENTE SUPERADO; reframe honesto, não celebração.** O **esqueleto por camada** agora existe,
+testado, e recusa executar até o DPO ratificar valores: as **15 relações** da cadeia de persistência
+(migrações 0001-0007) foram enumeradas, cada uma com identificação do titular, resolução
+(erase/anonymize/retain) e ordem — **toda `decisao_dpo`/`base_legal`/`retencao` é placeholder
+`PENDENTE` detectável por máquina**, e o loader do plano recusa operar sem `status: RATIFICADO` +
+`ratificado: true` + `revisor` + `data` + `dpo_review: APPROVED`. O dry-run é **INERTE por
+construção** (só `SELECT count(*)`, provado por guarda AST de verbo+forma que sobrevive a
+`python -O`) e a referência do titular alcança um bind, nunca repr/report/SQL/erro/log. Pacote de
+revisão por camada: `docs/reviews/adr-0029-erasure-packet.md`. **O build também revelou dois achados
+que são MAIORES que o build e continuam sem solução de engenharia possível hoje:** (1)
+**erasure por-titular é estruturalmente inalcançável pelo mecanismo atual da ADR-0029** — o
+preimage do `record_hash` inclui `decision_basis`, então anonimizar um titular ≡ deletar para a
+cadeia de auditoria, e a ADR-0029 só admite poda de PREFIXO genesis-anchored, nunca as linhas
+esparsas de um titular específico; (2) **só 2 colunas identificam um titular em toda a cadeia**
+(ambas `fhir_patient_id`), **zero FKs** existem em 0001-0007, e **nenhuma ponte de identidade
+real** existe — o dry-run reporta `NOT_COUNTED_IDENTITY_BRIDGE_ABSENT`, nunca `0`. **O gate
+continua sendo a ratificação DPO** (ver `docs/review-queue.md` T2.9) — mas o DPO agora ratifica
+contra um plano concreto por camada em vez de contra uma descrição de projeto, e a ratificação por
+si só NÃO resolve os dois achados estruturais acima (esses exigem decisão de arquitetura adicional,
+também humana).
 
 ### 3.3 🟡 Política de retenção de auditoria (5 anos) — incompleto, precisa de 2 ratificações
 A parte de design segue válida: `audit_chain` **não-particionada** com anti-fork DB-atômico
@@ -339,10 +437,11 @@ de lançamento é humana, ADR-0018/§6.2).
 | Contrato a fechar | Habilita | Gap |
 |---|---|---|
 | 🔴 **Endpoint LLM PHI BR-resident** + DPA | inferência da Zona PHI (`MAEZO_INFERENCE_PROVIDER`) | #2 |
-| 🔴 **Provedor LLM** (Zona Geral) + **construir token-metering antes de precificar** | `LLM_GENERAL_API_KEY` — custo USD por tier ainda não existe em código nenhum (ver §1.4) | #29 |
+| 🔴 **Provedor LLM** (Zona Geral) + **definir preço/tiers por token** | `LLM_GENERAL_API_KEY` — a **captura** de tokens já está construída (T8, PR #171: `_emit_llm_token_usage` lê `response.usage` real, ver §1.4); só falta a tabela USD de preço (`_COST_PER_1K_TOKENS_USD`, decisão de negócio, não código) | #29 |
 | 🔴 **Acesso Tasy/Oracle** (acordo de integração) — e o próprio consumer fhir-sync precisa ser construído (módulo não existe) | integração Tasy | #33 |
 | 🟡 **WABA (WhatsApp Business)** | canal WhatsApp (Helena) | — |
 | 🔴 **Billing AWS** (conta, limites, sa-east-1) | todo o `terraform apply` (EKS, Aurora, AMP/AMG) | #15/#32 |
+| 🔴 **D-07 — tetos de auto-aprovação AUTH/REEMBOLSO** | `authorization_approval.max_value_brl`/`reembolso_auto_approval.max_value_brl` em `spec/policies/autonomy/{L0-core,tenants-amh}.yaml` estão em `0` (fail-closed: nenhuma auto-aprovação automática ocorre até a diretoria definir o teto real); `CeilingResolver.within_l2_ceiling` é consultado no canal automático de AUTH (`auth.py`) e REEMBOLSO antes da emissão — 2 strict-xfails vivos (`test_sp_op_auth_001.py:697`, `test_sp_op_reembolso_001.py:627`) FLIPAM quando o teto for decidido; canal humano nunca é afetado pelo teto | diretoria AMH + finanças |
 
 ---
 
@@ -376,7 +475,12 @@ de lançamento é humana, ADR-0018/§6.2).
 
 ---
 
-_Última atualização: 2026-07-26 (reconciliação de ground-truth pós-T6; base `main`@`9871555`,
-PRs #165, #166 e #167 mergeados). Fonte primária de evidência: `docs/evidence-ledger.md`,
-`docs/decisions-log.md`, `docs/adr/`. Para o histórico #65–#88, ver
-`docs/reports/autonomous-completion-report.md` §6._
+_Última atualização: 2026-08-10 (reconciliação de ground-truth pós sprint-09-08-26; base
+`main`@`091abd8`, ~50 PRs mergeados desde a atualização anterior de 2026-07-26 @ `9871555`).
+Método: cada claim de código/status foi re-verificado nesta sessão contra o repo (leitura direta
+dos arquivos citados, `gh pr view --json files/mergeCommit` para título/SHA/squash de PR, contagem
+de strict-xfail via `grep -rn "strict=True" tests/`) — não copiado de sessões anteriores sem
+re-checagem. Fonte primária de evidência: `docs/evidence-ledger.md`, `docs/decisions-log.md`,
+`docs/adr/`, `PLANS.md` §0.5.3/§0.5.4/§0.6/§0.7. Para o histórico #65–#88, ver
+`docs/reports/autonomous-completion-report.md` §6; para a enumeração formal de revisão pré-launch
+#89–#221, ver `docs/reports/review-before-launch-extension.md`._
