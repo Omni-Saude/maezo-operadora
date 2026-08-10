@@ -63,13 +63,16 @@ FINDING below documents a genuine v2 behavioral gap):
     FINDING D below (the guard it exercises does not exist in v2 at all).
   - `ans_probe`'s harness wires `dmn=CibSevenDmnTransport(CIBSEVEN_BASE_URL)` into
     `register_ans_submit_workers` (the ONLY entry function that evaluates a DMN table directly,
-    `retransmit_entry` -> `ans_retry_policy`, ADR-0028 T1.5 cutover) — inert in practice today
-    (FINDING B: the retry subprocess this seam feeds is unreachable), kept for fidelity /
-    future-proofing once FINDING B is fixed.
-  - `bpmn_error_allowlist={"ERR_ANS_PROTOCOLO_NACK", "ERR_ANS_RETRY_ESGOTADO"}` mirrors the two
-    `bpmn:error` codes SUBMIT's BPMN declares a matching boundary catch for (`BE_SubmitNack` /
-    `BE_RetryEsgotado`) — SAME precedent as the auth/cancel probes' allowlists. Currently INERT
-    (FINDING B): no code path in `ans_submit.py` raises either as a `WorkerBpmnError` today.
+    `retransmit_entry` -> `ans_retry_policy`, ADR-0028 T1.5 cutover) — LIVE since t9-nack-vars
+    (FINDING B resolved: the retry subprocess this seam feeds is reachable and exercised by the two
+    NACK tests).
+  - `bpmn_error_allowlist=ANS_SUBMIT_BPMN_ERROR_ALLOWLIST` — the codes this family raises as
+    MODELED bpmn errors, each with a matching boundary catch in SUBMIT's BPMN (`BE_SubmitNack` /
+    `BE_AssembleDatasetIncompleto`); SAME precedent as the auth/cancel probes' allowlists. LIVE:
+    `transmit_to_ans` raises `ERR_ANS_PROTOCOLO_NACK` on a gateway refusal (and carries
+    `protocolo_ans`/`status_envio` through the harness's allowlisted `WorkerBpmnError.variables`
+    channel). `ERR_ANS_RETRY_ESGOTADO` is deliberately NOT in it — the MODEL throws that one
+    (`End_RetryEsgotado`), never a worker.
 
 FINDINGS (grep-confirmed on this v2 main; see PR body / evidence-ledger for full detail). Two are
 genuinely NEW (not previously documented in the auth/cancel/escalation port ledger) and are the
@@ -106,35 +109,31 @@ dominant reason most of this suite's tests are blocked:
   `UT_CoordenacaoEnvioAssume`, never through `ST_NotificarDeadlineRisk`) — these paths are left
   UNMARKED below (genuinely fine, verified by tracing the BPMN's own sequence flows).
 
-  FINDING B (NEW — the entire NACK/retry subprocess is unreachable): `transmit_to_ans`
-  (ans_submit.py) never raises anything representing `ERR_ANS_PROTOCOLO_NACK` — it has NO
-  `status_envio` parameter and NO branch producing a NACK outcome; once the human-approval guard
-  passes it UNCONDITIONALLY returns `status_envio="enviado"`. The donor's seeded
-  `status_envio="nack"` override (silently dropped by `pick_fields` — not a field of
-  `AnsSubmissionData`/`AnsSubmitDecision`) can therefore never influence v2's worker. Consequence:
-  `BE_SubmitNack` (boundary on `ST_SubmeterEnvio`, catches `Error_AnsProtocoloNack`) NEVER fires,
-  so `SUB_RetryEnvio` (the whole retry/backoff subprocess: `ST_RetransmitirEnvio`,
-  `BRT_RetryPolicy`/`ans_retry_policy` DMN, `ICE_Backoff`, `End_RetryOk`/`End_RetryEsgotado`,
-  `BE_RetryEsgotado`, `ST_PublishFailed`, `UT_TratarNack`) is dead code from a live-engine
-  perspective. Independently, EVEN IF that boundary somehow fired: `AnsRetryEsgotadoError`
-  (ans_submit.py, a bare `RuntimeError` subclass) is NOT a `harness.WorkerBpmnError` — the harness
-  classifies bare `RuntimeError` as TRANSIENT (`_handle`'s `_transient_types`) and engine-retries
-  it instead of reporting a modeled `bpmnError`, so `BE_RetryEsgotado` (catches
-  `Error_AnsRetryEsgotado`) could not fire either. Two independent breaks in the same subprocess.
+  FINDING B — RESOLVIDA (t9-nack-vars, provada no engine real; os 2 xfails que ela sustentava
+  foram REMOVIDOS). HISTORICO: `transmit_to_ans` nao tinha ramo de NACK, entao `BE_SubmitNack`
+  (boundary em `ST_SubmeterEnvio`) nunca disparava e todo o `SUB_RetryEnvio` era codigo morto da
+  perspectiva do engine; e a antiga `AnsRetryEsgotadoError` (`RuntimeError` = familia TRANSIENTE do
+  harness) impedia `ST_RetransmitirEnvio` de completar, tornando o terminal modelado de esgotamento
+  inalcancavel mesmo em hipotese. As duas quebras foram fechadas em ondas anteriores (mock de
+  gateway honrando `requested_outcome`, `WorkerBpmnError(ERR_ANS_PROTOCOLO_NACK)`, remocao da
+  `AnsRetryEsgotadoError`, incremento de `retry_attempt`) e as TRES restantes nesta (canal de
+  variaveis do `WorkerBpmnError`, `retransmit_to_ans` emitindo `status_envio='retransmitido'`, e a
+  notificacao `anssubmit.retransmit`) — ver o bloco FINDING B logo acima de `AnsEngineProbe`.
 
-  FINDING C (systemic, same class as auth/cancel/escalation's residual — Step-3 fact #1): none of
-  `ans_submit.py`'s dict-boundary entry functions (`assemble_entry`/`validate_entry`/
-  `submit_entry`/`track_protocol_entry`/`retransmit_entry`/`publish_completed_entry`) call
-  `kafka.publish` themselves (`kafka` is threaded through for signature parity only, `del kafka  #
-  unused` in every one). The donor's PER-WORKER notification pattern
-  (`ans_probe.notifications_of_type("anssubmit.submit")` etc.) can therefore never observe an
-  execution — DISTINCT from the domain-event assertions (`has_event`/`events_on`,
-  `agents.events.anssubmit.*`), which DO work: those flow through the GENERIC
-  `operadora.events.publish` handler (`maezo.tools.workers.events.make_publish_event_handler`),
-  which DOES call `kafka.publish` (Step-3 fact #1: the ONE call site,
-  `src/maezo/tools/workers/events.py:247`). Every xfail below whose test would ALSO hit this gap
-  (even after FINDING A is fixed) notes it explicitly; no test in this file fails SOLELY on this
-  finding (FINDING A always blocks first), so it does not get its own top-level xfail marker.
+  FINDING C (systemic, same class as auth/cancel/escalation's residual — Step-3 fact #1): the
+  dict-boundary entry functions of `ans_submit.py` do not call `kafka.publish` themselves (`kafka`
+  is threaded through for signature parity only, `del kafka  # unused`). The donor's PER-WORKER
+  notification pattern (`ans_probe.notifications_of_type("anssubmit.submit")` etc.) can therefore
+  never observe an execution on those topics — DISTINCT from the domain-event assertions
+  (`has_event`/`events_on`, `agents.events.anssubmit.*`), which DO work: those flow through the
+  GENERIC `operadora.events.publish` handler
+  (`maezo.tools.workers.events.make_publish_event_handler`), which DOES call `kafka.publish`.
+  SCOPE NARROWED TWICE: `notify_regulatorio` (t5) and now `retransmit` (t9-nack-vars) are RAW ASYNC
+  handlers that DO publish their typed notification, so `notifications_of_type
+  ("anssubmit.notify_regulatorio")` and `notifications_of_type("anssubmit.retransmit")` are both
+  live. FINDING C still holds for the remaining sync entries (assemble/validate/submit/
+  track_protocol/publish_completed) — `notifications_of_type("anssubmit.submit")` is still
+  structurally always [].
 
   FINDING D (NEW — a guard the donor tests for does not exist in v2 at all): the donor's
   `make_assemble_handler` raises `ERR_ANS_DATASET_INCOMPLETO` when `dataset_assembly_failed=True`
@@ -334,50 +333,28 @@ _NOTIFY_REGULATORIO_GAP_REASON = (
     "not the reason this particular xfail currently fires."
 )
 
-# FINDING B (new — NACK/retry subprocess entirely unreachable). See module docstring for the full
-# two-part evidence (no NACK branch in transmit_to_ans; AnsRetryEsgotadoError is a bare
-# RuntimeError, not a WorkerBpmnError, so BE_RetryEsgotado could not fire even hypothetically).
-_SUBMIT_NACK_UNREACHABLE_REASON = (
-    "PARCIALMENTE RESOLVIDO (2026-08-06) — a causa profunda FOI corrigida; restam DOIS "
-    "bloqueios nomeados abaixo, nenhum deles fabricavel. RESOLVIDO: o mock de gateway agora "
-    "honra `requested_outcome`, `transmit_to_ans` levanta "
-    "WorkerBpmnError(ERR_ANS_PROTOCOLO_NACK) numa recusa, a familia ganhou "
-    "ANS_SUBMIT_BPMN_ERROR_ALLOWLIST unida a PRODUCTION_BPMN_ERROR_ALLOWLIST, e "
-    "`retry_attempt` passou a INCREMENTAR. CORRECAO DE NARRATIVA (GK-ans finding 1, provada "
-    "base-vs-HEAD): NAO havia loop infinito — `retry_attempt` nunca era escrito no escopo do "
-    "processo, entao `BRT_RetryPolicy` avaliava variavel ausente e caia no catch-all `-` (casa "
-    "QUALQUER valor), esgotando de imediato. O defeito REAL era a `AnsRetryEsgotadoError` "
-    "(RuntimeError => familia TRANSIENTE do harness) levantada ja na PRIMEIRA retransmissao: a "
-    "external task nunca completava e o terminal modelado de esgotamento ficava inalcancavel. O "
-    "incremento segue necessario porque o contrato o atribui a este worker e `BRT_RetryPolicy` "
-    "precisa de um contador REAL em escopo. Tambem removida a `AnsRetryEsgotadoError`: "
-    "ERR_ANS_RETRY_ESGOTADO e lancado pelo MODELO (error end event `End_RetryEsgotado` dentro "
-    "do subprocess), nunca por um worker — a excecao antiga, sendo RuntimeError (familia "
-    "transiente do harness), fazia o engine RE-TENTAR ST_RetransmitirEnvio e o token nunca "
-    "chegava ao `GW_RetransmissaoOk`/`BRT_RetryPolicy`. "
-    "BLOQUEIO 1 (canal de variaveis): num NACK `transmit_to_ans` LEVANTA, entao "
-    "`protocolo_ans` nunca e escrito em escopo; `WorkerBpmnError` nao tem canal de variaveis "
-    "no call site do harness (`_handle` passa so error_code/error_message, embora "
-    "`WorkerTransport.handle_bpmn_error` aceite `variables`) — `ST_RetransmitirEnvio` cai "
-    "entao no guard fail-closed de `protocolo_ans` em branco e vira incidente. Passar "
-    "variaveis pelo WorkerBpmnError e mudanca transversal do harness com implicacoes de "
-    "redacao de PHI para TODO worker — decisao humana/orquestrador, nao deste pacote. "
-    "BLOQUEIO 2 (semantica externa): `GW_RetransmissaoOk` le "
-    "`${status_envio == 'retransmitido'}`, valor que NENHUM worker emite. Emitir sucesso de "
-    "retransmissao sem chamada real de gateway seria FABRICACAO — o contrato lista a "
-    "semantica precisa de ACK/NACK e a politica de retransmissao como dependencia externa em "
-    "aberto (AWS-blocked, issue #16). "
-    "BLOQUEIO 3 (FINDING C, eco kafka morto — a convencao deste modulo exige declara-lo): NENHUMA "
-    "entry function de ans_submit chama kafka.publish (`retransmit_entry` tem `del kafka`; so "
-    "`make_notify_regulatorio_handler` publica, com type `anssubmit.notify_regulatorio`), entao "
-    "`notifications_of_type('anssubmit.retransmit')` e estruturalmente sempre [] e os asserts de "
-    "`len(retransmits) >= 2`/`retry_attempt` nao podem passar. Bloqueio 2 vale so para "
-    "test_nack_entra_em_retry_e_retransmite_sucesso (o de esgotamento QUER o ramo default). "
-    "NOTA: o regime de schema-pinning NAO e mais um bloqueio — `ans_probe_tiss_pinned` ja "
-    "existe, escreve um XSD de fixture em tmp_path e NAO exige XSD real nem SME; trocar estes "
-    "2 testes para o probe pinado e trabalho de teste — mas NAO basta: exige tambem os "
-    "bloqueios 1, 2 E 3 resolvidos."
-)
+# FINDING B — RESOLVIDA (t9-nack-vars). O antigo `_SUBMIT_NACK_UNREACHABLE_REASON` (constante de
+# xfail dos 2 testes de NACK/retry) FOI REMOVIDO junto com os 2 markers, porque os TRES bloqueios
+# que ele nomeava foram fechados e provados no engine real — nao contornados:
+#   BLOQUEIO 1 (canal de variaveis) — `WorkerBpmnError` ganhou um canal `variables` ALLOWLISTADO
+#     (`harness.screen_bpmn_error_variables`: allowlist explicita de chaves + guard de valor
+#     limitado, recusa tudo-ou-nada, descarte ruidoso na democao) e `transmit_to_ans` passa
+#     `protocolo_ans`/`status_envio` nele. `ST_RetransmitirEnvio` deixa de cair no guard
+#     fail-closed de `protocolo_ans` em branco.
+#   BLOQUEIO 2 (`status_envio == 'retransmitido'` sem emissor) — `retransmit_to_ans` foi
+#     IMPLEMENTADO: `ST_RetransmitirEnvio` agora de fato retransmite pelo MESMO seam de gateway
+#     (`AnsGatewayTransport`) e ecoa `retransmitido`/`nack` + `nack_motivo`, que e exatamente o que
+#     a documentacao do proprio BPMN sempre exigiu da task ("Incrementa retry_attempt … e ecoa
+#     status_envio (retransmitido em sucesso, nack se ainda falha) + nack_motivo"). Nao ha
+#     fabricacao: o sucesso vem de uma chamada real ao seam, que em PRODUCAO e o transporte
+#     recusador (AWS-blocked, issue #16), e so o mock rotulado de dev/test devolve um resultado.
+#   BLOQUEIO 3 (FINDING C, eco kafka morto NESTE topico) — `regulatorio.anssubmit.retransmit` virou
+#     raw async handler (`make_retransmit_handler`, o nome que o proprio contrato ja usa em :157) e
+#     publica a notificacao tipada `anssubmit.retransmit`. FINDING C segue valendo para os OUTROS
+#     topicos de entry function sincrona deste modulo.
+# Os 2 testes tambem passaram a usar o probe PINADO (`ans_probe_tiss_pinned`) — o regime nao-pinado
+# nunca alcanca `UT_RevisarEnvio` (T2.6-2, ver `_NOTIFY_REGULATORIO_GAP_REASON`), e o pinado nao
+# exige XSD real nem SME (escreve um XSD de fixture em tmp_path).
 
 # FINDING D (new — guard genuinely missing in v2, not merely misrouted).
 
@@ -441,9 +418,9 @@ def _build_ans_probe(
     a pinned validator -> PINNED fixture regime (real lxml validation against the fixture XSD)."""
     worker_id = f"qa-anssubmit-worker-{uuid.uuid4().hex[:8]}"
     transport = CibSevenWorkerTransport(CIBSEVEN_BASE_URL)
-    # bpmn_error_allowlist mirrors the 2 bpmn:error codes SUBMIT's BPMN declares a boundary catch
-    # for (BE_SubmitNack / BE_RetryEsgotado) — currently INERT, see FINDING B in the module
-    # docstring (no code path raises either as a WorkerBpmnError today); kept for fidelity.
+    # bpmn_error_allowlist = the codes this family RAISES as modeled bpmn errors, each boundary-
+    # proven in SUBMIT's BPMN (BE_SubmitNack / BE_AssembleDatasetIncompleto). LIVE since
+    # t9-nack-vars: the 2 NACK tests drive ERR_ANS_PROTOCOLO_NACK end-to-end (FINDING B resolved).
     harness = WorkerHarness(
         transport,
         worker_id=worker_id,
@@ -1419,63 +1396,86 @@ async def test_catch_all_calendar_roteia_para_humano(
 
 
 # ===========================================================================
-# Retry / NACK — FINDING B (subprocess inteiro inalcancavel, ver docstring do modulo)
+# Retry / NACK — FINDING B RESOLVIDA (t9-nack-vars): o subprocess inteiro e alcancavel e estes 2
+# testes sao a prova viva dele. Regime PINADO — sem ele nao ha aprovacao humana, logo nao ha NACK.
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason=_SUBMIT_NACK_UNREACHABLE_REASON, strict=True)
 async def test_nack_entra_em_retry_e_retransmite_sucesso(
     engine: EngineRest,
-    ans_probe: AnsEngineProbe,
+    ans_probe_tiss_pinned: AnsEngineProbe,
     start_ans: Callable[..., Any],
+    tmp_path: Path,
 ) -> None:
     """submit -> ERR_ANS_PROTOCOLO_NACK (transitorio) => SUB_RetryEnvio; retransmissao OK =>
-    enviado_ack. Bloqueado tanto por T2.6-2 (UT_RevisarEnvio inalcancavel no regime NAO-PINADO —
-    ver _NOTIFY_REGULATORIO_GAP_REASON; nao mais FINDING A, que esta resolvida) quanto por
-    FINDING B (NACK nunca dispara)."""
-    inst = await start_ans(competencia="2026-NACK-OK", status_envio="nack")
+    enviado_ack.
+
+    Os 3 bloqueios que mantinham este teste em xfail estao fechados (ver FINDING B acima): o
+    `WorkerBpmnError` do NACK carrega `protocolo_ans`/`status_envio` pelo canal allowlistado, a
+    retransmissao passou a ser uma chamada REAL ao seam de gateway (emitindo o `retransmitido` que
+    `GW_RetransmissaoOk` le) e o worker de retransmissao publica a notificacao tipada.
+
+    Regime PINADO (`ans_probe_tiss_pinned` + XSD/XML de fixture em tmp_path): o regime nao-pinado
+    nunca chega a `UT_RevisarEnvio` (T2.6-2, `_NOTIFY_REGULATORIO_GAP_REASON`), e sem chegar la nao
+    ha aprovacao humana — logo nao ha submit, nao ha NACK e nao ha retry para exercitar.
+    `status_envio="nack"` e a diretiva dev/test do LEG DE SUBMIT (`submit_entry` a repassa como
+    `requested_outcome`); a perna de retransmissao le a sua propria (`retransmit_outcome`, ausente
+    aqui) — e por isso que a retransmissao SUCEDE enquanto o submit NACKa.
+    """
+    dataset_ref = _write_tiss_dataset(tmp_path, "dataset-nack-ok.xml", _TISS_VALID_XML)
+    inst = await start_ans(competencia="2026-NACK-OK", status_envio="nack", dataset_ref=dataset_ref)
     iid = inst["id"]
 
-    ut = await _drive_to_revisar(engine, ans_probe, iid)
+    ut = await _drive_to_revisar(engine, ans_probe_tiss_pinned, iid)
     await _aprovar_envio(engine, ut.id)
-    await ans_probe.drain()
+    await ans_probe_tiss_pinned.drain()
 
     ended_mid = await engine.activity_instances_ended(iid)
     assert _ST_RETRANSMITIR in ended_mid, (
         f"ST_RetransmitirEnvio devia ter executado apos o NACK transitorio. ended={ended_mid}"
     )
-    retransmits = ans_probe.notifications_of_type("anssubmit.retransmit")
+    retransmits = ans_probe_tiss_pinned.notifications_of_type("anssubmit.retransmit")
     assert retransmits, "worker de retransmissao deve ter sido executado no subprocess"
     assert retransmits[0]["status_envio"] == "retransmitido"
     assert retransmits[0]["revisor_id"] == "revisor-sintetico-001"
     assert "decisao_envio" in retransmits[0]
 
     await _correlate_ack(inst["businessKey"])
-    await ans_probe.drain()
+    await ans_probe_tiss_pinned.drain()
 
     ended = await _await_end(engine, iid)
     await _assert_no_filing_without_human_task(engine, iid)
     assert _SUB_RETRY in ended, f"SUB_RetryEnvio devia constar no historico. ended={ended}"
     assert _END_ENVIADO_ACK in ended, f"retransmissao OK + ACK => End_EnviadoAck. ended={ended}"
-    assert ans_probe.has_event(_ANS_SUBMITTED)
-    assert ans_probe.has_event(_ANS_COMPLETED, desfecho="enviado_ack")
+    assert ans_probe_tiss_pinned.has_event(_ANS_SUBMITTED)
+    assert ans_probe_tiss_pinned.has_event(_ANS_COMPLETED, desfecho="enviado_ack")
 
 
-@pytest.mark.xfail(reason=_SUBMIT_NACK_UNREACHABLE_REASON, strict=True)
 async def test_retry_esgotado_roteia_para_humano(
     engine: EngineRest,
-    ans_probe: AnsEngineProbe,
+    ans_probe_tiss_pinned: AnsEngineProbe,
     start_ans: Callable[..., Any],
+    tmp_path: Path,
 ) -> None:
     """Retransmissao sempre NACK => DMN ans_retry_policy esgota o retry => ERR_ANS_RETRY_ESGOTADO
-    => UT_TratarNack (humano) + anssubmit.failed. Bloqueado por T2.6-2 (nao mais FINDING A, que
-    esta resolvida — ver _NOTIFY_REGULATORIO_GAP_REASON) + FINDING B."""
-    inst = await start_ans(competencia="2026-NACK-ESG", status_envio="nack", retransmit_outcome="nack")
+    => UT_TratarNack (humano) + anssubmit.failed.
+
+    Mesmo regime PINADO do teste acima; aqui `retransmit_outcome="nack"` mantem a perna de
+    retransmissao recusando, ate o catch-all da `ans_retry_policy` devolver `continue_retry=false` e
+    o MODELO (nao um worker) lancar `ERR_ANS_RETRY_ESGOTADO` pelo `End_RetryEsgotado`.
+    """
+    dataset_ref = _write_tiss_dataset(tmp_path, "dataset-nack-esg.xml", _TISS_VALID_XML)
+    inst = await start_ans(
+        competencia="2026-NACK-ESG",
+        status_envio="nack",
+        retransmit_outcome="nack",
+        dataset_ref=dataset_ref,
+    )
     iid = inst["id"]
 
-    ut = await _drive_to_revisar(engine, ans_probe, iid)
+    ut = await _drive_to_revisar(engine, ans_probe_tiss_pinned, iid)
     await _aprovar_envio(engine, ut.id)
-    await ans_probe.drain()
+    await ans_probe_tiss_pinned.drain()
 
     backoffs = 0
     for _ in range(6):
@@ -1485,7 +1485,7 @@ async def test_retry_esgotado_roteia_para_humano(
         job = await engine.await_timer_job(iid, _ICE_BACKOFF, attempts=8, delay=0.25)
         await engine.execute_job(job.id)
         backoffs += 1
-        await ans_probe.drain()
+        await ans_probe_tiss_pinned.drain()
 
     ut_nack = await engine.await_user_task(iid, _UT_TRATAR_NACK)
     assert "regulatorio-ans" in ut_nack.candidate_groups
@@ -1495,14 +1495,16 @@ async def test_retry_esgotado_roteia_para_humano(
     assert _END_RETRY_ESGOTADO in ended, f"retry esgotado deve atingir End_RetryEsgotado. ended={ended}"
     assert 1 <= backoffs <= 3, f"loop de retry deve ser bounded (esperado ~3 backoffs); foi {backoffs}"
 
-    retransmits = ans_probe.notifications_of_type("anssubmit.retransmit")
+    retransmits = ans_probe_tiss_pinned.notifications_of_type("anssubmit.retransmit")
     attempts = sorted(int(r["retry_attempt"]) for r in retransmits)
     assert len(retransmits) >= 2, f"o loop deve retransmitir mais de uma vez; foi {len(retransmits)}"
     assert attempts == list(range(1, len(attempts) + 1)), (
         f"retry_attempt deve incrementar 1..N; foi {attempts}"
     )
 
-    assert ans_probe.has_event(_ANS_FAILED), "anssubmit.failed deve ser publicado no esgotamento do retry"
+    assert ans_probe_tiss_pinned.has_event(_ANS_FAILED), (
+        "anssubmit.failed deve ser publicado no esgotamento do retry"
+    )
     await _assert_no_filing_without_human_task(engine, iid)
 
 

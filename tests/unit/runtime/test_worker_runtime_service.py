@@ -52,10 +52,12 @@ def test_register_default_workers_registers_all_17_modules() -> None:
     dossier` (real `DelegationDispatcher` seam); and programa's four raw handlers (item-9 wave-5)
     `operadora.programa.stratify_risk`/`stop_processing` (item A, root fix — MOVED off
     `FunctionWorker`) + `proactive_contact`/`notify_sla_risk` (items B/C, NEW workers). All
-    seventeen need `ExternalTask`/async-Kafka seams a dict-first `FunctionWorker` boundary does not
-    expose. Delta breakdown: 1 events + 3 lgpd + 4 recurso + 1 ans-notify + 2 escalation + 2 DL-0033
-    dossier + 4 programa = 17. Every other module/topic goes through `WorkerHarness.register_worker`
-    -> `WorkerRegistry.register`."""
+    raw handlers need `ExternalTask`/async-Kafka seams a dict-first `FunctionWorker` boundary does
+    not expose. Delta breakdown (re-derived, the running total had drifted from the list above):
+    1 events + 3 lgpd + 4 recurso + 1 ans-notify + 1 ans-retransmit (t9-nack-vars) + 2 escalation
+    + 3 dossier (DL-0033 + the item9-w3 pagto edge) + 4 programa + 1 adequacao update_monitoring_plan
+    = 20. Every other module/topic goes through `WorkerHarness.register_worker` ->
+    `WorkerRegistry.register`."""
     harness = WorkerHarness(FakeWorkerTransport(), worker_id="probe")
     register_default_workers(harness)
 
@@ -74,8 +76,12 @@ def test_register_default_workers_registers_all_17_modules() -> None:
     # `FunctionWorker` onto a raw handler too, so it can publish an internal notification
     # (`register_adequacao_workers` used to `del kafka # unused`) — same async-Kafka-seam
     # rationale (adequacao.py's own module docstring).
-    # Raw-handler count = 11 + 3 + 4 + 1 = 19.
-    assert harness.registry.count() == len(harness.registered_topics) - 19
+    # t9-nack-vars: `regulatorio.anssubmit.retransmit` MOVED off `FunctionWorker` onto a raw handler
+    # (`make_retransmit_handler` — the name the contract itself uses, SP-OP-ANS-SUBMIT-001.md:157)
+    # for the SAME async-Kafka-seam reason: it publishes the `anssubmit.retransmit` internal
+    # notification, which the sync `FunctionWorker.execute` boundary cannot reach.
+    # Raw-handler count = 11 + 3 + 4 + 1 + 1 = 20.
+    assert harness.registry.count() == len(harness.registered_topics) - 20
 
 
 def test_register_default_workers_topics_match_expected_prefixes() -> None:

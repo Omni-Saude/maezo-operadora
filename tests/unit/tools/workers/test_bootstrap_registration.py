@@ -178,6 +178,11 @@ def test_function_based_module_bootstraps_register_function_workers() -> None:
         # the anssubmit.notify_regulatorio notification), harness.register not register_worker —
         # mirrors recurso's raw handlers above.
         "regulatorio.anssubmit.notify_regulatorio",
+        # retransmit (t9-nack-vars): moved off `FunctionWorker` onto a raw async handler for the
+        # SAME reason — it publishes the `anssubmit.retransmit` notification, which is what makes
+        # the SUB_RetryEnvio loop observable at all. The contract already names the factory
+        # (`make_retransmit_handler`, docs/processes/contracts/SP-OP-ANS-SUBMIT-001.md:157).
+        "regulatorio.anssubmit.retransmit",
         # DL-0033 real wiring: the dossier workers are now RAW async handlers (the async
         # DelegationDispatcher seam a FunctionWorker boundary cannot reach — DL-0034 precedent).
         "operadora.cred.prepare_dossier",
