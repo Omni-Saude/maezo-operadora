@@ -54,7 +54,7 @@ Dez classes. Cada uma tem referente real de runtime (`file:line`), verificado po
 | `vinculo_contratual_mudanca` | Suspensão, cancelamento, descredenciamento — `inadimplencia.py:753`, `cancel.py:731`/`:737`, `credenciamento.py:770` | A mudança de vínculo | **Sim** |
 | `acusacao_fraude_registro` | Registra acusação / encaminha ao jurídico — `fraude.py:999`/`:1002` | O registro e o encaminhamento | **Sim** |
 | `comunicacao_beneficiario` | Contato proativo, resposta DSR LGPD, pedido de prova — `programa.py:673`, `lgpd.py:765`/`:763`; WhatsApp `mcp_whatsapp/server.py:111` | O contato externo com o titular | **Sim** (exceto o WhatsApp direto) |
-| `inicio_processo_regulatorio` | Inicia instância SP-OP-* — `contas.py:1055`/`:1061`, `adequacao.py:689`, `fraude.py:1005`/`:1011`, `inadimplencia.py:757`, `nip.py:562`; agente `mcp_cibseven/transport.py:560` | O start do processo | **Sim** (exceto o start por agente) |
+| `inicio_processo_regulatorio` | Inicia instância SP-OP-* — `contas.py:1055`/`:1061`, `adequacao.py:689`, `fraude.py:1005`/`:1011`, `inadimplencia.py:757`, `nip.py:562`; agente `mcp_cibseven/transport.py:1052` (`start_process_idempotent`) | O start do processo | **Sim** (exceto o start por agente) |
 | `leitura_phi_clinica` | Lê dado clínico FHIR — `mcp_fhir/server.py:88`/`:118` | A leitura de PHI | **NÃO** — superfície não choked |
 | `delegacao_a2a` | Delega agente→agente — `a2a/dispatcher.py:277` | A delegação | **NÃO** — superfície não choked |
 
@@ -289,7 +289,7 @@ seam). Cada item abaixo é um work package próprio:
 - **`comunicacao_beneficiario` (perna WhatsApp)** — `WhatsAppServer.send_message`
   (`tools/mcp_whatsapp/server.py:111`).
 - **`inicio_processo_regulatorio` (perna agente)** — `start_process_idempotent`
-  (`tools/mcp_cibseven/transport.py:560`), ao lado do fence de allowlist ADR-0016 já existente.
+  (`tools/mcp_cibseven/transport.py:1052`), ao lado do fence de allowlist ADR-0016 já existente.
 - **Chamada de tool do grafo do agente** — **não existe chokepoint por-chamada** hoje: os agentes
   chamam os transports diretamente dentro dos nós do grafo (`runtime/harness.py:166-179`), que é
   precisamente o fato 2 da ADR-0034. Um gate genérico de tool-dispatch exigiria introduzir esse
