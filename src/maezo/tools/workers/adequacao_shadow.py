@@ -19,7 +19,7 @@ SPEC, never patch the Python back" — engineering never corrects the table; the
 does, as a spec DATA change. Nothing here can change what the deployed table decides, and nothing
 here changes what the worker does with that decision.
 
-THE TWO GATES.
+THE THREE GATES.
 
   1. RATIFICATION. `evaluate_for_enforcement` RAISES `EnforcementNotRatifiedError` while the
      manifest is not ratified. There is no enforcing consumer today; that function exists so the
@@ -27,6 +27,20 @@ THE TWO GATES.
      three fields (`ratificado: true` + non-blank, non-placeholder `revisor`/`ratificado_em`),
      mirroring `auth_criteria._entry_is_ratified` — including the placeholder guard, since the
      shipped file carries `PLACEHOLDER_*` identity values by design.
+
+  1b. LIVE-TABLE BINDING (ratification integrity). Gate 1 establishes that a human ratified; it says
+     nothing about WHAT they ratified. A candidate is only meaningful against the exact table text it
+     was authored and reviewed against, so the manifest declares `tabela_viva: {path, sha256}` and
+     this loader RE-DERIVES that sha256 from the live table's bytes ON EVERY LOAD, refusing (back to
+     NOT ratified) on any mismatch. Same standard, same reason, as `amh_inbox.migration_digest()` +
+     `load_inbox_ratification`'s re-derive-and-compare and `tiss_schema_pin`'s gate 5
+     (`REASON_ARTIFACT_DIGEST_MISMATCH`): binding a human approval to BYTES, never to a filename —
+     otherwise an in-place edit of `adequacao_gap.dmn` would silently inherit a ratification given to
+     the previous content. Checked AFTER gates on `ratificado`/`revisor`/`ratificado_em` on purpose:
+     an unratified manifest binds nothing, and putting the digest first would mask which gate a
+     half-finished ratification actually failed. The test-time half of the same binding (which breaks
+     the build TODAY, while the shipped manifest is still unratified and this gate therefore inert)
+     lives in `tests/unit/spec/test_shadow_candidates_common.py` and covers all six manifests.
 
   2. SHADOW. `shadow_divergence_event` compares the candidate verdict with the LIVE verdict and
      returns a bounded, non-PHI event mapping when they differ — verdicts, the five rule inputs,
@@ -47,7 +61,9 @@ against each other rule-for-rule (ids, thresholds, outputs and order). A drift f
 
 from __future__ import annotations
 
+import hashlib
 import os
+import re
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -79,6 +95,35 @@ _RATIFIED_AT = "ratificado_em"
 #: and `ratificado_em` so a half-finished edit (flag flipped, identity left as shipped) reads as NOT
 #: ratified instead of as an anonymous ratification.
 PLACEHOLDER_MARKER = "PLACEHOLDER"
+
+#: The live table the candidate proposes a correction to. A BARE filename, resolved through the
+#: single T0.3 mechanism (`resolve_spec_dir`) exactly like the manifest itself — never joined from
+#: a path the manifest supplies, so no `../` in the DATA can ever move what gets hashed.
+LIVE_TABLE_FILENAME = "adequacao_gap.dmn"
+#: The repo-relative path the manifest's `tabela_viva.path` must declare, VERBATIM. Equality against
+#: this constant (rather than "parse whatever the manifest points at") is what makes the traversal
+#: question moot here — compare `tiss_schema_pin`'s MINOR-3 containment check, which has to allow a
+#: filename the manifest chooses; this module is single-table, so it can simply pin the string.
+LIVE_TABLE_RELPATH = f"spec/processes/dmn/{LIVE_TABLE_FILENAME}"
+
+#: The `tabela_viva` block — gate 1b (see the module docstring). CLOSED key set: an unrecognized key
+#: refuses the block rather than sitting unread beside it (the `tiss_schema_pin`
+#: `_KNOWN_SCHEMA_ARTIFACT_KEYS` precedent, MINOR-4).
+_LIVE_TABLE_BLOCK = "tabela_viva"
+_LIVE_TABLE_PATH = "path"
+_LIVE_TABLE_SHA256 = "sha256"
+_KNOWN_LIVE_TABLE_KEYS = frozenset({_LIVE_TABLE_PATH, _LIVE_TABLE_SHA256})
+
+#: Lowercase hex sha256 and nothing else. Also the placeholder guard for this field: no string
+#: containing `PLACEHOLDER`/`TODO`/`TBD` can match it, so a half-filled digest is refused by shape
+#: alone and never needs a separate marker scan.
+_SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
+
+#: Refusal reasons for gate 1b — distinguishable in the structured log, the same way
+#: `amh_inbox`/`tiss_schema_pin` keep `*_DIGEST_MISMATCH` apart from a merely malformed artifact.
+REASON_LIVE_TABLE_BINDING_INVALID = "live_table_binding_invalid"
+REASON_LIVE_TABLE_UNREADABLE = "live_table_unreadable"
+REASON_LIVE_TABLE_DIGEST_MISMATCH = "live_table_digest_mismatch"
 
 # -------------------------------------------------------------------------------------------------
 # Candidate thresholds — TRANSCRIBED, never invented. Each is a line of the live table.
@@ -260,7 +305,9 @@ def evaluate_for_enforcement(
 
     Raises:
         EnforcementNotRatifiedError: whenever the manifest is not ratified — which is its state
-            today, and its state after any load failure (fail-closed).
+            today, its state after any load failure, and its state whenever the manifest's
+            `tabela_viva` binding no longer matches the live table's bytes (gate 1b), so a
+            ratification can never be enforced against table content nobody reviewed.
     """
     status = candidate_ratification(manifest_path)
     if not status.ratificado:
@@ -310,6 +357,91 @@ def _accountable(value: Any) -> str:
     return stripped
 
 
+def live_table_path() -> Path:
+    """Absolute path of the live table this candidate corrects, via the single T0.3 mechanism.
+
+    Resolved from `resolve_spec_dir()` + a MODULE constant, never from the manifest's own `path`
+    field — the manifest DECLARES which table it was authored against and this function decides
+    where that table is read from, so manifest data can never redirect what gets hashed.
+    """
+    return resolve_spec_dir() / "processes" / "dmn" / LIVE_TABLE_FILENAME
+
+
+def live_table_digest() -> str | None:
+    """sha256 (lowercase hex) of the live table's bytes on disk — the value `tabela_viva.sha256`
+    must equal. `None` when the table cannot be resolved or read.
+
+    Returns `None` rather than raising (unlike `amh_inbox.migration_digest`, which raises) because
+    this module's loader contract is NEVER-RAISES: every failure mode must resolve to "not
+    ratified". The caller turns `None` into exactly that.
+    """
+    try:
+        return hashlib.sha256(live_table_path().read_bytes()).hexdigest()
+    except Exception as exc:  # noqa: BLE001 - fail-closed: an unreadable table binds nothing
+        logger.error("adequacao_live_table_unreadable", detail=f"could not read the live table: {exc}")
+        return None
+
+
+def _live_table_binding_failure(data: dict[str, Any]) -> tuple[str, str] | None:
+    """Gate 1b — `(reason, detail)` when the manifest's live-table binding does NOT hold, else `None`.
+
+    The binding holds only when the manifest declares a `tabela_viva` block whose keys are exactly
+    `{path, sha256}`, whose `path` is VERBATIM `LIVE_TABLE_RELPATH`, whose `sha256` is a lowercase
+    hex sha256, and whose `sha256` equals the digest RE-DERIVED from the live table's bytes on disk
+    right now. Anything else refuses — including an absent block, which is why the field cannot be
+    "optional and forgettable".
+    """
+    block = data.get(_LIVE_TABLE_BLOCK)
+    if not isinstance(block, dict):
+        return (
+            REASON_LIVE_TABLE_BINDING_INVALID,
+            f"`{_LIVE_TABLE_BLOCK}` must be a mapping declaring the live table this candidate was "
+            f"authored against (got {type(block).__name__}) — a ratification with no binding would "
+            "silently carry over to edited table content",
+        )
+
+    unknown = sorted(str(key) for key in block if key not in _KNOWN_LIVE_TABLE_KEYS)
+    if unknown:
+        return (
+            REASON_LIVE_TABLE_BINDING_INVALID,
+            f"`{_LIVE_TABLE_BLOCK}` has unrecognized key(s) {unknown} (known: "
+            f"{sorted(_KNOWN_LIVE_TABLE_KEYS)}) — refusing rather than risk a mistyped key going unread",
+        )
+
+    declared_path = block.get(_LIVE_TABLE_PATH)
+    if declared_path != LIVE_TABLE_RELPATH:
+        return (
+            REASON_LIVE_TABLE_BINDING_INVALID,
+            f"`{_LIVE_TABLE_BLOCK}.{_LIVE_TABLE_PATH}` is {declared_path!r}, must be exactly "
+            f"{LIVE_TABLE_RELPATH!r} — this manifest corrects that table and no other",
+        )
+
+    declared_sha = block.get(_LIVE_TABLE_SHA256)
+    if not isinstance(declared_sha, str) or not _SHA256_HEX.match(declared_sha.strip().lower()):
+        return (
+            REASON_LIVE_TABLE_BINDING_INVALID,
+            f"`{_LIVE_TABLE_BLOCK}.{_LIVE_TABLE_SHA256}` is not a lowercase hex sha256 — a blank or "
+            "placeholder digest is not a binding",
+        )
+
+    actual = live_table_digest()
+    if actual is None:
+        return (
+            REASON_LIVE_TABLE_UNREADABLE,
+            f"could not re-derive the digest of {LIVE_TABLE_RELPATH} — cannot confirm the "
+            "ratification covers the table on disk",
+        )
+    if declared_sha.strip().lower() != actual:
+        return (
+            REASON_LIVE_TABLE_DIGEST_MISMATCH,
+            f"`{_LIVE_TABLE_BLOCK}.{_LIVE_TABLE_SHA256}` is {declared_sha.strip().lower()!r} but "
+            f"{LIVE_TABLE_RELPATH} hashes to {actual!r} — the table was edited after this candidate "
+            "was authored, so the ratification does NOT cover the table on disk. Re-author and "
+            "re-review the candidate against the new content.",
+        )
+    return None
+
+
 def load_candidate_ratification(path: str | Path | None = None) -> CandidateRatification:
     """Load the candidate manifest's ratification state. FAILS CLOSED — never raises.
 
@@ -317,7 +449,8 @@ def load_candidate_ratification(path: str | Path | None = None) -> CandidateRati
     `<spec>/processes/dmn/adequacao-gap-shadow-candidate.yaml`.
 
     Every failure mode (unresolvable spec dir, missing file, unreadable, non-UTF-8, malformed YAML,
-    wrong schema, incomplete/placeholder accountability fields) returns `ratificado=False` plus one
+    wrong schema, incomplete/placeholder accountability fields, and — gate 1b — a `tabela_viva`
+    binding that does not match the live table's bytes on disk) returns `ratificado=False` plus one
     structured log line. Nothing here can ever mark the candidate ratified.
     """
     raw_path = path if path is not None else os.environ.get(MANIFEST_PATH_ENV)
@@ -365,6 +498,14 @@ def load_candidate_ratification(path: str | Path | None = None) -> CandidateRati
             detail=("ratificado=true but an accountability field is absent/blank/PLACEHOLDER — NOT ratified"),
         )
         return _NOT_RATIFIED
+
+    # Gate 1b — the ratification must cover the table CONTENT the reviewer read, not merely its
+    # name. Deliberately LAST: the three human gates above answer "did someone ratify"; this one
+    # answers "what did they ratify", and checking it first would report a digest problem for a
+    # manifest nobody has even claimed to ratify yet.
+    binding_failure = _live_table_binding_failure(data)
+    if binding_failure is not None:
+        return _refuse(*binding_failure)
 
     logger.info(
         "adequacao_candidate_manifest_ratified",

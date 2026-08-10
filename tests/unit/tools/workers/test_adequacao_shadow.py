@@ -23,6 +23,12 @@ Grouped by the property under test:
      any threshold, output, rule id or ORDER fails.
   5. REFUSAL — the candidate cannot be enforced while unratified, and the shipped
      `PLACEHOLDER_*` accountability values cannot be mistaken for a ratification.
+  5b. LIVE-TABLE BINDING — the ratification is bound to the live table's BYTES, re-derived from disk
+     on every load, so a ratification given to one version of `adequacao_gap.dmn` can never silently
+     carry over to edited table content. This is the `src/`-side half of the binding that
+     `tests/unit/spec/test_shadow_candidates_common.py` pins (at test time) for all six manifests;
+     this manifest is the only one with a `src/` consumer, so it is the only one that also has it at
+     LOAD time.
   6. NON-INFLUENCE — the shadow can never change `route_remediation`'s verdict or routing:
      neutralised, raising, or real evaluator all yield identical outcomes over a behaviour matrix.
   7. NON-PHI — the divergence event carries only verdicts, the five rule inputs and a rule id.
@@ -32,6 +38,7 @@ Grouped by the property under test:
 
 from __future__ import annotations
 
+import hashlib
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
@@ -48,6 +55,8 @@ from maezo.tools.workers.adequacao_shadow import (
     CANDIDATE_RULE_ORDER,
     ELETIVO_DISTANCIA_MAX_KM,
     ELETIVO_TEMPO_MAX_MIN,
+    LIVE_TABLE_FILENAME,
+    LIVE_TABLE_RELPATH,
     MANIFEST_FILENAME,
     SHADOW_DIVERGENCE_EVENT,
     URGENCIA_DISTANCIA_MAX_KM,
@@ -56,6 +65,8 @@ from maezo.tools.workers.adequacao_shadow import (
     EnforcementNotRatifiedError,
     evaluate_candidate,
     evaluate_for_enforcement,
+    live_table_digest,
+    live_table_path,
     load_candidate_ratification,
     record_shadow_divergence,
     shadow_divergence_event,
@@ -648,8 +659,23 @@ def test_enforcement_refuses_on_every_load_failure(tmp_path: Path) -> None:
             evaluate_for_enforcement(**_ENFORCEMENT_INPUTS, manifest_path=path)
 
 
-#: A complete, well-formed ratification — the baseline the malformed variants below mutate.
-_RATIFIED_BODY = 'ratificado: true\nrevisor: "dono regulatorio"\nratificado_em: "2026-08-09"\n'
+def _binding_block(sha256: str | None = None, *, path: str = LIVE_TABLE_RELPATH) -> str:
+    """The `tabela_viva` block a manifest must carry. Defaults to the live table's ACTUAL digest.
+
+    Re-derived from disk here too, so these fixtures follow the table instead of pinning a literal
+    that a legitimate (owner-applied) table edit would turn into a false failure of the WRONG test —
+    the property "an edit invalidates the shipped manifest" is pinned once, in
+    `test_shipped_manifest_is_bound_to_the_live_table_on_disk`, and nowhere else.
+    """
+    digest = live_table_digest() if sha256 is None else sha256
+    return f'tabela_viva:\n  path: {path}\n  sha256: "{digest}"\n'
+
+
+#: A complete, well-formed ratification — the baseline the malformed variants below mutate. Carries
+#: a VALID live-table binding, so every variant below fails at exactly the gate it names.
+_RATIFIED_BODY = (
+    'ratificado: true\nrevisor: "dono regulatorio"\nratificado_em: "2026-08-09"\n' + _binding_block()
+)
 
 
 @pytest.mark.parametrize(
@@ -680,18 +706,102 @@ def test_partial_or_placeholder_ratification_is_not_a_ratification(
 
 
 def test_a_complete_ratification_does_lift_the_refusal(tmp_path: Path) -> None:
-    """COUNTER-PROOF: the gate is not "always refuse". A complete, accountable ratification lifts
-    it — which is what makes ratification a DATA change with no code change."""
+    """COUNTER-PROOF: the gate is not "always refuse". A complete, accountable ratification — WITH a
+    live-table binding that holds — lifts it, which is what makes ratification a DATA change with no
+    code change."""
     path = tmp_path / "candidate.yaml"
-    path.write_text(
-        'ratificado: true\nrevisor: "dono regulatorio"\nratificado_em: "2026-08-09"\n',
-        encoding="utf-8",
-    )
+    path.write_text(_RATIFIED_BODY, encoding="utf-8")
     assert load_candidate_ratification(path) == CandidateRatification(
         ratificado=True, revisor="dono regulatorio", ratificado_em="2026-08-09"
     )
     verdict = evaluate_for_enforcement(**_ENFORCEMENT_INPUTS, manifest_path=path)
     assert verdict.gap_adequacao == "GAP_CRITICO"
+
+
+# =================================================================================================
+# 5b. LIVE-TABLE BINDING — the ratification covers the table CONTENT the owner read
+# =================================================================================================
+#
+# Section 5 proves a human must act before the candidate can be enforced. It says nothing about
+# WHICH VERSION of `adequacao_gap.dmn` that human reviewed. Without the binding below, an edit to the
+# live table would leave a prior ratification in force over content nobody approved — the exact
+# failure `amh_inbox` (migration bytes) and `tiss_schema_pin` (XSD bytes) already close elsewhere in
+# this repo. Here the manifest declares `tabela_viva: {path, sha256}` and the loader re-derives that
+# digest from disk on EVERY load, refusing back to "not ratified" on any mismatch.
+#
+# The gate is INERT on the shipped manifest (which is unratified, so the loader never reaches it) —
+# it binds the FUTURE ratification. What breaks the build TODAY if the table is edited is
+# `test_shipped_manifest_is_bound_to_the_live_table_on_disk` below, and its six-manifest sibling in
+# `tests/unit/spec/test_shadow_candidates_common.py`.
+
+
+def test_shipped_manifest_is_bound_to_the_live_table_on_disk() -> None:
+    """THE BINDING, on the shipped file: the declared digest IS the live table's bytes right now.
+
+    An edit to `spec/processes/dmn/adequacao_gap.dmn` turns this RED, and it must stay red until the
+    candidate is re-authored and re-reviewed against the new content. Bumping the digest alone would
+    be a deliberate defeat of the mechanism, not a repair.
+    """
+    manifest = yaml.safe_load(_CANDIDATE_MANIFEST.read_text(encoding="utf-8"))
+    binding = manifest["tabela_viva"]
+    assert binding["path"] == LIVE_TABLE_RELPATH == f"spec/processes/dmn/{LIVE_TABLE_FILENAME}"
+    assert binding["path"] == manifest["alvo"], "the binding and the target may not drift apart"
+    assert binding["sha256"] == live_table_digest()
+    assert live_table_path().resolve() == _LIVE_TABLE.resolve()
+
+
+def test_the_declared_digest_is_a_digest_of_the_table_and_not_of_the_manifest() -> None:
+    """Non-vacuity of the comparison: hashing the wrong file would also produce 64 hex chars."""
+    assert live_table_digest() == hashlib.sha256(_LIVE_TABLE.read_bytes()).hexdigest()
+    assert live_table_digest() != hashlib.sha256(_CANDIDATE_MANIFEST.read_bytes()).hexdigest()
+
+
+@pytest.mark.parametrize(
+    ("label", "block"),
+    (
+        ("binding absent altogether", ""),
+        ("digest of no table at all", _binding_block("0" * 64)),
+        ("digest still a placeholder", _binding_block("PLACEHOLDER_SHA256")),
+        ("digest blank", _binding_block("   ")),
+        ("digest not hex", _binding_block("z" * 64)),
+        ("digest truncated", _binding_block("abc123")),
+        ("binding not a mapping", "tabela_viva: spec/processes/dmn/adequacao_gap.dmn\n"),
+        ("path names another table", _binding_block(path="spec/processes/dmn/carencia_check.dmn")),
+        ("path traverses out of spec/", _binding_block(path="spec/processes/dmn/../../../etc/passwd")),
+        ("unknown key beside the two known ones", _binding_block() + "  sha512: x\n"),
+    ),
+)
+def test_a_broken_binding_unratifies_an_otherwise_complete_ratification(
+    label: str, block: str, tmp_path: Path
+) -> None:
+    """MUTATION PROOF. Each row is `_RATIFIED_BODY` — a complete, accountable, would-be-valid
+    ratification — with ONLY its binding broken in the way `label` names. Every row must read as NOT
+    ratified, and every row must refuse enforcement. If the gate were vacuous they would all pass.
+    """
+    body = _RATIFIED_BODY.split("tabela_viva:")[0] + block
+    path = tmp_path / "candidate.yaml"
+    path.write_text(body, encoding="utf-8")
+
+    assert load_candidate_ratification(path).ratificado is False, label
+    with pytest.raises(EnforcementNotRatifiedError):
+        evaluate_for_enforcement(**_ENFORCEMENT_INPUTS, manifest_path=path)
+
+
+def test_a_stale_digest_refuses_and_the_current_one_does_not(tmp_path: Path) -> None:
+    """The two directions on one file: flipping ONE hex character of the declared digest — which is
+    exactly what an edit to the live table produces — turns a complete ratification back into "not
+    ratified"; leaving it correct does not."""
+    current = live_table_digest()
+    assert current is not None
+    stale = ("b" if current[0] != "b" else "c") + current[1:]
+
+    ok = tmp_path / "ok.yaml"
+    ok.write_text(_RATIFIED_BODY, encoding="utf-8")
+    assert load_candidate_ratification(ok).ratificado is True
+
+    drifted = tmp_path / "stale.yaml"
+    drifted.write_text(_RATIFIED_BODY.replace(current, stale), encoding="utf-8")
+    assert load_candidate_ratification(drifted).ratificado is False
 
 
 # =================================================================================================

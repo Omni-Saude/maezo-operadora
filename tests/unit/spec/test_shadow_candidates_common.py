@@ -14,6 +14,10 @@ pins the properties that must hold for ALL of them at once:
   5. BOTH HALVES OF THE OWNER'S ACT ARE CODEOWNERS-GATED — the manifest AND the live table.
   6. SCHEMA — every manifest is DRAFT, names its target, and its rules' columns are exactly the
      live table's own (enforced inside `read_candidate_table`).
+  7. LIVE-TABLE BINDING — every manifest, INCLUDING the merged W3 one, declares the digest of the
+     live table it was authored against, and that digest is re-derived from disk here. This is what
+     stops a ratification given to one version of a table from silently carrying over to edited
+     table content: editing a live table breaks this module until the candidate is re-authored.
 """
 
 from __future__ import annotations
@@ -27,16 +31,22 @@ from maezo.platform.deploy.engine_deploy import collect_artifacts, resolve_spec_
 from tests.support.dmn_first_hit import (
     CODEOWNERS,
     DMN_DIR,
+    LIVE_TABLE_BLOCK,
+    LIVE_TABLE_PATH,
+    LIVE_TABLE_SHA256,
     REPO_ROOT,
     EnforcementNotRatifiedError,
+    LiveTableBindingError,
     UnreadableEntryError,
     evaluate_for_enforcement,
+    live_table_digest,
     load_candidate_ratification,
     load_manifest,
     matches,
     parse_output,
     read_candidate_table,
     read_live_table,
+    verify_live_table_binding,
 )
 
 #: candidate manifest filename -> the live table it proposes a correction to.
@@ -51,6 +61,11 @@ CANDIDATES: dict[str, str] = {
 #: The MERGED W3 manifest. It is NOT part of this wave; it is the non-vacuity anchor for the
 #: "nothing in src/ reads a W4 manifest" grep — that grep must find the W3 one.
 W3_MANIFEST = "adequacao-gap-shadow-candidate.yaml"
+
+#: ALL SIX candidate manifests — the five of this wave plus the merged W3 one. Used ONLY by section
+#: 7: the live-table binding is a property of every ratifiable candidate in the repository, whatever
+#: wave shipped it, so it is the one section that must not stop at this wave's five.
+ALL_CANDIDATES: dict[str, str] = {W3_MANIFEST: "adequacao_gap.dmn", **CANDIDATES}
 
 
 # =================================================================================================
@@ -356,3 +371,209 @@ def test_candidate_manifest_is_a_sibling_of_the_table_it_corrects(manifest: str,
     """Both files live in `spec/processes/dmn/`, so a reviewer opening one sees the other."""
     assert (DMN_DIR / manifest).is_file()
     assert (DMN_DIR / live).is_file()
+
+
+# =================================================================================================
+# 7. LIVE-TABLE BINDING — a ratification covers the table CONTENT it reviewed, and nothing else
+# =================================================================================================
+#
+# Sections 4-6 pin that a candidate cannot be enforced without a human act, and that its columns are
+# the live table's own. Neither says anything about WHICH VERSION of the live table the candidate was
+# written against — so, before this section, an edit to a live table would leave every candidate
+# silently claiming to correct text nobody had read, and a ratification given to the old content
+# would carry over to the new content with no signal at all.
+#
+# `tabela_viva: {path, sha256}` closes that: each manifest declares the digest of the table it was
+# authored against, and `verify_live_table_binding` RE-DERIVES that digest from the bytes on disk on
+# every run. Editing any of the six live tables therefore turns this section RED until the candidate
+# is re-authored and re-reviewed against the new content. Updating only the digest would be a
+# deliberate defeat of the mechanism, not a fix — the manifests say so in their own comments.
+#
+# Scope note: this section runs over `ALL_CANDIDATES` (six), not `CANDIDATES` (this wave's five).
+# The W3 manifest is the one with a `src/` consumer, and it carries the SAME binding at LOAD time in
+# `maezo.tools.workers.adequacao_shadow` (pinned in `tests/unit/tools/workers/test_adequacao_shadow.py`).
+
+
+def _forge(manifest: str, tmp_path: Path, *, drop: str | None = None, **changes: object) -> Path:
+    """A SCRATCH copy of a shipped manifest with top-level keys changed/dropped.
+
+    Round-tripped through YAML (so comments are lost) on purpose: these fixtures exist to exercise
+    the DATA the readers see, and a data-level forge cannot accidentally pass because a comment
+    happened to mention the right value.
+    """
+    data = load_manifest(DMN_DIR / manifest)
+    if drop is not None:
+        del data[drop]
+    data.update(changes)
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    path = tmp_path / manifest
+    path.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    return path
+
+
+def _binding_of(manifest: str) -> dict[str, str]:
+    block = load_manifest(DMN_DIR / manifest)[LIVE_TABLE_BLOCK]
+    assert isinstance(block, dict)
+    return dict(block)
+
+
+#: The shipped `glosa-triage` binding — the PASSING baseline every mutation row below differs from
+#: by exactly one field.
+_BASELINE_MANIFEST = "glosa-triage-shadow-candidate.yaml"
+_BASELINE_BINDING = _binding_of(_BASELINE_MANIFEST)
+
+
+@pytest.mark.parametrize(("manifest", "live"), sorted(ALL_CANDIDATES.items()))
+def test_every_candidate_is_bound_to_the_live_table_content_it_was_authored_against(
+    manifest: str, live: str
+) -> None:
+    """THE BINDING. The declared digest must equal the live table's bytes on disk, re-derived now.
+
+    This is the assertion an edit to `spec/processes/dmn/<live>` breaks. It is deliberately stated
+    twice — once through `verify_live_table_binding` (which enforces the whole block's shape) and
+    once as a bare digest comparison — so that a future weakening of the helper cannot quietly
+    retire the property itself.
+    """
+    binding = verify_live_table_binding(DMN_DIR / manifest)
+    assert binding.live_table == (DMN_DIR / live).resolve()
+    assert binding.sha256 == live_table_digest(DMN_DIR / live)
+    assert _binding_of(manifest)[LIVE_TABLE_SHA256] == live_table_digest(DMN_DIR / live)
+
+
+@pytest.mark.parametrize(("manifest", "live"), sorted(ALL_CANDIDATES.items()))
+def test_the_binding_declares_the_same_table_the_manifest_targets(manifest: str, live: str) -> None:
+    """`tabela_viva.path` and `alvo` are two declarations of one fact; they may not drift apart."""
+    data = load_manifest(DMN_DIR / manifest)
+    assert _binding_of(manifest)[LIVE_TABLE_PATH] == f"spec/processes/dmn/{live}" == data["alvo"]
+
+
+def test_the_six_bindings_are_six_distinct_digests() -> None:
+    """Anti-copy-paste: six different tables must produce six different digests. A repeated digest
+    would mean one manifest is bound to a table it does not correct."""
+    digests = {m: _binding_of(m)[LIVE_TABLE_SHA256] for m in ALL_CANDIDATES}
+    assert len(set(digests.values())) == len(ALL_CANDIDATES), digests
+    assert len(ALL_CANDIDATES) == 6
+
+
+@pytest.mark.parametrize("manifest", sorted(ALL_CANDIDATES))
+def test_a_manifest_without_a_binding_is_refused(manifest: str, tmp_path: Path) -> None:
+    """The field is REQUIRED. An optional binding is a forgettable one, and a forgotten binding is
+    exactly the silent carry-over this whole section exists to prevent."""
+    with pytest.raises(LiveTableBindingError, match=LIVE_TABLE_BLOCK):
+        verify_live_table_binding(_forge(manifest, tmp_path, drop=LIVE_TABLE_BLOCK))
+
+
+@pytest.mark.parametrize(
+    ("label", "block", "alvo"),
+    [
+        ("digest of no table at all", {**_BASELINE_BINDING, LIVE_TABLE_SHA256: "0" * 64}, None),
+        ("placeholder digest", {**_BASELINE_BINDING, LIVE_TABLE_SHA256: "PLACEHOLDER_SHA256"}, None),
+        ("blank digest", {**_BASELINE_BINDING, LIVE_TABLE_SHA256: "   "}, None),
+        ("digest absent", {LIVE_TABLE_PATH: _BASELINE_BINDING[LIVE_TABLE_PATH]}, None),
+        ("non-hex digest", {**_BASELINE_BINDING, LIVE_TABLE_SHA256: "z" * 64}, None),
+        ("digest of the wrong length", {**_BASELINE_BINDING, LIVE_TABLE_SHA256: "abc123"}, None),
+        ("digest not a string", {**_BASELINE_BINDING, LIVE_TABLE_SHA256: 12345}, None),
+        ("path absent", {LIVE_TABLE_SHA256: _BASELINE_BINDING[LIVE_TABLE_SHA256]}, None),
+        ("block is not a mapping", "spec/processes/dmn/glosa_triage.dmn", None),
+        (
+            "path outside the dmn directory",
+            {**_BASELINE_BINDING, LIVE_TABLE_PATH: "spec/policies/ans/tiss-schema-pin.yaml"},
+            "spec/policies/ans/tiss-schema-pin.yaml",
+        ),
+        (
+            "traversal path",
+            {**_BASELINE_BINDING, LIVE_TABLE_PATH: "spec/processes/dmn/../dmn/glosa_triage.dmn"},
+            "spec/processes/dmn/../dmn/glosa_triage.dmn",
+        ),
+        (
+            "path names a table that does not exist",
+            {**_BASELINE_BINDING, LIVE_TABLE_PATH: "spec/processes/dmn/nao_existe.dmn"},
+            "spec/processes/dmn/nao_existe.dmn",
+        ),
+        ("unknown key beside the two known ones", {**_BASELINE_BINDING, "sha512": "x"}, None),
+    ],
+)
+def test_a_broken_binding_is_refused(label: str, block: object, alvo: str | None, tmp_path: Path) -> None:
+    """MUTATION PROOF, one mutation per row: every way the binding can fail to hold RAISES.
+
+    Each row is the SHIPPED `glosa-triage` binding with exactly the mutation `label` names (the
+    `alvo` column moves the manifest's own target along with the path, so the rows about the
+    directory/traversal guards reach that guard instead of stopping at the path-vs-`alvo` check).
+    If the helper were vacuous every row here would pass.
+    """
+    changes: dict[str, object] = {LIVE_TABLE_BLOCK: block}
+    if alvo is not None:
+        changes["alvo"] = alvo
+    with pytest.raises(LiveTableBindingError):
+        verify_live_table_binding(_forge(_BASELINE_MANIFEST, tmp_path, **changes))
+
+
+def test_a_binding_that_names_a_real_but_different_table_is_refused(tmp_path: Path) -> None:
+    """It is the CONTENT that is compared, not the name — and the name is compared too.
+
+    Two rows: (a) `path` moved to a real sibling table while `alvo` stays put — refused for naming a
+    table the manifest does not target; (b) BOTH moved consistently — still refused, because the
+    declared digest is `glosa_triage.dmn`'s and the table on disk is `carencia_check.dmn`. Row (b)
+    is the one that proves a digest comparison is happening at all.
+    """
+    manifest = "glosa-triage-shadow-candidate.yaml"
+    other = "spec/processes/dmn/carencia_check.dmn"
+    moved = {**_binding_of(manifest), LIVE_TABLE_PATH: other}
+
+    with pytest.raises(LiveTableBindingError, match="alvo"):
+        verify_live_table_binding(_forge(manifest, tmp_path / "a", **{LIVE_TABLE_BLOCK: moved}))
+
+    with pytest.raises(LiveTableBindingError, match="hashes to"):
+        verify_live_table_binding(_forge(manifest, tmp_path / "b", alvo=other, **{LIVE_TABLE_BLOCK: moved}))
+
+
+def test_a_stale_digest_is_refused_and_a_current_one_is_not(tmp_path: Path) -> None:
+    """NON-VACUITY of the digest comparison itself, on one file, both directions.
+
+    `stale` is the shipped binding with ONE hex character flipped — i.e. precisely what a live-table
+    edit produces (a digest that no longer describes the bytes). `current` is the shipped binding
+    untouched. Same manifest, same helper, opposite outcomes.
+    """
+    manifest = "upcoding-complexity-ceiling-shadow-candidate.yaml"
+    current = _binding_of(manifest)
+    digest = current[LIVE_TABLE_SHA256]
+    flipped = ("b" if digest[0] != "b" else "c") + digest[1:]
+    stale = {**current, LIVE_TABLE_SHA256: flipped}
+
+    assert verify_live_table_binding(_forge(manifest, tmp_path / "ok", **{LIVE_TABLE_BLOCK: current}))
+    with pytest.raises(LiveTableBindingError, match="hashes to"):
+        verify_live_table_binding(_forge(manifest, tmp_path / "stale", **{LIVE_TABLE_BLOCK: stale}))
+
+
+def test_enforcement_refuses_a_fully_ratified_manifest_whose_binding_is_stale(tmp_path: Path) -> None:
+    """THE POINT OF THE WHOLE SECTION, stated at the enforcement seam.
+
+    A manifest with all three ratification fields correctly filled — a real, accountable, complete
+    ratification — STILL cannot be enforced once the table it reviewed has changed underneath it.
+    The counter-proof sits beside it: the identical forge with the CURRENT digest evaluates fine, so
+    the refusal is the staleness and not the forge.
+    """
+    manifest = "glosa-triage-shadow-candidate.yaml"
+    ratified: dict[str, object] = {
+        "ratificado": True,
+        "revisor": "auditoria-contas (teste)",
+        "ratificado_em": "2026-08-09",
+    }
+    current = _binding_of(manifest)
+    stale = {**current, LIVE_TABLE_SHA256: "f" * 64}
+    live = read_live_table(DMN_DIR / "glosa_triage.dmn")
+    values: dict[str, object] = {
+        "tipo_item": "",
+        "categoria_normalizada": "desconhecida",
+        "item_conforme_tabela": True,
+        "divergencia_valor": False,
+        "documentacao_anexa": True,
+    }
+
+    ok = _forge(manifest, tmp_path / "ok", **ratified, **{LIVE_TABLE_BLOCK: current})
+    assert evaluate_for_enforcement(ok, live, values).saidas["roteamento"] == "ANALISE_HUMANA"
+
+    stale_path = _forge(manifest, tmp_path / "stale", **ratified, **{LIVE_TABLE_BLOCK: stale})
+    assert load_candidate_ratification(stale_path).ratificado is True, "ratification itself is intact"
+    with pytest.raises(LiveTableBindingError, match="re-author"):
+        evaluate_for_enforcement(stale_path, live, values)
