@@ -47,7 +47,7 @@
 > (`_NOTIFY_REGULATORIO_GAP_REASON`, `tests/integration/processes/test_sp_op_ans_submit_001.py`), 3
 > DPO/LGPD-DSR (`test_sp_op_lgpd_dsr_001.py:488,517,546`), 2 NACK do ANS-SUBMIT
 > (`test_sp_op_ans_submit_001.py:1426,1464`, `_SUBMIT_NACK_UNREACHABLE_REASON` — **em fechamento
-> (build ao vivo nesta sessão; PR TODO-PR-NACK a abrir)**), 2 T-E de guard-shape em CRED
+> (build ao vivo nesta sessão; PR #226 aberto, cadeia completa autor R1 → GK R1 REVISE → repair → delta PASS com re-prova live)**), 2 T-E de guard-shape em CRED
 > (`test_sp_op_cred_001.py:1005,1037`), 2 tetos D-07 financeiro (`test_sp_op_auth_001.py:697`,
 > `test_sp_op_reembolso_001.py:627`), 1 RN 259 (`test_sp_op_adequacao_001.py:714`).
 
