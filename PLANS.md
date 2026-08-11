@@ -144,8 +144,14 @@ que não cumprir um ou mais.*
   removida (o MODELO lança `ERR_ANS_RETRY_ESGOTADO`, não um worker); guarda de montagem ganhou o
   boundary modelado que o contrato já especificava; família iniciou sua migração ADR-0030.
 
-**Censo de strict-xfail: 95 → 36 → 24.** O que resta é majoritariamente teto humano (TISS-XSD ×14,
-DPO ×3, T-E ×2, D-07, AMH).
+**Censo de strict-xfail: 95 → 36 → 24 → <!-- xfail-census:total:begin -->22<!-- xfail-census:total:end -->**
+(2026-08-10: #226 flipou os 2 NACK variables-channel com prova live). Restante (AST sobre
+`tests/integration/processes/`, gerado por `scripts/ci/generate_xfail_census.py` — ledger em
+`docs/xfail-census.json`): <!-- xfail-census:breakdown:begin -->TISS-XSD SME ×14 · LGPD/DPO ×3 · cred guard-shape T-E ×2 · auth D-07 ×1 · reembolso D-07 ×1 · adequacao RN259 ×1<!-- xfail-census:breakdown:end -->
+— **inteiramente teto humano.** A partir da Onda 0 do §0.8 o censo passa a ser GERADO em CI (o
+drift 24-vs-22 entre PLANS/handoff.yaml/NEXT-ORCHESTRATOR nesta mesma semana foi o gatilho); as
+duas regiões acima entre marcadores HTML são reescritas por esse gerador — edição manual dentro
+delas falha o CI (`--check`); o texto ao redor permanece prosa normal.
 
 ## 0.5.4 — Achados que precisam de decisão HUMANA (nenhuma engenharia adicional é possível)
 
@@ -234,6 +240,82 @@ carregaram rows — backfill), citações fantasma `notifications_bridge/consume
 `transport:560`→`transport.py:1052` ×2 no packet MZO-040, cross-ref trimestral `YYYY-Qn`, nuance
 ACHADO-5, teste negativo gate-6 XSD. Registro de decisões desta sprint: DL-0044 (ADR-0038) e
 DL-0045 (qualificação MZO-040) em `docs/decisions-log.md`.
+
+---
+
+## 0.8 — Programa de Hardening Operacional (registrado 2026-08-10, sessão-3 do orquestrador #2)
+
+> Origem: análise comparativa tripla (2 análises independentes + cross-review adjudicado com
+> verificação em código) contra NVIDIA-NeMo/labs-OO-Agents (`nooa` @ `8237a88`). Veredito NeMo:
+> **rejeitar como runtime/dependência; adaptar 4–5 padrões como reimplementação in-repo** (memória
+> `nemo-oo-agents-evaluation`). O subproduto mais valioso foi o inventário VERIFICADO das fraquezas
+> do próprio Maezo abaixo. Diagnóstico-síntese: **arquiteturalmente seguro, operacionalmente
+> incompleto** — contratos fortes, realização integralmente fiada ainda parcial. Prompt de
+> execução: `docs/prompts/10-08-26_hardening.md` (local-only). Detalhe vivo: memória
+> `maezo-hardening-program`. Parecer do 2º analista arquivado em
+> `docs/audits/architecturally safe, operationally incomplete.md` (gitignored, local-only) —
+> adotado com emendas: ADR-0029 como veículo da âncora externa; censo atual já é 100% teto-humano
+> (a meta é MANTER zero P0 automatizável, não burn-down); branch protection = ação imediata do
+> dono, não apenas pré-condição de ratificação.
+
+### Fraquezas priorizadas (evidência verificada em código, 2026-08-10)
+
+| # | Prio | Fraqueza | Evidência |
+| --- | --- | --- | --- |
+| W1 | **P0** | Plano de autorização de efeitos INCOMPLETO: sem ToolRegistry/PEP por-tool-call nos grafos (gap T2.4), MZO-040 só em sombra, `ProcessAllowlist` (ADR-0016) com zero importers de produção | `agents/beatriz/graph.py:81-84` · `gateway/action_execution.py:1-58` · achado fase-1 sprint 09-08-26 |
+| W2 | **P0** | Inferência PHI real INEXISTENTE — único provider PHI-capable é o mock sintético; Anthropic é general-zone | `runtime/inference.py:441-457,520-536` |
+| W3 | **P0-cond.** | A2A não é production-grade p/ DISTRIBUIÇÃO: envelope sem assinatura (só Cards), idempotência durável opcional no seam, facts Kafka = no-op rotulado, sem mTLS/identidade de serviço | `a2a/delegation.py` (zero refs de assinatura) · `a2a/dispatcher.py:260-282` · `a2a_composition.py:20-24,186-190` |
+| W4 | **P1** | Cadeia de auditoria PARA na borda do Postgres — hash-linked + `UNIQUE(prev_record_hash)` anti-fork, mas sem âncora externa contra rewrite privilegiado do banco; ADR-0029 (re-anchor assinado) DESENHADO, não ratificado nem implementado | `gateway/audit_postgres.py:28-40` · `docs/adr/0029-*` (Proposed) |
+| W5 | **P1** | Drift de ledgers de controle: censo real 22 ≠ PLANS 24 ≠ handoff.yaml (internamente inconsistente) ≠ NEXT-ORCHESTRATOR — 3 superfícies, 3 idades, na mesma semana | comprovado 2026-08-10; corrigido em §0.5.3 acima |
+| W6 | **P1** | Governança descrita > infra impõe: branch protection AUSENTE na main, CODEOWNERS advisory — inclusive sobre `action-approvals.yaml` do MZO-040; sign-offs não expiram | achado mzo-000; docstring de `action_execution.py` |
+| W7 | **P2** | Concentração de conhecimento/autoria: 212/244 commits = 1 identidade humana (+orquestradores); sem 2º operador independente p/ runtime, DMN deploy, recovery de audit, rotação de chaves | censo git 2026-08-10 |
+| W8 | **P2** | Hardening operacional do cliente de inferência: sem retry/backoff com budget de rate-limit, sem cache-aware prompt formatting, telemetria de turno fina | comparativo nooa |
+| W9 | **P2** | Supply-chain: sem quarentena de idade de dependência (`exclude-newer` do uv — o repo JÁ usa uv) | ausência verificada em `pyproject.toml` |
+
+### Estratégia — ondas (agent-executável vs teto humano SEMPRE separado)
+
+- **Onda 0 — Verdade gerada + cercas de governança (S, 2–3 sessões, inerte):** censo de
+  strict-xfail GERADO em CI (artefato + gate que FALHA em drift vs ledger commitado; classificação
+  P0/P1/P2/humano por constante `_*_REASON`); workflow que consulta a API de branch-protection e
+  falha ALTO enquanto ausente (drift de governança vira check executável); reconciliação das
+  superfícies restantes. **AÇÃO DO DONO (10 min, destrava a integridade de TUDO): ligar branch
+  protection + required CODEOWNERS na main.**
+- **Onda 1 — Plano de controle de efeitos (L, 8–12 sessões, engine-path):** inventário completo de
+  efeitos (scouts R3: nós de grafo, tools MCP, topics de worker, transports diretos) → UM
+  chokepoint `ToolRegistry`/PEP por-chamada UNIFICADO com o `ActionExecutionGateway` MZO-040
+  (veículo: precondição de revisita do ADR-0034 + XRD-09 do ADR-0037 — nunca design paralelo) →
+  cerca CI estática rejeitando chamada-de-efeito fora de chokepoint sancionado → prova live do
+  incident-shape (único desbloqueio agent-executável já identificado; aguarda "go" do dono) →
+  pacote de evidência de sombra p/ ratificação Médica/ANS/Security — **com rulesets/branch
+  protection ATIVOS ANTES do aceite da ratificação** (o manifesto `action-approvals.yaml` só é
+  confiável com enforcement server-side). **Flip enforcing = HUMANO,
+  progressivo por classe de ação (inertes → adversos/dinheiro), com mutação-de-negação por classe.**
+- **Onda 2 — Inferência PHI real (L, 7–10 sessões, PHI):** capability-schema além de booleano
+  (região, retenção, proibição de treino, classificação máxima, fonte de credencial); adapter real
+  BR-resident zero-retention atrás de `BaseInferenceProvider` (imports SÓ em
+  `runtime/inference.py`); canários sintéticos (só endpoint regional aprovado, zero fallback
+  general-zone, zero conteúdo em logs/métricas, reconciliação de tokens, outage→humano); egress de
+  rede imposto INDEPENDENTEMENTE por política de deploy (infra/dono);
+  retry/backoff budgetado idempotência-aware (W8) entra aqui. **Vendor/DPA/credenciais = DONO.
+  NÃO ligar LLM mais capaz em produção antes da Onda 1 enforçar + canários da Onda 2 verdes.**
+- **Onda 3 — A2A p/ distribuição (M–L, 6–9 sessões, engine-path):** ADR de assinatura do envelope
+  (digest canônico: tenant, task_id, origin, target, payload_hash, deadline, budget, chain;
+  key-id e epoch p/ rotação/replay) → idempotência durável OBRIGATÓRIA fora de dev-local → outbox
+  transacional substituindo o no-op de facts → testes orientados a ataque (tamper, replay
+  cross-tenant, expiry, chave stale, crash-before-complete) → mTLS/identidade quando houver
+  transporte remoto. **Pré-condição DURA para qualquer A2A não-local.**
+- **Onda 4 — Âncora externa da auditoria (M, 5–7 sessões, audit-critical):** IMPLEMENTAR o
+  re-anchor assinado do ADR-0029 + escritor de âncora externa (WORM/retention-lock, chave KMS/HSM,
+  conta separada) flag-gated INERTE até ratificação DPO; job contínuo de comparação
+  Postgres-vs-âncora; drills de tamper/restore. **Ratificação ADR-0029 = HUMANO (já na fila).**
+- **Contínuo (S cada, filler p/ agentes baratos):** telemetria de turno PHI-gated (campos pinados
+  hash/count, padrão do #222); `exclude-newer` no uv; cache-aware prompt formatting; piso de
+  capability em release; runbooks + drills trimestrais de recovery/rotação (mitiga W7).
+
+**Total: ~32–47 sessões-agente** intercaladas com portões humanos. Três primeiros release-gates:
+(1) nenhum caminho de efeito não-sancionado + MZO-040 enforcing nas classes ratificadas;
+(2) provider PHI real provado regionalmente sem fallback; (3) admissão assinada + integridade de
+delegação + idempotência durável p/ A2A não-local.
 
 ---
 

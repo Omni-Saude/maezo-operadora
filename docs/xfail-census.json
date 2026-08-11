@@ -1,0 +1,177 @@
+{
+  "generated_by": "scripts/ci/generate_xfail_census.py",
+  "tests_dir": "tests/integration/processes",
+  "total": 22,
+  "per_suite": {
+    "adequacao": 1,
+    "ans_submit": 14,
+    "auth": 1,
+    "cred": 2,
+    "lgpd_dsr": 3,
+    "reembolso": 1
+  },
+  "per_classification": {
+    "ADEQUACAO_RN259": 1,
+    "AUTH_D07": 1,
+    "CRED_GUARD_SHAPE_TE": 2,
+    "LGPD_DPO": 3,
+    "REEMBOLSO_D07": 1,
+    "TISS_XSD_SME": 14
+  },
+  "markers": [
+    {
+      "file": "tests/integration/processes/test_sp_op_adequacao_001.py",
+      "line": 714,
+      "test": "test_l3_conforme_atinge_neutro_sem_user_task",
+      "reason_constant": "_ADEQUACAO_GAP_RULE_ORDER_INVERSION_REASON",
+      "classification": "ADEQUACAO_RN259"
+    },
+    {
+      "file": "tests/integration/processes/test_sp_op_ans_submit_001.py",
+      "line": 692,
+      "test": "test_aprovar_envio_exige_revisor_id",
+      "reason_constant": "_NOTIFY_REGULATORIO_GAP_REASON",
+      "classification": "TISS_XSD_SME"
+    },
+    {
+      "file": "tests/integration/processes/test_sp_op_ans_submit_001.py",
+      "line": 885,
+      "test": "test_happy_path_envio_aprovado_e_acked",
+      "reason_constant": "_NOTIFY_REGULATORIO_GAP_REASON",
+      "classification": "TISS_XSD_SME"
+    },
+    {
+      "file": "tests/integration/processes/test_sp_op_ans_submit_001.py",
+      "line": 927,
+      "test": "test_golden_por_report_type",
+      "reason_constant": "_NOTIFY_REGULATORIO_GAP_REASON",
+      "classification": "TISS_XSD_SME"
+    },
+    {
+      "file": "tests/integration/processes/test_sp_op_ans_submit_001.py",
+      "line": 965,
+      "test": "test_ack_pendente_completa_como_enviado_pendente_ack",
+      "reason_constant": "_NOTIFY_REGULATORIO_GAP_REASON",
+      "classification": "TISS_XSD_SME"
+    },
+    {
+      "file": "tests/integration/processes/test_sp_op_ans_submit_001.py",
+      "line": 996,
+      "test": "test_corrigir_pendencia_reavalia",
+      "reason_constant": "_NOTIFY_REGULATORIO_GAP_REASON",
+      "classification": "TISS_XSD_SME"
+    },
+    {
+      "file": "tests/integration/processes/test_sp_op_ans_submit_001.py",
+      "line": 1028,
+      "test": "test_lgpd_nao_anonimizado_roteia_direto_a_revisao_humana",
+      "reason_constant": "_NOTIFY_REGULATORIO_GAP_REASON",
+      "classification": "TISS_XSD_SME"
+    },
+    {
+      "file": "tests/integration/processes/test_sp_op_ans_submit_001.py",
+      "line": 1057,
+      "test": "test_corrigir_pendencia_lgpd_anonimizado_reavalia",
+      "reason_constant": "_NOTIFY_REGULATORIO_GAP_REASON",
+      "classification": "TISS_XSD_SME"
+    },
+    {
+      "file": "tests/integration/processes/test_sp_op_ans_submit_001.py",
+      "line": 1092,
+      "test": "test_adiar_envio_registra_justificativa",
+      "reason_constant": "_NOTIFY_REGULATORIO_GAP_REASON",
+      "classification": "TISS_XSD_SME"
+    },
+    {
+      "file": "tests/integration/processes/test_sp_op_ans_submit_001.py",
+      "line": 1126,
+      "test": "test_dmn_ans_calendar_resolve_due_date",
+      "reason_constant": "_NOTIFY_REGULATORIO_GAP_REASON",
+      "classification": "TISS_XSD_SME"
+    },
+    {
+      "file": "tests/integration/processes/test_sp_op_ans_submit_001.py",
+      "line": 1147,
+      "test": "test_timer_deadline_risk_nao_interruptivo",
+      "reason_constant": "_NOTIFY_REGULATORIO_GAP_REASON",
+      "classification": "TISS_XSD_SME"
+    },
+    {
+      "file": "tests/integration/processes/test_sp_op_ans_submit_001.py",
+      "line": 1169,
+      "test": "test_timer_due_date_coordenacao_assume",
+      "reason_constant": "_NOTIFY_REGULATORIO_GAP_REASON",
+      "classification": "TISS_XSD_SME"
+    },
+    {
+      "file": "tests/integration/processes/test_sp_op_ans_submit_001.py",
+      "line": 1196,
+      "test": "test_coordenacao_assume_e_aprova",
+      "reason_constant": "_NOTIFY_REGULATORIO_GAP_REASON",
+      "classification": "TISS_XSD_SME"
+    },
+    {
+      "file": "tests/integration/processes/test_sp_op_ans_submit_001.py",
+      "line": 1232,
+      "test": "test_timer_deadline_risk_nao_interruptivo_juridico",
+      "reason_constant": "_NOTIFY_REGULATORIO_GAP_REASON",
+      "classification": "TISS_XSD_SME"
+    },
+    {
+      "file": "tests/integration/processes/test_sp_op_ans_submit_001.py",
+      "line": 1373,
+      "test": "test_catch_all_calendar_roteia_para_humano",
+      "reason_constant": "_NOTIFY_REGULATORIO_GAP_REASON",
+      "classification": "TISS_XSD_SME"
+    },
+    {
+      "file": "tests/integration/processes/test_sp_op_auth_001.py",
+      "line": 697,
+      "test": "test_happy_path_aprovacao_automatica_l2",
+      "reason_constant": "_AUTH_CEILING_D07_REASON",
+      "classification": "AUTH_D07"
+    },
+    {
+      "file": "tests/integration/processes/test_sp_op_cred_001.py",
+      "line": 1005,
+      "test": "test_descredenciar_exige_campos_worker_guard",
+      "reason_constant": "_CRED_GUARD_SHAPE_MISMATCH_REASON",
+      "classification": "CRED_GUARD_SHAPE_TE"
+    },
+    {
+      "file": "tests/integration/processes/test_sp_op_cred_001.py",
+      "line": 1037,
+      "test": "test_negar_exige_campos_worker_guard",
+      "reason_constant": "_CRED_GUARD_SHAPE_MISMATCH_REASON",
+      "classification": "CRED_GUARD_SHAPE_TE"
+    },
+    {
+      "file": "tests/integration/processes/test_sp_op_lgpd_dsr_001.py",
+      "line": 488,
+      "test": "test_happy_path_acesso_dados_saude_aprovado",
+      "reason_constant": "_LGPD_SEND_RESPONSE_DPO_MERIT_GATE_REASON",
+      "classification": "LGPD_DPO"
+    },
+    {
+      "file": "tests/integration/processes/test_sp_op_lgpd_dsr_001.py",
+      "line": 517,
+      "test": "test_happy_path_correcao_executa_e_envia",
+      "reason_constant": "_LGPD_SEND_RESPONSE_DPO_MERIT_GATE_REASON",
+      "classification": "LGPD_DPO"
+    },
+    {
+      "file": "tests/integration/processes/test_sp_op_lgpd_dsr_001.py",
+      "line": 546,
+      "test": "test_negativa_fundamentada_e_decisao_humana",
+      "reason_constant": "_LGPD_SEND_RESPONSE_DPO_MERIT_GATE_REASON",
+      "classification": "LGPD_DPO"
+    },
+    {
+      "file": "tests/integration/processes/test_sp_op_reembolso_001.py",
+      "line": 627,
+      "test": "test_happy_path_aprovacao_automatica_l2_com_teto_positivo",
+      "reason_constant": "_REEMBOLSO_CEILING_D07_REASON",
+      "classification": "REEMBOLSO_D07"
+    }
+  ]
+}

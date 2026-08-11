@@ -1,5 +1,6 @@
 .PHONY: setup lint type test test-integration evals validate-artifacts validate-signoff \
         check-bpmn-error-allowlist check-start-process-fence verify-amh-contract-pin \
+        xfail-census-check xfail-census-write \
         deploy-artifacts dev-stack dev-observability tf-validate localstack-up tf-smoke helm-lint
 
 LOCALSTACK_COMPOSE := deploy/terraform/localstack/docker-compose.localstack.yml
@@ -69,6 +70,19 @@ verify-amh-contract-pin: ## ADR-0037 XRD-04 (MZO-010/XRG-3): pin imutavel do con
 	# stdlib-only e SEM rede — verifica bytes que ja estao na arvore. Modos de steward (--candidate,
 	# --manifest) em `python scripts/ci/verify_amh_contract_pin.py --help`.
 	uv run python scripts/ci/verify_amh_contract_pin.py
+
+xfail-census-check: ## Onda 0 §0.8: censo de strict-xfail GERADO bate com docs/xfail-census.json + PLANS.md (gate de drift)
+	# Re-deriva do AST de tests/integration/processes/ todo marcador `@pytest.mark.xfail(reason=_*_REASON,
+	# strict=True)`, classifica cada um pelo nome da constante `_*_REASON` contra o mapa comitado
+	# (constante SEM entrada = FALHA; entrada apontando p/ constante que nao existe mais = FALHA), e
+	# compara o total/distribuicao/breakdown contra docs/xfail-census.json E a regiao gerenciada de
+	# PLANS.md (§0.5.3, entre marcadores <!-- xfail-census:*:begin/end -->). Drift em qualquer um -> FALHA
+	# com diff preciso. Corrige o achado W5 do §0.8 (censo real 22 != PLANS 24 != handoff.yaml na mesma
+	# semana) tornando o numero um artefato gerado, nunca mais recontado a mao.
+	uv run python scripts/ci/generate_xfail_census.py --check
+
+xfail-census-write: ## Onda 0 §0.8: regenera docs/xfail-census.json + a regiao gerenciada de PLANS.md
+	uv run python scripts/ci/generate_xfail_census.py --write
 
 deploy-artifacts: ## deploy spec/processes/{bpmn,dmn} no engine CIB Seven (idempotente; requer `make dev-stack` de pe)
 	# T1.3: POST /deployment/create multipart (enable-duplicate-filtering + deploy-changed-only)

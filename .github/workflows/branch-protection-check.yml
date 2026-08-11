@@ -1,0 +1,119 @@
+name: branch-protection-check
+
+# ---------------------------------------------------------------------------
+# Governance-drift-as-executable-red-check (PLANS.md Hardening §0.8 Onda 0, finding W6).
+#
+# Known state at authoring (verified empirically 2026-08-09/2026-08-10, `gh api` from the repo):
+# `main` carries NO server-side protection — classic protection endpoint 404s, ruleset list is `[]`.
+# CODEOWNERS is advisory only without it. This workflow does not FIX that (it is a 10-minute
+# owner-only action in repo Settings — GitHub API has no unauthenticated/token-safe way for CI to
+# grant itself admin and self-enable protection, nor should it) — it makes the ABSENCE loud and
+# permanent instead of a fact that only lives in a memory file and goes stale.
+#
+# RULESETS ONLY — classic branch protection alone CANNOT satisfy this check (MAJOR-3 repair, GK
+# adversarial review 2026-08-10). Evidence: `GET /branches/{branch}` returns `.protected == true` for
+# repos protected via EITHER classic protection OR a ruleset (GitHub docs; empirically confirmed on
+# astral-sh/uv and pytest-dev/pytest, both ruleset-protected with `protected: true` and no classic
+# protection object). But `GET /rules/branches/{branch}` — the only endpoint this workflow is able to
+# read with a plain read-scoped `GITHUB_TOKEN` — returns RULESET rules ONLY: on classic-protected
+# repos with zero rulesets (kubernetes/kubernetes, python/cpython, golang/go — all classic-protected,
+# confirmed via `gh api`), this endpoint returns `[]`. So a rule count > 0 here is reachable via a
+# ruleset and NEVER via classic protection alone — there is no read-scope-safe way to see classic
+# protection's PR-review/status-check DETAIL from CI (the classic `/branches/{branch}/protection`
+# endpoint requires ADMIN and 403s for the default `GITHUB_TOKEN` even when classic protection
+# genuinely exists; a 403 from it proves nothing and must never be read as "unprotected" — so this
+# workflow never calls it). Consequence: GREEN below is achievable ONLY by adding a branch RULESET —
+# classic protection, however configured, will leave `rule_count == 0` and this check RED. The
+# failure message says so explicitly; do not "fix" this by pointing the owner at classic protection,
+# it will not turn the check green.
+#
+# Two independent, both READ-ONLY-scope-accessible signals are checked (empirically confirmed
+# 2026-08-10 against this repo with a plain read-scoped call):
+#   1. GET /repos/{o}/{r}/branches/{branch} -> `.protected` (boolean; basic repo-read, no admin).
+#   2. GET /repos/{o}/{r}/rules/branches/{branch} -> active ruleset rules that apply to the branch
+#      (readable with plain read access; this is DIFFERENT from the classic
+#      /branches/{branch}/protection endpoint, which requires ADMIN and 403s for the default
+#      GITHUB_TOKEN even when protection genuinely exists — never call that endpoint here, a 403
+#      from it proves nothing about the real state and must not be read as "unprotected").
+# GREEN requires BOTH signals to agree the branch is protected AND the active RULESET rules include
+# the two semantics that matter (a required pull request before merging + required status checks) —
+# a ruleset that merely blocks force-pushes, for instance, does not satisfy this gate; neither does
+# classic protection on its own (see above — it never produces a non-empty `rules/branches` response).
+# Any other outcome — no rules, missing PR/status-check semantics, signals disagreeing, or the API
+# calls themselves failing — is RED. An API failure is explicitly RED, never a silent skip: the whole
+# point of this check is that governance drift must never again pass by going unread.
+# ---------------------------------------------------------------------------
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "13 8 * * 1"   # weekly, Monday 08:13 UTC — offset from ci.yml (06:00) and red-main-alarm (:17)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  branch-protection-check:
+    name: branch-protection-check
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      BRANCH: main
+    steps:
+      # No checkout: this is pure `gh api` — keep the job fast/cheap (red-main-alarm.yml precedent).
+      - name: Verify main carries an active branch-protection RULESET (classic protection alone does not satisfy this check)
+        shell: bash
+        run: |
+          set -uo pipefail  # deliberately not -e: each API call's exit status is checked explicitly
+                             # below so a failure produces a loud, specific RED message instead of a
+                             # bare traceback — but every failure path still `exit 1`s.
+
+          fail() {
+            {
+              echo "## branch-protection-check: RED"
+              echo ""
+              echo "$1"
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "branch-protection-check: RED — $1"
+            exit 1
+          }
+
+          branch_json="$(gh api "repos/${REPO}/branches/${BRANCH}" 2>&1)"
+          branch_status=$?
+          if [ "$branch_status" -ne 0 ]; then
+            fail "GET /repos/${REPO}/branches/${BRANCH} failed (API inaccessible or branch missing) — fail-closed, never silent-green. Response: ${branch_json}"
+          fi
+          protected="$(printf '%s' "$branch_json" | jq -r '.protected // "null"')"
+
+          rules_json="$(gh api "repos/${REPO}/rules/branches/${BRANCH}" 2>&1)"
+          rules_status=$?
+          if [ "$rules_status" -ne 0 ]; then
+            fail "GET /repos/${REPO}/rules/branches/${BRANCH} failed (API inaccessible) — fail-closed, never silent-green. Response: ${rules_json}"
+          fi
+
+          rule_count="$(printf '%s' "$rules_json" | jq 'length')"
+          has_pr_rule="$(printf '%s' "$rules_json" | jq '[.[] | select(.type == "pull_request")] | length > 0')"
+          has_status_checks_rule="$(printf '%s' "$rules_json" | jq '[.[] | select(.type == "required_status_checks")] | length > 0')"
+
+          {
+            echo "branch: ${BRANCH}"
+            echo "protected (branches API): ${protected}"
+            echo "active rules (rules/branches API): ${rule_count}"
+            echo "has pull_request rule: ${has_pr_rule}"
+            echo "has required_status_checks rule: ${has_status_checks_rule}"
+          }
+
+          if [ "$protected" = "true" ] && [ "$rule_count" -gt 0 ] && [ "$has_pr_rule" = "true" ] && [ "$has_status_checks_rule" = "true" ]; then
+            {
+              echo "## branch-protection-check: GREEN"
+              echo ""
+              echo "\`${BRANCH}\` is protected: ${rule_count} active rule(s) applying, including a required-pull-request rule and a required-status-checks rule."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "branch-protection-check: GREEN"
+            exit 0
+          fi
+
+          fail "\`${BRANCH}\` is NOT adequately protected (protected=${protected}, active_rules=${rule_count}, has_pull_request_rule=${has_pr_rule}, has_required_status_checks_rule=${has_status_checks_rule}). OWNER ACTION (~10 min, unblocks all downstream governance — PLANS.md §0.8 Onda 0): GitHub web UI -> this repo -> Settings -> Rules -> Rulesets -> New branch ruleset targeting \`${BRANCH}\`, enable 'Require a pull request before merging' + 'Require status checks to pass' + 'Require review from Code Owners'. IMPORTANT: classic branch protection (Settings -> Branches -> Add branch protection rule) will NOT satisfy this check even if fully configured there — the read-scoped API this workflow uses (GET /rules/branches/\${BRANCH}) only ever returns RULESET rules; a classic-protected, ruleset-free branch reports zero rules here regardless of its classic settings, and the classic protection detail endpoint is admin-only/unreadable from this workflow's default token. The RULESET path above is the only way to turn this check green."

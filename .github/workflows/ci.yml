@@ -118,6 +118,22 @@ jobs:
       - name: AMH contract pin gate (ADR-0037 XRD-04)
         run: make verify-amh-contract-pin
 
+      # PLANS.md Hardening §0.8 Onda 0 (finding W5): the strict-xfail census under
+      # tests/integration/processes/ is now a GENERATED artifact, not a hand-recounted number —
+      # this re-derives it from the AST and fails on drift vs docs/xfail-census.json OR the
+      # generator-managed region of PLANS.md §0.5.3. Belt-and-suspenders with the real-tree
+      # regression fence in tests/unit/ci/test_generate_xfail_census.py.
+      - name: Strict-xfail census drift gate (Hardening §0.8 Onda 0)
+        run: make xfail-census-check
+
+      - name: Upload strict-xfail census
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: xfail-census
+          path: docs/xfail-census.json
+          retention-days: 30
+
   # ── Reativado em M13: o módulo maezo.platform.validation.cli está implementado
   # (construído em M2/M9). make validate-signoff funciona.
   # ✅ Passa em CI (greenfield stub, exit 0).
