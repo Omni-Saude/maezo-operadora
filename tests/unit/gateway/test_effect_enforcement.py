@@ -513,7 +513,18 @@ def test_no_provenance_line_is_emitted_when_the_variable_is_unset(
     assert "action_approvals_spec_dir_overridden" not in events
 
 
-@pytest.mark.parametrize("env_name", RUNTIME_MODE_ENVS)
+def test_the_runtime_mode_discriminator_reads_both_declared_spellings() -> None:
+    """The NAMES are pinned as literals, in `key_scrubber.py:117`'s order.
+
+    Deliberately not written as `assert RUNTIME_MODE_ENVS == RUNTIME_MODE_ENVS`-shaped tautology,
+    and deliberately not parametrized off the constant either: a test that derives its own matrix
+    from the value under test SHRINKS silently when someone shortens that value, and reports green.
+    """
+    assert RUNTIME_MODE_ENVS == ("RUNTIME_MODE", "AGENT_RUNTIME_MODE")
+    assert RUNTIME_MODE_ENV == "AGENT_RUNTIME_MODE"
+
+
+@pytest.mark.parametrize("env_name", ["RUNTIME_MODE", "AGENT_RUNTIME_MODE"])
 def test_either_runtime_mode_variable_arms_the_spec_dir_pin(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, env_name: str
 ) -> None:
