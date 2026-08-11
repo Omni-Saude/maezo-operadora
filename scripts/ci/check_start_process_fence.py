@@ -24,7 +24,7 @@ literal) repo-wide over `src/maezo/`, with an explicit, narrow allowlist for the
 legitimately implement (not bypass) the call:
 
   - `tools/mcp_cibseven/transport.py` — the fence's OWN module. `start_process_idempotent` itself
-    calls `transport.start_process_instance(...)` (transport.py:615) — that IS the fence,
+    calls `transport.start_process_instance(...)` (transport.py:1177) — that IS the fence,
     definitionally sanctioned. (`CibSevenHttpTransport`/`FakeCibSevenTransport` also DEFINE
     `start_process_instance` here — a `def`, not a `Call`, so it never trips this scan anyway.)
   - `tools/workers/cibseven_engine.py` — `FreshClientCibSevenTransport`, a `CibSevenTransport`
