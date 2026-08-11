@@ -786,6 +786,21 @@ def test_the_boot_assertion_goes_red_when_a_raw_seam_is_smuggled_in() -> None:
     assert not ok, "an EMPTY dep map must be red, not vacuously green"
     assert "vacuous" in detail
 
+    # A MANDATORY seam key present but None is a THIRD shape, and it is not "vacuous": the wiring
+    # line exists and the seam failed to BUILD (every root constructs these inside its own
+    # isolated try, so this is the exact state a construction failure leaves behind). Reporting it
+    # as "no effect seam present" pointed an operator at a missing wiring line that is right there.
+    for dep_map, expected in (
+        ({"dmn": None}, ["dmn"]),
+        ({"dmn": None, "cibseven": None}, ["cibseven", "dmn"]),
+        ({"dmn": None, "audit_sink": object()}, ["dmn"]),  # non-seam keys are not implicated
+    ):
+        ok, detail = effect_seams_gated(dep_map)
+        assert not ok, f"{dep_map} must stay UNHEALTHY — the tightening is cosmetic, not behavioural"
+        assert "vacuous" not in detail, f"{dep_map}: reported as vacuous; it names a seam"
+        for name in expected:
+            assert name in detail, f"{dep_map}: detail does not name the None seam {name!r}"
+
     # Non-effect keys are not seams and must not be demanded to be gated.
     ok, _ = effect_seams_gated(dict(gated_map) | {"audit_sink": object(), "agent_version": "x@v0"})
     assert ok

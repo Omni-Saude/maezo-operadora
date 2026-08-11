@@ -495,6 +495,17 @@ def effect_seams_gated(deps: Any) -> tuple[bool, str]:
         return False, "dep map unreadable"
     present = sorted(k for k in EFFECT_SEAM_KEYS if items.get(k) is not None)
     if not present:
+        # A seam key that IS declared but carries None is a different fault from a dep map that
+        # never mentioned a seam at all, and reporting both as "vacuous — nothing was gated" sent
+        # an operator looking for a missing wiring line when the real story is a seam whose
+        # CONSTRUCTION failed (every root builds these inside its own isolated try). Both stay
+        # UNHEALTHY — this only makes the detail say which of the two it is.
+        declared_none = sorted(k for k in EFFECT_SEAM_KEYS if k in items and items[k] is None)
+        if declared_none:
+            return False, (
+                f"effect seam(s) declared but None: {', '.join(declared_none)} — "
+                "nothing was gated (a seam that failed to build is not a seam that is absent)"
+            )
         return False, "no effect seam present in the dep map (vacuous — nothing was gated)"
     violations = gated_seam_violations(items)
     if violations:
