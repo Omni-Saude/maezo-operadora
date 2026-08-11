@@ -414,18 +414,20 @@ def test_noop_class_defined_inside_a_composition_root_raises_unless_declared(tmp
     assert any("NoopSomethingElse" in v and "[8.4]" in v for v in result.violations)
 
 
-def test_declared_exception_noop_kafka_producer_is_accepted(tmp_path: Path) -> None:
-    file_rel, name = next(iter(DECLARED_TEST_DOUBLE_EXCEPTIONS))
+@pytest.mark.parametrize(("file_rel", "name"), sorted(DECLARED_TEST_DOUBLE_EXCEPTIONS))
+def test_declared_exception_is_accepted(tmp_path: Path, file_rel: str, name: str) -> None:
     _write(tmp_path / file_rel, f"class {name}:\n    pass\n")
     result = scan_tree(tmp_path)
     assert result.ok, result.render()
     assert result.counters.get("8.4_declared_exception") == 1
 
 
-def test_declared_exception_is_scoped_to_its_exact_file_never_by_pattern(tmp_path: Path) -> None:
+@pytest.mark.parametrize(("_file_rel", "name"), sorted(DECLARED_TEST_DOUBLE_EXCEPTIONS))
+def test_declared_exception_is_scoped_to_its_exact_file_never_by_pattern(
+    tmp_path: Path, _file_rel: str, name: str
+) -> None:
     """The SAME double name, defined in a DIFFERENT composition root, is NOT covered by the
     declared exception — proving the allowlist is a (file, name) pair, never a bare pattern."""
-    _, name = next(iter(DECLARED_TEST_DOUBLE_EXCEPTIONS))
     other_root = "platform/webhooks/service.py"
     assert (other_root, name) not in DECLARED_TEST_DOUBLE_EXCEPTIONS
     _write(tmp_path / other_root, f"class {name}:\n    pass\n")

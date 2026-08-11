@@ -385,7 +385,10 @@ DECLARED_TEST_DOUBLE_EXCEPTIONS: Final[frozenset[tuple[str, str]]] = frozenset(
 
 
 def _is_test_double_name(name: str) -> bool:
-    return name.startswith("Fake") or name.startswith("Noop") or "Mock" in name
+    # `_NoopKafkaProducer` is the live, REAL example (a2a_composition.py) — a single leading
+    # underscore (Python's "module-private" convention) must not hide it from `Noop*`/`Fake*`.
+    unprefixed = name.lstrip("_")
+    return unprefixed.startswith("Fake") or unprefixed.startswith("Noop") or "Mock" in name
 
 
 # =================================================================================================
