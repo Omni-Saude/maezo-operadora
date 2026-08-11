@@ -13,7 +13,7 @@ Mirrors `test_check_start_process_fence.py`'s two layers:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 import pytest
 import yaml
@@ -224,14 +224,38 @@ def test_httpx_client_imported_by_name_is_also_caught(tmp_path: Path) -> None:
     assert any("httpx.AsyncClient" in v for v in result.violations)
 
 
-@pytest.mark.parametrize("substring", sorted(FORBIDDEN_REST_PATH_SUBSTRINGS))
+#: §8.2's four path fragments, written out as LITERALS rather than read from
+#: `FORBIDDEN_REST_PATH_SUBSTRINGS`. That distinction is the whole point of this table: the
+#: positive-case test below used to parametrize over the constant itself, so DELETING a fragment
+#: from the gate also deleted the case that would have caught the deletion — three of the four
+#: could be dropped and all 63 tests stayed green. A test that derives its own matrix from the
+#: value under test cannot pin that value. Same shape as §8.1's
+#: `test_every_forbidden_construction_name_has_an_allowlist_entry_key`, which is why that one works.
+_EXPECTED_REST_PATH_SUBSTRINGS: Final[tuple[str, ...]] = (
+    "/message",  # CIB Seven correlate — `transport.py:411`; NO trailing slash (see MINOR-1)
+    "/messages",  # WhatsApp Cloud API send
+    "/Patient/",  # FHIR patient read
+    "/decision-definition/key",  # DMN evaluate
+)
+
+
+def test_the_forbidden_rest_path_set_is_exactly_the_four_pinned_fragments() -> None:
+    """Pin the SET, so a fragment cannot be dropped, renamed, or quietly re-slashed.
+
+    Without this, the parametrized test below silently shrinks with the constant it iterates.
+    """
+    assert frozenset(_EXPECTED_REST_PATH_SUBSTRINGS) == FORBIDDEN_REST_PATH_SUBSTRINGS
+
+
+@pytest.mark.parametrize("substring", _EXPECTED_REST_PATH_SUBSTRINGS)
 def test_rest_path_literal_outside_allowlist_raises(tmp_path: Path, substring: str) -> None:
+    """Each fragment, independently: dropping ANY one of them now kills a case."""
     _write(
         tmp_path / "agents" / "example" / "graph.py",
         f"async def call(client):\n    return await client.post({substring!r})\n",
     )
     result = scan_tree(tmp_path)
-    assert not result.ok
+    assert not result.ok, f"{substring!r} is not fenced by §8.2"
     assert any(substring in v and "[8.2]" in v for v in result.violations)
 
 
