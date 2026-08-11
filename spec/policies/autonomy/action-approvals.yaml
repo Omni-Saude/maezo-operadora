@@ -146,13 +146,24 @@ enforcement_padrao_nao_mapeado: shadow
 # (`src/maezo/gateway/action_execution.py`). "Approve by shrinking the requirement list" is not a
 # reachable forgery.
 #
-# `superficies[].choked` records whether the surface flows through the chokepoint the gateway is
-# wired at TODAY (`WorkerHarness._handle`, src/maezo/tools/workers/harness.py). It is
-# DOCUMENTATION, not policy — the loader never reads it. It exists so an approver knows, per
+# `superficies[].choked` records whether the surface flows through a chokepoint that ACTUALLY
+# EVALUATES it today. There are now TWO, and both are real:
+#   1. `WorkerHarness._handle` (src/maezo/tools/workers/harness.py) — the external-task leg, keyed
+#      by topic. Unchanged by Onda 1.
+#   2. The Onda-1 agent seam layer (`src/maezo/gateway/seams/`, built ONLY by
+#      `src/maezo/gateway/tool_registry.py`) — the per-call leg for agent/worker tool seams.
+# It is DOCUMENTATION, not policy — the loader never reads it. It exists so an approver knows, per
 # class, whether shadow telemetry will actually give them evidence, or whether the surface is
-# still unwired. `choked: false` classes are listed because XRD-09 names them and ADR-0037's
-# ADR-0022 note requires `mcp_fhir` to route through this gateway; they will produce NO shadow
-# evidence until that wiring lands, and the approval packet says so explicitly.
+# still unwired: a class with zero shadow lines is not approvable (design I-10).
+#
+# ONDA 1 B2 flipped `choked: true` ONLY where the wiring makes it an OBSERVED FACT, and
+# `tests/unit/gateway/seams/test_manifest_choked_surfaces.py` makes the claim VERIFIABLE — every
+# `choked: true` surface must resolve to a catalogued operation in
+# `src/maezo/gateway/effect_classes.py` AND its construction site must route through the registry.
+# THREE surfaces deliberately STAYED `false`, each with its reason inline: the agent-initiated
+# process start (gating it would mean changing `start_process_idempotent`'s internals, which
+# design §5.8/I-6 forbid) and the two population/actuarial reads (the lake client is PORT-PENDING
+# WB.4, so nothing is injected and nothing can be observed). Truth over completeness.
 # ---------------------------------------------------------------------------------------------
 acoes:
 
@@ -298,8 +309,10 @@ acoes:
         detalhe: "topic operadora.lgpd.request_additional_proof (raw handler)"
         choked: true
       - referencia: "src/maezo/tools/mcp_whatsapp/server.py:111"
-        detalhe: "WhatsAppServer.send_message — chamada direta do grafo do agente"
-        choked: false
+        detalhe: "WhatsAppServer.send_message — via GatedWhatsAppSender (Onda 1). Inclui o
+          caminho VIVO: o _ScopedWhatsAppSender por turno (dispatch.py) é o INNER do wrapper, então
+          o número CRU nunca chega à decisão nem a linha nenhuma de log"
+        choked: true
     dominios_exigidos: [medica, ans, seguranca]
     aprovacoes:
       medica:    { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
@@ -335,7 +348,11 @@ acoes:
         detalhe: "topic operadora.nip.handoff_ans_submit"
         choked: true
       - referencia: "src/maezo/tools/mcp_cibseven/transport.py:1069"
-        detalhe: "start_process_idempotent — start iniciado por agente"
+        detalhe: "start_process_idempotent — start iniciado por agente. SEGUE choked:false POR
+          DECISÃO, não por omissão: start_process_instance só é alcançado de DENTRO desta função,
+          DEPOIS da claim durável (:1152-1157), então negar ali encravaria a business key de
+          família estrita como uma queda de engine faz (:1195-1211). Gatear exige mexer nas
+          entranhas da fence — design §5.8/I-6 proíbem. Divulgado em gateway/seams/cibseven.py"
         choked: false
     dominios_exigidos: [medica, ans, seguranca]
     aprovacoes:
@@ -349,14 +366,18 @@ acoes:
       Leitura de dado clínico PHI via FHIR (`read_phi_data`, L0-core.yaml:42, L3). XRD-09 põe
       "todo READ" no escopo do gateway, e a nota do ADR-0037 sobre o ADR-0022 diz explicitamente
       que o `mcp_fhir` DEVE rotear por este gateway quando o MZO-040 aterrissar.
-      SEM EVIDÊNCIA DE SOMBRA HOJE: nenhuma dessas superfícies passa pelo chokepoint atual.
+      PASSA A PRODUZIR EVIDÊNCIA DE SOMBRA (Onda 1 B2): as duas superfícies do leaf `FhirServer`
+      são alcançadas exclusivamente por adapters embrulhados em `GatedFhirReader`.
     superficies:
       - referencia: "src/maezo/tools/mcp_fhir/server.py:88"
-        detalhe: "FhirServer.read_resource — chamada direta do grafo do agente"
-        choked: false
+        detalhe: "FhirServer.read_resource — via GatedFhirReader (Onda 1), alcançado pelos
+          adapters de rafael/carolina/gustavo/andre (read_patient) e valentina
+          (read_patient_summary)"
+        choked: true
       - referencia: "src/maezo/tools/mcp_fhir/server.py:118"
-        detalhe: "FhirServer.search_resources — chamada direta do grafo do agente"
-        choked: false
+        detalhe: "FhirServer.search_resources — via GatedFhirReader (Onda 1), alcançado pelo
+          search_coverage do adapter do rafael"
+        choked: true
     dominios_exigidos: [medica, ans, seguranca]
     aprovacoes:
       medica:    { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
@@ -369,11 +390,14 @@ acoes:
       Delegação agente-a-agente por envelope assinado. O contrato A2A é "instrui, não decide",
       mas a delegação atravessa fronteira de agente e carrega contexto — é um efeito de tool no
       sentido do XRD-09.
-      SEM EVIDÊNCIA DE SOMBRA HOJE: não passa pelo chokepoint atual.
+      PASSA A PRODUZIR EVIDÊNCIA DE SOMBRA (Onda 1 B2): `delegate` é gateado nas duas raízes de
+      composição de dispatcher.
     superficies:
       - referencia: "src/maezo/a2a/dispatcher.py:277"
-        detalhe: "A2ADispatcher.delegate"
-        choked: false
+        detalhe: "DelegationDispatcher.delegate — via GatedDelegationDispatcher (Onda 1), nas
+          duas raízes de composição (aresta Helena->Rafael e as três de dossiê worker->
+          Carolina/Andre)"
+        choked: true
     dominios_exigidos: [medica, ans, seguranca]
     aprovacoes:
       medica:    { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
@@ -383,9 +407,13 @@ acoes:
   # ===========================================================================================
   # CLASSES DECLARADAS PELA ONDA 1 (design §6.1). TODAS `enforcement: shadow`, TODAS SEM
   # APROVAÇÃO — declarar uma classe NÃO é aprová-la, e nenhum bloco abaixo foi tocado por agente.
-  # `choked: false` em todas: a fiação dos seams de agente é a perna B2 desta mesma onda; ela é
-  # quem vira `choked: true`, e só como FATO OBSERVADO (design §7.2 / I-10). Uma classe sem
-  # nenhuma linha de telemetria de sombra não é aprovável.
+  # `choked`: a perna B2 desta mesma onda fiou os seams de agente e virou para `true` APENAS o
+  # que a fiação tornou FATO OBSERVADO (design §7.2 / I-10) — avaliacao_dmn (3/3),
+  # consulta_processo (3/3), correlacao_processo (1/1) e inferencia_llm (1/1) passam a produzir
+  # telemetria de sombra. `leitura_populacional` segue `false` nas duas superfícies: o wrapper
+  # existe, o cliente de lago não (PORT-PENDING WB.4), e virar sem cliente injetado seria alegar
+  # evidência que não existe. Uma classe sem nenhuma linha de telemetria de sombra não é
+  # aprovável — e é por isso que a virada é um relato, não uma intenção.
   # ===========================================================================================
 
   avaliacao_dmn:
@@ -394,18 +422,20 @@ acoes:
       Consulta determinística ao motor de decisão (DMN, ADR-0012) — `query_decision_engine`
       (L0-core.yaml:36, L3). Não é efeito no mundo externo: é leitura interna de regra. Rung C0
       do rollout progressivo, e por isso a primeira candidata a enforcement.
-      SEM EVIDÊNCIA DE SOMBRA HOJE.
+      PASSA A PRODUZIR EVIDÊNCIA DE SOMBRA (Onda 1 B2): as 3 superfícies estão choked.
     superficies:
       - referencia: "src/maezo/agents/rafael/graph.py:548"
         detalhe: "self._dmn.evaluate — a ÚNICA chamada de transporte por grafo, atrás do helper
-          privado _evaluate_dmn (:546)"
-        choked: false
+          privado _evaluate_dmn (:546). Via GatedDmnTransport (Onda 1)"
+        choked: true
       - referencia: "src/maezo/agents/marina/graph.py:806"
-        detalhe: "self._dmn.evaluate — mesmo formato, helper _evaluate_dmn (:804)"
-        choked: false
+        detalhe: "self._dmn.evaluate — mesmo formato, helper _evaluate_dmn (:804). Via
+          GatedDmnTransport (Onda 1)"
+        choked: true
       - referencia: "src/maezo/tools/workers/dmn_transport.py:345"
-        detalhe: "CibSevenDmnTransport.evaluate — perna de worker"
-        choked: false
+        detalhe: "CibSevenDmnTransport.evaluate — perna de worker, via GatedDmnTransport resolvido
+          na raiz runtime/worker_runtime/service.py (Onda 1)"
+        choked: true
     dominios_exigidos: [medica, ans, seguranca]
     aprovacoes:
       medica:    { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
@@ -419,17 +449,21 @@ acoes:
       ITEM DE MAIOR RISCO DO RUNG C0: uma leitura NEGADA não pode ser lida como "não há instância
       ativa". A consulta anti-dupla-terminação tem de falhar FECHADA (pular), igual ao
       comportamento de hoje quando o engine está ausente.
-      SEM EVIDÊNCIA DE SOMBRA HOJE.
+      PASSA A PRODUZIR EVIDÊNCIA DE SOMBRA (Onda 1 B2): as 3 superfícies estão choked.
     superficies:
       - referencia: "src/maezo/tools/mcp_cibseven/transport.py:420"
-        detalhe: "CibSevenHttpTransport.get_process_status"
-        choked: false
+        detalhe: "CibSevenHttpTransport.get_process_status — via GatedCibSevenTransport (Onda 1)"
+        choked: true
       - referencia: "src/maezo/tools/mcp_cibseven/transport.py:278"
-        detalhe: "CibSevenHttpTransport.find_active_instance (active=true apenas)"
-        choked: false
+        detalhe: "CibSevenHttpTransport.find_active_instance (active=true apenas) — via
+          GatedCibSevenTransport (Onda 1). A recusa LEVANTA (subclasse de CibSevenError), jamais
+          devolve None: uma leitura negada não pode ser lida como 'não há instância ativa'"
+        choked: true
       - referencia: "src/maezo/tools/mcp_cibseven/transport.py:307"
-        detalhe: "find_any_instance — a perna HistoryQueryingTransport do gate estrito"
-        choked: false
+        detalhe: "find_any_instance — a perna HistoryQueryingTransport do gate estrito. Via
+          GatedHistoryQueryingCibSevenTransport, construído SÓ quando o inner de fato a tem, para
+          que a sonda isinstance de _require_strict_gate_seams (:940-947) siga honesta"
+        choked: true
     dominios_exigidos: [medica, ans, seguranca]
     aprovacoes:
       medica:    { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
@@ -441,12 +475,14 @@ acoes:
     descricao: >-
       Correlação de mensagem BPMN a uma instância em curso — `correlate_process_message`
       (L0-core.yaml:39, L2). Muta o engine: destrava (ou não) um receive task. Hoje é alcançável
-      CRUA a partir de qualquer grafo, que segura o `CibSevenTransport` diretamente.
-      SEM EVIDÊNCIA DE SOMBRA HOJE.
+      CRUA a partir de qualquer grafo, que segura o `CibSevenTransport` diretamente — a Onda 1
+      B2 fecha isso: o objeto que o grafo segura JÁ É o gate.
+      PASSA A PRODUZIR EVIDÊNCIA DE SOMBRA (Onda 1 B2).
     superficies:
       - referencia: "src/maezo/tools/mcp_cibseven/transport.py:387"
-        detalhe: "CibSevenHttpTransport.correlate_message (Protocol em :151)"
-        choked: false
+        detalhe: "CibSevenHttpTransport.correlate_message (Protocol em :151) — via
+          GatedCibSevenTransport (Onda 1)"
+        choked: true
     dominios_exigidos: [medica, ans, seguranca]
     aprovacoes:
       medica:    { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
@@ -460,13 +496,18 @@ acoes:
       matriz de autonomia: `read_phi_data` é o mais próximo e está ERRADO — agregado k-anônimo não
       é PHI. Enquanto o nome não existir (decisão humana ADR-0008/0025, design Q-4), a camada L-2
       registra `VOCABULARIO_PENDENTE` e NEGA — telemetria honesta, nunca vocabulário inventado.
-      SEM EVIDÊNCIA DE SOMBRA HOJE.
+      SEGUE SEM EVIDÊNCIA DE SOMBRA: o cliente de população é PORT-PENDING (WB.4), então o
+      wrapper existe mas nada é injetado e nada é observado. As duas superfícies seguem
+      `choked: false` (design §7.2: verdade acima de completude).
     superficies:
       - referencia: "src/maezo/agents/andre/graph.py:708"
-        detalhe: "PopulationFeatureClient.actuarial_risk (Protocol em :316)"
+        detalhe: "PopulationFeatureClient.actuarial_risk (Protocol em :316). SEGUE choked:false:
+          o GatedPopulationFeatureClient EXISTE e é testado, mas o cliente de lago é PORT-PENDING
+          (WB.4) — nada é injetado, então nada é observável. Uma classe sem linha de sombra não é
+          aprovável (I-10), e virar isto seria alegar evidência inexistente"
         choked: false
       - referencia: "src/maezo/agents/andre/graph.py:720"
-        detalhe: "PopulationFeatureClient.population_metrics"
+        detalhe: "PopulationFeatureClient.population_metrics — mesma situação"
         choked: false
     dominios_exigidos: [medica, ans, seguranca]
     aprovacoes:
@@ -482,11 +523,13 @@ acoes:
       geração com PHI de geração geral SEM carregar o prompt. TAMBÉM sem nome ratificado na matriz
       (design Q-4) => L-2 nega com `VOCABULARIO_PENDENTE`. O roteamento `phi=True` do provider
       continua falhando fechado de forma INDEPENDENTE deste gateway (invariante I-6).
-      SEM EVIDÊNCIA DE SOMBRA HOJE.
+      PASSA A PRODUZIR EVIDÊNCIA DE SOMBRA (Onda 1 B2).
     superficies:
       - referencia: "src/maezo/runtime/inference.py:616"
-        detalhe: "InferenceProvider.generate(prompt, phi=...) — PhiZoneRoutingError na zona PHI"
-        choked: false
+        detalhe: "InferenceProvider.generate(prompt, phi=...) — via GatedInferenceProvider
+          (Onda 1); phi= escolhe qual token catalogar. O PhiZoneRoutingError segue INDEPENDENTE do
+          PEP (I-6): a delegação é nua e o wrapper não o captura"
+        choked: true
     dominios_exigidos: [medica, ans, seguranca]
     aprovacoes:
       medica:    { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
