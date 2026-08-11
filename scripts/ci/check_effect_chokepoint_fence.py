@@ -61,9 +61,17 @@ tree, not the pre-implementation plan):
     `InferenceProvider` has no separate Protocol in this codebase and is imported for typing in
     every graph). This gate applies the SAME concrete-provider-only carve-out to all three module
     families; re-derived against the tree (`grep` census below each allowlist) rather than assumed.
-  * §8.2's REST-path substring `/message/` (with a trailing slash) never matches the actual CIB
-    Seven correlate-message literal in `transport.py` (`"/message"`, no trailing slash) — the
-    design doc's own text, implemented verbatim per governing spec, not "corrected" unilaterally.
+  * §8.2's REST-path list is implemented with `/message` — the design text says `/message/`, WITH
+    a trailing slash, and this gate deliberately DEVIATES from that one character. The actual CIB
+    Seven correlate-message literal is `"/message"` (`transport.py:411`), so the spec's spelling
+    matches nothing in the tree: it was an INERT rule, and no other rule compensated — a
+    hand-rolled correlate through an INJECTED client (no httpx construction, no fenced class name)
+    cleared the whole fence. Between transcribing the spec verbatim and actually fencing the C3
+    `correlacao_processo` class the spec wrote the rule FOR, verbatim was the worse fidelity.
+    Strictly widening, and it costs no false positive on the real tree: the
+    `8.2_rest_path_sanctioned` counter moves 5 -> 7, the two extra hits being sanctioned
+    `transport.py` literals the rule always intended to cover (`/messages` contains `/message`,
+    so one literal legitimately counts against both patterns).
 
 Usage (CI / local)
 -------------------
@@ -272,10 +280,16 @@ _HTTPX_CLIENT_ADDITIONAL_MODULES: Final[frozenset[str]] = frozenset(
 
 HTTPX_SANCTIONED_MODULES: Final[frozenset[str]] = _HTTPX_DESIGN_MODULES | _HTTPX_CLIENT_ADDITIONAL_MODULES
 
-#: The effect REST-path fragments verbatim from design §8.2. `process-definition/key` stays in the
+#: The effect REST-path fragments from design §8.2. `process-definition/key` stays in the
 #: OLD (`check_start_process_fence.py`) gate only, per the brief — deliberately absent here.
+#:
+#: `/message` DEVIATES from the spec's `/message/` by one character, deliberately — see the module
+#: docstring's Deviations block. The slashed form matches NOTHING in this tree (the real literal is
+#: `"/message"`, `transport.py:411`), so as written the rule was INERT and a hand-rolled correlate
+#: through an injected client cleared the fence. A rule that cannot fire is not fidelity to the
+#: spec; it is the C3 `correlacao_processo` class going unfenced by the very rule written for it.
 FORBIDDEN_REST_PATH_SUBSTRINGS: Final[frozenset[str]] = frozenset(
-    {"/message/", "/Patient/", "/messages", "/decision-definition/key"}
+    {"/message", "/Patient/", "/messages", "/decision-definition/key"}
 )
 
 #: Tighter than the client-construction allowlist on purpose: the two disclosed additions above

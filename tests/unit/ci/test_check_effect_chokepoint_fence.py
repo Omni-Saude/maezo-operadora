@@ -236,14 +236,22 @@ def test_rest_path_literal_outside_allowlist_raises(tmp_path: Path, substring: s
 
 
 def test_rest_path_literal_inside_a_sanctioned_module_is_allowed(tmp_path: Path) -> None:
-    sanctioned_rel = next(iter(REST_PATH_SANCTIONED_MODULES))
+    # `sorted(...)[0]`, not `next(iter(...))`: iteration order over a frozenset of str depends on
+    # the per-process hash seed, so the un-sorted form picks a different module run to run.
+    sanctioned_rel = sorted(REST_PATH_SANCTIONED_MODULES)[0]
+    literal = "/messages"
     _write(
         tmp_path / sanctioned_rel,
-        "async def call(client):\n    return await client.post('/messages')\n",
+        f"async def call(client):\n    return await client.post({literal!r})\n",
     )
     result = scan_tree(tmp_path)
     assert result.ok, result.render()
-    assert result.counters.get("8.2_rest_path_sanctioned") == 1
+    # The counter counts (literal, forbidden-substring) HITS, not literals: `/messages` contains
+    # BOTH `/messages` and — since the trailing slash came off (MINOR-1) — `/message`. Derived
+    # rather than hardcoded, so it stays honest if the substring set changes again.
+    expected = sum(1 for s in FORBIDDEN_REST_PATH_SUBSTRINGS if s in literal)
+    assert expected == 2, "fixture guard: this literal is expected to overlap two patterns"
+    assert result.counters.get("8.2_rest_path_sanctioned") == expected
 
 
 def test_rest_path_literal_inside_a_docstring_is_not_a_violation(tmp_path: Path) -> None:
