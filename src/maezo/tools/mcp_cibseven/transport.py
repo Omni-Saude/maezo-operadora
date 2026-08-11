@@ -8,18 +8,31 @@ Helena/Rafael can call `SP-OP-ESCALATION-001`/`SP-OP-AUTH-001` for real.
 
 Mirrors `maezo.tools.workers.dmn_transport`'s triple shape (Protocol + real + Fake) exactly,
 ported from the v1 donor (`Maezo-Healthcare-Plan src/maezo/tools/mcp_cibseven/server.py:89-398`,
-READ-ONLY reference) with the higher-level `CibSevenServer` (tool-registration/allowlist/metrics
-wrapper) left behind on purpose — v2 has no `ToolRegistry`/PEP-gateway wiring for agent tool
-calls yet (T2.4 gap), so this module ships only the transport primitives an agent graph needs
-directly: idempotent start (business-key dedup, ADR contract convention `{PREFIX}-{tenant}-{id}`),
-message correlation, and status lookup.
+READ-ONLY reference) with the donor's higher-level `CibSevenServer` (tool-registration/allowlist/
+metrics wrapper) left behind ON PURPOSE and NEVER PORTED — it does not exist in v2 and must not be
+looked for here (`tests/unit/tools/test_mcp_cibseven.py:46-48` asserts it is neither importable
+nor in `__all__`). This module ships only the transport primitives an agent graph needs directly:
+idempotent start (business-key dedup, ADR contract convention `{PREFIX}-{tenant}-{id}`), message
+correlation, and status lookup.
+
+WHERE THE ENFORCEMENT ACTUALLY LIVES (design finding R-6 — this docstring used to advertise the
+deleted class as the enforcement point, which is how an auditor reading the effect plane from
+here would conclude a tool allowlist existed when none did). Two real layers, both in this tree:
+  1. `start_process_idempotent` (:1052) — the ONE sanctioned start chokepoint: audit-before-effect
+     (ADR-0007/T-C2), business-key idempotency, and the strict-family dedup gate. It is enforced
+     repo-wide by the AST fence `scripts/ci/check_start_process_fence.py`, which fails the build on
+     any direct `start_process_instance(...)` call outside a pinned allowlist.
+  2. The Onda-1 seam layer (`maezo.gateway.seams.cibseven.GatedCibSevenTransport`, built only by
+     `maezo.gateway.tool_registry`) — the per-call effect chokepoint for `correlate_message`,
+     `get_process_status` and the two `find_*` reads. It ships INERT (`action-approvals.yaml`
+     is `status: DRAFT` / `modo: shadow`), so today it decides and records without ever blocking.
 
 Idempotency (the reason `start_process_instance` alone is not enough): every SP-OP-* contract
 this repo ships declares "one active instance per business key" (SP-OP-ESCALATION-001 §Business
-key, SP-OP-AUTH-001 §Business key). `CibSevenServer.start_process` below is the enforcement
+key, SP-OP-AUTH-001 §Business key). `start_process_idempotent` (:1052) is the enforcement
 point — it ALWAYS calls `find_active_instance` before `start_process_instance`, returning the
-existing instance untouched (`already_existed=True`) rather than risking a duplicate escalation/
-authorization for the same conversation/guia on retry or redelivery.
+existing instance untouched (`StartOutcome.ALREADY_ACTIVE`) rather than risking a duplicate
+escalation/authorization for the same conversation/guia on retry or redelivery.
 
 Error semantics: `CibSevenError` (bare `RuntimeError`) for unreachable/non-2xx — transient,
 mirrors `DmnEvaluationError`'s classification story so a caller wrapping this in a worker-style
@@ -344,8 +357,12 @@ class CibSevenHttpTransport:
         business_key: str,
         variables: dict[str, Any],
     ) -> ProcessInstance:
-        """Unconditionally POST a new instance start. Callers wanting idempotency call
-        `find_active_instance` first (`CibSevenServer.start_process` below does this)."""
+        """Unconditionally POST a new instance start. NEVER call this directly.
+
+        `start_process_idempotent` (:1052) is the only sanctioned caller — it does the
+        `find_active_instance` probe, the durable audit-before-effect claim and the strict dedup
+        gate around this POST, and the AST fence `scripts/ci/check_start_process_fence.py` fails
+        the build on any other call site outside its pinned allowlist."""
         payload = {"businessKey": business_key, "variables": _to_camunda_vars(variables)}
         try:
             resp = await self._client.post(f"/process-definition/key/{process_key}/start", json=payload)

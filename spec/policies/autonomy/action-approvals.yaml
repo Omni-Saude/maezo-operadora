@@ -334,7 +334,7 @@ acoes:
       - referencia: "src/maezo/tools/workers/nip.py:562"
         detalhe: "topic operadora.nip.handoff_ans_submit"
         choked: true
-      - referencia: "src/maezo/tools/mcp_cibseven/transport.py:1052"
+      - referencia: "src/maezo/tools/mcp_cibseven/transport.py:1069"
         detalhe: "start_process_idempotent — start iniciado por agente"
         choked: false
     dominios_exigidos: [medica, ans, seguranca]
@@ -421,13 +421,13 @@ acoes:
       comportamento de hoje quando o engine está ausente.
       SEM EVIDÊNCIA DE SOMBRA HOJE.
     superficies:
-      - referencia: "src/maezo/tools/mcp_cibseven/transport.py:403"
+      - referencia: "src/maezo/tools/mcp_cibseven/transport.py:420"
         detalhe: "CibSevenHttpTransport.get_process_status"
         choked: false
-      - referencia: "src/maezo/tools/mcp_cibseven/transport.py:265"
+      - referencia: "src/maezo/tools/mcp_cibseven/transport.py:278"
         detalhe: "CibSevenHttpTransport.find_active_instance (active=true apenas)"
         choked: false
-      - referencia: "src/maezo/tools/mcp_cibseven/transport.py:294"
+      - referencia: "src/maezo/tools/mcp_cibseven/transport.py:307"
         detalhe: "find_any_instance — a perna HistoryQueryingTransport do gate estrito"
         choked: false
     dominios_exigidos: [medica, ans, seguranca]
@@ -444,7 +444,7 @@ acoes:
       CRUA a partir de qualquer grafo, que segura o `CibSevenTransport` diretamente.
       SEM EVIDÊNCIA DE SOMBRA HOJE.
     superficies:
-      - referencia: "src/maezo/tools/mcp_cibseven/transport.py:370"
+      - referencia: "src/maezo/tools/mcp_cibseven/transport.py:387"
         detalhe: "CibSevenHttpTransport.correlate_message (Protocol em :151)"
         choked: false
     dominios_exigidos: [medica, ans, seguranca]

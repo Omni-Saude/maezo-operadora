@@ -33,7 +33,7 @@ THREE THINGS THIS FILE DELIBERATELY DOES NOT DO — each is a human decision, re
   * **No pre-effect audit flag (Q-9).** Every class declares `audita_antes=False`. A `true` adds a
     durable write in front of an engine-path call and needs the SRE latency sign-off design §I-9
     demands. The existing audit-before-effect of `start_process_idempotent`
-    (`tools/mcp_cibseven/transport.py:1052`) is UNCHANGED and independent of this flag.
+    (`tools/mcp_cibseven/transport.py:1069`) is UNCHANGED and independent of this flag.
 
 KNOWN GAP, DISCLOSED (not a silent omission). `mcp-memory.read_write` is declared by 11 of the 11
 `spec/agents/*/agent.yaml` files and maps to the ratified `read_write_memory` (L3), but design
@@ -319,7 +319,7 @@ OPERATIONS: Final[MappingProxyType[str, OperationSpec]] = _operations(
         tool_id="mcp-whatsapp.send_message",
         phi_egress=True,
     ),
-    # -- Engine mutation (C3). `start_process_idempotent` at `tools/mcp_cibseven/transport.py:1052`
+    # -- Engine mutation (C3). `start_process_idempotent` at `tools/mcp_cibseven/transport.py:1069`
     # keeps its own fence and its own audit-before-effect claim — UNCHANGED (I-6, §5.8).
     OperationSpec(
         operation="cibseven.start_process",
@@ -334,8 +334,8 @@ OPERATIONS: Final[MappingProxyType[str, OperationSpec]] = _operations(
         autonomy_action="correlate_process_message",
         tool_id="mcp-cibseven.correlate_process_message",
     ),
-    # -- Engine reads (C0). `get_process_status` `transport.py:403`; `find_active_instance` `:265`;
-    # `find_any_instance` `:294` (the `HistoryQueryingTransport` leg). The latter two carry no MCP
+    # -- Engine reads (C0). `get_process_status` `transport.py:420`; `find_active_instance` `:278`;
+    # `find_any_instance` `:307` (the `HistoryQueryingTransport` leg). The latter two carry no MCP
     # tool id: no `agent.yaml` names them, they are internal reads of the same transport.
     OperationSpec(
         operation="cibseven.get_process_status",

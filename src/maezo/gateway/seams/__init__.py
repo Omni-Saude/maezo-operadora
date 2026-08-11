@@ -15,7 +15,7 @@ WHERE THEY COME FROM. Never constructed by a graph, a node, or a composition roo
 `effect_seams_gated` readiness check at each root asserts, at runtime, that every effect seam a
 graph received is one of these.
 
-WHAT A DECORATOR DOES, IN ORDER (design §5.4, mirroring `transport.py:1130-1133`'s "gate seams
+WHAT A DECORATOR DOES, IN ORDER (design §5.4, mirroring `transport.py:1148-1150`'s "gate seams
 checked before anything durable is written" ordering):
 
   1. `decide_effect(...)` with BOUNDED TOKENS ONLY. The payload — the prompt, the recipient, the

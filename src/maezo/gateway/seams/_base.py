@@ -308,7 +308,7 @@ async def _pre_effect_audit(seam: SeamContext, decision: EffectDecision, operati
     real call. That inertness is what keeps the parity proofs honest: a wrapper that added a
     durable write would not be behaviourally invisible.
 
-    When a class IS flagged, the ordering mirrors `transport.py:1130-1140` — the record is
+    When a class IS flagged, the ordering mirrors `transport.py:1148-1157` — the record is
     written before the effect, and a write failure means NO EFFECT MAY HAPPEN. Under `enforced`
     that is a denial in the class's declared shape. Under `shadow` it is an error LINE and
     nothing else: shadow must never change behaviour, or the whole ramp loses its meaning.

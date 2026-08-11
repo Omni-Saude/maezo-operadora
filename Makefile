@@ -53,7 +53,7 @@ check-bpmn-error-allowlist: ## ADR-0030 §2: prova que todo WorkerBpmnError rais
 	uv run python scripts/ci/check_bpmn_error_allowlist.py
 
 check-start-process-fence: ## T3.4 F1: nenhuma chamada direta a start_process_instance fora do allowlist da fence (ADR-0007/T-C2)
-	# AST-scan repo-wide de src/maezo: `start_process_idempotent` (mcp_cibseven/transport.py:560)
+	# AST-scan repo-wide de src/maezo: `start_process_idempotent` (mcp_cibseven/transport.py:1052)
 	# e o UNICO chokepoint de start de processo sancionado (emit-before-effect + idempotencia por
 	# business_key). Uma chamada direta a `transport.start_process_instance(...)` (ou um POST
 	# hand-rolled a /process-definition/key/{key}/start) fora do allowlist pinado (a propria

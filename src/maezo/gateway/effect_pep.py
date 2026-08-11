@@ -541,7 +541,7 @@ def _load_approvals(path: str | Path | None) -> ActionApprovals:
 def _sample_key(call: EffectCall, action_class: str) -> str:
     """A stable, NON-PHI sample key: sha256 over bounded tokens only, truncated to 32 hex chars.
 
-    Shaped after `transport.py:687`'s `start_dedup_key` in POSTURE (a hash, never the raw value),
+    Shaped after `transport.py:704`'s `start_dedup_key` in POSTURE (a hash, never the raw value),
     not in inputs: that key embeds a business key, and a business key may never enter this module
     (I-3). Everything hashed here is already safe in the clear; the hash exists so a review queue
     can group and de-duplicate without the queue itself becoming a new identifier surface.

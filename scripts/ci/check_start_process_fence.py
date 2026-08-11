@@ -3,7 +3,7 @@
 
 Purpose
 -------
-`start_process_idempotent` (`maezo.tools.mcp_cibseven.transport:1052`) is the SOLE, ADR-0007-audited
+`start_process_idempotent` (`maezo.tools.mcp_cibseven.transport:1069`) is the SOLE, ADR-0007-audited
 process-start chokepoint (module docstring, `tools/mcp_cibseven/__init__.py`): it ALWAYS calls
 `find_active_instance` before `start_process_instance`, and durably emits the ADR-0007 audit row
 BEFORE the engine effect (T-C2 emit-before-effect). A caller that reaches for
@@ -20,23 +20,30 @@ caller of the fence — all 10 agent graphs (`agents/*/graph.py`), `inadimplenci
 static protection against a future direct `transport.start_process_instance(...)` call creeping in.
 
 This gate extends the SAME AST pattern (forbidden call name + forbidden raw-REST-path string
-literal) repo-wide over `src/maezo/`, with an explicit, narrow allowlist for the 2 modules that
+literal) repo-wide over `src/maezo/`, with an explicit, narrow allowlist for the 3 modules that
 legitimately implement (not bypass) the call:
 
   - `tools/mcp_cibseven/transport.py` — the fence's OWN module. `start_process_idempotent` itself
-    calls `transport.start_process_instance(...)` (transport.py:1177) — that IS the fence,
+    calls `transport.start_process_instance(...)` (transport.py:1194) — that IS the fence,
     definitionally sanctioned. (`CibSevenHttpTransport`/`FakeCibSevenTransport` also DEFINE
     `start_process_instance` here — a `def`, not a `Call`, so it never trips this scan anyway.)
   - `tools/workers/cibseven_engine.py` — `FreshClientCibSevenTransport`, a `CibSevenTransport`
     Protocol DECORATOR (fresh-client-per-call transport wrapper, T1.10 T-D) that delegates to its
-    OWN inner transport's `start_process_instance` (cibseven_engine.py:98). This is transport-layer
+    OWN inner transport's `start_process_instance` (cibseven_engine.py:120). This is transport-layer
     plumbing, not a business-logic caller reaching around the fence — structurally identical to
     `CibSevenHttpTransport` itself implementing the method.
+  - `gateway/seams/cibseven.py` — `GatedCibSevenTransport` (Onda 1 §5.4), the SECOND such
+    Protocol decorator, delegating to its own inner transport at `seams/cibseven.py:75`. Its
+    `start_process_instance` is a PURE pass-through and a unit test asserts that on the AST
+    (`tests/unit/ci/test_check_start_process_fence.py::
+    test_gated_transport_start_is_a_pure_passthrough_not_a_second_start_path`), so the exemption
+    cannot silently become a real start site. See the `SANCTIONED_RELATIVE_PATHS` comment for why
+    this one method is deliberately the wrapper's only ungated one.
 
-Repo-wide sweep (T3.4 F1) confirms these are the ONLY 2 call sites of `start_process_instance(`
-anywhere in `src/maezo/` (`grep -rn 'start_process_instance(' src | grep -v 'def '`) — every other
-caller already goes through `start_process_idempotent`. A future direct call anywhere else now
-fails this gate loudly, pointing at the fence.
+Repo-wide sweep (re-derived at Onda 1 B2) confirms these are the ONLY 3 call sites of
+`start_process_instance(` anywhere in `src/maezo/` (`grep -rn 'start_process_instance(' src |
+grep -v 'def '`) — every other caller already goes through `start_process_idempotent`. A future
+direct call anywhere else now fails this gate loudly, pointing at the fence.
 
 Design
 ------
@@ -92,8 +99,8 @@ SANCTIONED_RELATIVE_PATHS: frozenset[str] = frozenset(
         # It is deliberately the ONE method of that wrapper that is NOT gated, and the reason is
         # this fence's own invariant: `start_process_instance` is only ever reached from INSIDE
         # `start_process_idempotent`, AFTER the durable ADR-0007 claim is written
-        # (`transport.py:1136-1140`), so a refusal raised there would wedge a strict-family
-        # business key the way an engine outage does (`:1178-1194`). Gating it means changing the
+        # (`transport.py:1152-1157`), so a refusal raised there would wedge a strict-family
+        # business key the way an engine outage does (`:1195-1211`). Gating it means changing the
         # fenced function's internals, which design §5.8 / I-6 forbid. See
         # `gateway/seams/cibseven.py`'s module docstring for the full disclosure, including why
         # the manifest's agent-start surface consequently stays `choked: false`.
