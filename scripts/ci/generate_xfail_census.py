@@ -20,6 +20,15 @@ Fail-closed contract
 - A `REASON_CLASSIFICATION` entry whose constant no longer exists anywhere in the scanned tree
   (renamed, deleted, retired) -> FAIL. A stale entry is exactly the kind of drift this script exists
   to catch, so it fails the census generator itself, not just the count.
+- Any strict-ish xfail marker CONSTRUCTION that does not match the one sanctioned canonical shape
+  (`@pytest.mark.xfail(reason=<NAME>, strict=True)` as a decorator directly on a `def`/`async def`
+  test function, reached by the scan) -> FAIL loudly, never silently invisible. This includes
+  module-level `pytestmark = pytest.mark.xfail(..., strict=True)`, a class-level decorator,
+  `pytest.param(..., marks=pytest.mark.xfail(..., strict=True))`, an aliased/renamed import
+  (`import pytest as pt`, `from pytest import mark`, `from pytest.mark import xfail`), or a
+  non-literal `strict=` value (e.g. `strict=_SOME_FLAG`). The census only ever COUNTS the canonical
+  shape; the point of this rule is that everything else BLOCKS the gate instead of being silently
+  uncounted (`_scan_unrecognized_strict_shapes` below).
 - `--check`: regenerates the census in memory and diffs it against the committed
   `docs/xfail-census.json` AND the generator-managed region of `PLANS.md`; either drift -> non-zero
   exit with a precise unified diff. Never silently passes on a stale ledger.
@@ -216,6 +225,70 @@ def _is_literal_true(node: ast.expr) -> bool:
     return isinstance(node, ast.Constant) and node.value is True
 
 
+def _is_literal_false(node: ast.expr) -> bool:
+    return isinstance(node, ast.Constant) and node.value is False
+
+
+def _is_suspect_xfail_call(node: ast.expr) -> bool:
+    """True for any `Call` whose callee LOOKS like it could be an xfail-marker construction.
+
+    Deliberately broad and name-based, not import-resolution-based: `func.attr == "xfail"` on ANY
+    attribute chain (`pytest.mark.xfail`, `pt.mark.xfail` after `import pytest as pt`, `mark.xfail`
+    after `from pytest import mark`, ...) or a bare `Name` `xfail` (`from pytest.mark import xfail`).
+    Static import-alias resolution is out of scope on purpose — a name-shape heuristic that
+    over-flags an unrelated `.xfail(...)` call fails closed (loud violation, human resolves it);
+    under-flagging a real strict-xfail marker is the actual bug (W-2/MAJOR-2) this exists to close.
+    """
+    func = node.func if isinstance(node, ast.Call) else None
+    if isinstance(func, ast.Attribute):
+        return func.attr == "xfail"
+    if isinstance(func, ast.Name):
+        return func.id == "xfail"
+    return False
+
+
+def _scan_unrecognized_strict_shapes(tree: ast.Module, rel: str, canonical_ids: set[int]) -> list[Violation]:
+    """Fail-closed sweep: ANY strict-ish xfail marker construction not already recognized as the one
+    sanctioned canonical shape (a `pytest.mark.xfail(reason=<NAME>, strict=True)` decorator directly
+    on a `def`/`async def`, tracked via `canonical_ids`) becomes a loud VIOLATION instead of being
+    silently invisible to the census — module-level `pytestmark = pytest.mark.xfail(...)`, a
+    class-level decorator, `pytest.param(..., marks=pytest.mark.xfail(...))`, an aliased/renamed
+    import, and a non-literal `strict=` value on an otherwise-canonical decorator are all caught this
+    way (MAJOR-2). A call is "strict-ish" here whenever it is `_is_suspect_xfail_call` AND carries a
+    `strict=` keyword that is anything other than the literal `False`, OR carries a `**kwargs`-style
+    keyword unpack (arg name unknown statically — ambiguous, so fail closed rather than guess) —
+    matching the "unrecognized/ambiguous => FAIL, never invisible" contract. A suspect call with NO
+    `strict=` keyword at all (and no `**kwargs` unpack) stays out of scope, unchanged from before:
+    a bare `@pytest.mark.xfail(reason=...)` without `strict=` is a different, weaker marker this
+    census has never tracked.
+    """
+    violations: list[Violation] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or id(node) in canonical_ids:
+            continue
+        if not _is_suspect_xfail_call(node):
+            continue
+        kwargs = {kw.arg: kw.value for kw in node.keywords if kw.arg is not None}
+        has_star_kwargs = any(kw.arg is None for kw in node.keywords)
+        strict_node = kwargs.get("strict")
+        if strict_node is None and not has_star_kwargs:
+            continue  # no `strict=` at all — out of scope, same as the pre-existing canonical path
+        if strict_node is not None and _is_literal_false(strict_node):
+            continue  # explicit `strict=False` — sanctioned non-strict marker, not this census's concern
+        violations.append(
+            Violation(
+                "unrecognized-strict-xfail-shape",
+                f"{rel}:{node.lineno}: a strict-ish xfail marker construction was found that does NOT "
+                "match the sanctioned canonical shape (`@pytest.mark.xfail(reason=<NAME_CONST>, "
+                "strict=True)` as a decorator directly on a `def`/`async def` test function). Either "
+                "normalize this marker to the canonical shape, or — if this shape is intentional — "
+                "extend scripts/ci/generate_xfail_census.py deliberately to recognize it. A "
+                "strict-xfail marker must never be invisible to this census.",
+            )
+        )
+    return violations
+
+
 def parse_strict_xfail_markers(path: Path, repo_root: Path) -> tuple[list[RawMarker], list[Violation]]:
     """AST-walk one test module for strict-xfail markers on `def`/`async def` test functions.
 
@@ -225,6 +298,12 @@ def parse_strict_xfail_markers(path: Path, repo_root: Path) -> tuple[list[RawMar
     a single-line `@pytest.mark.xfail(reason=<CONST>, strict=True)`; the AST walk handles a
     multi-line decorator identically, since wrapping is a lexer/formatting detail the parser already
     normalises away).
+
+    A second pass (`_scan_unrecognized_strict_shapes`, MAJOR-2) then walks EVERY `Call` node in the
+    module — not just decorators on `def`/`async def` — and fails closed on anything that looks like
+    a strict-ish xfail marker construction outside this one canonical shape, so a marker moved to a
+    module-level `pytestmark`, a class decorator, a `pytest.param(marks=...)`, an aliased import, or
+    a non-literal `strict=` value BLOCKS the gate instead of silently vanishing from the count.
     """
     try:
         source = path.read_text(encoding="utf-8")
@@ -238,6 +317,7 @@ def parse_strict_xfail_markers(path: Path, repo_root: Path) -> tuple[list[RawMar
     rel = path.relative_to(repo_root).as_posix()
     markers: list[RawMarker] = []
     violations: list[Violation] = []
+    canonical_ids: set[int] = set()
 
     for node in ast.walk(tree):
         if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
@@ -250,7 +330,11 @@ def parse_strict_xfail_markers(path: Path, repo_root: Path) -> tuple[list[RawMar
             kwargs = {kw.arg: kw.value for kw in decorator.keywords if kw.arg is not None}
             strict_node = kwargs.get("strict")
             if strict_node is None or not _is_literal_true(strict_node):
-                continue  # not strict — out of this census's scope
+                continue  # not strict (or non-literal strict=) — out of this census's scope; a
+                # non-literal `strict=` on this exact dotted name is still caught below as an
+                # unrecognized shape, since it is NOT added to `canonical_ids` here.
+
+            canonical_ids.add(id(decorator))
 
             reason_node = kwargs.get("reason")
             if reason_node is None:
@@ -291,6 +375,8 @@ def parse_strict_xfail_markers(path: Path, repo_root: Path) -> tuple[list[RawMar
                     )
                 )
 
+    violations.extend(_scan_unrecognized_strict_shapes(tree, rel, canonical_ids))
+
     return markers, violations
 
 
@@ -326,7 +412,7 @@ def scan_tree(tests_dir: Path, repo_root: Path) -> ScanResult:
             [], [Violation("tests-dir-missing", f"directory not found: {tests_dir}")], set(), []
         )
 
-    for path in sorted(tests_dir.glob("test_*.py")):
+    for path in sorted(tests_dir.rglob("test_*.py")):
         files_scanned.append(path.relative_to(repo_root).as_posix())
         file_markers, file_violations = parse_strict_xfail_markers(path, repo_root)
         markers.extend(file_markers)

@@ -145,8 +145,8 @@ que não cumprir um ou mais.*
   boundary modelado que o contrato já especificava; família iniciou sua migração ADR-0030.
 
 **Censo de strict-xfail: 95 → 36 → 24 → <!-- xfail-census:total:begin -->22<!-- xfail-census:total:end -->**
-(2026-08-10: #226 flipou os 2 NACK variables-channel com prova live). Restante (regex multiline
-sobre `tests/integration/processes/`, gerado por `scripts/ci/generate_xfail_census.py` — ledger em
+(2026-08-10: #226 flipou os 2 NACK variables-channel com prova live). Restante (AST sobre
+`tests/integration/processes/`, gerado por `scripts/ci/generate_xfail_census.py` — ledger em
 `docs/xfail-census.json`): <!-- xfail-census:breakdown:begin -->TISS-XSD SME ×14 · LGPD/DPO ×3 · cred guard-shape T-E ×2 · auth D-07 ×1 · reembolso D-07 ×1 · adequacao RN259 ×1<!-- xfail-census:breakdown:end -->
 — **inteiramente teto humano.** A partir da Onda 0 do §0.8 o censo passa a ser GERADO em CI (o
 drift 24-vs-22 entre PLANS/handoff.yaml/NEXT-ORCHESTRATOR nesta mesma semana foi o gatilho); as

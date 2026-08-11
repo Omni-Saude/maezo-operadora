@@ -9,10 +9,20 @@ Three layers:
    flips a strict-xfail marker without updating the committed ledger, THIS test (and `make
    xfail-census-check`) is what turns that into a red CI run.
 2. **Synthetic-tree** tests build throwaway `tmp_path` modules to drive each fail-closed path in
-   isolation: multiline decorator parsing, an unclassified reason constant, a stale
-   REASON_CLASSIFICATION entry, and drift detection between a stale committed ledger and the
-   re-derived one.
-3. **PLANS.md region** tests exercise `apply_plans_updates` directly — including rewrite
+   isolation: multiline decorator parsing, reversed-kwarg-order/extra-kwargs canonical recognition,
+   an unclassified reason constant, a stale REASON_CLASSIFICATION entry, drift detection between a
+   stale committed ledger and the re-derived one, six non-canonical strict-xfail marker SHAPES that
+   must each produce a loud `unrecognized-strict-xfail-shape` violation instead of vanishing
+   silently (module-level `pytestmark`, class-level decorator, `pytest.param(marks=...)`, aliased
+   imports ×2, non-literal `strict=`), and a subdirectory fixture proving `rglob` reaches nested
+   test files for both the canonical and violation paths (MAJOR-2 repair).
+3. **Content-pinned `build_census`** tests feed synthetic `MarkerRecord`s (never producible by
+   echoing the committed `docs/xfail-census.json`) directly to `build_census` and assert its full
+   return value — this is what actually kills a mutant that replaces `build_census`'s body with a
+   hardcoded return of the committed ledger while every real-tree test above stays green (MAJOR-1
+   repair: the real-tree tests alone are vacuous w.r.t. this function, since they only ever exercise
+   it with the one input whose derived output legitimately equals that file).
+4. **PLANS.md region** tests exercise `apply_plans_updates` directly — including rewrite
    idempotency (running it twice produces the same output the second time).
 """
 
@@ -24,6 +34,7 @@ from pathlib import Path
 from scripts.ci.generate_xfail_census import (
     DEFAULT_TESTS_DIR,
     REASON_CLASSIFICATION,
+    MarkerRecord,
     apply_plans_updates,
     build_census,
     check_stale_classification_entries,
@@ -152,6 +163,39 @@ def test_ignores_xfail_decorator_without_strict_true(tmp_path: Path) -> None:
     assert scan.markers == []
 
 
+def test_reversed_kwarg_order_still_recognized_as_canonical(tmp_path: Path) -> None:
+    """`strict=True` before `reason=` — kwarg order must not matter to canonical recognition, and
+    must NOT trip the new unrecognized-shape sweep (MAJOR-2 regression guard)."""
+    _write(
+        tmp_path / "test_sp_op_synthetic_001.py",
+        "import pytest\n\n"
+        "_SYNTH_REASON = 'because'\n\n"
+        "@pytest.mark.xfail(strict=True, reason=_SYNTH_REASON)\n"
+        "async def test_something() -> None:\n"
+        "    assert False\n",
+    )
+    scan = scan_tree(tmp_path, tmp_path)
+    assert not scan.violations, scan.violations
+    assert len(scan.markers) == 1
+    assert scan.markers[0].reason_constant == "_SYNTH_REASON"
+
+
+def test_extra_kwargs_still_recognized_as_canonical(tmp_path: Path) -> None:
+    """An extra, unrelated kwarg alongside `reason=`/`strict=True` must not defeat canonical
+    recognition or trip the new unrecognized-shape sweep (MAJOR-2 regression guard)."""
+    _write(
+        tmp_path / "test_sp_op_synthetic_001.py",
+        "import pytest\n\n"
+        "_SYNTH_REASON = 'because'\n\n"
+        "@pytest.mark.xfail(reason=_SYNTH_REASON, strict=True, run=False)\n"
+        "async def test_something() -> None:\n"
+        "    assert False\n",
+    )
+    scan = scan_tree(tmp_path, tmp_path)
+    assert not scan.violations, scan.violations
+    assert len(scan.markers) == 1
+
+
 def test_literal_reason_parses_but_is_unclassifiable(tmp_path: Path) -> None:
     _write(
         tmp_path / "test_sp_op_synthetic_001.py",
@@ -170,6 +214,145 @@ def test_literal_reason_parses_but_is_unclassifiable(tmp_path: Path) -> None:
     assert records == []
     assert len(violations) == 1
     assert violations[0].code == "unclassified-literal-reason"
+
+
+# ---------------------------------------------------------------------------
+# Fail-closed: unrecognized strict-xfail marker shapes (MAJOR-2 repair).
+#
+# Six shapes an adversarial GK proved were silently invisible to the census (no marker, no
+# violation — a real strict-xfail marker in the tree with `--check` still PASS): module-level
+# `pytestmark`, a class-level decorator, `pytest.param(..., marks=...)`, `import pytest as pt`,
+# `from pytest import mark`, and a non-literal `strict=` value. Each fixture below asserts the
+# marker produces a LOUD `unrecognized-strict-xfail-shape` violation instead — the census stays
+# canonical-only, but non-canonical strict markers now BLOCK the gate rather than vanish from it.
+# ---------------------------------------------------------------------------
+
+
+def _assert_single_unrecognized_shape_violation(tmp_path: Path) -> None:
+    scan = scan_tree(tmp_path, tmp_path)
+    assert scan.markers == [], "a non-canonical shape must never be silently counted as a marker"
+    codes = [v.code for v in scan.violations]
+    assert codes == ["unrecognized-strict-xfail-shape"], scan.violations
+
+
+def test_module_level_pytestmark_xfail_is_not_silently_dropped(tmp_path: Path) -> None:
+    _write(
+        tmp_path / "test_sp_op_synthetic_001.py",
+        "import pytest\n\n"
+        "_SYNTH_REASON = 'because'\n\n"
+        "pytestmark = pytest.mark.xfail(reason=_SYNTH_REASON, strict=True)\n\n"
+        "def test_something() -> None:\n"
+        "    assert False\n",
+    )
+    _assert_single_unrecognized_shape_violation(tmp_path)
+
+
+def test_class_level_xfail_decorator_is_not_silently_dropped(tmp_path: Path) -> None:
+    _write(
+        tmp_path / "test_sp_op_synthetic_001.py",
+        "import pytest\n\n"
+        "_SYNTH_REASON = 'because'\n\n"
+        "@pytest.mark.xfail(reason=_SYNTH_REASON, strict=True)\n"
+        "class TestSomething:\n"
+        "    def test_method(self) -> None:\n"
+        "        assert False\n",
+    )
+    _assert_single_unrecognized_shape_violation(tmp_path)
+
+
+def test_pytest_param_marks_xfail_is_not_silently_dropped(tmp_path: Path) -> None:
+    _write(
+        tmp_path / "test_sp_op_synthetic_001.py",
+        "import pytest\n\n"
+        "_SYNTH_REASON = 'because'\n\n"
+        "@pytest.mark.parametrize(\n"
+        "    'x', [pytest.param(1, marks=pytest.mark.xfail(reason=_SYNTH_REASON, strict=True))]\n"
+        ")\n"
+        "def test_something(x: int) -> None:\n"
+        "    assert False\n",
+    )
+    _assert_single_unrecognized_shape_violation(tmp_path)
+
+
+def test_import_pytest_as_alias_xfail_is_not_silently_dropped(tmp_path: Path) -> None:
+    _write(
+        tmp_path / "test_sp_op_synthetic_001.py",
+        "import pytest as pt\n\n"
+        "_SYNTH_REASON = 'because'\n\n"
+        "@pt.mark.xfail(reason=_SYNTH_REASON, strict=True)\n"
+        "def test_something() -> None:\n"
+        "    assert False\n",
+    )
+    _assert_single_unrecognized_shape_violation(tmp_path)
+
+
+def test_from_pytest_import_mark_xfail_is_not_silently_dropped(tmp_path: Path) -> None:
+    _write(
+        tmp_path / "test_sp_op_synthetic_001.py",
+        "from pytest import mark\n\n"
+        "_SYNTH_REASON = 'because'\n\n"
+        "@mark.xfail(reason=_SYNTH_REASON, strict=True)\n"
+        "def test_something() -> None:\n"
+        "    assert False\n",
+    )
+    _assert_single_unrecognized_shape_violation(tmp_path)
+
+
+def test_bare_xfail_name_import_is_not_silently_dropped(tmp_path: Path) -> None:
+    _write(
+        tmp_path / "test_sp_op_synthetic_001.py",
+        "from pytest.mark import xfail\n\n"
+        "_SYNTH_REASON = 'because'\n\n"
+        "@xfail(reason=_SYNTH_REASON, strict=True)\n"
+        "def test_something() -> None:\n"
+        "    assert False\n",
+    )
+    _assert_single_unrecognized_shape_violation(tmp_path)
+
+
+def test_non_literal_strict_value_is_not_silently_dropped(tmp_path: Path) -> None:
+    _write(
+        tmp_path / "test_sp_op_synthetic_001.py",
+        "import pytest\n\n"
+        "_SYNTH_REASON = 'because'\n"
+        "_STRICT = True\n\n"
+        "@pytest.mark.xfail(reason=_SYNTH_REASON, strict=_STRICT)\n"
+        "def test_something() -> None:\n"
+        "    assert False\n",
+    )
+    _assert_single_unrecognized_shape_violation(tmp_path)
+
+
+def test_subdirectory_test_files_are_scanned_for_canonical_markers(tmp_path: Path) -> None:
+    """Positive control for the `rglob` fix: a CANONICAL marker nested two directories deep must be
+    found like any top-level one — before the fix, `glob("test_*.py")` never even opened this file."""
+    _write(
+        tmp_path / "sub" / "nested" / "test_sp_op_synthetic_001.py",
+        "import pytest\n\n"
+        "_SYNTH_REASON = 'because'\n\n"
+        "@pytest.mark.xfail(reason=_SYNTH_REASON, strict=True)\n"
+        "def test_something() -> None:\n"
+        "    assert False\n",
+    )
+    scan = scan_tree(tmp_path, tmp_path)
+    assert not scan.violations, scan.violations
+    assert len(scan.markers) == 1
+    assert scan.markers[0].file == "sub/nested/test_sp_op_synthetic_001.py"
+
+
+def test_subdirectory_test_files_are_scanned_for_unrecognized_shapes(tmp_path: Path) -> None:
+    """A non-canonical shape nested in a subdirectory must ALSO produce the violation — proves the
+    `rglob` fix and the shape-detection fix compose: before either fix this file was doubly
+    invisible (never opened AND, even if opened, silently unrecognized)."""
+    _write(
+        tmp_path / "sub" / "nested" / "test_sp_op_synthetic_001.py",
+        "import pytest\n\n"
+        "_SYNTH_REASON = 'because'\n\n"
+        "pytestmark = pytest.mark.xfail(reason=_SYNTH_REASON, strict=True)\n\n"
+        "def test_something() -> None:\n"
+        "    assert False\n",
+    )
+    _assert_single_unrecognized_shape_violation(tmp_path)
 
 
 # ---------------------------------------------------------------------------
@@ -250,6 +433,140 @@ def test_real_reason_classification_has_no_stale_entries() -> None:
     assert stale == [], [v.render() for v in stale]
     # Non-vacuity: the mapping isn't accidentally empty.
     assert len(REASON_CLASSIFICATION) == 6
+
+
+# ---------------------------------------------------------------------------
+# Content-pinned `build_census` (MAJOR-1 repair).
+#
+# An adversarial GK proved the test suite was vacuous w.r.t. `build_census`: replacing its BODY
+# wholesale with a hardcode that ignores its arguments and returns the committed
+# `docs/xfail-census.json` verbatim kept every real-tree test above green (since those tests only
+# ever feed it the REAL records, whose derived output happens to equal that file). The two fixtures
+# below feed `build_census` synthetic `MarkerRecord`s that could NOT be produced by echoing
+# `docs/xfail-census.json` — different totals, different `tests_dir`, different suite names,
+# different classifications — and assert its FULL return value, so any function body that does not
+# actually derive `total`/`per_suite`/`per_classification`/`markers` from its arguments fails one or
+# both of these tests. Two independent variants (different totals) make hardcode-evasion via a
+# single lucky constant strictly impossible.
+# ---------------------------------------------------------------------------
+
+
+def test_build_census_derives_content_from_arguments_variant_a() -> None:
+    records = [
+        MarkerRecord(
+            file="tests/integration/processes/test_sp_op_zzsynthA_001.py",
+            line=42,
+            test="test_one",
+            reason_constant="_ZZ_SYNTH_A_REASON",
+            classification="P0",
+        ),
+        MarkerRecord(
+            file="tests/integration/processes/test_sp_op_zzsynthA_001.py",
+            line=99,
+            test="test_two",
+            reason_constant="_ZZ_SYNTH_A_REASON",
+            classification="P0",
+        ),
+        MarkerRecord(
+            file="tests/integration/processes/test_sp_op_zzsynthB_002.py",
+            line=7,
+            test="test_three",
+            reason_constant="_ZZ_SYNTH_B_REASON",
+            classification="LGPD_DPO",
+        ),
+    ]
+    census = build_census(records, "zz/synthetic/dir/A")
+    assert census == {
+        "generated_by": "scripts/ci/generate_xfail_census.py",
+        "tests_dir": "zz/synthetic/dir/A",
+        "total": 3,
+        "per_suite": {"zzsynthA": 2, "zzsynthB": 1},
+        "per_classification": {"LGPD_DPO": 1, "P0": 2},
+        "markers": [
+            {
+                "file": "tests/integration/processes/test_sp_op_zzsynthA_001.py",
+                "line": 42,
+                "test": "test_one",
+                "reason_constant": "_ZZ_SYNTH_A_REASON",
+                "classification": "P0",
+            },
+            {
+                "file": "tests/integration/processes/test_sp_op_zzsynthA_001.py",
+                "line": 99,
+                "test": "test_two",
+                "reason_constant": "_ZZ_SYNTH_A_REASON",
+                "classification": "P0",
+            },
+            {
+                "file": "tests/integration/processes/test_sp_op_zzsynthB_002.py",
+                "line": 7,
+                "test": "test_three",
+                "reason_constant": "_ZZ_SYNTH_B_REASON",
+                "classification": "LGPD_DPO",
+            },
+        ],
+    }
+    # Real-tree total is 22 — this synthetic total must not accidentally coincide with it, or a
+    # partially-hardcoded mutant (e.g. one keyed off `len(records) == 22`) could slip through.
+    assert census["total"] != 22
+
+
+def test_build_census_derives_content_from_arguments_variant_b() -> None:
+    """A SECOND fixture with a different total/suite/classification/tests_dir — makes a
+    single-constant hardcode (or a mutant that special-cases variant A's shape) strictly
+    impossible to pass both this test and variant A simultaneously."""
+    records = [
+        MarkerRecord(
+            file="tests/integration/processes/test_sp_op_zzsynthC_003.py",
+            line=1,
+            test="test_solo",
+            reason_constant="_ZZ_SYNTH_C_REASON",
+            classification="P2",
+        ),
+    ]
+    census = build_census(records, "another/synthetic/path")
+    assert census == {
+        "generated_by": "scripts/ci/generate_xfail_census.py",
+        "tests_dir": "another/synthetic/path",
+        "total": 1,
+        "per_suite": {"zzsynthC": 1},
+        "per_classification": {"P2": 1},
+        "markers": [
+            {
+                "file": "tests/integration/processes/test_sp_op_zzsynthC_003.py",
+                "line": 1,
+                "test": "test_solo",
+                "reason_constant": "_ZZ_SYNTH_C_REASON",
+                "classification": "P2",
+            },
+        ],
+    }
+    assert census["total"] != 22
+
+
+def test_build_census_orders_markers_by_file_then_line_regardless_of_input_order() -> None:
+    """Feed `build_census` records deliberately OUT of (file, line) order — a hardcode-return or a
+    mutant that just echoes `records` unsorted would fail this, since the real generator always
+    sorts by `(file, line)` before rendering."""
+    records = [
+        MarkerRecord(
+            file="tests/integration/processes/test_sp_op_zzsynthZ_009.py",
+            line=500,
+            test="test_late",
+            reason_constant="_ZZ_SYNTH_Z_REASON",
+            classification="P1",
+        ),
+        MarkerRecord(
+            file="tests/integration/processes/test_sp_op_zzsynthZ_009.py",
+            line=10,
+            test="test_early",
+            reason_constant="_ZZ_SYNTH_Z_REASON",
+            classification="P1",
+        ),
+    ]
+    census = build_census(records, "zz/order")
+    assert [m["test"] for m in census["markers"]] == ["test_early", "test_late"]
+    assert [m["line"] for m in census["markers"]] == [10, 500]
 
 
 # ---------------------------------------------------------------------------
