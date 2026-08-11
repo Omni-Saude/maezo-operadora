@@ -274,13 +274,17 @@ DL-0045 (qualificação MZO-040) em `docs/decisions-log.md`.
 
 ### Estratégia — ondas (agent-executável vs teto humano SEMPRE separado)
 
-- **Onda 0 — Verdade gerada + cercas de governança (S, 2–3 sessões, inerte):** censo de
+- **Onda 0 — Verdade gerada + cercas de governança (S, 2–3 sessões, inerte):** **✅ DONE
+  2026-08-11 (PR #229, squash `336e440`, cadeia zero-trust completa: GK REVISE 3 MAJ empíricos →
+  repair → mesmo-GK delta 6/6 CLOSED):** censo de
   strict-xfail GERADO em CI (artefato + gate que FALHA em drift vs ledger commitado; classificação
   P0/P1/P2/humano por constante `_*_REASON`); workflow que consulta a API de branch-protection e
   falha ALTO enquanto ausente (drift de governança vira check executável); reconciliação das
   superfícies restantes. **AÇÃO DO DONO (10 min, destrava a integridade de TUDO): ligar branch
   protection + required CODEOWNERS na main.**
-- **Onda 1 — Plano de controle de efeitos (L, 8–12 sessões, engine-path):** inventário completo de
+- **Onda 1 — Plano de controle de efeitos (L, 8–12 sessões, engine-path):** **[scouts ×4 + design
+  DONE 2026-08-10/11 — doc de design landa via PR da implementação; implementação NÃO iniciada]**
+  inventário completo de
   efeitos (scouts R3: nós de grafo, tools MCP, topics de worker, transports diretos) → UM
   chokepoint `ToolRegistry`/PEP por-chamada UNIFICADO com o `ActionExecutionGateway` MZO-040
   (veículo: precondição de revisita do ADR-0034 + XRD-09 do ADR-0037 — nunca design paralelo) →
