@@ -415,6 +415,16 @@ DECLARED_TEST_DOUBLE_EXCEPTIONS: Final[frozenset[tuple[str, str]]] = frozenset(
 def _is_test_double_name(name: str) -> bool:
     # `_NoopKafkaProducer` is the live, REAL example (a2a_composition.py) — a single leading
     # underscore (Python's "module-private" convention) must not hide it from `Noop*`/`Fake*`.
+    #
+    # `Stub*` is DELIBERATELY ABSENT, as a decision rather than an oversight: design §8.4 names
+    # exactly `Fake*`/`*Mock*`/`Noop*`, and this gate does not widen a spec'd pattern set on its
+    # own authority. Census this session — `class Fake*` x22, `class Noop*` x1, `class Stub*` x1,
+    # and the single `Stub` (`tests/unit/tools/workers/test_worker_registry.py:23::StubWorker`)
+    # lives in `tests/`, which this gate never scans. So adding it would fence zero real names
+    # today. The residual, stated plainly: a NEW production double named `Stub*` would not be
+    # caught here. It is still caught at runtime — a stub handed to a composition root is not a
+    # `GatedSeam`, so `effect_seams_gated` refuses it at boot (see the Deviations block's
+    # layered-defense bullet). Widening §8.4 to `Stub*` is a one-line spec amendment for a human.
     unprefixed = name.lstrip("_")
     return unprefixed.startswith("Fake") or unprefixed.startswith("Noop") or "Mock" in name
 
