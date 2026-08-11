@@ -30,6 +30,8 @@ import yaml
 from maezo.gateway import action_execution
 from maezo.gateway.action_execution import (
     APPROVER_DOMAINS,
+    ENFORCEMENT_ENFORCING,
+    ENFORCEMENT_SHADOW,
     EVENT_ENFORCED,
     EVENT_SHADOW,
     MANIFEST_PATH_ENV,
@@ -47,6 +49,7 @@ from maezo.gateway.action_execution import (
     REASON_DOMAIN_UNKNOWN,
     REASON_DOMAINS_EMPTY,
     REASON_DOMAINS_INCOMPLETE,
+    REASON_INTERNAL_ERROR,
     REASON_MANIFEST_DRAFT,
     REASON_MANIFEST_UNAVAILABLE,
     REASON_OVERRIDE_NOT_ENFORCEABLE,
@@ -209,7 +212,12 @@ def test_enforcing_with_nothing_approved_denies_every_declared_class(tmp_path: P
     for name in sorted(gateway.approvals.declared):
         decision = gateway.evaluate(name)
         assert decision.allow is False
-        assert decision.enforced is True, "a denial under `modo: enforcing` must actually block"
+        assert decision.enforced is True, (
+            "a denial must actually block once BOTH dimensions say enforcing — `modo: enforcing` "
+            "globally and `acoes.<class>.enforcement: enforcing` per class (ONDA 1 §7.3, which "
+            "`_manifest` mirrors off `modo` by default). Before §7.3 this read `modo` alone; the "
+            "conjunction is proved dimension-by-dimension in test_effect_enforcement.py"
+        )
         assert decision.reason == REASON_APPROVAL_PENDING
 
 
@@ -532,7 +540,7 @@ def test_an_unrelated_unsupported_tag_still_gets_the_generic_invalid_yaml_reason
 
 def test_a_merge_tagged_value_also_gets_merge_key_unsupported(tmp_path: Path) -> None:
     """COLLISION, DOCUMENTED NOT FIXED (V3 GK REVISE): the `merge_key_unsupported` discriminator
-    (`_MERGE_KEY_TAG in exc.problem`, `action_execution.py:406`) is a SUBSTRING test on the tag
+    (`_MERGE_KEY_TAG in exc.problem`, `action_execution.py:651`) is a SUBSTRING test on the tag
     name, not a check that a `<<` key specifically was used. A value explicitly tagged `!!merge`
     — never used as a `<<` key, so never a real merge — carries the identical
     `tag:yaml.org,2002:merge` tag PyYAML puts in `exc.problem` for a genuine `<<` key, and so ALSO
@@ -900,6 +908,103 @@ def test_a_hyphenated_tenant_collapses_to_invalido_in_telemetry(tmp_path: Path) 
         evaluate_worker_task(topic=_TOPIC, tenant="omni-saude", path=path)
     line = next(e for e in logs if e.get("event") == EVENT_SHADOW)
     assert line["tenant"] == "INVALIDO"
+
+
+@pytest.mark.parametrize("value", ["APROVADO\n", "amh\n", "amh\n\n", "amh\nreason=APROVADO"])
+def test_a_newline_is_not_a_bounded_token(value: str) -> None:
+    """`\\Z`, not `$` (ONDA 1 GK nit). Python's `$` ALSO matches just before a trailing newline.
+
+    So `_is_bounded_token("APROVADO\\n")` was True, and the guard that exists to keep free text out
+    of a structured log line would have passed a value carrying a line break — the classic
+    log-injection primitive, on the exact field (`tenant`, and every `REASON_*` token) this
+    module's NO-PHI claim rests on. `\\Z` anchors at the true end of the string.
+    """
+    assert action_execution._is_bounded_token(value) is False
+
+
+def test_the_newline_tightening_is_strictly_narrowing() -> None:
+    """The control for the test above: `\\Z` refuses ONLY the trailing-newline forms.
+
+    Without this, "tighten the regex" and "break the regex" look identical from the red side.
+    """
+    for value in ("APROVADO", "amh", "a", "A" * 40, "GATEWAY_ERRO_INTERNO"):
+        assert action_execution._is_bounded_token(value) is True, value
+    assert action_execution._is_bounded_token("A" * 41) is False, "the length bound is unchanged"
+
+
+# ---------------------------------------------------------------------------------------------
+# DEVIATION-8: an INTERNAL ERROR must not fail open once a human has flipped to `enforcing`
+# ---------------------------------------------------------------------------------------------
+
+
+def _raising_evaluate(*_args: Any, **_kwargs: Any) -> Any:
+    raise RuntimeError("injected gateway failure")
+
+
+@pytest.mark.parametrize(
+    ("modo", "expected_enforced"),
+    [(MODE_ENFORCING, True), (MODE_SHADOW, False)],
+)
+def test_an_internal_error_still_blocks_under_a_live_global_enforcement(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, modo: str, expected_enforced: bool
+) -> None:
+    """The fail-closed direction of the double-guarded fallback, in BOTH global modes.
+
+    `_fail_closed_decision` declares `enforcement=enforcing` precisely so `Decision.enforced`
+    reduces to the pre-Onda-1 `mode == enforcing` on a path where no class could be resolved. The
+    call site used to OVERRIDE that declared default with `cached.enforcement_for(None)` — the
+    ramp's `enforcement_padrao_nao_mapeado`, a decision about UNCLASSIFIED TRAFFIC — which turned
+    a gateway failure under a live `modo: enforcing` back into a log line. §7.3's per-class
+    dimension exists to let a class be evaluated before it can block; it is NOT a licence to
+    downgrade the one path that only runs because something already went wrong.
+
+    The fixture pins `enforcement_padrao_nao_mapeado: shadow` EXPLICITLY. That is what makes this
+    test discriminating: with the root key absent it resolves to `enforcing` on its own (XRD-09's
+    literal) and the pre-repair code would have passed for the wrong reason.
+    """
+    path = _write(
+        tmp_path,
+        _manifest(status="RATIFICADO", modo=modo, default_enforcement=ENFORCEMENT_SHADOW),
+        name=f"internal-error-{modo}.yaml",
+    )
+    monkeypatch.setattr(ActionExecutionGateway, "evaluate", _raising_evaluate)
+
+    with structlog.testing.capture_logs() as logs:
+        decision = evaluate_worker_task(topic=_TOPIC, tenant="fixture", path=path)
+
+    assert decision.allow is False
+    assert decision.reason == REASON_INTERNAL_ERROR
+    assert decision.action_class is None, "an internal error resolved no class, and must not claim one"
+    assert decision.mode == modo, "the GLOBAL mode is still read from the cached manifest"
+    assert decision.enforcement == ENFORCEMENT_ENFORCING, (
+        "the call site overrode `_fail_closed_decision`'s declared default again"
+    )
+    assert decision.enforced is expected_enforced
+
+    line = next(e for e in logs if e["event"] == "action_execution_gateway_internal_error")
+    assert (line["mode"], line["enforcement"], line["enforced"]) == (
+        modo,
+        ENFORCEMENT_ENFORCING,
+        expected_enforced,
+    ), "the error line must report the value actually returned, not a second computation of it"
+
+
+def test_the_internal_error_path_refuses_to_claim_enforcement_when_nothing_loads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The other half of the double guard: if even the cached read fails, the mode is UNRESOLVED.
+
+    Fail-closed in BOTH directions — the DENY stands, and a process with no readable record may
+    not CLAIM that it is enforcing.
+    """
+    monkeypatch.setattr(action_execution, "action_approvals", _raising_evaluate)
+    decision = evaluate_worker_task(topic=_TOPIC, tenant="fixture", path=tmp_path / "absent.yaml")
+    assert (decision.allow, decision.reason, decision.mode) == (
+        False,
+        REASON_INTERNAL_ERROR,
+        MODE_UNRESOLVED,
+    )
+    assert decision.enforced is False
 
 
 # ---------------------------------------------------------------------------------------------

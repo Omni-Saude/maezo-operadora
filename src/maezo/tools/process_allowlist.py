@@ -59,8 +59,8 @@ KNOWN_PROCESS_KEYS: Final[frozenset[str]] = frozenset(
 # ceiling consulted) — recorded here, deliberately NOT decided.
 DEFAULT_ALLOWED_PROCESS_KEYS: Final[frozenset[str]] = KNOWN_PROCESS_KEYS
 
-# Regex for valid process key format: SP-OP-<DOMAIN>-<NNN>
-_PROCESS_KEY_PATTERN: Final[re.Pattern[str]] = re.compile(r"^SP-OP-[A-Z]+(?:-[A-Z]+)*-[0-9]{3}$")
+# Regex for valid process key format: SP-OP-<DOMAIN>-<NNN>. `\Z` not `$` (why: effect_pep.py:149-160).
+_PROCESS_KEY_PATTERN: Final[re.Pattern[str]] = re.compile(r"^SP-OP-[A-Z]+(?:-[A-Z]+)*-[0-9]{3}\Z")
 
 
 class ProcessKeyNotAllowedError(PermissionError):

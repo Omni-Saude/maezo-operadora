@@ -92,7 +92,10 @@ def _no_ambient_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """No deployment surface may leak into these proofs, in either direction."""
     monkeypatch.delenv(action_execution.MANIFEST_PATH_ENV, raising=False)
     monkeypatch.delenv(action_execution.OVERRIDE_ENFORCEMENT_ENV, raising=False)
-    monkeypatch.delenv(action_execution.RUNTIME_MODE_ENV, raising=False)
+    # BOTH spellings of the runtime-mode discriminator (`RUNTIME_MODE_ENVS`): clearing only one
+    # left a developer with the other exported able to flip these proofs.
+    for name in action_execution.RUNTIME_MODE_ENVS:
+        monkeypatch.delenv(name, raising=False)
 
 
 def _manifest(
@@ -702,7 +705,23 @@ def test_an_uncatalogued_operation_takes_the_unmapped_enforcement_default(tmp_pa
         ("autonomy_action", "read phi data"),
         ("process_key", "SP-OP-АUTH-001"),  # Cyrillic А — the homoglyph vector ADR-0016 names
         ("process_key", "sp-op-auth-001"),
+        # `\Z`, not `$`: Python's `$` also matches just before a TRAILING NEWLINE, so each of
+        # these was accepted as a bounded token and the newline travelled into the telemetry line
+        # — a log-injection primitive on the one type whose whole contract is "no free text fits".
+        ("tenant", "acme\n"),
+        ("principal", "rafael\n"),
+        ("operation", "fhir.read_patient\n"),
+        ("action_ref", "agente.fhir.read_patient\n"),
+        ("autonomy_action", "read_phi_data\n"),
+        ("process_key", "SP-OP-AUTH-001\n"),
         ("phi_zone", "confidencial"),
+        # A set/dict/list is UNHASHABLE, so the bare `in frozenset` test raised `TypeError` —
+        # NOT the `EffectCallError` the class contracts to raise, and therefore invisible to
+        # `decide_effect`'s `except EffectCallError` (it landed as GATEWAY_ERRO_INTERNO instead).
+        ("phi_zone", {"general"}),
+        ("phi_zone", {"zone": "general"}),
+        ("phi_zone", ["general"]),
+        ("phi_zone", None),
         ("value_cents", -1),
         ("value_cents", True),  # bool is an int in Python; `True` as 1 centavo is the money defect
         ("value_cents", 100.0),
@@ -749,7 +768,7 @@ def test_a_malformed_call_is_a_bounded_deny_not_an_exception(tmp_path: Path) -> 
 
 
 def test_decide_never_raises_for_any_shaped_input(tmp_path: Path) -> None:
-    """The blunt version of I-4, asserted rather than argued."""
+    """The blunt version of I-4, asserted rather than argued — through `decide_effect`."""
     ctx = _ctx(tmp_path)
     for operation in ("", "x", "fhir.read_patient", "nao.existe", "a" * 200):
         for process_key in (None, "SP-OP-AUTH-001", "lixo"):
@@ -762,6 +781,106 @@ def test_decide_never_raises_for_any_shaped_input(tmp_path: Path) -> None:
             )
             assert decision.allow is False
             assert decision.reason in EFFECT_REASONS or decision.reason.isupper()
+
+
+class _RaisingLogger:
+    """A `structlog` logger whose every emit raises — the shape a broken processor chain has."""
+
+    def error(self, *_args: Any, **_kwargs: Any) -> None:
+        raise RuntimeError("injected logger failure")
+
+    def warning(self, *_args: Any, **_kwargs: Any) -> None:
+        raise RuntimeError("injected logger failure")
+
+    def info(self, *_args: Any, **_kwargs: Any) -> None:
+        raise RuntimeError("injected logger failure")
+
+
+@pytest.mark.parametrize("path_name", ["logger", "denial_shape", "enforcement"])
+def test_decide_itself_never_raises_on_the_three_proven_raising_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, path_name: str
+) -> None:
+    """I-4 asserted against `decide` DIRECTLY, not against the `decide_effect` wrapper around it.
+
+    The module docstring claimed "`decide` has no raising path reachable by a caller — asserted
+    directly". It was not: every never-raises proof in this file went through `decide_effect`,
+    which had its own outer guard, so the claim held for the ENTRY POINT and not for the function.
+    B2 wires the seam wrappers onto `decide`, so the distinction stops being academic.
+
+    The three paths are not hypothetical; each escaped the per-layer guards for a different
+    structural reason:
+
+      * `logger` — the guard's OWN `logger.error(...)` runs after it catches, so a raising logger
+        re-raises past the very guard that contained the layer. (This also pins that the outermost
+        handler's own log is suppressed-guarded; without that it would re-raise identically.)
+      * `denial_shape_for` — called inside `_deny`, i.e. AFTER the layer guard has returned.
+      * `enforcement_for` — called at the top of the ladder, BEFORE any guard exists at all.
+    """
+    call = EffectCall(
+        tenant=_TENANT, principal=_PRINCIPAL, operation=_PHI_OP, action_ref="agente.fhir.read_patient"
+    )
+    ctx = _ctx(tmp_path, capabilities=_BoomCaps())
+
+    if path_name == "logger":
+        # A layer must ALSO fail, so the guard reaches its `logger.error` — hence `_BoomCaps`.
+        monkeypatch.setattr(effect_pep, "logger", _RaisingLogger())
+    elif path_name == "denial_shape":
+        monkeypatch.setattr(effect_classes, "denial_shape_for", _boom)
+    else:
+        monkeypatch.setattr(action_execution.ActionApprovals, "enforcement_for", _boom)
+
+    decision = decide(call, ctx)  # <- `decide`, NOT `decide_effect`
+
+    assert (decision.allow, decision.reason, decision.layer) == (
+        False,
+        REASON_INTERNAL_ERROR,
+        EffectLayer.ENTRADA.value,
+    )
+    assert decision.action_class is None and decision.denial_shape is None
+    assert decision.enforced is False, "a shadow manifest may never enforce, not even on a crash"
+
+
+@pytest.mark.parametrize("modo", [MODE_SHADOW, MODE_ENFORCING])
+def test_the_outermost_guard_still_blocks_under_a_live_global_enforcement(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, modo: str
+) -> None:
+    """The deviation-8 posture, applied to `decide`'s outermost guard as well as the worker leg.
+
+    `_outermost_enforcement` re-reads the GLOBAL ceiling from the cached manifest and deliberately
+    does NOT apply `enforcement_padrao_nao_mapeado` — a decision about unclassified traffic must
+    not downgrade a gateway FAILURE. The fixture pins that root key to `shadow` explicitly, which
+    is what makes the assertion discriminating.
+    """
+    manifest = _manifest(modo=modo, enforcement=ENFORCEMENT_ENFORCING)
+    manifest[action_execution.DEFAULT_ENFORCEMENT_KEY] = ENFORCEMENT_SHADOW
+    ctx = _ctx(tmp_path, manifest, name=f"outermost-{modo}.yaml", capabilities=_BoomCaps())
+    monkeypatch.setattr(effect_pep, "logger", _RaisingLogger())
+
+    call = EffectCall(
+        tenant=_TENANT, principal=_PRINCIPAL, operation=_PHI_OP, action_ref="agente.fhir.read_patient"
+    )
+    decision = decide(call, ctx)
+
+    assert (decision.reason, decision.layer) == (REASON_INTERNAL_ERROR, EffectLayer.ENTRADA.value)
+    assert decision.mode == modo
+    assert decision.enforced is (modo == MODE_ENFORCING)
+
+
+def test_the_outermost_guard_refuses_to_claim_enforcement_when_nothing_loads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fail-closed in BOTH directions: no readable record means `unresolved`, never `enforcing`."""
+    monkeypatch.setattr(action_execution.ActionApprovals, "enforcement_for", _boom)
+    monkeypatch.setattr(action_execution, "action_approvals", _boom)
+    call = EffectCall(
+        tenant=_TENANT, principal=_PRINCIPAL, operation=_PHI_OP, action_ref="agente.fhir.read_patient"
+    )
+    decision = decide(call, DecisionContext(capabilities=_caps(), autonomy=_StubPep()))
+    assert (decision.reason, decision.mode, decision.enforced) == (
+        REASON_INTERNAL_ERROR,
+        action_execution.MODE_UNRESOLVED,
+        False,
+    )
 
 
 # ---------------------------------------------------------------------------------------------
@@ -791,6 +910,40 @@ def test_the_mirrored_process_key_constants_match_the_adr0016_source() -> None:
 
 def test_the_mirrored_token_regex_matches_the_gateways_own() -> None:
     assert effect_pep._TOKEN_RE.pattern == action_execution._TOKEN_RE.pattern
+
+
+def test_every_mirrored_pattern_anchors_at_the_true_end_of_the_string() -> None:
+    """ONDA 1 GK nit. `$` is a trailing-newline hole; `\\Z` is not, and BOTH sides were tightened.
+
+    The two cross-check tests above only prove the patterns are IDENTICAL — two identical holes
+    pass them. This asserts the property itself, on all three, so a future edit that reintroduces
+    `$` on either side of a mirror fails here rather than passing the equality check in lockstep.
+    """
+    for pattern in (
+        effect_pep._TOKEN_RE,
+        effect_pep._DOTTED_TOKEN_RE,
+        effect_pep._PROCESS_KEY_RE,
+        action_execution._TOKEN_RE,
+    ):
+        assert pattern.pattern.endswith(r"\Z"), pattern.pattern
+        assert not pattern.pattern.endswith("$"), pattern.pattern
+
+    from maezo.tools import process_allowlist
+
+    assert process_allowlist._PROCESS_KEY_PATTERN.pattern.endswith(r"\Z")
+
+    # …and the tightening is STRICTLY NARROWING: every real value still validates.
+    assert (
+        EffectCall(
+            tenant=_TENANT,
+            principal=_PRINCIPAL,
+            operation=_START_OP,
+            action_ref="agente.cibseven.start_process",
+            autonomy_action="start_compliance_process",
+            process_key="SP-OP-AUTH-001",
+        ).process_key
+        == "SP-OP-AUTH-001"
+    )
 
 
 def test_the_ceiling_protocol_is_satisfied_by_the_real_resolver() -> None:
@@ -830,3 +983,62 @@ def test_the_telemetry_line_carries_only_bounded_tokens(tmp_path: Path) -> None:
     assert entry["event"] == action_execution.EVENT_SHADOW
     for key in ("operation", "action_ref", "principal", "action_class", "reason", "layer", "tenant"):
         assert action_execution._is_bounded_topic(entry[key]), (key, entry[key])
+
+
+@pytest.mark.parametrize(
+    ("modo", "enforcement", "expected_event", "expected_enforced"),
+    [
+        (MODE_SHADOW, ENFORCEMENT_SHADOW, action_execution.EVENT_SHADOW, False),
+        (MODE_SHADOW, ENFORCEMENT_ENFORCING, action_execution.EVENT_SHADOW, False),
+        (MODE_ENFORCING, ENFORCEMENT_SHADOW, action_execution.EVENT_SHADOW, False),
+        (MODE_ENFORCING, ENFORCEMENT_ENFORCING, action_execution.EVENT_ENFORCED, True),
+    ],
+)
+def test_the_agent_leg_telemetry_event_name_tracks_the_mode(
+    tmp_path: Path, modo: str, enforcement: str, expected_event: str, expected_enforced: bool
+) -> None:
+    """The worker leg's `test_the_telemetry_event_name_tracks_the_mode`, mirrored onto this leg.
+
+    A shadow observation and a call that actually blocked are different EVENTS, not one event with
+    a field: log routing, alerting and dashboards key on the event name long before anything
+    parses `mode=`, so emitting `..._shadow` for a call that was really refused would make the
+    first enforced denial in production invisible to every alert built on the shadow rollout. The
+    worker leg pinned this; the agent leg's `log_effect_decision` did not, and the two emit into
+    the SAME event family on purpose (§9.2 counts the lines together).
+
+    Both fields are still emitted, so nothing that filtered on them stops working — and all four
+    corners of §7.3's conjunction are driven through real manifests, not a hand-built decision, so
+    the event name is pinned to `enforced` and to the DATA that produces it at the same time.
+    """
+    import structlog
+
+    ctx = _ctx(
+        tmp_path,
+        _manifest(modo=modo, enforcement=enforcement),
+        name=f"telemetry-{modo}-{enforcement}.yaml",
+        capabilities=_caps(),
+        autonomy=_StubPep(),
+    )
+    call = EffectCall(
+        tenant=_TENANT, principal=_PRINCIPAL, operation=_PHI_OP, action_ref="agente.fhir.read_patient"
+    )
+    decision = decide(call, ctx)
+    assert decision.enforced is expected_enforced
+    assert decision.allow is False, "the fixture approves nothing — only the EVENT NAME is at issue"
+
+    cap = structlog.testing.LogCapture()
+    structlog.configure(processors=[cap])
+    try:
+        log_effect_decision(decision, call)
+    finally:
+        structlog.reset_defaults()
+
+    lines = [
+        e
+        for e in cap.entries
+        if e["event"] in (action_execution.EVENT_SHADOW, action_execution.EVENT_ENFORCED)
+    ]
+    assert [e["event"] for e in lines] == [expected_event]
+    assert lines[0]["mode"] == modo, "the `mode` field must survive alongside the event name"
+    assert lines[0]["enforcement"] == enforcement, "§9.4 step 5: BOTH dimensions are emitted"
+    assert lines[0]["decision"] == "WOULD_DENY"

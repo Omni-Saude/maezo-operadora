@@ -334,7 +334,7 @@ acoes:
       - referencia: "src/maezo/tools/workers/nip.py:562"
         detalhe: "topic operadora.nip.handoff_ans_submit"
         choked: true
-      - referencia: "src/maezo/tools/mcp_cibseven/transport.py:560"
+      - referencia: "src/maezo/tools/mcp_cibseven/transport.py:1052"
         detalhe: "start_process_idempotent — start iniciado por agente"
         choked: false
     dominios_exigidos: [medica, ans, seguranca]

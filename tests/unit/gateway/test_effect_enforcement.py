@@ -42,8 +42,10 @@ from maezo.gateway.action_execution import (
     MODE_UNRESOLVED,
     OVERRIDE_ENFORCEMENT_ENABLED,
     OVERRIDE_ENFORCEMENT_ENV,
+    REASON_ACTION_UNMAPPED,
     REASON_APPROVED,
     RUNTIME_MODE_ENV,
+    RUNTIME_MODE_ENVS,
     STATUS_RATIFIED,
     TOPIC_MAP_KEY,
     ActionExecutionGateway,
@@ -71,7 +73,10 @@ def _clear_manifest_cache() -> Any:
 def _no_ambient_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(action_execution.MANIFEST_PATH_ENV, raising=False)
     monkeypatch.delenv(OVERRIDE_ENFORCEMENT_ENV, raising=False)
-    monkeypatch.delenv(RUNTIME_MODE_ENV, raising=False)
+    # BOTH spellings of the discriminator. Clearing only `AGENT_RUNTIME_MODE` left a developer
+    # with `RUNTIME_MODE` exported (the name `key_scrubber` reads FIRST) able to flip section (c).
+    for name in RUNTIME_MODE_ENVS:
+        monkeypatch.delenv(name, raising=False)
 
 
 def _approval(approved: bool) -> dict[str, Any]:
@@ -164,11 +169,67 @@ def test_every_per_class_typo_resolves_to_non_enforcing(tmp_path: Path, typo: An
     assert gateway.evaluate(_CLASS).enforced is False
 
 
-@pytest.mark.parametrize("typo", ["enforcing ", "Enforcing", "enforce", True, None, ""])
+@pytest.mark.parametrize("typo", ["enforcing ", "Enforcing", "enforce", True, ""])
 def test_every_root_default_typo_resolves_to_non_enforcing(tmp_path: Path, typo: Any) -> None:
-    """Property 2b. The same guard on `enforcement_padrao_nao_mapeado`."""
+    """Property 2b. The same guard on a root key that IS PRESENT and carries a mistyped VALUE.
+
+    `None` is NOT in this list, and its absence is the point: `_manifest` OMITS the key entirely
+    when it is `None`, so that parameter was silently testing the ABSENT case under the label
+    "typo" — and asserting the wrong answer for it (see the test below). A present-but-mistyped
+    value still resolves non-enforcing, because the loader cannot tell which value was meant and
+    guessing `enforcing` off a stray capital turns denials into a platform outage.
+    """
     gateway = _gateway(tmp_path, _manifest(default_enforcement=typo))
     assert gateway.evaluate("nao_declarada").enforced is False
+
+
+def test_an_absent_root_default_key_resolves_to_the_xrd09_literal(tmp_path: Path) -> None:
+    """ABSENT root key => `enforcing`. XRD-09: "ação/política desconhecida … negam" (`0037-…:154`).
+
+    The Q-2 ramp deviation is `shadow` for unmapped refs, and a deviation from a ratified clause
+    has to be WRITTEN DOWN to exist. A manifest that never heard of
+    `enforcement_padrao_nao_mapeado` — an older record, a hand-rolled staging copy, a file whose
+    key someone deleted — was inheriting the exception for free and silently DISARMING enforcement
+    for every unmapped topic and every uncatalogued agent operation. Absent is not consent.
+
+    The shipped record is untouched by this: it DECLARES `shadow` explicitly (Q-2, with its own
+    comment block saying so), which `test_the_shipped_manifest_still_enforces_nothing` pins.
+    """
+    manifest = _manifest(modo=MODE_ENFORCING, default_enforcement=None)
+    assert DEFAULT_ENFORCEMENT_KEY not in manifest, "the fixture must OMIT the key, not blank it"
+
+    approvals = load_action_approvals(_write(tmp_path, manifest))
+    assert approvals.default_enforcement == ENFORCEMENT_ENFORCING
+    assert approvals.enforcement_for(None) == ENFORCEMENT_ENFORCING
+    assert approvals.enforcement_for("nao_declarada") == ENFORCEMENT_ENFORCING
+    assert ActionExecutionGateway(approvals).evaluate("nao_declarada").enforced is True
+
+
+def test_an_unmapped_topic_blocks_once_the_ramp_reaches_its_terminal_act(tmp_path: Path) -> None:
+    """§9.4 step 7, from the WORKER end: the flip that restores XRD-09 literally, as DATA.
+
+    `modo: enforcing` + `enforcement_padrao_nao_mapeado: enforcing` must make a topic nobody
+    classified actually BLOCK — otherwise the terminal act of the rollout is a no-op and the ~80
+    unmapped topics the manifest reserves for a human stay permanently exempt. The agent-side
+    mirror of this is `test_effect_pep.py::test_an_uncatalogued_operation_takes_the_unmapped_
+    enforcement_default`; the worker side had no equivalent.
+    """
+    gateway = _gateway(tmp_path, _manifest(modo=MODE_ENFORCING, default_enforcement=ENFORCEMENT_ENFORCING))
+    unmapped = gateway.classify("operadora.jamais.mapeado")
+    assert unmapped is None, "the fixture must leave this topic genuinely unmapped"
+
+    decision = gateway.evaluate(unmapped)
+    assert (decision.allow, decision.reason) == (False, REASON_ACTION_UNMAPPED)
+    assert decision.enforcement == ENFORCEMENT_ENFORCING
+    assert decision.enforced is True
+
+    # …and the ramp's declared `shadow` is what holds it back today — one data line, nothing else.
+    ramped = _gateway(
+        tmp_path,
+        _manifest(modo=MODE_ENFORCING, default_enforcement=ENFORCEMENT_SHADOW),
+        name="ramp.yaml",
+    )
+    assert ramped.evaluate(ramped.classify("operadora.jamais.mapeado")).enforced is False
 
 
 def test_an_absent_per_class_field_resolves_to_shadow(tmp_path: Path) -> None:
@@ -253,6 +314,62 @@ def test_a_malformed_action_map_refuses_rather_than_partially_loading(tmp_path: 
     assert approvals.degraded is True
 
 
+@pytest.mark.parametrize(
+    "value",
+    [
+        {"classe": _CLASS},  # a nested mapping where a class name belongs
+        [_CLASS],  # a list — the "one ref, many classes" edit somebody started
+        None,  # `agente.fhir.read_patient:` with nothing after the colon
+        7,  # an int
+        True,  # a bool
+        "",  # a blank string
+        "   ",  # whitespace only
+    ],
+)
+def test_a_malformed_action_map_value_refuses_rather_than_silently_dropping(
+    tmp_path: Path, value: Any
+) -> None:
+    """A garbled routing line must REFUSE the record, not vanish into "unmapped".
+
+    Same posture as the collision case above, one level down: `_string_map`'s comprehension
+    silently DROPS an entry whose value is not a non-blank string, so an unfinished edit left the
+    ref unmapped while the reviewed diff still showed a routing line that reads fine. Under
+    `modo: enforcing` with XRD-09's root default that ref then BLOCKS — a governance record must
+    not be able to disable a class by looking correct.
+
+    ASYMMETRY, deliberate and out of scope here: `mapeamento_topicos` keeps the legacy dropping
+    comprehension (pre-existing behaviour, 26 byte-unchanged reviewed lines). New data, new
+    contract — see the note at the refusal site in `action_execution._parse`.
+    """
+    manifest = _manifest(action_map={_REF: value})
+    approvals = load_action_approvals(_write(tmp_path, manifest))
+    assert approvals.degraded is True, f"{value!r} was silently dropped instead of refusing"
+    assert approvals.approved == frozenset()
+    assert approvals.mode == MODE_UNRESOLVED
+    assert approvals.classify(_REF) is None
+
+
+@pytest.mark.parametrize("key", [None, 7, ""])
+def test_a_malformed_action_map_key_refuses_too(tmp_path: Path, key: Any) -> None:
+    """The other half: a non-string / blank REF is just as unusable as a non-string class."""
+    manifest = _manifest(action_map={key: _CLASS})
+    assert load_action_approvals(_write(tmp_path, manifest)).degraded is True
+
+
+def test_the_legacy_topic_map_keeps_its_dropping_comprehension(tmp_path: Path) -> None:
+    """The asymmetry above, ASSERTED rather than described — so it is a recorded decision.
+
+    If someone later tightens `mapeamento_topicos` to the same contract (a reasonable follow-up,
+    on its own review), this test fails and says so, instead of the change landing unnoticed
+    inside a record whose 26 lines the brief pins as byte-unchanged.
+    """
+    manifest = _manifest(topic_map={_TOPIC: _OTHER, "operadora.garbled.topic": None})
+    approvals = load_action_approvals(_write(tmp_path, manifest))
+    assert approvals.degraded is False, "legacy behaviour: the topic map DROPS, it does not refuse"
+    assert approvals.classify(_TOPIC) == _OTHER
+    assert approvals.classify("operadora.garbled.topic") is None
+
+
 def test_an_absent_action_map_is_not_an_error(tmp_path: Path) -> None:
     """Additive means additive: a manifest predating Onda 1 still loads exactly as before."""
     approvals = load_action_approvals(_write(tmp_path, _manifest()))
@@ -317,22 +434,127 @@ def test_a_spec_dir_shadow_manifest_is_untouched(tmp_path: Path, monkeypatch: py
     assert ActionExecutionGateway(approvals).evaluate(_CLASS).reason == REASON_APPROVED
 
 
-def test_the_spec_dir_load_emits_a_loud_error_line(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """§5.7 item 1: the same posture as the path override — an operator swapping the governed
-    policy plane must leave a trace legible WITHOUT reading the manifest."""
+def _load_and_capture(manifest_dir_owner: Path) -> list[dict[str, Any]]:
+    """Load through the ambient env and return the captured structlog entries."""
     import structlog
 
-    monkeypatch.setenv("MAEZO_SPEC_DIR", str(_spec_tree(tmp_path, _manifest())))
-    monkeypatch.setenv(RUNTIME_MODE_ENV, "kubernetes")
+    del manifest_dir_owner
     cap = structlog.testing.LogCapture()
     structlog.configure(processors=[cap])
     try:
         load_action_approvals()
     finally:
         structlog.reset_defaults()
-    events = {(e["event"], e["log_level"]) for e in cap.entries}
+    return list(cap.entries)
+
+
+def test_the_spec_dir_load_emits_a_loud_error_line(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """§5.7 item 1: the same posture as the path override — an operator swapping the governed
+    policy plane must leave a trace legible WITHOUT reading the manifest."""
+    monkeypatch.setenv("MAEZO_SPEC_DIR", str(_spec_tree(tmp_path, _manifest())))
+    monkeypatch.setenv(RUNTIME_MODE_ENV, "kubernetes")
+    events = {(e["event"], e["log_level"]) for e in _load_and_capture(tmp_path)}
     assert ("action_approvals_spec_dir_overridden", "error") in events
     assert ("action_approvals_spec_dir_enforcement_refused", "error") in events
+
+
+@pytest.mark.parametrize(
+    ("runtime_mode", "modo", "expected_level"),
+    [
+        # PRODUCTION: `error`, whether or not the ENFORCEMENT leg has anything to withhold.
+        ("kubernetes", MODE_ENFORCING, "error"),
+        ("kubernetes", MODE_SHADOW, "error"),
+        # LOCAL / unset: still RECORDED, at `info` — provenance is a fact on every load.
+        (None, MODE_ENFORCING, "info"),
+        (None, MODE_SHADOW, "info"),
+        ("local", MODE_SHADOW, "info"),
+    ],
+)
+def test_the_spec_dir_provenance_line_is_emitted_whenever_the_variable_is_set(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    runtime_mode: str | None,
+    modo: str,
+    expected_level: str,
+) -> None:
+    """WHERE the policy came from and WHETHER enforcement is withheld are two different questions.
+
+    The earlier form conflated them: the provenance line was gated on the SAME condition as the
+    enforcement refusal (production AND `modo: enforcing`), so a staging pod, a mis-labelled
+    deployment, or a production tree in `shadow` running an entirely substituted policy plane left
+    NO trace that the CODEOWNERS-listed tree was bypassed. Given that §5.7's whole claim is
+    "an operator swapping the governed policy plane must leave a trace legible without reading the
+    manifest", suppressing the trace in exactly the cases nobody is watching for is the defect.
+
+    Level, not presence, is what production changes: `error` there (log routing pages on it),
+    `info` otherwise (every dev box and every test run sets the variable, and an `error` per load
+    would train people to filter the line away).
+    """
+    monkeypatch.setenv("MAEZO_SPEC_DIR", str(_spec_tree(tmp_path, _manifest(modo=modo))))
+    if runtime_mode is None:
+        monkeypatch.delenv(RUNTIME_MODE_ENV, raising=False)
+    else:
+        monkeypatch.setenv(RUNTIME_MODE_ENV, runtime_mode)
+
+    lines = [e for e in _load_and_capture(tmp_path) if e["event"] == "action_approvals_spec_dir_overridden"]
+    assert len(lines) == 1, "the provenance line must be emitted exactly once per load"
+    assert lines[0]["log_level"] == expected_level
+    assert lines[0]["override_env"] == "MAEZO_SPEC_DIR"
+    assert lines[0]["production_runtime"] is (expected_level == "error")
+
+
+def test_no_provenance_line_is_emitted_when_the_variable_is_unset(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The control: "always" means "whenever the override is in play", not "on every load"."""
+    monkeypatch.delenv("MAEZO_SPEC_DIR", raising=False)
+    monkeypatch.setenv(action_execution.MANIFEST_PATH_ENV, str(_write(tmp_path, _manifest())))
+    events = {e["event"] for e in _load_and_capture(tmp_path)}
+    assert "action_approvals_spec_dir_overridden" not in events
+
+
+@pytest.mark.parametrize("env_name", RUNTIME_MODE_ENVS)
+def test_either_runtime_mode_variable_arms_the_spec_dir_pin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, env_name: str
+) -> None:
+    """The pin read ONE name; the repo declares production under TWO.
+
+    `key_scrubber.py:117` — the PHI-egress pseudonymizer, i.e. a control nobody would call
+    optional — resolves `RUNTIME_MODE or AGENT_RUNTIME_MODE`. This module read only the second, so
+    a deployment standardised on `RUNTIME_MODE` (arming the pseudonymizer, believing it had
+    declared production) left the §5.7 spec-dir pin DISARMED: one variable substitutes the entire
+    policy plane, and the fence that exists for exactly that never fired. One deployment
+    vocabulary, two spellings, both honoured.
+    """
+    monkeypatch.setenv("MAEZO_SPEC_DIR", str(_spec_tree(tmp_path, _manifest())))
+    for name in RUNTIME_MODE_ENVS:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv(env_name, "kubernetes")
+
+    approvals = load_action_approvals()
+    assert approvals.mode == MODE_SHADOW_OVERRIDE, f"{env_name} did not arm the pin"
+    assert ActionExecutionGateway(approvals).evaluate(_CLASS).enforced is False
+
+
+def test_either_runtime_mode_variable_can_also_declare_local(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """First-set-wins, in `key_scrubber`'s order — and `local` under EITHER name is still local.
+
+    Deliberate divergence from `key_scrubber`, in the tightening direction: it `.strip().lower()`s
+    the value, so `" Local "` reads as local there and as PRODUCTION here. Guessing at a mistyped
+    runtime mode is the same class of fail-open the `modo` and `enforcement` pins already refuse.
+    """
+    monkeypatch.setenv("MAEZO_SPEC_DIR", str(_spec_tree(tmp_path, _manifest())))
+    monkeypatch.setenv("RUNTIME_MODE", "local")
+    monkeypatch.setenv(RUNTIME_MODE_ENV, "kubernetes")
+    assert load_action_approvals().mode == MODE_ENFORCING, "the FIRST name set must win"
+
+    monkeypatch.setenv("RUNTIME_MODE", " Local ")
+    action_execution._load_cached.cache_clear()
+    assert load_action_approvals().mode == MODE_SHADOW_OVERRIDE, (
+        "a mistyped runtime mode must read as PRODUCTION here — never guessed into `local`"
+    )
 
 
 # -- The digest (§5.7 item 2)
@@ -430,6 +652,106 @@ def test_every_denial_shape_is_declared_and_bounded() -> None:
     for name, spec in effect_classes.ACTION_CLASSES.items():
         assert spec.denial_shape in effect_classes.DENIAL_SHAPES, name
         assert action_execution._is_bounded_token(spec.denial_shape), name
+
+
+#: Design §6.1's ladder table, transcribed row by row: (class, rung, denial shape). The design
+#: states the shape in PROSE per row; the token each phrase maps to is quoted beside it, so a
+#: reviewer can check the transcription against the document without reading `effect_classes`.
+#:
+#: WHY THIS EXISTS AS DATA. `test_every_denial_shape_is_declared_and_bounded` above only proves
+#: each class declares SOME shape from the closed set — swapping two classes' shapes passes it
+#: untouched. That is not a cosmetic gap: design §2 A-12 is the inverse adversary (the PEP harming
+#: the patient), and the shape IS the harm control. Giving `consulta_processo` the
+#: `LACUNA_DECLARADA` shape would tell a wrapper to degrade the anti-dupla-terminação query to a
+#: "disclosed gap" — the design calls that row "the highest-risk C0 item" precisely because a
+#: denied read that reads as "no active instance" can double-terminate a contract. Likewise
+#: `comunicacao_beneficiario` and `inicio_processo_regulatorio` relabelled as `LACUNA_DECLARADA`
+#: would silently drop a beneficiary contact and turn a refused engine start into a gap note
+#: instead of the audited fail-closed incident §9.3 requires.
+_DESIGN_6_1_LADDER: tuple[tuple[str, str, str], ...] = (
+    # -- C0 — inert / internal read ---------------------------------------------------------------
+    # §6.1 C0 row 1: "the node takes its declared DMN-unavailable path (ADR-0028 fail-closed →
+    # human), never a fabricated favourable outcome".
+    ("avaliacao_dmn", effect_classes.RUNG_C0_LEITURA_INTERNA, effect_classes.SHAPE_ROTA_DMN_INDISPONIVEL),
+    # §6.1 C0 row 2: "Denied read must **not** be readable as 'no active instance' — the
+    # anti-dupla-terminação query must fail closed (skip) … the highest-risk C0 item".
+    ("consulta_processo", effect_classes.RUNG_C0_LEITURA_INTERNA, effect_classes.SHAPE_LEITURA_INCONCLUSIVA),
+    # -- C1 — outbound notification ---------------------------------------------------------------
+    # §6.1 C1: "Denied send → the turn ends on its declared escalation/HITL path, the beneficiary
+    # is not silently dropped, and no raw recipient appears in any log line (I-3)".
+    (
+        "comunicacao_beneficiario",
+        effect_classes.RUNG_C1_NOTIFICACAO,
+        effect_classes.SHAPE_ESCALONAMENTO_HUMANO,
+    ),
+    # -- C2 — PHI read / model egress ---------------------------------------------------------------
+    # §6.1 C2 row 1: "Denied read degrades to the **disclosed gap note** every graph already
+    # documents (`rafael/graph.py:44-48`) — never a fabricated fact".
+    ("leitura_phi_clinica", effect_classes.RUNG_C2_PHI_OU_MODELO, effect_classes.SHAPE_LACUNA_DECLARADA),
+    # §6.1 C2 row 2: "Denied → cohort dossier records an explicit gap; k-suppression unchanged".
+    ("leitura_populacional", effect_classes.RUNG_C2_PHI_OU_MODELO, effect_classes.SHAPE_LACUNA_DECLARADA),
+    # §6.1 C2 row 3: "Denied → the node's existing LLM-unavailable path".
+    ("inferencia_llm", effect_classes.RUNG_C2_PHI_OU_MODELO, effect_classes.SHAPE_ROTA_LLM_INDISPONIVEL),
+    # -- C3 — engine mutation -----------------------------------------------------------------------
+    # §6.1 C3 row 1: "Denied → no instance exists in the engine, an audited refusal row exists, and
+    # the external task lands as an incident with retries=0".
+    (
+        "inicio_processo_regulatorio",
+        effect_classes.RUNG_C3_MUTACAO_ENGINE,
+        effect_classes.SHAPE_INCIDENTE_FALHA_FECHADA,
+    ),
+    # §6.1 C3 row 2: "Denied → no message correlated; the process waits at its receive task;
+    # incident visible".
+    (
+        "correlacao_processo",
+        effect_classes.RUNG_C3_MUTACAO_ENGINE,
+        effect_classes.SHAPE_INCIDENTE_FALHA_FECHADA,
+    ),
+    # §6.1 C3 row 3: "Denied → the delegating side degrades exactly as it does when the dossier
+    # seam is absent … never a fabricated dossier".
+    ("delegacao_a2a", effect_classes.RUNG_C3_MUTACAO_ENGINE, effect_classes.SHAPE_DEGRADACAO_SEM_DOSSIE),
+    # -- C4 — adverse / money / regulatory ----------------------------------------------------------
+    # §6.1 C4 (one row, six classes): "(a) Denied → audited refusal + fail-closed incident + human
+    # route. (b) PEP neutralized → the L0-hard NOT_HUMAN guard still refuses (I-6)."
+    ("autorizacao_emissao", effect_classes.RUNG_C4_ADVERSO, effect_classes.SHAPE_INCIDENTE_FALHA_FECHADA),
+    ("negativa_notificacao", effect_classes.RUNG_C4_ADVERSO, effect_classes.SHAPE_INCIDENTE_FALHA_FECHADA),
+    (
+        "submissao_regulatoria_ans",
+        effect_classes.RUNG_C4_ADVERSO,
+        effect_classes.SHAPE_INCIDENTE_FALHA_FECHADA,
+    ),
+    ("pagamento_emissao", effect_classes.RUNG_C4_ADVERSO, effect_classes.SHAPE_INCIDENTE_FALHA_FECHADA),
+    (
+        "vinculo_contratual_mudanca",
+        effect_classes.RUNG_C4_ADVERSO,
+        effect_classes.SHAPE_INCIDENTE_FALHA_FECHADA,
+    ),
+    (
+        "acusacao_fraude_registro",
+        effect_classes.RUNG_C4_ADVERSO,
+        effect_classes.SHAPE_INCIDENTE_FALHA_FECHADA,
+    ),
+)
+
+
+def test_every_class_carries_the_exact_rung_and_denial_shape_design_6_1_assigns() -> None:
+    """§6.1's ladder, pinned as a TABLE: all 15 classes, both columns, in both directions.
+
+    Dict equality rather than a per-row loop on purpose — it fails on a swapped shape, a changed
+    rung, a class added to the catalogue without a design row, AND a class quietly dropped from
+    it. A per-row loop over `ACTION_CLASSES` would miss the last one.
+    """
+    assert {name: (spec.rung, spec.denial_shape) for name, spec in effect_classes.ACTION_CLASSES.items()} == {
+        name: (rung, shape) for name, rung, shape in _DESIGN_6_1_LADDER
+    }
+    assert len(_DESIGN_6_1_LADDER) == 15, "design §6.1 declares fifteen classes across five rungs"
+    assert {rung for _, rung, _ in _DESIGN_6_1_LADDER} == {
+        effect_classes.RUNG_C0_LEITURA_INTERNA,
+        effect_classes.RUNG_C1_NOTIFICACAO,
+        effect_classes.RUNG_C2_PHI_OU_MODELO,
+        effect_classes.RUNG_C3_MUTACAO_ENGINE,
+        effect_classes.RUNG_C4_ADVERSO,
+    }, "every rung of the ramp must be populated — §9.4 flips them C0 -> C4"
 
 
 def test_no_class_declares_a_pre_effect_audit_yet() -> None:

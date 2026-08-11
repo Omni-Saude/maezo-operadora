@@ -100,6 +100,18 @@ OVERRIDE_ENFORCEMENT_ENABLED = "1"
 #: checkpointer fail-closed gate already carries, and the reason the pin is a defense-in-depth
 #: layer rather than the primary control.
 RUNTIME_MODE_ENV = "AGENT_RUNTIME_MODE"
+#: BOTH names the SAME discriminator answers to, in `key_scrubber.py:117`'s order
+#: (`RUNTIME_MODE or AGENT_RUNTIME_MODE`). Reading only one of the two was a real gap: a
+#: deployment standardised on `RUNTIME_MODE` — which the PHI egress pseudonymizer already treats as
+#: authoritative — left the §5.7 spec-dir pin DISARMED while believing it had declared production.
+#: One deployment vocabulary, two spellings, both honoured.
+#:
+#: DELIBERATE DIVERGENCE from `key_scrubber`, in the tightening direction, twice over: (1) it
+#: `.strip().lower()`s the value, so `" Local "` reads as local there and as PRODUCTION here —
+#: guessing at a mistyped mode is exactly what the fail-closed pin idiom refuses; (2) it treats an
+#: UNSET variable as production, which cannot be adopted here without turning every dev box and
+#: every test run into a `shadow_override` (the residual documented above is the accepted cost).
+RUNTIME_MODE_ENVS: Final[tuple[str, str]] = ("RUNTIME_MODE", RUNTIME_MODE_ENV)
 LOCAL_RUNTIME_MODE = "local"
 
 #: The three approver domains, CODE-FROZEN. `PLANS.md` §0.6 and DL-0042 both state the MZO-040
@@ -143,9 +155,19 @@ ENFORCEMENT_ENFORCING = "enforcing"
 #: Per-class key under `acoes.<class>`. Absent, mistyped, or non-string => `shadow`.
 CLASS_ENFORCEMENT_FIELD = "enforcement"
 #: Root key applied to any action ref that resolves to NO class (an unmapped topic, an
-#: uncatalogued agent operation). Absent, mistyped, or non-string => `shadow`. XRD-09's terminal
-#: state is `enforcing`; `shadow` during the ramp is the explicit, time-boxed deviation the design
-#: puts to the humans as Q-2.
+#: uncatalogued agent operation).
+#:
+#: THE TWO CASES ARE DELIBERATELY DIFFERENT, and the difference is the whole governance point:
+#:   * ABSENT root key => `enforcing`. XRD-09's literal is "ação/política desconhecida … negam"
+#:     (`0037-…:154`). Nobody wrote the Q-2 deviation down, so the ratified default applies. A
+#:     manifest that simply never heard of this key cannot silently inherit the ramp's exception.
+#:   * PRESENT but mistyped / non-string => `shadow`. Someone TRIED to write a value and the
+#:     loader cannot tell which one they meant; guessing `enforcing` off a typo would block a
+#:     platform on a stray capital. The fail-closed pin idiom, in the only direction that is
+#:     fail-closed HERE: a wrong guess turns denials into outages, not permissions.
+#: `shadow` during the ramp therefore has to be WRITTEN DOWN, explicitly, as the shipped manifest
+#: does — which is exactly the time-boxed deviation the design puts to the humans as Q-2, and
+#: which the terminal act of the rollout (§9.4 step 7) deletes or flips back to `enforcing`.
 DEFAULT_ENFORCEMENT_KEY = "enforcement_padrao_nao_mapeado"
 #: New manifest section (design §7.1): agent-side `action_ref` -> class, sibling of
 #: `mapeamento_topicos`, which stays byte-unchanged. Merged into ONE map at load; a key present in
@@ -177,7 +199,13 @@ REASON_OVERRIDE_NOT_ENFORCEABLE = "OVERRIDE_NAO_ENFORCAVEL"
 #: Same shape as `harness._ENUM_TOKEN_RE`, restated locally rather than imported: `maezo.gateway`
 #: must not depend on `maezo.tools` (the dependency runs the other way — the harness imports
 #: `gateway.audit`). Duplicating one regex keeps the layering clean.
-_TOKEN_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,39}$")
+#:
+#: `\Z`, NOT `$` (ONDA 1 GK nit, fail-closed tightening). Python's `$` also matches immediately
+#: BEFORE a trailing newline, so `"APROVADO\n"` passed `_is_bounded_token` and could have carried
+#: a line break into a structured log line — a log-injection primitive, and a value that is not
+#: the bounded token it claims to be. `\Z` anchors at the true end of the string. Strictly
+#: narrowing: every value that matched before still matches, minus the trailing-newline forms.
+_TOKEN_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,39}\Z")
 
 
 def _is_bounded_token(value: Any) -> bool:
@@ -258,6 +286,11 @@ class ActionApprovals:
         class_enforcement: ONDA 1 §7.3 — declared class -> `shadow` | `enforcing`. Every declared
             class has an entry; absent/mistyped in the data resolves to `shadow`.
         default_enforcement: ONDA 1 §7.3 — the value applied to a ref that resolves to NO class.
+            The dataclass default is `shadow` because it describes a view built WITHOUT parsing a
+            manifest (`_EMPTY_APPROVALS`, the `effect_pep` degraded view), which always carries
+            `mode=unresolved` and therefore cannot enforce in either direction. The PARSED default
+            is resolved in `_parse` and follows :data:`DEFAULT_ENFORCEMENT_KEY`'s absent-vs-typo
+            rule instead.
         artifact_digests: ONDA 1 §5.7 — artifact name -> sha256 (lowercase hex) of the policy
             files this view was resolved against, or `AUSENTE` for one that is not on disk. Lets
             an operator compare DEPLOYED policy against the reviewed commit.
@@ -289,12 +322,18 @@ class ActionApprovals:
         return mapped if mapped is not None else self.action_ref_to_class.get(ref)
 
     def enforcement_for(self, action_class: Any) -> str:
-        """The per-class enforcement value for `action_class` (§7.3). FAIL-CLOSED to `shadow`.
+        """The per-class enforcement value for `action_class` (§7.3). Never guesses.
 
         `None`, a non-string, an unknown class and an unmapped ref all resolve to
-        `default_enforcement` (the manifest's `enforcement_padrao_nao_mapeado`, itself `shadow`
-        unless a human wrote `enforcing`). A declared class with no `enforcement` key resolved to
-        `shadow` at load, so it is present in `class_enforcement` and answers `shadow` here.
+        `default_enforcement` (the manifest's `enforcement_padrao_nao_mapeado` — `enforcing` when
+        the root key is ABSENT, per XRD-09's literal, and `shadow` only when a human wrote that
+        deviation down; see :data:`DEFAULT_ENFORCEMENT_KEY`). A declared class with no
+        `enforcement` key resolved to `shadow` at load, so it is present in `class_enforcement`
+        and answers `shadow` here.
+
+        FAIL-CLOSED is still the net posture: `default_enforcement` only ever controls whether a
+        DENY BLOCKS. It can never turn a DENY into an ALLOW, and the global `modo` ceiling
+        (`shadow` in the shipped record) still gates it.
         """
         if not isinstance(action_class, str) or not action_class.strip():
             return self.default_enforcement
@@ -476,8 +515,17 @@ def _override_enforcement_permitted() -> bool:
 
 
 def _is_production_runtime() -> bool:
-    """True iff this process is NOT in local mode — the `_LOCAL_RUNTIME_MODE` discriminator."""
-    return os.environ.get(RUNTIME_MODE_ENV, LOCAL_RUNTIME_MODE) != LOCAL_RUNTIME_MODE
+    """True iff this process is NOT in local mode — the `_LOCAL_RUNTIME_MODE` discriminator.
+
+    Reads BOTH spellings (:data:`RUNTIME_MODE_ENVS`), first-set-wins, in `key_scrubber.py:117`'s
+    order: a deployment that declared production under either name arms the §5.7 pin. Neither set
+    still reads as local, which is the disclosed residual of :data:`RUNTIME_MODE_ENV`.
+    """
+    for name in RUNTIME_MODE_ENVS:
+        raw = os.environ.get(name)
+        if raw:
+            return raw != LOCAL_RUNTIME_MODE
+    return False
 
 
 def _resolve_enforcement(raw: Any) -> str:
@@ -492,7 +540,13 @@ def _resolve_enforcement(raw: Any) -> str:
 
 
 def _string_map(raw: Any) -> dict[str, str]:
-    """Normalise a manifest mapping section into `{stripped str: stripped str}`, dropping junk."""
+    """Normalise a manifest mapping section into `{stripped str: stripped str}`, dropping junk.
+
+    LEGACY, and deliberately left alone: `mapeamento_topicos` has shipped with this
+    silently-dropping comprehension since MZO-040, and its 26 entries are byte-unchanged. The NEW
+    `mapeamento_acoes` section is held to the stricter contract in :func:`_malformed_map_entries`
+    instead — see the ASYMMETRY note at its call site in `_parse`.
+    """
     if not isinstance(raw, dict):
         return {}
     return {
@@ -500,6 +554,28 @@ def _string_map(raw: Any) -> dict[str, str]:
         for key, value in raw.items()
         if isinstance(key, str) and key.strip() and isinstance(value, str) and value.strip()
     }
+
+
+def _describe_key(key: Any) -> str:
+    """A bounded, log-safe rendering of a manifest mapping key (never free text of any length)."""
+    return key.strip()[:60] if isinstance(key, str) else f"<{type(key).__name__}>"
+
+
+def _malformed_map_entries(raw: Mapping[Any, Any]) -> list[str]:
+    """The keys of `raw` whose key OR value is not a non-blank string. Refusal input, not a filter.
+
+    A `mapeamento_acoes` entry whose VALUE is a dict, a list, `null` or an int is not a class name
+    — it is an unfinished or garbled edit of a governance record. Dropping it silently (what
+    :func:`_string_map` does) would leave the ref UNMAPPED, which under `modo: enforcing` and the
+    XRD-09 root default means it BLOCKS while the reviewed diff shows a routing line that reads
+    fine. Same posture as the collision case immediately below it in `_parse`: refuse the WHOLE
+    record rather than honour part of a map.
+    """
+    return sorted(
+        _describe_key(key)
+        for key, value in raw.items()
+        if not isinstance(key, str) or not key.strip() or not isinstance(value, str) or not value.strip()
+    )
 
 
 #: The policy artefacts whose content digest is recorded at load (design §5.7 item 2). Resolved as
@@ -696,6 +772,19 @@ def _parse(
         raw_action_map = {}
     if not isinstance(raw_action_map, dict):
         return _refuse("invalid_schema", f"{manifest_path}: '{ACTION_MAP_KEY}' must be a mapping")
+    # ASYMMETRY, deliberate and disclosed: the NEW section refuses a malformed ENTRY; the legacy
+    # `mapeamento_topicos` above keeps `_string_map`'s silently-dropping comprehension. Tightening
+    # the legacy section is a behaviour change to a record 26 human-reviewed lines long and
+    # belongs to its own review, not to this one — `mapeamento_topicos` is byte-unchanged by the
+    # brief's hard limit. New data, new contract; the old data keeps the contract it shipped with.
+    malformed = _malformed_map_entries(raw_action_map)
+    if malformed:
+        return _refuse(
+            "invalid_action_map_entry",
+            f"{manifest_path}: {len(malformed)} entry/entries in '{ACTION_MAP_KEY}' do not map a "
+            f"non-blank string ref to a non-blank string class — {malformed[:5]}; a garbled "
+            "routing line must not be silently DROPPED into 'unmapped'",
+        )
     action_map = _string_map(raw_action_map)
 
     # COLLISION REFUSAL, the `_RefusingDuplicatesLoader` posture applied ACROSS the two sections
@@ -719,7 +808,13 @@ def _parse(
         )
         for name in declared
     }
-    default_enforcement = _resolve_enforcement(data.get(DEFAULT_ENFORCEMENT_KEY))
+    # ABSENT root key => the XRD-09 literal (`enforcing`); PRESENT-but-typo'd => `shadow`. See
+    # `DEFAULT_ENFORCEMENT_KEY`'s comment for why those two are not the same case.
+    default_enforcement = (
+        ENFORCEMENT_ENFORCING
+        if DEFAULT_ENFORCEMENT_KEY not in data
+        else _resolve_enforcement(data[DEFAULT_ENFORCEMENT_KEY])
+    )
     enforcing_classes = sorted(n for n, v in class_enforcement.items() if v == ENFORCEMENT_ENFORCING)
 
     digests = policy_artifact_digests(manifest_path)
@@ -792,18 +887,30 @@ def load_action_approvals(path: str | Path | None = None) -> ActionApprovals:
     if not raw_path:
         # ONDA 1 §5.7 / A-6: the DEFAULT path resolves through `resolve_spec_dir()`, which honours
         # `MAEZO_SPEC_DIR` as authoritative. That substitutes the ENTIRE policy plane in one
-        # variable, invisibly to the `MANIFEST_PATH_ENV` fence. Record it, and say so loudly in
-        # production — the enforcement consequence is applied in `_parse`.
-        spec_dir_sourced = bool(os.environ.get(MAEZO_SPEC_DIR_ENV)) and _is_production_runtime()
+        # variable, invisibly to the `MANIFEST_PATH_ENV` fence.
+        #
+        # PROVENANCE AND ENFORCEMENT ARE TWO DIFFERENT QUESTIONS, and conflating them suppressed
+        # the record: the earlier form emitted this line only when the pin ALSO bit (production
+        # AND `modo: enforcing`), so a staging or mis-labelled pod running an entirely substituted
+        # policy plane left no trace that the governed tree was bypassed. WHERE THE POLICY CAME
+        # FROM is a fact worth recording on every load; WHETHER ENFORCEMENT IS WITHHELD is the
+        # production-only consequence, and stays gated in `_parse`.
+        spec_dir_override = bool(os.environ.get(MAEZO_SPEC_DIR_ENV))
+        spec_dir_sourced = spec_dir_override and _is_production_runtime()
         try:
             raw_path = _manifest_default_path()
         except Exception as exc:  # noqa: BLE001 - fail-closed: unresolvable spec/ approves nothing
             return _refuse("path_unresolved", f"could not resolve the default manifest path: {exc}")
-        if spec_dir_sourced:
-            logger.error(
+        if spec_dir_override:
+            # `error` in production (an operator must be paged by their own log routing);
+            # `info` otherwise, because every dev box and every test run sets this variable and
+            # an `error` per load would be noise that teaches people to filter the line out.
+            emit = logger.error if spec_dir_sourced else logger.info
+            emit(
                 "action_approvals_spec_dir_overridden",
                 path=str(raw_path),
                 override_env=MAEZO_SPEC_DIR_ENV,
+                production_runtime=spec_dir_sourced,
                 enforcement_permitted=_override_enforcement_permitted(),
                 detail="the CODEOWNERS-listed policy plane was NOT used; the whole spec/ tree "
                 "(action-approvals.yaml, L0-core.yaml, _hard_frozen.yaml, every agent.yaml) was "
@@ -931,7 +1038,12 @@ def _fail_closed_decision(mode: str, enforcement: str = ENFORCEMENT_ENFORCING) -
     `enforcement` defaults to `enforcing` so the CONJUNCTION in `Decision.enforced` reduces to the
     pre-Onda-1 `mode == enforcing`: an internal error must still BLOCK under a live global
     enforcement rather than be quietly downgraded by a per-class dimension nobody could resolve.
-    Callers that CAN resolve the manifest pass the real per-class value.
+
+    NO CALLER OVERRIDES THAT DEFAULT, and that is the invariant, not an accident: reaching this
+    function means the class could NOT be resolved, so there is no honest per-class value to pass.
+    The parameter exists so a future caller that genuinely resolved a class can say so explicitly —
+    and so this docstring, rather than a silent positional argument at one call site, is where that
+    decision has to be argued. `evaluate_worker_task`'s error path calls `_fail_closed_decision(mode)`.
     """
     return Decision(None, allow=False, reason=REASON_INTERNAL_ERROR, mode=mode, enforcement=enforcement)
 
@@ -975,24 +1087,27 @@ def evaluate_worker_task(*, topic: str, tenant: str = "unknown", path: str | Pat
         # an internal error cannot fail OPEN once a human has flipped to `enforcing`. The cached
         # accessor is a dict read after the first successful load, so this second call is safe.
         try:
-            cached = action_approvals(path)
-            mode = cached.mode
-            # ONDA 1 §7.3: the error left us with NO resolved class, so the ref is unmapped and
-            # takes `enforcement_padrao_nao_mapeado` — the same rule every other unmapped ref
-            # follows. Under the ramp's `shadow` default that means an internal error is a log
-            # line; the terminal flip to `enforcing` makes it block, which is XRD-09's posture.
-            enforcement = cached.enforcement_for(None)
+            mode = action_approvals(path).mode
         except Exception:  # noqa: BLE001 — nothing left to trust; refuse to claim enforcement.
             mode = MODE_UNRESOLVED
-            enforcement = ENFORCEMENT_SHADOW
+        # ONDA 1 §7.3, AND THE ONE PLACE §7.3 MUST NOT REACH. The per-class dimension is NOT
+        # applied here. An internal error left us with no resolved class, and reading that as "an
+        # unmapped ref, so take `enforcement_padrao_nao_mapeado`" would let the ramp's explicit
+        # `shadow` deviation — a decision about UNCLASSIFIED TRAFFIC — silently downgrade a
+        # GATEWAY FAILURE to a log line under a live global `modo: enforcing`. That is a fail-open
+        # on the one path that exists because something already went wrong. `_fail_closed_decision`
+        # declares `enforcing` as its default for exactly this reason; the call site must let that
+        # default stand, so `Decision.enforced` reduces to the pre-Onda-1 `mode == enforcing`.
+        fail_closed = _fail_closed_decision(mode)
         logger.error(
             "action_execution_gateway_internal_error",
             topic=topic,
             mode=mode,
-            enforcement=enforcement,
+            enforcement=fail_closed.enforcement,
+            enforced=fail_closed.enforced,
             exc_info=True,
         )
-        return _fail_closed_decision(mode, enforcement)
+        return fail_closed
     return decision
 
 

@@ -17,7 +17,7 @@ removed — that is design invariant I-6, and it is why nothing here is wired IN
 THE ERROR-CONTAINMENT CHAIN (design I-4: "the PEP itself must be total")
 =================================================================================================
 A gateway bug must never crash a care path, and must never fail OPEN once enforcing. The posture
-is `evaluate_worker_task`'s double-guarded fallback (`action_execution.py:948-997`), generalised
+is `evaluate_worker_task`'s double-guarded fallback (`action_execution.py:1060-1111`), generalised
 per layer. Enumerated failure mode -> containment choice -> the proof that holds it:
 
   L-0 CATALOGUE (pure lookup on a frozen `MappingProxyType`)
@@ -71,7 +71,7 @@ per layer. Enumerated failure mode -> containment choice -> the proof that holds
       · the source raises or returns non-`True` -> DENY `CONSENTIMENTO_AUSENTE`.
       Proofs: `test_l4_*` family.
 
-  L-5 RATIFICATION (`ActionExecutionGateway.evaluate` — UNCHANGED, `action_execution.py:878-926`)
+  L-5 RATIFICATION (`ActionExecutionGateway.evaluate` — UNCHANGED, `action_execution.py:985-1032`)
       · the manifest could not be loaded -> the loader already fails closed into
         `_EMPTY_APPROVALS`; this layer passes its `MANIFESTO_INDISPONIVEL` through verbatim.
       · loading raises anyway -> guarded; the view degrades to empty and the mode to `unresolved`.
@@ -87,9 +87,17 @@ per layer. Enumerated failure mode -> containment choice -> the proof that holds
       · the default is a no-op; the `sample_key` is a sha256 over BOUNDED TOKENS ONLY.
       Proof: `test_a_raising_sampler_cannot_change_or_escape_the_decision`.
 
-  OUTERMOST. The whole body sits inside one final guard, so an unanticipated failure (a logger, a
-  `__eq__`, an import hook) still returns a bounded DENY rather than an exception. `decide` has no
-  raising path reachable by a caller — that is asserted directly, not just documented.
+  OUTERMOST. `decide` is a GUARD around `_decide_ladder`, so an unanticipated failure still
+  returns a bounded `L_ENTRADA` DENY rather than an exception. Three such paths are PROVEN, not
+  imagined: a raising `logger` inside a per-layer guard (the guard's own `logger.error` re-raises
+  past it — which is why the outermost handler's log is itself suppressed), `denial_shape_for`
+  raising (it runs inside `_deny`, i.e. AFTER the layer guard returned), and `enforcement_for`
+  raising (it runs BEFORE the first guard exists). `decide` has no raising path reachable by a
+  caller — asserted directly, against `decide` itself, by
+  `test_decide_itself_never_raises_on_the_three_proven_raising_paths`.
+    The outermost DENY resolves the GLOBAL mode from the cached manifest and does NOT apply the
+  per-class dimension (`_outermost_enforcement`): a gateway failure must still block under a live
+  `modo: enforcing`, exactly as `_fail_closed_decision` makes it on the worker leg.
 
 MOST-RESTRICTIVE-WINS is the short-circuit itself: the ladder returns at the FIRST deny and no
 later layer can widen it. The layers are ordered structural-before-human so that an approver
@@ -109,6 +117,7 @@ the inner seam only after an ALLOW.
 
 from __future__ import annotations
 
+import contextlib
 import enum
 import hashlib
 import re
@@ -133,17 +142,30 @@ from maezo.gateway.effect_classes import OperationSpec
 
 logger = structlog.get_logger(__name__)
 
-# -- Bounded-token discipline, restated from `action_execution.py:180-185` for the same reason it
+# -- Bounded-token discipline, restated from `action_execution.py:199-208` for the same reason it
 # is restated there from `harness._ENUM_TOKEN_RE`: keeping ONE regex per layering boundary is
 # cheaper than a cross-package import, and a cross-check test pins the two against each other.
-_TOKEN_RE: Final[re.Pattern[str]] = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,39}$")
-_DOTTED_TOKEN_RE: Final[re.Pattern[str]] = re.compile(r"^[A-Za-z][A-Za-z0-9_.]{0,79}$")
+#
+# ALL THREE ANCHOR WITH `\Z`, NEVER `$` — and so do the two MIRROR SOURCES (`action_execution.
+# _TOKEN_RE`, `process_allowlist._PROCESS_KEY_PATTERN`), tightened in the same commit so the
+# pattern-equality cross-checks keep holding. Python's `$` also matches immediately BEFORE a
+# trailing newline, so `EffectCall(tenant="acme\n", …)` was accepted as a bounded token and the
+# newline travelled into a structured telemetry line — a log-injection primitive on the ONE value
+# object whose entire contract (I-3) is "there is no field free text fits in". On the ADR-0016
+# side the same `$` cleared a FORMAT guard whose stated job is defending against encoding tricks.
+# Strictly narrowing in every case: nothing that matched before stops matching except the
+# trailing-newline forms, and no real token, reason, operation or SP-OP-* key carries one.
+# THIS COMMENT IS THE CANONICAL RATIONALE for all five patterns: `process_allowlist.py` carries a
+# one-line pointer here instead of a copy, because several ADRs and the evidence ledger cite that
+# file by `file:line` and a multi-line note there would have silently invalidated all of them.
+_TOKEN_RE: Final[re.Pattern[str]] = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,39}\Z")
+_DOTTED_TOKEN_RE: Final[re.Pattern[str]] = re.compile(r"^[A-Za-z][A-Za-z0-9_.]{0,79}\Z")
 
 #: MIRRORED from `tools/process_allowlist.py:63`, NOT imported: `maezo.gateway` must not depend on
-#: `maezo.tools` (`action_execution.py:177-179` states the rule and the precedent — the dependency
+#: `maezo.tools` (`action_execution.py:199-201` states the rule and the precedent — the dependency
 #: runs the other way). A cross-check test asserts this pattern and the ADR-0016 one accept and
 #: reject the same strings, so the duplication cannot drift into a second vocabulary.
-_PROCESS_KEY_RE: Final[re.Pattern[str]] = re.compile(r"^SP-OP-[A-Z]+(?:-[A-Z]+)*-[0-9]{3}$")
+_PROCESS_KEY_RE: Final[re.Pattern[str]] = re.compile(r"^SP-OP-[A-Z]+(?:-[A-Z]+)*-[0-9]{3}\Z")
 
 #: MIRRORED from `tools/process_allowlist.py:21-42` (ADR-0016's 15-key universe), same layering
 #: reason, same cross-check test. This is the set the per-agent `process_keys` list is intersected
@@ -307,7 +329,13 @@ class EffectCall:
         cents = self.value_cents
         if cents is not None and (isinstance(cents, bool) or not isinstance(cents, int) or cents < 0):
             raise EffectCallError("value_cents must be a non-negative int of centavos, or None")
-        if self.phi_zone not in PHI_ZONES:
+        # `isinstance` FIRST, and not for tidiness: `{"general"} in PHI_ZONES` raises `TypeError`
+        # (unhashable), which is NOT an `EffectCallError` — so `decide_effect`'s `except
+        # EffectCallError` would have missed it and the generic guard below it would have reported
+        # `GATEWAY_ERRO_INTERNO` for what is plainly a malformed call. One membership test against
+        # a frozenset is a type error waiting for a dict, a list or a set; the guard makes the
+        # declared contract ("every bad value raises EffectCallError") true for every input.
+        if not isinstance(self.phi_zone, str) or self.phi_zone not in PHI_ZONES:
             raise EffectCallError(f"phi_zone must be one of {sorted(PHI_ZONES)}")
 
 
@@ -353,7 +381,7 @@ class EffectDecision:
 
 # =================================================================================================
 # Injected seams. Every one is a Protocol so `maezo.gateway` imports no concrete implementation —
-# the layering `action_execution.py:177-179` protects. `pep.PEP` and
+# the layering `action_execution.py:199-201` protects. `pep.PEP` and
 # `tools.workers.ceilings.CeilingResolver` satisfy theirs STRUCTURALLY, with no edit to either.
 # =================================================================================================
 
@@ -612,12 +640,69 @@ def _l4_consent(call: EffectCall, action_class: str, ctx: DecisionContext) -> st
     return None if granted is True else REASON_CONSENT_MISSING
 
 
+def _outermost_enforcement(ctx: DecisionContext | None) -> tuple[str, bool]:
+    """The `(mode, enforced)` an OUTERMOST failure reports. NEVER raises.
+
+    Mirrors `evaluate_worker_task`'s double-guarded fallback exactly, including the part that took
+    a GK finding to get right: the GLOBAL ceiling is re-read from the already-cached manifest, and
+    the PER-CLASS dimension is deliberately NOT applied. Reaching this function means no class was
+    resolved, so `enforcement_padrao_nao_mapeado` — a decision about UNCLASSIFIED TRAFFIC, `shadow`
+    during the ramp — must not be allowed to downgrade a GATEWAY FAILURE under a live global
+    `modo: enforcing`. `enforced` therefore reduces to `mode == enforcing`, which is precisely what
+    `action_execution._fail_closed_decision`'s `enforcing` default encodes on the worker leg.
+
+    If even the cached read fails (it is one of the raising paths this guard exists for), the mode
+    is `unresolved` and nothing enforces: an unresolvable record may never CLAIM enforcement.
+    """
+    try:
+        mode = action_execution.action_approvals(ctx.approvals_path if ctx is not None else None).mode
+    except Exception:  # noqa: BLE001 - nothing left to trust; refuse to claim enforcement
+        return MODE_UNRESOLVED, False
+    return mode, mode == action_execution.MODE_ENFORCING
+
+
 def decide(call: EffectCall, ctx: DecisionContext | None = None) -> EffectDecision:
     """Decide ONE attempted effect. TOTAL: every input maps to a bounded `EffectDecision`.
 
-    NEVER raises — see the module docstring's containment chain. Most-restrictive-wins: the ladder
-    returns at the first DENY and no later layer can widen it.
+    NEVER raises — see the module docstring's containment chain, whose OUTERMOST link is this
+    function body. Most-restrictive-wins: the ladder returns at the first DENY and no later layer
+    can widen it.
+
+    The per-layer guards in :func:`_decide_ladder` contain every failure they can ATTRIBUTE. This
+    wrapper contains the ones they cannot, and they are real, not hypothetical — a GK proved three:
+    a raising `logger` INSIDE a layer guard (the guard's own `logger.error` re-raises past it),
+    `effect_classes.denial_shape_for` raising (it runs inside `_deny`, after the guard returned),
+    and `ActionApprovals.enforcement_for` raising (it runs before the first guard exists). Until
+    this wrapper landed, `decide` was total for its layers and partial for itself, which is not the
+    same claim — and B2's wrappers call `decide` on a care path.
     """
+    try:
+        return _decide_ladder(call, ctx)
+    except Exception:  # noqa: BLE001 - design I-4: the PEP ITSELF must be total, not just its layers
+        # The log is suppressed-guarded because a RAISING LOGGER is one of the proven paths into
+        # this handler; logging the containment must not re-raise out of it.
+        with contextlib.suppress(Exception):
+            logger.error("effect_pep_internal_error", layer=EffectLayer.ENTRADA.value, exc_info=True)
+        mode, enforced = _outermost_enforcement(ctx)
+        return EffectDecision(
+            allow=False,
+            enforced=enforced,
+            reason=REASON_INTERNAL_ERROR,
+            # `L_ENTRADA`, not the layer that happened to blow up: attribution is only honest when
+            # the guard that produced it knows which layer that was, and this one does not.
+            layer=EffectLayer.ENTRADA.value,
+            action_class=None,
+            denial_shape=None,
+            # NOT read off `call`: reaching here means an arbitrary object may be in that name, and
+            # touching its attributes is another raising path. Bounded constants only.
+            operation=None,
+            mode=mode,
+            enforcement=ENFORCEMENT_ENFORCING if enforced else ENFORCEMENT_SHADOW,
+        )
+
+
+def _decide_ladder(call: EffectCall, ctx: DecisionContext | None = None) -> EffectDecision:
+    """The ladder itself (L-0 .. L-6). Called ONLY through :func:`decide`, which is its guard."""
     context = ctx if ctx is not None else DecisionContext()
     approvals = _load_approvals(context.approvals_path)
     mode = approvals.mode
@@ -827,7 +912,7 @@ def log_effect_decision(decision: EffectDecision, call: EffectCall) -> None:
     """Emit the ONE telemetry line for a decided effect. Every field is a bounded, non-PHI token.
 
     Deliberately the SAME event names the worker leg already emits
-    (`action_execution_gateway_shadow` / `_enforced`, `action_execution.py:944-945`): the
+    (`action_execution_gateway_shadow` / `_enforced`, `action_execution.py:1056-1057`): the
     approval packet counts lines by `decision` × `reason` × `tenant`, and a second event family
     would fragment exactly the evidence §9.2 asks the approvers to read. The agent leg adds
     `operation`, `layer`, `principal` and `denial_shape` — all bounded, all new dimensions rather
