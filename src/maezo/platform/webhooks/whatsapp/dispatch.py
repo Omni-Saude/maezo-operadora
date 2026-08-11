@@ -43,6 +43,8 @@ import structlog
 
 from maezo.agents.helena.graph import HelenaState, WhatsAppSender, build, new_helena_state
 from maezo.gateway.pseudonymizer import Pseudonymizer
+from maezo.gateway.seams import SeamContext
+from maezo.gateway.seams.whatsapp import gate_whatsapp
 from maezo.runtime.checkpoint import Checkpointer, checkpoint_thread_config
 from maezo.runtime.inference import InferenceProvider
 from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
@@ -142,6 +144,19 @@ class HelenaDispatcher:
     # cannot durably checkpoint refuses to serve" decision is made at construction time in
     # `platform/webhooks/service.py` (a `None` dispatcher -> `/webhook` 501), not per-turn here.
     checkpointer: Checkpointer | None = None
+    # ONDA 1 §5.5 / O4 — the resolution of the per-request knot. `dmn`/`cibseven`/`inference` above
+    # arrive ALREADY gated from the registry, because they are long-lived. The WhatsApp seam cannot
+    # be: `_ScopedWhatsAppSender` is built per turn, below, around the raw recipient of THIS
+    # request. So the expensive half of the gate — the `DecisionContext` (PEP, capability view,
+    # approvals path), built once per (tenant, principal) — is frozen into this `SeamContext` at
+    # receiver bring-up, and `dispatch()` re-wraps the per-turn sender with it at the cost of one
+    # object allocation. No policy load, no PEP build, no I/O per turn (I-9).
+    #
+    # Optional ONLY so the unit tests that construct a dispatcher directly keep working. The
+    # PRODUCTION root always supplies it (`platform/webhooks/service.py::_build_dispatcher`), and
+    # `dispatch()` logs loudly at error level if it is ever absent — a disclosed, test-only
+    # affordance, never a silent ungated live path.
+    seam_context: SeamContext | None = None
 
     async def dispatch(self, message: InboundMessage) -> dict[str, Any]:
         """Run ONE complete Helena turn (receive..respond) for `message`.
@@ -163,6 +178,22 @@ class HelenaDispatcher:
         sender: WhatsAppSender = _ScopedWhatsAppSender(
             raw_to=message.from_number, expected_hash=phone_hash, client=self.whatsapp_client
         )
+        # ONDA 1 §5.5 / O4: gate the per-turn sender. The wrapper's INNER is the scoped sender, so
+        # the raw number stays exactly where it already was — inside `_ScopedWhatsAppSender`, for
+        # exactly this turn — and the gate itself never sees it (`EffectCall` has no field for a
+        # recipient, I-3). Cost: one allocation over the `SeamContext` frozen at bring-up.
+        if self.seam_context is not None:
+            sender = gate_whatsapp(sender, self.seam_context)
+        else:
+            # Test-only affordance (see the field's comment). Announced, never silent.
+            logger.error(
+                "helena_dispatch_whatsapp_seam_ungated",
+                tenant_id=self.tenant_id,
+                conversation_id=conversation_id,
+                detail="no SeamContext on the dispatcher — the WhatsApp seam is NOT choked for "
+                "this turn. The production composition root always supplies one; reaching this "
+                "branch in a deployed receiver is a wiring defect.",
+            )
         graph = build(
             {
                 "inference": self.inference,

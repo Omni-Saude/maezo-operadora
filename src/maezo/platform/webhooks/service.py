@@ -47,14 +47,17 @@ from dataclasses import dataclass
 
 import structlog
 
-from maezo.gateway.audit_postgres import PostgresAuditSink
 from maezo.gateway.pseudonymizer import Pseudonymizer
+from maezo.gateway.seams.cibseven import GatedCibSevenTransport
+from maezo.gateway.tool_registry import (
+    build_agent_seam_context,
+    build_agent_seams,
+    effect_seams_gated,
+)
 from maezo.platform.health import build_health_server
 from maezo.runtime.checkpoint import Checkpointer, provision_checkpointer
 from maezo.runtime.inference import InferenceProvider
-from maezo.tools.mcp_cibseven.transport import CibSevenHttpTransport
 from maezo.tools.mcp_whatsapp.server import WhatsAppServer
-from maezo.tools.workers.dmn_transport import CibSevenDmnTransport
 
 from .whatsapp.app import create_app
 from .whatsapp.dispatch import HelenaDispatcher
@@ -74,7 +77,9 @@ class WebhookState:
     live: bool = True
     dispatcher: HelenaDispatcher | None = None
     dispatcher_error: str | None = None
-    cibseven_transport: CibSevenHttpTransport | None = None
+    # ONDA 1 §5.5: the GATED engine transport (its `close()` is a pass-through lifecycle call,
+    # not an effect — no catalogue operation, no decision, no telemetry line).
+    cibseven_transport: GatedCibSevenTransport | None = None
     # T4b: the durable LangGraph checkpointer wired into the dispatcher (its pool is released on
     # drain). None when the dispatcher was never built, or when a prod-mode provision failed
     # closed (in which case `dispatcher` is also None -> `/webhook` 501, refuse-to-serve).
@@ -85,7 +90,9 @@ class WebhookState:
         return self.live
 
 
-def _build_dispatcher(settings: WhatsAppWebhookSettings) -> tuple[HelenaDispatcher, CibSevenHttpTransport]:
+def _build_dispatcher(
+    settings: WhatsAppWebhookSettings,
+) -> tuple[HelenaDispatcher, GatedCibSevenTransport]:
     """Construct Helena's dispatch dependencies. Pure construction — no network call happens
     until a node actually runs (mirrors `agent_runtime`'s `_build_tool_deps`).
 
@@ -100,17 +107,25 @@ def _build_dispatcher(settings: WhatsAppWebhookSettings) -> tuple[HelenaDispatch
             "must audit to a durable ADR-0007 sink BEFORE any engine effect (T-C2 fence). Refusing "
             "to construct a dispatcher that could start an un-audited escalation."
         )
-    inference = InferenceProvider()
-    dmn = CibSevenDmnTransport(settings.cibseven_base_url)
-    cibseven = CibSevenHttpTransport(settings.cibseven_base_url)
+    # ONDA 1 §5.5 — THE LIVE AGENT PATH. This root used to construct its own `InferenceProvider()`,
+    # `CibSevenDmnTransport`, `CibSevenHttpTransport` and `WhatsAppServer` (adversary A-4's
+    # concrete instance, and counterexample C-A1: `_build_tool_deps` gates only the health-only
+    # daemon, which never executes a turn). Every effect seam now comes from the ONE sanctioned
+    # constructor, so the objects Helena's graph receives here are the SAME gated shapes the other
+    # four roots hand out.
+    #
+    # `build_agent_seams` RAISES if a seam cannot be wrapped (I-2). That raise is caught by
+    # `_bring_up_dependencies`, which leaves `state.dispatcher` None and degrades `/webhook` to
+    # its explicit 501 — the identical refuse-to-serve shape a missing DSN or a missing PHI key
+    # already triggers. There is no path where this receiver serves a turn with an ungated seam.
+    seams = build_agent_seams(settings=settings, agent_id="helena", inference=InferenceProvider())
+    seam_context = build_agent_seam_context(tenant=settings.tenant_id, agent_id="helena")
     whatsapp_client = WhatsAppServer()
-    # Pure construction (asyncpg pool is lazy) — mirrors the transports above.
-    audit_sink = PostgresAuditSink(settings.database_url, settings.tenant_id)
     dispatcher = HelenaDispatcher(
         tenant_id=settings.tenant_id,
-        inference=inference,
-        dmn=dmn,
-        cibseven=cibseven,
+        inference=seams["inference"],
+        dmn=seams["dmn"],
+        cibseven=seams["cibseven"],
         whatsapp_client=whatsapp_client,
         # Keyed HMAC pseudonymizer (ADR-0035). Fail-closed: in a production `runtime_mode` an
         # absent PHI_HMAC_KEY raises `PseudonymizerKeyMissingError` here — caught by
@@ -122,8 +137,15 @@ def _build_dispatcher(settings: WhatsAppWebhookSettings) -> tuple[HelenaDispatch
             production=settings.runtime_mode != _LOCAL_RUNTIME_MODE,
             tenant_id=settings.tenant_id,
         ),
-        audit_sink=audit_sink,
+        audit_sink=seams["audit_sink"],
+        # ONDA 1 §5.5 / O4 — the per-request knot. The WhatsApp seam CANNOT be built here: it is
+        # `_ScopedWhatsAppSender`, created per turn inside `dispatch()` around the raw recipient of
+        # the one inbound request. So the DECISION half is built once, here, and frozen; the
+        # dispatcher re-wraps its per-turn sender with it. See `tool_registry`'s module docstring
+        # for the three rejected alternatives and their counterexamples.
+        seam_context=seam_context,
     )
+    cibseven = seams["cibseven"]
     return dispatcher, cibseven
 
 
@@ -191,6 +213,30 @@ async def _bring_up_dependencies(state: WebhookState) -> None:
         state.dispatcher_error = f"{type(exc).__name__}: {exc}"
         logger.error("webhook_dispatcher_build_failed", exc_info=True)
         return
+
+    # ONDA 1 §5.5's boot assertion, on THE LIVE AGENT PATH. This receiver has no `/readyz` gate for
+    # dispatch (module docstring STEP C: an unconfigured dispatcher degrades `/webhook` to 501, it
+    # does not colour readiness), so the assertion is enforced the way this root already enforces
+    # every other mandatory dep: an ungated seam DROPS the dispatcher and `/webhook` answers its
+    # explicit 501. Refuse-to-serve, never serve-ungated — the runtime half of I-11 on the one path
+    # that actually runs traffic.
+    gated, detail = effect_seams_gated(
+        {
+            "dmn": state.dispatcher.dmn,
+            "cibseven": state.dispatcher.cibseven,
+            "inference": state.dispatcher.inference,
+        }
+    )
+    if not gated:
+        state.dispatcher = None
+        state.dispatcher_error = f"effect seams not gated — refusing to serve: {detail}"
+        logger.error(
+            "webhook_dispatcher_refused_ungated_effect_seams",
+            tenant=state.settings.tenant_id,
+            detail=detail,
+        )
+        return
+    logger.info("webhook_effect_seams_gated", tenant=state.settings.tenant_id, detail=detail)
 
     # T4b: wire durable multi-turn persistence into the dispatcher, fail-closed in production.
     # Isolated exactly like the construction above — a failure here must not crash bring-up.
