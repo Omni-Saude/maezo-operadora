@@ -3,7 +3,7 @@
 
 Purpose
 -------
-`start_process_idempotent` (`maezo.tools.mcp_cibseven.transport:560`) is the SOLE, ADR-0007-audited
+`start_process_idempotent` (`maezo.tools.mcp_cibseven.transport:1052`) is the SOLE, ADR-0007-audited
 process-start chokepoint (module docstring, `tools/mcp_cibseven/__init__.py`): it ALWAYS calls
 `find_active_instance` before `start_process_instance`, and durably emits the ADR-0007 audit row
 BEFORE the engine effect (T-C2 emit-before-effect). A caller that reaches for
