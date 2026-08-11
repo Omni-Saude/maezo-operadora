@@ -72,6 +72,20 @@ tree, not the pre-implementation plan):
     `8.2_rest_path_sanctioned` counter moves 5 -> 7, the two extra hits being sanctioned
     `transport.py` literals the rule always intended to cover (`/messages` contains `/message`,
     so one literal legitimately counts against both patterns).
+  * §8.1 matches CLASS NAMES in the AST, so INDIRECTION defeats it, and no name-based fence can
+    close that: `_C = InferenceProvider; _C()` (aliased through a local) and
+    `getattr(mod, "InferenceProvider")()` (resolved from a string) both construct a fenced class
+    without the name ever appearing at a call site. Nothing here claims otherwise, and
+    `check_start_process_fence.py` carries the identical limit for the identical reason — an AST
+    scan is not a sandbox, and the design accepts this per-design rather than pretending.
+    WHAT ACTUALLY COVERS IT is the runtime half of I-11: `tool_registry.effect_seams_gated`, B2's
+    §5.5 boot assertion, whose CONSEQUENCE is pinned at all four composition roots
+    (`tests/unit/gateway/seams/test_boot_assertion_wiring.py`). An indirected raw construction
+    still has to reach a dep map, and that map is `isinstance`-checked against `GatedSeam` — so
+    the webhook receiver drops its dispatcher (`/webhook` -> 501), the notifications bridge
+    refuses to start, and both runtimes go red on `/readyz`. This gate is therefore the CHEAP,
+    EARLY layer that catches the honest mistake in review; it is not, and is not claimed to be,
+    the control that stops a determined bypass.
 
 Usage (CI / local)
 -------------------
