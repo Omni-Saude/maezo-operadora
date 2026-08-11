@@ -31,9 +31,10 @@ checked before anything durable is written" ordering):
 
 SHIPS INERT. The shipped manifest is `status: DRAFT` / `modo: shadow` / every class
 `enforcement: shadow`, so step 3 is unreachable and steps 1/2 add no I/O (`action_approvals` is
-`lru_cache`d; the decision is dict lookups). `tests/unit/gateway/seams/test_seam_parity.py`
-proves it per seam: gateway-live vs gateway-neutralized produce IDENTICAL outcomes — the same
-proof shape the worker leg already carries (`harness.py:1583-1585`).
+`lru_cache`d; the decision is dict lookups). `tests/unit/gateway/seams/test_seam_proofs.py:421::
+test_parity_gated_vs_neutralized_under_the_shipped_manifest` proves it per seam (parametrized over
+all seven): gateway-live vs gateway-neutralized produce IDENTICAL outcomes — the same proof shape
+the worker leg already carries (`harness.py:1583-1585`).
 """
 
 from maezo.gateway.seams._base import (

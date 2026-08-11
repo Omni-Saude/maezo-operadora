@@ -21,7 +21,7 @@ short-circuited here:
   * the wrapper NEVER catches `PhiZoneRoutingError` — the delegation is bare, so the error
     propagates to the node exactly as it did before this seam existed;
   * with the chokepoint fully NEUTRALIZED (no gate at all), `phi=True` against a general-zone
-    provider still refuses. `tests/unit/gateway/seams/test_seam_wrappers.py::
+    provider still refuses. `tests/unit/gateway/seams/test_seam_proofs.py:671::
     test_phi_zone_routing_fail_close_is_independent_of_the_pep` proves both directions — gated
     and un-gated — against the same provider.
 

@@ -834,6 +834,45 @@ def test_inference_provider_public_surface_is_fully_overridden() -> None:
     )
 
 
+def test_every_test_citation_in_the_gateway_tree_resolves() -> None:
+    """A docstring that cites a proof by name must cite a proof that EXISTS.
+
+    Two citations in this package pointed at `test_seam_wrappers.py` and `test_seam_parity.py` —
+    files that have never existed in this repo. Both survived a 6509-test suite, because a
+    docstring is not executable. That matters more here than elsewhere: these docstrings are how
+    an approver navigates from a claim ("I-6 holds with the gate removed") to the proof of it, and
+    a dangling pointer reads as "the proof is somewhere" while being indistinguishable from "there
+    is no proof". This test makes the pointer executable — file must exist, and a named
+    `::test_x` must be a real test function in it.
+    """
+    import re as _re
+
+    citation = _re.compile(r"(tests/[A-Za-z0-9_./]+\.py)(?::\d+)?(?:::([A-Za-z0-9_]+))?")
+    checked = 0
+    problems: list[str] = []
+    for path in sorted((_SRC / "gateway").rglob("*.py")):
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            for match in citation.finditer(line):
+                rel, test_name = match.group(1), match.group(2)
+                checked += 1
+                target = _REPO_ROOT / rel
+                where = f"{path.relative_to(_REPO_ROOT)}:{lineno}"
+                if not target.is_file():
+                    problems.append(f"{where} cites {rel}, which does not exist")
+                    continue
+                if test_name is None:
+                    continue
+                names = {
+                    node.name
+                    for node in ast.walk(ast.parse(target.read_text(encoding="utf-8")))
+                    if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+                }
+                if test_name not in names:
+                    problems.append(f"{where} cites {rel}::{test_name}, which is not defined there")
+    assert not problems, "dangling test citation(s):\n  " + "\n  ".join(problems)
+    assert checked >= 5, f"non-vacuous: expected several citations to check, found {checked}"
+
+
 def test_a_gated_seam_cannot_be_forged_by_an_attribute() -> None:
     """`is_gated_seam` is an `isinstance` check for a reason (see `GatedSeam`'s docstring)."""
 
