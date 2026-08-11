@@ -873,6 +873,46 @@ def test_every_test_citation_in_the_gateway_tree_resolves() -> None:
     assert checked >= 5, f"non-vacuous: expected several citations to check, found {checked}"
 
 
+#: The manifest passages the gateway QUOTES while citing them by line range. Each entry is
+#: `(citing module, cited range, the quoted phrase)`. These two are governance claims, not
+#: navigation aids — "classifying the ~80 unmapped topics is a HUMAN decision" and "no class was
+#: invented to round out a taxonomy" are the sentences `effect_classes` leans on to justify a
+#: DISCLOSED GAP and a DELIBERATE OMISSION. A reader who follows either citation to the wrong
+#: lines cannot check the justification, which is the whole function of quoting it.
+_QUOTED_MANIFEST_CITATIONS: tuple[tuple[str, str, str], ...] = (
+    ("gateway/effect_classes.py", "563-566", "decisão humana, não inferência de agente"),
+    ("gateway/effect_classes.py", "134-136", "no class was invented to round out a taxonomy"),
+)
+
+
+def test_every_quoted_manifest_citation_points_at_the_quoted_text() -> None:
+    """A cited line RANGE that quotes the manifest must contain the quote it attributes there.
+
+    The manifest is 600+ lines of governance data that every wave appends to, so a range citation
+    into it rots by construction: both of these had drifted ~200 lines by the time B2 landed, and
+    nothing noticed, because a line number is not checkable by reading the file it lives in.
+
+    Deliberately asserts the QUOTE, not just that the file is long enough: a range that still
+    resolves but now points at somebody else's class is worse than one that obviously dangles.
+    """
+    manifest = (
+        (_REPO_ROOT / "spec" / "policies" / "autonomy" / "action-approvals.yaml")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    )
+
+    for module, span, phrase in _QUOTED_MANIFEST_CITATIONS:
+        source = (_SRC / module).read_text(encoding="utf-8")
+        assert f"action-approvals.yaml:{span}" in source, (
+            f"{module} no longer cites action-approvals.yaml:{span} — update this table with it"
+        )
+        low, high = (int(part) for part in span.split("-"))
+        cited = "\n".join(manifest[low - 1 : high])
+        assert phrase in cited, (
+            f"{module} cites action-approvals.yaml:{span} for {phrase!r}, but those lines say:\n{cited}"
+        )
+
+
 def test_a_gated_seam_cannot_be_forged_by_an_attribute() -> None:
     """`is_gated_seam` is an `isinstance` check for a reason (see `GatedSeam`'s docstring)."""
 
