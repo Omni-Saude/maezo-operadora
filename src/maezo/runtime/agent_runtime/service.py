@@ -110,6 +110,12 @@ class AgentState:
     effect_policy_artifacts: Mapping[str, str] = field(default_factory=dict)
     effect_policy_mode: str | None = None
     effect_policy_error: str | None = None
+    # ONDA 1 §5.5 / I-11: the RUNTIME half of inevitability. The CI fence catches a bypass in the
+    # source; this catches one that only exists at runtime (a monkeypatch, a plugin, a
+    # config-driven factory) by asserting every effect seam this replica handed its graph is a
+    # gated instance. Snapshotted at bring-up so `/readyz` stays I/O-free, like every check here.
+    effect_seams_gated: bool = False
+    effect_seams_detail: str = "not evaluated (bring-up has not run)"
     inference_provider: InferenceProvider | None = None
     inference_error: str | None = None
     agent_graph: StateGraph[Any] | None = None
@@ -289,6 +295,17 @@ def build_readiness_checks(state: AgentState) -> list[Callable[[], Awaitable[Che
             detail=_state.effect_policy_error or "effect-policy digest not computed",
         )
 
+    async def effect_seams_gated(_state: AgentState = state) -> CheckResult:
+        # ONDA 1 §5.5's boot assertion. RED, never fatal to liveness — the same posture as every
+        # check above (design I-2: "the composition roots already isolate build failures into red
+        # readiness, so the failure mode is 'replica not ready', never 'replica ready and
+        # ungated'"). Deliberately NON-VACUOUS: a dep map with no effect seam at all reports
+        # unhealthy rather than trivially green (`tool_registry.effect_seams_gated`), because
+        # "found nothing to check" is exactly what a seam-removing bypass looks like.
+        if _state.effect_seams_gated:
+            return CheckResult(name="effect_seams_gated", healthy=True, detail=_state.effect_seams_detail)
+        return CheckResult(name="effect_seams_gated", healthy=False, detail=_state.effect_seams_detail)
+
     return [
         agent_definition_loaded,
         policies_loadable,
@@ -298,6 +315,7 @@ def build_readiness_checks(state: AgentState) -> list[Callable[[], Awaitable[Che
         a2a_dispatcher_ready,
         a2a_audit_sink_ready,
         effect_policy_digest,
+        effect_seams_gated,
     ]
 
 
@@ -316,84 +334,29 @@ def _load_agent_definition(settings: AgentRuntimeSettings) -> AgentDefinition:
     return loader.load_by_id(settings.agent_id)
 
 
-def _build_tool_deps(settings: AgentRuntimeSettings) -> dict[str, Any]:
-    """Construct the REAL (never-invoked-here) transports a real agent `build(config)` needs.
+def _build_tool_deps(
+    settings: AgentRuntimeSettings, inference: InferenceProvider | None = None
+) -> dict[str, Any]:
+    """Resolve this replica's agent seams through the ONE sanctioned constructor (Onda 1 §5.5).
 
-    Construction of every transport below is pure (no network call happens until a node
-    actually runs — `CibSevenDmnTransport`/`CibSevenHttpTransport`/`FhirServer`/`WhatsAppServer`
-    all defer I/O to their async methods), so building them here — purely to prove
-    `create_graph(agent_id)` compiles a real graph — costs nothing at readiness-check time.
+    THIN DELEGATION, deliberately. Until Onda 1 this function held the per-agent adapter choices
+    itself, and `platform/webhooks/service.py:100` held a second, divergent copy of the same
+    knowledge — adversary A-11 ("two composition roots drift"), which the a2a root had already
+    tried to avoid by importing THIS function (`a2a_composition.py:74`). All of it now lives in
+    `maezo.gateway.tool_registry`, so there is ONE place that knows which adapter each agent gets
+    and every seam it returns is a GATED instance.
+
+    Construction stays pure (no network until a node runs), so building the deps purely to prove
+    `create_graph(agent_id)` compiles a real graph still costs nothing at readiness-check time:
+    the gate itself is dict lookups over an `lru_cache`d manifest (I-9).
+
+    `inference` is threaded through so the provider a graph receives is the GATED one. Passing
+    `None` omits the key entirely, which preserves `Harness.create_graph`'s
+    `config.setdefault("inference", self._inference)` behaviour byte for byte (`harness.py:170`).
     """
-    from maezo.agents.helena.adapters import WhatsAppServerSender
-    from maezo.agents.rafael.adapters import FhirServerReader
-    from maezo.gateway.audit_postgres import PostgresAuditSink
-    from maezo.tools.mcp_cibseven.transport import CibSevenHttpTransport
-    from maezo.tools.mcp_fhir.server import FhirServer, FhirSettings
-    from maezo.tools.mcp_whatsapp.server import WhatsAppServer
-    from maezo.tools.workers.dmn_transport import CibSevenDmnTransport
+    from maezo.gateway.tool_registry import build_agent_seams
 
-    deps: dict[str, Any] = {
-        "dmn": CibSevenDmnTransport(settings.cibseven_base_url),
-        "cibseven": CibSevenHttpTransport(settings.cibseven_base_url),
-    }
-    # T-C2 fence: every agent's `start_process` node structurally REQUIRES a durable ADR-0007 sink
-    # (the fail-closed emit-before-effect chokepoint, `start_process_idempotent`). Construction is
-    # pure (asyncpg pool is lazy, like the transports above — no I/O at readiness-check time). When
-    # `DATABASE_URL` is unset the sink is deliberately NOT fabricated: the agent `build(config)`
-    # then fail-closes (missing `audit_sink`) and `graph_loaded` reports unhealthy with the reason —
-    # an agent replica that cannot durably audit its process starts must not advertise a loadable
-    # graph (ADR-0007 fail-closed; mirrors T-D's worker-daemon `audit_sink_ready` posture).
-    if settings.database_url:
-        deps["audit_sink"] = PostgresAuditSink(settings.database_url, settings.tenant_id)
-    if settings.agent_id in ("helena", "fernando"):
-        # T1.12: Fernando reuses the SAME generic WhatsAppSender adapter as Helena — it is
-        # documented as a structural (Protocol-satisfying) shim over `WhatsAppServer`, not
-        # Helena-specific business logic (`agents/helena/adapters.py`'s own docstring).
-        deps["whatsapp"] = WhatsAppServerSender(WhatsAppServer())
-    if settings.agent_id == "lucas":
-        # T1.12: Lucas needs the same `whatsapp` seam as Helena (his `respond_member`/
-        # `escalate_human` nodes send WhatsApp text) — his OWN adapter (`agents/lucas/
-        # adapters.py`), deliberately a duplicate of Helena's, not an import from Helena's
-        # package (ADR-0004 federated Agent-Definition independence — mirrors why rafael's
-        # `FhirServerReader` is its own copy too). The import is branch-local ONLY because the
-        # top-level `WhatsAppServerSender` name is already taken by Helena's adapter — this
-        # block is purely ADDITIVE to the pre-existing helena/rafael wiring around it (R1
-        # cycle-1 F3: an earlier revision also moved the sibling imports branch-local, which
-        # broke clean-merge semantics with in-flight sibling PRs; reverted).
-        from maezo.agents.lucas.adapters import WhatsAppServerSender as LucasWhatsAppServerSender
-
-        deps["whatsapp"] = LucasWhatsAppServerSender(WhatsAppServer())
-    if settings.agent_id == "rafael":
-        deps["fhir"] = FhirServerReader(FhirServer(FhirSettings(base_url=settings.fhir_base_url)))
-    if settings.agent_id == "carolina":
-        # T1.12: Carolina's `gather` seam (`graph.SummaryReader`) only needs `read_patient` —
-        # `FhirServerReader` (built for Rafael) already implements it structurally, so it is
-        # reused here rather than duplicating an adapter (module docstring's divergence #6 in
-        # `agents/carolina/graph.py`).
-        deps["fhir"] = FhirServerReader(FhirServer(FhirSettings(base_url=settings.fhir_base_url)))
-    if settings.agent_id == "gustavo":
-        # T1.12: gustavo's OPTIONAL `fhir` seam (J2 NIP dossier enrichment, best-effort) —
-        # structural reuse of rafael's adapter (`agents/gustavo/graph.py::FhirReader` is the
-        # same `read_patient` Protocol shape). Purely additive; required deps (dmn/cibseven/
-        # inference) are already provided generically above.
-        deps["fhir"] = FhirServerReader(FhirServer(FhirSettings(base_url=settings.fhir_base_url)))
-    if settings.agent_id == "valentina":
-        # T1.12: Valentina's optional post-consent `gather` seam (her own adapter — her
-        # `PatientSummaryReader` Protocol needs `read_patient_summary`, which Rafael's adapter
-        # does not expose). Purely additive; construction is pure (no I/O until a node runs),
-        # same as every transport above.
-        from maezo.agents.valentina.adapters import FhirServerReader as ValentinaFhirServerReader
-
-        deps["fhir"] = ValentinaFhirServerReader(FhirServer(FhirSettings(base_url=settings.fhir_base_url)))
-    if settings.agent_id == "andre":
-        # T1.12: Andre's `gather` seam (`graph.PatientSummaryReader`) only needs `read_patient` —
-        # `FhirServerReader` (built for Rafael) already implements it structurally, so it is
-        # reused here rather than duplicating an adapter (labeled boundary in
-        # `agents/andre/graph.py`'s module docstring). Andre's OTHER optional seam
-        # (`population` — the k-anon lake client) is PORT-PENDING (WB.4) and deliberately not
-        # wired: `build(config)` treats its absence as a disclosed gap note, never a failure.
-        deps["fhir"] = FhirServerReader(FhirServer(FhirSettings(base_url=settings.fhir_base_url)))
-    return deps
+    return build_agent_seams(settings=settings, agent_id=settings.agent_id, inference=inference)
 
 
 def _load_agent_graph(
@@ -414,7 +377,11 @@ def _load_agent_graph(
     Raises `UnknownAgentError`/`ValueError` on any failure — the caller (`_bring_up_dependencies`)
     isolates it into `agent_graph_error`, same as the other STEP B checks.
     """
-    harness = Harness(inference=inference, checkpointer=checkpointer, tool_deps=_build_tool_deps(settings))
+    harness = Harness(
+        inference=inference,
+        checkpointer=checkpointer,
+        tool_deps=_build_tool_deps(settings, inference=inference),
+    )
     graph = harness.create_graph(settings.agent_id)
     saver = checkpointer.saver if checkpointer is not None else None
     graph.compile(checkpointer=saver)  # validates structure (checkpoint-enabled); never runs a node
@@ -519,6 +486,26 @@ async def _bring_up_dependencies(state: AgentState) -> None:
     # checkpoint-enabled. Own isolation + fail-closed discipline lives inside the helper.
     await _provision_checkpointer(state)
 
+    # ONDA 1 §5.5: snapshot the gatedness of the EXACT dep map `_load_agent_graph` is about to
+    # feed the graph. Isolated like every other block — a failure here leaves the check red and
+    # nothing else, and it never blocks the graph build below (a policy-plane fault must not
+    # become a care-path outage while the gateway is inert).
+    try:
+        from maezo.gateway.tool_registry import effect_seams_gated as _effect_seams_gated
+
+        state.effect_seams_gated, state.effect_seams_detail = _effect_seams_gated(
+            _build_tool_deps(settings, inference=state.inference_provider)
+        )
+        if not state.effect_seams_gated:
+            logger.error(
+                "effect_seams_not_gated",
+                agent_id=settings.agent_id,
+                detail=state.effect_seams_detail,
+            )
+    except Exception as exc:  # noqa: BLE001 — same isolation as above.
+        state.effect_seams_detail = f"{type(exc).__name__}: {exc}"
+        logger.error("effect_seams_gated_probe_failed", agent_id=settings.agent_id, exc_info=True)
+
     try:
         state.agent_graph = _load_agent_graph(settings, state.inference_provider, state.checkpointer)
     except (UnknownAgentError, ValueError) as exc:
@@ -553,7 +540,7 @@ async def _bring_up_dependencies(state: AgentState) -> None:
         # failure leaves `a2a_audit_sink_ready` unhealthy, never propagates.
         if settings.database_url:
             try:
-                audit_sink = _build_tool_deps(settings).get("audit_sink")
+                audit_sink = _build_tool_deps(settings, inference=state.inference_provider).get("audit_sink")
                 if audit_sink is not None:
                     state.a2a_audit_sink_ready = await _probe_a2a_audit_sink(
                         audit_sink, settings.dep_connect_timeout_s
@@ -584,6 +571,7 @@ async def _bring_up_dependencies(state: AgentState) -> None:
             state.a2a_audit_sink_ready if settings.agent_id in _A2A_EDGE_AGENT_IDS else "n/a"
         ),
         effect_policy_digest=state.effect_policy_digest,
+        effect_seams_gated=state.effect_seams_gated,
     )
     # Explicit, load-bearing log line (T1.11 update of the Q-6 scaffold note): the graph now
     # BUILDS for real (helena/rafael, defect B6) but this daemon still never EXECUTES a turn —
