@@ -91,7 +91,7 @@ MANIFEST_PATH_ENV = "MAEZO_ACTION_APPROVALS_PATH"
 OVERRIDE_ENFORCEMENT_ENV = "MAEZO_ACTION_APPROVALS_ALLOW_OVERRIDE_ENFORCEMENT"
 OVERRIDE_ENFORCEMENT_ENABLED = "1"
 
-#: Runtime-mode discriminator, mirroring `runtime/agent_runtime/service.py:82`
+#: Runtime-mode discriminator, mirroring `runtime/agent_runtime/service.py:84`
 #: (`_LOCAL_RUNTIME_MODE`) and `a2a_composition.py`'s identically-named one: anything OTHER than
 #: the literal "local" (Helm injects "kubernetes") is PRODUCTION. Restated here rather than
 #: imported for the same layering reason `_TOKEN_RE` is restated: `maezo.gateway` must not depend

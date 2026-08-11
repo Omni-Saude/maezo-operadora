@@ -17,7 +17,7 @@ removed — that is design invariant I-6, and it is why nothing here is wired IN
 THE ERROR-CONTAINMENT CHAIN (design I-4: "the PEP itself must be total")
 =================================================================================================
 A gateway bug must never crash a care path, and must never fail OPEN once enforcing. The posture
-is `evaluate_worker_task`'s double-guarded fallback (`action_execution.py:965-999`), generalised
+is `evaluate_worker_task`'s double-guarded fallback (`action_execution.py:948-997`), generalised
 per layer. Enumerated failure mode -> containment choice -> the proof that holds it:
 
   L-0 CATALOGUE (pure lookup on a frozen `MappingProxyType`)
@@ -71,7 +71,7 @@ per layer. Enumerated failure mode -> containment choice -> the proof that holds
       · the source raises or returns non-`True` -> DENY `CONSENTIMENTO_AUSENTE`.
       Proofs: `test_l4_*` family.
 
-  L-5 RATIFICATION (`ActionExecutionGateway.evaluate` — UNCHANGED, `action_execution.py:895-928`)
+  L-5 RATIFICATION (`ActionExecutionGateway.evaluate` — UNCHANGED, `action_execution.py:878-926`)
       · the manifest could not be loaded -> the loader already fails closed into
         `_EMPTY_APPROVALS`; this layer passes its `MANIFESTO_INDISPONIVEL` through verbatim.
       · loading raises anyway -> guarded; the view degrades to empty and the mode to `unresolved`.
@@ -133,7 +133,7 @@ from maezo.gateway.effect_classes import OperationSpec
 
 logger = structlog.get_logger(__name__)
 
-# -- Bounded-token discipline, restated from `action_execution.py:180-183` for the same reason it
+# -- Bounded-token discipline, restated from `action_execution.py:180-185` for the same reason it
 # is restated there from `harness._ENUM_TOKEN_RE`: keeping ONE regex per layering boundary is
 # cheaper than a cross-package import, and a cross-check test pins the two against each other.
 _TOKEN_RE: Final[re.Pattern[str]] = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,39}$")
@@ -827,7 +827,7 @@ def log_effect_decision(decision: EffectDecision, call: EffectCall) -> None:
     """Emit the ONE telemetry line for a decided effect. Every field is a bounded, non-PHI token.
 
     Deliberately the SAME event names the worker leg already emits
-    (`action_execution_gateway_shadow` / `_enforced`, `action_execution.py:1007-1008`): the
+    (`action_execution_gateway_shadow` / `_enforced`, `action_execution.py:944-945`): the
     approval packet counts lines by `decision` × `reason` × `tenant`, and a second event family
     would fragment exactly the evidence §9.2 asks the approvers to read. The agent leg adds
     `operation`, `layer`, `principal` and `denial_shape` — all bounded, all new dimensions rather
