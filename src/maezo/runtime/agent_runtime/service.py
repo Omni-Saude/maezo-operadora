@@ -51,8 +51,8 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import signal
-from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -60,6 +60,7 @@ from langgraph.graph import StateGraph
 
 from maezo.a2a import DelegationDispatcher
 from maezo.agents import AgentDefinition, AgentLoader
+from maezo.gateway.action_execution import action_approvals
 from maezo.gateway.pep import PEP, PolicyError, build_pep
 from maezo.platform.health import CheckResult, build_health_server, create_health_app
 from maezo.platform.observability import get_metrics_collector
@@ -100,6 +101,15 @@ class AgentState:
     agent_definition_error: str | None = None
     pep: PEP | None = None
     pep_error: str | None = None
+    # ONDA 1 §5.7: content digest of the deployed effect-policy artefacts (action-approvals.yaml,
+    # L0-core.yaml, _hard_frozen.yaml, every tenant overlay), snapshotted at bring-up so the
+    # readiness check stays I/O-free. Lets an operator compare DEPLOYED policy against the
+    # reviewed commit — the residual `MAEZO_SPEC_DIR` substitution (A-6) is invisible in `/readyz`
+    # without it. Precedent: the AMH migration-digest pin (`platform/integrations/amh_inbox.py`).
+    effect_policy_digest: str | None = None
+    effect_policy_artifacts: Mapping[str, str] = field(default_factory=dict)
+    effect_policy_mode: str | None = None
+    effect_policy_error: str | None = None
     inference_provider: InferenceProvider | None = None
     inference_error: str | None = None
     agent_graph: StateGraph[Any] | None = None
@@ -259,6 +269,26 @@ def build_readiness_checks(state: AgentState) -> list[Callable[[], Awaitable[Che
             "fail-closed, mirrors worker_runtime's T-D audit_sink_ready posture)",
         )
 
+    async def effect_policy_digest(_state: AgentState = state) -> CheckResult:
+        # ONDA 1 §5.7 item 2. NOT a fail-closed gate on the policy CONTENT — `policies_loadable`
+        # above already refuses readiness for a PEP that could not build, and the manifest loader
+        # fails closed on its own. This check exists so the DEPLOYED policy plane is identifiable
+        # from outside the pod: an operator (or the approval packet) compares this digest against
+        # the reviewed commit. Unhealthy only when the digest could not be computed at all, which
+        # means the artefacts were unreadable — a real config fault, not a policy verdict.
+        if _state.effect_policy_digest:
+            return CheckResult(
+                name="effect_policy_digest",
+                healthy=True,
+                detail=f"sha256={_state.effect_policy_digest[:16]} mode={_state.effect_policy_mode} "
+                f"artifacts={len(_state.effect_policy_artifacts)}",
+            )
+        return CheckResult(
+            name="effect_policy_digest",
+            healthy=False,
+            detail=_state.effect_policy_error or "effect-policy digest not computed",
+        )
+
     return [
         agent_definition_loaded,
         policies_loadable,
@@ -267,6 +297,7 @@ def build_readiness_checks(state: AgentState) -> list[Callable[[], Awaitable[Che
         checkpointer_ready,
         a2a_dispatcher_ready,
         a2a_audit_sink_ready,
+        effect_policy_digest,
     ]
 
 
@@ -459,6 +490,25 @@ async def _bring_up_dependencies(state: AgentState) -> None:
         state.pep_error = f"{type(exc).__name__}: {exc}"
         logger.error("agent_pep_build_failed", tenant=settings.tenant_id, exc_info=True)
 
+    # ONDA 1 §5.7: snapshot the effect-policy provenance ONCE, here, so `/readyz` never does I/O.
+    # Same isolation as every other block: a failure leaves the check unhealthy and nothing else.
+    try:
+        approvals = action_approvals()
+        state.effect_policy_digest = approvals.policy_digest
+        state.effect_policy_artifacts = approvals.artifact_digests
+        state.effect_policy_mode = approvals.mode
+        logger.info(
+            "effect_policy_pinned",
+            tenant=settings.tenant_id,
+            mode=approvals.mode,
+            policy_digest=approvals.policy_digest,
+            artifact_digests=dict(approvals.artifact_digests),
+            default_enforcement=approvals.default_enforcement,
+        )
+    except Exception as exc:  # noqa: BLE001 — same isolation as above.
+        state.effect_policy_error = f"{type(exc).__name__}: {exc}"
+        logger.error("effect_policy_pin_failed", exc_info=True)
+
     try:
         state.inference_provider = InferenceProvider()
     except Exception as exc:  # noqa: BLE001 — same isolation as above.
@@ -533,6 +583,7 @@ async def _bring_up_dependencies(state: AgentState) -> None:
         a2a_audit_sink_ready=(
             state.a2a_audit_sink_ready if settings.agent_id in _A2A_EDGE_AGENT_IDS else "n/a"
         ),
+        effect_policy_digest=state.effect_policy_digest,
     )
     # Explicit, load-bearing log line (T1.11 update of the Q-6 scaffold note): the graph now
     # BUILDS for real (helena/rafael, defect B6) but this daemon still never EXECUTES a turn —
