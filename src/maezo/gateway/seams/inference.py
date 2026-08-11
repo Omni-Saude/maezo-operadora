@@ -39,13 +39,28 @@ from __future__ import annotations
 from typing import Any
 
 from maezo.gateway.seams._base import GatedSeam, SeamContext, gate
+from maezo.runtime.inference import InferenceProvider
 
 _OP_GENERATE = "inference.generate"
 _OP_GENERATE_PHI = "inference.generate_phi"
 
 
-class GatedInferenceProvider(GatedSeam):
-    """Protocol-preserving decorator over an `InferenceProvider`."""
+class GatedInferenceProvider(GatedSeam, InferenceProvider):
+    """Gating decorator over an `InferenceProvider` — BY SUBCLASS, for the same reason as A2A.
+
+    `InferenceProvider` is a concrete class, not a Protocol, and it is spelled as the annotation
+    at the handler factories (`make_carolina_handler`, `make_andre_handler`,
+    `make_rafael_handler`) and on `Harness(inference=…)`. Subclassing keeps every one of those
+    valid and the blast radius at zero files; a structural decorator would have forced a Protocol
+    introduction plus annotation edits across the agent delegation modules.
+
+    Safe, and pinned: `InferenceProvider`'s public surface is exactly
+    `{generate, health_check, model_id, provider_name}` — all four overridden below — and
+    `GatedSeam.__init__` deliberately does NOT call `InferenceProvider.__init__`, because this
+    object owns no settings, no router and no concrete provider of its own; every one of those
+    lives in `self._inner`. `test_inference_provider_public_surface_is_fully_overridden` fails the
+    day a fifth public member appears, rather than letting it silently reach the raw provider.
+    """
 
     __slots__ = ()
 
