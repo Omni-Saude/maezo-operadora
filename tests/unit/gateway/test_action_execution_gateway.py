@@ -91,22 +91,43 @@ def _manifest(
     status: str = "DRAFT",
     modo: str = "shadow",
     approved_classes: frozenset[str] = frozenset(),
+    class_enforcement: str | None = None,
+    default_enforcement: str | None = None,
+    acoes_map: dict[str, str] | None = None,
 ) -> dict[str, Any]:
+    """A fixture manifest.
+
+    ONDA 1 §7.3 made enforcement TWO-DIMENSIONAL: `Decision.enforced` is now
+    `modo == enforcing AND acoes.<class>.enforcement == enforcing`, with an ABSENT per-class field
+    resolving to `shadow`. So a fixture that means "this manifest enforces" must now say so in
+    BOTH dimensions — `class_enforcement` defaults to mirroring `modo`, which keeps every existing
+    proof asserting exactly the claim it asserted before, expressed in the new data model. The
+    `shadow`×`enforcing` cross-product is proved separately in
+    `test_effect_enforcement.py::test_enforcement_is_the_conjunction_of_both_dimensions`.
+    """
+    resolved_enforcement = class_enforcement if class_enforcement is not None else modo
+
     def _acao(name: str) -> dict[str, Any]:
         is_approved = name in approved_classes
         return {
             "descricao": f"fixture class {name}",
+            "enforcement": resolved_enforcement,
             "dominios_exigidos": sorted(APPROVER_DOMAINS),
             "aprovacoes": {d: _approval_block(approved=is_approved) for d in sorted(APPROVER_DOMAINS)},
         }
 
-    return {
+    manifest: dict[str, Any] = {
         "version": 1,
         "status": status,
         "modo": modo,
         "acoes": {_CLASS: _acao(_CLASS), _OTHER_CLASS: _acao(_OTHER_CLASS)},
         "mapeamento_topicos": {_TOPIC: _CLASS, _OTHER_TOPIC: _OTHER_CLASS},
     }
+    if default_enforcement is not None:
+        manifest["enforcement_padrao_nao_mapeado"] = default_enforcement
+    if acoes_map is not None:
+        manifest["mapeamento_acoes"] = acoes_map
+    return manifest
 
 
 def _write(tmp_path: Path, manifest: dict[str, Any], name: str = "action-approvals.yaml") -> Path:

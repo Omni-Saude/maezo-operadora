@@ -755,8 +755,22 @@ def decide_effect(
         action_ref: override the derived governance ref. Defaults to `agente.<operation>`; the
             worker leg passes its external-task topic verbatim.
     """
-    spec = effect_classes.lookup_operation(operation)
     context = ctx if ctx is not None else DecisionContext()
+    try:
+        # Guarded with the construction itself: a catalogue lookup that raises here would escape
+        # BEFORE `decide`'s own containment could see it, which would make the "total" claim true
+        # of `decide` and false of the function the wrappers actually call.
+        spec = effect_classes.lookup_operation(operation)
+    except Exception:  # noqa: BLE001 - a catalogue bug denies; it never crashes a care path
+        logger.error("effect_pep_catalogue_error", layer=EffectLayer.CATALOGO.value, exc_info=True)
+        return EffectDecision(
+            allow=False,
+            enforced=False,
+            reason=REASON_INTERNAL_ERROR,
+            layer=EffectLayer.CATALOGO.value,
+            mode=MODE_UNRESOLVED,
+            enforcement=ENFORCEMENT_SHADOW,
+        )
     approvals = _load_approvals(context.approvals_path)
     try:
         call = EffectCall(
