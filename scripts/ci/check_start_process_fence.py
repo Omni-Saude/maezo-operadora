@@ -79,6 +79,25 @@ SANCTIONED_RELATIVE_PATHS: frozenset[str] = frozenset(
     {
         "tools/mcp_cibseven/transport.py",
         "tools/workers/cibseven_engine.py",
+        # ONDA 1 B2 — the SECOND transport-layer decorator, admitted on exactly the same grounds
+        # as `cibseven_engine.py` above and for no broader reason.
+        #
+        # `GatedCibSevenTransport` is a Protocol-preserving decorator over `CibSevenTransport`
+        # (design §5.4). To satisfy that Protocol structurally it must expose
+        # `start_process_instance`, and its body is a PURE PASS-THROUGH: it adds no decision, no
+        # audit, no retry, no client of its own — it forwards the three arguments to the inner
+        # transport and returns. It therefore creates no new start path; it wraps the existing
+        # one, exactly as `FreshClientCibSevenTransport.start_process_instance` does.
+        #
+        # It is deliberately the ONE method of that wrapper that is NOT gated, and the reason is
+        # this fence's own invariant: `start_process_instance` is only ever reached from INSIDE
+        # `start_process_idempotent`, AFTER the durable ADR-0007 claim is written
+        # (`transport.py:1136-1140`), so a refusal raised there would wedge a strict-family
+        # business key the way an engine outage does (`:1178-1194`). Gating it means changing the
+        # fenced function's internals, which design §5.8 / I-6 forbid. See
+        # `gateway/seams/cibseven.py`'s module docstring for the full disclosure, including why
+        # the manifest's agent-start surface consequently stays `choked: false`.
+        "gateway/seams/cibseven.py",
     }
 )
 

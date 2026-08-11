@@ -35,12 +35,21 @@ import contextlib
 import signal
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Any
 
 import structlog
 
 from maezo.a2a import DelegationDispatcher
 from maezo.gateway.audit_postgres import FreshSinkAuditEmitter, PostgresAuditSink
+from maezo.gateway.seams import SeamContext
+from maezo.gateway.seams.dmn import GatedDmnTransport
+from maezo.gateway.tool_registry import (
+    build_cibseven_seam,
+    build_dmn_seam,
+    build_worker_seam_context,
+    effect_seams_gated,
+)
 from maezo.platform.health import CheckResult, build_health_server, create_health_app
 from maezo.platform.integrations.events_kafka_producer import AioKafkaEventsProducer
 from maezo.platform.observability import get_metrics_collector
@@ -48,9 +57,7 @@ from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
 from maezo.tools.workers.ans_submit import ANS_SUBMIT_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.auth import AUTH_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.bootstrap import ALL_WORKER_BOOTSTRAPS, register_all_workers
-from maezo.tools.workers.cibseven_engine import FreshClientCibSevenTransport
 from maezo.tools.workers.credenciamento import CRED_BPMN_ERROR_ALLOWLIST
-from maezo.tools.workers.dmn_transport import CibSevenDmnTransport
 from maezo.tools.workers.escalation import ESCALATION_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.events import EVENTS_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.harness import (
@@ -184,7 +191,7 @@ PRODUCTION_BPMN_ERROR_ALLOWLIST: frozenset[str] = frozenset(
 def register_default_workers(
     harness: WorkerHarness,
     *,
-    dmn: CibSevenDmnTransport | None = None,
+    dmn: GatedDmnTransport | None = None,
     engine: CibSevenTransport | None = None,
     audit_sink: AuditStartSink | None = None,
     tenant_id: str = "",
@@ -331,7 +338,7 @@ class WorkerState:
     settings: WorkerRuntimeSettings
     live: bool = True
     transport: CibSevenWorkerTransport | None = None
-    dmn_transport: CibSevenDmnTransport | None = None
+    dmn_transport: GatedDmnTransport | None = None
     # Agent->engine seam (T1.10 T-D / GAP-INAD-1): fresh-client-per-call, threaded into the
     # inadimplencia workers that start/correlate CANCEL-001 and query cross-process rescisao.
     engine_transport: CibSevenTransport | None = None
@@ -360,6 +367,12 @@ class WorkerState:
     # /readyz — the dossier "instrui, nao decide", so its absence must not stop the human UTs).
     dossier_dispatcher: DelegationDispatcher | None = None
     dossier_dispatcher_detail: str = "not assembled (bring-up has not run)"
+    # ONDA 1 §5.5 / I-11: the RUNTIME half of inevitability for the worker root's `dmn=`/`engine=`
+    # seams. Snapshotted at bring-up so `/readyz` stays cheap. RED, never fatal: this daemon's
+    # fail-closed gate for effect traffic is `audit_sink_ready`, and an ungated-but-inert seam
+    # must not be a second reason to stop serving ~110 topics while nothing enforces.
+    effect_seams_gated: bool = False
+    effect_seams_detail: str = "not evaluated (bring-up has not run)"
     harness: WorkerHarness | None = None
     expected_topics: frozenset[str] = field(default_factory=frozenset)
     harness_task: asyncio.Task[None] | None = None
@@ -531,17 +544,45 @@ def build_readiness_checks(state: WorkerState) -> list[Callable[[], Awaitable[Ch
             "(ADR-0007 fail-closed; /readyz stays red)",
         )
 
+    async def effect_seams_gated_check(_state: WorkerState = state) -> CheckResult:
+        # ONDA 1 §5.5's boot assertion for root (e). Asserts the `dmn=`/`engine=` seams this
+        # daemon threads into every worker are gated instances — the runtime complement to the CI
+        # fence (I-11). Non-vacuous by construction (`tool_registry.effect_seams_gated`): a dep map
+        # with no effect seam reports unhealthy rather than trivially green.
+        return CheckResult(
+            name="effect_seams_gated",
+            healthy=_state.effect_seams_gated,
+            detail=_state.effect_seams_detail,
+        )
+
     return [
         engine_reachable,
         workers_registered,
         harness_running,
         kafka_ready,
+        effect_seams_gated_check,
         dossier_delegation_ready,
         audit_sink_ready,
     ]
 
 
 # --- STEP B: dependency bring-up (bounded, non-fatal) -------------------------------------------
+
+
+@lru_cache(maxsize=1)
+def _worker_seam_cached(tenant: str) -> SeamContext:
+    """ONE `SeamContext` per tenant for this daemon's seams.
+
+    Cached because `build_worker_seam_context` builds a PEP (`build_pep` parses `L0-core.yaml` +
+    `_hard_frozen.yaml` + the tenant overlay from disk), and the `dmn=` and `engine=` blocks below
+    are separate try/except islands that would otherwise each pay for it. One context, two seams,
+    same closure-bound principal.
+    """
+    return build_worker_seam_context(tenant=tenant)
+
+
+def _worker_seam(settings: WorkerRuntimeSettings) -> SeamContext:
+    return _worker_seam_cached(settings.tenant_id)
 
 
 async def _bring_up_dependencies(state: WorkerState) -> None:
@@ -564,8 +605,11 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
         # external-task dispatch are on the same failure/retry/incident plane (ADR-0028
         # Consequencias). Construction is pure (no network) — a failure here is unexpected but
         # still non-fatal, mirroring the worker transport above.
-        state.dmn_transport = CibSevenDmnTransport(
-            settings.cibseven_base_url,
+        # ONDA 1 §5.5, root (e): resolved through the ONE sanctioned constructor and GATED
+        # (`avaliacao_dmn`, C0). Construction stays pure; the gate is dict lookups (I-9).
+        state.dmn_transport = build_dmn_seam(
+            seam=_worker_seam(settings),
+            base_url=settings.cibseven_base_url,
             auth_token=settings.cibseven_auth_token_value(),
             timeout=settings.client_timeout_s,
         )
@@ -578,13 +622,32 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
         # loop, never share/outlive a client. Construction is pure (no network, no client held) —
         # a failure here is unexpected but non-fatal; the inadimplencia workers then fail closed on
         # a `None` engine seam (resolve_facts -> block; handoff_rescisao -> raise).
-        state.engine_transport = FreshClientCibSevenTransport(
-            settings.cibseven_base_url,
+        # ONDA 1 §5.5 / adversary A-2: this is the SECOND engine leg — the residual ADR-0001
+        # path `harness.py` does NOT cover, which a new worker taking `engine=` could reach
+        # un-fenced. `FreshClientCibSevenTransport` becomes the INNER of the gated decorator,
+        # exactly as §2's defeat clause specifies; its allowlist entry in the start-process fence
+        # (`scripts/ci/check_start_process_fence.py:81`) is untouched.
+        state.engine_transport = build_cibseven_seam(
+            seam=_worker_seam(settings),
+            base_url=settings.cibseven_base_url,
             auth_token=settings.cibseven_auth_token_value(),
             timeout=settings.client_timeout_s,
+            fresh_client=True,
         )
     except Exception:  # noqa: BLE001 — construction failure: engine-seam workers fail closed later.
         logger.error("engine_transport_build_failed", exc_info=True)
+
+    # ONDA 1 §5.5: snapshot the gatedness of the two seams this daemon threads into every worker.
+    # Isolated like every block here; never blocks bring-up.
+    try:
+        state.effect_seams_gated, state.effect_seams_detail = effect_seams_gated(
+            {"dmn": state.dmn_transport, "cibseven": state.engine_transport}
+        )
+        if not state.effect_seams_gated:
+            logger.error("effect_seams_not_gated", detail=state.effect_seams_detail)
+    except Exception as exc:  # noqa: BLE001 — probe failure leaves the check red, nothing else.
+        state.effect_seams_detail = f"{type(exc).__name__}: {exc}"
+        logger.error("effect_seams_gated_probe_failed", exc_info=True)
 
     try:
         # T4 producer-leg seam: PURE construction (no network — see `WorkerState.kafka_publisher`
