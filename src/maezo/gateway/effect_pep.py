@@ -17,7 +17,7 @@ removed — that is design invariant I-6, and it is why nothing here is wired IN
 THE ERROR-CONTAINMENT CHAIN (design I-4: "the PEP itself must be total")
 =================================================================================================
 A gateway bug must never crash a care path, and must never fail OPEN once enforcing. The posture
-is `evaluate_worker_task`'s double-guarded fallback (`action_execution.py:1060-1111`), generalised
+is `evaluate_worker_task`'s double-guarded fallback (`action_execution.py:1076-1127`), generalised
 per layer. Enumerated failure mode -> containment choice -> the proof that holds it:
 
   L-0 CATALOGUE (pure lookup on a frozen `MappingProxyType`)
@@ -71,7 +71,7 @@ per layer. Enumerated failure mode -> containment choice -> the proof that holds
       · the source raises or returns non-`True` -> DENY `CONSENTIMENTO_AUSENTE`.
       Proofs: `test_l4_*` family.
 
-  L-5 RATIFICATION (`ActionExecutionGateway.evaluate` — UNCHANGED, `action_execution.py:985-1032`)
+  L-5 RATIFICATION (`ActionExecutionGateway.evaluate` — UNCHANGED, `action_execution.py:1001-1048`)
       · the manifest could not be loaded -> the loader already fails closed into
         `_EMPTY_APPROVALS`; this layer passes its `MANIFESTO_INDISPONIVEL` through verbatim.
       · loading raises anyway -> guarded; the view degrades to empty and the mode to `unresolved`.
@@ -142,7 +142,7 @@ from maezo.gateway.effect_classes import OperationSpec
 
 logger = structlog.get_logger(__name__)
 
-# -- Bounded-token discipline, restated from `action_execution.py:199-208` for the same reason it
+# -- Bounded-token discipline, restated from `action_execution.py:206-215` for the same reason it
 # is restated there from `harness._ENUM_TOKEN_RE`: keeping ONE regex per layering boundary is
 # cheaper than a cross-package import, and a cross-check test pins the two against each other.
 #
@@ -162,7 +162,7 @@ _TOKEN_RE: Final[re.Pattern[str]] = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,39}\Z")
 _DOTTED_TOKEN_RE: Final[re.Pattern[str]] = re.compile(r"^[A-Za-z][A-Za-z0-9_.]{0,79}\Z")
 
 #: MIRRORED from `tools/process_allowlist.py:63`, NOT imported: `maezo.gateway` must not depend on
-#: `maezo.tools` (`action_execution.py:199-201` states the rule and the precedent — the dependency
+#: `maezo.tools` (`action_execution.py:206-208` states the rule and the precedent — the dependency
 #: runs the other way). A cross-check test asserts this pattern and the ADR-0016 one accept and
 #: reject the same strings, so the duplication cannot drift into a second vocabulary.
 _PROCESS_KEY_RE: Final[re.Pattern[str]] = re.compile(r"^SP-OP-[A-Z]+(?:-[A-Z]+)*-[0-9]{3}\Z")
@@ -381,7 +381,7 @@ class EffectDecision:
 
 # =================================================================================================
 # Injected seams. Every one is a Protocol so `maezo.gateway` imports no concrete implementation —
-# the layering `action_execution.py:199-201` protects. `pep.PEP` and
+# the layering `action_execution.py:206-208` protects. `pep.PEP` and
 # `tools.workers.ceilings.CeilingResolver` satisfy theirs STRUCTURALLY, with no edit to either.
 # =================================================================================================
 
@@ -829,6 +829,20 @@ def decide_effect(
     `autonomy_action` is taken from the CATALOGUE, never from the caller — a caller-supplied
     autonomy name (or action class) would be adversary A-7's opening.
 
+    EVERY GUARD BELOW RESOLVES `enforced` THE SAME WAY `decide` DOES. This function sits in FRONT
+    of `decide`, so its own guards catch failures `decide` never sees — a raising
+    `lookup_operation`, a raising `agent_action_ref`, a `decide` that escaped anyway. Each of those
+    used to hardcode `enforced=False`, which meant the SAME class of gateway bug blocked or did not
+    block depending only on which of the two entry points a wrapper had called: `decide` returned
+    `ENFORCED=True` under a live `modo: enforcing` while `decide_effect` returned `False` for the
+    identical fault. `_outermost_enforcement` is now used in all three, so the two entry points are
+    indistinguishable in enforcement terms — the property B2's wrappers depend on, since they call
+    `decide_effect` and the incident-shape proofs are written against `decide`.
+
+    The ONE guard that does not call it is the `EffectCallError` branch, deliberately: a malformed
+    CALL is a policy outcome with a resolvable class (the catalogue lookup already succeeded), so
+    it reports the real per-class enforcement rather than the classless global fallback.
+
     Args:
         tenant: bounded token, closure-bound at wrapper construction.
         principal: bounded token, closure-bound. NEVER accept this from the call site.
@@ -848,13 +862,14 @@ def decide_effect(
         spec = effect_classes.lookup_operation(operation)
     except Exception:  # noqa: BLE001 - a catalogue bug denies; it never crashes a care path
         logger.error("effect_pep_catalogue_error", layer=EffectLayer.CATALOGO.value, exc_info=True)
+        mode, enforced = _outermost_enforcement(context)
         return EffectDecision(
             allow=False,
-            enforced=False,
+            enforced=enforced,
             reason=REASON_INTERNAL_ERROR,
             layer=EffectLayer.CATALOGO.value,
-            mode=MODE_UNRESOLVED,
-            enforcement=ENFORCEMENT_SHADOW,
+            mode=mode,
+            enforcement=ENFORCEMENT_ENFORCING if enforced else ENFORCEMENT_SHADOW,
         )
     approvals = _load_approvals(context.approvals_path)
     try:
@@ -885,26 +900,28 @@ def decide_effect(
         )
     except Exception:  # noqa: BLE001 - nothing may escape onto an effect path
         logger.error("effect_pep_call_rejected", layer=EffectLayer.ENTRADA.value, exc_info=True)
+        mode, enforced = _outermost_enforcement(context)
         return EffectDecision(
             allow=False,
-            enforced=False,
+            enforced=enforced,
             reason=REASON_INTERNAL_ERROR,
             layer=EffectLayer.ENTRADA.value,
-            mode=approvals.mode,
-            enforcement=ENFORCEMENT_SHADOW,
+            mode=mode,
+            enforcement=ENFORCEMENT_ENFORCING if enforced else ENFORCEMENT_SHADOW,
         )
     try:
         return decide(call, context)
     except Exception:  # noqa: BLE001 - `decide` is total; this is the outermost belt-and-suspenders
         logger.error("effect_pep_internal_error", operation=call.operation, exc_info=True)
+        mode, enforced = _outermost_enforcement(context)
         return EffectDecision(
             allow=False,
-            enforced=False,
+            enforced=enforced,
             reason=REASON_INTERNAL_ERROR,
             layer=EffectLayer.ENTRADA.value,
             operation=call.operation,
-            mode=MODE_UNRESOLVED,
-            enforcement=ENFORCEMENT_SHADOW,
+            mode=mode,
+            enforcement=ENFORCEMENT_ENFORCING if enforced else ENFORCEMENT_SHADOW,
         )
 
 
@@ -912,7 +929,7 @@ def log_effect_decision(decision: EffectDecision, call: EffectCall) -> None:
     """Emit the ONE telemetry line for a decided effect. Every field is a bounded, non-PHI token.
 
     Deliberately the SAME event names the worker leg already emits
-    (`action_execution_gateway_shadow` / `_enforced`, `action_execution.py:1056-1057`): the
+    (`action_execution_gateway_shadow` / `_enforced`, `action_execution.py:1072-1073`): the
     approval packet counts lines by `decision` × `reason` × `tenant`, and a second event family
     would fragment exactly the evidence §9.2 asks the approvers to read. The agent leg adds
     `operation`, `layer`, `principal` and `denial_shape` — all bounded, all new dimensions rather

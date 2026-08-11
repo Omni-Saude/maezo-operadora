@@ -547,25 +547,84 @@ def test_either_runtime_mode_variable_arms_the_spec_dir_pin(
     assert ActionExecutionGateway(approvals).evaluate(_CLASS).enforced is False
 
 
-def test_either_runtime_mode_variable_can_also_declare_local(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("runtime_mode", "agent_runtime_mode", "armed"),
+    [
+        # THE ROW THAT MADE THIS A FINDING. First-set-wins read `local` here and DISARMED the pin,
+        # where the pre-repair code (`AGENT_RUNTIME_MODE` only) armed it — a fence LOSING coverage
+        # as a side effect of learning a second spelling. A pod inheriting a base-image
+        # `RUNTIME_MODE=local` and then being labelled by Helm lands in exactly this state.
+        ("local", "kubernetes", True),
+        ("kubernetes", "local", True),  # the mirror image, for the same reason
+        # ANY declared non-local arms it; nothing declared non-local leaves it disarmed.
+        ("kubernetes", "kubernetes", True),
+        ("local", "local", False),
+        ("local", None, False),
+        (None, "local", False),
+        (None, None, False),  # the disclosed residual: unset still reads as local
+        # An empty string is UNDECLARED, exactly as `key_scrubber`'s `or` chain treats it.
+        ("", "kubernetes", True),
+        ("", "", False),
+        ("", None, False),
+        # TIGHTER than `key_scrubber`, which `.strip().lower()`s: a mistyped mode is PRODUCTION
+        # here. Guessing a runtime mode into `local` is the fail-open the `modo` and `enforcement`
+        # pins already refuse.
+        (" Local ", None, True),
+        ("Local", None, True),
+        (None, "LOCAL", True),
+    ],
+)
+def test_any_declared_non_local_spelling_arms_the_spec_dir_pin(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    runtime_mode: str | None,
+    agent_runtime_mode: str | None,
+    armed: bool,
 ) -> None:
-    """First-set-wins, in `key_scrubber`'s order — and `local` under EITHER name is still local.
+    """The discriminator is a DISJUNCTION over declared values, not a first-set-wins lookup.
 
-    Deliberate divergence from `key_scrubber`, in the tightening direction: it `.strip().lower()`s
-    the value, so `" Local "` reads as local there and as PRODUCTION here. Guessing at a mistyped
-    runtime mode is the same class of fail-open the `modo` and `enforcement` pins already refuse.
+    `key_scrubber.py:117` may legitimately use `or`: it must pick ONE mode to configure a
+    pseudonymizer with, so it needs a winner. This function answers a yes/no question about whether
+    a security fence APPLIES, and for that the fail-closed reading is "any declaration that says
+    production, means production". Adopting the `or` shape wholesale would have silently narrowed
+    the §5.7 pin's coverage while the commit message claimed only to widen the names it accepts.
     """
     monkeypatch.setenv("MAEZO_SPEC_DIR", str(_spec_tree(tmp_path, _manifest())))
-    monkeypatch.setenv("RUNTIME_MODE", "local")
-    monkeypatch.setenv(RUNTIME_MODE_ENV, "kubernetes")
-    assert load_action_approvals().mode == MODE_ENFORCING, "the FIRST name set must win"
+    for name, value in (("RUNTIME_MODE", runtime_mode), (RUNTIME_MODE_ENV, agent_runtime_mode)):
+        if value is None:
+            monkeypatch.delenv(name, raising=False)
+        else:
+            monkeypatch.setenv(name, value)
 
-    monkeypatch.setenv("RUNTIME_MODE", " Local ")
-    action_execution._load_cached.cache_clear()
-    assert load_action_approvals().mode == MODE_SHADOW_OVERRIDE, (
-        "a mistyped runtime mode must read as PRODUCTION here — never guessed into `local`"
+    expected = MODE_SHADOW_OVERRIDE if armed else MODE_ENFORCING
+    assert load_action_approvals().mode == expected, (
+        f"RUNTIME_MODE={runtime_mode!r} AGENT_RUNTIME_MODE={agent_runtime_mode!r} "
+        f"{'did not arm' if armed else 'wrongly armed'} the pin"
     )
+
+
+def test_the_pin_never_loses_coverage_relative_to_the_single_name_it_used_to_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The non-regression property, stated directly: learning a name may not cost coverage.
+
+    For EVERY value of the originally-read variable that armed the pin before, it must still arm
+    it — whatever the newly-read second variable happens to say. That is the invariant the
+    first-set-wins shape violated in exactly one row, and a truth table is easy to re-typo, so the
+    property gets its own assertion rather than relying on the row above surviving a future edit.
+    """
+    monkeypatch.setenv("MAEZO_SPEC_DIR", str(_spec_tree(tmp_path, _manifest())))
+    for other in (None, "", "local", "kubernetes"):
+        for name, value in (("RUNTIME_MODE", other), (RUNTIME_MODE_ENV, "kubernetes")):
+            if value is None:
+                monkeypatch.delenv(name, raising=False)
+            else:
+                monkeypatch.setenv(name, value)
+        action_execution._load_cached.cache_clear()
+        assert load_action_approvals().mode == MODE_SHADOW_OVERRIDE, (
+            f"AGENT_RUNTIME_MODE=kubernetes armed the pin before the second name was read; "
+            f"with RUNTIME_MODE={other!r} it no longer does — that is a LOSS of coverage"
+        )
 
 
 # -- The digest (§5.7 item 2)

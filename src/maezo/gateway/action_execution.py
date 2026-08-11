@@ -100,17 +100,24 @@ OVERRIDE_ENFORCEMENT_ENABLED = "1"
 #: checkpointer fail-closed gate already carries, and the reason the pin is a defense-in-depth
 #: layer rather than the primary control.
 RUNTIME_MODE_ENV = "AGENT_RUNTIME_MODE"
-#: BOTH names the SAME discriminator answers to, in `key_scrubber.py:117`'s order
-#: (`RUNTIME_MODE or AGENT_RUNTIME_MODE`). Reading only one of the two was a real gap: a
-#: deployment standardised on `RUNTIME_MODE` — which the PHI egress pseudonymizer already treats as
-#: authoritative — left the §5.7 spec-dir pin DISARMED while believing it had declared production.
-#: One deployment vocabulary, two spellings, both honoured.
+#: BOTH names the SAME discriminator answers to. The ORDER is `key_scrubber.py:117`'s
+#: (`RUNTIME_MODE or AGENT_RUNTIME_MODE`) and is documentation only — `_is_production_runtime`
+#: takes a DISJUNCTION over every declared value, not the first one (see its docstring for why
+#: first-set-wins would have been a widening of this fence). Reading only one of the two was a
+#: real gap: a deployment standardised on `RUNTIME_MODE` — which the PHI egress pseudonymizer
+#: already treats as authoritative — left the §5.7 spec-dir pin DISARMED while believing it had
+#: declared production. One deployment vocabulary, two spellings, both honoured.
 #:
-#: DELIBERATE DIVERGENCE from `key_scrubber`, in the tightening direction, twice over: (1) it
-#: `.strip().lower()`s the value, so `" Local "` reads as local there and as PRODUCTION here —
-#: guessing at a mistyped mode is exactly what the fail-closed pin idiom refuses; (2) it treats an
-#: UNSET variable as production, which cannot be adopted here without turning every dev box and
-#: every test run into a `shadow_override` (the residual documented above is the accepted cost).
+#: THREE DELIBERATE DIVERGENCES from `key_scrubber`, and they do NOT all point the same way —
+#: stating that plainly, because "tightening" is a claim that has to be true per case:
+#:   (1) TIGHTER: it `.strip().lower()`s the value, so `" Local "` reads as local there and as
+#:       PRODUCTION here. Guessing at a mistyped mode is what the fail-closed pin idiom refuses.
+#:   (2) TIGHTER: any declared non-local value arms the pin, where its `or` chain lets an earlier
+#:       `local` mask a later `kubernetes`.
+#:   (3) LOOSER, and accepted as a disclosed residual: it treats an UNSET variable as production.
+#:       Adopting that here would turn every dev box and every test run into a `shadow_override`,
+#:       so this module keeps `unset => local` — the same residual :data:`RUNTIME_MODE_ENV`
+#:       documents, and the reason the pin is defense-in-depth rather than the primary control.
 RUNTIME_MODE_ENVS: Final[tuple[str, str]] = ("RUNTIME_MODE", RUNTIME_MODE_ENV)
 LOCAL_RUNTIME_MODE = "local"
 
@@ -517,15 +524,24 @@ def _override_enforcement_permitted() -> bool:
 def _is_production_runtime() -> bool:
     """True iff this process is NOT in local mode — the `_LOCAL_RUNTIME_MODE` discriminator.
 
-    Reads BOTH spellings (:data:`RUNTIME_MODE_ENVS`), first-set-wins, in `key_scrubber.py:117`'s
-    order: a deployment that declared production under either name arms the §5.7 pin. Neither set
-    still reads as local, which is the disclosed residual of :data:`RUNTIME_MODE_ENV`.
+    ANY DECLARED NON-LOCAL SPELLING ARMS THE PIN. Reading both names FIRST-SET-WINS (the shape
+    `key_scrubber.py:117` uses) would have been a WIDENING of this fence, not just a widening of
+    the names it answers to: with `RUNTIME_MODE=local` AND `AGENT_RUNTIME_MODE=kubernetes` — a
+    perfectly reachable state for a pod that inherits a base-image default and is then labelled by
+    Helm — first-set-wins reads `local` and DISARMS the §5.7 pin, where the pre-repair code
+    (`AGENT_RUNTIME_MODE` only) armed it. A security fence may not lose coverage as a side effect
+    of learning a second spelling, so the disjunction is over every value actually declared.
+
+    `key_scrubber` may legitimately differ: it picks ONE mode for a pseudonymizer, so it needs a
+    winner. This answers a yes/no question about whether a fence applies, and for that "any
+    declaration says production" is the fail-closed reading.
+
+    Residual, UNCHANGED and still disclosed: NOTHING declared reads as local, so a production
+    deployment that injects neither variable does not arm the pin (see :data:`RUNTIME_MODE_ENV`).
+    An empty string is treated as undeclared, exactly as `key_scrubber`'s `or` chain does.
     """
-    for name in RUNTIME_MODE_ENVS:
-        raw = os.environ.get(name)
-        if raw:
-            return raw != LOCAL_RUNTIME_MODE
-    return False
+    declared = [value for name in RUNTIME_MODE_ENVS if (value := os.environ.get(name))]
+    return any(value != LOCAL_RUNTIME_MODE for value in declared)
 
 
 def _resolve_enforcement(raw: Any) -> str:

@@ -540,7 +540,7 @@ def test_an_unrelated_unsupported_tag_still_gets_the_generic_invalid_yaml_reason
 
 def test_a_merge_tagged_value_also_gets_merge_key_unsupported(tmp_path: Path) -> None:
     """COLLISION, DOCUMENTED NOT FIXED (V3 GK REVISE): the `merge_key_unsupported` discriminator
-    (`_MERGE_KEY_TAG in exc.problem`, `action_execution.py:651`) is a SUBSTRING test on the tag
+    (`_MERGE_KEY_TAG in exc.problem`, `action_execution.py:667`) is a SUBSTRING test on the tag
     name, not a check that a `<<` key specifically was used. A value explicitly tagged `!!merge`
     — never used as a `<<` key, so never a real merge — carries the identical
     `tag:yaml.org,2002:merge` tag PyYAML puts in `exc.problem` for a genuine `<<` key, and so ALSO

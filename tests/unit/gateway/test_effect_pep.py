@@ -840,30 +840,111 @@ def test_decide_itself_never_raises_on_the_three_proven_raising_paths(
     assert decision.enforced is False, "a shadow manifest may never enforce, not even on a crash"
 
 
+#: The FOUR unanticipated-failure guards a wrapper can land in, one per entry point/fault pair.
+#: `decide` has one (its outermost); `decide_effect` sits in FRONT of it and has three of its own,
+#: catching faults `decide` never sees. Each is `(id, entry_point, how to inject the fault)`.
+_GUARD_PATHS: tuple[str, ...] = (
+    "decide:outermost",  # a layer AND the logger fail -> `decide`'s own outermost guard
+    "decide_effect:lookup",  # `lookup_operation` raises before the call is even built (guard 1)
+    "decide_effect:action_ref",  # `agent_action_ref` raises inside the construction (guard 3)
+    "decide_effect:decide_escape",  # `decide` itself escapes despite being total (guard 4)
+)
+
+
 @pytest.mark.parametrize("modo", [MODE_SHADOW, MODE_ENFORCING])
+@pytest.mark.parametrize("guard", _GUARD_PATHS)
 def test_the_outermost_guard_still_blocks_under_a_live_global_enforcement(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, modo: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, modo: str, guard: str
 ) -> None:
-    """The deviation-8 posture, applied to `decide`'s outermost guard as well as the worker leg.
+    """The deviation-8 posture, on EVERY unanticipated-failure guard of BOTH entry points.
 
     `_outermost_enforcement` re-reads the GLOBAL ceiling from the cached manifest and deliberately
     does NOT apply `enforcement_padrao_nao_mapeado` — a decision about unclassified traffic must
     not downgrade a gateway FAILURE. The fixture pins that root key to `shadow` explicitly, which
     is what makes the assertion discriminating.
+
+    PARAMETRIZED OVER BOTH ENTRY POINTS because they were not agreeing. `decide_effect`'s own three
+    guards hardcoded `enforced=False`, so the SAME fault under the SAME live `modo: enforcing`
+    blocked or did not block purely by which function a wrapper happened to call — `decide` said
+    ENFORCED, `decide_effect` said not. B2's wrappers call `decide_effect` while the incident-shape
+    proofs (§9.3) are written against `decide`, so a disagreement here is a disagreement between
+    what gets proved and what gets shipped.
     """
     manifest = _manifest(modo=modo, enforcement=ENFORCEMENT_ENFORCING)
     manifest[action_execution.DEFAULT_ENFORCEMENT_KEY] = ENFORCEMENT_SHADOW
-    ctx = _ctx(tmp_path, manifest, name=f"outermost-{modo}.yaml", capabilities=_BoomCaps())
-    monkeypatch.setattr(effect_pep, "logger", _RaisingLogger())
-
-    call = EffectCall(
-        tenant=_TENANT, principal=_PRINCIPAL, operation=_PHI_OP, action_ref="agente.fhir.read_patient"
+    ctx = _ctx(
+        tmp_path,
+        manifest,
+        name=f"outermost-{modo}-{guard.replace(':', '-')}.yaml",
+        capabilities=_BoomCaps(),
     )
-    decision = decide(call, ctx)
 
-    assert (decision.reason, decision.layer) == (REASON_INTERNAL_ERROR, EffectLayer.ENTRADA.value)
-    assert decision.mode == modo
-    assert decision.enforced is (modo == MODE_ENFORCING)
+    if guard == "decide:outermost":
+        # A layer must fail AND the guard's own `logger.error` must re-raise past it.
+        monkeypatch.setattr(effect_pep, "logger", _RaisingLogger())
+        call = EffectCall(
+            tenant=_TENANT, principal=_PRINCIPAL, operation=_PHI_OP, action_ref="agente.fhir.read_patient"
+        )
+        decision = decide(call, ctx)
+        expected_layer = EffectLayer.ENTRADA.value
+    else:
+        if guard == "decide_effect:lookup":
+            monkeypatch.setattr(effect_classes, "lookup_operation", _boom)
+            expected_layer = EffectLayer.CATALOGO.value
+        elif guard == "decide_effect:action_ref":
+            monkeypatch.setattr(effect_classes, "agent_action_ref", _boom)
+            expected_layer = EffectLayer.ENTRADA.value
+        else:
+            # `decide_effect` resolves `decide` as a module global at call time, so this reaches
+            # the guard that exists for "the total function was not total after all".
+            monkeypatch.setattr(effect_pep, "decide", _boom)
+            expected_layer = EffectLayer.ENTRADA.value
+        decision = decide_effect(tenant=_TENANT, principal=_PRINCIPAL, operation=_PHI_OP, ctx=ctx)
+
+    assert (decision.allow, decision.reason, decision.layer) == (
+        False,
+        REASON_INTERNAL_ERROR,
+        expected_layer,
+    )
+    assert decision.mode == modo, f"{guard}: the GLOBAL mode must be re-read from the manifest"
+    assert decision.enforced is (modo == MODE_ENFORCING), (
+        f"{guard}: a gateway failure must block under a live global enforcement, on every guard "
+        "and through either entry point"
+    )
+    assert decision.enforcement == (
+        ENFORCEMENT_ENFORCING if modo == MODE_ENFORCING else ENFORCEMENT_SHADOW
+    ), f"{guard}: the per-class dimension must not be applied where no class was resolved"
+
+
+def test_both_entry_points_agree_on_an_unanticipated_fault(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The property the test above proves per-row, stated once as an equality.
+
+    A wrapper author must never have to know which entry point yields the safer verdict.
+    """
+    manifest = _manifest(modo=MODE_ENFORCING, enforcement=ENFORCEMENT_ENFORCING)
+    manifest[action_execution.DEFAULT_ENFORCEMENT_KEY] = ENFORCEMENT_SHADOW
+
+    verdicts: dict[str, tuple[bool, str, str]] = {}
+    for index, guard in enumerate(("decide", "decide_effect")):
+        with monkeypatch.context() as mp:
+            ctx = _ctx(tmp_path, manifest, name=f"agree-{index}.yaml", capabilities=_BoomCaps())
+            if guard == "decide":
+                mp.setattr(effect_pep, "logger", _RaisingLogger())
+                call = EffectCall(
+                    tenant=_TENANT,
+                    principal=_PRINCIPAL,
+                    operation=_PHI_OP,
+                    action_ref="agente.fhir.read_patient",
+                )
+                d = decide(call, ctx)
+            else:
+                mp.setattr(effect_classes, "agent_action_ref", _boom)
+                d = decide_effect(tenant=_TENANT, principal=_PRINCIPAL, operation=_PHI_OP, ctx=ctx)
+            verdicts[guard] = (d.enforced, d.mode, d.enforcement)
+
+    assert verdicts["decide"] == verdicts["decide_effect"] == (True, MODE_ENFORCING, ENFORCEMENT_ENFORCING)
 
 
 def test_the_outermost_guard_refuses_to_claim_enforcement_when_nothing_loads(
