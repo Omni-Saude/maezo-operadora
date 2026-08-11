@@ -450,6 +450,23 @@ acoes:
       ativa". A consulta anti-dupla-terminação tem de falhar FECHADA (pular), igual ao
       comportamento de hoje quando o engine está ausente.
       PASSA A PRODUZIR EVIDÊNCIA DE SOMBRA (Onda 1 B2): as 3 superfícies estão choked.
+      ⚠ PRÉ-CONDIÇÃO 1 DA VIRADA — RESÍDUO PÓS-CLAIM (detalhe em
+      `src/maezo/gateway/seams/cibseven.py:29-35`): `find_active_instance` está gated e é chamada
+      em `src/maezo/tools/mcp_cibseven/transport.py:1182`, que é o passo 3 do
+      `start_process_idempotent` — ou seja, DEPOIS de o claim durável ADR-0007 já ter sido escrito
+      no passo 1 (`:1152-1157`). Com esta classe em `enforcing`, uma negativa ali propaga e nenhuma
+      instância é criada (a direção fail-closed que a forma `LEITURA_INCONCLUSIVA` exige), mas numa
+      família ESTRITA ela deixa um claim durável SEM instância no engine e SEM a linha
+      `cibseven_start_claim_orphaned` (`:1205` cobre apenas o ramo `start_process_instance`): uma
+      business key travada, sem anúncio. Inerte hoje porque nada enforça; virar esta classe exige
+      resolver isso ANTES, e não é defeito de Fase 0.
+      ⚠ PRÉ-CONDIÇÃO 2 DA VIRADA — O ENFORCEMENT É POR CLASSE, NÃO POR PRINCIPAL: virar esta classe
+      vale igualmente para os daemons que NÃO têm registro de capacidade. `worker_runtime` e
+      `notifications_bridge` não possuem `agent.yaml`, logo toda chamada deles nega em L-1 com
+      `CAPACIDADE_INDISPONIVEL` — o que derruba TODA leitura de engine da perna de worker, não
+      apenas as dos agentes. A primeira virada C0 portanto exige uma das duas coisas: criar
+      registros de capacidade para esses daemons, ou uma decisão humana explícita de aceitar esse
+      alcance. Nenhuma das duas é inferência de agente.
     superficies:
       - referencia: "src/maezo/tools/mcp_cibseven/transport.py:420"
         detalhe: "CibSevenHttpTransport.get_process_status — via GatedCibSevenTransport (Onda 1)"
