@@ -160,7 +160,7 @@ async def test_per_turn_wrapping_builds_no_decision_context() -> None:
         calls.append(str(kwargs.get("agent_id")))
         return real(**kwargs)
 
-    setattr(registry_mod, "build_agent_seam_context", _spy)
+    registry_mod.build_agent_seam_context = _spy
     try:
         dispatcher, _client = _dispatcher(seam_context=_seam_context())
         for index in range(3):
@@ -168,7 +168,7 @@ async def test_per_turn_wrapping_builds_no_decision_context() -> None:
                 InboundMessage(from_number=_RAW_NUMBER, text="oi", message_id=f"m{index}")
             )
     finally:
-        setattr(registry_mod, "build_agent_seam_context", real)
+        registry_mod.build_agent_seam_context = real
 
     assert calls == [], "a turn built a DecisionContext — the two lifetimes are not split"
 

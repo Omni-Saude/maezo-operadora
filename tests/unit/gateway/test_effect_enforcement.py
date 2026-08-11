@@ -690,9 +690,39 @@ def test_the_shipped_manifest_still_enforces_nothing(shipped: dict[str, Any]) ->
     assert approvals.default_enforcement == ENFORCEMENT_SHADOW
 
 
-def test_the_onda1_classes_are_declared_unapproved_and_unchoked(shipped: dict[str, Any]) -> None:
-    """Declaring a class is NOT approving it, and `choked` stays false until the wiring is a FACT
-    (§7.2 / I-10) — a class with zero shadow lines is not approvable."""
+#: The Onda-1 classes whose surfaces the B2 leg actually wired, and therefore flipped to
+#: `choked: true`. `leitura_populacional` is ABSENT on purpose — see the assertion below.
+_ONDA1_CLASSES_NOW_CHOKED = frozenset(
+    {"avaliacao_dmn", "consulta_processo", "correlacao_processo", "inferencia_llm"}
+)
+
+
+def test_the_onda1_classes_are_declared_unapproved_and_choked_matches_reality(
+    shipped: dict[str, Any],
+) -> None:
+    """Declaring a class is NOT approving it — and `choked` must match the WIRING, not the hope.
+
+    This test carried a second claim when B1 landed the data model: `choked` was false everywhere,
+    because the seams were not wired yet. B2 wired them, so half of that claim is now FALSE and
+    keeping it would make this file assert the opposite of the truth.
+
+    The half that must NEVER weaken is the approval half: five classes DECLARED, all three domains
+    required, every block `aprovado: false` with `aprovador: PENDENTE`, and enforcement `shadow`.
+    Declaring a class is a code+data act an agent may perform; approving one is not
+    (`action-approvals.yaml`: "NO AGENT MAY FILL ANY BLOCK BELOW").
+
+    The half that changed is `choked`, and it changed to a FACT with a stated boundary (§7.2 /
+    I-10): true exactly where the B2 wiring chokes the surface, false where it demonstrably does
+    not. `leitura_populacional` is the whole reason this is written per-class instead of "all
+    true" — its wrapper exists and is tested, but the lake client is PORT-PENDING (WB.4), so
+    nothing is injected, nothing is observed, and flipping it would claim shadow evidence that
+    does not exist. A class with zero shadow lines is not approvable.
+
+    The per-SURFACE inventory (including the fourth non-Onda-1 exception, the agent-initiated
+    process start) lives in `tests/unit/gateway/seams/test_manifest_choked_surfaces.py`, which
+    also proves each `choked: true` resolves to a catalogued operation whose construction site
+    routes through the registry. This test covers only the Onda-1-declared classes.
+    """
     novos = sorted(name for name, spec in effect_classes.ACTION_CLASSES.items() if spec.novo)
     assert novos == [
         "avaliacao_dmn",
@@ -703,12 +733,37 @@ def test_the_onda1_classes_are_declared_unapproved_and_unchoked(shipped: dict[st
     ]
     for name in novos:
         entry = shipped["acoes"][name]
+        # -- UNAPPROVED (unchanged, and must stay unchanged) --------------------------------
         assert set(entry["dominios_exigidos"]) == set(APPROVER_DOMAINS), name
         for domain, block in entry["aprovacoes"].items():
             assert block["aprovado"] is False, f"{name}.{domain}"
             assert block["aprovador"] == "PENDENTE", f"{name}.{domain}"
+        assert entry[CLASS_ENFORCEMENT_FIELD] == ENFORCEMENT_SHADOW, name
+        # -- CHOKED == reality (B2) ---------------------------------------------------------
         assert entry["superficies"], name
-        assert all(s["choked"] is False for s in entry["superficies"]), name
+        expected = name in _ONDA1_CLASSES_NOW_CHOKED
+        assert all(s["choked"] is expected for s in entry["superficies"]), (
+            f"{name}: expected choked={expected} on every surface. A class is either wired (all "
+            "its surfaces produce shadow evidence) or it is not — a half-wired class would give "
+            "an approver partial evidence they could mistake for complete."
+        )
+
+
+def test_leitura_populacional_stays_unchoked_for_the_recorded_reason(shipped: dict[str, Any]) -> None:
+    """The exception above, asserted positively so it cannot be flipped by inertia.
+
+    Truth over completeness (§7.2): the `GatedPopulationFeatureClient` ships and is unit-tested,
+    but `spec/agents/andre/agent.yaml` declares no `mcp-datalake` id and no concrete client
+    exists (PORT-PENDING WB.4), so `build_agent_seams` produces no `population` key and Andre's
+    `build(config)` keeps treating the seam's absence as a disclosed gap note. Flipping this
+    would be an evidence claim with nothing behind it.
+    """
+    surfaces = shipped["acoes"]["leitura_populacional"]["superficies"]
+    assert len(surfaces) == 2
+    assert all(s["choked"] is False for s in surfaces)
+    assert all("PORT-PENDING" in s["detalhe"] or "mesma situação" in s["detalhe"] for s in surfaces), (
+        "the reason a surface stays unchoked must be written where an approver reads it"
+    )
 
 
 def test_mapeamento_topicos_is_byte_unchanged_in_content(shipped: dict[str, Any]) -> None:
