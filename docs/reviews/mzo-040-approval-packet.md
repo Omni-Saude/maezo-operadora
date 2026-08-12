@@ -347,3 +347,403 @@ forma de guard prescrita (handler nunca executa, `retries=0`, linha de auditoria
 `guard_code=ERR_ACTION_GATEWAY_NOT_HUMAN`). O controle correspondente
 (`test_the_same_data_in_shadow_leaves_both_tasks_untouched`) usa o manifesto **idêntico** com
 `modo: shadow` e vê as duas tarefas completarem — isolando o único campo que carrega o interruptor.
+
+---
+
+## 10. Onda 1 — Pacote de evidência de sombra (§9.2 do design; estrutura preparada, evidência de telemetria PENDENTE de deployment)
+
+**O que esta seção é.** Estende este pacote conforme `docs/design/wave1-effect-chokepoint.md` §9.2
+("Phase 1 — the shadow evidence packet", `:781-800`), agora que a Onda 1 Fase 0 — o chokepoint
+por-chamada INERTE: núcleo de decisão (`gateway/effect_pep.py`), catálogo fechado
+(`gateway/effect_classes.py`), registry + sete seams (`gateway/tool_registry.py`,
+`gateway/seams/*.py`) e cerca CI estática (`scripts/ci/check_effect_chokepoint_fence.py`) — está
+construída e mergeada em `main` (`29763e7`). Ela prepara a ESTRUTURA que o §9.2 pede, per classe de
+ação, separando explicitamente o que é DERIVÁVEL ESTATICAMENTE hoje (contra a árvore e a suíte de
+testes desta sessão) do que só existe depois de um deployment real em modo `shadow` observando
+tráfego de produção.
+
+**O que esta seção NÃO é.** Não é um bloco de aprovação, não contém linguagem de atestação e não
+recomenda nada a ninguém — a §8 deste documento continua sendo o único lugar onde um `aprovado` pode
+virar `true`, e nenhum campo lá foi tocado por esta seção. Onde o conteúdo depende de telemetria que
+ainda não existe — porque não há hoje nenhum deployment rodando em modo shadow —, o campo carrega o
+placeholder honesto abaixo, verbatim, e nunca um número, uma janela ou uma alegação de tráfego
+inventados:
+
+> **SEM EVIDÊNCIA DE SOMBRA — requer deployment em modo shadow; preenchido por observação, nunca
+> por agente.**
+
+Sete subseções, uma por item do design §9.2, fechando com a mecânica de virada (§9.4) e o que
+transforma cada PENDENTE em evidência real.
+
+### Item 1 do design §9.2 — Janela de observação e volume
+
+Placeholder por classe (contagem de linhas por `decision` × `reason` × `tenant`):
+
+| Classe | Rung | Janela de observação | Volume (WOULD_ALLOW / WOULD_DENY por camada) |
+| --- | --- | --- | --- |
+| avaliacao_dmn | C0 | PENDENTE¹ | PENDENTE¹ |
+| consulta_processo | C0 | PENDENTE¹ | PENDENTE¹ |
+| comunicacao_beneficiario | C1 | PENDENTE¹ | PENDENTE¹ |
+| leitura_phi_clinica | C2 | PENDENTE¹ | PENDENTE¹ |
+| leitura_populacional | C2 | PENDENTE¹ (sem cliente injetado — ver Item 6) | PENDENTE¹ |
+| inferencia_llm | C2 | PENDENTE¹ | PENDENTE¹ |
+| inicio_processo_regulatorio | C3 | PENDENTE¹ (perna agente deliberadamente não-choked — ver Item 6) | PENDENTE¹ |
+| correlacao_processo | C3 | PENDENTE¹ | PENDENTE¹ |
+| delegacao_a2a | C3 | PENDENTE¹ | PENDENTE¹ |
+| autorizacao_emissao | C4 | PENDENTE¹ | PENDENTE¹ |
+| negativa_notificacao | C4 | PENDENTE¹ | PENDENTE¹ |
+| submissao_regulatoria_ans | C4 | PENDENTE¹ | PENDENTE¹ |
+| pagamento_emissao | C4 | PENDENTE¹ | PENDENTE¹ |
+| vinculo_contratual_mudanca | C4 | PENDENTE¹ | PENDENTE¹ |
+| acusacao_fraude_registro | C4 | PENDENTE¹ | PENDENTE¹ |
+
+¹ SEM EVIDÊNCIA DE SOMBRA — requer deployment em modo shadow; preenchido por observação, nunca por
+agente.
+
+**O que É estático hoje: os nomes de evento e o conjunto exato de campos que um operador vai
+agregar.**
+
+Perna de worker (`gateway/action_execution.py`) — um evento por dispatch, emitido por
+`_log_decision` (`:1130-1143`), chamado de dentro de `evaluate_worker_task` (`:1076-1127`):
+
+- Evento: `action_execution_gateway_shadow` (não-enforçante) ou `action_execution_gateway_enforced`
+  (enforçante) — literais `EVENT_SHADOW` / `EVENT_ENFORCED` (`action_execution.py:1072-1073`).
+- Campos: `topic`, `action_class`, `decision` (`WOULD_ALLOW`/`WOULD_DENY`), `reason`, `mode`,
+  `enforcement`, `tenant` — todos tokens limitados, ou o fallback (`TOPICO_INVALIDO`/`NAO_MAPEADA`/
+  `INVALIDO`) quando o valor bruto falha o regex.
+
+Perna de agente/seam (`gateway/effect_pep.py::log_effect_decision`, `:928-953`) — os MESMOS dois
+nomes de evento, reaproveitados deliberadamente ("a second event family would fragment exactly the
+evidence §9.2 asks the approvers to read", `effect_pep.py:934-936`). Campo set PINADO em ambas as
+direções por `tests/unit/gateway/seams/test_seam_proofs.py::
+test_every_gated_call_emits_exactly_one_bounded_shadow_line` (`:489-512`), contra a tabela
+`_EXPECTED_TELEMETRY_FIELDS` (`:467-485`): `event`, `log_level`, `topic`, `operation`, `action_ref`,
+`principal`, `action_class`, `decision`, `reason`, `layer`, `denial_shape`, `mode`, `enforcement`,
+`phi_zone`, `tenant` — 15 campos, exatamente um por chamada gateada (o mesmo teste prova a contagem
+exata, não só o conjunto).
+
+Um operador agrega por `decision` × `reason` × `tenant` (a chave que o item 1 pede); a perna de
+agente acrescenta `operation`/`layer`/`denial_shape`/`principal`/`phi_zone` como dimensões NOVAS,
+nunca substituindo as antigas — a mesma disciplina do #222 (campo pinado nos dois sentidos).
+
+### Item 2 do design §9.2 — A lista would-deny
+
+Placeholder — quais chamadas reais teriam sido bloqueadas, e em qual camada:
+
+> SEM EVIDÊNCIA DE SOMBRA — requer deployment em modo shadow; preenchido por observação, nunca por
+> agente. Nenhuma lista real pode existir hoje: a Onda 1 Fase 0 aterrissou em `29763e7` e este
+> pacote é escrito na mesma sessão — não há histórico de tráfego contra o chokepoint de agente.
+
+**A taxonomia de camadas que um aprovador vai ler É estática hoje** — re-derivada de `EffectLayer`
+(`gateway/effect_pep.py:201-210`) e do vocabulário de razão fechado (`:213-229`, mais o passthrough
+de `action_execution.py:187-204` na camada L5):
+
+| Camada | O que testa | Razões (tokens fechados) |
+| --- | --- | --- |
+| `L_ENTRADA` | a própria chamada/gateway (falha atribuível a nenhuma camada específica) | `CHAMADA_INVALIDA`, `GATEWAY_ERRO_INTERNO` |
+| `L0_CATALOGO` | a operação existe no catálogo fechado (`effect_classes.OPERATIONS`) | `OPERACAO_DESCONHECIDA` (perna agente) / `ACAO_NAO_MAPEADA` (perna worker, `action_execution.py:190`) |
+| `L1_CAPACIDADE` | o agente declarou a tool / a `process_key` (`agent.yaml`) | `CAPACIDADE_INDISPONIVEL`, `TOOL_NAO_DECLARADA`, `PROCESS_KEY_NAO_PERMITIDA` |
+| `L2_AUTONOMIA` | a matriz de autonomia (`pep.PEP.evaluate`) | `VOCABULARIO_PENDENTE`, `POLITICA_INDISPONIVEL`, `AUTONOMIA_NEGADA`, `HUMANO_REQUERIDO` |
+| `L3_TETO` | teto de valor (`CeilingResolver`) — INERTE hoje, nenhuma operação catalogada declara teto | `TETO_EXCEDIDO` |
+| `L4_CONSENTIMENTO` | consentimento (`ConsentDecisionSource`) — INERTE hoje, nenhuma classe exige (Q-5) | `CONSENTIMENTO_AUSENTE` |
+| `L5_RATIFICACAO` | o gate humano MZO-040 (`ActionExecutionGateway.evaluate`, inalterado) | `MANIFESTO_INDISPONIVEL`, `MANIFESTO_NAO_RATIFICADO`, `ACAO_NAO_DECLARADA`, `DOMINIOS_EXIGIDOS_VAZIO`, `DOMINIO_DESCONHECIDO`, `DOMINIOS_INCOMPLETOS`, `APROVACAO_PENDENTE`, `APROVACAO_INCOMPLETA`, `OVERRIDE_NAO_ENFORCAVEL` |
+
+A distinção crucial que o design exige de um aprovador (`effect_pep.py:102-105`): **`APROVACAO_
+PENDENTE` (L5) significa "nenhum humano assinou esta classe ainda"; `TOOL_NAO_DECLARADA` (L1)
+significa "este agente nunca foi permitido a fazer isto"**. Hoje, com as 15 classes todas `aprovado:
+false`, toda chamada real que chegasse à L5 pararia em `APROVACAO_PENDENTE` — mas a lista would-deny
+do item 2 é sobre em qual camada CADA chamada individual pararia (algumas nunca chegam à L5 porque
+uma camada anterior já nega — p.ex. um agente sem a tool declarada nega em L1), e isso só se sabe
+observando tráfego real.
+
+### Item 3 do design §9.2 — Censo de refs não-mapeadas
+
+**Estático, derivado nesta sessão contra este worktree.** Script (reproduzível por qualquer revisor
+no mesmo commit, usando as mesmas peças que `tests/unit/tools/workers/test_bootstrap_registration.py`
+já exercita):
+
+```python
+from maezo.tools.workers.bootstrap import register_all_workers
+from maezo.tools.workers.harness import FakeKafkaPublisher, FakeWorkerTransport, WorkerHarness
+import yaml
+
+harness = WorkerHarness(FakeWorkerTransport(), worker_id="census-probe")
+register_all_workers(harness, kafka=FakeKafkaPublisher())
+registered = set(harness.registered_topics)
+
+manifest = yaml.safe_load(open("spec/policies/autonomy/action-approvals.yaml"))
+mapped = set(manifest["mapeamento_topicos"].keys())
+
+unmapped = sorted(registered - mapped)
+```
+
+Resultado: **124 tópicos registrados** (`WorkerHarness.registered_topics`, via os 17 bootstraps de
+`tools/workers/bootstrap.py::register_all_workers`, `:71-81`), **26 mapeados**
+(`mapeamento_topicos`, `action-approvals.yaml:575-608` — byte-inalterado por esta PR), **0
+mapeados-mas-não-registrados** (nenhum drift entre o manifesto e o registry vivo), **98 tópicos
+registrados sem entrada em `mapeamento_topicos`**.
+
+A cláusula que rege esses 98 já existe no próprio manifesto, no ponto que este pacote cita sem
+tocar (`action-approvals.yaml:563-566`):
+
+> "DELIBERADAMENTE INCOMPLETO. Só estão mapeados os tópicos cujo efeito externo é inequívoco a
+> partir do próprio worker... Os ~80 tópicos restantes... NÃO estão mapeados, e classificá-los é
+> decisão humana, não inferência de agente."
+
+O número real hoje (98) é maior que a estimativa de prosa "~80" que o próprio manifesto carrega —
+cresceu porque mais workers foram registrados desde que aquela frase foi escrita. Isto não é uma
+contradição a corrigir: a frase nunca prometeu um número exato, e o script acima é a fonte da
+verdade reproduzível, não a prosa.
+
+**A lista de trabalho** (98 tópicos, agrupados por domínio; cada um hoje classificado sob
+`enforcement_padrao_nao_mapeado: shadow`, portanto já emitindo uma linha `ACAO_NAO_MAPEADA` por
+dispatch assim que um deployment shadow rodar contra tráfego real):
+
+| Domínio | Contagem | Tópicos (sufixo, sem o prefixo do domínio) |
+| --- | --- | --- |
+| `operadora.adequacao.*` | 7 | calculate_gap, measure_coverage, notify_rede, notify_sla_risk, prepare_remediation_dossier, register_fallback_commitment, update_monitoring_plan |
+| `operadora.ans_cron.*` | 2 | check_calendar, trigger_submissions |
+| `operadora.auth.*` | 5 | analyze_request, convene_junta, notify_sla_risk, request_documents, validate_auto_criteria |
+| `operadora.cancel.*` | 5 | confirm_maintained_decision, notify_sla_risk, prepare_dossier, request_notification, resolve_facts |
+| `operadora.contas.*` | 8 | analyze_reason, calculate_impact, identify_glosa, notify_sla_risk, prepare_triage_dossier, publish, reconcile_payment, register_glosa_accept |
+| `operadora.cred.*` | 8 | check_network_criteria, check_prior_notice, notify_doc_pendente, notify_sla_risk, prepare_dossier, register_cred_denial, register_credenciamento, verify_credentials |
+| `operadora.escalation.*` | 2 | notify_supervisor, notify_team |
+| `operadora.events.*` | 1 | publish |
+| `operadora.fraude.*` | 7 | assemble_dossier, gather_evidence, intake, notify_sla_risk, publish_completed, score_indicators, seal_custody_bundle |
+| `operadora.inadimplencia.*` | 6 | assess_status, calculate_purge, check_prior_notice, notify_sla_risk, prepare_dossier, resolve_facts |
+| `operadora.lgpd.*` | 6 | execute_erasure, execute_export, execute_rectification, notify_sla_risk, publish_completed, verify_identity |
+| `operadora.nip.*` | 3 | instruct_dossier, notify_deadline_risk, publish_completed |
+| `operadora.pagto.*` | 7 | assess_admissibility, calculate_facts, notify_sla_risk, prepare_approval_dossier, publish_completed, register_payment_refusal, validate_payment_data |
+| `operadora.programa.*` | 7 | build_care_plan, check_consent, monitor_programa, notify_sla_risk, register_program_discharge, stop_processing, stratify_risk |
+| `operadora.recurso.*` | 12 | analyze_request, assess_eligibility, escalate_ans_timeout, escalate_to_junta, notify_sla_risk, prepare_dossier, publish_completed, reconcile_payment, register_desistencia, request_documents, track_status, validate_recurso |
+| `operadora.reembolso.*` | 7 | analyze_request, calculate_amount, check_coverage, check_prazo, notify_sla_risk, publish_completed, request_documents |
+| `regulatorio.anssubmit.*` | 5 | assemble, notify_regulatorio, publish_completed, track_protocol, validate |
+| **Total** | **98** | |
+
+**Um segundo censo, menor e já FECHADO por construção** (não é trabalho pendente; citado para
+completude): a perna `mapeamento_acoes` (agent-side) tem `16/16` operações do catálogo
+`effect_classes.OPERATIONS` mapeadas — 0 não-mapeadas (`action-approvals.yaml:627-651`, verificado
+`len(mapeamento_acoes) == len(effect_classes.OPERATIONS) == 16` nesta sessão). O catálogo fechado e
+o mapa de roteamento agente nasceram juntos nesta Onda, então não há um segundo backlog de
+classificação do lado do agente. O único gap conhecido do lado do agente é `mcp-memory.read_write`
+— declarado por todo `agent.yaml` mas sem operação catalogada (disclosed no próprio docstring de
+`effect_classes.py`, "KNOWN GAP", `:38-47`; testado por
+`tests/unit/gateway/test_effect_enforcement.py::
+test_the_memory_tool_gap_is_recorded_not_silently_catalogued`) — a mesma classe de decisão humana
+que os 98 tópicos acima, não um achado novo desta seção.
+
+### Item 4 do design §9.2 — Forma de recusa declarada por classe + ponteiro para o teste de mutação
+
+**Totalmente estático hoje.** As 15 classes, pinadas byte-a-byte por um único teste de dicionário
+(não um loop por linha, que perderia uma classe removida em silêncio):
+`tests/unit/gateway/test_effect_enforcement.py::
+test_every_class_carries_the_exact_rung_and_denial_shape_design_6_1_assigns` (`:862-880`) — nota de
+re-derivação: o brief de execução desta PR sugeriu `test_effect_pep.py` como o arquivo; re-derivado
+contra a árvore, o teste vive em `test_effect_enforcement.py` (`test_effect_pep.py` existe e cobre a
+escada L-0..L-5 em si, não a tabela §6.1 classe→rung→forma).
+
+| Classe | Rung | Forma de recusa declarada | Prova ao vivo per-classe (seam-level) |
+| --- | --- | --- | --- |
+| avaliacao_dmn | C0 | `ROTA_DMN_INDISPONIVEL` | `test_seam_proofs.py::test_dmn_denial_lands_on_the_nodes_declared_dmn_unavailable_path` (`:563-584`) |
+| consulta_processo | C0 | `LEITURA_INCONCLUSIVA` | `test_seam_proofs.py::test_engine_denial_raises_and_is_never_readable_as_no_active_instance` (`:596-617`, parametrizado ×4: `find_active_instance`/`find_any_instance`/`get_process_status`/`correlate_message`) |
+| comunicacao_beneficiario | C1 | `ESCALONAMENTO_HUMANO` | `test_seam_proofs.py::test_the_remaining_seams_refuse_in_their_declared_shape[whatsapp]` (`:620-648`) |
+| leitura_phi_clinica | C2 | `LACUNA_DECLARADA` | idem, `[fhir]` |
+| leitura_populacional | C2 | `LACUNA_DECLARADA` | idem, `[population]` |
+| inferencia_llm | C2 | `ROTA_LLM_INDISPONIVEL` | idem, `[inference]` |
+| inicio_processo_regulatorio | C3 | `INCIDENTE_FALHA_FECHADA` | perna agente deliberadamente não-choked (Item 6); mecanismo genérico da perna worker abaixo |
+| correlacao_processo | C3 | `INCIDENTE_FALHA_FECHADA` | `test_engine_denial_raises_...` acima (mesma parametrização, `correlate_message`) |
+| delegacao_a2a | C3 | `DEGRADACAO_SEM_DOSSIE` | idem, `[a2a]` |
+| autorizacao_emissao | C4 | `INCIDENTE_FALHA_FECHADA` | sem seam de agente (tópico-de-worker-só); mecanismo genérico abaixo |
+| negativa_notificacao | C4 | `INCIDENTE_FALHA_FECHADA` | idem |
+| submissao_regulatoria_ans | C4 | `INCIDENTE_FALHA_FECHADA` | idem |
+| pagamento_emissao | C4 | `INCIDENTE_FALHA_FECHADA` | idem |
+| vinculo_contratual_mudanca | C4 | `INCIDENTE_FALHA_FECHADA` | idem |
+| acusacao_fraude_registro | C4 | `INCIDENTE_FALHA_FECHADA` | idem |
+
+**Prova do mecanismo genérico da perna worker** (usada por `inicio_processo_regulatorio` e pelas 6
+classes C4, todas mapeadas só por tópico de external-task):
+`tests/unit/gateway/test_action_execution_gateway.py::
+test_enforcement_is_reachable_from_data_alone_and_refuses_real_tasks` (`:1015-1059`) — prova o
+MECANISMO (manifesto ratificado+enforcing como ARQUIVO real → handler nunca roda, `retries=0`,
+linha de auditoria `REFUSED` com `guard_code=ERR_ACTION_GATEWAY_NOT_HUMAN`) contra dois tópicos
+SINTÉTICOS, não contra os tópicos reais dessas 7 classes especificamente. **Divulgado, não
+escondido:** não existe hoje um teste de mutação POR CLASSE, usando o tópico REAL de
+`autorizacao_emissao`/etc., que prove a forma de recusa daquela classe especificamente — a prova é
+do mecanismo compartilhado (`evaluate_worker_task` / `_log_decision` / `WorkerHarness._handle`), que
+é o MESMO código para as 26 classes mapeadas; uma prova por tópico adicional acrescentaria cobertura
+de ASSERÇÃO POR CLASSE, não cobertura de código nova. Fechar esse gap fino (adicionar os 6 tópicos
+reais à parametrização existente) é trabalho barato e agent-executável, mas está fora do escopo
+ADD-ONLY desta PR (o gap vive em código de teste já existente, não neste documento).
+
+**Provas de forma de recusa adicionais**, estruturais e cobrindo as 15 classes de uma vez:
+`test_seam_proofs.py::test_no_payload_prompt_recipient_or_patient_id_ever_reaches_a_telemetry_line`
+(`:515-532`, I-3 na linha de telemetria) e `test_a_denial_message_carries_only_bounded_tokens`
+(`:651-663`, I-3 na mensagem de exceção que os grafos interpolam em notas de lacuna).
+
+### Item 5 do design §9.2 — Prova de defesa-em-profundidade C4
+
+**Lado A — os guards L0-hard existem e são testados INDEPENDENTEMENTE do PEP. PROVADO hoje.** Três
+exemplos concretos, re-derivados — nenhum dos três arquivos de teste abaixo importa `effect_pep` ou
+`ActionExecutionGateway` (contagem `grep -c` = 0 nos três): os guards não apenas "ainda recusam com
+o PEP neutralizado", eles nunca sabem que o PEP existe.
+
+1. `ERR_ANS_SUBMIT_NOT_HUMAN` (guard `_require_human_approval`, `tools/workers/ans_submit.py:344-360`;
+   exceção `AnsSubmitNotHumanError`, `:101-114`) — cobre `submissao_regulatoria_ans`. Provado
+   independente em `tests/unit/tools/workers/test_ans_submit.py::
+   test_guard_fires_before_gateway_even_with_refusing` (`:689-699` — o "gateway" no nome é o
+   TRANSPORTE ANS, `RefusingAnsGatewayTransport`, não o PEP/`ActionExecutionGateway`; o teste prova
+   que o guard dispara ANTES de qualquer transporte ser consultado) e
+   `test_ans_submit_not_human_is_permission_error` (`:790-792`).
+2. `ERR_FRAUD_ACCUSATION_NOT_HUMAN` (`tools/workers/fraude.py:47`) — cobre `acusacao_fraude_registro`.
+   Provado em ~13 testes de `tests/unit/tools/workers/test_fraude.py`
+   (p.ex. `test_fraud_accusation_guard_rejects_arquivar`, `:494-510`), nenhum referenciando o PEP.
+3. `ERR_DENIAL_NOT_HUMAN` (`tools/workers/base.py:32`; levantado em `tools/workers/auth.py:1228,
+   :1242` dentro de `SendDenialNoticeWorker`) — cobre `negativa_notificacao`. Provado em
+   `tests/unit/tools/workers/test_auth_denial_guard.py::
+   test_send_denial_notice_guard_prevents_automatic_denial` (`:144-165`), idem.
+
+Um quarto exemplo, fora das 6 classes C4 mas da MESMA família: `ERR_FALLBACK_COMMITMENT_NOT_HUMAN`
+(`tools/workers/adequacao.py:44`, cobrindo `operadora.adequacao.register_fallback_commitment`, um
+dos 98 não-mapeados do Item 3), provado em
+`tests/unit/tools/workers/test_adequacao.py::test_fallback_commitment_rejects_wrong_decisao`
+(`:1146-1157`), citado porque a mesma disciplina de independência se estende a toda a família
+`ERR_*_NOT_HUMAN`, não só às 6 classes C4.
+
+**Lado B — a prova DE-DOIS-LADOS por classe (negado→recusa E PEP-neutralizado→guard-ainda-recusa)
+é uma PRECONDIÇÃO DE VIRADA, per design §6.1 C4, e está PENDENTE.** Duas razões concretas:
+
+- A prova de paridade gated-vs-neutralized que a Onda 1 Fase 0 entregou
+  (`test_seam_proofs.py::test_parity_gated_vs_neutralized_under_the_shipped_manifest`, `:420-439`,
+  e as demais provas (A)/(D) do arquivo) cobre os SETE seams de agente (`fhir`, `whatsapp`, `dmn`,
+  `cibseven`, `inference`, `population`, `a2a`). NENHUMA das 6 classes C4 tem seam de agente — são
+  worker-topic-only por desenho (`effect_classes.py:204-206`: "registered so the denial-shape
+  contract... covers every class the manifest declares, not only the ones an agent seam can
+  reach"). Não existe hoje um "PEP-neutralized" para comparar nessas 6, porque não existe um
+  "PEP-live" em nível de seam para elas em primeiro lugar — a única perna que as toca é
+  `evaluate_worker_task` / `WorkerHarness._handle`, que já é o MZO-040 original, inalterado por
+  esta Onda.
+- O Lado A prova que os guards recusam SEM o PEP. Ele não prova, para cada uma das 6 classes C4
+  especificamente, que uma NEGAÇÃO do PEP (sob um manifesto de teste que efetivamente enforça
+  aquela classe) produz a `INCIDENTE_FALHA_FECHADA` declarada usando o TÓPICO REAL daquela classe —
+  essa é exatamente a lacuna fina já divulgada no Item 4.
+
+Portanto: **defesa-em-profundidade C4 = Lado A feito, Lado B pendente**, e o design é explícito que
+essa combinação é intencional até a classe se aproximar da rampa: a prova de-dois-lados per-classe
+é uma precondição de virada per §6.1 C4, marcada pendente até o rung C4 se aproximar do ato de
+virada (§9.4).
+
+### Item 6 do design §9.2 — Resíduos divulgados, nomeados
+
+Estático, sem depender de telemetria — nove resíduos, cada um já vivo no código ou no manifesto,
+reunidos e re-derivados linha-a-linha nesta sessão:
+
+1. **C-B2 — cliente cru local-ao-nó evade a asserção de seam.** Um autor determinado ainda pode
+   construir um cliente `httpx` novo dentro do corpo de um nó e pular o registry inteiramente.
+   Compensação em duas camadas: (a) a cerca AST §8.1
+   (`scripts/ci/check_effect_chokepoint_fence.py`, `FORBIDDEN_CONSTRUCTION_NAMES`) rejeita a
+   construção NOMEADA das classes cruas fora do registry; (b) a asserção de boot
+   `tool_registry.effect_seams_gated` (`:479-509`) pega qualquer coisa que de fato chegue a um dep
+   map de composição — mas nenhuma das duas fecha a indireção (item 5 abaixo). Disclosed pela
+   própria design (§4, C-B2) e re-confirmado pelo docstring da cerca.
+2. **A-10 — `lru_cache` faz o rollback mais lento que o incidente.** `action_approvals`
+   (`action_execution.py:964-972`) cacheia por processo via `_load_cached`
+   (`@lru_cache(maxsize=8)`, `:959-961`). Uma ratificação — ou um rollback — só vale no próximo
+   restart do daemon. Q-7 (design §10) permanece em aberto: aceitar "rollback = restart" ou
+   construir uma releitura TTL fail-closed. Nenhuma das duas foi decidida ou construída nesta Onda.
+3. **XRD-10/MZO-060 — janela de atomicidade claim-vs-start.** `start_process_idempotent`
+   (`tools/mcp_cibseven/transport.py:1069`) escreve o claim ADR-0007 ANTES do start do engine, mas
+   os dois não compartilham transação — a janela é real e DIVULGADA, não fechada, na própria
+   docstring da função (`RESIDUAL, recorded not hidden`, `:1129-1133`, re-derivado nesta sessão — a
+   citação do design original, `:1112-1117`, ficou stale porque a função cresceu; esta seção corrige
+   a citação só para seu próprio uso, sem tocar nenhuma linha existente deste pacote).
+4. **`MAEZO_SPEC_DIR` — pin PROVISÓRIO, pendente Q-6.** O pin (`action_execution.py:719-733`,
+   ligado por `spec_dir_sourced`/`spec_dir_override` em `:905-916`) implementa a forma FRACA: um
+   manifesto resolvido via `MAEZO_SPEC_DIR` em runtime de produção é AVALIADO mas nunca ENFORÇA
+   sozinho (`mode = MODE_SHADOW_OVERRIDE`, espelhando o override de path já existente) — nunca
+   refuse-to-load. A própria docstring do pin nomeia isso "PROVISIONAL... Q-6 may STRENGTHEN it to
+   refuse-to-load... belongs to the owner" (`:726-733`).
+5. **Limite de indireção do AST (§8.1), divulgado no próprio docstring da cerca.**
+   `scripts/ci/check_effect_chokepoint_fence.py:75-83`: a cerca casa NOMES de classe na AST, então
+   `_C = InferenceProvider; _C()` ou `getattr(mod, "InferenceProvider")()` constroem a classe
+   fenced sem o nome aparecer no call site — o MESMO limite que `check_start_process_fence.py` já
+   carrega, pela mesma razão (uma varredura AST não é uma sandbox). O que de fato cobre isso é a
+   metade de RUNTIME de I-11 — `tool_registry.effect_seams_gated`, cuja consequência está pinada nas
+   quatro raízes de composição por `tests/unit/gateway/seams/test_boot_assertion_wiring.py`.
+6. **Padrão `Stub*` omitido do §8.4 por decisão, não por descuido.**
+   `check_effect_chokepoint_fence.py:419-427`: o design §8.4 nomeia exatamente `Fake*`/`*Mock*`/
+   `Noop*`; o único `Stub*` existente no repo (`StubWorker`,
+   `tests/unit/tools/workers/test_worker_registry.py:23`) vive em `tests/`, que esta cerca nunca
+   varre — então incluir `Stub*` fencaria zero nomes reais hoje. Um FUTURO `Stub*` de produção não
+   seria pego pela cerca ESTÁTICA, mas seria pego em RUNTIME pela mesma `effect_seams_gated` (item 5
+   acima).
+7. **`consulta_processo` — duas pré-condições de virada, já na própria `descricao` do manifesto**
+   (`action-approvals.yaml:453-469`, não tocado por esta PR): (a) resíduo pós-claim —
+   `find_active_instance` está gated e é chamada em `transport.py:1182`, DEPOIS de o claim durável
+   já ter sido escrito em `:1152-1157` (`gateway/seams/cibseven.py:29-35` documenta o mesmo resíduo
+   do lado do seam); numa família ESTRITA, uma negativa ali deixaria um claim sem instância e sem a
+   linha `cibseven_start_claim_orphaned` (que só cobre o ramo `start_process_instance`); (b)
+   enforcement é POR CLASSE, não por principal — virar `consulta_processo` derruba toda leitura de
+   engine dos daemons `worker_runtime`/`notifications_bridge`, que não têm `agent.yaml` e portanto
+   negam em L1 com `CAPACIDADE_INDISPONIVEL`. Nenhuma das duas é inferência de agente; ambas exigem
+   decisão humana antes da 1ª virada C0.
+8. **Duas superfícies `choked: false`, por decisão e não por omissão.** `leitura_populacional`
+   segue `choked: false` (`action-approvals.yaml:509-528`) porque o cliente de lago é PORT-PENDING
+   (WB.4) — nada é injetado, então nada é observável; virar isso hoje seria alegar evidência
+   inexistente (design I-10). `inicio_processo_regulatorio`'s perna agente
+   (`action-approvals.yaml:350-356`) segue `choked: false` porque gatear
+   `start_process_instance` exigiria mexer nas entranhas de `start_process_idempotent`, proibido
+   por design §5.8/I-6 — divulgado em `gateway/seams/cibseven.py:10-26`.
+9. **A nota RUNTIME_MODE de ambas-vazias (do dono).** `action_execution.py:524-544` —
+   `_is_production_runtime()` lê AMBOS `RUNTIME_MODE`/`AGENT_RUNTIME_MODE` por disjunção (mais
+   estrito que o first-set-wins do `key_scrubber`), mas se NENHUMA das duas está declarada, o
+   processo lê como `local` e o pin do item 4 acima NÃO arma (`:539-541`: "NOTHING declared reads
+   as local, so a production deployment that injects neither variable does not arm the pin... An
+   empty string is treated as undeclared"). Residual UNCHANGED, disclosed pelo próprio autor do
+   código — decisão de deployment (garantir que todo pod injeta uma das duas variáveis), não de
+   código.
+
+### Item 7 do design §9.2 — Pré-condição de governança
+
+**Verbatim-fiel, sem paráfrase que amoleça.** `PLANS.md` §0.8 exige "rulesets/branch protection
+**ATIVOS ANTES** do aceite da ratificação" (`PLANS.md:297-298`), "porque o manifesto
+`action-approvals.yaml` só é confiável com enforcement server-side" (`:298-299`). A ausência está
+registrada na row `mzo-000` de `docs/evidence-ledger.md` (`:169`) e no cabeçalho do próprio
+manifesto que este pacote governa (`action-approvals.yaml:51-57`): CODEOWNERS aqui é LISTAGEM, não
+portão — `main` não tem proteção server-side ativa.
+
+**A forma executável desta precondição já existe e está RED hoje.**
+`.github/workflows/branch-protection-check.yml` (workflow inteiro, adicionado na Onda 0 do
+Hardening, achado W6) é o check executável. Verificado nesta sessão via
+`gh run list --workflow=branch-protection-check.yml`: as três execuções mais recentes contra `main`
+— incluindo a disparada pelo push do próprio merge que traz a Onda 1 Fase 0 (`29763e7`) — são
+`completed failure` (runs `31551602014` em `2026-08-12T00:50:31Z`, `31494041279`, `31458638208`).
+RED confirmado ao vivo nesta sessão, não apenas por prosa herdada.
+
+**A ação é do dono, não de agente:** ligar uma RULESET (não proteção clássica — o próprio comentário
+do workflow explica por que proteção clássica sozinha nunca satisfaz este check) em `main`, exigindo
+PR + status checks obrigatórios. Até então, a ratificação de qualquer classe — mesmo com os três
+blocos preenchidos — continua sendo, em termos de integridade de processo, um push direto que
+ninguém foi OBRIGADO a revisar.
+
+### Mecânica de virada (design §9.4) e o que transforma cada PENDENTE em evidência
+
+Resumo, dado-apenas, humano — nenhum passo abaixo é agent-executável:
+
+1. Cada aprovador preenche o SEU bloco por classe (`aprovado`/`aprovador`/`data`/`evidencia_ref` —
+   nunca `PENDENTE`).
+2. `status: RATIFICADO` (uma vez, na primeira virada).
+3. `modo: enforcing` (uma vez, na primeira virada — é o teto, não o interruptor por classe).
+4. `acoes.<classe>.enforcement: enforcing` — o interruptor POR CLASSE, um rung de cada vez, C0 →
+   C4.
+5. Verificar contra telemetria: o nome do evento tem de virar `..._enforced` e `mode`/`enforcement`
+   têm de ler `enforcing` — uma virada malsucedida parece, de fora, um deployment de sombra
+   saudável (a mesma armadilha da §4 deste documento).
+6. Soak pela janela acordada antes de avançar de rung.
+7. Ato terminal: `enforcement_padrao_nao_mapeado: enforcing`, restaurando o XRD-09 literalmente.
+
+**O que transforma cada placeholder desta seção em evidência real:** um deployment em modo
+`shadow` rodando contra tráfego de produção pela janela de observação que Médica/ANS/Security
+concordarem ser suficiente, e — separadamente — o "vai" do dono para a prova ao vivo do formato de
+incidente (design §9.3, `inicio_processo_regulatorio` num CIB Seven local), o único item da Fase 2
+que continua agent-executável assim que autorizado. Nenhum dos dois está em curso nesta sessão;
+esta seção é a estrutura que os recebe quando existirem, nunca uma antecipação deles.

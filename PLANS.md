@@ -288,7 +288,7 @@ DL-0045 (qualificação MZO-040) em `docs/decisions-log.md`.
   (inclui o caminho vivo do webhook) + B3 cerca AST §8; cada leg: autor → GK adversarial REVISE →
   repair por 3º agente → delta do mesmo GK PASS/CONFIRMED. Restam: prova live do incident-shape
   (aguarda "go" do dono), pacote de evidência de sombra §9.2, flips por classe (§9.4) e Q-1..Q-12,
-  todos HUMANOS]** inventário completo de
+  todos HUMANOS · estrutura do pacote §9.2 DONE (telemetria pendente de deployment)]** inventário completo de
   efeitos (scouts R3: nós de grafo, tools MCP, topics de worker, transports diretos) → UM
   chokepoint `ToolRegistry`/PEP por-chamada UNIFICADO com o `ActionExecutionGateway` MZO-040
   (veículo: precondição de revisita do ADR-0034 + XRD-09 do ADR-0037 — nunca design paralelo) →
