@@ -54,6 +54,15 @@ from maezo.a2a.delegation import (
     EnvelopeSignature,
     MaxHopsExceededError,
 )
+from maezo.a2a.dispatcher import (
+    AgentHandler,
+    AuditEmitter,
+    DelegationDispatcher,
+    DelegationResult,
+    FactProducer,
+    HandlerOutput,
+    RejectionReason,
+)
 from maezo.a2a.envelope_signing import (
     DEFAULT_REPLAY_EPOCH,
     ENVELOPE_SIGNATURE_SCHEME,
@@ -64,15 +73,6 @@ from maezo.a2a.envelope_signing import (
     build_verification_keyset,
     derive_key_id,
     envelope_canonical_digest,
-)
-from maezo.a2a.dispatcher import (
-    AgentHandler,
-    AuditEmitter,
-    DelegationDispatcher,
-    DelegationResult,
-    FactProducer,
-    HandlerOutput,
-    RejectionReason,
 )
 from maezo.a2a.facts import (
     TOPIC_COMPLETED,

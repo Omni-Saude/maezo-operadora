@@ -141,9 +141,7 @@ def derive_key_id(key: bytes) -> str:
     return f"env-sha256:{sha256(key).hexdigest()[:16]}"
 
 
-def build_verification_keyset(
-    *, active_key: bytes, prior_key: bytes | None
-) -> tuple[dict[str, bytes], str]:
+def build_verification_keyset(*, active_key: bytes, prior_key: bytes | None) -> tuple[dict[str, bytes], str]:
     """Assemble a tenant's trusted verification keyset `{key_id: key}` + the active `key_id` (§4.3).
 
     The active key is always trusted; the PRIOR key (present only during the 7-day rotation grace) is

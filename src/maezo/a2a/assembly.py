@@ -31,7 +31,6 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterable, Mapping
-
 from typing import TYPE_CHECKING
 
 from maezo.a2a.card import AgentCard, FederationLayer

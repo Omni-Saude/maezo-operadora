@@ -129,9 +129,7 @@ class LabeledFakeTenantKeyset:
     keyset holding only tenant-B's key returns `None`, never tenant-B's key.
     """
 
-    def __init__(
-        self, keys: Mapping[str, bytes], *, prior_keys: Mapping[str, bytes] | None = None
-    ) -> None:
+    def __init__(self, keys: Mapping[str, bytes], *, prior_keys: Mapping[str, bytes] | None = None) -> None:
         self._keys = dict(keys)
         self._prior_keys = dict(prior_keys or {})
         #: Records every `key_for` call so a probe can assert WHICH tenant was resolved.

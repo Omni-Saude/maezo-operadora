@@ -31,7 +31,6 @@ import pytest
 from maezo.a2a import (
     Budget,
     DelegationEnvelope,
-    EnvelopeSignature,
     EnvelopeSigner,
     EnvelopeVerifier,
     RejectionReason,
@@ -117,17 +116,31 @@ def test_digest_v2_contains_every_mandated_field() -> None:
     env = _envelope()
     payload = json.loads(_digest(env).decode("utf-8"))
     assert set(payload) == {
-        "tenant", "task_id", "task_type", "origin", "target",
-        "payload_hash", "payload_meta_hash", "deadline", "budget",
-        "delegation_chain", "scheme", "key_id", "replay_epoch", "signed_at",
+        "tenant",
+        "task_id",
+        "task_type",
+        "origin",
+        "target",
+        "payload_hash",
+        "payload_meta_hash",
+        "deadline",
+        "budget",
+        "delegation_chain",
+        "scheme",
+        "key_id",
+        "replay_epoch",
+        "signed_at",
     }
     # payload_hash / payload_meta_hash are the sha256 of their sources (not the raw values).
     from hashlib import sha256
 
     assert payload["payload_hash"] == sha256(env.payload_ref.encode()).hexdigest()
-    assert payload["payload_meta_hash"] == sha256(
-        json.dumps(dict(env.payload_meta), sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
+    assert (
+        payload["payload_meta_hash"]
+        == sha256(
+            json.dumps(dict(env.payload_meta), sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+    )
 
 
 def test_digest_v2_binds_payload_meta_the_owner_decision_1_flip() -> None:
@@ -180,10 +193,17 @@ def test_signer_refuses_wrong_tenant() -> None:
 def test_signer_refuses_deadline_none() -> None:
     """§4.3.1: a signed envelope MUST carry a non-None deadline — the signer refuses to sign one."""
     with pytest.raises(EnvelopeSignatureError, match="deadline=None"):
-        _signer().sign(DelegationEnvelope.root(
-            task_id="t", task_type="authorization.analyze", origin="helena", target="rafael",
-            tenant=_TENANT, budget=Budget(tokens=8, time_ms=8), payload_ref="fhir://Coverage/x",
-        ))
+        _signer().sign(
+            DelegationEnvelope.root(
+                task_id="t",
+                task_type="authorization.analyze",
+                origin="helena",
+                target="rafael",
+                tenant=_TENANT,
+                budget=Budget(tokens=8, time_ms=8),
+                payload_ref="fhir://Coverage/x",
+            )
+        )
 
 
 @pytest.mark.parametrize("bad", [b"", b"   ", b"short"])
@@ -366,21 +386,30 @@ def _build_each_signed(signer: EnvelopeSigner) -> dict[str, DelegationEnvelope]:
 
     return {
         "helena": build_auth_analysis_envelope(
-            tenant=_TENANT, numero_guia_tiss="G-1", coverage_ref="fhir://Coverage/1",
+            tenant=_TENANT,
+            numero_guia_tiss="G-1",
+            coverage_ref="fhir://Coverage/1",
             case_meta={"codigo_procedimento_tuss": "10101012", "valor_estimado_brl": 500.0},
             signer=signer,
         ),
         "carolina": build_cred_dossier_envelope(
-            tenant=_TENANT, prestador_id="P-1",
-            case_meta={"direcao": "descredenciamento"}, signer=signer,
+            tenant=_TENANT,
+            prestador_id="P-1",
+            case_meta={"direcao": "descredenciamento"},
+            signer=signer,
         ),
         "andre_adequacao": build_adequacao_dossier_envelope(
-            tenant=_TENANT, regiao_saude="SP-01", especialidade="cardiologia",
-            case_meta={"gap_adequacao": "GAP_CRITICO"}, signer=signer,
+            tenant=_TENANT,
+            regiao_saude="SP-01",
+            especialidade="cardiologia",
+            case_meta={"gap_adequacao": "GAP_CRITICO"},
+            signer=signer,
         ),
         "andre_pagto": build_pagto_dossier_envelope(
-            tenant=_TENANT, case_meta={"valor_pagamento_cents": 123499},
-            ordem_pagamento_id="OP-1", signer=signer,
+            tenant=_TENANT,
+            case_meta={"valor_pagamento_cents": 123499},
+            ordem_pagamento_id="OP-1",
+            signer=signer,
         ),
     }
 
@@ -410,7 +439,10 @@ def test_builder_without_signer_is_unsigned_dev_path() -> None:
     from maezo.agents.helena.delegation import build_auth_analysis_envelope
 
     env = build_auth_analysis_envelope(
-        tenant=_TENANT, numero_guia_tiss="G-1", coverage_ref="fhir://Coverage/1", case_meta={},
+        tenant=_TENANT,
+        numero_guia_tiss="G-1",
+        coverage_ref="fhir://Coverage/1",
+        case_meta={},
     )
     assert env.signature is None
     assert env.deadline is None
@@ -491,7 +523,10 @@ def _gate(
     from maezo.runtime.agent_runtime.a2a_composition import _require_envelope_signing_or_fail_closed
 
     return _require_envelope_signing_or_fail_closed(
-        runtime_mode=mode, tenant=_TENANT, edge="test-edge", keyset=keyset  # type: ignore[arg-type]
+        runtime_mode=mode,
+        tenant=_TENANT,
+        edge="test-edge",
+        keyset=keyset,  # type: ignore[arg-type]
     )
 
 
