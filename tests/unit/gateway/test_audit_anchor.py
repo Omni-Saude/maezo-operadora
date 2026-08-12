@@ -87,8 +87,21 @@ mapping is stated once, here, so a reviewer can neuter any one of them and predi
       not degenerate into "refuse everything", and it must survive a root that is itself reached
       through a symlink (macOS `tmp_path`).
 
-One neutering was DEMONSTRATED locally (mutate -> watch red -> revert) — see the commit message
-for `test_audit_anchor.py`.
+  D12 Importing the anchor does not drag the Postgres driver into the process.
+      NEUTER: hoist `from maezo.gateway.audit_postgres import schema_for_tenant` out of
+      `AnchorCheckpoint.__post_init__` back to module scope.
+      RED: `test_anchor_module_imports_only_pure_names_from_the_audit_modules` (the pin is
+      per-SCOPE, so the name set alone cannot keep it green) and
+      `test_importing_the_anchor_module_does_not_drag_in_asyncpg` (fresh interpreter: no
+      `asyncpg`, no `audit_postgres`, and a marginal module budget over `maezo.gateway.audit`).
+      HISTORY: the module-level import made `import maezo.gateway.audit_anchor` pull in `asyncpg`
+      and ~310 modules — the exact coupling `gateway/__init__.py` lines 11-15 documents avoiding.
+      Found by external review. Its CONTROL is
+      `test_constructing_a_checkpoint_still_uses_the_real_schema_validator` — going lazy must not
+      quietly become going to a DIFFERENT (locally re-implemented, drifting) rule.
+
+The RED probes actually executed for this file — each defense mutated, watched go red, and
+reverted — are tabulated in `docs/design/wave4-audit-anchor.md` §7 with their exact counts.
 """
 
 from __future__ import annotations
@@ -98,6 +111,8 @@ import hashlib
 import json
 import os
 import stat
+import subprocess
+import sys
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Final
@@ -1124,17 +1139,127 @@ def test_the_anchor_module_carries_no_chain_mutating_literal() -> None:
     assert offenders == [], f"anchor module carries chain-mutating literals: {offenders}"
 
 
+def _audit_imports_by_scope(tree: ast.AST) -> tuple[dict[str, frozenset[str]], dict[str, frozenset[str]]]:
+    """Split `from maezo.gateway.audit*` imports into (module-scope, function-scope) maps.
+
+    The distinction is the whole point of the pin: WHICH names are imported is a coupling question,
+    WHERE they are imported is a WEIGHT question, and only the second one decides whether importing
+    the anchor drags `asyncpg` into the process. An import nested in any function/method is
+    function-scope; everything else — including one inside `if TYPE_CHECKING:`, which costs nothing
+    at runtime and is therefore never the weight problem — is module-scope.
+    """
+    function_scoped = {
+        id(child)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+        for child in ast.walk(node)
+        if isinstance(child, ast.ImportFrom)
+    }
+    module_level: dict[str, set[str]] = {}
+    function_level: dict[str, set[str]] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom):
+            continue
+        if not (node.module or "").startswith("maezo.gateway.audit"):
+            continue
+        bucket = function_level if id(node) in function_scoped else module_level
+        bucket.setdefault(node.module or "", set()).update(alias.name for alias in node.names)
+    return (
+        {module: frozenset(names) for module, names in module_level.items()},
+        {module: frozenset(names) for module, names in function_level.items()},
+    )
+
+
 def test_anchor_module_imports_only_pure_names_from_the_audit_modules() -> None:
-    """HARDCODED. Provenance: the anchor may only READ the chain's vocabulary. Any new import
-    from `audit`/`audit_postgres` — especially a sink or an emit path — is a diff a reviewer must
-    see, because it would mean the anchor started participating in the audit write path."""
-    expected = {
+    """HARDCODED, AT BOTH SCOPES. Provenance: the anchor may only READ the chain's vocabulary. Any
+    new import from `audit`/`audit_postgres` — especially a sink or an emit path — is a diff a
+    reviewer must see, because it would mean the anchor started participating in the audit write
+    path.
+
+    WHY TWO MAPS. `schema_for_tenant` is imported LAZILY, inside `AnchorCheckpoint.__post_init__`,
+    because `audit_postgres` imports `asyncpg` at module scope: a module-level import here made
+    `import maezo.gateway.audit_anchor` — a pure canonicalizer that opens no socket — pull in
+    `asyncpg` and ~310 modules, re-creating exactly the coupling `gateway/__init__.py` lines 11-15
+    documents avoiding. Pinning only the name set would let a future refactor hoist that import
+    back to module scope with the pin still green. So the SCOPE is pinned too, and a regression of
+    the lazy import goes RED here.
+
+    `AuditRecord` sits in the module-level map because it is imported under `if TYPE_CHECKING:` —
+    module-scope in the AST, zero weight at runtime. `GENESIS_PREV_HASH` is a genuine module-level
+    import; `maezo.gateway.audit` is stdlib-only and carries no driver."""
+    expected_module_level = {
         "maezo.gateway.audit": frozenset({"GENESIS_PREV_HASH", "AuditRecord"}),
+    }
+    expected_function_level = {
         "maezo.gateway.audit_postgres": frozenset({"schema_for_tenant"}),
     }
+
     tree = ast.parse((_SRC_MAEZO / "gateway" / "audit_anchor.py").read_text(encoding="utf-8"))
-    actual: dict[str, set[str]] = {}
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("maezo.gateway.audit"):
-            actual.setdefault(node.module or "", set()).update(alias.name for alias in node.names)
-    assert {module: frozenset(names) for module, names in actual.items()} == expected
+    module_level, function_level = _audit_imports_by_scope(tree)
+
+    assert module_level == expected_module_level
+    assert function_level == expected_function_level
+
+
+#: Measured in a fresh interpreter: importing the anchor AFTER `maezo.gateway.audit` costs exactly
+#: ONE new module (`maezo.gateway.audit_anchor` itself). Before the lazy import it cost 34 and
+#: dragged `asyncpg` in. The budget is stated relative to `audit` on purpose — an ABSOLUTE module
+#: count is dominated by `structlog`, a repo-wide dependency the anchor neither can nor should
+#: avoid, so an absolute pin would be a dependency-bump tripwire rather than a coupling canary.
+_ANCHOR_MARGINAL_MODULE_BUDGET: Final[int] = 5
+
+
+def test_importing_the_anchor_module_does_not_drag_in_asyncpg() -> None:
+    """The CONSEQUENCE of the lazy import, measured in a FRESH interpreter.
+
+    A subprocess is not ceremony here: this very test file imports `audit_postgres` (and pytest
+    imports a great deal more), so `asyncpg` is already in THIS process's `sys.modules` regardless
+    of what the anchor does. Only a clean interpreter can answer the question at all.
+
+    Three assertions, weakest to strongest. (1) No `asyncpg` — the driver the audit path needs and
+    a pure canonicalizer does not. (2) No `maezo.gateway.audit_postgres` — the precise coupling,
+    named directly, so the test keeps its meaning even if `audit_postgres` some day stops importing
+    `asyncpg` at module scope. (3) The MARGINAL cost over `maezo.gateway.audit` stays within
+    :data:`_ANCHOR_MARGINAL_MODULE_BUDGET`, which is what catches a re-hoisted import that happens
+    to be cheap today and expensive tomorrow."""
+    program = (
+        "import sys\n"
+        "base = len(sys.modules)\n"
+        "import maezo.gateway.audit\n"
+        "after_audit = len(sys.modules)\n"
+        "import maezo.gateway.audit_anchor\n"
+        "after_anchor = len(sys.modules)\n"
+        "print(after_anchor - after_audit,\n"
+        "      any(m == 'asyncpg' or m.startswith('asyncpg.') for m in sys.modules),\n"
+        "      'maezo.gateway.audit_postgres' in sys.modules)\n"
+    )
+    completed = subprocess.run(  # noqa: S603 - fixed argv, no shell, this interpreter
+        [sys.executable, "-c", program],
+        capture_output=True,
+        text=True,
+        check=True,
+        cwd=str(_REPO_ROOT),
+    )
+    marginal, asyncpg_present, audit_postgres_present = completed.stdout.split()
+
+    assert asyncpg_present == "False", f"importing the anchor pulled in asyncpg: {completed.stdout!r}"
+    assert audit_postgres_present == "False", (
+        f"importing the anchor pulled in audit_postgres: {completed.stdout!r}"
+    )
+    assert int(marginal) <= _ANCHOR_MARGINAL_MODULE_BUDGET, (
+        f"the anchor now costs {marginal} modules beyond `maezo.gateway.audit` (budget "
+        f"{_ANCHOR_MARGINAL_MODULE_BUDGET}) — a module-level import was probably re-hoisted"
+    )
+
+
+def test_constructing_a_checkpoint_still_uses_the_real_schema_validator() -> None:
+    """The lazy import must not have become a lazy DIFFERENT rule. Construction still refuses via
+    `audit_postgres.schema_for_tenant`'s exact message — the same validator that guards the
+    `SET search_path` / advisory-lock interpolation, not a second copy of the grammar."""
+    from maezo.gateway.audit_postgres import schema_for_tenant
+
+    with pytest.raises(ValueError, match="not a valid schema identifier"):
+        schema_for_tenant("Amh; DROP TABLE audit_chain")
+    with pytest.raises(ValueError, match="not a valid schema identifier"):
+        _fixture_checkpoint(tenant_id="Amh; DROP TABLE audit_chain")
+    assert _fixture_checkpoint(tenant_id="amh_tenant_2").tenant_id == "amh_tenant_2"

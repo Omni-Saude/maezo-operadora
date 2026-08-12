@@ -27,12 +27,36 @@ comparação contínua e drills.
 
 ## 2. O que a cadeia existente NÃO perde
 
-`audit.py` e `audit_postgres.py` **não foram tocados**. `audit_anchor.py` importa três nomes puros
-(`GENESIS_PREV_HASH`, `AuditRecord`, `schema_for_tenant`) e **nada mais** — pinado por
-`test_anchor_module_imports_only_pure_names_from_the_audit_modules`. Não há SQL, nome de tabela,
-INSERT/UPDATE/DELETE nem conexão asyncpg no módulo — pinado por
+`audit.py` e `audit_postgres.py` **não foram tocados**. `audit_anchor.py` importa três nomes puros e
+**nada mais** — pinado por `test_anchor_module_imports_only_pure_names_from_the_audit_modules`, que
+pina **nome E escopo**:
+
+| nome | de | escopo | por quê |
+| --- | --- | --- | --- |
+| `GENESIS_PREV_HASH` | `maezo.gateway.audit` | módulo | `audit` é stdlib-only, não carrega driver |
+| `AuditRecord` | `maezo.gateway.audit` | módulo, sob `if TYPE_CHECKING:` | só tipo; custo zero em runtime |
+| `schema_for_tenant` | `maezo.gateway.audit_postgres` | **função** (`AnchorCheckpoint.__post_init__`) | `audit_postgres` importa `asyncpg` no topo; ver abaixo |
+
+**Peso de import (por que o terceiro é preguiçoso).** `gateway/__init__.py` linhas 11-15 já declaram
+a regra da casa: `PostgresAuditSink` **não** é re-exportado do pacote porque puxaria `asyncpg` no
+import, e o caminho `AuditSink` em memória não deve adquirir dependência dura incondicional do
+driver. Um import de `schema_for_tenant` em escopo de módulo **recriava exatamente esse acoplamento
+um arquivo adiante**: `import maezo.gateway.audit_anchor` — um canonicalizador puro que não abre
+socket — trazia `asyncpg` e ~310 módulos. Medido: **310 → 277** módulos, `asyncpg` presente → ausente;
+o custo **marginal** sobre `maezo.gateway.audit` caiu de **34 para 1** módulo (o próprio
+`audit_anchor`). A validação continua sendo a **mesma** de `audit_postgres` — uma segunda cópia da
+gramática de schema divergiria daquela que de fato guarda a interpolação de `SET search_path` /
+advisory-lock (controle: `test_constructing_a_checkpoint_still_uses_the_real_schema_validator`).
+O orçamento é expresso **relativo** a `audit`, não em contagem absoluta: o absoluto é dominado por
+`structlog`, dependência de repo inteiro, e viraria alarme de bump de dependência em vez de canário
+de acoplamento.
+
+Não há SQL, nome de tabela, INSERT/UPDATE/DELETE nem conexão asyncpg no módulo — pinado por
 `test_the_anchor_module_carries_no_chain_mutating_literal` (docstrings excluídos via a mesma técnica
-de `scripts/ci/check_effect_chokepoint_fence.py::_docstring_constant_ids`).
+de `scripts/ci/check_effect_chokepoint_fence.py::_docstring_constant_ids`) e, para o asyncpg, por
+`test_importing_the_anchor_module_does_not_drag_in_asyncpg` (interpretador **limpo**, via
+subprocesso — este arquivo de teste já importa `audit_postgres`, então só um processo novo consegue
+responder à pergunta).
 
 Este módulo **não é um quarto verificador de cadeia**. `AuditSink.verify_chain()` e
 `audit_postgres.verify_chain()` recomputam hashes de registro; a âncora nunca. Ela atesta *como a

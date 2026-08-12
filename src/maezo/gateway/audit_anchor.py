@@ -33,9 +33,10 @@ IS NOT, deliberately:
     different questions, and the whole point of an external anchor is that the later COMPARISON
     (leg 2) is what turns a silent rewrite into a detected one.
   - **Not a mutation of the existing audit path.** Nothing in `audit.py` / `audit_postgres.py` is
-    touched, imported-into, or wrapped. This module imports FROM them (`GENESIS_PREV_HASH`,
-    `AuditRecord`, `schema_for_tenant`) and is imported BY nothing in `src/maezo/` — an inertness
-    property a test asserts by AST-scanning the tree (`test_audit_anchor.py`).
+    touched, imported-into, or wrapped. This module imports FROM them — `GENESIS_PREV_HASH` at
+    module scope, `AuditRecord` under `TYPE_CHECKING` only, and `schema_for_tenant` LAZILY (see
+    IMPORT WEIGHT below) — and is imported BY nothing in `src/maezo/`, an inertness property a
+    test asserts by AST-scanning the tree (`test_audit_anchor.py`).
   - **Not a pruner.** ADR-0029 §2's checkpoint is an IN-`audit_chain` row that re-anchors a chain
     whose genesis prefix was deleted; it requires net-new columns, a migration, and verifier
     changes, and it is BLOCKED behind DPO ratification of ADR-0029 *and* the ADR-0020 legal-hold
@@ -60,6 +61,24 @@ The default direction here is the OPPOSITE of the repo's security fences, and de
 a fence, "absent config" must resolve to the RESTRICTIVE state; for a dark build, "absent config"
 must resolve to the INERT state. Both readings share the same rule — the absence of an explicit
 operator decision may never be read as consent.
+
+=================================================================================================
+IMPORT WEIGHT — why `schema_for_tenant` is imported lazily
+=================================================================================================
+`gateway/__init__.py`'s docstring (lines 11-15) states the house rule: `PostgresAuditSink` is NOT
+re-exported from the package because `audit_postgres` imports `asyncpg` at module scope, and the
+in-memory `AuditSink` path must not acquire an unconditional hard dependency on the Postgres
+driver. A module-level `from maezo.gateway.audit_postgres import schema_for_tenant` HERE would
+re-create exactly that coupling one file over: importing this module — a pure canonicalizer that
+opens no socket — pulled in `asyncpg` and ~310 modules.
+
+So the import lives INSIDE :meth:`AnchorCheckpoint.__post_init__` instead. The validator is still
+the SAME one that guards the `SET search_path` / advisory-lock interpolation (a second copy of the
+grammar would drift from the one that matters), it is simply paid for by callers who construct a
+checkpoint rather than by everyone who imports the file. A test pins BOTH levels — module-scope
+and function-scope — so regressing the lazy import back to module scope goes RED rather than
+silently restoring the weight, and a second test asserts in a FRESH interpreter that importing
+this module leaves `asyncpg` out of `sys.modules`.
 
 =================================================================================================
 CANONICALIZATION (the byte-stability contract)
@@ -124,7 +143,13 @@ from typing import TYPE_CHECKING, Any, Final, Protocol, runtime_checkable
 import structlog
 
 from maezo.gateway.audit import GENESIS_PREV_HASH
-from maezo.gateway.audit_postgres import schema_for_tenant
+
+# `schema_for_tenant` is imported LAZILY, inside `AnchorCheckpoint.__post_init__` — see the
+# module docstring's "IMPORT WEIGHT" section. `maezo.gateway.audit_postgres` imports `asyncpg` at
+# module scope, and pulling it in here would give every consumer of this module an unconditional
+# hard dependency on the Postgres driver. That is exactly the coupling `gateway/__init__.py`'s
+# docstring (lines 11-15) documents avoiding when it declines to re-export `PostgresAuditSink`;
+# this module follows the same precedent rather than re-creating the problem one file over.
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -313,6 +338,14 @@ class AnchorCheckpoint:
     anchor_format: str = ANCHOR_FORMAT
 
     def __post_init__(self) -> None:
+        # LAZY, not module-level: importing `audit_postgres` at module scope drags `asyncpg` (and
+        # ~310 modules) into every process that so much as imports this file. Same reasoning, and
+        # the same precedent, as `gateway/__init__.py` lines 11-15 declining to re-export
+        # `PostgresAuditSink`. The rule this reuses is deliberately NOT re-implemented here —
+        # a second copy of the schema grammar would drift from the one that actually guards the
+        # `SET search_path` / advisory-lock interpolation.
+        from maezo.gateway.audit_postgres import schema_for_tenant
+
         schema_for_tenant(self.tenant_id)  # raises ValueError for anything not [a-z][a-z0-9_]*
 
         if not _SHA256_HEX.match(self.chain_head_hash):
