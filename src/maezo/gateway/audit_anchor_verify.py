@@ -1027,6 +1027,11 @@ DEFAULT_FAKE_SECRET_ENV: Final[str] = "MAEZO_AUDIT_ANCHOR_FAKE_SECRET"
 EXIT_CLI_REFUSED: Final[int] = 3
 
 
+def _print_verdict_line(payload: dict[str, Any]) -> None:
+    """Write the machine-readable verdict as the LAST LINE of stdout — see :func:`_cli`."""
+    print(json.dumps(payload, sort_keys=True, separators=(",", ":")))  # noqa: T201 — CLI output
+
+
 def _cli(
     argv: Sequence[str] | None = None,
     *,
@@ -1037,6 +1042,16 @@ def _cli(
     Mirrors `audit_postgres._cli`'s shape (`--dsn`, `--tenant`, JSON on stdout, status in the exit
     code) and adds `--store-root`. Runs without the docker engine stack: a Postgres DSN and a
     directory are all it needs, which is what makes it usable from a CI job and from leg 3's drills.
+
+    **OUTPUT CONTRACT: the verdict is the LAST LINE of stdout, and it is exactly one line.**
+    Unlike `audit_postgres._cli` (which pretty-prints with `indent=2`), this command also EMITS a
+    structured event for its own verdict, and the repo's logging wiring
+    (`platform/observability.py` — `structlog.PrintLoggerFactory`) renders events to **stdout**.
+    A multi-line JSON document interleaved with console log lines is not parseable, so the verdict
+    is compact single-line JSON, emitted after the event: `... | tail -n 1 | jq` is the contract,
+    and a test pins it. Routing the verdict to stderr instead would collide with the far more
+    common convention that stderr is diagnostics; reconfiguring structlog from inside a library
+    module would be a global side effect this file has no business taking.
 
     **The only verifier this CLI can wire is the LABELED FAKE** (`LabeledFakeKmsAnchorSigner`,
     whose `verify` requires all three synthetic labels). That is deliberate. A real anchor is
@@ -1073,19 +1088,15 @@ def _cli(
 
     secret = os.environ.get(args.fake_verifier_secret_env, "")
     if not secret:
-        print(  # noqa: T201 — CLI output, not logging
-            json.dumps(
-                {
-                    "status": "CLI_REFUSED",
-                    "reason": "FAKE_VERIFIER_SECRET_ABSENT",
-                    "detail": (
-                        f"{args.fake_verifier_secret_env} is unset or empty — refusing to run "
-                        "without a verifier (an unverified anchor is not evidence)"
-                    ),
-                },
-                indent=2,
-                sort_keys=True,
-            )
+        _print_verdict_line(
+            {
+                "status": "CLI_REFUSED",
+                "reason": "FAKE_VERIFIER_SECRET_ABSENT",
+                "detail": (
+                    f"{args.fake_verifier_secret_env} is unset or empty — refusing to run "
+                    "without a verifier (an unverified anchor is not evidence)"
+                ),
+            }
         )
         return EXIT_CLI_REFUSED
 
@@ -1101,7 +1112,7 @@ def _cli(
             records=record_source_factory(args.dsn),
         )
     )
-    print(json.dumps(outcome.to_json_mapping(), indent=2, sort_keys=True))  # noqa: T201 — CLI output
+    _print_verdict_line(outcome.to_json_mapping())
     return outcome.exit_code
 
 

@@ -56,9 +56,10 @@ mapping is stated once, here, so a reviewer can neuter any one of them and predi
       exploding store are injected AND the store root is probed for non-existence).
 
   D9  The writer is unreachable from the audit path (dark build).
-      NEUTER: import `audit_anchor` from any module under `src/maezo/`, in ANY of the spellings
-      enumerated in `_CAUGHT_IMPORT_SPELLINGS`.
-      RED: `test_no_production_module_imports_the_anchor_writer` (hardcoded EMPTY allowlist), plus
+      NEUTER: import `audit_anchor` from any module under `src/maezo/` OTHER than the one named
+      importer, in ANY of the spellings enumerated in `_CAUGHT_IMPORT_SPELLINGS`.
+      RED: `test_no_production_module_imports_the_anchor_writer` (hardcoded allowlist, one named
+      entry — leg 2's `gateway/audit_anchor_verify.py`, itself dark and itself unimported), plus
       `test_import_fence_predicate_catches_every_spelling[<spelling>]` if the predicate itself is
       narrowed. HISTORY: the predicate originally read only `ImportFrom.module`, so
       `from maezo.gateway import audit_anchor` and `from . import audit_anchor` — where the module
@@ -67,7 +68,8 @@ mapping is stated once, here, so a reviewer can neuter any one of them and predi
       spelling matrix and its per-spelling test exist so the fence can never again be exercised by
       only the one spelling a probe happened to pick. The dynamic routes it still cannot see
       (`importlib`, `__import__`, attribute access through a parent package) are DISCLOSED in
-      `_UNCAUGHT_IMPORT_SPELLINGS` and compensated by the allowlist being EMPTY, not by pretending.
+      `_UNCAUGHT_IMPORT_SPELLINGS` and compensated by the allowlist naming its importers ONE BY
+      ONE (it was EMPTY through leg 1; leg 2 added exactly one), not by pretending.
 
   D10 The anchor envelope carries no free-form content (PHI posture).
       NEUTER: add any nested/free-form value to `build_envelope`.
@@ -1015,7 +1017,7 @@ _CAUGHT_IMPORT_SPELLINGS: Final[tuple[str, ...]] = (
 )
 
 #: Spellings this AST scan structurally CANNOT catch, disclosed rather than pretended away.
-#: Compensated by the EMPTY allowlist above (any importer at all is a reviewed diff) plus review:
+#: Compensated by the NAMED allowlist above (any importer at all is a reviewed diff) plus review:
 #: none of these can appear without a human reading the line that spells them.
 _UNCAUGHT_IMPORT_SPELLINGS: Final[tuple[str, ...]] = (
     "import maezo.gateway  # then maezo.gateway.audit_anchor.write_anchor(...)",
@@ -1076,10 +1078,11 @@ def test_import_fence_predicate_does_not_fire_on_unrelated_imports(source: str) 
 
 
 def test_no_production_module_imports_the_anchor_writer() -> None:
-    """HARDCODED allowlist, EMPTY today. Provenance: Onda 4 leg 1 ships the anchor writer merged,
-    tested and INERT — the periodic job that calls it is leg 2 and the drills are leg 3. The
-    strongest inertness proof is not "the flag is off" but "the audit path cannot reach this code
-    at all", and that is what this AST scan pins.
+    """HARDCODED allowlist, ONE named entry. Provenance: Onda 4 leg 1 shipped the anchor writer
+    merged, tested and INERT, with this list EMPTY; leg 2 landed the verification job that consumes
+    it and declared itself here, by name (see below). The strongest inertness proof is not "the
+    flag is off" but "the audit path cannot reach this code at all", and that is what this AST scan
+    pins.
 
     SCOPE, stated honestly. This is a STATIC scan of import STATEMENTS; the spellings it catches
     are enumerated in `_CAUGHT_IMPORT_SPELLINGS` and each one is exercised by
@@ -1089,12 +1092,27 @@ def test_no_production_module_imports_the_anchor_writer() -> None:
     `maezo.gateway.audit_anchor.write_anchor(...)`, which only resolves if something else already
     imported the submodule). Those are listed in `_UNCAUGHT_IMPORT_SPELLINGS` and are OUT OF
     AST SCOPE by construction: a string-keyed import is not an import node. What compensates is
-    not a cleverer predicate but the shape of the allowlist — it is EMPTY, so the fence admits no
-    importer at all, and any code that reaches the anchor by any route is a reviewed diff.
+    not a cleverer predicate but the shape of the allowlist — it names its importers ONE BY ONE, so
+    any code that reaches the anchor by any route is a reviewed diff.
 
-    When leg 2 lands its comparison/scheduler module, THIS list is where the new importer is
-    declared — deliberately, in a diff a reviewer sees, never as a silent widening."""
-    allowed_importers: frozenset[str] = frozenset()
+    THE ALLOWLIST'S ONE ENTRY, and why it is not a widening. Leg 2 landed the module this writer
+    exists FOR: `gateway/audit_anchor_verify.py`, the continuous Postgres↔anchor verification job.
+    It reads a signature-verified anchor back out of the store and recomputes the tenant-chain root
+    from the database, and it imports `audit_anchor` for the canonicalization contract
+    (`canonical_bytes`), the checkpoint derivation (`checkpoint_for_chain`, `checkpoint_root`), the
+    two seam Protocols and the labeled fakes — DELIBERATELY, rather than re-implementing any of
+    them: a second canonicalizer would drift from the one the signatures were made over, and a
+    drifted canonicalizer reports divergence on a chain that is fine.
+
+    The entry does not weaken the inertness claim, because the importer is itself dark: its own
+    sibling flag (`MAEZO_AUDIT_ANCHOR_VERIFY_ENABLED`) is OFF by default, and
+    `test_no_production_module_imports_the_verify_job` (tests/unit/gateway/
+    test_audit_anchor_verify.py) pins an EMPTY allowlist for IT — so the audit path still cannot
+    reach the anchor writer by any static route; it can only reach a module nothing reaches.
+
+    The list stays a NAMED allowlist rather than a prefix/pattern: the next importer must be typed
+    out here too, in a diff a reviewer sees, never admitted by a rule that happens to match it."""
+    allowed_importers: frozenset[str] = frozenset({"gateway/audit_anchor_verify.py"})
 
     importers: set[str] = set()
     for path in sorted(_SRC_MAEZO.rglob("*.py")):
