@@ -179,6 +179,13 @@ def _settings(*, tenant: str, database_url: str) -> AgentRuntimeSettings:
         agent_id="rafael",
         database_url=database_url,
         cibseven_base_url=_UNREACHABLE_CIBSEVEN_URL,
+        # ADR-0039 Q7: EXPLICIT now. This suite exercises the dev/unsigned composition path, which
+        # used to be inherited from `AgentRuntimeSettings`' pydantic default; that default is now
+        # the fail-closed "production", where the unsigned-Cards opt-out is IGNORED. Passing it
+        # here keeps these tests proving what they are named for. NOTE: this suite is skipped
+        # without a live Postgres, so the flip would NOT have reddened CI — it would have surfaced
+        # as a confusing local failure the next time someone ran the live-PG lane.
+        agent_runtime_mode="local",
     )
 
 
@@ -198,8 +205,9 @@ def _no_ambient_card_signing_key(monkeypatch: pytest.MonkeyPatch) -> None:
     `monkeypatch.setenv` in the same test overrides this fixture's `delenv` for the rest of that
     test).
 
-    F2: the unsigned dev-path tests here run in the default `agent_runtime_mode="local"` with no
-    key, and the composition root now REFUSES to build an unsigned dispatcher unless the explicit
+    F2: the unsigned dev-path tests here run with an EXPLICIT `agent_runtime_mode="local"` (set in
+    `_settings` above — it was the pydantic default until ADR-0039 Q7 made it fail-closed) and no
+    key, and the composition root REFUSES to build an unsigned dispatcher unless the explicit
     non-production opt-out is set. Set it for the suite: these tests deliberately exercise the
     dev/unsigned path (`build_auth_delegation_dispatcher` without a key), so the opt-out is exactly
     the explicit signal F2 requires. It is IGNORED by the key-present T-G tests below (a present key

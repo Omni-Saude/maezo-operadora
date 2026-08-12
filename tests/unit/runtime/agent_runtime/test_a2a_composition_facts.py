@@ -9,16 +9,17 @@ missing dependency degrading silently to a permissive default — applied to a d
 The fix (`_require_fact_producer_or_fail_closed`): `DATABASE_URL` present -> the transactional
 outbox; absent + production -> RAISE; absent + EXPLICIT local -> the labeled no-op, loudly warned.
 
-DISCRIMINATOR ASYMMETRY, PINNED NOT REPAIRED. The two runtime-mode discriminators disagree about
-an ABSENT variable, and that is disclosed, pre-existing behavior this leg deliberately does not
-change:
+DISCRIMINATOR ASYMMETRY — pinned by leg 2, REPAIRED by ADR-0039 Q7 (owner-decided). The two
+runtime-mode discriminators used to disagree about an ABSENT variable; they now agree:
 
-    worker-runtime  `RUNTIME_MODE` absent  -> "production"  (fail-closed; Helm injects nothing)
-    agent-runtime   `AGENT_RUNTIME_MODE` absent -> "local"  (settings.py:38's pydantic default)
+    worker-runtime  `RUNTIME_MODE` absent        -> "production"  (fail-closed; Helm injects nothing)
+    agent-runtime   `AGENT_RUNTIME_MODE` absent  -> "production"  (was "local" — the Q7 flip)
 
-Both agree on PRESENT-BUT-EMPTY: it resolves to production. `test_the_empty_string_edge_*` below
-pin all four corners, so a future "tidy-up" of either default fails here instead of silently
-flipping a daemon's posture.
+Both also agree on PRESENT-BUT-EMPTY: it resolves to production. `test_the_empty_string_edge_*` and
+`test_the_absent_edge_*` below pin all four corners, so a future "tidy-up" of either default fails
+here instead of silently flipping a daemon's posture. The absent-edge test was leg 2's disclosure of
+the asymmetry; it is now the regression guard on the repair, with its assertions kept and inverted
+rather than deleted — the corner is still pinned, it just pins the opposite (correct) answer.
 
 The parallel fail-closed gate for the IDEMPOTENCY store is leg 3's, not this file's; the shared
 `is_production_runtime_mode` helper it will reuse is pinned here.
@@ -94,10 +95,13 @@ _GATE_CASES: tuple[tuple[str, str | None, str], ...] = (
     ("Local", None, "refuse"),  # case-sensitive: only the exact literal "local" is non-production
     ("", None, "refuse"),  # present-but-empty is production, on BOTH discriminators
     (" local ", None, "refuse"),  # untrimmed is not the literal, so it fails closed
+    ("production", "   ", "refuse"),  # blank-after-strip DSN == absent (the leg-4 legibility fix)
     ("local", None, "noop"),
+    ("local", "   ", "noop"),  # ... and a blank DSN in local dev is 'absent', not an outbox
     ("production", _DSN, "outbox"),
     ("kubernetes", _DSN, "outbox"),
     ("local", _DSN, "outbox"),  # a DSN in local dev still gets the durable path
+    ("production", f"  {_DSN}  ", "outbox"),  # merely PADDED is present: presence check, not normalizer
 )
 
 
@@ -205,15 +209,19 @@ def test_the_empty_string_edge_of_the_agent_discriminator(monkeypatch: pytest.Mo
     assert is_production_runtime_mode(settings.agent_runtime_mode) is True
 
 
-def test_the_absent_edge_of_the_agent_discriminator_is_local_and_that_asymmetry_is_disclosed(
+def test_the_absent_edge_of_the_agent_discriminator_is_production_and_matches_the_worker_path(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The KNOWN asymmetry, pinned so it cannot be "tidied" without a reviewer seeing it: an
-    ABSENT variable means PRODUCTION on the worker path and LOCAL on the agent path. This leg does
-    not change `settings.py:38`'s default — see this module's docstring."""
+    """The corner leg 2 pinned as a DISCLOSED ASYMMETRY, now pinned as the REPAIR (ADR-0039 Q7): an
+    ABSENT variable means PRODUCTION on BOTH paths. Same three assertions as leg 2's version, with
+    the agent-path verdicts inverted — the corner stays covered, so a revert to the permissive
+    default reddens here rather than passing quietly.
+
+    `worker_runtime_mode_from_env()` is re-asserted (not assumed) because the repair's whole claim
+    is AGREEMENT between the two paths; proving only the agent half would not show they now match."""
     monkeypatch.delenv("AGENT_RUNTIME_MODE", raising=False)
-    assert AgentRuntimeSettings().agent_runtime_mode == "local"
-    assert is_production_runtime_mode(AgentRuntimeSettings().agent_runtime_mode) is False
+    assert AgentRuntimeSettings().agent_runtime_mode == "production"
+    assert is_production_runtime_mode(AgentRuntimeSettings().agent_runtime_mode) is True
     assert is_production_runtime_mode(worker_runtime_mode_from_env()) is True
 
 

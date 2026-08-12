@@ -77,7 +77,9 @@ if TYPE_CHECKING:
 #: replica is not forced onto Rafael's dependency posture by the `a2a_dispatcher_ready` check.
 _A2A_EDGE_AGENT_IDS = ("helena", "rafael")
 
-#: The ONLY non-production `agent_runtime_mode` (settings default). Mirrors the identically-named
+#: The ONLY non-production `agent_runtime_mode`, and it must be set EXPLICITLY — ADR-0039 Q7 flipped
+#: `settings.py`'s default from "local" to the fail-closed "production", so an ABSENT
+#: `AGENT_RUNTIME_MODE` now lands on the restrictive branch here too. Mirrors the identically-named
 #: discriminator in `a2a_composition.py` (F2): anything other than "local" (Helm injects
 #: "kubernetes") is PRODUCTION, where a missing/failed durable checkpointer fails CLOSED rather
 #: than silently degrading to stateless / in-memory persistence.

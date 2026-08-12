@@ -35,7 +35,19 @@ class AgentRuntimeSettings(BaseSettings):
     tenant_id: str = Field(default="amh", alias="TENANT_ID")
     agent_id: str = Field(default="helena", alias="AGENT_ID")
     agent_security_zone: str = Field(default="general", alias="AGENT_SECURITY_ZONE")
-    agent_runtime_mode: str = Field(default="local", alias="AGENT_RUNTIME_MODE")
+    # FAIL-CLOSED default (ADR-0039 Q7, owner-decided). This used to default to "local", so an
+    # ABSENT `AGENT_RUNTIME_MODE` in a genuinely-production pod silently qualified as non-production
+    # and unlocked every dev branch behind `is_production_runtime_mode` (unsigned Cards behind the
+    # opt-out, the no-op fact sink, non-durable in-memory idempotency, in-memory checkpointer). An
+    # absent governance key must inherit the RESTRICTIVE baseline; permissive is an explicit opt-in.
+    # This now MIRRORS `a2a_composition.worker_runtime_mode_from_env()` exactly — absent resolves to
+    # "production", and only the exact literal "local" is non-production — so the two runtime-mode
+    # discriminators no longer disagree about an absent variable.
+    # Deployed pods are unaffected: Helm injects "kubernetes" (`deployment-agent-runtime.yaml:79-80`).
+    # Local dev opts in EXPLICITLY: `docker-compose.yml:173` and `.env.example` both set it to "local".
+    # NOTE: the value is deliberately NOT stripped/normalized — `" local "` and `"Local"` must keep
+    # failing closed to production (pinned in `tests/unit/a2a/attacks/test_idempotency_fail_open_attack.py`).
+    agent_runtime_mode: str = Field(default="production", alias="AGENT_RUNTIME_MODE")
     # Effective (merged) Agent Definition mounted from the per-agent ConfigMap (K8s). None in
     # local dev -> the service resolves `spec/agents/<agent_id>/agent.yaml` instead (T0.3).
     agent_definition_path: str | None = Field(default=None, alias="AGENT_DEFINITION_PATH")

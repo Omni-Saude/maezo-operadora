@@ -53,6 +53,7 @@ provisioning in vault/KMS remains an external/infra dependency (design doc §6.2
 from __future__ import annotations
 
 import os
+from typing import TypeGuard
 
 import structlog
 
@@ -106,9 +107,10 @@ _EDGE_AGENT_IDS = ("helena", "rafael")
 #: agents — the dispatcher validates only the TARGET's Card, so no origin card exists or is needed.
 _DOSSIER_EDGE_AGENT_IDS = ("carolina", "andre")
 
-#: The ONLY non-production `agent_runtime_mode` (settings.py default). Helm injects "kubernetes"
+#: The ONLY non-production `agent_runtime_mode`, and it must be set EXPLICITLY (ADR-0039 Q7 flipped
+#: `settings.py`'s default from "local" to the fail-closed "production"). Helm injects "kubernetes"
 #: for the deployed daemon (`deployment-agent-runtime.yaml`), so ANY value other than "local" is
-#: treated as production — an unrecognized/misconfigured mode fails CLOSED, never open.
+#: treated as production — an unrecognized/misconfigured/ABSENT mode fails CLOSED, never open.
 _LOCAL_RUNTIME_MODE = "local"
 
 #: EXPLICIT, non-production-only opt-out permitting UNSIGNED Agent Cards when no signing key is
@@ -145,19 +147,52 @@ def is_production_runtime_mode(runtime_mode: str) -> bool:
     and stays FAIL-CLOSED: only the literal `"local"` is non-production, so an unrecognized,
     misconfigured or blank-but-present mode is production.
 
-    Both discriminators feeding this are covered, with their KNOWN asymmetry intact:
+    Both discriminators feeding this now AGREE on an absent variable (ADR-0039 Q7 — the asymmetry
+    this docstring used to disclose is REPAIRED, at its source in `settings.py`, not here):
 
       * worker-runtime, `worker_runtime_mode_from_env()`: absent OR blank `RUNTIME_MODE` ->
         `"production"` -> True (the Helm worker-daemon template injects no mode variable).
       * agent-runtime, `AgentRuntimeSettings.agent_runtime_mode`: ABSENT `AGENT_RUNTIME_MODE` ->
-        the pydantic default `"local"` -> False; PRESENT-but-EMPTY -> `""` -> True.
+        the pydantic default `"production"` -> True; PRESENT-but-EMPTY -> `""` -> True.
 
-    So an absent variable means production on one path and local on the other. That asymmetry is
-    disclosed, pre-existing, and deliberately NOT repaired here — `settings.py:38`'s default is a
-    surface other callers depend on, and silently flipping it from a gate helper is how a "safe
-    tightening" becomes an unreviewed behavior change to the agent-runtime daemon.
+    So on BOTH paths an absent variable means production, and reaching the permissive branch takes
+    an explicit `local`. The repair landed on `settings.py`'s `Field(default=...)` — the surface
+    that actually decides it — rather than being special-cased inside this helper, because a gate
+    helper quietly overriding its caller's settings value is how a "safe tightening" becomes an
+    invisible behavior change. Note the two paths still differ on BLANK-but-present: the worker
+    resolver strips it to `"production"`, while the agent settings value reaches here as `""`.
+    Both are production, so the VERDICT is identical; only the string in the error message differs.
     """
     return runtime_mode != _LOCAL_RUNTIME_MODE
+
+
+def _dsn_is_present(database_url: str | None) -> TypeGuard[str]:
+    """The ONE "is there a usable DSN?" answer both durability gates share.
+
+    Extracted for the SAME reason as `is_production_runtime_mode` above: the fact gate and the
+    idempotency gate must reach identical build/refuse verdicts on every input, or a composition
+    root can half-refuse (one gate building, the other raising). Both inputs of that shared verdict
+    are therefore shared helpers, not inlined expressions.
+
+    LEGIBILITY HARDENING (Onda-3 leg-4 FINDING, closed here): this used to be a bare `if
+    database_url:` truthiness check, so a whitespace-only `DATABASE_URL` (`"   "`) counted as
+    PRESENT and the gates built a store/outbox pointed at garbage instead of returning the legible
+    refusal. That was never a security fail-OPEN — asyncpg cannot dial `"   "`, so it failed CLOSED
+    at first connect — but the operator got an opaque connect error at first delegation rather than
+    the 3am-legible "provide DATABASE_URL" refusal at composition time. Blank-after-strip is now
+    treated exactly like absent, which is also what makes `("production", "   ")` a REFUSAL on both
+    gates rather than a disagreement between them.
+
+    NOT a normalizer: a non-blank DSN is passed through to the store BYTE-UNCHANGED (padding
+    included). This helper only decides presence; rewriting the operator's DSN is a different
+    change with a different blast radius.
+
+    Typed as a `TypeGuard[str]` so the truthy branch narrows `str | None` to `str` for the callers,
+    exactly as the inlined `if database_url:` did. Without it, extracting the check into a function
+    would have LOST that narrowing and forced a `cast`/`assert` at both call sites — silencing the
+    type checker to keep a fail-closed gate is the wrong trade.
+    """
+    return bool(database_url and database_url.strip())
 
 
 def _unsigned_cards_opt_out() -> bool:
@@ -278,11 +313,15 @@ def _require_fact_producer_or_fail_closed(
     reachable: `database_url` is an INDEPENDENT parameter from the injected `audit_sink`, so a
     caller can (and the worker daemon's degradation posture does) supply one without the other.
 
+    "PRESENT" means `_dsn_is_present` — non-empty AND non-blank. A whitespace-only DSN is treated
+    exactly like an absent one (see that helper for why the old bare-truthiness check was a
+    legibility bug), so it takes the refusal branch here rather than building an outbox over garbage.
+
     `runtime_mode` is the caller's discriminator, resolved through the shared
     `is_production_runtime_mode` so this gate and the signer gate can never drift; `edge` only
     labels the error/log.
     """
-    if database_url:
+    if _dsn_is_present(database_url):
         return build_outbox_fact_producer(dsn=database_url, tenant=tenant)
 
     if is_production_runtime_mode(runtime_mode):
@@ -342,9 +381,13 @@ def _require_idempotency_store_or_fail_closed(
         disclosed, legitimate dev behavior — a laptop-run edge stays buildable, and the local
         None/in-memory path this leg deliberately preserves.
 
-    COHERENCE with the fact gate (leg 2): the refuse condition here — `not database_url` AND
-    `is_production_runtime_mode(runtime_mode)` — is IDENTICAL to that gate's, and both resolve "is
-    this production?" through the ONE shared `is_production_runtime_mode` helper, so the two gates
+    "PRESENT" means `_dsn_is_present` — non-empty AND non-blank. A whitespace-only DSN is treated
+    exactly like an absent one (see that helper for why the old bare-truthiness check was a
+    legibility bug), so it takes the refusal branch here rather than building a store over garbage.
+
+    COHERENCE with the fact gate (leg 2): the refuse condition here — `not _dsn_is_present(
+    database_url)` AND `is_production_runtime_mode(runtime_mode)` — is IDENTICAL to that gate's, and
+    BOTH of its inputs are resolved through the SAME two shared helpers, so the two gates
     on a root cannot reach different verdicts (a root half-refusing is the coherence risk this
     parity removes; see `test_a2a_composition_idempotency.py`'s gate-agreement matrix). The gates
     keep SEPARATE, domain-specific error messages (leg 2's is pinned to the fact loss it prevents —
@@ -355,7 +398,7 @@ def _require_idempotency_store_or_fail_closed(
     consistent with leg 2's outbox-retention deferral. This gate only makes the store MANDATORY; how
     long a sealed row is kept is an operator/DBA decision, not a value this composition root fabricates.
     """
-    if database_url:
+    if _dsn_is_present(database_url):
         return PostgresIdempotencyStore(dsn=database_url, tenant=tenant)
 
     if is_production_runtime_mode(runtime_mode):

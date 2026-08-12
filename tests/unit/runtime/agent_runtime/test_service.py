@@ -48,14 +48,24 @@ def _stub_a2a_audit_sink_probe(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture(autouse=True)
 def _allow_unsigned_a2a_cards_in_dev(monkeypatch: pytest.MonkeyPatch) -> None:
-    """F2: bring-up assembles the Helena->Rafael A2A edge in the default (dev/"local")
-    `agent_runtime_mode` with no Card-signing key. The composition root now REFUSES to build an
-    UNSIGNED dispatcher unless the explicit non-production opt-out is set (no silent downgrade) — so
-    set it here: these health-daemon tests deliberately exercise the dev/unsigned assembly path, and
-    the opt-out is exactly the explicit dev signal F2 requires. Also delenv the signing key so this
-    suite never depends on ambient env state."""
+    """F2: bring-up assembles the Helena->Rafael A2A edge in a dev/"local" `agent_runtime_mode` with
+    no Card-signing key. The composition root REFUSES to build an UNSIGNED dispatcher unless the
+    explicit non-production opt-out is set (no silent downgrade) — so set it here: these
+    health-daemon tests deliberately exercise the dev/unsigned assembly path, and the opt-out is
+    exactly the explicit dev signal F2 requires. Also delenv the signing key so this suite never
+    depends on ambient env state.
+
+    ADR-0039 Q7: `AGENT_RUNTIME_MODE=local` is now set EXPLICITLY here. It used to be inherited from
+    `AgentRuntimeSettings`' pydantic default, which is now the fail-closed "production" — so without
+    this line the dev/unsigned path these tests exist to exercise would be (correctly) refused, and
+    the suite would be testing the refusal instead of the daemon behaviour it is named for. The
+    tests that want PRODUCTION pass `agent_runtime_mode=` explicitly to the constructor, which wins
+    over this env var (pydantic-settings: init kwargs outrank env), so their coverage is unaffected.
+    The daemon-level consequence of the ABSENT variable is pinned separately, in
+    `test_absent_runtime_mode_*` at the end of this module."""
     monkeypatch.setenv("MAEZO_A2A_ALLOW_UNSIGNED_CARDS", "1")
     monkeypatch.delenv("MAEZO_A2A_CARD_SIGNING_KEY", raising=False)
+    monkeypatch.setenv("AGENT_RUNTIME_MODE", "local")
 
 
 @pytest.fixture(autouse=True)
@@ -63,9 +73,11 @@ def _stub_checkpointer_connect(monkeypatch: pytest.MonkeyPatch) -> None:
     """T3.4/F4: `_provision_checkpointer` genuinely opens an AsyncPostgresSaver pool + awaited `setup()`
     (unlike the pre-existing construction-only deps, which are lazy against the dummy `_DSN`). So
     for every bring-up test that isn't specifically about the checkpointer, stub the connect to
-    fail fast — the default `agent_runtime_mode="local"` then deterministically takes the in-memory
-    fallback (checkpointer_ready GREEN, backend=memory) with NO real network I/O against `_DSN`.
-    The dedicated checkpointer tests below override this within their own body."""
+    fail fast — the suite's explicit `agent_runtime_mode="local"` (set by
+    `_allow_unsigned_a2a_cards_in_dev`; it was the pydantic DEFAULT before ADR-0039 Q7) then
+    deterministically takes the in-memory fallback (checkpointer_ready GREEN, backend=memory) with
+    NO real network I/O against `_DSN`. The dedicated checkpointer tests below override this within
+    their own body."""
     import maezo.runtime.agent_runtime.service as svc
 
     async def _refuse(conn_string: str) -> object:
@@ -526,3 +538,60 @@ async def test_checkpointer_local_fallback_to_memory_on_setup_failure() -> None:
 
     assert state.checkpointer_ready is True
     assert state.checkpointer_backend == "memory"
+
+
+# ---------------------------------------------------------------------------
+# ADR-0039 Q7 — the ABSENT `AGENT_RUNTIME_MODE`, pinned at the DAEMON level
+# ---------------------------------------------------------------------------
+#
+# The rest of this module sets `AGENT_RUNTIME_MODE=local` explicitly (see
+# `_allow_unsigned_a2a_cards_in_dev`) because it is about daemon behaviour, not about mode
+# resolution. These two tests are the opposite: they `delenv` it — a later `monkeypatch` call in the
+# test body wins over the autouse fixture — so a genuinely-unconfigured pod is what boots. Before
+# the Q7 flip both of these came up GREEN on the permissive branch, which is exactly the hazard the
+# flip closes: an operator who forgets the variable got a stateless, unsigned-capable daemon that
+# advertised itself as ready.
+
+
+async def test_absent_runtime_mode_makes_the_checkpointer_fail_closed_at_the_daemon(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Daemon-level consequence (a): with `AGENT_RUNTIME_MODE` ABSENT and no DATABASE_URL, the
+    daemon refuses to run stateless — `checkpointer_ready` is RED and the error names the missing
+    durable backend. Compare `test_checkpointer_local_fallback_to_memory_with_warning`, which is the
+    SAME call with an explicit `local`: it is GREEN on backend=memory. That contrast is the flip:
+    the in-memory fallback is now reachable only by explicit opt-in, never by omission."""
+    monkeypatch.delenv("AGENT_RUNTIME_MODE", raising=False)
+
+    settings = AgentRuntimeSettings(agent_id="rafael", tenant_id="amh")
+    assert settings.agent_runtime_mode == "production"  # the default under test, not an assumption
+    state = _state(settings=settings)
+    await _bring_up_dependencies(state)
+
+    assert state.checkpointer_ready is False
+    assert state.checkpointer is None
+    assert "DATABASE_URL" in (state.checkpointer_error or "")
+
+    checks = {c.__name__: c for c in build_readiness_checks(state)}
+    assert (await checks["checkpointer_ready"]()).healthy is False
+
+
+async def test_absent_runtime_mode_refuses_the_unsigned_a2a_edge_despite_the_dev_optout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Daemon-level consequence (b), and the sharper one: the autouse fixture leaves
+    `MAEZO_A2A_ALLOW_UNSIGNED_CARDS=1` set, and with the mode ABSENT that opt-out is now IGNORED —
+    `a2a_dispatcher_ready` comes up RED naming the missing signing key. Before the flip this exact
+    environment (no mode, no key, opt-out on) composed an UNSIGNED dispatcher and reported GREEN.
+    A DSN is supplied so the composition gets past `audit_sink` and the signer gate is genuinely
+    what fires, rather than the test passing for an unrelated missing dependency."""
+    monkeypatch.delenv("AGENT_RUNTIME_MODE", raising=False)
+    monkeypatch.delenv("MAEZO_A2A_CARD_SIGNING_KEY", raising=False)
+    monkeypatch.setenv("MAEZO_A2A_ALLOW_UNSIGNED_CARDS", "1")
+
+    state = _state(settings=AgentRuntimeSettings(agent_id="rafael", tenant_id="amh", database_url=_DSN))
+    await _bring_up_dependencies(state)
+
+    checks = {c.__name__: c for c in build_readiness_checks(state)}
+    assert (await checks["a2a_dispatcher_ready"]()).healthy is False
+    assert "signing key" in (state.a2a_dispatcher_error or "")
