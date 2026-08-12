@@ -91,8 +91,13 @@ def build_test_dispatcher(
     handlers: Mapping[str, AgentHandler],
     audit: FakeAuditSink | None = None,
     producer: RecordingProducer | None = None,
+    envelope_verifier: object | None = None,
 ) -> tuple[DelegationDispatcher, FakeAuditSink, RecordingProducer]:
-    """Assemble a `DelegationDispatcher` with a registry + fake audit + fake facts."""
+    """Assemble a `DelegationDispatcher` with a registry + fake audit + fake facts.
+
+    `envelope_verifier` (ADR-0039 §4.4, leg E3) is optional: `None` keeps the W2 default (no envelope
+    verification — unsigned envelopes accepted), a real `EnvelopeVerifier` turns on the fail-closed
+    first-check in `delegate`."""
     registry = A2ARegistry()
     for card in cards:
         registry.register(card)
@@ -103,5 +108,40 @@ def build_test_dispatcher(
         handlers=handlers,
         audit=audit_sink,
         facts=FactProducer(kafka),
+        envelope_verifier=envelope_verifier,  # type: ignore[arg-type]
     )
     return dispatcher, audit_sink, kafka
+
+
+class LabeledFakeTenantKeyset:
+    """Anti-masquerade labeled `TenantKeyset` (ADR-0039 §4.4) double for the per-tenant key seam.
+
+    Named `LabeledFake*` after the repo convention (`LabeledReferenceEnvelopeVerifier`, `Fake*`,
+    `Noop*`) so a reader can never mistake it for the real `maezo.a2a.keyset.EnvTenantKeyset`. It
+    lives ONLY under `tests/` and is NEVER reachable from a production composition root — the
+    effect-chokepoint fence scans only `src/maezo`, nothing in `src/` imports it, and
+    `tests/unit/a2a/test_keyset.py::test_no_production_module_references_the_labeled_fake_keyset`
+    makes that a TESTED expectation (an AST/text sweep of `src/maezo`), not an assumption.
+
+    It resolves ONLY the exact tenants it was constructed with — `key_for(tenant)` returns the
+    provisioned key for THAT tenant or `None`, with NO cross-tenant fallback and NO repo-wide
+    default. This is the property the key-confusion probes assert: a tenant-A resolution against a
+    keyset holding only tenant-B's key returns `None`, never tenant-B's key.
+    """
+
+    def __init__(self, keys: Mapping[str, bytes], *, prior_keys: Mapping[str, bytes] | None = None) -> None:
+        self._keys = dict(keys)
+        self._prior_keys = dict(prior_keys or {})
+        #: Records every `key_for` call so a probe can assert WHICH tenant was resolved.
+        self.calls: list[str] = []
+        #: Records every `prior_key_for` call (rotation-grace resolution, ADR-0039 §4.3).
+        self.prior_calls: list[str] = []
+
+    def key_for(self, tenant: str) -> bytes | None:
+        self.calls.append(tenant)
+        return self._keys.get(tenant)
+
+    def prior_key_for(self, tenant: str) -> bytes | None:
+        """Rotation PRIOR key for `tenant`, or `None` — same no-cross-tenant-fallback contract."""
+        self.prior_calls.append(tenant)
+        return self._prior_keys.get(tenant)

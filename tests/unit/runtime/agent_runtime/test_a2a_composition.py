@@ -30,11 +30,11 @@ from typing import Any
 
 import pytest
 from tests.support.audit_fakes import FakeStartAuditSink
-from tests.unit.a2a.fakes import RecordingProducer
+from tests.unit.a2a.fakes import LabeledFakeTenantKeyset, RecordingProducer
 
-from maezo.a2a import TOPIC_COMPLETED, TOPIC_REQUESTED, CardSigner
-from maezo.agents.andre.delegation import build_adequacao_dossier_envelope
-from maezo.agents.carolina.delegation import build_cred_dossier_envelope
+from maezo.a2a import TOPIC_COMPLETED, TOPIC_REQUESTED, CardSigner, per_tenant_key_env_var
+from maezo.agents.andre.delegation import delegate_adequacao_dossier
+from maezo.agents.carolina.delegation import delegate_cred_dossier
 from maezo.runtime.agent_runtime import a2a_composition
 from maezo.runtime.agent_runtime.a2a_composition import (
     ALLOW_UNSIGNED_CARDS_ENV_VAR,
@@ -48,7 +48,12 @@ from maezo.runtime.agent_runtime.settings import AgentRuntimeSettings
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
 
-_SIGNING_KEY_ENV = "MAEZO_A2A_CARD_SIGNING_KEY"
+#: Leg E2 (ADR-0039 §4.4): the composition roots now resolve the PER-TENANT signing key
+#: (`MAEZO_A2A_CARD_SIGNING_KEY__AMH`), not the bare repo-wide var. Every test in this module
+#: composes for tenant "amh", so this is the variable that provisions their key.
+_TENANT = "amh"
+_OTHER_TENANT = "outra"  # a DIFFERENT tenant, for the cross-tenant key-confusion probes
+_SIGNING_KEY_ENV = per_tenant_key_env_var(_TENANT)
 _VALID_KEY = "unit-test-card-signing-key-0123456789abcdef"
 
 
@@ -56,6 +61,7 @@ _VALID_KEY = "unit-test-card-signing-key-0123456789abcdef"
 def _clean_signing_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Never depend on ambient signing-key / opt-out / mode state; each test sets what it needs."""
     monkeypatch.delenv(_SIGNING_KEY_ENV, raising=False)
+    monkeypatch.delenv(per_tenant_key_env_var(_OTHER_TENANT), raising=False)
     monkeypatch.delenv(ALLOW_UNSIGNED_CARDS_ENV_VAR, raising=False)
     monkeypatch.delenv(WORKER_RUNTIME_MODE_ENV_VAR, raising=False)
 
@@ -112,6 +118,63 @@ def test_present_key_always_returns_a_signer(monkeypatch: pytest.MonkeyPatch, mo
     """A present, well-formed key yields a real `CardSigner` regardless of runtime mode."""
     monkeypatch.setenv(_SIGNING_KEY_ENV, _VALID_KEY)
     signer = _gate(mode=mode)
+    assert isinstance(signer, CardSigner)
+
+
+# --- PER-TENANT key custody: NO cross-tenant fallback (ADR-0039 §4.4, decision 4) ---------------
+
+
+def test_gate_resolves_the_per_tenant_var_not_the_bare_repo_wide_var(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The gate reads `MAEZO_A2A_CARD_SIGNING_KEY__AMH`, NOT the bare repo-wide
+    `MAEZO_A2A_CARD_SIGNING_KEY`: with only the bare var set, production REFUSES (no silent reuse of
+    the repo-wide key as a per-tenant default — the migration shim §4.4 forbids)."""
+    monkeypatch.setenv("MAEZO_A2A_CARD_SIGNING_KEY", _VALID_KEY)  # bare repo-wide var only
+    monkeypatch.delenv(_SIGNING_KEY_ENV, raising=False)
+    with pytest.raises(RuntimeError, match="no Agent Card signing key"):
+        _gate(mode="kubernetes")
+
+
+def test_gate_no_cross_tenant_fallback_prod_refuses(monkeypatch: pytest.MonkeyPatch) -> None:
+    """KEY-CONFUSION PROBE (env-backed): ONLY tenant-B's per-tenant key is present; composing for
+    tenant-A ("amh") in production REFUSES — the gate never borrows tenant-B's key for tenant-A.
+    This is the exact cross-tenant key-confusion decision 4 exists to prevent."""
+    monkeypatch.setenv(per_tenant_key_env_var(_OTHER_TENANT), _VALID_KEY)  # tenant-B only
+    monkeypatch.delenv(_SIGNING_KEY_ENV, raising=False)  # tenant-A ("amh") absent
+    with pytest.raises(RuntimeError, match="no Agent Card signing key"):
+        _gate(mode="kubernetes")  # _gate composes for tenant "amh"
+
+
+def test_gate_resolves_each_tenants_own_key_when_both_present(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The positive twin: with BOTH tenants' per-tenant keys present, tenant-A resolves tenant-A's
+    key (a real signer), never confused with tenant-B's — each tenant its own key."""
+    monkeypatch.setenv(_SIGNING_KEY_ENV, _VALID_KEY)  # tenant-A "amh"
+    monkeypatch.setenv(per_tenant_key_env_var(_OTHER_TENANT), "tenant-b-distinct-key-0123456789abcd")
+    assert isinstance(_gate(mode="kubernetes"), CardSigner)
+
+
+def test_gate_injected_keyset_no_cross_tenant_fallback() -> None:
+    """KEY-CONFUSION PROBE (injected keyset): a `LabeledFakeTenantKeyset` holding ONLY tenant-B's
+    key, resolving tenant-A in production, REFUSES — proving the gate consults `key_for(tenant)`
+    with the EXACT tenant and honors its no-fallback contract (never tenant-B's key for tenant-A)."""
+    keyset = LabeledFakeTenantKeyset({_OTHER_TENANT: _VALID_KEY.encode("utf-8")})
+    with pytest.raises(RuntimeError, match="no Agent Card signing key"):
+        _require_signer_or_fail_closed(
+            runtime_mode="kubernetes", tenant=_TENANT, edge="test-edge", keyset=keyset
+        )
+    assert keyset.calls == [_TENANT]  # the gate asked for tenant-A's key (got None) and refused
+
+
+def test_gate_injected_keyset_resolves_the_matching_tenant() -> None:
+    """Positive twin of the injected probe: the same keyset resolving tenant-B yields a real signer
+    — the no-fallback contract refuses the WRONG tenant, never the right one."""
+    keyset = LabeledFakeTenantKeyset({_OTHER_TENANT: _VALID_KEY.encode("utf-8")})
+    signer = _require_signer_or_fail_closed(
+        runtime_mode="kubernetes", tenant=_OTHER_TENANT, edge="test-edge", keyset=keyset
+    )
     assert isinstance(signer, CardSigner)
 
 
@@ -226,12 +289,17 @@ async def test_dossier_dispatcher_assembles_and_routes_cred_edge_end_to_end(
         tenant="amh", runtime_mode="local", kafka_producer=producer, **_dossier_deps()
     )
 
-    envelope = build_cred_dossier_envelope(
+    # Leg E3 (ADR-0039 §4.4): with a key present the composed dispatcher now VERIFIES envelopes. The
+    # LIVE worker path is `delegate_cred_dossier`, which retrieves the edge's origin signer from the
+    # dispatcher (`origin_signer_of`) and signs at construction — so the wired verifier admits it.
+    # (A hand-built UNSIGNED envelope through `dispatcher.delegate` would now be SIGNATURE_INVALID,
+    # which is exactly the fail-closed gate this leg adds.)
+    result = await delegate_cred_dossier(
+        dispatcher,
         tenant="amh",
         prestador_id="P-COMP-1",
         case_meta={"direcao": "descredenciamento", "tipo_prestador": "clinica"},
     )
-    result = await dispatcher.delegate(envelope)
 
     assert result.success is True
     assert result.output_ref == "process://CRED-amh-P-COMP-1"
@@ -240,7 +308,12 @@ async def test_dossier_dispatcher_assembles_and_routes_cred_edge_end_to_end(
 
     # Guard 4: a re-delivery of the same task_id replays without re-running Carolina — and the
     # meta comes back IDENTICAL (the replay-shape invariant the meta persistence exists for).
-    replay = await dispatcher.delegate(envelope)
+    replay = await delegate_cred_dossier(
+        dispatcher,
+        tenant="amh",
+        prestador_id="P-COMP-1",
+        case_meta={"direcao": "descredenciamento", "tipo_prestador": "clinica"},
+    )
     assert replay.idempotent_replay is True
     assert replay.output_ref == result.output_ref
     assert dict(replay.meta) == dict(result.meta)
@@ -267,13 +340,14 @@ async def test_dossier_dispatcher_routes_adequacao_edge_with_shared_task_type(
         tenant="amh", runtime_mode="local", kafka_producer=producer, **_dossier_deps()
     )
 
-    envelope = build_adequacao_dossier_envelope(
+    # Leg E3: the LIVE worker path signs via the edge's origin signer (see the cred test above).
+    result = await delegate_adequacao_dossier(
+        dispatcher,
         tenant="amh",
         regiao_saude="SP-01",
         especialidade="cardiologia",
         case_meta={"gap_adequacao": "GAP_CRITICO"},
     )
-    result = await dispatcher.delegate(envelope)
 
     assert result.success is True
     assert result.output_ref == "process://ADEQ-amh-SP-01-cardiologia"

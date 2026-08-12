@@ -10,6 +10,10 @@ W1 (card-signing slice — see `docs/design/A2A-dispatcher-card-signing.md` §5)
   admission gate.
 - `card_signer_from_key`/`card_signing_key_from_env`/`build_agent_cards`: the vault/KMS key
   injection seam + `agent.yaml`-derived card assembly.
+- `TenantKeyset`/`EnvTenantKeyset`/`per_tenant_key_env_var`: the PER-TENANT signing-key resolution
+  seam (ADR-0039 §4.4, owner decision 4) — the single per-tenant key-custody point both Card
+  signing (today, via the composition root) and envelope signing (leg E3) share. No cross-tenant
+  fallback; fail-closed migration off the repo-wide key (`maezo.a2a.keyset`'s module docstring).
 
 W2 (delegation runtime, this module set — see design doc §5 W2):
 - `DelegationEnvelope`/`Budget`: the idempotent, anti-loop delegation message (ADR-0003 guards 1-3
@@ -47,6 +51,7 @@ from maezo.a2a.delegation import (
     CyclicDelegationError,
     DelegationEnvelope,
     DelegationError,
+    EnvelopeSignature,
     MaxHopsExceededError,
 )
 from maezo.a2a.dispatcher import (
@@ -58,6 +63,17 @@ from maezo.a2a.dispatcher import (
     HandlerOutput,
     RejectionReason,
 )
+from maezo.a2a.envelope_signing import (
+    DEFAULT_REPLAY_EPOCH,
+    ENVELOPE_SIGNATURE_SCHEME,
+    MAX_SIGNATURE_AGE,
+    EnvelopeSignatureError,
+    EnvelopeSigner,
+    EnvelopeVerifier,
+    build_verification_keyset,
+    derive_key_id,
+    envelope_canonical_digest,
+)
 from maezo.a2a.facts import (
     TOPIC_COMPLETED,
     TOPIC_REJECTED,
@@ -67,6 +83,12 @@ from maezo.a2a.facts import (
     register_a2a_topics,
 )
 from maezo.a2a.idempotency import IdempotencyStore, PostgresIdempotencyStore, StoredResult
+from maezo.a2a.keyset import (
+    EnvTenantKeyset,
+    TenantKeyset,
+    per_tenant_key_env_var,
+    per_tenant_prior_key_env_var,
+)
 from maezo.a2a.outbox import (
     MalformedFactError,
     OutboxRecord,
@@ -81,7 +103,10 @@ from maezo.a2a.signing import CardSigner
 
 __all__ = [
     "CARD_SIGNING_KEY_ENV_VAR",
+    "DEFAULT_REPLAY_EPOCH",
+    "ENVELOPE_SIGNATURE_SCHEME",
     "MAX_HOPS",
+    "MAX_SIGNATURE_AGE",
     "TOPIC_COMPLETED",
     "TOPIC_REJECTED",
     "TOPIC_REQUESTED",
@@ -101,6 +126,11 @@ __all__ = [
     "DelegationFact",
     "DelegationFactKind",
     "DelegationResult",
+    "EnvTenantKeyset",
+    "EnvelopeSignature",
+    "EnvelopeSignatureError",
+    "EnvelopeSigner",
+    "EnvelopeVerifier",
     "FactProducer",
     "HandlerOutput",
     "IdempotencyStore",
@@ -114,12 +144,18 @@ __all__ = [
     "RegistryError",
     "RejectionReason",
     "StoredResult",
+    "TenantKeyset",
     "build_agent_cards",
     "build_dispatcher",
     "build_outbox_fact_producer",
+    "build_verification_keyset",
     "card_signer_from_key",
     "card_signing_key_from_env",
+    "derive_key_id",
+    "envelope_canonical_digest",
     "fact_dedup_key",
     "outbox_transaction",
+    "per_tenant_key_env_var",
+    "per_tenant_prior_key_env_var",
     "register_a2a_topics",
 ]

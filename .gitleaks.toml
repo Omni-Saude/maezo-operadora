@@ -146,3 +146,23 @@ paths = [
   '''^docs/evidence-ledger\.md$''',
   '''^docs/gates/[^/]+\.md$''',
 ]
+
+[[allowlists]]
+# ci-attack-suite-kwarg-fp 2026-08-12 (Train E, envelope signing): a regra
+# generic-api-key da falso positivo em dois fragmentos de kwarg Python da suite
+# de ataque de assinatura de envelope — `epoch=_EPOCH` e `signed_at=_NOW` — cujo
+# RHS e uma constante de teste UPPERCASE de modulo (um int / um datetime), nunca
+# uma credencial. Contencao dupla AND(path+shape): escopo neste UNICO arquivo de
+# teste E numa atribuicao `<kwarg>=_<UPPERCASE>` nua, entao um segredo real de
+# alta entropia plantado no MESMO arquivo continua detectado (prova de mutacao
+# CI-mode: PAT plantado = 1 leak, os 2 FPs suprimidos). Sem allowlist por path.
+description = "Train E 2026-08-12: attack-suite kwarg fragments epoch=_EPOCH / signed_at=_NOW (constantes de teste, nao credenciais; AND path+shape)"
+condition = "AND"
+regexTarget = "secret"
+regexes = [
+  '''^epoch=_[A-Z][A-Z_]*$''',
+  '''^signed_at=_[A-Z][A-Z_]*$''',
+]
+paths = [
+  '''^tests/unit/a2a/attacks/test_envelope_signing_attacks\.py$''',
+]

@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterable, Mapping
+from typing import TYPE_CHECKING
 
 from maezo.a2a.card import AgentCard, FederationLayer
 from maezo.a2a.dispatcher import AgentHandler, AuditEmitter, DelegationDispatcher, FactProducer
@@ -38,6 +39,9 @@ from maezo.a2a.idempotency import IdempotencyStore
 from maezo.a2a.registry import A2ARegistry, RegistryError
 from maezo.a2a.signing import CardSigner
 from maezo.agents import AgentLoader
+
+if TYPE_CHECKING:
+    from maezo.a2a.envelope_signing import EnvelopeSigner, EnvelopeVerifier
 
 #: Repo-namespaced env var carrying the Agent Card HMAC signing key (vault/KMS injection seam).
 #: Absent -> `card_signing_key_from_env()` returns `None` -> `card_signer_from_key` builds no
@@ -129,6 +133,8 @@ def build_dispatcher(
     facts: FactProducer,
     idempotency: IdempotencyStore | None = None,
     verifier: CardSigner | None = None,
+    envelope_verifier: EnvelopeVerifier | None = None,
+    origin_envelope_signer: EnvelopeSigner | None = None,
 ) -> DelegationDispatcher:
     """Assemble the production `DelegationDispatcher` (mirrors the donor's `assembly.build_dispatcher`).
 
@@ -144,6 +150,12 @@ def build_dispatcher(
     valid signature (ADR-0003/0007) — the dispatcher only ever `lookup`s verified cards (T-G
     signed-Card half). Without `verifier`, dev behavior is preserved (unsigned cards accepted):
     verification is gated on the presence of the key.
+
+    `envelope_verifier`/`origin_envelope_signer` (ADR-0039 §4.4, leg E3) are the ENVELOPE-signing
+    pair — a DISTINCT surface from the Card `verifier` above (§4.1). Present -> the dispatcher
+    fail-closes on any unsigned/tampered envelope as its first `delegate` check, and the origin
+    signer rides along so the edge's per-request builders can sign at construction. Both `None`
+    (dev / opt-out) -> envelope verification is off (unsigned envelopes accepted), W2 behaviour.
     """
     registry = A2ARegistry(verifier=verifier)
     for card in cards:
@@ -159,4 +171,6 @@ def build_dispatcher(
         audit=audit,
         facts=facts,
         idempotency=idempotency,
+        envelope_verifier=envelope_verifier,
+        origin_envelope_signer=origin_envelope_signer,
     )

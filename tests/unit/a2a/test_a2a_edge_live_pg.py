@@ -55,6 +55,7 @@ from maezo.a2a import (
     build_dispatcher,
     card_signer_from_key,
     card_signing_key_from_env,
+    per_tenant_key_env_var,
 )
 from maezo.a2a.dispatcher import a2a_audit_dedup_key, a2a_audit_outcome_dedup_key
 from maezo.agents.helena.delegation import delegate_auth_analysis
@@ -211,9 +212,22 @@ def _no_ambient_card_signing_key(monkeypatch: pytest.MonkeyPatch) -> None:
     non-production opt-out is set. Set it for the suite: these tests deliberately exercise the
     dev/unsigned path (`build_auth_delegation_dispatcher` without a key), so the opt-out is exactly
     the explicit signal F2 requires. It is IGNORED by the key-present T-G tests below (a present key
-    always wins)."""
+    always wins).
+
+    ADR-0039 §4.4 (decision 6), SYMMETRIC to F2: the SAME dev/unsigned path also crosses the
+    ENVELOPE-signing gate (`_require_envelope_signing_or_fail_closed`, reached via
+    `build_auth_delegation_dispatcher`), which — exactly like the Card gate above — REFUSES to
+    compose a verifier for a keyless tenant unless the explicit non-production opt-out is set. These
+    non-signing dev-path tests (audit fires + chain-valid + PHI-safe; durable idempotency across
+    dispatcher instances) prove subjects orthogonal to signing, so they take decision 6's
+    dev-local-only escape hatch for the envelope surface too, with the identical rationale: deliberate
+    dev/unsigned path, explicit opt-out, and IGNORED by the key-present T-G signed/unsigned tests
+    below since a present per-tenant key satisfies BOTH gates. Signing enforcement itself stays proven
+    by those key-present T-G tests and the a2a attack suite — this opt-out only lets the dev-path
+    tests compose."""
     monkeypatch.delenv("MAEZO_A2A_CARD_SIGNING_KEY", raising=False)
     monkeypatch.setenv("MAEZO_A2A_ALLOW_UNSIGNED_CARDS", "1")
+    monkeypatch.setenv("MAEZO_A2A_ALLOW_UNVERIFIED_ENVELOPES", "1")
 
 
 async def _fetch_a2a_delegate_rows(dsn: str, tenant_id: str, *, task_id: str) -> list[Any]:
@@ -412,12 +426,12 @@ _TG_OTHER_KEY = "a-completely-different-live-pg-signing-key"
 async def test_live_tg_enforcement_signed_card_admits_and_dispatches(
     pg_dsn: str, tenant_schema: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """T-G ENFORCEMENT, the positive case, through the REAL production composition: with
-    `MAEZO_A2A_CARD_SIGNING_KEY` set, Cards come back signed AND the registry's verifier is wired
-    (the composition flip this wave makes) — a validly-signed Card is admitted and the delegation
-    actually dispatches, persisting a real audit row exactly like the dev-path (unsigned) proof
-    earlier in this module."""
-    monkeypatch.setenv("MAEZO_A2A_CARD_SIGNING_KEY", _TG_TEST_KEY)
+    """T-G ENFORCEMENT, the positive case, through the REAL production composition: with this
+    tenant's PER-TENANT key (`MAEZO_A2A_CARD_SIGNING_KEY__<TENANT>`, ADR-0039 §4.4 leg E2) set,
+    Cards come back signed AND the registry's verifier is wired (the composition flip this wave
+    makes) — a validly-signed Card is admitted and the delegation actually dispatches, persisting a
+    real audit row exactly like the dev-path (unsigned) proof earlier in this module."""
+    monkeypatch.setenv(per_tenant_key_env_var(tenant_schema), _TG_TEST_KEY)
     settings = _settings(tenant=tenant_schema, database_url=pg_dsn)
     dispatcher = build_auth_delegation_dispatcher(
         settings, inference=_phi_capable_inference(), kafka_producer=_RecordingKafkaProducer()

@@ -1,0 +1,212 @@
+"""Per-tenant signing-key resolution seam (ADR-0039 §4.4, owner decision 4).
+
+This is leg E2 of the envelope-signing train: it builds ONE per-tenant keyset seam that BOTH
+Card signing (built today) and envelope signing (leg E3, next) resolve their signing key through.
+It does NOT implement envelope signing itself — it only creates the single per-tenant resolution
+point both surfaces will share (`TenantKeyset.key_for`).
+
+WHY PER-TENANT, NOT REPO-WIDE (owner decision 4). Today's Card-signing key
+(`assembly.CARD_SIGNING_KEY_ENV_VAR = "MAEZO_A2A_CARD_SIGNING_KEY"`, `assembly.py:45`) is a single
+repo-wide scalar shared across every tenant. The owner ruled that envelope signing — and, going
+forward, the key custody this seam owns — is scoped PER TENANT (ADR-0039 §4.4, `## Decisoes do
+dono` table row 4): each tenant resolves its OWN key, never a single repo-wide key shared across
+tenants. The blast radius is why: a leaked repo-wide HMAC key would let an attacker forge across
+EVERY tenant at once, a strictly worse outcome than a leaked single-tenant key. This mirrors the
+tenant-scoping `A2ARegistry` already enforces (ADR-0004, `registry.py:8-10`).
+
+THE VAULT/KMS SEAM IS UNCHANGED — ONLY THE NAMESPACING IS NEW. Key custody stays the identical
+vault/KMS delivery seam that already provisions `MAEZO_A2A_CARD_SIGNING_KEY`: a deployment's
+secret-injector (or a local `.env` for dev) places the key material in the process environment;
+this module only READS what an injector placed there. Real key PROVISIONING in the vault/KMS
+remains an EXTERNAL/owner dependency (`docs/design/A2A-dispatcher-card-signing.md` §6.2) — this
+module never wires a real key, and the env-backed impl below reads nothing until an injector has
+populated the per-tenant variable.
+
+PER-TENANT ENV CONVENTION (`per_tenant_key_env_var`). Each tenant's key lives in a NAMESPACED
+sibling of the repo-wide var: `MAEZO_A2A_CARD_SIGNING_KEY__<TENANT>`, where `<TENANT>` is the
+tenant id upper-cased, joined by a DOUBLE underscore (`_ENV_TENANT_SEPARATOR`). Examples:
+`MAEZO_A2A_CARD_SIGNING_KEY__AMH` for tenant `"amh"`. The double-underscore delimiter guarantees a
+per-tenant variable can NEVER collide with the bare repo-wide `MAEZO_A2A_CARD_SIGNING_KEY` (which
+carries no `__` suffix), and the tenant id is validated against the platform's tenant convention
+(`^[a-z][a-z0-9_]*$`, the SAME `_SAFE_TENANT_ID` regex `gateway.audit_postgres.schema_for_tenant`
+uses at `audit_postgres.py:74` for anti-injection). Because that convention is lowercase
+`[a-z0-9_]` only, upper-casing it is INJECTIVE — two distinct tenants can never map to the same
+variable name (there is no hyphen→underscore folding that could alias `"a-b"` onto `"a_b"`). A
+tenant id outside that convention is REFUSED fail-closed (`ValueError`), never silently coerced
+into a possibly-colliding variable name — an ambiguous tenant→variable mapping is itself a
+cross-tenant-confusion vector, so it must raise rather than guess.
+
+NO SILENT CROSS-TENANT FALLBACK (the attack decision 4 exists to prevent). `key_for(tenant)`
+reads ONLY that tenant's namespaced variable. A missing tenant key returns `None` — it NEVER falls
+back to the bare repo-wide `MAEZO_A2A_CARD_SIGNING_KEY`, nor to any other tenant's key. Falling
+back to a shared/other key is precisely the cross-tenant key-confusion attack: it would let a
+tenant whose key was never provisioned sign/verify under someone else's key. The fail-closed
+consequence of a `None` return is enforced one layer up, at the composition root
+(`runtime.agent_runtime.a2a_composition._require_signer_or_fail_closed`): production runtime mode
+with a missing tenant key REFUSES to compose (`RuntimeError`); non-production preserves the
+existing explicit-opt-out dev path.
+
+MIGRATION PATH — FAIL-CLOSED, NO SILENT SHIM (ADR-0039 §4.4). No envelope-signing key exists today
+(envelope signing is not built), so there is no live per-request key deployment to migrate. For
+Card signing, the repo-wide `MAEZO_A2A_CARD_SIGNING_KEY` is the pre-existing precedent — and it is
+exactly the anti-pattern decision 4 rules out. The migration is therefore the fail-closed one the
+ADR mandates: **deployments provision per-tenant keys (`MAEZO_A2A_CARD_SIGNING_KEY__<TENANT>`);
+until they do, production refuses to compose the edge for that tenant** (the composition root
+raises, mirroring `_require_signer_or_fail_closed`'s existing posture). This module deliberately
+adds NO compatibility shim: it does NOT read the bare repo-wide `MAEZO_A2A_CARD_SIGNING_KEY` as a
+silent per-tenant default, because reusing it that way is the untimed silent shim the ADR forbids
+(§4.4: any shim must be named distinctly, loudly logged, and explicitly time-boxed). If a rollout
+genuinely needs a transitional shared key, that shim is a SEPARATE, explicit, time-boxed change a
+human must author and record in the ADR — not something this seam grants by default.
+
+THE SEAM FOR LEG E3. `key_for(tenant)` is the single per-tenant resolution point both signing
+surfaces share. Card signing wires it TODAY (through `_require_signer_or_fail_closed`, which builds
+a `CardSigner` from the resolved bytes via `assembly.card_signer_from_key`). Envelope signing (leg
+E3) will resolve the SAME per-tenant key through the SAME `key_for(tenant)` to sign envelopes — so
+a tenant's Card signature and its envelope signature are produced under one custody surface, never
+two divergent key sources.
+"""
+
+from __future__ import annotations
+
+import os
+import re
+from collections.abc import Mapping
+from typing import Protocol, runtime_checkable
+
+from maezo.a2a.assembly import CARD_SIGNING_KEY_ENV_VAR
+
+#: Delimiter between the fixed repo-namespaced prefix and the per-tenant suffix. A DOUBLE
+#: underscore (the pydantic-nested-env convention) so a per-tenant variable can never be confused
+#: with the bare repo-wide `MAEZO_A2A_CARD_SIGNING_KEY`, which carries no `__` suffix.
+_ENV_TENANT_SEPARATOR = "__"
+
+#: Fixed prefix for the ROTATION prior-key variable (envelope-signing verification keyset, leg E3 /
+#: ADR-0039 §4.3). The `_PRIOR` rides the PREFIX (single-underscore-joined) and the tenant stays the
+#: `__`-delimited SUFFIX — so `<prior-prefix>__<T>` can NEVER collide with the active
+#: `<active-prefix>__<T2>` for any tenants: the char immediately after the shared
+#: `MAEZO_A2A_CARD_SIGNING_KEY` is `_` (2nd of `__`) for the active var but `P` (of `_PRIOR`) for the
+#: prior var, so the two var spaces are structurally disjoint. Upper-casing `[a-z0-9_]` stays
+#: injective, so distinct tenants never alias within either space either. This keeps E2's
+#: no-cross-tenant / no-repo-wide invariant intact for the rotation slot too.
+_PRIOR_KEY_ENV_PREFIX = f"{CARD_SIGNING_KEY_ENV_VAR}_PRIOR"
+
+#: The platform tenant convention, IDENTICAL to `gateway.audit_postgres._SAFE_TENANT_ID`
+#: (`audit_postgres.py:74`, used by `schema_for_tenant` for anti-injection): lowercase, starting
+#: with a letter, `[a-z0-9_]` thereafter. It is reproduced (not imported) to keep this seam free of
+#: a gateway dependency; the citation is the contract. Upper-casing a string in this alphabet is
+#: injective, so distinct tenants can never alias onto the same env var name.
+_SAFE_TENANT_ID = re.compile(r"^[a-z][a-z0-9_]*$")
+
+
+def per_tenant_key_env_var(tenant: str) -> str:
+    """Return the env var name carrying `tenant`'s signing key: `MAEZO_A2A_CARD_SIGNING_KEY__<T>`.
+
+    `<T>` is `tenant` upper-cased. Fail-closed: a `tenant` that is not a valid platform tenant id
+    (`^[a-z][a-z0-9_]*$`) raises `ValueError` rather than being coerced into a possibly-colliding
+    variable name — an ambiguous tenant→variable mapping is a cross-tenant-confusion vector, so it
+    must refuse, never guess (mirroring `schema_for_tenant`'s fail-closed validation).
+    """
+    if not _SAFE_TENANT_ID.match(tenant):
+        raise ValueError(
+            f"tenant {tenant!r} is not a valid tenant id (expected [a-z][a-z0-9_]*, the platform "
+            "convention shared with gateway.audit_postgres.schema_for_tenant) — refusing to derive "
+            "a per-tenant signing-key env var name from it, to avoid a cross-tenant-confusion alias"
+        )
+    return f"{CARD_SIGNING_KEY_ENV_VAR}{_ENV_TENANT_SEPARATOR}{tenant.upper()}"
+
+
+def per_tenant_prior_key_env_var(tenant: str) -> str:
+    """Return the env var carrying `tenant`'s ROTATION PRIOR key: `MAEZO_A2A_CARD_SIGNING_KEY_PRIOR__<T>`.
+
+    The previous key retained in the trusted verification keyset during the 7-day rotation grace
+    window (ADR-0039 §4.3, leg E3). Same fail-closed tenant validation and injective upper-casing as
+    `per_tenant_key_env_var`, and — by construction (`_PRIOR_KEY_ENV_PREFIX`'s docstring) — its var
+    space is structurally disjoint from the ACTIVE var space, so it introduces no cross-tenant /
+    active-vs-prior collision. Absent (the steady state, no rotation in progress) the verifier trusts
+    only the active key.
+    """
+    if not _SAFE_TENANT_ID.match(tenant):
+        raise ValueError(
+            f"tenant {tenant!r} is not a valid tenant id (expected [a-z][a-z0-9_]*) — refusing to "
+            "derive a per-tenant prior-signing-key env var name from it (cross-tenant-confusion alias)"
+        )
+    return f"{_PRIOR_KEY_ENV_PREFIX}{_ENV_TENANT_SEPARATOR}{tenant.upper()}"
+
+
+@runtime_checkable
+class TenantKeyset(Protocol):
+    """Resolves a PER-TENANT signing key from the vault/KMS injection seam (ADR-0039 §4.4).
+
+    The single per-tenant resolution point BOTH Card signing (today) and envelope signing (leg E3)
+    share. Implementations MUST NOT fall back across tenants: a missing key for `tenant` returns
+    `None`, never another tenant's key nor a repo-wide default (that fallback IS the cross-tenant
+    key-confusion attack owner-decision 4 rules out). The fail-closed consequence of `None` is the
+    composition root's job (`_require_signer_or_fail_closed`), not this resolver's.
+
+    BOTH ROTATION SLOTS ARE ON-PROTOCOL. `prior_key_for` is part of the contract, not an optional
+    duck-typed extra: the composition root reads the rotation-grace key through it
+    (`_require_envelope_signing_or_fail_closed`), so leaving it off the Protocol would make that
+    call `getattr`-shaped and mypy-invisible — a rename or a conformant-looking implementer missing
+    the method would silently disable the rotation grace instead of failing type-check. A resolver
+    with no rotation slot implements it as a constant `None` (the steady state), explicitly.
+    """
+
+    def key_for(self, tenant: str) -> bytes | None:
+        """The `tenant`'s ACTIVE signing key bytes, or `None` if none is provisioned for THAT tenant."""
+        ...
+
+    def prior_key_for(self, tenant: str) -> bytes | None:
+        """The `tenant`'s ROTATION PRIOR key, or `None` outside a rotation grace window (§4.3).
+
+        Same no-cross-tenant / no-repo-wide-fallback contract as `key_for`: it answers with THAT
+        tenant's prior key or `None`, never another tenant's and never the active key.
+        """
+        ...
+
+
+class EnvTenantKeyset:
+    """Environment-backed `TenantKeyset` — the real per-tenant half of the vault/KMS seam.
+
+    Reads the per-tenant variable `MAEZO_A2A_CARD_SIGNING_KEY__<TENANT>` (`per_tenant_key_env_var`)
+    that a deployment's secret-injector (or a dev `.env`) is expected to populate. It does not
+    itself talk to a vault/KMS; real key PROVISIONING there is external/blocked (§6.2). Mirrors the
+    exact posture of `assembly.card_signing_key_from_env` for each tenant:
+
+      * value whitespace-STRIPPED (a trailing newline from a mounted secret file is a transport
+        artifact, not key material) and UTF-8 encoded;
+      * absent OR whitespace-only -> `None` (dev fail-safe: a blank-but-present variable can never
+        construct a signer, same as absent);
+      * present-but-too-short is NOT filtered here — the `MIN_SIGNING_KEY_BYTES` floor is a
+        DOWNSTREAM refusal, and it exists for BOTH slots this seam serves. The ACTIVE key flows to
+        `CardSigner` (via `card_signer_from_key`) and to `EnvelopeSigner`; the PRIOR key flows to
+        `envelope_signing.build_verification_keyset`/`EnvelopeVerifier`. Each refuses a sub-floor
+        key fail-closed AT CONSTRUCTION (`CardSignatureError` / `EnvelopeSignatureError`), so a
+        present-but-garbage key in EITHER slot fails loudly rather than silently downgrading to
+        unsigned — or, for the prior slot, silently becoming a trusted brute-forceable key;
+      * NO cross-tenant fallback: only THIS tenant's namespaced variable is read, never the bare
+        repo-wide `MAEZO_A2A_CARD_SIGNING_KEY` nor another tenant's variable.
+    """
+
+    def __init__(self, environ: Mapping[str, str] | None = None) -> None:
+        # Default to the live `os.environ` (the same mutable object monkeypatch/secret-injectors
+        # mutate), so a key injected after construction is still seen. An explicit mapping is
+        # accepted for hermetic unit tests.
+        self._environ: Mapping[str, str] = os.environ if environ is None else environ
+
+    def key_for(self, tenant: str) -> bytes | None:
+        value = self._environ.get(per_tenant_key_env_var(tenant), "").strip()
+        return value.encode("utf-8") if value else None
+
+    def prior_key_for(self, tenant: str) -> bytes | None:
+        """The `tenant`'s ROTATION PRIOR key (`MAEZO_A2A_CARD_SIGNING_KEY_PRIOR__<T>`), or `None`.
+
+        Present only during a rotation's 7-day grace window (ADR-0039 §4.3, leg E3). Identical
+        posture to `key_for` (whitespace-strip; absent/blank -> `None`; NO cross-tenant / repo-wide
+        fallback — only THIS tenant's namespaced prior variable is read; present-but-too-short is
+        passed through to the downstream `build_verification_keyset` floor, which REFUSES it).
+        Steady state (no rotation in progress) -> `None`, so the verification keyset trusts only
+        the active key.
+        """
+        value = self._environ.get(per_tenant_prior_key_env_var(tenant), "").strip()
+        return value.encode("utf-8") if value else None

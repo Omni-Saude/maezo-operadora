@@ -48,9 +48,11 @@ Andre is the PHI-egress chokepoint and only ever receives/emits aggregates on th
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
 from maezo.a2a import Budget, DelegationEnvelope, HandlerOutput
+from maezo.a2a.dispatcher import origin_signer_of
 from maezo.tools.mcp_cibseven.transport import StartOutcome
 
 from .graph import (
@@ -69,7 +71,7 @@ from .keys import adequacao_business_key, pagto_business_key
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
-    from maezo.a2a import DelegationDispatcher, DelegationResult
+    from maezo.a2a import DelegationDispatcher, DelegationResult, EnvelopeSigner
     from maezo.runtime.inference import InferenceProvider
     from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
     from maezo.tools.workers.dmn_transport import DmnTransport
@@ -96,6 +98,11 @@ TARGET_AGENT = "andre"
 
 # Default budget for a dossier delegation chain (per the Helena->Rafael exemplar).
 _DEFAULT_BUDGET = Budget(tokens=64, time_ms=60_000, cost_per_hop=1)
+
+# Wall-clock in-flight horizon stamped as `deadline` on a SIGNED envelope (ADR-0039 §4.3.1). 6 hours
+# — see agents/helena/delegation.py::_SIGNED_ENVELOPE_TTL for the shared rationale (far under the
+# 7-day max-signature-age, so max-age dominates key-purge timing). Unsigned envelopes keep None.
+_SIGNED_ENVELOPE_TTL = timedelta(hours=6)
 
 # envelope.origin -> Andre graph `flow`. Any origin NOT in this map gets his graph's DEFAULT flow
 # (`pagto_dossier`) — set EXPLICITLY by `state_from_envelope`, never left to the graph's silent
@@ -174,12 +181,16 @@ def build_adequacao_dossier_envelope(
     case_meta: dict[str, Any],
     ciclo_avaliacao: str | None = None,
     budget: Budget | None = None,
+    signer: EnvelopeSigner | None = None,
 ) -> DelegationEnvelope:
     """Build the worker->Andre root envelope for the remediation dossier (adequacao cell).
 
     `payload_ref` is the cell's process reference (`process://ADEQ-...`) — a non-PHI anchor.
     `case_meta`: the process variables available at `ST_PrepareRemediationDossier` time,
     serialized through the strict allowlists above. Applies the anti-loop guards at the root.
+
+    SIGNING (ADR-0039 §4.4, leg E3): with `signer` present the envelope carries an explicit
+    `deadline` (§4.3.1) and is HMAC-signed over its v2 canonical digest. Absent -> unsigned (dev).
     """
     task_id = adequacao_task_id(tenant, regiao_saude, especialidade, ciclo_avaliacao)
     meta: dict[str, str] = {"regiao_saude": regiao_saude, "especialidade": especialidade}
@@ -194,7 +205,7 @@ def build_adequacao_dossier_envelope(
     for key in _ADEQ_BOOLEAN_META_KEYS:
         if key in case_meta:
             meta[key] = "true" if bool(case_meta[key]) else "false"
-    return DelegationEnvelope.root(
+    envelope = DelegationEnvelope.root(
         task_id=task_id,
         task_type=TASK_TYPE_POPULATION_ANALYTICS,
         origin=ORIGIN_WORKER,
@@ -202,8 +213,10 @@ def build_adequacao_dossier_envelope(
         tenant=tenant,
         budget=budget or _DEFAULT_BUDGET,
         payload_ref=f"process://{task_id}",
+        deadline=(datetime.now(tz=UTC) + _SIGNED_ENVELOPE_TTL) if signer is not None else None,
         payload_meta=meta,
     )
+    return signer.sign(envelope) if signer is not None else envelope
 
 
 async def delegate_adequacao_dossier(
@@ -215,13 +228,18 @@ async def delegate_adequacao_dossier(
     case_meta: dict[str, Any],
     ciclo_avaliacao: str | None = None,
     budget: Budget | None = None,
+    signer: EnvelopeSigner | None = None,
 ) -> DelegationResult:
     """Originate and dispatch the worker->Andre delegation. Idempotent by `task_id` (the cell).
 
     Returns the dispatcher's structured `DelegationResult` (success with `output_ref` = the cell's
     anchor reference + `meta` = Andre's bounded routing summary, or a structured rejection —
     never a raise out of the dispatcher).
+
+    SIGNING (ADR-0039 §4.4): `signer` defaults to the edge signer carried by `dispatcher`
+    (`origin_signer_of`), so the LIVE worker path signs with no per-worker wiring change.
     """
+    resolved_signer = signer if signer is not None else origin_signer_of(dispatcher)
     envelope = build_adequacao_dossier_envelope(
         tenant=tenant,
         regiao_saude=regiao_saude,
@@ -229,6 +247,7 @@ async def delegate_adequacao_dossier(
         case_meta=case_meta,
         ciclo_avaliacao=ciclo_avaliacao,
         budget=budget,
+        signer=resolved_signer,
     )
     return await dispatcher.delegate(envelope)
 
@@ -284,6 +303,7 @@ def build_pagto_dossier_envelope(
     prestador_id: str = "",
     business_key: str = "",
     budget: Budget | None = None,
+    signer: EnvelopeSigner | None = None,
 ) -> DelegationEnvelope:
     """Build the worker->Andre root envelope for the payment APPROVAL dossier (SP-OP-PAGTO-001).
 
@@ -362,7 +382,10 @@ def build_pagto_dossier_envelope(
     for key in _PAGTO_BOOLEAN_META_KEYS:
         if key in case_meta:
             meta[key] = "true" if bool(case_meta[key]) else "false"
-    return DelegationEnvelope.root(
+    # SIGNING (ADR-0039 §4.4, leg E3): with `signer` present the envelope carries an explicit
+    # `deadline` (§4.3.1) and is HMAC-signed over its v2 canonical digest — so `payload_meta_hash`
+    # binds `valor_pagamento_cents` (Andre's faixa/alcada routing input). Absent -> unsigned (dev).
+    envelope = DelegationEnvelope.root(
         task_id=task_id,
         task_type=TASK_TYPE_POPULATION_ANALYTICS,
         origin=ORIGIN_PAGTO_WORKER,
@@ -370,8 +393,10 @@ def build_pagto_dossier_envelope(
         tenant=tenant,
         budget=budget or _DEFAULT_BUDGET,
         payload_ref=f"process://{task_id}",
+        deadline=(datetime.now(tz=UTC) + _SIGNED_ENVELOPE_TTL) if signer is not None else None,
         payload_meta=meta,
     )
+    return signer.sign(envelope) if signer is not None else envelope
 
 
 async def delegate_pagto_dossier(
@@ -384,6 +409,7 @@ async def delegate_pagto_dossier(
     prestador_id: str = "",
     business_key: str = "",
     budget: Budget | None = None,
+    signer: EnvelopeSigner | None = None,
 ) -> DelegationResult:
     """Originate and dispatch the worker->Andre payment-dossier delegation. Idempotent by `task_id`.
 
@@ -394,7 +420,11 @@ async def delegate_pagto_dossier(
     Returns the dispatcher's structured `DelegationResult` (success with `output_ref` = the case's
     process anchor + `meta` = Andre's bounded routing summary, or a structured rejection — never a
     raise out of the dispatcher).
+
+    SIGNING (ADR-0039 §4.4): `signer` defaults to the edge signer carried by `dispatcher`
+    (`origin_signer_of`), so the LIVE worker path signs with no per-worker wiring change.
     """
+    resolved_signer = signer if signer is not None else origin_signer_of(dispatcher)
     envelope = build_pagto_dossier_envelope(
         tenant=tenant,
         case_meta=case_meta,
@@ -403,6 +433,7 @@ async def delegate_pagto_dossier(
         prestador_id=prestador_id,
         business_key=business_key,
         budget=budget,
+        signer=resolved_signer,
     )
     return await dispatcher.delegate(envelope)
 

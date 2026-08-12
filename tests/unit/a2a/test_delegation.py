@@ -279,6 +279,31 @@ class TestExtend:
         assert sub.budget.tokens == 8
         assert sub.budget.time_ms == 8
 
+    def test_extend_drops_the_signature_never_inherits_it(self) -> None:
+        """ADR-0039 §4.4 latent-trap fix: `extend()` returns an UNSIGNED sub-envelope.
+
+        A signature is a MAC over the PARENT's canonical digest. `extend()` changes `task_id`,
+        `target`, `delegation_chain` and `budget` — so a `replace`-inherited signature would be a MAC
+        over a DIFFERENT digest, which could never verify (a confusing rejection that becomes a
+        forgery the moment someone loosens the check to make it pass). The sub-envelope must be
+        re-signed by its originator. Pin: even a parent carrying a signature yields an unsigned child.
+        """
+        from maezo.a2a import EnvelopeSignature
+
+        parent = _root()
+        signed_parent = parent.signed_copy(
+            EnvelopeSignature(
+                scheme="hmac-sha256-envelope-v2",
+                key_id="env-sha256:deadbeefdeadbeef",
+                replay_epoch=0,
+                signed_at=datetime.now(tz=UTC),
+                mac="0" * 64,
+            )
+        )
+        assert signed_parent.signature is not None  # the parent IS signed...
+        sub = signed_parent.extend(target="beatriz", task_id="t2")
+        assert sub.signature is None  # ...but the sub-envelope is NOT (dropped, never inherited)
+
     def test_extend_new_envelope_is_independent(self) -> None:
         env = _root(max_hops=10)
         env.extend(target="beatriz", task_id="t2")
