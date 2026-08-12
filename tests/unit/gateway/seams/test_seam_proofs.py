@@ -234,7 +234,7 @@ class FakeInference(_Recorder):
 
         self._record("generate", prompt, phi=phi, agent_id=agent_id, tenant_id=tenant_id)
         if phi and not self._phi_capable:
-            # The REAL provider's structural refusal (`runtime/inference.py:654`), reproduced so
+            # The REAL provider's structural refusal (`runtime/inference.py:1037`), reproduced so
             # the I-6 proof exercises the same control flow without a network provider.
             raise PhiZoneRoutingError("phi=True but the active provider is not PHI-zone capable")
         return "generated"
@@ -671,7 +671,7 @@ async def test_a_denial_message_carries_only_bounded_tokens(tmp_path: Path) -> N
 async def test_phi_zone_routing_fail_close_is_independent_of_the_pep() -> None:
     """I-6 for the inference seam, proven in BOTH directions.
 
-    `PhiZoneRoutingError` (`runtime/inference.py:103`, raised at `:654`) is the structural refusal
+    `PhiZoneRoutingError` (`runtime/inference.py:118`, raised at `:1037`) is the structural refusal
     that keeps PHI out of a non-BR-resident model. It must refuse with the gate present AND with
     the gate removed — the chokepoint can only SUBTRACT permission, never restore any.
     """
