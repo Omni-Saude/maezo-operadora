@@ -27,12 +27,14 @@ GUARDS (ADR-0003, all structural — enforced by `maezo.a2a.delegation`, not by 
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from maezo.a2a import Budget, DelegationEnvelope
+from maezo.a2a.dispatcher import origin_signer_of
 
 if TYPE_CHECKING:
-    from maezo.a2a import DelegationDispatcher, DelegationResult
+    from maezo.a2a import DelegationDispatcher, DelegationResult, EnvelopeSigner
 
 # Task type delegated to Rafael (must match his agent.yaml's accepted_task_types).
 TASK_TYPE_AUTH_ANALYSIS = "authorization.analyze"
@@ -42,6 +44,13 @@ TARGET_AGENT = "rafael"
 
 # Default budget for an authorization delegation chain (cumulative, decrements per hop).
 _DEFAULT_BUDGET = Budget(tokens=64, time_ms=60_000, cost_per_hop=1)
+
+# Wall-clock in-flight horizon stamped as `deadline` on a SIGNED envelope (ADR-0039 §4.3.1: a signed
+# envelope MUST carry a non-None deadline). 6 hours generously covers queue/retry latency (the real
+# authorization-analysis edge completes in minutes) while staying far under the 7-day max-signature-
+# age, so the max-age bound — not deadline — dominates key-purge timing (§4.3.2). Unsigned (dev)
+# envelopes keep deadline=None, unchanged.
+_SIGNED_ENVELOPE_TTL = timedelta(hours=6)
 
 # Pre-resolved-by-worker boolean keys forwarded to Rafael (never PHI).
 _BOOLEAN_KEYS = (
@@ -67,6 +76,7 @@ def build_auth_analysis_envelope(
     coverage_ref: str,
     case_meta: dict[str, Any],
     budget: Budget | None = None,
+    signer: EnvelopeSigner | None = None,
 ) -> DelegationEnvelope:
     """Build the Helena->Rafael root envelope for prior-authorization analysis.
 
@@ -76,9 +86,15 @@ def build_auth_analysis_envelope(
       pre-resolved-by-worker booleans. Converted into `payload_meta` (`Mapping[str, str]`).
 
     Applies the anti-loop guards at the root itself (origin != target, chain <= max_hops, budget).
+
+    SIGNING (ADR-0039 §4.4, leg E3): when `signer` is present, the envelope carries an explicit
+    `deadline` (`_SIGNED_ENVELOPE_TTL`, §4.3.1 — a signed envelope must have one) and is HMAC-signed
+    over its v2 canonical digest, so a verifying dispatcher admits it. Absent `signer` (dev / no key)
+    -> an UNSIGNED envelope (deadline=None), the pre-signing behaviour, which a verifier-less
+    dispatcher still accepts.
     """
     payload_meta = _build_payload_meta(numero_guia_tiss, case_meta)
-    return DelegationEnvelope.root(
+    envelope = DelegationEnvelope.root(
         task_id=auth_task_id(tenant, numero_guia_tiss),
         task_type=TASK_TYPE_AUTH_ANALYSIS,
         origin=ORIGIN_AGENT,
@@ -86,8 +102,10 @@ def build_auth_analysis_envelope(
         tenant=tenant,
         budget=budget or _DEFAULT_BUDGET,
         payload_ref=coverage_ref,
+        deadline=(datetime.now(tz=UTC) + _SIGNED_ENVELOPE_TTL) if signer is not None else None,
         payload_meta=payload_meta,
     )
+    return signer.sign(envelope) if signer is not None else envelope
 
 
 def _build_payload_meta(numero_guia_tiss: str, case_meta: dict[str, Any]) -> dict[str, str]:
@@ -120,18 +138,25 @@ async def delegate_auth_analysis(
     coverage_ref: str,
     case_meta: dict[str, Any],
     budget: Budget | None = None,
+    signer: EnvelopeSigner | None = None,
 ) -> DelegationResult:
     """Originate and dispatch the Helena->Rafael delegation. Idempotent by `task_id`.
 
     Returns the dispatcher's structured `DelegationResult` (success with `output_ref` = the
     started process's reference, or a structured rejection — never a raise to the caller). On
     re-delivery of the same `task_id`, `idempotent_replay=True` and the handler does NOT run again.
+
+    SIGNING: `signer` defaults to the edge's origin signer carried by `dispatcher`
+    (`origin_signer_of`), so a dispatcher composed with envelope signing enabled produces SIGNED
+    envelopes that its own verifier admits (no per-caller wiring). Absent (dev / no key) -> unsigned.
     """
+    resolved_signer = signer if signer is not None else origin_signer_of(dispatcher)
     envelope = build_auth_analysis_envelope(
         tenant=tenant,
         numero_guia_tiss=numero_guia_tiss,
         coverage_ref=coverage_ref,
         case_meta=case_meta,
         budget=budget,
+        signer=resolved_signer,
     )
     return await dispatcher.delegate(envelope)

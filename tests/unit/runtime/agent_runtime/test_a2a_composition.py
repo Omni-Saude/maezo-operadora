@@ -33,8 +33,8 @@ from tests.support.audit_fakes import FakeStartAuditSink
 from tests.unit.a2a.fakes import LabeledFakeTenantKeyset, RecordingProducer
 
 from maezo.a2a import TOPIC_COMPLETED, TOPIC_REQUESTED, CardSigner, per_tenant_key_env_var
-from maezo.agents.andre.delegation import build_adequacao_dossier_envelope
-from maezo.agents.carolina.delegation import build_cred_dossier_envelope
+from maezo.agents.andre.delegation import delegate_adequacao_dossier
+from maezo.agents.carolina.delegation import delegate_cred_dossier
 from maezo.runtime.agent_runtime import a2a_composition
 from maezo.runtime.agent_runtime.a2a_composition import (
     ALLOW_UNSIGNED_CARDS_ENV_VAR,
@@ -289,12 +289,17 @@ async def test_dossier_dispatcher_assembles_and_routes_cred_edge_end_to_end(
         tenant="amh", runtime_mode="local", kafka_producer=producer, **_dossier_deps()
     )
 
-    envelope = build_cred_dossier_envelope(
+    # Leg E3 (ADR-0039 §4.4): with a key present the composed dispatcher now VERIFIES envelopes. The
+    # LIVE worker path is `delegate_cred_dossier`, which retrieves the edge's origin signer from the
+    # dispatcher (`origin_signer_of`) and signs at construction — so the wired verifier admits it.
+    # (A hand-built UNSIGNED envelope through `dispatcher.delegate` would now be SIGNATURE_INVALID,
+    # which is exactly the fail-closed gate this leg adds.)
+    result = await delegate_cred_dossier(
+        dispatcher,
         tenant="amh",
         prestador_id="P-COMP-1",
         case_meta={"direcao": "descredenciamento", "tipo_prestador": "clinica"},
     )
-    result = await dispatcher.delegate(envelope)
 
     assert result.success is True
     assert result.output_ref == "process://CRED-amh-P-COMP-1"
@@ -303,7 +308,12 @@ async def test_dossier_dispatcher_assembles_and_routes_cred_edge_end_to_end(
 
     # Guard 4: a re-delivery of the same task_id replays without re-running Carolina — and the
     # meta comes back IDENTICAL (the replay-shape invariant the meta persistence exists for).
-    replay = await dispatcher.delegate(envelope)
+    replay = await delegate_cred_dossier(
+        dispatcher,
+        tenant="amh",
+        prestador_id="P-COMP-1",
+        case_meta={"direcao": "descredenciamento", "tipo_prestador": "clinica"},
+    )
     assert replay.idempotent_replay is True
     assert replay.output_ref == result.output_ref
     assert dict(replay.meta) == dict(result.meta)
@@ -330,13 +340,14 @@ async def test_dossier_dispatcher_routes_adequacao_edge_with_shared_task_type(
         tenant="amh", runtime_mode="local", kafka_producer=producer, **_dossier_deps()
     )
 
-    envelope = build_adequacao_dossier_envelope(
+    # Leg E3: the LIVE worker path signs via the edge's origin signer (see the cred test above).
+    result = await delegate_adequacao_dossier(
+        dispatcher,
         tenant="amh",
         regiao_saude="SP-01",
         especialidade="cardiologia",
         case_meta={"gap_adequacao": "GAP_CRITICO"},
     )
-    result = await dispatcher.delegate(envelope)
 
     assert result.success is True
     assert result.output_ref == "process://ADEQ-amh-SP-01-cardiologia"

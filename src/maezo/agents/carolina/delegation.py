@@ -45,9 +45,11 @@ the A2A seam (the dossier degrades gracefully without it).
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
 from maezo.a2a import Budget, DelegationEnvelope, HandlerOutput
+from maezo.a2a.dispatcher import origin_signer_of
 
 from .graph import (
     _CALLER_INPUT_FIELDS,
@@ -60,7 +62,7 @@ from .graph import (
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
-    from maezo.a2a import DelegationDispatcher, DelegationResult
+    from maezo.a2a import DelegationDispatcher, DelegationResult, EnvelopeSigner
     from maezo.runtime.inference import InferenceProvider
     from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
     from maezo.tools.workers.dmn_transport import DmnTransport
@@ -76,6 +78,11 @@ TARGET_AGENT = "carolina"
 
 # Default budget for a dossier delegation chain (per the Helena->Rafael exemplar).
 _DEFAULT_BUDGET = Budget(tokens=64, time_ms=60_000, cost_per_hop=1)
+
+# Wall-clock in-flight horizon stamped as `deadline` on a SIGNED envelope (ADR-0039 §4.3.1). 6 hours
+# — see agents/helena/delegation.py::_SIGNED_ENVELOPE_TTL for the shared rationale (far under the
+# 7-day max-signature-age, so max-age dominates key-purge timing). Unsigned envelopes keep None.
+_SIGNED_ENVELOPE_TTL = timedelta(hours=6)
 
 # Non-PHI STRING keys forwarded in `payload_meta` (cadastral ids / bounded enums / ISO dates —
 # see the module docstring's PHI note for what is deliberately excluded).
@@ -119,6 +126,7 @@ def build_cred_dossier_envelope(
     case_meta: dict[str, Any],
     protocolo_cred: str | None = None,
     budget: Budget | None = None,
+    signer: EnvelopeSigner | None = None,
 ) -> DelegationEnvelope:
     """Build the worker->Carolina root envelope for the (des)credenciamento analysis dossier.
 
@@ -129,9 +137,13 @@ def build_cred_dossier_envelope(
       silently NOT forwarded (allowlist, not blocklist).
 
     Applies the anti-loop guards at the root itself (origin != target, chain <= max_hops, budget).
+
+    SIGNING (ADR-0039 §4.4, leg E3): with `signer` present the envelope carries an explicit
+    `deadline` (§4.3.1) and is HMAC-signed over its v2 canonical digest — so `payload_meta_hash`
+    binds `prestador_id` (the CIB business key Carolina derives). Absent -> unsigned (dev path).
     """
     task_id = cred_task_id(tenant, prestador_id, protocolo_cred)
-    return DelegationEnvelope.root(
+    envelope = DelegationEnvelope.root(
         task_id=task_id,
         task_type=TASK_TYPE_CRED_DOSSIER,
         origin=ORIGIN_WORKER,
@@ -139,8 +151,10 @@ def build_cred_dossier_envelope(
         tenant=tenant,
         budget=budget or _DEFAULT_BUDGET,
         payload_ref=f"process://{task_id}",
+        deadline=(datetime.now(tz=UTC) + _SIGNED_ENVELOPE_TTL) if signer is not None else None,
         payload_meta=_build_payload_meta(prestador_id, protocolo_cred, case_meta),
     )
+    return signer.sign(envelope) if signer is not None else envelope
 
 
 def _build_payload_meta(
@@ -167,6 +181,7 @@ async def delegate_cred_dossier(
     case_meta: dict[str, Any],
     protocolo_cred: str | None = None,
     budget: Budget | None = None,
+    signer: EnvelopeSigner | None = None,
 ) -> DelegationResult:
     """Originate and dispatch the worker->Carolina delegation. Idempotent by `task_id`.
 
@@ -174,13 +189,18 @@ async def delegate_cred_dossier(
     process reference + `meta` = Carolina's bounded routing summary, or a structured rejection —
     never a raise out of the dispatcher). On re-delivery of the same `task_id`,
     `idempotent_replay=True` and the handler does NOT run again.
+
+    SIGNING (ADR-0039 §4.4): `signer` defaults to the edge signer carried by `dispatcher`
+    (`origin_signer_of`), so the LIVE worker path signs without any per-worker wiring change.
     """
+    resolved_signer = signer if signer is not None else origin_signer_of(dispatcher)
     envelope = build_cred_dossier_envelope(
         tenant=tenant,
         prestador_id=prestador_id,
         case_meta=case_meta,
         protocolo_cred=protocolo_cred,
         budget=budget,
+        signer=resolved_signer,
     )
     return await dispatcher.delegate(envelope)
 

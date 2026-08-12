@@ -77,6 +77,13 @@ from maezo.a2a import (
 )
 from maezo.a2a.assembly import card_signer_from_key
 from maezo.a2a.dispatcher import KafkaLike
+from maezo.a2a.envelope_signing import (
+    DEFAULT_REPLAY_EPOCH,
+    MAX_SIGNATURE_AGE,
+    EnvelopeSigner,
+    EnvelopeVerifier,
+    build_verification_keyset,
+)
 from maezo.a2a.keyset import EnvTenantKeyset, TenantKeyset, per_tenant_key_env_var
 from maezo.a2a.outbox import build_outbox_fact_producer
 from maezo.agents.andre.delegation import make_andre_handler
@@ -125,6 +132,15 @@ _LOCAL_RUNTIME_MODE = "local"
 #: (see `_require_signer_or_fail_closed`). It must NEVER default to on — the absence of a key must
 #: never SILENTLY downgrade to unsigned Cards (T-G, ADR-0003/0007).
 ALLOW_UNSIGNED_CARDS_ENV_VAR = "MAEZO_A2A_ALLOW_UNSIGNED_CARDS"
+
+#: EXPLICIT, non-production-only opt-out permitting UNVERIFIED delegation ENVELOPES when no
+#: per-tenant envelope-signing key is present (ADR-0039 §4.4, owner decision 6 — name CONFIRMED
+#: verbatim). The envelope-signing twin of `ALLOW_UNSIGNED_CARDS_ENV_VAR`: dev/test ergonomics only,
+#: IGNORED in production runtime mode (where an absent key ALWAYS fail-closes), and it reuses the
+#: SAME shared `is_production_runtime_mode` discriminator (no second answer to "is this production?").
+#: It must NEVER default to on — the absence of a key must never silently downgrade to unverified
+#: envelopes. It appears in NO production-permissive default.
+ALLOW_UNVERIFIED_ENVELOPES_ENV_VAR = "MAEZO_A2A_ALLOW_UNVERIFIED_ENVELOPES"
 
 _TRUTHY = frozenset({"1", "true", "yes", "on"})
 
@@ -204,6 +220,83 @@ def _dsn_is_present(database_url: str | None) -> TypeGuard[str]:
 def _unsigned_cards_opt_out() -> bool:
     """True only if the EXPLICIT unsigned-cards opt-out env var is set to a truthy value."""
     return os.environ.get(ALLOW_UNSIGNED_CARDS_ENV_VAR, "").strip().lower() in _TRUTHY
+
+
+def _unverified_envelopes_opt_out() -> bool:
+    """True only if the EXPLICIT unverified-envelopes opt-out env var is set to a truthy value."""
+    return os.environ.get(ALLOW_UNVERIFIED_ENVELOPES_ENV_VAR, "").strip().lower() in _TRUTHY
+
+
+def _require_envelope_signing_or_fail_closed(
+    *, runtime_mode: str, tenant: str, edge: str, keyset: TenantKeyset | None = None
+) -> tuple[EnvelopeSigner | None, EnvelopeVerifier | None]:
+    """Resolve the PER-TENANT envelope signer + verifier, fail-CLOSED when the key is absent (ADR-0039
+    §4.4, leg E3). The STRUCTURAL SIBLING of `_require_signer_or_fail_closed` (Card signing), for the
+    ENVELOPE surface — a DISTINCT surface (§4.1), same three-way fail-closed shape:
+
+      - key PRESENT -> a real `(EnvelopeSigner, EnvelopeVerifier)` pair. The verifier trusts THIS
+        tenant's keyset (the active key + any prior-in-grace key, `build_verification_keyset`); the
+        signer signs new envelopes under the active key. Symmetric HMAC, one per-tenant key both
+        jobs — mirroring the Card signer/verifier symmetry.
+      - key ABSENT + PRODUCTION runtime mode -> RAISE at composition (un-bypassable; the opt-out is
+        IGNORED here), so no dispatcher wired to reject-every-real-envelope is ever returned.
+      - key ABSENT + non-production + the EXPLICIT `MAEZO_A2A_ALLOW_UNVERIFIED_ENVELOPES` opt-out ->
+        `(None, None)` (envelope verification OFF), dev/test only, LOUDLY warned.
+      - key ABSENT + non-production + NO opt-out -> RAISE (even in dev, never a SILENT downgrade).
+
+    PER-TENANT CUSTODY (decision 4): the key is resolved through the SAME `TenantKeyset` seam Card
+    signing uses (`key_for(tenant)`), NEVER the repo-wide or another tenant's key — a missing tenant
+    key is the "absent key" case, it does NOT fall back across tenants (the cross-tenant
+    key-confusion attack decision 4 rules out). The prior (rotation-grace) key is read from the same
+    per-tenant seam (`prior_key_for`). Reuses the SHARED `is_production_runtime_mode` — no second
+    prod/dev discriminator. Mirrors the E2 signer gate's injectable-`keyset` seam for hermetic tests.
+    """
+    resolver: TenantKeyset = keyset if keyset is not None else EnvTenantKeyset()
+    active_key = resolver.key_for(tenant)
+    if active_key is not None:
+        # Prior (rotation-grace) key: read from the SAME per-tenant seam; absent in steady state.
+        prior_key = getattr(resolver, "prior_key_for", lambda _t: None)(tenant)
+        trusted, active_key_id = build_verification_keyset(active_key=active_key, prior_key=prior_key)
+        signer = EnvelopeSigner(
+            tenant=tenant,
+            signing_key=active_key,
+            key_id=active_key_id,
+            replay_epoch=DEFAULT_REPLAY_EPOCH,
+        )
+        verifier = EnvelopeVerifier(
+            trusted_keys=trusted,
+            active_key_id=active_key_id,
+            current_epoch=DEFAULT_REPLAY_EPOCH,
+            max_signature_age=MAX_SIGNATURE_AGE,
+        )
+        return signer, verifier
+
+    is_production = is_production_runtime_mode(runtime_mode)
+    if is_production or not _unverified_envelopes_opt_out():
+        raise RuntimeError(
+            f"cannot assemble the A2A {edge} delegation edge: no envelope-signing key "
+            f"({per_tenant_key_env_var(tenant)}) is present for tenant {tenant!r}, so a wired "
+            "verifier would REJECT every real (unsigned) envelope. Refusing to compose "
+            f"(runtime_mode={runtime_mode!r}). Provision the vault/KMS PER-TENANT key (ADR-0039 §4.4, "
+            "decision 4 — per-tenant, never repo-wide), or — in a NON-production runtime ONLY — set "
+            f"{ALLOW_UNVERIFIED_ENVELOPES_ENV_VAR}=1 to opt into unverified envelopes explicitly. The "
+            "absence of a key must never silently downgrade to unverified envelopes (ADR-0039 §4.4), "
+            "and a missing tenant key must NEVER fall back to the repo-wide or another tenant's key "
+            "(cross-tenant key-confusion, decision 4)."
+        )
+
+    logger.warning(
+        "a2a_envelope_signing_unverified_dev_optout",
+        tenant=tenant,
+        runtime_mode=runtime_mode,
+        edge=edge,
+        detail=(
+            "UNVERIFIED delegation envelopes: no per-tenant envelope-signing key present and the "
+            f"explicit non-production opt-out {ALLOW_UNVERIFIED_ENVELOPES_ENV_VAR} is set. The "
+            "dispatcher will admit unsigned envelopes — dev/test ONLY, never a production posture."
+        ),
+    )
+    return None, None
 
 
 def _require_signer_or_fail_closed(
@@ -504,6 +597,14 @@ def build_auth_delegation_dispatcher(
     )
     cards = build_agent_cards(tenant, _EDGE_AGENT_IDS, signer=signer)
 
+    # Envelope signing (ADR-0039 §4.4, leg E3), a STRUCTURAL SIBLING of the Card-signer gate above:
+    # the SAME per-tenant key resolves both an origin signer (Helena signs `authorization.analyze`
+    # envelopes at construction) and a verifier (the dispatcher's first admission check). Fail-closed:
+    # absent key + production -> raise here, before any dispatcher is returned.
+    envelope_signer, envelope_verifier = _require_envelope_signing_or_fail_closed(
+        runtime_mode=settings.agent_runtime_mode, tenant=tenant, edge="Helena->Rafael"
+    )
+
     handler: AgentHandler = make_rafael_handler(
         tool_deps["inference"],
         dmn=tool_deps["dmn"],
@@ -549,6 +650,7 @@ def build_auth_delegation_dispatcher(
         agents=_EDGE_AGENT_IDS,
         durable_idempotency=idempotency is not None,
         card_signing_enforced=signer is not None,
+        envelope_verification_enforced=envelope_verifier is not None,
     )
     # ONDA 1 §5.5: the assembled dispatcher is handed out GATED (`delegacao_a2a`, C3). The
     # principal is HELENA — she originates this edge (`agents/helena/delegation.py:137`), and the
@@ -565,6 +667,8 @@ def build_auth_delegation_dispatcher(
             facts=facts,
             idempotency=idempotency,
             verifier=signer,
+            envelope_verifier=envelope_verifier,
+            origin_envelope_signer=envelope_signer,
         ),
     )
 
@@ -632,6 +736,14 @@ def build_dossier_delegation_dispatcher(
     )
     cards = build_agent_cards(tenant, _DOSSIER_EDGE_AGENT_IDS, signer=signer)
 
+    # Envelope signing (ADR-0039 §4.4, leg E3) — sibling of the Card-signer gate. The origin signer
+    # rides on the dispatcher; the three dossier `delegate_*` originators retrieve it
+    # (`origin_signer_of`) and sign at construction, so the LIVE worker path produces SIGNED
+    # envelopes the wired verifier admits (no per-worker wiring change). Fail-closed the same way.
+    envelope_signer, envelope_verifier = _require_envelope_signing_or_fail_closed(
+        runtime_mode=runtime_mode, tenant=tenant, edge="worker->Carolina/Andre dossier"
+    )
+
     # ONDA 1 §5.5 / C-A2, second of the two independent constructions: the dossier edge's LLM seam
     # is gated too. The `dmn`/`cibseven` seams arrive ALREADY gated from the worker root — they are
     # injected, not rebuilt here (this root's own docstring), so double-wrapping cannot happen.
@@ -674,6 +786,7 @@ def build_dossier_delegation_dispatcher(
         runtime_mode=runtime_mode,
         durable_idempotency=idempotency is not None,
         card_signing_enforced=signer is not None,
+        envelope_verification_enforced=envelope_verifier is not None,
     )
     # ONDA 1 §5.5, third construction site. Principal `worker_runtime`: these edges are
     # WORKER-originated (`operadora.cred.prepare_dossier` and the two adequacao/pagto topics), and
@@ -690,5 +803,7 @@ def build_dossier_delegation_dispatcher(
             facts=facts,
             idempotency=idempotency,
             verifier=signer,
+            envelope_verifier=envelope_verifier,
+            origin_envelope_signer=envelope_signer,
         ),
     )

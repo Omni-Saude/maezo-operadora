@@ -2,9 +2,10 @@
 
 This is leg E3 of the envelope-signing train: the production implementation of ADR-0039's canonical
 digest, HMAC signer, and fail-closed verifier. It mirrors the CONTRACT of the labeled reference
-verifier (`tests/unit/a2a/attacks/reference_envelope_verifier.py`) — same HMAC-SHA256 over a
-canonical JSON digest, a trusted per-tenant KEYSET (not a single scalar, §4.2 rotation), a
-`replay_epoch` cutover, and a max-signature-age bound — but differs in three ratified ways:
+verifier the E4 adversarial attack suite exercises (the quarantined double under
+tests/unit/a2a/attacks/) — same HMAC-SHA256 over a canonical JSON digest, a trusted per-tenant
+KEYSET (not a single scalar, §4.2 rotation), a `replay_epoch` cutover, and a max-signature-age
+bound — but differs in three ratified ways:
 
   1. **Digest v2 (ADR-0039 §4.1, owner decisions 1-2, 2026-08-12).** The signed field set is the v1
      mandated set PLUS `payload_meta_hash` (binding the instruction content — TUSS/CID-10/

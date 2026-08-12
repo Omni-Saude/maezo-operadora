@@ -277,24 +277,39 @@ def test_no_production_module_references_the_reference_verifier() -> None:
     assert hits == [], f"reference verifier leaked into production source: {hits}"
 
 
-def test_envelope_signing_is_genuinely_unimplemented_in_production() -> None:
-    """ANTI-MASQUERADE. Positive proof that envelope signing is NOT done: the `DelegationEnvelope`
-    type carries NO `signature` field (whereas `AgentCard` — the surface that IS signed today — does),
-    and ADR-0039 §4.4's PROPOSED envelope-verification opt-out env var is wired NOWHERE in `src`.
-    This is what makes Half B honest: the attacks exercise a reference, not a shipped verifier."""
+def test_envelope_signing_is_now_implemented_in_production() -> None:
+    """FLIPPED from the r1-r3 anti-masquerade negative (leg E3, ADR-0039 Accepted).
+
+    RATIONALE (disclosed): envelope signing is NO LONGER unimplemented — leg E3 shipped it. This
+    test used to be the honest negative proof that it was NOT done (`DelegationEnvelope` carried no
+    `signature` field, and the §4.4 opt-out was wired nowhere). Both facts are now, by design, FALSE:
+    the change that falsifies them IS the implementation, so the assertions are flipped to the
+    POSITIVE form rather than deleted (the flip is itself the evidence the residual closed — the same
+    accept-criterion pattern §4.8 / the owner's 'Consequencia imediata' note fix for the digest).
+
+    NOTE for leg E4: the reference-based Half-B attacks below (`LabeledReferenceEnvelopeVerifier`,
+    the `test_disclosed_gap_*` honest negatives) are INTENTIONALLY LEFT as-is by leg E3 — E3 only
+    flipped the tests its own change directly falsified. E4 re-binds the attack battery onto the REAL
+    `maezo.a2a.envelope_signing.EnvelopeVerifier` and flips the disclosed-gap negatives to positives
+    (mutating `payload_meta`/`task_type` now DOES change the digest v2 — E3's
+    `test_envelope_signing.py` already proves the real verifier rejects those)."""
     env_fields = {f.name for f in fields(DelegationEnvelope)}
     card_fields = {f.name for f in fields(AgentCard)}
-    assert "signature" not in env_fields  # the ENVELOPE is not signed...
-    assert "signature" in card_fields  # ...only the CARD is (a different, built surface)
+    assert "signature" in env_fields  # the ENVELOPE is signed now (leg E3)...
+    assert "signature" in card_fields  # ...as is the CARD (the older, separate surface)
 
-    # The §4.4 proposed opt-out (`MAEZO_A2A_ALLOW_UNVERIFIED_ENVELOPES`) exists in no source file —
-    # there is no envelope-verification gate to opt out of.
-    leaked = [
-        str(path)
+    # The §4.4 opt-out (`MAEZO_A2A_ALLOW_UNVERIFIED_ENVELOPES`) is now wired — exactly once, at the
+    # composition root's fail-closed envelope-verification gate (never in a production-permissive
+    # default). Its presence there is what the flipped assertion pins.
+    wired_in = [
+        path.name
         for path in _SRC_MAEZO.rglob("*.py")
         if "MAEZO_A2A_ALLOW_UNVERIFIED_ENVELOPES" in path.read_text(encoding="utf-8")
     ]
-    assert leaked == [], f"§4.4 envelope-verification opt-out appears wired in: {leaked}"
+    assert wired_in == ["a2a_composition.py"], (
+        "the §4.4 envelope-verification opt-out must be wired at exactly the composition gate "
+        f"(a2a_composition.py), found in: {wired_in}"
+    )
 
 
 if __name__ == "__main__":  # pragma: no cover - convenience for the R1 verifier
