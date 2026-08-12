@@ -1,13 +1,47 @@
 # ADR-0039: A2A Delegation-Envelope Signing — Canonical Digest, Key Rotation, Fail-Closed Verification
 
-**Status:** Proposed — requires Security/crypto reviewer (R1) + orchestrator ratification (no
-self-certification). Named approver-role fields below are left EMPTY; no agent, orchestrator, or
-gatekeeper may fill them. · **Data:** 2026-08-11 · **Area:** Seguranca / A2A / Auditoria
+**Status:** **Accepted** (2026-08-12) — ratificado pelo DONO do repositorio, que respondeu as sete
+Perguntas abertas na mesma data (ver `## Decisoes do dono (2026-08-12)` logo abaixo). A tabela de
+aprovadores POR PAPEL segue PENDENTE e continua vedada a agentes: a ratificacao do dono registra a
+DECISAO, e nao substitui a revisao nomeada de Security/crypto (R1). · **Data:** 2026-08-11 (redigido)
+/ 2026-08-12 (aceito) · **Area:** Seguranca / A2A / Auditoria
 
 | Role | Approver | Date |
 |---|---|---|
 | Security/crypto reviewer (R1) | _(pending)_ | _(pending)_ |
 | Orchestrator (architecture ratification) | _(pending)_ | _(pending)_ |
+
+> ⚠️ **ATENCAO A QUEM FOR IMPLEMENTAR: o corpo de design abaixo ainda e o texto PRE-DECISAO.**
+> O que foi aceito sao as DECISOES da secao seguinte. O conjunto de campos do digest em §4.1 ainda
+> **nao** inclui `payload_meta_hash` nem `task_type`; §4.2/§4.3/§4.4 ainda **nao** carregam a cadencia
+> de 7 dias, a janela de graca do epoch anterior nem o keyset por-tenant. **Construa o digest
+> EMENDADO (§Decisoes do dono), nunca o literal de §4.1 como esta escrito hoje.** A emenda do texto de
+> design e a perna E1 do trem seguinte (`docs/prompts/13-08-26_signing-unlock.md`), sob a cadeia
+> zero-trust normal — ate ela landar, esta ADR esta aceita-mas-nao-emendada, e isto e deliberado e
+> divulgado, nao um descuido.
+
+## Decisoes do dono (2026-08-12)
+
+Respostas as sete `## Perguntas abertas (humano decide)` (cabecalho em `:746`, secao ate `:799`, logo
+antes de `## Relacao com ADRs existentes` em `:800`), uma a uma, na ordem em que a ADR as fez. Transcritas do
+dono; nenhuma delas e inferencia de agente.
+
+| # | Pergunta | Decisao |
+| --- | --- | --- |
+| 1 | `payload_meta` no digest | **ADOTAR `payload_meta_hash`**: um campo, `"payload_meta_hash": sha256(canonical(envelope.payload_meta))`, com a canonicalizacao exata do §4.1. Fecha o MAJOR M1 (TUSS, CID-10, `valor_estimado_brl`, `prestador_id`, `valor_pagamento_cents` seguiam nao-assinados). |
+| 2 | `task_type` no digest | **INCLUIR** — fecha o segundo residual divulgado do §4.1. |
+| 3 | Cadencia de rotacao / idade maxima de assinatura | **Rotacao ordinaria de chave roda por 7 DIAS.** Donde a idade maxima de assinatura no verificador (§4.3.2) e, por §4.3.3, o **piso de retencao** de `a2a_idempotency` vira numero computavel — o DBA/MZO-060 escolhe o valor contra esse piso, nao contra uma dependencia aberta. |
+| 4 | Custodia de chave | **Mesmo seam vault/KMS de `MAEZO_A2A_CARD_SIGNING_KEY`** (`a2a/assembly.py:45`, lido em `:67`) guarda as chaves no dia a dia, e o **keyset e POR TENANT**, nao repo-wide — assinatura de envelope tambem por tenant. Blast radius permanece o dos **quatro builders por-requisicao** enumerados na propria Pergunta 4 (`:775-789`). |
+| 5 | Graca no bump de epoch | **SIM** — `replay_epoch` tolera uma janela curta de graca para o epoch anterior, para evitar rejeicao em massa de envelopes em voo. A semantica de graca-zero para incidente segue tendo de ser enunciavel. |
+| 6 | `MAEZO_A2A_ALLOW_UNVERIFIED_ENVELOPES` | **CONFIRMADO** (nome e forma). Dev-local apenas, fail-closed fora de local pelo `is_production_runtime_mode` ja compartilhado. |
+| 7 | Default ausente de `AGENT_RUNTIME_MODE` | **MUDAR o default de `AgentRuntimeSettings`** (`runtime/agent_runtime/settings.py:38`, hoje `Field(default="local", alias="AGENT_RUNTIME_MODE")`) para fail-closed. E a licao "default de chave ausente falha FECHADO" aplicada ao residual que enfraquecia a propria alegacao fail-closed desta ADR na borda Helena→Rafael. |
+
+**Consequencia imediata:** a implementacao da assinatura de envelope — deliberadamente nao construida
+na Onda 3 porque construir contra um digest nao-ratificado e construir sobre areia — esta
+DESBLOQUEADA. Criterio de aceite ja escrito e auto-verificavel: por §4.8 (:652), os dois testes de
+negativo honesto que hoje afirmam que mutar `payload_meta`/`task_type` deixa o digest **byte-identico**
+devem VIRAR assercoes positivas (mutacao ⇒ digest muda ⇒ envelope rejeitado). Se passarem sem virar,
+a mudanca de digest nao aconteceu, qualquer que seja o resto do verde.
 
 Owner: envelope-adr-author (R2), leg 1/4 of Train C (Onda 3 — A2A distribution-grade),
 `wave3-a2a-distribution`, created at `origin/main` = `29763e7`. Scope: docs-only — this ADR designs
@@ -711,6 +745,12 @@ which leg 4 is reviewed.
 
 ## Perguntas abertas (humano decide)
 
+> ✅ **AS SETE FORAM RESPONDIDAS PELO DONO EM 2026-08-12** — ver `## Decisoes do dono (2026-08-12)`
+> (`:23`). O texto abaixo fica como estava, deliberadamente: e o enunciado original de cada pergunta,
+> com a evidencia que a motivou, e e contra ele que as respostas devem ser lidas. Nao ha pergunta
+> aberta remanescente nesta ADR; o que resta e a EMENDA do corpo de design (perna E1 do trem
+> seguinte) e a revisao nomeada de Security/crypto, que a ratificacao do dono nao substitui.
+
 1. **`payload_meta` in the digest — the first question, ahead of `task_type`.** §4.1 ranks
    `payload_meta`'s exclusion at or above `task_type`'s, on evidence: it carries the TUSS code,
    CID-10 and `valor_estimado_brl` (`agents/helena/delegation.py:99,:102,:107-108`), the
@@ -799,3 +839,4 @@ dependency either direction). Does not interact with ADR-0037.
 | r1 | 2026-08-11 | Redacao inicial (Onda 3 / Train C leg 1). Status Proposed. |
 | r2 | 2026-08-11 | Revisao do gatekeeper de Train C leg 1 (zero-trust, pre-ratificacao) — dez achados fechados, sem mudanca de status. Substantivos: (M1) `payload_meta` reclassificado como residual de severidade igual ou maior que `task_type`, com a evidencia dos quatro edges; retirada a equivalencia falsa com a exclusao PHI do dispatcher; `payload_meta_hash` registrado como OPCAO para o humano (§4.1, §4.5, §Negativas, §Perguntas abertas 1). (M2) a janela de graca de rotacao nao se sustentava — `deadline` e `None` em todos os envelopes reais; §4.3 passa a exigir `deadline` nao-`None` em envelope ASSINADO, idade maxima de assinatura independente, e retencao de idempotencia dominando a validade da assinatura. (M3) gatilho de aposentadoria da excecao §8.4 corrigido: `ast.ClassDef`/`ast.Import`, nunca construcao (§Contexto 2, §4.6). (M4) verificacao fixada em `delegate` antes do ramo `dispatcher.py:279-281`; `_execute` removido dos locais sancionados. (m5) `default=str` proibido na canonicalizacao, com contraexemplo `datetime`. (m6) custodia de chave alcanca quatro builders por requisicao; armadilha do `dataclasses.replace` em `extend()`. (m7) `max_hops` e sim fornecido pelo remetente — razao corrigida. (m8) "primeira checagem" escopada ao dispatcher (o seam gate roda antes). (m9) tres citacoes corrigidas (`registry.py`, `_is_test_double_name`, design doc §8.4). (m10) novo §4.8 com obrigacoes de prova por linha da tabela de ameacas, no precedente §8.5 "the gate must prove it is doing work". |
 | r3 | 2026-08-11 | Delta do mesmo gatekeeper sobre r2, dois residuos de uma linha. (R1) §4.4 enumerava tres call sites de `extend()` sob `tests/unit/a2a/`; a contagem real e 13 (`test_delegation.py` 11, `fakes.py` 1, `test_a2a_edge_live_pg.py` 1) — enumeracao trocada pelo total medido; a metade "zero callers em `src/`" segue confirmada. (R2) o primeiro bullet de §Positivas ainda dizia "the exact fields that matter (tenant, identity, payload reference, deadline, budget, chain)" — a frase que M1 retirou — e contradizia §Negativas; agora nomeia o conjunto MANDATADO e remete a §Negativas para o que ele nao cobre. Polimento: §4.7 dizia "ONLY built edge" seguido de quatro edges; reescrito para "built edges" distinguindo Helena→Rafael (montado, exercitado pela suite W3, sem caller em `src/`) das tres bordas worker→Carolina/Andre (alcancadas por codigo de worker real). |
+| r4 | 2026-08-12 | **Status Proposed → Accepted, por instrucao do DONO do repositorio.** As sete Perguntas abertas foram respondidas na mesma data e transcritas na nova secao `## Decisoes do dono (2026-08-12)` (`:23`): adotar `payload_meta_hash` · incluir `task_type` no digest · rotacao ordinaria de 7 dias (donde a idade maxima de assinatura e o piso de retencao de `a2a_idempotency`) · custodia no mesmo seam vault/KMS do Card com keyset POR TENANT · janela curta de graca para o epoch anterior · `MAEZO_A2A_ALLOW_UNVERIFIED_ENVELOPES` confirmado · mudar o default de `AgentRuntimeSettings` para fail-closed. **A tabela de aprovadores por PAPEL segue `_(pending)_` e nao foi tocada** — a ratificacao do dono registra a decisao e nao substitui a revisao nomeada de Security/crypto (R1); nenhum agente preencheu, nem pode preencher, aquelas celulas. **O corpo de design NAO foi emendado nesta revisao** e segue sendo o texto pre-decisao (§4.1 ainda sem `payload_meta_hash`/`task_type`; §4.2/§4.3/§4.4 ainda sem os 7 dias, a graca de epoch e o keyset por-tenant) — divulgado em bloco de aviso no topo, com a emenda designada a perna E1 do trem seguinte (`docs/prompts/13-08-26_signing-unlock.md`) sob cadeia zero-trust. Docs-only; zero linha de `src/`, `spec/`, `tests/` ou `deploy/` tocada. |
