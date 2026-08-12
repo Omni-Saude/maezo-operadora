@@ -647,8 +647,15 @@ class LabeledFakeWormAnchorStore:
       - **Write-once.** `put` on an existing key raises :class:`AnchorWormViolationError`. The
         write itself uses `open(..., "xb")` (`O_CREAT|O_EXCL`), so even a race that slips past the
         pre-check is refused by the kernel, not by a comment.
-      - **Read-only after write.** Each anchor file is chmod'ed to `0o444`, so ordinary code that
-        opens it for writing fails too.
+      - **Read-only after write — against ACCIDENT, not against the writer.** Each anchor file is
+        chmod'ed to `0o444`, so ordinary code that opens it for writing fails. That is the whole
+        extent of it: `0o444` is DISCRETIONARY, and the file's OWNER — the same unprivileged UID
+        that wrote it, i.e. this very process — may `chmod(0o644)` and rewrite the bytes at will,
+        after which `get()` returns the forgery. No `root` is needed and no privilege escalation is
+        involved. The write-once property that this class genuinely enforces is `O_EXCL` on
+        CREATION; there is no post-creation integrity property, and the tests are written to
+        isolate exactly that (see `test_worm_store_refuses_overwrite_even_without_the_exists_
+        precheck`, which chmods the file writable first precisely to strip this defense away).
       - **No key escapes the root — spelling AND resolution.** Keys must match
         :data:`_SAFE_ANCHOR_KEY` (absolute paths, `..` segments and backslashes cannot even be
         spelled) AND the resolved path must stay under the resolved root. The second half is not
@@ -659,8 +666,12 @@ class LabeledFakeWormAnchorStore:
         root, stating in prose that this directory is not evidence.
 
     What it does NOT provide, and what a real store must: retention lock enforced by the storage
-    service (a local `root` privileged actor can `chmod`/`rm` at will), off-host durability, and a
-    separate security account/credential boundary. Those are the owner's deployment concerns.
+    service — on a local filesystem the file's OWNER (this process's own UID, no `root` and no
+    escalation required) or any `root` actor can `chmod`/rewrite/`rm` at will — off-host
+    durability, and a separate security account/credential boundary. Those are the owner's
+    deployment concerns. Stating this as "only a privileged actor can tamper" would be an
+    overstatement, and an overstated fake is worse than no fake: it is the exact failure the
+    external audit §4 names, one layer down.
 
     Residual, disclosed rather than papered over: the containment check is a CHECK-THEN-WRITE, so
     an adversary who can plant a symlink on the key's path in the window between `_resolve` and the

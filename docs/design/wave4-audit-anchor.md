@@ -128,14 +128,38 @@ despida de rótulo **não verifica**: o fake recusa ser lavado. A construção t
 
 ### O que o WORM fake realmente ENFORCE (e o que não)
 
-Enforce: (a) write-once — `put` em chave existente levanta `AnchorWormViolationError`, com
-pré-checagem **e** `open(..., "xb")` (`O_CREAT|O_EXCL`), de modo que uma corrida que passe pela
-pré-checagem é recusada pelo kernel; (b) `chmod 0o444` após a escrita; (c) gramática de chave sem
-path absoluto, sem `..`, sem backslash; (d) arquivo-marcador auto-rotulado na raiz. Construção é
-**pura** (zero I/O) — load-bearing para o dark build.
+Enforce: (a) write-once **na CRIAÇÃO** — `put` em chave existente levanta
+`AnchorWormViolationError`, com pré-checagem **e** `open(..., "xb")` (`O_CREAT|O_EXCL`), de modo que
+uma corrida que passe pela pré-checagem é recusada pelo kernel; (b) `chmod 0o444` após a escrita —
+proteção contra **acidente**, não contra o escritor (ver abaixo); (c) contenção na raiz por
+**grafia** (sem path absoluto, sem `..`, sem backslash) **e** por **resolução**
+(`path.resolve().is_relative_to(root.resolve())`, os dois lados resolvidos) — a gramática lê
+caracteres, não o filesystem, então sem a segunda metade um diretório intermediário symlinkado faz a
+chave legal `amh/a.anchor.json` escrever **fora** da raiz; (d) arquivo-marcador auto-rotulado na
+raiz. Construção é **pura** (zero I/O) — load-bearing para o dark build.
 
-Não provê, e o store real precisa: retention lock imposto pelo serviço de storage (um `root` local
-faz `chmod`/`rm` à vontade), durabilidade off-host, e fronteira de conta/credencial separada.
+**`0o444` não é integridade.** O modo é **discricionário**: o **DONO do arquivo** — o mesmo UID não
+privilegiado que o escreveu, i.e. o próprio processo — faz `chmod(0o644)` e reescreve os bytes à
+vontade, e `get()` devolve a forjada. Não é preciso `root` nem escalação nenhuma. Dizer "só um ator
+privilegiado adultera" seria **exagero**, e fake exagerado é pior que fake nenhum: é exatamente a
+falha que a auditoria externa §4 nomeia, um andar abaixo. A propriedade que a classe realmente
+impõe é `O_EXCL` na **criação**; os testes isolam justamente isso
+(`test_worm_store_refuses_overwrite_even_without_the_exists_precheck` faz o arquivo gravável de
+propósito, para arrancar a defesa do `chmod` e deixar só o `O_EXCL` em pé), e
+`test_worm_store_read_only_mode_is_not_integrity_against_the_owner` **pina a divulgação**: se um dia
+a classe passar a resistir ao próprio UID, esse teste fica vermelho e esta seção precisa ser
+reescrita para cima.
+
+Não provê, e o store real precisa: retention lock imposto pelo serviço de storage (o **dono** do
+arquivo — ou um `root` local — faz `chmod`/reescrita/`rm` à vontade), durabilidade off-host, e
+fronteira de conta/credencial separada.
+
+**Residual divulgado (TOCTOU):** a checagem de contenção é *check-then-write*; um adversário que
+plante um symlink na janela entre `_resolve` e o `open` ainda escapa por diretório intermediário. O
+componente **final** não fica exposto assim (`O_CREAT|O_EXCL` recusa symlink existente). Fechar o
+resto exigiria descida `openat`/`O_NOFOLLOW` que este fake deliberadamente não carrega — e quem
+escreve dentro da raiz também pode simplesmente `rm` o conteúdo, então o residual não muda a postura
+honesta da classe.
 
 ## 6. A flag
 

@@ -46,6 +46,9 @@ mapping is stated once, here, so a reviewer can neuter any one of them and predi
       RED: `test_worm_store_refuses_overwrite` (the guard) and
       `test_worm_store_refuses_overwrite_even_without_the_exists_precheck` (the O_EXCL belt),
       which deletes the pre-check's effect by chmod-ing the file writable first.
+      SCOPE: write-once is enforced at CREATION only. `0o444` is discretionary and buys nothing
+      against the file's own owner — `test_worm_store_read_only_mode_is_not_integrity_against_the
+      _owner` pins that LIMIT so the prose describing it cannot quietly overstate again.
 
   D8  Flag OFF => provably zero writes and zero seam calls.
       NEUTER: remove the `anchor_writes_enabled()` early return in `write_anchor`.
@@ -93,6 +96,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import os
 import stat
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
@@ -635,6 +639,32 @@ def test_worm_store_makes_files_read_only(tmp_path: Path) -> None:
     store.put("amh/a.anchor.json", b"original")
     mode = (tmp_path / "anchors" / "amh" / "a.anchor.json").stat().st_mode
     assert stat.S_IMODE(mode) == 0o444
+
+
+def test_worm_store_read_only_mode_is_not_integrity_against_the_owner(tmp_path: Path) -> None:
+    """A DISCLOSURE PIN, deliberately inverted: it asserts the documented LIMIT, not a defense.
+
+    `0o444` is a DISCRETIONARY mode. The file's owner — the same unprivileged UID that wrote it,
+    i.e. this very test process, with no `root` and no escalation — can `chmod(0o644)`, rewrite the
+    bytes, and `get()` hands back the forgery. The module docstring and
+    `docs/design/wave4-audit-anchor.md` §5 previously said only that "a local `root` privileged
+    actor can chmod/rm at will", which understated the reach by an entire privilege level; this
+    test exists so that prose cannot drift back into the overstatement unnoticed.
+
+    If a future change makes this class genuinely resist its own UID, THIS TEST GOES RED — and the
+    correct response is to rewrite the disclosure upward, not to delete the test."""
+    store = LabeledFakeWormAnchorStore(tmp_path / "anchors")
+    store.put("amh/a.anchor.json", b"GENUINE")
+    path = tmp_path / "anchors" / "amh" / "a.anchor.json"
+
+    assert os.getuid() != 0, "this pin is only meaningful as an UNPRIVILEGED process"
+    assert path.stat().st_uid == os.getuid()  # the writer owns it — that is the whole point
+    assert stat.S_IMODE(path.stat().st_mode) == 0o444
+
+    path.chmod(0o644)  # the OWNER, not root
+    path.write_bytes(b"FORGED")
+
+    assert store.get("amh/a.anchor.json") == b"FORGED"
 
 
 def test_worm_store_self_labels_its_root(tmp_path: Path) -> None:
