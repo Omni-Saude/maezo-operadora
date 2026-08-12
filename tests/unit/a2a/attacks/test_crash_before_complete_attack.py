@@ -39,7 +39,6 @@ from maezo.a2a import (
     DelegationDispatcher,
     DelegationEnvelope,
     FactProducer,
-    HandlerOutput,
     fact_dedup_key,
 )
 from maezo.a2a.facts import TOPIC_COMPLETED

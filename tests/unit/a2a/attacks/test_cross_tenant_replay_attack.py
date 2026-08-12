@@ -102,7 +102,7 @@ async def test_real_composite_pk_isolates_tenants_no_cross_tenant_serve() -> Non
     assert set(store.rows) == {(_TASK_ID, _TENANT_A), (_TASK_ID, _TENANT_B)}
 
 
-async def test_red_control_tenant_blind_key_serves_tenant_A_result_to_tenant_B() -> None:
+async def test_red_control_tenant_blind_key_serves_tenant_a_result_to_tenant_b() -> None:
     """RED CONTROL — the attack SUCCEEDS when the defense is neutered. Drop the tenant from the key
     and B COLLIDES with A: B is served tenant A's process reference (`process://amha/...`) as an
     idempotent replay. That cross-tenant serve is the observable harm the composite PK prevents."""
@@ -138,7 +138,7 @@ async def test_store_composite_pk_second_tenant_claim_is_a_fresh_claim() -> None
     assert await store.claim_or_get(tenant=_TENANT_B, task_id=_TASK_ID) is None
 
 
-async def test_red_control_store_tenant_blind_pk_leaks_tenant_A_stored_result() -> None:
+async def test_red_control_store_tenant_blind_pk_leaks_tenant_a_stored_result() -> None:
     """RED CONTROL at the store: with the tenant dropped, B's `claim_or_get` returns tenant A's
     sealed `StoredResult` — the leak, isolated from the dispatcher."""
     store = ModelIdempotencyStore(key_fn=tenant_blind_pk)

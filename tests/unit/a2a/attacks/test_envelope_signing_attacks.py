@@ -213,7 +213,7 @@ def test_a_future_dated_signature_is_rejected() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_disclosed_gap_tampering_unsigned_payload_meta_is_NOT_defended_today() -> None:
+def test_disclosed_gap_tampering_unsigned_payload_meta_is_not_defended_today() -> None:
     """HONEST NEGATIVE (ADR-0039 §4.5 Tamper scope + §Perguntas abertas 1). `payload_meta` — which
     carries the TUSS code, `valor_estimado_brl`, the `prestador_id` Carolina turns into the CIB
     business key, and Andre's `valor_pagamento_cents` — is NOT in the §4.1 mandated digest. So
@@ -226,7 +226,12 @@ def test_disclosed_gap_tampering_unsigned_payload_meta_is_NOT_defended_today() -
     signed = verifier.sign(env)
     # An attacker rewrites the money and the business key inside payload_meta:
     meta_tampered = replace(
-        env, payload_meta={"codigo_procedimento_tuss": "99999999", "valor_estimado_brl": "999999.0", "prestador_id": "attacker"}
+        env,
+        payload_meta={
+            "codigo_procedimento_tuss": "99999999",
+            "valor_estimado_brl": "999999.0",
+            "prestador_id": "attacker",
+        },
     )
     # The digest is IDENTICAL (payload_meta never enters it today)...
     assert _digest_of(meta_tampered, signed) == _digest_of(env, signed)
@@ -234,7 +239,7 @@ def test_disclosed_gap_tampering_unsigned_payload_meta_is_NOT_defended_today() -
     assert verifier.verify(replace(signed, envelope=meta_tampered)) is True
 
 
-def test_disclosed_gap_tampering_unsigned_task_type_is_NOT_defended_today() -> None:
+def test_disclosed_gap_tampering_unsigned_task_type_is_not_defended_today() -> None:
     """HONEST NEGATIVE (§Perguntas abertas 2): `task_type` is also outside the §4.1 digest, so
     swapping it does not change the digest and the verifier accepts it. It ranks below `payload_meta`
     only because admission still cross-checks it against the target's Card; the SIGNATURE does not."""

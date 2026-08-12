@@ -90,7 +90,12 @@ class BusinessKeyHandler:
     SAME key and the engine can dedup it). Counts its own calls so the seal-vs-effect distinction
     is observable per layer."""
 
-    def __init__(self, engine: BusinessKeyEngine | NonIdempotentEngine, *, output_ref: str = "process://dossier-out") -> None:
+    def __init__(
+        self,
+        engine: BusinessKeyEngine | NonIdempotentEngine,
+        *,
+        output_ref: str = "process://dossier-out",
+    ) -> None:
         self._engine = engine
         self._output_ref = output_ref
         self.calls = 0

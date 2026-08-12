@@ -51,8 +51,7 @@ from maezo.gateway.audit_postgres import normalize_dsn
 pytestmark = pytest.mark.integration
 
 _MIGRATION = (
-    Path(__file__).resolve().parents[4]
-    / "src/maezo/platform/migrations/versions/0003_a2a_idempotency.py"
+    Path(__file__).resolve().parents[4] / "src/maezo/platform/migrations/versions/0003_a2a_idempotency.py"
 )
 
 
@@ -149,7 +148,9 @@ async def test_real_composite_pk_permits_two_tenants_same_task_id(pg_dsn: str, t
         await conn.close()
 
 
-async def test_red_control_tenant_blind_pk_collides_on_the_second_tenant(pg_dsn: str, tenant_schema: str) -> None:
+async def test_red_control_tenant_blind_pk_collides_on_the_second_tenant(
+    pg_dsn: str, tenant_schema: str
+) -> None:
     """RED CONTROL, live: with the tenant dropped from the PK, tenant B's row COLLIDES with tenant
     A's for the same task_id — a `UniqueViolationError`. This is the cross-tenant serve/leak the real
     composite PK prevents, made concrete against a real server."""
@@ -222,8 +223,6 @@ async def test_complete_is_idempotent_a_second_seal_never_overwrites_the_first(
             result=DelegationResult.rejected("task-seal-live-1", RejectionReason.NO_HANDLER),
         )
         sealed = await store.claim_or_get(tenant=tenant_schema, task_id="task-seal-live-1")
-        assert sealed == StoredResult(
-            task_id="task-seal-live-1", success=True, output_ref="process://WINNER"
-        )
+        assert sealed == StoredResult(task_id="task-seal-live-1", success=True, output_ref="process://WINNER")
     finally:
         await store.aclose()
