@@ -137,13 +137,74 @@ _EXPECTED: dict[type[BaseInferenceProvider], tuple[str, ProviderCapabilities, bo
 }
 
 
+def _all_subclasses(root: type) -> set[type]:
+    """Every subclass of ``root``, TRANSITIVELY — children, grandchildren, deeper.
+
+    ``type.__subclasses__()`` returns DIRECT children ONLY. That is not a detail here: the
+    natural shape for the next provider is a specialization of an existing one — e.g.
+    ``class BrResidentProvider(PhiZoneMockProvider)`` for the BR-resident adapter — which
+    makes it a GRANDCHILD of :class:`BaseInferenceProvider`. A one-level walk cannot see
+    such a class, so a genuinely PHI-eligible provider could be added to the module and
+    still pass every guard below, which is precisely the drift they exist to catch.
+    """
+    found: set[type] = set()
+    pending: list[type] = list(root.__subclasses__())
+    while pending:
+        cls = pending.pop()
+        if cls in found:
+            continue
+        found.add(cls)
+        pending.extend(cls.__subclasses__())
+    return found
+
+
 def _concrete_providers_defined_in_module() -> set[type[BaseInferenceProvider]]:
-    """Every provider class DEFINED in ``maezo.runtime.inference``.
+    """Every provider class DEFINED in ``maezo.runtime.inference``, at ANY depth.
 
     Filtered by ``__module__`` so that provider subclasses defined inside this test file
     (the ``__init_subclass__`` drift probes below) never leak into the guard.
     """
-    return {cls for cls in BaseInferenceProvider.__subclasses__() if cls.__module__ == _INFERENCE_MODULE}
+    return {cls for cls in _all_subclasses(BaseInferenceProvider) if cls.__module__ == _INFERENCE_MODULE}
+
+
+def test_the_provider_population_is_walked_transitively() -> None:
+    """REGRESSION CONTROL for the grandchild blind spot in the population helper.
+
+    Anti-vacuity for every guard that consumes
+    :func:`_concrete_providers_defined_in_module`: it proves the walk actually descends
+    past the first level, rather than the guards merely *appearing* to hold because the
+    module happens to have a flat hierarchy today. The two assertions are deliberately
+    paired — the first pins the blind spot (a grandchild IS absent from a one-level
+    ``__subclasses__()``), the second pins that the helper's walk closes it.
+
+    Asserted on classes defined HERE, which the ``__module__`` filter keeps out of the
+    guards themselves.
+    """
+
+    class _ProbeChild(BaseInferenceProvider):
+        capabilities = _SATISFYING
+        phi_capable = _SATISFYING.phi_allowed
+
+        async def generate(
+            self,
+            prompt: str,
+            *,
+            agent_id: str | None = None,
+            tenant_id: str | None = None,
+        ) -> str:  # pragma: no cover - never invoked
+            return ""
+
+        def health_check(self) -> dict[str, str]:  # pragma: no cover - never invoked
+            return {"status": "warning", "message": "test double"}
+
+    class _ProbeGrandchild(_ProbeChild):
+        capabilities = _SATISFYING
+        phi_capable = _SATISFYING.phi_allowed
+
+    assert _ProbeGrandchild not in BaseInferenceProvider.__subclasses__()  # the blind spot itself
+    assert {_ProbeChild, _ProbeGrandchild} <= _all_subclasses(BaseInferenceProvider)
+    # …and the `__module__` filter still keeps these test doubles out of the real guards.
+    assert not {_ProbeChild, _ProbeGrandchild} & _concrete_providers_defined_in_module()
 
 
 def test_capability_table_covers_every_provider_in_the_module() -> None:
@@ -151,7 +212,9 @@ def test_capability_table_covers_every_provider_in_the_module() -> None:
 
     Without this, a fourth provider could ship with any capability declaration at all —
     or none reviewed — and every per-provider assertion below would still pass, because
-    they only iterate over what the table already knows about.
+    they only iterate over what the table already knows about. Population is walked
+    TRANSITIVELY (see :func:`_all_subclasses`): a provider written as a subclass of an
+    existing provider is caught here, not silently exempted from review.
     """
     assert _concrete_providers_defined_in_module() == set(_EXPECTED)
 
@@ -159,6 +222,34 @@ def test_capability_table_covers_every_provider_in_the_module() -> None:
 def test_provider_factory_registry_matches_hardcoded_names() -> None:
     """The selectable ``MAEZO_INFERENCE_PROVIDER`` values are pinned to a hardcoded set."""
     assert set(_PROVIDER_FACTORIES) == {"noop", "anthropic", "phi_zone_mock"}
+
+
+def test_registry_and_class_hierarchy_agree_on_the_provider_population(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """BELT AND SUSPENDERS: two independently-anchored populations must name the same providers.
+
+    Population A is the CLASS HIERARCHY (:func:`_concrete_providers_defined_in_module`,
+    transitive, anchored on what is actually defined). Population B is what
+    ``MAEZO_INFERENCE_PROVIDER`` can actually SELECT: every registered factory is INVOKED
+    and the class it builds is read off the object — anchored on construction, not on
+    introspection, with the registry's keys separately pinned to literals by
+    ``test_provider_factory_registry_matches_hardcoded_names``.
+
+    Neither population subsumes the other, which is the point. A defined-but-unregistered
+    provider (the grandchild drift) inflates A only; a provider registered from OUTSIDE
+    this module — which A's ``__module__`` filter would drop — inflates B only. The
+    hardcoded ``_EXPECTED`` table is the third anchor both are compared against, so
+    agreement cannot be manufactured by editing one side.
+    """
+    monkeypatch.setenv("MAEZO_ANTHROPIC_API_KEY", "sk-ant-test")
+
+    built_by_the_registry = {
+        name: type(factory(InferenceSettings(provider=name))) for name, factory in _PROVIDER_FACTORIES.items()
+    }
+
+    assert built_by_the_registry == {name: cls for cls, (name, _, _) in _EXPECTED.items()}
+    assert set(built_by_the_registry.values()) == _concrete_providers_defined_in_module()
 
 
 @pytest.mark.parametrize("provider_cls", list(_EXPECTED), ids=lambda c: c.__name__)
