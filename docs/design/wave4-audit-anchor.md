@@ -206,6 +206,32 @@ com allowlist HARDCODED e **VAZIA** (`test_no_production_module_imports_the_anch
 a perna 2 entregar seu módulo de comparação/agendamento, **aquela lista** é onde o novo importador é
 declarado — deliberadamente, num diff que o revisor vê, nunca como alargamento silencioso.
 
+**Grafias que a cerca pega** (`_CAUGHT_IMPORT_SPELLINGS`, cada uma exercitada uma a uma por
+`test_import_fence_predicate_catches_every_spelling` — a matriz não pode apodrecer longe do código
+que a implementa):
+
+| grafia | onde `audit_anchor` aparece |
+| --- | --- |
+| `from maezo.gateway.audit_anchor import X` (com/sem `as`) | `ImportFrom.module` |
+| `from .audit_anchor import X` | `ImportFrom.module` (relativo) |
+| `import maezo.gateway.audit_anchor` (com/sem `as`) | `Import.names` |
+| `from maezo.gateway import audit_anchor` (com/sem `as`) | **`ImportFrom.names`** |
+| `from . import audit_anchor` / `from .. import gateway, audit_anchor` | **`ImportFrom.names`** |
+
+As duas últimas linhas são o **reparo do achado F1** da revisão externa: o predicado original lia
+só `ImportFrom.module`, e nessas formas o MÓDULO é um *nome* enquanto `node.module` é o **pacote**
+(ou `None`). A cerca ficava **VERDE** com o import plenamente vivo. O ramo de `node.names` casa por
+**igualdade exata**; existe um único `audit_anchor` na árvore, e se algum homônimo surgir o modo de
+falha é **falso alarme** numa cerca de allowlist vazia — alto e seguro, nunca perda silenciosa.
+
+**Grafias que a cerca NÃO pega, divulgadas** (`_UNCAUGHT_IMPORT_SPELLINGS`):
+`importlib.import_module("maezo.gateway.audit_anchor")`, `__import__`, e acesso por atributo através
+do pacote pai (`import maezo.gateway` e depois `maezo.gateway.audit_anchor.write_anchor(...)`, que
+só resolve se algo já tiver importado o submódulo). São **fora do escopo de AST por construção** —
+import por string não é nó de import. O que compensa não é um predicado mais esperto, e sim o
+**formato da allowlist**: ela é VAZIA, então nenhum importador é admitido e qualquer rota vira diff
+revisado.
+
 ## 7. Controles RED — sondas executadas (mutar → vermelho → reverter)
 
 Higiene: `PYTHONDONTWRITEBYTECODE=1`, purge de `__pycache__` antes e depois, e **commit antes de
@@ -219,6 +245,18 @@ sondar** (para `git checkout --` não comer trabalho).
 | D8 | remover o early-return de `anchor_writes_enabled()` em `write_anchor` | **3 failed, 99 passed** — `test_disabled_writer_touches_no_seam_and_no_filesystem`, `test_disabled_writer_creates_no_file_even_with_a_real_store`, `test_disabled_writer_is_inert_even_with_no_seams_injected` |
 | D9 | `gateway/custody.py` importar `write_anchor` | **1 failed, 101 passed** — `test_no_production_module_imports_the_anchor_writer` (aponta `gateway/custody.py`) |
 
+### 7.1 Segunda rodada — sondas dos reparos de revisão externa (F1–F4)
+
+Mesma higiene. A suíte foi de **102 → 121** testes; as contagens abaixo são pós-reparo.
+
+| # | achado | neutralização aplicada | resultado observado |
+| --- | --- | --- | --- |
+| D9 | F1 (MAJOR) | `gateway/custody.py`: `from maezo.gateway import audit_anchor` | **ANTES do reparo: 102 passed, 0 failed** com o import VIVO (`maezo.gateway.audit_anchor` em `sys.modules`, `write_anchor` alcançável) — a cerca era vácua nessa grafia. **DEPOIS: 1 failed, 113 passed** — `test_no_production_module_imports_the_anchor_writer` aponta `gateway/custody.py`. Revertido → **114 passed** |
+| D9 | F1 (MAJOR) | `gateway/__init__.py`: `from . import audit_anchor` (forma relativa) | **1 failed, 113 passed** — mesma asserção, aponta `gateway/__init__.py`. Revertido → **114 passed** |
+| D11 | F2 | remover a checagem `is_relative_to` de `_resolve` | **3 failed, 118 passed** — `..._escapes_via_a_symlinked_intermediate_dir`, `..._refuses_reading_through_a_symlinked_intermediate_dir`, `..._refuses_a_final_component_symlink`. Sonda direta pré-reparo: `put("amh/a.anchor.json", …)` com `<root>/amh` symlinkado gravou **fora da raiz** (`…/outside/a.anchor.json` == `b"ESCAPED-PAYLOAD"`); pós-reparo, `AnchorKeyError` e `outside` vazio |
+| D7/F3 | F3 | fazer o store resistir a adulteração pós-escrita pela própria API (cache write-through em `put`/`get`) | **1 failed, 120 passed** — `test_worm_store_read_only_mode_is_not_integrity_against_the_owner`. É o comportamento **projetado**: o pin de divulgação fica vermelho quando a classe passa a resistir ao próprio UID, e a resposta certa é reescrever a divulgação **para cima** |
+| D12 | F4 | re-içar `from …audit_postgres import schema_for_tenant` para escopo de módulo | **2 failed, 119 passed** — `test_anchor_module_imports_only_pure_names_from_the_audit_modules` (o pin é por ESCOPO) e `test_importing_the_anchor_module_does_not_drag_in_asyncpg`, cuja saída de interpretador limpo volta a `'34 True True'` (marginal 34, `asyncpg` presente, `audit_postgres` presente) contra `'1 False False'` no estado reparado |
+
 **Achado da primeira sonda D1 (reparado, commit `d292af6`):**
 `test_every_checkpoint_field_changes_the_root[...]` permanecia **VERDE** sob exatamente a mutação
 que existe para pegar. Ele comparava contra `_PINNED_ROOT`; ao remover a chave do mapping, a raiz de
@@ -226,10 +264,20 @@ base **também** muda, então `mutado != pinado` continuava verdadeiro enquanto 
 passavam a hashar **identicamente**. A base agora é recomputada, e a comparação é entre duas raízes
 vivas. Canário que não pode falhar não é canário.
 
-**Nota de forma da sonda D9:** importar `audit_anchor` de dentro de `gateway/audit_postgres.py`
-produz `ImportError` de import circular (a âncora importa `schema_for_tenant` de lá) — recusa
-estrutural mais forte que a asserção, mas que aborta a coleta antes do teste rodar. A sonda foi
-refeita com um importador acíclico (`gateway/custody.py`) para exercitar de fato a asserção.
+**Nota de forma da sonda D9 — corrigida pelo reparo F4.** A redação original dizia: importar
+`audit_anchor` de dentro de `gateway/audit_postgres.py` produz `ImportError` de import circular (a
+âncora importava `schema_for_tenant` de lá), recusa estrutural mais forte que a asserção mas que
+aborta a coleta antes do teste rodar; a sonda foi então refeita com um importador acíclico
+(`gateway/custody.py`).
+
+**Isso deixou de valer.** Com o import preguiçoso do F4, `audit_anchor` não importa mais
+`audit_postgres` em escopo de módulo, então **não há ciclo**: re-executada agora, a sonda importa
+limpo (`import maezo.gateway.audit_postgres` OK) e a cerca faz o seu trabalho — **1 failed, 120
+passed**, `test_no_production_module_imports_the_anchor_writer` apontando
+`gateway/audit_postgres.py`. A asserção passou a cobrir o caso que antes só o interpretador cobria,
+e a cobertura ficou **mais forte**, não mais fraca: um `ImportError` de ciclo é acidente de
+topologia de import, não uma cerca — some assim que a topologia muda, exatamente como acabou de
+acontecer.
 
 ## 8. Handoff para as pernas 2 e 3
 
