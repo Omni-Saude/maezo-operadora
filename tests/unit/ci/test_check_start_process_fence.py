@@ -46,20 +46,69 @@ def test_real_tree_is_not_vacuous_the_fence_is_actually_called() -> None:
     assert result.scanned_files > 100  # sanity: the scan covers the real tree, not a stub
 
 
-def test_real_tree_allowlist_is_exactly_the_two_transport_files() -> None:
+def test_real_tree_allowlist_is_exactly_the_three_transport_decorator_files() -> None:
     """Pin the allowlist explicitly (task requirement: "enumerate them by grep and pin the
-    allowlist explicitly") — both files must exist, and the set must not silently grow."""
+    allowlist explicitly") — every file must exist, and the set must not silently grow.
+
+    ONDA 1 B2 added the THIRD entry, `gateway/seams/cibseven.py`, on the same grounds as
+    `tools/workers/cibseven_engine.py`: a Protocol-preserving `CibSevenTransport` decorator whose
+    `start_process_instance` is a pure pass-through (no decision, no audit, no client of its own),
+    so it wraps the existing start path rather than creating a second one. The next test asserts
+    that pass-through property structurally, so the entry cannot quietly become a real start site.
+    """
     assert (
         frozenset(
             {
                 "tools/mcp_cibseven/transport.py",
                 "tools/workers/cibseven_engine.py",
+                "gateway/seams/cibseven.py",
             }
         )
         == SANCTIONED_RELATIVE_PATHS
     )
     for rel in SANCTIONED_RELATIVE_PATHS:
         assert (_SRC_DIR / rel).is_file(), f"allowlisted path {rel} does not exist under {_SRC_DIR}"
+
+
+def test_gated_transport_start_is_a_pure_passthrough_not_a_second_start_path() -> None:
+    """The price of the third allowlist entry, charged structurally.
+
+    `GatedCibSevenTransport.start_process_instance` is exempted from the fence because it does
+    NOTHING but forward to the inner transport. If a future edit gives it a decision, an audit
+    emit, a retry, or a client of its own, that exemption stops being honest — so assert the
+    property directly on the AST instead of trusting the comment: the body must be exactly one
+    assignment whose value is an `await self._inner.start_process_instance(...)`, plus the return.
+    """
+    import ast
+
+    source = (_SRC_DIR / "gateway/seams/cibseven.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    fn = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "start_process_instance"
+    )
+    # Strip the docstring, then require: `x = await self._inner.start_process_instance(...)`; `return x`.
+    body = [
+        stmt for stmt in fn.body if not (isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Constant))
+    ]
+    assert len(body) == 2, f"expected a 2-statement pass-through, got {len(body)} statements"
+    assign, ret = body
+    assert isinstance(assign, ast.AnnAssign | ast.Assign)
+    awaited = assign.value
+    assert isinstance(awaited, ast.Await), "the pass-through must delegate, not compute"
+    call = awaited.value
+    assert isinstance(call, ast.Call)
+    assert isinstance(call.func, ast.Attribute)
+    assert call.func.attr == "start_process_instance"
+    assert isinstance(call.func.value, ast.Attribute) and call.func.value.attr == "_inner"
+    assert isinstance(ret, ast.Return)
+    # And no `gate(...)` call anywhere inside it — gating here would land AFTER the durable claim.
+    assert not [
+        node
+        for node in ast.walk(fn)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "gate"
+    ], "start_process_instance must NOT be gated — a denial there wedges a strict business key"
 
 
 def test_allowlisted_transport_module_is_exempted_despite_calling_start_process_instance() -> None:

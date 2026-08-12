@@ -67,6 +67,12 @@ from maezo.a2a.dispatcher import KafkaLike
 from maezo.agents.andre.delegation import make_andre_handler
 from maezo.agents.carolina.delegation import make_carolina_handler
 from maezo.agents.rafael.delegation import make_rafael_handler
+from maezo.gateway.tool_registry import (
+    build_a2a_seam,
+    build_agent_seam_context,
+    build_inference_seam,
+    build_worker_seam_context,
+)
 from maezo.runtime.inference import InferenceProvider
 from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
 from maezo.tools.workers.dmn_transport import DmnTransport
@@ -219,7 +225,11 @@ def build_auth_delegation_dispatcher(
     silent downgrade (design doc §6.2 for why key provisioning is an external dependency).
     """
     tenant = settings.tenant_id
-    tool_deps = _build_tool_deps(settings)
+    # ONDA 1 §5.5, counterexample C-A2: this root used to construct its OWN `InferenceProvider()`
+    # below, independently of `_build_tool_deps` — so the LLM seam was ungated on the A2A/dossier
+    # edges even once the agent-runtime root was wired. The provider is now resolved through the
+    # SAME registry call as every other seam, and Rafael's handler receives the GATED one.
+    tool_deps = _build_tool_deps(settings, inference=inference or InferenceProvider())
     missing = [name for name in ("dmn", "cibseven", "audit_sink") if name not in tool_deps]
     if missing:
         raise ValueError(
@@ -239,7 +249,7 @@ def build_auth_delegation_dispatcher(
     cards = build_agent_cards(tenant, _EDGE_AGENT_IDS, signer=signer)
 
     handler: AgentHandler = make_rafael_handler(
-        inference or InferenceProvider(),
+        tool_deps["inference"],
         dmn=tool_deps["dmn"],
         cibseven=tool_deps["cibseven"],
         audit_sink=tool_deps["audit_sink"],
@@ -263,14 +273,22 @@ def build_auth_delegation_dispatcher(
         durable_idempotency=idempotency is not None,
         card_signing_enforced=signer is not None,
     )
-    return build_dispatcher(
-        tenant=tenant,
-        cards=cards,
-        handlers={"rafael": handler},
-        audit=audit,
-        facts=facts,
-        idempotency=idempotency,
-        verifier=signer,
+    # ONDA 1 §5.5: the assembled dispatcher is handed out GATED (`delegacao_a2a`, C3). The
+    # principal is HELENA — she originates this edge (`agents/helena/delegation.py:137`), and the
+    # capability the decision asks about is hers, not Rafael's. The gate wraps the FINISHED
+    # dispatcher, so every anti-loop / idempotency / Card-signature guard inside it stays exactly
+    # where it was and keeps refusing with the chokepoint removed (I-6).
+    return build_a2a_seam(
+        seam=build_agent_seam_context(tenant=tenant, agent_id="helena"),
+        inner=build_dispatcher(
+            tenant=tenant,
+            cards=cards,
+            handlers={"rafael": handler},
+            audit=audit,
+            facts=facts,
+            idempotency=idempotency,
+            verifier=signer,
+        ),
     )
 
 
@@ -337,7 +355,11 @@ def build_dossier_delegation_dispatcher(
     )
     cards = build_agent_cards(tenant, _DOSSIER_EDGE_AGENT_IDS, signer=signer)
 
-    llm = inference or InferenceProvider()
+    # ONDA 1 §5.5 / C-A2, second of the two independent constructions: the dossier edge's LLM seam
+    # is gated too. The `dmn`/`cibseven` seams arrive ALREADY gated from the worker root — they are
+    # injected, not rebuilt here (this root's own docstring), so double-wrapping cannot happen.
+    worker_seam = build_worker_seam_context(tenant=tenant)
+    llm = build_inference_seam(seam=worker_seam, inner=inference)
     carolina_handler: AgentHandler = make_carolina_handler(
         llm, dmn=dmn, cibseven=cibseven, audit_sink=audit_sink
     )
@@ -354,12 +376,20 @@ def build_dossier_delegation_dispatcher(
         durable_idempotency=idempotency is not None,
         card_signing_enforced=signer is not None,
     )
-    return build_dispatcher(
-        tenant=tenant,
-        cards=cards,
-        handlers={"carolina": carolina_handler, "andre": andre_handler},
-        audit=audit_sink,
-        facts=facts,
-        idempotency=idempotency,
-        verifier=signer,
+    # ONDA 1 §5.5, third construction site. Principal `worker_runtime`: these edges are
+    # WORKER-originated (`operadora.cred.prepare_dossier` and the two adequacao/pagto topics), and
+    # there is no `agent.yaml` for a worker daemon — see `build_worker_seam_context` for why the
+    # honest consequence is a `CAPACIDADE_INDISPONIVEL` would-deny rather than a fabricated
+    # capability record.
+    return build_a2a_seam(
+        seam=worker_seam,
+        inner=build_dispatcher(
+            tenant=tenant,
+            cards=cards,
+            handlers={"carolina": carolina_handler, "andre": andre_handler},
+            audit=audit_sink,
+            facts=facts,
+            idempotency=idempotency,
+            verifier=signer,
+        ),
     )

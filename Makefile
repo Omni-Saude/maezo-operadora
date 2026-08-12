@@ -1,5 +1,6 @@
 .PHONY: setup lint type test test-integration evals validate-artifacts validate-signoff \
-        check-bpmn-error-allowlist check-start-process-fence verify-amh-contract-pin \
+        check-bpmn-error-allowlist check-start-process-fence effect-chokepoint-fence \
+        verify-amh-contract-pin \
         xfail-census-check xfail-census-write \
         deploy-artifacts dev-stack dev-observability tf-validate localstack-up tf-smoke helm-lint
 
@@ -53,12 +54,27 @@ check-bpmn-error-allowlist: ## ADR-0030 §2: prova que todo WorkerBpmnError rais
 	uv run python scripts/ci/check_bpmn_error_allowlist.py
 
 check-start-process-fence: ## T3.4 F1: nenhuma chamada direta a start_process_instance fora do allowlist da fence (ADR-0007/T-C2)
-	# AST-scan repo-wide de src/maezo: `start_process_idempotent` (mcp_cibseven/transport.py:560)
+	# AST-scan repo-wide de src/maezo: `start_process_idempotent` (mcp_cibseven/transport.py:1052)
 	# e o UNICO chokepoint de start de processo sancionado (emit-before-effect + idempotencia por
 	# business_key). Uma chamada direta a `transport.start_process_instance(...)` (ou um POST
 	# hand-rolled a /process-definition/key/{key}/start) fora do allowlist pinado (a propria
 	# transport.py + o decorator cibseven_engine.py) falha o gate, apontando para a fence.
 	uv run python scripts/ci/check_start_process_fence.py
+
+effect-chokepoint-fence: ## Onda 1 design §8: chokepoint de efeitos INEVITAVEL — construcao crua/import de politica/duplo de teste fora do registry falha o gate
+	# AST-scan repo-wide de src/maezo (design §8.1-8.4) + completude contra o catalogo/manifesto
+	# (§8.5): construcao das 15 classes de efeito cruas (CibSevenHttpTransport, FhirServer,
+	# WhatsAppServer, InferenceProvider, DelegationDispatcher, ...) fora de gateway/tool_registry.py
+	# + gateway/seams/*.py; cliente httpx cru ou literal de REST-path de efeito fora dos 5 modulos
+	# de transporte legitimos; import do plano de politica (transportes concretos) ou leitura de
+	# MAEZO_SPEC_DIR/MAEZO_ACTION_APPROVALS_PATH/MAEZO_ACTION_APPROVALS_ALLOW_OVERRIDE_ENFORCEMENT
+	# fora de maezo/gateway (+ agents/__init__.py); duplo de teste Fake*/*Mock*/Noop* alcancavel de
+	# uma raiz de composicao de producao. O gate tambem prova nao-vacuidade: o registry constroi
+	# toda classe fenced, todo tool id de agent.yaml resolve no catalogo fechado (excecao unica e
+	# disclosed mcp-memory.read_write), catalogo<->manifesto batem, e as 15 classes tem forma de
+	# recusa declarada + teste de mutacao (ladder do design §6.1). O fence de start-process
+	# (T3.4 F1) permanece separado e inalterado — protege um invariante diferente.
+	uv run python scripts/ci/check_effect_chokepoint_fence.py
 
 verify-amh-contract-pin: ## ADR-0037 XRD-04 (MZO-010/XRG-3): pin imutavel do contrato AMH intacto, completo e nao-regressivo
 	# XRD-04 verbatim: "Digest divergente, schema ausente, topico errado ou versao rebaixada falham

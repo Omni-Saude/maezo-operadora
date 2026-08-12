@@ -63,12 +63,18 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from maezo.gateway.audit_postgres import PostgresAuditSink
+from maezo.gateway.seams.cibseven import GatedCibSevenTransport
+from maezo.gateway.tool_registry import (
+    BRIDGE_PRINCIPAL,
+    build_cibseven_seam,
+    build_worker_seam_context,
+    effect_seams_gated,
+)
 from maezo.platform.notification_bridge import (
     HandoffResult,
     NotificationBridge,
     build_cibseven_process_starter,
 )
-from maezo.tools.mcp_cibseven.transport import CibSevenHttpTransport
 
 if TYPE_CHECKING:
     from aiokafka import AIOKafkaConsumer  # type: ignore[import-untyped]  # pragma: no cover
@@ -306,7 +312,9 @@ async def run_consumer_loop(
 # ---------------------------------------------------------------------------
 
 
-def build_bridge(settings: NotificationsBridgeSettings) -> tuple[NotificationBridge, CibSevenHttpTransport]:
+def build_bridge(
+    settings: NotificationsBridgeSettings,
+) -> tuple[NotificationBridge, GatedCibSevenTransport]:
     """Construct the `NotificationBridge` wired to the FENCED starter — the only sanctioned
     production path (`build_cibseven_process_starter`'s own docstring). Never a raw/un-audited
     starter reaches production from this composition root.
@@ -322,11 +330,28 @@ def build_bridge(settings: NotificationsBridgeSettings) -> tuple[NotificationBri
             "constructed in production)."
         )
     audit_sink = PostgresAuditSink(settings.database_url, settings.tenant_id)
-    transport = CibSevenHttpTransport(
-        settings.cibseven_base_url,
+    # ONDA 1 §5.5, root (d). The engine transport comes from the ONE sanctioned constructor and is
+    # GATED. Re-derived while wiring this: `platform/notification_bridge.py:1034`
+    # (`build_cibseven_process_starter`) does NOT construct a transport — it RECEIVES one — so this
+    # function is the bridge's only construction site and there is no second root to wire.
+    #
+    # Principal is `notifications_bridge`, not an agent id: this daemon has no `agent.yaml`, so it
+    # has no declared-capability record and every call is an honest `CAPACIDADE_INDISPONIVEL`
+    # would-deny at L-1 (see `build_worker_seam_context`). Inventing a capability list to tidy the
+    # telemetry would be inventing a governance record.
+    seam = build_worker_seam_context(tenant=settings.tenant_id, principal=BRIDGE_PRINCIPAL)
+    transport = build_cibseven_seam(
+        seam=seam,
+        base_url=settings.cibseven_base_url,
         auth_token=settings.cibseven_auth_token,
         timeout=settings.client_timeout_s,
     )
+    gated, detail = effect_seams_gated({"cibseven": transport})
+    if not gated:
+        # §5.5's boot assertion, in this root's own fail-closed idiom (the DATABASE_URL check
+        # above is the precedent): refuse to construct rather than run a bridge that starts
+        # regulatory processes through an un-gated engine seam.
+        raise RuntimeError(f"notifications_bridge: effect seams not gated — refusing to start: {detail}")
     starter = build_cibseven_process_starter(transport, audit_sink)
     bridge = NotificationBridge(cibseven_starter=starter)
     return bridge, transport

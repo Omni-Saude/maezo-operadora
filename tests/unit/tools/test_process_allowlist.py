@@ -77,3 +77,24 @@ def test_allowlist_blocks_non_sp_op_format() -> None:
     tricky = "SP\u2010OP\u2010AUTH\u2010001"  # non-ASCII hyphens
     with pytest.raises(ProcessKeyNotAllowedError):
         ensure_allowed(tricky)
+
+
+@pytest.mark.parametrize("suffix", ["\n", "\n\n", "\nSP-OP-PAGTO-001"])
+def test_allowlist_blocks_a_trailing_newline(suffix: str) -> None:
+    """ONDA 1 GK nit: `\\Z`, not `$`, in `_PROCESS_KEY_PATTERN`.
+
+    Python's `$` also matches immediately BEFORE a trailing newline, so `"SP-OP-AUTH-001\\n"`
+    cleared the FORMAT check that exists as "defense against homoglyphs/encoding attacks" and
+    reached the membership test on its own. It failed there too \u2014 the key with the newline is not
+    in `KNOWN_PROCESS_KEYS` \u2014 so nothing was reachable through it, but a format guard that accepts
+    a value the format forbids is the wrong shape for a defense-in-depth check, and the gateway
+    mirror (`effect_pep._PROCESS_KEY_RE`) is used WITHOUT a membership test behind it.
+    """
+    with pytest.raises(ProcessKeyNotAllowedError):
+        ensure_allowed(f"SP-OP-AUTH-001{suffix}")
+
+
+def test_the_newline_tightening_leaves_every_real_key_valid() -> None:
+    """The control: `\\Z` narrows to the newline forms and nothing else. All 15 keys still pass."""
+    for key in KNOWN_PROCESS_KEYS:
+        ensure_allowed(key)

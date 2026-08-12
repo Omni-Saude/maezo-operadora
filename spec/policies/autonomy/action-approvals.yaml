@@ -99,7 +99,37 @@ status: DRAFT
 modo: shadow
 
 # ---------------------------------------------------------------------------------------------
+# enforcement_padrao_nao_mapeado — shadow | enforcing.  [ADITIVO — Onda 1, design §7.3]
+#
+# O valor aplicado a QUALQUER action ref que não resolva para uma classe: um tópico de
+# external-task fora de `mapeamento_topicos`, uma operação de agente fora de `mapeamento_acoes`.
+# Ausente, com typo, ou não-string => `shadow` (a direção segura).
+#
+# ⚠ DESVIO EXPLÍCITO E TEMPORÁRIO, declarado. O XRD-09 do ADR-0037 diz "ação/política desconhecida
+# ... negam". Ligar isso no dia 1, com ~80 tópicos ainda não mapeados e um namespace de agente
+# recém-criado, é uma indisponibilidade de plataforma — não um controle. Por isso o valor de
+# partida é `shadow`, e virá para `enforcing` como ATO TERMINAL do rollout (design §9.4 passo 7),
+# restaurando o XRD-09 literalmente. Aprovar esse desvio, e cravar o prazo dele, é decisão humana
+# (design Q-2) — nenhum agente pode mudar esta linha.
+# ---------------------------------------------------------------------------------------------
+enforcement_padrao_nao_mapeado: shadow
+
+# ---------------------------------------------------------------------------------------------
 # acoes — the action classes.
+#
+# `enforcement` (ADITIVO — Onda 1, design §7.3): shadow | enforcing, POR CLASSE. Ausente => shadow.
+#
+# Por que existe: `modo` é global. Virá-lo com UMA classe aprovada negaria todas as outras e todo
+# tópico não mapeado — ou seja, o enforcement progressivo por classe era IMPOSSÍVEL no modelo de
+# dados anterior. `Decision.enforced` passa a ser a CONJUNÇÃO `modo == enforcing AND
+# enforcement == enforcing`. Consequências preservadas, e testadas:
+#   * `modo: shadow` continua significando que NADA enforça, jamais (o teto global);
+#   * qualquer typo — em `modo` ou aqui — continua resolvendo para um estado NÃO-enforçante;
+#   * `status: DRAFT` continua tornando todo ALLOW inalcançável;
+#   * a aprovação continua exigindo os três domínios, por igualdade de conjunto.
+# `enforcement` NÃO é um substituto de aprovação: uma classe `enforcing` sem os três blocos
+# preenchidos apenas passa a BLOQUEAR o próprio DENY dela. A ordem do rollout (C0 → C4) está em
+# design §9.4, e cada virada continua sendo um ato humano em PR revisado (design Q-1).
 #
 # Derived from ADR-0037 XRD-09 ("todo read/tool/efeito externo") and from the LIVE runtime
 # surfaces in this repo. Every class below carries at least one real `superficies` referent with
@@ -116,17 +146,29 @@ modo: shadow
 # (`src/maezo/gateway/action_execution.py`). "Approve by shrinking the requirement list" is not a
 # reachable forgery.
 #
-# `superficies[].choked` records whether the surface flows through the chokepoint the gateway is
-# wired at TODAY (`WorkerHarness._handle`, src/maezo/tools/workers/harness.py). It is
-# DOCUMENTATION, not policy — the loader never reads it. It exists so an approver knows, per
+# `superficies[].choked` records whether the surface flows through a chokepoint that ACTUALLY
+# EVALUATES it today. There are now TWO, and both are real:
+#   1. `WorkerHarness._handle` (src/maezo/tools/workers/harness.py) — the external-task leg, keyed
+#      by topic. Unchanged by Onda 1.
+#   2. The Onda-1 agent seam layer (`src/maezo/gateway/seams/`, built ONLY by
+#      `src/maezo/gateway/tool_registry.py`) — the per-call leg for agent/worker tool seams.
+# It is DOCUMENTATION, not policy — the loader never reads it. It exists so an approver knows, per
 # class, whether shadow telemetry will actually give them evidence, or whether the surface is
-# still unwired. `choked: false` classes are listed because XRD-09 names them and ADR-0037's
-# ADR-0022 note requires `mcp_fhir` to route through this gateway; they will produce NO shadow
-# evidence until that wiring lands, and the approval packet says so explicitly.
+# still unwired: a class with zero shadow lines is not approvable (design I-10).
+#
+# ONDA 1 B2 flipped `choked: true` ONLY where the wiring makes it an OBSERVED FACT, and
+# `tests/unit/gateway/seams/test_manifest_choked_surfaces.py` makes the claim VERIFIABLE — every
+# `choked: true` surface must resolve to a catalogued operation in
+# `src/maezo/gateway/effect_classes.py` AND its construction site must route through the registry.
+# THREE surfaces deliberately STAYED `false`, each with its reason inline: the agent-initiated
+# process start (gating it would mean changing `start_process_idempotent`'s internals, which
+# design §5.8/I-6 forbid) and the two population/actuarial reads (the lake client is PORT-PENDING
+# WB.4, so nothing is injected and nothing can be observed). Truth over completeness.
 # ---------------------------------------------------------------------------------------------
 acoes:
 
   autorizacao_emissao:
+    enforcement: shadow
     descricao: >-
       Emissão de uma autorização prévia — o ato que abre cobertura para um procedimento.
       Efeito assistencial e financeiro direto sobre o beneficiário e o prestador.
@@ -141,6 +183,7 @@ acoes:
       seguranca: { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
 
   negativa_notificacao:
+    enforcement: shadow
     descricao: >-
       Emissão da NOTIFICAÇÃO de uma negativa já decidida por humano. A negativa em si é L0 hard
       (`authorization_denial`, L0-core.yaml:7) e nasce só em User Task; esta classe cobre o ato
@@ -159,6 +202,7 @@ acoes:
       seguranca: { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
 
   submissao_regulatoria_ans:
+    enforcement: shadow
     descricao: >-
       Submissão oficial a um canal da ANS (envio, retransmissão, resposta de NIP, recurso).
       Efeito regulatório externo com prazo legal; corresponde a `ans_official_submission`
@@ -183,6 +227,7 @@ acoes:
       seguranca: { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
 
   pagamento_emissao:
+    enforcement: shadow
     descricao: >-
       Liberação de pagamento (prestador ou reembolso ao beneficiário). Efeito financeiro
       irreversível; o teto L2 correspondente é `high_value_payment` (L0-core.yaml:21).
@@ -203,6 +248,7 @@ acoes:
       seguranca: { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
 
   vinculo_contratual_mudanca:
+    enforcement: shadow
     descricao: >-
       Mudança do vínculo contratual de um beneficiário ou prestador — suspensão, efetivação de
       cancelamento, notificação de rescisão, descredenciamento. Corresponde a
@@ -228,6 +274,7 @@ acoes:
       seguranca: { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
 
   acusacao_fraude_registro:
+    enforcement: shadow
     descricao: >-
       Registro de uma acusação de fraude ou encaminhamento ao jurídico. `fraud_accusation` é L0
       hard — "nunca acusa sozinha" (L0-core.yaml:12); a decisão nasce em User Task humana e esta
@@ -246,6 +293,7 @@ acoes:
       seguranca: { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
 
   comunicacao_beneficiario:
+    enforcement: shadow
     descricao: >-
       Contato externo dirigido ao beneficiário (mensagem proativa, resposta de DSR LGPD, pedido
       de prova adicional). Toca o titular diretamente e é a superfície natural de vazamento de
@@ -261,8 +309,10 @@ acoes:
         detalhe: "topic operadora.lgpd.request_additional_proof (raw handler)"
         choked: true
       - referencia: "src/maezo/tools/mcp_whatsapp/server.py:111"
-        detalhe: "WhatsAppServer.send_message — chamada direta do grafo do agente"
-        choked: false
+        detalhe: "WhatsAppServer.send_message — via GatedWhatsAppSender (Onda 1). Inclui o
+          caminho VIVO: o _ScopedWhatsAppSender por turno (dispatch.py) é o INNER do wrapper, então
+          o número CRU nunca chega à decisão nem a linha nenhuma de log"
+        choked: true
     dominios_exigidos: [medica, ans, seguranca]
     aprovacoes:
       medica:    { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
@@ -270,6 +320,7 @@ acoes:
       seguranca: { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
 
   inicio_processo_regulatorio:
+    enforcement: shadow
     descricao: >-
       Início de uma instância de processo regulatório SP-OP-* a partir de outro processo ou de um
       agente. Não é um efeito no mundo externo, mas cria obrigação de prazo regulatório; já tem
@@ -296,8 +347,12 @@ acoes:
       - referencia: "src/maezo/tools/workers/nip.py:562"
         detalhe: "topic operadora.nip.handoff_ans_submit"
         choked: true
-      - referencia: "src/maezo/tools/mcp_cibseven/transport.py:560"
-        detalhe: "start_process_idempotent — start iniciado por agente"
+      - referencia: "src/maezo/tools/mcp_cibseven/transport.py:1069"
+        detalhe: "start_process_idempotent — start iniciado por agente. SEGUE choked:false POR
+          DECISÃO, não por omissão: start_process_instance só é alcançado de DENTRO desta função,
+          DEPOIS da claim durável (:1152-1157), então negar ali encravaria a business key de
+          família estrita como uma queda de engine faz (:1195-1211). Gatear exige mexer nas
+          entranhas da fence — design §5.8/I-6 proíbem. Divulgado em gateway/seams/cibseven.py"
         choked: false
     dominios_exigidos: [medica, ans, seguranca]
     aprovacoes:
@@ -306,18 +361,23 @@ acoes:
       seguranca: { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
 
   leitura_phi_clinica:
+    enforcement: shadow
     descricao: >-
       Leitura de dado clínico PHI via FHIR (`read_phi_data`, L0-core.yaml:42, L3). XRD-09 põe
       "todo READ" no escopo do gateway, e a nota do ADR-0037 sobre o ADR-0022 diz explicitamente
       que o `mcp_fhir` DEVE rotear por este gateway quando o MZO-040 aterrissar.
-      SEM EVIDÊNCIA DE SOMBRA HOJE: nenhuma dessas superfícies passa pelo chokepoint atual.
+      PASSA A PRODUZIR EVIDÊNCIA DE SOMBRA (Onda 1 B2): as duas superfícies do leaf `FhirServer`
+      são alcançadas exclusivamente por adapters embrulhados em `GatedFhirReader`.
     superficies:
       - referencia: "src/maezo/tools/mcp_fhir/server.py:88"
-        detalhe: "FhirServer.read_resource — chamada direta do grafo do agente"
-        choked: false
+        detalhe: "FhirServer.read_resource — via GatedFhirReader (Onda 1), alcançado pelos
+          adapters de rafael/carolina/gustavo/andre (read_patient) e valentina
+          (read_patient_summary)"
+        choked: true
       - referencia: "src/maezo/tools/mcp_fhir/server.py:118"
-        detalhe: "FhirServer.search_resources — chamada direta do grafo do agente"
-        choked: false
+        detalhe: "FhirServer.search_resources — via GatedFhirReader (Onda 1), alcançado pelo
+          search_coverage do adapter do rafael"
+        choked: true
     dominios_exigidos: [medica, ans, seguranca]
     aprovacoes:
       medica:    { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
@@ -325,15 +385,168 @@ acoes:
       seguranca: { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
 
   delegacao_a2a:
+    enforcement: shadow
     descricao: >-
       Delegação agente-a-agente por envelope assinado. O contrato A2A é "instrui, não decide",
       mas a delegação atravessa fronteira de agente e carrega contexto — é um efeito de tool no
       sentido do XRD-09.
-      SEM EVIDÊNCIA DE SOMBRA HOJE: não passa pelo chokepoint atual.
+      PASSA A PRODUZIR EVIDÊNCIA DE SOMBRA (Onda 1 B2): `delegate` é gateado nas duas raízes de
+      composição de dispatcher.
     superficies:
       - referencia: "src/maezo/a2a/dispatcher.py:277"
-        detalhe: "A2ADispatcher.delegate"
+        detalhe: "DelegationDispatcher.delegate — via GatedDelegationDispatcher (Onda 1), nas
+          duas raízes de composição (aresta Helena->Rafael e as três de dossiê worker->
+          Carolina/Andre)"
+        choked: true
+    dominios_exigidos: [medica, ans, seguranca]
+    aprovacoes:
+      medica:    { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+      ans:       { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+      seguranca: { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+
+  # ===========================================================================================
+  # CLASSES DECLARADAS PELA ONDA 1 (design §6.1). TODAS `enforcement: shadow`, TODAS SEM
+  # APROVAÇÃO — declarar uma classe NÃO é aprová-la, e nenhum bloco abaixo foi tocado por agente.
+  # `choked`: a perna B2 desta mesma onda fiou os seams de agente e virou para `true` APENAS o
+  # que a fiação tornou FATO OBSERVADO (design §7.2 / I-10) — avaliacao_dmn (3/3),
+  # consulta_processo (3/3), correlacao_processo (1/1) e inferencia_llm (1/1) passam a produzir
+  # telemetria de sombra. `leitura_populacional` segue `false` nas duas superfícies: o wrapper
+  # existe, o cliente de lago não (PORT-PENDING WB.4), e virar sem cliente injetado seria alegar
+  # evidência que não existe. Uma classe sem nenhuma linha de telemetria de sombra não é
+  # aprovável — e é por isso que a virada é um relato, não uma intenção.
+  # ===========================================================================================
+
+  avaliacao_dmn:
+    enforcement: shadow
+    descricao: >-
+      Consulta determinística ao motor de decisão (DMN, ADR-0012) — `query_decision_engine`
+      (L0-core.yaml:36, L3). Não é efeito no mundo externo: é leitura interna de regra. Rung C0
+      do rollout progressivo, e por isso a primeira candidata a enforcement.
+      PASSA A PRODUZIR EVIDÊNCIA DE SOMBRA (Onda 1 B2): as 3 superfícies estão choked.
+    superficies:
+      - referencia: "src/maezo/agents/rafael/graph.py:548"
+        detalhe: "self._dmn.evaluate — a ÚNICA chamada de transporte por grafo, atrás do helper
+          privado _evaluate_dmn (:546). Via GatedDmnTransport (Onda 1)"
+        choked: true
+      - referencia: "src/maezo/agents/marina/graph.py:806"
+        detalhe: "self._dmn.evaluate — mesmo formato, helper _evaluate_dmn (:804). Via
+          GatedDmnTransport (Onda 1)"
+        choked: true
+      - referencia: "src/maezo/tools/workers/dmn_transport.py:345"
+        detalhe: "CibSevenDmnTransport.evaluate — perna de worker, via GatedDmnTransport resolvido
+          na raiz runtime/worker_runtime/service.py (Onda 1)"
+        choked: true
+    dominios_exigidos: [medica, ans, seguranca]
+    aprovacoes:
+      medica:    { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+      ans:       { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+      seguranca: { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+
+  consulta_processo:
+    enforcement: shadow
+    descricao: >-
+      Leitura de estado de instância no engine — `query_process_status` (L0-core.yaml:40, L3).
+      ITEM DE MAIOR RISCO DO RUNG C0: uma leitura NEGADA não pode ser lida como "não há instância
+      ativa". A consulta anti-dupla-terminação tem de falhar FECHADA (pular), igual ao
+      comportamento de hoje quando o engine está ausente.
+      PASSA A PRODUZIR EVIDÊNCIA DE SOMBRA (Onda 1 B2): as 3 superfícies estão choked.
+      ⚠ PRÉ-CONDIÇÃO 1 DA VIRADA — RESÍDUO PÓS-CLAIM (detalhe em
+      `src/maezo/gateway/seams/cibseven.py:29-35`): `find_active_instance` está gated e é chamada
+      em `src/maezo/tools/mcp_cibseven/transport.py:1182`, que é o passo 3 do
+      `start_process_idempotent` — ou seja, DEPOIS de o claim durável ADR-0007 já ter sido escrito
+      no passo 1 (`:1152-1157`). Com esta classe em `enforcing`, uma negativa ali propaga e nenhuma
+      instância é criada (a direção fail-closed que a forma `LEITURA_INCONCLUSIVA` exige), mas numa
+      família ESTRITA ela deixa um claim durável SEM instância no engine e SEM a linha
+      `cibseven_start_claim_orphaned` (`:1205` cobre apenas o ramo `start_process_instance`): uma
+      business key travada, sem anúncio. Inerte hoje porque nada enforça; virar esta classe exige
+      resolver isso ANTES, e não é defeito de Fase 0.
+      ⚠ PRÉ-CONDIÇÃO 2 DA VIRADA — O ENFORCEMENT É POR CLASSE, NÃO POR PRINCIPAL: virar esta classe
+      vale igualmente para os daemons que NÃO têm registro de capacidade. `worker_runtime` e
+      `notifications_bridge` não possuem `agent.yaml`, logo toda chamada deles nega em L-1 com
+      `CAPACIDADE_INDISPONIVEL` — o que derruba TODA leitura de engine da perna de worker, não
+      apenas as dos agentes. A primeira virada C0 portanto exige uma das duas coisas: criar
+      registros de capacidade para esses daemons, ou uma decisão humana explícita de aceitar esse
+      alcance. Nenhuma das duas é inferência de agente.
+    superficies:
+      - referencia: "src/maezo/tools/mcp_cibseven/transport.py:420"
+        detalhe: "CibSevenHttpTransport.get_process_status — via GatedCibSevenTransport (Onda 1)"
+        choked: true
+      - referencia: "src/maezo/tools/mcp_cibseven/transport.py:278"
+        detalhe: "CibSevenHttpTransport.find_active_instance (active=true apenas) — via
+          GatedCibSevenTransport (Onda 1). A recusa LEVANTA (subclasse de CibSevenError), jamais
+          devolve None: uma leitura negada não pode ser lida como 'não há instância ativa'"
+        choked: true
+      - referencia: "src/maezo/tools/mcp_cibseven/transport.py:307"
+        detalhe: "find_any_instance — a perna HistoryQueryingTransport do gate estrito. Via
+          GatedHistoryQueryingCibSevenTransport, construído SÓ quando o inner de fato a tem, para
+          que a sonda isinstance de _require_strict_gate_seams (:940-947) siga honesta"
+        choked: true
+    dominios_exigidos: [medica, ans, seguranca]
+    aprovacoes:
+      medica:    { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+      ans:       { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+      seguranca: { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+
+  correlacao_processo:
+    enforcement: shadow
+    descricao: >-
+      Correlação de mensagem BPMN a uma instância em curso — `correlate_process_message`
+      (L0-core.yaml:39, L2). Muta o engine: destrava (ou não) um receive task. Hoje é alcançável
+      CRUA a partir de qualquer grafo, que segura o `CibSevenTransport` diretamente — a Onda 1
+      B2 fecha isso: o objeto que o grafo segura JÁ É o gate.
+      PASSA A PRODUZIR EVIDÊNCIA DE SOMBRA (Onda 1 B2).
+    superficies:
+      - referencia: "src/maezo/tools/mcp_cibseven/transport.py:387"
+        detalhe: "CibSevenHttpTransport.correlate_message (Protocol em :151) — via
+          GatedCibSevenTransport (Onda 1)"
+        choked: true
+    dominios_exigidos: [medica, ans, seguranca]
+    aprovacoes:
+      medica:    { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+      ans:       { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+      seguranca: { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+
+  leitura_populacional:
+    enforcement: shadow
+    descricao: >-
+      Leitura de agregados populacionais/atuariais com supressão k-anônima. SEM NOME RATIFICADO na
+      matriz de autonomia: `read_phi_data` é o mais próximo e está ERRADO — agregado k-anônimo não
+      é PHI. Enquanto o nome não existir (decisão humana ADR-0008/0025, design Q-4), a camada L-2
+      registra `VOCABULARIO_PENDENTE` e NEGA — telemetria honesta, nunca vocabulário inventado.
+      SEGUE SEM EVIDÊNCIA DE SOMBRA: o cliente de população é PORT-PENDING (WB.4), então o
+      wrapper existe mas nada é injetado e nada é observado. As duas superfícies seguem
+      `choked: false` (design §7.2: verdade acima de completude).
+    superficies:
+      - referencia: "src/maezo/agents/andre/graph.py:708"
+        detalhe: "PopulationFeatureClient.actuarial_risk (Protocol em :316). SEGUE choked:false:
+          o GatedPopulationFeatureClient EXISTE e é testado, mas o cliente de lago é PORT-PENDING
+          (WB.4) — nada é injetado, então nada é observável. Uma classe sem linha de sombra não é
+          aprovável (I-10), e virar isto seria alegar evidência inexistente"
         choked: false
+      - referencia: "src/maezo/agents/andre/graph.py:720"
+        detalhe: "PopulationFeatureClient.population_metrics — mesma situação"
+        choked: false
+    dominios_exigidos: [medica, ans, seguranca]
+    aprovacoes:
+      medica:    { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+      ans:       { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+      seguranca: { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+
+  inferencia_llm:
+    enforcement: shadow
+    descricao: >-
+      Egresso para modelo de linguagem. Dividida por ZONA na catalogação de operações
+      (`inference.generate` vs `inference.generate_phi`, ADR-0006) para que a telemetria distinga
+      geração com PHI de geração geral SEM carregar o prompt. TAMBÉM sem nome ratificado na matriz
+      (design Q-4) => L-2 nega com `VOCABULARIO_PENDENTE`. O roteamento `phi=True` do provider
+      continua falhando fechado de forma INDEPENDENTE deste gateway (invariante I-6).
+      PASSA A PRODUZIR EVIDÊNCIA DE SOMBRA (Onda 1 B2).
+    superficies:
+      - referencia: "src/maezo/runtime/inference.py:616"
+        detalhe: "InferenceProvider.generate(prompt, phi=...) — via GatedInferenceProvider
+          (Onda 1); phi= escolhe qual token catalogar. O PhiZoneRoutingError segue INDEPENDENTE do
+          PEP (I-6): a delegação é nua e o wrapper não o captura"
+        choked: true
     dominios_exigidos: [medica, ans, seguranca]
     aprovacoes:
       medica:    { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
@@ -393,3 +606,46 @@ mapeamento_topicos:
   operadora.fraude.start_contratual: inicio_processo_regulatorio
   operadora.inadimplencia.handoff_rescisao: inicio_processo_regulatorio
   operadora.nip.handoff_ans_submit: inicio_processo_regulatorio
+
+# ---------------------------------------------------------------------------------------------
+# mapeamento_acoes — agent-side action ref -> action class.  [ADITIVO — Onda 1, design §7.1]
+#
+# Irmão de `mapeamento_topicos`, que fica BYTE-A-BYTE INALTERADO acima e mantém o significado
+# dele (tópico de external-task -> classe). Aqui vive o outro namespace: `agente.<operacao>`, uma
+# entrada por operação do catálogo fechado `src/maezo/gateway/effect_classes.py`.
+#
+# O loader FUNDE os dois mapas em um só e RECUSA O MANIFESTO INTEIRO se uma mesma ref aparecer nos
+# dois — mesma postura do `_RefusingDuplicatesLoader`: um registro de governança não pode ser
+# silenciosamente sombreado. Uma ref, uma classe, uma linha revisada.
+#
+# Ambos os namespaces já satisfazem o formato de token pontilhado que a telemetria aceita, então
+# nada nas linhas de log muda de forma.
+#
+# ESTE MAPA NÃO APROVA NADA. Ele declara ROTEAMENTO. Toda classe apontada aqui continua com os
+# três blocos `PENDENTE` e `enforcement: shadow`.
+# ---------------------------------------------------------------------------------------------
+mapeamento_acoes:
+  agente.fhir.read_patient: leitura_phi_clinica
+  agente.fhir.read_patient_summary: leitura_phi_clinica
+  agente.fhir.read_coverage: leitura_phi_clinica
+  agente.fhir.search_coverage: leitura_phi_clinica
+
+  agente.whatsapp.send_message: comunicacao_beneficiario
+
+  agente.cibseven.start_process: inicio_processo_regulatorio
+
+  agente.cibseven.correlate_message: correlacao_processo
+
+  agente.cibseven.get_process_status: consulta_processo
+  agente.cibseven.find_active_instance: consulta_processo
+  agente.cibseven.find_any_instance: consulta_processo
+
+  agente.dmn.evaluate: avaliacao_dmn
+
+  agente.inference.generate: inferencia_llm
+  agente.inference.generate_phi: inferencia_llm
+
+  agente.population.actuarial_risk: leitura_populacional
+  agente.population.population_metrics: leitura_populacional
+
+  agente.a2a.delegate: delegacao_a2a

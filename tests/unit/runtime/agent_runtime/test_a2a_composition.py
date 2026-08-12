@@ -125,8 +125,16 @@ def test_build_auth_delegation_dispatcher_prod_absent_key_never_returns_dispatch
     there is nothing to `.delegate()` a forged Card against. `_build_tool_deps` is faked so the test
     is hermetic (no Postgres / no transports) and isolates the F2 guard as the thing that fires."""
 
-    def _fake_tool_deps(_settings_obj: AgentRuntimeSettings) -> dict[str, Any]:
-        return {"dmn": object(), "cibseven": object(), "audit_sink": object()}
+    def _fake_tool_deps(_settings_obj: AgentRuntimeSettings, inference: Any = None) -> dict[str, Any]:
+        # ONDA 1 B2: `_build_tool_deps` now threads the inference seam so the provider a graph
+        # receives is the GATED one (§5.5 / counterexample C-A2). The fake mirrors the signature;
+        # the F2 guard this test isolates is unaffected.
+        return {
+            "dmn": object(),
+            "cibseven": object(),
+            "audit_sink": object(),
+            "inference": inference,
+        }
 
     monkeypatch.setattr(a2a_composition, "_build_tool_deps", _fake_tool_deps)
 

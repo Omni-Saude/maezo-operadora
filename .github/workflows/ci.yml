@@ -110,6 +110,18 @@ jobs:
       - name: Start-process fence gate (ADR-0007/T-C2)
         run: make check-start-process-fence
 
+      # Onda 1 design §8: repo-wide AST gate — a raw construction of any of the 15 named effect
+      # classes outside `maezo.gateway.tool_registry`/`gateway/seams/*.py`, a hand-rolled `httpx`
+      # transport or duplicated effect REST-path literal outside the five sanctioned transport
+      # modules, a policy-plane import/env-read outside `maezo/gateway/`, or a test double
+      # reachable from a production composition root, fails the build — plus completeness proofs
+      # (registry constructs every fenced class, every declared agent tool id resolves in the
+      # closed catalogue, catalogue<->manifest round-trip, all 15 classes carry a declared denial
+      # shape covered by a passing test). Separate from and does not replace the start-process
+      # fence above — different invariant, same AST-fence lineage.
+      - name: Effect chokepoint fence gate (Onda 1 design §8)
+        run: make effect-chokepoint-fence
+
       # MZO-010 / XRG-3: the AMH contract is AMH-owned; this repo holds only the immutable pin
       # (config/integrations/amh/contracts.lock.json) plus the AMH-published, digest-gated fixture
       # bytes. ADR-0037 XRD-04 requires a divergent digest, an absent schema, a wrong topic or a
