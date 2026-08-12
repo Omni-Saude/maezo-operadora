@@ -340,6 +340,10 @@ DL-0045 (qualificação MZO-040) em `docs/decisions-log.md`.
 - **Contínuo (S cada, filler p/ agentes baratos):** telemetria de turno PHI-gated (campos pinados
   hash/count, padrão do #222); `exclude-newer` no uv; cache-aware prompt formatting; piso de
   capability em release; runbooks + drills trimestrais de recovery/rotação (mitiga W7).
+  **[PARCIAL 2026-08-12 — branch `waveD-docs-fillers`: runbooks W7 (5 áreas + 2 drills, drills
+  live-executados) + piso de capability em release (`scripts/ci/generate_release_floor.py` + gate
+  CI `release-floor`, fecha o buraco da audit §5: P0 gated independente do total) DONE. `exclude-newer`
+  + cache-aware formatting entregues no trem da Onda 2. Telemetria de turno = ainda pendente]**
 
 **Total: ~32–47 sessões-agente** intercaladas com portões humanos. Três primeiros release-gates:
 (1) nenhum caminho de efeito não-sancionado + MZO-040 enforcing nas classes ratificadas;
