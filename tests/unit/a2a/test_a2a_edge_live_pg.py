@@ -212,9 +212,22 @@ def _no_ambient_card_signing_key(monkeypatch: pytest.MonkeyPatch) -> None:
     non-production opt-out is set. Set it for the suite: these tests deliberately exercise the
     dev/unsigned path (`build_auth_delegation_dispatcher` without a key), so the opt-out is exactly
     the explicit signal F2 requires. It is IGNORED by the key-present T-G tests below (a present key
-    always wins)."""
+    always wins).
+
+    ADR-0039 §4.4 (decision 6), SYMMETRIC to F2: the SAME dev/unsigned path also crosses the
+    ENVELOPE-signing gate (`_require_envelope_signing_or_fail_closed`, reached via
+    `build_auth_delegation_dispatcher`), which — exactly like the Card gate above — REFUSES to
+    compose a verifier for a keyless tenant unless the explicit non-production opt-out is set. These
+    non-signing dev-path tests (audit fires + chain-valid + PHI-safe; durable idempotency across
+    dispatcher instances) prove subjects orthogonal to signing, so they take decision 6's
+    dev-local-only escape hatch for the envelope surface too, with the identical rationale: deliberate
+    dev/unsigned path, explicit opt-out, and IGNORED by the key-present T-G signed/unsigned tests
+    below since a present per-tenant key satisfies BOTH gates. Signing enforcement itself stays proven
+    by those key-present T-G tests and the a2a attack suite — this opt-out only lets the dev-path
+    tests compose."""
     monkeypatch.delenv("MAEZO_A2A_CARD_SIGNING_KEY", raising=False)
     monkeypatch.setenv("MAEZO_A2A_ALLOW_UNSIGNED_CARDS", "1")
+    monkeypatch.setenv("MAEZO_A2A_ALLOW_UNVERIFIED_ENVELOPES", "1")
 
 
 async def _fetch_a2a_delegate_rows(dsn: str, tenant_id: str, *, task_id: str) -> list[Any]:
