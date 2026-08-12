@@ -55,6 +55,7 @@ from maezo.a2a import (
     build_dispatcher,
     card_signer_from_key,
     card_signing_key_from_env,
+    per_tenant_key_env_var,
 )
 from maezo.a2a.dispatcher import a2a_audit_dedup_key, a2a_audit_outcome_dedup_key
 from maezo.agents.helena.delegation import delegate_auth_analysis
@@ -412,12 +413,12 @@ _TG_OTHER_KEY = "a-completely-different-live-pg-signing-key"
 async def test_live_tg_enforcement_signed_card_admits_and_dispatches(
     pg_dsn: str, tenant_schema: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """T-G ENFORCEMENT, the positive case, through the REAL production composition: with
-    `MAEZO_A2A_CARD_SIGNING_KEY` set, Cards come back signed AND the registry's verifier is wired
-    (the composition flip this wave makes) — a validly-signed Card is admitted and the delegation
-    actually dispatches, persisting a real audit row exactly like the dev-path (unsigned) proof
-    earlier in this module."""
-    monkeypatch.setenv("MAEZO_A2A_CARD_SIGNING_KEY", _TG_TEST_KEY)
+    """T-G ENFORCEMENT, the positive case, through the REAL production composition: with this
+    tenant's PER-TENANT key (`MAEZO_A2A_CARD_SIGNING_KEY__<TENANT>`, ADR-0039 §4.4 leg E2) set,
+    Cards come back signed AND the registry's verifier is wired (the composition flip this wave
+    makes) — a validly-signed Card is admitted and the delegation actually dispatches, persisting a
+    real audit row exactly like the dev-path (unsigned) proof earlier in this module."""
+    monkeypatch.setenv(per_tenant_key_env_var(tenant_schema), _TG_TEST_KEY)
     settings = _settings(tenant=tenant_schema, database_url=pg_dsn)
     dispatcher = build_auth_delegation_dispatcher(
         settings, inference=_phi_capable_inference(), kafka_producer=_RecordingKafkaProducer()

@@ -33,6 +33,7 @@ import pytest
 from tests.support.audit_fakes import FakeStartAuditSink
 from tests.unit.a2a.fakes import RecordingProducer
 
+from maezo.a2a import per_tenant_key_env_var
 from maezo.a2a.outbox import PostgresOutboxFactProducer
 from maezo.runtime.agent_runtime.a2a_composition import (
     ALLOW_UNSIGNED_CARDS_ENV_VAR,
@@ -47,7 +48,10 @@ from maezo.runtime.agent_runtime.settings import AgentRuntimeSettings
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
 
-_SIGNING_KEY_ENV = "MAEZO_A2A_CARD_SIGNING_KEY"
+# Leg E2 (ADR-0039 §4.4): the composition roots resolve the PER-TENANT signing key now. Every test
+# here composes for tenant "amh", so its per-tenant var (`MAEZO_A2A_CARD_SIGNING_KEY__AMH`) is what
+# provisions the key past the signer gate.
+_SIGNING_KEY_ENV = per_tenant_key_env_var("amh")
 _VALID_KEY = "unit-test-card-signing-key-0123456789abcdef"
 _DSN = "postgresql://maezo:maezo@localhost:5433/maezo"
 

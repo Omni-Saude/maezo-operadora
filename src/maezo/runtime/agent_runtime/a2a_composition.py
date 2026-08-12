@@ -32,19 +32,28 @@ gated, which is why the write side needed a durable buffer rather than a broker 
 
 **T-G signed-Card enforcement (`docs/design/A2A-dispatcher-card-signing.md` §10).** W3 left this
 composition wired with NO `verifier=`: Cards came back unsigned and the registry admitted them
-unconditionally. This flips it: `card_signing_key_from_env()` resolves the vault/KMS-injected
-signing key (env var `MAEZO_A2A_CARD_SIGNING_KEY`), `card_signer_from_key` builds a `CardSigner`
-from it, and the SAME signer instance both signs the Cards (`build_agent_cards(..., signer=signer)`)
-and gates the registry (`build_dispatcher(..., verifier=signer)`) — symmetric HMAC, one key does
-both jobs. Key present -> every Card is signed AND the registry fail-closes (`CardSignatureError`)
-on anything not validly signed under that exact key — an unsigned, tampered, or wrong-key Card
-never reaches `register()` successfully, so this function raises before a dispatcher object is ever
-returned (fail-closed: there is nothing to `.delegate()` against).
+unconditionally. This flips it: `_require_signer_or_fail_closed` resolves the vault/KMS-injected
+signing key through a PER-TENANT `TenantKeyset` (`maezo.a2a.keyset`; ADR-0039 §4.4, owner decision
+4), `card_signer_from_key` builds a `CardSigner` from it, and the SAME signer instance both signs
+the Cards (`build_agent_cards(..., signer=signer)`) and gates the registry
+(`build_dispatcher(..., verifier=signer)`) — symmetric HMAC, one key does both jobs. Key present ->
+every Card is signed AND the registry fail-closes (`CardSignatureError`) on anything not validly
+signed under that exact key — an unsigned, tampered, or wrong-key Card never reaches `register()`
+successfully, so this function raises before a dispatcher object is ever returned (fail-closed:
+there is nothing to `.delegate()` against).
+
+**PER-TENANT key custody (ADR-0039 §4.4, decision 4 — leg E2).** The signing key is no longer the
+bare repo-wide `MAEZO_A2A_CARD_SIGNING_KEY`: each tenant's key is resolved from its own namespaced
+variable `MAEZO_A2A_CARD_SIGNING_KEY__<TENANT>` (`per_tenant_key_env_var`) via `EnvTenantKeyset` —
+the SAME vault/KMS delivery seam, now scoped per tenant. A missing tenant key NEVER falls back to
+the repo-wide key or another tenant's key (that is the cross-tenant key-confusion attack decision 4
+prevents); it is treated as an absent key and fail-closes below. This is the single per-tenant
+resolution point envelope signing (leg E3) will also resolve its key through.
 
 **F2 — no silent fail-open when the key is absent.** The earlier W1 dev fail-safe SILENTLY
 downgraded to unsigned Cards + no verifier whenever the key was unset — which in production would
 have admitted ANY (unsigned/forged) Card. `_require_signer_or_fail_closed` closes that: an absent
-key RAISES at composition in production runtime mode (`agent_runtime_mode != "local"`,
+(per-tenant) key RAISES at composition in production runtime mode (`agent_runtime_mode != "local"`,
 un-bypassable), and in a non-production runtime proceeds unsigned ONLY behind the EXPLICIT
 `MAEZO_A2A_ALLOW_UNSIGNED_CARDS` opt-out (loudly warned), never as a silent default. Real key
 provisioning in vault/KMS remains an external/infra dependency (design doc §6.2).
@@ -66,12 +75,9 @@ from maezo.a2a import (
     build_agent_cards,
     build_dispatcher,
 )
-from maezo.a2a.assembly import (
-    CARD_SIGNING_KEY_ENV_VAR,
-    card_signer_from_key,
-    card_signing_key_from_env,
-)
+from maezo.a2a.assembly import card_signer_from_key
 from maezo.a2a.dispatcher import KafkaLike
+from maezo.a2a.keyset import EnvTenantKeyset, TenantKeyset, per_tenant_key_env_var
 from maezo.a2a.outbox import build_outbox_fact_producer
 from maezo.agents.andre.delegation import make_andre_handler
 from maezo.agents.carolina.delegation import make_carolina_handler
@@ -200,11 +206,13 @@ def _unsigned_cards_opt_out() -> bool:
     return os.environ.get(ALLOW_UNSIGNED_CARDS_ENV_VAR, "").strip().lower() in _TRUTHY
 
 
-def _require_signer_or_fail_closed(*, runtime_mode: str, tenant: str, edge: str) -> CardSigner | None:
-    """Resolve the Card-signing key, fail-CLOSED when it is absent (F2 — the composition root fix).
+def _require_signer_or_fail_closed(
+    *, runtime_mode: str, tenant: str, edge: str, keyset: TenantKeyset | None = None
+) -> CardSigner | None:
+    """Resolve the PER-TENANT Card-signing key, fail-CLOSED when it is absent (F2 + ADR-0039 §4.4).
 
-    The W1 dev fail-safe silently downgraded to UNSIGNED Cards whenever `MAEZO_A2A_CARD_SIGNING_KEY`
-    was unset: `card_signer_from_key(None) -> None -> build_dispatcher(verifier=None) ->
+    The W1 dev fail-safe silently downgraded to UNSIGNED Cards whenever the signing key was unset:
+    `card_signer_from_key(None) -> None -> build_dispatcher(verifier=None) ->
     A2ARegistry(verifier=None)`, which admits ANY (unsigned/forged) Card. That silent downgrade is
     the defect. This gate makes the composition root UN-BYPASSABLE:
 
@@ -220,13 +228,25 @@ def _require_signer_or_fail_closed(*, runtime_mode: str, tenant: str, edge: str)
         key is never a SILENT default to unsigned (the auditor's requirement); it must be an
         explicit, deliberate choice.
 
+    **PER-TENANT KEY CUSTODY (ADR-0039 §4.4, owner decision 4 — leg E2).** The key is resolved
+    through a `TenantKeyset` — `EnvTenantKeyset` by default (the live env-backed vault/KMS seam),
+    injectable for tests. The keyset reads THIS tenant's namespaced variable
+    (`MAEZO_A2A_CARD_SIGNING_KEY__<TENANT>`, `per_tenant_key_env_var`), NEVER the bare repo-wide
+    `MAEZO_A2A_CARD_SIGNING_KEY` and NEVER another tenant's key. A missing tenant key is exactly the
+    "absent key" case above — it fail-closes, it does NOT fall back across tenants (that fallback IS
+    the cross-tenant key-confusion attack decision 4 rules out). Migration off the repo-wide key is
+    the fail-closed one the ADR mandates: deployments provision per-tenant keys; until they do,
+    production refuses to compose the edge for that tenant. No silent shim (`maezo.a2a.keyset`).
+
     Generalized (dossier-A2A wave) from the original AgentRuntimeSettings-only signature so the
     worker-runtime dossier edge (`build_dossier_delegation_dispatcher`) applies the SAME gate:
     `runtime_mode` is the caller's prod/dev discriminator (agent-runtime: `agent_runtime_mode`;
     worker-runtime: `worker_runtime_mode_from_env()` — fail-closed to production when unset);
-    `edge` only labels the error/log for legibility. The gate's logic is unchanged.
+    `edge` only labels the error/log for legibility. The gate's fail-closed logic is unchanged;
+    only WHERE the key comes from (per-tenant resolver) changed.
     """
-    signing_key = card_signing_key_from_env()
+    resolver = keyset if keyset is not None else EnvTenantKeyset()
+    signing_key = resolver.key_for(tenant)
     if signing_key is not None:
         return card_signer_from_key(signing_key)
 
@@ -234,12 +254,15 @@ def _require_signer_or_fail_closed(*, runtime_mode: str, tenant: str, edge: str)
     if is_production or not _unsigned_cards_opt_out():
         raise RuntimeError(
             f"cannot assemble the A2A {edge} delegation edge: no Agent Card signing key "
-            f"({CARD_SIGNING_KEY_ENV_VAR}) is present, so the registry would admit ANY unsigned/"
-            "forged Card. Refusing to compose an unsigned dispatcher "
-            f"(runtime_mode={runtime_mode!r}). Provision the vault/KMS key "
-            "(design doc §6.2), or — in a NON-production runtime ONLY — set "
-            f"{ALLOW_UNSIGNED_CARDS_ENV_VAR}=1 to opt into unsigned Cards explicitly. The absence "
-            "of a key must never silently downgrade to unsigned Cards (T-G, ADR-0003/0007)."
+            f"({per_tenant_key_env_var(tenant)}) is present for tenant {tenant!r}, so the registry "
+            "would admit ANY unsigned/forged Card. Refusing to compose an unsigned dispatcher "
+            f"(runtime_mode={runtime_mode!r}). Provision the vault/KMS PER-TENANT key (ADR-0039 "
+            "§4.4, decision 4 — per-tenant, never repo-wide; design doc §6.2), or — in a "
+            f"NON-production runtime ONLY — set {ALLOW_UNSIGNED_CARDS_ENV_VAR}=1 to opt into "
+            "unsigned Cards explicitly. The absence of a key must never silently downgrade to "
+            "unsigned Cards (T-G, ADR-0003/0007), and a missing tenant key must NEVER fall back to "
+            "the repo-wide or another tenant's key (cross-tenant key-confusion, ADR-0039 "
+            "decision 4)."
         )
 
     logger.warning(
