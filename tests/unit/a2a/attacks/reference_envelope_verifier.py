@@ -1,49 +1,68 @@
-"""LABELED REFERENCE envelope verifier — the PROPOSED ADR-0039 digest, unmistakably NOT ratified.
+"""LABELED REFERENCE envelope verifier — the PRE-DECISION (v1) ADR-0039 digest, kept as an ORACLE.
 
 =================================================================================================
-READ THIS FIRST — envelope signing is NOT implemented, and this file does not implement it either.
+RE-SCOPED BY LEG E4 (2026-08-12). Read this before assuming the module docstring you remember.
 =================================================================================================
-`docs/adr/0039-a2a-delegation-envelope-signing.md` ships **Status: Proposed**. Its own close-out
-records that §Perguntas abertas 1 (`payload_meta_hash`) and 3 (max signature age / retention floor)
-are questions a HUMAN must answer before the digest is settled. Building envelope-signature
-verification against an unratified digest would be building on sand. So this module is a **reference
-verifier**, deliberately labeled and quarantined:
+ORIGINAL CHARTER (Onda 3, ADR-0039 **Proposed**): envelope signing was NOT implemented, because
+§Perguntas abertas 1 (`payload_meta_hash`) and 3 (max signature age) were unanswered and building
+against an unratified digest is building on sand. This module stood in for the absent production
+code so the Half-B attack battery could be non-vacuous without CLAIMING signing was done.
 
-  * It lives under `tests/`, is named `LabeledReferenceEnvelopeVerifier`, and mirrors the repo's
-    anti-masquerade convention for labeled test doubles (`LabeledMockAnsGatewayTransport`,
-    `Fake*`, `Noop*`) — a reader can never mistake it for the ratified implementation.
-  * It is NEVER reachable from a production composition root. The effect-chokepoint fence
-    (`scripts/ci/check_effect_chokepoint_fence.py`) scans only `src/maezo`; nothing in `src/`
-    imports this, and `test_envelope_signing_attacks.py::test_no_production_module_references...`
-    makes that a TESTED expectation (an AST sweep of `src/maezo` asserting zero references), not an
-    assumption.
-  * It implements ADR-0039 §4.1's canonical digest and §4.2's signature metadata **as PROPOSED**.
-    When a human ratifies the digest and the real verifier lands, these attacks re-bind to it: the
-    attack bodies stay, only the verifier under test changes.
+THAT CHARTER IS DISCHARGED. The ADR is **Accepted**, the owner answered all seven questions, and leg
+E3 shipped `maezo.a2a.envelope_signing` (digest v2 = the v1 field set PLUS `payload_meta_hash` and
+`task_type`, per decisions 1-2). Leg E4 re-bound every Half-B attack onto that real verifier.
 
-Why a reference verifier at all (Option ii, not a strict-xfail): a strict-xfail against a verifier
-that does not exist "passes" (xfails) even against a totally undefended system — that IS the vacuity
-anti-pattern the leg-4 non-vacuity bar forbids. A reference verifier gives every signing-dependent
-attack a REAL red control (`NeuteredReferenceEnvelopeVerifier` accepts the malicious envelope), so
-the attack is non-vacuous and the DESIGN is shown to defend, without ANY claim that signing is done.
+NEW CHARTER — this module is RETAINED, deliberately, as a **conformance oracle**, and it earns its
+keep in two ways no self-referential test can:
+
+  1. **RED CONTROL for the two acceptance flips.** `reference_canonical_digest` implements the
+     PRE-decision field set, which OMITS `payload_meta_hash` and `task_type`. So the exact mutations
+     the shipped v2 digest now catches remain INVISIBLE to it. That is ADR-0039 §4.8 obligation 2's
+     "dropping the field from the digest" — performed against the historical field set rather than a
+     synthetic mutant, which makes it the r1-r3 honest negative preserved as live evidence instead of
+     deleted. It is a strictly better control than the accept-everything double it replaces, because
+     it isolates WHICH field is load-bearing.
+  2. **DIFFERENTIAL ORACLE.** It is an INDEPENDENTLY WRITTEN implementation of the ADR text. Running
+     it beside the shipped code catches the failure a single implementation cannot: a field quietly
+     dropped from the preimage, or a gate quietly skipped, while every self-referential assertion
+     stays green. `test_envelope_signing_attacks.py` checks both digest-level agreement across the
+     v1 field set and verdict-level agreement across a battery of attack scenarios.
+
+RETIRED BY LEG E4: `NeuteredReferenceEnvelopeVerifier`, the accept-everything twin. Its `verify`
+returned `True` unconditionally, which proves an attack succeeds against a TOTALLY undefended system
+but never which defense actually refused it. Half B's controls are now targeted — one defense at a
+time, built from knobs the production verifier ships (`trusted_keys`, `current_epoch`,
+`prior_epoch_grace_until`, `scheme`, `max_signature_age`) plus the unwired-dispatcher baseline for
+the MAC. Its NAME stays in the anti-masquerade forbidden-token list so it cannot return via `src/`.
+
+QUARANTINE IS UNCHANGED, and matters MORE now, not less: an oracle that imported (or was imported
+by) the code it audits would be worthless.
+  * Lives under `tests/`, named `LabeledReferenceEnvelopeVerifier` per the repo's anti-masquerade
+    convention for labeled doubles (`LabeledMockAnsGatewayTransport`, `LabeledFake*`, `Noop*`).
+  * NEVER reachable from a production composition root. The effect-chokepoint fence
+    (`scripts/ci/check_effect_chokepoint_fence.py`) scans only `src/maezo`; nothing in `src/` imports
+    this, and `test_envelope_signing_attacks.py::test_no_production_module_references_the_reference_
+    verifier` makes that a TESTED expectation (a text sweep of `src/maezo`), not an assumption.
+  * It is NOT maintained toward the shipped implementation. It implements §4.1/§4.2 **as written in
+    revisions r1-r3**, and it must stay frozen there — "fixing" it to match `envelope_signing.py`
+    would collapse the two implementations into one and destroy the differential.
 
 =================================================================================================
-Digest — ADR-0039 §4.1 + §4.2, faithful, with ONE disclosed reference extension for §4.3.2 (Q3)
+Digest — ADR-0039 §4.1 + §4.2 as of r1-r3, with ONE disclosed extension for §4.3.2 (then-open Q3)
 =================================================================================================
-Field set exactly per §4.1: `{tenant, task_id, origin, target, payload_hash, deadline, budget,
+Field set exactly per §4.1 v1: `{tenant, task_id, origin, target, payload_hash, deadline, budget,
 delegation_chain}` plus §4.2's `{scheme, key_id, replay_epoch}`, canonicalized by the §4.1 recipe
 (`json.dumps(payload, sort_keys=True, separators=(",", ":"))`, **no `default=`** — the ADR is
 explicit that `default=str` is forbidden, `deadline` is mapped via `.astimezone(UTC).isoformat()`).
 `payload_hash = sha256(payload_ref)`, not `payload_ref` directly (§4.1).
 
-DISCLOSED DEVIATION — `signed_at`: §4.3.2 requires a verifier-side maximum signature age
-INDEPENDENT of `deadline` (because every real envelope carries `deadline=None`, so `expired()` is
-vacuous). Measuring an age needs a signing timestamp, and the §4.1 mandated field set does not carry
-one — **that mechanism is exactly what Q3 leaves open** (the ADR pins the age VALUE as a human
-policy number; it does not pin the carrier field). This reference verifier binds a `signed_at`
-field into its digest as a documented reference interpretation, so the expiry/max-age attack can be
-exercised non-vacuously TODAY. It is flagged, not hidden: when Q3 is answered the field re-binds to
-whatever the ratified mechanism is. Every OTHER field is faithful to §4.1/§4.2 as written.
+DISCLOSED DEVIATION — `signed_at`: §4.3.2 requires a verifier-side maximum signature age INDEPENDENT
+of `deadline`. Measuring an age needs a signing timestamp, and the v1 mandated field set did not
+carry one — that mechanism was exactly what Q3 left open. This module bound a `signed_at` field into
+its digest as a documented reference interpretation. Q3 is now ANSWERED (decision 3: 7-day cadence)
+and the shipped digest binds `signed_at` the same way — so this deviation turned out to anticipate
+the ratified design correctly. It is recorded rather than removed, because the point of an oracle is
+that its history is auditable.
 """
 
 from __future__ import annotations
@@ -193,12 +212,11 @@ class LabeledReferenceEnvelopeVerifier:
         return hmac.compare_digest(signed.mac.encode("ascii"), expected_mac.encode("ascii"))
 
 
-class NeuteredReferenceEnvelopeVerifier:
-    """RED control — the reference verifier with EVERY defense removed. `verify` returns True
-    unconditionally: the undefended baseline. Each signing-dependent attack asserts the real
-    verifier REJECTS the malicious envelope while this one ACCEPTS it — proving the attack is
-    non-vacuous (it succeeds against an undefended system) and the real digest is what stops it."""
-
-    def verify(self, signed: ReferenceSignedEnvelope, *, now: datetime | None = None) -> bool:
-        _ = (signed, now)
-        return True
+# RETIRED BY LEG E4: `NeuteredReferenceEnvelopeVerifier` (an accept-everything `verify`) used to live
+# here as the RED control for every Half-B attack. It was removed, not merely unused: a control that
+# accepts EVERYTHING shows an attack beats a totally undefended system, but never which defense
+# refused it — and ADR-0039 §4.8 obligation 2 asks precisely for the latter ("dropping the field from
+# the digest, widening the keyset to accept any key_id, ignoring the epoch"). Half B's controls are
+# now targeted and built from shipped verifier knobs; see this module's docstring and
+# `test_envelope_signing_attacks.py`'s. The class NAME remains in the anti-masquerade forbidden-token
+# sweep so it cannot reappear inside `src/`.
