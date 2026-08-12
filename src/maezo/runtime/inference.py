@@ -67,10 +67,12 @@ meter (constraint 3 — never fabricate).
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import os
+import time
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import ClassVar, Final, Protocol, runtime_checkable
@@ -120,9 +122,18 @@ class InferenceProviderError(RuntimeError):
     no SDK leaks past this module).
     """
 
-    def __init__(self, provider: str, message: str, *, retryable: bool = False) -> None:
+    def __init__(
+        self, provider: str, message: str, *, retryable: bool = False, committed: bool = False
+    ) -> None:
         self.provider = provider
         self.retryable = retryable
+        #: True when the request reached the COMMITTED point — bytes were transmitted to the
+        #: endpoint (the prompt is on the wire) before this failure surfaced. The W8 retry budget
+        #: (leg 4) refuses to re-dial a committed, non-idempotent call EVEN WHEN ``retryable`` is
+        #: True: re-sending PHI on a read-timeout is a data-exposure + double-spend hazard.
+        #: ``retryable`` (the ``_DISPOSITIONS`` truth) and ``committed`` COMPOSE — a retry needs
+        #: BOTH ``retryable and not committed``; neither notion is authoritative alone.
+        self.committed = committed
         super().__init__(f"[{provider}] {message}")
 
 
@@ -1243,8 +1254,10 @@ class BrRegionalTransportUnavailableError(InferenceProviderError):
     that already handle provider failure keep working unchanged.
     """
 
-    def __init__(self, message: str, *, retryable: bool = False) -> None:
-        super().__init__("br_resident", message, retryable=retryable)
+    def __init__(
+        self, message: str, *, retryable: bool = False, committed: bool = False
+    ) -> None:
+        super().__init__("br_resident", message, retryable=retryable, committed=committed)
 
 
 class RefusingBrRegionalTransport:
@@ -1292,8 +1305,15 @@ class FakeBrRegionalOutcome(StrEnum):
     #: carries no completion — the adapter must surface it as a provider error, not as text.
     VENDOR_REFUSAL = "vendor-refusal"
 
-    #: The endpoint is unreachable. The transport raises instead of returning.
+    #: The endpoint is unreachable. The transport raises instead of returning. A failure BEFORE any
+    #: byte is sent (connection refused / DNS / pre-flight) — the ONE retryable, un-committed case.
     OUTAGE = "outage"
+
+    #: The prompt was TRANSMITTED and then the read timed out / the stream dropped mid-response — a
+    #: failure AFTER the committed point (bytes-sent). Transient in the SDK sense (``retryable``),
+    #: but NOT safe to re-dial: the PHI prompt is already on the wire, so re-sending it would
+    #: double-expose it (W8 idempotency rule, leg 4). Distinct from OUTAGE precisely by ``committed``.
+    READ_TIMEOUT_AFTER_SEND = "read-timeout-after-send"
 
     #: The endpoint answered with something that is not the contract at all.
     MALFORMED = "malformed"
@@ -1369,8 +1389,22 @@ class LabeledFakeBrRegionalTransport:
         self.sent_requests.append(request)
 
         if self._outcome is FakeBrRegionalOutcome.OUTAGE:
+            # BEFORE the commit point: no byte reached the endpoint, so this IS safe to retry.
             raise BrRegionalTransportUnavailableError(
-                "LabeledFakeBrRegionalTransport simulated endpoint outage (synthetic)", retryable=True
+                "LabeledFakeBrRegionalTransport simulated endpoint outage (synthetic)",
+                retryable=True,
+                committed=False,
+            )
+        if self._outcome is FakeBrRegionalOutcome.READ_TIMEOUT_AFTER_SEND:
+            # The request was appended to `sent_requests` ABOVE — the prompt is on the wire — and
+            # only THEN does the read fail. `committed=True` is what the budget reads to refuse a
+            # re-dial; `retryable=True` proves the refusal is the COMMIT guard, not mere
+            # non-retryability. Neuter the guard and this WOULD be re-sent — the leg-4 RED control.
+            raise BrRegionalTransportUnavailableError(
+                "LabeledFakeBrRegionalTransport simulated read timeout AFTER the prompt was "
+                "transmitted (synthetic)",
+                retryable=True,
+                committed=True,
             )
         if self._outcome is FakeBrRegionalOutcome.MALFORMED:
             # DELIBERATELY off-contract: a real endpoint returning a body that does not match the
@@ -1440,6 +1474,159 @@ def resolve_br_regional_transport(transport: BrRegionalTransport | None) -> BrRe
     return transport
 
 
+# ---------------------------------------------------------------------------
+# W8 — budgeted, idempotency-aware retry (Onda 2 W2 leg 4)
+#
+# Two independent bounds and one safety veto, all keyed on the SINGLE disposition truth
+# (`InferenceProviderError.retryable`, pinned by the leg-3 `_DISPOSITIONS` table) — this leg
+# authors NO second notion of "retryable". A retry happens IFF:
+#
+#     exc.retryable            # the _DISPOSITIONS truth: ONLY an OUTAGE is retryable
+#   AND NOT exc.committed      # the W8 idempotency veto: never re-send bytes-on-wire PHI
+#   AND attempt < max_attempts # bound 1: the attempt budget
+#   AND a retry token is free  # bound 2: a rate/token budget — a retry storm must not itself
+#                              #          become a rate-limit incident
+#
+# `retryable` and `committed` COMPOSE (logical AND); they do not REPLACE one another. The
+# agreement test pins the decision as derivable from the live exceptions alone, so the two notions
+# can never silently drift apart (the gate-agreement lesson from Train C leg 3).
+#
+# DEFAULT = NO RETRY (`max_attempts=1`). A PHI path does not silently re-dial: auto-retrying PHI is
+# itself a hazard (re-exposure, double-spend, retry storms), so retry is an OWNER-configured,
+# budgeted opt-in — the same "inert until an owner acts" posture as the DPA / endpoint / credential
+# gates. Exhausting the budget RAISES the last terminal exception (never an infinite loop), which
+# the SP-OP-ESCALATION human-routing seam (`helena/graph._classify_llm`'s bare-except) turns into
+# `falha_tecnica` -> a human task.
+# ---------------------------------------------------------------------------
+
+#: Retry-stop reason codes. Enum-ish, CONTENT-FREE strings — safe to log and to carry into an
+#: escalation reason; never a prompt, never a completion, never a credential.
+RETRY_STOP_NOT_RETRYABLE: Final[str] = "not_retryable"
+RETRY_STOP_COMMITTED: Final[str] = "committed_bytes_sent"
+RETRY_STOP_ATTEMPTS_EXHAUSTED: Final[str] = "attempts_exhausted"
+RETRY_STOP_RATE_BUDGET_EXHAUSTED: Final[str] = "rate_budget_exhausted"
+
+
+@dataclass(frozen=True, slots=True)
+class RetryBudget:
+    """Immutable retry POLICY for :class:`BrResidentInferenceProvider` (W8, leg 4).
+
+    Pure numbers, no state: the mutable token-bucket state lives in :class:`_RetryTokenBucket` on
+    the provider instance so a retry storm is bounded ACROSS calls, not merely within one.
+
+    The default is a NO-RETRY budget (``max_attempts=1``): see the module comment above for why a
+    PHI path must not silently re-dial. A caller that wants retries constructs this explicitly and
+    injects it (and, in tests, an injected ``sleep``/``now`` so backoff is deterministic).
+    """
+
+    #: Total attempts INCLUDING the first. ``1`` == no retry. Provenance for the default: the
+    #: safety argument above, not a tuned number — retries are opt-in for the PHI zone.
+    max_attempts: int = 1
+
+    #: Exponential backoff base (seconds); the delay after the Nth failure is
+    #: ``base_backoff_s * 2**(N-1)``, capped at ``max_backoff_s``.
+    base_backoff_s: float = 0.5
+    max_backoff_s: float = 30.0
+
+    #: Deterministic jitter as a fraction of the computed delay (0..1). ``0`` disables jitter (an
+    #: exact, hardcodable schedule). Non-zero adds ``[0, jitter_ratio*delay)`` derived from
+    #: ``jitter_seed`` via SHA-256 — NO RNG, so a test pins it by seed, never by luck.
+    jitter_ratio: float = 0.0
+    jitter_seed: int = 0
+
+    #: Optional SECOND bound: a token-bucket capacity for retries. ``None`` == only ``max_attempts``
+    #: bounds. When set, retries consume tokens that refill at ``retry_token_refill_per_s``; an
+    #: empty bucket stops retries even below ``max_attempts`` — the anti-retry-storm bound.
+    retry_token_capacity: int | None = None
+    retry_token_refill_per_s: float = 0.0
+
+
+def retry_denial_reason(
+    exc: InferenceProviderError,
+    *,
+    attempt: int,
+    max_attempts: int,
+    rate_ok: bool = True,
+) -> str | None:
+    """The reason this failure must NOT be retried, or ``None`` if a retry is permitted.
+
+    The WHOLE retry classification, in one place, derived ONLY from the exception's own
+    ``retryable`` (the ``_DISPOSITIONS`` truth) and ``committed`` (the W8 bytes-sent signal) plus
+    the two budget bounds. No second table of retryability exists to drift from the first.
+
+    Order is load-bearing AND side-effect-free: the terminal vetoes (``not retryable``,
+    ``committed``) are checked BEFORE any budget is considered, so a committed or non-retryable
+    failure never consumes an attempt slot or a rate token.
+    """
+    if not exc.retryable:
+        return RETRY_STOP_NOT_RETRYABLE
+    if exc.committed:
+        return RETRY_STOP_COMMITTED
+    if attempt >= max_attempts:
+        return RETRY_STOP_ATTEMPTS_EXHAUSTED
+    if not rate_ok:
+        return RETRY_STOP_RATE_BUDGET_EXHAUSTED
+    return None
+
+
+def _deterministic_jitter_unit(seed: int, attempt: int) -> float:
+    """A deterministic pseudo-jitter fraction in ``[0, 1)`` from ``(seed, attempt)``.
+
+    SHA-256 of ``"{seed}:{attempt}"`` — reproducible across processes and machines, so a test pins
+    the exact backoff by fixing the seed. Deliberately NOT ``random``: nondeterministic jitter in a
+    test is exactly the flake this design injects around.
+    """
+    digest = hashlib.sha256(f"{seed}:{attempt}".encode()).digest()
+    return int.from_bytes(digest[:8], "big") / float(1 << 64)
+
+
+def _backoff_delay(budget: RetryBudget, attempt: int) -> float:
+    """The delay (seconds) to wait AFTER the ``attempt``-th failure, before the next attempt.
+
+    Exponential (``base * 2**(attempt-1)``) capped at ``max_backoff_s``, plus optional deterministic
+    jitter. ``attempt`` is 1-indexed: the first failure backs off ``base_backoff_s``.
+    """
+    # ``2.0 ** …`` (float base), not ``2 ** …``: mypy types ``int ** int`` as ``Any`` because a
+    # negative exponent yields a float, which would poison this function's ``float`` return.
+    capped = min(budget.base_backoff_s * (2.0 ** (attempt - 1)), budget.max_backoff_s)
+    if budget.jitter_ratio <= 0.0:
+        return capped
+    jitter = capped * budget.jitter_ratio * _deterministic_jitter_unit(budget.jitter_seed, attempt)
+    return capped + jitter
+
+
+class _RetryTokenBucket:
+    """Mutable token-bucket state for the retry RATE budget (the anti-storm bound).
+
+    A ``capacity`` of ``None`` disables the bound entirely (retries are limited only by
+    ``max_attempts``). Otherwise each retry consumes one token; tokens refill at a fixed rate read
+    from the INJECTED ``now`` clock, so the whole thing is deterministic under an injected clock and
+    a real storm across calls is genuinely bounded (the bucket lives on the provider, not per-call).
+    """
+
+    def __init__(
+        self, *, capacity: int | None, refill_per_s: float, now: Callable[[], float]
+    ) -> None:
+        self._capacity = capacity
+        self._refill_per_s = refill_per_s
+        self._now = now
+        self._tokens = float(capacity) if capacity is not None else 0.0
+        self._last = now()
+
+    def try_consume(self) -> bool:
+        """Consume one retry token; ``True`` if one was available. Unbounded when capacity is None."""
+        if self._capacity is None:
+            return True
+        current = self._now()
+        elapsed = max(0.0, current - self._last)
+        self._last = current
+        self._tokens = min(float(self._capacity), self._tokens + elapsed * self._refill_per_s)
+        if self._tokens >= 1.0:
+            self._tokens -= 1.0
+            return True
+        return False
+
+
 class BrResidentInferenceProvider(BaseInferenceProvider):
     """BR-resident, zero-retention PHI-zone adapter — PHI-eligible BY DESIGN, UN-BOOTABLE TODAY.
 
@@ -1472,8 +1659,13 @@ class BrResidentInferenceProvider(BaseInferenceProvider):
     is the mirror image — PHI-designated but synthetic — and keeping both representable is exactly
     why leg 1 refused to fold `is_mock` into the capability set.
 
-    NO RETRY LOGIC, deliberately: retry/backoff is a separate concern with its own budget
-    semantics and is not this leg's to invent.
+    RETRY IS BUDGETED, IDEMPOTENCY-AWARE, AND OFF BY DEFAULT (W8, leg 4). :class:`RetryBudget`
+    defaults to a single attempt — a PHI path never silently re-dials — and any retry needs BOTH
+    ``retryable`` (the ``_DISPOSITIONS`` truth: only an OUTAGE) AND ``not committed`` (the request
+    never reached the bytes-sent point). A committed, non-idempotent call (a read timeout AFTER the
+    prompt was transmitted) is NEVER re-sent: re-transmitting PHI is a data-exposure + double-spend
+    hazard. Exhausting the budget RAISES (routes to the human/incident seam), never loops. See
+    :func:`retry_denial_reason` and :meth:`_send_with_budget`.
     """
 
     capabilities: ClassVar[ProviderCapabilities] = BR_RESIDENT_CAPABILITIES
@@ -1490,6 +1682,9 @@ class BrResidentInferenceProvider(BaseInferenceProvider):
         model: str = "",
         timeout_s: float = 60.0,
         transport: BrRegionalTransport | None = None,
+        retry_budget: RetryBudget | None = None,
+        sleep: Callable[[float], Awaitable[None]] | None = None,
+        now: Callable[[], float] | None = None,
     ) -> None:
         endpoint_url = os.environ.get(ENV_PHI_ENDPOINT_URL, "").strip()
         credential = os.environ.get(ENV_PHI_API_KEY, "").strip()
@@ -1539,6 +1734,18 @@ class BrResidentInferenceProvider(BaseInferenceProvider):
         self._model = model.strip()
         self._timeout_s = timeout_s
         self._transport = resolve_br_regional_transport(transport)
+
+        # W8 leg 4: budgeted, idempotency-aware retry. Default = NO retry (see RetryBudget) — the
+        # feature is INERT unless an owner injects a multi-attempt budget, exactly like every other
+        # gate on this adapter. `sleep`/`now` are injected so tests drive backoff deterministically.
+        self._retry_budget = retry_budget if retry_budget is not None else RetryBudget()
+        self._sleep = sleep if sleep is not None else asyncio.sleep
+        self._retry_now = now if now is not None else time.monotonic
+        self._retry_bucket = _RetryTokenBucket(
+            capacity=self._retry_budget.retry_token_capacity,
+            refill_per_s=self._retry_budget.retry_token_refill_per_s,
+            now=self._retry_now,
+        )
 
         logger.info(
             "inference_br_resident_configured",
@@ -1668,7 +1875,7 @@ class BrResidentInferenceProvider(BaseInferenceProvider):
         # that quietly rewrites them — even by two whitespace characters — is a defect, not an
         # optimisation. `test_generate_transmits_the_callers_prompt_byte_for_byte` pins it.
         formatted = FormattedPrompt(stable_prefix="", variable_suffix=prompt)
-        return await self._send(formatted, agent_id=agent_id, tenant_id=tenant_id)
+        return await self._send_with_budget(formatted, agent_id=agent_id, tenant_id=tenant_id)
 
     async def generate_formatted(
         self,
@@ -1690,7 +1897,63 @@ class BrResidentInferenceProvider(BaseInferenceProvider):
         (`gateway/seams/inference.py`). Wiring a cache-aware path through the gateway is a
         separate, gated change.
         """
-        return await self._send(formatted, agent_id=agent_id, tenant_id=tenant_id)
+        return await self._send_with_budget(formatted, agent_id=agent_id, tenant_id=tenant_id)
+
+    async def _send_with_budget(
+        self,
+        formatted: FormattedPrompt,
+        *,
+        agent_id: str | None,
+        tenant_id: str | None,
+    ) -> str:
+        """Apply the W8 retry budget around :meth:`_send` (the single attempt).
+
+        Only a ``retryable and not committed`` :class:`InferenceProviderError` — an OUTAGE, per the
+        ``_DISPOSITIONS`` truth — is ever retried, and only within the attempt AND rate bounds. A
+        residency escape (`BrEndpointNotApprovedError`, a `PermissionError`) is NOT an
+        `InferenceProviderError`, so it is never caught here and never retried; nor is
+        `PhiZoneRoutingError` (I-6), which is raised at the facade above this adapter and never
+        reaches it. When retries are exhausted (or refused), the LAST terminal exception propagates
+        UNCHANGED — that raise IS the SP-OP-ESCALATION to a human (leg-3's disposition contract is
+        preserved: default budget == one attempt == exactly today's behaviour).
+        """
+        budget = self._retry_budget
+        attempt = 0
+        while True:
+            attempt += 1
+            try:
+                return await self._send(formatted, agent_id=agent_id, tenant_id=tenant_id)
+            except InferenceProviderError as exc:
+                reason = retry_denial_reason(
+                    exc, attempt=attempt, max_attempts=budget.max_attempts
+                )
+                if reason is None and not self._retry_bucket.try_consume():
+                    # Attempts + retryability + commit all cleared; the rate bucket is the last gate.
+                    reason = RETRY_STOP_RATE_BUDGET_EXHAUSTED
+                if reason is not None:
+                    # Terminal: this attempt's exception escalates to a human. Content-free record —
+                    # counts, enum names and reason code only, NEVER the prompt/completion.
+                    logger.info(
+                        "inference_br_resident_retry_stop",
+                        attempt=attempt,
+                        max_attempts=budget.max_attempts,
+                        stop_reason=reason,
+                        outcome=type(exc).__name__,
+                        retryable=exc.retryable,
+                        committed=exc.committed,
+                    )
+                    raise
+                delay = _backoff_delay(budget, attempt)
+                logger.info(
+                    "inference_br_resident_retry",
+                    attempt=attempt,
+                    max_attempts=budget.max_attempts,
+                    next_delay_s=delay,
+                    # Enum class NAME only — never the prompt, and no content is re-logged across
+                    # attempts (there is none here to re-log).
+                    outcome=type(exc).__name__,
+                )
+                await self._sleep(delay)
 
     async def _send(
         self,
