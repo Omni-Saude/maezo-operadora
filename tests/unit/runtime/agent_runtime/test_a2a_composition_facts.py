@@ -246,13 +246,20 @@ def test_dossier_root_in_explicit_local_without_a_dsn_still_composes(
     assert dispatcher is not None
 
 
-def test_an_injected_producer_still_wins_over_the_gate(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The `kafka_producer` seam predates this gate and must keep working — otherwise every test
-    and any future real-broker wiring would have to route through a database."""
+def test_an_injected_producer_still_wins_over_the_fact_gate(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The `kafka_producer` seam predates the FACT gate and must keep bypassing it — otherwise
+    every test and any future real-broker wiring would have to route through a database.
+
+    Leg 3 scope note: an injected producer bypasses the fact gate ONLY. It does NOT satisfy the
+    durable-idempotency gate, so `runtime_mode="production"` with no `database_url` is now a REFUSAL
+    even WITH a producer injected (proven in test_a2a_composition_idempotency.py). This test
+    therefore uses EXPLICIT local mode, where the composition builds with the injected producer and
+    in-memory idempotency — the fact gate's own decision table above already pins its full behavior
+    in isolation."""
     monkeypatch.setenv(_SIGNING_KEY_ENV, _VALID_KEY)
     dispatcher = build_dossier_delegation_dispatcher(
         tenant="amh",
-        runtime_mode="production",
+        runtime_mode="local",
         database_url=None,
         kafka_producer=RecordingProducer(),
         **_dossier_deps(),

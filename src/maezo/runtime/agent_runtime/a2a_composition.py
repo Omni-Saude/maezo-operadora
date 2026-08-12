@@ -314,6 +314,83 @@ def _require_fact_producer_or_fail_closed(
     return _NoopKafkaProducer()
 
 
+def _require_idempotency_store_or_fail_closed(
+    *, runtime_mode: str, tenant: str, edge: str, database_url: str | None
+) -> PostgresIdempotencyStore | None:
+    """Resolve the durable Guard-4 idempotency store, fail-CLOSED when it cannot be durable.
+
+    The THIRD sibling of `_require_signer_or_fail_closed` and `_require_fact_producer_or_fail_closed`
+    and the SAME defect shape all three exist for: a missing dependency silently degrading to a
+    permissive default. There, an absent signing key silently admitted unsigned Cards; the fact
+    twin, an absent producer silently dropped every fact. HERE, both roots used to wire the store
+    truthy-only — `PostgresIdempotencyStore(...) if database_url else None` — so a NON-local runtime
+    with no `DATABASE_URL` silently ran with NO durable, cross-replica idempotency: every replica
+    and every restart re-executes the delegation's downstream effects (double process starts,
+    duplicated dossiers), because the ONLY surviving Guard 4 is then the dispatcher's in-memory,
+    single-process `_inflight` set. ADR-0039 makes this non-optional outside dev — durable-
+    idempotency retention DOMINATES signature validity — so an absent store is a refusal, not a
+    fallback. This gate closes the truthy-only gap:
+
+      - `database_url` PRESENT -> `PostgresIdempotencyStore` (lazy asyncpg pool; migration
+        0003_a2a_idempotency). The only production posture.
+      - `database_url` ABSENT + PRODUCTION runtime mode -> RAISE. Un-bypassable, mirroring the
+        signer and fact siblings and `AnthropicInferenceProvider`'s "no silent fallback to noop"
+        startup precedent: a production A2A edge whose idempotency is not cross-replica-durable is
+        not a degraded mode, it is one that re-fires effects on every restart.
+      - `database_url` ABSENT + EXPLICIT local runtime mode -> `None`, LOUDLY warned. The
+        dispatcher's in-memory `_inflight` Guard 4 (single-process, non-durable) remains the
+        disclosed, legitimate dev behavior — a laptop-run edge stays buildable, and the local
+        None/in-memory path this leg deliberately preserves.
+
+    COHERENCE with the fact gate (leg 2): the refuse condition here — `not database_url` AND
+    `is_production_runtime_mode(runtime_mode)` — is IDENTICAL to that gate's, and both resolve "is
+    this production?" through the ONE shared `is_production_runtime_mode` helper, so the two gates
+    on a root cannot reach different verdicts (a root half-refusing is the coherence risk this
+    parity removes; see `test_a2a_composition_idempotency.py`'s gate-agreement matrix). The gates
+    keep SEPARATE, domain-specific error messages (leg 2's is pinned to the fact loss it prevents —
+    "DROPPED at emission", migration 0008 — and is out of scope to rewrite here), so what is shared
+    is the DECISION, not the raise. `edge` only labels the error/log.
+
+    Retention WINDOW of the durable rows is DBA/MZO-060 (ADR-0039), deliberately NOT invented here —
+    consistent with leg 2's outbox-retention deferral. This gate only makes the store MANDATORY; how
+    long a sealed row is kept is an operator/DBA decision, not a value this composition root fabricates.
+    """
+    if database_url:
+        return PostgresIdempotencyStore(dsn=database_url, tenant=tenant)
+
+    if is_production_runtime_mode(runtime_mode):
+        # `RuntimeError`, matching both sibling gates' refusal type exactly — all three are "this
+        # composition root refuses to exist" startup failures, and giving them different exception
+        # types would make a caller's `except` clause silently catch one and not another.
+        raise RuntimeError(
+            f"cannot assemble the A2A {edge} delegation edge: no DATABASE_URL is present, so "
+            "delegation idempotency (ADR-0003 Guard 4) would fall back to the dispatcher's "
+            "in-memory _inflight set — single-process and lost on restart, so every replica and "
+            "every restart RE-EXECUTES the delegation's downstream effects (double process starts, "
+            "duplicated dossiers). Refusing to compose a production edge without a durable, "
+            f"cross-replica idempotency store (runtime_mode={runtime_mode!r}). Provide DATABASE_URL "
+            "(the same DSN the audit sink and fact outbox already require) with migration "
+            "0003_a2a_idempotency applied, or — in a NON-production runtime ONLY — run with "
+            f"{WORKER_RUNTIME_MODE_ENV_VAR}=local / AGENT_RUNTIME_MODE=local to opt into the "
+            "in-memory dev idempotency explicitly. The absence of a database must never silently "
+            "downgrade to non-durable idempotency outside local dev (ADR-0039)."
+        )
+
+    logger.warning(
+        "a2a_idempotency_inmemory_dev_store",
+        tenant=tenant,
+        runtime_mode=runtime_mode,
+        edge=edge,
+        detail=(
+            "durable idempotency is DISABLED: no DATABASE_URL and an EXPLICIT local runtime mode. "
+            "The dispatcher falls back to its in-memory _inflight Guard 4 — dev/test ONLY, not "
+            "cross-replica and not restart-durable (the Postgres store is what makes it durable; "
+            "see maezo.a2a.idempotency.PostgresIdempotencyStore)."
+        ),
+    )
+    return None
+
+
 def build_auth_delegation_dispatcher(
     settings: AgentRuntimeSettings,
     *,
@@ -386,8 +463,18 @@ def build_auth_delegation_dispatcher(
             database_url=settings.database_url,
         )
     )
-    idempotency = (
-        PostgresIdempotencyStore(dsn=settings.database_url, tenant=tenant) if settings.database_url else None
+    # Durable Guard 4 is MANDATORY outside explicit local dev now (ADR-0039): absent a DSN this
+    # gate REFUSES to compose in production rather than silently running with the dispatcher's
+    # in-memory _inflight set. On THIS root the refuse branch is defense-in-depth — the missing
+    # `audit_sink` raised `ValueError` several lines above for the same absent DSN — but the gate
+    # is applied so the two roots stay identical and so it keeps covering if `_build_tool_deps`
+    # ever grows a non-DSN audit path (same reachability note as the fact gate). It also fires
+    # AFTER the fact gate, which shares its exact refuse condition, so the two never half-refuse.
+    idempotency = _require_idempotency_store_or_fail_closed(
+        runtime_mode=settings.agent_runtime_mode,
+        tenant=tenant,
+        edge="Helena->Rafael",
+        database_url=settings.database_url,
     )
 
     logger.info(
@@ -502,7 +589,17 @@ def build_dossier_delegation_dispatcher(
             database_url=database_url,
         )
     )
-    idempotency = PostgresIdempotencyStore(dsn=database_url, tenant=tenant) if database_url else None
+    # Durable Guard 4 (ADR-0039): MANDATORY outside explicit local. On THIS root the gate genuinely
+    # bites — `database_url` is INDEPENDENT of the injected `audit_sink`, so "audit sink present,
+    # DSN absent" is a reachable caller state (the worker daemon's degradation posture supplies one
+    # without the other), and in production it is now a refusal instead of a silently non-durable
+    # dispatcher. Same refuse condition as the fact gate above -> a single-valued root verdict.
+    idempotency = _require_idempotency_store_or_fail_closed(
+        runtime_mode=runtime_mode,
+        tenant=tenant,
+        edge="worker->Carolina/Andre dossier",
+        database_url=database_url,
+    )
 
     logger.info(
         "a2a_dossier_delegation_dispatcher_assembled",
