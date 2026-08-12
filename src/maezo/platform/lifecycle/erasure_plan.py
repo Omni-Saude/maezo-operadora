@@ -432,6 +432,25 @@ PERSISTENCE_LAYERS: Final[tuple[PersistenceLayer, ...]] = (
         subject_column=None,
         count_statement=None,
     ),
+    PersistenceLayer(
+        camada="outbox_a2a",
+        tabela="a2a_fact_outbox",
+        migracao="0008:134-183; indexes 0008:191-201",
+        # `payload bytea` is the ONLY column that could carry content, and what it carries is a
+        # `DelegationFact.to_value()` encoding: kind/task_id/task_type/tenant/origin/target/chain/
+        # ts, plus optional `reason` and `output_ref`. `facts.build_fact` refuses to let `meta`
+        # enter a fact at all ("never enters the fact (avoids accidental PHI)"), and `output_ref`
+        # is a business-key/FHIR PROCESS reference by `HandlerOutput`'s contract — never a subject
+        # reference. So there is no subject column and no subject-linkable value.
+        identificacao=(
+            "payload bytea (0008:150) — DelegationFact encoding: task_id/chain/route/ts only; "
+            "facts.build_fact excludes meta by construction"
+        ),
+        resolucao=IdentityResolution.SEM_COLUNA_DE_TITULAR,
+        ordem=16,
+        subject_column=None,
+        count_statement=None,
+    ),
 )
 
 KNOWN_TABLES: Final[frozenset[str]] = frozenset(layer.tabela for layer in PERSISTENCE_LAYERS)

@@ -312,7 +312,15 @@ DL-0045 (qualificação MZO-040) em `docs/decisions-log.md`.
   rede imposto INDEPENDENTEMENTE por política de deploy (infra/dono);
   retry/backoff budgetado idempotência-aware (W8) entra aqui. **Vendor/DPA/credenciais = DONO.
   NÃO ligar LLM mais capaz em produção antes da Onda 1 enforçar + canários da Onda 2 verdes.**
-- **Onda 3 — A2A p/ distribuição (M–L, 6–9 sessões, engine-path):** ADR de assinatura do envelope
+- **Onda 3 — A2A p/ distribuição (M–L, 6–9 sessões, engine-path):** **[METADE DURÁVEL CONSTRUÍDA
+  2026-08-12 — branch `wave3-a2a-distribution`, legs 1-4: ADR-0039 (Proposed, digest §4.1/§4.2) ·
+  outbox transacional (migração 0008, substitui `_NoopKafkaProducer`) · idempotência durável
+  OBRIGATÓRIA fora de dev-local (porta fail-closed nas 2 raízes, acordo com a porta de facts
+  provado) · suite adversarial (cross-tenant/crash-before-complete reais + tamper/replay/expiry via
+  verifier de referência LABELADO, negativos honestos p/ Q1/Q2). Cada leg autor R1 → GK adversarial
+  → repair → delta PASS; live-PG (18 binders) provado. ASSINATURA DE ENVELOPE NÃO IMPLEMENTADA —
+  gated na ratificação HUMANA das Perguntas 1 (`payload_meta_hash`) e 3 (max-signature-age) do
+  ADR-0039; mTLS deferido até transporte remoto]** ADR de assinatura do envelope
   (digest canônico: tenant, task_id, origin, target, payload_hash, deadline, budget, chain;
   key-id e epoch p/ rotação/replay) → idempotência durável OBRIGATÓRIA fora de dev-local → outbox
   transacional substituindo o no-op de facts → testes orientados a ataque (tamper, replay

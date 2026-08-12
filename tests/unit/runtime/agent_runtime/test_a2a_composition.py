@@ -30,8 +30,9 @@ from typing import Any
 
 import pytest
 from tests.support.audit_fakes import FakeStartAuditSink
+from tests.unit.a2a.fakes import RecordingProducer
 
-from maezo.a2a import CardSigner
+from maezo.a2a import TOPIC_COMPLETED, TOPIC_REQUESTED, CardSigner
 from maezo.agents.andre.delegation import build_adequacao_dossier_envelope
 from maezo.agents.carolina.delegation import build_cred_dossier_envelope
 from maezo.runtime.agent_runtime import a2a_composition
@@ -212,8 +213,17 @@ async def test_dossier_dispatcher_assembles_and_routes_cred_edge_end_to_end(
     the handler's bounded meta rides back on `DelegationResult.meta` (the originating worker's
     only channel to the UT variables)."""
     monkeypatch.setenv(_SIGNING_KEY_ENV, _VALID_KEY)
+    # Onda 3 / Train C: an INJECTED producer is what this test always wanted (it asserts routing,
+    # not fact durability). It bypasses the leg-2 FACT gate. It does NOT, however, satisfy leg 3's
+    # durable-IDEMPOTENCY gate — that gate refuses `runtime_mode="production"` with no
+    # `database_url` regardless of the producer, because this test needs the dispatcher's in-memory
+    # `_inflight` Guard 4 to prove the replay below (a fake DSN cannot: `.delegate()` would then try
+    # to reach a real Postgres). In-memory idempotency is legitimate ONLY in EXPLICIT local mode
+    # now, so this routing test runs there. Leg 2's fact-gate contract is untouched: the injected
+    # producer still wins, proven by `producer.topics()` below.
+    producer = RecordingProducer()
     dispatcher = build_dossier_delegation_dispatcher(
-        tenant="amh", runtime_mode="production", **_dossier_deps()
+        tenant="amh", runtime_mode="local", kafka_producer=producer, **_dossier_deps()
     )
 
     envelope = build_cred_dossier_envelope(
@@ -235,6 +245,12 @@ async def test_dossier_dispatcher_assembles_and_routes_cred_edge_end_to_end(
     assert replay.output_ref == result.output_ref
     assert dict(replay.meta) == dict(result.meta)
 
+    # Non-vacuity for the injected producer: the facts really did flow THROUGH it (requested +
+    # completed on the first delivery; the replay short-circuits before `_execute`, so it emits
+    # nothing) — so this test would notice if the composition root stopped honouring the
+    # injection and silently substituted its own sink.
+    assert producer.topics() == [TOPIC_REQUESTED, TOPIC_COMPLETED]
+
 
 async def test_dossier_dispatcher_routes_adequacao_edge_with_shared_task_type(
     monkeypatch: pytest.MonkeyPatch,
@@ -243,8 +259,12 @@ async def test_dossier_dispatcher_routes_adequacao_edge_with_shared_task_type(
     (`adequacao-worker`) disambiguates into his `adequacao_dossier` flow: always human,
     `gestao-rede`, no process started — never a payment triage."""
     monkeypatch.setenv(_SIGNING_KEY_ENV, _VALID_KEY)
+    # EXPLICIT local: this asserts routing + in-memory replay, which leg 3 makes legal only in local
+    # mode (production+no-DSN now refuses for durable idempotency — see the cred test's note above
+    # and test_a2a_composition_idempotency.py). The injected producer still bypasses the fact gate.
+    producer = RecordingProducer()
     dispatcher = build_dossier_delegation_dispatcher(
-        tenant="amh", runtime_mode="production", **_dossier_deps()
+        tenant="amh", runtime_mode="local", kafka_producer=producer, **_dossier_deps()
     )
 
     envelope = build_adequacao_dossier_envelope(

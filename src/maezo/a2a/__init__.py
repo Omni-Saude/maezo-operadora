@@ -67,6 +67,15 @@ from maezo.a2a.facts import (
     register_a2a_topics,
 )
 from maezo.a2a.idempotency import IdempotencyStore, PostgresIdempotencyStore, StoredResult
+from maezo.a2a.outbox import (
+    MalformedFactError,
+    OutboxRecord,
+    PostgresFactOutbox,
+    PostgresOutboxFactProducer,
+    build_outbox_fact_producer,
+    fact_dedup_key,
+    outbox_transaction,
+)
 from maezo.a2a.registry import A2ARegistry
 from maezo.a2a.signing import CardSigner
 
@@ -95,15 +104,22 @@ __all__ = [
     "FactProducer",
     "HandlerOutput",
     "IdempotencyStore",
+    "MalformedFactError",
     "MaxDepthExceededError",
     "MaxHopsExceededError",
+    "OutboxRecord",
+    "PostgresFactOutbox",
     "PostgresIdempotencyStore",
+    "PostgresOutboxFactProducer",
     "RegistryError",
     "RejectionReason",
     "StoredResult",
     "build_agent_cards",
     "build_dispatcher",
+    "build_outbox_fact_producer",
     "card_signer_from_key",
     "card_signing_key_from_env",
+    "fact_dedup_key",
+    "outbox_transaction",
     "register_a2a_topics",
 ]

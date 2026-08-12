@@ -392,6 +392,14 @@ _COMPOSITION_ROOT_FILES: Final[frozenset[str]] = frozenset(
         "platform/webhooks/service.py",
         "platform/integrations/notifications_bridge.py",
         "gateway/tool_registry.py",
+        # Onda 3 / Train C leg 2. `a2a/outbox_relay.py` is a runnable composition root in the same
+        # sense `notifications_bridge.py` is — `build_relay` constructs the production
+        # `PostgresFactOutbox` + `AioKafkaFactPublisher` and `main()` is a process entry point —
+        # so §8.4 must govern it. It declares NO exception below and needs none: that module
+        # deliberately defines no test double (the in-memory publisher its unit tests drive lives
+        # in `tests/unit/a2a/`, which this gate never scans). Adding the file EXTENDS coverage; it
+        # widens no pattern and grants no new allowance.
+        "a2a/outbox_relay.py",
     }
 )
 
