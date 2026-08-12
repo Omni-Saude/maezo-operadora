@@ -15,6 +15,11 @@ Provider selection (T1.7) is via ``MAEZO_INFERENCE_PROVIDER``:
 - ``phi_zone_mock`` — explicitly-labeled mock standing in for the
   not-yet-provisioned BR-resident, zero-retention PHI-zone endpoint
   (ADR-0006/ADR-0017). Every response is marked synthetic.
+- ``br_resident`` — the real BR-resident, zero-retention adapter (Onda 2 W2
+  leg 2). BUILT INERT: no shipped config selects it, and it REFUSES TO
+  CONSTRUCT until three owner-supplied environment values exist
+  (:data:`ENV_PHI_ENDPOINT_URL`, :data:`ENV_PHI_API_KEY`,
+  :data:`ENV_PHI_VENDOR_DPA_REF`). See :class:`BrResidentInferenceProvider`.
 
 An unrecognized value is a fail-closed startup error (constraint 2) — the
 process refuses to boot with a misconfigured provider rather than silently
@@ -23,8 +28,10 @@ degrading to ``noop``.
 PHI routing (ADR-0006 "Zona PHI/Financeira", ADR-0017 network enforcement):
 :meth:`InferenceProvider.generate` accepts ``phi=True`` for requests that
 carry PHI-tagged content. Such a request may ONLY be served by a provider
-explicitly marked ``phi_capable`` (today, only :class:`PhiZoneMockProvider`
-— no real BR-resident endpoint exists yet, tracked as blocked(external)).
+explicitly marked ``phi_capable`` (:class:`PhiZoneMockProvider`, and — since
+Onda 2 W2 leg 2 — :class:`BrResidentInferenceProvider`, which is PHI-eligible
+by design but refuses to construct until an owner supplies a vendor DPA
+reference, so no real BR-resident endpoint is reachable today either).
 A PHI-tagged request against any other provider raises
 :class:`PhiZoneRoutingError` — the caller must route to a human / incident,
 NEVER silently falling back to the general-zone cloud provider.
@@ -60,16 +67,20 @@ meter (constraint 3 — never fabricate).
 
 from __future__ import annotations
 
+import hashlib
 import os
 from abc import ABC, abstractmethod
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import ClassVar, Final
+from typing import ClassVar, Final, Protocol, runtime_checkable
+from urllib.parse import urlsplit
 
 import anthropic
 import structlog
 from pydantic_settings import BaseSettings
+
+from maezo.runtime.prompt_format import FormattedPrompt, format_cached_prompt
 
 logger = structlog.get_logger(__name__)
 
@@ -124,6 +135,27 @@ class PhiZoneRoutingError(PermissionError):
     elsewhere in the codebase for structural, fail-closed denials (e.g.
     ADR-0016 ``ProcessKeyNotAllowedError``) — callers must route to a
     human / incident, never retry against a different provider.
+    """
+
+
+class BrEndpointNotApprovedError(PermissionError):
+    """Raised when BR-resident inference would reach a NON-APPROVED endpoint.
+
+    Deliberately a SIBLING of :class:`PhiZoneRoutingError`, not a subclass of it (and not
+    caught by anything that catches it). The two refusals answer different questions and must
+    stay separately observable:
+
+    * ``PhiZoneRoutingError`` — "this PROVIDER may not see PHI" (invariant I-6, decided from
+      ``phi_capable`` alone, at the facade, before any transport is involved).
+    * this — "this provider is PHI-designated, but the ENDPOINT it is about to talk to is not
+      on the BR-regional allowlist" (decided inside the adapter, client-side, against a URL).
+
+    Folding the second into the first would make an endpoint escape read, in logs and in
+    ``except`` clauses, as a provider-capability problem — and would let a future edit to I-6's
+    raise silently change what happens when a vendor redirects PHI out of São Paulo.
+
+    A ``PermissionError`` subclass for the same reason ``PhiZoneRoutingError`` is one: this is a
+    structural, fail-closed denial that must reach a human / incident, never a retry.
     """
 
 
@@ -386,6 +418,59 @@ PHI_ZONE_MOCK_CAPABILITIES: Final[ProviderCapabilities] = ProviderCapabilities(
     training_on_input_prohibited=True,
     max_data_classification=DataClassification.PHI,
     credential_source=CredentialSource.NONE,
+    supported_model_versions=frozenset(),
+)
+
+#: `br_resident` — the BR-resident, zero-retention adapter (Onda 2, W2 leg 2).
+#:
+#: ============================================================================================
+#: READ THIS BEFORE BELIEVING THE DECLARATION BELOW
+#: ============================================================================================
+#: This is the FIRST capability set in this module that claims `BR_SAO_PAULO` + `ZERO_RETENTION`
+#: + `training_on_input_prohibited` for a NON-MOCK provider, and leg 1 established (GK-verified)
+#: that no DPA / zero-retention contract exists anywhere in this repo's tree. So the obvious
+#: reading — "somebody signed a BR zero-retention agreement" — is FALSE, and this comment exists
+#: so nobody reaches it.
+#:
+#: What this constant actually declares is the contract `BrResidentInferenceProvider` ENFORCES
+#: CLIENT-SIDE, per field:
+#:
+#:  * `BR_SAO_PAULO` — the adapter refuses, at construction AND on every call, any endpoint
+#:    outside `BR_REGIONAL_ENDPOINT_HOST_SUFFIXES`, and refuses a response that came back from a
+#:    different URL than the one it dialed (redirect escape) or that fails to attest
+#:    `served_region`. That is a real, testable, client-side residency check.
+#:  * `ZERO_RETENTION` / `training_on_input_prohibited` — the adapter SENDS the zero-retention
+#:    and no-training request flags (`HEADER_ZERO_RETENTION`, `HEADER_TRAINING_PROHIBITED`) on
+#:    every request and REFUSES any response that does not echo both acknowledgements. That is
+#:    the strongest claim a client can make on its own.
+#:  * `max_data_classification=PHI` — the zone this adapter is designated for (ADR-0006).
+#:  * `credential_source=ENVIRONMENT` — `MAEZO_PHI_API_KEY`, read from the process environment at
+#:    construction, exactly like the Anthropic key; never a settings field, never committed.
+#:  * `supported_model_versions=frozenset()` — THIS REPO SANCTIONS NO BR-ZONE MODEL ID. The
+#:    vendor catalogue is unknown pending the DPA, and inventing a plausible model id would be
+#:    the same fabrication leg 1 refused for the retention field. Empty is the honest set. (Leg 1
+#:    already records that this field is DECLARED, NOT ENFORCED, so the empty set gates nothing;
+#:    the adapter instead requires `MAEZO_INFERENCE_MODEL` to be set EXPLICITLY, with no default,
+#:    so no model id is ever invented here either.)
+#:
+#: VENDOR-SIDE ATTESTATION IS NOT DISCHARGED BY ANY OF THAT. A vendor that ignores the flags,
+#: retains anyway, and lies in the acknowledgement fields defeats every check above — client-side
+#: enforcement cannot prove a counterparty's behaviour. That gap is closed by exactly two things,
+#: neither of which is code in this file: the owner's DPA (gated here by
+#: `MAEZO_PHI_VENDOR_DPA_REF` — WITHOUT IT THE PROVIDER REFUSES TO CONSTRUCT, so this
+#: declaration cannot reach production on an agent's say-so), and the NETWORK-LEVEL proof the
+#: `PHI_ELIGIBLE_REGIONS` comment books as owed by any non-mock PHI-eligible provider (ADR-0017
+#: NetworkPolicy + the leg-3 canary harness).
+#:
+#: So: PHI-eligible BY DESIGN, UN-BOOTABLE UNTIL AN OWNER ACTS. Both halves are load-bearing and
+#: both are tested (`tests/unit/runtime/test_inference_br_resident.py`).
+BR_RESIDENT_CAPABILITIES: Final[ProviderCapabilities] = ProviderCapabilities(
+    phi_allowed=True,
+    deployment_region=DeploymentRegion.BR_SAO_PAULO,
+    retention_policy=RetentionPolicy.ZERO_RETENTION,
+    training_on_input_prohibited=True,
+    max_data_classification=DataClassification.PHI,
+    credential_source=CredentialSource.ENVIRONMENT,
     supported_model_versions=frozenset(),
 )
 
@@ -851,6 +936,800 @@ class PhiZoneMockProvider(BaseInferenceProvider):
         }
 
 
+# ===========================================================================
+# BR-resident PHI-zone adapter (Onda 2, W2 leg 2) — BUILT INERT
+#
+# An HTTP-CONTRACT adapter, NOT a vendor SDK integration. No vendor SDK for a
+# BR-resident PHI endpoint exists to integrate against, and picking one would
+# commit this repo to a counterparty nobody has chosen. What DOES exist to
+# build is the wire contract such an endpoint must satisfy — request shape,
+# the zero-retention/no-training flags, the residency attestation the response
+# must carry, and the token fields leg 3 reconciles against. That contract is
+# expressed below as an injectable transport seam, following this repo's
+# established Protocol + refusing-real + labeled-fake triple
+# (`tools/workers/ans_gateway.py`, `dmn_transport.DmnTransport`).
+#
+# WHY A SEAM AND NOT AN httpx CLIENT HERE. Onda 1 design §8.2 fences raw httpx
+# client construction to five sanctioned transport modules;
+# `runtime/inference.py` is deliberately NOT one of them
+# (`scripts/ci/check_effect_chokepoint_fence.py:_HTTPX_DESIGN_MODULES`). This
+# is not an obstacle worked around — it is the correct answer. The socket-owning
+# half of a PHI transport belongs in a fenced transport module, wired through
+# the gateway registry, and putting it there is a human decision with a network
+# proof attached (ADR-0017 NetworkPolicy), not something this leg may grant
+# itself. So the adapter owns the CONTRACT and the REFUSALS; it never opens a
+# connection. `resolve_br_regional_transport(None)` yields the REFUSING
+# transport, so an unwired adapter refuses rather than falling through to the
+# fake — the same fail-closed default as `resolve_ans_gateway`.
+# ===========================================================================
+
+#: Host suffixes an inference endpoint must match to be considered BR-resident.
+#:
+#: PROVISIONAL AND DELIBERATELY NON-ROUTABLE. No vendor endpoint has been chosen, so this is not
+#: a redaction of a real one — `.internal` is a private-use suffix that resolves nowhere on the
+#: public internet. The consequence is a useful one and is the reason for the choice: even a
+#: deployment that somehow satisfied all three owner gates could not reach a public vendor
+#: through this allowlist. Widening it to a real hostname is an OWNER act that travels with the
+#: DPA and the ADR-0017 NetworkPolicy, not an adapter edit.
+#:
+#: OPEN QUESTION FOR HUMANS (reported, not resolved here): the source of truth for this list.
+#: A client-side tuple is the weakest place for it — it should plausibly be derived from the
+#: same artifact that pins the NetworkPolicy egress CIDRs, so the client allowlist and the
+#: network fence cannot drift apart. This leg does not invent that artifact.
+BR_REGIONAL_ENDPOINT_HOST_SUFFIXES: Final[tuple[str, ...]] = (".br-sao-paulo.phi.maezo.internal",)
+
+#: The ONLY scheme an approved endpoint may use. Plaintext `http` for PHI in transit is refused
+#: structurally rather than left to deployment configuration.
+BR_REGIONAL_ENDPOINT_SCHEME: Final[str] = "https"
+
+#: Request headers carrying the contract the adapter enforces client-side. Sent on EVERY request;
+#: the response must echo the first two (see `BrRegionalResponse`) or the adapter refuses the
+#: completion. Namespaced `X-Maezo-` because they are OUR assertions to a vendor, not a standard.
+HEADER_ZERO_RETENTION: Final[str] = "X-Maezo-Zero-Retention"
+HEADER_TRAINING_PROHIBITED: Final[str] = "X-Maezo-Training-Prohibited"
+HEADER_DATA_CLASSIFICATION: Final[str] = "X-Maezo-Data-Classification"
+HEADER_VENDOR_DPA_REF: Final[str] = "X-Maezo-Vendor-Dpa-Ref"
+HEADER_CACHE_PREFIX_CHARS: Final[str] = "X-Maezo-Cache-Prefix-Chars"
+
+#: The `served_region` value a response must attest to be accepted (W8/ADR-0006).
+BR_REGIONAL_ATTESTED_REGION: Final[str] = DeploymentRegion.BR_SAO_PAULO.value
+
+#: The three OWNER ACTS that gate a BR-resident boot, read STRICTLY from the process environment.
+#:
+#: Grouped here rather than split across `InferenceSettings` on purpose. One of them is a
+#: credential (leg-1 precedent: a credential never round-trips through a settings object that
+#: might be logged or serialized), and the other two are the same KIND of fact — something a
+#: human with authority must supply — so a single read point lets the refusal name exactly which
+#: act is missing instead of surfacing as three unrelated config errors.
+ENV_PHI_ENDPOINT_URL: Final[str] = "MAEZO_PHI_ENDPOINT_URL"
+ENV_PHI_API_KEY: Final[str] = "MAEZO_PHI_API_KEY"
+ENV_PHI_VENDOR_DPA_REF: Final[str] = "MAEZO_PHI_VENDOR_DPA_REF"
+
+#: Stable reason codes for an endpoint rejected by the client-side allowlist. Enum-shaped for the
+#: same reason as `PHI_DENIAL_*`: operators and tests match on them, so they must not be prose.
+#: Each names a URL STRUCTURE fact — never the URL itself, which could carry a tenant hint.
+ENDPOINT_DENIAL_EMPTY: Final[str] = "endpoint_url_not_configured"
+ENDPOINT_DENIAL_SCHEME: Final[str] = "endpoint_scheme_not_https"
+ENDPOINT_DENIAL_USERINFO: Final[str] = "endpoint_url_carries_userinfo"
+ENDPOINT_DENIAL_HOST: Final[str] = "endpoint_host_not_br_regional"
+ENDPOINT_DENIAL_QUERY: Final[str] = "endpoint_url_carries_query_or_fragment"
+
+
+def br_endpoint_denial_reasons(endpoint_url: str) -> tuple[str, ...]:
+    """Every reason ``endpoint_url`` is not an approved BR-regional inference endpoint.
+
+    Empty tuple == approved. Fixed declaration order, so a refusal message is deterministic and
+    diffable — same discipline as :func:`phi_zone_denial_reasons`.
+
+    PURE and side-effect-free: no DNS, no connection, no logging. It decides from the URL's
+    STRUCTURE alone, which is what makes it usable both at construction (before any credential
+    is exercised) and on the hot path of every call, and what makes it honest about its own
+    limits — it proves a URL is well-formed and on the allowlist, never that whatever answers
+    there is genuinely in São Paulo. That second claim needs the network-level proof ADR-0017
+    and the leg-3 canary own.
+    """
+    if not endpoint_url.strip():
+        return (ENDPOINT_DENIAL_EMPTY,)
+
+    reasons: list[str] = []
+    parts = urlsplit(endpoint_url.strip())
+    if parts.scheme != BR_REGIONAL_ENDPOINT_SCHEME:
+        reasons.append(ENDPOINT_DENIAL_SCHEME)
+    # `urlsplit` keeps userinfo in `netloc` but strips it from `hostname`; a credential smuggled
+    # into the URL would otherwise pass the host check AND land in every log line that echoes it.
+    if "@" in parts.netloc:
+        reasons.append(ENDPOINT_DENIAL_USERINFO)
+    hostname = (parts.hostname or "").lower()
+    if not any(hostname.endswith(suffix) for suffix in BR_REGIONAL_ENDPOINT_HOST_SUFFIXES):
+        reasons.append(ENDPOINT_DENIAL_HOST)
+    if parts.query or parts.fragment:
+        reasons.append(ENDPOINT_DENIAL_QUERY)
+    return tuple(reasons)
+
+
+def _fingerprint(text: str) -> str:
+    """Short, stable, NON-REVERSIBLE correlation handle for prompt/completion text.
+
+    The only thing this module ever derives from PHI-bearing content. Truncated SHA-256: enough
+    to correlate "the same prompt" across two log lines, useless for recovering the prompt.
+    Never a preview, never a prefix of the text itself (`NoopInferenceProvider` logs
+    `prompt[:80]`; that is fine for a mock that never sees production PHI, and is exactly what
+    this provider must not do).
+    """
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
+
+
+@dataclass(frozen=True, slots=True)
+class BrRegionalTokenUsage:
+    """Token accounting from a BR-regional response.
+
+    Field names ``input_tokens``/``output_tokens`` are NOT arbitrary: they match the shape
+    :func:`_emit_llm_token_usage` already reads off the Anthropic SDK, so BR-resident traffic
+    meters through the SAME single seam as general-zone traffic instead of growing a parallel
+    metering path (T8: "never a parallel logging/telemetry system").
+
+    ``cached_prefix_tokens`` is the W8 payoff and has no Anthropic-shape counterpart here: it is
+    how many of ``input_tokens`` the vendor served from a cached stable prefix. Leg 3 reconciles
+    it — a cache-aware prompt layout that never produces a non-zero value is a layout that is not
+    actually being cached, and this field is what makes that falsifiable rather than assumed.
+    """
+
+    input_tokens: int
+    output_tokens: int
+    cached_prefix_tokens: int
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class BrRegionalRequest:
+    """One request on the BR-regional inference wire contract.
+
+    THE REPR REDACTS. ``repr=False`` + the hand-written :meth:`__repr__` below is a load-bearing
+    safety property, not tidiness: this object holds BOTH a credential and PHI-bearing prompt
+    text, and a dataclass's generated repr would spill both into any log line, ``assert``
+    message, exception traceback frame, or debugger session that touched it. The generated repr
+    is therefore never allowed to exist. Asserted by a canary probe in
+    ``tests/unit/runtime/test_inference_br_resident.py``.
+    """
+
+    endpoint_url: str
+    model: str
+
+    #: The cache boundary (W8). Split rather than concatenated so the transport can declare a
+    #: provider-side cache breakpoint at exactly ``len(stable_prefix)``; the model still receives
+    #: ``stable_prefix + variable_suffix``, unchanged (see `runtime/prompt_format.py`).
+    stable_prefix: str
+    variable_suffix: str
+
+    max_tokens: int
+
+    #: Bearer credential. Present because a real HTTP transport needs it on the wire; kept out of
+    #: the repr, out of every log line, and out of every error message this module raises.
+    credential: str
+
+    headers: Mapping[str, str] = field(default_factory=dict)
+
+    @property
+    def prompt(self) -> str:
+        """The full prompt as the model receives it."""
+        return self.stable_prefix + self.variable_suffix
+
+    def __repr__(self) -> str:
+        """Counts, enums and a fingerprint. No credential, no prompt bytes, no endpoint path."""
+        return (
+            f"BrRegionalRequest(endpoint_host={urlsplit(self.endpoint_url).hostname!r}, "
+            f"model={self.model!r}, stable_prefix_chars={len(self.stable_prefix)}, "
+            f"variable_suffix_chars={len(self.variable_suffix)}, max_tokens={self.max_tokens}, "
+            f"prompt_fingerprint={_fingerprint(self.prompt)!r}, "
+            f"credential=<redacted>, header_names={sorted(self.headers)})"
+        )
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class BrRegionalResponse:
+    """One response on the BR-regional inference wire contract.
+
+    THE ATTESTATION FIELDS ARE THE POINT. ``served_region``, ``zero_retention_acknowledged`` and
+    ``training_prohibited_acknowledged`` are what turn `BR_RESIDENT_CAPABILITIES`' declaration
+    from a comment into something checkable on every single call: the adapter refuses a
+    completion whose response does not affirm all three. ``endpoint_url`` is the URL that
+    ACTUALLY answered (post-redirect), which is how a vendor redirecting PHI out of the approved
+    endpoint is caught rather than followed.
+
+    A vendor can of course lie in all four. Stated plainly so the check is not over-read: this
+    detects a MISCONFIGURED or MISBEHAVING-BY-DEFAULT endpoint, which is the realistic failure,
+    and it is the strongest claim a client can make unaided. A dishonest counterparty is a DPA
+    and network-proof problem (see `BR_RESIDENT_CAPABILITIES`).
+
+    Repr redacts for the same reason as the request: ``completion`` is model output over PHI.
+    """
+
+    completion: str
+    model: str
+    usage: BrRegionalTokenUsage
+
+    #: The URL that actually served this response, after any redirect the transport followed.
+    endpoint_url: str
+
+    #: The vendor's declared execution region for THIS response.
+    served_region: str
+
+    zero_retention_acknowledged: bool
+    training_prohibited_acknowledged: bool
+
+    #: True when this response came from a labeled fake. A real transport must NEVER set it, and
+    #: the adapter logs loudly when it sees it — the `is_mock`/`synthetic` discipline of
+    #: `ans_gateway.AnsProtocol` (constraint 3: a synthetic result stays self-describing at the
+    #: process boundary).
+    synthetic: bool = False
+
+    #: A vendor refusal (safety classifier, policy). Carries a CODE, never the refused content.
+    refusal_code: str = ""
+
+    def __repr__(self) -> str:
+        """Counts, enums and a fingerprint. No completion bytes."""
+        return (
+            f"BrRegionalResponse(model={self.model!r}, "
+            f"completion_chars={len(self.completion)}, "
+            f"completion_fingerprint={_fingerprint(self.completion)!r}, "
+            f"served_region={self.served_region!r}, "
+            f"zero_retention_acknowledged={self.zero_retention_acknowledged}, "
+            f"training_prohibited_acknowledged={self.training_prohibited_acknowledged}, "
+            f"synthetic={self.synthetic}, refusal_code={self.refusal_code!r})"
+        )
+
+
+@runtime_checkable
+class BrRegionalTransport(Protocol):
+    """The BR-regional inference wire seam — Protocol half of the repo's transport triple.
+
+    ASYNC, unlike `AnsGatewayTransport.submit`: every caller is
+    :meth:`BrResidentInferenceProvider.generate`, which is already async, and a real
+    implementation performs network I/O — so there is no reason to build in a sync-to-async
+    bridge that would have to be removed later.
+
+    NO OUTCOME-STEERING PARAMETER, deliberately, and this is a TIGHTENING of the
+    `AnsGatewayTransport` precedent rather than a copy of it. That Protocol carries a
+    dev/test-only ``requested_outcome`` argument which every production implementation must
+    remember to ignore — a discipline enforced by docstring. Here the failure modes a test needs
+    live in :class:`LabeledFakeBrRegionalTransport`'s CONSTRUCTOR instead, so no caller can ask
+    ANY transport for a particular outcome: the contract simply has no channel for it.
+    """
+
+    async def send(self, request: BrRegionalRequest) -> BrRegionalResponse: ...
+
+
+class BrRegionalTransportUnavailableError(InferenceProviderError):
+    """The BR-regional transport could not be reached, or refuses to exist.
+
+    An :class:`InferenceProviderError` subclass so it satisfies this module's contract that no
+    SDK/transport-level error type leaks past it (module docstring), and so existing callers
+    that already handle provider failure keep working unchanged.
+    """
+
+    def __init__(self, message: str, *, retryable: bool = False) -> None:
+        super().__init__("br_resident", message, retryable=retryable)
+
+
+class RefusingBrRegionalTransport:
+    """PRODUCTION DEFAULT: refuses to talk to anything — no real BR-regional transport exists.
+
+    What `resolve_br_regional_transport(None)` returns, mirroring
+    `ans_gateway.resolve_ans_gateway`: an UNWIRED adapter refuses rather than silently reaching
+    for the fake, so the labeled fake is unreachable in production by construction and not
+    merely by convention.
+
+    This is why `BrResidentInferenceProvider.is_mock` can honestly be ``False`` while no real
+    endpoint exists. It is not a mock — it is a real adapter whose transport is missing, and a
+    missing transport RAISES. It never fabricates a completion, which is precisely the
+    difference between this class and `PhiZoneMockProvider` (constraint 3).
+    """
+
+    async def send(self, request: BrRegionalRequest) -> BrRegionalResponse:
+        logger.warning(
+            "br_regional_transport_refusing",
+            # Structure only: host + counts + fingerprint. Never the prompt, never the credential.
+            endpoint_host=urlsplit(request.endpoint_url).hostname,
+            model=request.model,
+            prompt_fingerprint=_fingerprint(request.prompt),
+        )
+        raise BrRegionalTransportUnavailableError(
+            "no BR-regional inference transport is wired — RefusingBrRegionalTransport is the "
+            "production default until a real one is built inside a §8.2-sanctioned transport "
+            "module and wired through the gateway registry, with an ADR-0017 NetworkPolicy "
+            "proof. Fail-closed: it issues no completion and never fabricates one.",
+            retryable=False,
+        )
+
+
+class FakeBrRegionalOutcome(StrEnum):
+    """Response behaviours :class:`LabeledFakeBrRegionalTransport` can be built to produce.
+
+    One member per branch the adapter can take on a response, so that every check in
+    :meth:`BrResidentInferenceProvider._validate_response` has a test that can actually reach it.
+    A check with no reachable failing input is a vacuous check.
+    """
+
+    ACCEPTED = "accepted"
+
+    #: The vendor's safety classifier declined. A real, well-formed, attested response that
+    #: carries no completion — the adapter must surface it as a provider error, not as text.
+    VENDOR_REFUSAL = "vendor-refusal"
+
+    #: The endpoint is unreachable. The transport raises instead of returning.
+    OUTAGE = "outage"
+
+    #: The endpoint answered with something that is not the contract at all.
+    MALFORMED = "malformed"
+
+    #: The vendor followed a redirect and answered from a DIFFERENT, non-approved endpoint —
+    #: the PHI residency escape this adapter exists to refuse.
+    REDIRECTED_OFF_REGION = "redirected-off-region"
+
+    #: Well-formed and on the right endpoint, but the vendor declares a different execution region.
+    WRONG_SERVED_REGION = "wrong-served-region"
+
+    #: The vendor did not acknowledge the zero-retention flag it was sent.
+    RETENTION_NOT_ACKNOWLEDGED = "retention-not-acknowledged"
+
+    #: The vendor did not acknowledge the training-prohibition flag it was sent.
+    TRAINING_NOT_ACKNOWLEDGED = "training-not-acknowledged"
+
+
+#: The unmistakably-synthetic completion prefix, mirroring `MOCK_ANS_PROTOCOL_PREFIX` and
+#: `PhiZoneMockProvider`'s "[SYNTHETIC RESPONSE …]". Nothing that could read as model output.
+FAKE_BR_REGIONAL_COMPLETION_PREFIX: Final[str] = (
+    "[SYNTHETIC RESPONSE — LabeledFakeBrRegionalTransport, NOT a real model completion]"
+)
+
+#: The fake's refusal code. Deliberately self-labelling as a fake artifact rather than an
+#: invented vendor code — the real vocabulary is unknown, and inventing one would be the
+#: fabrication `MOCK_ANS_NACK_MOTIVO` refuses for the same reason.
+FAKE_BR_REGIONAL_REFUSAL_CODE: Final[str] = "FAKE-BR-REGIONAL-REFUSAL-NOT-A-VENDOR-CODE"
+
+#: Endpoint the fake answers from when asked to simulate a redirect escape. A `.example` host —
+#: reserved by RFC 2606, resolves nowhere — and it fails `BR_REGIONAL_ENDPOINT_HOST_SUFFIXES`,
+#: which is the entire point of it.
+FAKE_BR_REGIONAL_REDIRECT_URL: Final[str] = "https://redirected-off-region.example/v1/generate"
+
+#: Synthetic characters-per-token divisor. A ROUND, OBVIOUSLY-FAKE constant, not a calibrated
+#: estimate of any tokenizer: these counts exist so leg 3 has non-zero fields to reconcile
+#: against a shape, never so anyone reads a token number off a test run (constraint 3).
+_FAKE_CHARS_PER_TOKEN: Final[int] = 4
+
+
+class LabeledFakeBrRegionalTransport:
+    """DEV/TEST ONLY: an in-process BR-regional endpoint that refuses to masquerade as real.
+
+    Follows `LabeledMockAnsGatewayTransport`'s discipline exactly — every completion carries
+    :data:`FAKE_BR_REGIONAL_COMPLETION_PREFIX`, every response sets ``synthetic=True``, and every
+    token count is transparently synthetic. It is DETERMINISTIC: identical requests produce
+    byte-identical responses, with no clock and no randomness anywhere, so a test can assert on
+    exact bytes and the W8 prefix-stability proof has something stable to stand on.
+
+    NEVER reachable in production: `resolve_br_regional_transport(None)` selects
+    :class:`RefusingBrRegionalTransport`, so reaching this class requires an explicit injection
+    that only a test performs.
+
+    ``outcome`` is a CONSTRUCTOR argument, not a request field — see
+    :class:`BrRegionalTransport` for why the wire contract deliberately has no channel a caller
+    could use to request an outcome.
+
+    ``sent_requests`` records what the adapter actually put on the wire, so a test can assert on
+    the headers/flags the adapter claims to send rather than trusting the adapter's own logs.
+    """
+
+    def __init__(
+        self,
+        *,
+        outcome: FakeBrRegionalOutcome = FakeBrRegionalOutcome.ACCEPTED,
+        served_region: str = BR_REGIONAL_ATTESTED_REGION,
+    ) -> None:
+        self._outcome = outcome
+        self._served_region = served_region
+        self.sent_requests: list[BrRegionalRequest] = []
+
+    async def send(self, request: BrRegionalRequest) -> BrRegionalResponse:
+        self.sent_requests.append(request)
+
+        if self._outcome is FakeBrRegionalOutcome.OUTAGE:
+            raise BrRegionalTransportUnavailableError(
+                "LabeledFakeBrRegionalTransport simulated endpoint outage (synthetic)", retryable=True
+            )
+        if self._outcome is FakeBrRegionalOutcome.MALFORMED:
+            # DELIBERATELY off-contract: a real endpoint returning a body that does not match the
+            # agreed schema is a genuine failure mode, and the adapter must not trust the return
+            # ANNOTATION to rule it out. Typed as the Protocol says, returned as something else.
+            return {"unexpected": "shape"}  # type: ignore[return-value]
+
+        prompt_chars = len(request.stable_prefix) + len(request.variable_suffix)
+        usage = BrRegionalTokenUsage(
+            input_tokens=prompt_chars // _FAKE_CHARS_PER_TOKEN,
+            output_tokens=len(FAKE_BR_REGIONAL_COMPLETION_PREFIX) // _FAKE_CHARS_PER_TOKEN,
+            # W8: the fake reports the whole declared stable prefix as cache-served, so a test can
+            # prove the boundary the adapter transmitted is the one that got reused.
+            cached_prefix_tokens=len(request.stable_prefix) // _FAKE_CHARS_PER_TOKEN,
+        )
+
+        if self._outcome is FakeBrRegionalOutcome.VENDOR_REFUSAL:
+            return BrRegionalResponse(
+                completion="",
+                model=request.model,
+                usage=usage,
+                endpoint_url=request.endpoint_url,
+                served_region=self._served_region,
+                zero_retention_acknowledged=True,
+                training_prohibited_acknowledged=True,
+                synthetic=True,
+                refusal_code=FAKE_BR_REGIONAL_REFUSAL_CODE,
+            )
+
+        completion = (
+            f"{FAKE_BR_REGIONAL_COMPLETION_PREFIX} "
+            f"stable_prefix_chars={len(request.stable_prefix)} "
+            f"variable_suffix_chars={len(request.variable_suffix)}"
+        )
+        return BrRegionalResponse(
+            completion=completion,
+            model=request.model,
+            usage=usage,
+            endpoint_url=(
+                FAKE_BR_REGIONAL_REDIRECT_URL
+                if self._outcome is FakeBrRegionalOutcome.REDIRECTED_OFF_REGION
+                else request.endpoint_url
+            ),
+            served_region=(
+                "us-east-1"
+                if self._outcome is FakeBrRegionalOutcome.WRONG_SERVED_REGION
+                else self._served_region
+            ),
+            zero_retention_acknowledged=(
+                self._outcome is not FakeBrRegionalOutcome.RETENTION_NOT_ACKNOWLEDGED
+            ),
+            training_prohibited_acknowledged=(
+                self._outcome is not FakeBrRegionalOutcome.TRAINING_NOT_ACKNOWLEDGED
+            ),
+            synthetic=True,
+        )
+
+
+def resolve_br_regional_transport(transport: BrRegionalTransport | None) -> BrRegionalTransport:
+    """Fail-closed default: an unwired seam resolves to the REFUSING transport, NEVER the fake.
+
+    The load-bearing "the fake is unreachable in production by construction" guarantee, identical
+    in shape and reasoning to `ans_gateway.resolve_ans_gateway`.
+    """
+    if transport is None:
+        return RefusingBrRegionalTransport()
+    return transport
+
+
+class BrResidentInferenceProvider(BaseInferenceProvider):
+    """BR-resident, zero-retention PHI-zone adapter — PHI-eligible BY DESIGN, UN-BOOTABLE TODAY.
+
+    Read :data:`BR_RESIDENT_CAPABILITIES` first: it explains, field by field, which parts of the
+    PHI contract this class ENFORCES CLIENT-SIDE and which parts remain owed by an owner.
+
+    THREE INDEPENDENT OWNER GATES, all checked at construction, each raising
+    :class:`InferenceConfigError` naming the specific act that is missing:
+
+    1. :data:`ENV_PHI_ENDPOINT_URL` — and it must clear
+       :func:`br_endpoint_denial_reasons`, so a non-BR endpoint is refused at STARTUP, not on the
+       first PHI request.
+    2. :data:`ENV_PHI_API_KEY` — environment-sourced, never committed, never logged, never in an
+       error message (same posture and the same canary test as the Anthropic key).
+    3. :data:`ENV_PHI_VENDOR_DPA_REF` — the honesty gate. A reference to the signed
+       zero-retention/BR-residency agreement with the vendor. Leg 1 established that NO SUCH
+       AGREEMENT EXISTS IN THIS TREE, and this class does not pretend otherwise: it declares the
+       contract it was BUILT to enforce, and then refuses to construct until a human states that
+       the counterparty half exists. That is what keeps a capability declaration written by an
+       agent from becoming a production PHI route.
+
+    Plus a fourth, non-owner gate: ``MAEZO_INFERENCE_MODEL`` must be set explicitly. There is no
+    default, because there is no sanctioned BR-zone model id to default TO — see
+    `BR_RESIDENT_CAPABILITIES`' `supported_model_versions` note.
+
+    ``is_mock = False`` AND ``phi_capable = True`` together, which no other provider in this
+    module does, so the combination deserves its justification stated: this is a REAL adapter
+    (it fabricates nothing — with no transport wired it RAISES, see
+    :class:`RefusingBrRegionalTransport`) that is DESIGNATED for the PHI zone. `PhiZoneMockProvider`
+    is the mirror image — PHI-designated but synthetic — and keeping both representable is exactly
+    why leg 1 refused to fold `is_mock` into the capability set.
+
+    NO RETRY LOGIC, deliberately: retry/backoff is a separate concern with its own budget
+    semantics and is not this leg's to invent.
+    """
+
+    capabilities: ClassVar[ProviderCapabilities] = BR_RESIDENT_CAPABILITIES
+    phi_capable: ClassVar[bool] = BR_RESIDENT_CAPABILITIES.phi_allowed
+    is_mock: ClassVar[bool] = False
+
+    #: Response budget. Mirrors `AnthropicInferenceProvider.generate`'s literal 4096 rather than
+    #: inventing a different number for the PHI zone.
+    MAX_TOKENS: ClassVar[int] = 4096
+
+    def __init__(
+        self,
+        *,
+        model: str = "",
+        timeout_s: float = 60.0,
+        transport: BrRegionalTransport | None = None,
+    ) -> None:
+        endpoint_url = os.environ.get(ENV_PHI_ENDPOINT_URL, "").strip()
+        credential = os.environ.get(ENV_PHI_API_KEY, "").strip()
+        dpa_ref = os.environ.get(ENV_PHI_VENDOR_DPA_REF, "").strip()
+
+        # Ordered most-owner-ish first, so the FIRST message an operator sees names the act that
+        # is hardest to satisfy, rather than sending them to fix a URL before discovering there
+        # is no contract.
+        if not dpa_ref:
+            raise InferenceConfigError(
+                f"BrResidentInferenceProvider requires {ENV_PHI_VENDOR_DPA_REF} — a reference to "
+                "the SIGNED zero-retention / BR-residency agreement with the inference vendor. "
+                "MISSING OWNER ACT: no such agreement exists anywhere in this repository, and "
+                "this adapter will not route PHI on the strength of a capability declaration it "
+                "wrote about itself. A human with authority must execute the DPA and set this "
+                "variable to its reference. Refusing to start — fail-closed, exactly like a "
+                "missing credential."
+            )
+        if not credential:
+            raise InferenceConfigError(
+                f"BrResidentInferenceProvider requires a credential but {ENV_PHI_API_KEY} is not "
+                "set in the environment (never commit it). Refusing to start with a PHI-zone "
+                "provider and no credentials — fail-closed, no silent fallback to noop."
+            )
+        endpoint_reasons = br_endpoint_denial_reasons(endpoint_url)
+        if endpoint_reasons:
+            raise InferenceConfigError(
+                f"BrResidentInferenceProvider refuses its configured endpoint: {ENV_PHI_ENDPOINT_URL} "
+                f"fails {list(endpoint_reasons)}. An approved endpoint is "
+                f"{BR_REGIONAL_ENDPOINT_SCHEME}://, carries no userinfo/query/fragment, and has a "
+                f"host ending in one of {list(BR_REGIONAL_ENDPOINT_HOST_SUFFIXES)}. Refusing to "
+                "start — PHI must never leave the BR-resident zone (ADR-0006/ADR-0017), and that "
+                "is decided here, before the first request, not after it."
+            )
+        if not model.strip():
+            raise InferenceConfigError(
+                "BrResidentInferenceProvider requires an explicit MAEZO_INFERENCE_MODEL. There is "
+                "deliberately NO default: this repo sanctions no BR-zone model id "
+                "(BR_RESIDENT_CAPABILITIES.supported_model_versions is empty because the vendor "
+                "catalogue is unknown pending the DPA), and defaulting would mean inventing one. "
+                "Refusing to start."
+            )
+
+        self._endpoint_url = endpoint_url
+        self._credential = credential
+        self._dpa_ref = dpa_ref
+        self._model = model.strip()
+        self._timeout_s = timeout_s
+        self._transport = resolve_br_regional_transport(transport)
+
+        logger.info(
+            "inference_br_resident_configured",
+            # Host, not the full URL: a path could carry a tenant/deployment hint. No credential,
+            # no DPA reference value (it names a contract, but it is still an owner's private
+            # identifier) — presence only.
+            endpoint_host=urlsplit(endpoint_url).hostname,
+            model=self._model,
+            timeout_s=timeout_s,
+            deployment_region=BR_RESIDENT_CAPABILITIES.deployment_region,
+            retention_policy=BR_RESIDENT_CAPABILITIES.retention_policy,
+            dpa_ref_present=True,
+            transport=type(self._transport).__name__,
+        )
+
+    def _build_request(self, formatted: FormattedPrompt) -> BrRegionalRequest:
+        """Assemble the wire request, including the flags the capability declaration promises."""
+        return BrRegionalRequest(
+            endpoint_url=self._endpoint_url,
+            model=self._model,
+            stable_prefix=formatted.stable_prefix,
+            variable_suffix=formatted.variable_suffix,
+            max_tokens=self.MAX_TOKENS,
+            credential=self._credential,
+            headers={
+                # Sent on EVERY request — this is the client-side half of
+                # `BR_RESIDENT_CAPABILITIES`' zero-retention / no-training claim.
+                HEADER_ZERO_RETENTION: "true",
+                HEADER_TRAINING_PROHIBITED: "true",
+                HEADER_DATA_CLASSIFICATION: DataClassification.PHI.value,
+                HEADER_VENDOR_DPA_REF: self._dpa_ref,
+                # W8: where the vendor may set its prompt-cache breakpoint.
+                HEADER_CACHE_PREFIX_CHARS: str(formatted.stable_prefix_chars),
+            },
+        )
+
+    def _validate_response(self, response: object) -> BrRegionalResponse:
+        """Refuse any response that does not satisfy the contract this adapter enforces.
+
+        Every branch here is reachable from a :class:`FakeBrRegionalOutcome` member — a refusal
+        with no test that can trigger it would be decoration.
+
+        NO BRANCH INCLUDES RESPONSE CONTENT IN ITS MESSAGE. Codes, enums and the declared region
+        only; the completion is exactly the PHI-bearing thing an error message must not carry.
+        """
+        if not isinstance(response, BrRegionalResponse):
+            raise BrRegionalTransportUnavailableError(
+                "BR-regional endpoint returned a payload that does not match the wire contract "
+                f"(expected BrRegionalResponse, got {type(response).__name__}). Refusing to treat "
+                "an unrecognized payload as a completion.",
+                retryable=False,
+            )
+
+        # RESIDENCY FIRST. Checked before the refusal/content branches on purpose: if PHI reached
+        # a non-approved endpoint, that already happened and must be reported as itself, not
+        # masked by whatever the wrong endpoint happened to answer.
+        redirect_reasons = br_endpoint_denial_reasons(response.endpoint_url)
+        if redirect_reasons or response.endpoint_url != self._endpoint_url:
+            raise BrEndpointNotApprovedError(
+                "BR-regional response came back from an endpoint this adapter did not dial "
+                f"(host={urlsplit(response.endpoint_url).hostname!r}, allowlist_failures="
+                f"{list(redirect_reasons)}). A redirect off the approved endpoint is a PHI "
+                "residency escape (ADR-0006/ADR-0017): the completion is DISCARDED and never "
+                "returned to the caller. Route to a human / incident; never retry elsewhere."
+            )
+        if response.served_region != BR_REGIONAL_ATTESTED_REGION:
+            raise BrEndpointNotApprovedError(
+                f"BR-regional endpoint attested served_region={response.served_region!r}, but "
+                f"only {BR_REGIONAL_ATTESTED_REGION!r} is accepted for PHI-zone inference "
+                "(ADR-0006). The completion is DISCARDED. Route to a human / incident."
+            )
+        if not response.zero_retention_acknowledged:
+            raise BrEndpointNotApprovedError(
+                f"BR-regional endpoint did not acknowledge the {HEADER_ZERO_RETENTION} flag it "
+                "was sent. Without that acknowledgement the zero-retention half of "
+                "BR_RESIDENT_CAPABILITIES is unmet for this request: the completion is DISCARDED "
+                "rather than returned from an endpoint that may be persisting the prompt."
+            )
+        if not response.training_prohibited_acknowledged:
+            raise BrEndpointNotApprovedError(
+                f"BR-regional endpoint did not acknowledge the {HEADER_TRAINING_PROHIBITED} flag "
+                "it was sent. The completion is DISCARDED rather than returned from an endpoint "
+                "that may be training on PHI input."
+            )
+        if response.refusal_code:
+            raise InferenceProviderError(
+                "br_resident",
+                f"request declined by the endpoint (refusal_code={response.refusal_code})",
+                retryable=False,
+            )
+        return response
+
+    async def generate(
+        self,
+        prompt: str,
+        *,
+        agent_id: str | None = None,
+        tenant_id: str | None = None,
+    ) -> str:
+        """Serve one BR-resident completion, refusing at every point the contract is not met.
+
+        The endpoint allowlist is re-checked HERE, per call, and not merely trusted from
+        construction. That is the canary-ready property: construction-time validation proves what
+        was configured at boot, while a per-call check also covers an instance whose endpoint was
+        mutated afterwards and — through :meth:`_validate_response` — where the response actually
+        came from. Leg 3's network canary asserts against the same two refusals.
+        """
+        call_reasons = br_endpoint_denial_reasons(self._endpoint_url)
+        if call_reasons:
+            raise BrEndpointNotApprovedError(
+                "BR-resident inference refused before dialling: the configured endpoint fails "
+                f"{list(call_reasons)}. PHI must never leave the BR-resident zone "
+                "(ADR-0006/ADR-0017). Route to a human / incident."
+            )
+
+        # W8: static instruction text first, per-request content last, so the vendor's prompt
+        # cache gets the longest possible stable prefix. The caller hands us one opaque string,
+        # so the honest split is "all of it is per-request" unless a caller uses the structured
+        # entry point below — see `generate_formatted`.
+        formatted = format_cached_prompt([prompt])
+        return await self._send(formatted, agent_id=agent_id, tenant_id=tenant_id)
+
+    async def generate_formatted(
+        self,
+        formatted: FormattedPrompt,
+        *,
+        agent_id: str | None = None,
+        tenant_id: str | None = None,
+    ) -> str:
+        """Serve a completion for an ALREADY cache-formatted prompt (W8).
+
+        The structured entry point: a caller that knows which part of its prompt is static passes
+        the split, and the vendor gets a declared cache breakpoint at
+        ``formatted.stable_prefix_chars``. :meth:`generate` cannot recover that split from a
+        pre-concatenated string, which is the whole reason this second door exists.
+
+        Not part of :class:`BaseInferenceProvider` and not reachable through the
+        :class:`InferenceProvider` facade: adding a method to the facade would breach the seam
+        proof that pins its public surface to exactly four names
+        (`gateway/seams/inference.py`). Wiring a cache-aware path through the gateway is a
+        separate, gated change.
+        """
+        return await self._send(formatted, agent_id=agent_id, tenant_id=tenant_id)
+
+    async def _send(
+        self,
+        formatted: FormattedPrompt,
+        *,
+        agent_id: str | None,
+        tenant_id: str | None,
+    ) -> str:
+        request = self._build_request(formatted)
+        try:
+            raw = await self._transport.send(request)
+        except InferenceProviderError:
+            raise  # already this module's own error type; do not re-wrap and lose `retryable`.
+        except Exception as exc:  # noqa: BLE001 — no transport-level type may leak past this module.
+            raise BrRegionalTransportUnavailableError(
+                f"BR-regional transport failed: {type(exc).__name__}", retryable=False
+            ) from exc
+
+        response = self._validate_response(raw)
+
+        # T8: metered through the SAME seam as general-zone traffic, never a parallel path. The
+        # helper reads `.usage.input_tokens`/`.usage.output_tokens`/`.model`, which
+        # `BrRegionalResponse` provides by design.
+        _emit_llm_token_usage(
+            response,
+            provider="br_resident",
+            fallback_model=self._model,
+            agent_id=agent_id,
+            tenant_id=tenant_id,
+        )
+
+        if response.synthetic:
+            logger.warning(
+                "inference_br_resident_synthetic_response",
+                message=(
+                    "BR-resident completion came from a LABELED FAKE transport — this response is "
+                    "SYNTHETIC, not real model output. Only an explicit test injection can reach "
+                    "this path; production resolves to RefusingBrRegionalTransport."
+                ),
+                transport=type(self._transport).__name__,
+            )
+
+        logger.info(
+            "inference_br_resident_generate",
+            model=response.model,
+            # COUNTS, ENUMS AND FINGERPRINTS ONLY (pinned-fields bar). No prompt, no completion,
+            # no endpoint path, no credential — this is the PHI zone; the whole point is that
+            # nothing content-bearing reaches a log sink.
+            stable_prefix_chars=formatted.stable_prefix_chars,
+            variable_suffix_chars=len(formatted.variable_suffix),
+            prompt_fingerprint=_fingerprint(formatted.text),
+            completion_chars=len(response.completion),
+            cached_prefix_tokens=response.usage.cached_prefix_tokens,
+            served_region=response.served_region,
+            agent_id=agent_id,
+            tenant_id=tenant_id,
+        )
+        return response.completion
+
+    def health_check(self) -> dict[str, str]:
+        """Configuration status — never a fabricated 'ok' for an unwired transport.
+
+        Reports `warning` while the transport is the refusing default, because that is the truth:
+        the adapter is configured but cannot serve anything. Reporting `ok` here would let a
+        readiness probe pass for a PHI zone that has no endpoint (constraint 3).
+        """
+        if isinstance(self._transport, RefusingBrRegionalTransport):
+            return {
+                "status": "warning",
+                "message": (
+                    "Provider 'br_resident' is configured (endpoint approved, credential and DPA "
+                    "reference present) but NO BR-regional transport is wired — every request "
+                    "fails closed. Building the real transport is a §8.2-fenced change requiring "
+                    "an ADR-0017 NetworkPolicy proof."
+                ),
+            }
+        return {
+            "status": "ok",
+            "message": (
+                f"Provider 'br_resident' configured (model={self._model}, "
+                f"transport={type(self._transport).__name__}); credential present in environment."
+            ),
+        }
+
+
 # ---------------------------------------------------------------------------
 # Provider registry / factory — fail-closed selection (constraint 2)
 # ---------------------------------------------------------------------------
@@ -872,10 +1751,27 @@ def _build_phi_zone_mock(_: InferenceSettings) -> BaseInferenceProvider:
     return PhiZoneMockProvider()
 
 
+def _build_br_resident(settings: InferenceSettings) -> BaseInferenceProvider:
+    """Build the BR-resident adapter. Injects NO transport, so it resolves to the refusing one.
+
+    That omission is the production posture, not an oversight: a real transport is a §8.2-fenced
+    module wired through the gateway registry, and this factory must not be the place one appears.
+    Tests reach `LabeledFakeBrRegionalTransport` by constructing the provider directly.
+    """
+    return BrResidentInferenceProvider(model=settings.model, timeout_s=settings.timeout_s)
+
+
 _PROVIDER_FACTORIES: dict[str, Callable[[InferenceSettings], BaseInferenceProvider]] = {
     "noop": _build_noop,
     "anthropic": _build_anthropic,
     "phi_zone_mock": _build_phi_zone_mock,
+    # SELECTABLE BUT UNREACHABLE IN PRACTICE (INERT): nothing in any shipped config sets
+    # MAEZO_INFERENCE_PROVIDER=br_resident, the default remains `noop`, and even an operator who
+    # set it would get an `InferenceConfigError` naming the missing DPA. Registered anyway
+    # because leg 1's registry/hierarchy cross-check requires every defined provider to be
+    # selectable — a provider that exists but cannot be named is exactly the drift that guard
+    # was written to catch.
+    "br_resident": _build_br_resident,
 }
 
 

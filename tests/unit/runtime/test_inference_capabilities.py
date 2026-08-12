@@ -27,6 +27,7 @@ from maezo.runtime.inference import (
     PHI_ELIGIBLE_REGIONS,
     AnthropicInferenceProvider,
     BaseInferenceProvider,
+    BrResidentInferenceProvider,
     CredentialSource,
     DataClassification,
     DeploymentRegion,
@@ -58,6 +59,12 @@ def _clean_inference_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "MAEZO_INFERENCE_PROVIDER",
         "MAEZO_INFERENCE_MODEL",
         "MAEZO_INFERENCE_PHI_ZONE_REQUIRED",
+        # Onda 2 W2 leg 2: the three owner acts gating `br_resident`. Same reasoning as the
+        # line above — an exported `MAEZO_PHI_VENDOR_DPA_REF` on a developer's machine would
+        # otherwise make a provider that MUST refuse to construct quietly constructible.
+        "MAEZO_PHI_ENDPOINT_URL",
+        "MAEZO_PHI_API_KEY",
+        "MAEZO_PHI_VENDOR_DPA_REF",
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -133,6 +140,45 @@ _EXPECTED: dict[type[BaseInferenceProvider], tuple[str, ProviderCapabilities, bo
             supported_model_versions=frozenset(),
         ),
         True,  # docstring: "EXPLICITLY-LABELED MOCK"; every response is SYNTHETIC
+    ),
+    BrResidentInferenceProvider: (
+        "br_resident",
+        ProviderCapabilities(
+            # BrResidentInferenceProvider docstring: "PHI-eligible BY DESIGN". It is the adapter
+            # ADR-0006's PHI zone was always going to need. NOT a claim it can serve traffic —
+            # `test_br_resident_is_unbootable_without_the_owner_acts` (test_inference_br_resident.py)
+            # pins that it refuses to construct at all today.
+            phi_allowed=True,
+            # BR_RESIDENT_CAPABILITIES comment: the adapter refuses, at construction AND per call,
+            # any endpoint outside BR_REGIONAL_ENDPOINT_HOST_SUFFIXES, plus any response that came
+            # back from a different URL or attested a different region. Unlike `phi_zone_mock`
+            # (which honestly declares LOCAL_NO_EGRESS because it transmits nothing), this adapter
+            # exists to transmit — to São Paulo and nowhere else.
+            deployment_region=DeploymentRegion.BR_SAO_PAULO,
+            # THE ONE FIELD TO READ SCEPTICALLY, and the module says so at length: no DPA exists
+            # in this tree (the leg-1 finding that made `anthropic` declare UNSPECIFIED). This is
+            # NOT a signed contract — it is the flag the adapter SENDS (HEADER_ZERO_RETENTION) and
+            # the acknowledgement it REQUIRES back before returning any completion. The vendor-side
+            # half is gated by MAEZO_PHI_VENDOR_DPA_REF, without which the class cannot boot.
+            retention_policy=RetentionPolicy.ZERO_RETENTION,
+            # Same structure: HEADER_TRAINING_PROHIBITED sent, acknowledgement required back.
+            training_on_input_prohibited=True,
+            # ADR-0006 "Zona PHI/Financeira" — the zone this adapter is designated for.
+            max_data_classification=DataClassification.PHI,
+            # MAEZO_PHI_API_KEY, read from the process environment at construction (never a
+            # settings field, never committed) — the AnthropicInferenceProvider posture.
+            credential_source=CredentialSource.ENVIRONMENT,
+            # EMPTY, and honestly so: this repo sanctions no BR-zone model id, because the vendor
+            # catalogue is unknown pending the DPA. Inventing a plausible id would be exactly the
+            # fabrication leg 1 refused for `anthropic`'s retention field. The adapter instead
+            # requires MAEZO_INFERENCE_MODEL explicitly, with no default.
+            supported_model_versions=frozenset(),
+        ),
+        # NOT a mock: with no transport wired it RAISES (RefusingBrRegionalTransport) rather than
+        # returning synthetic text. `is_mock` describes whether output is REAL; this provider
+        # never produces output that is not. It is the mirror image of PhiZoneMockProvider
+        # (PHI-designated + synthetic), and representing both is why leg 1 kept the two facts apart.
+        False,
     ),
 }
 
@@ -221,7 +267,7 @@ def test_capability_table_covers_every_provider_in_the_module() -> None:
 
 def test_provider_factory_registry_matches_hardcoded_names() -> None:
     """The selectable ``MAEZO_INFERENCE_PROVIDER`` values are pinned to a hardcoded set."""
-    assert set(_PROVIDER_FACTORIES) == {"noop", "anthropic", "phi_zone_mock"}
+    assert set(_PROVIDER_FACTORIES) == {"noop", "anthropic", "phi_zone_mock", "br_resident"}
 
 
 def test_registry_and_class_hierarchy_agree_on_the_provider_population(
@@ -243,6 +289,15 @@ def test_registry_and_class_hierarchy_agree_on_the_provider_population(
     agreement cannot be manufactured by editing one side.
     """
     monkeypatch.setenv("MAEZO_ANTHROPIC_API_KEY", "sk-ant-test")
+    # `br_resident` refuses to construct without its three owner acts + an explicit model, so this
+    # population test — which INVOKES every factory — has to supply them, exactly as it already
+    # supplies an Anthropic key. Satisfying a provider's config is not the same as asserting the
+    # provider is deployable: `test_inference_br_resident.py` owns that, and pins that each of
+    # these four values is individually load-bearing.
+    monkeypatch.setenv("MAEZO_PHI_ENDPOINT_URL", "https://fake.br-sao-paulo.phi.maezo.internal/v1/generate")
+    monkeypatch.setenv("MAEZO_PHI_API_KEY", "phi-key-test")
+    monkeypatch.setenv("MAEZO_PHI_VENDOR_DPA_REF", "DPA-TEST-NOT-A-REAL-CONTRACT")
+    monkeypatch.setenv("MAEZO_INFERENCE_MODEL", "br-model-test")
 
     built_by_the_registry = {
         name: type(factory(InferenceSettings(provider=name))) for name, factory in _PROVIDER_FACTORIES.items()
@@ -279,11 +334,30 @@ def test_phi_capable_is_derived_from_capabilities(provider_cls: type[BaseInferen
     assert provider_cls.phi_capable is provider_cls.capabilities.phi_allowed
 
 
-def test_exactly_one_provider_is_phi_eligible_today() -> None:
-    """Hardcoded: only ``phi_zone_mock`` satisfies the PHI contract at this commit.
+def test_exactly_two_providers_are_phi_eligible_today() -> None:
+    """Hardcoded: ``phi_zone_mock`` and ``br_resident`` satisfy the PHI contract at this commit.
 
-    Stated as a whole-table fact so that a provider quietly gaining PHI eligibility —
-    the single most consequential change this schema governs — cannot land unnoticed.
+    THE GUARD FIRED, AND THIS IS THE DOCUMENTED ANSWER. Leg 1 shipped this as
+    ``test_exactly_one_provider_is_phi_eligible_today`` and called a provider gaining PHI
+    eligibility "the single most consequential change this schema governs". Onda 2 W2 leg 2 is
+    that change, so the test name and the expectation move together — a renamed test with an
+    unexplained new value would be the guard being edited around rather than answered.
+
+    WHAT THE NEW ENTRY DOES AND DOES NOT CLAIM. `BrResidentInferenceProvider` is PHI-eligible BY
+    DESIGN: its capability declaration states the contract the adapter ENFORCES CLIENT-SIDE
+    (BR-regional endpoint allowlist checked at construction and per call, zero-retention and
+    no-training flags sent and their acknowledgements required back before any completion is
+    returned). It is NOT a claim that a BR-resident endpoint exists, that a vendor signed a
+    zero-retention DPA, or that PHI can flow today. It cannot: the class refuses to CONSTRUCT
+    without an owner-supplied `MAEZO_PHI_VENDOR_DPA_REF`, and with no transport wired every call
+    fails closed. Those two facts are pinned in `test_inference_br_resident.py`
+    (`test_br_resident_is_unbootable_without_the_owner_acts`,
+    `test_unwired_transport_refuses_instead_of_fabricating`) and this test would be dishonest
+    without them.
+
+    Still stated as a WHOLE-TABLE fact, and still hardcoded — never derived from
+    `BR_RESIDENT_CAPABILITIES` — so a THIRD provider gaining eligibility fails here just as
+    loudly as the second one did.
     """
     eligible = {
         cls.__name__
@@ -291,7 +365,7 @@ def test_exactly_one_provider_is_phi_eligible_today() -> None:
         if not phi_zone_denial_reasons(cls.capabilities)
     }
 
-    assert eligible == {"PhiZoneMockProvider"}
+    assert eligible == {"PhiZoneMockProvider", "BrResidentInferenceProvider"}
 
 
 # =============================================================================================
