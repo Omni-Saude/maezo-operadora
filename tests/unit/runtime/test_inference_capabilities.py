@@ -438,9 +438,24 @@ def test_inconsistent_capability_sets_remain_constructible() -> None:
 
 
 def test_capabilities_are_frozen() -> None:
-    """A capability declaration cannot be edited at runtime to grant itself PHI access."""
+    """Ordinary attribute assignment on a declaration is refused — ACCIDENTAL mutation.
+
+    SCOPE, stated because the stronger claim would be false: this guards a capability
+    set from being edited by mistake (a stray ``caps.phi_allowed = True`` in a helper,
+    a mutating "normalization" step). It is NOT a security property — ``frozen=True``
+    is implemented as a ``__setattr__`` that raises, and ``object.__setattr__`` goes
+    straight past it, as the second half of this test demonstrates rather than hides.
+    In-process code that wants to lie about its capabilities can; the schema's job is
+    to make an AUTHORED declaration reviewable, not to survive a hostile process.
+    """
     with pytest.raises(dataclasses.FrozenInstanceError):
         _SATISFYING.phi_allowed = True  # type: ignore[misc]
+
+    # The documented limit, asserted so nobody re-reads the guarantee as stronger than it is.
+    escaped = dataclasses.replace(_SATISFYING, phi_allowed=False)
+    object.__setattr__(escaped, "phi_allowed", True)
+
+    assert escaped.phi_allowed is True
 
 
 # =============================================================================================
@@ -598,7 +613,12 @@ def test_provider_contradicting_its_own_capabilities_cannot_be_defined() -> None
     """``phi_capable=True`` over ``phi_allowed=False`` is refused at class creation.
 
     This is the two-sources-of-truth drift the schema exists to eliminate, and it is
-    made unrepresentable rather than merely asserted against after the fact.
+    made unrepresentable IN A CLASS BODY rather than merely asserted against after the
+    fact. Not more than that: a ``ClassVar`` reassigned after the class exists, an
+    instance attribute shadowing the class one, or an intermediate subclass overriding
+    ``__init_subclass__`` without ``super()`` all still reach a contradicted provider at
+    runtime — see :meth:`BaseInferenceProvider.__init_subclass__`, which states the same
+    boundary. The target is authoring drift, not a hostile in-process actor.
     """
     with pytest.raises(TypeError, match="contradicts its capabilities.phi_allowed"):
 

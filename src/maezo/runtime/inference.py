@@ -273,6 +273,18 @@ class ProviderCapabilities:
 #: completion. Residency eligibility and production readiness are different
 #: claims, and this constant only makes the first one.
 #:
+#: RESIDUAL, DISCLOSED: `LOCAL_NO_EGRESS` is an UNVERIFIED SELF-DECLARATION. Nothing in
+#: this module structurally ties the enum member to actually-not-transmitting — a provider
+#: that opens a socket and declares `LOCAL_NO_EGRESS` boots under
+#: `phi_zone_required=True` and serves `phi=True` while egressing, and this schema would
+#: not notice. The real egress control is DEPLOY-LEVEL, not here: ADR-0017 network
+#: enforcement, `deploy/helm/maezo-tenant/templates/networkpolicy.yaml`. Today the claim
+#: is sound only because both declarers (`noop`, `phi_zone_mock`) are in-process mocks
+#: that make no call at all.
+#: Therefore: any future NON-MOCK provider declaring `LOCAL_NO_EGRESS` owes a
+#: NETWORK-LEVEL proof that it egresses nothing — a leg-2/canary obligation, not something
+#: a capability declaration can discharge on its own.
+#:
 #: `GLOBAL_MULTI_REGION` is deliberately ABSENT: that is the general zone.
 PHI_ELIGIBLE_REGIONS: Final[frozenset[DeploymentRegion]] = frozenset(
     {DeploymentRegion.BR_SAO_PAULO, DeploymentRegion.LOCAL_NO_EGRESS}
@@ -471,8 +483,18 @@ class BaseInferenceProvider(ABC):
            otherwise inherit whatever the MRO happened to offer;
         2. a ``phi_capable`` that disagrees with ``capabilities.phi_allowed``
            — the exact two-sources-of-truth drift that a capability schema is
-           supposed to eliminate. Raising here makes the drift unrepresentable
-           rather than merely tested-for.
+           supposed to eliminate.
+
+        SCOPE OF THE CLAIM, precisely: raising here makes the drift unrepresentable
+        IN A CLASS BODY, AT CLASS-CREATION TIME. Runtime mutation of class or instance
+        attributes remains possible, as with any Python attribute — an intermediate
+        subclass may override ``__init_subclass__`` without calling ``super()``, a
+        ``ClassVar`` may be reassigned after the class exists, an instance attribute may
+        shadow the class one, and ``object.__setattr__`` defeats the frozen dataclass.
+        These guards target AUTHORING DRIFT — the provider someone writes and reviews —
+        not a hostile in-process actor, against whom no in-process check would hold
+        anyway. This is not a regression from the ``phi_capable`` boolean it replaced,
+        which was equally mutable; it is the honest boundary of what is being claimed.
         """
         super().__init_subclass__(**kwargs)
         declared = cls.__dict__.get("capabilities")
