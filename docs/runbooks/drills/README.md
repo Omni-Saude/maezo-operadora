@@ -1,7 +1,7 @@
 # Drills index
 
 Quarterly operational drills for Maezo Healthcare Plan, supporting the knowledge-concentration
-mitigation goal in the hardening program (PLANS.md §6/§0.8): each drill should be run by a
+mitigation goal in the hardening program (PLANS.md §0.8): each drill should be run by a
 maintainer who has **not** most recently touched the relevant code, on a cadence the owning team
 sets (quarterly is the working assumption; adjust per real incident/on-call rotation needs).
 

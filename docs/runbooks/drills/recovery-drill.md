@@ -83,11 +83,13 @@ process instance, emit one directly through the real sink (this is exactly what
 ```bash
 uv run python - <<'PY'
 import asyncio
+import os
 from maezo.gateway.audit import AuditRecord
 from maezo.gateway.audit_postgres import PostgresAuditSink
 
 async def main():
-    sink = PostgresAuditSink("postgresql://maezo:maezo@localhost:5433/maezo", "amh_drill")
+    port = os.environ.get("MAEZO_PG_HOST_PORT", "5433")
+    sink = PostgresAuditSink(f"postgresql://maezo:maezo@localhost:{port}/maezo", "amh_drill")
     record = AuditRecord(
         agent_id="drill-operator",
         tenant_id="amh_drill",

@@ -161,11 +161,32 @@ against a new/renamed cluster, point the application at it (`DATABASE_URL` in th
 > head` (no `-x tenant=` argument) — its own header comment claims "env.py lê
 > ALEMBIC_DATABASE_URL + MAEZO_TENANT (não DATABASE_URL/TENANT_ID)". Reading
 > `src/maezo/platform/migrations/env.py` directly (`grep -n "ALEMBIC_DATABASE_URL\|MAEZO_TENANT\b"`
-> — zero hits for either), the DSN is read only from `config.get_main_option("sqlalchemy.url")`
-> (i.e. `alembic.ini`'s `sqlalchemy.url`, a literal pointing at the local compose Postgres by
-> default) and the tenant only from `MAEZO_TENANT_ID` (default `"public"`) or `-x tenant=`. As
-> written, neither env var the Helm Job sets is consumed by the code it invokes — this looks like
-> genuine drift between the Job script and a since-changed `env.py`, not a documentation nuance.
+> — zero hits for either): a plain `alembic upgrade head` (no `--sql` flag) is not offline mode, so
+> it takes the LIVE path — `run_migrations_online()` (`env.py:149`) → `run_async_migrations()`
+> (`:114`) → `config.get_section(config.config_ini_section)` (`:119`) →
+> `async_engine_from_config(config_section, prefix="sqlalchemy.", ...)` (`:120`). (The
+> `config.get_main_option("sqlalchemy.url")` call at `env.py:87` is a different code path,
+> `run_migrations_offline()`, only reached with `--sql`/no DB connection — not the path a bare
+> `alembic upgrade head` takes.) Either way the DSN bottoms out at the `[alembic]` ini section's
+> `sqlalchemy.url` key (i.e. `alembic.ini`'s `sqlalchemy.url`, a literal pointing at the local
+> compose Postgres by default), never `ALEMBIC_DATABASE_URL`/`DATABASE_URL`; and the tenant only
+> from `MAEZO_TENANT_ID` (default `"public"`, `env.py:49`) or `-x tenant=`, never `MAEZO_TENANT`.
+> As written, neither env var the Helm Job sets is consumed by the code it invokes — this looks
+> like genuine drift between the Job script and a since-changed `env.py`, not a documentation
+> nuance.
+>
+> **A second, independent drift, in the opposite direction:** the Job's own comments
+> (`job-migrations.yaml:8-9,95`: "alembic exige URL SÍNCRONA (psycopg)... o container normaliza
+> removendo `+asyncpg`") and its `sed 's/+asyncpg//'` normalization (`:100`) assume alembic needs
+> a *synchronous* psycopg URL. But the live path above ends in `async_engine_from_config`, which
+> needs an ASYNC-driver URL — and this repo's own `alembic.ini` sets `sqlalchemy.url =
+> postgresql+asyncpg://...` (`alembic.ini:7`) for exactly that reason. Stripping `+asyncpg` would
+> hand `async_engine_from_config` a bare `postgresql://` URL, whose default (sync) DBAPI driver
+> SQLAlchemy's asyncio extension does not accept. That mismatch is currently inert only because
+> `ALEMBIC_DATABASE_URL` is unread per the paragraph above — but the Job's own doc comment is
+> describing an assumption that is backwards relative to the code as it now stands, not merely a
+> naming drift.
+>
 > **Do not rely on `ALEMBIC_DATABASE_URL`/`MAEZO_TENANT` for a manual recovery run** — use
 > `-x tenant=<schema>` and set `sqlalchemy.url` (edit `alembic.ini` or pass `-x` if your Alembic
 > version supports a URL override) until this is reconciled by a platform engineer with edit

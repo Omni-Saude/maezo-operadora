@@ -3,7 +3,7 @@
 Operational runbooks for Maezo Healthcare Plan. Audience: platform engineers, SRE, on-call,
 compliance/audit, and — for the knowledge-concentration mitigation this index exists to
 support — **every runbook below is written so that at least two maintainers can operate that
-area independently**, per the hardening-program audit (PLANS.md §6/§0.8).
+area independently**, per the hardening-program audit (PLANS.md §0.8).
 
 **Language:** English. This matches the dominant language of the existing runbook corpus
 (`gateway.md`, `devops-stack.md`, `engine-processes.md`, `fhir-sync.md`, `helena.md`,
@@ -17,7 +17,7 @@ the established convention rather than introducing a second language into this d
 |---|---|---|
 | [`gateway.md`](gateway.md) | PEP, pseudonymization, audit trail (in-process gateway library) | Security, compliance, platform |
 | [`devops-stack.md`](devops-stack.md) | Local dev stack, Terraform, Helm, staging promotion, alerts | Platform, SRE, on-call |
-| [`engine-processes.md`](engine-processes.md) | BPMN/DMN process instance management on CIB Seven (business keys, HITL tasks, SLA) | Process engineers, compliance, on-call |
+| [`engine-processes.md`](engine-processes.md) | BPMN/DMN process instance management on CIB Seven (business keys, HITL tasks, SLA) — deployment half superseded, see [`dmn-bpmn-deployment.md`](dmn-bpmn-deployment.md) §5 | Process engineers, compliance, on-call |
 | [`fhir-sync.md`](fhir-sync.md) | Tasy CDC integration & FHIR canonical store | Integration engineers, DBAs |
 | [`helena.md`](helena.md) | Helena (Health Navigator agent) | Operations, medical audit |
 | [`whatsapp-webhook.md`](whatsapp-webhook.md) | WhatsApp message ingestion & validation | Platform engineers, operations |

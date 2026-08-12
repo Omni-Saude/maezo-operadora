@@ -117,9 +117,10 @@ from maezo.a2a.assembly import build_agent_cards
 from maezo.a2a.registry import A2ARegistry
 
 unsigned_cards = build_agent_cards("amh", ["helena"])  # no signer -> unsigned
+garbage_card = unsigned_cards[0].signed_copy("v1:deadbeef")  # garbage "signature"
 registry = A2ARegistry()  # verifier=None (default)
-registry.register(unsigned_cards[0])  # succeeds -- no signature check at all
-print("confirmed: A2ARegistry(verifier=None) accepts unsigned Cards by design (Phase-0/dev only)")
+registry.register(garbage_card)  # succeeds -- no signature check at all
+print("confirmed: A2ARegistry(verifier=None) accepts a garbage-signed Card by design (Phase-0/dev only)")
 PY
 ```
 

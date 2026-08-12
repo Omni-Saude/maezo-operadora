@@ -195,7 +195,7 @@ container-to-container traffic always uses `5432` regardless.
 `deploy/helm/maezo-tenant/templates/service-worker-daemon.yaml`,
 `deploy/helm/maezo-tenant/templates/podmonitor.yaml`
 
-- **Logs:** structured JSON via `structlog` (e.g. `logger.info("worker_runtime_running", ...)`,
+- **Logs:** structured JSON via `structlog` (e.g. `logger.info("worker_runtime_running")`,
   `logger.error("audit_sink_build_failed", exc_info=True)`) to stdout. Locally:
   `docker compose logs -f worker-runtime`. In Kubernetes: `kubectl logs -n maezo-{tenant}
   deploy/worker-daemon -f`. There is no in-repo log-aggregation backend (no Loki/CloudWatch Logs
