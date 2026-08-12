@@ -326,7 +326,14 @@ DL-0045 (qualificação MZO-040) em `docs/decisions-log.md`.
   transacional substituindo o no-op de facts → testes orientados a ataque (tamper, replay
   cross-tenant, expiry, chave stale, crash-before-complete) → mTLS/identidade quando houver
   transporte remoto. **Pré-condição DURA para qualquer A2A não-local.**
-- **Onda 4 — Âncora externa da auditoria (M, 5–7 sessões, audit-critical):** IMPLEMENTAR o
+- **Onda 4 — Âncora externa da auditoria (M, 5–7 sessões, audit-critical):** **[CONSTRUÍDA DARK
+  2026-08-12 — branch `wave4-audit-anchor-dark`, legs 1-3: escritor de checkpoint assinado (seams
+  signer/store + fakes LABELADOS, flag `MAEZO_AUDIT_ANCHOR_ENABLED` off) · job contínuo de verify
+  Postgres↔âncora (recompute-never-trust, defesa de listing-suspect, vocabulário de outcome fechado)
+  · drills tamper/restore (ALTER/REMOVE/FORK/RECONSTRUCT) provados vs Postgres VIVO. Additive-only:
+  `audit.py`/`audit_postgres.py` byte-idênticos em todos os 3 legs. Cada leg autor R1 → GK-B
+  adversarial → repair → delta PASS; GK-B re-rodou a prova live + bateria de forgery. ATIVAÇÃO =
+  ratificação DPO do ADR-0029 (HUMANO, na fila) + KMS/WORM/IAM reais = infra do dono]** IMPLEMENTAR o
   re-anchor assinado do ADR-0029 + escritor de âncora externa (WORM/retention-lock, chave KMS/HSM,
   conta separada) flag-gated INERTE até ratificação DPO; job contínuo de comparação
   Postgres-vs-âncora; drills de tamper/restore. **Ratificação ADR-0029 = HUMANO (já na fila).**
