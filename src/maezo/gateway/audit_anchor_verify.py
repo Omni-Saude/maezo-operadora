@@ -159,10 +159,11 @@ readable as "we looked and it was fine".
 THE OUTCOME VOCABULARY (closed, one per run)
 =================================================================================================
 `MATCH` · `DIVERGENCE` · `NO_ANCHOR` · `SIGNATURE_INVALID` · `STORE_LISTING_SUSPECT` · `DB_ERROR` ·
-`ANCHOR_UNREADABLE` · `ANCHOR_CHAIN_BROKEN` · `DISABLED`. Pinned by set-equality in the tests, with
-an exit code, a log event name and a log level for every member (completeness is pinned too).
+`ANCHOR_UNREADABLE` · `ANCHOR_CHAIN_BROKEN` · `SCHEMA_VERSION_MISMATCH` · `DISABLED`. Pinned by
+set-equality in the tests, with an exit code, a log event name and a log level for every member
+(completeness is pinned too).
 
-The last three extend the six named in the leg-2 brief, and every extension follows the brief's OWN
+The last four extend the six named in the leg-2 brief, and every extension follows the brief's OWN
 rule — every absence-state gets its own outcome, because "we could not check" must never collapse
 into "clean" OR into a neighbouring alarm that sends an operator down the wrong path:
 
@@ -179,6 +180,11 @@ into "clean" OR into a neighbouring alarm that sends an operator down the wrong 
     what exists"; this one says "I know exactly what exists, and the signed evidence says a link is
     missing, duplicated or foreign". Different first moves again — storage-consistency review vs
     anchor-custody review.
+  - `SCHEMA_VERSION_MISMATCH` — the anchor's SIGNED `chain_schema_version` is not the tenant's LIVE
+    migration revision. The chain CONTENT agreed; what did not is the schema the attestation was
+    made under, which means the anchor is stale with respect to the database's shape and the right
+    move is to re-anchor, not to hunt a tamper. It cannot mask a real divergence: it is the LAST
+    gate before `MATCH` (see :func:`verify_latest_anchor`), so a content divergence always wins.
   - `DISABLED` — see above.
 
 `reason` narrows the status to a specific finding within a likewise-closed token vocabulary
@@ -309,6 +315,9 @@ STATUS_ANCHOR_UNREADABLE: Final[str] = "ANCHOR_UNREADABLE"
 #: is incomplete, so no verdict about the database is issued — distinct from a DB `DIVERGENCE`,
 #: which is a statement ABOUT the database made against evidence that WAS whole.
 STATUS_ANCHOR_CHAIN_BROKEN: Final[str] = "ANCHOR_CHAIN_BROKEN"
+#: The chain content agreed, but the anchor's SIGNED `chain_schema_version` is not the tenant's LIVE
+#: migration revision — the attestation was made under a schema the database no longer has.
+STATUS_SCHEMA_VERSION_MISMATCH: Final[str] = "SCHEMA_VERSION_MISMATCH"
 #: The flag is off. Explicit, because "did not run" must never read as "ran and passed".
 STATUS_DISABLED: Final[str] = "DISABLED"
 
@@ -323,6 +332,7 @@ ALL_STATUSES: Final[frozenset[str]] = frozenset(
         STATUS_DB_ERROR,
         STATUS_ANCHOR_UNREADABLE,
         STATUS_ANCHOR_CHAIN_BROKEN,
+        STATUS_SCHEMA_VERSION_MISMATCH,
         STATUS_DISABLED,
     }
 )
@@ -358,6 +368,11 @@ REASON_ANCHOR_CHAIN_FORK: Final[str] = "ANCHOR_CHAIN_FORK"
 #: token for both because the evidence cannot tell them apart: an anchor whose predecessor is not
 #: here looks identical either way, and a verifier that picked a story would be guessing.
 REASON_ANCHOR_CHAIN_LINK_MISSING: Final[str] = "ANCHOR_CHAIN_LINK_MISSING"
+#: The anchor's SIGNED `chain_schema_version` differs from the tenant's LIVE migration revision.
+REASON_SCHEMA_VERSION_MISMATCH: Final[str] = "SCHEMA_VERSION_MISMATCH"
+#: The record source could not establish the tenant's live migration revision (it reported `None`).
+#: An unestablished schema basis is an unverified one — it maps to `DB_ERROR`, never to a match.
+REASON_SCHEMA_VERSION_UNREADABLE: Final[str] = "SCHEMA_VERSION_UNREADABLE"
 
 #: Which status each reason may appear under. Pinned in tests, so a reason can never be emitted
 #: beside a status that contradicts it (e.g. a `ROOT_MISMATCH` reported as `MATCH`).
@@ -383,6 +398,8 @@ REASON_TO_STATUS: Final[Mapping[str, str]] = {
     REASON_ANCHOR_CHAIN_NO_GENESIS: STATUS_ANCHOR_CHAIN_BROKEN,
     REASON_ANCHOR_CHAIN_FORK: STATUS_ANCHOR_CHAIN_BROKEN,
     REASON_ANCHOR_CHAIN_LINK_MISSING: STATUS_ANCHOR_CHAIN_BROKEN,
+    REASON_SCHEMA_VERSION_MISMATCH: STATUS_SCHEMA_VERSION_MISMATCH,
+    REASON_SCHEMA_VERSION_UNREADABLE: STATUS_DB_ERROR,
 }
 
 #: Process exit code per status for the offline CLI. Deliberately starting at 10 rather than 1:
@@ -402,6 +419,7 @@ EXIT_CODE_BY_STATUS: Final[Mapping[str, int]] = {
     STATUS_ANCHOR_UNREADABLE: 15,
     STATUS_DISABLED: 16,
     STATUS_ANCHOR_CHAIN_BROKEN: 17,
+    STATUS_SCHEMA_VERSION_MISMATCH: 18,
 }
 
 #: One structlog event name per status, so an alerting rule can match an event instead of parsing a
@@ -415,6 +433,7 @@ EVENT_BY_STATUS: Final[Mapping[str, str]] = {
     STATUS_DB_ERROR: "audit_anchor_database_unreadable",
     STATUS_ANCHOR_UNREADABLE: "audit_anchor_envelope_unreadable",
     STATUS_ANCHOR_CHAIN_BROKEN: "audit_anchor_chain_broken",
+    STATUS_SCHEMA_VERSION_MISMATCH: "audit_anchor_schema_version_mismatch",
     STATUS_DISABLED: "audit_anchor_verification_skipped_disabled",
 }
 
@@ -430,6 +449,7 @@ LEVEL_BY_STATUS: Final[Mapping[str, str]] = {
     STATUS_DB_ERROR: "error",
     STATUS_ANCHOR_UNREADABLE: "error",
     STATUS_ANCHOR_CHAIN_BROKEN: "error",
+    STATUS_SCHEMA_VERSION_MISMATCH: "error",
     STATUS_DISABLED: "debug",
 }
 
@@ -457,6 +477,10 @@ class AnchorVerificationOutcome:
             incident, and the labeled-fake prefix makes a synthetic run self-evident.
         error_type: Exception CLASS name for `DB_ERROR`. Never the message (see the PHI/SECRETS
             section of the module docstring).
+        anchored_schema_version: The migration revision the ANCHOR attests, read from the signed
+            checkpoint. A version string (`"0005_audit_emit_dedup"`), never PHI.
+        database_schema_version: The tenant's LIVE migration revision at read time, or `None` when
+            the record source could not establish one.
         listing_disagreement: Keys the listing and the corroborating probe disagreed about
             (symmetric difference, sorted). Empty unless the status is STORE_LISTING_SUSPECT.
         anchor_chain_break_keys: The anchor keys implicated in an ANCHOR_CHAIN_BROKEN verdict —
@@ -480,6 +504,8 @@ class AnchorVerificationOutcome:
     database_head_hash: str | None = None
     signature_key_id: str | None = None
     error_type: str | None = None
+    anchored_schema_version: str | None = None
+    database_schema_version: str | None = None
     listing_disagreement: tuple[str, ...] = ()
     anchor_chain_break_keys: tuple[str, ...] = ()
 
@@ -512,6 +538,8 @@ class AnchorVerificationOutcome:
             "database_head_hash": self.database_head_hash,
             "signature_key_id": self.signature_key_id,
             "error_type": self.error_type,
+            "anchored_schema_version": self.anchored_schema_version,
+            "database_schema_version": self.database_schema_version,
             "listing_disagreement": list(self.listing_disagreement),
             "anchor_chain_break_keys": list(self.anchor_chain_break_keys),
         }
@@ -626,12 +654,20 @@ class ChainSnapshot:
             order. May be SHORTER than `total_records` — that gap is the caller's finding to make,
             not this type's.
         total_records: How many rows the table held.
+        schema_version: The tenant's LIVE migration revision at the instant these rows were read,
+            or `None` when the source could not establish one. REQUIRED (no default) on purpose: a
+            source that simply forgot to report it would otherwise hand back `None`, and `None` is
+            a claim ("I could not establish the schema") that only a source is entitled to make.
+            Read on the SAME connection as `records` so a migration cannot slip between the two —
+            a schema version fetched separately would describe a different instant than the rows it
+            is cross-checked against.
         fork_at_prev_hash: Set iff two rows share a `prev_record_hash`, i.e. the chain forked. When
             set, `records` is empty: there is no single run to walk.
     """
 
     records: tuple[AuditRecord, ...]
     total_records: int
+    schema_version: str | None
     fork_at_prev_hash: str | None = None
 
 
@@ -647,8 +683,12 @@ class ChainRecordSource(Protocol):
     async def read_chain(self, tenant_id: str) -> ChainSnapshot: ...
 
 
-def snapshot_from_rows(rows: Sequence[Any]) -> ChainSnapshot:
+def snapshot_from_rows(rows: Sequence[Any], *, schema_version: str | None) -> ChainSnapshot:
     """Walk stored `audit_chain` rows into a :class:`ChainSnapshot`. PURE — no I/O.
+
+    `schema_version` is keyword-only and REQUIRED — it is not derivable from the rows, and
+    defaulting it would let a caller that never thought about the schema cross-check silently
+    produce a snapshot that reports "I could not establish the schema" as though it had looked.
 
     Structural walk from genesis via `prev_record_hash`, never `ORDER BY timestamp`: the tail is
     the record nobody points at, and `audit_postgres._TAIL_SQL`'s docstring documents at length why
@@ -666,7 +706,12 @@ def snapshot_from_rows(rows: Sequence[Any]) -> ChainSnapshot:
     for row in rows:
         previous = row["prev_record_hash"]
         if previous in by_prev:
-            return ChainSnapshot(records=(), total_records=len(rows), fork_at_prev_hash=previous)
+            return ChainSnapshot(
+                records=(),
+                total_records=len(rows),
+                schema_version=schema_version,
+                fork_at_prev_hash=previous,
+            )
         by_prev[previous] = row
 
     ordered: list[AuditRecord] = []
@@ -674,7 +719,7 @@ def snapshot_from_rows(rows: Sequence[Any]) -> ChainSnapshot:
     while current is not None:
         ordered.append(_row_to_record(current))
         current = by_prev.get(current["record_hash"])
-    return ChainSnapshot(records=tuple(ordered), total_records=len(rows))
+    return ChainSnapshot(records=tuple(ordered), total_records=len(rows), schema_version=schema_version)
 
 
 class PostgresChainRecordSource:
@@ -695,13 +740,31 @@ class PostgresChainRecordSource:
 
     async def read_chain(self, tenant_id: str) -> ChainSnapshot:
         schema = schema_for_tenant(tenant_id)  # anti-injection: interpolated into SET search_path
+        # Alembic's per-tenant version table, named by `platform/migrations/env.py`
+        # (`version_table=f"{TENANT_ID}_alembic_version"`) and created inside the tenant schema
+        # because that env sets `search_path` to `"<tenant>", "public"` before migrating. The name
+        # is built from the SAME `schema_for_tenant`-validated identifier as the search_path pin,
+        # so it carries no interpolation risk the search_path does not already carry.
+        version_table = f"{schema}_alembic_version"
         conn = await asyncpg.connect(self._dsn)
         try:
             await conn.execute(f'SET search_path TO "{schema}"')
+            try:
+                schema_version = await conn.fetchval(f'SELECT version_num FROM "{version_table}"')
+            except asyncpg.exceptions.UndefinedTableError:
+                # WHAT ELSE DOES THIS SKIP? Only this one table's absence. It cannot hide a missing
+                # `audit_chain` or a wrong `search_path`: the `SELECT * FROM audit_chain` below is
+                # OUTSIDE this guard and raises for both, so the run still reaches DB_ERROR. What it
+                # buys is the narrower reason token — "no version table here" reports as
+                # SCHEMA_VERSION_UNREADABLE rather than as an unreachable database, which sends an
+                # operator to the migration state instead of to the network.
+                schema_version = None
             rows = await conn.fetch("SELECT * FROM audit_chain")
         finally:
             await conn.close()
-        return snapshot_from_rows(rows)
+        # `fetchval` also yields None for a version table that EXISTS but holds no row — an
+        # un-migrated schema. Same claim, same token: the live revision was not established.
+        return snapshot_from_rows(rows, schema_version=schema_version)
 
 
 # =================================================================================================
@@ -803,6 +866,20 @@ def _parse_timestamp(raw: Any) -> datetime:
     if not isinstance(raw, str):
         raise ValueError(f"window bound must be an ISO-8601 string, got {type(raw).__name__}")
     return datetime.fromisoformat(raw)
+
+
+def _schema_versions_agree(anchored: str, live: str) -> bool:
+    """True iff the tenant's LIVE migration revision is exactly the one the anchor attests.
+
+    Exact equality, never a prefix or "close enough" comparison: alembic revisions are opaque
+    identifiers, and a verifier that decided `"0006"` was compatible with `"0005"` would be
+    inventing a compatibility claim nobody made.
+
+    A one-line predicate with a name so the defense can be NEUTERED from a test (the RED control
+    `test_red_control_a_schema_cross_check_that_always_agrees_calls_a_stale_anchor_clean` replaces
+    it with a function that always agrees, which is exactly what deleting the check would do).
+    """
+    return anchored == live
 
 
 def _recomputed_root(anchor: _ParsedAnchor) -> str:
@@ -941,8 +1018,20 @@ async def verify_latest_anchor(
          `tenant_id` so that the comparison isolates chain CONTENT. A fork, too few records, or a
          broken link is `DIVERGENCE` in its own right: those states cannot even produce the window
          that was attested.
-      7. **Compare roots.** Equal => `MATCH`. Otherwise `DIVERGENCE`, reporting both roots, both
-         heads and both counts — hashes and counts only, never record content.
+      7. **Compare roots.** Unequal => `DIVERGENCE`, reporting both roots, both heads and both
+         counts — hashes and counts only, never record content.
+      8. **Cross-check the schema version, LAST.** The chain content agreed; now the anchor's
+         SIGNED `chain_schema_version` is compared against the tenant's LIVE migration revision.
+         Live revision not established => `DB_ERROR` (`SCHEMA_VERSION_UNREADABLE`); different =>
+         `SCHEMA_VERSION_MISMATCH`; equal => `MATCH`.
+
+         **Why last, and not as a gate before step 6.** The content comparison is already
+         schema-INDEPENDENT by construction — step 6 recomputes with the ANCHOR's own
+         `chain_schema_version`, so a migration since the anchor was sealed cannot make an honest
+         chain look diverged. Running the cross-check earlier would therefore buy nothing and cost
+         something real: a stale schema label would MASK a genuine content divergence behind the
+         milder incident. Placed here it can only ever downgrade a would-be `MATCH`, which is the
+         one direction that is always safe.
 
     A database that has GROWN since the anchor is not a divergence: the window is a genesis-anchored
     PREFIX of `record_count` records, and an append-only chain is supposed to grow.
@@ -1075,6 +1164,7 @@ async def verify_latest_anchor(
             "anchored_record_count": anchored_count,
             "anchored_head_hash": anchored_head,
             "signature_key_id": anchor.signature.key_id,
+            "anchored_schema_version": anchor.checkpoint.chain_schema_version,
         }
         base.update(overrides)
         return AnchorVerificationOutcome(**base)
@@ -1136,9 +1226,23 @@ async def verify_latest_anchor(
         "database_root": database_root,
         "database_record_count": len(snapshot.records),
         "database_head_hash": recomputed.chain_head_hash,
+        "database_schema_version": snapshot.schema_version,
     }
     if database_root != anchor_root:
         return _emit(_partial(status=STATUS_DIVERGENCE, reason=REASON_ROOT_MISMATCH, **common))
+
+    # LAST gate before MATCH — see step 8 of this function's docstring for why it is here and not
+    # earlier. It can only downgrade a clean verdict; it can never mask a content divergence.
+    if snapshot.schema_version is None:
+        return _emit(_partial(status=STATUS_DB_ERROR, reason=REASON_SCHEMA_VERSION_UNREADABLE, **common))
+    if not _schema_versions_agree(anchor.checkpoint.chain_schema_version, snapshot.schema_version):
+        return _emit(
+            _partial(
+                status=STATUS_SCHEMA_VERSION_MISMATCH,
+                reason=REASON_SCHEMA_VERSION_MISMATCH,
+                **common,
+            )
+        )
     return _emit(_partial(status=STATUS_MATCH, **common))
 
 

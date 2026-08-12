@@ -106,6 +106,15 @@ the defense is neutered, so a reviewer can neuter any one of them and predict th
       NOT claimed: truncation of the NEWEST anchors, which no backward link can see — that stays
       V3's job, and both defenses are wired.
 
+  V14 The anchor's SIGNED schema version is cross-checked against the tenant's LIVE one, LAST.
+      NEUTER: make `_schema_versions_agree` always agree, drop the `schema_version` field from
+      `ChainSnapshot`, default it, or move the check ahead of the content comparison.
+      RED: `test_a_migration_the_anchor_never_saw_is_surfaced_not_silently_matched`, with its RED
+      CONTROL `test_red_control_a_schema_cross_check_that_always_agrees_calls_a_stale_anchor_clean`.
+      The ORDERING half — that a real divergence can never be masked by the milder schema finding —
+      is `test_a_content_divergence_is_never_masked_by_a_stale_schema_version`; the fail-closed
+      seam is `test_snapshot_from_rows_refuses_to_default_the_schema_version`.
+
 The RED probes actually executed for this file are tabulated in
 `docs/design/wave4-audit-anchor.md` §9 with their exact counts.
 """
@@ -166,6 +175,8 @@ from maezo.gateway.audit_anchor_verify import (
     REASON_PROBE_UNAVAILABLE,
     REASON_RECORD_COUNT_SHORTFALL,
     REASON_ROOT_MISMATCH,
+    REASON_SCHEMA_VERSION_MISMATCH,
+    REASON_SCHEMA_VERSION_UNREADABLE,
     REASON_SELECTED_ANCHOR_UNREADABLE,
     REASON_SIGNATURE_REJECTED,
     REASON_SIGNATURE_VERIFIER_FAILED,
@@ -178,6 +189,7 @@ from maezo.gateway.audit_anchor_verify import (
     STATUS_DIVERGENCE,
     STATUS_MATCH,
     STATUS_NO_ANCHOR,
+    STATUS_SCHEMA_VERSION_MISMATCH,
     STATUS_SIGNATURE_INVALID,
     STATUS_STORE_LISTING_SUSPECT,
     AnchorVerificationOutcome,
@@ -254,13 +266,20 @@ def _rows_from_records(records: list[AuditRecord]) -> list[dict[str, Any]]:
 
 
 class _RowRecordSource:
-    """A `ChainRecordSource` over in-memory rows. The DB seam, with no database."""
+    """A `ChainRecordSource` over in-memory rows. The DB seam, with no database.
 
-    def __init__(self, rows: list[dict[str, Any]]) -> None:
+    `schema_version` is what the tenant's LIVE `alembic_version` would report; it defaults to the
+    SAME revision the fixture anchors are sealed under (`_SCHEMA_VERSION`), so the schema
+    cross-check (V14) is satisfied by default and only the tests that deliberately move it exercise
+    the mismatch. `None` models a source that could not establish the live revision.
+    """
+
+    def __init__(self, rows: list[dict[str, Any]], *, schema_version: str | None = _SCHEMA_VERSION) -> None:
         self._rows = rows
+        self._schema_version = schema_version
 
     async def read_chain(self, tenant_id: str) -> ChainSnapshot:
-        return snapshot_from_rows(self._rows)
+        return snapshot_from_rows(self._rows, schema_version=self._schema_version)
 
 
 class _RaisingRecordSource:
@@ -447,12 +466,13 @@ async def _verify(
 
 
 def test_status_vocabulary_is_closed_and_pinned() -> None:
-    """HARDCODED set-equality. Provenance: the six outcomes named in the leg-2 brief plus the three
+    """HARDCODED set-equality. Provenance: the six outcomes named in the leg-2 brief plus the four
     the brief's own rule requires — `ANCHOR_UNREADABLE` (bytes that are not an anchor are not a
-    forged signature), `DISABLED` ("did not run" is not "ran and passed"), and the one this
+    forged signature), `DISABLED` ("did not run" is not "ran and passed"), and the two this
     follow-up adds: `ANCHOR_CHAIN_BROKEN` (the signed evidence is not one contiguous in-band chain,
-    which is not a statement about the database). Set-equality so BOTH an addition and a removal
-    fail: leg 3's drills and the runbook branch on these tokens."""
+    which is not a statement about the database) and `SCHEMA_VERSION_MISMATCH` (the content agreed
+    but the anchor attests a migration revision the database no longer has). Set-equality so BOTH
+    an addition and a removal fail: leg 3's drills and the runbook branch on these tokens."""
     expected = frozenset(
         {
             "MATCH",
@@ -463,6 +483,7 @@ def test_status_vocabulary_is_closed_and_pinned() -> None:
             "DB_ERROR",
             "ANCHOR_UNREADABLE",
             "ANCHOR_CHAIN_BROKEN",
+            "SCHEMA_VERSION_MISMATCH",
             "DISABLED",
         }
     )
@@ -495,10 +516,10 @@ def test_exit_code_table_is_pinned() -> None:
     Leg 3's drills and the runbook assert on these numbers, so a renumbering must be a reviewed
     diff, never a refactor side effect.
 
-    The new status takes 17 — APPENDED, deliberately not slotted in beside its conceptual
-    neighbour. Inserting `ANCHOR_CHAIN_BROKEN` next to `ANCHOR_UNREADABLE` would have shifted
-    `DISABLED` from 16 to 17, silently re-labelling an incident class in every consumer that
-    already pins these integers."""
+    The two new statuses take 17 and 18 — APPENDED, deliberately not slotted in beside their
+    conceptual neighbours. Inserting `ANCHOR_CHAIN_BROKEN` next to `ANCHOR_UNREADABLE` would have
+    shifted `DISABLED` from 16 to 17, silently re-labelling an incident class in every consumer
+    that already pins these integers."""
     assert dict(EXIT_CODE_BY_STATUS) == {
         "MATCH": 0,
         "DIVERGENCE": 10,
@@ -509,6 +530,7 @@ def test_exit_code_table_is_pinned() -> None:
         "ANCHOR_UNREADABLE": 15,
         "DISABLED": 16,
         "ANCHOR_CHAIN_BROKEN": 17,
+        "SCHEMA_VERSION_MISMATCH": 18,
     }
 
 
@@ -856,12 +878,12 @@ def test_snapshot_from_rows_walks_structurally_and_detects_a_fork() -> None:
     rows = _rows_from_records(records)
 
     shuffled = [rows[2], rows[0], rows[3], rows[1]]  # storage order is not chain order
-    snapshot = snapshot_from_rows(shuffled)
+    snapshot = snapshot_from_rows(shuffled, schema_version=_SCHEMA_VERSION)
     assert snapshot.fork_at_prev_hash is None
     assert snapshot.total_records == 4
     assert [r.record_hash for r in snapshot.records] == [r.record_hash for r in records]
 
-    forked = snapshot_from_rows([*rows, {**rows[1], "record_hash": "e" * 64}])
+    forked = snapshot_from_rows([*rows, {**rows[1], "record_hash": "e" * 64}], schema_version=_SCHEMA_VERSION)
     assert forked.fork_at_prev_hash == rows[1]["prev_record_hash"]
     assert forked.records == ()
 
@@ -873,7 +895,7 @@ def test_snapshot_from_rows_reports_an_unreachable_tail_as_a_short_run() -> None
     rows = _rows_from_records(records)
     del rows[2]  # everything after the hole is now unreachable from genesis
 
-    snapshot = snapshot_from_rows(rows)
+    snapshot = snapshot_from_rows(rows, schema_version=_SCHEMA_VERSION)
     assert snapshot.total_records == 4
     assert len(snapshot.records) == 2
 
@@ -1554,6 +1576,123 @@ def test_the_chain_walk_terminates_and_reports_the_leftovers(anchors_enabled: No
 
 
 # =================================================================================================
+# V14 — the schema-version cross-check (G1b)
+# =================================================================================================
+
+
+async def test_a_migration_the_anchor_never_saw_is_surfaced_not_silently_matched(
+    anchors_enabled: None, store: LabeledFakeWormAnchorStore, probe: FilesystemAnchorKeyProbe
+) -> None:
+    """V14, THE defense. The chain CONTENT agrees — same records, same root — but the database has
+    since been migrated past the revision the anchor attests. Before this check the run reported
+    MATCH, because the database side is deliberately recomputed with the ANCHOR's own
+    `chain_schema_version` to isolate the comparison to content; that isolation is what made the
+    schema drift invisible, and this is the check that puts it back.
+
+    Both revisions are reported, so an operator sees which way the drift runs without re-reading
+    either side."""
+    records = _emit_chain(4)
+    _seal_anchor(store, records)
+    migrated = _RowRecordSource(_rows_from_records(records), schema_version="0009_alguma_migracao")
+
+    outcome = await _verify(store, migrated, probe)
+
+    assert outcome.status == STATUS_SCHEMA_VERSION_MISMATCH
+    assert outcome.reason == REASON_SCHEMA_VERSION_MISMATCH
+    assert outcome.anchored_schema_version == _SCHEMA_VERSION
+    assert outcome.database_schema_version == "0009_alguma_migracao"
+    assert outcome.is_clean is False
+    assert outcome.exit_code == 18
+    # The content really did agree — this is a schema finding, not a disguised content divergence.
+    assert outcome.database_root == outcome.anchor_root
+
+
+async def test_red_control_a_schema_cross_check_that_always_agrees_calls_a_stale_anchor_clean(
+    anchors_enabled: None,
+    store: LabeledFakeWormAnchorStore,
+    probe: FilesystemAnchorKeyProbe,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """THE RED CONTROL for V14 — the identical scenario with the comparison NEUTERED to always
+    agree, which is precisely what deleting the `if` would do. It returns MATCH against an anchor
+    that attests a schema the database no longer has. Asserted on purpose, as the measurement that
+    makes the check above load-bearing."""
+    records = _emit_chain(4)
+    _seal_anchor(store, records)
+    migrated = _RowRecordSource(_rows_from_records(records), schema_version="0009_alguma_migracao")
+
+    monkeypatch.setattr(audit_anchor_verify, "_schema_versions_agree", lambda anchored, live: True)
+
+    outcome = await _verify(store, migrated, probe)
+
+    assert outcome.status == STATUS_MATCH  # <- the stale anchor, reported clean
+    assert outcome.database_schema_version == "0009_alguma_migracao"
+
+
+async def test_a_live_schema_version_the_source_cannot_establish_is_db_error_not_clean(
+    anchors_enabled: None, store: LabeledFakeWormAnchorStore, probe: FilesystemAnchorKeyProbe
+) -> None:
+    """ "I could not establish the live revision" is not "the revisions agree". It is a partial read
+    of the database, so it lands on DB_ERROR — under its own reason token, because an operator sent
+    to the network by a `DATABASE_UNREACHABLE` would be looking in the wrong place when the real
+    answer is that the tenant schema has no migration state."""
+    records = _emit_chain(4)
+    _seal_anchor(store, records)
+    unknown = _RowRecordSource(_rows_from_records(records), schema_version=None)
+
+    outcome = await _verify(store, unknown, probe)
+
+    assert outcome.status == STATUS_DB_ERROR
+    assert outcome.reason == REASON_SCHEMA_VERSION_UNREADABLE
+    assert outcome.database_schema_version is None
+    assert outcome.anchored_schema_version == _SCHEMA_VERSION
+    assert outcome.is_clean is False
+
+
+async def test_a_content_divergence_is_never_masked_by_a_stale_schema_version(
+    anchors_enabled: None, store: LabeledFakeWormAnchorStore, probe: FilesystemAnchorKeyProbe
+) -> None:
+    """WHY THE CROSS-CHECK IS THE LAST GATE. Both faults are present: records were deleted AND the
+    schema moved. The urgent incident is the deletion, and reporting the milder schema finding would
+    hand an operator "re-anchor and move on" for what is actually a tamper.
+
+    Placing the check last means it can only ever downgrade a would-be MATCH — the one direction
+    that cannot hide anything."""
+    records = _emit_chain(5)
+    _seal_anchor(store, records)
+    truncated_and_migrated = _RowRecordSource(
+        _rows_from_records(records)[:3], schema_version="0009_alguma_migracao"
+    )
+
+    outcome = await _verify(store, truncated_and_migrated, probe)
+
+    assert outcome.status == STATUS_DIVERGENCE
+    assert outcome.reason == REASON_RECORD_COUNT_SHORTFALL
+
+
+def test_snapshot_from_rows_refuses_to_default_the_schema_version() -> None:
+    """FAIL-CLOSED at the seam. `schema_version` is keyword-only and has no default, so a record
+    source that never thought about the cross-check cannot silently hand back `None` — which is a
+    CLAIM ("I looked and could not establish it") that only a source is entitled to make."""
+    rows = _rows_from_records(_emit_chain(2))
+
+    with pytest.raises(TypeError, match="schema_version"):
+        snapshot_from_rows(rows)  # type: ignore[call-arg]
+
+    assert snapshot_from_rows(rows, schema_version=None).schema_version is None
+
+
+def test_the_matching_schema_version_is_the_one_the_writer_seals() -> None:
+    """The two sides of the cross-check must be the same KIND of string, or it would compare a
+    label against a revision and alarm forever. Leg 1's checkpoint documents `chain_schema_version`
+    as the tenant's live `alembic_version.version_num`; this pins that the verifier compares it by
+    exact equality against exactly that, with no normalization in between."""
+    assert audit_anchor_verify._schema_versions_agree("0005_audit_emit_dedup", "0005_audit_emit_dedup")
+    assert not audit_anchor_verify._schema_versions_agree("0005_audit_emit_dedup", "0005")
+    assert not audit_anchor_verify._schema_versions_agree("0005_audit_emit_dedup", "0006_x")
+
+
+# =================================================================================================
 # V4 — NO_ANCHOR and ANCHOR_UNREADABLE
 # =================================================================================================
 
@@ -1768,6 +1907,7 @@ def test_every_status_logs_under_its_own_pinned_event_name(status: str) -> None:
         "DB_ERROR": ("audit_anchor_database_unreadable", "error"),
         "ANCHOR_UNREADABLE": ("audit_anchor_envelope_unreadable", "error"),
         "ANCHOR_CHAIN_BROKEN": ("audit_anchor_chain_broken", "error"),
+        "SCHEMA_VERSION_MISMATCH": ("audit_anchor_schema_version_mismatch", "error"),
         "DISABLED": ("audit_anchor_verification_skipped_disabled", "debug"),
     }
     assert (EVENT_BY_STATUS[status], LEVEL_BY_STATUS[status]) == expected[status]
@@ -1790,6 +1930,8 @@ _EXPECTED_JSON_KEYS: Final[frozenset[str]] = frozenset(
         "database_head_hash",
         "signature_key_id",
         "error_type",
+        "anchored_schema_version",
+        "database_schema_version",
         "listing_disagreement",
         "anchor_chain_break_keys",
     }
@@ -1802,7 +1944,9 @@ _JSON_LIST_KEYS: Final[frozenset[str]] = frozenset({"listing_disagreement", "anc
 
 def test_outcome_json_shape_is_pinned() -> None:
     """Set-equality on the keys, plus a scalar-only assertion on the values — that second half is
-    the PHI guarantee (no nested free-form structure can be smuggled into a report)."""
+    the PHI guarantee (no nested free-form structure can be smuggled into a report). The two
+    schema-version members are migration revisions (`"0005_audit_emit_dedup"`), which are
+    organizational identifiers exactly as `tenant_id` is, never record content."""
     mapping = AnchorVerificationOutcome(
         status=STATUS_MATCH,
         tenant_id=_TENANT,
@@ -2315,10 +2459,13 @@ def _executable_string_literals(tree: ast.Module) -> list[str]:
     ]
 
 
-def test_the_verify_module_issues_only_the_two_pinned_read_statements() -> None:
+def test_the_verify_module_issues_only_the_three_pinned_read_statements() -> None:
     """HARDCODED. Provenance: the verification job is READ-ONLY against the database, and these are
-    the only two statements it issues — the tenant search_path pin (validated by the same
-    `schema_for_tenant` that guards every other interpolation) and one unqualified SELECT.
+    the only three statements it issues — the tenant search_path pin (validated by the same
+    `schema_for_tenant` that guards every other interpolation), one unqualified SELECT over
+    `audit_chain`, and the G1b schema cross-check's read of alembic's per-tenant version table
+    (`platform/migrations/env.py` names it `f"{TENANT_ID}_alembic_version"`), whose identifier is
+    built from that SAME validated schema name.
 
     Pinned as an exact SET rather than as a "no INSERT/UPDATE/DELETE" blacklist because a blacklist
     only catches the verbs somebody remembered to list; a set-equality pin turns ANY new statement —
@@ -2346,7 +2493,11 @@ def test_the_verify_module_issues_only_the_two_pinned_read_statements() -> None:
     statements = {
         literal for literal in literals if literal.strip().upper().startswith(sql_statement_openers)
     }
-    assert statements == {'SET search_path TO "', "SELECT * FROM audit_chain"}
+    assert statements == {
+        'SET search_path TO "',
+        "SELECT * FROM audit_chain",
+        'SELECT version_num FROM "',
+    }
 
     embedded = ("INSERT INTO", "DELETE FROM", "TRUNCATE TABLE", "DROP TABLE", "UPDATE AUDIT_")
     offenders = [
@@ -2432,7 +2583,9 @@ def test_the_verify_module_reuses_the_real_row_mapper() -> None:
 
     record = _emit_chain(1)[0]
     row = _rows_from_records([record])[0]
-    assert snapshot_from_rows([row]).records[0].record_hash == record.record_hash
+    assert (
+        snapshot_from_rows([row], schema_version=_SCHEMA_VERSION).records[0].record_hash == record.record_hash
+    )
 
 
 def test_audit_and_audit_postgres_remain_unmodified_by_this_leg() -> None:

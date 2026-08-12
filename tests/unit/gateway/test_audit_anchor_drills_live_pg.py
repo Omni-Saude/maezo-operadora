@@ -12,7 +12,7 @@ runs the SAME `verify_latest_anchor` against the REAL `PostgresChainRecordSource
 correct LOUD outcome — with a CONTROL (untampered) proving MATCH first, so a drill that only ever
 goes red is impossible (a verifier that always alarms detects nothing).
 
-THE SIX DRILLS AND THE GUARD THAT FIRES (observed live, hardcoded with provenance)
+THE SEVEN DRILLS AND THE GUARD THAT FIRES (observed live, hardcoded with provenance)
 =================================================================================================
 Every expected outcome below was observed against a live pinned `pgvector/pgvector:pg16` and is
 asserted, not described. The row->record path RECOMPUTES `record_hash` from stored content
@@ -43,6 +43,11 @@ the STORED links — the asymmetry that turns a lazy content edit into a detecte
      the object is genuinely gone (not hidden), so neither the content checks nor the corroborating
      probe fire. The surviving anchor's signed `prev_anchor_root` is the only witness =>
      ANCHOR_CHAIN_BROKEN / ANCHOR_CHAIN_LINK_MISSING, and no verdict about the database.
+  7. SCHEMA DRIFT (G1b) — the live `<tenant>_alembic_version` row is moved after the anchor was
+     sealed. Content is untouched, so both roots still agree; what no longer agrees is the schema
+     the attestation was made under => SCHEMA_VERSION_MISMATCH. This is the only proof that the job
+     reads the RIGHT table: the per-tenant version table's name and schema placement come from
+     `platform/migrations/env.py`, and no fixture can stand in for that.
 
 LIVE-PG ISOLATION / SKIP-LOUDLY (why this file never depends on an ad-hoc container)
 =================================================================================================
@@ -93,9 +98,11 @@ from maezo.gateway.audit_anchor_verify import (
     REASON_CHAIN_FORK,
     REASON_RECORD_COUNT_SHORTFALL,
     REASON_ROOT_MISMATCH,
+    REASON_SCHEMA_VERSION_MISMATCH,
     STATUS_ANCHOR_CHAIN_BROKEN,
     STATUS_DIVERGENCE,
     STATUS_MATCH,
+    STATUS_SCHEMA_VERSION_MISMATCH,
     AnchorVerificationOutcome,
     FilesystemAnchorKeyProbe,
     PostgresChainRecordSource,
@@ -113,7 +120,10 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 _DEFAULT_DSN: Final[str] = "postgresql://maezo:maezo@localhost:5466/maezo"
 _DSN_ENV: Final[str] = "MAEZO_TEST_AUDIT_ANCHOR_DRILL_DATABASE_URL"
 
-_SCHEMA_VERSION: Final[str] = "0005_audit_emit_dedup"
+# The tenant's migration revision is deliberately NOT a constant here — `_seal_anchor_from_db`
+# reads it LIVE from `<tenant>_alembic_version`. A hardcoded one would drift the moment a migration
+# lands (this file used to pin `0005_audit_emit_dedup` while `head` had moved to 0008), and G1b's
+# cross-check would then report SCHEMA_VERSION_MISMATCH on every CONTROL run.
 _FAKE_SECRET: Final[bytes] = b"labeled-fake-anchor-drill-secret-nao-vinculativo"
 _FAKE_KEY_LABEL: Final[str] = "leg3-drill"
 _UNIQUE_CONSTRAINT: Final[str] = "uq_audit_chain_prev_hash"  # migration 0002 anti-fork guard
@@ -254,8 +264,14 @@ async def _seal_anchor_from_db(
     Built from the DB round-trip (the SAME `PostgresChainRecordSource` the verify job reads) so the
     control is a genuine MATCH: both sides derive the checkpoint from identical rows.
 
-    One thing is worth stating because leg 1 makes it a hard requirement:
+    Two things are read LIVE rather than hardcoded, and both are load-bearing:
 
+      - `chain_schema_version` comes from the snapshot's `schema_version` — the tenant's actual
+        `<tenant>_alembic_version.version_num` — not from a constant in this file. G1b's cross-check
+        compares the SIGNED value against that live one, so a writer that sealed a descriptive label
+        instead of the live revision would make every control run report SCHEMA_VERSION_MISMATCH.
+        Sealing what the database actually says is exactly the owner behaviour leg 1's
+        `AnchorCheckpoint` docstring prescribes, and this drill is where it becomes binding.
       - `prev_anchor_root` is REQUIRED by leg 1 (never defaulted, so an omitted link cannot
         masquerade as a fresh genesis), so a caller sealing a SECOND anchor must pass its
         predecessor's root here.
@@ -263,11 +279,12 @@ async def _seal_anchor_from_db(
     Returns `(anchor_key, root)` so a caller can chain the next anchor onto this one.
     """
     snapshot = await PostgresChainRecordSource(dsn).read_chain(tenant)
+    assert snapshot.schema_version is not None, "the live tenant schema reported no alembic revision"
     window = snapshot.records if count is None else snapshot.records[:count]
     checkpoint = checkpoint_for_chain(
         window,
         tenant_id=tenant,
-        chain_schema_version=_SCHEMA_VERSION,
+        chain_schema_version=snapshot.schema_version,
         prev_anchor_root=prev_anchor_root,
     )
     outcome = write_anchor(checkpoint, signer=_signer(), store=store)
@@ -583,6 +600,54 @@ async def test_a_historical_anchor_removed_from_the_store_is_caught_by_the_in_ba
     chain = await verify_chain(pg_dsn, tenant_schema)
     assert chain.valid is True
     assert chain.total_records == chain.verified_records == 6
+
+
+async def test_a_migration_after_the_anchor_is_surfaced_against_the_live_alembic_version(
+    anchors_enabled: None,
+    pg_dsn: str,
+    tenant_schema: str,
+    store: LabeledFakeWormAnchorStore,
+    probe: FilesystemAnchorKeyProbe,
+) -> None:
+    """SCHEMA DRIFT (G1b) — the one drill that binds the cross-check to a REAL `alembic_version`.
+
+    The unit suite can only prove the comparison; it cannot prove the job reads the right table.
+    Alembic's per-tenant version table is named by `platform/migrations/env.py`
+    (`version_table=f"{TENANT_ID}_alembic_version"`) and lives inside the tenant schema because that
+    env migrates under `search_path = "<tenant>", "public"` — none of which is visible from a
+    fixture. Here the anchor is sealed against whatever `head` actually is, then the LIVE revision
+    row is moved, and the job must notice.
+
+    The chain CONTENT is untouched throughout, so the roots still agree: this is a stale-anchor
+    finding (re-anchor), not a tamper => SCHEMA_VERSION_MISMATCH.
+    """
+    await _seed_chain(pg_dsn, tenant_schema, 5)
+    await _seal_anchor_from_db(pg_dsn, tenant_schema, store)
+
+    live_before = (await PostgresChainRecordSource(pg_dsn).read_chain(tenant_schema)).schema_version
+    assert live_before is not None  # the drill would be vacuous against a schema with no revision
+
+    control = await _verify(pg_dsn, tenant_schema, store, probe)
+    assert control.status == STATUS_MATCH
+    assert control.anchored_schema_version == control.database_schema_version == live_before
+
+    # A migration the anchor never saw. Only the version ROW moves; no table is altered, so the
+    # chain content — and therefore both roots — stay exactly as the anchor attests.
+    await _exec(
+        pg_dsn,
+        tenant_schema,
+        f'UPDATE "{tenant_schema}_alembic_version" SET version_num = $1',
+        "0099_migracao_posterior",
+    )
+
+    outcome = await _verify(pg_dsn, tenant_schema, store, probe)
+    assert outcome.status == STATUS_SCHEMA_VERSION_MISMATCH
+    assert outcome.reason == REASON_SCHEMA_VERSION_MISMATCH
+    assert outcome.anchored_schema_version == live_before
+    assert outcome.database_schema_version == "0099_migracao_posterior"
+    assert outcome.anchor_root == outcome.database_root  # content agreed; only the schema drifted
+    assert outcome.is_clean is False
+    assert outcome.exit_code == EXIT_CODE_BY_STATUS[STATUS_SCHEMA_VERSION_MISMATCH] == 18
 
 
 # =================================================================================================
