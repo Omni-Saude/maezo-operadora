@@ -115,6 +115,14 @@ packages = ["src/maezo"]
 # checkout, then this package-adjacent copy, with $MAEZO_AMH_INBOX_RATIFICATION overriding both.
 "spec/policies/amh" = "maezo/spec/policies/amh"
 
+[tool.uv]
+# W9 (Onda 2, supply-chain aging): dependency-age quarantine. `exclude-newer` makes resolution
+# refuse any distribution published after this instant, so a freshly-published (or freshly
+# compromised) release cannot enter the graph on the day it appears — it must first age past the
+# cutoff, during which yanks/advisories/registry takedowns have time to surface. The date is
+# advanced deliberately by a human bumping this line, never implicitly by the clock.
+exclude-newer = "2026-08-05T00:00:00Z"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
