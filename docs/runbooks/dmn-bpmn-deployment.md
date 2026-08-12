@@ -34,8 +34,9 @@ make validate-artifacts
 # = uv run python -m maezo.platform.validation.cli validate spec/processes spec/policies spec/agents
 ```
 
-This is a **CI blocker** (`.github/workflows/ci.yml` job `artifact-validation` runs it; also a
-`.PHONY` `Makefile` target). Fail-closed, real parsing — not a stub: BPMN/DMN XML well-formedness,
+This is a **CI blocker** (`.github/workflows/ci.yml` job `artifact-validation`, shown as
+**validate-artifacts** in the PR checks list and branch protection (`ci.yml:76-77`), runs it;
+also a `.PHONY` `Makefile` target). Fail-closed, real parsing — not a stub: BPMN/DMN XML well-formedness,
 YAML policy/agent-definition parsing, BPMN↔DMN cross-references, the DMN orphan allowlist
 (`spec/processes/dmn/orphans-allowlist.yaml`), and `agent.yaml` schema + MCP-server allowlist
 checks. There is no "greenfield exemption" and no warn-then-pass path
@@ -56,7 +57,8 @@ for every contract under `docs/processes/contracts/*.md` marked `**Status:** FIN
 (`src/maezo/platform/validation/signoff.py`). Also runs in CI, in its own job
 (`.github/workflows/ci.yml`, job `content-signoff-gate`, step "Content sign-off gate (promotable
 artifacts require human sign-off)" → `make validate-signoff`) — separate from the
-`artifact-validation` job. No agent — including this validation module itself — ever creates,
+`artifact-validation` job, shown as **validate-artifacts** in the PR checks list and branch
+protection (`ci.yml:76-77`). No agent — including this validation module itself — ever creates,
 edits, or infers a signoff record; it is an exclusively human act.
 
 ## 2. Deployment — `make deploy-artifacts`
