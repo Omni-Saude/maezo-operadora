@@ -690,6 +690,7 @@ def _parse_envelope(payload: bytes, *, tenant_id: str) -> _ParsedAnchor:
             window_start=_parse_timestamp(checkpoint_mapping["window_start"]),
             window_end=_parse_timestamp(checkpoint_mapping["window_end"]),
             chain_schema_version=checkpoint_mapping["chain_schema_version"],
+            prev_anchor_root=checkpoint_mapping["prev_anchor_root"],
             anchor_format=checkpoint_mapping["anchor_format"],
         )
     except (ValueError, TypeError, AttributeError) as exc:
@@ -923,6 +924,7 @@ async def verify_latest_anchor(
             window,
             tenant_id=anchor.checkpoint.tenant_id,
             chain_schema_version=anchor.checkpoint.chain_schema_version,
+            prev_anchor_root=anchor.checkpoint.prev_anchor_root,
         )
     except AnchorChainDiscontinuityError:
         return _emit(

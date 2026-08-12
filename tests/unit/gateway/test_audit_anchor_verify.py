@@ -107,6 +107,7 @@ from maezo.gateway.audit_anchor import (
     ANCHOR_ENABLED_ENV,
     ANCHOR_FORMAT,
     FAKE_ANCHOR_SIGNATURE_PREFIX,
+    GENESIS_PREV_ANCHOR_ROOT,
     AnchorCheckpoint,
     AnchorSignature,
     LabeledFakeKmsAnchorSigner,
@@ -341,15 +342,23 @@ def _seal_anchor(
     *,
     count: int | None = None,
     signer: LabeledFakeKmsAnchorSigner | None = None,
+    prev_anchor_root: str = GENESIS_PREV_ANCHOR_ROOT,
 ) -> str:
     """Seal a REAL anchor over `records[:count]` through leg 1's `write_anchor`. Returns its key.
 
     Deliberately the writer, not a hand-built envelope: the pair under test is leg 1's writer and
     leg 2's verifier, and a fixture that hand-rolled the envelope would prove the verifier agrees
-    with the fixture rather than with the writer.
+    with the fixture rather than with the writer. `prev_anchor_root` defaults to the genesis
+    sentinel (the common single-anchor case); the anchor-chain tests pass a real predecessor root
+    to link a second/third anchor.
     """
     window = records if count is None else records[:count]
-    checkpoint = checkpoint_for_chain(window, tenant_id=_TENANT, chain_schema_version=_SCHEMA_VERSION)
+    checkpoint = checkpoint_for_chain(
+        window,
+        tenant_id=_TENANT,
+        chain_schema_version=_SCHEMA_VERSION,
+        prev_anchor_root=prev_anchor_root,
+    )
     outcome = write_anchor(checkpoint, signer=signer or _signer(), store=store)
     assert outcome.written is True
     assert outcome.anchor_key is not None
@@ -650,8 +659,8 @@ async def test_an_envelope_root_edited_to_match_the_database_is_still_not_clean(
     non-vacuous: it proves the trap was actually set."""
     chain_a = _emit_chain(5, marker="attested")
     chain_b = _emit_chain(5, marker="rewritten")
-    checkpoint_a = checkpoint_for_chain(chain_a, tenant_id=_TENANT, chain_schema_version=_SCHEMA_VERSION)
-    checkpoint_b = checkpoint_for_chain(chain_b, tenant_id=_TENANT, chain_schema_version=_SCHEMA_VERSION)
+    checkpoint_a = checkpoint_for_chain(chain_a, tenant_id=_TENANT, chain_schema_version=_SCHEMA_VERSION, prev_anchor_root=GENESIS_PREV_ANCHOR_ROOT)
+    checkpoint_b = checkpoint_for_chain(chain_b, tenant_id=_TENANT, chain_schema_version=_SCHEMA_VERSION, prev_anchor_root=GENESIS_PREV_ANCHOR_ROOT)
     forged_root = checkpoint_root(checkpoint_b)
     assert forged_root != checkpoint_root(checkpoint_a)
 
@@ -836,7 +845,7 @@ async def test_a_delabeled_signature_is_signature_invalid(
     not verify. The consequence HERE is what matters — the job reports tamper, not clean, and never
     reaches the database."""
     records = _emit_chain(3)
-    checkpoint = checkpoint_for_chain(records, tenant_id=_TENANT, chain_schema_version=_SCHEMA_VERSION)
+    checkpoint = checkpoint_for_chain(records, tenant_id=_TENANT, chain_schema_version=_SCHEMA_VERSION, prev_anchor_root=GENESIS_PREV_ANCHOR_ROOT)
     genuine = _signer().sign(checkpoint_bytes(checkpoint))
     _put_envelope(
         store,
@@ -908,6 +917,7 @@ async def test_an_adversary_who_can_add_to_the_store_can_only_deny_never_clean(
         window_start=datetime(2030, 1, 1, tzinfo=UTC),
         window_end=datetime(2030, 1, 2, tzinfo=UTC),  # later stamp => selected first
         chain_schema_version=_SCHEMA_VERSION,
+        prev_anchor_root="b" * 64,  # a forgery's link is irrelevant: it dies at the signature gate
     )
     _put_envelope(store, planted, signature=_signer(secret=b"the-adversary-has-no-kms-key").sign(b"x"))
 
@@ -1216,7 +1226,7 @@ async def test_an_envelope_with_an_extra_key_is_refused_rather_than_half_read(
     out of an unfamiliar document is how a verifier ends up attesting to something nobody
     designed."""
     records = _emit_chain(3)
-    checkpoint = checkpoint_for_chain(records, tenant_id=_TENANT, chain_schema_version=_SCHEMA_VERSION)
+    checkpoint = checkpoint_for_chain(records, tenant_id=_TENANT, chain_schema_version=_SCHEMA_VERSION, prev_anchor_root=GENESIS_PREV_ANCHOR_ROOT)
     root = checkpoint_root(checkpoint)
     envelope = build_envelope(checkpoint, root, _signer().sign(checkpoint_bytes(checkpoint)))
     envelope["extra"] = "smuggled"
@@ -1231,20 +1241,21 @@ async def test_an_envelope_with_an_extra_key_is_refused_rather_than_half_read(
 async def test_a_future_anchor_format_is_refused_not_half_understood(
     anchors_enabled: None, store: LabeledFakeWormAnchorStore, probe: FilesystemAnchorKeyProbe
 ) -> None:
-    """A v2 anchor must be REFUSED by a v1 verifier. Half-understanding a future format is how a
-    format bump silently turns every verification into a false clean."""
+    """A future (v3) anchor must be REFUSED by this v2 verifier. Half-understanding a future format
+    is how a format bump silently turns every verification into a false clean. (The v1->v2 bump this
+    follow-up made is the same discipline one step back: a v1 anchor is now equally refused.)"""
     records = _emit_chain(3)
-    checkpoint = checkpoint_for_chain(records, tenant_id=_TENANT, chain_schema_version=_SCHEMA_VERSION)
+    checkpoint = checkpoint_for_chain(records, tenant_id=_TENANT, chain_schema_version=_SCHEMA_VERSION, prev_anchor_root=GENESIS_PREV_ANCHOR_ROOT)
     root = checkpoint_root(checkpoint)
     envelope = build_envelope(checkpoint, root, _signer().sign(checkpoint_bytes(checkpoint)))
-    envelope["anchor_format"] = "maezo.audit-anchor.v2"
+    envelope["anchor_format"] = "maezo.audit-anchor.v3"
     store.put(anchor_key(checkpoint, root), canonical_bytes(envelope))
 
     outcome = await _verify(store, _ExplodingRecordSource(), probe)
 
     assert outcome.status == STATUS_ANCHOR_UNREADABLE
     assert outcome.reason == REASON_ENVELOPE_FORMAT_UNKNOWN
-    assert ANCHOR_FORMAT == "maezo.audit-anchor.v1"  # the constant this verifier reads
+    assert ANCHOR_FORMAT == "maezo.audit-anchor.v2"  # the constant this verifier reads
 
 
 async def test_an_anchor_whose_signed_tenant_disagrees_with_its_key_is_unreadable(
@@ -1254,7 +1265,12 @@ async def test_an_anchor_whose_signed_tenant_disagrees_with_its_key_is_unreadabl
     the envelope is not this tenant's evidence — and it must not be verified against this tenant's
     chain."""
     records = _emit_chain(3)
-    checkpoint = checkpoint_for_chain(records, tenant_id="outro_tenant", chain_schema_version=_SCHEMA_VERSION)
+    checkpoint = checkpoint_for_chain(
+        records,
+        tenant_id="outro_tenant",
+        chain_schema_version=_SCHEMA_VERSION,
+        prev_anchor_root=GENESIS_PREV_ANCHOR_ROOT,
+    )
     root = checkpoint_root(checkpoint)
     envelope = build_envelope(checkpoint, root, _signer().sign(checkpoint_bytes(checkpoint)))
     # Stored under THIS tenant's prefix while attesting another tenant's chain.
