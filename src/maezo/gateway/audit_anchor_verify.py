@@ -502,11 +502,13 @@ class FilesystemAnchorKeyProbe:
             except OSError:  # a directory that vanished mid-walk cannot contribute keys
                 dirnames[:] = []
                 continue
-            identity = (stat_result.st_dev, stat_result.st_ino)
-            if identity in seen:
-                dirnames[:] = []  # cycle (or a second route to the same directory) — do not recurse
-                continue
-            seen.add(identity)
+            # Enumerate THIS directory's files at EVERY visit — never gated on the identity
+            # guard below. A file reached through a symlink alias yields a key DISTINCT from the
+            # one under its physical path (`<tenant>/x` vs `physical/x`), so suppressing
+            # enumeration at a re-seen inode made the probe's output depend on os.walk's readdir
+            # order: on the OS ordering that walked the physical dir first, the tenant-prefixed key
+            # was never reported and the listing-suspect defense could silently fail to fire. File
+            # enumeration is pure string work (no recursion), so doing it unconditionally is finite.
             for name in filenames:
                 if name == FAKE_WORM_STORE_MARKER_FILENAME:
                     continue
@@ -514,6 +516,14 @@ class FilesystemAnchorKeyProbe:
                 key = "/".join(relative.parts)
                 if key.startswith(prefix):
                     keys.append(key)
+            # The (st_dev, st_ino) guard bounds RECURSION only — it must never skip the enumeration
+            # above. On a re-seen inode (a symlink cycle, or a second route to the same directory)
+            # prune descent so a true cycle terminates; the files at this alias are already counted.
+            identity = (stat_result.st_dev, stat_result.st_ino)
+            if identity in seen:
+                dirnames[:] = []
+                continue
+            seen.add(identity)
         return tuple(sorted(set(keys)))
 
 

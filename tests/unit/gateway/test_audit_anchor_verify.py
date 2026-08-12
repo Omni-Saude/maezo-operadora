@@ -965,6 +965,41 @@ def test_filesystem_probe_sees_the_anchor_the_listing_misses(tmp_path: Path) -> 
     assert f"{_TENANT}/{name}" not in LabeledFakeWormAnchorStore(root).list_keys()
 
 
+def test_filesystem_probe_reports_the_tenant_key_even_when_the_physical_alias_is_walked_first(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """V12 DETERMINISM PIN. `os.walk`'s readdir order is arbitrary across platforms; the probe's
+    output must NOT be. The scenario above passed on macOS purely because that OS happened to walk
+    the symlinked `<tenant>` alias before its physical target; Linux CI walked `physical` first and
+    the probe returned `()` — the newer-anchor listing-suspect defense silently failing to fire on
+    the very platform we deploy on.
+
+    This forces the adversarial order (`physical` before the symlinked `<tenant>`) so the assertion
+    is deterministic on EVERY platform, not a coin flip. NEUTER: restore the inode guard's `continue`
+    so it suppresses file enumeration at the second logical path — this goes RED regardless of OS,
+    because both aliases resolve to the same `(st_dev, st_ino)` and the physical route is now first,
+    so the tenant-prefixed key is never enumerated."""
+    root = tmp_path / "anchors"
+    physical = root / "physical"
+    physical.mkdir(parents=True)
+    (root / _TENANT).symlink_to(physical, target_is_directory=True)
+    name = "20270101T000000Z-" + "f" * 64 + ".anchor.json"
+    (physical / name).write_bytes(b"payload")
+
+    real_walk = os.walk
+
+    def physical_first_walk(top: Any, *args: Any, **kwargs: Any) -> Any:
+        # os.walk honours in-place reordering of `dirnames` to fix recursion order (documented
+        # contract), so this pins the exact readdir order that fails on Linux CI: physical first.
+        for dirpath, dirnames, filenames in real_walk(top, *args, **kwargs):
+            dirnames.sort(key=lambda entry: (entry != "physical", entry))
+            yield dirpath, dirnames, filenames
+
+    monkeypatch.setattr(os, "walk", physical_first_walk)
+
+    assert FilesystemAnchorKeyProbe(root).probe_keys(_TENANT) == (f"{_TENANT}/{name}",)
+
+
 def test_filesystem_probe_terminates_on_a_symlink_cycle(tmp_path: Path) -> None:
     """`followlinks=True` is a foot-gun: a cycle makes `os.walk` recurse forever, and a
     verification job that HANGS is a verification job that silently stops verifying. The
