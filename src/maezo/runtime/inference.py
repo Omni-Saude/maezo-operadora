@@ -1083,12 +1083,22 @@ class BrRegionalTokenUsage:
 class BrRegionalRequest:
     """One request on the BR-regional inference wire contract.
 
-    THE REPR REDACTS. ``repr=False`` + the hand-written :meth:`__repr__` below is a load-bearing
-    safety property, not tidiness: this object holds BOTH a credential and PHI-bearing prompt
-    text, and a dataclass's generated repr would spill both into any log line, ``assert``
-    message, exception traceback frame, or debugger session that touched it. The generated repr
-    is therefore never allowed to exist. Asserted by a canary probe in
-    ``tests/unit/runtime/test_inference_br_resident.py``.
+    THE REPR REDACTS, and the two mechanisms below do DIFFERENT jobs — stated precisely because
+    the obvious reading of this decorator line is wrong. This object holds BOTH a credential and
+    PHI-bearing prompt text, and a dataclass's generated repr spills both verbatim into any log
+    line, ``assert`` message, traceback frame or debugger session that touches it (verified: with
+    both mechanisms removed, ``repr()`` renders the credential and the full prompt in plaintext).
+
+    * The hand-written :meth:`__repr__` is what actually redacts. It wins ON ITS OWN, with or
+      without ``repr=False``: ``dataclasses`` installs its generated ``__repr__`` via
+      ``_set_new_attribute``, which declines to overwrite a name already present in the class
+      body. Deleting this method is therefore the ONLY edit that can un-redact this class.
+    * ``repr=False`` is the FAILSAFE for exactly that edit. With it, deleting the method degrades
+      to ``object.__repr__`` — type and address, no fields. Without it, the same deletion would
+      silently restore a field-dumping repr. It buys nothing today and everything on the day
+      somebody removes the method below.
+
+    Both are asserted in ``tests/unit/runtime/test_inference_br_resident.py``.
     """
 
     endpoint_url: str
@@ -1140,7 +1150,10 @@ class BrRegionalResponse:
     and it is the strongest claim a client can make unaided. A dishonest counterparty is a DPA
     and network-proof problem (see `BR_RESIDENT_CAPABILITIES`).
 
-    Repr redacts for the same reason as the request: ``completion`` is model output over PHI.
+    Repr redacts for the same reason as the request — ``completion`` is model output over PHI —
+    and by the same two mechanisms, with the same division of labour (see
+    :class:`BrRegionalRequest`: the hand-written method redacts, ``repr=False`` is the failsafe
+    for the day it is deleted).
     """
 
     completion: str

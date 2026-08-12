@@ -44,6 +44,8 @@ from maezo.runtime.inference import (
     HEADER_VENDOR_DPA_REF,
     HEADER_ZERO_RETENTION,
     BrEndpointNotApprovedError,
+    BrRegionalRequest,
+    BrRegionalResponse,
     BrRegionalTransportUnavailableError,
     BrResidentInferenceProvider,
     FakeBrRegionalOutcome,
@@ -500,6 +502,40 @@ async def test_no_prompt_content_reaches_any_log_event(monkeypatch: pytest.Monke
     assert _DPA_REF not in serialized, "the DPA reference is an owner's private identifier"
     # OVER-FIRE CONTROL: the events really were captured, so "absent" is not "nothing was logged".
     assert any(event.get("event") == "inference_br_resident_generate" for event in logs)
+
+
+def test_the_redaction_is_a_hand_written_repr_and_repr_false_is_its_failsafe() -> None:
+    """WHICH MECHANISM DOES THE WORK — pinned, because the intuitive reading is wrong.
+
+    Found while red-controlling this leg: flipping ``repr=False`` back to the default turned
+    NOTHING red, because ``dataclasses`` installs its generated ``__repr__`` with
+    ``_set_new_attribute``, which declines to overwrite a name already in the class body. So the
+    hand-written method is what redacts, unaided — and it is the only edit that can un-redact
+    the class.
+
+    ``repr=False`` is not therefore decorative: it is the failsafe for the day somebody deletes
+    that method. The second half of this test pins that consequence on a dataclass declared the
+    same way, since the property belongs to the DECORATOR ARGUMENT rather than to any code of
+    ours that could be asserted on directly.
+    """
+    assert "__repr__" in BrRegionalRequest.__dict__, "deleting this method is what un-redacts"
+    assert "__repr__" in BrRegionalResponse.__dict__
+
+    @dataclasses.dataclass(frozen=True, slots=True, repr=False)
+    class WithoutTheHandWrittenRepr:
+        credential: str
+
+    # Degrades to `object.__repr__` — type and address — never a field dump.
+    rendered = repr(WithoutTheHandWrittenRepr(credential=_CREDENTIAL))
+    assert _CREDENTIAL not in rendered
+    assert rendered.startswith("<")
+
+    @dataclasses.dataclass(frozen=True, slots=True)
+    class WithoutEither:
+        credential: str
+
+    # The counterfactual, asserted rather than described: this is what `repr=False` prevents.
+    assert _CREDENTIAL in repr(WithoutEither(credential=_CREDENTIAL))
 
 
 @pytest.mark.asyncio
