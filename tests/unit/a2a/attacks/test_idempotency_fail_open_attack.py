@@ -10,14 +10,22 @@ LITERALS so a change to `_LOCAL_RUNTIME_MODE` cannot silently rewrite the expect
 "no matrix derived from the constant under test" rule). This is the ATTACK framing of leg-3's
 decision table, plus one adversarial FINDING leg 3's rows did not cover: a whitespace-only DSN.
 
-FINDING (disclosed, no code change — this leg writes attacks, it does not re-implement leg 3): the
-gate's `if database_url:` is a truthiness check, so a whitespace-only `DATABASE_URL` ("   ") is
-treated as PRESENT and the gate constructs a `PostgresIdempotencyStore` pointed at garbage instead
-of returning the legible refusal. This is NOT a silent non-durable build (the store fails CLOSED at
-first connect — asyncpg cannot dial "   "), so the security posture holds; but the operator gets an
-opaque connect error at first delegation rather than the 3am-legible "provide DATABASE_URL" refusal.
-The behaviour is PINNED below so a future one-line hardening (`database_url.strip()`) flips this test
-loudly — the honest signal.
+FINDING — RAISED by leg 4, now CLOSED (the pinned test below has been FLIPPED, as designed). The
+gate's presence check used to be a bare `if database_url:` truthiness test, so a whitespace-only
+`DATABASE_URL` ("   ") counted as PRESENT and the gate constructed a `PostgresIdempotencyStore`
+pointed at garbage instead of returning the legible refusal. That was never a silent non-durable
+build (the store fails CLOSED at first connect — asyncpg cannot dial "   "), so the security posture
+always held; the defect was LEGIBILITY — the operator got an opaque connect error at first
+delegation rather than the 3am-legible "provide DATABASE_URL" refusal at composition time.
+
+The hardening landed as the shared `_dsn_is_present` helper (`a2a_composition.py`): blank-after-strip
+is now treated exactly like absent. Leg 4 pinned the OLD behaviour so this hardening would flip the
+test loudly rather than silently — it did, and
+`test_a_whitespace_only_dsn_is_now_refused_at_composition_time` below is that flip, asserting the
+REFUSAL. The hardening deliberately landed on BOTH durability gates through ONE helper: hardening
+only the idempotency gate would have made `("production", "   ")` a build on the fact gate and a
+refusal here — a half-refusing root, which is precisely what the gate-agreement proof in
+`tests/unit/runtime/agent_runtime/test_a2a_composition_idempotency.py` exists to prevent.
 """
 
 from __future__ import annotations
@@ -35,6 +43,8 @@ _TENANT = "amh"
 _REFUSED_BYPASS_ATTEMPTS: tuple[tuple[str, str | None, str], ...] = (
     ("", None, "blanking AGENT_RUNTIME_MODE does not disable the gate — '' is production"),
     ("", "", "both empty: an empty-string DSN is falsy, so it is 'absent' -> refuse"),
+    ("production", "   ", "a whitespace-only DSN is blank-after-strip, so it is 'absent' -> refuse"),
+    ("", "   ", "both blank: neither blanking the mode nor blanking the DSN buys a build"),
     (" local ", None, "whitespace-padded 'local' is not the exact literal -> production -> refuse"),
     ("Local", None, "case-variant 'Local' is not the exact literal -> production -> refuse"),
     ("LOCAL", None, "case-variant 'LOCAL' is not the exact literal -> production -> refuse"),
@@ -66,17 +76,44 @@ def test_injecting_a_producer_does_not_buy_out_of_the_idempotency_gate() -> None
         )
 
 
-def test_finding_a_whitespace_only_dsn_slips_past_the_truthiness_gate() -> None:
-    """FINDING (disclosed). A whitespace-only DSN is TRUTHY, so the gate constructs a store instead
-    of refusing — the legibility gap named in the module docstring. Pinned so a future
-    `database_url.strip()` hardening flips this loudly. It is NOT a security fail-open: the store's
-    normalized DSN is the whitespace garbage, so it can only fail CLOSED at first connect, never
-    silently serve as a durable store."""
+@pytest.mark.parametrize("blank_dsn", ["   ", "\t", "\n", " \t\n "])
+def test_a_whitespace_only_dsn_is_now_refused_at_composition_time(blank_dsn: str) -> None:
+    """THE FLIP of leg-4's pinned FINDING (see the module docstring). A whitespace-only DSN is
+    truthy in Python, and the gate used to build a `PostgresIdempotencyStore` pointed at that
+    garbage; it now takes the REFUSAL branch at composition time, which is the whole point of the
+    hardening — the operator learns what to provide at bring-up instead of getting an opaque asyncpg
+    connect error at the first delegation. Blank-after-strip is treated exactly like absent, so this
+    must produce the SAME legible refusal the absent-DSN rows above get, not a different error."""
+    with pytest.raises(RuntimeError, match="no DATABASE_URL is present"):
+        _require_idempotency_store_or_fail_closed(
+            runtime_mode="production", tenant=_TENANT, edge="attack", database_url=blank_dsn
+        )
+
+
+def test_the_whitespace_dsn_refusal_is_the_same_legible_message_as_an_absent_dsn() -> None:
+    """Non-vacuity on the flip: it is not enough that SOMETHING raised. The blank-DSN refusal must
+    carry the same operator-actionable content as the absent-DSN one (missing act, durability
+    protected, effect prevented, migration, explicit way out) — otherwise the hardening would have
+    traded an opaque connect error for an opaque refusal."""
+    with pytest.raises(RuntimeError) as exc:
+        _require_idempotency_store_or_fail_closed(
+            runtime_mode="production", tenant=_TENANT, edge="attack", database_url="   "
+        )
+    message = str(exc.value)
+    for required in ("DATABASE_URL", "Guard 4", "RE-EXECUTES", "0003_a2a_idempotency", "local"):
+        assert required in message
+
+
+def test_a_whitespace_padded_but_real_dsn_is_still_built_and_passed_through_unchanged() -> None:
+    """Non-vacuity the other way — the hardening must not have become a blanket DSN normalizer. A
+    DSN that is merely PADDED is still present, so it still builds, and the operator's string
+    reaches the store BYTE-UNCHANGED (`_dsn_is_present` decides presence; it never rewrites)."""
+    padded = "  postgresql://x/y  "
     store = _require_idempotency_store_or_fail_closed(
-        runtime_mode="production", tenant=_TENANT, edge="attack", database_url="   "
+        runtime_mode="production", tenant=_TENANT, edge="attack", database_url=padded
     )
-    assert isinstance(store, PostgresIdempotencyStore)  # truthiness gate passed it (the gap)
-    assert store._dsn == "   "  # type: ignore[attr-defined]  # garbage DSN -> fails closed at connect
+    assert isinstance(store, PostgresIdempotencyStore)
+    assert store._dsn == padded  # type: ignore[attr-defined]  # presence check, NOT normalization
 
 
 def test_the_one_true_non_durable_path_is_explicit_local_and_is_genuinely_none() -> None:
