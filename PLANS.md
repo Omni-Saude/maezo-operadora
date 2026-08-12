@@ -298,7 +298,13 @@ DL-0045 (qualificação MZO-040) em `docs/decisions-log.md`.
   protection ATIVOS ANTES do aceite da ratificação** (o manifesto `action-approvals.yaml` só é
   confiável com enforcement server-side). **Flip enforcing = HUMANO,
   progressivo por classe de ação (inertes → adversos/dinheiro), com mutação-de-negação por classe.**
-- **Onda 2 — Inferência PHI real (L, 7–10 sessões, PHI):** capability-schema além de booleano
+- **Onda 2 — Inferência PHI real (L, 7–10 sessões, PHI):** **[CONSTRUÍDA INERTE 2026-08-12 —
+  branch `wave2-phi-inference-inert`, legs 1-4 (capability-schema · adapter BR-resident vs endpoint
+  fake · harness de canário + fix CRLF · retry budgetado idempotency-aware) cada uma autor R1 →
+  GK-A adversarial → repair 3º agente → delta mesmo-GK PASS; default `noop`, `br_resident`
+  não-bootável sem `MAEZO_PHI_VENDOR_DPA_REF`, retry off por default. PRONTO PARA A DECISÃO
+  VENDOR/DPA DO DONO — o adapter real + prova de NetworkPolicy ADR-0017 são o próximo trem, HUMANO]**
+  capability-schema além de booleano
   (região, retenção, proibição de treino, classificação máxima, fonte de credencial); adapter real
   BR-resident zero-retention atrás de `BaseInferenceProvider` (imports SÓ em
   `runtime/inference.py`); canários sintéticos (só endpoint regional aprovado, zero fallback
