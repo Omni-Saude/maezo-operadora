@@ -58,33 +58,29 @@ make validate-artifacts
 
 ### Manual deployment (dev)
 
+Deployment goes through the `maezo-deploy` CLI (`maezo.platform.deploy.cli`), which submits **every** `.bpmn`/`.dmn` under `spec/processes/{bpmn,dmn}/` as one named deployment via `EngineDeployClient` (`POST /deployment/create`, multipart) — not a hand-rolled `curl` per file. It honors `ENGINE_REST_URL` (default `http://localhost:8080/engine-rest`) and is idempotent: the engine skips resources whose content is unchanged.
+
 ```bash
 # 1. Start CIB Seven locally
-docker compose --profile core up -d
+make dev-stack          # or: docker compose --profile core up -d
 
-# 2. Deploy BPMN via REST API
-curl -X POST http://localhost:8080/engine-rest/deployment \
-  -F "data=@spec/processes/bpmn/SP-OP-ESCALATION-001_Escalonamento_Humano_Universal.bpmn" \
-  -F "deploymentSource=helena-escalation"
+# 2. Deploy every spec/processes/{bpmn,dmn} artifact (idempotent, versioned)
+python -m maezo.platform.deploy          # equivalently: make deploy-artifacts
 
-# 3. Verify deployment
-curl http://localhost:8080/engine-rest/process-definition/SP-OP-ESCALATION-001 | jq .
+# 3. Verify — list the engine's deployments
+python -m maezo.platform.deploy --list   # GET /deployment
 ```
 
 ### Automated deployment (staging/prod)
 
-In GitHub Actions CI pipeline:
+There is **no** `deploy.yml` workflow, and no CI job deploys processes with `curl`. `.github/workflows/cd.yml` builds/pushes the app image and rolls out the Helm chart (the runtime), but it does **not** push BPMN/DMN to an engine. Process deployment is done by running the same `maezo-deploy` CLI against the target engine, with `ENGINE_REST_URL` pointed at it:
 
-```yaml
-# .github/workflows/deploy.yml
-- name: Deploy processes to CIB Seven
-  run: |
-    for bpmn in spec/processes/bpmn/*.bpmn; do
-      curl -X POST $CIB_SEVEN_URL/engine-rest/deployment \
-        -F "data=@$bpmn" \
-        -F "deploymentSource=ci"
-    done
+```bash
+# Against the target engine (staging/prod REST endpoint):
+ENGINE_REST_URL="https://<engine-host>/engine-rest" python -m maezo.platform.deploy
 ```
+
+`EngineDeployClient` runs the same `POST /deployment/create` path as the dev deploy, so the engine's own deployment parser is the final validator — a BPMN/DMN rejection is a real engine-side defect, not a tool bug.
 
 **Note:** New deployments create new versions; old instances continue running with their deployed version. No migration needed.
 
