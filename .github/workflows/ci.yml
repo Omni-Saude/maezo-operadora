@@ -172,6 +172,42 @@ jobs:
       - name: Content sign-off gate (promotable artifacts require human sign-off)
         run: make validate-signoff
 
+  # ---------------------------------------------------------------------------
+  # Release-capability floor (audit §5, Wave-D fillers): a candidate must never fall BELOW the
+  # PREVIOUS APPROVED BASELINE (docs/release-capability-floor.json) on any of: the strict-xfail
+  # census total, its P0/P1/P2 automatable subset (checked independently of the total — this is
+  # what stops an override from hiding a P0 regression behind an unrelated total improvement,
+  # audit §5's named hole), the passing unit-test count, or the set of already-wired AST/contract
+  # fences (check-bpmn-error-allowlist / check-start-process-fence / effect-chokepoint-fence /
+  # verify-amh-contract-pin / xfail-census-check) staying enabled. Self-contained and purely
+  # additive: independently installs deps and re-measures the same generated truths already gated
+  # elsewhere in this workflow (belt-and-suspenders, same posture as artifact-validation's own
+  # AST fences), no `needs:` on any other job. See scripts/ci/generate_release_floor.py for the
+  # full fail-closed contract and the non-vacuity self-check it runs before trusting any
+  # measurement.
+  release-floor:
+    name: release-capability-floor (audit §5)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9  # v9.0.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install dependencies
+        run: uv sync --locked --extra dev
+
+      - name: Release-capability floor gate (audit §5 — no override hides a P0 regression)
+        run: make release-floor-check
+
   validate-terraform:
     name: terraform validate
     runs-on: ubuntu-latest

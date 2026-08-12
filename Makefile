@@ -2,6 +2,7 @@
         check-bpmn-error-allowlist check-start-process-fence effect-chokepoint-fence \
         verify-amh-contract-pin \
         xfail-census-check xfail-census-write \
+        release-floor-check release-floor-write \
         deploy-artifacts dev-stack dev-observability tf-validate localstack-up tf-smoke helm-lint
 
 LOCALSTACK_COMPOSE := deploy/terraform/localstack/docker-compose.localstack.yml
@@ -99,6 +100,25 @@ xfail-census-check: ## Onda 0 §0.8: censo de strict-xfail GERADO bate com docs/
 
 xfail-census-write: ## Onda 0 §0.8: regenera docs/xfail-census.json + a regiao gerenciada de PLANS.md
 	uv run python scripts/ci/generate_xfail_census.py --write
+
+release-floor-check: ## Audit §5 (W-fillers): candidato nao pode ficar ABAIXO do floor de capacidade de release comitado (gate de regressao)
+	# Composto de verdades JA GERADAS (nao um numero novo mantido a mao): total do censo de
+	# strict-xfail (docs/xfail-census.json) nao pode SUBIR; o subconjunto P0/P1/P2 (automatable,
+	# hoje 0/0/0) nao pode subir INDEPENDENTE do total — e o que impede um override de esconder uma
+	# regressao P0 atras de uma melhora total nao relacionada (audit §5); contagem de testes unitarios
+	# passando (mesma invocacao de `make test`) nao pode CAIR; e o conjunto de fences ja cabeados
+	# (check-bpmn-error-allowlist/check-start-process-fence/effect-chokepoint-fence/
+	# verify-amh-contract-pin/xfail-census-check) que passava no floor comitado precisa continuar
+	# passando. Semantica de FLOOR (nao de ledger exato como o censo): FALHA so quando o candidato fica
+	# ABAIXO do floor em alguma dimensao; PASSA em hold exato ou melhora genuina. Self-check de
+	# nao-vacuidade proprio roda primeiro (prova que o comparador consegue FALHAR e consegue PASSAR)
+	# antes de confiar em qualquer medicao real. `--write` (release-floor-write) refaz o floor
+	# comitado a partir da arvore atual — recusa escrever se algum fence estiver falhando ou a suite
+	# unitaria estiver vermelha.
+	uv run python scripts/ci/generate_release_floor.py --check
+
+release-floor-write: ## Audit §5 (W-fillers): regenera docs/release-capability-floor.json a partir da arvore atual
+	uv run python scripts/ci/generate_release_floor.py --write
 
 deploy-artifacts: ## deploy spec/processes/{bpmn,dmn} no engine CIB Seven (idempotente; requer `make dev-stack` de pe)
 	# T1.3: POST /deployment/create multipart (enable-duplicate-filtering + deploy-changed-only)
