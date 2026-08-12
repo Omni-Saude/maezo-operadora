@@ -51,7 +51,19 @@ from maezo.a2a.delegation import (
     CyclicDelegationError,
     DelegationEnvelope,
     DelegationError,
+    EnvelopeSignature,
     MaxHopsExceededError,
+)
+from maezo.a2a.envelope_signing import (
+    DEFAULT_REPLAY_EPOCH,
+    ENVELOPE_SIGNATURE_SCHEME,
+    MAX_SIGNATURE_AGE,
+    EnvelopeSignatureError,
+    EnvelopeSigner,
+    EnvelopeVerifier,
+    build_verification_keyset,
+    derive_key_id,
+    envelope_canonical_digest,
 )
 from maezo.a2a.dispatcher import (
     AgentHandler,
@@ -71,7 +83,12 @@ from maezo.a2a.facts import (
     register_a2a_topics,
 )
 from maezo.a2a.idempotency import IdempotencyStore, PostgresIdempotencyStore, StoredResult
-from maezo.a2a.keyset import EnvTenantKeyset, TenantKeyset, per_tenant_key_env_var
+from maezo.a2a.keyset import (
+    EnvTenantKeyset,
+    TenantKeyset,
+    per_tenant_key_env_var,
+    per_tenant_prior_key_env_var,
+)
 from maezo.a2a.outbox import (
     MalformedFactError,
     OutboxRecord,
@@ -86,7 +103,10 @@ from maezo.a2a.signing import CardSigner
 
 __all__ = [
     "CARD_SIGNING_KEY_ENV_VAR",
+    "DEFAULT_REPLAY_EPOCH",
+    "ENVELOPE_SIGNATURE_SCHEME",
     "MAX_HOPS",
+    "MAX_SIGNATURE_AGE",
     "TOPIC_COMPLETED",
     "TOPIC_REJECTED",
     "TOPIC_REQUESTED",
@@ -107,6 +127,10 @@ __all__ = [
     "DelegationFactKind",
     "DelegationResult",
     "EnvTenantKeyset",
+    "EnvelopeSignature",
+    "EnvelopeSignatureError",
+    "EnvelopeSigner",
+    "EnvelopeVerifier",
     "FactProducer",
     "HandlerOutput",
     "IdempotencyStore",
@@ -124,10 +148,14 @@ __all__ = [
     "build_agent_cards",
     "build_dispatcher",
     "build_outbox_fact_producer",
+    "build_verification_keyset",
     "card_signer_from_key",
     "card_signing_key_from_env",
+    "derive_key_id",
+    "envelope_canonical_digest",
     "fact_dedup_key",
     "outbox_transaction",
     "per_tenant_key_env_var",
+    "per_tenant_prior_key_env_var",
     "register_a2a_topics",
 ]

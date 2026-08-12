@@ -81,6 +81,16 @@ from maezo.a2a.assembly import CARD_SIGNING_KEY_ENV_VAR
 #: with the bare repo-wide `MAEZO_A2A_CARD_SIGNING_KEY`, which carries no `__` suffix.
 _ENV_TENANT_SEPARATOR = "__"
 
+#: Fixed prefix for the ROTATION prior-key variable (envelope-signing verification keyset, leg E3 /
+#: ADR-0039 §4.3). The `_PRIOR` rides the PREFIX (single-underscore-joined) and the tenant stays the
+#: `__`-delimited SUFFIX — so `<prior-prefix>__<T>` can NEVER collide with the active
+#: `<active-prefix>__<T2>` for any tenants: the char immediately after the shared
+#: `MAEZO_A2A_CARD_SIGNING_KEY` is `_` (2nd of `__`) for the active var but `P` (of `_PRIOR`) for the
+#: prior var, so the two var spaces are structurally disjoint. Upper-casing `[a-z0-9_]` stays
+#: injective, so distinct tenants never alias within either space either. This keeps E2's
+#: no-cross-tenant / no-repo-wide invariant intact for the rotation slot too.
+_PRIOR_KEY_ENV_PREFIX = f"{CARD_SIGNING_KEY_ENV_VAR}_PRIOR"
+
 #: The platform tenant convention, IDENTICAL to `gateway.audit_postgres._SAFE_TENANT_ID`
 #: (`audit_postgres.py:74`, used by `schema_for_tenant` for anti-injection): lowercase, starting
 #: with a letter, `[a-z0-9_]` thereafter. It is reproduced (not imported) to keep this seam free of
@@ -104,6 +114,24 @@ def per_tenant_key_env_var(tenant: str) -> str:
             "a per-tenant signing-key env var name from it, to avoid a cross-tenant-confusion alias"
         )
     return f"{CARD_SIGNING_KEY_ENV_VAR}{_ENV_TENANT_SEPARATOR}{tenant.upper()}"
+
+
+def per_tenant_prior_key_env_var(tenant: str) -> str:
+    """Return the env var carrying `tenant`'s ROTATION PRIOR key: `MAEZO_A2A_CARD_SIGNING_KEY_PRIOR__<T>`.
+
+    The previous key retained in the trusted verification keyset during the 7-day rotation grace
+    window (ADR-0039 §4.3, leg E3). Same fail-closed tenant validation and injective upper-casing as
+    `per_tenant_key_env_var`, and — by construction (`_PRIOR_KEY_ENV_PREFIX`'s docstring) — its var
+    space is structurally disjoint from the ACTIVE var space, so it introduces no cross-tenant /
+    active-vs-prior collision. Absent (the steady state, no rotation in progress) the verifier trusts
+    only the active key.
+    """
+    if not _SAFE_TENANT_ID.match(tenant):
+        raise ValueError(
+            f"tenant {tenant!r} is not a valid tenant id (expected [a-z][a-z0-9_]*) — refusing to "
+            "derive a per-tenant prior-signing-key env var name from it (cross-tenant-confusion alias)"
+        )
+    return f"{_PRIOR_KEY_ENV_PREFIX}{_ENV_TENANT_SEPARATOR}{tenant.upper()}"
 
 
 @runtime_checkable
@@ -150,4 +178,15 @@ class EnvTenantKeyset:
 
     def key_for(self, tenant: str) -> bytes | None:
         value = self._environ.get(per_tenant_key_env_var(tenant), "").strip()
+        return value.encode("utf-8") if value else None
+
+    def prior_key_for(self, tenant: str) -> bytes | None:
+        """The `tenant`'s ROTATION PRIOR key (`MAEZO_A2A_CARD_SIGNING_KEY_PRIOR__<T>`), or `None`.
+
+        Present only during a rotation's 7-day grace window (ADR-0039 §4.3, leg E3). Identical
+        posture to `key_for` (whitespace-strip; absent/blank -> `None`; NO cross-tenant / repo-wide
+        fallback — only THIS tenant's namespaced prior variable is read). Steady state (no rotation
+        in progress) -> `None`, so the verification keyset trusts only the active key.
+        """
+        value = self._environ.get(per_tenant_prior_key_env_var(tenant), "").strip()
         return value.encode("utf-8") if value else None

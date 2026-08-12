@@ -96,6 +96,27 @@ class Budget:
 
 
 @dataclass(frozen=True, slots=True)
+class EnvelopeSignature:
+    """The signature metadata bound INTO the canonical digest (§4.2) + the MAC (ADR-0039 §4.1).
+
+    Carried as the optional `DelegationEnvelope.signature`. All three §4.2 metadata fields
+    (`scheme`/`key_id`/`replay_epoch`) PLUS the signing timestamp the verifier-side max-signature-age
+    bound needs (`signed_at`, §4.3.2) are bound into the signed digest, so none can be swapped
+    post-signing without invalidating `mac` (the JSON-signing analogue of JWT's "alg:none" /
+    key-confusion class — see `maezo.a2a.envelope_signing`). An UNSIGNED (dev) envelope carries
+    `signature=None`; a VERIFIED envelope requires this present-and-valid, fail-closed at the
+    dispatcher (ADR-0039 §4.4). Frozen/slotted like the envelope itself so it cannot be mutated
+    after signing.
+    """
+
+    scheme: str
+    key_id: str
+    replay_epoch: int
+    signed_at: datetime
+    mac: str
+
+
+@dataclass(frozen=True, slots=True)
 class DelegationEnvelope:
     """Typed A2A delegation message (idempotent, anti-loop, never raw PHI).
 
@@ -121,6 +142,11 @@ class DelegationEnvelope:
     max_hops: int = MAX_HOPS
     deadline: datetime | None = None
     payload_meta: Mapping[str, str] = field(default_factory=dict)
+    # Envelope signature (ADR-0039). `None` = the envelope is NOT signed (dev path / a freshly
+    # built root before the signer runs / a sub-envelope from `extend()`). A signed envelope
+    # carries the MAC over its canonical digest + the §4.2 metadata bound into that digest. The
+    # signature covers the digest, which EXCLUDES this field itself, so signing is well-defined.
+    signature: EnvelopeSignature | None = None
 
     def __post_init__(self) -> None:
         if not self.task_id:
@@ -146,6 +172,16 @@ class DelegationEnvelope:
         if self.deadline is None:
             return False
         return (now or datetime.now(tz=UTC)) >= self.deadline
+
+    def signed_copy(self, signature: EnvelopeSignature) -> DelegationEnvelope:
+        """Return an immutable copy of the envelope with `signature` set (everything else unchanged).
+
+        Mirrors `AgentCard.signed_copy` (`card.py`). The signer computes the MAC over the canonical
+        digest (which does NOT read this field) and calls this to attach it — so signing is a pure
+        function of the envelope's content, never of a prior signature. See
+        `maezo.a2a.envelope_signing.EnvelopeSigner`.
+        """
+        return replace(self, signature=signature)
 
     @classmethod
     def root(
@@ -203,6 +239,15 @@ class DelegationEnvelope:
 
         Preserves `origin`, `tenant`, `max_hops`, and `deadline`. The sub-envelope's `task_id` is
         new (every hop is its own idempotent task); idempotency is keyed by `task_id`.
+
+        SIGNATURE IS DROPPED, NOT INHERITED (ADR-0039 §4.4 latent-trap fix). `replace` carries every
+        un-overridden field verbatim — so without the explicit `signature=None` below, a MAC computed
+        over THIS envelope's digest would ride onto a sub-envelope whose `task_id`/`target`/
+        `delegation_chain`/`budget`/`payload_*` have all changed, i.e. a signature over a DIFFERENT
+        digest. That could never verify (a confusing rejection), and is exactly the silent
+        propagation that becomes a forgery the moment someone "fixes" the rejection by loosening the
+        check. The sub-envelope is therefore returned UNSIGNED and must be re-signed by its
+        originator (`EnvelopeSigner.sign`) before it crosses a verifying dispatcher.
         """
         if target in self.delegation_chain:
             raise CyclicDelegationError(
@@ -223,6 +268,7 @@ class DelegationEnvelope:
             budget=charged,
             payload_ref=payload_ref or self.payload_ref,
             payload_meta=dict(payload_meta) if payload_meta is not None else self.payload_meta,
+            signature=None,  # ADR-0039 §4.4: NEVER inherit a signature onto a changed digest.
         )
 
 
