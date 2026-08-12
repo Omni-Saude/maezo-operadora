@@ -5,8 +5,9 @@ WHY THIS MODULE EXISTS AT ALL
 =================================================================================================
 `audit_anchor.py` (leg 1) computes and seals a signed checkpoint OUTSIDE the database. On its own
 that buys nothing: an anchor nobody ever compares against is a file. The external audit
-(`docs/audits/architecturally safe, operationally incomplete.md` §4) prescribes the comparison in
-the same breath as the anchor — *"continuously compare Postgres against the latest external
+(`docs/audits/architecturally safe, operationally incomplete.md` §4 — GITIGNORED, local-only; see
+`PLANS.md`:256, which is why this file quotes it rather than linking it) prescribes the comparison
+in the same breath as the anchor — *"continuously compare Postgres against the latest external
 anchor"* — and this module is that comparison.
 
 The adversary is the one every in-DB defense structurally cannot stop: a privileged actor who
