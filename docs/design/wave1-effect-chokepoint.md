@@ -242,7 +242,8 @@ runtime. This adversary is the reason the design is NOT "decorate `_build_tool_d
 doubles: `FakeCibSevenTransport` (`transport.py:472`), `FakeWorkerTransport` (`harness.py:895`),
 `FakeAuditSink` (`harness.py:1048`), `FakeKafkaPublisher` (`harness.py:1022`),
 `LabeledMockAnsGatewayTransport` (`ans_gateway.py:198`), `PhiZoneMockProvider`
-(`runtime/inference.py:441`). The ANS seam already solves this correctly *by construction*
+(`runtime/inference.py:795` = `class PhiZoneMockProvider`). The ANS seam already solves this
+correctly *by construction*
 (`resolve_ans_gateway:286-299` — prod injects nothing, so prod gets the refusing transport, and the
 mock is unreachable without an explicit injection). *Defeat:* generalize that posture — the registry
 resolves *unwired* seams to a Refusing implementation, never to a mock; the fence forbids importing
@@ -391,7 +392,8 @@ protection is a convention, and W1 exists because a convention was the protectio
 carries the **raw recipient number**, deliberately closed over for one turn and never persisted
 (`dispatch.py:100-118`, and the module contract quoted at `:101-102`: "never stored on
 `HelenaState`, never persisted past this call"). The inference seam carries the prompt, with
-`phi=True` routing (`runtime/inference.py:616-628`; `PhiZoneRoutingError`). A bus turns both into
+`phi=True` routing (`runtime/inference.py:1021-1033` = `InferenceProvider.generate`'s signature +
+the `phi:` arg doc; `PhiZoneRoutingError`). A bus turns both into
 serialized, in-flight, potentially persisted payloads — a direct collision with ADR-0006 and with
 ADR-0037's proibição 5. Repairing it means a second PHI-safe envelope design; that is Onda 2/MZO-070
 work, not a chokepoint.
@@ -615,7 +617,7 @@ flipped when every class on a lower rung has been enforcing without incident for
 | **C1 — outbound notification** | `comunicacao_beneficiario` (existing, `:248-270`) | WhatsApp sends: fernando `graph.py:520`, helena `:712`, lucas `:548,:594`; the live `_ScopedWhatsAppSender` (`dispatch.py:100-118`); leaf `mcp_whatsapp/server.py:111`; workers `programa.proactive_contact`, `lgpd.send_response`, `lgpd.request_additional_proof` | `send_beneficiary_message` L3 / `send_beneficiary_template` L2 | Denied send → the turn ends on its declared escalation/HITL path, the beneficiary is not silently dropped, and **no raw recipient appears in any log line** (I-3). Worker side: audited refusal + incident, `retries=0` (`harness.py:1635-1651`). |
 | **C2 — PHI read / model egress** | `leitura_phi_clinica` (existing, `:308-325`) | FHIR reads ×8: rafael `graph.py:348,:355`; andre `:749`; beatriz `:369`; carolina, gustavo, valentina via their adapters; leaves `mcp_fhir/server.py:88,:118` | `read_phi_data` L3 | Denied read degrades to the **disclosed gap note** every graph already documents (`rafael/graph.py:44-48`) — never a fabricated fact, never a blocked routing decision. Assert zero PHI in the denial telemetry. |
 | | `leitura_populacional` (NEW) | andre `graph.py:708` (actuarial_risk), `:720` (population_metrics), Protocol at `:316` | (needs a name — see Q-4; nearest is `read_phi_data`, but k-anon aggregates are not PHI) | Denied → cohort dossier records an explicit gap; k-suppression posture unchanged. |
-| | `inferencia_llm` (NEW, split by zone) | 15 call sites via `self._llm.generate(prompt, phi=…)`; provider `runtime/inference.py:616-628`, `PhiZoneRoutingError` | (none today — Q-4) | Denied → the node's existing LLM-unavailable path. Must prove the `phi=True` zone routing still fail-closes independently of the PEP (I-6). |
+| | `inferencia_llm` (NEW, split by zone) | 15 call sites via `self._llm.generate(prompt, phi=…)`; provider `runtime/inference.py:1021-1033` (= `InferenceProvider.generate` signature + `phi:` arg doc), `PhiZoneRoutingError` | (none today — Q-4) | Denied → the node's existing LLM-unavailable path. Must prove the `phi=True` zone routing still fail-closes independently of the PEP (I-6). |
 | **C3 — engine mutation** | `inicio_processo_regulatorio` (existing, `:272-306`) | agent starts ×9 (§0.1 list) + worker starts (contas/adequacao/fraude/inadimplencia/nip/ans_cron) | `start_compliance_process` L2 | Denied → **no instance exists in the engine**, an audited refusal row exists, and the external task lands as an incident with `retries=0`. This is the incident-shape live proof (§9.3). Also the first place the **per-agent `process_keys`** layer bites (R-1 closure). |
 | | `correlacao_processo` (NEW) | `cibseven.correlate_message` (`transport.py:370`; Protocol `:151`) — today reachable raw from every graph | `correlate_process_message` L2 | Denied → no message correlated; the process waits at its receive task; incident visible. |
 | | `delegacao_a2a` (existing, `:327-341`) | `a2a/dispatcher.py:277` `delegate`; edges `a2a_composition.py:266,:357`; worker dossier seams (`adequacao.py:916`, `credenciamento.py:776`, `pagto.py:1094`, cancel) | (none today — Q-4) | Denied → the delegating side degrades exactly as it does when the dossier seam is absent (documented "degrade gracefully"), never a fabricated dossier. |

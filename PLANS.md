@@ -263,7 +263,7 @@ DL-0045 (qualificação MZO-040) em `docs/decisions-log.md`.
 | # | Prio | Fraqueza | Evidência |
 | --- | --- | --- | --- |
 | W1 | **P0** | Plano de autorização de efeitos INCOMPLETO: sem ToolRegistry/PEP por-tool-call nos grafos (gap T2.4), MZO-040 só em sombra, `ProcessAllowlist` (ADR-0016) com zero importers de produção | `agents/beatriz/graph.py:81-84` · `gateway/action_execution.py:1-58` · achado fase-1 sprint 09-08-26 |
-| W2 | **P0** | Inferência PHI real INEXISTENTE — único provider PHI-capable é o mock sintético; Anthropic é general-zone | `runtime/inference.py:441-457,520-536` |
+| W2 | **P0** | Inferência PHI real INEXISTENTE — único provider PHI-capable é o mock sintético; Anthropic é general-zone | `runtime/inference.py:795-812,875-891` |
 | W3 | **P0-cond.** | A2A não é production-grade p/ DISTRIBUIÇÃO: envelope sem assinatura (só Cards), idempotência durável opcional no seam, facts Kafka = no-op rotulado, sem mTLS/identidade de serviço | `a2a/delegation.py` (zero refs de assinatura) · `a2a/dispatcher.py:260-282` · `a2a_composition.py:20-24,186-190` |
 | W4 | **P1** | Cadeia de auditoria PARA na borda do Postgres — hash-linked + `UNIQUE(prev_record_hash)` anti-fork, mas sem âncora externa contra rewrite privilegiado do banco; ADR-0029 (re-anchor assinado) DESENHADO, não ratificado nem implementado | `gateway/audit_postgres.py:28-40` · `docs/adr/0029-*` (Proposed) |
 | W5 | **P1** | Drift de ledgers de controle: censo real 22 ≠ PLANS 24 ≠ handoff.yaml (internamente inconsistente) ≠ NEXT-ORCHESTRATOR — 3 superfícies, 3 idades, na mesma semana | comprovado 2026-08-10; corrigido em §0.5.3 acima |

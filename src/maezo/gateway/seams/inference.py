@@ -1,6 +1,6 @@
 """Gated LLM inference seam — action class `inferencia_llm` (C2, design §6.1), SPLIT BY ZONE.
 
-Satisfies the surface every graph uses of `runtime/inference.py:877`'s `InferenceProvider`:
+Satisfies the surface every graph uses of `runtime/inference.py:899`'s `InferenceProvider`:
 `generate(prompt, *, phi=…, agent_id=…, tenant_id=…)` (15 call sites, all `self._llm.generate`),
 plus the three read-only accessors the composition roots touch (`provider_name`, `model_id`,
 `health_check`) so the gated object is a drop-in wherever the raw provider went.
@@ -13,7 +13,7 @@ ever leaving this frame — the prompt is not a field `EffectCall` has (I-3).
 =================================================================================================
 I-6: ADR-0006 ZONE ROUTING STAYS INDEPENDENT OF THE PEP
 =================================================================================================
-`PhiZoneRoutingError` (`runtime/inference.py:118`, raised at `:1037`) is the structural refusal
+`PhiZoneRoutingError` (`runtime/inference.py:118`, raised at `:1059`) is the structural refusal
 that keeps PHI out of a non-BR-resident model. It is NOT re-implemented, consulted, or
 short-circuited here:
 
@@ -28,7 +28,7 @@ short-circuited here:
 That is the whole content of I-6 for this seam: the chokepoint can only SUBTRACT permission, and
 removing it must not restore any.
 
-`agent_id`/`tenant_id` are metering correlation ids (`runtime/inference.py:1014-1021`: "purely
+`agent_id`/`tenant_id` are metering correlation ids (`runtime/inference.py:1036-1043`: "purely
 observational: never affects routing"). They are forwarded to the inner provider UNCHANGED and
 are NEVER read as the decision's principal or tenant — those are closure-bound in `SeamContext`
 (adversary A-8), and a fence test asserts no gated wrapper derives a principal from a call arg.

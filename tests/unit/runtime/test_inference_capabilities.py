@@ -109,7 +109,7 @@ _EXPECTED: dict[type[BaseInferenceProvider], tuple[str, ProviderCapabilities, bo
             # AnthropicInferenceProvider docstring: "API key is STRICTLY
             # environment-sourced, never committed" (_ANTHROPIC_API_KEY_ENV_VARS).
             credential_source=CredentialSource.ENVIRONMENT,
-            # DEFAULT_ANTHROPIC_MODEL — the one model id this repo declares (inference.py:63).
+            # DEFAULT_ANTHROPIC_MODEL — the one model id this repo declares (inference.py:78).
             supported_model_versions=frozenset({"claude-opus-4-8"}),
         ),
         False,  # real provider, real completions
