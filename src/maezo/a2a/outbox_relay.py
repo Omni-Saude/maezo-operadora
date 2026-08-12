@@ -73,6 +73,7 @@ import contextlib
 import os
 import signal
 import socket
+from collections.abc import Sequence
 from typing import Any, Final, Protocol
 
 import structlog
@@ -92,6 +93,24 @@ logger = structlog.get_logger(__name__)
 #: outbox is a low-volume table — one to three rows per delegation) rather than LISTEN/NOTIFY,
 #: which would add a second durable-connection failure mode for a latency nobody has asked for.
 DEFAULT_POLL_INTERVAL_S: Final[float] = 2.0
+
+
+class OutboxClaimStore(Protocol):
+    """The claim/mark surface `drain_once` needs — satisfied by `PostgresFactOutbox`.
+
+    Declared as a Protocol rather than annotating the concrete class so the drain loop is testable
+    against an in-memory store WITHOUT a database and WITHOUT the tests having to lie about types.
+    The at-least-once guarantee lives in the ORDER of these three calls, which is a property of
+    this module, not of Postgres — so it deserves a proof that does not need a server. The SQL-level
+    half (lease expiry, transactional atomicity) is proven separately in
+    `tests/unit/a2a/test_outbox_live_pg.py` against the real DDL.
+    """
+
+    async def claim_batch(
+        self, *, claimed_by: str, batch_size: int = ..., claim_ttl_s: float = ...
+    ) -> list[OutboxRecord]: ...
+    async def mark_delivered(self, ids: Sequence[int], *, claimed_by: str) -> int: ...
+    async def mark_failed(self, ids: Sequence[int], *, claimed_by: str, error: str) -> int: ...
 
 
 class FactBrokerPublisher(Protocol):
@@ -201,7 +220,7 @@ def default_worker_id() -> str:
 
 
 async def drain_once(
-    outbox: PostgresFactOutbox,
+    outbox: OutboxClaimStore,
     publisher: FactBrokerPublisher,
     *,
     claimed_by: str,
@@ -268,7 +287,7 @@ async def drain_once(
 
 
 async def run_relay_loop(
-    outbox: PostgresFactOutbox,
+    outbox: OutboxClaimStore,
     publisher: FactBrokerPublisher,
     *,
     claimed_by: str,
