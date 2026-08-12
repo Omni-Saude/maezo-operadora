@@ -1254,9 +1254,7 @@ class BrRegionalTransportUnavailableError(InferenceProviderError):
     that already handle provider failure keep working unchanged.
     """
 
-    def __init__(
-        self, message: str, *, retryable: bool = False, committed: bool = False
-    ) -> None:
+    def __init__(self, message: str, *, retryable: bool = False, committed: bool = False) -> None:
         super().__init__("br_resident", message, retryable=retryable, committed=committed)
 
 
@@ -1604,9 +1602,7 @@ class _RetryTokenBucket:
     a real storm across calls is genuinely bounded (the bucket lives on the provider, not per-call).
     """
 
-    def __init__(
-        self, *, capacity: int | None, refill_per_s: float, now: Callable[[], float]
-    ) -> None:
+    def __init__(self, *, capacity: int | None, refill_per_s: float, now: Callable[[], float]) -> None:
         self._capacity = capacity
         self._refill_per_s = refill_per_s
         self._now = now
@@ -1924,9 +1920,7 @@ class BrResidentInferenceProvider(BaseInferenceProvider):
             try:
                 return await self._send(formatted, agent_id=agent_id, tenant_id=tenant_id)
             except InferenceProviderError as exc:
-                reason = retry_denial_reason(
-                    exc, attempt=attempt, max_attempts=budget.max_attempts
-                )
+                reason = retry_denial_reason(exc, attempt=attempt, max_attempts=budget.max_attempts)
                 if reason is None and not self._retry_bucket.try_consume():
                     # Attempts + retryability + commit all cleared; the rate bucket is the last gate.
                     reason = RETRY_STOP_RATE_BUDGET_EXHAUSTED
