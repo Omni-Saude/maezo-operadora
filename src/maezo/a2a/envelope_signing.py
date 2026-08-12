@@ -34,6 +34,16 @@ no slot through which a degenerate (brute-forceable) key becomes trusted. The ve
 is independent and fail-closed, MAC compared
 constant-time (`hmac.compare_digest`); `verify` NEVER raises (mirrors `CardSigner.verify`) so the
 dispatcher decides the rejection policy.
+
+THAT NEVER-RAISES PROMISE IS TOTAL OVER WIRE-SHAPED INPUT (leg E4 repair). `EnvelopeSignature` is
+typed but not tz/shape-validated (`delegation.py`), so an offset-less timestamp, a non-str `key_id`,
+or a `payload_meta` a re-encoder made non-JSON-native all arrive type-valid from a deserializer.
+Each is a REFUSAL inside `verify`, never an exception: a forged envelope must reach the caller as a
+`SIGNATURE_INVALID` rejection, never as an unhandled crash. Nothing is loosened to get there — a
+naive `signed_at` is REJECTED rather than assumed-UTC (assuming UTC would let the signer negotiate
+its own max-age bound), and non-canonical `payload_meta` is REJECTED rather than coerced. On the
+SIGNING side the same malformed inputs still RAISE, which is the correct fail-closed posture for the
+party that controls the content.
 """
 
 from __future__ import annotations
@@ -126,6 +136,24 @@ def envelope_canonical_digest(
     # §4.1: sort_keys + compact separators + NO default= — a pure function of content, no whitespace
     # ambiguity a re-encoder could exploit (the malleability argument).
     return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def _is_tz_aware_datetime(value: object) -> bool:
+    """True iff `value` is a timezone-AWARE `datetime` (the stdlib's documented `utcoffset()` test).
+
+    Used at the SIGNING and VERIFICATION boundaries, where `EnvelopeSignature.signed_at` is typed
+    `datetime` but carries NO tz validation (`delegation.py`) — so an offset-less wire timestamp, or
+    any non-datetime a deserializer produced where a timestamp belongs, arrives here type-valid.
+    Both are answered `False`: at the verification boundary that becomes a refusal, never a coercion
+    (see `EnvelopeVerifier.verify`). A hostile/broken `tzinfo` whose `utcoffset()` raises is also
+    `False` — nothing about a timestamp may escape these boundaries as an exception.
+    """
+    if not isinstance(value, datetime):
+        return False
+    try:
+        return value.utcoffset() is not None
+    except Exception:
+        return False
 
 
 def derive_key_id(key: bytes) -> str:
@@ -237,6 +265,18 @@ class EnvelopeSigner:
                 "expiry defense are vacuous"
             )
         signed_at = now if now is not None else datetime.now(tz=UTC)
+        if not _is_tz_aware_datetime(signed_at):
+            # FAIL-CLOSED IN THE HONEST DIRECTION (leg E4 repair). The default path always stamps
+            # tz-aware UTC, but an explicit naive `now=` used to be accepted — and then
+            # `signed_at.astimezone(UTC)` in the digest SILENTLY re-read it as LOCAL time, producing
+            # a host-dependent preimage and a signature the (correctly) strict verifier can never
+            # accept. Refusing at sign time means the signer never emits an unverifiable envelope,
+            # and the naive timestamp is caught on the side that can actually fix it.
+            raise EnvelopeSignatureError(
+                "cannot sign with a naive (timezone-less) signed_at: pass a tz-AWARE datetime or "
+                "omit `now` to stamp UTC. A naive timestamp would be re-read as LOCAL time when "
+                "canonicalized, making the digest host-dependent (ADR-0039 §4.1/§4.3.2)"
+            )
         digest = envelope_canonical_digest(
             envelope,
             scheme=self._scheme,
@@ -330,13 +370,28 @@ class EnvelopeVerifier:
         )
 
     def verify(self, envelope: DelegationEnvelope, *, now: datetime | None = None) -> bool:
-        """True iff `envelope` carries a valid, current, unexpired signature under a trusted key."""
+        """True iff `envelope` carries a valid, current, unexpired signature under a trusted key.
+
+        TOTAL over wire-shaped input (leg E4 repair). Every malformed-input path is a REFUSAL
+        (`False`), never an exception to the caller — the contract this class's docstring states and
+        `DelegationDispatcher._verify_or_reject` re-promises ("never raised to the caller"). That
+        matters because a forged envelope must be a `SIGNATURE_INVALID` rejection, not an unhandled
+        crash: an attacker-reachable error-path divergence is itself an attack surface. `signed_at`
+        and `key_id` get NAMED, legible guards; the canonicalization step is guarded as a family.
+        Nothing is loosened to achieve it — every malformed case REJECTS.
+
+        `now` is the caller's TRUSTED clock, not wire data (the dispatcher passes `None` and this
+        method stamps tz-aware UTC). A tz-aware `now` is therefore a caller precondition rather than
+        a refusal case — it is not attacker-reachable.
+        """
         now = now if now is not None else datetime.now(tz=UTC)
         sig = envelope.signature
         if sig is None:
             return False  # unsigned -> fail-closed
         if sig.scheme != self._scheme:
             return False  # §4.2 scheme binding (alg-downgrade defense)
+        if not isinstance(sig.key_id, str):
+            return False  # a non-str key_id is no key id — and an unhashable one would raise below
         key = self._trusted_keys.get(sig.key_id)
         if key is None:
             return False  # §4.2 unknown/retired key_id
@@ -344,16 +399,35 @@ class EnvelopeVerifier:
             return False  # §4.2 replay-epoch cutover (+ optional short prior-epoch grace)
         if envelope.deadline is None:
             return False  # §4.3.1 a signed envelope must carry a deadline
+        if not _is_tz_aware_datetime(sig.signed_at):
+            # §4.3.2, TOTALITY: a NAIVE (offset-less) or non-datetime `signed_at` is REFUSED — never
+            # assumed-UTC. Assuming UTC would let the signing party shift its signature's APPARENT
+            # age just by dropping the offset, i.e. negotiate its way around the max-age bound; the
+            # bound must not be negotiable by the party it constrains. Refusing also keeps the
+            # subtraction below total (naive - aware raises `TypeError`).
+            return False
         age = now - sig.signed_at
         if age < timedelta(0) or age > self._max_signature_age:
             return False  # §4.3.2 max signature age (two-sided: future-dated is also refused)
-        expected = envelope_canonical_digest(
-            envelope,
-            scheme=sig.scheme,
-            key_id=sig.key_id,
-            replay_epoch=sig.replay_epoch,
-            signed_at=sig.signed_at,
-        )
+        try:
+            expected = envelope_canonical_digest(
+                envelope,
+                scheme=sig.scheme,
+                key_id=sig.key_id,
+                replay_epoch=sig.replay_epoch,
+                signed_at=sig.signed_at,
+            )
+        except (TypeError, ValueError, AttributeError, OverflowError):
+            # TOTALITY at the canonicalization step. Wire-shaped input that cannot produce a §4.1
+            # canonical preimage is not a valid signature, so it is a REFUSAL: a non-JSON-native
+            # `payload_meta` value (`TypeError`), a non-mapping `payload_meta` (`ValueError`),
+            # mixed-type keys `sort_keys=True` cannot order (`TypeError`), a lone surrogate in
+            # `payload_ref` (`UnicodeEncodeError`, a `ValueError`), a `budget`/`delegation_chain` of
+            # the wrong shape (`AttributeError`/`TypeError`), an out-of-range timestamp
+            # (`OverflowError`). §4.1's "no `default=`" is UNCHANGED — nothing is coerced here, the
+            # envelope is simply rejected; and at SIGN time these same inputs still RAISE, which is
+            # the correct fail-closed posture on the side that controls the content.
+            return False
         expected_mac = hmac.new(key, expected, sha256).hexdigest()
         try:
             provided = sig.mac.encode("ascii")

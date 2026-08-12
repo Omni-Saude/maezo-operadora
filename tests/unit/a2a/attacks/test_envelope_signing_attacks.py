@@ -41,11 +41,12 @@ The transient SOURCE-neuter campaign (each gate deleted from `src/` in turn, sui
 restored) is recorded in this leg's commit body; it is the evidence that these controls bite against
 the shipped code, not merely against each other.
 
-WHAT THIS SUITE DOES NOT CLAIM. Two `verify`-totality honest negatives at the bottom record a REAL,
-disclosed defect found by this leg (`EnvelopeVerifier.verify` raises `TypeError` on a naive
-`signed_at` and on a non-JSON-native `payload_meta`, breaking its own documented never-raises
-contract). They are pinned as the CURRENT behaviour, not asserted as correct — leg E4 reports source
-defects, it does not fix them.
+`verify` TOTALITY (§9). This leg found and disclosed a real defect: `EnvelopeVerifier.verify` raised
+`TypeError` on a naive `signed_at` and on a non-JSON-native `payload_meta`, breaking its own
+documented never-raises contract, and the `TypeError` escaped `dispatcher.delegate` to the caller.
+Those honest negatives have since been FLIPPED by the E4-repair leg: §9 now asserts the positive
+form — malformed wire-shaped input is a REFUSAL (`is False` / `SIGNATURE_INVALID`), never an
+exception — each with the pre-fix behaviour retained as an explicit RED CONTROL.
 
 Each attack names the ADR-0039 §4.5 threat row it discharges (§4.8 obligation 1):
   * Tamper (any signed field)   — §4.5 "Tamper", digest v2 scope (decisions 1-2).
@@ -79,7 +80,11 @@ from maezo.a2a import (
     derive_key_id,
     envelope_canonical_digest,
 )
-from maezo.a2a.envelope_signing import ENVELOPE_SIGNATURE_SCHEME, MAX_SIGNATURE_AGE
+from maezo.a2a.envelope_signing import (
+    ENVELOPE_SIGNATURE_SCHEME,
+    MAX_SIGNATURE_AGE,
+    EnvelopeSignatureError,
+)
 from tests.unit.a2a.attacks.reference_envelope_verifier import (
     LabeledReferenceEnvelopeVerifier,
     ReferenceSignedEnvelope,
@@ -781,73 +786,108 @@ def test_payload_meta_and_payload_hash_cannot_be_swapped_for_one_another() -> No
 
 
 # ---------------------------------------------------------------------------
-# 9. HONEST NEGATIVES — `verify` is not total (a REAL defect this leg found and REPORTS)
+# 9. THE TOTALITY FLIP — `verify` refuses malformed wire input instead of raising
 # ---------------------------------------------------------------------------
+#
+# These three were this leg's HONEST NEGATIVES: they pinned a real, disclosed defect
+# (`EnvelopeVerifier.verify` raised `TypeError` on a naive `signed_at` and on a non-JSON-native
+# `payload_meta`, breaking its own documented never-raises contract, and the `TypeError` escaped
+# `dispatcher.delegate` to the caller). The E4-repair leg fixed the source, so each now asserts the
+# POSITIVE form the honest negatives were written to flip into: a REFUSAL (`is False` / a
+# `SIGNATURE_INVALID` result), never an exception. Each keeps the pre-fix behaviour as an explicit
+# RED CONTROL, so the flip cannot pass vacuously.
 
 
-def test_disclosed_defect_a_naive_signed_at_raises_out_of_verify() -> None:
-    """HONEST NEGATIVE — a REAL DEFECT, pinned as CURRENT behaviour, NOT asserted as correct.
+def test_a_naive_signed_at_is_refused_not_raised() -> None:
+    """FLIPPED (was `test_disclosed_defect_a_naive_signed_at_raises_out_of_verify`).
 
-    `EnvelopeVerifier.verify`'s docstring promises it "NEVER raises (mirrors `CardSigner.verify`) so
-    the dispatcher decides the rejection policy", and `DelegationDispatcher._verify_or_reject`
-    repeats the promise (`dispatcher.py:302`). It is not kept. `EnvelopeSignature.signed_at` is typed
-    `datetime` with no tz-awareness validation (`delegation.py:115`), and `verify` computes
-    `age = now - sig.signed_at` (`envelope_signing.py:347`) against a tz-AWARE `now`. A NAIVE
-    `signed_at` — a perfectly type-valid `datetime`, requiring no type violation at all, and exactly
-    what a wire deserializer produces from a timestamp without an offset — makes that subtraction
-    raise `TypeError`, which propagates through `_verify_or_reject` and out of `delegate` to the
-    caller, breaking the dispatcher's "never raised to the caller" contract too.
+    `EnvelopeSignature.signed_at` is typed `datetime` with no tz-awareness validation
+    (`delegation.py`), so a NAIVE timestamp — perfectly type-valid, requiring no type violation, and
+    exactly what a wire deserializer produces from a timestamp without an offset — reaches `verify`.
+    It used to make `age = now - sig.signed_at` raise `TypeError`. It is now a REFUSAL, matching the
+    sibling malformed-input case that was always guarded (`sig.mac` non-ASCII returns False, pinned
+    by E3's `test_malformed_non_ascii_mac_is_rejected_not_raised`).
 
-    That is an attacker-reachable error-path divergence: a forged envelope becomes an unhandled
-    exception instead of a `SIGNATURE_INVALID` rejection. Note the asymmetry that shows it is an
-    oversight rather than a decision — the sibling malformed-input case IS guarded
-    (`sig.mac` non-ASCII returns False, `envelope_signing.py:358-361`, pinned by E3's
-    `test_malformed_non_ascii_mac_is_rejected_not_raised`); `signed_at` simply was not.
-
-    REPORTED to the gatekeeper, not fixed: leg E4 may not touch `src/` semantics. This test pins the
-    behaviour so the fix (reject a naive `signed_at` as False, or validate awareness at
-    `EnvelopeSignature` construction) FLIPS it to `is False` — the same accept-criterion pattern the
-    two decision-1/2 flips above follow."""
+    The refusal is REJECTION, not assume-UTC: coercing a naive timestamp to UTC would let the
+    signing party shift its signature's apparent age just by dropping the offset, negotiating its
+    way around the §4.3.2 max-age bound it is supposed to be constrained by."""
     signed = _signed()
     assert signed.signature is not None
     naive = replace(signed, signature=replace(signed.signature, signed_at=_NOW.replace(tzinfo=None)))
+    assert _verifier().verify(naive, now=_NOW + timedelta(minutes=1)) is False
+
+    # RED CONTROL: the pre-fix behaviour, i.e. the raw operation the guard now short-circuits. Naive
+    # MINUS aware still raises — so the `False` above is the new guard doing work, not the arithmetic
+    # having quietly become total.
     with pytest.raises(TypeError, match="offset-naive and offset-aware"):
-        _verifier().verify(naive, now=_NOW + timedelta(minutes=1))
+        _ = (_NOW + timedelta(minutes=1)) - naive.signature.signed_at
+    # ...and the CONTROL in the other direction: the same envelope with an AWARE signed_at verifies,
+    # so the refusal is the tz guard, not a broken signature.
+    assert _verifier().verify(signed, now=_NOW + timedelta(minutes=1)) is True
 
 
-async def test_disclosed_defect_the_naive_signed_at_typeerror_escapes_the_dispatcher() -> None:
-    """The same defect at the blast radius that matters: it does not stay inside `verify`. A wired
-    dispatcher raises `TypeError` to its caller instead of returning `SIGNATURE_INVALID`, so a forged
-    envelope is a crash rather than a rejection. Pinned end to end because the contract that breaks
-    (`dispatcher.py:16`, "never raised to the caller") is the dispatcher's, not the verifier's."""
+async def test_a_naive_signed_at_is_a_signature_invalid_rejection_not_a_dispatcher_crash() -> None:
+    """FLIPPED (was `test_disclosed_defect_the_naive_signed_at_typeerror_escapes_the_dispatcher`).
+
+    The blast radius that actually matters: the defect did not stay inside `verify` — a wired
+    dispatcher raised `TypeError` to its caller instead of returning `SIGNATURE_INVALID`, so a forged
+    envelope was a crash rather than a rejection. Pinned end to end because the contract that was
+    broken (`dispatcher.py`, "never raised to the caller") is the dispatcher's, not the verifier's.
+    The handler must never run either."""
     signed = _signer().sign(_envelope())
     assert signed.signature is not None
     naive = replace(signed, signature=replace(signed.signature, signed_at=datetime(2026, 8, 12, 12, 0)))
+    handler = FakeAgentHandler()
     dispatcher, _, _ = build_test_dispatcher(
-        cards=[make_card("rafael")], handlers={"rafael": FakeAgentHandler()}, envelope_verifier=_verifier()
+        cards=[make_card("rafael")], handlers={"rafael": handler}, envelope_verifier=_verifier()
     )
-    with pytest.raises(TypeError, match="offset-naive and offset-aware"):
-        await dispatcher.delegate(naive)
+    result = await dispatcher.delegate(naive)
+    assert result.success is False
+    assert result.rejection_reason is RejectionReason.SIGNATURE_INVALID
+    assert handler.call_count == 0  # a malformed envelope never reaches the handler
 
 
-def test_disclosed_defect_a_non_json_native_payload_meta_raises_out_of_verify() -> None:
-    """HONEST NEGATIVE — the SECOND instance of the same defect family, same disposition.
+def test_a_non_json_native_payload_meta_is_refused_not_raised() -> None:
+    """FLIPPED (was `test_disclosed_defect_a_non_json_native_payload_meta_raises_out_of_verify`).
 
-    `payload_meta` is declared `Mapping[str, str]`, and §4.1 deliberately forbids `default=` so a
-    non-JSON-native value RAISES rather than being silently coerced. At SIGN time that is exactly
-    right (fail-closed, and the first assertion pins it). At VERIFY time it is the same totality
-    break as `signed_at`: `_canonical_bytes` (`envelope_signing.py:87`) raises `TypeError` out of
-    `verify` for an envelope whose `payload_meta` holds a non-native value.
+    The SECOND instance of the same family. `payload_meta` is declared `Mapping[str, str]` and §4.1
+    deliberately forbids `default=` so a non-JSON-native value RAISES rather than being silently
+    coerced. That is still exactly right at SIGN time — the signer controls the content, so it must
+    fail closed and loudly, and the first assertion pins that it STILL does. At VERIFY time the same
+    input is now a refusal.
 
-    Strictly weaker than the `signed_at` instance — reaching it requires violating the declared type,
-    which mypy catches in-repo — but a wire deserializer is outside mypy's reach, so it is the same
-    class of hole. Reported with the same recommendation: make `verify` total (rejections, never
-    exceptions) rather than guarding each field individually."""
+    Note what did NOT change: nothing is coerced. §4.1's "no `default=`" is intact; the envelope is
+    simply rejected as unverifiable."""
     non_native = {"when": datetime(2026, 1, 1, tzinfo=UTC)}
     with pytest.raises(TypeError):  # SIGN-time refusal: correct, fail-closed (§4.1 "no default=")
         _signer().sign(_envelope(payload_meta=non_native), now=_NOW)
-    with pytest.raises(TypeError):  # VERIFY-time: the same raise, where a bool was promised
-        _verifier().verify(replace(_signed(), payload_meta=non_native), now=_NOW + timedelta(minutes=1))
+    tampered = replace(_signed(), payload_meta=non_native)
+    assert _verifier().verify(tampered, now=_NOW + timedelta(minutes=1)) is False
+
+    # RED CONTROL: the canonicalizer itself still raises on this input — the `False` above is the
+    # verification boundary catching it, not §4.1 having been loosened into coercion.
+    with pytest.raises(TypeError, match="not JSON serializable"):
+        envelope_canonical_digest(
+            tampered,
+            scheme=ENVELOPE_SIGNATURE_SCHEME,
+            key_id="kid",
+            replay_epoch=0,
+            signed_at=_NOW,
+        )
+
+
+def test_the_signer_refuses_to_stamp_a_naive_signed_at() -> None:
+    """THE SIGNING-SIDE HALF of the same repair. The verifier now (correctly) refuses a naive
+    `signed_at`, so a signer able to EMIT one would produce envelopes nothing can ever accept — and
+    worse, the digest's `signed_at.astimezone(UTC)` would silently re-read a naive value as LOCAL
+    time, making the preimage host-dependent. The signer therefore refuses at sign time, which is
+    fail-closed in the honest direction: the error lands on the side that can fix it."""
+    with pytest.raises(EnvelopeSignatureError, match="naive"):
+        _signer().sign(_envelope(), now=datetime(2026, 8, 12, 12, 0))
+    # CONTROL: the aware form of the SAME instant signs fine, and the default (no `now=`) is aware.
+    assert _signer().sign(_envelope(), now=_NOW).signature is not None
+    stamped = _signer().sign(_envelope()).signature
+    assert stamped is not None and stamped.signed_at.tzinfo is not None
 
 
 # ---------------------------------------------------------------------------
