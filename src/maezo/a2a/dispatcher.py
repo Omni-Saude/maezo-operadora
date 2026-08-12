@@ -46,6 +46,7 @@ from .facts import DelegationFact, DelegationFactKind, build_fact
 from .registry import A2ARegistry, RegistryError
 
 if TYPE_CHECKING:
+    from .envelope_signing import EnvelopeSigner, EnvelopeVerifier
     from .idempotency import IdempotencyStore, StoredResult
 
 # Handler of a target agent: receives the envelope, returns an output reference (output_ref). Like
@@ -139,6 +140,10 @@ class RejectionReason(StrEnum):
     NO_HANDLER = "no_handler"
     EXPIRED = "expired"
     ANTI_LOOP = "anti_loop"
+    # ADR-0039 §4.4: envelope signature missing/invalid. New vocabulary the ADR authorizes. The
+    # FIRST check inside `delegate` (ahead of any idempotency claim/audit/routing) returns this as a
+    # structured rejection — never a raise (the dispatcher's 'never raised to caller' contract).
+    SIGNATURE_INVALID = "signature_invalid"
 
 
 @dataclass(frozen=True, slots=True)
@@ -265,6 +270,8 @@ class DelegationDispatcher:
         audit: AuditEmitter,
         facts: FactProducer,
         idempotency: IdempotencyStore | None = None,
+        envelope_verifier: EnvelopeVerifier | None = None,
+        origin_envelope_signer: EnvelopeSigner | None = None,
     ) -> None:
         self._registry = registry
         self._handlers = dict(handlers)
@@ -273,9 +280,45 @@ class DelegationDispatcher:
         self._idempotency = idempotency
         self._inflight: dict[str, _InflightEntry] = {}
         self._guard = asyncio.Lock()  # protects the in-flight dict (entry creation)
+        # ADR-0039 §4.4 envelope-signature verification. `None` (default / dev) -> verification is
+        # OFF (unsigned envelopes accepted, W2/dev behaviour preserved). Present -> `_verify_or_reject`
+        # is the FIRST admission check in `delegate`. Wired fail-closed by the composition root
+        # (`_require_envelope_verifier_or_fail_closed`).
+        self._envelope_verifier = envelope_verifier
+        # The edge's per-tenant ORIGIN signer (the SIGN half of the same symmetric per-tenant key
+        # whose VERIFY half is `_envelope_verifier` — mirroring Card signing's 'one key both jobs').
+        # It is NOT used by the dispatcher; it rides here purely as the edge-custody handle the
+        # per-request originators (`agents/*/delegation.py::delegate_*`) retrieve via
+        # `origin_signer_of(dispatcher)` to sign at construction, in this in-process Option-A runtime.
+        self._origin_envelope_signer = origin_envelope_signer
+
+    def _verify_or_reject(self, envelope: DelegationEnvelope) -> DelegationResult | None:
+        """ADR-0039 §4.4 fail-closed signature gate — `None` = proceed, else a structured rejection.
+
+        No verifier wired (dev / opt-out) -> `None` (verification off). Otherwise the envelope's
+        signature must be valid under the trusted per-tenant keyset (current key + prior-in-grace,
+        current epoch + optional short grace, unexpired, MAC over the v2 digest) — an unsigned,
+        tampered, cross-tenant-retagged, stale-key, prior-epoch or expired envelope yields a
+        `SIGNATURE_INVALID` rejection. NEVER raises (the 'never raised to caller' contract)."""
+        if self._envelope_verifier is None:
+            return None
+        if self._envelope_verifier.verify(envelope):
+            return None
+        return DelegationResult.rejected(
+            envelope.task_id,
+            RejectionReason.SIGNATURE_INVALID,
+            detail="envelope signature missing or invalid (ADR-0039 §4.4)",
+        )
 
     async def delegate(self, envelope: DelegationEnvelope) -> DelegationResult:
         """Dispatch a delegation. Idempotent by `task_id`; rejection = a structured result."""
+        # ADR-0039 §4.4: signature verification is the FIRST check, AHEAD of the durable-vs-inflight
+        # branch below — so a forged/tampered envelope never claims an idempotency key of the
+        # attacker's choosing (`_delegate_durable`/`_delegate_inflight` claim BEFORE `_execute`),
+        # never triggers a registry lookup, and never reaches the audit emission in `_execute`.
+        rejected = self._verify_or_reject(envelope)
+        if rejected is not None:
+            return rejected
         if self._idempotency is not None:
             return await self._delegate_durable(self._idempotency, envelope)
         return await self._delegate_inflight(envelope)
@@ -570,3 +613,19 @@ class DelegationDispatcher:
             output_ref=output_ref,
         )
         await self._facts.emit(fact)
+
+
+def origin_signer_of(dispatcher: object) -> EnvelopeSigner | None:
+    """The per-tenant ORIGIN envelope signer carried by `dispatcher`'s edge, or `None` (ADR-0039).
+
+    The per-request originators (`agents/*/delegation.py::delegate_*`) receive the dispatcher as
+    their handle to the edge; this returns the edge's signer so they can sign at construction. It
+    UNWRAPS the gated seam: `GatedDelegationDispatcher` (`gateway/seams/a2a.py`) does not call the
+    base `__init__`, so the real dispatcher — and thus `_origin_envelope_signer` — lives on its
+    `_inner`. A dispatcher composed with no signer (dev / opt-out) yields `None`, and the originators
+    then build UNSIGNED envelopes (which a verifier-less dev dispatcher accepts). Reading a `_`
+    attribute keeps the dispatcher's public method surface exactly `{delegate}` (the seam-proof pin).
+    """
+    inner = getattr(dispatcher, "_inner", dispatcher)
+    signer: EnvelopeSigner | None = getattr(inner, "_origin_envelope_signer", None)
+    return signer

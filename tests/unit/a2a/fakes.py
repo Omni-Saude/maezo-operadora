@@ -91,8 +91,13 @@ def build_test_dispatcher(
     handlers: Mapping[str, AgentHandler],
     audit: FakeAuditSink | None = None,
     producer: RecordingProducer | None = None,
+    envelope_verifier: object | None = None,
 ) -> tuple[DelegationDispatcher, FakeAuditSink, RecordingProducer]:
-    """Assemble a `DelegationDispatcher` with a registry + fake audit + fake facts."""
+    """Assemble a `DelegationDispatcher` with a registry + fake audit + fake facts.
+
+    `envelope_verifier` (ADR-0039 §4.4, leg E3) is optional: `None` keeps the W2 default (no envelope
+    verification — unsigned envelopes accepted), a real `EnvelopeVerifier` turns on the fail-closed
+    first-check in `delegate`."""
     registry = A2ARegistry()
     for card in cards:
         registry.register(card)
@@ -103,6 +108,7 @@ def build_test_dispatcher(
         handlers=handlers,
         audit=audit_sink,
         facts=FactProducer(kafka),
+        envelope_verifier=envelope_verifier,  # type: ignore[arg-type]
     )
     return dispatcher, audit_sink, kafka
 
@@ -123,11 +129,21 @@ class LabeledFakeTenantKeyset:
     keyset holding only tenant-B's key returns `None`, never tenant-B's key.
     """
 
-    def __init__(self, keys: Mapping[str, bytes]) -> None:
+    def __init__(
+        self, keys: Mapping[str, bytes], *, prior_keys: Mapping[str, bytes] | None = None
+    ) -> None:
         self._keys = dict(keys)
+        self._prior_keys = dict(prior_keys or {})
         #: Records every `key_for` call so a probe can assert WHICH tenant was resolved.
         self.calls: list[str] = []
+        #: Records every `prior_key_for` call (rotation-grace resolution, ADR-0039 §4.3).
+        self.prior_calls: list[str] = []
 
     def key_for(self, tenant: str) -> bytes | None:
         self.calls.append(tenant)
         return self._keys.get(tenant)
+
+    def prior_key_for(self, tenant: str) -> bytes | None:
+        """Rotation PRIOR key for `tenant`, or `None` — same no-cross-tenant-fallback contract."""
+        self.prior_calls.append(tenant)
+        return self._prior_keys.get(tenant)
