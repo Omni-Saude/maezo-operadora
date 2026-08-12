@@ -53,8 +53,18 @@ mapping is stated once, here, so a reviewer can neuter any one of them and predi
       exploding store are injected AND the store root is probed for non-existence).
 
   D9  The writer is unreachable from the audit path (dark build).
-      NEUTER: import `audit_anchor` from any module under `src/maezo/`.
-      RED: `test_no_production_module_imports_the_anchor_writer` (hardcoded EMPTY allowlist).
+      NEUTER: import `audit_anchor` from any module under `src/maezo/`, in ANY of the spellings
+      enumerated in `_CAUGHT_IMPORT_SPELLINGS`.
+      RED: `test_no_production_module_imports_the_anchor_writer` (hardcoded EMPTY allowlist), plus
+      `test_import_fence_predicate_catches_every_spelling[<spelling>]` if the predicate itself is
+      narrowed. HISTORY: the predicate originally read only `ImportFrom.module`, so
+      `from maezo.gateway import audit_anchor` and `from . import audit_anchor` — where the module
+      is a *name*, not the module path — passed straight through and the fence stayed GREEN on a
+      fully live import. Found by external review re-running the D9 probe with that spelling. The
+      spelling matrix and its per-spelling test exist so the fence can never again be exercised by
+      only the one spelling a probe happened to pick. The dynamic routes it still cannot see
+      (`importlib`, `__import__`, attribute access through a parent package) are DISCLOSED in
+      `_UNCAUGHT_IMPORT_SPELLINGS` and compensated by the allowlist being EMPTY, not by pretending.
 
   D10 The anchor envelope carries no free-form content (PHI posture).
       NEUTER: add any nested/free-form value to `build_envelope`.
@@ -72,7 +82,7 @@ import json
 import stat
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 import pytest
 
@@ -854,11 +864,99 @@ def test_envelope_root_field_is_independent_of_the_signature() -> None:
 # =================================================================================================
 
 
+#: Every import spelling this fence catches, stated once so a reviewer can check the predicate
+#: below against the list instead of re-deriving it from `ast` semantics. Each entry is exercised
+#: by `test_import_fence_predicate_catches_every_spelling`, which parses the snippet and asserts
+#: the predicate fires — so the matrix cannot rot away from the code that implements it.
+_CAUGHT_IMPORT_SPELLINGS: Final[tuple[str, ...]] = (
+    "from maezo.gateway.audit_anchor import write_anchor",  # absolute, module in `node.module`
+    "from maezo.gateway.audit_anchor import write_anchor as wa",
+    "from .audit_anchor import write_anchor",  # relative, module in `node.module`
+    "import maezo.gateway.audit_anchor",  # plain import
+    "import maezo.gateway.audit_anchor as aa",
+    "from maezo.gateway import audit_anchor",  # module in `node.names` — MISSED before this fix
+    "from maezo.gateway import audit_anchor as aa",
+    "from . import audit_anchor",  # relative sibling — MISSED before this fix
+    "from .. import gateway, audit_anchor",
+)
+
+#: Spellings this AST scan structurally CANNOT catch, disclosed rather than pretended away.
+#: Compensated by the EMPTY allowlist above (any importer at all is a reviewed diff) plus review:
+#: none of these can appear without a human reading the line that spells them.
+_UNCAUGHT_IMPORT_SPELLINGS: Final[tuple[str, ...]] = (
+    "import maezo.gateway  # then maezo.gateway.audit_anchor.write_anchor(...)",
+    "importlib.import_module('maezo.gateway.audit_anchor')",
+    "__import__('maezo.gateway.audit_anchor')",
+)
+
+
+def _imports_the_anchor_module(node: ast.AST) -> bool:
+    """True iff `node` is an import statement that binds `audit_anchor` (any spelling).
+
+    TWO branches, because `audit_anchor` can appear on either side of an `ImportFrom`:
+
+      - `node.module` — `from maezo.gateway.audit_anchor import X` / `from .audit_anchor import X`.
+        Matched by suffix so every package path and the relative form are covered at once.
+      - `node.names` — `from maezo.gateway import audit_anchor` / `from . import audit_anchor`.
+        Here the MODULE being imported is a *name*, and `node.module` is the PACKAGE (or `None`
+        for `from . import`). A predicate that only reads `node.module` misses this entirely — it
+        did, and the fence was silently vacuous against it (see this file's D9 entry).
+
+    The `node.names` branch matches on EXACT equality (not suffix), so it fires regardless of how
+    the package path is spelled while staying narrow. It would false-positive on `from <unrelated>
+    import audit_anchor`, i.e. some OTHER module also named `audit_anchor`; there is exactly one
+    `audit_anchor` in the tree today (`src/maezo/gateway/audit_anchor.py`), so the ambiguity does
+    not exist, and if a second one ever appears the failure mode is a FALSE ALARM on a fence whose
+    allowlist is empty — loud and safe, never a silent miss.
+    """
+    if isinstance(node, ast.ImportFrom):
+        return (node.module or "").endswith("audit_anchor") or any(
+            alias.name == "audit_anchor" for alias in node.names
+        )
+    if isinstance(node, ast.Import):
+        return any(alias.name.endswith("audit_anchor") for alias in node.names)
+    return False
+
+
+@pytest.mark.parametrize("source", _CAUGHT_IMPORT_SPELLINGS)
+def test_import_fence_predicate_catches_every_spelling(source: str) -> None:
+    """The fence's predicate, exercised directly against each spelling in the matrix.
+
+    Without this, the matrix above is a comment, and the fence test itself only ever sees the ONE
+    spelling a probe happens to plant — which is precisely how the `node.names` blind spot
+    survived."""
+    tree = ast.parse(source)
+    assert any(_imports_the_anchor_module(node) for node in ast.walk(tree)), source
+
+
+@pytest.mark.parametrize(
+    "source",
+    ["from maezo.gateway.audit import AuditRecord", "import maezo.gateway.audit_postgres", "import ast"],
+    ids=["sibling-audit", "sibling-audit-postgres", "stdlib"],
+)
+def test_import_fence_predicate_does_not_fire_on_unrelated_imports(source: str) -> None:
+    """A fence that flags everything is a fence nobody keeps. Neighbouring audit modules — the
+    most likely false-positive source — must stay clean."""
+    tree = ast.parse(source)
+    assert not any(_imports_the_anchor_module(node) for node in ast.walk(tree)), source
+
+
 def test_no_production_module_imports_the_anchor_writer() -> None:
     """HARDCODED allowlist, EMPTY today. Provenance: Onda 4 leg 1 ships the anchor writer merged,
     tested and INERT — the periodic job that calls it is leg 2 and the drills are leg 3. The
     strongest inertness proof is not "the flag is off" but "the audit path cannot reach this code
     at all", and that is what this AST scan pins.
+
+    SCOPE, stated honestly. This is a STATIC scan of import STATEMENTS; the spellings it catches
+    are enumerated in `_CAUGHT_IMPORT_SPELLINGS` and each one is exercised by
+    `test_import_fence_predicate_catches_every_spelling`. It structurally cannot catch dynamic
+    reach — `importlib.import_module("maezo.gateway.audit_anchor")`, `__import__`, or attribute
+    access through an already-imported parent package (`import maezo.gateway` then
+    `maezo.gateway.audit_anchor.write_anchor(...)`, which only resolves if something else already
+    imported the submodule). Those are listed in `_UNCAUGHT_IMPORT_SPELLINGS` and are OUT OF
+    AST SCOPE by construction: a string-keyed import is not an import node. What compensates is
+    not a cleverer predicate but the shape of the allowlist — it is EMPTY, so the fence admits no
+    importer at all, and any code that reaches the anchor by any route is a reviewed diff.
 
     When leg 2 lands its comparison/scheduler module, THIS list is where the new importer is
     declared — deliberately, in a diff a reviewer sees, never as a silent widening."""
@@ -867,13 +965,8 @@ def test_no_production_module_imports_the_anchor_writer() -> None:
     importers: set[str] = set()
     for path in sorted(_SRC_MAEZO.rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        for node in ast.walk(tree):
-            from_import = isinstance(node, ast.ImportFrom) and (node.module or "").endswith("audit_anchor")
-            plain_import = isinstance(node, ast.Import) and any(
-                alias.name.endswith("audit_anchor") for alias in node.names
-            )
-            if from_import or plain_import:
-                importers.add(str(path.relative_to(_SRC_MAEZO)))
+        if any(_imports_the_anchor_module(node) for node in ast.walk(tree)):
+            importers.add(str(path.relative_to(_SRC_MAEZO)))
 
     assert frozenset(importers) == allowed_importers
 
