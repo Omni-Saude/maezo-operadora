@@ -1,14 +1,18 @@
-# Onda 4 — Ancoragem externa da cadeia de auditoria (leg 1: o ESCRITOR, INERTE)
+# Onda 4 — Ancoragem externa da cadeia de auditoria (pernas 1 e 2, INERTES)
 
-**Status:** construído, testado e **INERTE**. Nada em `src/maezo/` importa este código; a flag
-`MAEZO_AUDIT_ANCHOR_ENABLED` está OFF por padrão em todo lugar. Ativação é mudança de **dado/config
-+ wiring do dono**, nunca mudança de código.
+**Status:** construído, testado e **INERTE** nas duas pernas. Nada em `src/maezo/` alcança este
+código a partir do caminho de auditoria; as duas flags (`MAEZO_AUDIT_ANCHOR_ENABLED` para o
+escritor, `MAEZO_AUDIT_ANCHOR_VERIFY_ENABLED` para o verificador) estão OFF por padrão em todo
+lugar. Ativação é mudança de **dado/config + wiring do dono**, nunca mudança de código.
 
-**Escopo desta perna:** o escritor de checkpoint assinado + os dois seams (signer, store) + as
-implementações rotuladas de dev/teste. **Fora de escopo, deliberadamente:** o job periódico de
-comparação contínua Postgres↔âncora (perna 2) e os drills de tamper/restore (perna 3).
+**Escopo.** §§1-7 são a **perna 1**: o escritor de checkpoint assinado + os dois seams (signer,
+store) + as implementações rotuladas de dev/teste. §9 é a **perna 2**: o job de verificação
+contínua Postgres↔âncora, que é o que dá valor de segurança à perna 1 — âncora que ninguém compara
+é arquivo. **Fora de escopo, deliberadamente:** os drills de tamper/restore contra Postgres vivo
+(perna 3, §8).
 
-Artefatos: `src/maezo/gateway/audit_anchor.py`, `tests/unit/gateway/test_audit_anchor.py`.
+Artefatos: `src/maezo/gateway/audit_anchor.py`, `tests/unit/gateway/test_audit_anchor.py`,
+`src/maezo/gateway/audit_anchor_verify.py`, `tests/unit/gateway/test_audit_anchor_verify.py`.
 
 ---
 
@@ -201,10 +205,16 @@ config ausente resolve para o estado RESTRITIVO; para um dark build, config ause
 estado INERTE. Ambas as leituras compartilham a regra — **ausência de decisão explícita do operador
 nunca é consentimento**.
 
-**Prova de inércia mais forte que a flag:** nada em `src/maezo/` importa `audit_anchor` — AST-scan
-com allowlist HARDCODED e **VAZIA** (`test_no_production_module_imports_the_anchor_writer`). Quando
-a perna 2 entregar seu módulo de comparação/agendamento, **aquela lista** é onde o novo importador é
-declarado — deliberadamente, num diff que o revisor vê, nunca como alargamento silencioso.
+**Prova de inércia mais forte que a flag:** o único módulo de `src/maezo/` que importa
+`audit_anchor` é o que está **declarado pelo nome** na allowlist HARDCODED de
+`test_no_production_module_imports_the_anchor_writer` — hoje exatamente um,
+`gateway/audit_anchor_verify.py` (perna 2, §9). A lista era **VAZIA** durante toda a perna 1 e
+recebeu essa entrada num diff que o revisor viu, que é para isso que ela existe; ela permanece uma
+lista de **nomes**, nunca um prefixo ou padrão, então o próximo importador também precisa ser
+digitado ali. A entrada não enfraquece a inércia: o importador é **ele próprio escuro** — flag irmã
+OFF por padrão e allowlist **VAZIA** para ele em
+`test_no_production_module_imports_the_verify_job`. O caminho de auditoria continua sem alcançar o
+escritor por rota estática nenhuma; ele só alcança um módulo que ninguém alcança.
 
 **Grafias que a cerca pega** (`_CAUGHT_IMPORT_SPELLINGS`, cada uma exercitada uma a uma por
 `test_import_fence_predicate_catches_every_spelling` — a matriz não pode apodrecer longe do código
@@ -281,16 +291,181 @@ acontecer.
 
 ## 8. Handoff para as pernas 2 e 3
 
-- **Perna 2 (job de verificação/comparação contínua):** consome `AnchorStore.get`/`list_keys`
-  (ordem lexical == cronológica), recomputa `sha256(canonical_bytes(envelope["checkpoint"]))` contra
-  `envelope["root"]`, e verifica a assinatura via `AnchorSignatureVerifier` — o Protocol de verify é
-  separado do de sign exatamente para que o job não receba autoridade de assinatura de que não
-  precisa. `test_enabled_writer_seals_a_verifiable_anchor` já executa essa sequência ponta a ponta.
-  Ao landar, declarar o novo importador na allowlist HARDCODED de
-  `test_no_production_module_imports_the_anchor_writer`.
+- **Perna 2 (job de verificação/comparação contínua) — ENTREGUE, ver §9.** O contrato que ela
+  **DEVE** honrar, em imperativo porque é a propriedade de segurança inteira, não uma descrição:
+  - O job **DEVE RECOMPUTAR** a raiz ancorada como `sha256(canonical_bytes(envelope["checkpoint"]))`
+    e comparar o banco **contra essa recomputação**, sempre, e **NUNCA** contra
+    `envelope["root"]`. O campo `root` armazenado **NÃO é coberto pela assinatura** (a assinatura
+    cobre os bytes do CHECKPOINT — §4), então quem consegue editar o arquivo de âncora o define
+    como quiser: um job que comparasse contra ele entregaria veredito limpo pelo preço de uma
+    edição de string. O campo pode ser lido **apenas** como INDICADOR de adulteração — num WORM
+    real ele não pode mudar, então divergir dele **DEVE** ser reportado alto, nunca ignorado.
+  - O job **DEVE** verificar a assinatura via `AnchorSignatureVerifier` **antes** de qualquer coisa
+    a jusante, e **DEVE** tratar assinatura rejeitada — ou verificador que levanta — como tamper,
+    nunca como limpo. O Protocol de verify é separado do de sign exatamente para que o job não
+    receba autoridade de assinatura de que não precisa.
+  - O job **DEVE** recomputar o lado do banco pelo **mesmo caminho do escritor**
+    (`checkpoint_for_chain` + `checkpoint_root`) e **NÃO PODE** carregar canonicalizador próprio:
+    uma segunda cópia deriva dos bytes sobre os quais as assinaturas foram feitas, e
+    canonicalizador derivado alarma em cadeia sã — pior que verificador nenhum, porque o primeiro
+    falso alarme é o último em que alguém acredita.
+  - O job **NÃO PODE** repousar veredito limpo numa listagem de store: `list_keys()` e `get()`
+    discordam na presença de diretório symlinkado (§9), e listagem de object store real é
+    eventualmente consistente. `test_enabled_writer_seals_a_verifiable_anchor` executa a sequência
+    de assinatura ponta a ponta, mas **não** cobre a seleção da âncora — essa é a parte perigosa.
+  - Ao landar, declarar o novo importador na allowlist HARDCODED de
+    `test_no_production_module_imports_the_anchor_writer`. **Feito:** entrada única
+    `gateway/audit_anchor_verify.py`.
 - **Perna 3 (drills de tamper/restore):** alterar, remover, forkar e reconstruir registros contra um
   Postgres vivo, e provar que a comparação com a âncora externa detecta cada caso. Marcador
-  `@pytest.mark.integration` já existente é o lugar.
+  `@pytest.mark.integration` já existente é o lugar. Consumir a saída JSON do CLI da perna 2
+  (§9.4) — **última linha do stdout**, uma linha só — e os exit codes por classe de outcome.
 - **Aberto para o dono (fora de qualquer perna de agente):** custódia/rotação da chave KMS/HSM
   (item já listado em ADR-0029 "Open items"); o bucket WORM + conta separada; a cadência do job
-  periódico; e a decisão sobre a emenda redacional proposta em §3 acima.
+  periódico; e a decisão sobre a emenda redacional proposta em §3 acima. §9.6 acrescenta os que a
+  perna 2 levantou.
+
+---
+
+## 9. Perna 2 — o job de verificação contínua (INERTE)
+
+Artefatos: `src/maezo/gateway/audit_anchor_verify.py`,
+`tests/unit/gateway/test_audit_anchor_verify.py` (121 testes).
+
+### 9.1 As duas regras estruturais
+
+**RECOMPUTAR, NUNCA CONFIAR** — o contrato imperativo está em §8 e é honrado literalmente: a base
+de comparação é `sha256(canonical_bytes(envelope["checkpoint"]))`, recomputada do checkpoint cuja
+assinatura acabou de ser verificada. `envelope["root"]` é lido **só** como indicador de adulteração
+(num WORM real não pode mudar) e divergir dele é `DIVERGENCE/ANCHOR_ROOT_FIELD_INCONSISTENT`. O
+lado do banco é recomputado pelo **mesmo caminho do escritor** — `checkpoint_for_chain` +
+`checkpoint_root` sobre `AuditRecord`s remontados de linhas com `audit_postgres._row_to_record`
+(importado, nunca recopiado: mesmo argumento anti-drift de `schema_for_tenant` na perna 1). O
+módulo **não tem canonicalizador próprio**: existe exatamente um `sha256` nele e seu argumento é o
+preimage da perna 1, pinado por AST.
+
+**LISTAGEM É INDICATIVA; VEREDITO LIMPO NUNCA REPOUSA NELA.** Ver 9.2.
+
+### 9.2 O problema da "âncora mais recente" e a posição tomada
+
+"Verificar contra a âncora mais recente" pressupõe que dá para **achar** a mais recente. Não dá, em
+geral, por três razões independentes:
+
+| # | causa | medido? |
+| --- | --- | --- |
+| 1 | O envelope **não aponta para o predecessor** (4 chaves fixas). "Mais recente" é propriedade da LISTAGEM do store, não da evidência: nada dentro de uma âncora assinada diz "e não existe outra depois" | estrutural, §4 |
+| 2 | `list_keys()` (perna 1) usa `Path.rglob`, que **não desce em diretório symlinkado**, enquanto `get()`/`put()` resolvem através dele (só recusam sair da raiz) | **sim** — `test_labeled_fake_store_listing_omits_what_get_serves_through_a_symlinked_directory`: com `<root>/amh -> <root>/physical`, `get("amh/<x>")` serve o payload e `list_keys()` devolve `("physical/<x>",)`, string diferente |
+| 3 | Object store real tem o mesmo buraco por outra causa: `ListObjectsV2` é eventualmente consistente, então uma âncora recém-escrita pode legitimamente faltar numa listagem de um segundo depois | conhecido |
+
+A direção perigosa é uma só: **a âncora omitida pode ser a MAIS NOVA**, e aí o job confere o banco
+contra uma âncora **VELHA** e diz MATCH. O cenário completo (que o teste monta): T1 atesta 1..3, T2
+atesta 1..5, um ator deleta os registros 4 e 5 e esconde T2 da listagem — verificar contra T1 é
+genuína e corretamente limpo, e a deleção **desaparece**.
+
+**Posição.** A seleção é corroborada por uma **segunda enumeração independente** — seam
+`AnchorKeyProbe`, **OBRIGATÓRIO** (sem default: um default seria degradação silenciosa exatamente
+da propriedade defendida). As duas enumerações são restritas ao prefixo do tenant e comparadas por
+**igualdade de conjunto**:
+
+- discordância em **qualquer** direção ⇒ `STORE_LISTING_SUSPECT`, e **nenhum** veredito sobre o
+  banco é emitido. Duas enumerações independentes que discordam significam que ao menos uma está
+  errada, e verificador que escolhe um lado está **chutando**;
+- store que não lista, ou probe que não sonda, é igualmente SUSPECT e nunca limpo;
+- chave que a listagem nomeou e o `get` não serve é a mesma classe de mau comportamento.
+
+`FilesystemAnchorKeyProbe` (companheiro do fake da perna 1) é independente **por construção**:
+`os.walk(followlinks=True)` contra `Path.rglob` — é a diferença de semântica de symlink que o
+permite ver o que a listagem perde. `followlinks=True` é foot-gun (ciclo ⇒ recursão infinita), então
+cada diretório é identificado por `(st_dev, st_ino)` e podado ao repetir: store com ciclo produz
+enumeração **finita** (e então discordante, logo SUSPECT) em vez de **pendurar** o job.
+
+**Limite divulgado.** Corroborador construído sobre a **mesma** primitiva da listagem é vácuo, e o
+módulo **não consegue impor** independência — só exigir que exista uma segunda fonte. Num
+deployment real o dono precisa wirar um corroborador independente no mesmo espírito (manifesto de
+S3 Inventory contra `ListObjectsV2` vivo, ou visão read-only de uma segunda conta). É premissa
+divulgada, não propriedade provada aqui.
+
+**Reparo in-band NÃO feito (para humano, §9.6):** encadear as próprias âncoras — um campo
+`prev_anchor_root` tornaria a omissão detectável **na evidência** em vez de na camada de storage.
+É bump de `ANCHOR_FORMAT`, logo decisão de perna 1/dono, não algo que a perna 2 possa tomar
+unilateralmente.
+
+### 9.3 A flag IRMÃ, e por que não a do escritor
+
+`MAEZO_AUDIT_ANCHOR_VERIFY_ENABLED`, default OFF, mesmo vocabulário truthy da perna 1
+(**importado**, não recopiado — dialeto por flag faria a ativação do operador se aplicar pela
+metade). Deliberadamente um **segundo** interruptor: (a) os dois lados são separadamente
+implantáveis e separadamente **privilegiados** (sign vs verify — a perna 1 separou os Protocols
+exatamente para isso); (b) "ancorando, ainda não verificando" é estado intermediário **real**, e
+uma flag só faria a primeira ativação iniciar um laço de leitura de banco contra um store vazio;
+(c) este lado consome recursos que o escritor não consome (conexão Postgres por rodada, leitura de
+todas as linhas do tenant, e — quando wirado — paginar um humano). Com a flag off,
+`verify_latest_anchor` retorna `DISABLED` **antes** de listar, **antes** de ler byte do store e
+**antes** de abrir conexão; `run_verification_loop` retorna **sem nunca dormir** (feature desligada
+não deve ser dona de uma task).
+
+### 9.4 Vocabulário fechado de outcomes (8), com exit code, evento e nível
+
+| status | exit | evento structlog | nível | significado |
+| --- | --- | --- | --- | --- |
+| `MATCH` | 0 | `audit_anchor_verification_match` | info | **o único veredito limpo** |
+| `DIVERGENCE` | 10 | `audit_anchor_divergence_detected` | error | raiz recomputada ≠ ancorada; ou a janela ancorada não existe mais (fork, deleção, elo quebrado, campo `root` editado) |
+| `NO_ANCHOR` | 11 | `audit_anchor_absent` | warning | nada foi atestado ainda |
+| `SIGNATURE_INVALID` | 12 | `audit_anchor_signature_invalid` | error | tratado como tamper (idioma ADR-0029 §2); inclui verificador que levanta |
+| `STORE_LISTING_SUSPECT` | 13 | `audit_anchor_store_listing_suspect` | error | §9.2 |
+| `DB_ERROR` | 14 | `audit_anchor_database_unreadable` | error | cadeia ilegível é cadeia **não verificada** |
+| `ANCHOR_UNREADABLE` | 15 | `audit_anchor_envelope_unreadable` | error | bytes que não são âncora usável deste tenant |
+| `DISABLED` | 16 | `audit_anchor_verification_skipped_disabled` | debug | **"não rodou" nunca é "rodou e passou"** |
+
+Os dois últimos **estendem** os seis do brief da perna 2, seguindo a regra do próprio brief (cada
+estado de ausência é um outcome): envelope truncado não é assinatura forjada — mandam o operador
+para incidentes diferentes (integridade de storage vs comprometimento de chave) — e job desligado
+não é job aprovado. Exit codes começam em **10** de propósito: `1` é traceback e `2` é erro de uso
+do argparse, e nenhum dos dois pode virar veredito; `3` é a recusa de wiring do CLI.
+
+`reason` estreita o status dentro de um vocabulário igualmente fechado (`REASON_TO_STATUS`), nunca
+prosa livre. PHI: outcome e evento carregam hashes, contagens, **chaves** de âncora, key id de
+assinatura e **nome de classe** de exceção — nenhum conteúdo de registro. A **mensagem** da exceção
+de banco é deliberadamente descartada: erro de driver cita o DSN, e DSN carrega senha.
+
+**CLI offline** (`python -m maezo.gateway.audit_anchor_verify --dsn --tenant --store-root
+--fake-verifier-key-label [--fake-verifier-secret-env]`): roda sem a stack docker. Contrato de
+saída: o veredito é a **ÚLTIMA LINHA do stdout, e é uma linha só** (JSON compacto) — este comando
+emite evento estruturado do próprio veredito e o repo renderiza structlog em **stdout**
+(`platform/observability.py`, `PrintLoggerFactory`), então documento JSON multi-linha intercalado
+com linhas de console **não parseia**. `... | tail -n 1 | jq` é o contrato, pinado por teste.
+O único verificador que o CLI sabe wirar é o **fake rotulado**: chave real é wiring do dono,
+injetado programaticamente, e uma flag `--kms-key-arn` aqui convidaria exatamente a masquerade que
+os três rótulos da perna 1 existem para impossibilitar. Sem segredo, o CLI **RECUSA** (exit 3) —
+nunca cai para "pular a verificação de assinatura".
+
+### 9.5 Controles RED — sondas executadas (mutar → vermelho → reverter)
+
+Mesma higiene da §7: `PYTHONDONTWRITEBYTECODE=1`, purge de `__pycache__`, commit antes de sondar.
+Base verde: **121 + 121 = 242** testes nos dois arquivos.
+
+| # | defesa | neutralização aplicada | resultado observado |
+| --- | --- | --- | --- |
+| P1 | V1 recomputar | `anchor_root = anchor.stored_root` (confiar no campo armazenado) | **2 failed, 120 passed** — `test_an_envelope_root_edited_to_match_the_database_is_still_not_clean` e `test_the_verify_module_holds_no_canonicalization_of_its_own` (o pin de AST viu o `sha256` sumir) |
+| P2 | V3 corroboração | deletar o ramo `listed != probed` | **2 failed, 120 passed** — `..._a_newer_anchor_invisible_to_the_listing_does_not_produce_a_clean_verdict` (`AssertionError: assert 'MATCH' == 'STORE_LISTING_SUSPECT'` — **o veredito limpo silencioso, reproduzido**) e `..._a_listing_that_invents_a_key_the_probe_cannot_see_is_also_suspect` |
+| P3 | detecção de divergência | `if database_root != database_root:` (comparação sempre concorda) | **4 failed, 239 passed** — `..._a_rewritten_chain_that_the_in_database_verifier_calls_valid_is_caught`, `test_reordered_records_are_caught`, `test_divergence_event_carries_no_record_content`, `test_loop_keeps_verifying_after_a_divergence` |
+| P4 | V6 flag | remover o early-return de `anchor_verification_enabled()` em `verify_latest_anchor` | **3 failed, 118 passed** — `..._disabled_verification_touches_no_seam_and_no_filesystem`, `..._disabled_verification_creates_nothing_with_the_real_seams`, `..._cli_reports_disabled_rather_than_pretending_to_have_checked`. `test_loop_stops_when_the_flag_is_turned_off_mid_flight` foi **deselecionado**: sem a checagem por iteração ele roda **para sempre** (`max_iterations=None`) — evidência a mais, não a menos |
+| P5 | V12 independência do probe | `os.walk(self._root)` sem `followlinks=True` (a primitiva da própria listagem) | **1 failed, 121 passed** — `test_filesystem_probe_sees_the_anchor_the_listing_misses` |
+| P6 | V9 cerca | `gateway/custody.py`: `from maezo.gateway import audit_anchor_verify` | **2 failed, 241 passed** — `test_no_production_module_imports_the_verify_job` apontando `gateway/custody.py`, **e** `test_importing_the_anchor_module_does_not_drag_in_asyncpg` da perna 1: um importador de produção do job puxa `audit_postgres`/`asyncpg` via `gateway/__init__.py`, então as duas cercas escuras têm tripwires que se sobrepõem |
+
+### 9.6 Aberto para humanos (a perna 2 levanta, não resolve)
+
+- **Cadência.** O laço aceita `interval_seconds` e não escolhe um. A escolha é trade-off de custo
+  de leitura vs janela de detecção, e depende da cadência do escritor (§7 da auditoria externa).
+- **Sink de alerta.** `on_outcome` é um callback e o módulo **não** decide supressão: divergência
+  não se resolve sozinha, então o laço **continua** alarmando (parar silenciaria o alarme depois da
+  primeira página). Quem decide de-dup/escalada é o dono.
+- **Distribuição de chave de verificação.** O job precisa só da metade **pública**/permissão
+  `verify`; o escritor precisa de `sign`. Separar as duas identidades IAM é wiring do dono e o item
+  de custódia/rotação já listado em ADR-0029 "Open items" passa a valer para os dois papéis.
+- **Encadeamento de âncoras (`prev_anchor_root`).** §9.2 — reparo in-band do problema da "mais
+  recente", que é bump de formato.
+- **Versão de schema.** A recomputação usa o `chain_schema_version` **da âncora** (assinado), para
+  isolar a comparação ao CONTEÚDO da cadeia. Comparar isso contra o `alembic_version` vivo do
+  tenant detectaria "âncora atesta um schema que não é mais o do banco" — checagem a mais que
+  ninguém pediu ainda.

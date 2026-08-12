@@ -35,8 +35,11 @@ IS NOT, deliberately:
   - **Not a mutation of the existing audit path.** Nothing in `audit.py` / `audit_postgres.py` is
     touched, imported-into, or wrapped. This module imports FROM them — `GENESIS_PREV_HASH` at
     module scope, `AuditRecord` under `TYPE_CHECKING` only, and `schema_for_tenant` LAZILY (see
-    IMPORT WEIGHT below) — and is imported BY nothing in `src/maezo/`, an inertness property a
-    test asserts by AST-scanning the tree (`test_audit_anchor.py`).
+    IMPORT WEIGHT below) — and is imported BY exactly ONE module in `src/maezo/`, declared by name
+    in an otherwise-empty allowlist a test enforces by AST-scanning the tree
+    (`test_audit_anchor.py`): `audit_anchor_verify`, the leg-2 verification job this writer exists
+    for. That importer is itself dark — its own sibling flag is OFF by default and its own fence
+    pins an EMPTY allowlist — so the audit path still cannot reach this file by any static route.
   - **Not a pruner.** ADR-0029 §2's checkpoint is an IN-`audit_chain` row that re-anchors a chain
     whose genesis prefix was deleted; it requires net-new columns, a migration, and verifier
     changes, and it is BLOCKED behind DPO ratification of ADR-0029 *and* the ADR-0020 legal-hold
@@ -816,8 +819,12 @@ def anchor_key(checkpoint: AnchorCheckpoint, root: str) -> str:
     Two properties are load-bearing. (1) The ROOT is in the key, so re-anchoring an IDENTICAL
     checkpoint collides and the WORM store refuses it — a duplicate anchor is a no-op that must be
     loud, not silent. (2) The compact UTC `window_end` leads, so a plain lexical listing of a
-    tenant's prefix is chronological, which is what the comparison job (leg 2) needs to find "the
-    latest anchor" without parsing every envelope.
+    tenant's prefix is chronological, which is what the comparison job (`audit_anchor_verify`, leg
+    2) uses to find "the latest anchor" without parsing every envelope — over a set it first
+    CORROBORATES against a second, independent enumeration, because a listing that silently omits
+    the newest anchor would otherwise make it verify against an older one and report clean (see
+    that module's "THE LATEST-ANCHOR PROBLEM"). Nothing IN an anchor points at its predecessor, so
+    ordering is all this key shape can offer; completeness it cannot.
 
     `tenant_id` was validated by `schema_for_tenant` at checkpoint construction, so it can contain
     neither a slash nor a dot and cannot escape its prefix.
