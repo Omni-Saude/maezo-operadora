@@ -102,6 +102,18 @@ mapping is stated once, here, so a reviewer can neuter any one of them and predi
       `test_constructing_a_checkpoint_still_uses_the_real_schema_validator` — going lazy must not
       quietly become going to a DIFFERENT (locally re-implemented, drifting) rule.
 
+  D13 `prev_anchor_root` (v2) is inside the signed bytes AND fail-closed on construction.
+      NEUTER: drop `prev_anchor_root` from `to_canonical_mapping()`, or delete the `_SHA256_HEX`
+      check on it in `__post_init__`, or default it instead of requiring it.
+      RED: `test_checkpoint_bytes_match_pinned_literal` / `test_checkpoint_root_matches_pinned
+      _literal` (the re-pinned 378-byte v2 literal moves), `test_every_checkpoint_field_changes_the
+      _root[prev_anchor_root]` (a link an attacker could edit under a still-valid signature),
+      `test_prev_anchor_root_must_be_64_lowercase_hex`, and
+      `test_prev_anchor_root_is_required_no_silent_genesis_default` (a missing prev is a
+      construction error, never a defaulted genesis). The v1->v2 bump itself is pinned by the
+      byte-exact literal (`anchor_format` is the first canonical key) plus
+      `test_anchor_format_is_v2` / `test_genesis_prev_anchor_root_sentinel_is_pinned`.
+
 The RED probes actually executed for this file — each defense mutated, watched go red, and
 reverted — are tabulated in `docs/design/wave4-audit-anchor.md` §7 with their exact counts.
 """
@@ -129,6 +141,7 @@ from maezo.gateway.audit_anchor import (
     FAKE_ANCHOR_SIGNATURE_ALGORITHM,
     FAKE_ANCHOR_SIGNATURE_PREFIX,
     FAKE_WORM_STORE_MARKER_FILENAME,
+    GENESIS_PREV_ANCHOR_ROOT,
     REASON_DISABLED,
     REASON_WRITTEN,
     AnchorChainDiscontinuityError,
@@ -161,16 +174,18 @@ _SRC_MAEZO = _REPO_ROOT / "src" / "maezo"
 
 
 # =================================================================================================
-# The pinned fixture. Every literal below was computed OUT-OF-BAND, before the module existed, by
-# hand-typing the target canonical JSON string into a standalone interpreter — NOT by calling the
-# functions under test. Reproduce verbatim with:
+# The pinned fixture. Every literal below was computed OUT-OF-BAND, by hand-typing the target
+# canonical JSON string into a standalone interpreter — NOT by calling the functions under test.
+# Re-pinned for ANCHOR_FORMAT v2 (added `prev_anchor_root`, here the GENESIS sentinel = 64 hex
+# zeros). Reproduce verbatim with:
 #
 #   python - <<'PY'
 #   import hashlib, hmac
 #   canonical = (
-#       '{"anchor_format":"maezo.audit-anchor.v1",'
+#       '{"anchor_format":"maezo.audit-anchor.v2",'
 #       '"chain_head_hash":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",'
 #       '"chain_schema_version":"0005_audit_emit_dedup",'
+#       '"prev_anchor_root":"0000000000000000000000000000000000000000000000000000000000000000",'
 #       '"record_count":3,'
 #       '"tenant_id":"amh",'
 #       '"window_end":"2026-01-02T03:04:05+00:00",'
@@ -181,8 +196,8 @@ _SRC_MAEZO = _REPO_ROOT / "src" / "maezo"
 #   print(hmac.new(b"labeled-fake-anchor-secret-nao-vinculativo", raw, hashlib.sha256).hexdigest())
 #   PY
 #
-#   292 a598ab16640fe0079239f210960ef9432cc6b80419d7528c5b059e7f4fa36836
-#       546253dfb3aa30ddebd8f301c9826630c6b2f5b18b5d73c9c3e7ef121cca3ecb
+#   378 5687e5bd13691d07f32d48de7f01d52d3891d6bf4d1df997c83e97e51ec4644c
+#       ff6351c9948785e7a7b4ddc15d3f1a3b669ee6f9d4902d8799964ad24f761dc3
 # =================================================================================================
 
 _FIXTURE_HEAD = "0123456789abcdef" * 4
@@ -191,16 +206,17 @@ _FIXTURE_WINDOW_START = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC)
 _FIXTURE_WINDOW_END = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
 
 _PINNED_CANONICAL_BYTES = (
-    b'{"anchor_format":"maezo.audit-anchor.v1",'
+    b'{"anchor_format":"maezo.audit-anchor.v2",'
     b'"chain_head_hash":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",'
     b'"chain_schema_version":"0005_audit_emit_dedup",'
+    b'"prev_anchor_root":"0000000000000000000000000000000000000000000000000000000000000000",'
     b'"record_count":3,'
     b'"tenant_id":"amh",'
     b'"window_end":"2026-01-02T03:04:05+00:00",'
     b'"window_start":"2026-01-01T00:00:00+00:00"}'
 )
-_PINNED_ROOT = "a598ab16640fe0079239f210960ef9432cc6b80419d7528c5b059e7f4fa36836"
-_PINNED_FAKE_HMAC = "546253dfb3aa30ddebd8f301c9826630c6b2f5b18b5d73c9c3e7ef121cca3ecb"
+_PINNED_ROOT = "5687e5bd13691d07f32d48de7f01d52d3891d6bf4d1df997c83e97e51ec4644c"
+_PINNED_FAKE_HMAC = "ff6351c9948785e7a7b4ddc15d3f1a3b669ee6f9d4902d8799964ad24f761dc3"
 _FIXTURE_SECRET = b"labeled-fake-anchor-secret-nao-vinculativo"
 _FIXTURE_KEY_LABEL = "leg1-fixture"
 _PINNED_ANCHOR_KEY = f"amh/20260102T030405Z-{_PINNED_ROOT}.anchor.json"
@@ -214,6 +230,7 @@ def _fixture_checkpoint(**overrides: Any) -> AnchorCheckpoint:
         "window_start": _FIXTURE_WINDOW_START,
         "window_end": _FIXTURE_WINDOW_END,
         "chain_schema_version": _FIXTURE_SCHEMA_VERSION,
+        "prev_anchor_root": GENESIS_PREV_ANCHOR_ROOT,
     }
     base.update(overrides)
     return AnchorCheckpoint(**base)
@@ -249,10 +266,11 @@ class _ExplodingStore:
 
 
 def test_checkpoint_field_set_is_pinned() -> None:
-    """HARDCODED, not derived. Provenance: the seven fields named by the external audit §4
+    """HARDCODED, not derived. Provenance: the fields named by the external audit §4
     ("last record hash, record count, time window and schema/version") plus the tenant the chain
-    belongs to and the anchor format identifier. Set-equality, so BOTH an addition (a new field —
-    the PHI risk) and a removal (dropping `record_count`) fail."""
+    belongs to, the anchor format identifier, and (v2) `prev_anchor_root`, the in-band anchor-chain
+    link. Set-equality, so BOTH an addition (a new field — the PHI risk) and a removal (dropping
+    `record_count`) fail."""
     expected = frozenset(
         {
             "tenant_id",
@@ -261,6 +279,7 @@ def test_checkpoint_field_set_is_pinned() -> None:
             "window_start",
             "window_end",
             "chain_schema_version",
+            "prev_anchor_root",
             "anchor_format",
         }
     )
@@ -280,7 +299,7 @@ def test_canonical_mapping_keys_match_the_field_set() -> None:
 
 def test_checkpoint_bytes_match_pinned_literal() -> None:
     assert checkpoint_bytes(_fixture_checkpoint()) == _PINNED_CANONICAL_BYTES
-    assert len(_PINNED_CANONICAL_BYTES) == 292
+    assert len(_PINNED_CANONICAL_BYTES) == 378
 
 
 def test_checkpoint_root_matches_pinned_literal() -> None:
@@ -325,8 +344,17 @@ def test_canonical_bytes_refuse_non_finite_numbers() -> None:
         ("window_start", datetime(2026, 1, 1, 0, 0, 1, tzinfo=UTC)),
         ("window_end", datetime(2026, 1, 2, 3, 4, 6, tzinfo=UTC)),
         ("chain_schema_version", "0002_audit_chain"),
+        ("prev_anchor_root", "a" * 64),
     ],
-    ids=["tenant_id", "chain_head_hash", "record_count", "window_start", "window_end", "schema"],
+    ids=[
+        "tenant_id",
+        "chain_head_hash",
+        "record_count",
+        "window_start",
+        "window_end",
+        "schema",
+        "prev_anchor_root",
+    ],
 )
 def test_every_checkpoint_field_changes_the_root(field_name: str, mutated: Any) -> None:
     """EVERY attested field must be inside the root. A field that can be changed without moving
@@ -421,6 +449,74 @@ def test_blank_chain_schema_version_is_refused() -> None:
 
 
 # =================================================================================================
+# D13 — prev_anchor_root (v2 in-band anchor chaining) + the format bump
+# =================================================================================================
+
+
+def test_anchor_format_is_v2() -> None:
+    """HARDCODED. Provenance: the v1->v2 bump that added `prev_anchor_root`. The constant is the
+    first key of the signed canonical bytes, so this pin and the byte-exact literal move together —
+    a v1 literal asserting v2 bytes (or vice versa) is exactly what the format bump forbids."""
+    assert ANCHOR_FORMAT == "maezo.audit-anchor.v2"
+
+
+def test_genesis_prev_anchor_root_sentinel_is_pinned() -> None:
+    """HARDCODED. Provenance: the documented 'null predecessor' sentinel for the first anchor of a
+    tenant — 64 hex zeros, the anchor-chain analogue of `audit.GENESIS_PREV_HASH`. It must pass the
+    same 64-lowercase-hex shape check every real root does, so a genesis anchor needs no
+    special-case branch."""
+    assert GENESIS_PREV_ANCHOR_ROOT == "0" * 64
+    # A genesis anchor constructs cleanly — the sentinel is a legal prev_anchor_root.
+    assert _fixture_checkpoint(prev_anchor_root=GENESIS_PREV_ANCHOR_ROOT).prev_anchor_root == "0" * 64
+
+
+@pytest.mark.parametrize(
+    "bad_prev",
+    ["", "abc", "0" * 63, "0" * 65, "A" * 64, "z" * 64, "0123456789ABCDEF" * 4],
+    ids=["empty", "short", "63", "65", "uppercase-A", "non-hex", "uppercase-hex"],
+)
+def test_prev_anchor_root_must_be_64_lowercase_hex(bad_prev: str) -> None:
+    """Same shape discipline as `chain_head_hash`: hex case is not normalized in the chain, so a
+    non-canonical prev would let one predecessor produce two different-looking links."""
+    with pytest.raises(ValueError, match="prev_anchor_root"):
+        _fixture_checkpoint(prev_anchor_root=bad_prev)
+
+
+def test_prev_anchor_root_is_required_no_silent_genesis_default() -> None:
+    """FAIL-CLOSED: `prev_anchor_root` has NO default. Omitting it is a construction error, never a
+    silent fall-back to the genesis sentinel — a defaulted prev is precisely how an omitted anchor
+    link could masquerade as a fresh genesis and hide a gap."""
+    base: dict[str, Any] = {
+        "tenant_id": "amh",
+        "chain_head_hash": _FIXTURE_HEAD,
+        "record_count": 3,
+        "window_start": _FIXTURE_WINDOW_START,
+        "window_end": _FIXTURE_WINDOW_END,
+        "chain_schema_version": _FIXTURE_SCHEMA_VERSION,
+    }
+    with pytest.raises(TypeError, match="prev_anchor_root"):
+        AnchorCheckpoint(**base)  # type: ignore[call-arg]
+
+
+def test_checkpoint_for_chain_requires_prev_anchor_root() -> None:
+    """The derivation helper also refuses to invent a predecessor: `prev_anchor_root` is a
+    keyword-only REQUIRED argument, because it is a property of the anchor chain, not the record
+    chain, and cannot be derived from records."""
+    _, records = _emit_fixture_chain()
+    with pytest.raises(TypeError, match="prev_anchor_root"):
+        checkpoint_for_chain(records, tenant_id="amh", chain_schema_version=_FIXTURE_SCHEMA_VERSION)  # type: ignore[call-arg]
+
+
+def test_prev_anchor_root_links_a_non_genesis_anchor() -> None:
+    """A real (non-genesis) predecessor root is accepted and travels into the signed bytes, so the
+    second anchor of a tenant differs from a genesis-rooted one even with identical content."""
+    predecessor = "b" * 64
+    linked = _fixture_checkpoint(prev_anchor_root=predecessor)
+    assert linked.prev_anchor_root == predecessor
+    assert checkpoint_root(linked) != _PINNED_ROOT  # the link is inside the root
+
+
+# =================================================================================================
 # checkpoint_for_chain — derivation from a REAL fixture chain (no DB)
 # =================================================================================================
 
@@ -447,7 +543,12 @@ def test_checkpoint_for_chain_pins_count_window_and_head() -> None:
     sink, records = _emit_fixture_chain()
     assert sink.verify_chain() is True  # the fixture really is a valid chain
 
-    checkpoint = checkpoint_for_chain(records, tenant_id="amh", chain_schema_version=_FIXTURE_SCHEMA_VERSION)
+    checkpoint = checkpoint_for_chain(
+        records,
+        tenant_id="amh",
+        chain_schema_version=_FIXTURE_SCHEMA_VERSION,
+        prev_anchor_root=GENESIS_PREV_ANCHOR_ROOT,
+    )
 
     assert checkpoint.record_count == 3  # hardcoded: the fixture emits exactly three records
     assert checkpoint.window_start == datetime(2026, 3, 1, 12, 0, 0, tzinfo=UTC)
@@ -459,12 +560,18 @@ def test_fixture_chain_root_matches_an_independent_recomputation() -> None:
     """Recompute the root WITHOUT the module's canonicalizer — an inline stdlib `json.dumps` typed
     out here, so a bug in `canonical_bytes` cannot hide behind itself."""
     _, records = _emit_fixture_chain()
-    checkpoint = checkpoint_for_chain(records, tenant_id="amh", chain_schema_version=_FIXTURE_SCHEMA_VERSION)
+    checkpoint = checkpoint_for_chain(
+        records,
+        tenant_id="amh",
+        chain_schema_version=_FIXTURE_SCHEMA_VERSION,
+        prev_anchor_root=GENESIS_PREV_ANCHOR_ROOT,
+    )
     independent = json.dumps(
         {
-            "anchor_format": "maezo.audit-anchor.v1",
+            "anchor_format": "maezo.audit-anchor.v2",
             "chain_head_hash": records[-1].record_hash,
             "chain_schema_version": "0005_audit_emit_dedup",
+            "prev_anchor_root": "0" * 64,
             "record_count": 3,
             "tenant_id": "amh",
             "window_end": "2026-03-01T12:02:00+00:00",
@@ -481,7 +588,12 @@ def test_checkpoint_for_chain_window_survives_clock_skew() -> None:
     """Window is min/max, not first/last: a skewed replica must not produce an inverted window."""
     _, records = _emit_fixture_chain()
     records[1].timestamp = datetime(2026, 2, 1, 0, 0, 0, tzinfo=UTC)  # earlier than records[0]
-    checkpoint = checkpoint_for_chain(records, tenant_id="amh", chain_schema_version=_FIXTURE_SCHEMA_VERSION)
+    checkpoint = checkpoint_for_chain(
+        records,
+        tenant_id="amh",
+        chain_schema_version=_FIXTURE_SCHEMA_VERSION,
+        prev_anchor_root=GENESIS_PREV_ANCHOR_ROOT,
+    )
     assert checkpoint.window_start == datetime(2026, 2, 1, 0, 0, 0, tzinfo=UTC)
     assert checkpoint.window_end == datetime(2026, 3, 1, 12, 2, 0, tzinfo=UTC)
 
@@ -489,26 +601,46 @@ def test_checkpoint_for_chain_window_survives_clock_skew() -> None:
 def test_checkpoint_for_chain_refuses_a_non_contiguous_sequence() -> None:
     _, records = _emit_fixture_chain()
     with pytest.raises(AnchorChainDiscontinuityError, match="not one contiguous run"):
-        checkpoint_for_chain(records[1:], tenant_id="amh", chain_schema_version=_FIXTURE_SCHEMA_VERSION)
+        checkpoint_for_chain(
+            records[1:],
+            tenant_id="amh",
+            chain_schema_version=_FIXTURE_SCHEMA_VERSION,
+            prev_anchor_root=GENESIS_PREV_ANCHOR_ROOT,
+        )
 
 
 def test_checkpoint_for_chain_refuses_a_broken_link() -> None:
     _, records = _emit_fixture_chain()
     records[2].prev_hash = "d" * 64
     with pytest.raises(AnchorChainDiscontinuityError, match="record 2"):
-        checkpoint_for_chain(records, tenant_id="amh", chain_schema_version=_FIXTURE_SCHEMA_VERSION)
+        checkpoint_for_chain(
+            records,
+            tenant_id="amh",
+            chain_schema_version=_FIXTURE_SCHEMA_VERSION,
+            prev_anchor_root=GENESIS_PREV_ANCHOR_ROOT,
+        )
 
 
 def test_checkpoint_for_chain_refuses_an_empty_sequence() -> None:
     with pytest.raises(AnchorChainDiscontinuityError, match="no time window to attest"):
-        checkpoint_for_chain([], tenant_id="amh", chain_schema_version=_FIXTURE_SCHEMA_VERSION)
+        checkpoint_for_chain(
+            [],
+            tenant_id="amh",
+            chain_schema_version=_FIXTURE_SCHEMA_VERSION,
+            prev_anchor_root=GENESIS_PREV_ANCHOR_ROOT,
+        )
 
 
 def test_checkpoint_for_chain_refuses_an_unemitted_record() -> None:
     _, records = _emit_fixture_chain(1)
     records[0].record_hash = None
     with pytest.raises(AnchorChainDiscontinuityError, match="no record_hash"):
-        checkpoint_for_chain(records, tenant_id="amh", chain_schema_version=_FIXTURE_SCHEMA_VERSION)
+        checkpoint_for_chain(
+            records,
+            tenant_id="amh",
+            chain_schema_version=_FIXTURE_SCHEMA_VERSION,
+            prev_anchor_root=GENESIS_PREV_ANCHOR_ROOT,
+        )
 
 
 # =================================================================================================

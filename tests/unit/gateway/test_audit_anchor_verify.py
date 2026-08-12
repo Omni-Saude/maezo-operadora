@@ -4,15 +4,21 @@ TEST DOCTRINE FOR THIS FILE — consequence-level, with named RED controls, cont
 `D1..D12` numbering as `V1..V12`. Every defense below is paired with the test that goes RED when
 the defense is neutered, so a reviewer can neuter any one of them and predict the failure:
 
-  V1  RECOMPUTE, NEVER TRUST `envelope["root"]`.
+  V1  RECOMPUTE, NEVER TRUST `envelope["root"]` — and report a changed one, on EVERY anchor.
       NEUTER: compare the database root against `anchor.stored_root` instead of against
-      `sha256(anchor.checkpoint_bytes)`.
+      `sha256(anchor.checkpoint_bytes)`; or narrow the `ANCHOR_ROOT_FIELD_INCONSISTENT` check back
+      to the chain TIP.
       RED: `test_an_envelope_root_edited_to_match_the_database_is_still_not_clean` — the direct
       consequence probe. It seals a genuine, signature-VALID checkpoint for chain A while setting
       the (unsigned) `root` field to the root of chain B, and puts chain B in the database. A job
       that trusted the stored field reports MATCH; this one reports DIVERGENCE. Its CONTROL is
       `test_untampered_chain_matches_the_anchor` — the recomputation must still be able to say
-      clean, or the whole verdict is a constant.
+      clean, or the whole verdict is a constant. The WIDTH of the check is
+      `test_an_edited_root_field_one_link_back_is_a_divergence_too`: the same one-string edit, one
+      link back, which a tip-only check reported as MATCH. Its ORDERING — genesis-first, the
+      EARLIEST offender named — is
+      `test_the_earliest_root_field_offender_is_named_when_genesis_and_tip_are_both_edited`, which a
+      `reversed(chain)` walk fails (the width test, editing only the genesis, cannot see direction).
 
   V2  The database side is recomputed through the WRITER's own derivation, never a second copy.
       NEUTER: re-implement the canonical mapping / the root here instead of calling
@@ -86,6 +92,60 @@ the defense is neutered, so a reviewer can neuter any one of them and predict th
       RED: `test_filesystem_probe_sees_the_anchor_the_listing_misses`,
       `test_filesystem_probe_terminates_on_a_symlink_cycle`.
 
+  V13 The anchor set must be ONE contiguous in-band chain, and selection follows the LINKS.
+      NEUTER: delete `_walk_anchor_chain`'s leftover/genesis/fork checks, replace it with
+      `tuple(sorted(verified))`, walk links against envelopes whose signatures were not verified,
+      or go back to selecting `max(listed)`.
+      RED: `test_an_anchor_deleted_from_the_middle_of_the_chain_is_caught_by_the_evidence` — the
+      direct consequence probe (a HISTORICAL anchor removed from a store whose retention lock
+      failed; both enumerations agree it is gone, so V3's probe cannot fire, and the database is
+      honest, so no content check fires either). Its RED CONTROL is the test immediately after it,
+      `test_red_control_a_credulous_chain_walk_reports_the_thinned_ledger_as_clean`, which swaps in
+      the pre-chaining behaviour (trust the key order, check no links) and DEMONSTRATES the silent
+      MATCH over a thinned ledger. The walk's CURSOR SOURCE — the recomputed root, never the
+      unsigned stored one — is
+      `test_a_thinned_chain_cannot_be_reconnected_through_an_unsigned_root_field`: swapping the
+      cursor to `parsed.stored_root` lets a keyless actor thin the ledger and re-link it with one
+      string edit, and that test asserts `ANCHOR_CHAIN_BROKEN`, which the mutated cursor cannot
+      produce no matter what any downstream gate decides. Genesis semantics are pinned in both
+      directions by `test_a_single_genesis_anchor_is_a_legal_chain_of_length_one` and
+      `test_a_lone_non_genesis_anchor_has_nowhere_to_start`; the ordering independence by
+      `test_the_chain_walk_orders_by_links_not_by_key_ordering` (relabelled keys, adversarial
+      insertion order — the divergence is INJECTED, never inherited from the platform) and
+      `test_selection_follows_the_chain_even_when_the_stored_key_stamps_lie`; the signature
+      precondition by `test_every_anchor_is_signature_verified_before_any_link_is_believed`, whose
+      forgery is sealed to sort FIRST so that verifying only the selected/max anchor fails it.
+      NOT claimed: truncation of the NEWEST anchors, which no backward link can see. That is NOT
+      covered by V3 either — the probe fires on two enumerations DISAGREEING, and a genuinely
+      deleted tip makes them agree — so it is the one disclosed silent-clean path, out of in-band
+      reach and left to the storage layer's retention lock (module docstring, "IN-BAND ANCHOR
+      CHAINING"). Both defenses are wired; neither claims that gap.
+
+  V14 The anchor's SIGNED schema version is cross-checked against the tenant's LIVE one, LAST.
+      NEUTER: make `_schema_versions_agree` always agree, drop the `schema_version` field from
+      `ChainSnapshot`, default it, or move the check ahead of the content comparison.
+      RED: `test_a_migration_the_anchor_never_saw_is_surfaced_not_silently_matched`, with its RED
+      CONTROL `test_red_control_a_schema_cross_check_that_always_agrees_calls_a_stale_anchor_clean`.
+      The ORDERING half — that a real divergence can never be masked by the milder schema finding —
+      is `test_a_content_divergence_is_never_masked_by_a_stale_schema_version`, built on a
+      ROOT_MISMATCH (a rewritten-and-recomputed chain) rather than on a record shortfall: a
+      shortfall returns before the schema gate under ANY ordering, so it cannot measure one. The
+      fail-closed seam is `test_snapshot_from_rows_refuses_to_default_the_schema_version`.
+
+  V15 The seams stay NARROW and the reporting stays DETERMINISTIC.
+      NEUTER: broaden `read_chain`'s `except UndefinedTableError` to `except Exception`; walk the
+      corroborated key set in descending order; drop the checkpoint-level key-set equality in
+      `_parse_envelope`.
+      RED: `test_only_a_missing_version_table_is_swallowed_by_the_schema_version_read` (three
+      cases — one control that the `except` still does its job, two other DB failures that must
+      keep reaching `DB_ERROR/DATABASE_UNREACHABLE` with an `error_type`),
+      `test_the_oldest_unusable_anchor_is_the_one_reported_when_two_are_bad` (two anchors bad in
+      different ways; ascending order decides which incident an operator is sent to), and
+      `test_a_checkpoint_whose_field_set_is_not_the_writers_is_refused_not_half_read` (missing and
+      extra checkpoint fields — the equality is the only thing between a malformed envelope and a
+      `KeyError` out of the job, which is why the constructor guard also catches `KeyError` as a
+      fail-closed backstop).
+
 The RED probes actually executed for this file are tabulated in
 `docs/design/wave4-audit-anchor.md` §9 with their exact counts.
 """
@@ -95,18 +155,22 @@ from __future__ import annotations
 import ast
 import json
 import os
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final
 
+import asyncpg  # type: ignore[import-untyped]  # no py.typed upstream
 import pytest
 import structlog
 
+from maezo.gateway import audit_anchor_verify
 from maezo.gateway.audit import AuditRecord, AuditSink
 from maezo.gateway.audit_anchor import (
     ANCHOR_ENABLED_ENV,
     ANCHOR_FORMAT,
     FAKE_ANCHOR_SIGNATURE_PREFIX,
+    GENESIS_PREV_ANCHOR_ROOT,
     AnchorCheckpoint,
     AnchorSignature,
     LabeledFakeKmsAnchorSigner,
@@ -127,6 +191,9 @@ from maezo.gateway.audit_anchor_verify import (
     EXIT_CLI_REFUSED,
     EXIT_CODE_BY_STATUS,
     LEVEL_BY_STATUS,
+    REASON_ANCHOR_CHAIN_FORK,
+    REASON_ANCHOR_CHAIN_LINK_MISSING,
+    REASON_ANCHOR_CHAIN_NO_GENESIS,
     REASON_ANCHOR_ROOT_FIELD_INCONSISTENT,
     REASON_CHAIN_DISCONTINUITY,
     REASON_CHAIN_FORK,
@@ -140,17 +207,21 @@ from maezo.gateway.audit_anchor_verify import (
     REASON_PROBE_UNAVAILABLE,
     REASON_RECORD_COUNT_SHORTFALL,
     REASON_ROOT_MISMATCH,
+    REASON_SCHEMA_VERSION_MISMATCH,
+    REASON_SCHEMA_VERSION_UNREADABLE,
     REASON_SELECTED_ANCHOR_UNREADABLE,
     REASON_SIGNATURE_REJECTED,
     REASON_SIGNATURE_VERIFIER_FAILED,
     REASON_TO_STATUS,
     REASON_VERIFICATION_DISABLED,
+    STATUS_ANCHOR_CHAIN_BROKEN,
     STATUS_ANCHOR_UNREADABLE,
     STATUS_DB_ERROR,
     STATUS_DISABLED,
     STATUS_DIVERGENCE,
     STATUS_MATCH,
     STATUS_NO_ANCHOR,
+    STATUS_SCHEMA_VERSION_MISMATCH,
     STATUS_SIGNATURE_INVALID,
     STATUS_STORE_LISTING_SUSPECT,
     AnchorVerificationOutcome,
@@ -227,13 +298,20 @@ def _rows_from_records(records: list[AuditRecord]) -> list[dict[str, Any]]:
 
 
 class _RowRecordSource:
-    """A `ChainRecordSource` over in-memory rows. The DB seam, with no database."""
+    """A `ChainRecordSource` over in-memory rows. The DB seam, with no database.
 
-    def __init__(self, rows: list[dict[str, Any]]) -> None:
+    `schema_version` is what the tenant's LIVE `alembic_version` would report; it defaults to the
+    SAME revision the fixture anchors are sealed under (`_SCHEMA_VERSION`), so the schema
+    cross-check (V14) is satisfied by default and only the tests that deliberately move it exercise
+    the mismatch. `None` models a source that could not establish the live revision.
+    """
+
+    def __init__(self, rows: list[dict[str, Any]], *, schema_version: str | None = _SCHEMA_VERSION) -> None:
         self._rows = rows
+        self._schema_version = schema_version
 
     async def read_chain(self, tenant_id: str) -> ChainSnapshot:
-        return snapshot_from_rows(self._rows)
+        return snapshot_from_rows(self._rows, schema_version=self._schema_version)
 
 
 class _RaisingRecordSource:
@@ -341,15 +419,23 @@ def _seal_anchor(
     *,
     count: int | None = None,
     signer: LabeledFakeKmsAnchorSigner | None = None,
+    prev_anchor_root: str = GENESIS_PREV_ANCHOR_ROOT,
 ) -> str:
     """Seal a REAL anchor over `records[:count]` through leg 1's `write_anchor`. Returns its key.
 
     Deliberately the writer, not a hand-built envelope: the pair under test is leg 1's writer and
     leg 2's verifier, and a fixture that hand-rolled the envelope would prove the verifier agrees
-    with the fixture rather than with the writer.
+    with the fixture rather than with the writer. `prev_anchor_root` defaults to the genesis
+    sentinel (the common single-anchor case); the anchor-chain tests pass a real predecessor root
+    to link a second/third anchor.
     """
     window = records if count is None else records[:count]
-    checkpoint = checkpoint_for_chain(window, tenant_id=_TENANT, chain_schema_version=_SCHEMA_VERSION)
+    checkpoint = checkpoint_for_chain(
+        window,
+        tenant_id=_TENANT,
+        chain_schema_version=_SCHEMA_VERSION,
+        prev_anchor_root=prev_anchor_root,
+    )
     outcome = write_anchor(checkpoint, signer=signer or _signer(), store=store)
     assert outcome.written is True
     assert outcome.anchor_key is not None
@@ -412,9 +498,12 @@ async def _verify(
 
 
 def test_status_vocabulary_is_closed_and_pinned() -> None:
-    """HARDCODED set-equality. Provenance: the six outcomes named in the leg-2 brief plus the two
+    """HARDCODED set-equality. Provenance: the six outcomes named in the leg-2 brief plus the four
     the brief's own rule requires — `ANCHOR_UNREADABLE` (bytes that are not an anchor are not a
-    forged signature) and `DISABLED` ("did not run" is not "ran and passed"). Set-equality so BOTH
+    forged signature), `DISABLED` ("did not run" is not "ran and passed"), and the two this
+    follow-up adds: `ANCHOR_CHAIN_BROKEN` (the signed evidence is not one contiguous in-band chain,
+    which is not a statement about the database) and `SCHEMA_VERSION_MISMATCH` (the content agreed
+    but the anchor attests a migration revision the database no longer has). Set-equality so BOTH
     an addition and a removal fail: leg 3's drills and the runbook branch on these tokens."""
     expected = frozenset(
         {
@@ -425,6 +514,8 @@ def test_status_vocabulary_is_closed_and_pinned() -> None:
             "STORE_LISTING_SUSPECT",
             "DB_ERROR",
             "ANCHOR_UNREADABLE",
+            "ANCHOR_CHAIN_BROKEN",
+            "SCHEMA_VERSION_MISMATCH",
             "DISABLED",
         }
     )
@@ -455,7 +546,12 @@ def test_only_match_exits_zero() -> None:
 def test_exit_code_table_is_pinned() -> None:
     """HARDCODED. Provenance: the leg-2 brief's "exiting 0 on MATCH, non-zero per outcome class".
     Leg 3's drills and the runbook assert on these numbers, so a renumbering must be a reviewed
-    diff, never a refactor side effect."""
+    diff, never a refactor side effect.
+
+    The two new statuses take 17 and 18 — APPENDED, deliberately not slotted in beside their
+    conceptual neighbours. Inserting `ANCHOR_CHAIN_BROKEN` next to `ANCHOR_UNREADABLE` would have
+    shifted `DISABLED` from 16 to 17, silently re-labelling an incident class in every consumer
+    that already pins these integers."""
     assert dict(EXIT_CODE_BY_STATUS) == {
         "MATCH": 0,
         "DIVERGENCE": 10,
@@ -465,6 +561,8 @@ def test_exit_code_table_is_pinned() -> None:
         "DB_ERROR": 14,
         "ANCHOR_UNREADABLE": 15,
         "DISABLED": 16,
+        "ANCHOR_CHAIN_BROKEN": 17,
+        "SCHEMA_VERSION_MISMATCH": 18,
     }
 
 
@@ -650,8 +748,18 @@ async def test_an_envelope_root_edited_to_match_the_database_is_still_not_clean(
     non-vacuous: it proves the trap was actually set."""
     chain_a = _emit_chain(5, marker="attested")
     chain_b = _emit_chain(5, marker="rewritten")
-    checkpoint_a = checkpoint_for_chain(chain_a, tenant_id=_TENANT, chain_schema_version=_SCHEMA_VERSION)
-    checkpoint_b = checkpoint_for_chain(chain_b, tenant_id=_TENANT, chain_schema_version=_SCHEMA_VERSION)
+    checkpoint_a = checkpoint_for_chain(
+        chain_a,
+        tenant_id=_TENANT,
+        chain_schema_version=_SCHEMA_VERSION,
+        prev_anchor_root=GENESIS_PREV_ANCHOR_ROOT,
+    )
+    checkpoint_b = checkpoint_for_chain(
+        chain_b,
+        tenant_id=_TENANT,
+        chain_schema_version=_SCHEMA_VERSION,
+        prev_anchor_root=GENESIS_PREV_ANCHOR_ROOT,
+    )
     forged_root = checkpoint_root(checkpoint_b)
     assert forged_root != checkpoint_root(checkpoint_a)
 
@@ -665,6 +773,112 @@ async def test_an_envelope_root_edited_to_match_the_database_is_still_not_clean(
     assert outcome.reason == REASON_ANCHOR_ROOT_FIELD_INCONSISTENT
     assert outcome.anchor_root == checkpoint_root(checkpoint_a)  # recomputed, not the stored field
     assert outcome.anchor_root != forged_root
+
+
+async def test_an_edited_root_field_one_link_back_is_a_divergence_too(
+    anchors_enabled: None, store: LabeledFakeWormAnchorStore, probe: FilesystemAnchorKeyProbe
+) -> None:
+    """V1, ON EVERY ANCHOR. Rule 1 of the module docstring says the unsigned `root` field is
+    "reported as a DIVERGENCE in its own right, never silently ignored". That claim has to hold for
+    every anchor in the evidence, not only for the one a run happens to compare the database
+    against — the field is equally unsigned and equally immutable-in-a-WORM-store on all of them.
+
+    The edit here is the IDENTICAL one-string edit the test above makes on a tip, moved one link
+    back onto the genesis of a two-anchor chain. Nothing else is touched: the checkpoint bytes and
+    the signature over them are genuine (the actor has no key), the links still walk — the walk
+    reads RECOMPUTED roots and never this field — and the database is honest. A tip-only check
+    reported MATCH for exactly this store, which made the same tamper an alarm on one object and
+    invisible on its predecessor.
+
+    Nothing about a WORM store makes that difference legitimate: leg 1's `write_anchor` `put`s each
+    envelope ONCE, under a key that already contains the root, and `AnchorStore.put` must refuse an
+    existing key — there is no flow anywhere in the writer that re-stamps `root` on a historical
+    anchor, so a changed field one link back is custody evidence exactly as it is on the tip.
+
+    The record source EXPLODES if touched: this finding is made from the anchor evidence alone,
+    before any verdict about the database is attempted."""
+    records = _emit_chain(6)
+    genesis = checkpoint_for_chain(
+        records[:2],
+        tenant_id=_TENANT,
+        chain_schema_version=_SCHEMA_VERSION,
+        prev_anchor_root=GENESIS_PREV_ANCHOR_ROOT,
+    )
+    genesis_root = checkpoint_root(genesis)
+    # A genuine, signature-VALID genesis whose UNSIGNED `root` field says something else entirely.
+    genesis_key = _put_envelope(store, genesis, root="f" * 64)
+    tip_key = _seal_anchor(store, records, count=6, prev_anchor_root=genesis_root)
+    assert json.loads(store.get(genesis_key))["root"] == "f" * 64  # the trap is set
+    assert genesis_key < tip_key  # ... on the anchor a tip-only check would never look at
+
+    outcome = await _verify(store, _ExplodingRecordSource(), probe)
+
+    assert outcome.status == STATUS_DIVERGENCE
+    assert outcome.reason == REASON_ANCHOR_ROOT_FIELD_INCONSISTENT
+    assert outcome.anchor_key == genesis_key  # the OFFENDING anchor is named, not the chain tip
+    assert outcome.anchor_key != tip_key
+    assert outcome.anchor_root == genesis_root  # recomputed, never the "f" * 64 that was stored
+    assert outcome.anchored_record_count == 2  # ... and the numbers describe THAT anchor too
+    assert outcome.is_clean is False
+    assert outcome.database_root is None  # no verdict about the database was reached
+
+
+async def test_the_earliest_root_field_offender_is_named_when_genesis_and_tip_are_both_edited(
+    anchors_enabled: None, store: LabeledFakeWormAnchorStore, probe: FilesystemAnchorKeyProbe
+) -> None:
+    """V1'S ORDERING, pinned by consequence. The root-field pass walks the LINK-ordered chain
+    genesis-first with the first failure winning, so when TWO anchors carry an edited `root` the one
+    reported is the EARLIEST whose custody is in doubt — the oldest point at which the evidence
+    stopped agreeing with itself — never the tip's newest symptom of it.
+
+    This is the analogue, for the unsigned-`root` pass, of
+    `test_the_oldest_unusable_anchor_is_the_one_reported_when_two_are_bad` for the read/parse/verify
+    pass. It exists because the WIDTH test above (`test_an_edited_root_field_one_link_back_is_a_
+    divergence_too`) edits only the genesis: with a single offender the loop names it under ANY
+    iteration order, so that test cannot see the DIRECTION. Editing BOTH ends makes the direction
+    observable — a `reversed(chain)` walk reaches the tip first and would name it (record_count 6,
+    the tip's key/root), and every assertion below fails on exactly that mutation.
+
+    Both edits are the identical one-string `root` overwrite, on genuine signature-VALID checkpoints
+    the actor cannot re-sign; the links still walk, because the walk reads RECOMPUTED roots and
+    never this field; and the record source EXPLODES if touched, because the finding is made from
+    the anchor evidence alone, before any verdict about the database is attempted."""
+    records = _emit_chain(6)
+    genesis = checkpoint_for_chain(
+        records[:2],
+        tenant_id=_TENANT,
+        chain_schema_version=_SCHEMA_VERSION,
+        prev_anchor_root=GENESIS_PREV_ANCHOR_ROOT,
+    )
+    genesis_root = checkpoint_root(genesis)
+    tip = checkpoint_for_chain(
+        records,
+        tenant_id=_TENANT,
+        chain_schema_version=_SCHEMA_VERSION,
+        prev_anchor_root=genesis_root,  # a genuine in-band link to the genesis above
+    )
+    tip_root = checkpoint_root(tip)
+    # TWO offenders: each anchor's UNSIGNED `root` field is overwritten with a DISTINCT lie, so the
+    # anchor NAMED tells us unambiguously which end of the chain the loop reached first.
+    genesis_key = _put_envelope(store, genesis, root="f" * 64)
+    tip_key = _put_envelope(store, tip, root="e" * 64)
+    assert genesis_root != "f" * 64 and tip_root != "e" * 64  # both traps genuinely differ
+    assert genesis_root != tip_root  # the two ends are distinguishable
+    assert json.loads(store.get(genesis_key))["root"] == "f" * 64  # trap set on the genesis
+    assert json.loads(store.get(tip_key))["root"] == "e" * 64  # ... and on the tip
+    assert genesis_key < tip_key  # genesis-first is by the LINKS, not lucky key order
+
+    outcome = await _verify(store, _ExplodingRecordSource(), probe)
+
+    assert outcome.status == STATUS_DIVERGENCE
+    assert outcome.reason == REASON_ANCHOR_ROOT_FIELD_INCONSISTENT
+    assert outcome.anchor_key == genesis_key  # the EARLIEST offender, not the tip
+    assert outcome.anchor_key != tip_key  # reversed(chain) would name THIS instead
+    assert outcome.anchor_root == genesis_root  # recomputed; never "f" * 64, never the tip's root
+    assert outcome.anchor_root != tip_root
+    assert outcome.anchored_record_count == 2  # the genesis window (records[:2]), not the tip's 6
+    assert outcome.is_clean is False
+    assert outcome.database_root is None  # no verdict about the database was reached
 
 
 async def test_a_rewritten_chain_that_the_in_database_verifier_calls_valid_is_caught(
@@ -802,12 +1016,12 @@ def test_snapshot_from_rows_walks_structurally_and_detects_a_fork() -> None:
     rows = _rows_from_records(records)
 
     shuffled = [rows[2], rows[0], rows[3], rows[1]]  # storage order is not chain order
-    snapshot = snapshot_from_rows(shuffled)
+    snapshot = snapshot_from_rows(shuffled, schema_version=_SCHEMA_VERSION)
     assert snapshot.fork_at_prev_hash is None
     assert snapshot.total_records == 4
     assert [r.record_hash for r in snapshot.records] == [r.record_hash for r in records]
 
-    forked = snapshot_from_rows([*rows, {**rows[1], "record_hash": "e" * 64}])
+    forked = snapshot_from_rows([*rows, {**rows[1], "record_hash": "e" * 64}], schema_version=_SCHEMA_VERSION)
     assert forked.fork_at_prev_hash == rows[1]["prev_record_hash"]
     assert forked.records == ()
 
@@ -819,7 +1033,7 @@ def test_snapshot_from_rows_reports_an_unreachable_tail_as_a_short_run() -> None
     rows = _rows_from_records(records)
     del rows[2]  # everything after the hole is now unreachable from genesis
 
-    snapshot = snapshot_from_rows(rows)
+    snapshot = snapshot_from_rows(rows, schema_version=_SCHEMA_VERSION)
     assert snapshot.total_records == 4
     assert len(snapshot.records) == 2
 
@@ -836,7 +1050,12 @@ async def test_a_delabeled_signature_is_signature_invalid(
     not verify. The consequence HERE is what matters — the job reports tamper, not clean, and never
     reaches the database."""
     records = _emit_chain(3)
-    checkpoint = checkpoint_for_chain(records, tenant_id=_TENANT, chain_schema_version=_SCHEMA_VERSION)
+    checkpoint = checkpoint_for_chain(
+        records,
+        tenant_id=_TENANT,
+        chain_schema_version=_SCHEMA_VERSION,
+        prev_anchor_root=GENESIS_PREV_ANCHOR_ROOT,
+    )
     genuine = _signer().sign(checkpoint_bytes(checkpoint))
     _put_envelope(
         store,
@@ -908,6 +1127,7 @@ async def test_an_adversary_who_can_add_to_the_store_can_only_deny_never_clean(
         window_start=datetime(2030, 1, 1, tzinfo=UTC),
         window_end=datetime(2030, 1, 2, tzinfo=UTC),  # later stamp => selected first
         chain_schema_version=_SCHEMA_VERSION,
+        prev_anchor_root="b" * 64,  # a forgery's link is irrelevant: it dies at the signature gate
     )
     _put_envelope(store, planted, signature=_signer(secret=b"the-adversary-has-no-kms-key").sign(b"x"))
 
@@ -1155,6 +1375,549 @@ async def test_a_probe_that_fails_leaves_the_listing_uncorroborated_and_suspect(
 
 
 # =================================================================================================
+# V13 — the in-band anchor chain: contiguity, genesis semantics, structural selection
+# =================================================================================================
+
+
+def _chain_anchors(store: Any, records: list[AuditRecord], counts: Sequence[int]) -> list[str]:
+    """Seal one genuinely CHAINED anchor per entry in `counts`, genesis-first. Returns their keys.
+
+    Each anchor attests `records[:count]` and commits to the ROOT of the previous anchor, exactly as
+    an owner's periodic writer would. The roots are recomputed here through leg 1's own
+    `checkpoint_root`, never read back out of a stored envelope, so the fixture chains the anchors
+    by the same value the verifier will recompute.
+    """
+    keys: list[str] = []
+    previous = GENESIS_PREV_ANCHOR_ROOT
+    for count in counts:
+        keys.append(_seal_anchor(store, records, count=count, prev_anchor_root=previous))
+        previous = checkpoint_root(
+            checkpoint_for_chain(
+                records[:count],
+                tenant_id=_TENANT,
+                chain_schema_version=_SCHEMA_VERSION,
+                prev_anchor_root=previous,
+            )
+        )
+    return keys
+
+
+def _delete_anchor(store: LabeledFakeWormAnchorStore, key: str) -> None:
+    """Remove a stored anchor from BOTH enumerations — the WORM/retention lock having failed.
+
+    Deliberately a real unlink rather than a listing filter: an anchor merely HIDDEN from the
+    listing is the `_ListingOmittingStore` scenario the corroborating probe already catches. This is
+    the harder case the probe cannot catch — the object is genuinely gone, both enumerations agree
+    about that, and only the in-band chain still remembers it existed.
+    """
+    path = Path(store.root, *key.split("/"))
+    path.chmod(0o644)  # the fake store chmods anchors 0o444; the owner may still remove them
+    path.unlink()
+
+
+async def test_a_chained_anchor_set_verifies_clean_and_selects_the_chain_tip(
+    anchors_enabled: None, store: LabeledFakeWormAnchorStore, probe: FilesystemAnchorKeyProbe
+) -> None:
+    """THE NON-VACUITY CONTROL for V13. A whole three-anchor chain must still reach MATCH, and the
+    anchor it matches against must be the chain's TIP — otherwise every assertion below would be
+    satisfied by a job that simply always reports ANCHOR_CHAIN_BROKEN."""
+    records = _emit_chain(6)
+    keys = _chain_anchors(store, records, [2, 4, 6])
+
+    outcome = await _verify(store, _RowRecordSource(_rows_from_records(records)), probe)
+
+    assert outcome.status == STATUS_MATCH
+    assert outcome.anchor_key == keys[-1]
+    assert outcome.anchored_record_count == 6
+    assert outcome.anchor_chain_break_keys == ()
+
+
+async def test_a_single_genesis_anchor_is_a_legal_chain_of_length_one(
+    anchors_enabled: None, store: LabeledFakeWormAnchorStore, probe: FilesystemAnchorKeyProbe
+) -> None:
+    """GENESIS SEMANTICS, stated explicitly. A tenant's first anchor is the one whose signed
+    `prev_anchor_root` EQUALS the genesis sentinel — not "the oldest key", and not "the one whose
+    predecessor happens to be missing". A lone genesis anchor is a complete chain, and this is what
+    every deployment looks like on day one."""
+    records = _emit_chain(3)
+    key = _seal_anchor(store, records, prev_anchor_root=GENESIS_PREV_ANCHOR_ROOT)
+
+    outcome = await _verify(store, _RowRecordSource(_rows_from_records(records)), probe)
+
+    assert outcome.status == STATUS_MATCH
+    assert outcome.anchor_key == key
+
+
+async def test_a_lone_non_genesis_anchor_has_nowhere_to_start(
+    anchors_enabled: None, store: LabeledFakeWormAnchorStore, probe: FilesystemAnchorKeyProbe
+) -> None:
+    """The other half of the genesis rule, and the reason it may never be INFERRED. This anchor is
+    the only one in the store, so "the one whose predecessor is missing" would nominate it as
+    genesis and the job would report clean. Its signed `prev_anchor_root` says otherwise: a real
+    predecessor existed and is gone. Leg 1 refuses to seal a blank/defaulted `prev_anchor_root`
+    precisely so this state cannot be spelled any other way."""
+    records = _emit_chain(3)
+    _seal_anchor(store, records, prev_anchor_root="a" * 64)
+
+    outcome = await _verify(store, _ExplodingRecordSource(), probe)
+
+    assert outcome.status == STATUS_ANCHOR_CHAIN_BROKEN
+    assert outcome.reason == REASON_ANCHOR_CHAIN_NO_GENESIS
+    assert outcome.is_clean is False
+    assert outcome.exit_code == 17
+
+
+async def test_an_anchor_deleted_from_the_middle_of_the_chain_is_caught_by_the_evidence(
+    anchors_enabled: None, store: LabeledFakeWormAnchorStore, probe: FilesystemAnchorKeyProbe
+) -> None:
+    """V13, THE defense. The store's retention lock failed (or was never real) and a HISTORICAL
+    anchor was removed. Both enumerations agree it is gone, so the corroborating probe — which
+    compares two views of what EXISTS — has nothing to disagree about and cannot fire. The database
+    is honest, so every content check passes too.
+
+    The only thing that still remembers T2 existed is T3's signed `prev_anchor_root`. That is the
+    whole point of chaining the anchors: the anchor store stops being a SET of files that can be
+    quietly thinned and becomes a LEDGER whose gaps are visible in the evidence itself.
+
+    The RED control immediately below shows what this scenario returns without the check."""
+    records = _emit_chain(6)
+    first, middle, tip = _chain_anchors(store, records, [2, 4, 6])
+    _delete_anchor(store, middle)
+
+    outcome = await _verify(store, _RowRecordSource(_rows_from_records(records)), probe)
+
+    assert outcome.status == STATUS_ANCHOR_CHAIN_BROKEN
+    assert outcome.reason == REASON_ANCHOR_CHAIN_LINK_MISSING
+    # The stranded anchor is the one whose predecessor vanished — not the surviving genesis.
+    assert outcome.anchor_chain_break_keys == (tip,)
+    assert first not in outcome.anchor_chain_break_keys
+    # NO verdict about the database was issued: the evidence was not whole.
+    assert outcome.database_root is None
+    assert outcome.anchor_key is None
+    assert outcome.is_clean is False
+
+
+async def test_red_control_a_credulous_chain_walk_reports_the_thinned_ledger_as_clean(
+    anchors_enabled: None,
+    store: LabeledFakeWormAnchorStore,
+    probe: FilesystemAnchorKeyProbe,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """THE RED CONTROL for V13 — the identical scenario with the contiguity check NEUTERED.
+
+    The replacement is what the job did BEFORE the anchors were chained: trust the store's key order
+    and check no links at all. It returns MATCH, and the deleted historical anchor is never
+    mentioned by anything. This test asserts the disaster on purpose — it is the measurement that
+    makes the defense above meaningful rather than decorative. If a future change makes this
+    scenario return something other than MATCH, the contiguity walk is no longer what is doing the
+    work and V13's claim must be re-derived rather than trusted."""
+    records = _emit_chain(6)
+    _first, middle, tip = _chain_anchors(store, records, [2, 4, 6])
+    _delete_anchor(store, middle)
+
+    monkeypatch.setattr(audit_anchor_verify, "_walk_anchor_chain", lambda verified: tuple(sorted(verified)))
+
+    outcome = await _verify(store, _RowRecordSource(_rows_from_records(records)), probe)
+
+    assert outcome.status == STATUS_MATCH  # <- the silent clean verdict, reproduced
+    assert outcome.anchor_key == tip  # <- against a chain with a hole punched in its history
+    assert outcome.anchor_chain_break_keys == ()
+
+
+async def test_a_thinned_chain_cannot_be_reconnected_through_an_unsigned_root_field(
+    anchors_enabled: None, store: LabeledFakeWormAnchorStore, probe: FilesystemAnchorKeyProbe
+) -> None:
+    """WHICH ROOT THE WALK'S CURSOR IS, pinned by consequence. `_walk_anchor_chain` advances on
+    `verified[key].root` — the root RECOMPUTED from the predecessor's signature-verified checkpoint
+    bytes — and never on `parsed.stored_root`, which sits OUTSIDE the signature. The module
+    docstring states it ("the envelope's unsigned `root` field plays NO part in the walk"); until
+    this test nothing measured it, and swapping the cursor to the stored field left the whole suite
+    green.
+
+    The difference is an entire attack. Here the middle anchor T2 is gone (the retention lock
+    failed, exactly as in the two tests above) and the surviving genesis T1's UNSIGNED `root` field
+    has been retyped to name T2's root, so that T3's SIGNED `prev_anchor_root` looks satisfied by
+    T1. That forgery needs NO key at all: T1's checkpoint bytes and the signature over them are
+    untouched, and only a field no signature covers was edited. On the stored-field cursor the two
+    surviving anchors walk as one contiguous chain, and the thinned ledger reports MATCH against an
+    honest database — the store has been quietly re-thinned and the evidence agrees. On the
+    recomputed cursor T1's real root is not what T3 names, and the gap stays visible.
+
+    THIS TEST DISCRIMINATES THE CURSOR SOURCE SPECIFICALLY, not the root-field check next to it:
+    the assertion is `ANCHOR_CHAIN_BROKEN`, and under the stored-field cursor the chain is
+    COMPLETE — so no downstream gate (root field, content, schema) can put that status back, no
+    matter what any of them decide. The neighbouring
+    `test_an_edited_root_field_one_link_back_is_a_divergence_too` is what catches the edit itself;
+    this one is what keeps the chain from being redrawn by it."""
+    records = _emit_chain(6)
+    first = checkpoint_for_chain(
+        records[:2],
+        tenant_id=_TENANT,
+        chain_schema_version=_SCHEMA_VERSION,
+        prev_anchor_root=GENESIS_PREV_ANCHOR_ROOT,
+    )
+    first_root = checkpoint_root(first)
+    # T2 is never stored — this fixture IS the store after the thinning. Its root is still what T3
+    # commits to, because T3's `prev_anchor_root` is inside T3's signed bytes.
+    middle_root = checkpoint_root(
+        checkpoint_for_chain(
+            records[:4],
+            tenant_id=_TENANT,
+            chain_schema_version=_SCHEMA_VERSION,
+            prev_anchor_root=first_root,
+        )
+    )
+    genesis_key = _put_envelope(store, first, root=middle_root)  # the one-string reconnection
+    tip_key = _seal_anchor(store, records, count=6, prev_anchor_root=middle_root)
+
+    assert first_root != middle_root  # the trap is set: the stored field is NOT T1's real root
+    assert json.loads(store.get(genesis_key))["root"] == middle_root  # ... it names the DELETED T2
+
+    outcome = await _verify(store, _RowRecordSource(_rows_from_records(records)), probe)
+
+    assert outcome.status == STATUS_ANCHOR_CHAIN_BROKEN
+    assert outcome.reason == REASON_ANCHOR_CHAIN_LINK_MISSING
+    assert outcome.anchor_chain_break_keys == (tip_key,)
+    # No verdict about the database, even though the database here is entirely honest and would
+    # have produced MATCH the moment the walk accepted the reconnected chain.
+    assert outcome.anchor_key is None
+    assert outcome.database_root is None
+    assert outcome.is_clean is False
+
+
+async def test_a_foreign_anchor_planted_beside_the_chain_cannot_be_absorbed_into_it(
+    anchors_enabled: None, store: LabeledFakeWormAnchorStore, probe: FilesystemAnchorKeyProbe
+) -> None:
+    """An anchor that is validly signed and validly this tenant's, but was never on this chain — a
+    checkpoint from a restored backup, a different environment's store copied in, or a splice
+    attempt. Its `prev_anchor_root` names a root nothing here has, so the walk cannot reach it."""
+    records = _emit_chain(6)
+    _chain_anchors(store, records, [2, 4])
+    foreign = _seal_anchor(store, records, count=6, prev_anchor_root="c" * 64)
+
+    outcome = await _verify(store, _ExplodingRecordSource(), probe)
+
+    assert outcome.status == STATUS_ANCHOR_CHAIN_BROKEN
+    assert outcome.reason == REASON_ANCHOR_CHAIN_LINK_MISSING
+    assert outcome.anchor_chain_break_keys == (foreign,)
+
+
+async def test_two_anchors_claiming_the_same_predecessor_are_a_fork(
+    anchors_enabled: None, store: LabeledFakeWormAnchorStore, probe: FilesystemAnchorKeyProbe
+) -> None:
+    """Two competing successors to one anchor — the anchor-chain analogue of the duplicate
+    `prev_record_hash` that `snapshot_from_rows` calls a forked record chain, and the shape a
+    second writer (or a replayed writer) racing the first would leave behind."""
+    records = _emit_chain(6)
+    (genesis_key,) = _chain_anchors(store, records, [2])
+    genesis_root = checkpoint_root(
+        checkpoint_for_chain(
+            records[:2],
+            tenant_id=_TENANT,
+            chain_schema_version=_SCHEMA_VERSION,
+            prev_anchor_root=GENESIS_PREV_ANCHOR_ROOT,
+        )
+    )
+    branch_a = _seal_anchor(store, records, count=4, prev_anchor_root=genesis_root)
+    branch_b = _seal_anchor(store, records, count=5, prev_anchor_root=genesis_root)
+
+    outcome = await _verify(store, _ExplodingRecordSource(), probe)
+
+    assert outcome.status == STATUS_ANCHOR_CHAIN_BROKEN
+    assert outcome.reason == REASON_ANCHOR_CHAIN_FORK
+    assert outcome.anchor_chain_break_keys == tuple(sorted((branch_a, branch_b)))
+    assert genesis_key not in outcome.anchor_chain_break_keys
+
+
+async def test_two_genesis_anchors_are_the_same_fork_at_the_start_of_the_chain(
+    anchors_enabled: None, store: LabeledFakeWormAnchorStore, probe: FilesystemAnchorKeyProbe
+) -> None:
+    """ "No predecessor" is just another predecessor VALUE, so a second genesis is a second chain and
+    lands on the same token. Worth its own test because the alternative — special-casing genesis —
+    is exactly the branch that would rot into accepting two of them."""
+    records = _emit_chain(6)
+    first = _seal_anchor(store, records, count=3, prev_anchor_root=GENESIS_PREV_ANCHOR_ROOT)
+    second = _seal_anchor(store, records, count=5, prev_anchor_root=GENESIS_PREV_ANCHOR_ROOT)
+
+    outcome = await _verify(store, _ExplodingRecordSource(), probe)
+
+    assert outcome.status == STATUS_ANCHOR_CHAIN_BROKEN
+    assert outcome.reason == REASON_ANCHOR_CHAIN_FORK
+    assert outcome.anchor_chain_break_keys == tuple(sorted((first, second)))
+
+
+async def test_every_anchor_is_signature_verified_before_any_link_is_believed(
+    anchors_enabled: None, store: LabeledFakeWormAnchorStore, probe: FilesystemAnchorKeyProbe
+) -> None:
+    """The chain is only as good as the signatures under it. An unsigned anchor spliced beside it
+    must die at the SIGNATURE gate, never be walked as though its `prev_anchor_root` meant
+    something — otherwise an actor who cannot sign could still redraw the chain by writing links.
+
+    THE FORGERY IS DELIBERATELY NOT THE LEXICAL MAX. Leg 1's key shape leads with a UTC `window_end`
+    stamp, so the anchor covering the FEWEST records sorts FIRST; sealing the forgery over
+    `records[:2]` and the honest anchor over `records[:4]` puts the forgery at the bottom of the
+    listing. That is what makes this test measure "EVERY anchor is signature-verified" rather than
+    "the anchor this run selects is": with the forgery at the top of the listing — where it was
+    originally written — narrowing the signature gate to the selected/max anchor alone kept this
+    test green, because the one anchor still checked happened to be the forged one.
+
+    Note the outcome names the FORGERY, not the genesis anchor that verified fine after it."""
+    records = _emit_chain(6)
+    honest = _chain_anchors(store, records, [4])[0]
+    forged = _put_envelope(
+        store,
+        checkpoint_for_chain(
+            records[:2],
+            tenant_id=_TENANT,
+            chain_schema_version=_SCHEMA_VERSION,
+            prev_anchor_root="d" * 64,
+        ),
+        signature=_signer(secret=b"the-adversary-has-no-kms-key").sign(b"x"),
+    )
+
+    assert forged < honest  # the forgery sorts FIRST — a max-only signature gate never reads it
+
+    outcome = await _verify(store, _ExplodingRecordSource(), probe)
+
+    assert outcome.status == STATUS_SIGNATURE_INVALID
+    assert outcome.reason == REASON_SIGNATURE_REJECTED
+    assert outcome.anchor_key == forged
+    assert outcome.anchor_chain_break_keys == ()
+
+
+def test_the_chain_walk_orders_by_links_not_by_key_ordering(anchors_enabled: None, tmp_path: Path) -> None:
+    """ANTI-ORDERING PIN, forced rather than observed. The walk's input is a Mapping, so its
+    iteration order is an accident of how the caller built it; the output must not be.
+
+    The keys here are RELABELLED so that lexical order is the exact REVERSE of chain order, and the
+    mapping is built in that reversed order too. A walk that leaned on either — the caller's
+    insertion order or the keys' sort order — returns the chain backwards and names the wrong tip.
+    NEUTER: replace the body of `_walk_anchor_chain` with `tuple(sorted(verified))` and this goes
+    RED deterministically, on every platform, with no dependence on filesystem or readdir order."""
+    records = _emit_chain(6)
+    store = LabeledFakeWormAnchorStore(tmp_path / "anchors")
+    keys = _chain_anchors(store, records, [2, 4, 6])
+    parsed = [audit_anchor_verify._parse_envelope(store.get(key), tenant_id=_TENANT) for key in keys]
+    # `zzz` < `mmm` < `aaa` is false lexically, so chain order (genesis first) is now the reverse
+    # of key order — the divergence is injected, not hoped for.
+    relabelled = [f"{_TENANT}/zzz", f"{_TENANT}/mmm", f"{_TENANT}/aaa"]
+    verified = {
+        label: audit_anchor_verify._VerifiedAnchor(
+            key=label, parsed=anchor, root=audit_anchor_verify._recomputed_root(anchor)
+        )
+        for label, anchor in reversed(list(zip(relabelled, parsed, strict=True)))
+    }
+
+    assert list(verified) == list(reversed(relabelled))  # the input really is adversarially ordered
+    assert audit_anchor_verify._walk_anchor_chain(verified) == tuple(relabelled)
+    assert sorted(verified) != list(relabelled)  # ... and lexical order really would be wrong
+
+
+async def test_selection_follows_the_chain_even_when_the_stored_key_stamps_lie(
+    anchors_enabled: None, store: LabeledFakeWormAnchorStore, probe: FilesystemAnchorKeyProbe
+) -> None:
+    """The same anti-ordering property, end to end through `verify_latest_anchor`.
+
+    Leg 1's key shape puts a UTC `window_end` stamp in the key so a lexical listing reads
+    chronologically — but the stamp is part of an object NAME, not part of the signed evidence, and
+    two anchors sealed over the same newest record share it outright. Here the stamps are outright
+    wrong: the genesis anchor is stored under a 2099 key and its successor under a 2026 one, so a
+    lexical `max` selects the OLDER anchor and reports MATCH against a 3-record prefix while the
+    chain attests 5. Structural selection reads the links and picks the real tip."""
+    records = _emit_chain(5)
+    genesis = checkpoint_for_chain(
+        records[:3],
+        tenant_id=_TENANT,
+        chain_schema_version=_SCHEMA_VERSION,
+        prev_anchor_root=GENESIS_PREV_ANCHOR_ROOT,
+    )
+    successor = checkpoint_for_chain(
+        records,
+        tenant_id=_TENANT,
+        chain_schema_version=_SCHEMA_VERSION,
+        prev_anchor_root=checkpoint_root(genesis),
+    )
+    misstamped_genesis = f"{_TENANT}/20990101T000000Z-{checkpoint_root(genesis)}.anchor.json"
+    misstamped_successor = f"{_TENANT}/20260101T000000Z-{checkpoint_root(successor)}.anchor.json"
+    for key, checkpoint in ((misstamped_genesis, genesis), (misstamped_successor, successor)):
+        store.put(
+            key,
+            canonical_bytes(
+                build_envelope(
+                    checkpoint,
+                    checkpoint_root(checkpoint),
+                    _signer().sign(checkpoint_bytes(checkpoint)),
+                )
+            ),
+        )
+
+    outcome = await _verify(store, _RowRecordSource(_rows_from_records(records)), probe)
+
+    assert max(store.list_keys()) == misstamped_genesis  # lexical order would pick the OLDER one
+    assert outcome.status == STATUS_MATCH
+    assert outcome.anchor_key == misstamped_successor  # the links win
+    assert outcome.anchored_record_count == 5
+
+
+def test_the_chain_walk_terminates_and_reports_the_leftovers(anchors_enabled: None, tmp_path: Path) -> None:
+    """The walk pops each entry out of its index as it consumes it, so it cannot revisit a key and
+    the loop is finite by construction rather than by a counter somebody has to keep correct. What
+    remains in the index when it stops IS the unreached set — the leftovers are not recomputed by a
+    second pass that could disagree with the first."""
+    records = _emit_chain(6)
+    store = LabeledFakeWormAnchorStore(tmp_path / "anchors")
+    keys = _chain_anchors(store, records, [2, 4, 6])
+    parsed = {key: audit_anchor_verify._parse_envelope(store.get(key), tenant_id=_TENANT) for key in keys}
+    verified = {
+        key: audit_anchor_verify._VerifiedAnchor(
+            key=key, parsed=anchor, root=audit_anchor_verify._recomputed_root(anchor)
+        )
+        for key, anchor in parsed.items()
+    }
+
+    assert audit_anchor_verify._walk_anchor_chain(verified) == tuple(keys)
+
+    del verified[keys[1]]  # punch out the middle link
+    with pytest.raises(audit_anchor_verify._AnchorChainBrokenError) as excinfo:
+        audit_anchor_verify._walk_anchor_chain(verified)
+    assert excinfo.value.reason == REASON_ANCHOR_CHAIN_LINK_MISSING
+    assert excinfo.value.keys == (keys[2],)
+
+
+# =================================================================================================
+# V14 — the schema-version cross-check (G1b)
+# =================================================================================================
+
+
+async def test_a_migration_the_anchor_never_saw_is_surfaced_not_silently_matched(
+    anchors_enabled: None, store: LabeledFakeWormAnchorStore, probe: FilesystemAnchorKeyProbe
+) -> None:
+    """V14, THE defense. The chain CONTENT agrees — same records, same root — but the database has
+    since been migrated past the revision the anchor attests. Before this check the run reported
+    MATCH, because the database side is deliberately recomputed with the ANCHOR's own
+    `chain_schema_version` to isolate the comparison to content; that isolation is what made the
+    schema drift invisible, and this is the check that puts it back.
+
+    Both revisions are reported, so an operator sees which way the drift runs without re-reading
+    either side."""
+    records = _emit_chain(4)
+    _seal_anchor(store, records)
+    migrated = _RowRecordSource(_rows_from_records(records), schema_version="0009_alguma_migracao")
+
+    outcome = await _verify(store, migrated, probe)
+
+    assert outcome.status == STATUS_SCHEMA_VERSION_MISMATCH
+    assert outcome.reason == REASON_SCHEMA_VERSION_MISMATCH
+    assert outcome.anchored_schema_version == _SCHEMA_VERSION
+    assert outcome.database_schema_version == "0009_alguma_migracao"
+    assert outcome.is_clean is False
+    assert outcome.exit_code == 18
+    # The content really did agree — this is a schema finding, not a disguised content divergence.
+    assert outcome.database_root == outcome.anchor_root
+
+
+async def test_red_control_a_schema_cross_check_that_always_agrees_calls_a_stale_anchor_clean(
+    anchors_enabled: None,
+    store: LabeledFakeWormAnchorStore,
+    probe: FilesystemAnchorKeyProbe,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """THE RED CONTROL for V14 — the identical scenario with the comparison NEUTERED to always
+    agree, which is precisely what deleting the `if` would do. It returns MATCH against an anchor
+    that attests a schema the database no longer has. Asserted on purpose, as the measurement that
+    makes the check above load-bearing."""
+    records = _emit_chain(4)
+    _seal_anchor(store, records)
+    migrated = _RowRecordSource(_rows_from_records(records), schema_version="0009_alguma_migracao")
+
+    monkeypatch.setattr(audit_anchor_verify, "_schema_versions_agree", lambda anchored, live: True)
+
+    outcome = await _verify(store, migrated, probe)
+
+    assert outcome.status == STATUS_MATCH  # <- the stale anchor, reported clean
+    assert outcome.database_schema_version == "0009_alguma_migracao"
+
+
+async def test_a_live_schema_version_the_source_cannot_establish_is_db_error_not_clean(
+    anchors_enabled: None, store: LabeledFakeWormAnchorStore, probe: FilesystemAnchorKeyProbe
+) -> None:
+    """ "I could not establish the live revision" is not "the revisions agree". It is a partial read
+    of the database, so it lands on DB_ERROR — under its own reason token, because an operator sent
+    to the network by a `DATABASE_UNREACHABLE` would be looking in the wrong place when the real
+    answer is that the tenant schema has no migration state."""
+    records = _emit_chain(4)
+    _seal_anchor(store, records)
+    unknown = _RowRecordSource(_rows_from_records(records), schema_version=None)
+
+    outcome = await _verify(store, unknown, probe)
+
+    assert outcome.status == STATUS_DB_ERROR
+    assert outcome.reason == REASON_SCHEMA_VERSION_UNREADABLE
+    assert outcome.database_schema_version is None
+    assert outcome.anchored_schema_version == _SCHEMA_VERSION
+    assert outcome.is_clean is False
+
+
+async def test_a_content_divergence_is_never_masked_by_a_stale_schema_version(
+    anchors_enabled: None, store: LabeledFakeWormAnchorStore, probe: FilesystemAnchorKeyProbe
+) -> None:
+    """WHY THE CROSS-CHECK IS THE LAST GATE. Both faults are present at once: a privileged actor
+    rewrote the chain AND recomputed it, and the database has since been migrated past the revision
+    the anchor attests. The urgent incident is the tamper, and reporting the milder schema finding
+    would hand an operator "re-anchor and move on" for what is actually the headline adversary.
+
+    THE TAMPER IS A ROOT MISMATCH ON PURPOSE, not a record shortfall. A shortfall returns at step 6
+    under ANY ordering of the remaining gates — it can never reach the schema comparison, so it
+    cannot measure where that comparison sits and a test built on it stayed green with the gate
+    moved to the front. A rewritten-and-recomputed chain is the same LENGTH and internally valid,
+    so it walks past every earlier check and arrives at the last two gates with BOTH of them armed:
+    the only thing that decides the verdict is which of the two runs first.
+
+    Placing the cross-check last means it can only ever downgrade a would-be MATCH — the one
+    direction that cannot hide anything."""
+    attested = _emit_chain(5, marker="attested")
+    _seal_anchor(store, attested)
+    rewritten = _emit_chain(5, marker="REWRITTEN-BY-A-PRIVILEGED-ACTOR")
+    rewritten_and_migrated = _RowRecordSource(
+        _rows_from_records(rewritten), schema_version="0009_alguma_migracao"
+    )
+
+    outcome = await _verify(store, rewritten_and_migrated, probe)
+
+    assert outcome.status == STATUS_DIVERGENCE
+    assert outcome.reason == REASON_ROOT_MISMATCH
+    # Both gates really were armed — neither of these is satisfiable by a run that returned before
+    # reaching the schema comparison for some unrelated reason.
+    assert outcome.anchor_root != outcome.database_root
+    assert outcome.anchored_record_count == outcome.database_record_count == 5
+    assert outcome.anchored_schema_version == _SCHEMA_VERSION
+    assert outcome.database_schema_version == "0009_alguma_migracao"
+    assert _SCHEMA_VERSION != "0009_alguma_migracao"
+
+
+def test_snapshot_from_rows_refuses_to_default_the_schema_version() -> None:
+    """FAIL-CLOSED at the seam. `schema_version` is keyword-only and has no default, so a record
+    source that never thought about the cross-check cannot silently hand back `None` — which is a
+    CLAIM ("I looked and could not establish it") that only a source is entitled to make."""
+    rows = _rows_from_records(_emit_chain(2))
+
+    with pytest.raises(TypeError, match="schema_version"):
+        snapshot_from_rows(rows)  # type: ignore[call-arg]
+
+    assert snapshot_from_rows(rows, schema_version=None).schema_version is None
+
+
+def test_the_matching_schema_version_is_the_one_the_writer_seals() -> None:
+    """The two sides of the cross-check must be the same KIND of string, or it would compare a
+    label against a revision and alarm forever. Leg 1's checkpoint documents `chain_schema_version`
+    as the tenant's live `alembic_version.version_num`; this pins that the verifier compares it by
+    exact equality against exactly that, with no normalization in between."""
+    assert audit_anchor_verify._schema_versions_agree("0005_audit_emit_dedup", "0005_audit_emit_dedup")
+    assert not audit_anchor_verify._schema_versions_agree("0005_audit_emit_dedup", "0005")
+    assert not audit_anchor_verify._schema_versions_agree("0005_audit_emit_dedup", "0006_x")
+
+
+# =================================================================================================
 # V4 — NO_ANCHOR and ANCHOR_UNREADABLE
 # =================================================================================================
 
@@ -1216,7 +1979,12 @@ async def test_an_envelope_with_an_extra_key_is_refused_rather_than_half_read(
     out of an unfamiliar document is how a verifier ends up attesting to something nobody
     designed."""
     records = _emit_chain(3)
-    checkpoint = checkpoint_for_chain(records, tenant_id=_TENANT, chain_schema_version=_SCHEMA_VERSION)
+    checkpoint = checkpoint_for_chain(
+        records,
+        tenant_id=_TENANT,
+        chain_schema_version=_SCHEMA_VERSION,
+        prev_anchor_root=GENESIS_PREV_ANCHOR_ROOT,
+    )
     root = checkpoint_root(checkpoint)
     envelope = build_envelope(checkpoint, root, _signer().sign(checkpoint_bytes(checkpoint)))
     envelope["extra"] = "smuggled"
@@ -1228,23 +1996,116 @@ async def test_an_envelope_with_an_extra_key_is_refused_rather_than_half_read(
     assert outcome.reason == REASON_ENVELOPE_SHAPE_UNKNOWN
 
 
+@pytest.mark.parametrize("mutation", ["missing", "extra"], ids=["missing-field", "extra-field"])
+async def test_a_checkpoint_whose_field_set_is_not_the_writers_is_refused_not_half_read(
+    anchors_enabled: None,
+    store: LabeledFakeWormAnchorStore,
+    probe: FilesystemAnchorKeyProbe,
+    mutation: str,
+) -> None:
+    """The same EXACT key-set equality as the test above, one level DOWN — on the CHECKPOINT
+    mapping, whose field set is taken from leg 1's dataclass (`checkpoint_field_names()`) rather
+    than re-spelled here, so a future field cannot be half-read by a verifier that never heard of
+    it.
+
+    Not decoration, in either direction:
+
+      - MISSING field. Every checkpoint field below that check is read with a raw
+        `checkpoint_mapping["..."]`, so this equality is the only thing between a malformed
+        envelope and a `KeyError` escaping the verification job entirely — an unhandled traceback
+        exits the CLI with 1, which the exit-code table deliberately keeps outside the verdict
+        vocabulary precisely so a crash cannot be READ as one. (The constructor guard now catches
+        `KeyError` too, as a fail-closed backstop; this check is still the primary defense, and the
+        backstop reports `CHECKPOINT_INVALID`, a different token from this one.)
+      - EXTRA field. The signature preimage is canonicalized from the STORED mapping, so a smuggled
+        field is inside the bytes the signature is checked over. Refusing the document outright is
+        the difference between "this is not the format leg 1 writes" and attesting to something
+        nobody designed."""
+    records = _emit_chain(3)
+    checkpoint = checkpoint_for_chain(
+        records,
+        tenant_id=_TENANT,
+        chain_schema_version=_SCHEMA_VERSION,
+        prev_anchor_root=GENESIS_PREV_ANCHOR_ROOT,
+    )
+    root = checkpoint_root(checkpoint)
+    envelope = build_envelope(checkpoint, root, _signer().sign(checkpoint_bytes(checkpoint)))
+    if mutation == "missing":
+        del envelope["checkpoint"]["prev_anchor_root"]
+    else:
+        envelope["checkpoint"]["smuggled"] = "not a field any writer produces"
+    store.put(f"{_TENANT}/20260101T000000Z-{root}.anchor.json", canonical_bytes(envelope))
+
+    outcome = await _verify(store, _ExplodingRecordSource(), probe)
+
+    assert outcome.status == STATUS_ANCHOR_UNREADABLE
+    assert outcome.reason == REASON_ENVELOPE_SHAPE_UNKNOWN
+
+
+async def test_the_oldest_unusable_anchor_is_the_one_reported_when_two_are_bad(
+    anchors_enabled: None, store: LabeledFakeWormAnchorStore, probe: FilesystemAnchorKeyProbe
+) -> None:
+    """STEP 2'S DETERMINISM, pinned by consequence. The read/parse/verify pass walks the corroborated
+    key set in ASCENDING key order with the first failure winning, so when two anchors are bad in
+    DIFFERENT ways it is not a coin flip which incident is reported.
+
+    That is operational, not aesthetic: the reported `anchor_key` is the object an operator goes
+    and opens, and the reported status routes the incident (storage corruption vs key compromise —
+    different first moves, per the outcome vocabulary). An order that leaned on the iteration order
+    of the `frozenset` the keys arrive in would name a different anchor on different runs over an
+    unchanged store, which is exactly the kind of alarm nobody ends up trusting.
+
+    Ascending is also the meaningful direction: leg 1's key shape makes it chronological, so "first
+    failure wins" means the OLDEST unusable anchor is reported — the earliest point at which the
+    evidence stopped being usable, rather than the newest symptom of it."""
+    records = _emit_chain(4)
+    forged = _put_envelope(
+        store,
+        checkpoint_for_chain(
+            records,
+            tenant_id=_TENANT,
+            chain_schema_version=_SCHEMA_VERSION,
+            prev_anchor_root=GENESIS_PREV_ANCHOR_ROOT,
+        ),
+        signature=_signer(secret=b"the-adversary-has-no-kms-key").sign(b"x"),
+    )
+    corrupt = f"{_TENANT}/20260101T000000Z-{'a' * 64}.anchor.json"
+    store.put(corrupt, b"{ truncated")
+
+    assert corrupt < forged  # the two faults sit in a KNOWN order, not a hoped-for one
+
+    outcome = await _verify(store, _ExplodingRecordSource(), probe)
+
+    # The older, corrupt anchor — NOT the newer forgery a descending walk would reach first.
+    assert outcome.status == STATUS_ANCHOR_UNREADABLE
+    assert outcome.reason == REASON_ENVELOPE_NOT_JSON
+    assert outcome.anchor_key == corrupt
+    assert outcome.anchor_key != forged
+
+
 async def test_a_future_anchor_format_is_refused_not_half_understood(
     anchors_enabled: None, store: LabeledFakeWormAnchorStore, probe: FilesystemAnchorKeyProbe
 ) -> None:
-    """A v2 anchor must be REFUSED by a v1 verifier. Half-understanding a future format is how a
-    format bump silently turns every verification into a false clean."""
+    """A future (v3) anchor must be REFUSED by this v2 verifier. Half-understanding a future format
+    is how a format bump silently turns every verification into a false clean. (The v1->v2 bump this
+    follow-up made is the same discipline one step back: a v1 anchor is now equally refused.)"""
     records = _emit_chain(3)
-    checkpoint = checkpoint_for_chain(records, tenant_id=_TENANT, chain_schema_version=_SCHEMA_VERSION)
+    checkpoint = checkpoint_for_chain(
+        records,
+        tenant_id=_TENANT,
+        chain_schema_version=_SCHEMA_VERSION,
+        prev_anchor_root=GENESIS_PREV_ANCHOR_ROOT,
+    )
     root = checkpoint_root(checkpoint)
     envelope = build_envelope(checkpoint, root, _signer().sign(checkpoint_bytes(checkpoint)))
-    envelope["anchor_format"] = "maezo.audit-anchor.v2"
+    envelope["anchor_format"] = "maezo.audit-anchor.v3"
     store.put(anchor_key(checkpoint, root), canonical_bytes(envelope))
 
     outcome = await _verify(store, _ExplodingRecordSource(), probe)
 
     assert outcome.status == STATUS_ANCHOR_UNREADABLE
     assert outcome.reason == REASON_ENVELOPE_FORMAT_UNKNOWN
-    assert ANCHOR_FORMAT == "maezo.audit-anchor.v1"  # the constant this verifier reads
+    assert ANCHOR_FORMAT == "maezo.audit-anchor.v2"  # the constant this verifier reads
 
 
 async def test_an_anchor_whose_signed_tenant_disagrees_with_its_key_is_unreadable(
@@ -1254,7 +2115,12 @@ async def test_an_anchor_whose_signed_tenant_disagrees_with_its_key_is_unreadabl
     the envelope is not this tenant's evidence — and it must not be verified against this tenant's
     chain."""
     records = _emit_chain(3)
-    checkpoint = checkpoint_for_chain(records, tenant_id="outro_tenant", chain_schema_version=_SCHEMA_VERSION)
+    checkpoint = checkpoint_for_chain(
+        records,
+        tenant_id="outro_tenant",
+        chain_schema_version=_SCHEMA_VERSION,
+        prev_anchor_root=GENESIS_PREV_ANCHOR_ROOT,
+    )
     root = checkpoint_root(checkpoint)
     envelope = build_envelope(checkpoint, root, _signer().sign(checkpoint_bytes(checkpoint)))
     # Stored under THIS tenant's prefix while attesting another tenant's chain.
@@ -1352,6 +2218,8 @@ def test_every_status_logs_under_its_own_pinned_event_name(status: str) -> None:
         "STORE_LISTING_SUSPECT": ("audit_anchor_store_listing_suspect", "error"),
         "DB_ERROR": ("audit_anchor_database_unreadable", "error"),
         "ANCHOR_UNREADABLE": ("audit_anchor_envelope_unreadable", "error"),
+        "ANCHOR_CHAIN_BROKEN": ("audit_anchor_chain_broken", "error"),
+        "SCHEMA_VERSION_MISMATCH": ("audit_anchor_schema_version_mismatch", "error"),
         "DISABLED": ("audit_anchor_verification_skipped_disabled", "debug"),
     }
     assert (EVENT_BY_STATUS[status], LEVEL_BY_STATUS[status]) == expected[status]
@@ -1374,21 +2242,33 @@ _EXPECTED_JSON_KEYS: Final[frozenset[str]] = frozenset(
         "database_head_hash",
         "signature_key_id",
         "error_type",
+        "anchored_schema_version",
+        "database_schema_version",
         "listing_disagreement",
+        "anchor_chain_break_keys",
     }
 )
+
+#: The two list-valued members of the wire shape. Stated once, here, so the scalar-only PHI
+#: assertion below cannot be quietly widened by adding a key to the exemption inline.
+_JSON_LIST_KEYS: Final[frozenset[str]] = frozenset({"listing_disagreement", "anchor_chain_break_keys"})
 
 
 def test_outcome_json_shape_is_pinned() -> None:
     """Set-equality on the keys, plus a scalar-only assertion on the values — that second half is
-    the PHI guarantee (no nested free-form structure can be smuggled into a report)."""
+    the PHI guarantee (no nested free-form structure can be smuggled into a report). The two
+    schema-version members are migration revisions (`"0005_audit_emit_dedup"`), which are
+    organizational identifiers exactly as `tenant_id` is, never record content."""
     mapping = AnchorVerificationOutcome(
-        status=STATUS_MATCH, tenant_id=_TENANT, listing_disagreement=("a/b",)
+        status=STATUS_MATCH,
+        tenant_id=_TENANT,
+        listing_disagreement=("a/b",),
+        anchor_chain_break_keys=("a/c",),
     ).to_json_mapping()
 
     assert frozenset(mapping) == _EXPECTED_JSON_KEYS
     for key, value in mapping.items():
-        if key == "listing_disagreement":
+        if key in _JSON_LIST_KEYS:
             assert isinstance(value, list)
             assert all(isinstance(item, str) for item in value)
         else:
@@ -1739,6 +2619,96 @@ def test_postgres_record_source_construction_is_pure_and_normalizes_the_dsn() ->
     assert source._dsn == "postgresql://maezo:maezo@localhost:5433/maezo"
 
 
+class _FakeAsyncpgConnection:
+    """Answers exactly the three statements `PostgresChainRecordSource.read_chain` issues.
+
+    The `alembic_version` read is wired to RAISE whatever a test hands it, so the one narrow
+    `except` in that method can be exercised from both sides without a database.
+    """
+
+    def __init__(self, rows: list[dict[str, Any]], version_exc: BaseException) -> None:
+        self._rows = rows
+        self._version_exc = version_exc
+        self.closed = False
+
+    async def execute(self, statement: str) -> str:
+        return "SET"
+
+    async def fetchval(self, statement: str) -> Any:
+        raise self._version_exc
+
+    async def fetch(self, statement: str) -> list[dict[str, Any]]:
+        return self._rows
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+@pytest.mark.parametrize(
+    ("version_exc", "expected_reason", "expected_error_type"),
+    [
+        (
+            asyncpg.exceptions.UndefinedTableError("relation does not exist"),
+            REASON_SCHEMA_VERSION_UNREADABLE,
+            None,
+        ),
+        (
+            asyncpg.exceptions.InsufficientPrivilegeError("permission denied for table"),
+            REASON_DATABASE_UNREACHABLE,
+            "InsufficientPrivilegeError",
+        ),
+        (
+            asyncpg.exceptions.ConnectionDoesNotExistError("connection was closed"),
+            REASON_DATABASE_UNREACHABLE,
+            "ConnectionDoesNotExistError",
+        ),
+    ],
+    ids=["no-version-table", "permission-denied", "connection-lost"],
+)
+async def test_only_a_missing_version_table_is_swallowed_by_the_schema_version_read(
+    anchors_enabled: None,
+    store: LabeledFakeWormAnchorStore,
+    probe: FilesystemAnchorKeyProbe,
+    monkeypatch: pytest.MonkeyPatch,
+    version_exc: BaseException,
+    expected_reason: str,
+    expected_error_type: str | None,
+) -> None:
+    """THE NARROWNESS of that `except` is the defense, and it is pinned from both sides.
+
+    `read_chain` swallows exactly `UndefinedTableError` around the `alembic_version` read, to buy a
+    narrower reason token: "this tenant schema has no migration state" sends an operator to the
+    migration state, not to the network. Broadening it to `except Exception` costs the distinction
+    entirely — a permission failure or a connection lost mid-read would be relabelled
+    `SCHEMA_VERSION_UNREADABLE`, and the run would go on to read `audit_chain` and compare content
+    over a connection it had already been told something was wrong with. All three cases below then
+    collapse onto one reason and `error_type` disappears, which is precisely the diagnosis an
+    incident needs.
+
+    The three rows are one control and two probes: the FIRST is the flow the `except` exists for
+    (so this test cannot pass by simply deleting it), the other two are different DB failures that
+    must propagate to `DB_ERROR/DATABASE_UNREACHABLE` carrying the exception CLASS name — never the
+    message, which can quote a DSN and therefore a password."""
+    records = _emit_chain(4)
+    _seal_anchor(store, records)
+    connection = _FakeAsyncpgConnection(_rows_from_records(records), version_exc)
+
+    async def _connect(dsn: str) -> _FakeAsyncpgConnection:
+        return connection
+
+    monkeypatch.setattr(audit_anchor_verify.asyncpg, "connect", _connect)
+
+    outcome = await _verify(
+        store, PostgresChainRecordSource("postgresql://maezo:maezo@localhost:5433/maezo"), probe
+    )
+
+    assert outcome.status == STATUS_DB_ERROR  # nothing here is ever clean
+    assert outcome.reason == expected_reason
+    assert outcome.error_type == expected_error_type
+    assert connection.closed is True  # the `finally` closed it on every path
+    assert str(version_exc) not in json.dumps(outcome.to_json_mapping())  # message never leaks
+
+
 # =================================================================================================
 # V8/V9 — the dark build: read-only, side-effect-free, unimported
 # =================================================================================================
@@ -1891,10 +2861,13 @@ def _executable_string_literals(tree: ast.Module) -> list[str]:
     ]
 
 
-def test_the_verify_module_issues_only_the_two_pinned_read_statements() -> None:
+def test_the_verify_module_issues_only_the_three_pinned_read_statements() -> None:
     """HARDCODED. Provenance: the verification job is READ-ONLY against the database, and these are
-    the only two statements it issues — the tenant search_path pin (validated by the same
-    `schema_for_tenant` that guards every other interpolation) and one unqualified SELECT.
+    the only three statements it issues — the tenant search_path pin (validated by the same
+    `schema_for_tenant` that guards every other interpolation), one unqualified SELECT over
+    `audit_chain`, and the G1b schema cross-check's read of alembic's per-tenant version table
+    (`platform/migrations/env.py` names it `f"{TENANT_ID}_alembic_version"`), whose identifier is
+    built from that SAME validated schema name.
 
     Pinned as an exact SET rather than as a "no INSERT/UPDATE/DELETE" blacklist because a blacklist
     only catches the verbs somebody remembered to list; a set-equality pin turns ANY new statement —
@@ -1922,7 +2895,11 @@ def test_the_verify_module_issues_only_the_two_pinned_read_statements() -> None:
     statements = {
         literal for literal in literals if literal.strip().upper().startswith(sql_statement_openers)
     }
-    assert statements == {'SET search_path TO "', "SELECT * FROM audit_chain"}
+    assert statements == {
+        'SET search_path TO "',
+        "SELECT * FROM audit_chain",
+        'SELECT version_num FROM "',
+    }
 
     embedded = ("INSERT INTO", "DELETE FROM", "TRUNCATE TABLE", "DROP TABLE", "UPDATE AUDIT_")
     offenders = [
@@ -2008,7 +2985,9 @@ def test_the_verify_module_reuses_the_real_row_mapper() -> None:
 
     record = _emit_chain(1)[0]
     row = _rows_from_records([record])[0]
-    assert snapshot_from_rows([row]).records[0].record_hash == record.record_hash
+    assert (
+        snapshot_from_rows([row], schema_version=_SCHEMA_VERSION).records[0].record_hash == record.record_hash
+    )
 
 
 def test_audit_and_audit_postgres_remain_unmodified_by_this_leg() -> None:

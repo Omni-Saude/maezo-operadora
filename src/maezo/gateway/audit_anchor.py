@@ -189,7 +189,23 @@ def anchor_writes_enabled() -> bool:
 #: Format identifier of the anchor envelope AND of the checkpoint inside it. Lives inside the
 #: signed canonical bytes (see the module docstring's canonicalization note). Bump on any
 #: incompatible change to the field set or the serialization.
-ANCHOR_FORMAT: Final[str] = "maezo.audit-anchor.v1"
+#:
+#: v1 -> v2 (this follow-up): added `prev_anchor_root` to the checkpoint so a tenant's anchors form
+#: an in-band chain (see :data:`GENESIS_PREV_ANCHOR_ROOT`). The bump is what makes the change SAFE:
+#: `anchor_format` is the first key of the signed canonical bytes, so a v1 signature can never be
+#: replayed as v2, and a v1 verifier REFUSES a v2 anchor rather than half-reading it (and vice
+#: versa) — `audit_anchor_verify._parse_envelope` checks this constant by equality.
+ANCHOR_FORMAT: Final[str] = "maezo.audit-anchor.v2"
+
+#: Sentinel `prev_anchor_root` for the GENESIS anchor — the first anchor ever written for a tenant,
+#: which has no predecessor. 64 lowercase hex zeros, so it satisfies the same `_SHA256_HEX` shape
+#: check every real root does (no special-case branch that could rot), while being a value a real
+#: SHA-256 root cannot collide with in practice. This is the anchor-chain analogue of
+#: `audit.GENESIS_PREV_HASH` for the record chain — same "null predecessor" idiom, its own constant
+#: so the two chains stay independent. FAIL-CLOSED: a non-genesis anchor MUST carry the real root of
+#: its predecessor; a missing/blank/None `prev_anchor_root` is rejected at construction, never
+#: defaulted to this sentinel (defaulting would let an omitted link masquerade as a fresh genesis).
+GENESIS_PREV_ANCHOR_ROOT: Final[str] = "0" * 64
 
 #: Algorithm string the LABELED FAKE signer stamps on every signature. Deliberately NOT a real
 #: algorithm name (`RSASSA_PSS_SHA_256`, `ECDSA_SHA_256`, `Ed25519`, ...): a reader of a stored
@@ -320,10 +336,17 @@ class AnchorCheckpoint:
         record_count: How many records the anchor attests to. `>= 0`.
         window_start: Oldest record timestamp covered (UTC, aware).
         window_end: Newest record timestamp covered (UTC, aware).
-        chain_schema_version: The DB schema the head/count were observed under — the alembic
-            revision of the tenant's `audit_chain` (e.g. `"0005_audit_emit_dedup"`). Without it, a
-            root computed before a migration and one computed after are indistinguishable, and a
-            schema change would read as a chain divergence.
+        chain_schema_version: The DB schema the head/count were observed under — the tenant's live
+            `alembic_version.version_num` at anchor time (the plain alembic revision, e.g. `"0008"`).
+            Without it, a root computed before a migration and one computed after are
+            indistinguishable, and a schema change would read as a chain divergence. Leg 2's
+            schema-version cross-check (G1b) compares this SIGNED value against the tenant's LIVE
+            `alembic_version` so a migration the anchor never saw is surfaced, not silently matched —
+            so the owner's writer should seal the live `version_num` here, not a descriptive label.
+        prev_anchor_root: The ROOT of the immediately-preceding anchor for this tenant, or
+            :data:`GENESIS_PREV_ANCHOR_ROOT` for the first anchor. Chains a tenant's anchors in-band
+            so leg 2 can prove — FROM THE EVIDENCE, not from the store's listing — that the anchor
+            set it enumerated is one contiguous run with no omitted/forked link. 64 lowercase hex.
         anchor_format: :data:`ANCHOR_FORMAT`. Kept as a FIELD, not merely a module constant, so it
             is inside the signed bytes and an old signature can never be replayed as a new-format
             one.
@@ -338,6 +361,7 @@ class AnchorCheckpoint:
     window_start: datetime
     window_end: datetime
     chain_schema_version: str
+    prev_anchor_root: str
     anchor_format: str = ANCHOR_FORMAT
 
     def __post_init__(self) -> None:
@@ -356,6 +380,15 @@ class AnchorCheckpoint:
                 f"chain_head_hash {self.chain_head_hash!r} is not 64 lowercase hex characters "
                 "(hex case is not normalized anywhere in the chain, so accepting both spellings "
                 "would let one head produce two different roots)"
+            )
+        # FAIL-CLOSED: every anchor commits to a predecessor root — the genesis sentinel for the
+        # first, a real 64-hex root otherwise. A missing/None/blank/uppercase value is rejected
+        # rather than defaulted, so an omitted chain link can never masquerade as a fresh genesis.
+        if not isinstance(self.prev_anchor_root, str) or not _SHA256_HEX.match(self.prev_anchor_root):
+            raise ValueError(
+                f"prev_anchor_root {self.prev_anchor_root!r} is not 64 lowercase hex characters "
+                f"(a real predecessor root, or GENESIS_PREV_ANCHOR_ROOT={GENESIS_PREV_ANCHOR_ROOT!r} "
+                "for the first anchor of a tenant) — refusing to seal an anchor with no predecessor"
             )
         if not isinstance(self.record_count, int) or isinstance(self.record_count, bool):
             raise ValueError(f"record_count must be an int, got {type(self.record_count).__name__}")
@@ -393,6 +426,7 @@ class AnchorCheckpoint:
             "anchor_format": self.anchor_format,
             "chain_head_hash": self.chain_head_hash,
             "chain_schema_version": self.chain_schema_version,
+            "prev_anchor_root": self.prev_anchor_root,
             "record_count": self.record_count,
             "tenant_id": self.tenant_id,
             "window_end": self.window_end.isoformat(),
@@ -445,6 +479,7 @@ def checkpoint_for_chain(
     *,
     tenant_id: str,
     chain_schema_version: str,
+    prev_anchor_root: str,
 ) -> AnchorCheckpoint:
     """Derive a checkpoint from an ordered, contiguous run of chain records. PURE — no I/O.
 
@@ -453,6 +488,14 @@ def checkpoint_for_chain(
     PRECONDITION, not a verification — see :class:`AnchorChainDiscontinuityError`. Record hashes
     are never recomputed here; `AuditSink.verify_chain()` / `audit_postgres.verify_chain()` own
     that question and this module does not become a third, drifting implementation of it.
+
+    `prev_anchor_root` is REQUIRED (no default): it is not derivable from the record chain — it is a
+    property of the ANCHOR chain (the root of this tenant's previous anchor, or
+    :data:`GENESIS_PREV_ANCHOR_ROOT` for the first). The caller/owner supplies it; defaulting it
+    here would be exactly the silent-genesis masquerade :data:`GENESIS_PREV_ANCHOR_ROOT` warns
+    against. Leg 2's DB-side recomputation passes the ANCHOR's own `prev_anchor_root` back through
+    here so the root comparison stays isolated to chain CONTENT — the anchor-chain link is checked
+    separately, across anchors.
 
     The window is `min`/`max` over the records' timestamps rather than `records[0]`/`records[-1]`:
     chain ORDER is structural (prev-hash links) but timestamps can be skewed across replicas —
@@ -493,6 +536,7 @@ def checkpoint_for_chain(
         window_start=min(record.timestamp for record in records),
         window_end=max(record.timestamp for record in records),
         chain_schema_version=chain_schema_version,
+        prev_anchor_root=prev_anchor_root,
     )
 
 
@@ -823,8 +867,10 @@ def anchor_key(checkpoint: AnchorCheckpoint, root: str) -> str:
     2) uses to find "the latest anchor" without parsing every envelope — over a set it first
     CORROBORATES against a second, independent enumeration, because a listing that silently omits
     the newest anchor would otherwise make it verify against an older one and report clean (see
-    that module's "THE LATEST-ANCHOR PROBLEM"). Nothing IN an anchor points at its predecessor, so
-    ordering is all this key shape can offer; completeness it cannot.
+    that module's "THE LATEST-ANCHOR PROBLEM"). Ordering is what this key shape offers; anchor-set
+    CONTIGUITY is now carried IN-BAND by each checkpoint's `prev_anchor_root` (the v2 chaining
+    field), which lets leg 2 detect an omitted/forked middle link from the evidence itself — a
+    complement to the corroboration probe, not a replacement for it.
 
     `tenant_id` was validated by `schema_for_tenant` at checkpoint construction, so it can contain
     neither a slash nor a dot and cannot escape its prefix.

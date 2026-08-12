@@ -8,9 +8,11 @@ waves — see `docs/design/A2A-dispatcher-card-signing.md` §1.2/§2/§5.
 `RouterInferenceProvider` deliberately does NOT port here (design §2 friction row 5 / §5 W2 scope
 note): it adapts `runtime.inference.InferenceRouter`/`TaskKind`/`SecurityZone` to the agent-graph
 `InferenceProvider` contract, none of which exist in v2's `runtime.inference` (a materially
-different `InferenceProvider`/`BaseInferenceProvider` abstraction, `inference.py:129-390`) — wiring
-a REAL agent handler through a real inference provider is W3 scope (Helena->Rafael proof edge), not
-W2 (envelope/dispatcher/facts/idempotency runtime, no real agent edge yet).
+different abstraction — the `InferenceProvider` single-import facade at `inference.py:2098`, "all
+LLM access MUST flow through this class" per ADR-0009, sitting over the `BaseInferenceProvider(ABC)`
+at `inference.py:536`) — wiring a REAL agent handler through a real inference provider is W3 scope
+(Helena->Rafael proof edge), not W2 (envelope/dispatcher/facts/idempotency runtime, no real agent
+edge yet).
 
 This module is engine-free for `build_agent_cards` (only reads real `agent.yaml` files via
 `maezo.agents.AgentLoader`, no Kafka/DB/BPMN) and Kafka/DB-free for `build_dispatcher` itself (it

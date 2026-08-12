@@ -12,7 +12,7 @@ runs the SAME `verify_latest_anchor` against the REAL `PostgresChainRecordSource
 correct LOUD outcome — with a CONTROL (untampered) proving MATCH first, so a drill that only ever
 goes red is impossible (a verifier that always alarms detects nothing).
 
-THE FIVE DRILLS AND THE GUARD THAT FIRES (observed live, hardcoded with provenance)
+THE SEVEN DRILLS AND THE GUARD THAT FIRES (observed live, hardcoded with provenance)
 =================================================================================================
 Every expected outcome below was observed against a live pinned `pgvector/pgvector:pg16` and is
 asserted, not described. The row->record path RECOMPUTES `record_hash` from stored content
@@ -38,6 +38,16 @@ the STORED links — the asymmetry that turns a lazy content edit into a detecte
      chain VALID (asserted FIRST — the non-vacuity bar: the DB-only check is genuinely fooled). The
      EXTERNAL anchor, signed and sealed before the rewrite, is the only thing that disagrees =>
      DIVERGENCE / ROOT_MISMATCH. That comparison is the entire security value of the anchor.
+  6. THIN THE LEDGER (Unit B) — the first drill whose target is the EVIDENCE, not the database.
+     Three chained anchors; the MIDDLE one is deleted from the store. The database stays honest and
+     the object is genuinely gone (not hidden), so neither the content checks nor the corroborating
+     probe fire. The surviving anchor's signed `prev_anchor_root` is the only witness =>
+     ANCHOR_CHAIN_BROKEN / ANCHOR_CHAIN_LINK_MISSING, and no verdict about the database.
+  7. SCHEMA DRIFT (G1b) — the live `<tenant>_alembic_version` row is moved after the anchor was
+     sealed. Content is untouched, so both roots still agree; what no longer agrees is the schema
+     the attestation was made under => SCHEMA_VERSION_MISMATCH. This is the only proof that the job
+     reads the RIGHT table: the per-tenant version table's name and schema placement come from
+     `platform/migrations/env.py`, and no fixture can stand in for that.
 
 LIVE-PG ISOLATION / SKIP-LOUDLY (why this file never depends on an ad-hoc container)
 =================================================================================================
@@ -73,6 +83,7 @@ import pytest
 from maezo.gateway.audit import AuditRecord
 from maezo.gateway.audit_anchor import (
     ANCHOR_ENABLED_ENV,
+    GENESIS_PREV_ANCHOR_ROOT,
     LabeledFakeKmsAnchorSigner,
     LabeledFakeWormAnchorStore,
     checkpoint_for_chain,
@@ -82,12 +93,16 @@ from maezo.gateway.audit_anchor_verify import (
     ANCHOR_VERIFY_ENABLED_ENV,
     DEFAULT_FAKE_SECRET_ENV,
     EXIT_CODE_BY_STATUS,
+    REASON_ANCHOR_CHAIN_LINK_MISSING,
     REASON_CHAIN_DISCONTINUITY,
     REASON_CHAIN_FORK,
     REASON_RECORD_COUNT_SHORTFALL,
     REASON_ROOT_MISMATCH,
+    REASON_SCHEMA_VERSION_MISMATCH,
+    STATUS_ANCHOR_CHAIN_BROKEN,
     STATUS_DIVERGENCE,
     STATUS_MATCH,
+    STATUS_SCHEMA_VERSION_MISMATCH,
     AnchorVerificationOutcome,
     FilesystemAnchorKeyProbe,
     PostgresChainRecordSource,
@@ -105,7 +120,10 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 _DEFAULT_DSN: Final[str] = "postgresql://maezo:maezo@localhost:5466/maezo"
 _DSN_ENV: Final[str] = "MAEZO_TEST_AUDIT_ANCHOR_DRILL_DATABASE_URL"
 
-_SCHEMA_VERSION: Final[str] = "0005_audit_emit_dedup"
+# The tenant's migration revision is deliberately NOT a constant here — `_seal_anchor_from_db`
+# reads it LIVE from `<tenant>_alembic_version`. A hardcoded one would drift the moment a migration
+# lands (this file used to pin `0005_audit_emit_dedup` while `head` had moved to 0008), and G1b's
+# cross-check would then report SCHEMA_VERSION_MISMATCH on every CONTROL run.
 _FAKE_SECRET: Final[bytes] = b"labeled-fake-anchor-drill-secret-nao-vinculativo"
 _FAKE_KEY_LABEL: Final[str] = "leg3-drill"
 _UNIQUE_CONSTRAINT: Final[str] = "uq_audit_chain_prev_hash"  # migration 0002 anti-fork guard
@@ -233,20 +251,47 @@ async def _seed_chain(dsn: str, tenant: str, count: int, *, marker: str = "ok") 
     return records
 
 
-async def _seal_anchor_from_db(dsn: str, tenant: str, store: LabeledFakeWormAnchorStore) -> str:
+async def _seal_anchor_from_db(
+    dsn: str,
+    tenant: str,
+    store: LabeledFakeWormAnchorStore,
+    *,
+    count: int | None = None,
+    prev_anchor_root: str = GENESIS_PREV_ANCHOR_ROOT,
+) -> tuple[str, str]:
     """Read the live chain and seal a REAL signed anchor over it via leg 1's `write_anchor`.
 
     Built from the DB round-trip (the SAME `PostgresChainRecordSource` the verify job reads) so the
     control is a genuine MATCH: both sides derive the checkpoint from identical rows.
+
+    Two things are read LIVE rather than hardcoded, and both are load-bearing:
+
+      - `chain_schema_version` comes from the snapshot's `schema_version` — the tenant's actual
+        `<tenant>_alembic_version.version_num` — not from a constant in this file. G1b's cross-check
+        compares the SIGNED value against that live one, so a writer that sealed a descriptive label
+        instead of the live revision would make every control run report SCHEMA_VERSION_MISMATCH.
+        Sealing what the database actually says is exactly the owner behaviour leg 1's
+        `AnchorCheckpoint` docstring prescribes, and this drill is where it becomes binding.
+      - `prev_anchor_root` is REQUIRED by leg 1 (never defaulted, so an omitted link cannot
+        masquerade as a fresh genesis), so a caller sealing a SECOND anchor must pass its
+        predecessor's root here.
+
+    Returns `(anchor_key, root)` so a caller can chain the next anchor onto this one.
     """
     snapshot = await PostgresChainRecordSource(dsn).read_chain(tenant)
+    assert snapshot.schema_version is not None, "the live tenant schema reported no alembic revision"
+    window = snapshot.records if count is None else snapshot.records[:count]
     checkpoint = checkpoint_for_chain(
-        snapshot.records, tenant_id=tenant, chain_schema_version=_SCHEMA_VERSION
+        window,
+        tenant_id=tenant,
+        chain_schema_version=snapshot.schema_version,
+        prev_anchor_root=prev_anchor_root,
     )
     outcome = write_anchor(checkpoint, signer=_signer(), store=store)
     assert outcome.written is True
     assert outcome.anchor_key is not None
-    return outcome.anchor_key
+    assert outcome.root is not None
+    return outcome.anchor_key, outcome.root
 
 
 async def _verify(
@@ -262,6 +307,18 @@ async def _verify(
         key_probe=probe,
         records=PostgresChainRecordSource(dsn),
     )
+
+
+def _delete_anchor(store: LabeledFakeWormAnchorStore, key: str) -> None:
+    """Remove a stored anchor from BOTH enumerations — the WORM/retention lock having failed.
+
+    A real unlink, not a listing filter: an anchor merely HIDDEN from the listing is the scenario
+    the corroborating probe already catches. Sync (not `async`) on purpose — blocking filesystem
+    calls inside a coroutine are what `ASYNC240` exists to stop, and this needs no event loop.
+    """
+    path = Path(store.root, *key.split("/"))
+    path.chmod(0o644)  # the fake store chmods anchors 0o444; the owner may still remove them
+    path.unlink()
 
 
 async def _exec(dsn: str, tenant: str, sql: str, *args: Any) -> str:
@@ -296,7 +353,7 @@ async def test_control_untampered_chain_matches_the_anchor(
     """CONTROL: the drills can say green. A live, honest chain, anchored, verifies to MATCH — the
     prerequisite that makes every DIVERGENCE below meaningful rather than a constant alarm."""
     records = await _seed_chain(pg_dsn, tenant_schema, 5)
-    key = await _seal_anchor_from_db(pg_dsn, tenant_schema, store)
+    key, _root = await _seal_anchor_from_db(pg_dsn, tenant_schema, store)
 
     outcome = await _verify(pg_dsn, tenant_schema, store, probe)
 
@@ -489,6 +546,108 @@ async def test_reconstructed_chain_is_valid_in_db_but_caught_by_the_anchor(
     assert outcome.database_head_hash == forged[-1].record_hash
     assert outcome.anchor_root != outcome.database_root
     assert outcome.anchored_record_count == outcome.database_record_count == 5
+
+
+async def test_a_historical_anchor_removed_from_the_store_is_caught_by_the_in_band_chain(
+    anchors_enabled: None,
+    pg_dsn: str,
+    tenant_schema: str,
+    store: LabeledFakeWormAnchorStore,
+    probe: FilesystemAnchorKeyProbe,
+) -> None:
+    """THIN THE LEDGER (Unit B) — the tamper that targets the EVIDENCE rather than the database.
+
+    Three anchors are sealed over a growing live chain, each committing to its predecessor's root.
+    The retention lock then fails (or was never real) and the MIDDLE anchor is removed from the
+    store. Nothing else is touched: the database is honest, so every content check passes, and the
+    object is genuinely gone rather than hidden, so the listing and the corroborating probe agree
+    and V3's defense has nothing to fire on.
+
+    The only surviving witness that T2 ever existed is T3's SIGNED `prev_anchor_root`
+    => ANCHOR_CHAIN_BROKEN / ANCHOR_CHAIN_LINK_MISSING, and NO verdict about the database.
+    """
+    await _seed_chain(pg_dsn, tenant_schema, 6)
+    first_key, first_root = await _seal_anchor_from_db(pg_dsn, tenant_schema, store, count=2)
+    middle_key, middle_root = await _seal_anchor_from_db(
+        pg_dsn, tenant_schema, store, count=4, prev_anchor_root=first_root
+    )
+    tip_key, _tip_root = await _seal_anchor_from_db(
+        pg_dsn, tenant_schema, store, prev_anchor_root=middle_root
+    )
+
+    # CONTROL: the whole chain verifies clean, against the TIP (structural selection).
+    control = await _verify(pg_dsn, tenant_schema, store, probe)
+    assert control.status == STATUS_MATCH
+    assert control.anchor_key == tip_key
+    assert control.anchored_record_count == 6
+
+    _delete_anchor(store, middle_key)
+
+    # Both enumerations agree the object is gone — the corroboration defense CANNOT fire here.
+    assert middle_key not in store.list_keys()
+    assert middle_key not in probe.probe_keys(tenant_schema)
+    assert set(store.list_keys()) == set(probe.probe_keys(tenant_schema)) == {first_key, tip_key}
+
+    outcome = await _verify(pg_dsn, tenant_schema, store, probe)
+    assert outcome.status == STATUS_ANCHOR_CHAIN_BROKEN
+    assert outcome.reason == REASON_ANCHOR_CHAIN_LINK_MISSING
+    assert outcome.anchor_chain_break_keys == (tip_key,)
+    assert outcome.listing_disagreement == ()  # V3 really did stay silent
+    assert outcome.database_root is None  # no verdict about the database was issued
+    assert outcome.is_clean is False
+
+    # And the database was, throughout, entirely honest — this is an EVIDENCE incident.
+    chain = await verify_chain(pg_dsn, tenant_schema)
+    assert chain.valid is True
+    assert chain.total_records == chain.verified_records == 6
+
+
+async def test_a_migration_after_the_anchor_is_surfaced_against_the_live_alembic_version(
+    anchors_enabled: None,
+    pg_dsn: str,
+    tenant_schema: str,
+    store: LabeledFakeWormAnchorStore,
+    probe: FilesystemAnchorKeyProbe,
+) -> None:
+    """SCHEMA DRIFT (G1b) — the one drill that binds the cross-check to a REAL `alembic_version`.
+
+    The unit suite can only prove the comparison; it cannot prove the job reads the right table.
+    Alembic's per-tenant version table is named by `platform/migrations/env.py`
+    (`version_table=f"{TENANT_ID}_alembic_version"`) and lives inside the tenant schema because that
+    env migrates under `search_path = "<tenant>", "public"` — none of which is visible from a
+    fixture. Here the anchor is sealed against whatever `head` actually is, then the LIVE revision
+    row is moved, and the job must notice.
+
+    The chain CONTENT is untouched throughout, so the roots still agree: this is a stale-anchor
+    finding (re-anchor), not a tamper => SCHEMA_VERSION_MISMATCH.
+    """
+    await _seed_chain(pg_dsn, tenant_schema, 5)
+    await _seal_anchor_from_db(pg_dsn, tenant_schema, store)
+
+    live_before = (await PostgresChainRecordSource(pg_dsn).read_chain(tenant_schema)).schema_version
+    assert live_before is not None  # the drill would be vacuous against a schema with no revision
+
+    control = await _verify(pg_dsn, tenant_schema, store, probe)
+    assert control.status == STATUS_MATCH
+    assert control.anchored_schema_version == control.database_schema_version == live_before
+
+    # A migration the anchor never saw. Only the version ROW moves; no table is altered, so the
+    # chain content — and therefore both roots — stay exactly as the anchor attests.
+    await _exec(
+        pg_dsn,
+        tenant_schema,
+        f'UPDATE "{tenant_schema}_alembic_version" SET version_num = $1',
+        "0099_migracao_posterior",
+    )
+
+    outcome = await _verify(pg_dsn, tenant_schema, store, probe)
+    assert outcome.status == STATUS_SCHEMA_VERSION_MISMATCH
+    assert outcome.reason == REASON_SCHEMA_VERSION_MISMATCH
+    assert outcome.anchored_schema_version == live_before
+    assert outcome.database_schema_version == "0099_migracao_posterior"
+    assert outcome.anchor_root == outcome.database_root  # content agreed; only the schema drifted
+    assert outcome.is_clean is False
+    assert outcome.exit_code == EXIT_CODE_BY_STATUS[STATUS_SCHEMA_VERSION_MISMATCH] == 18
 
 
 # =================================================================================================

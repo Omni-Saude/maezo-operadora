@@ -353,7 +353,7 @@ geral, por três razões independentes:
 
 | # | causa | medido? |
 | --- | --- | --- |
-| 1 | O envelope **não aponta para o predecessor** (4 chaves fixas). "Mais recente" é propriedade da LISTAGEM do store, não da evidência: nada dentro de uma âncora assinada diz "e não existe outra depois" | estrutural, §4 |
+| 1 | (v1) O envelope **não apontava para o predecessor**. **G1 acrescentou o elo `prev_anchor_root`** (v2), então a evidência agora liga cada âncora à anterior; o resíduo é o outro sentido — nada dentro de uma âncora assinada diz "e não existe outra **depois**", logo a truncagem da MAIS NOVA continua sendo propriedade da LISTAGEM do store, não da evidência | estrutural, §4; elo in-band FEITO (§9.2) |
 | 2 | `list_keys()` (perna 1) usa `Path.rglob`, que **não desce em diretório symlinkado**, enquanto `get()`/`put()` resolvem através dele (só recusam sair da raiz) | **sim** — `test_labeled_fake_store_listing_omits_what_get_serves_through_a_symlinked_directory`: com `<root>/amh -> <root>/physical`, `get("amh/<x>")` serve o payload e `list_keys()` devolve `("physical/<x>",)`, string diferente |
 | 3 | Object store real tem o mesmo buraco por outra causa: `ListObjectsV2` é eventualmente consistente, então uma âncora recém-escrita pode legitimamente faltar numa listagem de um segundo depois | conhecido |
 
@@ -385,10 +385,13 @@ deployment real o dono precisa wirar um corroborador independente no mesmo espí
 S3 Inventory contra `ListObjectsV2` vivo, ou visão read-only de uma segunda conta). É premissa
 divulgada, não propriedade provada aqui.
 
-**Reparo in-band NÃO feito (para humano, §9.6):** encadear as próprias âncoras — um campo
-`prev_anchor_root` tornaria a omissão detectável **na evidência** em vez de na camada de storage.
-É bump de `ANCHOR_FORMAT`, logo decisão de perna 1/dono, não algo que a perna 2 possa tomar
-unilateralmente.
+**Reparo in-band FEITO (G1, DARK):** encadear as próprias âncoras — o campo assinado
+`prev_anchor_root` (bump `ANCHOR_FORMAT` v1→v2) torna a omissão detectável **na evidência** em vez
+de só na camada de storage. O verify job caminha os elos **genesis-first** e reporta um elo
+omitido/forkado/sem-genesis como `ANCHOR_CHAIN_BROKEN` (§9.4), sem emitir veredito sobre o banco.
+Complementa — não substitui — a sonda de corroboração: a truncagem da âncora **MAIS NOVA** continua
+fora do alcance in-band (nenhum elo para trás a vê) e segue delegada à retention-lock do storage.
+Permanece atrás das flags default-OFF.
 
 ### 9.3 A flag IRMÃ, e por que não a do escritor
 
@@ -404,7 +407,7 @@ todas as linhas do tenant, e — quando wirado — paginar um humano). Com a fla
 **antes** de abrir conexão; `run_verification_loop` retorna **sem nunca dormir** (feature desligada
 não deve ser dona de uma task).
 
-### 9.4 Vocabulário fechado de outcomes (8), com exit code, evento e nível
+### 9.4 Vocabulário fechado de outcomes (10), com exit code, evento e nível
 
 | status | exit | evento structlog | nível | significado |
 | --- | --- | --- | --- | --- |
@@ -416,11 +419,16 @@ não deve ser dona de uma task).
 | `DB_ERROR` | 14 | `audit_anchor_database_unreadable` | error | cadeia ilegível é cadeia **não verificada** |
 | `ANCHOR_UNREADABLE` | 15 | `audit_anchor_envelope_unreadable` | error | bytes que não são âncora usável deste tenant |
 | `DISABLED` | 16 | `audit_anchor_verification_skipped_disabled` | debug | **"não rodou" nunca é "rodou e passou"** |
+| `ANCHOR_CHAIN_BROKEN` | 17 | `audit_anchor_chain_broken` | error | evidência assinada não é UMA cadeia in-band contígua (elo omitido/forkado/sem genesis); **nenhum** veredito sobre o banco (G1) |
+| `SCHEMA_VERSION_MISMATCH` | 18 | `audit_anchor_schema_version_mismatch` | error | conteúdo bateu, mas o `chain_schema_version` **assinado** da âncora ≠ revisão alembic **VIVA** do tenant (G1) |
 
-Os dois últimos **estendem** os seis do brief da perna 2, seguindo a regra do próprio brief (cada
-estado de ausência é um outcome): envelope truncado não é assinatura forjada — mandam o operador
-para incidentes diferentes (integridade de storage vs comprometimento de chave) — e job desligado
-não é job aprovado. Exit codes começam em **10** de propósito: `1` é traceback e `2` é erro de uso
+Os **quatro** últimos **estendem** os seis do brief da perna 2, seguindo a regra do próprio brief
+(cada estado de ausência ou discordância estrutural é um outcome): envelope truncado não é
+assinatura forjada e job desligado não é job aprovado (`ANCHOR_UNREADABLE`/`DISABLED` — mandam o
+operador para incidentes diferentes: integridade de storage vs comprometimento de chave); e **G1**
+acrescentou `ANCHOR_CHAIN_BROKEN` (a evidência assinada não é uma cadeia in-band contígua — uma
+afirmação sobre a CUSTÓDIA, não sobre o banco) e `SCHEMA_VERSION_MISMATCH` (o conteúdo bateu, mas a
+âncora atesta uma revisão de migração que o banco não tem mais). Exit codes começam em **10** de propósito: `1` é traceback e `2` é erro de uso
 do argparse, e nenhum dos dois pode virar veredito; `3` é a recusa de wiring do CLI.
 
 `reason` estreita o status dentro de um vocabulário igualmente fechado (`REASON_TO_STATUS`), nunca
@@ -463,19 +471,23 @@ Base verde: **121 + 121 = 242** testes nos dois arquivos.
 - **Distribuição de chave de verificação.** O job precisa só da metade **pública**/permissão
   `verify`; o escritor precisa de `sign`. Separar as duas identidades IAM é wiring do dono e o item
   de custódia/rotação já listado em ADR-0029 "Open items" passa a valer para os dois papéis.
-- **Encadeamento de âncoras (`prev_anchor_root`).** §9.2 — reparo in-band do problema da "mais
-  recente", que é bump de formato.
-- **Versão de schema.** A recomputação usa o `chain_schema_version` **da âncora** (assinado), para
-  isolar a comparação ao CONTEÚDO da cadeia. Comparar isso contra o `alembic_version` vivo do
-  tenant detectaria "âncora atesta um schema que não é mais o do banco" — checagem a mais que
-  ninguém pediu ainda.
+- **Encadeamento de âncoras (`prev_anchor_root`) — FEITO (G1, DARK).** §9.2: o reparo in-band do
+  problema da "mais recente" foi construído (bump `ANCHOR_FORMAT` v1→v2; elo assinado caminhado
+  genesis-first → `ANCHOR_CHAIN_BROKEN`, §9.4). Levantado aqui pela perna 2, resolvido por G1;
+  permanece atrás das flags default-OFF.
+- **Versão de schema — FEITO (G1, DARK).** A recomputação usa o `chain_schema_version` **da âncora**
+  (assinado) para isolar a comparação ao CONTEÚDO da cadeia; a cross-check contra o `alembic_version`
+  **vivo** do tenant ("âncora atesta um schema que não é mais o do banco") foi construída como
+  `SCHEMA_VERSION_MISMATCH` (§9.4), rodando **por último** para nunca mascarar uma divergência de
+  conteúdo real.
 
 ---
 
 ## 10. Perna 3 — drills de tamper/restore contra Postgres VIVO (ENTREGUE)
 
-Artefato: `tests/unit/gateway/test_audit_anchor_drills_live_pg.py` (7 provas, marcador
-`@pytest.mark.integration`, **skip-loudly**).
+Artefato: `tests/unit/gateway/test_audit_anchor_drills_live_pg.py` (9 provas — 1 controle + 7 drills
+de tamper + 1 CLI ponta-a-ponta; G1 acrescentou os drills 6–7, marcador `@pytest.mark.integration`,
+**skip-loudly**).
 
 ### 10.1 O que estas provas acrescentam à suíte da perna 2
 
@@ -493,7 +505,7 @@ O mecanismo que torna um edit preguiçoso de conteúdo detectável: o caminho li
 `AuditRecord.__post_init__`), enquanto `snapshot_from_rows` caminha pelos elos **ARMAZENADOS**. Numa
 linha honesta os dois coincidem; numa editada, não.
 
-### 10.2 Os cinco drills e o guarda que dispara (observado VIVO)
+### 10.2 Os sete drills e o guarda que dispara (observado VIVO)
 
 | # | drill (tamper) | outcome observado (verify job) | qual guarda dispara |
 | --- | --- | --- | --- |
@@ -502,13 +514,16 @@ linha honesta os dois coincidem; numa editada, não.
 | 3 | REMOVE cauda (deleta o registro mais novo) | `DIVERGENCE / RECORD_COUNT_SHORTFALL` (db_n=4<5, `database_root=None`) | **SÓ a âncora** — `verify_chain` diz VALID (a cadeia truncada segue perfeitamente encadeada) |
 | 4 | FORK (duas linhas com o mesmo `prev_record_hash`) | Parte 1: `UniqueViolationError(uq_audit_chain_prev_hash)` — o DB recusa o insert. Parte 2 (constraint dropada): `DIVERGENCE / CHAIN_FORK` | Parte 1 = guarda **do DB** (migração 0002); Parte 2 = guarda **do verify job** |
 | 5 | RECONSTRUCT (reescrita íntegra e auto-consistente) | `verify_chain` diz **VALID** (enganado — asserido PRIMEIRO), depois âncora `DIVERGENCE / ROOT_MISMATCH` | **SÓ a âncora externa** — o adversário-alvo da §4 |
+| 6 | THIN THE LEDGER (G1, Unit B): 3 âncoras encadeadas, a do **MEIO** deletada do store | `ANCHOR_CHAIN_BROKEN / ANCHOR_CHAIN_LINK_MISSING`, **nenhum** veredito sobre o banco | **SÓ o `prev_anchor_root` assinado** — conteúdo honesto, objeto genuinamente ausente, a sonda de corroboração não dispara |
+| 7 | SCHEMA DRIFT (G1b): move a linha `<tenant>_alembic_version` DEPOIS de selar a âncora | `SCHEMA_VERSION_MISMATCH` | cross-check da versão **assinada** vs `alembic_version` **vivo** — conteúdo intocado, os dois roots ainda batem |
 
 Cada tamper é pareado com seu CONTROLE (mesmo setup, sem tamper → MATCH) na mesma prova; o drill 5
 exibe `verify_chain().valid is True` na falsificação ANTES de a âncora pegá-la (a barra de
 não-vacuidade: se o check só-do-DB não fosse genuinamente enganado, pegá-la depois não provaria
-nada). A 7ª prova exercita o **CLI offline da perna 2** ponta-a-ponta (handoff §8): exit 0 + veredito
-`MATCH` na última linha do stdout na cadeia honesta, depois exit 10 + veredito `DIVERGENCE` após
-deletar a cauda — o contrato §9.4 (veredito = última linha, uma linha; exit code codifica a classe).
+nada). A **9ª prova** exercita o **CLI offline da perna 2** ponta-a-ponta (handoff §8): exit 0 +
+veredito `MATCH` na última linha do stdout na cadeia honesta, depois exit 10 + veredito `DIVERGENCE`
+após deletar a cauda — o contrato §9.4 (veredito = última linha, uma linha; exit code codifica a
+classe).
 
 ### 10.3 Isolamento live-PG e skip-loudly (por que estas provas não dependem de container ad-hoc)
 
@@ -561,6 +576,9 @@ está no vocabulário da perna 2. Divulgado, não forçado (o brief manda não f
 - **KMS/HSM real + WORM real.** Os drills usam os seams FAKE rotulados; a durabilidade e a
   retention-lock que tornam a âncora *evidência* são wiring do dono (§5, §8, ADR-0029 open items).
 - **Split IAM sign/verify.** O escritor precisa de `sign`, o job só de `verify` — duas identidades.
-- **`prev_anchor_root`.** Encadear âncoras fecharia o problema da "mais recente" (§9.2) — bump de formato.
-- **Cross-check de schema-version.** Comparar `chain_schema_version` da âncora contra o
-  `alembic_version` vivo (§9.6) — detectaria "âncora atesta um schema que não é mais o do banco".
+- **`prev_anchor_root` — FEITO (G1, DARK).** O encadeamento in-band fechou o problema da "mais
+  recente" (§9.2): bump `ANCHOR_FORMAT` v1→v2, elo assinado, `ANCHOR_CHAIN_BROKEN`. Herdado pela
+  perna 3 como o drill 6 (THIN THE LEDGER).
+- **Cross-check de schema-version — FEITO (G1, DARK).** A comparação do `chain_schema_version` da
+  âncora contra o `alembic_version` vivo (§9.6) foi construída (`SCHEMA_VERSION_MISMATCH`) e é
+  exercitada VIVA pelo drill 7 (SCHEMA DRIFT).
