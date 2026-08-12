@@ -460,9 +460,9 @@ kind of silent propagation that becomes a forgery the moment someone "fixes" the
 loosening the check. **Constraint: legs 2-4 must make `extend()` either drop the signature
 explicitly (returning an unsigned sub-envelope that must be re-signed) or re-sign in place; it must
 never inherit it.** This is cheap to get right now and expensive later: `extend()` has **zero
-callers in `src/`** today — the only call sites are `tests/unit/a2a/test_delegation.py:242`,
-`tests/unit/a2a/fakes.py:63` and `tests/unit/a2a/test_a2a_edge_live_pg.py:558` — so the constraint
-costs nothing to honour and there is no production behaviour to preserve.
+callers in `src/`** today — every call site is under `tests/unit/a2a/` (13 in total, across
+`test_delegation.py`, `fakes.py` and `test_a2a_edge_live_pg.py`) — so the constraint costs nothing
+to honour and there is no production behaviour to preserve.
 
 **Verification** happens inside `DelegationDispatcher`, as the **first check inside the dispatcher**
 — and the placement is pinned, not left to legs 2-4, because the obvious alternatives defeat the
@@ -591,10 +591,15 @@ for whichever leg does the replacement.
 **Deferred, explicitly, until a remote transport exists.** The design doc for the existing A2A build
 states this outright and unchanged across multiple waves: "Remote cross-pod A2A transport
 (queue_ref/endpoint, HTTP/mTLS) remains explicitly out of scope"
-(`docs/design/A2A-dispatcher-card-signing.md:320`). Today's ONLY built edge (Helena→Rafael, and the
-worker→Carolina/Andre dossier edges) is **Option A: in-process co-located**
-(`a2a_composition.py:1-10` module docstring) — there is no network hop, no serialization boundary,
-and therefore no transport-authenticity question for mTLS to answer yet. Envelope signing as
+(`docs/design/A2A-dispatcher-card-signing.md:320`). Today's built edges — Helena→Rafael (assembled
+at the composition root, `_EDGE_AGENT_IDS = ("helena", "rafael")`, `a2a_composition.py:86`, and
+driven by the W3 live-Postgres suite rather than by any `src/` caller —
+`tests/unit/a2a/test_a2a_edge_live_pg.py:1`, "LIVE-Postgres proof: the Helena->Rafael A2A
+delegation edge's 'T-F becomes real' claim (W3)") and the three worker→Carolina/Andre dossier edges
+(reached from real worker code: `tools/workers/credenciamento.py:637`,
+`tools/workers/adequacao.py:788`, `tools/workers/pagto.py:892`) — are all **Option A: in-process
+co-located** (`a2a_composition.py:1-10` module docstring). There is no network hop, no serialization
+boundary, and therefore no transport-authenticity question for mTLS to answer yet. Envelope signing as
 designed here is transport-independent (it protects the envelope's *content*, not the channel it
 travels over) and is valuable even in-process today (defense against a compromised/buggy in-process
 caller constructing a spoofed envelope via direct dataclass construction outside `root()`/`extend()`
@@ -655,8 +660,9 @@ which leg 4 is reviewed.
 **Positivas:**
 - Closes a real, currently-open gap: a forged or tampered delegation envelope that satisfies the
   four existing structural anti-loop guards passes today with no cryptographic check at all — this
-  ADR gives the dispatcher a fail-closed, tamper-evident admission gate over the exact fields that
-  matter (tenant, identity, payload reference, deadline, budget, chain).
+  ADR gives the dispatcher a fail-closed, tamper-evident admission gate over the mandated field set
+  (`{tenant, task_id, origin, target, payload_hash, deadline, budget, delegation_chain}`) — see
+  §Negativas for what that set does not cover.
 - Reuses, rather than reinvents, three separate existing precedents (Card-signing HMAC/canonical-JSON
   pattern, the `_require_signer_or_fail_closed` composition-root gate shape, and the audit chain's
   own `sort_keys`+compact-separator canonicalization) — minimizing the number of NEW cryptographic
@@ -792,3 +798,4 @@ dependency either direction). Does not interact with ADR-0037.
 |---|---|---|
 | r1 | 2026-08-11 | Redacao inicial (Onda 3 / Train C leg 1). Status Proposed. |
 | r2 | 2026-08-11 | Revisao do gatekeeper de Train C leg 1 (zero-trust, pre-ratificacao) — dez achados fechados, sem mudanca de status. Substantivos: (M1) `payload_meta` reclassificado como residual de severidade igual ou maior que `task_type`, com a evidencia dos quatro edges; retirada a equivalencia falsa com a exclusao PHI do dispatcher; `payload_meta_hash` registrado como OPCAO para o humano (§4.1, §4.5, §Negativas, §Perguntas abertas 1). (M2) a janela de graca de rotacao nao se sustentava — `deadline` e `None` em todos os envelopes reais; §4.3 passa a exigir `deadline` nao-`None` em envelope ASSINADO, idade maxima de assinatura independente, e retencao de idempotencia dominando a validade da assinatura. (M3) gatilho de aposentadoria da excecao §8.4 corrigido: `ast.ClassDef`/`ast.Import`, nunca construcao (§Contexto 2, §4.6). (M4) verificacao fixada em `delegate` antes do ramo `dispatcher.py:279-281`; `_execute` removido dos locais sancionados. (m5) `default=str` proibido na canonicalizacao, com contraexemplo `datetime`. (m6) custodia de chave alcanca quatro builders por requisicao; armadilha do `dataclasses.replace` em `extend()`. (m7) `max_hops` e sim fornecido pelo remetente — razao corrigida. (m8) "primeira checagem" escopada ao dispatcher (o seam gate roda antes). (m9) tres citacoes corrigidas (`registry.py`, `_is_test_double_name`, design doc §8.4). (m10) novo §4.8 com obrigacoes de prova por linha da tabela de ameacas, no precedente §8.5 "the gate must prove it is doing work". |
+| r3 | 2026-08-11 | Delta do mesmo gatekeeper sobre r2, dois residuos de uma linha. (R1) §4.4 enumerava tres call sites de `extend()` sob `tests/unit/a2a/`; a contagem real e 13 (`test_delegation.py` 11, `fakes.py` 1, `test_a2a_edge_live_pg.py` 1) — enumeracao trocada pelo total medido; a metade "zero callers em `src/`" segue confirmada. (R2) o primeiro bullet de §Positivas ainda dizia "the exact fields that matter (tenant, identity, payload reference, deadline, budget, chain)" — a frase que M1 retirou — e contradizia §Negativas; agora nomeia o conjunto MANDATADO e remete a §Negativas para o que ele nao cobre. Polimento: §4.7 dizia "ONLY built edge" seguido de quatro edges; reescrito para "built edges" distinguindo Helena→Rafael (montado, exercitado pela suite W3, sem caller em `src/`) das tres bordas worker→Carolina/Andre (alcancadas por codigo de worker real). |
