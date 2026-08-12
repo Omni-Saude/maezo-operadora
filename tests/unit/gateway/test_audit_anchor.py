@@ -70,6 +70,20 @@ mapping is stated once, here, so a reviewer can neuter any one of them and predi
       NEUTER: add any nested/free-form value to `build_envelope`.
       RED: `test_envelope_shape_is_pinned` (hardcoded key sets + scalar-only assertion).
 
+  D11 No key escapes the store root — by SPELLING and by RESOLUTION.
+      NEUTER (spelling): delete the `_SAFE_ANCHOR_KEY` check in `_resolve`.
+      RED: `test_worm_store_refuses_unsafe_keys[...]`.
+      NEUTER (resolution): delete the `is_relative_to` containment check in `_resolve`.
+      RED: `test_worm_store_refuses_a_key_that_escapes_via_a_symlinked_intermediate_dir`,
+      `test_worm_store_refuses_reading_through_a_symlinked_intermediate_dir`,
+      `test_worm_store_refuses_a_final_component_symlink`. HISTORY: the grammar check alone was
+      claimed as "no key escapes the root"; with `<root>/amh` pre-planted as a symlink, the legal
+      key `amh/a.anchor.json` wrote OUTSIDE the root while every test stayed green. Found by
+      external review. Its CONTROL is
+      `test_worm_store_still_accepts_a_normal_nested_key_under_a_symlinked_root` — the check must
+      not degenerate into "refuse everything", and it must survive a root that is itself reached
+      through a symlink (macOS `tmp_path`).
+
 One neutering was DEMONSTRATED locally (mutate -> watch red -> revert) — see the commit message
 for `test_audit_anchor.py`.
 """
@@ -643,6 +657,81 @@ def test_worm_store_refuses_unsafe_keys(tmp_path: Path, bad_key: str) -> None:
     with pytest.raises(AnchorKeyError, match="outside the safe grammar"):
         store.put(bad_key, b"payload")
     assert not (tmp_path / "anchors").exists()
+
+
+def test_worm_store_refuses_a_key_that_escapes_via_a_symlinked_intermediate_dir(
+    tmp_path: Path,
+) -> None:
+    """CONSEQUENCE probe, not a grammar probe. `amh/a.anchor.json` is a perfectly LEGAL key — it
+    passes `_SAFE_ANCHOR_KEY` character by character. With `<root>/amh` pre-planted as a symlink
+    to a directory outside the root, the write used to land outside the store entirely while the
+    docstring claimed "no key escapes the root". The refusal must therefore come from RESOLUTION,
+    which is the only check that can see a symlink at all."""
+    root = tmp_path / "anchors"
+    outside = tmp_path / "outside"
+    root.mkdir()
+    outside.mkdir()
+    (root / "amh").symlink_to(outside, target_is_directory=True)
+
+    store = LabeledFakeWormAnchorStore(root)
+    with pytest.raises(AnchorKeyError, match="outside the store root"):
+        store.put("amh/a.anchor.json", b"ESCAPED-PAYLOAD")
+
+    # The consequence, probed on the filesystem rather than on the exception: nothing was written
+    # anywhere — not outside, and not (via the symlink) inside.
+    assert list(outside.iterdir()) == []
+    assert store.list_keys() == ()
+
+
+def test_worm_store_refuses_reading_through_a_symlinked_intermediate_dir(tmp_path: Path) -> None:
+    """The same escape read BACKWARDS: a planted file outside the root must not become readable
+    as if it were a stored anchor. Otherwise leg 2's comparison job could be fed an envelope the
+    store never wrote."""
+    root = tmp_path / "anchors"
+    outside = tmp_path / "outside"
+    root.mkdir()
+    outside.mkdir()
+    (outside / "a.anchor.json").write_bytes(b"PLANTED-FROM-OUTSIDE")
+    (root / "amh").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(AnchorKeyError, match="outside the store root"):
+        LabeledFakeWormAnchorStore(root).get("amh/a.anchor.json")
+
+
+def test_worm_store_refuses_a_final_component_symlink(tmp_path: Path) -> None:
+    """The narrower case: the KEY's own file is the symlink. `O_CREAT|O_EXCL` would refuse this on
+    its own, but the containment check gets there first and says why."""
+    root = tmp_path / "anchors"
+    outside = tmp_path / "outside"
+    root.mkdir()
+    (outside).mkdir()
+    (root / "amh").mkdir()
+    (root / "amh" / "a.anchor.json").symlink_to(outside / "target.json")
+
+    with pytest.raises(AnchorKeyError, match="outside the store root"):
+        LabeledFakeWormAnchorStore(root).put("amh/a.anchor.json", b"ESCAPED-PAYLOAD")
+    assert not (outside / "target.json").exists()
+
+
+def test_worm_store_still_accepts_a_normal_nested_key_under_a_symlinked_root(tmp_path: Path) -> None:
+    """CONTROL for the containment check — the refusal must not be "refuse everything".
+
+    Two things at once: an ordinary nested key round-trips, AND it does so when the ROOT ITSELF is
+    reached through a symlink. That second half is the false-positive the naive spelling of this
+    check produces, and it is not hypothetical: on macOS `tmp_path` already lives under
+    `/var -> /private/var`, so resolving only the candidate path would refuse every write in this
+    entire test file."""
+    real_root = tmp_path / "real-anchors"
+    real_root.mkdir()
+    linked_root = tmp_path / "linked-anchors"
+    linked_root.symlink_to(real_root, target_is_directory=True)
+
+    store = LabeledFakeWormAnchorStore(linked_root)
+    store.put("amh/deep/nested/a.anchor.json", b"payload")
+
+    assert store.get("amh/deep/nested/a.anchor.json") == b"payload"
+    assert store.list_keys() == ("amh/deep/nested/a.anchor.json",)
+    assert (real_root / "amh" / "deep" / "nested" / "a.anchor.json").read_bytes() == b"payload"
 
 
 def test_worm_store_construction_is_pure(tmp_path: Path) -> None:

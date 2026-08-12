@@ -259,7 +259,17 @@ class AnchorWormViolationError(AnchorError):
 
 
 class AnchorKeyError(AnchorError):
-    """An anchor key is outside the store's safe grammar (path traversal, absolute, empty, ...)."""
+    """An anchor key is unusable: outside the safe grammar, or it resolves outside the store root.
+
+    Two distinct refusals share this type because they are the same property from the caller's
+    side — "this key does not name a location inside this store":
+
+      - SPELLING: path traversal, absolute paths, backslashes, empty segments (:data:`_SAFE_ANCHOR
+        _KEY`). Rejected without touching the filesystem.
+      - RESOLUTION: the key is spelled safely but a SYMLINK on the path makes it land elsewhere.
+        The grammar cannot see this — `amh/a.anchor.json` is a perfectly legal key whether or not
+        `<root>/amh` is a symlink to somewhere else on the host.
+    """
 
 
 # =================================================================================================
@@ -639,14 +649,27 @@ class LabeledFakeWormAnchorStore:
         pre-check is refused by the kernel, not by a comment.
       - **Read-only after write.** Each anchor file is chmod'ed to `0o444`, so ordinary code that
         opens it for writing fails too.
-      - **No key escapes the root.** Keys must match :data:`_SAFE_ANCHOR_KEY`; absolute paths,
-        `..` segments and backslashes cannot even be spelled.
+      - **No key escapes the root — spelling AND resolution.** Keys must match
+        :data:`_SAFE_ANCHOR_KEY` (absolute paths, `..` segments and backslashes cannot even be
+        spelled) AND the resolved path must stay under the resolved root. The second half is not
+        redundant: a perfectly legal key like `amh/a.anchor.json` writes OUTSIDE the root when
+        `<root>/amh` is a symlink to somewhere else, and the grammar cannot see that — it reads
+        characters, not the filesystem. Both refusals raise :class:`AnchorKeyError`.
       - **Self-labeling.** The first write drops :data:`FAKE_WORM_STORE_MARKER_FILENAME` in the
         root, stating in prose that this directory is not evidence.
 
     What it does NOT provide, and what a real store must: retention lock enforced by the storage
     service (a local `root` privileged actor can `chmod`/`rm` at will), off-host durability, and a
     separate security account/credential boundary. Those are the owner's deployment concerns.
+
+    Residual, disclosed rather than papered over: the containment check is a CHECK-THEN-WRITE, so
+    an adversary who can plant a symlink on the key's path in the window between `_resolve` and the
+    `open` still escapes (classic TOCTOU). The final path component is not exposed that way —
+    `O_CREAT|O_EXCL` refuses an existing symlink outright — but intermediate directories are, and
+    closing that would take an `openat`/`O_NOFOLLOW` descent this labeled fake deliberately does
+    not carry. Anyone who can write inside the store root can also just `rm` its contents, so this
+    residual does not change the class's honest posture: a local filesystem is not a WORM bucket,
+    and only the owner's retention-locked store makes any of it binding.
 
     Construction is PURE (no I/O) — the same discipline `FreshSinkAuditEmitter` documents. That is
     load-bearing for the dark build: constructing this store while the flag is off must not create
@@ -661,13 +684,34 @@ class LabeledFakeWormAnchorStore:
         return self._root
 
     def _resolve(self, key: str) -> Path:
+        """Map `key` to a path, refusing anything that is not spelled AND located inside the root.
+
+        The grammar check alone is not containment. `amh/a.anchor.json` is a legal key, but if
+        `<root>/amh` is a SYMLINK to a directory elsewhere on the host, the write lands outside the
+        root while every character of the key looks innocent — the grammar cannot see the
+        filesystem. So the resolved path is checked against the resolved root as well.
+
+        BOTH sides are resolved. Resolving only the candidate would produce false refusals whenever
+        the root itself sits under a symlink (macOS `/var` -> `/private/var` is the everyday case,
+        including every `tmp_path` in this repo's tests). `Path.resolve()` is non-strict, so a not
+        yet created path resolves its existing prefix and keeps the rest — which is exactly the
+        pre-planted-symlink case this refuses.
+        """
         if not _SAFE_ANCHOR_KEY.match(key):
             raise AnchorKeyError(
                 f"anchor key {key!r} is outside the safe grammar "
                 "(slash-separated segments, each starting alphanumeric; no absolute paths, no "
                 "'..', no backslashes)"
             )
-        return self._root.joinpath(*key.split("/"))
+        path = self._root.joinpath(*key.split("/"))
+        resolved_root = self._root.resolve()
+        if not path.resolve().is_relative_to(resolved_root):
+            raise AnchorKeyError(
+                f"anchor key {key!r} resolves to {str(path.resolve())!r}, outside the store root "
+                f"{str(resolved_root)!r} — a symlink on the key's path escapes the store, and an "
+                "anchor written outside the store is not in the store"
+            )
+        return path
 
     def put(self, key: str, payload: bytes) -> None:
         """Write `payload` under `key`. Refuses LOUDLY if the key already exists."""
