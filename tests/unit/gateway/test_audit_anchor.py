@@ -8,10 +8,15 @@ mapping is stated once, here, so a reviewer can neuter any one of them and predi
   D1  Canonical serialization covers ALL seven checkpoint fields.
       NEUTER: drop (or rename, or reorder into a non-sorted emission of) any key in
       `AnchorCheckpoint.to_canonical_mapping()`.
-      RED: `test_checkpoint_bytes_match_pinned_literal` and `test_checkpoint_root_matches_pinned
-      _literal` — the pinned 292-byte literal / the pinned root no longer match. Additionally
-      `test_every_checkpoint_field_changes_the_root[<field>]` goes red for the dropped field,
-      because two checkpoints differing only in it now hash identically.
+      RED: `test_checkpoint_bytes_match_pinned_literal`, `test_checkpoint_root_matches_pinned
+      _literal` (the pinned 292-byte literal / the pinned root no longer match),
+      `test_canonical_mapping_keys_match_the_field_set`, and
+      `test_every_checkpoint_field_changes_the_root[<field>]` for the dropped field — two
+      checkpoints differing only in it now hash identically. DEMONSTRATED: dropping
+      `"record_count"` from `to_canonical_mapping()` turned 9 tests red (see the commit message).
+      That run also EXPOSED a vacuity in `test_every_checkpoint_field_changes_the_root`, which
+      then compared against `_PINNED_ROOT` and so stayed green under the very mutation it exists
+      to catch; it now recomputes its baseline. A canary that cannot fail is not a canary.
 
   D2  Canonicalization is byte-stable (sorted keys, no whitespace, ASCII).
       NEUTER: remove `sort_keys=True`, or `separators`, or `ensure_ascii`.
@@ -283,8 +288,16 @@ def test_every_checkpoint_field_changes_the_root(field_name: str, mutated: Any) 
     the root is a field an attacker can edit under a still-valid signature.
 
     (`anchor_format` is excluded from the parametrization only because construction refuses any
-    other value — its presence in the bytes is pinned by the byte-exact literal instead.)"""
-    assert checkpoint_root(_fixture_checkpoint(**{field_name: mutated})) != _PINNED_ROOT
+    other value — its presence in the bytes is pinned by the byte-exact literal instead.)
+
+    The baseline is RECOMPUTED, not `_PINNED_ROOT`. Comparing against the pinned literal made this
+    test VACUOUS under exactly the mutation it exists to catch: dropping a key from
+    `to_canonical_mapping()` moves the baseline root too, so `mutated != pinned` stayed true while
+    the two checkpoints hashed identically. Found by running the D1 neutering (see the commit
+    message) and noticing this test stayed green. Comparing two live roots cannot be fooled that
+    way."""
+    baseline = checkpoint_root(_fixture_checkpoint())
+    assert checkpoint_root(_fixture_checkpoint(**{field_name: mutated})) != baseline
 
 
 def test_utc_normalization_makes_the_root_a_function_of_the_instant() -> None:
