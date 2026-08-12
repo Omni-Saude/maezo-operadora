@@ -469,3 +469,98 @@ Base verde: **121 + 121 = 242** testes nos dois arquivos.
   isolar a comparação ao CONTEÚDO da cadeia. Comparar isso contra o `alembic_version` vivo do
   tenant detectaria "âncora atesta um schema que não é mais o do banco" — checagem a mais que
   ninguém pediu ainda.
+
+---
+
+## 10. Perna 3 — drills de tamper/restore contra Postgres VIVO (ENTREGUE)
+
+Artefato: `tests/unit/gateway/test_audit_anchor_drills_live_pg.py` (7 provas, marcador
+`@pytest.mark.integration`, **skip-loudly**).
+
+### 10.1 O que estas provas acrescentam à suíte da perna 2
+
+A suíte da perna 2 (`test_audit_anchor_verify.py`) dirige `verify_latest_anchor` por um
+`_RowRecordSource` em memória — pina toda a árvore de decisão, mas o caminho linha→registro→recompute
+é uma **reconstrução** do que o Postgres faz. A perna 3 roda o **MESMO** `verify_latest_anchor`
+contra o `PostgresChainRecordSource` **real**, lendo uma tabela `audit_chain` **real**, semeada pelo
+`PostgresAuditSink.emit()` **real**, ancorada pelo `write_anchor` **real** da perna 1, e então
+ADULTERADA por SQL cru contra o banco vivo. Cada drill é a ameaça da auditoria §4 tornada real, e
+cada um prova que a comparação com a âncora atinge o outcome ALTO correto — com um CONTROLE
+(sem tamper) provando MATCH primeiro (um verificador que só alarma não detecta nada).
+
+O mecanismo que torna um edit preguiçoso de conteúdo detectável: o caminho linha→registro
+**RECOMPUTA** `record_hash` do conteúdo armazenado (`audit_postgres._row_to_record` →
+`AuditRecord.__post_init__`), enquanto `snapshot_from_rows` caminha pelos elos **ARMAZENADOS**. Numa
+linha honesta os dois coincidem; numa editada, não.
+
+### 10.2 Os cinco drills e o guarda que dispara (observado VIVO)
+
+| # | drill (tamper) | outcome observado (verify job) | qual guarda dispara |
+| --- | --- | --- | --- |
+| 1 | ALTER meio (edita `decision_basis`, `record_hash` fica velho) | `DIVERGENCE / CHAIN_DISCONTINUITY` | âncora **e** `verify_chain` (hash mismatch) |
+| 2 | ALTER cabeça (mesmo edit na linha cauda) | `DIVERGENCE / ROOT_MISMATCH` | âncora **e** `verify_chain` |
+| 3 | REMOVE cauda (deleta o registro mais novo) | `DIVERGENCE / RECORD_COUNT_SHORTFALL` (db_n=4<5, `database_root=None`) | **SÓ a âncora** — `verify_chain` diz VALID (a cadeia truncada segue perfeitamente encadeada) |
+| 4 | FORK (duas linhas com o mesmo `prev_record_hash`) | Parte 1: `UniqueViolationError(uq_audit_chain_prev_hash)` — o DB recusa o insert. Parte 2 (constraint dropada): `DIVERGENCE / CHAIN_FORK` | Parte 1 = guarda **do DB** (migração 0002); Parte 2 = guarda **do verify job** |
+| 5 | RECONSTRUCT (reescrita íntegra e auto-consistente) | `verify_chain` diz **VALID** (enganado — asserido PRIMEIRO), depois âncora `DIVERGENCE / ROOT_MISMATCH` | **SÓ a âncora externa** — o adversário-alvo da §4 |
+
+Cada tamper é pareado com seu CONTROLE (mesmo setup, sem tamper → MATCH) na mesma prova; o drill 5
+exibe `verify_chain().valid is True` na falsificação ANTES de a âncora pegá-la (a barra de
+não-vacuidade: se o check só-do-DB não fosse genuinamente enganado, pegá-la depois não provaria
+nada). A 7ª prova exercita o **CLI offline da perna 2** ponta-a-ponta (handoff §8): exit 0 + veredito
+`MATCH` na última linha do stdout na cadeia honesta, depois exit 10 + veredito `DIVERGENCE` após
+deletar a cauda — o contrato §9.4 (veredito = última linha, uma linha; exit code codifica a classe).
+
+### 10.3 Isolamento live-PG e skip-loudly (por que estas provas não dependem de container ad-hoc)
+
+Mecanismo de skip espelha `test_a2a_edge_live_pg.py`: conecta a um DSN dedicado com timeout de 2s e
+`pytest.skip` ALTO se inalcançável — CI e qualquer outro ambiente pulam limpo. O DSN default aponta
+uma porta DEDICADA e NÃO-PADRÃO (**5466**), deliberadamente fora de {5432, 5433, 5643} — subir (ou
+não) o Postgres descartável desta suíte nunca faz a suíte live-PG de outra atacar um banco meio-pronto.
+Cada drill recebe seu PRÓPRIO esquema de tenant recém-migrado (function-scoped, porque cada drill
+muta a cadeia destrutivamente), dropado no teardown. Override: `MAEZO_TEST_AUDIT_ANCHOR_DRILL_DATABASE_URL`.
+
+`audit.py` e `audit_postgres.py` permanecem **byte-idênticos** à origin/main em todo o branch
+(doutrina aditiva) — os drills EXERCITAM `UNIQUE(prev_record_hash)` + os invariantes de hash-chain,
+nunca os modificam.
+
+### 10.4 Transcrição live (verbatim) — CONTROLE (verde) e TAMPER (incidente detectado)
+
+Contra `pgvector/pgvector:pg16` em `localhost:5466` (fora dos comandos de log estruturado):
+
+```text
+[ALTER_MIDDLE] CONTROL  -> {"status":"MATCH","reason":null,"anchored_n":5,"db_n":5,"anchor_root":"96d0b0ee3ea9","db_root":"96d0b0ee3ea9"}
+[ALTER_MIDDLE] TAMPERED -> {"status":"DIVERGENCE","reason":"CHAIN_DISCONTINUITY","anchored_n":5,"db_n":5,"db_root":null}  | verify_chain.valid=False
+[ALTER_HEAD]   CONTROL  -> {"status":"MATCH","reason":null,"anchored_n":5,"db_n":5,"anchor_root":"f36a611ab42a","db_root":"f36a611ab42a"}
+[ALTER_HEAD]   TAMPERED -> {"status":"DIVERGENCE","reason":"ROOT_MISMATCH","anchored_n":5,"db_n":5,"anchor_root":"f36a611ab42a","db_root":"8b10304eb77a"}  | verify_chain.valid=False
+[REMOVE_TAIL]  CONTROL  -> {"status":"MATCH","reason":null,"anchored_n":5,"db_n":5,"anchor_root":"163d98350e4a","db_root":"163d98350e4a"}
+[REMOVE_TAIL]  TAMPERED -> {"status":"DIVERGENCE","reason":"RECORD_COUNT_SHORTFALL","anchored_n":5,"db_n":4,"db_root":null}  | verify_chain.valid=True  (anchor-only catch)
+[FORK]         CONTROL  -> {"status":"MATCH","reason":null,"anchored_n":5,"db_n":5,"anchor_root":"86d4133caf29","db_root":"86d4133caf29"}
+[FORK]         PART1    -> DB GUARD fired: UniqueViolationError (uq_audit_chain_prev_hash)
+[FORK]         PART2    -> {"status":"DIVERGENCE","reason":"CHAIN_FORK","anchored_n":5,"db_n":6,"db_root":null}  | verify_chain.valid=False
+[RECONSTRUCT]  CONTROL  -> {"status":"MATCH","reason":null,"anchored_n":5,"db_n":5,"anchor_root":"70d52f37dd09","db_root":"70d52f37dd09"}
+[RECONSTRUCT]  TAMPERED -> {"status":"DIVERGENCE","reason":"ROOT_MISMATCH","anchored_n":5,"db_n":5,"anchor_root":"70d52f37dd09","db_root":"63e80893dba9"}  | verify_chain.valid=True  (DB-only fooled, then anchor catches)
+```
+
+Suíte comitada, verde contra 5466: `7 passed in 4.89s`. Skip-loudly (DSN → porta morta):
+`7 skipped` — cada um com a razão ALTA `COULD NOT VERIFY: Postgres not reachable ...`.
+
+### 10.5 Decisão sobre o polimento tenant-mismatch (achado menor da GK-B)
+
+GK-B notou que uma âncora validamente-assinada-para-tenant-B sob o prefixo do tenant-A é classada
+`ANCHOR_UNREADABLE / CHECKPOINT_TENANT_MISMATCH` (`_parse_envelope` recusa antes de ler o banco), o
+que subestima uma tentativa de *plantio* de âncora cross-tenant — mas a **saída de segurança está
+correta** (negação, nunca MATCH); só o rótulo é cosmético. **Decisão: DEIXAR como está.** Mover para
+uma classe de incidente "mais limpa" tocaria o vocabulário FECHADO de `audit_anchor_verify.py`
+(`ALL_STATUSES`, `REASON_TO_STATUS`, e as tabelas exit/evento/nível), todos pinados por
+igualdade-de-conjunto — um ripple que a perna 3 não deve introduzir num branch escuro cujas
+âncoras/verify já estão GK-clareadas. `audit_postgres.py` não seria tocado de qualquer forma; o custo
+está no vocabulário da perna 2. Divulgado, não forçado (o brief manda não forçar).
+
+### 10.6 Aberto para o dono (a perna 3 herda, não resolve)
+
+- **KMS/HSM real + WORM real.** Os drills usam os seams FAKE rotulados; a durabilidade e a
+  retention-lock que tornam a âncora *evidência* são wiring do dono (§5, §8, ADR-0029 open items).
+- **Split IAM sign/verify.** O escritor precisa de `sign`, o job só de `verify` — duas identidades.
+- **`prev_anchor_root`.** Encadear âncoras fecharia o problema da "mais recente" (§9.2) — bump de formato.
+- **Cross-check de schema-version.** Comparar `chain_schema_version` da âncora contra o
+  `alembic_version` vivo (§9.6) — detectaria "âncora atesta um schema que não é mais o do banco".
