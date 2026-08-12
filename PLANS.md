@@ -320,7 +320,18 @@ DL-0045 (qualificação MZO-040) em `docs/decisions-log.md`.
   verifier de referência LABELADO, negativos honestos p/ Q1/Q2). Cada leg autor R1 → GK adversarial
   → repair → delta PASS; live-PG (18 binders) provado. ASSINATURA DE ENVELOPE NÃO IMPLEMENTADA —
   gated na ratificação HUMANA das Perguntas 1 (`payload_meta_hash`) e 3 (max-signature-age) do
-  ADR-0039; mTLS deferido até transporte remoto]** ADR de assinatura do envelope
+  ADR-0039; mTLS deferido até transporte remoto]** **[DECISÕES DO DONO RECEBIDAS 2026-08-12 — as
+  7 Perguntas abertas do ADR-0039 (:712-758) estão RESPONDIDAS: (1) adotar
+  `payload_meta_hash: sha256(canonical(payload_meta))` na canonicalização do §4.1 · (2) incluir
+  `task_type` no digest · (3) rotação ordinária de chave roda por 7 dias (donde a idade máxima de
+  assinatura e o PISO de retenção de `a2a_idempotency`, que o DBA/MZO-060 então escolhe) · (4)
+  custódia no mesmo seam vault/KMS de `MAEZO_A2A_CARD_SIGNING_KEY`, com keyset POR TENANT (não
+  repo-wide) — assinatura de envelope também por tenant · (5) `replay_epoch` tolera janela curta de
+  graça p/ o epoch anterior · (6) `MAEZO_A2A_ALLOW_UNVERIFIED_ENVELOPES` confirmado · (7) mudar o
+  default de `AgentRuntimeSettings` (`settings.py:38`) p/ fail-closed. DESBLOQUEIA a implementação
+  da assinatura — trem seguinte, brief em `docs/prompts/13-08-26_signing-unlock.md`. O flip de
+  `**Status:**` e a tabela de aprovadores do ADR seguem sendo edição do DONO, nunca de agente]**
+  ADR de assinatura do envelope
   (digest canônico: tenant, task_id, origin, target, payload_hash, deadline, budget, chain;
   key-id e epoch p/ rotação/replay) → idempotência durável OBRIGATÓRIA fora de dev-local → outbox
   transacional substituindo o no-op de facts → testes orientados a ataque (tamper, replay
