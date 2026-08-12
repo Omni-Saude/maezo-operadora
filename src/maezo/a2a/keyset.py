@@ -143,10 +143,25 @@ class TenantKeyset(Protocol):
     `None`, never another tenant's key nor a repo-wide default (that fallback IS the cross-tenant
     key-confusion attack owner-decision 4 rules out). The fail-closed consequence of `None` is the
     composition root's job (`_require_signer_or_fail_closed`), not this resolver's.
+
+    BOTH ROTATION SLOTS ARE ON-PROTOCOL. `prior_key_for` is part of the contract, not an optional
+    duck-typed extra: the composition root reads the rotation-grace key through it
+    (`_require_envelope_signing_or_fail_closed`), so leaving it off the Protocol would make that
+    call `getattr`-shaped and mypy-invisible — a rename or a conformant-looking implementer missing
+    the method would silently disable the rotation grace instead of failing type-check. A resolver
+    with no rotation slot implements it as a constant `None` (the steady state), explicitly.
     """
 
     def key_for(self, tenant: str) -> bytes | None:
-        """The `tenant`'s signing key bytes, or `None` if none is provisioned for THAT tenant."""
+        """The `tenant`'s ACTIVE signing key bytes, or `None` if none is provisioned for THAT tenant."""
+        ...
+
+    def prior_key_for(self, tenant: str) -> bytes | None:
+        """The `tenant`'s ROTATION PRIOR key, or `None` outside a rotation grace window (§4.3).
+
+        Same no-cross-tenant / no-repo-wide-fallback contract as `key_for`: it answers with THAT
+        tenant's prior key or `None`, never another tenant's and never the active key.
+        """
         ...
 
 
@@ -162,10 +177,13 @@ class EnvTenantKeyset:
         artifact, not key material) and UTF-8 encoded;
       * absent OR whitespace-only -> `None` (dev fail-safe: a blank-but-present variable can never
         construct a signer, same as absent);
-      * present-but-too-short is NOT filtered here — it flows to `CardSigner` (via
-        `card_signer_from_key`), which refuses it fail-closed (`CardSignatureError`,
-        `MIN_SIGNING_KEY_BYTES`), so a present-but-garbage key fails loudly rather than silently
-        downgrading to unsigned;
+      * present-but-too-short is NOT filtered here — the `MIN_SIGNING_KEY_BYTES` floor is a
+        DOWNSTREAM refusal, and it exists for BOTH slots this seam serves. The ACTIVE key flows to
+        `CardSigner` (via `card_signer_from_key`) and to `EnvelopeSigner`; the PRIOR key flows to
+        `envelope_signing.build_verification_keyset`/`EnvelopeVerifier`. Each refuses a sub-floor
+        key fail-closed AT CONSTRUCTION (`CardSignatureError` / `EnvelopeSignatureError`), so a
+        present-but-garbage key in EITHER slot fails loudly rather than silently downgrading to
+        unsigned — or, for the prior slot, silently becoming a trusted brute-forceable key;
       * NO cross-tenant fallback: only THIS tenant's namespaced variable is read, never the bare
         repo-wide `MAEZO_A2A_CARD_SIGNING_KEY` nor another tenant's variable.
     """
@@ -185,8 +203,10 @@ class EnvTenantKeyset:
 
         Present only during a rotation's 7-day grace window (ADR-0039 §4.3, leg E3). Identical
         posture to `key_for` (whitespace-strip; absent/blank -> `None`; NO cross-tenant / repo-wide
-        fallback — only THIS tenant's namespaced prior variable is read). Steady state (no rotation
-        in progress) -> `None`, so the verification keyset trusts only the active key.
+        fallback — only THIS tenant's namespaced prior variable is read; present-but-too-short is
+        passed through to the downstream `build_verification_keyset` floor, which REFUSES it).
+        Steady state (no rotation in progress) -> `None`, so the verification keyset trusts only
+        the active key.
         """
         value = self._environ.get(per_tenant_prior_key_env_var(tenant), "").strip()
         return value.encode("utf-8") if value else None

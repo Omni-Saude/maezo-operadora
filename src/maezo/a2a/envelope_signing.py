@@ -27,7 +27,11 @@ payload_meta))` under the SAME recipe. `deadline` maps via `.astimezone(UTC).iso
 
 FAIL-CLOSED, everywhere (§4.4). The signer refuses a key shorter than `MIN_SIGNING_KEY_BYTES` (the
 same floor `CardSigner` enforces) and refuses to sign an envelope with `deadline=None` (§4.3.1) or a
-tenant it was not built for. The verifier's every gate is independent and fail-closed, MAC compared
+tenant it was not built for. That key floor is SYMMETRIC across the signing and the verification
+sides: `build_verification_keyset` and `EnvelopeVerifier` apply the identical floor to EVERY key
+entering the trusted keyset — the active one and the prior-in-grace rotation one alike — so there is
+no slot through which a degenerate (brute-forceable) key becomes trusted. The verifier's every gate
+is independent and fail-closed, MAC compared
 constant-time (`hmac.compare_digest`); `verify` NEVER raises (mirrors `CardSigner.verify`) so the
 dispatcher decides the rejection policy.
 """
@@ -147,25 +151,43 @@ def build_verification_keyset(
     its `key_id` for as long as the max-signature-age lets it stay in flight. A prior key EQUAL to
     the active one collapses to a single entry (idempotent). NO other key is ever trusted — no
     repo-wide, no cross-tenant (the resolver upstream enforces per-tenant custody).
+
+    FAIL-CLOSED KEY FLOOR ON **BOTH** SLOTS (§4.4). Every key that enters the trusted keyset — the
+    active one AND the prior-in-grace one — is validated to the SAME `MIN_SIGNING_KEY_BYTES` floor
+    `EnvelopeSigner`/`CardSigner` enforce, and a key below it raises `EnvelopeSignatureError` here,
+    at CONSTRUCTION. It is deliberately a REFUSAL, not a silent skip: a degenerate prior key is a
+    misprovisioned rotation, and quietly dropping it would leave the operator believing the grace
+    window is open while every in-flight prior-key signature is rejected. Trusting it instead would
+    be strictly worse — a 1-byte key is brute-forceable, so anything the verifier accepts under it
+    is forgeable by anyone, which is the fail-OPEN this floor closes. The prior slot therefore has
+    exactly the active slot's posture: refuse loudly at composition, never skip, never accept.
     """
+    _validate_key_or_raise(active_key, slot="active verification key")
     active_key_id = derive_key_id(active_key)
     trusted: dict[str, bytes] = {active_key_id: active_key}
     if prior_key is not None:
+        _validate_key_or_raise(prior_key, slot="prior (rotation-grace) verification key")
         trusted[derive_key_id(prior_key)] = prior_key
     return trusted, active_key_id
 
 
-def _validate_key_or_raise(signing_key: bytes) -> None:
-    """Fail-closed key validation, IDENTICAL floor to `CardSigner` (empty/whitespace/too-short)."""
-    stripped = signing_key.strip() if signing_key else b""
+def _validate_key_or_raise(key: bytes, *, slot: str = "signing_key") -> None:
+    """Fail-closed key validation, IDENTICAL floor to `CardSigner` (empty/whitespace/too-short).
+
+    `slot` names WHICH key failed so the refusal points at the variable to fix — the active
+    `signing_key` (the default, `EnvelopeSigner`), or a named slot in the verification keyset
+    (`build_verification_keyset` / `EnvelopeVerifier`). The FLOOR itself is identical for every
+    slot: there is no key path into signing or into the trusted keyset that skips it.
+    """
+    stripped = key.strip() if key else b""
     if not stripped:
         raise EnvelopeSignatureError(
-            "empty or whitespace-only envelope signing_key: inject the per-tenant key from "
+            f"empty or whitespace-only envelope {slot}: inject the per-tenant key from "
             "vault/KMS, never a default (ADR-0039 §4.4)"
         )
     if len(stripped) < MIN_SIGNING_KEY_BYTES:
         raise EnvelopeSignatureError(
-            f"envelope signing_key too short ({len(stripped)} bytes after strip, minimum "
+            f"envelope {slot} too short ({len(stripped)} bytes after strip, minimum "
             f"{MIN_SIGNING_KEY_BYTES}): a degenerate key gives no real HMAC security (ADR-0039 §4.4)"
         )
 
@@ -241,8 +263,12 @@ class EnvelopeVerifier:
 
     Built once per composition root for ONE tenant from that tenant's trusted KEYSET (active + any
     prior-in-grace key, `build_verification_keyset`), the current `replay_epoch`, and the
-    max-signature-age. `verify` returns a bool and NEVER raises (mirrors `CardSigner.verify`) — every
-    gate is independent and fail-closed:
+    max-signature-age. CONSTRUCTION is fail-closed on a degenerate config: an EMPTY keyset, an
+    `active_key_id` absent from it, or ANY trusted key below `MIN_SIGNING_KEY_BYTES` (the same floor
+    `EnvelopeSigner`/`CardSigner` enforce — the active and the prior-in-grace slot are held to it
+    identically) raises `EnvelopeSignatureError` rather than composing a verifier that would trust
+    brute-forceable material. `verify` itself returns a bool and NEVER raises (mirrors
+    `CardSigner.verify`) — every gate is independent and fail-closed:
 
       * unsigned envelope -> reject (no `signature`);
       * unexpected `scheme` -> reject (§4.2 alg-downgrade / "alg:none"-class);
@@ -265,12 +291,25 @@ class EnvelopeVerifier:
         scheme: str = ENVELOPE_SIGNATURE_SCHEME,
         prior_epoch_grace_until: datetime | None = None,
     ) -> None:
+        # ORDER MATTERS. The empty-keyset check runs FIRST: an empty dict also fails the
+        # `active_key_id not in trusted_keys` test, so with the checks the other way round the
+        # empty-keyset message was UNREACHABLE dead code (a keyset that trusts nothing would have
+        # been reported as a missing active id, which mis-directs the operator).
+        if not trusted_keys:
+            raise EnvelopeSignatureError(
+                "trusted_keys must be non-empty (fail-closed verifier config): a verifier that "
+                "trusts NO key rejects every envelope, including honestly signed ones"
+            )
         if active_key_id not in trusted_keys:
             raise EnvelopeSignatureError(
                 "active_key_id must be present in trusted_keys (fail-closed verifier config)"
             )
-        if not trusted_keys:
-            raise EnvelopeSignatureError("trusted_keys must be non-empty (fail-closed verifier config)")
+        # The SAME `MIN_SIGNING_KEY_BYTES` floor the signer enforces, applied to EVERY key admitted
+        # into the trusted keyset — an independent gate, so a verifier constructed directly (not via
+        # `build_verification_keyset`) cannot trust a degenerate/brute-forceable key either. `key_id`
+        # is a non-secret fingerprint (`derive_key_id`), so naming it in the refusal is safe.
+        for trusted_key_id, trusted_key in trusted_keys.items():
+            _validate_key_or_raise(trusted_key, slot=f"verification key {trusted_key_id}")
         self._trusted_keys = dict(trusted_keys)
         self._active_key_id = active_key_id
         self._current_epoch = current_epoch

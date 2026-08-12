@@ -248,14 +248,24 @@ def _require_envelope_signing_or_fail_closed(
     signing uses (`key_for(tenant)`), NEVER the repo-wide or another tenant's key — a missing tenant
     key is the "absent key" case, it does NOT fall back across tenants (the cross-tenant
     key-confusion attack decision 4 rules out). The prior (rotation-grace) key is read from the same
-    per-tenant seam (`prior_key_for`). Reuses the SHARED `is_production_runtime_mode` — no second
-    prod/dev discriminator. Mirrors the E2 signer gate's injectable-`keyset` seam for hermetic tests.
+    per-tenant seam (`prior_key_for`, on the `TenantKeyset` Protocol). Reuses the SHARED
+    `is_production_runtime_mode` — no second prod/dev discriminator. Mirrors the E2 signer gate's
+    injectable-`keyset` seam for hermetic tests.
+
+    A PRESENT-BUT-DEGENERATE key in EITHER slot refuses composition. `build_verification_keyset`
+    applies the `MIN_SIGNING_KEY_BYTES` floor to the active AND the prior key, so a misprovisioned
+    prior variable (say a 1-byte value) raises `EnvelopeSignatureError` here rather than entering
+    the trusted keyset — the identical posture a degenerate ACTIVE key already had via
+    `EnvelopeSigner`. A garbage key is never silently skipped and never trusted.
     """
     resolver: TenantKeyset = keyset if keyset is not None else EnvTenantKeyset()
     active_key = resolver.key_for(tenant)
     if active_key is not None:
         # Prior (rotation-grace) key: read from the SAME per-tenant seam; absent in steady state.
-        prior_key = getattr(resolver, "prior_key_for", lambda _t: None)(tenant)
+        # A DIRECT, typed call — `prior_key_for` is on the `TenantKeyset` Protocol, so mypy checks
+        # it here and a rename can no longer silently disable the rotation grace (which a
+        # `getattr(..., default)` lookup would have done, invisibly to type-check).
+        prior_key = resolver.prior_key_for(tenant)
         trusted, active_key_id = build_verification_keyset(active_key=active_key, prior_key=prior_key)
         signer = EnvelopeSigner(
             tenant=tenant,

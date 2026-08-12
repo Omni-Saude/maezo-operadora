@@ -327,6 +327,30 @@ def test_build_verification_keyset_collapses_equal_active_prior() -> None:
     assert trusted == {active_id: _KEY}
 
 
+def test_verifier_refuses_an_empty_trusted_keyset_with_its_own_message() -> None:
+    """DEGENERATE CONFIG, LEGIBLY (E3 repair). The empty-keyset refusal used to be DEAD CODE: the
+    `active_key_id not in trusted_keys` check ran first and fires for an empty dict too, so a
+    verifier configured to trust NOTHING was reported as "missing active key id" — which points the
+    operator at the wrong knob. The checks are now ordered so each degenerate config gets its own
+    message, and this test pins both (an empty keyset is what an operator sees when key resolution
+    returned nothing at all)."""
+    with pytest.raises(EnvelopeSignatureError, match="trusted_keys must be non-empty"):
+        EnvelopeVerifier(
+            trusted_keys={},
+            active_key_id=derive_key_id(_KEY),
+            current_epoch=DEFAULT_REPLAY_EPOCH,
+            max_signature_age=MAX_SIGNATURE_AGE,
+        )
+    # ...and the NON-empty-but-unanchored case keeps its own, different message.
+    with pytest.raises(EnvelopeSignatureError, match="active_key_id must be present"):
+        EnvelopeVerifier(
+            trusted_keys={derive_key_id(_PRIOR_KEY): _PRIOR_KEY},
+            active_key_id=derive_key_id(_KEY),
+            current_epoch=DEFAULT_REPLAY_EPOCH,
+            max_signature_age=MAX_SIGNATURE_AGE,
+        )
+
+
 # ---------------------------------------------------------------------------
 # 5. The four builders, end to end (deadline non-None -> verifies; tamper -> rejected)
 # ---------------------------------------------------------------------------
@@ -512,6 +536,24 @@ def test_gate_uses_prior_key_when_present(monkeypatch: pytest.MonkeyPatch) -> No
     assert isinstance(verifier, EnvelopeVerifier)
     prior_signed = _signer(key=_PRIOR_KEY).sign(_envelope())
     assert verifier.verify(prior_signed) is True
+
+
+def test_gate_refuses_a_degenerate_prior_key_instead_of_trusting_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """THE FAIL-OPEN, CLOSED AT THE COMPOSITION ROOT (E3 repair). A healthy ACTIVE key plus a
+    misprovisioned 1-byte PRIOR var used to compose a verifier that TRUSTED the 1-byte key — i.e. a
+    key anyone can brute-force was a valid signing key for the whole grace window. The gate now
+    refuses to compose, the same way a degenerate ACTIVE key already did (via `EnvelopeSigner`)."""
+    monkeypatch.setenv(per_tenant_key_env_var(_TENANT), _KEY.decode())
+    monkeypatch.setenv(per_tenant_prior_key_env_var(_TENANT), "x")  # 1 byte, the floor is 16
+    with pytest.raises(EnvelopeSignatureError, match="prior .* verification key too short"):
+        _gate(mode="kubernetes")
+    # CONTROL: the identical composition with a HEALTHY prior key succeeds — so the refusal is the
+    # floor, not the mere presence of a rotation var (cf. test_gate_uses_prior_key_when_present).
+    monkeypatch.setenv(per_tenant_prior_key_env_var(_TENANT), _PRIOR_KEY.decode())
+    _, verifier = _gate(mode="kubernetes")
+    assert isinstance(verifier, EnvelopeVerifier)
 
 
 def test_gate_no_cross_tenant_fallback_injected_keyset() -> None:

@@ -27,9 +27,14 @@ two slots assemble into (`build_verification_keyset`, the thing an `EnvelopeVeri
   9. **the assembled keyset** — a tenant's trusted keyset is EXACTLY its own active + prior key,
      indexed BY `key_id`; another tenant's prior key never enters it, a wrong/unknown `key_id` is
      refused even when the key MATERIAL is trusted, the grace ends when the operator deprovisions
-     the prior var, and `MAX_SIGNATURE_AGE` bounds how long a prior-key signature stays acceptable.
+     the prior var, and `MAX_SIGNATURE_AGE` bounds how long a prior-key signature stays acceptable;
+ 10. **the `MIN_SIGNING_KEY_BYTES` floor on BOTH slots** (E3 repair) — a degenerate prior key is
+     REFUSED at keyset assembly and at verifier construction, exactly as the active key already
+     was, so no brute-forceable key can become trusted (and none is silently skipped either);
+ 11. **the Protocol carries both slots** — `prior_key_for` is declared on `TenantKeyset`, and the
+     composition root reads it through a direct typed call, not a mypy-invisible `getattr`.
 
-Every defence in group 9 carries an in-test RED CONTROL: a locally-neutered keyset/verifier for
+Every defence in groups 9-10 carries an in-test RED CONTROL: a locally-neutered keyset/verifier for
 which the SAME probe flips to the fail-open answer, so no assertion here can pass vacuously.
 """
 
@@ -56,6 +61,7 @@ from maezo.a2a import (
 )
 from maezo.a2a.envelope_signing import (
     DEFAULT_REPLAY_EPOCH,
+    ENVELOPE_SIGNATURE_SCHEME,
     MAX_SIGNATURE_AGE,
     EnvelopeSignatureError,
 )
@@ -314,14 +320,19 @@ def test_env_keyset_prior_keys_stay_separated_when_both_tenants_are_rotating() -
 def test_env_keyset_prior_value_is_not_length_filtered_at_the_seam() -> None:
     """SEAM PARITY: like `key_for`, `prior_key_for` reports what the injector placed there and does
     NOT apply the `MIN_SIGNING_KEY_BYTES` floor — by design, the floor is a DOWNSTREAM job so a
-    garbage key fails loudly there instead of silently reading as 'unset'. For the ACTIVE key that
-    downstream refusal is `EnvelopeSigner`'s (asserted here as the paired half). NOTE: no equivalent
-    floor exists on the PRIOR key's path into the verification keyset — reported to the orchestrator
-    as an E3 source finding; this test pins ONLY the seam's own (correct) pass-through."""
+    garbage key fails loudly there instead of silently reading as 'unset'.
+
+    HONESTY NOTE (E3 repair): the paired downstream refusal now covers BOTH slots. The ACTIVE key's
+    is `EnvelopeSigner`'s (unchanged); the PRIOR key's is `build_verification_keyset`'s, added by
+    the repair that closed the fail-open where a sub-floor prior key entered the trusted keyset. The
+    seam's own contract is untouched — this test still proves pass-through — and the "no equivalent
+    floor exists on the prior path" caveat this docstring used to carry is simply no longer true."""
     ks = EnvTenantKeyset({per_tenant_prior_key_env_var(_TENANT_A): "x"})  # 1 byte, floor is 16
     assert ks.prior_key_for(_TENANT_A) == b"x"  # unfiltered at the seam...
     with pytest.raises(EnvelopeSignatureError, match="too short"):  # ...refused downstream (active)
         EnvelopeSigner(tenant=_TENANT_A, signing_key=b"x", key_id=_UNKNOWN_KEY_ID)
+    with pytest.raises(EnvelopeSignatureError, match="too short"):  # ...and downstream (prior)
+        build_verification_keyset(active_key=_KEY_A, prior_key=ks.prior_key_for(_TENANT_A))
 
 
 # --- The ROTATION VERIFICATION KEYSET the two slots assemble into (ADR-0039 §4.3, leg E3) --------
@@ -373,10 +384,10 @@ def _verifier(trusted: dict[str, bytes], active_key_id: str) -> EnvelopeVerifier
     )
 
 
-def _signed(*, key: bytes, key_id: str | None = None, at: datetime = _NOW) -> DelegationEnvelope:
-    """A tenant-A envelope signed with `key` (optionally CLAIMING a `key_id` that key did not
-    produce — the retag forgery). Signing is what an attacker holding `key` can do."""
-    envelope = DelegationEnvelope.root(
+def _rotation_envelope() -> DelegationEnvelope:
+    """The unsigned tenant-A envelope every rotation probe signs (one shape, so the probes differ
+    only in the KEY/key_id under test)."""
+    return DelegationEnvelope.root(
         task_id="task-rotation-1",
         task_type="authorization.analyze",
         origin="helena",
@@ -387,10 +398,15 @@ def _signed(*, key: bytes, key_id: str | None = None, at: datetime = _NOW) -> De
         deadline=_NOW + timedelta(hours=1),
         payload_meta={"codigo_procedimento_tuss": "10101012"},
     )
+
+
+def _signed(*, key: bytes, key_id: str | None = None, at: datetime = _NOW) -> DelegationEnvelope:
+    """A tenant-A envelope signed with `key` (optionally CLAIMING a `key_id` that key did not
+    produce — the retag forgery). Signing is what an attacker holding `key` can do."""
     signer = EnvelopeSigner(
         tenant=_TENANT_A, signing_key=key, key_id=key_id if key_id is not None else derive_key_id(key)
     )
-    return signer.sign(envelope, now=at)
+    return signer.sign(_rotation_envelope(), now=at)
 
 
 class _NeuteredCrossTenantPriorKeyset(EnvTenantKeyset):
@@ -516,6 +532,102 @@ def test_a_prior_key_alone_is_never_promoted_into_a_tenants_active_key() -> None
         _verifier({_PRIOR_KEY_ID_A: _PRIOR_KEY_A}, _ACTIVE_KEY_ID_A)
 
 
+# --- The MIN_SIGNING_KEY_BYTES floor on BOTH keyset slots (E3 repair, ADR-0039 §4.4) -------------
+#
+# The ACTIVE key was always floored (`EnvelopeSigner.__init__` -> composition refuses). The PRIOR
+# key's path into the trusted keyset had NO floor: a misprovisioned 1-byte prior variable became a
+# trusted verification key, and an envelope HMAC'd under it verified True. That is fail-OPEN — a
+# 1-byte key is brute-forceable, so "trusted" means "forgeable by anyone". These probes pin the
+# repair: refuse at CONSTRUCTION, in both slots, never skip and never accept.
+
+#: A degenerate prior key — 1 byte, an order of magnitude under `MIN_SIGNING_KEY_BYTES` (16).
+_SHORT_KEY = b"x"
+_SHORT_KEY_ID = derive_key_id(_SHORT_KEY)
+
+
+def _forged_under(key: bytes) -> DelegationEnvelope:
+    """A tenant-A envelope HMAC'd under `key`, bypassing the SIGNER's construction floor.
+
+    An attacker is not bound by our constructors — holding key material, they just compute the MAC.
+    The `__new__` bypass models that attacker (it is not a supported API); it is the only honest way
+    to produce the artefact the missing verification-side floor used to accept."""
+    signer = EnvelopeSigner.__new__(EnvelopeSigner)
+    signer._tenant = _TENANT_A
+    signer._key = key
+    signer._key_id = derive_key_id(key)
+    signer._replay_epoch = DEFAULT_REPLAY_EPOCH
+    signer._scheme = ENVELOPE_SIGNATURE_SCHEME
+    return signer.sign(_rotation_envelope(), now=_NOW)
+
+
+def _neutered_keyset_without_the_floor(
+    *, active_key: bytes, prior_key: bytes | None
+) -> tuple[dict[str, bytes], str]:
+    """RED CONTROL ONLY — the PRE-REPAIR `build_verification_keyset` body, verbatim minus the floor.
+    Kept local to this module so the fail-open it reproduces can never be reached from production."""
+    active_key_id = derive_key_id(active_key)
+    trusted = {active_key_id: active_key}
+    if prior_key is not None:
+        trusted[derive_key_id(prior_key)] = prior_key
+    return trusted, active_key_id
+
+
+def _neutered_verifier_without_the_floor(trusted: dict[str, bytes], active_key_id: str) -> EnvelopeVerifier:
+    """RED CONTROL ONLY — a verifier with the CONSTRUCTION-time floor bypassed (`__new__`, no
+    `__init__`), i.e. exactly the pre-repair posture. `verify` itself is the REAL, unmodified method,
+    so what this control demonstrates is precisely what the missing floor cost."""
+    verifier = EnvelopeVerifier.__new__(EnvelopeVerifier)
+    verifier._trusted_keys = dict(trusted)
+    verifier._active_key_id = active_key_id
+    verifier._current_epoch = DEFAULT_REPLAY_EPOCH
+    verifier._max_signature_age = MAX_SIGNATURE_AGE
+    verifier._scheme = ENVELOPE_SIGNATURE_SCHEME
+    verifier._prior_epoch_grace_until = None
+    return verifier
+
+
+def test_a_too_short_prior_key_is_refused_at_keyset_construction_never_trusted() -> None:
+    """THE FAIL-OPEN, CLOSED. A 1-byte prior key provisioned alongside a healthy active key must
+    make keyset assembly REFUSE — the same posture `EnvelopeSigner` already gave the active key —
+    rather than entering the trusted map. The refusal is loud on purpose: silently SKIPPING the bad
+    key would leave the operator believing the rotation grace is open while every in-flight
+    prior-key signature is rejected."""
+    ks = EnvTenantKeyset(
+        {
+            per_tenant_key_env_var(_TENANT_A): _KEY_A.decode(),
+            per_tenant_prior_key_env_var(_TENANT_A): _SHORT_KEY.decode(),
+        }
+    )
+    assert ks.prior_key_for(_TENANT_A) == _SHORT_KEY  # the seam passes it through (correct, E2)
+    with pytest.raises(EnvelopeSignatureError, match="prior .* verification key too short"):
+        build_verification_keyset(active_key=_KEY_A, prior_key=ks.prior_key_for(_TENANT_A))
+
+    # RED CONTROL: replay the PRE-REPAIR path — no floor when assembling, no floor at verifier
+    # construction — and the SAME 1-byte-key forgery verifies True against the real `verify`.
+    forged = _forged_under(_SHORT_KEY)
+    n_trusted, n_active = _neutered_keyset_without_the_floor(active_key=_KEY_A, prior_key=_SHORT_KEY)
+    assert n_trusted[_SHORT_KEY_ID] == _SHORT_KEY  # the degenerate key really did enter the keyset
+    assert _neutered_verifier_without_the_floor(n_trusted, n_active).verify(forged, now=_NOW) is True
+
+
+def test_the_active_slot_is_floored_at_keyset_assembly_too() -> None:
+    """SYMMETRY: assembling a keyset around a degenerate ACTIVE key refuses as well, so neither slot
+    can seed the trusted map with brute-forceable material."""
+    with pytest.raises(EnvelopeSignatureError, match="active verification key too short"):
+        build_verification_keyset(active_key=_SHORT_KEY, prior_key=None)
+
+
+def test_the_verifier_independently_floors_every_key_it_is_handed() -> None:
+    """DEFENCE IN DEPTH: the floor is not one choke point a caller can route around. A verifier
+    constructed DIRECTLY with a hand-built keyset (never touching `build_verification_keyset`) still
+    refuses the degenerate entry — with the offending non-secret `key_id` named for the operator."""
+    with pytest.raises(EnvelopeSignatureError, match=f"verification key {_SHORT_KEY_ID} too short"):
+        _verifier({_ACTIVE_KEY_ID_A: _KEY_A, _SHORT_KEY_ID: _SHORT_KEY}, _ACTIVE_KEY_ID_A)
+    # CONTROL: the same construction with a HEALTHY second key succeeds — the refusal above is the
+    # length floor, not a rejection of two-entry keysets.
+    assert _verifier({_ACTIVE_KEY_ID_A: _KEY_A, _PRIOR_KEY_ID_A: _PRIOR_KEY_A}, _ACTIVE_KEY_ID_A)
+
+
 # --- LabeledFakeTenantKeyset: same no-fallback contract, for injectable probes -------------------
 
 
@@ -552,6 +664,39 @@ def test_labeled_fake_keyset_prior_slot_has_the_same_no_fallback_contract() -> N
 def test_both_impls_satisfy_the_tenant_keyset_protocol() -> None:
     assert isinstance(EnvTenantKeyset(), TenantKeyset)
     assert isinstance(LabeledFakeTenantKeyset({_TENANT_A: _KEY_A}), TenantKeyset)
+
+
+def test_the_protocol_declares_the_rotation_slot_not_just_the_active_one() -> None:
+    """`prior_key_for` is ON-PROTOCOL (E3 repair). Before the repair the Protocol declared only
+    `key_for`, so the composition root had to reach rotation through
+    `getattr(resolver, "prior_key_for", lambda _t: None)` — invisible to mypy, and a rename would
+    have silently downgraded every deployment to "no grace window" instead of failing type-check.
+    Pinned two ways: the declared member set, and a conformance CONTROL showing a resolver missing
+    the method no longer satisfies the Protocol."""
+    assert "prior_key_for" in TenantKeyset.__protocol_attrs__
+    assert "key_for" in TenantKeyset.__protocol_attrs__
+
+    class _ActiveOnlyResolver:  # a pre-repair-shaped resolver: active slot only
+        def key_for(self, tenant: str) -> bytes | None:
+            return _KEY_A if tenant == _TENANT_A else None
+
+    assert not isinstance(_ActiveOnlyResolver(), TenantKeyset)
+
+
+def test_the_composition_root_reads_the_prior_key_through_a_direct_typed_call() -> None:
+    """The `getattr` escape hatch is GONE from production source. A text sweep of `src/maezo` (the
+    same reachability style as the anti-masquerade probe below) asserts no dynamic `prior_key_for`
+    lookup survives anywhere, and that the composition root makes the direct call mypy can check."""
+    dynamic_lookups = [
+        str(path)
+        for path in _SRC_MAEZO.rglob("*.py")
+        if 'getattr(resolver, "prior_key_for"' in path.read_text(encoding="utf-8")
+        or "getattr(resolver, 'prior_key_for'" in path.read_text(encoding="utf-8")
+    ]
+    assert dynamic_lookups == [], f"dynamic prior_key_for lookup survives in: {dynamic_lookups}"
+    composition_path = _SRC_MAEZO / "runtime" / "agent_runtime" / "a2a_composition.py"
+    composition = composition_path.read_text(encoding="utf-8")
+    assert "resolver.prior_key_for(tenant)" in composition
 
 
 # --- anti-masquerade: the labeled fake is unreachable from production src/maezo ------------------
