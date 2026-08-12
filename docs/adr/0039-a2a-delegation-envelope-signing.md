@@ -30,10 +30,13 @@ load-bearing for the rest of this ADR:
   under a single injected key, tagging the result `f"{scheme}:{hexdigest}"` with
   `SIGNATURE_SCHEME = "v1"` embedded in the signed payload itself (`card.py:50`). `A2ARegistry`
   (`src/maezo/a2a/registry.py:37`, class definition) takes an **optional** `verifier: CardSigner |
-  None = None` — when absent, Cards are admitted regardless of signature state (the "Phase-0/dev
-  fail-safe" the class docstring names explicitly, `registry.py:14-16`); `register()`
-  (`registry.py:66-76`) only calls `self._verifier.require_valid(card)` when a verifier was
-  injected. Production composition (`src/maezo/runtime/agent_runtime/a2a_composition.py`) closes
+  None = None` (`:54`) — when absent, Cards are admitted regardless of signature state. The MODULE
+  docstring states the posture ("`verifier=None` (default) preserves / Phase-0/dev behavior
+  (unsigned Cards are accepted): verification is gated on the PRESENCE of the / key",
+  `registry.py:14-16`); the phrase "Phase-0/dev fail-safe" itself is `__init__`'s docstring, not the
+  class docstring (`registry.py:60-61`, "Cards are admitted regardless of signature state
+  (Phase-0/dev / fail-safe)"). `register()` (`registry.py:66-76`) only calls
+  `self._verifier.require_valid(card)` (`:74`) when a verifier was injected. Production composition (`src/maezo/runtime/agent_runtime/a2a_composition.py`) closes
   this gap with a fail-closed gate, `_require_signer_or_fail_closed` (`:136-189`) — see §3 below.
 - **Delegation-envelope signing (does NOT exist — this ADR's subject).**
   `DelegationEnvelope` (`src/maezo/a2a/delegation.py:98-99`, `@dataclass(frozen=True, slots=True)` /
@@ -71,11 +74,16 @@ neither today implies the other.
   Its own docstring is explicit: "Facts are observability, never the T-F audit surface (that rides
   the real `PostgresAuditSink`...), so a dropped fact never compromises the delegation-audit proof."
   This is a **declared, by-name exception** in the effect-chokepoint fence's §8.4 allowlist
-  (`scripts/ci/check_effect_chokepoint_fence.py:401-411`, entry at `:406`:
+  (`scripts/ci/check_effect_chokepoint_fence.py:401-412`, entry at `:406`:
   `("runtime/agent_runtime/a2a_composition.py", "_NoopKafkaProducer")`) — the fence's
-  `_is_test_double_name` (`:415-425`) would otherwise flag any `Noop*`/`Fake*`/`*Mock*` name
-  constructed from a composition-root module; this one is allowlisted **by name with rationale**,
-  never by loosening the pattern. §Decisão 4.6 below treats replacing `_NoopKafkaProducer` with a
+  `_is_test_double_name` (`:415-429`) would otherwise flag any `Noop*`/`Fake*`/`*Mock*` name
+  **defined in, or imported into,** a composition-root module. That — a `class` statement or an
+  `import`, never a *construction* — is precisely what trips the rule: the gate collects
+  `ast.ClassDef` names into `test_double_defs` (`:611-615`) and `ast.ImportFrom`/`ast.Import` names
+  into `test_double_imports` (`:618-633`, `:634-638`), and `_is_test_double_name` is reached from
+  exactly those three AST branches (`:614`, `:632`, `:637`) — no `ast.Call` path feeds it. This one
+  is allowlisted **by name with rationale**, never by loosening the pattern (the allowlist is
+  applied to imports at `:822` and to definitions at `:835`). §Decisão 4.6 below treats replacing `_NoopKafkaProducer` with a
   transactional outbox as a consequence for legs 2-3, and is explicit about what that means for this
   allowlist entry.
 - **`RUNTIME_MODE`/`AGENT_RUNTIME_MODE` fail-closed discriminator — already used, already
@@ -105,8 +113,21 @@ neither today implies the other.
   exactly that, so the day someone adds a second public method the gate fails loudly instead of
   silently inheriting an ungated path." That test exists and is where it is claimed:
   `tests/unit/gateway/seams/test_seam_proofs.py:809`. §Decisão 4.4 below is explicit that envelope
-  verification must be **internal** (a `_`-prefixed helper called from inside `delegate`/`_execute`,
+  verification must be **internal** (a `_`-prefixed helper called from inside `delegate` itself,
   never a new public method) for exactly this reason.
+- **The seam gate runs BEFORE the dispatcher, and is not the "first check" this ADR means.**
+  `GatedDelegationDispatcher.delegate` calls `await gate(self._seam, _OP_DELEGATE)`
+  (`gateway/seams/a2a.py:60`) *before* `await self._inner.delegate(envelope)` (`:61`). `gate()`
+  itself emits a shadow line (`_emit`, `gateway/seams/_base.py:378` — "Emit the ONE shadow line for
+  this call. Never raises onto the effect path", `_base.py:264`) and then calls
+  `_pre_effect_audit` (`_base.py:381`), the `audita_antes` durable-write seam. That pre-effect audit
+  is **inert today, and only because** every class declares `audita_antes: bool = False`
+  (`gateway/effect_classes.py:136`) and `delegacao_a2a` does not override it
+  (`effect_classes.py:199-203`) — `_pre_effect_audit` returns at its first branch
+  (`_base.py:316-318`, `if spec is None or not spec.audita_antes: return`). §Decisão 4.4's "first
+  check" is therefore scoped to **inside the dispatcher**, never a claim that nothing at all
+  precedes it: if `delegacao_a2a` ever flips `audita_antes=True`, a durable record is written by the
+  seam before envelope verification has run at all.
 
 ### 3. Composition-root precedent this ADR's verification gate mirrors
 
@@ -182,7 +203,26 @@ tuple/list of strings; there are no floats, no non-ASCII-normalization edge case
 maps deep enough for RFC 8785's marginal guarantees (canonical float formatting, deep Unicode
 normalization) to matter. `sort_keys=True` + compact separators is sufficient to make the byte
 string a pure function of content, independent of dict/set iteration order — the same argument
-`card.py:106-109`'s own docstring makes for the Card. **Why ambiguity = malleability, stated
+`card.py:106-109`'s own docstring makes for the Card.
+
+**`default=str` is NOT part of this recipe — deliberately, and this is the third axis on which the
+two existing recipes differ.** The digest's `json.dumps` passes `sort_keys=True` and
+`separators=(",", ":")` and **nothing else**: no `default=`. It therefore raises `TypeError` on any
+value that is not JSON-native, which is the wanted behaviour — a non-JSON-native value reaching the
+signing payload is a producer bug, and a fail-loud `TypeError` at signing time is strictly better
+than a silently-coerced string that the verifier's own coercion may or may not reproduce. This
+follows `card.py:124` (`json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")`
+— no `default=`) and deliberately does **not** follow `hash_input()`
+(`gateway/audit.py:60`, `json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)`)
+or `AuditRecord._compute_hash()` (`gateway/audit.py:282`, `default=str,`). The difference is not
+theoretical, and `deadline` is exactly where it bites: for
+`datetime(2026, 8, 11, 12, 0, tzinfo=UTC)`, §4.1's `.isoformat()` mapping yields
+`{"deadline":"2026-08-11T12:00:00+00:00"}` while `default=str` on the raw object yields
+`{"deadline":"2026-08-11 12:00:00+00:00"}` — a `T` versus a space, two different byte strings, two
+different MACs for the same instant. Pinning the conversion explicitly in the payload map (§4.1's
+`envelope.deadline.astimezone(UTC).isoformat()`) and refusing `default=` is what keeps the preimage
+a single, stated function of the envelope rather than a function of whichever `str()` a future
+Python or a future field type happens to produce. **Why ambiguity = malleability, stated
 precisely:** without `sort_keys` + fixed separators, two semantically-identical payloads (same
 field values, different key order, or `", "` vs `","` whitespace) would serialize to different byte
 strings and produce different MACs — an attacker who can influence serialization (e.g. relaying
@@ -206,26 +246,88 @@ schema does not). This is a design choice, not a requirement forced by any exist
 explicitly as a decision, open to legs 2-4 revisiting if they find a reason `payload_ref` should be
 signed directly instead.
 
-**Disclosed residual: `task_type` and `payload_meta` and `max_hops` are excluded from the mandated
-field set, and that has a real consequence.** The mandated digest fields
-(`{tenant, task_id, origin, target, payload_hash, deadline, budget, delegation_chain}`) do **not**
-include `task_type`. `payload_meta`'s exclusion is *consistent* with an existing precedent — the
-dispatcher's own audit `details` payload deliberately excludes `envelope.payload_meta`
-(`dispatcher.py:451-456`, "`details` deliberately EXCLUDES `envelope.payload_meta`... mirroring
-`facts.build_fact`'s own exclusion of `meta`") — so leaving it out of the signed digest too is the
-same call, made once, applied twice. `max_hops` is a repo-wide structural constant
-(`MAX_HOPS: int = 3`, `delegation.py:42`) shared by every envelope, not sender-supplied data, so its
-omission carries little marginal risk. **`task_type`'s omission is different and is flagged as a
-genuine gap, not a stylistic consistency call:** `task_type` determines which Agent Card capability
-gate the delegation is checked against (`A2ARegistry.lookup(...).accepts(task_type)`,
+**Disclosed residuals: `payload_meta`, `task_type` and `max_hops` are excluded from the mandated
+field set. Two of the three are real gaps, and `payload_meta` is the larger one.** The mandated
+digest fields (`{tenant, task_id, origin, target, payload_hash, deadline, budget,
+delegation_chain}`) include neither `payload_meta` nor `task_type`.
+
+**`payload_meta` — the most consequential omission, ranked at or above `task_type`.** On today's
+four real edges `payload_meta` is not incidental metadata; it is the delegation's actual
+instruction content, and every business decision the target makes is driven from it:
+
+- Helena→Rafael: `_build_payload_meta` (`agents/helena/delegation.py:93-111`) carries the
+  procedure code `"codigo_procedimento_tuss"` (`:99`), the diagnosis `"cid10"` (`:102`), and
+  `meta["valor_estimado_brl"] = str(case_meta["valor_estimado_brl"])` (`:107-108`) — clinical
+  coding and money, on the authorization path.
+- worker→Carolina: `state_from_envelope` reads `meta = dict(envelope.payload_meta)` (`:211`) and
+  `prestador_id = str(meta.get("prestador_id", "")).strip()` (`:212`), failing closed when blank
+  (`:213-218`); its own docstring states why that matters — "Carolina's graph derives the
+  idempotent business key from it, and her `start_process` node has no degenerate-key
+  short-circuit" (`agents/carolina/delegation.py:207-209`). A tampered `prestador_id` therefore
+  redirects the CIB business key itself.
+- worker→Andre: `meta["valor_pagamento_cents"] = str(valor)` (`agents/andre/delegation.py:361`)
+  is read back as `raw["valor_pagamento_cents"] = int(str(meta["valor_pagamento_cents"]))`
+  (`:537-539`), and the builder's own comment names the blast radius — "`1234.99` reaching this
+  builder became `1234` and Andre's faixa/alcada routing ran on a value the process never had —
+  silently, on the money path" (`:349-354`). That is band/authority-level routing on money,
+  driven entirely by an unsigned field.
+
+The exclusion cannot be justified by the dispatcher's PHI precedent, and this ADR withdraws that
+argument rather than restating it. The dispatcher's audit `details` payload does exclude
+`envelope.payload_meta` (`dispatcher.py:451-456`, "`details` deliberately EXCLUDES
+`envelope.payload_meta` — the one envelope field NOT covered by the `_looks_like_phi` guard on
+`payload_ref`") — but that decision is about **not persisting or disclosing** those bytes into a
+durable audit row. A digest binds `sha256(canonical(payload_meta))`: a 64-hex value that persists
+nothing, discloses nothing, and is not reversible to the meta it covers. The PHI rationale
+therefore does not transfer to the signing question at all; the two are different decisions about
+different artifacts, and treating them as one call applied twice was a false equivalence.
+
+**`payload_hash` does not cover for this, and on three of the four edges it covers almost
+nothing.** `payload_ref` is `f"process://{task_id}"` at `agents/carolina/delegation.py:141`,
+`agents/andre/delegation.py:204`, and `agents/andre/delegation.py:372` — so on those edges
+`payload_hash` is a pure function of `task_id`, which the digest already binds as its own field. It
+adds no independent binding there. Only Helena's edge passes a distinct reference
+(`payload_ref=coverage_ref`, `agents/helena/delegation.py:88`). The signed digest as mandated thus
+binds *who, where, when and how much budget*, and — on three of four edges — nothing whatsoever
+about *what is being asked*.
+
+**`task_type` — a real gap, of the same kind, one rank below.** `task_type` determines which Agent
+Card capability gate the delegation is checked against (`A2ARegistry.lookup(...).accepts(task_type)`,
 `dispatcher.py:388`) and which handler branch a target routes into (see
 `a2a_composition.py:88-98`'s comment on Andre's shared `analytics.population` type
 disambiguated by *origin*, not `task_type`, into different flows — meaning a tampered `task_type`
 on an otherwise-validly-signed envelope could, depending on the target's routing logic, redirect a
-delegation to a different semantic outcome without invalidating the signature). This ADR follows the
-mandated field set as given; it does **not** silently widen it. The residual is listed in
-§Perguntas abertas below for a human to resolve (include `task_type` in the digest, or provide an
-explicit argument for its exclusion beyond "it wasn't in the mandate").
+delegation to a different semantic outcome without invalidating the signature). It ranks below
+`payload_meta` only because it is still cross-checked at admission against the target's Card, while
+`payload_meta` is cross-checked against nothing.
+
+**`max_hops` — low marginal risk, but not for the reason previously stated.** `max_hops` is **not**
+a repo-wide constant baked into every envelope: `MAX_HOPS: int = 3` (`delegation.py:42`) is only the
+*default* of a sender-supplied `root()` keyword (`max_hops: int = MAX_HOPS`, `delegation.py:161`),
+bounded solely by `if self.max_hops < 1: raise DelegationError("max_hops must be >= 1")`
+(`delegation.py:130-131`) — a caller may pass `max_hops=99`. The honest reason its omission carries
+little marginal risk is different and narrower: (a) no builder in `src/` supplies it today — the
+only `max_hops=` keyword argument anywhere under `src/` is `delegation.py:184`, `root()` forwarding
+its own parameter into the constructor; the three occurrences in
+`agents/{helena,carolina}/delegation.py` (`helena:22`, `helena:78`, `carolina:131`) are all
+docstring prose, and `agents/andre/delegation.py` has none at all — so it is always the default in
+practice; and (b) the guard it parameterizes is evaluated **on the sender's side at construction**,
+inside `root()`/`extend()`. `_validate()` (`dispatcher.py:376-400`) re-checks `expired()`, the
+registry lookup, `accepts(task_type)` and handler presence, but never re-derives a hop bound, so
+altering `max_hops` in transit changes nothing any dispatcher-side check consults. The residual,
+stated plainly: a *forging* sender can already choose `max_hops` freely, signature or not, so
+binding it would not remove that freedom — which is why it stays a disclosure rather than a
+recommendation.
+
+This ADR follows the mandated field set as given; it does **not** silently widen it — the field set
+came from the program brief and widening it is a human's call. Both `payload_meta` and `task_type`
+are carried to §Perguntas abertas below. The **option** legs 2-4 would implement if a human ratifies
+it — recorded here as a Proposed-status question, not a decision — is a single additional digest
+field, `"payload_meta_hash": sha256(canonical(envelope.payload_meta))`, canonicalized by exactly the
+§4.1 recipe above (`sort_keys=True`, compact separators, no `default=`; `payload_meta` is a
+`Mapping[str, str]`, `delegation.py:123`, so it is JSON-native by construction and the fail-loud
+`TypeError` posture costs nothing). It binds the content without persisting or disclosing a byte of
+it, which is precisely the property the PHI precedent does not object to.
 
 ### 4.2 Signature metadata — key-id, algorithm version, replay epoch
 
@@ -261,13 +363,62 @@ key-confusion/downgrade attack, the JSON-signing analogue of JWT's "alg:none" cl
 
 Ordinary rotation: publish a new `key_id`→key entry into the trusted set, start signing new
 envelopes under it, retain the *previous* `key_id` in the trusted set for a **grace window bounded
-by the longest `deadline` horizon actually in use** — because `DelegationEnvelope.deadline` already
+by the longest `deadline` horizon actually in use** — because `DelegationEnvelope.deadline`
 upper-bounds how long any single envelope can remain "in flight" before `expired()`
 (`delegation.py:144-148`) independently rejects it, the rotation grace window need never exceed that
 horizon: once every envelope that could have been signed under the old key has either completed or
 expired on its own, the old `key_id` can be purged with zero risk of rejecting a still-legitimate
-in-flight delegation. This ties rotation cleanly to a bound the envelope already enforces, rather
-than inventing a separate rotation-specific TTL.
+in-flight delegation.
+
+**That bound is vacuous on today's envelopes, and this ADR fixes it with an explicit constraint
+rather than assuming it away.** `deadline` is optional (`deadline: datetime | None = None`,
+`delegation.py:122`) and `expired()` returns `False` outright when it is unset (`delegation.py:146-147`,
+`if self.deadline is None: / return False`). **Zero of the four `root()` call sites in `src/` pass a
+`deadline=`** — `agents/helena/delegation.py:81-90`, `agents/carolina/delegation.py:134-143`,
+`agents/andre/delegation.py:197-206` and `agents/andre/delegation.py:365-374`; grepping `deadline`
+across those three modules returns no occurrences at all. So on every envelope this system builds
+today, `deadline is None`. Three consequences follow, and legs 2-4 inherit all three as binding
+constraints:
+
+1. **A `deadline`-derived grace window is unbounded as written.** "The longest `deadline` horizon
+   actually in use" is undefined when no envelope carries one, so a retired `key_id` would have no
+   principled purge date. **Constraint: a signed envelope MUST carry a non-`None` `deadline`.** The
+   verification step rejects a signed envelope whose `deadline` is `None` — signing is what makes
+   the field load-bearing, so this is a signing-path requirement, not a change to the envelope's
+   general contract. **This obliges legs 2-4 to update all four builders** (`helena:81-90`,
+   `carolina:134-143`, `andre:197-206`, `andre:365-374`) to pass an explicit `deadline=`; a leg that
+   ships signing without touching those four builders ships a gate that rejects every real envelope,
+   or a grace window that means nothing.
+2. **A max-signature-age bound, independent of `deadline`, is ALSO required** — belt to the
+   `deadline` suspenders. `deadline` is chosen by the sender and is inside the digest, so a
+   legitimately-signed envelope with a far-future `deadline` would extend its own key's grace window
+   arbitrarily. Legs 2-4 fix a verifier-side maximum signature age (a policy constant, not a sender
+   input) and reject any signature older than it regardless of `deadline`. The purge date for a
+   retired `key_id` is then `max(longest deadline horizon in use, max signature age)` — a bound that
+   holds even if a builder regresses to `deadline=None`.
+3. **Anti-replay leans on durable idempotency, which makes idempotency a RETENTION requirement, not
+   only a durability one.** With no expiry on the envelope, the only thing that stops a captured,
+   validly-signed envelope from being replayed indefinitely is Guard 4 remembering its `task_id`.
+   **Retention of the durable idempotency rows MUST dominate the signature-validity window**: a row
+   purged while its envelope's signature is still acceptable re-opens the replay it was preventing.
+   Today `a2a_idempotency` has no expiry column and no purge path at all
+   (`platform/migrations/versions/0003_a2a_idempotency.py:32-45` — `PRIMARY KEY (task_id, tenant)`
+   at `:43`, no `expires_at`; contrast `driver_idempotency` in the same migration, which does have
+   `expires_at timestamptz NOT NULL` at `:64` and an expiry index at `:70-71`), so the constraint on
+   legs 2-4 is a *prohibition*: do not introduce a retention/purge policy for `a2a_idempotency`
+   shorter than the max-signature-age of item 2 without changing that bound in the same step.
+
+**A related asymmetry the constraint above does not cover.** The durable store keys its claim on
+`(task_id, tenant)` (`claim_or_get(*, tenant, task_id)`, `dispatcher.py:305`; `PRIMARY KEY
+(task_id, tenant)`, `0003_a2a_idempotency.py:43`), but the in-memory fallback keys on `task_id`
+**alone** — `self._inflight: dict[str, _InflightEntry]` (`dispatcher.py:274`), claimed via
+`self._entry_for(envelope.task_id)` (`dispatcher.py:285`, `:312-318`). The two paths therefore do
+not have the same replay semantics across tenants. That is one more reason §4.6 makes durable
+idempotency mandatory outside dev-local rather than treating the in-memory path as a merely-slower
+equivalent.
+
+Tying rotation to a bound the envelope enforces remains the right shape — but it is only a real
+bound once constraint 1 above is implemented.
 
 Revocation (suspected key compromise): remove the compromised `key_id` from the trusted set
 immediately AND bump `replay_epoch` in the same action — removing the `key_id` alone is
@@ -277,20 +428,72 @@ suspenders, covering the case where the specific compromised key is not precisel
 
 ### 4.4 Verification points — where, and the fail-closed gate
 
-**Signing** happens once, at envelope construction time, by whichever composition root holds the
-signing key — mirroring `AgentCard.from_definition(..., signer=signer)`'s pattern
-(`card.py:140-185`) of signing at the exact point identity is fixed. The precise call shape (a
-`signer=` parameter threaded through `root()`/`extend()`, or a standalone `sign_envelope(envelope,
-signer) -> DelegationEnvelope` step applied immediately after) is an implementation decision for
-legs 2-4; this ADR fixes only that signing must happen before the envelope crosses the dispatcher
-boundary and must cover exactly §4.1's canonical payload.
+**Signing** happens once, at envelope construction time — mirroring
+`AgentCard.from_definition(..., signer=signer)`'s pattern (`card.py:140-185`) of signing at the
+exact point identity is fixed. **Envelope construction is NOT a composition root, and saying "by
+whichever composition root holds the signing key" would misstate the blast radius.** Cards are
+built once at composition; envelopes are built **per request**, deep inside the agent packages:
+`build_auth_analysis_envelope` (`agents/helena/delegation.py:63`),
+`build_cred_dossier_envelope` (`agents/carolina/delegation.py:115`),
+`build_adequacao_dossier_envelope` (`agents/andre/delegation.py:169`) and
+`build_pagto_dossier_envelope` (`agents/andre/delegation.py:278`). Three of the four are reached
+from worker handlers via the lazy-imported `delegate_*_dossier` wrappers
+(`tools/workers/credenciamento.py:634,:637`, `tools/workers/adequacao.py:785,:788`,
+`tools/workers/pagto.py:886,:892`). So the signing key — or a signer seam that holds it — has to
+reach four per-request builders in two packages, not two composition functions. That is the real
+key-custody blast radius, and it is carried into §Perguntas abertas 4.
 
-**Verification** happens inside `DelegationDispatcher`, as the **first** check —
-before the idempotency claim/replay lookup (§4.6's `_delegate_inflight`/`_delegate_durable`,
-`dispatcher.py:283-310`) and before `_validate()` (`:376-400`, registry/Card lookup, `task_type`
-acceptance, expiry). Verifying first means a forged envelope never touches the idempotency store
-(no poisoning risk on a `task_id` an attacker chose), never triggers a registry lookup, and is
-rejected before any audit-relevant state changes. A failed verification returns a structured
+The precise call shape (a `signer=` parameter threaded through `root()`/`extend()`, or a standalone
+`sign_envelope(envelope, signer) -> DelegationEnvelope` step applied immediately after) is an
+implementation decision for legs 2-4; this ADR fixes only that signing must happen before the
+envelope crosses the dispatcher boundary and must cover exactly §4.1's canonical payload.
+
+**Latent trap for whichever leg adds a `signature` field: `extend()` propagates by
+`dataclasses.replace`.** `extend()` ends in `return replace(self, ...)`
+(`delegation.py:217-226`), overriding only `task_id`, `task_type`, `target`, `delegation_chain`,
+`budget`, `payload_ref` and `payload_meta`. Every other field is **carried over verbatim** — so a
+`signature` added to `DelegationEnvelope` would be silently inherited by a sub-envelope whose
+`task_id`, `target` and `delegation_chain` (and `budget`) have all changed, i.e. a sub-envelope
+carrying a MAC computed over a *different* digest. Under §4.1's field set that signature cannot
+verify, so the failure mode is a confusing rejection rather than a forgery — but it is exactly the
+kind of silent propagation that becomes a forgery the moment someone "fixes" the rejection by
+loosening the check. **Constraint: legs 2-4 must make `extend()` either drop the signature
+explicitly (returning an unsigned sub-envelope that must be re-signed) or re-sign in place; it must
+never inherit it.** This is cheap to get right now and expensive later: `extend()` has **zero
+callers in `src/`** today — the only call sites are `tests/unit/a2a/test_delegation.py:242`,
+`tests/unit/a2a/fakes.py:63` and `tests/unit/a2a/test_a2a_edge_live_pg.py:558` — so the constraint
+costs nothing to honour and there is no production behaviour to preserve.
+
+**Verification** happens inside `DelegationDispatcher`, as the **first check inside the dispatcher**
+— and the placement is pinned, not left to legs 2-4, because the obvious alternatives defeat the
+goal. It runs in `delegate` itself (`dispatcher.py:277`), **ahead of the durable-vs-in-memory branch
+at `dispatcher.py:279-281`** (`if self._idempotency is not None: / return await
+self._delegate_durable(...) / return await self._delegate_inflight(...)`), and therefore ahead of
+both idempotency claims and ahead of `_validate()` (`:376-400`, registry/Card lookup, `task_type`
+acceptance, expiry).
+
+**`_execute` is explicitly NOT a sanctioned location**, and neither is either `_delegate_*` helper.
+Both claim the idempotency store *before* they call `_execute`: `_delegate_durable` does
+`stored = await store.claim_or_get(...)` at `:305` and only then `result = await
+self._execute(envelope)` at `:308`; `_delegate_inflight` does `entry = await
+self._entry_for(envelope.task_id)` at `:285` and only then `result = await self._execute(envelope)`
+at `:291`. Verifying at `_execute` would therefore let a forged envelope claim a `task_id` of the
+attacker's choosing before the signature is ever checked — the precise poisoning this ADR's
+ordering exists to prevent. Placing the check in `delegate` ahead of `:279-281` means a forged
+envelope never touches either idempotency path, never triggers a registry lookup, and never reaches
+the audit emission in `_execute`.
+
+**"First" is scoped to the dispatcher, and this ADR does not overclaim it.** The seam gate runs
+earlier: `GatedDelegationDispatcher.delegate` calls `gate(...)` (`gateway/seams/a2a.py:60`) before
+`self._inner.delegate(envelope)` (`:61`), and `gate()` emits a shadow line (`_base.py:378`) and
+invokes the `audita_antes` pre-effect audit hook (`_base.py:381`). That hook is inert **only**
+because `audita_antes` defaults to `False` (`gateway/effect_classes.py:136`) and `delegacao_a2a`
+does not override it (`effect_classes.py:199-203`), so `_pre_effect_audit` returns at its first
+branch (`_base.py:316-318`). The honest statement is therefore: verification is the first check
+inside the dispatcher, and nothing durable precedes it *today* — but if `delegacao_a2a` ever
+declares `audita_antes=True`, the seam writes a record for an envelope whose signature has not yet
+been examined. Whoever flips that flag owns re-deciding this ordering. A failed verification returns
+a structured
 `DelegationResult.rejected(...)` (never a raise — preserving the dispatcher's existing "never
 raised to the caller" contract, `dispatcher.py:16`'s own module docstring; `DelegationResult`
 itself is documented "never a raise out of the dispatcher", `dispatcher.py:154`), via a **new**
@@ -304,7 +507,9 @@ above is the reason restated as a hard constraint: `GatedDelegationDispatcher`
 `test_delegation_dispatcher_public_surface_is_only_delegate`
 (`tests/unit/gateway/seams/test_seam_proofs.py:809`) fails the build the moment
 `DelegationDispatcher` grows a second public method. Verification logic belongs entirely inside
-`delegate`/`_execute`'s existing call graph. **If legs 2-4 need to expose verification as a
+`delegate`'s own body — a `_verify_or_reject(envelope)`-shaped private helper called from
+`delegate` before the `:279-281` branch, per the placement pinned above. **If legs 2-4 need to
+expose verification as a
 standalone public entry point for any reason (e.g. a pre-flight check callable before `delegate`),
 the `GatedDelegationDispatcher` wrapper MUST be updated in the SAME change** to forward it through
 the `delegacao_a2a` gate — otherwise a new public method is a structurally ungated hole in the
@@ -335,9 +540,9 @@ newly-introduced one.
 
 | Attack | Defense |
 |---|---|
-| **Tamper** (any signed field altered in transit or in-process before reaching the dispatcher) | HMAC-SHA256 over the canonical digest (§4.1) fails; the dispatcher's verification step (§4.4, first check in `delegate`) rejects before idempotency claim, audit, or routing. |
+| **Tamper** (any signed field altered in transit or in-process before reaching the dispatcher) | HMAC-SHA256 over the canonical digest (§4.1) fails; the dispatcher's verification step (§4.4, first check in `delegate`, ahead of `dispatcher.py:279-281`) rejects before idempotency claim, audit, or routing. **Scope, stated exactly:** this row covers the SIGNED fields only. `payload_meta` and `task_type` are outside the mandated digest, so tampering with them is **not** defended here — see §4.1's disclosed residuals, where `payload_meta` (which carries TUSS/CID-10/`valor_estimado_brl`, the CRED business key, and the pagto faixa/alcada value) is ranked the more severe of the two. |
 | **Cross-tenant replay** (an envelope captured for one tenant re-presented against another) | `tenant` is inside the signed digest — retagging it invalidates the MAC. Defense-in-depth: `A2ARegistry` is tenant-scoped by construction (ADR-0004, `registry.py:8-10`) and `PostgresIdempotencyStore`'s primary key is `(task_id, tenant)` (`idempotency.py:38`), so even a same-`tenant`-field replay against a different registry/store partition finds no matching Card/claim. |
-| **Expiry bypass** (`deadline` stripped or extended after signing) | `deadline` is inside the signed digest — altering it invalidates the MAC. Independently, `DelegationEnvelope.expired()` (`delegation.py:144-148`) is still checked by `_validate()` even for a validly-signed, correctly-dated envelope — two independent checks, neither a substitute for the other. |
+| **Expiry bypass** (`deadline` stripped or extended after signing) | `deadline` is inside the signed digest — altering it invalidates the MAC. Independently, `DelegationEnvelope.expired()` (`delegation.py:144-148`) is still checked by `_validate()` even for a validly-signed, correctly-dated envelope — two independent checks, neither a substitute for the other. **This row is VACUOUS on today's envelopes and becomes real only via §4.3's constraint 1:** all four `root()` call sites omit `deadline=`, so the signed value is `"deadline": None`, and `expired()` returns `False` unconditionally (`delegation.py:146-147`). Binding `None` binds nothing there is anything to bypass. The defense is only in force once signed envelopes are required to carry a non-`None` `deadline` (§4.3.1) **and** the verifier enforces a max signature age independent of it (§4.3.2). |
 | **Stale key** (an envelope signed under a retired or compromised key) | `key_id` and `replay_epoch` are inside the signed digest (§4.2) and separately checked against the CURRENT trusted keyset — a retired `key_id` fails outside its rotation grace window (§4.3); an epoch bump (§4.2) hard-rejects every prior-epoch signature regardless of `key_id` validity. |
 | **Altered `payload_hash`** (`payload_ref` swapped for a different FHIR/pseudonymized reference after signing) | `payload_hash` is inside the signed digest — swapping `payload_ref` changes the hash, invalidating the MAC. Binds the specific PHI-safe reference to the exact authorized envelope; combined with the existing `_looks_like_phi()` guard (`delegation.py:257-264`), which independently rejects raw-PHI-shaped references at construction. |
 | **Crash-before-complete** (dispatcher/replica crashes after admission but before the handler's effect completes) | **Signature verification alone does not defend this** — it is orthogonal. The actual defenses are DURABLE idempotency (Guard 4, `PostgresIdempotencyStore`, already implemented but only conditionally wired — §4.6) and a TRANSACTIONAL OUTBOX replacing `_NoopKafkaProducer`'s fire-and-forget emission — **both planned in this train, legs 2-3, not delivered by this ADR.** Referenced forward honestly: this ADR mandates them as consequences (§4.6); it does not build them. |
@@ -358,13 +563,23 @@ to actually hold outside dev-local.
 
 **Transactional outbox replacing `_NoopKafkaProducer`'s facts — with an explicit fence-allowlist
 consequence.** `_NoopKafkaProducer` is a **declared, by-name exception**
-(`check_effect_chokepoint_fence.py:401-411`, entry `:406`) in the effect-chokepoint fence's §8.4
-allowlist — the design doc's own instruction (`docs/design/wave1-effect-chokepoint.md:742-746`) is
-"declare explicitly, not silently... allowlist it by name with the rationale, never by pattern."
+(`check_effect_chokepoint_fence.py:401-412`, entry `:406`) in the effect-chokepoint fence's §8.4
+allowlist — the design doc's own instruction
+(`docs/design/wave1-effect-chokepoint.md:746-748`, inside §8.4 at `:741-748`) is "exception to
+declare explicitly, not silently: `_NoopKafkaProducer` ... allowlist it by / name with the
+rationale, never by pattern."
 If legs 2-3 replace `_NoopKafkaProducer` with a real, transactional-outbox-backed producer at
 BOTH construction sites (`a2a_composition.py:264`, `:368`), the fence's declared exception entry
-becomes unused once no construction of that literal name remains, and should be **removed, not
-widened** — consistent with `_is_test_double_name`'s own comment (`:416-425`) that this gate never
+becomes unused **once no definition or import of that name remains in that module** — and should
+then be **removed, not widened**. The retirement trigger is the `class _NoopKafkaProducer`
+statement at `a2a_composition.py:192` disappearing (or, equivalently, the name no longer being
+imported into a composition-root module), **not** the disappearance of its call sites: §8.4 fires
+on `ast.ClassDef` (`check_effect_chokepoint_fence.py:611-615`) and on
+`ast.ImportFrom`/`ast.Import` (`:618-633`, `:634-638`), never on `ast.Call`, and applies the
+allowlist to imports at `:822` and to definitions at `:835`. A leg that swaps both constructions to
+a real producer but leaves the class body in place therefore leaves the allowlist entry **still
+live and still required** — removing it in that state would turn a green gate red. Removal is
+consistent with `_is_test_double_name`'s own comment (`:416-427`) that this gate never
 loosens its `Fake*`/`*Mock*`/`Noop*` pattern match on its own authority. If a *new* named
 local/dev-only fallback double is introduced in the replacement's place, it must be added to
 `DECLARED_TEST_DOUBLE_EXCEPTIONS` (`:401`) **by name, with rationale, in the same change** — never
@@ -392,6 +607,49 @@ co-located" premise stops holding for any edge) — this is not a recommendation
 under which "explicitly out of scope" stops applying and a NEW ADR (or an amendment to this one)
 must cover it before that transport ships.
 
+### 4.8 Acceptance criteria — the proof obligations legs 2-4 must discharge
+
+A threat table is a claim, not evidence. This ADR is only ratifiable-in-retrospect if legs 2-4 ship
+proof that each claimed defense is actually load-bearing, and the repo already has the precedent for
+what "proof" means here: the effect-chokepoint fence's own §8.5, titled **"Non-vacuity and
+completeness assertions (the gate must prove it is doing work)"**
+(`docs/design/wave1-effect-chokepoint.md:750`), implemented as a per-rule counter — "Every rule
+carries a non-vacuity counter: a rule that never fires because nothing in the real tree / exercises
+its allowlisted path is exactly the kind of gate this repo has been bitten by before"
+(`scripts/ci/check_effect_chokepoint_fence.py:28-29`), materialized as `counters[...]` increments at
+`:724`, `:751`, `:765`, `:780`, `:793`, `:806`, `:823`, `:836` and printed at `:666-668`/`:1149-1151`.
+Envelope signing gets the same treatment. Three obligations, all on leg 4:
+
+1. **Red-control attack test per threat-table row.** Every row of §4.5 gains at least one test that
+   *performs the attack* and asserts the rejection — not a test that merely asserts a happy-path
+   verification succeeds. Rows and their attacks: **Tamper** (mutate a signed field post-signing,
+   assert `SIGNATURE_INVALID`); **Cross-tenant replay** (retag `tenant`, assert rejection);
+   **Expiry bypass** (extend `deadline` post-signing, assert rejection — and, per §4.3.1, a test
+   that a signed envelope with `deadline=None` is refused, which is what stops this row from
+   staying vacuous); **Stale key** (sign under a retired `key_id` outside its grace window, and
+   separately under a prior `replay_epoch`, assert rejection in both); **Altered `payload_hash`**
+   (swap `payload_ref` post-signing, assert rejection). The **Crash-before-complete** row is
+   explicitly NOT a signature test — its proof is a durable-idempotency replay test plus an outbox
+   test, per §4.6, and it must be labelled as such rather than counted as signature evidence.
+2. **Each red control must be a real control — the test must FAIL when the defense is neutered.**
+   For every test in obligation 1, the leg demonstrates that removing or short-circuiting the
+   specific defense (skipping the verification call, dropping the field from the digest, widening
+   the keyset to accept any `key_id`, ignoring the epoch) makes that test fail. A test that still
+   passes with the defense removed is proving nothing and does not count toward this section. This
+   is the same standard `_is_test_double_name`'s own census applies to itself
+   (`check_effect_chokepoint_fence.py:416-427`): a rule that fences zero real names is disclosed as
+   such rather than counted as coverage.
+3. **Non-vacuity of the digest itself.** A test asserts that the canonical payload actually contains
+   every field §4.1 lists (so a field silently dropped from the preimage is caught), and — because
+   §4.1 discloses `payload_meta`/`task_type` as residuals — a test asserts the **converse** too:
+   that mutating `payload_meta` or `task_type` alone does **not** change the digest today. That
+   negative test is the honest, executable form of the disclosed residual; if a human later ratifies
+   `payload_meta_hash` (§Perguntas abertas 1), that test flips to a positive assertion in the same
+   change, and the flip is the evidence the residual was closed.
+
+None of these obligations are discharged by this ADR. They are the acceptance criteria against
+which leg 4 is reviewed.
+
 ## Consequencias
 
 **Positivas:**
@@ -403,8 +661,12 @@ must cover it before that transport ships.
   pattern, the `_require_signer_or_fail_closed` composition-root gate shape, and the audit chain's
   own `sort_keys`+compact-separator canonicalization) — minimizing the number of NEW cryptographic
   primitives this repo has to reason about and review.
-- Ties key-rotation grace windows to an already-enforced bound (`deadline`), rather than inventing a
-  separate rotation-specific TTL policy.
+- Ties key-rotation grace windows to a bound the envelope already models (`deadline`) rather than
+  inventing a separate rotation-specific TTL policy — and, having found that bound unpopulated on
+  every real envelope today, converts it into explicit, checkable constraints on legs 2-4
+  (§4.3.1/§4.3.2/§4.3.3) instead of relying on it silently.
+- Turns the §4.5 threat table into acceptance criteria rather than assertions: §4.8 requires a
+  red-control attack test per row, each proven to fail when its own defense is neutered.
 - Makes the crash-before-complete gap's real fix (durable idempotency + transactional outbox)
   MANDATORY design constraints for legs 2-3, closing a durability gap that exists independently of
   signing (§4.6) and was previously silent.
@@ -416,30 +678,76 @@ must cover it before that transport ships.
 - Inherits, rather than fixes, the `AGENT_RUNTIME_MODE`/`RUNTIME_MODE` absent-variable asymmetry
   (§4.4) — the fail-closed guarantee this ADR mandates is only as strong as that pre-existing
   discriminator at each composition root.
+- **`payload_meta` is excluded from the mandated digest field set — the largest accepted gap in this
+  design, ranked at or above `task_type`.** On today's edges `payload_meta` *is* the instruction:
+  TUSS code, CID-10 and `valor_estimado_brl` on Helena's authorization path
+  (`agents/helena/delegation.py:99,:102,:107-108`); the `prestador_id` from which Carolina's graph
+  derives the idempotent CIB business key (`agents/carolina/delegation.py:211-218`, docstring
+  `:207-209`); and `valor_pagamento_cents`, which drives Andre's faixa/alcada routing on the money
+  path (`agents/andre/delegation.py:361`, read back at `:537-539`, comment `:349-354`). A signed
+  envelope therefore attests who/where/when/how-much-budget while leaving *what is being asked*
+  unbound — and `payload_hash` does not compensate, since `payload_ref` is `f"process://{task_id}"`
+  on three of the four edges (`carolina:141`, `andre:204`, `andre:372`), making that field a
+  restatement of `task_id`. Accepted only because the digest field set came from the program brief;
+  §Perguntas abertas 1 is where a human closes or ratifies it.
 - `task_type` is excluded from the mandated digest field set despite being routing-significant
   (§4.1's disclosed residual) — a real, named gap left for human resolution, not closed by this ADR.
+  It ranks below `payload_meta` because it is at least cross-checked at admission against the
+  target's Card (`dispatcher.py:388`), whereas `payload_meta` is cross-checked against nothing.
+- The `deadline`-derived rotation grace window (§4.3) is **not** inherited from working code: no
+  envelope in `src/` carries a `deadline` today, so the bound only exists once legs 2-4 implement
+  §4.3's constraints and update all four builders. Until then the "Expiry bypass" defense in §4.5 is
+  vacuous, and anti-replay rests entirely on durable-idempotency retention (§4.3.3) — a retention
+  obligation this ADR creates and does not itself enforce.
 - No implementation ships with this ADR; legs 2-4 carry real build cost (new envelope fields, a new
   `RejectionReason` member, a keyset injection seam, two new fail-closed composition-root gates, a
   transactional outbox) before any of the threat-table defenses in §4.5 are real.
 
 ## Perguntas abertas (humano decide)
 
-1. **`task_type` in the digest** — include it (closing §4.1's disclosed residual) or provide an
-   explicit rationale for leaving it out beyond "it was not in the original mandate"?
-2. **Rotation cadence** — how often should ordinary key rotation actually run (days? weeks?), given
-   the grace-window design in §4.3 ties retirement safety to `deadline` horizons, not a calendar?
-3. **Key custody** — who holds the signing key(s) day-to-day (same vault/KMS seam as
+1. **`payload_meta` in the digest — the first question, ahead of `task_type`.** §4.1 ranks
+   `payload_meta`'s exclusion at or above `task_type`'s, on evidence: it carries the TUSS code,
+   CID-10 and `valor_estimado_brl` (`agents/helena/delegation.py:99,:102,:107-108`), the
+   `prestador_id` that Carolina's graph turns into the idempotent CIB business key
+   (`agents/carolina/delegation.py:211-218`), and `valor_pagamento_cents`, which drives Andre's
+   faixa/alcada routing on the money path (`agents/andre/delegation.py:361,:537-539`). Since
+   `payload_ref` is `f"process://{task_id}"` on three of the four edges, `payload_hash` binds
+   essentially nothing beyond a field the digest already carries. The **option** on the table — a
+   recommendation, not a decision, because the mandated field set came from the program brief — is
+   to add one field, `"payload_meta_hash": sha256(canonical(envelope.payload_meta))`, using §4.1's
+   exact canonicalization. It binds the content while persisting and disclosing nothing, so the
+   dispatcher's PHI-driven exclusion of `payload_meta` from audit `details`
+   (`dispatcher.py:451-456`) is not an argument against it. **Decide: adopt `payload_meta_hash`,
+   or record an explicit rationale for leaving the instruction content unsigned.**
+2. **`task_type` in the digest** — include it (closing §4.1's second disclosed residual) or provide
+   an explicit rationale for leaving it out beyond "it was not in the original mandate"?
+3. **Rotation cadence and the max signature age** — how often should ordinary key rotation actually
+   run (days? weeks?)? Note that §4.3 no longer lets `deadline` answer this alone: because no
+   envelope carries a `deadline` today, §4.3.2 requires a verifier-side **maximum signature age** as
+   an independent bound, and that value is a policy number a human sets. It also sets the floor for
+   `a2a_idempotency` retention (§4.3.3), so it cannot be chosen without the DBA/retention owner.
+4. **Key custody — and note the blast radius is four per-request builders, not two composition
+   roots.** Who holds the signing key(s) day-to-day (same vault/KMS seam as
    `MAEZO_A2A_CARD_SIGNING_KEY`, or a separate secret), and is the keyset per-tenant or repo-wide
    (today's Card-signing key is repo-wide, single-key, no per-tenant scoping — should envelope
    signing diverge from that precedent, given a cross-tenant HMAC key leak would let an attacker
    forge envelopes across every tenant, arguably a sharper blast radius than a leaked Card key)?
-4. **Epoch-bump grace window** — should a `replay_epoch` bump triggered by a suspected-compromise
+   The custody problem is materially wider than Card signing's: a Card is signed once at composition,
+   but envelopes are built **per request** in `build_auth_analysis_envelope`
+   (`agents/helena/delegation.py:63`), `build_cred_dossier_envelope`
+   (`agents/carolina/delegation.py:115`), `build_adequacao_dossier_envelope`
+   (`agents/andre/delegation.py:169`) and `build_pagto_dossier_envelope`
+   (`agents/andre/delegation.py:278`) — three of them reached from worker handlers
+   (`tools/workers/credenciamento.py:637`, `tools/workers/adequacao.py:788`,
+   `tools/workers/pagto.py:892`). Whatever custody mechanism is chosen must reach all four, in two
+   agent packages plus the worker package that lazily imports them.
+5. **Epoch-bump grace window** — should a `replay_epoch` bump triggered by a suspected-compromise
    incident ever tolerate a short grace window for the prior epoch (to avoid mass in-flight
    rejection), or must an incident-triggered bump always be zero-grace (§4.2 leaves this
    unspecified)?
-5. **`MAEZO_A2A_ALLOW_UNVERIFIED_ENVELOPES` naming/shape** — confirm the proposed opt-out env var
+6. **`MAEZO_A2A_ALLOW_UNVERIFIED_ENVELOPES` naming/shape** — confirm the proposed opt-out env var
    name (§4.4) does not collide with any planned naming convention outside this ADR's visibility.
-6. **`AGENT_RUNTIME_MODE` absent-default fix** — out of scope for this ADR (§Contexto point 2,
+7. **`AGENT_RUNTIME_MODE` absent-default fix** — out of scope for this ADR (§Contexto point 2,
    §4.4), but flagged again here since it directly weakens this ADR's own fail-closed claim at the
    Helena→Rafael edge; a human owns the decision to change `AgentRuntimeSettings`'s default.
 
@@ -477,3 +785,10 @@ None. Amends/extends ADR-0003 (adds a fifth guard), ADR-0007 (extends non-repudi
 to message), and ADR-0015 (specifies the signature guard it left unspecified; tightens the
 idempotency-wiring gap it flagged). Does not supersede any ADR. Complementary to ADR-0033 (no
 dependency either direction). Does not interact with ADR-0037.
+
+## Historico de revisoes
+
+| Rev | Data | Mudanca |
+|---|---|---|
+| r1 | 2026-08-11 | Redacao inicial (Onda 3 / Train C leg 1). Status Proposed. |
+| r2 | 2026-08-11 | Revisao do gatekeeper de Train C leg 1 (zero-trust, pre-ratificacao) — dez achados fechados, sem mudanca de status. Substantivos: (M1) `payload_meta` reclassificado como residual de severidade igual ou maior que `task_type`, com a evidencia dos quatro edges; retirada a equivalencia falsa com a exclusao PHI do dispatcher; `payload_meta_hash` registrado como OPCAO para o humano (§4.1, §4.5, §Negativas, §Perguntas abertas 1). (M2) a janela de graca de rotacao nao se sustentava — `deadline` e `None` em todos os envelopes reais; §4.3 passa a exigir `deadline` nao-`None` em envelope ASSINADO, idade maxima de assinatura independente, e retencao de idempotencia dominando a validade da assinatura. (M3) gatilho de aposentadoria da excecao §8.4 corrigido: `ast.ClassDef`/`ast.Import`, nunca construcao (§Contexto 2, §4.6). (M4) verificacao fixada em `delegate` antes do ramo `dispatcher.py:279-281`; `_execute` removido dos locais sancionados. (m5) `default=str` proibido na canonicalizacao, com contraexemplo `datetime`. (m6) custodia de chave alcanca quatro builders por requisicao; armadilha do `dataclasses.replace` em `extend()`. (m7) `max_hops` e sim fornecido pelo remetente — razao corrigida. (m8) "primeira checagem" escopada ao dispatcher (o seam gate roda antes). (m9) tres citacoes corrigidas (`registry.py`, `_is_test_double_name`, design doc §8.4). (m10) novo §4.8 com obrigacoes de prova por linha da tabela de ameacas, no precedente §8.5 "the gate must prove it is doing work". |
