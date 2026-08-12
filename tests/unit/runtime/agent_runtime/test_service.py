@@ -48,12 +48,13 @@ def _stub_a2a_audit_sink_probe(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture(autouse=True)
 def _allow_unsigned_a2a_cards_in_dev(monkeypatch: pytest.MonkeyPatch) -> None:
-    """F2: bring-up assembles the Helena->Rafael A2A edge in a dev/"local" `agent_runtime_mode` with
-    no Card-signing key. The composition root REFUSES to build an UNSIGNED dispatcher unless the
-    explicit non-production opt-out is set (no silent downgrade) — so set it here: these
-    health-daemon tests deliberately exercise the dev/unsigned assembly path, and the opt-out is
-    exactly the explicit dev signal F2 requires. Also delenv the signing key so this suite never
-    depends on ambient env state.
+    """F2 + ADR-0039 §4.4: bring-up assembles the Helena->Rafael A2A edge in a dev/"local"
+    `agent_runtime_mode` with no Card-signing key and no per-tenant envelope key. The composition
+    root REFUSES to build an UNSIGNED-Card OR UNVERIFIED-envelope dispatcher unless the explicit
+    non-production opt-outs are set (no silent downgrade) — so set BOTH here: these health-daemon
+    tests deliberately exercise the dev/unsigned assembly path, and the opt-outs are exactly the
+    explicit dev signals the two fail-closed gates require. Also delenv the signing key so this
+    suite never depends on ambient env state.
 
     ADR-0039 Q7: `AGENT_RUNTIME_MODE=local` is now set EXPLICITLY here. It used to be inherited from
     `AgentRuntimeSettings`' pydantic default, which is now the fail-closed "production" — so without
@@ -64,6 +65,7 @@ def _allow_unsigned_a2a_cards_in_dev(monkeypatch: pytest.MonkeyPatch) -> None:
     The daemon-level consequence of the ABSENT variable is pinned separately, in
     `test_absent_runtime_mode_*` at the end of this module."""
     monkeypatch.setenv("MAEZO_A2A_ALLOW_UNSIGNED_CARDS", "1")
+    monkeypatch.setenv("MAEZO_A2A_ALLOW_UNVERIFIED_ENVELOPES", "1")
     monkeypatch.delenv("MAEZO_A2A_CARD_SIGNING_KEY", raising=False)
     monkeypatch.setenv("AGENT_RUNTIME_MODE", "local")
 
