@@ -15,7 +15,10 @@ the defense is neutered, so a reviewer can neuter any one of them and predict th
       `test_untampered_chain_matches_the_anchor` — the recomputation must still be able to say
       clean, or the whole verdict is a constant. The WIDTH of the check is
       `test_an_edited_root_field_one_link_back_is_a_divergence_too`: the same one-string edit, one
-      link back, which a tip-only check reported as MATCH.
+      link back, which a tip-only check reported as MATCH. Its ORDERING — genesis-first, the
+      EARLIEST offender named — is
+      `test_the_earliest_root_field_offender_is_named_when_genesis_and_tip_are_both_edited`, which a
+      `reversed(chain)` walk fails (the width test, editing only the genesis, cannot see direction).
 
   V2  The database side is recomputed through the WRITER's own derivation, never a second copy.
       NEUTER: re-implement the canonical mapping / the root here instead of calling
@@ -816,6 +819,64 @@ async def test_an_edited_root_field_one_link_back_is_a_divergence_too(
     assert outcome.anchor_key != tip_key
     assert outcome.anchor_root == genesis_root  # recomputed, never the "f" * 64 that was stored
     assert outcome.anchored_record_count == 2  # ... and the numbers describe THAT anchor too
+    assert outcome.is_clean is False
+    assert outcome.database_root is None  # no verdict about the database was reached
+
+
+async def test_the_earliest_root_field_offender_is_named_when_genesis_and_tip_are_both_edited(
+    anchors_enabled: None, store: LabeledFakeWormAnchorStore, probe: FilesystemAnchorKeyProbe
+) -> None:
+    """V1'S ORDERING, pinned by consequence. The root-field pass walks the LINK-ordered chain
+    genesis-first with the first failure winning, so when TWO anchors carry an edited `root` the one
+    reported is the EARLIEST whose custody is in doubt — the oldest point at which the evidence
+    stopped agreeing with itself — never the tip's newest symptom of it.
+
+    This is the analogue, for the unsigned-`root` pass, of
+    `test_the_oldest_unusable_anchor_is_the_one_reported_when_two_are_bad` for the read/parse/verify
+    pass. It exists because the WIDTH test above (`test_an_edited_root_field_one_link_back_is_a_
+    divergence_too`) edits only the genesis: with a single offender the loop names it under ANY
+    iteration order, so that test cannot see the DIRECTION. Editing BOTH ends makes the direction
+    observable — a `reversed(chain)` walk reaches the tip first and would name it (record_count 6,
+    the tip's key/root), and every assertion below fails on exactly that mutation.
+
+    Both edits are the identical one-string `root` overwrite, on genuine signature-VALID checkpoints
+    the actor cannot re-sign; the links still walk, because the walk reads RECOMPUTED roots and
+    never this field; and the record source EXPLODES if touched, because the finding is made from
+    the anchor evidence alone, before any verdict about the database is attempted."""
+    records = _emit_chain(6)
+    genesis = checkpoint_for_chain(
+        records[:2],
+        tenant_id=_TENANT,
+        chain_schema_version=_SCHEMA_VERSION,
+        prev_anchor_root=GENESIS_PREV_ANCHOR_ROOT,
+    )
+    genesis_root = checkpoint_root(genesis)
+    tip = checkpoint_for_chain(
+        records,
+        tenant_id=_TENANT,
+        chain_schema_version=_SCHEMA_VERSION,
+        prev_anchor_root=genesis_root,  # a genuine in-band link to the genesis above
+    )
+    tip_root = checkpoint_root(tip)
+    # TWO offenders: each anchor's UNSIGNED `root` field is overwritten with a DISTINCT lie, so the
+    # anchor NAMED tells us unambiguously which end of the chain the loop reached first.
+    genesis_key = _put_envelope(store, genesis, root="f" * 64)
+    tip_key = _put_envelope(store, tip, root="e" * 64)
+    assert genesis_root != "f" * 64 and tip_root != "e" * 64  # both traps genuinely differ
+    assert genesis_root != tip_root  # the two ends are distinguishable
+    assert json.loads(store.get(genesis_key))["root"] == "f" * 64  # trap set on the genesis
+    assert json.loads(store.get(tip_key))["root"] == "e" * 64  # ... and on the tip
+    assert genesis_key < tip_key  # genesis-first is by the LINKS, not lucky key order
+
+    outcome = await _verify(store, _ExplodingRecordSource(), probe)
+
+    assert outcome.status == STATUS_DIVERGENCE
+    assert outcome.reason == REASON_ANCHOR_ROOT_FIELD_INCONSISTENT
+    assert outcome.anchor_key == genesis_key  # the EARLIEST offender, not the tip
+    assert outcome.anchor_key != tip_key  # reversed(chain) would name THIS instead
+    assert outcome.anchor_root == genesis_root  # recomputed; never "f" * 64, never the tip's root
+    assert outcome.anchor_root != tip_root
+    assert outcome.anchored_record_count == 2  # the genesis window (records[:2]), not the tip's 6
     assert outcome.is_clean is False
     assert outcome.database_root is None  # no verdict about the database was reached
 
