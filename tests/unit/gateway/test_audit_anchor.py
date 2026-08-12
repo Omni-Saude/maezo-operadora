@@ -543,7 +543,12 @@ def test_checkpoint_for_chain_pins_count_window_and_head() -> None:
     sink, records = _emit_fixture_chain()
     assert sink.verify_chain() is True  # the fixture really is a valid chain
 
-    checkpoint = checkpoint_for_chain(records, tenant_id="amh", chain_schema_version=_FIXTURE_SCHEMA_VERSION, prev_anchor_root=GENESIS_PREV_ANCHOR_ROOT)
+    checkpoint = checkpoint_for_chain(
+        records,
+        tenant_id="amh",
+        chain_schema_version=_FIXTURE_SCHEMA_VERSION,
+        prev_anchor_root=GENESIS_PREV_ANCHOR_ROOT,
+    )
 
     assert checkpoint.record_count == 3  # hardcoded: the fixture emits exactly three records
     assert checkpoint.window_start == datetime(2026, 3, 1, 12, 0, 0, tzinfo=UTC)
@@ -555,7 +560,12 @@ def test_fixture_chain_root_matches_an_independent_recomputation() -> None:
     """Recompute the root WITHOUT the module's canonicalizer — an inline stdlib `json.dumps` typed
     out here, so a bug in `canonical_bytes` cannot hide behind itself."""
     _, records = _emit_fixture_chain()
-    checkpoint = checkpoint_for_chain(records, tenant_id="amh", chain_schema_version=_FIXTURE_SCHEMA_VERSION, prev_anchor_root=GENESIS_PREV_ANCHOR_ROOT)
+    checkpoint = checkpoint_for_chain(
+        records,
+        tenant_id="amh",
+        chain_schema_version=_FIXTURE_SCHEMA_VERSION,
+        prev_anchor_root=GENESIS_PREV_ANCHOR_ROOT,
+    )
     independent = json.dumps(
         {
             "anchor_format": "maezo.audit-anchor.v2",
@@ -578,7 +588,12 @@ def test_checkpoint_for_chain_window_survives_clock_skew() -> None:
     """Window is min/max, not first/last: a skewed replica must not produce an inverted window."""
     _, records = _emit_fixture_chain()
     records[1].timestamp = datetime(2026, 2, 1, 0, 0, 0, tzinfo=UTC)  # earlier than records[0]
-    checkpoint = checkpoint_for_chain(records, tenant_id="amh", chain_schema_version=_FIXTURE_SCHEMA_VERSION, prev_anchor_root=GENESIS_PREV_ANCHOR_ROOT)
+    checkpoint = checkpoint_for_chain(
+        records,
+        tenant_id="amh",
+        chain_schema_version=_FIXTURE_SCHEMA_VERSION,
+        prev_anchor_root=GENESIS_PREV_ANCHOR_ROOT,
+    )
     assert checkpoint.window_start == datetime(2026, 2, 1, 0, 0, 0, tzinfo=UTC)
     assert checkpoint.window_end == datetime(2026, 3, 1, 12, 2, 0, tzinfo=UTC)
 
@@ -586,26 +601,46 @@ def test_checkpoint_for_chain_window_survives_clock_skew() -> None:
 def test_checkpoint_for_chain_refuses_a_non_contiguous_sequence() -> None:
     _, records = _emit_fixture_chain()
     with pytest.raises(AnchorChainDiscontinuityError, match="not one contiguous run"):
-        checkpoint_for_chain(records[1:], tenant_id="amh", chain_schema_version=_FIXTURE_SCHEMA_VERSION, prev_anchor_root=GENESIS_PREV_ANCHOR_ROOT)
+        checkpoint_for_chain(
+            records[1:],
+            tenant_id="amh",
+            chain_schema_version=_FIXTURE_SCHEMA_VERSION,
+            prev_anchor_root=GENESIS_PREV_ANCHOR_ROOT,
+        )
 
 
 def test_checkpoint_for_chain_refuses_a_broken_link() -> None:
     _, records = _emit_fixture_chain()
     records[2].prev_hash = "d" * 64
     with pytest.raises(AnchorChainDiscontinuityError, match="record 2"):
-        checkpoint_for_chain(records, tenant_id="amh", chain_schema_version=_FIXTURE_SCHEMA_VERSION, prev_anchor_root=GENESIS_PREV_ANCHOR_ROOT)
+        checkpoint_for_chain(
+            records,
+            tenant_id="amh",
+            chain_schema_version=_FIXTURE_SCHEMA_VERSION,
+            prev_anchor_root=GENESIS_PREV_ANCHOR_ROOT,
+        )
 
 
 def test_checkpoint_for_chain_refuses_an_empty_sequence() -> None:
     with pytest.raises(AnchorChainDiscontinuityError, match="no time window to attest"):
-        checkpoint_for_chain([], tenant_id="amh", chain_schema_version=_FIXTURE_SCHEMA_VERSION, prev_anchor_root=GENESIS_PREV_ANCHOR_ROOT)
+        checkpoint_for_chain(
+            [],
+            tenant_id="amh",
+            chain_schema_version=_FIXTURE_SCHEMA_VERSION,
+            prev_anchor_root=GENESIS_PREV_ANCHOR_ROOT,
+        )
 
 
 def test_checkpoint_for_chain_refuses_an_unemitted_record() -> None:
     _, records = _emit_fixture_chain(1)
     records[0].record_hash = None
     with pytest.raises(AnchorChainDiscontinuityError, match="no record_hash"):
-        checkpoint_for_chain(records, tenant_id="amh", chain_schema_version=_FIXTURE_SCHEMA_VERSION, prev_anchor_root=GENESIS_PREV_ANCHOR_ROOT)
+        checkpoint_for_chain(
+            records,
+            tenant_id="amh",
+            chain_schema_version=_FIXTURE_SCHEMA_VERSION,
+            prev_anchor_root=GENESIS_PREV_ANCHOR_ROOT,
+        )
 
 
 # =================================================================================================

@@ -45,10 +45,12 @@ THE LATEST-ANCHOR PROBLEM (and this job's explicit position)
 =================================================================================================
 "Verify against the latest anchor" presumes you can find the latest anchor. You cannot, in general:
 
-  - An anchor envelope carries NO pointer to its predecessor (the format is four fixed keys —
-    `anchor_format`, `checkpoint`, `root`, `signature`). "Latest" is therefore a property of the
-    STORE'S LISTING, not a property of the evidence. Nothing inside a signed anchor says "and there
-    is no newer one".
+  - Until the v2 format bump, an anchor envelope carried NO pointer to its predecessor at all, so
+    "latest" was ENTIRELY a property of the STORE'S LISTING rather than of the evidence. v2's
+    `prev_anchor_root` (see "IN-BAND ANCHOR CHAINING" below) recovers the BACKWARD half of that —
+    an anchor now names the one before it — but not the forward half: nothing inside a signed
+    anchor says "and there is no newer one", and nothing ever can, because an anchor is sealed
+    before its successor exists.
   - `LabeledFakeWormAnchorStore.list_keys()` walks with `Path.rglob`, which does not descend into
     SYMLINKED DIRECTORIES, while `get()`/`put()` happily resolve through them (they only refuse a
     path that leaves the root). Measured, not assumed: with `<root>/amh -> <root>/real_amh`, a key
@@ -85,10 +87,47 @@ deployment's corroborator must be independent in the same spirit (an S3 Inventor
 a live `ListObjectsV2`, or a second account's read-only view). That is owner wiring and a disclosed
 assumption, not a property this file can prove.
 
-**Not fixed here, flagged for humans:** the in-band repair is to chain the anchors themselves — a
-`prev_anchor_root` field would make an omitted anchor detectable from the evidence instead of from
-the storage layer. That is a format bump (`ANCHOR_FORMAT`) and therefore a leg-1/owner decision,
-not something leg 2 may do unilaterally.
+=================================================================================================
+IN-BAND ANCHOR CHAINING (v2) — what it fixes, and the half it CANNOT fix
+=================================================================================================
+`audit_anchor.AnchorCheckpoint.prev_anchor_root` (the v1->v2 format bump) is the in-band repair the
+section above used to flag for humans: every anchor commits, INSIDE its signed bytes, to the root of
+its immediate predecessor, or to :data:`~maezo.gateway.audit_anchor.GENESIS_PREV_ANCHOR_ROOT` for a
+tenant's first anchor. This job CONSUMES that field:
+
+  - Every anchor in the corroborated key set is read, parsed and SIGNATURE-VERIFIED — not just the
+    one this run will compare the database against. A chain whose links were checked against
+    unverified envelopes would be a chain an unsigned forgery could redraw.
+  - The links are then walked genesis-first (:func:`_walk_anchor_chain`), and **both ends of every
+    link are signature-covered**: the successor's `prev_anchor_root` is inside its signed bytes, and
+    the predecessor's root is RECOMPUTED from the predecessor's signed bytes. The envelope's
+    unsigned `root` field plays NO part in the walk — same "recompute, never trust" rule as rule 1.
+  - The walk must consume the whole set: one anchor claims genesis, no two anchors claim the same
+    predecessor, and nothing is left over. Any violation is :data:`STATUS_ANCHOR_CHAIN_BROKEN` and
+    NO verdict about the database is issued — the evidence itself is incomplete, and a verdict
+    rendered against incomplete evidence is the silent clean this whole section exists to prevent.
+
+**Selection is therefore STRUCTURAL, not lexical.** The anchor a run compares the database against
+is the walk's TIP — the anchor nothing else points at — exactly as `snapshot_from_rows` finds a
+chain's tail by structure rather than by `ORDER BY timestamp`. Leg 1's key shape still makes a
+lexical listing chronological, and that ordering is still useful, but it is no longer what picks the
+anchor: two anchors sealed over the SAME newest record (a writer cadence faster than the record
+rate) share a `window_end` and are ordered by nothing but their root hex, so a lexical `max` could
+name the chain-EARLIER of the two. Deriving the tip from the links removes that coin flip, and with
+it a whole class of false alarm.
+
+**The half chaining CANNOT fix, stated plainly:** backward links detect an OMITTED MIDDLE anchor and
+a FOREIGN one. They cannot detect TRUNCATION of the newest anchors, because nothing points forward:
+delete T3 from `{T1, T2, T3}` and `{T1, T2}` is a perfectly contiguous chain. That is precisely the
+dangerous direction the corroborating probe defends, so chaining is a COMPLEMENT to
+:class:`AnchorKeyProbe`, never a replacement for it, and both defenses stay wired.
+
+**Disclosed cost of reading the whole set.** Verifying every anchor is O(anchors) store reads per
+run instead of one, and it widens the DENIAL surface: an adversary who can add objects to the store
+could previously only deny verification by planting a NEWER anchor (selection was chronological);
+now any planted anchor at all denies it. Both are LOUD denials, never clean verdicts, so the class
+of outcome an adversary can force is unchanged — and a store where an adversary can add objects has
+already lost the WORM/separate-account property that makes an anchor evidence at all.
 
 =================================================================================================
 DARK-BUILD DOCTRINE — a SIBLING flag, not the writer's
@@ -120,10 +159,10 @@ readable as "we looked and it was fine".
 THE OUTCOME VOCABULARY (closed, one per run)
 =================================================================================================
 `MATCH` · `DIVERGENCE` · `NO_ANCHOR` · `SIGNATURE_INVALID` · `STORE_LISTING_SUSPECT` · `DB_ERROR` ·
-`ANCHOR_UNREADABLE` · `DISABLED`. Pinned by set-equality in the tests, with an exit code, a log
-event name and a log level for every member (completeness is pinned too).
+`ANCHOR_UNREADABLE` · `ANCHOR_CHAIN_BROKEN` · `DISABLED`. Pinned by set-equality in the tests, with
+an exit code, a log event name and a log level for every member (completeness is pinned too).
 
-The last two extend the six named in the leg-2 brief, and the extension follows the brief's OWN
+The last three extend the six named in the leg-2 brief, and every extension follows the brief's OWN
 rule — every absence-state gets its own outcome, because "we could not check" must never collapse
 into "clean" OR into a neighbouring alarm that sends an operator down the wrong path:
 
@@ -132,6 +171,14 @@ into "clean" OR into a neighbouring alarm that sends an operator down the wrong 
     this into `SIGNATURE_INVALID` would tell an operator "someone forged an anchor" when the
     evidence says "an anchor file is corrupt"; those are different incidents with different first
     moves (key compromise review vs storage integrity review).
+  - `ANCHOR_CHAIN_BROKEN` — every anchor read cleanly and every signature verified, but the set is
+    not ONE contiguous in-band chain (see "IN-BAND ANCHOR CHAINING" above). Deliberately NOT a
+    `DIVERGENCE`: a divergence is a statement ABOUT THE DATABASE, made against evidence that was
+    whole, and this job has no such statement to make when the evidence is not whole. Equally not a
+    `STORE_LISTING_SUSPECT`: that one says "the store's two enumerations disagree, so I do not know
+    what exists"; this one says "I know exactly what exists, and the signed evidence says a link is
+    missing, duplicated or foreign". Different first moves again — storage-consistency review vs
+    anchor-custody review.
   - `DISABLED` — see above.
 
 `reason` narrows the status to a specific finding within a likewise-closed token vocabulary
@@ -184,6 +231,7 @@ from maezo.gateway.audit_anchor import (
     _TRUTHY,
     ANCHOR_FORMAT,
     FAKE_WORM_STORE_MARKER_FILENAME,
+    GENESIS_PREV_ANCHOR_ROOT,
     AnchorChainDiscontinuityError,
     AnchorCheckpoint,
     AnchorSignature,
@@ -256,6 +304,11 @@ STATUS_STORE_LISTING_SUSPECT: Final[str] = "STORE_LISTING_SUSPECT"
 STATUS_DB_ERROR: Final[str] = "DB_ERROR"
 #: Bytes came back from the store but they are not a usable anchor for this tenant.
 STATUS_ANCHOR_UNREADABLE: Final[str] = "ANCHOR_UNREADABLE"
+#: The tenant's signature-verified anchor set is not one contiguous in-band chain (a forked, an
+#: omitted or a foreign `prev_anchor_root` link — the v2 chaining field). The anchor EVIDENCE itself
+#: is incomplete, so no verdict about the database is issued — distinct from a DB `DIVERGENCE`,
+#: which is a statement ABOUT the database made against evidence that WAS whole.
+STATUS_ANCHOR_CHAIN_BROKEN: Final[str] = "ANCHOR_CHAIN_BROKEN"
 #: The flag is off. Explicit, because "did not run" must never read as "ran and passed".
 STATUS_DISABLED: Final[str] = "DISABLED"
 
@@ -269,6 +322,7 @@ ALL_STATUSES: Final[frozenset[str]] = frozenset(
         STATUS_STORE_LISTING_SUSPECT,
         STATUS_DB_ERROR,
         STATUS_ANCHOR_UNREADABLE,
+        STATUS_ANCHOR_CHAIN_BROKEN,
         STATUS_DISABLED,
     }
 )
@@ -292,6 +346,18 @@ REASON_RECORD_COUNT_SHORTFALL: Final[str] = "RECORD_COUNT_SHORTFALL"
 REASON_CHAIN_DISCONTINUITY: Final[str] = "CHAIN_DISCONTINUITY"
 REASON_ROOT_MISMATCH: Final[str] = "ROOT_MISMATCH"
 REASON_DATABASE_UNREACHABLE: Final[str] = "DATABASE_UNREACHABLE"
+#: No anchor in the set claims :data:`~maezo.gateway.audit_anchor.GENESIS_PREV_ANCHOR_ROOT`. The
+#: tenant's FIRST anchor is gone (or was never this set's), so the run has no place to start.
+REASON_ANCHOR_CHAIN_NO_GENESIS: Final[str] = "ANCHOR_CHAIN_NO_GENESIS"
+#: Two anchors claim the SAME predecessor root — two competing successors to one anchor. Includes
+#: two anchors both claiming genesis, which is the same fault at the start of the chain. Same
+#: duplicate-predecessor idiom `snapshot_from_rows` uses to find a forked RECORD chain.
+REASON_ANCHOR_CHAIN_FORK: Final[str] = "ANCHOR_CHAIN_FORK"
+#: The genesis-first walk did not reach every anchor in the set. Either a middle anchor was omitted
+#: (its successors are stranded) or a foreign anchor was planted (it was never on this chain). One
+#: token for both because the evidence cannot tell them apart: an anchor whose predecessor is not
+#: here looks identical either way, and a verifier that picked a story would be guessing.
+REASON_ANCHOR_CHAIN_LINK_MISSING: Final[str] = "ANCHOR_CHAIN_LINK_MISSING"
 
 #: Which status each reason may appear under. Pinned in tests, so a reason can never be emitted
 #: beside a status that contradicts it (e.g. a `ROOT_MISMATCH` reported as `MATCH`).
@@ -314,11 +380,18 @@ REASON_TO_STATUS: Final[Mapping[str, str]] = {
     REASON_CHAIN_DISCONTINUITY: STATUS_DIVERGENCE,
     REASON_ROOT_MISMATCH: STATUS_DIVERGENCE,
     REASON_DATABASE_UNREACHABLE: STATUS_DB_ERROR,
+    REASON_ANCHOR_CHAIN_NO_GENESIS: STATUS_ANCHOR_CHAIN_BROKEN,
+    REASON_ANCHOR_CHAIN_FORK: STATUS_ANCHOR_CHAIN_BROKEN,
+    REASON_ANCHOR_CHAIN_LINK_MISSING: STATUS_ANCHOR_CHAIN_BROKEN,
 }
 
 #: Process exit code per status for the offline CLI. Deliberately starting at 10 rather than 1:
 #: `1` is what an uncaught traceback exits with and `2` is what `argparse` exits with on a usage
 #: error, so a crash or a typo could otherwise be READ as a verdict. Only MATCH is 0.
+#:
+#: APPEND-ONLY. New statuses take the next free number rather than being slotted in beside their
+#: conceptual neighbours: leg 3's drills, the runbook and any CI job assert on these integers, so
+#: renumbering an existing one would silently re-label an incident class in every consumer at once.
 EXIT_CODE_BY_STATUS: Final[Mapping[str, int]] = {
     STATUS_MATCH: 0,
     STATUS_DIVERGENCE: 10,
@@ -328,6 +401,7 @@ EXIT_CODE_BY_STATUS: Final[Mapping[str, int]] = {
     STATUS_DB_ERROR: 14,
     STATUS_ANCHOR_UNREADABLE: 15,
     STATUS_DISABLED: 16,
+    STATUS_ANCHOR_CHAIN_BROKEN: 17,
 }
 
 #: One structlog event name per status, so an alerting rule can match an event instead of parsing a
@@ -340,6 +414,7 @@ EVENT_BY_STATUS: Final[Mapping[str, str]] = {
     STATUS_STORE_LISTING_SUSPECT: "audit_anchor_store_listing_suspect",
     STATUS_DB_ERROR: "audit_anchor_database_unreadable",
     STATUS_ANCHOR_UNREADABLE: "audit_anchor_envelope_unreadable",
+    STATUS_ANCHOR_CHAIN_BROKEN: "audit_anchor_chain_broken",
     STATUS_DISABLED: "audit_anchor_verification_skipped_disabled",
 }
 
@@ -354,6 +429,7 @@ LEVEL_BY_STATUS: Final[Mapping[str, str]] = {
     STATUS_STORE_LISTING_SUSPECT: "error",
     STATUS_DB_ERROR: "error",
     STATUS_ANCHOR_UNREADABLE: "error",
+    STATUS_ANCHOR_CHAIN_BROKEN: "error",
     STATUS_DISABLED: "debug",
 }
 
@@ -383,6 +459,13 @@ class AnchorVerificationOutcome:
             section of the module docstring).
         listing_disagreement: Keys the listing and the corroborating probe disagreed about
             (symmetric difference, sorted). Empty unless the status is STORE_LISTING_SUSPECT.
+        anchor_chain_break_keys: The anchor keys implicated in an ANCHOR_CHAIN_BROKEN verdict —
+            the two competing successors of a fork, the anchors the genesis-first walk could not
+            reach, or the whole set when no anchor claims genesis. Keys, never content. Empty
+            unless the status is ANCHOR_CHAIN_BROKEN. Kept SEPARATE from `listing_disagreement`
+            because the two answer different questions ("the store's enumerations disagree" vs
+            "the signed evidence does not link up"), and collapsing them would make an alerting
+            rule unable to tell a storage incident from a custody one.
     """
 
     status: str
@@ -398,6 +481,7 @@ class AnchorVerificationOutcome:
     signature_key_id: str | None = None
     error_type: str | None = None
     listing_disagreement: tuple[str, ...] = ()
+    anchor_chain_break_keys: tuple[str, ...] = ()
 
     @property
     def is_clean(self) -> bool:
@@ -429,6 +513,7 @@ class AnchorVerificationOutcome:
             "signature_key_id": self.signature_key_id,
             "error_type": self.error_type,
             "listing_disagreement": list(self.listing_disagreement),
+            "anchor_chain_break_keys": list(self.anchor_chain_break_keys),
         }
 
 
@@ -720,6 +805,92 @@ def _parse_timestamp(raw: Any) -> datetime:
     return datetime.fromisoformat(raw)
 
 
+def _recomputed_root(anchor: _ParsedAnchor) -> str:
+    """The anchor's root, RECOMPUTED from the bytes whose signature was verified.
+
+    The one and only hash in this module (AST-pinned by
+    `test_the_verify_module_holds_no_canonicalization_of_its_own`), and the only value any
+    comparison here is made against. The envelope's stored `root` field is NOT covered by the
+    signature, so it is never a basis — only a tamper indicator.
+    """
+    return hashlib.sha256(anchor.checkpoint_bytes).hexdigest()
+
+
+@dataclass(frozen=True, slots=True)
+class _VerifiedAnchor:
+    """One anchor that was read, parsed AND signature-verified, with its recomputed root."""
+
+    key: str
+    parsed: _ParsedAnchor
+    root: str
+
+
+class _AnchorChainBrokenError(Exception):
+    """Internal: the anchor set is not one contiguous in-band chain. Closed reason token + keys."""
+
+    def __init__(self, reason: str, keys: tuple[str, ...]) -> None:
+        super().__init__(reason)
+        self.reason = reason
+        self.keys = keys
+
+
+def _walk_anchor_chain(verified: Mapping[str, _VerifiedAnchor]) -> tuple[str, ...]:
+    """Order a tenant's anchors genesis-first by their in-band links. PURE — no I/O.
+
+    The anchor-chain analogue of :func:`snapshot_from_rows`, deliberately built from the same two
+    moves, because the question is the same one shape-for-shape: index by PREDECESSOR, refuse a
+    duplicate predecessor as a fork, then walk forward from the genesis sentinel.
+
+    Both ends of every link are inside signed bytes — the successor's `prev_anchor_root` is a
+    checkpoint field, and the predecessor's root is recomputed from the predecessor's checkpoint
+    bytes — so an actor who can edit anchor files but not sign them cannot redraw the chain. That
+    is the whole reason callers must signature-verify EVERY anchor before calling this.
+
+    Raises :class:`_AnchorChainBrokenError` with a closed reason token for each way the set can
+    fail to be one whole chain:
+
+      - `ANCHOR_CHAIN_FORK` — two anchors name the same predecessor. Two anchors both naming the
+        GENESIS sentinel land here too: "no predecessor" is just another predecessor value, and a
+        second genesis is a second chain.
+      - `ANCHOR_CHAIN_NO_GENESIS` — nothing claims the genesis sentinel, so the run has no start.
+        This is what deleting a tenant's FIRST anchors looks like from the evidence.
+      - `ANCHOR_CHAIN_LINK_MISSING` — the walk ran out of links before consuming the set. The
+        leftovers are either stranded successors of an omitted middle anchor or anchors that were
+        never on this chain; see the reason token's own note on why one token covers both.
+
+    GENESIS SEMANTICS ARE EXPLICIT, NEVER IMPLIED. A tenant's first anchor is the one whose
+    `prev_anchor_root` EQUALS `GENESIS_PREV_ANCHOR_ROOT`; it is not "the oldest key", not "the one
+    with no predecessor in the set", and not "whatever the walk happens to start at". Leg 1 refuses
+    to seal an anchor with a missing/blank `prev_anchor_root` precisely so an omitted link can never
+    arrive here wearing genesis's clothes, and a single-anchor set is a legal chain of length one
+    only because that one anchor SAYS it is the genesis.
+
+    Termination is structural, not bounded by a counter: each step POPS its entry out of the index,
+    so the index strictly shrinks and the loop cannot revisit a key. Whatever is left in the index
+    when the walk stops is exactly the set of unreached anchors.
+    """
+    by_prev: dict[str, str] = {}
+    for key in sorted(verified):
+        previous = verified[key].parsed.checkpoint.prev_anchor_root
+        if previous in by_prev:
+            raise _AnchorChainBrokenError(REASON_ANCHOR_CHAIN_FORK, tuple(sorted((by_prev[previous], key))))
+        by_prev[previous] = key
+
+    if GENESIS_PREV_ANCHOR_ROOT not in by_prev:
+        raise _AnchorChainBrokenError(REASON_ANCHOR_CHAIN_NO_GENESIS, tuple(sorted(verified)))
+
+    ordered: list[str] = []
+    cursor = GENESIS_PREV_ANCHOR_ROOT
+    while cursor in by_prev:
+        key = by_prev.pop(cursor)  # consumed: this key can never be walked twice
+        ordered.append(key)
+        cursor = verified[key].root
+
+    if by_prev:
+        raise _AnchorChainBrokenError(REASON_ANCHOR_CHAIN_LINK_MISSING, tuple(sorted(by_prev.values())))
+    return tuple(ordered)
+
+
 # =================================================================================================
 # The verification itself
 # =================================================================================================
@@ -744,27 +915,33 @@ async def verify_latest_anchor(
       1. **Corroborate the listing.** `store.list_keys()` and `key_probe.probe_keys()`, both
          restricted to `f"{tenant_id}/"`. Unavailable or disagreeing => `STORE_LISTING_SUSPECT`,
          and no verdict about the database is issued. See the module docstring for why a
-         disagreement can never be resolved in favour of either side.
-      2. **Select and read.** Lexical max of the agreed set — leg 1's key shape
-         (`<tenant>/<compact UTC window_end>-<root>.anchor.json`) makes lexical order chronological
-         order. Empty set => `NO_ANCHOR` (explicitly NOT clean). Unreadable key =>
-         `STORE_LISTING_SUSPECT`.
-      3. **Parse** the envelope, fail-closed on shape/format/tenant => `ANCHOR_UNREADABLE`.
-      4. **Verify the signature** over the checkpoint bytes. Rejected, or a verifier that raises,
-         => `SIGNATURE_INVALID`. Everything after this point rests on a checkpoint whose
-         authenticity was established here; everything before it is untrusted input.
-      5. **Recompute the anchored root** as `sha256(checkpoint bytes)` and compare the envelope's
-         stored `root` field against it. The field is NOT the comparison basis (it is unsigned) —
-         it is a tamper indicator, and a mismatch is `DIVERGENCE`
-         (`ANCHOR_ROOT_FIELD_INCONSISTENT`), because in a WORM store that field cannot change.
-      6. **Read the database** => any failure is `DB_ERROR` (never clean).
-      7. **Recompute the database root** over the anchor's window: the first `record_count` records
+         disagreement can never be resolved in favour of either side. Empty agreed set =>
+         `NO_ANCHOR` (explicitly NOT clean).
+      2. **Read, parse and signature-verify EVERY anchor in the agreed set**, in ascending key
+         order, first failure winning: an unreadable key => `STORE_LISTING_SUSPECT`, bytes that are
+         not this tenant's anchor => `ANCHOR_UNREADABLE`, a rejected or raising verifier =>
+         `SIGNATURE_INVALID`. Everything after this point rests on checkpoints whose authenticity
+         was established here; everything before it is untrusted input. The whole set rather than
+         one anchor, because step 3 checks links BETWEEN anchors and a link checked against an
+         unverified envelope is a link a forgery can redraw.
+      3. **Walk the in-band anchor chain** (:func:`_walk_anchor_chain`) — one genesis, no duplicate
+         predecessor, nothing left over. Any violation => `ANCHOR_CHAIN_BROKEN`, and again no
+         verdict about the database: the evidence is not whole. **The walk's TIP is the anchor this
+         run verifies against** — selection is structural, not lexical (module docstring, "IN-BAND
+         ANCHOR CHAINING").
+      4. **Compare the tip's stored `root` field** against `sha256(checkpoint bytes)`. The field is
+         NOT the comparison basis (it is unsigned) — it is a tamper indicator, and a mismatch is
+         `DIVERGENCE` (`ANCHOR_ROOT_FIELD_INCONSISTENT`), because in a WORM store that field cannot
+         change. Checked on the TIP only: on the other anchors the field is inert (the walk uses
+         recomputed roots), so alarming on it there would add noise, not detection.
+      5. **Read the database** => any failure is `DB_ERROR` (never clean).
+      6. **Recompute the database root** over the anchor's window: the first `record_count` records
          from genesis, through `audit_anchor.checkpoint_for_chain` — the writer's own derivation,
-         not a second copy of it — using the ANCHOR's `chain_schema_version` and `tenant_id` so
-         that the comparison isolates chain CONTENT. A fork, too few records, or a broken link is
-         `DIVERGENCE` in its own right: those states cannot even produce the window that was
-         attested.
-      8. **Compare roots.** Equal => `MATCH`. Otherwise `DIVERGENCE`, reporting both roots, both
+         not a second copy of it — using the ANCHOR's `chain_schema_version`, `prev_anchor_root` and
+         `tenant_id` so that the comparison isolates chain CONTENT. A fork, too few records, or a
+         broken link is `DIVERGENCE` in its own right: those states cannot even produce the window
+         that was attested.
+      7. **Compare roots.** Equal => `MATCH`. Otherwise `DIVERGENCE`, reporting both roots, both
          heads and both counts — hashes and counts only, never record content.
 
     A database that has GROWN since the anchor is not a divergence: the window is a genesis-anchored
@@ -815,59 +992,78 @@ async def verify_latest_anchor(
     if not listed:
         return _emit(AnchorVerificationOutcome(status=STATUS_NO_ANCHOR, tenant_id=tenant_id))
 
-    selected_key = max(listed)
-    try:
-        payload = store.get(selected_key)
-    except Exception as exc:  # noqa: BLE001 — listed-but-unreadable is store misbehaviour
-        return _emit(
-            AnchorVerificationOutcome(
-                status=STATUS_STORE_LISTING_SUSPECT,
-                tenant_id=tenant_id,
-                reason=REASON_SELECTED_ANCHOR_UNREADABLE,
-                anchor_key=selected_key,
-                error_type=type(exc).__name__,
+    # EVERY anchor in the corroborated set — not just the one this run will compare against. The
+    # chain walk below checks links BETWEEN anchors, and a link checked against an envelope whose
+    # signature was never verified is a link an unsigned forgery can redraw.
+    verified: dict[str, _VerifiedAnchor] = {}
+    for key in sorted(listed):
+        try:
+            payload = store.get(key)
+        except Exception as exc:  # noqa: BLE001 — listed-but-unreadable is store misbehaviour
+            return _emit(
+                AnchorVerificationOutcome(
+                    status=STATUS_STORE_LISTING_SUSPECT,
+                    tenant_id=tenant_id,
+                    reason=REASON_SELECTED_ANCHOR_UNREADABLE,
+                    anchor_key=key,
+                    error_type=type(exc).__name__,
+                )
             )
-        )
+        try:
+            parsed = _parse_envelope(payload, tenant_id=tenant_id)
+        except _AnchorUnreadableError as exc:
+            return _emit(
+                AnchorVerificationOutcome(
+                    status=STATUS_ANCHOR_UNREADABLE,
+                    tenant_id=tenant_id,
+                    reason=exc.reason,
+                    anchor_key=key,
+                )
+            )
+        try:
+            signature_ok = verifier.verify(parsed.checkpoint_bytes, parsed.signature)
+        except Exception as exc:  # noqa: BLE001 — a verifier that raises has NOT verified
+            return _emit(
+                AnchorVerificationOutcome(
+                    status=STATUS_SIGNATURE_INVALID,
+                    tenant_id=tenant_id,
+                    reason=REASON_SIGNATURE_VERIFIER_FAILED,
+                    anchor_key=key,
+                    signature_key_id=parsed.signature.key_id,
+                    error_type=type(exc).__name__,
+                )
+            )
+        if not signature_ok:
+            return _emit(
+                AnchorVerificationOutcome(
+                    status=STATUS_SIGNATURE_INVALID,
+                    tenant_id=tenant_id,
+                    reason=REASON_SIGNATURE_REJECTED,
+                    anchor_key=key,
+                    signature_key_id=parsed.signature.key_id,
+                )
+            )
+        verified[key] = _VerifiedAnchor(key=key, parsed=parsed, root=_recomputed_root(parsed))
 
     try:
-        anchor = _parse_envelope(payload, tenant_id=tenant_id)
-    except _AnchorUnreadableError as exc:
+        chain = _walk_anchor_chain(verified)
+    except _AnchorChainBrokenError as exc:
+        # No `anchor_key`: nothing was selected, and naming one anchor would read as "this is the
+        # anchor I verified against" when the point is that no verification took place.
         return _emit(
             AnchorVerificationOutcome(
-                status=STATUS_ANCHOR_UNREADABLE,
+                status=STATUS_ANCHOR_CHAIN_BROKEN,
                 tenant_id=tenant_id,
                 reason=exc.reason,
-                anchor_key=selected_key,
+                anchor_chain_break_keys=exc.keys,
             )
         )
 
-    try:
-        signature_ok = verifier.verify(anchor.checkpoint_bytes, anchor.signature)
-    except Exception as exc:  # noqa: BLE001 — a verifier that raises has NOT verified
-        return _emit(
-            AnchorVerificationOutcome(
-                status=STATUS_SIGNATURE_INVALID,
-                tenant_id=tenant_id,
-                reason=REASON_SIGNATURE_VERIFIER_FAILED,
-                anchor_key=selected_key,
-                signature_key_id=anchor.signature.key_id,
-                error_type=type(exc).__name__,
-            )
-        )
-    if not signature_ok:
-        return _emit(
-            AnchorVerificationOutcome(
-                status=STATUS_SIGNATURE_INVALID,
-                tenant_id=tenant_id,
-                reason=REASON_SIGNATURE_REJECTED,
-                anchor_key=selected_key,
-                signature_key_id=anchor.signature.key_id,
-            )
-        )
-
+    selected_key = chain[-1]  # the TIP: the anchor nothing else in the chain points at
+    anchor = verified[selected_key].parsed
     # RECOMPUTED from the signature-verified checkpoint. This — never `envelope["root"]` — is the
     # basis every comparison below is made against.
-    anchor_root = hashlib.sha256(anchor.checkpoint_bytes).hexdigest()
+    anchor_root = verified[selected_key].root
     anchored_count = anchor.checkpoint.record_count
     anchored_head = anchor.checkpoint.chain_head_hash
 
