@@ -53,6 +53,7 @@ provisioning in vault/KMS remains an external/infra dependency (design doc §6.2
 from __future__ import annotations
 
 import os
+from typing import TypeGuard
 
 import structlog
 
@@ -165,7 +166,7 @@ def is_production_runtime_mode(runtime_mode: str) -> bool:
     return runtime_mode != _LOCAL_RUNTIME_MODE
 
 
-def _dsn_is_present(database_url: str | None) -> bool:
+def _dsn_is_present(database_url: str | None) -> TypeGuard[str]:
     """The ONE "is there a usable DSN?" answer both durability gates share.
 
     Extracted for the SAME reason as `is_production_runtime_mode` above: the fact gate and the
@@ -185,6 +186,11 @@ def _dsn_is_present(database_url: str | None) -> bool:
     NOT a normalizer: a non-blank DSN is passed through to the store BYTE-UNCHANGED (padding
     included). This helper only decides presence; rewriting the operator's DSN is a different
     change with a different blast radius.
+
+    Typed as a `TypeGuard[str]` so the truthy branch narrows `str | None` to `str` for the callers,
+    exactly as the inlined `if database_url:` did. Without it, extracting the check into a function
+    would have LOST that narrowing and forced a `cast`/`assert` at both call sites — silencing the
+    type checker to keep a fail-closed gate is the wrong trade.
     """
     return bool(database_url and database_url.strip())
 

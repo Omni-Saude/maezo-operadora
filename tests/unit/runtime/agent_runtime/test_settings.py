@@ -168,9 +168,7 @@ def test_non_vacuity_an_explicit_local_still_reaches_every_dev_branch(
     assert mode == "local"
     assert is_production_runtime_mode(mode) is False
     assert isinstance(
-        _require_fact_producer_or_fail_closed(
-            runtime_mode=mode, tenant="amh", edge="dev", database_url=None
-        ),
+        _require_fact_producer_or_fail_closed(runtime_mode=mode, tenant="amh", edge="dev", database_url=None),
         _NoopKafkaProducer,
     )
     assert (
