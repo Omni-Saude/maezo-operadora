@@ -549,6 +549,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"  - {v.render()}", file=sys.stderr)
         return 1
 
+    # `unit_passed` is None only together with a non-empty `unit_violations`, which the guard
+    # above already returned on — so it is provably an int here. The assert makes that invariant
+    # explicit for a reader (and for mypy, should `scripts/` ever enter the type-checked scope),
+    # on the fail-closed path of a shipped gate. (GK-1 review note, Train D release-floor.)
+    assert unit_passed is not None
     candidate = capability_vector_from_measurements(
         census, [(fr.name, fr.ok) for fr in fence_results], unit_passed
     )
