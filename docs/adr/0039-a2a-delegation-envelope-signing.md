@@ -22,8 +22,8 @@ DECISAO, e nao substitui a revisao nomeada de Security/crypto (R1). · **Data:**
 
 ## Decisoes do dono (2026-08-12)
 
-Respostas as sete `## Perguntas abertas (humano decide)` (`:745-791`, logo antes de
-`## Relacao com ADRs existentes` em `:793`), uma a uma, na ordem em que a ADR as fez. Transcritas do
+Respostas as sete `## Perguntas abertas (humano decide)` (cabecalho em `:746`, secao ate `:799`, logo
+antes de `## Relacao com ADRs existentes` em `:800`), uma a uma, na ordem em que a ADR as fez. Transcritas do
 dono; nenhuma delas e inferencia de agente.
 
 | # | Pergunta | Decisao |
@@ -31,7 +31,7 @@ dono; nenhuma delas e inferencia de agente.
 | 1 | `payload_meta` no digest | **ADOTAR `payload_meta_hash`**: um campo, `"payload_meta_hash": sha256(canonical(envelope.payload_meta))`, com a canonicalizacao exata do §4.1. Fecha o MAJOR M1 (TUSS, CID-10, `valor_estimado_brl`, `prestador_id`, `valor_pagamento_cents` seguiam nao-assinados). |
 | 2 | `task_type` no digest | **INCLUIR** — fecha o segundo residual divulgado do §4.1. |
 | 3 | Cadencia de rotacao / idade maxima de assinatura | **Rotacao ordinaria de chave roda por 7 DIAS.** Donde a idade maxima de assinatura no verificador (§4.3.2) e, por §4.3.3, o **piso de retencao** de `a2a_idempotency` vira numero computavel — o DBA/MZO-060 escolhe o valor contra esse piso, nao contra uma dependencia aberta. |
-| 4 | Custodia de chave | **Mesmo seam vault/KMS de `MAEZO_A2A_CARD_SIGNING_KEY`** (`a2a/assembly.py:45`, lido em `:67`) guarda as chaves no dia a dia, e o **keyset e POR TENANT**, nao repo-wide — assinatura de envelope tambem por tenant. Blast radius permanece o dos **quatro builders por-requisicao** enumerados na propria Pergunta 4 (`:768-783`). |
+| 4 | Custodia de chave | **Mesmo seam vault/KMS de `MAEZO_A2A_CARD_SIGNING_KEY`** (`a2a/assembly.py:45`, lido em `:67`) guarda as chaves no dia a dia, e o **keyset e POR TENANT**, nao repo-wide — assinatura de envelope tambem por tenant. Blast radius permanece o dos **quatro builders por-requisicao** enumerados na propria Pergunta 4 (`:775-789`). |
 | 5 | Graca no bump de epoch | **SIM** — `replay_epoch` tolera uma janela curta de graca para o epoch anterior, para evitar rejeicao em massa de envelopes em voo. A semantica de graca-zero para incidente segue tendo de ser enunciavel. |
 | 6 | `MAEZO_A2A_ALLOW_UNVERIFIED_ENVELOPES` | **CONFIRMADO** (nome e forma). Dev-local apenas, fail-closed fora de local pelo `is_production_runtime_mode` ja compartilhado. |
 | 7 | Default ausente de `AGENT_RUNTIME_MODE` | **MUDAR o default de `AgentRuntimeSettings`** (`runtime/agent_runtime/settings.py:38`, hoje `Field(default="local", alias="AGENT_RUNTIME_MODE")`) para fail-closed. E a licao "default de chave ausente falha FECHADO" aplicada ao residual que enfraquecia a propria alegacao fail-closed desta ADR na borda Helena→Rafael. |
