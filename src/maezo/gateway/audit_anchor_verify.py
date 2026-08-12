@@ -29,7 +29,10 @@ can edit the anchor file can set it to whatever the rewritten database happens t
 that compared `envelope["root"]` against the database would hand that actor a clean verdict for the
 price of one string edit. The field is read for exactly one purpose — as a TAMPER INDICATOR: in a
 genuine WORM store it cannot change, so `envelope["root"] != recomputed anchor root` is reported as
-a DIVERGENCE in its own right (`ANCHOR_ROOT_FIELD_INCONSISTENT`), never silently ignored.
+a DIVERGENCE in its own right (`ANCHOR_ROOT_FIELD_INCONSISTENT`), never silently ignored. That is
+checked on EVERY anchor of the walked chain, not only on the one a run compares the database
+against: the field is equally unsigned and equally immutable-in-a-WORM-store on all of them, and a
+tip-only check would have made this paragraph true for the newest link and false for every other.
 
 Symmetrically, the database side is recomputed too, and through the SAME code path the writer used:
 `audit_anchor.checkpoint_for_chain()` over `AuditRecord`s rebuilt from the stored rows. This module
@@ -118,9 +121,20 @@ it a whole class of false alarm.
 
 **The half chaining CANNOT fix, stated plainly:** backward links detect an OMITTED MIDDLE anchor and
 a FOREIGN one. They cannot detect TRUNCATION of the newest anchors, because nothing points forward:
-delete T3 from `{T1, T2, T3}` and `{T1, T2}` is a perfectly contiguous chain. That is precisely the
-dangerous direction the corroborating probe defends, so chaining is a COMPLEMENT to
-:class:`AnchorKeyProbe`, never a replacement for it, and both defenses stay wired.
+delete T3 from `{T1, T2, T3}` and `{T1, T2}` is a perfectly contiguous chain.
+
+**And the corroborating probe does not cover that gap either — say it plainly rather than imply it.**
+:class:`AnchorKeyProbe` compares two ENUMERATIONS of what exists; it fires when they DISAGREE, i.e.
+when a listing OMITS an object the store still holds. Genuine DELETION of the newest anchor makes
+both enumerations agree that it is gone, so there is nothing to disagree about, the chain
+`{T1, T2}` walks clean, and the run reports MATCH against T2. That is the ONE remaining
+silent-clean path in this job, and it is out of in-band reach BY CONSTRUCTION: detecting "there
+should be a newer anchor than the newest one I can see" needs an expectation source OUTSIDE the
+anchor set — a writer cadence/heartbeat the verifier can compare against, or the storage layer's
+own retention lock refusing the delete. Both are storage-layer/WORM concerns and owner wiring, not
+something a backward link or a second enumeration can supply, and this module deliberately does not
+pretend otherwise. Chaining and the probe are COMPLEMENTS covering DIFFERENT gaps — historical
+thinning and listing omission respectively — never substitutes for each other, and both stay wired.
 
 **Disclosed cost of reading the whole set.** Verifying every anchor is O(anchors) store reads per
 run instead of one, and it widens the DENIAL surface: an adversary who can add objects to the store
@@ -478,7 +492,9 @@ class AnchorVerificationOutcome:
         error_type: Exception CLASS name for `DB_ERROR`. Never the message (see the PHI/SECRETS
             section of the module docstring).
         anchored_schema_version: The migration revision the ANCHOR attests, read from the signed
-            checkpoint. A version string (`"0005_audit_emit_dedup"`), never PHI.
+            checkpoint. The PLAIN alembic revision the writer seals (`"0008"` — see
+            `audit_anchor.AnchorCheckpoint.chain_schema_version`, which mandates the live
+            `alembic_version.version_num` and not a descriptive label), never PHI.
         database_schema_version: The tenant's LIVE migration revision at read time, or `None` when
             the record source could not establish one.
         listing_disagreement: Keys the listing and the corroborating probe disagreed about
@@ -841,7 +857,13 @@ def _parse_envelope(payload: bytes, *, tenant_id: str) -> _ParsedAnchor:
             prev_anchor_root=checkpoint_mapping["prev_anchor_root"],
             anchor_format=checkpoint_mapping["anchor_format"],
         )
-    except (ValueError, TypeError, AttributeError) as exc:
+    # `KeyError` belongs in this tuple even though the key-set equality above already refuses a
+    # checkpoint that is missing a field: every name below is a raw `[...]` lookup, so that equality
+    # check is the ONLY thing between a malformed envelope and an unhandled `KeyError` escaping the
+    # verification job. A backstop costs nothing and fails in the closed direction — a missing field
+    # becomes `ANCHOR_UNREADABLE/CHECKPOINT_INVALID`, which is what it is, rather than a traceback
+    # that a CLI consumer would read as exit code 1.
+    except (ValueError, TypeError, AttributeError, KeyError) as exc:
         raise _AnchorUnreadableError(REASON_CHECKPOINT_INVALID) from exc
 
     if checkpoint.tenant_id != tenant_id:
@@ -1006,11 +1028,15 @@ async def verify_latest_anchor(
          verdict about the database: the evidence is not whole. **The walk's TIP is the anchor this
          run verifies against** — selection is structural, not lexical (module docstring, "IN-BAND
          ANCHOR CHAINING").
-      4. **Compare the tip's stored `root` field** against `sha256(checkpoint bytes)`. The field is
-         NOT the comparison basis (it is unsigned) — it is a tamper indicator, and a mismatch is
-         `DIVERGENCE` (`ANCHOR_ROOT_FIELD_INCONSISTENT`), because in a WORM store that field cannot
-         change. Checked on the TIP only: on the other anchors the field is inert (the walk uses
-         recomputed roots), so alarming on it there would add noise, not detection.
+      4. **Compare EVERY chained anchor's stored `root` field** against its own
+         `sha256(checkpoint bytes)`, genesis-first, first failure winning. The field is NOT the
+         comparison basis anywhere (it is unsigned, and the walk in step 3 never reads it) — it is
+         a CUSTODY indicator, and a mismatch is `DIVERGENCE`
+         (`ANCHOR_ROOT_FIELD_INCONSISTENT`) naming the offending anchor, because in a WORM store
+         that field cannot change: leg 1 writes each envelope once, under a key that already
+         contains the root, and the store refuses an existing key. Deliberately NOT tip-only — a
+         tip-only check left the identical one-string edit silently clean on every other anchor,
+         which contradicted rule 1 of the module docstring ("never silently ignored").
       5. **Read the database** => any failure is `DB_ERROR` (never clean).
       6. **Recompute the database root** over the anchor's window: the first `record_count` records
          from genesis, through `audit_anchor.checkpoint_for_chain` — the writer's own derivation,
@@ -1148,6 +1174,37 @@ async def verify_latest_anchor(
             )
         )
 
+    # Step 4 — the unsigned `root` field, on EVERY anchor in the chain, not just the one this run
+    # compares the database against. Rule 1 of the module docstring says that field is "reported as
+    # a DIVERGENCE in its own right, never silently ignored", and a TIP-ONLY check made that false
+    # everywhere except the newest link: the identical one-string edit that is a DIVERGENCE on the
+    # tip was a silent MATCH one anchor back. It cannot be a legitimate difference anywhere in the
+    # set — leg 1's `write_anchor` `put`s each envelope exactly ONCE, under a key that already
+    # contains the root, and `AnchorStore.put` must refuse an existing key, so nothing in the
+    # writer ever re-stamps `root` on a historical anchor. The field is still never a comparison
+    # BASIS (it is outside the signature and plays no part in the walk); it is a custody indicator,
+    # and widening the indicator only ever converts a silence into an alarm.
+    #
+    # Genesis-first, first failure wins, so the anchor NAMED is deterministic and is the EARLIEST
+    # one whose custody is in doubt. The outcome describes THAT anchor throughout (key, recomputed
+    # root, count, head, key id, schema version) rather than mixing its key with the tip's numbers.
+    for chained_key in chain:
+        candidate = verified[chained_key]
+        if candidate.parsed.stored_root != candidate.root:
+            return _emit(
+                AnchorVerificationOutcome(
+                    status=STATUS_DIVERGENCE,
+                    tenant_id=tenant_id,
+                    reason=REASON_ANCHOR_ROOT_FIELD_INCONSISTENT,
+                    anchor_key=chained_key,
+                    anchor_root=candidate.root,
+                    anchored_record_count=candidate.parsed.checkpoint.record_count,
+                    anchored_head_hash=candidate.parsed.checkpoint.chain_head_hash,
+                    signature_key_id=candidate.parsed.signature.key_id,
+                    anchored_schema_version=candidate.parsed.checkpoint.chain_schema_version,
+                )
+            )
+
     selected_key = chain[-1]  # the TIP: the anchor nothing else in the chain points at
     anchor = verified[selected_key].parsed
     # RECOMPUTED from the signature-verified checkpoint. This — never `envelope["root"]` — is the
@@ -1168,9 +1225,6 @@ async def verify_latest_anchor(
         }
         base.update(overrides)
         return AnchorVerificationOutcome(**base)
-
-    if anchor.stored_root != anchor_root:
-        return _emit(_partial(status=STATUS_DIVERGENCE, reason=REASON_ANCHOR_ROOT_FIELD_INCONSISTENT))
 
     try:
         snapshot = await records.read_chain(tenant_id)
