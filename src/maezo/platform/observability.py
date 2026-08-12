@@ -16,7 +16,7 @@ Design decisions (ADR-0010, ADR-0014):
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 import structlog
 from opentelemetry import trace
@@ -354,3 +354,85 @@ def record_llm_token_usage(
     collector = _get_metrics_collector()
     collector.llm_tokens.labels(provider=provider, model=model, token_type="input").inc(input_tokens)
     collector.llm_tokens.labels(provider=provider, model=model, token_type="output").inc(output_tokens)
+
+
+# ---------------------------------------------------------------------------
+# Agent-turn telemetry (G3 — the #222 PHI-fence bar, one record per completed turn)
+# ---------------------------------------------------------------------------
+
+#: Marker prefixing a turn's conversation CORRELATION token. Mirrors the pseudonymizer's `hk1_`
+#: keyed-pseudonym marker (gateway/pseudonymizer.py): a downstream reader can tell a correlation
+#: digest from a raw id by shape. `_` (not `:`) so it never collides with the `wa:{tenant}:{hash}`
+#: colon split. Bump the version digit on any scheme change.
+TURN_CORRELATION_PREFIX: Final[str] = "tc1_"
+
+#: The CLOSED, pinned field set of an `agent_turn_completed` record. COUNTS plus one HASHED
+#: correlation token — nothing drawn from message content, and disjoint from `PHI_FIELDS` by
+#: construction (asserted in `tests/unit/platform/test_observability.py`). Widening this set is a
+#: reviewable change: every field must be a count or a hash, never raw content or a raw identifier.
+TURN_TELEMETRY_FIELDS: Final[frozenset[str]] = frozenset(
+    {
+        "agent_id",
+        "input_message_count",
+        "output_message_count",
+        "produced_message_count",
+        "conversation_digest",
+    }
+)
+
+
+def turn_conversation_digest(conversation_ref: str) -> str:
+    """Stable, one-way correlation token for a turn's conversation/thread id — NEVER the raw id.
+
+    The #222 discipline (`record_llm_token_usage`) keeps per-instance identifiers OUT of the
+    metric and confines correlation to the structured log line; the turn record goes one step
+    further and lets even that line carry only a HASH of the conversation id, never the id itself.
+    The turn path's identifier is the langgraph `thread_id`, already a PHI-safe KEYED pseudonym
+    (`hk1_<hmac>`, `runtime/checkpoint.py::assert_phi_safe_thread_id`) or an `ESC-` process
+    business key — so an unkeyed SHA-256 here is a hash OF a pseudonym, defense-in-depth, and
+    never sees raw PHI. It is deterministic (two turns of one conversation correlate) and
+    truncated to 32 hex to stay compact; the `tc1_` marker names the scheme.
+
+    Uses the same `hashlib.sha256` primitive the `Pseudonymizer` is built on
+    (gateway/pseudonymizer.py), not a parallel one.
+    """
+    import hashlib  # noqa: PLC0415 — keep this module's top-level import surface minimal
+
+    digest = hashlib.sha256(conversation_ref.encode("utf-8")).hexdigest()[:32]
+    return f"{TURN_CORRELATION_PREFIX}{digest}"
+
+
+def record_agent_turn(
+    *,
+    agent_id: str | None,
+    input_message_count: int,
+    output_message_count: int,
+    conversation_ref: str | None,
+) -> None:
+    """Emit ONE `agent_turn_completed` telemetry record when an agent turn finishes (G3).
+
+    The #222 PHI fence, applied to the agent-turn path. Emits COUNTS and a single HASHED
+    conversation correlation token — and NOTHING drawn from message content: never a message
+    string, never a tenant PHI field (`cpf`/`nome`/`telefone`/`email`), never the raw
+    conversation/thread id or a business key. The conversation id is passed through
+    `turn_conversation_digest` FIRST, so the raw `conversation_ref` never reaches the sink.
+
+    The counts describe the turn's SHAPE, not its content: how many messages entered the turn, how
+    many the final state holds, and the difference (what this turn produced) — `len()` only, the
+    strings themselves are never read. `agent_id` is an agent NAME (e.g. `helena`), not PHI.
+
+    Best-effort by construction (mirrors `_emit_llm_token_usage`): a telemetry defect must never
+    break the turn that already completed, so the whole body is guarded.
+    """
+    try:
+        produced = max(output_message_count - input_message_count, 0)
+        logger.info(
+            "agent_turn_completed",
+            agent_id=agent_id,
+            input_message_count=input_message_count,
+            output_message_count=output_message_count,
+            produced_message_count=produced,
+            conversation_digest=(turn_conversation_digest(conversation_ref) if conversation_ref else None),
+        )
+    except Exception:  # noqa: BLE001 — defensive: telemetry must never break a completed turn.
+        logger.debug("agent_turn_telemetry_emit_failed", exc_info=True)

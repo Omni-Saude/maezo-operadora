@@ -178,3 +178,127 @@ def test_worker_base_emits_error_count_on_failure() -> None:
         s.value for s in samples if s.name.endswith("_total") and s.labels.get("error_type") == "ValueError"
     )
     assert total >= 1.0
+
+
+# ---------------------------------------------------------------------------
+# Agent-turn telemetry (G3 — the #222 PHI-fence bar for a completed agent turn)
+# ---------------------------------------------------------------------------
+
+from maezo.gateway.pseudonymizer import PHI_FIELDS  # noqa: E402
+from maezo.platform.observability import (  # noqa: E402
+    TURN_CORRELATION_PREFIX,
+    TURN_TELEMETRY_FIELDS,
+    record_agent_turn,
+    turn_conversation_digest,
+)
+
+
+def _capture_record(**kwargs: object) -> dict[str, object]:
+    """Call `record_agent_turn(**kwargs)` with the module logger patched; return the emitted fields.
+
+    Patches the module logger rather than using `structlog.testing.capture_logs`: `setup_observability`
+    (exercised by tests above in this file) binds observability's module logger under
+    `cache_logger_on_first_use=True`, after which `capture_logs` cannot intercept it. Patching the
+    logger is isolation-proof and inspects the emitted kwargs directly."""
+    with patch("maezo.platform.observability.logger") as mock_logger:
+        record_agent_turn(**kwargs)  # type: ignore[arg-type]
+    mock_logger.info.assert_called_once()
+    call = mock_logger.info.call_args
+    assert call.args[0] == "agent_turn_completed"
+    return dict(call.kwargs)
+
+
+def test_turn_telemetry_field_contract_is_closed_and_disjoint_from_phi() -> None:
+    """The pinned-field contract, by set-equality. The record carries exactly these five fields —
+    four COUNTS/label and one HASH — and NONE of them is a PHI field. Hardcoded (not derived from
+    the constant it pins) with provenance: this is the closed set `record_agent_turn` emits."""
+    expected = {
+        "agent_id",  # an agent NAME, not PHI
+        "input_message_count",
+        "output_message_count",
+        "produced_message_count",
+        "conversation_digest",  # a HASH of the thread id, never the raw id
+    }
+    assert expected == TURN_TELEMETRY_FIELDS
+    # The load-bearing invariant: no pinned field is a tenant-PHI field. PHI_FIELDS is the
+    # canonical set (gateway/pseudonymizer.py); reusing it here is what makes this a fence, not a
+    # comment. A field named `cpf`/`nome`/`telefone`/`email` could never enter the record.
+    assert TURN_TELEMETRY_FIELDS.isdisjoint(PHI_FIELDS)
+
+
+def test_turn_telemetry_hashes_the_conversation_ref_and_never_emits_it_raw() -> None:
+    """THE safety property. Given a RAW PHI-shaped conversation ref (a phone-bearing WhatsApp
+    conversation id), the emitted record must contain the stable HASH and the raw id must appear
+    NOWHERE in it. This is the RED control's target: neuter `turn_conversation_digest` to the
+    identity function and the raw phone lands in `conversation_digest`, failing the absence
+    assertions below."""
+    raw_ref = "wa:amh:+5511998887766"  # a raw, phone-bearing conversation id — must never leak
+
+    record = _capture_record(
+        agent_id="helena",
+        input_message_count=1,
+        output_message_count=2,
+        conversation_ref=raw_ref,
+    )
+
+    # The emitted key set is exactly the pinned contract.
+    assert set(record) == TURN_TELEMETRY_FIELDS
+    # The digest is present, is the stable hash, and is MARKED as a correlation token.
+    assert record["conversation_digest"] == turn_conversation_digest(raw_ref)
+    assert str(record["conversation_digest"]).startswith(TURN_CORRELATION_PREFIX)
+    # The raw id — and the raw phone inside it — appear in NO field of the emitted record.
+    for key, value in record.items():
+        assert value != raw_ref, key
+        assert not (isinstance(value, str) and "5511998887766" in value), key
+
+
+def test_turn_telemetry_counts_are_content_free() -> None:
+    """The counts describe the turn's SHAPE, never its content. `produced` is output minus input,
+    floored at zero, and the emitted key set is exactly the pinned contract."""
+    record = _capture_record(
+        agent_id="rafael",
+        input_message_count=3,
+        output_message_count=5,
+        conversation_ref="hk1_" + "a" * 64,  # an already-keyed PHI-safe thread id
+    )
+    assert record["input_message_count"] == 3
+    assert record["output_message_count"] == 5
+    assert record["produced_message_count"] == 2  # 5 - 3, the turn's output size
+    assert set(record) == TURN_TELEMETRY_FIELDS
+
+
+def test_turn_telemetry_digest_is_stable_deterministic_and_one_way() -> None:
+    """The correlation token is deterministic (two turns of one conversation correlate), marked,
+    and does NOT contain the input — a one-way hash, not an encoding."""
+    ref = "ESC-amh-inad-2026-000123"
+    first = turn_conversation_digest(ref)
+    assert first == turn_conversation_digest(ref)  # deterministic
+    assert first.startswith(TURN_CORRELATION_PREFIX)
+    assert ref not in first  # one-way: the business key is not recoverable by reading the token
+
+
+def test_turn_telemetry_none_ref_emits_a_null_digest_not_a_hash_of_none() -> None:
+    """A turn with no thread id (no checkpointer wired) emits `conversation_digest=None`, never a
+    hash of the literal string 'None' — the absence is explicit, not a spurious token."""
+    record = _capture_record(
+        agent_id=None,
+        input_message_count=1,
+        output_message_count=1,
+        conversation_ref=None,
+    )
+    assert record["conversation_digest"] is None
+    assert record["produced_message_count"] == 0  # 1 - 1, floored
+
+
+def test_turn_telemetry_never_raises_into_the_turn() -> None:
+    """Best-effort by construction: a telemetry defect must never break a turn that already
+    completed. A count that is not an int cannot compute `produced`; the guard swallows it and the
+    call returns normally rather than propagating."""
+    # A non-int output count makes `output - input` raise inside the body; the call must still
+    # return None without re-raising (the turn is already done).
+    record_agent_turn(
+        agent_id="helena",
+        input_message_count=1,
+        output_message_count="not-an-int",  # type: ignore[arg-type]
+        conversation_ref=None,
+    )

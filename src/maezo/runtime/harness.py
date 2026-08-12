@@ -111,6 +111,7 @@ class Harness:
         self._tool_deps: dict[str, Any] = dict(tool_deps) if tool_deps else {}
         self._graph: StateGraph[Any] | None = None
         self._compiled: CompiledStateGraph[Any, None, Any, Any] | None = None
+        self._agent_id: str | None = None  # set by create_graph; the turn-telemetry label (G3)
         logger.info(
             "harness_initialized",
             has_checkpointer=checkpointer is not None,
@@ -159,6 +160,7 @@ class Harness:
             graph.add_edge("agent", "__end__")
 
             self._graph = graph
+            self._agent_id = None  # trivial default graph — no named agent
             self._compiled = None  # reset compiled version
             logger.info("harness_graph_created")
             return graph
@@ -174,6 +176,7 @@ class Harness:
             resolved_graph = build_fn()
 
         self._graph = resolved_graph
+        self._agent_id = agent_id
         self._compiled = None
         logger.info("harness_graph_created", agent_id=agent_id)
         return cast("StateGraph[Any]", resolved_graph)
@@ -217,4 +220,19 @@ class Harness:
             thread_id=thread_id,
         )
         result = await self._compiled.ainvoke(state, config=config)
+
+        # G3: emit ONE PHI-gated turn-telemetry record now that the turn has completed — message
+        # COUNTS and a HASHED conversation token only (never message content, never the raw
+        # thread id / business key), via the platform's existing structured-log sink. The local
+        # import mirrors inference.py's `_emit_llm_token_usage` (no import-time coupling to the
+        # observability stack); `record_agent_turn` is itself best-effort and never raises.
+        from maezo.platform.observability import record_agent_turn  # noqa: PLC0415
+
+        out_msgs = result.get("messages")
+        record_agent_turn(
+            agent_id=self._agent_id,
+            input_message_count=len(msgs) if isinstance(msgs, list) else 0,
+            output_message_count=len(out_msgs) if isinstance(out_msgs, list) else 0,
+            conversation_ref=thread_id,
+        )
         return dict(result)
