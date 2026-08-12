@@ -80,7 +80,7 @@ import anthropic
 import structlog
 from pydantic_settings import BaseSettings
 
-from maezo.runtime.prompt_format import FormattedPrompt, format_cached_prompt
+from maezo.runtime.prompt_format import FormattedPrompt
 
 logger = structlog.get_logger(__name__)
 
@@ -1617,11 +1617,20 @@ class BrResidentInferenceProvider(BaseInferenceProvider):
                 "(ADR-0006/ADR-0017). Route to a human / incident."
             )
 
-        # W8: static instruction text first, per-request content last, so the vendor's prompt
-        # cache gets the longest possible stable prefix. The caller hands us one opaque string,
-        # so the honest split is "all of it is per-request" unless a caller uses the structured
-        # entry point below — see `generate_formatted`.
-        formatted = format_cached_prompt([prompt])
+        # W8, AND THE HONEST SPLIT FOR AN OPAQUE STRING. The caller handed us one pre-concatenated
+        # prompt, so this adapter knows nothing about which part of it is static: every in-repo
+        # assembly site builds `f"{instructions()}\n\n...{per_request_data}"` and hands over the
+        # result. Declaring the whole thing stable would be false — it demonstrably contains
+        # per-request content — and would ALSO tell the vendor to cache a prefix that changes
+        # every request, which is worse than not caching. So: nothing is claimed stable, the
+        # breakpoint is 0, and a caller that knows its own split uses `generate_formatted`.
+        #
+        # Built DIRECTLY rather than through `format_cached_prompt`, which joins segments with
+        # `STABLE_SEPARATOR` and would therefore append "\n\n" to the caller's prompt. Prompt
+        # bytes feed `PROMPT_VERSIONS` audit provenance (ADR-0007) and eval baselines; an adapter
+        # that quietly rewrites them — even by two whitespace characters — is a defect, not an
+        # optimisation. `test_generate_transmits_the_callers_prompt_byte_for_byte` pins it.
+        formatted = FormattedPrompt(stable_prefix="", variable_suffix=prompt)
         return await self._send(formatted, agent_id=agent_id, tenant_id=tenant_id)
 
     async def generate_formatted(
