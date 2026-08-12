@@ -30,6 +30,7 @@ from maezo.runtime.inference import (
     BR_RESIDENT_CAPABILITIES,
     ENDPOINT_DENIAL_EMPTY,
     ENDPOINT_DENIAL_HOST,
+    ENDPOINT_DENIAL_NOT_NORMALIZED,
     ENDPOINT_DENIAL_QUERY,
     ENDPOINT_DENIAL_SCHEME,
     ENDPOINT_DENIAL_USERINFO,
@@ -245,6 +246,19 @@ def test_the_approved_endpoint_is_actually_approved() -> None:
         ("https://br-sao-paulo.phi.maezo.internal.evil.example/v1", (ENDPOINT_DENIAL_HOST,)),
         # Query/fragment: a redirect or tenant hint riding along in the configured URL.
         ("https://x.br-sao-paulo.phi.maezo.internal/v1?next=https://evil.example", (ENDPOINT_DENIAL_QUERY,)),
+        # LEG3-A: interior control chars survive `.strip()` but `urlsplit` silently drops them, so
+        # the stored URL differs from what the host check parsed. Refused with a SINGLE normalization
+        # reason (short-circuit) — never host/scheme facts parsed from the sanitized string. The
+        # `\r\n` case is the header/request-line-injection one; `\t`/`\n` are the same defect.
+        ("https://x.br-sao-paulo.phi.maezo.internal/v1\r\n/generate", (ENDPOINT_DENIAL_NOT_NORMALIZED,)),
+        ("https://x.br-sao-paulo.phi.maezo.internal/v1\tHost: evil", (ENDPOINT_DENIAL_NOT_NORMALIZED,)),
+        ("https://x.br-sao-paulo.phi.maezo.internal/v1\ncredential", (ENDPOINT_DENIAL_NOT_NORMALIZED,)),
+        # A CRLF against a NON-approved host still returns ONLY the normalization reason — the
+        # short-circuit must not leak the (untrustworthy) host fact parsed from the sanitized string.
+        ("https://evil.example/v1\r\nX: y", (ENDPOINT_DENIAL_NOT_NORMALIZED,)),
+        # Non-canonical scheme case is the same "stored form != normalized form" defect (urlsplit
+        # lowercases the scheme, so the scheme check alone would PASS it) — refused too.
+        ("HTTPS://x.br-sao-paulo.phi.maezo.internal/v1", (ENDPOINT_DENIAL_NOT_NORMALIZED,)),
         # Several facets wrong at once, in fixed declaration order.
         ("http://evil.example/v1?q=1", (ENDPOINT_DENIAL_SCHEME, ENDPOINT_DENIAL_HOST, ENDPOINT_DENIAL_QUERY)),
     ],
@@ -252,6 +266,26 @@ def test_the_approved_endpoint_is_actually_approved() -> None:
 def test_endpoint_allowlist_refuses_every_escape_shape(url: str, expected_reasons: tuple[str, ...]) -> None:
     """Hardcoded URL -> hardcoded reason codes, in fixed order."""
     assert br_endpoint_denial_reasons(url) == expected_reasons
+
+
+def test_a_crlf_endpoint_is_refused_at_construction(monkeypatch: pytest.MonkeyPatch) -> None:
+    """LEG3-A construction half: an interior-CRLF endpoint never boots.
+
+    Credential and DPA reference are both present, so the refusal comes from the endpoint check —
+    a URL that `.strip()` cannot clean because the control chars are INTERIOR. The stored
+    `self._endpoint_url` would otherwise carry the `\\r\\n` into every request line a transport built.
+    """
+    _set_owner_acts(monkeypatch, endpoint="https://x.br-sao-paulo.phi.maezo.internal/v1\r\nX-Injected: 1")
+
+    with pytest.raises(InferenceConfigError) as excinfo:
+        BrResidentInferenceProvider(model=_MODEL)
+
+    assert ENDPOINT_DENIAL_NOT_NORMALIZED in str(excinfo.value)
+    # The refusal names the env var and the reason code only — it must not echo the raw URL, so the
+    # smuggled control chars / injected header never ride into a log or exception sink.
+    assert "\r" not in str(excinfo.value)
+    assert "\n" not in str(excinfo.value)
+    assert "X-Injected" not in str(excinfo.value)
 
 
 def test_a_non_br_endpoint_is_refused_at_construction(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -74,7 +74,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import ClassVar, Final, Protocol, runtime_checkable
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 import anthropic
 import structlog
@@ -1009,6 +1009,19 @@ ENV_PHI_VENDOR_DPA_REF: Final[str] = "MAEZO_PHI_VENDOR_DPA_REF"
 #: same reason as `PHI_DENIAL_*`: operators and tests match on them, so they must not be prose.
 #: Each names a URL STRUCTURE fact — never the URL itself, which could carry a tenant hint.
 ENDPOINT_DENIAL_EMPTY: Final[str] = "endpoint_url_not_configured"
+
+#: The STORED URL is not what `urlsplit`+`urlunsplit` would produce from it — i.e. it carries
+#: characters this module's own parse silently drops or rewrites. The load-bearing case (LEG3-A,
+#: deferred from leg 2 to the leg-3 canary) is an INTERIOR control character: `MAEZO_PHI_ENDPOINT_URL`
+#: is only `.strip()`-ed before storage, so a `\r`/`\n`/`\t` in the MIDDLE of the URL survives into
+#: `self._endpoint_url` while `urlsplit` quietly removes it for the host parse — the host check then
+#: passes on a sanitized string that is NOT the one a transport would put on the wire, and the CRLF
+#: rides along into request-line / header-injection territory. Refused BEFORE any host/scheme fact is
+#: trusted (early return below), because those facts are derived from the sanitized parse and would
+#: be lying about the stored string. Also catches a non-canonical scheme case (`HTTPS://`), which is
+#: the same "stored form ≠ normalized form" defect and equally safe to refuse.
+ENDPOINT_DENIAL_NOT_NORMALIZED: Final[str] = "endpoint_url_not_urlsplit_normalized"
+
 ENDPOINT_DENIAL_SCHEME: Final[str] = "endpoint_scheme_not_https"
 ENDPOINT_DENIAL_USERINFO: Final[str] = "endpoint_url_carries_userinfo"
 ENDPOINT_DENIAL_HOST: Final[str] = "endpoint_host_not_br_regional"
@@ -1027,12 +1040,23 @@ def br_endpoint_denial_reasons(endpoint_url: str) -> tuple[str, ...]:
     limits — it proves a URL is well-formed and on the allowlist, never that whatever answers
     there is genuinely in São Paulo. That second claim needs the network-level proof ADR-0017
     and the leg-3 canary own.
+
+    NORMALIZATION IS CHECKED FIRST, and it SHORT-CIRCUITS, because every other check below reads
+    ``urlsplit``'s output — and ``urlsplit`` silently strips interior control characters (LEG3-A).
+    A URL whose stored form differs from ``urlunsplit(urlsplit(...))`` is therefore one whose
+    host/scheme facts would be parsed from a SANITIZED string that is not what a transport would
+    dial. Returning host/scheme reasons for such a URL would be reporting facts about a string the
+    adapter never stores; the honest answer is a single "this URL is not what we parsed" refusal.
     """
-    if not endpoint_url.strip():
+    stripped = endpoint_url.strip()
+    if not stripped:
         return (ENDPOINT_DENIAL_EMPTY,)
+    # LEG3-A: refuse before trusting any structural fact parsed from a sanitized string.
+    if stripped != urlunsplit(urlsplit(stripped)):
+        return (ENDPOINT_DENIAL_NOT_NORMALIZED,)
 
     reasons: list[str] = []
-    parts = urlsplit(endpoint_url.strip())
+    parts = urlsplit(stripped)
     if parts.scheme != BR_REGIONAL_ENDPOINT_SCHEME:
         reasons.append(ENDPOINT_DENIAL_SCHEME)
     # `urlsplit` keeps userinfo in `netloc` but strips it from `hostname`; a credential smuggled
