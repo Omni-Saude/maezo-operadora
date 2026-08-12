@@ -17,11 +17,18 @@ audit (T-F): `maezo.a2a.dispatcher.AuditEmitter`'s own docstring says the two se
 by the SAME production sink ... share an implementation today" — this module takes that at face
 value rather than opening a second `PostgresAuditSink`/asyncpg pool for the same tenant.
 
-No production Kafka producer exists anywhere in this platform yet (verified: no
-`KafkaProducer`/bootstrap-servers construction outside test doubles). Facts
-(`agents.events.delegation.*`) are an OBSERVABILITY surface, not the T-F audit — the audit proof
-rides the real `PostgresAuditSink` above, so a construction-time no-op `KafkaLike` stands in here,
-clearly labeled, until a live Kafka producer seam is wired platform-wide (design §9.2 / risk 6).
+**FACTS: the no-op is no longer the default (Onda 3 / Train C leg 2).** This module used to wire
+BOTH roots as `FactProducer(kafka_producer or _NoopKafkaProducer())`, whose `send` is `return
+None` — so every `agents.events.delegation.*` fact this platform ever produced was DROPPED at the
+instant of emission. Facts are an OBSERVABILITY surface and never the T-F audit (that rides the
+real `PostgresAuditSink` above, and `_execute` audits BEFORE it emits), so no audit proof was ever
+at risk; the ADR-0003 observability surface, however, was fiction. `_require_fact_producer_or_
+fail_closed` replaces the default with a TRANSACTIONAL OUTBOX (`maezo.a2a.outbox`, migration
+`0008_a2a_fact_outbox.py`): facts become durable rows drained at-least-once by the explicitly-
+invoked `maezo.a2a.outbox_relay`, never auto-started. The no-op survives for exactly one case —
+EXPLICIT local runtime mode with no `DATABASE_URL` — and is refused everywhere else. There is
+still no production Kafka producer constructed here: delivery is the relay's job and is deployment-
+gated, which is why the write side needed a durable buffer rather than a broker client.
 
 **T-G signed-Card enforcement (`docs/design/A2A-dispatcher-card-signing.md` §10).** W3 left this
 composition wired with NO `verifier=`: Cards came back unsigned and the registry admitted them
@@ -64,6 +71,7 @@ from maezo.a2a.assembly import (
     card_signing_key_from_env,
 )
 from maezo.a2a.dispatcher import KafkaLike
+from maezo.a2a.outbox import build_outbox_fact_producer
 from maezo.agents.andre.delegation import make_andre_handler
 from maezo.agents.carolina.delegation import make_carolina_handler
 from maezo.agents.rafael.delegation import make_rafael_handler
@@ -128,6 +136,30 @@ def worker_runtime_mode_from_env() -> str:
     return os.environ.get(WORKER_RUNTIME_MODE_ENV_VAR, "").strip() or "production"
 
 
+def is_production_runtime_mode(runtime_mode: str) -> bool:
+    """The ONE prod/dev discriminator every fail-closed gate in this module shares.
+
+    Extracted (Onda 3 / Train C) from `_require_signer_or_fail_closed`, which had this comparison
+    inline, so the outbox gate below — and the idempotency-store gate that follows it — cannot
+    drift into a second, subtly different answer to "is this production?". The rule is unchanged
+    and stays FAIL-CLOSED: only the literal `"local"` is non-production, so an unrecognized,
+    misconfigured or blank-but-present mode is production.
+
+    Both discriminators feeding this are covered, with their KNOWN asymmetry intact:
+
+      * worker-runtime, `worker_runtime_mode_from_env()`: absent OR blank `RUNTIME_MODE` ->
+        `"production"` -> True (the Helm worker-daemon template injects no mode variable).
+      * agent-runtime, `AgentRuntimeSettings.agent_runtime_mode`: ABSENT `AGENT_RUNTIME_MODE` ->
+        the pydantic default `"local"` -> False; PRESENT-but-EMPTY -> `""` -> True.
+
+    So an absent variable means production on one path and local on the other. That asymmetry is
+    disclosed, pre-existing, and deliberately NOT repaired here — `settings.py:38`'s default is a
+    surface other callers depend on, and silently flipping it from a gate helper is how a "safe
+    tightening" becomes an unreviewed behavior change to the agent-runtime daemon.
+    """
+    return runtime_mode != _LOCAL_RUNTIME_MODE
+
+
 def _unsigned_cards_opt_out() -> bool:
     """True only if the EXPLICIT unsigned-cards opt-out env var is set to a truthy value."""
     return os.environ.get(ALLOW_UNSIGNED_CARDS_ENV_VAR, "").strip().lower() in _TRUTHY
@@ -163,7 +195,7 @@ def _require_signer_or_fail_closed(*, runtime_mode: str, tenant: str, edge: str)
     if signing_key is not None:
         return card_signer_from_key(signing_key)
 
-    is_production = runtime_mode != _LOCAL_RUNTIME_MODE
+    is_production = is_production_runtime_mode(runtime_mode)
     if is_production or not _unsigned_cards_opt_out():
         raise RuntimeError(
             f"cannot assemble the A2A {edge} delegation edge: no Agent Card signing key "
@@ -190,15 +222,96 @@ def _require_signer_or_fail_closed(*, runtime_mode: str, tenant: str, edge: str)
 
 
 class _NoopKafkaProducer:
-    """Construction-time `KafkaLike` placeholder — see module docstring's Kafka note.
+    """DEV-ONLY `KafkaLike` sink — reachable ONLY from explicit local mode with no `DATABASE_URL`.
 
-    Never raises, never blocks; every `send` is dropped. Facts are observability, never the T-F
-    audit surface (that rides the real `PostgresAuditSink` injected as `audit`), so a dropped fact
-    never compromises the delegation-audit proof this edge is built to make real.
+    Never raises, never blocks; every `send` is dropped. This used to be the DEFAULT for both
+    composition roots, which is precisely the defect Onda 3 / Train C leg 2 closed: in production
+    it silently discarded every `agents.events.delegation.*` fact forever. It is now unreachable
+    except through `_require_fact_producer_or_fail_closed`'s one disclosed branch — explicit local
+    runtime mode AND no database — where dropping facts is honest dev behavior rather than a
+    production data-loss posture, and where the alternative (refusing to compose) would make a
+    laptop-run edge un-buildable for no safety gain.
+
+    Kept rather than deleted, deliberately: the local branch needs a `KafkaLike` and inventing an
+    in-memory buffer that grows unboundedly in a dev process would be a worse answer than an
+    honest, labeled drop. It therefore REMAINS a declared §8.4 exception in
+    `scripts/ci/check_effect_chokepoint_fence.py` (`("runtime/agent_runtime/a2a_composition.py",
+    "_NoopKafkaProducer")`); removing that entry while the class is still defined here would redden
+    the gate.
+
+    Facts are observability and never the T-F audit surface (that rides the real
+    `PostgresAuditSink` injected as `audit`, written BEFORE any fact is emitted), so even in this
+    dev branch a dropped fact never compromises the delegation-audit proof.
     """
 
     async def send(self, topic: str, value: bytes, *, key: bytes | None = None) -> None:
         return None
+
+
+def _require_fact_producer_or_fail_closed(
+    *, runtime_mode: str, tenant: str, edge: str, database_url: str | None
+) -> KafkaLike:
+    """Resolve the delegation-fact sink, fail-CLOSED when it cannot be durable.
+
+    The fact-side twin of `_require_signer_or_fail_closed`, and it exists for the same shape of
+    defect: a MISSING dependency silently degrading to a permissive default. There, an absent
+    signing key silently admitted unsigned Cards; here, an absent producer silently dropped every
+    fact. Both roots now resolve through this gate:
+
+      - `database_url` PRESENT -> `PostgresOutboxFactProducer`: the fact becomes a durable
+        `a2a_fact_outbox` row (migration 0008), drained at-least-once by the explicitly-invoked
+        `maezo.a2a.outbox_relay`. This is the only production posture.
+      - `database_url` ABSENT + PRODUCTION runtime mode -> RAISE. Un-bypassable, mirroring the
+        signer gate above and `AnthropicInferenceProvider`'s "no silent fallback to noop" startup
+        precedent: composing a production A2A edge that discards its own facts is not a degraded
+        mode, it is a fabricated one.
+      - `database_url` ABSENT + EXPLICIT local runtime mode -> `_NoopKafkaProducer`, LOUDLY warned.
+        Disclosed dev behavior (see that class's docstring for why a labeled drop beats an
+        unbounded in-memory buffer on a laptop).
+
+    NOTE ON REACHABILITY, so a reader does not over-read this gate: on the AGENT-RUNTIME root the
+    production branch is currently unreachable via `DATABASE_URL` alone, because
+    `build_auth_delegation_dispatcher` already raises `ValueError` on the missing `audit_sink` that
+    the same absent DSN causes, several lines earlier. The gate is still applied there — the two
+    refusals are for different dependencies and the audit-sink one could stop covering this if
+    `_build_tool_deps` ever grows a non-DSN audit path. On the DOSSIER root the branch is directly
+    reachable: `database_url` is an INDEPENDENT parameter from the injected `audit_sink`, so a
+    caller can (and the worker daemon's degradation posture does) supply one without the other.
+
+    `runtime_mode` is the caller's discriminator, resolved through the shared
+    `is_production_runtime_mode` so this gate and the signer gate can never drift; `edge` only
+    labels the error/log.
+    """
+    if database_url:
+        return build_outbox_fact_producer(dsn=database_url, tenant=tenant)
+
+    if is_production_runtime_mode(runtime_mode):
+        # `RuntimeError`, matching `_require_signer_or_fail_closed`'s own refusal type exactly:
+        # both are "this composition root refuses to exist" startup failures, and giving the two
+        # gates different exception types would make a caller's `except` clause pick one silently.
+        raise RuntimeError(
+            f"cannot assemble the A2A {edge} delegation edge: no DATABASE_URL is present, so "
+            "delegation facts (agents.events.delegation.*) would be DROPPED at emission — the "
+            "exact silent data loss the transactional outbox replaced. Refusing to compose a "
+            f"production edge with a no-op fact sink (runtime_mode={runtime_mode!r}). Provide "
+            "DATABASE_URL (the same DSN the audit sink and idempotency store already require) "
+            "with migration 0008 applied, or — in a NON-production runtime ONLY — run with "
+            f"{WORKER_RUNTIME_MODE_ENV_VAR}=local / AGENT_RUNTIME_MODE=local to opt into the "
+            "labeled dev no-op explicitly."
+        )
+
+    logger.warning(
+        "a2a_facts_noop_dev_sink",
+        tenant=tenant,
+        runtime_mode=runtime_mode,
+        edge=edge,
+        detail=(
+            "delegation facts are being DROPPED: no DATABASE_URL and an EXPLICIT local runtime "
+            "mode. Dev/test ONLY — never a production posture (the outbox is what makes facts "
+            "durable; see maezo.a2a.outbox)."
+        ),
+    )
+    return _NoopKafkaProducer()
 
 
 def build_auth_delegation_dispatcher(
@@ -261,7 +374,18 @@ def build_auth_delegation_dispatcher(
     # (`action="a2a.delegate:rafael"`) on this one sink, never conflated with Rafael's own
     # `start_process_idempotent` audit (design doc §9.3).
     audit = tool_deps["audit_sink"]
-    facts = FactProducer(kafka_producer or _NoopKafkaProducer())
+    # Facts are DURABLE now (module docstring): absent an injected producer this resolves to the
+    # transactional outbox, and REFUSES to compose in production when there is no database to make
+    # it durable in. An injected `kafka_producer` (tests, or a future real broker seam) still wins.
+    facts = FactProducer(
+        kafka_producer
+        or _require_fact_producer_or_fail_closed(
+            runtime_mode=settings.agent_runtime_mode,
+            tenant=tenant,
+            edge="Helena->Rafael",
+            database_url=settings.database_url,
+        )
+    )
     idempotency = (
         PostgresIdempotencyStore(dsn=settings.database_url, tenant=tenant) if settings.database_url else None
     )
@@ -365,7 +489,19 @@ def build_dossier_delegation_dispatcher(
     )
     andre_handler: AgentHandler = make_andre_handler(llm, dmn=dmn, cibseven=cibseven, audit_sink=audit_sink)
 
-    facts = FactProducer(kafka_producer or _NoopKafkaProducer())
+    # Facts are DURABLE now (module docstring). This root is where the gate genuinely bites:
+    # `database_url` is INDEPENDENT of the injected `audit_sink`, so "audit sink present, DSN
+    # absent" is a reachable caller state, and in production it is now a refusal instead of a
+    # silently fact-dropping dispatcher.
+    facts = FactProducer(
+        kafka_producer
+        or _require_fact_producer_or_fail_closed(
+            runtime_mode=runtime_mode,
+            tenant=tenant,
+            edge="worker->Carolina/Andre dossier",
+            database_url=database_url,
+        )
+    )
     idempotency = PostgresIdempotencyStore(dsn=database_url, tenant=tenant) if database_url else None
 
     logger.info(

@@ -377,3 +377,40 @@ camadas:
     decisao_dpo: PENDENTE
     base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
     retencao: PENDENTE-RETENCAO-DPO-JURIDICO
+
+  # ---------------------------------------------------------------------------
+  # OUTBOX A2A (Onda 3 / Train C perna 2)
+  # ---------------------------------------------------------------------------
+  - camada: outbox_a2a
+    tabela: a2a_fact_outbox
+    migracao: "0008_a2a_fact_outbox.py:134-183; indices 0008:191-201"
+    identificacao: "payload bytea (0008:150) — codificacao de DelegationFact: task_id/cadeia/rota/ts; facts.build_fact exclui meta por construcao"
+    resolucao_identidade: SEM_COLUNA_DE_TITULAR
+    ordem: 16
+    tensao: REMATERIALIZACAO
+    notas: >-
+      Entrada NOVA — nenhuma decisao de DPO existe para ela, e e por isso que
+      `load_erasure_plan()` continua recusando ate que exista (a checagem de
+      igualdade de conjunto em erasure_plan.py e exatamente esse mecanismo).
+      Fato de schema: a unica coluna que poderia carregar conteudo e `payload`,
+      que guarda os bytes de `DelegationFact.to_value()` — kind/task_id/task_type/
+      tenant/origin/target/cadeia/ts, mais `reason` e `output_ref` opcionais.
+      `facts.build_fact` recusa deixar `meta` entrar no fato ("never enters the
+      fact (avoids accidental PHI)") e `output_ref` e referencia de processo/FHIR
+      por contrato de `HandlerOutput` — nao ha coluna de titular nem valor
+      vinculavel a titular.
+      DUAS PERGUNTAS SAO DO DBA/DPO, NAO DESTE REPOSITORIO (MZO-060):
+      (a) RETENCAO. A migracao 0008 nao criou coluna de TTL nem rotina de expurgo,
+      deliberadamente: linhas `delivered` crescem monotonicamente e a escolha entre
+      particionamento por mes + DETACH, DELETE por janela, ou copia de arquivo tem
+      consequencias de backup/PITR que sao do DBA. O indice de drenagem ja e PARCIAL
+      (`WHERE status <> 'delivered'`), entao a pressao e de heap/backup, nao do
+      caminho quente — isso compra tempo, nao responde a pergunta.
+      (b) ACOPLAMENTO COM a2a_idempotency. ADR-0039 (Proposto) registra que a
+      retencao de idempotencia DOMINA a validade de assinatura; um fato re-entregue
+      depois que sua linha de idempotencia foi expurgada e um fato cuja semantica de
+      replay mudou. A janela escolhida aqui nao pode ser decidida isoladamente da
+      janela de a2a_idempotency (ordem 13, acima).
+    decisao_dpo: PENDENTE
+    base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
+    retencao: PENDENTE-RETENCAO-DPO-JURIDICO

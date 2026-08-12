@@ -117,8 +117,18 @@ def test_revision_and_down_revision() -> None:
     assert 'down_revision: str | None = "0006"' in _SOURCE
 
 
-def test_0007_is_the_unique_head_of_a_linear_chain() -> None:
-    """No fork: every revision is claimed once and exactly one revision is unreferenced as a parent."""
+def test_0007_sits_in_a_linear_unforked_chain() -> None:
+    """No fork: every revision is claimed once and exactly one revision is unreferenced as a parent.
+
+    Onda 3 / Train C leg 2: this test used to assert `heads == {"0007"}`. 0007 is no longer the
+    head — `0008_a2a_fact_outbox` revises it — and pinning the HEAD here was the wrong invariant to
+    begin with: it made every future migration a change to the AMH inbox's test file, which is
+    exactly how an unrelated wave ends up editing a compliance-reviewed suite. What 0007 actually
+    needs is what stays below: it exists, the chain is LINEAR (no duplicate revision id, no
+    revision claimed as parent twice), and it revises 0006 (pinned in
+    `test_revision_and_down_revision`). "Which revision is head" is asserted where it belongs, in
+    `test_migration_0008_a2a_fact_outbox.py`, by whichever migration currently is one.
+    """
     revisions: dict[str, str | None] = {}
     for path in sorted(_VERSIONS_DIR.glob("[0-9]*.py")):
         text = path.read_text(encoding="utf-8")
@@ -132,7 +142,7 @@ def test_0007_is_the_unique_head_of_a_linear_chain() -> None:
     assert INBOX_MIGRATION_REVISION in revisions
     parents = {down for down in revisions.values() if down is not None}
     heads = set(revisions) - parents
-    assert heads == {INBOX_MIGRATION_REVISION}, f"expected 0007 to be the sole head, got {heads}"
+    assert len(heads) == 1, f"the chain must have exactly one head, got {sorted(heads)}"
     assert len(parents) == len(revisions) - 1, "a revision is claimed as parent by two children"
 
 
