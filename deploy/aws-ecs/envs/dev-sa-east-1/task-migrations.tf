@@ -34,24 +34,28 @@ resource "aws_ecs_task_definition" "migrations" {
     image     = "${aws_ecr_repository.app.repository_url}:${var.image_tag}"
     essential = true
 
-    command = ["sh", "-c", "${local.dsn_builder}\nexec python -m alembic upgrade head"]
+    # `-x tenant=` e' a fonte de tenant de MAIOR precedencia no env.py (o docstring
+    # dele manda usar exatamente isso). MAEZO_TENANT_ID vai junto como rede de
+    # seguranca. Atencao: NAO e' `MAEZO_TENANT` — esse nome, que o comentario do
+    # job-migrations.yaml do chart cita, nao existe no codigo; usa-lo faria o
+    # search_path cair silenciosamente no schema `public`, e as tabelas do tenant
+    # nasceriam no lugar errado sem erro nenhum.
+    command = ["sh", "-c", "set -eu\n${local.dsn_export_alembic}\nexec python -m alembic -x tenant=${var.tenant_id} upgrade head"]
 
     environment = concat(local.db_env, [
-      { name = "DSN_VAR", value = "ALEMBIC_DATABASE_URL" },
-      { name = "DSN_SCHEME", value = "postgresql+psycopg" },
-      { name = "MAEZO_TENANT", value = var.tenant_id },
+      # asyncpg, nao psycopg: run_async_migrations usa async_engine_from_config, e
+      # uma URL sincrona falha com "The asyncio extension requires an async driver".
+      { name = "DSN_SCHEME", value = "postgresql+asyncpg" },
+      { name = "MAEZO_TENANT_ID", value = var.tenant_id },
       { name = "PYTHONDONTWRITEBYTECODE", value = "1" },
     ])
 
     secrets = local.db_secrets_maezo
 
+    # Raiz somente-leitura E sem volume: com o DSN vindo de substituicao de comando
+    # nao ha o que escrever. Um volume de task nasceria root:root e o container roda
+    # como uid 1000 — foi exatamente assim que a primeira execucao falhou.
     readonlyRootFilesystem = true
-
-    mountPoints = [{
-      sourceVolume  = "tmp"
-      containerPath = "/tmp"
-      readOnly      = false
-    }]
 
     logConfiguration = {
       logDriver = "awslogs"
@@ -62,12 +66,6 @@ resource "aws_ecs_task_definition" "migrations" {
       }
     }
   }])
-
-  # Raiz somente-leitura exige um volume gravavel para /tmp (o DSN composto e os
-  # temporarios do alembic moram la).
-  volume {
-    name = "tmp"
-  }
 
   tags = local.base_tags
 }

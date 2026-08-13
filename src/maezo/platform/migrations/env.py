@@ -63,6 +63,45 @@ TENANT_ID: str = _x_tenant or os.environ.get("MAEZO_TENANT_ID", "public")
 SEARCH_PATH: tuple[str, ...] = tuple(dict.fromkeys((TENANT_ID, "public")))  # de-dup, preserve order
 
 # ---------------------------------------------------------------------------
+# URL do banco — ambiente ANTES do alembic.ini
+# ---------------------------------------------------------------------------
+# `alembic.ini` carrega `postgresql+asyncpg://maezo:maezo@postgres:5432/maezo`:
+# o host `postgres` do docker-compose. Util em dev, fatal em qualquer outro lugar.
+#
+# Ate 2026-08-13 este env.py NAO lia variavel de ambiente nenhuma — sempre usava a
+# URL do .ini. O Job de migrations do chart (job-migrations.yaml:100) exportava
+# `ALEMBIC_DATABASE_URL` e o comentario dele afirmava "env.py le
+# ALEMBIC_DATABASE_URL"; a afirmacao era falsa e a variavel morria sem leitor. Como
+# a CD e' no-op sem AWS_ENABLED, isso nunca foi exercitado: as migrations JAMAIS
+# teriam funcionado contra um banco real. Descoberto na primeira execucao real, na
+# task ECS 65e0522fab004c4a937a2d2dca2b8dfc, com
+# `socket.gaierror: [Errno -2] Name or service not known` ao tentar resolver
+# `postgres` dentro da VPC.
+#
+# Precedencia: ALEMBIC_DATABASE_URL > DATABASE_URL > alembic.ini.
+#
+# Por que sobrescrever o dicionario de config e nao chamar
+# `config.set_main_option("sqlalchemy.url", ...)`: a senha vem percent-encoded do
+# cofre e pode conter `%`, que o ConfigParser do alembic trata como interpolacao e
+# quebra na leitura. O dicionario nao passa por interpolacao nenhuma.
+#
+# O driver TEM de ser assincrono (`+asyncpg`): `run_async_migrations` usa
+# `async_engine_from_config`. Uma URL `+psycopg` falha com "The asyncio extension
+# requires an async driver".
+_ENV_DB_URL: str | None = os.environ.get("ALEMBIC_DATABASE_URL") or os.environ.get(
+    "DATABASE_URL"
+)
+
+
+def _config_section_with_url() -> dict[str, str]:
+    """Secao de config do alembic, com a URL do ambiente quando houver."""
+    section = dict(config.get_section(config.config_ini_section) or {})
+    if _ENV_DB_URL:
+        section["sqlalchemy.url"] = _ENV_DB_URL
+    return section
+
+
+# ---------------------------------------------------------------------------
 # Metadata target (None = use raw DDL in migrations, no model reflection)
 # ---------------------------------------------------------------------------
 target_metadata = None
@@ -84,7 +123,7 @@ def run_migrations_offline() -> None:
 
     search_path is not injected in offline mode (no session).
     """
-    url = config.get_main_option("sqlalchemy.url")
+    url = _ENV_DB_URL or config.get_main_option("sqlalchemy.url")
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -116,7 +155,7 @@ async def run_async_migrations() -> None:
 
     Per DL-0017, the search_path is set via SET before executing migrations.
     """
-    config_section = config.get_section(config.config_ini_section) or {}
+    config_section = _config_section_with_url()
     connectable = async_engine_from_config(
         config_section,
         prefix="sqlalchemy.",
