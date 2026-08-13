@@ -356,12 +356,108 @@ def test_a_re_ratified_date_is_green_on_a_day_that_was_red_before_it(tmp_path: P
 
 
 # ---------------------------------------------------------------------------------------------
-# Non-vacuity of the gate itself
+# Non-vacuity of the gate itself — AND OF THE SELF-CHECK, which is the watchman here.
+#
+# `self_check()` is what the gate runs before trusting any real measurement, so its own emptiness is
+# not something the rest of the suite would notice: `assert self_check() == []` is satisfied just as
+# well by `def self_check(): return []`. That gut was demonstrated: it turned ZERO tests red.
+#
+# The repair follows the in-repo precedent at `tests/unit/ci/test_generate_release_floor.py`
+# (`SELF_CHECK_SCENARIOS` + `test_self_check_scenarios_are_internally_consistent`): pin the SCENARIO
+# SET, not just the aggregate verdict. Four tests, each closing a different way the watchman could
+# go quiet —
+#   1. the declared set matches a hardcoded expectation and is non-empty (fixtures cannot be
+#      deleted, renamed or silently reduced to the cases that happen to pass);
+#   2. the built cases cover exactly the declared set (the builder cannot return fewer);
+#   3. every declared scenario really produces its level through the REAL `evaluate`, driven here
+#      rather than taken on the self-check's word — and every RED one yields >=1 FAIL finding;
+#   4. `self_check` actually REPORTS: against a deliberately broken evaluator it must name every
+#      scenario whose verdict changed. This is the one a `return []` gut cannot survive.
 # ---------------------------------------------------------------------------------------------
+
+#: Restated independently of the gate, exactly as the ratified dates above are: the point of a pin
+#: is defeated if it is read out of the thing being pinned. Provenance: the seven fixtures
+#: `check_deviation_expiry.self_check` has driven since it was written — four RED (the four distinct
+#: ways a shadow deviation escapes its date), one WARN, two OK. Adding an eighth scenario is a
+#: deliberate act and belongs in the same reviewed PR as this line.
+_EXPECTED_SELF_CHECK_SCENARIOS: tuple[tuple[str, str], ...] = (
+    ("vencido", gate.LEVEL_FAIL),
+    ("ausente", gate.LEVEL_FAIL),
+    ("malformado", gate.LEVEL_FAIL),
+    ("janela de aviso", gate.LEVEL_WARN),
+    ("em dia", gate.LEVEL_OK),
+    ("valor virado", gate.LEVEL_OK),
+    ("manifesto ilegível", gate.LEVEL_FAIL),
+)
 
 
 def test_the_gates_own_self_check_passes() -> None:
     assert gate.self_check() == []
+
+
+def test_the_declared_self_check_scenario_set_is_pinned() -> None:
+    """(1) The fixture set itself, against a hardcoded expectation. Non-empty, in order, exact."""
+    assert gate.SELF_CHECK_SCENARIOS, "the self-check declares no scenarios at all — it proves nothing"
+    assert gate.SELF_CHECK_SCENARIOS == _EXPECTED_SELF_CHECK_SCENARIOS
+    levels = {level for _, level in gate.SELF_CHECK_SCENARIOS}
+    assert levels == {gate.LEVEL_FAIL, gate.LEVEL_WARN, gate.LEVEL_OK}, (
+        "the self-check must exercise RED, WARN and GREEN — a set that only contains one of them "
+        f"cannot show that the comparator can reach the others (got {sorted(levels)})"
+    )
+
+
+def test_the_built_self_check_cases_cover_exactly_the_declared_scenarios() -> None:
+    """(2) The builder cannot quietly serve fewer cases than the constant declares."""
+    built = gate.build_self_check_cases()
+    assert [(name, expected) for name, _, expected in built] == list(gate.SELF_CHECK_SCENARIOS)
+
+
+def test_every_declared_self_check_scenario_behaves_through_the_real_evaluator() -> None:
+    """(3) Drive each scenario ourselves, through the real `evaluate`.
+
+    Scoped to the finding for the scenario's OWN slot: these synthetic views declare a record for
+    `TRACKED_DEVIATIONS[0]` only, so the second tracked deviation is legitimately RED in all of them
+    (missing block) and would drown out the distinction being tested. The unreadable-manifest case
+    reports one finding for the FILE and none per slot, hence the `or findings[:1]` fallback.
+    """
+    tracked_slot = gate.TRACKED_DEVIATIONS[0].slot
+    for name, view, expected in gate.build_self_check_cases():
+        findings = gate.evaluate(view, gate.SELF_CHECK_TODAY)
+        assert findings, f"self-check scenario {name!r} produced no findings at all"
+        own = [f for f in findings if f.slot == tracked_slot] or findings[:1]
+        assert own[0].level == expected, (
+            f"self-check scenario {name!r}: expected {expected}, got {own[0].level}"
+        )
+        expected_exit = 1 if expected == gate.LEVEL_FAIL else 0
+        assert gate.exit_code_for(own) == expected_exit, (
+            f"scenario {name!r} is declared {expected} but its own finding "
+            f"{'does not fail' if expected_exit else 'fails'} the build"
+        )
+
+
+def test_the_self_check_reports_every_scenario_a_broken_evaluator_gets_wrong(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """(4) THE WATCHMAN PIN. Swap in an evaluator that always says OK; `self_check` must object.
+
+    Every scenario whose declared level is not OK has to be named in the returned problems. A
+    `self_check` that had been gutted to `return []` — or that had quietly stopped iterating its
+    fixtures — returns nothing here and fails this test, which is the whole point.
+    """
+    tracked_slot = gate.TRACKED_DEVIATIONS[0].slot
+    always_ok = [gate.Finding(level=gate.LEVEL_OK, slot=tracked_slot, headline="broken evaluator")]
+    monkeypatch.setattr(gate, "evaluate", lambda approvals, today: always_ok)
+
+    problems = gate.self_check()
+
+    should_be_caught = [name for name, level in gate.SELF_CHECK_SCENARIOS if level != gate.LEVEL_OK]
+    assert should_be_caught, "fixture assumes at least one non-OK scenario exists to be caught"
+    assert len(problems) == len(should_be_caught), problems
+    for name in should_be_caught:
+        assert any(f"self-check '{name}'" in p for p in problems), (
+            f"a broken evaluator went unreported for scenario {name!r} — the self-check is not "
+            f"exercising it. Problems reported: {problems}"
+        )
 
 
 def test_the_tracked_set_covers_every_ratified_deviation_in_the_shipped_manifest() -> None:

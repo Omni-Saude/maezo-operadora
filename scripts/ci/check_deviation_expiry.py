@@ -358,23 +358,59 @@ def exit_code_for(findings: Sequence[Finding]) -> int:
 
 # ---------------------------------------------------------------------------------------------
 # Non-vacuity self-check — prove the comparator can go red AND green before trusting it.
+#
+# THE SCENARIO SET IS A MODULE-LEVEL CONSTANT, not a local inside `self_check()`. That shape is
+# copied from `scripts/ci/generate_release_floor.py` (`SELF_CHECK_SCENARIOS` +
+# `test_self_check_scenarios_are_internally_consistent`) for a specific reason: a self-check whose
+# fixtures are invisible from outside is itself unwatched. Gutting `self_check()` to `return []`
+# would then be a green no-op that no test can see — the watchman with nobody watching him. Hoisted
+# here, the SET can be pinned against a hardcoded expectation, each declared RED scenario can be
+# driven independently through the real `evaluate`, and `self_check`'s ability to REPORT can be
+# proved by feeding it a deliberately broken evaluator. See `tests/unit/ci/
+# test_check_deviation_expiry.py`, section "Non-vacuity of the gate itself".
 # ---------------------------------------------------------------------------------------------
 
+#: The date every self-check scenario is evaluated on. Fixed, so the fixtures below mean the same
+#: thing on every future run — a self-check that drifts with the wall clock is not a control.
+SELF_CHECK_TODAY = date(2026, 8, 13)
 
-def self_check() -> list[str]:
-    """Drive `evaluate` over synthetic records. Returns the problems found (empty == healthy).
+#: `(scenario name, expected level)` — THE declared scenario set, as pure data so it can be pinned
+#: without importing the gateway. Every level the gate can emit for a tracked slot appears at least
+#: once, and the four FAIL rows are the four distinct ways a shadow deviation can escape its date:
+#:   vencido            — the deadline passed and the value is still `shadow` (the headline case);
+#:   ausente            — the whole `deviation` block was deleted (deleting the deadline must never
+#:                        be cheaper than honouring it);
+#:   malformado         — the block is present but does not parse (an uncheckable deadline);
+#:   manifesto ilegível — the manifest itself cannot be read (fail-closed on the file, not the slot).
+#: The WARN and OK rows are what keep the set honest: a comparator that returns FAIL for everything
+#: would satisfy the RED rows alone, so green has to be reachable too.
+SELF_CHECK_SCENARIOS: tuple[tuple[str, str], ...] = (
+    ("vencido", LEVEL_FAIL),
+    ("ausente", LEVEL_FAIL),
+    ("malformado", LEVEL_FAIL),
+    ("janela de aviso", LEVEL_WARN),
+    ("em dia", LEVEL_OK),
+    ("valor virado", LEVEL_OK),
+    ("manifesto ilegível", LEVEL_FAIL),
+)
 
-    A gate whose green has never been shown to be reachable-from-red is decoration. This runs
-    first, every time, on synthetic data only — it never touches the shipped manifest.
+
+def build_self_check_cases() -> tuple[tuple[str, ActionApprovals, str], ...]:
+    """Materialize `SELF_CHECK_SCENARIOS` into `(name, ActionApprovals view, expected level)`.
+
+    Separate from `self_check()` so the tests can drive each scenario through the real `evaluate`
+    themselves, instead of only being able to observe the aggregate verdict.
+
+    Raises if the built cases and the declared set ever disagree: the constant is the contract, and
+    a scenario silently dropped from one side is precisely the drift this split exists to catch.
     """
     from maezo.gateway.action_execution import (  # noqa: PLC0415 - deferred with the rest
         ActionApprovals,
         DeviationRecord,
     )
 
-    problems: list[str] = []
     tracked = TRACKED_DEVIATIONS[0]
-    today = date(2026, 8, 13)
+    today = SELF_CHECK_TODAY
 
     def _record(deadline: date) -> DeviationRecord:
         return DeviationRecord(
@@ -400,37 +436,43 @@ def self_check() -> list[str]:
         base.update(kwargs)
         return ActionApprovals(**base)  # type: ignore[arg-type]
 
+    views: dict[str, ActionApprovals] = {
+        "vencido": _view(deviations={tracked.slot: _record(date(2026, 8, 12))}),
+        "ausente": _view(),
+        "malformado": _view(deviation_defects={tracked.slot: ("synthetic defect",)}),
+        "janela de aviso": _view(deviations={tracked.slot: _record(date(2026, 8, 20))}),
+        "em dia": _view(deviations={tracked.slot: _record(date(2027, 8, 20))}),
+        "valor virado": _view(default_enforcement="enforcing"),
+        "manifesto ilegível": _view(degraded=True),
+    }
+    declared = [name for name, _ in SELF_CHECK_SCENARIOS]
+    if sorted(views) != sorted(declared):
+        raise RuntimeError(
+            "self-check scenarios drifted: SELF_CHECK_SCENARIOS declares "
+            f"{sorted(declared)} but build_self_check_cases builds {sorted(views)}"
+        )
+    return tuple((name, views[name], expected) for name, expected in SELF_CHECK_SCENARIOS)
+
+
+def self_check() -> list[str]:
+    """Drive `evaluate` over synthetic records. Returns the problems found (empty == healthy).
+
+    A gate whose green has never been shown to be reachable-from-red is decoration. This runs
+    first, every time, on synthetic data only — it never touches the shipped manifest.
+    """
+    problems: list[str] = []
+    tracked = TRACKED_DEVIATIONS[0]
+
     def _level(view: ActionApprovals) -> str:
         """The verdict for `tracked`, or the whole-manifest verdict when there is no per-slot one.
 
         The unreadable-manifest case short-circuits before any slot is examined and reports one
         finding for the file, so there is deliberately nothing keyed to a slot to look up.
         """
-        findings = evaluate(view, today)
+        findings = evaluate(view, SELF_CHECK_TODAY)
         return next((f.level for f in findings if f.slot == tracked.slot), findings[0].level)
 
-    cases: tuple[tuple[str, ActionApprovals, str], ...] = (
-        (
-            "vencido",
-            _view(deviations={tracked.slot: _record(date(2026, 8, 12))}),
-            LEVEL_FAIL,
-        ),
-        ("ausente", _view(), LEVEL_FAIL),
-        ("malformado", _view(deviation_defects={tracked.slot: ("synthetic defect",)}), LEVEL_FAIL),
-        (
-            "janela de aviso",
-            _view(deviations={tracked.slot: _record(date(2026, 8, 20))}),
-            LEVEL_WARN,
-        ),
-        (
-            "em dia",
-            _view(deviations={tracked.slot: _record(date(2027, 8, 20))}),
-            LEVEL_OK,
-        ),
-        ("valor virado", _view(default_enforcement="enforcing"), LEVEL_OK),
-        ("manifesto ilegível", _view(degraded=True), LEVEL_FAIL),
-    )
-    for name, view, expected in cases:
+    for name, view, expected in build_self_check_cases():
         actual = _level(view)
         if actual != expected:
             problems.append(f"self-check '{name}': esperava {expected}, veio {actual}")
