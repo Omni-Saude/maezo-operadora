@@ -1120,18 +1120,37 @@ def test_candidate_manifest_is_a_sibling_of_the_table_it_corrects() -> None:
     assert _CANDIDATE_MANIFEST.suffix == ".yaml"
 
 
+def _codeowners_rules() -> dict[str, list[str]]:
+    """`{pattern: [owner, ...]}` from `.github/CODEOWNERS`, comments stripped FIRST.
+
+    Stripping `# ...` before looking at anything is not a nicety: that file's header carries literal
+    `@handles` in prose, and a rule-shaped path can appear inside a comment. A reader that matches on
+    the raw line is fooled by `<pattern>  # TODO ask @somebody` (a commented-out rule that owns
+    nothing but scans as owned) and by a comment that merely mentions the path. Owners are split on
+    whitespace RUNS because the real file column-aligns them with multiple spaces. Mirrors
+    `tests/unit/spec/test_shadow_candidates_common.py`.
+    """
+    rules: dict[str, list[str]] = {}
+    for raw in _CODEOWNERS.read_text(encoding="utf-8").splitlines():
+        fields = raw.split("#", 1)[0].split()
+        if fields:
+            rules[fields[0]] = fields[1:]  # CODEOWNERS resolves LAST-match
+    return rules
+
+
 def test_both_halves_of_the_owners_act_are_codeowners_gated() -> None:
     """The activation path is ONE human act in two files: ratify the manifest, and apply the rules
     to the live table (per ADR-0028 the live-table edit is the owner's act, not engineering's).
     Both must require the compliance reviewer, or the gate is decorative."""
-    codeowners = _CODEOWNERS.read_text(encoding="utf-8")
+    rules = _codeowners_rules()
     for path in (
         "/spec/processes/dmn/adequacao-gap-shadow-candidate.yaml",
         "/spec/processes/dmn/adequacao_gap.dmn",
     ):
-        line = next((ln for ln in codeowners.splitlines() if ln.strip().startswith(path)), None)
-        assert line is not None, f"{path} is NOT covered by .github/CODEOWNERS"
-        assert "@" in line.removeprefix(path), f"{path} has no owner assigned"
+        assert path in rules, f"{path} is NOT covered by .github/CODEOWNERS"
+        owners = rules[path]
+        assert owners, f"{path} has no owner assigned"
+        assert all(o.startswith("@") for o in owners), f"{path} has a malformed owner token: {owners}"
 
 
 def test_manifest_header_documents_the_activation_path(manifest: dict[str, Any]) -> None:

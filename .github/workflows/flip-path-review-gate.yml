@@ -1,0 +1,102 @@
+name: flip-path-review-gate
+
+# ---------------------------------------------------------------------------------------------
+# Owner decision Q-1 — "each enforcement flip is a PR under CODEOWNERS review" — enforced as an
+# ordinary, fail-closed STATUS CHECK, independent of GitHub's `require_code_owner_review` ruleset
+# knob.
+#
+# WHY A SECOND MECHANISM EXISTS. CODEOWNERS by itself only REQUESTS a reviewer; requiring one is a
+# server-side ruleset setting that lives in repo Settings and nowhere in this tree. This repo has
+# already been burned by exactly that class of drift: `branch-protection-check.yml`'s module header
+# records `main` carrying NO server-side protection at all (classic protection 404s, ruleset list
+# `[]`, verified 2026-08-09/10), which made every CODEOWNERS line advisory. This workflow computes
+# the contract itself, in-repo, reviewably, so the guarantee is a merged artifact rather than a
+# checkbox someone has to remember. If the ruleset knob works, the two are defence-in-depth; if it
+# disappoints, this is the primary enforcement. It is correct standalone either way.
+#
+# JOB NAME is deliberately `flip-path-review-gate`, identical to the workflow name and stable: it is
+# a candidate for the required-status-check list in a branch ruleset. Renaming it silently detaches
+# it from any ruleset that requires it — a required check that no longer reports is not a failure,
+# it is an ABSENCE, and GitHub treats a never-reported required check as pending, not red. Do not
+# rename this job. (Wiring it INTO a ruleset is deliberately NOT done here — that is the
+# orchestrator's call once the `require_code_owner_review` semantics test concludes.)
+#
+# TRIGGERS. `pull_request` alone is not sufficient and the reason is the whole point of the gate:
+# an approval that arrives AFTER the last push produces no `pull_request` event, so the check would
+# sit red forever on a legitimately approved PR (which is how required checks get bypassed). And a
+# DISMISSED approval must re-redden a PR that already went green. Hence `pull_request_review` on
+# both `submitted` and `dismissed`; each re-runs the identical evaluation from scratch against live
+# API state, so the verdict is always a function of the CURRENT reviews, never of history.
+#
+# PERMISSIONS are the minimum the evaluation needs and no more:
+#   contents: read       -> read `.github/CODEOWNERS` at the PR's BASE commit (see below).
+#   pull-requests: read  -> list the PR's changed files and its reviews.
+# Note what is NOT requested: no `write` of any kind. The gate reports pass/fail through its own
+# exit status; it never posts a comment, never approves, never merges, and cannot.
+#
+# CODEOWNERS IS READ FROM THE PR'S **BASE** COMMIT, NOT ITS HEAD. Load-bearing: a PR that read its
+# OWN head's CODEOWNERS could delete the lines that own the files it edits and thereby un-own itself
+# in a single commit. The base commit's rules are the rules that were already reviewed and merged.
+# `scripts/ci/check_flip_path_review.py` states this at length in its docstring and
+# `tests/unit/ci/test_check_flip_path_review.py` tests it directly.
+#
+# FORK PRs — documented, not over-engineered (this repo is single-org; no fork PR has ever been
+# opened against it). On a `pull_request` event from a fork, GitHub issues a READ-ONLY `GITHUB_TOKEN`
+# scoped to the FORK, and secrets are withheld. Consequences here, in order of what actually bites:
+#   1. `orgs/{org}/teams/{team}/memberships/{login}` will 403/404 under such a token. The script
+#      treats that as UNVERIFIABLE, which is RED — never a downgrade to "any approval will do". So a
+#      fork PR touching a team-owned path fails closed and says why; the documented manual override
+#      is an approval from an explicitly-listed USER owner, which needs no org read.
+#   2. Reading contents/pulls of the BASE repo works (this repo is public-readable to the token's
+#      scope); if it ever does not, `_paginate`/`file_at` raise and the gate is RED, not green.
+# Neither case is silently green, which is the only property that has to hold. Do NOT "fix" this
+# with `pull_request_target` — that runs the workflow with a WRITE token in the base repo's context
+# against untrusted head code, which is the classic privilege-escalation footgun and would trade a
+# loud red for a real vulnerability.
+#
+# NO CHECKOUT of the PR's code. The script is fetched from the base repo's tree via the standard
+# checkout of THIS ref only, and everything it evaluates comes from the API. Untrusted head content
+# is never executed.
+# ---------------------------------------------------------------------------------------------
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  pull_request_review:
+    types: [submitted, dismissed]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  # Collapse redundant runs per PR, but never cancel the LAST one: the final run is the one whose
+  # conclusion the branch ruleset reads.
+  group: flip-path-review-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  flip-path-review-gate:
+    name: flip-path-review-gate
+    runs-on: ubuntu-latest
+    steps:
+      # Checks out the workflow's own ref to get `scripts/ci/check_flip_path_review.py`. For a
+      # `pull_request` event that is the PR's merge ref; the SCRIPT itself is therefore the PR's
+      # version, while the CODEOWNERS it evaluates against is fetched from the base commit over the
+      # API (see the header). That asymmetry is deliberate and is the reviewed one: a PR editing the
+      # gate's own logic is visible in the diff under review, whereas a PR editing CODEOWNERS to
+      # un-own its payload would not be visible in the gate's OUTPUT at all.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      # stdlib only, by design: no `uv sync`, no dependency graph, no supply-chain surface on the
+      # one check that governs whether an enforcement flip may merge.
+      - name: CODEOWNERS-owned paths require a qualified owner approval
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/check_flip_path_review.py

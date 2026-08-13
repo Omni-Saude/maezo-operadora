@@ -800,10 +800,25 @@ def test_the_plan_path_is_codeowners_gated() -> None:
     Both the directory line and the explicit file line are required: CODEOWNERS resolves by
     LAST match, so if the directory line is ever narrowed the artifact must not silently lose
     its owner (same reasoning as the `action-approvals.yaml` line above it).
+
+    Read as RULES, not as substrings of the raw text. A plain `in text` is satisfied by a COMMENT
+    that merely names the path — and that file's header is mostly prose naming paths, including
+    paths it explicitly says are NOT covered today. Comments are stripped first and owners split on
+    whitespace runs (the file column-aligns them); mirrors
+    `tests/unit/spec/test_shadow_candidates_common.py`.
     """
-    text = _CODEOWNERS.read_text(encoding="utf-8")
-    assert "/spec/policies/retention/" in text
-    assert f"/{ep.PLAN_RELPATH}" in text
+    rules: dict[str, list[str]] = {}
+    for raw in _CODEOWNERS.read_text(encoding="utf-8").splitlines():
+        fields = raw.split("#", 1)[0].split()
+        if fields:
+            rules[fields[0]] = fields[1:]  # CODEOWNERS resolves LAST-match
+
+    for pattern in ("/spec/policies/retention/", f"/{ep.PLAN_RELPATH}"):
+        assert pattern in rules, f"{pattern} has no CODEOWNERS RULE (a comment naming it is not one)"
+        assert rules[pattern], f"{pattern} has a CODEOWNERS line with no owner"
+        assert all(o.startswith("@") for o in rules[pattern]), (
+            f"{pattern} has a malformed owner token: {rules[pattern]}"
+        )
 
 
 def test_the_artifact_points_at_the_review_packet_that_exists() -> None:
