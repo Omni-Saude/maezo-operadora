@@ -15,11 +15,19 @@
 #
 #   2. O time `@Omni-Saude/security` NAO EXISTE; o time real da org e `@Omni-Saude/security-team`
 #      (GET /orgs/Omni-Saude/teams). Corrigido. ELE AINDA NAO E DONO VALIDO: nao tem acesso a ESTE
-#      repo (so a cadenza-healthcare/cadenza-infra). O lint seguira reportando "Unknown owner"
-#      APENAS para o token do time — a validacao do GitHub e POR DONO, nao por linha (cada um dos
-#      46 erros vinha com `column` apontando um token especifico, e a linha 33 produziu DOIS erros
-#      independentes), entao a linha continua valida pelo dono-usuario. Esse erro residual e o
-#      SEMAFORO desta migracao: enquanto ele existir, a separacao de revisor nao esta pronta.
+#      repo. Seu acesso hoje sao TRES repos, nenhum deles este (GET /orgs/Omni-Saude/teams/
+#      security-team/repos): cadenza-healthcare (write), cadenza-infra (write) e intensicare
+#      (READ apenas — nao contaria como dono valido nem se fosse este repo). O lint seguira
+#      reportando "Unknown owner" APENAS para o token do time — a validacao do GitHub e POR DONO,
+#      nao por linha (cada um dos 46 erros vinha com `column` apontando um token especifico, e a
+#      linha 33 produziu DOIS erros independentes), entao a linha continua valida pelo
+#      dono-usuario. Esse erro residual e o SEMAFORO desta migracao: enquanto ele existir, a
+#      separacao de revisor nao esta pronta.
+#      CONTAGEM ESPERADA hoje: 29 erros — exatamente UM por linha de regra que carrega o token do
+#      time (eram 27 antes das duas linhas de integridade de CI que esta auditoria acrescentou,
+#      `/Makefile` e `/scripts/ci/`). Derive sempre assim, nao decore o numero: se a contagem
+#      divergir de "linhas de regra com `@Omni-Saude/security-team`", ha um erro de OUTRA natureza
+#      escondido no meio, e e ele que interessa.
 #
 #   3. SEPARACAO DE REVISOR NAO EXISTE HOJE — E ESTE, NAO A SINTAXE, E O BLOQUEIO DO FLIP.
 #      O agente/orquestrador abre PR COMO `rodaquino-OMNI`, e o GitHub nao aceita auto-aprovacao.
@@ -38,6 +46,10 @@
 #   (c) reexecutar GET /repos/Omni-Saude/maezo-operadora/codeowners/errors em `main` e confirmar
 #       ZERO erros. So entao virar o campo.
 # ==================================================================================================
+
+# NOTA PARA PARSERS EM RUNTIME: (a) linhas de COMENTARIO deste arquivo contem @handles literais em
+# prosa (o dono fantasma na linha 8) — remova tudo apos `#` ANTES de extrair donos, senao voce o
+# reintroduz; (b) linhas de regra alinham donos com MULTIPLOS espacos — separe por runs de espaco.
 
 # Mudanca de autonomia/policy exige revisao de compliance
 # AUDITORIA 2026-08-13: `/src/maezo/policies/` NUNCA EXISTIU (`git log --all --diff-filter=A` vazio
@@ -208,6 +220,32 @@
 # PRs de workflow e justamente endurecimento de gate, que merece olho humano.
 /.github/workflows/        @rodaquino-OMNI @Omni-Saude/security-team
 #
+# `/Makefile` + `/scripts/ci/` — a SUBSTANCIA dos checks que a linha de workflows acima apenas
+# AGENDA. O workflow diz QUAL comando roda; o alvo de make e o script dizem O QUE ele verifica.
+# Gatear so o workflow deixa o MESMO ataque de pe um nivel abaixo: preserva-se o job e o alvo e
+# ESVAZIA-SE o script — o contexto exigido reporta verde e a verificacao sumiu. Por isso os tres
+# caminhos andam juntos, sob o mesmo par de donos. Mapa medido (nao estimado):
+#   - Makefile: TRES dos QUATRO contextos exigidos passam por alvos de make — "lint / type / unit"
+#     (`make lint` ci.yml:44, `make type` ci.yml:47), "validate-artifacts" (`make
+#     validate-artifacts` ci.yml:97) e "release-capability-floor (audit §5)" (`make
+#     release-floor-check` ci.yml:209). So "gitleaks / secrets" nao passa (security.yml:380, zero
+#     invocacoes de make). A versao anterior desta secao citava APENAS `make validate-artifacts` e
+#     concluia que o gate "custaria mais do que compra": subestimava o alcance em 3x, e a
+#     conclusao caiu junto com a premissa.
+#   - scripts/ci/: o job `validate-artifacts` (ci.yml:76-151) roda SEIS alvos de make (:97, :104,
+#     :111, :123, :131, :139) e CINCO deles sao shell direto para `scripts/ci/*.py`
+#     (check_bpmn_error_allowlist, check_start_process_fence, check_effect_chokepoint_fence,
+#     verify_amh_contract_pin, generate_xfail_census --check — Makefile:55,63,78,89,99); e
+#     "release-capability-floor" E `scripts/ci/generate_release_floor.py --check`
+#     (Makefile:118). Dois contextos exigidos inteiros tem a substancia neste diretorio.
+# CUSTO MEDIDO E ACEITO: Makefile 14 commits/6sem, scripts/ci 13 commits (15 toques de arquivo) —
+# somados, ~2/3 do churn de `/.github/workflows/`, que ja foi aceito acima pelo mesmo argumento.
+# Doutrina fail-closed: na duvida, MANTEM GATEADO. E a friccao so se materializa DEPOIS do flip de
+# enforcement, que por sua vez ja depende da acao de staffing do dono (pre-requisitos (a) e (b) do
+# cabecalho) — nao ha custo a pagar antes disso.
+/Makefile                  @rodaquino-OMNI @Omni-Saude/security-team
+/scripts/ci/               @rodaquino-OMNI @Omni-Saude/security-team
+#
 # `/.gitleaks.toml` + `/.github/osv-allowlist.json` — as duas listas de SUPRESSAO dos gates de
 # seguranca. Uma regra de allowlist larga demais desliga a deteccao sem apagar o check: continua
 # verde, so que cego. Sao a mesma classe de artefato e por isso andam juntas (4 e 1 commits no
@@ -222,9 +260,23 @@
 /docs/reviews/             @rodaquino-OMNI @Omni-Saude/security-team
 #
 # NAO GATEADO, DELIBERADAMENTE — registrado aqui para nao ser confundido com esquecimento:
-#   - `/Makefile` (14 commits/6sem). O CI chama alvos de make (`make validate-artifacts`), entao
-#     esvaziar um alvo neutraliza um check exigido pelo MESMO mecanismo descrito em workflows.
-#     Ficou de fora porque o Makefile e superficie de desenvolvimento rotineira e o gate custaria
-#     mais do que compra. E um BURACO CONHECIDO, nao uma omissao: se o dono preferir fechar, a
-#     linha e `/Makefile @rodaquino-OMNI @Omni-Saude/security-team`.
+#   - `/pyproject.toml` (25 commits/6sem — o maior churn de qualquer candidato ja considerado
+#     nesta secao). E a TERCEIRA superficie de SUPRESSAO, exatamente a mesma classe de
+#     `.gitleaks.toml` / `osv-allowlist.json` acima: estreitar `select` em `[tool.ruff.lint]`
+#     (pyproject.toml:145-146) ou afrouxar `strict = true` em `[tool.mypy]`
+#     (pyproject.toml:157-159) desliga a verificacao sem apagar check algum — o contexto exigido
+#     "lint / type / unit" continua VERDE, so que cego. Ficou de fora por um motivo medido, nao
+#     por conforto: pyproject.toml e o arquivo de bump de dependencia deste repo, e gatea-lo faria
+#     TODO PR de dependencia exigir aprovacao de dono — volume de friccao que afogaria o gate e
+#     treinaria o revisor a carimbar sem ler, que e como um gate morre de verdade.
+#     CONTROLE COMPENSATORIO NA FILA (follow-up explicito, NAO construido nesta auditoria): um
+#     teste de config-pin afirmando a rigidez de linter/typechecker (conjunto minimo de regras
+#     ruff + `strict = true` em mypy), de forma que afrouxar a config QUEBRE a suite em vez de
+#     passar em silencio. Com ele no lugar, este item deixa de ser buraco e vira excecao coberta.
+#   - O SEXTO alvo do job `validate-artifacts` (`make validate-artifacts`, Makefile:45) executa
+#     `maezo.platform.validation.cli`, que e codigo de APLICACAO em `src/` — e `src/` nao e
+#     dono-gateado aqui por desenho (o escopo deste arquivo e aparato de governanca e conteudo
+#     ratificavel, nao a base de codigo inteira). Registrado para que o bloco de integridade de CI
+#     acima nao seja lido como cobertura TOTAL da substancia dos checks exigidos. Nao ha decisao
+#     do dono sobre este ponto; nao o trate como ratificado em nenhuma direcao.
 # ==================================================================================================
