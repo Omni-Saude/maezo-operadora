@@ -80,12 +80,19 @@ resource "aws_ecs_task_definition" "agente" {
       { name = "TENANT_ID", value = var.tenant_id },
       { name = "AGENT_ID", value = each.key },
       { name = "AGENT_SECURITY_ZONE", value = each.value.zona },
-      # Definicao do agente. Hoje aponta para o L0 embutido na imagem: NAO existe
-      # overlay de tenant em spec/agents/, e o `provision_tenant.py` /
-      # `agent_def_merge` que o chart citava NUNCA EXISTIRAM no codigo. Quando um
-      # overlay real aparecer, um passo de merge tem de entrar ANTES daqui — e o
-      # caminho continua o mesmo, so' muda quem escreve o arquivo.
-      { name = "AGENT_DEFINITION_PATH", value = "/opt/maezo/spec/agents/${each.key}/agent.yaml" },
+      # AGENT_DEFINITION_PATH deliberadamente AUSENTE.
+      #
+      # As definicoes viajam no wheel (force-include no pyproject.toml) e aterrissam
+      # ao lado do pacote. Sem esta variavel, o runtime E o `tool_registry` resolvem
+      # do MESMO lugar — uma fonte de verdade. Apontar a variavel para outro caminho
+      # criaria duas, e elas divergiriam no primeiro dia em que alguem editasse uma
+      # so'. Foi assim que a helena subiu "viva mas sem ferramenta" em 13/08.
+      #
+      # Hoje a definicao efetiva E' o L0: nao existe overlay de tenant em
+      # spec/agents/, e o `provision_tenant.py` / `agent_def_merge` que o chart
+      # citava como produtores da definicao mesclada NUNCA EXISTIRAM no codigo
+      # (verificado em 13/08/2026). Quando um overlay real aparecer, o merge tem de
+      # rodar ANTES do build da imagem — e nao virar uma variavel de ambiente.
       { name = "CIBSEVEN_BASE_URL", value = local.cibseven_base_url },
       { name = "FHIR_BASE_URL", value = local.fhir_base_url },
       { name = "HEALTH_PORT", value = "8000" },

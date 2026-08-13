@@ -117,6 +117,26 @@ packages = ["src/maezo"]
 # contract pin each had. Runtime discovery is `resolve_ratification_path()`, which checks the repo
 # checkout, then this package-adjacent copy, with $MAEZO_AMH_INBOX_RATIFICATION overriding both.
 "spec/policies/amh" = "maezo/spec/policies/amh"
+# TERCEIRA ocorrencia da mesma classe das duas linhas acima, encontrada subindo a
+# helena de verdade na AWS em 13/08/2026 (agent-helena, ECS):
+#   FileNotFoundError: spec/agents/ directory not found at
+#   /app/.venv/lib/python3.12/site-packages/maezo/spec/agents
+# `gateway.tool_registry.build_agent_seam_context` chama
+# `AgentLoader().load_by_id()` -> `resolve_spec_agents_dir()`, que procura a arvore
+# spec/ ADJACENTE AO PACOTE — nao um diretorio arbitrario. Sem esta linha o agente
+# sobe, carrega a definicao apontada por AGENT_DEFINITION_PATH e depois falha em
+# `effect_seam_capabilities_unavailable`: ele existe, mas sem ferramenta nenhuma.
+#
+# Colocar as definicoes em outro caminho da imagem NAO resolve (foi minha primeira
+# tentativa): quem resolve e' o proprio pacote. E MAEZO_SPEC_DIR nao e' saida —
+# produção o RECUSA (Wave-1 Q-6), corretamente.
+#
+# `spec/processes` entra junto porque e' a MESMA arvore: com ela aqui, o CLI de
+# deploy (`maezo.platform.deploy`) resolve os 16 BPMN + 62 DMN sem flag nenhuma, e
+# passa a existir UMA fonte de verdade para o plano de politica dentro do wheel —
+# que e' exatamente o que o comentario no topo deste bloco descreve.
+"spec/agents" = "maezo/spec/agents"
+"spec/processes" = "maezo/spec/processes"
 
 [tool.uv]
 # W9 (Onda 2, supply-chain aging): dependency-age quarantine. `exclude-newer` makes resolution

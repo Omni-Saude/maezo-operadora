@@ -38,9 +38,13 @@ resource "aws_ecs_task_definition" "deploy_processes" {
     image     = "${aws_ecr_repository.app.repository_url}:${var.image_tag}"
     essential = true
 
+    # Sem `--spec-dir`: os artefatos viajam no wheel (force-include no
+    # pyproject.toml) e o CLI os resolve ao lado do pacote. A flag existe como
+    # unico override sancionado pela Wave-1 Q-6, e nao precisamos dela — quanto
+    # menos caminho alternativo, menos chance de o engine receber uma versao
+    # diferente da que esta na imagem.
     command = [
       "python", "-m", "maezo.platform.deploy",
-      "--spec-dir", "/opt/maezo/spec",
       "--deployment-name", "maezo-spec-processes",
     ]
 

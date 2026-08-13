@@ -106,31 +106,18 @@ COPY --from=builder --chown=maezo:maezo /app/pyproject.toml ./
 # aponta para src/maezo/platform/migrations (relativo a /app).
 COPY --chown=maezo:maezo alembic.ini ./
 
-# Definições de processo (BPMN/DMN) para o deploy no engine — 16 BPMN + 62 DMN.
+# NÃO copie `spec/` para dentro da imagem por aqui.
 #
-# EM /opt/maezo/spec, NÃO em /app/spec, de propósito. Se um `spec/` existisse sob
-# /app, `maezo.agents.resolve_spec_dir()` passaria a encontrá-lo e os agentes
-# carregariam as definições L0 BASE em vez das efetivas mescladas — em silêncio,
-# que é o pior modo de falhar. Fora de /app o resolvedor nunca o vê, e o único
-# consumidor é a ferramenta de operador `maezo.platform.deploy`, via a flag
-# `--spec-dir` (descrita no próprio CLI como o único override sancionado pela
-# Wave-1 Q-6).
+# `spec/agents` e `spec/processes` viajam no WHEEL, via
+# `[tool.hatch.build.targets.wheel.force-include]` no pyproject.toml, e aterrissam
+# adjacentes ao pacote (`maezo/spec/...`). É de lá que o código os resolve:
+# `resolve_spec_agents_dir()` procura a árvore spec/ ao lado do pacote, não um
+# caminho arbitrário da imagem.
 #
-# Só `processes/` entra: `spec/agents/` e o resto de `spec/` continuam fora da
-# imagem. Ganho colateral: as definições de processo viajam com o digest da
-# imagem, então "qual versão do BPMN está no engine" tem resposta auditável.
-COPY --chown=maezo:maezo spec/processes /opt/maezo/spec/processes
-
-# Definições de agente (L0). Mesmo endereço, mesma razão de estar fora de /app.
-#
-# O agent-runtime as consome por `AGENT_DEFINITION_PATH`, apontado por task
-# definition para o arquivo do agente daquele service. É o L0 base: NÃO existe
-# overlay de tenant em `spec/agents/`, e o `provision_tenant.py` /
-# `agent_def_merge` que o chart citava como produtores da "definição efetiva"
-# nunca existiram no código (verificado em 13/08/2026). Quando um overlay real
-# aparecer, um passo de merge entra antes do deploy e escreve neste mesmo caminho
-# — a task definition não muda.
-COPY --chown=maezo:maezo spec/agents /opt/maezo/spec/agents
+# Isto está escrito porque eu tentei o caminho errado primeiro (copiar para
+# /opt/maezo/spec): o agente subia, carregava a definição e depois morria em
+# `effect_seam_capabilities_unavailable` — existia sem ferramenta nenhuma. Uma cópia
+# aqui, hoje, só criaria uma SEGUNDA fonte de verdade que divergiria da do wheel.
 
 USER 1000
 
