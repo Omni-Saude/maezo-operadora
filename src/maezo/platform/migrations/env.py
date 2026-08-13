@@ -88,9 +88,7 @@ SEARCH_PATH: tuple[str, ...] = tuple(dict.fromkeys((TENANT_ID, "public")))  # de
 # O driver TEM de ser assincrono (`+asyncpg`): `run_async_migrations` usa
 # `async_engine_from_config`. Uma URL `+psycopg` falha com "The asyncio extension
 # requires an async driver".
-_ENV_DB_URL: str | None = os.environ.get("ALEMBIC_DATABASE_URL") or os.environ.get(
-    "DATABASE_URL"
-)
+_ENV_DB_URL: str | None = os.environ.get("ALEMBIC_DATABASE_URL") or os.environ.get("DATABASE_URL")
 
 
 def _config_section_with_url() -> dict[str, str]:
