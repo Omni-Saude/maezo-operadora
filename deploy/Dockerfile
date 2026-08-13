@@ -58,6 +58,13 @@ RUN uv sync --frozen --no-dev --no-install-project
 # exactly; the rest of `spec/` is NOT shipped in the image (T0.3 `MAEZO_SPEC_DIR` / the per-agent
 # `AGENT_DEFINITION_PATH` ConfigMap mount are the runtime discovery paths for everything else).
 COPY spec/policies/autonomy ./spec/policies/autonomy
+# Same failure class as the block above, second occurrence (2026-08-12, found live-booting
+# `docker compose --profile app`): MZO-060 (PR #213) added a third force-include —
+# `spec/policies/amh` (the AMH inbox DBA-ratification artifact) — and this Dockerfile was again
+# not updated, so `uv sync --no-editable` failed closed with
+# `FileNotFoundError: Forced include not found: /app/spec/policies/amh`. The AWS-gated cd.yml
+# build still never runs in CI, which is why this surfaced only on a local boot.
+COPY spec/policies/amh ./spec/policies/amh
 COPY src/ ./src/
 COPY config/ ./config/
 RUN uv sync --frozen --no-dev --no-editable

@@ -120,6 +120,12 @@ FORBIDDEN_CONSTRUCTION_NAMES: Final[frozenset[str]] = frozenset(
         "FhirServer",
         "WhatsAppServer",
         "AnthropicInferenceProvider",
+        # W-BEDROCK: the second REAL general-zone LLM provider. Fenced on exactly the same
+        # grounds as `AnthropicInferenceProvider` — a concrete strategy that opens a billable
+        # vendor connection must be reachable only through the registry, never constructed or
+        # imported ad hoc by an agent graph (AGENTS.md rule 6: `runtime/inference.py` is the
+        # single import point for any LLM SDK).
+        "BedrockInferenceProvider",
         "InferenceProvider",
         "AioKafkaEventsProducer",
         "FactProducer",
@@ -138,7 +144,7 @@ FORBIDDEN_CONSTRUCTION_NAMES: Final[frozenset[str]] = frozenset(
 #: not fence-a-call, exactly as the B3 brief specifies.
 DELETED_CLASS_NAME: Final[str] = "CibSevenServer"
 
-#: Base allowlist (any of the 15 names, anywhere in the file): the registry itself, and every
+#: Base allowlist (any §8.1 name above, anywhere in the file): the registry itself, and every
 #: gated-seam decorator module. A `def`/`class` statement is not a `Call`, so a class's OWN
 #: defining module never needs a blanket entry here for that reason alone (same reasoning as
 #: `check_start_process_fence.py:28-29`) — the per-name table below exists only for the residual
@@ -180,6 +186,9 @@ CONSTRUCTION_ALLOWLIST_BY_NAME: Final[dict[str, frozenset[str]]] = {
         }
     ),
     "AnthropicInferenceProvider": frozenset({"runtime/inference.py"}),
+    # Same entry, same reason: the provider's own defining module CALLS it from `_build_bedrock`
+    # (the registry factory), which a `class` statement alone would not cover.
+    "BedrockInferenceProvider": frozenset({"runtime/inference.py"}),
     "InferenceProvider": frozenset(
         {
             "runtime/inference.py",  # own defining module
@@ -359,7 +368,12 @@ _CONCRETE_PROVIDER_IMPORT_MODULES: Final[dict[str, frozenset[str]]] = {
     ),
     "maezo.tools.workers.dmn_transport": frozenset({"CibSevenDmnTransport"}),
     "maezo.runtime.inference": frozenset(
-        {"AnthropicInferenceProvider", "NoopInferenceProvider", "PhiZoneMockProvider"}
+        {
+            "AnthropicInferenceProvider",
+            "BedrockInferenceProvider",  # W-BEDROCK, same footing as the 1P provider above
+            "NoopInferenceProvider",
+            "PhiZoneMockProvider",
+        }
     ),
 }
 

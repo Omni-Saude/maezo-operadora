@@ -27,6 +27,7 @@ from maezo.runtime.inference import (
     PHI_ELIGIBLE_REGIONS,
     AnthropicInferenceProvider,
     BaseInferenceProvider,
+    BedrockInferenceProvider,
     BrResidentInferenceProvider,
     CredentialSource,
     DataClassification,
@@ -65,6 +66,11 @@ def _clean_inference_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "MAEZO_PHI_ENDPOINT_URL",
         "MAEZO_PHI_API_KEY",
         "MAEZO_PHI_VENDOR_DPA_REF",
+        # W-BEDROCK: `BedrockSettings` reads these; a developer's exported region/model id
+        # would otherwise silently change what the `bedrock` factory builds under the
+        # population test below. Same reasoning as every line above.
+        "MAEZO_BEDROCK_MODEL_ID",
+        "MAEZO_BEDROCK_REGION",
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -120,6 +126,43 @@ _EXPECTED: dict[type[BaseInferenceProvider], tuple[str, ProviderCapabilities, bo
             supported_model_versions=frozenset({"claude-opus-4-8"}),
         ),
         False,  # real provider, real completions
+    ),
+    BedrockInferenceProvider: (
+        "bedrock",
+        ProviderCapabilities(
+            # BedrockInferenceProvider docstring: "GENERAL-ZONE CLOUD PROVIDER (ADR-0006) — never
+            # PHI-capable, exactly like AnthropicInferenceProvider." Adding a second general-zone
+            # provider must not add a second way into the PHI zone.
+            phi_allowed=False,
+            # NOT BR_SAO_PAULO, despite DEFAULT_BEDROCK_REGION being sa-east-1. The region is
+            # operator-configurable at runtime (MAEZO_BEDROCK_REGION) while `capabilities` is a
+            # ClassVar fixed at import; nothing in the provider ENFORCES the region (contrast
+            # BrResidentInferenceProvider's endpoint allowlist + per-response served_region
+            # attestation); and BR_SAO_PAULO is in PHI_ELIGIBLE_REGIONS, so declaring it would
+            # leave phi_allowed=False as the only thing between this provider and PHI eligibility.
+            # See BEDROCK_CAPABILITIES' comment, which states all three reasons.
+            deployment_region=DeploymentRegion.GLOBAL_MULTI_REGION,
+            # Same leg-1 honesty rule as `anthropic`: no zero-retention agreement with AWS exists
+            # anywhere in this repo tree, and UNSPECIFIED is never optimistically read as zero.
+            retention_policy=RetentionPolicy.UNSPECIFIED,
+            # Likewise: no signed training prohibition in-repo to point at.
+            training_on_input_prohibited=False,
+            # The same conservative floor the general zone already uses (ADR-0006 puts "dado
+            # pessoal sensível" in the PHI zone; nothing in-repo sanctions PERSONAL here either).
+            max_data_classification=DataClassification.INTERNAL,
+            # THE FIELD THAT IS NOT `ENVIRONMENT`, and deliberately so: SigV4 credentials are
+            # resolved by botocore's own chain (env / AWS_PROFILE / IRSA / instance metadata) AT
+            # REQUEST TIME. This process never reads, holds or validates one, so `ENVIRONMENT`'s
+            # two claims — process-environment-sourced, read at construction — would both be
+            # false, and would make the provider look startup-validated when it is not.
+            credential_source=CredentialSource.AWS_DEFAULT_CHAIN,
+            # DEFAULT_BEDROCK_MODEL — the one Bedrock model id this repo declares. The AWS
+            # account's catalogue is larger; the sanctioned set is not the vendor catalogue.
+            # Note the `anthropic.` prefix: Bedrock namespaces model ids by provider, so this is
+            # a DIFFERENT id from ANTHROPIC_CAPABILITIES' entry, not a spelling of the same one.
+            supported_model_versions=frozenset({"global.anthropic.claude-opus-5"}),
+        ),
+        False,  # real provider, real completions — never a fabricated one
     ),
     PhiZoneMockProvider: (
         "phi_zone_mock",
@@ -267,7 +310,7 @@ def test_capability_table_covers_every_provider_in_the_module() -> None:
 
 def test_provider_factory_registry_matches_hardcoded_names() -> None:
     """The selectable ``MAEZO_INFERENCE_PROVIDER`` values are pinned to a hardcoded set."""
-    assert set(_PROVIDER_FACTORIES) == {"noop", "anthropic", "phi_zone_mock", "br_resident"}
+    assert set(_PROVIDER_FACTORIES) == {"noop", "anthropic", "bedrock", "phi_zone_mock", "br_resident"}
 
 
 def test_registry_and_class_hierarchy_agree_on_the_provider_population(
@@ -386,7 +429,18 @@ def test_data_classification_vocabulary_is_pinned() -> None:
 
 
 def test_credential_source_vocabulary_is_pinned() -> None:
-    assert {c.value for c in CredentialSource} == {"none", "environment"}
+    """W-BEDROCK GREW THIS VOCABULARY, and the pin moving is the reviewed act, not a workaround.
+
+    ``aws-default-chain`` was added because neither existing member describes how Bedrock
+    authenticates: it is not ``none`` (a credential is absolutely required), and it is not
+    ``environment`` — which asserts the credential is read FROM THE PROCESS ENVIRONMENT, AT
+    CONSTRUCTION, both of which are false for a chain botocore resolves per request from env,
+    profile, IRSA or instance metadata. Reusing ``environment`` would have made
+    ``BedrockInferenceProvider`` look startup-validated like ``AnthropicInferenceProvider``,
+    which is exactly the kind of unauditable conflation this closed vocabulary replaced a bare
+    boolean to prevent. This test is what forced that choice to be stated rather than assumed.
+    """
+    assert {c.value for c in CredentialSource} == {"none", "environment", "aws-default-chain"}
 
 
 def test_classification_order_covers_every_member() -> None:

@@ -354,14 +354,22 @@ def test_inference_provider_facade_import_is_not_fenced(tmp_path: Path) -> None:
     assert result.ok, result.render()
 
 
-def test_anthropic_inference_provider_import_outside_allowlist_raises(tmp_path: Path) -> None:
+@pytest.mark.parametrize("provider_name", ["AnthropicInferenceProvider", "BedrockInferenceProvider"])
+def test_concrete_llm_provider_import_outside_allowlist_raises(tmp_path: Path, provider_name: str) -> None:
+    """Both REAL LLM providers are fenced identically.
+
+    `BedrockInferenceProvider` (W-BEDROCK) is parametrized in alongside the 1P provider rather
+    than trusted to inherit the guarantee: adding a second concrete strategy to the module is
+    exactly the change that could reach an agent graph un-gated, and AGENTS.md rule 6 makes
+    `runtime/inference.py` the single import point for any LLM SDK.
+    """
     _write(
         tmp_path / "agents" / "example" / "graph.py",
-        "from maezo.runtime.inference import AnthropicInferenceProvider\n",
+        f"from maezo.runtime.inference import {provider_name}\n",
     )
     result = scan_tree(tmp_path)
     assert not result.ok
-    assert any("AnthropicInferenceProvider" in v and "[8.3]" in v for v in result.violations)
+    assert any(provider_name in v and "[8.3]" in v for v in result.violations)
 
 
 @pytest.mark.parametrize("env_var", sorted(FORBIDDEN_ENV_VAR_NAMES))

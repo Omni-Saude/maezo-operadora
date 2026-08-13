@@ -31,14 +31,48 @@
 
 `src/maezo/runtime/inference.py` is the **single import point** for any LLM SDK in this codebase
 (ADR-0009) — every other module MUST go through `InferenceProvider`, never import an LLM SDK
-directly. Three provider values, selected via `MAEZO_INFERENCE_PROVIDER`
+directly. Five provider values, selected via `MAEZO_INFERENCE_PROVIDER`
 (`InferenceSettings(env_prefix="MAEZO_INFERENCE_")`):
 
-| Value | Behavior |
+| Value | Zone | Behavior |
+|---|---|---|
+| `noop` (default) | — | Deterministic mock, no network calls, no credentials required. |
+| `anthropic` | Geral | Real calls via the official `anthropic` SDK. Requires an API key (§4). |
+| `bedrock` | Geral | Real calls to the same model family through **AWS Bedrock** (`anthropic[bedrock]` extra, classic `bedrock-runtime` client `AsyncAnthropicBedrock`). **No API key**: SigV4 via the standard AWS credential chain (env / `AWS_PROFILE` / IRSA), resolved at request time — so there is no construction-time credential gate. Model id is a **`global.*` inference profile** (`MAEZO_BEDROCK_MODEL_ID`, default `global.anthropic.claude-opus-5`); region is `MAEZO_BEDROCK_REGION` (default `sa-east-1`). |
+| `phi_zone_mock` | PHI | Explicitly-labeled mock standing in for the not-yet-provisioned BR-resident, zero-retention PHI-zone endpoint (ADR-0006/ADR-0017). Every response is marked synthetic. |
+| `br_resident` | PHI | The real BR-resident, zero-retention adapter. **Built inert**: refuses to construct without `MAEZO_PHI_VENDOR_DPA_REF`, `MAEZO_PHI_API_KEY` and an allowlisted `MAEZO_PHI_ENDPOINT_URL`, and has no transport wired. |
+
+> `bedrock` is **general zone only** (`phi_capable=False`, `deployment_region=global-multi-region`).
+> `MAEZO_BEDROCK_REGION=sa-east-1` is an operational default, **not** a residency guarantee — the
+> provider enforces nothing about the region and a deployment can point it anywhere. PHI residency
+> is the `br_resident` leg, which enforces an endpoint allowlist and a per-response `served_region`
+> attestation. A `phi=True` request against `bedrock` raises `PhiZoneRoutingError`.
+>
+> ⚠️ **LGPD — transferência internacional (aberto, decisão de dono).** O id sancionado é um
+> **inference profile `global.*`**, que por construção roteia a inferência **cross-region**. A
+> região configurada é onde a request é *assinada*, não necessariamente onde a inferência
+> *executa*. Está sancionado para a **zona geral** (dado pseudonimizado, ADR-0006) e é o motivo
+> factual — não apenas prudencial — de `deployment_region` ser `global-multi-region`. Antes de
+> produção: avaliar base legal de transferência internacional, ou trocar por um inference profile
+> regional caso a conta passe a oferecer um em `sa-east-1`.
+
+### Por que o client clássico `bedrock-runtime`, e não o Mantle
+
+O client recomendado para Bedrock é normalmente `AnthropicBedrockMantle` (endpoint Messages-API).
+Este repo **não** o usa, e a razão é medida, não preferência — probe ao vivo com a sessão real
+(perfil `amh-data-dev`, `sa-east-1`, 2026-08-12):
+
+| Tentativa | Resultado |
 |---|---|
-| `noop` (default) | Deterministic mock, no network calls, no credentials required. |
-| `anthropic` | Real calls via the official `anthropic` SDK. Requires an API key (§4). |
-| `phi_zone_mock` | Explicitly-labeled mock standing in for the not-yet-provisioned BR-resident, zero-retention PHI-zone endpoint (ADR-0006/ADR-0017). Every response is marked synthetic. |
+| Mantle + `anthropic.claude-opus-5` | **404** "The model … does not exist" (request chegou ao endpoint, SigV4 ok, request_id `req_wg2absqs…`) |
+| Mantle + `global.anthropic.claude-opus-5` | **404**, idem |
+| `bedrock-runtime converse --model-id global.anthropic.claude-opus-5` | **SUCESSO** (`end_turn`, 179 output tokens, resposta real do Opus-5) |
+
+Ou seja: a conta serve Claude por **inference profiles `global.*` no `bedrock-runtime` clássico**,
+e o Mantle não está habilitado para ela. Se o Mantle for habilitado no futuro, a troca é uma linha
+em `BedrockInferenceProvider.__init__` mais o pin de client em
+`tests/unit/runtime/test_inference_bedrock.py::test_uses_the_classic_bedrock_runtime_client_not_the_mantle_one`
+— que existe exatamente para impedir que alguém "corrija" o client de volta sem essa evidência.
 
 ```bash
 # Inspect current selection (no secrets printed):
@@ -64,10 +98,19 @@ class InferenceConfigError(ValueError):
 ```
 
 `_build_provider` looks the configured name up in `_PROVIDER_FACTORIES` (`noop`, `anthropic`,
-`phi_zone_mock`) and raises `InferenceConfigError` listing the valid set if it isn't found. The
-`anthropic` provider additionally raises `InferenceConfigError` at **construction time** (not on
-first use) if no API key is found in the environment (§4) — a missing key is caught at process
-startup, before any request can silently no-op or fall back.
+`bedrock`, `phi_zone_mock`, `br_resident`) and raises `InferenceConfigError` listing the valid set
+if it isn't found. The `anthropic` provider additionally raises `InferenceConfigError` at
+**construction time** (not on first use) if no API key is found in the environment (§4) — a
+missing key is caught at process startup, before any request can silently no-op or fall back.
+
+`bedrock` deliberately has **no equivalent credential gate**, and the difference is auditable
+rather than implied: it declares `credential_source=aws-default-chain` (not `environment`) because
+botocore resolves the credential per request, so there is nothing for the constructor to check. A
+missing or unauthorized AWS credential therefore surfaces on the **first** `generate()` as an
+`InferenceProviderError` (`retryable=False`, message naming the botocore exception type only) —
+loudly, never as a silent degrade. Its `health_check()` reports `ok` but states explicitly that no
+credential was verified; it fails closed at construction only on an explicitly-blank
+`MAEZO_BEDROCK_REGION`.
 
 Runtime failures from a configured, credentialed provider (timeouts, rate limits, auth failures,
 refusals) surface as `InferenceProviderError` (`provider`, `message`, `retryable` fields) — a

@@ -214,6 +214,13 @@ services:
       CIBSEVEN_BASE_URL: http://cibseven:8080/engine-rest
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       HEALTH_PORT: "8000"
+      # Found live-booting `--profile app` (2026-08-12): without DATABASE_URL the durable
+      # audit sink cannot be built, the harness fails closed and registers ZERO workers —
+      # the K8s deployment gets this var from the Aurora ExternalSecret
+      # (deployment-worker-daemon.yaml), but compose never injected it. Requires the
+      # tenant migrations applied to the compose Postgres (alembic -x tenant=amh).
+      DATABASE_URL: postgresql+asyncpg://maezo:maezo@postgres:5432/maezo
+      AGENT_RUNTIME_MODE: local
     ports: ["8020:8000"]
     depends_on:
       cibseven:
@@ -249,6 +256,12 @@ services:
       CIBSEVEN_BASE_URL: http://cibseven:8080/engine-rest
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       HEALTH_PORT: "8080"
+      # Same live-boot finding as worker-runtime (2026-08-12): Helena's dispatcher
+      # requires DATABASE_URL (fail-closed — /webhook degrades to 501 without it); the
+      # Helm chart injects it from the Aurora ExternalSecret (deployment-webhook-
+      # receiver.yaml:66-70) but compose never did.
+      DATABASE_URL: postgresql+asyncpg://maezo:maezo@postgres:5432/maezo
+      AGENT_RUNTIME_MODE: local
     # Host 8030 (not 8080) — cibseven already claims host 8080:8080 in this same compose file;
     # the container's own port stays 8080 (matches Helm's containerPort, deployment-webhook-
     # receiver.yaml:67-69).
