@@ -28,6 +28,11 @@ locals {
   # dependencia cross-repo).
   aurora_security_group_id = tolist(data.aws_rds_cluster.shared.vpc_security_group_ids)[0]
 
+  # Segredo mestre gerido pela AWS (`manage_master_user_password = true` no modulo
+  # aurora-cluster da plataforma). Lido do data source em vez de fixado: o ARN
+  # carrega sufixo aleatorio e mudaria se o segredo fosse recriado.
+  aurora_master_secret_arn = data.aws_rds_cluster.shared.master_user_secret[0].secret_arn
+
   fhir_base_url = "http://${data.aws_lb.hapi_internal.dns_name}/fhir"
 
   # Descoberta de servico interna: o worker fala com o engine BPMN por nome DNS

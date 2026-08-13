@@ -42,6 +42,16 @@ variable "aurora_database_name" {
   default     = "maezo"
 }
 
+variable "aurora_bootstrap_database" {
+  description = <<-EOT
+    Database usado apenas para ABRIR a conexao da task de bootstrap, antes de o
+    database do maezo existir. `hapi` e' o unico que o cluster tem ao nascer
+    (DatabaseName do modulo aurora-cluster da plataforma). Nada e' criado nele.
+  EOT
+  type        = string
+  default     = "hapi"
+}
+
 variable "aurora_app_secret_name" {
   description = "Secret com usuario/senha da role de aplicacao do maezo (populado fora do Terraform)."
   type        = string

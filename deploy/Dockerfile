@@ -106,6 +106,21 @@ COPY --from=builder --chown=maezo:maezo /app/pyproject.toml ./
 # aponta para src/maezo/platform/migrations (relativo a /app).
 COPY --chown=maezo:maezo alembic.ini ./
 
+# Definições de processo (BPMN/DMN) para o deploy no engine — 16 BPMN + 62 DMN.
+#
+# EM /opt/maezo/spec, NÃO em /app/spec, de propósito. Se um `spec/` existisse sob
+# /app, `maezo.agents.resolve_spec_dir()` passaria a encontrá-lo e os agentes
+# carregariam as definições L0 BASE em vez das efetivas mescladas — em silêncio,
+# que é o pior modo de falhar. Fora de /app o resolvedor nunca o vê, e o único
+# consumidor é a ferramenta de operador `maezo.platform.deploy`, via a flag
+# `--spec-dir` (descrita no próprio CLI como o único override sancionado pela
+# Wave-1 Q-6).
+#
+# Só `processes/` entra: `spec/agents/` e o resto de `spec/` continuam fora da
+# imagem. Ganho colateral: as definições de processo viajam com o digest da
+# imagem, então "qual versão do BPMN está no engine" tem resposta auditável.
+COPY --chown=maezo:maezo spec/processes /opt/maezo/spec/processes
+
 USER 1000
 
 # Portas expostas:
