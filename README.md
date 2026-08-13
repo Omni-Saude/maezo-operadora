@@ -132,8 +132,16 @@ src/maezo/
 
 ## Documentação
 
+> 📋 **Tarefas pendentes por time (o que falta para o go-live):**
+> **[docs/Tarefas_Pendentes.md](docs/Tarefas_Pendentes.md)** — a lista viva das ações que **só
+> humanos** podem fechar (deploy, segredos reais, `terraform apply`, ratificações DPO/clínica/
+> regulatória, revisão de segurança, sign-offs), organizada por time (Devs/DevOps · Médicos ·
+> Jurídico/Compliance/Security/DPO · Finanças · PO). Comece por aqui se você é do time e quer saber
+> o que é seu.
+
 | Documento | Conteúdo |
 |-----------|----------|
+| [docs/Tarefas_Pendentes.md](docs/Tarefas_Pendentes.md) | **Tarefas humanas pendentes por time (deploy, segredos, ratificações, sign-offs) — pré go-live** |
 | [docs/architecture/overview.md](docs/architecture/overview.md) | Visão arquitetural completa |
 | [docs/adr/](docs/adr/) | 38 ADRs (0001–0038; 34 Accepted, 4 Proposed) |
 | [docs/processes/catalog.md](docs/processes/catalog.md) | Catálogo de 15 processos SP-OP |
