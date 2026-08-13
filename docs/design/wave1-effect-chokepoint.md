@@ -862,6 +862,31 @@ Enforcing that from day one, with ~80 unmapped topics and a fresh agent-seam nam
 platform outage. Approve `enforcement_padrao_nao_mapeado: shadow` as an explicit, time-boxed
 deviation with a mandated terminal flip? Who owns the deadline?
 
+> **ANSWERED 2026-08-13 — approved as a time-boxed deviation, and the deadline is now DATA.**
+> *(Add-only annotation; the question above is left verbatim.)* The owner ratified `shadow` with a
+> named owner and a hard date: `owner_role` **"Security/crypto R1 reviewer (interim: dono)"**,
+> **`expires: 2026-11-11`**, `checkpoint: 2026-09-12`. Exit criteria are recorded once, in
+> `PLANS.md` §0.8 (2ª leva), and pointed at from the manifest rather than copied into it.
+>
+> The answer to *"who owns the deadline?"* is deliberately two-part, because a named owner alone
+> was the arrangement that produced this question in the first place. The role above owns the
+> WORK; the CI gate owns the DATE. `spec/policies/autonomy/action-approvals.yaml` now carries a
+> `deviation:` block next to the value, and `scripts/ci/check_deviation_expiry.py`
+> (`make deviation-expiry-check`, wired in the `artifact-validation` job — i.e. inside the
+> required `validate-artifacts` check) turns every PR red from 2026-11-12 while the value is still
+> `shadow`. Missing or malformed block: also red. Fourteen days out: a loud warning. Flipped to
+> `enforcing`: exempt, the deviation is over.
+>
+> No silent renewal is reachable. The only two ways out are the terminal flip (§9.4 step 7) and an
+> owner re-ratification of a NEW dated deviation, as a data PR under CODEOWNERS (Q-1) — and that
+> PR is green on its own CI, because the gate reads the dates out of the tree under test.
+>
+> **Q-10 got the same treatment on the same date** (see §10's Q-10 entry and `PLANS.md` §0.8): the
+> C2 class is `leitura_phi_clinica`, owner role "Diretor(a) Médico(a) (interim,
+> deadline-enforcement only: dono)", **`review_by: 2027-02-09`**, `checkpoint: 2026-11-11`. The
+> field is `review_by`, not `expires`, because what was ratified is a mandated REVIEW on that date
+> rather than an automatic flip; the gate enforces both names with equal rigour.
+
 **Q-3 — ADR-0034's L2 sampling clause (I-12).** ADR-0034 `:78-85` requires `L2ReviewSampler` + a
 concrete persistent `ReviewQueue` to be built **as part of** the chokepoint, plus "uma nova ADR
 ratificando a re-introducao". Build in Wave 1, or amend the clause in the new ADR with reasons?

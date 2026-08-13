@@ -77,6 +77,7 @@ import os
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from datetime import date, datetime
 from functools import lru_cache
 from pathlib import Path
 from types import MappingProxyType
@@ -192,6 +193,184 @@ DEFAULT_ENFORCEMENT_KEY = "enforcement_padrao_nao_mapeado"
 #: BOTH refuses the whole manifest (a governance record may not be silently shadowed).
 ACTION_MAP_KEY = "mapeamento_acoes"
 TOPIC_MAP_KEY = "mapeamento_topicos"
+
+# -- Ratified shadow DEVIATIONS (2026-08-13, PLANS.md §0.8 2ª leva Q-2/Q-10). ------------------
+#
+# A `shadow` value that nobody owns and that never expires is a permanent deviation wearing a
+# temporary label. The owner ratified both surviving ones WITH a named owner role, a hard date and
+# a mid-way checkpoint, so those three facts now live as DATA next to the value they excuse.
+#
+# WHAT THIS LAYER DOES, AND WHAT IT DELIBERATELY DOES NOT. It PARSES and TYPES the block so the CI
+# gate (`scripts/ci/check_deviation_expiry.py`) reads it through the same loader the runtime uses
+# instead of re-implementing YAML access over a governance record. It does NOT change one byte of
+# runtime behaviour: an absent, malformed or long-expired deviation block does not refuse the
+# manifest, does not alter `mode`, and does not alter what is approved or enforced. That is
+# deliberate and it is the honest split of responsibility — an expiry is a GOVERNANCE fact whose
+# enforcement point is CI (red on every PR until a human acts), not a reason to brick every
+# external task in production over a metadata typo. The defects are recorded, not swallowed:
+# `ActionApprovals.deviation_defects` carries them, and the CI gate turns them red.
+#: Per-value key carrying the deviation record. Root level (governing
+#: `enforcement_padrao_nao_mapeado`) and inside `acoes.<class>` (governing that class's
+#: `enforcement`).
+DEVIATION_KEY = "deviation"
+#: The slot name the root-level deviation is filed under in `ActionApprovals.deviations`. Class
+#: deviations are filed as `acoes.<class>` (see :func:`class_deviation_slot`).
+ROOT_DEVIATION_SLOT = DEFAULT_ENFORCEMENT_KEY
+#: Fields required in EVERY deviation block, whatever it governs. The deadline field is separate
+#: because it is named per deviation (`expires` for a hard flip date, `review_by` for a mandated
+#: review) — see :data:`DEVIATION_DEADLINE_FIELDS`.
+DEVIATION_TEXT_FIELDS: Final[tuple[str, str, str]] = ("owner_role", "ratified_by", "criteria_ref")
+#: Date fields required in every block: when the owner ratified it, and the mid-way checkpoint.
+DEVIATION_DATE_FIELDS: Final[tuple[str, str]] = ("ratified_on", "checkpoint")
+#: The accepted deadline field names. EXACTLY ONE must be present. `expires` states "flip by this
+#: date"; `review_by` states "revisit by this date" — the owner used both, for Q-2 and Q-10
+#: respectively, and the distinction is real governance, not a synonym. Both are enforced with the
+#: same rigour: past the date while still `shadow` is RED either way.
+DEVIATION_DEADLINE_FIELDS: Final[tuple[str, str]] = ("expires", "review_by")
+
+
+def class_deviation_slot(action_class: str) -> str:
+    """The `deviations` key a per-class deviation is filed under."""
+    return f"acoes.{action_class}"
+
+
+@dataclass(frozen=True, slots=True)
+class DeviationRecord:
+    """One well-formed, ratified deviation. Pure data — every field survived validation.
+
+    A value of this type is ONLY ever constructed by :func:`parse_deviation` with an empty defect
+    list, so holding one is proof the block was complete and every date parsed. Malformed blocks
+    never become a partially-filled record; they become defects.
+
+    Attributes:
+        slot: which value this deviation excuses (`enforcement_padrao_nao_mapeado`, or
+            `acoes.<class>`).
+        owner_role: the ROLE accountable for closing it. A role, not a person — the interim holder
+            is spelled out inside the string where the owner wrote one.
+        ratified_on: the date the owner ratified these values.
+        ratified_by: WHO ratified, in the manifest's own accountability idiom.
+        deadline_field: `expires` or `review_by` — which name the manifest used.
+        deadline: the date in that field. Past it, with the value still `shadow`, CI is red.
+        checkpoint: the mid-way date the owner set for a progress check. Recorded and rendered by
+            the gate; it does not itself fail anything (missing a checkpoint is a conversation, an
+            expiry is a gate).
+        criteria_ref: WHERE the exit criteria live. A pointer by design — the criteria are a
+            governance record with one home (PLANS.md §0.8), and a second copy here would be a
+            second thing to drift.
+    """
+
+    slot: str
+    owner_role: str
+    ratified_on: date
+    ratified_by: str
+    deadline_field: str
+    deadline: date
+    checkpoint: date
+    criteria_ref: str
+
+    def days_remaining(self, today: date) -> int:
+        """Days from `today` to the deadline. Zero on the deadline itself, negative once past."""
+        return (self.deadline - today).days
+
+
+def _coerce_date(value: Any) -> date | None:
+    """An ISO `YYYY-MM-DD` string (or a YAML-native date) as a `date`, else None.
+
+    A bare `2026-11-11` in YAML is already a `date` and a quoted `"2026-11-11"` is a string; the
+    manifest quotes them (matching the `data: "YYYY-MM-DD"` idiom the approval blocks document),
+    and both are accepted so the record cannot be broken by a quoting style. Everything else —
+    a datetime, an int, `None`, `"11/11/2026"` — is refused rather than guessed at.
+    """
+    if isinstance(value, datetime):
+        # A `datetime` means someone wrote a time onto a governance date. Refuse rather than
+        # silently truncate: `expires: 2026-11-11 23:59` would compare differently than it reads.
+        return None
+    if isinstance(value, date):
+        return value
+    if not isinstance(value, str):
+        return None
+    try:
+        return date.fromisoformat(value.strip())
+    except ValueError:
+        return None
+
+
+def parse_deviation(slot: str, raw: Any) -> tuple[DeviationRecord | None, tuple[str, ...]]:
+    """Validate one `deviation:` block. Returns `(record, defects)`; never both, never raises.
+
+    THREE-WAY, on purpose. `(None, ())` means the key was ABSENT — a different governance fact
+    from `(None, (...defects...))`, which means someone wrote a block and it does not hold up. The
+    CI gate reports them differently ("no deviation recorded" vs "the recorded deviation is
+    broken") because the human act each one needs is different.
+
+    Args:
+        slot: the value this block governs, for the defect messages.
+        raw: whatever sat under the `deviation` key (possibly nothing).
+    """
+    if raw is None:
+        return None, ()
+    if not isinstance(raw, dict):
+        return None, (f"{slot}: 'deviation' must be a mapping, got {type(raw).__name__}",)
+
+    defects: list[str] = []
+    text: dict[str, str] = {}
+    for name in DEVIATION_TEXT_FIELDS:
+        value = raw.get(name)
+        if not isinstance(value, str) or not value.strip() or value.strip() == PENDING_PLACEHOLDER:
+            defects.append(f"{slot}: 'deviation.{name}' must be a non-blank, non-PENDENTE string")
+        else:
+            text[name] = value.strip()
+
+    dates: dict[str, date] = {}
+    for name in DEVIATION_DATE_FIELDS:
+        parsed = _coerce_date(raw.get(name))
+        if parsed is None:
+            defects.append(f"{slot}: 'deviation.{name}' must be an ISO date (YYYY-MM-DD)")
+        else:
+            dates[name] = parsed
+
+    # EXACTLY ONE deadline field. Zero means the deviation has no end, which is the shape this
+    # whole mechanism exists to make impossible. Two means the record disagrees with itself about
+    # when it ends, and picking one for the humans would be the guess a governance loader must
+    # never make.
+    present = [name for name in DEVIATION_DEADLINE_FIELDS if name in raw]
+    deadline_field: str | None = None
+    deadline: date | None = None
+    if not present:
+        defects.append(
+            f"{slot}: 'deviation' declares no deadline — exactly one of "
+            f"{list(DEVIATION_DEADLINE_FIELDS)} is required; a deviation without an end date is "
+            "the permanent deviation this record exists to prevent"
+        )
+    elif len(present) > 1:
+        defects.append(
+            f"{slot}: 'deviation' declares {present} — exactly one deadline field is allowed; "
+            "two dates is a record that disagrees with itself"
+        )
+    else:
+        deadline_field = present[0]
+        deadline = _coerce_date(raw.get(deadline_field))
+        if deadline is None:
+            defects.append(f"{slot}: 'deviation.{deadline_field}' must be an ISO date (YYYY-MM-DD)")
+
+    if defects:
+        return None, tuple(defects)
+    # Every branch above filled its slot or appended a defect, so these are total.
+    assert deadline_field is not None and deadline is not None  # noqa: S101 - narrowing, not a check
+    return (
+        DeviationRecord(
+            slot=slot,
+            owner_role=text["owner_role"],
+            ratified_on=dates["ratified_on"],
+            ratified_by=text["ratified_by"],
+            deadline_field=deadline_field,
+            deadline=deadline,
+            checkpoint=dates["checkpoint"],
+            criteria_ref=text["criteria_ref"],
+        ),
+        (),
+    )
+
 
 # -- Reason vocabulary: a CLOSED enum of bounded, non-PHI tokens (design mirror of the
 # `_ENUM_TOKEN_RE` discipline in `tools/workers/harness.py`). Every one is safe in the clear.
@@ -313,6 +492,14 @@ class ActionApprovals:
             files this view was resolved against, or `AUSENTE` for one that is not on disk. Lets
             an operator compare DEPLOYED policy against the reviewed commit.
         policy_digest: sha256 over the sorted `artifact_digests` pairs — one value to compare.
+        deviations: slot -> the WELL-FORMED ratified deviation excusing that slot's `shadow`
+            value (2026-08-13, PLANS.md §0.8 Q-2/Q-10). Slots are
+            `enforcement_padrao_nao_mapeado` and `acoes.<class>`. A slot with no `deviation:` key
+            is absent from BOTH this map and `deviation_defects`; a slot whose block is broken is
+            absent HERE and present THERE. Read by `scripts/ci/check_deviation_expiry.py`;
+            deliberately inert at runtime (see the DEVIATION_KEY comment block).
+        deviation_defects: slot -> why its `deviation:` block did not parse. Recorded rather than
+            swallowed, so CI can be red about it while the runtime stays byte-unchanged.
     """
 
     mode: str
@@ -326,6 +513,8 @@ class ActionApprovals:
     default_enforcement: str = ENFORCEMENT_SHADOW
     artifact_digests: Mapping[str, str] = field(default_factory=lambda: MappingProxyType({}))
     policy_digest: str = ""
+    deviations: Mapping[str, DeviationRecord] = MappingProxyType({})
+    deviation_defects: Mapping[str, tuple[str, ...]] = MappingProxyType({})
 
     def classify(self, topic: Any) -> str | None:
         """The action class declared for a topic OR an agent action ref, or None (fail closed).
@@ -807,6 +996,35 @@ def _parse(
     )
     enforcing_classes = sorted(n for n, v in class_enforcement.items() if v == ENFORCEMENT_ENFORCING)
 
+    # Ratified shadow deviations (2026-08-13). Scanned GENERICALLY — the root slot plus every
+    # declared class — so the loader never has to know WHICH deviations exist today. Which ones
+    # are REQUIRED is the CI gate's code-frozen question, not this one's: a loader that decided
+    # that would be a second policy plane.
+    deviations: dict[str, DeviationRecord] = {}
+    deviation_defects: dict[str, tuple[str, ...]] = {}
+    _deviation_slots: list[tuple[str, Any]] = [(ROOT_DEVIATION_SLOT, data.get(DEVIATION_KEY))]
+    _deviation_slots.extend(
+        (
+            class_deviation_slot(name),
+            raw_acoes[name].get(DEVIATION_KEY) if isinstance(raw_acoes.get(name), dict) else None,
+        )
+        for name in sorted(declared)
+    )
+    for slot, raw_block in _deviation_slots:
+        record, defects = parse_deviation(slot, raw_block)
+        if record is not None:
+            deviations[slot] = record
+        elif defects:
+            deviation_defects[slot] = defects
+            logger.warning(
+                "action_approvals_deviation_malformed",
+                path=str(manifest_path),
+                slot=slot,
+                defect_count=len(defects),
+                detail="a ratified deviation block did not parse — CI (check_deviation_expiry) "
+                "fails on this; runtime behaviour is unchanged",
+            )
+
     digests = policy_artifact_digests(manifest_path)
     digest = combined_policy_digest(digests)
 
@@ -823,6 +1041,8 @@ def _parse(
         enforcing_classes=enforcing_classes,
         policy_digest=digest,
         artifact_digests=dict(digests),
+        deviation_slots=sorted(deviations),
+        deviation_defect_slots=sorted(deviation_defects),
     )
     return ActionApprovals(
         mode=mode,
@@ -835,6 +1055,8 @@ def _parse(
         default_enforcement=default_enforcement,
         artifact_digests=digests,
         policy_digest=digest,
+        deviations=MappingProxyType(deviations),
+        deviation_defects=MappingProxyType(deviation_defects),
     )
 
 

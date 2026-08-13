@@ -388,6 +388,33 @@ delegação + idempotência durável p/ A2A não-local.
   ação é um PR revisado sob CODEOWNERS, nunca um ato de runtime.
 - **Q-2 / Q-10 — não-mapeados e C2 seguem em SOMBRA**, com **owner nomeado, prazo máximo e
   critérios mensuráveis** de saída. Sombra sem dono e sem prazo é desvio permanente disfarçado.
+  **VALORES CONFIRMADOS PELO DONO EM 2026-08-13 e IMPLEMENTADOS como dado auto-cobrável na mesma
+  data.** Os dois desvios passam a viver como bloco `deviation:` ao lado do valor que justificam,
+  em `spec/policies/autonomy/action-approvals.yaml` (aditivo — nenhum valor mudou: os dois seguem
+  `shadow`, `status` segue `DRAFT` e os 45 blocos de aprovação seguem `PENDENTE` byte a byte;
+  declarar prazo não é aprovar):
+  - **Q-2 — `enforcement_padrao_nao_mapeado: shadow`** (o default de refs não mapeadas).
+    `owner_role`: *Security/crypto R1 reviewer (interim: dono)* · **`expires: 2026-11-11`** ·
+    `checkpoint: 2026-09-12`. Critérios de saída (referenciados pelo `criteria_ref`, não
+    duplicados no YAML): censo de não-mapeados = 0 (gerado por máquina) + ≥30 dias consecutivos de
+    zero `WOULD_DENY` em refs não mapeadas (ou SLA de triagem de 7 dias) + sampler/ReviewQueue
+    mergeados (Q-3) + benchmarks da Q-9 assinados.
+  - **Q-10 — classe C2 `leitura_phi_clinica: shadow`** (leituras PHI via FHIR — a classe que a
+    pergunta da Médica realmente endereça: o design §10 Q-10 ancora em "a denied FHIR read
+    degrades to a dossier gap note (`rafael/graph.py:44-48`)", que é o `SHAPE_LACUNA_DECLARADA`
+    dessa classe e de nenhuma outra C2). `owner_role`: *Diretor(a) Médico(a) (interim,
+    deadline-enforcement only: dono)* · **`review_by: 2027-02-09`** · `checkpoint: 2026-11-11`.
+    Critérios: aprovador Médico nomeado existe + um trimestre de telemetria de sombra C2 + triagem
+    clínica de todo `WOULD_DENY` + limiar de carga que a Médica ratifique + interação com
+    consentimento resolvida (nenhum flip de C2 com `consentimento_exigido` enquanto o adapter de
+    consentimento estiver desfiado — Q-5).
+  - **AUTO-COBRÁVEL, sem renovação silenciosa.** `scripts/ci/check_deviation_expiry.py`
+    (`make deviation-expiry-check`) roda no job `artifact-validation`, que reporta como o check
+    **obrigatório** `validate-artifacts` — logo o prazo é bloqueante de merge desde já. A partir do
+    dia seguinte à data, com o valor ainda em `shadow`, TODA PR fica vermelha; bloco ausente ou
+    malformado também é vermelho; 14 dias antes há aviso alto. Sair do vermelho é ato humano: virar
+    o valor para `enforcing`, ou o dono re-ratificar um desvio NOVO E DATADO em PR de dados sob
+    CODEOWNERS (Q-1) — PR que é verde por construção, porque o gate lê as datas da árvore em teste.
 - **Q-3 — sampler + ReviewQueue são CONSTRUÍDOS ANTES do enforcement** (cláusula de amostragem do
   ADR-0034, design §5.6). Não se liga enforcement sem a superfície de revisão pronta.
 - **Q-4 — quatro ações canônicas, SEM aliases:** inferência de zona-split, A2A e leitura
