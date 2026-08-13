@@ -446,3 +446,60 @@ def test_non_ascii_signature_fails_closed_without_raising() -> None:
     reg = A2ARegistry(verifier=signer)
     with pytest.raises(CardSignatureError):
         reg.register(dataclasses.replace(signed, signature="v1:🚨forged🚨"))
+
+
+#: What a deserializer drops into `AgentCard.signature` when it rebuilds a Card off a wire. The
+#: field is typed `str | None` and validated nowhere, so each of these is reachable without a single
+#: type violation in production code — and none of them has `.encode`.
+_NON_STR_SIGNATURES: tuple[tuple[str, object], ...] = (
+    ("dict", {"scheme": SIGNATURE_SCHEME, "mac": "deadbeef"}),
+    ("int", 12345),
+    ("list", [SIGNATURE_SCHEME, "deadbeef"]),
+    ("bool", True),
+    ("bytes", b"v1:deadbeef"),
+)
+
+
+@pytest.mark.parametrize(("label", "container"), _NON_STR_SIGNATURES)
+def test_non_str_signature_container_fails_closed_without_raising(label: str, container: object) -> None:
+    """TOTALITY over the signature slot's TYPE, not just its encoding (same family as the envelope
+    surface's container guard). `verify` guarded `is None` and then called `.encode("ascii")` in a
+    try catching ONLY `UnicodeEncodeError` — so a non-str signature raised `AttributeError` out of a
+    method whose docstring promises it never raises. A non-str signature is definitionally not a
+    valid signature: it REFUSES."""
+    signer = CardSigner(_KEY)
+    signed = signer.sign(_card())
+    forged = dataclasses.replace(signed, signature=container)  # type: ignore[arg-type]
+    assert signer.verify(forged) is False, label
+
+
+@pytest.mark.parametrize(("label", "container"), _NON_STR_SIGNATURES)
+def test_registry_surfaces_a_non_str_signature_as_cardsignatureerror(label: str, container: object) -> None:
+    """The blast radius: `A2ARegistry.register` is the fail-closed admission chokepoint and its
+    contract is `CardSignatureError`. Before the widening it leaked the raw `AttributeError`, so a
+    caller catching only `CardSignatureError` (exactly the caller the non-ASCII test above was
+    written to protect) saw an unhandled crash instead of a refusal."""
+    signer = CardSigner(_KEY)
+    signed = signer.sign(_card())
+    reg = A2ARegistry(verifier=signer)
+    with pytest.raises(CardSignatureError):
+        reg.register(dataclasses.replace(signed, signature=container))  # type: ignore[arg-type]
+
+
+def test_the_non_str_refusal_is_the_type_guard_not_a_broken_signature() -> None:
+    """NON-VACUITY. The refusals above must come from the container TYPE, not from the values being
+    junk. Pinned three ways: (a) the raw dereference the guard now absorbs still raises; (b) a Card
+    whose signature is the VALID signature string still verifies True — the widening did not break
+    the happy path; (c) that same valid string, tampered by one character, still returns False —
+    the ordinary invalid-signature path is untouched."""
+    signer = CardSigner(_KEY)
+    signed = signer.sign(_card())
+    assert signed.signature is not None
+    # (a) the pre-fix behaviour: a non-str container has no `.encode` at all.
+    with pytest.raises(AttributeError, match="'dict' object has no attribute 'encode'"):
+        {"scheme": SIGNATURE_SCHEME}.encode("ascii")  # type: ignore[attr-defined]
+    # (b) the SAME signature value, in the right container (str), still verifies.
+    assert signer.verify(signed) is True
+    assert signer.verify(dataclasses.replace(signed, signature=str(signed.signature))) is True
+    # (c) and an ordinary tampered str signature is still a plain False, not an error.
+    assert signer.verify(dataclasses.replace(signed, signature=signed.signature[:-1] + "0")) is False
