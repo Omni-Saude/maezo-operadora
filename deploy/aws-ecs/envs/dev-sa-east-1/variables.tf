@@ -132,6 +132,37 @@ variable "cibseven_desired_count" {
   default     = 0
 }
 
+variable "agent_cpu" {
+  description = "CPU de cada agente. LLM e' I/O-bound (espera resposta de rede), nao CPU-bound."
+  type        = number
+  default     = 512
+}
+
+variable "agent_memory" {
+  description = "Memoria de cada agente em MB."
+  type        = number
+  default     = 1024
+}
+
+variable "inference_provider" {
+  description = <<-EOT
+    `bedrock` = chamada real ao modelo. Qualquer outro valor cai no stub do T1.7.
+    Provado ao vivo em 12/08/2026 no ambiente local.
+  EOT
+  type        = string
+  default     = "bedrock"
+}
+
+variable "bedrock_model_id" {
+  description = <<-EOT
+    Modelo da zona GERAL. O perfil `global.*` roteia entre regioes por desenho
+    (inference.py:485) — aceitavel aqui porque a zona geral nao ve dado de paciente,
+    e inaceitavel na zona PHI sem o DPA do endpoint BR-resident.
+  EOT
+  type        = string
+  default     = "global.anthropic.claude-opus-5"
+}
+
 variable "agent_runtime_mode" {
   description = <<-EOT
     `production` liga os gates fail-closed (checkpoint duravel, assinatura de Agent Card,

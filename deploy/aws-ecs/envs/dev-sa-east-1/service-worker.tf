@@ -52,7 +52,14 @@ resource "aws_ecs_task_definition" "worker" {
       { name = "PYTHONDONTWRITEBYTECODE", value = "1" },
     ])
 
-    secrets = local.db_secrets_maezo
+    secrets = concat(local.db_secrets_maezo, [
+      # A aresta de delegacao de dossie (worker -> Carolina/Andre) SO' e' composta
+      # com esta chave. Sem ela o runtime recusa montar o dispatcher e loga
+      # `dossier_delegation_ready=False` — foi exatamente o que a primeira subida
+      # mostrou, e e' o gate do ADR-0039 funcionando, nao um defeito.
+      { name = "MAEZO_A2A_CARD_SIGNING_KEY__${upper(var.tenant_id)}", valueFrom = "${aws_secretsmanager_secret.a2a_card_signing_key.arn}:key::" },
+      { name = "PHI_HMAC_KEY", valueFrom = "${aws_secretsmanager_secret.phi_hmac_key.arn}:key::" },
+    ])
 
     readonlyRootFilesystem = true
 

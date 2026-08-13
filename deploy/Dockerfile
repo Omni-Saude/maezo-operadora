@@ -121,6 +121,17 @@ COPY --chown=maezo:maezo alembic.ini ./
 # imagem, então "qual versão do BPMN está no engine" tem resposta auditável.
 COPY --chown=maezo:maezo spec/processes /opt/maezo/spec/processes
 
+# Definições de agente (L0). Mesmo endereço, mesma razão de estar fora de /app.
+#
+# O agent-runtime as consome por `AGENT_DEFINITION_PATH`, apontado por task
+# definition para o arquivo do agente daquele service. É o L0 base: NÃO existe
+# overlay de tenant em `spec/agents/`, e o `provision_tenant.py` /
+# `agent_def_merge` que o chart citava como produtores da "definição efetiva"
+# nunca existiram no código (verificado em 13/08/2026). Quando um overlay real
+# aparecer, um passo de merge entra antes do deploy e escreve neste mesmo caminho
+# — a task definition não muda.
+COPY --chown=maezo:maezo spec/agents /opt/maezo/spec/agents
+
 USER 1000
 
 # Portas expostas:
