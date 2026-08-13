@@ -376,9 +376,10 @@ class EnvelopeVerifier:
         (`False`), never an exception to the caller — the contract this class's docstring states and
         `DelegationDispatcher._verify_or_reject` re-promises ("never raised to the caller"). That
         matters because a forged envelope must be a `SIGNATURE_INVALID` rejection, not an unhandled
-        crash: an attacker-reachable error-path divergence is itself an attack surface. `signed_at`
-        and `key_id` get NAMED, legible guards; the canonicalization step is guarded as a family.
-        Nothing is loosened to achieve it — every malformed case REJECTS.
+        crash: an attacker-reachable error-path divergence is itself an attack surface. The
+        `signature` CONTAINER's own type, `signed_at` and `key_id` get NAMED, legible guards; the
+        canonicalization step is guarded as a family. Nothing is loosened to achieve it — every
+        malformed case REJECTS.
 
         `now` is the caller's TRUSTED clock, not wire data (the dispatcher passes `None` and this
         method stamps tz-aware UTC). A tz-aware `now` is therefore a caller precondition rather than
@@ -388,6 +389,16 @@ class EnvelopeVerifier:
         sig = envelope.signature
         if sig is None:
             return False  # unsigned -> fail-closed
+        if not isinstance(sig, EnvelopeSignature):
+            # TOTALITY over the signature SLOT'S OWN TYPE. Every guard below hardens an INNER field
+            # (`key_id`, `signed_at`, `mac`, the digest family) but they all dereference `sig`
+            # first, so the CONTAINER needs the same treatment: `DelegationEnvelope.signature` is
+            # typed `EnvelopeSignature | None` and validated nowhere, so a deserializer that
+            # rebuilds an envelope off the wire drops whatever the payload held into this slot — a
+            # dict, a str, an int. Each used to make `sig.scheme` raise `AttributeError` out of
+            # `verify` AND out of `dispatcher.delegate`, breaking both never-raises contracts.
+            # A signature that is not an `EnvelopeSignature` is not a signature: REFUSE.
+            return False
         if sig.scheme != self._scheme:
             return False  # §4.2 scheme binding (alg-downgrade defense)
         if not isinstance(sig.key_id, str):

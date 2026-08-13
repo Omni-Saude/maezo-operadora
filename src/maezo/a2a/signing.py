@@ -96,13 +96,21 @@ class CardSigner:
         otherwise escape a caller catching only `CardSignatureError`). Comparison is constant-time
         (`hmac.compare_digest`) to avoid leaking timing information. Never raises — the caller
         (registry/dispatcher) decides the rejection policy.
+
+        That never-raises promise is TOTAL over the signature slot's own TYPE, not just its
+        encoding. `AgentCard.signature` is typed `str | None` and validated nowhere, so a card
+        rebuilt off a wire can carry a dict/int/list/bool there — none of which has `.encode`, which
+        used to raise `AttributeError` straight out of this method and out of
+        `A2ARegistry.register`'s documented `CardSignatureError` contract. A non-str signature is
+        definitionally not a valid signature, so it REFUSES (no coercion, no `str()` of the
+        container). Mirrors the envelope surface's `mac` guard in `envelope_signing.verify`.
         """
         if card.signature is None:
             return False
         try:
             provided = card.signature.encode("ascii")
-        except UnicodeEncodeError:
-            return False
+        except (UnicodeEncodeError, AttributeError):
+            return False  # a non-ASCII / non-str signature is definitionally not a valid signature
         return hmac.compare_digest(provided, self._digest(card).encode("ascii"))
 
     def require_valid(self, card: AgentCard) -> AgentCard:

@@ -890,6 +890,84 @@ def test_the_signer_refuses_to_stamp_a_naive_signed_at() -> None:
     assert stamped is not None and stamped.signed_at.tzinfo is not None
 
 
+#: What a JSON deserializer drops into the `signature` slot when it rebuilds an envelope off the
+#: wire. `DelegationEnvelope.signature` is typed `EnvelopeSignature | None` and validated nowhere
+#: (`delegation.py.__post_init__` checks task_id/tenant/max_hops/deadline/payload_ref, not this), so
+#: every one of these is reachable without a single type violation in production code.
+_NON_SIGNATURE_CONTAINERS: tuple[tuple[str, object], ...] = (
+    (
+        "dict",
+        {
+            "scheme": ENVELOPE_SIGNATURE_SCHEME,
+            "key_id": "kid",
+            "replay_epoch": 0,
+            "signed_at": "2026-08-12T12:00:00+00:00",
+            "mac": "deadbeef",
+        },
+    ),
+    ("str", f"{ENVELOPE_SIGNATURE_SCHEME}:deadbeef"),
+    ("int", 12345),
+    ("list", [ENVELOPE_SIGNATURE_SCHEME, "deadbeef"]),
+    ("bool", True),
+)
+
+
+@pytest.mark.parametrize(("label", "container"), _NON_SIGNATURE_CONTAINERS)
+def test_a_non_envelope_signature_container_is_refused_not_raised(label: str, container: object) -> None:
+    """TOTALITY over the signature SLOT'S OWN TYPE (post-merge audit finding).
+
+    The guards above all harden an INNER field (`key_id`, `signed_at`, `mac`, the digest family) —
+    but every one of them dereferences `sig` first. The CONTAINER itself went unguarded, so a
+    `signature` holding a dict/str/int/list/bool made `sig.scheme` raise `AttributeError` straight
+    out of `verify`, breaking the same never-raises contract the rest of §9 restored. A signature
+    that is not an `EnvelopeSignature` is not a signature: it REFUSES."""
+    forged = replace(_signed(), signature=container)  # type: ignore[arg-type]
+    assert _verifier().verify(forged, now=_NOW + timedelta(minutes=1)) is False, label
+
+
+@pytest.mark.parametrize(("label", "container"), _NON_SIGNATURE_CONTAINERS[:3])
+async def test_a_non_envelope_signature_container_is_signature_invalid_not_a_dispatcher_crash(
+    label: str, container: object
+) -> None:
+    """The blast radius that matters, same as the naive-`signed_at` half: the `AttributeError` did
+    not stay inside `verify` — it escaped `dispatcher.delegate` to the caller, so a wire-mangled
+    envelope was a crash rather than a rejection. It is now a structured `SIGNATURE_INVALID`, and
+    the handler never runs."""
+    forged = replace(_signed(), signature=container)  # type: ignore[arg-type]
+    handler = FakeAgentHandler()
+    dispatcher, _, _ = build_test_dispatcher(
+        cards=[make_card("rafael")], handlers={"rafael": handler}, envelope_verifier=_verifier()
+    )
+    result = await dispatcher.delegate(forged)
+    assert result.success is False, label
+    assert result.rejection_reason is RejectionReason.SIGNATURE_INVALID, label
+    assert handler.call_count == 0, label
+
+
+def test_the_signature_container_guard_is_what_refuses_not_a_downstream_gate() -> None:
+    """NON-VACUITY. Each refusal above must come from the CONTAINER guard, not from some later gate
+    that happens to reject anyway. Pinned two ways: (a) the raw dereference the guard short-circuits
+    still raises, so the `False` is the guard doing work; (b) a REAL `EnvelopeSignature` carrying the
+    very same field values verifies True through the same verifier — so the container type is the
+    only difference between acceptance and refusal."""
+    signed = _signed()
+    assert signed.signature is not None
+    as_dict = {
+        "scheme": signed.signature.scheme,
+        "key_id": signed.signature.key_id,
+        "replay_epoch": signed.signature.replay_epoch,
+        "signed_at": signed.signature.signed_at,
+        "mac": signed.signature.mac,
+    }
+    # (a) the pre-fix behaviour: dereferencing the dict as if it were a signature still raises.
+    with pytest.raises(AttributeError, match="'dict' object has no attribute 'scheme'"):
+        _ = as_dict.scheme  # type: ignore[attr-defined]
+    assert _verifier().verify(replace(signed, signature=as_dict), now=_NOW) is False  # type: ignore[arg-type]
+    # (b) the identical content in the RIGHT container verifies — the refusal is the type, not the
+    # values, and the guard has not broken the happy path.
+    assert _verifier().verify(replace(signed, signature=EnvelopeSignature(**as_dict)), now=_NOW) is True
+
+
 # ---------------------------------------------------------------------------
 # 10. The re-scoped reference oracle — differential conformance against the real digest
 # ---------------------------------------------------------------------------
