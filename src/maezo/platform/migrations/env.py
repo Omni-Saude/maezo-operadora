@@ -88,7 +88,29 @@ SEARCH_PATH: tuple[str, ...] = tuple(dict.fromkeys((TENANT_ID, "public")))  # de
 # O driver TEM de ser assincrono (`+asyncpg`): `run_async_migrations` usa
 # `async_engine_from_config`. Uma URL `+psycopg` falha com "The asyncio extension
 # requires an async driver".
+#
+# Por isso o esquema e' NORMALIZADO aqui, e nao confiado ao produtor: o unico
+# produtor in-repo de ALEMBIC_DATABASE_URL (deploy/helm/maezo-tenant/templates/
+# job-migrations.yaml:100) faz `sed 's/+asyncpg//'` sobre DATABASE_URL — ou seja,
+# entrega exatamente o DSN SINCRONO que este arquivo nao aceita (o helper
+# `runtime.checkpoint.normalize_conn_string` que o comentario do chart cita nunca
+# existiu). Sem a normalizacao, o caminho Helm trocaria o `gaierror` antigo por
+# "The asyncio extension requires an async driver". So variantes postgresql* sao
+# reescritas; qualquer outro esquema passa intacto e falha ALTO adiante, em vez de
+# ser reescrito em silencio.
+
+
+def _force_asyncpg_scheme(url: str) -> str:
+    """`postgresql://` ou `postgresql+<driver>://` -> `postgresql+asyncpg://`."""
+    prefix, sep, rest = url.partition("://")
+    if sep and (prefix == "postgresql" or prefix.startswith("postgresql+")):
+        return f"postgresql+asyncpg://{rest}"
+    return url
+
+
 _ENV_DB_URL: str | None = os.environ.get("ALEMBIC_DATABASE_URL") or os.environ.get("DATABASE_URL")
+if _ENV_DB_URL:
+    _ENV_DB_URL = _force_asyncpg_scheme(_ENV_DB_URL)
 
 
 def _config_section_with_url() -> dict[str, str]:
