@@ -9,7 +9,10 @@ Three layers, mirroring `test_check_start_process_fence.py`:
    commit's CODEOWNERS is read is itself under test (that is the un-own-yourself hole).
 3. **Real-tree** tests parse this repo's actual `.github/CODEOWNERS` and assert the parser covers
    every pattern shape it really contains — a passing gate must not be passing because it silently
-   understood nothing.
+   understood nothing. They DERIVE the owner they approve as from the parsed file (so a CODEOWNERS
+   audit that renames the owner cannot silently hollow them out) and separately PIN the file's
+   user-owner roster against hardcoded literals (so derivation cannot hollow itself out). Read the
+   header of section 4 before adding one.
 """
 
 from __future__ import annotations
@@ -40,7 +43,17 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 _REAL_CODEOWNERS = _REPO_ROOT / ".github" / "CODEOWNERS"
 
 AUTHOR = "flip-author"
-OWNER_USER = "rodrigotaquino"
+#: The login used by the SYNTHETIC fixtures below. It is the repo's real owner account
+#: (`rodaquino-OMNI`) rather than an invented string so the fixtures keep the same shape as the real
+#: file — including the mixed case, which is the interesting part for the case-insensitivity rules.
+#:
+#: PROVENANCE (2026-08-13 CODEOWNERS audit, sibling branch `codeowners-audit`): this constant used
+#: to read `rodrigotaquino`, a handle that DOES NOT EXIST as a GitHub account (GET /users → 404 with
+#: a full-scope token). The audit replaced it throughout `.github/CODEOWNERS` with `rodaquino-OMNI`,
+#: the real account of the same human. The REAL-TREE tests below must NOT hardcode this constant —
+#: they derive the expected owner from the parsed file (see `real_user_owners_of`) and pin the
+#: file's user-owner ROSTER separately (see `_EXPECTED_FLIP_PATH_OWNER`).
+OWNER_USER = "rodaquino-OMNI"
 OTHER_OWNER = "second-owner"
 OUTSIDER = "random-contributor"
 
@@ -48,15 +61,15 @@ OUTSIDER = "random-contributor"
 #: plus a second, disjointly-owned area so the per-path-coverage semantics can be exercised.
 FIXTURE_CODEOWNERS = f"""\
 # comment line, ignored
-/spec/policies/autonomy/  @{OWNER_USER} @Omni-Saude/security
-/spec/policies/autonomy/action-approvals.yaml  @{OWNER_USER} @Omni-Saude/security
+/spec/policies/autonomy/  @{OWNER_USER} @Omni-Saude/security-team
+/spec/policies/autonomy/action-approvals.yaml  @{OWNER_USER} @Omni-Saude/security-team
 /docs/adr/  @{OWNER_USER}
 /src/other/  @{OTHER_OWNER}
 """
 
 #: Team-only ownership: no explicit user owner at all, so the ONLY route to green is a verified
 #: active team member.
-TEAM_ONLY_CODEOWNERS = "/spec/policies/autonomy/  @Omni-Saude/security\n"
+TEAM_ONLY_CODEOWNERS = "/spec/policies/autonomy/  @Omni-Saude/security-team\n"
 
 
 def all_unverifiable(org: str, team: str, login: str) -> MembershipState:
@@ -175,7 +188,7 @@ def test_team_owned_path_with_unverifiable_membership_is_red_and_names_the_opaci
     assert not decision.ok
     rendered = decision.render()
     assert "UNVERIFIABLE" in rendered
-    assert "@Omni-Saude/security" in rendered
+    assert "@Omni-Saude/security-team" in rendered
     assert "OPACITY NOTE" in rendered
     # the documented manual override must be stated
     assert "explicit @user owner" in rendered or "explicit user owner" in rendered
@@ -295,6 +308,65 @@ def test_commented_and_pending_reviews_never_count_as_approval() -> None:
     assert not decision.ok
 
 
+# ---- N10: COMMENTED never SUPERSEDES a standing review, in EITHER direction --------------------
+#
+# `test_commented_and_pending_reviews_never_count_as_approval` proves COMMENTED cannot CREATE an
+# approval. It does not prove COMMENTED cannot DESTROY one, nor that it cannot CLEAR an objection —
+# and those are the two directions that matter, because "reviewer left a comment after reviewing" is
+# the single most common thing that happens on a real PR. Adding "COMMENTED" to `_STANDING_STATES`
+# (a one-token change that looks like a completeness fix) flips both of these; nothing else notices.
+
+
+def test_a_later_comment_does_not_clear_an_owners_standing_changes_requested() -> None:
+    """Direction 1 — the objection survives. RED, and RED *for the objection*, not for absence."""
+    decision = run(
+        codeowners=f"/spec/policies/autonomy/  @{OWNER_USER} @{OTHER_OWNER}\n",
+        changed=("spec/policies/autonomy/matrix.yaml",),
+        reviews=(
+            Review(OWNER_USER, "CHANGES_REQUESTED", "2026-08-13T10:00:00Z", 1),
+            Review(OWNER_USER, "COMMENTED", "2026-08-13T11:00:00Z", 2),  # "ok, replying to your note"
+            approval(OTHER_OWNER, when="2026-08-13T12:00:00Z", review_id=3),
+        ),
+    )
+    assert not decision.ok, decision.render()
+    assert "has requested changes" in decision.headline, (
+        "the objection must still be the REASON — if this now reds merely for 'lacks approval', the "
+        "comment silently downgraded a live CHANGES_REQUESTED into nothing"
+    )
+    # Directly at the reduction, so the pin does not depend on `decide`'s wording:
+    latest = standing_reviews(
+        [
+            Review(OWNER_USER, "CHANGES_REQUESTED", "2026-08-13T10:00:00Z", 1),
+            Review(OWNER_USER, "COMMENTED", "2026-08-13T11:00:00Z", 2),
+        ]
+    )
+    assert latest[OWNER_USER.lower()].state == "CHANGES_REQUESTED"
+
+
+def test_a_later_comment_does_not_revoke_an_owners_standing_approval() -> None:
+    """Direction 2 — the approval survives. GREEN stays GREEN."""
+    decision = run(
+        changed=("spec/policies/autonomy/matrix.yaml",),
+        reviews=(
+            approval(OWNER_USER, when="2026-08-13T10:00:00Z", review_id=1),
+            Review(OWNER_USER, "COMMENTED", "2026-08-13T11:00:00Z", 2),  # "one nit, non-blocking"
+        ),
+    )
+    assert decision.ok, decision.render()
+    latest = standing_reviews(
+        [
+            approval(OWNER_USER, when="2026-08-13T10:00:00Z", review_id=1),
+            Review(OWNER_USER, "COMMENTED", "2026-08-13T11:00:00Z", 2),
+        ]
+    )
+    assert latest[OWNER_USER.lower()].state == "APPROVED"
+
+
+def test_the_standing_state_set_is_exactly_the_three_that_decide_anything() -> None:
+    """The membership pin, stated once: COMMENTED and PENDING are OUTSIDE the set by design."""
+    assert sorted(gate._STANDING_STATES) == ["APPROVED", "CHANGES_REQUESTED", "DISMISSED"]
+
+
 def test_standing_reviews_keeps_only_the_latest_per_reviewer() -> None:
     latest = standing_reviews(
         [
@@ -358,7 +430,7 @@ def test_changes_requested_superseded_by_later_approval_from_same_reviewer_is_gr
 def test_changes_requested_from_a_possible_team_owner_blocks_when_membership_is_opaque() -> None:
     """Both directions of 'we cannot verify' resolve toward RED — documented in Decision 2."""
     decision = run(
-        codeowners=f"/spec/policies/autonomy/  @{OWNER_USER} @Omni-Saude/security\n",
+        codeowners=f"/spec/policies/autonomy/  @{OWNER_USER} @Omni-Saude/security-team\n",
         changed=("spec/policies/autonomy/matrix.yaml",),
         reviews=(
             approval(OWNER_USER),
@@ -503,7 +575,7 @@ def test_unrecognized_pattern_shape_is_a_hard_parse_error(pattern: str) -> None:
 
 def test_unrecognized_pattern_reddens_the_whole_decision_not_just_that_line() -> None:
     decision = run(
-        codeowners="/spec/policies/autonomy/  @rodrigotaquino\n/spec/[abc]/x.yaml  @someone\n",
+        codeowners=f"/spec/policies/autonomy/  @{OWNER_USER}\n/spec/[abc]/x.yaml  @someone\n",
         changed=("README.md",),  # would otherwise be an instant green
         reviews=(),
     )
@@ -513,7 +585,7 @@ def test_unrecognized_pattern_reddens_the_whole_decision_not_just_that_line() ->
     assert "fail-closed" in rendered
 
 
-@pytest.mark.parametrize("token", ["rodrigotaquino", "@", "@/team", "@@x", "not-an-owner"])
+@pytest.mark.parametrize("token", ["bare-login-with-no-at", "@", "@/team", "@@x", "not-an-owner"])
 def test_unrecognized_owner_token_is_a_hard_parse_error(token: str) -> None:
     with pytest.raises(CodeownersParseError):
         parse_codeowners(f"/spec/x.yaml  {token}\n")
@@ -689,6 +761,104 @@ def test_missing_codeowners_at_base_is_red_never_green() -> None:
         resolve_codeowners(api.file_at, BASE_SHA)
 
 
+# ---- the base-fetch FAILURE path: RED, never a fallback to HEAD --------------------------------
+#
+# `test_codeowners_is_read_from_base_not_head` and `test_pr_cannot_unown_itself_...` pin what happens
+# when the base fetch SUCCEEDS. They say nothing about what happens when it FAILS — and the tempting
+# repair for a flaky contents API ("couldn't read the base, try the head") is precisely Decision 1
+# inverted: it hands every PR a way to un-own its own payload by making the base read fail. Nothing
+# was pinning it: a faithful `except -> resolve at head` fallback inserted into `resolve_codeowners`
+# left all 87 tests green. These three do the pinning.
+
+
+class FailingBaseFetchAPI(FakeAPI):
+    """Base-commit reads blow up the way a real HTTP 500 does. EVERY OTHER REF ANSWERS PERMISSIVELY.
+
+    Ref-agnostic on the fallback side on purpose: a retry could be written against `HEAD_SHA`, the
+    literal string `"HEAD"`, the base BRANCH name, or `main`, and all four are the same bug. Serving
+    a CODEOWNERS that owns NOTHING to anything-but-the-base means ANY of them computes "no owned path
+    touched" and goes GREEN — so the tests below fail loudly instead of passing because the neuter
+    happened to name a ref the fixture did not stock.
+    """
+
+    def file_at(self, ref: str, path: str) -> str | None:
+        self.refs_asked.append(ref)
+        if ref == BASE_SHA:
+            raise GateError(
+                f"GET contents/{path}@{ref} returned HTTP 500 — cannot read the base commit's "
+                "CODEOWNERS, so the gate cannot prove which paths are owned. Fail-closed."
+            )
+        return HEAD_CODEOWNERS if path == ".github/CODEOWNERS" else None
+
+
+def _failing_base_api() -> FailingBaseFetchAPI:
+    return FailingBaseFetchAPI(
+        files_by_ref={},
+        changed=["spec/policies/autonomy/matrix.yaml"],
+        reviews=[],
+    )
+
+
+def test_a_failed_base_codeowners_fetch_propagates_and_never_falls_back_to_head() -> None:
+    """The unit-level pin: the error escapes `resolve_codeowners`, and no other ref is consulted."""
+    api = _failing_base_api()
+    with pytest.raises(GateError, match="cannot read the base commit's CODEOWNERS"):
+        resolve_codeowners(api.file_at, BASE_SHA)
+    assert api.refs_asked == [BASE_SHA], (
+        f"the gate consulted {api.refs_asked} — a base-fetch failure must NOT be retried at the head "
+        "ref (or any other), because reading the head is exactly the un-own-yourself hole Decision 1 "
+        "closes."
+    )
+
+
+def test_main_is_red_end_to_end_when_the_base_codeowners_fetch_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The end-to-end pin: HTTP 500 on the base read exits 1, and NO other ref is ever consulted.
+
+    Non-vacuity is proved in-test: the very content served to every other ref WOULD be green.
+    """
+    api = _failing_base_api()
+    monkeypatch.setattr(gate, "GitHubAPI", lambda **kwargs: api)
+    monkeypatch.setenv("GITHUB_TOKEN", "fake-token")
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+
+    assert gate.main(["--event-path", str(write_event(tmp_path))]) == 1
+    assert api.refs_asked == [BASE_SHA], (
+        f"the gate consulted {api.refs_asked} — falling back to ANY other ref after a failed base "
+        "read is a silent-green bypass, whatever that ref is called."
+    )
+
+    would_be_green = decide(
+        codeowners_text=HEAD_CODEOWNERS,
+        codeowners_source="head",
+        changed_paths=["spec/policies/autonomy/matrix.yaml"],
+        reviews=[],
+        author_login=AUTHOR,
+        membership=nobody_is_a_member,
+    )
+    assert would_be_green.ok, "fixture proves nothing unless the head reading would have been green"
+
+
+def test_the_api_layer_turns_a_non_404_contents_response_into_a_gate_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Where that GateError comes from in production: only 404 means "absent"; 500/403 are RED.
+
+    Without this, `file_at` could start returning `None` on a server error and `resolve_codeowners`
+    would read it as "no CODEOWNERS here, try the next candidate" — a parse of the empty set of
+    rules, i.e. a silent green, reached without any fallback code being written at all.
+    """
+    api = gate.GitHubAPI(repo="o/r", token="t")
+    monkeypatch.setattr(api, "_request", lambda path: (404, None))
+    assert api.file_at(BASE_SHA, ".github/CODEOWNERS") is None  # absent is the ONLY None
+
+    for status in (403, 500, 502):
+        monkeypatch.setattr(api, "_request", lambda path, _s=status: (_s, None))
+        with pytest.raises(GateError, match="cannot read the base commit's CODEOWNERS"):
+            api.file_at(BASE_SHA, ".github/CODEOWNERS")
+
+
 def test_codeowners_location_precedence_matches_github() -> None:
     assert CODEOWNERS_CANDIDATE_PATHS == (".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS")
     api = FakeAPI(
@@ -752,7 +922,7 @@ def test_membership_status_classification(
     that cannot see the org at all. Only 200/`active` is membership."""
     api = gate.GitHubAPI(repo="o/r", token="t")
     monkeypatch.setattr(api, "_request", lambda path: (status, payload))
-    assert api.membership("Omni-Saude", "security", OUTSIDER) is expected
+    assert api.membership("Omni-Saude", "security-team", OUTSIDER) is expected
 
 
 def test_membership_transport_failure_is_unverifiable_not_a_crash(
@@ -763,7 +933,7 @@ def test_membership_transport_failure_is_unverifiable_not_a_crash(
 
     api = gate.GitHubAPI(repo="o/r", token="t")
     monkeypatch.setattr(api, "_request", boom)
-    assert api.membership("Omni-Saude", "security", OUTSIDER) is MembershipState.UNVERIFIABLE
+    assert api.membership("Omni-Saude", "security-team", OUTSIDER) is MembershipState.UNVERIFIABLE
 
 
 def test_changed_paths_include_a_renames_previous_filename(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -797,11 +967,119 @@ def test_api_list_endpoint_failure_is_red_not_an_empty_list(monkeypatch: pytest.
 
 # =============================================================================================
 # 4. Real-tree: the parser really does cover this repo's actual CODEOWNERS
+#
+# HOW THESE TESTS NAME OWNERS — read before adding one.
+# The satisfaction tests DERIVE the owner they approve as from the parse of the real file, so they
+# survive a CODEOWNERS audit that renames the owner (2026-08-13 is exactly such an audit: the
+# phantom `@rodrigotaquino` became the real `@rodaquino-OMNI`). Derivation alone is a known
+# anti-pattern though — a test whose expectation comes entirely from its own input cannot notice the
+# input losing all user owners, or gaining one nobody approved. So the derivation is PINNED by
+# `test_the_real_codeowners_user_owner_roster_is_one_of_the_pinned_sets`, which compares the file's
+# whole user-owner roster against hardcoded literal snapshots. Derive for behaviour, pin for
+# identity; neither alone is sufficient.
 # =============================================================================================
+
+#: The complete set of explicit USER owners the real `.github/CODEOWNERS` is allowed to declare,
+#: enumerated as literal snapshots with provenance. Exact-set (not subset) on purpose: an unexpected
+#: login appearing, the roster emptying, or a login being typo'd all have to fail here.
+#:
+#:   PRE-AUDIT  — the tree on THIS branch today. `rodrigotaquino` is the PHANTOM: GET /users returns
+#:                404 with a full-scope token, so under `require_code_owner_review` every line owned
+#:                only by it would have been an EMPTY gate.
+#:   POST-AUDIT — the 2026-08-13 CODEOWNERS audit (sibling branch, merges BEFORE this one).
+#:                `rodaquino-OMNI` is the real account of the same human; `lucasreisEvah` was added
+#:                to the three LGPD lines only (privacy + the two retention lines) as the DPO role
+#:                the ADR-0029 trail needs, and is the sole valid owner in the file who is not the
+#:                identity that authors the PRs.
+#:
+#: WHEN THE AUDIT HAS MERGED: delete the PRE-AUDIT snapshot. Leaving it is how a pin rots into a
+#: rubber stamp — it would let the phantom come back unnoticed.
+_PRE_AUDIT_USER_OWNERS = frozenset({"rodrigotaquino"})
+_POST_AUDIT_USER_OWNERS = frozenset({"rodaquino-OMNI", "lucasreisEvah"})
+
+#: Roster snapshot -> the literal login that must own the flip paths under it. Both sides hardcoded:
+#: WHICH account owns the ratification paths is a fact to be pinned, not derived from the file being
+#: checked. Delete the pre-audit row together with `_PRE_AUDIT_USER_OWNERS`.
+_EXPECTED_FLIP_PATH_OWNER: dict[frozenset[str], str] = {
+    _PRE_AUDIT_USER_OWNERS: "rodrigotaquino",
+    _POST_AUDIT_USER_OWNERS: "rodaquino-OMNI",
+}
+
+#: The paths whose ratification IS the enforcement flip Q-1 exists for.
+_FLIP_PATHS = (
+    "spec/policies/autonomy/action-approvals.yaml",
+    "spec/processes/dmn/auth-criteria-ratification.yaml",
+    "spec/processes/dmn/adequacao_gap.dmn",
+    "spec/policies/retention/erasure-plan.template.yaml",
+    "spec/policies/privacy/phi-business-key-remediation.yaml",
+    "spec/policies/ans/tiss-schema-pin.yaml",
+)
+
+
+def real_rules() -> tuple[gate.Rule, ...]:
+    return parse_codeowners(_REAL_CODEOWNERS.read_text(encoding="utf-8"))
+
+
+def real_user_owner_roster() -> frozenset[str]:
+    return frozenset(o.login for r in real_rules() for o in r.owners if o.kind is OwnerKind.USER and o.login)
+
+
+def real_user_owners_of(path: str) -> list[str]:
+    """Every explicit USER owner of `path`, DERIVED from the real file's winning rule.
+
+    Deriving rather than hardcoding is what lets these tests keep meaning something across a
+    CODEOWNERS audit that renames the owner. It asserts non-emptiness so "the file lost its user
+    owners" is a failure here too, not a silently-vacuous pass.
+    """
+    rule = owners_for_path(real_rules(), path)
+    assert rule is not None, f"{path} is not owned by the real CODEOWNERS"
+    logins = [o.login for o in rule.owners if o.kind is OwnerKind.USER and o.login]
+    assert logins, f"{path} has no explicit user owner in the real CODEOWNERS"
+    return logins
+
+
+def test_the_real_codeowners_user_owner_roster_is_one_of_the_pinned_sets() -> None:
+    """THE PIN behind the derivation (see the section header). Hardcoded literals on purpose.
+
+    EXACT-set, not subset: the roster emptying, gaining a login nobody approved, or a login being
+    typo'd all have to fail right here.
+    """
+    actual = real_user_owner_roster()
+    assert actual in _EXPECTED_FLIP_PATH_OWNER, (
+        f"the real CODEOWNERS declares user owners {sorted(actual)}, which is neither the pre-audit "
+        f"snapshot {sorted(_PRE_AUDIT_USER_OWNERS)} nor the post-audit one "
+        f"{sorted(_POST_AUDIT_USER_OWNERS)}. If this is a deliberate ownership change, update the "
+        "snapshot AND confirm the new handle actually resolves (GET /users/<login>) — an "
+        "unresolvable owner is an EMPTY gate under enforcement, which is the failure this pin exists "
+        "to catch."
+    )
+    assert actual, "the real CODEOWNERS has no explicit user owner at all — every line is team-only"
+
+
+def test_the_flip_paths_are_owned_by_the_pinned_literal_account() -> None:
+    """The identity assertion the derivation cannot make for itself.
+
+    Under the audited file this reads, literally: `@rodaquino-OMNI` — the account that actually
+    exists — owns every flip path. Under this branch's still-pre-audit tree it reads the same way
+    about the phantom it replaces, so the suite is honest on both sides of the merge instead of
+    green-by-omission on one of them.
+    """
+    roster = real_user_owner_roster()
+    expected = _EXPECTED_FLIP_PATH_OWNER.get(roster)
+    assert expected is not None, (
+        f"unpinned user-owner roster {sorted(roster)} — see the failure message on "
+        "test_the_real_codeowners_user_owner_roster_is_one_of_the_pinned_sets, which explains what "
+        "to check before updating the snapshot."
+    )
+    for path in _FLIP_PATHS:
+        assert expected in real_user_owners_of(path), (
+            f"{path} is not owned by @{expected} — the flip paths must all be owned by the one "
+            "account the pinned roster names."
+        )
 
 
 def test_the_real_codeowners_file_parses_completely() -> None:
-    rules = parse_codeowners(_REAL_CODEOWNERS.read_text(encoding="utf-8"))
+    rules = real_rules()
     assert len(rules) >= 20, "parser found suspiciously few rules — is it silently skipping lines?"
     assert all(rule.owners for rule in rules), "every real line declares at least one owner"
 
@@ -809,7 +1087,7 @@ def test_the_real_codeowners_file_parses_completely() -> None:
 def test_the_real_codeowners_pattern_shapes_are_all_covered() -> None:
     """Non-vacuity: enumerate the shapes actually present, so a new shape shows up as a failure here
     rather than as a mysteriously-passing gate."""
-    rules = parse_codeowners(_REAL_CODEOWNERS.read_text(encoding="utf-8"))
+    rules = real_rules()
     shapes = {
         ("rooted-dir" if r.pattern.endswith("/") else "rooted-file")
         if r.pattern.startswith("/")
@@ -825,35 +1103,36 @@ def test_the_real_codeowners_pattern_shapes_are_all_covered() -> None:
 
 def test_the_real_codeowners_owns_the_known_flip_paths() -> None:
     """Spot-check the paths whose ratification IS the enforcement flip Q-1 is about."""
-    rules = parse_codeowners(_REAL_CODEOWNERS.read_text(encoding="utf-8"))
-    for path in (
-        "spec/policies/autonomy/action-approvals.yaml",
-        "spec/processes/dmn/auth-criteria-ratification.yaml",
-        "spec/processes/dmn/adequacao_gap.dmn",
-        "spec/policies/retention/erasure-plan.template.yaml",
-        "spec/policies/privacy/phi-business-key-remediation.yaml",
-        "spec/policies/ans/tiss-schema-pin.yaml",
-    ):
+    rules = real_rules()
+    for path in _FLIP_PATHS:
         rule = owners_for_path(rules, path)
         assert rule is not None, f"{path} is not owned by the real CODEOWNERS"
         assert any(o.kind is OwnerKind.USER for o in rule.owners), f"{path} has no explicit user owner"
 
 
 def test_a_real_flip_pr_shape_is_red_without_review_and_green_with_the_owner() -> None:
-    """The end-to-end scenario the gate exists for, against the REAL ownership rules."""
+    """The end-to-end scenario the gate exists for, against the REAL ownership rules.
+
+    The approver is DERIVED from the real file (see the section header) so a CODEOWNERS audit that
+    renames the owner cannot silently turn this into a test of nothing — under the pre-audit file it
+    approves as the phantom, under the audited one as `@rodaquino-OMNI`, and it means the same thing
+    in both. Which login that is, is pinned by
+    `test_the_flip_paths_are_owned_by_the_pinned_literal_account`.
+    """
     real = _REAL_CODEOWNERS.read_text(encoding="utf-8")
     flip_paths = (
         "spec/processes/dmn/adequacao-gap-shadow-candidate.yaml",
         "spec/processes/dmn/adequacao_gap.dmn",
     )
+    owner = real_user_owners_of(flip_paths[1])[0]
+    assert real_user_owners_of(flip_paths[0])[0] == owner, "fixture assumes both halves share an owner"
+
     red = run(codeowners=real, changed=flip_paths, reviews=())
     assert not red.ok
 
-    green = run(codeowners=real, changed=flip_paths, reviews=(approval(OWNER_USER),))
+    green = run(codeowners=real, changed=flip_paths, reviews=(approval(owner),))
     assert green.ok, green.render()
 
-    self_approved = run(
-        codeowners=real, changed=flip_paths, reviews=(approval(OWNER_USER),), author=OWNER_USER
-    )
+    self_approved = run(codeowners=real, changed=flip_paths, reviews=(approval(owner),), author=owner)
     assert not self_approved.ok, "the sole user owner must not be able to self-approve his own flip"
     assert "NO self-service route to green" in self_approved.render()

@@ -29,13 +29,21 @@ could delete (or narrow) the very lines that own the files it edits and thereby 
 same commit — the gate would compute "0 owned paths touched" and wave the flip through. Reading the
 BASE commit's CODEOWNERS means the rules that govern a PR are the rules that were already reviewed
 and merged. A PR that edits CODEOWNERS is still governed by the OLD file, which owns
-`.github/CODEOWNERS`... only if the old file says so. (It currently does NOT — see FINDINGS at the
-bottom of this docstring; that is a CODEOWNERS content gap, not a gate gap, and this gate is the
-thing that makes closing it effective.) `pull_request.base.sha` is used rather than the base branch
-NAME so a base branch that moves mid-run cannot change the answer underneath us.
+`.github/CODEOWNERS`... only if the old file says so — and as of the 2026-08-13 CODEOWNERS audit it
+DOES (`/.github/CODEOWNERS` owns itself, alongside `/.github/workflows/`, `/scripts/ci/` and
+`/Makefile`). The two mechanisms are complementary, not redundant: the base-ref rule stops a PR from
+un-owning its own payload, and the self-ownership line stops a CODEOWNERS-only PR from un-owning the
+NEXT one. `pull_request.base.sha` is used rather than the base branch NAME so a base branch that
+moves mid-run cannot change the answer underneath us.
 
-Tested by `test_codeowners_is_read_from_base_not_head` and
-`test_pr_cannot_unown_itself_by_deleting_codeowners_lines_in_its_own_head`.
+There is NO fallback if the base read fails. An unreadable base CODEOWNERS is RED, never "try the
+head": resolving at the head is Decision 1 inverted, and it would hand every PR an un-own-yourself
+route via a failed fetch.
+
+Tested by `test_codeowners_is_read_from_base_not_head`,
+`test_pr_cannot_unown_itself_by_deleting_codeowners_lines_in_its_own_head`,
+`test_a_failed_base_codeowners_fetch_propagates_and_never_falls_back_to_head` and
+`test_main_is_red_end_to_end_when_the_base_codeowners_fetch_fails`.
 
 DESIGN DECISION 2 — CHANGES_REQUESTED FROM AN OWNER OF A TOUCHED OWNED PATH ⇒ RED
 --------------------------------------------------------------------------------
@@ -75,10 +83,12 @@ DESIGN DECISION 3 — PER-PATH COVERAGE IS THE DEFAULT, NOT "ONE REVIEWER OWNS E
 Green requires that EVERY touched owned path is covered by at least one qualified approval; different
 owners may cover different paths, which is GitHub's own semantics (same argument as reason 1 above:
 a fallback that is stricter than the native knob invents false REDs that the native knob will never
-explain to the person staring at them). It is also not weaker HERE: `@rodrigotaquino` is currently an
-owner of every single owned path in this repo's CODEOWNERS, so "one reviewer owns all touched paths"
-and "each touched path is covered" select the identical set of PRs today. The two readings can only
-diverge once the file grows a disjointly-owned area.
+explain to the person staring at them). It is also not weaker HERE: `@rodaquino-OMNI` is an owner of
+every single owned path in this repo's CODEOWNERS, so "one reviewer owns all touched paths" and
+"each touched path is covered" select the identical set of PRs today. (The 2026-08-13 audit added
+`@lucasreisEvah` to the three LGPD lines, but as an ADDITIONAL owner — it widens who can unblock
+those lines, it does not create an area `@rodaquino-OMNI` fails to cover.) The two readings can only
+diverge once the file grows a genuinely disjointly-owned area.
 
 For the stricter reading, `--require-single-reviewer-covers-all` demands that ONE reviewer satisfy
 every touched owned path. It is off by default and is a flag rather than a rewrite precisely so the
@@ -150,20 +160,37 @@ static check that CI can run unattended, and this gate is neither (it needs a li
 token). A `flip-path-review-check` target would have to be the one target that cannot be run the way
 all the others are, which is worse than no target.
 
-FINDINGS for whoever audits `.github/CODEOWNERS` next (recorded here, deliberately not acted on —
-editing that file is another agent's lane):
-  1. `.github/CODEOWNERS` does not own ITSELF, and neither does `.github/workflows/`. With this gate
-     merged and required, the base-ref rule (Decision 1) stops a PR from un-owning its own payload,
-     but nothing stops a PR that ONLY edits CODEOWNERS (touching no currently-owned path) from
-     sailing through unreviewed and un-owning the payload for the NEXT PR. Owning
-     `/.github/` closes that; the base-ref rule and that line are complementary, not redundant.
-  2. `@rodrigotaquino` is the sole explicit USER owner of every owned path. If he authors a flip PR,
-     rule (c) means no self-approval path exists and green is reachable only via a verified active
-     member of `@Omni-Saude/security`. The gate names this case explicitly in its RED output rather
-     than leaving the author staring at an unexplainable red check.
-  3. The only pattern shapes present in the file today are rooted-directory (`/spec/policies/ans/`)
-     and rooted-exact-file (`/spec/processes/dmn/adequacao_gap.dmn`). No wildcards at all. The parser
-     supports more than that on purpose (reasonable evolutions), and REDs on anything beyond it.
+STATE OF `.github/CODEOWNERS` (post-audit, 2026-08-13). The three findings this file originally
+recorded as open were all acted on by the CODEOWNERS audit that lands before this gate; kept here,
+updated, because they are the facts that determine what this gate actually buys:
+  1. CLOSED — the gate apparatus now owns itself. `/.github/CODEOWNERS`, `/.github/workflows/`,
+     `/scripts/ci/` and `/Makefile` are owned, so a PR that ONLY edits CODEOWNERS (touching no
+     content path) can no longer sail through unreviewed and un-own the payload for the NEXT PR.
+     Deliberately NOT owned, and recorded as such in that file: `/pyproject.toml` — a third
+     suppression surface (ruff `select`, mypy `strict`), left out because it is this repo's
+     dependency-bump file and gating it would flood the reviewer. Its compensating control (a
+     config-pin test) is queued, not built.
+  2. CLOSED, WITH THE REAL BLOCKER NOW VISIBLE — the phantom is gone. The file used to name
+     `@rodrigotaquino`, which is not a GitHub account at all (GET /users → 404 with a full-scope
+     token), so under `require_code_owner_review` every one of its lines would have been an EMPTY
+     gate: the appearance of human ratification without the ratification. It now names
+     `@rodaquino-OMNI`, the real account, plus `@Omni-Saude/security-team` (the real team handle;
+     `@Omni-Saude/security` never existed either).
+     WHAT REMAINS IS NOT A FILE PROBLEM, and no edit to CODEOWNERS can fix it:
+       - `@rodaquino-OMNI` is the identity that AUTHORS the ratification PRs, and rule (c) forbids
+         self-approval — so on those PRs the user-owner route to green does not exist;
+       - `@Omni-Saude/security-team` has no access to this repo, and all 15 org teams have exactly
+         one member, who is `@rodaquino-OMNI` — so the team route is unstaffed as well as invisible
+         to the token. Team membership the token cannot read is UNVERIFIABLE ⇒ RED here, by design.
+     Net: until the owner grants that team write access AND puts a second human in it, most lines
+     are approvable only in principle. `@lucasreisEvah` (Legal/Compliance, write access) is on the
+     three LGPD lines and is the one owner today who is not the PR author — those lines are the
+     exception, pending the owner confirming the role. The gate names this case explicitly in its
+     RED output rather than leaving the author staring at an unexplainable red check.
+  3. UNCHANGED — the only pattern shapes present are rooted-directory (`/spec/policies/ans/`,
+     `/scripts/ci/`) and rooted-exact-file (`/spec/processes/dmn/adequacao_gap.dmn`, `/Makefile`).
+     No wildcards at all, before or after the audit. The parser supports more than that on purpose
+     (reasonable evolutions), and REDs on anything beyond it.
 """
 
 from __future__ import annotations
