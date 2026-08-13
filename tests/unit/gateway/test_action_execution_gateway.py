@@ -20,6 +20,7 @@ against the REAL shipped manifest rather than fixtures.
 from __future__ import annotations
 
 import functools
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +31,7 @@ import yaml
 from maezo.gateway import action_execution
 from maezo.gateway.action_execution import (
     APPROVER_DOMAINS,
+    DEVIATION_KEY,
     ENFORCEMENT_ENFORCING,
     ENFORCEMENT_SHADOW,
     EVENT_ENFORCED,
@@ -53,7 +55,9 @@ from maezo.gateway.action_execution import (
     REASON_MANIFEST_DRAFT,
     REASON_MANIFEST_UNAVAILABLE,
     REASON_OVERRIDE_NOT_ENFORCEABLE,
+    ROOT_DEVIATION_SLOT,
     ActionExecutionGateway,
+    class_deviation_slot,
     evaluate_worker_task,
     load_action_approvals,
 )
@@ -1080,3 +1084,136 @@ async def test_the_same_data_in_shadow_leaves_both_tasks_untouched(
     assert len(transport.completed) == 2
     assert transport.failures == []
     assert [r.decision for r, _ in sink.emitted] == ["COMPLETE", "COMPLETE"]
+
+
+# ---------------------------------------------------------------------------------------------
+# (f) RATIFIED SHADOW DEVIATIONS parse into typed records — and a broken block becomes a DEFECT,
+# never a partially-filled record and never a silent pass.
+#
+# The loader's job here is narrow and its NON-job matters as much: it types the block so
+# `scripts/ci/check_deviation_expiry.py` reads governance data through the same surface the
+# runtime uses, and it changes NOTHING about mode/approval/enforcement. The expiry itself is
+# enforced in CI, not by bricking external tasks over a metadata typo — asserted below.
+# ---------------------------------------------------------------------------------------------
+
+_GOOD_DEVIATION: dict[str, Any] = {
+    "owner_role": "fixture role",
+    "ratified_on": "2026-08-13",
+    "ratified_by": "fixture owner",
+    "expires": "2026-11-11",
+    "checkpoint": "2026-09-12",
+    "criteria_ref": "fixture criteria",
+}
+
+
+def _with_root_deviation(manifest: dict[str, Any], block: Any) -> dict[str, Any]:
+    manifest["deviation"] = block
+    return manifest
+
+
+def test_a_wellformed_root_deviation_parses_into_a_typed_record(tmp_path: Path) -> None:
+    approvals = load_action_approvals(
+        _write(tmp_path, _with_root_deviation(_manifest(), dict(_GOOD_DEVIATION)))
+    )
+    record = approvals.deviations[ROOT_DEVIATION_SLOT]
+    assert record.owner_role == "fixture role"
+    assert record.ratified_on == date(2026, 8, 13)
+    assert (record.deadline_field, record.deadline) == ("expires", date(2026, 11, 11))
+    assert record.checkpoint == date(2026, 9, 12)
+    assert approvals.deviation_defects == {}
+
+
+def test_a_class_deviation_is_filed_under_its_class_slot(tmp_path: Path) -> None:
+    """`review_by` is a first-class deadline name, not a synonym the loader normalizes away."""
+    manifest = _manifest()
+    block = {k: v for k, v in _GOOD_DEVIATION.items() if k != "expires"}
+    block["review_by"] = "2027-02-09"
+    manifest["acoes"][_CLASS][DEVIATION_KEY] = block
+    approvals = load_action_approvals(_write(tmp_path, manifest))
+    record = approvals.deviations[class_deviation_slot(_CLASS)]
+    assert (record.deadline_field, record.deadline) == ("review_by", date(2027, 2, 9))
+
+
+def test_an_absent_deviation_is_neither_a_record_nor_a_defect(tmp_path: Path) -> None:
+    """ABSENT and BROKEN are different governance facts and must not collapse into one."""
+    approvals = load_action_approvals(_write(tmp_path, _manifest()))
+    assert approvals.deviations == {}
+    assert approvals.deviation_defects == {}
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_fragment"),
+    [
+        pytest.param({"owner_role": ""}, "owner_role", id="blank-owner"),
+        pytest.param({"owner_role": "PENDENTE"}, "owner_role", id="pendente-owner"),
+        pytest.param({"criteria_ref": None}, "criteria_ref", id="null-criteria"),
+        pytest.param({"expires": "11/11/2026"}, "expires", id="non-iso-deadline"),
+        pytest.param({"checkpoint": "not-a-date"}, "checkpoint", id="non-iso-checkpoint"),
+        pytest.param({"ratified_on": 2026}, "ratified_on", id="int-date"),
+    ],
+)
+def test_a_malformed_field_makes_the_block_a_defect_not_a_partial_record(
+    tmp_path: Path, mutation: dict[str, Any], expected_fragment: str
+) -> None:
+    block = dict(_GOOD_DEVIATION) | mutation
+    approvals = load_action_approvals(_write(tmp_path, _with_root_deviation(_manifest(), block)))
+    assert ROOT_DEVIATION_SLOT not in approvals.deviations, "a broken block must never half-parse"
+    defects = approvals.deviation_defects[ROOT_DEVIATION_SLOT]
+    assert any(expected_fragment in defect for defect in defects), defects
+
+
+def test_a_deviation_with_no_deadline_is_refused(tmp_path: Path) -> None:
+    """The whole point: a deviation with no end date is the permanent deviation in disguise."""
+    block = {k: v for k, v in _GOOD_DEVIATION.items() if k != "expires"}
+    approvals = load_action_approvals(_write(tmp_path, _with_root_deviation(_manifest(), block)))
+    assert ROOT_DEVIATION_SLOT not in approvals.deviations
+    assert "no deadline" in " ".join(approvals.deviation_defects[ROOT_DEVIATION_SLOT])
+
+
+def test_two_deadline_fields_are_refused_rather_than_reconciled(tmp_path: Path) -> None:
+    """A record that disagrees with itself about when it ends: refuse, never pick one."""
+    block = dict(_GOOD_DEVIATION) | {"review_by": "2027-02-09"}
+    approvals = load_action_approvals(_write(tmp_path, _with_root_deviation(_manifest(), block)))
+    assert ROOT_DEVIATION_SLOT not in approvals.deviations
+    assert "exactly one deadline field" in " ".join(approvals.deviation_defects[ROOT_DEVIATION_SLOT])
+
+
+def test_a_non_mapping_deviation_is_a_defect(tmp_path: Path) -> None:
+    approvals = load_action_approvals(_write(tmp_path, _with_root_deviation(_manifest(), "2026-11-11")))
+    assert "must be a mapping" in " ".join(approvals.deviation_defects[ROOT_DEVIATION_SLOT])
+
+
+def test_a_broken_or_expired_deviation_does_not_change_one_runtime_decision(tmp_path: Path) -> None:
+    """THE INERTNESS CLAIM. Deviation metadata is read by CI; it never moves the runtime.
+
+    Same manifest three ways — no block, a long-expired block, a garbage block — must produce
+    byte-identical mode, approvals, declared set and per-class enforcement. If this ever fails,
+    a governance annotation has grown teeth in production, which is precisely what the additive
+    posture promised it would not do.
+    """
+    base = _manifest(status="RATIFICADO", modo=MODE_ENFORCING, approved_classes=frozenset({_CLASS}))
+    expired = dict(_GOOD_DEVIATION) | {"expires": "2001-01-01"}
+
+    views = [
+        load_action_approvals(_write(tmp_path / "a", _manifest_dir(tmp_path / "a", base))),
+        load_action_approvals(_write(tmp_path / "b", _manifest_dir(tmp_path / "b", base, deviation=expired))),
+        load_action_approvals(
+            _write(tmp_path / "c", _manifest_dir(tmp_path / "c", base, deviation=["garbage"]))
+        ),
+    ]
+    fingerprints = {
+        (v.mode, v.approved, v.declared, tuple(sorted(v.class_enforcement.items())), v.default_enforcement)
+        for v in views
+    }
+    assert len(fingerprints) == 1, f"deviation metadata moved a runtime decision: {fingerprints}"
+    assert views[1].deviations and not views[1].deviation_defects, "expired still parses — it is VALID data"
+    assert views[2].deviation_defects, "garbage is recorded as a defect, not swallowed"
+
+
+def _manifest_dir(directory: Path, base: dict[str, Any], deviation: Any = None) -> dict[str, Any]:
+    """A deep-enough copy of `base` in its own directory, optionally carrying a root deviation."""
+    directory.mkdir(parents=True, exist_ok=True)
+    manifest = yaml.safe_load(yaml.safe_dump(base, allow_unicode=True, sort_keys=False))
+    if deviation is not None:
+        manifest["deviation"] = deviation
+    return manifest
