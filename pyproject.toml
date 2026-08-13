@@ -48,7 +48,10 @@ dependencies = [
     "cryptography>=50.0.0,<51",
     "greenlet>=3.5.3",
     # --- Inferencia LLM (ADR-0009; single import point: maezo.runtime.inference) ---
-    "anthropic>=0.40,<1.0",         # T1.7: real provider behind InferenceProvider
+    # `[bedrock]` extra (boto3/botocore) powers the SigV4-signed AWS Bedrock provider added in
+    # W-BEDROCK (`BedrockInferenceProvider`) — GENERAL ZONE ONLY. The base package still serves
+    # `AnthropicInferenceProvider`; the extra only adds the AWS signing stack, no new import point.
+    "anthropic[bedrock]>=0.40,<1.0",  # T1.7: real provider behind InferenceProvider
 ]
 
 [project.optional-dependencies]

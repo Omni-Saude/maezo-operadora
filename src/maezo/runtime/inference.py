@@ -12,6 +12,15 @@ Provider selection (T1.7) is via ``MAEZO_INFERENCE_PROVIDER``:
 - ``anthropic`` — real calls via the official ``anthropic`` SDK. Requires an
   API key from the environment (never committed); see
   :class:`AnthropicInferenceProvider` for precedence.
+- ``bedrock`` — real calls to the SAME model family through **AWS Bedrock**, via the
+  ``anthropic`` SDK's classic ``bedrock-runtime`` client (``anthropic[bedrock]`` extra;
+  the Mantle endpoint 404s on this account — evidence in
+  :class:`BedrockInferenceProvider`). GENERAL ZONE ONLY, exactly like ``anthropic``:
+  ``phi_capable`` is False and the PHI seam is untouched. No credential lives in this
+  repo — authentication is SigV4 through the standard AWS credential chain (env /
+  ``AWS_PROFILE`` / IRSA), resolved by botocore at request time. The sanctioned model id
+  is a ``global.*`` inference profile, which routes CROSS-REGION by construction — an
+  owner-level LGPD consideration recorded in ``docs/runbooks/phi-inference-ops.md``.
 - ``phi_zone_mock`` — explicitly-labeled mock standing in for the
   not-yet-provisioned BR-resident, zero-retention PHI-zone endpoint
   (ADR-0006/ADR-0017). Every response is marked synthetic.
@@ -50,7 +59,9 @@ vocabularies. Two separate, non-overlapping fail-closed checks consume it:
   ``phi_capable`` and fires whether or not the new flag is set (invariant I-6).
 
 Token-usage metering (T8): every REAL response that reaches
-:meth:`AnthropicInferenceProvider.generate` passes through
+:meth:`AnthropicInferenceProvider.generate` (and, identically,
+:meth:`BedrockInferenceProvider.generate` — the Bedrock Messages endpoint returns the
+same ``usage.input_tokens``/``usage.output_tokens`` shape as the 1P API) passes through
 :func:`_emit_llm_token_usage`, which reads the raw Anthropic SDK's
 ``response.usage`` (``input_tokens``/``output_tokens`` — NOT LangChain's
 ``AIMessage.usage_metadata`` shape; this codebase's single provider does
@@ -96,6 +107,42 @@ DEFAULT_ANTHROPIC_MODEL = "claude-opus-4-8"
 #: InferenceSettings / pydantic-settings — credentials are STRICTLY
 #: environment-sourced and never committed.
 _ANTHROPIC_API_KEY_ENV_VARS = ("MAEZO_ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY")
+
+#: Default Bedrock model id (``MAEZO_BEDROCK_MODEL_ID`` overrides — see
+#: :class:`BedrockInferenceProvider` for the full precedence).
+#:
+#: NEITHER PREFIX IS DECORATION, and the id is NOT the first-party one. Two layers:
+#:
+#:  * ``anthropic.`` — Bedrock namespaces third-party models by provider, so the first-party id
+#:    (``claude-opus-5``, of which :data:`DEFAULT_ANTHROPIC_MODEL` holds the 4.8 spelling) is not
+#:    a valid Bedrock id at all.
+#:  * ``global.`` — this is an INFERENCE PROFILE id, not a bare foundation-model id. THIS ACCOUNT
+#:    SERVES CLAUDE ONLY THROUGH ``global.*`` PROFILES, established by a live probe against the
+#:    real session (profile ``amh-data-dev``, ``sa-east-1``, 2026-08-12), not by reading docs:
+#:    ``bedrock-runtime converse --model-id global.anthropic.claude-opus-5`` SUCCEEDED
+#:    (``end_turn``, 179 output tokens, genuine Opus-5 output), while the bare
+#:    ``anthropic.claude-opus-5`` returned 404 "The model … does not exist" (request reached the
+#:    endpoint, SigV4 verified — request_id ``req_wg2absqs…``).
+#:
+#: CONSEQUENCE THAT IS NOT COSMETIC: a ``global.*`` profile ROUTES CROSS-REGION BY CONSTRUCTION —
+#: which is the first, factual reason :data:`BEDROCK_CAPABILITIES` declares
+#: ``GLOBAL_MULTI_REGION`` rather than ``BR_SAO_PAULO``. Sanctioned for the GENERAL (pseudonymized)
+#: zone only; the cross-border transfer it implies is an owner-level LGPD consideration for
+#: production and is recorded as such in ``docs/runbooks/phi-inference-ops.md``.
+#:
+#: This constant and :data:`DEFAULT_ANTHROPIC_MODEL` are deliberately NOT derived from one
+#: another: they name ids in two different catalogues, and a "DRY" edit computing one from the
+#: other would silently produce an invalid id the moment either catalogue moved.
+DEFAULT_BEDROCK_MODEL = "global.anthropic.claude-opus-5"
+
+#: Default AWS region for the Bedrock endpoint (``MAEZO_BEDROCK_REGION`` overrides).
+#:
+#: ``sa-east-1`` (São Paulo) is the operational default because it is the region closest to this
+#: platform's users, and it is the region the live probe above ran in. IT IS NOT A RESIDENCY
+#: GUARANTEE — with a ``global.*`` inference profile it is the region the REQUEST is signed for,
+#: not necessarily the region inference EXECUTES in. :data:`BEDROCK_CAPABILITIES` therefore does
+#: NOT declare ``BR_SAO_PAULO`` on the strength of it; see that constant's comment.
+DEFAULT_BEDROCK_REGION = "sa-east-1"
 
 
 # ---------------------------------------------------------------------------
@@ -266,6 +313,20 @@ class CredentialSource(StrEnum):
     #: settings object, never committed (see ``_ANTHROPIC_API_KEY_ENV_VARS``).
     ENVIRONMENT = "environment"
 
+    #: Resolved by the AWS SDK's own credential chain at REQUEST time — environment
+    #: variables, ``AWS_PROFILE``/shared config, IRSA/web-identity, instance metadata —
+    #: never read, held or validated by this process.
+    #:
+    #: A SEPARATE MEMBER, NOT ``ENVIRONMENT``, and the distinction is the whole reason
+    #: this vocabulary is closed. ``ENVIRONMENT`` makes two auditable claims that are both
+    #: FALSE here: that the credential comes from the process environment (the AWS chain
+    #: may equally resolve a profile file or a pod identity token), and that it is read AT
+    #: CONSTRUCTION (so a missing one fails at startup — a Bedrock credential is not
+    #: consulted until the first request). Declaring ``ENVIRONMENT`` would therefore make
+    #: :class:`BedrockInferenceProvider` look startup-validated when it is not. Naming the
+    #: chain honestly is what keeps the field auditable.
+    AWS_DEFAULT_CHAIN = "aws-default-chain"
+
 
 @dataclass(frozen=True, slots=True)
 class ProviderCapabilities:
@@ -413,6 +474,51 @@ ANTHROPIC_CAPABILITIES: Final[ProviderCapabilities] = ProviderCapabilities(
     supported_model_versions=frozenset({DEFAULT_ANTHROPIC_MODEL}),
 )
 
+#: `bedrock` — the GENERAL-ZONE cloud provider reached through AWS Bedrock. Same zone,
+#: same conservative floors and same honesty rules as `ANTHROPIC_CAPABILITIES`; only the
+#: transport and the credential mechanism differ. Two fields deserve their argument stated:
+#:
+#:  * `deployment_region=GLOBAL_MULTI_REGION` — NOT `BR_SAO_PAULO`, even though
+#:    `DEFAULT_BEDROCK_REGION` is `sa-east-1`. FOUR independent reasons, any one of which is
+#:    sufficient. (0) THE FACTUAL ONE, established by a live probe AFTER the other three were
+#:    written: the only model id this account can actually serve is a `global.*` INFERENCE
+#:    PROFILE (`DEFAULT_BEDROCK_MODEL`), and a global profile ROUTES CROSS-REGION BY
+#:    CONSTRUCTION. So the region here is not merely unenforced — inference knowingly is NOT
+#:    pinned to São Paulo. What began as a prudential refusal to over-declare turned out to be
+#:    a plain statement of fact, which is the outcome this schema is built to produce.
+#:    (1) The region is OPERATOR-CONFIGURABLE at runtime
+#:    (`MAEZO_BEDROCK_REGION`), while `capabilities` is a `ClassVar` fixed at import — a
+#:    static `BR_SAO_PAULO` would be a flat lie for a deployment that sets `us-east-1`.
+#:    (2) NOTHING IN THIS CLASS ENFORCES THE REGION. `BrResidentInferenceProvider` earns its
+#:    `BR_SAO_PAULO` with a construction-time AND per-call endpoint allowlist plus a
+#:    per-response `served_region` attestation; this provider hands a region string to an SDK
+#:    and checks nothing back, which is precisely the "UNVERIFIED SELF-DECLARATION" the
+#:    `PHI_ELIGIBLE_REGIONS` comment books as owing a network-level proof. (3) `BR_SAO_PAULO`
+#:    is in `PHI_ELIGIBLE_REGIONS`; declaring it here would leave `phi_allowed=False` as the
+#:    SOLE thing standing between this provider and PHI eligibility, turning one future edit
+#:    into a PHI route. `GLOBAL_MULTI_REGION` keeps the general zone structurally general.
+#:  * `credential_source=AWS_DEFAULT_CHAIN` — see that member: no credential is read, held or
+#:    validated by this process, so `ENVIRONMENT`'s "read at construction" claim is not ours
+#:    to make.
+#:
+#: Retention/training/classification are copied from the Anthropic reasoning verbatim and for
+#: the same reason: no zero-retention or no-training agreement with AWS exists anywhere in this
+#: repo's tree, and declaring one would fabricate a contract.
+BEDROCK_CAPABILITIES: Final[ProviderCapabilities] = ProviderCapabilities(
+    phi_allowed=False,
+    deployment_region=DeploymentRegion.GLOBAL_MULTI_REGION,
+    retention_policy=RetentionPolicy.UNSPECIFIED,
+    training_on_input_prohibited=False,
+    max_data_classification=DataClassification.INTERNAL,
+    credential_source=CredentialSource.AWS_DEFAULT_CHAIN,
+    #: The id THIS REPO sanctions — the one PROVEN to serve on this account (see
+    #: `DEFAULT_BEDROCK_MODEL`), not the account's catalogue. DECLARED, NOT ENFORCED — same
+    #: leg-1 note as every other provider: enforcing a per-provider model allowlist would
+    #: silently break `MAEZO_INFERENCE_MODEL`/`MAEZO_BEDROCK_MODEL_ID` overrides, which is
+    #: exactly the escape hatch an operator needs when a profile id changes.
+    supported_model_versions=frozenset({DEFAULT_BEDROCK_MODEL}),
+)
+
 #: `phi_zone_mock` — explicitly-labeled in-process stand-in for the
 #: not-yet-provisioned BR-resident endpoint (`PhiZoneMockProvider` docstring).
 #: It is the ONLY provider that satisfies `phi_zone_denial_reasons`, and it does
@@ -526,6 +632,34 @@ class InferenceSettings(BaseSettings):
     #: ``phi_capable`` and fires regardless of this flag; this flag only adds an
     #: EARLIER, louder failure for a deployment that declared its intent up front.
     phi_zone_required: bool = False
+
+
+class BedrockSettings(BaseSettings):
+    """Bedrock-specific configuration. Environment variables prefixed ``MAEZO_BEDROCK_``.
+
+    A SEPARATE settings class rather than two more fields on :class:`InferenceSettings`,
+    because these are provider-specific knobs and folding them in would spell them
+    ``MAEZO_INFERENCE_BEDROCK_*`` — implying every provider reads them.
+
+    Note what is NOT here, for the same reason :class:`InferenceSettings` has no API key
+    field: no credential. Bedrock authenticates via SigV4 through the standard AWS
+    credential chain, resolved by botocore at request time; nothing credential-shaped ever
+    round-trips through a settings object that might be logged or serialized.
+    """
+
+    # ``protected_namespaces=()`` is REQUIRED, not cosmetic: pydantic v2 reserves the
+    # ``model_`` prefix for its own API, and a field named ``model_id`` emits a
+    # ``UserWarning`` at class-creation time without this. The name is fixed by the
+    # operator-facing env var (``MAEZO_BEDROCK_MODEL_ID``), so the setting yields.
+    model_config = {"env_prefix": "MAEZO_BEDROCK_", "extra": "ignore", "protected_namespaces": ()}
+
+    #: ``MAEZO_BEDROCK_MODEL_ID``. Empty == fall back to :data:`DEFAULT_BEDROCK_MODEL`.
+    model_id: str = ""
+
+    #: ``MAEZO_BEDROCK_REGION``. An EXPLICITLY EMPTY value is not silently replaced by the
+    #: default — :class:`BedrockInferenceProvider` refuses to construct, because an operator
+    #: who blanked the region asked a question this module must not answer by guessing.
+    region: str = DEFAULT_BEDROCK_REGION
 
 
 # ---------------------------------------------------------------------------
@@ -884,6 +1018,224 @@ class AnthropicInferenceProvider(BaseInferenceProvider):
             "status": "ok",
             "message": (
                 f"Provider 'anthropic' configured (model={self._model}); credential present in environment."
+            ),
+        }
+
+
+class BedrockInferenceProvider(BaseInferenceProvider):
+    """Real LLM provider backed by **AWS Bedrock**, via the ``anthropic`` SDK's Bedrock client.
+
+    GENERAL-ZONE CLOUD PROVIDER (ADR-0006) — never PHI-capable, exactly like
+    :class:`AnthropicInferenceProvider`. Adding this provider changes NOTHING about the PHI
+    zone: ``phi_capable`` is ``False`` (derived from :data:`BEDROCK_CAPABILITIES`), so a
+    ``phi=True`` request against it raises :class:`PhiZoneRoutingError` at the facade before
+    any client is touched, and the ``br_resident`` leg is untouched.
+
+    WHY THIS EXISTS ALONGSIDE ``anthropic``: the same model family, reached over an access path
+    the organisation has already validated (AWS account + IAM), so no direct vendor API key has
+    to be issued, held or rotated by this platform.
+
+    **Client — ``anthropic.AsyncAnthropicBedrock``, THE CLASSIC ``bedrock-runtime`` PATH, CHOSEN
+    AGAINST THE GENERAL RECOMMENDATION AND FOR A MEASURED REASON.** The recommended client is
+    normally ``AnthropicBedrockMantle`` (the Messages-API Bedrock endpoint), and the pinned SDK
+    (``anthropic`` 0.117.0, ``anthropic[bedrock]`` extra) exposes both. It is not used here
+    because IT DOES NOT WORK ON THIS ACCOUNT — established by a live probe with the real session
+    (profile ``amh-data-dev``, ``sa-east-1``, 2026-08-12), not inferred from documentation:
+
+    * Mantle + ``anthropic.claude-opus-5`` → HTTP 404, "The model … does not exist". The request
+      reached the Mantle endpoint and SigV4 verified, so this is not a credential or signing
+      failure (request_id ``req_wg2absqs…``).
+    * Mantle + ``global.anthropic.claude-opus-5`` → the same 404.
+    * ``bedrock-runtime converse --model-id global.anthropic.claude-opus-5`` → SUCCESS
+      (``end_turn``, 179 output tokens, genuine Opus-5 output).
+
+    i.e. the account serves Claude through ``global.*`` inference profiles on classic
+    ``bedrock-runtime``, and Mantle is not enabled for it. ``AsyncAnthropicBedrock`` targets
+    ``bedrock-runtime`` and accepts inference-profile ids, so it is the path that actually
+    reaches a model. This is a DEPLOYMENT fact, not a preference: if Mantle is later enabled for
+    the account, switching back is a one-line change here plus the client pin in
+    ``tests/unit/runtime/test_inference_bedrock.py``, and the evidence above is what a future
+    reader needs in order to know the switch is safe to make.
+
+    Everything downstream is unaffected by the choice: both clients expose the same
+    ``messages.create`` surface and return the same ``usage``/``stop_reason`` shape, so T8
+    metering and the error taxonomy below are shared with the first-party provider rather than
+    duplicated.
+
+    **Credentials — none in this repo, and none read here.** Authentication is SigV4 through the
+    standard AWS credential chain (``AWS_ACCESS_KEY_ID``/``AWS_SECRET_ACCESS_KEY``,
+    ``AWS_PROFILE``, IRSA/web-identity, instance metadata), resolved by botocore AT REQUEST TIME.
+    This class therefore has NO construction-time credential gate, which is a real difference
+    from :class:`AnthropicInferenceProvider` and not an oversight: there is no credential for it
+    to check, and a check that resolved the chain would be a network call in a synchronous
+    constructor. A missing/invalid credential surfaces on the first :meth:`generate` as an
+    :class:`InferenceProviderError` (see the catch-all clause), never as a silent degrade.
+    :data:`BEDROCK_CAPABILITIES` declares ``credential_source=AWS_DEFAULT_CHAIN`` precisely so
+    this difference is auditable rather than implied.
+
+    **What IS fail-closed at construction:** an explicitly-blank region or model id. Both have
+    defaults, so a blank one can only come from an operator setting the variable to ``""`` — a
+    stated intent this module answers with a refusal rather than a guess.
+
+    **Model selection**, first non-empty wins:
+
+    1. ``MAEZO_INFERENCE_MODEL`` (via :class:`InferenceSettings`, i.e. the ``model=`` argument) —
+       the provider-agnostic override every provider already honours;
+    2. ``MAEZO_BEDROCK_MODEL_ID`` (via :class:`BedrockSettings`);
+    3. :data:`DEFAULT_BEDROCK_MODEL`.
+
+    **Region:** the ``region=`` argument, else ``MAEZO_BEDROCK_REGION``, else
+    :data:`DEFAULT_BEDROCK_REGION`.
+
+    **Request shape.** ``model`` + ``max_tokens`` + ``messages`` and nothing else. No
+    ``temperature``/``top_p``/``top_k`` (removed on the current models — sending one is a 400)
+    and no ``thinking`` block: adaptive thinking is the default on ``claude-opus-5`` when the
+    parameter is omitted, and ``budget_tokens`` no longer exists.
+
+    Timeouts and bounded retries on 429/5xx are delegated to the SDK client (``timeout=``,
+    ``max_retries=``), mirroring :class:`AnthropicInferenceProvider` — no hand-rolled retry loop
+    is added on top, and the W8 :class:`RetryBudget` is BR-resident-only and does not apply here.
+    """
+
+    capabilities: ClassVar[ProviderCapabilities] = BEDROCK_CAPABILITIES
+    phi_capable: ClassVar[bool] = BEDROCK_CAPABILITIES.phi_allowed
+    is_mock: ClassVar[bool] = False
+
+    def __init__(
+        self,
+        *,
+        model: str = "",
+        region: str = "",
+        timeout_s: float = 60.0,
+        max_retries: int = 2,
+    ) -> None:
+        bedrock_settings = BedrockSettings()
+
+        self._region = (region or bedrock_settings.region).strip()
+        if not self._region:
+            raise InferenceConfigError(
+                f"BedrockInferenceProvider requires an AWS region but {'MAEZO_BEDROCK_REGION'!r} "
+                "resolved to an empty value. There IS a default "
+                f"({DEFAULT_BEDROCK_REGION!r}), so an empty value can only come from an operator "
+                "setting the variable blank — refusing to guess a region on their behalf. "
+                "Fail-closed, no silent fallback to noop."
+            )
+
+        self._model = (model or bedrock_settings.model_id).strip() or DEFAULT_BEDROCK_MODEL
+
+        # NO CREDENTIAL IS READ HERE — see the class docstring. Constructing the client performs
+        # no network I/O and resolves no credential; botocore does both lazily, per request.
+        # `AsyncAnthropicBedrock` (classic `bedrock-runtime`), NOT `…BedrockMantle`: the Mantle
+        # endpoint 404s on this account — see the class docstring for the live evidence.
+        self._client = anthropic.AsyncAnthropicBedrock(
+            aws_region=self._region,
+            timeout=timeout_s,
+            max_retries=max_retries,
+        )
+        logger.info(
+            "inference_bedrock_configured",
+            # Model id, region and knobs only — no credential exists here to leak, and none of
+            # these fields is content-bearing (T8 pinned-fields discipline).
+            model=self._model,
+            aws_region=self._region,
+            timeout_s=timeout_s,
+            max_retries=max_retries,
+        )
+
+    async def generate(
+        self,
+        prompt: str,
+        *,
+        agent_id: str | None = None,
+        tenant_id: str | None = None,
+    ) -> str:
+        try:
+            response = await self._client.messages.create(
+                model=self._model,
+                max_tokens=4096,
+                messages=[{"role": "user", "content": prompt}],
+            )
+        # The dispositions below are MIRRORED from `AnthropicInferenceProvider.generate`, clause
+        # for clause, deliberately: the Bedrock client is the same `anthropic` SDK raising the
+        # same exception classes, so a second, subtly-different retryability table would be
+        # exactly the drift the `_DISPOSITIONS` discipline exists to prevent. `committed` is left
+        # at its default (False) for the same reason it is on the Anthropic provider — the W8
+        # commit veto is a BR-resident/PHI concern and no general-zone consumer reads the field;
+        # inventing a value here would create a second notion of it in this module.
+        except anthropic.AuthenticationError as exc:
+            raise InferenceProviderError("bedrock", f"authentication failed: {exc}", retryable=False) from exc
+        except anthropic.RateLimitError as exc:
+            raise InferenceProviderError("bedrock", f"rate limited: {exc}", retryable=True) from exc
+        except anthropic.APITimeoutError as exc:
+            raise InferenceProviderError("bedrock", f"request timed out: {exc}", retryable=True) from exc
+        except anthropic.APIConnectionError as exc:
+            raise InferenceProviderError("bedrock", f"connection error: {exc}", retryable=True) from exc
+        except anthropic.APIStatusError as exc:
+            retryable = exc.status_code >= 500
+            raise InferenceProviderError(
+                "bedrock", f"API error ({exc.status_code}): {exc.message}", retryable=retryable
+            ) from exc
+        except Exception as exc:  # noqa: BLE001 — no SDK/transport type may leak past this module.
+            # THE CLAUSE THE ANTHROPIC PROVIDER DOES NOT NEED, and the reason this one does:
+            # SigV4 signing happens INSIDE the request, in botocore, which raises its own
+            # exception hierarchy (`NoCredentialsError`, `ProfileNotFound`, `NoRegionError`, …)
+            # that is neither an `anthropic` error nor something this module's callers may be
+            # asked to import (module docstring: no SDK leaks past this module). Without this
+            # clause a missing AWS credential would surface to an agent graph as a raw botocore
+            # exception. Same shape as `BrResidentInferenceProvider._send`'s wrap, including
+            # carrying only `type(exc).__name__`: a botocore message can name a profile or an
+            # assumed-role ARN, which is deployment detail this error does not need to publish.
+            raise InferenceProviderError(
+                "bedrock",
+                f"AWS call failed before or during signing: {type(exc).__name__}. Check the AWS "
+                "credential chain (env / AWS_PROFILE / IRSA) and the IAM permission to invoke "
+                f"model {self._model!r} in region {self._region!r}.",
+                retryable=False,
+            ) from exc
+
+        # T8: metered through the SAME seam as every other real provider — Bedrock returns the
+        # 1P `usage.input_tokens`/`usage.output_tokens` shape `_emit_llm_token_usage` already
+        # reads. Best-effort/never-raising, so it cannot turn a successful call into a failure.
+        _emit_llm_token_usage(
+            response,
+            provider="bedrock",
+            fallback_model=self._model,
+            agent_id=agent_id,
+            tenant_id=tenant_id,
+        )
+
+        # BEFORE reading `content`. A refusal is a well-formed HTTP 200 whose `content` may be
+        # empty, so indexing it unconditionally would raise an IndexError instead of the typed,
+        # non-retryable provider error a caller can route on.
+        if response.stop_reason == "refusal":
+            raise InferenceProviderError(
+                "bedrock", "request declined by safety classifiers (stop_reason=refusal)", retryable=False
+            )
+
+        text = "".join(block.text for block in response.content if block.type == "text")
+        logger.info(
+            "inference_bedrock_generate",
+            model=self._model,
+            aws_region=self._region,
+            prompt_len=len(prompt),
+            response_len=len(text),
+            stop_reason=response.stop_reason,
+        )
+        return text
+
+    def health_check(self) -> dict[str, str]:
+        # CONFIGURATION status, and the message says so rather than implying more (constraint 3).
+        # `AnthropicInferenceProvider.health_check` can honestly report "credential present"
+        # because it read one at construction; this provider read none — the AWS chain resolves at
+        # request time — so claiming a verified credential here would be exactly the fabricated
+        # 'ok' that comment forbids. A missing/invalid credential still surfaces loudly on the
+        # first `generate()` as an `InferenceProviderError`.
+        return {
+            "status": "ok",
+            "message": (
+                f"Provider 'bedrock' configured (model={self._model}, region={self._region}); "
+                "credentials resolve from the standard AWS chain at request time and were NOT "
+                "verified here."
             ),
         }
 
@@ -2050,6 +2402,21 @@ def _build_anthropic(settings: InferenceSettings) -> BaseInferenceProvider:
     )
 
 
+def _build_bedrock(settings: InferenceSettings) -> BaseInferenceProvider:
+    """Build the Bedrock provider. Region/model id come from ``MAEZO_BEDROCK_*`` inside it.
+
+    Only the provider-agnostic `InferenceSettings` knobs are threaded through here, exactly as
+    for `_build_anthropic`; the Bedrock-specific ones are read by :class:`BedrockSettings` at
+    construction so a caller constructing the provider directly (a test) gets the same
+    resolution as the registry does.
+    """
+    return BedrockInferenceProvider(
+        model=settings.model,
+        timeout_s=settings.timeout_s,
+        max_retries=settings.max_retries,
+    )
+
+
 def _build_phi_zone_mock(_: InferenceSettings) -> BaseInferenceProvider:
     return PhiZoneMockProvider()
 
@@ -2067,6 +2434,9 @@ def _build_br_resident(settings: InferenceSettings) -> BaseInferenceProvider:
 _PROVIDER_FACTORIES: dict[str, Callable[[InferenceSettings], BaseInferenceProvider]] = {
     "noop": _build_noop,
     "anthropic": _build_anthropic,
+    # GENERAL ZONE, same as `anthropic`. Not the default: `noop` remains the shipped default
+    # (constraint 2), so adding this key changes nothing for a deployment that does not name it.
+    "bedrock": _build_bedrock,
     "phi_zone_mock": _build_phi_zone_mock,
     # SELECTABLE BUT UNREACHABLE IN PRACTICE (INERT): nothing in any shipped config sets
     # MAEZO_INFERENCE_PROVIDER=br_resident, the default remains `noop`, and even an operator who
