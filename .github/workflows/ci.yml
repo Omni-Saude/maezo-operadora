@@ -138,6 +138,16 @@ jobs:
       - name: Strict-xfail census drift gate (Hardening §0.8 Onda 0)
         run: make xfail-census-check
 
+      # PLANS.md §0.8 (2ª leva, Q-2/Q-10): the two ratified `shadow` deviations carry a named
+      # owner and a hard date in the manifest itself, and this turns EVERY PR red the day one of
+      # them expires while its value is still shadow — plus red on a missing/malformed block, and
+      # a loud ::warning:: for the 14 days before. There is no silent renewal: the way out is
+      # either flipping the value to `enforcing` or the owner re-ratifying a NEW dated deviation
+      # in a CODEOWNERS-reviewed data PR (Q-1), whose own CI is green because its tree already
+      # carries the new date. Belt-and-suspenders with tests/unit/ci/test_check_deviation_expiry.py.
+      - name: Ratified shadow-deviation expiry gate (PLANS §0.8 Q-2/Q-10)
+        run: make deviation-expiry-check
+
       - name: Upload strict-xfail census
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1

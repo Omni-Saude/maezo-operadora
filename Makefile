@@ -2,6 +2,7 @@
         check-bpmn-error-allowlist check-start-process-fence effect-chokepoint-fence \
         verify-amh-contract-pin \
         xfail-census-check xfail-census-write \
+        deviation-expiry-check \
         release-floor-check release-floor-write \
         deploy-artifacts dev-stack dev-observability tf-validate localstack-up tf-smoke helm-lint
 
@@ -100,6 +101,19 @@ xfail-census-check: ## Onda 0 §0.8: censo de strict-xfail GERADO bate com docs/
 
 xfail-census-write: ## Onda 0 §0.8: regenera docs/xfail-census.json + a regiao gerenciada de PLANS.md
 	uv run python scripts/ci/generate_xfail_census.py --write
+
+deviation-expiry-check: ## PLANS §0.8 (2a leva Q-2/Q-10): desvio de sombra ratificado nao pode passar do prazo dele
+	# O dono ratificou em 2026-08-13 que os dois `shadow` sobreviventes seguem em sombra COM owner
+	# nomeado, prazo e criterios ("sombra sem dono e sem prazo e desvio permanente disfarcado").
+	# Prazo escrito em prosa nao tem como notar que venceu; este gate le os blocos `deviation` do
+	# spec/policies/autonomy/action-approvals.yaml (pelo LOADER, nunca por YAML cru) e reprova TODO
+	# PR a partir do dia seguinte ao prazo enquanto o valor continuar `shadow`. Tambem reprova bloco
+	# AUSENTE ou MALFORMADO com valor em shadow (apagar o prazo nao pode ser o caminho barato), e
+	# avisa alto nos 14 dias que antecedem. Valor virado para `enforcing` => isento (desvio acabou).
+	# SEM RENOVACAO SILENCIOSA: sair do vermelho e ou virar o valor, ou o dono re-ratificar um desvio
+	# NOVO E DATADO em PR de dados sob CODEOWNERS (disciplina Q-1) — e esse PR e verde por construcao,
+	# porque o gate le as datas da arvore em teste. `--today YYYY-MM-DD` simula qualquer data.
+	uv run python scripts/ci/check_deviation_expiry.py
 
 release-floor-check: ## Audit §5 (W-fillers): candidato nao pode ficar ABAIXO do floor de capacidade de release comitado (gate de regressao)
 	# Composto de verdades JA GERADAS (nao um numero novo mantido a mao): total do censo de
