@@ -155,6 +155,32 @@ Usage (CI / local)
                                                                        # PR; needs $GITHUB_TOKEN
     python3 scripts/ci/check_flip_path_review.py --require-single-reviewer-covers-all
 
+CONTEXT PRECEDENCE — WHICH PR AM I JUDGING? (highest first)
+-----------------------------------------------------------
+Stated here because it is a decision, not an accident, and because getting it backwards produced a
+gate that silently judged the WRONG PR (see the note below):
+
+  1. an EXPLICITLY passed `--event-path` — the caller named a payload, so that payload governs;
+  2. an EXPLICITLY passed `--repo` AND `--pr` together — INJECTED CONTEXT BEATS AMBIENT ENVIRONMENT.
+     The caller named a specific PR; a `$GITHUB_EVENT_PATH` that happens to be exported must not
+     redirect the run to a different one;
+  3. the ambient `$GITHUB_EVENT_PATH` — this is the real workflow path, and the only one it uses:
+     `.github/workflows/flip-path-review-gate.yml` invokes this script with NO arguments at all;
+  4. nothing usable ⇒ RED. A gate that cannot identify the PR it is judging must not pass it.
+
+`--repo` and `--pr` remain plain OVERRIDES on top of rules 1 and 3 when supplied alone (repo
+override for the payload's `repository.full_name`, PR-number override for `pull_request.number`).
+Only the pair, with no explicit `--event-path`, selects direct mode.
+
+WHY RULE 2 IS SPELLED OUT. `--event-path` used to carry `default=os.environ.get("GITHUB_EVENT_PATH")`
+and `main` tested it first, so an exported `$GITHUB_EVENT_PATH` unconditionally outranked
+`--repo/--pr` and there was no way for a caller to opt out. Inside Actions that variable ALWAYS
+exists, so the documented dry-run command evaluated whatever PR the surrounding job belonged to
+instead of the one the operator named — quietly, and with a green or red that looked authoritative.
+It surfaced as a CI-only unit-test failure (PR #249: the suite's synthetic base SHA came back as the
+real base SHA of the PR the job was running inside) but the operator-facing bug was the same bug.
+Ambient environment is now consulted ONLY when the caller injected nothing to contradict it.
+
 Deliberately NOT given a `make` target: every target in the Makefile is a zero-argument, repo-wide
 static check that CI can run unattended, and this gate is neither (it needs a live PR number and a
 token). A `flip-path-review-check` target would have to be the one target that cannot be run the way
@@ -1047,10 +1073,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "the PR author."
         ),
     )
+    # NOTE the `default=None`. This deliberately does NOT default to $GITHUB_EVENT_PATH: argparse
+    # cannot distinguish "the caller passed this" from "the environment supplied it", and that
+    # distinction IS the precedence rule (see CONTEXT PRECEDENCE in the module docstring). The
+    # ambient variable is read in `main`, at the one point where it can be ranked against
+    # --repo/--pr instead of silently outranking them.
     parser.add_argument(
         "--event-path",
-        default=os.environ.get("GITHUB_EVENT_PATH"),
-        help="Actions event payload JSON (default: $GITHUB_EVENT_PATH).",
+        default=None,
+        help=(
+            "Actions event payload JSON. Falls back to $GITHUB_EVENT_PATH only when --repo and --pr "
+            "are not both given — see CONTEXT PRECEDENCE in the module docstring."
+        ),
     )
     parser.add_argument("--repo", default=None, help="owner/repo override (default: from the event payload).")
     parser.add_argument(
@@ -1088,18 +1122,32 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "present; a MISSING token means the workflow is misconfigured.)"
             )
 
+        # CONTEXT PRECEDENCE, in the order documented in the module docstring. The ambient variable
+        # is read HERE, ranked, rather than baked into an argparse default where it would silently
+        # outrank the caller.
+        ambient_event_path = os.environ.get("GITHUB_EVENT_PATH")
+
         if args.event_path:
-            # Normal CI path: everything comes from the Actions event payload.
+            # (1) The caller named a payload explicitly. It governs.
             context = load_event_context(Path(args.event_path), args.repo)
             pr_number = args.pr or context.pr_number
             api = GitHubAPI(repo=context.repo, token=token)
-        elif args.repo and args.pr:
-            # Local dry-run path: no event payload, so the PR's base sha and author are fetched
-            # directly. Same evaluation, same fail-closed rules — only the context source differs.
+        elif args.repo and args.pr is not None:
+            # (2) INJECTED CONTEXT BEATS AMBIENT ENVIRONMENT. The caller named a specific PR, so an
+            # exported $GITHUB_EVENT_PATH must not redirect this run to a different one. No event
+            # payload is read at all: the PR's base sha and author are fetched directly. Same
+            # evaluation, same fail-closed rules — only the context source differs.
             api = GitHubAPI(repo=args.repo, token=token)
             context = api.pull_request(args.pr)
             pr_number = args.pr
+        elif ambient_event_path:
+            # (3) The real workflow path, and the only one it uses: the workflow invokes this script
+            # with no arguments and lets Actions supply the payload.
+            context = load_event_context(Path(ambient_event_path), args.repo)
+            pr_number = args.pr or context.pr_number
+            api = GitHubAPI(repo=context.repo, token=token)
         else:
+            # (4) Nothing usable.
             raise GateError(
                 "no --event-path / $GITHUB_EVENT_PATH, and no --repo + --pr to fall back on — "
                 "the gate cannot identify the PR it is judging. Fail-closed."

@@ -18,6 +18,8 @@ Three layers, mirroring `test_check_start_process_fence.py`:
 from __future__ import annotations
 
 import json
+import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +43,69 @@ from scripts.ci.check_flip_path_review import (
 # tests/unit/ci/<file> -> parents[3] == repo root.
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _REAL_CODEOWNERS = _REPO_ROOT / ".github" / "CODEOWNERS"
+_GATE_SOURCE = _REPO_ROOT / "scripts" / "ci" / "check_flip_path_review.py"
+_GATE_WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "flip-path-review-gate.yml"
+
+# =============================================================================================
+# AMBIENT ENVIRONMENT ISOLATION — read this before adding a test that calls `main()`.
+#
+# This gate's entrypoint reads the environment, and the environment it reads is exactly the one
+# GitHub Actions exports around the pytest process. A test that leaves `$GITHUB_EVENT_PATH` in place
+# therefore runs against a DIFFERENT context in CI than on a laptop: the real event payload of the
+# job's own PR. That is not hypothetical — PR #249 went red in CI while green locally, because
+# `test_main_dry_run_mode_...` picked up the job's real base SHA instead of its synthetic fixture.
+#
+# So: every test in this file starts from a SCRUBBED environment, autouse, no opt-in required. Tests
+# that want an ambient variable set it themselves, explicitly, and thereby say so.
+# =============================================================================================
+
+#: Every environment variable the gate script reads. Pinned as a literal and checked against the
+#: script's source by `test_the_ambient_env_scrub_list_covers_every_variable_the_script_reads`, so a
+#: new `os.environ` read cannot be added to the gate without being added to the scrub as well —
+#: which is the only way this class of CI-only divergence stays fixed.
+_AMBIENT_GITHUB_ENV_VARS: tuple[str, ...] = (
+    "GH_TOKEN",
+    "GITHUB_EVENT_PATH",
+    "GITHUB_STEP_SUMMARY",
+    "GITHUB_TOKEN",
+)
+
+
+@pytest.fixture(autouse=True)
+def _scrub_ambient_github_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Delete every ambient variable the gate reads, for EVERY test in this module."""
+    for name in _AMBIENT_GITHUB_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
+
+
+def test_the_ambient_env_scrub_list_covers_every_variable_the_script_reads() -> None:
+    """Non-vacuity for the fixture above: the scrub cannot silently fall behind the script.
+
+    Scanned from the source rather than trusted, because the failure mode is invisible locally — a
+    newly-read variable that nobody scrubs is green on every laptop and only misbehaves inside
+    Actions, which is the most expensive place to find out.
+    """
+    source = _GATE_SOURCE.read_text(encoding="utf-8")
+    read = set(re.findall(r"""os\.environ(?:\.get)?[(\[]["']([A-Za-z0-9_]+)["']""", source))
+    assert read, "found no os.environ reads at all — has the scan pattern rotted?"
+    assert read <= set(_AMBIENT_GITHUB_ENV_VARS), (
+        f"{sorted(read - set(_AMBIENT_GITHUB_ENV_VARS))} is read by the gate but not scrubbed by "
+        "`_scrub_ambient_github_env`. Add it there, or this file's tests mean something different "
+        "inside GitHub Actions than they do locally."
+    )
+
+
+def test_the_ambient_scrub_actually_took_effect_in_this_test() -> None:
+    """Direct proof the autouse fixture RAN, not merely that its list is complete.
+
+    Vacuous on a bare laptop, which is the point: it is the CI environment this pins. Measured cost
+    of the fixture not running there — the suite writes its synthetic gate verdicts into the real
+    `$GITHUB_STEP_SUMMARY`, 131 lines of fixture output landing in the job summary of whatever PR
+    happens to be building.
+    """
+    leaked = [name for name in _AMBIENT_GITHUB_ENV_VARS if name in os.environ]
+    assert leaked == [], f"{leaked} survived into a test body — `_scrub_ambient_github_env` did not run"
+
 
 AUTHOR = "flip-author"
 #: The login used by the SYNTHETIC fixtures below. It is the repo's real owner account
@@ -688,7 +753,6 @@ def test_pr_cannot_unown_itself_by_deleting_codeowners_lines_in_its_own_head(
     )
     monkeypatch.setattr(gate, "GitHubAPI", lambda **kwargs: api)
     monkeypatch.setenv("GITHUB_TOKEN", "fake-token")
-    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
     event = write_event(tmp_path)
 
     assert gate.main(["--event-path", str(event)]) == 1
@@ -715,7 +779,6 @@ def test_main_is_green_end_to_end_with_a_qualified_owner_approval(
     )
     monkeypatch.setattr(gate, "GitHubAPI", lambda **kwargs: api)
     monkeypatch.setenv("GITHUB_TOKEN", "fake-token")
-    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
     assert gate.main(["--event-path", str(write_event(tmp_path))]) == 0
 
 
@@ -736,7 +799,6 @@ def test_main_dry_run_mode_fetches_the_pr_context_and_still_reads_codeowners_fro
     )
     monkeypatch.setattr(gate, "GitHubAPI", lambda **kwargs: api)
     monkeypatch.setenv("GITHUB_TOKEN", "fake-token")
-    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
     assert gate.main(["--repo", "o/r", "--pr", "244"]) == 1
     assert api.refs_asked == [BASE_SHA]
 
@@ -744,14 +806,126 @@ def test_main_dry_run_mode_fetches_the_pr_context_and_still_reads_codeowners_fro
 def test_main_with_neither_event_path_nor_repo_and_pr_is_red(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GITHUB_TOKEN", "fake-token")
     monkeypatch.delenv("GITHUB_EVENT_PATH", raising=False)
-    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
     assert gate.main([]) == 1
+
+
+# ---- CONTEXT PRECEDENCE: injected context beats the ambient Actions environment ----------------
+#
+# The bug these pin (PR #249, CI-red / laptop-green): `--event-path` carried
+# `default=os.environ.get("GITHUB_EVENT_PATH")` and `main` tested it first, so an exported
+# $GITHUB_EVENT_PATH outranked `--repo/--pr` with no way to opt out. Inside Actions that variable
+# always exists, so the documented dry-run command judged whichever PR the surrounding job belonged
+# to. Both directions are pinned below, because fixing precedence in one direction is exactly how
+# you break the production path in the other.
+
+#: A base SHA that no test fixture uses, standing in for "the PR the ambient job belongs to".
+AMBIENT_BASE_SHA = "407de72f0000000000000000000000000000beef"
+
+
+def _direct_mode_api() -> FakeAPI:
+    """A fake wired for the direct (`--repo/--pr`) path: `pull_request` supplies the context."""
+    api = FakeAPI(
+        files_by_ref={
+            BASE_SHA: {".github/CODEOWNERS": BASE_CODEOWNERS},
+            AMBIENT_BASE_SHA: {".github/CODEOWNERS": HEAD_CODEOWNERS},
+        },
+        changed=["spec/policies/autonomy/matrix.yaml"],
+        reviews=[],
+    )
+    api.pull_request = lambda pr: gate.EventContext(  # type: ignore[attr-defined]
+        repo="o/r", pr_number=pr, base_sha=BASE_SHA, author_login=AUTHOR
+    )
+    return api
+
+
+def test_injected_repo_and_pr_beat_an_ambient_actions_event_payload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """THE REGRESSION PIN for the #249 CI-only failure.
+
+    A hostile ambient payload names a different repo, a different PR and a different base SHA — and
+    stocks that SHA with a CODEOWNERS that owns nothing, so following it would also go GREEN. The
+    run must still be governed entirely by the injected `--repo/--pr`.
+    """
+    hostile = write_event(
+        tmp_path,
+        repository={"full_name": "someone-else/other-repo"},
+        pull_request={
+            "number": 9999,
+            "user": {"login": "ambient-author"},
+            "base": {"sha": AMBIENT_BASE_SHA, "ref": "main"},
+            "head": {"sha": HEAD_SHA, "ref": "ambient-branch"},
+        },
+    )
+    monkeypatch.setenv("GITHUB_EVENT_PATH", str(hostile))
+    api = _direct_mode_api()
+    monkeypatch.setattr(gate, "GitHubAPI", lambda **kwargs: api)
+    monkeypatch.setenv("GITHUB_TOKEN", "fake-token")
+
+    assert gate.main(["--repo", "o/r", "--pr", "244"]) == 1, (
+        "the injected PR touches an owned path with no approval — following the ambient payload "
+        "instead would have found nothing owned and gone GREEN"
+    )
+    assert api.refs_asked == [BASE_SHA], (
+        f"the gate resolved CODEOWNERS at {api.refs_asked} — an exported $GITHUB_EVENT_PATH must "
+        "not redirect a run the caller pointed at a specific PR."
+    )
+
+
+def test_the_zero_argument_workflow_invocation_still_uses_the_ambient_event_payload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The other direction: rule 3 is the PRODUCTION path and must not have been broken by rule 2."""
+    api = FakeAPI(
+        files_by_ref={BASE_SHA: {".github/CODEOWNERS": BASE_CODEOWNERS}},
+        changed=["spec/policies/autonomy/matrix.yaml"],
+        reviews=[],
+    )
+    monkeypatch.setattr(gate, "GitHubAPI", lambda **kwargs: api)
+    monkeypatch.setenv("GITHUB_TOKEN", "fake-token")
+    monkeypatch.setenv("GITHUB_EVENT_PATH", str(write_event(tmp_path)))
+
+    assert gate.main([]) == 1
+    assert api.refs_asked == [BASE_SHA]
+
+
+def test_the_workflow_really_does_invoke_the_gate_with_no_arguments() -> None:
+    """Ties rule 3's "this is the production path" claim to the workflow, instead of asserting it.
+
+    If the workflow ever starts passing `--event-path` explicitly, that is rule 1 and the reasoning
+    above needs rereading — so it should fail here rather than drift.
+    """
+    workflow = _GATE_WORKFLOW.read_text(encoding="utf-8")
+    assert "python3 scripts/ci/check_flip_path_review.py\n" in workflow, (
+        "the workflow no longer invokes the gate bare — re-check CONTEXT PRECEDENCE in the script "
+        "docstring, which documents rule 3 as the only path production uses"
+    )
+    assert "--event-path" not in workflow
+
+
+def test_a_lone_pr_override_still_applies_on_top_of_the_ambient_payload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`--pr` alone is an OVERRIDE, not a mode switch: the ambient payload still supplies context."""
+    api = FakeAPI(
+        files_by_ref={BASE_SHA: {".github/CODEOWNERS": BASE_CODEOWNERS}},
+        changed=["spec/policies/autonomy/matrix.yaml"],
+        reviews=[],
+    )
+    seen: list[int] = []
+    api.changed_paths = lambda pr_number: (seen.append(pr_number), ["spec/policies/autonomy/x.yaml"])[1]  # type: ignore[assignment]
+    monkeypatch.setattr(gate, "GitHubAPI", lambda **kwargs: api)
+    monkeypatch.setenv("GITHUB_TOKEN", "fake-token")
+    monkeypatch.setenv("GITHUB_EVENT_PATH", str(write_event(tmp_path)))
+
+    assert gate.main(["--pr", "777"]) == 1
+    assert api.refs_asked == [BASE_SHA], "context still comes from the payload"
+    assert seen == [777], "but the PR number override was honoured"
 
 
 def test_main_is_red_when_no_token_is_present(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     monkeypatch.delenv("GH_TOKEN", raising=False)
-    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
     assert gate.main(["--event-path", str(write_event(tmp_path))]) == 1
 
 
@@ -821,7 +995,6 @@ def test_main_is_red_end_to_end_when_the_base_codeowners_fetch_fails(
     api = _failing_base_api()
     monkeypatch.setattr(gate, "GitHubAPI", lambda **kwargs: api)
     monkeypatch.setenv("GITHUB_TOKEN", "fake-token")
-    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
 
     assert gate.main(["--event-path", str(write_event(tmp_path))]) == 1
     assert api.refs_asked == [BASE_SHA], (
