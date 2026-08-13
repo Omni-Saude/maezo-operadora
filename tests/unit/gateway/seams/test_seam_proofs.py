@@ -880,8 +880,12 @@ def test_every_test_citation_in_the_gateway_tree_resolves() -> None:
 #: DISCLOSED GAP and a DELIBERATE OMISSION. A reader who follows either citation to the wrong
 #: lines cannot check the justification, which is the whole function of quoting it.
 _QUOTED_MANIFEST_CITATIONS: tuple[tuple[str, str, str], ...] = (
-    ("gateway/effect_classes.py", "563-566", "decisão humana, não inferência de agente"),
-    ("gateway/effect_classes.py", "134-136", "no class was invented to round out a taxonomy"),
+    # Re-derived 2026-08-13 when the two ratified `deviation:` blocks (Q-2 root, Q-10 on
+    # `leitura_phi_clinica`) were appended: +38 lines above the taxonomy passage and +65 above the
+    # unmapped-topics passage. This table moving is the DESIGNED outcome of the test below, not a
+    # weakening of it — the assertion that each span still CONTAINS its quote is what has teeth.
+    ("gateway/effect_classes.py", "628-631", "decisão humana, não inferência de agente"),
+    ("gateway/effect_classes.py", "172-174", "no class was invented to round out a taxonomy"),
 )
 
 

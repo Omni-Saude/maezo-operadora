@@ -39,7 +39,7 @@ KNOWN GAP, DISCLOSED (not a silent omission). `mcp-memory.read_write` is declare
 `spec/agents/*/agent.yaml` files and maps to the ratified `read_write_memory` (L3), but design
 §6.1's rung table declares NO action class for memory. Classifying it is the same kind of human
 act the manifest already reserves for the ~80 unmapped worker topics
-(`spec/policies/autonomy/action-approvals.yaml:563-566`: "decisão humana, não inferência de
+(`spec/policies/autonomy/action-approvals.yaml:628-631`: "decisão humana, não inferência de
 agente"), so no `memory.*` operation is catalogued here. Consequence, stated plainly: a memory
 seam routed through the chokepoint would DENY with `OPERACAO_DESCONHECIDA` — fail-closed, and
 inert today because nothing enforces. Design §8.5 item 2 (every declared `mcp-<server>.<action>`
@@ -50,7 +50,7 @@ SECOND DEVIATION, DISCLOSED. Design §6.1's C1 row names both `send_beneficiary_
 `send_beneficiary_template` (L2). `tools/mcp_whatsapp/server.py` registers exactly two tools —
 `send_message` and `verify_webhook` (`:85-86`) — and no `agent.yaml` declares a template id. A
 `whatsapp.send_template` operation would be a catalogue entry with no runtime surface, which is
-precisely what `action-approvals.yaml:134-136` forbids ("no class was invented to round out a
+precisely what `action-approvals.yaml:172-174` forbids ("no class was invented to round out a
 taxonomy"). It is omitted; it becomes catalogueable the day the surface exists.
 """
 

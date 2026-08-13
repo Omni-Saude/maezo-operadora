@@ -1,23 +1,87 @@
+# ==================================================================================================
+# AUDITORIA DE CODEOWNERS — 2026-08-13, pre-requisito do flip `require_code_owner_review` (Q-1).
+#
+# ESTE ARQUIVO E ADVISORY HOJE. A ruleset `main-protection` (id 20775655) esta ativa porem com
+# `require_code_owner_review: false` e `required_approving_review_count: 0` — nenhuma linha abaixo
+# gateia merge algum ate esse campo virar `true`. O que a auditoria que precede o flip encontrou:
+#
+#   1. `@rodrigotaquino` NAO EXISTIA COMO CONTA GITHUB (GET /users/rodrigotaquino -> 404 "is not a
+#      user", com token de escopo total — nao e opacidade de permissao). As 46 entradas de
+#      GET /repos/.../codeowners/errors eram TODAS "Unknown owner". O GitHub nao requisita review
+#      de um dono nao-resolvivel: sob enforcement, cada linha deste arquivo teria virado um gate
+#      VAZIO. O flip teria instalado a APARENCIA da ratificacao humana, nao a ratificacao — o modo
+#      de falha mais caro possivel, porque e silencioso e parece verde. Corrigido nesta auditoria
+#      para `@rodaquino-OMNI`, a conta REAL do mesmo humano (admin neste repo).
+#
+#   2. O time `@Omni-Saude/security` NAO EXISTE; o time real da org e `@Omni-Saude/security-team`
+#      (GET /orgs/Omni-Saude/teams). Corrigido. ELE AINDA NAO E DONO VALIDO: nao tem acesso a ESTE
+#      repo. Seu acesso hoje sao TRES repos, nenhum deles este (GET /orgs/Omni-Saude/teams/
+#      security-team/repos): cadenza-healthcare (write), cadenza-infra (write) e intensicare
+#      (READ apenas — nao contaria como dono valido nem se fosse este repo). O lint seguira
+#      reportando "Unknown owner" APENAS para o token do time — a validacao do GitHub e POR DONO,
+#      nao por linha (cada um dos 46 erros vinha com `column` apontando um token especifico, e a
+#      linha 33 produziu DOIS erros independentes), entao a linha continua valida pelo
+#      dono-usuario. Esse erro residual e o SEMAFORO desta migracao: enquanto ele existir, a
+#      separacao de revisor nao esta pronta.
+#      CONTAGEM ESPERADA hoje: 29 erros — exatamente UM por linha de regra que carrega o token do
+#      time (eram 27 antes das duas linhas de integridade de CI que esta auditoria acrescentou,
+#      `/Makefile` e `/scripts/ci/`). Derive sempre assim, nao decore o numero: se a contagem
+#      divergir de "linhas de regra com `@Omni-Saude/security-team`", ha um erro de OUTRA natureza
+#      escondido no meio, e e ele que interessa.
+#
+#   3. SEPARACAO DE REVISOR NAO EXISTE HOJE — E ESTE, NAO A SINTAXE, E O BLOQUEIO DO FLIP.
+#      O agente/orquestrador abre PR COMO `rodaquino-OMNI`, e o GitHub nao aceita auto-aprovacao.
+#      Logo toda linha cujo UNICO dono valido seja `rodaquino-OMNI` fica IMPOSSIVEL DE APROVAR num
+#      PR autorado pelo agente — que e exatamente quem autora os PRs de ratificacao. Isso nao e
+#      friccao de um clique, e DEADLOCK, e o unico jeito de destravar seria bypass de admin, que
+#      transformaria o gate em teatro. Agravante medido: TODOS os 15 times da org (security-team,
+#      compliance-team, legal-team, regulatory-affairs, medical-team, ...) tem UM unico membro, e
+#      esse membro e `rodaquino-OMNI`. Nenhum arranjo so-de-arquivo resolve isso.
+#
+# PRE-REQUISITOS DO FLIP — o PR que virar `require_code_owner_review: true` deve citar os tres
+# como satisfeitos, nesta ordem:
+#   (a) dar acesso WRITE de `@Omni-Saude/security-team` a Omni-Saude/maezo-operadora;
+#   (b) povoar esse time com pelo menos UM humano que NAO seja `rodaquino-OMNI` (sem isso, (a) nao
+#       compra separacao alguma — o time de um membro so aprova como o proprio autor);
+#   (c) reexecutar GET /repos/Omni-Saude/maezo-operadora/codeowners/errors em `main` e confirmar
+#       ZERO erros. So entao virar o campo.
+# ==================================================================================================
+
+# NOTA PARA PARSERS EM RUNTIME: (a) linhas de COMENTARIO deste arquivo contem @handles literais em
+# prosa (o dono fantasma na linha 8) — remova tudo apos `#` ANTES de extrair donos, senao voce o
+# reintroduz; (b) linhas de regra alinham donos com MULTIPLOS espacos — separe por runs de espaco.
+
 # Mudanca de autonomia/policy exige revisao de compliance
-/src/maezo/policies/  @rodrigotaquino
-/docs/adr/            @rodrigotaquino
+# AUDITORIA 2026-08-13: `/src/maezo/policies/` NUNCA EXISTIU (`git log --all --diff-filter=A` vazio
+# para o caminho; o diretorio nao esta em disco). A linha nao casa com nada. MANTIDA como gate
+# PRE-POSICIONADO — se alguem criar o diretorio um dia, ele ja nasce dono-gated — e explicitamente
+# NAO como cobertura de hoje. A policy REAL que a frase acima descreve vive em `/spec/policies/**`,
+# coberta pelas linhas proprias mais abaixo; nao leia esta linha como se cobrisse aquilo.
+/src/maezo/policies/  @rodaquino-OMNI
+/docs/adr/            @rodaquino-OMNI
 
 # Allowlist de process_key (fail-closed, ADR-0016) — qualquer alteracao requer revisao do CODEOWNER
 # de seguranca/compliance. Ampliar o universo (KNOWN_PROCESS_KEYS) e uma acao deliberada humana.
-/src/maezo/tools/process_allowlist.py  @rodrigotaquino @Omni-Saude/security
-/src/maezo/policies/process_allowlist.yaml  @rodrigotaquino @Omni-Saude/security
-/config/artifact_signoff.yaml              @rodrigotaquino @Omni-Saude/security
+/src/maezo/tools/process_allowlist.py  @rodaquino-OMNI @Omni-Saude/security-team
+# AUDITORIA 2026-08-13: as DUAS linhas abaixo apontam para arquivos que NUNCA existiram
+# (`git log --all --diff-filter=A` vazio para ambos; `config/` contem apenas `.gitkeep` e
+# `integrations/`). O dado real do allowlist mora DENTRO do .py acima (KNOWN_PROCESS_KEYS), que ja
+# esta coberto — ou seja, o gate que o comentario de cima promete existe de fato, so que pela
+# linha do .py. Mantidas como gates PRE-POSICIONADOS (se os arquivos forem criados um dia, nascem
+# gated); NAO as leia como cobertura de hoje.
+/src/maezo/policies/process_allowlist.yaml  @rodaquino-OMNI @Omni-Saude/security-team
+/config/artifact_signoff.yaml              @rodaquino-OMNI @Omni-Saude/security-team
 
 # GAP-AUTH-4 (auto-approval criteria gate) — flipping three fields in the ratification manifest is
 # the SINGLE act that turns a synthetic DRAFT clinical table into live authority to auto-approve
 # real care. The design's whole point is that ratifying is a DATA change with no code and no
 # redeploy — which is exactly why the data needs the reviewer the code path would otherwise have
 # had. The fence test is a tripwire, not a required reviewer (one PR can edit both).
-/spec/processes/dmn/auth-criteria-ratification.yaml  @rodrigotaquino @Omni-Saude/security
+/spec/processes/dmn/auth-criteria-ratification.yaml  @rodaquino-OMNI @Omni-Saude/security-team
 # Teto financeiro (D-07) + matriz de autonomia: valores de governanca que tornam a aprovacao
 # automatica possivel. Antes desta linha o proprio manifesto os descrevia como "CODEOWNERS-gated",
 # o que era FALSO (GK-criteria finding 1).
-/spec/policies/autonomy/  @rodrigotaquino @Omni-Saude/security
+/spec/policies/autonomy/  @rodaquino-OMNI @Omni-Saude/security-team
 
 # RN 259 / adequacao_gap — a correcao da tabela conhecida-errada (PLANS.md:150-159 §0.5.4 item 1:
 # `hitPolicy=FIRST` com `r_eletivo_leve` antes de `r_conforme`, e `r_conforme` SEM teto algum de
@@ -29,15 +93,27 @@
 #     errada, corrige-se em spec" — a edicao da tabela e o ato do DONO REGULATORIO, nunca da
 #     engenharia. Antes destas duas linhas, `/spec/processes/dmn/` so era coberto para
 #     `auth-criteria-ratification.yaml`.
-/spec/processes/dmn/adequacao-gap-shadow-candidate.yaml  @rodrigotaquino @Omni-Saude/security
-/spec/processes/dmn/adequacao_gap.dmn                    @rodrigotaquino @Omni-Saude/security
+/spec/processes/dmn/adequacao-gap-shadow-candidate.yaml  @rodaquino-OMNI @Omni-Saude/security-team
+/spec/processes/dmn/adequacao_gap.dmn                    @rodaquino-OMNI @Omni-Saude/security-team
 # DL-0043 leg (c) — PHI em business keys. Ratificar
 # `spec/policies/privacy/phi-business-key-remediation.yaml` (status: RATIFICADO + os tres campos
 # de `ratificacao`) e o UNICO ato que muda o formato de identidade PERSISTIDA de um beneficiario:
 # chave de negocio no engine, chave de dedup em Postgres, particionamento Kafka, busca no
 # Cockpit. Mesma logica da linha acima: a mudanca e de DADOS, sem codigo e sem redeploy — por
 # isso o dado precisa do revisor que o caminho de codigo teria tido.
-/spec/policies/privacy/   @rodrigotaquino @Omni-Saude/security
+# >>> PENDENTE DE CONFIRMACAO DO DONO (auditoria 2026-08-13) <<<
+# `@lucasreisEvah` foi adicionado APENAS as trilhas LGPD (esta linha de privacy + as duas de
+# retention abaixo). Duas razoes, e a segunda e a que importa tecnicamente:
+#   - papel: Diretor Juridico/Compliance, o papel de DPO que o ADR-0029 exige como revisor;
+#   - e o UNICO dono valido em TODO este arquivo que NAO e a identidade que autora os PRs
+#     (permission=write, confirmado via API). Ou seja: estas tres linhas sao as unicas que hoje
+#     escapam do deadlock descrito no item 3 do cabecalho. Nas demais, o gate so vira real depois
+#     que o `security-team` for povoado.
+# Como CODEOWNERS exige aprovacao de UM dono qualquer da linha (nao de todos), adicionar este
+# handle so AMPLIA quem pode destravar — nao cria exigencia extra nem risco de travamento.
+# Se o dono nao confirmar o papel: remover as tres mencoes e assumir que estas trilhas voltam a
+# ser inaprovaveis sob enforcement ate o time existir.
+/spec/policies/privacy/   @rodaquino-OMNI @Omni-Saude/security-team @lucasreisEvah
 # MZO-040 (ADR-0037 XRD-09) — the ActionExecutionGateway approval records. Filling a domain block
 # and flipping `status: RATIFICADO` + `modo: enforcing` is the SINGLE act that turns an inert
 # shadow gateway into a live per-call enforcement chokepoint over every external effect. Same
@@ -45,7 +121,7 @@
 # redeploy, which is precisely why the data needs the reviewer the code path would have had.
 # Listed explicitly (not just under the directory line) because CODEOWNERS resolves LAST-match:
 # if the directory line is ever narrowed, this file must not silently lose its security owner.
-/spec/policies/autonomy/action-approvals.yaml  @rodrigotaquino @Omni-Saude/security
+/spec/policies/autonomy/action-approvals.yaml  @rodaquino-OMNI @Omni-Saude/security-team
 # ADR-0029 / LGPD art. 18 VI — o plano de eliminacao por camada. Preencher `decisao_dpo`,
 # `base_legal` e `retencao` de cada relacao e flipar `ratificado: true` + `dpo_review: APPROVED`
 # e o UNICO ato que transforma a enumeracao estrutural (fato de schema, ja escrita) em decisao
@@ -53,11 +129,13 @@
 # ratificacao e uma mudanca de DADOS, sem codigo e sem redeploy — e exatamente por isso o dado
 # precisa do revisor que o caminho de codigo teria tido. O diretorio cobre tambem o template da
 # matriz de bases legais, que ate aqui nao tinha dono declarado.
-/spec/policies/retention/  @rodrigotaquino @Omni-Saude/security
+# `@lucasreisEvah` aqui pela mesma nota PENDENTE-DE-CONFIRMACAO da linha de privacy acima (o
+# `decisao_dpo` que esta trilha exige e literalmente o campo do papel dele).
+/spec/policies/retention/  @rodaquino-OMNI @Omni-Saude/security-team @lucasreisEvah
 # Listado explicitamente (nao so pela linha de diretorio) porque CODEOWNERS resolve por
 # ULTIMO-match: se a linha de diretorio for algum dia estreitada, este arquivo nao pode perder
 # o revisor em silencio. Mesmo precedente de action-approvals.yaml acima.
-/spec/policies/retention/erasure-plan.template.yaml  @rodrigotaquino @Omni-Saude/security
+/spec/policies/retention/erasure-plan.template.yaml  @rodaquino-OMNI @Omni-Saude/security-team @lucasreisEvah
 
 # ------------------------------------------------------------------------------------------------
 # W4 shadow candidates — as quatro tabelas irmas conhecidas-erradas da auditoria de calculo.
@@ -68,35 +146,42 @@
 #     errada, corrige-se em spec" — a edicao da tabela e o ato do DONO, nunca da engenharia.
 # NOTA HONESTA SOBRE COMPETENCIA: os donos competentes destas tabelas sao os nomeados em
 # docs/review-queue.md (auditoria-contas+compliance; juridico/regulatorio+medico auditor;
-# medico-auditor+auditoria especial+financas; pediatra; obstetra). NAO existem handles de time para
-# esses papeis nesta org hoje — `.github/CODEOWNERS` so conhece @rodrigotaquino e
-# @Omni-Saude/security (grep). Estas linhas garantem que UM revisor humano existe e e requerido;
-# elas NAO codificam a competencia de dominio. Nao repetir a afirmacao sem reler este comentario.
+# medico-auditor+auditoria especial+financas; pediatra; obstetra).
+# CORRECAO DA AUDITORIA 2026-08-13 — a versao anterior desta nota afirmava "NAO existem handles de
+# time para esses papeis nesta org hoje". ISSO ERA FALSO e a nota pedia para nao repetir a
+# afirmacao sem reconferir; reconferida, eis o fato: os times EXISTEM (compliance-team, legal-team,
+# regulatory-affairs, medical-team, security-team — GET /orgs/Omni-Saude/teams). O que NAO existe e
+# o que os tornaria uteis: cada um tem UM unico membro (`rodaquino-OMNI`, a mesma identidade que
+# autora os PRs) e NENHUM tem acesso a este repo. Sao donos invalidos por ACESSO, nao por ausencia
+# — a diferenca importa, porque significa que o conserto e administrativo (povoar + dar write) e
+# nao exige tocar neste arquivo de novo.
+# Estas linhas garantem que UM revisor humano e requerido; elas NAO codificam a competencia de
+# dominio. Nao repetir nenhuma das duas afirmacoes sem reler este comentario.
 #
 # M-4 glosa_triage — `r_sem_glosa` (row 1) gateia `categoria_normalizada` num conjunto NEGATIVO
 # `not("tecnica","clinica")`, que admite `"desconhecida"` — o valor que a tabela a montante declara
 # como "rota conservadora a humano a jusante na glosa_triage" (glosa_reason_normalization.dmn:13-15)
 # e que o proprio catch-all desta tabela nomeia (:94). SEM_GLOSA e end-state TERMINAL sem humano.
-/spec/processes/dmn/glosa-triage-shadow-candidate.yaml   @rodrigotaquino @Omni-Saude/security
-/spec/processes/dmn/glosa_triage.dmn                     @rodrigotaquino @Omni-Saude/security
+/spec/processes/dmn/glosa-triage-shadow-candidate.yaml   @rodaquino-OMNI @Omni-Saude/security-team
+/spec/processes/dmn/glosa_triage.dmn                     @rodaquino-OMNI @Omni-Saude/security-team
 # M-5 carencia_check — o bloco CPT (r01/r02) precede e mascara a escada de urgencia (r03/r04) com
 # wildcard em `tipo_procedimento`: urgencia + CPT le o prazo de 24 MESES em vez das 24 HORAS que a
 # propria tabela declara. Base de ratificacao: Lei 9.656/1998 art. 12, V + art. 35-C vs art. 11.
-/spec/processes/dmn/carencia-check-shadow-candidate.yaml @rodrigotaquino @Omni-Saude/security
-/spec/processes/dmn/carencia_check.dmn                   @rodrigotaquino @Omni-Saude/security
+/spec/processes/dmn/carencia-check-shadow-candidate.yaml @rodaquino-OMNI @Omni-Saude/security-team
+/spec/processes/dmn/carencia_check.dmn                   @rodaquino-OMNI @Omni-Saude/security-team
 # M-6 upcoding_complexity_ceiling — unica das 7 tabelas fraude_scoring/* cujo catch-all emite
 # 0/"none" (as outras seis emitem 10/"<id>_indeterminado"), tornando "nao mapeado" indistinguivel
 # de "dentro do teto" no dossie.
-/spec/processes/dmn/upcoding-complexity-ceiling-shadow-candidate.yaml @rodrigotaquino @Omni-Saude/security
-/spec/processes/dmn/upcoding_complexity_ceiling.dmn                   @rodrigotaquino @Omni-Saude/security
+/spec/processes/dmn/upcoding-complexity-ceiling-shadow-candidate.yaml @rodaquino-OMNI @Omni-Saude/security-team
+/spec/processes/dmn/upcoding_complexity_ceiling.dmn                   @rodaquino-OMNI @Omni-Saude/security-team
 # M-7 (CLINICO) triage_redflag_gestante / _pediatric — os dois candidatos NAO propoem mudanca de
 # regra alguma: sao registros de ACHADO (lacunas de banda que so um obstetra/pediatra pode fechar).
 # Continuam CODEOWNERS-gated porque ratifica-los e o registro humano de que os achados foram lidos,
 # e porque a tabela viva e onde o conteudo clinico faltante sera escrito.
-/spec/processes/dmn/triage-redflag-gestante-shadow-candidate.yaml  @rodrigotaquino @Omni-Saude/security
-/spec/processes/dmn/triage_redflag_gestante.dmn                    @rodrigotaquino @Omni-Saude/security
-/spec/processes/dmn/triage-redflag-pediatric-shadow-candidate.yaml @rodrigotaquino @Omni-Saude/security
-/spec/processes/dmn/triage_redflag_pediatric.dmn                   @rodrigotaquino @Omni-Saude/security
+/spec/processes/dmn/triage-redflag-gestante-shadow-candidate.yaml  @rodaquino-OMNI @Omni-Saude/security-team
+/spec/processes/dmn/triage_redflag_gestante.dmn                    @rodaquino-OMNI @Omni-Saude/security-team
+/spec/processes/dmn/triage-redflag-pediatric-shadow-candidate.yaml @rodaquino-OMNI @Omni-Saude/security-team
+/spec/processes/dmn/triage_redflag_pediatric.dmn                   @rodaquino-OMNI @Omni-Saude/security-team
 
 # T2.6-2 TISS-schema-pin ratification gate (dark build; NOT wired into any live worker this wave
 # — see src/maezo/tools/workers/tiss_schema_pin.py module docstring "SCOPING DECISION"). The pin
@@ -108,4 +193,90 @@
 # GAP-AUTH-4 manifest and the MZO-040 approval records above: activation is a DATA change with no
 # code and no redeploy, which is precisely why the data needs the reviewer the code path would
 # have had.
-/spec/policies/ans/  @rodrigotaquino @Omni-Saude/security
+/spec/policies/ans/  @rodaquino-OMNI @Omni-Saude/security-team
+
+# ==================================================================================================
+# AUTOPROTECAO DO APARATO DE GATE (adicionado pela auditoria 2026-08-13)
+#
+# Tudo acima gateia o CONTEUDO ratificavel. Nada acima gateava o MECANISMO que faz o gate existir —
+# um PR podia apagar este arquivo inteiro, esvaziar um job de CI que a ruleset exige, ou alargar a
+# allowlist do scanner de segredos, e nenhum dono seria requisitado. Sob enforcement isso e a
+# vulnerabilidade dominante: nao adianta gatear a ratificacao se o proprio gate e editavel sem gate.
+# As linhas abaixo fecham isso. Todas usam o mesmo par de donos das linhas de conteudo.
+#
+# `/.github/CODEOWNERS` — o mais importante da secao: sem ele, UM PR remove todos os gates deste
+# arquivo de uma vez e em silencio, e o proximo leitor nao tem como saber que existiam.
+/.github/CODEOWNERS        @rodaquino-OMNI @Omni-Saude/security-team
+#
+# `/.github/workflows/` — integridade de CI. A ruleset exige 4 contextos ("lint / type / unit",
+# "gitleaks / secrets", "validate-artifacts", "release-capability-floor (audit §5)"). Renomear ou
+# apagar um job NAO e o ataque (o contexto exigido simplesmente nunca reporta e o PR trava —
+# fail-closed). O ataque e manter o nome do job e ESVAZIAR o corpo: o check reporta verde e a
+# verificacao sumiu. So revisao humana do diff pega isso.
+# CUSTO MEDIDO E ACEITO: e o caminho de maior churn que este arquivo passa a gatear — 39 commits
+# em ~6 semanas (58 toques; ci.yml 24, security.yml 15, cd.yml 11), ~15% de TODOS os 261 commits do
+# periodo. Escolhido assim mesmo, e sem estreitar para um subconjunto de arquivos: deixar qualquer
+# workflow de fora recria exatamente o buraco (o atacante edita o que ficou fora), e a maioria dos
+# PRs de workflow e justamente endurecimento de gate, que merece olho humano.
+/.github/workflows/        @rodaquino-OMNI @Omni-Saude/security-team
+#
+# `/Makefile` + `/scripts/ci/` — a SUBSTANCIA dos checks que a linha de workflows acima apenas
+# AGENDA. O workflow diz QUAL comando roda; o alvo de make e o script dizem O QUE ele verifica.
+# Gatear so o workflow deixa o MESMO ataque de pe um nivel abaixo: preserva-se o job e o alvo e
+# ESVAZIA-SE o script — o contexto exigido reporta verde e a verificacao sumiu. Por isso os tres
+# caminhos andam juntos, sob o mesmo par de donos. Mapa medido (nao estimado):
+#   - Makefile: TRES dos QUATRO contextos exigidos passam por alvos de make — "lint / type / unit"
+#     (`make lint` ci.yml:44, `make type` ci.yml:47), "validate-artifacts" (`make
+#     validate-artifacts` ci.yml:97) e "release-capability-floor (audit §5)" (`make
+#     release-floor-check` ci.yml:209). So "gitleaks / secrets" nao passa (security.yml:380, zero
+#     invocacoes de make). A versao anterior desta secao citava APENAS `make validate-artifacts` e
+#     concluia que o gate "custaria mais do que compra": subestimava o alcance em 3x, e a
+#     conclusao caiu junto com a premissa.
+#   - scripts/ci/: o job `validate-artifacts` (ci.yml:76-151) roda SEIS alvos de make (:97, :104,
+#     :111, :123, :131, :139) e CINCO deles sao shell direto para `scripts/ci/*.py`
+#     (check_bpmn_error_allowlist, check_start_process_fence, check_effect_chokepoint_fence,
+#     verify_amh_contract_pin, generate_xfail_census --check — Makefile:55,63,78,89,99); e
+#     "release-capability-floor" E `scripts/ci/generate_release_floor.py --check`
+#     (Makefile:118). Dois contextos exigidos inteiros tem a substancia neste diretorio.
+# CUSTO MEDIDO E ACEITO: Makefile 14 commits/6sem, scripts/ci 13 commits (15 toques de arquivo) —
+# somados, ~2/3 do churn de `/.github/workflows/`, que ja foi aceito acima pelo mesmo argumento.
+# Doutrina fail-closed: na duvida, MANTEM GATEADO. E a friccao so se materializa DEPOIS do flip de
+# enforcement, que por sua vez ja depende da acao de staffing do dono (pre-requisitos (a) e (b) do
+# cabecalho) — nao ha custo a pagar antes disso.
+/Makefile                  @rodaquino-OMNI @Omni-Saude/security-team
+/scripts/ci/               @rodaquino-OMNI @Omni-Saude/security-team
+#
+# `/.gitleaks.toml` + `/.github/osv-allowlist.json` — as duas listas de SUPRESSAO dos gates de
+# seguranca. Uma regra de allowlist larga demais desliga a deteccao sem apagar o check: continua
+# verde, so que cego. Sao a mesma classe de artefato e por isso andam juntas (4 e 1 commits no
+# periodo — custo de friccao proximo de zero).
+/.gitleaks.toml            @rodaquino-OMNI @Omni-Saude/security-team
+/.github/osv-allowlist.json @rodaquino-OMNI @Omni-Saude/security-team
+#
+# `/docs/reviews/` — o diretorio inteiro, nao so o packet do MZO-040: os tres arquivos
+# (mzo-040-approval-packet, adr-0029-erasure-packet, mzo-060-dba-review-packet) sao papelada de
+# aprovador humano, contraparte documental dos gates de `/spec/policies/**` acima. Editar o packet
+# e editar o registro de que a revisao aconteceu. 6 commits no periodo.
+/docs/reviews/             @rodaquino-OMNI @Omni-Saude/security-team
+#
+# NAO GATEADO, DELIBERADAMENTE — registrado aqui para nao ser confundido com esquecimento:
+#   - `/pyproject.toml` (25 commits/6sem — o maior churn de qualquer candidato ja considerado
+#     nesta secao). E a TERCEIRA superficie de SUPRESSAO, exatamente a mesma classe de
+#     `.gitleaks.toml` / `osv-allowlist.json` acima: estreitar `select` em `[tool.ruff.lint]`
+#     (pyproject.toml:145-146) ou afrouxar `strict = true` em `[tool.mypy]`
+#     (pyproject.toml:157-159) desliga a verificacao sem apagar check algum — o contexto exigido
+#     "lint / type / unit" continua VERDE, so que cego. Ficou de fora por um motivo medido, nao
+#     por conforto: pyproject.toml e o arquivo de bump de dependencia deste repo, e gatea-lo faria
+#     TODO PR de dependencia exigir aprovacao de dono — volume de friccao que afogaria o gate e
+#     treinaria o revisor a carimbar sem ler, que e como um gate morre de verdade.
+#     CONTROLE COMPENSATORIO NA FILA (follow-up explicito, NAO construido nesta auditoria): um
+#     teste de config-pin afirmando a rigidez de linter/typechecker (conjunto minimo de regras
+#     ruff + `strict = true` em mypy), de forma que afrouxar a config QUEBRE a suite em vez de
+#     passar em silencio. Com ele no lugar, este item deixa de ser buraco e vira excecao coberta.
+#   - O SEXTO alvo do job `validate-artifacts` (`make validate-artifacts`, Makefile:45) executa
+#     `maezo.platform.validation.cli`, que e codigo de APLICACAO em `src/` — e `src/` nao e
+#     dono-gateado aqui por desenho (o escopo deste arquivo e aparato de governanca e conteudo
+#     ratificavel, nao a base de codigo inteira). Registrado para que o bloco de integridade de CI
+#     acima nao seja lido como cobertura TOTAL da substancia dos checks exigidos. Nao ha decisao
+#     do dono sobre este ponto; nao o trate como ratificado em nenhuma direcao.
+# ==================================================================================================
