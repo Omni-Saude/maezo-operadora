@@ -226,7 +226,10 @@ jobs:
 
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e  # v4.0.1
         with:
-          terraform_version: "1.9.0"
+          # 1.10.x: exigido pelo stack ECS vivo (deploy/aws-ecs/envs/*/versions.tf
+          # `>= 1.10`); os modulos/envs legados pedem `>= 1.6`, entao um unico
+          # toolchain serve os dois.
+          terraform_version: "1.10.5"
 
       - name: Terraform validate — modules
         run: |
@@ -242,6 +245,20 @@ jobs:
       - name: Terraform validate — envs
         run: |
           for dir in deploy/terraform/envs/*/; do
+            echo "Validating $dir"
+            cd "$dir"
+            terraform init -backend=false -input=false
+            terraform validate
+            cd - > /dev/null
+          done
+        working-directory: ${{ github.workspace }}
+
+      # O stack ECS/Fargate VIVO (aplicado na conta de dados, PR #247) mora fora do
+      # glob legado acima — sem este passo, o check verde validava apenas a config
+      # EKS morta e NUNCA o que esta rodando (falsa garantia).
+      - name: Terraform validate — aws-ecs envs (o stack vivo)
+        run: |
+          for dir in deploy/aws-ecs/envs/*/; do
             echo "Validating $dir"
             cd "$dir"
             terraform init -backend=false -input=false

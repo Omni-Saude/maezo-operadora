@@ -50,3 +50,7 @@ docs/audits/
 # Owner's private working file — not for GitHub/CI (docs/reports/ itself stays tracked; only this
 # one file is excluded).
 docs/reports/amh-integration-forensics-summary.md
+
+# Plano de execucao do Terraform: pode conter valores resolvidos (endpoints, ARNs)
+# e nao deve viajar no repositorio.
+*.tfplan
