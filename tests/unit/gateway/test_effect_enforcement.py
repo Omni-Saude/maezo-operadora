@@ -9,9 +9,13 @@ Four claims:
   (b) THE TWO NAMESPACES CANNOT SHADOW EACH OTHER. A ref declared in both `mapeamento_topicos` and
       `mapeamento_acoes` refuses the WHOLE manifest — YAML's duplicate-key guard cannot see this
       shape, and "last section wins" would silently re-route a class a reviewer already signed.
-  (c) THE SPEC-DIR BYPASS (A-6) IS PINNED. `MAEZO_SPEC_DIR` substitutes the entire policy plane in
-      one variable, invisibly to the `MAEZO_ACTION_APPROVALS_PATH` fence. In production it now
-      says so loudly and cannot enforce. PROVISIONAL pending Q-6 — see the module comment.
+  (c) THE SPEC-DIR BYPASS (A-6) IS CLOSED, NOT PINNED. `MAEZO_SPEC_DIR` substitutes the entire
+      policy plane in one variable, invisibly to the `MAEZO_ACTION_APPROVALS_PATH` fence. Q-6 was
+      ratified FAIL-CLOSED by the owner on 2026-08-12 (PLANS §0.8), so production now REFUSES the
+      variable outright at `maezo.agents.resolve_spec_dir()` and this loader inherits the refusal
+      instead of previewing a substituted plane. The WEAK, evaluate-only form that used to live in
+      `_parse` — and the `MAEZO_ACTION_APPROVALS_ALLOW_OVERRIDE_ENFORCEMENT` companion that lifted
+      it — are GONE; the tests below pin their absence, not just the new behaviour.
   (d) THE SHIPPED RECORD AND THE CODE CATALOGUE AGREE. Every catalogued class is declared, every
       catalogued operation is routed, nothing is approved, nothing enforces, and the digest is
       stable.
@@ -28,7 +32,9 @@ from typing import Any
 import pytest
 import yaml
 
-from maezo.gateway import action_execution, effect_classes
+from maezo import agents
+from maezo.agents import AgentLoader, SpecDirOverrideRefusedError, resolve_spec_agents_dir
+from maezo.gateway import action_execution, effect_classes, pep
 from maezo.gateway.action_execution import (
     ACTION_MAP_KEY,
     APPROVER_DOMAINS,
@@ -43,7 +49,6 @@ from maezo.gateway.action_execution import (
     OVERRIDE_ENFORCEMENT_ENABLED,
     OVERRIDE_ENFORCEMENT_ENV,
     REASON_ACTION_UNMAPPED,
-    REASON_APPROVED,
     RUNTIME_MODE_ENV,
     RUNTIME_MODE_ENVS,
     STATUS_RATIFIED,
@@ -53,6 +58,15 @@ from maezo.gateway.action_execution import (
     load_action_approvals,
     policy_artifact_digests,
 )
+from maezo.platform.deploy import engine_deploy
+
+# NOTE: `maezo.platform.privacy.__init__` re-exports a FUNCTION named `phi_key_policy`, which
+# shadows the submodule of the same name under BOTH `from … import …` and `import … as …` — so the
+# helper is imported by name instead of through the module object.
+from maezo.platform.privacy.phi_key_policy import (
+    _manifest_default_path as _phi_key_policy_manifest_path,
+)
+from maezo.tools.workers import adequacao_shadow, auth_criteria, ceilings, tiss_schema, tiss_schema_pin
 
 _CLASS = "leitura_phi_clinica"
 _OTHER = "inicio_processo_regulatorio"
@@ -378,8 +392,23 @@ def test_an_absent_action_map_is_not_an_error(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------------------------
-# (c) The MAEZO_SPEC_DIR bypass (A-6), provisionally closed pending Q-6
+# (c) The MAEZO_SPEC_DIR bypass (A-6), CLOSED by Q-6 (owner ratification 2026-08-12, PLANS §0.8)
+#
+# Verbatim intent: "produção deve recusar `MAEZO_SPEC_DIR`, permitindo-o apenas em runtime local
+# explícito; remova o companion bypass e aceite futuras exceções somente por bundle imutável com
+# digest permitido."
+#
+# WHAT MOVED. The closure now lives UPSTREAM, at `maezo.agents.resolve_spec_dir()` — the single
+# T0.3 chokepoint every policy loader routes through — so it is by CONSTRUCTION rather than
+# per-root opt-in. This file's job is therefore two things: prove THIS loader inherits it (it is
+# the MZO-040 governance record, the highest-value target of A-6), and prove the two things the
+# owner asked to be REMOVED are actually gone. The discriminator's own truth table lives with the
+# refusal, in `tests/unit/agents/test_init.py::TestSpecDirRefusedOutsideExplicitLocalRuntime`.
 # ---------------------------------------------------------------------------------------------
+
+#: The literal an operator must declare to keep the override working. HARDCODED, never imported
+#: from the module under test (provenance: `src/maezo/agents/__init__.py::LOCAL_RUNTIME_MODE`).
+_LOCAL = "local"
 
 
 def _spec_tree(tmp_path: Path, manifest: dict[str, Any]) -> Path:
@@ -389,49 +418,154 @@ def _spec_tree(tmp_path: Path, manifest: dict[str, Any]) -> Path:
     return tmp_path / "spec"
 
 
-def test_a_spec_dir_substituted_manifest_cannot_enforce_in_production(
+def test_a_spec_dir_substituted_manifest_is_refused_outright_in_production(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A-6. ONE variable swaps action-approvals.yaml, L0-core.yaml, _hard_frozen.yaml AND every
-    agent.yaml. The existing path-override fence never fires on it, so a forged
-    `RATIFICADO` + `enforcing` tree would have ALLOWED and ENFORCED every class."""
+    """A-6, CLOSED. One variable swaps action-approvals.yaml, L0-core.yaml, _hard_frozen.yaml AND
+    every agent.yaml, and the path-override fence never fires on it — so a forged
+    `RATIFICADO` + `enforcing` tree would have ALLOWED and ENFORCED every class.
+
+    Under the WEAK form this test asserted `mode == shadow_override` and `allow is True`: the
+    forged tree was still PARSED and still ALLOWED, only `enforced` was withheld. Q-6 replaced
+    that with a refusal, so the forged manifest is never read at all.
+    """
     monkeypatch.setenv("MAEZO_SPEC_DIR", str(_spec_tree(tmp_path, _manifest())))
     monkeypatch.setenv(RUNTIME_MODE_ENV, "kubernetes")
-    approvals = load_action_approvals()
-    assert approvals.mode == MODE_SHADOW_OVERRIDE
-    decision = ActionExecutionGateway(approvals).evaluate(_CLASS)
-    assert decision.allow is True, "evaluation still RUNS — previewing a candidate record is legitimate"
-    assert decision.enforced is False, "a single env var turned enforcement ON — the bypass is open"
-    assert decision.reason == action_execution.REASON_OVERRIDE_NOT_ENFORCEABLE
+
+    with pytest.raises(SpecDirOverrideRefusedError, match="refusing to resolve the policy plane"):
+        load_action_approvals()
 
 
-def test_the_spec_dir_pin_is_narrow_and_does_not_fire_locally(
+def test_the_refusal_propagates_instead_of_degrading_to_unresolved(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Deliberately narrow: only PRODUCTION mode. Every test run and every dev box sets the
-    variable, and turning those into `shadow_override` would be noise, not a control."""
+    """THE DELIBERATE EXCEPTION to this loader's never-raises contract, stated as behaviour.
+
+    `load_action_approvals` swallows every OTHER failure into `mode=unresolved` + zero approved
+    classes, because a raise on a worker path becomes an incident and an incident stalls a care
+    request. Degrading the Q-6 refusal the same way would still be fail-closed in EFFECT (nothing
+    is approved either way) but it would be QUIET, and the owner ratified a LOUD refusal: an
+    operator who substituted the whole policy plane must get the named error, not a service that
+    comes up denying everything for reasons that read like a missing file.
+
+    This is the row that catches a "harmonising" edit which folds the refusal back under the
+    module's broad `except Exception` — the swallow would leave every other assertion here green.
+    """
     monkeypatch.setenv("MAEZO_SPEC_DIR", str(_spec_tree(tmp_path, _manifest())))
-    monkeypatch.delenv(RUNTIME_MODE_ENV, raising=False)
-    assert load_action_approvals().mode == MODE_ENFORCING
+    monkeypatch.setenv(RUNTIME_MODE_ENV, "kubernetes")
+
+    with pytest.raises(SpecDirOverrideRefusedError):
+        load_action_approvals()
+    # And it is not merely "some exception": the named type survives the call boundary.
+    assert issubclass(SpecDirOverrideRefusedError, RuntimeError)
 
 
-def test_the_spec_dir_pin_is_lifted_by_the_same_companion_flag(
+def test_an_absent_runtime_mode_refuses_too(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """THE FAIL-CLOSED FLIP the weak pin did not have (`unset => local`, disclosed residual).
+
+    A production pod that forgets to inject a mode variable used to leave the fence DISARMED while
+    running an entirely substituted policy plane. Absent is now PRODUCTION, matching the ADR-0039
+    Q7 / Train-F default. The autouse `_no_ambient_env` fixture already clears both names, so this
+    row asserts the default directly.
+    """
+    monkeypatch.setenv("MAEZO_SPEC_DIR", str(_spec_tree(tmp_path, _manifest())))
+
+    with pytest.raises(SpecDirOverrideRefusedError):
+        load_action_approvals()
+
+
+@pytest.mark.parametrize("env_name", ["RUNTIME_MODE", "AGENT_RUNTIME_MODE"])
+def test_declaring_local_under_either_spelling_keeps_the_override_working(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, env_name: str
+) -> None:
+    """ "...permitindo-o apenas em runtime local explícito", under BOTH deployment spellings.
+
+    One deployment vocabulary, two spellings. A dev box that declares `RUNTIME_MODE=local` and a
+    dev box that declares `AGENT_RUNTIME_MODE=local` must get the same answer — and it must be the
+    FULL pre-Q-6 behaviour, `enforcing` included, not a degraded one: the point of the ratification
+    is that local is UNCHANGED, so a substituted tree that reads `enforcing` still enforces here.
+    """
+    monkeypatch.setenv("MAEZO_SPEC_DIR", str(_spec_tree(tmp_path, _manifest())))
+    monkeypatch.setenv(env_name, _LOCAL)
+
+    approvals = load_action_approvals()
+    assert approvals.mode == MODE_ENFORCING
+    assert ActionExecutionGateway(approvals).evaluate(_CLASS).enforced is True
+
+
+def test_production_without_the_variable_reads_the_shipped_plane_normally(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """THE NON-REGRESSION CONTROL, and the one every deployed daemon depends on.
+
+    Q-6 refuses an OVERRIDE; it does not refuse production. Without this row the suite would still
+    be green if `resolve_spec_dir()` simply raised whenever the runtime is production — which would
+    take down every pod. Asserts against the SHIPPED record: `status: DRAFT` / `modo: shadow`, so
+    it also re-confirms the tree is still inert.
+    """
+    monkeypatch.delenv("MAEZO_SPEC_DIR", raising=False)
+    monkeypatch.setenv(RUNTIME_MODE_ENV, "kubernetes")
+
+    approvals = load_action_approvals()
+    assert approvals.degraded is False
+    assert approvals.mode == MODE_SHADOW
+
+
+def test_the_companion_flag_does_not_lift_the_spec_dir_refusal(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """One staged-rollout act, not two vocabularies: the existing companion flag governs both."""
+    """THE COMPANION-BYPASS REMOVAL ("remova o companion bypass"), stated as behaviour.
+
+    The weak form resolved a spec-dir-sourced `enforcing` manifest to `shadow_override` UNLESS
+    `MAEZO_ACTION_APPROVALS_ALLOW_OVERRIDE_ENFORCEMENT=1` was also set — i.e. one extra variable
+    re-opened a total policy-plane substitution, and the previous version of this file had a test
+    named `test_the_spec_dir_pin_is_lifted_by_the_same_companion_flag` asserting exactly that.
+    Setting the flag now changes nothing.
+    """
     monkeypatch.setenv("MAEZO_SPEC_DIR", str(_spec_tree(tmp_path, _manifest())))
     monkeypatch.setenv(RUNTIME_MODE_ENV, "kubernetes")
     monkeypatch.setenv(OVERRIDE_ENFORCEMENT_ENV, OVERRIDE_ENFORCEMENT_ENABLED)
+
+    with pytest.raises(SpecDirOverrideRefusedError):
+        load_action_approvals()
+
+
+def test_the_companion_flag_still_governs_the_path_override_it_was_built_for(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """SCOPE CONTROL: Q-6 removed a COUPLING, not the `MANIFEST_PATH_ENV` fence.
+
+    Without this row, "delete the companion flag entirely" would pass the test above and silently
+    take the path-override fence's staged-rollout escape with it. `MAEZO_ACTION_APPROVALS_PATH`
+    governs ONE file a reviewer can diff, Q-6 did not reach it, and the design cites it as the
+    working precedent — so it must still resolve to `shadow_override` without the flag and to
+    `enforcing` with it.
+    """
+    manifest_path = str(_write(tmp_path, _manifest()))
+    monkeypatch.delenv("MAEZO_SPEC_DIR", raising=False)
+    monkeypatch.setenv(action_execution.MANIFEST_PATH_ENV, manifest_path)
+
+    assert load_action_approvals().mode == MODE_SHADOW_OVERRIDE
+
+    monkeypatch.setenv(OVERRIDE_ENFORCEMENT_ENV, OVERRIDE_ENFORCEMENT_ENABLED)
+    action_execution._load_cached.cache_clear()
     assert load_action_approvals().mode == MODE_ENFORCING
 
 
-def test_a_spec_dir_shadow_manifest_is_untouched(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """The pin withholds ENFORCEMENT only. A shadow tree behaves identically with and without it."""
-    monkeypatch.setenv("MAEZO_SPEC_DIR", str(_spec_tree(tmp_path, _manifest(modo=MODE_SHADOW))))
-    monkeypatch.setenv(RUNTIME_MODE_ENV, "kubernetes")
-    approvals = load_action_approvals()
-    assert approvals.mode == MODE_SHADOW
-    assert ActionExecutionGateway(approvals).evaluate(_CLASS).reason == REASON_APPROVED
+def test_no_spec_dir_enforcement_refusal_line_survives_anywhere(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The WEAK form's telemetry is gone with the WEAK form — a dead event name is a lie.
+
+    `action_approvals_spec_dir_enforcement_refused` said "enforcement is WITHHELD until
+    MAEZO_ACTION_APPROVALS_ALLOW_OVERRIDE_ENFORCEMENT=1 is also set". Leaving it emittable would
+    keep advertising the removed escape hatch to whoever greps the logs.
+    """
+    monkeypatch.setenv("MAEZO_SPEC_DIR", str(_spec_tree(tmp_path, _manifest())))
+    monkeypatch.setenv(RUNTIME_MODE_ENV, _LOCAL)
+
+    events = {e["event"] for e in _load_and_capture(tmp_path)}
+    assert "action_approvals_spec_dir_enforcement_refused" not in events
 
 
 def _load_and_capture(manifest_dir_owner: Path) -> list[dict[str, Any]]:
@@ -448,59 +582,27 @@ def _load_and_capture(manifest_dir_owner: Path) -> list[dict[str, Any]]:
     return list(cap.entries)
 
 
-def test_the_spec_dir_load_emits_a_loud_error_line(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """§5.7 item 1: the same posture as the path override — an operator swapping the governed
-    policy plane must leave a trace legible WITHOUT reading the manifest."""
-    monkeypatch.setenv("MAEZO_SPEC_DIR", str(_spec_tree(tmp_path, _manifest())))
-    monkeypatch.setenv(RUNTIME_MODE_ENV, "kubernetes")
-    events = {(e["event"], e["log_level"]) for e in _load_and_capture(tmp_path)}
-    assert ("action_approvals_spec_dir_overridden", "error") in events
-    assert ("action_approvals_spec_dir_enforcement_refused", "error") in events
-
-
-@pytest.mark.parametrize(
-    ("runtime_mode", "modo", "expected_level"),
-    [
-        # PRODUCTION: `error`, whether or not the ENFORCEMENT leg has anything to withhold.
-        ("kubernetes", MODE_ENFORCING, "error"),
-        ("kubernetes", MODE_SHADOW, "error"),
-        # LOCAL / unset: still RECORDED, at `info` — provenance is a fact on every load.
-        (None, MODE_ENFORCING, "info"),
-        (None, MODE_SHADOW, "info"),
-        ("local", MODE_SHADOW, "info"),
-    ],
-)
-def test_the_spec_dir_provenance_line_is_emitted_whenever_the_variable_is_set(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    runtime_mode: str | None,
-    modo: str,
-    expected_level: str,
+@pytest.mark.parametrize("modo", [MODE_ENFORCING, MODE_SHADOW])
+@pytest.mark.parametrize("env_name", ["RUNTIME_MODE", "AGENT_RUNTIME_MODE"])
+def test_the_spec_dir_provenance_line_is_still_emitted_on_every_local_load(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, modo: str, env_name: str
 ) -> None:
-    """WHERE the policy came from and WHETHER enforcement is withheld are two different questions.
+    """§5.7 item 1 SURVIVES the Q-6 hardening: provenance is still recorded, at `info`.
 
-    The earlier form conflated them: the provenance line was gated on the SAME condition as the
-    enforcement refusal (production AND `modo: enforcing`), so a staging pod, a mis-labelled
-    deployment, or a production tree in `shadow` running an entirely substituted policy plane left
-    NO trace that the CODEOWNERS-listed tree was bypassed. Given that §5.7's whole claim is
-    "an operator swapping the governed policy plane must leave a trace legible without reading the
-    manifest", suppressing the trace in exactly the cases nobody is watching for is the defect.
-
-    Level, not presence, is what production changes: `error` there (log routing pages on it),
-    `info` otherwise (every dev box and every test run sets the variable, and an `error` per load
-    would train people to filter the line away).
+    WHERE the policy came from and WHETHER it is allowed are two different questions. Production
+    now answers the second with a raise, which leaves LOCAL as the only reader of this line — and
+    it is still worth writing there, because a local tree that quietly differs from the governed
+    one is how a green local suite comes to disagree with CI. `info`, not `error`: every dev box
+    sets this variable, and an `error` per load trains people to filter the line away.
     """
     monkeypatch.setenv("MAEZO_SPEC_DIR", str(_spec_tree(tmp_path, _manifest(modo=modo))))
-    if runtime_mode is None:
-        monkeypatch.delenv(RUNTIME_MODE_ENV, raising=False)
-    else:
-        monkeypatch.setenv(RUNTIME_MODE_ENV, runtime_mode)
+    monkeypatch.setenv(env_name, _LOCAL)
 
     lines = [e for e in _load_and_capture(tmp_path) if e["event"] == "action_approvals_spec_dir_overridden"]
     assert len(lines) == 1, "the provenance line must be emitted exactly once per load"
-    assert lines[0]["log_level"] == expected_level
+    assert lines[0]["log_level"] == "info"
     assert lines[0]["override_env"] == "MAEZO_SPEC_DIR"
-    assert lines[0]["production_runtime"] is (expected_level == "error")
+    assert lines[0]["explicit_local_runtime"] is True
 
 
 def test_no_provenance_line_is_emitted_when_the_variable_is_unset(
@@ -519,75 +621,56 @@ def test_the_runtime_mode_discriminator_reads_both_declared_spellings() -> None:
     Deliberately not written as `assert RUNTIME_MODE_ENVS == RUNTIME_MODE_ENVS`-shaped tautology,
     and deliberately not parametrized off the constant either: a test that derives its own matrix
     from the value under test SHRINKS silently when someone shortens that value, and reports green.
+
+    Both names are now RE-EXPORTS of `maezo.agents`'s single definition rather than a private copy
+    this module maintains — so the second assertion below is what proves the re-export did not
+    quietly change which spelling `RUNTIME_MODE_ENV` refers to.
     """
     assert RUNTIME_MODE_ENVS == ("RUNTIME_MODE", "AGENT_RUNTIME_MODE")
     assert RUNTIME_MODE_ENV == "AGENT_RUNTIME_MODE"
-
-
-@pytest.mark.parametrize("env_name", ["RUNTIME_MODE", "AGENT_RUNTIME_MODE"])
-def test_either_runtime_mode_variable_arms_the_spec_dir_pin(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, env_name: str
-) -> None:
-    """The pin read ONE name; the repo declares production under TWO.
-
-    `key_scrubber.py:117` — the PHI-egress pseudonymizer, i.e. a control nobody would call
-    optional — resolves `RUNTIME_MODE or AGENT_RUNTIME_MODE`. This module read only the second, so
-    a deployment standardised on `RUNTIME_MODE` (arming the pseudonymizer, believing it had
-    declared production) left the §5.7 spec-dir pin DISARMED: one variable substitutes the entire
-    policy plane, and the fence that exists for exactly that never fired. One deployment
-    vocabulary, two spellings, both honoured.
-    """
-    monkeypatch.setenv("MAEZO_SPEC_DIR", str(_spec_tree(tmp_path, _manifest())))
-    for name in RUNTIME_MODE_ENVS:
-        monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv(env_name, "kubernetes")
-
-    approvals = load_action_approvals()
-    assert approvals.mode == MODE_SHADOW_OVERRIDE, f"{env_name} did not arm the pin"
-    assert ActionExecutionGateway(approvals).evaluate(_CLASS).enforced is False
+    assert RUNTIME_MODE_ENVS is agents.RUNTIME_MODE_ENVS, "a second definition has reappeared"
 
 
 @pytest.mark.parametrize(
-    ("runtime_mode", "agent_runtime_mode", "armed"),
+    ("runtime_mode", "agent_runtime_mode", "refused"),
     [
-        # THE ROW THAT MADE THIS A FINDING. First-set-wins read `local` here and DISARMED the pin,
-        # where the pre-repair code (`AGENT_RUNTIME_MODE` only) armed it — a fence LOSING coverage
-        # as a side effect of learning a second spelling. A pod inheriting a base-image
-        # `RUNTIME_MODE=local` and then being labelled by Helm lands in exactly this state.
-        ("local", "kubernetes", True),
-        ("kubernetes", "local", True),  # the mirror image, for the same reason
-        # ANY declared non-local arms it; nothing declared non-local leaves it disarmed.
+        # THE ROW THAT MADE THE TWO-NAME READ A FINDING, and it survives the hardening. A pod
+        # inheriting a base-image `RUNTIME_MODE=local` and then labelled by Helm lands here;
+        # first-set-wins would read `local` and hand over the entire policy plane.
+        (_LOCAL, "kubernetes", True),
+        ("kubernetes", _LOCAL, True),  # the mirror image, for the same reason
         ("kubernetes", "kubernetes", True),
-        ("local", "local", False),
-        ("local", None, False),
-        (None, "local", False),
-        (None, None, False),  # the disclosed residual: unset still reads as local
+        # EXPLICIT LOCAL — the only combination that keeps the override.
+        (_LOCAL, _LOCAL, False),
+        (_LOCAL, None, False),
+        (None, _LOCAL, False),
+        # THE FLIP: nothing declared is PRODUCTION now, where the weak pin read it as local.
+        (None, None, True),
         # An empty string is UNDECLARED, exactly as `key_scrubber`'s `or` chain treats it.
         ("", "kubernetes", True),
-        ("", "", False),
-        ("", None, False),
-        # TIGHTER than `key_scrubber`, which `.strip().lower()`s: a mistyped mode is PRODUCTION
-        # here. Guessing a runtime mode into `local` is the fail-open the `modo` and `enforcement`
-        # pins already refuse.
+        ("", "", True),
+        ("", None, True),
+        ("", _LOCAL, False),
+        # NO NORMALISATION: a mistyped mode is PRODUCTION and the override is refused.
         (" Local ", None, True),
         ("Local", None, True),
         (None, "LOCAL", True),
     ],
 )
-def test_any_declared_non_local_spelling_arms_the_spec_dir_pin(
+def test_the_loader_inherits_the_full_refusal_truth_table(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     runtime_mode: str | None,
     agent_runtime_mode: str | None,
-    armed: bool,
+    refused: bool,
 ) -> None:
     """The discriminator is a DISJUNCTION over declared values, not a first-set-wins lookup.
 
-    `key_scrubber.py:117` may legitimately use `or`: it must pick ONE mode to configure a
-    pseudonymizer with, so it needs a winner. This function answers a yes/no question about whether
-    a security fence APPLIES, and for that the fail-closed reading is "any declaration that says
-    production, means production". Adopting the `or` shape wholesale would have silently narrowed
-    the §5.7 pin's coverage while the commit message claimed only to widen the names it accepts.
+    Re-asserted THROUGH THIS LOADER rather than only against `is_explicit_local_runtime()`, because
+    the property that matters to MZO-040 is what the governance record does, not what a helper
+    returns. `key_scrubber.py:117` may legitimately use `or` — it must pick ONE mode to configure a
+    pseudonymizer with, so it needs a winner. This decides whether a fence APPLIES, and for that
+    the fail-closed reading is "any declaration that is not local means production".
     """
     monkeypatch.setenv("MAEZO_SPEC_DIR", str(_spec_tree(tmp_path, _manifest())))
     for name, value in (("RUNTIME_MODE", runtime_mode), (RUNTIME_MODE_ENV, agent_runtime_mode)):
@@ -596,35 +679,156 @@ def test_any_declared_non_local_spelling_arms_the_spec_dir_pin(
         else:
             monkeypatch.setenv(name, value)
 
-    expected = MODE_SHADOW_OVERRIDE if armed else MODE_ENFORCING
-    assert load_action_approvals().mode == expected, (
-        f"RUNTIME_MODE={runtime_mode!r} AGENT_RUNTIME_MODE={agent_runtime_mode!r} "
-        f"{'did not arm' if armed else 'wrongly armed'} the pin"
-    )
+    if refused:
+        with pytest.raises(SpecDirOverrideRefusedError):
+            load_action_approvals()
+    else:
+        assert load_action_approvals().mode == MODE_ENFORCING
 
 
-def test_the_pin_never_loses_coverage_relative_to_the_single_name_it_used_to_read(
+def test_the_refusal_never_loses_coverage_relative_to_the_weak_pin_it_replaces(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The non-regression property, stated directly: learning a name may not cost coverage.
+    """THE NON-REGRESSION PROPERTY, stated directly: hardening may not cost coverage.
 
-    For EVERY value of the originally-read variable that armed the pin before, it must still arm
-    it — whatever the newly-read second variable happens to say. That is the invariant the
-    first-set-wins shape violated in exactly one row, and a truth table is easy to re-typo, so the
-    property gets its own assertion rather than relying on the row above surviving a future edit.
+    Every `(RUNTIME_MODE, AGENT_RUNTIME_MODE)` combination that ARMED the weak pin — i.e. any
+    declared non-local value under either name — must now REFUSE. A hardening that traded a
+    covered combination for a stronger consequence on the rest would be a net loss, and a truth
+    table is easy to re-typo, so the property gets its own assertion rather than relying on the
+    rows above surviving a future edit.
     """
     monkeypatch.setenv("MAEZO_SPEC_DIR", str(_spec_tree(tmp_path, _manifest())))
-    for other in (None, "", "local", "kubernetes"):
+    for other in (None, "", _LOCAL, "kubernetes"):
         for name, value in (("RUNTIME_MODE", other), (RUNTIME_MODE_ENV, "kubernetes")):
             if value is None:
                 monkeypatch.delenv(name, raising=False)
             else:
                 monkeypatch.setenv(name, value)
         action_execution._load_cached.cache_clear()
-        assert load_action_approvals().mode == MODE_SHADOW_OVERRIDE, (
-            f"AGENT_RUNTIME_MODE=kubernetes armed the pin before the second name was read; "
-            f"with RUNTIME_MODE={other!r} it no longer does — that is a LOSS of coverage"
-        )
+        with pytest.raises(SpecDirOverrideRefusedError):
+            load_action_approvals()
+
+
+@pytest.mark.parametrize(
+    ("root", "resolve"),
+    [
+        # THE POLICY PLANE ITSELF — the four loaders an enforcing MZO-040 depends on.
+        ("gateway.action_execution.load_action_approvals", load_action_approvals),
+        ("gateway.pep._default_autonomy_dir", lambda: pep._default_autonomy_dir()),
+        ("tools.workers.ceilings._default_core_path", lambda: ceilings._default_core_path()),
+        (
+            "tools.workers.auth_criteria._manifest_default_path",
+            lambda: auth_criteria._manifest_default_path(),
+        ),
+        # AGENT CONTRACTS — the agent-runtime boot path (`service.py::_load_definition`), and the
+        # reason the agent runtime is covered without this file editing it.
+        ("agents.resolve_spec_agents_dir", resolve_spec_agents_dir),
+        ("agents.AgentLoader.load_by_id", lambda: AgentLoader().load_by_id("helena")),
+        # WORKER-RUNTIME POLICY DATA — reached from worker task handlers, not from this gateway.
+        ("tools.workers.tiss_schema._default_schema_root", lambda: tiss_schema._default_schema_root()),
+        (
+            "tools.workers.tiss_schema_pin._manifest_default_path",
+            lambda: tiss_schema_pin._manifest_default_path(),
+        ),
+        (
+            "tools.workers.adequacao_shadow._manifest_default_path",
+            lambda: adequacao_shadow._manifest_default_path(),
+        ),
+        (
+            "platform.privacy.phi_key_policy._manifest_default_path",
+            _phi_key_policy_manifest_path,
+        ),
+        # THE OPERATOR TOOL, with NO explicit --spec-dir: it inherits the refusal like everything
+        # else. Its sanctioned override is the flag, proven by the row after this table.
+        (
+            "platform.deploy.engine_deploy.resolve_spec_processes_dir",
+            lambda: engine_deploy.resolve_spec_processes_dir(),
+        ),
+    ],
+)
+def test_every_production_spec_consumer_refuses(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    root: str,
+    resolve: Any,
+) -> None:
+    """THE COVERAGE CLAIM, per consumer: the closure is by CONSTRUCTION, not per-root opt-in.
+
+    The refusal lives in `resolve_spec_dir()` — the single T0.3 mechanism — rather than being
+    wired into each composition root, precisely so a future production entrypoint cannot forget to
+    opt in. This table is the evidence for that claim, enumerated from
+    `grep -rn "resolve_spec_dir\\|resolve_spec_agents_dir" src/`, and it spans BOTH runtime
+    surfaces: the agent runtime (agent contracts + the autonomy plane) and the worker runtime
+    (ceilings, TISS pin, DMN ratification, PHI key policy), plus the operator tool.
+    """
+    monkeypatch.setenv("MAEZO_SPEC_DIR", str(_spec_tree(tmp_path, _manifest())))
+    monkeypatch.setenv(RUNTIME_MODE_ENV, "kubernetes")
+
+    with pytest.raises(SpecDirOverrideRefusedError):
+        resolve()
+
+
+def test_the_deploy_tools_explicit_flag_is_the_sanctioned_operator_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """THE OPERATOR-TOOL DISPOSITION, and it is not an exemption.
+
+    A BPMN/DMN deploy is a deliberate act by a human at a CLI, so pointing it at a candidate tree
+    is legitimate — but the sanctioned way to say so is `--spec-dir`, which reaches
+    `resolve_spec_processes_dir(spec_dir=…)` and never touches `resolve_spec_dir()`. An override a
+    reviewer can see in the shell history of the person who ran it is a different artefact from
+    one a pod inherits from its environment, and the tool gets only the former: the AMBIENT
+    variable is refused here too (row above), even in production, even for this tool.
+    """
+    explicit = tmp_path / "explicit"
+    (explicit / "processes").mkdir(parents=True)
+    monkeypatch.setenv("MAEZO_SPEC_DIR", str(_spec_tree(tmp_path, _manifest())))
+    monkeypatch.setenv(RUNTIME_MODE_ENV, "kubernetes")
+
+    assert engine_deploy.resolve_spec_processes_dir(explicit) == explicit / "processes"
+
+
+def test_the_weak_pin_and_its_companion_bypass_are_absent_from_the_source() -> None:
+    """SOURCE-LEVEL PROOF OF REMOVAL, because "we deleted it" is a claim, not evidence.
+
+    The two named things the owner asked to be removed are the WEAK evaluate-only leg
+    (`spec_dir_sourced`, resolving to `MODE_SHADOW_OVERRIDE`) and the companion flag's coupling to
+    it. A behavioural test cannot distinguish "removed" from "still there but currently
+    unreachable" — dead code that a later refactor re-arms is exactly how a closed finding
+    re-opens — so the absence is asserted against the module text itself.
+    """
+    import ast
+    import inspect
+
+    # THE PARAMETER IS GONE FROM THE API, asserted against the signature rather than the module
+    # text: the text still NAMES `spec_dir_sourced`, deliberately, in the comment that records what
+    # was removed and why. A grep-based proof would have forced that record to be deleted too,
+    # which is how a closed finding loses its provenance.
+    assert set(inspect.signature(action_execution._parse).parameters) == {
+        "raw_text",
+        "manifest_path",
+        "override_sourced",
+    }, "the weak evaluate-only pin's `spec_dir_sourced` parameter survives"
+
+    source = Path(action_execution.__file__).read_text(encoding="utf-8")
+    assert "action_approvals_spec_dir_enforcement_refused" not in source
+    # The companion flag survives ONLY for the path override it was built for. Counted over the
+    # AST rather than the text, because the text mentions the name in prose too — and a substring
+    # count would have been satisfied by a third CALL introduced alongside a deleted comment.
+    calls = [
+        node
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "_override_enforcement_permitted"
+    ]
+    assert len(calls) == 2, (
+        "expected exactly TWO call sites, both on the MANIFEST_PATH_ENV path: the enforcement "
+        "fence in `_parse` and the `enforcement_permitted` field of the path-override log line. "
+        f"found {len(calls)} at lines {[c.lineno for c in calls]}"
+    )
+    # And the refusal it was replaced by is imported here rather than reimplemented.
+    assert "SpecDirOverrideRefusedError" in source
 
 
 # -- The digest (§5.7 item 2)

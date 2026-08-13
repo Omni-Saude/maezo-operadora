@@ -51,6 +51,19 @@ sets `MAEZO_ACTION_APPROVALS_ALLOW_OVERRIDE_ENFORCEMENT=1`, which is the deliber
 act. Every override-sourced load emits an `error` line naming the resolved path and whether
 enforcement was permitted.
 
+THE SPEC-DIR OVERRIDE IS NOT AN ENFORCEMENT SURFACE EITHER — AND IN PRODUCTION IT IS NOT A
+SURFACE AT ALL. `MAEZO_SPEC_DIR` reaches this loader through `_manifest_default_path()`, and it
+substitutes the ENTIRE policy plane rather than this one file (adversary A-6). Wave-1 Q-6 was
+ratified fail-closed by the owner on 2026-08-12 (PLANS §0.8), so the closure now lives UPSTREAM,
+at the single T0.3 chokepoint: `maezo.agents.resolve_spec_dir()` RAISES
+`SpecDirOverrideRefusedError` whenever the variable is set outside an explicitly local runtime.
+This module therefore no longer carries the WEAK, evaluate-only form of the pin — the
+`spec_dir_sourced -> MODE_SHADOW_OVERRIDE` leg, and with it the
+`MAEZO_ACTION_APPROVALS_ALLOW_OVERRIDE_ENFORCEMENT` COMPANION BYPASS that used to lift it, are
+GONE. What remains is provenance: an explicitly-local load through a substituted tree still
+records where the policy came from. The refusal is the one failure this otherwise never-raising
+loader lets PROPAGATE (see `load_action_approvals`).
+
 NO PHI. Nothing in this module reads, logs or stores a business key, a payload variable, or any
 free text. The only values that reach telemetry are the topic, the action class, a bounded reason
 token from the closed enum below, the mode, and the tenant — every one of them a bounded,
@@ -73,7 +86,12 @@ import structlog
 import yaml
 from yaml.nodes import MappingNode
 
-from maezo.agents import MAEZO_SPEC_DIR_ENV, resolve_spec_dir
+from maezo.agents import (
+    MAEZO_SPEC_DIR_ENV,
+    RUNTIME_MODE_ENVS,
+    SpecDirOverrideRefusedError,
+    resolve_spec_dir,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -83,43 +101,34 @@ logger = structlog.get_logger(__name__)
 #: Tests do NOT use it — they pass the `path` argument — so this stays a deployment surface only.
 MANIFEST_PATH_ENV = "MAEZO_ACTION_APPROVALS_PATH"
 
-#: The companion flag WITHOUT which an override-sourced manifest may never enforce. Set to the
-#: exact literal "1" (the fail-closed pin idiom: truthy junk is refused). Its whole purpose is to
-#: make "swap the manifest and turn enforcement on" TWO deliberate, separately auditable acts
+#: The companion flag WITHOUT which a `MANIFEST_PATH_ENV`-sourced manifest may never enforce. Set
+#: to the exact literal "1" (the fail-closed pin idiom: truthy junk is refused). Its whole purpose
+#: is to make "swap the manifest and turn enforcement on" TWO deliberate, separately auditable acts
 #: instead of one env var — because the path override bypasses the CODEOWNERS-listed file entirely
 #: and, with `main` unprotected, that listing is advisory anyway.
+#:
+#: IT GOVERNS EXACTLY ONE OVERRIDE, and that is the Q-6 change (2026-08-12): it briefly also lifted
+#: the §5.7 spec-dir pin, which made it a COMPANION BYPASS for a total policy-plane substitution.
+#: The owner removed that by name. `MAEZO_SPEC_DIR` is now refused outright in production and no
+#: env var re-opens it — do not re-couple this flag to spec-dir resolution.
 OVERRIDE_ENFORCEMENT_ENV = "MAEZO_ACTION_APPROVALS_ALLOW_OVERRIDE_ENFORCEMENT"
 OVERRIDE_ENFORCEMENT_ENABLED = "1"
 
-#: Runtime-mode discriminator, mirroring `runtime/agent_runtime/service.py:84`
-#: (`_LOCAL_RUNTIME_MODE`) and `a2a_composition.py`'s identically-named one: anything OTHER than
-#: the literal "local" (Helm injects "kubernetes") is PRODUCTION. Restated here rather than
-#: imported for the same layering reason `_TOKEN_RE` is restated: `maezo.gateway` must not depend
-#: on `maezo.runtime`. Disclosed residual: an unset variable reads as "local", so a production
-#: deployment that FORGETS to inject it does not arm the §5.7 spec-dir pin — the same residual the
-#: checkpointer fail-closed gate already carries, and the reason the pin is a defense-in-depth
-#: layer rather than the primary control.
-RUNTIME_MODE_ENV = "AGENT_RUNTIME_MODE"
-#: BOTH names the SAME discriminator answers to. The ORDER is `key_scrubber.py:117`'s
-#: (`RUNTIME_MODE or AGENT_RUNTIME_MODE`) and is documentation only — `_is_production_runtime`
-#: takes a DISJUNCTION over every declared value, not the first one (see its docstring for why
-#: first-set-wins would have been a widening of this fence). Reading only one of the two was a
-#: real gap: a deployment standardised on `RUNTIME_MODE` — which the PHI egress pseudonymizer
-#: already treats as authoritative — left the §5.7 spec-dir pin DISARMED while believing it had
-#: declared production. One deployment vocabulary, two spellings, both honoured.
+#: Runtime-mode env var names, RE-EXPORTED from `maezo.agents` — NOT a second definition.
 #:
-#: THREE DELIBERATE DIVERGENCES from `key_scrubber`, and they do NOT all point the same way —
-#: stating that plainly, because "tightening" is a claim that has to be true per case:
-#:   (1) TIGHTER: it `.strip().lower()`s the value, so `" Local "` reads as local there and as
-#:       PRODUCTION here. Guessing at a mistyped mode is what the fail-closed pin idiom refuses.
-#:   (2) TIGHTER: any declared non-local value arms the pin, where its `or` chain lets an earlier
-#:       `local` mask a later `kubernetes`.
-#:   (3) LOOSER, and accepted as a disclosed residual: it treats an UNSET variable as production.
-#:       Adopting that here would turn every dev box and every test run into a `shadow_override`,
-#:       so this module keeps `unset => local` — the same residual :data:`RUNTIME_MODE_ENV`
-#:       documents, and the reason the pin is defense-in-depth rather than the primary control.
-RUNTIME_MODE_ENVS: Final[tuple[str, str]] = ("RUNTIME_MODE", RUNTIME_MODE_ENV)
-LOCAL_RUNTIME_MODE = "local"
+#: This module used to restate the discriminator (`_is_production_runtime`, `unset => local`) so
+#: `maezo.gateway` would not depend on `maezo.runtime`. The Q-6 ratification moved the ONLY
+#: consumer of that predicate — the §5.7 spec-dir pin — upstream into `maezo.agents`
+#: (`is_explicit_local_runtime`, `unset => PRODUCTION`, the fail-closed flip), which this module
+#: already imports. Re-exporting the two NAMES from there, instead of keeping a private copy that
+#: nothing reads, is what makes a future drift between "which variables name the runtime mode"
+#: and "what the refusal checks" impossible rather than merely unlikely.
+#:
+#: The ORDER is `key_scrubber.py:117`'s (`RUNTIME_MODE or AGENT_RUNTIME_MODE`) and is
+#: documentation only: `is_explicit_local_runtime` takes a DISJUNCTION over every declared value,
+#: never a first-set-wins lookup, because `RUNTIME_MODE=local` + `AGENT_RUNTIME_MODE=kubernetes`
+#: is a reachable pod state and first-set-wins would read it as local.
+RUNTIME_MODE_ENV: Final[str] = RUNTIME_MODE_ENVS[1]
 
 #: The three approver domains, CODE-FROZEN. `PLANS.md` §0.6 and DL-0042 both state the MZO-040
 #: gate as Médica + ANS + Security; this set is not editable from the manifest, mirroring
@@ -150,8 +159,10 @@ MODE_UNRESOLVED = "unresolved"
 #: keeps its legitimate use — previewing what a candidate record WOULD decide), but `enforced` is
 #: False, so a runtime env var alone can never start blocking calls.
 #:
-#: ONDA 1 (§5.7, A-6): the SAME resolution now also covers a manifest reached through a
-#: `MAEZO_SPEC_DIR` override while the runtime mode is production. See `_parse`.
+#: SCOPE, NARROWED BY Q-6 (2026-08-12): this mode belongs to `MANIFEST_PATH_ENV` and ONLY to it.
+#: Onda 1 §5.7 had briefly extended it to a `MAEZO_SPEC_DIR`-sourced manifest as the WEAK form of
+#: the A-6 closure; the owner ratified refuse-to-load instead, so a spec-dir-substituted plane is
+#: never previewed in production and never reaches this value. See the Q-6 note in `_parse`.
 MODE_SHADOW_OVERRIDE = "shadow_override"
 
 # -- ONDA 1 §7.3: per-class enforcement. `modo` above stays the GLOBAL CEILING; these two data
@@ -521,29 +532,6 @@ def _override_enforcement_permitted() -> bool:
     return os.environ.get(OVERRIDE_ENFORCEMENT_ENV) == OVERRIDE_ENFORCEMENT_ENABLED
 
 
-def _is_production_runtime() -> bool:
-    """True iff this process is NOT in local mode — the `_LOCAL_RUNTIME_MODE` discriminator.
-
-    ANY DECLARED NON-LOCAL SPELLING ARMS THE PIN. Reading both names FIRST-SET-WINS (the shape
-    `key_scrubber.py:117` uses) would have been a WIDENING of this fence, not just a widening of
-    the names it answers to: with `RUNTIME_MODE=local` AND `AGENT_RUNTIME_MODE=kubernetes` — a
-    perfectly reachable state for a pod that inherits a base-image default and is then labelled by
-    Helm — first-set-wins reads `local` and DISARMS the §5.7 pin, where the pre-repair code
-    (`AGENT_RUNTIME_MODE` only) armed it. A security fence may not lose coverage as a side effect
-    of learning a second spelling, so the disjunction is over every value actually declared.
-
-    `key_scrubber` may legitimately differ: it picks ONE mode for a pseudonymizer, so it needs a
-    winner. This answers a yes/no question about whether a fence applies, and for that "any
-    declaration says production" is the fail-closed reading.
-
-    Residual, UNCHANGED and still disclosed: NOTHING declared reads as local, so a production
-    deployment that injects neither variable does not arm the pin (see :data:`RUNTIME_MODE_ENV`).
-    An empty string is treated as undeclared, exactly as `key_scrubber`'s `or` chain does.
-    """
-    declared = [value for name in RUNTIME_MODE_ENVS if (value := os.environ.get(name))]
-    return any(value != LOCAL_RUNTIME_MODE for value in declared)
-
-
 def _resolve_enforcement(raw: Any) -> str:
     """`enforcing` iff `raw` is EXACTLY that literal; everything else is `shadow` (§7.3).
 
@@ -648,7 +636,6 @@ def _parse(
     manifest_path: Path,
     *,
     override_sourced: bool = False,
-    spec_dir_sourced: bool = False,
 ) -> ActionApprovals:
     """Parse an already-read manifest. NEVER raises; refuses into `_EMPTY_APPROVALS` instead.
 
@@ -656,8 +643,8 @@ def _parse(
         raw_text: the manifest bytes, already decoded.
         manifest_path: where they came from (telemetry + digest resolution).
         override_sourced: the path came from `MANIFEST_PATH_ENV` (the existing override fence).
-        spec_dir_sourced: the DEFAULT path was resolved through a `MAEZO_SPEC_DIR` override
-            (design §5.7 / A-6). Treated exactly like `override_sourced` for the enforcement leg.
+            There is deliberately no `spec_dir_sourced` twin any more — see the Q-6 note where
+            that leg used to sit, below the override fence.
     """
     try:
         data = yaml.load(raw_text, Loader=_RefusingDuplicatesLoader)  # noqa: S506 - hardened SafeLoader
@@ -716,33 +703,20 @@ def _parse(
             detail="manifest came from the path override and declares 'enforcing'; enforcement is "
             f"WITHHELD (mode={MODE_SHADOW_OVERRIDE}) until {OVERRIDE_ENFORCEMENT_ENV}=1 is also set",
         )
-    # THE SPEC-DIR FENCE (ONDA 1 §5.7, closes adversary A-6). `MAEZO_SPEC_DIR` swaps
-    # `action-approvals.yaml`, `L0-core.yaml`, `_hard_frozen.yaml` AND every `agent.yaml` in ONE
-    # variable, and `_manifest_default_path()` honours it with `override_sourced=False` — so the
-    # existing path-override fence never fires and a forged `RATIFICADO` + `enforcing` manifest
-    # would ALLOW every class. Inert today (nothing enforces), a single-variable total
-    # authorization bypass the instant the agent side enforces.
-    #
-    # PROVISIONAL, pending Q-6. This implements the WEAKER of the design's two options: mirror
-    # `MODE_SHADOW_OVERRIDE` (evaluate, but never enforce), not refuse-to-load. It is chosen
-    # provisionally BECAUSE the global `modo: shadow` makes it a no-op today, so shipping the
-    # weaker form costs nothing and breaks no deployment; Q-6 may STRENGTHEN it to refuse-to-load,
-    # which is a security decision with a deployment blast radius and belongs to the owner. The
-    # same companion flag governs the escape hatch, deliberately: one staged-rollout act, not two
-    # vocabularies. Narrow by construction — only PRODUCTION mode, only a manifest that already
-    # reads `enforcing`; a spec-dir override in shadow is untouched, which is every test run.
-    if spec_dir_sourced and mode == MODE_ENFORCING and not _override_enforcement_permitted():
-        mode = MODE_SHADOW_OVERRIDE
-        logger.error(
-            "action_approvals_spec_dir_enforcement_refused",
-            path=str(manifest_path),
-            override_env=MAEZO_SPEC_DIR_ENV,
-            companion_env=OVERRIDE_ENFORCEMENT_ENV,
-            enforcement_permitted=False,
-            detail="the policy plane was resolved through the spec-dir override in a PRODUCTION "
-            f"runtime and declares 'enforcing'; enforcement is WITHHELD (mode={MODE_SHADOW_OVERRIDE}) "
-            f"until {OVERRIDE_ENFORCEMENT_ENV}=1 is also set — see design §5.7 / Q-6",
-        )
+    # THE SPEC-DIR FENCE IS NO LONGER HERE — Q-6, ratified fail-closed 2026-08-12 (PLANS §0.8).
+    # What stood at this point was the WEAK form of §5.7: `spec_dir_sourced and mode ==
+    # MODE_ENFORCING and not _override_enforcement_permitted()` -> MODE_SHADOW_OVERRIDE, i.e.
+    # EVALUATE-BUT-NEVER-ENFORCE, liftable by the SAME `MAEZO_ACTION_APPROVALS_ALLOW_OVERRIDE_
+    # ENFORCEMENT=1` companion flag. Both halves are gone, and the removal is the point:
+    #   * the evaluate-only pin, because a substituted policy plane must not be *previewed* in
+    #     production, it must be REFUSED — `maezo.agents.resolve_spec_dir()` now raises
+    #     `SpecDirOverrideRefusedError` before this loader ever reads a byte, so `spec_dir_sourced`
+    #     could only ever have been False here;
+    #   * the companion flag's coverage of the spec-dir leg, because "one more env var re-opens
+    #     the total policy substitution" is the bypass the owner removed by name.
+    # The companion flag SURVIVES for `MANIFEST_PATH_ENV` above — a DIFFERENT variable governing
+    # ONE file that a reviewer can diff, which Q-6 did not reach and which the design cites as the
+    # working precedent. Widening or narrowing that one is its own decision, on its own review.
 
     raw_acoes = data.get("acoes")
     if raw_acoes is None:
@@ -880,10 +854,19 @@ def load_action_approvals(path: str | Path | None = None) -> ActionApprovals:
     `ActionApprovals` with zero approved classes and `mode=unresolved` — which neither allows
     anything nor turns enforcement on — plus one `error` log line. See the module docstring for
     why this swallows where the retention-matrix precedent raises.
+
+    THE ONE DELIBERATE EXCEPTION (Q-6, ratified 2026-08-12): `SpecDirOverrideRefusedError` from
+    `resolve_spec_dir()` PROPAGATES. Degrading it into `mode=unresolved` would be fail-closed in
+    effect — nothing is approved either way — but it would also be QUIET, and the owner ratified a
+    LOUD refusal: an operator who substituted the entire policy plane in production must get the
+    named error, not a service that comes up denying everything for reasons that read like a
+    missing file. Every OTHER failure keeps the swallow-into-unresolved posture unchanged.
+
+    Raises:
+        SpecDirOverrideRefusedError: `MAEZO_SPEC_DIR` is set outside an explicitly local runtime.
     """
     raw_path = path
     override_sourced = False
-    spec_dir_sourced = False
     if raw_path is None:
         env_path = os.environ.get(MANIFEST_PATH_ENV)
         if env_path:
@@ -901,36 +884,37 @@ def load_action_approvals(path: str | Path | None = None) -> ActionApprovals:
                 "runtime environment",
             )
     if not raw_path:
-        # ONDA 1 §5.7 / A-6: the DEFAULT path resolves through `resolve_spec_dir()`, which honours
-        # `MAEZO_SPEC_DIR` as authoritative. That substitutes the ENTIRE policy plane in one
-        # variable, invisibly to the `MANIFEST_PATH_ENV` fence.
-        #
-        # PROVENANCE AND ENFORCEMENT ARE TWO DIFFERENT QUESTIONS, and conflating them suppressed
-        # the record: the earlier form emitted this line only when the pin ALSO bit (production
-        # AND `modo: enforcing`), so a staging or mis-labelled pod running an entirely substituted
-        # policy plane left no trace that the governed tree was bypassed. WHERE THE POLICY CAME
-        # FROM is a fact worth recording on every load; WHETHER ENFORCEMENT IS WITHHELD is the
-        # production-only consequence, and stays gated in `_parse`.
+        # ONDA 1 §5.7 / A-6, CLOSED by Q-6: the DEFAULT path resolves through `resolve_spec_dir()`,
+        # which used to honour `MAEZO_SPEC_DIR` unconditionally — substituting the ENTIRE policy
+        # plane in one variable, invisibly to the `MANIFEST_PATH_ENV` fence. It now REFUSES that
+        # variable outside an explicitly local runtime, so reaching the lines below with the
+        # override set PROVES the runtime declared itself local.
         spec_dir_override = bool(os.environ.get(MAEZO_SPEC_DIR_ENV))
-        spec_dir_sourced = spec_dir_override and _is_production_runtime()
         try:
             raw_path = _manifest_default_path()
+        except SpecDirOverrideRefusedError:
+            # The ONE failure this loader does not swallow (see the docstring): a production
+            # policy-plane substitution is a governance refusal, and it must be loud.
+            raise
         except Exception as exc:  # noqa: BLE001 - fail-closed: unresolvable spec/ approves nothing
             return _refuse("path_unresolved", f"could not resolve the default manifest path: {exc}")
         if spec_dir_override:
-            # `error` in production (an operator must be paged by their own log routing);
-            # `info` otherwise, because every dev box and every test run sets this variable and
-            # an `error` per load would be noise that teaches people to filter the line out.
-            emit = logger.error if spec_dir_sourced else logger.info
-            emit(
+            # PROVENANCE IS STILL RECORDED ON EVERY LOAD (§5.7 item 1). It is `info`, not `error`,
+            # and no longer branches on the runtime mode: production can no longer get here at all
+            # — the raise above is the production answer — so the only remaining reader of this
+            # line is a local run, where an `error` per load would be noise that teaches people to
+            # filter the line away. WHERE the policy came from stays a fact worth recording even
+            # then, because a local tree that quietly differs from the governed one is how a green
+            # local suite disagrees with CI.
+            logger.info(
                 "action_approvals_spec_dir_overridden",
                 path=str(raw_path),
                 override_env=MAEZO_SPEC_DIR_ENV,
-                production_runtime=spec_dir_sourced,
-                enforcement_permitted=_override_enforcement_permitted(),
+                explicit_local_runtime=True,
                 detail="the CODEOWNERS-listed policy plane was NOT used; the whole spec/ tree "
                 "(action-approvals.yaml, L0-core.yaml, _hard_frozen.yaml, every agent.yaml) was "
-                "supplied by the runtime environment",
+                "supplied by the runtime environment, which declared itself explicitly local "
+                "(Q-6: any other runtime mode REFUSES this variable)",
             )
 
     manifest_path = Path(raw_path)
@@ -948,12 +932,7 @@ def load_action_approvals(path: str | Path | None = None) -> ActionApprovals:
     except OSError as exc:
         return _refuse("unreadable", f"could not read {manifest_path}: {exc}")
 
-    return _parse(
-        raw_text,
-        manifest_path,
-        override_sourced=override_sourced,
-        spec_dir_sourced=spec_dir_sourced,
-    )
+    return _parse(raw_text, manifest_path, override_sourced=override_sourced)
 
 
 @lru_cache(maxsize=8)

@@ -11,13 +11,47 @@ T0.3 / defect B14 (single source of truth): `agent.yaml` lives ONLY under
 `resolve_spec_agents_dir()` resolve that directory, honoring the
 `MAEZO_SPEC_DIR` environment variable override, and FAIL CLOSED (raise) if
 the resolved directory does not exist — there is no silent fallback.
+
+WAVE-1 Q-6 — `MAEZO_SPEC_DIR` FAILS CLOSED IN PRODUCTION (owner ratification, 2026-08-12)
+-----------------------------------------------------------------------------------------
+`resolve_spec_dir()` is the ONE mechanism every policy loader in this repo routes through: the
+autonomy matrix (`gateway/pep.py`), the MZO-040 approval manifest
+(`gateway/action_execution.py`), the L-0 ceilings (`tools/workers/ceilings.py`), the DMN
+ratification records, the TISS schema pin, the PHI business-key policy and every `agent.yaml`.
+So `MAEZO_SPEC_DIR` does not override *a file* — it substitutes the ENTIRE POLICY PLANE in one
+environment variable, and it does so INVISIBLY to the `MAEZO_ACTION_APPROVALS_PATH` override
+fence (adversary A-6, `docs/design/wave1-effect-chokepoint.md` §5.7 / C-B4).
+
+The owner ratified the STRONG form of the design's two options on 2026-08-12 (PLANS §0.8,
+"Ratificação Q-6"): *"produção deve recusar `MAEZO_SPEC_DIR`, permitindo-o apenas em runtime
+local explícito; remova o companion bypass e aceite futuras exceções somente por bundle imutável
+com digest permitido."* Therefore:
+
+* **Production (the DEFAULT, including an ABSENT runtime mode)** — the variable is REFUSED:
+  `resolve_spec_dir()` raises :class:`SpecDirOverrideRefusedError`. Absent means production
+  because of the ADR-0039 Q7 / Train-F fail-closed default (`agent_runtime/settings.py`,
+  `a2a_composition.worker_runtime_mode_from_env`): a deployment that forgets to declare its mode
+  is never granted the permissive branch.
+* **Explicitly local runtime** — honored exactly as before, so every dev box and every test run
+  that declares `RUNTIME_MODE=local` (or `AGENT_RUNTIME_MODE=local`) keeps working.
+* **Operator tools** that legitimately need a different tree pass it as an EXPLICIT flag, never
+  the ambient variable — `maezo.platform.deploy.cli --spec-dir` is the shipped example, and it
+  reaches `engine_deploy.resolve_spec_processes_dir(spec_dir=…)` without touching this function.
+
+THE ONLY SANCTIONED FUTURE EXCEPTION, AND IT IS **NOT BUILT** (design note, owner's words): an
+IMMUTABLE bundle whose content DIGEST is on an allowlist. Nothing here reads such an allowlist and
+nothing should be added until that mechanism is designed and ratified on its own review. There is
+deliberately **no environment escape hatch** — the companion flag that used to soften this pin
+(`MAEZO_ACTION_APPROVALS_ALLOW_OVERRIDE_ENFORCEMENT`, which lifted the WEAK evaluate-only form in
+`action_execution._parse`) was REMOVED by the same ratification. A second variable that re-opens a
+one-variable total policy substitution is the bypass, not the control.
 """
 
 from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 import structlog
 import yaml
@@ -29,8 +63,96 @@ logger = structlog.get_logger(__name__)
 #: Deployment environments that lay `spec/` out at a location none of the
 #: default candidates cover (e.g. a container image mounting `spec/` at an
 #: arbitrary path) MUST set this — see docs/reports/T0.3-agent-yaml-drift.md
-#: for the packaging note.
+#: for the packaging note. REFUSED in production since the Q-6 ratification
+#: (module docstring): a production deployment lays `spec/` out where the
+#: default candidates already look, or it does not deploy.
 MAEZO_SPEC_DIR_ENV = "MAEZO_SPEC_DIR"
+
+#: BOTH spellings the deployment vocabulary uses for the runtime mode, in `key_scrubber.py:117`'s
+#: order. THE SINGLE DEFINITION — `gateway/action_execution.py` re-exports these two names rather
+#: than restating them, because the Q-6 refusal below and the gateway's provenance line must never
+#: disagree about which variables name the runtime mode.
+#:
+#: LAYERING: this module cannot import `maezo.runtime.agent_runtime.a2a_composition`'s
+#: `is_production_runtime_mode` (that package imports THIS one — a cycle), so the discriminator is
+#: restated here, for the same reason `action_execution` restated it. The two are pinned to the
+#: same verdict by a test that imports both.
+RUNTIME_MODE_ENVS: Final[tuple[str, str]] = ("RUNTIME_MODE", "AGENT_RUNTIME_MODE")
+
+#: The ONLY non-production runtime mode, and it must be declared EXPLICITLY. Matches
+#: `a2a_composition._LOCAL_RUNTIME_MODE`, `agent_runtime/service.py:86` and
+#: `webhooks/service.py:69` — one literal, four surfaces.
+LOCAL_RUNTIME_MODE: Final[str] = "local"
+
+
+class SpecDirOverrideRefusedError(RuntimeError):
+    """`MAEZO_SPEC_DIR` was set outside an EXPLICITLY local runtime (Wave-1 Q-6, fail-closed).
+
+    A distinct, NAMED type — not `FileNotFoundError`, not a bare `RuntimeError` — because this is
+    a governance refusal, not a configuration-lookup miss: the directory may well exist and be
+    readable, and refusing it anyway is the whole point. Callers that deliberately soften
+    unresolvable-spec failures into an empty, approve-nothing result (`load_action_approvals`)
+    catch the lookup failures and let THIS one propagate.
+    """
+
+
+def is_explicit_local_runtime() -> bool:
+    """True iff the runtime mode is DECLARED and every declaration says exactly ``local``.
+
+    THE FAIL-CLOSED SHAPE, and the one thing that differs from the (now removed) weak pin's
+    ``_is_production_runtime``: **nothing declared is PRODUCTION**, not local. The weak pin could
+    afford ``unset => local`` because its consequence was withholding enforcement on a manifest
+    that was already globally `shadow`; the consequence here is refusing to boot, and a production
+    pod that forgets to inject a mode variable must land on the SAFE side of that. This now agrees
+    with both real resolvers — `worker_runtime_mode_from_env()` (absent/blank -> "production") and
+    `AgentRuntimeSettings.agent_runtime_mode` (absent -> "production", ADR-0039 Q7 / Train F).
+
+    A DISJUNCTION, not first-set-wins: with ``RUNTIME_MODE=local`` AND
+    ``AGENT_RUNTIME_MODE=kubernetes`` — reachable for a pod that inherits a base-image default and
+    is then labelled by Helm — first-set-wins would read ``local`` and DISARM the refusal. So a
+    single non-local declaration is enough to make this False; ALL declared values must be
+    ``local`` for the override to be honored.
+
+    NO NORMALISATION, deliberately (the `modo`/`enforcement` pin idiom, and the same choice
+    `is_production_runtime_mode` makes): ``" Local "`` and ``"LOCAL"`` are NOT ``local``, so a
+    mistyped mode is production and the override is refused. Guessing which mode an operator meant
+    is how a fail-closed pin becomes fail-open. An EMPTY string is treated as UNDECLARED (matching
+    `key_scrubber`'s `or` chain and `worker_runtime_mode_from_env`'s strip-to-default), so
+    ``RUNTIME_MODE=""`` is production.
+    """
+    declared = [value for name in RUNTIME_MODE_ENVS if (value := os.environ.get(name))]
+    return bool(declared) and all(value == LOCAL_RUNTIME_MODE for value in declared)
+
+
+def _refuse_spec_dir_override_outside_local(override: str) -> None:
+    """Raise :class:`SpecDirOverrideRefusedError` unless the runtime is explicitly local (Q-6).
+
+    Error style mirrors `_require_envelope_signing_or_fail_closed` (ADR-0039 §4.4): name the
+    variable, name the mode that was resolved and where it came from, state the rationale with its
+    citation, and name the SANCTIONED alternative — so the operator reading this at 3am can act on
+    it without opening the design doc.
+    """
+    if is_explicit_local_runtime():
+        return
+    declared = {name: os.environ.get(name) for name in RUNTIME_MODE_ENVS}
+    raise SpecDirOverrideRefusedError(
+        f"refusing to resolve the policy plane through {MAEZO_SPEC_DIR_ENV}: the runtime mode is "
+        f"PRODUCTION (declared={declared!r}; an ABSENT or blank mode is PRODUCTION — the "
+        f"ADR-0039 Q7 / Train-F fail-closed default), and "
+        f"{MAEZO_SPEC_DIR_ENV}={override!r} substitutes the ENTIRE policy plane — "
+        "action-approvals.yaml, L0-core.yaml, _hard_frozen.yaml and every agent.yaml — in ONE "
+        "environment variable, invisibly to the MAEZO_ACTION_APPROVALS_PATH override fence "
+        "(adversary A-6, docs/design/wave1-effect-chokepoint.md §5.7/C-B4). Ratified fail-closed "
+        "by the owner on 2026-08-12 (Wave-1 Q-6, PLANS.md §0.8): production must REFUSE this "
+        "variable. SANCTIONED ALTERNATIVES: (a) production ships the policy plane INSIDE the "
+        "artifact — the repo checkout or the wheel's package-adjacent maezo/spec/, which is what "
+        "the default resolution already reads; (b) an operator TOOL passes the directory as an "
+        "EXPLICIT command-line flag (`python -m maezo.platform.deploy.cli --spec-dir <path>`), "
+        "never the ambient variable; (c) local development declares the runtime EXPLICITLY local "
+        f"({' or '.join(RUNTIME_MODE_ENVS)}={LOCAL_RUNTIME_MODE}). There is NO environment escape "
+        "hatch and none may be added: the ONLY sanctioned future exception is an IMMUTABLE bundle "
+        "with an allowlisted content digest, and that mechanism is NOT BUILT."
+    )
 
 
 def _default_spec_dir_candidates() -> tuple[Path, ...]:
@@ -67,9 +189,18 @@ def resolve_spec_dir() -> Path:
 
     Resolution order:
 
-    1. ``MAEZO_SPEC_DIR`` env var — authoritative when set: if it points at a
-       nonexistent directory this raises immediately (no fallback to any
-       default; an explicit-but-wrong override is a configuration error).
+    0. **The Q-6 refusal (see the module docstring).** If ``MAEZO_SPEC_DIR`` is
+       set and the runtime is NOT explicitly local, this raises
+       :class:`SpecDirOverrideRefusedError` — before the directory is even
+       looked at, because the refusal is about the variable being SET, not
+       about where it points. Placing it HERE rather than at each composition
+       root is deliberate: this is the single T0.3 chokepoint every policy
+       loader already routes through, so the closure is by CONSTRUCTION and a
+       future production entrypoint cannot forget to opt in.
+    1. ``MAEZO_SPEC_DIR`` env var — authoritative when set (explicit local
+       runtime only): if it points at a nonexistent directory this raises
+       immediately (no fallback to any default; an explicit-but-wrong override
+       is a configuration error).
     2. The default candidates from :func:`_default_spec_dir_candidates`
        (repo checkout, then installed-wheel package-adjacent) — the first one
        that exists as a directory wins.
@@ -82,11 +213,14 @@ def resolve_spec_dir() -> Path:
         The resolved, absolute `spec/` directory path.
 
     Raises:
+        SpecDirOverrideRefusedError: If ``MAEZO_SPEC_DIR`` is set outside an
+            explicitly local runtime (Wave-1 Q-6, ratified 2026-08-12).
         FileNotFoundError: If the env override points at a missing directory,
             or no default candidate exists.
     """
     override = os.environ.get(MAEZO_SPEC_DIR_ENV)
     if override:
+        _refuse_spec_dir_override_outside_local(override)
         spec_dir = Path(override).expanduser().resolve()
         if not spec_dir.is_dir():
             raise FileNotFoundError(
@@ -120,6 +254,9 @@ def resolve_spec_agents_dir() -> Path:
         The resolved, absolute `spec/agents/` directory path.
 
     Raises:
+        SpecDirOverrideRefusedError: Propagated from :func:`resolve_spec_dir`
+            when ``MAEZO_SPEC_DIR`` is set outside an explicitly local runtime
+            (Wave-1 Q-6) — an `agent.yaml` is a policy artefact too.
         FileNotFoundError: If `spec/agents/` does not exist.
     """
     agents_dir = resolve_spec_dir() / "agents"
@@ -335,10 +472,14 @@ class AgentRegistry:
 
 
 __all__ = [
+    "LOCAL_RUNTIME_MODE",
     "MAEZO_SPEC_DIR_ENV",
+    "RUNTIME_MODE_ENVS",
     "AgentDefinition",
     "AgentLoader",
     "AgentRegistry",
+    "SpecDirOverrideRefusedError",
+    "is_explicit_local_runtime",
     "resolve_spec_agents_dir",
     "resolve_spec_dir",
 ]

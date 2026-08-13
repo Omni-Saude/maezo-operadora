@@ -63,7 +63,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--spec-dir",
         default=None,
-        help="Override the resolved spec/ directory (default: honors $MAEZO_SPEC_DIR, see maezo.agents).",
+        help=(
+            "Explicitly override the resolved spec/ directory. This flag is the ONLY sanctioned "
+            "override for this operator tool (Wave-1 Q-6): with it absent, resolution falls "
+            "through to maezo.agents.resolve_spec_dir(), which REFUSES the ambient $MAEZO_SPEC_DIR "
+            "variable outside an explicitly local runtime."
+        ),
     )
     return parser
 

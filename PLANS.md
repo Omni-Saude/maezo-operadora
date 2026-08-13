@@ -361,6 +361,56 @@ DL-0045 (qualificação MZO-040) em `docs/decisions-log.md`.
 (2) provider PHI real provado regionalmente sem fallback; (3) admissão assinada + integridade de
 delegação + idempotência durável p/ A2A não-local.
 
+### Decisões do dono — 2ª leva de ratificações (recebidas 2026-08-12)
+
+> **Registro fiel, não re-litigável.** Este bloco registra o SEGUNDO lote de decisões do dono de
+> 2026-08-12 (o primeiro — as 7 Perguntas do ADR-0039 — está no marcador da Onda 3 acima). Cada
+> item é a decisão como o dono a formulou; onde há implementação, ela é citada. Agentes registram
+> e implementam; **não reabrem**. O flip de `**Status:**` de qualquer ADR e as tabelas de
+> aprovadores seguem sendo edição do DONO, nunca de agente.
+
+- **Q-6 — `MAEZO_SPEC_DIR` FAIL-CLOSED. ✅ IMPLEMENTADA nesta leva.** *"Ratifique Q-6 como
+  fail-closed: produção deve recusar `MAEZO_SPEC_DIR`, permitindo-o apenas em runtime local
+  explícito; remova o companion bypass e aceite futuras exceções somente por bundle imutável com
+  digest permitido."* Fecha o adversário A-6 (`docs/design/wave1-effect-chokepoint.md` §5.7/C-B4):
+  uma única variável substituía TODO o plano de política (matriz de autonomia, action-approvals,
+  L0-core, `_hard_frozen`, todo `agent.yaml`), invisível à cerca de override de
+  `MAEZO_ACTION_APPROVALS_PATH`. A recusa vive em `maezo.agents.resolve_spec_dir()` — o
+  chokepoint T0.3 único, portanto fechamento POR CONSTRUÇÃO, não opt-in por raiz — e levanta
+  `SpecDirOverrideRefusedError`; **modo de runtime AUSENTE é PRODUÇÃO** (default fail-closed do
+  ADR-0039 Q7 / Trem F). A forma FRACA (avalia-mas-nunca-enforça) e o companion
+  `MAEZO_ACTION_APPROVALS_ALLOW_OVERRIDE_ENFORCEMENT` que a levantava foram REMOVIDOS; o companion
+  sobrevive apenas para `MANIFEST_PATH_ENV`, que a Q-6 não alcançou. Ferramenta de operador
+  (deploy CLI) NÃO é isenta: seu override sancionado é a flag EXPLÍCITA `--spec-dir`, nunca a
+  variável ambiente. Exceção futura (bundle imutável com digest permitido) está REGISTRADA e
+  **NÃO construída** — não existe escape hatch por env.
+- **Q-1 — flips por classe via PR/CODEOWNERS.** Cada virada `shadow → enforcing` por classe de
+  ação é um PR revisado sob CODEOWNERS, nunca um ato de runtime.
+- **Q-2 / Q-10 — não-mapeados e C2 seguem em SOMBRA**, com **owner nomeado, prazo máximo e
+  critérios mensuráveis** de saída. Sombra sem dono e sem prazo é desvio permanente disfarçado.
+- **Q-3 — sampler + ReviewQueue são CONSTRUÍDOS ANTES do enforcement** (cláusula de amostragem do
+  ADR-0034, design §5.6). Não se liga enforcement sem a superfície de revisão pronta.
+- **Q-4 — quatro ações canônicas, SEM aliases:** inferência de zona-split, A2A e leitura
+  populacional entram no vocabulário como nomes próprios. Nada de camada de alias PT↔EN
+  (`pep.py:12-18`: um mapa de alias é um segundo vocabulário e uma superfície fail-open).
+- **Q-5 — consentimento NUNCA é declarado implementado até haver adapter completo.** Enquanto só
+  existir a porta (`ports/consent.py`), a perna L-4 permanece honestamente não-implementada.
+- **Q-7 — rollback = restart**, com **SLO e teste** que provem a latência de rollback (em vez de
+  TTL de cache re-lido, que é a alternativa descartada).
+- **Q-8 — manifesto global SOMENTE com guarda de single-tenant.** Um registro de ratificação sem
+  eixo de tenant só é correto se algo impedir o deployment multi-tenant de usá-lo.
+- **Q-9 — benchmarks de p99 SEPARADOS: PEP e auditoria.** Um número agregado esconde qual das duas
+  metades gastou o orçamento; `audita_antes: true` adiciona escrita durável e é medido à parte.
+- **Q-11 — allowlists FECHADAS por agente** (`process_keys` por agente vale, não o
+  `DEFAULT_ALLOWED_PROCESS_KEYS` global).
+- **Q-12 — proteger a `main` + apagar 12 branches verificadas. AMBAS FEITAS 2026-08-12** pelo
+  dono. Fecha a pré-condição de governança do W6/`mzo-000` que a ratificação MZO-040 exigia.
+- **ADR-0039 — revisões + `replay_epoch` ciente de tenant**, e **análise DBA/jurídica ANTES** de
+  fixar a retenção de 30 dias (a retenção é escolha do DBA/MZO-060 informada pelo prazo legal, não
+  um default de código).
+- **Correções PRÉ-FLIP (bloqueiam a virada, não a construção):** Job de migração do Helm ·
+  default do WhatsApp · LEG3-B · regex de tenant.
+
 ---
 
 ## 1. Objetivo
