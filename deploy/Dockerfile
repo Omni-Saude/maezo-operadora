@@ -65,6 +65,17 @@ COPY spec/policies/autonomy ./spec/policies/autonomy
 # `FileNotFoundError: Forced include not found: /app/spec/policies/amh`. The AWS-gated cd.yml
 # build still never runs in CI, which is why this surfaced only on a local boot.
 COPY spec/policies/amh ./spec/policies/amh
+# TERCEIRA e QUARTA ocorrências da mesma falha das duas linhas acima (13/08/2026):
+# o force-include passou a incluir `spec/agents` e `spec/processes` — as definições
+# de agente que `resolve_spec_agents_dir()` procura ao lado do pacote, e os 16 BPMN
+# + 62 DMN que o CLI de deploy publica no engine. Sem estas duas COPY o
+# `uv sync --no-editable` abaixo falha fechado com
+# `FileNotFoundError: Forced include not found: /app/spec/agents`.
+#
+# O padrão já se repetiu quatro vezes: TODO force-include novo no pyproject exige
+# uma COPY correspondente aqui. Ao adicionar um, adicione a outra.
+COPY spec/agents ./spec/agents
+COPY spec/processes ./spec/processes
 COPY src/ ./src/
 COPY config/ ./config/
 RUN uv sync --frozen --no-dev --no-editable
