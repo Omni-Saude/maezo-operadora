@@ -445,11 +445,13 @@ evade the seam assertion and be caught only by the httpx fence. Recorded, not hi
 pinned by a fence test asserting no gated wrapper's public method accepts an `agent_id`/`tenant`
 argument.
 
-**C-B4 (A-6 → PARTIALLY CLOSED, needs a human).** `MAEZO_SPEC_DIR` is a total policy-source
-substitution that the existing override fence does not see. §5.7 specifies the closure; Q-6 is the
-owner/security decision, because refusing `MAEZO_SPEC_DIR` in production could break a legitimate
-deployment pattern (Helm's `AGENT_DEFINITION_PATH` mount is a *different* mechanism —
-`agent_runtime/service.py:281-285` — so the risk of breakage is low, but it is not mine to decide).
+**C-B4 (A-6 → CLOSED 2026-08-12; was PARTIALLY CLOSED pending a human).** `MAEZO_SPEC_DIR` is a
+total policy-source substitution that the existing override fence does not see. §5.7 specifies the
+closure; Q-6 was the owner/security decision, because refusing `MAEZO_SPEC_DIR` in production could
+break a legitimate deployment pattern (Helm's `AGENT_DEFINITION_PATH` mount is a *different*
+mechanism — `agent_runtime/service.py:281-285` — so the risk of breakage is low, but it was not
+mine to decide). **The owner ratified refuse-to-load** (§5.7 item 1, `PLANS.md` §0.8): production
+refuses the variable, explicit local runtime keeps it, the companion bypass is removed.
 
 **C-B5 (A-12 → CLOSED by design, proven by §8.5).** Per-class declared denial shapes plus mutation
 proofs. Without this, the first flip is a care incident.
@@ -584,6 +586,14 @@ Two additions, both narrow:
    AND the runtime mode is production, the effect-policy loaders emit the same loud `error` line
    the path override emits (`action_execution.py:546-553`) and — per Q-6 — either refuse
    enforcement (mirroring `MODE_SHADOW_OVERRIDE`, `:443-457`) or refuse to load.
+   **RESOLVED 2026-08-12 (Q-6, owner): REFUSE TO LOAD — the stronger of the two options.** The
+   refusal lives at `maezo.agents.resolve_spec_dir()` (the single T0.3 chokepoint, so the closure
+   is by construction rather than per-root opt-in) and raises `SpecDirOverrideRefusedError`
+   whenever the variable is set outside an EXPLICITLY local runtime; an absent runtime mode is
+   PRODUCTION (ADR-0039 Q7 / Train-F default). The weak evaluate-only form, and the
+   `MAEZO_ACTION_APPROVALS_ALLOW_OVERRIDE_ENFORCEMENT` companion that lifted it, are REMOVED. The
+   only sanctioned future exception is an immutable digest-allowlisted bundle, which is NOT built.
+   Record: `PLANS.md` §0.8.
 2. A content digest of the four policy artefacts (`action-approvals.yaml`, `L0-core.yaml`,
    `_hard_frozen.yaml`, the tenant overlay) is logged at boot and exposed on `/readyz`, so an
    operator can compare deployed policy against the reviewed commit. Precedent: the AMH
@@ -871,10 +881,14 @@ MZO-070 is gated on the AMH consent contract. Ship L-4 declared-but-unwired (a c
 `consentimento_exigido: true` DENIES until an adapter exists — honest and fail-closed), or defer the
 leg entirely and record XRD-09 as partially implemented?
 
-**Q-6 — Close the `MAEZO_SPEC_DIR` bypass (A-6).** Refuse enforcement (or refuse to load) when
-policy artefacts resolve through `MAEZO_SPEC_DIR` in production mode? This is a security decision
-with a deployment blast radius; the alternative is that one env var silently substitutes the entire
-policy plane once enforcement is live.
+**Q-6 — Close the `MAEZO_SPEC_DIR` bypass (A-6). ANSWERED 2026-08-12 — FAIL-CLOSED.** Refuse
+enforcement (or refuse to load) when policy artefacts resolve through `MAEZO_SPEC_DIR` in
+production mode? This is a security decision with a deployment blast radius; the alternative is
+that one env var silently substitutes the entire policy plane once enforcement is live.
+*Owner's ratification, verbatim:* "Ratifique Q-6 como fail-closed: produção deve recusar
+`MAEZO_SPEC_DIR`, permitindo-o apenas em runtime local explícito; remova o companion bypass e
+aceite futuras exceções somente por bundle imutável com digest permitido." Implemented per §5.7
+item 1; recorded in `PLANS.md` §0.8.
 
 **Q-7 — Manifest cache TTL vs rollback latency (A-10).** Accept "rollback = restart", or add a
 bounded TTL re-read that never widens permission on a failed re-read? SRE/owner call.

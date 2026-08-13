@@ -19,11 +19,24 @@ carrying the engine's verbatim error body — BPMN/DMN deploy errors from the
 engine are the REAL validation for this tool, so they are never swallowed,
 downgraded to a warning, or retried into a false "OK".
 
-`spec/` resolution mirrors `maezo.agents.resolve_spec_dir()` (same
-`MAEZO_SPEC_DIR` env override, same fail-closed contract on a missing
-directory) — spec/ is the single source of truth (ADR) and this module never
-copies artifacts elsewhere before deploying; it reads directly from the
-resolved `spec/processes/{bpmn,dmn}/` tree.
+`spec/` resolution delegates to `maezo.agents.resolve_spec_dir()` (same
+fail-closed contract on a missing directory) — spec/ is the single source of
+truth (ADR) and this module never copies artifacts elsewhere before deploying;
+it reads directly from the resolved `spec/processes/{bpmn,dmn}/` tree.
+
+WAVE-1 Q-6 DISPOSITION (ratified 2026-08-12, PLANS §0.8) — THIS IS AN OPERATOR
+TOOL, NOT A PRODUCTION REQUEST PATH, AND IT IS STILL NOT EXEMPT. A BPMN/DMN
+deploy is a deliberate, interactive act by a human running a CLI, not traffic
+served to a member, so pointing it at a candidate tree is legitimate. But the
+sanctioned way to say so is the EXPLICIT `--spec-dir` flag
+(`maezo.platform.deploy.cli`), which reaches `resolve_spec_processes_dir`
+through its `spec_dir` argument and never touches `resolve_spec_dir()`. The
+AMBIENT `MAEZO_SPEC_DIR` variable is NOT a sanctioned input here: with no flag
+passed, this module falls through to `resolve_spec_dir()` and inherits its
+production refusal verbatim (`SpecDirOverrideRefusedError`), exactly like every
+policy loader. The distinction is the point — an override a reviewer can see in
+the shell history of the person who ran it is a different artefact from one a
+pod inherits from its environment, and the tool gets the former only.
 """
 
 from __future__ import annotations
@@ -75,19 +88,24 @@ def resolve_engine_rest_url() -> str:
 
 
 def resolve_spec_processes_dir(spec_dir: Path | None = None) -> Path:
-    """Resolve `spec/processes/`, honoring `MAEZO_SPEC_DIR` (via `maezo.agents`).
+    """Resolve `spec/processes/`, from an EXPLICIT `spec_dir` or `maezo.agents.resolve_spec_dir()`.
 
     Fail-closed: raises `FileNotFoundError` if the resolved directory does
     not exist — mirrors `maezo.agents.resolve_spec_agents_dir()`.
 
     Args:
-        spec_dir: Optional override for the resolved `spec/` root. Defaults
-            to `maezo.agents.resolve_spec_dir()`.
+        spec_dir: Optional EXPLICIT override for the resolved `spec/` root —
+            the CLI's `--spec-dir` flag, and the ONLY sanctioned override for
+            this operator tool (module docstring, Wave-1 Q-6). Absent, this
+            delegates to `maezo.agents.resolve_spec_dir()` and inherits its
+            production refusal of the ambient `MAEZO_SPEC_DIR` variable.
 
     Returns:
         The resolved, absolute `spec/processes/` directory path.
 
     Raises:
+        SpecDirOverrideRefusedError: No explicit `spec_dir` was given,
+            `MAEZO_SPEC_DIR` is set, and the runtime is not explicitly local.
         FileNotFoundError: If `spec/processes/` does not exist.
     """
     base = spec_dir if spec_dir is not None else resolve_spec_dir()
