@@ -99,9 +99,14 @@ variable "worker_memory" {
 }
 
 variable "worker_desired_count" {
-  description = "Quantas tasks do worker-runtime. 1 em dev; o harness registra os 16 workers BPMN por task."
+  description = <<-EOT
+    Quantas tasks do worker-runtime (o harness registra os 16 workers BPMN por task).
+    Nasce em ZERO pelo mesmo motivo do engine: sem o banco alcancavel o harness falha
+    fechado e registra zero workers. Suba para 1 depois que as migrations passarem E o
+    engine estiver de pe — o worker precisa dos dois.
+  EOT
   type        = number
-  default     = 1
+  default     = 0
 }
 
 variable "cibseven_desired_count" {
