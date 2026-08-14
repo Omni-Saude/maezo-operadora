@@ -15,7 +15,7 @@
 >
 > Fonte de verdade viva, mais granular que este documento:
 > [`docs/evidence-ledger.md`](evidence-ledger.md) (toda linha "verified" carrega reprodução
-> independente) + [`docs/decisions-log.md`](decisions-log.md) (DLs) + [`docs/adr/`](adr/) (35 ADRs).
+> independente) + [`docs/decisions-log.md`](decisions-log.md) (DLs) + [`docs/adr/`](adr/) (39 ADRs, 0001–0039).
 > O relatório histórico de 2026-06-14 segue válido só para o arco #65–#88:
 > [`docs/reports/autonomous-completion-report.md`](reports/autonomous-completion-report.md).
 >
@@ -51,23 +51,88 @@
 > (`test_sp_op_cred_001.py:1005,1037`), 2 tetos D-07 financeiro (`test_sp_op_auth_001.py:697`,
 > `test_sp_op_reembolso_001.py:627`), 1 RN 259 (`test_sp_op_adequacao_001.py:714`).
 
+> **Atualização 2026-08-13 (reconciliação pós hardening-waves + trem de assinatura + batch de
+> governança + infra ECS; base `main`@`b9e4383`).** Desde `091abd8` fecharam quatro programas, TODOS
+> mergeados (cada PR com a cadeia zero-trust completa: autor tier-routed → gatekeeper adversarial ≠
+> autor → repair 3º agente → delta re-verdict → prova live → squash pinado → byte-check → linha no
+> ledger):
+> - **Programa de hardening §0.8 (Ondas 0-4 + fillers, #229-#236):** censo strict-xfail GERADO em CI
+>   + check de branch-protection; plano de controle de efeitos INERTE (modo shadow, `effect_pep`/
+>   `tool_registry`/cerca AST); inferência PHI construída INERTE; metade durável do A2A (outbox +
+>   idempotência obrigatória); âncora de auditoria externa DARK; runbooks W7 + gate de piso de
+>   capacidade em release.
+> - **Trem de assinatura de envelope A2A (#237-#243):** o dono ratificou o ADR-0039 (as 7 decisões) e
+>   **a assinatura de envelope foi IMPLEMENTADA** (digest v2 com `payload_meta_hash`+`task_type`,
+>   keyset por-tenant, verificação fail-closed, suite de ataque virada) — era a única entrega que a
+>   Onda 3 deliberadamente não construiu. `AGENT_RUNTIME_MODE` e `MAEZO_SPEC_DIR` passaram a falhar
+>   FECHADO.
+> - **Batch de governança (#245, #248, #249):** auditoria do CODEOWNERS (donos-fantasma corrigidos +
+>   autoproteção do aparato de gate); **gate de vencimento de desvios** (prazos ratificados viram DADO
+>   auto-executável); **`flip-path-review-gate`** (enforcement fail-closed de review por-owner nos
+>   flips). `main` **agora é PROTEGIDA por um ruleset** (PR obrigatório + 4 required checks).
+> - **Infra ECS/Fargate (#247, colega T01SS0):** o stack Terraform do ambiente **dev VIVO** foi
+>   aplicado (conta de dados, 22 recursos, engine `desired_count=0` até o SG do Aurora abrir) + o fix
+>   de `env.py` do defeito de migrations do Helm (a URL do Aurora nunca era lida; `MAEZO_TENANT` nunca
+>   existiu — o código lê `MAEZO_TENANT_ID`).
+>
+> **Censo strict-xfail: 24 → 22** (as 2 NACK do ANS-SUBMIT fecharam via #226; base merged `b9e4383`,
+> `make xfail-census-check` = 22). Piso de release = `unit_tests_passed: 6867` (gate `release-floor`
+> VIVO). Baseline de gates na main: 8000 passed / 614 skipped / 1 xfailed · mypy 209 · censo 22 ·
+> cercas 8.4=2 · release-floor PASS · deviation-expiry PASS.
+>
+> **NOVAS tarefas humanas surgidas destes programas (nenhuma é código-que-falta — todas são
+> ratificação/nomeação/credencial). Home de cada uma na seção do time responsável:**
+> - **DevOps/Security — ativar o `flip-path-review-gate`** (ver §1.7): conceder write ao time
+>   `Omni-Saude/security-team` no repo → staffar com ≥1 humano ≠ `rodaquino-OMNI` → confirmar/vetar
+>   `@lucasreisEvah` nas linhas privacy/retention do CODEOWNERS → re-rodar o lint do CODEOWNERS até 0
+>   erros → verificar que o token do workflow lê o roster do time → adicionar `flip-path-review-gate`
+>   aos required checks do ruleset. Enquanto não feito, review por-owner nos flips é advisory.
+> - **Security/crypto — revisão nomeada R1 do ADR-0039** (ver §3.5): a ratificação do dono registrou
+>   a DECISÃO, **não** a revisão nomeada de Security/crypto; a tabela de aprovadores segue
+>   `_(pending)_` e continua vedada a agentes.
+> - **Security-R1 (interino: dono) + Diretor(a) Médico(a) (interino: dono) — critérios dos desvios de
+>   sombra** (ver §3.6): os PRAZOS já são DADO merge-bloqueante (unmapped `expires 2026-11-11`; C2
+>   `leitura_phi_clinica` `review_by 2027-02-09`). Falta NOMEAR o dono real de cada um e ratificar os
+>   critérios mensuráveis de flip (censo de unmapped = 0; ≥30 dias sem `WOULD_DENY` em sombra; etc.).
+> - **DBA/MZO-060 — número de retenção do `a2a_idempotency`** (ver §3.3): o **piso ≥ 7 dias** agora é
+>   computável (deriva da cadência de rotação de 7 dias ratificada); o DBA escolhe o valor real contra
+>   esse piso.
+> - **Dono — sequência de ratificações da 2ª leva** (2026-08-12; NÃO agent-buildável até o dono agir):
+>   nomear as **4 ações canônicas L0 sem alias** (inferência por-zona ×2, `delegacao_a2a`,
+>   `leitura_populacional` — as strings exatas + o cross-check `_hard_frozen.yaml` são ato de
+>   vocabulário humano ADR-0008/0025); e, DEPOIS de a maquinaria existir (sampler+ReviewQueue,
+>   benchmarks p99, guardas single-tenant/SLO), a **sequência de flips de enforcement C0→C4** (humana,
+>   sequencial). Detalhe em `handoff.yaml` (untracked) + PLANS §0.8.
+> - **DevOps (precisa de credenciais AWS) — incógnitas honestas do #247** (ver §1.8): confirmar em qual
+>   repo ECR está a imagem `092810a` (`amh/maezo-operadora` vs `maezo-agent`, ver §1.8 M4), o conteúdo
+>   do state, o tipo de chave KMS dos segredos; e a **dep externa amh-data-platform PR #160** (abre o
+>   SG do Aurora para as migrations rodarem — hoje a task morre em `TimeoutError`).
+>
+> **Reframe de infra (supersede parcial de §1.2):** a casa opera **ECS/Fargate**, não EKS — o cluster
+> EKS que o Terraform legado de staging referenciava **nunca existiu**. §1.2 (EKS via `terraform
+> apply`) segue válida só para o caminho legado/staging; o caminho vivo é §1.8.
+
 ---
 
 ## Resumo por time
 
 | Time | Itens | Bloqueia go-live? |
 |---|---|---|
-| **Desenvolvedores / DevOps / Plataforma** | Deploy, segredos, migrations, features *gated*, `terraform apply`, revisão de código pré-lançamento (agora estendida a #89–#166) | 🔴 sim |
-| **Médicos / Médico-auditor** | Conteúdo clínico DRAFT (DMN DUT×4/ROL/carência), personas, atestação de segurança clínica | 🔴 sim |
-| **Jurídico / Compliance / DPO** | DPA do endpoint BR, ratificação do processo de apagamento LGPD, ratificação de 2 ADRs de retenção de auditoria, atestação regulatória ANS | 🔴 sim |
+| **Desenvolvedores / DevOps / Plataforma** | Deploy, segredos, migrations, features *gated*, `terraform apply`, revisão pré-lançamento · **NOVO:** ativar proteção de `main`/`flip-path-review-gate` (§1.7), hardening da infra ECS viva + dep externa amh PR #160 (§1.8) | 🔴 sim |
+| **Médicos / Médico-auditor** | Conteúdo clínico DRAFT (DMN DUT×4/ROL/carência), personas, atestação de segurança clínica · **NOVO:** dono + critérios do desvio C2 `leitura_phi_clinica` (§3.6, prazo `review_by 2027-02-09`) | 🔴 sim |
+| **Jurídico / Compliance / Security / DPO** | DPA do endpoint BR, ratificação do apagamento LGPD, 2 ADRs de retenção de auditoria, atestação ANS · **NOVO:** revisão nomeada R1 de Security/crypto do ADR-0039 (§3.5), dono+critérios do desvio unmapped (§3.6, prazo `expires 2026-11-11`), número de retenção do `a2a_idempotency` (§3.3) | 🔴 sim |
 | **Finanças / Procurement** | Contratos: endpoint LLM BR-resident, acesso Tasy/Oracle, provedor LLM + token-metering, billing AWS | 🔴 sim |
-| **PO / Regulatório / Outros** | Datas de competência ANS, confirmação do mapa de personas, decisão de lançamento | 🟡 |
+| **PO / Regulatório / Outros** | **Determinação ANVISA SaMD (GAP-C10, §3.7)**, datas de competência ANS, confirmação do mapa de personas, decisão de lançamento | 🔴 sim |
 
 ---
 
 ## 1. Desenvolvedores / DevOps / Plataforma
 
-> O **runbook de deploy passo-a-passo** está no [README → Deploy](../README.md#deploy-produção--staging).
+> O **runbook de deploy passo-a-passo** vive em [`docs/runbooks/`](runbooks/) (índice em
+> [`docs/runbooks/README.md`](runbooks/README.md) — ex.: `devops-stack.md`, `cd-rollback.md`,
+> `dmn-bpmn-deployment.md`, `engine-processes.md`). **Nota de navegação:** referências a "§6.2" ao
+> longo deste documento (herdadas de uma versão anterior cujo §6 de deploy foi consolidado nos
+> runbooks) apontam para esse conjunto de runbooks de deploy/provisionamento de segredos.
 > Esta seção lista as ações **humanas/credenciais** que o deploy exige.
 
 ### 1.1 🔴 Popular os segredos reais no cofre (AWS Secrets Manager) — §6.2
@@ -182,7 +247,7 @@ implicava (o consumer nunca foi escrito).
 | **Token-metering / custo USD do LLM** | **Metade de captura ✅ RESOLVIDA (T8, PR #171) — reframe do texto anterior, que já estava obsoleto quando escrito.** `_emit_llm_token_usage()` (`runtime/inference.py:579-662`, chamada de `AnthropicInferenceProvider.generate()` em `:724-778`) lê `response.usage.input_tokens`/`.output_tokens` de toda resposta Anthropic real e emite (a) o evento structlog `llm_token_usage` (`provider`, `model`, `input_tokens`, `output_tokens`, `total_tokens`, `agent_id`, `tenant_id` — PHI-safe por construção, nunca lê `response.content`) e (b) o contador Prometheus `maezo_llm_tokens_total` via `record_llm_token_usage()` (`platform/observability.py:322`); providers mock/noop deliberadamente não emitem nada. `_COST_PER_1K_TOKENS_USD` **continua não existindo em lugar nenhum** — a metade que falta é só a **humana**: finanças define preço/tiers antes de existir qualquer tabela USD (nenhum código adicional necessário para a captura). Um branch de hardening (fence de campo obrigatório + prova de não-metering para mocks) está aberto como **PR #222** ("Cerca de PHI no metering de tokens LLM: conjunto de campos do evento `llm_token_usage` pinado + prova de zero-emissão dos providers mock"), ainda não mergeado. | #29 |
 | **L2 ReviewQueue + sample_rate** | ✅ **RESOLVIDO por decisão arquitetural — removido do pending.** `ADR-0034` (Accepted, em `main` via PR #166) ratifica o descope: o `PEP.evaluate` do v2 tem **zero chamadores em runtime** (só usado como probe de `/readyz`; `gateway/pep.py:412`, confirmado por grep exaustivo) — não existe chokepoint por-tool-call para uma amostra L2 disparar. A garantia HITL é estrutural (BPMN no-denial 5 partes + DMN + tetos fail-closed + cadeia de auditoria, ADR-0018), não um PEP async com sampling como no donor v1. Pré-condição de revisita registrada na própria ADR (só reabre se um chokepoint PEP por-tool-call for introduzido). | #24 → ADR-0034 |
 | **CronJob `verify-erasure`** | **Reframe crítico — a premissa "só alimentar o segredo" está errada.** Ver §3.2: o próprio entrypoint do CronJob recusa incondicionalmente (exit 78) e `ErasureManager` levanta `ErasureNotImplementedError` por design (T3.4-F3) — nada aqui liga com o conteúdo do segredo `ERASED_PATIENT_IDS`. Bloqueado em ratificação DPO da matriz de retenção, não em dado operacional. | #5 |
-| **`PopulationFeatureClient` (André)** | Sem mudanças: `andre/graph.py:555` `population: PopulationFeatureClient \| None = None`, docstring confirma "PORT-PENDING (WB.4, mcp-datalake) — population=None is a supported configuration". | — |
+| **`PopulationFeatureClient` (André)** | Sem mudanças de código: `andre/graph.py:555` `population: PopulationFeatureClient \| None = None`, "population=None is a supported configuration". **Mas o teto humano estava sub-declarado:** habilitar features populacionais exige **ADR-0019 (data-lake externo) + AWS Lake Formation LF-Tags + piso de k-anonimato ratificado pelo DPO** (PLANS §0.5.2 item 7) — não é só construir o cliente. | teto DPO + infra (ADR-0019) |
 | **Ingress + TLS** | Sem mudanças: `ingress.enabled=true` + `certificateArn` (`values.yaml:204`). | — |
 
 **✅ Itens que eram "agent-buildable-mas-decision-gated" e RESOLVERAM desde 2026-07-26:**
@@ -302,6 +367,74 @@ Lista original (#65–#88), ainda válida: #67 (egress), #68 (TLS prod), #69 (al
   aplicação continua mecânica, mas a **colocação** exige sign-off médico-auditor (mesmo item de
   §2.1). `spec/processes/dmn/orphans-allowlist.yaml` é hoje a lista oficial validada por
   `make validate-artifacts` (verde, 0 erros/0 notices) — nenhuma órfã não-catalogada existe.
+
+### 1.7 🔴 Ativar a proteção de `main` completa (ruleset + `flip-path-review-gate`) — NOVO (batch de governança 2026-08-13)
+`main` **já é protegida** por um ruleset (`main-protection`, id `20775655`): PR obrigatório,
+sem force-push, sem deleção, **4 required checks** (`lint / type / unit`, `gitleaks / secrets`,
+`validate-artifacts`, `release-capability-floor (audit §5)`). O check `branch-protection-check` está
+**VERDE**. **Ação humana restante — ligar o review por-owner nos flips de política:**
+1. Criar/conceder ao time **`Omni-Saude/security-team`** acesso **write** neste repo (hoje o time
+   existe mas não tem acesso, e — como todos os 15 times da org — tem exatamente 1 membro,
+   `rodaquino-OMNI`, que é a identidade dos agentes; sem um 2º humano não há separação de revisor).
+2. **Staffar** o time com ≥1 humano ≠ `rodaquino-OMNI` (roster candidato: `filipecarmo81`,
+   `gtaquino-automatelabs`, `hugohiroshi92`, `joaopanisi`, `lucasreisEvah`, `robsonfelix`, `T01SS0`).
+3. **Confirmar ou vetar `@lucasreisEvah`** (DPO) como owner explícito nas linhas privacy/retention do
+   `.github/CODEOWNERS` (marcadas `>>> PENDENTE DE CONFIRMACAO DO DONO <<<`).
+4. Re-rodar o lint do CODEOWNERS (`gh api repos/…/codeowners/errors`) → **esperar 0 erros** (hoje 29,
+   todos referências deliberadas ao time sem-acesso — a bandeira vermelha que zera quando o passo 1
+   for feito).
+5. **Verificar que o `GITHUB_TOKEN` do workflow consegue ler o roster do time** (senão paths de-owner
+   por time ficam RED por design — o gate aceita um user-owner explícito como override manual).
+6. Só então adicionar o context **`flip-path-review-gate`** à lista de required checks do ruleset.
+> **NÃO ligar `require_code_owner_review`** — foi provado INERTE em `required_approving_review_count=0`
+> (o knob só roteia QUEM satisfaz um count exigido; em 0 não há o que satisfazer). O `flip-path-review-gate`
+> É o mecanismo path-scoped. Procedimento-fonte: `handoff.yaml` `session_6_part3.ACTIVATION_PROCEDURE_owner`
+> + o cabeçalho do `.github/CODEOWNERS`.
+>
+> **Decisão opcional do dono (endurecimento):** subir `required_approving_review_count` para ≥1 acaba
+> com os merges autônomos same-user; e o lane de integração real (`integration tests (real engine)`)
+> está **deliberadamente FORA** dos required checks (~1h33/PR) — a prova live local + a re-run pós-merge
+> na main são o substituto. Ligar qualquer um dos dois é escolha explícita sua.
+
+### 1.8 🟡 Infra ECS/Fargate VIVA (#247) — hardening de fatia-1 + incógnitas que exigem credenciais AWS — NOVO
+O ambiente **dev** foi aplicado (ECS/Fargate, conta de dados `203312548462`, 22 recursos, cluster
+`maezo-operadora-dev`, engine `desired_count=0`). O secrets-path está limpo (só ARNs field-scoped,
+nunca valores), zero ingress público, blast-radius do task-role = `ssmmessages` apenas. **Bloqueio
+único p/ as migrations rodarem:** o SG do Aurora só aceita 5432 do SG do HAPI — até a **dep externa
+amh-data-platform PR #160** ser aplicada, a task de migrations morre em `TimeoutError`.
+**Follow-ups de hardening (agent-buildable — enfileirados p/ um trem de infra, ver o brief de
+continuação; listados aqui p/ visibilidade humana):**
+- **(MAJOR, chart) `job-migrations.yaml` ainda exporta `MAEZO_TENANT`** (código lê `MAEZO_TENANT_ID`)
+  e não passa `-x tenant=` → após o fix de `env.py` do #247 o caminho Helm agora CONECTA e criaria as
+  tabelas do tenant em `public` **em silêncio**. Corrigir antes de reviver o chart.
+- **(MAJOR) `terraform apply` cru reverte o ambiente vivo:** `image_tag` default `bootstrap` vs
+  aplicado `092810a`; `desired_count` default 0; `*.tfvars` gitignored **sem** `.example`. Precisa de
+  `terraform.tfvars.example` + `ignore_changes[desired_count]` + `-var` no README.
+- **(MAJOR) o CD empurra p/ o ECR `maezo-agent`** enquanto o stack cria/lê `amh/maezo-operadora` — a
+  imagem `092810a` foi empurrada à mão. Alinhar.
+- Menores reais: imagem `cibseven/cibseven:2.1.0` é **tag mutável do Docker Hub** p/ o backbone de
+  governança (pinar por digest ou espelhar); ECS Exec hardcoded `true` + `DB_PASSWORD` no env =
+  `ecs:ExecuteCommand` lê a senha do Aurora (virar variável); o schema do tenant precisa pré-existir
+  (`search_path` ignora schema ausente → escreve em `public`); nenhum scanner IaC no CI (checkov/tfsec).
+- **Fatia 2** (worker, agentes, webhook, ALB) é build real, gated no PR #160 + go do dono.
+- **Incógnitas honestas (exigem credenciais AWS — o agente não as tem):** em qual repo ECR está
+  `092810a`; conteúdo do state; tipo de chave KMS dos segredos. Verificar no console.
+
+### 1.9 🟡 Tetos de segurança/plataforma carregados de PLANS §0.5.3 (não novos, mas ausentes das versões anteriores deste doc)
+Ações que **só o dono/humano** executa, roteadas a este documento por PLANS §0.5.3 mas que a
+reconciliação anterior não trouxe:
+- **GHAS (GitHub Advanced Security)** — provisionar/entitlement. Hoje `CodeQL` e `dependency review`
+  estão **Disabled** por falta de GHAS (README §CI/CD `:129`; `security.yml`). Sem GHAS o repo roda o
+  lane substituto (osv-scanner + gitleaks), mas a cobertura GHAS completa é ato de billing/admin do
+  dono. Decisão de Security/DevOps.
+- **Emissão de certificado T-G (ADR-0033, Status: Proposed)** — identidade de service-account por
+  certificado; o mecanismo é não-vinculante até a ADR ser ratificada + o cert real emitido (infra +
+  Security). Menor urgência enquanto a ADR estiver Proposed.
+- **Ativação da âncora de auditoria externa (Onda-4) — infra WORM/IAM real.** Além da ratificação DPO
+  do ADR-0029 (§3.2/§3.3), ligar a âncora dark exige **KMS/HSM + storage WORM (retention-lock) + conta
+  IAM separada** — infra do dono, não código (`handoff.yaml trains_built.B_onda4_anchor.activation`).
+- **Deleção das branches remotas mergeadas** (o classifier bloqueia o agente): higiene de git que só o
+  dono executa (`handoff.yaml owner_remote_branch_deletions` + fila do brief de continuação).
 
 ---
 
@@ -426,9 +559,63 @@ tem **zero chamadores em produção** — travado por design até as 2 ratifica�
 anos como prazo regulatório correto (`docs/compliance/ripd-kickoff.md`, ainda DRAFT) continua sendo
 ação humana separada, mas não é a única pendência aqui.
 
+**Novo (2026-08-13) — retenção do `a2a_idempotency` (DBA/MZO-060), agora um número computável.** Uma
+retenção SEPARADA da de auditoria de 5 anos: o trem de assinatura tornou o **piso** de retenção da
+tabela `a2a_idempotency` derivável da cadência de rotação de chave de 7 dias ratificada (ADR-0039
+decisão 3) — a validade de uma assinatura domina a janela de idempotência, então o piso é **≥ 7
+dias**. **Ação humana (DBA):** escolher o valor de retenção real contra esse piso (o pacote MZO-060 —
+`docs/reviews/mzo-060-dba-review-packet.md`, §1.4 — é onde o DBA decide D-1..D-6 e agora também esse
+número).
+
 ### 3.4 🔴 Atestação regulatória / ANS
 Sem mudanças. Sign-off jurídico/regulatório dos artefatos de política e da submissão ANS (a decisão
 de lançamento é humana, ADR-0018/§6.2).
+
+### 3.5 🔴 Revisão nomeada de Security/crypto (R1) do ADR-0039 — NOVO (trem de assinatura 2026-08-13)
+O dono ratificou o **ADR-0039** (assinatura de envelope A2A) em 2026-08-12 (`Status: Accepted`,
+`docs/adr/0039-a2a-delegation-envelope-signing.md`), respondendo as 7 Perguntas abertas — e a
+assinatura foi **implementada e mergeada** (#239-#243) com a cadeia zero-trust completa + auditoria
+independente pós-merge (13/13 claims confirmados). **Mas a ratificação do dono registrou a DECISÃO,
+não a revisão nomeada de Security/crypto:** a tabela de aprovadores por PAPEL segue **`_(pending)_`**
+(linhas 11-12 do ADR) e continua **vedada a agentes** — só o revisor R1 humano nomeado a preenche.
+Escopo da revisão devida: a canonicalização do digest v2 (`payload_meta_hash`+`task_type`+`signed_at`),
+a custódia de chave por-tenant, a graça de rotação/epoch, e a postura fail-closed do verificador. Uma
+perna de docs (r6) já está enfileirada para trazer o corpo do ADR a par das decisões (adicionar
+`signed_at` ao conjunto do §4.1, corrigir a citação de migração do §4.3) — mas isso é preparação, não
+substitui a revisão nomeada.
+
+### 3.6 🔴 Nomear donos + ratificar critérios dos desvios de sombra (Q-2 unmapped / Q-10 C2 PHI) — NOVO (batch de governança 2026-08-13)
+O dono ratificou (2026-08-12) que dois desvios de política ficam em **sombra** com prazo e critérios,
+e o gate `check_deviation_expiry.py` (#248) tornou os **PRAZOS** DADO merge-bloqueante em
+`spec/policies/autonomy/action-approvals.yaml` (bloco `deviation:` aditivo, aprovações intactas):
+- **Q-2 — `enforcement_padrao_nao_mapeado`** (o default dos ~80 tópicos não-mapeados): `owner_role`
+  "Security/crypto R1 reviewer (interino: dono)", **`expires: 2026-11-11`**, checkpoint 2026-09-12.
+- **Q-10 — classe C2 `leitura_phi_clinica`** (leitura PHI via FHIR): `owner_role` "Diretor(a)
+  Médico(a) (interino, deadline-enforcement only: dono)", **`review_by: 2027-02-09`**, checkpoint
+  2026-11-11.
+
+Em **2026-11-12** (Q-2) e **2027-02-10** (Q-10), sem ação humana, **nenhum PR passa no CI** (o PR de
+renovação/flip é verde porque sua árvore carrega a data nova — renovação silenciosa é impossível por
+design). **Ações humanas devidas:** (a) **nomear o dono real** de cada desvio (o R1 de Security p/ Q-2;
+o(a) Diretor(a) Médico(a) p/ Q-10) no lugar do interino; (b) **ratificar os critérios mensuráveis** de
+flip (Q-2: censo de unmapped = 0 gerado em CI + ≥30 dias consecutivos sem `WOULD_DENY` em sombra sobre
+refs não-mapeados; Q-10: um trimestre de telemetria C2 + triagem clínica de cada `WOULD_DENY` + limite
+de carga de revisão ratificado pela Médica + interação de consentimento resolvida). A maquinaria de
+MEDIÇÃO desses critérios (censo de unmapped em CI, leitura da telemetria de divergência de sombra) é
+**agent-buildable** e está enfileirada; a NOMEAÇÃO e a RATIFICAÇÃO são humanas.
+
+### 3.7 🔴/🟡 Tetos regulatórios/legais carregados de PLANS §0.5.3 (não novos, mas ausentes das versões anteriores deste doc)
+- 🔴 **Parecer ANVISA SaMD (GAP-C10).** Determinação regulatória se a plataforma se enquadra como
+  *Software as a Medical Device* (RDC ANVISA) — teto humano nomeado em PLANS §0.5.3. O *parecer* pode
+  concluir não-aplicabilidade, mas **a determinação em si é o ato humano pendente** e é um bloqueador
+  clássico de go-live de software de saúde no Brasil. Dono do produto + Jurídico/Regulatório. (Cross-ref §5.)
+- 🟡 **Leg de consentimento L-4 (Q-5) + contrato de consentimento AMH (MZO-070).** O dono ratificou
+  (Q-5) que a classe `consentimento_exigido: true` **NEGA** até existir um adapter completo — hoje
+  `ConsentDecisionSource` é um port **sem adapter** (`gateway/tool_registry.py`, `effect_pep.py:67`),
+  e o adapter completo depende do **contrato de consentimento AMH (MZO-070)**, uma dependência
+  contratual humana análoga a Tasy/DPA (§4). XRD-09 fica **PARCIALMENTE** implementado. Enquanto não
+  houver adapter, o caminho falha fechado (nega) — nada vaza; por isso 🟡, escala p/ 🔴 se algum fluxo
+  PHI gated-em-consentimento entrar no escopo de lançamento. Jurídico/DPO + Procurement.
 
 ---
 
@@ -447,6 +634,8 @@ de lançamento é humana, ADR-0018/§6.2).
 
 ## 5. PO / Regulatório / Outros
 
+- 🔴 **Determinação regulatória ANVISA SaMD (GAP-C10)** — ver §3.7; a determinação de enquadramento
+  (ou não) como Software-as-Medical-Device é ato humano pendente e bloqueador de go-live.
 - 🟡 **Datas de competência ANS** reais (Track C6) — substituir placeholders (`COMPETENCIA_PENDENTE`
   ainda presente em `tools/workers/ans_cron.py`/`notification_bridge.py` — confirmado inalterado).
 - 🟡 **Confirmar o mapa de personas** com o PO (Beatriz↔Valentina) antes de fixar (evita retrabalho).
@@ -460,7 +649,7 @@ de lançamento é humana, ADR-0018/§6.2).
 
 | Var | Significado | Fonte em prod |
 |---|---|---|
-| `DATABASE_URL` | Aurora (estado/memória/auditoria **e, desde T4/T4b, persistência durável de checkpoint langgraph** via `AsyncPostgresSaver` — agent-runtime E webhook da Helena/WhatsApp) | ExternalSecret `aurora/master-user-secret`. Fail-closed em prod: `AGENT_RUNTIME_MODE != local` + DSN ausente/`setup()` falhando ⇒ `checkpointer_ready=false`, sem fallback silencioso em memória. O DSN `postgresql+asyncpg://` do ESO, que o psycopg não parseava (quebrava todo boot de prod), está **corrigido** (`normalize_dsn`, PR #166, `0ecacbb`). **Gap remanescente:** o deployment `webhook-receiver` ainda **não recebe `DATABASE_URL`** (ver §1.4) — sem ele o dispatcher da Helena não constrói (fail-closed) e `/webhook` degrada para 501; fix enfileirado. |
+| `DATABASE_URL` | Aurora (estado/memória/auditoria **e, desde T4/T4b, persistência durável de checkpoint langgraph** via `AsyncPostgresSaver` — agent-runtime E webhook da Helena/WhatsApp) | ExternalSecret `aurora/master-user-secret`. Fail-closed em prod: `AGENT_RUNTIME_MODE != local` + DSN ausente/`setup()` falhando ⇒ `checkpointer_ready=false`, sem fallback silencioso em memória. O DSN `postgresql+asyncpg://` do ESO, que o psycopg não parseava (quebrava todo boot de prod), está **corrigido** (`normalize_dsn`, PR #166, `0ecacbb`). O deployment `webhook-receiver` **já recebe `DATABASE_URL`** do mesmo ExternalSecret Aurora (RESOLVIDO — ver §1.4; a nota anterior de "gap remanescente" aqui estava obsoleta e foi corrigida em 2026-08-13). |
 | `AGENT_RUNTIME_MODE` | Seleciona modo prod vs local (gate fail-closed de checkpoint, A2A card-signing, etc.) | `production` nos deployments reais |
 | `MAEZO_INFERENCE_PROVIDER` | Seleciona o provider de inferência (Geral/PHI); substitui o antigo `BR_INFERENCE_ENDPOINT` | contrato + ExternalSecret (§3.1) |
 | `CIBSEVEN_BASE_URL` / `FHIR_BASE_URL` | engine + FHIR | URL externa ou StatefulSet in-cluster (gated) |
@@ -475,7 +664,15 @@ de lançamento é humana, ADR-0018/§6.2).
 
 ---
 
-_Última atualização: 2026-08-10 (reconciliação de ground-truth pós sprint-09-08-26; base
+_Última atualização: 2026-08-13 (reconciliação pós hardening-waves #229-#236 + trem de assinatura
+#237-#243 + batch de governança #245/#248/#249 + infra ECS #247; base `main`@`b9e4383`). Ver o bloco
+"Atualização 2026-08-13" no topo para o resumo e as NOVAS tarefas humanas (ativação do
+flip-path-review-gate §1.7, hardening da infra ECS §1.8, revisão R1 do ADR-0039 §3.5, donos+critérios
+dos desvios de sombra §3.6, número de retenção do `a2a_idempotency` §3.3). Máquina-de-estado viva
+(untracked): `handoff.yaml`; brief de continuação: `docs/prompts/13-08-26_build-completion.md`.
+Entrada anterior (base `091abd8`) preservada abaixo como histórico._
+
+_Histórico: 2026-08-10 (reconciliação de ground-truth pós sprint-09-08-26; base
 `main`@`091abd8`, ~50 PRs mergeados desde a atualização anterior de 2026-07-26 @ `9871555`).
 Método: cada claim de código/status foi re-verificado nesta sessão contra o repo (leitura direta
 dos arquivos citados, `gh pr view --json files/mergeCommit` para título/SHA/squash de PR, contagem
