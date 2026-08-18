@@ -144,6 +144,37 @@ variable "agent_memory" {
   default     = 1024
 }
 
+variable "phi_zone_provider" {
+  description = <<-EOT
+    Provedor de inferencia dos agentes da ZONA PHI (rafael, marina).
+
+    So dois valores satisfazem o contrato da zona (os cinco criterios de
+    `phi_zone_denial_reasons`), e a diferenca entre eles e' o que voce esta escolhendo:
+
+      phi_zone_mock  — roda o grafo do agente de verdade, com narrativa SINTETICA e
+                       ZERO egresso (`is_mock=True` visivel em log e em /readyz).
+                       Prova que o caminho de agente funciona. NAO e' modelo.
+
+      br_resident    — endpoint BR-resident real. Exige `MAEZO_PHI_VENDOR_DPA_REF`
+                       (sem ele o provedor RECUSA construir) E um transporte §8.2
+                       injetado — que hoje NAO EXISTE no repositorio, entao ele
+                       resolve para `RefusingBrRegionalTransport`.
+
+    `bedrock` NAO e' opcao aqui: declara `phi_allowed=False` e a fachada recusa antes
+    do egresso. E nao ha como consertar isso por configuracao — medido em 18/08/2026
+    na conta 203312548462: `anthropic.claude-opus-5` em sa-east-1 so aceita
+    INFERENCE_PROFILE, e TODOS os perfis disponiveis sao `global.*`. Nao existe perfil
+    BR-resident de Claude nesta regiao.
+  EOT
+  type        = string
+  default     = "phi_zone_mock"
+
+  validation {
+    condition     = contains(["phi_zone_mock", "br_resident"], var.phi_zone_provider)
+    error_message = "phi_zone_provider deve ser 'phi_zone_mock' ou 'br_resident' — nenhum provedor de zona geral satisfaz o contrato PHI."
+  }
+}
+
 variable "inference_provider" {
   description = <<-EOT
     `bedrock` = chamada real ao modelo. Qualquer outro valor cai no stub do T1.7.

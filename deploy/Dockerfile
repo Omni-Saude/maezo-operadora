@@ -74,6 +74,7 @@ COPY spec/policies/amh ./spec/policies/amh
 #
 # O padrão já se repetiu quatro vezes: TODO force-include novo no pyproject exige
 # uma COPY correspondente aqui. Ao adicionar um, adicione a outra.
+COPY spec/policies/phi ./spec/policies/phi
 COPY spec/agents ./spec/agents
 COPY spec/processes ./spec/processes
 COPY src/ ./src/

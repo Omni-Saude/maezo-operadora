@@ -152,9 +152,7 @@ def coletar(*, client: httpx.Client | None = None, espera_s: float = 25.0) -> di
             print("    saida    " + str(saida.get("variableName")) + " = " + repr(saida.get("value")))
 
     _bloco("4. OS QUATRO CRITERIOS DE APROVACAO AUTOMATICA")
-    variaveis_hist = http.get(
-        base + "/history/variable-instance", params={"processInstanceId": pid}
-    ).json()
+    variaveis_hist = http.get(base + "/history/variable-instance", params={"processInstanceId": pid}).json()
     por_nome = {v["name"]: v for v in variaveis_hist}
     for criterio in CRITERIOS:
         registro = por_nome.get(criterio)
@@ -183,12 +181,7 @@ def coletar(*, client: httpx.Client | None = None, espera_s: float = 25.0) -> di
     if not incidentes:
         print("  nenhum incidente")
     for incidente in incidentes:
-        print(
-            "  "
-            + str(incidente.get("incidentType"))
-            + "  atividade="
-            + str(incidente.get("activityId"))
-        )
+        print("  " + str(incidente.get("incidentType")) + "  atividade=" + str(incidente.get("activityId")))
         print("    mensagem=" + str(incidente.get("incidentMessage")))
 
     _bloco("8. ESTADO FINAL DA INSTANCIA")

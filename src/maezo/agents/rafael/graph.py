@@ -61,6 +61,7 @@ from typing import Any, Literal, Protocol, TypedDict, cast
 import structlog
 from langgraph.graph import END, START, StateGraph
 
+from maezo.platform.privacy.dossier_zone import dossier_narrative_requires_phi_zone
 from maezo.runtime.inference import InferenceProvider
 from maezo.tools.mcp_cibseven.transport import (
     AgentDecisionProvenance,
@@ -579,8 +580,23 @@ class RafaelGraph:
         }
         prompt = f"{dossier_prompt()}\n\nroute={route} motivo_auditor={motivo_auditor}\nfatos={facts}"
         try:
+            # `phi` NAO e' mais literal aqui. A pergunta "a narrativa do dossie e'
+            # dado da zona PHI ou dado pseudonimizado da zona geral?" e' juridica e
+            # clinica, e a resposta mora num artefato que o DPO e o medico auditor
+            # ratificam (`spec/policies/phi/dossier-narrative-zone.yaml`).
+            #
+            # Fail-closed: sem ratificacao valida a funcao devolve True e este e'
+            # exatamente o `phi=True` de antes. Ativar NAO exige editar Python.
+            #
+            # Cuidado ao ler o `except` abaixo: com `phi=True` e um provedor de zona
+            # geral, `PhiZoneRoutingError` cai nele e a narrativa vira "" EM SILENCIO.
+            # Foi por isso que o interruptor precisou ser explicito: apontar o Rafael
+            # para o Bedrock nao daria erro, daria dossie com narrativa vazia.
             narrativa = await self._llm.generate(
-                prompt, phi=True, agent_id="rafael", tenant_id=state.get("tenant_id", "")
+                prompt,
+                phi=dossier_narrative_requires_phi_zone(),
+                agent_id="rafael",
+                tenant_id=state.get("tenant_id", ""),
             )
         except Exception:  # noqa: BLE001 — LLM failure never blocks the human/auto route.
             narrativa = ""

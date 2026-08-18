@@ -135,6 +135,10 @@ packages = ["src/maezo"]
 # deploy (`maezo.platform.deploy`) resolve os 16 BPMN + 62 DMN sem flag nenhuma, e
 # passa a existir UMA fonte de verdade para o plano de politica dentro do wheel —
 # que e' exatamente o que o comentario no topo deste bloco descreve.
+# O interruptor de zona da narrativa do dossie (DPO + medico auditor). Mesma
+# classe das linhas acima: sem force-include o artefato nunca chega ao container e
+# a ratificacao seria impossivel de ativar num deploy empacotado.
+"spec/policies/phi" = "maezo/spec/policies/phi"
 "spec/agents" = "maezo/spec/agents"
 "spec/processes" = "maezo/spec/processes"
 

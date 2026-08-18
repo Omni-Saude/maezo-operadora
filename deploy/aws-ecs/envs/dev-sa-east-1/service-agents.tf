@@ -21,23 +21,31 @@
 # existirem, e' mudar uma variavel, nao escrever codigo.
 
 locals {
-  # Zona e replicas por agente. `enabled` traduz para desired_count.
+  # Zona, provedor de inferencia e replicas por agente.
+  #
+  # O provedor NAO e' o mesmo para todos, e essa e' a decisao central deste arquivo:
+  # a zona de seguranca do agente escolhe quem serve a inferencia dele.
   agentes = {
     helena = {
-      zona     = "general"
-      replicas = 1
-      # Helena e' a porta de entrada (WhatsApp/atendimento) e nao le prontuario.
-      motivo = "zona geral — sem PHI, inferencia via Bedrock liberada"
+      zona              = "general"
+      replicas          = 1
+      provider          = var.inference_provider # bedrock: modelo real
+      phi_zone_required = false
+      motivo            = "zona geral — sem PHI, inferencia real via Bedrock"
     }
     rafael = {
-      zona     = "phi"
-      replicas = 0
-      motivo   = "zona PHI — bloqueado pelo DPA do endpoint BR-resident (Tarefas_Pendentes §3.1)"
+      zona              = "phi"
+      replicas          = 1
+      provider          = var.phi_zone_provider
+      phi_zone_required = true
+      motivo            = "zona PHI — provedor que satisfaz o contrato da zona (ver var.phi_zone_provider)"
     }
     marina = {
-      zona     = "phi"
-      replicas = 0
-      motivo   = "zona PHI — bloqueado pelo DPA do endpoint BR-resident (Tarefas_Pendentes §3.1)"
+      zona              = "phi"
+      replicas          = 1
+      provider          = var.phi_zone_provider
+      phi_zone_required = true
+      motivo            = "zona PHI — idem rafael"
     }
   }
 }
@@ -100,7 +108,14 @@ resource "aws_ecs_task_definition" "agente" {
       { name = "AGENT_RUNTIME_MODE", value = var.agent_runtime_mode },
       # Inferencia real via Bedrock (provado ao vivo em 12/08/2026 no ambiente
       # local). `MAEZO_INFERENCE_PROVIDER=bedrock` troca o stub pelo cliente real.
-      { name = "MAEZO_INFERENCE_PROVIDER", value = var.inference_provider },
+      { name = "MAEZO_INFERENCE_PROVIDER", value = each.value.provider },
+      # Liga a verificacao de contrato de zona NO BOOT: com phi_zone_required=true, o
+      # `InferenceProvider` recusa CONSTRUIR se as capacidades declaradas do provedor
+      # nao satisfizerem os cinco criterios de `phi_zone_denial_reasons` (phi_allowed,
+      # regiao elegivel, zero-retention, treino proibido, classificacao admite PHI).
+      # E' o que impede alguem de apontar um agente PHI para o provedor geral e
+      # descobrir isso no primeiro paciente.
+      { name = "MAEZO_INFERENCE_PHI_ZONE_REQUIRED", value = tostring(each.value.phi_zone_required) },
       { name = "MAEZO_BEDROCK_MODEL_ID", value = var.bedrock_model_id },
       { name = "MAEZO_BEDROCK_REGION", value = var.aws_region },
       { name = "PYTHONDONTWRITEBYTECODE", value = "1" },
