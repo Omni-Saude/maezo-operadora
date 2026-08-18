@@ -50,6 +50,23 @@ def _exigir_ok(resposta: httpx.Response, o_que: str) -> None:
         raise RuntimeError(f"{o_que} falhou: HTTP {resposta.status_code} — {resposta.text[:400]}")
 
 
+def _apagar(http: httpx.Client, url: str, o_que: str, **kwargs: Any) -> None:
+    """DELETE que trata 404 como sucesso.
+
+    O plano é montado antes da execução, e a execução muda o mundo: apagar um filtro
+    leva junto as autorizações dele, então parte da lista pode já ter sumido quando
+    chega a vez dela. Tratar isso como erro faria a ferramenta falhar justamente por
+    ter funcionado — e num restore, onde o estado é parcial, seria a regra e não a
+    exceção.
+    """
+    r = http.delete(url, **kwargs)
+    if r.status_code == 404:
+        print(f"  {o_que}: já não existia")
+        return
+    _exigir_ok(r, f"apagar {o_que}")
+    print(f"  apagado: {o_que}")
+
+
 def planejar(http: httpx.Client, *, admin: str, preservar: str) -> Plano:
     """Lê o estado do engine e monta o plano. NÃO altera nada."""
     base = _base()
@@ -184,11 +201,19 @@ def _executar(http: httpx.Client, plano: Plano, *, admin: str, senha: str) -> No
         )
         print(f"  criado usuário {admin}")
 
-    _exigir_ok(
-        http.put(f"{base}/group/{GRUPO_ADMIN}/members/{admin}"),
-        f"tornar {admin} membro de {GRUPO_ADMIN}",
-    )
-    print(f"  {admin} agora pertence a {GRUPO_ADMIN}")
+    # O PUT de membro NÃO é idempotente: repetido para quem já pertence ao grupo, o
+    # engine tenta inserir a mesma chave duas vezes e devolve HTTP 500
+    # (ProcessEnginePersistenceException). Uma ferramenta escrita para ser re-executada
+    # num restore não pode quebrar na segunda execução — então perguntamos antes.
+    ja_membro = {u["id"] for u in http.get(base + "/user", params={"memberOfGroup": GRUPO_ADMIN}).json()}
+    if admin in ja_membro:
+        print(f"  {admin} já pertence a {GRUPO_ADMIN} (nada a fazer)")
+    else:
+        _exigir_ok(
+            http.put(f"{base}/group/{GRUPO_ADMIN}/members/{admin}"),
+            f"tornar {admin} membro de {GRUPO_ADMIN}",
+        )
+        print(f"  {admin} agora pertence a {GRUPO_ADMIN}")
 
     # 2) Confirma que o admin ficou mesmo no grupo ANTES de apagar o `demo`. Sem esta
     #    verificação, uma falha silenciosa no passo acima deixaria o engine sem
@@ -203,37 +228,25 @@ def _executar(http: httpx.Client, plano: Plano, *, admin: str, senha: str) -> No
 
     # 3) Deployments de demonstração, com cascade (leva as instâncias de exemplo).
     for did, nome in plano.deployments_a_apagar:
-        _exigir_ok(
-            http.delete(
-                f"{base}/deployment/{did}",
-                params={"cascade": "true", "skipCustomListeners": "true"},
-            ),
-            f"apagar deployment {did[:8]}",
+        _apagar(
+            http,
+            f"{base}/deployment/{did}",
+            f"deployment {did[:8]} ({nome!r})",
+            params={"cascade": "true", "skipCustomListeners": "true"},
         )
-        print(f"  apagado deployment {did[:8]} ({nome!r})")
 
     # 4) Usuários e grupos de demonstração.
     for uid in plano.usuarios_a_apagar:
-        _exigir_ok(http.delete(f"{base}/user/{uid}"), f"apagar usuario {uid}")
-        print(f"  apagado usuário {uid}")
+        _apagar(http, f"{base}/user/{uid}", f"usuário {uid}")
     for gid in plano.grupos_a_apagar:
-        _exigir_ok(http.delete(f"{base}/group/{gid}"), f"apagar grupo {gid}")
-        print(f"  apagado grupo {gid}")
+        _apagar(http, f"{base}/group/{gid}", f"grupo {gid}")
 
     # 5) Resíduo: o que sobra quando um usuário some. Por último de propósito — se algo
     #    acima falhar, a limpeza não roda com um plano feito sobre outro estado.
     for fid, nome in plano.filtros_a_apagar:
-        _exigir_ok(http.delete(f"{base}/filter/{fid}"), f"apagar filtro {fid}")
-        print(f"  apagado filtro {fid[:8]} ({nome!r})")
+        _apagar(http, f"{base}/filter/{fid}", f"filtro {fid[:8]} ({nome!r})")
     for aid, desc in plano.autorizacoes_a_apagar:
-        # 404 aqui é sucesso, não erro: apagar o filtro leva junto as autorizações dele,
-        # e o plano foi montado antes disso acontecer.
-        r = http.delete(f"{base}/authorization/{aid}")
-        if r.status_code == 404:
-            print(f"  autorizacao {aid[:8]} ja havia sumido junto com o recurso ({desc})")
-            continue
-        _exigir_ok(r, f"apagar autorizacao {aid}")
-        print(f"  apagada autorizacao {aid[:8]} ({desc})")
+        _apagar(http, f"{base}/authorization/{aid}", f"autorização {aid[:8]} ({desc})")
 
 
 def _conferir(http: httpx.Client, *, admin: str) -> None:
