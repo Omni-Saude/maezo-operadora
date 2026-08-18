@@ -5,9 +5,9 @@
 #
 # ZONA GERAL vs ZONA PHI — a divisao que decide o que sobe aqui:
 #
-#   helena  = zona GERAL. Nao ve dado de paciente. Sobe.
-#   rafael  = zona PHI.  NAO sobe (desired_count 0).
-#   marina  = zona PHI.  NAO sobe (desired_count 0).
+#   helena  = zona GERAL. Nao ve dado de paciente. Modelo real via Bedrock.
+#   rafael  = zona PHI.  Sobe, e o provedor dele depende do portao abaixo.
+#   marina  = zona PHI.  Idem rafael.
 #
 # O motivo nao e' tecnico e nao e' meu para resolver: o modelo default e'
 # `global.anthropic.claude-opus-5`, e um perfil `global.*` ROTEIA ENTRE REGIOES
@@ -15,10 +15,15 @@
 # inferencia possivelmente executada fora do Brasil — o que exige o DPA do
 # endpoint BR-resident (docs/Tarefas_Pendentes.md §3.1, item 🔴 de juridico/DPO).
 #
-# Subir rafael e marina apontando para o perfil global "para testar" seria criar
-# exatamente o precedente que a zona PHI existe para impedir. Eles ficam em zero,
-# com a task definition PRONTA: no dia em que o endpoint BR-resident e o DPA
-# existirem, e' mudar uma variavel, nao escrever codigo.
+# O QUE MUDOU, E POR QUE NAO E' O MESMO QUE "liberamos PHI": rafael e marina passaram a
+# subir com `var.caso_sintetico_zona_geral = true`, que e' uma declaracao de que o
+# ambiente NAO TEM dado real de paciente — nao uma ratificacao de que PHI pode sair do
+# Brasil. Enquanto essa chave estiver ligada, o que trafega e' caso ficticio. No dia em
+# que entrar dado real ela precisa ser desligada ANTES, e ai' os dois voltam ao provedor
+# de zona PHI (`var.phi_zone_provider`) automaticamente, porque o portao abaixo le a
+# mesma variavel. A ratificacao de verdade — DPO + medico auditor sobre
+# `spec/policies/phi/dossier-narrative-zone.yaml` — continua PENDENTE e nenhum agente
+# pode assina-la.
 
 # ---------------------------------------------------------------------------
 # O MESMO PORTAO DO RUNTIME, APLICADO NA INFRA

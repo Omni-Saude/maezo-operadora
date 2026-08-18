@@ -110,13 +110,16 @@ variable "worker_memory" {
 
 variable "worker_desired_count" {
   description = <<-EOT
-    Quantas tasks do worker-runtime (o harness registra os 16 workers BPMN por task).
-    Nasce em ZERO pelo mesmo motivo do engine: sem o banco alcancavel o harness falha
-    fechado e registra zero workers. Suba para 1 depois que as migrations passarem E o
-    engine estiver de pe — o worker precisa dos dois.
+    Quantas tasks do worker-runtime (o harness registra os workers BPMN por task; medido:
+    124 registrados).
+    Nasceu em ZERO enquanto o banco nao estava alcancavel — sem ele o harness falha
+    fechado e registra zero workers. Migrations passaram e o engine subiu em 18/08/2026,
+    entao o default agora e' 1: o valor declarado descreve o ambiente que EXISTE.
+    Isso importa mais do que parece — com default 0, um `apply` sem `-var` derruba o
+    servico em silencio, e quem aplica costuma nao estar olhando o desired_count.
   EOT
   type        = number
-  default     = 0
+  default     = 1
 }
 
 variable "engine_image_tag" {
@@ -131,15 +134,17 @@ variable "engine_image_tag" {
 
 variable "cibseven_desired_count" {
   description = <<-EOT
-    Quantas tasks do engine BPMN. Nasce em ZERO de proposito: enquanto o SG deste stack
-    nao estiver liberado no Aurora (PR no amh-data-platform — ver README), o engine nao
-    conecta no banco e entraria em crash-loop cobrando Fargate sem entregar nada. Suba
-    para 1 DEPOIS que a task de migrations rodar limpa.
+    Quantas tasks do engine BPMN. Nasceu em ZERO enquanto o SG deste stack nao estava
+    liberado no Aurora — sem isso o engine entraria em crash-loop cobrando Fargate sem
+    entregar nada. A liberacao foi aplicada (PR #160 no amh-data-platform) e as
+    migrations rodaram limpas, entao o default e' 1.
+    NAO volte isto para 0 como "valor seguro": zero aqui significa DERRUBAR O MOTOR de
+    processos, e um `apply` sem `-var` passaria a fazer isso sozinho.
     Replica unica: o engine faz aquisicao de job com lock em banco; duas replicas em dev
     so multiplicam contencao.
   EOT
   type        = number
-  default     = 0
+  default     = 1
 }
 
 variable "agent_cpu" {
@@ -247,7 +252,7 @@ variable "canal_teste_desired_count" {
     Nao tem autenticacao propria e faz proxy para o engine — so' com Access na frente.
   EOT
   type        = number
-  default     = 0
+  default     = 1
 }
 
 variable "hostname_cockpit" {
@@ -262,13 +267,14 @@ variable "hostname_cockpit" {
 
 variable "cloudflared_desired_count" {
   description = <<-EOT
-    Replicas do tunel Cloudflare (a borda). Nasce em ZERO: sem o token no cofre o
-    container sobe e morre em loop, e um crash-loop na borda e' o tipo de ruido que
-    faz o time parar de olhar log. Suba para 1 DEPOIS de criar o tunel, publicar o
-    hostname, criar a politica de Access e gravar o token.
+    Replicas do tunel Cloudflare (a borda). Nasceu em ZERO porque sem o token no cofre o
+    container sobe e morre em loop, e um crash-loop na borda e' o tipo de ruido que faz o
+    time parar de olhar log. Tunel criado, hostnames publicados, politica de Access no ar
+    e token gravado (18/08/2026) — default 1.
+    Zero aqui NAO e' economia: e' tirar do ar os dois hostnames publicos de uma vez.
   EOT
   type        = number
-  default     = 0
+  default     = 1
 }
 
 variable "cloudflared_image_tag" {
@@ -284,7 +290,7 @@ variable "kafka_desired_count" {
     o MSK em producao — ver o cabecalho de service-kafka.tf.
   EOT
   type        = number
-  default     = 0
+  default     = 1
 }
 
 variable "agent_runtime_mode" {
