@@ -194,6 +194,23 @@ variable "bedrock_model_id" {
   default     = "global.anthropic.claude-opus-5"
 }
 
+variable "cloudflared_desired_count" {
+  description = <<-EOT
+    Replicas do tunel Cloudflare (a borda). Nasce em ZERO: sem o token no cofre o
+    container sobe e morre em loop, e um crash-loop na borda e' o tipo de ruido que
+    faz o time parar de olhar log. Suba para 1 DEPOIS de criar o tunel, publicar o
+    hostname, criar a politica de Access e gravar o token.
+  EOT
+  type        = number
+  default     = 0
+}
+
+variable "cloudflared_image_tag" {
+  description = "Tag da imagem do cloudflared. Fixa de proposito — a borda nao se atualiza sozinha."
+  type        = string
+  default     = "2026.8.2"
+}
+
 variable "kafka_desired_count" {
   description = <<-EOT
     Broker Kafka de DEV. 1 para o fluxo andar (o primeiro passo do SP-OP-AUTH-001
