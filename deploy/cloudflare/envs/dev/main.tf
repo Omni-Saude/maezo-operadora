@@ -74,9 +74,20 @@ resource "cloudflare_zero_trust_access_application" "cockpit" {
   # alguém está logado com a identidade errada.
   app_launcher_visible = true
 
-  # HttpOnly + SameSite estrito no cookie de sessão do Access.
+  # HttpOnly sim; SameSite = `lax`, NÃO `strict`.
+  #
+  # Eu pus `strict` "por segurança" e quebrei o login: ERR_TOO_MANY_REDIRECTS, medido
+  # no navegador em 18/08/2026. O fluxo do Access termina numa navegação CROSS-SITE
+  # (`austa.cloudflareaccess.com` -> `maezo-dev.austa.com.br`), e com `strict` o
+  # navegador se recusa a enviar o cookie `CF_Authorization` justamente nessa volta.
+  # O Access então vê uma requisição anônima e redireciona para o login de novo — em
+  # loop, para sempre.
+  #
+  # `lax` envia o cookie em navegação de TOPO (o retorno do login) e não em
+  # sub-requisição iniciada por terceiro, que é a proteção que interessa aqui. Trocar
+  # por `strict` de novo reintroduz o loop; se alguém tentar, é isto que vai acontecer.
   http_only_cookie_attribute = true
-  same_site_cookie_attribute = "strict"
+  same_site_cookie_attribute = "lax"
 
   # A política é referenciada AQUI. Na v5 do provider não existe recurso de
   # attachment separado — verificado contra o schema, não suposto: o `validate`
