@@ -194,6 +194,25 @@ variable "bedrock_model_id" {
   default     = "global.anthropic.claude-opus-5"
 }
 
+variable "canal_teste_desired_count" {
+  description = <<-EOT
+    Replicas do Canal de Teste. 1 para o time usar; 0 para tirar do ar.
+    Nao tem autenticacao propria e faz proxy para o engine — so' com Access na frente.
+  EOT
+  type        = number
+  default     = 0
+}
+
+variable "hostname_cockpit" {
+  description = <<-EOT
+    Hostname publico do Cockpit, usado APENAS para montar o link exibido na pagina do
+    Canal. Quem abre a pagina esta no navegador, fora da VPC, entao o link nao pode ser
+    o nome do Cloud Map.
+  EOT
+  type        = string
+  default     = "maezo-dev.austa.com.br"
+}
+
 variable "cloudflared_desired_count" {
   description = <<-EOT
     Replicas do tunel Cloudflare (a borda). Nasce em ZERO: sem o token no cofre o

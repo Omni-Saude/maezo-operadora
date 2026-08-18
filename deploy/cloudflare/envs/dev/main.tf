@@ -21,6 +21,14 @@
 # sem o proxy, o Cloudflare não teria onde interceptar a requisição e o Access não
 # existiria no caminho.
 resource "cloudflare_dns_record" "hostname" {
+  # A APLICACAO DE ACCESS PRIMEIRO, O DNS DEPOIS. Sem esta ordem existe uma janela em
+  # que o hostname ja resolve e a politica ainda nao propagou — e nessa janela a pagina
+  # fica PUBLICA. Aconteceu de verdade em 18/08/2026 com o Canal de Teste: o hostname
+  # devolveu `HTTP 200` (sem Access) por cerca de 30 segundos, e so' depois `302`. Como
+  # o servico ECS ja estava no ar, aquele 200 era a pagina real, alcancavel por qualquer
+  # um. O `depends_on` fecha a janela na ordem, nao na sorte.
+  depends_on = [cloudflare_zero_trust_access_application.cockpit]
+
   zone_id = var.zone_id
   name    = var.hostname
   type    = "CNAME"
@@ -38,6 +46,13 @@ resource "cloudflare_dns_record" "hostname" {
 # significa que o mapeamento hostname -> serviço é revisável em pull request, e não
 # um clique que ninguém lembra de ter dado.
 resource "cloudflare_zero_trust_tunnel_cloudflared_config" "maezo" {
+  # A rota tambem entra DEPOIS das aplicacoes: e' ela que faz o tunel entregar o
+  # trafego ao servico interno. DNS sem rota da 404; rota sem Access da acesso.
+  depends_on = [
+    cloudflare_zero_trust_access_application.cockpit,
+    cloudflare_zero_trust_access_application.canal,
+  ]
+
   account_id = var.account_id
   tunnel_id  = var.tunnel_id
 
@@ -46,6 +61,10 @@ resource "cloudflare_zero_trust_tunnel_cloudflared_config" "maezo" {
       {
         hostname = var.hostname
         service  = var.destino_interno
+      },
+      {
+        hostname = var.hostname_canal
+        service  = var.destino_canal
       },
       # Regra final obrigatória: tudo que não casar acima recebe 404 em vez de vazar
       # para algum destino padrão.
@@ -118,4 +137,51 @@ resource "cloudflare_zero_trust_access_policy" "por_email" {
     [for dominio in var.dominios_autorizados : { email_domain = { domain = dominio } }],
     [for email in var.emails_autorizados : { email = { email = email } }],
   )
+}
+
+# ---------------------------------------------------------------------------
+# Canal de Teste — segundo hostname, mesma política
+# ---------------------------------------------------------------------------
+# Recursos SEPARADOS em vez de um `for_each` sobre os dois hostnames: converter os
+# recursos existentes para `for_each` mudaria o endereço deles no state e destruiria
+# a aplicação do Cockpit que já está no ar e em uso. Menos elegante, zero churn no
+# que funciona.
+resource "cloudflare_dns_record" "canal" {
+  # Mesma razao do `depends_on` no recurso do Cockpit: Access antes de DNS.
+  depends_on = [cloudflare_zero_trust_access_application.canal]
+
+  zone_id = var.zone_id
+  name    = var.hostname_canal
+  type    = "CNAME"
+  content = "${var.tunnel_id}.cfargotunnel.com"
+  proxied = true
+  ttl     = 1
+
+  comment = "maezo-operadora dev - Canal de Teste, borda por tunel (Terraform)"
+}
+
+resource "cloudflare_zero_trust_access_application" "canal" {
+  account_id = var.account_id
+  name       = "MAEZO Operadora — Canal de Teste (dev)"
+  domain     = var.hostname_canal
+  type       = "self_hosted"
+
+  session_duration = var.sessao_duracao
+
+  app_launcher_visible = true
+
+  # `lax`, nunca `strict`: com `strict` o navegador não envia o cookie na volta
+  # cross-site do login e o resultado é ERR_TOO_MANY_REDIRECTS. Aconteceu na
+  # aplicação do Cockpit em 18/08 — ver o comentário lá.
+  http_only_cookie_attribute = true
+  same_site_cookie_attribute = "lax"
+
+  # MESMA política do Cockpit. Reaproveitar em vez de duplicar: dois lugares para
+  # editar quem entra é um lugar para esquecer.
+  policies = [
+    {
+      id         = cloudflare_zero_trust_access_policy.por_email.id
+      precedence = 1
+    }
+  ]
 }

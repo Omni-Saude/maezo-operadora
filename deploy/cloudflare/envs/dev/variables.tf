@@ -82,6 +82,25 @@ variable "sessao_duracao" {
   default     = "8h"
 }
 
+variable "hostname_canal" {
+  description = <<-EOT
+    Hostname público do Canal de Teste — a página que o time de dados usa para lançar
+    processo e ler a evidência, sem CLI.
+
+    Hostname SEPARADO do Cockpit de propósito: são superfícies diferentes, e um dia a
+    política de acesso pode divergir (o Canal é para o time de dados; o Cockpit é onde
+    o médico auditor decide). Hoje as duas usam a mesma política.
+  EOT
+  type        = string
+  default     = "maezo-teste-dev.austa.com.br"
+}
+
+variable "destino_canal" {
+  description = "Serviço interno do Canal de Teste, resolvido pelo Cloud Map."
+  type        = string
+  default     = "http://canal-teste.maezo-operadora-dev.internal:8500"
+}
+
 variable "nome_aplicacao" {
   description = "Nome exibido na tela de login e no painel do Zero Trust."
   type        = string

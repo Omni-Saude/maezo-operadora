@@ -1,6 +1,11 @@
-output "url" {
-  description = "Onde o time entra. Pede codigo por e-mail antes de qualquer byte chegar ao engine."
+output "url_cockpit" {
+  description = "Cockpit/Tasklist do engine — onde o medico auditor decide."
   value       = "https://${var.hostname}"
+}
+
+output "url_canal_teste" {
+  description = "Canal de Teste — lancar processo e ler evidencia, sem CLI."
+  value       = "https://${var.hostname_canal}"
 }
 
 output "quem_entra" {

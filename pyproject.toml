@@ -169,6 +169,18 @@ src = ["src", "tests"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP", "B", "SIM", "ASYNC"]
 
+[tool.ruff.lint.per-file-ignores]
+# O Canal de Teste carrega a pagina inteira (HTML + CSS + JS) numa string r""" — e' um
+# servidor de UM arquivo, sem dependencia fora da stdlib, exatamente para poder rodar
+# em qualquer container sem instalar nada. As 24 violacoes de E501 sao TODAS linhas do
+# template, nao de logica Python.
+#
+# Quebrar CSS e JS em 110 colunas para agradar o linter deixaria o template pior de ler
+# e mais facil de quebrar numa edicao futura. A regra de comprimento e' suprimida SO'
+# neste arquivo; todas as outras (F/I/N/W/UP/B/SIM/ASYNC) continuam valendo, e o codigo
+# Python dele respeita o limite.
+"src/maezo/platform/testchannel/server.py" = ["E501"]
+
 [tool.ruff.format]
 # bpmn.py exhibits a cross-platform / non-deterministic `ruff format` divergence under the
 # pinned ruff 0.15.17: the CI runner (manylinux x86_64) intermittently wants to reformat a
