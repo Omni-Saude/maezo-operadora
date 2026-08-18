@@ -52,10 +52,12 @@ resource "aws_ecs_task_definition" "cibseven" {
 
   container_definitions = jsonencode([{
     name = "cibseven"
-    # 2.1.0 e nao 2.1.3: a 2.1.3 nao tem imagem publicada (DL-0006). Puxada do
-    # Docker Hub pela NAT. Se o rate limit do Hub incomodar, espelhe em ECR — a
-    # imagem nao muda, entao um espelho manual resolve.
-    image     = "cibseven/cibseven:2.1.0"
+    # Imagem PROPRIA, derivada de cibseven/cibseven:2.1.0 sem o showcase de
+    # demonstracao (deploy/cibseven/Dockerfile). A oficial cria o usuario `demo` — e o
+    # recria a cada boot — o que dava administracao do motor a quem passasse pelo Access.
+    #
+    # 2.1.0 e nao 2.1.3 na base: a 2.1.3 nao tem imagem publicada (DL-0006).
+    image     = "${aws_ecr_repository.engine.repository_url}:${var.engine_image_tag}"
     essential = true
 
     portMappings = [{ containerPort = 8080, protocol = "tcp" }]

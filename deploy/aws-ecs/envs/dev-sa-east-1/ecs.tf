@@ -50,6 +50,40 @@ resource "aws_ecr_lifecycle_policy" "app" {
   })
 }
 
+# Registro do ENGINE. Imagem propria porque a oficial embute o showcase de
+# demonstracao, que cria o usuario `demo` a cada boot — ver deploy/cibseven/Dockerfile.
+resource "aws_ecr_repository" "engine" {
+  name                 = "amh/cibseven-maezo"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  encryption_configuration {
+    encryption_type = "AES256"
+  }
+
+  tags = merge(local.base_tags, { Name = "amh/cibseven-maezo" })
+}
+
+resource "aws_ecr_lifecycle_policy" "engine" {
+  repository = aws_ecr_repository.engine.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Mantem as 10 imagens mais recentes do engine"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = { type = "expire" }
+    }]
+  })
+}
+
 resource "aws_ecs_cluster" "this" {
   name = local.name
 

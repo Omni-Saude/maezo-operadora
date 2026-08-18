@@ -119,6 +119,16 @@ variable "worker_desired_count" {
   default     = 0
 }
 
+variable "engine_image_tag" {
+  description = <<-EOT
+    Tag da imagem PROPRIA do engine (`amh/cibseven-maezo`), construida a partir de
+    `deploy/cibseven/Dockerfile`. Sem o showcase de demonstracao e, portanto, sem o
+    usuario `demo` que a imagem oficial recria a cada boot.
+  EOT
+  type        = string
+  default     = "sem-showcase"
+}
+
 variable "cibseven_desired_count" {
   description = <<-EOT
     Quantas tasks do engine BPMN. Nasce em ZERO de proposito: enquanto o SG deste stack

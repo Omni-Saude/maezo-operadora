@@ -102,7 +102,10 @@ data "aws_iam_policy_document" "codebuild" {
       "ecr:DescribeImages",
     ]
     # Restrito ao repositorio do maezo: um build comprometido nao publica em outro.
-    resources = [aws_ecr_repository.app.arn]
+    resources = [
+      aws_ecr_repository.app.arn,
+      aws_ecr_repository.engine.arn,
+    ]
   }
 }
 
@@ -142,6 +145,15 @@ resource "aws_codebuild_project" "imagem" {
       name  = "REPOSITORIO"
       value = aws_ecr_repository.app.name
     }
+
+    # Sobrescritiveis no `start-build`. Um projeto so' constroi as DUAS imagens (a da
+    # aplicacao e a do engine) porque o procedimento e' identico — o que muda e' o
+    # Dockerfile e o destino. Dois projetos separados seriam duas coisas para manter em
+    # sincronia sem ganho.
+    environment_variable {
+      name  = "DOCKERFILE"
+      value = "deploy/Dockerfile"
+    }
   }
 
   source {
@@ -163,14 +175,14 @@ resource "aws_codebuild_project" "imagem" {
             # A tag vem de fora (TAG_IMAGEM). Sem default de proposito: um build sem
             # tag explicita produziria uma imagem que ninguem sabe identificar depois.
             - test -n "$TAG_IMAGEM" || { echo "TAG_IMAGEM nao informada"; exit 1; }
-            - echo "construindo $REPOSITORIO:$TAG_IMAGEM"
+            - echo "construindo $REPOSITORIO:$TAG_IMAGEM a partir de $DOCKERFILE"
             - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $REGISTRO
         build:
           commands:
             # `--provenance=false`: o buildx com provenance gera uma entrada
             # "unknown/unknown" no manifest list que confunde o Fargate ao resolver a
             # plataforma. A imagem que roda hoje foi construida sem provenance.
-            - docker build --provenance=false -f deploy/Dockerfile -t "$REGISTRO/$REPOSITORIO:$TAG_IMAGEM" .
+            - docker build --provenance=false -f "$DOCKERFILE" -t "$REGISTRO/$REPOSITORIO:$TAG_IMAGEM" .
         post_build:
           commands:
             - docker push "$REGISTRO/$REPOSITORIO:$TAG_IMAGEM"
