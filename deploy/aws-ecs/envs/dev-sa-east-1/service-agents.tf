@@ -96,6 +96,7 @@ resource "aws_ecs_task_definition" "agente" {
       { name = "CIBSEVEN_BASE_URL", value = local.cibseven_base_url },
       { name = "FHIR_BASE_URL", value = local.fhir_base_url },
       { name = "HEALTH_PORT", value = "8000" },
+      { name = "KAFKA_BOOTSTRAP_SERVERS", value = local.kafka_bootstrap },
       { name = "AGENT_RUNTIME_MODE", value = var.agent_runtime_mode },
       # Inferencia real via Bedrock (provado ao vivo em 12/08/2026 no ambiente
       # local). `MAEZO_INFERENCE_PROVIDER=bedrock` troca o stub pelo cliente real.

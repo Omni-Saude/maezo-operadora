@@ -33,6 +33,11 @@ locals {
   # carrega sufixo aleatorio e mudaria se o segredo fosse recriado.
   aurora_master_secret_arn = data.aws_rds_cluster.shared.master_user_secret[0].secret_arn
 
+  # Endereco do broker de dev, pelo Cloud Map. Sem esta variavel o codigo cai no
+  # default `localhost:9092` (adapters/amh/settings.py:49) e o primeiro passo do
+  # processo morre em KafkaConnectionError.
+  kafka_bootstrap = "kafka.${local.name}.internal:9092"
+
   fhir_base_url = "http://${data.aws_lb.hapi_internal.dns_name}/fhir"
 
   # Descoberta de servico interna: o worker fala com o engine BPMN por nome DNS

@@ -163,6 +163,16 @@ variable "bedrock_model_id" {
   default     = "global.anthropic.claude-opus-5"
 }
 
+variable "kafka_desired_count" {
+  description = <<-EOT
+    Broker Kafka de DEV. 1 para o fluxo andar (o primeiro passo do SP-OP-AUTH-001
+    publica evento e falha fechado sem broker); 0 para zerar o custo. Nao substitui
+    o MSK em producao — ver o cabecalho de service-kafka.tf.
+  EOT
+  type        = number
+  default     = 0
+}
+
 variable "agent_runtime_mode" {
   description = <<-EOT
     `production` liga os gates fail-closed (checkpoint duravel, assinatura de Agent Card,

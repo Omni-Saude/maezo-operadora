@@ -1,11 +1,21 @@
 # worker-runtime — o daemon que registra os 16 workers de external task no engine
 # BPMN e executa o trabalho de cada processo SP-OP.
 #
-# Sem Kafka: o publisher de eventos e' `kafka: KafkaPublisher | None = None` em
-# todos os 17 modulos de registro (worker_runtime/service.py:198,233-237). Sem
-# broker o daemon sobe e trabalha; apenas nao publica evento de dominio. Isso e' o
-# que torna o staging tecnico possivel mesmo com o MSK deletado pelo ADR-036 — e e'
-# desenho do produto, nao contorno meu.
+# KAFKA: CORRECAO DE UMA AFIRMACAO MINHA (18/08/2026).
+#
+# Eu havia escrito aqui que "sem broker o daemon sobe e trabalha; apenas nao
+# publica evento de dominio". Isso vale para o publisher OPCIONAL dos 17 modulos
+# de registro (`kafka: KafkaPublisher | None = None`), e NAO vale para o worker
+# generico `operadora.events.publish`, onde publicar E' o trabalho.
+#
+# Medido: o PRIMEIRO service task do SP-OP-AUTH-001 (`ST_PublishReceived`) usa esse
+# topico. Sem broker ele falha fechado e o processo nao passa do passo 1 —
+# instancia 82456366-9aa6-11f1-a88f-06ad701ee363, incidente failedExternalTask,
+# `KafkaConnectionError: Unable to bootstrap from [('localhost', 9092)]`.
+# O teste local passava porque o docker-compose subia Kafka.
+#
+# Dai o broker de dev em `service-kafka.tf` e a variavel abaixo. Producao e' MSK
+# (ou outra decisao ratificada), nao esse nó unico.
 #
 # DATABASE_URL e' obrigatorio de verdade: sem ele o sink duravel de auditoria nao e'
 # construido, o harness falha fechado e registra ZERO workers. Foi medido no boot
@@ -45,6 +55,7 @@ resource "aws_ecs_task_definition" "worker" {
       { name = "CIBSEVEN_BASE_URL", value = local.cibseven_base_url },
       { name = "FHIR_BASE_URL", value = local.fhir_base_url },
       { name = "HEALTH_PORT", value = "8000" },
+      { name = "KAFKA_BOOTSTRAP_SERVERS", value = local.kafka_bootstrap },
       # production liga os gates fail-closed. Em nuvem nao existe motivo honesto
       # para rodar em `local`: seria afirmar que os controles estao ativos quando
       # nao estao.
