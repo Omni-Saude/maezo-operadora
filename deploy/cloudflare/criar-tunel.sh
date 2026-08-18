@@ -43,12 +43,14 @@ print(alvo)
 ' "$1"
 }
 
-echo "==> conferindo o token"
-cf "${API}/user/tokens/verify" | extrai "status" >/dev/null && echo "    token válido"
-
 echo "==> descobrindo a conta"
+# NAO usamos /user/tokens/verify: um token ACCOUNT-OWNED (prefixo `cfat_`) e' recusado
+# ali com "Invalid API Token" mesmo estando perfeito — medido em 18/08/2026, e quase
+# me fez devolver um token bom como quebrado. A prova de vida e' uma chamada de
+# recurso real, que e' o que a linha abaixo faz.
 ACCOUNT_ID=$(cf "${API}/accounts?per_page=50" | extrai "0.id")
 echo "    account_id = ${ACCOUNT_ID}"
+echo "    (se a conta acima nao for a esperada, o token ve mais de uma: pare e escolha)"
 
 echo "==> descobrindo a zona ${ZONA}"
 ZONE_ID=$(cf "${API}/zones?name=${ZONA}" | extrai "0.id")
@@ -65,7 +67,14 @@ echo "    tunnel_id  = ${TUNNEL_ID}"
 echo "==> gravando o token no Secrets Manager (${SEGREDO})"
 # Arquivo temporário com permissão restrita: JSON inline pela linha de comando
 # perde as aspas em alguns shells e o ECS rejeita com "invalid character".
-TMP=$(mktemp); chmod 600 "$TMP"
+# O `aws` aqui e' o binario NATIVO do Windows: ele nao resolve o /tmp do MSYS.
+# `mktemp` puro devolveu /tmp/tmp.XXXX e o put-secret-value falhou com
+# "No such file or directory" — depois de o script ja ter destruido o arquivo, o que
+# perdeu o token (recuperavel por API, mas so' porque ha um endpoint para isso).
+# TMPDIR aponta para um caminho que os DOIS mundos veem.
+TMPDIR="${TMPDIR:-$LOCALAPPDATA/Temp}"
+TMP=$(mktemp "${TMPDIR}/maezo-tunnel-XXXXXX.json"); chmod 600 "$TMP"
+TMP_WIN=$(cygpath -m "$TMP" 2>/dev/null || printf '%s' "$TMP")
 trap 'rm -f "$TMP"' EXIT
 printf '%s' "$RESP" | python -c '
 import json,sys
@@ -73,9 +82,12 @@ d = json.load(sys.stdin)
 sys.stdout.write(json.dumps({"token": d["result"]["token"]}))
 ' > "$TMP"
 aws secretsmanager put-secret-value \
-  --secret-id "${SEGREDO}" --secret-string "file://${TMP}" \
+  --secret-id "${SEGREDO}" --secret-string "file://${TMP_WIN}" \
   --region "${REGIAO}" --query VersionId --output text
 echo "    token gravado (não exibido em nenhum momento)"
+echo ""
+echo "    Se esta etapa falhar depois de o túnel existir, o token NÃO se perdeu:"
+echo "    GET ${API}/accounts/<conta>/cfd_tunnel/<tunel>/token devolve o mesmo valor."
 
 cat <<FIM
 
