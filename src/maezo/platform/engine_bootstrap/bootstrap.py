@@ -50,18 +50,34 @@ def _exigir_ok(resposta: httpx.Response, o_que: str) -> None:
         raise RuntimeError(f"{o_que} falhou: HTTP {resposta.status_code} — {resposta.text[:400]}")
 
 
-def _apagar(http: httpx.Client, url: str, o_que: str, **kwargs: Any) -> None:
-    """DELETE que trata 404 como sucesso.
+def _apagar(
+    http: httpx.Client,
+    url: str,
+    o_que: str,
+    *,
+    tolerar_403: str | None = None,
+    pendencias: list[str] | None = None,
+    **kwargs: Any,
+) -> None:
+    """DELETE que trata 404 como sucesso e, quando pedido, 403 como pendência.
 
-    O plano é montado antes da execução, e a execução muda o mundo: apagar um filtro
-    leva junto as autorizações dele, então parte da lista pode já ter sumido quando
-    chega a vez dela. Tratar isso como erro faria a ferramenta falhar justamente por
-    ter funcionado — e num restore, onde o estado é parcial, seria a regra e não a
-    exceção.
+    404: o plano é montado antes da execução, e a execução muda o mundo — apagar um
+    filtro leva junto as autorizações dele, então parte da lista pode já ter sumido
+    quando chega a vez dela. Tratar isso como erro faria a ferramenta falhar justamente
+    por ter funcionado, e num restore com estado parcial seria a regra, não a exceção.
+
+    403: só para quem passa `tolerar_403`, e com o motivo escrito. Não é para engolir
+    erro — é para não deixar um resíduo COSMÉTICO abortar a remoção de permissão, que é
+    a parte que importa. A pendência é acumulada e impressa no fim, alta.
     """
     r = http.delete(url, **kwargs)
     if r.status_code == 404:
         print(f"  {o_que}: já não existia")
+        return
+    if r.status_code == 403 and tolerar_403 is not None:
+        print(f"  NAO APAGADO: {o_que} — {tolerar_403}")
+        if pendencias is not None:
+            pendencias.append(o_que)
         return
     _exigir_ok(r, f"apagar {o_que}")
     print(f"  apagado: {o_que}")
@@ -243,10 +259,33 @@ def _executar(http: httpx.Client, plano: Plano, *, admin: str, senha: str) -> No
 
     # 5) Resíduo: o que sobra quando um usuário some. Por último de propósito — se algo
     #    acima falhar, a limpeza não roda com um plano feito sobre outro estado.
+    #    Filtro é o único recurso desta lista que o engine recusa a apagar por REST sem
+    #    usuário autenticado — medido: 403 "The user with id '' does not have 'DELETE'
+    #    permission ... of type 'Filter'", inclusive enviando Basic auth, porque o filtro
+    #    de autenticação do engine-rest não está habilitado nesta distribuição.
+    #    Autorização, usuário, grupo e deployment apagam anônimos (204).
+    #
+    #    Isso NÃO bloqueia a limpeza: um filtro sem nenhuma autorização que o conceda é
+    #    inerte — some da Tasklist de todo mundo que não seja `camunda-admin`. A remoção
+    #    definitiva é um clique na Tasklist do admin, ou vem de graça no dia em que o
+    #    engine-rest passar a exigir credencial (registrado no plano de acesso).
+    pendencias: list[str] = []
     for fid, nome in plano.filtros_a_apagar:
-        _apagar(http, f"{base}/filter/{fid}", f"filtro {fid[:8]} ({nome!r})")
+        _apagar(
+            http,
+            f"{base}/filter/{fid}",
+            f"filtro {fid[:8]} ({nome!r})",
+            tolerar_403="engine-rest sem usuário autenticado não apaga filtro; apague pela Tasklist",
+            pendencias=pendencias,
+        )
     for aid, desc in plano.autorizacoes_a_apagar:
         _apagar(http, f"{base}/authorization/{aid}", f"autorização {aid[:8]} ({desc})")
+
+    if pendencias:
+        print("")
+        print("  PENDENTE DE ACAO MANUAL (nao impede o resto):")
+        for p in pendencias:
+            print(f"    - {p}")
 
 
 def _conferir(http: httpx.Client, *, admin: str) -> None:
