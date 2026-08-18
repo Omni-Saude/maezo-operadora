@@ -19,6 +19,36 @@ GRUPOS_DE_DEMONSTRACAO: Final[tuple[str, ...]] = ("accounting", "management", "s
 #: O grupo de administração do engine.
 GRUPO_ADMIN: Final[str] = "camunda-admin"
 
+#: Grupo de LEITURA do motor — o análogo, aqui dentro, do grupo vazio criado no AWS
+#: Identity Center (`maezo-leitura`). Existe para que convidar alguém ao Cockpit não
+#: signifique compartilhar a senha do administrador: cria-se o usuário da pessoa e
+#: coloca-se neste grupo, sem tocar em permissão.
+#:
+#: Sem hífen porque a lista branca de identificadores do engine é `[a-zA-Z0-9]+` — o
+#: `camunda-admin` é exceção embutida, o resto não pode.
+GRUPO_LEITURA: Final[str] = "maezoleitura"
+
+#: O que o grupo de leitura pode: ver o motor, e nada mais.
+#:
+#: `(resourceType, resourceId, permissões)`. Os tipos são os do engine — 0 aplicação,
+#: 6 process-definition, 7 task, 8 process-instance, 9 deployment, 10 decision-definition,
+#: 14 decision-requirements-definition.
+#:
+#: Não há UPDATE, CREATE nem DELETE em lugar nenhum, e `admin` (a aplicação de gestão de
+#: usuários) não está na lista: quem entra por aqui NÃO administra identidade. Completar
+#: tarefa também fica de fora — quem dirige processo no ambiente é o Canal de Teste, e
+#: dar UPDATE em `task` seria permitir concluir autorização de procedimento pela tela.
+GRANTS_DO_GRUPO_DE_LEITURA: Final[tuple[tuple[int, str, tuple[str, ...]], ...]] = (
+    (0, "cockpit", ("ACCESS",)),
+    (0, "tasklist", ("ACCESS",)),
+    (6, "*", ("READ", "READ_HISTORY")),
+    (7, "*", ("READ",)),
+    (8, "*", ("READ",)),
+    (9, "*", ("READ",)),
+    (10, "*", ("READ",)),
+    (14, "*", ("READ",)),
+)
+
 
 @dataclass
 class Plano:
@@ -32,6 +62,8 @@ class Plano:
     deployments_preservados: list[tuple[str, str]] = field(default_factory=list)
     filtros_a_apagar: list[tuple[str, str]] = field(default_factory=list)
     autorizacoes_a_apagar: list[tuple[str, str]] = field(default_factory=list)
+    grupo_leitura_a_criar: bool = False
+    grants_de_leitura_a_criar: list[str] = field(default_factory=list)
 
 
 def _base() -> str:
@@ -109,8 +141,28 @@ def planejar(http: httpx.Client, *, admin: str, preservar: str) -> Plano:
             plano.deployments_a_apagar.append(par)
 
     _planejar_residuo(http, plano, usuarios=usuarios, grupos=grupos)
+    _planejar_grupo_de_leitura(http, plano, grupos=grupos)
 
     return plano
+
+
+def _planejar_grupo_de_leitura(http: httpx.Client, plano: Plano, *, grupos: set[str]) -> None:
+    """O grupo de leitura e os grants que ainda faltam nele.
+
+    Idempotente por comparação, não por tentativa: o engine aceita criar a MESMA
+    autorização duas vezes e passa a ter duas linhas equivalentes, então "cria e ignora
+    o erro" produziria lixo crescente a cada execução.
+    """
+    plano.grupo_leitura_a_criar = GRUPO_LEITURA not in grupos
+
+    existentes = {
+        (a["resourceType"], str(a["resourceId"]))
+        for a in http.get(_base() + "/authorization", params={"maxResults": 2000}).json()
+        if a.get("groupId") == GRUPO_LEITURA and a["type"] == 1
+    }
+    for tipo, alvo, permissoes in GRANTS_DO_GRUPO_DE_LEITURA:
+        if (tipo, alvo) not in existentes:
+            plano.grants_de_leitura_a_criar.append(f"tipo {tipo} alvo {alvo!r} {list(permissoes)}")
 
 
 #: `resourceType` de filtro no engine. Os demais tipos não são tratados aqui de
@@ -198,6 +250,11 @@ def _imprimir(plano: Plano, *, executar: bool) -> None:
     print(f"  autorizacoes orfas a apagar: {len(plano.autorizacoes_a_apagar)}")
     for aid, desc in plano.autorizacoes_a_apagar:
         print(f"    - {aid[:8]}  {desc}")
+    criar = "SIM" if plano.grupo_leitura_a_criar else "ja existe"
+    print(f"  grupo de leitura {GRUPO_LEITURA!r}: {criar}")
+    print(f"  grants de leitura a criar: {len(plano.grants_de_leitura_a_criar)}")
+    for g in plano.grants_de_leitura_a_criar:
+        print(f"    - {g}")
 
 
 def _executar(http: httpx.Client, plano: Plano, *, admin: str, senha: str) -> None:
@@ -281,6 +338,36 @@ def _executar(http: httpx.Client, plano: Plano, *, admin: str, senha: str) -> No
     for aid, desc in plano.autorizacoes_a_apagar:
         _apagar(http, f"{base}/authorization/{aid}", f"autorização {aid[:8]} ({desc})")
 
+    # 6) O grupo de leitura. Depois da limpeza de propósito: criar permissão antes de
+    #    remover a antiga deixaria as duas coexistindo se algo falhasse no meio.
+    if plano.grupo_leitura_a_criar:
+        _exigir_ok(
+            http.post(
+                base + "/group/create",
+                json={"id": GRUPO_LEITURA, "name": "MAEZO — leitura do motor", "type": "WORKFLOW"},
+            ),
+            f"criar grupo {GRUPO_LEITURA}",
+        )
+        print(f"  criado grupo {GRUPO_LEITURA}")
+
+    for tipo, alvo, permissoes in GRANTS_DO_GRUPO_DE_LEITURA:
+        if f"tipo {tipo} alvo {alvo!r} {list(permissoes)}" not in plano.grants_de_leitura_a_criar:
+            continue
+        _exigir_ok(
+            http.post(
+                base + "/authorization/create",
+                json={
+                    "type": 1,  # GRANT
+                    "permissions": list(permissoes),
+                    "groupId": GRUPO_LEITURA,
+                    "resourceType": tipo,
+                    "resourceId": alvo,
+                },
+            ),
+            f"conceder {list(permissoes)} em tipo {tipo} alvo {alvo!r} a {GRUPO_LEITURA}",
+        )
+        print(f"  concedido a {GRUPO_LEITURA}: tipo {tipo} alvo {alvo!r} {list(permissoes)}")
+
     if pendencias:
         print("")
         print("  PENDENTE DE ACAO MANUAL (nao impede o resto):")
@@ -314,7 +401,12 @@ def _conferir(http: httpx.Client, *, admin: str) -> None:
     print(f"  autorizacoes: {len(autorizacoes)}  (orfas: {len(orfas)})")
     for a in orfas:
         print(f"    ORFA: {a.get('userId') or a.get('groupId')!r} -> {a['resourceId']!r} {a['permissions']}")
-    print(f"  filtros: {[f.get('name') for f in http.get(base + '/filter').json()]}")
+    # "visíveis" e não "existentes", e a diferença é a lição: esta chamada é anônima, e o
+    # engine filtra o que devolve pela autorização de quem pergunta. Depois de apagar as
+    # autorizações do showcase, os filtros dele somem daqui — mas continuam no banco,
+    # apenas inertes. Escrever "filtros: []" seria afirmar uma remoção que não houve.
+    visiveis = [f.get("name") for f in http.get(base + "/filter").json()]
+    print(f"  filtros visíveis sem autenticação: {visiveis}")
     defs: list[dict[str, Any]] = http.get(
         base + "/process-definition", params={"latestVersion": "true", "maxResults": 200}
     ).json()

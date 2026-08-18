@@ -13,6 +13,13 @@ Se a ordem invertesse, o Cockpit ficaria sem nenhum membro de `camunda-admin` e 
 cairia na tela de "criar o primeiro usuário" — que, atrás do Access, entrega
 administração do motor à primeira pessoa que abrir a página.
 
+Além disso, cria o grupo `maezoleitura` com as autorizações de LEITURA do motor. Ele
+nasce vazio, e é isso que o torna útil: convidar alguém para o Cockpit passa a ser criar
+o usuário da pessoa e pô-la no grupo, em vez de compartilhar a senha do administrador —
+que é a única alternativa enquanto `maezoadmin` for o único usuário que existe. Mesmo
+desenho dos grupos vazios do AWS Identity Center (`deploy/aws-identity-center/`): a
+permissão é revisada agora, a pessoa entra depois.
+
 Uso:
 
     ENGINE_REST_URL=... ADMIN_USER=... ADMIN_PASSWORD=... \\
