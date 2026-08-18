@@ -203,27 +203,78 @@ real, e some no dia em que tiver.
 
 ## 5. Ordem, esforço e o que falta decidir
 
-| Onda | Esforço | Bloqueado por |
+| Onda | Esforço | Estado em 18/08/2026 |
 |---|---|---|
-| 1 — permission set + grupo | pequeno | os **nomes** das pessoas |
-| 2 — `tier` → model id | médio | qual modelo é `fast` (decisão do time) |
-| 3 — guardrails | médio | políticas de conteúdo (decisão clínica) |
-| 4 — custo por agente | pequeno | nada |
-| 5 — painel e alarmes | pequeno | nada |
+| 1 — permission set + grupo | pequeno | **FEITO** — falta só pôr nome no grupo |
+| 2 — `tier` → model id | médio | bloqueada: qual modelo é `fast` (decisão do time) |
+| 3 — guardrails | médio | bloqueada: políticas de conteúdo (decisão clínica) |
+| 4 — custo por agente | pequeno | pendente, sem bloqueio |
+| 5 — painel e alarmes | pequeno | pendente, sem bloqueio |
 
-### Pré-requisito que vale para qualquer liberação de acesso
+### Onda 1 — o que ficou pronto
 
-O usuário `demo` do CIB Seven continua ativo. Ele não é do escopo do Bedrock, mas
-qualquer pessoa que receba acesso ao ambiente passa pelo Cockpit — e enquanto o `demo`
-existir, isso é administração do motor de processos. Fechar isso vem antes de convidar
-gente.
+`deploy/aws-identity-center/` (Terraform, aplicado): os dois permission sets, dois grupos
+**vazios** e as atribuições ligando grupo → permission set → conta `203312548462`. As
+roles foram provisionadas de fato na conta de dados (`AWSReservedSSO_MaezoAgentEngineer_*`
+e `AWSReservedSSO_MaezoOperadoraLeitura_*`, conferidas por `iam list-roles`).
 
-### O que eu preciso para executar
+A atribuição funciona com o grupo vazio, e é isso que faz o acesso estar pronto sem os
+nomes: quando eles chegarem, dar acesso é `create-group-membership` — não é mudança de
+política nem nova revisão. O runbook está no README daquela pasta.
 
-1. **Nomes e e-mails** do time de engenharia de agentes.
-2. **Qual modelo é o tier `fast`** — haiku 4.5 (mais barato, suficiente para sumarizar
+**31 casos simulados** com `simulate-principal-policy`, todos conforme o desenho: invoca
+Anthropic e reinicia `agent-*`; não lê o lake, não lê o segredo do MPI, não altera o
+`cibseven`, não registra task definition, não liga log de invocação, não invoca modelo de
+outro fornecedor.
+
+Achado que muda como se testa política nesta organização: **sem passar
+`aws:RequestedRegion` e `aws:SecureTransport` no `--context-entries`, o simulador nega
+tudo** — a SCP `deny-region-outside-allowlist` usa `StringNotEquals`, que é verdadeiro
+sobre chave ausente. A primeira rodada "passou" em todas as negativas por esse motivo, ou
+seja, não provou nada sobre a política escrita. Confira sempre `OrganizationsDecisionDetail`
+para saber se quem negou foi a organização ou a sua política.
+
+### Pré-requisito — FECHADO
+
+O `demo` do CIB Seven não existe mais, e com ele foram `john`, `mary`, `peter`, os grupos
+`accounting`/`management`/`sales` e os dois deployments do showcase. O motor tem hoje um
+único usuário, `maezoadmin`, com senha no Secrets Manager (`maezo/dev/cibseven/admin`) e
+autenticação verificada por `POST /identity/verify`.
+
+**O que quase passou:** apagar usuário no Camunda **não** apaga as autorizações dele.
+Sobraram 15, entre elas uma dando a `mary` READ e UPDATE em `task` com alvo `*` — todas as
+tarefas do motor, incluindo as do fluxo AUTH. Não é sujeira: é armadilha armada, porque
+quem um dia criasse um usuário com aquele id herdaria a permissão sem ninguém conceder
+nada. Todas removidas; o estado final confere **0 órfãs**.
+
+Sobra uma pendência cosmética e nomeada: os 2 filtros do showcase (`My Tasks`,
+`My Group Tasks`) continuam no banco. O `engine-rest` recusa apagá-los sem usuário
+autenticado (403, inclusive com Basic auth — o filtro de autenticação da distribuição não
+está ligado) e eles ficaram inertes, sem nenhuma autorização que os conceda. Somem com um
+clique na Tasklist do admin.
+
+### Cockpit: o grupo `maezoleitura`
+
+Fechar o `demo` criou o problema seguinte: com `maezoadmin` como único usuário, convidar
+alguém ao Cockpit significaria compartilhar a senha do administrador. Então o motor ganhou
+`maezoleitura`, vazio, com ACCESS em cockpit/tasklist e READ nas definições, instâncias,
+tarefas e deployments — sem UPDATE, sem CREATE, sem DELETE e sem a aplicação `admin`.
+Mesmo desenho dos grupos da AWS: permissão revisada agora, pessoa depois.
+
+São **três portões independentes** — Cloudflare Access (alcança o hostname), Identity
+Center (opera a AWS), engine (entra no Cockpit). Uma pessoa precisa dos três. É
+deliberado, mas significa que "dar acesso" são três passos, não um.
+
+### O que eu preciso para seguir
+
+1. **Nomes e e-mails** do time — é o único passo que falta na Onda 1.
+2. **Confirmar o MFA do Identity Center** antes do primeiro convite. Não há API nem
+   recurso Terraform para isso (conferido em `aws sso-admin` e `aws identitystore`): é
+   console, _Settings → Authentication_. O portal é público e a conta guarda 11,45M de
+   recursos FHIR.
+3. **Qual modelo é o tier `fast`** — haiku 4.5 (mais barato, suficiente para sumarizar
    fatos estruturados) ou sonnet 5 (meio).
-3. **Se a Onda 3 avança agora** ou depois — ela depende de decisão de conteúdo clínico, e
+4. **Se a Onda 3 avança agora** ou depois — ela depende de decisão de conteúdo clínico, e
    o resto do plano não a espera.
 
 _Método: cada afirmação de estado foi medida contra a conta 203312548462 em 18/08/2026 —
