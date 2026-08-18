@@ -30,6 +30,8 @@ class Plano:
     grupos_a_apagar: list[str] = field(default_factory=list)
     deployments_a_apagar: list[tuple[str, str]] = field(default_factory=list)
     deployments_preservados: list[tuple[str, str]] = field(default_factory=list)
+    filtros_a_apagar: list[tuple[str, str]] = field(default_factory=list)
+    autorizacoes_a_apagar: list[tuple[str, str]] = field(default_factory=list)
 
 
 def _base() -> str:
@@ -73,7 +75,68 @@ def planejar(http: httpx.Client, *, admin: str, preservar: str) -> Plano:
         else:
             plano.deployments_a_apagar.append(par)
 
+    _planejar_residuo(http, plano, usuarios=usuarios, grupos=grupos)
+
     return plano
+
+
+#: `resourceType` de filtro no engine. Os demais tipos não são tratados aqui de
+#: propósito — ver o comentário em `_planejar_residuo`.
+TIPO_RECURSO_FILTRO: Final[int] = 5
+
+
+def _planejar_residuo(http: httpx.Client, plano: Plano, *, usuarios: set[str], grupos: set[str]) -> None:
+    """Filtros e autorizações que sobram quando um usuário some.
+
+    APAGAR USUÁRIO NO ENGINE NÃO APAGA AS AUTORIZAÇÕES DELE. Medido depois da primeira
+    execução deste bootstrap: `demo`, `mary`, `sales`, `accounting` e `management` já não
+    existiam e mesmo assim 15 autorizações continuavam gravadas com o nome deles. Uma
+    delas dava a `mary` READ e UPDATE em `task` com alvo `*` — TODAS as tarefas do motor,
+    incluindo as do fluxo AUTH.
+
+    Isso não é sujeira cosmética: é uma armadilha armada. No dia em que alguém criar um
+    usuário chamado `mary` — nome comum, e o engine não avisa que o id já teve
+    autorizações — essa pessoa herda a permissão sem ninguém ter concedido nada.
+
+    A regra usa quem SOBREVIVE ao plano, não quem existe agora: na primeira execução o
+    `demo` ainda está lá e as autorizações dele já precisam entrar na lista.
+    """
+    sobrevivem_usuarios = usuarios - set(plano.usuarios_a_apagar)
+    sobrevivem_grupos = grupos - set(plano.grupos_a_apagar)
+
+    filtros = http.get(_base() + "/filter").json()
+    filtros_sobreviventes = set()
+    for f in filtros:
+        dono = f.get("owner")
+        if dono is not None and dono not in sobrevivem_usuarios:
+            plano.filtros_a_apagar.append((str(f["id"]), str(f.get("name"))))
+        else:
+            filtros_sobreviventes.add(str(f["id"]))
+
+    for a in http.get(_base() + "/authorization", params={"maxResults": 2000}).json():
+        aid = str(a["id"])
+        principal = a.get("userId") or a.get("groupId")
+
+        if a["type"] == 0:  # GLOBAL: vale para todo usuário autenticado
+            # Global sobre filtro que vai deixar de existir é referência pendurada, e
+            # some junto. Global sobre QUALQUER OUTRO recurso não é mexido aqui: uma
+            # concessão a todo mundo é decisão deliberada de alguém, e uma ferramenta de
+            # limpeza que revoga acesso amplo por conta própria derruba o ambiente.
+            if a["resourceType"] == TIPO_RECURSO_FILTRO and str(a["resourceId"]) not in filtros_sobreviventes:
+                plano.autorizacoes_a_apagar.append((aid, f"global sobre filtro {a['resourceId']}"))
+            continue
+
+        if principal in (None, "*"):
+            continue
+
+        vivo = principal in sobrevivem_usuarios if a.get("userId") else principal in sobrevivem_grupos
+        if not vivo:
+            plano.autorizacoes_a_apagar.append(
+                (
+                    aid,
+                    f"{principal!r} -> tipo {a['resourceType']} alvo {a['resourceId']!r} {a['permissions']}",
+                )
+            )
 
 
 def _imprimir(plano: Plano, *, executar: bool) -> None:
@@ -96,6 +159,12 @@ def _imprimir(plano: Plano, *, executar: bool) -> None:
     print("  deployments PRESERVADOS:")
     for did, nome in plano.deployments_preservados or []:
         print(f"    - {did[:8]}  nome={nome!r}")
+    print(f"  filtros orfaos a apagar: {len(plano.filtros_a_apagar)}")
+    for fid, nome in plano.filtros_a_apagar:
+        print(f"    - {fid[:8]}  nome={nome!r}")
+    print(f"  autorizacoes orfas a apagar: {len(plano.autorizacoes_a_apagar)}")
+    for aid, desc in plano.autorizacoes_a_apagar:
+        print(f"    - {aid[:8]}  {desc}")
 
 
 def _executar(http: httpx.Client, plano: Plano, *, admin: str, senha: str) -> None:
@@ -151,6 +220,21 @@ def _executar(http: httpx.Client, plano: Plano, *, admin: str, senha: str) -> No
         _exigir_ok(http.delete(f"{base}/group/{gid}"), f"apagar grupo {gid}")
         print(f"  apagado grupo {gid}")
 
+    # 5) Resíduo: o que sobra quando um usuário some. Por último de propósito — se algo
+    #    acima falhar, a limpeza não roda com um plano feito sobre outro estado.
+    for fid, nome in plano.filtros_a_apagar:
+        _exigir_ok(http.delete(f"{base}/filter/{fid}"), f"apagar filtro {fid}")
+        print(f"  apagado filtro {fid[:8]} ({nome!r})")
+    for aid, desc in plano.autorizacoes_a_apagar:
+        # 404 aqui é sucesso, não erro: apagar o filtro leva junto as autorizações dele,
+        # e o plano foi montado antes disso acontecer.
+        r = http.delete(f"{base}/authorization/{aid}")
+        if r.status_code == 404:
+            print(f"  autorizacao {aid[:8]} ja havia sumido junto com o recurso ({desc})")
+            continue
+        _exigir_ok(r, f"apagar autorizacao {aid}")
+        print(f"  apagada autorizacao {aid[:8]} ({desc})")
+
 
 def _conferir(http: httpx.Client, *, admin: str) -> None:
     base = _base()
@@ -164,6 +248,21 @@ def _conferir(http: httpx.Client, *, admin: str) -> None:
     print(f"  {GRUPO_ADMIN}: {membros}")
     grupos = [g["id"] for g in http.get(base + "/group").json()]
     print(f"  grupos: {grupos}")
+
+    # Conferência do resíduo: um número diferente de zero aqui significa que existe
+    # permissão gravada em nome de alguém que não existe — esperando o dia em que
+    # alguém criar um usuário com aquele id.
+    vivos = set(usuarios) | set(grupos)
+    autorizacoes = http.get(base + "/authorization", params={"maxResults": 2000}).json()
+    orfas = [
+        a
+        for a in autorizacoes
+        if a["type"] != 0 and (a.get("userId") or a.get("groupId")) not in vivos | {"*", None}
+    ]
+    print(f"  autorizacoes: {len(autorizacoes)}  (orfas: {len(orfas)})")
+    for a in orfas:
+        print(f"    ORFA: {a.get('userId') or a.get('groupId')!r} -> {a['resourceId']!r} {a['permissions']}")
+    print(f"  filtros: {[f.get('name') for f in http.get(base + '/filter').json()]}")
     defs: list[dict[str, Any]] = http.get(
         base + "/process-definition", params={"latestVersion": "true", "maxResults": 200}
     ).json()
