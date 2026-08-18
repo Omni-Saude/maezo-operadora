@@ -36,6 +36,18 @@ def _base() -> str:
     return os.environ["ENGINE_REST_URL"].rstrip("/")
 
 
+def _exigir_ok(resposta: httpx.Response, o_que: str) -> None:
+    """Levanta com o CORPO da resposta, nao apenas com o codigo.
+
+    Escrito depois de um HTTP 500 em `/user/create` cujo motivo real — "'maezo-admin' is
+    not a valid resource identifier", a lista branca do engine rejeita hifen em id — SO'
+    aparecia no log do Tomcat. `raise_for_status()` sozinho custou duas idas ao
+    CloudWatch para ler o que a propria resposta dizia.
+    """
+    if resposta.status_code >= 300:
+        raise RuntimeError(f"{o_que} falhou: HTTP {resposta.status_code} — {resposta.text[:400]}")
+
+
 def planejar(http: httpx.Client, *, admin: str, preservar: str) -> Plano:
     """Lê o estado do engine e monta o plano. NÃO altera nada."""
     base = _base()
@@ -91,16 +103,22 @@ def _executar(http: httpx.Client, plano: Plano, *, admin: str, senha: str) -> No
 
     # 1) O admin PRIMEIRO. Ver o docstring do pacote para o motivo da ordem.
     if plano.admin_a_criar:
-        http.post(
-            base + "/user/create",
-            json={
-                "profile": {"id": admin, "firstName": "Administrador", "lastName": "MAEZO"},
-                "credentials": {"password": senha},
-            },
-        ).raise_for_status()
+        _exigir_ok(
+            http.post(
+                base + "/user/create",
+                json={
+                    "profile": {"id": admin, "firstName": "Administrador", "lastName": "MAEZO"},
+                    "credentials": {"password": senha},
+                },
+            ),
+            f"criar usuario {admin}",
+        )
         print(f"  criado usuário {admin}")
 
-    http.put(f"{base}/group/{GRUPO_ADMIN}/members/{admin}").raise_for_status()
+    _exigir_ok(
+        http.put(f"{base}/group/{GRUPO_ADMIN}/members/{admin}"),
+        f"tornar {admin} membro de {GRUPO_ADMIN}",
+    )
     print(f"  {admin} agora pertence a {GRUPO_ADMIN}")
 
     # 2) Confirma que o admin ficou mesmo no grupo ANTES de apagar o `demo`. Sem esta
@@ -116,18 +134,21 @@ def _executar(http: httpx.Client, plano: Plano, *, admin: str, senha: str) -> No
 
     # 3) Deployments de demonstração, com cascade (leva as instâncias de exemplo).
     for did, nome in plano.deployments_a_apagar:
-        http.delete(
-            f"{base}/deployment/{did}",
-            params={"cascade": "true", "skipCustomListeners": "true"},
-        ).raise_for_status()
+        _exigir_ok(
+            http.delete(
+                f"{base}/deployment/{did}",
+                params={"cascade": "true", "skipCustomListeners": "true"},
+            ),
+            f"apagar deployment {did[:8]}",
+        )
         print(f"  apagado deployment {did[:8]} ({nome!r})")
 
     # 4) Usuários e grupos de demonstração.
     for uid in plano.usuarios_a_apagar:
-        http.delete(f"{base}/user/{uid}").raise_for_status()
+        _exigir_ok(http.delete(f"{base}/user/{uid}"), f"apagar usuario {uid}")
         print(f"  apagado usuário {uid}")
     for gid in plano.grupos_a_apagar:
-        http.delete(f"{base}/group/{gid}").raise_for_status()
+        _exigir_ok(http.delete(f"{base}/group/{gid}"), f"apagar grupo {gid}")
         print(f"  apagado grupo {gid}")
 
 
@@ -154,8 +175,21 @@ def _conferir(http: httpx.Client, *, admin: str) -> None:
         print("  ATENÇÃO: o administrador real NÃO está no grupo de administração.")
 
 
+#: O engine tem lista branca de identificadores: `[a-zA-Z0-9]+` (mais o `camunda-admin`
+#: embutido). Hifen e ponto sao RECUSADOS com HTTP 500 e uma mensagem que so' aparece no
+#: log do Tomcat. Validar aqui transforma isso num erro imediato e legivel.
+_ID_VALIDO: Final[str] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+
 def main() -> int:
     admin = os.environ["ADMIN_USER"]
+    invalidos = sorted({c for c in admin if c not in _ID_VALIDO})
+    if invalidos:
+        print(
+            f"ADMIN_USER={admin!r} tem caractere que o engine recusa: {invalidos}. "
+            "Use apenas letras e digitos (a lista branca do engine e' [a-zA-Z0-9]+)."
+        )
+        return 1
     senha = os.environ["ADMIN_PASSWORD"]
     preservar = os.environ.get("DEPLOYMENT_PRESERVAR", "maezo-spec-processes")
     executar = os.environ.get("CONFIRMAR", "").strip().lower() in {"1", "true", "yes"}
