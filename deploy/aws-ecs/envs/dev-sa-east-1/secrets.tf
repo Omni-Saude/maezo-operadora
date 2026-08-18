@@ -30,7 +30,16 @@ resource "aws_secretsmanager_secret" "phi_hmac_key" {
   tags = merge(local.base_tags, { Name = "maezo-${local.env}-phi-hmac-key" })
 }
 
-# Grant de leitura para a execution role — restrito a estes dois ARNs.
+resource "aws_secretsmanager_secret" "engine_admin" {
+  name        = "maezo/${local.env}/cibseven/admin"
+  description = "Credencial do administrador REAL do engine BPMN. Substitui o usuario `demo` da imagem oficial."
+
+  recovery_window_in_days = 7
+
+  tags = merge(local.base_tags, { Name = "maezo-${local.env}-cibseven-admin" })
+}
+
+# Grant de leitura para a execution role — restrito a estes ARNs.
 data "aws_iam_policy_document" "task_execution_maezo_secrets" {
   statement {
     sid     = "LerSegredosPropriosDoMaezo"
@@ -39,6 +48,7 @@ data "aws_iam_policy_document" "task_execution_maezo_secrets" {
     resources = [
       aws_secretsmanager_secret.a2a_card_signing_key.arn,
       aws_secretsmanager_secret.phi_hmac_key.arn,
+      aws_secretsmanager_secret.engine_admin.arn,
     ]
   }
 }
