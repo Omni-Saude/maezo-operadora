@@ -194,6 +194,22 @@ variable "bedrock_model_id" {
   default     = "global.anthropic.claude-opus-5"
 }
 
+variable "bucket_fonte_build" {
+  description = <<-EOT
+    Bucket que guarda o zip de fonte do build. EXISTENTE, de outro state — criar bucket
+    nesta conta e' negado por SCP da organizacao (medido 18/08/2026). Escrevemos apenas
+    sob `prefixo_fonte_build`.
+  EOT
+  type        = string
+  default     = "amh-pipeline-artifacts-dev-sa-east-1"
+}
+
+variable "prefixo_fonte_build" {
+  description = "Prefixo dentro do bucket compartilhado. Isola a nossa fonte da dos vizinhos."
+  type        = string
+  default     = "maezo-operadora"
+}
+
 variable "canal_teste_desired_count" {
   description = <<-EOT
     Replicas do Canal de Teste. 1 para o time usar; 0 para tirar do ar.

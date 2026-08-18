@@ -20,6 +20,61 @@
 # com a task definition PRONTA: no dia em que o endpoint BR-resident e o DPA
 # existirem, e' mudar uma variavel, nao escrever codigo.
 
+# ---------------------------------------------------------------------------
+# O MESMO PORTAO DO RUNTIME, APLICADO NA INFRA
+# ---------------------------------------------------------------------------
+# `platform/privacy/dossier_zone.py` decide em tempo de execucao se a narrativa do
+# dossie e' zona PHI ou zona geral, lendo o artefato ratificado. Este bloco le O MESMO
+# ARQUIVO e decide qual provedor a task definition recebe.
+#
+# Por que duplicar a leitura em vez de confiar so' no runtime: sem isto, alguem
+# poderia apontar rafael para `bedrock` por variavel de Terraform. O runtime ainda
+# recusaria a chamada (`phi=True` + `phi_allowed=False`) — mas o `except Exception` do
+# call site ENGOLE a recusa e a narrativa sai VAZIA, em silencio. Ou seja: o modo de
+# falha de configurar errado nao e' um erro visivel, e' um dossie pior sem aviso.
+# Portanto a infra tambem tem de recusar.
+#
+# O digest e' conferido aqui pelo mesmo motivo que o loader confere: uma ratificacao
+# assinada sobre um prompt nao vale para outro prompt.
+locals {
+  _ratificacao_arquivo = "${path.module}/../../../../spec/policies/phi/dossier-narrative-zone.yaml"
+  _grafo_rafael        = "${path.module}/../../../../src/maezo/agents/rafael/graph.py"
+
+  # `try` porque um artefato ausente ou malformado deve resultar em ZONA PHI, nunca em
+  # erro de plan que alguem contorna comentando a linha.
+  _ratificacao = try(yamldecode(file(local._ratificacao_arquivo)), {})
+
+  _digest_atual    = filesha256(local._grafo_rafael)
+  _digest_assinado = lower(trimspace(try(tostring(local._ratificacao.graph_sha256), "")))
+  _digest_confere  = local._digest_assinado == local._digest_atual
+
+  # Os quatro requisitos, na mesma ordem do loader Python.
+  narrativa_geral_ratificada = (
+    try(local._ratificacao.ratificado, false) == true &&
+    upper(trimspace(try(tostring(local._ratificacao.zona_declarada), ""))) == "GERAL" &&
+    upper(trimspace(try(tostring(local._ratificacao.dpo_review), ""))) == "APPROVED" &&
+    upper(trimspace(try(tostring(local._ratificacao.medico_auditor_review), ""))) == "APPROVED" &&
+    local._digest_confere
+  )
+
+  # Provedor da zona PHI enquanto nao houver ratificacao; provedor real depois dela.
+  _provider_phi = local.narrativa_geral_ratificada ? var.inference_provider : var.phi_zone_provider
+}
+
+# Diagnostico honesto no plan: diz POR QUE o regime e' o que e', em vez de deixar
+# alguem adivinhar se esqueceu de assinar ou se assinou errado.
+check "ratificacao_da_zona_da_narrativa" {
+  assert {
+    condition     = local.narrativa_geral_ratificada || !local._digest_confere || try(local._ratificacao.ratificado, false) != true
+    error_message = "Artefato marcado como ratificado, digest confere, mas uma das revisoes (dpo_review / medico_auditor_review) nao esta APPROVED - a narrativa segue na zona PHI."
+  }
+
+  assert {
+    condition     = local._digest_assinado == "" || local._digest_confere
+    error_message = "A ratificacao carimbou graph_sha256=${local._digest_assinado} mas graph.py tem ${local._digest_atual} - o prompt mudou depois da assinatura. Reveja e re-assine; a narrativa segue na zona PHI."
+  }
+}
+
 locals {
   # Zona, provedor de inferencia e replicas por agente.
   #
@@ -34,17 +89,18 @@ locals {
       motivo            = "zona geral — sem PHI, inferencia real via Bedrock"
     }
     rafael = {
-      zona              = "phi"
-      replicas          = 1
-      provider          = var.phi_zone_provider
-      phi_zone_required = true
+      zona     = "phi"
+      replicas = 1
+      # Derivado da ratificacao, nao escolhido a mao.
+      provider          = local._provider_phi
+      phi_zone_required = !local.narrativa_geral_ratificada
       motivo            = "zona PHI — provedor que satisfaz o contrato da zona (ver var.phi_zone_provider)"
     }
     marina = {
       zona              = "phi"
       replicas          = 1
-      provider          = var.phi_zone_provider
-      phi_zone_required = true
+      provider          = local._provider_phi
+      phi_zone_required = !local.narrativa_geral_ratificada
       motivo            = "zona PHI — idem rafael"
     }
   }
