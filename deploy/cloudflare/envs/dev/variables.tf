@@ -30,24 +30,44 @@ variable "destino_interno" {
   default     = "http://cibseven.maezo-operadora-dev.internal:8080"
 }
 
-variable "emails_autorizados" {
+variable "dominios_autorizados" {
   description = <<-EOT
-    Quem pode entrar, por e-mail nominal. Lista vazia é PROIBIDA de propósito: uma
-    aplicação Access sem política de inclusão é um subdomínio público com etapa extra.
+    Domínios de e-mail que podem entrar. Qualquer pessoa com e-mail nesses domínios
+    recebe um código de uso único e entra.
 
-    Nominal em vez de domínio inteiro porque este ambiente alcança o engine de
-    processos com o usuário demo ainda ativo — enquanto isso for verdade, "todo mundo
-    de @austa.com.br" é uma superfície maior do que alguém pretende conceder.
+    Decisão do dono (18/08/2026): `austa.com.br` e `americashealth.co`.
+
+    É mais largo do que e-mail nominal, e a consequência precisa estar escrita onde
+    alguém a leia: enquanto o usuário `demo` do CIB Seven existir, quem passa pelo
+    Access tem ADMINISTRAÇÃO do motor de processos. O Access é fronteira de
+    identidade, não de autorização — reduzir isso é trabalho no engine, não aqui.
+
+    Lista vazia é proibida: uma aplicação Access sem inclusão é um subdomínio público
+    com uma etapa extra.
   EOT
   type        = list(string)
 
   validation {
-    condition     = length(var.emails_autorizados) > 0
-    error_message = "Informe ao menos um e-mail — uma aplicação Access sem inclusão não protege nada."
+    condition     = length(var.dominios_autorizados) > 0
+    error_message = "Informe ao menos um domínio — sem regra de inclusão o Access não protege nada."
   }
 
   validation {
-    condition     = alltrue([for e in var.emails_autorizados : can(regex("^[^@[:space:]]+@[^@[:space:]]+\\.[^@[:space:]]+$", e))])
+    condition     = alltrue([for d in var.dominios_autorizados : can(regex("^[^@[:space:]]+[.][^@[:space:]]+$", d))])
+    error_message = "Cada item deve ser um domínio (ex.: austa.com.br), sem @ e sem espaços."
+  }
+}
+
+variable "emails_autorizados" {
+  description = <<-EOT
+    E-mails NOMINAIS extras, além dos domínios. Vazio por padrão — existe para o caso
+    de alguém de fora dos domínios precisar entrar sem que o domínio inteiro entre.
+  EOT
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for e in var.emails_autorizados : can(regex("^[^@[:space:]]+@[^@[:space:]]+[.][^@[:space:]]+$", e))])
     error_message = "Todo item deve ser um e-mail válido."
   }
 }

@@ -85,8 +85,8 @@ resource "cloudflare_zero_trust_access_application" "cockpit" {
   # `precedence`.
   #
   # Uma aplicação sem nenhuma política não é "aberta com aviso": o Access nega tudo.
-  # Mas nós não dependemos disso — a validação em `emails_autorizados` já impede
-  # aplicar com lista vazia.
+  # Mas nós não dependemos disso — a validação em `dominios_autorizados` já impede
+  # aplicar sem nenhuma regra de inclusão.
   policies = [
     {
       id         = cloudflare_zero_trust_access_policy.por_email.id
@@ -97,14 +97,14 @@ resource "cloudflare_zero_trust_access_application" "cockpit" {
 
 resource "cloudflare_zero_trust_access_policy" "por_email" {
   account_id = var.account_id
-  name       = "E-mails nominais autorizados (dev)"
+  name       = "Dominios corporativos autorizados (dev)"
   decision   = "allow"
 
-  # Cada e-mail é uma regra de inclusão. `include` é OU: qualquer um da lista entra,
-  # e quem não está na lista não recebe nem a tela do engine.
-  include = [
-    for email in var.emails_autorizados : {
-      email = { email = email }
-    }
-  ]
+  # `include` é OU: basta casar uma regra. Domínios primeiro, e-mails nominais depois.
+  # A forma (`email_domain = { domain = ... }`, nesting single) veio do
+  # `terraform providers schema`, não de memória — na v4 era lista plana.
+  include = concat(
+    [for dominio in var.dominios_autorizados : { email_domain = { domain = dominio } }],
+    [for email in var.emails_autorizados : { email = { email = email } }],
+  )
 }

@@ -4,8 +4,11 @@ output "url" {
 }
 
 output "quem_entra" {
-  description = "Lista efetiva de e-mails autorizados, para conferencia."
-  value       = var.emails_autorizados
+  description = "Regra efetiva de acesso, para conferencia depois do apply."
+  value = {
+    dominios = var.dominios_autorizados
+    emails   = var.emails_autorizados
+  }
 }
 
 output "destino" {

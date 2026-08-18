@@ -8,51 +8,20 @@
 # certificado ACM, regra de SG de ENTRADA, WAF e um IP publico exposto — e mesmo
 # assim a autenticacao ficaria por conta da aplicacao.
 #
-# Aqui a conexao e' de DENTRO PARA FORA: o `cloudflared` abre 443 de saida (regra que
-# este SG ja tem, para ECR/Secrets/Bedrock) e o Cloudflare entrega o trafego por
-# dentro dela. Nao existe porta de entrada para escanear, e o Access decide QUEM
-# chega antes de qualquer byte tocar o engine.
+# Aqui a conexao e' de DENTRO PARA FORA: o `cloudflared` disca para a borda do
+# Cloudflare e o trafego entra por dentro dessa conexao. Nao existe porta de entrada
+# para escanear, e o Access decide QUEM chega antes de qualquer byte tocar o engine.
 #
-# O QUE FICA EXPOSTO
+# A porta e' 7844, NAO 443 — e isto esta escrito porque eu errei: subi a borda
+# confiando na regra de saida 443 que o SG ja tinha (ECR/Secrets/Bedrock) e o tunel
+# NAO REGISTROU. O diagnostico do proprio cloudflared foi explicito:
 #
-# O hostname publico e o destino interno sao configurados NO PAINEL do Cloudflare
-# (tunel gerenciado remotamente), nao aqui. O destino pretendido e' o Cockpit/Tasklist
-# do CIB Seven:
+#   UDP Connectivity  region1.v2.argotunnel.com  FAIL  QUIC connection failed
+#   TCP Connectivity  region1.v2.argotunnel.com  FAIL  HTTP/2 blocked or unreachable
+#   ERROR: Allow outbound QUIC traffic on port 7844 or use HTTP2.
 #
-#     https://<subdominio>.austa.com.br  ->  http://cibseven.maezo-operadora-dev.internal:8080
-#
-# E' onde o medico auditor decide a tarefa `UT_AnaliseMedicoAuditor` de verdade, em
-# vez de alguem completar por REST.
-#
-# ATENCAO, PENDENCIA DE SEGURANCA REAL (nao resolvida por este arquivo)
-#
-# A imagem `cibseven/cibseven:2.1.0` cria dados de demonstracao no boot
-# (`DemoDataGenerator.createUsers` aparece no log da nossa task) — o que inclui o
-# usuario `demo`. Enquanto ele existir, QUEM PASSAR PELO ACCESS tem administracao do
-# engine. Em dev tecnico isso e' aceitavel SE for dito em voz alta, e esta dito aqui.
-# Antes de qualquer uso com dado real: remover/trocar o usuario demo e a app de
-# exemplo `invoice`. O Access e' a fronteira de identidade, nao a de autorizacao.
-#
-# COMO ATIVAR (nada disto e' feito por codigo, de proposito)
-#
-#   1. Cloudflare Zero Trust -> Networks -> Tunnels -> Create a tunnel (tipo
-#      "Cloudflared"). Copiar o TOKEN.
-#   2. No tunel, Public Hostname: subdominio de `austa.com.br`, servico
-#      `HTTP` -> `cibseven.maezo-operadora-dev.internal:8080`.
-#   3. Zero Trust -> Access -> Applications: criar a aplicacao para esse hostname e
-#      a politica (ex.: e-mails terminando em `@austa.com.br`, ou lista nominal).
-#      SEM ESTA ETAPA o hostname fica publico — o tunel entrega, o Access filtra.
-#      Um sem o outro nao e' zero trust.
-#   4. Gravar o token no segredo criado abaixo:
-#        aws secretsmanager put-secret-value \
-#          --secret-id maezo/dev/cloudflared/tunnel-token \
-#          --secret-string file://token.json --region sa-east-1
-#      formato: {"token":"<TOKEN>"}   (use ARQUIVO — JSON inline pelo PowerShell
-#      perde as aspas e o ECS rejeita com "invalid character")
-#   5. `terraform apply -var=cloudflared_desired_count=1`
-#
-# O token e' credencial de borda: quem o tem publica hostname na sua zona. Por isso
-# ele NAO passa pelo Terraform e nao vive em variavel — mesma postura das outras.
+# Dai as duas regras em `security_groups_cloudflared.tf`: UDP 7844 (QUIC, preferido) e
+# TCP 7844 (fallback HTTP/2).
 
 resource "aws_secretsmanager_secret" "cloudflared_token" {
   name        = "maezo/${local.env}/cloudflared/tunnel-token"
@@ -154,7 +123,8 @@ resource "aws_ecs_service" "cloudflared" {
 
   network_configuration {
     # Mesmo SG dos demais componentes: a regra de auto-referencia na 8080 ja permite
-    # que o tunel alcance o engine, e a saida 443 ja existe. Nenhuma regra de ENTRADA
+    # que o tunel alcance o engine, e a saida 7844 esta em security_groups_cloudflared.tf.
+    # Nenhuma regra de ENTRADA
     # e' criada — a borda nao tem porta.
     subnets          = data.aws_subnets.private_app.ids
     security_groups  = [aws_security_group.tasks.id]
