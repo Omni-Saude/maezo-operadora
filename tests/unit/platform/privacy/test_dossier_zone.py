@@ -23,6 +23,7 @@ from maezo.platform.privacy.dossier_zone import (
     REASON_PLACEHOLDER,
     REASON_REVIEW_MISSING,
     REASON_ZONE_NOT_GENERAL,
+    SYNTHETIC_ONLY_ENV,
     DossierZoneNotRatifiedError,
     dossier_narrative_requires_phi_zone,
     load_ratification,
@@ -138,4 +139,40 @@ def test_override_para_lixo_mantem_phi(tmp_path: Path, monkeypatch: pytest.Monke
     ruim = tmp_path / "ruim.yaml"
     ruim.write_text("isto: [nao\n  fecha", encoding="utf-8")
     monkeypatch.setenv("MAEZO_DOSSIER_ZONE_RATIFICATION", str(ruim))
+    assert dossier_narrative_requires_phi_zone() is True
+
+
+# ---------------------------------------------------------------------------
+# Declaração de ambiente somente-sintético — a segunda via, e ela NÃO é ratificação
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("valor", ["1", "true", "TRUE", "yes", "Yes"])
+def test_ambiente_sintetico_libera_zona_geral(monkeypatch: pytest.MonkeyPatch, valor: str) -> None:
+    monkeypatch.setenv(SYNTHETIC_ONLY_ENV, valor)
+    assert dossier_narrative_requires_phi_zone() is False
+
+
+@pytest.mark.parametrize("valor", ["0", "false", "no", "", " ", "sim", "talvez", "2"])
+def test_valor_ambiguo_nao_liga_nada(monkeypatch: pytest.MonkeyPatch, valor: str) -> None:
+    """Uma declaração desta natureza não pode ser ligada por acidente de digitação."""
+    monkeypatch.setenv(SYNTHETIC_ONLY_ENV, valor)
+    assert dossier_narrative_requires_phi_zone() is True
+
+
+def test_ambiente_sintetico_nao_e_ratificacao(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A chave de ambiente não faz o artefato virar ratificado.
+
+    Se algum dia ela passar a satisfazer `load_ratification`, alguém conseguiu
+    fabricar uma aprovação de DPO com uma variável de ambiente — que é exatamente o
+    que o artefato existe para impedir.
+    """
+    monkeypatch.setenv(SYNTHETIC_ONLY_ENV, "1")
+    with pytest.raises(DossierZoneNotRatifiedError) as exc:
+        load_ratification(resolve_ratification_path())
+    assert exc.value.reason == REASON_NOT_RATIFIED
+
+
+def test_ausencia_da_variavel_mantem_phi(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(SYNTHETIC_ONLY_ENV, raising=False)
     assert dossier_narrative_requires_phi_zone() is True

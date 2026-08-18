@@ -95,6 +95,11 @@ data "aws_iam_policy_document" "codebuild" {
       "ecr:UploadLayerPart",
       "ecr:BatchGetImage",
       "ecr:GetDownloadUrlForLayer",
+      # DescribeImages: o buildspec imprime o DIGEST no fim, e o digest e' a
+      # proveniencia real (a tag pode ser reescrita em dev). Faltou na primeira
+      # versao e o build "falhou" com a imagem JA PUBLICADA — o push tinha passado,
+      # so' o diagnostico morreu. Confuso o suficiente para merecer estar aqui.
+      "ecr:DescribeImages",
     ]
     # Restrito ao repositorio do maezo: um build comprometido nao publica em outro.
     resources = [aws_ecr_repository.app.arn]

@@ -144,6 +144,27 @@ variable "agent_memory" {
   default     = 1024
 }
 
+variable "caso_sintetico_zona_geral" {
+  description = <<-EOT
+    Declara que ESTE AMBIENTE não contém dado de paciente real e, portanto, a narrativa
+    do dossiê do Rafael pode ser servida pelo provedor da zona GERAL (Bedrock).
+
+    NÃO é a ratificação de DPO/médico auditor. São afirmações diferentes:
+      - ratificação: o DADO pseudonimizado pertence à zona geral (via de produção);
+      - esta chave:  o AMBIENTE não vê dado real (via de teste).
+
+    Declaração do dono, 18/08/2026, textual: "só é aceitável porque vamos usar caso
+    fictício". O código não pode verificar que o caso é fictício — nenhum código pode.
+    Por isso a chave grita em WARNING a cada boot e aparece no diff da task definition.
+
+    DESLIGUE antes de qualquer carga com dado real. Com `true` num ambiente que veja
+    paciente de verdade, houve transferência internacional de dado de saúde sem base
+    legal — o perfil `global.*` do Bedrock roteia entre regiões por desenho.
+  EOT
+  type        = bool
+  default     = false
+}
+
 variable "phi_zone_provider" {
   description = <<-EOT
     Provedor de inferencia dos agentes da ZONA PHI (rafael, marina).

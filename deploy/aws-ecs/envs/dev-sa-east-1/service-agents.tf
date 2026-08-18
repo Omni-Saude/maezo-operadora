@@ -57,8 +57,14 @@ locals {
     local._digest_confere
   )
 
-  # Provedor da zona PHI enquanto nao houver ratificacao; provedor real depois dela.
-  _provider_phi = local.narrativa_geral_ratificada ? var.inference_provider : var.phi_zone_provider
+  # DUAS vias levam a narrativa para a zona geral, e elas afirmam coisas diferentes:
+  # a ratificacao (o DADO e' de zona geral) e a declaracao de ambiente sintetico (o
+  # AMBIENTE nao ve dado real). O runtime faz exatamente a mesma distincao em
+  # `platform/privacy/dossier_zone.py`.
+  narrativa_zona_geral = local.narrativa_geral_ratificada || var.caso_sintetico_zona_geral
+
+  # Provedor da zona PHI por padrao; provedor real quando uma das vias autoriza.
+  _provider_phi = local.narrativa_zona_geral ? var.inference_provider : var.phi_zone_provider
 }
 
 # Diagnostico honesto no plan: diz POR QUE o regime e' o que e', em vez de deixar
@@ -93,14 +99,14 @@ locals {
       replicas = 1
       # Derivado da ratificacao, nao escolhido a mao.
       provider          = local._provider_phi
-      phi_zone_required = !local.narrativa_geral_ratificada
+      phi_zone_required = !local.narrativa_zona_geral
       motivo            = "zona PHI — provedor que satisfaz o contrato da zona (ver var.phi_zone_provider)"
     }
     marina = {
       zona              = "phi"
       replicas          = 1
       provider          = local._provider_phi
-      phi_zone_required = !local.narrativa_geral_ratificada
+      phi_zone_required = !local.narrativa_zona_geral
       motivo            = "zona PHI — idem rafael"
     }
   }
@@ -172,6 +178,9 @@ resource "aws_ecs_task_definition" "agente" {
       # E' o que impede alguem de apontar um agente PHI para o provedor geral e
       # descobrir isso no primeiro paciente.
       { name = "MAEZO_INFERENCE_PHI_ZONE_REQUIRED", value = tostring(each.value.phi_zone_required) },
+      # A chave viaja para o container SO' quando ligada. Assim ela aparece — ou nao —
+      # no diff da task definition, e "quem ligou isso?" tem resposta no historico.
+      { name = "MAEZO_DOSSIER_NARRATIVE_GENERAL_ZONE_SYNTHETIC_ONLY", value = var.caso_sintetico_zona_geral ? "1" : "0" },
       { name = "MAEZO_BEDROCK_MODEL_ID", value = var.bedrock_model_id },
       { name = "MAEZO_BEDROCK_REGION", value = var.aws_region },
       { name = "PYTHONDONTWRITEBYTECODE", value = "1" },

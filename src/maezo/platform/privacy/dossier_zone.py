@@ -37,6 +37,24 @@ logger = structlog.get_logger(__name__)
 #: Variável que sobrepõe a descoberta de caminho (mesma convenção do inbox AMH).
 RATIFICATION_PATH_ENV: Final[str] = "MAEZO_DOSSIER_ZONE_RATIFICATION"
 
+#: Declaração de AMBIENTE SOMENTE-SINTÉTICO. NÃO é uma ratificação, e o nome é longo
+#: e feio de propósito: quem a liga não pode alegar que não sabia o que estava ligando.
+#:
+#: O que ela afirma: "neste ambiente não existe dado de paciente real, portanto a
+#: narrativa do dossiê pode ser servida pela zona geral". Isso é uma afirmação sobre o
+#: AMBIENTE, verificável por quem opera — diferente da ratificação, que é uma afirmação
+#: sobre a NATUREZA DO DADO e exige DPO e médico auditor.
+#:
+#: Declaração do dono deste ambiente, registrada em 18/08/2026, textual:
+#:   "trocar o provedor de inferência do Rafael do simulador para o Bedrock e desligar
+#:    a exigência de zona de saúde apenas nesse serviço — o que só é aceitável porque
+#:    vamos usar caso fictício."
+#:
+#: O código NÃO pode verificar que o caso é fictício. Nenhum código pode. Por isso esta
+#: chave não substitui a ratificação em nenhum ambiente que veja dado real, e por isso
+#: ela grita em WARNING a cada boot com o nome dela dentro da mensagem.
+SYNTHETIC_ONLY_ENV: Final[str] = "MAEZO_DOSSIER_NARRATIVE_GENERAL_ZONE_SYNTHETIC_ONLY"
+
 #: Caminho relativo do artefato, tanto no checkout quanto ao lado do pacote.
 _ARTIFACT_RELPATH: Final[Path] = Path("spec/policies/phi/dossier-narrative-zone.yaml")
 
@@ -67,6 +85,10 @@ REASON_NOT_RATIFIED: Final[str] = "ratification_not_ratified"
 REASON_ZONE_NOT_GENERAL: Final[str] = "zona_declarada_not_geral"
 REASON_REVIEW_MISSING: Final[str] = "review_not_approved"
 REASON_DIGEST_MISMATCH: Final[str] = "graph_sha256_mismatch"
+
+#: Motivo distinto para a zona geral por ambiente sintético — nunca confundido com
+#: ratificação nas consultas de log.
+REASON_SYNTHETIC_ONLY: Final[str] = "ambiente_declarado_somente_sintetico"
 
 
 class DossierZoneNotRatifiedError(RuntimeError):
@@ -228,8 +250,28 @@ def load_ratification(path: str | Path | None = None) -> DossierZoneRatification
     )
 
 
+def ambiente_declarado_somente_sintetico() -> bool:
+    """`True` se o operador declarou que este ambiente não vê dado real.
+
+    Aceita apenas `1`, `true`, `yes` (sem distinção de caixa). Qualquer outro valor —
+    inclusive `0`, vazio ou lixo — é `False`: uma declaração desta natureza não pode
+    ser ligada por acidente de digitação.
+    """
+    valor = os.environ.get(SYNTHETIC_ONLY_ENV, "").strip().lower()
+    return valor in {"1", "true", "yes"}
+
+
 def dossier_narrative_requires_phi_zone() -> bool:
-    """`True` = a narrativa é PHI (comportamento de hoje). NUNCA levanta exceção.
+    """`True` = a narrativa é PHI (comportamento padrão). NUNCA levanta exceção.
+
+    Duas vias levam a `False`, e elas afirmam coisas diferentes:
+
+    1. `SYNTHETIC_ONLY_ENV` — o operador declara que o AMBIENTE não vê dado real.
+       Verificada primeiro, porque é a única que serve a um ambiente de teste sem
+       envolver DPO e corpo clínico.
+    2. A ratificação assinada — DPO e médico auditor declaram que o DADO
+       (pseudonimizado) pertence à zona geral. É a via de produção.
+
 
     O chamador está no meio da construção do dossiê e precisa de um booleano, não
     de um erro. Toda falha vira `True`: a ausência de ratificação mantém a narrativa
@@ -238,6 +280,25 @@ def dossier_narrative_requires_phi_zone() -> bool:
     A decisão é registrada em log nos dois casos — quem lê o log de um boot sabe sob
     qual regime o agente está operando, sem inferir de um booleano solto.
     """
+    if ambiente_declarado_somente_sintetico():
+        # WARNING, não INFO: quem lê o log de boot precisa TROPEÇAR nisto. E a mensagem
+        # carrega o nome da variável para que a pergunta "quem ligou isso?" tenha
+        # resposta imediata na task definition.
+        logger.warning(
+            "dossier_narrative_zone_geral_por_ambiente_sintetico",
+            motivo=REASON_SYNTHETIC_ONLY,
+            zona="geral",
+            variavel=SYNTHETIC_ONLY_ENV,
+            mensagem=(
+                "a narrativa do dossie sera servida pela ZONA GERAL porque o operador "
+                "declarou que este ambiente NAO contem dado de paciente real. Isto NAO "
+                "e' uma ratificacao de DPO/medico auditor: se dado real passar por aqui, "
+                "houve transferencia internacional de dado de saude sem base. Desligue a "
+                "variavel antes de qualquer carga real."
+            ),
+        )
+        return False
+
     try:
         ratificacao = load_ratification()
     except DossierZoneNotRatifiedError as exc:
