@@ -15,9 +15,15 @@
 #   - o script viaja na task definition (~17 KB do limite de 64 KB), nao na imagem,
 #     e portanto NAO tem o digest da imagem como proveniencia.
 #
-# Assim que houver build, troque `command` por
-# `["python", "-m", "maezo.platform.testchannel"]` e apague o `file()`. O modulo ja
-# vive em `src/maezo/`, entao entra no wheel sem force-include.
+# RESOLVIDO EM 19/08/2026, e o proprio comentario acima previa: agora roda como MODULO.
+# O `file()` cobrava um preco que so' apareceu quando o canal precisou de um arquivo de
+# dados: `python -c <fonte>` executa sem `__file__`, entao qualquer caminho relativo ao
+# modulo levanta `NameError` no boot. Foi exatamente o que aconteceu ao servir `paginas/`
+# — o circuit breaker do service fez rollback e o ambiente ficou no artefato anterior,
+# que e' o comportamento correto e o motivo de ele existir.
+#
+# Como modulo, o script viaja NA IMAGEM: ganha o digest como proveniencia, deixa de
+# ocupar a task definition, e `paginas/` passa a resolver adjacente ao pacote.
 #
 # SEGURANCA, sem rodeio: o canal NAO tem autenticacao propria e faz proxy de caminho
 # arbitrario para o `engine-rest`. Quem abre a pagina dirige o motor. Isso e' aceitavel
@@ -70,11 +76,7 @@ resource "aws_ecs_task_definition" "canal_teste" {
     # `python -c <programa>` como UM argumento de argv: sem shell no meio, portanto sem
     # heredoc, sem escape de aspas e sem risco de o conteudo do script ser interpretado
     # pelo `sh`. O arquivo e' lido no plan.
-    command = [
-      "python",
-      "-c",
-      file("${path.module}/../../../../src/maezo/platform/testchannel/server.py"),
-    ]
+    command = ["python", "-m", "maezo.platform.testchannel"]
 
     portMappings = [{ containerPort = 8500, protocol = "tcp" }]
 
