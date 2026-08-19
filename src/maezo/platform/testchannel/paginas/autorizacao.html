@@ -4,7 +4,7 @@
      porque o Canal nao expoe rota para o lago. Sao reais; a extracao esta datada.
 
      ================================================================================
-     TRES AJUSTES DO TIME, 19/08/2026 — para a pagina falar com o que existe na AWS
+     QUATRO AJUSTES DO TIME, 19/08/2026 — para a pagina falar com o que existe na AWS
      ================================================================================
 
      1. FORMA DA RESPOSTA DO AGENTE. O ingresso devolve um envelope:
@@ -23,7 +23,15 @@
         exibindo sucesso exatamente quando a trava agiu. Agora lemos o END EVENT alcancado
         (`/engine/history/activity-instance`), que distingue os oito desfechos do processo.
 
-     3. MOJIBAKE nos nomes de procedimento (`DiÃ¡ria`, `FacoemulsificaÃ§Ã£o`) — UTF-8 lido
+     3. CORRIDA COM OS PROGRAMAS DE APOIO. A pagina lia o motor logo depois do turno. Medido:
+        vinham 0 decisoes, 0 prazos e 0 tarefas — e tres etapas eram marcadas "nao rodou"
+        exatamente quando estavam rodando. O agente inicia a instancia e responde na hora; os
+        programas levam ~1-2 min para puxar as tarefas externas, avaliar as 3 DMN, calcular os
+        4 criterios e abrir a mesa. Agora espera a tarefa humana aparecer (ela e' a ultima),
+        e so' entao le tudo. Conferido 2 min depois no mesmo caso: 1 tarefa, 2 prazos,
+        3 decisoes DMN e 10 atividades, incluindo ST_ValidateAutoApprovalCriteria.
+
+     4. MOJIBAKE nos nomes de procedimento (`DiÃ¡ria`, `FacoemulsificaÃ§Ã£o`) — UTF-8 lido
         como latin-1 na extracao. Corrigido no JSON embutido; nada mais foi tocado.
 
      PENDENCIA QUE NAO E' TECNICA: os casos aqui sao dado REAL de beneficiario. Enquanto a
@@ -319,18 +327,39 @@ function dias(iso){
   return m ? (m[1] + " dias uteis") : String(iso);
 }
 
+// AJUSTE 4: esperar o worker AVANCAR o processo antes de ler.
+// O agente inicia a instancia e devolve na hora; os programas de apoio levam ~1-2 min para
+// puxar as tarefas externas, avaliar as 3 DMN, calcular os 4 criterios e abrir a mesa do
+// auditor. Medido: lendo imediatamente vinham 0 decisoes, 0 prazos e 0 tarefas — e a pagina
+// marcava tres etapas como "nao rodou" exatamente quando elas estavam rodando.
+// A tarefa humana e' a ULTIMA a aparecer, entao esperar por ela garante que o resto existe.
+function esperarMesa(pid, n, aviso){
+  return api("/engine/task?processInstanceId=" + pid).then(function(tarefas){
+    if (tarefas && tarefas.length) return tarefas;
+    if (n > 45) return [];
+    aviso.innerHTML = '<div class="evid"><span class="spin"></span> os programas de apoio estao avancando o processo... '
+                    + (n*2) + 's</div>';
+    return new Promise(function(ok){ setTimeout(ok, 2000); }).then(function(){
+      return esperarMesa(pid, n+1, aviso);
+    });
+  });
+}
+
 function lerMotor(r){
   var bk = r.business_key;
-  add('<h2>3 &middot; O que o motor decidiu</h2><div class="evid"><span class="spin"></span> lendo a instancia '+esc(bk)+'...</div>');
+  var caixa = add('<h2>3 &middot; O que o motor decidiu</h2><div class="evid"><span class="spin"></span> lendo a instancia '+esc(bk)+'...</div>');
   api("/engine/history/process-instance?processInstanceBusinessKey=" + encodeURIComponent(bk))
   .then(function(inst){
     if (!inst || !inst.length) throw new Error("instancia nao encontrada para " + bk);
     var pid = inst[0].id;
-    return api("/engine/history/decision-instance?processInstanceId="+pid+"&includeInputs=true&includeOutputs=true")
-      .then(function(dec){ return {pid: pid, dec: dec}; });
+    return esperarMesa(pid, 0, caixa).then(function(){
+      return api("/engine/history/decision-instance?processInstanceId="+pid+"&includeInputs=true&includeOutputs=true");
+    }).then(function(dec){ return {pid: pid, dec: dec}; });
   })
   .then(function(x){
     var h = '<h2>3 &middot; O que o motor decidiu</h2><div class="sub" style="margin-bottom:10px">instancia '+esc(x.pid.slice(0,8))+'</div>';
+    // reaproveita a caixa da espera em vez de empilhar um segundo cartao do passo 3
+    caixa.remove();
     var criterios = 0;
     for (var i=0;i<x.dec.length;i++){
       var d = x.dec[i], ent = {}, sai = {};
