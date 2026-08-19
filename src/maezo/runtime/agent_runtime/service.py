@@ -591,18 +591,28 @@ async def _bring_up_dependencies(state: AgentState) -> None:
         effect_policy_digest=state.effect_policy_digest,
         effect_seams_gated=state.effect_seams_gated,
     )
-    # Explicit, load-bearing log line (T1.11 update of the Q-6 scaffold note): the graph now
-    # BUILDS for real (helena/rafael, defect B6) but this daemon still never EXECUTES a turn —
-    # see the module docstring's STEP B point 4 for where live execution actually happens
-    # (the webhook receiver's in-process dispatch, for Helena; Rafael has no live intake path
-    # wired in this build — see `agents/rafael/graph.py`'s module docstring).
-    logger.info(
-        "agent_graph_execution_not_performed_here",
-        agent_id=settings.agent_id,
-        note="the graph builds/compiles (graph_loaded check) but this health-only daemon does "
-        "not execute turns — see docs/design/T1.1-runtime-spine.md §10/§17 Q-6 and this "
-        "module's STEP B point 4.",
-    )
+    # Linha de log que CARREGA significado, e por isso precisa dizer a verdade sobre esta
+    # replica. Ela afirmava, incondicionalmente, que o daemon nao executa turnos — o que virou
+    # mentira em 19/08/2026, quando o ingresso passou a existir. Um log que contradiz o
+    # comportamento e' pior que log nenhum: foi exatamente esta frase que sustentou o
+    # diagnostico "o agente nao atua", e ela continuaria sustentando-o depois de deixar de ser
+    # verdade.
+    if settings.agent_ingress_enabled:
+        logger.info(
+            "agent_graph_execution_available_here",
+            agent_id=settings.agent_id,
+            note="a rota de ingresso esta montada (POST /v1/autorizacoes): esta replica EXECUTA "
+            "turnos. O turno emite `harness_invoke` + `agent_turn` e, com provedor real, "
+            "`llm_token_usage`.",
+        )
+    else:
+        logger.info(
+            "agent_graph_execution_not_performed_here",
+            agent_id=settings.agent_id,
+            note="the graph builds/compiles (graph_loaded check) but this replica has no intake "
+            "route (MAEZO_AGENT_INGRESS_ENABLED is off), so it does not execute turns — see "
+            "docs/design/T1.1-runtime-spine.md §10/§17 Q-6 and this module's STEP B point 4.",
+        )
 
 
 # --- run() — orchestrates STEP A..D -------------------------------------------------------------

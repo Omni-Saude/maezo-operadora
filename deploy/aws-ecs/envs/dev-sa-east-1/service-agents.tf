@@ -232,6 +232,29 @@ resource "aws_ecs_task_definition" "agente" {
   tags = merge(local.base_tags, { agente = each.key, zona = each.value.zona })
 }
 
+# DNS interno estavel por agente. Nao existia ate 19/08/2026 porque nada precisava
+# ALCANCAR um agente: eles eram daemons de saude que ninguem chamava. Com a rota de ingresso
+# ligada, o Canal de Teste precisa de um nome — o IP da task muda a cada deploy, e um IP
+# fixado numa variavel e' uma quebra silenciosa no proximo apply.
+resource "aws_service_discovery_service" "agente" {
+  for_each = local.agentes
+
+  name = "agent-${each.key}"
+
+  dns_config {
+    namespace_id = aws_service_discovery_private_dns_namespace.this.id
+
+    dns_records {
+      ttl  = 10 # baixo: o IP muda a cada deploy da task
+      type = "A"
+    }
+
+    routing_policy = "MULTIVALUE"
+  }
+
+  tags = merge(local.base_tags, { agente = each.key })
+}
+
 resource "aws_ecs_service" "agente" {
   for_each = local.agentes
 
@@ -247,6 +270,10 @@ resource "aws_ecs_service" "agente" {
     subnets          = data.aws_subnets.private_app.ids
     security_groups  = [aws_security_group.tasks.id]
     assign_public_ip = false
+  }
+
+  service_registries {
+    registry_arn = aws_service_discovery_service.agente[each.key].arn
   }
 
   deployment_circuit_breaker {
