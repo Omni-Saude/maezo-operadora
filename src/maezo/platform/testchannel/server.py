@@ -34,6 +34,7 @@ import os
 import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 #: REST do engine. O default local existe para `python -m` na maquina do dev; em
 #: container a variavel e' sempre passada pela task definition.
@@ -53,6 +54,19 @@ COCKPIT_URL = os.environ.get("COCKPIT_URL", "http://localhost:8080")
 #: `http://agent-rafael.maezo-operadora-dev.internal:8000`. Vazio desliga o painel do
 #: agente na pagina — melhor do que um botao que sempre falha.
 AGENTE = os.environ.get("AGENT_INGRESS_URL", "").rstrip("/")
+
+#: Diretorio das paginas externas servidas em `/p/<arquivo>`. ADJACENTE AO MODULO de
+#: proposito, e nao um caminho configuravel: `resolve` + comparacao de pai e' o que fecha
+#: travessia de diretorio, e um diretorio vindo de variavel de ambiente reabriria isso.
+PAGINAS = Path(__file__).parent / "paginas"
+
+#: Extensoes servidas. Lista fechada: sem ela, um `.py` ou um `.env` esquecido na pasta
+#: passaria a ser publico atras do Access — que autentica, mas nao decide o que pode sair.
+TIPOS = {
+    ".html": "text/html; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+}
 
 HTML = r"""<!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8">
@@ -303,6 +317,13 @@ opt();preset();recentes();setInterval(recentes,15000);
 </script></body></html>"""
 
 
+def _paginas_disponiveis() -> list[str]:
+    """Nomes servidos hoje. Vai na resposta 404 para quem errou o nome nao ter de adivinhar."""
+    if not PAGINAS.is_dir():
+        return []
+    return sorted(f.name for f in PAGINAS.iterdir() if f.suffix.lower() in TIPOS)
+
+
 class Handler(BaseHTTPRequestHandler):
     def _proxy(self, base: str, prefixo: str, timeout: int = 30) -> None:
         """Repassa a requisicao para `base`, tirando `prefixo` do caminho.
@@ -336,9 +357,38 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _servir_pagina(self) -> None:
+        """Serve um arquivo de `paginas/`. Existe para a pagina de quem ja tem uma tela.
+
+        Uma pagina servida daqui e' MESMA ORIGEM que `/engine` e `/agente`, entao ela dirige
+        o ambiente sem token de servico da Cloudflare, sem CORS, e continua atras do Access
+        que protege este hostname. Ver `paginas/README.md` para o porque disso ser melhor que
+        emitir uma credencial que contorna autenticacao humana.
+        """
+        pedido = self.path[len("/p/") :].split("?")[0]
+        # `basename` remove qualquer `../`; o `resolve` + comparacao de pai abaixo fecha
+        # tambem link simbolico. Dois controles porque um so' e' um controle.
+        nome = os.path.basename(pedido)
+        alvo = (PAGINAS / nome).resolve()
+        tipo = TIPOS.get(alvo.suffix.lower())
+        if not nome or tipo is None or alvo.parent != PAGINAS.resolve() or not alvo.is_file():
+            self._responder_json(
+                404, {"erro": f"pagina nao encontrada: {nome!r}", "disponiveis": _paginas_disponiveis()}
+            )
+            return
+        dados = alvo.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", tipo)
+        self.send_header("Content-Length", str(len(dados)))
+        self.end_headers()
+        self.wfile.write(dados)
+
     def do_GET(self) -> None:  # noqa: N802 (stdlib naming)
         if self.path.startswith("/engine"):
             self._proxy(ENGINE, "/engine")
+            return
+        if self.path.startswith("/p/"):
+            self._servir_pagina()
             return
         # Os links do Cockpit no HTML foram escritos para o ambiente local. Trocar na
         # hora de servir mantem o template intocado e evita duas copias da pagina.
@@ -359,9 +409,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path.startswith("/agente"):
             if not AGENTE:
-                self._responder_json(
-                    503, {"erro": "AGENT_INGRESS_URL nao configurada neste canal"}
-                )
+                self._responder_json(503, {"erro": "AGENT_INGRESS_URL nao configurada neste canal"})
                 return
             # 180s: um turno com modelo real pode levar dezenas de segundos, e o que se quer
             # ver e' exatamente esse caso.
@@ -386,7 +434,7 @@ def main() -> None:
     """Sobe o servidor. Log de uma linha, para aparecer no CloudWatch no boot."""
     print(
         f"canal de teste ouvindo em {BIND}:{PORT} | motor: {ENGINE} | cockpit: {COCKPIT_URL} "
-        f"| agente: {AGENTE or '(nao configurado)'}",
+        f"| agente: {AGENTE or '(nao configurado)'} | paginas: {_paginas_disponiveis() or '(nenhuma)'}",
         flush=True,
     )
     ThreadingHTTPServer((BIND, PORT), Handler).serve_forever()
