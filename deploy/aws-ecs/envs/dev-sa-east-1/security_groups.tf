@@ -73,3 +73,28 @@ resource "aws_vpc_security_group_egress_rule" "interno_8080" {
   to_port                      = 8080
   referenced_security_group_id = aws_security_group.tasks.id
 }
+
+# Porta 8000 dos agentes — a rota de ingresso que EXECUTA um turno
+# (`runtime/agent_runtime/ingress.py`). Antes desta regra a 8000 era so' o health check
+# LOCAL do container: nada na VPC alcancava a porta, entao o Canal de Teste nao tinha como
+# pedir um turno ao Rafael. Medido em 19/08/2026: o SG admitia 8080, 8500 e 9092, e nada mais.
+#
+# O par ingress/egress e' necessario porque as tasks compartilham UM security group: a mesma
+# regra que deixa o Canal chegar ao agente tambem precisa deixar o Canal SAIR para ele.
+resource "aws_vpc_security_group_ingress_rule" "interno_8000" {
+  security_group_id            = aws_security_group.tasks.id
+  description                  = "Ingresso dos agentes a partir dos demais componentes do maezo"
+  ip_protocol                  = "tcp"
+  from_port                    = 8000
+  to_port                      = 8000
+  referenced_security_group_id = aws_security_group.tasks.id
+}
+
+resource "aws_vpc_security_group_egress_rule" "interno_8000" {
+  security_group_id            = aws_security_group.tasks.id
+  description                  = "Saida para o ingresso dos agentes na 8000"
+  ip_protocol                  = "tcp"
+  from_port                    = 8000
+  to_port                      = 8000
+  referenced_security_group_id = aws_security_group.tasks.id
+}

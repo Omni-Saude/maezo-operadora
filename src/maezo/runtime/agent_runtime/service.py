@@ -122,6 +122,18 @@ class AgentState:
     inference_error: str | None = None
     agent_graph: StateGraph[Any] | None = None
     agent_graph_error: str | None = None
+    # O harness que CONSTRUIU o grafo, retido para que um turno possa ser executado.
+    #
+    # Antes ele era local a `_load_agent_graph` e descartado: o daemon provava que o grafo
+    # compila e nao guardava com o que executa-lo. Era a razao estrutural do
+    # `agent_graph_execution_not_performed_here` — nao faltava vontade, faltava a referencia.
+    #
+    # Retido AQUI e nao reconstruido na borda de ingresso de proposito: `_build_tool_deps`
+    # delega ao construtor sancionado (`build_agent_seams`), e a checagem de prontidao
+    # `effect_seams_gated` afirma que os seams DESTE harness sao instancias gated. Um harness
+    # novo montado na borda seria uma segunda raiz de composicao — exatamente o adversario
+    # A-11 que o repo ja pagou para eliminar.
+    harness: Harness | None = None
     # T3.4/F4: durable LangGraph checkpointer (working-layer state persistence). Provisioned once
     # at bring-up (`.setup()` idempotent). `checkpointer_ready` is FAIL-CLOSED in production
     # (`agent_runtime_mode != "local"`): a prod daemon that cannot durably checkpoint must not
@@ -365,7 +377,7 @@ def _load_agent_graph(
     settings: AgentRuntimeSettings,
     inference: InferenceProvider | None,
     checkpointer: Checkpointer | None = None,
-) -> StateGraph[Any]:
+) -> tuple[Harness, StateGraph[Any]]:
     """Resolve + build `settings.agent_id`'s real graph (T1.11, defect B6).
 
     T3.4/F4: the durable `checkpointer` (provisioned once at bring-up) is now wired into the
@@ -387,7 +399,9 @@ def _load_agent_graph(
     graph = harness.create_graph(settings.agent_id)
     saver = checkpointer.saver if checkpointer is not None else None
     graph.compile(checkpointer=saver)  # validates structure (checkpoint-enabled); never runs a node
-    return graph
+    # O harness volta junto: quem executa um turno precisa DELE, nao apenas do StateGraph
+    # (`Harness.invoke` compila com o checkpointer e emite a telemetria do turno).
+    return harness, graph
 
 
 async def _provision_checkpointer(state: AgentState) -> None:
@@ -509,7 +523,9 @@ async def _bring_up_dependencies(state: AgentState) -> None:
         logger.error("effect_seams_gated_probe_failed", agent_id=settings.agent_id, exc_info=True)
 
     try:
-        state.agent_graph = _load_agent_graph(settings, state.inference_provider, state.checkpointer)
+        state.harness, state.agent_graph = _load_agent_graph(
+            settings, state.inference_provider, state.checkpointer
+        )
     except (UnknownAgentError, ValueError) as exc:
         state.agent_graph_error = f"{type(exc).__name__}: {exc}"
         logger.error("agent_graph_build_failed", agent_id=settings.agent_id, exc_info=True)
@@ -613,6 +629,24 @@ async def run(settings: AgentRuntimeSettings) -> None:
         is_live=state.is_live,
         registry=get_metrics_collector().registry,
     )
+    # A rota de ingresso, quando ligada. Montada AQUI, no mesmo servidor da saude, porque a
+    # porta 8000 do container ja e' a que o service discovery publica — abrir uma segunda porta
+    # obrigaria a mais uma regra de Security Group para nenhum ganho.
+    #
+    # Ela le `state` a cada chamada (nao captura o harness): este bloco roda ANTES do bring-up,
+    # e um harness capturado aqui seria `None` para sempre. Enquanto o bring-up nao terminar, a
+    # rota responde 503 — a mesma leitura que `/readyz` da'.
+    if settings.agent_ingress_enabled:
+        from maezo.runtime.agent_runtime.ingress import build_ingress_router  # noqa: PLC0415
+
+        app.include_router(build_ingress_router(state))
+        logger.info(
+            "agent_ingress_mounted",
+            agent_id=settings.agent_id,
+            rota="POST /v1/autorizacoes",
+            porta=settings.health_port,
+        )
+
     server = build_health_server(app, port=settings.health_port)
     server.capture_signals = contextlib.nullcontext  # type: ignore[assignment]  # we own the signals
     serve_task = asyncio.create_task(server.serve(), name="health-server")

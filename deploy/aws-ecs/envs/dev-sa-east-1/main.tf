@@ -43,4 +43,8 @@ locals {
   # Descoberta de servico interna: o worker fala com o engine BPMN por nome DNS
   # estavel, nao por IP de task (que muda a cada deploy).
   cibseven_base_url = "http://cibseven.${local.name}.internal:8080/engine-rest"
+
+  # Ingresso do agente que executa turnos. O rafael e' o unico com a rota ligada
+  # (ver `service-agents.tf`), por isso o endereco e' dele e nao de um agente qualquer.
+  agent_ingress_url = "http://agent-rafael.${local.name}.internal:8000"
 }

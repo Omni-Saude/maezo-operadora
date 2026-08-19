@@ -176,6 +176,14 @@ resource "aws_ecs_task_definition" "agente" {
       # Inferencia real via Bedrock (provado ao vivo em 12/08/2026 no ambiente
       # local). `MAEZO_INFERENCE_PROVIDER=bedrock` troca o stub pelo cliente real.
       { name = "MAEZO_INFERENCE_PROVIDER", value = each.value.provider },
+      # A rota que EXECUTA um turno. So' o rafael a recebe: o contrato do corpo do POST e'
+      # o `RafaelState`, e um ingresso ligado num agente cujo grafo espera outra forma
+      # aceitaria pedido e falharia no primeiro no'.
+      #
+      # Ate' 19/08/2026 nenhum agente tinha ingresso, e era por isso que o log dizia
+      # `agent_graph_execution_not_performed_here` e `llm_token_usage` era zero: o daemon
+      # compilava o grafo e nao tinha por onde ser chamado.
+      { name = "MAEZO_AGENT_INGRESS_ENABLED", value = each.key == "rafael" ? "1" : "0" },
       # Liga a verificacao de contrato de zona NO BOOT: com phi_zone_required=true, o
       # `InferenceProvider` recusa CONSTRUIR se as capacidades declaradas do provedor
       # nao satisfizerem os cinco criterios de `phi_zone_denial_reasons` (phi_allowed,

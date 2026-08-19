@@ -22,11 +22,16 @@ class AgentRuntimeSettings(BaseSettings):
     """Config for the agent-runtime daemon — one process per agent replica (per-agent Deployment,
     `deployment-agent-runtime.yaml`).
 
-    Q-6 (RATIFIED, docs/design/T1.1-runtime-spine.md §10/§17): this build is a HEALTH-ONLY
+    Q-6 (RATIFIED, docs/design/T1.1-runtime-spine.md §10/§17): this build was a HEALTH-ONLY
     scaffold — no LangGraph execution. The settings surface below is therefore intentionally the
     superset Helm already injects (identity, dependency URLs, LLM keys) so the daemon can run
-    its three readiness checks (config/policies/inference) honestly; consuming most of these
-    values for real graph execution is T1.11's job.
+    its three readiness checks (config/policies/inference) honestly.
+
+    EXCECAO, e ela e' opt-in: com `MAEZO_AGENT_INGRESS_ENABLED=1` o daemon monta a rota de
+    ingresso (`agent_runtime/ingress.py`) e passa a EXECUTAR turnos. Medido em 19/08/2026, o
+    motivo pelo qual isso precisou existir: `Harness.invoke` era chamado em exatamente dois
+    lugares no repo — um exemplo de docstring e um teste unitario — e o `llm_token_usage` era
+    zero em todos os log groups. O agente nao estava quebrado; nao havia por onde chama-lo.
     """
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
@@ -48,6 +53,11 @@ class AgentRuntimeSettings(BaseSettings):
     # NOTE: the value is deliberately NOT stripped/normalized — `" local "` and `"Local"` must keep
     # failing closed to production (pinned in `tests/unit/a2a/attacks/test_idempotency_fail_open_attack.py`).
     agent_runtime_mode: str = Field(default="production", alias="AGENT_RUNTIME_MODE")
+    # Liga a rota de ingresso que EXECUTA turnos (`agent_runtime/ingress.py`). Default FALSE:
+    # um daemon que aceita trabalho por omissao e' um daemon que comeca a gastar modelo e a
+    # iniciar processo no motor sem ninguem ter decidido isso. Hoje so' o rafael recebe `1`
+    # (o contrato do corpo do POST e' o `RafaelState`).
+    agent_ingress_enabled: bool = Field(default=False, alias="MAEZO_AGENT_INGRESS_ENABLED")
     # Effective (merged) Agent Definition mounted from the per-agent ConfigMap (K8s). None in
     # local dev -> the service resolves `spec/agents/<agent_id>/agent.yaml` instead (T0.3).
     agent_definition_path: str | None = Field(default=None, alias="AGENT_DEFINITION_PATH")

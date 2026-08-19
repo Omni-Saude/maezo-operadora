@@ -87,6 +87,10 @@ resource "aws_ecs_task_definition" "canal_teste" {
       # O link do Cockpit na pagina aponta para o hostname PUBLICO, nao para o DNS
       # interno — quem abre a pagina esta no navegador, fora da VPC.
       { name = "COCKPIT_URL", value = "https://${var.hostname_cockpit}" },
+      # Ingresso do agente, pelo DNS do Cloud Map — o IP da task muda a cada deploy.
+      # Vazio esconde o painel do agente na pagina em vez de deixar um botao que sempre
+      # falha; e' o mesmo raciocinio do `desired_count` que descreve o que existe.
+      { name = "AGENT_INGRESS_URL", value = local.agent_ingress_url },
       { name = "PYTHONDONTWRITEBYTECODE", value = "1" },
     ]
 

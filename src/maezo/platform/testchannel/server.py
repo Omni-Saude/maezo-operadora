@@ -49,6 +49,11 @@ BIND = os.environ.get("CANAL_BIND", "0.0.0.0")  # noqa: S104 - ver comentario ac
 #: o hostname publico atras do Access.
 COCKPIT_URL = os.environ.get("COCKPIT_URL", "http://localhost:8080")
 
+#: Ingresso do agente (a rota que EXECUTA um turno). Em container vem do Cloud Map:
+#: `http://agent-rafael.maezo-operadora-dev.internal:8000`. Vazio desliga o painel do
+#: agente na pagina — melhor do que um botao que sempre falha.
+AGENTE = os.environ.get("AGENT_INGRESS_URL", "").rstrip("/")
+
 HTML = r"""<!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -103,8 +108,31 @@ a{color:var(--accent)}
 <header><h1>Canal de Teste — Maezo Operadora</h1>
 <span class="sub">Etapa 4 do plano · entrega a solicitação na mesma porta que um canal real usaria · Cockpit: <a href="http://localhost:8080" target="_blank">localhost:8080</a></span></header>
 <main>
+<section class="card" id="cardAgente">
+  <h2>Pedir ao Rafael
+    <span class="hint" style="font-weight:400">— o agente executa um turno e ele mesmo inicia o processo</span></h2>
+  <p class="hint">Diferente do bloco abaixo: ali você inicia o processo direto no motor. Aqui o
+  pedido vai ao <b>agente</b>, que avalia e decide — e o processo nasce da decisão dele.</p>
+  <div id="agForm" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:.6rem">
+    <label>tenant_id<input id="ag_tenant" value="amh"></label>
+    <label>numero_guia_tiss<input id="ag_guia" placeholder="ex.: 90000001"></label>
+    <label>codigo_procedimento_tuss<input id="ag_tuss" placeholder="ex.: 40901114"></label>
+    <label>categoria_procedimento<input id="ag_categoria" placeholder="ex.: exame"></label>
+    <label>prestador_id<input id="ag_prestador" placeholder="ex.: PREST-001"></label>
+    <label>beneficiario_pseudo_id<input id="ag_benef" placeholder="pseudônimo, nunca CPF"></label>
+    <label>carater_atendimento<input id="ag_carater" placeholder="eletivo | urgencia"></label>
+    <label>cid10<input id="ag_cid" placeholder="ex.: M545"></label>
+    <label>valor_estimado_brl<input id="ag_valor" placeholder="ex.: 480"></label>
+  </div>
+  <div style="margin:.7rem 0;display:flex;gap:.5rem;flex-wrap:wrap">
+    <button class="ghost" onclick="exemploFicticio()">preencher exemplo fictício</button>
+    <button class="primary" onclick="pedirAoRafael()">Enviar ao Rafael</button>
+  </div>
+  <div id="saidaAgente"></div>
+</section>
+
 <section class="card">
-  <h2>Lançar solicitação</h2>
+  <h2>Lançar solicitação direto no motor</h2>
   <label>Processo</label>
   <select id="proc" onchange="preset()"></select>
   <label>Business key (auto)</label>
@@ -146,6 +174,72 @@ const PRESETS = {
  "SP-OP-ANS-SUBMIT-001":{pre:"ANSSUB",vars:{report_type:"",competencia:""}}
 };
 const $=id=>document.getElementById(id);
+
+// ---- painel do agente -------------------------------------------------------
+// O proxy do canal tira o prefixo /agente e repassa para AGENT_INGRESS_URL.
+if (!"__AGENTE_CONFIGURADO__") { const c=$("cardAgente"); if(c) c.style.display="none"; }
+
+function exemploFicticio(){
+  // Caso FICTICIO de proposito: numero de guia fora de qualquer faixa real e pseudonimo
+  // explicito. O canal nao tem como saber se um caso e' real — quem preenche sabe.
+  const n = 90000000 + Math.floor(Math.random()*99999);
+  $("ag_tenant").value="amh"; $("ag_guia").value=String(n);
+  $("ag_tuss").value="40901114"; $("ag_categoria").value="exame";
+  $("ag_prestador").value="PREST-FICTICIO-001";
+  $("ag_benef").value="pseudo-ficticio-"+n;
+  $("ag_carater").value="eletivo"; $("ag_cid").value="M545"; $("ag_valor").value="480";
+}
+
+function agCampo(id){const v=$(id).value.trim();return v===""?null:v}
+
+async function pedirAoRafael(){
+  const out=$("saidaAgente");
+  const corpo={tenant_id:agCampo("ag_tenant"),numero_guia_tiss:agCampo("ag_guia"),
+    codigo_procedimento_tuss:agCampo("ag_tuss"),categoria_procedimento:agCampo("ag_categoria"),
+    prestador_id:agCampo("ag_prestador"),beneficiario_pseudo_id:agCampo("ag_benef"),
+    carater_atendimento:agCampo("ag_carater"),cid10:agCampo("ag_cid"),canal:"portal_tiss"};
+  const valor=agCampo("ag_valor"); if(valor!==null) corpo.valor_estimado_brl=Number(valor);
+  for(const k of Object.keys(corpo)) if(corpo[k]===null) delete corpo[k];
+
+  out.innerHTML="<p class='hint'>executando um turno do agente… (com modelo real pode levar dezenas de segundos)</p>";
+  const t0=performance.now();
+  try{
+    const r=await fetch("/agente/v1/autorizacoes",{method:"POST",
+      headers:{"Content-Type":"application/json"},body:JSON.stringify(corpo)});
+    const j=await r.json();
+    const ms=Math.round(performance.now()-t0);
+    if(!r.ok){
+      out.innerHTML=`<div class="errmsg">HTTP ${r.status} em ${ms} ms\n${esc(JSON.stringify(j.detail||j,null,2))}</div>`;
+      return;
+    }
+    const res=j.resultado||{};
+    const pr=res.process_ref||{};
+    let h=`<div class="okmsg">Turno executado em <b>${j.duracao_ms} ms</b> (${ms} ms ida e volta)</div>`;
+    h+=`<table class="vars"><tr><td>rota</td><td class="mono">${esc(res.route||"—")}</td></tr>`;
+    h+=`<tr><td>desfecho</td><td class="mono">${esc(res.desfecho||"—")}</td></tr>`;
+    h+=`<tr><td>recomendação</td><td class="mono">${esc(res.recomendacao_auto||"—")}</td></tr>`;
+    h+=`<tr><td>admissibilidade</td><td class="mono">${esc(String(res.admissibilidade??"—"))}</td></tr>`;
+    h+=`<tr><td>SLA de análise</td><td class="mono">${esc(String(res.sla_analise||"—"))}</td></tr>`;
+    h+=`<tr><td>business key</td><td class="mono">${esc(res.business_key||"—")}</td></tr>`;
+    h+=`<tr><td>thread do checkpoint</td><td class="mono">${esc((j.thread_id||"").slice(0,24))}…</td></tr>`;
+    h+=`<tr><td>processo iniciado</td><td class="mono">${res.process_started?"sim":"NÃO"}</td></tr>`;
+    if(pr.instance_id){
+      h+=`<tr><td>instância</td><td class="mono">${esc(pr.instance_id)}`;
+      h+=` <button class="ghost" onclick="$('iid').value='${esc(pr.instance_id)}';verEvidencia()">ver evidência</button>`;
+      h+=`${pr.already_existed?" <span class='hint'>(já existia — idempotência)</span>":""}</td></tr>`;
+    }
+    h+=`</table>`;
+    if(res.dossier){
+      h+=`<h3 style="margin:.8rem 0 .3rem">Dossiê escrito pelo agente</h3>`;
+      h+=`<pre class="mono" style="white-space:pre-wrap">${esc(JSON.stringify(res.dossier,null,2))}</pre>`;
+    }
+    if(res.error){h+=`<div class="errmsg">${esc(res.error)}</div>`}
+    out.innerHTML=h;
+  }catch(e){
+    out.innerHTML=`<div class="errmsg">falha ao falar com o agente:\n${esc(e.message)}</div>`;
+  }
+}
+
 function opt(){const s=$("proc");for(const k of Object.keys(PRESETS)){const o=document.createElement("option");o.value=o.textContent=k;s.appendChild(o)}}
 function addRow(n,v,t){const tr=document.createElement("tr");
  tr.innerHTML=`<td><input placeholder="nome" value="${n}"></td><td><input placeholder="valor" value="${v}"></td>
@@ -210,26 +304,32 @@ opt();preset();recentes();setInterval(recentes,15000);
 
 
 class Handler(BaseHTTPRequestHandler):
-    def _proxy(self) -> None:
-        path = self.path[len("/engine") :]
+    def _proxy(self, base: str, prefixo: str, timeout: int = 30) -> None:
+        """Repassa a requisicao para `base`, tirando `prefixo` do caminho.
+
+        `timeout` e' parametro porque as duas pontas tem ordens de grandeza diferentes: o
+        motor responde em milissegundos, e um turno de agente com modelo real leva dezenas
+        de segundos. Um timeout de 30s no agente cortaria justamente o caso que se quer ver.
+        """
+        path = self.path[len(prefixo) :]
         body = None
         if self.command == "POST":
             body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
         req = urllib.request.Request(
-            ENGINE + path,
+            base + path,
             data=body,
             method=self.command,
             headers={"Content-Type": self.headers.get("Content-Type", "application/json")},
         )
         try:
-            with urllib.request.urlopen(req, timeout=30) as r:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
                 data = r.read()
                 self.send_response(r.status)
         except urllib.error.HTTPError as e:
             data = e.read()
             self.send_response(e.code)
         except OSError as e:
-            data = json.dumps({"erro": f"motor inacessível: {e}"}).encode()
+            data = json.dumps({"erro": f"destino inacessível ({base}): {e}"}).encode()
             self.send_response(502)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data)))
@@ -238,11 +338,15 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802 (stdlib naming)
         if self.path.startswith("/engine"):
-            self._proxy()
+            self._proxy(ENGINE, "/engine")
             return
         # Os links do Cockpit no HTML foram escritos para o ambiente local. Trocar na
         # hora de servir mantem o template intocado e evita duas copias da pagina.
-        page = HTML.replace("http://localhost:8080", COCKPIT_URL).encode()
+        page = (
+            HTML.replace("http://localhost:8080", COCKPIT_URL)
+            .replace("__AGENTE_CONFIGURADO__", "1" if AGENTE else "")
+            .encode()
+        )
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(page)))
@@ -251,10 +355,28 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         if self.path.startswith("/engine"):
-            self._proxy()
+            self._proxy(ENGINE, "/engine")
+            return
+        if self.path.startswith("/agente"):
+            if not AGENTE:
+                self._responder_json(
+                    503, {"erro": "AGENT_INGRESS_URL nao configurada neste canal"}
+                )
+                return
+            # 180s: um turno com modelo real pode levar dezenas de segundos, e o que se quer
+            # ver e' exatamente esse caso.
+            self._proxy(AGENTE, "/agente", timeout=180)
             return
         self.send_response(404)
         self.end_headers()
+
+    def _responder_json(self, status: int, corpo: dict[str, object]) -> None:
+        data = json.dumps(corpo).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
 
     def log_message(self, fmt: str, *args: object) -> None:
         pass  # silencioso
@@ -262,7 +384,11 @@ class Handler(BaseHTTPRequestHandler):
 
 def main() -> None:
     """Sobe o servidor. Log de uma linha, para aparecer no CloudWatch no boot."""
-    print(f"canal de teste ouvindo em {BIND}:{PORT} | motor: {ENGINE} | cockpit: {COCKPIT_URL}", flush=True)
+    print(
+        f"canal de teste ouvindo em {BIND}:{PORT} | motor: {ENGINE} | cockpit: {COCKPIT_URL} "
+        f"| agente: {AGENTE or '(nao configurado)'}",
+        flush=True,
+    )
     ThreadingHTTPServer((BIND, PORT), Handler).serve_forever()
 
 
