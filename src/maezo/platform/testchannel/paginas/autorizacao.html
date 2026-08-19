@@ -13,15 +13,22 @@
         `enviar`) em vez de espalhar `resp.resultado.` por dez lugares. Sem isso, tudo
         aparecia "-", `process_started` era falso e o motor nunca era lido.
 
-     2. COMO A TRAVA DA NEGATIVA E' DETECTADA — e este era o erro que mais custava.
-        A pagina procurava um INCIDENT. Nao ha incident: `ERR_AUTH_DENIAL_INCOMPLETE` esta
-        na `AUTH_BPMN_ERROR_ALLOWLIST`, entao o harness o despacha como `bpmnError` REAL,
-        capturado pelo boundary event `BE_NegativaIncompleta` em `ST_EnviarNegativaFormal`,
-        que desvia para o end event `End_FundamentacaoIncompletaBloqueada`.
-        Consequencia da versao anterior: o processo terminava (state COMPLETED), a busca por
-        incident vinha vazia, e a pagina cairia no ramo VERDE "Decisao registrada" —
-        exibindo sucesso exatamente quando a trava agiu. Agora lemos o END EVENT alcancado
-        (`/engine/history/activity-instance`), que distingue os oito desfechos do processo.
+     2. COMO A TRAVA DA NEGATIVA E' DETECTADA — e aqui a versao ORIGINAL da pagina estava
+        CERTA. Foi o time que errou primeiro, e o registro fica.
+        Eu li `AUTH_BPMN_ERROR_ALLOWLIST` em `auth.py` e concluí que a trava viraria um
+        `bpmnError` capturado pelo boundary `BE_NegativaIncompleta`, terminando o processo no
+        end event `End_FundamentacaoIncompletaBloqueada`. Errado: o codigo e' consumption-
+        covered, mas `worker_runtime/service.py` o FILTRA de proposito do
+        `PRODUCTION_BPMN_ERROR_ALLOWLIST` pelo portao T-E (ADR-0030 §4) — "ativar um pre-T-E
+        trocaria um incident garantidamente visivel a um humano por um fim limpo e silencioso
+        num terminal neutro". Ha teste unitario que falha se alguem remover esse filtro.
+        MEDIDO no ambiente: external task com retries=0, incident com a mensagem
+        "fundamentacao incompleta, campos ausentes: ['fundamentacao_dut'] — negativa formal
+        NAO transmitida (RN 395 art. 10, L0 hard ADR-0005)", processo ACTIVE parado em
+        `ST_EnviarNegativaFormal`, nenhum end event.
+        Entao a pagina checa o INCIDENT primeiro (o que de fato acontece) e o end event
+        depois, para os outros sete desfechos. As duas leituras convivem: no dia em que o
+        portao T-E landar, a trava passa a terminar no end event e a pagina segue correta.
 
      3. CORRIDA COM OS PROGRAMAS DE APOIO. A pagina lia o motor logo depois do turno. Medido:
         vinham 0 decisoes, 0 prazos e 0 tarefas — e tres etapas eram marcadas "nao rodou"
@@ -430,33 +437,51 @@ function decidir(aprovar){
   .catch(function(e){ $("res").innerHTML = '<div class="evid nao">'+esc(e.message)+'</div>'; });
 }
 
-// AJUSTE 2: le o END EVENT alcancado em vez de procurar incident. A trava da negativa e' um
-// bpmnError capturado por boundary event — ela NAO gera incident, e o processo termina normal.
-// Sem esta mudanca, "negativa barrada" e "decisao registrada" ficavam indistinguiveis.
+// AJUSTE 2: duas leituras, nesta ordem.
+//   1) INCIDENT — e' o que a trava produz HOJE. `ERR_AUTH_DENIAL_INCOMPLETE` e' filtrado de
+//      proposito do allowlist de producao pelo portao T-E (ADR-0030 §4): um incident visivel a
+//      um humano vale mais que um fim limpo e silencioso. O processo fica ACTIVE, parado em
+//      ST_EnviarNegativaFormal, com retries=0. NADA foi transmitido — que e' o ponto.
+//   2) END EVENT — os outros sete desfechos, e a propria trava no dia em que o T-E landar.
 function verDesfecho(n){
   var bk = ultimo.business_key;
   api("/engine/history/process-instance?processInstanceBusinessKey="+encodeURIComponent(bk))
   .then(function(inst){
     var pid = inst[0].id, estado = inst[0].state;
-    return api("/engine/history/activity-instance?processInstanceId="+pid+"&maxResults=200")
-    .then(function(ativ){
-      var alcancado = null;
-      (ativ||[]).forEach(function(a){ if (FINAIS[a.activityId]) alcancado = a.activityId; });
-
-      if (alcancado){
-        var f = FINAIS[alcancado];
-        marca(5, "ok");
-        marca(6, f.trava ? "ok" : "ok");
-        $("res").innerHTML = '<div class="card" style="border-color:'+f.cx+';background:'+f.bg+'">'
-          + '<b class="'+f.cor+'" style="font-size:16px">'+esc(f.titulo)+'</b>'
-          + (f.texto ? '<div style="margin-top:6px">'+esc(f.texto)+'</div>' : '')
-          + '<div class="evid">end event alcancado: '+esc(alcancado)+'\nprocesso em '+esc(estado)+'</div></div>';
-        return;
+    return api("/engine/incident?processInstanceId="+pid).then(function(inc){
+      var trava = null;
+      (inc||[]).forEach(function(i){
+        if (/nao transmitida|fundamentacao incompleta|DENIAL_INCOMPLETE/i.test(String(i.incidentMessage))) trava = i;
+      });
+      if (trava){
+        marca(5, "ok"); marca(6, "ok");
+        $("res").innerHTML = '<div class="card" style="border-color:#6e2020;background:#2b1416">'
+          + '<b class="nao" style="font-size:16px">Negativa barrada — nada foi transmitido</b>'
+          + '<div style="margin-top:6px">O motor recusou emitir a negativa porque a fundamentacao '
+          + 'exigida pela ANS (RN 395 art. 10) estava incompleta. O caso fica PARADO e visivel, de '
+          + 'proposito: um bloqueio de negativa tem de chegar a um humano, nao terminar em silencio.</div>'
+          + '<div class="evid">'+esc(String(trava.incidentMessage||"").slice(0,400))
+          + '\natividade: '+esc(trava.activityId||"-")+'\nprocesso em '+esc(estado)+'</div></div>';
+        return null;
       }
-
-      if (n > 20){ $("res").innerHTML = '<div class="evid warn">o motor ainda esta processando</div>'; return; }
-      $("res").innerHTML = '<div class="evid"><span class="spin"></span> aguardando o motor... '+(n*2)+'s</div>';
-      setTimeout(function(){ verDesfecho(n+1); }, 2000);
+      return api("/engine/history/activity-instance?processInstanceId="+pid+"&maxResults=200")
+      .then(function(ativ){
+        var alcancado = null;
+        (ativ||[]).forEach(function(a){ if (FINAIS[a.activityId]) alcancado = a.activityId; });
+        if (alcancado){
+          var f = FINAIS[alcancado];
+          marca(5, "ok"); marca(6, "ok");
+          $("res").innerHTML = '<div class="card" style="border-color:'+f.cx+';background:'+f.bg+'">'
+            + '<b class="'+f.cor+'" style="font-size:16px">'+esc(f.titulo)+'</b>'
+            + (f.texto ? '<div style="margin-top:6px">'+esc(f.texto)+'</div>' : '')
+            + '<div class="evid">end event alcancado: '+esc(alcancado)+'\nprocesso em '+esc(estado)+'</div></div>';
+          return null;
+        }
+        if (n > 30){ $("res").innerHTML = '<div class="evid warn">o motor ainda esta processando</div>'; return null; }
+        $("res").innerHTML = '<div class="evid"><span class="spin"></span> aguardando o motor... '+(n*2)+'s</div>';
+        setTimeout(function(){ verDesfecho(n+1); }, 2000);
+        return null;
+      });
     });
   })
   .catch(function(e){ $("res").innerHTML = '<div class="evid nao">'+esc(e.message)+'</div>'; });
