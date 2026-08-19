@@ -1,0 +1,438 @@
+<!-- Pagina servida pelo Canal de Teste em /p/autorizacao.html
+     Mesma origem do motor (/engine) e do agente (/agente) — sem credencial, sem CORS.
+     Os casos abaixo foram extraidos do lago de dados de producao (Athena) e estao embutidos
+     porque o Canal nao expoe rota para o lago. Sao reais; a extracao esta datada.
+
+     ================================================================================
+     TRES AJUSTES DO TIME, 19/08/2026 — para a pagina falar com o que existe na AWS
+     ================================================================================
+
+     1. FORMA DA RESPOSTA DO AGENTE. O ingresso devolve um envelope:
+            {agent_id, thread_id, duracao_ms, resultado: {route, business_key, dossier, ...}}
+        A pagina foi escrita esperando os campos no TOPO. Normalizamos num ponto (em
+        `enviar`) em vez de espalhar `resp.resultado.` por dez lugares. Sem isso, tudo
+        aparecia "-", `process_started` era falso e o motor nunca era lido.
+
+     2. COMO A TRAVA DA NEGATIVA E' DETECTADA — e este era o erro que mais custava.
+        A pagina procurava um INCIDENT. Nao ha incident: `ERR_AUTH_DENIAL_INCOMPLETE` esta
+        na `AUTH_BPMN_ERROR_ALLOWLIST`, entao o harness o despacha como `bpmnError` REAL,
+        capturado pelo boundary event `BE_NegativaIncompleta` em `ST_EnviarNegativaFormal`,
+        que desvia para o end event `End_FundamentacaoIncompletaBloqueada`.
+        Consequencia da versao anterior: o processo terminava (state COMPLETED), a busca por
+        incident vinha vazia, e a pagina cairia no ramo VERDE "Decisao registrada" —
+        exibindo sucesso exatamente quando a trava agiu. Agora lemos o END EVENT alcancado
+        (`/engine/history/activity-instance`), que distingue os oito desfechos do processo.
+
+     3. MOJIBAKE nos nomes de procedimento (`DiÃ¡ria`, `FacoemulsificaÃ§Ã£o`) — UTF-8 lido
+        como latin-1 na extracao. Corrigido no JSON embutido; nada mais foi tocado.
+
+     PENDENCIA QUE NAO E' TECNICA: os casos aqui sao dado REAL de beneficiario. Enquanto a
+     narrativa do dossie nao for ratificada (DPO + medico auditor, em
+     `spec/policies/phi/dossier-narrative-zone.yaml`), ela e' servida pela zona PHI — texto
+     sintetico, zero egresso. Esta pagina JA rotula isso sozinha, no painel "O que e real".
+     Com caso ficticio, o modelo real escreve: medido, `llm_token_usage` com
+     claude-opus-5 via Bedrock.
+-->
+<meta charset="utf-8">
+<title>Autorizacao Previa — SP-OP-AUTH-001</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#0d1117;color:#c9d1d9;font:14px/1.55 "Segoe UI",system-ui,sans-serif}
+header{padding:18px 26px;border-bottom:1px solid #21262d}
+h1{margin:0;font-size:19px;color:#e6edf3;font-weight:600}
+.sub{color:#7d8590;font-size:12.5px}
+.wrap{display:grid;grid-template-columns:1fr 340px;gap:20px;padding:20px 26px;max-width:1560px;margin:0 auto}
+@media(max-width:1050px){.wrap{grid-template-columns:1fr}}
+.card{background:#161b22;border:1px solid #21262d;border-radius:8px;padding:15px 17px;margin-bottom:14px}
+.card h2{margin:0 0 11px;font-size:12px;text-transform:uppercase;letter-spacing:.7px;color:#58a6ff}
+button{background:#238636;color:#fff;border:0;border-radius:6px;padding:10px 20px;font-size:14px;font-weight:600;cursor:pointer}
+button:hover{background:#2ea043}
+button:disabled{background:#30363d;color:#7d8590;cursor:not-allowed}
+button.alt{background:#1f6feb}button.alt:hover{background:#388bfd}
+button.perigo{background:#8b2c2c}button.perigo:hover{background:#a33}
+table{width:100%;border-collapse:collapse;font-size:13px}
+td,th{padding:6px 8px;border-bottom:1px solid #21262d;text-align:left;vertical-align:top}
+th{color:#7d8590;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.4px}
+.ok{color:#3fb950}.nao{color:#f85149}.warn{color:#d29922}.cinza{color:#7d8590}
+.evid{background:#0d1117;border:1px solid #21262d;border-radius:6px;padding:9px 11px;margin:6px 0;
+ font-family:Consolas,monospace;font-size:12px;color:#8b949e;white-space:pre-wrap;word-break:break-word}
+.caso{border:1px solid #21262d;border-radius:7px;padding:10px 12px;margin-bottom:9px;cursor:pointer}
+.caso:hover{border-color:#388bfd}
+.caso.sel{border-color:#1f6feb;background:#12203a}
+.caso .t{font-size:14px;color:#e6edf3;margin-bottom:3px}
+.pill{display:inline-block;padding:1px 8px;border-radius:20px;font-size:11px;background:#21262d;color:#8b949e;margin-right:4px}
+.pill.ok{background:#12261a;color:#3fb950}.pill.nao{background:#2b1416;color:#f85149}
+.pill.warn{background:#1c1a10;color:#d29922}
+.linha{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px solid #21262d;font-size:12.8px}
+.linha:last-child{border-bottom:0}
+.linha b{font-weight:600}
+.etapa{border-left:3px solid #1f6feb;padding:9px 0 9px 13px;margin-bottom:12px}
+.etapa .tt{font-size:11.5px;text-transform:uppercase;letter-spacing:.6px;color:#7d8590;margin-bottom:4px}
+.etapa .rr{font-size:15px;color:#e6edf3;margin-bottom:4px}
+.etapa .pp{font-size:12.5px;color:#8b949e}
+details summary{cursor:pointer;color:#58a6ff;font-size:12px;outline:none;margin-top:5px}
+.aviso{background:#1c1a10;border:1px solid #3d3413;color:#d29922;border-radius:6px;padding:10px 13px;font-size:12.5px;margin-bottom:12px}
+.spin{display:inline-block;width:12px;height:12px;border:2px solid #30363d;border-top-color:#58a6ff;border-radius:50%;animation:g .8s linear infinite;vertical-align:-2px}
+@keyframes g{to{transform:rotate(360deg)}}
+label{display:block;margin:8px 0 3px;font-size:12.5px;color:#8b949e}
+input{width:100%;background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:7px 9px;color:#c9d1d9;font-size:13px}
+</style>
+
+<header>
+  <h1>Autorizacao Previa &middot; SP-OP-AUTH-001</h1>
+  <div class="sub">Tudo executa na AWS: motor, agente Rafael e programas de apoio. Caso real do lago de dados.</div>
+</header>
+
+<div class="wrap">
+  <div>
+    <div class="card">
+      <h2>1 &middot; Escolha um caso real</h2>
+      <div class="sub" id="proc"></div>
+      <div id="casos" style="margin-top:10px"></div>
+      <button id="b1" onclick="enviar()" disabled>Enviar ao Rafael</button>
+      <div id="s1"></div>
+    </div>
+    <div id="area"></div>
+  </div>
+
+  <div>
+    <div class="card">
+      <h2>O que e real neste teste</h2>
+      <div id="honesto"></div>
+    </div>
+    <div class="card">
+      <h2>As etapas que a repo define</h2>
+      <div id="etapas"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+var CASOS = [{"guia": "172906", "procedimento": "10102019", "nome_proc": "Visita Hospitalar (Paciente Internado)", "valor": 0.0, "dt": "2022-07-03", "prestador": "1650", "pseudo": "bnf-0b639907183d", "beneficiario_ativo": false, "carencia_cumprida": true, "rede_credenciada": true, "no_rol": true, "exige_dut": false, "taxa_negativa": 10.428, "volume_historico": 33745, "gabarito": "APROVADO"}, {"guia": "172906", "procedimento": "60000694", "nome_proc": "Diária de Enfermaria de 3 Leitos com Banheiro Privativo", "valor": 0.0, "dt": "2022-07-03", "prestador": "1650", "pseudo": "bnf-0b639907183d", "beneficiario_ativo": false, "carencia_cumprida": true, "rede_credenciada": true, "no_rol": false, "exige_dut": false, "taxa_negativa": 5.743, "volume_historico": 41288, "gabarito": "APROVADO"}, {"guia": "173505", "procedimento": "30306027", "nome_proc": "Facectomia com Lente Intra-Ocular com Facoemulsificação", "valor": 0.0, "dt": "2022-07-15", "prestador": "1036", "pseudo": "bnf-a119fe5f30d6", "beneficiario_ativo": true, "carencia_cumprida": true, "rede_credenciada": true, "no_rol": true, "exige_dut": false, "taxa_negativa": 3.317, "volume_historico": 4281, "gabarito": "APROVADO"}, {"guia": "173598", "procedimento": "60001038", "nome_proc": "Diária de UTI Adulto Geral", "valor": 0.0, "dt": "2022-07-18", "prestador": "2027", "pseudo": "bnf-b53fe7645290", "beneficiario_ativo": false, "carencia_cumprida": true, "rede_credenciada": true, "no_rol": false, "exige_dut": false, "taxa_negativa": 6.235, "volume_historico": 4459, "gabarito": "APROVADO"}, {"guia": "173598", "procedimento": "30913012", "nome_proc": "Implante de Cateter Venoso Central por Punção, para NPP, QT, Hemodepuração ou Infusão de Soros/Drogas", "valor": 0.0, "dt": "2022-07-18", "prestador": "2027", "pseudo": "bnf-b53fe7645290", "beneficiario_ativo": false, "carencia_cumprida": true, "rede_credenciada": true, "no_rol": true, "exige_dut": false, "taxa_negativa": 46.881, "volume_historico": 2020, "gabarito": "APROVADO"}];
+var META = {"extraido_em": "2026-08-19T15:00:00", "fonte": "amh_omni_gold (guias_historico, guias_procedimento, rol_procedimento_historico, rede_credenciada, carencia_beneficiario) + amh_omni_fhir.fhir_coverage + amh_omni_mpi.patient_source"};
+var sel = null, ultimo = null;
+
+// AJUSTE 2: os oito desfechos que SP-OP-AUTH-001 declara. Ler o end event alcancado e' o
+// que distingue "negativa barrada" de "decisao registrada" — a versao anterior mostrava
+// verde nos dois casos, porque a trava nao produz incident nenhum.
+var FINAIS = {
+  "End_FundamentacaoIncompletaBloqueada": {cor:"nao", cx:"#6e2020", bg:"#2b1416", trava:true,
+    titulo:"Negativa barrada — nada foi transmitido",
+    texto:"O motor recusou emitir a negativa porque a fundamentacao exigida pela ANS (RN 395 art. 10) estava incompleta. O boundary event BE_NegativaIncompleta desviou o fluxo ANTES do envio."},
+  "End_NegadaAuditor": {cor:"warn", cx:"#3d3413", bg:"#1c1a10",
+    titulo:"Negativa transmitida",
+    texto:"A fundamentacao estava completa (justificativa clinica, CID e fundamentacao da DUT), entao a negativa foi emitida."},
+  "End_AprovadaAuditor": {cor:"ok", cx:"#1f6f3f", bg:"#12261a",
+    titulo:"Aprovada pelo medico auditor", texto:""},
+  "End_AprovadaAutomatica": {cor:"ok", cx:"#1f6f3f", bg:"#12261a",
+    titulo:"Aprovada automaticamente (L2)", texto:"Os quatro criterios foram atendidos e o motor aprovou sem passar pela mesa."},
+  "End_ErrDecisaoInvalida": {cor:"nao", cx:"#6e2020", bg:"#2b1416",
+    titulo:"Decisao do auditor ausente ou desconhecida", texto:"ERR_AUTH_DECISION_INVALID — o processo nao aceita decisao que nao venha de uma User Task humana."},
+  "End_CanceladaPendencia": {cor:"warn", cx:"#3d3413", bg:"#1c1a10",
+    titulo:"Cancelada por pendencia", texto:""},
+  "End_NaoRequerAutorizacao": {cor:"cinza", cx:"#21262d", bg:"#161b22",
+    titulo:"Nao requer autorizacao", texto:""},
+  "End_RiscoSlaNotificado": {cor:"warn", cx:"#3d3413", bg:"#1c1a10",
+    titulo:"Risco de SLA notificado (analise segue)", texto:""}
+};
+
+var ETAPAS = [
+  ["A solicitacao chega por um canal", "fora"],
+  ["O agente Rafael recebe e monta o dossie", "pend"],
+  ["O motor avalia as 3 tabelas de decisao", "pend"],
+  ["Um validador calcula os 4 criterios", "pend"],
+  ["Os prazos da RN 259 sao armados", "pend"],
+  ["O medico auditor decide", "pend"],
+  ["A negativa mal fundamentada e barrada", "pend"],
+  ["A negativa e comunicada ao beneficiario", "fora"]
+];
+
+function $(i){return document.getElementById(i)}
+function esc(s){return String(s==null?"":s).replace(/[&<>]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;"}[c]})}
+
+function pintaEtapas(){
+  var h = "";
+  for (var i=0;i<ETAPAS.length;i++){
+    var e = ETAPAS[i], cor = "cinza", txt = "aguardando";
+    if (e[1]==="fora"){ cor="cinza"; txt="fora do escopo"; }
+    else if (e[1]==="ok"){ cor="ok"; txt="rodou de verdade"; }
+    else if (e[1]==="meio"){ cor="warn"; txt="rodou em parte"; }
+    else if (e[1]==="nao"){ cor="nao"; txt="nao rodou"; }
+    h += '<div class="linha"><span>'+esc(e[0])+'</span><b class="'+cor+'">'+txt+'</b></div>';
+  }
+  $("etapas").innerHTML = h;
+}
+function marca(i, estado){ ETAPAS[i][1] = estado; pintaEtapas(); }
+
+function pintaCasos(){
+  $("proc").textContent = "Extraidos do lago em " + META.extraido_em + ". Identificador do beneficiario e pseudonimo.";
+  var h = "";
+  for (var i=0;i<CASOS.length;i++){
+    var c = CASOS[i];
+    h += '<div class="caso" id="c'+i+'" onclick="escolher('+i+')">'
+      +  '<div class="t">'+esc(c.nome_proc)+'</div>'
+      +  '<div class="sub">guia '+esc(c.guia)+' &middot; solicitada em '+esc(c.dt)+' &middot; TUSS '+esc(c.procedimento)+'</div>'
+      +  '<div style="margin-top:6px">'
+      +  '<span class="pill '+(c.beneficiario_ativo?"ok":"nao")+'">cobertura '+(c.beneficiario_ativo?"ativa":"inativa")+'</span>'
+      +  '<span class="pill '+(c.carencia_cumprida?"ok":"nao")+'">carencia '+(c.carencia_cumprida?"cumprida":"vigente")+'</span>'
+      +  '<span class="pill '+(c.rede_credenciada?"ok":"nao")+'">rede '+(c.rede_credenciada?"credenciada":"fora")+'</span>'
+      +  '<span class="pill '+(c.no_rol?"ok":"")+'">'+(c.no_rol?"no Rol":"fora do Rol")+'</span>'
+      +  (c.exige_dut?'<span class="pill warn">exige DUT</span>':'')
+      +  '</div>'
+      +  '<div class="sub" style="margin-top:6px">No historico este procedimento foi negado em '
+      +  esc(c.taxa_negativa)+'% de '+esc(c.volume_historico)+' decisoes. Esta guia: <b>'+esc(c.gabarito)+'</b>.</div>'
+      +  '</div>';
+  }
+  $("casos").innerHTML = h;
+}
+
+function escolher(i){
+  sel = i;
+  for (var k=0;k<CASOS.length;k++){ $("c"+k).className = "caso" + (k===i ? " sel" : ""); }
+  $("b1").disabled = false;
+  $("honesto").innerHTML =
+     '<div class="linha"><span>Ambiente</span><b class="ok">AWS</b></div>'
+   + '<div class="linha"><span>Caso e fatos</span><b class="ok">reais, do lago</b></div>'
+   + '<div class="linha"><span>Agente Rafael</span><b class="ok">executa de verdade</b></div>'
+   + '<div class="linha"><span>Motor de processos</span><b class="ok">real</b></div>'
+   + '<div class="linha"><span>Texto do dossie</span><b id="hnar" class="warn">a confirmar</b></div>'
+   + '<div class="sub" style="margin-top:9px">Fatos apurados de: '+esc(META.fonte)+'</div>';
+}
+
+function add(html){
+  var d = document.createElement("div");
+  d.className = "card";
+  d.innerHTML = html;
+  $("area").appendChild(d);
+  d.scrollIntoView({behavior:"smooth", block:"nearest"});
+  return d;
+}
+
+function api(url, body){
+  var opt = {method: body ? "POST" : "GET", headers:{"Content-Type":"application/json"}};
+  if (body) opt.body = JSON.stringify(body);
+  return fetch(url, opt).then(function(r){
+    if (!r.ok) return r.text().then(function(t){ throw new Error("HTTP "+r.status+" — "+t.slice(0,300)); });
+    return r.json();
+  });
+}
+
+function enviar(){
+  var c = CASOS[sel];
+  $("b1").disabled = true;
+  $("s1").innerHTML = '<div class="evid"><span class="spin"></span> o Rafael esta executando um turno...</div>';
+  var t0 = Date.now();
+  var pedido = {
+    tenant_id: "amh",
+    numero_guia_tiss: String(c.guia),
+    canal: "portal_tiss",
+    codigo_procedimento_tuss: String(c.procedimento),
+    beneficiario_pseudo_id: c.pseudo,
+    prestador_id: String(c.prestador),
+    carater_atendimento: "eletivo",
+    valor_estimado_brl: c.valor,
+    requer_autorizacao: true,
+    documentacao_completa: true,
+    beneficiario_ativo: !!c.beneficiario_ativo,
+    carencia_cumprida: !!c.carencia_cumprida,
+    rede_credenciada: !!c.rede_credenciada,
+    dut_atendida: !c.exige_dut
+  };
+  api("/agente/v1/autorizacoes", pedido).then(function(resp){
+    // AJUSTE 1: o ingresso devolve {agent_id, thread_id, duracao_ms, resultado:{...}}.
+    // Normalizado num ponto so'; o resto da pagina segue lendo os campos no topo.
+    var r = Object.assign({}, resp.resultado || {}, {
+      duracao_ms: resp.duracao_ms, thread_id: resp.thread_id, agent_id: resp.agent_id
+    });
+    var seg = ((Date.now()-t0)/1000).toFixed(1);
+    ultimo = r;
+    $("s1").innerHTML = '<div class="evid ok">turno concluido em '+seg+'s</div>';
+    mostrarAgente(r, seg, pedido);
+    marca(1, "ok");
+    if (r.process_started) { lerMotor(r); } else { marca(2,"nao"); marca(3,"nao"); marca(4,"nao"); }
+  }).catch(function(e){
+    $("s1").innerHTML = '<div class="evid nao">falhou: '+esc(e.message)+'</div>';
+    $("b1").disabled = false;
+    marca(1, "nao");
+  });
+}
+
+function mostrarAgente(r, seg, pedido){
+  var dossie = r.dossier || {};
+  var narrativa = dossie.narrativa || dossie.narrative || "";
+  var sintetico = /SYNTHETIC|sintetic/i.test(String(narrativa));
+  var el = $("hnar");
+  if (el){ el.className = sintetico ? "warn" : "ok"; el.textContent = sintetico ? "simulado" : "modelo real"; }
+
+  var h = '<h2>2 &middot; O que o Rafael fez</h2>'
+    + '<div class="linha"><span>Rota que ele apurou</span><b>'+esc(r.route||"-")+'</b></div>'
+    + '<div class="linha"><span>Admissibilidade</span><b>'+esc(r.admissibilidade||"-")+'</b></div>'
+    + '<div class="linha"><span>Recomendacao automatica</span><b>'+esc(r.recomendacao_auto||"-")+'</b></div>'
+    + '<div class="linha"><span>Prazo de analise</span><b>'+esc(r.sla_analise||"-")+'</b></div>'
+    + '<div class="linha"><span>Processo iniciado no motor</span><b class="'+(r.process_started?"ok":"nao")+'">'
+    + (r.process_started ? "sim" : "nao") + '</b></div>'
+    + '<div class="linha"><span>Tempo do turno</span><b>'+esc(seg)+'s</b></div>';
+
+  if (narrativa){
+    h += '<div style="margin-top:12px"><div class="etapa"><div class="tt">O dossie que ele escreveu</div>'
+       + '<div class="pp" style="font-size:13.5px;color:#c9d1d9">'+esc(narrativa)+'</div></div></div>';
+    if (sintetico){
+      h += '<div class="aviso">Este texto foi produzido por um substituto local, nao pelo modelo de linguagem. '
+         + 'Com CASO REAL de beneficiario a narrativa fica na zona PHI (zero egresso) enquanto '
+         + 'spec/policies/phi/dossier-narrative-zone.yaml nao for ratificado por DPO e medico auditor. '
+         + 'Com caso ficticio, o modelo real escreve — ja medido, claude-opus-5 via Bedrock.</div>';
+    }
+  }
+  var lac = dossie.lacunas_enriquecimento || dossie.lacunas || [];
+  if (lac && lac.length){
+    h += '<div class="aviso">Lacunas que o proprio Rafael registrou: '+esc(lac.join(" | "))+'</div>';
+  }
+  h += '<details><summary>ver a resposta crua do agente</summary><div class="evid">'
+     + esc(JSON.stringify(r, null, 1)) + '</div></details>';
+  add(h);
+}
+
+function humano(chave, ent, sai){
+  if (chave === "auth_admissibility")
+    return ["1. A solicitacao pode seguir para analise?",
+            sai.resultado === "SEGUE_ANALISE" ? '<b class="ok">Sim, segue analise</b>' : '<b class="warn">'+esc(sai.resultado)+'</b>',
+            sai.motivo || ""];
+  if (chave === "auth_sla")
+    return ["2. Qual o prazo legal para responder?",
+            '<b class="ok">'+dias(sai.sla_analise)+'</b> para decidir, alerta em <b>'+dias(sai.sla_alerta)+'</b>',
+            "Base: " + (sai.fonte_regulatoria || "-")];
+  if (chave === "auth_auto_approval"){
+    var falta = [];
+    if (ent.criterio_tecnico_ok === false) falta.push("tecnico (Rol/DUT nao ratificado)");
+    if (ent.criterio_regulatorio_ok === false) falta.push("regulatorio (carencia nao verificada)");
+    if (ent.criterio_financeiro_ok === false) falta.push("financeiro (teto em zero)");
+    if (ent.criterio_contratual_ok === false) falta.push("contratual (sem regra escrita)");
+    return ["3. O motor pode aprovar sozinho?",
+            sai.recomendacao === "AUTO_APROVAR" ? '<b class="ok">Sim</b>' : '<b class="warn">Nao. Vai para o medico auditor</b>',
+            falta.length ? "Criterios nao atendidos: " + falta.join(" | ") : (sai.motivo || "")];
+  }
+  return [chave, esc(JSON.stringify(sai)), ""];
+}
+function dias(iso){
+  if (!iso) return "-";
+  var m = String(iso).match(/P(\d+)D/);
+  return m ? (m[1] + " dias uteis") : String(iso);
+}
+
+function lerMotor(r){
+  var bk = r.business_key;
+  add('<h2>3 &middot; O que o motor decidiu</h2><div class="evid"><span class="spin"></span> lendo a instancia '+esc(bk)+'...</div>');
+  api("/engine/history/process-instance?processInstanceBusinessKey=" + encodeURIComponent(bk))
+  .then(function(inst){
+    if (!inst || !inst.length) throw new Error("instancia nao encontrada para " + bk);
+    var pid = inst[0].id;
+    return api("/engine/history/decision-instance?processInstanceId="+pid+"&includeInputs=true&includeOutputs=true")
+      .then(function(dec){ return {pid: pid, dec: dec}; });
+  })
+  .then(function(x){
+    var h = '<h2>3 &middot; O que o motor decidiu</h2><div class="sub" style="margin-bottom:10px">instancia '+esc(x.pid.slice(0,8))+'</div>';
+    var criterios = 0;
+    for (var i=0;i<x.dec.length;i++){
+      var d = x.dec[i], ent = {}, sai = {};
+      (d.inputs||[]).forEach(function(v){ var n=(v.clauseName||"").split("(").pop().replace(")",""); ent[n]=v.value; });
+      (d.outputs||[]).forEach(function(v){ sai[v.variableName]=v.value; });
+      if (d.decisionDefinitionKey === "auth_auto_approval") criterios = 1;
+      var t = humano(d.decisionDefinitionKey, ent, sai);
+      h += '<div class="etapa"><div class="tt">'+esc(t[0])+'</div><div class="rr">'+t[1]+'</div>'
+         + '<div class="pp">'+esc(t[2])+'</div>'
+         + '<details><summary>ver a evidencia crua</summary><div class="evid">'+esc(d.decisionDefinitionKey)
+         + "\nrecebeu:  " + esc(JSON.stringify(ent)) + "\ndevolveu: " + esc(JSON.stringify(sai))
+         + '</div></details></div>';
+    }
+    add(h);
+    marca(2, x.dec.length >= 3 ? "ok" : "meio");
+    marca(3, criterios ? "ok" : "nao");
+    return api("/engine/job?processInstanceId=" + x.pid).then(function(j){ return {pid: x.pid, jobs: j}; });
+  })
+  .then(function(y){
+    if (y.jobs && y.jobs.length){
+      var h = '<h2>4 &middot; Prazos regulatorios armados</h2><table><tr><th>Vence em</th><th>Job</th></tr>';
+      y.jobs.forEach(function(j){
+        h += '<tr><td>'+esc(String(j.dueDate||"").slice(0,16).replace("T"," "))+'</td><td class="sub">'+esc(j.id.slice(0,8))+'</td></tr>';
+      });
+      h += '</table><div class="sub" style="margin-top:7px">Prazo da RN 259. Estourando, o caso sobe para a coordenacao.</div>';
+      add(h);
+      marca(4, "ok");
+    } else { marca(4, "nao"); }
+    return api("/engine/task?processInstanceId=" + y.pid);
+  })
+  .then(function(tarefas){
+    if (!tarefas || !tarefas.length){ marca(5,"nao"); return; }
+    var t = tarefas[0];
+    window.__task = t.id;
+    add('<h2>5 &middot; Mesa do medico auditor</h2>'
+      + '<div class="sub">O motor fez o que sabe fazer e parou aqui. Quem decide e voce.</div>'
+      + '<div class="evid">tarefa: '+esc(t.name)+'</div>'
+      + '<div class="aviso">Negar exige justificativa clinica, CID e fundamentacao da DUT. '
+      + 'Deixe a fundamentacao vazia para ver a trava agir.</div>'
+      + '<label>Justificativa clinica</label><input id="j" value="Exame sem indicacao no momento">'
+      + '<label>CID de referencia</label><input id="cid" value="I10">'
+      + '<label>Fundamentacao da DUT</label><input id="dut" placeholder="(vazio para ver a trava)">'
+      + '<div style="margin-top:12px"><button class="perigo" onclick="decidir(false)">Negar a autorizacao</button>'
+      + '<button class="alt" style="margin-left:8px" onclick="decidir(true)">Aprovar</button></div>'
+      + '<div id="res"></div>');
+  })
+  .catch(function(e){ add('<div class="evid nao">falhou ao ler o motor: '+esc(e.message)+'</div>'); });
+}
+
+function decidir(aprovar){
+  var tid = window.__task;
+  if (!tid) return;
+  var v;
+  if (aprovar){
+    v = {decisao_auditor:{value:"APROVAR",type:"String"}, auditor_id:{value:"maezoadmin",type:"String"}};
+  } else {
+    var dut = $("dut").value.trim();
+    v = {decisao_auditor:{value:"NEGAR",type:"String"}, auditor_id:{value:"maezoadmin",type:"String"},
+         justificativa_clinica:{value:$("j").value,type:"String"},
+         cid10_referencia:{value:$("cid").value,type:"String"}};
+    if (dut) v.fundamentacao_dut = {value:dut, type:"String"};
+  }
+  $("res").innerHTML = '<div class="evid"><span class="spin"></span> registrando a decisao...</div>';
+  fetch("/engine/task/"+tid+"/complete", {method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({variables:v})})
+  .then(function(r){ if(!r.ok && r.status!==204) throw new Error("HTTP "+r.status); return null; })
+  .then(function(){ setTimeout(function(){ verDesfecho(0); }, 2000); })
+  .catch(function(e){ $("res").innerHTML = '<div class="evid nao">'+esc(e.message)+'</div>'; });
+}
+
+// AJUSTE 2: le o END EVENT alcancado em vez de procurar incident. A trava da negativa e' um
+// bpmnError capturado por boundary event — ela NAO gera incident, e o processo termina normal.
+// Sem esta mudanca, "negativa barrada" e "decisao registrada" ficavam indistinguiveis.
+function verDesfecho(n){
+  var bk = ultimo.business_key;
+  api("/engine/history/process-instance?processInstanceBusinessKey="+encodeURIComponent(bk))
+  .then(function(inst){
+    var pid = inst[0].id, estado = inst[0].state;
+    return api("/engine/history/activity-instance?processInstanceId="+pid+"&maxResults=200")
+    .then(function(ativ){
+      var alcancado = null;
+      (ativ||[]).forEach(function(a){ if (FINAIS[a.activityId]) alcancado = a.activityId; });
+
+      if (alcancado){
+        var f = FINAIS[alcancado];
+        marca(5, "ok");
+        marca(6, f.trava ? "ok" : "ok");
+        $("res").innerHTML = '<div class="card" style="border-color:'+f.cx+';background:'+f.bg+'">'
+          + '<b class="'+f.cor+'" style="font-size:16px">'+esc(f.titulo)+'</b>'
+          + (f.texto ? '<div style="margin-top:6px">'+esc(f.texto)+'</div>' : '')
+          + '<div class="evid">end event alcancado: '+esc(alcancado)+'\nprocesso em '+esc(estado)+'</div></div>';
+        return;
+      }
+
+      if (n > 20){ $("res").innerHTML = '<div class="evid warn">o motor ainda esta processando</div>'; return; }
+      $("res").innerHTML = '<div class="evid"><span class="spin"></span> aguardando o motor... '+(n*2)+'s</div>';
+      setTimeout(function(){ verDesfecho(n+1); }, 2000);
+    });
+  })
+  .catch(function(e){ $("res").innerHTML = '<div class="evid nao">'+esc(e.message)+'</div>'; });
+}
+
+pintaCasos();
+pintaEtapas();
+</script>
