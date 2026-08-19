@@ -184,6 +184,18 @@ resource "aws_ecs_task_definition" "agente" {
       # `agent_graph_execution_not_performed_here` e `llm_token_usage` era zero: o daemon
       # compilava o grafo e nao tinha por onde ser chamado.
       { name = "MAEZO_AGENT_INGRESS_ENABLED", value = each.key == "rafael" ? "1" : "0" },
+      # FHIR com particao e credencial — so' o rafael. Helena e marina nao tem client por
+      # empresa no Cognito (o `agent-marina` avulso continua fora do `client_tenant_map`, e
+      # mexer nele seria escopo que ninguem pediu).
+      #
+      # A PARTICAO NAO E' OPCIONAL: `/fhir/Patient` devolve 400 e `/fhir/omni/Patient`
+      # devolve 200. E o token e' preso a UMA empresa: token de `omni` recebe 403 em
+      # `austa_hospital`, com a mensagem "Token do tenant 'omni' nao pode acessar a
+      # particao 'austa_hospital'". Esse 403 e' o isolamento funcionando.
+      { name = "FHIR_BASE_URL", value = each.key == "rafael" ? "${local.fhir_base_url}/${var.fhir_partition}" : local.fhir_base_url },
+      { name = "FHIR_TOKEN_URL", value = each.key == "rafael" ? var.fhir_token_url : "" },
+      { name = "FHIR_CLIENT_ID", value = each.key == "rafael" ? var.fhir_cognito_client_id : "" },
+      { name = "FHIR_SCOPE", value = each.key == "rafael" ? var.fhir_scope : "" },
       # Liga a verificacao de contrato de zona NO BOOT: com phi_zone_required=true, o
       # `InferenceProvider` recusa CONSTRUIR se as capacidades declaradas do provedor
       # nao satisfizerem os cinco criterios de `phi_zone_denial_reasons` (phi_allowed,
@@ -206,7 +218,15 @@ resource "aws_ecs_task_definition" "agente" {
       # Sem esta, o registry A2A admitiria Card nao assinado — e o runtime recusa
       # compor o dispatcher (ADR-0039). Nome do env var carrega o tenant.
       { name = "MAEZO_A2A_CARD_SIGNING_KEY__${upper(var.tenant_id)}", valueFrom = "${aws_secretsmanager_secret.a2a_card_signing_key.arn}:key::" },
-    ])
+      ],
+      # Credencial FHIR — SO' o rafael. Sem ela `_Autenticador.configurado` e' false e o
+      # cliente FHIR chama ANONIMO: o servidor devolve 401 e o `gather`, sendo best-effort,
+      # registra "cobertura indisponivel". O sintoma seria um dossie pior, nao uma falha —
+      # o mesmo modo como o Security Group fechado passou meses sem ninguem notar.
+      each.key == "rafael" ? [
+        { name = "FHIR_CLIENT_SECRET", valueFrom = data.aws_secretsmanager_secret.fhir_cognito.arn },
+      ] : [],
+    )
 
     readonlyRootFilesystem = true
 

@@ -47,3 +47,10 @@ data "aws_secretsmanager_secret" "cibseven_app_db" {
 data "aws_lb" "hapi_internal" {
   name = var.hapi_internal_alb_name
 }
+
+# Credencial do app client `agent-rafael-<particao>` no Cognito. Criada e rotacionada pelo
+# amh-data-platform; aqui e' LIDA, nunca criada — o nome e' derivavel da particao, o que
+# mantem uma fonte de verdade so'.
+data "aws_secretsmanager_secret" "fhir_cognito" {
+  name = "amh/cognito/dev/agent-rafael-${var.fhir_partition}"
+}

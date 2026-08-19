@@ -9,6 +9,10 @@ locals {
   secret_kms_key_ids = compact(distinct([
     data.aws_secretsmanager_secret.maezo_app_db.kms_key_id,
     data.aws_secretsmanager_secret.cibseven_app_db.kms_key_id,
+    # O segredo do Cognito E' cifrado com a CMK compartilhada do env de dados (SEC-010),
+    # entao sem `kms:Decrypt` o GetSecretValue falha com AccessDenied — erro que parece de
+    # permissao no segredo e nao na chave.
+    data.aws_secretsmanager_secret.fhir_cognito.kms_key_id,
   ]))
 }
 
@@ -65,6 +69,10 @@ data "aws_iam_policy_document" "task_execution_secrets" {
     resources = [
       data.aws_secretsmanager_secret.maezo_app_db.arn,
       data.aws_secretsmanager_secret.cibseven_app_db.arn,
+      # Credencial FHIR do Rafael. Sem esta linha o container falha em
+      # CreateContainerConfigError e o motivo aparece so' em `describe-tasks` — nao no log
+      # da aplicacao, que e' onde se procura primeiro.
+      data.aws_secretsmanager_secret.fhir_cognito.arn,
     ]
   }
 

@@ -64,6 +64,64 @@ variable "cibseven_app_secret_name" {
   default     = "amh-aurora-hapi-dev/cibseven_app"
 }
 
+variable "fhir_partition" {
+  description = <<-EOT
+    Particao do HAPI que o Rafael le. O HAPI e' multitenant POR URL, e o caminho sem
+    particao nao serve busca — medido: `/fhir/Patient` devolve 400 "does not know how to
+    handle", `/fhir/omni/Patient` devolve 200.
+
+    `omni` e' a operadora, e e' a particao semanticamente correta para autorizacao previa.
+    ATENCAO ao que isso significa hoje: medido em 19/08/2026, a particao `omni` tem
+    Patient=0, Condition=0, Encounter=0. O dado clinico vive nas particoes dos HOSPITAIS
+    (austa_hospital=90.565 pacientes, imc=13.870, hmc=1.590), porque a operadora tem guia e
+    o hospital tem prontuario.
+
+    Ler o prontuario de um beneficiario da operadora e' portanto uma resolucao pelo MPI
+    (`mpi/patient.read`, que o client tem) seguida de leitura na particao do prestador — e
+    NAO uma troca desta variavel. Apontar isto para `austa_hospital` faria o Rafael ler
+    prontuario de hospital com caso de operadora, o que o isolamento por token impede de
+    propósito: token de `omni` recebe 403 na particao `austa_hospital`.
+  EOT
+  type        = string
+  default     = "omni"
+}
+
+variable "fhir_cognito_client_id" {
+  description = <<-EOT
+    App client do Cognito para a particao escolhida — `agent-rafael-<particao>`, criado no
+    amh-data-platform (PR #167). UM CLIENT POR AGENTE POR EMPRESA, e o motivo esta escrito
+    no cognito.tf de lá: o token M2M nao carrega claim de tenant de proposito, porque "um
+    agente que escolhe o proprio tenant nao tem fronteira". O SEGREDO E' A FRONTEIRA, e o
+    raio de um vazamento e' uma empresa.
+
+    O id e' gerado pela AWS: se o client for recriado, este valor muda. Fica como variavel
+    (e nao derivado) porque nao existe data source de client por NOME — e um valor errado
+    aqui falha alto, no boot, em vez de silenciosamente.
+  EOT
+  type        = string
+  default     = "3kr6l4lq5mgq84rta88a2ugpd" # agent-rafael-omni
+}
+
+variable "fhir_token_url" {
+  description = "Endpoint de token do pool amh-maezo-bpm-dev (client_credentials)."
+  type        = string
+  default     = "https://amh-maezo-bpm-dev.auth.sa-east-1.amazoncognito.com/oauth2/token"
+}
+
+variable "fhir_scope" {
+  description = <<-EOT
+    Escopos pedidos ao Cognito. PEDIR UM ESCOPO QUE O CLIENT NAO TEM faz o Cognito recusar
+    o TOKEN INTEIRO com 400, antes de chegar ao servidor clinico — o agente perde o turno
+    descobrindo isso. Mantenha alinhado com `agent-rafael` no cognito.tf.
+
+    `Coverage.read` foi CRIADO em 19/08/2026: o resource server tinha 17 escopos e nenhum de
+    Coverage, e `search_coverage` e' uma das duas unicas chamadas FHIR do grafo do Rafael.
+    O interceptor exige escopo por tipo de recurso — sem ele, 403 "Escopo insuficiente".
+  EOT
+  type        = string
+  default     = "fhir/Patient.read fhir/Coverage.read fhir/Encounter.read fhir/Condition.read"
+}
+
 variable "hapi_internal_alb_name" {
   description = "ALB interno do HAPI FHIR — por onde o maezo consome FHIR sem sair para a internet."
   type        = string
