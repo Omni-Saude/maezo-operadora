@@ -308,9 +308,54 @@ def test_capability_table_covers_every_provider_in_the_module() -> None:
     assert _concrete_providers_defined_in_module() == set(_EXPECTED)
 
 
+#: Nomes selecionaveis que constroem o MESMO provedor de outro nome, e por que.
+#:
+#: `bedrock_br` e' `BrResidentInferenceProvider` com `BedrockBrRegionalTransport` injetado —
+#: deliberadamente O MESMO provedor, porque e' dele que vem o allowlist de endpoint por chamada,
+#: as tres atestacoes exigidas na resposta e o orcamento de retry ciente de idempotencia. Um
+#: provedor irmao herdaria nada disso; um alias herda tudo.
+#:
+#: Esta tabela existe para que a guarda de populacao abaixo continue provando o que importa (nada
+#: definido fica de fora do registro, nada de fora do modulo entra) sem exigir que a relacao
+#: nome->classe seja injetiva, que era uma suposicao incidental e nao o objetivo dela.
+_ALIASES_DE_PROVEDOR: dict[str, str] = {"bedrock_br": "br_resident"}
+
+
 def test_provider_factory_registry_matches_hardcoded_names() -> None:
     """The selectable ``MAEZO_INFERENCE_PROVIDER`` values are pinned to a hardcoded set."""
-    assert set(_PROVIDER_FACTORIES) == {"noop", "anthropic", "bedrock", "phi_zone_mock", "br_resident"}
+    assert set(_PROVIDER_FACTORIES) == {
+        "noop",
+        "anthropic",
+        "bedrock",
+        "phi_zone_mock",
+        "br_resident",
+        # ALIAS, nao provedor novo: mesma classe, transporte diferente. Ver
+        # `_ALIASES_DE_PROVEDOR` e o docstring de `BedrockBrRegionalTransport`.
+        "bedrock_br",
+    }
+
+
+def test_o_alias_constroi_o_mesmo_provedor_com_transporte_diferente(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """O que faz `bedrock_br` valer a pena: ele NAO e' um provedor de zona geral disfarcado.
+
+    Um provedor novo ao lado do `bedrock` declararia `max_data_classification=INTERNAL` e
+    `deployment_region=GLOBAL_MULTI_REGION`, e a narrativa do dossie seguiria bloqueada — modelo
+    regional e o mesmo impedimento. Este teste trava que o alias herda o contrato da zona PHI.
+    """
+    monkeypatch.setenv("MAEZO_PHI_ENDPOINT_URL", "https://bedrock-runtime.sa-east-1.amazonaws.com")
+    monkeypatch.setenv("MAEZO_PHI_VENDOR_DPA_REF", "DPA-TEST-NOT-A-REAL-CONTRACT")
+    monkeypatch.setenv("MAEZO_INFERENCE_MODEL", "mistral.mistral-large-3-675b-instruct")
+
+    alias = _PROVIDER_FACTORIES["bedrock_br"](InferenceSettings(provider="bedrock_br"))
+
+    assert type(alias) is BrResidentInferenceProvider
+    assert alias.phi_capable is True
+    assert alias.is_mock is False
+    assert alias.capabilities.max_data_classification is DataClassification.PHI
+    assert alias.capabilities.deployment_region is DeploymentRegion.BR_SAO_PAULO
+    assert alias.capabilities.retention_policy is RetentionPolicy.ZERO_RETENTION
 
 
 def test_registry_and_class_hierarchy_agree_on_the_provider_population(
@@ -342,11 +387,28 @@ def test_registry_and_class_hierarchy_agree_on_the_provider_population(
     monkeypatch.setenv("MAEZO_PHI_VENDOR_DPA_REF", "DPA-TEST-NOT-A-REAL-CONTRACT")
     monkeypatch.setenv("MAEZO_INFERENCE_MODEL", "br-model-test")
 
+    monkeypatch.setenv("MAEZO_PHI_ENDPOINT_URL_BEDROCK_BR", "")  # nada: documenta que o alias
+    # usa a MESMA `MAEZO_PHI_ENDPOINT_URL` acima. O host do Bedrock nao passa no allowlist do
+    # endpoint fake usado neste teste, e nao precisa: o que se prova aqui e' a POPULACAO, e o
+    # allowlist tem teste proprio (`test_inference_bedrock_br.py`).
+
     built_by_the_registry = {
         name: type(factory(InferenceSettings(provider=name))) for name, factory in _PROVIDER_FACTORIES.items()
     }
 
-    assert built_by_the_registry == {name: cls for cls, (name, _, _) in _EXPECTED.items()}
+    # ALIAS resolvido antes da comparacao: um segundo nome para o mesmo provedor nao e' drift, e
+    # a guarda nao deve exigir injetividade — ela existe para pegar provedor definido e nao
+    # registrado (infla A) e provedor registrado de fora do modulo (infla B).
+    canonico = {
+        _ALIASES_DE_PROVEDOR.get(nome, nome): cls for nome, cls in built_by_the_registry.items()
+    }
+    for alias, alvo in _ALIASES_DE_PROVEDOR.items():
+        assert built_by_the_registry[alias] is built_by_the_registry[alvo], (
+            f"{alias!r} deixou de construir a mesma classe que {alvo!r} — se isso foi deliberado, "
+            "ele nao e' mais um alias e precisa da sua propria entrada em `_EXPECTED`"
+        )
+
+    assert canonico == {name: cls for cls, (name, _, _) in _EXPECTED.items()}
     assert set(built_by_the_registry.values()) == _concrete_providers_defined_in_module()
 
 
